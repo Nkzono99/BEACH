@@ -1,35 +1,36 @@
-# bemtracer
+# bemtracer（ベムトレーサ）
 
-BEM（Boundary Element Method）ベースの表面帯電＋テスト粒子シミュレータです。**メイン実装は Fortran（fpm）**、Python は可視化・後処理・補助スクリプトに利用する構成へ整理しています。
+本リポジトリは、BEM（境界要素法）ベースの表面帯電＋テスト粒子シミュレータです。  
+**メイン計算系は Fortran（fpm）** とし、**Python は可視化・後処理・補助解析**に使う構成です。
 
-## 方針（v0.x）
+## 開発・運用方針（v0.x）
 
-- コアシミュレーション（電場計算・粒子前進・衝突・電荷蓄積）は Fortran。
-- Python 実装は互換リファレンスおよび解析ユーティリティとして維持。
-- 出力は Fortran 側で `summary.txt` / `charges.csv` / `mesh_triangles.csv` を生成し、Python で読み込み・可視化。
+- 電場計算・粒子前進・衝突判定・電荷蓄積などのコア処理は Fortran 側で実行
+- Python 側は結果読込、可視化、検証用ユーティリティを担当
+- Fortran 実行結果は `summary.txt` / `charges.csv` / `mesh_triangles.csv` として出力
 
-## リポジトリ構成
+## ディレクトリ構成
 
-- `src/`, `app/`: Fortran 本体（fpm）
-- `examples/`: Fortran 設定例と Python 後処理例
-- `bemtracer/`: Python ライブラリ（後処理 + 既存プロトタイプ）
-- `docs/`: 設計・運用ドキュメント
+- `src/`, `app/`：Fortran 本体（fpm プロジェクト）
+- `examples/`：Fortran 設定例、Python 後処理例
+- `bemtracer/`：Python ライブラリ（後処理 + 既存プロトタイプ資産）
+- `docs/`：運用・仕様ドキュメント
 
 ## セットアップ
 
-### Fortran 実行環境（メイン）
+### 1) Fortran 実行（メイン）
 
 ```bash
 fpm run --profile release --flag "-fopenmp"
 ```
 
-設定ファイルを渡す場合:
+設定ファイルを指定して実行する場合：
 
 ```bash
 fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
 ```
 
-### Python 環境（後処理・補助）
+### 2) Python 環境（後処理・可視化）
 
 ```bash
 python -m pip install -U pip setuptools wheel
@@ -38,13 +39,13 @@ python -m pip install -e . --no-build-isolation
 
 ## ドキュメント
 
-- Fortran ワークフロー: `docs/fortran_workflow.md`
-- パラメータファイル仕様: `docs/fortran_parameter_file.md`
+- Fortran 中心ワークフロー: `docs/fortran_workflow.md`
+- Fortran パラメータファイル仕様: `docs/fortran_parameter_file.md`
 - シミュレータ仕様（v0.1）: `SPEC.md`
 
-## Python 後処理の例
+## Python 後処理の利用例
 
-Fortran 出力の読み込み:
+Fortran 出力を Python で読み込む例：
 
 ```python
 from bemtracer import load_fortran_result, plot_charges, plot_charge_mesh
@@ -56,7 +57,7 @@ fig_bar, ax_bar = plot_charges(result)
 fig_mesh, ax_mesh = plot_charge_mesh(result)
 ```
 
-CLI 例:
+CLI での確認例：
 
 ```bash
 python examples/inspect_fortran_output.py outputs/latest \
@@ -64,7 +65,7 @@ python examples/inspect_fortran_output.py outputs/latest \
   --save-mesh outputs/latest/charges_mesh.png
 ```
 
-## 参考
+## 参考ファイル
 
-- `examples/fortran_config.toml`: 複数テンプレート合成を含む設定例
-- `examples/visualize_bem_list_3d.py`: CSV ベースの 3D 可視化例
+- `examples/fortran_config.toml`：複数テンプレート合成を含む設定サンプル
+- `examples/visualize_bem_list_3d.py`：CSV からの 3D 可視化サンプル
