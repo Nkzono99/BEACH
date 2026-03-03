@@ -17,6 +17,8 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 python examples/minimal_run.py
+# charge 分布を 3D 可視化する例（matplotlib が必要）
+python examples/visualize_bem_list_3d.py
 ```
 
 ## Files
