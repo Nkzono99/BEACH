@@ -6,11 +6,14 @@ contains
 
   subroutine init_particles(pcls, x, v, q, m, w)
     type(particles_soa), intent(out) :: pcls
-    real(dp), intent(in) :: x(3, :), v(3, :), q(:), m(:)
-    real(dp), intent(in), optional :: w(:)
+    real(dp), allocatable, intent(in) :: x(:, :), v(:, :), q(:), m(:)
+    real(dp), allocatable, intent(in), optional :: w(:)
     integer(i32) :: n
 
     n = size(q)
+    if (size(x, 1) /= 3 .or. size(v, 1) /= 3) then
+      error stop "particle input first dimension must be 3"
+    end if
     if (size(x, 2) /= n .or. size(v, 2) /= n .or. size(m) /= n) then
       error stop "particle input size mismatch"
     end if

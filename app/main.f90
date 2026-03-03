@@ -11,8 +11,11 @@ program main
   type(sim_config) :: cfg
   type(sim_stats) :: stats
 
-  real(dp) :: v0(3,2), v1(3,2), v2(3,2)
-  real(dp) :: x(3,4), v(3,4), q(4), m(4)
+  real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
+  real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:)
+
+  allocate(v0(3,2), v1(3,2), v2(3,2))
+  allocate(x(3,4), v(3,4), q(4), m(4))
 
   ! z=0 plane (2 triangles)
   v0(:,1) = [-0.5d0, -0.5d0, 0.0d0]
@@ -40,6 +43,7 @@ program main
   cfg%max_step = 400
   cfg%tol_rel = 1.0d-8
   cfg%softening = 1.0d-6
+  cfg%b0 = [0.0d0, 0.0d0, 0.0d0]
 
   call run_absorption_insulator(mesh, cfg, pcls, stats)
 
