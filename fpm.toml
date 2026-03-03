@@ -1,8 +1,8 @@
-name = "bemtracer_fortran"
+name = "beach_fortran"
 version = "0.1.0"
 license = "MIT"
-author = "bemtracer contributors"
-maintainer = "bemtracer contributors"
+author = "beach contributors"
+maintainer = "beach contributors"
 copyright = "2026"
 
 [build]
@@ -16,6 +16,6 @@ implicit-external = false
 source-form = "free"
 
 [[executable]]
-name = "bemtracer_demo"
+name = "beach_demo"
 source-dir = "app"
 main = "main.f90"

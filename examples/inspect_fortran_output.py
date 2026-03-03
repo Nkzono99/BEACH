@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from bemtracer import list_fortran_runs, load_fortran_result, plot_charge_mesh, plot_charges
+from beach import list_fortran_runs, load_fortran_result, plot_charge_mesh, plot_charges
 
 
 def main() -> None:

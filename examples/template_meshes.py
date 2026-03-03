@@ -1,4 +1,4 @@
-from bemtracer import make_box, make_cylinder, make_plane, make_sphere
+from beach import make_box, make_cylinder, make_plane, make_sphere
 
 
 def main() -> None:

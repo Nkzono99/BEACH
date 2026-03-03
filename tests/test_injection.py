@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from bemtracer import (
+from beach import (
     FixedBeamInjector,
     RandomBeamInjector,
     ShiftedMaxwellVelocitySampler,

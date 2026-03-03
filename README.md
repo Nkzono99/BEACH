@@ -1,6 +1,6 @@
-# bemtracer（ベムトレーサ）
+# BEACH（BEM + Accumulated CHarge）
 
-本リポジトリは、BEM（境界要素法）ベースの表面帯電＋テスト粒子シミュレータです。  
+本リポジトリは、**BEACH（BEM + Accumulated CHarge）** として開発している、BEM（境界要素法）ベースの表面帯電＋テスト粒子シミュレータです。  
 **メイン計算系は Fortran（fpm）** とし、**Python は可視化・後処理・補助解析**に使う構成です。
 
 ## 開発・運用方針（v0.x）
@@ -13,7 +13,7 @@
 
 - `src/`, `app/`：Fortran 本体（fpm プロジェクト）
 - `examples/`：Fortran 設定例、Python 後処理例
-- `bemtracer/`：Python ライブラリ（後処理 + 既存プロトタイプ資産）
+- `beach/`：Python ライブラリ（後処理 + 既存プロトタイプ資産）
 - `docs/`：運用・仕様ドキュメント
 
 ## セットアップ
@@ -48,7 +48,7 @@ python -m pip install -e . --no-build-isolation
 Fortran 出力を Python で読み込む例：
 
 ```python
-from bemtracer import load_fortran_result, plot_charges, plot_charge_mesh
+from beach import load_fortran_result, plot_charges, plot_charge_mesh
 
 result = load_fortran_result("outputs/latest")
 print(result.absorbed, result.escaped, result.charges.sum())

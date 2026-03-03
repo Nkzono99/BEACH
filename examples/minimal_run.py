@@ -1,5 +1,5 @@
 import numpy as np
-from bemtracer import (
+from beach import (
     BEMElement,
     BEMMesh,
     SimConfig,

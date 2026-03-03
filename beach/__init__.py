@@ -1,4 +1,4 @@
-"""bem_charge_tracer package."""
+"""BEACH (BEM + Accumulated CHarge) Python package."""
 
 from .sim import (
     BEMElement,
