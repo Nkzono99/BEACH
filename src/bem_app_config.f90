@@ -70,11 +70,10 @@ contains
   subroutine load_app_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
-    if (ends_with(lower(trim(path)), '.toml')) then
-      call load_toml_config(path, cfg)
-    else
-      call load_namelist_config(path, cfg)
+    if (.not. ends_with(lower(trim(path)), '.toml')) then
+      error stop 'Only TOML config is supported. Please pass a .toml file.'
     end if
+    call load_toml_config(path, cfg)
   end subroutine load_app_config
 
   subroutine build_mesh_from_config(cfg, mesh)
@@ -175,109 +174,6 @@ contains
     call move_alloc(t2, v2)
   end subroutine append_triangles
 
-  subroutine load_namelist_config(path, cfg)
-    character(len=*), intent(in) :: path
-    type(app_config), intent(inout) :: cfg
-    integer :: u, ios, i
-
-    ! sim namelist
-    real(dp) :: dt, tol_rel, q_floor, softening, r_switch_factor, softening_factor, b0(3)
-    integer(i32) :: npcls_per_step, max_step, n_sub
-    logical :: use_hybrid
-    namelist /sim/ dt, npcls_per_step, max_step, tol_rel, q_floor, softening, use_hybrid, r_switch_factor, n_sub, softening_factor, b0
-
-    ! particles namelist
-    integer(i32) :: rng_seed, n_particles
-    real(dp) :: q_particle, m_particle, w_particle, pos_low(3), pos_high(3), drift_velocity(3), temperature_k
-    namelist /particles/ rng_seed, n_particles, q_particle, m_particle, w_particle, pos_low, pos_high, drift_velocity, temperature_k
-
-    ! mesh namelist
-    character(len=16) :: mesh_mode
-    character(len=256) :: obj_path
-    integer(i32) :: n_templates
-    namelist /mesh/ mesh_mode, obj_path, n_templates
-
-    ! templates as arrays
-    logical :: enabled(max_templates), cap(max_templates)
-    character(len=16) :: kind(max_templates)
-    real(dp) :: center(3, max_templates), size_x(max_templates), size_y(max_templates), size(3, max_templates)
-    integer(i32) :: nx(max_templates), ny(max_templates), nz(max_templates)
-    real(dp) :: radius(max_templates), height(max_templates)
-    integer(i32) :: n_theta(max_templates), n_z(max_templates), n_lon(max_templates), n_lat(max_templates)
-    namelist /templates/ enabled, kind, center, size_x, size_y, size, nx, ny, nz, radius, height, n_theta, n_z, cap, n_lon, n_lat
-
-    dt = cfg%sim%dt; npcls_per_step = cfg%sim%npcls_per_step; max_step = cfg%sim%max_step
-    tol_rel = cfg%sim%tol_rel; q_floor = cfg%sim%q_floor; softening = cfg%sim%softening
-    use_hybrid = cfg%sim%use_hybrid; r_switch_factor = cfg%sim%r_switch_factor; n_sub = cfg%sim%n_sub
-    softening_factor = cfg%sim%softening_factor; b0 = cfg%sim%b0
-
-    rng_seed = cfg%rng_seed; n_particles = cfg%n_particles; q_particle = cfg%q_particle
-    m_particle = cfg%m_particle; w_particle = cfg%w_particle; pos_low = cfg%pos_low
-    pos_high = cfg%pos_high; drift_velocity = cfg%drift_velocity; temperature_k = cfg%temperature_k
-
-    mesh_mode = cfg%mesh_mode; obj_path = cfg%obj_path; n_templates = cfg%n_templates
-    do i = 1, max_templates
-      enabled(i) = cfg%templates(i)%enabled
-      kind(i) = cfg%templates(i)%kind
-      center(:, i) = cfg%templates(i)%center
-      size_x(i) = cfg%templates(i)%size_x
-      size_y(i) = cfg%templates(i)%size_y
-      size(:, i) = cfg%templates(i)%size
-      nx(i) = cfg%templates(i)%nx
-      ny(i) = cfg%templates(i)%ny
-      nz(i) = cfg%templates(i)%nz
-      radius(i) = cfg%templates(i)%radius
-      height(i) = cfg%templates(i)%height
-      n_theta(i) = cfg%templates(i)%n_theta
-      n_z(i) = cfg%templates(i)%n_z
-      cap(i) = cfg%templates(i)%cap
-      n_lon(i) = cfg%templates(i)%n_lon
-      n_lat(i) = cfg%templates(i)%n_lat
-    end do
-
-    open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'Could not open namelist file.'
-    read(u, nml=sim, iostat=ios)
-    if (ios /= 0) error stop 'Failed to parse namelist group /sim/.'
-    read(u, nml=particles, iostat=ios)
-    if (ios /= 0) error stop 'Failed to parse namelist group /particles/.'
-    read(u, nml=mesh, iostat=ios)
-    if (ios /= 0) error stop 'Failed to parse namelist group /mesh/.'
-    read(u, nml=templates, iostat=ios)
-    if (ios /= 0) error stop 'Failed to parse namelist group /templates/.'
-    close(u)
-
-    cfg%sim%dt = dt; cfg%sim%npcls_per_step = npcls_per_step; cfg%sim%max_step = max_step
-    cfg%sim%tol_rel = tol_rel; cfg%sim%q_floor = q_floor; cfg%sim%softening = softening
-    cfg%sim%use_hybrid = use_hybrid; cfg%sim%r_switch_factor = r_switch_factor; cfg%sim%n_sub = n_sub
-    cfg%sim%softening_factor = softening_factor; cfg%sim%b0 = b0
-
-    cfg%rng_seed = rng_seed; cfg%n_particles = n_particles; cfg%q_particle = q_particle
-    cfg%m_particle = m_particle; cfg%w_particle = w_particle; cfg%pos_low = pos_low
-    cfg%pos_high = pos_high; cfg%drift_velocity = drift_velocity; cfg%temperature_k = temperature_k
-
-    cfg%mesh_mode = trim(mesh_mode)
-    cfg%obj_path = trim(obj_path)
-    cfg%n_templates = min(n_templates, int(max_templates, i32))
-    do i = 1, max_templates
-      cfg%templates(i)%enabled = enabled(i)
-      cfg%templates(i)%kind = trim(kind(i))
-      cfg%templates(i)%center = center(:, i)
-      cfg%templates(i)%size_x = size_x(i)
-      cfg%templates(i)%size_y = size_y(i)
-      cfg%templates(i)%size = size(:, i)
-      cfg%templates(i)%nx = nx(i)
-      cfg%templates(i)%ny = ny(i)
-      cfg%templates(i)%nz = nz(i)
-      cfg%templates(i)%radius = radius(i)
-      cfg%templates(i)%height = height(i)
-      cfg%templates(i)%n_theta = n_theta(i)
-      cfg%templates(i)%n_z = n_z(i)
-      cfg%templates(i)%cap = cap(i)
-      cfg%templates(i)%n_lon = n_lon(i)
-      cfg%templates(i)%n_lat = n_lat(i)
-    end do
-  end subroutine load_namelist_config
 
   subroutine load_toml_config(path, cfg)
     character(len=*), intent(in) :: path

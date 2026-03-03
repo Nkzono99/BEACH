@@ -19,7 +19,7 @@ temperature_k = 2.0e4
 
 [mesh]
 mode = "template"
-n_templates = 2
+n_templates = 3
 
 [[mesh.templates]]
 kind = "plane"
@@ -31,10 +31,20 @@ ny = 2
 center = [0.0, 0.0, 0.0]
 
 [[mesh.templates]]
+# 同じkindを複数指定可能（2枚目のplane）
+kind = "plane"
+enabled = true
+size_x = 0.6
+size_y = 0.6
+nx = 1
+ny = 1
+center = [0.0, 0.0, 0.2]
+
+[[mesh.templates]]
 kind = "box"
 enabled = true
 size = [0.2, 0.2, 0.2]
-center = [0.0, 0.0, 0.2]
+center = [0.0, 0.0, 0.4]
 nx = 1
 ny = 1
 nz = 1
