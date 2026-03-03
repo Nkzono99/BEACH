@@ -102,7 +102,8 @@ def plot_bem_charges_3d(
     cbar.set_label("element charge q [C]")
 
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+    plt.gcf().savefig("a.png")
 
 
 def main() -> None:
@@ -112,9 +113,9 @@ def main() -> None:
     particles = build_beam(n=2500)
 
     cfg = SimConfig(
-        dt=1e-9,
+        dt=1e-7,
         npcls_per_step=100,
-        max_step=5000,
+        max_step=100,
         tol_rel=1e-6,
         use_hybrid=True,
         r_switch_factor=3.0,
