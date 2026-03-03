@@ -90,7 +90,7 @@ For now, export from FreeCAD to OBJ and load via `OBJImporter`.
 
 ## Files
 - `SPEC.md` : specification (v0.1)
-- `bemtracer/core.py` : simulator core
+- `bemtracer/sim/` : simulator core (責務別に分割した実装)
 - `bemtracer/geometry.py` : reusable template geometry builders
 - `bemtracer/importers.py` : file import interface and OBJ importer
 - `examples/minimal_run.py` : minimal runnable example

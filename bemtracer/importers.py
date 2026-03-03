@@ -5,7 +5,7 @@ from typing import Protocol
 
 import numpy as np
 
-from .core import BEMMesh
+from .sim import BEMMesh
 from .geometry import mesh_from_vertices_faces
 
 

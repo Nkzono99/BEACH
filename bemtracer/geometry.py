@@ -4,7 +4,7 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
-from .core import BEMElement, BEMMesh
+from .sim import BEMElement, BEMMesh
 
 
 ArrayLike3 = Sequence[float] | np.ndarray
