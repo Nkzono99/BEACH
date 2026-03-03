@@ -112,6 +112,13 @@ dir = "outputs/latest"
 
 ---
 
+出力ディレクトリには以下のファイルが生成されます。
+
+- `summary.txt`: 集計統計
+- `charges.csv`: 最終要素電荷
+- `mesh_triangles.csv`: 要素三角形頂点と最終電荷
+- `charge_history.csv`: バッチごとの要素電荷履歴（時間発展）
+
 ## 4. 注意点
 
 - `[[mesh.templates]]` は同じ `kind` を複数回指定可能です。

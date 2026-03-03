@@ -31,13 +31,29 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
+    (out / "charge_history.csv").write_text(
+        "batch,processed_particles,rel_change,elem_idx,charge_C\n"
+        "1,5,3.0e-1,1,2.0e-11\n"
+        "1,5,3.0e-1,2,-1.0e-11\n"
+        "2,10,1.0e-8,1,1.0e-10\n"
+        "2,10,1.0e-8,2,-2.0e-10\n",
+        encoding="utf-8",
+    )
+
     result = load_fortran_result(out)
 
     assert result.mesh_nelem == 2
     assert result.absorbed == 7
     assert result.triangles is not None
     assert result.triangles.shape == (2, 3, 3)
+    assert result.charge_history is not None
     np.testing.assert_allclose(result.charges, np.array([1.0e-10, -2.0e-10]))
+    np.testing.assert_allclose(
+        result.charge_history,
+        np.array([[2.0e-11, 1.0e-10], [-1.0e-11, -2.0e-10]]),
+    )
+    np.testing.assert_array_equal(result.processed_particles_by_batch, np.array([5, 10]))
+    np.testing.assert_allclose(result.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
 
 
 def test_list_fortran_runs(tmp_path: Path) -> None:

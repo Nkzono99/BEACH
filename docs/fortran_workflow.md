@@ -5,7 +5,7 @@
 ## 1. 実行フロー
 
 1. Fortran 実行ファイル（`app/main.f90`）を `fpm` で実行
-2. 計算結果を `outputs/...` に保存（`summary.txt`, `charges.csv`, `mesh_triangles.csv`）
+2. 計算結果を `outputs/...` に保存（`summary.txt`, `charges.csv`, `mesh_triangles.csv`, `charge_history.csv`）
 3. Python スクリプトで結果を読み込み、統計確認や可視化を実施
 
 ## 2. Fortran 実行

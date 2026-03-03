@@ -20,7 +20,7 @@ contains
     type(particles_soa), intent(inout) :: pcls
     type(sim_stats), intent(out) :: stats
 
-    integer(i32) :: batch_start, batch_end, i, step, tid, nth, b
+    integer(i32) :: batch_start, batch_end, i, step, tid, nth, b, max_batches
     real(dp), allocatable :: dq_thread(:, :), dq(:)
     real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), bfield(3), rel, norm_dq, norm_q, qdep
     type(hit_info) :: hit
@@ -28,6 +28,12 @@ contains
     stats = sim_stats()
     nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
+    max_batches = (pcls%n + cfg%npcls_per_step - 1) / cfg%npcls_per_step
+    allocate(stats%processed_particles_by_batch(max_batches), stats%rel_change_by_batch(max_batches))
+    allocate(stats%charge_history(mesh%nelem, max_batches))
+    stats%processed_particles_by_batch = 0
+    stats%rel_change_by_batch = 0.0d0
+    stats%charge_history = 0.0d0
     bfield = cfg%b0
 
     batch_start = 1
@@ -71,6 +77,9 @@ contains
       stats%batches = stats%batches + 1
       stats%last_rel_change = rel
       stats%processed_particles = stats%processed_particles + (batch_end - batch_start + 1)
+      stats%processed_particles_by_batch(stats%batches) = stats%processed_particles
+      stats%rel_change_by_batch(stats%batches) = rel
+      stats%charge_history(:, stats%batches) = mesh%q_elem
 
       do b = batch_start, batch_end
         if (pcls%alive(b)) then
@@ -83,6 +92,12 @@ contains
       if (rel < cfg%tol_rel) exit
       batch_start = batch_end + 1
     end do
+
+    if (stats%batches < max_batches) then
+      stats%processed_particles_by_batch = stats%processed_particles_by_batch(1:stats%batches)
+      stats%rel_change_by_batch = stats%rel_change_by_batch(1:stats%batches)
+      stats%charge_history = stats%charge_history(:, 1:stats%batches)
+    end if
 
   end subroutine run_absorption_insulator
 

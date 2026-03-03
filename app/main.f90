@@ -38,7 +38,7 @@ program main
 
 contains
 
-  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` として出力ディレクトリへ保存する。
+  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` / `charge_history.csv` として出力ディレクトリへ保存する。
   !! @param[in] out_dir 入力引数。
   !! @param[in] mesh 入力引数。
   !! @param[in] stats 入力引数。
@@ -46,7 +46,7 @@ contains
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
-    character(len=1024) :: cmd, summary_path, charges_path, mesh_path
+    character(len=1024) :: cmd, summary_path, charges_path, mesh_path, history_path
     integer :: u, ios, i
 
     cmd = 'mkdir -p "' // trim(out_dir) // '"'
@@ -83,6 +83,29 @@ contains
                                       ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', mesh%q_elem(i)
     end do
     close(u)
+
+    history_path = trim(out_dir) // '/charge_history.csv'
+    open(newunit=u, file=trim(history_path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open charge history file.'
+    write(u, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
+    do i = 1, stats%batches
+      call write_history_batch_rows(u, i, stats, mesh)
+    end do
+    close(u)
   end subroutine write_result_files
+
+  subroutine write_history_batch_rows(unit_id, batch_idx, stats, mesh)
+    integer, intent(in) :: unit_id
+    integer(i32), intent(in) :: batch_idx
+    type(sim_stats), intent(in) :: stats
+    type(mesh_type), intent(in) :: mesh
+    integer(i32) :: elem_idx
+
+    do elem_idx = 1, mesh%nelem
+      write(unit_id, '(i0,a,i0,a,es24.16,a,i0,a,es24.16)') batch_idx, ',', &
+        stats%processed_particles_by_batch(batch_idx), ',', stats%rel_change_by_batch(batch_idx), ',', &
+        elem_idx, ',', stats%charge_history(elem_idx, batch_idx)
+    end do
+  end subroutine write_history_batch_rows
 
 end program main

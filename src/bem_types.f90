@@ -25,6 +25,9 @@ module bem_types
     integer(i32) :: escaped = 0
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
+    integer(i32), allocatable :: processed_particles_by_batch(:)
+    real(dp), allocatable :: rel_change_by_batch(:)
+    real(dp), allocatable :: charge_history(:, :)
   end type sim_stats
 
   !> 三角形頂点と前計算幾何量、要素電荷を保持する境界要素メッシュ型。
