@@ -1,9 +1,15 @@
+!> 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。
 module bem_collision
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, hit_info
   implicit none
 contains
 
+  !> 線分 `[p0,p1]` に対して最初に衝突する三角形要素を探索し、命中情報を返す。
+  !! @param[in] mesh 入力引数。
+  !! @param[in] p0 入力引数。
+  !! @param[in] p1 入力引数。
+  !! @param[out] hit 出力引数。
   subroutine find_first_hit(mesh, p0, p1, hit)
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
@@ -33,6 +39,12 @@ contains
     end do
   end subroutine find_first_hit
 
+  !> 線分のAABBと要素AABBの重なりを先に判定し、詳細交差計算を枝刈りする。
+  !! @param[in] p0 入力引数。
+  !! @param[in] p1 入力引数。
+  !! @param[in] bb_min 入力引数。
+  !! @param[in] bb_max 入力引数。
+  !! @return segment_bbox_overlap 関数の戻り値。
   pure logical function segment_bbox_overlap(p0, p1, bb_min, bb_max)
     real(dp), intent(in) :: p0(3), p1(3), bb_min(3), bb_max(3)
     real(dp) :: seg_min(3), seg_max(3)
@@ -41,6 +53,15 @@ contains
     segment_bbox_overlap = all(bb_max >= seg_min) .and. all(bb_min <= seg_max)
   end function segment_bbox_overlap
 
+  !> Möller–Trumbore法で線分と三角形の交差有無・線分パラメータ `t`・交点座標を計算する。
+  !! @param[in] p0 入力引数。
+  !! @param[in] p1 入力引数。
+  !! @param[in] v0 入力引数。
+  !! @param[in] v1 入力引数。
+  !! @param[in] v2 入力引数。
+  !! @param[out] ok 出力引数。
+  !! @param[out] t 出力引数。
+  !! @param[out] h 出力引数。
   subroutine segment_triangle_intersect(p0, p1, v0, v1, v2, ok, t, h)
     real(dp), intent(in) :: p0(3), p1(3), v0(3), v1(3), v2(3)
     logical, intent(out) :: ok
@@ -80,6 +101,10 @@ contains
     ok = .true.
   end subroutine segment_triangle_intersect
 
+  !> 3次元ベクトルの外積を返す基本演算。
+  !! @param[in] a 入力引数。
+  !! @param[in] b 入力引数。
+  !! @return c 関数の戻り値。
   pure function cross(a, b) result(c)
     real(dp), intent(in) :: a(3), b(3)
     real(dp) :: c(3)

@@ -1,3 +1,4 @@
+!> 境界要素に蓄積した電荷から観測点の電場を評価する場計算モジュール。
 module bem_field
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
@@ -5,6 +6,11 @@ module bem_field
   implicit none
 contains
 
+  !> 全要素電荷を点電荷近似で総和し、softening付きで観測点 `r` の電場ベクトルを返す。
+  !! @param[in] mesh 入力引数。
+  !! @param[in] r 入力引数。
+  !! @param[in] softening 入力引数。
+  !! @param[out] e 出力引数。
   subroutine electric_field_at(mesh, r, softening, e)
     use omp_lib
     type(mesh_type), intent(in) :: mesh

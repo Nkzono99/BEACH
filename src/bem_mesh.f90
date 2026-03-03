@@ -1,9 +1,16 @@
+!> 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。
 module bem_mesh
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type
   implicit none
 contains
 
+  !> 三角形頂点配列から `mesh_type` を初期化し、幾何キャッシュと要素電荷配列を準備する。
+  !! @param[out] mesh 出力引数。
+  !! @param[in] v0 入力引数。
+  !! @param[in] v1 入力引数。
+  !! @param[in] v2 入力引数。
+  !! @param[in] q0 入力引数。
   subroutine init_mesh(mesh, v0, v1, v2, q0)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
@@ -54,6 +61,10 @@ contains
     end if
   end subroutine init_mesh
 
+  !> 3次元ベクトルの外積を返す基本演算。
+  !! @param[in] a 入力引数。
+  !! @param[in] b 入力引数。
+  !! @return c 関数の戻り値。
   pure function cross(a, b) result(c)
     real(dp), intent(in) :: a(3), b(3)
     real(dp) :: c(3)
