@@ -121,6 +121,7 @@ fpm run --profile release --flag "-fopenmp"
 ```
 
 Fortran側でもPython版に揃えて、`bem_templates` モジュールで plane/box/cylinder/sphere の境界テンプレート生成を提供し、`bem_importers` モジュールでOBJ（三角形/多角形面の三角形分割対応）を読み込めます。
+さらに `bem_injection` モジュールで、`sample_uniform_positions`（位置一様サンプリング）と `sample_shifted_maxwell_velocities`（シフテッド・マクスウェル速度サンプリング）および `init_random_beam_particles` を提供し、Python版と同様のランダム注入をFortranでも利用できます。
 
 OpenMPスレッド数は環境変数で制御できます。
 
