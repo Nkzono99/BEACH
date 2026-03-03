@@ -1,6 +1,6 @@
 """bem_charge_tracer package."""
 
-from .core import (
+from .sim import (
     BEMElement,
     BEMMesh,
     Particle,

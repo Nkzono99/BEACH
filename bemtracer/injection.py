@@ -5,7 +5,7 @@ from typing import Optional, Protocol
 
 import numpy as np
 
-from .core import Particle
+from .sim import Particle
 
 KB = 1.380649e-23  # [J/K]
 
