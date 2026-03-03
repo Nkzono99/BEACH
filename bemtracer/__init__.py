@@ -22,6 +22,8 @@ from .geometry import (
     merge_meshes,
 )
 from .importers import MeshImporter, OBJImporter, FreeCADImporter, load_mesh
+from .fortran_results import FortranRunResult, load_fortran_result, list_fortran_runs, plot_charge_mesh, plot_charges
+
 from .injection import (
     PositionSampler,
     VelocitySampler,
@@ -59,4 +61,9 @@ __all__ = [
     "ShiftedMaxwellVelocitySampler",
     "RandomBeamInjector",
     "FixedBeamInjector",
+    "FortranRunResult",
+    "load_fortran_result",
+    "list_fortran_runs",
+    "plot_charges",
+    "plot_charge_mesh",
 ]

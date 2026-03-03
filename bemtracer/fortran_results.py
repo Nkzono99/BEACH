@@ -1,0 +1,163 @@
+"""Utilities for reading and visualizing Fortran simulation outputs."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+import numpy as np
+
+
+@dataclass(frozen=True)
+class FortranRunResult:
+    """Container for one Fortran simulation output directory."""
+
+    directory: Path
+    mesh_nelem: int
+    processed_particles: int
+    absorbed: int
+    escaped: int
+    batches: int
+    last_rel_change: float
+    charges: np.ndarray
+    triangles: np.ndarray | None = None
+
+
+def load_fortran_result(directory: str | Path) -> FortranRunResult:
+    """Load summary and per-element outputs written by the Fortran executable."""
+
+    out_dir = Path(directory)
+    summary = _load_summary(out_dir / "summary.txt")
+    charges = np.loadtxt(out_dir / "charges.csv", delimiter=",", skiprows=1)
+    if charges.ndim == 1:
+        charges = charges[None, :]
+    q_values = charges[:, 1]
+
+    triangles = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
+
+    return FortranRunResult(
+        directory=out_dir,
+        mesh_nelem=int(summary["mesh_nelem"]),
+        processed_particles=int(summary["processed_particles"]),
+        absorbed=int(summary["absorbed"]),
+        escaped=int(summary["escaped"]),
+        batches=int(summary["batches"]),
+        last_rel_change=float(summary["last_rel_change"]),
+        charges=q_values,
+        triangles=triangles,
+    )
+
+
+def list_fortran_runs(root: str | Path) -> list[Path]:
+    """List directories that look like Fortran output runs under ``root``."""
+
+    root_path = Path(root)
+    runs: list[Path] = []
+    for path in sorted(root_path.glob("*")):
+        if not path.is_dir():
+            continue
+        if (path / "summary.txt").exists() and (path / "charges.csv").exists():
+            runs.append(path)
+    return runs
+
+
+def plot_charges(result: FortranRunResult):
+    """Quick bar plot of per-element charge values."""
+
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 3))
+    x = np.arange(result.charges.size)
+    ax.bar(x, result.charges)
+    ax.set_xlabel("element index")
+    ax.set_ylabel("charge [C]")
+    ax.set_title(f"Fortran charge distribution: {result.directory}")
+    fig.tight_layout()
+    return fig, ax
+
+
+def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
+    """Plot mesh triangles in 3D, colored by per-element charge."""
+
+    if result.triangles is None:
+        raise ValueError("mesh_triangles.csv is not found. Re-run Fortran with latest output format.")
+
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    fig = plt.figure(figsize=(7, 6))
+    ax = fig.add_subplot(111, projection="3d")
+
+    q = result.charges
+    q_min = float(q.min())
+    q_max = float(q.max())
+    if np.isclose(q_min, q_max):
+        q_max = q_min + 1.0
+
+    norm = plt.Normalize(vmin=q_min, vmax=q_max)
+    facecolors = plt.get_cmap(cmap)(norm(q))
+
+    mesh = Poly3DCollection(result.triangles, facecolors=facecolors, edgecolor="k", linewidth=0.2)
+    ax.add_collection3d(mesh)
+
+    pts = result.triangles.reshape(-1, 3)
+    mins = pts.min(axis=0)
+    maxs = pts.max(axis=0)
+    center = (mins + maxs) * 0.5
+    radius = float(np.max(maxs - mins)) * 0.5
+    radius = max(radius, 1.0e-12)
+
+    ax.set_xlim(center[0] - radius, center[0] + radius)
+    ax.set_ylim(center[1] - radius, center[1] + radius)
+    ax.set_zlim(center[2] - radius, center[2] + radius)
+    ax.set_box_aspect((1.0, 1.0, 1.0))
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    ax.set_title(f"Charge mesh: {result.directory}")
+
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array(q)
+    fig.colorbar(sm, ax=ax, shrink=0.75, label="charge [C]")
+    fig.tight_layout()
+    return fig, ax
+
+
+def _load_summary(path: Path) -> dict[str, str]:
+    data: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key.strip()] = value.strip()
+    _ensure_keys(
+        data,
+        [
+            "mesh_nelem",
+            "processed_particles",
+            "absorbed",
+            "escaped",
+            "batches",
+            "last_rel_change",
+        ],
+    )
+    return data
+
+
+def _load_triangles_if_exists(path: Path) -> np.ndarray | None:
+    if not path.exists():
+        return None
+
+    data = np.loadtxt(path, delimiter=",", skiprows=1)
+    if data.ndim == 1:
+        data = data[None, :]
+    verts = data[:, 1:10].reshape(-1, 3, 3)
+    return verts
+
+
+def _ensure_keys(data: dict[str, str], required: Iterable[str]) -> None:
+    missing = [key for key in required if key not in data]
+    if missing:
+        raise ValueError(f"Missing keys in summary: {missing}")

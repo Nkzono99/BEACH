@@ -136,3 +136,37 @@ OpenMPスレッド数は環境変数で制御できます。
 ```bash
 OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp"
 ```
+
+## Fortran結果のファイル出力とPython連携
+
+Fortran実行時に、最終結果を `summary.txt` と `charges.csv` として出力できます（デフォルト有効）。
+
+```toml
+[output]
+write_files = true
+dir = "outputs/latest"
+```
+
+- `summary.txt`: 粒子処理統計（absorbed / escaped など）
+- `charges.csv`: 要素ごとの最終電荷（軽量な集計向け）
+- `mesh_triangles.csv`: 要素三角形座標 + 電荷（Pythonで3D可視化向け）
+
+Python側では `bemtracer.fortran_results` で読み込み・管理・可視化できます。
+
+```python
+from bemtracer import load_fortran_result, list_fortran_runs, plot_charges, plot_charge_mesh
+
+result = load_fortran_result("outputs/latest")
+print(result.absorbed, result.escaped, result.charges.sum())
+
+fig_bar, ax_bar = plot_charges(result)
+fig_mesh, ax_mesh = plot_charge_mesh(result)
+```
+
+CLIサンプル: 
+
+```bash
+python examples/inspect_fortran_output.py outputs/latest \
+  --save-bar outputs/latest/charges_bar.png \
+  --save-mesh outputs/latest/charges_mesh.png
+```
