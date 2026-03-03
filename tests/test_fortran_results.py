@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from bemtracer.fortran_results import list_fortran_runs, load_fortran_result
+from beach.fortran_results import list_fortran_runs, load_fortran_result
 
 
 def test_load_fortran_result(tmp_path: Path) -> None:

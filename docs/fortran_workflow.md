@@ -57,5 +57,5 @@ python examples/inspect_fortran_output.py outputs/latest \
 ## 5. 運用ルール（推奨）
 
 - 新しい物理モデルや計算ロジックは、まず Fortran 側へ実装。
-- 出力フォーマットを変更した場合は、Python の `bemtracer/fortran_results.py` と `examples/inspect_fortran_output.py` も同時更新。
+- 出力フォーマットを変更した場合は、Python の `beach/fortran_results.py` と `examples/inspect_fortran_output.py` も同時更新。
 - パラメータ追加時は `docs/fortran_parameter_file.md` を更新。
