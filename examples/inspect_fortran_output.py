@@ -5,14 +5,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from bemtracer import list_fortran_runs, load_fortran_result, plot_charges
+from bemtracer import list_fortran_runs, load_fortran_result, plot_charge_mesh, plot_charges
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output_dir", nargs="?", default="outputs/latest")
     parser.add_argument("--show", action="store_true", help="display matplotlib window")
-    parser.add_argument("--save", type=Path, default=None, help="save figure path")
+    parser.add_argument("--save-bar", type=Path, default=None, help="save bar-chart figure path")
+    parser.add_argument("--save-mesh", type=Path, default=None, help="save 3D mesh figure path")
     args = parser.parse_args()
 
     result = load_fortran_result(args.output_dir)
@@ -23,10 +24,19 @@ def main() -> None:
     print(f"batches={result.batches} last_rel_change={result.last_rel_change:.6e}")
     print(f"charge_sum={result.charges.sum():.6e}")
 
-    fig, _ = plot_charges(result)
-    if args.save is not None:
-        fig.savefig(args.save, dpi=150)
-        print(f"saved={args.save}")
+    bar_fig, _ = plot_charges(result)
+    if args.save_bar is not None:
+        bar_fig.savefig(args.save_bar, dpi=150)
+        print(f"saved_bar={args.save_bar}")
+
+    if result.triangles is not None:
+        mesh_fig, _ = plot_charge_mesh(result)
+        if args.save_mesh is not None:
+            mesh_fig.savefig(args.save_mesh, dpi=150)
+            print(f"saved_mesh={args.save_mesh}")
+    else:
+        print("mesh_triangles.csv not found; mesh visualization is skipped")
+
     if args.show:
         import matplotlib.pyplot as plt
 

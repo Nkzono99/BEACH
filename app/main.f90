@@ -41,7 +41,7 @@ contains
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
-    character(len=1024) :: cmd, summary_path, charges_path
+    character(len=1024) :: cmd, summary_path, charges_path, mesh_path
     integer :: u, ios, i
 
     cmd = 'mkdir -p "' // trim(out_dir) // '"'
@@ -65,6 +65,17 @@ contains
     write(u, '(a)') 'elem_idx,charge_C'
     do i = 1, mesh%nelem
       write(u, '(i0,a,es24.16)') i, ',', mesh%q_elem(i)
+    end do
+    close(u)
+
+    mesh_path = trim(out_dir) // '/mesh_triangles.csv'
+    open(newunit=u, file=trim(mesh_path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open mesh file.'
+    write(u, '(a)') 'elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C'
+    do i = 1, mesh%nelem
+      write(u, '(i0,10(a,es24.16))') i, ',', mesh%v0(1, i), ',', mesh%v0(2, i), ',', mesh%v0(3, i), &
+                                      ',', mesh%v1(1, i), ',', mesh%v1(2, i), ',', mesh%v1(3, i), &
+                                      ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', mesh%q_elem(i)
     end do
     close(u)
   end subroutine write_result_files
