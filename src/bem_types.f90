@@ -9,6 +9,11 @@ module bem_types
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30
     real(dp) :: softening = 1.0d-4
+    logical :: use_hybrid = .true.
+    real(dp) :: r_switch_factor = 3.0d0
+    integer(i32) :: n_sub = 2
+    real(dp) :: softening_factor = 0.1d0
+    real(dp) :: b0(3) = 0.0d0
   end type sim_config
 
   type :: sim_stats

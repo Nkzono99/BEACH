@@ -6,12 +6,19 @@ contains
 
   subroutine init_mesh(mesh, v0, v1, v2, q0)
     type(mesh_type), intent(out) :: mesh
-    real(dp), intent(in) :: v0(3, :), v1(3, :), v2(3, :)
+    real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
     real(dp), intent(in), optional :: q0(:)
     integer(i32) :: n, i
     real(dp) :: e1(3), e2(3), nvec(3), nn
 
+    if (size(v0, 1) /= 3 .or. size(v1, 1) /= 3 .or. size(v2, 1) /= 3) then
+      error stop "mesh vertex input first dimension must be 3"
+    end if
+
     n = size(v0, 2)
+    if (size(v1, 2) /= n .or. size(v2, 2) /= n) then
+      error stop "mesh vertex input size mismatch"
+    end if
     mesh%nelem = n
     allocate(mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
     allocate(mesh%centers(3, n), mesh%normals(3, n))

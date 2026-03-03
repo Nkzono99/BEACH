@@ -22,7 +22,7 @@ contains
     stats = sim_stats()
     nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
-    bfield = 0.0d0
+    bfield = cfg%b0
 
     batch_start = 1
     do while (batch_start <= pcls%n)
