@@ -1,3 +1,4 @@
+!> 倍精度実数と32bit整数のkind定義を集約する基盤モジュール。
 module bem_kinds
   use, intrinsic :: iso_fortran_env, only: real64, int32
   implicit none

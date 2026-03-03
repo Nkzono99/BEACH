@@ -1,3 +1,4 @@
+!> 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。
 module bem_simulator
   use omp_lib
   use bem_kinds, only: dp, i32
@@ -8,6 +9,11 @@ module bem_simulator
   implicit none
 contains
 
+  !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
+  !! @param[inout] mesh 入出力引数。
+  !! @param[in] cfg 入力引数。
+  !! @param[inout] pcls 入出力引数。
+  !! @param[out] stats 出力引数。
   subroutine run_absorption_insulator(mesh, cfg, pcls, stats)
     type(mesh_type), intent(inout) :: mesh
     type(sim_config), intent(in) :: cfg

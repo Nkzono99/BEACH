@@ -1,9 +1,17 @@
+!> 粒子SoAデータ構造の初期化を提供するモジュール。
 module bem_particles
   use bem_kinds, only: dp, i32
   use bem_types, only: particles_soa
   implicit none
 contains
 
+  !> 位置・速度・電荷・質量(と任意重み)配列から `particles_soa` を検証付きで構築する。
+  !! @param[out] pcls 出力引数。
+  !! @param[in] x 入力引数。
+  !! @param[in] v 入力引数。
+  !! @param[in] q 入力引数。
+  !! @param[in] m 入力引数。
+  !! @param[in] w 入力引数。
   subroutine init_particles(pcls, x, v, q, m, w)
     type(particles_soa), intent(out) :: pcls
     real(dp), intent(in) :: x(:, :), v(:, :), q(:), m(:)

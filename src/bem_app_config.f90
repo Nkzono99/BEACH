@@ -1,3 +1,4 @@
+!> 実行設定(TOML)を既定値付きで保持し、メッシュ/粒子初期化へ変換する構成管理モジュール。
 module bem_app_config
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config, mesh_type, particles_soa
@@ -9,6 +10,7 @@ module bem_app_config
 
   integer, parameter :: max_templates = 8
 
+  !> 1つのテンプレート形状(plane/box/cylinder/sphere)の有効化フラグと幾何パラメータを保持する設定型。
   type :: template_spec
     logical :: enabled = .false.
     character(len=16) :: kind = 'plane'
@@ -28,6 +30,7 @@ module bem_app_config
     integer(i32) :: n_lat = 12
   end type template_spec
 
+  !> シミュレーション条件・メッシュ入力・粒子注入条件・出力先を一元管理するアプリ設定型。
   type :: app_config
     character(len=16) :: mesh_mode = 'auto'  ! auto / obj / template
     character(len=256) :: obj_path = 'examples/simple_plate.obj'
@@ -52,6 +55,8 @@ module bem_app_config
 
 contains
 
+  !> `app_config` に実用的な既定値を設定し、設定ファイル未指定でも実行可能な状態を作る。
+  !! @param[out] cfg 出力引数。
   subroutine default_app_config(cfg)
     type(app_config), intent(out) :: cfg
     cfg%sim%dt = 1.0d-9
@@ -70,6 +75,9 @@ contains
     cfg%templates(1)%center = [0.0d0, 0.0d0, 0.0d0]
   end subroutine default_app_config
 
+  !> TOML設定ファイルを読み込み、既定値に対して上書き適用する。
+  !! @param[in] path 入力引数。
+  !! @param[inout] cfg 入出力引数。
   subroutine load_app_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
@@ -79,6 +87,9 @@ contains
     call load_toml_config(path, cfg)
   end subroutine load_app_config
 
+  !> `mesh_mode` とファイル存在有無に応じて OBJ 読込またはテンプレート生成を選択してメッシュを構築する。
+  !! @param[in] cfg 入力引数。
+  !! @param[out] mesh 出力引数。
   subroutine build_mesh_from_config(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
@@ -99,6 +110,9 @@ contains
     end select
   end subroutine build_mesh_from_config
 
+  !> 設定値から乱数シードとビーム注入条件を適用し、粒子SoAを初期化する。
+  !! @param[in] cfg 入力引数。
+  !! @param[out] pcls 出力引数。
   subroutine init_particles_from_config(cfg, pcls)
     type(app_config), intent(in) :: cfg
     type(particles_soa), intent(out) :: pcls
@@ -117,6 +131,9 @@ contains
     )
   end subroutine init_particles_from_config
 
+  !> 有効化された複数テンプレートを結合し、1つの三角形メッシュとして初期化する。
+  !! @param[in] cfg 入力引数。
+  !! @param[out] mesh 出力引数。
   subroutine build_template_mesh(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
@@ -137,6 +154,9 @@ contains
     call init_mesh(mesh, v0, v1, v2)
   end subroutine build_template_mesh
 
+  !> 単一テンプレート設定を形状別生成ルーチンへディスパッチしてメッシュ化する。
+  !! @param[in] spec 入力引数。
+  !! @param[out] mesh 出力引数。
   subroutine build_one_template(spec, mesh)
     type(template_spec), intent(in) :: spec
     type(mesh_type), intent(out) :: mesh
@@ -155,6 +175,13 @@ contains
     end select
   end subroutine build_one_template
 
+  !> 既存三角形配列へ追加三角形群を連結し、結合済み配列へ再確保して詰め替える。
+  !! @param[inout] v0 入出力引数。
+  !! @param[inout] v1 入出力引数。
+  !! @param[inout] v2 入出力引数。
+  !! @param[in] add_v0 入力引数。
+  !! @param[in] add_v1 入力引数。
+  !! @param[in] add_v2 入力引数。
   subroutine append_triangles(v0, v1, v2, add_v0, add_v1, add_v2)
     real(dp), allocatable, intent(inout) :: v0(:, :), v1(:, :), v2(:, :)
     real(dp), intent(in) :: add_v0(:, :), add_v1(:, :), add_v2(:, :)
@@ -178,6 +205,9 @@ contains
   end subroutine append_triangles
 
 
+  !> 最小TOMLパーサでセクション/キー値を走査し、`app_config` 各項目へ反映する。
+  !! @param[in] path 入力引数。
+  !! @param[inout] cfg 入出力引数。
   subroutine load_toml_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
@@ -224,6 +254,9 @@ contains
     if (t_idx > 0) cfg%n_templates = t_idx
   end subroutine load_toml_config
 
+  !> `[sim]` セクションのキー値を `sim_config` へ変換して適用する。
+  !! @param[inout] cfg 入出力引数。
+  !! @param[in] line 入力引数。
   subroutine apply_sim_kv(cfg, line)
     type(app_config), intent(inout) :: cfg
     character(len=*), intent(in) :: line
@@ -245,6 +278,9 @@ contains
     end select
   end subroutine apply_sim_kv
 
+  !> `[particles]` セクションのキー値を粒子注入パラメータへ適用する。
+  !! @param[inout] cfg 入出力引数。
+  !! @param[in] line 入力引数。
   subroutine apply_particles_kv(cfg, line)
     type(app_config), intent(inout) :: cfg
     character(len=*), intent(in) :: line
@@ -264,6 +300,9 @@ contains
     end select
   end subroutine apply_particles_kv
 
+  !> `[mesh]` セクションのキー値をメッシュ入力モード/OBJパスへ適用する。
+  !! @param[inout] cfg 入出力引数。
+  !! @param[in] line 入力引数。
   subroutine apply_mesh_kv(cfg, line)
     type(app_config), intent(inout) :: cfg
     character(len=*), intent(in) :: line
@@ -277,6 +316,9 @@ contains
     end select
   end subroutine apply_mesh_kv
 
+  !> `[template]` セクションのキー値を単一テンプレート設定へ適用する。
+  !! @param[inout] spec 入出力引数。
+  !! @param[in] line 入力引数。
   subroutine apply_template_kv(spec, line)
     type(template_spec), intent(inout) :: spec
     character(len=*), intent(in) :: line
@@ -303,6 +345,9 @@ contains
     end select
   end subroutine apply_template_kv
 
+  !> `[output]` セクションのキー値を出力有効化フラグと出力先ディレクトリへ適用する。
+  !! @param[inout] cfg 入出力引数。
+  !! @param[in] line 入力引数。
   subroutine apply_output_kv(cfg, line)
     type(app_config), intent(inout) :: cfg
     character(len=*), intent(in) :: line
@@ -315,6 +360,10 @@ contains
     end select
   end subroutine apply_output_kv
 
+  !> `key = value` 形式の1行を分割し、前後空白を除去して返す。
+  !! @param[in] line 入力引数。
+  !! @param[out] key 出力引数。
+  !! @param[out] value 出力引数。
   subroutine split_key_value(line, key, value)
     character(len=*), intent(in) :: line
     character(len=*), intent(out) :: key
@@ -330,18 +379,27 @@ contains
     value = trim(adjustl(line(p+1:)))
   end subroutine split_key_value
 
+  !> 文字列を倍精度実数として読み取り、設定値へ変換する。
+  !! @param[in] text 入力引数。
+  !! @param[out] out 出力引数。
   subroutine parse_real(text, out)
     character(len=*), intent(in) :: text
     real(dp), intent(out) :: out
     read(text, *) out
   end subroutine parse_real
 
+  !> 文字列を32bit整数として読み取り、設定値へ変換する。
+  !! @param[in] text 入力引数。
+  !! @param[out] out 出力引数。
   subroutine parse_int(text, out)
     character(len=*), intent(in) :: text
     integer(i32), intent(out) :: out
     read(text, *) out
   end subroutine parse_int
 
+  !> `true/.true.` を真として解釈し、論理値へ変換する。
+  !! @param[in] text 入力引数。
+  !! @param[out] out 出力引数。
   subroutine parse_logical(text, out)
     character(len=*), intent(in) :: text
     logical, intent(out) :: out
@@ -350,6 +408,9 @@ contains
     out = (t == 'true' .or. t == '.true.')
   end subroutine parse_logical
 
+  !> 文字列リテラルから前後の引用符を除去して格納する。
+  !! @param[in] text 入力引数。
+  !! @param[out] out 出力引数。
   subroutine parse_string(text, out)
     character(len=*), intent(in) :: text
     character(len=*), intent(out) :: out
@@ -361,6 +422,9 @@ contains
     out = trim(tmp)
   end subroutine parse_string
 
+  !> `[x, y, z]` 形式の3要素実数ベクトル文字列を配列へ変換する。
+  !! @param[in] text 入力引数。
+  !! @param[out] out 出力引数。
   subroutine parse_real3(text, out)
     character(len=*), intent(in) :: text
     real(dp), intent(out) :: out(3)
@@ -371,6 +435,9 @@ contains
     read(t, *) out(1), out(2), out(3)
   end subroutine parse_real3
 
+  !> 行内コメント(`#`以降)を除去して、値パース対象の文字列を返す。
+  !! @param[in] line 入力引数。
+  !! @return out 関数の戻り値。
   pure function strip_comment(line) result(out)
     character(len=*), intent(in) :: line
     character(len=len(line)) :: out
@@ -383,6 +450,9 @@ contains
     end if
   end function strip_comment
 
+  !> ASCII英字を小文字化し、大文字小文字非依存のキー比較を可能にする。
+  !! @param[in] s 入力引数。
+  !! @return o 関数の戻り値。
   pure function lower(s) result(o)
     character(len=*), intent(in) :: s
     character(len=len(s)) :: o
@@ -394,6 +464,10 @@ contains
     end do
   end function lower
 
+  !> 文字列 `s` が指定サフィックスで終わるかを判定する。
+  !! @param[in] s 入力引数。
+  !! @param[in] suffix 入力引数。
+  !! @return ends_with 関数の戻り値。
   pure logical function ends_with(s, suffix)
     character(len=*), intent(in) :: s, suffix
     integer :: ls, lf

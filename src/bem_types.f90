@@ -1,7 +1,9 @@
+!> シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。
 module bem_types
   use bem_kinds, only: dp, i32
   implicit none
 
+  !> 時間刻み・収束判定・バッチサイズ・外部磁場など実行制御パラメータを保持する。
   type :: sim_config
     real(dp) :: dt = 1.0d-12
     integer(i32) :: npcls_per_step = 128
@@ -16,6 +18,7 @@ module bem_types
     real(dp) :: b0(3) = 0.0d0
   end type sim_config
 
+  !> 処理済み粒子数、吸着/脱出数、バッチ数、最終相対変化量を集計する統計型。
   type :: sim_stats
     integer(i32) :: processed_particles = 0
     integer(i32) :: absorbed = 0
@@ -24,6 +27,7 @@ module bem_types
     real(dp) :: last_rel_change = -1.0d0
   end type sim_stats
 
+  !> 三角形頂点と前計算幾何量、要素電荷を保持する境界要素メッシュ型。
   type :: mesh_type
     integer(i32) :: nelem = 0
     real(dp), allocatable :: v0(:, :)
@@ -37,6 +41,7 @@ module bem_types
     real(dp), allocatable :: q_elem(:)
   end type mesh_type
 
+  !> 粒子の位置・速度・物性値・生存フラグをSoA形式で保持する型。
   type :: particles_soa
     integer(i32) :: n = 0
     real(dp), allocatable :: x(:, :)
@@ -47,6 +52,7 @@ module bem_types
     logical, allocatable :: alive(:)
   end type particles_soa
 
+  !> 衝突有無、命中要素番号、線分パラメータ、交点座標を返す衝突結果型。
   type :: hit_info
     logical :: has_hit = .false.
     integer(i32) :: elem_idx = -1

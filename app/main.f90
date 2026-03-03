@@ -1,3 +1,4 @@
+!> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
   use bem_kinds, only: i32, dp
   use bem_types, only: sim_stats, mesh_type, particles_soa
@@ -37,6 +38,10 @@ program main
 
 contains
 
+  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` として出力ディレクトリへ保存する。
+  !! @param[in] out_dir 入力引数。
+  !! @param[in] mesh 入力引数。
+  !! @param[in] stats 入力引数。
   subroutine write_result_files(out_dir, mesh, stats)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
