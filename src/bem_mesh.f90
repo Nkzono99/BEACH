@@ -6,8 +6,8 @@ contains
 
   subroutine init_mesh(mesh, v0, v1, v2, q0)
     type(mesh_type), intent(out) :: mesh
-    real(dp), allocatable, intent(in) :: v0(:, :), v1(:, :), v2(:, :)
-    real(dp), allocatable, intent(in), optional :: q0(:)
+    real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
+    real(dp), intent(in), optional :: q0(:)
     integer(i32) :: n, i
     real(dp) :: e1(3), e2(3), nvec(3), nn
 

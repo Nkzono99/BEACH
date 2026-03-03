@@ -6,8 +6,8 @@ contains
 
   subroutine init_particles(pcls, x, v, q, m, w)
     type(particles_soa), intent(out) :: pcls
-    real(dp), allocatable, intent(in) :: x(:, :), v(:, :), q(:), m(:)
-    real(dp), allocatable, intent(in), optional :: w(:)
+    real(dp), intent(in) :: x(:, :), v(:, :), q(:), m(:)
+    real(dp), intent(in), optional :: w(:)
     integer(i32) :: n
 
     n = size(q)
