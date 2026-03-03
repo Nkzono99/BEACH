@@ -1,5 +1,5 @@
 import numpy as np
-from bem_charge_tracer import (
+from bemtracer import (
     BEMElement, BEMMesh, Particle,
     SimConfig, TestParticleSimulator, ZeroB
 )
