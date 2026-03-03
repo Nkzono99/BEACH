@@ -114,11 +114,21 @@ fpm run --profile release --flag "-fopenmp"
 ```
 
 
-Fortranデモは以下を実行します（`examples/simple_plate.obj` がある場合はOBJ読込、なければ平面テンプレート生成）。
+Fortranデモは以下を実行します（引数なし時は `examples/simple_plate.obj` がある場合はOBJ読込、なければ平面テンプレート生成）。
 
 ```bash
 fpm run --profile release --flag "-fopenmp"
 ```
+
+設定をパラメータファイルから与える場合は、実行ファイルへ `namelist` もしくは `TOML` を渡せます。
+
+```bash
+fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.nml
+fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
+```
+
+- `examples/fortran_config.toml` は `[[mesh.templates]]` を複数並べることで、template形状を合成した境界を作成できます。
+- `examples/fortran_config.nml` も同等の設定（固定長配列）をサポートします。
 
 Fortran側でもPython版に揃えて、`bem_templates` モジュールで plane/box/cylinder/sphere の境界テンプレート生成を提供し、`bem_importers` モジュールでOBJ（三角形/多角形面の三角形分割対応）を読み込めます。
 さらに `bem_injection` モジュールで、`sample_uniform_positions`（位置一様サンプリング）と `sample_shifted_maxwell_velocities`（シフテッド・マクスウェル速度サンプリング）および `init_random_beam_particles` を提供し、Python版と同様のランダム注入をFortranでも利用できます。

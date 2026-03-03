@@ -1,46 +1,25 @@
 program main
-  use bem_kinds, only: dp, i32
-  use bem_types, only: sim_config, sim_stats, mesh_type, particles_soa
-  use bem_templates, only: make_plane
-  use bem_importers, only: load_obj_mesh
-  use bem_injection, only: seed_rng, init_random_beam_particles
+  use bem_types, only: sim_stats, mesh_type, particles_soa
   use bem_simulator, only: run_absorption_insulator
+  use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, init_particles_from_config
   implicit none
 
   type(mesh_type) :: mesh
   type(particles_soa) :: pcls
-  type(sim_config) :: cfg
+  type(app_config) :: app
   type(sim_stats) :: stats
+  character(len=256) :: cfg_path
 
-  logical :: has_obj
-  inquire(file='examples/simple_plate.obj', exist=has_obj)
-  if (has_obj) then
-    call load_obj_mesh('examples/simple_plate.obj', mesh)
-  else
-    call make_plane(mesh, size_x=1.0d0, size_y=1.0d0, nx=1, ny=1, center=[0.0d0, 0.0d0, 0.0d0])
+  call default_app_config(app)
+
+  if (command_argument_count() >= 1) then
+    call get_command_argument(1, cfg_path)
+    call load_app_config(trim(cfg_path), app)
   end if
 
-  call seed_rng([12345_i32])
-  call init_random_beam_particles(
-    pcls=pcls,
-    n=256_i32,
-    q_particle=-1.602176634d-19,
-    m_particle=9.10938356d-31,
-    w_particle=1.0d0,
-    pos_low=[-0.4d0, -0.4d0, 0.2d0],
-    pos_high=[0.4d0, 0.4d0, 0.5d0],
-    drift_velocity=[0.0d0, 0.0d0, -8.0d5],
-    temperature_k=2.0d4
-  )
-
-  cfg%dt = 1.0d-9
-  cfg%npcls_per_step = 64
-  cfg%max_step = 400
-  cfg%tol_rel = 1.0d-8
-  cfg%softening = 1.0d-6
-  cfg%b0 = [0.0d0, 0.0d0, 0.0d0]
-
-  call run_absorption_insulator(mesh, cfg, pcls, stats)
+  call build_mesh_from_config(app, mesh)
+  call init_particles_from_config(app, pcls)
+  call run_absorption_insulator(mesh, app%sim, pcls, stats)
 
   print '(a,i0)', 'mesh nelem=', mesh%nelem
   print '(a,i0)', 'processed_particles=', stats%processed_particles

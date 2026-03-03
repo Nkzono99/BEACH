@@ -1,0 +1,40 @@
+[sim]
+dt = 1.0e-9
+npcls_per_step = 64
+max_step = 400
+tol_rel = 1.0e-8
+softening = 1.0e-6
+b0 = [0.0, 0.0, 0.0]
+
+[particles]
+rng_seed = 12345
+n_particles = 256
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+w_particle = 1.0
+pos_low = [-0.4, -0.4, 0.2]
+pos_high = [0.4, 0.4, 0.5]
+drift_velocity = [0.0, 0.0, -8.0e5]
+temperature_k = 2.0e4
+
+[mesh]
+mode = "template"
+n_templates = 2
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 2
+ny = 2
+center = [0.0, 0.0, 0.0]
+
+[[mesh.templates]]
+kind = "box"
+enabled = true
+size = [0.2, 0.2, 0.2]
+center = [0.0, 0.0, 0.2]
+nx = 1
+ny = 1
+nz = 1

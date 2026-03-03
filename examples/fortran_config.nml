@@ -1,0 +1,37 @@
+&sim
+  dt = 1.0d-9,
+  npcls_per_step = 64,
+  max_step = 400,
+  tol_rel = 1.0d-8,
+  softening = 1.0d-6,
+  b0 = 0.0d0, 0.0d0, 0.0d0,
+/
+
+&particles
+  rng_seed = 12345,
+  n_particles = 256,
+  q_particle = -1.602176634d-19,
+  m_particle = 9.10938356d-31,
+  w_particle = 1.0d0,
+  pos_low = -0.4d0, -0.4d0, 0.2d0,
+  pos_high = 0.4d0, 0.4d0, 0.5d0,
+  drift_velocity = 0.0d0, 0.0d0, -8.0d5,
+  temperature_k = 2.0d4,
+/
+
+&mesh
+  mesh_mode = 'template',
+  n_templates = 2,
+/
+
+&templates
+  enabled = .true., .true.,
+  kind = 'plane', 'box',
+  center = 0.0d0, 0.0d0, 0.0d0,  0.0d0, 0.0d0, 0.2d0,
+  size_x = 1.0d0,
+  size_y = 1.0d0,
+  size = 1.0d0,1.0d0,1.0d0,  0.2d0,0.2d0,0.2d0,
+  nx = 2, 1,
+  ny = 2, 1,
+  nz = 1, 1,
+/
