@@ -23,6 +23,10 @@ Insulator mode only in v0.x. Keep design extensible for conductor/resistive surf
 - Activate: `source .venv/bin/activate` (or Windows equivalent)
 - Install: `pip install -e .[dev]`
 
+## Setup
+python -m pip install -U pip setuptools wheel
+python -m pip install -e . --no-build-isolation
+
 ## How to run
 - Example: `python examples/run_absorption_insulator.py`
 
