@@ -14,13 +14,17 @@ contains
   !! @param[in] cfg 入力引数。
   !! @param[inout] pcls 入出力引数。
   !! @param[out] stats 出力引数。
-  subroutine run_absorption_insulator(mesh, cfg, pcls, stats)
+  subroutine run_absorption_insulator(mesh, cfg, pcls, stats, history_unit, history_stride)
     type(mesh_type), intent(inout) :: mesh
     type(sim_config), intent(in) :: cfg
     type(particles_soa), intent(inout) :: pcls
     type(sim_stats), intent(out) :: stats
+    integer, intent(in), optional :: history_unit
+    integer(i32), intent(in), optional :: history_stride
 
-    integer(i32) :: batch_start, batch_end, i, step, tid, nth, b
+    integer(i32) :: batch_start, batch_end, i, step, tid, nth, b, hist_stride
+    integer :: hist_unit
+    logical :: do_write_history
     real(dp), allocatable :: dq_thread(:, :), dq(:)
     real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), bfield(3), rel, norm_dq, norm_q, qdep
     type(hit_info) :: hit
@@ -28,6 +32,10 @@ contains
     stats = sim_stats()
     nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
+    hist_unit = -1
+    if (present(history_unit)) hist_unit = history_unit
+    hist_stride = 1_i32
+    if (present(history_stride)) hist_stride = max(1_i32, history_stride)
     bfield = cfg%b0
 
     batch_start = 1
@@ -71,6 +79,8 @@ contains
       stats%batches = stats%batches + 1
       stats%last_rel_change = rel
       stats%processed_particles = stats%processed_particles + (batch_end - batch_start + 1)
+      do_write_history = (hist_unit > 0) .and. (mod(stats%batches - 1, hist_stride) == 0)
+      if (do_write_history) call write_history_snapshot(hist_unit, stats%batches, stats%processed_particles, rel, mesh%q_elem)
 
       do b = batch_start, batch_end
         if (pcls%alive(b)) then
@@ -85,5 +95,19 @@ contains
     end do
 
   end subroutine run_absorption_insulator
+
+  subroutine write_history_snapshot(unit_id, batch_idx, processed_particles, rel_change, q_elem)
+    integer, intent(in) :: unit_id
+    integer(i32), intent(in) :: batch_idx
+    integer(i32), intent(in) :: processed_particles
+    real(dp), intent(in) :: rel_change
+    real(dp), intent(in) :: q_elem(:)
+    integer(i32) :: elem_idx
+
+    do elem_idx = 1, size(q_elem)
+      write(unit_id, '(i0,a,i0,a,es24.16,a,i0,a,es24.16)') batch_idx, ',', processed_particles, ',', &
+        rel_change, ',', elem_idx, ',', q_elem(elem_idx)
+    end do
+  end subroutine write_history_snapshot
 
 end module bem_simulator

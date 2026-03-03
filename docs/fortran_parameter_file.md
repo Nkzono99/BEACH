@@ -109,8 +109,16 @@ dir = "outputs/latest"
 |---|---|---:|---|
 | `write_files` | bool | `true` | 結果ファイルを書き出すか |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
+| `history_stride` | int | `1` | 何バッチごとに `charge_history.csv` へ履歴を書き出すか（1=毎バッチ） |
 
 ---
+
+出力ディレクトリには以下のファイルが生成されます。
+
+- `summary.txt`: 集計統計
+- `charges.csv`: 最終要素電荷
+- `mesh_triangles.csv`: 要素三角形頂点と最終電荷
+- `charge_history.csv`: 指定した `history_stride` 間隔で逐次書き出される要素電荷履歴（時間発展）
 
 ## 4. 注意点
 

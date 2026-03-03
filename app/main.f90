@@ -11,6 +11,9 @@ program main
   type(app_config) :: app
   type(sim_stats) :: stats
   character(len=256) :: cfg_path
+  character(len=1024) :: cmd, history_path
+  integer :: history_unit, ios
+  logical :: history_opened
 
   call default_app_config(app)
 
@@ -21,7 +24,26 @@ program main
 
   call build_mesh_from_config(app, mesh)
   call init_particles_from_config(app, pcls)
-  call run_absorption_insulator(mesh, app%sim, pcls, stats)
+
+  history_opened = .false.
+  if (app%write_output .and. app%history_stride > 0) then
+    cmd = 'mkdir -p "' // trim(app%output_dir) // '"'
+    call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
+    if (ios /= 0) error stop 'Failed to create output directory.'
+
+    history_path = trim(app%output_dir) // '/charge_history.csv'
+    open(newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open charge history file.'
+    write(history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
+    history_opened = .true.
+  end if
+
+  if (history_opened) then
+    call run_absorption_insulator(mesh, app%sim, pcls, stats, history_unit=history_unit, history_stride=app%history_stride)
+    close(history_unit)
+  else
+    call run_absorption_insulator(mesh, app%sim, pcls, stats)
+  end if
 
   print '(a,i0)', 'mesh nelem=', mesh%nelem
   print '(a,i0)', 'processed_particles=', stats%processed_particles
@@ -38,7 +60,7 @@ program main
 
 contains
 
-  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` として出力ディレクトリへ保存する。
+  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv`（履歴は実行中に `charge_history.csv` へ逐次書込） として出力ディレクトリへ保存する。
   !! @param[in] out_dir 入力引数。
   !! @param[in] mesh 入力引数。
   !! @param[in] stats 入力引数。
@@ -83,6 +105,7 @@ contains
                                       ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', mesh%q_elem(i)
     end do
     close(u)
+
   end subroutine write_result_files
 
 end program main

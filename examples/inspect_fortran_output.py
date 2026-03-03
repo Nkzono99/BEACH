@@ -23,6 +23,10 @@ def main() -> None:
     print(f"absorbed={result.absorbed} escaped={result.escaped}")
     print(f"batches={result.batches} last_rel_change={result.last_rel_change:.6e}")
     print(f"charge_sum={result.charges.sum():.6e}")
+    if result.charge_history is not None:
+        print(f"charge_history_shape={result.charge_history.shape}")
+        print(f"batch_indices={result.batch_indices}")
+        print(f"processed_particles_by_batch={result.processed_particles_by_batch}")
 
     bar_fig, _ = plot_charges(result)
     if args.save_bar is not None:

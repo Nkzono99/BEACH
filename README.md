@@ -7,7 +7,7 @@
 
 - 電場計算・粒子前進・衝突判定・電荷蓄積などのコア処理は Fortran 側で実行
 - Python 側は結果読込、可視化、検証用ユーティリティを担当
-- Fortran 実行結果は `summary.txt` / `charges.csv` / `mesh_triangles.csv` として出力
+- Fortran 実行結果は `summary.txt` / `charges.csv` / `mesh_triangles.csv` を出力し、`charge_history.csv` はバッチ間隔指定で逐次書き出し
 
 ## ディレクトリ構成
 
@@ -52,6 +52,7 @@ from bemtracer import load_fortran_result, plot_charges, plot_charge_mesh
 
 result = load_fortran_result("outputs/latest")
 print(result.absorbed, result.escaped, result.charges.sum())
+print(result.charge_history.shape if result.charge_history is not None else None)
 
 fig_bar, ax_bar = plot_charges(result)
 fig_mesh, ax_mesh = plot_charge_mesh(result)
