@@ -1,5 +1,7 @@
 # AGENTS.md
 
+Always review in Japanese.
+
 ## Project overview
 This repository implements a Python prototype of a BEM-based test-particle simulator.
 Core loop:
