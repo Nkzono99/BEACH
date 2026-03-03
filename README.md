@@ -98,3 +98,23 @@ For now, export from FreeCAD to OBJ and load via `OBJImporter`.
 ## Notes
 - v0.1 focuses on correctness and extensibility. Performance optimizations (BVH/Octree/FMM) are out of scope for now.
 - Offset evaluation (δ-shift) is intentionally *not* used in v0.1.
+
+## Fortran + OpenMP implementation (fpm)
+
+Python版とは別に、コア計算をFortranで実装した最小構成を追加しています。
+
+- `fpm.toml`: fpmビルド設定
+- `src/*.f90`: Fortranモジュール（mesh / field / boris pusher / collision / simulator）
+- `app/main.f90`: 吸収+絶縁体蓄積モードのデモ実行
+
+### Build / Run
+
+```bash
+fpm run --profile release --flag "-fopenmp"
+```
+
+OpenMPスレッド数は環境変数で制御できます。
+
+```bash
+OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp"
+```
