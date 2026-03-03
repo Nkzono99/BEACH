@@ -1,13 +1,13 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
   use bem_kinds, only: i32, dp
-  use bem_types, only: sim_stats, mesh_type, particles_soa
+  use bem_types, only: sim_stats, mesh_type
   use bem_simulator, only: run_absorption_insulator
-  use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, init_particles_from_config
+  use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
+    seed_particles_from_config
   implicit none
 
   type(mesh_type) :: mesh
-  type(particles_soa) :: pcls
   type(app_config) :: app
   type(sim_stats) :: stats
   character(len=256) :: cfg_path
@@ -23,7 +23,7 @@ program main
   end if
 
   call build_mesh_from_config(app, mesh)
-  call init_particles_from_config(app, pcls)
+  call seed_particles_from_config(app)
 
   history_opened = .false.
   if (app%write_output .and. app%history_stride > 0) then
@@ -39,10 +39,10 @@ program main
   end if
 
   if (history_opened) then
-    call run_absorption_insulator(mesh, app%sim, pcls, stats, history_unit=history_unit, history_stride=app%history_stride)
+    call run_absorption_insulator(mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride)
     close(history_unit)
   else
-    call run_absorption_insulator(mesh, app%sim, pcls, stats)
+    call run_absorption_insulator(mesh, app, stats)
   end if
 
   print '(a,i0)', 'mesh nelem=', mesh%nelem
