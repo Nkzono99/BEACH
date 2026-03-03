@@ -73,6 +73,24 @@ module bem_app_config
 
 contains
 
+  !> 設定から総粒子数を返す。
+  !! @param[in] cfg 入力引数。
+  !! @return 総粒子数。
+  integer(i32) function total_particles_from_config(cfg) result(total_n)
+    type(app_config), intent(in) :: cfg
+    integer(i32) :: s
+
+    if (cfg%n_particle_species <= 0) then
+      total_n = max(0_i32, cfg%n_particles)
+      return
+    end if
+
+    total_n = 0_i32
+    do s = 1, cfg%n_particle_species
+      if (cfg%particle_species(s)%enabled) total_n = total_n + max(0_i32, cfg%particle_species(s)%n_particles)
+    end do
+  end function total_particles_from_config
+
   !> `app_config` に実用的な既定値を設定し、設定ファイル未指定でも実行可能な状態を作る。
   !! @param[out] cfg 出力引数。
   subroutine default_app_config(cfg)
@@ -198,6 +216,105 @@ contains
 
     call init_particles(pcls, x, v, q, m, w)
   end subroutine init_particles_from_config
+
+  !> 粒子注入用乱数のシードを設定する。
+  !! @param[in] cfg 入力引数。
+  subroutine seed_particles_from_config(cfg)
+    type(app_config), intent(in) :: cfg
+    call seed_rng([cfg%rng_seed])
+  end subroutine seed_particles_from_config
+
+  !> 指定区間（1始まり）の粒子インデックスに対応する粒子バッチを生成する。
+  !! @param[in] cfg 入力引数。
+  !! @param[in] start_idx 生成開始インデックス（1始まり）。
+  !! @param[in] batch_n 生成粒子数。
+  !! @param[out] pcls 出力引数。
+  subroutine init_particle_batch_from_config(cfg, start_idx, batch_n, pcls)
+    type(app_config), intent(in) :: cfg
+    integer(i32), intent(in) :: start_idx, batch_n
+    type(particles_soa), intent(out) :: pcls
+
+    integer(i32) :: s, i, global_idx, end_idx, total_n, max_rank, out_idx
+    integer(i32), allocatable :: counts(:), batch_counts(:), species_cursor(:), species_id(:)
+    real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), x(:, :), v(:, :), q(:), m(:), w(:)
+
+    if (batch_n < 0_i32) error stop 'batch_n must be >= 0.'
+    if (batch_n == 0_i32) then
+      allocate(x(3, 0), v(3, 0), q(0), m(0), w(0))
+      call init_particles(pcls, x, v, q, m, w)
+      return
+    end if
+
+    if (cfg%n_particle_species <= 0) then
+      if (start_idx < 1_i32 .or. start_idx + batch_n - 1_i32 > cfg%n_particles) then
+        error stop 'Requested particle batch is out of range.'
+      end if
+      call init_random_beam_particles(
+        pcls=pcls,
+        n=batch_n,
+        q_particle=cfg%q_particle,
+        m_particle=cfg%m_particle,
+        w_particle=cfg%w_particle,
+        pos_low=cfg%pos_low,
+        pos_high=cfg%pos_high,
+        drift_velocity=cfg%drift_velocity,
+        temperature_k=cfg%temperature_k
+      )
+      return
+    end if
+
+    allocate(counts(cfg%n_particle_species))
+    counts = 0_i32
+    do s = 1, cfg%n_particle_species
+      if (cfg%particle_species(s)%enabled) counts(s) = max(0_i32, cfg%particle_species(s)%n_particles)
+    end do
+    total_n = sum(counts)
+    if (start_idx < 1_i32 .or. start_idx + batch_n - 1_i32 > total_n) then
+      error stop 'Requested particle batch is out of range.'
+    end if
+
+    allocate(species_id(batch_n), batch_counts(cfg%n_particle_species))
+    batch_counts = 0_i32
+    end_idx = start_idx + batch_n - 1_i32
+    global_idx = 0_i32
+    max_rank = max(1_i32, maxval(counts))
+    out_idx = 0_i32
+    do i = 1, max_rank
+      do s = 1, cfg%n_particle_species
+        if (i > counts(s)) cycle
+        global_idx = global_idx + 1_i32
+        if (global_idx < start_idx) cycle
+        if (global_idx > end_idx) exit
+        out_idx = out_idx + 1_i32
+        species_id(out_idx) = s
+        batch_counts(s) = batch_counts(s) + 1_i32
+      end do
+      if (global_idx > end_idx) exit
+    end do
+
+    allocate(x_species(3, max(1_i32, maxval(batch_counts)), cfg%n_particle_species))
+    allocate(v_species(3, max(1_i32, maxval(batch_counts)), cfg%n_particle_species))
+    x_species = 0.0d0
+    v_species = 0.0d0
+    do s = 1, cfg%n_particle_species
+      if (batch_counts(s) <= 0_i32) cycle
+      call sample_species_state(cfg%particle_species(s), batch_counts(s), x_species(:, 1:batch_counts(s), s), v_species(:, 1:batch_counts(s), s))
+    end do
+
+    allocate(x(3, batch_n), v(3, batch_n), q(batch_n), m(batch_n), w(batch_n), species_cursor(cfg%n_particle_species))
+    species_cursor = 0_i32
+    do i = 1, batch_n
+      s = species_id(i)
+      species_cursor(s) = species_cursor(s) + 1_i32
+      x(:, i) = x_species(:, species_cursor(s), s)
+      v(:, i) = v_species(:, species_cursor(s), s)
+      q(i) = cfg%particle_species(s)%q_particle
+      m(i) = cfg%particle_species(s)%m_particle
+      w(i) = cfg%particle_species(s)%w_particle
+    end do
+
+    call init_particles(pcls, x, v, q, m, w)
+  end subroutine init_particle_batch_from_config
 
   subroutine sample_species_state(spec, n, x, v)
     type(particle_species_spec), intent(in) :: spec
