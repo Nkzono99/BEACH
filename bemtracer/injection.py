@@ -141,6 +141,8 @@ class FixedBeamInjector:
             raise ValueError("x0 and v0 must have shape (3,)")
 
     def sample(self, n: int) -> list[Particle]:
+        if n < 0:
+            raise ValueError("n must be non-negative")
         return [
             Particle(x=self.x0.copy(), v=self.v0.copy(), q=self.q, m=self.m, w=self.w)
             for _ in range(n)

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from bemtracer import (
     FixedBeamInjector,
@@ -93,3 +94,15 @@ def test_fixed_beam_injector_replicates_values() -> None:
     assert all(np.allclose(p.x, [0.25, 0.25, 0.5]) for p in particles)
     assert all(np.allclose(p.v, [0.0, 0.0, -2e5]) for p in particles)
     assert all(p.q == -1.0 and p.m == 2.0 and p.w == 3.0 for p in particles)
+
+
+def test_fixed_beam_injector_rejects_negative_n() -> None:
+    injector = FixedBeamInjector(
+        x0=np.array([0.25, 0.25, 0.5]),
+        v0=np.array([0.0, 0.0, -2e5]),
+        q=-1.0,
+        m=2.0,
+    )
+
+    with pytest.raises(ValueError, match="n must be non-negative"):
+        injector.sample(-1)
