@@ -1,12 +1,15 @@
 import numpy as np
 
 from bemtracer import (
+    BEMElement,
+    BEMMesh,
     OBJImporter,
     FreeCADImporter,
     make_box,
     make_cylinder,
     make_plane,
     make_sphere,
+    merge_meshes,
 )
 
 
@@ -37,6 +40,23 @@ def test_sphere_triangle_count() -> None:
     # top + bottom: 2*n_lon, middle strips: 2*n_lon*(n_lat-2)
     expected = 2 * n_lon * (n_lat - 1)
     assert mesh.nelem == expected
+
+
+def test_sphere_normals_point_outward() -> None:
+    mesh = make_sphere(radius=1.0, n_lon=20, n_lat=10, center=(0.0, 0.0, 0.0))
+    assert np.all(np.einsum("ij,ij->i", mesh.normals, mesh.centers) > 0.0)
+
+
+def test_merge_meshes_copies_elements() -> None:
+    base = BEMElement(
+        v0=np.array([0.0, 0.0, 0.0]),
+        v1=np.array([1.0, 0.0, 0.0]),
+        v2=np.array([0.0, 1.0, 0.0]),
+    )
+    mesh_a = BEMMesh([base])
+    mesh_b = merge_meshes([mesh_a])
+    mesh_b.elements[0].q = 5.0
+    assert mesh_a.elements[0].q == 0.0
 
 
 def test_obj_importer(tmp_path) -> None:

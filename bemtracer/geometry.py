@@ -211,12 +211,12 @@ def make_sphere(
             d = sph(t1, p1)
 
             if ilat == 0:
-                elems.append(BEMElement(v0=a, v1=d, v2=c0))
+                elems.append(BEMElement(v0=a, v1=c0, v2=d))
             elif ilat == n_lat - 1:
-                elems.append(BEMElement(v0=a, v1=b, v2=d))
+                elems.append(BEMElement(v0=a, v1=d, v2=b))
             else:
-                elems.append(BEMElement(v0=a, v1=b, v2=d))
-                elems.append(BEMElement(v0=a, v1=d, v2=c0))
+                elems.append(BEMElement(v0=a, v1=d, v2=b))
+                elems.append(BEMElement(v0=a, v1=c0, v2=d))
 
     return BEMMesh(elems)
 
@@ -225,5 +225,5 @@ def merge_meshes(meshes: Iterable[BEMMesh]) -> BEMMesh:
     """Merge multiple ``BEMMesh`` instances into one."""
     elems: list[BEMElement] = []
     for m in meshes:
-        elems.extend(m.elements)
+        elems.extend(BEMElement(v0=e.v0.copy(), v1=e.v1.copy(), v2=e.v2.copy()) for e in m.elements)
     return BEMMesh(elems)
