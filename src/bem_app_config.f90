@@ -44,6 +44,9 @@ module bem_app_config
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
     real(dp) :: temperature_k = 2.0d4
 
+    logical :: write_output = .true.
+    character(len=256) :: output_dir = 'outputs/latest'
+
     type(sim_config) :: sim
   end type app_config
 
@@ -213,6 +216,8 @@ contains
         call apply_mesh_kv(cfg, line)
       case ('mesh.template')
         call apply_template_kv(cfg%templates(t_idx), line)
+      case ('output')
+        call apply_output_kv(cfg, line)
       end select
     end do
     close(u)
@@ -297,6 +302,18 @@ contains
     case ('n_lat'); call parse_int(v, spec%n_lat)
     end select
   end subroutine apply_template_kv
+
+  subroutine apply_output_kv(cfg, line)
+    type(app_config), intent(inout) :: cfg
+    character(len=*), intent(in) :: line
+    character(len=64) :: k
+    character(len=256) :: v
+    call split_key_value(line, k, v)
+    select case (trim(k))
+    case ('write_files'); call parse_logical(v, cfg%write_output)
+    case ('dir'); call parse_string(v, cfg%output_dir)
+    end select
+  end subroutine apply_output_kv
 
   subroutine split_key_value(line, key, value)
     character(len=*), intent(in) :: line
