@@ -22,6 +22,14 @@ from .geometry import (
     merge_meshes,
 )
 from .importers import MeshImporter, OBJImporter, FreeCADImporter, load_mesh
+from .injection import (
+    PositionSampler,
+    VelocitySampler,
+    UniformPositionSampler,
+    ShiftedMaxwellVelocitySampler,
+    RandomBeamInjector,
+    FixedBeamInjector,
+)
 
 __all__ = [
     "BEMElement",
@@ -45,4 +53,10 @@ __all__ = [
     "OBJImporter",
     "FreeCADImporter",
     "load_mesh",
+    "PositionSampler",
+    "VelocitySampler",
+    "UniformPositionSampler",
+    "ShiftedMaxwellVelocitySampler",
+    "RandomBeamInjector",
+    "FixedBeamInjector",
 ]

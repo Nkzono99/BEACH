@@ -3,6 +3,7 @@ import numpy as np
 from bemtracer import (
     BEMElement,
     BEMMesh,
+    FixedBeamInjector,
     Particle,
     SimConfig,
     TestParticleSimulator,
@@ -34,24 +35,26 @@ def build_beam(n: int = 2000) -> list[Particle]:
     qe = -1.602176634e-19
     me = 9.10938356e-31
 
+    injector = FixedBeamInjector(
+        x0=np.array([0.0, 0.0, 0.5]),
+        v0=np.array([0.0, 0.0, -2.5e5]),
+        q=qe,
+        m=me,
+        w=1.0,
+    )
+    particles = injector.sample(n)
+
     rng = np.random.default_rng(42)
     xy = rng.normal(loc=0.0, scale=0.08, size=(n, 2))
-
-    particles: list[Particle] = []
     for i in range(n):
-        particles.append(
-            Particle(
-                x=np.array([xy[i, 0], xy[i, 1], 0.5]),
-                v=np.array([0.0, 0.0, -2.5e5]),
-                q=qe,
-                m=me,
-                w=1.0,
-            )
-        )
+        particles[i].x[:2] = xy[i]
+
     return particles
 
 
-def plot_bem_charges_3d(bem_list: list[BEMMesh], *, title: str = "BEM element charge distribution") -> None:
+def plot_bem_charges_3d(
+    bem_list: list[BEMMesh], *, title: str = "BEM element charge distribution"
+) -> None:
     """3D plot of charge on each triangle in bem_list."""
     import matplotlib.pyplot as plt
     from matplotlib import cm, colors
