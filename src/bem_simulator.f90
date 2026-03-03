@@ -6,6 +6,7 @@ module bem_simulator
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit
+  use bem_boundary, only: apply_box_boundary
   implicit none
 contains
 
@@ -26,12 +27,17 @@ contains
     integer :: hist_unit
     logical :: do_write_history
     real(dp), allocatable :: dq_thread(:, :), dq(:)
+    logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
     real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), bfield(3), rel, norm_dq, norm_q, qdep
     type(hit_info) :: hit
+    logical :: escaped_by_boundary
 
     stats = sim_stats()
     nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
+    allocate(escaped_boundary_flag(pcls%n), absorbed_flag(pcls%n))
+    escaped_boundary_flag = .false.
+    absorbed_flag = .false.
     hist_unit = -1
     if (present(history_unit)) hist_unit = history_unit
     hist_stride = 1_i32
@@ -45,7 +51,7 @@ contains
 
       !$omp parallel default(none) &
       !$omp shared(mesh,pcls,cfg,batch_start,batch_end,dq_thread,bfield) &
-      !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep)
+      !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary)
       tid = omp_get_thread_num() + 1
       !$omp do schedule(static)
       do i = batch_start, batch_end
@@ -55,11 +61,15 @@ contains
           v0 = pcls%v(:, i)
           call electric_field_at(mesh, x0, cfg%softening, e)
           call boris_push(x0, v0, pcls%q(i), pcls%m(i), cfg%dt, e, bfield, x1, v1)
+          call apply_box_boundary(cfg, x1, v1, pcls%alive(i), escaped_by_boundary)
+          if (escaped_by_boundary) escaped_boundary_flag(i) = .true.
+          if (.not. pcls%alive(i)) exit
           call find_first_hit(mesh, x0, x1, hit)
           if (hit%has_hit) then
             qdep = pcls%q(i) * pcls%w(i)
             dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
             pcls%alive(i) = .false.
+            absorbed_flag(i) = .true.
             exit
           else
             pcls%x(:, i) = x1
@@ -83,10 +93,14 @@ contains
       if (do_write_history) call write_history_snapshot(hist_unit, stats%batches, stats%processed_particles, rel, mesh%q_elem)
 
       do b = batch_start, batch_end
-        if (pcls%alive(b)) then
-          stats%escaped = stats%escaped + 1
-        else
+        if (absorbed_flag(b)) then
           stats%absorbed = stats%absorbed + 1
+        else if (escaped_boundary_flag(b)) then
+          stats%escaped = stats%escaped + 1
+          stats%escaped_boundary = stats%escaped_boundary + 1
+        else if (pcls%alive(b)) then
+          stats%escaped = stats%escaped + 1
+          stats%survived_max_step = stats%survived_max_step + 1
         end if
       end do
 

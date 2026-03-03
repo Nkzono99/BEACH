@@ -3,6 +3,10 @@ module bem_types
   use bem_kinds, only: dp, i32
   implicit none
 
+  integer(i32), parameter :: bc_open = 0_i32
+  integer(i32), parameter :: bc_reflect = 1_i32
+  integer(i32), parameter :: bc_periodic = 2_i32
+
   !> 時間刻み・収束判定・バッチサイズ・外部磁場など実行制御パラメータを保持する。
   type :: sim_config
     real(dp) :: dt = 1.0d-12
@@ -16,6 +20,11 @@ module bem_types
     integer(i32) :: n_sub = 2
     real(dp) :: softening_factor = 0.1d0
     real(dp) :: b0(3) = 0.0d0
+    logical :: use_box = .false.
+    real(dp) :: box_min(3) = [-1.0d0, -1.0d0, -1.0d0]
+    real(dp) :: box_max(3) = [1.0d0, 1.0d0, 1.0d0]
+    integer(i32) :: bc_low(3) = [bc_open, bc_open, bc_open]
+    integer(i32) :: bc_high(3) = [bc_open, bc_open, bc_open]
   end type sim_config
 
   !> 処理済み粒子数、吸着/脱出数、バッチ数、最終相対変化量を集計する統計型。
@@ -23,6 +32,8 @@ module bem_types
     integer(i32) :: processed_particles = 0
     integer(i32) :: absorbed = 0
     integer(i32) :: escaped = 0
+    integer(i32) :: escaped_boundary = 0
+    integer(i32) :: survived_max_step = 0
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
   end type sim_stats

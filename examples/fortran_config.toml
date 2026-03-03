@@ -5,6 +5,15 @@ max_step = 400
 tol_rel = 1.0e-8
 softening = 1.0e-6
 b0 = [0.0, 0.0, 0.0]
+use_box = true
+box_min = [-0.6, -0.6, -0.1]
+box_max = [0.6, 0.6, 0.8]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "reflect"
+bc_y_high = "reflect"
+bc_z_low = "open"
+bc_z_high = "open"
 
 [particles]
 rng_seed = 12345

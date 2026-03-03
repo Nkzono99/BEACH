@@ -66,6 +66,15 @@ dir = "outputs/latest"
 | `n_sub` | int | 実装既定値 | 近傍細分レベル |
 | `softening_factor` | float | 実装既定値 | `h_ref` 基準ソフトニング係数 |
 | `b0` | float[3] | `[0,0,0]` | 一様磁場[T] |
+| `use_box` | bool | `false` | シミュレーションボックス境界を有効化 |
+| `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限座標[m] |
+| `box_max` | float[3] | `[1,1,1]` | ボックス上限座標[m] |
+| `bc_x_low` | string | `"open"` | x低側境界 (`open`/`reflect`/`periodic`) |
+| `bc_x_high` | string | `"open"` | x高側境界 (`open`/`reflect`/`periodic`) |
+| `bc_y_low` | string | `"open"` | y低側境界 (`open`/`reflect`/`periodic`) |
+| `bc_y_high` | string | `"open"` | y高側境界 (`open`/`reflect`/`periodic`) |
+| `bc_z_low` | string | `"open"` | z低側境界 (`open`/`reflect`/`periodic`) |
+| `bc_z_high` | string | `"open"` | z高側境界 (`open`/`reflect`/`periodic`) |
 
 ### 3.2 `[particles]`
 
@@ -133,7 +142,7 @@ dir = "outputs/latest"
 
 出力ディレクトリには以下のファイルが生成されます。
 
-- `summary.txt`: 集計統計
+- `summary.txt`: 集計統計（`escaped_boundary` / `survived_max_step` を含む）
 - `charges.csv`: 最終要素電荷
 - `mesh_triangles.csv`: 要素三角形頂点と最終電荷
 - `charge_history.csv`: 指定した `history_stride` 間隔で逐次書き出される要素電荷履歴（時間発展）

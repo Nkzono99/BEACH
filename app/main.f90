@@ -50,6 +50,8 @@ program main
   print '(a,i0)', 'absorbed=', stats%absorbed
   print '(a,i0)', 'escaped=', stats%escaped
   print '(a,i0)', 'batches=', stats%batches
+  print '(a,i0)', 'escaped_boundary=', stats%escaped_boundary
+  print '(a,i0)', 'survived_max_step=', stats%survived_max_step
   print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
   print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
 
@@ -83,6 +85,8 @@ contains
     write(u, '(a,i0)') 'absorbed=', stats%absorbed
     write(u, '(a,i0)') 'escaped=', stats%escaped
     write(u, '(a,i0)') 'batches=', stats%batches
+    write(u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
+    write(u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
     write(u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
     close(u)
 
