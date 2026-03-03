@@ -13,7 +13,7 @@
 
 - `src/`, `app/`：Fortran 本体（fpm プロジェクト）
 - `examples/`：Fortran 設定例、Python 後処理例
-- `beach/`：Python ライブラリ（後処理 + 既存プロトタイプ資産）
+- `beach/`：Python ライブラリ（結果読込・可視化などの後処理）
 - `docs/`：運用・仕様ドキュメント
 
 ## セットアップ
@@ -69,4 +69,3 @@ python examples/inspect_fortran_output.py outputs/latest \
 ## 参考ファイル
 
 - `examples/fortran_config.toml`：複数テンプレート合成を含む設定サンプル
-- `examples/visualize_bem_list_3d.py`：CSV からの 3D 可視化サンプル
