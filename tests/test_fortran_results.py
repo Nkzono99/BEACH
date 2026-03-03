@@ -16,6 +16,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
                 "absorbed=7",
                 "escaped=3",
                 "batches=1",
+                "escaped_boundary=2",
+                "survived_max_step=1",
                 "last_rel_change=1.0e-8",
             ]
         ),
@@ -44,6 +46,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
 
     assert result.mesh_nelem == 2
     assert result.absorbed == 7
+    assert result.escaped_boundary == 2
+    assert result.survived_max_step == 1
     assert result.triangles is not None
     assert result.triangles.shape == (2, 3, 3)
     assert result.charge_history is not None
@@ -72,3 +76,27 @@ def test_list_fortran_runs(tmp_path: Path) -> None:
 
     runs = list_fortran_runs(tmp_path)
     assert runs == [valid]
+
+
+def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
+    out = tmp_path / "legacy"
+    out.mkdir()
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=1",
+                "processed_particles=4",
+                "absorbed=2",
+                "escaped=2",
+                "batches=1",
+                "last_rel_change=0.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,0.0\n", encoding="utf-8")
+
+    result = load_fortran_result(out)
+
+    assert result.escaped_boundary == 0
+    assert result.survived_max_step == 0

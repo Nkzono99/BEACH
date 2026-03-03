@@ -1,7 +1,7 @@
 !> 実行設定(TOML)を既定値付きで保持し、メッシュ/粒子初期化へ変換する構成管理モジュール。
 module bem_app_config
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_config, mesh_type, particles_soa
+  use bem_types, only: sim_config, mesh_type, particles_soa, bc_open, bc_reflect, bc_periodic
   use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
@@ -368,6 +368,15 @@ contains
     case ('n_sub'); call parse_int(v, cfg%sim%n_sub)
     case ('softening_factor'); call parse_real(v, cfg%sim%softening_factor)
     case ('b0'); call parse_real3(v, cfg%sim%b0)
+    case ('use_box'); call parse_logical(v, cfg%sim%use_box)
+    case ('box_min'); call parse_real3(v, cfg%sim%box_min)
+    case ('box_max'); call parse_real3(v, cfg%sim%box_max)
+    case ('bc_x_low'); call parse_boundary_mode(v, cfg%sim%bc_low(1))
+    case ('bc_x_high'); call parse_boundary_mode(v, cfg%sim%bc_high(1))
+    case ('bc_y_low'); call parse_boundary_mode(v, cfg%sim%bc_low(2))
+    case ('bc_y_high'); call parse_boundary_mode(v, cfg%sim%bc_high(2))
+    case ('bc_z_low'); call parse_boundary_mode(v, cfg%sim%bc_low(3))
+    case ('bc_z_high'); call parse_boundary_mode(v, cfg%sim%bc_high(3))
     end select
   end subroutine apply_sim_kv
 
@@ -561,6 +570,25 @@ contains
     if (t(len_trim(t):len_trim(t)) == ']') t = t(:len_trim(t)-1)
     read(t, *) out(1), out(2), out(3)
   end subroutine parse_real3
+
+
+  subroutine parse_boundary_mode(text, out)
+    character(len=*), intent(in) :: text
+    integer(i32), intent(out) :: out
+    character(len=64) :: mode
+
+    call parse_string(text, mode)
+    select case (trim(lower(mode)))
+    case ('open', 'outflow', 'escape')
+      out = bc_open
+    case ('reflect', 'reflection')
+      out = bc_reflect
+    case ('periodic')
+      out = bc_periodic
+    case default
+      error stop 'Unknown boundary condition mode in [sim].'
+    end select
+  end subroutine parse_boundary_mode
 
   !> 行内コメント(`#`以降)を除去して、値パース対象の文字列を返す。
   !! @param[in] line 入力引数。

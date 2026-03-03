@@ -19,6 +19,8 @@ class FortranRunResult:
     absorbed: int
     escaped: int
     batches: int
+    escaped_boundary: int
+    survived_max_step: int
     last_rel_change: float
     charges: np.ndarray
     triangles: np.ndarray | None = None
@@ -50,6 +52,8 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         absorbed=int(summary["absorbed"]),
         escaped=int(summary["escaped"]),
         batches=int(summary["batches"]),
+        escaped_boundary=int(summary.get("escaped_boundary", 0)),
+        survived_max_step=int(summary.get("survived_max_step", 0)),
         last_rel_change=float(summary["last_rel_change"]),
         charges=q_values,
         triangles=triangles,
