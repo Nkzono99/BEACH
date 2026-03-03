@@ -225,5 +225,8 @@ def merge_meshes(meshes: Iterable[BEMMesh]) -> BEMMesh:
     """Merge multiple ``BEMMesh`` instances into one."""
     elems: list[BEMElement] = []
     for m in meshes:
-        elems.extend(BEMElement(v0=e.v0.copy(), v1=e.v1.copy(), v2=e.v2.copy()) for e in m.elements)
+        elems.extend(
+            BEMElement(v0=e.v0.copy(), v1=e.v1.copy(), v2=e.v2.copy(), q=e.q)
+            for e in m.elements
+        )
     return BEMMesh(elems)
