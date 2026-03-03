@@ -49,6 +49,7 @@ module bem_app_config
 
     logical :: write_output = .true.
     character(len=256) :: output_dir = 'outputs/latest'
+    integer(i32) :: history_stride = 1
 
     type(sim_config) :: sim
   end type app_config
@@ -357,6 +358,7 @@ contains
     select case (trim(k))
     case ('write_files'); call parse_logical(v, cfg%write_output)
     case ('dir'); call parse_string(v, cfg%output_dir)
+    case ('history_stride'); call parse_int(v, cfg%history_stride)
     end select
   end subroutine apply_output_kv
 

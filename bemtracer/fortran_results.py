@@ -25,6 +25,7 @@ class FortranRunResult:
     charge_history: np.ndarray | None = None
     processed_particles_by_batch: np.ndarray | None = None
     rel_change_by_batch: np.ndarray | None = None
+    batch_indices: np.ndarray | None = None
 
 
 def load_fortran_result(directory: str | Path) -> FortranRunResult:
@@ -38,7 +39,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     q_values = charges[:, 1]
 
     triangles = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
-    charge_history, processed_particles_by_batch, rel_change_by_batch = _load_charge_history_if_exists(
+    charge_history, processed_particles_by_batch, rel_change_by_batch, batch_indices = _load_charge_history_if_exists(
         out_dir / "charge_history.csv", mesh_nelem=int(summary["mesh_nelem"])
     )
 
@@ -55,6 +56,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         charge_history=charge_history,
         processed_particles_by_batch=processed_particles_by_batch,
         rel_change_by_batch=rel_change_by_batch,
+        batch_indices=batch_indices,
     )
 
 
@@ -156,9 +158,11 @@ def _load_summary(path: Path) -> dict[str, str]:
 
 
 
-def _load_charge_history_if_exists(path: Path, *, mesh_nelem: int) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+def _load_charge_history_if_exists(
+    path: Path, *, mesh_nelem: int
+) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
     if not path.exists():
-        return None, None, None
+        return None, None, None, None
 
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     if data.ndim == 1:
@@ -170,19 +174,20 @@ def _load_charge_history_if_exists(path: Path, *, mesh_nelem: int) -> tuple[np.n
     elem_idx = data[:, 3].astype(np.int64)
     charges = data[:, 4]
 
-    n_batches = int(batches.max()) if batches.size else 0
-    history = np.zeros((mesh_nelem, n_batches), dtype=float)
-    processed_by_batch = np.zeros(n_batches, dtype=np.int64)
-    rel_by_batch = np.zeros(n_batches, dtype=float)
+    batch_indices = np.unique(batches)
+    n_snapshots = batch_indices.size
+    history = np.zeros((mesh_nelem, n_snapshots), dtype=float)
+    processed_by_batch = np.zeros(n_snapshots, dtype=np.int64)
+    rel_by_batch = np.zeros(n_snapshots, dtype=float)
 
-    for row in range(data.shape[0]):
-        b = int(batches[row]) - 1
-        e = int(elem_idx[row]) - 1
-        history[e, b] = float(charges[row])
-        processed_by_batch[b] = int(processed[row])
-        rel_by_batch[b] = float(rel_change[row])
+    for col, batch in enumerate(batch_indices):
+        mask = batches == batch
+        batch_elem_idx = elem_idx[mask] - 1
+        history[batch_elem_idx, col] = charges[mask]
+        processed_by_batch[col] = processed[mask][0]
+        rel_by_batch[col] = rel_change[mask][0]
 
-    return history, processed_by_batch, rel_by_batch
+    return history, processed_by_batch, rel_by_batch, batch_indices
 
 
 def _load_triangles_if_exists(path: Path) -> np.ndarray | None:

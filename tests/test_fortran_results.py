@@ -35,8 +35,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         "batch,processed_particles,rel_change,elem_idx,charge_C\n"
         "1,5,3.0e-1,1,2.0e-11\n"
         "1,5,3.0e-1,2,-1.0e-11\n"
-        "2,10,1.0e-8,1,1.0e-10\n"
-        "2,10,1.0e-8,2,-2.0e-10\n",
+        "3,10,1.0e-8,1,1.0e-10\n"
+        "3,10,1.0e-8,2,-2.0e-10\n",
         encoding="utf-8",
     )
 
@@ -54,6 +54,7 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     )
     np.testing.assert_array_equal(result.processed_particles_by_batch, np.array([5, 10]))
     np.testing.assert_allclose(result.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
+    np.testing.assert_array_equal(result.batch_indices, np.array([1, 3]))
 
 
 def test_list_fortran_runs(tmp_path: Path) -> None:

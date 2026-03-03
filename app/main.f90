@@ -11,6 +11,9 @@ program main
   type(app_config) :: app
   type(sim_stats) :: stats
   character(len=256) :: cfg_path
+  character(len=1024) :: cmd, history_path
+  integer :: history_unit, ios
+  logical :: history_opened
 
   call default_app_config(app)
 
@@ -21,7 +24,26 @@ program main
 
   call build_mesh_from_config(app, mesh)
   call init_particles_from_config(app, pcls)
-  call run_absorption_insulator(mesh, app%sim, pcls, stats)
+
+  history_opened = .false.
+  if (app%write_output .and. app%history_stride > 0) then
+    cmd = 'mkdir -p "' // trim(app%output_dir) // '"'
+    call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
+    if (ios /= 0) error stop 'Failed to create output directory.'
+
+    history_path = trim(app%output_dir) // '/charge_history.csv'
+    open(newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open charge history file.'
+    write(history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
+    history_opened = .true.
+  end if
+
+  if (history_opened) then
+    call run_absorption_insulator(mesh, app%sim, pcls, stats, history_unit=history_unit, history_stride=app%history_stride)
+    close(history_unit)
+  else
+    call run_absorption_insulator(mesh, app%sim, pcls, stats)
+  end if
 
   print '(a,i0)', 'mesh nelem=', mesh%nelem
   print '(a,i0)', 'processed_particles=', stats%processed_particles
@@ -38,7 +60,7 @@ program main
 
 contains
 
-  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` / `charge_history.csv` として出力ディレクトリへ保存する。
+  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv`（履歴は実行中に `charge_history.csv` へ逐次書込） として出力ディレクトリへ保存する。
   !! @param[in] out_dir 入力引数。
   !! @param[in] mesh 入力引数。
   !! @param[in] stats 入力引数。
@@ -46,7 +68,7 @@ contains
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
-    character(len=1024) :: cmd, summary_path, charges_path, mesh_path, history_path
+    character(len=1024) :: cmd, summary_path, charges_path, mesh_path
     integer :: u, ios, i
 
     cmd = 'mkdir -p "' // trim(out_dir) // '"'
@@ -84,28 +106,6 @@ contains
     end do
     close(u)
 
-    history_path = trim(out_dir) // '/charge_history.csv'
-    open(newunit=u, file=trim(history_path), status='replace', action='write', iostat=ios)
-    if (ios /= 0) error stop 'Failed to open charge history file.'
-    write(u, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
-    do i = 1, stats%batches
-      call write_history_batch_rows(u, i, stats, mesh)
-    end do
-    close(u)
   end subroutine write_result_files
-
-  subroutine write_history_batch_rows(unit_id, batch_idx, stats, mesh)
-    integer, intent(in) :: unit_id
-    integer(i32), intent(in) :: batch_idx
-    type(sim_stats), intent(in) :: stats
-    type(mesh_type), intent(in) :: mesh
-    integer(i32) :: elem_idx
-
-    do elem_idx = 1, mesh%nelem
-      write(unit_id, '(i0,a,i0,a,es24.16,a,i0,a,es24.16)') batch_idx, ',', &
-        stats%processed_particles_by_batch(batch_idx), ',', stats%rel_change_by_batch(batch_idx), ',', &
-        elem_idx, ',', stats%charge_history(elem_idx, batch_idx)
-    end do
-  end subroutine write_history_batch_rows
 
 end program main
