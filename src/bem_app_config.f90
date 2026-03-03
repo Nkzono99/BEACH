@@ -5,10 +5,25 @@ module bem_app_config
   use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
-  use bem_injection, only: seed_rng, init_random_beam_particles
+  use bem_injection, only: seed_rng, init_random_beam_particles, &
+    sample_uniform_positions, sample_shifted_maxwell_velocities
+  use bem_particles, only: init_particles
   implicit none
 
   integer, parameter :: max_templates = 8
+  integer, parameter :: max_particle_species = 8
+
+  type :: particle_species_spec
+    logical :: enabled = .false.
+    integer(i32) :: n_particles = 0_i32
+    real(dp) :: q_particle = -1.602176634d-19
+    real(dp) :: m_particle = 9.10938356d-31
+    real(dp) :: w_particle = 1.0d0
+    real(dp) :: pos_low(3) = [-0.4d0, -0.4d0, 0.2d0]
+    real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
+    real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
+    real(dp) :: temperature_k = 2.0d4
+  end type particle_species_spec
 
   !> 1つのテンプレート形状(plane/box/cylinder/sphere)の有効化フラグと幾何パラメータを保持する設定型。
   type :: template_spec
@@ -46,6 +61,8 @@ module bem_app_config
     real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
     real(dp) :: temperature_k = 2.0d4
+    integer(i32) :: n_particle_species = 0_i32
+    type(particle_species_spec) :: particle_species(max_particle_species)
 
     logical :: write_output = .true.
     character(len=256) :: output_dir = 'outputs/latest'
@@ -118,19 +135,81 @@ contains
     type(app_config), intent(in) :: cfg
     type(particles_soa), intent(out) :: pcls
 
+    integer(i32) :: s, total_n, max_n, out_idx, rank_idx
+    integer(i32), allocatable :: counts(:)
+    real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :)
+    real(dp), allocatable :: q(:), m(:), w(:), x(:, :), v(:, :)
+
+    if (cfg%n_particle_species <= 0) then
+      call seed_rng([cfg%rng_seed])
+      call init_random_beam_particles(
+        pcls=pcls,
+        n=cfg%n_particles,
+        q_particle=cfg%q_particle,
+        m_particle=cfg%m_particle,
+        w_particle=cfg%w_particle,
+        pos_low=cfg%pos_low,
+        pos_high=cfg%pos_high,
+        drift_velocity=cfg%drift_velocity,
+        temperature_k=cfg%temperature_k
+      )
+      return
+    end if
+
     call seed_rng([cfg%rng_seed])
-    call init_random_beam_particles(
-      pcls=pcls,
-      n=cfg%n_particles,
-      q_particle=cfg%q_particle,
-      m_particle=cfg%m_particle,
-      w_particle=cfg%w_particle,
-      pos_low=cfg%pos_low,
-      pos_high=cfg%pos_high,
-      drift_velocity=cfg%drift_velocity,
-      temperature_k=cfg%temperature_k
-    )
+
+    allocate(counts(cfg%n_particle_species))
+    counts = 0_i32
+    do s = 1, cfg%n_particle_species
+      if (cfg%particle_species(s)%enabled) then
+        counts(s) = max(0_i32, cfg%particle_species(s)%n_particles)
+      else
+        counts(s) = 0_i32
+      end if
+    end do
+    total_n = sum(counts)
+    max_n = max(1_i32, maxval(counts))
+
+    allocate(x_species(3, max_n, cfg%n_particle_species))
+    allocate(v_species(3, max_n, cfg%n_particle_species))
+    x_species = 0.0d0
+    v_species = 0.0d0
+
+    do s = 1, cfg%n_particle_species
+      if (counts(s) <= 0) cycle
+      call sample_species_state( &
+        cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s) &
+      )
+    end do
+
+    allocate(x(3, total_n), v(3, total_n), q(total_n), m(total_n), w(total_n))
+    out_idx = 0
+    do rank_idx = 1, maxval(counts)
+      do s = 1, cfg%n_particle_species
+        if (rank_idx > counts(s)) cycle
+        out_idx = out_idx + 1
+        x(:, out_idx) = x_species(:, rank_idx, s)
+        v(:, out_idx) = v_species(:, rank_idx, s)
+        q(out_idx) = cfg%particle_species(s)%q_particle
+        m(out_idx) = cfg%particle_species(s)%m_particle
+        w(out_idx) = cfg%particle_species(s)%w_particle
+      end do
+    end do
+
+    call init_particles(pcls, x, v, q, m, w)
   end subroutine init_particles_from_config
+
+  subroutine sample_species_state(spec, n, x, v)
+    type(particle_species_spec), intent(in) :: spec
+    integer(i32), intent(in) :: n
+    real(dp), intent(out) :: x(:, :), v(:, :)
+
+    if (n <= 0) return
+    call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
+    call sample_shifted_maxwell_velocities( &
+      spec%drift_velocity, spec%m_particle, v, temperature_k=spec%temperature_k &
+    )
+  end subroutine sample_species_state
 
   !> 有効化された複数テンプレートを結合し、1つの三角形メッシュとして初期化する。
   !! @param[in] cfg 入力引数。
@@ -212,11 +291,12 @@ contains
   subroutine load_toml_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
-    integer :: u, ios, i, t_idx
+    integer :: u, ios, i, t_idx, s_idx
     character(len=512) :: raw, line, section
 
     t_idx = 0
     section = ''
+    s_idx = 0
     open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Could not open TOML file.'
 
@@ -232,6 +312,12 @@ contains
           if (t_idx > max_templates) error stop 'Too many mesh.templates entries.'
           cfg%templates(t_idx)%enabled = .true.
           section = 'mesh.template'
+        else if (trim(line) == '[[particles.species]]') then
+          s_idx = s_idx + 1
+          if (s_idx > max_particle_species) error stop 'Too many particles.species entries.'
+          cfg%particle_species(s_idx) = species_from_legacy(cfg)
+          cfg%particle_species(s_idx)%enabled = .true.
+          section = 'particles.species'
         else
           section = lower(trim(adjustl(line(2:len_trim(line)-1))))
         end if
@@ -243,6 +329,8 @@ contains
         call apply_sim_kv(cfg, line)
       case ('particles')
         call apply_particles_kv(cfg, line)
+      case ('particles.species')
+        call apply_particles_species_kv(cfg%particle_species(s_idx), line)
       case ('mesh')
         call apply_mesh_kv(cfg, line)
       case ('mesh.template')
@@ -253,6 +341,10 @@ contains
     end do
     close(u)
     if (t_idx > 0) cfg%n_templates = t_idx
+    if (s_idx > 0) then
+      cfg%n_particle_species = s_idx
+      cfg%n_particles = sum(max(0_i32, cfg%particle_species(1:s_idx)%n_particles))
+    end if
   end subroutine load_toml_config
 
   !> `[sim]` セクションのキー値を `sim_config` へ変換して適用する。
@@ -300,6 +392,39 @@ contains
     case ('temperature_k'); call parse_real(v, cfg%temperature_k)
     end select
   end subroutine apply_particles_kv
+
+  subroutine apply_particles_species_kv(spec, line)
+    type(particle_species_spec), intent(inout) :: spec
+    character(len=*), intent(in) :: line
+    character(len=64) :: k
+    character(len=256) :: v
+    call split_key_value(line, k, v)
+    select case (trim(k))
+    case ('enabled'); call parse_logical(v, spec%enabled)
+    case ('n_particles'); call parse_int(v, spec%n_particles)
+    case ('q_particle'); call parse_real(v, spec%q_particle)
+    case ('m_particle'); call parse_real(v, spec%m_particle)
+    case ('w_particle'); call parse_real(v, spec%w_particle)
+    case ('pos_low'); call parse_real3(v, spec%pos_low)
+    case ('pos_high'); call parse_real3(v, spec%pos_high)
+    case ('drift_velocity'); call parse_real3(v, spec%drift_velocity)
+    case ('temperature_k'); call parse_real(v, spec%temperature_k)
+    end select
+  end subroutine apply_particles_species_kv
+
+  pure function species_from_legacy(cfg) result(spec)
+    type(app_config), intent(in) :: cfg
+    type(particle_species_spec) :: spec
+    spec%enabled = .true.
+    spec%n_particles = cfg%n_particles
+    spec%q_particle = cfg%q_particle
+    spec%m_particle = cfg%m_particle
+    spec%w_particle = cfg%w_particle
+    spec%pos_low = cfg%pos_low
+    spec%pos_high = cfg%pos_high
+    spec%drift_velocity = cfg%drift_velocity
+    spec%temperature_k = cfg%temperature_k
+  end function species_from_legacy
 
   !> `[mesh]` セクションのキー値をメッシュ入力モード/OBJパスへ適用する。
   !! @param[inout] cfg 入出力引数。

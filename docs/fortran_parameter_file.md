@@ -41,7 +41,8 @@ dir = "outputs/latest"
 ## 2. セクション一覧
 
 - `[sim]`: 時間積分・停止条件・電磁場パラメータ
-- `[particles]`: 注入粒子条件
+- `[particles]`: 注入粒子条件（単一種または複数種）
+- `[[particles.species]]`: 粒子種ごとの注入条件（複数可）
 - `[mesh]`: メッシュ入力モード
 - `[[mesh.templates]]`: テンプレート形状定義（複数可）
 - `[output]`: ファイル出力設定
@@ -80,7 +81,24 @@ dir = "outputs/latest"
 | `drift_velocity` | float[3] | `[0,0,-8.0e5]` | ドリフト速度[m/s] |
 | `temperature_k` | float | `2.0e4` | 温度[K] |
 
-### 3.3 `[mesh]`
+### 3.3 `[[particles.species]]`
+
+`[[particles.species]]` が1件以上ある場合は、`[particles]` の単一種パラメータより優先されます。
+生成順はラウンドロビン（species1→species2→...）で、1バッチ内に複数種が混在します。
+
+| キー | 型 | 説明 |
+|---|---|---|
+| `enabled` | bool | 有効/無効（既定: true） |
+| `n_particles` | int | その粒子種の粒子数 |
+| `q_particle` | float | 粒子電荷[C] |
+| `m_particle` | float | 粒子質量[kg] |
+| `w_particle` | float | superparticle 重み |
+| `pos_low` | float[3] | 初期位置下限[m] |
+| `pos_high` | float[3] | 初期位置上限[m] |
+| `drift_velocity` | float[3] | ドリフト速度[m/s] |
+| `temperature_k` | float | 温度[K] |
+
+### 3.4 `[mesh]`
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -88,7 +106,7 @@ dir = "outputs/latest"
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ パス |
 | `n_templates` | int | `1` | 使用する template エントリ数 |
 
-### 3.4 `[[mesh.templates]]`
+### 3.5 `[[mesh.templates]]`
 
 共通キー:
 
@@ -103,7 +121,7 @@ dir = "outputs/latest"
 - `cylinder`: `radius`, `height`, `n_theta`, `n_z`, `cap`
 - `sphere`: `radius`, `n_lon`, `n_lat`
 
-### 3.5 `[output]`
+### 3.6 `[output]`
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -123,6 +141,7 @@ dir = "outputs/latest"
 ## 4. 注意点
 
 - `[[mesh.templates]]` は同じ `kind` を複数回指定可能です。
+- `[[particles.species]]` を使うと、粒子は種ごとラウンドロビンで混在して初期化されます。
 - `n_templates` は先頭から読み込む最大件数として扱われます。
 - `mode="auto"` では `obj_path` が存在すれば OBJ、なければ template を使用します。
 
