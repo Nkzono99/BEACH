@@ -1,7 +1,8 @@
 program main
   use bem_kinds, only: dp
   use bem_types, only: sim_config, sim_stats, mesh_type, particles_soa
-  use bem_mesh, only: init_mesh
+  use bem_templates, only: make_plane
+  use bem_importers, only: load_obj_mesh
   use bem_particles, only: init_particles
   use bem_simulator, only: run_absorption_insulator
   implicit none
@@ -11,22 +12,17 @@ program main
   type(sim_config) :: cfg
   type(sim_stats) :: stats
 
-  real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
   real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:)
 
-  allocate(v0(3,2), v1(3,2), v2(3,2))
+  logical :: has_obj
+  inquire(file='examples/simple_plate.obj', exist=has_obj)
+  if (has_obj) then
+    call load_obj_mesh('examples/simple_plate.obj', mesh)
+  else
+    call make_plane(mesh, size_x=1.0d0, size_y=1.0d0, nx=1, ny=1, center=[0.0d0, 0.0d0, 0.0d0])
+  end if
+
   allocate(x(3,4), v(3,4), q(4), m(4))
-
-  ! z=0 plane (2 triangles)
-  v0(:,1) = [-0.5d0, -0.5d0, 0.0d0]
-  v1(:,1) = [ 0.5d0, -0.5d0, 0.0d0]
-  v2(:,1) = [ 0.5d0,  0.5d0, 0.0d0]
-
-  v0(:,2) = [-0.5d0, -0.5d0, 0.0d0]
-  v1(:,2) = [ 0.5d0,  0.5d0, 0.0d0]
-  v2(:,2) = [-0.5d0,  0.5d0, 0.0d0]
-
-  call init_mesh(mesh, v0, v1, v2)
 
   x(:,1) = [0.0d0, 0.0d0, 0.2d0]
   x(:,2) = [0.2d0, 0.1d0, 0.2d0]
@@ -47,6 +43,7 @@ program main
 
   call run_absorption_insulator(mesh, cfg, pcls, stats)
 
+  print '(a,i0)', 'mesh nelem=', mesh%nelem
   print '(a,i0)', 'processed_particles=', stats%processed_particles
   print '(a,i0)', 'absorbed=', stats%absorbed
   print '(a,i0)', 'escaped=', stats%escaped
