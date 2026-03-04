@@ -298,7 +298,11 @@ contains
         v_species = 0.0d0
         do s = 1, cfg%n_particle_species
             if (batch_counts(s) <= 0_i32) cycle
-      call sample_species_state(cfg%particle_species(s), batch_counts(s), x_species(:, 1:batch_counts(s), s), v_species(:, 1:batch_counts(s), s))
+            call sample_species_state( &
+                cfg%particle_species(s), batch_counts(s), &
+                x_species(:, 1:batch_counts(s), s), &
+                v_species(:, 1:batch_counts(s), s) &
+            )
         end do
 
         allocate (x(3, batch_n), v(3, batch_n), q(batch_n), m(batch_n), w(batch_n), species_cursor(cfg%n_particle_species))
@@ -364,7 +368,11 @@ contains
         case ('box')
             call make_box(mesh, size=spec%size, center=spec%center, nx=spec%nx, ny=spec%ny, nz=spec%nz)
         case ('cylinder')
-      call make_cylinder(mesh, radius=spec%radius, height=spec%height, n_theta=spec%n_theta, n_z=spec%n_z, cap=spec%cap, center=spec%center)
+            call make_cylinder( &
+                mesh, radius=spec%radius, height=spec%height, &
+                n_theta=spec%n_theta, n_z=spec%n_z, &
+                cap=spec%cap, center=spec%center &
+            )
         case ('sphere')
             call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
         case default

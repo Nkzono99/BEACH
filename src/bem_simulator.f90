@@ -1,6 +1,6 @@
 !> 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。
 module bem_simulator
-  use omp_lib
+  !$ use omp_lib
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info
   use bem_app_config, only: app_config, total_particles_from_config, init_particle_batch_from_config
@@ -34,7 +34,8 @@ contains
 
     stats = sim_stats()
     total_particles = total_particles_from_config(app)
-    nth = max(1, omp_get_max_threads())
+    nth = 1
+    !$ nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
     hist_unit = -1
     if (present(history_unit)) hist_unit = history_unit
@@ -54,7 +55,8 @@ contains
       !$omp parallel default(none) &
       !$omp shared(mesh,pcls_batch,app,dq_thread,bfield,escaped_boundary_flag,absorbed_flag) &
       !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary)
-      tid = omp_get_thread_num() + 1
+      tid = 1
+      !$ tid = omp_get_thread_num() + 1
       !$omp do schedule(static)
       do i = 1, pcls_batch%n
         if (.not. pcls_batch%alive(i)) cycle
