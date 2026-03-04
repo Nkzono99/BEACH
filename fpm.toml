@@ -19,3 +19,8 @@ source-form = "free"
 name = "beach_demo"
 source-dir = "app"
 main = "main.f90"
+
+[[test]]
+name = "test_app_config_parser"
+source-dir = "test"
+main = "test_app_config_parser.f90"
