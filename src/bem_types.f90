@@ -7,10 +7,10 @@ module bem_types
   integer(i32), parameter :: bc_reflect = 1_i32
   integer(i32), parameter :: bc_periodic = 2_i32
 
-  !> 時間刻み・収束判定・バッチサイズ・外部磁場など実行制御パラメータを保持する。
+  !> 時間刻み・収束判定・バッチ回数・外部磁場など実行制御パラメータを保持する。
   type :: sim_config
     real(dp) :: dt = 1.0d-12
-    integer(i32) :: npcls_per_step = 128
+    integer(i32) :: batch_count = 1_i32
     integer(i32) :: max_step = 100
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30

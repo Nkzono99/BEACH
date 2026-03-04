@@ -5,8 +5,7 @@ module bem_app_config
     use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
     use bem_mesh, only: init_mesh
     use bem_importers, only: load_obj_mesh
-    use bem_injection, only: seed_rng, init_random_beam_particles, &
-                             sample_uniform_positions, sample_shifted_maxwell_velocities
+    use bem_injection, only: seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities
     use bem_particles, only: init_particles
     implicit none
 
@@ -15,7 +14,7 @@ module bem_app_config
 
     type :: particle_species_spec
         logical :: enabled = .false.
-        integer(i32) :: n_particles = 0_i32
+        integer(i32) :: npcls_per_step = 0_i32
         real(dp) :: q_particle = -1.602176634d-19
         real(dp) :: m_particle = 9.10938356d-31
         real(dp) :: w_particle = 1.0d0
@@ -53,7 +52,7 @@ module bem_app_config
         type(template_spec) :: templates(max_templates)
 
         integer(i32) :: rng_seed = 12345_i32
-        integer(i32) :: n_particles = 256_i32
+        integer(i32) :: n_particles = 0_i32
         real(dp) :: q_particle = -1.602176634d-19
         real(dp) :: m_particle = 9.10938356d-31
         real(dp) :: w_particle = 1.0d0
@@ -73,34 +72,53 @@ module bem_app_config
 
 contains
 
+    !> 1バッチあたりの総粒子数を返す。
+  !! @param[in] cfg 入力引数。
+  !! @return 1バッチあたりの総粒子数。
+    integer(i32) function particles_per_batch_from_config(cfg) result(batch_n)
+        type(app_config), intent(in) :: cfg
+        integer(i32) :: s
+
+        if (cfg%n_particle_species <= 0) then
+            error stop 'At least one [[particles.species]] entry is required.'
+        end if
+
+        batch_n = 0_i32
+        do s = 1, cfg%n_particle_species
+            if (.not. cfg%particle_species(s)%enabled) cycle
+            if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
+                error stop 'particles.species.npcls_per_step must be >= 0.'
+            end if
+            batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
+        end do
+
+        if (batch_n <= 0_i32) then
+            error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
+        end if
+    end function particles_per_batch_from_config
+
     !> 設定から総粒子数を返す。
   !! @param[in] cfg 入力引数。
   !! @return 総粒子数。
     integer(i32) function total_particles_from_config(cfg) result(total_n)
         type(app_config), intent(in) :: cfg
-        integer(i32) :: s
-
-        if (cfg%n_particle_species <= 0) then
-            total_n = max(0_i32, cfg%n_particles)
-            return
+        if (cfg%sim%batch_count <= 0_i32) then
+            error stop 'sim.batch_count must be > 0.'
         end if
-
-        total_n = 0_i32
-        do s = 1, cfg%n_particle_species
-            if (cfg%particle_species(s)%enabled) total_n = total_n + max(0_i32, cfg%particle_species(s)%n_particles)
-        end do
+        total_n = cfg%sim%batch_count * particles_per_batch_from_config(cfg)
     end function total_particles_from_config
 
-    !> `app_config` に実用的な既定値を設定し、設定ファイル未指定でも実行可能な状態を作る。
+    !> `app_config` に実用的な既定値を設定し、TOML上書き前の初期状態を作る。
   !! @param[out] cfg 出力引数。
     subroutine default_app_config(cfg)
         type(app_config), intent(out) :: cfg
         cfg%sim%dt = 1.0d-9
-        cfg%sim%npcls_per_step = 64
+        cfg%sim%batch_count = 1_i32
         cfg%sim%max_step = 400
         cfg%sim%tol_rel = 1.0d-8
         cfg%sim%softening = 1.0d-6
         cfg%sim%b0 = [0.0d0, 0.0d0, 0.0d0]
+        cfg%n_particles = 0_i32
 
         cfg%templates(1)%enabled = .true.
         cfg%templates(1)%kind = 'plane'
@@ -158,21 +176,7 @@ contains
         real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :)
         real(dp), allocatable :: q(:), m(:), w(:), x(:, :), v(:, :)
 
-        if (cfg%n_particle_species <= 0) then
-            call seed_rng([cfg%rng_seed])
-            call init_random_beam_particles( &
-                pcls=pcls, &
-                n=cfg%n_particles, &
-                q_particle=cfg%q_particle, &
-                m_particle=cfg%m_particle, &
-                w_particle=cfg%w_particle, &
-                pos_low=cfg%pos_low, &
-                pos_high=cfg%pos_high, &
-                drift_velocity=cfg%drift_velocity, &
-                temperature_k=cfg%temperature_k &
-                )
-            return
-        end if
+        if (cfg%n_particle_species <= 0) error stop 'At least one [[particles.species]] entry is required.'
 
         call seed_rng([cfg%rng_seed])
 
@@ -180,12 +184,15 @@ contains
         counts = 0_i32
         do s = 1, cfg%n_particle_species
             if (cfg%particle_species(s)%enabled) then
-                counts(s) = max(0_i32, cfg%particle_species(s)%n_particles)
+                if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
+                    error stop 'particles.species.npcls_per_step must be >= 0.'
+                end if
+                counts(s) = cfg%sim%batch_count * cfg%particle_species(s)%npcls_per_step
             else
                 counts(s) = 0_i32
             end if
         end do
-        total_n = sum(counts)
+        total_n = total_particles_from_config(cfg)
         max_n = max(1_i32, maxval(counts))
 
         allocate (x_species(3, max_n, cfg%n_particle_species))
@@ -224,84 +231,54 @@ contains
         call seed_rng([cfg%rng_seed])
     end subroutine seed_particles_from_config
 
-    !> 指定区間（1始まり）の粒子インデックスに対応する粒子バッチを生成する。
+    !> 指定バッチ番号に対応する粒子バッチを生成する。
   !! @param[in] cfg 入力引数。
-  !! @param[in] start_idx 生成開始インデックス（1始まり）。
-  !! @param[in] batch_n 生成粒子数。
+  !! @param[in] batch_idx バッチ番号（1始まり）。
   !! @param[out] pcls 出力引数。
-    subroutine init_particle_batch_from_config(cfg, start_idx, batch_n, pcls)
+    subroutine init_particle_batch_from_config(cfg, batch_idx, pcls)
         type(app_config), intent(in) :: cfg
-        integer(i32), intent(in) :: start_idx, batch_n
+        integer(i32), intent(in) :: batch_idx
         type(particles_soa), intent(out) :: pcls
 
-        integer(i32) :: s, i, global_idx, end_idx, total_n, max_rank, out_idx
-        integer(i32), allocatable :: counts(:), batch_counts(:), species_cursor(:), species_id(:)
+        integer(i32) :: s, i, batch_n, max_rank, out_idx
+        integer(i32), allocatable :: counts(:), species_cursor(:), species_id(:)
         real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), x(:, :), v(:, :), q(:), m(:), w(:)
 
-        if (batch_n < 0_i32) error stop 'batch_n must be >= 0.'
-        if (batch_n == 0_i32) then
-            allocate (x(3, 0), v(3, 0), q(0), m(0), w(0))
-            call init_particles(pcls, x, v, q, m, w)
-            return
+        if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
+        if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
+            error stop 'Requested batch index is out of range.'
         end if
 
-        if (cfg%n_particle_species <= 0) then
-            if (start_idx < 1_i32 .or. start_idx + batch_n - 1_i32 > cfg%n_particles) then
-                error stop 'Requested particle batch is out of range.'
-            end if
-            call init_random_beam_particles( &
-                pcls=pcls, &
-                n=batch_n, &
-                q_particle=cfg%q_particle, &
-                m_particle=cfg%m_particle, &
-                w_particle=cfg%w_particle, &
-                pos_low=cfg%pos_low, &
-                pos_high=cfg%pos_high, &
-                drift_velocity=cfg%drift_velocity, &
-                temperature_k=cfg%temperature_k &
-                )
-            return
-        end if
+        batch_n = particles_per_batch_from_config(cfg)
 
         allocate (counts(cfg%n_particle_species))
         counts = 0_i32
         do s = 1, cfg%n_particle_species
-            if (cfg%particle_species(s)%enabled) counts(s) = max(0_i32, cfg%particle_species(s)%n_particles)
+            if (.not. cfg%particle_species(s)%enabled) cycle
+            counts(s) = cfg%particle_species(s)%npcls_per_step
         end do
-        total_n = sum(counts)
-        if (start_idx < 1_i32 .or. start_idx + batch_n - 1_i32 > total_n) then
-            error stop 'Requested particle batch is out of range.'
-        end if
 
-        allocate (species_id(batch_n), batch_counts(cfg%n_particle_species))
-        batch_counts = 0_i32
-        end_idx = start_idx + batch_n - 1_i32
-        global_idx = 0_i32
+        allocate (species_id(batch_n))
         max_rank = max(1_i32, maxval(counts))
         out_idx = 0_i32
         do i = 1, max_rank
             do s = 1, cfg%n_particle_species
                 if (i > counts(s)) cycle
-                global_idx = global_idx + 1_i32
-                if (global_idx < start_idx) cycle
-                if (global_idx > end_idx) exit
                 out_idx = out_idx + 1_i32
                 species_id(out_idx) = s
-                batch_counts(s) = batch_counts(s) + 1_i32
             end do
-            if (global_idx > end_idx) exit
         end do
 
-        allocate (x_species(3, max(1_i32, maxval(batch_counts)), cfg%n_particle_species))
-        allocate (v_species(3, max(1_i32, maxval(batch_counts)), cfg%n_particle_species))
+        allocate (x_species(3, max_rank, cfg%n_particle_species))
+        allocate (v_species(3, max_rank, cfg%n_particle_species))
         x_species = 0.0d0
         v_species = 0.0d0
         do s = 1, cfg%n_particle_species
-            if (batch_counts(s) <= 0_i32) cycle
+            if (counts(s) <= 0_i32) cycle
             call sample_species_state( &
-                cfg%particle_species(s), batch_counts(s), &
-                x_species(:, 1:batch_counts(s), s), &
-                v_species(:, 1:batch_counts(s), s) &
+                cfg%particle_species(s), counts(s), &
+                x_species(:, 1:counts(s), s), &
+                v_species(:, 1:counts(s), s) &
             )
         end do
 
@@ -416,6 +393,7 @@ contains
         character(len=*), intent(in) :: path
         type(app_config), intent(inout) :: cfg
         integer :: u, ios, i, t_idx, s_idx
+        integer(i32) :: per_batch_particles
         character(len=512) :: raw, line, section
 
         t_idx = 0
@@ -439,7 +417,7 @@ contains
                 else if (trim(line) == '[[particles.species]]') then
                     s_idx = s_idx + 1
                     if (s_idx > max_particle_species) error stop 'Too many particles.species entries.'
-                    cfg%particle_species(s_idx) = species_from_legacy(cfg)
+                    cfg%particle_species(s_idx) = species_from_defaults(cfg)
                     cfg%particle_species(s_idx)%enabled = .true.
                     section = 'particles.species'
                 else
@@ -465,10 +443,21 @@ contains
         end do
         close (u)
         if (t_idx > 0) cfg%n_templates = t_idx
-        if (s_idx > 0) then
-            cfg%n_particle_species = s_idx
-            cfg%n_particles = sum(max(0_i32, cfg%particle_species(1:s_idx)%n_particles))
+        if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
+        if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
+        cfg%n_particle_species = s_idx
+        per_batch_particles = 0_i32
+        do i = 1, s_idx
+            if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
+                error stop 'particles.species.npcls_per_step must be >= 0.'
+            end if
+            if (.not. cfg%particle_species(i)%enabled) cycle
+            per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
+        end do
+        if (per_batch_particles <= 0_i32) then
+            error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
         end if
+        cfg%n_particles = cfg%sim%batch_count * per_batch_particles
     end subroutine load_toml_config
 
     !> `[sim]` セクションのキー値を `sim_config` へ変換して適用する。
@@ -482,7 +471,9 @@ contains
         call split_key_value(line, k, v)
         select case (trim(k))
         case ('dt'); call parse_real(v, cfg%sim%dt)
-        case ('npcls_per_step'); call parse_int(v, cfg%sim%npcls_per_step)
+        case ('batch_count'); call parse_int(v, cfg%sim%batch_count)
+        case ('npcls_per_step')
+            error stop 'sim.npcls_per_step was removed. Use sim.batch_count instead.'
         case ('max_step'); call parse_int(v, cfg%sim%max_step)
         case ('tol_rel'); call parse_real(v, cfg%sim%tol_rel)
         case ('q_floor'); call parse_real(v, cfg%sim%q_floor)
@@ -515,7 +506,8 @@ contains
         call split_key_value(line, k, v)
         select case (trim(k))
         case ('rng_seed'); call parse_int(v, cfg%rng_seed)
-        case ('n_particles'); call parse_int(v, cfg%n_particles)
+        case ('n_particles')
+            error stop 'particles.n_particles was removed. Define [[particles.species]] entries with npcls_per_step instead.'
         case ('q_particle'); call parse_real(v, cfg%q_particle)
         case ('m_particle'); call parse_real(v, cfg%m_particle)
         case ('w_particle'); call parse_real(v, cfg%w_particle)
@@ -534,7 +526,9 @@ contains
         call split_key_value(line, k, v)
         select case (trim(k))
         case ('enabled'); call parse_logical(v, spec%enabled)
-        case ('n_particles'); call parse_int(v, spec%n_particles)
+        case ('npcls_per_step'); call parse_int(v, spec%npcls_per_step)
+        case ('n_particles')
+            error stop 'particles.species.n_particles was removed. Use particles.species.npcls_per_step instead.'
         case ('q_particle'); call parse_real(v, spec%q_particle)
         case ('m_particle'); call parse_real(v, spec%m_particle)
         case ('w_particle'); call parse_real(v, spec%w_particle)
@@ -545,11 +539,11 @@ contains
         end select
     end subroutine apply_particles_species_kv
 
-    pure function species_from_legacy(cfg) result(spec)
+    pure function species_from_defaults(cfg) result(spec)
         type(app_config), intent(in) :: cfg
         type(particle_species_spec) :: spec
         spec%enabled = .true.
-        spec%n_particles = cfg%n_particles
+        spec%npcls_per_step = 0_i32
         spec%q_particle = cfg%q_particle
         spec%m_particle = cfg%m_particle
         spec%w_particle = cfg%w_particle
@@ -557,7 +551,7 @@ contains
         spec%pos_high = cfg%pos_high
         spec%drift_velocity = cfg%drift_velocity
         spec%temperature_k = cfg%temperature_k
-    end function species_from_legacy
+    end function species_from_defaults
 
     !> `[mesh]` セクションのキー値をメッシュ入力モード/OBJパスへ適用する。
   !! @param[inout] cfg 入出力引数。

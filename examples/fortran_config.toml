@@ -1,6 +1,6 @@
 [sim]
 dt = 1.0e-9
-npcls_per_step = 96
+batch_count = 4
 max_step = 500
 tol_rel = 1.0e-8
 softening = 1.0e-6
@@ -17,7 +17,6 @@ bc_z_high = "open"
 
 [particles]
 rng_seed = 12345
-n_particles = 384  # 旧フォーマット（species未使用時）
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
@@ -27,8 +26,8 @@ drift_velocity = [0.0, 0.0, -8.0e5]
 temperature_k = 2.0e4
 
 [[particles.species]]
-# speciesを定義した場合、こちらが優先される
-n_particles = 160
+# 単一種でも [[particles.species]] を1件以上定義する
+npcls_per_step = 40
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
@@ -38,7 +37,7 @@ drift_velocity = [1.0e4, -5.0e3, -7.0e5]
 temperature_k = 1.8e4
 
 [[particles.species]]
-n_particles = 128
+npcls_per_step = 32
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
@@ -48,7 +47,7 @@ drift_velocity = [-6.0e3, 8.0e3, -6.0e5]
 temperature_k = 1.2e4
 
 [[particles.species]]
-n_particles = 96
+npcls_per_step = 24
 q_particle = 1.602176634e-19
 m_particle = 1.6726219e-27
 w_particle = 1.0

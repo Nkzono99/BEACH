@@ -3,7 +3,7 @@ module bem_simulator
   !$ use omp_lib
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info
-  use bem_app_config, only: app_config, total_particles_from_config, init_particle_batch_from_config
+  use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit
@@ -13,7 +13,7 @@ contains
 
   !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
   !! @param[inout] mesh 入力メッシュ。各バッチ後に `q_elem` へ堆積電荷を加算して更新。
-  !! @param[in] app 時間刻み・バッチサイズ・停止条件・境界条件を含む実行設定。
+  !! @param[in] app 時間刻み・バッチ回数・監視値・境界条件を含む実行設定。
   !! @param[out] stats 吸着数・脱出数・最終相対変化率などの集計統計。
   subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride)
     type(mesh_type), intent(inout) :: mesh
@@ -22,7 +22,7 @@ contains
     integer, intent(in), optional :: history_unit
     integer(i32), intent(in), optional :: history_stride
 
-    integer(i32) :: batch_start, batch_end, i, step, tid, nth, b, hist_stride, total_particles
+    integer(i32) :: batch_idx, i, step, tid, nth, b, hist_stride
     integer :: hist_unit
     logical :: do_write_history, history_enabled
     real(dp), allocatable :: dq_thread(:, :), dq(:)
@@ -33,7 +33,6 @@ contains
     type(particles_soa) :: pcls_batch
 
     stats = sim_stats()
-    total_particles = total_particles_from_config(app)
     nth = 1
     !$ nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
@@ -44,10 +43,8 @@ contains
     if (present(history_stride)) hist_stride = max(1_i32, history_stride)
     bfield = app%sim%b0
 
-    batch_start = 1
-    do while (batch_start <= total_particles)
-      batch_end = min(total_particles, batch_start + app%sim%npcls_per_step - 1)
-      call init_particle_batch_from_config(app, batch_start, batch_end - batch_start + 1_i32, pcls_batch)
+    do batch_idx = 1, app%sim%batch_count
+      call init_particle_batch_from_config(app, batch_idx, pcls_batch)
       allocate(escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))
       escaped_boundary_flag = .false.
       absorbed_flag = .false.
@@ -110,9 +107,6 @@ contains
       end do
 
       deallocate(escaped_boundary_flag, absorbed_flag)
-
-      if (rel < app%sim%tol_rel) exit
-      batch_start = batch_end + 1
     end do
 
   end subroutine run_absorption_insulator
