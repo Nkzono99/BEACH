@@ -2,7 +2,11 @@ from pathlib import Path
 
 import numpy as np
 
-from beach.fortran_results import list_fortran_runs, load_fortran_result
+from beach.fortran_results import (
+    _surface_charge_density,
+    list_fortran_runs,
+    load_fortran_result,
+)
 
 
 def test_load_fortran_result(tmp_path: Path) -> None:
@@ -100,3 +104,17 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
 
     assert result.escaped_boundary == 0
     assert result.survived_max_step == 0
+
+
+def test_surface_charge_density_uses_triangle_area() -> None:
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]],
+        ]
+    )
+    charges = np.array([6.0, -1.5])
+
+    density = _surface_charge_density(charges, triangles)
+
+    np.testing.assert_allclose(density, np.array([6.0, -3.0]))

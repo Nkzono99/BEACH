@@ -93,7 +93,7 @@ def plot_charges(result: FortranRunResult):
 
 
 def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
-    """Plot mesh triangles in 3D, colored by per-element charge."""
+    """Plot mesh triangles in 3D, colored by per-element surface charge density."""
 
     if result.triangles is None:
         raise ValueError("mesh_triangles.csv is not found. Re-run Fortran with latest output format.")
@@ -104,14 +104,14 @@ def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
     fig = plt.figure(figsize=(7, 6))
     ax = fig.add_subplot(111, projection="3d")
 
-    q = result.charges
-    q_max_abs = float(np.max(np.abs(q)))
-    if q_max_abs <= np.finfo(float).tiny:
-        q_max_abs = 1.0
+    sigma = _surface_charge_density(result.charges, result.triangles)
+    sigma_max_abs = float(np.max(np.abs(sigma)))
+    if sigma_max_abs <= np.finfo(float).tiny:
+        sigma_max_abs = 1.0
 
-    norm = plt.Normalize(vmin=-q_max_abs, vmax=q_max_abs)
+    norm = plt.Normalize(vmin=-sigma_max_abs, vmax=sigma_max_abs)
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    facecolors = sm.to_rgba(q)
+    facecolors = sm.to_rgba(sigma)
 
     mesh = Poly3DCollection(
         result.triangles,
@@ -137,11 +137,11 @@ def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
     ax.set_ylabel("y")
     ax.set_zlabel("z")
     ax.view_init(elev=24.0, azim=-58.0)
-    ax.set_title(f"Charge mesh: {result.directory}")
+    ax.set_title(f"Surface charge density mesh: {result.directory}")
 
-    sm.set_array(q)
+    sm.set_array(sigma)
     fig._beach_color_mappable = sm
-    fig.colorbar(sm, ax=ax, shrink=0.75, label="charge [C]")
+    fig.colorbar(sm, ax=ax, shrink=0.75, label="surface charge density [C/m^2]")
     fig.tight_layout()
     return fig, ax
 
@@ -219,6 +219,19 @@ def _load_triangles_if_exists(path: Path) -> np.ndarray | None:
         data = data[None, :]
     verts = data[:, 1:10].reshape(-1, 3, 3)
     return verts
+
+
+def _surface_charge_density(charges: np.ndarray, triangles: np.ndarray) -> np.ndarray:
+    areas = _triangle_areas(triangles)
+    min_area = np.finfo(float).tiny
+    return charges / np.maximum(areas, min_area)
+
+
+def _triangle_areas(triangles: np.ndarray) -> np.ndarray:
+    edge_a = triangles[:, 1, :] - triangles[:, 0, :]
+    edge_b = triangles[:, 2, :] - triangles[:, 0, :]
+    cross = np.cross(edge_a, edge_b)
+    return 0.5 * np.linalg.norm(cross, axis=1)
 
 
 def _ensure_keys(data: dict[str, str], required: Iterable[str]) -> None:
