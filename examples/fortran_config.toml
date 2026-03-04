@@ -1,13 +1,13 @@
 [sim]
 dt = 1.0e-9
-batch_count = 4
+batch_count = 50
 max_step = 500
 tol_rel = 1.0e-8
 softening = 1.0e-6
 b0 = [0.0, 0.0, 0.0]
 use_box = true
-box_min = [-0.8, -0.8, -0.1]
-box_max = [0.8, 0.8, 1.0]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
 bc_x_low = "periodic"
 bc_x_high = "periodic"
 bc_y_low = "reflect"
@@ -20,41 +20,31 @@ rng_seed = 12345
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
-pos_low = [-0.4, -0.4, 0.2]
-pos_high = [0.4, 0.4, 0.5]
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
 drift_velocity = [0.0, 0.0, -8.0e5]
 temperature_k = 2.0e4
 
 [[particles.species]]
 # 単一種でも [[particles.species]] を1件以上定義する
-npcls_per_step = 40
+npcls_per_step = 400
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
-pos_low = [-0.42, -0.02, 0.42]
-pos_high = [-0.08, 0.26, 0.72]
-drift_velocity = [1.0e4, -5.0e3, -7.0e5]
-temperature_k = 1.8e4
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -7.0e5]
+temperature_k = 2.0e4
 
 [[particles.species]]
-npcls_per_step = 32
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-w_particle = 1.0
-pos_low = [0.05, -0.38, 0.48]
-pos_high = [0.38, -0.05, 0.78]
-drift_velocity = [-6.0e3, 8.0e3, -6.0e5]
-temperature_k = 1.2e4
-
-[[particles.species]]
-npcls_per_step = 24
+npcls_per_step = 80
 q_particle = 1.602176634e-19
-m_particle = 1.6726219e-27
+m_particle = 9.10938356e-28
 w_particle = 1.0
-pos_low = [-0.15, 0.18, 0.35]
-pos_high = [0.18, 0.42, 0.68]
-drift_velocity = [0.0, -5.0e3, -2.0e5]
-temperature_k = 4.0e3
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -7.0e5]
+temperature_k = 2.0e4
 
 [mesh]
 mode = "template"
@@ -65,8 +55,8 @@ kind = "plane"
 enabled = true
 size_x = 1.2
 size_y = 1.0
-nx = 4
-ny = 3
+nx = 20
+ny = 20
 center = [0.0, 0.0, 0.0]
 
 [[mesh.templates]]
