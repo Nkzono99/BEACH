@@ -1,13 +1,13 @@
 [sim]
 dt = 1.0e-9
-npcls_per_step = 64
-max_step = 400
+npcls_per_step = 96
+max_step = 500
 tol_rel = 1.0e-8
 softening = 1.0e-6
 b0 = [0.0, 0.0, 0.0]
 use_box = true
-box_min = [-0.6, -0.6, -0.1]
-box_max = [0.6, 0.6, 0.8]
+box_min = [-0.8, -0.8, -0.1]
+box_max = [0.8, 0.8, 1.0]
 bc_x_low = "periodic"
 bc_x_high = "periodic"
 bc_y_low = "reflect"
@@ -17,7 +17,7 @@ bc_z_high = "open"
 
 [particles]
 rng_seed = 12345
-n_particles = 256  # 旧フォーマット（species未使用時）
+n_particles = 384  # 旧フォーマット（species未使用時）
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
@@ -32,53 +32,72 @@ n_particles = 160
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
-pos_low = [-0.4, -0.4, 0.2]
-pos_high = [0.4, 0.4, 0.5]
-drift_velocity = [0.0, 0.0, -8.0e5]
-temperature_k = 2.0e4
+pos_low = [-0.42, -0.02, 0.42]
+pos_high = [-0.08, 0.26, 0.72]
+drift_velocity = [1.0e4, -5.0e3, -7.0e5]
+temperature_k = 1.8e4
+
+[[particles.species]]
+n_particles = 128
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+w_particle = 1.0
+pos_low = [0.05, -0.38, 0.48]
+pos_high = [0.38, -0.05, 0.78]
+drift_velocity = [-6.0e3, 8.0e3, -6.0e5]
+temperature_k = 1.2e4
 
 [[particles.species]]
 n_particles = 96
 q_particle = 1.602176634e-19
 m_particle = 1.6726219e-27
 w_particle = 1.0
-pos_low = [-0.2, -0.2, 0.2]
-pos_high = [0.2, 0.2, 0.5]
-drift_velocity = [0.0, 0.0, -2.0e5]
-temperature_k = 5.0e3
+pos_low = [-0.15, 0.18, 0.35]
+pos_high = [0.18, 0.42, 0.68]
+drift_velocity = [0.0, -5.0e3, -2.0e5]
+temperature_k = 4.0e3
 
 [mesh]
 mode = "template"
-n_templates = 3
+n_templates = 4
 
 [[mesh.templates]]
 kind = "plane"
 enabled = true
-size_x = 1.0
+size_x = 1.2
 size_y = 1.0
-nx = 2
-ny = 2
+nx = 4
+ny = 3
 center = [0.0, 0.0, 0.0]
 
 [[mesh.templates]]
-# 同じkindを複数指定可能（2枚目のplane）
 kind = "plane"
 enabled = true
-size_x = 0.6
-size_y = 0.6
-nx = 1
+size_x = 0.35
+size_y = 0.22
+nx = 2
 ny = 1
-center = [0.0, 0.0, 0.2]
+center = [0.30, 0.26, 0.24]
 
 [[mesh.templates]]
-kind = "box"
+kind = "cylinder"
 enabled = true
-size = [0.2, 0.2, 0.2]
-center = [0.0, 0.0, 0.4]
-nx = 1
-ny = 1
-nz = 1
+radius = 0.14
+height = 0.28
+center = [-0.22, 0.10, 0.18]
+cap = true
+n_theta = 14
+n_z = 1
+
+[[mesh.templates]]
+kind = "sphere"
+enabled = true
+radius = 0.14
+center = [0.18, -0.20, 0.34]
+n_lon = 14
+n_lat = 6
 
 [output]
 write_files = true
 dir = "outputs/latest"
+history_stride = 1

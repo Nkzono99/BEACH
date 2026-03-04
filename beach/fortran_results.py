@@ -105,15 +105,21 @@ def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
     ax = fig.add_subplot(111, projection="3d")
 
     q = result.charges
-    q_min = float(q.min())
-    q_max = float(q.max())
-    if np.isclose(q_min, q_max):
-        q_max = q_min + 1.0
+    q_max_abs = float(np.max(np.abs(q)))
+    if q_max_abs <= np.finfo(float).tiny:
+        q_max_abs = 1.0
 
-    norm = plt.Normalize(vmin=q_min, vmax=q_max)
-    facecolors = plt.get_cmap(cmap)(norm(q))
+    norm = plt.Normalize(vmin=-q_max_abs, vmax=q_max_abs)
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    facecolors = sm.to_rgba(q)
 
-    mesh = Poly3DCollection(result.triangles, facecolors=facecolors, edgecolor="k", linewidth=0.2)
+    mesh = Poly3DCollection(
+        result.triangles,
+        facecolors=facecolors,
+        edgecolor=(0.0, 0.0, 0.0, 0.45),
+        linewidth=0.35,
+        alpha=0.88,
+    )
     ax.add_collection3d(mesh)
 
     pts = result.triangles.reshape(-1, 3)
@@ -130,10 +136,11 @@ def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_zlabel("z")
+    ax.view_init(elev=24.0, azim=-58.0)
     ax.set_title(f"Charge mesh: {result.directory}")
 
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array(q)
+    fig._beach_color_mappable = sm
     fig.colorbar(sm, ax=ax, shrink=0.75, label="charge [C]")
     fig.tight_layout()
     return fig, ax
