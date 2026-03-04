@@ -50,6 +50,8 @@ contains
       absorbed_flag = .false.
       dq_thread = 0.0d0
 
+      print *, "---------- batch", batch_idx, "----------"
+
       !$omp parallel default(none) &
       !$omp shared(mesh,pcls_batch,app,dq_thread,bfield,escaped_boundary_flag,absorbed_flag) &
       !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary)
