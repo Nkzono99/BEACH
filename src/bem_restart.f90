@@ -71,6 +71,8 @@ contains
     close(u)
   end subroutine write_rng_state_file
 
+  !> `summary.txt` を読み込み、必須キーの存在と要素数整合を検証する。
+  !! 欠落キーやメッシュ要素数不一致は再開不能として停止する。
   subroutine load_summary_file(path, expected_nelem, stats)
     character(len=*), intent(in) :: path
     integer(i32), intent(in) :: expected_nelem
@@ -142,6 +144,8 @@ contains
     end if
   end subroutine load_summary_file
 
+  !> `charges.csv` を読み込み、各要素の電荷をメッシュへ復元する。
+  !! 行重複や要素数不足を検出した場合は停止する。
   subroutine load_charge_file(path, mesh)
     character(len=*), intent(in) :: path
     type(mesh_type), intent(inout) :: mesh
@@ -186,6 +190,8 @@ contains
     end if
   end subroutine load_charge_file
 
+  !> 保存済み乱数状態を読み戻し、このビルドの RNG 状態へ復元する。
+  !! RNG 内部状態の長さが一致しない場合は互換性がないため停止する。
   subroutine restore_rng_state(path)
     character(len=*), intent(in) :: path
 
