@@ -52,10 +52,10 @@ python examples/inspect_fortran_output.py outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png \
   --save-potential-mesh outputs/latest/potential_mesh.png \
-  --potential-softening 1.0e-6
+  --potential-self-term area-equivalent
 ```
 
-Python 後処理では、`charge mesh` に加えて `potential mesh` も生成できます。これは Fortran を再実行して電位を解き直すのではなく、出力済みの要素電荷を各要素重心の点電荷として再構成する近似です。Fortran 実行時の `sim.softening` は現状 `summary.txt` などに保存されないため、同じ近似条件で比較したい場合は Python 側の `--potential-softening` または `compute_potential_mesh(..., softening=...)` に同じ値を手動指定してください。
+Python 後処理では、`charge mesh` に加えて `potential mesh` も生成できます。これは Fortran を再実行して電位を解き直すのではなく、出力済みの要素電荷から電位を再構成する近似です。既定では他要素の寄与を各要素重心の点電荷近似で扱い、自己項のみ要素面積に基づく有限値（面積等価円板近似）で評価します。そのため、Fortran 本体の電場計算と数値的一致を保証するものではありません。旧来の `1 / softening` 自己項を使いたい場合は、`--potential-self-term softened-point --potential-softening 1.0e-6` または `compute_potential_mesh(..., softening=1.0e-6, self_term="softened_point")` を指定してください。`--potential-softening` の既定値は `0.0` で、`area-equivalent` / `exclude` では主に要素間カーネルの平滑化にのみ使われます。
 
 ## 4. 役割分担の目安
 

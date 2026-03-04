@@ -65,7 +65,9 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         result.charge_history,
         np.array([[2.0e-11, 1.0e-10], [-1.0e-11, -2.0e-10]]),
     )
-    np.testing.assert_array_equal(result.processed_particles_by_batch, np.array([5, 10]))
+    np.testing.assert_array_equal(
+        result.processed_particles_by_batch, np.array([5, 10])
+    )
     np.testing.assert_allclose(result.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
     np.testing.assert_array_equal(result.batch_indices, np.array([1, 3]))
 
@@ -125,7 +127,95 @@ def test_surface_charge_density_uses_triangle_area() -> None:
     np.testing.assert_allclose(density, np.array([6.0, -3.0]))
 
 
-def test_compute_potential_mesh_matches_expected_values() -> None:
+def test_compute_potential_mesh_matches_area_equivalent_expected_values() -> None:
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
+            [[3.0, 0.0, 0.0], [6.0, 0.0, 0.0], [3.0, 3.0, 0.0]],
+        ]
+    )
+    charges = np.array([2.0e-9, -1.0e-9])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charges,
+        triangles=triangles,
+    )
+
+    distance = 3.0
+    self_coeff = 2.0 * np.sqrt(np.pi) / np.sqrt(4.5)
+    expected = K_COULOMB * np.array(
+        [
+            charges[0] * self_coeff + charges[1] / distance,
+            charges[0] / distance + charges[1] * self_coeff,
+        ]
+    )
+
+    potential = compute_potential_mesh(result)
+
+    np.testing.assert_allclose(potential, expected)
+
+
+def test_compute_potential_mesh_changes_with_softening_for_offdiag_terms() -> None:
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
+            [[3.0, 0.0, 0.0], [6.0, 0.0, 0.0], [3.0, 3.0, 0.0]],
+        ]
+    )
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9, 1.0e-9]),
+        triangles=triangles,
+    )
+
+    potential_small = compute_potential_mesh(
+        result, softening=1.0e-6, self_term="exclude"
+    )
+    potential_large = compute_potential_mesh(result, softening=1.0, self_term="exclude")
+
+    assert np.all(np.isfinite(potential_small))
+    assert np.all(np.isfinite(potential_large))
+    assert np.all(potential_small > potential_large)
+
+
+def test_compute_potential_mesh_excludes_self_term_for_single_triangle() -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    potential = compute_potential_mesh(result, self_term="exclude")
+
+    np.testing.assert_allclose(potential, np.array([0.0]))
+
+
+def test_compute_potential_mesh_softened_point_matches_legacy_behavior() -> None:
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
@@ -156,16 +246,25 @@ def test_compute_potential_mesh_matches_expected_values() -> None:
         ]
     )
 
-    potential = compute_potential_mesh(result, softening=softening)
+    potential = compute_potential_mesh(
+        result, softening=softening, self_term="softened_point"
+    )
 
     np.testing.assert_allclose(potential, expected)
 
 
-def test_compute_potential_mesh_changes_with_softening() -> None:
-    triangles = np.array([[[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]]])
+def test_compute_potential_mesh_allows_zero_softening_for_non_softened_self_terms() -> (
+    None
+):
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
+            [[3.0, 0.0, 0.0], [6.0, 0.0, 0.0], [3.0, 3.0, 0.0]],
+        ]
+    )
     result = FortranRunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
+        mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
         escaped=0,
@@ -173,16 +272,19 @@ def test_compute_potential_mesh_changes_with_softening() -> None:
         escaped_boundary=0,
         survived_max_step=0,
         last_rel_change=0.0,
-        charges=np.array([1.0e-9]),
+        charges=np.array([1.0e-9, -1.0e-9]),
         triangles=triangles,
     )
 
-    potential_small = compute_potential_mesh(result, softening=1.0e-6)
-    potential_large = compute_potential_mesh(result, softening=1.0)
+    potential_area = compute_potential_mesh(
+        result, softening=0.0, self_term="area_equivalent"
+    )
+    potential_exclude = compute_potential_mesh(
+        result, softening=0.0, self_term="exclude"
+    )
 
-    assert np.isfinite(potential_small[0])
-    assert np.isfinite(potential_large[0])
-    assert potential_small[0] > potential_large[0]
+    assert np.all(np.isfinite(potential_area))
+    assert np.all(np.isfinite(potential_exclude))
 
 
 def test_compute_potential_mesh_requires_triangles() -> None:
@@ -204,7 +306,7 @@ def test_compute_potential_mesh_requires_triangles() -> None:
         compute_potential_mesh(result)
 
 
-def test_compute_potential_mesh_rejects_non_positive_softening() -> None:
+def test_compute_potential_mesh_rejects_negative_softening() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
         directory=Path("dummy"),
@@ -221,7 +323,72 @@ def test_compute_potential_mesh_rejects_non_positive_softening() -> None:
     )
 
     with pytest.raises(ValueError, match="softening"):
-        compute_potential_mesh(result, softening=0.0)
+        compute_potential_mesh(result, softening=-1.0)
+
+
+def test_compute_potential_mesh_rejects_invalid_self_term() -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([0.0]),
+        triangles=triangles,
+    )
+
+    with pytest.raises(ValueError, match="self_term"):
+        compute_potential_mesh(result, self_term="invalid")
+
+
+def test_compute_potential_mesh_requires_positive_softening_for_softened_point() -> (
+    None
+):
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([0.0]),
+        triangles=triangles,
+    )
+
+    with pytest.raises(ValueError, match="softening"):
+        compute_potential_mesh(result, softening=0.0, self_term="softened_point")
+
+
+def test_compute_potential_mesh_handles_degenerate_triangle_in_area_equivalent() -> (
+    None
+):
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    potential = compute_potential_mesh(result, self_term="area_equivalent")
+
+    assert np.isfinite(potential[0])
 
 
 def test_plot_potential_mesh_returns_figure_and_axes() -> None:
@@ -248,7 +415,7 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
         triangles=triangles,
     )
 
-    fig, ax = plot_potential_mesh(result, softening=0.5)
+    fig, ax = plot_potential_mesh(result, softening=0.5, self_term="softened_point")
 
     assert fig is not None
     assert ax is not None

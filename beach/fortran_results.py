@@ -43,8 +43,10 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     q_values = charges[:, 1]
 
     triangles = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
-    charge_history, processed_particles_by_batch, rel_change_by_batch, batch_indices = _load_charge_history_if_exists(
-        out_dir / "charge_history.csv", mesh_nelem=int(summary["mesh_nelem"])
+    charge_history, processed_particles_by_batch, rel_change_by_batch, batch_indices = (
+        _load_charge_history_if_exists(
+            out_dir / "charge_history.csv", mesh_nelem=int(summary["mesh_nelem"])
+        )
     )
 
     return FortranRunResult(
@@ -108,27 +110,38 @@ def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
     )
 
 
-def compute_potential_mesh(result: FortranRunResult, *, softening: float = 1.0e-6) -> np.ndarray:
+def compute_potential_mesh(
+    result: FortranRunResult,
+    *,
+    softening: float = 0.0,
+    self_term: str = "area_equivalent",
+) -> np.ndarray:
     """Compute one electric potential value per triangle centroid."""
 
-    if softening <= 0.0:
-        raise ValueError("softening must be > 0.")
+    if softening < 0.0:
+        raise ValueError("softening must be >= 0.")
 
     triangles = _require_triangles(result)
     centers = _triangle_centers(triangles)
-    delta = centers[:, None, :] - centers[None, :, :]
-    dist2 = np.sum(delta * delta, axis=2) + softening * softening
-    inv_r = 1.0 / np.sqrt(dist2)
-    return K_COULOMB * (inv_r @ result.charges)
+    offdiag_kernel = _potential_offdiag_kernel(centers, softening=softening)
+    self_coeff = _self_potential_coefficients(
+        triangles, self_term=self_term, softening=softening
+    )
+    potential = offdiag_kernel @ result.charges + self_coeff * result.charges
+    return K_COULOMB * potential
 
 
 def plot_potential_mesh(
-    result: FortranRunResult, *, softening: float = 1.0e-6, cmap: str = "viridis"
+    result: FortranRunResult,
+    *,
+    softening: float = 0.0,
+    self_term: str = "area_equivalent",
+    cmap: str = "viridis",
 ):
     """Plot mesh triangles in 3D, colored by per-element electric potential."""
 
     triangles = _require_triangles(result)
-    phi = compute_potential_mesh(result, softening=softening)
+    phi = compute_potential_mesh(result, softening=softening, self_term=self_term)
     return _plot_scalar_mesh(
         triangles,
         phi,
@@ -158,7 +171,6 @@ def _load_summary(path: Path) -> dict[str, str]:
         ],
     )
     return data
-
 
 
 def _load_charge_history_if_exists(
@@ -230,9 +242,42 @@ def _triangle_areas(triangles: np.ndarray) -> np.ndarray:
     return 0.5 * np.linalg.norm(cross, axis=1)
 
 
+def _potential_offdiag_kernel(centers: np.ndarray, *, softening: float) -> np.ndarray:
+    delta = centers[:, None, :] - centers[None, :, :]
+    dist2 = np.sum(delta * delta, axis=2) + softening * softening
+    min_dist2 = np.finfo(float).tiny
+    inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
+    np.fill_diagonal(inv_r, 0.0)
+    return inv_r
+
+
+def _self_potential_coefficients(
+    triangles: np.ndarray, *, self_term: str, softening: float
+) -> np.ndarray:
+    if self_term == "exclude":
+        return np.zeros(triangles.shape[0], dtype=float)
+
+    if self_term == "softened_point":
+        if softening <= 0.0:
+            raise ValueError("softening must be > 0 when self_term='softened_point'.")
+        return np.full(triangles.shape[0], 1.0 / softening, dtype=float)
+
+    if self_term == "area_equivalent":
+        areas = _triangle_areas(triangles)
+        min_area = np.finfo(float).tiny
+        safe_areas = np.maximum(areas, min_area)
+        return 2.0 * np.sqrt(np.pi) / np.sqrt(safe_areas)
+
+    raise ValueError(
+        "self_term must be one of {'area_equivalent', 'exclude', 'softened_point'}."
+    )
+
+
 def _require_triangles(result: FortranRunResult) -> np.ndarray:
     if result.triangles is None:
-        raise ValueError("mesh_triangles.csv is not found. Re-run Fortran with latest output format.")
+        raise ValueError(
+            "mesh_triangles.csv is not found. Re-run Fortran with latest output format."
+        )
     return result.triangles
 
 

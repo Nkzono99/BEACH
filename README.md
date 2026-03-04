@@ -60,15 +60,15 @@ result = load_fortran_result("outputs/latest")
 print(result.absorbed, result.escaped, result.charges.sum())
 print(result.charge_history.shape if result.charge_history is not None else None)
 
-potential = compute_potential_mesh(result, softening=1.0e-6)
+potential = compute_potential_mesh(result)
 print(potential.min(), potential.max())
 
 fig_bar, ax_bar = plot_charges(result)
 fig_mesh, ax_mesh = plot_charge_mesh(result)
-fig_phi, ax_phi = plot_potential_mesh(result, softening=1.0e-6)
+fig_phi, ax_phi = plot_potential_mesh(result)
 ```
 
-`compute_potential_mesh()` / `plot_potential_mesh()` は、Fortran が出力した要素電荷を各要素重心の点電荷として扱う後処理近似です。Fortran 実行時の `sim.softening` は現状の出力ファイルに保存されないため、厳密に合わせたい場合は同じ `softening` 値を Python 側で明示指定してください。
+`compute_potential_mesh()` / `plot_potential_mesh()` は、Fortran が出力した要素電荷を各要素重心ベースで再構成する後処理近似です。既定では、他要素の寄与は重心点電荷近似のまま、自己項のみ要素面積に基づく有限値（面積等価円板近似）で評価します。これは Fortran 本体の電場計算を厳密に再現するものではありません。旧来の `1 / softening` 自己項が必要な場合は、`compute_potential_mesh(result, softening=1.0e-6, self_term="softened_point")` のように明示指定してください。
 
 CLI での確認例：
 
@@ -77,7 +77,7 @@ python examples/inspect_fortran_output.py outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png \
   --save-potential-mesh outputs/latest/potential_mesh.png \
-  --potential-softening 1.0e-6
+  --potential-self-term area-equivalent
 ```
 
 ## 参考ファイル

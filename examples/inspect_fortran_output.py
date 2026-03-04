@@ -24,8 +24,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output_dir", nargs="?", default="outputs/latest")
     parser.add_argument("--show", action="store_true", help="display matplotlib window")
-    parser.add_argument("--save-bar", type=Path, default=None, help="save bar-chart figure path")
-    parser.add_argument("--save-mesh", type=Path, default=None, help="save 3D mesh figure path")
+    parser.add_argument(
+        "--save-bar", type=Path, default=None, help="save bar-chart figure path"
+    )
+    parser.add_argument(
+        "--save-mesh", type=Path, default=None, help="save 3D mesh figure path"
+    )
     parser.add_argument(
         "--save-potential-mesh",
         type=Path,
@@ -35,10 +39,17 @@ def main() -> None:
     parser.add_argument(
         "--potential-softening",
         type=float,
-        default=1.0e-6,
-        help="softening length [m] used for potential reconstruction",
+        default=0.0,
+        help="smoothing length [m] for off-diagonal potential terms; also used for softened-point self terms",
+    )
+    parser.add_argument(
+        "--potential-self-term",
+        choices=("area-equivalent", "exclude", "softened-point"),
+        default="area-equivalent",
+        help="self-term treatment for potential reconstruction",
     )
     args = parser.parse_args()
+    self_term = args.potential_self_term.replace("-", "_")
 
     result = load_fortran_result(args.output_dir)
     print(f"directory={result.directory}")
@@ -48,7 +59,11 @@ def main() -> None:
     print(f"batches={result.batches} last_rel_change={result.last_rel_change:.6e}")
     print(f"charge_sum={result.charges.sum():.6e}")
     if result.triangles is not None:
-        potential = compute_potential_mesh(result, softening=args.potential_softening)
+        potential = compute_potential_mesh(
+            result,
+            softening=args.potential_softening,
+            self_term=self_term,
+        )
         print(f"potential_min={potential.min():.6e}")
         print(f"potential_max={potential.max():.6e}")
     if result.charge_history is not None:
@@ -81,12 +96,15 @@ def main() -> None:
                 potential_mesh_fig, _ = plot_potential_mesh(
                     result,
                     softening=args.potential_softening,
+                    self_term=self_term,
                 )
                 if args.save_potential_mesh is not None:
                     potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)
                     print(f"saved_potential_mesh={args.save_potential_mesh}")
             else:
-                print("mesh_triangles.csv not found; potential mesh visualization is skipped")
+                print(
+                    "mesh_triangles.csv not found; potential mesh visualization is skipped"
+                )
     except ModuleNotFoundError as exc:
         if exc.name is not None and exc.name.startswith("matplotlib"):
             raise SystemExit(
