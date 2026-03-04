@@ -209,3 +209,5 @@ __marimo__/
 **/*.i90
 **/*.mod
 **/*.obj
+
+outputs/
