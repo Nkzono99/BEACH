@@ -9,3 +9,6 @@ description = "BEACH (BEM + Accumulated CHarge): BEM surface-charging + test-par
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24"]
+
+[tool.setuptools]
+packages = ["beach"]
