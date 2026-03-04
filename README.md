@@ -48,22 +48,36 @@ python -m pip install -e . --no-build-isolation
 Fortran 出力を Python で読み込む例：
 
 ```python
-from beach import load_fortran_result, plot_charges, plot_charge_mesh
+from beach import (
+    compute_potential_mesh,
+    load_fortran_result,
+    plot_charge_mesh,
+    plot_charges,
+    plot_potential_mesh,
+)
 
 result = load_fortran_result("outputs/latest")
 print(result.absorbed, result.escaped, result.charges.sum())
 print(result.charge_history.shape if result.charge_history is not None else None)
 
+potential = compute_potential_mesh(result, softening=1.0e-6)
+print(potential.min(), potential.max())
+
 fig_bar, ax_bar = plot_charges(result)
 fig_mesh, ax_mesh = plot_charge_mesh(result)
+fig_phi, ax_phi = plot_potential_mesh(result, softening=1.0e-6)
 ```
+
+`compute_potential_mesh()` / `plot_potential_mesh()` は、Fortran が出力した要素電荷を各要素重心の点電荷として扱う後処理近似です。Fortran 実行時の `sim.softening` は現状の出力ファイルに保存されないため、厳密に合わせたい場合は同じ `softening` 値を Python 側で明示指定してください。
 
 CLI での確認例：
 
 ```bash
 python examples/inspect_fortran_output.py outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
-  --save-mesh outputs/latest/charges_mesh.png
+  --save-mesh outputs/latest/charges_mesh.png \
+  --save-potential-mesh outputs/latest/potential_mesh.png \
+  --potential-softening 1.0e-6
 ```
 
 ## 参考ファイル

@@ -50,8 +50,12 @@ python -m pip install -e . --no-build-isolation
 ```bash
 python examples/inspect_fortran_output.py outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
-  --save-mesh outputs/latest/charges_mesh.png
+  --save-mesh outputs/latest/charges_mesh.png \
+  --save-potential-mesh outputs/latest/potential_mesh.png \
+  --potential-softening 1.0e-6
 ```
+
+Python 後処理では、`charge mesh` に加えて `potential mesh` も生成できます。これは Fortran を再実行して電位を解き直すのではなく、出力済みの要素電荷を各要素重心の点電荷として再構成する近似です。Fortran 実行時の `sim.softening` は現状 `summary.txt` などに保存されないため、同じ近似条件で比較したい場合は Python 側の `--potential-softening` または `compute_potential_mesh(..., softening=...)` に同じ値を手動指定してください。
 
 ## 4. 役割分担の目安
 
@@ -61,7 +65,7 @@ python examples/inspect_fortran_output.py outputs/latest \
   - 結果ファイル出力
 - **Python**
   - 結果ファイルの読込・集計
-  - 可視化（バー/3D 表示）
+  - 可視化（バー/3D 表示、電位メッシュ再構成）
   - 実験的なデータ解析スクリプト
 
 ## 5. 運用ルール（推奨）
