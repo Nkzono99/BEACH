@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 import numpy as np
 
@@ -151,6 +151,113 @@ def plot_potential_mesh(
     )
 
 
+def animate_history_mesh(
+    result: FortranRunResult,
+    output_path: str | Path,
+    *,
+    quantity: Literal["charge", "potential"] = "charge",
+    fps: int = 10,
+    frame_stride: int = 1,
+    cmap: str | None = None,
+    softening: float = 0.0,
+    self_term: str = "area_equivalent",
+) -> Path:
+    """Render charge-history snapshots as a GIF animation on the 3D mesh."""
+
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    if fps <= 0:
+        raise ValueError("fps must be > 0.")
+    if frame_stride <= 0:
+        raise ValueError("frame_stride must be > 0.")
+
+    triangles = _require_triangles(result)
+    charge_history = _require_charge_history(result)
+    quantity_key = quantity.lower()
+    self_term_key = self_term.replace("-", "_")
+    frame_cols = np.arange(0, charge_history.shape[1], frame_stride, dtype=np.int64)
+    charges_sampled = charge_history[:, frame_cols]
+
+    if quantity_key == "charge":
+        values_history = _surface_charge_density_history(charges_sampled, triangles)
+        colorbar_label = "surface charge density [C/m^2]"
+        title_prefix = "Surface charge density history"
+        use_cmap = "coolwarm" if cmap is None else cmap
+    elif quantity_key == "potential":
+        values_history = _potential_history(
+            charges_sampled,
+            triangles,
+            softening=softening,
+            self_term=self_term_key,
+        )
+        colorbar_label = "potential [V]"
+        title_prefix = "Electric potential history"
+        use_cmap = "viridis" if cmap is None else cmap
+    else:
+        raise ValueError("quantity must be one of {'charge', 'potential'}.")
+
+    max_abs = float(np.max(np.abs(values_history)))
+    if max_abs <= np.finfo(float).tiny:
+        max_abs = 1.0
+    norm = plt.Normalize(vmin=-max_abs, vmax=max_abs)
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=use_cmap)
+
+    fig = plt.figure(figsize=(7, 6))
+    ax = fig.add_subplot(111, projection="3d")
+    mesh = Poly3DCollection(
+        triangles,
+        facecolors=sm.to_rgba(values_history[:, 0]),
+        edgecolor=(0.0, 0.0, 0.0, 0.45),
+        linewidth=0.35,
+        alpha=0.88,
+    )
+    ax.add_collection3d(mesh)
+    _configure_mesh_axes(ax, triangles)
+
+    def _title_for_frame(frame_idx: int) -> str:
+        col = int(frame_cols[frame_idx])
+        suffix: list[str] = [f"frame={frame_idx + 1}/{frame_cols.size}"]
+        if result.batch_indices is not None and col < result.batch_indices.size:
+            suffix.append(f"batch={int(result.batch_indices[col])}")
+        if (
+            result.processed_particles_by_batch is not None
+            and col < result.processed_particles_by_batch.size
+        ):
+            suffix.append(f"processed={int(result.processed_particles_by_batch[col])}")
+        if (
+            result.rel_change_by_batch is not None
+            and col < result.rel_change_by_batch.size
+        ):
+            suffix.append(f"rel={result.rel_change_by_batch[col]:.3e}")
+        return f"{title_prefix}: {result.directory}\n" + " ".join(suffix)
+
+    ax.set_title(_title_for_frame(0))
+    sm.set_array(values_history[:, 0])
+    fig.colorbar(sm, ax=ax, shrink=0.75, label=colorbar_label)
+    fig.tight_layout()
+
+    def _update(frame_idx: int):
+        mesh.set_facecolor(sm.to_rgba(values_history[:, frame_idx]))
+        ax.set_title(_title_for_frame(frame_idx))
+        return (mesh,)
+
+    animation = FuncAnimation(
+        fig,
+        _update,
+        frames=frame_cols.size,
+        interval=1000.0 / float(fps),
+        blit=False,
+    )
+
+    out_path = Path(output_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    animation.save(out_path, writer=PillowWriter(fps=fps))
+    plt.close(fig)
+    return out_path
+
+
 def _load_summary(path: Path) -> dict[str, str]:
     data: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -231,6 +338,14 @@ def _surface_charge_density(charges: np.ndarray, triangles: np.ndarray) -> np.nd
     return charges / np.maximum(areas, min_area)
 
 
+def _surface_charge_density_history(
+    charges_history: np.ndarray, triangles: np.ndarray
+) -> np.ndarray:
+    areas = _triangle_areas(triangles)
+    min_area = np.finfo(float).tiny
+    return charges_history / np.maximum(areas[:, None], min_area)
+
+
 def _triangle_centers(triangles: np.ndarray) -> np.ndarray:
     return triangles.mean(axis=1)
 
@@ -249,6 +364,27 @@ def _potential_offdiag_kernel(centers: np.ndarray, *, softening: float) -> np.nd
     inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
     np.fill_diagonal(inv_r, 0.0)
     return inv_r
+
+
+def _potential_history(
+    charges_history: np.ndarray,
+    triangles: np.ndarray,
+    *,
+    softening: float,
+    self_term: str,
+) -> np.ndarray:
+    if softening < 0.0:
+        raise ValueError("softening must be >= 0.")
+
+    centers = _triangle_centers(triangles)
+    offdiag_kernel = _potential_offdiag_kernel(centers, softening=softening)
+    self_coeff = _self_potential_coefficients(
+        triangles, self_term=self_term, softening=softening
+    )
+    potential = (
+        offdiag_kernel @ charges_history + self_coeff[:, None] * charges_history
+    )
+    return K_COULOMB * potential
 
 
 def _self_potential_coefficients(
@@ -281,6 +417,32 @@ def _require_triangles(result: FortranRunResult) -> np.ndarray:
     return result.triangles
 
 
+def _require_charge_history(result: FortranRunResult) -> np.ndarray:
+    if result.charge_history is None or result.charge_history.size == 0:
+        raise ValueError(
+            "charge_history.csv is not found or empty. Enable history output and rerun."
+        )
+    return result.charge_history
+
+
+def _configure_mesh_axes(ax, triangles: np.ndarray) -> None:
+    pts = triangles.reshape(-1, 3)
+    mins = pts.min(axis=0)
+    maxs = pts.max(axis=0)
+    center = (mins + maxs) * 0.5
+    radius = float(np.max(maxs - mins)) * 0.5
+    radius = max(radius, 1.0e-12)
+
+    ax.set_xlim(center[0] - radius, center[0] + radius)
+    ax.set_ylim(center[1] - radius, center[1] + radius)
+    ax.set_zlim(center[2] - radius, center[2] + radius)
+    ax.set_box_aspect((1.0, 1.0, 1.0))
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    ax.view_init(elev=24.0, azim=-58.0)
+
+
 def _plot_scalar_mesh(
     triangles: np.ndarray,
     values: np.ndarray,
@@ -311,22 +473,7 @@ def _plot_scalar_mesh(
         alpha=0.88,
     )
     ax.add_collection3d(mesh)
-
-    pts = triangles.reshape(-1, 3)
-    mins = pts.min(axis=0)
-    maxs = pts.max(axis=0)
-    center = (mins + maxs) * 0.5
-    radius = float(np.max(maxs - mins)) * 0.5
-    radius = max(radius, 1.0e-12)
-
-    ax.set_xlim(center[0] - radius, center[0] + radius)
-    ax.set_ylim(center[1] - radius, center[1] + radius)
-    ax.set_zlim(center[2] - radius, center[2] + radius)
-    ax.set_box_aspect((1.0, 1.0, 1.0))
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_zlabel("z")
-    ax.view_init(elev=24.0, azim=-58.0)
+    _configure_mesh_axes(ax, triangles)
     ax.set_title(title)
 
     sm.set_array(values)

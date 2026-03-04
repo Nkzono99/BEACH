@@ -6,6 +6,7 @@ import pytest
 from beach.fortran_results import (
     K_COULOMB,
     FortranRunResult,
+    animate_history_mesh,
     compute_potential_mesh,
     _surface_charge_density,
     list_fortran_runs,
@@ -420,3 +421,97 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
     assert fig is not None
     assert ax is not None
     fig.clf()
+
+
+def test_animate_history_mesh_requires_charge_history(tmp_path: Path) -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+        charge_history=None,
+    )
+
+    with pytest.raises(ValueError, match="charge_history.csv"):
+        animate_history_mesh(result, tmp_path / "history.gif")
+
+
+def test_animate_history_mesh_rejects_invalid_quantity(tmp_path: Path) -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+        charge_history=np.array([[1.0e-9, 1.2e-9]]),
+    )
+
+    with pytest.raises(ValueError, match="quantity"):
+        animate_history_mesh(result, tmp_path / "history.gif", quantity="invalid")
+
+
+@pytest.mark.parametrize("quantity", ["charge", "potential"])
+def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    pytest.importorskip("PIL")
+    matplotlib.use("Agg")
+
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            [[0.0, 0.0, 1.0], [2.0, 0.0, 1.0], [0.0, 1.0, 1.0]],
+        ]
+    )
+    charge_history = np.array(
+        [
+            [1.0e-10, 2.0e-10, 3.0e-10],
+            [-2.0e-10, -1.0e-10, -0.5e-10],
+        ]
+    )
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charge_history[:, -1],
+        triangles=triangles,
+        charge_history=charge_history,
+        batch_indices=np.array([1, 2, 3]),
+        processed_particles_by_batch=np.array([10, 20, 30]),
+        rel_change_by_batch=np.array([1.0e-1, 1.0e-2, 1.0e-3]),
+    )
+    out = tmp_path / f"{quantity}.gif"
+
+    written = animate_history_mesh(
+        result,
+        out,
+        quantity=quantity,
+        fps=4,
+        frame_stride=1,
+        softening=0.5,
+        self_term="softened_point",
+    )
+
+    assert written == out
+    assert out.exists()
+    assert out.stat().st_size > 0
