@@ -6,11 +6,11 @@ module bem_mesh
 contains
 
   !> 三角形頂点配列から `mesh_type` を初期化し、幾何キャッシュと要素電荷配列を準備する。
-  !! @param[out] mesh 出力引数。
-  !! @param[in] v0 入力引数。
-  !! @param[in] v1 入力引数。
-  !! @param[in] v2 入力引数。
-  !! @param[in] q0 入力引数。
+  !! @param[out] mesh 幾何キャッシュ（重心・法線・AABB）を含むメッシュ構造体。
+  !! @param[in] v0 各三角形の頂点0配列 `v0(3,nelem)` [m]。
+  !! @param[in] v1 各三角形の頂点1配列 `v1(3,nelem)` [m]。
+  !! @param[in] v2 各三角形の頂点2配列 `v2(3,nelem)` [m]。
+  !! @param[in] q0 初期要素電荷 `q_elem(nelem)` [C]（省略時は0）。
   subroutine init_mesh(mesh, v0, v1, v2, q0)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
@@ -62,8 +62,8 @@ contains
   end subroutine init_mesh
 
   !> 3次元ベクトルの外積を返す基本演算。
-  !! @param[in] a 入力引数。
-  !! @param[in] b 入力引数。
+  !! @param[in] a 左オペランドの3次元ベクトル。
+  !! @param[in] b 右オペランドの3次元ベクトル。
   !! @return c 関数の戻り値。
   pure function cross(a, b) result(c)
     real(dp), intent(in) :: a(3), b(3)

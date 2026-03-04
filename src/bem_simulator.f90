@@ -12,9 +12,9 @@ module bem_simulator
 contains
 
   !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
-  !! @param[inout] mesh 入出力引数。
-  !! @param[in] app 入力引数。
-  !! @param[out] stats 出力引数。
+  !! @param[inout] mesh 入力メッシュ。各バッチ後に `q_elem` へ堆積電荷を加算して更新。
+  !! @param[in] app 時間刻み・バッチサイズ・停止条件・境界条件を含む実行設定。
+  !! @param[out] stats 吸着数・脱出数・最終相対変化率などの集計統計。
   subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride)
     type(mesh_type), intent(inout) :: mesh
     type(app_config), intent(in) :: app

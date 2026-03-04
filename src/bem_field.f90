@@ -7,10 +7,10 @@ module bem_field
 contains
 
   !> 全要素電荷を点電荷近似で総和し、softening付きで観測点 `r` の電場ベクトルを返す。
-  !! @param[in] mesh 入力引数。
-  !! @param[in] r 入力引数。
-  !! @param[in] softening 入力引数。
-  !! @param[out] e 出力引数。
+  !! @param[in] mesh 要素重心 `centers` と要素電荷 `q_elem` を保持したメッシュ情報。
+  !! @param[in] r 電場を評価する観測点座標 `(x,y,z)` [m]。
+  !! @param[in] softening 特異点回避のために距離2乗へ加える softening 長さ [m]。
+  !! @param[out] e 観測点 `r` における電場ベクトル `(Ex,Ey,Ez)` [V/m]。
   subroutine electric_field_at(mesh, r, softening, e)
     use omp_lib
     type(mesh_type), intent(in) :: mesh

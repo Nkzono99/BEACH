@@ -6,12 +6,12 @@ module bem_particles
 contains
 
   !> 位置・速度・電荷・質量(と任意重み)配列から `particles_soa` を検証付きで構築する。
-  !! @param[out] pcls 出力引数。
-  !! @param[in] x 入力引数。
-  !! @param[in] v 入力引数。
-  !! @param[in] q 入力引数。
-  !! @param[in] m 入力引数。
-  !! @param[in] w 入力引数。
+  !! @param[out] pcls 検証済み配列を内部に保持した `particles_soa` 構造体。
+  !! @param[in] x 粒子位置配列 `x(3,n)` [m]。
+  !! @param[in] v 粒子速度配列 `v(3,n)` [m/s]。
+  !! @param[in] q 粒子電荷配列 `q(n)` [C]。
+  !! @param[in] m 粒子質量配列 `m(n)` [kg]。
+  !! @param[in] w マクロ粒子重み配列 `w(n)`（省略時は1）。
   subroutine init_particles(pcls, x, v, q, m, w)
     type(particles_soa), intent(out) :: pcls
     real(dp), intent(in) :: x(:, :), v(:, :), q(:), m(:)
