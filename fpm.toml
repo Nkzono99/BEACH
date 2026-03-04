@@ -24,3 +24,13 @@ main = "main.f90"
 name = "test_app_config_parser"
 source-dir = "test"
 main = "test_app_config_parser.f90"
+
+[[test]]
+name = "test_boundary"
+source-dir = "test"
+main = "test_boundary.f90"
+
+[[test]]
+name = "test_restart"
+source-dir = "test"
+main = "test_restart.f90"

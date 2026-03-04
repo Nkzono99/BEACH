@@ -96,7 +96,7 @@ contains
     character(len=1024) :: cmd
     integer :: ios
 
-    cmd = 'rmdir "' // trim(path) // '"'
+    cmd = 'if [ -d "' // trim(path) // '" ]; then rmdir "' // trim(path) // '"; fi'
     call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
   end subroutine remove_empty_directory
 
