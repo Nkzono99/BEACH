@@ -51,15 +51,7 @@ module bem_app_config
         integer(i32) :: n_templates = 1
         type(template_spec) :: templates(max_templates)
 
-        integer(i32) :: rng_seed = 12345_i32
         integer(i32) :: n_particles = 0_i32
-        real(dp) :: q_particle = -1.602176634d-19
-        real(dp) :: m_particle = 9.10938356d-31
-        real(dp) :: w_particle = 1.0d0
-        real(dp) :: pos_low(3) = [-0.4d0, -0.4d0, 0.2d0]
-        real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
-        real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
-        real(dp) :: temperature_k = 2.0d4
         integer(i32) :: n_particle_species = 0_i32
         type(particle_species_spec) :: particle_species(max_particle_species)
 
@@ -113,6 +105,7 @@ contains
     subroutine default_app_config(cfg)
         type(app_config), intent(out) :: cfg
         cfg%sim%dt = 1.0d-9
+        cfg%sim%rng_seed = 12345_i32
         cfg%sim%batch_count = 1_i32
         cfg%sim%max_step = 400
         cfg%sim%tol_rel = 1.0d-8
@@ -178,7 +171,7 @@ contains
 
         if (cfg%n_particle_species <= 0) error stop 'At least one [[particles.species]] entry is required.'
 
-        call seed_rng([cfg%rng_seed])
+        call seed_rng([cfg%sim%rng_seed])
 
         allocate (counts(cfg%n_particle_species))
         counts = 0_i32
@@ -228,7 +221,7 @@ contains
   !! @param[in] cfg 入力引数。
     subroutine seed_particles_from_config(cfg)
         type(app_config), intent(in) :: cfg
-        call seed_rng([cfg%rng_seed])
+        call seed_rng([cfg%sim%rng_seed])
     end subroutine seed_particles_from_config
 
     !> 指定バッチ番号に対応する粒子バッチを生成する。
@@ -417,7 +410,7 @@ contains
                 else if (trim(line) == '[[particles.species]]') then
                     s_idx = s_idx + 1
                     if (s_idx > max_particle_species) error stop 'Too many particles.species entries.'
-                    cfg%particle_species(s_idx) = species_from_defaults(cfg)
+                    cfg%particle_species(s_idx) = species_from_defaults()
                     cfg%particle_species(s_idx)%enabled = .true.
                     section = 'particles.species'
                 else
@@ -430,7 +423,7 @@ contains
             case ('sim')
                 call apply_sim_kv(cfg, line)
             case ('particles')
-                call apply_particles_kv(cfg, line)
+                call apply_particles_kv(line)
             case ('particles.species')
                 call apply_particles_species_kv(cfg%particle_species(s_idx), line)
             case ('mesh')
@@ -471,6 +464,7 @@ contains
         call split_key_value(line, k, v)
         select case (trim(k))
         case ('dt'); call parse_real(v, cfg%sim%dt)
+        case ('rng_seed'); call parse_int(v, cfg%sim%rng_seed)
         case ('batch_count'); call parse_int(v, cfg%sim%batch_count)
         case ('npcls_per_step')
             error stop 'sim.npcls_per_step was removed. Use sim.batch_count instead.'
@@ -495,26 +489,22 @@ contains
         end select
     end subroutine apply_sim_kv
 
-    !> `[particles]` セクションのキー値を粒子注入パラメータへ適用する。
-  !! @param[inout] cfg 入出力引数。
+    !> 廃止された `[particles]` セクションのキーを検出し、新仕様へ誘導する。
   !! @param[in] line 入力引数。
-    subroutine apply_particles_kv(cfg, line)
-        type(app_config), intent(inout) :: cfg
+    subroutine apply_particles_kv(line)
         character(len=*), intent(in) :: line
         character(len=64) :: k
         character(len=256) :: v
         call split_key_value(line, k, v)
         select case (trim(k))
-        case ('rng_seed'); call parse_int(v, cfg%rng_seed)
+        case ('rng_seed')
+            error stop 'particles.rng_seed was moved to sim.rng_seed.'
         case ('n_particles')
             error stop 'particles.n_particles was removed. Define [[particles.species]] entries with npcls_per_step instead.'
-        case ('q_particle'); call parse_real(v, cfg%q_particle)
-        case ('m_particle'); call parse_real(v, cfg%m_particle)
-        case ('w_particle'); call parse_real(v, cfg%w_particle)
-        case ('pos_low'); call parse_real3(v, cfg%pos_low)
-        case ('pos_high'); call parse_real3(v, cfg%pos_high)
-        case ('drift_velocity'); call parse_real3(v, cfg%drift_velocity)
-        case ('temperature_k'); call parse_real(v, cfg%temperature_k)
+        case ('q_particle', 'm_particle', 'w_particle', 'pos_low', 'pos_high', 'drift_velocity', 'temperature_k')
+            error stop '[particles] defaults were removed. Define particle properties inside each [[particles.species]] entry.'
+        case default
+            error stop '[particles] defaults were removed. Use sim.rng_seed and [[particles.species]] instead.'
         end select
     end subroutine apply_particles_kv
 
@@ -539,18 +529,10 @@ contains
         end select
     end subroutine apply_particles_species_kv
 
-    pure function species_from_defaults(cfg) result(spec)
-        type(app_config), intent(in) :: cfg
+    pure function species_from_defaults() result(spec)
         type(particle_species_spec) :: spec
         spec%enabled = .true.
         spec%npcls_per_step = 0_i32
-        spec%q_particle = cfg%q_particle
-        spec%m_particle = cfg%m_particle
-        spec%w_particle = cfg%w_particle
-        spec%pos_low = cfg%pos_low
-        spec%pos_high = cfg%pos_high
-        spec%drift_velocity = cfg%drift_velocity
-        spec%temperature_k = cfg%temperature_k
     end function species_from_defaults
 
     !> `[mesh]` セクションのキー値をメッシュ入力モード/OBJパスへ適用する。

@@ -1,6 +1,7 @@
 [sim]
 dt = 1.0e-9
-batch_count = 50
+rng_seed = 12345
+batch_count = 5
 max_step = 500
 tol_rel = 1.0e-8
 softening = 1.0e-6
@@ -14,16 +15,6 @@ bc_y_low = "reflect"
 bc_y_high = "reflect"
 bc_z_low = "open"
 bc_z_high = "open"
-
-[particles]
-rng_seed = 12345
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-w_particle = 1.0
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
-drift_velocity = [0.0, 0.0, -8.0e5]
-temperature_k = 2.0e4
 
 [[particles.species]]
 # 単一種でも [[particles.species]] を1件以上定義する

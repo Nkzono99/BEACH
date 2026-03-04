@@ -10,6 +10,7 @@ module bem_types
   !> 時間刻み・収束判定・バッチ回数・外部磁場など実行制御パラメータを保持する。
   type :: sim_config
     real(dp) :: dt = 1.0d-12
+    integer(i32) :: rng_seed = 12345_i32
     integer(i32) :: batch_count = 1_i32
     integer(i32) :: max_step = 100
     real(dp) :: tol_rel = 1.0d-4
