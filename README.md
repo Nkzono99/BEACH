@@ -11,10 +11,10 @@
 
 ## ディレクトリ構成
 
-- `src/`, `app/`：Fortran 本体（fpm プロジェクト）
-- `examples/`：Fortran 設定例、Python 後処理例
-- `beach/`：Python ライブラリ（結果読込・可視化などの後処理）
-- `docs/`：運用・仕様ドキュメント
+- [`src/`](src/), [`app/`](app/)：Fortran 本体（fpm プロジェクト）
+- [`examples/`](examples/)：Fortran 設定例、Python 後処理例
+- [`beach/`](beach/)：Python ライブラリ（結果読込・可視化などの後処理）
+- [`docs/`](docs/)：運用・仕様ドキュメント
 
 ## セットアップ
 
@@ -39,9 +39,9 @@ python -m pip install -e . --no-build-isolation
 
 ## ドキュメント
 
-- Fortran 中心ワークフロー: `docs/fortran_workflow.md`
-- Fortran パラメータファイル仕様: `docs/fortran_parameter_file.md`
-- シミュレータ仕様（v0.1）: `SPEC.md`
+- Fortran 中心ワークフロー: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
+- Fortran パラメータファイル仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
+- シミュレータ仕様（v0.1）: [`SPEC.md`](SPEC.md)
 
 ## Python 後処理の利用例
 
@@ -82,4 +82,4 @@ python examples/inspect_fortran_output.py outputs/latest \
 
 ## 参考ファイル
 
-- `examples/fortran_config.toml`：複数テンプレート合成を含む設定サンプル
+- [`examples/fortran_config.toml`](examples/fortran_config.toml)：複数テンプレート合成を含む設定サンプル
