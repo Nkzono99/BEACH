@@ -116,7 +116,10 @@ contains
   !! @return is_vertex_line 関数の戻り値。
   logical pure function is_vertex_line(line)
     character(len=*), intent(in) :: line
-    is_vertex_line = len_trim(adjustl(line)) > 1 .and. adjustl(line)(1:2) == 'v '
+    character(:), allocatable :: adj
+
+    adj = adjustl(line)
+    is_vertex_line = (len_trim(adj) > 1) .and. (adj(1:2) == 'v ')
   end function is_vertex_line
 
   !> 与えられた行がOBJ面行(`f `)かを判定する。
@@ -124,7 +127,10 @@ contains
   !! @return is_face_line 関数の戻り値。
   logical pure function is_face_line(line)
     character(len=*), intent(in) :: line
-    is_face_line = len_trim(adjustl(line)) > 1 .and. adjustl(line)(1:2) == 'f '
+    character(:), allocatable :: adj
+
+    adj = adjustl(line)
+    is_face_line = len_trim(adj) > 1 .and. adj(1:2) == 'f '
   end function is_face_line
 
   !> 面行に含まれる頂点トークン数を数え、扇形分割時の三角形数算出に使う。
