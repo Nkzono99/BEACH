@@ -1,6 +1,5 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
-  use bem_kinds, only: i32, dp
   use bem_types, only: sim_stats, mesh_type
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file
@@ -12,51 +11,11 @@ program main
   type(app_config) :: app
   type(sim_stats) :: stats
   type(sim_stats) :: initial_stats
-  character(len=256) :: cfg_path
-  character(len=1024) :: cmd, history_path
-  integer :: history_unit, ios
-  logical :: history_opened, resumed, history_exists
+  integer :: history_unit
+  logical :: history_opened, resumed
 
-  call default_app_config(app)
-
-  if (command_argument_count() >= 1) then
-    call get_command_argument(1, cfg_path)
-    call load_app_config(trim(cfg_path), app)
-  end if
-
-  call build_mesh_from_config(app, mesh)
-  initial_stats = sim_stats()
-  resumed = .false.
-  if (app%resume_output) then
-    if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
-    call load_restart_checkpoint(trim(app%output_dir), mesh, initial_stats, resumed)
-  end if
-  if (resumed) then
-    print '(a,i0)', 'resuming_from_batches=', initial_stats%batches
-    print '(a,i0)', 'resuming_from_processed_particles=', initial_stats%processed_particles
-  else
-    call seed_particles_from_config(app)
-  end if
-
-  history_opened = .false.
-  if (app%write_output .and. app%history_stride > 0) then
-    cmd = 'mkdir -p "' // trim(app%output_dir) // '"'
-    call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
-    if (ios /= 0) error stop 'Failed to create output directory.'
-
-    history_path = trim(app%output_dir) // '/charge_history.csv'
-    inquire(file=trim(history_path), exist=history_exists)
-    if (resumed) then
-      open(newunit=history_unit, file=trim(history_path), status='unknown', position='append', action='write', iostat=ios)
-    else
-      open(newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
-    end if
-    if (ios /= 0) error stop 'Failed to open charge history file.'
-    if (.not. resumed .or. .not. history_exists) then
-      write(history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
-    end if
-    history_opened = .true.
-  end if
+  call load_or_init_run_state(app, mesh, initial_stats, resumed)
+  call open_history_writer(app, resumed, history_opened, history_unit)
 
   if (history_opened) then
     call run_absorption_insulator( &
@@ -67,15 +26,7 @@ program main
     call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats)
   end if
 
-  print '(a,i0)', 'mesh nelem=', mesh%nelem
-  print '(a,i0)', 'processed_particles=', stats%processed_particles
-  print '(a,i0)', 'absorbed=', stats%absorbed
-  print '(a,i0)', 'escaped=', stats%escaped
-  print '(a,i0)', 'batches=', stats%batches
-  print '(a,i0)', 'escaped_boundary=', stats%escaped_boundary
-  print '(a,i0)', 'survived_max_step=', stats%survived_max_step
-  print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
-  print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
+  call print_run_summary(mesh, stats)
 
   if (app%write_output) then
     call write_result_files(trim(app%output_dir), mesh, stats)
@@ -85,20 +36,115 @@ program main
 
 contains
 
-  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv`（履歴は実行中に `charge_history.csv` へ逐次書込） として出力ディレクトリへ保存する。
-  !! @param[in] out_dir 入力引数。
-  !! @param[in] mesh 入力引数。
-  !! @param[in] stats 入力引数。
+  !> 設定読込・メッシュ構築・再開判定・乱数初期化をまとめて行う。
+  subroutine load_or_init_run_state(app, mesh, initial_stats, resumed)
+    type(app_config), intent(out) :: app
+    type(mesh_type), intent(out) :: mesh
+    type(sim_stats), intent(out) :: initial_stats
+    logical, intent(out) :: resumed
+    character(len=256) :: cfg_path
+
+    call default_app_config(app)
+    if (command_argument_count() >= 1) then
+      call get_command_argument(1, cfg_path)
+      call load_app_config(trim(cfg_path), app)
+    end if
+
+    call build_mesh_from_config(app, mesh)
+    initial_stats = sim_stats()
+    resumed = .false.
+    if (app%resume_output) then
+      if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
+      call load_restart_checkpoint(trim(app%output_dir), mesh, initial_stats, resumed)
+    end if
+
+    if (resumed) then
+      print '(a,i0)', 'resuming_from_batches=', initial_stats%batches
+      print '(a,i0)', 'resuming_from_processed_particles=', initial_stats%processed_particles
+    else
+      call seed_particles_from_config(app)
+    end if
+  end subroutine load_or_init_run_state
+
+  !> 履歴 CSV のオープンとヘッダ初期化を行う。
+  subroutine open_history_writer(app, resumed, history_opened, history_unit)
+    type(app_config), intent(in) :: app
+    logical, intent(in) :: resumed
+    logical, intent(out) :: history_opened
+    integer, intent(out) :: history_unit
+    character(len=1024) :: history_path
+    integer :: ios
+    logical :: history_exists
+
+    history_opened = .false.
+    history_unit = -1
+    if (.not. app%write_output) return
+    if (app%history_stride <= 0) return
+
+    call ensure_output_dir(app%output_dir)
+
+    history_path = trim(app%output_dir) // '/charge_history.csv'
+    inquire(file=trim(history_path), exist=history_exists)
+    if (resumed) then
+      open(newunit=history_unit, file=trim(history_path), status='unknown', position='append', action='write', iostat=ios)
+    else
+      open(newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
+    end if
+    if (ios /= 0) error stop 'Failed to open charge history file.'
+
+    if (.not. resumed .or. .not. history_exists) then
+      ! 再開時は既存ファイルがある場合だけヘッダ追記を避ける。
+      write(history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
+    end if
+    history_opened = .true.
+  end subroutine open_history_writer
+
+  !> 実行結果の主要統計を標準出力へ表示する。
+  subroutine print_run_summary(mesh, stats)
+    type(mesh_type), intent(in) :: mesh
+    type(sim_stats), intent(in) :: stats
+
+    print '(a,i0)', 'mesh nelem=', mesh%nelem
+    print '(a,i0)', 'processed_particles=', stats%processed_particles
+    print '(a,i0)', 'absorbed=', stats%absorbed
+    print '(a,i0)', 'escaped=', stats%escaped
+    print '(a,i0)', 'batches=', stats%batches
+    print '(a,i0)', 'escaped_boundary=', stats%escaped_boundary
+    print '(a,i0)', 'survived_max_step=', stats%survived_max_step
+    print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
+    print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
+  end subroutine print_run_summary
+
+  !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` として保存する。
   subroutine write_result_files(out_dir, mesh, stats)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
-    character(len=1024) :: cmd, summary_path, charges_path, mesh_path
-    integer :: u, ios, i
+
+    call ensure_output_dir(out_dir)
+    call write_summary_file(out_dir, mesh, stats)
+    call write_charges_file(out_dir, mesh)
+    call write_mesh_file(out_dir, mesh)
+  end subroutine write_result_files
+
+  !> 出力ディレクトリを作成する。
+  subroutine ensure_output_dir(out_dir)
+    character(len=*), intent(in) :: out_dir
+    character(len=1024) :: cmd
+    integer :: ios
 
     cmd = 'mkdir -p "' // trim(out_dir) // '"'
     call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
     if (ios /= 0) error stop 'Failed to create output directory.'
+  end subroutine ensure_output_dir
+
+  !> 実行統計を `summary.txt` に書き出す。
+  subroutine write_summary_file(out_dir, mesh, stats)
+    character(len=*), intent(in) :: out_dir
+    type(mesh_type), intent(in) :: mesh
+    type(sim_stats), intent(in) :: stats
+    character(len=1024) :: summary_path
+    integer :: u, ios
 
     summary_path = trim(out_dir) // '/summary.txt'
     open(newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
@@ -112,6 +158,14 @@ contains
     write(u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
     write(u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
     close(u)
+  end subroutine write_summary_file
+
+  !> 要素電荷を `charges.csv` に書き出す。
+  subroutine write_charges_file(out_dir, mesh)
+    character(len=*), intent(in) :: out_dir
+    type(mesh_type), intent(in) :: mesh
+    character(len=1024) :: charges_path
+    integer :: u, ios, i
 
     charges_path = trim(out_dir) // '/charges.csv'
     open(newunit=u, file=trim(charges_path), status='replace', action='write', iostat=ios)
@@ -121,6 +175,14 @@ contains
       write(u, '(i0,a,es24.16)') i, ',', mesh%q_elem(i)
     end do
     close(u)
+  end subroutine write_charges_file
+
+  !> 三角形メッシュを `mesh_triangles.csv` に書き出す。
+  subroutine write_mesh_file(out_dir, mesh)
+    character(len=*), intent(in) :: out_dir
+    type(mesh_type), intent(in) :: mesh
+    character(len=1024) :: mesh_path
+    integer :: u, ios, i
 
     mesh_path = trim(out_dir) // '/mesh_triangles.csv'
     open(newunit=u, file=trim(mesh_path), status='replace', action='write', iostat=ios)
@@ -132,7 +194,6 @@ contains
                                       ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', mesh%q_elem(i)
     end do
     close(u)
-
-  end subroutine write_result_files
+  end subroutine write_mesh_file
 
 end program main
