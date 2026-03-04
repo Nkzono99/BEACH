@@ -1,6 +1,6 @@
 [sim]
-dt = 1.0e-9
-rng_seed = 12345
+# max_step = 500 は固定のまま、通過時間が十分になるよう dt を増やす
+dt = 1.4e-8
 batch_count = 5
 max_step = 500
 tol_rel = 1.0e-8
@@ -15,15 +15,16 @@ bc_y_low = "reflect"
 bc_y_high = "reflect"
 bc_z_low = "open"
 bc_z_high = "open"
+rng_seed = 12345
 
+[particles]
 [[particles.species]]
-# 単一種でも [[particles.species]] を1件以上定義する
 npcls_per_step = 400
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 w_particle = 1.0
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
+pos_low = [0.0, 0.0, 3.98]
+pos_high = [1.0, 1.0, 3.98]
 drift_velocity = [0.0, 0.0, -7.0e5]
 temperature_k = 2.0e4
 
@@ -32,8 +33,8 @@ npcls_per_step = 80
 q_particle = 1.602176634e-19
 m_particle = 9.10938356e-28
 w_particle = 1.0
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
+pos_low = [0.0, 0.0, 3.98]
+pos_high = [1.0, 1.0, 3.98]
 drift_velocity = [0.0, 0.0, -7.0e5]
 temperature_k = 2.0e4
 
@@ -41,39 +42,43 @@ temperature_k = 2.0e4
 mode = "template"
 n_templates = 4
 
+# 1) 床（箱の中心に置く。境界 z=0 直上に上げて数値的な不安定/すり抜けを避ける）
 [[mesh.templates]]
 kind = "plane"
 enabled = true
-size_x = 1.2
+size_x = 1.0
 size_y = 1.0
 nx = 20
 ny = 20
-center = [0.0, 0.0, 0.0]
+center = [0.50, 0.50, 0.02]
 
+# 2) 小平板（局所構造：箱内に余裕を持って配置）
 [[mesh.templates]]
 kind = "plane"
 enabled = true
 size_x = 0.35
 size_y = 0.22
-nx = 2
-ny = 1
-center = [0.30, 0.26, 0.24]
+nx = 6
+ny = 4
+center = [0.32, 0.30, 0.30]
 
+# 3) 円柱（床に接地：center_z = z_floor + height/2）
 [[mesh.templates]]
 kind = "cylinder"
 enabled = true
 radius = 0.14
 height = 0.28
-center = [-0.22, 0.10, 0.18]
+center = [0.72, 0.58, 0.16]   # 0.02 + 0.14 = 0.16
 cap = true
 n_theta = 14
-n_z = 1
+n_z = 4
 
+# 4) 球（床に接地：center_z = z_floor + radius）
 [[mesh.templates]]
 kind = "sphere"
 enabled = true
 radius = 0.14
-center = [0.18, -0.20, 0.34]
+center = [0.34, 0.74, 0.16]   # 0.02 + 0.14 = 0.16
 n_lon = 14
 n_lat = 6
 
