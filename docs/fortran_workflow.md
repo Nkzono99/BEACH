@@ -5,7 +5,7 @@
 ## 1. 実行フロー
 
 1. Fortran 実行ファイル（`app/main.f90`）を `fpm` で実行
-2. 計算結果を `outputs/...` に保存（`summary.txt`, `charges.csv`, `mesh_triangles.csv`）し、履歴は `charge_history.csv` に逐次追記
+2. 計算結果を `outputs/...` に保存（`summary.txt`, `charges.csv`, `mesh_triangles.csv`, `rng_state.txt`）し、履歴は `charge_history.csv` に逐次追記
 3. Python スクリプトで結果を読み込み、統計確認や可視化を実施
 
 ## 2. Fortran 実行
@@ -25,6 +25,16 @@ OpenMP スレッド数指定:
 ```bash
 OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
 ```
+
+再開実行:
+
+```toml
+[output]
+dir = "outputs/latest"
+resume = true
+```
+
+同じ設定で再度実行すると、`outputs/latest` に保存された前回の状態から `sim.batch_count` 分だけ続けて計算します。
 
 ## 3. Python 後処理
 

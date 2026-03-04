@@ -15,14 +15,16 @@ contains
   !! @param[inout] mesh 入力メッシュ。各バッチ後に `q_elem` へ堆積電荷を加算して更新。
   !! @param[in] app 時間刻み・バッチ回数・監視値・境界条件を含む実行設定。
   !! @param[out] stats 吸着数・脱出数・最終相対変化率などの集計統計。
-  subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride)
+  !! @param[in] initial_stats 再開時に引き継ぐ既存統計（省略時はゼロ初期化）。
+  subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride, initial_stats)
     type(mesh_type), intent(inout) :: mesh
     type(app_config), intent(in) :: app
     type(sim_stats), intent(out) :: stats
     integer, intent(in), optional :: history_unit
     integer(i32), intent(in), optional :: history_stride
+    type(sim_stats), intent(in), optional :: initial_stats
 
-    integer(i32) :: batch_idx, i, step, tid, nth, b, hist_stride
+    integer(i32) :: batch_idx, local_batch_idx, i, step, tid, nth, b, hist_stride
     integer :: hist_unit
     logical :: do_write_history, history_enabled
     real(dp), allocatable :: dq_thread(:, :), dq(:)
@@ -33,6 +35,7 @@ contains
     type(particles_soa) :: pcls_batch
 
     stats = sim_stats()
+    if (present(initial_stats)) stats = initial_stats
     nth = 1
     !$ nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
@@ -43,8 +46,9 @@ contains
     if (present(history_stride)) hist_stride = max(1_i32, history_stride)
     bfield = app%sim%b0
 
-    do batch_idx = 1, app%sim%batch_count
-      call init_particle_batch_from_config(app, batch_idx, pcls_batch)
+    do local_batch_idx = 1, app%sim%batch_count
+      batch_idx = stats%batches + 1_i32
+      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch)
       allocate(escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))
       escaped_boundary_flag = .false.
       absorbed_flag = .false.

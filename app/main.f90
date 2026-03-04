@@ -3,6 +3,7 @@ program main
   use bem_kinds, only: i32, dp
   use bem_types, only: sim_stats, mesh_type
   use bem_simulator, only: run_absorption_insulator
+  use bem_restart, only: load_restart_checkpoint, write_rng_state_file
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
     seed_particles_from_config
   implicit none
@@ -10,10 +11,11 @@ program main
   type(mesh_type) :: mesh
   type(app_config) :: app
   type(sim_stats) :: stats
+  type(sim_stats) :: initial_stats
   character(len=256) :: cfg_path
   character(len=1024) :: cmd, history_path
   integer :: history_unit, ios
-  logical :: history_opened
+  logical :: history_opened, resumed, history_exists
 
   call default_app_config(app)
 
@@ -23,7 +25,18 @@ program main
   end if
 
   call build_mesh_from_config(app, mesh)
-  call seed_particles_from_config(app)
+  initial_stats = sim_stats()
+  resumed = .false.
+  if (app%resume_output) then
+    if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
+    call load_restart_checkpoint(trim(app%output_dir), mesh, initial_stats, resumed)
+  end if
+  if (resumed) then
+    print '(a,i0)', 'resuming_from_batches=', initial_stats%batches
+    print '(a,i0)', 'resuming_from_processed_particles=', initial_stats%processed_particles
+  else
+    call seed_particles_from_config(app)
+  end if
 
   history_opened = .false.
   if (app%write_output .and. app%history_stride > 0) then
@@ -32,17 +45,26 @@ program main
     if (ios /= 0) error stop 'Failed to create output directory.'
 
     history_path = trim(app%output_dir) // '/charge_history.csv'
-    open(newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
+    inquire(file=trim(history_path), exist=history_exists)
+    if (resumed) then
+      open(newunit=history_unit, file=trim(history_path), status='unknown', position='append', action='write', iostat=ios)
+    else
+      open(newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
+    end if
     if (ios /= 0) error stop 'Failed to open charge history file.'
-    write(history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
+    if (.not. resumed .or. .not. history_exists) then
+      write(history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
+    end if
     history_opened = .true.
   end if
 
   if (history_opened) then
-    call run_absorption_insulator(mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride)
+    call run_absorption_insulator( &
+      mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats &
+    )
     close(history_unit)
   else
-    call run_absorption_insulator(mesh, app, stats)
+    call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats)
   end if
 
   print '(a,i0)', 'mesh nelem=', mesh%nelem
@@ -57,6 +79,7 @@ program main
 
   if (app%write_output) then
     call write_result_files(trim(app%output_dir), mesh, stats)
+    call write_rng_state_file(trim(app%output_dir))
     print '(a,a)', 'results written to ', trim(app%output_dir)
   end if
 

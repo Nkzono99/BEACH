@@ -57,7 +57,7 @@ dir = "outputs/latest"
 |---|---|---:|---|
 | `dt` | float | `1.0e-9` | 時間刻み[s] |
 | `rng_seed` | int | `12345` | 粒子注入乱数のシード |
-| `batch_count` | int | `1` | 固定で実行するバッチ数 |
+| `batch_count` | int | `1` | 1回の実行で進めるバッチ数 |
 | `max_step` | int | `400` | 粒子あたり最大ステップ |
 | `tol_rel` | float | `1.0e-8` | 相対変化の監視値（早期終了には使わない） |
 | `q_floor` | float | 実装既定値 | ゼロ割防止下限 |
@@ -134,6 +134,7 @@ dir = "outputs/latest"
 | `write_files` | bool | `true` | 結果ファイルを書き出すか |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 | `history_stride` | int | `1` | 何バッチごとに `charge_history.csv` へ履歴を書き出すか（1=毎バッチ） |
+| `resume` | bool | `false` | `dir` に既存の `summary.txt` / `charges.csv` / `rng_state.txt` があれば、その続きから再開する |
 
 ---
 
@@ -143,16 +144,19 @@ dir = "outputs/latest"
 - `charges.csv`: 最終要素電荷
 - `mesh_triangles.csv`: 要素三角形頂点と最終電荷
 - `charge_history.csv`: 指定した `history_stride` 間隔で逐次書き出される要素電荷履歴（時間発展）
+- `rng_state.txt`: 次回 `resume = true` で再開するための Fortran 乱数状態
 
 ## 4. 注意点
 
 - `[[particles.species]]` は1件以上必須です。
-- `sim.batch_count` は固定実行回数です。`tol_rel` を下回っても早期終了しません。
+- `sim.batch_count` は1回の実行で追加するバッチ数です。`tol_rel` を下回っても早期終了しません。
 - `rng_seed` は `[sim]` に置きます。
 - `[[particles.species]]` を使うと、粒子は種ごとラウンドロビンで混在して初期化されます。
 - `[[mesh.templates]]` は同じ `kind` を複数回指定可能です。
 - `n_templates` は先頭から読み込む最大件数として扱われます。
 - `mode="auto"` では `obj_path` が存在すれば OBJ、なければ template を使用します。
+- `output.resume = true` の場合、同じ `output.dir` にある前回のチェックポイントを読み込み、今回の `sim.batch_count` 分だけ追加でバッチを進めます。
+- 再開時は `charge_history.csv` に追記します。既存履歴も残したいので、通常は同じ `output.dir` を使ってください。
 
 ---
 
