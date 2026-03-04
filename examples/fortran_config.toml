@@ -86,3 +86,20 @@ n_lat = 6
 write_files = true
 dir = "outputs/latest"
 history_stride = 1
+
+# reservoir_face を使う場合の例:
+#
+# [sim]
+# batch_duration = 2.0e-7
+#
+# [[particles.species]]
+# source_mode = "reservoir_face"
+# number_density_cm3 = 5.0
+# temperature_ev = 10.0
+# q_particle = -1.602176634e-19
+# m_particle = 9.10938356e-31
+# w_particle = 1.0e5
+# inject_face = "z_high"
+# pos_low = [0.0, 0.0, 4.0]
+# pos_high = [1.0, 1.0, 4.0]
+# drift_velocity = [0.0, 0.0, -4.0e5]

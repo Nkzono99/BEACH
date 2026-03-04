@@ -12,6 +12,7 @@ module bem_types
     real(dp) :: dt = 1.0d-12
     integer(i32) :: rng_seed = 12345_i32
     integer(i32) :: batch_count = 1_i32
+    real(dp) :: batch_duration = 0.0d0
     integer(i32) :: max_step = 100
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30
@@ -38,6 +39,11 @@ module bem_types
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
   end type sim_stats
+
+  !> 種ごとのマクロ粒子端数を保持し、再開時にも注入期待値を保つ。
+  type :: injection_state
+    real(dp), allocatable :: macro_residual(:)
+  end type injection_state
 
   !> 三角形頂点と前計算幾何量、要素電荷を保持する境界要素メッシュ型。
   type :: mesh_type

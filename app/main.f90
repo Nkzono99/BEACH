@@ -1,8 +1,8 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
-  use bem_types, only: sim_stats, mesh_type
+  use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_simulator, only: run_absorption_insulator
-  use bem_restart, only: load_restart_checkpoint, write_rng_state_file
+  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
     seed_particles_from_config
   implicit none
@@ -11,19 +11,21 @@ program main
   type(app_config) :: app
   type(sim_stats) :: stats
   type(sim_stats) :: initial_stats
+  type(injection_state) :: inject_state
   integer :: history_unit
   logical :: history_opened, resumed
 
-  call load_or_init_run_state(app, mesh, initial_stats, resumed)
+  call load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed)
   call open_history_writer(app, resumed, history_opened, history_unit)
 
   if (history_opened) then
     call run_absorption_insulator( &
-      mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats &
+      mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
+      inject_state=inject_state &
     )
     close(history_unit)
   else
-    call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats)
+    call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state)
   end if
 
   call print_run_summary(mesh, stats)
@@ -31,16 +33,18 @@ program main
   if (app%write_output) then
     call write_result_files(trim(app%output_dir), mesh, stats)
     call write_rng_state_file(trim(app%output_dir))
+    call write_macro_residuals_file(trim(app%output_dir), inject_state)
     print '(a,a)', 'results written to ', trim(app%output_dir)
   end if
 
 contains
 
   !> 設定読込・メッシュ構築・再開判定・乱数初期化をまとめて行う。
-  subroutine load_or_init_run_state(app, mesh, initial_stats, resumed)
+  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed)
     type(app_config), intent(out) :: app
     type(mesh_type), intent(out) :: mesh
     type(sim_stats), intent(out) :: initial_stats
+    type(injection_state), intent(out) :: inject_state
     logical, intent(out) :: resumed
     character(len=256) :: cfg_path
 
@@ -51,11 +55,12 @@ contains
     end if
 
     call build_mesh_from_config(app, mesh)
+    call initialize_injection_state(inject_state, app%n_particle_species)
     initial_stats = sim_stats()
     resumed = .false.
     if (app%resume_output) then
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
-      call load_restart_checkpoint(trim(app%output_dir), mesh, initial_stats, resumed)
+      call load_restart_checkpoint(trim(app%output_dir), mesh, initial_stats, resumed, inject_state)
     end if
 
     if (resumed) then
@@ -65,6 +70,15 @@ contains
       call seed_particles_from_config(app)
     end if
   end subroutine load_or_init_run_state
+
+  !> 種数に合わせて注入状態をゼロ初期化する。
+  subroutine initialize_injection_state(state, n_species)
+    type(injection_state), intent(out) :: state
+    integer, intent(in) :: n_species
+
+    allocate(state%macro_residual(n_species))
+    state%macro_residual = 0.0d0
+  end subroutine initialize_injection_state
 
   !> 履歴 CSV のオープンとヘッダ初期化を行う。
   subroutine open_history_writer(app, resumed, history_opened, history_unit)

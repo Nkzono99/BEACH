@@ -2,7 +2,7 @@
 module bem_simulator
   !$ use omp_lib
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info
+  use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push
@@ -20,13 +20,14 @@ contains
   !! @param[in] app 時間刻み・バッチ回数・監視値・境界条件を含む実行設定。
   !! @param[out] stats 吸着数・脱出数・最終相対変化率などの集計統計。
   !! @param[in] initial_stats 再開時に引き継ぐ既存統計（省略時はゼロ初期化）。
-  subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride, initial_stats)
+  subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride, initial_stats, inject_state)
     type(mesh_type), intent(inout) :: mesh
     type(app_config), intent(in) :: app
     type(sim_stats), intent(out) :: stats
     integer, intent(in), optional :: history_unit
     integer(i32), intent(in), optional :: history_stride
     type(sim_stats), intent(in), optional :: initial_stats
+    type(injection_state), intent(inout), optional :: inject_state
 
     integer(i32) :: batch_idx, local_batch_idx, nth, hist_stride
     integer :: hist_unit
@@ -52,7 +53,7 @@ contains
 
     do local_batch_idx = 1, app%sim%batch_count
       call prepare_batch_state( &
-        app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag &
+        app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, inject_state &
       )
       call process_particle_batch( &
         mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
@@ -68,7 +69,7 @@ contains
 
   !> 1バッチ分の粒子群と作業配列を初期化する。
   subroutine prepare_batch_state( &
-    app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag &
+    app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, inject_state &
   )
     type(app_config), intent(in) :: app
     type(sim_stats), intent(in) :: stats
@@ -78,9 +79,14 @@ contains
     type(particles_soa), intent(out) :: pcls_batch
     logical, allocatable, intent(out) :: escaped_boundary_flag(:)
     logical, allocatable, intent(out) :: absorbed_flag(:)
+    type(injection_state), intent(inout), optional :: inject_state
 
     batch_idx = stats%batches + 1_i32
-    call init_particle_batch_from_config(app, local_batch_idx, pcls_batch)
+    if (present(inject_state)) then
+      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch, inject_state)
+    else
+      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch)
+    end if
     allocate (escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))
     escaped_boundary_flag = .false.
     absorbed_flag = .false.

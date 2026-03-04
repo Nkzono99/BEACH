@@ -26,6 +26,7 @@ contains
     type(app_config), intent(inout) :: cfg
     integer :: u, ios, i, t_idx, s_idx
     integer(i32) :: per_batch_particles
+    logical :: has_reservoir_species
     character(len=512) :: raw, line, section
 
     t_idx = 0
@@ -83,15 +84,26 @@ contains
 
     cfg%n_particle_species = s_idx
     per_batch_particles = 0_i32
+    has_reservoir_species = .false.
     do i = 1, s_idx
-      if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
-        error stop 'particles.species.npcls_per_step must be >= 0.'
-      end if
       if (.not. cfg%particle_species(i)%enabled) cycle
-      per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
+
+      cfg%particle_species(i)%source_mode = lower(trim(cfg%particle_species(i)%source_mode))
+      select case (trim(cfg%particle_species(i)%source_mode))
+      case ('volume_seed')
+        if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
+          error stop 'particles.species.npcls_per_step must be >= 0.'
+        end if
+        per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
+      case ('reservoir_face')
+        has_reservoir_species = .true.
+        call validate_reservoir_species(cfg, i)
+      case default
+        error stop 'Unknown particles.species.source_mode.'
+      end select
     end do
 
-    if (per_batch_particles <= 0_i32) then
+    if (per_batch_particles <= 0_i32 .and. .not. has_reservoir_species) then
       error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
     end if
     cfg%n_particles = cfg%sim%batch_count * per_batch_particles
@@ -112,6 +124,8 @@ contains
       call parse_int(v, cfg%sim%rng_seed)
     case ('batch_count')
       call parse_int(v, cfg%sim%batch_count)
+    case ('batch_duration')
+      call parse_real(v, cfg%sim%batch_duration)
     case ('npcls_per_step')
       error stop 'sim.npcls_per_step was removed. Use sim.batch_count instead.'
     case ('max_step')
@@ -185,6 +199,16 @@ contains
       call parse_logical(v, spec%enabled)
     case ('npcls_per_step')
       call parse_int(v, spec%npcls_per_step)
+      spec%has_npcls_per_step = .true.
+    case ('source_mode')
+      call parse_string(v, spec%source_mode)
+      spec%source_mode = lower(trim(spec%source_mode))
+    case ('number_density_cm3')
+      call parse_real(v, spec%number_density_cm3)
+      spec%has_number_density_cm3 = .true.
+    case ('number_density_m3')
+      call parse_real(v, spec%number_density_m3)
+      spec%has_number_density_m3 = .true.
     case ('n_particles')
       error stop 'particles.species.n_particles was removed. Use particles.species.npcls_per_step instead.'
     case ('q_particle')
@@ -201,8 +225,106 @@ contains
       call parse_real3(v, spec%drift_velocity)
     case ('temperature_k')
       call parse_real(v, spec%temperature_k)
+      spec%has_temperature_k = .true.
+    case ('temperature_ev')
+      call parse_real(v, spec%temperature_ev)
+      spec%has_temperature_ev = .true.
+    case ('inject_face')
+      call parse_string(v, spec%inject_face)
+      spec%inject_face = lower(trim(spec%inject_face))
     end select
   end subroutine apply_particles_species_kv
+
+  !> `reservoir_face` 用の必須項目と整合性を検証する。
+  subroutine validate_reservoir_species(cfg, species_idx)
+    type(app_config), intent(in) :: cfg
+    integer, intent(in) :: species_idx
+
+    integer :: axis, axis_t1, axis_t2
+    real(dp) :: boundary_value
+    type(particle_species_spec) :: spec
+
+    spec = cfg%particle_species(species_idx)
+
+    if (spec%has_npcls_per_step) then
+      error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
+    end if
+    if (spec%w_particle <= 0.0d0) then
+      error stop 'particles.species.w_particle must be > 0 for reservoir_face.'
+    end if
+    if (.not. cfg%sim%use_box) then
+      error stop 'particles.species.source_mode="reservoir_face" requires sim.use_box = true.'
+    end if
+    if (cfg%sim%batch_duration <= 0.0d0) then
+      error stop 'sim.batch_duration must be > 0 for reservoir_face.'
+    end if
+    if (spec%has_number_density_cm3 .and. spec%has_number_density_m3) then
+      error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
+    end if
+    if (.not. spec%has_number_density_cm3 .and. .not. spec%has_number_density_m3) then
+      error stop 'reservoir_face requires number_density_cm3 or number_density_m3.'
+    end if
+    if (spec%has_number_density_cm3) then
+      if (spec%number_density_cm3 <= 0.0d0) error stop 'number_density_cm3 must be > 0.'
+    else
+      if (spec%number_density_m3 <= 0.0d0) error stop 'number_density_m3 must be > 0.'
+    end if
+    if (spec%has_temperature_ev .and. spec%has_temperature_k) then
+      error stop 'Specify either temperature_ev or temperature_k, not both.'
+    end if
+    if (spec%has_temperature_ev) then
+      if (spec%temperature_ev < 0.0d0) error stop 'temperature_ev must be >= 0.'
+    else if (spec%has_temperature_k) then
+      if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
+    else
+      if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
+    end if
+
+    call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec%inject_face, axis, boundary_value)
+    axis_t1 = modulo(axis, 3) + 1
+    axis_t2 = modulo(axis + 1, 3) + 1
+    if (abs(spec%pos_low(axis) - boundary_value) > 1.0d-12 .or. abs(spec%pos_high(axis) - boundary_value) > 1.0d-12) then
+      error stop 'reservoir_face pos_low/pos_high must lie on the selected box face.'
+    end if
+    if (spec%pos_high(axis_t1) < spec%pos_low(axis_t1) .or. spec%pos_high(axis_t2) < spec%pos_low(axis_t2)) then
+      error stop 'reservoir_face tangential bounds must satisfy pos_high >= pos_low.'
+    end if
+    if ((spec%pos_high(axis_t1) - spec%pos_low(axis_t1)) <= 0.0d0 .or. &
+        (spec%pos_high(axis_t2) - spec%pos_low(axis_t2)) <= 0.0d0) then
+      error stop 'reservoir_face opening area must be positive.'
+    end if
+  end subroutine validate_reservoir_species
+
+  !> 注入面名から法線軸と対応する境界座標を返す。
+  subroutine resolve_inject_face(box_min, box_max, inject_face, axis, boundary_value)
+    real(dp), intent(in) :: box_min(3), box_max(3)
+    character(len=*), intent(in) :: inject_face
+    integer, intent(out) :: axis
+    real(dp), intent(out) :: boundary_value
+
+    select case (trim(lower(inject_face)))
+    case ('x_low')
+      axis = 1
+      boundary_value = box_min(1)
+    case ('x_high')
+      axis = 1
+      boundary_value = box_max(1)
+    case ('y_low')
+      axis = 2
+      boundary_value = box_min(2)
+    case ('y_high')
+      axis = 2
+      boundary_value = box_max(2)
+    case ('z_low')
+      axis = 3
+      boundary_value = box_min(3)
+    case ('z_high')
+      axis = 3
+      boundary_value = box_max(3)
+    case default
+      error stop 'Unknown particles.species.inject_face.'
+    end select
+  end subroutine resolve_inject_face
 
   !> `[mesh]` セクションのキーをメッシュ入力設定へ適用する。
   subroutine apply_mesh_kv(cfg, line)

@@ -58,6 +58,7 @@ dir = "outputs/latest"
 | `dt` | float | `1.0e-9` | 時間刻み[s] |
 | `rng_seed` | int | `12345` | 粒子注入乱数のシード |
 | `batch_count` | int | `1` | 1回の実行で進めるバッチ数 |
+| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` 使用時は必須） |
 | `max_step` | int | `400` | 粒子あたり最大ステップ |
 | `tol_rel` | float | `1.0e-8` | 相対変化の監視値（早期終了には使わない） |
 | `q_floor` | float | 実装既定値 | ゼロ割防止下限 |
@@ -80,26 +81,64 @@ dir = "outputs/latest"
 ### 3.2 `[[particles.species]]`
 
 単一種でも `[[particles.species]]` を1件以上定義してください。
-各バッチでは、全 species について `npcls_per_step` 個ずつ毎回生成されます。
-生成順はラウンドロビン（species1→species2→...）なので、1バッチ内に複数種が混在します。
 各エントリは独立した粒子注入条件です。未指定キーは実装既定値で補完されます。
+`source_mode="volume_seed"` では従来どおり `npcls_per_step` 個を毎バッチ生成します。
+`source_mode="reservoir_face"` では、上流プラズマ条件から物理流入量を計算し、`w_particle` をマクロ粒子重みとして `npcls_per_step` を内部で自動決定します。
 
 | キー | 型 | 説明 |
 |---|---|---|
 | `enabled` | bool | 有効/無効（既定: `true`） |
-| `npcls_per_step` | int | その粒子種が1バッチで生成する粒子数 |
+| `source_mode` | string | `volume_seed`（既定） / `reservoir_face` |
+| `npcls_per_step` | int | `volume_seed` 時の1バッチ生成粒子数 |
+| `number_density_cm3` | float | `reservoir_face` 時の上流密度[`cm^-3`] |
+| `number_density_m3` | float | `reservoir_face` 時の上流密度[`m^-3`]（`number_density_cm3` と排他） |
 | `q_particle` | float | 粒子電荷[C] |
 | `m_particle` | float | 粒子質量[kg] |
-| `w_particle` | float | superparticle 重み |
+| `w_particle` | float | superparticle 重み（`reservoir_face` では 1マクロ粒子が代表する実粒子数） |
 | `pos_low` | float[3] | 初期位置下限[m] |
 | `pos_high` | float[3] | 初期位置上限[m] |
 | `drift_velocity` | float[3] | ドリフト速度[m/s] |
 | `temperature_k` | float | 温度[K] |
+| `temperature_ev` | float | 温度[eV]（`temperature_k` と排他） |
+| `inject_face` | string | `reservoir_face` 時の注入面（`x_low` / `x_high` / `y_low` / `y_high` / `z_low` / `z_high`） |
 
 粒子数の計算は以下です。
 
-- 1バッチあたり総粒子数 = `sum(enabled species npcls_per_step)`
-- 総投入粒子数 = `batch_count * sum(enabled species npcls_per_step)`
+- `volume_seed` の1バッチあたり総粒子数 = `sum(enabled volume_seed species npcls_per_step)`
+- `volume_seed` の総投入粒子数 = `batch_count * sum(enabled volume_seed species npcls_per_step)`
+- `reservoir_face` の `npcls_per_step` は、上流の drifting Maxwellian から計算した流入束と `w_particle` からバッチごとに自動決定されます。
+
+`reservoir_face` では次が必須です。
+
+- `sim.use_box = true`
+- `sim.batch_duration > 0`
+- `number_density_cm3` または `number_density_m3`
+- `inject_face`
+- `w_particle > 0`
+
+`pos_low` / `pos_high` は注入面上の矩形開口を表します。法線方向の座標は `inject_face` で指定した箱境界と一致している必要があります。
+
+例: 5/cc, 10eV, 400km/s の上流電子を上面 (`z_high`) から流入させる設定
+
+```toml
+[sim]
+batch_duration = 2.0e-7
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
+
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+w_particle = 1.0e5
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
+```
 
 旧キー `n_particles` は廃止されています。
 旧 `[particles]` 直下の既定値キーも廃止されました。`rng_seed` は `[sim]` に置き、粒子物性は各 `[[particles.species]]` に記述してください。
@@ -134,7 +173,7 @@ dir = "outputs/latest"
 | `write_files` | bool | `true` | 結果ファイルを書き出すか |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 | `history_stride` | int | `1` | 何バッチごとに `charge_history.csv` へ履歴を書き出すか（1=毎バッチ） |
-| `resume` | bool | `false` | `dir` に既存の `summary.txt` / `charges.csv` / `rng_state.txt` があれば、その続きから再開する |
+| `resume` | bool | `false` | `dir` に既存の `summary.txt` / `charges.csv` / `rng_state.txt`（あれば `macro_residuals.csv` も） があれば、その続きから再開する |
 
 ---
 
@@ -145,6 +184,7 @@ dir = "outputs/latest"
 - `mesh_triangles.csv`: 要素三角形頂点と最終電荷
 - `charge_history.csv`: 指定した `history_stride` 間隔で逐次書き出される要素電荷履歴（時間発展）
 - `rng_state.txt`: 次回 `resume = true` で再開するための Fortran 乱数状態
+- `macro_residuals.csv`: `reservoir_face` の自動粒子数計算で残った端数状態
 
 ## 4. 注意点
 

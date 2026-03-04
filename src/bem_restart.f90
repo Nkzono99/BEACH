@@ -1,12 +1,13 @@
 !> 出力ディレクトリに保存したチェックポイントの保存/復元を扱う補助モジュール。
 module bem_restart
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_stats, mesh_type
+  use bem_types, only: sim_stats, mesh_type, injection_state
   implicit none
 
   private
   public :: load_restart_checkpoint
   public :: write_rng_state_file
+  public :: write_macro_residuals_file
 
 contains
 
@@ -15,14 +16,15 @@ contains
   !! @param[inout] mesh 現在のメッシュ。`q_elem` を復元値で上書きする。
   !! @param[out] stats 復元された統計値。
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
-  subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart)
+  subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart, state)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
     type(sim_stats), intent(out) :: stats
     logical, intent(out) :: has_restart
+    type(injection_state), intent(inout), optional :: state
 
-    character(len=1024) :: summary_path, charges_path, rng_path
-    logical :: has_summary, has_charges, has_rng
+    character(len=1024) :: summary_path, charges_path, rng_path, residual_path
+    logical :: has_summary, has_charges, has_rng, has_residual
 
     stats = sim_stats()
     has_restart = .false.
@@ -30,10 +32,12 @@ contains
     summary_path = trim(out_dir) // '/summary.txt'
     charges_path = trim(out_dir) // '/charges.csv'
     rng_path = trim(out_dir) // '/rng_state.txt'
+    residual_path = trim(out_dir) // '/macro_residuals.csv'
 
     inquire(file=trim(summary_path), exist=has_summary)
     inquire(file=trim(charges_path), exist=has_charges)
     inquire(file=trim(rng_path), exist=has_rng)
+    inquire(file=trim(residual_path), exist=has_residual)
 
     if (.not. has_summary .and. .not. has_charges .and. .not. has_rng) return
 
@@ -44,6 +48,10 @@ contains
     call load_summary_file(trim(summary_path), mesh%nelem, stats)
     call load_charge_file(trim(charges_path), mesh)
     call restore_rng_state(trim(rng_path))
+    if (present(state)) then
+      if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
+      if (has_residual) call load_macro_residual_file(trim(residual_path), state)
+    end if
     has_restart = .true.
   end subroutine load_restart_checkpoint
 
@@ -70,6 +78,27 @@ contains
     end do
     close(u)
   end subroutine write_rng_state_file
+
+  !> マクロ粒子残差を `macro_residuals.csv` として保存する。
+  subroutine write_macro_residuals_file(out_dir, state)
+    character(len=*), intent(in) :: out_dir
+    type(injection_state), intent(in) :: state
+
+    character(len=1024) :: path
+    integer :: u, ios, i
+
+    if (.not. allocated(state%macro_residual)) return
+
+    path = trim(out_dir) // '/macro_residuals.csv'
+    open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open macro_residuals.csv.'
+
+    write(u, '(a)') 'species_idx,residual'
+    do i = 1, size(state%macro_residual)
+      write(u, '(i0,a,es24.16)') i, ',', state%macro_residual(i)
+    end do
+    close(u)
+  end subroutine write_macro_residuals_file
 
   !> `summary.txt` を読み込み、必須キーの存在と要素数整合を検証する。
   !! 欠落キーやメッシュ要素数不一致は再開不能として停止する。
@@ -218,5 +247,44 @@ contains
 
     call random_seed(put=seed)
   end subroutine restore_rng_state
+
+  !> 保存済みマクロ粒子残差を読み戻す。
+  subroutine load_macro_residual_file(path, state)
+    character(len=*), intent(in) :: path
+    type(injection_state), intent(inout) :: state
+
+    integer :: u, ios
+    integer(i32) :: species_idx
+    real(dp) :: residual
+    character(len=512) :: header
+    logical, allocatable :: seen(:)
+
+    if (.not. allocated(state%macro_residual)) return
+
+    allocate(seen(size(state%macro_residual)))
+    seen = .false.
+    state%macro_residual = 0.0d0
+
+    open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open macro_residuals.csv for resume.'
+
+    read(u, '(A)', iostat=ios) header
+    if (ios /= 0) error stop 'Failed to read macro_residuals.csv header.'
+
+    do
+      read(u, *, iostat=ios) species_idx, residual
+      if (ios < 0) exit
+      if (ios > 0) error stop 'Failed to parse macro_residuals.csv during resume.'
+      if (species_idx < 1_i32 .or. species_idx > size(state%macro_residual)) then
+        error stop 'Resume checkpoint macro_residuals.csv has an invalid species index.'
+      end if
+      if (seen(species_idx)) then
+        error stop 'Resume checkpoint macro_residuals.csv contains duplicate species rows.'
+      end if
+      seen(species_idx) = .true.
+      state%macro_residual(species_idx) = residual
+    end do
+    close(u)
+  end subroutine load_macro_residual_file
 
 end module bem_restart

@@ -1,4 +1,4 @@
-!> シミュレーションで使用する物理定数(クーロン定数・ボルツマン定数)を定義する。
+!> シミュレーションで使用する物理定数を定義する。
 module bem_constants
   use bem_kinds, only: dp
   implicit none

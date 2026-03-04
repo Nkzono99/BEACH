@@ -2,8 +2,8 @@
 program test_restart
   use bem_kinds, only: dp, i32
   use bem_mesh, only: init_mesh
-  use bem_restart, only: load_restart_checkpoint, write_rng_state_file
-  use bem_types, only: mesh_type, sim_stats
+  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
+  use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: &
     assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, &
     delete_file_if_exists, ensure_directory, remove_empty_directory
@@ -11,12 +11,14 @@ program test_restart
 
   type(mesh_type) :: mesh
   type(sim_stats) :: stats
+  type(injection_state) :: state
   logical :: has_restart, exists
   character(len=*), parameter :: out_dir = 'test_restart_tmp'
 
   call delete_file_if_exists(out_dir // '/summary.txt')
   call delete_file_if_exists(out_dir // '/charges.csv')
   call delete_file_if_exists(out_dir // '/rng_state.txt')
+  call delete_file_if_exists(out_dir // '/macro_residuals.csv')
   call remove_empty_directory(out_dir)
 
   call build_test_mesh(mesh)
@@ -28,12 +30,18 @@ program test_restart
   call write_summary_fixture(out_dir)
   call write_charges_fixture(out_dir)
   call write_rng_state_file(out_dir)
+  allocate(state%macro_residual(2))
+  state%macro_residual = [0.25d0, 0.75d0]
+  call write_macro_residuals_file(out_dir, state)
   inquire (file=trim(out_dir) // '/rng_state.txt', exist=exists)
   call assert_true(exists, 'rng_state.txt should be created')
+  inquire (file=trim(out_dir) // '/macro_residuals.csv', exist=exists)
+  call assert_true(exists, 'macro_residuals.csv should be created')
 
   call build_test_mesh(mesh)
   mesh%q_elem = [3.0d0, 4.0d0]
-  call load_restart_checkpoint(out_dir, mesh, stats, has_restart)
+  state%macro_residual = 0.0d0
+  call load_restart_checkpoint(out_dir, mesh, stats, has_restart, state)
   call assert_true(has_restart, 'complete checkpoint should be detected')
   call assert_equal_i32(stats%processed_particles, 10_i32, 'processed_particles mismatch')
   call assert_equal_i32(stats%absorbed, 7_i32, 'absorbed mismatch')
@@ -43,10 +51,12 @@ program test_restart
   call assert_equal_i32(stats%survived_max_step, 2_i32, 'survived_max_step mismatch')
   call assert_close_dp(stats%last_rel_change, 1.0d-3, 1.0d-12, 'last_rel_change mismatch')
   call assert_allclose_1d(mesh%q_elem, [1.0d-12, -2.0d-12], 1.0d-24, 'charge restore mismatch')
+  call assert_allclose_1d(state%macro_residual, [0.25d0, 0.75d0], 1.0d-12, 'macro residual restore mismatch')
 
   call delete_file_if_exists(out_dir // '/summary.txt')
   call delete_file_if_exists(out_dir // '/charges.csv')
   call delete_file_if_exists(out_dir // '/rng_state.txt')
+  call delete_file_if_exists(out_dir // '/macro_residuals.csv')
   call remove_empty_directory(out_dir)
 
 contains

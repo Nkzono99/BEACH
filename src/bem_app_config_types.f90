@@ -11,6 +11,12 @@ module bem_app_config_types
   type :: particle_species_spec
     logical :: enabled = .false.
     integer(i32) :: npcls_per_step = 0_i32
+    logical :: has_npcls_per_step = .false.
+    character(len=16) :: source_mode = 'volume_seed'
+    real(dp) :: number_density_cm3 = 0.0d0
+    real(dp) :: number_density_m3 = 0.0d0
+    logical :: has_number_density_cm3 = .false.
+    logical :: has_number_density_m3 = .false.
     real(dp) :: q_particle = -1.602176634d-19
     real(dp) :: m_particle = 9.10938356d-31
     real(dp) :: w_particle = 1.0d0
@@ -18,6 +24,10 @@ module bem_app_config_types
     real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
     real(dp) :: temperature_k = 2.0d4
+    real(dp) :: temperature_ev = -1.0d0
+    logical :: has_temperature_k = .false.
+    logical :: has_temperature_ev = .false.
+    character(len=16) :: inject_face = ''
   end type particle_species_spec
 
   !> 1つのテンプレート形状の有効化フラグと幾何パラメータを保持する。
@@ -66,21 +76,30 @@ contains
   integer(i32) function particles_per_batch_from_config(cfg) result(batch_n)
     type(app_config), intent(in) :: cfg
     integer(i32) :: s
+    logical :: has_reservoir
 
     if (cfg%n_particle_species <= 0) then
       error stop 'At least one [[particles.species]] entry is required.'
     end if
 
     batch_n = 0_i32
+    has_reservoir = .false.
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
-      if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
-        error stop 'particles.species.npcls_per_step must be >= 0.'
-      end if
-      batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
+      select case (trim(cfg%particle_species(s)%source_mode))
+      case ('volume_seed')
+        if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
+          error stop 'particles.species.npcls_per_step must be >= 0.'
+        end if
+        batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
+      case ('reservoir_face')
+        has_reservoir = .true.
+      case default
+        error stop 'Unknown particles.species.source_mode.'
+      end select
     end do
 
-    if (batch_n <= 0_i32) then
+    if (batch_n <= 0_i32 .and. .not. has_reservoir) then
       error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
     end if
   end function particles_per_batch_from_config

@@ -1,11 +1,13 @@
 !> `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, particles_soa
+  use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
-  use bem_injection, only: seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities
+  use bem_injection, only: &
+    seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
+    sample_reservoir_face_particles
   use bem_particles, only: init_particles
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, particles_per_batch_from_config, &
@@ -55,6 +57,9 @@ contains
     counts = 0_i32
     do s = 1, cfg%n_particle_species
       if (cfg%particle_species(s)%enabled) then
+        if (trim(lower(cfg%particle_species(s)%source_mode)) == 'reservoir_face') then
+          error stop 'init_particles_from_config does not support reservoir_face. Use init_particle_batch_from_config.'
+        end if
         if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
           error stop 'particles.species.npcls_per_step must be >= 0.'
         end if
@@ -72,7 +77,9 @@ contains
 
     do s = 1, cfg%n_particle_species
       if (counts(s) <= 0_i32) cycle
-      call sample_species_state(cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s))
+      call sample_species_state( &
+        cfg%sim, cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s) &
+      )
     end do
 
     allocate (x(3, total_n), v(3, total_n), q(total_n), m(total_n), w(total_n))
@@ -100,10 +107,11 @@ contains
   end subroutine seed_particles_from_config
 
   !> 指定バッチ番号に対応する粒子バッチを生成する。
-  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls)
+  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state)
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
     type(particles_soa), intent(out) :: pcls
+    type(injection_state), intent(inout), optional :: state
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx
     integer(i32), allocatable :: counts(:), species_cursor(:), species_id(:)
@@ -113,15 +121,30 @@ contains
     if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
       error stop 'Requested batch index is out of range.'
     end if
-
-    batch_n = particles_per_batch_from_config(cfg)
+    if (present(state)) then
+      if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
+      if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
+    end if
 
     allocate (counts(cfg%n_particle_species))
     counts = 0_i32
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
-      counts(s) = cfg%particle_species(s)%npcls_per_step
+      select case (trim(lower(cfg%particle_species(s)%source_mode)))
+      case ('volume_seed')
+        counts(s) = cfg%particle_species(s)%npcls_per_step
+      case ('reservoir_face')
+        if (.not. present(state)) then
+          error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
+        end if
+        call compute_macro_particles_for_species( &
+          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts(s) &
+        )
+      case default
+        error stop 'Unknown particles.species.source_mode.'
+      end select
     end do
+    batch_n = sum(counts)
 
     allocate (species_id(batch_n))
     max_rank = max(1_i32, maxval(counts))
@@ -140,10 +163,13 @@ contains
     v_species = 0.0d0
     do s = 1, cfg%n_particle_species
       if (counts(s) <= 0_i32) cycle
-      call sample_species_state(cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s))
+      call sample_species_state( &
+        cfg%sim, cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s) &
+      )
     end do
 
-    allocate (x(3, batch_n), v(3, batch_n), q(batch_n), m(batch_n), w(batch_n), species_cursor(cfg%n_particle_species))
+    allocate (x(3, batch_n), v(3, batch_n), q(batch_n), m(batch_n), w(batch_n))
+    allocate (species_cursor(cfg%n_particle_species))
     species_cursor = 0_i32
     do i = 1, batch_n
       s = species_id(i)
@@ -159,16 +185,59 @@ contains
   end subroutine init_particle_batch_from_config
 
   !> 1粒子種ぶんの位置・速度サンプルをまとめて生成する。
-  subroutine sample_species_state(spec, n, x, v)
+  subroutine sample_species_state(sim, spec, n, x, v)
+    type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     integer(i32), intent(in) :: n
     real(dp), intent(out) :: x(:, :)
     real(dp), intent(out) :: v(:, :)
 
     if (n <= 0_i32) return
-    call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
-    call sample_shifted_maxwell_velocities(spec%drift_velocity, spec%m_particle, v, temperature_k=spec%temperature_k)
+    select case (trim(lower(spec%source_mode)))
+    case ('volume_seed')
+      call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
+      call sample_shifted_maxwell_velocities(spec%drift_velocity, spec%m_particle, v, temperature_k=species_temperature_k(spec))
+    case ('reservoir_face')
+      call sample_reservoir_face_particles( &
+        sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
+        spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v &
+      )
+    case default
+      error stop 'Unknown particles.species.source_mode.'
+    end select
   end subroutine sample_species_state
+
+  !> reservoir_face 用に、物理流量と残差から今バッチのマクロ粒子数を決める。
+  subroutine compute_macro_particles_for_species(sim, spec, residual, count)
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec
+    real(dp), intent(inout) :: residual
+    integer(i32), intent(out) :: count
+
+    real(dp) :: number_density_m3
+
+    number_density_m3 = species_number_density_m3(spec)
+    call compute_macro_particles_for_batch( &
+      number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
+      spec%inject_face, spec%pos_low, spec%pos_high, sim%batch_duration, spec%w_particle, residual, count &
+    )
+  end subroutine compute_macro_particles_for_species
+
+  !> 粒子種設定から実効密度[m^-3]を返す。
+  pure real(dp) function species_number_density_m3(spec) result(number_density_m3)
+    type(particle_species_spec), intent(in) :: spec
+
+    number_density_m3 = spec%number_density_m3
+    if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3 * 1.0d6
+  end function species_number_density_m3
+
+  !> 粒子種設定から実効温度[K]を返す。
+  pure real(dp) function species_temperature_k(spec) result(temperature_k)
+    type(particle_species_spec), intent(in) :: spec
+
+    temperature_k = spec%temperature_k
+    if (spec%has_temperature_ev) temperature_k = spec%temperature_ev * 1.160451812d4
+  end function species_temperature_k
 
   !> 有効なテンプレートを連結し、1つのメッシュへまとめる。
   subroutine build_template_mesh(cfg, mesh)
