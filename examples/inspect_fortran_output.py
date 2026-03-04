@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from beach import list_fortran_runs, load_fortran_result, plot_charge_mesh, plot_charges
 
@@ -28,18 +33,31 @@ def main() -> None:
         print(f"batch_indices={result.batch_indices}")
         print(f"processed_particles_by_batch={result.processed_particles_by_batch}")
 
-    bar_fig, _ = plot_charges(result)
-    if args.save_bar is not None:
-        bar_fig.savefig(args.save_bar, dpi=150)
-        print(f"saved_bar={args.save_bar}")
+    need_bar_plot = args.save_bar is not None or args.show
+    need_mesh_plot = args.save_mesh is not None or args.show
 
-    if result.triangles is not None:
-        mesh_fig, _ = plot_charge_mesh(result)
-        if args.save_mesh is not None:
-            mesh_fig.savefig(args.save_mesh, dpi=150)
-            print(f"saved_mesh={args.save_mesh}")
-    else:
-        print("mesh_triangles.csv not found; mesh visualization is skipped")
+    try:
+        if need_bar_plot:
+            bar_fig, _ = plot_charges(result)
+            if args.save_bar is not None:
+                bar_fig.savefig(args.save_bar, dpi=150)
+                print(f"saved_bar={args.save_bar}")
+
+        if need_mesh_plot:
+            if result.triangles is not None:
+                mesh_fig, _ = plot_charge_mesh(result)
+                if args.save_mesh is not None:
+                    mesh_fig.savefig(args.save_mesh, dpi=150)
+                    print(f"saved_mesh={args.save_mesh}")
+            else:
+                print("mesh_triangles.csv not found; mesh visualization is skipped")
+    except ModuleNotFoundError as exc:
+        if exc.name is not None and exc.name.startswith("matplotlib"):
+            raise SystemExit(
+                "matplotlib is required for visualization. "
+                "Install dependencies with `python -m pip install -e . --no-build-isolation`."
+            ) from exc
+        raise
 
     if args.show:
         import matplotlib.pyplot as plt

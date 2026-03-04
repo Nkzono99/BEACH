@@ -167,6 +167,15 @@ def _load_charge_history_if_exists(
 ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
     if not path.exists():
         return None, None, None, None
+    if path.stat().st_size == 0:
+        return None, None, None, None
+    with path.open("r", encoding="utf-8") as stream:
+        stream.readline()
+        for line in stream:
+            if line.strip():
+                break
+        else:
+            return None, None, None, None
 
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     if data.ndim == 1:

@@ -24,7 +24,7 @@ contains
 
     integer(i32) :: batch_start, batch_end, i, step, tid, nth, b, hist_stride, total_particles
     integer :: hist_unit
-    logical :: do_write_history
+    logical :: do_write_history, history_enabled
     real(dp), allocatable :: dq_thread(:, :), dq(:)
     logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
     real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), bfield(3), rel, norm_dq, norm_q, qdep
@@ -37,8 +37,9 @@ contains
     nth = 1
     !$ nth = max(1, omp_get_max_threads())
     allocate(dq_thread(mesh%nelem, nth), dq(mesh%nelem))
-    hist_unit = -1
-    if (present(history_unit)) hist_unit = history_unit
+    history_enabled = present(history_unit)
+    hist_unit = 0
+    if (history_enabled) hist_unit = history_unit
     hist_stride = 1_i32
     if (present(history_stride)) hist_stride = max(1_i32, history_stride)
     bfield = app%sim%b0
@@ -93,7 +94,7 @@ contains
       stats%batches = stats%batches + 1
       stats%last_rel_change = rel
       stats%processed_particles = stats%processed_particles + pcls_batch%n
-      do_write_history = (hist_unit > 0) .and. (mod(stats%batches - 1, hist_stride) == 0)
+      do_write_history = history_enabled .and. (mod(stats%batches - 1, hist_stride) == 0)
       if (do_write_history) call write_history_snapshot(hist_unit, stats%batches, stats%processed_particles, rel, mesh%q_elem)
 
       do b = 1, pcls_batch%n
