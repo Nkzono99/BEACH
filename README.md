@@ -64,7 +64,11 @@ print(result.charge_history.shape if result.charge_history is not None else 0)
 fig_bar, ax_bar = beach.plot_bar()
 fig_mesh, ax_mesh = beach.plot_mesh()
 fig_phi, ax_phi = beach.plot_potential()
-written = beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge")
+written = beach.animate_mesh(
+    "outputs/latest/charge_history.gif",
+    quantity="charge",
+    total_frames=200,
+)
 print(written)
 
 # output_path=None なら保存せず FuncAnimation を返す
@@ -91,12 +95,14 @@ python examples/inspect_fortran_output.py outputs/latest \
 
 python examples/animate_fortran_history.py outputs/latest \
   --quantity charge \
-  --save-gif outputs/latest/charge_history.gif
+  --save-gif outputs/latest/charge_history.gif \
+  --total-frames 200
 
 python examples/animate_fortran_history.py outputs/latest \
   --quantity potential \
   --save-gif outputs/latest/potential_history.gif \
-  --potential-self-term area-equivalent
+  --potential-self-term area-equivalent \
+  --total-frames 200
 ```
 
 ## 参考ファイル

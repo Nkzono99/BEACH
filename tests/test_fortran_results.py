@@ -6,6 +6,7 @@ import pytest
 from beach.fortran_results import (
     K_COULOMB,
     FortranRunResult,
+    _select_frame_columns,
     animate_history_mesh,
     compute_potential_mesh,
     _surface_charge_density,
@@ -423,6 +424,26 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
     fig.clf()
 
 
+def test_select_frame_columns_with_frame_stride() -> None:
+    cols = _select_frame_columns(10, frame_stride=3, total_frames=None)
+    np.testing.assert_array_equal(cols, np.array([0, 3, 6, 9], dtype=np.int64))
+
+
+def test_select_frame_columns_with_total_frames() -> None:
+    cols = _select_frame_columns(10, frame_stride=1, total_frames=4)
+    np.testing.assert_array_equal(cols, np.array([0, 3, 6, 9], dtype=np.int64))
+
+
+def test_select_frame_columns_with_total_frames_larger_than_snapshots() -> None:
+    cols = _select_frame_columns(3, frame_stride=1, total_frames=10)
+    np.testing.assert_array_equal(cols, np.array([0, 1, 2], dtype=np.int64))
+
+
+def test_select_frame_columns_with_one_total_frame() -> None:
+    cols = _select_frame_columns(7, frame_stride=1, total_frames=1)
+    np.testing.assert_array_equal(cols, np.array([0], dtype=np.int64))
+
+
 def test_animate_history_mesh_requires_charge_history(tmp_path: Path) -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
@@ -463,6 +484,55 @@ def test_animate_history_mesh_rejects_invalid_quantity(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="quantity"):
         animate_history_mesh(result, tmp_path / "history.gif", quantity="invalid")
+
+
+def test_animate_history_mesh_rejects_invalid_total_frames(tmp_path: Path) -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+        charge_history=np.array([[1.0e-9, 1.2e-9]]),
+    )
+
+    with pytest.raises(ValueError, match="total_frames"):
+        animate_history_mesh(result, tmp_path / "history.gif", total_frames=0)
+
+
+def test_animate_history_mesh_rejects_stride_and_total_frames_combination(
+    tmp_path: Path,
+) -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+        charge_history=np.array([[1.0e-9, 1.2e-9]]),
+    )
+
+    with pytest.raises(ValueError, match="cannot be used together"):
+        animate_history_mesh(
+            result,
+            tmp_path / "history.gif",
+            frame_stride=2,
+            total_frames=2,
+        )
 
 
 @pytest.mark.parametrize("quantity", ["charge", "potential"])

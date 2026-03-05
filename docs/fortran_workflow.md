@@ -70,7 +70,11 @@ print(beach.result.absorbed, beach.result.escaped)
 beach.plot_bar()
 beach.plot_mesh()
 beach.plot_potential()
-beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge")
+beach.animate_mesh(
+    "outputs/latest/charge_history.gif",
+    quantity="charge",
+    total_frames=200,
+)
 ```
 
 `output_path=None` を指定すると、`beach.animate_mesh()` は保存せず `FuncAnimation` を返します。
@@ -88,12 +92,14 @@ beach-inspect outputs/latest \
 
 beach-animate-history outputs/latest \
   --quantity charge \
-  --save-gif outputs/latest/charge_history.gif
+  --save-gif outputs/latest/charge_history.gif \
+  --total-frames 200
 
 beach-animate-history outputs/latest \
   --quantity potential \
   --save-gif outputs/latest/potential_history.gif \
-  --potential-self-term area-equivalent
+  --potential-self-term area-equivalent \
+  --total-frames 200
 ```
 
 `examples/*.py` は上記 CLI の互換ラッパーとして残しているため、従来どおり `python examples/...` でも実行できます。

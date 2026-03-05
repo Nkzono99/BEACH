@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="use every N-th history snapshot",
     )
     parser.add_argument(
+        "--total-frames",
+        type=int,
+        default=None,
+        help="target number of frames sampled evenly from history snapshots",
+    )
+    parser.add_argument(
         "--cmap",
         default=None,
         help="matplotlib colormap name (defaults: charge=coolwarm, potential=viridis)",
@@ -54,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.total_frames is not None and args.frame_stride != 1:
+        parser.error("--frame-stride and --total-frames cannot be used together.")
 
     output_dir = Path(args.output_dir)
     save_gif = (
@@ -71,6 +79,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             quantity=args.quantity,
             fps=args.fps,
             frame_stride=args.frame_stride,
+            total_frames=args.total_frames,
             cmap=args.cmap,
             softening=args.potential_softening,
             self_term=self_term,
@@ -87,10 +96,19 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     print(f"saved_gif={written}")
     print(f"quantity={args.quantity}")
-    frame_count = (
+    snapshot_count = (
         result.charge_history.shape[1] if result.charge_history is not None else 0
     )
-    print(f"frames={frame_count}")
+    if args.total_frames is None:
+        rendered_frames = (
+            (snapshot_count + args.frame_stride - 1) // args.frame_stride
+            if snapshot_count > 0
+            else 0
+        )
+    else:
+        rendered_frames = min(snapshot_count, args.total_frames)
+    print(f"snapshots={snapshot_count}")
+    print(f"rendered_frames={rendered_frames}")
 
 
 if __name__ == "__main__":

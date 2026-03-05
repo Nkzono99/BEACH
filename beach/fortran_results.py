@@ -140,6 +140,7 @@ class Beach:
         quantity: Literal["charge", "potential"] = "charge",
         fps: int = 10,
         frame_stride: int = 1,
+        total_frames: int | None = None,
         cmap: str | None = None,
         softening: float = 0.0,
         self_term: str = "area_equivalent",
@@ -150,6 +151,7 @@ class Beach:
             quantity=quantity,
             fps=fps,
             frame_stride=frame_stride,
+            total_frames=total_frames,
             cmap=cmap,
             softening=softening,
             self_term=self_term,
@@ -243,6 +245,7 @@ def animate_history_mesh(
     quantity: Literal["charge", "potential"] = "charge",
     fps: int = 10,
     frame_stride: int = 1,
+    total_frames: int | None = None,
     cmap: str | None = None,
     softening: float = 0.0,
     self_term: str = "area_equivalent",
@@ -258,12 +261,20 @@ def animate_history_mesh(
         raise ValueError("fps must be > 0.")
     if frame_stride <= 0:
         raise ValueError("frame_stride must be > 0.")
+    if total_frames is not None and total_frames <= 0:
+        raise ValueError("total_frames must be > 0.")
+    if total_frames is not None and frame_stride != 1:
+        raise ValueError("frame_stride and total_frames cannot be used together.")
 
     triangles = _require_triangles(resolved)
     charge_history = _require_charge_history(resolved)
     quantity_key = quantity.lower()
     self_term_key = self_term.replace("-", "_")
-    frame_cols = np.arange(0, charge_history.shape[1], frame_stride, dtype=np.int64)
+    frame_cols = _select_frame_columns(
+        charge_history.shape[1],
+        frame_stride=frame_stride,
+        total_frames=total_frames,
+    )
     charges_sampled = charge_history[:, frame_cols]
 
     if quantity_key == "charge":
@@ -347,6 +358,28 @@ def animate_history_mesh(
     animation.save(out_path, writer=PillowWriter(fps=fps))
     plt.close(fig)
     return out_path
+
+
+def _select_frame_columns(
+    n_snapshots: int,
+    *,
+    frame_stride: int,
+    total_frames: int | None,
+) -> np.ndarray:
+    if n_snapshots <= 0:
+        raise ValueError("n_snapshots must be > 0.")
+
+    if total_frames is None:
+        return np.arange(0, n_snapshots, frame_stride, dtype=np.int64)
+
+    if total_frames >= n_snapshots:
+        return np.arange(n_snapshots, dtype=np.int64)
+
+    if total_frames == 1:
+        return np.array([0], dtype=np.int64)
+
+    numerators = np.arange(total_frames, dtype=np.int64) * (n_snapshots - 1)
+    return numerators // (total_frames - 1)
 
 
 def _load_summary(path: Path) -> dict[str, str]:
