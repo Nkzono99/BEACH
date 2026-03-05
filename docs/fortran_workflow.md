@@ -26,6 +26,20 @@ OpenMP スレッド数指定:
 OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
 ```
 
+実行前の粒子負荷見積もり（`reservoir_face` 対応）:
+
+```bash
+beach-estimate-workload outputs/sphere/fortran_config.toml --threads 8
+```
+
+再開計算の残差を考慮する場合:
+
+```bash
+beach-estimate-workload outputs/sphere/fortran_config.toml \
+  --threads 8 \
+  --macro-residuals outputs/sphere/macro_residuals.csv
+```
+
 再開実行:
 
 ```toml
@@ -66,21 +80,23 @@ beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge")
 出力確認（CLI）:
 
 ```bash
-python examples/inspect_fortran_output.py outputs/latest \
+beach-inspect outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png \
   --save-potential-mesh outputs/latest/potential_mesh.png \
   --potential-self-term area-equivalent
 
-python examples/animate_fortran_history.py outputs/latest \
+beach-animate-history outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif
 
-python examples/animate_fortran_history.py outputs/latest \
+beach-animate-history outputs/latest \
   --quantity potential \
   --save-gif outputs/latest/potential_history.gif \
   --potential-self-term area-equivalent
 ```
+
+`examples/*.py` は上記 CLI の互換ラッパーとして残しているため、従来どおり `python examples/...` でも実行できます。
 
 Python 後処理では、`charge mesh` に加えて `potential mesh` も生成できます。これは Fortran を再実行して電位を解き直すのではなく、出力済みの要素電荷から電位を再構成する近似です。既定では他要素の寄与を各要素重心の点電荷近似で扱い、自己項のみ要素面積に基づく有限値（面積等価円板近似）で評価します。そのため、Fortran 本体の電場計算と数値的一致を保証するものではありません。旧来の `1 / softening` 自己項を使いたい場合は、`--potential-self-term softened-point --potential-softening 1.0e-6` または `Beach.compute_potential(..., softening=1.0e-6, self_term="softened_point")`（または `compute_potential_mesh(...)`）を指定してください。`--potential-softening` の既定値は `0.0` で、`area-equivalent` / `exclude` では主に要素間カーネルの平滑化にのみ使われます。
 
