@@ -81,58 +81,139 @@ def list_fortran_runs(root: str | Path) -> list[Path]:
     return runs
 
 
-def plot_charges(result: FortranRunResult):
+class Beach:
+    """Facade for one Fortran output directory with lazy result loading."""
+
+    def __init__(self, output_dir: str | Path) -> None:
+        self.output_dir = Path(output_dir)
+        self._result: FortranRunResult | None = None
+
+    @property
+    def result(self) -> FortranRunResult:
+        if self._result is None:
+            self._result = load_fortran_result(self.output_dir)
+        return self._result
+
+    def reload(self) -> FortranRunResult:
+        self._result = load_fortran_result(self.output_dir)
+        return self._result
+
+    def plot_mesh(self, *, cmap: str = "coolwarm"):
+        return plot_charge_mesh(self.result, cmap=cmap)
+
+    def plot_bar(self):
+        return plot_charges(self.result)
+
+    def compute_potential(
+        self,
+        *,
+        softening: float = 0.0,
+        self_term: str = "area_equivalent",
+    ) -> np.ndarray:
+        return compute_potential_mesh(
+            self.result,
+            softening=softening,
+            self_term=self_term,
+        )
+
+    def plot_potential(
+        self,
+        *,
+        softening: float = 0.0,
+        self_term: str = "area_equivalent",
+        cmap: str = "viridis",
+    ):
+        return plot_potential_mesh(
+            self.result,
+            softening=softening,
+            self_term=self_term,
+            cmap=cmap,
+        )
+
+    def animate_mesh(
+        self,
+        output_path: str | Path | None = None,
+        *,
+        quantity: Literal["charge", "potential"] = "charge",
+        fps: int = 10,
+        frame_stride: int = 1,
+        cmap: str | None = None,
+        softening: float = 0.0,
+        self_term: str = "area_equivalent",
+    ) -> Path | FuncAnimation:
+        return animate_history_mesh(
+            self.result,
+            output_path=output_path,
+            quantity=quantity,
+            fps=fps,
+            frame_stride=frame_stride,
+            cmap=cmap,
+            softening=softening,
+            self_term=self_term,
+        )
+
+
+def _resolve_result(result: FortranRunResult | Beach) -> FortranRunResult:
+    if isinstance(result, Beach):
+        return result.result
+    return result
+
+
+def plot_charges(result: FortranRunResult | Beach):
     """Quick bar plot of per-element charge values."""
 
     import matplotlib.pyplot as plt
 
+    resolved = _resolve_result(result)
     fig, ax = plt.subplots(figsize=(8, 3))
-    x = np.arange(result.charges.size)
-    ax.bar(x, result.charges)
+    x = np.arange(resolved.charges.size)
+    ax.bar(x, resolved.charges)
     ax.set_xlabel("element index")
     ax.set_ylabel("charge [C]")
-    ax.set_title(f"Fortran charge distribution: {result.directory}")
+    ax.set_title(f"Fortran charge distribution: {resolved.directory}")
     fig.tight_layout()
     return fig, ax
 
 
-def plot_charge_mesh(result: FortranRunResult, *, cmap: str = "coolwarm"):
+def plot_charge_mesh(result: FortranRunResult | Beach, *, cmap: str = "coolwarm"):
     """Plot mesh triangles in 3D, colored by per-element surface charge density."""
 
-    triangles = _require_triangles(result)
-    sigma = _surface_charge_density(result.charges, triangles)
+    resolved = _resolve_result(result)
+    triangles = _require_triangles(resolved)
+    sigma = _surface_charge_density(resolved.charges, triangles)
     return _plot_scalar_mesh(
         triangles,
         sigma,
-        title=f"Surface charge density mesh: {result.directory}",
+        title=f"Surface charge density mesh: {resolved.directory}",
         colorbar_label="surface charge density [C/m^2]",
         cmap=cmap,
     )
 
 
 def compute_potential_mesh(
-    result: FortranRunResult,
+    result: FortranRunResult | Beach,
     *,
     softening: float = 0.0,
     self_term: str = "area_equivalent",
 ) -> np.ndarray:
     """Compute one electric potential value per triangle centroid."""
 
+    resolved = _resolve_result(result)
     if softening < 0.0:
         raise ValueError("softening must be >= 0.")
 
-    triangles = _require_triangles(result)
+    triangles = _require_triangles(resolved)
     centers = _triangle_centers(triangles)
     offdiag_kernel = _potential_offdiag_kernel(centers, softening=softening)
     self_coeff = _self_potential_coefficients(
         triangles, self_term=self_term, softening=softening
     )
-    potential = offdiag_kernel @ result.charges + self_coeff * result.charges
+    potential = offdiag_kernel @ resolved.charges + self_coeff * resolved.charges
     return K_COULOMB * potential
 
 
 def plot_potential_mesh(
-    result: FortranRunResult,
+    result: FortranRunResult | Beach,
     *,
     softening: float = 0.0,
     self_term: str = "area_equivalent",
@@ -140,20 +221,21 @@ def plot_potential_mesh(
 ):
     """Plot mesh triangles in 3D, colored by per-element electric potential."""
 
-    triangles = _require_triangles(result)
-    phi = compute_potential_mesh(result, softening=softening, self_term=self_term)
+    resolved = _resolve_result(result)
+    triangles = _require_triangles(resolved)
+    phi = compute_potential_mesh(resolved, softening=softening, self_term=self_term)
     return _plot_scalar_mesh(
         triangles,
         phi,
-        title=f"Electric potential mesh: {result.directory}",
+        title=f"Electric potential mesh: {resolved.directory}",
         colorbar_label="potential [V]",
         cmap=cmap,
     )
 
 
 def animate_history_mesh(
-    result: FortranRunResult,
-    output_path: str | Path,
+    result: FortranRunResult | Beach,
+    output_path: str | Path | None = None,
     *,
     quantity: Literal["charge", "potential"] = "charge",
     fps: int = 10,
@@ -161,20 +243,21 @@ def animate_history_mesh(
     cmap: str | None = None,
     softening: float = 0.0,
     self_term: str = "area_equivalent",
-) -> Path:
+) -> Path | FuncAnimation:
     """Render charge-history snapshots as a GIF animation on the 3D mesh."""
 
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
+    resolved = _resolve_result(result)
     if fps <= 0:
         raise ValueError("fps must be > 0.")
     if frame_stride <= 0:
         raise ValueError("frame_stride must be > 0.")
 
-    triangles = _require_triangles(result)
-    charge_history = _require_charge_history(result)
+    triangles = _require_triangles(resolved)
+    charge_history = _require_charge_history(resolved)
     quantity_key = quantity.lower()
     self_term_key = self_term.replace("-", "_")
     frame_cols = np.arange(0, charge_history.shape[1], frame_stride, dtype=np.int64)
@@ -219,19 +302,21 @@ def animate_history_mesh(
     def _title_for_frame(frame_idx: int) -> str:
         col = int(frame_cols[frame_idx])
         suffix: list[str] = [f"frame={frame_idx + 1}/{frame_cols.size}"]
-        if result.batch_indices is not None and col < result.batch_indices.size:
-            suffix.append(f"batch={int(result.batch_indices[col])}")
+        if resolved.batch_indices is not None and col < resolved.batch_indices.size:
+            suffix.append(f"batch={int(resolved.batch_indices[col])}")
         if (
-            result.processed_particles_by_batch is not None
-            and col < result.processed_particles_by_batch.size
+            resolved.processed_particles_by_batch is not None
+            and col < resolved.processed_particles_by_batch.size
         ):
-            suffix.append(f"processed={int(result.processed_particles_by_batch[col])}")
+            suffix.append(
+                f"processed={int(resolved.processed_particles_by_batch[col])}"
+            )
         if (
-            result.rel_change_by_batch is not None
-            and col < result.rel_change_by_batch.size
+            resolved.rel_change_by_batch is not None
+            and col < resolved.rel_change_by_batch.size
         ):
-            suffix.append(f"rel={result.rel_change_by_batch[col]:.3e}")
-        return f"{title_prefix}: {result.directory}\n" + " ".join(suffix)
+            suffix.append(f"rel={resolved.rel_change_by_batch[col]:.3e}")
+        return f"{title_prefix}: {resolved.directory}\n" + " ".join(suffix)
 
     ax.set_title(_title_for_frame(0))
     sm.set_array(values_history[:, 0])
@@ -250,6 +335,9 @@ def animate_history_mesh(
         interval=1000.0 / float(fps),
         blit=False,
     )
+
+    if output_path is None:
+        return animation
 
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -2,6 +2,7 @@
 
 from .fortran_results import (
     animate_history_mesh,
+    Beach,
     compute_potential_mesh,
     FortranRunResult,
     list_fortran_runs,
@@ -13,6 +14,7 @@ from .fortran_results import (
 
 __all__ = [
     "animate_history_mesh",
+    "Beach",
     "compute_potential_mesh",
     "FortranRunResult",
     "load_fortran_result",
