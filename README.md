@@ -45,37 +45,40 @@ python -m pip install -e . --no-build-isolation
 
 ## Python 後処理の利用例
 
-Fortran 出力を Python で読み込む例：
+`Beach` クラスを使うのが推奨導線です。
 
 ```python
 from beach import (
+    Beach,
     animate_history_mesh,
     compute_potential_mesh,
-    load_fortran_result,
     plot_charge_mesh,
     plot_charges,
-    plot_potential_mesh,
 )
 
-result = load_fortran_result("outputs/latest")
+beach = Beach("outputs/latest")
+result = beach.result  # FortranRunResult（遅延ロード）
 print(result.absorbed, result.escaped, result.charges.sum())
-print(result.charge_history.shape if result.charge_history is not None else None)
+print(result.charge_history.shape if result.charge_history is not None else 0)
 
-potential = compute_potential_mesh(result)
+fig_bar, ax_bar = beach.plot_bar()
+fig_mesh, ax_mesh = beach.plot_mesh()
+fig_phi, ax_phi = beach.plot_potential()
+written = beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge")
+print(written)
+
+# output_path=None なら保存せず FuncAnimation を返す
+anim = beach.animate_mesh(quantity="potential")
+
+# 既存の関数APIも継続利用可能（Beach/FortranRunResult 両対応）
+potential = compute_potential_mesh(beach, softening=0.0, self_term="area_equivalent")
 print(potential.min(), potential.max())
-
-fig_bar, ax_bar = plot_charges(result)
-fig_mesh, ax_mesh = plot_charge_mesh(result)
-fig_phi, ax_phi = plot_potential_mesh(result)
-animate_history_mesh(result, "outputs/latest/charge_history.gif", quantity="charge")
-animate_history_mesh(
-    result,
-    "outputs/latest/potential_history.gif",
-    quantity="potential",
-)
+fig_bar2, ax_bar2 = plot_charges(beach)
+fig_mesh2, ax_mesh2 = plot_charge_mesh(beach)
+written2 = animate_history_mesh(beach, "outputs/latest/potential_history.gif", quantity="potential")
 ```
 
-`compute_potential_mesh()` / `plot_potential_mesh()` は、Fortran が出力した要素電荷を各要素重心ベースで再構成する後処理近似です。既定では、他要素の寄与は重心点電荷近似のまま、自己項のみ要素面積に基づく有限値（面積等価円板近似）で評価します。これは Fortran 本体の電場計算を厳密に再現するものではありません。旧来の `1 / softening` 自己項が必要な場合は、`compute_potential_mesh(result, softening=1.0e-6, self_term="softened_point")` のように明示指定してください。
+`Beach.compute_potential()` / `compute_potential_mesh()` は、Fortran が出力した要素電荷を各要素重心ベースで再構成する後処理近似です。既定では、他要素の寄与は重心点電荷近似のまま、自己項のみ要素面積に基づく有限値（面積等価円板近似）で評価します。これは Fortran 本体の電場計算を厳密に再現するものではありません。旧来の `1 / softening` 自己項が必要な場合は、`beach.compute_potential(softening=1.0e-6, self_term="softened_point")` のように明示指定してください。
 
 CLI での確認例：
 
