@@ -1,9 +1,10 @@
 # Fortranパラメータファイル仕様（TOML）
 
-Fortran 実行時は、`fpm run ... -- path/to/config.toml` で設定を読み込めます。
+Fortran 実行時は、`fpm run ... -- path/to/config.toml` で設定を読み込めます。引数なし実行でもカレントディレクトリの `beach.toml` を自動読込します。
 
-- 例: `examples/fortran_config.toml`
+- 例: `examples/beach.toml`
 - 既定値は `src/bem_app_config.f90` の `default_app_config` で定義
+- 互換目的で `fortran_config.toml` も自動読込対象ですが、`beach.toml` へ移行してください
 
 ---
 
@@ -203,6 +204,6 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 ## 5. 典型的な実行
 
 ```bash
-fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
+fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 python examples/inspect_fortran_output.py outputs/latest
 ```

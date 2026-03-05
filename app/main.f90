@@ -52,10 +52,11 @@ contains
     type(injection_state), intent(out) :: inject_state
     logical, intent(out) :: resumed
     character(len=256) :: cfg_path
+    logical :: has_config
 
     call default_app_config(app)
-    if (command_argument_count() >= 1) then
-      call get_command_argument(1, cfg_path)
+    call resolve_config_path(cfg_path, has_config)
+    if (has_config) then
       call load_app_config(trim(cfg_path), app)
     end if
 
@@ -75,6 +76,40 @@ contains
       call seed_particles_from_config(app)
     end if
   end subroutine load_or_init_run_state
+
+  !> 実行時設定ファイルの読み込みパスを決定する。
+  !! @param[out] path 読み込む設定ファイルパス（未検出時は空文字）。
+  !! @param[out] found 設定ファイルが解決できた場合に `.true.`。
+  subroutine resolve_config_path(path, found)
+    character(len=*), intent(out) :: path
+    logical, intent(out) :: found
+    logical :: has_primary, has_legacy
+    character(len=*), parameter :: primary_config = 'beach.toml'
+    character(len=*), parameter :: legacy_config = 'fortran_config.toml'
+
+    path = ''
+    found = .false.
+    if (command_argument_count() >= 1) then
+      call get_command_argument(1, path)
+      if (len_trim(path) == 0) error stop 'Config path argument is empty.'
+      found = .true.
+      return
+    end if
+
+    inquire(file=primary_config, exist=has_primary)
+    if (has_primary) then
+      path = primary_config
+      found = .true.
+      return
+    end if
+
+    inquire(file=legacy_config, exist=has_legacy)
+    if (has_legacy) then
+      path = legacy_config
+      found = .true.
+      print '(a)', 'warning: fortran_config.toml is deprecated; rename to beach.toml.'
+    end if
+  end subroutine resolve_config_path
 
   !> 種数に合わせて注入状態をゼロ初期化する。
   !! @param[out] state 初期化する注入状態。

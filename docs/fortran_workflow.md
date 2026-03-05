@@ -14,28 +14,30 @@
 fpm run --profile release --flag "-fopenmp"
 ```
 
+カレントディレクトリに `beach.toml` がある場合、引数なし実行でも自動読込されます（互換目的で `fortran_config.toml` も読込可能ですが非推奨です）。
+
 設定ファイル指定:
 
 ```bash
-fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
+fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
 OpenMP スレッド数指定:
 
 ```bash
-OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
+OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
 実行前の粒子負荷見積もり（`reservoir_face` 対応）:
 
 ```bash
-beach-estimate-workload outputs/sphere/fortran_config.toml --threads 8
+beach-estimate-workload outputs/sphere/beach.toml --threads 8
 ```
 
 再開計算の残差を考慮する場合:
 
 ```bash
-beach-estimate-workload outputs/sphere/fortran_config.toml \
+beach-estimate-workload outputs/sphere/beach.toml \
   --threads 8 \
   --macro-residuals outputs/sphere/macro_residuals.csv
 ```

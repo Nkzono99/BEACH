@@ -24,10 +24,12 @@
 fpm run --profile release --flag "-fopenmp"
 ```
 
+カレントディレクトリに `beach.toml` があれば自動で読み込みます。見つからない場合は、`default_app_config` の既定値で実行されます。
+
 設定ファイルを指定して実行する場合：
 
 ```bash
-fpm run --profile release --flag "-fopenmp" -- examples/fortran_config.toml
+fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
 ### 2) Python 環境（後処理・可視化）
@@ -107,4 +109,4 @@ python examples/animate_fortran_history.py outputs/latest \
 
 ## 参考ファイル
 
-- [`examples/fortran_config.toml`](examples/fortran_config.toml)：複数テンプレート合成を含む設定サンプル
+- [`examples/beach.toml`](examples/beach.toml)：複数テンプレート合成を含む設定サンプル

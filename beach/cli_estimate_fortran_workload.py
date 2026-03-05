@@ -386,7 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
             "per-batch particles and per-thread particle counts."
         )
     )
-    parser.add_argument("config", type=Path, help="path to fortran_config.toml")
+    parser.add_argument("config", type=Path, help="path to beach.toml")
     parser.add_argument(
         "--threads",
         type=int,
