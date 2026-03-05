@@ -211,3 +211,15 @@ __marimo__/
 **/*.obj
 
 outputs/
+
+# Fortran coverage artifacts
+*.gcov
+*.gcda
+*.gcno
+
+# Fortran temporary test artifacts
+test_*_tmp.toml
+test_*_tmp.obj
+test_*_tmp.csv
+test_*_tmp/
+.lint/
