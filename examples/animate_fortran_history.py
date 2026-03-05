@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from beach import animate_history_mesh, load_fortran_result
+from beach import Beach
 
 
 def main() -> None:
@@ -61,12 +61,12 @@ def main() -> None:
         else output_dir / f"{args.quantity}_history.gif"
     )
     self_term = args.potential_self_term.replace("-", "_")
-    result = load_fortran_result(output_dir)
+    beach = Beach(output_dir)
+    result = beach.result
 
     try:
-        written = animate_history_mesh(
-            result,
-            save_gif,
+        written = beach.animate_mesh(
+            output_path=save_gif,
             quantity=args.quantity,
             fps=args.fps,
             frame_stride=args.frame_stride,

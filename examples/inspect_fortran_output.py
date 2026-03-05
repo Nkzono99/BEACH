@@ -11,12 +11,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from beach import (
-    compute_potential_mesh,
+    Beach,
     list_fortran_runs,
-    load_fortran_result,
-    plot_charge_mesh,
-    plot_charges,
-    plot_potential_mesh,
 )
 
 
@@ -51,7 +47,8 @@ def main() -> None:
     args = parser.parse_args()
     self_term = args.potential_self_term.replace("-", "_")
 
-    result = load_fortran_result(args.output_dir)
+    beach = Beach(args.output_dir)
+    result = beach.result
     print(f"directory={result.directory}")
     print(f"mesh_nelem={result.mesh_nelem}")
     print(f"processed_particles={result.processed_particles}")
@@ -59,8 +56,7 @@ def main() -> None:
     print(f"batches={result.batches} last_rel_change={result.last_rel_change:.6e}")
     print(f"charge_sum={result.charges.sum():.6e}")
     if result.triangles is not None:
-        potential = compute_potential_mesh(
-            result,
+        potential = beach.compute_potential(
             softening=args.potential_softening,
             self_term=self_term,
         )
@@ -77,14 +73,14 @@ def main() -> None:
 
     try:
         if need_bar_plot:
-            bar_fig, _ = plot_charges(result)
+            bar_fig, _ = beach.plot_bar()
             if args.save_bar is not None:
                 bar_fig.savefig(args.save_bar, dpi=150)
                 print(f"saved_bar={args.save_bar}")
 
         if need_mesh_plot:
             if result.triangles is not None:
-                mesh_fig, _ = plot_charge_mesh(result)
+                mesh_fig, _ = beach.plot_mesh()
                 if args.save_mesh is not None:
                     mesh_fig.savefig(args.save_mesh, dpi=150)
                     print(f"saved_mesh={args.save_mesh}")
@@ -93,8 +89,7 @@ def main() -> None:
 
         if need_potential_mesh_plot:
             if result.triangles is not None:
-                potential_mesh_fig, _ = plot_potential_mesh(
-                    result,
+                potential_mesh_fig, _ = beach.plot_potential(
                     softening=args.potential_softening,
                     self_term=self_term,
                 )
