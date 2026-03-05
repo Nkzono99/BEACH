@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Iterable, Literal, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from matplotlib.animation import FuncAnimation
 
 K_COULOMB = 8.9875517923e9
 
@@ -469,9 +472,7 @@ def _potential_history(
     self_coeff = _self_potential_coefficients(
         triangles, self_term=self_term, softening=softening
     )
-    potential = (
-        offdiag_kernel @ charges_history + self_coeff[:, None] * charges_history
-    )
+    potential = offdiag_kernel @ charges_history + self_coeff[:, None] * charges_history
     return K_COULOMB * potential
 
 
