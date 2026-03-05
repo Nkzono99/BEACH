@@ -34,6 +34,8 @@ OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/beach.
 beach-estimate-workload outputs/sphere/beach.toml --threads 8
 ```
 
+`sim.target_npcls_species1` を使う場合、見積もり結果に `resolved_batch_duration=...` が表示されます。
+
 再開計算の残差を考慮する場合:
 
 ```bash

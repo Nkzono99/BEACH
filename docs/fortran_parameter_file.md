@@ -59,7 +59,8 @@ dir = "outputs/latest"
 | `dt` | float | `1.0e-9` | 時間刻み[s] |
 | `rng_seed` | int | `12345` | 粒子注入乱数のシード |
 | `batch_count` | int | `1` | 1回の実行で進めるバッチ数 |
-| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` 使用時は必須） |
+| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` 使用時に必要。`target_npcls_species1` と同時指定不可） |
+| `target_npcls_species1` | int | `0` | `species[1]` の目標マクロ粒子数/バッチ。指定時は `batch_duration` を自動決定（`species[1]` は `reservoir_face` 必須） |
 | `max_step` | int | `400` | 粒子あたり最大ステップ |
 | `tol_rel` | float | `1.0e-8` | 相対変化の監視値（早期終了には使わない） |
 | `q_floor` | float | 実装既定値 | ゼロ割防止下限 |
@@ -107,7 +108,24 @@ dir = "outputs/latest"
 
 - `volume_seed` の1バッチあたり総粒子数 = `sum(enabled volume_seed species npcls_per_step)`
 - `volume_seed` の総投入粒子数 = `batch_count * sum(enabled volume_seed species npcls_per_step)`
-- `reservoir_face` の `npcls_per_step` は、上流の drifting Maxwellian から計算した流入束と `w_particle` からバッチごとに自動決定されます。
+- `reservoir_face` の期待マクロ粒子数（種 `s`）:
+  - `n_macro_expected_s = gamma_in_s * A_s * batch_duration / w_particle_s`
+  - `gamma_in_s = n_s * (sigma_s * phi(alpha_s) + u_n_s * Phi(alpha_s))`
+  - `alpha_s = u_n_s / sigma_s`
+  - `sigma_s = sqrt(k_B * T_s / m_s)`
+  - `u_n_s = drift_velocity_s ・ inward_normal_s`
+- 実際のバッチ注入数（残差繰越込み）:
+  - `macro_budget_s = residual_s + n_macro_expected_s`
+  - `n_macro_s = floor(max(macro_budget_s, 0))`
+  - `residual_s <- macro_budget_s - n_macro_s`
+- 上式は `compute_macro_particles_for_batch` の実装と一致します。
+
+`target_npcls_species1` を使う場合、`species[1]` を基準に `batch_duration` を次式で自動決定します。
+
+- `batch_duration = target_npcls_species1 * w_1 / (gamma_in_1 * A_1)`
+- `species[1]` は `enabled = true` かつ `source_mode = "reservoir_face"` が必須です。
+- `batch_duration` と `target_npcls_species1` の同時指定はエラーです。
+- 他の `reservoir_face` 種は同じ `batch_duration` で注入されるため、長期平均ではフラックス比が保持されます（整数化誤差は残差繰越で吸収）。
 
 `reservoir_face` では次が必須です。
 
@@ -117,6 +135,12 @@ dir = "outputs/latest"
 - `inject_face`
 - `w_particle > 0`
 
+`target_npcls_species1` を使う場合の追加要件:
+
+- `sim.target_npcls_species1 > 0`
+- `sim.batch_duration` を同時に指定しない
+- `particles.species[1]` が有効かつ `source_mode = "reservoir_face"`
+
 `pos_low` / `pos_high` は注入面上の矩形開口を表します。法線方向の座標は `inject_face` で指定した箱境界と一致している必要があります。
 
 例: 5/cc, 10eV, 400km/s の上流電子を上面 (`z_high`) から流入させる設定
@@ -124,6 +148,28 @@ dir = "outputs/latest"
 ```toml
 [sim]
 batch_duration = 2.0e-7
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
+
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+w_particle = 1.0e5
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
+```
+
+`target_npcls_species1` で `batch_duration` を自動決定する例:
+
+```toml
+[sim]
+target_npcls_species1 = 300
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 4.0]

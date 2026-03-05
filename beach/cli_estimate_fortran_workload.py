@@ -15,6 +15,7 @@ EV_TO_K = 1.160451812e4
 DEFAULT_SIM: dict[str, Any] = {
     "batch_count": 1,
     "batch_duration": 0.0,
+    "target_npcls_species1": 0,
     "use_box": False,
     "box_min": [-1.0, -1.0, -1.0],
     "box_max": [1.0, 1.0, 1.0],
@@ -146,6 +147,162 @@ def _compute_face_area(
     )
 
 
+def _parse_reservoir_species_geometry(
+    sim_cfg: dict[str, Any],
+    spec: dict[str, Any],
+) -> tuple[str, list[float], list[float], float]:
+    inject_face = str(spec.get("inject_face", "")).strip().lower()
+    _inward_normal_for_face(inject_face)
+    pos_low = [float(x) for x in spec.get("pos_low", DEFAULT_SPECIES["pos_low"])]
+    pos_high = [float(x) for x in spec.get("pos_high", DEFAULT_SPECIES["pos_high"])]
+    box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
+    box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
+    axis_n, boundary_value = _axis_and_boundary_for_face(inject_face, box_min, box_max)
+    if (
+        abs(pos_low[axis_n] - boundary_value) > 1.0e-12
+        or abs(pos_high[axis_n] - boundary_value) > 1.0e-12
+    ):
+        raise SystemExit(
+            "reservoir_face pos_low/pos_high must lie on the selected box face."
+        )
+    axis_t1, axis_t2 = _face_tangential_axes(inject_face)
+    if pos_high[axis_t1] < pos_low[axis_t1] or pos_high[axis_t2] < pos_low[axis_t2]:
+        raise SystemExit(
+            "reservoir_face tangential bounds must satisfy pos_high >= pos_low."
+        )
+    area = _compute_face_area(inject_face, pos_low, pos_high)
+    if area <= 0.0:
+        raise SystemExit("reservoir_face opening area must be positive")
+    return inject_face, pos_low, pos_high, area
+
+
+def _validate_reservoir_species(
+    sim_cfg: dict[str, Any],
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    if not bool(sim_cfg.get("use_box", False)):
+        raise SystemExit("reservoir_face requires sim.use_box = true")
+
+    w_particle = float(spec.get("w_particle", DEFAULT_SPECIES["w_particle"]))
+    if w_particle <= 0.0:
+        raise SystemExit("particles.species.w_particle must be > 0 for reservoir_face")
+
+    has_cm3 = bool(spec.get("_has_number_density_cm3", False))
+    has_m3 = bool(spec.get("_has_number_density_m3", False))
+    if has_cm3 and has_m3:
+        raise SystemExit(
+            "Specify either number_density_cm3 or number_density_m3, not both."
+        )
+    if (not has_cm3) and (not has_m3):
+        raise SystemExit(
+            "reservoir_face requires number_density_cm3 or number_density_m3."
+        )
+    if has_cm3 and float(spec["number_density_cm3"]) <= 0.0:
+        raise SystemExit("number_density_cm3 must be > 0.")
+    if has_m3 and float(spec["number_density_m3"]) <= 0.0:
+        raise SystemExit("number_density_m3 must be > 0.")
+
+    has_temp_k = bool(spec.get("_has_temperature_k", False))
+    has_temp_ev = bool(spec.get("_has_temperature_ev", False))
+    if has_temp_k and has_temp_ev:
+        raise SystemExit("Specify either temperature_ev or temperature_k, not both.")
+    if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
+        raise SystemExit("temperature_ev must be >= 0.")
+    if has_temp_k and float(spec["temperature_k"]) < 0.0:
+        raise SystemExit("temperature_k must be >= 0.")
+
+    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
+    if m_particle <= 0.0:
+        raise SystemExit("m_particle must be > 0.")
+
+    drift_velocity = [
+        float(x) for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
+    ]
+    temperature_k = _species_temperature_k(spec)
+    number_density_m3 = _species_density_m3(spec)
+    inject_face, pos_low, pos_high, area = _parse_reservoir_species_geometry(
+        sim_cfg, spec
+    )
+    inward_normal = _inward_normal_for_face(inject_face)
+    gamma_in = _compute_inflow_flux(
+        number_density_m3=number_density_m3,
+        temperature_k=temperature_k,
+        m_particle=m_particle,
+        drift_velocity=drift_velocity,
+        inward_normal=inward_normal,
+    )
+
+    return {
+        "inject_face": inject_face,
+        "pos_low": pos_low,
+        "pos_high": pos_high,
+        "area": area,
+        "w_particle": w_particle,
+        "drift_velocity": drift_velocity,
+        "m_particle": m_particle,
+        "temperature_k": temperature_k,
+        "number_density_m3": number_density_m3,
+        "gamma_in": gamma_in,
+    }
+
+
+def _resolve_batch_duration(
+    sim_cfg: dict[str, Any],
+    sim_raw: dict[str, Any],
+    species_list: list[dict[str, Any]],
+    has_reservoir_species: bool,
+) -> float:
+    has_target = "target_npcls_species1" in sim_raw
+    has_batch_duration = "batch_duration" in sim_raw
+    target = int(sim_cfg.get("target_npcls_species1", 0))
+    if has_target and has_batch_duration:
+        raise SystemExit(
+            "sim.batch_duration and sim.target_npcls_species1 cannot be used together."
+        )
+    if has_target and target <= 0:
+        raise SystemExit("sim.target_npcls_species1 must be > 0")
+
+    if not has_reservoir_species:
+        if has_target:
+            raise SystemExit(
+                'sim.target_npcls_species1 requires particles.species[1].source_mode="reservoir_face".'
+            )
+        return float(sim_cfg.get("batch_duration", 0.0))
+
+    if has_target:
+        if len(species_list) == 0:
+            raise SystemExit(
+                "sim.target_npcls_species1 requires at least one [[particles.species]] entry."
+            )
+        spec1 = species_list[0]
+        if not bool(spec1.get("enabled", True)):
+            raise SystemExit(
+                "sim.target_npcls_species1 requires particles.species[1] to be enabled."
+            )
+        mode1 = str(spec1.get("source_mode", "volume_seed")).strip().lower()
+        if mode1 != "reservoir_face":
+            raise SystemExit(
+                'sim.target_npcls_species1 requires particles.species[1].source_mode="reservoir_face".'
+            )
+        params1 = _validate_reservoir_species(sim_cfg, spec1)
+        coef = params1["gamma_in"] * params1["area"] / params1["w_particle"]
+        if (not math.isfinite(coef)) or coef <= 0.0:
+            raise SystemExit(
+                "sim.target_npcls_species1 produced invalid reservoir inflow coefficient."
+            )
+        batch_duration = target / coef
+        if (not math.isfinite(batch_duration)) or batch_duration <= 0.0:
+            raise SystemExit(
+                "sim.target_npcls_species1 produced invalid sim.batch_duration."
+            )
+        return batch_duration
+
+    batch_duration = float(sim_cfg.get("batch_duration", 0.0))
+    if batch_duration <= 0.0:
+        raise SystemExit("sim.batch_duration must be > 0 for reservoir_face")
+    return batch_duration
+
+
 def read_macro_residuals(path: Path | None, n_species: int) -> list[float]:
     residuals = [0.0] * n_species
     if path is None:
@@ -167,8 +324,11 @@ def estimate_workload(
     threads: int,
     initial_residuals: list[float] | None = None,
 ) -> dict[str, Any]:
+    sim_raw = config.get("sim", {})
+    if not isinstance(sim_raw, dict):
+        raise SystemExit("[sim] section must be a table.")
     sim_cfg = dict(DEFAULT_SIM)
-    sim_cfg.update(config.get("sim", {}))
+    sim_cfg.update(sim_raw)
 
     species_list_raw = config.get("particles", {}).get("species", [])
     if not isinstance(species_list_raw, list) or len(species_list_raw) == 0:
@@ -215,6 +375,23 @@ def estimate_workload(
         raise SystemExit(
             "At least one enabled [[particles.species]] entry must have npcls_per_step > 0."
         )
+    resolved_batch_duration = _resolve_batch_duration(
+        sim_cfg=sim_cfg,
+        sim_raw=sim_raw,
+        species_list=species_list,
+        has_reservoir_species=has_reservoir_species,
+    )
+    reservoir_params_by_species: list[dict[str, Any] | None] = [None] * len(
+        species_list
+    )
+    for s_idx, spec in enumerate(species_list):
+        if not bool(spec.get("enabled", True)):
+            continue
+        source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
+        if source_mode == "reservoir_face":
+            reservoir_params_by_species[s_idx] = _validate_reservoir_species(
+                sim_cfg, spec
+            )
 
     residuals = [0.0] * len(species_list)
     if initial_residuals is not None:
@@ -249,96 +426,13 @@ def estimate_workload(
                     f"Unknown particles.species.source_mode: {source_mode}"
                 )
 
-            if not bool(sim_cfg.get("use_box", False)):
-                raise SystemExit("reservoir_face requires sim.use_box = true")
-            batch_duration = float(sim_cfg.get("batch_duration", 0.0))
-            if batch_duration <= 0.0:
-                raise SystemExit("sim.batch_duration must be > 0 for reservoir_face")
-
-            w_particle = float(spec.get("w_particle", DEFAULT_SPECIES["w_particle"]))
-            if w_particle <= 0.0:
+            params = reservoir_params_by_species[s_idx]
+            if params is None:
                 raise SystemExit(
-                    "particles.species.w_particle must be > 0 for reservoir_face"
+                    "internal error: reservoir species parameters were not initialized."
                 )
-
-            has_cm3 = bool(spec.get("_has_number_density_cm3", False))
-            has_m3 = bool(spec.get("_has_number_density_m3", False))
-            if has_cm3 and has_m3:
-                raise SystemExit(
-                    "Specify either number_density_cm3 or number_density_m3, not both."
-                )
-            if (not has_cm3) and (not has_m3):
-                raise SystemExit(
-                    "reservoir_face requires number_density_cm3 or number_density_m3."
-                )
-            if has_cm3 and float(spec["number_density_cm3"]) <= 0.0:
-                raise SystemExit("number_density_cm3 must be > 0.")
-            if has_m3 and float(spec["number_density_m3"]) <= 0.0:
-                raise SystemExit("number_density_m3 must be > 0.")
-
-            has_temp_k = bool(spec.get("_has_temperature_k", False))
-            has_temp_ev = bool(spec.get("_has_temperature_ev", False))
-            if has_temp_k and has_temp_ev:
-                raise SystemExit(
-                    "Specify either temperature_ev or temperature_k, not both."
-                )
-            if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
-                raise SystemExit("temperature_ev must be >= 0.")
-            if has_temp_k and float(spec["temperature_k"]) < 0.0:
-                raise SystemExit("temperature_k must be >= 0.")
-
-            inject_face = str(spec.get("inject_face", "")).strip().lower()
-            inward_normal = _inward_normal_for_face(inject_face)
-
-            drift_velocity = [
-                float(x)
-                for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
-            ]
-            m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
-            if m_particle <= 0.0:
-                raise SystemExit("m_particle must be > 0.")
-            temperature_k = _species_temperature_k(spec)
-            number_density_m3 = _species_density_m3(spec)
-
-            pos_low = [
-                float(x) for x in spec.get("pos_low", DEFAULT_SPECIES["pos_low"])
-            ]
-            pos_high = [
-                float(x) for x in spec.get("pos_high", DEFAULT_SPECIES["pos_high"])
-            ]
-            box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
-            box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
-            axis_n, boundary_value = _axis_and_boundary_for_face(
-                inject_face, box_min, box_max
-            )
-            if (
-                abs(pos_low[axis_n] - boundary_value) > 1.0e-12
-                or abs(pos_high[axis_n] - boundary_value) > 1.0e-12
-            ):
-                raise SystemExit(
-                    "reservoir_face pos_low/pos_high must lie on the selected box face."
-                )
-            axis_t1, axis_t2 = _face_tangential_axes(inject_face)
-            if (
-                pos_high[axis_t1] < pos_low[axis_t1]
-                or pos_high[axis_t2] < pos_low[axis_t2]
-            ):
-                raise SystemExit(
-                    "reservoir_face tangential bounds must satisfy pos_high >= pos_low."
-                )
-            area = _compute_face_area(inject_face, pos_low, pos_high)
-            if area <= 0.0:
-                raise SystemExit("reservoir_face opening area must be positive")
-
-            gamma_in = _compute_inflow_flux(
-                number_density_m3=number_density_m3,
-                temperature_k=temperature_k,
-                m_particle=m_particle,
-                drift_velocity=drift_velocity,
-                inward_normal=inward_normal,
-            )
-            n_phys_batch = gamma_in * area * batch_duration
-            n_macro_expected = n_phys_batch / w_particle
+            n_phys_batch = params["gamma_in"] * params["area"] * resolved_batch_duration
+            n_macro_expected = n_phys_batch / params["w_particle"]
             macro_budget = residuals[s_idx] + n_macro_expected
             if macro_budget < 0.0:
                 macro_budget = 0.0
@@ -364,6 +458,7 @@ def estimate_workload(
         "species_per_batch": species_per_batch,
         "final_residuals": residuals,
         "total_particles": total_particles,
+        "resolved_batch_duration": resolved_batch_duration,
     }
 
 
@@ -435,6 +530,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"config={args.config}")
     print(f"threads={threads}")
     print(f"batch_count={batch_count}")
+    print(f"resolved_batch_duration={result['resolved_batch_duration']}")
     print(f"total_particles={total_particles}")
     print(f"particles_per_batch_min={min(batch_totals)}")
     print(f"particles_per_batch_max={max(batch_totals)}")

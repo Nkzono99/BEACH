@@ -91,6 +91,7 @@ history_stride = 1
 #
 # [sim]
 # batch_duration = 2.0e-7
+# target_npcls_species1 = 300  # species[1] 基準で batch_duration を自動決定（batch_duration とは同時指定不可）
 #
 # [[particles.species]]
 # source_mode = "reservoir_face"

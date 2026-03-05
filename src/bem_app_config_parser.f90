@@ -1,9 +1,11 @@
 !> TOML風設定ファイルを `app_config` へ読み込む軽量パーサ。
 module bem_app_config_parser
   use bem_kinds, only: dp, i32
+  use bem_constants, only: k_boltzmann
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
 contains
@@ -87,6 +89,7 @@ contains
     if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
 
     cfg%n_particle_species = s_idx
+    call maybe_auto_set_batch_duration(cfg)
     per_batch_particles = 0_i32
     has_reservoir_species = .false.
     do i = 1, s_idx
@@ -132,6 +135,10 @@ contains
       call parse_int(v, cfg%sim%batch_count)
     case ('batch_duration')
       call parse_real(v, cfg%sim%batch_duration)
+      cfg%sim%has_batch_duration = .true.
+    case ('target_npcls_species1')
+      call parse_int(v, cfg%sim%target_npcls_species1)
+      cfg%sim%has_target_npcls_species1 = .true.
     case ('npcls_per_step')
       error stop 'sim.npcls_per_step was removed. Use sim.batch_count instead.'
     case ('max_step')
@@ -244,6 +251,110 @@ contains
     end select
   end subroutine apply_particles_species_kv
 
+  !> `sim.target_npcls_species1` が指定された場合に `batch_duration` を自動設定する。
+  !! species[1] を基準に、drifting Maxwellian の流入束から1バッチ注入粒子数が
+  !! 目標値に一致するよう `sim.batch_duration` を算出する。
+  !! @param[inout] cfg 検証・更新対象のアプリ設定。
+  subroutine maybe_auto_set_batch_duration(cfg)
+    type(app_config), intent(inout) :: cfg
+
+    type(particle_species_spec) :: spec1
+    integer :: axis, axis_t1, axis_t2
+    real(dp) :: boundary_value, number_density_m3, temperature_k
+    real(dp) :: area, gamma_in, coef, batch_duration
+    real(dp) :: inward_normal(3)
+
+    if (.not. cfg%sim%has_target_npcls_species1) return
+
+    if (cfg%sim%target_npcls_species1 <= 0_i32) then
+      error stop 'sim.target_npcls_species1 must be > 0.'
+    end if
+    if (cfg%sim%has_batch_duration) then
+      error stop 'sim.batch_duration and sim.target_npcls_species1 cannot be used together.'
+    end if
+    if (cfg%n_particle_species <= 0_i32) then
+      error stop 'sim.target_npcls_species1 requires at least one [[particles.species]] entry.'
+    end if
+
+    spec1 = cfg%particle_species(1)
+    spec1%source_mode = lower(trim(spec1%source_mode))
+
+    if (.not. spec1%enabled) then
+      error stop 'sim.target_npcls_species1 requires particles.species[1] to be enabled.'
+    end if
+    if (trim(spec1%source_mode) /= 'reservoir_face') then
+      error stop 'sim.target_npcls_species1 requires particles.species[1].source_mode="reservoir_face".'
+    end if
+
+    if (spec1%has_npcls_per_step) then
+      error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
+    end if
+    if (spec1%w_particle <= 0.0d0) then
+      error stop 'particles.species.w_particle must be > 0 for reservoir_face.'
+    end if
+    if (.not. cfg%sim%use_box) then
+      error stop 'particles.species.source_mode="reservoir_face" requires sim.use_box = true.'
+    end if
+
+    if (spec1%has_number_density_cm3 .and. spec1%has_number_density_m3) then
+      error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
+    end if
+    if (.not. spec1%has_number_density_cm3 .and. .not. spec1%has_number_density_m3) then
+      error stop 'reservoir_face requires number_density_cm3 or number_density_m3.'
+    end if
+    if (spec1%has_number_density_cm3) then
+      if (spec1%number_density_cm3 <= 0.0d0) error stop 'number_density_cm3 must be > 0.'
+    else
+      if (spec1%number_density_m3 <= 0.0d0) error stop 'number_density_m3 must be > 0.'
+    end if
+
+    if (spec1%has_temperature_ev .and. spec1%has_temperature_k) then
+      error stop 'Specify either temperature_ev or temperature_k, not both.'
+    end if
+    if (spec1%has_temperature_ev) then
+      if (spec1%temperature_ev < 0.0d0) error stop 'temperature_ev must be >= 0.'
+    else if (spec1%has_temperature_k) then
+      if (spec1%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
+    else
+      if (spec1%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
+    end if
+
+    if (spec1%m_particle <= 0.0d0) then
+      error stop 'm_particle must be > 0.'
+    end if
+
+    call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec1%inject_face, axis, boundary_value)
+    axis_t1 = modulo(axis, 3) + 1
+    axis_t2 = modulo(axis + 1, 3) + 1
+    if (abs(spec1%pos_low(axis) - boundary_value) > 1.0d-12 .or. abs(spec1%pos_high(axis) - boundary_value) > 1.0d-12) then
+      error stop 'reservoir_face pos_low/pos_high must lie on the selected box face.'
+    end if
+    if (spec1%pos_high(axis_t1) < spec1%pos_low(axis_t1) .or. spec1%pos_high(axis_t2) < spec1%pos_low(axis_t2)) then
+      error stop 'reservoir_face tangential bounds must satisfy pos_high >= pos_low.'
+    end if
+    area = compute_face_area_from_bounds(spec1%inject_face, spec1%pos_low, spec1%pos_high)
+    if (area <= 0.0d0) then
+      error stop 'reservoir_face opening area must be positive.'
+    end if
+
+    number_density_m3 = species_number_density_m3(spec1)
+    temperature_k = species_temperature_k(spec1)
+    call resolve_inward_normal(spec1%inject_face, inward_normal)
+    gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
+      number_density_m3, temperature_k, spec1%m_particle, spec1%drift_velocity, inward_normal &
+    )
+    coef = gamma_in * area / spec1%w_particle
+    if (.not. ieee_is_finite(coef) .or. coef <= 0.0d0) then
+      error stop 'sim.target_npcls_species1 produced invalid reservoir inflow coefficient.'
+    end if
+
+    batch_duration = real(cfg%sim%target_npcls_species1, dp) / coef
+    if (.not. ieee_is_finite(batch_duration) .or. batch_duration <= 0.0d0) then
+      error stop 'sim.target_npcls_species1 produced invalid sim.batch_duration.'
+    end if
+    cfg%sim%batch_duration = batch_duration
+  end subroutine maybe_auto_set_batch_duration
+
   !> `reservoir_face` 用の必須項目と整合性を検証する。
   !! @param[in] cfg 検証対象のアプリ設定。
   !! @param[in] species_idx 検証する粒子種のインデックス（1始まり）。
@@ -341,6 +452,137 @@ contains
       error stop 'Unknown particles.species.inject_face.'
     end select
   end subroutine resolve_inject_face
+
+  !> 注入面名から内向き法線ベクトルを返す。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[out] inward_normal 注入面の内向き単位法線ベクトル。
+  subroutine resolve_inward_normal(inject_face, inward_normal)
+    character(len=*), intent(in) :: inject_face
+    real(dp), intent(out) :: inward_normal(3)
+
+    inward_normal = 0.0d0
+    select case (trim(lower(inject_face)))
+    case ('x_low')
+      inward_normal(1) = 1.0d0
+    case ('x_high')
+      inward_normal(1) = -1.0d0
+    case ('y_low')
+      inward_normal(2) = 1.0d0
+    case ('y_high')
+      inward_normal(2) = -1.0d0
+    case ('z_low')
+      inward_normal(3) = 1.0d0
+    case ('z_high')
+      inward_normal(3) = -1.0d0
+    case default
+      error stop 'Unknown particles.species.inject_face.'
+    end select
+  end subroutine resolve_inward_normal
+
+  !> 粒子種設定から実効密度[m^-3]を返す。
+  !! @param[in] spec 粒子種設定。
+  !! @return number_density_m3 実効粒子数密度 [1/m^3]。
+  pure real(dp) function species_number_density_m3(spec) result(number_density_m3)
+    type(particle_species_spec), intent(in) :: spec
+
+    number_density_m3 = spec%number_density_m3
+    if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3 * 1.0d6
+  end function species_number_density_m3
+
+  !> 粒子種設定から実効温度[K]を返す。
+  !! @param[in] spec 粒子種設定。
+  !! @return temperature_k 実効温度 [K]。
+  pure real(dp) function species_temperature_k(spec) result(temperature_k)
+    type(particle_species_spec), intent(in) :: spec
+
+    temperature_k = spec%temperature_k
+    if (spec%has_temperature_ev) temperature_k = spec%temperature_ev * 1.160451812d4
+  end function species_temperature_k
+
+  !> drifting Maxwellian の片側流入束 [#/m^2/s] を返す。
+  !! @param[in] number_density_m3 粒子数密度 [1/m^3]。
+  !! @param[in] temperature_k 温度 [K]。
+  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
+  !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
+  !! @param[in] inward_normal 注入面の内向き単位法線ベクトル。
+  !! @return gamma_in 片側流入束 [1/m^2/s]。
+  pure real(dp) function compute_inflow_flux_from_drifting_maxwellian( &
+    number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal &
+  ) result(gamma_in)
+    real(dp), intent(in) :: number_density_m3
+    real(dp), intent(in) :: temperature_k
+    real(dp), intent(in) :: m_particle
+    real(dp), intent(in) :: drift_velocity(3)
+    real(dp), intent(in) :: inward_normal(3)
+    real(dp) :: sigma, alpha, u_n
+
+    u_n = dot_product(drift_velocity, inward_normal)
+    sigma = sqrt(k_boltzmann * temperature_k / m_particle)
+    if (sigma <= 0.0d0) then
+      gamma_in = number_density_m3 * max(0.0d0, u_n)
+      return
+    end if
+
+    alpha = u_n / sigma
+    gamma_in = number_density_m3 * (sigma * standard_normal_pdf(alpha) + u_n * standard_normal_cdf(alpha))
+  end function compute_inflow_flux_from_drifting_maxwellian
+
+  !> 標準正規分布の PDF を返す。
+  !! @param[in] x 評価点。
+  !! @return pdf 標準正規分布の確率密度。
+  pure real(dp) function standard_normal_pdf(x) result(pdf)
+    real(dp), intent(in) :: x
+    real(dp), parameter :: inv_sqrt_2pi = 3.98942280401432678d-1
+
+    pdf = inv_sqrt_2pi * exp(-0.5d0 * x * x)
+  end function standard_normal_pdf
+
+  !> 標準正規分布の CDF を返す。
+  !! @param[in] x 評価点。
+  !! @return cdf 標準正規分布の累積分布値。
+  pure real(dp) function standard_normal_cdf(x) result(cdf)
+    real(dp), intent(in) :: x
+    real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
+
+    cdf = 0.5d0 * (1.0d0 + erf(x * inv_sqrt_2))
+  end function standard_normal_cdf
+
+  !> 注入面上の矩形開口から有効面積[m^2]を返す。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[in] pos_low 開口領域の下限座標 `(x,y,z)` [m]。
+  !! @param[in] pos_high 開口領域の上限座標 `(x,y,z)` [m]。
+  !! @return area 注入開口の有効面積 [m^2]。
+  pure real(dp) function compute_face_area_from_bounds(inject_face, pos_low, pos_high) result(area)
+    character(len=*), intent(in) :: inject_face
+    real(dp), intent(in) :: pos_low(3), pos_high(3)
+    integer :: axis_t1, axis_t2
+
+    call resolve_face_axes(inject_face, axis_t1, axis_t2)
+    area = (pos_high(axis_t1) - pos_low(axis_t1)) * (pos_high(axis_t2) - pos_low(axis_t2))
+  end function compute_face_area_from_bounds
+
+  !> 注入面名から接線2軸を返す。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[out] axis_t1 注入面の第1接線軸インデックス（1:x, 2:y, 3:z）。
+  !! @param[out] axis_t2 注入面の第2接線軸インデックス（1:x, 2:y, 3:z）。
+  pure subroutine resolve_face_axes(inject_face, axis_t1, axis_t2)
+    character(len=*), intent(in) :: inject_face
+    integer, intent(out) :: axis_t1, axis_t2
+
+    select case (trim(lower(inject_face)))
+    case ('x_low', 'x_high')
+      axis_t1 = 2
+      axis_t2 = 3
+    case ('y_low', 'y_high')
+      axis_t1 = 3
+      axis_t2 = 1
+    case ('z_low', 'z_high')
+      axis_t1 = 1
+      axis_t2 = 2
+    case default
+      error stop 'Unknown particles.species.inject_face.'
+    end select
+  end subroutine resolve_face_axes
 
   !> `[mesh]` セクションのキーをメッシュ入力設定へ適用する。
   !! @param[inout] cfg 更新対象のアプリ設定。
