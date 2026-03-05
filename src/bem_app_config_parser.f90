@@ -9,6 +9,8 @@ module bem_app_config_parser
 contains
 
   !> `.toml` 拡張子の設定ファイルを読み込み、既存値へ上書き適用する。
+  !! @param[in] path 読み込む設定ファイルパス（`.toml` 必須）。
+  !! @param[inout] cfg 読み込み結果で上書きするアプリ設定。
   subroutine load_app_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
@@ -21,6 +23,8 @@ contains
 
   !> 最小限の TOML セクションと `key = value` を解釈して設定へ反映する。
   !! 現在は `sim` / `mesh` / `output` / `[[mesh.templates]]` / `[[particles.species]]` を扱う。
+  !! @param[in] path 読み込むTOMLファイルパス。
+  !! @param[inout] cfg 読み込み結果で更新するアプリ設定。
   subroutine load_toml_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
@@ -110,6 +114,8 @@ contains
   end subroutine load_toml_config
 
   !> `[sim]` セクションのキーを `sim_config` へ適用する。
+  !! @param[inout] cfg 更新対象のアプリ設定。
+  !! @param[in] line `key = value` 形式の設定行。
   subroutine apply_sim_kv(cfg, line)
     type(app_config), intent(inout) :: cfg
     character(len=*), intent(in) :: line
@@ -168,6 +174,7 @@ contains
   end subroutine apply_sim_kv
 
   !> 廃止済み `[particles]` セクションを検出し、新仕様への移行を促す。
+  !! @param[in] line 廃止セクション内の `key = value` 行。
   subroutine apply_particles_kv(line)
     character(len=*), intent(in) :: line
     character(len=64) :: k
@@ -187,6 +194,8 @@ contains
   end subroutine apply_particles_kv
 
   !> `[[particles.species]]` のキーを粒子種設定へ適用する。
+  !! @param[inout] spec 更新対象の粒子種設定。
+  !! @param[in] line `key = value` 形式の設定行。
   subroutine apply_particles_species_kv(spec, line)
     type(particle_species_spec), intent(inout) :: spec
     character(len=*), intent(in) :: line
@@ -236,6 +245,8 @@ contains
   end subroutine apply_particles_species_kv
 
   !> `reservoir_face` 用の必須項目と整合性を検証する。
+  !! @param[in] cfg 検証対象のアプリ設定。
+  !! @param[in] species_idx 検証する粒子種のインデックス（1始まり）。
   subroutine validate_reservoir_species(cfg, species_idx)
     type(app_config), intent(in) :: cfg
     integer, intent(in) :: species_idx
@@ -296,6 +307,11 @@ contains
   end subroutine validate_reservoir_species
 
   !> 注入面名から法線軸と対応する境界座標を返す。
+  !! @param[in] box_min ボックス下限座標 `(x,y,z)` [m]。
+  !! @param[in] box_max ボックス上限座標 `(x,y,z)` [m]。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[out] axis 注入面の法線軸インデックス（1:x, 2:y, 3:z）。
+  !! @param[out] boundary_value 指定面の境界座標値 [m]。
   subroutine resolve_inject_face(box_min, box_max, inject_face, axis, boundary_value)
     real(dp), intent(in) :: box_min(3), box_max(3)
     character(len=*), intent(in) :: inject_face
@@ -327,6 +343,8 @@ contains
   end subroutine resolve_inject_face
 
   !> `[mesh]` セクションのキーをメッシュ入力設定へ適用する。
+  !! @param[inout] cfg 更新対象のアプリ設定。
+  !! @param[in] line `key = value` 形式の設定行。
   subroutine apply_mesh_kv(cfg, line)
     type(app_config), intent(inout) :: cfg
     character(len=*), intent(in) :: line
@@ -345,6 +363,8 @@ contains
   end subroutine apply_mesh_kv
 
   !> `[[mesh.templates]]` のキーをテンプレート設定へ適用する。
+  !! @param[inout] spec 更新対象のテンプレート設定。
+  !! @param[in] line `key = value` 形式の設定行。
   subroutine apply_template_kv(spec, line)
     type(template_spec), intent(inout) :: spec
     character(len=*), intent(in) :: line
@@ -389,6 +409,8 @@ contains
   end subroutine apply_template_kv
 
   !> `[output]` セクションのキーを出力制御設定へ適用する。
+  !! @param[inout] cfg 更新対象のアプリ設定。
+  !! @param[in] line `key = value` 形式の設定行。
   subroutine apply_output_kv(cfg, line)
     type(app_config), intent(inout) :: cfg
     character(len=*), intent(in) :: line
@@ -409,6 +431,9 @@ contains
   end subroutine apply_output_kv
 
   !> `key = value` 形式の1行を分割し、前後空白を取り除いて返す。
+  !! @param[in] line 分割対象の入力行。
+  !! @param[out] key 正規化したキー文字列（小文字化済み）。
+  !! @param[out] value 前後空白を除去した値文字列。
   subroutine split_key_value(line, key, value)
     character(len=*), intent(in) :: line
     character(len=*), intent(out) :: key
@@ -426,6 +451,8 @@ contains
   end subroutine split_key_value
 
   !> 文字列表現を倍精度実数へ変換する。
+  !! @param[in] text 実数を表す文字列。
+  !! @param[out] out 変換後の倍精度実数。
   subroutine parse_real(text, out)
     character(len=*), intent(in) :: text
     real(dp), intent(out) :: out
@@ -434,6 +461,8 @@ contains
   end subroutine parse_real
 
   !> 文字列表現を 32bit 整数へ変換する。
+  !! @param[in] text 整数を表す文字列。
+  !! @param[out] out 変換後の32bit整数。
   subroutine parse_int(text, out)
     character(len=*), intent(in) :: text
     integer(i32), intent(out) :: out
@@ -442,6 +471,8 @@ contains
   end subroutine parse_int
 
   !> `true/.true.` を真とみなして論理値へ変換する。
+  !! @param[in] text 論理値文字列。
+  !! @param[out] out 変換後の論理値。
   subroutine parse_logical(text, out)
     character(len=*), intent(in) :: text
     logical, intent(out) :: out
@@ -452,6 +483,8 @@ contains
   end subroutine parse_logical
 
   !> 前後の二重引用符を外して文字列値へ変換する。
+  !! @param[in] text 文字列リテラルまたは裸文字列。
+  !! @param[out] out 引用符を除去した文字列値。
   subroutine parse_string(text, out)
     character(len=*), intent(in) :: text
     character(len=*), intent(out) :: out
@@ -465,6 +498,8 @@ contains
   end subroutine parse_string
 
   !> `[x, y, z]` 形式の3成分ベクトルを配列へ変換する。
+  !! @param[in] text 3成分ベクトル文字列。
+  !! @param[out] out 変換後の3成分実数ベクトル。
   subroutine parse_real3(text, out)
     character(len=*), intent(in) :: text
     real(dp), intent(out) :: out(3)
@@ -478,6 +513,8 @@ contains
 
   !> 境界条件の文字列を内部定数へ変換する。
   !! 未知のモードは実行継続せず停止する。
+  !! @param[in] text 境界条件モード文字列。
+  !! @param[out] out 変換後の境界条件定数。
   subroutine parse_boundary_mode(text, out)
     character(len=*), intent(in) :: text
     integer(i32), intent(out) :: out
@@ -497,6 +534,8 @@ contains
   end subroutine parse_boundary_mode
 
   !> `#` 以降の行内コメントを除去する。
+  !! @param[in] line コメント除去対象の入力行。
+  !! @return out `#` 以降を取り除いた行文字列。
   pure function strip_comment(line) result(out)
     character(len=*), intent(in) :: line
     character(len=len(line)) :: out
@@ -511,6 +550,8 @@ contains
   end function strip_comment
 
   !> ASCII 英字だけを小文字化し、設定キー比較を簡単にする。
+  !! @param[in] s 変換対象文字列。
+  !! @return o 小文字化した文字列。
   pure function lower(s) result(o)
     character(len=*), intent(in) :: s
     character(len=len(s)) :: o
@@ -524,6 +565,9 @@ contains
   end function lower
 
   !> 文字列 `s` が `suffix` で終わるかを返す。
+  !! @param[in] s 判定対象文字列。
+  !! @param[in] suffix 末尾一致を判定する接尾辞。
+  !! @return ends_with `s` が `suffix` で終われば `.true.`。
   pure logical function ends_with(s, suffix)
     character(len=*), intent(in) :: s
     character(len=*), intent(in) :: suffix

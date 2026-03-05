@@ -18,6 +18,8 @@ module bem_app_config_runtime
 contains
 
   !> `mesh_mode` と OBJ ファイル有無に応じてメッシュ生成方法を選ぶ。
+  !! @param[in] cfg メッシュ入力設定を含むアプリ設定。
+  !! @param[out] mesh 構築した三角形メッシュ。
   subroutine build_mesh_from_config(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
@@ -40,6 +42,8 @@ contains
 
   !> 設定全体ぶんの粒子群を生成し、SoA へ詰める。
   !! 粒子種ごとに乱数サンプルした後、種ごとに rank を揃えて interleave する。
+  !! @param[in] cfg 粒子種設定を含むアプリ設定。
+  !! @param[out] pcls 生成した全粒子群。
   subroutine init_particles_from_config(cfg, pcls)
     type(app_config), intent(in) :: cfg
     type(particles_soa), intent(out) :: pcls
@@ -100,6 +104,7 @@ contains
   end subroutine init_particles_from_config
 
   !> バッチ生成前に乱数シードだけを初期化する。
+  !! @param[in] cfg 乱数シード値 `sim.rng_seed` を含むアプリ設定。
   subroutine seed_particles_from_config(cfg)
     type(app_config), intent(in) :: cfg
 
@@ -107,6 +112,10 @@ contains
   end subroutine seed_particles_from_config
 
   !> 指定バッチ番号に対応する粒子バッチを生成する。
+  !! @param[in] cfg 粒子種とシミュレーション条件を含むアプリ設定。
+  !! @param[in] batch_idx 生成対象のバッチ番号（1始まり）。
+  !! @param[out] pcls 生成したバッチ粒子群。
+  !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state)
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
@@ -185,6 +194,11 @@ contains
   end subroutine init_particle_batch_from_config
 
   !> 1粒子種ぶんの位置・速度サンプルをまとめて生成する。
+  !! @param[in] sim ボックス境界・バッチ時間などのシミュレーション設定。
+  !! @param[in] spec 1粒子種の注入設定。
+  !! @param[in] n 生成粒子数。
+  !! @param[out] x 生成した位置配列 `x(3,n)` [m]。
+  !! @param[out] v 生成した速度配列 `v(3,n)` [m/s]。
   subroutine sample_species_state(sim, spec, n, x, v)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -208,6 +222,10 @@ contains
   end subroutine sample_species_state
 
   !> reservoir_face 用に、物理流量と残差から今バッチのマクロ粒子数を決める。
+  !! @param[in] sim ボックス境界・バッチ時間などのシミュレーション設定。
+  !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[inout] residual 前バッチから繰り越した端数。
+  !! @param[out] count 今バッチで生成するマクロ粒子数。
   subroutine compute_macro_particles_for_species(sim, spec, residual, count)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -224,6 +242,8 @@ contains
   end subroutine compute_macro_particles_for_species
 
   !> 粒子種設定から実効密度[m^-3]を返す。
+  !! @param[in] spec 粒子種設定。
+  !! @return number_density_m3 実効粒子数密度 [1/m^3]。
   pure real(dp) function species_number_density_m3(spec) result(number_density_m3)
     type(particle_species_spec), intent(in) :: spec
 
@@ -232,6 +252,8 @@ contains
   end function species_number_density_m3
 
   !> 粒子種設定から実効温度[K]を返す。
+  !! @param[in] spec 粒子種設定。
+  !! @return temperature_k 実効温度 [K]。
   pure real(dp) function species_temperature_k(spec) result(temperature_k)
     type(particle_species_spec), intent(in) :: spec
 
@@ -240,6 +262,8 @@ contains
   end function species_temperature_k
 
   !> 有効なテンプレートを連結し、1つのメッシュへまとめる。
+  !! @param[in] cfg テンプレート設定を含むアプリ設定。
+  !! @param[out] mesh 連結後の三角形メッシュ。
   subroutine build_template_mesh(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
@@ -261,6 +285,8 @@ contains
   end subroutine build_template_mesh
 
   !> テンプレート種別に応じて形状生成ルーチンへディスパッチする。
+  !! @param[in] spec 1テンプレート分の形状設定。
+  !! @param[out] mesh 生成したテンプレートメッシュ。
   subroutine build_one_template(spec, mesh)
     type(template_spec), intent(in) :: spec
     type(mesh_type), intent(out) :: mesh
@@ -283,6 +309,12 @@ contains
   end subroutine build_one_template
 
   !> 既存三角形配列へ追加分を連結し、再確保後の配列へ差し替える。
+  !! @param[inout] v0 累積メッシュの頂点0配列 `v0(3,n)`。
+  !! @param[inout] v1 累積メッシュの頂点1配列 `v1(3,n)`。
+  !! @param[inout] v2 累積メッシュの頂点2配列 `v2(3,n)`。
+  !! @param[in] add_v0 追加する頂点0配列。
+  !! @param[in] add_v1 追加する頂点1配列。
+  !! @param[in] add_v2 追加する頂点2配列。
   subroutine append_triangles(v0, v1, v2, add_v0, add_v1, add_v2)
     real(dp), allocatable, intent(inout) :: v0(:, :), v1(:, :), v2(:, :)
     real(dp), intent(in) :: add_v0(:, :), add_v1(:, :), add_v2(:, :)

@@ -73,6 +73,8 @@ contains
 
   !> 有効な粒子種の `npcls_per_step` を合計し、1バッチあたりの粒子数を返す。
   !! 1つ以上の粒子種が有効で、かつ合計が正でない場合は停止する。
+  !! @param[in] cfg 粒子種設定を含むアプリ設定。
+  !! @return batch_n 1バッチあたりの総粒子数。
   integer(i32) function particles_per_batch_from_config(cfg) result(batch_n)
     type(app_config), intent(in) :: cfg
     integer(i32) :: s
@@ -105,6 +107,8 @@ contains
   end function particles_per_batch_from_config
 
   !> バッチ数と1バッチ粒子数から総粒子数を返す。
+  !! @param[in] cfg バッチ数と粒子種設定を含むアプリ設定。
+  !! @return total_n 総粒子数。
   integer(i32) function total_particles_from_config(cfg) result(total_n)
     type(app_config), intent(in) :: cfg
 
@@ -115,6 +119,7 @@ contains
   end function total_particles_from_config
 
   !> `app_config` を既定値で初期化し、TOML 上書き前の状態を作る。
+  !! @param[out] cfg 既定値で初期化したアプリ設定。
   subroutine default_app_config(cfg)
     type(app_config), intent(out) :: cfg
 
@@ -139,6 +144,7 @@ contains
 
   !> `[[particles.species]]` の既定値を返す。
   !! 現行仕様では、列挙された粒子種は既定で有効とみなす。
+  !! @return spec 粒子種の既定設定。
   pure function species_from_defaults() result(spec)
     type(particle_species_spec) :: spec
 

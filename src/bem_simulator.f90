@@ -19,7 +19,10 @@ contains
   !! @param[inout] mesh 入力メッシュ。各バッチ後に `q_elem` へ堆積電荷を加算して更新。
   !! @param[in] app 時間刻み・バッチ回数・監視値・境界条件を含む実行設定。
   !! @param[out] stats 吸着数・脱出数・最終相対変化率などの集計統計。
+  !! @param[in] history_unit 履歴CSVの出力先ユニット番号（省略時は履歴出力なし）。
+  !! @param[in] history_stride 履歴出力のバッチ間隔（省略時1）。
   !! @param[in] initial_stats 再開時に引き継ぐ既存統計（省略時はゼロ初期化）。
+  !! @param[inout] inject_state `reservoir_face` 注入で使う種別ごとの残差状態（省略可）。
   subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride, initial_stats, inject_state)
     type(mesh_type), intent(inout) :: mesh
     type(app_config), intent(in) :: app
@@ -68,6 +71,15 @@ contains
   end subroutine run_absorption_insulator
 
   !> 1バッチ分の粒子群と作業配列を初期化する。
+  !! @param[in] app 実行設定。
+  !! @param[in] stats 現在までの累積統計。
+  !! @param[in] local_batch_idx 今回実行するローカルバッチ番号（1始まり）。
+  !! @param[out] batch_idx 再開分を加味した累積バッチ番号。
+  !! @param[inout] dq_thread スレッド別要素電荷差分バッファ（ゼロ初期化される）。
+  !! @param[out] pcls_batch 今バッチで処理する粒子群。
+  !! @param[out] escaped_boundary_flag 粒子ごとの境界流出フラグ。
+  !! @param[out] absorbed_flag 粒子ごとの吸着フラグ。
+  !! @param[inout] inject_state reservoir_face 注入残差（指定時のみ更新）。
   subroutine prepare_batch_state( &
     app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, inject_state &
   )
@@ -96,6 +108,13 @@ contains
   end subroutine prepare_batch_state
 
   !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
+  !! @param[in] mesh 衝突判定と電場計算に使うメッシュ（読み取り専用）。
+  !! @param[in] app 時間積分・境界条件などの実行設定。
+  !! @param[inout] pcls_batch 処理対象粒子群（位置・速度・alive を更新）。
+  !! @param[inout] dq_thread スレッド別要素電荷差分バッファ。
+  !! @param[inout] escaped_boundary_flag 粒子ごとの境界流出フラグ。
+  !! @param[inout] absorbed_flag 粒子ごとの吸着フラグ。
+  !! @param[in] bfield 一様外部磁場ベクトル [T]。
   subroutine process_particle_batch( &
     mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
   )
@@ -150,6 +169,11 @@ contains
   end subroutine process_particle_batch
 
   !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
+  !! @param[inout] mesh 要素電荷 `q_elem` を更新するメッシュ。
+  !! @param[in] q_floor 相対変化量分母の下限値。
+  !! @param[in] dq_thread スレッド別要素電荷差分 `dq_thread(nelem,nthread)`。
+  !! @param[out] dq スレッド合算後の要素電荷差分 `dq(nelem)`。
+  !! @param[out] rel 今バッチの相対変化量 `||dq||/max(||q||,q_floor)`。
   subroutine commit_batch_charge(mesh, q_floor, dq_thread, dq, rel)
     type(mesh_type), intent(inout) :: mesh
     real(dp), intent(in) :: q_floor
@@ -166,6 +190,11 @@ contains
   end subroutine commit_batch_charge
 
   !> バッチ完了後の統計値を更新する。
+  !! @param[inout] stats 累積統計（このバッチ結果で更新）。
+  !! @param[in] pcls_batch 今バッチで処理した粒子群。
+  !! @param[in] escaped_boundary_flag 粒子ごとの境界流出フラグ。
+  !! @param[in] absorbed_flag 粒子ごとの吸着フラグ。
+  !! @param[in] rel 今バッチの相対変化量。
   subroutine accumulate_batch_stats(stats, pcls_batch, escaped_boundary_flag, absorbed_flag, rel)
     type(sim_stats), intent(inout) :: stats
     type(particles_soa), intent(in) :: pcls_batch
@@ -193,6 +222,12 @@ contains
 
   !> 履歴出力が有効で、指定ストライドを満たす場合のみ電荷履歴を書き出す。
   !! ストライド判定は従来どおり 1, 1+stride, ... のバッチ番号で行う。
+  !! @param[in] history_enabled 履歴出力の有効フラグ。
+  !! @param[in] hist_unit 履歴CSVの出力先ユニット番号。
+  !! @param[in] hist_stride 履歴を書き出すバッチ間隔。
+  !! @param[in] stats 現在の累積統計。
+  !! @param[in] rel 今バッチの相対変化量。
+  !! @param[in] q_elem 現在の要素電荷配列 [C]。
   subroutine maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, q_elem)
     logical, intent(in) :: history_enabled
     integer, intent(in) :: hist_unit
@@ -207,6 +242,11 @@ contains
   end subroutine maybe_write_history_snapshot
 
   !> 現時点の要素電荷を CSV 行群として書き出す。
+  !! @param[in] unit_id 出力先ユニット番号。
+  !! @param[in] batch_idx 書き出し対象のバッチ番号。
+  !! @param[in] processed_particles これまでの累積処理粒子数。
+  !! @param[in] rel_change この時点の相対変化量。
+  !! @param[in] q_elem 要素電荷配列 [C]。
   subroutine write_history_snapshot(unit_id, batch_idx, processed_particles, rel_change, q_elem)
     integer, intent(in) :: unit_id
     integer(i32), intent(in) :: batch_idx

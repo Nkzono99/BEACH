@@ -145,6 +145,7 @@ program test_templates_importers_runtime
 contains
 
   !> テスト専用OBJを作成する（quad+triangle、負インデックス含む）。
+  !! @param[in] path 書き出し先OBJファイルパス。
   subroutine write_obj_fixture(path)
     character(len=*), intent(in) :: path
     integer :: u, ios

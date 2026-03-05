@@ -17,6 +17,7 @@ module test_support
 contains
 
   !> 失敗理由を表示してテストを停止する。
+  !! @param[in] message 失敗理由メッセージ。
   subroutine fail_test(message)
     character(len=*), intent(in) :: message
 
@@ -25,6 +26,8 @@ contains
   end subroutine fail_test
 
   !> 条件が偽ならテストを失敗させる。
+  !! @param[in] condition 検証対象の真偽値。
+  !! @param[in] message 失敗時に表示するメッセージ。
   subroutine assert_true(condition, message)
     logical, intent(in) :: condition
     character(len=*), intent(in) :: message
@@ -33,6 +36,9 @@ contains
   end subroutine assert_true
 
   !> 32bit整数の一致を確認する。
+  !! @param[in] actual 実測値。
+  !! @param[in] expected 期待値。
+  !! @param[in] message 失敗時に表示するメッセージ。
   subroutine assert_equal_i32(actual, expected, message)
     integer(i32), intent(in) :: actual
     integer(i32), intent(in) :: expected
@@ -42,6 +48,10 @@ contains
   end subroutine assert_equal_i32
 
   !> 倍精度実数の近接一致を確認する。
+  !! @param[in] actual 実測値。
+  !! @param[in] expected 期待値。
+  !! @param[in] tol 許容誤差。
+  !! @param[in] message 失敗時に表示するメッセージ。
   subroutine assert_close_dp(actual, expected, tol, message)
     real(dp), intent(in) :: actual
     real(dp), intent(in) :: expected
@@ -52,6 +62,10 @@ contains
   end subroutine assert_close_dp
 
   !> 1次元実数配列の要素ごとの近接一致を確認する。
+  !! @param[in] actual 実測配列。
+  !! @param[in] expected 期待配列。
+  !! @param[in] tol 許容誤差。
+  !! @param[in] message 失敗時に表示するメッセージ。
   subroutine assert_allclose_1d(actual, expected, tol, message)
     real(dp), intent(in) :: actual(:)
     real(dp), intent(in) :: expected(:)
@@ -66,6 +80,7 @@ contains
   end subroutine assert_allclose_1d
 
   !> 既存ファイルがあれば削除する。
+  !! @param[in] path 削除対象ファイルパス。
   subroutine delete_file_if_exists(path)
     character(len=*), intent(in) :: path
     logical :: exists
@@ -80,6 +95,7 @@ contains
   end subroutine delete_file_if_exists
 
   !> ディレクトリを作成する。
+  !! @param[in] path 作成対象ディレクトリパス。
   subroutine ensure_directory(path)
     character(len=*), intent(in) :: path
     character(len=1024) :: cmd
@@ -91,6 +107,7 @@ contains
   end subroutine ensure_directory
 
   !> 空ディレクトリを削除する。
+  !! @param[in] path 削除対象ディレクトリパス。
   subroutine remove_empty_directory(path)
     character(len=*), intent(in) :: path
     character(len=1024) :: cmd

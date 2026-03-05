@@ -12,10 +12,11 @@ module bem_restart
 contains
 
   !> 既存出力ディレクトリから統計・要素電荷・乱数状態を復元する。
-  !! @param[in] out_dir チェックポイントを読む出力ディレクトリ。
+  !! @param[in] out_dir チェックポイントを探索する出力ディレクトリ。
   !! @param[inout] mesh 現在のメッシュ。`q_elem` を復元値で上書きする。
   !! @param[out] stats 復元された統計値。
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
+  !! @param[inout] state 種別ごとのマクロ粒子残差（指定時のみ復元）。
   subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart, state)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
@@ -80,6 +81,8 @@ contains
   end subroutine write_rng_state_file
 
   !> マクロ粒子残差を `macro_residuals.csv` として保存する。
+  !! @param[in] out_dir 出力ディレクトリ。
+  !! @param[in] state 種別ごとのマクロ粒子残差を保持した注入状態。
   subroutine write_macro_residuals_file(out_dir, state)
     character(len=*), intent(in) :: out_dir
     type(injection_state), intent(in) :: state
@@ -102,6 +105,9 @@ contains
 
   !> `summary.txt` を読み込み、必須キーの存在と要素数整合を検証する。
   !! 欠落キーやメッシュ要素数不一致は再開不能として停止する。
+  !! @param[in] path `summary.txt` のファイルパス。
+  !! @param[in] expected_nelem 現在メッシュの要素数（整合性検証に使用）。
+  !! @param[out] stats 復元した統計値。
   subroutine load_summary_file(path, expected_nelem, stats)
     character(len=*), intent(in) :: path
     integer(i32), intent(in) :: expected_nelem
@@ -175,6 +181,8 @@ contains
 
   !> `charges.csv` を読み込み、各要素の電荷をメッシュへ復元する。
   !! 行重複や要素数不足を検出した場合は停止する。
+  !! @param[in] path `charges.csv` のファイルパス。
+  !! @param[inout] mesh 要素電荷 `q_elem` を復元値で上書きするメッシュ。
   subroutine load_charge_file(path, mesh)
     character(len=*), intent(in) :: path
     type(mesh_type), intent(inout) :: mesh
@@ -221,6 +229,7 @@ contains
 
   !> 保存済み乱数状態を読み戻し、このビルドの RNG 状態へ復元する。
   !! RNG 内部状態の長さが一致しない場合は互換性がないため停止する。
+  !! @param[in] path `rng_state.txt` のファイルパス。
   subroutine restore_rng_state(path)
     character(len=*), intent(in) :: path
 
@@ -249,6 +258,8 @@ contains
   end subroutine restore_rng_state
 
   !> 保存済みマクロ粒子残差を読み戻す。
+  !! @param[in] path `macro_residuals.csv` のファイルパス。
+  !! @param[inout] state 種別ごとのマクロ粒子残差を書き戻す注入状態。
   subroutine load_macro_residual_file(path, state)
     character(len=*), intent(in) :: path
     type(injection_state), intent(inout) :: state

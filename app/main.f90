@@ -40,6 +40,11 @@ program main
 contains
 
   !> 設定読込・メッシュ構築・再開判定・乱数初期化をまとめて行う。
+  !! @param[out] app 読み込み・既定値適用後のアプリ設定。
+  !! @param[out] mesh 構築した三角形メッシュ。
+  !! @param[out] initial_stats 再開時に引き継ぐ初期統計（新規実行時はゼロ）。
+  !! @param[out] inject_state 種別ごとの注入残差状態。
+  !! @param[out] resumed チェックポイントから再開した場合に `.true.`。
   subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed)
     type(app_config), intent(out) :: app
     type(mesh_type), intent(out) :: mesh
@@ -72,6 +77,8 @@ contains
   end subroutine load_or_init_run_state
 
   !> 種数に合わせて注入状態をゼロ初期化する。
+  !! @param[out] state 初期化する注入状態。
+  !! @param[in] n_species 粒子種数（`macro_residual` 配列長）。
   subroutine initialize_injection_state(state, n_species)
     type(injection_state), intent(out) :: state
     integer, intent(in) :: n_species
@@ -81,6 +88,10 @@ contains
   end subroutine initialize_injection_state
 
   !> 履歴 CSV のオープンとヘッダ初期化を行う。
+  !! @param[in] app 出力設定を含むアプリ設定。
+  !! @param[in] resumed 再開実行かどうか。
+  !! @param[out] history_opened 履歴ファイルを開けた場合に `.true.`。
+  !! @param[out] history_unit 履歴CSVの出力ユニット番号（未使用時は `-1`）。
   subroutine open_history_writer(app, resumed, history_opened, history_unit)
     type(app_config), intent(in) :: app
     logical, intent(in) :: resumed
@@ -114,6 +125,8 @@ contains
   end subroutine open_history_writer
 
   !> 実行結果の主要統計を標準出力へ表示する。
+  !! @param[in] mesh 実行後のメッシュ情報。
+  !! @param[in] stats 実行後の統計値。
   subroutine print_run_summary(mesh, stats)
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
@@ -130,6 +143,9 @@ contains
   end subroutine print_run_summary
 
   !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` として保存する。
+  !! @param[in] out_dir 出力先ディレクトリ。
+  !! @param[in] mesh 書き出し対象のメッシュ。
+  !! @param[in] stats 書き出し対象の統計値。
   subroutine write_result_files(out_dir, mesh, stats)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
@@ -142,6 +158,7 @@ contains
   end subroutine write_result_files
 
   !> 出力ディレクトリを作成する。
+  !! @param[in] out_dir 作成対象ディレクトリのパス。
   subroutine ensure_output_dir(out_dir)
     character(len=*), intent(in) :: out_dir
     character(len=1024) :: cmd
@@ -153,6 +170,9 @@ contains
   end subroutine ensure_output_dir
 
   !> 実行統計を `summary.txt` に書き出す。
+  !! @param[in] out_dir 出力先ディレクトリ。
+  !! @param[in] mesh メッシュ情報（要素数を書き出す）。
+  !! @param[in] stats 実行統計。
   subroutine write_summary_file(out_dir, mesh, stats)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
@@ -175,6 +195,8 @@ contains
   end subroutine write_summary_file
 
   !> 要素電荷を `charges.csv` に書き出す。
+  !! @param[in] out_dir 出力先ディレクトリ。
+  !! @param[in] mesh 要素電荷を含むメッシュ情報。
   subroutine write_charges_file(out_dir, mesh)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
@@ -192,6 +214,8 @@ contains
   end subroutine write_charges_file
 
   !> 三角形メッシュを `mesh_triangles.csv` に書き出す。
+  !! @param[in] out_dir 出力先ディレクトリ。
+  !! @param[in] mesh 頂点座標と要素電荷を含むメッシュ情報。
   subroutine write_mesh_file(out_dir, mesh)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh

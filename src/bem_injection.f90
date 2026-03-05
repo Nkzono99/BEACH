@@ -19,7 +19,7 @@ module bem_injection
 contains
 
   !> 与えたシード列またはシステム時刻からFortran乱数生成器を初期化する。
-  !! @param[in] seed 入力引数。
+  !! @param[in] seed 乱数生成器へ与えるシード列（省略時は `system_clock` 値から生成）。
   subroutine seed_rng(seed)
     integer(i32), intent(in), optional :: seed(:)
     integer :: n, i, clk
@@ -43,9 +43,9 @@ contains
   end subroutine seed_rng
 
   !> 直方体領域 `[low, high]` 内で一様分布の初期位置をサンプリングする。
-  !! @param[in] low 入力引数。
-  !! @param[in] high 入力引数。
-  !! @param[out] x 出力引数。
+  !! @param[in] low サンプリング領域の下限座標 `(x,y,z)` [m]。
+  !! @param[in] high サンプリング領域の上限座標 `(x,y,z)` [m]。
+  !! @param[out] x 生成した粒子位置配列 `x(3,n)` [m]。
   subroutine sample_uniform_positions(low, high, x)
     real(dp), intent(in) :: low(3), high(3)
     real(dp), intent(out) :: x(:, :)
@@ -60,11 +60,11 @@ contains
   end subroutine sample_uniform_positions
 
   !> ドリフト速度付きMaxwell分布(温度または熱速度指定)から粒子速度を生成する。
-  !! @param[in] drift_velocity 入力引数。
-  !! @param[in] m_particle 入力引数。
-  !! @param[out] v 出力引数。
-  !! @param[in] temperature_k 入力引数。
-  !! @param[in] thermal_speed 入力引数。
+  !! @param[in] drift_velocity 付加する平均ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
+  !! @param[in] m_particle 粒子1個あたりの質量 [kg]（`temperature_k` 指定時に使用）。
+  !! @param[out] v サンプリングした速度配列 `v(3,n)` [m/s]。
+  !! @param[in] temperature_k 熱運動の温度 [K]（`thermal_speed` 未指定時に使用）。
+  !! @param[in] thermal_speed 熱速度の標準偏差 `sigma` [m/s]（指定時は温度より優先）。
   subroutine sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k, thermal_speed)
     real(dp), intent(in) :: drift_velocity(3)
     real(dp), intent(in) :: m_particle
@@ -98,16 +98,16 @@ contains
   end subroutine sample_shifted_maxwell_velocities
 
   !> 指定粒子数ぶんの位置/速度/電荷/質量/重みを生成し `particles_soa` を初期化する。
-  !! @param[out] pcls 出力引数。
-  !! @param[in] n 入力引数。
-  !! @param[in] q_particle 入力引数。
-  !! @param[in] m_particle 入力引数。
-  !! @param[in] w_particle 入力引数。
-  !! @param[in] pos_low 入力引数。
-  !! @param[in] pos_high 入力引数。
-  !! @param[in] drift_velocity 入力引数。
-  !! @param[in]  temperature_k 入力引数。
-  !! @param[in] thermal_speed 入力引数。
+  !! @param[out] pcls 生成した粒子群を保持する `particles_soa`。
+  !! @param[in] n 生成するマクロ粒子数。
+  !! @param[in] q_particle 粒子1個あたりの電荷 [C]。
+  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
+  !! @param[in] w_particle 粒子1個あたりのマクロ粒子重み。
+  !! @param[in] pos_low 位置サンプリング領域の下限座標 `(x,y,z)` [m]。
+  !! @param[in] pos_high 位置サンプリング領域の上限座標 `(x,y,z)` [m]。
+  !! @param[in] drift_velocity 平均ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
+  !! @param[in] temperature_k 熱運動の温度 [K]（`thermal_speed` 未指定時に使用）。
+  !! @param[in] thermal_speed 熱速度の標準偏差 `sigma` [m/s]（指定時は温度より優先）。
   subroutine init_random_beam_particles(pcls, n, q_particle, m_particle, w_particle, pos_low, pos_high, drift_velocity, &
                                         temperature_k, thermal_speed)
     type(particles_soa), intent(out) :: pcls
@@ -131,6 +131,12 @@ contains
   end subroutine init_random_beam_particles
 
   !> drifting Maxwellian の片側流入束 [#/m^2/s] を返す。
+  !! @param[in] number_density_m3 粒子数密度 [1/m^3]。
+  !! @param[in] temperature_k 温度 [K]。
+  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
+  !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
+  !! @param[in] inward_normal 注入面の内向き単位法線ベクトル。
+  !! @return gamma_in 片側流入束 [1/m^2/s]。
   real(dp) function compute_inflow_flux_from_drifting_maxwellian( &
     number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal &
   ) result(gamma_in)
@@ -157,6 +163,10 @@ contains
   end function compute_inflow_flux_from_drifting_maxwellian
 
   !> 注入面上の矩形開口から有効面積[m^2]を返す。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[in] pos_low 開口領域の下限座標 `(x,y,z)` [m]。
+  !! @param[in] pos_high 開口領域の上限座標 `(x,y,z)` [m]。
+  !! @return area 注入開口の有効面積 [m^2]。
   real(dp) function compute_face_area_from_bounds(inject_face, pos_low, pos_high) result(area)
     character(len=*), intent(in) :: inject_face
     real(dp), intent(in) :: pos_low(3), pos_high(3)
@@ -167,6 +177,19 @@ contains
   end function compute_face_area_from_bounds
 
   !> 物理流量・重み・残差から今バッチのマクロ粒子数を決める。
+  !! @param[in] number_density_m3 粒子数密度 [1/m^3]。
+  !! @param[in] temperature_k 温度 [K]。
+  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
+  !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
+  !! @param[in] box_min シミュレーションボックス下限座標 `(x,y,z)` [m]。
+  !! @param[in] box_max シミュレーションボックス上限座標 `(x,y,z)` [m]。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[in] pos_low 注入口矩形の下限座標 `(x,y,z)` [m]。
+  !! @param[in] pos_high 注入口矩形の上限座標 `(x,y,z)` [m]。
+  !! @param[in] batch_duration 1バッチの物理時間長 [s]。
+  !! @param[in] w_particle マクロ粒子重み。
+  !! @param[inout] residual 前バッチから繰り越すマクロ粒子端数（呼び出し後に更新）。
+  !! @param[out] n_macro 今バッチで生成するマクロ粒子数。
   subroutine compute_macro_particles_for_batch( &
     number_density_m3, temperature_k, m_particle, drift_velocity, box_min, box_max, inject_face, pos_low, pos_high, &
     batch_duration, w_particle, residual, n_macro &
@@ -203,6 +226,17 @@ contains
   end subroutine compute_macro_particles_for_batch
 
   !> 上流リザーバ境界から流入する粒子群を面注入としてサンプルする。
+  !! @param[in] box_min シミュレーションボックス下限座標 `(x,y,z)` [m]。
+  !! @param[in] box_max シミュレーションボックス上限座標 `(x,y,z)` [m]。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[in] pos_low 注入口矩形の下限座標 `(x,y,z)` [m]。
+  !! @param[in] pos_high 注入口矩形の上限座標 `(x,y,z)` [m]。
+  !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
+  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
+  !! @param[in] temperature_k 温度 [K]。
+  !! @param[in] batch_duration 1バッチの物理時間長 [s]。
+  !! @param[out] x サンプリングした位置配列 `x(3,n)` [m]。
+  !! @param[out] v サンプリングした速度配列 `v(3,n)` [m/s]。
   subroutine sample_reservoir_face_particles( &
     box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v &
   )
@@ -246,7 +280,7 @@ contains
   end subroutine sample_reservoir_face_particles
 
   !> Box–Muller法で標準正規乱数を生成し、任意形状配列へ詰める。
-  !! @param[out] z 出力引数。
+  !! @param[out] z 平均0・分散1の標準正規乱数で埋める出力配列。
   subroutine sample_standard_normal(z)
     real(dp), intent(out) :: z(:, :)
     integer :: n_total, n_pair, i
@@ -275,6 +309,8 @@ contains
   end subroutine sample_standard_normal
 
   !> 標準正規分布の PDF を返す。
+  !! @param[in] x 評価点。
+  !! @return pdf 標準正規分布の確率密度。
   pure real(dp) function standard_normal_pdf(x) result(pdf)
     real(dp), intent(in) :: x
     real(dp), parameter :: inv_sqrt_2pi = 3.98942280401432678d-1
@@ -283,6 +319,8 @@ contains
   end function standard_normal_pdf
 
   !> 標準正規分布の CDF を返す。
+  !! @param[in] x 評価点。
+  !! @return cdf 標準正規分布の累積分布値。
   pure real(dp) function standard_normal_cdf(x) result(cdf)
     real(dp), intent(in) :: x
     real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
@@ -291,6 +329,9 @@ contains
   end function standard_normal_cdf
 
   !> 注入面名から接線2軸を返す。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[out] axis_t1 注入面の第1接線軸インデックス（1:x, 2:y, 3:z）。
+  !! @param[out] axis_t2 注入面の第2接線軸インデックス（1:x, 2:y, 3:z）。
   subroutine resolve_face_axes(inject_face, axis_t1, axis_t2)
     character(len=*), intent(in) :: inject_face
     integer, intent(out) :: axis_t1, axis_t2
@@ -311,6 +352,12 @@ contains
   end subroutine resolve_face_axes
 
   !> 注入面名から法線方向の幾何情報を返す。
+  !! @param[in] box_min シミュレーションボックス下限座標 `(x,y,z)` [m]。
+  !! @param[in] box_max シミュレーションボックス上限座標 `(x,y,z)` [m]。
+  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[out] axis_n 法線方向軸インデックス（省略可）。
+  !! @param[out] boundary_value 注入面の境界座標値 [m]（省略可）。
+  !! @param[out] inward_normal 注入面の内向き法線ベクトル（省略可）。
   subroutine resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
     real(dp), intent(in) :: box_min(3), box_max(3)
     character(len=*), intent(in) :: inject_face
@@ -357,6 +404,9 @@ contains
   end subroutine resolve_face_geometry
 
   !> flux-weighted half-range 正規分布から法線速度をサンプルする。
+  !! @param[in] mu 法線速度分布の平均ドリフト成分 [m/s]。
+  !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
+  !! @param[out] vn サンプリングした法線速度配列 [m/s]（常に非負）。
   subroutine sample_flux_weighted_normal_component(mu, sigma, vn)
     real(dp), intent(in) :: mu, sigma
     real(dp), intent(out) :: vn(:)
@@ -389,6 +439,10 @@ contains
   end subroutine sample_flux_weighted_normal_component
 
   !> flux-weighted half-range 正規分布の CDF を返す。
+  !! @param[in] vn 評価する法線速度 [m/s]。
+  !! @param[in] mu 法線速度分布の平均ドリフト成分 [m/s]。
+  !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
+  !! @return cdf flux-weighted half-range 正規分布の累積分布値。
   pure real(dp) function flux_weighted_normal_cdf(vn, mu, sigma) result(cdf)
     real(dp), intent(in) :: vn, mu, sigma
     real(dp) :: alpha, x, denom, num

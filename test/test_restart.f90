@@ -62,6 +62,7 @@ program test_restart
 contains
 
   !> 2要素メッシュを初期化する。
+  !! @param[out] mesh 初期化済みテスト用メッシュ。
   subroutine build_test_mesh(mesh)
     type(mesh_type), intent(out) :: mesh
     real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
@@ -76,6 +77,7 @@ contains
   end subroutine build_test_mesh
 
   !> `summary.txt` のフィクスチャを書き出す。
+  !! @param[in] dir_path 出力先ディレクトリ。
   subroutine write_summary_fixture(dir_path)
     character(len=*), intent(in) :: dir_path
     integer :: u, ios
@@ -94,6 +96,7 @@ contains
   end subroutine write_summary_fixture
 
   !> `charges.csv` のフィクスチャを書き出す。
+  !! @param[in] dir_path 出力先ディレクトリ。
   subroutine write_charges_fixture(dir_path)
     character(len=*), intent(in) :: dir_path
     integer :: u, ios

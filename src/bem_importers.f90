@@ -7,8 +7,8 @@ module bem_importers
 contains
 
   !> OBJファイルを2パス(件数取得→実データ読込)で読み込み、メッシュを構築する。
-  !! @param[in] path 入力引数。
-  !! @param[out] mesh 出力引数。
+  !! @param[in] path 読み込むOBJファイルのパス。
+  !! @param[out] mesh OBJから構築した三角形メッシュ。
   subroutine load_obj_mesh(path, mesh)
     character(len=*), intent(in) :: path
     type(mesh_type), intent(out) :: mesh
@@ -24,9 +24,9 @@ contains
   end subroutine load_obj_mesh
 
   !> 頂点配列と三角形インデックス配列から面頂点配列(v0,v1,v2)を展開して初期化する。
-  !! @param[in] vertices 入力引数。
-  !! @param[in] faces 入力引数。
-  !! @param[out] mesh 出力引数。
+  !! @param[in] vertices 頂点座標配列 `vertices(3,nvert)`。
+  !! @param[in] faces 三角形の頂点インデックス配列 `faces(3,ntri)`（1始まり）。
+  !! @param[out] mesh 展開後に初期化した三角形メッシュ。
   subroutine build_mesh_from_indexed(vertices, faces, mesh)
     real(dp), intent(in) :: vertices(:, :)
     integer(i32), intent(in) :: faces(:, :)
@@ -49,9 +49,9 @@ contains
   end subroutine build_mesh_from_indexed
 
   !> OBJを行走査して頂点数と三角形分割後の面数を事前計数する。
-  !! @param[in] path 入力引数。
-  !! @param[out] nvert 出力引数。
-  !! @param[out] ntri 出力引数。
+  !! @param[in] path 走査対象のOBJファイルパス。
+  !! @param[out] nvert 頂点行 `v` の総数。
+  !! @param[out] ntri 面行を扇形分割した後の三角形総数。
   subroutine scan_obj(path, nvert, ntri)
     character(len=*), intent(in) :: path
     integer(i32), intent(out) :: nvert, ntri
@@ -76,9 +76,9 @@ contains
   end subroutine scan_obj
 
   !> OBJの頂点/面行を解析し、負インデックス対応で配列へ格納する。
-  !! @param[in] path 入力引数。
-  !! @param[out] vertices 出力引数。
-  !! @param[out] faces 出力引数。
+  !! @param[in] path 読み込み対象のOBJファイルパス。
+  !! @param[out] vertices 解析した頂点座標配列 `vertices(3,nvert)`。
+  !! @param[out] faces 扇形分割後の三角形インデックス配列 `faces(3,ntri)`。
   subroutine parse_obj(path, vertices, faces)
     character(len=*), intent(in) :: path
     real(dp), intent(out) :: vertices(:, :)
@@ -112,7 +112,7 @@ contains
   end subroutine parse_obj
 
   !> 与えられた行がOBJ頂点行(`v `)かを判定する。
-  !! @param[in] line 入力引数。
+  !! @param[in] line 判定対象の1行文字列。
   !! @return is_vertex_line 関数の戻り値。
   logical pure function is_vertex_line(line)
     character(len=*), intent(in) :: line
@@ -123,7 +123,7 @@ contains
   end function is_vertex_line
 
   !> 与えられた行がOBJ面行(`f `)かを判定する。
-  !! @param[in] line 入力引数。
+  !! @param[in] line 判定対象の1行文字列。
   !! @return is_face_line 関数の戻り値。
   logical pure function is_face_line(line)
     character(len=*), intent(in) :: line
@@ -134,7 +134,7 @@ contains
   end function is_face_line
 
   !> 面行に含まれる頂点トークン数を数え、扇形分割時の三角形数算出に使う。
-  !! @param[in] line 入力引数。
+  !! @param[in] line `f` で始まるOBJ面行。
   !! @return count_face_tokens 関数の戻り値。
   integer(i32) pure function count_face_tokens(line)
     character(len=*), intent(in) :: line
@@ -162,8 +162,8 @@ contains
   end function count_face_tokens
 
   !> `v x y z` 形式の頂点行を3次元座標へ変換する。
-  !! @param[in] line 入力引数。
-  !! @param[out] p 出力引数。
+  !! @param[in] line OBJ頂点行（例: `v 0.0 1.0 2.0`）。
+  !! @param[out] p 解析した頂点座標 `(x,y,z)`。
   subroutine parse_vertex_line(line, p)
     character(len=*), intent(in) :: line
     real(dp), intent(out) :: p(3)
@@ -173,10 +173,10 @@ contains
   end subroutine parse_vertex_line
 
   !> `f` 行の頂点参照を抽出し、`v/vt/vn` 形式から頂点インデックスのみを取り出す。
-  !! @param[in] line 入力引数。
-  !! @param[in] nvert 入力引数。
-  !! @param[out] idx 出力引数。
-  !! @param[out] ntok 出力引数。
+  !! @param[in] line OBJ面行（`f i j k ...`）。
+  !! @param[in] nvert 負インデックス解決に使う現在有効な頂点数。
+  !! @param[out] idx 抽出した頂点インデックス配列（先頭 `ntok` 個が有効）。
+  !! @param[out] ntok 抽出した頂点参照トークン数。
   subroutine parse_face_line(line, nvert, idx, ntok)
     character(len=*), intent(in) :: line
     integer(i32), intent(in) :: nvert

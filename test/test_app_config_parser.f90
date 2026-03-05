@@ -33,6 +33,7 @@ program test_app_config_parser
 contains
 
   !> テスト専用の一時設定ファイルを書き出す。
+  !! @param[in] path 書き出し先TOMLファイルパス。
   subroutine write_config_fixture(path)
     character(len=*), intent(in) :: path
     integer :: u, ios

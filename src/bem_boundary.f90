@@ -9,6 +9,11 @@ module bem_boundary
 contains
 
   !> 1ステップの更新候補位置にボックス境界条件を適用し、生存/流出状態と位置速度を更新する。
+  !! @param[in] cfg 境界条件とボックス範囲を含むシミュレーション設定。
+  !! @param[inout] x 境界適用対象の粒子位置 `(x,y,z)` [m]。
+  !! @param[inout] v 境界適用対象の粒子速度 `(vx,vy,vz)` [m/s]。
+  !! @param[inout] alive 粒子生存フラグ（流出時は `.false.` へ更新）。
+  !! @param[out] escaped_boundary この呼び出しで境界流出が発生したか。
   subroutine apply_box_boundary(cfg, x, v, alive, escaped_boundary)
     type(sim_config), intent(in) :: cfg
     real(dp), intent(inout) :: x(3)
@@ -49,6 +54,17 @@ contains
     end do
   end subroutine apply_box_boundary
 
+  !> 単一軸・単一側面の境界条件を適用する内部ヘルパ。
+  !! @param[in] axis 境界判定軸（1:x, 2:y, 3:z）。
+  !! @param[in] bc 適用する境界条件種別（open/reflect/periodic）。
+  !! @param[in] box_min 判定軸の下限座標 [m]。
+  !! @param[in] box_max 判定軸の上限座標 [m]。
+  !! @param[in] span 判定軸のボックス幅 `box_max - box_min` [m]。
+  !! @param[in] eps 反射/周期後に境界内へ押し戻す微小量 [m]。
+  !! @param[inout] x 粒子位置 `(x,y,z)` [m]。
+  !! @param[inout] v 粒子速度 `(vx,vy,vz)` [m/s]。
+  !! @param[inout] alive 粒子生存フラグ。
+  !! @param[inout] escaped_boundary 境界流出フラグ。
   subroutine apply_one_side_boundary(axis, bc, box_min, box_max, span, eps, x, v, alive, escaped_boundary)
     integer(i32), intent(in) :: axis, bc
     real(dp), intent(in) :: box_min, box_max, span, eps

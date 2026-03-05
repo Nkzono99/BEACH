@@ -7,12 +7,12 @@ module bem_templates
 contains
 
     !> XY平面を `nx*ny` 分割し、各セルを2三角形へ分割したメッシュを生成する。
-  !! @param[out] mesh 出力引数。
-  !! @param[in] size_x 入力引数。
-  !! @param[in] size_y 入力引数。
-  !! @param[in] nx 入力引数。
-  !! @param[in] ny 入力引数。
-  !! @param[in] center 入力引数。
+  !! @param[out] mesh 生成した平面三角形メッシュ。
+  !! @param[in] size_x X方向の平面サイズ [m]（省略時 1.0）。
+  !! @param[in] size_y Y方向の平面サイズ [m]（省略時 1.0）。
+  !! @param[in] nx X方向分割数（省略時 1）。
+  !! @param[in] ny Y方向分割数（省略時 1）。
+  !! @param[in] center 平面中心座標 `(x,y,z)` [m]（省略時原点）。
     subroutine make_plane(mesh, size_x, size_y, nx, ny, center)
         type(mesh_type), intent(out) :: mesh
         real(dp), intent(in), optional :: size_x, size_y
@@ -52,12 +52,12 @@ contains
     end subroutine make_plane
 
     !> 直方体6面を分割数に応じて三角形化し、外向き法線向きでメッシュを生成する。
-  !! @param[out] mesh 出力引数。
-  !! @param[in] size 入力引数。
-  !! @param[in] center 入力引数。
-  !! @param[in] nx 入力引数。
-  !! @param[in] ny 入力引数。
-  !! @param[in] nz 入力引数。
+  !! @param[out] mesh 生成した直方体表面メッシュ。
+  !! @param[in] size 直方体サイズ `(sx,sy,sz)` [m]（省略時 `[1,1,1]`）。
+  !! @param[in] center 直方体中心座標 `(x,y,z)` [m]（省略時原点）。
+  !! @param[in] nx X方向分割数（省略時 1）。
+  !! @param[in] ny Y方向分割数（省略時 1）。
+  !! @param[in] nz Z方向分割数（省略時 1）。
     subroutine make_box(mesh, size, center, nx, ny, nz)
         type(mesh_type), intent(out) :: mesh
         real(dp), intent(in), optional :: size(3), center(3)
@@ -164,13 +164,13 @@ contains
     end subroutine make_box
 
     !> 円柱側面を分割生成し、必要に応じて上下キャップを追加したメッシュを生成する。
-  !! @param[out] mesh 出力引数。
-  !! @param[in] radius 入力引数。
-  !! @param[in] height 入力引数。
-  !! @param[in] n_theta 入力引数。
-  !! @param[in] n_z 入力引数。
-  !! @param[in] cap 入力引数。
-  !! @param[in] center 入力引数。
+  !! @param[out] mesh 生成した円柱メッシュ。
+  !! @param[in] radius 円柱半径 [m]（省略時 0.5）。
+  !! @param[in] height 円柱高さ [m]（省略時 1.0）。
+  !! @param[in] n_theta 周方向分割数（省略時 24）。
+  !! @param[in] n_z 軸方向分割数（省略時 1）。
+  !! @param[in] cap 上下キャップを生成するか（省略時 `.true.`）。
+  !! @param[in] center 円柱中心座標 `(x,y,z)` [m]（省略時原点）。
     subroutine make_cylinder(mesh, radius, height, n_theta, n_z, cap, center)
         type(mesh_type), intent(out) :: mesh
         real(dp), intent(in), optional :: radius, height, center(3)
@@ -231,11 +231,11 @@ contains
     end subroutine make_cylinder
 
     !> 経度・緯度分割に基づき球面三角形メッシュを生成する。
-  !! @param[out] mesh 出力引数。
-  !! @param[in] radius 入力引数。
-  !! @param[in] n_lon 入力引数。
-  !! @param[in] n_lat 入力引数。
-  !! @param[in] center 入力引数。
+  !! @param[out] mesh 生成した球面三角形メッシュ。
+  !! @param[in] radius 球半径 [m]（省略時 0.5）。
+  !! @param[in] n_lon 経度方向分割数（省略時 24）。
+  !! @param[in] n_lat 緯度方向分割数（省略時 12）。
+  !! @param[in] center 球中心座標 `(x,y,z)` [m]（省略時原点）。
     subroutine make_sphere(mesh, radius, n_lon, n_lat, center)
         type(mesh_type), intent(out) :: mesh
         real(dp), intent(in), optional :: radius, center(3)
@@ -281,11 +281,11 @@ contains
     end subroutine make_sphere
 
     !> 球座標 `(theta, phi)` を中心 `c`・半径 `r` の直交座標へ変換する。
-  !! @param[in] r 入力引数。
-  !! @param[in] c 入力引数。
-  !! @param[in] theta 入力引数。
-  !! @param[in] phi 入力引数。
-  !! @param[out] p 出力引数。
+  !! @param[in] r 球半径 [m]。
+  !! @param[in] c 球中心座標 `(x,y,z)` [m]。
+  !! @param[in] theta 方位角 [rad]。
+  !! @param[in] phi 極角（+Z軸基準） [rad]。
+  !! @param[out] p 変換後の直交座標 `(x,y,z)` [m]。
     pure subroutine sph(r, c, theta, phi, p)
         real(dp), intent(in) :: r, c(3), theta, phi
         real(dp), intent(out) :: p(3)
@@ -295,13 +295,13 @@ contains
     end subroutine sph
 
     !> 三角形頂点 `a,b,c` を出力配列の次インデックスへ書き込む。
-  !! @param[inout] v0 入出力引数。
-  !! @param[inout] v1 入出力引数。
-  !! @param[inout] v2 入出力引数。
-  !! @param[inout] itri 入出力引数。
-  !! @param[in] a 入力引数。
-  !! @param[in] b 入力引数。
-  !! @param[in] c 入力引数。
+  !! @param[inout] v0 三角形頂点0を保持する配列 `v0(3,nelem)`。
+  !! @param[inout] v1 三角形頂点1を保持する配列 `v1(3,nelem)`。
+  !! @param[inout] v2 三角形頂点2を保持する配列 `v2(3,nelem)`。
+  !! @param[inout] itri 現在までに書き込んだ三角形数（呼び出し内で1増加）。
+  !! @param[in] a 追加する三角形の頂点A座標。
+  !! @param[in] b 追加する三角形の頂点B座標。
+  !! @param[in] c 追加する三角形の頂点C座標。
     pure subroutine push_tri(v0, v1, v2, itri, a, b, c)
         real(dp), intent(inout) :: v0(:, :), v1(:, :), v2(:, :)
         integer(i32), intent(inout) :: itri
