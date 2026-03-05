@@ -11,7 +11,13 @@ requires-python = ">=3.10"
 dependencies = [
     "matplotlib>=3.8",
     "numpy>=1.24",
+    "tomli>=2.0.1; python_version < '3.11'",
 ]
+
+[project.scripts]
+beach-inspect = "beach.cli_inspect_fortran_output:main"
+beach-animate-history = "beach.cli_animate_fortran_history:main"
+beach-estimate-workload = "beach.cli_estimate_fortran_workload:main"
 
 [tool.setuptools]
 packages = ["beach"]

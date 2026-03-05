@@ -1,0 +1,464 @@
+"""CLI for estimating particle workload from a Fortran TOML config."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+import os
+from pathlib import Path
+from typing import Any, Sequence
+
+K_BOLTZMANN = 1.380649e-23
+EV_TO_K = 1.160451812e4
+
+DEFAULT_SIM: dict[str, Any] = {
+    "batch_count": 1,
+    "batch_duration": 0.0,
+    "use_box": False,
+    "box_min": [-1.0, -1.0, -1.0],
+    "box_max": [1.0, 1.0, 1.0],
+}
+
+DEFAULT_SPECIES: dict[str, Any] = {
+    "enabled": True,
+    "source_mode": "volume_seed",
+    "npcls_per_step": 0,
+    "temperature_k": 2.0e4,
+    "m_particle": 9.10938356e-31,
+    "w_particle": 1.0,
+    "pos_low": [-0.4, -0.4, 0.2],
+    "pos_high": [0.4, 0.4, 0.5],
+    "drift_velocity": [0.0, 0.0, -8.0e5],
+    "inject_face": "",
+}
+
+
+def load_toml(path: Path) -> dict[str, Any]:
+    try:
+        import tomllib  # py311+
+
+        with path.open("rb") as f:
+            return tomllib.load(f)
+    except ModuleNotFoundError:
+        try:
+            import tomli  # type: ignore
+
+            with path.open("rb") as f:
+                return tomli.load(f)
+        except ModuleNotFoundError as exc:
+            raise SystemExit(
+                "TOML parser is missing. Use Python 3.11+ or install tomli: `python -m pip install tomli`."
+            ) from exc
+
+
+def _dot(a: list[float], b: list[float]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _standard_normal_pdf(x: float) -> float:
+    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+
+
+def _standard_normal_cdf(x: float) -> float:
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _inward_normal_for_face(inject_face: str) -> list[float]:
+    if inject_face == "x_low":
+        return [1.0, 0.0, 0.0]
+    if inject_face == "x_high":
+        return [-1.0, 0.0, 0.0]
+    if inject_face == "y_low":
+        return [0.0, 1.0, 0.0]
+    if inject_face == "y_high":
+        return [0.0, -1.0, 0.0]
+    if inject_face == "z_low":
+        return [0.0, 0.0, 1.0]
+    if inject_face == "z_high":
+        return [0.0, 0.0, -1.0]
+    raise ValueError(f"unknown inject_face: {inject_face}")
+
+
+def _face_tangential_axes(inject_face: str) -> tuple[int, int]:
+    if inject_face in ("x_low", "x_high"):
+        return 1, 2
+    if inject_face in ("y_low", "y_high"):
+        return 2, 0
+    if inject_face in ("z_low", "z_high"):
+        return 0, 1
+    raise ValueError(f"unknown inject_face: {inject_face}")
+
+
+def _axis_and_boundary_for_face(
+    inject_face: str, box_min: list[float], box_max: list[float]
+) -> tuple[int, float]:
+    if inject_face == "x_low":
+        return 0, box_min[0]
+    if inject_face == "x_high":
+        return 0, box_max[0]
+    if inject_face == "y_low":
+        return 1, box_min[1]
+    if inject_face == "y_high":
+        return 1, box_max[1]
+    if inject_face == "z_low":
+        return 2, box_min[2]
+    if inject_face == "z_high":
+        return 2, box_max[2]
+    raise ValueError(f"unknown inject_face: {inject_face}")
+
+
+def _species_temperature_k(spec: dict[str, Any]) -> float:
+    if bool(spec.get("_has_temperature_ev", False)):
+        return float(spec["temperature_ev"]) * EV_TO_K
+    return float(spec.get("temperature_k", DEFAULT_SPECIES["temperature_k"]))
+
+
+def _species_density_m3(spec: dict[str, Any]) -> float:
+    if bool(spec.get("_has_number_density_cm3", False)):
+        return float(spec["number_density_cm3"]) * 1.0e6
+    return float(spec["number_density_m3"])
+
+
+def _compute_inflow_flux(
+    number_density_m3: float,
+    temperature_k: float,
+    m_particle: float,
+    drift_velocity: list[float],
+    inward_normal: list[float],
+) -> float:
+    u_n = _dot(drift_velocity, inward_normal)
+    sigma = math.sqrt(K_BOLTZMANN * temperature_k / m_particle)
+    if sigma <= 0.0:
+        return number_density_m3 * max(0.0, u_n)
+    alpha = u_n / sigma
+    return number_density_m3 * (
+        sigma * _standard_normal_pdf(alpha) + u_n * _standard_normal_cdf(alpha)
+    )
+
+
+def _compute_face_area(
+    inject_face: str, pos_low: list[float], pos_high: list[float]
+) -> float:
+    axis_t1, axis_t2 = _face_tangential_axes(inject_face)
+    return (pos_high[axis_t1] - pos_low[axis_t1]) * (
+        pos_high[axis_t2] - pos_low[axis_t2]
+    )
+
+
+def read_macro_residuals(path: Path | None, n_species: int) -> list[float]:
+    residuals = [0.0] * n_species
+    if path is None:
+        return residuals
+    if not path.exists():
+        raise SystemExit(f"macro residual file not found: {path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            idx = int(row["species_idx"])
+            if 1 <= idx <= n_species:
+                residuals[idx - 1] = float(row["residual"])
+    return residuals
+
+
+def estimate_workload(
+    config: dict[str, Any],
+    threads: int,
+    initial_residuals: list[float] | None = None,
+) -> dict[str, Any]:
+    sim_cfg = dict(DEFAULT_SIM)
+    sim_cfg.update(config.get("sim", {}))
+
+    species_list_raw = config.get("particles", {}).get("species", [])
+    if not isinstance(species_list_raw, list) or len(species_list_raw) == 0:
+        raise SystemExit("At least one [[particles.species]] entry is required.")
+
+    species_list: list[dict[str, Any]] = []
+    for raw in species_list_raw:
+        if not isinstance(raw, dict):
+            raise SystemExit("Each [[particles.species]] entry must be a table.")
+        spec = dict(DEFAULT_SPECIES)
+        spec.update(raw)
+        spec["source_mode"] = (
+            str(spec.get("source_mode", "volume_seed")).strip().lower()
+        )
+        spec["_has_number_density_cm3"] = "number_density_cm3" in raw
+        spec["_has_number_density_m3"] = "number_density_m3" in raw
+        spec["_has_temperature_k"] = "temperature_k" in raw
+        spec["_has_temperature_ev"] = "temperature_ev" in raw
+        species_list.append(spec)
+
+    batch_count = int(sim_cfg["batch_count"])
+    if batch_count <= 0:
+        raise SystemExit("sim.batch_count must be > 0")
+
+    if threads <= 0:
+        raise SystemExit("threads must be > 0")
+
+    has_reservoir_species = False
+    per_batch_volume_particles = 0
+    for spec in species_list:
+        if not bool(spec.get("enabled", True)):
+            continue
+        source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
+        if source_mode == "volume_seed":
+            n_macro = int(spec.get("npcls_per_step", 0))
+            if n_macro < 0:
+                raise SystemExit("particles.species.npcls_per_step must be >= 0")
+            per_batch_volume_particles += n_macro
+        elif source_mode == "reservoir_face":
+            has_reservoir_species = True
+        else:
+            raise SystemExit(f"Unknown particles.species.source_mode: {source_mode}")
+    if per_batch_volume_particles <= 0 and not has_reservoir_species:
+        raise SystemExit(
+            "At least one enabled [[particles.species]] entry must have npcls_per_step > 0."
+        )
+
+    residuals = [0.0] * len(species_list)
+    if initial_residuals is not None:
+        if len(initial_residuals) != len(species_list):
+            raise SystemExit(
+                "macro residual species count does not match config species count"
+            )
+        residuals = list(initial_residuals)
+
+    batch_totals: list[int] = []
+    batch_thread_min: list[int] = []
+    batch_thread_max: list[int] = []
+    species_per_batch: list[list[int]] = []
+
+    for _batch_idx in range(batch_count):
+        species_counts: list[int] = []
+        for s_idx, spec in enumerate(species_list):
+            if not bool(spec.get("enabled", True)):
+                species_counts.append(0)
+                continue
+
+            source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
+            if source_mode == "volume_seed":
+                n_macro = int(spec.get("npcls_per_step", 0))
+                if n_macro < 0:
+                    raise SystemExit("particles.species.npcls_per_step must be >= 0")
+                species_counts.append(n_macro)
+                continue
+
+            if source_mode != "reservoir_face":
+                raise SystemExit(
+                    f"Unknown particles.species.source_mode: {source_mode}"
+                )
+
+            if not bool(sim_cfg.get("use_box", False)):
+                raise SystemExit("reservoir_face requires sim.use_box = true")
+            batch_duration = float(sim_cfg.get("batch_duration", 0.0))
+            if batch_duration <= 0.0:
+                raise SystemExit("sim.batch_duration must be > 0 for reservoir_face")
+
+            w_particle = float(spec.get("w_particle", DEFAULT_SPECIES["w_particle"]))
+            if w_particle <= 0.0:
+                raise SystemExit(
+                    "particles.species.w_particle must be > 0 for reservoir_face"
+                )
+
+            has_cm3 = bool(spec.get("_has_number_density_cm3", False))
+            has_m3 = bool(spec.get("_has_number_density_m3", False))
+            if has_cm3 and has_m3:
+                raise SystemExit(
+                    "Specify either number_density_cm3 or number_density_m3, not both."
+                )
+            if (not has_cm3) and (not has_m3):
+                raise SystemExit(
+                    "reservoir_face requires number_density_cm3 or number_density_m3."
+                )
+            if has_cm3 and float(spec["number_density_cm3"]) <= 0.0:
+                raise SystemExit("number_density_cm3 must be > 0.")
+            if has_m3 and float(spec["number_density_m3"]) <= 0.0:
+                raise SystemExit("number_density_m3 must be > 0.")
+
+            has_temp_k = bool(spec.get("_has_temperature_k", False))
+            has_temp_ev = bool(spec.get("_has_temperature_ev", False))
+            if has_temp_k and has_temp_ev:
+                raise SystemExit(
+                    "Specify either temperature_ev or temperature_k, not both."
+                )
+            if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
+                raise SystemExit("temperature_ev must be >= 0.")
+            if has_temp_k and float(spec["temperature_k"]) < 0.0:
+                raise SystemExit("temperature_k must be >= 0.")
+
+            inject_face = str(spec.get("inject_face", "")).strip().lower()
+            inward_normal = _inward_normal_for_face(inject_face)
+
+            drift_velocity = [
+                float(x)
+                for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
+            ]
+            m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
+            if m_particle <= 0.0:
+                raise SystemExit("m_particle must be > 0.")
+            temperature_k = _species_temperature_k(spec)
+            number_density_m3 = _species_density_m3(spec)
+
+            pos_low = [
+                float(x) for x in spec.get("pos_low", DEFAULT_SPECIES["pos_low"])
+            ]
+            pos_high = [
+                float(x) for x in spec.get("pos_high", DEFAULT_SPECIES["pos_high"])
+            ]
+            box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
+            box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
+            axis_n, boundary_value = _axis_and_boundary_for_face(
+                inject_face, box_min, box_max
+            )
+            if (
+                abs(pos_low[axis_n] - boundary_value) > 1.0e-12
+                or abs(pos_high[axis_n] - boundary_value) > 1.0e-12
+            ):
+                raise SystemExit(
+                    "reservoir_face pos_low/pos_high must lie on the selected box face."
+                )
+            axis_t1, axis_t2 = _face_tangential_axes(inject_face)
+            if (
+                pos_high[axis_t1] < pos_low[axis_t1]
+                or pos_high[axis_t2] < pos_low[axis_t2]
+            ):
+                raise SystemExit(
+                    "reservoir_face tangential bounds must satisfy pos_high >= pos_low."
+                )
+            area = _compute_face_area(inject_face, pos_low, pos_high)
+            if area <= 0.0:
+                raise SystemExit("reservoir_face opening area must be positive")
+
+            gamma_in = _compute_inflow_flux(
+                number_density_m3=number_density_m3,
+                temperature_k=temperature_k,
+                m_particle=m_particle,
+                drift_velocity=drift_velocity,
+                inward_normal=inward_normal,
+            )
+            n_phys_batch = gamma_in * area * batch_duration
+            n_macro_expected = n_phys_batch / w_particle
+            macro_budget = residuals[s_idx] + n_macro_expected
+            if macro_budget < 0.0:
+                macro_budget = 0.0
+            n_macro = math.floor(macro_budget)
+            residuals[s_idx] = macro_budget - n_macro
+            species_counts.append(int(n_macro))
+
+        batch_total = sum(species_counts)
+        q, r = divmod(batch_total, threads)
+        batch_totals.append(batch_total)
+        batch_thread_min.append(q)
+        batch_thread_max.append(q + 1 if r > 0 else q)
+        species_per_batch.append(species_counts)
+
+    total_particles = sum(batch_totals)
+
+    return {
+        "batch_count": batch_count,
+        "threads": threads,
+        "batch_totals": batch_totals,
+        "batch_thread_min": batch_thread_min,
+        "batch_thread_max": batch_thread_max,
+        "species_per_batch": species_per_batch,
+        "final_residuals": residuals,
+        "total_particles": total_particles,
+    }
+
+
+def _default_threads() -> int:
+    value = os.environ.get("OMP_NUM_THREADS", "").strip()
+    if value:
+        try:
+            parsed = int(value)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
+    return 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Estimate particle workload from Fortran TOML config: "
+            "per-batch particles and per-thread particle counts."
+        )
+    )
+    parser.add_argument("config", type=Path, help="path to fortran_config.toml")
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=_default_threads(),
+        help="OpenMP thread count for per-thread estimate (default: OMP_NUM_THREADS or 1)",
+    )
+    parser.add_argument(
+        "--macro-residuals",
+        type=Path,
+        default=None,
+        help="optional macro_residuals.csv to start from resume state",
+    )
+    parser.add_argument(
+        "--show-batches",
+        type=int,
+        default=10,
+        help="number of head batches to print in detail (default: 10)",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if not args.config.exists():
+        raise SystemExit(f"config file not found: {args.config}")
+
+    config = load_toml(args.config)
+    species_raw = config.get("particles", {}).get("species", [])
+    initial_residuals = read_macro_residuals(args.macro_residuals, len(species_raw))
+
+    result = estimate_workload(
+        config=config,
+        threads=args.threads,
+        initial_residuals=initial_residuals,
+    )
+
+    batch_totals = result["batch_totals"]
+    batch_thread_min = result["batch_thread_min"]
+    batch_thread_max = result["batch_thread_max"]
+    total_particles = result["total_particles"]
+    batch_count = result["batch_count"]
+    threads = result["threads"]
+
+    print(f"config={args.config}")
+    print(f"threads={threads}")
+    print(f"batch_count={batch_count}")
+    print(f"total_particles={total_particles}")
+    print(f"particles_per_batch_min={min(batch_totals)}")
+    print(f"particles_per_batch_max={max(batch_totals)}")
+    print(f"particles_per_batch_avg={total_particles / batch_count:.3f}")
+    print(f"per_thread_particles_min={min(batch_thread_min)}")
+    print(f"per_thread_particles_max={max(batch_thread_max)}")
+    print(
+        "per_thread_particles_avg=" f"{total_particles / (batch_count * threads):.3f}"
+    )
+    print(f"final_macro_residuals={result['final_residuals']}")
+
+    n_detail = max(0, min(args.show_batches, batch_count))
+    if n_detail > 0:
+        print("batch_details=")
+        for batch_idx in range(n_detail):
+            species_counts = result["species_per_batch"][batch_idx]
+            print(
+                "  "
+                f"batch={batch_idx + 1} "
+                f"total={batch_totals[batch_idx]} "
+                f"per_thread=[{batch_thread_min[batch_idx]},{batch_thread_max[batch_idx]}] "
+                f"species={species_counts}"
+            )
+
+
+if __name__ == "__main__":
+    main()
