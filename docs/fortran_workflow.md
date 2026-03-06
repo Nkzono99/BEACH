@@ -14,7 +14,7 @@
 fpm run --profile release --flag "-fopenmp"
 ```
 
-カレントディレクトリに `beach.toml` がある場合、引数なし実行でも自動読込されます（互換目的で `fortran_config.toml` も読込可能ですが非推奨です）。
+カレントディレクトリに `beach.toml` がある場合、引数なし実行でも自動読込されます。
 
 設定ファイル指定:
 

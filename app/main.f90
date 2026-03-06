@@ -83,9 +83,8 @@ contains
   subroutine resolve_config_path(path, found)
     character(len=*), intent(out) :: path
     logical, intent(out) :: found
-    logical :: has_primary, has_legacy
+    logical :: has_primary
     character(len=*), parameter :: primary_config = 'beach.toml'
-    character(len=*), parameter :: legacy_config = 'fortran_config.toml'
 
     path = ''
     found = .false.
@@ -100,14 +99,6 @@ contains
     if (has_primary) then
       path = primary_config
       found = .true.
-      return
-    end if
-
-    inquire(file=legacy_config, exist=has_legacy)
-    if (has_legacy) then
-      path = legacy_config
-      found = .true.
-      print '(a)', 'warning: fortran_config.toml is deprecated; rename to beach.toml.'
     end if
   end subroutine resolve_config_path
 
