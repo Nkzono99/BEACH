@@ -11,7 +11,7 @@ program test_injection_sampling
 
   type(particles_soa) :: pcls
   real(dp), allocatable :: v(:, :), x(:, :)
-  real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn
+  real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt
   integer(i32) :: n_macro
   integer :: i
 
@@ -56,7 +56,19 @@ program test_injection_sampling
 
   do i = 1, size(x, 2)
     call assert_true(x(1, i) > -1.0d0, 'reservoir sampled x should move inward from boundary')
+    call assert_true(x(1, i) < -9.99999d-1, 'reservoir sampled x should not advect by batch_duration')
     call assert_true(v(1, i) >= 0.0d0, 'reservoir normal velocity should be inward')
+  end do
+
+  jitter_dt = 1.0d-3
+  call sample_reservoir_face_particles( &
+    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
+    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [2.0d0, 0.0d0, 0.0d0], &
+    1.0d0, 0.0d0, 50.0d0, x(:, 1:4), v(:, 1:4), position_jitter_dt=jitter_dt &
+  )
+  do i = 1, 4
+    call assert_true(x(1, i) > -1.0d0, 'reservoir jittered x should stay inside the domain')
+    call assert_true(x(1, i) <= -1.0d0 + 2.0d0 * jitter_dt + 1.0d-12, 'reservoir jittered x exceeded dt bound')
   end do
 
   call sample_reservoir_face_particles( &

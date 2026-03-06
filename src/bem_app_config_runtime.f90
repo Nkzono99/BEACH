@@ -232,24 +232,24 @@ contains
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
-          barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal &
+          barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
         )
       else if (present(barrier_normal_energy)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
-          barrier_normal_energy=barrier_normal_energy &
+          barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt &
         )
       else if (present(vmin_normal)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
-          vmin_normal=vmin_normal &
+          vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
         )
       else
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
-          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v &
+          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, position_jitter_dt=sim%dt &
         )
       end if
     case default

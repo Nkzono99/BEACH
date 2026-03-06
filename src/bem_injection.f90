@@ -243,14 +243,15 @@ contains
   !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
   !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
   !! @param[in] temperature_k 温度 [K]。
-  !! @param[in] batch_duration 1バッチの物理時間長 [s]。
+  !! @param[in] batch_duration 1バッチの物理時間長 [s]（現在は妥当性チェックのみ）。
   !! @param[out] x サンプリングした位置配列 `x(3,n)` [m]。
   !! @param[out] v サンプリングした速度配列 `v(3,n)` [m/s]。
   !! @param[in] barrier_normal_energy 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]（省略時 0）。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は `barrier_normal_energy` から自動導出）。
+  !! @param[in] position_jitter_dt 初期位置に速度方向で与えるランダムジッタ時間幅[s]（省略時は 0）。
   subroutine sample_reservoir_face_particles( &
     box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v, &
-    barrier_normal_energy, vmin_normal &
+    barrier_normal_energy, vmin_normal, position_jitter_dt &
   )
     real(dp), intent(in) :: box_min(3), box_max(3)
     character(len=*), intent(in) :: inject_face
@@ -260,14 +261,21 @@ contains
     real(dp), intent(out) :: v(:, :)
     real(dp), intent(in), optional :: barrier_normal_energy
     real(dp), intent(in), optional :: vmin_normal
+    real(dp), intent(in), optional :: position_jitter_dt
 
     integer :: i, axis_n, axis_t1, axis_t2
-    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, barrier, vn_inf
+    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, barrier, vn_inf, jitter_dt
     real(dp), allocatable :: u(:, :), tau(:)
 
     if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "reservoir particle arrays must have first dimension 3"
     if (size(x, 2) /= size(v, 2)) error stop "reservoir x/v size mismatch"
     if (batch_duration < 0.0_dp) error stop "batch_duration must be >= 0"
+    if (present(position_jitter_dt)) then
+      if (position_jitter_dt < 0.0_dp) error stop "position_jitter_dt must be >= 0"
+      jitter_dt = position_jitter_dt
+    else
+      jitter_dt = 0.0_dp
+    end if
     if (size(x, 2) == 0) return
 
     call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
@@ -289,16 +297,20 @@ contains
       v(axis_n, i) = inward_normal(axis_n) * vn_inf
     end do
 
-    allocate(u(2, size(x, 2)), tau(size(x, 2)))
+    allocate(u(2, size(x, 2)))
     call random_number(u)
-    call random_number(tau)
+    if (jitter_dt > 0.0_dp) then
+      allocate(tau(size(x, 2)))
+      call random_number(tau)
+    end if
 
     do i = 1, size(x, 2)
       x(:, i) = 0.0_dp
       x(axis_n, i) = boundary_value
       x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1)) * u(1, i)
       x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2)) * u(2, i)
-      x(:, i) = x(:, i) + v(:, i) * (tau(i) * batch_duration) + inward_normal * 1.0d-12
+      if (jitter_dt > 0.0_dp) x(:, i) = x(:, i) + v(:, i) * (tau(i) * jitter_dt)
+      x(:, i) = x(:, i) + inward_normal * 1.0d-12
     end do
   end subroutine sample_reservoir_face_particles
 
