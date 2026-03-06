@@ -3,7 +3,7 @@
 Fortran 実行時は、`fpm run ... -- path/to/config.toml` で設定を読み込めます。引数なし実行でもカレントディレクトリの `beach.toml` を自動読込します。
 
 - 例: `examples/beach.toml`
-- 既定値は `src/bem_app_config.f90` の `default_app_config` で定義
+- 既定値は `src/config/bem_app_config.f90` の `default_app_config` で定義
 - 互換目的で `fortran_config.toml` も自動読込対象ですが、`beach.toml` へ移行してください
 
 ---

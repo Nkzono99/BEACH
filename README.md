@@ -12,6 +12,12 @@
 ## ディレクトリ構成
 
 - [`src/`](src/), [`app/`](app/)：Fortran 本体（fpm プロジェクト）
+  - [`src/core/`](src/core/)：型・定数などの基盤モジュール
+  - [`src/mesh/`](src/mesh/)：メッシュ生成/読込
+  - [`src/physics/`](src/physics/)：場計算・衝突・境界・時間発展の基本処理
+  - [`src/particles/`](src/particles/)：粒子配列管理・注入サンプリング
+  - [`src/config/`](src/config/)：TOML設定の型/パース/実行時解決
+  - [`src/runtime/`](src/runtime/)：再開処理・シミュレーション実行
 - [`examples/`](examples/)：Fortran 設定例、Python 後処理例
 - [`beach/`](beach/)：Python ライブラリ（結果読込・可視化などの後処理）
 - [`docs/`](docs/)：運用・仕様ドキュメント
