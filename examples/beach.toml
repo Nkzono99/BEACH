@@ -1,6 +1,7 @@
 [sim]
 # max_step = 500 は固定のまま、通過時間が十分になるよう dt を増やす
 dt = 1.4e-8
+batch_duration_step = 200.0
 batch_count = 5
 max_step = 500
 tol_rel = 1.0e-8
@@ -16,27 +17,36 @@ bc_y_high = "reflect"
 bc_z_low = "open"
 bc_z_high = "open"
 rng_seed = 12345
+reservoir_potential_model = "infinity_barrier"
+phi_infty = 0.0
+injection_face_phi_grid_n = 3
 
 [particles]
 [[particles.species]]
-npcls_per_step = 400
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
-w_particle = 1.0
-pos_low = [0.0, 0.0, 3.98]
-pos_high = [1.0, 1.0, 3.98]
-drift_velocity = [0.0, 0.0, -7.0e5]
-temperature_k = 2.0e4
+target_macro_particles_per_batch = 300
+# w_particle = 1.0e6  # 直接指定したい場合はこちらを有効化し、target は削除する
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
 
 [[particles.species]]
-npcls_per_step = 80
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
 q_particle = 1.602176634e-19
 m_particle = 9.10938356e-28
-w_particle = 1.0
-pos_low = [0.0, 0.0, 3.98]
-pos_high = [1.0, 1.0, 3.98]
-drift_velocity = [0.0, 0.0, -7.0e5]
-temperature_k = 2.0e4
+target_macro_particles_per_batch = -1
+# w_particle = 1.0e6  # 直接指定したい場合はこちらを有効化し、target は削除する
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
 
 [mesh]
 mode = "template"
@@ -86,24 +96,3 @@ n_lat = 6
 write_files = true
 dir = "outputs/latest"
 history_stride = 1
-
-# reservoir_face を使う場合の例:
-#
-# [sim]
-# dt = 1.0e-9
-# batch_duration_step = 200.0  # batch_duration = dt * batch_duration_step = 2.0e-7 [s]
-# reservoir_potential_model = "infinity_barrier"  # 無限遠→注入面の電位差補正を有効化
-# phi_infty = 0.0
-# injection_face_phi_grid_n = 3
-#
-# [[particles.species]]
-# source_mode = "reservoir_face"
-# number_density_cm3 = 5.0
-# temperature_ev = 10.0
-# q_particle = -1.602176634e-19
-# m_particle = 9.10938356e-31
-# target_macro_particles_per_batch = 300  # w_particle を自動算出
-# inject_face = "z_high"
-# pos_low = [0.0, 0.0, 4.0]
-# pos_high = [1.0, 1.0, 4.0]
-# drift_velocity = [0.0, 0.0, -4.0e5]

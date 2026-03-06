@@ -181,6 +181,9 @@ def _validate_reservoir_species(
     sim_cfg: dict[str, Any],
     spec: dict[str, Any],
     resolved_batch_duration: float,
+    species_idx: int,
+    species_list: list[dict[str, Any]],
+    reservoir_params_by_species: list[dict[str, Any] | None],
 ) -> dict[str, Any]:
     if not bool(sim_cfg.get("use_box", False)):
         raise SystemExit("reservoir_face requires sim.use_box = true")
@@ -203,10 +206,31 @@ def _validate_reservoir_species(
             )
     if has_target_macro:
         target_macro = int(spec.get("target_macro_particles_per_batch", 0))
-        if target_macro <= 0:
+        if target_macro == 0 or target_macro < -1:
             raise SystemExit(
-                "particles.species.target_macro_particles_per_batch must be > 0."
+                "particles.species.target_macro_particles_per_batch must be > 0 or -1."
             )
+        if target_macro == -1:
+            if species_idx == 0:
+                raise SystemExit(
+                    "particles.species[1].target_macro_particles_per_batch cannot be -1."
+                )
+            spec1 = species_list[0]
+            if not bool(spec1.get("enabled", True)):
+                raise SystemExit(
+                    "target_macro_particles_per_batch=-1 requires particles.species[1] to be enabled."
+                )
+            mode1 = str(spec1.get("source_mode", "volume_seed")).strip().lower()
+            if mode1 != "reservoir_face":
+                raise SystemExit(
+                    'target_macro_particles_per_batch=-1 requires particles.species[1].source_mode="reservoir_face".'
+                )
+            params1 = reservoir_params_by_species[0]
+            if params1 is None or float(params1["w_particle"]) <= 0.0:
+                raise SystemExit(
+                    "target_macro_particles_per_batch=-1 requires species[1] to resolve a positive w_particle."
+                )
+            w_particle = float(params1["w_particle"])
 
     has_cm3 = bool(spec.get("_has_number_density_cm3", False))
     has_m3 = bool(spec.get("_has_number_density_m3", False))
@@ -252,7 +276,7 @@ def _validate_reservoir_species(
         drift_velocity=drift_velocity,
         inward_normal=inward_normal,
     )
-    if has_target_macro:
+    if has_target_macro and target_macro != -1:
         w_particle = (
             gamma_in * area * resolved_batch_duration / float(target_macro)
         )
@@ -406,7 +430,12 @@ def estimate_workload(
         source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
         if source_mode == "reservoir_face":
             reservoir_params_by_species[s_idx] = _validate_reservoir_species(
-                sim_cfg, spec, resolved_batch_duration
+                sim_cfg,
+                spec,
+                resolved_batch_duration,
+                s_idx,
+                species_list,
+                reservoir_params_by_species,
             )
 
     residuals = [0.0] * len(species_list)

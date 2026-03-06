@@ -14,7 +14,7 @@ program test_reservoir_injection
   integer(i32) :: sum1, sum2
   real(dp) :: residual
   real(dp) :: residual1, residual2, ratio
-  real(dp) :: gamma1, gamma2, area1, expected_w1, expected_w2
+  real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
   call write_fixed_duration_fixture(cfg_fixed_path)
@@ -64,14 +64,10 @@ program test_reservoir_injection
   gamma1 = compute_inflow_flux_from_drifting_maxwellian( &
     1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], inward_normal &
   )
-  gamma2 = compute_inflow_flux_from_drifting_maxwellian( &
-    250.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], inward_normal &
-  )
   area1 = compute_face_area_from_bounds('z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0])
   expected_w1 = gamma1 * area1 * cfg_auto%sim%batch_duration / 300.0d0
-  expected_w2 = gamma2 * area1 * cfg_auto%sim%batch_duration / 150.0d0
   call assert_close_dp(cfg_auto%particle_species(1)%w_particle, expected_w1, 1.0d-12, 'species-1 auto w mismatch')
-  call assert_close_dp(cfg_auto%particle_species(2)%w_particle, expected_w2, 1.0d-12, 'species-2 auto w mismatch')
+  call assert_close_dp(cfg_auto%particle_species(2)%w_particle, expected_w1, 1.0d-12, 'species-2 shared w mismatch')
 
   residual1 = 0.0d0
   residual2 = 0.0d0
@@ -92,7 +88,7 @@ program test_reservoir_injection
     sum2 = sum2 + n2
   end do
   ratio = real(sum2, dp) / real(sum1, dp)
-  call assert_close_dp(ratio, 0.5d0, 1.0d-12, 'reservoir species ratio mismatch')
+  call assert_close_dp(ratio, 0.25d0, 1.0d-12, 'reservoir species ratio mismatch')
 
   call delete_file_if_exists(cfg_fixed_path)
   call delete_file_if_exists(cfg_auto_path)
@@ -165,7 +161,7 @@ contains
     write (u, '(a)') 'temperature_k = 0.0'
     write (u, '(a)') 'q_particle = 1.0'
     write (u, '(a)') 'm_particle = 1.0'
-    write (u, '(a)') 'target_macro_particles_per_batch = 150'
+    write (u, '(a)') 'target_macro_particles_per_batch = -1'
     write (u, '(a)') 'inject_face = "z_high"'
     write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
     write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'

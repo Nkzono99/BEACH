@@ -338,8 +338,22 @@ contains
       if (spec%w_particle <= 0.0d0) error stop 'particles.species.w_particle must be > 0 for reservoir_face.'
     end if
     if (spec%has_target_macro_particles_per_batch) then
-      if (spec%target_macro_particles_per_batch <= 0_i32) then
-        error stop 'particles.species.target_macro_particles_per_batch must be > 0.'
+      if (spec%target_macro_particles_per_batch == 0_i32 .or. spec%target_macro_particles_per_batch < -1_i32) then
+        error stop 'particles.species.target_macro_particles_per_batch must be > 0 or -1.'
+      end if
+      if (spec%target_macro_particles_per_batch == -1_i32) then
+        if (species_idx == 1) then
+          error stop 'particles.species[1].target_macro_particles_per_batch cannot be -1.'
+        end if
+        if (.not. cfg%particle_species(1)%enabled) then
+          error stop 'target_macro_particles_per_batch=-1 requires particles.species[1] to be enabled.'
+        end if
+        if (trim(lower(cfg%particle_species(1)%source_mode)) /= 'reservoir_face') then
+          error stop 'target_macro_particles_per_batch=-1 requires particles.species[1].source_mode="reservoir_face".'
+        end if
+        if (.not. cfg%particle_species(1)%has_w_particle .or. cfg%particle_species(1)%w_particle <= 0.0d0) then
+          error stop 'target_macro_particles_per_batch=-1 requires species[1] to resolve a positive w_particle.'
+        end if
       end if
     end if
     if (.not. cfg%sim%use_box) then
@@ -392,13 +406,17 @@ contains
     end if
 
     if (spec%has_target_macro_particles_per_batch) then
-      number_density_m3 = species_number_density_m3(spec)
-      temperature_k = species_temperature_k(spec)
-      call resolve_inward_normal(spec%inject_face, inward_normal)
-      gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
-        number_density_m3, temperature_k, spec%m_particle, spec%drift_velocity, inward_normal &
-      )
-      w_particle = gamma_in * area * cfg%sim%batch_duration / real(spec%target_macro_particles_per_batch, dp)
+      if (spec%target_macro_particles_per_batch == -1_i32) then
+        w_particle = cfg%particle_species(1)%w_particle
+      else
+        number_density_m3 = species_number_density_m3(spec)
+        temperature_k = species_temperature_k(spec)
+        call resolve_inward_normal(spec%inject_face, inward_normal)
+        gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
+          number_density_m3, temperature_k, spec%m_particle, spec%drift_velocity, inward_normal &
+        )
+        w_particle = gamma_in * area * cfg%sim%batch_duration / real(spec%target_macro_particles_per_batch, dp)
+      end if
       if (.not. ieee_is_finite(w_particle) .or. w_particle <= 0.0d0) then
         error stop 'target_macro_particles_per_batch produced invalid w_particle.'
       end if

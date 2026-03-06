@@ -100,7 +100,7 @@ dir = "outputs/latest"
 | `q_particle` | float | 粒子電荷[C] |
 | `m_particle` | float | 粒子質量[kg] |
 | `w_particle` | float | superparticle 重み（`reservoir_face` では 1マクロ粒子が代表する実粒子数） |
-| `target_macro_particles_per_batch` | int | `reservoir_face` での目標マクロ粒子数/バッチ（指定時は `w_particle` を自動算出） |
+| `target_macro_particles_per_batch` | int | `reservoir_face` での目標マクロ粒子数/バッチ（`>0` で `w_particle` 自動算出、`-1` は species[1] と同じ `w_particle` を使用） |
 | `pos_low` | float[3] | 初期位置下限[m] |
 | `pos_high` | float[3] | 初期位置上限[m] |
 | `drift_velocity` | float[3] | ドリフト速度[m/s] |
@@ -124,6 +124,8 @@ dir = "outputs/latest"
   - `residual_s <- macro_budget_s - n_macro_s`
 - `target_macro_particles_per_batch_s` を使う場合の重み解決:
   - `w_particle_s = gamma_in_s * A_s * batch_duration / target_macro_particles_per_batch_s`
+- `target_macro_particles_per_batch_s = -1`（species[2]以降のみ）を使う場合:
+  - `w_particle_s = w_particle_1`
 - 上式は `compute_macro_particles_for_batch` の実装と一致します。
 
 `batch_duration` の解決ルール:
@@ -153,9 +155,11 @@ dir = "outputs/latest"
 
 `target_macro_particles_per_batch` を使う場合の追加要件:
 
-- `target_macro_particles_per_batch > 0`
+- `target_macro_particles_per_batch > 0` または `-1`
 - `w_particle` と同時指定しない
 - `source_mode = "reservoir_face"` の種でのみ指定する（`volume_seed` ではエラー）
+- `-1` は species[2] 以降でのみ有効
+- `-1` を使う場合、species[1] は `enabled = true` かつ `source_mode = "reservoir_face"` で、正の `w_particle` が解決できること
 
 `pos_low` / `pos_high` は注入面上の矩形開口を表します。法線方向の座標は `inject_face` で指定した箱境界と一致している必要があります。
 
@@ -198,6 +202,18 @@ temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 target_macro_particles_per_batch = 300
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
+
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = 1.602176634e-19
+m_particle = 1.672482821616e-27
+target_macro_particles_per_batch = -1  # species[1] と同じ w_particle を使う
 inject_face = "z_high"
 pos_low = [0.0, 0.0, 4.0]
 pos_high = [1.0, 1.0, 4.0]
