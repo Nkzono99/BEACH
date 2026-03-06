@@ -44,6 +44,9 @@ module bem_types
     integer(i32) :: survived_max_step = 0
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
+    real(dp) :: field_time_s = 0.0d0
+    real(dp) :: push_time_s = 0.0d0
+    real(dp) :: collision_time_s = 0.0d0
   end type sim_stats
 
   !> 種ごとのマクロ粒子端数を保持し、再開時にも注入期待値を保つ。
@@ -58,6 +61,9 @@ module bem_types
     real(dp), allocatable :: v1(:, :)
     real(dp), allocatable :: v2(:, :)
     real(dp), allocatable :: centers(:, :)
+    real(dp), allocatable :: center_x(:)
+    real(dp), allocatable :: center_y(:)
+    real(dp), allocatable :: center_z(:)
     real(dp), allocatable :: normals(:, :)
     real(dp), allocatable :: bb_min(:, :)
     real(dp), allocatable :: bb_max(:, :)

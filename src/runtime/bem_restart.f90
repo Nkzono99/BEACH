@@ -167,6 +167,12 @@ contains
       case ('last_rel_change')
         read(value, *) stats%last_rel_change
         found_rel = .true.
+      case ('field_time_s')
+        read(value, *) stats%field_time_s
+      case ('push_time_s')
+        read(value, *) stats%push_time_s
+      case ('collision_time_s')
+        read(value, *) stats%collision_time_s
       end select
     end do
     close(u)

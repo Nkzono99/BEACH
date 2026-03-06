@@ -174,6 +174,9 @@ contains
     print '(a,i0)', 'escaped_boundary=', stats%escaped_boundary
     print '(a,i0)', 'survived_max_step=', stats%survived_max_step
     print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
+    print '(a,es12.4)', 'field_time_s=', stats%field_time_s
+    print '(a,es12.4)', 'push_time_s=', stats%push_time_s
+    print '(a,es12.4)', 'collision_time_s=', stats%collision_time_s
     print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
   end subroutine print_run_summary
 
@@ -226,6 +229,9 @@ contains
     write(u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
     write(u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
     write(u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
+    write(u, '(a,es24.16)') 'field_time_s=', stats%field_time_s
+    write(u, '(a,es24.16)') 'push_time_s=', stats%push_time_s
+    write(u, '(a,es24.16)') 'collision_time_s=', stats%collision_time_s
     close(u)
   end subroutine write_summary_file
 

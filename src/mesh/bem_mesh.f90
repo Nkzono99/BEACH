@@ -17,6 +17,7 @@ contains
     real(dp), intent(in), optional :: q0(:)
     integer(i32) :: n, i
     real(dp) :: e1(3), e2(3), nvec(3), nn
+    real(dp) :: cx, cy, cz
 
     if (size(v0, 1) /= 3 .or. size(v1, 1) /= 3 .or. size(v2, 1) /= 3) then
       error stop "mesh vertex input first dimension must be 3"
@@ -28,7 +29,7 @@ contains
     end if
     mesh%nelem = n
     allocate(mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
-    allocate(mesh%centers(3, n), mesh%normals(3, n))
+    allocate(mesh%centers(3, n), mesh%center_x(n), mesh%center_y(n), mesh%center_z(n), mesh%normals(3, n))
     allocate(mesh%bb_min(3, n), mesh%bb_max(3, n))
     allocate(mesh%h_elem(n), mesh%q_elem(n))
 
@@ -37,7 +38,15 @@ contains
     mesh%v2 = v2
 
     do i = 1, n
-      mesh%centers(:, i) = (v0(:, i) + v1(:, i) + v2(:, i)) / 3.0d0
+      cx = (v0(1, i) + v1(1, i) + v2(1, i)) / 3.0d0
+      cy = (v0(2, i) + v1(2, i) + v2(2, i)) / 3.0d0
+      cz = (v0(3, i) + v1(3, i) + v2(3, i)) / 3.0d0
+      mesh%centers(1, i) = cx
+      mesh%centers(2, i) = cy
+      mesh%centers(3, i) = cz
+      mesh%center_x(i) = cx
+      mesh%center_y(i) = cy
+      mesh%center_z(i) = cz
       mesh%bb_min(:, i) = min(min(v0(:, i), v1(:, i)), v2(:, i))
       mesh%bb_max(:, i) = max(max(v0(:, i), v1(:, i)), v2(:, i))
 

@@ -38,6 +38,7 @@ contains
     real(dp), allocatable :: dq_thread(:, :), dq(:)
     logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
     real(dp) :: bfield(3), rel
+    real(dp) :: batch_field_time, batch_push_time, batch_collision_time
     type(particles_soa) :: pcls_batch
 
     stats = sim_stats()
@@ -60,10 +61,14 @@ contains
         inject_state &
       )
       call process_particle_batch( &
-        mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
+        mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
+        batch_field_time, batch_push_time, batch_collision_time &
       )
       call commit_batch_charge(mesh, app%sim%q_floor, dq_thread, dq, rel)
-      call accumulate_batch_stats(stats, pcls_batch, escaped_boundary_flag, absorbed_flag, rel)
+      call accumulate_batch_stats( &
+        stats, pcls_batch, escaped_boundary_flag, absorbed_flag, rel, &
+        batch_field_time, batch_push_time, batch_collision_time &
+      )
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       deallocate (escaped_boundary_flag, absorbed_flag)
     end do
@@ -118,8 +123,12 @@ contains
   !! @param[inout] escaped_boundary_flag 粒子ごとの境界流出フラグ。
   !! @param[inout] absorbed_flag 粒子ごとの吸着フラグ。
   !! @param[in] bfield 一様外部磁場ベクトル [T]。
+  !! @param[out] field_time_s バッチ内で `electric_field_at` に費やした時間 [s]。
+  !! @param[out] push_time_s バッチ内で `boris_push` に費やした時間 [s]。
+  !! @param[out] collision_time_s バッチ内で `find_first_hit` に費やした時間 [s]。
   subroutine process_particle_batch( &
-    mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
+    mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
+    field_time_s, push_time_s, collision_time_s &
   )
     type(mesh_type), intent(in) :: mesh
     type(app_config), intent(in) :: app
@@ -128,15 +137,22 @@ contains
     logical, intent(inout) :: escaped_boundary_flag(:)
     logical, intent(inout) :: absorbed_flag(:)
     real(dp), intent(in) :: bfield(3)
+    real(dp), intent(out) :: field_time_s, push_time_s, collision_time_s
 
     integer(i32) :: i, step, tid
     real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
+    real(dp) :: t0
     type(hit_info) :: hit
     logical :: escaped_by_boundary
 
+    field_time_s = 0.0d0
+    push_time_s = 0.0d0
+    collision_time_s = 0.0d0
+
     !$omp parallel default(none) &
     !$omp shared(mesh,pcls_batch,app,dq_thread,bfield,escaped_boundary_flag,absorbed_flag) &
-    !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary)
+    !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary,t0) &
+    !$omp reduction(+:field_time_s,push_time_s,collision_time_s)
     ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
     tid = 1
     !$ tid = omp_get_thread_num() + 1
@@ -146,12 +162,19 @@ contains
       do step = 1, app%sim%max_step
         x0 = pcls_batch%x(:, i)
         v0 = pcls_batch%v(:, i)
+        t0 = wall_time_seconds()
         call electric_field_at(mesh, x0, app%sim%softening, e)
+        field_time_s = field_time_s + (wall_time_seconds() - t0)
+
+        t0 = wall_time_seconds()
         call boris_push( &
           x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
         )
+        push_time_s = push_time_s + (wall_time_seconds() - t0)
 
+        t0 = wall_time_seconds()
         call find_first_hit(mesh, x0, x1, hit)
+        collision_time_s = collision_time_s + (wall_time_seconds() - t0)
         if (hit%has_hit) then
           qdep = pcls_batch%q(i) * pcls_batch%w(i)
           dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
@@ -199,17 +222,26 @@ contains
   !! @param[in] escaped_boundary_flag 粒子ごとの境界流出フラグ。
   !! @param[in] absorbed_flag 粒子ごとの吸着フラグ。
   !! @param[in] rel 今バッチの相対変化量。
-  subroutine accumulate_batch_stats(stats, pcls_batch, escaped_boundary_flag, absorbed_flag, rel)
+  !! @param[in] field_time_s バッチ内で `electric_field_at` に費やした時間 [s]。
+  !! @param[in] push_time_s バッチ内で `boris_push` に費やした時間 [s]。
+  !! @param[in] collision_time_s バッチ内で `find_first_hit` に費やした時間 [s]。
+  subroutine accumulate_batch_stats( &
+    stats, pcls_batch, escaped_boundary_flag, absorbed_flag, rel, field_time_s, push_time_s, collision_time_s &
+  )
     type(sim_stats), intent(inout) :: stats
     type(particles_soa), intent(in) :: pcls_batch
     logical, intent(in) :: escaped_boundary_flag(:)
     logical, intent(in) :: absorbed_flag(:)
     real(dp), intent(in) :: rel
+    real(dp), intent(in) :: field_time_s, push_time_s, collision_time_s
     integer(i32) :: i
 
     stats%batches = stats%batches + 1_i32
     stats%last_rel_change = rel
     stats%processed_particles = stats%processed_particles + pcls_batch%n
+    stats%field_time_s = stats%field_time_s + field_time_s
+    stats%push_time_s = stats%push_time_s + push_time_s
+    stats%collision_time_s = stats%collision_time_s + collision_time_s
 
     do i = 1, pcls_batch%n
       if (absorbed_flag(i)) then
@@ -264,5 +296,12 @@ contains
         rel_change, ',', elem_idx, ',', q_elem(elem_idx)
     end do
   end subroutine write_history_snapshot
+
+  !> OpenMP有効時は `omp_get_wtime`、それ以外は `cpu_time` を返す簡易タイマ。
+  real(dp) function wall_time_seconds()
+    !$ wall_time_seconds = omp_get_wtime()
+    !$ return
+    call cpu_time(wall_time_seconds)
+  end function wall_time_seconds
 
 end module bem_simulator
