@@ -34,7 +34,7 @@ OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/beach.
 beach-estimate-workload outputs/sphere/beach.toml --threads 8
 ```
 
-`sim.target_npcls_species1` を使う場合、見積もり結果に `resolved_batch_duration=...` が表示されます。
+`sim.batch_duration_step` を使う場合も、見積もり結果に解決後の `resolved_batch_duration=...` が表示されます。`reservoir_face` で `target_macro_particles_per_batch` を使う場合は、この解決済み `batch_duration` から各種の `w_particle` が算出されます。
 
 再開計算の残差を考慮する場合:
 

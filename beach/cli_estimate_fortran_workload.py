@@ -15,7 +15,7 @@ EV_TO_K = 1.160451812e4
 DEFAULT_SIM: dict[str, Any] = {
     "batch_count": 1,
     "batch_duration": 0.0,
-    "target_npcls_species1": 0,
+    "batch_duration_step": 0.0,
     "use_box": False,
     "box_min": [-1.0, -1.0, -1.0],
     "box_max": [1.0, 1.0, 1.0],
@@ -28,6 +28,7 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "temperature_k": 2.0e4,
     "m_particle": 9.10938356e-31,
     "w_particle": 1.0,
+    "target_macro_particles_per_batch": 0,
     "pos_low": [-0.4, -0.4, 0.2],
     "pos_high": [0.4, 0.4, 0.5],
     "drift_velocity": [0.0, 0.0, -8.0e5],
@@ -179,13 +180,33 @@ def _parse_reservoir_species_geometry(
 def _validate_reservoir_species(
     sim_cfg: dict[str, Any],
     spec: dict[str, Any],
+    resolved_batch_duration: float,
 ) -> dict[str, Any]:
     if not bool(sim_cfg.get("use_box", False)):
         raise SystemExit("reservoir_face requires sim.use_box = true")
 
-    w_particle = float(spec.get("w_particle", DEFAULT_SPECIES["w_particle"]))
-    if w_particle <= 0.0:
-        raise SystemExit("particles.species.w_particle must be > 0 for reservoir_face")
+    has_w_particle = bool(spec.get("_has_w_particle", False))
+    has_target_macro = bool(spec.get("_has_target_macro_particles_per_batch", False))
+    if has_w_particle and has_target_macro:
+        raise SystemExit(
+            "reservoir_face does not allow both w_particle and target_macro_particles_per_batch."
+        )
+    if (not has_w_particle) and (not has_target_macro):
+        raise SystemExit(
+            "reservoir_face requires either w_particle or target_macro_particles_per_batch."
+        )
+    if has_w_particle:
+        w_particle = float(spec.get("w_particle", DEFAULT_SPECIES["w_particle"]))
+        if w_particle <= 0.0:
+            raise SystemExit(
+                "particles.species.w_particle must be > 0 for reservoir_face"
+            )
+    if has_target_macro:
+        target_macro = int(spec.get("target_macro_particles_per_batch", 0))
+        if target_macro <= 0:
+            raise SystemExit(
+                "particles.species.target_macro_particles_per_batch must be > 0."
+            )
 
     has_cm3 = bool(spec.get("_has_number_density_cm3", False))
     has_m3 = bool(spec.get("_has_number_density_m3", False))
@@ -231,6 +252,14 @@ def _validate_reservoir_species(
         drift_velocity=drift_velocity,
         inward_normal=inward_normal,
     )
+    if has_target_macro:
+        w_particle = (
+            gamma_in * area * resolved_batch_duration / float(target_macro)
+        )
+        if (not math.isfinite(w_particle)) or w_particle <= 0.0:
+            raise SystemExit(
+                "target_macro_particles_per_batch produced invalid w_particle."
+            )
 
     return {
         "inject_face": inject_face,
@@ -249,56 +278,36 @@ def _validate_reservoir_species(
 def _resolve_batch_duration(
     sim_cfg: dict[str, Any],
     sim_raw: dict[str, Any],
-    species_list: list[dict[str, Any]],
     has_reservoir_species: bool,
 ) -> float:
-    has_target = "target_npcls_species1" in sim_raw
     has_batch_duration = "batch_duration" in sim_raw
-    target = int(sim_cfg.get("target_npcls_species1", 0))
-    if has_target and has_batch_duration:
+    has_batch_duration_step = "batch_duration_step" in sim_raw
+    if "target_npcls_species1" in sim_raw:
         raise SystemExit(
-            "sim.batch_duration and sim.target_npcls_species1 cannot be used together."
+            "sim.target_npcls_species1 was removed. Use [[particles.species]].target_macro_particles_per_batch."
         )
-    if has_target and target <= 0:
-        raise SystemExit("sim.target_npcls_species1 must be > 0")
-
-    if not has_reservoir_species:
-        if has_target:
-            raise SystemExit(
-                'sim.target_npcls_species1 requires particles.species[1].source_mode="reservoir_face".'
-            )
-        return float(sim_cfg.get("batch_duration", 0.0))
-
-    if has_target:
-        if len(species_list) == 0:
-            raise SystemExit(
-                "sim.target_npcls_species1 requires at least one [[particles.species]] entry."
-            )
-        spec1 = species_list[0]
-        if not bool(spec1.get("enabled", True)):
-            raise SystemExit(
-                "sim.target_npcls_species1 requires particles.species[1] to be enabled."
-            )
-        mode1 = str(spec1.get("source_mode", "volume_seed")).strip().lower()
-        if mode1 != "reservoir_face":
-            raise SystemExit(
-                'sim.target_npcls_species1 requires particles.species[1].source_mode="reservoir_face".'
-            )
-        params1 = _validate_reservoir_species(sim_cfg, spec1)
-        coef = params1["gamma_in"] * params1["area"] / params1["w_particle"]
-        if (not math.isfinite(coef)) or coef <= 0.0:
-            raise SystemExit(
-                "sim.target_npcls_species1 produced invalid reservoir inflow coefficient."
-            )
-        batch_duration = target / coef
+    if has_batch_duration and has_batch_duration_step:
+        raise SystemExit(
+            "sim.batch_duration and sim.batch_duration_step cannot be used together."
+        )
+    if has_batch_duration_step:
+        batch_duration_step = float(sim_cfg.get("batch_duration_step", 0.0))
+        if (not math.isfinite(batch_duration_step)) or batch_duration_step <= 0.0:
+            raise SystemExit("sim.batch_duration_step must be > 0.")
+        dt = float(sim_cfg.get("dt", 0.0))
+        if (not math.isfinite(dt)) or dt <= 0.0:
+            raise SystemExit("sim.dt must be > 0 when sim.batch_duration_step is set.")
+        batch_duration = dt * batch_duration_step
         if (not math.isfinite(batch_duration)) or batch_duration <= 0.0:
             raise SystemExit(
-                "sim.target_npcls_species1 produced invalid sim.batch_duration."
+                "sim.batch_duration_step produced invalid sim.batch_duration."
             )
         return batch_duration
 
     batch_duration = float(sim_cfg.get("batch_duration", 0.0))
-    if batch_duration <= 0.0:
+    if not math.isfinite(batch_duration):
+        raise SystemExit("sim.batch_duration must be finite.")
+    if has_reservoir_species and batch_duration <= 0.0:
         raise SystemExit("sim.batch_duration must be > 0 for reservoir_face")
     return batch_duration
 
@@ -347,6 +356,10 @@ def estimate_workload(
         spec["_has_number_density_m3"] = "number_density_m3" in raw
         spec["_has_temperature_k"] = "temperature_k" in raw
         spec["_has_temperature_ev"] = "temperature_ev" in raw
+        spec["_has_w_particle"] = "w_particle" in raw
+        spec["_has_target_macro_particles_per_batch"] = (
+            "target_macro_particles_per_batch" in raw
+        )
         species_list.append(spec)
 
     batch_count = int(sim_cfg["batch_count"])
@@ -363,6 +376,10 @@ def estimate_workload(
             continue
         source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
         if source_mode == "volume_seed":
+            if bool(spec.get("_has_target_macro_particles_per_batch", False)):
+                raise SystemExit(
+                    "target_macro_particles_per_batch is only valid for reservoir_face."
+                )
             n_macro = int(spec.get("npcls_per_step", 0))
             if n_macro < 0:
                 raise SystemExit("particles.species.npcls_per_step must be >= 0")
@@ -378,7 +395,6 @@ def estimate_workload(
     resolved_batch_duration = _resolve_batch_duration(
         sim_cfg=sim_cfg,
         sim_raw=sim_raw,
-        species_list=species_list,
         has_reservoir_species=has_reservoir_species,
     )
     reservoir_params_by_species: list[dict[str, Any] | None] = [None] * len(
@@ -390,7 +406,7 @@ def estimate_workload(
         source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
         if source_mode == "reservoir_face":
             reservoir_params_by_species[s_idx] = _validate_reservoir_species(
-                sim_cfg, spec
+                sim_cfg, spec, resolved_batch_duration
             )
 
     residuals = [0.0] * len(species_list)

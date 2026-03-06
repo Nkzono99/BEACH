@@ -14,7 +14,7 @@ program test_reservoir_injection
   integer(i32) :: sum1, sum2
   real(dp) :: residual
   real(dp) :: residual1, residual2, ratio
-  real(dp) :: gamma1, area1, expected_batch_duration
+  real(dp) :: gamma1, gamma2, area1, expected_w1, expected_w2
   real(dp) :: inward_normal(3)
 
   call write_fixed_duration_fixture(cfg_fixed_path)
@@ -56,8 +56,7 @@ program test_reservoir_injection
   call default_app_config(cfg_auto)
   call load_app_config(cfg_auto_path, cfg_auto)
 
-  call assert_true(cfg_auto%sim%has_target_npcls_species1, 'target_npcls_species1 should be marked as set')
-  call assert_equal_i32(cfg_auto%sim%target_npcls_species1, 300_i32, 'target_npcls_species1 mismatch')
+  call assert_close_dp(cfg_auto%sim%batch_duration, 3.0d0, 1.0d-12, 'batch_duration_step resolution mismatch')
   call assert_true(trim(cfg_auto%particle_species(1)%source_mode) == 'reservoir_face', 'species-1 mode mismatch')
   call assert_true(trim(cfg_auto%particle_species(2)%source_mode) == 'reservoir_face', 'species-2 mode mismatch')
 
@@ -65,9 +64,14 @@ program test_reservoir_injection
   gamma1 = compute_inflow_flux_from_drifting_maxwellian( &
     1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], inward_normal &
   )
+  gamma2 = compute_inflow_flux_from_drifting_maxwellian( &
+    250.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], inward_normal &
+  )
   area1 = compute_face_area_from_bounds('z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0])
-  expected_batch_duration = real(cfg_auto%sim%target_npcls_species1, dp) * 10.0d0 / (gamma1 * area1)
-  call assert_close_dp(cfg_auto%sim%batch_duration, expected_batch_duration, 1.0d-12, 'auto batch_duration mismatch')
+  expected_w1 = gamma1 * area1 * cfg_auto%sim%batch_duration / 300.0d0
+  expected_w2 = gamma2 * area1 * cfg_auto%sim%batch_duration / 150.0d0
+  call assert_close_dp(cfg_auto%particle_species(1)%w_particle, expected_w1, 1.0d-12, 'species-1 auto w mismatch')
+  call assert_close_dp(cfg_auto%particle_species(2)%w_particle, expected_w2, 1.0d-12, 'species-2 auto w mismatch')
 
   residual1 = 0.0d0
   residual2 = 0.0d0
@@ -76,11 +80,13 @@ program test_reservoir_injection
   do i = 1_i32, 100_i32
     call compute_macro_particles_for_batch( &
       1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
-      'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], cfg_auto%sim%batch_duration, 10.0d0, residual1, n1 &
+      'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
+      cfg_auto%sim%batch_duration, cfg_auto%particle_species(1)%w_particle, residual1, n1 &
     )
     call compute_macro_particles_for_batch( &
       250.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
-      'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], cfg_auto%sim%batch_duration, 5.0d0, residual2, n2 &
+      'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
+      cfg_auto%sim%batch_duration, cfg_auto%particle_species(2)%w_particle, residual2, n2 &
     )
     sum1 = sum1 + n1
     sum2 = sum2 + n2
@@ -124,7 +130,7 @@ contains
     close (u)
   end subroutine write_fixed_duration_fixture
 
-  !> テスト専用の `target_npcls_species1` reservoir_face 設定ファイルを書き出す。
+  !> テスト専用の `batch_duration_step` + species target 設定ファイルを書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
   subroutine write_auto_duration_fixture(path)
     character(len=*), intent(in) :: path
@@ -135,7 +141,8 @@ contains
 
     write (u, '(a)') '[sim]'
     write (u, '(a)') 'batch_count = 10'
-    write (u, '(a)') 'target_npcls_species1 = 300'
+    write (u, '(a)') 'dt = 1.0'
+    write (u, '(a)') 'batch_duration_step = 3.0'
     write (u, '(a)') 'use_box = true'
     write (u, '(a)') 'box_min = [0.0, 0.0, 0.0]'
     write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
@@ -146,7 +153,7 @@ contains
     write (u, '(a)') 'temperature_k = 0.0'
     write (u, '(a)') 'q_particle = -1.0'
     write (u, '(a)') 'm_particle = 1.0'
-    write (u, '(a)') 'w_particle = 10.0'
+    write (u, '(a)') 'target_macro_particles_per_batch = 300'
     write (u, '(a)') 'inject_face = "z_high"'
     write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
     write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
@@ -158,7 +165,7 @@ contains
     write (u, '(a)') 'temperature_k = 0.0'
     write (u, '(a)') 'q_particle = 1.0'
     write (u, '(a)') 'm_particle = 1.0'
-    write (u, '(a)') 'w_particle = 5.0'
+    write (u, '(a)') 'target_macro_particles_per_batch = 150'
     write (u, '(a)') 'inject_face = "z_high"'
     write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
     write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'

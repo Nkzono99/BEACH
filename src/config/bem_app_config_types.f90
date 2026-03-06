@@ -20,6 +20,9 @@ module bem_app_config_types
     real(dp) :: q_particle = -1.602176634d-19
     real(dp) :: m_particle = 9.10938356d-31
     real(dp) :: w_particle = 1.0d0
+    logical :: has_w_particle = .false.
+    integer(i32) :: target_macro_particles_per_batch = 0_i32
+    logical :: has_target_macro_particles_per_batch = .false.
     real(dp) :: pos_low(3) = [-0.4d0, -0.4d0, 0.2d0]
     real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]

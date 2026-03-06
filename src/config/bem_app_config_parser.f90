@@ -102,7 +102,7 @@ contains
     if (.not. ieee_is_finite(cfg%sim%phi_infty)) then
       error stop 'sim.phi_infty must be finite.'
     end if
-    call maybe_auto_set_batch_duration(cfg)
+    call resolve_batch_duration(cfg)
     per_batch_particles = 0_i32
     has_reservoir_species = .false.
     do i = 1, s_idx
@@ -113,6 +113,9 @@ contains
       case ('volume_seed')
         if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
           error stop 'particles.species.npcls_per_step must be >= 0.'
+        end if
+        if (cfg%particle_species(i)%has_target_macro_particles_per_batch) then
+          error stop 'target_macro_particles_per_batch is only valid for reservoir_face.'
         end if
         per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
       case ('reservoir_face')
@@ -149,9 +152,11 @@ contains
     case ('batch_duration')
       call parse_real(v, cfg%sim%batch_duration)
       cfg%sim%has_batch_duration = .true.
+    case ('batch_duration_step')
+      call parse_real(v, cfg%sim%batch_duration_step)
+      cfg%sim%has_batch_duration_step = .true.
     case ('target_npcls_species1')
-      call parse_int(v, cfg%sim%target_npcls_species1)
-      cfg%sim%has_target_npcls_species1 = .true.
+      error stop 'sim.target_npcls_species1 was removed. Use [[particles.species]].target_macro_particles_per_batch.'
     case ('npcls_per_step')
       error stop 'sim.npcls_per_step was removed. Use sim.batch_count instead.'
     case ('max_step')
@@ -253,6 +258,10 @@ contains
       call parse_real(v, spec%m_particle)
     case ('w_particle')
       call parse_real(v, spec%w_particle)
+      spec%has_w_particle = .true.
+    case ('target_macro_particles_per_batch')
+      call parse_int(v, spec%target_macro_particles_per_batch)
+      spec%has_target_macro_particles_per_batch = .true.
     case ('pos_low')
       call parse_real3(v, spec%pos_low)
     case ('pos_high')
@@ -271,119 +280,47 @@ contains
     end select
   end subroutine apply_particles_species_kv
 
-  !> `sim.target_npcls_species1` が指定された場合に `batch_duration` を自動設定する。
-  !! species[1] を基準に、drifting Maxwellian の流入束から1バッチ注入粒子数が
-  !! 目標値に一致するよう `sim.batch_duration` を算出する。
+  !> `sim.batch_duration` / `sim.batch_duration_step` を解決して確定値へ反映する。
   !! @param[inout] cfg 検証・更新対象のアプリ設定。
-  subroutine maybe_auto_set_batch_duration(cfg)
+  subroutine resolve_batch_duration(cfg)
     type(app_config), intent(inout) :: cfg
+    real(dp) :: batch_duration
 
-    type(particle_species_spec) :: spec1
-    integer :: axis, axis_t1, axis_t2
-    real(dp) :: boundary_value, number_density_m3, temperature_k
-    real(dp) :: area, gamma_in, coef, batch_duration
-    real(dp) :: inward_normal(3)
-
-    if (.not. cfg%sim%has_target_npcls_species1) return
-
-    if (cfg%sim%target_npcls_species1 <= 0_i32) then
-      error stop 'sim.target_npcls_species1 must be > 0.'
-    end if
-    if (cfg%sim%has_batch_duration) then
-      error stop 'sim.batch_duration and sim.target_npcls_species1 cannot be used together.'
-    end if
-    if (cfg%n_particle_species <= 0_i32) then
-      error stop 'sim.target_npcls_species1 requires at least one [[particles.species]] entry.'
+    if (cfg%sim%has_batch_duration .and. cfg%sim%has_batch_duration_step) then
+      error stop 'sim.batch_duration and sim.batch_duration_step cannot be used together.'
     end if
 
-    spec1 = cfg%particle_species(1)
-    spec1%source_mode = lower(trim(spec1%source_mode))
-
-    if (.not. spec1%enabled) then
-      error stop 'sim.target_npcls_species1 requires particles.species[1] to be enabled.'
+    if (cfg%sim%has_batch_duration_step) then
+      if (.not. ieee_is_finite(cfg%sim%batch_duration_step) .or. cfg%sim%batch_duration_step <= 0.0d0) then
+        error stop 'sim.batch_duration_step must be > 0.'
+      end if
+      if (.not. ieee_is_finite(cfg%sim%dt) .or. cfg%sim%dt <= 0.0d0) then
+        error stop 'sim.dt must be > 0 when sim.batch_duration_step is set.'
+      end if
+      batch_duration = cfg%sim%dt * cfg%sim%batch_duration_step
+      if (.not. ieee_is_finite(batch_duration) .or. batch_duration <= 0.0d0) then
+        error stop 'sim.batch_duration_step produced invalid sim.batch_duration.'
+      end if
+      cfg%sim%batch_duration = batch_duration
+      cfg%sim%has_batch_duration = .true.
+    else if (cfg%sim%has_batch_duration) then
+      if (.not. ieee_is_finite(cfg%sim%batch_duration)) then
+        error stop 'sim.batch_duration must be finite.'
+      end if
     end if
-    if (trim(spec1%source_mode) /= 'reservoir_face') then
-      error stop 'sim.target_npcls_species1 requires particles.species[1].source_mode="reservoir_face".'
-    end if
-
-    if (spec1%has_npcls_per_step) then
-      error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
-    end if
-    if (spec1%w_particle <= 0.0d0) then
-      error stop 'particles.species.w_particle must be > 0 for reservoir_face.'
-    end if
-    if (.not. cfg%sim%use_box) then
-      error stop 'particles.species.source_mode="reservoir_face" requires sim.use_box = true.'
-    end if
-
-    if (spec1%has_number_density_cm3 .and. spec1%has_number_density_m3) then
-      error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
-    end if
-    if (.not. spec1%has_number_density_cm3 .and. .not. spec1%has_number_density_m3) then
-      error stop 'reservoir_face requires number_density_cm3 or number_density_m3.'
-    end if
-    if (spec1%has_number_density_cm3) then
-      if (spec1%number_density_cm3 <= 0.0d0) error stop 'number_density_cm3 must be > 0.'
-    else
-      if (spec1%number_density_m3 <= 0.0d0) error stop 'number_density_m3 must be > 0.'
-    end if
-
-    if (spec1%has_temperature_ev .and. spec1%has_temperature_k) then
-      error stop 'Specify either temperature_ev or temperature_k, not both.'
-    end if
-    if (spec1%has_temperature_ev) then
-      if (spec1%temperature_ev < 0.0d0) error stop 'temperature_ev must be >= 0.'
-    else if (spec1%has_temperature_k) then
-      if (spec1%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
-    else
-      if (spec1%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
-    end if
-
-    if (spec1%m_particle <= 0.0d0) then
-      error stop 'm_particle must be > 0.'
-    end if
-
-    call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec1%inject_face, axis, boundary_value)
-    axis_t1 = modulo(axis, 3) + 1
-    axis_t2 = modulo(axis + 1, 3) + 1
-    if (abs(spec1%pos_low(axis) - boundary_value) > 1.0d-12 .or. abs(spec1%pos_high(axis) - boundary_value) > 1.0d-12) then
-      error stop 'reservoir_face pos_low/pos_high must lie on the selected box face.'
-    end if
-    if (spec1%pos_high(axis_t1) < spec1%pos_low(axis_t1) .or. spec1%pos_high(axis_t2) < spec1%pos_low(axis_t2)) then
-      error stop 'reservoir_face tangential bounds must satisfy pos_high >= pos_low.'
-    end if
-    area = compute_face_area_from_bounds(spec1%inject_face, spec1%pos_low, spec1%pos_high)
-    if (area <= 0.0d0) then
-      error stop 'reservoir_face opening area must be positive.'
-    end if
-
-    number_density_m3 = species_number_density_m3(spec1)
-    temperature_k = species_temperature_k(spec1)
-    call resolve_inward_normal(spec1%inject_face, inward_normal)
-    gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
-      number_density_m3, temperature_k, spec1%m_particle, spec1%drift_velocity, inward_normal &
-    )
-    coef = gamma_in * area / spec1%w_particle
-    if (.not. ieee_is_finite(coef) .or. coef <= 0.0d0) then
-      error stop 'sim.target_npcls_species1 produced invalid reservoir inflow coefficient.'
-    end if
-
-    batch_duration = real(cfg%sim%target_npcls_species1, dp) / coef
-    if (.not. ieee_is_finite(batch_duration) .or. batch_duration <= 0.0d0) then
-      error stop 'sim.target_npcls_species1 produced invalid sim.batch_duration.'
-    end if
-    cfg%sim%batch_duration = batch_duration
-  end subroutine maybe_auto_set_batch_duration
+  end subroutine resolve_batch_duration
 
   !> `reservoir_face` 用の必須項目と整合性を検証する。
-  !! @param[in] cfg 検証対象のアプリ設定。
+  !! @param[inout] cfg 検証対象のアプリ設定。
   !! @param[in] species_idx 検証する粒子種のインデックス（1始まり）。
   subroutine validate_reservoir_species(cfg, species_idx)
-    type(app_config), intent(in) :: cfg
+    type(app_config), intent(inout) :: cfg
     integer, intent(in) :: species_idx
 
     integer :: axis, axis_t1, axis_t2
-    real(dp) :: boundary_value
+    real(dp) :: boundary_value, area
+    real(dp) :: number_density_m3, temperature_k, gamma_in, w_particle
+    real(dp) :: inward_normal(3)
     type(particle_species_spec) :: spec
 
     spec = cfg%particle_species(species_idx)
@@ -391,8 +328,19 @@ contains
     if (spec%has_npcls_per_step) then
       error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
     end if
-    if (spec%w_particle <= 0.0d0) then
-      error stop 'particles.species.w_particle must be > 0 for reservoir_face.'
+    if (spec%has_w_particle .and. spec%has_target_macro_particles_per_batch) then
+      error stop 'reservoir_face does not allow both w_particle and target_macro_particles_per_batch.'
+    end if
+    if (.not. spec%has_w_particle .and. .not. spec%has_target_macro_particles_per_batch) then
+      error stop 'reservoir_face requires either w_particle or target_macro_particles_per_batch.'
+    end if
+    if (spec%has_w_particle) then
+      if (spec%w_particle <= 0.0d0) error stop 'particles.species.w_particle must be > 0 for reservoir_face.'
+    end if
+    if (spec%has_target_macro_particles_per_batch) then
+      if (spec%target_macro_particles_per_batch <= 0_i32) then
+        error stop 'particles.species.target_macro_particles_per_batch must be > 0.'
+      end if
     end if
     if (.not. cfg%sim%use_box) then
       error stop 'particles.species.source_mode="reservoir_face" requires sim.use_box = true.'
@@ -421,6 +369,9 @@ contains
     else
       if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
     end if
+    if (spec%m_particle <= 0.0d0) then
+      error stop 'm_particle must be > 0.'
+    end if
 
     call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec%inject_face, axis, boundary_value)
     axis_t1 = modulo(axis, 3) + 1
@@ -435,6 +386,27 @@ contains
         (spec%pos_high(axis_t2) - spec%pos_low(axis_t2)) <= 0.0d0) then
       error stop 'reservoir_face opening area must be positive.'
     end if
+    area = compute_face_area_from_bounds(spec%inject_face, spec%pos_low, spec%pos_high)
+    if (area <= 0.0d0) then
+      error stop 'reservoir_face opening area must be positive.'
+    end if
+
+    if (spec%has_target_macro_particles_per_batch) then
+      number_density_m3 = species_number_density_m3(spec)
+      temperature_k = species_temperature_k(spec)
+      call resolve_inward_normal(spec%inject_face, inward_normal)
+      gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
+        number_density_m3, temperature_k, spec%m_particle, spec%drift_velocity, inward_normal &
+      )
+      w_particle = gamma_in * area * cfg%sim%batch_duration / real(spec%target_macro_particles_per_batch, dp)
+      if (.not. ieee_is_finite(w_particle) .or. w_particle <= 0.0d0) then
+        error stop 'target_macro_particles_per_batch produced invalid w_particle.'
+      end if
+      spec%w_particle = w_particle
+      spec%has_w_particle = .true.
+    end if
+
+    cfg%particle_species(species_idx) = spec
   end subroutine validate_reservoir_species
 
   !> 注入面名から法線軸と対応する境界座標を返す。

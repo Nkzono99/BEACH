@@ -59,8 +59,8 @@ dir = "outputs/latest"
 | `dt` | float | `1.0e-9` | 時間刻み[s] |
 | `rng_seed` | int | `12345` | 粒子注入乱数のシード |
 | `batch_count` | int | `1` | 1回の実行で進めるバッチ数 |
-| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` 使用時に必要。`target_npcls_species1` と同時指定不可） |
-| `target_npcls_species1` | int | `0` | `species[1]` の目標マクロ粒子数/バッチ。指定時は `batch_duration` を自動決定（`species[1]` は `reservoir_face` 必須） |
+| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` 使用時に必要。`batch_duration_step` と同時指定不可） |
+| `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` で指定する倍率（`> 0`） |
 | `max_step` | int | `400` | 粒子あたり最大ステップ |
 | `tol_rel` | float | `1.0e-8` | 相対変化の監視値（早期終了には使わない） |
 | `q_floor` | float | 実装既定値 | ゼロ割防止下限 |
@@ -88,7 +88,7 @@ dir = "outputs/latest"
 単一種でも `[[particles.species]]` を1件以上定義してください。
 各エントリは独立した粒子注入条件です。未指定キーは実装既定値で補完されます。
 `source_mode="volume_seed"` では従来どおり `npcls_per_step` 個を毎バッチ生成します。
-`source_mode="reservoir_face"` では、上流プラズマ条件から物理流入量を計算し、`w_particle` をマクロ粒子重みとして `npcls_per_step` を内部で自動決定します。
+`source_mode="reservoir_face"` では、上流プラズマ条件から物理流入量を計算し、`w_particle`（または `target_macro_particles_per_batch` から自動算出した `w_particle`）を使って `npcls_per_step` を内部で自動決定します。
 
 | キー | 型 | 説明 |
 |---|---|---|
@@ -100,6 +100,7 @@ dir = "outputs/latest"
 | `q_particle` | float | 粒子電荷[C] |
 | `m_particle` | float | 粒子質量[kg] |
 | `w_particle` | float | superparticle 重み（`reservoir_face` では 1マクロ粒子が代表する実粒子数） |
+| `target_macro_particles_per_batch` | int | `reservoir_face` での目標マクロ粒子数/バッチ（指定時は `w_particle` を自動算出） |
 | `pos_low` | float[3] | 初期位置下限[m] |
 | `pos_high` | float[3] | 初期位置上限[m] |
 | `drift_velocity` | float[3] | ドリフト速度[m/s] |
@@ -121,7 +122,17 @@ dir = "outputs/latest"
   - `macro_budget_s = residual_s + n_macro_expected_s`
   - `n_macro_s = floor(max(macro_budget_s, 0))`
   - `residual_s <- macro_budget_s - n_macro_s`
+- `target_macro_particles_per_batch_s` を使う場合の重み解決:
+  - `w_particle_s = gamma_in_s * A_s * batch_duration / target_macro_particles_per_batch_s`
 - 上式は `compute_macro_particles_for_batch` の実装と一致します。
+
+`batch_duration` の解決ルール:
+
+- `batch_duration` と `batch_duration_step` の同時指定はエラーです。
+- `batch_duration_step` 指定時は `batch_duration = dt * batch_duration_step` で解決します。
+- `reservoir_face` を使う場合、解決後の `batch_duration` は `> 0` が必須です。
+
+`sim.target_npcls_species1` は廃止されました。指定するとエラーになります。
 
 `sim.reservoir_potential_model = "infinity_barrier"` を有効化した場合、`reservoir_face` の流入判定と法線速度サンプルに電位差補正が入ります。
 
@@ -132,28 +143,19 @@ dir = "outputs/latest"
 - `gamma_in_s` は `v_inf >= v_inf_min_s` の切断付き flux-weighted 積分で評価
 - サンプルした `v_inf` から注入面法線速度 `v_face = sqrt(max(v_inf^2 - barrier_s, 0))` を与える
 
-`sim.target_npcls_species1` の `batch_duration` 自動決定式は従来どおり（未補正係数）で、`infinity_barrier` 併用時は近似になります。
-
-`target_npcls_species1` を使う場合、`species[1]` を基準に `batch_duration` を次式で自動決定します。
-
-- `batch_duration = target_npcls_species1 * w_1 / (gamma_in_1 * A_1)`
-- `species[1]` は `enabled = true` かつ `source_mode = "reservoir_face"` が必須です。
-- `batch_duration` と `target_npcls_species1` の同時指定はエラーです。
-- 他の `reservoir_face` 種は同じ `batch_duration` で注入されるため、長期平均ではフラックス比が保持されます（整数化誤差は残差繰越で吸収）。
-
 `reservoir_face` では次が必須です。
 
 - `sim.use_box = true`
 - `sim.batch_duration > 0`
 - `number_density_cm3` または `number_density_m3`
 - `inject_face`
-- `w_particle > 0`
+- `w_particle` または `target_macro_particles_per_batch` のどちらか一方
 
-`target_npcls_species1` を使う場合の追加要件:
+`target_macro_particles_per_batch` を使う場合の追加要件:
 
-- `sim.target_npcls_species1 > 0`
-- `sim.batch_duration` を同時に指定しない
-- `particles.species[1]` が有効かつ `source_mode = "reservoir_face"`
+- `target_macro_particles_per_batch > 0`
+- `w_particle` と同時指定しない
+- `source_mode = "reservoir_face"` の種でのみ指定する（`volume_seed` ではエラー）
 
 `pos_low` / `pos_high` は注入面上の矩形開口を表します。法線方向の座標は `inject_face` で指定した箱境界と一致している必要があります。
 
@@ -179,11 +181,12 @@ pos_high = [1.0, 1.0, 4.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
 ```
 
-`target_npcls_species1` で `batch_duration` を自動決定する例:
+`batch_duration_step` と `target_macro_particles_per_batch` を使う例:
 
 ```toml
 [sim]
-target_npcls_species1 = 300
+dt = 1.0e-9
+batch_duration_step = 200.0
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 4.0]
@@ -194,7 +197,7 @@ number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
-w_particle = 1.0e5
+target_macro_particles_per_batch = 300
 inject_face = "z_high"
 pos_low = [0.0, 0.0, 4.0]
 pos_high = [1.0, 1.0, 4.0]

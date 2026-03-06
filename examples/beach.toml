@@ -90,8 +90,8 @@ history_stride = 1
 # reservoir_face を使う場合の例:
 #
 # [sim]
-# batch_duration = 2.0e-7
-# target_npcls_species1 = 300  # species[1] 基準で batch_duration を自動決定（batch_duration とは同時指定不可）
+# dt = 1.0e-9
+# batch_duration_step = 200.0  # batch_duration = dt * batch_duration_step = 2.0e-7 [s]
 # reservoir_potential_model = "infinity_barrier"  # 無限遠→注入面の電位差補正を有効化
 # phi_infty = 0.0
 # injection_face_phi_grid_n = 3
@@ -102,7 +102,7 @@ history_stride = 1
 # temperature_ev = 10.0
 # q_particle = -1.602176634e-19
 # m_particle = 9.10938356e-31
-# w_particle = 1.0e5
+# target_macro_particles_per_batch = 300  # w_particle を自動算出
 # inject_face = "z_high"
 # pos_low = [0.0, 0.0, 4.0]
 # pos_high = [1.0, 1.0, 4.0]

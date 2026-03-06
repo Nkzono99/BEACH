@@ -14,8 +14,8 @@ module bem_types
     integer(i32) :: batch_count = 1_i32
     real(dp) :: batch_duration = 0.0d0
     logical :: has_batch_duration = .false.
-    integer(i32) :: target_npcls_species1 = 0_i32
-    logical :: has_target_npcls_species1 = .false.
+    real(dp) :: batch_duration_step = 0.0d0
+    logical :: has_batch_duration_step = .false.
     integer(i32) :: max_step = 100
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30

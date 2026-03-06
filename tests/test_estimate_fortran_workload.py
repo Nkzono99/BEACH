@@ -5,11 +5,12 @@ import pytest
 from beach.cli_estimate_fortran_workload import estimate_workload
 
 
-def test_estimate_workload_resolves_batch_duration_from_target_species1() -> None:
+def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets() -> None:
     config = {
         "sim": {
             "batch_count": 3,
-            "target_npcls_species1": 300,
+            "dt": 1.0,
+            "batch_duration_step": 3.0,
             "use_box": True,
             "box_min": [0.0, 0.0, 0.0],
             "box_max": [1.0, 1.0, 1.0],
@@ -21,7 +22,7 @@ def test_estimate_workload_resolves_batch_duration_from_target_species1() -> Non
                     "number_density_m3": 1000.0,
                     "temperature_k": 0.0,
                     "m_particle": 1.0,
-                    "w_particle": 10.0,
+                    "target_macro_particles_per_batch": 300,
                     "inject_face": "z_high",
                     "pos_low": [0.0, 0.0, 1.0],
                     "pos_high": [1.0, 1.0, 1.0],
@@ -32,7 +33,7 @@ def test_estimate_workload_resolves_batch_duration_from_target_species1() -> Non
                     "number_density_m3": 250.0,
                     "temperature_k": 0.0,
                     "m_particle": 1.0,
-                    "w_particle": 5.0,
+                    "target_macro_particles_per_batch": 150,
                     "inject_face": "z_high",
                     "pos_low": [0.0, 0.0, 1.0],
                     "pos_high": [1.0, 1.0, 1.0],
@@ -48,12 +49,12 @@ def test_estimate_workload_resolves_batch_duration_from_target_species1() -> Non
     assert result["species_per_batch"] == [[300, 150], [300, 150], [300, 150]]
 
 
-def test_estimate_workload_rejects_batch_duration_and_target_together() -> None:
+def test_estimate_workload_rejects_batch_duration_and_step_together() -> None:
     config = {
         "sim": {
             "batch_count": 1,
             "batch_duration": 1.0e-6,
-            "target_npcls_species1": 10,
+            "batch_duration_step": 10.0,
             "use_box": True,
         },
         "particles": {
@@ -77,7 +78,7 @@ def test_estimate_workload_rejects_batch_duration_and_target_together() -> None:
         estimate_workload(config=config, threads=1)
 
 
-def test_estimate_workload_requires_species1_reservoir_for_target() -> None:
+def test_estimate_workload_rejects_removed_target_npcls_species1() -> None:
     config = {
         "sim": {
             "batch_count": 1,
@@ -88,28 +89,93 @@ def test_estimate_workload_requires_species1_reservoir_for_target() -> None:
             "species": [
                 {
                     "source_mode": "volume_seed",
-                    "npcls_per_step": 5,
-                },
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 1.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "w_particle": 1.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
+                    "npcls_per_step": 1,
                 },
             ]
         },
     }
 
-    with pytest.raises(SystemExit, match="species\\[1\\].source_mode"):
+    with pytest.raises(SystemExit, match="was removed"):
         estimate_workload(config=config, threads=1)
 
 
-def test_estimate_workload_keeps_legacy_batch_duration_behavior() -> None:
+def test_estimate_workload_rejects_w_and_target_together_for_reservoir() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "batch_duration": 1.0,
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "reservoir_face",
+                    "number_density_m3": 100.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "w_particle": 10.0,
+                    "target_macro_particles_per_batch": 10,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                    "drift_velocity": [0.0, 0.0, -1.0],
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="does not allow both"):
+        estimate_workload(config=config, threads=1)
+
+
+def test_estimate_workload_requires_w_or_target_for_reservoir() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "batch_duration": 1.0,
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "reservoir_face",
+                    "number_density_m3": 100.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                    "drift_velocity": [0.0, 0.0, -1.0],
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="requires either w_particle or target"):
+        estimate_workload(config=config, threads=1)
+
+
+def test_estimate_workload_rejects_target_for_volume_seed() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 5,
+                    "target_macro_particles_per_batch": 10,
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="only valid for reservoir_face"):
+        estimate_workload(config=config, threads=1)
+
+
+def test_estimate_workload_keeps_batch_duration_behavior_with_manual_w() -> None:
     config = {
         "sim": {
             "batch_count": 3,
