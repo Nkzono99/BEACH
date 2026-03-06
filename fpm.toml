@@ -25,40 +25,40 @@ main = "main.f90"
 
 [[test]]
 name = "test_app_config_parser"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_app_config_parser.f90"
 
 [[test]]
 name = "test_boundary"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_boundary.f90"
 
 [[test]]
 name = "test_restart"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_restart.f90"
 
 [[test]]
 name = "test_reservoir_injection"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_reservoir_injection.f90"
 
 [[test]]
 name = "test_dynamics"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_dynamics.f90"
 
 [[test]]
 name = "test_templates_importers_runtime"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_templates_importers_runtime.f90"
 
 [[test]]
 name = "test_simulator"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_simulator.f90"
 
 [[test]]
 name = "test_injection_sampling"
-source-dir = "test"
+source-dir = "tests/fortran"
 main = "test_injection_sampling.f90"

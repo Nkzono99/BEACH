@@ -21,3 +21,6 @@ beach-estimate-workload = "beach.cli_estimate_fortran_workload:main"
 
 [tool.setuptools]
 packages = ["beach"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
