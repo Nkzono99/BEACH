@@ -11,7 +11,7 @@ program test_injection_sampling
 
   type(particles_soa) :: pcls
   real(dp), allocatable :: v(:, :), x(:, :)
-  real(dp) :: gamma_in, area, residual
+  real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn
   integer(i32) :: n_macro
   integer :: i
 
@@ -32,9 +32,14 @@ program test_injection_sampling
   call assert_true(all(pcls%alive), 'init_random_beam_particles should initialize alive flags')
 
   gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
-    1.0d10, 400.0d0, 2.0d0, [0.0d0, 0.0d0, 3.0d0], [0.0d0, 0.0d0, 1.0d0] &
+    1.0d10, 400.0d0, 1.0d-26, [0.0d0, 0.0d0, 3.0d0], [0.0d0, 0.0d0, 1.0d0] &
   )
   call assert_true(gamma_in > 0.0d0, 'inflow flux should be positive for inward drift')
+  gamma_cut = compute_inflow_flux_from_drifting_maxwellian( &
+    1.0d10, 400.0d0, 1.0d-26, [0.0d0, 0.0d0, 3.0d0], [0.0d0, 0.0d0, 1.0d0], vmin_normal=2.0d3 &
+  )
+  call assert_true(gamma_cut > 0.0d0, 'cutoff inflow flux should remain positive')
+  call assert_true(gamma_cut < gamma_in, 'cutoff inflow flux should be smaller than full inflow flux')
 
   area = compute_face_area_from_bounds('x_low', [-1.0d0, -2.0d0, -3.0d0], [-1.0d0, 2.0d0, 3.0d0])
   call assert_close_dp(area, 24.0d0, 1.0d-12, 'face area (x_low) mismatch')
@@ -52,6 +57,16 @@ program test_injection_sampling
   do i = 1, size(x, 2)
     call assert_true(x(1, i) > -1.0d0, 'reservoir sampled x should move inward from boundary')
     call assert_true(v(1, i) >= 0.0d0, 'reservoir normal velocity should be inward')
+  end do
+
+  call sample_reservoir_face_particles( &
+    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
+    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
+    1.0d0, 0.0d0, 0.1d0, x(:, 1:4), v(:, 1:4), barrier_normal_energy=4.0d0 &
+  )
+  expected_vn = sqrt(5.0d0)
+  do i = 1, 4
+    call assert_close_dp(v(1, i), expected_vn, 1.0d-10, 'barrier-corrected normal speed mismatch')
   end do
 
   residual = -0.2d0

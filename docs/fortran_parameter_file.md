@@ -70,6 +70,9 @@ dir = "outputs/latest"
 | `n_sub` | int | 実装既定値 | 近傍細分レベル |
 | `softening_factor` | float | 実装既定値 | `h_ref` 基準ソフトニング係数 |
 | `b0` | float[3] | `[0,0,0]` | 一様磁場[T] |
+| `reservoir_potential_model` | string | `"none"` | `reservoir_face` の電位補正モデル（`none` / `infinity_barrier`） |
+| `phi_infty` | float | `0.0` | 無限遠基準電位 [V]（`infinity_barrier` で使用） |
+| `injection_face_phi_grid_n` | int | `3` | 注入開口面平均電位の格子分割数（`N x N`） |
 | `use_box` | bool | `false` | シミュレーションボックス境界を有効化 |
 | `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限座標[m] |
 | `box_max` | float[3] | `[1,1,1]` | ボックス上限座標[m] |
@@ -119,6 +122,17 @@ dir = "outputs/latest"
   - `n_macro_s = floor(max(macro_budget_s, 0))`
   - `residual_s <- macro_budget_s - n_macro_s`
 - 上式は `compute_macro_particles_for_batch` の実装と一致します。
+
+`sim.reservoir_potential_model = "infinity_barrier"` を有効化した場合、`reservoir_face` の流入判定と法線速度サンプルに電位差補正が入ります。
+
+- `phi_face`: 注入開口面上 `N x N`（`N = injection_face_phi_grid_n`）格子点で評価した平均電位
+- `delta_phi_s = phi_face - phi_infty`
+- `barrier_s = 2 * q_s * delta_phi_s / m_s`
+- `v_inf_min_s = sqrt(max(barrier_s, 0))`
+- `gamma_in_s` は `v_inf >= v_inf_min_s` の切断付き flux-weighted 積分で評価
+- サンプルした `v_inf` から注入面法線速度 `v_face = sqrt(max(v_inf^2 - barrier_s, 0))` を与える
+
+`sim.target_npcls_species1` の `batch_duration` 自動決定式は従来どおり（未補正係数）で、`infinity_barrier` 併用時は近似になります。
 
 `target_npcls_species1` を使う場合、`species[1]` を基準に `batch_duration` を次式で自動決定します。
 

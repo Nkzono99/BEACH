@@ -107,6 +107,9 @@ program test_templates_importers_runtime
   cfg%sim%use_box = .true.
   cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
   cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+  cfg%sim%reservoir_potential_model = 'infinity_barrier'
+  cfg%sim%phi_infty = 0.0d0
+  cfg%sim%injection_face_phi_grid_n = 2_i32
   cfg%n_particle_species = 2_i32
 
   cfg%particle_species(1) = species_from_defaults()
@@ -135,7 +138,7 @@ program test_templates_importers_runtime
   allocate (state%macro_residual(2))
   state%macro_residual = 0.0d0
   call seed_particles_from_config(cfg)
-  call init_particle_batch_from_config(cfg, 1_i32, pcls, state)
+  call init_particle_batch_from_config(cfg, 1_i32, pcls, state, mesh=mesh)
   call assert_equal_i32(pcls%n, 1_i32, 'batch particle count mismatch')
   call assert_true(state%macro_residual(2) >= 0.0d0, 'reservoir residual should be non-negative')
   call assert_true(state%macro_residual(2) < 1.0d0, 'reservoir residual should be < 1')

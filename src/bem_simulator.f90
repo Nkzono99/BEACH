@@ -56,7 +56,8 @@ contains
 
     do local_batch_idx = 1, app%sim%batch_count
       call prepare_batch_state( &
-        app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, inject_state &
+        mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
+        inject_state &
       )
       call process_particle_batch( &
         mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
@@ -81,8 +82,10 @@ contains
   !! @param[out] absorbed_flag 粒子ごとの吸着フラグ。
   !! @param[inout] inject_state reservoir_face 注入残差（指定時のみ更新）。
   subroutine prepare_batch_state( &
-    app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, inject_state &
+    mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
+    inject_state &
   )
+    type(mesh_type), intent(in) :: mesh
     type(app_config), intent(in) :: app
     type(sim_stats), intent(in) :: stats
     integer(i32), intent(in) :: local_batch_idx
@@ -95,9 +98,9 @@ contains
 
     batch_idx = stats%batches + 1_i32
     if (present(inject_state)) then
-      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch, inject_state)
+      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch, inject_state, mesh=mesh)
     else
-      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch)
+      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch, mesh=mesh)
     end if
     allocate (escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))
     escaped_boundary_flag = .false.

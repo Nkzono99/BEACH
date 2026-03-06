@@ -44,6 +44,13 @@ program test_reservoir_injection
   call assert_equal_i32(n_macro, 11_i32, 'second macro particle count mismatch')
   call assert_close_dp(residual, 0.0d0, 1.0d-12, 'second residual mismatch')
 
+  call compute_macro_particles_for_batch( &
+    1.05d3, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
+    'z_low', [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 0.0d0], 1.0d0, 1.0d2, residual, n_macro, vmin_normal=1.2d0 &
+  )
+  call assert_equal_i32(n_macro, 0_i32, 'vmin cutoff should block deterministic inflow')
+  call assert_close_dp(residual, 0.0d0, 1.0d-12, 'vmin cutoff residual mismatch')
+
   call write_auto_duration_fixture(cfg_auto_path)
 
   call default_app_config(cfg_auto)
