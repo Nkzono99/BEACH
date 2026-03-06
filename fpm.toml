@@ -10,6 +10,9 @@ auto-executables = true
 auto-tests = false
 auto-examples = false
 
+[library]
+source-dir = "src"
+
 [fortran]
 implicit-typing = false
 implicit-external = false

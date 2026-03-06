@@ -136,30 +136,37 @@ contains
   !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
   !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
   !! @param[in] inward_normal 注入面の内向き単位法線ベクトル。
+  !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @return gamma_in 片側流入束 [1/m^2/s]。
   real(dp) function compute_inflow_flux_from_drifting_maxwellian( &
-    number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal &
+    number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal &
   ) result(gamma_in)
     real(dp), intent(in) :: number_density_m3
     real(dp), intent(in) :: temperature_k
     real(dp), intent(in) :: m_particle
     real(dp), intent(in) :: drift_velocity(3)
     real(dp), intent(in) :: inward_normal(3)
-    real(dp) :: sigma, alpha, u_n
+    real(dp), intent(in), optional :: vmin_normal
+    real(dp) :: sigma, u_n, vmin
 
     if (number_density_m3 < 0.0_dp) error stop "number_density_m3 must be >= 0"
     if (temperature_k < 0.0_dp) error stop "temperature_k must be >= 0"
     if (m_particle <= 0.0_dp) error stop "m_particle must be > 0"
 
+    vmin = 0.0_dp
+    if (present(vmin_normal)) vmin = max(0.0_dp, vmin_normal)
     u_n = dot_product(drift_velocity, inward_normal)
     sigma = sqrt(k_boltzmann * temperature_k / m_particle)
     if (sigma <= 0.0_dp) then
-      gamma_in = number_density_m3 * max(0.0_dp, u_n)
+      if (u_n < vmin) then
+        gamma_in = 0.0_dp
+      else
+        gamma_in = number_density_m3 * u_n
+      end if
       return
     end if
 
-    alpha = u_n / sigma
-    gamma_in = number_density_m3 * (sigma * standard_normal_pdf(alpha) + u_n * standard_normal_cdf(alpha))
+    gamma_in = number_density_m3 * flux_weighted_normal_tail(vmin, u_n, sigma)
   end function compute_inflow_flux_from_drifting_maxwellian
 
   !> 注入面上の矩形開口から有効面積[m^2]を返す。
@@ -190,9 +197,10 @@ contains
   !! @param[in] w_particle マクロ粒子重み。
   !! @param[inout] residual 前バッチから繰り越すマクロ粒子端数（呼び出し後に更新）。
   !! @param[out] n_macro 今バッチで生成するマクロ粒子数。
+  !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   subroutine compute_macro_particles_for_batch( &
     number_density_m3, temperature_k, m_particle, drift_velocity, box_min, box_max, inject_face, pos_low, pos_high, &
-    batch_duration, w_particle, residual, n_macro &
+    batch_duration, w_particle, residual, n_macro, vmin_normal &
   )
     real(dp), intent(in) :: number_density_m3
     real(dp), intent(in) :: temperature_k
@@ -205,6 +213,7 @@ contains
     real(dp), intent(in) :: w_particle
     real(dp), intent(inout) :: residual
     integer(i32), intent(out) :: n_macro
+    real(dp), intent(in), optional :: vmin_normal
 
     real(dp) :: inward_normal(3), gamma_in, area, n_phys_batch, n_macro_expected, macro_budget
 
@@ -213,7 +222,7 @@ contains
 
     call resolve_face_geometry(box_min, box_max, inject_face, inward_normal=inward_normal)
     gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
-      number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal &
+      number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal=vmin_normal &
     )
     area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
     n_phys_batch = gamma_in * area * batch_duration
@@ -234,11 +243,15 @@ contains
   !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
   !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
   !! @param[in] temperature_k 温度 [K]。
-  !! @param[in] batch_duration 1バッチの物理時間長 [s]。
+  !! @param[in] batch_duration 1バッチの物理時間長 [s]（現在は妥当性チェックのみ）。
   !! @param[out] x サンプリングした位置配列 `x(3,n)` [m]。
   !! @param[out] v サンプリングした速度配列 `v(3,n)` [m/s]。
+  !! @param[in] barrier_normal_energy 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]（省略時 0）。
+  !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は `barrier_normal_energy` から自動導出）。
+  !! @param[in] position_jitter_dt 初期位置に速度方向で与えるランダムジッタ時間幅[s]（省略時は 0）。
   subroutine sample_reservoir_face_particles( &
-    box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v &
+    box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v, &
+    barrier_normal_energy, vmin_normal, position_jitter_dt &
   )
     real(dp), intent(in) :: box_min(3), box_max(3)
     character(len=*), intent(in) :: inject_face
@@ -246,14 +259,23 @@ contains
     real(dp), intent(in) :: m_particle, temperature_k, batch_duration
     real(dp), intent(out) :: x(:, :)
     real(dp), intent(out) :: v(:, :)
+    real(dp), intent(in), optional :: barrier_normal_energy
+    real(dp), intent(in), optional :: vmin_normal
+    real(dp), intent(in), optional :: position_jitter_dt
 
     integer :: i, axis_n, axis_t1, axis_t2
-    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn
+    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, barrier, vn_inf, jitter_dt
     real(dp), allocatable :: u(:, :), tau(:)
 
     if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "reservoir particle arrays must have first dimension 3"
     if (size(x, 2) /= size(v, 2)) error stop "reservoir x/v size mismatch"
     if (batch_duration < 0.0_dp) error stop "batch_duration must be >= 0"
+    if (present(position_jitter_dt)) then
+      if (position_jitter_dt < 0.0_dp) error stop "position_jitter_dt must be >= 0"
+      jitter_dt = position_jitter_dt
+    else
+      jitter_dt = 0.0_dp
+    end if
     if (size(x, 2) == 0) return
 
     call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
@@ -261,21 +283,34 @@ contains
 
     sigma = sqrt(k_boltzmann * temperature_k / m_particle)
     u_n = dot_product(drift_velocity, inward_normal)
+    barrier = 0.0_dp
+    if (present(barrier_normal_energy)) barrier = barrier_normal_energy
+    vn_floor = 0.0_dp
+    if (barrier > 0.0_dp) vn_floor = sqrt(barrier)
+    if (present(vmin_normal)) vn_floor = max(vn_floor, max(0.0_dp, vmin_normal))
 
     call sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k=temperature_k)
-    call sample_flux_weighted_normal_component(u_n, sigma, v(axis_n, :))
-    v(axis_n, :) = inward_normal(axis_n) * v(axis_n, :)
+    call sample_flux_weighted_normal_component(u_n, sigma, v(axis_n, :), vmin_normal=vn_floor)
+    do i = 1, size(v, 2)
+      vn_inf = v(axis_n, i)
+      vn_inf = sqrt(max(0.0_dp, vn_inf * vn_inf - barrier))
+      v(axis_n, i) = inward_normal(axis_n) * vn_inf
+    end do
 
-    allocate(u(2, size(x, 2)), tau(size(x, 2)))
+    allocate(u(2, size(x, 2)))
     call random_number(u)
-    call random_number(tau)
+    if (jitter_dt > 0.0_dp) then
+      allocate(tau(size(x, 2)))
+      call random_number(tau)
+    end if
 
     do i = 1, size(x, 2)
       x(:, i) = 0.0_dp
       x(axis_n, i) = boundary_value
       x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1)) * u(1, i)
       x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2)) * u(2, i)
-      x(:, i) = x(:, i) + v(:, i) * (tau(i) * batch_duration) + inward_normal * 1.0d-12
+      if (jitter_dt > 0.0_dp) x(:, i) = x(:, i) + v(:, i) * (tau(i) * jitter_dt)
+      x(:, i) = x(:, i) + inward_normal * 1.0d-12
     end do
   end subroutine sample_reservoir_face_particles
 
@@ -406,29 +441,33 @@ contains
   !> flux-weighted half-range 正規分布から法線速度をサンプルする。
   !! @param[in] mu 法線速度分布の平均ドリフト成分 [m/s]。
   !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
+  !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[out] vn サンプリングした法線速度配列 [m/s]（常に非負）。
-  subroutine sample_flux_weighted_normal_component(mu, sigma, vn)
+  subroutine sample_flux_weighted_normal_component(mu, sigma, vn, vmin_normal)
     real(dp), intent(in) :: mu, sigma
+    real(dp), intent(in), optional :: vmin_normal
     real(dp), intent(out) :: vn(:)
     integer :: i
-    real(dp) :: target, low, high, mid
+    real(dp) :: target, low, high, mid, vmin
 
     if (size(vn) == 0) return
+    vmin = 0.0_dp
+    if (present(vmin_normal)) vmin = max(0.0_dp, vmin_normal)
     if (sigma <= 0.0_dp) then
-      vn = max(mu, 0.0_dp)
+      vn = max(mu, vmin)
       return
     end if
 
     do i = 1, size(vn)
       call random_number(target)
-      low = 0.0_dp
-      high = max(8.0_dp * sigma, mu + 8.0_dp * sigma)
-      do while (flux_weighted_normal_cdf(high, mu, sigma) < target)
+      low = vmin
+      high = max(vmin + 8.0_dp * sigma, mu + 8.0_dp * sigma)
+      do while (flux_weighted_normal_cdf(high, mu, sigma, vmin_normal=vmin) < target)
         high = high * 2.0_dp
       end do
       do while ((high - low) > max(1.0d-12, 1.0d-10 * (1.0d0 + high)))
         mid = 0.5_dp * (low + high)
-        if (flux_weighted_normal_cdf(mid, mu, sigma) < target) then
+        if (flux_weighted_normal_cdf(mid, mu, sigma, vmin_normal=vmin) < target) then
           low = mid
         else
           high = mid
@@ -442,12 +481,16 @@ contains
   !! @param[in] vn 評価する法線速度 [m/s]。
   !! @param[in] mu 法線速度分布の平均ドリフト成分 [m/s]。
   !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
+  !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @return cdf flux-weighted half-range 正規分布の累積分布値。
-  pure real(dp) function flux_weighted_normal_cdf(vn, mu, sigma) result(cdf)
+  pure real(dp) function flux_weighted_normal_cdf(vn, mu, sigma, vmin_normal) result(cdf)
     real(dp), intent(in) :: vn, mu, sigma
-    real(dp) :: alpha, x, denom, num
+    real(dp), intent(in), optional :: vmin_normal
+    real(dp) :: vmin, denom, num
 
-    if (vn <= 0.0_dp) then
+    vmin = 0.0_dp
+    if (present(vmin_normal)) vmin = max(0.0_dp, vmin_normal)
+    if (vn <= vmin) then
       cdf = 0.0_dp
       return
     end if
@@ -456,17 +499,37 @@ contains
       return
     end if
 
-    alpha = mu / sigma
-    x = (vn - mu) / sigma
-    denom = mu * standard_normal_cdf(alpha) + sigma * standard_normal_pdf(alpha)
+    denom = flux_weighted_normal_tail(vmin, mu, sigma)
     if (denom <= tiny(1.0_dp)) then
       cdf = 1.0_dp
       return
     end if
 
-    num = mu * (standard_normal_cdf(x) - standard_normal_cdf(-alpha)) - &
-          sigma * (standard_normal_pdf(x) - standard_normal_pdf(alpha))
+    num = denom - flux_weighted_normal_tail(vn, mu, sigma)
     cdf = min(1.0_dp, max(0.0_dp, num / denom))
   end function flux_weighted_normal_cdf
+
+  !> flux-weighted 正規分布の tail 積分 `∫[vmin,∞] v f(v) dv` を返す。
+  !! @param[in] vmin 法線速度の下限 [m/s]。
+  !! @param[in] mu 法線速度分布の平均ドリフト成分 [m/s]。
+  !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
+  !! @return tail tail 積分値 [m/s]。
+  pure real(dp) function flux_weighted_normal_tail(vmin, mu, sigma) result(tail)
+    real(dp), intent(in) :: vmin, mu, sigma
+    real(dp) :: x
+
+    if (sigma <= 0.0_dp) then
+      if (mu >= vmin) then
+        tail = mu
+      else
+        tail = 0.0_dp
+      end if
+      return
+    end if
+
+    x = (vmin - mu) / sigma
+    tail = mu * (1.0_dp - standard_normal_cdf(x)) + sigma * standard_normal_pdf(x)
+    if (tail < 0.0_dp) tail = 0.0_dp
+  end function flux_weighted_normal_tail
 
 end module bem_injection

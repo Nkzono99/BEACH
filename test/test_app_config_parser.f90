@@ -25,6 +25,9 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%bc_low(1), bc_periodic, 'bc_x_low mismatch')
   call assert_equal_i32(cfg%sim%bc_high(2), bc_reflect, 'bc_y_high mismatch')
   call assert_equal_i32(cfg%sim%bc_low(3), bc_open, 'bc_z_low mismatch')
+  call assert_true(trim(cfg%sim%reservoir_potential_model) == 'infinity_barrier', 'reservoir_potential_model mismatch')
+  call assert_close_dp(cfg%sim%phi_infty, -2.0d0, 1.0d-12, 'phi_infty mismatch')
+  call assert_equal_i32(cfg%sim%injection_face_phi_grid_n, 5_i32, 'injection_face_phi_grid_n mismatch')
   call assert_equal_i32(cfg%history_stride, 2_i32, 'history_stride mismatch')
   call assert_close_dp(cfg%sim%dt, 2.5d-9, 1.0d-15, 'dt mismatch')
 
@@ -44,6 +47,9 @@ contains
     write (u, '(a)') '[sim]'
     write (u, '(a)') 'dt = 2.5e-9'
     write (u, '(a)') 'batch_count = 3 # comment should be ignored'
+    write (u, '(a)') 'reservoir_potential_model = "infinity_barrier"'
+    write (u, '(a)') 'phi_infty = -2.0'
+    write (u, '(a)') 'injection_face_phi_grid_n = 5'
     write (u, '(a)') 'bc_x_low = "periodic"'
     write (u, '(a)') 'bc_y_high = "reflect"'
     write (u, '(a)') 'bc_z_low = "open"'

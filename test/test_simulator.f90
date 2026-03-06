@@ -34,7 +34,7 @@ program test_simulator
   cfg%sim%box_min = [-1.0d0, -1.0d0, -2.0d0]
   cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
 
-  cfg%n_particle_species = 3_i32
+  cfg%n_particle_species = 4_i32
 
   cfg%particle_species(1) = species_from_defaults()
   cfg%particle_species(1)%source_mode = 'volume_seed'
@@ -69,6 +69,17 @@ program test_simulator
   cfg%particle_species(3)%drift_velocity = [0.0d0, 1.0d0, 0.0d0]
   cfg%particle_species(3)%temperature_k = 0.0d0
 
+  cfg%particle_species(4) = species_from_defaults()
+  cfg%particle_species(4)%source_mode = 'volume_seed'
+  cfg%particle_species(4)%npcls_per_step = 1_i32
+  cfg%particle_species(4)%q_particle = 1.0d0
+  cfg%particle_species(4)%m_particle = 1.0d0
+  cfg%particle_species(4)%w_particle = 3.0d0
+  cfg%particle_species(4)%pos_low = [0.3d0, 0.3d0, 0.4d0]
+  cfg%particle_species(4)%pos_high = [0.3d0, 0.3d0, 0.4d0]
+  cfg%particle_species(4)%drift_velocity = [0.0d0, 0.0d0, -5.0d0]
+  cfg%particle_species(4)%temperature_k = 0.0d0
+
   call seed_particles_from_config(cfg)
 
   call delete_file_if_exists(history_path)
@@ -77,13 +88,13 @@ program test_simulator
   call run_absorption_insulator(mesh, cfg, stats, history_unit=u, history_stride=1_i32)
   close (u)
 
-  call assert_equal_i32(stats%processed_particles, 3_i32, 'processed_particles mismatch')
-  call assert_equal_i32(stats%absorbed, 1_i32, 'absorbed mismatch')
+  call assert_equal_i32(stats%processed_particles, 4_i32, 'processed_particles mismatch')
+  call assert_equal_i32(stats%absorbed, 2_i32, 'absorbed mismatch')
   call assert_equal_i32(stats%escaped, 2_i32, 'escaped mismatch')
   call assert_equal_i32(stats%escaped_boundary, 1_i32, 'escaped_boundary mismatch')
   call assert_equal_i32(stats%survived_max_step, 1_i32, 'survived_max_step mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
-  call assert_close_dp(mesh%q_elem(1), 2.0d0, 1.0d-12, 'deposited charge mismatch')
+  call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
   call assert_true(stats%last_rel_change > 0.0d0, 'last_rel_change should be positive')
 
   n_lines = 0_i32

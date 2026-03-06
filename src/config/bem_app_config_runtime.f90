@@ -2,6 +2,7 @@
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
+  use bem_field, only: electric_potential_at
   use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
@@ -13,6 +14,7 @@ module bem_app_config_runtime
     app_config, particle_species_spec, template_spec, max_templates, particles_per_batch_from_config, &
     total_particles_from_config
   use bem_app_config_parser, only: lower
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
 contains
@@ -116,14 +118,17 @@ contains
   !! @param[in] batch_idx 生成対象のバッチ番号（1始まり）。
   !! @param[out] pcls 生成したバッチ粒子群。
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
-  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state)
+  !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
+  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh)
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
     type(particles_soa), intent(out) :: pcls
     type(injection_state), intent(inout), optional :: state
+    type(mesh_type), intent(in), optional :: mesh
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx
     integer(i32), allocatable :: counts(:), species_cursor(:), species_id(:)
+    real(dp), allocatable :: vmin_normal(:), barrier_normal(:)
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), x(:, :), v(:, :), q(:), m(:), w(:)
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
@@ -136,7 +141,10 @@ contains
     end if
 
     allocate (counts(cfg%n_particle_species))
+    allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
     counts = 0_i32
+    vmin_normal = 0.0d0
+    barrier_normal = 0.0d0
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
@@ -146,8 +154,11 @@ contains
         if (.not. present(state)) then
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
         end if
+        call reservoir_face_velocity_correction( &
+          cfg%sim, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
+        )
         call compute_macro_particles_for_species( &
-          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts(s) &
+          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts(s), vmin_normal=vmin_normal(s) &
         )
       case default
         error stop 'Unknown particles.species.source_mode.'
@@ -173,7 +184,8 @@ contains
     do s = 1, cfg%n_particle_species
       if (counts(s) <= 0_i32) cycle
       call sample_species_state( &
-        cfg%sim, cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s) &
+        cfg%sim, cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s), &
+        barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s) &
       )
     end do
 
@@ -199,12 +211,16 @@ contains
   !! @param[in] n 生成粒子数。
   !! @param[out] x 生成した位置配列 `x(3,n)` [m]。
   !! @param[out] v 生成した速度配列 `v(3,n)` [m/s]。
-  subroutine sample_species_state(sim, spec, n, x, v)
+  !! @param[in] barrier_normal_energy reservoir_face 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
+  !! @param[in] vmin_normal reservoir_face 法線速度の下限 [m/s]。
+  subroutine sample_species_state(sim, spec, n, x, v, barrier_normal_energy, vmin_normal)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     integer(i32), intent(in) :: n
     real(dp), intent(out) :: x(:, :)
     real(dp), intent(out) :: v(:, :)
+    real(dp), intent(in), optional :: barrier_normal_energy
+    real(dp), intent(in), optional :: vmin_normal
 
     if (n <= 0_i32) return
     select case (trim(lower(spec%source_mode)))
@@ -212,10 +228,30 @@ contains
       call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
       call sample_shifted_maxwell_velocities(spec%drift_velocity, spec%m_particle, v, temperature_k=species_temperature_k(spec))
     case ('reservoir_face')
-      call sample_reservoir_face_particles( &
-        sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
-        spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v &
-      )
+      if (present(barrier_normal_energy) .and. present(vmin_normal)) then
+        call sample_reservoir_face_particles( &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
+          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
+          barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
+        )
+      else if (present(barrier_normal_energy)) then
+        call sample_reservoir_face_particles( &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
+          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
+          barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt &
+        )
+      else if (present(vmin_normal)) then
+        call sample_reservoir_face_particles( &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
+          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
+          vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
+        )
+      else
+        call sample_reservoir_face_particles( &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
+          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, position_jitter_dt=sim%dt &
+        )
+      end if
     case default
       error stop 'Unknown particles.species.source_mode.'
     end select
@@ -226,20 +262,170 @@ contains
   !! @param[in] spec reservoir_face 粒子種設定。
   !! @param[inout] residual 前バッチから繰り越した端数。
   !! @param[out] count 今バッチで生成するマクロ粒子数。
-  subroutine compute_macro_particles_for_species(sim, spec, residual, count)
+  !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
+  subroutine compute_macro_particles_for_species(sim, spec, residual, count, vmin_normal)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     real(dp), intent(inout) :: residual
     integer(i32), intent(out) :: count
+    real(dp), intent(in), optional :: vmin_normal
 
     real(dp) :: number_density_m3
 
     number_density_m3 = species_number_density_m3(spec)
-    call compute_macro_particles_for_batch( &
-      number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
-      spec%inject_face, spec%pos_low, spec%pos_high, sim%batch_duration, spec%w_particle, residual, count &
-    )
+    if (present(vmin_normal)) then
+      call compute_macro_particles_for_batch( &
+        number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
+        spec%inject_face, spec%pos_low, spec%pos_high, sim%batch_duration, spec%w_particle, residual, count, &
+        vmin_normal=vmin_normal &
+      )
+    else
+      call compute_macro_particles_for_batch( &
+        number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
+        spec%inject_face, spec%pos_low, spec%pos_high, sim%batch_duration, spec%w_particle, residual, count &
+      )
+    end if
   end subroutine compute_macro_particles_for_species
+
+  !> reservoir_face 注入に対する法線速度補正パラメータを計算する。
+  !! @param[in] sim シミュレーション設定。
+  !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[out] vmin_normal 無限遠法線速度の下限 [m/s]。
+  !! @param[out] barrier_normal 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
+  !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（補正時に必要）。
+  subroutine reservoir_face_velocity_correction(sim, spec, vmin_normal, barrier_normal, mesh)
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec
+    real(dp), intent(out) :: vmin_normal
+    real(dp), intent(out) :: barrier_normal
+    type(mesh_type), intent(in), optional :: mesh
+
+    real(dp) :: phi_face, delta_phi
+
+    vmin_normal = 0.0d0
+    barrier_normal = 0.0d0
+    select case (trim(lower(sim%reservoir_potential_model)))
+    case ('none')
+      return
+    case ('infinity_barrier')
+      if (.not. present(mesh)) then
+        error stop 'sim.reservoir_potential_model="infinity_barrier" requires mesh in init_particle_batch_from_config.'
+      end if
+      call compute_face_average_potential(mesh, sim, spec, phi_face)
+      delta_phi = phi_face - sim%phi_infty
+      barrier_normal = 2.0d0 * spec%q_particle * delta_phi / spec%m_particle
+      if (.not. ieee_is_finite(barrier_normal)) then
+        error stop 'reservoir potential correction produced non-finite barrier.'
+      end if
+      if (barrier_normal > 0.0d0) then
+        vmin_normal = sqrt(barrier_normal)
+      else
+        vmin_normal = 0.0d0
+      end if
+    case default
+      error stop 'Unknown sim.reservoir_potential_model in runtime.'
+    end select
+  end subroutine reservoir_face_velocity_correction
+
+  !> reservoir_face 開口面の平均電位を `N x N` 格子平均で評価する。
+  !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ。
+  !! @param[in] sim シミュレーション設定。
+  !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[out] phi_face 注入開口面の平均電位 [V]。
+  subroutine compute_face_average_potential(mesh, sim, spec, phi_face)
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec
+    real(dp), intent(out) :: phi_face
+
+    integer(i32) :: ngrid, i, j
+    integer :: axis_n, axis_t1, axis_t2
+    real(dp) :: boundary_value, inward_normal(3), pos(3), t1, t2, phi
+    real(dp) :: phi_sum
+
+    call resolve_face_sampling_geometry( &
+      sim%box_min, sim%box_max, spec%inject_face, axis_n, axis_t1, axis_t2, boundary_value, inward_normal &
+    )
+
+    ngrid = sim%injection_face_phi_grid_n
+    phi_sum = 0.0d0
+    do i = 1_i32, ngrid
+      t1 = (real(i, dp) - 0.5d0) / real(ngrid, dp)
+      do j = 1_i32, ngrid
+        t2 = (real(j, dp) - 0.5d0) / real(ngrid, dp)
+        pos = 0.0d0
+        pos(axis_n) = boundary_value
+        pos(axis_t1) = spec%pos_low(axis_t1) + (spec%pos_high(axis_t1) - spec%pos_low(axis_t1)) * t1
+        pos(axis_t2) = spec%pos_low(axis_t2) + (spec%pos_high(axis_t2) - spec%pos_low(axis_t2)) * t2
+        pos = pos + inward_normal * 1.0d-12
+        call electric_potential_at(mesh, pos, sim%softening, phi)
+        phi_sum = phi_sum + phi
+      end do
+    end do
+
+    phi_face = phi_sum / real(ngrid * ngrid, dp)
+  end subroutine compute_face_average_potential
+
+  !> 注入面名から法線軸・接線軸・境界値・内向き法線を返す。
+  !! @param[in] box_min シミュレーションボックス下限座標 `(x,y,z)` [m]。
+  !! @param[in] box_max シミュレーションボックス上限座標 `(x,y,z)` [m]。
+  !! @param[in] inject_face 注入面識別子。
+  !! @param[out] axis_n 法線軸インデックス（1:x, 2:y, 3:z）。
+  !! @param[out] axis_t1 第1接線軸インデックス。
+  !! @param[out] axis_t2 第2接線軸インデックス。
+  !! @param[out] boundary_value 注入面の境界座標値 [m]。
+  !! @param[out] inward_normal 注入面の内向き法線ベクトル。
+  subroutine resolve_face_sampling_geometry( &
+    box_min, box_max, inject_face, axis_n, axis_t1, axis_t2, boundary_value, inward_normal &
+  )
+    real(dp), intent(in) :: box_min(3), box_max(3)
+    character(len=*), intent(in) :: inject_face
+    integer, intent(out) :: axis_n, axis_t1, axis_t2
+    real(dp), intent(out) :: boundary_value
+    real(dp), intent(out) :: inward_normal(3)
+
+    inward_normal = 0.0d0
+    select case (trim(lower(inject_face)))
+    case ('x_low')
+      axis_n = 1
+      axis_t1 = 2
+      axis_t2 = 3
+      boundary_value = box_min(1)
+      inward_normal(1) = 1.0d0
+    case ('x_high')
+      axis_n = 1
+      axis_t1 = 2
+      axis_t2 = 3
+      boundary_value = box_max(1)
+      inward_normal(1) = -1.0d0
+    case ('y_low')
+      axis_n = 2
+      axis_t1 = 3
+      axis_t2 = 1
+      boundary_value = box_min(2)
+      inward_normal(2) = 1.0d0
+    case ('y_high')
+      axis_n = 2
+      axis_t1 = 3
+      axis_t2 = 1
+      boundary_value = box_max(2)
+      inward_normal(2) = -1.0d0
+    case ('z_low')
+      axis_n = 3
+      axis_t1 = 1
+      axis_t2 = 2
+      boundary_value = box_min(3)
+      inward_normal(3) = 1.0d0
+    case ('z_high')
+      axis_n = 3
+      axis_t1 = 1
+      axis_t2 = 2
+      boundary_value = box_max(3)
+      inward_normal(3) = -1.0d0
+    case default
+      error stop 'Unknown particles.species.inject_face.'
+    end select
+  end subroutine resolve_face_sampling_geometry
 
   !> 粒子種設定から実効密度[m^-3]を返す。
   !! @param[in] spec 粒子種設定。

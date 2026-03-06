@@ -131,6 +131,9 @@ contains
     cfg%sim%tol_rel = 1.0d-8
     cfg%sim%softening = 1.0d-6
     cfg%sim%b0 = [0.0d0, 0.0d0, 0.0d0]
+    cfg%sim%reservoir_potential_model = 'none'
+    cfg%sim%phi_infty = 0.0d0
+    cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%n_particles = 0_i32
 
     cfg%templates(1)%enabled = .true.

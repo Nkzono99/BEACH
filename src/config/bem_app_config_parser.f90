@@ -89,6 +89,19 @@ contains
     if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
 
     cfg%n_particle_species = s_idx
+    cfg%sim%reservoir_potential_model = lower(trim(cfg%sim%reservoir_potential_model))
+    select case (trim(cfg%sim%reservoir_potential_model))
+    case ('none', 'infinity_barrier')
+      continue
+    case default
+      error stop 'sim.reservoir_potential_model must be "none" or "infinity_barrier".'
+    end select
+    if (cfg%sim%injection_face_phi_grid_n < 1_i32) then
+      error stop 'sim.injection_face_phi_grid_n must be >= 1.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%phi_infty)) then
+      error stop 'sim.phi_infty must be finite.'
+    end if
     call maybe_auto_set_batch_duration(cfg)
     per_batch_particles = 0_i32
     has_reservoir_species = .false.
@@ -159,6 +172,13 @@ contains
       call parse_real(v, cfg%sim%softening_factor)
     case ('b0')
       call parse_real3(v, cfg%sim%b0)
+    case ('reservoir_potential_model')
+      call parse_string(v, cfg%sim%reservoir_potential_model)
+      cfg%sim%reservoir_potential_model = lower(trim(cfg%sim%reservoir_potential_model))
+    case ('phi_infty')
+      call parse_real(v, cfg%sim%phi_infty)
+    case ('injection_face_phi_grid_n')
+      call parse_int(v, cfg%sim%injection_face_phi_grid_n)
     case ('use_box')
       call parse_logical(v, cfg%sim%use_box)
     case ('box_min')

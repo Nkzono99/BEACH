@@ -41,4 +41,33 @@ contains
     e(3) = k_coulomb * ez
   end subroutine electric_field_at
 
+  !> 全要素電荷を点電荷近似で総和し、softening付きで観測点 `r` の電位を返す。
+  !! @param[in] mesh 要素重心 `centers` と要素電荷 `q_elem` を保持したメッシュ情報。
+  !! @param[in] r 電位を評価する観測点座標 `(x,y,z)` [m]。
+  !! @param[in] softening 特異点回避のために距離2乗へ加える softening 長さ [m]。
+  !! @param[out] phi 観測点 `r` における電位 [V]。
+  subroutine electric_potential_at(mesh, r, softening, phi)
+    use omp_lib
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(in) :: softening
+    real(dp), intent(out) :: phi
+
+    integer(i32) :: i
+    real(dp) :: dr(3), r2, inv_r, phi_sum
+
+    phi_sum = 0.0d0
+
+    !$omp parallel do default(none) private(i,dr,r2,inv_r) reduction(+:phi_sum) shared(mesh,r,softening)
+    do i = 1, mesh%nelem
+      dr = r - mesh%centers(:, i)
+      r2 = sum(dr * dr) + softening * softening
+      inv_r = 1.0d0 / sqrt(r2)
+      phi_sum = phi_sum + mesh%q_elem(i) * inv_r
+    end do
+    !$omp end parallel do
+
+    phi = k_coulomb * phi_sum
+  end subroutine electric_potential_at
+
 end module bem_field
