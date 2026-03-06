@@ -63,6 +63,13 @@ module bem_types
     real(dp), allocatable :: bb_max(:, :)
     real(dp), allocatable :: h_elem(:)
     real(dp), allocatable :: q_elem(:)
+    real(dp) :: grid_bb_min(3) = 0.0d0
+    real(dp) :: grid_bb_max(3) = 0.0d0
+    integer(i32) :: grid_ncell(3) = 1_i32
+    real(dp) :: grid_inv_cell(3) = 1.0d0
+    integer(i32), allocatable :: grid_cell_start(:)
+    integer(i32), allocatable :: grid_cell_elem(:)
+    logical :: use_collision_grid = .false.
   end type mesh_type
 
   !> 粒子の位置・速度・物性値・生存フラグをSoA形式で保持する型。

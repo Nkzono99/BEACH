@@ -59,7 +59,154 @@ contains
     else
       mesh%q_elem = 0.0d0
     end if
+
+    call build_collision_grid(mesh)
   end subroutine init_mesh
+
+  !> 三角形AABBを一様グリッドへ登録し、衝突判定の候補探索を高速化する。
+  !! 要素数が少ない場合は線形探索にフォールバックする。
+  subroutine build_collision_grid(mesh)
+    type(mesh_type), intent(inout) :: mesh
+
+    integer(i32), parameter :: min_nelem_for_grid = 64_i32
+    integer(i32), parameter :: target_elems_per_cell = 8_i32
+    integer(i32), parameter :: max_cells_axis = 128_i32
+    real(dp), parameter :: rel_span_eps = 1.0d-9
+    real(dp), parameter :: abs_span_eps = 1.0d-12
+
+    integer(i32) :: nx, ny, nz, ncells
+    integer(i32) :: i, iaxis, ix0, ix1, iy0, iy1, iz0, iz1, ix, iy, iz, cid, total_refs, pos
+    integer(i32), allocatable :: counts(:), offsets(:)
+    real(dp) :: span(3), span_ref, target_cells, cell_size, eps_expand
+
+    mesh%use_collision_grid = .false.
+    mesh%grid_bb_min = minval(mesh%bb_min, dim=2)
+    mesh%grid_bb_max = maxval(mesh%bb_max, dim=2)
+    mesh%grid_ncell = 1_i32
+    mesh%grid_inv_cell = 1.0d0
+
+    if (allocated(mesh%grid_cell_start)) deallocate (mesh%grid_cell_start)
+    if (allocated(mesh%grid_cell_elem)) deallocate (mesh%grid_cell_elem)
+
+    if (mesh%nelem < min_nelem_for_grid) then
+      allocate (mesh%grid_cell_start(2), mesh%grid_cell_elem(0))
+      mesh%grid_cell_start = [1_i32, 1_i32]
+      return
+    end if
+
+    span = mesh%grid_bb_max - mesh%grid_bb_min
+    span_ref = max(maxval(abs(span)), 1.0d0)
+    eps_expand = max(abs_span_eps, rel_span_eps * span_ref)
+    do iaxis = 1, 3
+      if (span(iaxis) <= abs_span_eps) then
+        mesh%grid_bb_min(iaxis) = mesh%grid_bb_min(iaxis) - 0.5d0 * eps_expand
+        mesh%grid_bb_max(iaxis) = mesh%grid_bb_max(iaxis) + 0.5d0 * eps_expand
+      end if
+    end do
+    span = mesh%grid_bb_max - mesh%grid_bb_min
+
+    target_cells = max(1.0d0, real(mesh%nelem, dp) / real(target_elems_per_cell, dp))
+    cell_size = (span(1) * span(2) * span(3) / target_cells)**(1.0d0 / 3.0d0)
+    if (cell_size <= 0.0d0) cell_size = span_ref
+
+    do iaxis = 1, 3
+      mesh%grid_ncell(iaxis) = int(span(iaxis) / cell_size, kind=i32)
+      if (mesh%grid_ncell(iaxis) < 1_i32) mesh%grid_ncell(iaxis) = 1_i32
+      if (mesh%grid_ncell(iaxis) > max_cells_axis) mesh%grid_ncell(iaxis) = max_cells_axis
+      mesh%grid_inv_cell(iaxis) = real(mesh%grid_ncell(iaxis), dp) / span(iaxis)
+    end do
+
+    nx = mesh%grid_ncell(1)
+    ny = mesh%grid_ncell(2)
+    nz = mesh%grid_ncell(3)
+    ncells = nx * ny * nz
+
+    allocate (counts(ncells))
+    counts = 0_i32
+    do i = 1, mesh%nelem
+      ix0 = coord_to_cell(mesh, mesh%bb_min(1, i), 1_i32)
+      ix1 = coord_to_cell(mesh, mesh%bb_max(1, i), 1_i32)
+      iy0 = coord_to_cell(mesh, mesh%bb_min(2, i), 2_i32)
+      iy1 = coord_to_cell(mesh, mesh%bb_max(2, i), 2_i32)
+      iz0 = coord_to_cell(mesh, mesh%bb_min(3, i), 3_i32)
+      iz1 = coord_to_cell(mesh, mesh%bb_max(3, i), 3_i32)
+      do iz = iz0, iz1
+        do iy = iy0, iy1
+          do ix = ix0, ix1
+            cid = cell_id(ix, iy, iz, nx, ny)
+            counts(cid) = counts(cid) + 1_i32
+          end do
+        end do
+      end do
+    end do
+
+    allocate (mesh%grid_cell_start(ncells + 1))
+    mesh%grid_cell_start(1) = 1_i32
+    do cid = 1, ncells
+      mesh%grid_cell_start(cid + 1) = mesh%grid_cell_start(cid) + counts(cid)
+    end do
+
+    total_refs = mesh%grid_cell_start(ncells + 1) - 1_i32
+    if (total_refs < 0_i32) then
+      error stop "collision grid CSR construction failed"
+    end if
+    allocate (mesh%grid_cell_elem(total_refs))
+
+    if (total_refs > 0_i32) then
+      allocate (offsets(ncells))
+      offsets = mesh%grid_cell_start(1:ncells)
+      do i = 1, mesh%nelem
+        ix0 = coord_to_cell(mesh, mesh%bb_min(1, i), 1_i32)
+        ix1 = coord_to_cell(mesh, mesh%bb_max(1, i), 1_i32)
+        iy0 = coord_to_cell(mesh, mesh%bb_min(2, i), 2_i32)
+        iy1 = coord_to_cell(mesh, mesh%bb_max(2, i), 2_i32)
+        iz0 = coord_to_cell(mesh, mesh%bb_min(3, i), 3_i32)
+        iz1 = coord_to_cell(mesh, mesh%bb_max(3, i), 3_i32)
+        do iz = iz0, iz1
+          do iy = iy0, iy1
+            do ix = ix0, ix1
+              cid = cell_id(ix, iy, iz, nx, ny)
+              pos = offsets(cid)
+              mesh%grid_cell_elem(pos) = i
+              offsets(cid) = pos + 1_i32
+            end do
+          end do
+        end do
+      end do
+      deallocate (offsets)
+    end if
+
+    deallocate (counts)
+    mesh%use_collision_grid = .true.
+  end subroutine build_collision_grid
+
+  !> 座標をグリッドセル添字へ変換し、範囲外は端セルへ丸める。
+  pure integer(i32) function coord_to_cell(mesh, x, axis) result(idx)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: x
+    integer(i32), intent(in) :: axis
+    real(dp) :: u
+
+    if (x <= mesh%grid_bb_min(axis)) then
+      idx = 1_i32
+      return
+    end if
+    if (x >= mesh%grid_bb_max(axis)) then
+      idx = mesh%grid_ncell(axis)
+      return
+    end if
+
+    u = (x - mesh%grid_bb_min(axis)) * mesh%grid_inv_cell(axis)
+    idx = int(u, kind=i32) + 1_i32
+    if (idx < 1_i32) idx = 1_i32
+    if (idx > mesh%grid_ncell(axis)) idx = mesh%grid_ncell(axis)
+  end function coord_to_cell
+
+  !> 3次元セル添字 `(ix,iy,iz)` をCSR一次元インデックスへ変換する。
+  pure integer(i32) function cell_id(ix, iy, iz, nx, ny) result(cid)
+    integer(i32), intent(in) :: ix, iy, iz, nx, ny
+    cid = (iz - 1_i32) * (nx * ny) + (iy - 1_i32) * nx + ix
+  end function cell_id
 
   !> 3次元ベクトルの外積を返す基本演算。
   !! @param[in] a 左オペランドの3次元ベクトル。

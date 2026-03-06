@@ -4,9 +4,10 @@ program test_dynamics
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, hit_info
   use bem_mesh, only: init_mesh
+  use bem_templates, only: make_plane
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push
-  use bem_collision, only: find_first_hit
+  use bem_collision, only: find_first_hit, segment_triangle_intersect
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
@@ -63,4 +64,91 @@ program test_dynamics
 
   call find_first_hit(mesh_hit, [0.9d0, 0.9d0, 2.0d0], [0.9d0, 0.9d0, -1.0d0], hit)
   call assert_true(.not. hit%has_hit, 'segment outside triangle should not hit')
+
+  call test_collision_grid_equivalence()
+
+contains
+
+  subroutine test_collision_grid_equivalence()
+    type(mesh_type) :: mesh_grid
+    integer :: i, seed_size
+    integer, allocatable :: seed(:)
+    real(dp) :: p0(3), p1(3)
+
+    call make_plane(mesh_grid, size_x=1.0d0, size_y=1.0d0, nx=8_i32, ny=8_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call assert_true(mesh_grid%use_collision_grid, 'collision grid should be enabled for dense mesh')
+
+    call assert_hit_equivalent(mesh_grid, [1.8d0, 1.8d0, 1.0d0], [1.8d0, 1.8d0, -1.0d0], 'segment outside mesh AABB')
+    call assert_hit_equivalent(mesh_grid, [-0.4d0, -0.4d0, 1.0d0], [0.4d0, -0.4d0, 1.0d0], 'axis parallel segment')
+    call assert_hit_equivalent(mesh_grid, [0.1d0, 0.1d0, 0.0d0], [0.1d0, 0.1d0, 0.8d0], 'start point inside grid')
+    call assert_hit_equivalent(mesh_grid, [-0.45d0, -0.35d0, 1.0d0], [0.45d0, 0.35d0, -1.0d0], 'multi-cell crossing')
+
+    call random_seed(size=seed_size)
+    allocate (seed(seed_size))
+    do i = 1, seed_size
+      seed(i) = 12345 + 37 * i
+    end do
+    call random_seed(put=seed)
+    deallocate (seed)
+
+    do i = 1, 200
+      call random_number(p0)
+      call random_number(p1)
+      p0 = [1.4d0 * (p0(1) - 0.5d0), 1.4d0 * (p0(2) - 0.5d0), 3.0d0 * (p0(3) - 0.5d0)]
+      p1 = [1.4d0 * (p1(1) - 0.5d0), 1.4d0 * (p1(2) - 0.5d0), 3.0d0 * (p1(3) - 0.5d0)]
+      if (abs(p0(3)) < 1.0d-8) p0(3) = p0(3) + 1.0d-4
+      if (abs(p1(3)) < 1.0d-8) p1(3) = p1(3) + 1.0d-4
+      call assert_hit_equivalent(mesh_grid, p0, p1, 'random segment equivalence')
+    end do
+  end subroutine test_collision_grid_equivalence
+
+  subroutine assert_hit_equivalent(mesh, p0, p1, label)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: p0(3), p1(3)
+    character(len=*), intent(in) :: label
+    type(hit_info) :: hit_fast, hit_ref
+
+    call find_first_hit(mesh, p0, p1, hit_fast)
+    call find_first_hit_bruteforce(mesh, p0, p1, hit_ref)
+
+    call assert_true(hit_fast%has_hit .eqv. hit_ref%has_hit, trim(label)//': has_hit mismatch')
+    if (.not. hit_ref%has_hit) return
+
+    call assert_equal_i32(hit_fast%elem_idx, hit_ref%elem_idx, trim(label)//': elem_idx mismatch')
+    call assert_close_dp(hit_fast%t, hit_ref%t, 1.0d-11, trim(label)//': t mismatch')
+    call assert_allclose_1d(hit_fast%pos, hit_ref%pos, 1.0d-10, trim(label)//': position mismatch')
+  end subroutine assert_hit_equivalent
+
+  subroutine find_first_hit_bruteforce(mesh, p0, p1, hit)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: p0(3), p1(3)
+    type(hit_info), intent(out) :: hit
+
+    integer(i32) :: i
+    logical :: ok
+    real(dp) :: seg_min(3), seg_max(3), t, best_t, h(3)
+
+    seg_min = min(p0, p1)
+    seg_max = max(p0, p1)
+    hit%has_hit = .false.
+    hit%elem_idx = -1_i32
+    hit%t = 0.0d0
+    hit%pos = 0.0d0
+    best_t = huge(1.0d0)
+
+    do i = 1, mesh%nelem
+      if (mesh%bb_max(1, i) < seg_min(1) .or. mesh%bb_min(1, i) > seg_max(1)) cycle
+      if (mesh%bb_max(2, i) < seg_min(2) .or. mesh%bb_min(2, i) > seg_max(2)) cycle
+      if (mesh%bb_max(3, i) < seg_min(3) .or. mesh%bb_min(3, i) > seg_max(3)) cycle
+      call segment_triangle_intersect(p0, p1, mesh%v0(:, i), mesh%v1(:, i), mesh%v2(:, i), ok, t, h)
+      if (.not. ok) cycle
+      if (t < best_t) then
+        best_t = t
+        hit%has_hit = .true.
+        hit%elem_idx = i
+        hit%t = t
+        hit%pos = h
+      end if
+    end do
+  end subroutine find_first_hit_bruteforce
 end program test_dynamics
