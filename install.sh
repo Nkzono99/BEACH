@@ -51,12 +51,8 @@ load_modules_if_requested() {
 
 setup_generic_defaults() {
   : "${USE_MODULES:=0}"
-  : "${CC:=cc}"
-  : "${CXX:=c++}"
   : "${FC:=gfortran}"
   : "${FFLAGS:=-O3 -fopenmp}"
-  : "${CFLAGS:=-O3}"
-  : "${CXXFLAGS:=-O3}"
   : "${LDFLAGS:=}"
 }
 
@@ -89,11 +85,7 @@ setup_generic_defaults
 
 load_modules_if_requested
 
-export FPM_CC="${CC}"
-export FPM_CXX="${CXX}"
 export FPM_FC="${FC}"
-export FPM_CFLAGS="${CFLAGS}"
-export FPM_CXXFLAGS="${CXXFLAGS}"
 export FPM_FFLAGS="${FFLAGS}"
 if [[ -n "${LDFLAGS}" ]]; then
   export FPM_LDFLAGS="${LDFLAGS}"
