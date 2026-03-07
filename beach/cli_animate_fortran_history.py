@@ -71,7 +71,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     self_term = args.potential_self_term.replace("-", "_")
     beach = Beach(output_dir)
-    result = beach.result
+    try:
+        result = beach.result
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f'Fortran output files are missing under "{output_dir}". '
+            "Expected at least summary.txt and charges.csv."
+        ) from exc
 
     try:
         written = beach.animate_mesh(

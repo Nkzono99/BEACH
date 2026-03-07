@@ -68,6 +68,8 @@ contains
       end if
 
       select case (trim(section))
+      case ('')
+        error stop 'Found key-value pair before any TOML section.'
       case ('sim')
         call apply_sim_kv(cfg, line)
       case ('particles')
@@ -80,6 +82,8 @@ contains
         call apply_template_kv(cfg%templates(t_idx), line)
       case ('output')
         call apply_output_kv(cfg, line)
+      case default
+        error stop ('Unknown TOML section: [' // trim(section) // ']')
       end select
     end do
     close (u)
@@ -215,6 +219,8 @@ contains
       call parse_boundary_mode(v, cfg%sim%bc_low(3))
     case ('bc_z_high')
       call parse_boundary_mode(v, cfg%sim%bc_high(3))
+    case default
+      error stop ('Unknown key in [sim]: ' // trim(k))
     end select
   end subroutine apply_sim_kv
 
@@ -302,6 +308,8 @@ contains
     case ('inject_face')
       call parse_string(v, spec%inject_face)
       spec%inject_face = lower(trim(spec%inject_face))
+    case default
+      error stop ('Unknown key in [[particles.species]]: ' // trim(k))
     end select
   end subroutine apply_particles_species_kv
 
@@ -739,6 +747,8 @@ contains
       call parse_string(v, cfg%obj_path)
     case ('n_templates')
       call parse_int(v, cfg%n_templates)
+    case default
+      error stop ('Unknown key in [mesh]: ' // trim(k))
     end select
   end subroutine apply_mesh_kv
 
@@ -785,6 +795,8 @@ contains
       call parse_int(v, spec%n_lon)
     case ('n_lat')
       call parse_int(v, spec%n_lat)
+    case default
+      error stop ('Unknown key in [[mesh.templates]]: ' // trim(k))
     end select
   end subroutine apply_template_kv
 
@@ -807,6 +819,8 @@ contains
       call parse_int(v, cfg%history_stride)
     case ('resume')
       call parse_logical(v, cfg%resume_output)
+    case default
+      error stop ('Unknown key in [output]: ' // trim(k))
     end select
   end subroutine apply_output_kv
 
@@ -859,7 +873,14 @@ contains
     character(len=32) :: t
 
     t = lower(trim(adjustl(text)))
-    out = (t == 'true' .or. t == '.true.')
+    select case (t)
+    case ('true', '.true.')
+      out = .true.
+    case ('false', '.false.')
+      out = .false.
+    case default
+      error stop 'Logical value must be true/false (or .true./.false.).'
+    end select
   end subroutine parse_logical
 
   !> 前後の二重引用符を外して文字列値へ変換する。
