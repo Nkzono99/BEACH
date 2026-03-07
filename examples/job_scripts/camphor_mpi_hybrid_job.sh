@@ -1,4 +1,5 @@
 #!/bin/bash
+# Generic camphor MPI+OpenMP hybrid batch job template for BEACH.
 #SBATCH -p gr20001a
 #SBATCH --rsc p=5:t=112:c=112
 #SBATCH -t 120:00:00

@@ -185,4 +185,4 @@ fpm test --target test_mpi_hybrid \
 - 出力フォーマット変更時は `beach/fortran_results.py` と CLI を同時更新する。
 - 設定キーを追加・削除したら `docs/fortran_parameter_file.md` を必ず更新する。
 
-camphor向けのMPIジョブ例は `examples/job_scripts/camphor_exp_sphere_details_mpi.sh` に置いています（`make install` 済みで `beach` コマンドが使える前提）。
+camphor向けの汎用MPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` に置いています（`make install` 済みで `beach` コマンドが使える前提）。
