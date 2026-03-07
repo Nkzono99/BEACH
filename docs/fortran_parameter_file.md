@@ -1,203 +1,36 @@
-# Fortranパラメータファイル仕様（TOML）
+# Fortran パラメータファイル仕様（`beach.toml`）
 
-Fortran 実行時は、`fpm run ... -- path/to/config.toml` で設定を読み込めます。引数なし実行でもカレントディレクトリの `beach.toml` を自動読込します。
+この文書は、**現行実装（Fortran 実行系）で推奨する設定方法**をまとめたものです。  
+「以前の書き方との互換」は最後に短く載せ、本文は初見向けに現在の推奨仕様だけを先に説明します。
 
-- 例: `examples/beach.toml`
-- 既定値は `src/config/bem_app_config.f90` の `default_app_config` で定義
+## 1. 読み込みルール
 
----
+- `fpm run -- .../config.toml` で明示指定できます。
+- 引数なし実行時は、カレントディレクトリの `beach.toml` を自動で読み込みます。
+- 本実装は TOML のうち `key = value` とセクション/配列テーブルを使う軽量パーサです。
+- 多くのセクションでは未知キーが無視されるため、キーの打ち間違いに注意してください（`[particles]` は廃止キー検出でエラーになります）。
 
-## 1. 最小例
+## 2. 初見向けの最小推奨例
+
+まずは `reservoir_face`（物理流入ベース）を推奨します。
 
 ```toml
 [sim]
-dt = 1.0e-9
+dt = 2.0e-8
+batch_duration_step = 60000.0
+batch_count = 100
+max_step = 10000
+softening = 1.0e-6
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
 rng_seed = 12345
-batch_count = 4
-max_step = 400
-
-[[particles.species]]
-npcls_per_step = 64
-
-[mesh]
-mode = "template"
-n_templates = 1
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-size_x = 1.0
-size_y = 1.0
-nx = 1
-ny = 1
-center = [0.0, 0.0, 0.0]
-
-[output]
-write_files = true
-dir = "outputs/latest"
-```
-
----
-
-## 2. セクション一覧
-
-- `[sim]`: 時間積分・バッチ回数・電磁場パラメータ
-- `[[particles.species]]`: 粒子種ごとの注入条件（1件以上必須）
-- `[mesh]`: メッシュ入力モード
-- `[[mesh.templates]]`: テンプレート形状定義（複数可）
-- `[output]`: ファイル出力設定
-
----
-
-## 3. パラメータ詳細
-
-### 3.1 `[sim]`
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---:|---|
-| `dt` | float | `1.0e-9` | 時間刻み[s] |
-| `rng_seed` | int | `12345` | 粒子注入乱数のシード |
-| `batch_count` | int | `1` | 1回の実行で進めるバッチ数 |
-| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` / `photo_raycast` 使用時に必要。`batch_duration_step` と同時指定不可） |
-| `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` で指定する倍率（`> 0`） |
-| `max_step` | int | `400` | 粒子あたり最大ステップ |
-| `tol_rel` | float | `1.0e-8` | 相対変化の監視値（早期終了には使わない） |
-| `q_floor` | float | 実装既定値 | ゼロ割防止下限 |
-| `softening` | float | `1.0e-6` | 点電荷近似のソフトニング |
-| `use_hybrid` | bool | 実装既定値 | Hybrid場計算の有効化 |
-| `r_switch_factor` | float | 実装既定値 | 近傍切替半径係数 |
-| `n_sub` | int | 実装既定値 | 近傍細分レベル |
-| `softening_factor` | float | 実装既定値 | `h_ref` 基準ソフトニング係数 |
-| `b0` | float[3] | `[0,0,0]` | 一様磁場[T] |
-| `reservoir_potential_model` | string | `"none"` | `reservoir_face` の電位補正モデル（`none` / `infinity_barrier`） |
-| `phi_infty` | float | `0.0` | 無限遠基準電位 [V]（`infinity_barrier` で使用） |
-| `injection_face_phi_grid_n` | int | `3` | 注入開口面平均電位の格子分割数（`N x N`） |
-| `raycast_max_bounce` | int | `16` | `photo_raycast` の1レイあたり境界通過上限回数（`>=1`） |
-| `use_box` | bool | `false` | シミュレーションボックス境界を有効化 |
-| `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限座標[m] |
-| `box_max` | float[3] | `[1,1,1]` | ボックス上限座標[m] |
-| `bc_x_low` | string | `"open"` | x低側境界 (`open`/`reflect`/`periodic`) |
-| `bc_x_high` | string | `"open"` | x高側境界 (`open`/`reflect`/`periodic`) |
-| `bc_y_low` | string | `"open"` | y低側境界 (`open`/`reflect`/`periodic`) |
-| `bc_y_high` | string | `"open"` | y高側境界 (`open`/`reflect`/`periodic`) |
-| `bc_z_low` | string | `"open"` | z低側境界 (`open`/`reflect`/`periodic`) |
-| `bc_z_high` | string | `"open"` | z高側境界 (`open`/`reflect`/`periodic`) |
-
-### 3.2 `[[particles.species]]`
-
-単一種でも `[[particles.species]]` を1件以上定義してください。
-各エントリは独立した粒子注入条件です。未指定キーは実装既定値で補完されます。
-`source_mode="volume_seed"` では従来どおり `npcls_per_step` 個を毎バッチ生成します。
-`source_mode="reservoir_face"` では、上流プラズマ条件から物理流入量を計算し、`w_particle`（または `target_macro_particles_per_batch` から自動算出した `w_particle`）を使って `npcls_per_step` を内部で自動決定します。  
-`source_mode="photo_raycast"` では、照射面から `rays_per_batch` 本のレイを発射し、最初の交差要素からのみ光電子を放出します（レイはそこで消滅）。
-
-| キー | 型 | 説明 |
-|---|---|---|
-| `enabled` | bool | 有効/無効（既定: `true`） |
-| `source_mode` | string | `volume_seed`（既定） / `reservoir_face` / `photo_raycast` |
-| `npcls_per_step` | int | `volume_seed` 時の1バッチ生成粒子数 |
-| `number_density_cm3` | float | `reservoir_face` 時の上流密度[`cm^-3`] |
-| `number_density_m3` | float | `reservoir_face` 時の上流密度[`m^-3`]（`number_density_cm3` と排他） |
-| `q_particle` | float | 粒子電荷[C] |
-| `m_particle` | float | 粒子質量[kg] |
-| `w_particle` | float | superparticle 重み（`reservoir_face` では 1マクロ粒子が代表する実粒子数） |
-| `target_macro_particles_per_batch` | int | `reservoir_face` での目標マクロ粒子数/バッチ（`>0` で `w_particle` 自動算出、`-1` は species[1] と同じ `w_particle` を使用） |
-| `pos_low` | float[3] | 初期位置下限[m] |
-| `pos_high` | float[3] | 初期位置上限[m] |
-| `drift_velocity` | float[3] | ドリフト速度[m/s] |
-| `temperature_k` | float | 温度[K] |
-| `temperature_ev` | float | 温度[eV]（`temperature_k` と排他） |
-| `emit_current_density_a_m2` | float | `photo_raycast` 時のレイ垂直面基準放出電流面密度 [A/m^2] |
-| `rays_per_batch` | int | `photo_raycast` 時の1バッチ発射レイ本数 |
-| `deposit_opposite_charge_on_emit` | bool | `photo_raycast` で放出元要素へ逆符号電荷 `-q_particle * w` を堆積する（既定 `false`） |
-| `normal_drift_speed` | float | `photo_raycast` 時の放出法線方向シフト速度 [m/s]（既定 0） |
-| `ray_direction` | float[3] | `photo_raycast` 時のレイ方向（省略時は `inject_face` 内向き法線） |
-| `inject_face` | string | `reservoir_face` / `photo_raycast` 時の注入・照射面（`x_low` / `x_high` / `y_low` / `y_high` / `z_low` / `z_high`） |
-
-粒子数の計算は以下です。
-
-- `volume_seed` の1バッチあたり総粒子数 = `sum(enabled volume_seed species npcls_per_step)`
-- `volume_seed` の総投入粒子数 = `batch_count * sum(enabled volume_seed species npcls_per_step)`
-- `reservoir_face` の期待マクロ粒子数（種 `s`）:
-  - `n_macro_expected_s = gamma_in_s * A_s * batch_duration / w_particle_s`
-  - `gamma_in_s = n_s * (sigma_s * phi(alpha_s) + u_n_s * Phi(alpha_s))`
-  - `alpha_s = u_n_s / sigma_s`
-  - `sigma_s = sqrt(k_B * T_s / m_s)`
-  - `u_n_s = drift_velocity_s ・ inward_normal_s`
-- 実際のバッチ注入数（残差繰越込み）:
-  - `macro_budget_s = residual_s + n_macro_expected_s`
-  - `n_macro_s = floor(max(macro_budget_s, 0))`
-  - `residual_s <- macro_budget_s - n_macro_s`
-- `target_macro_particles_per_batch_s` を使う場合の重み解決:
-  - `w_particle_s = gamma_in_s * A_s * batch_duration / target_macro_particles_per_batch_s`
-- `target_macro_particles_per_batch_s = -1`（species[2]以降のみ）を使う場合:
-  - `w_particle_s = w_particle_1`
-- 上式は `compute_macro_particles_for_batch` の実装と一致します。
-- `photo_raycast` の1ヒットあたり固定重み:
-  - `A_perp = A_launch * |ray_direction_s ・ inward_normal_s|`
-  - `w_hit_s = J_perp_s * A_perp * batch_duration / (|q_s| * rays_per_batch_s)`
-  - 実放出電流は `N_hit_s / rays_per_batch_s`（ヒット率）で決まります。
-  - `deposit_opposite_charge_on_emit = true` のとき、放出元要素へ `dq_emit = -q_s * w_hit_s` を加算します。
-
-`batch_duration` の解決ルール:
-
-- `batch_duration` と `batch_duration_step` の同時指定はエラーです。
-- `batch_duration_step` 指定時は `batch_duration = dt * batch_duration_step` で解決します。
-- `reservoir_face` / `photo_raycast` を使う場合、解決後の `batch_duration` は `> 0` が必須です。
-
-`sim.target_npcls_species1` は廃止されました。指定するとエラーになります。
-
-`sim.reservoir_potential_model = "infinity_barrier"` を有効化した場合、`reservoir_face` の流入判定と法線速度サンプルに電位差補正が入ります。
-
-- `phi_face`: 注入開口面上 `N x N`（`N = injection_face_phi_grid_n`）格子点で評価した平均電位
-- `delta_phi_s = phi_face - phi_infty`
-- `barrier_s = 2 * q_s * delta_phi_s / m_s`
-- `v_inf_min_s = sqrt(max(barrier_s, 0))`
-- `gamma_in_s` は `v_inf >= v_inf_min_s` の切断付き flux-weighted 積分で評価
-- サンプルした `v_inf` から注入面法線速度 `v_face = sqrt(max(v_inf^2 - barrier_s, 0))` を与える
-
-`reservoir_face` では次が必須です。
-
-- `sim.use_box = true`
-- `sim.batch_duration > 0`
-- `number_density_cm3` または `number_density_m3`
-- `inject_face`
-- `w_particle` または `target_macro_particles_per_batch` のどちらか一方
-
-`target_macro_particles_per_batch` を使う場合の追加要件:
-
-- `target_macro_particles_per_batch > 0` または `-1`
-- `w_particle` と同時指定しない
-- `source_mode = "reservoir_face"` の種でのみ指定する（`volume_seed` ではエラー）
-- `-1` は species[2] 以降でのみ有効
-- `-1` を使う場合、species[1] は `enabled = true` かつ `source_mode = "reservoir_face"` で、正の `w_particle` が解決できること
-
-`pos_low` / `pos_high` は注入面上の矩形開口を表します。法線方向の座標は `inject_face` で指定した箱境界と一致している必要があります。
-
-`photo_raycast` では次が必須です。
-
-- `sim.use_box = true`
-- `sim.batch_duration > 0`
-- `emit_current_density_a_m2 > 0`
-- `rays_per_batch > 0`
-- `inject_face`
-- `q_particle`（非ゼロ）
-- `m_particle > 0`
-
-`photo_raycast` の追加要件:
-
-- `ray_direction` を指定する場合は正規化可能で、`inject_face` 内向き法線との内積が正であること
-- `npcls_per_step` / `number_density_cm3` / `number_density_m3` / `w_particle` / `target_macro_particles_per_batch` は指定しない
-- `deposit_opposite_charge_on_emit` は `photo_raycast` でのみ指定する
-
-例: 5/cc, 10eV, 400km/s の上流電子を上面 (`z_high`) から流入させる設定
-
-```toml
-[sim]
-batch_duration = 2.0e-7
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 4.0]
 
 [[particles.species]]
 source_mode = "reservoir_face"
@@ -205,33 +38,10 @@ number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
-w_particle = 1.0e5
+target_macro_particles_per_batch = 5000
 inject_face = "z_high"
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
-drift_velocity = [0.0, 0.0, -4.0e5]
-```
-
-`batch_duration_step` と `target_macro_particles_per_batch` を使う例:
-
-```toml
-[sim]
-dt = 1.0e-9
-batch_duration_step = 200.0
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 4.0]
-
-[[particles.species]]
-source_mode = "reservoir_face"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-target_macro_particles_per_batch = 300
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
+pos_low = [0.0, 0.0, 10.0]
+pos_high = [1.0, 1.0, 10.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
 
 [[particles.species]]
@@ -240,46 +50,148 @@ number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = 1.602176634e-19
 m_particle = 1.672482821616e-27
-target_macro_particles_per_batch = -1  # species[1] と同じ w_particle を使う
+target_macro_particles_per_batch = -1
 inject_face = "z_high"
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
+pos_low = [0.0, 0.0, 10.0]
+pos_high = [1.0, 1.0, 10.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.5, 0.5, 0.02]
+
+[output]
+write_files = true
+dir = "outputs/latest"
+history_stride = 1
 ```
 
-`photo_raycast` を使って上面 (`z_high`) から斜入射照射する例:
+## 3. セクションとキー
 
-```toml
-[sim]
-batch_duration = 2.0e-7
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 4.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
-raycast_max_bounce = 24
+### 3.1 `[sim]`
 
-[[particles.species]]
-source_mode = "photo_raycast"
-emit_current_density_a_m2 = 2.0e-4
-rays_per_batch = 500
-deposit_opposite_charge_on_emit = true
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-temperature_ev = 1.5
-normal_drift_speed = 1.0e5
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
-ray_direction = [0.2, 0.0, -1.0]
-```
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `dt` | float | `1.0e-9` | 時間刻み [s] |
+| `rng_seed` | int | `12345` | 乱数シード |
+| `batch_count` | int | `1` | 1回の実行で処理するバッチ数 |
+| `batch_duration` | float | `0.0` | 1バッチの物理時間 [s] |
+| `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` |
+| `max_step` | int | `400` | 粒子あたり最大ステップ数 |
+| `tol_rel` | float | `1.0e-8` | 相対変化量の監視値（停止条件には未使用） |
+| `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
+| `softening` | float | `1.0e-6` | 電場計算の softening 長さ [m] |
+| `use_hybrid` | bool | `true` | 予約キー（現行電場計算では未使用） |
+| `r_switch_factor` | float | `3.0` | 予約キー（未使用） |
+| `n_sub` | int | `2` | 予約キー（未使用） |
+| `softening_factor` | float | `0.1` | 予約キー（未使用） |
+| `b0` | float[3] | `[0,0,0]` | 一様磁場 [T] |
+| `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
+| `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
+| `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の格子分割数 `N x N` |
+| `raycast_max_bounce` | int | `16` | `photo_raycast` レイ追跡の最大反射回数 |
+| `use_box` | bool | `false` | ボックス境界を有効化 |
+| `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限 [m] |
+| `box_max` | float[3] | `[1,1,1]` | ボックス上限 [m] |
+| `bc_x_low` ほか | string | `"open"` | `open` / `reflect` / `periodic`（`open` は `outflow`,`escape` も可） |
 
-旧キー `n_particles` は廃止されています。
-旧 `[particles]` 直下の既定値キーも廃止されました。`rng_seed` は `[sim]` に置き、粒子物性は各 `[[particles.species]]` に記述してください。
+`batch_duration` の解決ルール:
+
+- `batch_duration` と `batch_duration_step` の同時指定はエラーです。
+- `batch_duration_step` 指定時は `batch_duration = dt * batch_duration_step` に解決します。
+- `reservoir_face` / `photo_raycast` を使う場合、解決後の `batch_duration > 0` が必須です。
+
+重要な実行挙動:
+
+- 実行ループは `batch_count` 分だけ進みます。
+- `tol_rel` は出力監視値であり、現行実装では早期終了条件には使いません。
+
+### 3.2 `[[particles.species]]`
+
+`[[particles.species]]` は 1 件以上必須です。
+
+### 共通キー
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `enabled` | bool | `true` | 種を有効化 |
+| `source_mode` | string | `"volume_seed"` | `volume_seed` / `reservoir_face` / `photo_raycast` |
+| `q_particle` | float | `-1.602176634e-19` | 粒子電荷 [C] |
+| `m_particle` | float | `9.10938356e-31` | 粒子質量 [kg] |
+| `pos_low` | float[3] | `[-0.4,-0.4,0.2]` | 位置下限 [m] |
+| `pos_high` | float[3] | `[0.4,0.4,0.5]` | 位置上限 [m] |
+| `drift_velocity` | float[3] | `[0,0,-8e5]` | ドリフト速度 [m/s] |
+| `temperature_k` | float | `2.0e4` | 温度 [K] |
+| `temperature_ev` | float | 未指定 | 温度 [eV]（`temperature_k` と排他） |
+| `inject_face` | string | 未指定 | `x_low/x_high/y_low/y_high/z_low/z_high` |
+
+### `source_mode = "volume_seed"`
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `npcls_per_step` | int | `0` | 1バッチに生成するマクロ粒子数 |
+| `w_particle` | float | `1.0` | マクロ粒子重み |
+
+制約:
+
+- 有効 species 全体で `npcls_per_step` 合計が 1 以上必要です（`reservoir_face` / `photo_raycast` を使わない場合）。
+- `target_macro_particles_per_batch` は使用できません。
+
+### `source_mode = "reservoir_face"`
+
+| キー | 型 | 説明 |
+|---|---|---|
+| `number_density_cm3` / `number_density_m3` | float | 上流密度（どちらか片方必須） |
+| `w_particle` | float | マクロ粒子重み（正値） |
+| `target_macro_particles_per_batch` | int | `w_particle` 自動解決用（`>0` または `-1`） |
+
+制約:
+
+- `sim.use_box = true` 必須
+- `sim.batch_duration > 0` 必須
+- `inject_face` 必須
+- `pos_low` / `pos_high` は指定 face 上になければエラー
+- `w_particle` と `target_macro_particles_per_batch` は同時指定不可
+- `target_macro_particles_per_batch = -1` は species[2] 以降のみ可（species[1] の `w_particle` を共有）
+
+粒子数決定（1種あたり）:
+
+- 期待マクロ粒子数 `n_macro_expected = gamma_in * A * batch_duration / w_particle`
+- 実際の注入数は残差繰越つきで `floor(residual + n_macro_expected)`
+- `target_macro_particles_per_batch > 0` のときは、その値になるよう `w_particle` を自動計算
+
+### `source_mode = "photo_raycast"`
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `emit_current_density_a_m2` | float | `0.0` | レイ垂直面基準の放出電流密度 [A/m^2] |
+| `rays_per_batch` | int | `0` | 1バッチの発射レイ数 |
+| `deposit_opposite_charge_on_emit` | bool | `false` | 放出元要素に逆符号電荷を堆積 |
+| `normal_drift_speed` | float | `0.0` | 放出法線方向ドリフト [m/s] |
+| `ray_direction` | float[3] | 未指定時は注入面内向き法線 | レイ方向 |
+
+制約:
+
+- `sim.use_box = true` 必須
+- `sim.batch_duration > 0` 必須
+- `emit_current_density_a_m2 > 0`, `rays_per_batch > 0` 必須
+- `inject_face` 必須
+- `q_particle` は非ゼロ、`m_particle > 0` 必須
+- `ray_direction` 指定時は正規化可能で、注入面内向き法線への内積が正であること
+- `npcls_per_step` / `number_density_*` / `w_particle` / `target_macro_particles_per_batch` は使用不可
+
+`photo_raycast` の重み:
+
+- `w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)`
+- 実際の放出数はレイの命中率で決まるため、バッチごとの生成粒子数は `rays_per_batch` 以下になります。
 
 ### 3.3 `[mesh]`
 
@@ -287,60 +199,63 @@ ray_direction = [0.2, 0.0, -1.0]
 |---|---|---:|---|
 | `mode` | string | `"auto"` | `auto` / `obj` / `template` |
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ パス |
-| `n_templates` | int | `1` | 使用する template エントリ数 |
+| `n_templates` | int | `1` | `template` モードで使うテンプレート数上限 |
+
+`mode = "auto"` のときは `obj_path` が存在すれば OBJ、なければ template を使います。
 
 ### 3.4 `[[mesh.templates]]`
 
 共通キー:
 
-- `enabled` (bool): 有効/無効
-- `kind` (string): `plane`, `box`, `cylinder`, `sphere`
-- `center` (float[3]): 中心座標
+- `enabled` (bool)
+- `kind` (`plane` / `box` / `cylinder` / `sphere`)
+- `center` (float[3])
 
-`kind` ごとの主キー:
+`kind` ごとの主要キー:
 
 - `plane`: `size_x`, `size_y`, `nx`, `ny`
 - `box`: `size`, `nx`, `ny`, `nz`
 - `cylinder`: `radius`, `height`, `n_theta`, `n_z`, `cap`
 - `sphere`: `radius`, `n_lon`, `n_lat`
 
+注意:
+
+- `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は「定義した件数」で解決されます。
+- `n_templates` は template 未定義時の既定動作向けと考えてください。
+
 ### 3.5 `[output]`
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `write_files` | bool | `true` | 結果ファイルを書き出すか |
+| `write_files` | bool | `true` | ファイル出力の有効/無効 |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
-| `history_stride` | int | `1` | 何バッチごとに `charge_history.csv` へ履歴を書き出すか（1=毎バッチ） |
-| `resume` | bool | `false` | `dir` に既存の `summary.txt` / `charges.csv` / `rng_state.txt`（あれば `macro_residuals.csv` も） があれば、その続きから再開する |
+| `history_stride` | int | `1` | `charge_history.csv` の出力間隔（バッチ単位） |
+| `resume` | bool | `false` | 既存チェックポイントから再開 |
 
----
+出力ファイル:
 
-出力ディレクトリには以下のファイルが生成されます。
+- `summary.txt`
+- `charges.csv`
+- `mesh_triangles.csv`
+- `charge_history.csv`（`history_stride > 0` のとき）
+- `rng_state.txt`
+- `macro_residuals.csv`
 
-- `summary.txt`: 集計統計（`escaped_boundary` / `survived_max_step` を含む）
-- `charges.csv`: 最終要素電荷
-- `mesh_triangles.csv`: 要素三角形頂点と最終電荷
-- `charge_history.csv`: 指定した `history_stride` 間隔で逐次書き出される要素電荷履歴（時間発展）
-- `rng_state.txt`: 次回 `resume = true` で再開するための Fortran 乱数状態
-- `macro_residuals.csv`: `reservoir_face` の自動粒子数計算で残った端数状態
+`resume = true` の要件:
 
-## 4. 注意点
+- `write_files = true` 必須
+- `output.dir` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
+- `macro_residuals.csv` は存在すれば読み込みます
 
-- `[[particles.species]]` は1件以上必須です。
-- `sim.batch_count` は1回の実行で追加するバッチ数です。`tol_rel` を下回っても早期終了しません。
-- `rng_seed` は `[sim]` に置きます。
-- `[[particles.species]]` を使うと、粒子は種ごとラウンドロビンで混在して初期化されます。
-- `[[mesh.templates]]` は同じ `kind` を複数回指定可能です。
-- `n_templates` は先頭から読み込む最大件数として扱われます。
-- `mode="auto"` では `obj_path` が存在すれば OBJ、なければ template を使用します。
-- `output.resume = true` の場合、同じ `output.dir` にある前回のチェックポイントを読み込み、今回の `sim.batch_count` 分だけ追加でバッチを進めます。
-- 再開時は `charge_history.csv` に追記します。既存履歴も残したいので、通常は同じ `output.dir` を使ってください。
+## 4. 旧キー・非推奨の扱い
 
----
+以下は現行では使いません（指定するとエラー）:
 
-## 5. 典型的な実行
+- `sim.target_npcls_species1`
+- `sim.npcls_per_step`
+- `particles.rng_seed`（`sim.rng_seed` へ移動）
+- `particles.n_particles`
+- `[particles]` 直下の粒子物性デフォルトキー
+- `particles.species.n_particles`
 
-```bash
-fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
-python examples/inspect_fortran_output.py outputs/latest
-```
+推奨としては、`[particles]` は省略し、`[[particles.species]]` のみを記述してください。

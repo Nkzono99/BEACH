@@ -87,7 +87,7 @@ def list_fortran_runs(root: str | Path) -> list[Path]:
 class Beach:
     """Facade for one Fortran output directory with lazy result loading."""
 
-    def __init__(self, output_dir: str | Path) -> None:
+    def __init__(self, output_dir: str | Path = "outputs/latest") -> None:
         self.output_dir = Path(output_dir)
         self._result: FortranRunResult | None = None
 

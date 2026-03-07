@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from beach.fortran_results import (
+    Beach,
     K_COULOMB,
     FortranRunResult,
     _select_frame_columns,
@@ -89,6 +90,33 @@ def test_list_fortran_runs(tmp_path: Path) -> None:
 
     runs = list_fortran_runs(tmp_path)
     assert runs == [valid]
+
+
+def test_beach_uses_outputs_latest_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "outputs" / "latest"
+    out.mkdir(parents=True)
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=1",
+                "processed_particles=1",
+                "absorbed=1",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,0.0\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+
+    beach = Beach()
+    assert beach.output_dir == Path("outputs/latest")
+    assert beach.result.mesh_nelem == 1
 
 
 def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
