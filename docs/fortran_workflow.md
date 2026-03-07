@@ -40,6 +40,16 @@ python -m pip install -U pip setuptools wheel
 python -m pip install -e . --no-build-isolation
 ```
 
+### 1.4 Git URL から一括インストール
+
+`pip install` 時に `make install` を実行し、Python CLI と Fortran 実行バイナリを同時導入できます。
+
+```bash
+python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
+```
+
+この方式でも `make` / `fpm` / Fortran コンパイラは必要です。
+
 ## 2. 実行フロー
 
 1. `beach.toml` を用意（仕様は `docs/fortran_parameter_file.md`）

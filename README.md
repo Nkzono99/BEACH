@@ -7,44 +7,32 @@ v0.x の主対象は **insulator accumulation（絶縁体への電荷蓄積）**
 
 ## 推奨ワークフロー
 
-このリポジトリでは、**インストール済みの `beach` コマンドで実行する運用**を推奨します。  
-`fpm run` は開発時の直接実行手段として残しています。
+通常利用では、**`pip install git+...` で導入して `beach` を実行する運用**を推奨します。  
+`pip install -e` や `make` は、開発に参加する場合の手順として扱います。
 
-## 1. セットアップ
+## 1. 利用者向けセットアップ
 
 ### 1.1 前提ツール
 
 ```bash
+make --version
 gfortran --version
 fpm --version
 python --version
 ```
 
-### 1.2 Fortran 実行系のインストール（推奨）
-
-```bash
-make
-```
-
-`make` のデフォルトターゲットは `install` で、`BUILD_PROFILE=auto`（ホスト自動判定）で導入します。
-環境に応じてプロファイルを明示することも可能です。
-
-```bash
-make install-generic
-make install-camphor
-```
-
-`install.sh` の既定インストール先は `~/.local/bin/beach` です。必要に応じて PATH を通してください。
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-### 1.3 Python 後処理
+### 1.2 Git URL から一括インストール（推奨）
 
 ```bash
 python -m pip install -U pip setuptools wheel
-python -m pip install -e . --no-build-isolation
+python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
+```
+
+このインストールでは、ビルド時に `make install` が実行され、Python 側と Fortran 実行バイナリ（`beach`）が同時に導入されます。
+ユーザーインストール時は `~/.local/bin` に入るため、必要なら PATH を追加してください。
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ## 2. 実行
@@ -84,22 +72,15 @@ beach-animate-history outputs/latest \
   --total-frames 200
 ```
 
-## 3. よく使うコマンド
+## 3. 運用でよく使うコマンド
 
-### テスト
-
-```bash
-pytest -q
-fpm test
-```
-
-### 負荷見積もり
+### 3.1 負荷見積もり
 
 ```bash
 beach-estimate-workload examples/beach.toml --threads 8
 ```
 
-### 再開実行
+### 3.2 再開実行
 
 ```toml
 [output]
@@ -109,9 +90,32 @@ resume = true
 
 同じ `output.dir` で `beach` を再実行すると続きから計算します。
 
-## 4. 開発者向け補足（`fpm`）
+## 4. 開発に携わる場合
 
-このプロジェクトは `fpm` で管理されています。開発時には直接実行も可能です。
+ローカル開発では、Python と Fortran を分けて運用するのが便利です。
+
+### 4.1 Python 側（編集可能インストール）
+
+```bash
+python -m pip install -U pip setuptools wheel
+python -m pip install -e . --no-build-isolation
+```
+
+### 4.2 Fortran 実行系（`make`）
+
+```bash
+make
+```
+
+`make` のデフォルトターゲットは `install` で、`BUILD_PROFILE=auto`（ホスト自動判定）を使います。
+必要に応じて明示指定できます。
+
+```bash
+make install-generic
+make install-camphor
+```
+
+### 4.3 `fpm` 直接実行（開発向け）
 
 ```bash
 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
@@ -123,6 +127,13 @@ MPI + OpenMP（`USE_MPI` 有効化）:
 FPM_FC=mpiifort \
 fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 4" -- examples/beach.toml
+```
+
+### 4.4 テスト
+
+```bash
+pytest -q
+fpm test
 ```
 
 ## 5. プロジェクト構成
