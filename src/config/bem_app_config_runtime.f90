@@ -8,7 +8,7 @@ module bem_app_config_runtime
   use bem_importers, only: load_obj_mesh
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
-    sample_reservoir_face_particles
+    sample_reservoir_face_particles, sample_photo_raycast_particles
   use bem_particles, only: init_particles
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, particles_per_batch_from_config, &
@@ -63,8 +63,9 @@ contains
     counts = 0_i32
     do s = 1, cfg%n_particle_species
       if (cfg%particle_species(s)%enabled) then
-        if (trim(lower(cfg%particle_species(s)%source_mode)) == 'reservoir_face') then
-          error stop 'init_particles_from_config does not support reservoir_face. Use init_particle_batch_from_config.'
+        if (trim(lower(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
+            trim(lower(cfg%particle_species(s)%source_mode)) == 'photo_raycast') then
+          error stop 'init_particles_from_config supports volume_seed only. Use init_particle_batch_from_config.'
         end if
         if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
           error stop 'particles.species.npcls_per_step must be >= 0.'
@@ -127,9 +128,10 @@ contains
     type(mesh_type), intent(in), optional :: mesh
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx
-    integer(i32), allocatable :: counts(:), species_cursor(:), species_id(:)
+    integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:)
-    real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), x(:, :), v(:, :), q(:), m(:), w(:)
+    real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
+    real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
     if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
@@ -140,16 +142,17 @@ contains
       if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
     end if
 
-    allocate (counts(cfg%n_particle_species))
+    allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
-    counts = 0_i32
+    counts_max = 0_i32
+    counts_actual = 0_i32
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
-        counts(s) = cfg%particle_species(s)%npcls_per_step
+        counts_max(s) = cfg%particle_species(s)%npcls_per_step
       case ('reservoir_face')
         if (.not. present(state)) then
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
@@ -158,35 +161,53 @@ contains
           cfg%sim, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
         )
         call compute_macro_particles_for_species( &
-          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts(s), vmin_normal=vmin_normal(s) &
+          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s) &
+        )
+      case ('photo_raycast')
+        counts_max(s) = cfg%particle_species(s)%rays_per_batch
+      case default
+        error stop 'Unknown particles.species.source_mode.'
+      end select
+    end do
+    max_rank = max(1_i32, maxval(counts_max))
+    allocate (x_species(3, max_rank, cfg%n_particle_species))
+    allocate (v_species(3, max_rank, cfg%n_particle_species))
+    allocate (w_species(max_rank, cfg%n_particle_species))
+    x_species = 0.0d0
+    v_species = 0.0d0
+    w_species = 0.0d0
+    do s = 1, cfg%n_particle_species
+      if (counts_max(s) <= 0_i32) cycle
+      select case (trim(lower(cfg%particle_species(s)%source_mode)))
+      case ('volume_seed', 'reservoir_face')
+        call sample_species_state( &
+          cfg%sim, cfg%particle_species(s), counts_max(s), x_species(:, 1:counts_max(s), s), v_species(:, 1:counts_max(s), s), &
+          barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s) &
+        )
+        counts_actual(s) = counts_max(s)
+        w_species(1:counts_actual(s), s) = cfg%particle_species(s)%w_particle
+      case ('photo_raycast')
+        if (.not. present(mesh)) then
+          error stop 'photo_raycast requires mesh in init_particle_batch_from_config.'
+        end if
+        call sample_photo_species_state( &
+          cfg%sim, cfg%particle_species(s), mesh, counts_max(s), x_species(:, 1:counts_max(s), s), &
+          v_species(:, 1:counts_max(s), s), w_species(1:counts_max(s), s), counts_actual(s) &
         )
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
     end do
-    batch_n = sum(counts)
 
+    batch_n = sum(counts_actual)
     allocate (species_id(batch_n))
-    max_rank = max(1_i32, maxval(counts))
     out_idx = 0_i32
     do i = 1, max_rank
       do s = 1, cfg%n_particle_species
-        if (i > counts(s)) cycle
+        if (i > counts_actual(s)) cycle
         out_idx = out_idx + 1_i32
         species_id(out_idx) = s
       end do
-    end do
-
-    allocate (x_species(3, max_rank, cfg%n_particle_species))
-    allocate (v_species(3, max_rank, cfg%n_particle_species))
-    x_species = 0.0d0
-    v_species = 0.0d0
-    do s = 1, cfg%n_particle_species
-      if (counts(s) <= 0_i32) cycle
-      call sample_species_state( &
-        cfg%sim, cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s), &
-        barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s) &
-      )
     end do
 
     allocate (x(3, batch_n), v(3, batch_n), q(batch_n), m(batch_n), w(batch_n))
@@ -199,7 +220,7 @@ contains
       v(:, i) = v_species(:, species_cursor(s), s)
       q(i) = cfg%particle_species(s)%q_particle
       m(i) = cfg%particle_species(s)%m_particle
-      w(i) = cfg%particle_species(s)%w_particle
+      w(i) = w_species(species_cursor(s), s)
     end do
 
     call init_particles(pcls, x, v, q, m, w)
@@ -252,10 +273,42 @@ contains
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, position_jitter_dt=sim%dt &
         )
       end if
+    case ('photo_raycast')
+      error stop 'sample_species_state does not support photo_raycast. Use sample_photo_species_state.'
     case default
       error stop 'Unknown particles.species.source_mode.'
     end select
   end subroutine sample_species_state
+
+  !> photo_raycast 粒子種のレイキャスト放出を実行する。
+  !! @param[in] sim シミュレーション設定。
+  !! @param[in] spec photo_raycast 粒子種設定。
+  !! @param[in] mesh 交差判定に使う現在メッシュ。
+  !! @param[in] n_rays バッチで発射するレイ本数。
+  !! @param[out] x 生成した位置配列 `x(3,n_rays)` [m]。
+  !! @param[out] v 生成した速度配列 `v(3,n_rays)` [m/s]。
+  !! @param[out] w 生成した重み配列 `w(n_rays)`。
+  !! @param[out] n_emit 実際に放出された粒子数。
+  subroutine sample_photo_species_state(sim, spec, mesh, n_rays, x, v, w, n_emit)
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec
+    type(mesh_type), intent(in) :: mesh
+    integer(i32), intent(in) :: n_rays
+    real(dp), intent(out) :: x(:, :)
+    real(dp), intent(out) :: v(:, :)
+    real(dp), intent(out) :: w(:)
+    integer(i32), intent(out) :: n_emit
+
+    if (n_rays <= 0_i32) then
+      n_emit = 0_i32
+      return
+    end if
+    call sample_photo_raycast_particles( &
+      mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+      species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
+      n_rays, x, v, w, n_emit &
+    )
+  end subroutine sample_photo_species_state
 
   !> reservoir_face 用に、物理流量と残差から今バッチのマクロ粒子数を決める。
   !! @param[in] sim ボックス境界・バッチ時間などのシミュレーション設定。

@@ -3,6 +3,7 @@ program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, particles_soa, injection_state
   use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
+  use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
   use bem_app_config, only: &
     app_config, default_app_config, species_from_defaults, &
@@ -15,6 +16,7 @@ program test_templates_importers_runtime
   type(app_config) :: cfg
   type(particles_soa) :: pcls
   type(injection_state) :: state
+  real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1)
 
   character(len=*), parameter :: obj_path = 'test_templates_runtime_tmp.obj'
   character(len=*), parameter :: missing_obj_path = 'test_templates_runtime_missing.obj'
@@ -54,14 +56,14 @@ program test_templates_importers_runtime
   cfg%templates(1)%ny = 1_i32
   cfg%templates(1)%size_x = 1.0d0
   cfg%templates(1)%size_y = 1.0d0
-  cfg%templates(1)%center = [0.0d0, 0.0d0, 0.0d0]
+  cfg%templates(1)%center = [0.0d0, 0.0d0, 0.1d0]
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 2_i32, 'mesh_mode=auto should fallback to template mesh')
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 2468_i32
   cfg%sim%batch_count = 2_i32
-  cfg%n_particle_species = 2_i32
+  cfg%n_particle_species = 3_i32
 
   cfg%particle_species(1) = species_from_defaults()
   cfg%particle_species(1)%source_mode = 'volume_seed'
@@ -100,6 +102,11 @@ program test_templates_importers_runtime
   call assert_allclose_1d(pcls%v(:, 5), [1.0d0, 0.0d0, 0.0d0], 1.0d-12, 'species-1 velocity mismatch')
   call assert_true(all(pcls%alive), 'all particles should start alive')
 
+  photo_v0(:, 1) = [0.0d0, 0.0d0, 0.1d0]
+  photo_v1(:, 1) = [1.0d0, 0.0d0, 0.1d0]
+  photo_v2(:, 1) = [0.0d0, 1.0d0, 0.1d0]
+  call init_mesh(mesh, photo_v0, photo_v1, photo_v2)
+
   call default_app_config(cfg)
   cfg%sim%rng_seed = 999_i32
   cfg%sim%batch_count = 1_i32
@@ -135,11 +142,30 @@ program test_templates_importers_runtime
   cfg%particle_species(2)%pos_high = [1.0d0, 1.0d0, 0.0d0]
   cfg%particle_species(2)%drift_velocity = [0.0d0, 0.0d0, 1.0d0]
 
-  allocate (state%macro_residual(2))
+  cfg%particle_species(3) = species_from_defaults()
+  cfg%particle_species(3)%source_mode = 'photo_raycast'
+  cfg%particle_species(3)%emit_current_density_a_m2 = 1.0d0
+  cfg%particle_species(3)%rays_per_batch = 1_i32
+  cfg%particle_species(3)%normal_drift_speed = 0.0d0
+  cfg%particle_species(3)%ray_direction = [0.0d0, 0.0d0, -1.0d0]
+  cfg%particle_species(3)%has_ray_direction = .true.
+  cfg%particle_species(3)%q_particle = -1.0d0
+  cfg%particle_species(3)%m_particle = 1.0d0
+  cfg%particle_species(3)%temperature_k = 0.0d0
+  cfg%particle_species(3)%inject_face = 'z_high'
+  cfg%particle_species(3)%pos_low = [0.0d0, 0.0d0, 1.0d0]
+  cfg%particle_species(3)%pos_high = [0.1d0, 0.1d0, 1.0d0]
+
+  allocate (state%macro_residual(3))
   state%macro_residual = 0.0d0
   call seed_particles_from_config(cfg)
   call init_particle_batch_from_config(cfg, 1_i32, pcls, state, mesh=mesh)
-  call assert_equal_i32(pcls%n, 1_i32, 'batch particle count mismatch')
+  call assert_true(pcls%n >= 1_i32, 'batch particle count mismatch')
+  call assert_close_dp(pcls%q(1), 1.0d0, 1.0d-12, 'mixed batch species-1 charge mismatch')
+  if (pcls%n >= 2_i32) then
+    call assert_close_dp(pcls%q(2), -1.0d0, 1.0d-12, 'mixed batch photo charge mismatch')
+    call assert_true(pcls%w(2) > 0.0d0, 'mixed batch photo weight should be positive')
+  end if
   call assert_true(state%macro_residual(2) >= 0.0d0, 'reservoir residual should be non-negative')
   call assert_true(state%macro_residual(2) < 1.0d0, 'reservoir residual should be < 1')
 

@@ -32,7 +32,7 @@ contains
     type(app_config), intent(inout) :: cfg
     integer :: u, ios, i, t_idx, s_idx
     integer(i32) :: per_batch_particles
-    logical :: has_reservoir_species
+    logical :: has_dynamic_source_species
     character(len=512) :: raw, line, section
 
     t_idx = 0
@@ -99,12 +99,15 @@ contains
     if (cfg%sim%injection_face_phi_grid_n < 1_i32) then
       error stop 'sim.injection_face_phi_grid_n must be >= 1.'
     end if
+    if (cfg%sim%raycast_max_bounce < 1_i32) then
+      error stop 'sim.raycast_max_bounce must be >= 1.'
+    end if
     if (.not. ieee_is_finite(cfg%sim%phi_infty)) then
       error stop 'sim.phi_infty must be finite.'
     end if
     call resolve_batch_duration(cfg)
     per_batch_particles = 0_i32
-    has_reservoir_species = .false.
+    has_dynamic_source_species = .false.
     do i = 1, s_idx
       if (.not. cfg%particle_species(i)%enabled) cycle
 
@@ -117,16 +120,23 @@ contains
         if (cfg%particle_species(i)%has_target_macro_particles_per_batch) then
           error stop 'target_macro_particles_per_batch is only valid for reservoir_face.'
         end if
+        if (abs(cfg%particle_species(i)%emit_current_density_a_m2) > 0.0d0 .or. &
+            cfg%particle_species(i)%rays_per_batch /= 0_i32 .or. cfg%particle_species(i)%has_ray_direction) then
+          error stop 'photo_raycast keys are only valid for source_mode="photo_raycast".'
+        end if
         per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
       case ('reservoir_face')
-        has_reservoir_species = .true.
+        has_dynamic_source_species = .true.
         call validate_reservoir_species(cfg, i)
+      case ('photo_raycast')
+        has_dynamic_source_species = .true.
+        call validate_photo_raycast_species(cfg, i)
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
     end do
 
-    if (per_batch_particles <= 0_i32 .and. .not. has_reservoir_species) then
+    if (per_batch_particles <= 0_i32 .and. .not. has_dynamic_source_species) then
       error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
     end if
     cfg%n_particles = cfg%sim%batch_count * per_batch_particles
@@ -184,6 +194,8 @@ contains
       call parse_real(v, cfg%sim%phi_infty)
     case ('injection_face_phi_grid_n')
       call parse_int(v, cfg%sim%injection_face_phi_grid_n)
+    case ('raycast_max_bounce')
+      call parse_int(v, cfg%sim%raycast_max_bounce)
     case ('use_box')
       call parse_logical(v, cfg%sim%use_box)
     case ('box_min')
@@ -274,6 +286,15 @@ contains
     case ('temperature_ev')
       call parse_real(v, spec%temperature_ev)
       spec%has_temperature_ev = .true.
+    case ('emit_current_density_a_m2')
+      call parse_real(v, spec%emit_current_density_a_m2)
+    case ('rays_per_batch')
+      call parse_int(v, spec%rays_per_batch)
+    case ('normal_drift_speed')
+      call parse_real(v, spec%normal_drift_speed)
+    case ('ray_direction')
+      call parse_real3(v, spec%ray_direction)
+      spec%has_ray_direction = .true.
     case ('inject_face')
       call parse_string(v, spec%inject_face)
       spec%inject_face = lower(trim(spec%inject_face))
@@ -327,6 +348,9 @@ contains
 
     if (spec%has_npcls_per_step) then
       error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
+    end if
+    if (abs(spec%emit_current_density_a_m2) > 0.0d0 .or. spec%rays_per_batch /= 0_i32 .or. spec%has_ray_direction) then
+      error stop 'photo_raycast keys are not allowed for reservoir_face.'
     end if
     if (spec%has_w_particle .and. spec%has_target_macro_particles_per_batch) then
       error stop 'reservoir_face does not allow both w_particle and target_macro_particles_per_batch.'
@@ -426,6 +450,105 @@ contains
 
     cfg%particle_species(species_idx) = spec
   end subroutine validate_reservoir_species
+
+  !> `photo_raycast` 用の必須項目と整合性を検証する。
+  !! @param[inout] cfg 検証対象のアプリ設定。
+  !! @param[in] species_idx 検証する粒子種のインデックス（1始まり）。
+  subroutine validate_photo_raycast_species(cfg, species_idx)
+    type(app_config), intent(inout) :: cfg
+    integer, intent(in) :: species_idx
+
+    integer :: axis, axis_t1, axis_t2
+    real(dp) :: boundary_value, area, direction_norm, inward_dot
+    real(dp) :: inward_normal(3)
+    type(particle_species_spec) :: spec
+
+    spec = cfg%particle_species(species_idx)
+
+    if (spec%has_npcls_per_step) then
+      error stop 'particles.species.npcls_per_step is not allowed for photo_raycast.'
+    end if
+    if (spec%has_number_density_cm3 .or. spec%has_number_density_m3) then
+      error stop 'number_density_cm3/number_density_m3 are not allowed for photo_raycast.'
+    end if
+    if (spec%has_w_particle) then
+      error stop 'w_particle is not allowed for photo_raycast.'
+    end if
+    if (spec%has_target_macro_particles_per_batch) then
+      error stop 'target_macro_particles_per_batch is not allowed for photo_raycast.'
+    end if
+    if (.not. cfg%sim%use_box) then
+      error stop 'particles.species.source_mode="photo_raycast" requires sim.use_box = true.'
+    end if
+    if (cfg%sim%batch_duration <= 0.0d0) then
+      error stop 'sim.batch_duration must be > 0 for photo_raycast.'
+    end if
+    if (.not. ieee_is_finite(spec%emit_current_density_a_m2) .or. spec%emit_current_density_a_m2 <= 0.0d0) then
+      error stop 'photo_raycast requires emit_current_density_a_m2 > 0.'
+    end if
+    if (spec%rays_per_batch <= 0_i32) then
+      error stop 'photo_raycast requires rays_per_batch > 0.'
+    end if
+    if (.not. ieee_is_finite(spec%normal_drift_speed)) then
+      error stop 'normal_drift_speed must be finite.'
+    end if
+    if (spec%has_temperature_ev .and. spec%has_temperature_k) then
+      error stop 'Specify either temperature_ev or temperature_k, not both.'
+    end if
+    if (spec%has_temperature_ev) then
+      if (.not. ieee_is_finite(spec%temperature_ev) .or. spec%temperature_ev < 0.0d0) then
+        error stop 'temperature_ev must be finite and >= 0.'
+      end if
+    else
+      if (.not. ieee_is_finite(spec%temperature_k) .or. spec%temperature_k < 0.0d0) then
+        error stop 'temperature_k must be finite and >= 0.'
+      end if
+    end if
+    if (.not. ieee_is_finite(spec%m_particle) .or. spec%m_particle <= 0.0d0) then
+      error stop 'm_particle must be finite and > 0.'
+    end if
+    if (.not. ieee_is_finite(spec%q_particle) .or. abs(spec%q_particle) <= 0.0d0) then
+      error stop 'q_particle must be finite and non-zero for photo_raycast.'
+    end if
+
+    call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec%inject_face, axis, boundary_value)
+    axis_t1 = modulo(axis, 3) + 1
+    axis_t2 = modulo(axis + 1, 3) + 1
+    if (abs(spec%pos_low(axis) - boundary_value) > 1.0d-12 .or. abs(spec%pos_high(axis) - boundary_value) > 1.0d-12) then
+      error stop 'photo_raycast pos_low/pos_high must lie on the selected box face.'
+    end if
+    if (spec%pos_high(axis_t1) < spec%pos_low(axis_t1) .or. spec%pos_high(axis_t2) < spec%pos_low(axis_t2)) then
+      error stop 'photo_raycast tangential bounds must satisfy pos_high >= pos_low.'
+    end if
+    if ((spec%pos_high(axis_t1) - spec%pos_low(axis_t1)) <= 0.0d0 .or. &
+        (spec%pos_high(axis_t2) - spec%pos_low(axis_t2)) <= 0.0d0) then
+      error stop 'photo_raycast opening area must be positive.'
+    end if
+    area = compute_face_area_from_bounds(spec%inject_face, spec%pos_low, spec%pos_high)
+    if (.not. ieee_is_finite(area) .or. area <= 0.0d0) then
+      error stop 'photo_raycast opening area must be positive.'
+    end if
+
+    call resolve_inward_normal(spec%inject_face, inward_normal)
+    if (spec%has_ray_direction) then
+      if (.not. all(ieee_is_finite(spec%ray_direction))) then
+        error stop 'ray_direction must be finite.'
+      end if
+      direction_norm = sqrt(sum(spec%ray_direction * spec%ray_direction))
+      if (direction_norm <= 0.0d0) then
+        error stop 'ray_direction norm must be > 0.'
+      end if
+      spec%ray_direction = spec%ray_direction / direction_norm
+    else
+      spec%ray_direction = inward_normal
+    end if
+    inward_dot = dot_product(spec%ray_direction, inward_normal)
+    if (.not. ieee_is_finite(inward_dot) .or. inward_dot <= 0.0d0) then
+      error stop 'ray_direction must point inward from inject_face.'
+    end if
+
+    cfg%particle_species(species_idx) = spec
+  end subroutine validate_photo_raycast_species
 
   !> 注入面名から法線軸と対応する境界座標を返す。
   !! @param[in] box_min ボックス下限座標 `(x,y,z)` [m]。

@@ -1,18 +1,22 @@
 !> 粒子注入モジュールのサンプリング分岐を重点的に検証するテスト。
 program test_injection_sampling
   use bem_kinds, only: dp, i32
-  use bem_types, only: particles_soa
+  use bem_types, only: particles_soa, mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
+  use bem_mesh, only: init_mesh
   use bem_injection, only: &
     seed_rng, sample_shifted_maxwell_velocities, init_random_beam_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
-    sample_reservoir_face_particles, compute_macro_particles_for_batch
+    sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
   type(particles_soa) :: pcls
-  real(dp), allocatable :: v(:, :), x(:, :)
-  real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt
-  integer(i32) :: n_macro
+  type(mesh_type) :: mesh
+  type(sim_config) :: sim
+  real(dp), allocatable :: v(:, :), x(:, :), w_photo(:)
+  real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt, expected_w
+  real(dp) :: ray_dir(3), tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
+  integer(i32) :: n_macro, n_emit
   integer :: i
 
   call seed_rng()
@@ -80,6 +84,58 @@ program test_injection_sampling
   do i = 1, 4
     call assert_close_dp(v(1, i), expected_vn, 1.0d-10, 'barrier-corrected normal speed mismatch')
   end do
+
+  tri_v0(:, 1) = [0.0d0, 0.0d0, 0.05d0]
+  tri_v1(:, 1) = [1.0d0, 0.0d0, 0.05d0]
+  tri_v2(:, 1) = [0.0d0, 1.0d0, 0.05d0]
+  tri_v0(:, 2) = [1.0d0, 1.0d0, 0.05d0]
+  tri_v1(:, 2) = [0.0d0, 1.0d0, 0.05d0]
+  tri_v2(:, 2) = [1.0d0, 0.0d0, 0.05d0]
+  call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+
+  sim = sim_config()
+  sim%use_box = .true.
+  sim%batch_duration = 0.5d0
+  sim%raycast_max_bounce = 16_i32
+  sim%box_min = [0.0d0, 0.0d0, 0.0d0]
+  sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+  sim%bc_low = [bc_open, bc_open, bc_open]
+  sim%bc_high = [bc_open, bc_open, bc_open]
+  ray_dir = [0.0d0, 1.0d0, -0.2d0]
+  ray_dir = ray_dir / sqrt(sum(ray_dir * ray_dir))
+
+  allocate (w_photo(10))
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+  )
+  call assert_equal_i32(n_emit, 0_i32, 'photo_raycast open boundary should not emit particles')
+
+  sim%bc_low(2) = bc_reflect
+  sim%bc_high(2) = bc_reflect
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+  )
+  call assert_equal_i32(n_emit, 10_i32, 'photo_raycast reflect boundary should emit all rays')
+  expected_w = 2.0d0 * (0.02d0 * 0.02d0 * abs(ray_dir(3))) * sim%batch_duration / (1.0d0 * 10.0d0)
+  call assert_close_dp(w_photo(1), expected_w, 1.0d-14, 'photo_raycast w_hit mismatch')
+  call assert_true(all(v(3, 1:n_emit) > 0.0d0), 'photo_raycast emitted normal speed should be outward')
+
+  sim%bc_low(2) = bc_periodic
+  sim%bc_high(2) = bc_periodic
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+  )
+  call assert_equal_i32(n_emit, 10_i32, 'photo_raycast periodic boundary should emit all rays')
+
+  sim%raycast_max_bounce = 2_i32
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+  )
+  call assert_equal_i32(n_emit, 0_i32, 'photo_raycast max bounce should terminate rays before emission')
 
   residual = -0.2d0
   call compute_macro_particles_for_batch( &

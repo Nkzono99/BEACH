@@ -3,7 +3,9 @@ module bem_injection
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann
   use bem_particles, only: init_particles
-  use bem_types, only: particles_soa
+  use bem_types, only: particles_soa, mesh_type, sim_config, hit_info
+  use bem_boundary, only: apply_box_boundary
+  use bem_collision, only: find_first_hit
   implicit none
 
   private
@@ -15,6 +17,7 @@ module bem_injection
   public :: compute_face_area_from_bounds
   public :: compute_macro_particles_for_batch
   public :: sample_reservoir_face_particles
+  public :: sample_photo_raycast_particles
 
 contains
 
@@ -313,6 +316,230 @@ contains
       x(:, i) = x(:, i) + inward_normal * 1.0d-12
     end do
   end subroutine sample_reservoir_face_particles
+
+  !> 光線を注入面からレイキャストし、最初の命中要素から光電子を放出する。
+  !! @param[in] mesh 交差判定に使うメッシュ。
+  !! @param[in] sim ボックス境界条件とバッチ時間を含むシミュレーション設定。
+  !! @param[in] inject_face 照射面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
+  !! @param[in] pos_low 照射開口の下限座標 `(x,y,z)` [m]。
+  !! @param[in] pos_high 照射開口の上限座標 `(x,y,z)` [m]。
+  !! @param[in] ray_direction レイ進行方向ベクトル（正規化前でも可）。
+  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
+  !! @param[in] temperature_k 放出温度 [K]。
+  !! @param[in] normal_drift_speed 放出法線方向のシフト速度 [m/s]。
+  !! @param[in] emit_current_density_a_m2 レイ垂直面基準の放出電流面密度 [A/m^2]。
+  !! @param[in] q_particle 粒子1個あたりの電荷 [C]。
+  !! @param[in] rays_per_batch 1バッチで発射するレイ本数。
+  !! @param[out] x 放出位置配列 `x(3,rays_per_batch)` [m]。
+  !! @param[out] v 放出速度配列 `v(3,rays_per_batch)` [m/s]。
+  !! @param[out] w 各マクロ粒子重み `w(rays_per_batch)`。
+  !! @param[out] n_emit 実際に放出された粒子数（`<= rays_per_batch`）。
+  subroutine sample_photo_raycast_particles( &
+    mesh, sim, inject_face, pos_low, pos_high, ray_direction, m_particle, temperature_k, normal_drift_speed, &
+    emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit &
+  )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    character(len=*), intent(in) :: inject_face
+    real(dp), intent(in) :: pos_low(3), pos_high(3)
+    real(dp), intent(in) :: ray_direction(3)
+    real(dp), intent(in) :: m_particle, temperature_k, normal_drift_speed
+    real(dp), intent(in) :: emit_current_density_a_m2, q_particle
+    integer(i32), intent(in) :: rays_per_batch
+    real(dp), intent(out) :: x(:, :)
+    real(dp), intent(out) :: v(:, :)
+    real(dp), intent(out) :: w(:)
+    integer(i32), intent(out) :: n_emit
+
+    real(dp), parameter :: eps = 1.0d-12
+    integer(i32) :: i
+    integer(i32) :: bounce_count
+    integer :: axis_n, axis_t1, axis_t2
+    real(dp) :: boundary_value, inward_normal(3), launch_dir(3), launch_dir_norm, inward_dot
+    real(dp) :: launch_area, projected_area, w_hit, sigma
+    real(dp) :: ray_pos(3), ray_dir(3), seg_end(3), boundary_probe(3), boundary_dir(3)
+    real(dp) :: surf_normal(3), tangent1(3), tangent2(3)
+    real(dp), allocatable :: u(:, :)
+    logical :: reached_boundary, alive, escaped_boundary
+    type(hit_info) :: hit
+
+    if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "photo_raycast particle arrays must have first dimension 3"
+    if (size(x, 2) < rays_per_batch .or. size(v, 2) < rays_per_batch) then
+      error stop "photo_raycast x/v arrays are smaller than rays_per_batch"
+    end if
+    if (size(w) < rays_per_batch) error stop "photo_raycast w array is smaller than rays_per_batch"
+    if (rays_per_batch <= 0_i32) error stop "rays_per_batch must be > 0"
+    if (.not. sim%use_box) error stop "photo_raycast requires sim.use_box = true"
+    if (sim%batch_duration <= 0.0_dp) error stop "photo_raycast requires sim.batch_duration > 0"
+    if (m_particle <= 0.0_dp) error stop "m_particle must be > 0"
+    if (temperature_k < 0.0_dp) error stop "temperature_k must be >= 0"
+    if (emit_current_density_a_m2 <= 0.0_dp) error stop "emit_current_density_a_m2 must be > 0"
+    if (abs(q_particle) <= 0.0_dp) error stop "q_particle must be non-zero"
+
+    call resolve_face_geometry(sim%box_min, sim%box_max, inject_face, axis_n, boundary_value, inward_normal)
+    call resolve_face_axes(inject_face, axis_t1, axis_t2)
+
+    launch_dir = ray_direction
+    launch_dir_norm = sqrt(sum(launch_dir * launch_dir))
+    if (launch_dir_norm <= 0.0_dp) error stop "ray_direction norm must be > 0"
+    launch_dir = launch_dir / launch_dir_norm
+    inward_dot = dot_product(launch_dir, inward_normal)
+    if (inward_dot <= 0.0_dp) error stop "ray_direction must point inward from inject_face"
+
+    launch_area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
+    if (launch_area <= 0.0_dp) error stop "photo_raycast opening area must be positive"
+    projected_area = launch_area * abs(inward_dot)
+    w_hit = emit_current_density_a_m2 * projected_area * sim%batch_duration / (abs(q_particle) * real(rays_per_batch, dp))
+    if (w_hit <= 0.0_dp) error stop "photo_raycast produced invalid w_hit"
+    sigma = sqrt(k_boltzmann * temperature_k / m_particle)
+
+    n_emit = 0_i32
+    x = 0.0_dp
+    v = 0.0_dp
+    w = 0.0_dp
+
+    allocate(u(2, rays_per_batch))
+    call random_number(u)
+    do i = 1_i32, rays_per_batch
+      ray_pos = 0.0_dp
+      ray_pos(axis_n) = boundary_value
+      ray_pos(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1)) * u(1, i)
+      ray_pos(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2)) * u(2, i)
+      ray_dir = launch_dir
+      ray_pos = ray_pos + ray_dir * eps
+
+      alive = .true.
+      bounce_count = 0_i32
+      do while (alive .and. bounce_count <= sim%raycast_max_bounce)
+        call step_ray_to_boundary(sim%box_min, sim%box_max, ray_pos, ray_dir, seg_end, reached_boundary)
+        if (.not. reached_boundary) exit
+
+        call find_first_hit(mesh, ray_pos, seg_end, hit)
+        if (hit%has_hit) then
+          if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
+          n_emit = n_emit + 1_i32
+          surf_normal = mesh%normals(:, hit%elem_idx)
+          if (dot_product(surf_normal, ray_dir) > 0.0_dp) surf_normal = -surf_normal
+          call build_tangent_basis(surf_normal, tangent1, tangent2)
+          call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
+          x(:, n_emit) = hit%pos + surf_normal * eps
+          w(n_emit) = w_hit
+          exit
+        end if
+
+        boundary_probe = seg_end + ray_dir * eps
+        boundary_dir = ray_dir
+        escaped_boundary = .false.
+        call apply_box_boundary(sim, boundary_probe, boundary_dir, alive, escaped_boundary)
+        if (.not. alive) exit
+        ray_dir = boundary_dir / sqrt(sum(boundary_dir * boundary_dir))
+        ray_pos = boundary_probe + ray_dir * eps
+        bounce_count = bounce_count + 1_i32
+      end do
+    end do
+  end subroutine sample_photo_raycast_particles
+
+  !> レイを現在位置から最初のボックス境界まで進める。
+  !! @param[in] box_min ボックス下限座標 `(x,y,z)` [m]。
+  !! @param[in] box_max ボックス上限座標 `(x,y,z)` [m]。
+  !! @param[in] x0 レイの現在位置 [m]。
+  !! @param[in] ray_dir レイ進行方向（単位ベクトル）。
+  !! @param[out] x1 境界到達位置 [m]。
+  !! @param[out] reached_boundary 境界到達位置が求まった場合 `.true.`。
+  subroutine step_ray_to_boundary(box_min, box_max, x0, ray_dir, x1, reached_boundary)
+    real(dp), intent(in) :: box_min(3), box_max(3)
+    real(dp), intent(in) :: x0(3), ray_dir(3)
+    real(dp), intent(out) :: x1(3)
+    logical, intent(out) :: reached_boundary
+
+    real(dp), parameter :: eps = 1.0d-14
+    integer :: axis
+    real(dp) :: t_axis, t_hit
+
+    t_hit = huge(1.0_dp)
+    do axis = 1, 3
+      if (ray_dir(axis) > eps) then
+        t_axis = (box_max(axis) - x0(axis)) / ray_dir(axis)
+      else if (ray_dir(axis) < -eps) then
+        t_axis = (box_min(axis) - x0(axis)) / ray_dir(axis)
+      else
+        cycle
+      end if
+      if (t_axis > eps .and. t_axis < t_hit) t_hit = t_axis
+    end do
+
+    if (t_hit >= huge(1.0_dp) * 0.5_dp) then
+      reached_boundary = .false.
+      x1 = x0
+      return
+    end if
+
+    reached_boundary = .true.
+    x1 = x0 + ray_dir * t_hit
+    x1 = min(box_max, max(box_min, x1))
+  end subroutine step_ray_to_boundary
+
+  !> 面法線ベクトルから接線2軸を構築する。
+  !! @param[in] normal 法線ベクトル。
+  !! @param[out] tangent1 第1接線ベクトル。
+  !! @param[out] tangent2 第2接線ベクトル。
+  subroutine build_tangent_basis(normal, tangent1, tangent2)
+    real(dp), intent(in) :: normal(3)
+    real(dp), intent(out) :: tangent1(3), tangent2(3)
+
+    real(dp) :: n(3), ref(3), norm_n, norm_t1
+
+    norm_n = sqrt(sum(normal * normal))
+    if (norm_n <= 0.0_dp) error stop "surface normal norm must be > 0"
+    n = normal / norm_n
+
+    if (abs(n(1)) < 0.9_dp) then
+      ref = [1.0_dp, 0.0_dp, 0.0_dp]
+    else
+      ref = [0.0_dp, 1.0_dp, 0.0_dp]
+    end if
+
+    tangent1 = cross3(n, ref)
+    norm_t1 = sqrt(sum(tangent1 * tangent1))
+    if (norm_t1 <= 0.0_dp) error stop "failed to build tangent basis"
+    tangent1 = tangent1 / norm_t1
+    tangent2 = cross3(n, tangent1)
+  end subroutine build_tangent_basis
+
+  !> 光電子放出速度を局所法線座標でサンプルする。
+  !! @param[in] sigma 熱速度標準偏差 [m/s]。
+  !! @param[in] normal_drift_speed 放出法線方向のシフト速度 [m/s]。
+  !! @param[in] normal 放出法線ベクトル（単位化済み）。
+  !! @param[in] tangent1 第1接線ベクトル（単位化済み）。
+  !! @param[in] tangent2 第2接線ベクトル（単位化済み）。
+  !! @param[out] vel サンプルした速度ベクトル [m/s]。
+  subroutine sample_photo_emission_velocity(sigma, normal_drift_speed, normal, tangent1, tangent2, vel)
+    real(dp), intent(in) :: sigma, normal_drift_speed
+    real(dp), intent(in) :: normal(3), tangent1(3), tangent2(3)
+    real(dp), intent(out) :: vel(3)
+
+    real(dp) :: vn(1), z(2, 1), vt1, vt2
+
+    call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn)
+    vt1 = 0.0_dp
+    vt2 = 0.0_dp
+    if (sigma > 0.0_dp) then
+      call sample_standard_normal(z)
+      vt1 = sigma * z(1, 1)
+      vt2 = sigma * z(2, 1)
+    end if
+    vel = normal * vn(1) + tangent1 * vt1 + tangent2 * vt2
+  end subroutine sample_photo_emission_velocity
+
+  !> 3次元外積を返す。
+  pure function cross3(a, b) result(c)
+    real(dp), intent(in) :: a(3), b(3)
+    real(dp) :: c(3)
+
+    c(1) = a(2) * b(3) - a(3) * b(2)
+    c(2) = a(3) * b(1) - a(1) * b(3)
+    c(3) = a(1) * b(2) - a(2) * b(1)
+  end function cross3
 
   !> Box–Muller法で標準正規乱数を生成し、任意形状配列へ詰める。
   !! @param[out] z 平均0・分散1の標準正規乱数で埋める出力配列。

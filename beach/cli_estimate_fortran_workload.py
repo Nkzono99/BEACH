@@ -32,6 +32,10 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "pos_low": [-0.4, -0.4, 0.2],
     "pos_high": [0.4, 0.4, 0.5],
     "drift_velocity": [0.0, 0.0, -8.0e5],
+    "emit_current_density_a_m2": 0.0,
+    "rays_per_batch": 0,
+    "normal_drift_speed": 0.0,
+    "ray_direction": [0.0, 0.0, 0.0],
     "inject_face": "",
 }
 
@@ -187,6 +191,10 @@ def _validate_reservoir_species(
 ) -> dict[str, Any]:
     if not bool(sim_cfg.get("use_box", False)):
         raise SystemExit("reservoir_face requires sim.use_box = true")
+    if abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0 or int(
+        spec.get("rays_per_batch", 0)
+    ) != 0 or bool(spec.get("_has_ray_direction", False)):
+        raise SystemExit("photo_raycast keys are not allowed for reservoir_face.")
 
     has_w_particle = bool(spec.get("_has_w_particle", False))
     has_target_macro = bool(spec.get("_has_target_macro_particles_per_batch", False))
@@ -299,10 +307,94 @@ def _validate_reservoir_species(
     }
 
 
+def _validate_photo_raycast_species(
+    sim_cfg: dict[str, Any],
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    if not bool(sim_cfg.get("use_box", False)):
+        raise SystemExit('particles.species.source_mode="photo_raycast" requires sim.use_box = true.')
+
+    if abs(float(spec.get("emit_current_density_a_m2", 0.0))) <= 0.0:
+        raise SystemExit("photo_raycast requires emit_current_density_a_m2 > 0.")
+    rays_per_batch = int(spec.get("rays_per_batch", 0))
+    if rays_per_batch <= 0:
+        raise SystemExit("photo_raycast requires rays_per_batch > 0.")
+    if int(spec.get("npcls_per_step", 0)) != 0:
+        raise SystemExit("npcls_per_step is not allowed for photo_raycast.")
+
+    if bool(spec.get("_has_w_particle", False)):
+        raise SystemExit("w_particle is not allowed for photo_raycast.")
+    if bool(spec.get("_has_target_macro_particles_per_batch", False)):
+        raise SystemExit("target_macro_particles_per_batch is not allowed for photo_raycast.")
+    if bool(spec.get("_has_number_density_cm3", False)) or bool(
+        spec.get("_has_number_density_m3", False)
+    ):
+        raise SystemExit("number_density_cm3/number_density_m3 are not allowed for photo_raycast.")
+
+    has_temp_k = bool(spec.get("_has_temperature_k", False))
+    has_temp_ev = bool(spec.get("_has_temperature_ev", False))
+    if has_temp_k and has_temp_ev:
+        raise SystemExit("Specify either temperature_ev or temperature_k, not both.")
+    if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
+        raise SystemExit("temperature_ev must be >= 0.")
+    if has_temp_k and float(spec["temperature_k"]) < 0.0:
+        raise SystemExit("temperature_k must be >= 0.")
+
+    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
+    if m_particle <= 0.0:
+        raise SystemExit("m_particle must be > 0.")
+    if abs(float(spec.get("q_particle", 0.0))) <= 0.0:
+        raise SystemExit("q_particle must be non-zero for photo_raycast.")
+
+    inject_face = str(spec.get("inject_face", "")).strip().lower()
+    inward_normal = _inward_normal_for_face(inject_face)
+    pos_low = [float(x) for x in spec.get("pos_low", DEFAULT_SPECIES["pos_low"])]
+    pos_high = [float(x) for x in spec.get("pos_high", DEFAULT_SPECIES["pos_high"])]
+    box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
+    box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
+    axis_n, boundary_value = _axis_and_boundary_for_face(inject_face, box_min, box_max)
+    if (
+        abs(pos_low[axis_n] - boundary_value) > 1.0e-12
+        or abs(pos_high[axis_n] - boundary_value) > 1.0e-12
+    ):
+        raise SystemExit(
+            "photo_raycast pos_low/pos_high must lie on the selected box face."
+        )
+    axis_t1, axis_t2 = _face_tangential_axes(inject_face)
+    if pos_high[axis_t1] < pos_low[axis_t1] or pos_high[axis_t2] < pos_low[axis_t2]:
+        raise SystemExit(
+            "photo_raycast tangential bounds must satisfy pos_high >= pos_low."
+        )
+    area = _compute_face_area(inject_face, pos_low, pos_high)
+    if area <= 0.0:
+        raise SystemExit("photo_raycast opening area must be positive")
+
+    has_ray_direction = bool(spec.get("_has_ray_direction", False))
+    if has_ray_direction:
+        ray_direction = [float(x) for x in spec["ray_direction"]]
+        norm_ray = math.sqrt(_dot(ray_direction, ray_direction))
+        if (not math.isfinite(norm_ray)) or norm_ray <= 0.0:
+            raise SystemExit("ray_direction norm must be > 0.")
+        ray_direction = [x / norm_ray for x in ray_direction]
+    else:
+        ray_direction = list(inward_normal)
+
+    inward_dot = _dot(ray_direction, inward_normal)
+    if inward_dot <= 0.0:
+        raise SystemExit("ray_direction must point inward from inject_face.")
+
+    return {
+        "rays_per_batch": rays_per_batch,
+        "emit_current_density_a_m2": float(spec.get("emit_current_density_a_m2", 0.0)),
+        "inject_face": inject_face,
+        "ray_direction": ray_direction,
+    }
+
+
 def _resolve_batch_duration(
     sim_cfg: dict[str, Any],
     sim_raw: dict[str, Any],
-    has_reservoir_species: bool,
+    has_dynamic_source_species: bool,
 ) -> float:
     has_batch_duration = "batch_duration" in sim_raw
     has_batch_duration_step = "batch_duration_step" in sim_raw
@@ -331,8 +423,8 @@ def _resolve_batch_duration(
     batch_duration = float(sim_cfg.get("batch_duration", 0.0))
     if not math.isfinite(batch_duration):
         raise SystemExit("sim.batch_duration must be finite.")
-    if has_reservoir_species and batch_duration <= 0.0:
-        raise SystemExit("sim.batch_duration must be > 0 for reservoir_face")
+    if has_dynamic_source_species and batch_duration <= 0.0:
+        raise SystemExit("sim.batch_duration must be > 0 for dynamic sources")
     return batch_duration
 
 
@@ -384,6 +476,7 @@ def estimate_workload(
         spec["_has_target_macro_particles_per_batch"] = (
             "target_macro_particles_per_batch" in raw
         )
+        spec["_has_ray_direction"] = "ray_direction" in raw
         species_list.append(spec)
 
     batch_count = int(sim_cfg["batch_count"])
@@ -393,7 +486,7 @@ def estimate_workload(
     if threads <= 0:
         raise SystemExit("threads must be > 0")
 
-    has_reservoir_species = False
+    has_dynamic_source_species = False
     per_batch_volume_particles = 0
     for spec in species_list:
         if not bool(spec.get("enabled", True)):
@@ -404,26 +497,35 @@ def estimate_workload(
                 raise SystemExit(
                     "target_macro_particles_per_batch is only valid for reservoir_face."
                 )
+            if abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0 or int(
+                spec.get("rays_per_batch", 0)
+            ) != 0 or bool(spec.get("_has_ray_direction", False)):
+                raise SystemExit(
+                    'photo_raycast keys are only valid for source_mode="photo_raycast".'
+                )
             n_macro = int(spec.get("npcls_per_step", 0))
             if n_macro < 0:
                 raise SystemExit("particles.species.npcls_per_step must be >= 0")
             per_batch_volume_particles += n_macro
         elif source_mode == "reservoir_face":
-            has_reservoir_species = True
+            has_dynamic_source_species = True
+        elif source_mode == "photo_raycast":
+            has_dynamic_source_species = True
         else:
             raise SystemExit(f"Unknown particles.species.source_mode: {source_mode}")
-    if per_batch_volume_particles <= 0 and not has_reservoir_species:
+    if per_batch_volume_particles <= 0 and not has_dynamic_source_species:
         raise SystemExit(
             "At least one enabled [[particles.species]] entry must have npcls_per_step > 0."
         )
     resolved_batch_duration = _resolve_batch_duration(
         sim_cfg=sim_cfg,
         sim_raw=sim_raw,
-        has_reservoir_species=has_reservoir_species,
+        has_dynamic_source_species=has_dynamic_source_species,
     )
     reservoir_params_by_species: list[dict[str, Any] | None] = [None] * len(
         species_list
     )
+    photo_params_by_species: list[dict[str, Any] | None] = [None] * len(species_list)
     for s_idx, spec in enumerate(species_list):
         if not bool(spec.get("enabled", True)):
             continue
@@ -436,6 +538,11 @@ def estimate_workload(
                 s_idx,
                 species_list,
                 reservoir_params_by_species,
+            )
+        elif source_mode == "photo_raycast":
+            photo_params_by_species[s_idx] = _validate_photo_raycast_species(
+                sim_cfg,
+                spec,
             )
 
     residuals = [0.0] * len(species_list)
@@ -466,24 +573,32 @@ def estimate_workload(
                 species_counts.append(n_macro)
                 continue
 
-            if source_mode != "reservoir_face":
-                raise SystemExit(
-                    f"Unknown particles.species.source_mode: {source_mode}"
-                )
+            if source_mode == "reservoir_face":
+                params = reservoir_params_by_species[s_idx]
+                if params is None:
+                    raise SystemExit(
+                        "internal error: reservoir species parameters were not initialized."
+                    )
+                n_phys_batch = params["gamma_in"] * params["area"] * resolved_batch_duration
+                n_macro_expected = n_phys_batch / params["w_particle"]
+                macro_budget = residuals[s_idx] + n_macro_expected
+                if macro_budget < 0.0:
+                    macro_budget = 0.0
+                n_macro = math.floor(macro_budget)
+                residuals[s_idx] = macro_budget - n_macro
+                species_counts.append(int(n_macro))
+                continue
 
-            params = reservoir_params_by_species[s_idx]
-            if params is None:
-                raise SystemExit(
-                    "internal error: reservoir species parameters were not initialized."
-                )
-            n_phys_batch = params["gamma_in"] * params["area"] * resolved_batch_duration
-            n_macro_expected = n_phys_batch / params["w_particle"]
-            macro_budget = residuals[s_idx] + n_macro_expected
-            if macro_budget < 0.0:
-                macro_budget = 0.0
-            n_macro = math.floor(macro_budget)
-            residuals[s_idx] = macro_budget - n_macro
-            species_counts.append(int(n_macro))
+            if source_mode == "photo_raycast":
+                params = photo_params_by_species[s_idx]
+                if params is None:
+                    raise SystemExit(
+                        "internal error: photo_raycast species parameters were not initialized."
+                    )
+                species_counts.append(int(params["rays_per_batch"]))
+                continue
+
+            raise SystemExit(f"Unknown particles.species.source_mode: {source_mode}")
 
         batch_total = sum(species_counts)
         q, r = divmod(batch_total, threads)
