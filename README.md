@@ -38,6 +38,14 @@ fpm run --profile release --flag "-fopenmp"
 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
+MPI + OpenMP ハイブリッド実行（コンパイル時 `USE_MPI` 有効化）:
+
+```bash
+FPM_FC=mpiifort \
+fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
+  --runner "mpirun -n 4" -- examples/beach.toml
+```
+
 ### 2) Python 環境（後処理・可視化）
 
 ```bash

@@ -24,6 +24,14 @@ fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
+- MPI + OpenMP ハイブリッド実行:
+
+```bash
+FPM_FC=mpiifort \
+fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
+  --runner "mpirun -n 4" -- examples/beach.toml
+```
+
 ### 1.2 Python 後処理
 
 ```bash
@@ -46,6 +54,11 @@ python -m pip install -e . --no-build-isolation
 - `charge_history.csv`（`history_stride > 0` のとき）
 - `rng_state.txt`
 - `macro_residuals.csv`
+
+MPI実行（`world_size > 1`）では乱数状態・残差はrank別に保存されます。
+
+- `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
+- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
 
 ## 3. 実行前の負荷見積もり（推奨）
 
@@ -76,8 +89,10 @@ dir = "outputs/latest"
 resume = true
 ```
 
-同じ `output.dir` で再実行すると、`summary.txt` / `charges.csv` / `rng_state.txt` を読み込んで続きから計算します。  
+同じ `output.dir` で再実行すると、`summary.txt` / `charges.csv` / RNG状態ファイルを読み込んで続きから計算します。  
 `sim.batch_count` は「今回追加するバッチ数」です。
+
+MPI実行での再開は、`summary.txt` に記録された `mpi_world_size` と現在のrank数が一致している必要があります。
 
 ## 5. Python 後処理
 
@@ -135,14 +150,25 @@ beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge", total
 
 新規運用では `beach-*` CLI を優先してください。
 
-## 6. 実装挙動で誤解しやすい点
+## 6. MPIテスト（専用）
+
+MPI経路のみを確認する場合:
+
+```bash
+FPM_FC=mpiifort \
+fpm test --target test_mpi_hybrid \
+  --flag "-fpp -DUSE_MPI -qopenmp" \
+  --runner "mpirun -n 2"
+```
+
+## 7. 実装挙動で誤解しやすい点
 
 - 実行は `sim.batch_count` 分だけ進みます。
 - `sim.tol_rel` は出力監視値で、現行実装では早期終了条件に使いません。
 - Fortran 本体の電場は、要素重心への点電荷近似 + `sim.softening` です。
 - `sim.use_hybrid` / `r_switch_factor` / `n_sub` / `softening_factor` は現状予約キーです。
 
-## 7. 運用ルール（推奨）
+## 8. 運用ルール（推奨）
 
 - 物理モデルやランタイム挙動の変更は Fortran 側を正とする。
 - 出力フォーマット変更時は `beach/fortran_results.py` と CLI を同時更新する。
