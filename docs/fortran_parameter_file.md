@@ -109,6 +109,7 @@ dir = "outputs/latest"
 | `temperature_ev` | float | 温度[eV]（`temperature_k` と排他） |
 | `emit_current_density_a_m2` | float | `photo_raycast` 時のレイ垂直面基準放出電流面密度 [A/m^2] |
 | `rays_per_batch` | int | `photo_raycast` 時の1バッチ発射レイ本数 |
+| `deposit_opposite_charge_on_emit` | bool | `photo_raycast` で放出元要素へ逆符号電荷 `-q_particle * w` を堆積する（既定 `false`） |
 | `normal_drift_speed` | float | `photo_raycast` 時の放出法線方向シフト速度 [m/s]（既定 0） |
 | `ray_direction` | float[3] | `photo_raycast` 時のレイ方向（省略時は `inject_face` 内向き法線） |
 | `inject_face` | string | `reservoir_face` / `photo_raycast` 時の注入・照射面（`x_low` / `x_high` / `y_low` / `y_high` / `z_low` / `z_high`） |
@@ -136,6 +137,7 @@ dir = "outputs/latest"
   - `A_perp = A_launch * |ray_direction_s ・ inward_normal_s|`
   - `w_hit_s = J_perp_s * A_perp * batch_duration / (|q_s| * rays_per_batch_s)`
   - 実放出電流は `N_hit_s / rays_per_batch_s`（ヒット率）で決まります。
+  - `deposit_opposite_charge_on_emit = true` のとき、放出元要素へ `dq_emit = -q_s * w_hit_s` を加算します。
 
 `batch_duration` の解決ルール:
 
@@ -186,6 +188,7 @@ dir = "outputs/latest"
 
 - `ray_direction` を指定する場合は正規化可能で、`inject_face` 内向き法線との内積が正であること
 - `npcls_per_step` / `number_density_cm3` / `number_density_m3` / `w_particle` / `target_macro_particles_per_batch` は指定しない
+- `deposit_opposite_charge_on_emit` は `photo_raycast` でのみ指定する
 
 例: 5/cc, 10eV, 400km/s の上流電子を上面 (`z_high`) から流入させる設定
 
@@ -264,6 +267,7 @@ raycast_max_bounce = 24
 source_mode = "photo_raycast"
 emit_current_density_a_m2 = 2.0e-4
 rays_per_batch = 500
+deposit_opposite_charge_on_emit = true
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 temperature_ev = 1.5

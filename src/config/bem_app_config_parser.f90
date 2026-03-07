@@ -121,7 +121,8 @@ contains
           error stop 'target_macro_particles_per_batch is only valid for reservoir_face.'
         end if
         if (abs(cfg%particle_species(i)%emit_current_density_a_m2) > 0.0d0 .or. &
-            cfg%particle_species(i)%rays_per_batch /= 0_i32 .or. cfg%particle_species(i)%has_ray_direction) then
+            cfg%particle_species(i)%rays_per_batch /= 0_i32 .or. cfg%particle_species(i)%has_ray_direction .or. &
+            cfg%particle_species(i)%has_deposit_opposite_charge_on_emit) then
           error stop 'photo_raycast keys are only valid for source_mode="photo_raycast".'
         end if
         per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
@@ -290,6 +291,9 @@ contains
       call parse_real(v, spec%emit_current_density_a_m2)
     case ('rays_per_batch')
       call parse_int(v, spec%rays_per_batch)
+    case ('deposit_opposite_charge_on_emit')
+      call parse_logical(v, spec%deposit_opposite_charge_on_emit)
+      spec%has_deposit_opposite_charge_on_emit = .true.
     case ('normal_drift_speed')
       call parse_real(v, spec%normal_drift_speed)
     case ('ray_direction')
@@ -349,7 +353,8 @@ contains
     if (spec%has_npcls_per_step) then
       error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
     end if
-    if (abs(spec%emit_current_density_a_m2) > 0.0d0 .or. spec%rays_per_batch /= 0_i32 .or. spec%has_ray_direction) then
+    if (abs(spec%emit_current_density_a_m2) > 0.0d0 .or. spec%rays_per_batch /= 0_i32 .or. &
+        spec%has_ray_direction .or. spec%has_deposit_opposite_charge_on_emit) then
       error stop 'photo_raycast keys are not allowed for reservoir_face.'
     end if
     if (spec%has_w_particle .and. spec%has_target_macro_particles_per_batch) then

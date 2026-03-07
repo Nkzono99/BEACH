@@ -334,9 +334,10 @@ contains
   !! @param[out] v 放出速度配列 `v(3,rays_per_batch)` [m/s]。
   !! @param[out] w 各マクロ粒子重み `w(rays_per_batch)`。
   !! @param[out] n_emit 実際に放出された粒子数（`<= rays_per_batch`）。
+  !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(rays_per_batch)`（省略可）。
   subroutine sample_photo_raycast_particles( &
     mesh, sim, inject_face, pos_low, pos_high, ray_direction, m_particle, temperature_k, normal_drift_speed, &
-    emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit &
+    emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit, emit_elem_idx &
   )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -350,6 +351,7 @@ contains
     real(dp), intent(out) :: v(:, :)
     real(dp), intent(out) :: w(:)
     integer(i32), intent(out) :: n_emit
+    integer(i32), intent(out), optional :: emit_elem_idx(:)
 
     real(dp), parameter :: eps = 1.0d-12
     integer(i32) :: i
@@ -368,6 +370,10 @@ contains
       error stop "photo_raycast x/v arrays are smaller than rays_per_batch"
     end if
     if (size(w) < rays_per_batch) error stop "photo_raycast w array is smaller than rays_per_batch"
+    if (present(emit_elem_idx)) then
+      if (size(emit_elem_idx) < rays_per_batch) error stop "photo_raycast emit_elem_idx is smaller than rays_per_batch"
+      emit_elem_idx = -1_i32
+    end if
     if (rays_per_batch <= 0_i32) error stop "rays_per_batch must be > 0"
     if (.not. sim%use_box) error stop "photo_raycast requires sim.use_box = true"
     if (sim%batch_duration <= 0.0_dp) error stop "photo_raycast requires sim.batch_duration > 0"
@@ -424,6 +430,7 @@ contains
           call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
           x(:, n_emit) = hit%pos + surf_normal * eps
           w(n_emit) = w_hit
+          if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit%elem_idx
           exit
         end if
 

@@ -34,6 +34,7 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "drift_velocity": [0.0, 0.0, -8.0e5],
     "emit_current_density_a_m2": 0.0,
     "rays_per_batch": 0,
+    "deposit_opposite_charge_on_emit": False,
     "normal_drift_speed": 0.0,
     "ray_direction": [0.0, 0.0, 0.0],
     "inject_face": "",
@@ -193,7 +194,9 @@ def _validate_reservoir_species(
         raise SystemExit("reservoir_face requires sim.use_box = true")
     if abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0 or int(
         spec.get("rays_per_batch", 0)
-    ) != 0 or bool(spec.get("_has_ray_direction", False)):
+    ) != 0 or bool(spec.get("_has_ray_direction", False)) or bool(
+        spec.get("_has_deposit_opposite_charge_on_emit", False)
+    ):
         raise SystemExit("photo_raycast keys are not allowed for reservoir_face.")
 
     has_w_particle = bool(spec.get("_has_w_particle", False))
@@ -477,6 +480,9 @@ def estimate_workload(
             "target_macro_particles_per_batch" in raw
         )
         spec["_has_ray_direction"] = "ray_direction" in raw
+        spec["_has_deposit_opposite_charge_on_emit"] = (
+            "deposit_opposite_charge_on_emit" in raw
+        )
         species_list.append(spec)
 
     batch_count = int(sim_cfg["batch_count"])
@@ -499,7 +505,9 @@ def estimate_workload(
                 )
             if abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0 or int(
                 spec.get("rays_per_batch", 0)
-            ) != 0 or bool(spec.get("_has_ray_direction", False)):
+            ) != 0 or bool(spec.get("_has_ray_direction", False)) or bool(
+                spec.get("_has_deposit_opposite_charge_on_emit", False)
+            ):
                 raise SystemExit(
                     'photo_raycast keys are only valid for source_mode="photo_raycast".'
                 )

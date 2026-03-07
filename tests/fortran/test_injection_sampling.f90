@@ -14,6 +14,7 @@ program test_injection_sampling
   type(mesh_type) :: mesh
   type(sim_config) :: sim
   real(dp), allocatable :: v(:, :), x(:, :), w_photo(:)
+  integer(i32), allocatable :: emit_elem(:)
   real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt, expected_w
   real(dp) :: ray_dir(3), tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
   integer(i32) :: n_macro, n_emit
@@ -105,6 +106,7 @@ program test_injection_sampling
   ray_dir = ray_dir / sqrt(sum(ray_dir * ray_dir))
 
   allocate (w_photo(10))
+  allocate (emit_elem(10))
   call sample_photo_raycast_particles( &
     mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
     1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
@@ -115,12 +117,14 @@ program test_injection_sampling
   sim%bc_high(2) = bc_reflect
   call sample_photo_raycast_particles( &
     mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit, emit_elem &
   )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast reflect boundary should emit all rays')
   expected_w = 2.0d0 * (0.02d0 * 0.02d0 * abs(ray_dir(3))) * sim%batch_duration / (1.0d0 * 10.0d0)
   call assert_close_dp(w_photo(1), expected_w, 1.0d-14, 'photo_raycast w_hit mismatch')
   call assert_true(all(v(3, 1:n_emit) > 0.0d0), 'photo_raycast emitted normal speed should be outward')
+  call assert_true(all(emit_elem(1:n_emit) >= 1_i32), 'photo_raycast emit_elem should be positive')
+  call assert_true(all(emit_elem(1:n_emit) <= mesh%nelem), 'photo_raycast emit_elem should be in range')
 
   sim%bc_low(2) = bc_periodic
   sim%bc_high(2) = bc_periodic

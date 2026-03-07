@@ -39,6 +39,7 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 # source_mode = "photo_raycast"
 # emit_current_density_a_m2 = 2.0e-4
 # rays_per_batch = 500
+# deposit_opposite_charge_on_emit = true
 # q_particle = -1.602176634e-19
 # m_particle = 9.10938356e-31
 # temperature_ev = 1.5

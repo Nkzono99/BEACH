@@ -16,7 +16,9 @@ program test_templates_importers_runtime
   type(app_config) :: cfg
   type(particles_soa) :: pcls
   type(injection_state) :: state
-  real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1)
+  real(dp), allocatable :: photo_emission_dq(:)
+  real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1), expected_photo_counter
+  integer(i32) :: i
 
   character(len=*), parameter :: obj_path = 'test_templates_runtime_tmp.obj'
   character(len=*), parameter :: missing_obj_path = 'test_templates_runtime_missing.obj'
@@ -117,7 +119,7 @@ program test_templates_importers_runtime
   cfg%sim%reservoir_potential_model = 'infinity_barrier'
   cfg%sim%phi_infty = 0.0d0
   cfg%sim%injection_face_phi_grid_n = 2_i32
-  cfg%n_particle_species = 2_i32
+  cfg%n_particle_species = 3_i32
 
   cfg%particle_species(1) = species_from_defaults()
   cfg%particle_species(1)%source_mode = 'volume_seed'
@@ -152,20 +154,27 @@ program test_templates_importers_runtime
   cfg%particle_species(3)%q_particle = -1.0d0
   cfg%particle_species(3)%m_particle = 1.0d0
   cfg%particle_species(3)%temperature_k = 0.0d0
+  cfg%particle_species(3)%deposit_opposite_charge_on_emit = .true.
   cfg%particle_species(3)%inject_face = 'z_high'
   cfg%particle_species(3)%pos_low = [0.0d0, 0.0d0, 1.0d0]
   cfg%particle_species(3)%pos_high = [0.1d0, 0.1d0, 1.0d0]
 
   allocate (state%macro_residual(3))
   state%macro_residual = 0.0d0
+  allocate (photo_emission_dq(mesh%nelem))
   call seed_particles_from_config(cfg)
-  call init_particle_batch_from_config(cfg, 1_i32, pcls, state, mesh=mesh)
+  call init_particle_batch_from_config(cfg, 1_i32, pcls, state, mesh=mesh, photo_emission_dq=photo_emission_dq)
   call assert_true(pcls%n >= 1_i32, 'batch particle count mismatch')
   call assert_close_dp(pcls%q(1), 1.0d0, 1.0d-12, 'mixed batch species-1 charge mismatch')
-  if (pcls%n >= 2_i32) then
-    call assert_close_dp(pcls%q(2), -1.0d0, 1.0d-12, 'mixed batch photo charge mismatch')
-    call assert_true(pcls%w(2) > 0.0d0, 'mixed batch photo weight should be positive')
-  end if
+  expected_photo_counter = 0.0d0
+  do i = 1_i32, pcls%n
+    if (pcls%q(i) < 0.0d0) then
+      expected_photo_counter = expected_photo_counter - pcls%q(i) * pcls%w(i)
+      call assert_true(pcls%w(i) > 0.0d0, 'mixed batch photo weight should be positive')
+    end if
+  end do
+  call assert_true(expected_photo_counter > 0.0d0, 'mixed batch should include emitted photo particles')
+  call assert_close_dp(sum(photo_emission_dq), expected_photo_counter, 1.0d-12, 'photo counter charge mismatch')
   call assert_true(state%macro_residual(2) >= 0.0d0, 'reservoir residual should be non-negative')
   call assert_true(state%macro_residual(2) < 1.0d0, 'reservoir residual should be < 1')
 

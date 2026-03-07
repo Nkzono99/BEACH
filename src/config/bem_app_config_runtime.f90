@@ -120,15 +120,17 @@ contains
   !! @param[out] pcls 生成したバッチ粒子群。
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
-  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh)
+  !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
+  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh, photo_emission_dq)
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
     type(particles_soa), intent(out) :: pcls
     type(injection_state), intent(inout), optional :: state
     type(mesh_type), intent(in), optional :: mesh
+    real(dp), intent(out), optional :: photo_emission_dq(:)
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx
-    integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:)
+    integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:)
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
@@ -140,6 +142,11 @@ contains
     if (present(state)) then
       if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
       if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
+    end if
+    if (present(photo_emission_dq)) then
+      if (.not. present(mesh)) error stop 'photo_emission_dq requires mesh in init_particle_batch_from_config.'
+      if (size(photo_emission_dq) /= mesh%nelem) error stop 'photo_emission_dq size mismatch.'
+      photo_emission_dq = 0.0d0
     end if
 
     allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species))
@@ -173,9 +180,11 @@ contains
     allocate (x_species(3, max_rank, cfg%n_particle_species))
     allocate (v_species(3, max_rank, cfg%n_particle_species))
     allocate (w_species(max_rank, cfg%n_particle_species))
+    allocate (emit_elem_species(max_rank, cfg%n_particle_species))
     x_species = 0.0d0
     v_species = 0.0d0
     w_species = 0.0d0
+    emit_elem_species = -1_i32
     do s = 1, cfg%n_particle_species
       if (counts_max(s) <= 0_i32) cycle
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
@@ -192,8 +201,18 @@ contains
         end if
         call sample_photo_species_state( &
           cfg%sim, cfg%particle_species(s), mesh, counts_max(s), x_species(:, 1:counts_max(s), s), &
-          v_species(:, 1:counts_max(s), s), w_species(1:counts_max(s), s), counts_actual(s) &
+          v_species(:, 1:counts_max(s), s), w_species(1:counts_max(s), s), counts_actual(s), &
+          emit_elem_idx=emit_elem_species(1:counts_max(s), s) &
         )
+        if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
+          do i = 1, counts_actual(s)
+            if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > size(photo_emission_dq)) then
+              error stop 'photo_raycast emitted invalid elem_idx.'
+            end if
+            photo_emission_dq(emit_elem_species(i, s)) = photo_emission_dq(emit_elem_species(i, s)) - &
+                                                         cfg%particle_species(s)%q_particle * w_species(i, s)
+          end do
+        end if
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
@@ -289,7 +308,8 @@ contains
   !! @param[out] v 生成した速度配列 `v(3,n_rays)` [m/s]。
   !! @param[out] w 生成した重み配列 `w(n_rays)`。
   !! @param[out] n_emit 実際に放出された粒子数。
-  subroutine sample_photo_species_state(sim, spec, mesh, n_rays, x, v, w, n_emit)
+  !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(n_rays)`（省略可）。
+  subroutine sample_photo_species_state(sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     type(mesh_type), intent(in) :: mesh
@@ -298,15 +318,17 @@ contains
     real(dp), intent(out) :: v(:, :)
     real(dp), intent(out) :: w(:)
     integer(i32), intent(out) :: n_emit
+    integer(i32), intent(out), optional :: emit_elem_idx(:)
 
     if (n_rays <= 0_i32) then
+      if (present(emit_elem_idx)) emit_elem_idx = -1_i32
       n_emit = 0_i32
       return
     end if
     call sample_photo_raycast_particles( &
       mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
       species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
-      n_rays, x, v, w, n_emit &
+      n_rays, x, v, w, n_emit, emit_elem_idx &
     )
   end subroutine sample_photo_species_state
 

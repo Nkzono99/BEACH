@@ -32,6 +32,8 @@ module bem_app_config_types
     logical :: has_temperature_ev = .false.
     real(dp) :: emit_current_density_a_m2 = 0.0d0
     integer(i32) :: rays_per_batch = 0_i32
+    logical :: deposit_opposite_charge_on_emit = .false.
+    logical :: has_deposit_opposite_charge_on_emit = .false.
     real(dp) :: normal_drift_speed = 0.0d0
     real(dp) :: ray_direction(3) = [0.0d0, 0.0d0, 0.0d0]
     logical :: has_ray_direction = .false.

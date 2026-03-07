@@ -41,6 +41,7 @@ program test_app_config_parser
   call assert_close_dp(photo_cfg%particle_species(1)%emit_current_density_a_m2, 2.0d-3, 1.0d-15, 'photo emit_current mismatch')
   call assert_equal_i32(photo_cfg%particle_species(1)%rays_per_batch, 40_i32, 'photo rays_per_batch mismatch')
   call assert_close_dp(photo_cfg%particle_species(1)%normal_drift_speed, 1.5d5, 1.0d-12, 'photo normal_drift_speed mismatch')
+  call assert_true(photo_cfg%particle_species(1)%deposit_opposite_charge_on_emit, 'photo deposit_opposite_charge_on_emit mismatch')
   call assert_allclose_1d( &
     photo_cfg%particle_species(1)%ray_direction, [0.0d0, 0.0d0, -1.0d0], 1.0d-12, 'photo ray_direction mismatch' &
   )
@@ -118,6 +119,7 @@ contains
     write (u, '(a)') 'source_mode = "photo_raycast"'
     write (u, '(a)') 'emit_current_density_a_m2 = 2.0e-3'
     write (u, '(a)') 'rays_per_batch = 40'
+    write (u, '(a)') 'deposit_opposite_charge_on_emit = true'
     write (u, '(a)') 'normal_drift_speed = 1.5e5'
     write (u, '(a)') 'q_particle = -1.0'
     write (u, '(a)') 'm_particle = 1.0'
