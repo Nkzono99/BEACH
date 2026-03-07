@@ -88,7 +88,6 @@ contains
     end do
     close (u)
 
-    if (t_idx > 0) cfg%n_templates = t_idx
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
     if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
 
@@ -170,10 +169,6 @@ contains
     case ('batch_duration_step')
       call parse_real(v, cfg%sim%batch_duration_step)
       cfg%sim%has_batch_duration_step = .true.
-    case ('target_npcls_species1')
-      error stop 'sim.target_npcls_species1 was removed. Use [[particles.species]].target_macro_particles_per_batch.'
-    case ('npcls_per_step')
-      error stop 'sim.npcls_per_step was removed. Use sim.batch_count instead.'
     case ('max_step')
       call parse_int(v, cfg%sim%max_step)
     case ('tol_rel')
@@ -224,24 +219,15 @@ contains
     end select
   end subroutine apply_sim_kv
 
-  !> 廃止済み `[particles]` セクションを検出し、新仕様への移行を促す。
-  !! @param[in] line 廃止セクション内の `key = value` 行。
+  !> `[particles]` セクションのキーを検証する。
+  !! @param[in] line `key = value` 形式の設定行。
   subroutine apply_particles_kv(line)
     character(len=*), intent(in) :: line
     character(len=64) :: k
     character(len=256) :: v
 
     call split_key_value(line, k, v)
-    select case (trim(k))
-    case ('rng_seed')
-      error stop 'particles.rng_seed was moved to sim.rng_seed.'
-    case ('n_particles')
-      error stop 'particles.n_particles was removed. Define [[particles.species]] entries with npcls_per_step instead.'
-    case ('q_particle', 'm_particle', 'w_particle', 'pos_low', 'pos_high', 'drift_velocity', 'temperature_k')
-      error stop '[particles] defaults were removed. Define particle properties inside each [[particles.species]] entry.'
-    case default
-      error stop '[particles] defaults were removed. Use sim.rng_seed and [[particles.species]] instead.'
-    end select
+    error stop ('Unknown key in [particles]: ' // trim(k))
   end subroutine apply_particles_kv
 
   !> `[[particles.species]]` のキーを粒子種設定へ適用する。
@@ -269,8 +255,6 @@ contains
     case ('number_density_m3')
       call parse_real(v, spec%number_density_m3)
       spec%has_number_density_m3 = .true.
-    case ('n_particles')
-      error stop 'particles.species.n_particles was removed. Use particles.species.npcls_per_step instead.'
     case ('q_particle')
       call parse_real(v, spec%q_particle)
     case ('m_particle')
@@ -745,8 +729,6 @@ contains
       call parse_string(v, cfg%mesh_mode)
     case ('obj_path')
       call parse_string(v, cfg%obj_path)
-    case ('n_templates')
-      call parse_int(v, cfg%n_templates)
     case default
       error stop ('Unknown key in [mesh]: ' // trim(k))
     end select

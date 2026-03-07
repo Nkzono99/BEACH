@@ -577,7 +577,7 @@ contains
     integer(i32) :: i
 
     allocate (v0(3, 0), v1(3, 0), v2(3, 0))
-    do i = 1, min(cfg%n_templates, int(max_templates, i32))
+    do i = 1, int(max_templates, i32)
       if (.not. cfg%templates(i)%enabled) cycle
       call build_one_template(cfg%templates(i), part)
       call append_triangles(v0, v1, v2, part%v0, part%v1, part%v2)

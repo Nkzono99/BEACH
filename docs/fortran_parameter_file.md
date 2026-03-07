@@ -200,7 +200,6 @@ history_stride = 1
 |---|---|---:|---|
 | `mode` | string | `"auto"` | `auto` / `obj` / `template` |
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ パス |
-| `n_templates` | int | `1` | `template` モードで使うテンプレート数上限 |
 
 `mode = "auto"` のときは `obj_path` が存在すれば OBJ、なければ template を使います。
 
@@ -222,7 +221,6 @@ history_stride = 1
 注意:
 
 - `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は「定義した件数」で解決されます。
-- `n_templates` は template 未定義時の既定動作向けと考えてください。
 
 ### 3.5 `[output]`
 
@@ -261,15 +259,8 @@ MPI実行での追加要件:
 - 各rankに対応する `rng_state_rankNNNNN.txt` が必要です
 - `macro_residuals_rankNNNNN.csv` は存在すれば読み込みます
 
-## 4. 旧キー・非推奨の扱い
+## 4. キー検証
 
-以下は現行では使いません（指定するとエラー）:
-
-- `sim.target_npcls_species1`
-- `sim.npcls_per_step`
-- `particles.rng_seed`（`sim.rng_seed` へ移動）
-- `particles.n_particles`
-- `[particles]` 直下の粒子物性デフォルトキー
-- `particles.species.n_particles`
-
-推奨としては、`[particles]` は省略し、`[[particles.species]]` のみを記述してください。
+- 未知のセクション名・キー名はすべてエラーになります。
+- `v0.3.0` 以降は旧キー互換を持たず、旧名は「未知キー」として扱います。
+- `[particles]` は `[[particles.species]]` のコンテナとしてのみ使い、`[particles]` 直下に `key = value` は書かないでください。

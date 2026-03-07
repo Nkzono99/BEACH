@@ -64,7 +64,6 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 
 [mesh]
 mode = "template"
-n_templates = 4
 
 # 1) 床（箱の中心に置く。境界 z=0 直上に上げて数値的な不安定/すり抜けを避ける）
 [[mesh.templates]]

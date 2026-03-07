@@ -18,7 +18,6 @@ program test_app_config_parser
   call load_app_config(cfg_path, cfg)
 
   call assert_true(trim(cfg%mesh_mode) == 'template', 'mesh.mode was not parsed')
-  call assert_equal_i32(cfg%n_templates, 2_i32, 'n_templates mismatch')
   call assert_true(trim(cfg%templates(2)%kind) == 'sphere', 'second template kind mismatch')
   call assert_equal_i32(cfg%n_particle_species, 2_i32, 'n_particle_species mismatch')
   call assert_equal_i32(particles_per_batch_from_config(cfg), 5_i32, 'per-batch particle count mismatch')
@@ -84,7 +83,6 @@ contains
     write (u, '(a)') ''
     write (u, '(a)') '[mesh]'
     write (u, '(a)') 'mode = "template"'
-    write (u, '(a)') 'n_templates = 2'
     write (u, '(a)') '[[mesh.templates]]'
     write (u, '(a)') 'kind = "plane"'
     write (u, '(a)') 'enabled = true'

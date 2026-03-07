@@ -40,6 +40,63 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "inject_face": "",
 }
 
+ALLOWED_SIM_KEYS = frozenset(
+    {
+        "dt",
+        "rng_seed",
+        "batch_count",
+        "batch_duration",
+        "batch_duration_step",
+        "max_step",
+        "tol_rel",
+        "q_floor",
+        "softening",
+        "use_hybrid",
+        "r_switch_factor",
+        "n_sub",
+        "softening_factor",
+        "b0",
+        "reservoir_potential_model",
+        "phi_infty",
+        "injection_face_phi_grid_n",
+        "raycast_max_bounce",
+        "use_box",
+        "box_min",
+        "box_max",
+        "bc_x_low",
+        "bc_x_high",
+        "bc_y_low",
+        "bc_y_high",
+        "bc_z_low",
+        "bc_z_high",
+    }
+)
+
+ALLOWED_SPECIES_KEYS = frozenset(
+    {
+        "enabled",
+        "npcls_per_step",
+        "source_mode",
+        "number_density_cm3",
+        "number_density_m3",
+        "q_particle",
+        "m_particle",
+        "w_particle",
+        "target_macro_particles_per_batch",
+        "pos_low",
+        "pos_high",
+        "drift_velocity",
+        "temperature_k",
+        "temperature_ev",
+        "emit_current_density_a_m2",
+        "rays_per_batch",
+        "deposit_opposite_charge_on_emit",
+        "normal_drift_speed",
+        "ray_direction",
+        "inject_face",
+    }
+)
+
 
 def _split_count_for_rank(total_count: int, rank: int, n_ranks: int) -> int:
     if total_count < 0:
@@ -412,10 +469,6 @@ def _resolve_batch_duration(
 ) -> float:
     has_batch_duration = "batch_duration" in sim_raw
     has_batch_duration_step = "batch_duration_step" in sim_raw
-    if "target_npcls_species1" in sim_raw:
-        raise SystemExit(
-            "sim.target_npcls_species1 was removed. Use [[particles.species]].target_macro_particles_per_batch."
-        )
     if has_batch_duration and has_batch_duration_step:
         raise SystemExit(
             "sim.batch_duration and sim.batch_duration_step cannot be used together."
@@ -468,10 +521,21 @@ def estimate_workload(
     sim_raw = config.get("sim", {})
     if not isinstance(sim_raw, dict):
         raise SystemExit("[sim] section must be a table.")
+    unknown_sim_keys = sorted(set(sim_raw) - ALLOWED_SIM_KEYS)
+    if unknown_sim_keys:
+        raise SystemExit(f"Unknown key in [sim]: {unknown_sim_keys[0]}")
+
+    particles_raw = config.get("particles", {})
+    if not isinstance(particles_raw, dict):
+        raise SystemExit("[particles] section must be a table.")
+    unknown_particles_keys = sorted(set(particles_raw) - {"species"})
+    if unknown_particles_keys:
+        raise SystemExit(f"Unknown key in [particles]: {unknown_particles_keys[0]}")
+
     sim_cfg = dict(DEFAULT_SIM)
     sim_cfg.update(sim_raw)
 
-    species_list_raw = config.get("particles", {}).get("species", [])
+    species_list_raw = particles_raw.get("species", [])
     if not isinstance(species_list_raw, list) or len(species_list_raw) == 0:
         raise SystemExit("At least one [[particles.species]] entry is required.")
 
@@ -479,6 +543,11 @@ def estimate_workload(
     for raw in species_list_raw:
         if not isinstance(raw, dict):
             raise SystemExit("Each [[particles.species]] entry must be a table.")
+        unknown_species_keys = sorted(set(raw) - ALLOWED_SPECIES_KEYS)
+        if unknown_species_keys:
+            raise SystemExit(
+                f"Unknown key in [[particles.species]]: {unknown_species_keys[0]}"
+            )
         spec = dict(DEFAULT_SPECIES)
         spec.update(raw)
         spec["source_mode"] = (

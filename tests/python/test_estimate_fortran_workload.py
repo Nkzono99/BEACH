@@ -122,7 +122,7 @@ def test_estimate_workload_rejects_batch_duration_and_step_together() -> None:
         estimate_workload(config=config, threads=1)
 
 
-def test_estimate_workload_rejects_removed_target_npcls_species1() -> None:
+def test_estimate_workload_rejects_unknown_sim_key() -> None:
     config = {
         "sim": {
             "batch_count": 1,
@@ -139,7 +139,7 @@ def test_estimate_workload_rejects_removed_target_npcls_species1() -> None:
         },
     }
 
-    with pytest.raises(SystemExit, match="was removed"):
+    with pytest.raises(SystemExit, match=r"Unknown key in \[sim\]"):
         estimate_workload(config=config, threads=1)
 
 

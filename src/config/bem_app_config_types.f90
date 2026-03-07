@@ -64,7 +64,6 @@ module bem_app_config_types
   type :: app_config
     character(len=16) :: mesh_mode = 'auto'
     character(len=256) :: obj_path = 'examples/simple_plate.obj'
-    integer(i32) :: n_templates = 1
     type(template_spec) :: templates(max_templates)
 
     integer(i32) :: n_particles = 0_i32

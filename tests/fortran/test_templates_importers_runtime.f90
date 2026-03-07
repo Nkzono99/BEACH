@@ -51,7 +51,6 @@ program test_templates_importers_runtime
   call default_app_config(cfg)
   cfg%mesh_mode = 'auto'
   cfg%obj_path = missing_obj_path
-  cfg%n_templates = 1_i32
   cfg%templates(1)%enabled = .true.
   cfg%templates(1)%kind = 'plane'
   cfg%templates(1)%nx = 1_i32
