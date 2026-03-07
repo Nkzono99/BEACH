@@ -17,6 +17,9 @@ module bem_mpi
   public :: mpi_initialize
   public :: mpi_shutdown
   public :: mpi_is_root
+  public :: mpi_world_size
+  public :: mpi_get_rank_size
+  public :: mpi_split_count
   public :: mpi_allreduce_sum_real_dp_array
   public :: mpi_allreduce_sum_real_dp_scalar
   public :: mpi_allreduce_sum_i32_array
@@ -77,6 +80,45 @@ contains
 
     mpi_is_root = (ctx%rank == 0_i32)
   end function mpi_is_root
+
+  !> MPI world size を返す（size<=0 は 1 へ補正）。
+  integer(i32) function mpi_world_size(ctx)
+    type(mpi_context), intent(in), optional :: ctx
+
+    mpi_world_size = 1_i32
+    if (present(ctx)) mpi_world_size = max(1_i32, ctx%size)
+  end function mpi_world_size
+
+  !> `mpi_context` から rank/size を取得する。未指定時は単一rank(0/1)。
+  subroutine mpi_get_rank_size(rank, size, ctx)
+    integer(i32), intent(out) :: rank, size
+    type(mpi_context), intent(in), optional :: ctx
+
+    rank = 0_i32
+    size = 1_i32
+    if (present(ctx)) then
+      rank = ctx%rank
+      size = max(1_i32, ctx%size)
+    end if
+    if (rank < 0_i32 .or. rank >= size) then
+      error stop 'mpi_get_rank_size detected an invalid rank/size pair.'
+    end if
+  end subroutine mpi_get_rank_size
+
+  !> 総数 `total_count` をrankへ均等分割したときの局所個数を返す。
+  integer(i32) function mpi_split_count(total_count, rank, size) result(local_count)
+    integer(i32), intent(in) :: total_count, rank, size
+    integer(i32) :: base_count, n_remainder
+
+    if (total_count < 0_i32) error stop 'mpi_split_count requires total_count >= 0.'
+    if (size <= 0_i32) error stop 'mpi_split_count requires size > 0.'
+    if (rank < 0_i32 .or. rank >= size) error stop 'mpi_split_count rank out of range.'
+
+    base_count = total_count/size
+    n_remainder = modulo(total_count, size)
+    local_count = base_count
+    if (rank < n_remainder) local_count = local_count + 1_i32
+  end function mpi_split_count
 
   !> 倍精度配列の総和Allreduceをin-placeで実行する。
   subroutine mpi_allreduce_sum_real_dp_array(ctx, values)
