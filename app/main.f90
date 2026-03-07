@@ -1,6 +1,8 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
+  use bem_kinds, only: i32
   use bem_types, only: sim_stats, mesh_type, injection_state
+  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
@@ -12,30 +14,41 @@ program main
   type(sim_stats) :: stats
   type(sim_stats) :: initial_stats
   type(injection_state) :: inject_state
+  type(mpi_context) :: mpi
   integer :: history_unit
   logical :: history_opened, resumed
 
-  call load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed)
-  call open_history_writer(app, resumed, history_opened, history_unit)
+  call mpi_initialize(mpi)
+  call load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi%rank, mpi%size)
+  if (mpi_is_root(mpi)) then
+    call open_history_writer(app, resumed, history_opened, history_unit)
+  else
+    history_opened = .false.
+    history_unit = -1
+  end if
 
   if (history_opened) then
     call run_absorption_insulator( &
       mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-      inject_state=inject_state &
+      inject_state=inject_state, mpi=mpi &
     )
     close(history_unit)
   else
-    call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state)
+    call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi)
   end if
 
-  call print_run_summary(mesh, stats)
+  if (mpi_is_root(mpi)) call print_run_summary(mesh, stats)
 
   if (app%write_output) then
-    call write_result_files(trim(app%output_dir), mesh, stats)
-    call write_rng_state_file(trim(app%output_dir))
-    call write_macro_residuals_file(trim(app%output_dir), inject_state)
-    print '(a,a)', 'results written to ', trim(app%output_dir)
+    call ensure_output_dir(app%output_dir)
+    if (mpi_is_root(mpi)) then
+      call write_result_files(trim(app%output_dir), mesh, stats, mpi_world_size=mpi%size)
+    end if
+    call write_rng_state_file(trim(app%output_dir), mpi_rank=mpi%rank, mpi_size=mpi%size)
+    call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi_rank=mpi%rank, mpi_size=mpi%size)
+    if (mpi_is_root(mpi)) print '(a,a)', 'results written to ', trim(app%output_dir)
   end if
+  call mpi_shutdown(mpi)
 
 contains
 
@@ -45,12 +58,13 @@ contains
   !! @param[out] initial_stats 再開時に引き継ぐ初期統計（新規実行時はゼロ）。
   !! @param[out] inject_state 種別ごとの注入残差状態。
   !! @param[out] resumed チェックポイントから再開した場合に `.true.`。
-  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed)
+  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi_rank, mpi_size)
     type(app_config), intent(out) :: app
     type(mesh_type), intent(out) :: mesh
     type(sim_stats), intent(out) :: initial_stats
     type(injection_state), intent(out) :: inject_state
     logical, intent(out) :: resumed
+    integer(i32), intent(in) :: mpi_rank, mpi_size
     character(len=256) :: cfg_path
     logical :: has_config
 
@@ -66,14 +80,18 @@ contains
     resumed = .false.
     if (app%resume_output) then
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
-      call load_restart_checkpoint(trim(app%output_dir), mesh, initial_stats, resumed, inject_state)
+      call load_restart_checkpoint( &
+        trim(app%output_dir), mesh, initial_stats, resumed, inject_state, mpi_rank=mpi_rank, mpi_size=mpi_size &
+      )
     end if
 
     if (resumed) then
-      print '(a,i0)', 'resuming_from_batches=', initial_stats%batches
-      print '(a,i0)', 'resuming_from_processed_particles=', initial_stats%processed_particles
+      if (mpi_rank == 0_i32) then
+        print '(a,i0)', 'resuming_from_batches=', initial_stats%batches
+        print '(a,i0)', 'resuming_from_processed_particles=', initial_stats%processed_particles
+      end if
     else
-      call seed_particles_from_config(app)
+      call seed_particles_from_config(app, mpi_rank=mpi_rank, mpi_size=mpi_size)
     end if
   end subroutine load_or_init_run_state
 
@@ -175,13 +193,14 @@ contains
   !! @param[in] out_dir 出力先ディレクトリ。
   !! @param[in] mesh 書き出し対象のメッシュ。
   !! @param[in] stats 書き出し対象の統計値。
-  subroutine write_result_files(out_dir, mesh, stats)
+  subroutine write_result_files(out_dir, mesh, stats, mpi_world_size)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
+    integer(i32), intent(in), optional :: mpi_world_size
 
     call ensure_output_dir(out_dir)
-    call write_summary_file(out_dir, mesh, stats)
+    call write_summary_file(out_dir, mesh, stats, mpi_world_size=mpi_world_size)
     call write_charges_file(out_dir, mesh)
     call write_mesh_file(out_dir, mesh)
   end subroutine write_result_files
@@ -202,17 +221,22 @@ contains
   !! @param[in] out_dir 出力先ディレクトリ。
   !! @param[in] mesh メッシュ情報（要素数を書き出す）。
   !! @param[in] stats 実行統計。
-  subroutine write_summary_file(out_dir, mesh, stats)
+  subroutine write_summary_file(out_dir, mesh, stats, mpi_world_size)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
+    integer(i32), intent(in), optional :: mpi_world_size
     character(len=1024) :: summary_path
     integer :: u, ios
+    integer(i32) :: world_size
 
     summary_path = trim(out_dir) // '/summary.txt'
     open(newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary file.'
+    world_size = 1_i32
+    if (present(mpi_world_size)) world_size = max(1_i32, mpi_world_size)
     write(u, '(a,i0)') 'mesh_nelem=', mesh%nelem
+    write(u, '(a,i0)') 'mpi_world_size=', world_size
     write(u, '(a,i0)') 'processed_particles=', stats%processed_particles
     write(u, '(a,i0)') 'absorbed=', stats%absorbed
     write(u, '(a,i0)') 'escaped=', stats%escaped

@@ -241,11 +241,24 @@ history_stride = 1
 - `rng_state.txt`
 - `macro_residuals.csv`
 
+MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイルになります。
+
+- `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
+- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+
+また、`summary.txt` には `mpi_world_size` が記録されます。
+
 `resume = true` の要件:
 
 - `write_files = true` 必須
 - `output.dir` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
 - `macro_residuals.csv` は存在すれば読み込みます
+
+MPI実行での追加要件:
+
+- `summary.txt` の `mpi_world_size` が現在のrank数と一致している必要があります
+- 各rankに対応する `rng_state_rankNNNNN.txt` が必要です
+- `macro_residuals_rankNNNNN.csv` は存在すれば読み込みます
 
 ## 4. 旧キー・非推奨の扱い
 

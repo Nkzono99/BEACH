@@ -62,3 +62,8 @@ main = "test_simulator.f90"
 name = "test_injection_sampling"
 source-dir = "tests/fortran"
 main = "test_injection_sampling.f90"
+
+[[test]]
+name = "test_mpi_hybrid"
+source-dir = "tests/fortran"
+main = "test_mpi_hybrid.f90"
