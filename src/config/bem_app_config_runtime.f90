@@ -108,10 +108,22 @@ contains
 
   !> バッチ生成前に乱数シードだけを初期化する。
   !! @param[in] cfg 乱数シード値 `sim.rng_seed` を含むアプリ設定。
-  subroutine seed_particles_from_config(cfg)
+  subroutine seed_particles_from_config(cfg, mpi_rank, mpi_size)
     type(app_config), intent(in) :: cfg
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    integer(i32) :: local_rank, n_ranks, seed_value
+    integer(kind=8) :: seed_tmp
 
-    call seed_rng([cfg%sim%rng_seed])
+    local_rank = 0_i32
+    n_ranks = 1_i32
+    if (present(mpi_rank)) local_rank = mpi_rank
+    if (present(mpi_size)) n_ranks = mpi_size
+    if (n_ranks <= 0_i32) error stop 'mpi_size must be > 0 in seed_particles_from_config.'
+    if (local_rank < 0_i32 .or. local_rank >= n_ranks) error stop 'mpi_rank is out of range in seed_particles_from_config.'
+
+    seed_tmp = int(cfg%sim%rng_seed, kind=8) + 104729_8 * int(local_rank, kind=8)
+    seed_value = int(modulo(seed_tmp, int(huge(0_i32), kind=8)), kind=i32)
+    call seed_rng([seed_value])
   end subroutine seed_particles_from_config
 
   !> 指定バッチ番号に対応する粒子バッチを生成する。
@@ -121,15 +133,16 @@ contains
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
-  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh, photo_emission_dq)
+  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size)
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
     type(particles_soa), intent(out) :: pcls
     type(injection_state), intent(inout), optional :: state
     type(mesh_type), intent(in), optional :: mesh
     real(dp), intent(out), optional :: photo_emission_dq(:)
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
 
-    integer(i32) :: s, i, batch_n, max_rank, out_idx
+    integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:)
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
@@ -139,6 +152,12 @@ contains
     if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
       error stop 'Requested batch index is out of range.'
     end if
+    local_rank = 0_i32
+    n_ranks = 1_i32
+    if (present(mpi_rank)) local_rank = mpi_rank
+    if (present(mpi_size)) n_ranks = mpi_size
+    if (n_ranks <= 0_i32) error stop 'mpi_size must be > 0 in init_particle_batch_from_config.'
+    if (local_rank < 0_i32 .or. local_rank >= n_ranks) error stop 'mpi_rank is out of range in init_particle_batch_from_config.'
     if (present(state)) then
       if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
       if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
@@ -159,7 +178,8 @@ contains
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
-        counts_max(s) = cfg%particle_species(s)%npcls_per_step
+        global_count = cfg%particle_species(s)%npcls_per_step
+        counts_max(s) = split_count_for_rank(global_count, local_rank, n_ranks)
       case ('reservoir_face')
         if (.not. present(state)) then
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
@@ -168,10 +188,12 @@ contains
           cfg%sim, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
         )
         call compute_macro_particles_for_species( &
-          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s) &
+          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s), &
+          batch_duration_scale=1.0d0/real(n_ranks, dp) &
         )
       case ('photo_raycast')
-        counts_max(s) = cfg%particle_species(s)%rays_per_batch
+        global_count = cfg%particle_species(s)%rays_per_batch
+        counts_max(s) = split_count_for_rank(global_count, local_rank, n_ranks)
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
@@ -202,7 +224,8 @@ contains
         call sample_photo_species_state( &
           cfg%sim, cfg%particle_species(s), mesh, counts_max(s), x_species(:, 1:counts_max(s), s), &
           v_species(:, 1:counts_max(s), s), w_species(1:counts_max(s), s), counts_actual(s), &
-          emit_elem_idx=emit_elem_species(1:counts_max(s), s) &
+          emit_elem_idx=emit_elem_species(1:counts_max(s), s), &
+          global_rays_per_batch=cfg%particle_species(s)%rays_per_batch &
         )
         if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
           do i = 1, counts_actual(s)
@@ -309,7 +332,7 @@ contains
   !! @param[out] w 生成した重み配列 `w(n_rays)`。
   !! @param[out] n_emit 実際に放出された粒子数。
   !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(n_rays)`（省略可）。
-  subroutine sample_photo_species_state(sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx)
+  subroutine sample_photo_species_state(sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     type(mesh_type), intent(in) :: mesh
@@ -319,17 +342,26 @@ contains
     real(dp), intent(out) :: w(:)
     integer(i32), intent(out) :: n_emit
     integer(i32), intent(out), optional :: emit_elem_idx(:)
+    integer(i32), intent(in), optional :: global_rays_per_batch
 
     if (n_rays <= 0_i32) then
       if (present(emit_elem_idx)) emit_elem_idx = -1_i32
       n_emit = 0_i32
       return
     end if
-    call sample_photo_raycast_particles( &
-      mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
-      species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
-      n_rays, x, v, w, n_emit, emit_elem_idx &
-    )
+    if (present(global_rays_per_batch)) then
+      call sample_photo_raycast_particles( &
+        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+        species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
+        n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch &
+      )
+    else
+      call sample_photo_raycast_particles( &
+        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+        species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
+        n_rays, x, v, w, n_emit, emit_elem_idx &
+      )
+    end if
   end subroutine sample_photo_species_state
 
   !> reservoir_face 用に、物理流量と残差から今バッチのマクロ粒子数を決める。
@@ -338,26 +370,29 @@ contains
   !! @param[inout] residual 前バッチから繰り越した端数。
   !! @param[out] count 今バッチで生成するマクロ粒子数。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
-  subroutine compute_macro_particles_for_species(sim, spec, residual, count, vmin_normal)
+  subroutine compute_macro_particles_for_species(sim, spec, residual, count, vmin_normal, batch_duration_scale)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     real(dp), intent(inout) :: residual
     integer(i32), intent(out) :: count
     real(dp), intent(in), optional :: vmin_normal
+    real(dp), intent(in), optional :: batch_duration_scale
 
-    real(dp) :: number_density_m3
+    real(dp) :: number_density_m3, effective_batch_duration
 
     number_density_m3 = species_number_density_m3(spec)
+    effective_batch_duration = sim%batch_duration
+    if (present(batch_duration_scale)) effective_batch_duration = sim%batch_duration * batch_duration_scale
     if (present(vmin_normal)) then
       call compute_macro_particles_for_batch( &
         number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
-        spec%inject_face, spec%pos_low, spec%pos_high, sim%batch_duration, spec%w_particle, residual, count, &
+        spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, spec%w_particle, residual, count, &
         vmin_normal=vmin_normal &
       )
     else
       call compute_macro_particles_for_batch( &
         number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
-        spec%inject_face, spec%pos_low, spec%pos_high, sim%batch_duration, spec%w_particle, residual, count &
+        spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, spec%w_particle, residual, count &
       )
     end if
   end subroutine compute_macro_particles_for_species
@@ -511,6 +546,21 @@ contains
     number_density_m3 = spec%number_density_m3
     if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3 * 1.0d6
   end function species_number_density_m3
+
+  !> 総数 `total_count` を `n_ranks` 個のrankへできるだけ均等に分配し、このrank分を返す。
+  integer(i32) function split_count_for_rank(total_count, rank, n_ranks) result(local_count)
+    integer(i32), intent(in) :: total_count, rank, n_ranks
+    integer(i32) :: base_count, n_remainder
+
+    if (total_count < 0_i32) error stop 'split_count_for_rank requires total_count >= 0.'
+    if (n_ranks <= 0_i32) error stop 'split_count_for_rank requires n_ranks > 0.'
+    if (rank < 0_i32 .or. rank >= n_ranks) error stop 'split_count_for_rank rank out of range.'
+
+    base_count = total_count/n_ranks
+    n_remainder = modulo(total_count, n_ranks)
+    local_count = base_count
+    if (rank < n_remainder) local_count = local_count + 1_i32
+  end function split_count_for_rank
 
   !> 粒子種設定から実効温度[K]を返す。
   !! @param[in] spec 粒子種設定。

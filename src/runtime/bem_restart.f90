@@ -17,23 +17,31 @@ contains
   !! @param[out] stats 復元された統計値。
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
   !! @param[inout] state 種別ごとのマクロ粒子残差（指定時のみ復元）。
-  subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart, state)
+  subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
     type(sim_stats), intent(out) :: stats
     logical, intent(out) :: has_restart
     type(injection_state), intent(inout), optional :: state
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path
     logical :: has_summary, has_charges, has_rng, has_residual
+    integer(i32) :: local_rank, world_size
 
     stats = sim_stats()
     has_restart = .false.
+    local_rank = 0_i32
+    world_size = 1_i32
+    if (present(mpi_rank)) local_rank = mpi_rank
+    if (present(mpi_size)) world_size = mpi_size
+    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in load_restart_checkpoint.'
+    if (local_rank < 0_i32 .or. local_rank >= world_size) error stop 'mpi_rank out of range in load_restart_checkpoint.'
 
     summary_path = trim(out_dir) // '/summary.txt'
     charges_path = trim(out_dir) // '/charges.csv'
-    rng_path = trim(out_dir) // '/rng_state.txt'
-    residual_path = trim(out_dir) // '/macro_residuals.csv'
+    rng_path = rng_state_path(trim(out_dir), local_rank, world_size)
+    residual_path = macro_residual_path(trim(out_dir), local_rank, world_size)
 
     inquire(file=trim(summary_path), exist=has_summary)
     inquire(file=trim(charges_path), exist=has_charges)
@@ -46,7 +54,7 @@ contains
       error stop 'Resume requested but checkpoint files are incomplete in output directory.'
     end if
 
-    call load_summary_file(trim(summary_path), mesh%nelem, stats)
+    call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)
     call load_charge_file(trim(charges_path), mesh)
     call restore_rng_state(trim(rng_path))
     if (present(state)) then
@@ -58,18 +66,26 @@ contains
 
   !> 現在の Fortran 乱数状態をファイルへ保存する。
   !! @param[in] out_dir 出力ディレクトリ。
-  subroutine write_rng_state_file(out_dir)
+  subroutine write_rng_state_file(out_dir, mpi_rank, mpi_size)
     character(len=*), intent(in) :: out_dir
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
 
     character(len=1024) :: path
     integer :: n, u, ios, i
     integer, allocatable :: seed(:)
+    integer(i32) :: local_rank, world_size
 
+    local_rank = 0_i32
+    world_size = 1_i32
+    if (present(mpi_rank)) local_rank = mpi_rank
+    if (present(mpi_size)) world_size = mpi_size
+    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in write_rng_state_file.'
+    if (local_rank < 0_i32 .or. local_rank >= world_size) error stop 'mpi_rank out of range in write_rng_state_file.'
     call random_seed(size=n)
     allocate(seed(n))
     call random_seed(get=seed)
 
-    path = trim(out_dir) // '/rng_state.txt'
+    path = rng_state_path(trim(out_dir), local_rank, world_size)
     open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open rng_state.txt.'
 
@@ -83,16 +99,25 @@ contains
   !> マクロ粒子残差を `macro_residuals.csv` として保存する。
   !! @param[in] out_dir 出力ディレクトリ。
   !! @param[in] state 種別ごとのマクロ粒子残差を保持した注入状態。
-  subroutine write_macro_residuals_file(out_dir, state)
+  subroutine write_macro_residuals_file(out_dir, state, mpi_rank, mpi_size)
     character(len=*), intent(in) :: out_dir
     type(injection_state), intent(in) :: state
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
 
     character(len=1024) :: path
     integer :: u, ios, i
+    integer(i32) :: local_rank, world_size
 
     if (.not. allocated(state%macro_residual)) return
 
-    path = trim(out_dir) // '/macro_residuals.csv'
+    local_rank = 0_i32
+    world_size = 1_i32
+    if (present(mpi_rank)) local_rank = mpi_rank
+    if (present(mpi_size)) world_size = mpi_size
+    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in write_macro_residuals_file.'
+    if (local_rank < 0_i32 .or. local_rank >= world_size) error stop 'mpi_rank out of range in write_macro_residuals_file.'
+
+    path = macro_residual_path(trim(out_dir), local_rank, world_size)
     open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open macro_residuals.csv.'
 
@@ -108,27 +133,30 @@ contains
   !! @param[in] path `summary.txt` のファイルパス。
   !! @param[in] expected_nelem 現在メッシュの要素数（整合性検証に使用）。
   !! @param[out] stats 復元した統計値。
-  subroutine load_summary_file(path, expected_nelem, stats)
+  subroutine load_summary_file(path, expected_nelem, stats, expected_world_size)
     character(len=*), intent(in) :: path
     integer(i32), intent(in) :: expected_nelem
     type(sim_stats), intent(out) :: stats
+    integer(i32), intent(in), optional :: expected_world_size
 
     integer :: u, ios, pos
-    integer(i32) :: mesh_nelem
+    integer(i32) :: mesh_nelem, saved_world_size
     character(len=512) :: line
     character(len=64) :: key
     character(len=256) :: value
     logical :: found_mesh, found_processed, found_absorbed, found_escaped
-    logical :: found_batches, found_rel
+    logical :: found_batches, found_rel, found_world_size
 
     stats = sim_stats()
     mesh_nelem = -1_i32
+    saved_world_size = 1_i32
     found_mesh = .false.
     found_processed = .false.
     found_absorbed = .false.
     found_escaped = .false.
     found_batches = .false.
     found_rel = .false.
+    found_world_size = .false.
 
     open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary.txt for resume.'
@@ -148,6 +176,9 @@ contains
       case ('mesh_nelem')
         read(value, *) mesh_nelem
         found_mesh = .true.
+      case ('mpi_world_size')
+        read(value, *) saved_world_size
+        found_world_size = .true.
       case ('processed_particles')
         read(value, *) stats%processed_particles
         found_processed = .true.
@@ -182,6 +213,14 @@ contains
     end if
     if (mesh_nelem /= expected_nelem) then
       error stop 'Resume checkpoint mesh element count does not match current mesh.'
+    end if
+    if (present(expected_world_size)) then
+      if (.not. found_world_size .and. expected_world_size > 1_i32) then
+        error stop 'Resume checkpoint summary is missing mpi_world_size.'
+      end if
+      if (max(1_i32, expected_world_size) /= saved_world_size) then
+        error stop 'Resume checkpoint mpi_world_size does not match current MPI world size.'
+      end if
     end if
   end subroutine load_summary_file
 
@@ -303,5 +342,31 @@ contains
     end do
     close(u)
   end subroutine load_macro_residual_file
+
+  !> RNG状態ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
+  function rng_state_path(out_dir, mpi_rank, mpi_size) result(path)
+    character(len=*), intent(in) :: out_dir
+    integer(i32), intent(in) :: mpi_rank, mpi_size
+    character(len=1024) :: path
+
+    if (mpi_size <= 1_i32) then
+      path = trim(out_dir) // '/rng_state.txt'
+    else
+      write(path, '(a,a,i5.5,a)') trim(out_dir), '/rng_state_rank', mpi_rank, '.txt'
+    end if
+  end function rng_state_path
+
+  !> マクロ残差ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
+  function macro_residual_path(out_dir, mpi_rank, mpi_size) result(path)
+    character(len=*), intent(in) :: out_dir
+    integer(i32), intent(in) :: mpi_rank, mpi_size
+    character(len=1024) :: path
+
+    if (mpi_size <= 1_i32) then
+      path = trim(out_dir) // '/macro_residuals.csv'
+    else
+      write(path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', mpi_rank, '.csv'
+    end if
+  end function macro_residual_path
 
 end module bem_restart
