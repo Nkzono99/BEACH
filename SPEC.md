@@ -163,3 +163,10 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - v0.x は insulator accumulation を正規仕様とする
 - 拡張点は維持しつつ、現行利用者向けには実装済み挙動を優先して文書化する
 - 設定追加・削除時は `docs/fortran_parameter_file.md` を同時更新する
+
+## 10. 実行運用（推奨）
+
+実行運用としては、`fpm install` で導入した `beach` コマンドの利用を推奨します。
+
+- 推奨導線: `make`（= `install` ターゲット）で導入し、`beach [config.toml]` で実行
+- 開発時の直接実行: `fpm run -- ...` も利用可能

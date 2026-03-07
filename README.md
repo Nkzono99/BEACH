@@ -1,44 +1,123 @@
 # BEACH（BEM + Accumulated CHarge）
 
-本リポジトリは、**BEACH（BEM + Accumulated CHarge）** として開発している、BEM（境界要素法）ベースの表面帯電＋テスト粒子シミュレータです。  
-**メイン計算系は Fortran（fpm）** とし、**Python は可視化・後処理・補助解析**に使う構成です。
+BEACH は、**BEM（境界要素法）ベースの表面帯電 + テスト粒子追跡シミュレータ**です。  
+計算本体は Fortran（`fpm` 管理）、Python は後処理・可視化を担当します。
 
-## 開発・運用方針（v0.x）
+v0.x の主対象は **insulator accumulation（絶縁体への電荷蓄積）** です。
 
-- 電場計算・粒子前進・衝突判定・電荷蓄積などのコア処理は Fortran 側で実行
-- Python 側は結果読込、可視化、検証用ユーティリティを担当
-- Fortran 実行結果は `summary.txt` / `charges.csv` / `mesh_triangles.csv` を出力し、`charge_history.csv` はバッチ間隔指定で逐次書き出し
+## 推奨ワークフロー
 
-## ディレクトリ構成
+このリポジトリでは、**インストール済みの `beach` コマンドで実行する運用**を推奨します。  
+`fpm run` は開発時の直接実行手段として残しています。
 
-- [`src/`](src/), [`app/`](app/)：Fortran 本体（fpm プロジェクト）
-  - [`src/core/`](src/core/)：型・定数などの基盤モジュール
-  - [`src/mesh/`](src/mesh/)：メッシュ生成/読込
-  - [`src/physics/`](src/physics/)：場計算・衝突・境界・時間発展の基本処理
-  - [`src/particles/`](src/particles/)：粒子配列管理・注入サンプリング
-  - [`src/config/`](src/config/)：TOML設定の型/パース/実行時解決
-  - [`src/runtime/`](src/runtime/)：再開処理・シミュレーション実行
-- [`examples/`](examples/)：Fortran 設定例、Python 後処理例
-- [`beach/`](beach/)：Python ライブラリ（結果読込・可視化などの後処理）
-- [`docs/`](docs/)：運用・仕様ドキュメント
+## 1. セットアップ
 
-## セットアップ
-
-### 1) Fortran 実行（メイン）
+### 1.1 前提ツール
 
 ```bash
-fpm run --profile release --flag "-fopenmp"
+gfortran --version
+fpm --version
+python --version
 ```
 
-カレントディレクトリに `beach.toml` があれば自動で読み込みます。見つからない場合は、`default_app_config` の既定値で実行されます。
+### 1.2 Fortran 実行系のインストール（推奨）
 
-設定ファイルを指定して実行する場合：
+```bash
+make
+```
+
+`make` のデフォルトターゲットは `install` で、`BUILD_PROFILE=auto`（ホスト自動判定）で導入します。
+環境に応じてプロファイルを明示することも可能です。
+
+```bash
+make install-generic
+make install-camphor
+```
+
+`install.sh` の既定インストール先は `~/.local/bin/beach` です。必要に応じて PATH を通してください。
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### 1.3 Python 後処理
+
+```bash
+python -m pip install -U pip setuptools wheel
+python -m pip install -e . --no-build-isolation
+```
+
+## 2. 実行
+
+### 2.1 推奨: `beach` コマンド
+
+```bash
+beach examples/beach.toml
+```
+
+引数なしの場合は、カレントディレクトリの `beach.toml` を自動読込します。
+
+### 2.2 出力確認
+
+```bash
+ls outputs/latest
+beach-inspect outputs/latest
+```
+
+主な出力:
+
+- `summary.txt`
+- `charges.csv`
+- `mesh_triangles.csv`
+- `charge_history.csv`（`history_stride > 0` のとき）
+
+### 2.3 可視化
+
+```bash
+beach-inspect outputs/latest \
+  --save-bar outputs/latest/charges_bar.png \
+  --save-mesh outputs/latest/charges_mesh.png
+
+beach-animate-history outputs/latest \
+  --quantity charge \
+  --save-gif outputs/latest/charge_history.gif \
+  --total-frames 200
+```
+
+## 3. よく使うコマンド
+
+### テスト
+
+```bash
+pytest -q
+fpm test
+```
+
+### 負荷見積もり
+
+```bash
+beach-estimate-workload examples/beach.toml --threads 8
+```
+
+### 再開実行
+
+```toml
+[output]
+dir = "outputs/latest"
+resume = true
+```
+
+同じ `output.dir` で `beach` を再実行すると続きから計算します。
+
+## 4. 開発者向け補足（`fpm`）
+
+このプロジェクトは `fpm` で管理されています。開発時には直接実行も可能です。
 
 ```bash
 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
-MPI + OpenMP ハイブリッド実行（コンパイル時 `USE_MPI` 有効化）:
+MPI + OpenMP（`USE_MPI` 有効化）:
 
 ```bash
 FPM_FC=mpiifort \
@@ -46,94 +125,19 @@ fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 4" -- examples/beach.toml
 ```
 
-インストール（`fpm install`）は `Makefile` のプリセットを使えます。
+## 5. プロジェクト構成
 
-```bash
-make install-auto      # ホスト名から最適プロファイルを自動選択（なければ generic）
-make install-generic   # 汎用ビルド
-make install-camphor   # camphor向け最適化ビルド
-```
+- [`src/`](src/), [`app/`](app/): Fortran 本体
+- [`tests/fortran/`](tests/fortran/): Fortran テスト
+- [`beach/`](beach/): Python 後処理ライブラリ
+- [`tests/python/`](tests/python/): Python テスト
+- [`examples/`](examples/): 設定例・補助スクリプト
+- [`docs/`](docs/): 運用ドキュメント
+- [`SPEC.md`](SPEC.md): 現行 Fortran 実装仕様
 
-ビルドプロファイル定義は `env/*.env`（例: `env/camphor.env`）で管理します。
+## 6. ドキュメント案内
 
-### 2) Python 環境（後処理・可視化）
-
-```bash
-python -m pip install -U pip setuptools wheel
-python -m pip install -e . --no-build-isolation
-```
-
-## ドキュメント
-
-- Fortran 中心ワークフロー: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
-- Fortran パラメータファイル仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
-- シミュレータ仕様（現行 Fortran 実装）: [`SPEC.md`](SPEC.md)
-
-## Python 後処理の利用例
-
-`Beach` クラスを使うのが推奨導線です。
-
-```python
-from beach import (
-    Beach,
-    animate_history_mesh,
-    compute_potential_mesh,
-    plot_charge_mesh,
-    plot_charges,
-)
-
-beach = Beach("outputs/latest")
-result = beach.result  # FortranRunResult（遅延ロード）
-print(result.absorbed, result.escaped, result.charges.sum())
-print(result.charge_history.shape if result.charge_history is not None else 0)
-
-# 引数省略時は "outputs/latest" を参照
-beach_default = Beach()
-
-fig_bar, ax_bar = beach.plot_bar()
-fig_mesh, ax_mesh = beach.plot_mesh()
-fig_phi, ax_phi = beach.plot_potential()
-written = beach.animate_mesh(
-    "outputs/latest/charge_history.gif",
-    quantity="charge",
-    total_frames=200,
-)
-print(written)
-
-# output_path=None なら保存せず FuncAnimation を返す
-anim = beach.animate_mesh(quantity="potential")
-
-# 既存の関数APIも継続利用可能（Beach/FortranRunResult 両対応）
-potential = compute_potential_mesh(beach, softening=0.0, self_term="area_equivalent")
-print(potential.min(), potential.max())
-fig_bar2, ax_bar2 = plot_charges(beach)
-fig_mesh2, ax_mesh2 = plot_charge_mesh(beach)
-written2 = animate_history_mesh(beach, "outputs/latest/potential_history.gif", quantity="potential")
-```
-
-`Beach.compute_potential()` / `compute_potential_mesh()` は、Fortran が出力した要素電荷を各要素重心ベースで再構成する後処理近似です。既定では、他要素の寄与は重心点電荷近似のまま、自己項のみ要素面積に基づく有限値（面積等価円板近似）で評価します。これは Fortran 本体の電場計算を厳密に再現するものではありません。以前の `1 / softening` 自己項が必要な場合は、`beach.compute_potential(softening=1.0e-6, self_term="softened_point")` のように明示指定してください。
-
-CLI での確認例：
-
-```bash
-python examples/inspect_fortran_output.py outputs/latest \
-  --save-bar outputs/latest/charges_bar.png \
-  --save-mesh outputs/latest/charges_mesh.png \
-  --save-potential-mesh outputs/latest/potential_mesh.png \
-  --potential-self-term area-equivalent
-
-python examples/animate_fortran_history.py outputs/latest \
-  --quantity charge \
-  --save-gif outputs/latest/charge_history.gif \
-  --total-frames 200
-
-python examples/animate_fortran_history.py outputs/latest \
-  --quantity potential \
-  --save-gif outputs/latest/potential_history.gif \
-  --potential-self-term area-equivalent \
-  --total-frames 200
-```
-
-## 参考ファイル
-
-- [`examples/beach.toml`](examples/beach.toml)：複数テンプレート合成を含む設定サンプル
+- Fortran 実行フロー: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
+- `beach.toml` 仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
+- 実装仕様（source of truth）: [`SPEC.md`](SPEC.md)
+- 設定サンプル: [`examples/beach.toml`](examples/beach.toml)

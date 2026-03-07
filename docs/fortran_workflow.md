@@ -1,86 +1,101 @@
 # Fortran 中心ワークフロー（現行推奨）
 
-このリポジトリは **Fortran 実行系が主**、Python は後処理・可視化を担当します。  
-ここでは、初見ユーザーがそのまま実行できる最短手順を先に示します。
+このプロジェクトは **Fortran 実行系が主**、Python は後処理・可視化を担当します。  
+推奨運用は、`fpm install` で導入した `beach` コマンドを使う方式です。
 
 ## 1. 事前準備
 
-### 1.1 Fortran 実行
+### 1.1 ツール確認
 
 ```bash
-fpm run --profile release --flag "-fopenmp"
+gfortran --version
+fpm --version
+python --version
 ```
 
-- 引数なし実行: カレントの `beach.toml` を自動読込
-- 設定ファイルを指定する場合:
+### 1.2 実行バイナリをインストール（推奨）
 
 ```bash
-fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
+make
 ```
 
-- スレッド数指定:
+`make` のデフォルトターゲットは `install` で、`BUILD_PROFILE=auto`（ホスト自動判定）を使います。
+必要に応じてプロファイルを明示します。
 
 ```bash
-OMP_NUM_THREADS=8 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
-```
-
-- MPI + OpenMP ハイブリッド実行:
-
-```bash
-FPM_FC=mpiifort \
-fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
-  --runner "mpirun -n 4" -- examples/beach.toml
-```
-
-- `fpm install` を使う場合の推奨ターゲット:
-
-```bash
-make install-auto      # ホスト名で profile 自動判定（camphor* -> camphor, それ以外 -> generic）
 make install-generic
 make install-camphor
 ```
 
-### 1.2 Python 後処理
+既定のインストール先は `~/.local/bin/beach` です。必要なら PATH を追加します。
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### 1.3 Python 後処理
 
 ```bash
 python -m pip install -U pip setuptools wheel
 python -m pip install -e . --no-build-isolation
 ```
 
-## 2. 標準実行フロー
+## 2. 実行フロー
 
-1. `beach.toml` を用意（推奨は `docs/fortran_parameter_file.md` の最小例）
-2. Fortran を実行
-3. `output.dir` に出力されたファイルを確認
+1. `beach.toml` を用意（仕様は `docs/fortran_parameter_file.md`）
+2. `beach` でシミュレーション実行
+3. `output.dir` の出力ファイルを確認
 4. Python CLI または `Beach` API で可視化
 
-出力される主なファイル:
+## 3. 実行コマンド
+
+### 3.1 推奨: `beach`
+
+```bash
+beach examples/beach.toml
+```
+
+引数なし実行では、カレントディレクトリの `beach.toml` を自動読込します。
+
+### 3.2 スレッド数指定
+
+```bash
+OMP_NUM_THREADS=8 beach examples/beach.toml
+```
+
+### 3.3 MPI + OpenMP
+
+MPI ビルドをインストール後、ランチャー経由で `beach` を起動します。
+
+```bash
+mpirun -n 4 beach examples/beach.toml
+```
+
+## 4. 出力ファイル
+
+主な出力:
 
 - `summary.txt`
 - `charges.csv`
 - `mesh_triangles.csv`
-- `charge_history.csv`（`history_stride > 0` のとき）
+- `charge_history.csv`（`history_stride > 0`）
 - `rng_state.txt`
 - `macro_residuals.csv`
 
-MPI実行（`world_size > 1`）では乱数状態・残差はrank別に保存されます。
+MPI実行（`world_size > 1`）では乱数状態・残差は rank 別です。
 
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
 - `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
 
-## 3. 実行前の負荷見積もり（推奨）
+## 5. 実行前の負荷見積もり（推奨）
 
-`reservoir_face` / `photo_raycast` を使う場合、バッチあたり粒子数が動的に決まるため事前見積もりを推奨します。
+`reservoir_face` / `photo_raycast` を使う場合、バッチあたり粒子数が動的に決まるため見積もりを推奨します。
 
 ```bash
 beach-estimate-workload examples/beach.toml --threads 8
 ```
 
-- `resolved_batch_duration=...` が表示されます（`batch_duration_step` 指定時）。
-- `target_macro_particles_per_batch` を使う場合、この解決済み `batch_duration` で `w_particle` が算出されます。
-- `--mpi-ranks N --mpi-rank R` を指定すると、MPI分割後の「rank局所」粒子数で見積もります（`R`は `0..N-1`）。
-
-残差を考慮して続きから見積もる場合:
+残差を考慮した rank 局所見積もり:
 
 ```bash
 beach-estimate-workload examples/beach.toml \
@@ -90,9 +105,7 @@ beach-estimate-workload examples/beach.toml \
   --macro-residuals outputs/latest/macro_residuals_rank00000.csv
 ```
 
-## 4. 再開実行（resume）
-
-設定例:
+## 6. 再開実行（resume）
 
 ```toml
 [output]
@@ -100,14 +113,14 @@ dir = "outputs/latest"
 resume = true
 ```
 
-同じ `output.dir` で再実行すると、`summary.txt` / `charges.csv` / RNG状態ファイルを読み込んで続きから計算します。  
+同じ `output.dir` で `beach` を再実行すると、`summary.txt` / `charges.csv` / RNG状態を読み込んで続きから計算します。  
 `sim.batch_count` は「今回追加するバッチ数」です。
 
-MPI実行での再開は、`summary.txt` に記録された `mpi_world_size` と現在のrank数が一致している必要があります。
+MPI再開時は `summary.txt` の `mpi_world_size` と現在の rank 数が一致している必要があります。
 
-## 5. Python 後処理
+## 7. Python 後処理
 
-### 5.1 CLI
+### 7.1 CLI
 
 ```bash
 beach-inspect outputs/latest \
@@ -122,17 +135,7 @@ beach-animate-history outputs/latest \
   --total-frames 200
 ```
 
-`quantity=potential` のアニメーション例:
-
-```bash
-beach-animate-history outputs/latest \
-  --quantity potential \
-  --save-gif outputs/latest/potential_history.gif \
-  --potential-self-term area-equivalent \
-  --total-frames 200
-```
-
-### 5.2 Python API
+### 7.2 Python API
 
 ```python
 from beach import Beach
@@ -140,30 +143,21 @@ from beach import Beach
 beach = Beach("outputs/latest")
 print(beach.result.absorbed, beach.result.escaped)
 
-# 引数省略時は outputs/latest を読む
-beach_default = Beach()
-
 beach.plot_bar()
 beach.plot_mesh()
 beach.plot_potential()
 beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge", total_frames=200)
 ```
 
-- `animate_mesh(output_path=None)` は保存せず `FuncAnimation` を返します。
+## 8. 開発時に `fpm` で直接実行する場合
 
-### 5.3 互換ラッパー
+開発用には `fpm run` も利用できます。
 
-次のスクリプトは CLI の薄いラッパーです。
+```bash
+fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
+```
 
-- `python examples/inspect_fortran_output.py ...`
-- `python examples/animate_fortran_history.py ...`
-- `python examples/estimate_fortran_workload.py ...`
-
-新規運用では `beach-*` CLI を優先してください。
-
-## 6. MPIテスト（専用）
-
-MPI経路のみを確認する場合:
+MPI経路のテスト:
 
 ```bash
 FPM_FC=mpiifort \
@@ -172,17 +166,11 @@ fpm test --target test_mpi_hybrid \
   --runner "mpirun -n 2"
 ```
 
-## 7. 実装挙動で誤解しやすい点
+## 9. 実装挙動で誤解しやすい点
 
 - 実行は `sim.batch_count` 分だけ進みます。
-- `sim.tol_rel` は出力監視値で、現行実装では早期終了条件に使いません。
-- Fortran 本体の電場は、要素重心への点電荷近似 + `sim.softening` です。
-- `sim.use_hybrid` / `r_switch_factor` / `n_sub` / `softening_factor` は現状予約キーです。
+- `sim.tol_rel` は監視値で、現行実装では早期終了条件に使いません。
+- Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
+- `sim.use_hybrid` / `r_switch_factor` / `n_sub` / `softening_factor` は予約キーです。
 
-## 8. 運用ルール（推奨）
-
-- 物理モデルやランタイム挙動の変更は Fortran 側を正とする。
-- 出力フォーマット変更時は `beach/fortran_results.py` と CLI を同時更新する。
-- 設定キーを追加・削除したら `docs/fortran_parameter_file.md` を必ず更新する。
-
-camphor向けの汎用MPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` に置いています（`make install` 済みで `beach` コマンドが使える前提）。
+camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。

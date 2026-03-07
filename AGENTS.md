@@ -34,6 +34,10 @@ Fortran execution/testing requires a Fortran compiler (`gfortran` etc.) and `fpm
 
 ## How to run
 Fortran main (recommended):
+- `make`
+- `beach examples/beach.toml`
+
+Fortran main (developer direct run):
 - `fpm run --profile release --flag "-fopenmp" -- examples/beach.toml`
 
 Python CLI examples:
