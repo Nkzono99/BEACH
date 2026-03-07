@@ -78,13 +78,16 @@ beach-estimate-workload examples/beach.toml --threads 8
 
 - `resolved_batch_duration=...` が表示されます（`batch_duration_step` 指定時）。
 - `target_macro_particles_per_batch` を使う場合、この解決済み `batch_duration` で `w_particle` が算出されます。
+- `--mpi-ranks N --mpi-rank R` を指定すると、MPI分割後の「rank局所」粒子数で見積もります（`R`は `0..N-1`）。
 
 残差を考慮して続きから見積もる場合:
 
 ```bash
 beach-estimate-workload examples/beach.toml \
   --threads 8 \
-  --macro-residuals outputs/latest/macro_residuals.csv
+  --mpi-ranks 4 \
+  --mpi-rank 0 \
+  --macro-residuals outputs/latest/macro_residuals_rank00000.csv
 ```
 
 ## 4. 再開実行（resume）

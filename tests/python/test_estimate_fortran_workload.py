@@ -405,3 +405,108 @@ def test_estimate_workload_requires_positive_batch_duration_for_photo_raycast() 
 
     with pytest.raises(SystemExit, match="batch_duration must be > 0"):
         estimate_workload(config=config, threads=1)
+
+
+def test_estimate_workload_splits_volume_seed_by_mpi_rank() -> None:
+    config = {
+        "sim": {"batch_count": 2},
+        "particles": {
+            "species": [
+                {"source_mode": "volume_seed", "npcls_per_step": 10},
+            ]
+        },
+    }
+
+    rank0 = estimate_workload(config=config, threads=2, mpi_ranks=3, mpi_rank=0)
+    rank2 = estimate_workload(config=config, threads=2, mpi_ranks=3, mpi_rank=2)
+
+    assert rank0["species_per_batch"] == [[4], [4]]
+    assert rank0["batch_totals"] == [4, 4]
+    assert rank0["batch_thread_min"] == [2, 2]
+    assert rank0["batch_thread_max"] == [2, 2]
+
+    assert rank2["species_per_batch"] == [[3], [3]]
+    assert rank2["batch_totals"] == [3, 3]
+    assert rank2["batch_thread_min"] == [1, 1]
+    assert rank2["batch_thread_max"] == [2, 2]
+
+
+def test_estimate_workload_splits_photo_raycast_by_mpi_rank() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "batch_duration": 1.0e-6,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 1.0e-3,
+                    "rays_per_batch": 10,
+                    "q_particle": -1.0,
+                    "m_particle": 1.0,
+                    "temperature_k": 0.0,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                }
+            ]
+        },
+    }
+
+    rank0 = estimate_workload(config=config, threads=1, mpi_ranks=4, mpi_rank=0)
+    rank3 = estimate_workload(config=config, threads=1, mpi_ranks=4, mpi_rank=3)
+
+    assert rank0["species_per_batch"] == [[3]]
+    assert rank3["species_per_batch"] == [[2]]
+
+
+def test_estimate_workload_scales_reservoir_face_by_mpi_ranks() -> None:
+    config = {
+        "sim": {
+            "batch_count": 3,
+            "batch_duration": 1.0,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "reservoir_face",
+                    "number_density_m3": 100.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "w_particle": 10.0,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                    "drift_velocity": [0.0, 0.0, -1.0],
+                }
+            ]
+        },
+    }
+
+    result = estimate_workload(config=config, threads=2, mpi_ranks=4, mpi_rank=0)
+
+    assert result["species_per_batch"] == [[2], [3], [2]]
+    assert result["batch_totals"] == [2, 3, 2]
+
+
+def test_estimate_workload_rejects_invalid_mpi_rank_parameters() -> None:
+    config = {
+        "sim": {"batch_count": 1},
+        "particles": {
+            "species": [
+                {"source_mode": "volume_seed", "npcls_per_step": 1},
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="mpi_ranks must be > 0"):
+        estimate_workload(config=config, threads=1, mpi_ranks=0, mpi_rank=0)
+    with pytest.raises(SystemExit, match="mpi_rank must satisfy"):
+        estimate_workload(config=config, threads=1, mpi_ranks=2, mpi_rank=2)

@@ -41,6 +41,17 @@ DEFAULT_SPECIES: dict[str, Any] = {
 }
 
 
+def _split_count_for_rank(total_count: int, rank: int, n_ranks: int) -> int:
+    if total_count < 0:
+        raise SystemExit("split_count_for_rank requires total_count >= 0.")
+    if n_ranks <= 0:
+        raise SystemExit("split_count_for_rank requires n_ranks > 0.")
+    if rank < 0 or rank >= n_ranks:
+        raise SystemExit("split_count_for_rank rank out of range.")
+    base, rem = divmod(total_count, n_ranks)
+    return base + (1 if rank < rem else 0)
+
+
 def load_toml(path: Path) -> dict[str, Any]:
     try:
         import tomllib  # py311+
@@ -451,6 +462,8 @@ def estimate_workload(
     config: dict[str, Any],
     threads: int,
     initial_residuals: list[float] | None = None,
+    mpi_ranks: int = 1,
+    mpi_rank: int = 0,
 ) -> dict[str, Any]:
     sim_raw = config.get("sim", {})
     if not isinstance(sim_raw, dict):
@@ -491,6 +504,10 @@ def estimate_workload(
 
     if threads <= 0:
         raise SystemExit("threads must be > 0")
+    if mpi_ranks <= 0:
+        raise SystemExit("mpi_ranks must be > 0")
+    if mpi_rank < 0 or mpi_rank >= mpi_ranks:
+        raise SystemExit("mpi_rank must satisfy 0 <= mpi_rank < mpi_ranks")
 
     has_dynamic_source_species = False
     per_batch_volume_particles = 0
@@ -575,10 +592,12 @@ def estimate_workload(
 
             source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
             if source_mode == "volume_seed":
-                n_macro = int(spec.get("npcls_per_step", 0))
-                if n_macro < 0:
+                n_macro_global = int(spec.get("npcls_per_step", 0))
+                if n_macro_global < 0:
                     raise SystemExit("particles.species.npcls_per_step must be >= 0")
-                species_counts.append(n_macro)
+                species_counts.append(
+                    _split_count_for_rank(n_macro_global, mpi_rank, mpi_ranks)
+                )
                 continue
 
             if source_mode == "reservoir_face":
@@ -587,7 +606,12 @@ def estimate_workload(
                     raise SystemExit(
                         "internal error: reservoir species parameters were not initialized."
                     )
-                n_phys_batch = params["gamma_in"] * params["area"] * resolved_batch_duration
+                n_phys_batch = (
+                    params["gamma_in"]
+                    * params["area"]
+                    * resolved_batch_duration
+                    / float(mpi_ranks)
+                )
                 n_macro_expected = n_phys_batch / params["w_particle"]
                 macro_budget = residuals[s_idx] + n_macro_expected
                 if macro_budget < 0.0:
@@ -603,7 +627,11 @@ def estimate_workload(
                     raise SystemExit(
                         "internal error: photo_raycast species parameters were not initialized."
                     )
-                species_counts.append(int(params["rays_per_batch"]))
+                species_counts.append(
+                    _split_count_for_rank(
+                        int(params["rays_per_batch"]), mpi_rank, mpi_ranks
+                    )
+                )
                 continue
 
             raise SystemExit(f"Unknown particles.species.source_mode: {source_mode}")
@@ -620,6 +648,8 @@ def estimate_workload(
     return {
         "batch_count": batch_count,
         "threads": threads,
+        "mpi_ranks": mpi_ranks,
+        "mpi_rank": mpi_rank,
         "batch_totals": batch_totals,
         "batch_thread_min": batch_thread_min,
         "batch_thread_max": batch_thread_max,
@@ -642,11 +672,39 @@ def _default_threads() -> int:
     return 1
 
 
+def _default_mpi_ranks() -> int:
+    for key in ("PMI_SIZE", "OMPI_COMM_WORLD_SIZE", "SLURM_NTASKS"):
+        value = os.environ.get(key, "").strip()
+        if not value:
+            continue
+        try:
+            parsed = int(value)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
+    return 1
+
+
+def _default_mpi_rank() -> int:
+    for key in ("PMI_RANK", "OMPI_COMM_WORLD_RANK", "SLURM_PROCID"):
+        value = os.environ.get(key, "").strip()
+        if not value:
+            continue
+        try:
+            parsed = int(value)
+            if parsed >= 0:
+                return parsed
+        except ValueError:
+            pass
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Estimate particle workload from Fortran TOML config: "
-            "per-batch particles and per-thread particle counts."
+            "per-batch local(rank) particles and per-thread particle counts."
         )
     )
     parser.add_argument("config", type=Path, help="path to beach.toml")
@@ -661,6 +719,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="optional macro_residuals.csv to start from resume state",
+    )
+    parser.add_argument(
+        "--mpi-ranks",
+        type=int,
+        default=_default_mpi_ranks(),
+        help="MPI world size used for local(rank) workload estimate (default: MPI env or 1)",
+    )
+    parser.add_argument(
+        "--mpi-rank",
+        type=int,
+        default=_default_mpi_rank(),
+        help="rank index used for local(rank) workload estimate (default: MPI env or 0)",
     )
     parser.add_argument(
         "--show-batches",
@@ -686,6 +756,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         config=config,
         threads=args.threads,
         initial_residuals=initial_residuals,
+        mpi_ranks=args.mpi_ranks,
+        mpi_rank=args.mpi_rank,
     )
 
     batch_totals = result["batch_totals"]
@@ -694,9 +766,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     total_particles = result["total_particles"]
     batch_count = result["batch_count"]
     threads = result["threads"]
+    mpi_ranks = result["mpi_ranks"]
+    mpi_rank = result["mpi_rank"]
 
     print(f"config={args.config}")
     print(f"threads={threads}")
+    print(f"mpi_ranks={mpi_ranks}")
+    print(f"mpi_rank={mpi_rank}")
+    print("estimate_scope=local_rank")
     print(f"batch_count={batch_count}")
     print(f"resolved_batch_duration={result['resolved_batch_duration']}")
     print(f"total_particles={total_particles}")
