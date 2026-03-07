@@ -313,3 +313,95 @@ def test_estimate_workload_keeps_batch_duration_behavior_with_manual_w() -> None
 
     assert result["resolved_batch_duration"] == pytest.approx(0.5)
     assert result["species_per_batch"] == [[5], [5], [5]]
+
+
+def test_estimate_workload_supports_photo_raycast_as_upper_bound() -> None:
+    config = {
+        "sim": {
+            "batch_count": 2,
+            "batch_duration": 1.0e-6,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 1.0e-3,
+                    "rays_per_batch": 25,
+                    "q_particle": -1.0,
+                    "m_particle": 1.0,
+                    "temperature_k": 0.0,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                }
+            ]
+        },
+    }
+
+    result = estimate_workload(config=config, threads=4)
+
+    assert result["resolved_batch_duration"] == pytest.approx(1.0e-6)
+    assert result["species_per_batch"] == [[25], [25]]
+
+
+def test_estimate_workload_rejects_photo_raycast_with_outward_direction() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "batch_duration": 1.0e-6,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 1.0e-3,
+                    "rays_per_batch": 10,
+                    "q_particle": -1.0,
+                    "m_particle": 1.0,
+                    "temperature_k": 0.0,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                    "ray_direction": [0.0, 0.0, 1.0],
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="must point inward"):
+        estimate_workload(config=config, threads=1)
+
+
+def test_estimate_workload_requires_positive_batch_duration_for_photo_raycast() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 1.0e-3,
+                    "rays_per_batch": 10,
+                    "q_particle": -1.0,
+                    "m_particle": 1.0,
+                    "temperature_k": 0.0,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="batch_duration must be > 0"):
+        estimate_workload(config=config, threads=1)

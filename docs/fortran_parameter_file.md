@@ -58,7 +58,7 @@ dir = "outputs/latest"
 | `dt` | float | `1.0e-9` | 時間刻み[s] |
 | `rng_seed` | int | `12345` | 粒子注入乱数のシード |
 | `batch_count` | int | `1` | 1回の実行で進めるバッチ数 |
-| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` 使用時に必要。`batch_duration_step` と同時指定不可） |
+| `batch_duration` | float | `0.0` | 1バッチが表す物理時間[s]（`reservoir_face` / `photo_raycast` 使用時に必要。`batch_duration_step` と同時指定不可） |
 | `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` で指定する倍率（`> 0`） |
 | `max_step` | int | `400` | 粒子あたり最大ステップ |
 | `tol_rel` | float | `1.0e-8` | 相対変化の監視値（早期終了には使わない） |
@@ -72,6 +72,7 @@ dir = "outputs/latest"
 | `reservoir_potential_model` | string | `"none"` | `reservoir_face` の電位補正モデル（`none` / `infinity_barrier`） |
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V]（`infinity_barrier` で使用） |
 | `injection_face_phi_grid_n` | int | `3` | 注入開口面平均電位の格子分割数（`N x N`） |
+| `raycast_max_bounce` | int | `16` | `photo_raycast` の1レイあたり境界通過上限回数（`>=1`） |
 | `use_box` | bool | `false` | シミュレーションボックス境界を有効化 |
 | `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限座標[m] |
 | `box_max` | float[3] | `[1,1,1]` | ボックス上限座標[m] |
@@ -87,12 +88,13 @@ dir = "outputs/latest"
 単一種でも `[[particles.species]]` を1件以上定義してください。
 各エントリは独立した粒子注入条件です。未指定キーは実装既定値で補完されます。
 `source_mode="volume_seed"` では従来どおり `npcls_per_step` 個を毎バッチ生成します。
-`source_mode="reservoir_face"` では、上流プラズマ条件から物理流入量を計算し、`w_particle`（または `target_macro_particles_per_batch` から自動算出した `w_particle`）を使って `npcls_per_step` を内部で自動決定します。
+`source_mode="reservoir_face"` では、上流プラズマ条件から物理流入量を計算し、`w_particle`（または `target_macro_particles_per_batch` から自動算出した `w_particle`）を使って `npcls_per_step` を内部で自動決定します。  
+`source_mode="photo_raycast"` では、照射面から `rays_per_batch` 本のレイを発射し、最初の交差要素からのみ光電子を放出します（レイはそこで消滅）。
 
 | キー | 型 | 説明 |
 |---|---|---|
 | `enabled` | bool | 有効/無効（既定: `true`） |
-| `source_mode` | string | `volume_seed`（既定） / `reservoir_face` |
+| `source_mode` | string | `volume_seed`（既定） / `reservoir_face` / `photo_raycast` |
 | `npcls_per_step` | int | `volume_seed` 時の1バッチ生成粒子数 |
 | `number_density_cm3` | float | `reservoir_face` 時の上流密度[`cm^-3`] |
 | `number_density_m3` | float | `reservoir_face` 時の上流密度[`m^-3`]（`number_density_cm3` と排他） |
@@ -105,7 +107,12 @@ dir = "outputs/latest"
 | `drift_velocity` | float[3] | ドリフト速度[m/s] |
 | `temperature_k` | float | 温度[K] |
 | `temperature_ev` | float | 温度[eV]（`temperature_k` と排他） |
-| `inject_face` | string | `reservoir_face` 時の注入面（`x_low` / `x_high` / `y_low` / `y_high` / `z_low` / `z_high`） |
+| `emit_current_density_a_m2` | float | `photo_raycast` 時のレイ垂直面基準放出電流面密度 [A/m^2] |
+| `rays_per_batch` | int | `photo_raycast` 時の1バッチ発射レイ本数 |
+| `deposit_opposite_charge_on_emit` | bool | `photo_raycast` で放出元要素へ逆符号電荷 `-q_particle * w` を堆積する（既定 `false`） |
+| `normal_drift_speed` | float | `photo_raycast` 時の放出法線方向シフト速度 [m/s]（既定 0） |
+| `ray_direction` | float[3] | `photo_raycast` 時のレイ方向（省略時は `inject_face` 内向き法線） |
+| `inject_face` | string | `reservoir_face` / `photo_raycast` 時の注入・照射面（`x_low` / `x_high` / `y_low` / `y_high` / `z_low` / `z_high`） |
 
 粒子数の計算は以下です。
 
@@ -126,12 +133,17 @@ dir = "outputs/latest"
 - `target_macro_particles_per_batch_s = -1`（species[2]以降のみ）を使う場合:
   - `w_particle_s = w_particle_1`
 - 上式は `compute_macro_particles_for_batch` の実装と一致します。
+- `photo_raycast` の1ヒットあたり固定重み:
+  - `A_perp = A_launch * |ray_direction_s ・ inward_normal_s|`
+  - `w_hit_s = J_perp_s * A_perp * batch_duration / (|q_s| * rays_per_batch_s)`
+  - 実放出電流は `N_hit_s / rays_per_batch_s`（ヒット率）で決まります。
+  - `deposit_opposite_charge_on_emit = true` のとき、放出元要素へ `dq_emit = -q_s * w_hit_s` を加算します。
 
 `batch_duration` の解決ルール:
 
 - `batch_duration` と `batch_duration_step` の同時指定はエラーです。
 - `batch_duration_step` 指定時は `batch_duration = dt * batch_duration_step` で解決します。
-- `reservoir_face` を使う場合、解決後の `batch_duration` は `> 0` が必須です。
+- `reservoir_face` / `photo_raycast` を使う場合、解決後の `batch_duration` は `> 0` が必須です。
 
 `sim.target_npcls_species1` は廃止されました。指定するとエラーになります。
 
@@ -161,6 +173,22 @@ dir = "outputs/latest"
 - `-1` を使う場合、species[1] は `enabled = true` かつ `source_mode = "reservoir_face"` で、正の `w_particle` が解決できること
 
 `pos_low` / `pos_high` は注入面上の矩形開口を表します。法線方向の座標は `inject_face` で指定した箱境界と一致している必要があります。
+
+`photo_raycast` では次が必須です。
+
+- `sim.use_box = true`
+- `sim.batch_duration > 0`
+- `emit_current_density_a_m2 > 0`
+- `rays_per_batch > 0`
+- `inject_face`
+- `q_particle`（非ゼロ）
+- `m_particle > 0`
+
+`photo_raycast` の追加要件:
+
+- `ray_direction` を指定する場合は正規化可能で、`inject_face` 内向き法線との内積が正であること
+- `npcls_per_step` / `number_density_cm3` / `number_density_m3` / `w_particle` / `target_macro_particles_per_batch` は指定しない
+- `deposit_opposite_charge_on_emit` は `photo_raycast` でのみ指定する
 
 例: 5/cc, 10eV, 400km/s の上流電子を上面 (`z_high`) から流入させる設定
 
@@ -217,6 +245,37 @@ inject_face = "z_high"
 pos_low = [0.0, 0.0, 4.0]
 pos_high = [1.0, 1.0, 4.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
+```
+
+`photo_raycast` を使って上面 (`z_high`) から斜入射照射する例:
+
+```toml
+[sim]
+batch_duration = 2.0e-7
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+raycast_max_bounce = 24
+
+[[particles.species]]
+source_mode = "photo_raycast"
+emit_current_density_a_m2 = 2.0e-4
+rays_per_batch = 500
+deposit_opposite_charge_on_emit = true
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+temperature_ev = 1.5
+normal_drift_speed = 1.0e5
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+ray_direction = [0.2, 0.0, -1.0]
 ```
 
 旧キー `n_particles` は廃止されています。

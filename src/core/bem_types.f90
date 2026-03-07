@@ -28,6 +28,7 @@ module bem_types
     character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0
     integer(i32) :: injection_face_phi_grid_n = 3_i32
+    integer(i32) :: raycast_max_bounce = 16_i32
     logical :: use_box = .false.
     real(dp) :: box_min(3) = [-1.0d0, -1.0d0, -1.0d0]
     real(dp) :: box_max(3) = [1.0d0, 1.0d0, 1.0d0]

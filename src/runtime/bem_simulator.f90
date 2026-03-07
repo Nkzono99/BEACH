@@ -35,7 +35,7 @@ contains
     integer(i32) :: batch_idx, local_batch_idx, nth, hist_stride
     integer :: hist_unit
     logical :: history_enabled
-    real(dp), allocatable :: dq_thread(:, :), dq(:)
+    real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
     logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
     real(dp) :: bfield(3), rel
     real(dp) :: batch_field_time, batch_push_time, batch_collision_time
@@ -46,7 +46,7 @@ contains
 
     nth = 1
     !$ nth = max(1, omp_get_max_threads())
-    allocate (dq_thread(mesh%nelem, nth), dq(mesh%nelem))
+    allocate (dq_thread(mesh%nelem, nth), dq(mesh%nelem), photo_emission_dq(mesh%nelem))
 
     history_enabled = present(history_unit)
     hist_unit = 0
@@ -58,12 +58,13 @@ contains
     do local_batch_idx = 1, app%sim%batch_count
       call prepare_batch_state( &
         mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-        inject_state &
+        photo_emission_dq, inject_state &
       )
       call process_particle_batch( &
         mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
         batch_field_time, batch_push_time, batch_collision_time &
       )
+      dq_thread(:, 1) = dq_thread(:, 1) + photo_emission_dq
       call commit_batch_charge(mesh, app%sim%q_floor, dq_thread, dq, rel)
       call accumulate_batch_stats( &
         stats, pcls_batch, escaped_boundary_flag, absorbed_flag, rel, &
@@ -73,7 +74,7 @@ contains
       deallocate (escaped_boundary_flag, absorbed_flag)
     end do
 
-    deallocate (dq_thread, dq)
+    deallocate (dq_thread, dq, photo_emission_dq)
   end subroutine run_absorption_insulator
 
   !> 1バッチ分の粒子群と作業配列を初期化する。
@@ -85,10 +86,11 @@ contains
   !! @param[out] pcls_batch 今バッチで処理する粒子群。
   !! @param[out] escaped_boundary_flag 粒子ごとの境界流出フラグ。
   !! @param[out] absorbed_flag 粒子ごとの吸着フラグ。
+  !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分。
   !! @param[inout] inject_state reservoir_face 注入残差（指定時のみ更新）。
   subroutine prepare_batch_state( &
     mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-    inject_state &
+    photo_emission_dq, inject_state &
   )
     type(mesh_type), intent(in) :: mesh
     type(app_config), intent(in) :: app
@@ -99,13 +101,16 @@ contains
     type(particles_soa), intent(out) :: pcls_batch
     logical, allocatable, intent(out) :: escaped_boundary_flag(:)
     logical, allocatable, intent(out) :: absorbed_flag(:)
+    real(dp), intent(out) :: photo_emission_dq(:)
     type(injection_state), intent(inout), optional :: inject_state
 
     batch_idx = stats%batches + 1_i32
     if (present(inject_state)) then
-      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch, inject_state, mesh=mesh)
+      call init_particle_batch_from_config( &
+        app, local_batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq &
+      )
     else
-      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch, mesh=mesh)
+      call init_particle_batch_from_config(app, local_batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq)
     end if
     allocate (escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))
     escaped_boundary_flag = .false.

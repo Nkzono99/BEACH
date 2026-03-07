@@ -30,6 +30,13 @@ module bem_app_config_types
     real(dp) :: temperature_ev = -1.0d0
     logical :: has_temperature_k = .false.
     logical :: has_temperature_ev = .false.
+    real(dp) :: emit_current_density_a_m2 = 0.0d0
+    integer(i32) :: rays_per_batch = 0_i32
+    logical :: deposit_opposite_charge_on_emit = .false.
+    logical :: has_deposit_opposite_charge_on_emit = .false.
+    real(dp) :: normal_drift_speed = 0.0d0
+    real(dp) :: ray_direction(3) = [0.0d0, 0.0d0, 0.0d0]
+    logical :: has_ray_direction = .false.
     character(len=16) :: inject_face = ''
   end type particle_species_spec
 
@@ -81,14 +88,14 @@ contains
   integer(i32) function particles_per_batch_from_config(cfg) result(batch_n)
     type(app_config), intent(in) :: cfg
     integer(i32) :: s
-    logical :: has_reservoir
+    logical :: has_dynamic_source
 
     if (cfg%n_particle_species <= 0) then
       error stop 'At least one [[particles.species]] entry is required.'
     end if
 
     batch_n = 0_i32
-    has_reservoir = .false.
+    has_dynamic_source = .false.
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(cfg%particle_species(s)%source_mode))
@@ -98,13 +105,15 @@ contains
         end if
         batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
       case ('reservoir_face')
-        has_reservoir = .true.
+        has_dynamic_source = .true.
+      case ('photo_raycast')
+        has_dynamic_source = .true.
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
     end do
 
-    if (batch_n <= 0_i32 .and. .not. has_reservoir) then
+    if (batch_n <= 0_i32 .and. .not. has_dynamic_source) then
       error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
     end if
   end function particles_per_batch_from_config
@@ -137,6 +146,7 @@ contains
     cfg%sim%reservoir_potential_model = 'none'
     cfg%sim%phi_infty = 0.0d0
     cfg%sim%injection_face_phi_grid_n = 3_i32
+    cfg%sim%raycast_max_bounce = 16_i32
     cfg%n_particles = 0_i32
 
     cfg%templates(1)%enabled = .true.
