@@ -41,20 +41,36 @@ def _build_with_make() -> Path:
         print("\nERROR: 'make' is required to build BEACH.\n", file=sys.stderr)
         sys.exit(1)
 
-    cmd = ["make", f"PREFIX={INSTALL_PREFIX}", "install"]
-    install_profile = os.environ.get("INSTALL_PROFILE", "")
-    if install_profile:
-        cmd.insert(1, f"INSTALL_PROFILE={install_profile}")
+    # Default to auto profile for pip builds.
+    install_profile = os.environ.get("INSTALL_PROFILE", "auto")
+    cmd = ["make", f"INSTALL_PROFILE={install_profile}", f"PREFIX={INSTALL_PREFIX}", "install"]
 
     try:
         subprocess.check_call(cmd, cwd=ROOT_DIR)
     except subprocess.CalledProcessError as exc:
-        print(
-            "\nERROR: failed to build/install Fortran executable via make.\n"
-            "       Ensure fpm and a Fortran compiler are available in PATH.\n",
-            file=sys.stderr,
-        )
-        raise SystemExit(exc.returncode) from exc
+        # If profile is not user-pinned, retry once with generic for portability.
+        if install_profile == "auto" and "INSTALL_PROFILE" not in os.environ:
+            retry_cmd = ["make", "INSTALL_PROFILE=generic", f"PREFIX={INSTALL_PREFIX}", "install"]
+            print(
+                "\nWARN: auto profile build failed in pip build env; retrying with INSTALL_PROFILE=generic.\n",
+                file=sys.stderr,
+            )
+            try:
+                subprocess.check_call(retry_cmd, cwd=ROOT_DIR)
+            except subprocess.CalledProcessError as retry_exc:
+                print(
+                    "\nERROR: failed to build/install Fortran executable via make.\n"
+                    "       Ensure fpm and a Fortran compiler are available in PATH.\n",
+                    file=sys.stderr,
+                )
+                raise SystemExit(retry_exc.returncode) from retry_exc
+        else:
+            print(
+                "\nERROR: failed to build/install Fortran executable via make.\n"
+                "       Ensure fpm and a Fortran compiler are available in PATH.\n",
+                file=sys.stderr,
+            )
+            raise SystemExit(exc.returncode) from exc
 
     binpath = _built_binary()
     if not binpath:

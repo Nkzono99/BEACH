@@ -49,6 +49,7 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 ```
 
 この方式でも `make` / `fpm` / Fortran コンパイラは必要です。
+pip 経由のビルドでは既定で `INSTALL_PROFILE=auto` を使います。
 
 ## 2. 実行フロー
 

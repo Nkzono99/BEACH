@@ -30,6 +30,7 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 
 このインストールでは、ビルド時に `make install` が実行され、Python 側と Fortran 実行バイナリ（`beach`）が同時に導入されます。
 ユーザーインストール時は `~/.local/bin` に入るため、必要なら PATH を追加してください。
+pip 経由のビルドでは既定で `INSTALL_PROFILE=auto` を使います。必要なら `INSTALL_PROFILE=camphor` などを環境変数で上書きできます。
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
