@@ -5,7 +5,8 @@ program test_mpi_hybrid
   use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
-  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
+  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
+    restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, ensure_directory, &
     remove_empty_directory
@@ -36,8 +37,8 @@ program test_mpi_hybrid
   end if
   call mpi_world_barrier(mpi)
 
-  rng_path = restart_rng_path(out_dir, mpi%rank, mpi%size)
-  residual_path = restart_residual_path(out_dir, mpi%rank, mpi%size)
+  rng_path = restart_rng_state_path(out_dir, mpi=mpi)
+  residual_path = restart_macro_residual_path(out_dir, mpi=mpi)
   call delete_file_if_exists(rng_path)
   call delete_file_if_exists(residual_path)
   call mpi_world_barrier(mpi)
@@ -70,7 +71,7 @@ program test_mpi_hybrid
   cfg%particle_species(1)%drift_velocity = [0.0d0, 0.0d0, -2.0d0]
   cfg%particle_species(1)%temperature_k = 0.0d0
 
-  call seed_particles_from_config(cfg, mpi_rank=mpi%rank, mpi_size=mpi%size)
+  call seed_particles_from_config(cfg, mpi=mpi)
 
   if (mpi_is_root(mpi)) then
     open(newunit=u, file=history_path, status='replace', action='write', iostat=ios)
@@ -111,16 +112,14 @@ program test_mpi_hybrid
 
   allocate(state%macro_residual(1))
   state%macro_residual(1) = 0.25d0 + real(mpi%rank, dp)
-  call write_rng_state_file(out_dir, mpi_rank=mpi%rank, mpi_size=mpi%size)
-  call write_macro_residuals_file(out_dir, state, mpi_rank=mpi%rank, mpi_size=mpi%size)
+  call write_rng_state_file(out_dir, mpi=mpi)
+  call write_macro_residuals_file(out_dir, state, mpi=mpi)
   call mpi_world_barrier(mpi)
 
   call init_mesh(mesh_restart, v0, v1, v2)
   allocate(state_restart%macro_residual(1))
   state_restart%macro_residual = 0.0d0
-  call load_restart_checkpoint( &
-    out_dir, mesh_restart, stats_restart, has_restart, state_restart, mpi_rank=mpi%rank, mpi_size=mpi%size &
-  )
+  call load_restart_checkpoint(out_dir, mesh_restart, stats_restart, has_restart, state_restart, mpi=mpi)
   call assert_true(has_restart, 'mpi restart should be detected')
   call assert_equal_i32(stats_restart%processed_particles, 8_i32, 'mpi restart processed_particles mismatch')
   call assert_equal_i32(stats_restart%batches, 2_i32, 'mpi restart batches mismatch')
@@ -171,29 +170,5 @@ contains
     write(u, '(a)') '1,2.0'
     close(u)
   end subroutine write_charges_fixture
-
-  function restart_rng_path(dir_path, rank, size) result(path)
-    character(len=*), intent(in) :: dir_path
-    integer(i32), intent(in) :: rank, size
-    character(len=1024) :: path
-
-    if (size <= 1_i32) then
-      path = trim(dir_path) // '/rng_state.txt'
-    else
-      write(path, '(a,a,i5.5,a)') trim(dir_path), '/rng_state_rank', rank, '.txt'
-    end if
-  end function restart_rng_path
-
-  function restart_residual_path(dir_path, rank, size) result(path)
-    character(len=*), intent(in) :: dir_path
-    integer(i32), intent(in) :: rank, size
-    character(len=1024) :: path
-
-    if (size <= 1_i32) then
-      path = trim(dir_path) // '/macro_residuals.csv'
-    else
-      write(path, '(a,a,i5.5,a)') trim(dir_path), '/macro_residuals_rank', rank, '.csv'
-    end if
-  end function restart_residual_path
 
 end program test_mpi_hybrid

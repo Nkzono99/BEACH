@@ -2,12 +2,15 @@
 module bem_restart
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, injection_state
+  use bem_mpi, only: mpi_context, mpi_get_rank_size
   implicit none
 
   private
   public :: load_restart_checkpoint
   public :: write_rng_state_file
   public :: write_macro_residuals_file
+  public :: restart_rng_state_path
+  public :: restart_macro_residual_path
 
 contains
 
@@ -17,13 +20,14 @@ contains
   !! @param[out] stats 復元された統計値。
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
   !! @param[inout] state 種別ごとのマクロ粒子残差（指定時のみ復元）。
-  subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size)
+  subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
     type(sim_stats), intent(out) :: stats
     logical, intent(out) :: has_restart
     type(injection_state), intent(inout), optional :: state
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path
     logical :: has_summary, has_charges, has_rng, has_residual
@@ -31,17 +35,12 @@ contains
 
     stats = sim_stats()
     has_restart = .false.
-    local_rank = 0_i32
-    world_size = 1_i32
-    if (present(mpi_rank)) local_rank = mpi_rank
-    if (present(mpi_size)) world_size = mpi_size
-    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in load_restart_checkpoint.'
-    if (local_rank < 0_i32 .or. local_rank >= world_size) error stop 'mpi_rank out of range in load_restart_checkpoint.'
+    call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'load_restart_checkpoint')
 
     summary_path = trim(out_dir) // '/summary.txt'
     charges_path = trim(out_dir) // '/charges.csv'
-    rng_path = rng_state_path(trim(out_dir), local_rank, world_size)
-    residual_path = macro_residual_path(trim(out_dir), local_rank, world_size)
+    rng_path = restart_rng_state_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
+    residual_path = restart_macro_residual_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
 
     inquire(file=trim(summary_path), exist=has_summary)
     inquire(file=trim(charges_path), exist=has_charges)
@@ -66,26 +65,22 @@ contains
 
   !> 現在の Fortran 乱数状態をファイルへ保存する。
   !! @param[in] out_dir 出力ディレクトリ。
-  subroutine write_rng_state_file(out_dir, mpi_rank, mpi_size)
+  subroutine write_rng_state_file(out_dir, mpi_rank, mpi_size, mpi)
     character(len=*), intent(in) :: out_dir
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
 
     character(len=1024) :: path
     integer :: n, u, ios, i
     integer, allocatable :: seed(:)
     integer(i32) :: local_rank, world_size
 
-    local_rank = 0_i32
-    world_size = 1_i32
-    if (present(mpi_rank)) local_rank = mpi_rank
-    if (present(mpi_size)) world_size = mpi_size
-    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in write_rng_state_file.'
-    if (local_rank < 0_i32 .or. local_rank >= world_size) error stop 'mpi_rank out of range in write_rng_state_file.'
+    call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_rng_state_file')
     call random_seed(size=n)
     allocate(seed(n))
     call random_seed(get=seed)
 
-    path = rng_state_path(trim(out_dir), local_rank, world_size)
+    path = restart_rng_state_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
     open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open rng_state.txt.'
 
@@ -99,10 +94,11 @@ contains
   !> マクロ粒子残差を `macro_residuals.csv` として保存する。
   !! @param[in] out_dir 出力ディレクトリ。
   !! @param[in] state 種別ごとのマクロ粒子残差を保持した注入状態。
-  subroutine write_macro_residuals_file(out_dir, state, mpi_rank, mpi_size)
+  subroutine write_macro_residuals_file(out_dir, state, mpi_rank, mpi_size, mpi)
     character(len=*), intent(in) :: out_dir
     type(injection_state), intent(in) :: state
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
 
     character(len=1024) :: path
     integer :: u, ios, i
@@ -110,14 +106,9 @@ contains
 
     if (.not. allocated(state%macro_residual)) return
 
-    local_rank = 0_i32
-    world_size = 1_i32
-    if (present(mpi_rank)) local_rank = mpi_rank
-    if (present(mpi_size)) world_size = mpi_size
-    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in write_macro_residuals_file.'
-    if (local_rank < 0_i32 .or. local_rank >= world_size) error stop 'mpi_rank out of range in write_macro_residuals_file.'
+    call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_macro_residuals_file')
 
-    path = macro_residual_path(trim(out_dir), local_rank, world_size)
+    path = restart_macro_residual_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
     open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open macro_residuals.csv.'
 
@@ -344,29 +335,51 @@ contains
   end subroutine load_macro_residual_file
 
   !> RNG状態ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
-  function rng_state_path(out_dir, mpi_rank, mpi_size) result(path)
+  function restart_rng_state_path(out_dir, mpi_rank, mpi_size, mpi) result(path)
     character(len=*), intent(in) :: out_dir
-    integer(i32), intent(in) :: mpi_rank, mpi_size
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
     character(len=1024) :: path
+    integer(i32) :: local_rank, world_size
 
-    if (mpi_size <= 1_i32) then
+    call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'restart_rng_state_path')
+    if (world_size <= 1_i32) then
       path = trim(out_dir) // '/rng_state.txt'
     else
-      write(path, '(a,a,i5.5,a)') trim(out_dir), '/rng_state_rank', mpi_rank, '.txt'
+      write(path, '(a,a,i5.5,a)') trim(out_dir), '/rng_state_rank', local_rank, '.txt'
     end if
-  end function rng_state_path
+  end function restart_rng_state_path
 
   !> マクロ残差ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
-  function macro_residual_path(out_dir, mpi_rank, mpi_size) result(path)
+  function restart_macro_residual_path(out_dir, mpi_rank, mpi_size, mpi) result(path)
     character(len=*), intent(in) :: out_dir
-    integer(i32), intent(in) :: mpi_rank, mpi_size
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
     character(len=1024) :: path
+    integer(i32) :: local_rank, world_size
 
-    if (mpi_size <= 1_i32) then
+    call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'restart_macro_residual_path')
+    if (world_size <= 1_i32) then
       path = trim(out_dir) // '/macro_residuals.csv'
     else
-      write(path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', mpi_rank, '.csv'
+      write(path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', local_rank, '.csv'
     end if
-  end function macro_residual_path
+  end function restart_macro_residual_path
+
+  !> 併存対応のため `mpi_context` と rank/size の両方を受け、最終的なrank/sizeを解決する。
+  subroutine resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, caller_name)
+    integer(i32), intent(out) :: local_rank, world_size
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
+    character(len=*), intent(in) :: caller_name
+
+    call mpi_get_rank_size(local_rank, world_size, mpi)
+    if (present(mpi_rank)) local_rank = mpi_rank
+    if (present(mpi_size)) world_size = mpi_size
+    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in ' // trim(caller_name) // '.'
+    if (local_rank < 0_i32 .or. local_rank >= world_size) then
+      error stop 'mpi_rank out of range in ' // trim(caller_name) // '.'
+    end if
+  end subroutine resolve_parallel_rank_size
 
 end module bem_restart

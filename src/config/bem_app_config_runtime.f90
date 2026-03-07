@@ -2,6 +2,7 @@
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
+  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count
   use bem_field, only: electric_potential_at
   use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
@@ -108,18 +109,14 @@ contains
 
   !> バッチ生成前に乱数シードだけを初期化する。
   !! @param[in] cfg 乱数シード値 `sim.rng_seed` を含むアプリ設定。
-  subroutine seed_particles_from_config(cfg, mpi_rank, mpi_size)
+  subroutine seed_particles_from_config(cfg, mpi_rank, mpi_size, mpi)
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
     integer(i32) :: local_rank, n_ranks, seed_value
     integer(kind=8) :: seed_tmp
 
-    local_rank = 0_i32
-    n_ranks = 1_i32
-    if (present(mpi_rank)) local_rank = mpi_rank
-    if (present(mpi_size)) n_ranks = mpi_size
-    if (n_ranks <= 0_i32) error stop 'mpi_size must be > 0 in seed_particles_from_config.'
-    if (local_rank < 0_i32 .or. local_rank >= n_ranks) error stop 'mpi_rank is out of range in seed_particles_from_config.'
+    call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'seed_particles_from_config')
 
     seed_tmp = int(cfg%sim%rng_seed, kind=8) + 104729_8 * int(local_rank, kind=8)
     seed_value = int(modulo(seed_tmp, int(huge(0_i32), kind=8)), kind=i32)
@@ -133,7 +130,7 @@ contains
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
-  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size)
+  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi)
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
     type(particles_soa), intent(out) :: pcls
@@ -141,6 +138,7 @@ contains
     type(mesh_type), intent(in), optional :: mesh
     real(dp), intent(out), optional :: photo_emission_dq(:)
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
@@ -152,12 +150,7 @@ contains
     if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
       error stop 'Requested batch index is out of range.'
     end if
-    local_rank = 0_i32
-    n_ranks = 1_i32
-    if (present(mpi_rank)) local_rank = mpi_rank
-    if (present(mpi_size)) n_ranks = mpi_size
-    if (n_ranks <= 0_i32) error stop 'mpi_size must be > 0 in init_particle_batch_from_config.'
-    if (local_rank < 0_i32 .or. local_rank >= n_ranks) error stop 'mpi_rank is out of range in init_particle_batch_from_config.'
+    call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'init_particle_batch_from_config')
     if (present(state)) then
       if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
       if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
@@ -179,7 +172,7 @@ contains
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
         global_count = cfg%particle_species(s)%npcls_per_step
-        counts_max(s) = split_count_for_rank(global_count, local_rank, n_ranks)
+        counts_max(s) = mpi_split_count(global_count, local_rank, n_ranks)
       case ('reservoir_face')
         if (.not. present(state)) then
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
@@ -193,7 +186,7 @@ contains
         )
       case ('photo_raycast')
         global_count = cfg%particle_species(s)%rays_per_batch
-        counts_max(s) = split_count_for_rank(global_count, local_rank, n_ranks)
+        counts_max(s) = mpi_split_count(global_count, local_rank, n_ranks)
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
@@ -547,20 +540,21 @@ contains
     if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3 * 1.0d6
   end function species_number_density_m3
 
-  !> 総数 `total_count` を `n_ranks` 個のrankへできるだけ均等に分配し、このrank分を返す。
-  integer(i32) function split_count_for_rank(total_count, rank, n_ranks) result(local_count)
-    integer(i32), intent(in) :: total_count, rank, n_ranks
-    integer(i32) :: base_count, n_remainder
+  !> 併存対応のため `mpi_context` と rank/size の両方を受け、最終的なrank/sizeを解決する。
+  subroutine resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, caller_name)
+    integer(i32), intent(out) :: local_rank, n_ranks
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
+    character(len=*), intent(in) :: caller_name
 
-    if (total_count < 0_i32) error stop 'split_count_for_rank requires total_count >= 0.'
-    if (n_ranks <= 0_i32) error stop 'split_count_for_rank requires n_ranks > 0.'
-    if (rank < 0_i32 .or. rank >= n_ranks) error stop 'split_count_for_rank rank out of range.'
-
-    base_count = total_count/n_ranks
-    n_remainder = modulo(total_count, n_ranks)
-    local_count = base_count
-    if (rank < n_remainder) local_count = local_count + 1_i32
-  end function split_count_for_rank
+    call mpi_get_rank_size(local_rank, n_ranks, mpi)
+    if (present(mpi_rank)) local_rank = mpi_rank
+    if (present(mpi_size)) n_ranks = mpi_size
+    if (n_ranks <= 0_i32) error stop 'mpi_size must be > 0 in ' // trim(caller_name) // '.'
+    if (local_rank < 0_i32 .or. local_rank >= n_ranks) then
+      error stop 'mpi_rank is out of range in ' // trim(caller_name) // '.'
+    end if
+  end subroutine resolve_parallel_rank_size
 
   !> 粒子種設定から実効温度[K]を返す。
   !! @param[in] spec 粒子種設定。

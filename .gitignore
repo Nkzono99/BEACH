@@ -144,6 +144,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# Build profile snippets (keep tracked, while preserving virtualenv ignores under env/)
+!env/
+env/*
+!env/*.env
+!env/README.md
+
 # Spyder project settings
 .spyderproject
 .spyproject

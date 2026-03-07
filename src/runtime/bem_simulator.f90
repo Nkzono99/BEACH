@@ -119,12 +119,11 @@ contains
     if (present(inject_state)) then
       call init_particle_batch_from_config( &
         app, local_batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
-        mpi_rank=mpi%rank, mpi_size=mpi%size &
+        mpi=mpi &
       )
     else
       call init_particle_batch_from_config( &
-        app, local_batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi_rank=mpi%rank, &
-        mpi_size=mpi%size &
+        app, local_batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi &
       )
     end if
     allocate (escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))

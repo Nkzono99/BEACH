@@ -2,7 +2,7 @@
 program main
   use bem_kinds, only: i32
   use bem_types, only: sim_stats, mesh_type, injection_state
-  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root
+  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
@@ -19,7 +19,7 @@ program main
   logical :: history_opened, resumed
 
   call mpi_initialize(mpi)
-  call load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi%rank, mpi%size)
+  call load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi)
   if (mpi_is_root(mpi)) then
     call open_history_writer(app, resumed, history_opened, history_unit)
   else
@@ -42,10 +42,10 @@ program main
   if (app%write_output) then
     call ensure_output_dir(app%output_dir)
     if (mpi_is_root(mpi)) then
-      call write_result_files(trim(app%output_dir), mesh, stats, mpi_world_size=mpi%size)
+      call write_result_files(trim(app%output_dir), mesh, stats, mpi_world_size=mpi_world_size(mpi))
     end if
-    call write_rng_state_file(trim(app%output_dir), mpi_rank=mpi%rank, mpi_size=mpi%size)
-    call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi_rank=mpi%rank, mpi_size=mpi%size)
+    call write_rng_state_file(trim(app%output_dir), mpi=mpi)
+    call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi=mpi)
     if (mpi_is_root(mpi)) print '(a,a)', 'results written to ', trim(app%output_dir)
   end if
   call mpi_shutdown(mpi)
@@ -58,13 +58,13 @@ contains
   !! @param[out] initial_stats 再開時に引き継ぐ初期統計（新規実行時はゼロ）。
   !! @param[out] inject_state 種別ごとの注入残差状態。
   !! @param[out] resumed チェックポイントから再開した場合に `.true.`。
-  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi_rank, mpi_size)
+  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi)
     type(app_config), intent(out) :: app
     type(mesh_type), intent(out) :: mesh
     type(sim_stats), intent(out) :: initial_stats
     type(injection_state), intent(out) :: inject_state
     logical, intent(out) :: resumed
-    integer(i32), intent(in) :: mpi_rank, mpi_size
+    type(mpi_context), intent(in) :: mpi
     character(len=256) :: cfg_path
     logical :: has_config
 
@@ -81,17 +81,17 @@ contains
     if (app%resume_output) then
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
       call load_restart_checkpoint( &
-        trim(app%output_dir), mesh, initial_stats, resumed, inject_state, mpi_rank=mpi_rank, mpi_size=mpi_size &
+        trim(app%output_dir), mesh, initial_stats, resumed, inject_state, mpi=mpi &
       )
     end if
 
     if (resumed) then
-      if (mpi_rank == 0_i32) then
+      if (mpi_is_root(mpi)) then
         print '(a,i0)', 'resuming_from_batches=', initial_stats%batches
         print '(a,i0)', 'resuming_from_processed_particles=', initial_stats%processed_particles
       end if
     else
-      call seed_particles_from_config(app, mpi_rank=mpi_rank, mpi_size=mpi_size)
+      call seed_particles_from_config(app, mpi=mpi)
     end if
   end subroutine load_or_init_run_state
 
