@@ -166,7 +166,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 ## 10. 実行運用（推奨）
 
-実行運用としては、`fpm install` で導入した `beach` コマンドの利用を推奨します。
+通常利用では、`pip install git+...` で導入した `beach` コマンドの利用を推奨します。
 
-- 推奨導線: `make`（= `install` ターゲット）で導入し、`beach [config.toml]` で実行
-- 開発時の直接実行: `fpm run -- ...` も利用可能
+- 推奨導線: `python -m pip install "git+https://github.com/Nkzono99/BEACH.git"` で導入し、`beach [config.toml]` で実行
+- 開発時の導線: `python -m pip install -e .` + `make` を利用し、必要に応じて `fpm run -- ...` で直接実行

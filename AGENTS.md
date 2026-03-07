@@ -27,18 +27,19 @@ v0.x focuses on insulator accumulation. Keep extension points for conductor/resi
 
 ## Setup
 Python utilities:
+- `python -m pip install "git+https://github.com/Nkzono99/BEACH.git"` (builds Python + Fortran `beach` binary via `make`)
 - `python -m pip install -U pip setuptools wheel`
 - `python -m pip install -e . --no-build-isolation`
-- `python -m pip install "git+https://github.com/Nkzono99/BEACH.git"` (builds Python + Fortran `beach` binary via `make`)
 
 Fortran execution/testing requires a Fortran compiler (`gfortran` etc.) and `fpm`.
 
 ## How to run
 Fortran main (recommended):
-- `make`
+- `python -m pip install "git+https://github.com/Nkzono99/BEACH.git"`
 - `beach examples/beach.toml`
 
 Fortran main (developer direct run):
+- `make`
 - `fpm run --profile release --flag "-fopenmp" -- examples/beach.toml`
 
 Python CLI examples:
