@@ -46,6 +46,16 @@ fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 4" -- examples/beach.toml
 ```
 
+インストール（`fpm install`）は `Makefile` のプリセットを使えます。
+
+```bash
+make install-auto      # ホスト名から最適プロファイルを自動選択（なければ generic）
+make install-generic   # 汎用ビルド
+make install-camphor   # camphor向け最適化ビルド
+```
+
+ビルドプロファイル定義は `env/*.env`（例: `env/camphor.env`）で管理します。
+
 ### 2) Python 環境（後処理・可視化）
 
 ```bash

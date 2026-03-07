@@ -32,6 +32,14 @@ fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 4" -- examples/beach.toml
 ```
 
+- `fpm install` を使う場合の推奨ターゲット:
+
+```bash
+make install-auto      # ホスト名で profile 自動判定（camphor* -> camphor, それ以外 -> generic）
+make install-generic
+make install-camphor
+```
+
 ### 1.2 Python 後処理
 
 ```bash
