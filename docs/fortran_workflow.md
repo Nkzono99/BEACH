@@ -50,6 +50,7 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 
 この方式でも `make` / `fpm` / Fortran コンパイラは必要です。
 pip 経由のビルドでは既定で `INSTALL_PROFILE=auto` を使います。
+`auto` 失敗時は既定で `generic` へフォールバックします。無効化する場合は `BEACH_PIP_FALLBACK_GENERIC=0` を指定します。
 
 ## 2. 実行フロー
 

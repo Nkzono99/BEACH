@@ -48,11 +48,12 @@ def _build_with_make() -> Path:
     try:
         subprocess.check_call(cmd, cwd=ROOT_DIR)
     except subprocess.CalledProcessError as exc:
-        # If profile is not user-pinned, retry once with generic for portability.
-        if install_profile == "auto" and "INSTALL_PROFILE" not in os.environ:
+        # Optional fallback for constrained build environments.
+        use_fallback = os.environ.get("BEACH_PIP_FALLBACK_GENERIC", "1") == "1"
+        if use_fallback and install_profile == "auto" and "INSTALL_PROFILE" not in os.environ:
             retry_cmd = ["make", "INSTALL_PROFILE=generic", f"PREFIX={INSTALL_PREFIX}", "install"]
             print(
-                "\nWARN: auto profile build failed in pip build env; retrying with INSTALL_PROFILE=generic.\n",
+                "\nWARN: auto profile build failed; retrying with INSTALL_PROFILE=generic.\n",
                 file=sys.stderr,
             )
             try:
@@ -92,7 +93,8 @@ def _ensure_built_binary() -> Path:
     global _BUILT_BINARY
     if _BUILT_BINARY and _BUILT_BINARY.exists():
         return _BUILT_BINARY
-    _BUILT_BINARY = _built_binary() or _build_with_make()
+    # Always build once per invocation to avoid reusing stale binaries from prior profile builds.
+    _BUILT_BINARY = _build_with_make()
     return _BUILT_BINARY
 
 
