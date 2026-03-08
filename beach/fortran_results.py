@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal, TYPE_CHECKING
@@ -12,6 +13,45 @@ if TYPE_CHECKING:
     from matplotlib.animation import FuncAnimation
 
 K_COULOMB = 8.9875517923e9
+
+
+@dataclass(frozen=True)
+class MeshSource:
+    """Metadata for one source mesh written by Fortran output."""
+
+    mesh_id: int
+    source_kind: str
+    template_kind: str
+    elem_count: int
+
+
+@dataclass(frozen=True)
+class MeshSelection:
+    """One mesh (or merged meshes) extracted from a run result."""
+
+    directory: Path
+    mesh_ids: tuple[int, ...]
+    elem_indices: np.ndarray
+    triangles: np.ndarray
+    charges: np.ndarray
+    step: int | None = None
+
+
+@dataclass(frozen=True)
+class CoulombInteraction:
+    """Coulomb interaction summary between two mesh groups."""
+
+    group_a_mesh_ids: tuple[int, ...]
+    group_b_mesh_ids: tuple[int, ...]
+    step: int | None
+    softening: float
+    torque_origin_m: np.ndarray
+    force_on_a_N: np.ndarray
+    force_on_b_N: np.ndarray
+    torque_on_a_Nm: np.ndarray
+    torque_on_b_Nm: np.ndarray
+    mean_force_on_a_per_element_N: np.ndarray
+    mean_torque_on_a_per_element_Nm: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -29,6 +69,8 @@ class FortranRunResult:
     last_rel_change: float
     charges: np.ndarray
     triangles: np.ndarray | None = None
+    mesh_ids: np.ndarray | None = None
+    mesh_sources: dict[int, MeshSource] | None = None
     charge_history: np.ndarray | None = None
     processed_particles_by_batch: np.ndarray | None = None
     rel_change_by_batch: np.ndarray | None = None
@@ -45,7 +87,8 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         charges = charges[None, :]
     q_values = charges[:, 1]
 
-    triangles = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
+    triangles, mesh_ids = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
+    mesh_sources = _load_mesh_sources_if_exists(out_dir / "mesh_sources.csv")
     charge_history, processed_particles_by_batch, rel_change_by_batch, batch_indices = (
         _load_charge_history_if_exists(
             out_dir / "charge_history.csv", mesh_nelem=int(summary["mesh_nelem"])
@@ -64,6 +107,8 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         last_rel_change=float(summary["last_rel_change"]),
         charges=q_values,
         triangles=triangles,
+        mesh_ids=mesh_ids,
+        mesh_sources=mesh_sources,
         charge_history=charge_history,
         processed_particles_by_batch=processed_particles_by_batch,
         rel_change_by_batch=rel_change_by_batch,
@@ -100,6 +145,48 @@ class Beach:
     def reload(self) -> FortranRunResult:
         self._result = load_fortran_result(self.output_dir)
         return self._result
+
+    @property
+    def mesh_ids(self) -> tuple[int, ...]:
+        ids = np.unique(_mesh_ids_or_default(self.result))
+        return tuple(int(v) for v in ids)
+
+    def get_mesh(self, *mesh_ids: int, step: int | None = None):
+        if len(mesh_ids) == 0:
+            raise ValueError("at least one mesh id must be provided.")
+        selections = tuple(
+            _build_mesh_selection(self.result, (int(mesh_id),), step=step)
+            for mesh_id in mesh_ids
+        )
+        if len(selections) == 1:
+            return selections[0]
+        return selections
+
+    def get_mesh_charge(self, *mesh_ids: int, step: int | None = None):
+        selection = self.get_mesh(*mesh_ids, step=step)
+        if isinstance(selection, tuple):
+            return tuple(mesh.charges.copy() for mesh in selection)
+        return selection.charges.copy()
+
+    def calc_coulomb(
+        self,
+        group_a: int | MeshSelection | Iterable[int | MeshSelection],
+        group_b: int | MeshSelection | Iterable[int | MeshSelection],
+        *,
+        step: int | None = None,
+        softening: float = 0.0,
+        torque_origin: Literal["group_a_center", "group_b_center", "origin"] = (
+            "group_a_center"
+        ),
+    ) -> CoulombInteraction:
+        return calc_coulomb(
+            self.result,
+            group_a,
+            group_b,
+            step=step,
+            softening=softening,
+            torque_origin=torque_origin,
+        )
 
     def plot_mesh(self, *, cmap: str = "coolwarm"):
         return plot_charge_mesh(self.result, cmap=cmap)
@@ -162,6 +249,69 @@ def _resolve_result(result: FortranRunResult | Beach) -> FortranRunResult:
     if isinstance(result, Beach):
         return result.result
     return result
+
+
+def calc_coulomb(
+    result: FortranRunResult | Beach,
+    group_a: int | MeshSelection | Iterable[int | MeshSelection],
+    group_b: int | MeshSelection | Iterable[int | MeshSelection],
+    *,
+    step: int | None = None,
+    softening: float = 0.0,
+    torque_origin: Literal["group_a_center", "group_b_center", "origin"] = (
+        "group_a_center"
+    ),
+) -> CoulombInteraction:
+    """Compute Coulomb force/torque between two mesh groups."""
+
+    resolved = _resolve_result(result)
+    if softening < 0.0:
+        raise ValueError("softening must be >= 0.")
+
+    sel_a = _coerce_group_selection(resolved, group_a, step=step)
+    sel_b = _coerce_group_selection(resolved, group_b, step=step)
+    if sel_a.elem_indices.size == 0:
+        raise ValueError("group_a does not contain any mesh elements.")
+    if sel_b.elem_indices.size == 0:
+        raise ValueError("group_b does not contain any mesh elements.")
+
+    if torque_origin == "group_a_center":
+        origin = _triangle_centers(sel_a.triangles).mean(axis=0)
+    elif torque_origin == "group_b_center":
+        origin = _triangle_centers(sel_b.triangles).mean(axis=0)
+    elif torque_origin == "origin":
+        origin = np.zeros(3, dtype=float)
+    else:
+        raise ValueError(
+            "torque_origin must be one of {'group_a_center', 'group_b_center', 'origin'}."
+        )
+
+    centers_a = _triangle_centers(sel_a.triangles)
+    centers_b = _triangle_centers(sel_b.triangles)
+    force_a, torque_a = _pairwise_force_torque(
+        centers_a,
+        sel_a.charges,
+        centers_b,
+        sel_b.charges,
+        origin=origin,
+        softening=softening,
+    )
+    force_b = -force_a
+    torque_b = -torque_a
+
+    return CoulombInteraction(
+        group_a_mesh_ids=sel_a.mesh_ids,
+        group_b_mesh_ids=sel_b.mesh_ids,
+        step=sel_a.step,
+        softening=softening,
+        torque_origin_m=origin,
+        force_on_a_N=force_a,
+        force_on_b_N=force_b,
+        torque_on_a_Nm=torque_a,
+        torque_on_b_Nm=torque_b,
+        mean_force_on_a_per_element_N=force_a / float(sel_a.elem_indices.size),
+        mean_torque_on_a_per_element_Nm=torque_a / float(sel_a.elem_indices.size),
+    )
 
 
 def plot_charges(result: FortranRunResult | Beach):
@@ -382,6 +532,115 @@ def _select_frame_columns(
     return numerators // (total_frames - 1)
 
 
+def _coerce_group_selection(
+    result: FortranRunResult,
+    group: int | MeshSelection | Iterable[int | MeshSelection],
+    *,
+    step: int | None,
+) -> MeshSelection:
+    mesh_ids: list[int] = []
+    mesh_steps: list[int] = []
+
+    def _add_item(item: int | MeshSelection) -> None:
+        if isinstance(item, MeshSelection):
+            if item.directory != result.directory:
+                raise ValueError("mesh selections must come from the same output directory.")
+            mesh_ids.extend(item.mesh_ids)
+            if item.step is not None:
+                mesh_steps.append(item.step)
+            return
+        mesh_ids.append(int(item))
+
+    if isinstance(group, MeshSelection) or isinstance(group, (int, np.integer)):
+        _add_item(group)
+    else:
+        for item in group:
+            _add_item(item)
+
+    if not mesh_ids:
+        raise ValueError("mesh group is empty.")
+
+    requested_step = step
+    if requested_step is None and mesh_steps:
+        unique_steps = sorted(set(mesh_steps))
+        if len(unique_steps) > 1:
+            raise ValueError("mesh selections in one group must share the same step.")
+        requested_step = unique_steps[0]
+
+    return _build_mesh_selection(result, tuple(mesh_ids), step=requested_step)
+
+
+def _build_mesh_selection(
+    result: FortranRunResult, mesh_ids: tuple[int, ...], *, step: int | None
+) -> MeshSelection:
+    unique_mesh_ids = tuple(dict.fromkeys(int(mid) for mid in mesh_ids))
+    all_mesh_ids = _mesh_ids_or_default(result)
+    available = set(int(mid) for mid in np.unique(all_mesh_ids))
+    missing = [mid for mid in unique_mesh_ids if mid not in available]
+    if missing:
+        raise ValueError(f"unknown mesh id(s): {missing}. available={sorted(available)}")
+
+    triangles = _require_triangles(result)
+    charges = _charges_for_step(result, step=step)
+    mask = np.isin(all_mesh_ids, np.asarray(unique_mesh_ids, dtype=np.int64))
+    elem_indices = np.flatnonzero(mask)
+
+    return MeshSelection(
+        directory=result.directory,
+        mesh_ids=unique_mesh_ids,
+        elem_indices=elem_indices,
+        triangles=triangles[elem_indices],
+        charges=charges[elem_indices],
+        step=step,
+    )
+
+
+def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarray:
+    if step is None:
+        return result.charges
+
+    history = _require_charge_history(result)
+    if result.batch_indices is None:
+        raise ValueError("batch indices are unavailable although charge history exists.")
+    cols = np.flatnonzero(result.batch_indices == step)
+    if cols.size == 0:
+        available = [int(v) for v in result.batch_indices]
+        raise ValueError(f"step={step} is not found in history. available={available}")
+    return history[:, int(cols[0])]
+
+
+def _mesh_ids_or_default(result: FortranRunResult) -> np.ndarray:
+    if result.mesh_ids is None or result.mesh_ids.size != result.mesh_nelem:
+        return np.ones(result.mesh_nelem, dtype=np.int64)
+    return result.mesh_ids.astype(np.int64, copy=False)
+
+
+def _pairwise_force_torque(
+    centers_a: np.ndarray,
+    charges_a: np.ndarray,
+    centers_b: np.ndarray,
+    charges_b: np.ndarray,
+    *,
+    origin: np.ndarray,
+    softening: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    force = np.zeros(3, dtype=float)
+    torque = np.zeros(3, dtype=float)
+    eps2 = softening * softening
+    min_dist2 = np.finfo(float).tiny
+
+    for i in range(centers_a.shape[0]):
+        delta = centers_a[i] - centers_b
+        dist2 = np.sum(delta * delta, axis=1) + eps2
+        inv_r3 = 1.0 / (np.maximum(dist2, min_dist2) * np.sqrt(np.maximum(dist2, min_dist2)))
+        coeff = K_COULOMB * charges_a[i] * charges_b * inv_r3
+        f_i = np.sum(coeff[:, None] * delta, axis=0)
+        force += f_i
+        torque += np.cross(centers_a[i] - origin, f_i)
+
+    return force, torque
+
+
 def _load_summary(path: Path) -> dict[str, str]:
     data: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -445,15 +704,43 @@ def _load_charge_history_if_exists(
     return history, processed_by_batch, rel_by_batch, batch_indices
 
 
-def _load_triangles_if_exists(path: Path) -> np.ndarray | None:
+def _load_triangles_if_exists(path: Path) -> tuple[np.ndarray | None, np.ndarray | None]:
     if not path.exists():
-        return None
+        return None, None
 
+    with path.open("r", encoding="utf-8") as stream:
+        header_line = stream.readline().strip()
+    header = [name.strip() for name in header_line.split(",")] if header_line else []
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     if data.ndim == 1:
         data = data[None, :]
     verts = data[:, 1:10].reshape(-1, 3, 3)
-    return verts
+    mesh_ids: np.ndarray | None = None
+    if "mesh_id" in header:
+        idx = header.index("mesh_id")
+        if 0 <= idx < data.shape[1]:
+            mesh_ids = data[:, idx].astype(np.int64)
+    return verts, mesh_ids
+
+
+def _load_mesh_sources_if_exists(path: Path) -> dict[int, MeshSource] | None:
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
+        rows = list(reader)
+    if not rows:
+        return None
+    out: dict[int, MeshSource] = {}
+    for row in rows:
+        mesh_id = int(row["mesh_id"])
+        out[mesh_id] = MeshSource(
+            mesh_id=mesh_id,
+            source_kind=row.get("source_kind", ""),
+            template_kind=row.get("template_kind", ""),
+            elem_count=int(row.get("elem_count", "0")),
+        )
+    return out
 
 
 def _surface_charge_density(charges: np.ndarray, triangles: np.ndarray) -> np.ndarray:

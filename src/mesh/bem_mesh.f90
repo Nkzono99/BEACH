@@ -11,10 +11,12 @@ contains
   !! @param[in] v1 各三角形の頂点1配列 `v1(3,nelem)` [m]。
   !! @param[in] v2 各三角形の頂点2配列 `v2(3,nelem)` [m]。
   !! @param[in] q0 初期要素電荷 `q_elem(nelem)` [C]（省略時は0）。
-  subroutine init_mesh(mesh, v0, v1, v2, q0)
+  !! @param[in] elem_mesh_id0 要素ごとのメッシュ識別ID `elem_mesh_id(nelem)`（省略時は全要素1）。
+  subroutine init_mesh(mesh, v0, v1, v2, q0, elem_mesh_id0)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
     real(dp), intent(in), optional :: q0(:)
+    integer(i32), intent(in), optional :: elem_mesh_id0(:)
     integer(i32) :: n, i
     real(dp) :: e1(3), e2(3), nvec(3), nn
     real(dp) :: cx, cy, cz
@@ -31,7 +33,7 @@ contains
     allocate(mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
     allocate(mesh%centers(3, n), mesh%center_x(n), mesh%center_y(n), mesh%center_z(n), mesh%normals(3, n))
     allocate(mesh%bb_min(3, n), mesh%bb_max(3, n))
-    allocate(mesh%h_elem(n), mesh%q_elem(n))
+    allocate(mesh%h_elem(n), mesh%q_elem(n), mesh%elem_mesh_id(n))
 
     mesh%v0 = v0
     mesh%v1 = v1
@@ -67,6 +69,13 @@ contains
       mesh%q_elem = q0
     else
       mesh%q_elem = 0.0d0
+    end if
+
+    if (present(elem_mesh_id0)) then
+      if (size(elem_mesh_id0) /= n) error stop "elem_mesh_id0 size mismatch"
+      mesh%elem_mesh_id = elem_mesh_id0
+    else
+      mesh%elem_mesh_id = 1_i32
     end if
 
     call build_collision_grid(mesh)

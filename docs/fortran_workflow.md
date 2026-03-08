@@ -95,9 +95,12 @@ mpirun -n 4 beach examples/beach.toml
 - `summary.txt`
 - `charges.csv`
 - `mesh_triangles.csv`
+- `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0`）
 - `rng_state.txt`
 - `macro_residuals.csv`
+
+`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と元メッシュ設定（template kind / 要素数）を対応付けます。
 
 MPI実行（`world_size > 1`）では乱数状態・残差は rank 別です。
 
@@ -164,6 +167,14 @@ beach.plot_bar()
 beach.plot_mesh()
 beach.plot_potential()
 beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge", total_frames=200)
+
+mesh1 = beach.get_mesh(1)
+mesh2, mesh3 = beach.get_mesh(2, 3)
+mesh1_step10 = beach.get_mesh(1, step=10)
+charge_step10 = beach.get_mesh_charge(1, step=10)
+
+interaction = beach.calc_coulomb([mesh1, mesh2], [mesh3], step=10)
+print(interaction.force_on_a_N, interaction.torque_on_a_Nm)
 ```
 
 ## 9. MPI経路テスト（開発向け）
