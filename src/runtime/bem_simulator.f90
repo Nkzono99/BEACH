@@ -1,6 +1,7 @@
 !> 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。
 module bem_simulator
   !$ use omp_lib
+  use, intrinsic :: iso_fortran_env, only: output_unit
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state
   use bem_app_config, only: app_config, init_particle_batch_from_config
@@ -34,7 +35,7 @@ contains
     type(injection_state), intent(inout), optional :: inject_state
     type(mpi_context), intent(in), optional :: mpi
 
-    integer(i32) :: batch_idx, local_batch_idx, nth, hist_stride
+    integer(i32) :: batch_idx, final_batch_idx, local_batch_idx, nth, hist_stride
     integer :: hist_unit
     logical :: history_enabled
     real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
@@ -60,6 +61,7 @@ contains
     hist_stride = 1_i32
     if (present(history_stride)) hist_stride = max(1_i32, history_stride)
     bfield = app%sim%b0
+    final_batch_idx = stats%batches + app%sim%batch_count
 
     do local_batch_idx = 1, app%sim%batch_count
       call prepare_batch_state( &
@@ -79,6 +81,7 @@ contains
         stats, batch_counts, rel, batch_times(1), batch_times(2), batch_times(3) &
       )
       if (mpi_is_root(mpi_ctx)) then
+        call print_batch_progress(batch_idx, final_batch_idx, rel)
         call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       end if
       deallocate (escaped_boundary_flag, absorbed_flag)
@@ -131,7 +134,6 @@ contains
     absorbed_flag = .false.
     dq_thread = 0.0d0
 
-    if (mpi_is_root(mpi)) print *, "---------- batch", batch_idx, "----------"
   end subroutine prepare_batch_state
 
   !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
@@ -289,6 +291,20 @@ contains
     stats%push_time_s = stats%push_time_s + push_time_s
     stats%collision_time_s = stats%collision_time_s + collision_time_s
   end subroutine accumulate_batch_stats
+
+  !> ルートランクでバッチ完了時の進捗と相対変化量を標準出力へ表示する。
+  !! @param[in] batch_idx 現在完了した累積バッチ番号。
+  !! @param[in] final_batch_idx 今回実行で到達予定の累積最終バッチ番号。
+  !! @param[in] rel_change 今バッチの相対変化量。
+  subroutine print_batch_progress(batch_idx, final_batch_idx, rel_change)
+    integer(i32), intent(in) :: batch_idx
+    integer(i32), intent(in) :: final_batch_idx
+    real(dp), intent(in) :: rel_change
+
+    print '(a,i0,a,i0,a,es12.4,a)', &
+      '---------- batch ', batch_idx, '/', final_batch_idx, ' rel_change=', rel_change, ' ----------'
+    flush (output_unit)
+  end subroutine print_batch_progress
 
   !> 履歴出力が有効で、指定ストライドを満たす場合のみ電荷履歴を書き出す。
   !! ストライド判定は従来どおり 1, 1+stride, ... のバッチ番号で行う。
