@@ -236,9 +236,12 @@ history_stride = 1
 - `summary.txt`
 - `charges.csv`
 - `mesh_triangles.csv`
+- `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0` のとき）
 - `rng_state.txt`
 - `macro_residuals.csv`
+
+`mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別と要素数を確認できます。
 
 MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイルになります。
 

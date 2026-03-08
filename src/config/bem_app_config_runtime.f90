@@ -574,19 +574,26 @@ contains
     type(mesh_type), intent(out) :: mesh
     type(mesh_type) :: part
     real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
-    integer(i32) :: i
+    integer(i32), allocatable :: elem_mesh_id(:), part_mesh_id(:)
+    integer(i32) :: i, mesh_id
 
-    allocate (v0(3, 0), v1(3, 0), v2(3, 0))
+    allocate (v0(3, 0), v1(3, 0), v2(3, 0), elem_mesh_id(0))
+    mesh_id = 0_i32
     do i = 1, int(max_templates, i32)
       if (.not. cfg%templates(i)%enabled) cycle
+      mesh_id = mesh_id + 1_i32
       call build_one_template(cfg%templates(i), part)
       call append_triangles(v0, v1, v2, part%v0, part%v1, part%v2)
+      if (allocated(part_mesh_id)) deallocate (part_mesh_id)
+      allocate (part_mesh_id(part%nelem))
+      part_mesh_id = mesh_id
+      call append_mesh_ids(elem_mesh_id, part_mesh_id)
     end do
 
     if (size(v0, 2) == 0) then
       error stop 'No enabled template found in configuration.'
     end if
-    call init_mesh(mesh, v0, v1, v2)
+    call init_mesh(mesh, v0, v1, v2, elem_mesh_id0=elem_mesh_id)
   end subroutine build_template_mesh
 
   !> テンプレート種別に応じて形状生成ルーチンへディスパッチする。
@@ -641,5 +648,22 @@ contains
     call move_alloc(t1, v1)
     call move_alloc(t2, v2)
   end subroutine append_triangles
+
+  !> 既存の要素メッシュID配列へ追加分を連結する。
+  !! @param[inout] mesh_ids 累積した要素メッシュID配列。
+  !! @param[in] add_ids 追加する要素メッシュID配列。
+  subroutine append_mesh_ids(mesh_ids, add_ids)
+    integer(i32), allocatable, intent(inout) :: mesh_ids(:)
+    integer(i32), intent(in) :: add_ids(:)
+    integer(i32), allocatable :: tmp(:)
+    integer(i32) :: n0, n1
+
+    n0 = size(mesh_ids)
+    n1 = size(add_ids)
+    allocate (tmp(n0 + n1))
+    if (n0 > 0) tmp(1:n0) = mesh_ids
+    if (n1 > 0) tmp(n0 + 1:n0 + n1) = add_ids
+    call move_alloc(tmp, mesh_ids)
+  end subroutine append_mesh_ids
 
 end module bem_app_config_runtime

@@ -5,6 +5,7 @@ import pytest
 
 from beach.fortran_results import (
     Beach,
+    calc_coulomb,
     K_COULOMB,
     FortranRunResult,
     _select_frame_columns,
@@ -15,6 +16,50 @@ from beach.fortran_results import (
     load_fortran_result,
     plot_potential_mesh,
 )
+
+
+def _write_three_mesh_fixture(out: Path) -> None:
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=3",
+                "processed_particles=12",
+                "absorbed=9",
+                "escaped=3",
+                "batches=10",
+                "last_rel_change=1.0e-6",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text(
+        "elem_idx,charge_C\n1,1.0e-9\n2,2.0e-9\n3,-3.0e-9\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,1.0e-9,1\n"
+        "2,1.0,0.0,0.0,1.0,1.0,0.0,1.0,0.0,1.0,2.0e-9,2\n"
+        "3,2.0,0.0,0.0,2.0,1.0,0.0,2.0,0.0,1.0,-3.0e-9,3\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_sources.csv").write_text(
+        "mesh_id,source_kind,template_kind,elem_count\n"
+        "1,template,plane,1\n"
+        "2,template,box,1\n"
+        "3,template,sphere,1\n",
+        encoding="utf-8",
+    )
+    (out / "charge_history.csv").write_text(
+        "batch,processed_particles,rel_change,elem_idx,charge_C\n"
+        "1,2,1.0e-1,1,5.0e-10\n"
+        "1,2,1.0e-1,2,1.0e-9\n"
+        "1,2,1.0e-1,3,-1.5e-9\n"
+        "10,12,1.0e-6,1,1.0e-9\n"
+        "10,12,1.0e-6,2,2.0e-9\n"
+        "10,12,1.0e-6,3,-3.0e-9\n",
+        encoding="utf-8",
+    )
 
 
 def test_load_fortran_result(tmp_path: Path) -> None:
@@ -39,9 +84,15 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         "elem_idx,charge_C\n1,1.0e-10\n2,-2.0e-10\n", encoding="utf-8"
     )
     (out / "mesh_triangles.csv").write_text(
-        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C\n"
-        "1,0,0,0,1,0,0,0,1,0,1.0e-10\n"
-        "2,0,0,1,1,0,1,0,1,1,-2.0e-10\n",
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0,0,0,1,0,0,0,1,0,1.0e-10,1\n"
+        "2,0,0,1,1,0,1,0,1,1,-2.0e-10,2\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_sources.csv").write_text(
+        "mesh_id,source_kind,template_kind,elem_count\n"
+        "1,template,plane,1\n"
+        "2,template,sphere,1\n",
         encoding="utf-8",
     )
 
@@ -63,6 +114,10 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     assert result.triangles is not None
     assert result.triangles.shape == (2, 3, 3)
     assert result.charge_history is not None
+    assert result.mesh_ids is not None
+    np.testing.assert_array_equal(result.mesh_ids, np.array([1, 2]))
+    assert result.mesh_sources is not None
+    assert result.mesh_sources[1].template_kind == "plane"
     np.testing.assert_allclose(result.charges, np.array([1.0e-10, -2.0e-10]))
     np.testing.assert_allclose(
         result.charge_history,
@@ -141,6 +196,89 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
 
     assert result.escaped_boundary == 0
     assert result.survived_max_step == 0
+
+
+def test_beach_get_mesh_supports_step_selection(tmp_path: Path) -> None:
+    out = tmp_path / "run_mesh_step"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+
+    beach = Beach(out)
+    mesh1 = beach.get_mesh(1, step=10)
+
+    assert mesh1.mesh_ids == (1,)
+    assert mesh1.step == 10
+    np.testing.assert_allclose(mesh1.charges, np.array([1.0e-9]))
+    np.testing.assert_allclose(beach.get_mesh_charge(1, step=1), np.array([5.0e-10]))
+
+
+def test_beach_get_mesh_returns_tuple_for_multiple_ids(tmp_path: Path) -> None:
+    out = tmp_path / "run_mesh_tuple"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+
+    beach = Beach(out)
+    mesh2, mesh3 = beach.get_mesh(2, 3)
+
+    assert mesh2.mesh_ids == (2,)
+    assert mesh3.mesh_ids == (3,)
+    np.testing.assert_allclose(mesh2.charges, np.array([2.0e-9]))
+    np.testing.assert_allclose(mesh3.charges, np.array([-3.0e-9]))
+
+
+def test_calc_coulomb_accepts_composite_groups(tmp_path: Path) -> None:
+    out = tmp_path / "run_calc_coulomb"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+    beach = Beach(out)
+
+    mesh1 = beach.get_mesh(1)
+    mesh2, mesh3 = beach.get_mesh(2, 3)
+    interaction = beach.calc_coulomb([mesh1, mesh2], [mesh3], step=10)
+
+    assert interaction.group_a_mesh_ids == (1, 2)
+    assert interaction.group_b_mesh_ids == (3,)
+    assert interaction.step == 10
+    assert interaction.force_on_a_N.shape == (3,)
+    assert interaction.torque_on_a_Nm.shape == (3,)
+    np.testing.assert_allclose(
+        interaction.force_on_a_N + interaction.force_on_b_N, np.zeros(3), atol=1.0e-18
+    )
+
+
+def test_calc_coulomb_matches_two_charge_expected_force(tmp_path: Path) -> None:
+    out = tmp_path / "run_calc_coulomb_expected"
+    out.mkdir()
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=2",
+                "processed_particles=1",
+                "absorbed=1",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text(
+        "elem_idx,charge_C\n1,1.0e-9\n2,-2.0e-9\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,1.0e-9,1\n"
+        "2,1.0,0.0,0.0,1.0,1.0,0.0,1.0,0.0,1.0,-2.0e-9,2\n",
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+    interaction = calc_coulomb(result, 1, 2)
+
+    expected_fx = K_COULOMB * 2.0e-18
+    np.testing.assert_allclose(interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0]))
+    np.testing.assert_allclose(interaction.torque_on_a_Nm, np.zeros(3))
 
 
 def test_surface_charge_density_uses_triangle_area() -> None:

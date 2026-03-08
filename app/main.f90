@@ -6,7 +6,7 @@ program main
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
-    seed_particles_from_config
+    seed_particles_from_config, lower
   implicit none
 
   type(mesh_type) :: mesh
@@ -42,7 +42,7 @@ program main
   if (app%write_output) then
     call ensure_output_dir(app%output_dir)
     if (mpi_is_root(mpi)) then
-      call write_result_files(trim(app%output_dir), mesh, stats, mpi_world_size=mpi_world_size(mpi))
+      call write_result_files(trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi))
     end if
     call write_rng_state_file(trim(app%output_dir), mpi=mpi)
     call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi=mpi)
@@ -193,16 +193,18 @@ contains
   !! @param[in] out_dir 出力先ディレクトリ。
   !! @param[in] mesh 書き出し対象のメッシュ。
   !! @param[in] stats 書き出し対象の統計値。
-  subroutine write_result_files(out_dir, mesh, stats, mpi_world_size)
+  subroutine write_result_files(out_dir, mesh, stats, cfg, mpi_world_size)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
+    type(app_config), intent(in) :: cfg
     integer(i32), intent(in), optional :: mpi_world_size
 
     call ensure_output_dir(out_dir)
     call write_summary_file(out_dir, mesh, stats, mpi_world_size=mpi_world_size)
     call write_charges_file(out_dir, mesh)
     call write_mesh_file(out_dir, mesh)
+    call write_mesh_sources_file(out_dir, mesh, cfg)
   end subroutine write_result_files
 
   !> 出力ディレクトリを作成する。
@@ -236,6 +238,7 @@ contains
     world_size = 1_i32
     if (present(mpi_world_size)) world_size = max(1_i32, mpi_world_size)
     write(u, '(a,i0)') 'mesh_nelem=', mesh%nelem
+    write(u, '(a,i0)') 'mesh_count=', max(1_i32, maxval(mesh%elem_mesh_id))
     write(u, '(a,i0)') 'mpi_world_size=', world_size
     write(u, '(a,i0)') 'processed_particles=', stats%processed_particles
     write(u, '(a,i0)') 'absorbed=', stats%absorbed
@@ -281,13 +284,64 @@ contains
     mesh_path = trim(out_dir) // '/mesh_triangles.csv'
     open(newunit=u, file=trim(mesh_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open mesh file.'
-    write(u, '(a)') 'elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C'
+    write(u, '(a)') 'elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id'
     do i = 1, mesh%nelem
-      write(u, '(i0,10(a,es24.16))') i, ',', mesh%v0(1, i), ',', mesh%v0(2, i), ',', mesh%v0(3, i), &
-                                      ',', mesh%v1(1, i), ',', mesh%v1(2, i), ',', mesh%v1(3, i), &
-                                      ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', mesh%q_elem(i)
+      write(u, '(i0,10(a,es24.16),a,i0)') i, ',', mesh%v0(1, i), ',', mesh%v0(2, i), ',', mesh%v0(3, i), &
+                                            ',', mesh%v1(1, i), ',', mesh%v1(2, i), ',', mesh%v1(3, i), &
+                                            ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', &
+                                            mesh%q_elem(i), ',', mesh%elem_mesh_id(i)
     end do
     close(u)
   end subroutine write_mesh_file
+
+  !> メッシュ識別情報を `mesh_sources.csv` に書き出す。
+  !! @param[in] out_dir 出力先ディレクトリ。
+  !! @param[in] mesh 要素ごとの `mesh_id` を含むメッシュ情報。
+  !! @param[in] cfg 元の入力設定。
+  subroutine write_mesh_sources_file(out_dir, mesh, cfg)
+    character(len=*), intent(in) :: out_dir
+    type(mesh_type), intent(in) :: mesh
+    type(app_config), intent(in) :: cfg
+    character(len=1024) :: path
+    character(len=16) :: mode_key, source_kind, template_kind
+    logical :: has_obj
+    integer :: u, ios, i, mesh_id
+    integer(i32) :: elem_count
+
+    path = trim(out_dir) // '/mesh_sources.csv'
+    open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open mesh_sources.csv.'
+    write(u, '(a)') 'mesh_id,source_kind,template_kind,elem_count'
+
+    mode_key = trim(lower(cfg%mesh_mode))
+    if (mode_key == 'obj') then
+      source_kind = 'obj'
+    else if (mode_key == 'template') then
+      source_kind = 'template'
+    else
+      inquire(file=trim(cfg%obj_path), exist=has_obj)
+      if (has_obj) then
+        source_kind = 'obj'
+      else
+        source_kind = 'template'
+      end if
+    end if
+
+    if (source_kind == 'obj') then
+      write(u, '(i0,a,a,a,a,a,i0)') 1, ',', 'obj', ',', 'obj', ',', mesh%nelem
+      close(u)
+      return
+    end if
+
+    mesh_id = 0
+    do i = 1, size(cfg%templates)
+      if (.not. cfg%templates(i)%enabled) cycle
+      mesh_id = mesh_id + 1
+      template_kind = trim(lower(cfg%templates(i)%kind))
+      elem_count = int(count(mesh%elem_mesh_id == mesh_id), kind=i32)
+      write(u, '(i0,a,a,a,a,a,i0)') mesh_id, ',', 'template', ',', trim(template_kind), ',', elem_count
+    end do
+    close(u)
+  end subroutine write_mesh_sources_file
 
 end program main

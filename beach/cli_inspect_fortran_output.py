@@ -59,6 +59,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"absorbed={result.absorbed} escaped={result.escaped}")
     print(f"batches={result.batches} last_rel_change={result.last_rel_change:.6e}")
     print(f"charge_sum={result.charges.sum():.6e}")
+    if result.mesh_ids is not None:
+        mesh_ids = sorted(int(v) for v in set(result.mesh_ids.tolist()))
+        print(f"mesh_ids={mesh_ids}")
+    if result.mesh_sources is not None:
+        for mesh_id in sorted(result.mesh_sources):
+            src = result.mesh_sources[mesh_id]
+            print(
+                "mesh_source="
+                f"id:{src.mesh_id} source:{src.source_kind} "
+                f"template:{src.template_kind} elems:{src.elem_count}"
+            )
     if result.triangles is not None:
         potential = beach.compute_potential(
             softening=args.potential_softening,

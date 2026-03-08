@@ -70,6 +70,7 @@ module bem_types
     real(dp), allocatable :: bb_max(:, :)
     real(dp), allocatable :: h_elem(:)
     real(dp), allocatable :: q_elem(:)
+    integer(i32), allocatable :: elem_mesh_id(:)
     real(dp) :: grid_bb_min(3) = 0.0d0
     real(dp) :: grid_bb_max(3) = 0.0d0
     integer(i32) :: grid_ncell(3) = 1_i32
