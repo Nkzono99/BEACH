@@ -836,7 +836,7 @@ def _build_mesh_selection(
 
 
 def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarray:
-    if step is None:
+    if step is None or step == -1:
         return result.charges
 
     history = result.history
