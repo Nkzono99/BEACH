@@ -170,19 +170,25 @@ class Beach:
 
     def calc_coulomb(
         self,
-        group_a: int | MeshSelection | Iterable[int | MeshSelection],
-        group_b: int | MeshSelection | Iterable[int | MeshSelection],
+        target: int | MeshSelection | Iterable[int | MeshSelection],
+        source: int | MeshSelection | Iterable[int | MeshSelection],
         *,
         step: int | None = -1,
         softening: float = 0.0,
-        torque_origin: Literal["group_a_center", "group_b_center", "origin"] = (
-            "group_a_center"
+        torque_origin: Literal[
+            "target_center",
+            "source_center",
+            "origin",
+            "group_a_center",
+            "group_b_center",
+        ] = (
+            "target_center"
         ),
     ) -> CoulombInteraction:
         return calc_coulomb(
             self.result,
-            group_a,
-            group_b,
+            target,
+            source,
             step=step,
             softening=softening,
             torque_origin=torque_origin,
@@ -253,64 +259,76 @@ def _resolve_result(result: FortranRunResult | Beach) -> FortranRunResult:
 
 def calc_coulomb(
     result: FortranRunResult | Beach,
-    group_a: int | MeshSelection | Iterable[int | MeshSelection],
-    group_b: int | MeshSelection | Iterable[int | MeshSelection],
+    target: int | MeshSelection | Iterable[int | MeshSelection],
+    source: int | MeshSelection | Iterable[int | MeshSelection],
     *,
     step: int | None = -1,
     softening: float = 0.0,
-    torque_origin: Literal["group_a_center", "group_b_center", "origin"] = (
-        "group_a_center"
+    torque_origin: Literal[
+        "target_center",
+        "source_center",
+        "origin",
+        "group_a_center",
+        "group_b_center",
+    ] = (
+        "target_center"
     ),
 ) -> CoulombInteraction:
-    """Compute Coulomb force/torque between two mesh groups."""
+    """Compute force/torque where ``target`` receives Coulomb interaction from ``source``."""
 
     resolved = _resolve_result(result)
     if softening < 0.0:
         raise ValueError("softening must be >= 0.")
 
-    sel_a = _coerce_group_selection(resolved, group_a, step=step)
-    sel_b = _coerce_group_selection(resolved, group_b, step=step)
-    if sel_a.elem_indices.size == 0:
-        raise ValueError("group_a does not contain any mesh elements.")
-    if sel_b.elem_indices.size == 0:
-        raise ValueError("group_b does not contain any mesh elements.")
+    sel_target = _coerce_group_selection(resolved, target, step=step)
+    sel_source = _coerce_group_selection(resolved, source, step=step)
+    if sel_target.elem_indices.size == 0:
+        raise ValueError("target does not contain any mesh elements.")
+    if sel_source.elem_indices.size == 0:
+        raise ValueError("source does not contain any mesh elements.")
 
     if torque_origin == "group_a_center":
-        origin = _triangle_centers(sel_a.triangles).mean(axis=0)
+        torque_origin = "target_center"
     elif torque_origin == "group_b_center":
-        origin = _triangle_centers(sel_b.triangles).mean(axis=0)
+        torque_origin = "source_center"
+
+    if torque_origin == "target_center":
+        origin = _triangle_centers(sel_target.triangles).mean(axis=0)
+    elif torque_origin == "source_center":
+        origin = _triangle_centers(sel_source.triangles).mean(axis=0)
     elif torque_origin == "origin":
         origin = np.zeros(3, dtype=float)
     else:
         raise ValueError(
-            "torque_origin must be one of {'group_a_center', 'group_b_center', 'origin'}."
+            "torque_origin must be one of {'target_center', 'source_center', 'origin'}."
         )
 
-    centers_a = _triangle_centers(sel_a.triangles)
-    centers_b = _triangle_centers(sel_b.triangles)
-    force_a, torque_a = _pairwise_force_torque(
-        centers_a,
-        sel_a.charges,
-        centers_b,
-        sel_b.charges,
+    centers_target = _triangle_centers(sel_target.triangles)
+    centers_source = _triangle_centers(sel_source.triangles)
+    force_target, torque_target = _pairwise_force_torque(
+        centers_target,
+        sel_target.charges,
+        centers_source,
+        sel_source.charges,
         origin=origin,
         softening=softening,
     )
-    force_b = -force_a
-    torque_b = -torque_a
+    force_source = -force_target
+    torque_source = -torque_target
 
     return CoulombInteraction(
-        group_a_mesh_ids=sel_a.mesh_ids,
-        group_b_mesh_ids=sel_b.mesh_ids,
-        step=sel_a.step,
+        group_a_mesh_ids=sel_target.mesh_ids,
+        group_b_mesh_ids=sel_source.mesh_ids,
+        step=sel_target.step,
         softening=softening,
         torque_origin_m=origin,
-        force_on_a_N=force_a,
-        force_on_b_N=force_b,
-        torque_on_a_Nm=torque_a,
-        torque_on_b_Nm=torque_b,
-        mean_force_on_a_per_element_N=force_a / float(sel_a.elem_indices.size),
-        mean_torque_on_a_per_element_Nm=torque_a / float(sel_a.elem_indices.size),
+        force_on_a_N=force_target,
+        force_on_b_N=force_source,
+        torque_on_a_Nm=torque_target,
+        torque_on_b_Nm=torque_source,
+        mean_force_on_a_per_element_N=force_target / float(sel_target.elem_indices.size),
+        mean_torque_on_a_per_element_Nm=torque_target
+        / float(sel_target.elem_indices.size),
     )
 
 

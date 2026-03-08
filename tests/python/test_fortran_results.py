@@ -282,6 +282,35 @@ def test_calc_coulomb_defaults_to_latest_history_step(tmp_path: Path) -> None:
     np.testing.assert_allclose(interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0]))
 
 
+def test_calc_coulomb_accepts_target_source_keywords(tmp_path: Path) -> None:
+    out = tmp_path / "run_calc_coulomb_keywords"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+    beach = Beach(out)
+
+    interaction = calc_coulomb(
+        beach,
+        target=1,
+        source=2,
+        step=10,
+        torque_origin="target_center",
+    )
+    interaction_legacy_origin = calc_coulomb(
+        beach,
+        target=1,
+        source=2,
+        step=10,
+        torque_origin="group_a_center",
+    )
+
+    assert interaction.group_a_mesh_ids == (1,)
+    assert interaction.group_b_mesh_ids == (2,)
+    np.testing.assert_allclose(
+        interaction.torque_origin_m, interaction_legacy_origin.torque_origin_m
+    )
+    np.testing.assert_allclose(interaction.force_on_a_N, interaction_legacy_origin.force_on_a_N)
+
+
 def test_calc_coulomb_accepts_composite_groups(tmp_path: Path) -> None:
     out = tmp_path / "run_calc_coulomb"
     out.mkdir()

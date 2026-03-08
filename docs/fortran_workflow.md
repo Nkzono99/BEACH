@@ -173,7 +173,7 @@ mesh2, mesh3 = beach.get_mesh(2, 3)
 mesh1_step10 = beach.get_mesh(1, step=10)
 charge_step10 = beach.get_mesh_charge(1, step=10)
 
-interaction = beach.calc_coulomb([mesh1, mesh2], [mesh3], step=10)
+interaction = beach.calc_coulomb(target=[mesh1, mesh2], source=[mesh3], step=10)
 print(interaction.force_on_a_N, interaction.torque_on_a_Nm)
 ```
 
