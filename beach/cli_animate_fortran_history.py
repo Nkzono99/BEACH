@@ -103,7 +103,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"saved_gif={written}")
     print(f"quantity={args.quantity}")
     snapshot_count = (
-        result.charge_history.shape[1] if result.charge_history is not None else 0
+        len(result.history)
+        if result.history is not None and result.history.has_data
+        else 0
     )
     if args.total_frames is None:
         rendered_frames = (

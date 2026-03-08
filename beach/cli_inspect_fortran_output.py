@@ -77,10 +77,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         print(f"potential_min={potential.min():.6e}")
         print(f"potential_max={potential.max():.6e}")
-    if result.charge_history is not None:
-        print(f"charge_history_shape={result.charge_history.shape}")
-        print(f"batch_indices={result.batch_indices}")
-        print(f"processed_particles_by_batch={result.processed_particles_by_batch}")
+    if result.history is not None and result.history.has_data:
+        snapshot_count = len(result.history)
+        print(f"charge_history_shape=({result.mesh_nelem}, {snapshot_count})")
+        print(f"batch_indices={result.history.batch_indices}")
+        print(
+            "processed_particles_by_batch="
+            f"{result.history.processed_particles_by_batch}"
+        )
 
     need_bar_plot = args.save_bar is not None or args.show
     need_mesh_plot = args.save_mesh is not None or args.show

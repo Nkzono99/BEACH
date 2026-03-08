@@ -6,6 +6,7 @@ import pytest
 from beach.fortran_results import (
     Beach,
     calc_coulomb,
+    FortranChargeHistory,
     K_COULOMB,
     FortranRunResult,
     _select_frame_columns,
@@ -16,6 +17,40 @@ from beach.fortran_results import (
     load_fortran_result,
     plot_potential_mesh,
 )
+
+
+def _make_history(
+    *,
+    mesh_nelem: int,
+    history: np.ndarray,
+    batch_indices: np.ndarray | None = None,
+    processed_particles_by_batch: np.ndarray | None = None,
+    rel_change_by_batch: np.ndarray | None = None,
+) -> FortranChargeHistory:
+    n_snapshots = int(history.shape[1])
+    batches = (
+        np.arange(1, n_snapshots + 1, dtype=np.int64)
+        if batch_indices is None
+        else batch_indices.astype(np.int64, copy=False)
+    )
+    processed = (
+        np.zeros(n_snapshots, dtype=np.int64)
+        if processed_particles_by_batch is None
+        else processed_particles_by_batch.astype(np.int64, copy=False)
+    )
+    rel = (
+        np.zeros(n_snapshots, dtype=float)
+        if rel_change_by_batch is None
+        else rel_change_by_batch.astype(float, copy=False)
+    )
+    return FortranChargeHistory.from_arrays(
+        Path("dummy_charge_history.csv"),
+        mesh_nelem=mesh_nelem,
+        history=history,
+        processed_particles_by_batch=processed,
+        rel_change_by_batch=rel,
+        batch_indices=batches,
+    )
 
 
 def _write_three_mesh_fixture(out: Path) -> None:
@@ -113,21 +148,43 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     assert result.survived_max_step == 1
     assert result.triangles is not None
     assert result.triangles.shape == (2, 3, 3)
-    assert result.charge_history is not None
+    assert result.history is not None
     assert result.mesh_ids is not None
     np.testing.assert_array_equal(result.mesh_ids, np.array([1, 2]))
     assert result.mesh_sources is not None
     assert result.mesh_sources[1].template_kind == "plane"
     np.testing.assert_allclose(result.charges, np.array([1.0e-10, -2.0e-10]))
     np.testing.assert_allclose(
-        result.charge_history,
+        result.history.as_array(),
         np.array([[2.0e-11, 1.0e-10], [-1.0e-11, -2.0e-10]]),
     )
-    np.testing.assert_array_equal(
-        result.processed_particles_by_batch, np.array([5, 10])
+    np.testing.assert_array_equal(result.history.processed_particles_by_batch, np.array([5, 10]))
+    np.testing.assert_allclose(result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
+    np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
+
+
+def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> None:
+    out = tmp_path / "run_lazy"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+
+    result = load_fortran_result(out)
+
+    assert result.history is not None
+    np.testing.assert_allclose(result.history[1], np.array([5.0e-10, 1.0e-9, -1.5e-9]))
+    np.testing.assert_allclose(result.history_at(10), np.array([1.0e-9, 2.0e-9, -3.0e-9]))
+    history = result.history.as_array()
+    np.testing.assert_allclose(
+        history,
+        np.array(
+            [
+                [5.0e-10, 1.0e-9],
+                [1.0e-9, 2.0e-9],
+                [-1.5e-9, -3.0e-9],
+            ]
+        ),
     )
-    np.testing.assert_allclose(result.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
-    np.testing.assert_array_equal(result.batch_indices, np.array([1, 3]))
+    np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 10]))
 
 
 def test_list_fortran_runs(tmp_path: Path) -> None:
@@ -172,6 +229,19 @@ def test_beach_uses_outputs_latest_by_default(
     beach = Beach()
     assert beach.output_dir == Path("outputs/latest")
     assert beach.result.mesh_nelem == 1
+
+
+def test_beach_default_lazy_history_keeps_step_access(tmp_path: Path) -> None:
+    out = tmp_path / "run_beach_lazy"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+
+    beach = Beach(out)
+    result = beach.result
+
+    assert result.history is not None
+    np.testing.assert_allclose(beach.get_mesh_charge(2, step=10), np.array([2.0e-9]))
+    np.testing.assert_allclose(result.history.get_step(10), np.array([1.0e-9, 2.0e-9, -3.0e-9]))
 
 
 def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
@@ -709,7 +779,7 @@ def test_animate_history_mesh_requires_charge_history(tmp_path: Path) -> None:
         last_rel_change=0.0,
         charges=np.array([1.0e-9]),
         triangles=triangles,
-        charge_history=None,
+        history=None,
     )
 
     with pytest.raises(ValueError, match="charge_history.csv"):
@@ -730,7 +800,10 @@ def test_animate_history_mesh_rejects_invalid_quantity(tmp_path: Path) -> None:
         last_rel_change=0.0,
         charges=np.array([1.0e-9]),
         triangles=triangles,
-        charge_history=np.array([[1.0e-9, 1.2e-9]]),
+        history=_make_history(
+            mesh_nelem=1,
+            history=np.array([[1.0e-9, 1.2e-9]]),
+        ),
     )
 
     with pytest.raises(ValueError, match="quantity"):
@@ -751,7 +824,10 @@ def test_animate_history_mesh_rejects_invalid_total_frames(tmp_path: Path) -> No
         last_rel_change=0.0,
         charges=np.array([1.0e-9]),
         triangles=triangles,
-        charge_history=np.array([[1.0e-9, 1.2e-9]]),
+        history=_make_history(
+            mesh_nelem=1,
+            history=np.array([[1.0e-9, 1.2e-9]]),
+        ),
     )
 
     with pytest.raises(ValueError, match="total_frames"):
@@ -774,7 +850,10 @@ def test_animate_history_mesh_rejects_stride_and_total_frames_combination(
         last_rel_change=0.0,
         charges=np.array([1.0e-9]),
         triangles=triangles,
-        charge_history=np.array([[1.0e-9, 1.2e-9]]),
+        history=_make_history(
+            mesh_nelem=1,
+            history=np.array([[1.0e-9, 1.2e-9]]),
+        ),
     )
 
     with pytest.raises(ValueError, match="cannot be used together"):
@@ -816,10 +895,13 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
         last_rel_change=0.0,
         charges=charge_history[:, -1],
         triangles=triangles,
-        charge_history=charge_history,
-        batch_indices=np.array([1, 2, 3]),
-        processed_particles_by_batch=np.array([10, 20, 30]),
-        rel_change_by_batch=np.array([1.0e-1, 1.0e-2, 1.0e-3]),
+        history=_make_history(
+            mesh_nelem=2,
+            history=charge_history,
+            batch_indices=np.array([1, 2, 3]),
+            processed_particles_by_batch=np.array([10, 20, 30]),
+            rel_change_by_batch=np.array([1.0e-1, 1.0e-2, 1.0e-3]),
+        ),
     )
     out = tmp_path / f"{quantity}.gif"
 

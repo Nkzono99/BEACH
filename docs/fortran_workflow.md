@@ -162,6 +162,10 @@ from beach import Beach
 
 beach = Beach("outputs/latest")
 print(beach.result.absorbed, beach.result.escaped)
+# history は常に遅延読込
+history_step10 = beach.result.history_at(10)  # 特定 batch の要素電荷を取得
+if beach.result.history is not None:
+    print(beach.result.history.batch_indices)  # 利用可能な batch 一覧
 
 beach.plot_bar()
 beach.plot_mesh()

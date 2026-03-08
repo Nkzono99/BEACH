@@ -15,6 +15,225 @@ if TYPE_CHECKING:
 K_COULOMB = 8.9875517923e9
 
 
+class FortranChargeHistory:
+    """Lazy accessor for ``charge_history.csv`` with batch-step indexing."""
+
+    def __init__(self, path: Path, *, mesh_nelem: int) -> None:
+        self.path = Path(path)
+        self.mesh_nelem = int(mesh_nelem)
+        self._indexed = False
+        self._history_matrix: np.ndarray | None = None
+        self._batch_indices = np.empty(0, dtype=np.int64)
+        self._processed_particles_by_batch = np.empty(0, dtype=np.int64)
+        self._rel_change_by_batch = np.empty(0, dtype=float)
+        self._step_offsets: dict[int, tuple[int, int]] = {}
+        self._step_cache: dict[int, np.ndarray] = {}
+
+    @classmethod
+    def from_arrays(
+        cls,
+        path: Path,
+        *,
+        mesh_nelem: int,
+        history: np.ndarray,
+        processed_particles_by_batch: np.ndarray,
+        rel_change_by_batch: np.ndarray,
+        batch_indices: np.ndarray,
+    ) -> FortranChargeHistory:
+        obj = cls(path, mesh_nelem=mesh_nelem)
+        obj._indexed = True
+        obj._history_matrix = history
+        obj._batch_indices = batch_indices.astype(np.int64, copy=False)
+        obj._processed_particles_by_batch = processed_particles_by_batch.astype(
+            np.int64, copy=False
+        )
+        obj._rel_change_by_batch = rel_change_by_batch.astype(float, copy=False)
+        return obj
+
+    @property
+    def has_data(self) -> bool:
+        if self._history_matrix is not None:
+            return self._history_matrix.size > 0
+        self._ensure_index()
+        return self._batch_indices.size > 0
+
+    @property
+    def batch_indices(self) -> np.ndarray:
+        self._ensure_index()
+        return self._batch_indices
+
+    @property
+    def processed_particles_by_batch(self) -> np.ndarray:
+        self._ensure_index()
+        return self._processed_particles_by_batch
+
+    @property
+    def rel_change_by_batch(self) -> np.ndarray:
+        self._ensure_index()
+        return self._rel_change_by_batch
+
+    def __len__(self) -> int:
+        return int(self.batch_indices.size)
+
+    def __getitem__(self, step: int) -> np.ndarray:
+        return self.get_step(step)
+
+    def as_array(self) -> np.ndarray:
+        if self._history_matrix is not None:
+            return self._history_matrix
+
+        self._ensure_index()
+        n_snapshots = self._batch_indices.size
+        history = np.zeros((self.mesh_nelem, n_snapshots), dtype=float)
+        for col, batch in enumerate(self._batch_indices):
+            history[:, col] = self._load_step_from_file(int(batch))
+        self._history_matrix = history
+        return history
+
+    def get_step(self, step: int) -> np.ndarray:
+        self._ensure_index()
+        if self._batch_indices.size == 0:
+            raise ValueError(
+                "charge_history.csv is not found or empty. Enable history output and rerun."
+            )
+
+        request = int(step)
+        if request == -1:
+            request = int(self._batch_indices[-1])
+        col = self._column_for_step(request)
+        if self._history_matrix is not None:
+            return self._history_matrix[:, col]
+        return self._load_step_from_file(request)
+
+    @staticmethod
+    def _parse_row(
+        line: str,
+    ) -> tuple[int, int, float, int, float]:
+        parts = [part.strip() for part in line.split(",", 4)]
+        if len(parts) != 5:
+            raise ValueError(
+                "invalid charge_history.csv row; expected 5 columns: "
+                "batch,processed_particles,rel_change,elem_idx,charge_C"
+            )
+        return (
+            int(parts[0]),
+            int(parts[1]),
+            float(parts[2]),
+            int(parts[3]) - 1,
+            float(parts[4]),
+        )
+
+    def _column_for_step(self, step: int) -> int:
+        cols = np.flatnonzero(self._batch_indices == step)
+        if cols.size == 0:
+            available = [int(v) for v in self._batch_indices]
+            raise ValueError(f"step={step} is not found in history. available={available}")
+        return int(cols[0])
+
+    def _ensure_index(self) -> None:
+        if self._indexed:
+            return
+
+        self._indexed = True
+        self._step_offsets = {}
+        self._step_cache = {}
+        self._batch_indices = np.empty(0, dtype=np.int64)
+        self._processed_particles_by_batch = np.empty(0, dtype=np.int64)
+        self._rel_change_by_batch = np.empty(0, dtype=float)
+
+        if not self.path.exists():
+            return
+        if self.path.stat().st_size == 0:
+            return
+
+        batches: list[int] = []
+        processed: list[int] = []
+        rel_change: list[float] = []
+        seen_batches: set[int] = set()
+        current_batch: int | None = None
+        current_start: int | None = None
+
+        with self.path.open("r", encoding="utf-8") as stream:
+            stream.readline()  # header
+            while True:
+                pos = stream.tell()
+                line = stream.readline()
+                if line == "":
+                    break
+                row = line.strip()
+                if not row:
+                    continue
+                batch, processed_count, rel_value, _, _ = self._parse_row(row)
+
+                if current_batch is None:
+                    current_batch = batch
+                    current_start = pos
+                    seen_batches.add(batch)
+                    batches.append(batch)
+                    processed.append(processed_count)
+                    rel_change.append(rel_value)
+                    continue
+
+                if batch == current_batch:
+                    continue
+
+                if current_start is None:
+                    raise RuntimeError("internal history index state is inconsistent.")
+                self._step_offsets[current_batch] = (current_start, pos)
+
+                if batch in seen_batches:
+                    raise ValueError(
+                        "charge_history.csv must group rows contiguously by batch."
+                    )
+                seen_batches.add(batch)
+                current_batch = batch
+                current_start = pos
+                batches.append(batch)
+                processed.append(processed_count)
+                rel_change.append(rel_value)
+
+            end_pos = stream.tell()
+
+        if current_batch is not None and current_start is not None:
+            self._step_offsets[current_batch] = (current_start, end_pos)
+
+        self._batch_indices = np.asarray(batches, dtype=np.int64)
+        self._processed_particles_by_batch = np.asarray(processed, dtype=np.int64)
+        self._rel_change_by_batch = np.asarray(rel_change, dtype=float)
+
+    def _load_step_from_file(self, step: int) -> np.ndarray:
+        if step in self._step_cache:
+            return self._step_cache[step]
+
+        offsets = self._step_offsets.get(step)
+        if offsets is None:
+            self._column_for_step(step)
+            raise RuntimeError("history step offset is unavailable after index lookup.")
+
+        start, end = offsets
+        charges = np.zeros(self.mesh_nelem, dtype=float)
+        with self.path.open("r", encoding="utf-8") as stream:
+            stream.seek(start)
+            while stream.tell() < end:
+                line = stream.readline()
+                if line == "":
+                    break
+                row = line.strip()
+                if not row:
+                    continue
+                batch, _, _, elem_idx, charge = self._parse_row(row)
+                if batch != step:
+                    continue
+                if elem_idx < 0 or elem_idx >= self.mesh_nelem:
+                    raise ValueError(
+                        f"elem_idx out of range in charge_history.csv: {elem_idx + 1}"
+                    )
+                charges[elem_idx] = charge
+
+        self._step_cache[step] = charges
+        return charges
+
+
 @dataclass(frozen=True)
 class MeshSource:
     """Metadata for one source mesh written by Fortran output."""
@@ -71,10 +290,16 @@ class FortranRunResult:
     triangles: np.ndarray | None = None
     mesh_ids: np.ndarray | None = None
     mesh_sources: dict[int, MeshSource] | None = None
-    charge_history: np.ndarray | None = None
-    processed_particles_by_batch: np.ndarray | None = None
-    rel_change_by_batch: np.ndarray | None = None
-    batch_indices: np.ndarray | None = None
+    history: FortranChargeHistory | None = None
+
+    def history_at(self, step: int = -1) -> np.ndarray:
+        """Return per-element charges at one history batch step."""
+
+        if self.history is None or not self.history.has_data:
+            raise ValueError(
+                "charge_history.csv is not found or empty. Enable history output and rerun."
+            )
+        return self.history.get_step(step)
 
 
 def load_fortran_result(directory: str | Path) -> FortranRunResult:
@@ -82,6 +307,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
 
     out_dir = Path(directory)
     summary = _load_summary(out_dir / "summary.txt")
+    mesh_nelem = int(summary["mesh_nelem"])
     charges = np.loadtxt(out_dir / "charges.csv", delimiter=",", skiprows=1)
     if charges.ndim == 1:
         charges = charges[None, :]
@@ -89,15 +315,15 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
 
     triangles, mesh_ids = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
     mesh_sources = _load_mesh_sources_if_exists(out_dir / "mesh_sources.csv")
-    charge_history, processed_particles_by_batch, rel_change_by_batch, batch_indices = (
-        _load_charge_history_if_exists(
-            out_dir / "charge_history.csv", mesh_nelem=int(summary["mesh_nelem"])
-        )
-    )
+    history_path = out_dir / "charge_history.csv"
+    history: FortranChargeHistory | None = None
+
+    if history_path.exists():
+        history = FortranChargeHistory(history_path, mesh_nelem=mesh_nelem)
 
     return FortranRunResult(
         directory=out_dir,
-        mesh_nelem=int(summary["mesh_nelem"]),
+        mesh_nelem=mesh_nelem,
         processed_particles=int(summary["processed_particles"]),
         absorbed=int(summary["absorbed"]),
         escaped=int(summary["escaped"]),
@@ -109,10 +335,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         triangles=triangles,
         mesh_ids=mesh_ids,
         mesh_sources=mesh_sources,
-        charge_history=charge_history,
-        processed_particles_by_batch=processed_particles_by_batch,
-        rel_change_by_batch=rel_change_by_batch,
-        batch_indices=batch_indices,
+        history=history,
     )
 
 
@@ -132,7 +355,10 @@ def list_fortran_runs(root: str | Path) -> list[Path]:
 class Beach:
     """Facade for one Fortran output directory with lazy result loading."""
 
-    def __init__(self, output_dir: str | Path = "outputs/latest") -> None:
+    def __init__(
+        self,
+        output_dir: str | Path = "outputs/latest",
+    ) -> None:
         self.output_dir = Path(output_dir)
         self._result: FortranRunResult | None = None
 
@@ -435,7 +661,11 @@ def animate_history_mesh(
         raise ValueError("frame_stride and total_frames cannot be used together.")
 
     triangles = _require_triangles(resolved)
-    charge_history = _require_charge_history(resolved)
+    history = _require_history(resolved)
+    charge_history = history.as_array()
+    batch_indices = history.batch_indices
+    processed_by_batch = history.processed_particles_by_batch
+    rel_change_by_batch = history.rel_change_by_batch
     quantity_key = quantity.lower()
     self_term_key = self_term.replace("-", "_")
     frame_cols = _select_frame_columns(
@@ -484,20 +714,12 @@ def animate_history_mesh(
     def _title_for_frame(frame_idx: int) -> str:
         col = int(frame_cols[frame_idx])
         suffix: list[str] = [f"frame={frame_idx + 1}/{frame_cols.size}"]
-        if resolved.batch_indices is not None and col < resolved.batch_indices.size:
-            suffix.append(f"batch={int(resolved.batch_indices[col])}")
-        if (
-            resolved.processed_particles_by_batch is not None
-            and col < resolved.processed_particles_by_batch.size
-        ):
-            suffix.append(
-                f"processed={int(resolved.processed_particles_by_batch[col])}"
-            )
-        if (
-            resolved.rel_change_by_batch is not None
-            and col < resolved.rel_change_by_batch.size
-        ):
-            suffix.append(f"rel={resolved.rel_change_by_batch[col]:.3e}")
+        if batch_indices is not None and col < batch_indices.size:
+            suffix.append(f"batch={int(batch_indices[col])}")
+        if processed_by_batch is not None and col < processed_by_batch.size:
+            suffix.append(f"processed={int(processed_by_batch[col])}")
+        if rel_change_by_batch is not None and col < rel_change_by_batch.size:
+            suffix.append(f"rel={rel_change_by_batch[col]:.3e}")
         return f"{title_prefix}: {resolved.directory}\n" + " ".join(suffix)
 
     ax.set_title(_title_for_frame(0))
@@ -617,24 +839,14 @@ def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarr
     if step is None:
         return result.charges
 
-    history = result.charge_history
-    batch_indices = result.batch_indices
-    if step == -1:
-        if history is None or history.size == 0:
+    history = result.history
+    if history is None or not history.has_data:
+        if step == -1:
             return result.charges
-        return history[:, -1]
-
-    if history is None or history.size == 0:
         raise ValueError(
             "charge_history.csv is required when step is specified and must not be empty."
         )
-    if batch_indices is None:
-        raise ValueError("batch indices are unavailable although charge history exists.")
-    cols = np.flatnonzero(batch_indices == step)
-    if cols.size == 0:
-        available = [int(v) for v in batch_indices]
-        raise ValueError(f"step={step} is not found in history. available={available}")
-    return history[:, int(cols[0])]
+    return history.get_step(step)
 
 
 def _mesh_ids_or_default(result: FortranRunResult) -> np.ndarray:
@@ -689,47 +901,6 @@ def _load_summary(path: Path) -> dict[str, str]:
         ],
     )
     return data
-
-
-def _load_charge_history_if_exists(
-    path: Path, *, mesh_nelem: int
-) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-    if not path.exists():
-        return None, None, None, None
-    if path.stat().st_size == 0:
-        return None, None, None, None
-    with path.open("r", encoding="utf-8") as stream:
-        stream.readline()
-        for line in stream:
-            if line.strip():
-                break
-        else:
-            return None, None, None, None
-
-    data = np.loadtxt(path, delimiter=",", skiprows=1)
-    if data.ndim == 1:
-        data = data[None, :]
-
-    batches = data[:, 0].astype(np.int64)
-    processed = data[:, 1].astype(np.int64)
-    rel_change = data[:, 2]
-    elem_idx = data[:, 3].astype(np.int64)
-    charges = data[:, 4]
-
-    batch_indices = np.unique(batches)
-    n_snapshots = batch_indices.size
-    history = np.zeros((mesh_nelem, n_snapshots), dtype=float)
-    processed_by_batch = np.zeros(n_snapshots, dtype=np.int64)
-    rel_by_batch = np.zeros(n_snapshots, dtype=float)
-
-    for col, batch in enumerate(batch_indices):
-        mask = batches == batch
-        batch_elem_idx = elem_idx[mask] - 1
-        history[batch_elem_idx, col] = charges[mask]
-        processed_by_batch[col] = processed[mask][0]
-        rel_by_batch[col] = rel_change[mask][0]
-
-    return history, processed_by_batch, rel_by_batch, batch_indices
 
 
 def _load_triangles_if_exists(path: Path) -> tuple[np.ndarray | None, np.ndarray | None]:
@@ -854,12 +1025,13 @@ def _require_triangles(result: FortranRunResult) -> np.ndarray:
     return result.triangles
 
 
-def _require_charge_history(result: FortranRunResult) -> np.ndarray:
-    if result.charge_history is None or result.charge_history.size == 0:
+def _require_history(result: FortranRunResult) -> FortranChargeHistory:
+    history = result.history
+    if history is None or not history.has_data:
         raise ValueError(
             "charge_history.csv is not found or empty. Enable history output and rerun."
         )
-    return result.charge_history
+    return history
 
 
 def _configure_mesh_axes(ax, triangles: np.ndarray) -> None:
