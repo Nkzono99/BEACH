@@ -151,7 +151,7 @@ class Beach:
         ids = np.unique(_mesh_ids_or_default(self.result))
         return tuple(int(v) for v in ids)
 
-    def get_mesh(self, *mesh_ids: int, step: int | None = None):
+    def get_mesh(self, *mesh_ids: int, step: int | None = -1):
         if len(mesh_ids) == 0:
             raise ValueError("at least one mesh id must be provided.")
         selections = tuple(
@@ -162,7 +162,7 @@ class Beach:
             return selections[0]
         return selections
 
-    def get_mesh_charge(self, *mesh_ids: int, step: int | None = None):
+    def get_mesh_charge(self, *mesh_ids: int, step: int | None = -1):
         selection = self.get_mesh(*mesh_ids, step=step)
         if isinstance(selection, tuple):
             return tuple(mesh.charges.copy() for mesh in selection)
@@ -173,7 +173,7 @@ class Beach:
         group_a: int | MeshSelection | Iterable[int | MeshSelection],
         group_b: int | MeshSelection | Iterable[int | MeshSelection],
         *,
-        step: int | None = None,
+        step: int | None = -1,
         softening: float = 0.0,
         torque_origin: Literal["group_a_center", "group_b_center", "origin"] = (
             "group_a_center"
@@ -256,7 +256,7 @@ def calc_coulomb(
     group_a: int | MeshSelection | Iterable[int | MeshSelection],
     group_b: int | MeshSelection | Iterable[int | MeshSelection],
     *,
-    step: int | None = None,
+    step: int | None = -1,
     softening: float = 0.0,
     torque_origin: Literal["group_a_center", "group_b_center", "origin"] = (
         "group_a_center"
@@ -599,12 +599,22 @@ def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarr
     if step is None:
         return result.charges
 
-    history = _require_charge_history(result)
-    if result.batch_indices is None:
+    history = result.charge_history
+    batch_indices = result.batch_indices
+    if step == -1:
+        if history is None or history.size == 0:
+            return result.charges
+        return history[:, -1]
+
+    if history is None or history.size == 0:
+        raise ValueError(
+            "charge_history.csv is required when step is specified and must not be empty."
+        )
+    if batch_indices is None:
         raise ValueError("batch indices are unavailable although charge history exists.")
-    cols = np.flatnonzero(result.batch_indices == step)
+    cols = np.flatnonzero(batch_indices == step)
     if cols.size == 0:
-        available = [int(v) for v in result.batch_indices]
+        available = [int(v) for v in batch_indices]
         raise ValueError(f"step={step} is not found in history. available={available}")
     return history[:, int(cols[0])]
 
