@@ -425,7 +425,9 @@ contains
         call step_ray_to_boundary(sim%box_min, sim%box_max, ray_pos, ray_dir, seg_end, reached_boundary)
         if (.not. reached_boundary) exit
 
-        call find_first_hit(mesh, ray_pos, seg_end, hit)
+        call find_first_hit( &
+          mesh, ray_pos, seg_end, hit, box_min=sim%box_min, box_max=sim%box_max, require_elem_inside=.true. &
+        )
         if (hit%has_hit) then
           if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
           n_emit = n_emit + 1_i32

@@ -10,12 +10,16 @@ contains
   !! @param[in] p0 線分始点（粒子の移動前位置） [m]。
   !! @param[in] p1 線分終点（粒子の移動後候補位置） [m]。
   !! @param[out] hit 最初に命中した要素インデックス・命中位置・線分パラメータを格納。
-  subroutine find_first_hit(mesh, p0, p1, hit)
+  subroutine find_first_hit(mesh, p0, p1, hit, box_min, box_max, require_elem_inside)
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
     type(hit_info), intent(out) :: hit
+    real(dp), intent(in), optional :: box_min(3), box_max(3)
+    logical, intent(in), optional :: require_elem_inside
 
     real(dp) :: d(3), seg_min(3), seg_max(3), best_t
+    real(dp) :: box_min_local(3), box_max_local(3), box_tol
+    logical :: use_box_filter, require_inside_elem
 
     hit%has_hit = .false.
     hit%elem_idx = -1
@@ -27,10 +31,36 @@ contains
     seg_max = max(p0, p1)
     best_t = huge(1.0d0)
 
-    if (mesh%use_collision_grid) then
-      call find_first_hit_grid(mesh, p0, p1, d, seg_min, seg_max, hit, best_t)
+    use_box_filter = present(box_min) .or. present(box_max)
+    if (use_box_filter .and. .not. (present(box_min) .and. present(box_max))) then
+      error stop 'find_first_hit requires both box_min and box_max when using box filter.'
+    end if
+    if (use_box_filter) then
+      box_min_local = box_min
+      box_max_local = box_max
+      box_tol = 1.0d-12 * max(1.0d0, maxval(abs(box_max_local - box_min_local)))
     else
-      call find_first_hit_linear(mesh, p0, p1, seg_min, seg_max, hit, best_t)
+      box_min_local = 0.0d0
+      box_max_local = 0.0d0
+      box_tol = 0.0d0
+    end if
+
+    require_inside_elem = .false.
+    if (present(require_elem_inside)) require_inside_elem = require_elem_inside
+    if (require_inside_elem .and. .not. use_box_filter) then
+      error stop 'find_first_hit require_elem_inside=true needs box_min/box_max.'
+    end if
+
+    if (mesh%use_collision_grid) then
+      call find_first_hit_grid( &
+        mesh, p0, p1, d, seg_min, seg_max, hit, best_t, &
+        use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
+      )
+    else
+      call find_first_hit_linear( &
+        mesh, p0, p1, seg_min, seg_max, hit, best_t, &
+        use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
+      )
     end if
   end subroutine find_first_hit
 
@@ -55,20 +85,34 @@ contains
   end function segment_bbox_overlap_precomputed
 
   !> 旧実装と同じ線形探索で最初の命中要素を探索する。
-  subroutine find_first_hit_linear(mesh, p0, p1, seg_min, seg_max, hit, best_t)
+  subroutine find_first_hit_linear( &
+    mesh, p0, p1, seg_min, seg_max, hit, best_t, use_box_filter, box_min, box_max, box_tol, require_elem_inside &
+  )
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3), seg_min(3), seg_max(3)
     type(hit_info), intent(inout) :: hit
     real(dp), intent(inout) :: best_t
+    logical, intent(in) :: use_box_filter
+    real(dp), intent(in) :: box_min(3), box_max(3), box_tol
+    logical, intent(in) :: require_elem_inside
 
     integer(i32) :: i
     logical :: ok
     real(dp) :: t, h(3)
 
     do i = 1, mesh%nelem
+      if (use_box_filter) then
+        if (.not. segment_bbox_overlap_precomputed(mesh%bb_min(:, i), mesh%bb_max(:, i), box_min, box_max)) cycle
+        if (require_elem_inside) then
+          if (.not. bbox_inside_box(mesh%bb_min(:, i), mesh%bb_max(:, i), box_min, box_max, box_tol)) cycle
+        end if
+      end if
       if (.not. segment_bbox_overlap_precomputed(seg_min, seg_max, mesh%bb_min(:, i), mesh%bb_max(:, i))) cycle
       call segment_triangle_intersect(p0, p1, mesh%v0(:, i), mesh%v1(:, i), mesh%v2(:, i), ok, t, h)
       if (.not. ok) cycle
+      if (use_box_filter) then
+        if (.not. point_inside_box(h, box_min, box_max, box_tol)) cycle
+      end if
       if (t < best_t) then
         best_t = t
         hit%has_hit = .true.
@@ -80,11 +124,16 @@ contains
   end subroutine find_first_hit_linear
 
   !> 一様グリッド + 3D-DDA で候補セルのみ探索し、最初の命中要素を返す。
-  subroutine find_first_hit_grid(mesh, p0, p1, d, seg_min, seg_max, hit, best_t)
+  subroutine find_first_hit_grid( &
+    mesh, p0, p1, d, seg_min, seg_max, hit, best_t, use_box_filter, box_min, box_max, box_tol, require_elem_inside &
+  )
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3), d(3), seg_min(3), seg_max(3)
     type(hit_info), intent(inout) :: hit
     real(dp), intent(inout) :: best_t
+    logical, intent(in) :: use_box_filter
+    real(dp), intent(in) :: box_min(3), box_max(3), box_tol
+    logical, intent(in) :: require_elem_inside
 
     real(dp), parameter :: eps = 1.0d-12
     real(dp) :: t_entry, t_exit, t_cur, t_next
@@ -138,11 +187,20 @@ contains
       end_idx = mesh%grid_cell_start(cid + 1_i32) - 1_i32
       do k = start_idx, end_idx
         elem_idx = mesh%grid_cell_elem(k)
+        if (use_box_filter) then
+          if (.not. segment_bbox_overlap_precomputed(mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx), box_min, box_max)) cycle
+          if (require_elem_inside) then
+            if (.not. bbox_inside_box(mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx), box_min, box_max, box_tol)) cycle
+          end if
+        end if
         if (.not. segment_bbox_overlap_precomputed(seg_min, seg_max, mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx))) cycle
         call segment_triangle_intersect( &
           p0, p1, mesh%v0(:, elem_idx), mesh%v1(:, elem_idx), mesh%v2(:, elem_idx), ok, t, h &
         )
         if (.not. ok) cycle
+        if (use_box_filter) then
+          if (.not. point_inside_box(h, box_min, box_max, box_tol)) cycle
+        end if
         if (t < best_t) then
           best_t = t
           hit%has_hit = .true.
@@ -241,6 +299,16 @@ contains
     integer(i32), intent(in) :: ix, iy, iz, nx, ny
     cid = (iz - 1_i32) * (nx * ny) + (iy - 1_i32) * nx + ix
   end function cell_id
+
+  pure logical function point_inside_box(p, box_min, box_max, tol)
+    real(dp), intent(in) :: p(3), box_min(3), box_max(3), tol
+    point_inside_box = all(p >= (box_min - tol)) .and. all(p <= (box_max + tol))
+  end function point_inside_box
+
+  pure logical function bbox_inside_box(bb_min, bb_max, box_min, box_max, tol)
+    real(dp), intent(in) :: bb_min(3), bb_max(3), box_min(3), box_max(3), tol
+    bbox_inside_box = all(bb_min >= (box_min - tol)) .and. all(bb_max <= (box_max + tol))
+  end function bbox_inside_box
 
   !> Möller–Trumbore法で線分と三角形の交差有無・線分パラメータ `t`・交点座標を計算する。
   !! @param[in] p0 線分始点（粒子の移動前位置） [m]。

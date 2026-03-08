@@ -134,6 +134,35 @@ program test_injection_sampling
   )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast periodic boundary should emit all rays')
 
+  tri_v0(:, 1) = [0.20d0, 0.20d0, 0.80d0]
+  tri_v1(:, 1) = [1.20d0, 0.20d0, 0.80d0]
+  tri_v2(:, 1) = [0.20d0, 1.20d0, 0.80d0]
+  tri_v0(:, 2) = [0.20d0, 0.20d0, 0.60d0]
+  tri_v1(:, 2) = [0.90d0, 0.20d0, 0.60d0]
+  tri_v2(:, 2) = [0.20d0, 0.90d0, 0.60d0]
+  call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+  sim%bc_low = [bc_open, bc_open, bc_open]
+  sim%bc_high = [bc_open, bc_open, bc_open]
+  ray_dir = [0.0d0, 0.0d0, -1.0d0]
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.29d0, 0.29d0, 1.0d0], [0.31d0, 0.31d0, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
+  )
+  call assert_equal_i32(n_emit, 1_i32, 'photo_raycast should emit from in-box element')
+  call assert_equal_i32(emit_elem(1), 2_i32, 'photo_raycast should ignore out-of-box element')
+
+  tri_v0(:, 1) = [0.0d0, 0.0d0, 0.05d0]
+  tri_v1(:, 1) = [1.0d0, 0.0d0, 0.05d0]
+  tri_v2(:, 1) = [0.0d0, 1.0d0, 0.05d0]
+  tri_v0(:, 2) = [1.0d0, 1.0d0, 0.05d0]
+  tri_v1(:, 2) = [0.0d0, 1.0d0, 0.05d0]
+  tri_v2(:, 2) = [1.0d0, 0.0d0, 0.05d0]
+  call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+  sim%bc_low(2) = bc_periodic
+  sim%bc_high(2) = bc_periodic
+  ray_dir = [0.0d0, 1.0d0, -0.2d0]
+  ray_dir = ray_dir / sqrt(sum(ray_dir * ray_dir))
+
   sim%raycast_max_bounce = 2_i32
   call sample_photo_raycast_particles( &
     mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
