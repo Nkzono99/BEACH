@@ -10,8 +10,9 @@ program test_simulator
   implicit none
 
   type(mesh_type) :: mesh
-  type(app_config) :: cfg
-  type(sim_stats) :: stats
+  type(mesh_type) :: mesh_tree
+  type(app_config) :: cfg, cfg_tree
+  type(sim_stats) :: stats, stats_tree
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   integer :: u, ios
   character(len=256) :: line
@@ -109,4 +110,18 @@ program test_simulator
   call assert_equal_i32(n_lines, 1_i32, 'history snapshot line count mismatch')
 
   call delete_file_if_exists(history_path)
+
+  call init_mesh(mesh_tree, v0, v1, v2)
+  cfg_tree = cfg
+  cfg_tree%sim%field_solver = 'treecode'
+  call seed_particles_from_config(cfg_tree)
+  call run_absorption_insulator(mesh_tree, cfg_tree, stats_tree)
+
+  call assert_equal_i32(stats_tree%processed_particles, stats%processed_particles, 'treecode processed_particles mismatch')
+  call assert_equal_i32(stats_tree%absorbed, stats%absorbed, 'treecode absorbed mismatch')
+  call assert_equal_i32(stats_tree%escaped, stats%escaped, 'treecode escaped mismatch')
+  call assert_equal_i32(stats_tree%escaped_boundary, stats%escaped_boundary, 'treecode escaped_boundary mismatch')
+  call assert_equal_i32(stats_tree%survived_max_step, stats%survived_max_step, 'treecode survived_max_step mismatch')
+  call assert_equal_i32(stats_tree%batches, stats%batches, 'treecode batches mismatch')
+  call assert_close_dp(mesh_tree%q_elem(1), mesh%q_elem(1), 1.0d-12, 'treecode deposited charge mismatch')
 end program test_simulator

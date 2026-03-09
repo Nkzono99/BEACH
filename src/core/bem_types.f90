@@ -20,6 +20,10 @@ module bem_types
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30
     real(dp) :: softening = 1.0d-4
+    character(len=16) :: field_solver = 'direct'
+    real(dp) :: tree_theta = 0.5d0
+    integer(i32) :: tree_leaf_max = 16_i32
+    integer(i32) :: tree_min_nelem = 256_i32
     logical :: use_hybrid = .true.
     real(dp) :: r_switch_factor = 3.0d0
     integer(i32) :: n_sub = 2

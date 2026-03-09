@@ -92,6 +92,22 @@ contains
     if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
 
     cfg%n_particle_species = s_idx
+    cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
+    select case (trim(cfg%sim%field_solver))
+    case ('direct', 'treecode', 'auto')
+      continue
+    case default
+      error stop 'sim.field_solver must be "direct", "treecode", or "auto".'
+    end select
+    if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0d0 .or. cfg%sim%tree_theta > 1.0d0) then
+      error stop 'sim.tree_theta must be finite and satisfy 0 < theta <= 1.'
+    end if
+    if (cfg%sim%tree_leaf_max < 1_i32) then
+      error stop 'sim.tree_leaf_max must be >= 1.'
+    end if
+    if (cfg%sim%tree_min_nelem < 1_i32) then
+      error stop 'sim.tree_min_nelem must be >= 1.'
+    end if
     cfg%sim%reservoir_potential_model = lower(trim(cfg%sim%reservoir_potential_model))
     select case (trim(cfg%sim%reservoir_potential_model))
     case ('none', 'infinity_barrier')
@@ -177,6 +193,15 @@ contains
       call parse_real(v, cfg%sim%q_floor)
     case ('softening')
       call parse_real(v, cfg%sim%softening)
+    case ('field_solver')
+      call parse_string(v, cfg%sim%field_solver)
+      cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
+    case ('tree_theta')
+      call parse_real(v, cfg%sim%tree_theta)
+    case ('tree_leaf_max')
+      call parse_int(v, cfg%sim%tree_leaf_max)
+    case ('tree_min_nelem')
+      call parse_int(v, cfg%sim%tree_min_nelem)
     case ('use_hybrid')
       call parse_logical(v, cfg%sim%use_hybrid)
     case ('r_switch_factor')

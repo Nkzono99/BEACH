@@ -141,6 +141,10 @@ contains
     cfg%sim%max_step = 400
     cfg%sim%tol_rel = 1.0d-8
     cfg%sim%softening = 1.0d-6
+    cfg%sim%field_solver = 'direct'
+    cfg%sim%tree_theta = 0.5d0
+    cfg%sim%tree_leaf_max = 16_i32
+    cfg%sim%tree_min_nelem = 256_i32
     cfg%sim%b0 = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%reservoir_potential_model = 'none'
     cfg%sim%phi_infty = 0.0d0

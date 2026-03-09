@@ -5,7 +5,7 @@ module bem_simulator
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state
   use bem_app_config, only: app_config, init_particle_batch_from_config
-  use bem_field, only: electric_field_at
+  use bem_field_solver, only: field_solver_type
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit
   use bem_boundary, only: apply_box_boundary
@@ -45,6 +45,7 @@ contains
     real(dp) :: batch_field_time, batch_push_time, batch_collision_time, batch_times(3)
     type(particles_soa) :: pcls_batch
     type(mpi_context) :: mpi_ctx
+    type(field_solver_type) :: field_solver
 
     stats = sim_stats()
     if (present(initial_stats)) stats = initial_stats
@@ -62,14 +63,16 @@ contains
     if (present(history_stride)) hist_stride = max(1_i32, history_stride)
     bfield = app%sim%b0
     final_batch_idx = stats%batches + app%sim%batch_count
+    call field_solver%init(mesh, app%sim)
 
     do local_batch_idx = 1, app%sim%batch_count
       call prepare_batch_state( &
         mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
         photo_emission_dq, mpi_ctx, inject_state &
       )
+      call field_solver%refresh(mesh)
       call process_particle_batch( &
-        mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
+        mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
         batch_field_time, batch_push_time, batch_collision_time &
       )
       call commit_batch_charge(mesh, app%sim%q_floor, dq_thread, photo_emission_dq, dq, rel, mpi_ctx)
@@ -144,15 +147,16 @@ contains
   !! @param[inout] escaped_boundary_flag 粒子ごとの境界流出フラグ。
   !! @param[inout] absorbed_flag 粒子ごとの吸着フラグ。
   !! @param[in] bfield 一様外部磁場ベクトル [T]。
-  !! @param[out] field_time_s バッチ内で `electric_field_at` に費やした時間 [s]。
+  !! @param[out] field_time_s バッチ内で電場評価に費やした時間 [s]。
   !! @param[out] push_time_s バッチ内で `boris_push` に費やした時間 [s]。
   !! @param[out] collision_time_s バッチ内で `find_first_hit` に費やした時間 [s]。
   subroutine process_particle_batch( &
-    mesh, app, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
+    mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
     field_time_s, push_time_s, collision_time_s &
   )
     type(mesh_type), intent(in) :: mesh
     type(app_config), intent(in) :: app
+    type(field_solver_type), intent(in) :: field_solver
     type(particles_soa), intent(inout) :: pcls_batch
     real(dp), intent(inout) :: dq_thread(:, :)
     logical, intent(inout) :: escaped_boundary_flag(:)
@@ -171,7 +175,7 @@ contains
     collision_time_s = 0.0d0
 
     !$omp parallel default(none) &
-    !$omp shared(mesh,pcls_batch,app,dq_thread,bfield,escaped_boundary_flag,absorbed_flag) &
+    !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag) &
     !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary,t0) &
     !$omp reduction(+:field_time_s,push_time_s,collision_time_s)
     ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
@@ -184,7 +188,7 @@ contains
         x0 = pcls_batch%x(:, i)
         v0 = pcls_batch%v(:, i)
         t0 = wall_time_seconds()
-        call electric_field_at(mesh, x0, app%sim%softening, e)
+        call field_solver%eval_e(mesh, x0, e)
         field_time_s = field_time_s + (wall_time_seconds() - t0)
 
         t0 = wall_time_seconds()

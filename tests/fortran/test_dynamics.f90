@@ -2,10 +2,11 @@
 program test_dynamics
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_types, only: mesh_type, hit_info
+  use bem_types, only: mesh_type, hit_info, sim_config
   use bem_mesh, only: init_mesh
-  use bem_templates, only: make_plane
+  use bem_templates, only: make_plane, make_sphere
   use bem_field, only: electric_field_at
+  use bem_field_solver, only: field_solver_type
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit, segment_triangle_intersect
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
@@ -66,6 +67,7 @@ program test_dynamics
   call assert_true(.not. hit%has_hit, 'segment outside triangle should not hit')
 
   call test_collision_grid_equivalence()
+  call test_treecode_field_accuracy()
 
 contains
 
@@ -151,4 +153,63 @@ contains
       end if
     end do
   end subroutine find_first_hit_bruteforce
+
+  subroutine test_treecode_field_accuracy()
+    type(mesh_type) :: mesh_tree
+    type(field_solver_type) :: solver
+    type(sim_config) :: sim
+    integer(i32) :: i, valid_count
+    integer :: seed_size
+    integer, allocatable :: seed(:)
+    real(dp) :: r(3), e_direct(3), e_tree(3), max_rel_err
+    real(dp) :: norm_direct, norm_diff, rel_err, norm_r
+
+    call make_sphere(mesh_tree, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    mesh_tree%q_elem = 1.0d-12
+
+    sim = sim_config()
+    sim%softening = 1.0d-4
+    sim%field_solver = 'treecode'
+    sim%tree_theta = 0.5d0
+    sim%tree_leaf_max = 16_i32
+    sim%tree_min_nelem = 64_i32
+    call solver%init(mesh_tree, sim)
+    call solver%refresh(mesh_tree)
+
+    call random_seed(size=seed_size)
+    allocate (seed(seed_size))
+    do i = 1_i32, int(seed_size, i32)
+      seed(i) = 314159 + 17 * i
+    end do
+    call random_seed(put=seed)
+    deallocate (seed)
+
+    max_rel_err = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, 200_i32
+      call random_number(r)
+      r = 100.0d0 * (r - 0.5d0)
+      norm_r = sqrt(sum(r * r))
+      if (norm_r < 20.0d0) then
+        if (norm_r > 1.0d-12) then
+          r = r * (20.0d0 / norm_r)
+        else
+          r = [20.0d0, 0.0d0, 0.0d0]
+        end if
+      end if
+
+      call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+      call solver%eval_e(mesh_tree, r, e_tree)
+
+      norm_direct = sqrt(sum(e_direct * e_direct))
+      if (norm_direct <= 1.0d-12) cycle
+      norm_diff = sqrt(sum((e_tree - e_direct) * (e_tree - e_direct)))
+      rel_err = norm_diff / norm_direct
+      max_rel_err = max(max_rel_err, rel_err)
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count >= 100_i32, 'treecode accuracy test has too few valid samples')
+    call assert_true(max_rel_err <= 1.0d-3, 'treecode E relative error exceeds 1e-3')
+  end subroutine test_treecode_field_accuracy
 end program test_dynamics
