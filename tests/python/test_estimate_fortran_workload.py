@@ -143,6 +143,30 @@ def test_estimate_workload_rejects_unknown_sim_key() -> None:
         estimate_workload(config=config, threads=1)
 
 
+def test_estimate_workload_accepts_treecode_sim_keys() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "field_solver": "treecode",
+            "tree_theta": 0.5,
+            "tree_leaf_max": 16,
+            "tree_min_nelem": 256,
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 3,
+                },
+            ]
+        },
+    }
+
+    result = estimate_workload(config=config, threads=1)
+    assert result["batch_totals"] == [3]
+
+
 def test_estimate_workload_rejects_w_and_target_together_for_reservoir() -> None:
     config = {
         "sim": {
