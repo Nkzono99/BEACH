@@ -67,6 +67,7 @@ program test_dynamics
   call assert_true(.not. hit%has_hit, 'segment outside triangle should not hit')
 
   call test_collision_grid_equivalence()
+  call test_field_solver_auto_mode()
   call test_treecode_field_accuracy()
 
 contains
@@ -153,6 +154,30 @@ contains
       end if
     end do
   end subroutine find_first_hit_bruteforce
+
+  subroutine test_field_solver_auto_mode()
+    type(mesh_type) :: mesh_small, mesh_large
+    type(field_solver_type) :: solver
+    type(sim_config) :: sim
+
+    call make_plane(mesh_small, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    sim = sim_config()
+    sim%field_solver = 'auto'
+    sim%tree_min_nelem = 64_i32
+    call solver%init(mesh_small, sim)
+    call assert_true(trim(solver%mode) == 'direct', 'auto solver should select direct for small meshes')
+
+    call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    sim = sim_config()
+    sim%field_solver = 'auto'
+    sim%tree_min_nelem = 64_i32
+    sim%tree_theta = 0.95d0
+    sim%tree_leaf_max = 1_i32
+    call solver%init(mesh_large, sim)
+    call assert_true(trim(solver%mode) == 'treecode', 'auto solver should select treecode for dense meshes')
+    call assert_true(solver%theta < 0.95d0, 'auto solver should override tree_theta with estimated value')
+    call assert_true(solver%leaf_max > 1_i32, 'auto solver should override tree_leaf_max with estimated value')
+  end subroutine test_field_solver_auto_mode
 
   subroutine test_treecode_field_accuracy()
     type(mesh_type) :: mesh_tree

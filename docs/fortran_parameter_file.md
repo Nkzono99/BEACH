@@ -90,9 +90,9 @@ history_stride = 1
 | `tol_rel` | float | `1.0e-8` | 相対変化量の監視値（停止条件には未使用） |
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
 | `softening` | float | `1.0e-6` | 電場計算の softening 長さ [m] |
-| `field_solver` | string | `"direct"` | 電場評価方式。`direct` / `treecode` / `auto` |
-| `tree_theta` | float | `0.5` | treecode の MAC パラメータ（`0 < theta <= 1`） |
-| `tree_leaf_max` | int | `16` | treecode 葉ノードあたりの最大要素数 |
+| `field_solver` | string | `"direct"` | 電場評価方式。`direct` / `treecode` / `auto`（`auto` は要素数で方式・treecodeパラメータを自動選択） |
+| `tree_theta` | float | `0.5` | treecode の MAC パラメータ（`0 < theta <= 1`、`field_solver="treecode"` 時に使用） |
+| `tree_leaf_max` | int | `16` | treecode 葉ノードあたりの最大要素数（`field_solver="treecode"` 時に使用） |
 | `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切替える要素数しきい値 |
 | `use_hybrid` | bool | `true` | 予約キー（現行電場計算では未使用） |
 | `r_switch_factor` | float | `3.0` | 予約キー（未使用） |

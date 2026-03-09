@@ -60,6 +60,7 @@ contains
     case ('auto')
       if (mesh%nelem >= self%min_nelem) then
         self%mode = 'treecode'
+        call estimate_auto_tree_params(mesh%nelem, self%theta, self%leaf_max)
       else
         self%mode = 'direct'
       end if
@@ -75,6 +76,27 @@ contains
       self%tree_ready = .false.
     end if
   end subroutine init_field_solver
+
+  !> 要素数に応じて treecode の代表パラメータを推定する。
+  pure subroutine estimate_auto_tree_params(nelem, theta, leaf_max)
+    integer(i32), intent(in) :: nelem
+    real(dp), intent(out) :: theta
+    integer(i32), intent(out) :: leaf_max
+
+    if (nelem < 1500_i32) then
+      theta = 0.40d0
+      leaf_max = 12_i32
+    else if (nelem < 10000_i32) then
+      theta = 0.50d0
+      leaf_max = 16_i32
+    else if (nelem < 50000_i32) then
+      theta = 0.58d0
+      leaf_max = 20_i32
+    else
+      theta = 0.65d0
+      leaf_max = 24_i32
+    end if
+  end subroutine estimate_auto_tree_params
 
   !> 現在の要素電荷から treecode モーメントを再計算する。
   subroutine refresh_field_solver(self, mesh)
