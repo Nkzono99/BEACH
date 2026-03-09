@@ -1,7 +1,9 @@
+!> `bem_app_config_parser` の文字列パース補助手続きを実装する submodule。
 submodule (bem_app_config_parser) bem_app_config_parser_parse_utils
   implicit none
 contains
 
+  !> `key = value` 形式の行を分割してキーと値を返す。
   module procedure split_key_value
     integer :: p
 
@@ -15,14 +17,17 @@ contains
     value = trim(adjustl(line(p + 1:)))
   end procedure split_key_value
 
+  !> 値文字列を倍精度実数へ変換する。
   module procedure parse_real
     read (text, *) out
   end procedure parse_real
 
+  !> 値文字列を `integer(i32)` へ変換する。
   module procedure parse_int
     read (text, *) out
   end procedure parse_int
 
+  !> 値文字列を論理値へ変換する。
   module procedure parse_logical
     character(len=32) :: t
 
@@ -37,6 +42,7 @@ contains
     end select
   end procedure parse_logical
 
+  !> 値文字列を引用符除去済みの文字列へ変換する。
   module procedure parse_string
     character(len=:), allocatable :: tmp
 
@@ -47,6 +53,7 @@ contains
     out = trim(tmp)
   end procedure parse_string
 
+  !> `[x, y, z]` 形式の値文字列を3成分実数配列へ変換する。
   module procedure parse_real3
     character(len=256) :: t
 
@@ -56,6 +63,7 @@ contains
     read (t, *) out(1), out(2), out(3)
   end procedure parse_real3
 
+  !> 境界条件モード文字列を内部定数へ変換する。
   module procedure parse_boundary_mode
     character(len=64) :: mode
 
@@ -72,6 +80,7 @@ contains
     end select
   end procedure parse_boundary_mode
 
+  !> 行内コメント (`#` 以降) を除去した文字列を返す。
   module procedure strip_comment
     integer :: p
 
@@ -83,6 +92,7 @@ contains
     end if
   end procedure strip_comment
 
+  !> ASCII 英字を小文字化した文字列を返す。
   module procedure lower
     integer :: i, c
 
@@ -93,6 +103,7 @@ contains
     end do
   end procedure lower
 
+  !> 文字列が指定した接尾辞で終わるかを判定する。
   module procedure ends_with
     integer :: ls, lf
 

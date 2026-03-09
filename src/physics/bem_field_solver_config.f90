@@ -1,7 +1,9 @@
+!> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule (bem_field_solver) bem_field_solver_config
   implicit none
 contains
 
+  !> 設定値から direct/treecode の実行モードを確定し、必要なら木構造を初期化する。
   module procedure init_field_solver
     character(len=16) :: requested_mode
 
@@ -37,6 +39,7 @@ contains
     end if
   end procedure init_field_solver
 
+  !> 要素数レンジに応じた treecode の `theta` と `leaf_max` の推奨値を返す。
   module procedure estimate_auto_tree_params
     if (nelem < 1500_i32) then
       theta = 0.40d0
@@ -53,6 +56,7 @@ contains
     end if
   end procedure estimate_auto_tree_params
 
+  !> ASCII 英字を小文字化し、設定キー比較に使う正規化文字列を返す。
   module procedure lower_ascii
     integer :: i, code
 

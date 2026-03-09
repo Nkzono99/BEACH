@@ -1,7 +1,9 @@
+!> `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。
 submodule (bem_app_config_parser) bem_app_config_parser_validate
   implicit none
 contains
 
+  !> `batch_duration` 系パラメータの排他条件と値域を検証し、確定値を反映する。
   module procedure resolve_batch_duration
     real(dp) :: batch_duration
 
@@ -29,6 +31,7 @@ contains
     end if
   end procedure resolve_batch_duration
 
+  !> `reservoir_face` 粒子種の必須項目と幾何条件を検証する。
   module procedure validate_reservoir_species
     integer :: axis, axis_t1, axis_t2
     real(dp) :: boundary_value, area
@@ -144,6 +147,7 @@ contains
     cfg%particle_species(species_idx) = spec
   end procedure validate_reservoir_species
 
+  !> `photo_raycast` 粒子種の必須項目と幾何/方向条件を検証する。
   module procedure validate_photo_raycast_species
     integer :: axis, axis_t1, axis_t2
     real(dp) :: boundary_value, area, direction_norm, inward_dot
@@ -237,6 +241,7 @@ contains
     cfg%particle_species(species_idx) = spec
   end procedure validate_photo_raycast_species
 
+  !> 注入面識別子から法線軸と対応境界座標を返す。
   module procedure resolve_inject_face
     select case (trim(lower(inject_face)))
     case ('x_low')
@@ -262,6 +267,7 @@ contains
     end select
   end procedure resolve_inject_face
 
+  !> 注入面識別子から内向き法線ベクトルを返す。
   module procedure resolve_inward_normal
     inward_normal = 0.0d0
     select case (trim(lower(inject_face)))
@@ -282,16 +288,19 @@ contains
     end select
   end procedure resolve_inward_normal
 
+  !> 粒子種設定から有効粒子数密度 `[1/m^3]` を計算する。
   module procedure species_number_density_m3
     number_density_m3 = spec%number_density_m3
     if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3 * 1.0d6
   end procedure species_number_density_m3
 
+  !> 粒子種設定から有効温度 `[K]` を計算する。
   module procedure species_temperature_k
     temperature_k = spec%temperature_k
     if (spec%has_temperature_ev) temperature_k = spec%temperature_ev * 1.160451812d4
   end procedure species_temperature_k
 
+  !> drifting Maxwellian の片側流入束 `[1/m^2/s]` を評価する。
   module procedure compute_inflow_flux_from_drifting_maxwellian
     real(dp) :: sigma, alpha, u_n
 
@@ -306,18 +315,21 @@ contains
     gamma_in = number_density_m3 * (sigma * standard_normal_pdf(alpha) + u_n * standard_normal_cdf(alpha))
   end procedure compute_inflow_flux_from_drifting_maxwellian
 
+  !> 標準正規分布の PDF を評価する。
   module procedure standard_normal_pdf
     real(dp), parameter :: inv_sqrt_2pi = 3.98942280401432678d-1
 
     pdf = inv_sqrt_2pi * exp(-0.5d0 * x * x)
   end procedure standard_normal_pdf
 
+  !> 標準正規分布の CDF を評価する。
   module procedure standard_normal_cdf
     real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
 
     cdf = 0.5d0 * (1.0d0 + erf(x * inv_sqrt_2))
   end procedure standard_normal_cdf
 
+  !> 注入面上開口矩形の有効面積 `[m^2]` を計算する。
   module procedure compute_face_area_from_bounds
     integer :: axis_t1, axis_t2
 
@@ -325,6 +337,7 @@ contains
     area = (pos_high(axis_t1) - pos_low(axis_t1)) * (pos_high(axis_t2) - pos_low(axis_t2))
   end procedure compute_face_area_from_bounds
 
+  !> 注入面識別子から接線2軸インデックスを返す。
   module procedure resolve_face_axes
     select case (trim(lower(inject_face)))
     case ('x_low', 'x_high')

@@ -1,7 +1,9 @@
+!> `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 submodule (bem_field_solver) bem_field_solver_eval
   implicit none
 contains
 
+  !> 観測点の電場を direct または treecode で評価して返す。
   module procedure eval_e_field_solver
     real(dp) :: rx, ry, rz, soft2, ex, ey, ez
 
@@ -25,6 +27,7 @@ contains
     e(3) = k_coulomb * ez
   end procedure eval_e_field_solver
 
+  !> ノードを再帰走査し、葉は direct 総和・遠方は monopole 近似で加算する。
   module procedure traverse_node
     integer(i32) :: child_k, p, idx, p_end
     real(dp) :: dx, dy, dz, r2, inv_r3, qi
@@ -66,6 +69,7 @@ contains
     end do
   end procedure traverse_node
 
+  !> ノードサイズ・距離・電荷打ち消し度合いから近似採用可否を判定する。
   module procedure accept_node
     real(dp) :: dx, dy, dz, dist, dist2, radius
 

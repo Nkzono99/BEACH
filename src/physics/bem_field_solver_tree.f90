@@ -1,7 +1,9 @@
+!> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule (bem_field_solver) bem_field_solver_tree
   implicit none
 contains
 
+  !> 現在の要素電荷から各ノードの monopole モーメントを再集計する。
   module procedure refresh_field_solver
     integer(i32) :: node_idx, child_k, child_node
     integer(i32) :: p, idx, p_end
@@ -64,6 +66,7 @@ contains
     end do
   end procedure refresh_field_solver
 
+  !> 要素重心を octree に再配置して木構造トポロジを構築する。
   module procedure build_tree_topology
     integer(i32) :: i, max_node_guess
 
@@ -92,6 +95,7 @@ contains
     self%tree_ready = .true.
   end procedure build_tree_topology
 
+  !> 指定区間の要素を1ノードとして登録し、条件を満たせば8分木分割する。
   module procedure build_node
     integer(i32) :: count, p, idx, oct
     integer(i32) :: child_k, child_node, child_start, child_end
@@ -174,6 +178,7 @@ contains
     deallocate (counts, offsets, cursor, work)
   end procedure build_node
 
+  !> ノード中心に対する座標の相対位置から octant インデックスを返す。
   module procedure octant_index
     oct = 1_i32
     if (x >= center(1)) oct = oct + 1_i32
@@ -181,6 +186,7 @@ contains
     if (z >= center(3)) oct = oct + 4_i32
   end procedure octant_index
 
+  !> 必要ノード数に合わせて木配列を確保し、利用領域をゼロ初期化する。
   module procedure ensure_tree_capacity
     if (self%max_node == max_node_needed .and. allocated(self%node_start)) then
       self%node_start = 0_i32
@@ -224,6 +230,7 @@ contains
     self%node_charge_center = 0.0d0
   end procedure ensure_tree_capacity
 
+  !> treecode で使う作業配列を解放し、ノード状態を未初期化に戻す。
   module procedure reset_tree_storage
     if (allocated(self%elem_order)) deallocate (self%elem_order)
     if (allocated(self%node_start)) deallocate (self%node_start)

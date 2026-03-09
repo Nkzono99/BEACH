@@ -1,7 +1,9 @@
+!> `bem_simulator` のバッチ集計・統計更新処理を実装する submodule。
 submodule (bem_simulator) bem_simulator_stats
   implicit none
 contains
 
+  !> バッチ内粒子の吸着/脱出/生存内訳をカウントする。
   module procedure count_batch_outcomes
     integer(i32) :: i
 
@@ -20,6 +22,7 @@ contains
     end do
   end procedure count_batch_outcomes
 
+  !> バッチ単位の集計値を累積統計 `sim_stats` に加算する。
   module procedure accumulate_batch_stats
     stats%batches = stats%batches + 1_i32
     stats%last_rel_change = rel

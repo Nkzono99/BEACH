@@ -9,20 +9,24 @@ module bem_app_config_parser
   implicit none
 
   interface
+    !> `sim.batch_duration` と `sim.batch_duration_step` の整合を検証して確定値を反映する。
     module subroutine resolve_batch_duration(cfg)
       type(app_config), intent(inout) :: cfg
     end subroutine resolve_batch_duration
 
+    !> `reservoir_face` 粒子種の入力値を検証し、必要なら `w_particle` を解決する。
     module subroutine validate_reservoir_species(cfg, species_idx)
       type(app_config), intent(inout) :: cfg
       integer, intent(in) :: species_idx
     end subroutine validate_reservoir_species
 
+    !> `photo_raycast` 粒子種の入力値を検証し、発射方向などを正規化する。
     module subroutine validate_photo_raycast_species(cfg, species_idx)
       type(app_config), intent(inout) :: cfg
       integer, intent(in) :: species_idx
     end subroutine validate_photo_raycast_species
 
+    !> 注入面名から法線軸と境界座標値を解決する。
     module subroutine resolve_inject_face(box_min, box_max, inject_face, axis, boundary_value)
       real(dp), intent(in) :: box_min(3), box_max(3)
       character(len=*), intent(in) :: inject_face
@@ -30,21 +34,25 @@ module bem_app_config_parser
       real(dp), intent(out) :: boundary_value
     end subroutine resolve_inject_face
 
+    !> 注入面名から内向き法線ベクトルを解決する。
     module subroutine resolve_inward_normal(inject_face, inward_normal)
       character(len=*), intent(in) :: inject_face
       real(dp), intent(out) :: inward_normal(3)
     end subroutine resolve_inward_normal
 
+    !> 粒子種設定から実効数密度 `[1/m^3]` を返す。
     pure module function species_number_density_m3(spec) result(number_density_m3)
       type(particle_species_spec), intent(in) :: spec
       real(dp) :: number_density_m3
     end function species_number_density_m3
 
+    !> 粒子種設定から実効温度 `[K]` を返す。
     pure module function species_temperature_k(spec) result(temperature_k)
       type(particle_species_spec), intent(in) :: spec
       real(dp) :: temperature_k
     end function species_temperature_k
 
+    !> drifting Maxwellian に基づく片側流入束 `[1/m^2/s]` を返す。
     pure module function compute_inflow_flux_from_drifting_maxwellian( &
       number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal &
     ) result(gamma_in)
@@ -56,73 +64,87 @@ module bem_app_config_parser
       real(dp) :: gamma_in
     end function compute_inflow_flux_from_drifting_maxwellian
 
+    !> 標準正規分布の確率密度関数値を返す。
     pure module function standard_normal_pdf(x) result(pdf)
       real(dp), intent(in) :: x
       real(dp) :: pdf
     end function standard_normal_pdf
 
+    !> 標準正規分布の累積分布関数値を返す。
     pure module function standard_normal_cdf(x) result(cdf)
       real(dp), intent(in) :: x
       real(dp) :: cdf
     end function standard_normal_cdf
 
+    !> 注入面上矩形開口の面積 `[m^2]` を計算する。
     pure module function compute_face_area_from_bounds(inject_face, pos_low, pos_high) result(area)
       character(len=*), intent(in) :: inject_face
       real(dp), intent(in) :: pos_low(3), pos_high(3)
       real(dp) :: area
     end function compute_face_area_from_bounds
 
+    !> 注入面名から接線2軸インデックスを返す。
     pure module subroutine resolve_face_axes(inject_face, axis_t1, axis_t2)
       character(len=*), intent(in) :: inject_face
       integer, intent(out) :: axis_t1, axis_t2
     end subroutine resolve_face_axes
 
+    !> `key = value` 行を分割し、正規化キーと値文字列を返す。
     module subroutine split_key_value(line, key, value)
       character(len=*), intent(in) :: line
       character(len=*), intent(out) :: key
       character(len=*), intent(out) :: value
     end subroutine split_key_value
 
+    !> 文字列表現を倍精度実数へ変換する。
     module subroutine parse_real(text, out)
       character(len=*), intent(in) :: text
       real(dp), intent(out) :: out
     end subroutine parse_real
 
+    !> 文字列表現を `integer(i32)` へ変換する。
     module subroutine parse_int(text, out)
       character(len=*), intent(in) :: text
       integer(i32), intent(out) :: out
     end subroutine parse_int
 
+    !> `true/false` 表現を論理値へ変換する。
     module subroutine parse_logical(text, out)
       character(len=*), intent(in) :: text
       logical, intent(out) :: out
     end subroutine parse_logical
 
+    !> 引用符付き/裸の文字列表現を値へ変換する。
     module subroutine parse_string(text, out)
       character(len=*), intent(in) :: text
       character(len=*), intent(out) :: out
     end subroutine parse_string
 
+    !> `[x,y,z]` 形式の3成分ベクトル文字列を配列へ変換する。
     module subroutine parse_real3(text, out)
       character(len=*), intent(in) :: text
       real(dp), intent(out) :: out(3)
     end subroutine parse_real3
 
+    !> 境界条件モード文字列を内部定数へ変換する。
     module subroutine parse_boundary_mode(text, out)
       character(len=*), intent(in) :: text
       integer(i32), intent(out) :: out
     end subroutine parse_boundary_mode
 
+    !> 行文字列から `#` 以降のコメント部分を除去する。
     pure module function strip_comment(line) result(out)
       character(len=*), intent(in) :: line
       character(len=len(line)) :: out
     end function strip_comment
 
+    !> ASCII 英字だけを小文字化した文字列を返す。
     pure module function lower(s) result(o)
       character(len=*), intent(in) :: s
       character(len=len(s)) :: o
     end function lower
 
+    !> 文字列が指定接尾辞で終わるかを判定する。
     pure module function ends_with(s, suffix) result(ends_it)
       character(len=*), intent(in) :: s
       character(len=*), intent(in) :: suffix

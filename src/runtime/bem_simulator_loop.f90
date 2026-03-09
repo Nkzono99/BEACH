@@ -1,7 +1,9 @@
+!> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule (bem_simulator) bem_simulator_loop
   implicit none
 contains
 
+  !> 吸着モデルのバッチループを実行し、電荷更新と統計集計を進める。
   module procedure run_absorption_insulator
     integer(i32) :: batch_idx, final_batch_idx, local_batch_idx, nth, hist_stride
     integer :: hist_unit
@@ -61,6 +63,7 @@ contains
     deallocate (dq_thread, dq, photo_emission_dq)
   end procedure run_absorption_insulator
 
+  !> 1バッチ分の粒子群と作業バッファを初期化する。
   module procedure prepare_batch_state
     batch_idx = stats%batches + 1_i32
     if (present(inject_state)) then
@@ -79,6 +82,7 @@ contains
     dq_thread = 0.0d0
   end procedure prepare_batch_state
 
+  !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
     integer(i32) :: i, step, tid
     real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
@@ -136,6 +140,7 @@ contains
     !$omp end parallel
   end procedure process_particle_batch
 
+  !> スレッド別電荷差分を合算してメッシュへ反映し、相対変化量を返す。
   module procedure commit_batch_charge
     real(dp) :: norm_dq, norm_q
 
