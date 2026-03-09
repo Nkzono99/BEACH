@@ -15,347 +15,111 @@ module bem_simulator
 
   public :: run_absorption_insulator
 
-contains
+  interface
+    !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
+    module subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi)
+      type(mesh_type), intent(inout) :: mesh
+      type(app_config), intent(in) :: app
+      type(sim_stats), intent(out) :: stats
+      integer, intent(in), optional :: history_unit
+      integer(i32), intent(in), optional :: history_stride
+      type(sim_stats), intent(in), optional :: initial_stats
+      type(injection_state), intent(inout), optional :: inject_state
+      type(mpi_context), intent(in), optional :: mpi
+    end subroutine run_absorption_insulator
 
-  !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
-  !! @param[inout] mesh 入力メッシュ。各バッチ後に `q_elem` へ堆積電荷を加算して更新。
-  !! @param[in] app 時間刻み・バッチ回数・監視値・境界条件を含む実行設定。
-  !! @param[out] stats 吸着数・脱出数・最終相対変化率などの集計統計。
-  !! @param[in] history_unit 履歴CSVの出力先ユニット番号（省略時は履歴出力なし）。
-  !! @param[in] history_stride 履歴出力のバッチ間隔（省略時1）。
-  !! @param[in] initial_stats 再開時に引き継ぐ既存統計（省略時はゼロ初期化）。
-  !! @param[inout] inject_state `reservoir_face` 注入で使う種別ごとの残差状態（省略可）。
-  subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi)
-    type(mesh_type), intent(inout) :: mesh
-    type(app_config), intent(in) :: app
-    type(sim_stats), intent(out) :: stats
-    integer, intent(in), optional :: history_unit
-    integer(i32), intent(in), optional :: history_stride
-    type(sim_stats), intent(in), optional :: initial_stats
-    type(injection_state), intent(inout), optional :: inject_state
-    type(mpi_context), intent(in), optional :: mpi
+    !> 1バッチ分の粒子群と作業配列を初期化する。
+    module subroutine prepare_batch_state( &
+      mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
+      photo_emission_dq, mpi, inject_state &
+    )
+      type(mesh_type), intent(in) :: mesh
+      type(app_config), intent(in) :: app
+      type(sim_stats), intent(in) :: stats
+      integer(i32), intent(in) :: local_batch_idx
+      integer(i32), intent(out) :: batch_idx
+      real(dp), intent(inout) :: dq_thread(:, :)
+      type(particles_soa), intent(out) :: pcls_batch
+      logical, allocatable, intent(out) :: escaped_boundary_flag(:)
+      logical, allocatable, intent(out) :: absorbed_flag(:)
+      real(dp), intent(out) :: photo_emission_dq(:)
+      type(mpi_context), intent(in) :: mpi
+      type(injection_state), intent(inout), optional :: inject_state
+    end subroutine prepare_batch_state
 
-    integer(i32) :: batch_idx, final_batch_idx, local_batch_idx, nth, hist_stride
-    integer :: hist_unit
-    logical :: history_enabled
-    real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
-    logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
-    integer(i32) :: batch_counts(5)
-    real(dp) :: bfield(3), rel
-    real(dp) :: batch_field_time, batch_push_time, batch_collision_time, batch_times(3)
-    type(particles_soa) :: pcls_batch
-    type(mpi_context) :: mpi_ctx
-    type(field_solver_type) :: field_solver
+    !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
+    module subroutine process_particle_batch( &
+      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
+      field_time_s, push_time_s, collision_time_s &
+    )
+      type(mesh_type), intent(in) :: mesh
+      type(app_config), intent(in) :: app
+      type(field_solver_type), intent(in) :: field_solver
+      type(particles_soa), intent(inout) :: pcls_batch
+      real(dp), intent(inout) :: dq_thread(:, :)
+      logical, intent(inout) :: escaped_boundary_flag(:)
+      logical, intent(inout) :: absorbed_flag(:)
+      real(dp), intent(in) :: bfield(3)
+      real(dp), intent(out) :: field_time_s, push_time_s, collision_time_s
+    end subroutine process_particle_batch
 
-    stats = sim_stats()
-    if (present(initial_stats)) stats = initial_stats
-    mpi_ctx = mpi_context()
-    if (present(mpi)) mpi_ctx = mpi
+    !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
+    module subroutine commit_batch_charge(mesh, q_floor, dq_thread, photo_emission_dq, dq, rel, mpi)
+      type(mesh_type), intent(inout) :: mesh
+      real(dp), intent(in) :: q_floor
+      real(dp), intent(in) :: dq_thread(:, :)
+      real(dp), intent(in) :: photo_emission_dq(:)
+      real(dp), intent(out) :: dq(:)
+      real(dp), intent(out) :: rel
+      type(mpi_context), intent(in) :: mpi
+    end subroutine commit_batch_charge
 
-    nth = 1
-    !$ nth = max(1, omp_get_max_threads())
-    allocate (dq_thread(mesh%nelem, nth), dq(mesh%nelem), photo_emission_dq(mesh%nelem))
+    !> 今バッチの粒子処理結果を局所集計する。
+    module subroutine count_batch_outcomes(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_counts)
+      type(particles_soa), intent(in) :: pcls_batch
+      logical, intent(in) :: escaped_boundary_flag(:)
+      logical, intent(in) :: absorbed_flag(:)
+      integer(i32), intent(out) :: batch_counts(5)
+    end subroutine count_batch_outcomes
 
-    history_enabled = present(history_unit)
-    hist_unit = 0
-    if (history_enabled) hist_unit = history_unit
-    hist_stride = 1_i32
-    if (present(history_stride)) hist_stride = max(1_i32, history_stride)
-    bfield = app%sim%b0
-    final_batch_idx = stats%batches + app%sim%batch_count
-    call field_solver%init(mesh, app%sim)
+    !> バッチ完了後の統計値を更新する。
+    module subroutine accumulate_batch_stats(stats, batch_counts, rel, field_time_s, push_time_s, collision_time_s)
+      type(sim_stats), intent(inout) :: stats
+      integer(i32), intent(in) :: batch_counts(5)
+      real(dp), intent(in) :: rel
+      real(dp), intent(in) :: field_time_s, push_time_s, collision_time_s
+    end subroutine accumulate_batch_stats
 
-    do local_batch_idx = 1, app%sim%batch_count
-      call prepare_batch_state( &
-        mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-        photo_emission_dq, mpi_ctx, inject_state &
-      )
-      call field_solver%refresh(mesh)
-      call process_particle_batch( &
-        mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
-        batch_field_time, batch_push_time, batch_collision_time &
-      )
-      call commit_batch_charge(mesh, app%sim%q_floor, dq_thread, photo_emission_dq, dq, rel, mpi_ctx)
-      call count_batch_outcomes(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_counts)
-      batch_times = [batch_field_time, batch_push_time, batch_collision_time]
-      call mpi_allreduce_sum_i32_array(mpi_ctx, batch_counts)
-      call mpi_allreduce_sum_real_dp_array(mpi_ctx, batch_times)
-      call accumulate_batch_stats( &
-        stats, batch_counts, rel, batch_times(1), batch_times(2), batch_times(3) &
-      )
-      if (mpi_is_root(mpi_ctx)) then
-        call print_batch_progress(batch_idx, final_batch_idx, rel)
-        call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
-      end if
-      deallocate (escaped_boundary_flag, absorbed_flag)
-    end do
+    !> ルートランクでバッチ完了時の進捗と相対変化量を標準出力へ表示する。
+    module subroutine print_batch_progress(batch_idx, final_batch_idx, rel_change)
+      integer(i32), intent(in) :: batch_idx
+      integer(i32), intent(in) :: final_batch_idx
+      real(dp), intent(in) :: rel_change
+    end subroutine print_batch_progress
 
-    deallocate (dq_thread, dq, photo_emission_dq)
-  end subroutine run_absorption_insulator
+    !> 履歴出力が有効で、指定ストライドを満たす場合のみ電荷履歴を書き出す。
+    module subroutine maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, q_elem)
+      logical, intent(in) :: history_enabled
+      integer, intent(in) :: hist_unit
+      integer(i32), intent(in) :: hist_stride
+      type(sim_stats), intent(in) :: stats
+      real(dp), intent(in) :: rel
+      real(dp), intent(in) :: q_elem(:)
+    end subroutine maybe_write_history_snapshot
 
-  !> 1バッチ分の粒子群と作業配列を初期化する。
-  !! @param[in] app 実行設定。
-  !! @param[in] stats 現在までの累積統計。
-  !! @param[in] local_batch_idx 今回実行するローカルバッチ番号（1始まり）。
-  !! @param[out] batch_idx 再開分を加味した累積バッチ番号。
-  !! @param[inout] dq_thread スレッド別要素電荷差分バッファ（ゼロ初期化される）。
-  !! @param[out] pcls_batch 今バッチで処理する粒子群。
-  !! @param[out] escaped_boundary_flag 粒子ごとの境界流出フラグ。
-  !! @param[out] absorbed_flag 粒子ごとの吸着フラグ。
-  !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分。
-  !! @param[inout] inject_state reservoir_face 注入残差（指定時のみ更新）。
-  subroutine prepare_batch_state( &
-    mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-    photo_emission_dq, mpi, inject_state &
-  )
-    type(mesh_type), intent(in) :: mesh
-    type(app_config), intent(in) :: app
-    type(sim_stats), intent(in) :: stats
-    integer(i32), intent(in) :: local_batch_idx
-    integer(i32), intent(out) :: batch_idx
-    real(dp), intent(inout) :: dq_thread(:, :)
-    type(particles_soa), intent(out) :: pcls_batch
-    logical, allocatable, intent(out) :: escaped_boundary_flag(:)
-    logical, allocatable, intent(out) :: absorbed_flag(:)
-    real(dp), intent(out) :: photo_emission_dq(:)
-    type(mpi_context), intent(in) :: mpi
-    type(injection_state), intent(inout), optional :: inject_state
+    !> 現時点の要素電荷を CSV 行群として書き出す。
+    module subroutine write_history_snapshot(unit_id, batch_idx, processed_particles, rel_change, q_elem)
+      integer, intent(in) :: unit_id
+      integer(i32), intent(in) :: batch_idx
+      integer(i32), intent(in) :: processed_particles
+      real(dp), intent(in) :: rel_change
+      real(dp), intent(in) :: q_elem(:)
+    end subroutine write_history_snapshot
 
-    batch_idx = stats%batches + 1_i32
-    if (present(inject_state)) then
-      call init_particle_batch_from_config( &
-        app, local_batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
-        mpi=mpi &
-      )
-    else
-      call init_particle_batch_from_config( &
-        app, local_batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi &
-      )
-    end if
-    allocate (escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))
-    escaped_boundary_flag = .false.
-    absorbed_flag = .false.
-    dq_thread = 0.0d0
-
-  end subroutine prepare_batch_state
-
-  !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
-  !! @param[in] mesh 衝突判定と電場計算に使うメッシュ（読み取り専用）。
-  !! @param[in] app 時間積分・境界条件などの実行設定。
-  !! @param[inout] pcls_batch 処理対象粒子群（位置・速度・alive を更新）。
-  !! @param[inout] dq_thread スレッド別要素電荷差分バッファ。
-  !! @param[inout] escaped_boundary_flag 粒子ごとの境界流出フラグ。
-  !! @param[inout] absorbed_flag 粒子ごとの吸着フラグ。
-  !! @param[in] bfield 一様外部磁場ベクトル [T]。
-  !! @param[out] field_time_s バッチ内で電場評価に費やした時間 [s]。
-  !! @param[out] push_time_s バッチ内で `boris_push` に費やした時間 [s]。
-  !! @param[out] collision_time_s バッチ内で `find_first_hit` に費やした時間 [s]。
-  subroutine process_particle_batch( &
-    mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
-    field_time_s, push_time_s, collision_time_s &
-  )
-    type(mesh_type), intent(in) :: mesh
-    type(app_config), intent(in) :: app
-    type(field_solver_type), intent(in) :: field_solver
-    type(particles_soa), intent(inout) :: pcls_batch
-    real(dp), intent(inout) :: dq_thread(:, :)
-    logical, intent(inout) :: escaped_boundary_flag(:)
-    logical, intent(inout) :: absorbed_flag(:)
-    real(dp), intent(in) :: bfield(3)
-    real(dp), intent(out) :: field_time_s, push_time_s, collision_time_s
-
-    integer(i32) :: i, step, tid
-    real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
-    real(dp) :: t0
-    type(hit_info) :: hit
-    logical :: escaped_by_boundary
-
-    field_time_s = 0.0d0
-    push_time_s = 0.0d0
-    collision_time_s = 0.0d0
-
-    !$omp parallel default(none) &
-    !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag) &
-    !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary,t0) &
-    !$omp reduction(+:field_time_s,push_time_s,collision_time_s)
-    ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
-    tid = 1
-    !$ tid = omp_get_thread_num() + 1
-    !$omp do schedule(static)
-    do i = 1, pcls_batch%n
-      if (.not. pcls_batch%alive(i)) cycle
-      do step = 1, app%sim%max_step
-        x0 = pcls_batch%x(:, i)
-        v0 = pcls_batch%v(:, i)
-        t0 = wall_time_seconds()
-        call field_solver%eval_e(mesh, x0, e)
-        field_time_s = field_time_s + (wall_time_seconds() - t0)
-
-        t0 = wall_time_seconds()
-        call boris_push( &
-          x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
-        )
-        push_time_s = push_time_s + (wall_time_seconds() - t0)
-
-        t0 = wall_time_seconds()
-        call find_first_hit(mesh, x0, x1, hit)
-        collision_time_s = collision_time_s + (wall_time_seconds() - t0)
-        if (hit%has_hit) then
-          qdep = pcls_batch%q(i) * pcls_batch%w(i)
-          dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
-          pcls_batch%alive(i) = .false.
-          absorbed_flag(i) = .true.
-          exit
-        end if
-
-        call apply_box_boundary(app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary)
-        if (escaped_by_boundary) escaped_boundary_flag(i) = .true.
-        if (.not. pcls_batch%alive(i)) exit
-
-        pcls_batch%x(:, i) = x1
-        pcls_batch%v(:, i) = v1
-      end do
-    end do
-    !$omp end do
-    !$omp end parallel
-  end subroutine process_particle_batch
-
-  !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
-  !! @param[inout] mesh 要素電荷 `q_elem` を更新するメッシュ。
-  !! @param[in] q_floor 相対変化量分母の下限値。
-  !! @param[in] dq_thread スレッド別要素電荷差分 `dq_thread(nelem,nthread)`。
-  !! @param[out] dq スレッド合算後の要素電荷差分 `dq(nelem)`。
-  !! @param[out] rel 今バッチの相対変化量 `||dq||/max(||q||,q_floor)`。
-  subroutine commit_batch_charge(mesh, q_floor, dq_thread, photo_emission_dq, dq, rel, mpi)
-    type(mesh_type), intent(inout) :: mesh
-    real(dp), intent(in) :: q_floor
-    real(dp), intent(in) :: dq_thread(:, :)
-    real(dp), intent(in) :: photo_emission_dq(:)
-    real(dp), intent(out) :: dq(:)
-    real(dp), intent(out) :: rel
-    type(mpi_context), intent(in) :: mpi
-    real(dp) :: norm_dq, norm_q
-
-    dq = sum(dq_thread, dim=2) + photo_emission_dq
-    call mpi_allreduce_sum_real_dp_array(mpi, dq)
-    mesh%q_elem = mesh%q_elem + dq
-    norm_dq = sqrt(sum(dq * dq))
-    norm_q = sqrt(sum(mesh%q_elem * mesh%q_elem))
-    rel = norm_dq / max(norm_q, q_floor)
-  end subroutine commit_batch_charge
-
-  !> 今バッチの粒子処理結果を局所集計する。
-  !! @param[in] pcls_batch 今バッチで処理した粒子群。
-  !! @param[in] escaped_boundary_flag 粒子ごとの境界流出フラグ。
-  !! @param[in] absorbed_flag 粒子ごとの吸着フラグ。
-  !! @param[out] batch_counts `processed/absorbed/escaped/escaped_boundary/survived_max_step` の順に格納。
-  subroutine count_batch_outcomes(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_counts)
-    type(particles_soa), intent(in) :: pcls_batch
-    logical, intent(in) :: escaped_boundary_flag(:)
-    logical, intent(in) :: absorbed_flag(:)
-    integer(i32), intent(out) :: batch_counts(5)
-    integer(i32) :: i
-
-    batch_counts = 0_i32
-    batch_counts(1) = pcls_batch%n
-    do i = 1, pcls_batch%n
-      if (absorbed_flag(i)) then
-        batch_counts(2) = batch_counts(2) + 1_i32
-      else if (escaped_boundary_flag(i)) then
-        batch_counts(3) = batch_counts(3) + 1_i32
-        batch_counts(4) = batch_counts(4) + 1_i32
-      else if (pcls_batch%alive(i)) then
-        batch_counts(3) = batch_counts(3) + 1_i32
-        batch_counts(5) = batch_counts(5) + 1_i32
-      end if
-    end do
-  end subroutine count_batch_outcomes
-
-  !> バッチ完了後の統計値を更新する。
-  !! @param[inout] stats 累積統計（このバッチ結果で更新）。
-  !! @param[in] batch_counts `processed/absorbed/escaped/escaped_boundary/survived_max_step` の順に並んだ集計値。
-  !! @param[in] rel 今バッチの相対変化量。
-  !! @param[in] field_time_s バッチ内で `electric_field_at` に費やした時間 [s]。
-  !! @param[in] push_time_s バッチ内で `boris_push` に費やした時間 [s]。
-  !! @param[in] collision_time_s バッチ内で `find_first_hit` に費やした時間 [s]。
-  subroutine accumulate_batch_stats(stats, batch_counts, rel, field_time_s, push_time_s, collision_time_s)
-    type(sim_stats), intent(inout) :: stats
-    integer(i32), intent(in) :: batch_counts(5)
-    real(dp), intent(in) :: rel
-    real(dp), intent(in) :: field_time_s, push_time_s, collision_time_s
-
-    stats%batches = stats%batches + 1_i32
-    stats%last_rel_change = rel
-    stats%processed_particles = stats%processed_particles + batch_counts(1)
-    stats%absorbed = stats%absorbed + batch_counts(2)
-    stats%escaped = stats%escaped + batch_counts(3)
-    stats%escaped_boundary = stats%escaped_boundary + batch_counts(4)
-    stats%survived_max_step = stats%survived_max_step + batch_counts(5)
-    stats%field_time_s = stats%field_time_s + field_time_s
-    stats%push_time_s = stats%push_time_s + push_time_s
-    stats%collision_time_s = stats%collision_time_s + collision_time_s
-  end subroutine accumulate_batch_stats
-
-  !> ルートランクでバッチ完了時の進捗と相対変化量を標準出力へ表示する。
-  !! @param[in] batch_idx 現在完了した累積バッチ番号。
-  !! @param[in] final_batch_idx 今回実行で到達予定の累積最終バッチ番号。
-  !! @param[in] rel_change 今バッチの相対変化量。
-  subroutine print_batch_progress(batch_idx, final_batch_idx, rel_change)
-    integer(i32), intent(in) :: batch_idx
-    integer(i32), intent(in) :: final_batch_idx
-    real(dp), intent(in) :: rel_change
-
-    print '(a,i0,a,i0,a,es12.4,a)', &
-      '---------- batch ', batch_idx, '/', final_batch_idx, ' rel_change=', rel_change, ' ----------'
-    flush (output_unit)
-  end subroutine print_batch_progress
-
-  !> 履歴出力が有効で、指定ストライドを満たす場合のみ電荷履歴を書き出す。
-  !! ストライド判定は従来どおり 1, 1+stride, ... のバッチ番号で行う。
-  !! @param[in] history_enabled 履歴出力の有効フラグ。
-  !! @param[in] hist_unit 履歴CSVの出力先ユニット番号。
-  !! @param[in] hist_stride 履歴を書き出すバッチ間隔。
-  !! @param[in] stats 現在の累積統計。
-  !! @param[in] rel 今バッチの相対変化量。
-  !! @param[in] q_elem 現在の要素電荷配列 [C]。
-  subroutine maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, q_elem)
-    logical, intent(in) :: history_enabled
-    integer, intent(in) :: hist_unit
-    integer(i32), intent(in) :: hist_stride
-    type(sim_stats), intent(in) :: stats
-    real(dp), intent(in) :: rel
-    real(dp), intent(in) :: q_elem(:)
-
-    if (.not. history_enabled) return
-    if (mod(stats%batches - 1_i32, hist_stride) /= 0_i32) return
-    call write_history_snapshot(hist_unit, stats%batches, stats%processed_particles, rel, q_elem)
-  end subroutine maybe_write_history_snapshot
-
-  !> 現時点の要素電荷を CSV 行群として書き出す。
-  !! @param[in] unit_id 出力先ユニット番号。
-  !! @param[in] batch_idx 書き出し対象のバッチ番号。
-  !! @param[in] processed_particles これまでの累積処理粒子数。
-  !! @param[in] rel_change この時点の相対変化量。
-  !! @param[in] q_elem 要素電荷配列 [C]。
-  subroutine write_history_snapshot(unit_id, batch_idx, processed_particles, rel_change, q_elem)
-    integer, intent(in) :: unit_id
-    integer(i32), intent(in) :: batch_idx
-    integer(i32), intent(in) :: processed_particles
-    real(dp), intent(in) :: rel_change
-    real(dp), intent(in) :: q_elem(:)
-    integer(i32) :: elem_idx
-
-    do elem_idx = 1, size(q_elem)
-      write(unit_id, '(i0,a,i0,a,es24.16,a,i0,a,es24.16)') batch_idx, ',', processed_particles, ',', &
-        rel_change, ',', elem_idx, ',', q_elem(elem_idx)
-    end do
-  end subroutine write_history_snapshot
-
-  !> OpenMP有効時は `omp_get_wtime`、それ以外は `cpu_time` を返す簡易タイマ。
-  real(dp) function wall_time_seconds()
-    !$ wall_time_seconds = omp_get_wtime()
-    !$ return
-    call cpu_time(wall_time_seconds)
-  end function wall_time_seconds
+    !> OpenMP有効時は `omp_get_wtime`、それ以外は `cpu_time` を返す簡易タイマ。
+    module function wall_time_seconds() result(time_s)
+      real(dp) :: time_s
+    end function wall_time_seconds
+  end interface
 
 end module bem_simulator
