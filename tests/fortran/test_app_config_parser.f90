@@ -15,7 +15,7 @@ program test_app_config_parser
   call write_photo_config_fixture(photo_cfg_path)
 
   call default_app_config(cfg)
-  call assert_true(trim(cfg%sim%field_solver) == 'direct', 'default field_solver mismatch')
+  call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.5d0, 1.0d-15, 'default tree_theta mismatch')
   call assert_equal_i32(cfg%sim%tree_leaf_max, 16_i32, 'default tree_leaf_max mismatch')
   call assert_equal_i32(cfg%sim%tree_min_nelem, 256_i32, 'default tree_min_nelem mismatch')

@@ -16,7 +16,7 @@ DEFAULT_SIM: dict[str, Any] = {
     "batch_count": 1,
     "batch_duration": 0.0,
     "batch_duration_step": 0.0,
-    "field_solver": "direct",
+    "field_solver": "auto",
     "tree_theta": 0.5,
     "tree_leaf_max": 16,
     "tree_min_nelem": 256,
