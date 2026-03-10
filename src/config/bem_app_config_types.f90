@@ -52,10 +52,16 @@ module bem_app_config_types
     integer(i32) :: ny = 1
     integer(i32) :: nz = 1
     real(dp) :: radius = 0.5d0
+    real(dp) :: inner_radius = 0.25d0
     real(dp) :: height = 1.0d0
     integer(i32) :: n_theta = 24
+    integer(i32) :: n_r = 4
     integer(i32) :: n_z = 1
     logical :: cap = .true.
+    logical :: cap_top = .true.
+    logical :: cap_bottom = .true.
+    logical :: has_cap_top = .false.
+    logical :: has_cap_bottom = .false.
     integer(i32) :: n_lon = 24
     integer(i32) :: n_lat = 12
   end type template_spec

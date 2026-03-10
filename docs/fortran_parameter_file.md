@@ -212,14 +212,17 @@ history_stride = 1
 共通キー:
 
 - `enabled` (bool)
-- `kind` (`plane` / `box` / `cylinder` / `sphere`)
+- `kind` (`plane` / `plate_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere`)
 - `center` (float[3])
 
 `kind` ごとの主要キー:
 
 - `plane`: `size_x`, `size_y`, `nx`, `ny`
+- `plate_hole`: `size_x`, `size_y`, `radius`, `n_theta`, `n_r`
+- `disk`: `radius`, `n_theta`, `n_r`
+- `annulus`: `radius`, `inner_radius`, `n_theta`, `n_r`
 - `box`: `size`, `nx`, `ny`, `nz`
-- `cylinder`: `radius`, `height`, `n_theta`, `n_z`, `cap`
+- `cylinder`: `radius`, `height`, `n_theta`, `n_z`, `cap`, `cap_top`, `cap_bottom`
 - `sphere`: `radius`, `n_lon`, `n_lat`
 
 注意:

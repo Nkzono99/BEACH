@@ -4,7 +4,7 @@ module bem_app_config_runtime
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count
   use bem_field, only: electric_potential_at
-  use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
+  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
   use bem_injection, only: &
@@ -602,16 +602,32 @@ contains
   subroutine build_one_template(spec, mesh)
     type(template_spec), intent(in) :: spec
     type(mesh_type), intent(out) :: mesh
+    logical :: cap_top, cap_bottom
 
     select case (trim(lower(spec%kind)))
     case ('plane')
       call make_plane(mesh, size_x=spec%size_x, size_y=spec%size_y, nx=spec%nx, ny=spec%ny, center=spec%center)
+    case ('plate_hole', 'plane_hole')
+      call make_plate_hole( &
+        mesh, size_x=spec%size_x, size_y=spec%size_y, radius=spec%radius, n_theta=spec%n_theta, n_r=spec%n_r, &
+        center=spec%center &
+      )
+    case ('disk')
+      call make_disk(mesh, radius=spec%radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center)
+    case ('annulus')
+      call make_annulus( &
+        mesh, radius=spec%radius, inner_radius=spec%inner_radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center &
+      )
     case ('box')
       call make_box(mesh, size=spec%size, center=spec%center, nx=spec%nx, ny=spec%ny, nz=spec%nz)
     case ('cylinder')
+      cap_top = spec%cap
+      cap_bottom = spec%cap
+      if (spec%has_cap_top) cap_top = spec%cap_top
+      if (spec%has_cap_bottom) cap_bottom = spec%cap_bottom
       call make_cylinder( &
         mesh, radius=spec%radius, height=spec%height, n_theta=spec%n_theta, n_z=spec%n_z, &
-        cap=spec%cap, center=spec%center &
+        cap=spec%cap, center=spec%center, cap_top=cap_top, cap_bottom=cap_bottom &
       )
     case ('sphere')
       call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
