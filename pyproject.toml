@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beach"
-version = "0.5.0"
+version = "0.6.0"
 description = "BEACH (BEM + Accumulated CHarge): BEM surface-charging + test-particle prototype (insulator mode) with hybrid E-field and Boris pusher."
 readme = "README.md"
 requires-python = ">=3.10"
