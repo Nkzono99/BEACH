@@ -15,13 +15,13 @@ dependencies = [
 ]
 
 [project.scripts]
-beach-inspect = "beach.cli_inspect_fortran_output:main"
-beach-animate-history = "beach.cli_animate_fortran_history:main"
-beach-plot-potential-slices = "beach.cli_plot_fortran_potential_slices:main"
-beach-estimate-workload = "beach.cli_estimate_fortran_workload:main"
+beach-inspect = "beach.cli.inspect_fortran_output:main"
+beach-animate-history = "beach.cli.animate_fortran_history:main"
+beach-plot-potential-slices = "beach.cli.plot_fortran_potential_slices:main"
+beach-estimate-workload = "beach.cli.estimate_fortran_workload:main"
 
 [tool.setuptools]
-packages = ["beach"]
+packages = ["beach", "beach.fortran_results", "beach.cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
