@@ -72,6 +72,11 @@ beach-animate-history outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif \
   --total-frames 200
+
+beach-plot-potential-slices outputs/latest \
+  --grid-n 200 \
+  --vmin -20 --vmax 20 \
+  --save outputs/latest/potential_slices.png
 ```
 
 ## 3. 運用でよく使うコマンド

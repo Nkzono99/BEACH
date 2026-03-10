@@ -153,6 +153,11 @@ beach-animate-history outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif \
   --total-frames 200
+
+beach-plot-potential-slices outputs/latest \
+  --grid-n 200 \
+  --vmin -20 --vmax 20 \
+  --save outputs/latest/potential_slices.png
 ```
 
 ### 8.2 Python API
@@ -170,6 +175,13 @@ if beach.result.history is not None:
 beach.plot_bar()
 beach.plot_mesh()
 beach.plot_potential()
+beach.plot_potential_slices(
+    box_min=[0.0, 0.0, 0.0],
+    box_max=[1.0, 1.0, 10.0],
+    grid_n=200,
+    vmin=-20.0,
+    vmax=20.0,
+)
 beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge", total_frames=200)
 
 mesh1 = beach.get_mesh(1)

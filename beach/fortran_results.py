@@ -302,6 +302,20 @@ class FortranRunResult:
         return self.history.get_step(step)
 
 
+@dataclass(frozen=True)
+class PotentialSlice2D:
+    """Electric potential sampled on one axis-aligned 2D slice."""
+
+    plane: str
+    axis_u: str
+    axis_v: str
+    fixed_axis: str
+    fixed_value_m: float
+    u_values_m: np.ndarray
+    v_values_m: np.ndarray
+    potential_V: np.ndarray
+
+
 def load_fortran_result(directory: str | Path) -> FortranRunResult:
     """Load summary and per-element outputs written by the Fortran executable."""
 
@@ -438,6 +452,44 @@ class Beach:
             self_term=self_term,
         )
 
+    def compute_potential_points(
+        self,
+        points: np.ndarray,
+        *,
+        softening: float = 0.0,
+        chunk_size: int = 2048,
+    ) -> np.ndarray:
+        return compute_potential_points(
+            self.result,
+            points,
+            softening=softening,
+            chunk_size=chunk_size,
+        )
+
+    def compute_potential_slices(
+        self,
+        *,
+        box_min: Iterable[float],
+        box_max: Iterable[float],
+        grid_n: int = 200,
+        xy_z: float | None = None,
+        yz_x: float | None = None,
+        xz_y: float | None = None,
+        softening: float = 0.0,
+        chunk_size: int = 2048,
+    ) -> dict[str, PotentialSlice2D]:
+        return compute_potential_slices(
+            self.result,
+            box_min=box_min,
+            box_max=box_max,
+            grid_n=grid_n,
+            xy_z=xy_z,
+            yz_x=yz_x,
+            xz_y=xz_y,
+            softening=softening,
+            chunk_size=chunk_size,
+        )
+
     def plot_potential(
         self,
         *,
@@ -450,6 +502,36 @@ class Beach:
             softening=softening,
             self_term=self_term,
             cmap=cmap,
+        )
+
+    def plot_potential_slices(
+        self,
+        *,
+        box_min: Iterable[float],
+        box_max: Iterable[float],
+        grid_n: int = 200,
+        xy_z: float | None = None,
+        yz_x: float | None = None,
+        xz_y: float | None = None,
+        softening: float = 0.0,
+        chunk_size: int = 2048,
+        cmap: str = "viridis",
+        vmin: float | None = None,
+        vmax: float | None = None,
+    ):
+        return plot_potential_slices(
+            self.result,
+            box_min=box_min,
+            box_max=box_max,
+            grid_n=grid_n,
+            xy_z=xy_z,
+            yz_x=yz_x,
+            xz_y=xz_y,
+            softening=softening,
+            chunk_size=chunk_size,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
         )
 
     def animate_mesh(
@@ -609,6 +691,197 @@ def compute_potential_mesh(
     )
     potential = offdiag_kernel @ resolved.charges + self_coeff * resolved.charges
     return K_COULOMB * potential
+
+
+def compute_potential_points(
+    result: FortranRunResult | Beach,
+    points: np.ndarray,
+    *,
+    softening: float = 0.0,
+    chunk_size: int = 2048,
+) -> np.ndarray:
+    """Compute electric potential values at arbitrary 3D points."""
+
+    resolved = _resolve_result(result)
+    if softening < 0.0:
+        raise ValueError("softening must be >= 0.")
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be > 0.")
+
+    sample_points = np.asarray(points, dtype=float)
+    if sample_points.ndim != 2 or sample_points.shape[1] != 3:
+        raise ValueError("points must have shape (n_points, 3).")
+    if sample_points.shape[0] == 0:
+        return np.empty(0, dtype=float)
+
+    triangles = _require_triangles(resolved)
+    centers = _triangle_centers(triangles)
+    eps2 = softening * softening
+    min_dist2 = np.finfo(float).tiny
+
+    potential = np.empty(sample_points.shape[0], dtype=float)
+    for start in range(0, sample_points.shape[0], chunk_size):
+        stop = min(start + chunk_size, sample_points.shape[0])
+        delta = sample_points[start:stop, None, :] - centers[None, :, :]
+        dist2 = np.sum(delta * delta, axis=2) + eps2
+        inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
+        potential[start:stop] = inv_r @ resolved.charges
+
+    return K_COULOMB * potential
+
+
+def compute_potential_slices(
+    result: FortranRunResult | Beach,
+    *,
+    box_min: Iterable[float],
+    box_max: Iterable[float],
+    grid_n: int = 200,
+    xy_z: float | None = None,
+    yz_x: float | None = None,
+    xz_y: float | None = None,
+    softening: float = 0.0,
+    chunk_size: int = 2048,
+) -> dict[str, PotentialSlice2D]:
+    """Sample potential on XY/YZ/XZ slices inside the simulation box."""
+
+    if grid_n < 2:
+        raise ValueError("grid_n must be >= 2.")
+
+    resolved = _resolve_result(result)
+    min_corner, max_corner = _coerce_box_bounds(box_min, box_max)
+    x = np.linspace(min_corner[0], max_corner[0], grid_n, dtype=float)
+    y = np.linspace(min_corner[1], max_corner[1], grid_n, dtype=float)
+    z = np.linspace(min_corner[2], max_corner[2], grid_n, dtype=float)
+
+    z_xy = _coerce_slice_coordinate(xy_z, lower=min_corner[2], upper=max_corner[2], name="xy_z")
+    x_yz = _coerce_slice_coordinate(yz_x, lower=min_corner[0], upper=max_corner[0], name="yz_x")
+    y_xz = _coerce_slice_coordinate(xz_y, lower=min_corner[1], upper=max_corner[1], name="xz_y")
+
+    xx, yy = np.meshgrid(x, y, indexing="xy")
+    points_xy = np.column_stack((xx.reshape(-1), yy.reshape(-1), np.full(xx.size, z_xy)))
+    potential_xy = compute_potential_points(
+        resolved,
+        points_xy,
+        softening=softening,
+        chunk_size=chunk_size,
+    ).reshape(grid_n, grid_n)
+
+    yy2, zz = np.meshgrid(y, z, indexing="xy")
+    points_yz = np.column_stack((np.full(yy2.size, x_yz), yy2.reshape(-1), zz.reshape(-1)))
+    potential_yz = compute_potential_points(
+        resolved,
+        points_yz,
+        softening=softening,
+        chunk_size=chunk_size,
+    ).reshape(grid_n, grid_n)
+
+    xx2, zz2 = np.meshgrid(x, z, indexing="xy")
+    points_xz = np.column_stack((xx2.reshape(-1), np.full(xx2.size, y_xz), zz2.reshape(-1)))
+    potential_xz = compute_potential_points(
+        resolved,
+        points_xz,
+        softening=softening,
+        chunk_size=chunk_size,
+    ).reshape(grid_n, grid_n)
+
+    return {
+        "xy": PotentialSlice2D(
+            plane="xy",
+            axis_u="x",
+            axis_v="y",
+            fixed_axis="z",
+            fixed_value_m=float(z_xy),
+            u_values_m=x,
+            v_values_m=y,
+            potential_V=potential_xy,
+        ),
+        "yz": PotentialSlice2D(
+            plane="yz",
+            axis_u="y",
+            axis_v="z",
+            fixed_axis="x",
+            fixed_value_m=float(x_yz),
+            u_values_m=y,
+            v_values_m=z,
+            potential_V=potential_yz,
+        ),
+        "xz": PotentialSlice2D(
+            plane="xz",
+            axis_u="x",
+            axis_v="z",
+            fixed_axis="y",
+            fixed_value_m=float(y_xz),
+            u_values_m=x,
+            v_values_m=z,
+            potential_V=potential_xz,
+        ),
+    }
+
+
+def plot_potential_slices(
+    result: FortranRunResult | Beach,
+    *,
+    box_min: Iterable[float],
+    box_max: Iterable[float],
+    grid_n: int = 200,
+    xy_z: float | None = None,
+    yz_x: float | None = None,
+    xz_y: float | None = None,
+    softening: float = 0.0,
+    chunk_size: int = 2048,
+    cmap: str = "viridis",
+    vmin: float | None = None,
+    vmax: float | None = None,
+):
+    """Plot XY/YZ/XZ potential slices in one figure."""
+
+    import matplotlib.pyplot as plt
+
+    slices = compute_potential_slices(
+        result,
+        box_min=box_min,
+        box_max=box_max,
+        grid_n=grid_n,
+        xy_z=xy_z,
+        yz_x=yz_x,
+        xz_y=xz_y,
+        softening=softening,
+        chunk_size=chunk_size,
+    )
+
+    ordered_planes = ("xy", "yz", "xz")
+    data_min = min(float(np.min(slices[name].potential_V)) for name in ordered_planes)
+    data_max = max(float(np.max(slices[name].potential_V)) for name in ordered_planes)
+    global_min, global_max = _resolve_slice_color_limits(
+        data_min=data_min,
+        data_max=data_max,
+        vmin=vmin,
+        vmax=vmax,
+    )
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.8), constrained_layout=True)
+    mappable = None
+    for ax, plane in zip(axes, ordered_planes):
+        slc = slices[plane]
+        mappable = ax.pcolormesh(
+            slc.u_values_m,
+            slc.v_values_m,
+            slc.potential_V,
+            shading="auto",
+            cmap=cmap,
+            vmin=global_min,
+            vmax=global_max,
+        )
+        ax.set_xlabel(f"{slc.axis_u} [m]")
+        ax.set_ylabel(f"{slc.axis_v} [m]")
+        ax.set_title(
+            f"{slc.plane.upper()} ({slc.fixed_axis}={slc.fixed_value_m:.3e} m)"
+        )
+        ax.set_aspect("equal", adjustable="box")
+
+    if mappable is not None:
+        fig.colorbar(mappable, ax=axes, shrink=0.9, label="potential [V]")
+    return fig, axes
 
 
 def plot_potential_mesh(
@@ -836,7 +1109,7 @@ def _build_mesh_selection(
 
 
 def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarray:
-    if step is None or step == -1:
+    if step is None:
         return result.charges
 
     history = result.history
@@ -846,6 +1119,8 @@ def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarr
         raise ValueError(
             "charge_history.csv is required when step is specified and must not be empty."
         )
+    if step == -1:
+        return history.get_step(-1)
     return history.get_step(step)
 
 
@@ -940,6 +1215,52 @@ def _load_mesh_sources_if_exists(path: Path) -> dict[int, MeshSource] | None:
             elem_count=int(row.get("elem_count", "0")),
         )
     return out
+
+
+def _coerce_box_bounds(
+    box_min: Iterable[float], box_max: Iterable[float]
+) -> tuple[np.ndarray, np.ndarray]:
+    min_corner = np.asarray(list(box_min), dtype=float)
+    max_corner = np.asarray(list(box_max), dtype=float)
+    if min_corner.shape != (3,) or max_corner.shape != (3,):
+        raise ValueError("box_min and box_max must contain exactly 3 values.")
+    if np.any(max_corner <= min_corner):
+        raise ValueError("box_max must be greater than box_min on all axes.")
+    return min_corner, max_corner
+
+
+def _coerce_slice_coordinate(
+    value: float | None, *, lower: float, upper: float, name: str
+) -> float:
+    if value is None:
+        return 0.5 * (lower + upper)
+    coordinate = float(value)
+    if coordinate < lower or coordinate > upper:
+        raise ValueError(
+            f"{name} must be within [{lower:.6e}, {upper:.6e}] but got {coordinate:.6e}."
+        )
+    return coordinate
+
+
+def _resolve_slice_color_limits(
+    *,
+    data_min: float,
+    data_max: float,
+    vmin: float | None,
+    vmax: float | None,
+) -> tuple[float, float]:
+    if vmin is None and vmax is None and np.isclose(data_min, data_max):
+        center = 0.5 * (data_min + data_max)
+        width = max(abs(center) * 0.05, 1.0)
+        return center - width, center + width
+
+    lower = data_min if vmin is None else float(vmin)
+    upper = data_max if vmax is None else float(vmax)
+    if not np.isfinite(lower) or not np.isfinite(upper):
+        raise ValueError("vmin/vmax must be finite values.")
+    if lower >= upper:
+        raise ValueError("vmin must be smaller than vmax.")
+    return lower, upper
 
 
 def _surface_charge_density(charges: np.ndarray, triangles: np.ndarray) -> np.ndarray:

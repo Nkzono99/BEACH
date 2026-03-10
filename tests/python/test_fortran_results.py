@@ -11,10 +11,13 @@ from beach.fortran_results import (
     FortranRunResult,
     _select_frame_columns,
     animate_history_mesh,
+    compute_potential_points,
+    compute_potential_slices,
     compute_potential_mesh,
     _surface_charge_density,
     list_fortran_runs,
     load_fortran_result,
+    plot_potential_slices,
     plot_potential_mesh,
 )
 
@@ -712,6 +715,220 @@ def test_compute_potential_mesh_handles_degenerate_triangle_in_area_equivalent()
     potential = compute_potential_mesh(result, self_term="area_equivalent")
 
     assert np.isfinite(potential[0])
+
+
+def test_compute_potential_points_matches_centroid_point_charge_model() -> None:
+    triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
+    charge = np.array([2.0e-9])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charge,
+        triangles=triangles,
+    )
+    points = np.array([[0.0, 0.0, 2.0], [0.0, 0.0, 4.0]])
+
+    potential = compute_potential_points(result, points)
+
+    expected = K_COULOMB * charge[0] / np.array([2.0, 4.0])
+    np.testing.assert_allclose(potential, expected)
+
+
+def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    with pytest.raises(ValueError, match="shape"):
+        compute_potential_points(result, np.array([0.0, 0.0, 1.0]))
+    with pytest.raises(ValueError, match="chunk_size"):
+        compute_potential_points(result, np.array([[0.0, 0.0, 1.0]]), chunk_size=0)
+
+
+def test_compute_potential_slices_returns_xy_yz_xz_grids() -> None:
+    triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
+    charge = np.array([2.0e-9])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charge,
+        triangles=triangles,
+    )
+
+    slices = compute_potential_slices(
+        result,
+        box_min=[-1.0, -1.0, -1.0],
+        box_max=[1.0, 1.0, 1.0],
+        grid_n=5,
+        xy_z=0.5,
+        yz_x=0.5,
+        xz_y=0.5,
+    )
+
+    assert set(slices.keys()) == {"xy", "yz", "xz"}
+    for plane in ("xy", "yz", "xz"):
+        slc = slices[plane]
+        assert slc.potential_V.shape == (5, 5)
+        assert slc.u_values_m.shape == (5,)
+        assert slc.v_values_m.shape == (5,)
+
+    center_expected = K_COULOMB * charge[0] / 0.5
+    np.testing.assert_allclose(slices["xy"].potential_V[2, 2], center_expected)
+    np.testing.assert_allclose(slices["yz"].potential_V[2, 2], center_expected)
+    np.testing.assert_allclose(slices["xz"].potential_V[2, 2], center_expected)
+
+
+def test_compute_potential_slices_rejects_invalid_grid_or_coordinate() -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    with pytest.raises(ValueError, match="grid_n"):
+        compute_potential_slices(
+            result,
+            box_min=[0.0, 0.0, 0.0],
+            box_max=[1.0, 1.0, 1.0],
+            grid_n=1,
+        )
+    with pytest.raises(ValueError, match="xy_z"):
+        compute_potential_slices(
+            result,
+            box_min=[0.0, 0.0, 0.0],
+            box_max=[1.0, 1.0, 1.0],
+            grid_n=8,
+            xy_z=2.0,
+        )
+
+
+def test_plot_potential_slices_returns_figure_and_axes() -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    fig, axes = plot_potential_slices(
+        result,
+        box_min=[-1.0, -1.0, -1.0],
+        box_max=[1.0, 1.0, 1.0],
+        grid_n=10,
+        xy_z=0.3,
+        yz_x=0.3,
+        xz_y=0.3,
+    )
+
+    assert fig is not None
+    assert len(axes) == 3
+    fig.clf()
+
+
+def test_plot_potential_slices_applies_vmin_vmax() -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    fig, axes = plot_potential_slices(
+        result,
+        box_min=[-1.0, -1.0, -1.0],
+        box_max=[1.0, 1.0, 1.0],
+        grid_n=8,
+        vmin=-5.0,
+        vmax=12.0,
+    )
+
+    for ax in axes:
+        assert ax.collections
+        assert ax.collections[0].get_clim() == (-5.0, 12.0)
+    fig.clf()
+
+
+def test_plot_potential_slices_rejects_invalid_vmin_vmax() -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    with pytest.raises(ValueError, match="vmin"):
+        plot_potential_slices(
+            result,
+            box_min=[-1.0, -1.0, -1.0],
+            box_max=[1.0, 1.0, 1.0],
+            grid_n=8,
+            vmin=1.0,
+            vmax=1.0,
+        )
 
 
 def test_plot_potential_mesh_returns_figure_and_axes() -> None:
