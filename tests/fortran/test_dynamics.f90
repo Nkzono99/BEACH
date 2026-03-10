@@ -157,26 +157,51 @@ contains
 
   subroutine test_field_solver_auto_mode()
     type(mesh_type) :: mesh_small, mesh_large
+    type(mesh_type) :: mesh_mid, mesh_dense, mesh_huge
     type(field_solver_type) :: solver
     type(sim_config) :: sim
 
     call make_plane(mesh_small, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
     sim = sim_config()
-    sim%field_solver = 'auto'
+    sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 64_i32
     call solver%init(mesh_small, sim)
     call assert_true(trim(solver%mode) == 'direct', 'auto solver should select direct for small meshes')
 
     call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
     sim = sim_config()
-    sim%field_solver = 'auto'
+    sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 64_i32
     sim%tree_theta = 0.95d0
     sim%tree_leaf_max = 1_i32
     call solver%init(mesh_large, sim)
     call assert_true(trim(solver%mode) == 'treecode', 'auto solver should select treecode for dense meshes')
-    call assert_true(solver%theta < 0.95d0, 'auto solver should override tree_theta with estimated value')
-    call assert_true(solver%leaf_max > 1_i32, 'auto solver should override tree_leaf_max with estimated value')
+    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto theta mismatch for nelem<1500')
+    call assert_equal_i32(solver%leaf_max, 12_i32, 'auto leaf_max mismatch for nelem<1500')
+
+    call make_plane(mesh_mid, size_x=1.0d0, size_y=1.0d0, nx=30_i32, ny=30_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    sim = sim_config()
+    sim%field_solver = 'AUTO'
+    sim%tree_min_nelem = 1_i32
+    call solver%init(mesh_mid, sim)
+    call assert_close_dp(solver%theta, 0.50d0, 1.0d-12, 'auto theta mismatch for 1500<=nelem<10000')
+    call assert_equal_i32(solver%leaf_max, 16_i32, 'auto leaf_max mismatch for 1500<=nelem<10000')
+
+    call make_plane(mesh_dense, size_x=1.0d0, size_y=1.0d0, nx=80_i32, ny=80_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    sim = sim_config()
+    sim%field_solver = 'AUTO'
+    sim%tree_min_nelem = 1_i32
+    call solver%init(mesh_dense, sim)
+    call assert_close_dp(solver%theta, 0.58d0, 1.0d-12, 'auto theta mismatch for 10000<=nelem<50000')
+    call assert_equal_i32(solver%leaf_max, 20_i32, 'auto leaf_max mismatch for 10000<=nelem<50000')
+
+    call make_plane(mesh_huge, size_x=1.0d0, size_y=1.0d0, nx=160_i32, ny=160_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    sim = sim_config()
+    sim%field_solver = 'AUTO'
+    sim%tree_min_nelem = 1_i32
+    call solver%init(mesh_huge, sim)
+    call assert_close_dp(solver%theta, 0.65d0, 1.0d-12, 'auto theta mismatch for nelem>=50000')
+    call assert_equal_i32(solver%leaf_max, 24_i32, 'auto leaf_max mismatch for nelem>=50000')
   end subroutine test_field_solver_auto_mode
 
   subroutine test_treecode_field_accuracy()

@@ -23,6 +23,22 @@ program test_app_config_parser
 
   call assert_true(trim(cfg%mesh_mode) == 'template', 'mesh.mode was not parsed')
   call assert_true(trim(cfg%templates(2)%kind) == 'sphere', 'second template kind mismatch')
+  call assert_true(trim(cfg%templates(3)%kind) == 'annulus', 'third template kind mismatch')
+  call assert_close_dp(cfg%templates(3)%radius, 0.3d0, 1.0d-12, 'annulus radius mismatch')
+  call assert_close_dp(cfg%templates(3)%inner_radius, 0.1d0, 1.0d-12, 'annulus inner_radius mismatch')
+  call assert_equal_i32(cfg%templates(3)%n_theta, 16_i32, 'annulus n_theta mismatch')
+  call assert_equal_i32(cfg%templates(3)%n_r, 3_i32, 'annulus n_r mismatch')
+  call assert_true(trim(cfg%templates(4)%kind) == 'cylinder', 'fourth template kind mismatch')
+  call assert_true(cfg%templates(4)%has_cap_top, 'cylinder has_cap_top mismatch')
+  call assert_true(cfg%templates(4)%has_cap_bottom, 'cylinder has_cap_bottom mismatch')
+  call assert_true(cfg%templates(4)%cap_top, 'cylinder cap_top mismatch')
+  call assert_true(.not. cfg%templates(4)%cap_bottom, 'cylinder cap_bottom mismatch')
+  call assert_true(trim(cfg%templates(5)%kind) == 'plate_hole', 'fifth template kind mismatch')
+  call assert_close_dp(cfg%templates(5)%size_x, 1.5d0, 1.0d-12, 'plate_hole size_x mismatch')
+  call assert_close_dp(cfg%templates(5)%size_y, 0.8d0, 1.0d-12, 'plate_hole size_y mismatch')
+  call assert_close_dp(cfg%templates(5)%radius, 0.2d0, 1.0d-12, 'plate_hole radius mismatch')
+  call assert_equal_i32(cfg%templates(5)%n_theta, 20_i32, 'plate_hole n_theta mismatch')
+  call assert_equal_i32(cfg%templates(5)%n_r, 2_i32, 'plate_hole n_r mismatch')
   call assert_equal_i32(cfg%n_particle_species, 2_i32, 'n_particle_species mismatch')
   call assert_equal_i32(particles_per_batch_from_config(cfg), 5_i32, 'per-batch particle count mismatch')
   call assert_equal_i32(total_particles_from_config(cfg), 15_i32, 'total particle count mismatch')
@@ -102,6 +118,26 @@ contains
     write (u, '(a)') 'kind = "sphere"'
     write (u, '(a)') 'enabled = true'
     write (u, '(a)') 'radius = 0.25'
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "annulus"'
+    write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'radius = 0.3'
+    write (u, '(a)') 'inner_radius = 0.1'
+    write (u, '(a)') 'n_theta = 16'
+    write (u, '(a)') 'n_r = 3'
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "cylinder"'
+    write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'cap_top = true'
+    write (u, '(a)') 'cap_bottom = false'
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "plate_hole"'
+    write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'size_x = 1.5'
+    write (u, '(a)') 'size_y = 0.8'
+    write (u, '(a)') 'radius = 0.2'
+    write (u, '(a)') 'n_theta = 20'
+    write (u, '(a)') 'n_r = 2'
     write (u, '(a)') ''
     write (u, '(a)') '[output]'
     write (u, '(a)') 'history_stride = 2'

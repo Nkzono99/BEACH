@@ -2,7 +2,7 @@
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, particles_soa, injection_state
-  use bem_templates, only: make_plane, make_box, make_cylinder, make_sphere
+  use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
   use bem_app_config, only: &
@@ -26,6 +26,15 @@ program test_templates_importers_runtime
   call make_plane(mesh, nx=2_i32, ny=3_i32)
   call assert_equal_i32(mesh%nelem, 12_i32, 'plane element count mismatch')
 
+  call make_plate_hole(mesh, size_x=2.0d0, size_y=1.0d0, radius=0.2d0, n_theta=16_i32, n_r=2_i32)
+  call assert_equal_i32(mesh%nelem, 68_i32, 'plate_hole element count mismatch')
+
+  call make_disk(mesh, n_theta=8_i32, n_r=2_i32)
+  call assert_equal_i32(mesh%nelem, 24_i32, 'disk element count mismatch')
+
+  call make_annulus(mesh, n_theta=8_i32, n_r=2_i32, radius=0.5d0, inner_radius=0.2d0)
+  call assert_equal_i32(mesh%nelem, 32_i32, 'annulus element count mismatch')
+
   call make_box(mesh, nx=2_i32, ny=1_i32, nz=1_i32)
   call assert_equal_i32(mesh%nelem, 20_i32, 'box element count mismatch')
 
@@ -34,6 +43,12 @@ program test_templates_importers_runtime
 
   call make_cylinder(mesh, n_theta=8_i32, n_z=1_i32, cap=.true.)
   call assert_equal_i32(mesh%nelem, 32_i32, 'cylinder(cap) element count mismatch')
+
+  call make_cylinder(mesh, n_theta=8_i32, n_z=1_i32, cap_top=.true., cap_bottom=.false.)
+  call assert_equal_i32(mesh%nelem, 24_i32, 'cylinder(cap_top only) element count mismatch')
+
+  call make_cylinder(mesh, n_theta=8_i32, n_z=1_i32, cap_top=.false., cap_bottom=.true.)
+  call assert_equal_i32(mesh%nelem, 24_i32, 'cylinder(cap_bottom only) element count mismatch')
 
   call make_sphere(mesh, n_lon=8_i32, n_lat=4_i32)
   call assert_equal_i32(mesh%nelem, 48_i32, 'sphere element count mismatch')
@@ -60,6 +75,43 @@ program test_templates_importers_runtime
   cfg%templates(1)%center = [0.0d0, 0.0d0, 0.1d0]
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 2_i32, 'mesh_mode=auto should fallback to template mesh')
+
+  call default_app_config(cfg)
+  cfg%mesh_mode = 'template'
+  cfg%templates(1)%enabled = .true.
+  cfg%templates(1)%kind = 'plate_hole'
+  cfg%templates(1)%size_x = 1.0d0
+  cfg%templates(1)%size_y = 1.0d0
+  cfg%templates(1)%radius = 0.2d0
+  cfg%templates(1)%n_theta = 12_i32
+  cfg%templates(1)%n_r = 1_i32
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 28_i32, 'mesh_mode=template plate_hole element count mismatch')
+
+  call default_app_config(cfg)
+  cfg%mesh_mode = 'template'
+  cfg%templates(1)%enabled = .true.
+  cfg%templates(1)%kind = 'annulus'
+  cfg%templates(1)%radius = 0.5d0
+  cfg%templates(1)%inner_radius = 0.1d0
+  cfg%templates(1)%n_theta = 8_i32
+  cfg%templates(1)%n_r = 1_i32
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 16_i32, 'mesh_mode=template annulus element count mismatch')
+
+  call default_app_config(cfg)
+  cfg%mesh_mode = 'template'
+  cfg%templates(1)%enabled = .true.
+  cfg%templates(1)%kind = 'cylinder'
+  cfg%templates(1)%n_theta = 8_i32
+  cfg%templates(1)%n_z = 1_i32
+  cfg%templates(1)%cap = .false.
+  cfg%templates(1)%cap_top = .true.
+  cfg%templates(1)%has_cap_top = .true.
+  cfg%templates(1)%cap_bottom = .false.
+  cfg%templates(1)%has_cap_bottom = .true.
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 24_i32, 'mesh_mode=template cylinder cap_top/cap_bottom mismatch')
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 2468_i32

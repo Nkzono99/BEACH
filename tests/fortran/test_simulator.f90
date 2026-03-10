@@ -11,8 +11,9 @@ program test_simulator
 
   type(mesh_type) :: mesh
   type(mesh_type) :: mesh_tree
+  type(mesh_type) :: mesh_resume
   type(app_config) :: cfg, cfg_tree
-  type(sim_stats) :: stats, stats_tree
+  type(sim_stats) :: stats, stats_tree, stats_seed, stats_resume
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   integer :: u, ios
   character(len=256) :: line
@@ -124,4 +125,25 @@ program test_simulator
   call assert_equal_i32(stats_tree%survived_max_step, stats%survived_max_step, 'treecode survived_max_step mismatch')
   call assert_equal_i32(stats_tree%batches, stats%batches, 'treecode batches mismatch')
   call assert_close_dp(mesh_tree%q_elem(1), mesh%q_elem(1), 1.0d-12, 'treecode deposited charge mismatch')
+
+  call init_mesh(mesh_resume, v0, v1, v2)
+  call seed_particles_from_config(cfg)
+  stats_seed = sim_stats()
+  stats_seed%processed_particles = 10_i32
+  stats_seed%absorbed = 4_i32
+  stats_seed%escaped = 6_i32
+  stats_seed%escaped_boundary = 3_i32
+  stats_seed%survived_max_step = 3_i32
+  stats_seed%batches = 7_i32
+  stats_seed%last_rel_change = 1.0d-3
+  call run_absorption_insulator(mesh_resume, cfg, stats_resume, initial_stats=stats_seed)
+
+  call assert_equal_i32(stats_resume%processed_particles, 14_i32, 'resume processed_particles mismatch')
+  call assert_equal_i32(stats_resume%absorbed, 6_i32, 'resume absorbed mismatch')
+  call assert_equal_i32(stats_resume%escaped, 8_i32, 'resume escaped mismatch')
+  call assert_equal_i32(stats_resume%escaped_boundary, 4_i32, 'resume escaped_boundary mismatch')
+  call assert_equal_i32(stats_resume%survived_max_step, 4_i32, 'resume survived_max_step mismatch')
+  call assert_equal_i32(stats_resume%batches, 8_i32, 'resume batches mismatch')
+  call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')
+  call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
 end program test_simulator
