@@ -7,7 +7,7 @@ v0.x の主対象は **insulator accumulation（絶縁体への電荷蓄積）**
 
 ## 推奨ワークフロー
 
-通常利用では、**`pip install git+...` で導入して `beach` を実行する運用**を推奨します。  
+通常利用では、**`pip install beach-bem` で導入して `beach` を実行する運用**を推奨します。  
 `pip install -e` や `make` は、開発に参加する場合の手順として扱います。
 
 ## 1. 利用者向けセットアップ
@@ -21,10 +21,16 @@ fpm --version
 python --version
 ```
 
-### 1.2 Git URL から一括インストール（推奨）
+### 1.2 PyPI から一括インストール（推奨）
 
 ```bash
 python -m pip install -U pip setuptools wheel
+python -m pip install beach-bem
+```
+
+開発版を直接試したい場合は、Git URL からも導入できます。
+
+```bash
 python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 ```
 
