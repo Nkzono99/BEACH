@@ -42,7 +42,7 @@ jobs:
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/p/beach
+      url: https://pypi.org/p/beach-bem
     steps:
       - name: Download sdist artifact
         uses: actions/download-artifact@v4
