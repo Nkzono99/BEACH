@@ -6,8 +6,7 @@ contains
 
   !> source/target ノード球が十分離れていれば遠方相互作用として扱う。
   module procedure nodes_well_separated
-    integer(i32) :: k, axis
-    real(dp) :: d(3), dist, dist2, rs, rt, theta_eff
+    real(dp) :: d(3), dist2, rs, rt, theta_eff, lhs, rhs
     real(dp) :: target_center(3)
 
     if (self%target_tree_ready) then
@@ -19,23 +18,19 @@ contains
     end if
 
     d = target_center - self%node_center(:, source_node)
-    if (self%use_periodic2) then
-      do k = 1_i32, 2_i32
-        axis = self%periodic_axes(k)
-        d(axis) = d(axis) - self%periodic_len(k) * dnint(d(axis) / self%periodic_len(k))
-      end do
-    end if
+    call apply_periodic2_minimum_image(self, d)
     dist2 = sum(d * d)
     if (dist2 <= 0.0d0) then
       accept_it = .false.
       return
     end if
 
-    dist = sqrt(dist2)
     rs = self%node_radius(source_node)
     theta_eff = self%theta
     if (self%use_periodic2) theta_eff = 0.5d0 * self%theta
-    accept_it = ((rs + rt) < theta_eff * dist)
+    lhs = (rs + rt) * (rs + rt)
+    rhs = (theta_eff * theta_eff) * dist2
+    accept_it = (lhs < rhs)
   end procedure nodes_well_separated
 
   !> 1つの葉ノードに対する near/far リストを木走査で構築する。
@@ -340,14 +335,11 @@ contains
   real(dp) function distance_to_source_bbox_periodic_helper(self, p, src_center, src_half)
     class(field_solver_type), intent(in) :: self
     real(dp), intent(in) :: p(3), src_center(3), src_half(3)
-    integer(i32) :: axis, k
+    integer(i32) :: axis
     real(dp) :: d(3), q(3)
 
     d = p - src_center
-    do k = 1_i32, 2_i32
-      axis = self%periodic_axes(k)
-      d(axis) = d(axis) - self%periodic_len(k) * dnint(d(axis) / self%periodic_len(k))
-    end do
+    call apply_periodic2_minimum_image(self, d)
     do axis = 1_i32, 3_i32
       q(axis) = max(0.0d0, abs(d(axis)) - src_half(axis))
     end do
@@ -390,70 +382,89 @@ contains
     end if
   end subroutine setup_periodic_image_loop
 
-  pure subroutine apply_image_shift_to_point(src, axis1, axis2, shift1, shift2)
-    real(dp), intent(inout) :: src(3)
-    integer(i32), intent(in) :: axis1, axis2
-    real(dp), intent(in) :: shift1, shift2
+  pure subroutine apply_periodic2_minimum_image(self, d)
+    class(field_solver_type), intent(in) :: self
+    real(dp), intent(inout) :: d(3)
+    integer(i32) :: axis, k
+    real(dp) :: len_k, half_len
 
-    if (axis1 == 1_i32) src(1) = src(1) + shift1
-    if (axis1 == 2_i32) src(2) = src(2) + shift1
-    if (axis1 == 3_i32) src(3) = src(3) + shift1
-    if (axis2 == 1_i32) src(1) = src(1) + shift2
-    if (axis2 == 2_i32) src(2) = src(2) + shift2
-    if (axis2 == 3_i32) src(3) = src(3) + shift2
-  end subroutine apply_image_shift_to_point
+    if (.not. self%use_periodic2) return
+    do k = 1_i32, 2_i32
+      axis = self%periodic_axes(k)
+      len_k = self%periodic_len(k)
+      half_len = 0.5d0 * len_k
+      if (d(axis) > half_len) then
+        d(axis) = d(axis) - len_k
+      else if (d(axis) < -half_len) then
+        d(axis) = d(axis) + len_k
+      end if
+    end do
+  end subroutine apply_periodic2_minimum_image
 
-  pure subroutine apply_image_shift_to_displacement(dvec, axis1, axis2, shift1, shift2)
-    real(dp), intent(inout) :: dvec(3)
-    integer(i32), intent(in) :: axis1, axis2
-    real(dp), intent(in) :: shift1, shift2
+  subroutine build_periodic_shift_values(self, shift_axis1, shift_axis2, nshift)
+    class(field_solver_type), intent(in) :: self
+    real(dp), intent(out) :: shift_axis1(:), shift_axis2(:)
+    integer(i32), intent(out) :: nshift
+    integer(i32) :: s, img
 
-    if (axis1 == 1_i32) dvec(1) = dvec(1) - shift1
-    if (axis1 == 2_i32) dvec(2) = dvec(2) - shift1
-    if (axis1 == 3_i32) dvec(3) = dvec(3) - shift1
-    if (axis2 == 1_i32) dvec(1) = dvec(1) - shift2
-    if (axis2 == 2_i32) dvec(2) = dvec(2) - shift2
-    if (axis2 == 3_i32) dvec(3) = dvec(3) - shift2
-  end subroutine apply_image_shift_to_displacement
+    nshift = 1_i32
+    if (size(shift_axis1) < 1_i32 .or. size(shift_axis2) < 1_i32) then
+      error stop 'periodic shift buffer is empty.'
+    end if
+    shift_axis1(1) = 0.0d0
+    shift_axis2(1) = 0.0d0
+    if (.not. self%use_periodic2) return
 
-  subroutine add_point_charge_field(q, src, target, soft2, ex, ey, ez)
+    nshift = 2_i32 * self%periodic_image_layers + 1_i32
+    if (size(shift_axis1) < nshift .or. size(shift_axis2) < nshift) then
+      error stop 'periodic shift buffer is too small.'
+    end if
+    do s = 1_i32, nshift
+      img = s - self%periodic_image_layers - 1_i32
+      shift_axis1(s) = real(img, dp) * self%periodic_len(1)
+      shift_axis2(s) = real(img, dp) * self%periodic_len(2)
+    end do
+  end subroutine build_periodic_shift_values
+
+  subroutine add_point_charge_images_field(q, src, target, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, ex, ey, ez)
     real(dp), intent(in) :: q
     real(dp), intent(in) :: src(3), target(3)
     real(dp), intent(in) :: soft2
-    real(dp), intent(inout) :: ex, ey, ez
-    real(dp) :: dx, dy, dz, r2, inv_r3
-
-    if (abs(q) <= tiny(1.0d0)) return
-    dx = target(1) - src(1)
-    dy = target(2) - src(2)
-    dz = target(3) - src(3)
-    r2 = dx * dx + dy * dy + dz * dz + soft2
-    inv_r3 = 1.0d0 / (sqrt(r2) * r2)
-    ex = ex + q * inv_r3 * dx
-    ey = ey + q * inv_r3 * dy
-    ez = ez + q * inv_r3 * dz
-  end subroutine add_point_charge_field
-
-  subroutine add_point_charge_images_field(q, src, target, soft2, axis1, axis2, periodic_len, img_min, img_max, ex, ey, ez)
-    real(dp), intent(in) :: q
-    real(dp), intent(in) :: src(3), target(3)
-    real(dp), intent(in) :: soft2
     integer(i32), intent(in) :: axis1, axis2
-    real(dp), intent(in) :: periodic_len(2)
-    integer(i32), intent(in) :: img_min, img_max
+    real(dp), intent(in) :: shift_axis1(:), shift_axis2(:)
+    integer(i32), intent(in) :: nshift
     real(dp), intent(inout) :: ex, ey, ez
 
     integer(i32) :: img_i, img_j
-    real(dp) :: shift1, shift2, shifted_src(3)
+    real(dp) :: shift1, shift2
+    real(dp) :: src_x, src_y, src_z
+    real(dp) :: dx, dy, dz, r2, inv_r3
 
     if (abs(q) <= tiny(1.0d0)) return
-    do img_i = img_min, img_max
-      do img_j = img_min, img_max
-        shift1 = real(img_i, dp) * periodic_len(1)
-        shift2 = real(img_j, dp) * periodic_len(2)
-        shifted_src = src
-        call apply_image_shift_to_point(shifted_src, axis1, axis2, shift1, shift2)
-        call add_point_charge_field(q, shifted_src, target, soft2, ex, ey, ez)
+
+    do img_i = 1_i32, nshift
+      shift1 = shift_axis1(img_i)
+      do img_j = 1_i32, nshift
+        shift2 = shift_axis2(img_j)
+
+        src_x = src(1)
+        src_y = src(2)
+        src_z = src(3)
+        if (axis1 == 1_i32) src_x = src_x + shift1
+        if (axis1 == 2_i32) src_y = src_y + shift1
+        if (axis1 == 3_i32) src_z = src_z + shift1
+        if (axis2 == 1_i32) src_x = src_x + shift2
+        if (axis2 == 2_i32) src_y = src_y + shift2
+        if (axis2 == 3_i32) src_z = src_z + shift2
+
+        dx = target(1) - src_x
+        dy = target(2) - src_y
+        dz = target(3) - src_z
+        r2 = dx * dx + dy * dy + dz * dz + soft2
+        inv_r3 = 1.0d0 / (sqrt(r2) * r2)
+        ex = ex + q * inv_r3 * dx
+        ey = ey + q * inv_r3 * dy
+        ez = ez + q * inv_r3 * dz
       end do
     end do
   end subroutine add_point_charge_images_field
@@ -538,21 +549,22 @@ contains
       active_tree_node_radius = self%node_radius(node_idx)
     end if
   end function active_tree_node_radius
-
   !> M2L と L2L で葉ノード局所展開（E/Jac/Hess）を更新する。
   module procedure refresh_fmm_locals
     integer(i32) :: leaf_slot, node_idx, parent_node, child_k
     integer(i32) :: i, j, k
-    integer(i32) :: img_i, img_j, img_min, img_max, axis1, axis2
+    integer(i32) :: img_i, img_j, axis1, axis2
     logical :: use_target_tree
     integer(i32), allocatable :: parent_of(:)
+    real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     real(dp), allocatable :: node_local_e0(:, :), node_local_jac(:, :, :), node_local_hess(:, :, :, :)
     real(dp) :: shift1, shift2
     real(dp) :: dr(3), t_center(3), p_center(3), dvec(3), r2, inv_r, inv_r3, inv_r5, inv_r7
+    real(dp) :: base_dvec(3)
     real(dp) :: qi
     real(dp) :: delta_ij, delta_ik, delta_jk
     real(dp) :: soft2
-    integer(i32) :: n_target_nodes
+    integer(i32) :: n_target_nodes, nshift, child_count
 
     if (trim(self%mode) /= 'fmm') return
     if (.not. self%fmm_ready) return
@@ -565,7 +577,15 @@ contains
     self%leaf_far_e0 = 0.0d0
     self%leaf_far_jac = 0.0d0
     self%leaf_far_hess = 0.0d0
-    call setup_periodic_image_loop(self, img_min, img_max, axis1, axis2)
+    axis1 = 0_i32
+    axis2 = 0_i32
+    if (self%use_periodic2) then
+      axis1 = self%periodic_axes(1)
+      axis2 = self%periodic_axes(2)
+    end if
+    nshift = 2_i32 * max(0_i32, self%periodic_image_layers) + 1_i32
+    allocate (shift_axis1(nshift), shift_axis2(nshift))
+    call build_periodic_shift_values(self, shift_axis1, shift_axis2, nshift)
 
     allocate ( &
       parent_of(n_target_nodes), &
@@ -579,7 +599,8 @@ contains
     node_local_hess = 0.0d0
 
     do parent_node = 1_i32, n_target_nodes
-      do child_k = 1_i32, active_tree_child_count(self, use_target_tree, parent_node)
+      child_count = active_tree_child_count(self, use_target_tree, parent_node)
+      do child_k = 1_i32, child_count
         node_idx = active_tree_child_idx(self, use_target_tree, child_k, parent_node)
         parent_of(node_idx) = parent_node
       end do
@@ -617,7 +638,7 @@ contains
       self%leaf_far_hess(:, :, :, leaf_slot) = node_local_hess(:, :, :, node_idx)
     end do
 
-    deallocate (parent_of, node_local_e0, node_local_jac, node_local_hess)
+    deallocate (parent_of, shift_axis1, shift_axis2, node_local_e0, node_local_jac, node_local_hess)
 
   contains
 
@@ -655,12 +676,14 @@ contains
       if (abs(qi) <= tiny(1.0d0)) return
 
       t_center = active_tree_node_center(self, use_target_tree, t_node)
-      do img_i = img_min, img_max
-        do img_j = img_min, img_max
-          dvec = t_center - self%node_charge_center(:, s_node)
-          shift1 = real(img_i, dp) * self%periodic_len(1)
-          shift2 = real(img_j, dp) * self%periodic_len(2)
-          call apply_image_shift_to_displacement(dvec, axis1, axis2, shift1, shift2)
+      base_dvec = t_center - self%node_charge_center(:, s_node)
+      do img_i = 1_i32, nshift
+        shift1 = shift_axis1(img_i)
+        do img_j = 1_i32, nshift
+          shift2 = shift_axis2(img_j)
+          dvec = base_dvec
+          if (axis1 > 0_i32) dvec(axis1) = dvec(axis1) - shift1
+          if (axis2 > 0_i32) dvec(axis2) = dvec(axis2) - shift2
 
           r2 = sum(dvec * dvec) + soft2
           inv_r = 1.0d0 / sqrt(r2)
@@ -691,7 +714,6 @@ contains
       end do
     end subroutine add_m2l_from_monopole
   end procedure refresh_fmm_locals
-
   !> 観測点の octant を辿って対応する葉ノードを返す。
   module procedure locate_target_leaf
     integer(i32) :: oct, child_k, child, cand
@@ -787,12 +809,14 @@ contains
   module procedure eval_e_fmm
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: near_pos, near_node, p, idx, p_end
-    integer(i32) :: img_min, img_max
+    integer(i32) :: nshift
     integer(i32) :: axis1, axis2
     integer(i32) :: j, k
     real(dp) :: soft2, qi
     real(dp) :: ex, ey, ez
     real(dp) :: dr(3), center(3), rt(3), src(3)
+    real(dp) :: shift_axis1(2_i32 * max(0_i32, self%periodic_image_layers) + 1_i32)
+    real(dp) :: shift_axis2(2_i32 * max(0_i32, self%periodic_image_layers) + 1_i32)
 
     rt = r
     if (self%use_periodic2) call wrap_periodic2_point(self, rt)
@@ -815,7 +839,13 @@ contains
       return
     end if
 
-    call setup_periodic_image_loop(self, img_min, img_max, axis1, axis2)
+    axis1 = 0_i32
+    axis2 = 0_i32
+    if (self%use_periodic2) then
+      axis1 = self%periodic_axes(1)
+      axis2 = self%periodic_axes(2)
+    end if
+    call build_periodic_shift_values(self, shift_axis1, shift_axis2, nshift)
     center = active_tree_node_center(self, self%target_tree_ready, leaf_node)
 
     ex = 0.0d0
@@ -846,10 +876,11 @@ contains
       do p = self%node_start(near_node), p_end
         idx = self%elem_order(p)
         qi = mesh%q_elem(idx)
+        if (abs(qi) <= tiny(1.0d0)) cycle
         src(1) = mesh%center_x(idx)
         src(2) = mesh%center_y(idx)
         src(3) = mesh%center_z(idx)
-        call add_point_charge_images_field(qi, src, rt, soft2, axis1, axis2, self%periodic_len, img_min, img_max, ex, ey, ez)
+        call add_point_charge_images_field(qi, src, rt, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, ex, ey, ez)
       end do
     end do
     if (self%use_periodic2 .and. trim(self%periodic_far_correction) == 'ewald_like') then
@@ -868,10 +899,14 @@ contains
     real(dp), intent(in) :: r(3)
     real(dp), intent(out) :: ex, ey, ez
 
-    integer(i32) :: axis1, axis2, img_min, img_max
+    integer(i32) :: axis1, axis2, nshift
     real(dp) :: soft2, rp(3)
+    real(dp) :: shift_axis1(2_i32 * max(0_i32, self%periodic_image_layers) + 1_i32)
+    real(dp) :: shift_axis2(2_i32 * max(0_i32, self%periodic_image_layers) + 1_i32)
 
-    call setup_periodic_image_loop(self, img_min, img_max, axis1, axis2)
+    axis1 = self%periodic_axes(1)
+    axis2 = self%periodic_axes(2)
+    call build_periodic_shift_values(self, shift_axis1, shift_axis2, nshift)
     soft2 = self%softening * self%softening
     rp = r
     call wrap_periodic2_point(self, rp)
@@ -899,7 +934,7 @@ contains
           src(1) = mesh%center_x(idx)
           src(2) = mesh%center_y(idx)
           src(3) = mesh%center_z(idx)
-          call add_point_charge_images_field(qi, src, rp, soft2, axis1, axis2, self%periodic_len, img_min, img_max, ex, ey, ez)
+          call add_point_charge_images_field(qi, src, rp, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, ex, ey, ez)
         end do
         return
       end if
@@ -908,7 +943,7 @@ contains
         qi = self%node_q(node_idx)
         if (abs(qi) <= tiny(1.0d0)) return
         src = self%node_charge_center(:, node_idx)
-        call add_point_charge_images_field(qi, src, rp, soft2, axis1, axis2, self%periodic_len, img_min, img_max, ex, ey, ez)
+        call add_point_charge_images_field(qi, src, rp, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, ex, ey, ez)
         return
       end if
 
@@ -922,8 +957,7 @@ contains
       real(dp) :: d(3), dist2, dist, radius, theta_eff
 
       d = rp - self%node_center(:, node_idx)
-      d(axis1) = d(axis1) - self%periodic_len(1) * dnint(d(axis1) / self%periodic_len(1))
-      d(axis2) = d(axis2) - self%periodic_len(2) * dnint(d(axis2) / self%periodic_len(2))
+      call apply_periodic2_minimum_image(self, d)
       dist2 = sum(d * d)
       if (dist2 <= 0.0d0) then
         accept_node_periodic_target = .false.
@@ -950,7 +984,6 @@ contains
       end if
     end function accept_node_periodic_target
   end subroutine eval_periodic2_tree_target
-
   !> periodic2 の近傍画像和で欠落する遠方セル寄与を、erfc スクリーン核で補正する。
   subroutine add_periodic2_ewald_like_correction(self, leaf_slot, r, ex, ey, ez)
     class(field_solver_type), intent(in) :: self
