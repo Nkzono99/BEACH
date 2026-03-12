@@ -7,12 +7,14 @@ program test_app_config_parser
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
-  type(app_config) :: cfg, photo_cfg
+  type(app_config) :: cfg, photo_cfg, large_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
   character(len=*), parameter :: photo_cfg_path = 'test_app_config_parser_photo_tmp.toml'
+  character(len=*), parameter :: large_cfg_path = 'test_app_config_parser_large_tmp.toml'
 
   call write_config_fixture(cfg_path)
   call write_photo_config_fixture(photo_cfg_path)
+  call write_large_config_fixture(large_cfg_path)
 
   call default_app_config(cfg)
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
@@ -73,8 +75,19 @@ program test_app_config_parser
   call assert_equal_i32(total_particles_from_config(photo_cfg), 0_i32, 'photo total particle count mismatch')
   call assert_equal_i32(photo_cfg%n_particles, 0_i32, 'photo cached n_particles mismatch')
 
+  call default_app_config(large_cfg)
+  call load_app_config(large_cfg_path, large_cfg)
+
+  call assert_equal_i32(large_cfg%n_particle_species, 12_i32, 'large n_particle_species mismatch')
+  call assert_equal_i32(large_cfg%n_templates, 12_i32, 'large n_templates mismatch')
+  call assert_true(trim(large_cfg%templates(12)%kind) == 'sphere', 'large 12th template kind mismatch')
+  call assert_equal_i32(large_cfg%particle_species(12)%npcls_per_step, 1_i32, 'large 12th species npcls mismatch')
+  call assert_equal_i32(particles_per_batch_from_config(large_cfg), 12_i32, 'large per-batch particle count mismatch')
+  call assert_equal_i32(total_particles_from_config(large_cfg), 24_i32, 'large total particle count mismatch')
+
   call delete_file_if_exists(cfg_path)
   call delete_file_if_exists(photo_cfg_path)
+  call delete_file_if_exists(large_cfg_path)
 
 contains
 
@@ -176,5 +189,36 @@ contains
 
     close (u)
   end subroutine write_photo_config_fixture
+
+  !> 既定初期容量を超える species/template を含む設定ファイルを書き出す。
+  !! @param[in] path 書き出し先TOMLファイルパス。
+  subroutine write_large_config_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios, i
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open large config fixture'
+
+    write (u, '(a)') '[sim]'
+    write (u, '(a)') 'batch_count = 2'
+    write (u, '(a)') ''
+    write (u, '(a)') '[particles]'
+    do i = 1, 12
+      write (u, '(a)') '[[particles.species]]'
+      write (u, '(a)') 'npcls_per_step = 1'
+    end do
+    write (u, '(a)') ''
+    write (u, '(a)') '[mesh]'
+    write (u, '(a)') 'mode = "template"'
+    do i = 1, 12
+      write (u, '(a)') '[[mesh.templates]]'
+      write (u, '(a)') 'kind = "sphere"'
+      write (u, '(a)') 'enabled = true'
+      write (u, '(a)') 'radius = 0.1'
+      write (u, '(a)') 'center = [0.0, 0.0, 0.2]'
+    end do
+
+    close (u)
+  end subroutine write_large_config_fixture
 
 end program test_app_config_parser

@@ -58,6 +58,7 @@ Python CLI examples:
 - Keep algorithms correctness-first; gate performance features behind flags.
 - Add/extend tests when modifying field, collision, boundary, injection, or resume logic.
 - Keep Python side lightweight; avoid heavy dependencies unless justified.
+- Ignore `*.i90` files, as they are automatically generated backup files.
 
 ## Simulator invariants (v0.x)
 - Interaction: absorption only (default).

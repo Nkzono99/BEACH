@@ -17,6 +17,7 @@ from .fortran_results import (
     load_fortran_result,
     plot_charge_mesh,
     plot_charges,
+    plot_mesh_source_boxplot,
     plot_potential_mesh,
     plot_potential_slices,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "list_fortran_runs",
     "plot_charges",
     "plot_charge_mesh",
+    "plot_mesh_source_boxplot",
     "plot_potential_mesh",
     "plot_potential_slices",
 ]
