@@ -167,6 +167,40 @@ def test_estimate_workload_accepts_treecode_sim_keys() -> None:
     assert result["batch_totals"] == [3]
 
 
+def test_estimate_workload_accepts_periodic_field_sim_keys() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "field_solver": "fmm",
+            "field_bc_mode": "periodic2",
+            "field_periodic_image_layers": 2,
+            "field_periodic_far_correction": "ewald_like",
+            "field_periodic_ewald_alpha": 1.2,
+            "field_periodic_ewald_layers": 6,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+            "bc_x_low": "periodic",
+            "bc_x_high": "periodic",
+            "bc_y_low": "periodic",
+            "bc_y_high": "periodic",
+            "bc_z_low": "open",
+            "bc_z_high": "open",
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 3,
+                },
+            ]
+        },
+    }
+
+    result = estimate_workload(config=config, threads=1)
+    assert result["batch_totals"] == [3]
+
+
 def test_estimate_workload_rejects_w_and_target_together_for_reservoir() -> None:
     config = {
         "sim": {

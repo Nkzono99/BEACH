@@ -5,21 +5,56 @@ contains
 
   !> 設定値から direct/treecode/fmm の実行モードを確定し、必要なら木構造を初期化する。
   module procedure init_field_solver
-    character(len=16) :: requested_mode
+    character(len=16) :: requested_mode, field_bc_mode
+    integer(i32) :: axis, n_periodic
+    real(dp) :: span, min_periodic_len
 
     self%softening = sim%softening
     self%min_nelem = sim%tree_min_nelem
     self%nelem = mesh%nelem
+    self%use_periodic2 = .false.
+    self%periodic_axes = 0_i32
+    self%periodic_len = 0.0d0
+    self%periodic_image_layers = max(0_i32, sim%field_periodic_image_layers)
+    self%periodic_far_correction = lower_ascii(trim(sim%field_periodic_far_correction))
+    self%periodic_ewald_alpha = sim%field_periodic_ewald_alpha
+    self%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
 
     requested_mode = lower_ascii(trim(sim%field_solver))
-    select case (lower_ascii(trim(sim%field_bc_mode)))
+    field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
+    self%field_bc_mode = field_bc_mode
+    select case (trim(field_bc_mode))
     case ('free')
+      self%periodic_far_correction = 'none'
       continue
     case ('periodic2')
       if (trim(requested_mode) /= 'fmm') then
         error stop 'sim.field_bc_mode must be "free" unless sim.field_solver="fmm".'
       end if
-      error stop 'sim.field_bc_mode="periodic2" for sim.field_solver="fmm" is not implemented yet.'
+      n_periodic = 0_i32
+      do axis = 1_i32, 3_i32
+        if ((sim%bc_low(axis) == bc_periodic) .neqv. (sim%bc_high(axis) == bc_periodic)) then
+          error stop 'periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes.'
+        end if
+        if (sim%bc_low(axis) == bc_periodic) then
+          n_periodic = n_periodic + 1_i32
+          if (n_periodic <= 2_i32) self%periodic_axes(n_periodic) = axis
+        end if
+      end do
+      if (n_periodic /= 2_i32) then
+        error stop 'sim.field_bc_mode="periodic2" requires exactly two periodic axes.'
+      end if
+      do axis = 1_i32, 2_i32
+        span = sim%box_max(self%periodic_axes(axis)) - sim%box_min(self%periodic_axes(axis))
+        if (span <= 0.0d0) error stop 'periodic2 requires positive box length on periodic axes.'
+        self%periodic_len(axis) = span
+      end do
+      min_periodic_len = min(self%periodic_len(1), self%periodic_len(2))
+      if (self%periodic_ewald_alpha <= 0.0d0) then
+        ! 最初の省略画像殻で erfc(alpha*r) ~ 0.1 程度になるように自動設定する。
+        self%periodic_ewald_alpha = 1.2d0 / (real(self%periodic_image_layers + 1_i32, dp) * min_periodic_len)
+      end if
+      self%use_periodic2 = .true.
     case default
       error stop 'Unknown sim.field_bc_mode in field solver init.'
     end select
@@ -45,6 +80,10 @@ contains
       call estimate_auto_tree_params(mesh%nelem, self%theta, self%leaf_max)
       if (sim%has_tree_theta) self%theta = sim%tree_theta
       if (sim%has_tree_leaf_max) self%leaf_max = sim%tree_leaf_max
+      if (self%use_periodic2) then
+        if (.not. sim%has_tree_theta) self%theta = min(self%theta, 0.07d0)
+        if (.not. sim%has_tree_leaf_max) self%leaf_max = min(self%leaf_max, 3_i32)
+      end if
     else
       self%theta = sim%tree_theta
       self%leaf_max = sim%tree_leaf_max

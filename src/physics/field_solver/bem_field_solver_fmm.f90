@@ -1,16 +1,24 @@
 !> `bem_field_solver` の FMM 相互作用構築と評価を実装する submodule。
 submodule (bem_field_solver) bem_field_solver_fmm
   implicit none
+  real(dp), parameter :: inv_sqrt_pi = 0.56418958354775628695d0
 contains
 
   !> source/target ノード球が十分離れていれば遠方相互作用として扱う。
   module procedure nodes_well_separated
-    real(dp) :: dx, dy, dz, dist, dist2, rs, rt, d_min
+    integer(i32) :: k, axis
+    real(dp) :: d(3), dist, dist2, rs, rt, d_min
 
-    dx = self%node_center(1, target_node) - self%node_center(1, source_node)
-    dy = self%node_center(2, target_node) - self%node_center(2, source_node)
-    dz = self%node_center(3, target_node) - self%node_center(3, source_node)
-    dist2 = dx * dx + dy * dy + dz * dz
+    d(1) = self%node_center(1, target_node) - self%node_center(1, source_node)
+    d(2) = self%node_center(2, target_node) - self%node_center(2, source_node)
+    d(3) = self%node_center(3, target_node) - self%node_center(3, source_node)
+    if (self%use_periodic2) then
+      do k = 1_i32, 2_i32
+        axis = self%periodic_axes(k)
+        d(axis) = d(axis) - self%periodic_len(k) * dnint(d(axis) / self%periodic_len(k))
+      end do
+    end if
+    dist2 = sum(d * d)
     if (dist2 <= 0.0d0) then
       accept_it = .false.
       return
@@ -274,7 +282,11 @@ contains
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: far_pos, far_node
     integer(i32) :: near_pos, near_node, p, idx, p_end
+    integer(i32) :: img_i, img_j, img_min, img_max
+    integer(i32) :: axis1, axis2
     real(dp) :: soft2, r2, inv_r3, dx, dy, dz, qi
+    real(dp) :: shift1, shift2
+    real(dp) :: src_x, src_y, src_z
     real(dp) :: ex, ey, ez
 
     leaf_node = locate_target_leaf(self, r)
@@ -289,6 +301,16 @@ contains
     end if
 
     soft2 = self%softening * self%softening
+    img_min = 0_i32
+    img_max = 0_i32
+    axis1 = 0_i32
+    axis2 = 0_i32
+    if (self%use_periodic2) then
+      img_min = -self%periodic_image_layers
+      img_max = self%periodic_image_layers
+      axis1 = self%periodic_axes(1)
+      axis2 = self%periodic_axes(2)
+    end if
     ex = 0.0d0
     ey = 0.0d0
     ez = 0.0d0
@@ -296,14 +318,33 @@ contains
       far_node = self%far_nodes(far_pos)
       qi = self%node_q(far_node)
       if (abs(qi) <= tiny(1.0d0)) cycle
-      dx = r(1) - self%node_charge_center(1, far_node)
-      dy = r(2) - self%node_charge_center(2, far_node)
-      dz = r(3) - self%node_charge_center(3, far_node)
-      r2 = dx * dx + dy * dy + dz * dz + soft2
-      inv_r3 = 1.0d0 / (sqrt(r2) * r2)
-      ex = ex + qi * inv_r3 * dx
-      ey = ey + qi * inv_r3 * dy
-      ez = ez + qi * inv_r3 * dz
+      do img_i = img_min, img_max
+        do img_j = img_min, img_max
+          shift1 = 0.0d0
+          shift2 = 0.0d0
+          if (self%use_periodic2) then
+            shift1 = real(img_i, dp) * self%periodic_len(1)
+            shift2 = real(img_j, dp) * self%periodic_len(2)
+          end if
+          src_x = self%node_charge_center(1, far_node)
+          src_y = self%node_charge_center(2, far_node)
+          src_z = self%node_charge_center(3, far_node)
+          if (axis1 == 1_i32) src_x = src_x + shift1
+          if (axis1 == 2_i32) src_y = src_y + shift1
+          if (axis1 == 3_i32) src_z = src_z + shift1
+          if (axis2 == 1_i32) src_x = src_x + shift2
+          if (axis2 == 2_i32) src_y = src_y + shift2
+          if (axis2 == 3_i32) src_z = src_z + shift2
+          dx = r(1) - src_x
+          dy = r(2) - src_y
+          dz = r(3) - src_z
+          r2 = dx * dx + dy * dy + dz * dz + soft2
+          inv_r3 = 1.0d0 / (sqrt(r2) * r2)
+          ex = ex + qi * inv_r3 * dx
+          ey = ey + qi * inv_r3 * dy
+          ez = ez + qi * inv_r3 * dz
+        end do
+      end do
     end do
 
     do near_pos = self%near_start(leaf_slot), self%near_start(leaf_slot + 1_i32) - 1_i32
@@ -311,21 +352,141 @@ contains
       p_end = self%node_start(near_node) + self%node_count(near_node) - 1_i32
       do p = self%node_start(near_node), p_end
         idx = self%elem_order(p)
-        dx = r(1) - mesh%center_x(idx)
-        dy = r(2) - mesh%center_y(idx)
-        dz = r(3) - mesh%center_z(idx)
-        r2 = dx * dx + dy * dy + dz * dz + soft2
-        inv_r3 = 1.0d0 / (sqrt(r2) * r2)
         qi = mesh%q_elem(idx)
-        ex = ex + qi * inv_r3 * dx
-        ey = ey + qi * inv_r3 * dy
-        ez = ez + qi * inv_r3 * dz
+        do img_i = img_min, img_max
+          do img_j = img_min, img_max
+            shift1 = 0.0d0
+            shift2 = 0.0d0
+            if (self%use_periodic2) then
+              shift1 = real(img_i, dp) * self%periodic_len(1)
+              shift2 = real(img_j, dp) * self%periodic_len(2)
+            end if
+            src_x = mesh%center_x(idx)
+            src_y = mesh%center_y(idx)
+            src_z = mesh%center_z(idx)
+            if (axis1 == 1_i32) src_x = src_x + shift1
+            if (axis1 == 2_i32) src_y = src_y + shift1
+            if (axis1 == 3_i32) src_z = src_z + shift1
+            if (axis2 == 1_i32) src_x = src_x + shift2
+            if (axis2 == 2_i32) src_y = src_y + shift2
+            if (axis2 == 3_i32) src_z = src_z + shift2
+            dx = r(1) - src_x
+            dy = r(2) - src_y
+            dz = r(3) - src_z
+            r2 = dx * dx + dy * dy + dz * dz + soft2
+            inv_r3 = 1.0d0 / (sqrt(r2) * r2)
+            ex = ex + qi * inv_r3 * dx
+            ey = ey + qi * inv_r3 * dy
+            ez = ez + qi * inv_r3 * dz
+          end do
+        end do
       end do
     end do
+    if (self%use_periodic2 .and. trim(self%periodic_far_correction) == 'ewald_like') then
+      call add_periodic2_ewald_like_correction(self, leaf_slot, r, ex, ey, ez)
+    end if
 
     e(1) = k_coulomb * ex
     e(2) = k_coulomb * ey
     e(3) = k_coulomb * ez
   end procedure eval_e_fmm
+
+  !> periodic2 の近傍画像和で欠落する遠方セル寄与を、erfc スクリーン核で補正する。
+  subroutine add_periodic2_ewald_like_correction(self, leaf_slot, r, ex, ey, ez)
+    class(field_solver_type), intent(in) :: self
+    integer(i32), intent(in) :: leaf_slot
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(inout) :: ex, ey, ez
+
+    integer(i32) :: node_pos, node_idx
+    integer(i32) :: nimg, img_outer
+    integer(i32) :: axis1, axis2
+    real(dp) :: alpha, qi, src(3)
+
+    if (.not. self%use_periodic2) return
+    if (self%periodic_ewald_layers <= 0_i32) return
+    alpha = self%periodic_ewald_alpha
+    if (alpha <= 0.0d0) return
+
+    nimg = self%periodic_image_layers
+    img_outer = nimg + self%periodic_ewald_layers
+    if (img_outer <= nimg) return
+    axis1 = self%periodic_axes(1)
+    axis2 = self%periodic_axes(2)
+    if (axis1 <= 0_i32 .or. axis2 <= 0_i32) return
+
+    do node_pos = self%far_start(leaf_slot), self%far_start(leaf_slot + 1_i32) - 1_i32
+      node_idx = self%far_nodes(node_pos)
+      qi = self%node_q(node_idx)
+      if (abs(qi) <= tiny(1.0d0)) cycle
+      src = self%node_charge_center(:, node_idx)
+      call add_screened_shifted_node_images(qi, src, r, axis1, axis2, self%periodic_len, nimg, img_outer, alpha, ex, ey, ez)
+    end do
+
+    do node_pos = self%near_start(leaf_slot), self%near_start(leaf_slot + 1_i32) - 1_i32
+      node_idx = self%near_nodes(node_pos)
+      qi = self%node_q(node_idx)
+      if (abs(qi) <= tiny(1.0d0)) cycle
+      src = self%node_charge_center(:, node_idx)
+      call add_screened_shifted_node_images(qi, src, r, axis1, axis2, self%periodic_len, nimg, img_outer, alpha, ex, ey, ez)
+    end do
+  end subroutine add_periodic2_ewald_like_correction
+
+  !> 1 ノードの画像セル寄与を、指定画像範囲外（近傍外）に対して加算する。
+  subroutine add_screened_shifted_node_images(q, src, target, axis1, axis2, periodic_len, near_img, outer_img, alpha, ex, ey, ez)
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: src(3)
+    real(dp), intent(in) :: target(3)
+    integer(i32), intent(in) :: axis1, axis2
+    real(dp), intent(in) :: periodic_len(2)
+    integer(i32), intent(in) :: near_img, outer_img
+    real(dp), intent(in) :: alpha
+    real(dp), intent(inout) :: ex, ey, ez
+
+    integer(i32) :: img_i, img_j
+    real(dp) :: shifted(3)
+
+    if (abs(q) <= tiny(1.0d0)) return
+    do img_i = -outer_img, outer_img
+      do img_j = -outer_img, outer_img
+        if (abs(img_i) <= near_img .and. abs(img_j) <= near_img) cycle
+        shifted = src
+        shifted(axis1) = shifted(axis1) + real(img_i, dp) * periodic_len(1)
+        shifted(axis2) = shifted(axis2) + real(img_j, dp) * periodic_len(2)
+        call add_screened_point_charge(q, target, shifted, alpha, ex, ey, ez)
+      end do
+    end do
+  end subroutine add_screened_shifted_node_images
+
+  !> erfc(alpha*r)/r 由来の勾配核で単一点電荷寄与を加算する。
+  subroutine add_screened_point_charge(q, target, source, alpha, ex, ey, ez)
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: target(3), source(3)
+    real(dp), intent(in) :: alpha
+    real(dp), intent(inout) :: ex, ey, ez
+
+    real(dp) :: dx, dy, dz, r2, rmag, inv_r, inv_r2, inv_r3
+    real(dp) :: ar, screen, gaussian, pref
+
+    if (abs(q) <= tiny(1.0d0)) return
+    dx = target(1) - source(1)
+    dy = target(2) - source(2)
+    dz = target(3) - source(3)
+    r2 = dx * dx + dy * dy + dz * dz
+    if (r2 <= tiny(1.0d0)) return
+
+    rmag = sqrt(r2)
+    inv_r = 1.0d0 / rmag
+    inv_r2 = inv_r * inv_r
+    inv_r3 = inv_r2 * inv_r
+    ar = alpha * rmag
+    screen = erfc(ar)
+    gaussian = exp(-(ar * ar))
+    pref = q * (screen * inv_r3 + 2.0d0 * alpha * inv_sqrt_pi * gaussian * inv_r2)
+
+    ex = ex + pref * dx
+    ey = ey + pref * dy
+    ez = ez + pref * dz
+  end subroutine add_screened_point_charge
 
 end submodule bem_field_solver_fmm

@@ -2,7 +2,7 @@
 module bem_field_solver
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_types, only: mesh_type, sim_config
+  use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field, only: electric_field_at
   implicit none
   private
@@ -11,10 +11,18 @@ module bem_field_solver
 
   type :: field_solver_type
     character(len=16) :: mode = 'direct'
+    character(len=16) :: field_bc_mode = 'free'
     real(dp) :: softening = 1.0d-6
     real(dp) :: theta = 0.5d0
     integer(i32) :: leaf_max = 16_i32
     integer(i32) :: min_nelem = 256_i32
+    logical :: use_periodic2 = .false.
+    integer(i32) :: periodic_axes(2) = 0_i32
+    real(dp) :: periodic_len(2) = 0.0d0
+    integer(i32) :: periodic_image_layers = 1_i32
+    character(len=16) :: periodic_far_correction = 'none'
+    real(dp) :: periodic_ewald_alpha = 0.0d0
+    integer(i32) :: periodic_ewald_layers = 4_i32
     logical :: tree_ready = .false.
     integer(i32) :: nelem = 0_i32
     integer(i32) :: max_node = 0_i32

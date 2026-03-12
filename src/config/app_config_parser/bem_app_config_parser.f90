@@ -174,8 +174,9 @@ contains
   subroutine load_toml_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
-    integer :: u, ios, i, t_idx, s_idx
+    integer :: u, ios, i, axis, t_idx, s_idx
     integer(i32) :: per_batch_particles
+    integer(i32) :: n_periodic_axes
     logical :: has_dynamic_source_species
     character(len=512) :: raw, line, section
 
@@ -262,6 +263,30 @@ contains
     case default
       error stop 'sim.field_bc_mode must be "free" or "periodic2".'
     end select
+    cfg%sim%field_periodic_far_correction = lower(trim(cfg%sim%field_periodic_far_correction))
+    select case (trim(cfg%sim%field_periodic_far_correction))
+    case ('none', 'ewald_like')
+      continue
+    case default
+      error stop 'sim.field_periodic_far_correction must be "none" or "ewald_like".'
+    end select
+    if (cfg%sim%field_periodic_image_layers < 0_i32) then
+      error stop 'sim.field_periodic_image_layers must be >= 0.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%field_periodic_ewald_alpha) .or. cfg%sim%field_periodic_ewald_alpha < 0.0d0) then
+      error stop 'sim.field_periodic_ewald_alpha must be finite and >= 0.'
+    end if
+    if (cfg%sim%field_periodic_ewald_layers < 0_i32) then
+      error stop 'sim.field_periodic_ewald_layers must be >= 0.'
+    end if
+    if (trim(cfg%sim%field_periodic_far_correction) /= 'none') then
+      if (trim(cfg%sim%field_solver) /= 'fmm' .or. trim(cfg%sim%field_bc_mode) /= 'periodic2') then
+        error stop 'sim.field_periodic_far_correction requires sim.field_solver="fmm" and sim.field_bc_mode="periodic2".'
+      end if
+      if (cfg%sim%field_periodic_ewald_layers < 1_i32) then
+        error stop 'sim.field_periodic_ewald_layers must be >= 1 when far correction is enabled.'
+      end if
+    end if
     select case (trim(cfg%sim%field_solver))
     case ('direct', 'treecode', 'auto')
       if (trim(cfg%sim%field_bc_mode) /= 'free') then
@@ -269,7 +294,24 @@ contains
       end if
     case ('fmm')
       if (trim(cfg%sim%field_bc_mode) == 'periodic2') then
-        error stop 'sim.field_bc_mode="periodic2" for sim.field_solver="fmm" is not implemented yet.'
+        if (.not. cfg%sim%use_box) then
+          error stop 'sim.field_bc_mode="periodic2" requires sim.use_box=true.'
+        end if
+        n_periodic_axes = 0_i32
+        do axis = 1, 3
+          if ((cfg%sim%bc_low(axis) == bc_periodic) .neqv. (cfg%sim%bc_high(axis) == bc_periodic)) then
+            error stop 'periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes.'
+          end if
+          if (cfg%sim%bc_low(axis) == bc_periodic) then
+            n_periodic_axes = n_periodic_axes + 1_i32
+            if (cfg%sim%box_max(axis) <= cfg%sim%box_min(axis)) then
+              error stop 'periodic2 requires positive box length on periodic axes.'
+            end if
+          end if
+        end do
+        if (n_periodic_axes /= 2_i32) then
+          error stop 'sim.field_bc_mode="periodic2" requires exactly two periodic axes.'
+        end if
       end if
     end select
     if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0d0 .or. cfg%sim%tree_theta > 1.0d0) then
@@ -419,6 +461,15 @@ contains
     case ('field_bc_mode')
       call parse_string(v, cfg%sim%field_bc_mode)
       cfg%sim%field_bc_mode = lower(trim(cfg%sim%field_bc_mode))
+    case ('field_periodic_image_layers')
+      call parse_int(v, cfg%sim%field_periodic_image_layers)
+    case ('field_periodic_far_correction')
+      call parse_string(v, cfg%sim%field_periodic_far_correction)
+      cfg%sim%field_periodic_far_correction = lower(trim(cfg%sim%field_periodic_far_correction))
+    case ('field_periodic_ewald_alpha')
+      call parse_real(v, cfg%sim%field_periodic_ewald_alpha)
+    case ('field_periodic_ewald_layers')
+      call parse_int(v, cfg%sim%field_periodic_ewald_layers)
     case ('tree_theta')
       call parse_real(v, cfg%sim%tree_theta)
       cfg%sim%has_tree_theta = .true.

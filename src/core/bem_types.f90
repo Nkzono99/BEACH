@@ -22,6 +22,10 @@ module bem_types
     real(dp) :: softening = 1.0d-4
     character(len=16) :: field_solver = 'auto'
     character(len=16) :: field_bc_mode = 'free'
+    integer(i32) :: field_periodic_image_layers = 1_i32
+    character(len=16) :: field_periodic_far_correction = 'none'
+    real(dp) :: field_periodic_ewald_alpha = 0.0d0
+    integer(i32) :: field_periodic_ewald_layers = 4_i32
     real(dp) :: tree_theta = 0.5d0
     logical :: has_tree_theta = .false.
     integer(i32) :: tree_leaf_max = 16_i32
