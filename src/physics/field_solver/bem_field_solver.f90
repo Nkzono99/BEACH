@@ -1,4 +1,4 @@
-!> 粒子位置での電場評価を direct / treecode で切り替える場ソルバ。
+!> 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。
 module bem_field_solver
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
@@ -21,13 +21,21 @@ module bem_field_solver
     integer(i32) :: nnode = 0_i32
     integer(i32), allocatable :: elem_order(:)
     integer(i32), allocatable :: node_start(:), node_count(:)
-    integer(i32), allocatable :: child_count(:), child_idx(:, :)
+    integer(i32), allocatable :: child_count(:), child_idx(:, :), child_octant(:, :)
     real(dp), allocatable :: node_center(:, :)
     real(dp), allocatable :: node_half_size(:, :)
     real(dp), allocatable :: node_radius(:)
     real(dp), allocatable :: node_q(:), node_abs_q(:)
     real(dp), allocatable :: node_qx(:), node_qy(:), node_qz(:)
     real(dp), allocatable :: node_charge_center(:, :)
+    logical :: fmm_ready = .false.
+    integer(i32) :: nleaf = 0_i32
+    integer(i32), allocatable :: leaf_nodes(:)
+    integer(i32), allocatable :: leaf_slot_of_node(:)
+    integer(i32), allocatable :: near_start(:), near_nodes(:)
+    integer(i32), allocatable :: far_start(:), far_nodes(:)
+    real(dp), allocatable :: leaf_far_e0(:, :)
+    real(dp), allocatable :: leaf_far_jac(:, :, :)
   contains
     procedure :: init => init_field_solver
     procedure :: refresh => refresh_field_solver
@@ -51,7 +59,7 @@ module bem_field_solver
       integer(i32), intent(out) :: leaf_max
     end subroutine estimate_auto_tree_params
 
-    !> 現在の要素電荷から treecode モーメントを再計算する。
+    !> 現在の要素電荷から treecode/FMM モーメントを再計算する。
     module subroutine refresh_field_solver(self, mesh)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
@@ -108,7 +116,52 @@ module bem_field_solver
       integer(i32), intent(in) :: max_node_needed
     end subroutine ensure_tree_capacity
 
-    !> treecode 作業配列を解放する。
+    !> 1つのターゲット葉ノードに対して近傍/遠方ノード候補を再帰収集する。
+    recursive module subroutine gather_leaf_interactions(self, target_leaf, source_node, near_buf, near_n, far_buf, far_n)
+      class(field_solver_type), intent(in) :: self
+      integer(i32), intent(in) :: target_leaf
+      integer(i32), intent(in) :: source_node
+      integer(i32), intent(inout) :: near_buf(:)
+      integer(i32), intent(inout) :: near_n
+      integer(i32), intent(inout) :: far_buf(:)
+      integer(i32), intent(inout) :: far_n
+    end subroutine gather_leaf_interactions
+
+    !> source/target ノード対が遠方近似可能かを判定する。
+    module function nodes_well_separated(self, target_node, source_node) result(accept_it)
+      class(field_solver_type), intent(in) :: self
+      integer(i32), intent(in) :: target_node
+      integer(i32), intent(in) :: source_node
+      logical :: accept_it
+    end function nodes_well_separated
+
+    !> 各葉ノードの near/far 相互作用リストを構築する。
+    module subroutine build_fmm_interactions(self)
+      class(field_solver_type), intent(inout) :: self
+    end subroutine build_fmm_interactions
+
+    !> FMM 遠方相互作用から葉ノード局所展開係数を更新する。
+    module subroutine refresh_fmm_locals(self, mesh)
+      class(field_solver_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+    end subroutine refresh_fmm_locals
+
+    !> 観測点の属する葉ノードを返す。
+    module function locate_target_leaf(self, r) result(node_idx)
+      class(field_solver_type), intent(in) :: self
+      real(dp), intent(in) :: r(3)
+      integer(i32) :: node_idx
+    end function locate_target_leaf
+
+    !> FMM 局所展開と近傍 direct 和を用いて観測点の電場を評価する。
+    module subroutine eval_e_fmm(self, mesh, r, e)
+      class(field_solver_type), intent(in) :: self
+      type(mesh_type), intent(in) :: mesh
+      real(dp), intent(in) :: r(3)
+      real(dp), intent(out) :: e(3)
+    end subroutine eval_e_fmm
+
+    !> treecode/FMM 作業配列を解放する。
     module subroutine reset_tree_storage(self)
       class(field_solver_type), intent(inout) :: self
     end subroutine reset_tree_storage
