@@ -267,6 +267,7 @@ contains
     if (allocated(self%far_nodes)) deallocate (self%far_nodes)
     if (allocated(self%leaf_far_e0)) deallocate (self%leaf_far_e0)
     if (allocated(self%leaf_far_jac)) deallocate (self%leaf_far_jac)
+    if (allocated(self%leaf_far_hess)) deallocate (self%leaf_far_hess)
 
     self%nnode = 0_i32
     self%max_node = 0_i32

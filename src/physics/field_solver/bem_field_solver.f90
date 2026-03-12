@@ -44,6 +44,7 @@ module bem_field_solver
     integer(i32), allocatable :: far_start(:), far_nodes(:)
     real(dp), allocatable :: leaf_far_e0(:, :)
     real(dp), allocatable :: leaf_far_jac(:, :, :)
+    real(dp), allocatable :: leaf_far_hess(:, :, :, :)
   contains
     procedure :: init => init_field_solver
     procedure :: refresh => refresh_field_solver
