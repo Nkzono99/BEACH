@@ -80,10 +80,6 @@ contains
       call estimate_auto_tree_params(mesh%nelem, self%theta, self%leaf_max)
       if (sim%has_tree_theta) self%theta = sim%tree_theta
       if (sim%has_tree_leaf_max) self%leaf_max = sim%tree_leaf_max
-      if (self%use_periodic2) then
-        if (.not. sim%has_tree_theta) self%theta = min(self%theta, 0.07d0)
-        if (.not. sim%has_tree_leaf_max) self%leaf_max = min(self%leaf_max, 3_i32)
-      end if
     else
       self%theta = sim%tree_theta
       self%leaf_max = sim%tree_leaf_max

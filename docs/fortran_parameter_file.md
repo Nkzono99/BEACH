@@ -91,7 +91,7 @@ history_stride = 1
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
 | `softening` | float | `1.0e-6` | 電場計算の softening 長さ [m] |
 | `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
-| `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放）。`tree_theta`/`tree_leaf_max` 未指定時は periodic2 向けに保守的な自動値（`theta<=0.07`, `leaf_max<=3`）を使用 |
+| `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放） |
 | `field_periodic_image_layers` | int | `1` | `field_bc_mode="periodic2"` の近傍画像層数。各周期軸で `[-N, N]` の有限画像和を計算（`N>=0`） |
 | `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正モード。`none` / `ewald_like`。`ewald_like` は近傍画像外（`field_periodic_image_layers` より外側）を erfc スクリーン核で近似補正 |
 | `field_periodic_ewald_alpha` | float | `0.0` | `ewald_like` の分割係数。`>0` なら固定値、`0` は自動設定 |
