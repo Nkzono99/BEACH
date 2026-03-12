@@ -4,6 +4,7 @@ module bem_app_config_types
   use bem_types, only: sim_config
   implicit none
 
+  !> 設定配列の初期確保サイズ（上限ではない）。
   integer, parameter :: max_templates = 8
   integer, parameter :: max_particle_species = 8
 
@@ -70,11 +71,12 @@ module bem_app_config_types
   type :: app_config
     character(len=16) :: mesh_mode = 'auto'
     character(len=256) :: obj_path = 'examples/simple_plate.obj'
-    type(template_spec) :: templates(max_templates)
+    integer(i32) :: n_templates = 0_i32
+    type(template_spec), allocatable :: templates(:)
 
     integer(i32) :: n_particles = 0_i32
     integer(i32) :: n_particle_species = 0_i32
-    type(particle_species_spec) :: particle_species(max_particle_species)
+    type(particle_species_spec), allocatable :: particle_species(:)
 
     logical :: write_output = .true.
     character(len=256) :: output_dir = 'outputs/latest'
@@ -140,7 +142,19 @@ contains
   subroutine default_app_config(cfg)
     type(app_config), intent(out) :: cfg
 
-    cfg = app_config()
+    cfg%mesh_mode = 'auto'
+    cfg%obj_path = 'examples/simple_plate.obj'
+    cfg%n_templates = 0_i32
+    cfg%n_particles = 0_i32
+    cfg%n_particle_species = 0_i32
+    cfg%write_output = .true.
+    cfg%output_dir = 'outputs/latest'
+    cfg%history_stride = 1_i32
+    cfg%resume_output = .false.
+    cfg%sim = sim_config()
+    allocate (cfg%templates(max_templates))
+    allocate (cfg%particle_species(max_particle_species))
+    cfg%particle_species = particle_species_spec()
     cfg%sim%dt = 1.0d-9
     cfg%sim%rng_seed = 12345_i32
     cfg%sim%batch_count = 1_i32
@@ -156,6 +170,7 @@ contains
     cfg%sim%phi_infty = 0.0d0
     cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%sim%raycast_max_bounce = 16_i32
+    cfg%n_templates = 1_i32
     cfg%n_particles = 0_i32
 
     cfg%templates(1)%enabled = .true.

@@ -182,6 +182,15 @@ contains
     t_idx = 0
     s_idx = 0
     section = ''
+    if (.not. allocated(cfg%templates)) then
+      allocate (cfg%templates(max_templates))
+      cfg%n_templates = 0_i32
+    end if
+    if (.not. allocated(cfg%particle_species)) then
+      allocate (cfg%particle_species(max_particle_species))
+      cfg%particle_species = particle_species_spec()
+      cfg%n_particle_species = 0_i32
+    end if
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Could not open TOML file.'
@@ -196,12 +205,14 @@ contains
         ! 配列テーブルは専用カウンタを進める。
         if (trim(line) == '[[mesh.templates]]') then
           t_idx = t_idx + 1
-          if (t_idx > max_templates) error stop 'Too many mesh.templates entries.'
+          call ensure_template_capacity(cfg, t_idx)
+          if (int(t_idx, i32) > cfg%n_templates) cfg%n_templates = int(t_idx, i32)
           cfg%templates(t_idx)%enabled = .true.
           section = 'mesh.template'
         else if (trim(line) == '[[particles.species]]') then
           s_idx = s_idx + 1
-          if (s_idx > max_particle_species) error stop 'Too many particles.species entries.'
+          call ensure_particle_species_capacity(cfg, s_idx)
+          if (int(s_idx, i32) > cfg%n_particle_species) cfg%n_particle_species = int(s_idx, i32)
           cfg%particle_species(s_idx) = species_from_defaults()
           cfg%particle_species(s_idx)%enabled = .true.
           section = 'particles.species'
@@ -234,8 +245,9 @@ contains
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
     if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
+    if (t_idx > 0) cfg%n_templates = int(t_idx, i32)
 
-    cfg%n_particle_species = s_idx
+    cfg%n_particle_species = int(s_idx, i32)
     cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
     select case (trim(cfg%sim%field_solver))
     case ('direct', 'treecode', 'auto')
@@ -305,6 +317,53 @@ contains
     end if
     cfg%n_particles = cfg%sim%batch_count * per_batch_particles
   end subroutine load_toml_config
+
+  !> `[[mesh.templates]]` の読み込み数に応じてテンプレート配列容量を拡張する。
+  !! @param[inout] cfg 容量拡張対象のアプリ設定。
+  !! @param[in] required_size 必要最小要素数。
+  subroutine ensure_template_capacity(cfg, required_size)
+    type(app_config), intent(inout) :: cfg
+    integer, intent(in) :: required_size
+    type(template_spec), allocatable :: grown(:)
+    integer :: old_capacity, new_capacity
+
+    if (required_size <= 0) return
+    if (allocated(cfg%templates)) then
+      old_capacity = size(cfg%templates)
+    else
+      old_capacity = 0
+    end if
+    if (old_capacity >= required_size) return
+
+    new_capacity = max(required_size, max(max_templates, max(1, 2 * old_capacity)))
+    allocate (grown(new_capacity))
+    if (old_capacity > 0) grown(1:old_capacity) = cfg%templates(1:old_capacity)
+    call move_alloc(grown, cfg%templates)
+  end subroutine ensure_template_capacity
+
+  !> `[[particles.species]]` の読み込み数に応じて粒子種配列容量を拡張する。
+  !! @param[inout] cfg 容量拡張対象のアプリ設定。
+  !! @param[in] required_size 必要最小要素数。
+  subroutine ensure_particle_species_capacity(cfg, required_size)
+    type(app_config), intent(inout) :: cfg
+    integer, intent(in) :: required_size
+    type(particle_species_spec), allocatable :: grown(:)
+    integer :: old_capacity, new_capacity
+
+    if (required_size <= 0) return
+    if (allocated(cfg%particle_species)) then
+      old_capacity = size(cfg%particle_species)
+    else
+      old_capacity = 0
+    end if
+    if (old_capacity >= required_size) return
+
+    new_capacity = max(required_size, max(max_particle_species, max(1, 2 * old_capacity)))
+    allocate (grown(new_capacity))
+    grown = particle_species_spec()
+    if (old_capacity > 0) grown(1:old_capacity) = cfg%particle_species(1:old_capacity)
+    call move_alloc(grown, cfg%particle_species)
+  end subroutine ensure_particle_species_capacity
 
   !> `[sim]` セクションのキーを `sim_config` へ適用する。
   !! @param[inout] cfg 更新対象のアプリ設定。

@@ -12,7 +12,7 @@ module bem_app_config_runtime
     sample_reservoir_face_particles, sample_photo_raycast_particles
   use bem_particles, only: init_particles
   use bem_app_config_types, only: &
-    app_config, particle_species_spec, template_spec, max_templates, particles_per_batch_from_config, &
+    app_config, particle_species_spec, template_spec, particles_per_batch_from_config, &
     total_particles_from_config
   use bem_app_config_parser, only: lower
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -579,7 +579,13 @@ contains
 
     allocate (v0(3, 0), v1(3, 0), v2(3, 0), elem_mesh_id(0))
     mesh_id = 0_i32
-    do i = 1, int(max_templates, i32)
+    if (.not. allocated(cfg%templates)) then
+      error stop 'Template storage is not allocated in configuration.'
+    end if
+    if (cfg%n_templates > int(size(cfg%templates), i32)) then
+      error stop 'Template count exceeds allocated storage.'
+    end if
+    do i = 1, cfg%n_templates
       if (.not. cfg%templates(i)%enabled) cycle
       mesh_id = mesh_id + 1_i32
       call build_one_template(cfg%templates(i), part)
