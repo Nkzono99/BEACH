@@ -19,6 +19,8 @@ contains
     self%periodic_far_correction = lower_ascii(trim(sim%field_periodic_far_correction))
     self%periodic_ewald_alpha = sim%field_periodic_ewald_alpha
     self%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
+    self%target_box_min = 0.0d0
+    self%target_box_max = 0.0d0
 
     requested_mode = lower_ascii(trim(sim%field_solver))
     field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
@@ -30,6 +32,9 @@ contains
     case ('periodic2')
       if (trim(requested_mode) /= 'fmm') then
         error stop 'sim.field_bc_mode must be "free" unless sim.field_solver="fmm".'
+      end if
+      if (.not. sim%use_box) then
+        error stop 'sim.field_bc_mode="periodic2" requires sim.use_box=true.'
       end if
       n_periodic = 0_i32
       do axis = 1_i32, 3_i32
@@ -49,6 +54,8 @@ contains
         if (span <= 0.0d0) error stop 'periodic2 requires positive box length on periodic axes.'
         self%periodic_len(axis) = span
       end do
+      self%target_box_min = sim%box_min
+      self%target_box_max = sim%box_max
       min_periodic_len = min(self%periodic_len(1), self%periodic_len(2))
       if (self%periodic_ewald_alpha <= 0.0d0) then
         ! 最初の省略画像殻で erfc(alpha*r) ~ 0.1 程度になるように自動設定する。
@@ -75,6 +82,14 @@ contains
     case default
       error stop 'Unknown sim.field_solver in field solver init.'
     end select
+
+    if (trim(self%mode) == 'fmm' .and. sim%use_box) then
+      if (any(sim%box_max <= sim%box_min)) then
+        error stop 'sim.use_box=true requires positive box extents for fmm dual-target.'
+      end if
+      self%target_box_min = sim%box_min
+      self%target_box_max = sim%box_max
+    end if
 
     if (trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') then
       call estimate_auto_tree_params(mesh%nelem, self%theta, self%leaf_max)

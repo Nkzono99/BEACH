@@ -261,6 +261,12 @@ contains
     if (allocated(self%node_charge_center)) deallocate (self%node_charge_center)
     if (allocated(self%leaf_nodes)) deallocate (self%leaf_nodes)
     if (allocated(self%leaf_slot_of_node)) deallocate (self%leaf_slot_of_node)
+    if (allocated(self%target_child_count)) deallocate (self%target_child_count)
+    if (allocated(self%target_child_idx)) deallocate (self%target_child_idx)
+    if (allocated(self%target_child_octant)) deallocate (self%target_child_octant)
+    if (allocated(self%target_node_center)) deallocate (self%target_node_center)
+    if (allocated(self%target_node_half_size)) deallocate (self%target_node_half_size)
+    if (allocated(self%target_node_radius)) deallocate (self%target_node_radius)
     if (allocated(self%near_start)) deallocate (self%near_start)
     if (allocated(self%near_nodes)) deallocate (self%near_nodes)
     if (allocated(self%far_start)) deallocate (self%far_start)
@@ -272,6 +278,9 @@ contains
     self%nnode = 0_i32
     self%max_node = 0_i32
     self%nleaf = 0_i32
+    self%target_nnode = 0_i32
+    self%target_max_node = 0_i32
+    self%target_tree_ready = .false.
     self%tree_ready = .false.
     self%fmm_ready = .false.
     self%nelem = 0_i32

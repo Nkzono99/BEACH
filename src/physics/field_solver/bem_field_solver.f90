@@ -23,6 +23,8 @@ module bem_field_solver
     character(len=16) :: periodic_far_correction = 'none'
     real(dp) :: periodic_ewald_alpha = 0.0d0
     integer(i32) :: periodic_ewald_layers = 4_i32
+    real(dp) :: target_box_min(3) = 0.0d0
+    real(dp) :: target_box_max(3) = 0.0d0
     logical :: tree_ready = .false.
     integer(i32) :: nelem = 0_i32
     integer(i32) :: max_node = 0_i32
@@ -40,6 +42,13 @@ module bem_field_solver
     integer(i32) :: nleaf = 0_i32
     integer(i32), allocatable :: leaf_nodes(:)
     integer(i32), allocatable :: leaf_slot_of_node(:)
+    logical :: target_tree_ready = .false.
+    integer(i32) :: target_max_node = 0_i32
+    integer(i32) :: target_nnode = 0_i32
+    integer(i32), allocatable :: target_child_count(:), target_child_idx(:, :), target_child_octant(:, :)
+    real(dp), allocatable :: target_node_center(:, :)
+    real(dp), allocatable :: target_node_half_size(:, :)
+    real(dp), allocatable :: target_node_radius(:)
     integer(i32), allocatable :: near_start(:), near_nodes(:)
     integer(i32), allocatable :: far_start(:), far_nodes(:)
     real(dp), allocatable :: leaf_far_e0(:, :)
