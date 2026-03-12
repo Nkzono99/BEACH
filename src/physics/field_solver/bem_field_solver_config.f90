@@ -8,8 +8,6 @@ contains
     character(len=16) :: requested_mode
 
     self%softening = sim%softening
-    self%theta = sim%tree_theta
-    self%leaf_max = sim%tree_leaf_max
     self%min_nelem = sim%tree_min_nelem
     self%nelem = mesh%nelem
 
@@ -24,13 +22,21 @@ contains
     case ('auto')
       if (mesh%nelem >= self%min_nelem) then
         self%mode = 'treecode'
-        call estimate_auto_tree_params(mesh%nelem, self%theta, self%leaf_max)
       else
         self%mode = 'direct'
       end if
     case default
       error stop 'Unknown sim.field_solver in field solver init.'
     end select
+
+    if (trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') then
+      call estimate_auto_tree_params(mesh%nelem, self%theta, self%leaf_max)
+      if (sim%has_tree_theta) self%theta = sim%tree_theta
+      if (sim%has_tree_leaf_max) self%leaf_max = sim%tree_leaf_max
+    else
+      self%theta = sim%tree_theta
+      self%leaf_max = sim%tree_leaf_max
+    end if
 
     if ((trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') .and. mesh%nelem > 0_i32) then
       call build_tree_topology(self, mesh)
@@ -41,7 +47,7 @@ contains
     end if
   end procedure init_field_solver
 
-  !> 要素数レンジに応じた treecode の `theta` と `leaf_max` の推奨値を返す。
+  !> 要素数レンジに応じた treecode/FMM の `theta` と `leaf_max` 推奨値を返す。
   module procedure estimate_auto_tree_params
     if (nelem < 1500_i32) then
       theta = 0.40d0

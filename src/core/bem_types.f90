@@ -22,7 +22,9 @@ module bem_types
     real(dp) :: softening = 1.0d-4
     character(len=16) :: field_solver = 'auto'
     real(dp) :: tree_theta = 0.5d0
+    logical :: has_tree_theta = .false.
     integer(i32) :: tree_leaf_max = 16_i32
+    logical :: has_tree_leaf_max = .false.
     integer(i32) :: tree_min_nelem = 256_i32
     logical :: use_hybrid = .true.
     real(dp) :: r_switch_factor = 3.0d0

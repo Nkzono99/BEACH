@@ -68,6 +68,7 @@ program test_dynamics
 
   call test_collision_grid_equivalence()
   call test_field_solver_auto_mode()
+  call test_field_solver_explicit_mode_autotune()
   call test_treecode_field_accuracy()
   call test_fmm_field_accuracy()
 
@@ -263,6 +264,52 @@ contains
     call assert_true(valid_count >= 100_i32, 'treecode accuracy test has too few valid samples')
     call assert_true(max_rel_err <= 1.0d-3, 'treecode E relative error exceeds 1e-3')
   end subroutine test_treecode_field_accuracy
+
+  subroutine test_field_solver_explicit_mode_autotune()
+    type(mesh_type) :: mesh_large
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+
+    call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
+
+    sim = sim_config()
+    sim%field_solver = 'treecode'
+    sim%tree_theta = 0.95d0
+    sim%tree_leaf_max = 3_i32
+    call solver%init(mesh_large, sim)
+    call assert_true(trim(solver%mode) == 'treecode', 'treecode mode mismatch')
+    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'treecode autotune theta mismatch')
+    call assert_equal_i32(solver%leaf_max, 12_i32, 'treecode autotune leaf_max mismatch')
+
+    sim = sim_config()
+    sim%field_solver = 'treecode'
+    sim%tree_theta = 0.95d0
+    sim%tree_leaf_max = 3_i32
+    sim%has_tree_theta = .true.
+    sim%has_tree_leaf_max = .true.
+    call solver%init(mesh_large, sim)
+    call assert_close_dp(solver%theta, 0.95d0, 1.0d-12, 'treecode explicit theta override mismatch')
+    call assert_equal_i32(solver%leaf_max, 3_i32, 'treecode explicit leaf_max override mismatch')
+
+    sim = sim_config()
+    sim%field_solver = 'fmm'
+    sim%tree_theta = 0.92d0
+    sim%tree_leaf_max = 5_i32
+    call solver%init(mesh_large, sim)
+    call assert_true(trim(solver%mode) == 'fmm', 'fmm mode mismatch')
+    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'fmm autotune theta mismatch')
+    call assert_equal_i32(solver%leaf_max, 12_i32, 'fmm autotune leaf_max mismatch')
+
+    sim = sim_config()
+    sim%field_solver = 'fmm'
+    sim%tree_theta = 0.92d0
+    sim%tree_leaf_max = 5_i32
+    sim%has_tree_theta = .true.
+    sim%has_tree_leaf_max = .true.
+    call solver%init(mesh_large, sim)
+    call assert_close_dp(solver%theta, 0.92d0, 1.0d-12, 'fmm explicit theta override mismatch')
+    call assert_equal_i32(solver%leaf_max, 5_i32, 'fmm explicit leaf_max override mismatch')
+  end subroutine test_field_solver_explicit_mode_autotune
 
   subroutine test_fmm_field_accuracy()
     type(mesh_type) :: mesh_fmm

@@ -401,8 +401,10 @@ contains
       cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
     case ('tree_theta')
       call parse_real(v, cfg%sim%tree_theta)
+      cfg%sim%has_tree_theta = .true.
     case ('tree_leaf_max')
       call parse_int(v, cfg%sim%tree_leaf_max)
+      cfg%sim%has_tree_leaf_max = .true.
     case ('tree_min_nelem')
       call parse_int(v, cfg%sim%tree_min_nelem)
     case ('use_hybrid')
