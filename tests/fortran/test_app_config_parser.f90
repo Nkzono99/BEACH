@@ -53,7 +53,7 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%injection_face_phi_grid_n, 5_i32, 'injection_face_phi_grid_n mismatch')
   call assert_equal_i32(cfg%history_stride, 2_i32, 'history_stride mismatch')
   call assert_close_dp(cfg%sim%dt, 2.5d-9, 1.0d-15, 'dt mismatch')
-  call assert_true(trim(cfg%sim%field_solver) == 'auto', 'field_solver mismatch')
+  call assert_true(trim(cfg%sim%field_solver) == 'fmm', 'field_solver mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.35d0, 1.0d-15, 'tree_theta mismatch')
   call assert_equal_i32(cfg%sim%tree_leaf_max, 12_i32, 'tree_leaf_max mismatch')
   call assert_equal_i32(cfg%sim%tree_min_nelem, 1024_i32, 'tree_min_nelem mismatch')
@@ -106,7 +106,7 @@ contains
     write (u, '(a)') 'reservoir_potential_model = "infinity_barrier"'
     write (u, '(a)') 'phi_infty = -2.0'
     write (u, '(a)') 'injection_face_phi_grid_n = 5'
-    write (u, '(a)') 'field_solver = "auto"'
+    write (u, '(a)') 'field_solver = "fmm"'
     write (u, '(a)') 'tree_theta = 0.35'
     write (u, '(a)') 'tree_leaf_max = 12'
     write (u, '(a)') 'tree_min_nelem = 1024'

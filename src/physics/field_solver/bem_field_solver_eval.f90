@@ -3,9 +3,14 @@ submodule (bem_field_solver) bem_field_solver_eval
   implicit none
 contains
 
-  !> 観測点の電場を direct または treecode で評価して返す。
+  !> 観測点の電場を direct / treecode / fmm で評価して返す。
   module procedure eval_e_field_solver
     real(dp) :: rx, ry, rz, soft2, ex, ey, ez
+
+    if (trim(self%mode) == 'fmm' .and. self%tree_ready .and. self%fmm_ready) then
+      call eval_e_fmm(self, mesh, r, e)
+      return
+    end if
 
     if (trim(self%mode) /= 'treecode' .or. .not. self%tree_ready) then
       call electric_field_at(mesh, r, self%softening, e)

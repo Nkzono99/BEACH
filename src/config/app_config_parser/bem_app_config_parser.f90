@@ -250,10 +250,10 @@ contains
     cfg%n_particle_species = int(s_idx, i32)
     cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
     select case (trim(cfg%sim%field_solver))
-    case ('direct', 'treecode', 'auto')
+    case ('direct', 'treecode', 'fmm', 'auto')
       continue
     case default
-      error stop 'sim.field_solver must be "direct", "treecode", or "auto".'
+      error stop 'sim.field_solver must be "direct", "treecode", "fmm", or "auto".'
     end select
     if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0d0 .or. cfg%sim%tree_theta > 1.0d0) then
       error stop 'sim.tree_theta must be finite and satisfy 0 < theta <= 1.'

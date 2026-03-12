@@ -3,7 +3,7 @@ submodule (bem_field_solver) bem_field_solver_config
   implicit none
 contains
 
-  !> 設定値から direct/treecode の実行モードを確定し、必要なら木構造を初期化する。
+  !> 設定値から direct/treecode/fmm の実行モードを確定し、必要なら木構造を初期化する。
   module procedure init_field_solver
     character(len=16) :: requested_mode
 
@@ -19,6 +19,8 @@ contains
       self%mode = 'direct'
     case ('treecode')
       self%mode = 'treecode'
+    case ('fmm')
+      self%mode = 'fmm'
     case ('auto')
       if (mesh%nelem >= self%min_nelem) then
         self%mode = 'treecode'
@@ -30,7 +32,7 @@ contains
       error stop 'Unknown sim.field_solver in field solver init.'
     end select
 
-    if (trim(self%mode) == 'treecode' .and. mesh%nelem > 0_i32) then
+    if ((trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') .and. mesh%nelem > 0_i32) then
       call build_tree_topology(self, mesh)
       call refresh_field_solver(self, mesh)
     else

@@ -15,7 +15,7 @@ contains
     real(dp) :: batch_field_time, batch_push_time, batch_collision_time, batch_times(3)
     type(particles_soa) :: pcls_batch
     type(mpi_context) :: mpi_ctx
-    type(field_solver_type) :: field_solver
+    type(field_solver_type) :: field_solver = field_solver_type()
 
     stats = sim_stats()
     if (present(initial_stats)) stats = initial_stats

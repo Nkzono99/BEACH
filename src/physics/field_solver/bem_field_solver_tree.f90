@@ -9,7 +9,7 @@ contains
     integer(i32) :: p, idx, p_end
     real(dp) :: q, abs_q, qx, qy, qz, qi
 
-    if (trim(self%mode) /= 'treecode') return
+    if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
     if (mesh%nelem <= 0_i32) return
 
     if (.not. self%tree_ready .or. self%nelem /= mesh%nelem) then
@@ -64,6 +64,13 @@ contains
         self%node_charge_center(:, node_idx) = self%node_center(:, node_idx)
       end if
     end do
+
+    if (trim(self%mode) == 'fmm') then
+      if (.not. self%fmm_ready) call build_fmm_interactions(self)
+      call refresh_fmm_locals(self, mesh)
+    else
+      self%fmm_ready = .false.
+    end if
   end procedure refresh_field_solver
 
   !> 要素重心を octree に再配置して木構造トポロジを構築する。
@@ -93,6 +100,7 @@ contains
     call build_node(self, mesh, 1_i32, 1_i32, mesh%nelem)
     self%nelem = mesh%nelem
     self%tree_ready = .true.
+    self%fmm_ready = .false.
   end procedure build_tree_topology
 
   !> 指定区間の要素を1ノードとして登録し、条件を満たせば8分木分割する。
@@ -108,6 +116,7 @@ contains
     self%node_count(node_idx) = count
     self%child_count(node_idx) = 0_i32
     self%child_idx(:, node_idx) = 0_i32
+    self%child_octant(:, node_idx) = 0_i32
 
     idx = self%elem_order(start_idx)
     bb_min = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
@@ -170,6 +179,7 @@ contains
       child_node = self%nnode
       child_k = child_k + 1_i32
       self%child_idx(child_k, node_idx) = child_node
+      self%child_octant(child_k, node_idx) = oct
       call build_node(self, mesh, child_node, child_start, child_end)
       child_start = child_end + 1_i32
     end do
@@ -193,6 +203,7 @@ contains
       self%node_count = 0_i32
       self%child_count = 0_i32
       self%child_idx = 0_i32
+      self%child_octant = 0_i32
       self%node_center = 0.0d0
       self%node_half_size = 0.0d0
       self%node_radius = 0.0d0
@@ -208,7 +219,7 @@ contains
     call reset_tree_storage(self)
     self%max_node = max_node_needed
     allocate (self%node_start(self%max_node), self%node_count(self%max_node))
-    allocate (self%child_count(self%max_node), self%child_idx(8, self%max_node))
+    allocate (self%child_count(self%max_node), self%child_idx(8, self%max_node), self%child_octant(8, self%max_node))
     allocate (self%node_center(3, self%max_node), self%node_half_size(3, self%max_node))
     allocate (self%node_radius(self%max_node))
     allocate (self%node_q(self%max_node), self%node_abs_q(self%max_node))
@@ -219,6 +230,7 @@ contains
     self%node_count = 0_i32
     self%child_count = 0_i32
     self%child_idx = 0_i32
+    self%child_octant = 0_i32
     self%node_center = 0.0d0
     self%node_half_size = 0.0d0
     self%node_radius = 0.0d0
@@ -237,6 +249,7 @@ contains
     if (allocated(self%node_count)) deallocate (self%node_count)
     if (allocated(self%child_count)) deallocate (self%child_count)
     if (allocated(self%child_idx)) deallocate (self%child_idx)
+    if (allocated(self%child_octant)) deallocate (self%child_octant)
     if (allocated(self%node_center)) deallocate (self%node_center)
     if (allocated(self%node_half_size)) deallocate (self%node_half_size)
     if (allocated(self%node_radius)) deallocate (self%node_radius)
@@ -246,9 +259,21 @@ contains
     if (allocated(self%node_qy)) deallocate (self%node_qy)
     if (allocated(self%node_qz)) deallocate (self%node_qz)
     if (allocated(self%node_charge_center)) deallocate (self%node_charge_center)
+    if (allocated(self%leaf_nodes)) deallocate (self%leaf_nodes)
+    if (allocated(self%leaf_slot_of_node)) deallocate (self%leaf_slot_of_node)
+    if (allocated(self%near_start)) deallocate (self%near_start)
+    if (allocated(self%near_nodes)) deallocate (self%near_nodes)
+    if (allocated(self%far_start)) deallocate (self%far_start)
+    if (allocated(self%far_nodes)) deallocate (self%far_nodes)
+    if (allocated(self%leaf_far_e0)) deallocate (self%leaf_far_e0)
+    if (allocated(self%leaf_far_jac)) deallocate (self%leaf_far_jac)
 
     self%nnode = 0_i32
     self%max_node = 0_i32
+    self%nleaf = 0_i32
+    self%tree_ready = .false.
+    self%fmm_ready = .false.
+    self%nelem = 0_i32
   end procedure reset_tree_storage
 
 end submodule bem_field_solver_tree
