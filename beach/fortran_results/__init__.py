@@ -10,6 +10,7 @@ from .mesh import _surface_charge_density
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
+    plot_mesh_source_boxplot,
     plot_potential_mesh,
     plot_potential_slices,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "calc_coulomb",
     "plot_charges",
     "plot_charge_mesh",
+    "plot_mesh_source_boxplot",
     "compute_potential_mesh",
     "compute_potential_points",
     "compute_potential_slices",

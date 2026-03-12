@@ -13,6 +13,7 @@ from .io import load_fortran_result
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
+    plot_mesh_source_boxplot,
     plot_potential_mesh,
     plot_potential_slices,
 )
@@ -409,6 +410,46 @@ class Beach:
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
+        )
+
+    def plot_mesh_source_boxplot(
+        self,
+        *,
+        quantity: str = "charge",
+        step: int | None = -1,
+        softening: float = 0.0,
+        self_term: str = "area_equivalent",
+        showfliers: bool = True,
+    ):
+        """Plot area-weighted boxplots per mesh source.
+
+        Parameters
+        ----------
+        quantity : {"charge", "potential"}, default "charge"
+            Quantity used in boxplot values.
+        step : int or None, default -1
+            History batch step used for charge snapshot.
+            ``None`` uses final charges from ``charges.csv``.
+        softening : float, default 0.0
+            Softening length in meters (potential mode only).
+        self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+            Self-interaction model (potential mode only).
+        showfliers : bool, default True
+            Whether outlier markers are rendered.
+
+        Returns
+        -------
+        tuple
+            ``(figure, axes)`` from matplotlib.
+        """
+
+        return plot_mesh_source_boxplot(
+            self.result,
+            quantity=quantity,
+            step=step,
+            softening=softening,
+            self_term=self_term,
+            showfliers=showfliers,
         )
 
     def animate_mesh(

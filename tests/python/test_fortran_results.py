@@ -17,6 +17,7 @@ from beach.fortran_results import (
     _surface_charge_density,
     list_fortran_runs,
     load_fortran_result,
+    plot_mesh_source_boxplot,
     plot_potential_slices,
     plot_potential_mesh,
 )
@@ -959,6 +960,116 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
 
     assert fig is not None
     assert ax is not None
+    fig.clf()
+
+
+def test_plot_mesh_source_boxplot_charge_uses_area_weighted_statistics() -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            [[0.0, 0.0, 1.0], [2.0, 0.0, 1.0], [0.0, 2.0, 1.0]],
+        ]
+    )
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([0.0, 10.0]),
+        triangles=triangles,
+        mesh_ids=np.array([11, 11], dtype=np.int64),
+    )
+
+    fig, ax = plot_mesh_source_boxplot(result, quantity="charge")
+
+    stats = getattr(ax, "_beach_box_stats")
+    assert len(stats) == 1
+    assert stats[0]["med"] == pytest.approx(10.0)
+    fig.clf()
+
+
+def test_plot_mesh_source_boxplot_supports_potential_quantity() -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [1.2, 0.0, 0.0], [0.0, 0.8, 0.0]],
+            [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]],
+        ]
+    )
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9, -2.0e-9]),
+        triangles=triangles,
+        mesh_ids=np.array([1, 2], dtype=np.int64),
+    )
+
+    fig, ax = plot_mesh_source_boxplot(
+        result,
+        quantity="potential",
+        softening=0.1,
+        self_term="softened_point",
+    )
+
+    stats = getattr(ax, "_beach_box_stats")
+    assert len(stats) == 2
+    assert all(np.isfinite(float(item["med"])) for item in stats)
+    fig.clf()
+
+
+def test_plot_mesh_source_boxplot_rejects_invalid_quantity() -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    with pytest.raises(ValueError, match="quantity"):
+        plot_mesh_source_boxplot(result, quantity="invalid")
+
+
+def test_beach_plot_mesh_source_boxplot_uses_mesh_source_labels(tmp_path: Path) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    out = tmp_path / "run_source_boxplot"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+
+    beach = Beach(out)
+    fig, ax = beach.plot_mesh_source_boxplot(quantity="charge")
+
+    stats = getattr(ax, "_beach_box_stats")
+    labels = [str(item["label"]) for item in stats]
+    assert "id=1 (template/plane)" in labels
+    assert "id=2 (template/box)" in labels
+    assert "id=3 (template/sphere)" in labels
     fig.clf()
 
 

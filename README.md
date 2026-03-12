@@ -85,6 +85,30 @@ beach-plot-potential-slices outputs/latest \
   --save outputs/latest/potential_slices.png
 ```
 
+Python から `mesh source` ごとの面積重み付き箱ひげ図を作る例:
+
+```python
+from beach import Beach
+
+run = Beach("outputs/latest")
+
+# 電荷 [C] の面積重み付き箱ひげ図（mesh sourceごと）
+fig_q, ax_q = run.plot_mesh_source_boxplot(
+    quantity="charge",
+    step=-1,          # 最新 history。None なら charges.csv を使う
+    showfliers=False,
+)
+fig_q.savefig("outputs/latest/charge_box_by_source.png", dpi=150)
+
+# ポテンシャル [V] の面積重み付き箱ひげ図（mesh sourceごと）
+fig_phi, ax_phi = run.plot_mesh_source_boxplot(
+    quantity="potential",
+    softening=0.0,
+    self_term="area_equivalent",
+)
+fig_phi.savefig("outputs/latest/potential_box_by_source.png", dpi=150)
+```
+
 ## 3. 運用でよく使うコマンド
 
 ### 3.1 負荷見積もり
