@@ -18,6 +18,7 @@ program test_app_config_parser
 
   call default_app_config(cfg)
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
+  call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field_bc_mode mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.5d0, 1.0d-15, 'default tree_theta mismatch')
   call assert_true(.not. cfg%sim%has_tree_theta, 'default has_tree_theta should be false')
   call assert_equal_i32(cfg%sim%tree_leaf_max, 16_i32, 'default tree_leaf_max mismatch')
@@ -56,6 +57,7 @@ program test_app_config_parser
   call assert_equal_i32(cfg%history_stride, 2_i32, 'history_stride mismatch')
   call assert_close_dp(cfg%sim%dt, 2.5d-9, 1.0d-15, 'dt mismatch')
   call assert_true(trim(cfg%sim%field_solver) == 'fmm', 'field_solver mismatch')
+  call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'field_bc_mode mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.35d0, 1.0d-15, 'tree_theta mismatch')
   call assert_true(cfg%sim%has_tree_theta, 'has_tree_theta mismatch')
   call assert_equal_i32(cfg%sim%tree_leaf_max, 12_i32, 'tree_leaf_max mismatch')
@@ -111,6 +113,7 @@ contains
     write (u, '(a)') 'phi_infty = -2.0'
     write (u, '(a)') 'injection_face_phi_grid_n = 5'
     write (u, '(a)') 'field_solver = "fmm"'
+    write (u, '(a)') 'field_bc_mode = "free"'
     write (u, '(a)') 'tree_theta = 0.35'
     write (u, '(a)') 'tree_leaf_max = 12'
     write (u, '(a)') 'tree_min_nelem = 1024'

@@ -255,6 +255,23 @@ contains
     case default
       error stop 'sim.field_solver must be "direct", "treecode", "fmm", or "auto".'
     end select
+    cfg%sim%field_bc_mode = lower(trim(cfg%sim%field_bc_mode))
+    select case (trim(cfg%sim%field_bc_mode))
+    case ('free', 'periodic2')
+      continue
+    case default
+      error stop 'sim.field_bc_mode must be "free" or "periodic2".'
+    end select
+    select case (trim(cfg%sim%field_solver))
+    case ('direct', 'treecode', 'auto')
+      if (trim(cfg%sim%field_bc_mode) /= 'free') then
+        error stop 'sim.field_bc_mode must be "free" when sim.field_solver is "direct", "treecode", or "auto".'
+      end if
+    case ('fmm')
+      if (trim(cfg%sim%field_bc_mode) == 'periodic2') then
+        error stop 'sim.field_bc_mode="periodic2" for sim.field_solver="fmm" is not implemented yet.'
+      end if
+    end select
     if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0d0 .or. cfg%sim%tree_theta > 1.0d0) then
       error stop 'sim.tree_theta must be finite and satisfy 0 < theta <= 1.'
     end if
@@ -399,6 +416,9 @@ contains
     case ('field_solver')
       call parse_string(v, cfg%sim%field_solver)
       cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
+    case ('field_bc_mode')
+      call parse_string(v, cfg%sim%field_bc_mode)
+      cfg%sim%field_bc_mode = lower(trim(cfg%sim%field_bc_mode))
     case ('tree_theta')
       call parse_real(v, cfg%sim%tree_theta)
       cfg%sim%has_tree_theta = .true.

@@ -91,6 +91,7 @@ history_stride = 1
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
 | `softening` | float | `1.0e-6` | 電場計算の softening 長さ [m] |
 | `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
+| `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。現行実装では `periodic2` は未実装（エラー停止）。`field_solver=direct/treecode/auto` では `free` のみ許可 |
 | `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ（`0 < theta <= 1`、`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数（`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切替える要素数しきい値 |

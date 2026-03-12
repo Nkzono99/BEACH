@@ -21,6 +21,7 @@ module bem_types
     real(dp) :: q_floor = 1.0d-30
     real(dp) :: softening = 1.0d-4
     character(len=16) :: field_solver = 'auto'
+    character(len=16) :: field_bc_mode = 'free'
     real(dp) :: tree_theta = 0.5d0
     logical :: has_tree_theta = .false.
     integer(i32) :: tree_leaf_max = 16_i32

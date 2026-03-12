@@ -12,6 +12,18 @@ contains
     self%nelem = mesh%nelem
 
     requested_mode = lower_ascii(trim(sim%field_solver))
+    select case (lower_ascii(trim(sim%field_bc_mode)))
+    case ('free')
+      continue
+    case ('periodic2')
+      if (trim(requested_mode) /= 'fmm') then
+        error stop 'sim.field_bc_mode must be "free" unless sim.field_solver="fmm".'
+      end if
+      error stop 'sim.field_bc_mode="periodic2" for sim.field_solver="fmm" is not implemented yet.'
+    case default
+      error stop 'Unknown sim.field_bc_mode in field solver init.'
+    end select
+
     select case (trim(requested_mode))
     case ('direct')
       self%mode = 'direct'
