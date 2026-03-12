@@ -742,6 +742,123 @@ def test_compute_potential_points_matches_centroid_point_charge_model() -> None:
     np.testing.assert_allclose(potential, expected)
 
 
+def test_compute_potential_points_supports_periodic2_image_sum() -> None:
+    triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
+    charge = np.array([2.0e-9])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charge,
+        triangles=triangles,
+    )
+    points = np.array([[0.0, 0.0, 2.0]])
+    periodic2 = {"axes": (0, 1), "lengths": (1.0, 1.0), "image_layers": 1}
+
+    potential = compute_potential_points(result, points, periodic2=periodic2)
+
+    expected_sum = 0.0
+    for ix in (-1, 0, 1):
+        for iy in (-1, 0, 1):
+            radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
+            expected_sum += charge[0] / radius
+    np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+
+
+def test_compute_potential_mesh_supports_periodic2_image_sum() -> None:
+    triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
+    charge = np.array([2.0e-9])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charge,
+        triangles=triangles,
+    )
+    periodic2 = {"axes": (0, 1), "lengths": (1.0, 1.0), "image_layers": 1}
+
+    potential = compute_potential_mesh(
+        result,
+        self_term="exclude",
+        periodic2=periodic2,
+    )
+
+    expected_sum = 0.0
+    for ix in (-1, 0, 1):
+        for iy in (-1, 0, 1):
+            if ix == 0 and iy == 0:
+                continue
+            radius = np.sqrt(float(ix * ix + iy * iy))
+            expected_sum += charge[0] / radius
+    np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+
+
+def test_compute_potential_points_auto_detects_periodic2_from_config(tmp_path: Path) -> None:
+    out = tmp_path / "run_periodic"
+    out.mkdir()
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=1",
+                "processed_particles=0",
+                "absorbed=0",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,2.0e-9\n", encoding="utf-8")
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,-1.0,-1.0,0.0,1.0,-1.0,0.0,0.0,2.0,0.0,2.0e-9,1\n",
+        encoding="utf-8",
+    )
+    (out / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -1.0]",
+                "box_max = [1.0, 1.0, 1.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                "field_periodic_image_layers = 1",
+                'field_periodic_far_correction = "none"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+    points = np.array([[0.0, 0.0, 2.0]])
+    potential = compute_potential_points(result, points)
+
+    expected_sum = 0.0
+    for ix in (-1, 0, 1):
+        for iy in (-1, 0, 1):
+            radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
+            expected_sum += 2.0e-9 / radius
+    np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+
+
 def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
@@ -762,6 +879,12 @@ def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
         compute_potential_points(result, np.array([0.0, 0.0, 1.0]))
     with pytest.raises(ValueError, match="chunk_size"):
         compute_potential_points(result, np.array([[0.0, 0.0, 1.0]]), chunk_size=0)
+    with pytest.raises(ValueError, match="axes"):
+        compute_potential_points(
+            result,
+            np.array([[0.0, 0.0, 1.0]]),
+            periodic2={"axes": (0, 0), "lengths": (1.0, 1.0)},
+        )
 
 
 def test_compute_potential_slices_returns_xy_yz_xz_grids() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Literal, TYPE_CHECKING
+from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
@@ -214,6 +214,7 @@ class Beach:
         *,
         softening: float = 0.0,
         self_term: str = "area_equivalent",
+        periodic2: Mapping[str, object] | None = None,
     ) -> np.ndarray:
         """Compute potential values at triangle centroids.
 
@@ -223,6 +224,10 @@ class Beach:
             Softening length in meters.
         self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
             Self-interaction model.
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting. See
+            :func:`beach.fortran_results.compute_potential_mesh`.
+            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
 
         Returns
         -------
@@ -234,6 +239,7 @@ class Beach:
             self.result,
             softening=softening,
             self_term=self_term,
+            periodic2=periodic2,
         )
 
     def compute_potential_points(
@@ -242,6 +248,7 @@ class Beach:
         *,
         softening: float = 0.0,
         chunk_size: int = 2048,
+        periodic2: Mapping[str, object] | None = None,
     ) -> np.ndarray:
         """Compute potential values at arbitrary 3D points.
 
@@ -253,6 +260,10 @@ class Beach:
             Softening length in meters.
         chunk_size : int, default 2048
             Number of points processed per chunk.
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting. See
+            :func:`beach.fortran_results.compute_potential_points`.
+            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
 
         Returns
         -------
@@ -265,6 +276,7 @@ class Beach:
             points,
             softening=softening,
             chunk_size=chunk_size,
+            periodic2=periodic2,
         )
 
     def compute_potential_slices(
@@ -278,6 +290,7 @@ class Beach:
         xz_y: float | None = None,
         softening: float = 0.0,
         chunk_size: int = 2048,
+        periodic2: Mapping[str, object] | None = None,
     ):
         """Compute potential slices on XY/YZ/XZ planes.
 
@@ -299,6 +312,10 @@ class Beach:
             Softening length in meters.
         chunk_size : int, default 2048
             Sampling chunk size.
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting. See
+            :func:`beach.fortran_results.compute_potential_points`.
+            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
 
         Returns
         -------
@@ -316,6 +333,7 @@ class Beach:
             xz_y=xz_y,
             softening=softening,
             chunk_size=chunk_size,
+            periodic2=periodic2,
         )
 
     def plot_potential(
@@ -324,6 +342,7 @@ class Beach:
         softening: float = 0.0,
         self_term: str = "area_equivalent",
         cmap: str = "viridis",
+        periodic2: Mapping[str, object] | None = None,
     ):
         """Plot a 3D mesh colored by reconstructed electric potential.
 
@@ -335,6 +354,10 @@ class Beach:
             Self-interaction model.
         cmap : str, default "viridis"
             Matplotlib colormap name.
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting. See
+            :func:`beach.fortran_results.compute_potential_mesh`.
+            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
 
         Returns
         -------
@@ -347,6 +370,7 @@ class Beach:
             softening=softening,
             self_term=self_term,
             cmap=cmap,
+            periodic2=periodic2,
         )
 
     def plot_potential_slices(
@@ -363,6 +387,7 @@ class Beach:
         cmap: str = "viridis",
         vmin: float | None = None,
         vmax: float | None = None,
+        periodic2: Mapping[str, object] | None = None,
     ):
         """Plot XY/YZ/XZ potential slices with a shared color scale.
 
@@ -390,6 +415,10 @@ class Beach:
             Lower color limit.
         vmax : float or None, default None
             Upper color limit.
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting. See
+            :func:`beach.fortran_results.compute_potential_points`.
+            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
 
         Returns
         -------
@@ -410,6 +439,7 @@ class Beach:
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
+            periodic2=periodic2,
         )
 
     def plot_mesh_source_boxplot(

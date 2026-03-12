@@ -144,7 +144,57 @@ def _find_config_path(output_dir: Path, explicit: Path | None) -> Path:
     )
 
 
-def _load_sim_box(config_path: Path) -> tuple[list[float], list[float], bool]:
+def _resolve_periodic2_from_sim(
+    sim: dict[str, Any],
+    *,
+    box_min: list[float],
+    box_max: list[float],
+) -> dict[str, object] | None:
+    field_bc_mode = str(sim.get("field_bc_mode", "free")).strip().lower()
+    if field_bc_mode != "periodic2":
+        return None
+
+    periodic_axes: list[int] = []
+    for axis_idx, axis_name in enumerate(("x", "y", "z")):
+        low_raw = str(sim.get(f"bc_{axis_name}_low", "open")).strip().lower()
+        high_raw = str(sim.get(f"bc_{axis_name}_high", "open")).strip().lower()
+        low = "open" if low_raw in {"open", "outflow", "escape"} else low_raw
+        high = "open" if high_raw in {"open", "outflow", "escape"} else high_raw
+        if (low == "periodic") != (high == "periodic"):
+            raise SystemExit(
+                "periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes."
+            )
+        if low == "periodic":
+            periodic_axes.append(axis_idx)
+
+    if len(periodic_axes) != 2:
+        raise SystemExit('sim.field_bc_mode="periodic2" requires exactly two periodic axes.')
+
+    lengths = [box_max[axis] - box_min[axis] for axis in periodic_axes]
+    if lengths[0] <= 0.0 or lengths[1] <= 0.0:
+        raise SystemExit("periodic2 requires positive box length on periodic axes.")
+
+    try:
+        image_layers = int(sim.get("field_periodic_image_layers", 1))
+        far_correction = str(sim.get("field_periodic_far_correction", "none")).strip().lower()
+        ewald_alpha = float(sim.get("field_periodic_ewald_alpha", 0.0))
+        ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
+    except (TypeError, ValueError) as exc:
+        raise SystemExit("invalid periodic2 potential settings in [sim].") from exc
+
+    return {
+        "axes": tuple(periodic_axes),
+        "lengths": tuple(lengths),
+        "image_layers": image_layers,
+        "far_correction": far_correction,
+        "ewald_alpha": ewald_alpha,
+        "ewald_layers": ewald_layers,
+    }
+
+
+def _load_sim_box(
+    config_path: Path,
+) -> tuple[list[float], list[float], bool, dict[str, object] | None]:
     config = _load_toml(config_path)
     sim = config.get("sim")
     if not isinstance(sim, dict):
@@ -162,7 +212,12 @@ def _load_sim_box(config_path: Path) -> tuple[list[float], list[float], bool]:
             )
 
     use_box = bool(sim.get("use_box", False))
-    return box_min, box_max, use_box
+    periodic2 = _resolve_periodic2_from_sim(
+        sim,
+        box_min=box_min,
+        box_max=box_max,
+    )
+    return box_min, box_max, use_box, periodic2
 
 
 def _default_slice_values(
@@ -223,7 +278,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ) from exc
 
     config_path = _find_config_path(output_dir, args.config)
-    box_min, box_max, use_box = _load_sim_box(config_path)
+    box_min, box_max, use_box, periodic2 = _load_sim_box(config_path)
     xy_z, yz_x, xz_y = _default_slice_values(
         box_min,
         box_max,
@@ -245,6 +300,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             cmap=args.cmap,
             vmin=args.vmin,
             vmax=args.vmax,
+            periodic2=periodic2,
         )
     except ModuleNotFoundError as exc:
         if exc.name is not None and exc.name.startswith("matplotlib"):
@@ -263,6 +319,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"config={config_path}")
     print(f"grid_n={args.grid_n}")
     print(f"box_min={box_min} box_max={box_max}")
+    print(f"periodic2={periodic2}")
     print(f"xy_z={xy_z:.6e} yz_x={yz_x:.6e} xz_y={xz_y:.6e}")
     print(f"vmin={args.vmin} vmax={args.vmax}")
     print(f"use_box={use_box}")

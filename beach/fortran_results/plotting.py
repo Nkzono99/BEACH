@@ -92,6 +92,7 @@ def plot_potential_slices(
     cmap: str = "viridis",
     vmin: float | None = None,
     vmax: float | None = None,
+    periodic2: Mapping[str, object] | None = None,
 ):
     """Plot XY/YZ/XZ potential slices in one figure.
 
@@ -121,6 +122,9 @@ def plot_potential_slices(
         Lower color limit. ``None`` selects automatically.
     vmax : float or None, default None
         Upper color limit. ``None`` selects automatically.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting. See
+        :func:`beach.fortran_results.compute_potential_points`.
 
     Returns
     -------
@@ -145,6 +149,7 @@ def plot_potential_slices(
         xz_y=xz_y,
         softening=softening,
         chunk_size=chunk_size,
+        periodic2=periodic2,
     )
 
     ordered_planes = ("xy", "yz", "xz")
@@ -188,6 +193,7 @@ def plot_potential_mesh(
     softening: float = 0.0,
     self_term: str = "area_equivalent",
     cmap: str = "viridis",
+    periodic2: Mapping[str, object] | None = None,
 ):
     """Plot a 3D mesh colored by reconstructed electric potential.
 
@@ -201,6 +207,9 @@ def plot_potential_mesh(
         Self-interaction model for potential reconstruction.
     cmap : str, default "viridis"
         Matplotlib colormap name.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting. See
+        :func:`beach.fortran_results.compute_potential_mesh`.
 
     Returns
     -------
@@ -215,7 +224,12 @@ def plot_potential_mesh(
 
     resolved = _resolve_result(result)
     triangles = _require_triangles(resolved)
-    phi = compute_potential_mesh(resolved, softening=softening, self_term=self_term)
+    phi = compute_potential_mesh(
+        resolved,
+        softening=softening,
+        self_term=self_term,
+        periodic2=periodic2,
+    )
     return _plot_scalar_mesh(
         triangles,
         phi,

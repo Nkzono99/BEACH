@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+import math
+from pathlib import Path
+from typing import Iterable, Mapping
 
 import numpy as np
 
@@ -17,6 +19,7 @@ def compute_potential_mesh(
     *,
     softening: float = 0.0,
     self_term: str = "area_equivalent",
+    periodic2: Mapping[str, object] | None = None,
 ) -> np.ndarray:
     """Compute electric potential at each triangle centroid.
 
@@ -28,6 +31,14 @@ def compute_potential_mesh(
         Softening length in meters for off-diagonal interactions.
     self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
         Self-interaction model at each centroid.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting for potential reconstruction. Use a mapping with
+        keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
+        positive box lengths), and optional ``image_layers`` (int, default 1),
+        ``far_correction`` (``"none"`` or ``"ewald_like"``), ``ewald_alpha``
+        (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
+        If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
+        ``sim.field_bc_mode="periodic2"`` なら自動適用する。
 
     Returns
     -------
@@ -46,11 +57,23 @@ def compute_potential_mesh(
 
     triangles = _require_triangles(resolved)
     centers = _triangle_centers(triangles)
-    offdiag_kernel = _potential_offdiag_kernel(centers, softening=softening)
     self_coeff = _self_potential_coefficients(
         triangles, self_term=self_term, softening=softening
     )
-    potential = offdiag_kernel @ resolved.charges + self_coeff * resolved.charges
+    periodic_cfg = _coerce_periodic2(periodic2)
+    if periodic_cfg is None:
+        periodic_cfg = _auto_periodic2_from_result(resolved)
+    if periodic_cfg is None:
+        offdiag_kernel = _potential_offdiag_kernel(centers, softening=softening)
+        potential = offdiag_kernel @ resolved.charges + self_coeff * resolved.charges
+    else:
+        potential = _compute_potential_mesh_periodic2(
+            centers,
+            resolved.charges,
+            softening=softening,
+            self_coeff=self_coeff,
+            periodic2=periodic_cfg,
+        )
     return K_COULOMB * potential
 
 
@@ -60,6 +83,7 @@ def compute_potential_points(
     *,
     softening: float = 0.0,
     chunk_size: int = 2048,
+    periodic2: Mapping[str, object] | None = None,
 ) -> np.ndarray:
     """Compute electric potential at arbitrary 3D sampling points.
 
@@ -73,6 +97,13 @@ def compute_potential_points(
         Softening length in meters.
     chunk_size : int, default 2048
         Number of points processed per chunk.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting for potential sampling. Use a mapping with
+        keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
+        positive box lengths), and optional ``image_layers`` (int, default 1),
+        ``far_correction`` (``"none"`` or ``"ewald_like"``), ``ewald_alpha``
+        (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
+        If ``None``, ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
 
     Returns
     -------
@@ -99,16 +130,26 @@ def compute_potential_points(
 
     triangles = _require_triangles(resolved)
     centers = _triangle_centers(triangles)
-    eps2 = softening * softening
-    min_dist2 = np.finfo(float).tiny
-
-    potential = np.empty(sample_points.shape[0], dtype=float)
-    for start in range(0, sample_points.shape[0], chunk_size):
-        stop = min(start + chunk_size, sample_points.shape[0])
-        delta = sample_points[start:stop, None, :] - centers[None, :, :]
-        dist2 = np.sum(delta * delta, axis=2) + eps2
-        inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
-        potential[start:stop] = inv_r @ resolved.charges
+    periodic_cfg = _coerce_periodic2(periodic2)
+    if periodic_cfg is None:
+        periodic_cfg = _auto_periodic2_from_result(resolved)
+    if periodic_cfg is None:
+        potential = _compute_potential_points_free(
+            sample_points,
+            centers,
+            resolved.charges,
+            softening=softening,
+            chunk_size=chunk_size,
+        )
+    else:
+        potential = _compute_potential_points_periodic2(
+            sample_points,
+            centers,
+            resolved.charges,
+            softening=softening,
+            chunk_size=chunk_size,
+            periodic2=periodic_cfg,
+        )
 
     return K_COULOMB * potential
 
@@ -124,6 +165,7 @@ def compute_potential_slices(
     xz_y: float | None = None,
     softening: float = 0.0,
     chunk_size: int = 2048,
+    periodic2: Mapping[str, object] | None = None,
 ) -> dict[str, PotentialSlice2D]:
     """Sample potential on XY/YZ/XZ slices inside a simulation box.
 
@@ -147,6 +189,10 @@ def compute_potential_slices(
         Softening length in meters.
     chunk_size : int, default 2048
         Number of sampling points processed per chunk.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting for potential sampling. See
+        :func:`compute_potential_points` for supported keys. ``None`` 時は
+        ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
 
     Returns
     -------
@@ -163,6 +209,9 @@ def compute_potential_slices(
         raise ValueError("grid_n must be >= 2.")
 
     resolved = _resolve_result(result)
+    periodic_cfg = _coerce_periodic2(periodic2)
+    if periodic_cfg is None:
+        periodic_cfg = _auto_periodic2_from_result(resolved)
     min_corner, max_corner = _coerce_box_bounds(box_min, box_max)
     x = np.linspace(min_corner[0], max_corner[0], grid_n, dtype=float)
     y = np.linspace(min_corner[1], max_corner[1], grid_n, dtype=float)
@@ -194,6 +243,7 @@ def compute_potential_slices(
         points_xy,
         softening=softening,
         chunk_size=chunk_size,
+        periodic2=periodic_cfg,
     ).reshape(grid_n, grid_n)
 
     yy2, zz = np.meshgrid(y, z, indexing="xy")
@@ -203,6 +253,7 @@ def compute_potential_slices(
         points_yz,
         softening=softening,
         chunk_size=chunk_size,
+        periodic2=periodic_cfg,
     ).reshape(grid_n, grid_n)
 
     xx2, zz2 = np.meshgrid(x, z, indexing="xy")
@@ -212,6 +263,7 @@ def compute_potential_slices(
         points_xz,
         softening=softening,
         chunk_size=chunk_size,
+        periodic2=periodic_cfg,
     ).reshape(grid_n, grid_n)
 
     return {
@@ -301,6 +353,271 @@ def _potential_history(
     )
     potential = offdiag_kernel @ charges_history + self_coeff[:, None] * charges_history
     return K_COULOMB * potential
+
+
+def _compute_potential_points_free(
+    points: np.ndarray,
+    centers: np.ndarray,
+    charges: np.ndarray,
+    *,
+    softening: float,
+    chunk_size: int,
+) -> np.ndarray:
+    eps2 = softening * softening
+    min_dist2 = np.finfo(float).tiny
+    potential = np.empty(points.shape[0], dtype=float)
+    for start in range(0, points.shape[0], chunk_size):
+        stop = min(start + chunk_size, points.shape[0])
+        delta = points[start:stop, None, :] - centers[None, :, :]
+        dist2 = np.sum(delta * delta, axis=2) + eps2
+        inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
+        potential[start:stop] = inv_r @ charges
+    return potential
+
+
+def _compute_potential_points_periodic2(
+    points: np.ndarray,
+    centers: np.ndarray,
+    charges: np.ndarray,
+    *,
+    softening: float,
+    chunk_size: int,
+    periodic2: tuple[tuple[int, int], tuple[float, float], int, str, float, int],
+) -> np.ndarray:
+    axes, lengths, nimg, far_correction, alpha, ewald_layers = periodic2
+    axis1, axis2 = axes
+    l1, l2 = lengths
+    eps2 = softening * softening
+    min_dist2 = np.finfo(float).tiny
+    potential = np.zeros(points.shape[0], dtype=float)
+
+    for ix in range(-nimg, nimg + 1):
+        for iy in range(-nimg, nimg + 1):
+            shifted = centers.copy()
+            shifted[:, axis1] += float(ix) * l1
+            shifted[:, axis2] += float(iy) * l2
+            for start in range(0, points.shape[0], chunk_size):
+                stop = min(start + chunk_size, points.shape[0])
+                delta = points[start:stop, None, :] - shifted[None, :, :]
+                dist2 = np.sum(delta * delta, axis=2) + eps2
+                inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
+                potential[start:stop] += inv_r @ charges
+
+    if far_correction == "ewald_like":
+        img_outer = nimg + ewald_layers
+        for ix in range(-img_outer, img_outer + 1):
+            for iy in range(-img_outer, img_outer + 1):
+                if abs(ix) <= nimg and abs(iy) <= nimg:
+                    continue
+                shifted = centers.copy()
+                shifted[:, axis1] += float(ix) * l1
+                shifted[:, axis2] += float(iy) * l2
+                for start in range(0, points.shape[0], chunk_size):
+                    stop = min(start + chunk_size, points.shape[0])
+                    delta = points[start:stop, None, :] - shifted[None, :, :]
+                    dist2 = np.sum(delta * delta, axis=2) + eps2
+                    r = np.sqrt(np.maximum(dist2, min_dist2))
+                    kernel = np.erfc(alpha * r) / r
+                    potential[start:stop] += kernel @ charges
+
+    return potential
+
+
+def _compute_potential_mesh_periodic2(
+    centers: np.ndarray,
+    charges: np.ndarray,
+    *,
+    softening: float,
+    self_coeff: np.ndarray,
+    periodic2: tuple[tuple[int, int], tuple[float, float], int, str, float, int],
+) -> np.ndarray:
+    axes, lengths, nimg, far_correction, alpha, ewald_layers = periodic2
+    axis1, axis2 = axes
+    l1, l2 = lengths
+    eps2 = softening * softening
+    min_dist2 = np.finfo(float).tiny
+    potential = self_coeff * charges
+
+    # Central-cell off-diagonal interaction.
+    delta0 = centers[:, None, :] - centers[None, :, :]
+    dist20 = np.sum(delta0 * delta0, axis=2) + eps2
+    inv_r0 = 1.0 / np.sqrt(np.maximum(dist20, min_dist2))
+    np.fill_diagonal(inv_r0, 0.0)
+    potential += inv_r0 @ charges
+
+    for ix in range(-nimg, nimg + 1):
+        for iy in range(-nimg, nimg + 1):
+            if ix == 0 and iy == 0:
+                continue
+            shifted = centers.copy()
+            shifted[:, axis1] += float(ix) * l1
+            shifted[:, axis2] += float(iy) * l2
+            delta = centers[:, None, :] - shifted[None, :, :]
+            dist2 = np.sum(delta * delta, axis=2) + eps2
+            inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
+            potential += inv_r @ charges
+
+    if far_correction == "ewald_like":
+        img_outer = nimg + ewald_layers
+        for ix in range(-img_outer, img_outer + 1):
+            for iy in range(-img_outer, img_outer + 1):
+                if abs(ix) <= nimg and abs(iy) <= nimg:
+                    continue
+                shifted = centers.copy()
+                shifted[:, axis1] += float(ix) * l1
+                shifted[:, axis2] += float(iy) * l2
+                delta = centers[:, None, :] - shifted[None, :, :]
+                dist2 = np.sum(delta * delta, axis=2) + eps2
+                r = np.sqrt(np.maximum(dist2, min_dist2))
+                kernel = np.erfc(alpha * r) / r
+                potential += kernel @ charges
+
+    return potential
+
+
+def _coerce_periodic2(
+    periodic2: Mapping[str, object] | None,
+) -> tuple[tuple[int, int], tuple[float, float], int, str, float, int] | None:
+    if periodic2 is None:
+        return None
+    if not isinstance(periodic2, Mapping):
+        raise ValueError("periodic2 must be a mapping or None.")
+
+    if "axes" not in periodic2 or "lengths" not in periodic2:
+        raise ValueError('periodic2 requires "axes" and "lengths".')
+    axes_obj = periodic2["axes"]
+    lengths_obj = periodic2["lengths"]
+    if not isinstance(axes_obj, (list, tuple)) or len(axes_obj) != 2:
+        raise ValueError("periodic2.axes must be a length-2 sequence.")
+    if not isinstance(lengths_obj, (list, tuple)) or len(lengths_obj) != 2:
+        raise ValueError("periodic2.lengths must be a length-2 sequence.")
+
+    axes = (int(axes_obj[0]), int(axes_obj[1]))
+    if axes[0] == axes[1] or any(axis < 0 or axis > 2 for axis in axes):
+        raise ValueError("periodic2.axes must contain two distinct axis indices in {0,1,2}.")
+
+    lengths = (float(lengths_obj[0]), float(lengths_obj[1]))
+    if lengths[0] <= 0.0 or lengths[1] <= 0.0:
+        raise ValueError("periodic2.lengths must be positive.")
+
+    nimg = int(periodic2.get("image_layers", 1))
+    if nimg < 0:
+        raise ValueError("periodic2.image_layers must be >= 0.")
+
+    far_correction = str(periodic2.get("far_correction", "none")).strip().lower()
+    if far_correction not in {"none", "ewald_like"}:
+        raise ValueError('periodic2.far_correction must be "none" or "ewald_like".')
+
+    alpha = float(periodic2.get("ewald_alpha", 0.0))
+    if (not math.isfinite(alpha)) or alpha < 0.0:
+        raise ValueError("periodic2.ewald_alpha must be finite and >= 0.")
+    if alpha <= 0.0 and far_correction == "ewald_like":
+        alpha = 1.2 / (float(nimg + 1) * min(lengths))
+
+    ewald_layers = int(periodic2.get("ewald_layers", 4))
+    if ewald_layers < 0:
+        raise ValueError("periodic2.ewald_layers must be >= 0.")
+    if far_correction == "ewald_like" and ewald_layers < 1:
+        raise ValueError("periodic2.ewald_layers must be >= 1 for ewald_like.")
+
+    return axes, lengths, nimg, far_correction, alpha, ewald_layers
+
+
+def _auto_periodic2_from_result(
+    resolved: FortranRunResult,
+) -> tuple[tuple[int, int], tuple[float, float], int, str, float, int] | None:
+    config_path = _find_config_path_near_output(resolved.directory)
+    if config_path is None:
+        return None
+    config = _load_toml(config_path)
+    sim = config.get("sim")
+    if not isinstance(sim, Mapping):
+        return None
+    periodic2 = _periodic2_from_sim(sim)
+    return _coerce_periodic2(periodic2)
+
+
+def _find_config_path_near_output(output_dir: Path) -> Path | None:
+    candidates = (
+        output_dir / "beach.toml",
+        output_dir.parent / "beach.toml",
+        output_dir.parent.parent / "beach.toml",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_toml(path: Path) -> dict[str, object]:
+    try:
+        import tomllib  # py311+
+
+        with path.open("rb") as stream:
+            return tomllib.load(stream)
+    except ModuleNotFoundError:
+        try:
+            import tomli  # type: ignore
+
+            with path.open("rb") as stream:
+                return tomli.load(stream)
+        except ModuleNotFoundError as exc:
+            raise ValueError(
+                "TOML parser is missing. Use Python 3.11+ or install tomli: "
+                "`python -m pip install tomli`."
+            ) from exc
+
+
+def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
+    field_bc_mode = str(sim.get("field_bc_mode", "free")).strip().lower()
+    if field_bc_mode != "periodic2":
+        return None
+
+    if "box_min" not in sim or "box_max" not in sim:
+        raise ValueError('periodic2 potential requires "sim.box_min" and "sim.box_max".')
+    box_min = _coerce_vec3(sim["box_min"], name="sim.box_min")
+    box_max = _coerce_vec3(sim["box_max"], name="sim.box_max")
+
+    periodic_axes: list[int] = []
+    for axis_idx, axis_name in enumerate(("x", "y", "z")):
+        low = _canonical_boundary_mode(sim.get(f"bc_{axis_name}_low", "open"))
+        high = _canonical_boundary_mode(sim.get(f"bc_{axis_name}_high", "open"))
+        if (low == "periodic") != (high == "periodic"):
+            raise ValueError("periodic2 requires bc_low(axis)=bc_high(axis)=periodic.")
+        if low == "periodic":
+            periodic_axes.append(axis_idx)
+
+    if len(periodic_axes) != 2:
+        raise ValueError('sim.field_bc_mode="periodic2" requires exactly two periodic axes.')
+
+    lengths = [box_max[axis] - box_min[axis] for axis in periodic_axes]
+    if lengths[0] <= 0.0 or lengths[1] <= 0.0:
+        raise ValueError("periodic2 requires positive box length on periodic axes.")
+
+    return {
+        "axes": tuple(periodic_axes),
+        "lengths": tuple(lengths),
+        "image_layers": int(sim.get("field_periodic_image_layers", 1)),
+        "far_correction": str(sim.get("field_periodic_far_correction", "none")),
+        "ewald_alpha": float(sim.get("field_periodic_ewald_alpha", 0.0)),
+        "ewald_layers": int(sim.get("field_periodic_ewald_layers", 4)),
+    }
+
+
+def _coerce_vec3(value: object, *, name: str) -> tuple[float, float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"{name} must contain exactly 3 values.")
+    try:
+        return float(value[0]), float(value[1]), float(value[2])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must contain numeric values.") from exc
+
+
+def _canonical_boundary_mode(value: object) -> str:
+    mode = str(value).strip().lower()
+    if mode in {"open", "outflow", "escape"}:
+        return "open"
+    return mode
 
 
 def _self_potential_coefficients(
