@@ -7,6 +7,7 @@ contains
   module procedure refresh_field_solver
     integer(i32) :: node_idx, child_k, child_node
     integer(i32) :: p, idx, p_end
+    integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
     real(dp) :: q, abs_q, qx, qy, qz, qi
     real(dp) :: t_moment_start, t_moment_end, avg_refresh
 
@@ -18,56 +19,69 @@ contains
       call build_tree_topology(self, mesh)
     end if
 
-    if (trim(self%mode) == 'fmm') call cpu_time(t_moment_start)
-    do node_idx = self%nnode, 1_i32, -1_i32
-      if (self%child_count(node_idx) <= 0_i32) then
-        q = 0.0d0
-        abs_q = 0.0d0
-        qx = 0.0d0
-        qy = 0.0d0
-        qz = 0.0d0
-        p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
-        do p = self%node_start(node_idx), p_end
-          idx = self%elem_order(p)
-          qi = mesh%q_elem(idx)
-          q = q + qi
-          abs_q = abs_q + abs(qi)
-          qx = qx + qi * mesh%center_x(idx)
-          qy = qy + qi * mesh%center_y(idx)
-          qz = qz + qi * mesh%center_z(idx)
-        end do
-      else
-        q = 0.0d0
-        abs_q = 0.0d0
-        qx = 0.0d0
-        qy = 0.0d0
-        qz = 0.0d0
-        do child_k = 1_i32, self%child_count(node_idx)
-          child_node = self%child_idx(child_k, node_idx)
-          q = q + self%node_q(child_node)
-          abs_q = abs_q + self%node_abs_q(child_node)
-          qx = qx + self%node_qx(child_node)
-          qy = qy + self%node_qy(child_node)
-          qz = qz + self%node_qz(child_node)
-        end do
-      end if
+    if (.not. allocated(self%node_level_start) .or. .not. allocated(self%node_level_nodes)) then
+      call rebuild_source_level_cache(self)
+    end if
 
-      self%node_q(node_idx) = q
-      self%node_abs_q(node_idx) = abs_q
-      self%node_qx(node_idx) = qx
-      self%node_qy(node_idx) = qy
-      self%node_qz(node_idx) = qz
+    if (trim(self%mode) == 'fmm') t_moment_start = field_solver_time_seconds()
+    do depth = self%node_max_depth, 0_i32, -1_i32
+      level_start_pos = self%node_level_start(depth + 1_i32)
+      level_end_pos = self%node_level_start(depth + 2_i32) - 1_i32
+      !$omp parallel do default(none) schedule(static) &
+      !$omp shared(self,mesh,level_start_pos,level_end_pos) &
+      !$omp private(level_pos,node_idx,child_k,child_node,p,idx,p_end,q,abs_q,qx,qy,qz,qi)
+      do level_pos = level_start_pos, level_end_pos
+        node_idx = self%node_level_nodes(level_pos)
+        if (self%child_count(node_idx) <= 0_i32) then
+          q = 0.0d0
+          abs_q = 0.0d0
+          qx = 0.0d0
+          qy = 0.0d0
+          qz = 0.0d0
+          p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
+          do p = self%node_start(node_idx), p_end
+            idx = self%elem_order(p)
+            qi = mesh%q_elem(idx)
+            q = q + qi
+            abs_q = abs_q + abs(qi)
+            qx = qx + qi * mesh%center_x(idx)
+            qy = qy + qi * mesh%center_y(idx)
+            qz = qz + qi * mesh%center_z(idx)
+          end do
+        else
+          q = 0.0d0
+          abs_q = 0.0d0
+          qx = 0.0d0
+          qy = 0.0d0
+          qz = 0.0d0
+          do child_k = 1_i32, self%child_count(node_idx)
+            child_node = self%child_idx(child_k, node_idx)
+            q = q + self%node_q(child_node)
+            abs_q = abs_q + self%node_abs_q(child_node)
+            qx = qx + self%node_qx(child_node)
+            qy = qy + self%node_qy(child_node)
+            qz = qz + self%node_qz(child_node)
+          end do
+        end if
 
-      if (abs(q) > tiny(1.0d0)) then
-        self%node_charge_center(1, node_idx) = qx / q
-        self%node_charge_center(2, node_idx) = qy / q
-        self%node_charge_center(3, node_idx) = qz / q
-      else
-        self%node_charge_center(:, node_idx) = self%node_center(:, node_idx)
-      end if
+        self%node_q(node_idx) = q
+        self%node_abs_q(node_idx) = abs_q
+        self%node_qx(node_idx) = qx
+        self%node_qy(node_idx) = qy
+        self%node_qz(node_idx) = qz
+
+        if (abs(q) > tiny(1.0d0)) then
+          self%node_charge_center(1, node_idx) = qx / q
+          self%node_charge_center(2, node_idx) = qy / q
+          self%node_charge_center(3, node_idx) = qz / q
+        else
+          self%node_charge_center(:, node_idx) = self%node_center(:, node_idx)
+        end if
+      end do
+      !$omp end parallel do
     end do
     if (trim(self%mode) == 'fmm') then
-      call cpu_time(t_moment_end)
+      t_moment_end = field_solver_time_seconds()
       self%fmm_last_moment_time_s = t_moment_end - t_moment_start
     end if
 
@@ -122,12 +136,17 @@ contains
     end if
     if (.not. allocated(self%elem_order)) allocate (self%elem_order(mesh%nelem))
 
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(self,mesh) private(i)
     do i = 1_i32, mesh%nelem
       self%elem_order(i) = i
     end do
+    !$omp end parallel do
 
     self%nnode = 1_i32
-    call build_node(self, mesh, 1_i32, 1_i32, mesh%nelem)
+    self%node_max_depth = 0_i32
+    call build_node(self, mesh, 1_i32, 1_i32, mesh%nelem, 0_i32)
+    call rebuild_source_level_cache(self)
     self%nelem = mesh%nelem
     self%tree_ready = .true.
     self%fmm_ready = .false.
@@ -147,6 +166,8 @@ contains
     self%child_count(node_idx) = 0_i32
     self%child_idx(:, node_idx) = 0_i32
     self%child_octant(:, node_idx) = 0_i32
+    self%node_depth(node_idx) = depth
+    self%node_max_depth = max(self%node_max_depth, depth)
 
     idx = self%elem_order(start_idx)
     bb_min = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
@@ -210,7 +231,7 @@ contains
       child_k = child_k + 1_i32
       self%child_idx(child_k, node_idx) = child_node
       self%child_octant(child_k, node_idx) = oct
-      call build_node(self, mesh, child_node, child_start, child_end)
+      call build_node(self, mesh, child_node, child_start, child_end, depth + 1_i32)
       child_start = child_end + 1_i32
     end do
     self%child_count(node_idx) = child_k
@@ -234,6 +255,8 @@ contains
       self%child_count = 0_i32
       self%child_idx = 0_i32
       self%child_octant = 0_i32
+      self%node_depth = 0_i32
+      self%node_max_depth = 0_i32
       self%node_center = 0.0d0
       self%node_half_size = 0.0d0
       self%node_radius = 0.0d0
@@ -250,6 +273,7 @@ contains
     self%max_node = max_node_needed
     allocate (self%node_start(self%max_node), self%node_count(self%max_node))
     allocate (self%child_count(self%max_node), self%child_idx(8, self%max_node), self%child_octant(8, self%max_node))
+    allocate (self%node_depth(self%max_node))
     allocate (self%node_center(3, self%max_node), self%node_half_size(3, self%max_node))
     allocate (self%node_radius(self%max_node))
     allocate (self%node_q(self%max_node), self%node_abs_q(self%max_node))
@@ -261,6 +285,8 @@ contains
     self%child_count = 0_i32
     self%child_idx = 0_i32
     self%child_octant = 0_i32
+    self%node_depth = 0_i32
+    self%node_max_depth = 0_i32
     self%node_center = 0.0d0
     self%node_half_size = 0.0d0
     self%node_radius = 0.0d0
@@ -272,6 +298,36 @@ contains
     self%node_charge_center = 0.0d0
   end procedure ensure_tree_capacity
 
+  module procedure rebuild_source_level_cache
+    integer(i32) :: node_idx, depth
+    integer(i32), allocatable :: depth_count(:), cursor(:)
+
+    if (allocated(self%node_level_start)) deallocate (self%node_level_start)
+    if (allocated(self%node_level_nodes)) deallocate (self%node_level_nodes)
+    if (self%nnode <= 0_i32) return
+
+    allocate (depth_count(self%node_max_depth + 1_i32), cursor(self%node_max_depth + 1_i32))
+    depth_count = 0_i32
+    do node_idx = 1_i32, self%nnode
+      depth_count(self%node_depth(node_idx) + 1_i32) = depth_count(self%node_depth(node_idx) + 1_i32) + 1_i32
+    end do
+
+    allocate (self%node_level_start(self%node_max_depth + 2_i32), self%node_level_nodes(self%nnode))
+    self%node_level_start(1) = 1_i32
+    do depth = 0_i32, self%node_max_depth
+      self%node_level_start(depth + 2_i32) = self%node_level_start(depth + 1_i32) + depth_count(depth + 1_i32)
+    end do
+
+    cursor = self%node_level_start(1:self%node_max_depth + 1_i32)
+    do node_idx = 1_i32, self%nnode
+      depth = self%node_depth(node_idx)
+      self%node_level_nodes(cursor(depth + 1_i32)) = node_idx
+      cursor(depth + 1_i32) = cursor(depth + 1_i32) + 1_i32
+    end do
+
+    deallocate (depth_count, cursor)
+  end procedure rebuild_source_level_cache
+
   !> treecode で使う作業配列を解放し、ノード状態を未初期化に戻す。
   module procedure reset_tree_storage
     if (allocated(self%elem_order)) deallocate (self%elem_order)
@@ -280,6 +336,9 @@ contains
     if (allocated(self%child_count)) deallocate (self%child_count)
     if (allocated(self%child_idx)) deallocate (self%child_idx)
     if (allocated(self%child_octant)) deallocate (self%child_octant)
+    if (allocated(self%node_depth)) deallocate (self%node_depth)
+    if (allocated(self%node_level_start)) deallocate (self%node_level_start)
+    if (allocated(self%node_level_nodes)) deallocate (self%node_level_nodes)
     if (allocated(self%node_center)) deallocate (self%node_center)
     if (allocated(self%node_half_size)) deallocate (self%node_half_size)
     if (allocated(self%node_radius)) deallocate (self%node_radius)
@@ -294,6 +353,9 @@ contains
     if (allocated(self%target_child_count)) deallocate (self%target_child_count)
     if (allocated(self%target_child_idx)) deallocate (self%target_child_idx)
     if (allocated(self%target_child_octant)) deallocate (self%target_child_octant)
+    if (allocated(self%target_node_depth)) deallocate (self%target_node_depth)
+    if (allocated(self%target_level_start)) deallocate (self%target_level_start)
+    if (allocated(self%target_level_nodes)) deallocate (self%target_level_nodes)
     if (allocated(self%target_node_center)) deallocate (self%target_node_center)
     if (allocated(self%target_node_half_size)) deallocate (self%target_node_half_size)
     if (allocated(self%target_node_radius)) deallocate (self%target_node_radius)
@@ -303,6 +365,8 @@ contains
     if (allocated(self%far_nodes)) deallocate (self%far_nodes)
     if (allocated(self%fmm_m2l_target_nodes)) deallocate (self%fmm_m2l_target_nodes)
     if (allocated(self%fmm_m2l_source_nodes)) deallocate (self%fmm_m2l_source_nodes)
+    if (allocated(self%fmm_m2l_target_start)) deallocate (self%fmm_m2l_target_start)
+    if (allocated(self%fmm_m2l_pair_order)) deallocate (self%fmm_m2l_pair_order)
     if (allocated(self%fmm_parent_of)) deallocate (self%fmm_parent_of)
     if (allocated(self%fmm_node_local_e0)) deallocate (self%fmm_node_local_e0)
     if (allocated(self%fmm_node_local_jac)) deallocate (self%fmm_node_local_jac)
@@ -315,9 +379,11 @@ contains
 
     self%nnode = 0_i32
     self%max_node = 0_i32
+    self%node_max_depth = 0_i32
     self%nleaf = 0_i32
     self%target_nnode = 0_i32
     self%target_max_node = 0_i32
+    self%target_node_max_depth = 0_i32
     self%target_tree_ready = .false.
     self%tree_ready = .false.
     self%fmm_ready = .false.
@@ -341,5 +407,10 @@ contains
     self%fmm_total_copy_time_s = 0.0d0
     self%fmm_total_refresh_time_s = 0.0d0
   end procedure reset_tree_storage
+
+  module procedure field_solver_time_seconds
+    call cpu_time(time_s)
+    !$ time_s = omp_get_wtime()
+  end procedure field_solver_time_seconds
 
 end submodule bem_field_solver_tree

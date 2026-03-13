@@ -1,5 +1,6 @@
 !> 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。
 module bem_field_solver
+  !$ use omp_lib
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic
@@ -32,6 +33,9 @@ module bem_field_solver
     integer(i32), allocatable :: elem_order(:)
     integer(i32), allocatable :: node_start(:), node_count(:)
     integer(i32), allocatable :: child_count(:), child_idx(:, :), child_octant(:, :)
+    integer(i32), allocatable :: node_depth(:)
+    integer(i32) :: node_max_depth = 0_i32
+    integer(i32), allocatable :: node_level_start(:), node_level_nodes(:)
     real(dp), allocatable :: node_center(:, :)
     real(dp), allocatable :: node_half_size(:, :)
     real(dp), allocatable :: node_radius(:)
@@ -46,6 +50,9 @@ module bem_field_solver
     integer(i32) :: target_max_node = 0_i32
     integer(i32) :: target_nnode = 0_i32
     integer(i32), allocatable :: target_child_count(:), target_child_idx(:, :), target_child_octant(:, :)
+    integer(i32), allocatable :: target_node_depth(:)
+    integer(i32) :: target_node_max_depth = 0_i32
+    integer(i32), allocatable :: target_level_start(:), target_level_nodes(:)
     real(dp), allocatable :: target_node_center(:, :)
     real(dp), allocatable :: target_node_half_size(:, :)
     real(dp), allocatable :: target_node_radius(:)
@@ -57,6 +64,7 @@ module bem_field_solver
     integer(i32) :: fmm_near_interaction_count = 0_i32
     integer(i32) :: fmm_far_interaction_count = 0_i32
     integer(i32), allocatable :: fmm_m2l_target_nodes(:), fmm_m2l_source_nodes(:)
+    integer(i32), allocatable :: fmm_m2l_target_start(:), fmm_m2l_pair_order(:)
     integer(i32), allocatable :: fmm_parent_of(:)
     real(dp), allocatable :: fmm_node_local_e0(:, :)
     real(dp), allocatable :: fmm_node_local_jac(:, :, :)
@@ -123,10 +131,10 @@ module bem_field_solver
     end subroutine build_tree_topology
 
     !> 要素添字区間を1ノードとして登録し、必要なら8分割で子ノードを作る。
-    recursive module subroutine build_node(self, mesh, node_idx, start_idx, end_idx)
+    recursive module subroutine build_node(self, mesh, node_idx, start_idx, end_idx, depth)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
-      integer(i32), intent(in) :: node_idx, start_idx, end_idx
+      integer(i32), intent(in) :: node_idx, start_idx, end_idx, depth
     end subroutine build_node
 
     !> treecode 判定に使う8分木の octant 添字を返す。
@@ -159,6 +167,11 @@ module bem_field_solver
       integer(i32), intent(in) :: max_node_needed
     end subroutine ensure_tree_capacity
 
+    !> source tree ノードを深さごとの連続バケットへ並べ替える。
+    module subroutine rebuild_source_level_cache(self)
+      class(field_solver_type), intent(inout) :: self
+    end subroutine rebuild_source_level_cache
+
     !> 1つのターゲット葉ノードに対して近傍/遠方ノード候補を再帰収集する。
     recursive module subroutine gather_leaf_interactions(self, target_leaf, source_node, near_buf, near_n, far_buf, far_n)
       class(field_solver_type), intent(in) :: self
@@ -182,6 +195,17 @@ module bem_field_solver
     module subroutine build_fmm_interactions(self)
       class(field_solver_type), intent(inout) :: self
     end subroutine build_fmm_interactions
+
+    !> target tree ノードを深さごとの連続バケットへ並べ替える。
+    module subroutine rebuild_target_level_cache(self)
+      class(field_solver_type), intent(inout) :: self
+    end subroutine rebuild_target_level_cache
+
+    !> M2L ペアを target node ごとに引ける索引配列を構築する。
+    module subroutine build_fmm_target_pair_index(self, n_target_nodes)
+      class(field_solver_type), intent(inout) :: self
+      integer(i32), intent(in) :: n_target_nodes
+    end subroutine build_fmm_target_pair_index
 
     !> FMM 遠方相互作用から葉ノード局所展開係数を更新する。
     module subroutine refresh_fmm_locals(self, mesh)
@@ -208,6 +232,11 @@ module bem_field_solver
     module subroutine reset_tree_storage(self)
       class(field_solver_type), intent(inout) :: self
     end subroutine reset_tree_storage
+
+    !> OpenMP 有効時は `omp_get_wtime`、それ以外は `cpu_time` を返す簡易タイマ。
+    module function field_solver_time_seconds() result(time_s)
+      real(dp) :: time_s
+    end function field_solver_time_seconds
 
     !> ASCII英字を小文字化する。
     pure module function lower_ascii(s) result(out)
