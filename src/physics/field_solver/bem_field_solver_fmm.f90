@@ -60,8 +60,13 @@ contains
     integer(i32) :: leaf_idx, i
     integer(i32) :: near_n, far_n, near_used, far_used
     integer(i32) :: near_cap, far_cap
+    integer(i32) :: n_target_nodes, child_k, parent_node, node_idx
+    integer(i32) :: pair_cap, pair_used
+    integer(i32) :: nshift, images_per_pair
     integer(i32), allocatable :: near_work(:), far_work(:), near_buf(:), far_buf(:)
-    logical :: use_box_target
+    integer(i32), allocatable :: m2l_target_buf(:), m2l_source_buf(:)
+    logical :: use_box_target, use_target_tree
+    real(dp) :: build_t0, build_t1, near_far_t0, near_far_t1, pair_t0, pair_t1
 
     if (.not. self%tree_ready .or. self%nnode <= 0_i32) then
       self%fmm_ready = .false.
@@ -81,6 +86,8 @@ contains
       self%fmm_ready = .false.
       return
     end if
+    use_target_tree = self%target_tree_ready
+    n_target_nodes = active_tree_nnode(self, use_target_tree)
 
     if (allocated(self%near_start)) deallocate (self%near_start)
     if (allocated(self%far_start)) deallocate (self%far_start)
@@ -94,6 +101,8 @@ contains
     allocate (near_buf(near_cap), far_buf(far_cap))
     near_used = 0_i32
     far_used = 0_i32
+    call cpu_time(build_t0)
+    call cpu_time(near_far_t0)
 
     do leaf_idx = 1_i32, self%nleaf
       near_n = 0_i32
@@ -113,6 +122,7 @@ contains
     end do
     self%near_start(self%nleaf + 1_i32) = near_used + 1_i32
     self%far_start(self%nleaf + 1_i32) = far_used + 1_i32
+    call cpu_time(near_far_t1)
 
     allocate (self%near_nodes(max(1_i32, near_used)))
     self%near_nodes = 0_i32
@@ -120,6 +130,25 @@ contains
     allocate (self%far_nodes(max(1_i32, far_used)))
     self%far_nodes = 0_i32
     if (far_used > 0_i32) self%far_nodes(1:far_used) = far_buf(1:far_used)
+    self%fmm_near_interaction_count = near_used
+    self%fmm_far_interaction_count = far_used
+
+    if (allocated(self%fmm_parent_of)) deallocate (self%fmm_parent_of)
+    allocate (self%fmm_parent_of(n_target_nodes))
+    self%fmm_parent_of = 0_i32
+    do parent_node = 1_i32, n_target_nodes
+      do child_k = 1_i32, active_tree_child_count(self, use_target_tree, parent_node)
+        node_idx = active_tree_child_idx(self, use_target_tree, child_k, parent_node)
+        self%fmm_parent_of(node_idx) = parent_node
+      end do
+    end do
+
+    nshift = 1_i32
+    if (self%use_periodic2) nshift = 2_i32 * max(0_i32, self%periodic_image_layers) + 1_i32
+    if (allocated(self%fmm_shift_axis1)) deallocate (self%fmm_shift_axis1)
+    if (allocated(self%fmm_shift_axis2)) deallocate (self%fmm_shift_axis2)
+    allocate (self%fmm_shift_axis1(nshift), self%fmm_shift_axis2(nshift))
+    call build_periodic_shift_values(self, self%fmm_shift_axis1, self%fmm_shift_axis2, nshift)
 
     if (allocated(self%leaf_far_e0)) deallocate (self%leaf_far_e0)
     if (allocated(self%leaf_far_jac)) deallocate (self%leaf_far_jac)
@@ -128,9 +157,123 @@ contains
     self%leaf_far_e0 = 0.0d0
     self%leaf_far_jac = 0.0d0
     self%leaf_far_hess = 0.0d0
+
+    if (allocated(self%fmm_node_local_e0)) deallocate (self%fmm_node_local_e0)
+    if (allocated(self%fmm_node_local_jac)) deallocate (self%fmm_node_local_jac)
+    if (allocated(self%fmm_node_local_hess)) deallocate (self%fmm_node_local_hess)
+    allocate ( &
+      self%fmm_node_local_e0(3, n_target_nodes), &
+      self%fmm_node_local_jac(3, 3, n_target_nodes), &
+      self%fmm_node_local_hess(3, 3, 3, n_target_nodes) &
+    )
+    self%fmm_node_local_e0 = 0.0d0
+    self%fmm_node_local_jac = 0.0d0
+    self%fmm_node_local_hess = 0.0d0
+
+    call cpu_time(pair_t0)
+    call build_m2l_pair_cache()
+    call cpu_time(pair_t1)
     self%fmm_ready = .true.
+    call cpu_time(build_t1)
+
+    if (self%fmm_profile_enabled) then
+      images_per_pair = size(self%fmm_shift_axis1) * size(self%fmm_shift_axis2)
+      write (*, '(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,ES12.4,A,ES12.4,A,ES12.4)') &
+        'FMM profile build#', self%fmm_m2l_build_count, &
+        ' target_nodes=', n_target_nodes, &
+        ' leaves=', self%nleaf, &
+        ' near=', self%fmm_near_interaction_count, &
+        ' far=', self%fmm_far_interaction_count, &
+        ' m2l_pairs=', self%fmm_m2l_pair_count, &
+        ' visits=', self%fmm_m2l_visit_count, &
+        ' images_per_pair=', images_per_pair, &
+        ' nearfar_s=', near_far_t1 - near_far_t0, &
+        ' m2l_build_s=', pair_t1 - pair_t0, &
+        ' total_s=', build_t1 - build_t0
+    end if
 
     deallocate (near_work, far_work, near_buf, far_buf)
+
+  contains
+
+    subroutine build_m2l_pair_cache()
+      if (allocated(self%fmm_m2l_target_nodes)) deallocate (self%fmm_m2l_target_nodes)
+      if (allocated(self%fmm_m2l_source_nodes)) deallocate (self%fmm_m2l_source_nodes)
+
+      pair_cap = max(64_i32, self%nleaf * 32_i32)
+      allocate (m2l_target_buf(pair_cap), m2l_source_buf(pair_cap))
+      m2l_target_buf = 0_i32
+      m2l_source_buf = 0_i32
+      pair_used = 0_i32
+      self%fmm_m2l_visit_count = 0_i32
+
+      call accumulate_cached_pairs(1_i32, 1_i32)
+
+      allocate (self%fmm_m2l_target_nodes(max(1_i32, pair_used)))
+      allocate (self%fmm_m2l_source_nodes(max(1_i32, pair_used)))
+      self%fmm_m2l_target_nodes = 0_i32
+      self%fmm_m2l_source_nodes = 0_i32
+      if (pair_used > 0_i32) then
+        self%fmm_m2l_target_nodes(1:pair_used) = m2l_target_buf(1:pair_used)
+        self%fmm_m2l_source_nodes(1:pair_used) = m2l_source_buf(1:pair_used)
+      end if
+      self%fmm_m2l_pair_count = pair_used
+      self%fmm_m2l_build_count = self%fmm_m2l_build_count + 1_i32
+
+      deallocate (m2l_target_buf, m2l_source_buf)
+    end subroutine build_m2l_pair_cache
+
+    recursive subroutine accumulate_cached_pairs(t_node, s_node)
+      integer(i32), intent(in) :: t_node, s_node
+      integer(i32) :: tc, sc, t_child, s_child
+
+      self%fmm_m2l_visit_count = self%fmm_m2l_visit_count + 1_i32
+      tc = active_tree_child_count(self, use_target_tree, t_node)
+      sc = self%child_count(s_node)
+
+      if (nodes_well_separated(self, t_node, s_node)) then
+        call append_m2l_pair(t_node, s_node)
+        return
+      end if
+
+      if (tc <= 0_i32 .and. sc <= 0_i32) return
+
+      if (sc > 0_i32 .and. ( &
+        tc <= 0_i32 .or. self%node_radius(s_node) >= active_tree_node_radius(self, use_target_tree, t_node) &
+      )) then
+        do s_child = 1_i32, sc
+          call accumulate_cached_pairs(t_node, self%child_idx(s_child, s_node))
+        end do
+      else
+        do t_child = 1_i32, tc
+          call accumulate_cached_pairs(active_tree_child_idx(self, use_target_tree, t_child, t_node), s_node)
+        end do
+      end if
+    end subroutine accumulate_cached_pairs
+
+    subroutine append_m2l_pair(t_node, s_node)
+      integer(i32), intent(in) :: t_node, s_node
+      integer(i32), allocatable :: tmp_target(:), tmp_source(:)
+      integer(i32) :: new_capacity
+
+      if (pair_used >= pair_cap) then
+        new_capacity = max(pair_cap * 2_i32, pair_cap + 64_i32)
+        allocate (tmp_target(new_capacity), tmp_source(new_capacity))
+        tmp_target = 0_i32
+        tmp_source = 0_i32
+        if (pair_used > 0_i32) then
+          tmp_target(1:pair_used) = m2l_target_buf(1:pair_used)
+          tmp_source(1:pair_used) = m2l_source_buf(1:pair_used)
+        end if
+        call move_alloc(tmp_target, m2l_target_buf)
+        call move_alloc(tmp_source, m2l_source_buf)
+        pair_cap = new_capacity
+      end if
+
+      pair_used = pair_used + 1_i32
+      m2l_target_buf(pair_used) = t_node
+      m2l_source_buf(pair_used) = s_node
+    end subroutine append_m2l_pair
   end procedure build_fmm_interactions
 
   logical function has_valid_target_box(self)
@@ -551,20 +694,15 @@ contains
   end function active_tree_node_radius
   !> M2L と L2L で葉ノード局所展開（E/Jac/Hess）を更新する。
   module procedure refresh_fmm_locals
-    integer(i32) :: leaf_slot, node_idx, parent_node, child_k
+    integer(i32) :: leaf_slot, node_idx, parent_node, pair_idx
     integer(i32) :: i, j, k
     integer(i32) :: img_i, img_j, axis1, axis2
+    integer(i32) :: t_node, s_node
     logical :: use_target_tree
-    integer(i32), allocatable :: parent_of(:)
-    real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
-    real(dp), allocatable :: node_local_e0(:, :), node_local_jac(:, :, :), node_local_hess(:, :, :, :)
-    real(dp) :: shift1, shift2
-    real(dp) :: dr(3), t_center(3), p_center(3), dvec(3), r2, inv_r, inv_r3, inv_r5, inv_r7
-    real(dp) :: base_dvec(3)
-    real(dp) :: qi
-    real(dp) :: delta_ij, delta_ik, delta_jk
+    real(dp) :: time_t0, time_t1
+    real(dp) :: dr(3), t_center(3), p_center(3)
     real(dp) :: soft2
-    integer(i32) :: n_target_nodes, nshift, child_count
+    integer(i32) :: n_target_nodes, nshift
 
     if (trim(self%mode) /= 'fmm') return
     if (.not. self%fmm_ready) return
@@ -572,146 +710,239 @@ contains
 
     use_target_tree = self%target_tree_ready
     n_target_nodes = active_tree_nnode(self, use_target_tree)
+    if (.not. allocated(self%fmm_parent_of)) error stop 'FMM parent cache is not allocated.'
+    if (.not. allocated(self%fmm_shift_axis1) .or. .not. allocated(self%fmm_shift_axis2)) then
+      error stop 'FMM periodic shift cache is not allocated.'
+    end if
+    if (.not. allocated(self%fmm_node_local_e0) .or. .not. allocated(self%fmm_node_local_jac) .or. &
+        .not. allocated(self%fmm_node_local_hess)) then
+      error stop 'FMM local work arrays are not allocated.'
+    end if
 
     soft2 = self%softening * self%softening
-    self%leaf_far_e0 = 0.0d0
-    self%leaf_far_jac = 0.0d0
-    self%leaf_far_hess = 0.0d0
     axis1 = 0_i32
     axis2 = 0_i32
     if (self%use_periodic2) then
       axis1 = self%periodic_axes(1)
       axis2 = self%periodic_axes(2)
     end if
-    nshift = 2_i32 * max(0_i32, self%periodic_image_layers) + 1_i32
-    allocate (shift_axis1(nshift), shift_axis2(nshift))
-    call build_periodic_shift_values(self, shift_axis1, shift_axis2, nshift)
+    nshift = size(self%fmm_shift_axis1)
 
-    allocate ( &
-      parent_of(n_target_nodes), &
-      node_local_e0(3, n_target_nodes), &
-      node_local_jac(3, 3, n_target_nodes), &
-      node_local_hess(3, 3, 3, n_target_nodes) &
-    )
-    parent_of = 0_i32
-    node_local_e0 = 0.0d0
-    node_local_jac = 0.0d0
-    node_local_hess = 0.0d0
+    call cpu_time(time_t0)
+    self%fmm_node_local_e0 = 0.0d0
+    self%fmm_node_local_jac = 0.0d0
+    self%fmm_node_local_hess = 0.0d0
+    call cpu_time(time_t1)
+    self%fmm_last_clear_time_s = time_t1 - time_t0
 
-    do parent_node = 1_i32, n_target_nodes
-      child_count = active_tree_child_count(self, use_target_tree, parent_node)
-      do child_k = 1_i32, child_count
-        node_idx = active_tree_child_idx(self, use_target_tree, child_k, parent_node)
-        parent_of(node_idx) = parent_node
-      end do
+    call cpu_time(time_t0)
+    do pair_idx = 1_i32, self%fmm_m2l_pair_count
+      t_node = self%fmm_m2l_target_nodes(pair_idx)
+      s_node = self%fmm_m2l_source_nodes(pair_idx)
+      call add_m2l_from_monopole(t_node, s_node)
     end do
-
-    call accumulate_m2l_pairs(1_i32, 1_i32)
+    call cpu_time(time_t1)
+    self%fmm_last_m2l_time_s = time_t1 - time_t0
 
     ! L2L: 親ノード局所展開を子ノード中心へ平行移動する。
+    call cpu_time(time_t0)
     do node_idx = 2_i32, n_target_nodes
-      parent_node = parent_of(node_idx)
+      parent_node = self%fmm_parent_of(node_idx)
       if (parent_node <= 0_i32) cycle
-      t_center = active_tree_node_center(self, use_target_tree, node_idx)
-      p_center = active_tree_node_center(self, use_target_tree, parent_node)
+      if (use_target_tree) then
+        t_center = self%target_node_center(:, node_idx)
+        p_center = self%target_node_center(:, parent_node)
+      else
+        t_center = self%node_center(:, node_idx)
+        p_center = self%node_center(:, parent_node)
+      end if
       dr = t_center - p_center
       do i = 1_i32, 3_i32
-        node_local_e0(i, node_idx) = node_local_e0(i, node_idx) + node_local_e0(i, parent_node)
+        self%fmm_node_local_e0(i, node_idx) = self%fmm_node_local_e0(i, node_idx) + self%fmm_node_local_e0(i, parent_node)
         do j = 1_i32, 3_i32
-          node_local_e0(i, node_idx) = node_local_e0(i, node_idx) + node_local_jac(i, j, parent_node) * dr(j)
+          self%fmm_node_local_e0(i, node_idx) = self%fmm_node_local_e0(i, node_idx) &
+                                                + self%fmm_node_local_jac(i, j, parent_node) * dr(j)
           do k = 1_i32, 3_i32
-            node_local_e0(i, node_idx) = node_local_e0(i, node_idx) + 0.5d0 * node_local_hess(i, j, k, parent_node) * dr(j) * dr(k)
-            node_local_jac(i, j, node_idx) = node_local_jac(i, j, node_idx) + node_local_hess(i, j, k, parent_node) * dr(k)
+            self%fmm_node_local_e0(i, node_idx) = self%fmm_node_local_e0(i, node_idx) &
+                                                  + 0.5d0 * self%fmm_node_local_hess(i, j, k, parent_node) * dr(j) * dr(k)
+            self%fmm_node_local_jac(i, j, node_idx) = self%fmm_node_local_jac(i, j, node_idx) &
+                                                      + self%fmm_node_local_hess(i, j, k, parent_node) * dr(k)
           end do
-          node_local_jac(i, j, node_idx) = node_local_jac(i, j, node_idx) + node_local_jac(i, j, parent_node)
+          self%fmm_node_local_jac(i, j, node_idx) = self%fmm_node_local_jac(i, j, node_idx) &
+                                                    + self%fmm_node_local_jac(i, j, parent_node)
           do k = 1_i32, 3_i32
-            node_local_hess(i, j, k, node_idx) = node_local_hess(i, j, k, node_idx) + node_local_hess(i, j, k, parent_node)
+            self%fmm_node_local_hess(i, j, k, node_idx) = self%fmm_node_local_hess(i, j, k, node_idx) &
+                                                          + self%fmm_node_local_hess(i, j, k, parent_node)
           end do
         end do
       end do
     end do
+    call cpu_time(time_t1)
+    self%fmm_last_l2l_time_s = time_t1 - time_t0
 
+    call cpu_time(time_t0)
     do leaf_slot = 1_i32, self%nleaf
       node_idx = self%leaf_nodes(leaf_slot)
-      self%leaf_far_e0(:, leaf_slot) = node_local_e0(:, node_idx)
-      self%leaf_far_jac(:, :, leaf_slot) = node_local_jac(:, :, node_idx)
-      self%leaf_far_hess(:, :, :, leaf_slot) = node_local_hess(:, :, :, node_idx)
+      self%leaf_far_e0(:, leaf_slot) = self%fmm_node_local_e0(:, node_idx)
+      self%leaf_far_jac(:, :, leaf_slot) = self%fmm_node_local_jac(:, :, node_idx)
+      self%leaf_far_hess(:, :, :, leaf_slot) = self%fmm_node_local_hess(:, :, :, node_idx)
     end do
-
-    deallocate (parent_of, shift_axis1, shift_axis2, node_local_e0, node_local_jac, node_local_hess)
+    call cpu_time(time_t1)
+    self%fmm_last_copy_time_s = time_t1 - time_t0
 
   contains
 
-    recursive subroutine accumulate_m2l_pairs(t_node, s_node)
-      integer(i32), intent(in) :: t_node, s_node
-      integer(i32) :: tc, sc, t_child, s_child
-
-      tc = active_tree_child_count(self, use_target_tree, t_node)
-      sc = self%child_count(s_node)
-
-      if (nodes_well_separated(self, t_node, s_node)) then
-        call add_m2l_from_monopole(t_node, s_node)
-        return
-      end if
-
-      if (tc <= 0_i32 .and. sc <= 0_i32) return
-
-      if (sc > 0_i32 .and. ( &
-        tc <= 0_i32 .or. self%node_radius(s_node) >= active_tree_node_radius(self, use_target_tree, t_node) &
-      )) then
-        do s_child = 1_i32, sc
-          call accumulate_m2l_pairs(t_node, self%child_idx(s_child, s_node))
-        end do
-      else
-        do t_child = 1_i32, tc
-          call accumulate_m2l_pairs(active_tree_child_idx(self, use_target_tree, t_child, t_node), s_node)
-        end do
-      end if
-    end subroutine accumulate_m2l_pairs
-
     subroutine add_m2l_from_monopole(t_node, s_node)
       integer(i32), intent(in) :: t_node, s_node
+      real(dp) :: qi
+      real(dp) :: tx, ty, tz
+      real(dp) :: base_x, base_y, base_z
+      real(dp) :: dx, dy, dz
+      real(dp) :: shift1, shift2
+      real(dp) :: r2, inv_r, inv_r2
+      real(dp) :: s3, s5, s7
+      real(dp) :: xx, yy, zz, xy, xz, yz
+      real(dp) :: axx, ayy, azz
+      real(dp) :: e0x, e0y, e0z
+      real(dp) :: jxx, jyy, jzz, jxy, jxz, jyz
+      real(dp) :: hxxx, hxxy, hxxz, hxyy, hxyz, hxzz, hyyy, hyyz, hyzz, hzzz
 
       qi = self%node_q(s_node)
       if (abs(qi) <= tiny(1.0d0)) return
 
-      t_center = active_tree_node_center(self, use_target_tree, t_node)
-      base_dvec = t_center - self%node_charge_center(:, s_node)
+      if (use_target_tree) then
+        tx = self%target_node_center(1, t_node)
+        ty = self%target_node_center(2, t_node)
+        tz = self%target_node_center(3, t_node)
+      else
+        tx = self%node_center(1, t_node)
+        ty = self%node_center(2, t_node)
+        tz = self%node_center(3, t_node)
+      end if
+
+      base_x = tx - self%node_charge_center(1, s_node)
+      base_y = ty - self%node_charge_center(2, s_node)
+      base_z = tz - self%node_charge_center(3, s_node)
+
+      e0x = self%fmm_node_local_e0(1, t_node)
+      e0y = self%fmm_node_local_e0(2, t_node)
+      e0z = self%fmm_node_local_e0(3, t_node)
+
+      jxx = self%fmm_node_local_jac(1, 1, t_node)
+      jyy = self%fmm_node_local_jac(2, 2, t_node)
+      jzz = self%fmm_node_local_jac(3, 3, t_node)
+      jxy = self%fmm_node_local_jac(1, 2, t_node)
+      jxz = self%fmm_node_local_jac(1, 3, t_node)
+      jyz = self%fmm_node_local_jac(2, 3, t_node)
+
+      hxxx = self%fmm_node_local_hess(1, 1, 1, t_node)
+      hxxy = self%fmm_node_local_hess(1, 1, 2, t_node)
+      hxxz = self%fmm_node_local_hess(1, 1, 3, t_node)
+      hxyy = self%fmm_node_local_hess(1, 2, 2, t_node)
+      hxyz = self%fmm_node_local_hess(1, 2, 3, t_node)
+      hxzz = self%fmm_node_local_hess(1, 3, 3, t_node)
+      hyyy = self%fmm_node_local_hess(2, 2, 2, t_node)
+      hyyz = self%fmm_node_local_hess(2, 2, 3, t_node)
+      hyzz = self%fmm_node_local_hess(2, 3, 3, t_node)
+      hzzz = self%fmm_node_local_hess(3, 3, 3, t_node)
+
       do img_i = 1_i32, nshift
-        shift1 = shift_axis1(img_i)
+        shift1 = self%fmm_shift_axis1(img_i)
         do img_j = 1_i32, nshift
-          shift2 = shift_axis2(img_j)
-          dvec = base_dvec
-          if (axis1 > 0_i32) dvec(axis1) = dvec(axis1) - shift1
-          if (axis2 > 0_i32) dvec(axis2) = dvec(axis2) - shift2
+          shift2 = self%fmm_shift_axis2(img_j)
+          dx = base_x
+          dy = base_y
+          dz = base_z
+          if (axis1 == 1_i32) dx = dx - shift1
+          if (axis1 == 2_i32) dy = dy - shift1
+          if (axis1 == 3_i32) dz = dz - shift1
+          if (axis2 == 1_i32) dx = dx - shift2
+          if (axis2 == 2_i32) dy = dy - shift2
+          if (axis2 == 3_i32) dz = dz - shift2
 
-          r2 = sum(dvec * dvec) + soft2
+          r2 = dx * dx + dy * dy + dz * dz + soft2
           inv_r = 1.0d0 / sqrt(r2)
-          inv_r3 = inv_r / r2
-          inv_r5 = inv_r3 / r2
-          inv_r7 = inv_r5 / r2
+          inv_r2 = 1.0d0 / r2
+          s3 = qi * inv_r * inv_r2
+          s5 = -3.0d0 * s3 * inv_r2
+          s7 = -5.0d0 * s5 * inv_r2
 
-          do i = 1_i32, 3_i32
-            node_local_e0(i, t_node) = node_local_e0(i, t_node) + qi * inv_r3 * dvec(i)
-            do j = 1_i32, 3_i32
-              delta_ij = merge(1.0d0, 0.0d0, i == j)
-              node_local_jac(i, j, t_node) = node_local_jac(i, j, t_node) &
-                                             + qi * (delta_ij * inv_r3 - 3.0d0 * dvec(i) * dvec(j) * inv_r5)
-              do k = 1_i32, 3_i32
-                delta_ik = merge(1.0d0, 0.0d0, i == k)
-                delta_jk = merge(1.0d0, 0.0d0, j == k)
-                node_local_hess(i, j, k, t_node) = node_local_hess(i, j, k, t_node) &
-                                                   + qi * ( &
-                                                       15.0d0 * dvec(i) * dvec(j) * dvec(k) * inv_r7 &
-                                                       - 3.0d0 * ( &
-                                                           delta_ij * dvec(k) + delta_ik * dvec(j) + delta_jk * dvec(i) &
-                                                         ) * inv_r5 &
-                                                     )
-              end do
-            end do
-          end do
+          e0x = e0x + s3 * dx
+          e0y = e0y + s3 * dy
+          e0z = e0z + s3 * dz
+
+          xx = dx * dx
+          yy = dy * dy
+          zz = dz * dz
+          xy = dx * dy
+          xz = dx * dz
+          yz = dy * dz
+
+          jxx = jxx + s3 + s5 * xx
+          jyy = jyy + s3 + s5 * yy
+          jzz = jzz + s3 + s5 * zz
+          jxy = jxy + s5 * xy
+          jxz = jxz + s5 * xz
+          jyz = jyz + s5 * yz
+
+          axx = s7 * xx + s5
+          ayy = s7 * yy + s5
+          azz = s7 * zz + s5
+
+          hxxx = hxxx + dx * (axx + 2.0d0 * s5)
+          hxxy = hxxy + dy * axx
+          hxxz = hxxz + dz * axx
+          hxyy = hxyy + dx * ayy
+          hxyz = hxyz + s7 * dx * dy * dz
+          hxzz = hxzz + dx * azz
+          hyyy = hyyy + dy * (ayy + 2.0d0 * s5)
+          hyyz = hyyz + dz * ayy
+          hyzz = hyzz + dy * azz
+          hzzz = hzzz + dz * (azz + 2.0d0 * s5)
         end do
       end do
+
+      self%fmm_node_local_e0(1, t_node) = e0x
+      self%fmm_node_local_e0(2, t_node) = e0y
+      self%fmm_node_local_e0(3, t_node) = e0z
+
+      self%fmm_node_local_jac(1, 1, t_node) = jxx
+      self%fmm_node_local_jac(2, 2, t_node) = jyy
+      self%fmm_node_local_jac(3, 3, t_node) = jzz
+      self%fmm_node_local_jac(1, 2, t_node) = jxy
+      self%fmm_node_local_jac(2, 1, t_node) = jxy
+      self%fmm_node_local_jac(1, 3, t_node) = jxz
+      self%fmm_node_local_jac(3, 1, t_node) = jxz
+      self%fmm_node_local_jac(2, 3, t_node) = jyz
+      self%fmm_node_local_jac(3, 2, t_node) = jyz
+
+      self%fmm_node_local_hess(1, 1, 1, t_node) = hxxx
+      self%fmm_node_local_hess(1, 1, 2, t_node) = hxxy
+      self%fmm_node_local_hess(1, 2, 1, t_node) = hxxy
+      self%fmm_node_local_hess(2, 1, 1, t_node) = hxxy
+      self%fmm_node_local_hess(1, 1, 3, t_node) = hxxz
+      self%fmm_node_local_hess(1, 3, 1, t_node) = hxxz
+      self%fmm_node_local_hess(3, 1, 1, t_node) = hxxz
+      self%fmm_node_local_hess(1, 2, 2, t_node) = hxyy
+      self%fmm_node_local_hess(2, 1, 2, t_node) = hxyy
+      self%fmm_node_local_hess(2, 2, 1, t_node) = hxyy
+      self%fmm_node_local_hess(1, 2, 3, t_node) = hxyz
+      self%fmm_node_local_hess(1, 3, 2, t_node) = hxyz
+      self%fmm_node_local_hess(2, 1, 3, t_node) = hxyz
+      self%fmm_node_local_hess(2, 3, 1, t_node) = hxyz
+      self%fmm_node_local_hess(3, 1, 2, t_node) = hxyz
+      self%fmm_node_local_hess(3, 2, 1, t_node) = hxyz
+      self%fmm_node_local_hess(1, 3, 3, t_node) = hxzz
+      self%fmm_node_local_hess(3, 1, 3, t_node) = hxzz
+      self%fmm_node_local_hess(3, 3, 1, t_node) = hxzz
+      self%fmm_node_local_hess(2, 2, 2, t_node) = hyyy
+      self%fmm_node_local_hess(2, 2, 3, t_node) = hyyz
+      self%fmm_node_local_hess(2, 3, 2, t_node) = hyyz
+      self%fmm_node_local_hess(3, 2, 2, t_node) = hyyz
+      self%fmm_node_local_hess(2, 3, 3, t_node) = hyzz
+      self%fmm_node_local_hess(3, 2, 3, t_node) = hyzz
+      self%fmm_node_local_hess(3, 3, 2, t_node) = hyzz
+      self%fmm_node_local_hess(3, 3, 3, t_node) = hzzz
     end subroutine add_m2l_from_monopole
   end procedure refresh_fmm_locals
   !> 観測点の octant を辿って対応する葉ノードを返す。

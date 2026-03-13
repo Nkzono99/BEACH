@@ -51,9 +51,34 @@ module bem_field_solver
     real(dp), allocatable :: target_node_radius(:)
     integer(i32), allocatable :: near_start(:), near_nodes(:)
     integer(i32), allocatable :: far_start(:), far_nodes(:)
+    integer(i32) :: fmm_m2l_pair_count = 0_i32
+    integer(i32) :: fmm_m2l_build_count = 0_i32
+    integer(i32) :: fmm_m2l_visit_count = 0_i32
+    integer(i32) :: fmm_near_interaction_count = 0_i32
+    integer(i32) :: fmm_far_interaction_count = 0_i32
+    integer(i32), allocatable :: fmm_m2l_target_nodes(:), fmm_m2l_source_nodes(:)
+    integer(i32), allocatable :: fmm_parent_of(:)
+    real(dp), allocatable :: fmm_node_local_e0(:, :)
+    real(dp), allocatable :: fmm_node_local_jac(:, :, :)
+    real(dp), allocatable :: fmm_node_local_hess(:, :, :, :)
+    real(dp), allocatable :: fmm_shift_axis1(:), fmm_shift_axis2(:)
     real(dp), allocatable :: leaf_far_e0(:, :)
     real(dp), allocatable :: leaf_far_jac(:, :, :)
     real(dp), allocatable :: leaf_far_hess(:, :, :, :)
+    logical :: fmm_profile_enabled = .false.
+    integer(i32) :: fmm_refresh_count = 0_i32
+    real(dp) :: fmm_last_moment_time_s = 0.0d0
+    real(dp) :: fmm_last_clear_time_s = 0.0d0
+    real(dp) :: fmm_last_m2l_time_s = 0.0d0
+    real(dp) :: fmm_last_l2l_time_s = 0.0d0
+    real(dp) :: fmm_last_copy_time_s = 0.0d0
+    real(dp) :: fmm_last_refresh_time_s = 0.0d0
+    real(dp) :: fmm_total_moment_time_s = 0.0d0
+    real(dp) :: fmm_total_clear_time_s = 0.0d0
+    real(dp) :: fmm_total_m2l_time_s = 0.0d0
+    real(dp) :: fmm_total_l2l_time_s = 0.0d0
+    real(dp) :: fmm_total_copy_time_s = 0.0d0
+    real(dp) :: fmm_total_refresh_time_s = 0.0d0
   contains
     procedure :: init => init_field_solver
     procedure :: refresh => refresh_field_solver

@@ -21,6 +21,25 @@ contains
     self%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
     self%target_box_min = 0.0d0
     self%target_box_max = 0.0d0
+    self%fmm_profile_enabled = env_flag_enabled('BEACH_FMM_PROFILE')
+    self%fmm_m2l_pair_count = 0_i32
+    self%fmm_m2l_build_count = 0_i32
+    self%fmm_m2l_visit_count = 0_i32
+    self%fmm_near_interaction_count = 0_i32
+    self%fmm_far_interaction_count = 0_i32
+    self%fmm_refresh_count = 0_i32
+    self%fmm_last_moment_time_s = 0.0d0
+    self%fmm_last_clear_time_s = 0.0d0
+    self%fmm_last_m2l_time_s = 0.0d0
+    self%fmm_last_l2l_time_s = 0.0d0
+    self%fmm_last_copy_time_s = 0.0d0
+    self%fmm_last_refresh_time_s = 0.0d0
+    self%fmm_total_moment_time_s = 0.0d0
+    self%fmm_total_clear_time_s = 0.0d0
+    self%fmm_total_m2l_time_s = 0.0d0
+    self%fmm_total_l2l_time_s = 0.0d0
+    self%fmm_total_copy_time_s = 0.0d0
+    self%fmm_total_refresh_time_s = 0.0d0
 
     requested_mode = lower_ascii(trim(sim%field_solver))
     field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
@@ -138,5 +157,21 @@ contains
       end if
     end do
   end procedure lower_ascii
+
+  logical function env_flag_enabled(name)
+    character(len=*), intent(in) :: name
+    character(len=32) :: value
+    integer :: status, value_len
+
+    env_flag_enabled = .false.
+    value = ''
+    call get_environment_variable(name, value, length=value_len, status=status)
+    if (status /= 0) return
+
+    select case (trim(lower_ascii(value(1:value_len))))
+    case ('1', 'true', 'yes', 'on')
+      env_flag_enabled = .true.
+    end select
+  end function env_flag_enabled
 
 end submodule bem_field_solver_config

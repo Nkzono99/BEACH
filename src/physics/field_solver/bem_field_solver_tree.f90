@@ -8,6 +8,7 @@ contains
     integer(i32) :: node_idx, child_k, child_node
     integer(i32) :: p, idx, p_end
     real(dp) :: q, abs_q, qx, qy, qz, qi
+    real(dp) :: t_moment_start, t_moment_end, avg_refresh
 
     if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
     if (mesh%nelem <= 0_i32) return
@@ -17,6 +18,7 @@ contains
       call build_tree_topology(self, mesh)
     end if
 
+    if (trim(self%mode) == 'fmm') call cpu_time(t_moment_start)
     do node_idx = self%nnode, 1_i32, -1_i32
       if (self%child_count(node_idx) <= 0_i32) then
         q = 0.0d0
@@ -64,10 +66,38 @@ contains
         self%node_charge_center(:, node_idx) = self%node_center(:, node_idx)
       end if
     end do
+    if (trim(self%mode) == 'fmm') then
+      call cpu_time(t_moment_end)
+      self%fmm_last_moment_time_s = t_moment_end - t_moment_start
+    end if
 
     if (trim(self%mode) == 'fmm') then
       if (.not. self%fmm_ready) call build_fmm_interactions(self)
       call refresh_fmm_locals(self, mesh)
+      self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
+      self%fmm_last_refresh_time_s = self%fmm_last_moment_time_s + self%fmm_last_clear_time_s &
+                                     + self%fmm_last_m2l_time_s + self%fmm_last_l2l_time_s &
+                                     + self%fmm_last_copy_time_s
+      self%fmm_total_moment_time_s = self%fmm_total_moment_time_s + self%fmm_last_moment_time_s
+      self%fmm_total_clear_time_s = self%fmm_total_clear_time_s + self%fmm_last_clear_time_s
+      self%fmm_total_m2l_time_s = self%fmm_total_m2l_time_s + self%fmm_last_m2l_time_s
+      self%fmm_total_l2l_time_s = self%fmm_total_l2l_time_s + self%fmm_last_l2l_time_s
+      self%fmm_total_copy_time_s = self%fmm_total_copy_time_s + self%fmm_last_copy_time_s
+      self%fmm_total_refresh_time_s = self%fmm_total_refresh_time_s + self%fmm_last_refresh_time_s
+      if (self%fmm_profile_enabled) then
+        if (self%fmm_refresh_count <= 3_i32 .or. mod(self%fmm_refresh_count, 50_i32) == 0_i32) then
+          avg_refresh = self%fmm_total_refresh_time_s / real(self%fmm_refresh_count, dp)
+          write (*, '(A,I0,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)') &
+            'FMM profile refresh#', self%fmm_refresh_count, &
+            ' moments=', self%fmm_last_moment_time_s, &
+            ' clear=', self%fmm_last_clear_time_s, &
+            ' m2l=', self%fmm_last_m2l_time_s, &
+            ' l2l=', self%fmm_last_l2l_time_s, &
+            ' copy=', self%fmm_last_copy_time_s, &
+            ' total=', self%fmm_last_refresh_time_s, &
+            ' avg=', avg_refresh
+        end if
+      end if
     else
       self%fmm_ready = .false.
     end if
@@ -271,6 +301,14 @@ contains
     if (allocated(self%near_nodes)) deallocate (self%near_nodes)
     if (allocated(self%far_start)) deallocate (self%far_start)
     if (allocated(self%far_nodes)) deallocate (self%far_nodes)
+    if (allocated(self%fmm_m2l_target_nodes)) deallocate (self%fmm_m2l_target_nodes)
+    if (allocated(self%fmm_m2l_source_nodes)) deallocate (self%fmm_m2l_source_nodes)
+    if (allocated(self%fmm_parent_of)) deallocate (self%fmm_parent_of)
+    if (allocated(self%fmm_node_local_e0)) deallocate (self%fmm_node_local_e0)
+    if (allocated(self%fmm_node_local_jac)) deallocate (self%fmm_node_local_jac)
+    if (allocated(self%fmm_node_local_hess)) deallocate (self%fmm_node_local_hess)
+    if (allocated(self%fmm_shift_axis1)) deallocate (self%fmm_shift_axis1)
+    if (allocated(self%fmm_shift_axis2)) deallocate (self%fmm_shift_axis2)
     if (allocated(self%leaf_far_e0)) deallocate (self%leaf_far_e0)
     if (allocated(self%leaf_far_jac)) deallocate (self%leaf_far_jac)
     if (allocated(self%leaf_far_hess)) deallocate (self%leaf_far_hess)
@@ -284,6 +322,24 @@ contains
     self%tree_ready = .false.
     self%fmm_ready = .false.
     self%nelem = 0_i32
+    self%fmm_m2l_pair_count = 0_i32
+    self%fmm_m2l_build_count = 0_i32
+    self%fmm_m2l_visit_count = 0_i32
+    self%fmm_near_interaction_count = 0_i32
+    self%fmm_far_interaction_count = 0_i32
+    self%fmm_refresh_count = 0_i32
+    self%fmm_last_moment_time_s = 0.0d0
+    self%fmm_last_clear_time_s = 0.0d0
+    self%fmm_last_m2l_time_s = 0.0d0
+    self%fmm_last_l2l_time_s = 0.0d0
+    self%fmm_last_copy_time_s = 0.0d0
+    self%fmm_last_refresh_time_s = 0.0d0
+    self%fmm_total_moment_time_s = 0.0d0
+    self%fmm_total_clear_time_s = 0.0d0
+    self%fmm_total_m2l_time_s = 0.0d0
+    self%fmm_total_l2l_time_s = 0.0d0
+    self%fmm_total_copy_time_s = 0.0d0
+    self%fmm_total_refresh_time_s = 0.0d0
   end procedure reset_tree_storage
 
 end submodule bem_field_solver_tree

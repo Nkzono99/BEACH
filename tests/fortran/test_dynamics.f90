@@ -75,6 +75,7 @@ program test_dynamics
   call test_fmm_periodic2_field_accuracy()
   call test_fmm_periodic2_fallback_accuracy()
   call test_fmm_periodic2_image_layers_accuracy()
+  call test_fmm_periodic2_m2l_cache_reuse()
   call test_fmm_periodic2_ewald_like_correction_effect()
 
 contains
@@ -625,6 +626,41 @@ contains
     call assert_true(valid_count >= 100_i32, 'fmm periodic2 image-layer test has too few valid samples')
     call assert_true(max_rel_err <= 3.0d-2, 'fmm periodic2 image-layer E relative error exceeds 3e-2')
   end subroutine test_fmm_periodic2_image_layers_accuracy
+
+  subroutine test_fmm_periodic2_m2l_cache_reuse()
+    type(mesh_type) :: mesh_fmm
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    integer(i32) :: initial_pair_count, initial_build_count
+
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    mesh_fmm%q_elem = 1.0d-12
+
+    sim = sim_config()
+    sim%softening = 1.0d-4
+    sim%field_solver = 'fmm'
+    sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_image_layers = 1_i32
+    sim%tree_min_nelem = 64_i32
+    sim%use_box = .true.
+    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
+    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    call solver%init(mesh_fmm, sim)
+
+    initial_pair_count = solver%fmm_m2l_pair_count
+    initial_build_count = solver%fmm_m2l_build_count
+    call assert_true(initial_pair_count > 0_i32, 'periodic2 fmm should build at least one cached M2L pair')
+    call assert_equal_i32(initial_build_count, 1_i32, 'periodic2 fmm should build the M2L cache exactly once at init')
+
+    mesh_fmm%q_elem = 2.0d0 * mesh_fmm%q_elem
+    call solver%refresh(mesh_fmm)
+
+    call assert_equal_i32(solver%fmm_m2l_build_count, initial_build_count, 'refresh should reuse cached M2L pairs')
+    call assert_equal_i32(solver%fmm_m2l_pair_count, initial_pair_count, 'refresh should preserve cached M2L pair count')
+    call assert_true(solver%fmm_refresh_count >= 2_i32, 'init + explicit refresh should both update FMM locals')
+  end subroutine test_fmm_periodic2_m2l_cache_reuse
 
   subroutine test_fmm_periodic2_ewald_like_correction_effect()
     type(mesh_type) :: mesh_fmm
