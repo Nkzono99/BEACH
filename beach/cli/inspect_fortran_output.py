@@ -36,13 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--potential-softening",
         type=float,
-        default=0.0,
-        help="smoothing length [m] for off-diagonal potential terms; also used for softened-point self terms",
+        default=None,
+        help="smoothing length [m] for potential reconstruction; default uses sim.softening when available",
     )
     parser.add_argument(
         "--potential-self-term",
-        choices=("area-equivalent", "exclude", "softened-point"),
-        default="area-equivalent",
+        choices=("auto", "area-equivalent", "exclude", "softened-point"),
+        default="auto",
         help="self-term treatment for potential reconstruction",
     )
     return parser

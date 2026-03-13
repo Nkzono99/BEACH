@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, TYPE_CHECKING
+from typing import Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
 from .mesh import _configure_mesh_axes, _surface_charge_density_history
-from .potential import _potential_history
+from .potential import (
+    _auto_periodic2_from_result,
+    _coerce_periodic2,
+    _potential_history,
+    _resolve_self_term,
+    _resolve_softening,
+)
 from .selection import _require_history, _require_triangles, _resolve_result
 from .types import FortranRunResult
 
@@ -25,8 +31,9 @@ def animate_history_mesh(
     frame_stride: int = 1,
     total_frames: int | None = None,
     cmap: str | None = None,
-    softening: float = 0.0,
-    self_term: str = "area_equivalent",
+    softening: float | None = None,
+    self_term: str = "auto",
+    periodic2: Mapping[str, object] | None = None,
 ) -> Path | FuncAnimation:
     """Render mesh history as an animation.
 
@@ -46,10 +53,14 @@ def animate_history_mesh(
         Evenly sampled frame count. Cannot be combined with ``frame_stride != 1``.
     cmap : str or None, default None
         Matplotlib colormap name. ``None`` uses quantity-specific defaults.
-    softening : float, default 0.0
-        Softening length in meters (used for potential mode).
-    self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+    softening : float or None, default None
+        Softening length in meters (used for potential mode). ``None`` は
+        ``sim.softening`` を自動参照する。
+    self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
         Potential self-term model (used for potential mode).
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting for potential mode. ``None`` の場合は
+        出力ディレクトリ近傍の ``beach.toml`` から自動判定する。
 
     Returns
     -------
@@ -83,7 +94,6 @@ def animate_history_mesh(
     processed_by_batch = history.processed_particles_by_batch
     rel_change_by_batch = history.rel_change_by_batch
     quantity_key = quantity.lower()
-    self_term_key = self_term.replace("-", "_")
     frame_cols = _select_frame_columns(
         charge_history.shape[1],
         frame_stride=frame_stride,
@@ -97,11 +107,17 @@ def animate_history_mesh(
         title_prefix = "Surface charge density history"
         use_cmap = "coolwarm" if cmap is None else cmap
     elif quantity_key == "potential":
+        resolved_softening = _resolve_softening(resolved, softening)
+        self_term_key = _resolve_self_term(self_term, resolved_softening)
+        periodic_cfg = _coerce_periodic2(periodic2)
+        if periodic_cfg is None:
+            periodic_cfg = _auto_periodic2_from_result(resolved)
         values_history = _potential_history(
             charges_sampled,
             triangles,
-            softening=softening,
+            softening=resolved_softening,
             self_term=self_term_key,
+            periodic2=periodic_cfg,
         )
         colorbar_label = "potential [V]"
         title_prefix = "Electric potential history"

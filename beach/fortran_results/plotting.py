@@ -87,7 +87,7 @@ def plot_potential_slices(
     xy_z: float | None = None,
     yz_x: float | None = None,
     xz_y: float | None = None,
-    softening: float = 0.0,
+    softening: float | None = None,
     chunk_size: int = 2048,
     cmap: str = "viridis",
     vmin: float | None = None,
@@ -112,7 +112,7 @@ def plot_potential_slices(
         X coordinate of YZ slice. ``None`` uses box center.
     xz_y : float or None, default None
         Y coordinate of XZ slice. ``None`` uses box center.
-    softening : float, default 0.0
+    softening : float or None, default None
         Softening length in meters.
     chunk_size : int, default 2048
         Sampling chunk size for potential computation.
@@ -190,8 +190,8 @@ def plot_potential_slices(
 def plot_potential_mesh(
     result: FortranRunResult | object,
     *,
-    softening: float = 0.0,
-    self_term: str = "area_equivalent",
+    softening: float | None = None,
+    self_term: str = "auto",
     cmap: str = "viridis",
     periodic2: Mapping[str, object] | None = None,
 ):
@@ -201,9 +201,9 @@ def plot_potential_mesh(
     ----------
     result : FortranRunResult or Beach-like object
         Run result or object exposing ``result`` as ``FortranRunResult``.
-    softening : float, default 0.0
+    softening : float or None, default None
         Softening length in meters.
-    self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+    self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
         Self-interaction model for potential reconstruction.
     cmap : str, default "viridis"
         Matplotlib colormap name.
@@ -244,8 +244,8 @@ def plot_mesh_source_boxplot(
     *,
     quantity: str = "charge",
     step: int | None = -1,
-    softening: float = 0.0,
-    self_term: str = "area_equivalent",
+    softening: float | None = None,
+    self_term: str = "auto",
     showfliers: bool = True,
 ):
     """Plot area-weighted boxplots per mesh source.
@@ -259,9 +259,9 @@ def plot_mesh_source_boxplot(
     step : int or None, default -1
         History batch step used for charge snapshot.
         ``None`` uses final charges from ``charges.csv``.
-    softening : float, default 0.0
+    softening : float or None, default None
         Softening length in meters (potential mode only).
-    self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+    self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
         Self-interaction model (potential mode only).
     showfliers : bool, default True
         Whether outlier markers are rendered.
@@ -343,7 +343,7 @@ def _boxplot_values_for_quantity(
     *,
     quantity: str,
     step: int | None,
-    softening: float,
+    softening: float | None,
     self_term: str,
 ) -> np.ndarray:
     if quantity == "charge":

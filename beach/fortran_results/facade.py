@@ -212,17 +212,17 @@ class Beach:
     def compute_potential(
         self,
         *,
-        softening: float = 0.0,
-        self_term: str = "area_equivalent",
+        softening: float | None = None,
+        self_term: str = "auto",
         periodic2: Mapping[str, object] | None = None,
     ) -> np.ndarray:
         """Compute potential values at triangle centroids.
 
         Parameters
         ----------
-        softening : float, default 0.0
+        softening : float or None, default None
             Softening length in meters.
-        self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
             Self-interaction model.
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
@@ -246,7 +246,7 @@ class Beach:
         self,
         points: np.ndarray,
         *,
-        softening: float = 0.0,
+        softening: float | None = None,
         chunk_size: int = 2048,
         periodic2: Mapping[str, object] | None = None,
     ) -> np.ndarray:
@@ -256,7 +256,7 @@ class Beach:
         ----------
         points : numpy.ndarray
             Sampling points with shape ``(n_points, 3)``.
-        softening : float, default 0.0
+        softening : float or None, default None
             Softening length in meters.
         chunk_size : int, default 2048
             Number of points processed per chunk.
@@ -288,7 +288,7 @@ class Beach:
         xy_z: float | None = None,
         yz_x: float | None = None,
         xz_y: float | None = None,
-        softening: float = 0.0,
+        softening: float | None = None,
         chunk_size: int = 2048,
         periodic2: Mapping[str, object] | None = None,
     ):
@@ -308,7 +308,7 @@ class Beach:
             X coordinate of YZ slice.
         xz_y : float or None, default None
             Y coordinate of XZ slice.
-        softening : float, default 0.0
+        softening : float or None, default None
             Softening length in meters.
         chunk_size : int, default 2048
             Sampling chunk size.
@@ -339,8 +339,8 @@ class Beach:
     def plot_potential(
         self,
         *,
-        softening: float = 0.0,
-        self_term: str = "area_equivalent",
+        softening: float | None = None,
+        self_term: str = "auto",
         cmap: str = "viridis",
         periodic2: Mapping[str, object] | None = None,
     ):
@@ -348,9 +348,9 @@ class Beach:
 
         Parameters
         ----------
-        softening : float, default 0.0
+        softening : float or None, default None
             Softening length in meters.
-        self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
             Self-interaction model.
         cmap : str, default "viridis"
             Matplotlib colormap name.
@@ -382,7 +382,7 @@ class Beach:
         xy_z: float | None = None,
         yz_x: float | None = None,
         xz_y: float | None = None,
-        softening: float = 0.0,
+        softening: float | None = None,
         chunk_size: int = 2048,
         cmap: str = "viridis",
         vmin: float | None = None,
@@ -405,7 +405,7 @@ class Beach:
             X coordinate of YZ slice.
         xz_y : float or None, default None
             Y coordinate of XZ slice.
-        softening : float, default 0.0
+        softening : float or None, default None
             Softening length in meters.
         chunk_size : int, default 2048
             Sampling chunk size.
@@ -447,8 +447,8 @@ class Beach:
         *,
         quantity: str = "charge",
         step: int | None = -1,
-        softening: float = 0.0,
-        self_term: str = "area_equivalent",
+        softening: float | None = None,
+        self_term: str = "auto",
         showfliers: bool = True,
     ):
         """Plot area-weighted boxplots per mesh source.
@@ -460,9 +460,9 @@ class Beach:
         step : int or None, default -1
             History batch step used for charge snapshot.
             ``None`` uses final charges from ``charges.csv``.
-        softening : float, default 0.0
+        softening : float or None, default None
             Softening length in meters (potential mode only).
-        self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
             Self-interaction model (potential mode only).
         showfliers : bool, default True
             Whether outlier markers are rendered.
@@ -491,8 +491,9 @@ class Beach:
         frame_stride: int = 1,
         total_frames: int | None = None,
         cmap: str | None = None,
-        softening: float = 0.0,
-        self_term: str = "area_equivalent",
+        softening: float | None = None,
+        self_term: str = "auto",
+        periodic2: Mapping[str, object] | None = None,
     ) -> Path | FuncAnimation:
         """Animate charge or potential history on the 3D surface mesh.
 
@@ -510,10 +511,13 @@ class Beach:
             Number of evenly sampled frames.
         cmap : str or None, default None
             Matplotlib colormap name.
-        softening : float, default 0.0
+        softening : float or None, default None
             Softening length in meters (potential mode).
-        self_term : {"area_equivalent", "exclude", "softened_point"}, default "area_equivalent"
+        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
             Potential self-term model (potential mode).
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting for potential mode. ``None`` の場合は
+            出力ディレクトリ近傍の ``beach.toml`` から自動判定。
 
         Returns
         -------
@@ -531,4 +535,5 @@ class Beach:
             cmap=cmap,
             softening=softening,
             self_term=self_term,
+            periodic2=periodic2,
         )

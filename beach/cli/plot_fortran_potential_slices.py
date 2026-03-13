@@ -53,8 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--potential-softening",
         type=float,
-        default=0.0,
-        help="smoothing length [m] used for potential sampling",
+        default=None,
+        help="smoothing length [m] used for potential sampling; default uses sim.softening when available",
     )
     parser.add_argument(
         "--chunk-size",
@@ -185,6 +185,7 @@ def _resolve_periodic2_from_sim(
     return {
         "axes": tuple(periodic_axes),
         "lengths": tuple(lengths),
+        "origins": tuple(box_min[axis] for axis in periodic_axes),
         "image_layers": image_layers,
         "far_correction": far_correction,
         "ewald_alpha": ewald_alpha,

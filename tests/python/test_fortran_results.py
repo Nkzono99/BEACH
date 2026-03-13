@@ -21,6 +21,7 @@ from beach.fortran_results import (
     plot_potential_slices,
     plot_potential_mesh,
 )
+from beach.fortran_results.potential import _coerce_periodic2, _potential_history
 
 
 def _make_history(
@@ -485,7 +486,7 @@ def test_compute_potential_mesh_matches_area_equivalent_expected_values() -> Non
         ]
     )
 
-    potential = compute_potential_mesh(result)
+    potential = compute_potential_mesh(result, self_term="area_equivalent")
 
     np.testing.assert_allclose(potential, expected)
 
@@ -576,6 +577,58 @@ def test_compute_potential_mesh_softened_point_matches_legacy_behavior() -> None
     potential = compute_potential_mesh(
         result, softening=softening, self_term="softened_point"
     )
+
+    np.testing.assert_allclose(potential, expected)
+
+
+def test_compute_potential_mesh_auto_uses_softening_from_config(tmp_path: Path) -> None:
+    out = tmp_path / "run_softening_auto"
+    out.mkdir()
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=2",
+                "processed_particles=0",
+                "absorbed=0",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text(
+        "elem_idx,charge_C\n1,2.0e-9\n2,-1.0e-9\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0.0,0.0,0.0,3.0,0.0,0.0,0.0,3.0,0.0,2.0e-9,1\n"
+        "2,3.0,0.0,0.0,6.0,0.0,0.0,3.0,3.0,0.0,-1.0e-9,2\n",
+        encoding="utf-8",
+    )
+    (out / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                "softening = 0.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+    distance = 3.0
+    softening = 0.5
+    charges = np.array([2.0e-9, -1.0e-9])
+    expected = K_COULOMB * np.array(
+        [
+            charges[0] / softening + charges[1] / np.sqrt(distance**2 + softening**2),
+            charges[0] / np.sqrt(distance**2 + softening**2) + charges[1] / softening,
+        ]
+    )
+
+    potential = compute_potential_mesh(result)
 
     np.testing.assert_allclose(potential, expected)
 
@@ -857,6 +910,94 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(tmp_path: P
             radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
             expected_sum += 2.0e-9 / radius
     np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+
+
+def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_periodic_wrap"
+    out.mkdir()
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=1",
+                "processed_particles=0",
+                "absorbed=0",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,2.0e-9\n", encoding="utf-8")
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0.0,0.0,0.0,0.75,0.0,0.0,0.0,0.75,0.0,2.0e-9,1\n",
+        encoding="utf-8",
+    )
+    (out / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -1.0]",
+                "box_max = [1.0, 1.0, 1.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                "field_periodic_image_layers = 1",
+                'field_periodic_far_correction = "none"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+    points = np.array(
+        [
+            [0.25, 0.25, 1.0],
+            [1.25, -0.75, 1.0],
+        ]
+    )
+
+    potential = compute_potential_points(result, points)
+
+    expected_sum = 0.0
+    for ix in (-1, 0, 1):
+        for iy in (-1, 0, 1):
+            expected_sum += 2.0e-9 / np.sqrt(float(ix * ix + iy * iy) + 1.0)
+    expected = np.array([K_COULOMB * expected_sum, K_COULOMB * expected_sum])
+    np.testing.assert_allclose(potential, expected)
+
+
+def test_potential_history_supports_periodic2_image_sum() -> None:
+    triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
+    charges_history = np.array([[2.0e-9, -1.0e-9]])
+    periodic2 = _coerce_periodic2(
+        {"axes": (0, 1), "lengths": (1.0, 1.0), "image_layers": 1}
+    )
+    assert periodic2 is not None
+
+    potential = _potential_history(
+        charges_history,
+        triangles,
+        softening=0.0,
+        self_term="exclude",
+        periodic2=periodic2,
+    )
+
+    image_sum = 0.0
+    for ix in (-1, 0, 1):
+        for iy in (-1, 0, 1):
+            if ix == 0 and iy == 0:
+                continue
+            image_sum += 1.0 / np.sqrt(float(ix * ix + iy * iy))
+    expected = K_COULOMB * charges_history * image_sum
+    np.testing.assert_allclose(potential, expected)
 
 
 def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
