@@ -20,6 +20,7 @@ def compute_potential_mesh(
     softening: float | None = None,
     self_term: str = "auto",
     periodic2: Mapping[str, object] | None = None,
+    reference_point: Iterable[float] | str | None = None,
 ) -> np.ndarray:
     """Compute electric potential at each triangle centroid.
 
@@ -42,6 +43,9 @@ def compute_potential_mesh(
         (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        基準電位を差し引く参照点。``"species1_injection_center"`` は
+        ``particles.species[0]`` の注入面中心を使う。
 
     Returns
     -------
@@ -77,7 +81,17 @@ def compute_potential_mesh(
             self_coeff=self_coeff,
             periodic2=periodic_cfg,
         )
-    return K_COULOMB * potential
+    potential_v = K_COULOMB * potential
+    reference_xyz = _resolve_reference_point(resolved, reference_point)
+    if reference_xyz is not None:
+        potential_v = potential_v - _compute_reference_potential_volts(
+            reference_xyz,
+            centers,
+            resolved.charges,
+            softening=resolved_softening,
+            periodic2=periodic_cfg,
+        )
+    return potential_v
 
 
 def compute_potential_points(
@@ -87,6 +101,7 @@ def compute_potential_points(
     softening: float | None = None,
     chunk_size: int = 2048,
     periodic2: Mapping[str, object] | None = None,
+    reference_point: Iterable[float] | str | None = None,
 ) -> np.ndarray:
     """Compute electric potential at arbitrary 3D sampling points.
 
@@ -108,6 +123,8 @@ def compute_potential_points(
         ``far_correction`` (``"none"`` or ``"ewald_like"``), ``ewald_alpha``
         (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        基準電位を差し引く参照点。
 
     Returns
     -------
@@ -153,8 +170,17 @@ def compute_potential_points(
             chunk_size=chunk_size,
             periodic2=periodic_cfg,
         )
-
-    return K_COULOMB * potential
+    potential_v = K_COULOMB * potential
+    reference_xyz = _resolve_reference_point(resolved, reference_point)
+    if reference_xyz is not None:
+        potential_v = potential_v - _compute_reference_potential_volts(
+            reference_xyz,
+            centers,
+            resolved.charges,
+            softening=resolved_softening,
+            periodic2=periodic_cfg,
+        )
+    return potential_v
 
 
 def compute_potential_slices(
@@ -169,6 +195,7 @@ def compute_potential_slices(
     softening: float | None = None,
     chunk_size: int = 2048,
     periodic2: Mapping[str, object] | None = None,
+    reference_point: Iterable[float] | str | None = None,
 ) -> dict[str, PotentialSlice2D]:
     """Sample potential on XY/YZ/XZ slices inside a simulation box.
 
@@ -196,6 +223,8 @@ def compute_potential_slices(
         Two-axis periodic setting for potential sampling. See
         :func:`compute_potential_points` for supported keys. ``None`` 時は
         ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        基準電位を差し引く参照点。
 
     Returns
     -------
@@ -248,6 +277,7 @@ def compute_potential_slices(
         softening=resolved_softening,
         chunk_size=chunk_size,
         periodic2=periodic_cfg,
+        reference_point=reference_point,
     ).reshape(grid_n, grid_n)
 
     yy2, zz = np.meshgrid(y, z, indexing="xy")
@@ -258,6 +288,7 @@ def compute_potential_slices(
         softening=resolved_softening,
         chunk_size=chunk_size,
         periodic2=periodic_cfg,
+        reference_point=reference_point,
     ).reshape(grid_n, grid_n)
 
     xx2, zz2 = np.meshgrid(x, z, indexing="xy")
@@ -268,6 +299,7 @@ def compute_potential_slices(
         softening=resolved_softening,
         chunk_size=chunk_size,
         periodic2=periodic_cfg,
+        reference_point=reference_point,
     ).reshape(grid_n, grid_n)
 
     return {
@@ -354,6 +386,7 @@ def _potential_history(
         int,
     ]
     | None = None,
+    reference_point: np.ndarray | None = None,
 ) -> np.ndarray:
     if softening < 0.0:
         raise ValueError("softening must be >= 0.")
@@ -377,7 +410,17 @@ def _potential_history(
                 self_coeff=self_coeff,
                 periodic2=periodic2,
             )
-    return K_COULOMB * potential
+    potential_v = K_COULOMB * potential
+    if reference_point is not None:
+        for frame_idx in range(charges_history.shape[1]):
+            potential_v[:, frame_idx] = potential_v[:, frame_idx] - _compute_reference_potential_volts(
+                reference_point,
+                centers,
+                charges_history[:, frame_idx],
+                softening=softening,
+                periodic2=periodic2,
+            )
+    return potential_v
 
 
 def _compute_potential_points_free(
@@ -637,13 +680,64 @@ def _resolve_self_term(self_term: str, softening: float) -> str:
     )
 
 
+def _resolve_reference_point(
+    resolved: FortranRunResult,
+    reference_point: Iterable[float] | str | None,
+) -> np.ndarray | None:
+    if reference_point is None:
+        return None
+
+    if isinstance(reference_point, str):
+        key = reference_point.strip().lower()
+        if key in {"species1_injection_center", "species1", "default"}:
+            return _species1_injection_center_from_result(resolved)
+        raise ValueError(
+            'reference_point string must be "species1_injection_center" or a 3D coordinate.'
+        )
+
+    point = np.asarray(list(reference_point), dtype=float)
+    if point.shape != (3,):
+        raise ValueError("reference_point must contain exactly 3 values.")
+    if not np.all(np.isfinite(point)):
+        raise ValueError("reference_point must contain finite values.")
+    return point
+
+
 def _load_sim_near_output(output_dir: Path) -> Mapping[str, object] | None:
+    config = _load_config_near_output(output_dir)
+    if config is None:
+        return None
+    sim = config.get("sim")
+    return sim if isinstance(sim, Mapping) else None
+
+
+def _load_config_near_output(output_dir: Path) -> dict[str, object] | None:
     config_path = _find_config_path_near_output(output_dir)
     if config_path is None:
         return None
-    config = _load_toml(config_path)
-    sim = config.get("sim")
-    return sim if isinstance(sim, Mapping) else None
+    return _load_toml(config_path)
+
+
+def _species1_injection_center_from_result(resolved: FortranRunResult) -> np.ndarray | None:
+    config = _load_config_near_output(resolved.directory)
+    if config is None:
+        return None
+
+    particles = config.get("particles")
+    if not isinstance(particles, Mapping):
+        return None
+    species = particles.get("species")
+    if not isinstance(species, list) or len(species) == 0:
+        return None
+    first_species = species[0]
+    if not isinstance(first_species, Mapping):
+        return None
+    if "inject_face" not in first_species or "pos_low" not in first_species or "pos_high" not in first_species:
+        return None
+
+    pos_low = np.asarray(_coerce_vec3(first_species["pos_low"], name="particles.species[0].pos_low"))
+    pos_high = np.asarray(_coerce_vec3(first_species["pos_high"], name="particles.species[0].pos_high"))
+    return 0.5 * (pos_low + pos_high)
 
 
 def _wrap_periodic2_points(
@@ -661,6 +755,44 @@ def _wrap_periodic2_points(
         wrapped[:, axes[1]] - origins[1], lengths[1]
     )
     return wrapped
+
+
+def _compute_reference_potential_volts(
+    reference_point: np.ndarray,
+    centers: np.ndarray,
+    charges: np.ndarray,
+    *,
+    softening: float,
+    periodic2: tuple[
+        tuple[int, int],
+        tuple[float, float],
+        tuple[float, float],
+        int,
+        str,
+        float,
+        int,
+    ]
+    | None,
+) -> float:
+    points = np.asarray(reference_point, dtype=float).reshape(1, 3)
+    if periodic2 is None:
+        potential = _compute_potential_points_free(
+            points,
+            centers,
+            charges,
+            softening=softening,
+            chunk_size=1,
+        )
+    else:
+        potential = _compute_potential_points_periodic2(
+            points,
+            centers,
+            charges,
+            softening=softening,
+            chunk_size=1,
+            periodic2=periodic2,
+        )
+    return float(K_COULOMB * potential[0])
 
 
 def _find_config_path_near_output(output_dir: Path) -> Path | None:

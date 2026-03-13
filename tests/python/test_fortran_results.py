@@ -581,6 +581,49 @@ def test_compute_potential_mesh_softened_point_matches_legacy_behavior() -> None
     np.testing.assert_allclose(potential, expected)
 
 
+def test_compute_potential_mesh_supports_reference_point_difference() -> None:
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
+            [[3.0, 0.0, 0.0], [6.0, 0.0, 0.0], [3.0, 3.0, 0.0]],
+        ]
+    )
+    charges = np.array([2.0e-9, -1.0e-9])
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charges,
+        triangles=triangles,
+    )
+
+    reference = np.array([0.0, 0.0, 6.0])
+    phi = compute_potential_mesh(
+        result,
+        softening=0.5,
+        self_term="softened_point",
+        reference_point=reference,
+    )
+    phi_abs = compute_potential_mesh(
+        result,
+        softening=0.5,
+        self_term="softened_point",
+    )
+    phi_ref = compute_potential_points(
+        result,
+        reference.reshape(1, 3),
+        softening=0.5,
+    )[0]
+
+    np.testing.assert_allclose(phi, phi_abs - phi_ref)
+
+
 def test_compute_potential_mesh_auto_uses_softening_from_config(tmp_path: Path) -> None:
     out = tmp_path / "run_softening_auto"
     out.mkdir()
@@ -631,6 +674,59 @@ def test_compute_potential_mesh_auto_uses_softening_from_config(tmp_path: Path) 
     potential = compute_potential_mesh(result)
 
     np.testing.assert_allclose(potential, expected)
+
+
+def test_compute_potential_mesh_supports_species1_injection_reference_from_config(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_species1_ref"
+    out.mkdir()
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=1",
+                "processed_particles=0",
+                "absorbed=0",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,2.0e-9\n", encoding="utf-8")
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,0.0,2.0e-9,1\n",
+        encoding="utf-8",
+    )
+    (out / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                "softening = 0.0",
+                "",
+                "[particles]",
+                "",
+                "[[particles.species]]",
+                'inject_face = "z_high"',
+                "pos_low = [0.0, 0.0, 10.0]",
+                "pos_high = [2.0, 2.0, 10.0]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+    phi = compute_potential_mesh(
+        result,
+        self_term="exclude",
+        reference_point="species1_injection_center",
+    )
+
+    distance = np.sqrt((2.0 / 3.0) ** 2 + (2.0 / 3.0) ** 2 + 10.0**2)
+    expected = np.array([-K_COULOMB * 2.0e-9 / distance])
+    np.testing.assert_allclose(phi, expected)
 
 
 def test_compute_potential_mesh_allows_zero_softening_for_non_softened_self_terms() -> (
@@ -997,6 +1093,24 @@ def test_potential_history_supports_periodic2_image_sum() -> None:
                 continue
             image_sum += 1.0 / np.sqrt(float(ix * ix + iy * iy))
     expected = K_COULOMB * charges_history * image_sum
+    np.testing.assert_allclose(potential, expected)
+
+
+def test_potential_history_supports_reference_point_difference() -> None:
+    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    charges_history = np.array([[2.0e-9, 4.0e-9]])
+    reference_point = np.array([0.0, 0.0, 2.0])
+
+    potential = _potential_history(
+        charges_history,
+        triangles,
+        softening=0.0,
+        self_term="exclude",
+        reference_point=reference_point,
+    )
+
+    distance = np.sqrt((1.0 / 3.0) ** 2 + (1.0 / 3.0) ** 2 + 2.0**2)
+    expected = -K_COULOMB * charges_history / distance
     np.testing.assert_allclose(potential, expected)
 
 

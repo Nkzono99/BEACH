@@ -65,6 +65,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     self_term = args.potential_self_term.replace("-", "_")
+    reference_point = "species1_injection_center"
 
     beach = Beach(args.output_dir)
     try:
@@ -95,6 +96,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         potential = beach.compute_potential(
             softening=args.potential_softening,
             self_term=self_term,
+            reference_point=reference_point,
         )
         print(f"potential_min={potential.min():.6e}")
         print(f"potential_max={potential.max():.6e}")
@@ -132,6 +134,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 potential_mesh_fig, _ = beach.plot_potential(
                     softening=args.potential_softening,
                     self_term=self_term,
+                    reference_point=reference_point,
                 )
                 if args.save_potential_mesh is not None:
                     potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)

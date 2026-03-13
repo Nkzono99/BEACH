@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Mapping, TYPE_CHECKING
+from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
@@ -12,6 +12,7 @@ from .potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
     _potential_history,
+    _resolve_reference_point,
     _resolve_self_term,
     _resolve_softening,
 )
@@ -34,6 +35,7 @@ def animate_history_mesh(
     softening: float | None = None,
     self_term: str = "auto",
     periodic2: Mapping[str, object] | None = None,
+    reference_point: Iterable[float] | str | None = "species1_injection_center",
 ) -> Path | FuncAnimation:
     """Render mesh history as an animation.
 
@@ -61,6 +63,8 @@ def animate_history_mesh(
     periodic2 : mapping or None, default None
         Two-axis periodic setting for potential mode. ``None`` の場合は
         出力ディレクトリ近傍の ``beach.toml`` から自動判定する。
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
+        基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
 
     Returns
     -------
@@ -112,15 +116,17 @@ def animate_history_mesh(
         periodic_cfg = _coerce_periodic2(periodic2)
         if periodic_cfg is None:
             periodic_cfg = _auto_periodic2_from_result(resolved)
+        resolved_reference = _resolve_reference_point(resolved, reference_point)
         values_history = _potential_history(
             charges_sampled,
             triangles,
             softening=resolved_softening,
             self_term=self_term_key,
             periodic2=periodic_cfg,
+            reference_point=resolved_reference,
         )
-        colorbar_label = "potential [V]"
-        title_prefix = "Electric potential history"
+        colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
+        title_prefix = "Electric potential history" if resolved_reference is None else "Electric potential difference history"
         use_cmap = "viridis" if cmap is None else cmap
     else:
         raise ValueError("quantity must be one of {'charge', 'potential'}.")

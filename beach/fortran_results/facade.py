@@ -215,6 +215,7 @@ class Beach:
         softening: float | None = None,
         self_term: str = "auto",
         periodic2: Mapping[str, object] | None = None,
+        reference_point: Iterable[float] | str | None = None,
     ) -> np.ndarray:
         """Compute potential values at triangle centroids.
 
@@ -228,6 +229,8 @@ class Beach:
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_mesh`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+            基準電位を差し引く参照点。
 
         Returns
         -------
@@ -240,6 +243,7 @@ class Beach:
             softening=softening,
             self_term=self_term,
             periodic2=periodic2,
+            reference_point=reference_point,
         )
 
     def compute_potential_points(
@@ -249,6 +253,7 @@ class Beach:
         softening: float | None = None,
         chunk_size: int = 2048,
         periodic2: Mapping[str, object] | None = None,
+        reference_point: Iterable[float] | str | None = None,
     ) -> np.ndarray:
         """Compute potential values at arbitrary 3D points.
 
@@ -264,6 +269,8 @@ class Beach:
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_points`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+            基準電位を差し引く参照点。
 
         Returns
         -------
@@ -277,6 +284,7 @@ class Beach:
             softening=softening,
             chunk_size=chunk_size,
             periodic2=periodic2,
+            reference_point=reference_point,
         )
 
     def compute_potential_slices(
@@ -291,6 +299,7 @@ class Beach:
         softening: float | None = None,
         chunk_size: int = 2048,
         periodic2: Mapping[str, object] | None = None,
+        reference_point: Iterable[float] | str | None = None,
     ):
         """Compute potential slices on XY/YZ/XZ planes.
 
@@ -316,6 +325,8 @@ class Beach:
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_points`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+            基準電位を差し引く参照点。
 
         Returns
         -------
@@ -334,6 +345,7 @@ class Beach:
             softening=softening,
             chunk_size=chunk_size,
             periodic2=periodic2,
+            reference_point=reference_point,
         )
 
     def plot_potential(
@@ -343,6 +355,7 @@ class Beach:
         self_term: str = "auto",
         cmap: str = "viridis",
         periodic2: Mapping[str, object] | None = None,
+        reference_point: Iterable[float] | str | None = "species1_injection_center",
     ):
         """Plot a 3D mesh colored by reconstructed electric potential.
 
@@ -358,6 +371,8 @@ class Beach:
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_mesh`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
+            基準電位を差し引く参照点。
 
         Returns
         -------
@@ -371,6 +386,7 @@ class Beach:
             self_term=self_term,
             cmap=cmap,
             periodic2=periodic2,
+            reference_point=reference_point,
         )
 
     def plot_potential_slices(
@@ -388,6 +404,7 @@ class Beach:
         vmin: float | None = None,
         vmax: float | None = None,
         periodic2: Mapping[str, object] | None = None,
+        reference_point: Iterable[float] | str | None = "species1_injection_center",
     ):
         """Plot XY/YZ/XZ potential slices with a shared color scale.
 
@@ -419,6 +436,8 @@ class Beach:
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_points`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
+            基準電位を差し引く参照点。
 
         Returns
         -------
@@ -440,6 +459,7 @@ class Beach:
             vmin=vmin,
             vmax=vmax,
             periodic2=periodic2,
+            reference_point=reference_point,
         )
 
     def plot_mesh_source_boxplot(
@@ -494,6 +514,7 @@ class Beach:
         softening: float | None = None,
         self_term: str = "auto",
         periodic2: Mapping[str, object] | None = None,
+        reference_point: Iterable[float] | str | None = "species1_injection_center",
     ) -> Path | FuncAnimation:
         """Animate charge or potential history on the 3D surface mesh.
 
@@ -518,6 +539,8 @@ class Beach:
         periodic2 : mapping or None, default None
             Two-axis periodic setting for potential mode. ``None`` の場合は
             出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
+            基準電位を差し引く参照点。
 
         Returns
         -------
@@ -536,4 +559,5 @@ class Beach:
             softening=softening,
             self_term=self_term,
             periodic2=periodic2,
+            reference_point=reference_point,
         )

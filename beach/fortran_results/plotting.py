@@ -8,7 +8,11 @@ from typing import Iterable, Mapping
 import numpy as np
 
 from .mesh import _plot_scalar_mesh, _surface_charge_density, _triangle_areas
-from .potential import compute_potential_mesh, compute_potential_slices
+from .potential import (
+    _resolve_reference_point,
+    compute_potential_mesh,
+    compute_potential_slices,
+)
 from .selection import (
     _charges_for_step,
     _mesh_ids_or_default,
@@ -93,6 +97,7 @@ def plot_potential_slices(
     vmin: float | None = None,
     vmax: float | None = None,
     periodic2: Mapping[str, object] | None = None,
+    reference_point: Iterable[float] | str | None = "species1_injection_center",
 ):
     """Plot XY/YZ/XZ potential slices in one figure.
 
@@ -125,6 +130,8 @@ def plot_potential_slices(
     periodic2 : mapping or None, default None
         Two-axis periodic setting. See
         :func:`beach.fortran_results.compute_potential_points`.
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
+        基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
 
     Returns
     -------
@@ -139,6 +146,8 @@ def plot_potential_slices(
 
     import matplotlib.pyplot as plt
 
+    resolved = _resolve_result(result)
+    resolved_reference = _resolve_reference_point(resolved, reference_point)
     slices = compute_potential_slices(
         result,
         box_min=box_min,
@@ -150,6 +159,7 @@ def plot_potential_slices(
         softening=softening,
         chunk_size=chunk_size,
         periodic2=periodic2,
+        reference_point=reference_point,
     )
 
     ordered_planes = ("xy", "yz", "xz")
@@ -183,7 +193,8 @@ def plot_potential_slices(
         ax.set_aspect("equal", adjustable="box")
 
     if mappable is not None:
-        fig.colorbar(mappable, ax=axes, shrink=0.9, label="potential [V]")
+        label = "potential [V]" if resolved_reference is None else "potential difference [V]"
+        fig.colorbar(mappable, ax=axes, shrink=0.9, label=label)
     return fig, axes
 
 
@@ -194,6 +205,7 @@ def plot_potential_mesh(
     self_term: str = "auto",
     cmap: str = "viridis",
     periodic2: Mapping[str, object] | None = None,
+    reference_point: Iterable[float] | str | None = "species1_injection_center",
 ):
     """Plot a 3D mesh colored by reconstructed electric potential.
 
@@ -210,6 +222,8 @@ def plot_potential_mesh(
     periodic2 : mapping or None, default None
         Two-axis periodic setting. See
         :func:`beach.fortran_results.compute_potential_mesh`.
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
+        基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
 
     Returns
     -------
@@ -224,17 +238,21 @@ def plot_potential_mesh(
 
     resolved = _resolve_result(result)
     triangles = _require_triangles(resolved)
+    resolved_reference = _resolve_reference_point(resolved, reference_point)
     phi = compute_potential_mesh(
         resolved,
         softening=softening,
         self_term=self_term,
         periodic2=periodic2,
+        reference_point=reference_point,
     )
+    title = "Electric potential mesh" if resolved_reference is None else "Electric potential difference mesh"
+    colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
     return _plot_scalar_mesh(
         triangles,
         phi,
-        title=f"Electric potential mesh: {resolved.directory}",
-        colorbar_label="potential [V]",
+        title=f"{title}: {resolved.directory}",
+        colorbar_label=colorbar_label,
         cmap=cmap,
     )
 
