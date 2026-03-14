@@ -12,16 +12,19 @@ contains
     real(dp) :: q, abs_q, qx, qy, qz, qi
     real(dp) :: t_moment_start, t_moment_end
     real(dp), allocatable :: src_pos(:, :)
+    logical :: plan_view_dirty
 
     if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
 
     if (trim(self%mode) == 'fmm') then
       t_moment_start = field_solver_time_seconds()
       self%fmm_use_core = .true.
+      plan_view_dirty = .false.
       if (mesh%nelem <= 0_i32) then
         call destroy_plan(self%fmm_core_plan)
         call destroy_state(self%fmm_core_state)
         self%fmm_core_ready = .false.
+        plan_view_dirty = .true.
         call sync_core_plan_view(self)
         call sync_core_plan_stats(self)
         self%fmm_last_moment_time_s = 0.0d0
@@ -39,13 +42,20 @@ contains
         call build_core_source_positions(mesh, src_pos)
         call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
         deallocate (src_pos)
+        plan_view_dirty = .true.
       end if
 
       call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
       t_moment_end = field_solver_time_seconds()
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
-      call sync_core_plan_view(self)
-      call sync_core_plan_stats(self)
+      self%tree_ready = self%fmm_core_plan%built
+      self%fmm_ready = self%fmm_core_state%ready
+      self%nelem = self%fmm_core_plan%nsrc
+      self%target_tree_ready = self%fmm_core_plan%target_tree_ready
+      if (plan_view_dirty) then
+        call sync_core_plan_view(self)
+        call sync_core_plan_stats(self)
+      end if
       self%fmm_last_moment_time_s = 0.0d0
       self%fmm_last_clear_time_s = 0.0d0
       self%fmm_last_m2l_time_s = 0.0d0
