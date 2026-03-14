@@ -124,6 +124,14 @@ history_stride = 1
 - 実行ループは `batch_count` 分だけ進みます。
 - `tol_rel` は出力監視値であり、現行実装では早期終了条件には使いません。
 
+`tree_theta` / `tree_leaf_max` の自動推定値:
+
+- `nelem < 1500`: `theta = 0.40`, `leaf_max = 12`
+- `1500 <= nelem < 10000`: `theta = 0.50`, `leaf_max = 16`
+- `10000 <= nelem < 50000`: `theta = 0.58`, `leaf_max = 20`
+- `50000 <= nelem`: `theta = 0.65`, `leaf_max = 24`
+- `field_bc_mode = "periodic2"` でも同じ表を使い、追加の periodic2 専用 clamp は行いません。
+
 ### 3.2 `[[particles.species]]`
 
 `[[particles.species]]` は 1 件以上必須です。

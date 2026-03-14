@@ -93,7 +93,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価し、`sim.field_periodic_far_correction="ewald_like"` の場合はその外側を erfc スクリーン核で近似補正します（`field_periodic_ewald_alpha`, `field_periodic_ewald_layers`）。  
-`tree_theta`/`tree_leaf_max` を未指定の場合は periodic2 向けに保守的な自動値（`theta<=0.07`, `leaf_max<=3`）を用います。
+`tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
 ### 5.2 粒子前進
 

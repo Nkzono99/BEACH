@@ -51,6 +51,14 @@ call eval_point(plan, state, r, e)
 - `build_plan` は幾何依存処理、`update_state` は電荷依存処理です。
 - `eval_point(s)` は `plan` と `state` が ready な前提です。
 
+### 2.1 BEACH adapter での使い方
+
+BEACH の field solver adapter は、メッシュ要素重心を `src_pos` としてこのコアへ渡します。
+
+- 初期化時は `build_plan` の直後に `update_state` を実行します。
+- その後の refresh では、メッシュ幾何が変わらない通常運用を前提に既存 `plan` を再利用し、`src_q` 更新として `update_state` だけを呼びます。
+- `build_plan` と legacy tree metadata の同期をやり直すのは、plan 未構築時・source 数変更時・要素数 0 件で plan/state を破棄したときだけです。
+
 ## 3. データ構造
 
 ### 3.1 `fmm_options_type`
@@ -457,18 +465,30 @@ $$
 
 主な対応箇所:
 
-- API と型定義:
+- 公開 API / ラッパ:
+  `src/physics/field_solver/fmm/bem_coulomb_fmm_core.f90`,
+  `src/physics/field_solver/fmm/bem_coulomb_fmm_core_build.f90`,
+  `src/physics/field_solver/fmm/bem_coulomb_fmm_core_state.f90`,
+  `src/physics/field_solver/fmm/bem_coulomb_fmm_core_eval.f90`
+- shared 型定義:
   `fmm_options_type`, `fmm_plan_type`, `fmm_state_type`
+  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_types.f90`）
 - plan 構築:
   `build_plan`
+  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_plan_ops.f90`）
 - charge refresh:
-  `update_state`
-- upward/downward:
-  `p2m_leaf_moments`, `m2m_upward_pass`, `m2l_accumulate`, `l2l_downward_pass`
+  `update_state`, `p2m_leaf_moments`, `m2m_upward_pass`, `m2l_accumulate`, `l2l_downward_pass`
+  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_state_ops.f90`）
 - 評価:
-  `eval_point`, `eval_points`
+  `eval_point`, `eval_points`, `add_periodic2_ewald_like_correction`
+  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_eval_ops.f90`）
 - periodic2 補助:
-  `add_point_charge_images_field`, `add_periodic2_ewald_like_correction`
+  `add_point_charge_images_field`, `wrap_periodic2_point`, `apply_periodic2_minimum_image`
+  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_periodic.f90`）
+- BEACH adapter:
+  `src/physics/field_solver/bem_field_solver_config.f90`,
+  `src/physics/field_solver/bem_field_solver_tree.f90`,
+  `src/physics/field_solver/bem_field_solver_eval.f90`
 
 設計上の責務分担は次の通りです。
 
