@@ -10,7 +10,6 @@ contains
     integer(i32) :: axis, n_periodic
     real(dp) :: span, min_periodic_len
     real(dp), allocatable :: src_pos(:, :)
-    logical :: use_core_fmm
 
     call destroy_plan(self%fmm_core_plan)
     call destroy_state(self%fmm_core_state)
@@ -143,23 +142,28 @@ contains
     self%fmm_core_options%target_box_min = self%target_box_min
     self%fmm_core_options%target_box_max = self%target_box_max
 
-    use_core_fmm = trim(self%mode) == 'fmm' .and. mesh%nelem > 0_i32 &
-                   .and. (trim(self%periodic_far_correction) == 'none' .or. trim(self%periodic_far_correction) == 'ewald_like')
-    if (use_core_fmm) then
-      call build_core_source_positions(mesh, src_pos)
-      call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
-      call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
-      deallocate (src_pos)
-
+    if (trim(self%mode) == 'fmm') then
+      select case (trim(self%periodic_far_correction))
+      case ('none', 'ewald_like')
+        continue
+      case default
+        error stop 'FMM core supports periodic far correction "none" or "ewald_like" only.'
+      end select
       self%fmm_use_core = .true.
-      self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
-      call sync_core_plan_view(self)
-      call sync_core_plan_stats(self)
-      self%fmm_refresh_count = 1_i32
+      if (mesh%nelem > 0_i32) then
+        call build_core_source_positions(mesh, src_pos)
+        call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
+        call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+        deallocate (src_pos)
+        self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
+        call sync_core_plan_view(self)
+        call sync_core_plan_stats(self)
+        self%fmm_refresh_count = 1_i32
+      end if
       return
     end if
 
-    if ((trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') .and. mesh%nelem > 0_i32) then
+    if (trim(self%mode) == 'treecode' .and. mesh%nelem > 0_i32) then
       call build_tree_topology(self, mesh)
       call refresh_field_solver(self, mesh)
     else

@@ -10,14 +10,29 @@ contains
     integer(i32) :: p, idx, p_end
     integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
     real(dp) :: q, abs_q, qx, qy, qz, qi
-    real(dp) :: t_moment_start, t_moment_end, avg_refresh
+    real(dp) :: t_moment_start, t_moment_end
     real(dp), allocatable :: src_pos(:, :)
 
     if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
-    if (mesh%nelem <= 0_i32) return
 
-    if (trim(self%mode) == 'fmm' .and. self%fmm_use_core) then
+    if (trim(self%mode) == 'fmm') then
       t_moment_start = field_solver_time_seconds()
+      self%fmm_use_core = .true.
+      if (mesh%nelem <= 0_i32) then
+        call destroy_plan(self%fmm_core_plan)
+        call destroy_state(self%fmm_core_state)
+        self%fmm_core_ready = .false.
+        call sync_core_plan_view(self)
+        call sync_core_plan_stats(self)
+        self%fmm_last_moment_time_s = 0.0d0
+        self%fmm_last_clear_time_s = 0.0d0
+        self%fmm_last_m2l_time_s = 0.0d0
+        self%fmm_last_l2l_time_s = 0.0d0
+        self%fmm_last_copy_time_s = 0.0d0
+        self%fmm_last_refresh_time_s = 0.0d0
+        return
+      end if
+
       if (.not. self%fmm_core_plan%built .or. self%fmm_core_plan%nsrc /= mesh%nelem) then
         call destroy_plan(self%fmm_core_plan)
         call destroy_state(self%fmm_core_state)
@@ -41,6 +56,8 @@ contains
       self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
       return
     end if
+
+    if (mesh%nelem <= 0_i32) return
 
     if (.not. self%tree_ready .or. self%nelem /= mesh%nelem) then
       self%nelem = mesh%nelem
@@ -113,36 +130,7 @@ contains
       self%fmm_last_moment_time_s = t_moment_end - t_moment_start
     end if
 
-    if (trim(self%mode) == 'fmm') then
-      if (.not. self%fmm_ready) call build_fmm_interactions(self)
-      call refresh_fmm_locals(self, mesh)
-      self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
-      self%fmm_last_refresh_time_s = self%fmm_last_moment_time_s + self%fmm_last_clear_time_s &
-                                     + self%fmm_last_m2l_time_s + self%fmm_last_l2l_time_s &
-                                     + self%fmm_last_copy_time_s
-      self%fmm_total_moment_time_s = self%fmm_total_moment_time_s + self%fmm_last_moment_time_s
-      self%fmm_total_clear_time_s = self%fmm_total_clear_time_s + self%fmm_last_clear_time_s
-      self%fmm_total_m2l_time_s = self%fmm_total_m2l_time_s + self%fmm_last_m2l_time_s
-      self%fmm_total_l2l_time_s = self%fmm_total_l2l_time_s + self%fmm_last_l2l_time_s
-      self%fmm_total_copy_time_s = self%fmm_total_copy_time_s + self%fmm_last_copy_time_s
-      self%fmm_total_refresh_time_s = self%fmm_total_refresh_time_s + self%fmm_last_refresh_time_s
-      if (self%fmm_profile_enabled) then
-        if (self%fmm_refresh_count <= 3_i32 .or. mod(self%fmm_refresh_count, 50_i32) == 0_i32) then
-          avg_refresh = self%fmm_total_refresh_time_s / real(self%fmm_refresh_count, dp)
-          write (*, '(A,I0,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)') &
-            'FMM profile refresh#', self%fmm_refresh_count, &
-            ' moments=', self%fmm_last_moment_time_s, &
-            ' clear=', self%fmm_last_clear_time_s, &
-            ' m2l=', self%fmm_last_m2l_time_s, &
-            ' l2l=', self%fmm_last_l2l_time_s, &
-            ' copy=', self%fmm_last_copy_time_s, &
-            ' total=', self%fmm_last_refresh_time_s, &
-            ' avg=', avg_refresh
-        end if
-      end if
-    else
-      self%fmm_ready = .false.
-    end if
+    self%fmm_ready = .false.
   end procedure refresh_field_solver
 
   !> 要素重心を octree に再配置して木構造トポロジを構築する。

@@ -8,14 +8,16 @@ contains
   module procedure eval_e_field_solver
     real(dp) :: rx, ry, rz, soft2, ex, ey, ez
 
-    if (trim(self%mode) == 'fmm' .and. self%fmm_use_core .and. self%fmm_core_ready) then
+    if (trim(self%mode) == 'fmm') then
+      if (mesh%nelem <= 0_i32) then
+        e = 0.0d0
+        return
+      end if
+      if (.not. self%fmm_core_ready) then
+        error stop 'FMM core is not ready. Call solver%init/refresh before eval_e.'
+      end if
       call eval_point(self%fmm_core_plan, self%fmm_core_state, r, e)
       e = k_coulomb * e
-      return
-    end if
-
-    if (trim(self%mode) == 'fmm' .and. self%tree_ready .and. self%fmm_ready) then
-      call eval_e_fmm(self, mesh, r, e)
       return
     end if
 

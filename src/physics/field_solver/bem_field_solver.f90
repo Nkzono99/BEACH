@@ -178,62 +178,6 @@ module bem_field_solver
       class(field_solver_type), intent(inout) :: self
     end subroutine rebuild_source_level_cache
 
-    !> 1つのターゲット葉ノードに対して近傍/遠方ノード候補を再帰収集する。
-    recursive module subroutine gather_leaf_interactions(self, target_leaf, source_node, near_buf, near_n, far_buf, far_n)
-      class(field_solver_type), intent(in) :: self
-      integer(i32), intent(in) :: target_leaf
-      integer(i32), intent(in) :: source_node
-      integer(i32), intent(inout) :: near_buf(:)
-      integer(i32), intent(inout) :: near_n
-      integer(i32), intent(inout) :: far_buf(:)
-      integer(i32), intent(inout) :: far_n
-    end subroutine gather_leaf_interactions
-
-    !> source/target ノード対が遠方近似可能かを判定する。
-    module function nodes_well_separated(self, target_node, source_node) result(accept_it)
-      class(field_solver_type), intent(in) :: self
-      integer(i32), intent(in) :: target_node
-      integer(i32), intent(in) :: source_node
-      logical :: accept_it
-    end function nodes_well_separated
-
-    !> 各葉ノードの near/far 相互作用リストを構築する。
-    module subroutine build_fmm_interactions(self)
-      class(field_solver_type), intent(inout) :: self
-    end subroutine build_fmm_interactions
-
-    !> target tree ノードを深さごとの連続バケットへ並べ替える。
-    module subroutine rebuild_target_level_cache(self)
-      class(field_solver_type), intent(inout) :: self
-    end subroutine rebuild_target_level_cache
-
-    !> M2L ペアを target node ごとに引ける索引配列を構築する。
-    module subroutine build_fmm_target_pair_index(self, n_target_nodes)
-      class(field_solver_type), intent(inout) :: self
-      integer(i32), intent(in) :: n_target_nodes
-    end subroutine build_fmm_target_pair_index
-
-    !> FMM 遠方相互作用から葉ノード局所展開係数を更新する。
-    module subroutine refresh_fmm_locals(self, mesh)
-      class(field_solver_type), intent(inout) :: self
-      type(mesh_type), intent(in) :: mesh
-    end subroutine refresh_fmm_locals
-
-    !> 観測点の属する葉ノードを返す。
-    module function locate_target_leaf(self, r) result(node_idx)
-      class(field_solver_type), intent(in) :: self
-      real(dp), intent(in) :: r(3)
-      integer(i32) :: node_idx
-    end function locate_target_leaf
-
-    !> FMM 局所展開と近傍 direct 和を用いて観測点の電場を評価する。
-    module subroutine eval_e_fmm(self, mesh, r, e)
-      class(field_solver_type), intent(in) :: self
-      type(mesh_type), intent(in) :: mesh
-      real(dp), intent(in) :: r(3)
-      real(dp), intent(out) :: e(3)
-    end subroutine eval_e_fmm
-
     !> treecode/FMM 作業配列を解放する。
     module subroutine reset_tree_storage(self)
       class(field_solver_type), intent(inout) :: self
