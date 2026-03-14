@@ -1,8 +1,11 @@
 # Fortran Coulomb FMM コア仕様
 
 この文書は、現行 Fortran 実装の Coulomb FMM コア
-[`src/physics/field_solver/bem_coulomb_fmm_core.f90`](../src/physics/field_solver/bem_coulomb_fmm_core.f90)
-の仕様とアルゴリズムをまとめたものです。
+[`src/physics/field_solver/fmm/bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/bem_coulomb_fmm_core.f90)
+と、その実装を分割した関連ファイル群の仕様とアルゴリズムをまとめたものです。
+
+- 公開 API / 境界: `src/physics/field_solver/fmm/`
+- 内部実装: `src/physics/field_solver/fmm/internal/`
 
 対象は simulator 非依存の内部 API で、`mesh_type` や `sim_config` を直接 `use` しません。
 BEACH 側では field solver adapter がこのコアを呼び出します。
