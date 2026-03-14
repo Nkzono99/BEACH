@@ -54,6 +54,7 @@ Python CLI examples:
 
 ## Coding rules
 - Do not change public APIs without updating docs + examples.
+- When bumping versions or preparing a release, update both `pyproject.toml` and `fpm.toml` together to keep Python and Fortran package versions in sync.
 - For core simulation behavior, treat Fortran implementation and docs (`SPEC.md`) as source of truth.
 - Keep algorithms correctness-first; gate performance features behind flags.
 - Add/extend tests when modifying field, collision, boundary, injection, or resume logic.
