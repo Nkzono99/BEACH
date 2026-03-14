@@ -1,11 +1,18 @@
 !> `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 submodule (bem_field_solver) bem_field_solver_eval
+  use bem_coulomb_fmm_core, only: eval_point
   implicit none
 contains
 
   !> 観測点の電場を direct / treecode / fmm で評価して返す。
   module procedure eval_e_field_solver
     real(dp) :: rx, ry, rz, soft2, ex, ey, ez
+
+    if (trim(self%mode) == 'fmm' .and. self%fmm_use_core .and. self%fmm_core_ready) then
+      call eval_point(self%fmm_core_plan, self%fmm_core_state, r, e)
+      e = k_coulomb * e
+      return
+    end if
 
     if (trim(self%mode) == 'fmm' .and. self%tree_ready .and. self%fmm_ready) then
       call eval_e_fmm(self, mesh, r, e)

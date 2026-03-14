@@ -5,6 +5,7 @@ module bem_field_solver
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field, only: electric_field_at
+  use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   implicit none
   private
 
@@ -87,6 +88,11 @@ module bem_field_solver
     real(dp) :: fmm_total_l2l_time_s = 0.0d0
     real(dp) :: fmm_total_copy_time_s = 0.0d0
     real(dp) :: fmm_total_refresh_time_s = 0.0d0
+    logical :: fmm_use_core = .false.
+    logical :: fmm_core_ready = .false.
+    type(fmm_options_type) :: fmm_core_options = fmm_options_type()
+    type(fmm_plan_type) :: fmm_core_plan
+    type(fmm_state_type) :: fmm_core_state
   contains
     procedure :: init => init_field_solver
     procedure :: refresh => refresh_field_solver

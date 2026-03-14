@@ -1,5 +1,6 @@
 !> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule (bem_field_solver) bem_field_solver_tree
+  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
   implicit none
 contains
 
@@ -10,9 +11,52 @@ contains
     integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
     real(dp) :: q, abs_q, qx, qy, qz, qi
     real(dp) :: t_moment_start, t_moment_end, avg_refresh
+    real(dp), allocatable :: src_pos(:, :)
 
     if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
     if (mesh%nelem <= 0_i32) return
+
+    if (trim(self%mode) == 'fmm' .and. self%fmm_use_core) then
+      t_moment_start = field_solver_time_seconds()
+      if (.not. self%fmm_core_plan%built .or. self%fmm_core_plan%nsrc /= mesh%nelem) then
+        call destroy_plan(self%fmm_core_plan)
+        call destroy_state(self%fmm_core_state)
+        allocate (src_pos(3, mesh%nelem))
+        do idx = 1_i32, mesh%nelem
+          src_pos(1, idx) = mesh%center_x(idx)
+          src_pos(2, idx) = mesh%center_y(idx)
+          src_pos(3, idx) = mesh%center_z(idx)
+        end do
+        call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
+        deallocate (src_pos)
+      end if
+
+      call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+      t_moment_end = field_solver_time_seconds()
+      self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
+      self%fmm_last_moment_time_s = 0.0d0
+      self%fmm_last_clear_time_s = 0.0d0
+      self%fmm_last_m2l_time_s = 0.0d0
+      self%fmm_last_l2l_time_s = 0.0d0
+      self%fmm_last_copy_time_s = 0.0d0
+      self%fmm_last_refresh_time_s = t_moment_end - t_moment_start
+      self%fmm_total_refresh_time_s = self%fmm_total_refresh_time_s + self%fmm_last_refresh_time_s
+      self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
+      self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
+      self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
+      if (allocated(self%fmm_core_plan%near_nodes)) then
+        self%fmm_near_interaction_count = int(size(self%fmm_core_plan%near_nodes), i32)
+      else
+        self%fmm_near_interaction_count = 0_i32
+      end if
+      if (allocated(self%fmm_core_plan%far_nodes)) then
+        self%fmm_far_interaction_count = int(size(self%fmm_core_plan%far_nodes), i32)
+      else
+        self%fmm_far_interaction_count = 0_i32
+      end if
+      self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
+      return
+    end if
 
     if (.not. self%tree_ready .or. self%nelem /= mesh%nelem) then
       self%nelem = mesh%nelem
@@ -330,6 +374,8 @@ contains
 
   !> treecode で使う作業配列を解放し、ノード状態を未初期化に戻す。
   module procedure reset_tree_storage
+    call destroy_plan(self%fmm_core_plan)
+    call destroy_state(self%fmm_core_state)
     if (allocated(self%elem_order)) deallocate (self%elem_order)
     if (allocated(self%node_start)) deallocate (self%node_start)
     if (allocated(self%node_count)) deallocate (self%node_count)
@@ -406,6 +452,9 @@ contains
     self%fmm_total_l2l_time_s = 0.0d0
     self%fmm_total_copy_time_s = 0.0d0
     self%fmm_total_refresh_time_s = 0.0d0
+    self%fmm_use_core = .false.
+    self%fmm_core_ready = .false.
+    self%fmm_core_options = fmm_options_type()
   end procedure reset_tree_storage
 
   module procedure field_solver_time_seconds

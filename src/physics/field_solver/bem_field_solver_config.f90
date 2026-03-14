@@ -1,5 +1,6 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule (bem_field_solver) bem_field_solver_config
+  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
   implicit none
 contains
 
@@ -8,6 +9,14 @@ contains
     character(len=16) :: requested_mode, field_bc_mode
     integer(i32) :: axis, n_periodic
     real(dp) :: span, min_periodic_len
+    real(dp), allocatable :: src_pos(:, :)
+    logical :: use_core_fmm
+
+    call destroy_plan(self%fmm_core_plan)
+    call destroy_state(self%fmm_core_state)
+    self%fmm_use_core = .false.
+    self%fmm_core_ready = .false.
+    call reset_tree_storage(self)
 
     self%softening = sim%softening
     self%min_nelem = sim%tree_min_nelem
@@ -117,6 +126,42 @@ contains
     else
       self%theta = sim%tree_theta
       self%leaf_max = sim%tree_leaf_max
+    end if
+
+    self%fmm_core_options = fmm_options_type()
+    self%fmm_core_options%theta = self%theta
+    self%fmm_core_options%leaf_max = self%leaf_max
+    self%fmm_core_options%order = 4_i32
+    self%fmm_core_options%use_periodic2 = self%use_periodic2
+    self%fmm_core_options%periodic_axes = self%periodic_axes
+    self%fmm_core_options%periodic_len = self%periodic_len
+    self%fmm_core_options%periodic_image_layers = self%periodic_image_layers
+    self%fmm_core_options%target_box_min = self%target_box_min
+    self%fmm_core_options%target_box_max = self%target_box_max
+
+    use_core_fmm = trim(self%mode) == 'fmm' .and. mesh%nelem > 0_i32 &
+                   .and. abs(self%softening) <= tiny(1.0d0) &
+                   .and. trim(self%periodic_far_correction) == 'none'
+    if (use_core_fmm) then
+      allocate (src_pos(3, mesh%nelem))
+      do axis = 1_i32, mesh%nelem
+        src_pos(1, axis) = mesh%center_x(axis)
+        src_pos(2, axis) = mesh%center_y(axis)
+        src_pos(3, axis) = mesh%center_z(axis)
+      end do
+      call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
+      call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+      deallocate (src_pos)
+
+      self%fmm_use_core = .true.
+      self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
+      self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
+      self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
+      self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
+      if (allocated(self%fmm_core_plan%near_nodes)) self%fmm_near_interaction_count = int(size(self%fmm_core_plan%near_nodes), i32)
+      if (allocated(self%fmm_core_plan%far_nodes)) self%fmm_far_interaction_count = int(size(self%fmm_core_plan%far_nodes), i32)
+      self%fmm_refresh_count = 1_i32
+      return
     end if
 
     if ((trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') .and. mesh%nelem > 0_i32) then
