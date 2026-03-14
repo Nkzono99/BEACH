@@ -133,15 +133,18 @@ contains
     self%fmm_core_options%leaf_max = self%leaf_max
     self%fmm_core_options%order = 4_i32
     self%fmm_core_options%use_periodic2 = self%use_periodic2
+    self%fmm_core_options%periodic_far_correction = self%periodic_far_correction
     self%fmm_core_options%periodic_axes = self%periodic_axes
     self%fmm_core_options%periodic_len = self%periodic_len
     self%fmm_core_options%periodic_image_layers = self%periodic_image_layers
+    self%fmm_core_options%periodic_ewald_alpha = self%periodic_ewald_alpha
+    self%fmm_core_options%periodic_ewald_layers = self%periodic_ewald_layers
     self%fmm_core_options%target_box_min = self%target_box_min
     self%fmm_core_options%target_box_max = self%target_box_max
 
     use_core_fmm = trim(self%mode) == 'fmm' .and. mesh%nelem > 0_i32 &
                    .and. abs(self%softening) <= tiny(1.0d0) &
-                   .and. trim(self%periodic_far_correction) == 'none'
+                   .and. (trim(self%periodic_far_correction) == 'none' .or. trim(self%periodic_far_correction) == 'ewald_like')
     if (use_core_fmm) then
       call build_core_source_positions(mesh, src_pos)
       call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)

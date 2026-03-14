@@ -4,6 +4,8 @@ module bem_coulomb_fmm_core
   implicit none
   private
 
+  real(dp), parameter :: inv_sqrt_pi = 0.56418958354775628695d0
+
   public :: fmm_options_type
   public :: fmm_plan_type
   public :: fmm_state_type
@@ -19,9 +21,12 @@ module bem_coulomb_fmm_core
     integer(i32) :: leaf_max = 16_i32
     integer(i32) :: order = 4_i32
     logical :: use_periodic2 = .false.
+    character(len=16) :: periodic_far_correction = 'none'
     integer(i32) :: periodic_axes(2) = 0_i32
     real(dp) :: periodic_len(2) = 0.0d0
     integer(i32) :: periodic_image_layers = 1_i32
+    real(dp) :: periodic_ewald_alpha = 0.0d0
+    integer(i32) :: periodic_ewald_layers = 4_i32
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
   end type fmm_options_type
@@ -116,6 +121,9 @@ contains
       if (.not. has_valid_target_box(plan%options)) then
         error stop 'periodic2 requires a valid target box.'
       end if
+      if (trim(options%periodic_far_correction) /= 'none' .and. trim(options%periodic_far_correction) /= 'ewald_like') then
+        error stop 'Unsupported periodic far correction in FMM core.'
+      end if
     end if
 
     allocate (plan%src_pos(3, max(0_i32, nsrc)))
@@ -196,12 +204,14 @@ contains
     leaf_node = locate_target_leaf(plan, rt)
     if (leaf_node <= 0_i32) then
       call eval_direct_all_sources(plan, state, rt, e)
+      if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e)
       return
     end if
 
     leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
       call eval_direct_all_sources(plan, state, rt, e)
+      if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e)
       return
     end if
 
@@ -236,6 +246,7 @@ contains
         )
       end do
     end do
+    if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction(plan, state, leaf_slot, rt, e)
   end subroutine eval_point
 
   subroutine destroy_plan(plan)
@@ -1271,6 +1282,166 @@ contains
       )
     end do
   end subroutine eval_direct_all_sources
+
+  logical function use_periodic2_ewald_like(plan)
+    type(fmm_plan_type), intent(in) :: plan
+
+    use_periodic2_ewald_like = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'ewald_like'
+  end function use_periodic2_ewald_like
+
+  subroutine add_periodic2_ewald_like_correction(plan, state, leaf_slot, r, e)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: leaf_slot
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(inout) :: e(3)
+    integer(i32) :: node_pos, node_idx
+    integer(i32) :: nimg, img_outer, axis1, axis2
+    real(dp) :: alpha
+
+    if (.not. prepare_periodic2_ewald(plan, alpha, nimg, img_outer, axis1, axis2)) return
+
+    do node_pos = plan%far_start(leaf_slot), plan%far_start(leaf_slot + 1_i32) - 1_i32
+      node_idx = plan%far_nodes(node_pos)
+      call add_ewald_node_correction(plan, state, node_idx, r, axis1, axis2, nimg, img_outer, alpha, e)
+    end do
+
+    do node_pos = plan%near_start(leaf_slot), plan%near_start(leaf_slot + 1_i32) - 1_i32
+      node_idx = plan%near_nodes(node_pos)
+      call add_ewald_node_correction(plan, state, node_idx, r, axis1, axis2, nimg, img_outer, alpha, e)
+    end do
+  end subroutine add_periodic2_ewald_like_correction
+
+  subroutine add_periodic2_ewald_like_correction_all_leaves(plan, state, r, e)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(inout) :: e(3)
+    integer(i32) :: node_idx
+    integer(i32) :: nimg, img_outer, axis1, axis2
+    real(dp) :: alpha
+
+    if (.not. prepare_periodic2_ewald(plan, alpha, nimg, img_outer, axis1, axis2)) return
+
+    do node_idx = 1_i32, plan%nnode
+      if (plan%child_count(node_idx) > 0_i32) cycle
+      call add_ewald_node_correction(plan, state, node_idx, r, axis1, axis2, nimg, img_outer, alpha, e)
+    end do
+  end subroutine add_periodic2_ewald_like_correction_all_leaves
+
+  logical function prepare_periodic2_ewald(plan, alpha, nimg, img_outer, axis1, axis2)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(out) :: alpha
+    integer(i32), intent(out) :: nimg, img_outer, axis1, axis2
+
+    prepare_periodic2_ewald = .false.
+    alpha = 0.0d0
+    nimg = 0_i32
+    img_outer = 0_i32
+    axis1 = 0_i32
+    axis2 = 0_i32
+
+    if (.not. use_periodic2_ewald_like(plan)) return
+    if (plan%options%periodic_ewald_layers <= 0_i32) return
+
+    alpha = plan%options%periodic_ewald_alpha
+    if (alpha <= 0.0d0) return
+
+    nimg = plan%options%periodic_image_layers
+    img_outer = nimg + plan%options%periodic_ewald_layers
+    if (img_outer <= nimg) return
+
+    axis1 = plan%options%periodic_axes(1)
+    axis2 = plan%options%periodic_axes(2)
+    if (axis1 <= 0_i32 .or. axis2 <= 0_i32) return
+
+    prepare_periodic2_ewald = .true.
+  end function prepare_periodic2_ewald
+
+  subroutine add_ewald_node_correction(plan, state, node_idx, r, axis1, axis2, nimg, img_outer, alpha, e)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: node_idx
+    real(dp), intent(in) :: r(3)
+    integer(i32), intent(in) :: axis1, axis2, nimg, img_outer
+    real(dp), intent(in) :: alpha
+    real(dp), intent(inout) :: e(3)
+    real(dp) :: q, src(3)
+
+    call recover_node_charge_center(plan, state, node_idx, q, src)
+    if (abs(q) <= tiny(1.0d0)) return
+    call add_screened_shifted_node_images(q, src, r, axis1, axis2, plan%options%periodic_len, nimg, img_outer, alpha, e)
+  end subroutine add_ewald_node_correction
+
+  subroutine recover_node_charge_center(plan, state, node_idx, q, src)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: node_idx
+    real(dp), intent(out) :: q
+    real(dp), intent(out) :: src(3)
+    integer(i32) :: idx_x, idx_y, idx_z, idx_q
+
+    src = plan%node_center(:, node_idx)
+    idx_q = plan%alpha_map(0_i32, 0_i32, 0_i32)
+    q = state%multipole(idx_q, node_idx)
+    if (abs(q) <= tiny(1.0d0)) return
+    if (plan%options%order < 1_i32) return
+
+    idx_x = plan%alpha_map(1_i32, 0_i32, 0_i32)
+    idx_y = plan%alpha_map(0_i32, 1_i32, 0_i32)
+    idx_z = plan%alpha_map(0_i32, 0_i32, 1_i32)
+    src(1) = src(1) + state%multipole(idx_x, node_idx) / q
+    src(2) = src(2) + state%multipole(idx_y, node_idx) / q
+    src(3) = src(3) + state%multipole(idx_z, node_idx) / q
+  end subroutine recover_node_charge_center
+
+  subroutine add_screened_shifted_node_images(q, src, target, axis1, axis2, periodic_len, near_img, outer_img, alpha, e)
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: src(3)
+    real(dp), intent(in) :: target(3)
+    integer(i32), intent(in) :: axis1, axis2
+    real(dp), intent(in) :: periodic_len(2)
+    integer(i32), intent(in) :: near_img, outer_img
+    real(dp), intent(in) :: alpha
+    real(dp), intent(inout) :: e(3)
+    integer(i32) :: img_i, img_j
+    real(dp) :: shifted(3)
+
+    if (abs(q) <= tiny(1.0d0)) return
+    do img_i = -outer_img, outer_img
+      do img_j = -outer_img, outer_img
+        if (abs(img_i) <= near_img .and. abs(img_j) <= near_img) cycle
+        shifted = src
+        shifted(axis1) = shifted(axis1) + real(img_i, dp) * periodic_len(1)
+        shifted(axis2) = shifted(axis2) + real(img_j, dp) * periodic_len(2)
+        call add_screened_point_charge(q, target, shifted, alpha, e)
+      end do
+    end do
+  end subroutine add_screened_shifted_node_images
+
+  subroutine add_screened_point_charge(q, target, source, alpha, e)
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: target(3), source(3)
+    real(dp), intent(in) :: alpha
+    real(dp), intent(inout) :: e(3)
+    real(dp) :: dx(3), r2, rmag, inv_r, inv_r2, inv_r3
+    real(dp) :: ar, screen, gaussian, pref
+
+    if (abs(q) <= tiny(1.0d0)) return
+    dx = target - source
+    r2 = sum(dx * dx)
+    if (r2 <= tiny(1.0d0)) return
+
+    rmag = sqrt(r2)
+    inv_r = 1.0d0 / rmag
+    inv_r2 = inv_r * inv_r
+    inv_r3 = inv_r2 * inv_r
+    ar = alpha * rmag
+    screen = erfc(ar)
+    gaussian = exp(-(ar * ar))
+    pref = q * (screen * inv_r3 + 2.0d0 * alpha * inv_sqrt_pi * gaussian * inv_r2)
+    e = e + pref * dx
+  end subroutine add_screened_point_charge
 
   subroutine add_point_charge_images_field(q, src, target, axis1, axis2, shift_axis1, shift_axis2, nshift, e)
     real(dp), intent(in) :: q, src(3), target(3)
