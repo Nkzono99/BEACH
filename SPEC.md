@@ -89,7 +89,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 ここで `c_j` は要素 `j` の重心です。
 `field_solver="treecode"` のときはこの核を遠方で monopole 近似し、近傍は direct 和を使います。  
-`field_solver="fmm"` のときは octree の葉ごとに遠方ノード寄与を局所展開（1次）へ事前集約し、近傍は direct 和を使います。
+`field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/fortran_fmm_core.md` を参照してください。
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価し、`sim.field_periodic_far_correction="ewald_like"` の場合はその外側を erfc スクリーン核で近似補正します（`field_periodic_ewald_alpha`, `field_periodic_ewald_layers`）。  

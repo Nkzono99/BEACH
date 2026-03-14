@@ -187,5 +187,6 @@ fpm test
 
 - Fortran 実行フロー: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
 - `beach.toml` 仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
+- Coulomb FMM コア仕様: [`docs/fortran_fmm_core.md`](docs/fortran_fmm_core.md)
 - 実装仕様（source of truth）: [`SPEC.md`](SPEC.md)
 - 設定サンプル: [`examples/beach.toml`](examples/beach.toml)
