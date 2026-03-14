@@ -244,6 +244,17 @@ module bem_field_solver
       class(field_solver_type), intent(inout) :: self
     end subroutine sync_core_plan_view
 
+    !> mesh 重心から core FMM 用の source 座標配列 `src_pos(3,n)` を作る。
+    module subroutine build_core_source_positions(mesh, src_pos)
+      type(mesh_type), intent(in) :: mesh
+      real(dp), allocatable, intent(out) :: src_pos(:, :)
+    end subroutine build_core_source_positions
+
+    !> core FMM plan 由来の pair 数・near/far 統計値を solver へ同期する。
+    module subroutine sync_core_plan_stats(self)
+      class(field_solver_type), intent(inout) :: self
+    end subroutine sync_core_plan_stats
+
     !> OpenMP 有効時は `omp_get_wtime`、それ以外は `cpu_time` を返す簡易タイマ。
     module function field_solver_time_seconds() result(time_s)
       real(dp) :: time_s

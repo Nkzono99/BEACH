@@ -143,12 +143,7 @@ contains
                    .and. abs(self%softening) <= tiny(1.0d0) &
                    .and. trim(self%periodic_far_correction) == 'none'
     if (use_core_fmm) then
-      allocate (src_pos(3, mesh%nelem))
-      do axis = 1_i32, mesh%nelem
-        src_pos(1, axis) = mesh%center_x(axis)
-        src_pos(2, axis) = mesh%center_y(axis)
-        src_pos(3, axis) = mesh%center_z(axis)
-      end do
+      call build_core_source_positions(mesh, src_pos)
       call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
       call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
       deallocate (src_pos)
@@ -156,11 +151,7 @@ contains
       self%fmm_use_core = .true.
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
       call sync_core_plan_view(self)
-      self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
-      self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
-      self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
-      if (allocated(self%fmm_core_plan%near_nodes)) self%fmm_near_interaction_count = int(size(self%fmm_core_plan%near_nodes), i32)
-      if (allocated(self%fmm_core_plan%far_nodes)) self%fmm_far_interaction_count = int(size(self%fmm_core_plan%far_nodes), i32)
+      call sync_core_plan_stats(self)
       self%fmm_refresh_count = 1_i32
       return
     end if

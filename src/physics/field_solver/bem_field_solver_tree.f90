@@ -21,12 +21,7 @@ contains
       if (.not. self%fmm_core_plan%built .or. self%fmm_core_plan%nsrc /= mesh%nelem) then
         call destroy_plan(self%fmm_core_plan)
         call destroy_state(self%fmm_core_state)
-        allocate (src_pos(3, mesh%nelem))
-        do idx = 1_i32, mesh%nelem
-          src_pos(1, idx) = mesh%center_x(idx)
-          src_pos(2, idx) = mesh%center_y(idx)
-          src_pos(3, idx) = mesh%center_z(idx)
-        end do
+        call build_core_source_positions(mesh, src_pos)
         call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
         deallocate (src_pos)
       end if
@@ -35,6 +30,7 @@ contains
       t_moment_end = field_solver_time_seconds()
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
       call sync_core_plan_view(self)
+      call sync_core_plan_stats(self)
       self%fmm_last_moment_time_s = 0.0d0
       self%fmm_last_clear_time_s = 0.0d0
       self%fmm_last_m2l_time_s = 0.0d0
@@ -42,19 +38,6 @@ contains
       self%fmm_last_copy_time_s = 0.0d0
       self%fmm_last_refresh_time_s = t_moment_end - t_moment_start
       self%fmm_total_refresh_time_s = self%fmm_total_refresh_time_s + self%fmm_last_refresh_time_s
-      self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
-      self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
-      self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
-      if (allocated(self%fmm_core_plan%near_nodes)) then
-        self%fmm_near_interaction_count = int(size(self%fmm_core_plan%near_nodes), i32)
-      else
-        self%fmm_near_interaction_count = 0_i32
-      end if
-      if (allocated(self%fmm_core_plan%far_nodes)) then
-        self%fmm_far_interaction_count = int(size(self%fmm_core_plan%far_nodes), i32)
-      else
-        self%fmm_far_interaction_count = 0_i32
-      end if
       self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
       return
     end if
@@ -565,6 +548,31 @@ contains
       dst = src
     end subroutine copy_dp_2d
   end procedure sync_core_plan_view
+
+  module procedure build_core_source_positions
+    integer(i32) :: idx
+
+    allocate (src_pos(3, mesh%nelem))
+    do idx = 1_i32, mesh%nelem
+      src_pos(:, idx) = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
+    end do
+  end procedure build_core_source_positions
+
+  module procedure sync_core_plan_stats
+    self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
+    self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
+    self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
+    if (allocated(self%fmm_core_plan%near_nodes)) then
+      self%fmm_near_interaction_count = int(size(self%fmm_core_plan%near_nodes), i32)
+    else
+      self%fmm_near_interaction_count = 0_i32
+    end if
+    if (allocated(self%fmm_core_plan%far_nodes)) then
+      self%fmm_far_interaction_count = int(size(self%fmm_core_plan%far_nodes), i32)
+    else
+      self%fmm_far_interaction_count = 0_i32
+    end if
+  end procedure sync_core_plan_stats
 
   module procedure field_solver_time_seconds
     call cpu_time(time_s)
