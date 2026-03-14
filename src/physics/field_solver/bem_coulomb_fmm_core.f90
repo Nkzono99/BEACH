@@ -167,9 +167,12 @@ contains
       error stop 'FMM eval_points expects e(3,m).'
     end if
     ntarget = int(size(target_pos, 2), i32)
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(plan, state, target_pos, e, ntarget) private(i)
     do i = 1_i32, ntarget
       call eval_point(plan, state, target_pos(:, i), e(:, i))
     end do
+    !$omp end parallel do
   end subroutine eval_points
 
   subroutine eval_point(plan, state, r, e)
@@ -965,6 +968,10 @@ contains
       axis2 = plan%options%periodic_axes(2)
     end if
     nshift = size(plan%shift_axis1)
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(plan, axis1, axis2, nshift) &
+    !$omp private(pair_idx, img_i, img_j, s_node, t_node, base, shift1, shift2) &
+    !$omp private(rimg, deriv_tmp)
     do pair_idx = 1_i32, plan%m2l_pair_count
       t_node = plan%m2l_target_nodes(pair_idx)
       s_node = plan%m2l_source_nodes(pair_idx)
@@ -985,6 +992,7 @@ contains
         end do
       end do
     end do
+    !$omp end parallel do
   end subroutine precompute_m2l_derivatives
 
   subroutine ensure_state_capacity(plan, state)
@@ -1017,6 +1025,8 @@ contains
     real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
     real(dp) :: zpow(0:max(0_i32, plan%options%order))
 
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(plan, state) private(node_idx, p, idx, p_end, alpha_idx, d, xpow, ypow, zpow)
     do node_idx = 1_i32, plan%nnode
       if (plan%child_count(node_idx) > 0_i32) cycle
       p_end = plan%node_start(node_idx) + plan%node_count(node_idx) - 1_i32
@@ -1032,6 +1042,7 @@ contains
         end do
       end do
     end do
+    !$omp end parallel do
   end subroutine p2m_leaf_moments
 
   subroutine m2m_upward_pass(plan, state)
@@ -1049,6 +1060,10 @@ contains
     do depth = plan%node_max_depth - 1_i32, 0_i32, -1_i32
       level_start_pos = plan%node_level_start(depth + 1_i32)
       level_end_pos = plan%node_level_start(depth + 2_i32) - 1_i32
+      !$omp parallel do default(none) schedule(static) &
+      !$omp shared(plan, state, level_start_pos, level_end_pos) &
+      !$omp private(level_pos, node_idx, child_k, child_node, beta_idx, alpha_idx, delta_idx) &
+      !$omp private(delta, d, xpow, ypow, zpow, shift_factor)
       do level_pos = level_start_pos, level_end_pos
         node_idx = plan%node_level_nodes(level_pos)
         if (plan%child_count(node_idx) <= 0_i32) cycle
@@ -1068,16 +1083,21 @@ contains
           end do
         end do
       end do
+      !$omp end parallel do
     end do
   end subroutine m2m_upward_pass
 
   subroutine m2l_accumulate(plan, state)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
-    integer(i32) :: t_node, pair_pos, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx
+    integer(i32) :: t_node, pair_pos, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx, n_target_nodes
 
     if (plan%m2l_pair_count <= 0_i32) return
-    do t_node = 1_i32, active_tree_nnode(plan, plan%target_tree_ready)
+    n_target_nodes = active_tree_nnode(plan, plan%target_tree_ready)
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(plan, state, n_target_nodes) &
+    !$omp private(t_node, pair_pos, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx)
+    do t_node = 1_i32, n_target_nodes
       do pair_pos = plan%m2l_target_start(t_node), plan%m2l_target_start(t_node + 1_i32) - 1_i32
         pair_idx = plan%m2l_pair_order(pair_pos)
         s_node = plan%m2l_source_nodes(pair_idx)
@@ -1090,6 +1110,7 @@ contains
         end do
       end do
     end do
+    !$omp end parallel do
   end subroutine m2l_accumulate
 
   subroutine l2l_downward_pass(plan, state)
@@ -1120,6 +1141,10 @@ contains
         level_start_pos = plan%node_level_start(depth + 1_i32)
         level_end_pos = plan%node_level_start(depth + 2_i32) - 1_i32
       end if
+      !$omp parallel do default(none) schedule(static) &
+      !$omp shared(plan, state, use_target_tree, level_start_pos, level_end_pos) &
+      !$omp private(level_pos, node_idx, parent_node, alpha_idx, gamma_idx, delta_idx) &
+      !$omp private(delta, d, xpow, ypow, zpow, shift_factor)
       do level_pos = level_start_pos, level_end_pos
         if (use_target_tree) then
           node_idx = plan%target_level_nodes(level_pos)
@@ -1141,6 +1166,7 @@ contains
           end do
         end do
       end do
+      !$omp end parallel do
     end do
   end subroutine l2l_downward_pass
 
