@@ -1,7 +1,7 @@
 !> Coulomb FMM plan 構築と tree トポロジ前計算。
 module bem_coulomb_fmm_plan_ops
   use bem_kinds, only: dp, i32
-  use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type
+  use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
   use bem_coulomb_fmm_periodic, only: has_valid_target_box, build_periodic_shift_values, distance_to_source_bbox, &
                                        distance_to_source_bbox_periodic
@@ -22,7 +22,9 @@ contains
     type(fmm_options_type), intent(in) :: options
     integer(i32) :: nsrc
 
-    call core_destroy_plan_impl(plan)
+    if (allocated(plan%alpha) .or. allocated(plan%src_pos) .or. allocated(plan%elem_order)) then
+      call core_destroy_plan_impl(plan)
+    end if
     plan%options = options
     nsrc = int(size(src_pos, 2), i32)
     plan%nsrc = nsrc
@@ -53,6 +55,7 @@ contains
 
     call initialize_basis_tables(plan, options%order)
     call build_source_tree(plan)
+    call precompute_source_p2m_basis(plan)
     call build_target_topology(plan)
     call build_interactions(plan)
     call precompute_translation_operators(plan)
@@ -63,76 +66,7 @@ contains
   subroutine core_destroy_plan_impl(plan)
     type(fmm_plan_type), intent(inout) :: plan
 
-    if (allocated(plan%alpha)) deallocate (plan%alpha)
-    if (allocated(plan%alpha_degree)) deallocate (plan%alpha_degree)
-    if (allocated(plan%alpha_factorial)) deallocate (plan%alpha_factorial)
-    if (allocated(plan%alpha_sign)) deallocate (plan%alpha_sign)
-    if (allocated(plan%alpha_map)) deallocate (plan%alpha_map)
-    if (allocated(plan%alpha_plus_axis)) deallocate (plan%alpha_plus_axis)
-    if (allocated(plan%deriv_alpha)) deallocate (plan%deriv_alpha)
-    if (allocated(plan%deriv_degree)) deallocate (plan%deriv_degree)
-    if (allocated(plan%deriv_factorial)) deallocate (plan%deriv_factorial)
-    if (allocated(plan%deriv_map)) deallocate (plan%deriv_map)
-    if (allocated(plan%alpha_beta_deriv_idx)) deallocate (plan%alpha_beta_deriv_idx)
-    if (allocated(plan%src_pos)) deallocate (plan%src_pos)
-    if (allocated(plan%elem_order)) deallocate (plan%elem_order)
-    if (allocated(plan%node_start)) deallocate (plan%node_start)
-    if (allocated(plan%node_count)) deallocate (plan%node_count)
-    if (allocated(plan%child_count)) deallocate (plan%child_count)
-    if (allocated(plan%child_idx)) deallocate (plan%child_idx)
-    if (allocated(plan%child_octant)) deallocate (plan%child_octant)
-    if (allocated(plan%node_depth)) deallocate (plan%node_depth)
-    if (allocated(plan%node_level_start)) deallocate (plan%node_level_start)
-    if (allocated(plan%node_level_nodes)) deallocate (plan%node_level_nodes)
-    if (allocated(plan%node_center)) deallocate (plan%node_center)
-    if (allocated(plan%node_half_size)) deallocate (plan%node_half_size)
-    if (allocated(plan%node_radius)) deallocate (plan%node_radius)
-    if (allocated(plan%target_child_count)) deallocate (plan%target_child_count)
-    if (allocated(plan%target_child_idx)) deallocate (plan%target_child_idx)
-    if (allocated(plan%target_child_octant)) deallocate (plan%target_child_octant)
-    if (allocated(plan%target_node_depth)) deallocate (plan%target_node_depth)
-    if (allocated(plan%target_level_start)) deallocate (plan%target_level_start)
-    if (allocated(plan%target_level_nodes)) deallocate (plan%target_level_nodes)
-    if (allocated(plan%target_node_center)) deallocate (plan%target_node_center)
-    if (allocated(plan%target_node_half_size)) deallocate (plan%target_node_half_size)
-    if (allocated(plan%target_node_radius)) deallocate (plan%target_node_radius)
-    if (allocated(plan%source_leaf_nodes)) deallocate (plan%source_leaf_nodes)
-    if (allocated(plan%leaf_nodes)) deallocate (plan%leaf_nodes)
-    if (allocated(plan%leaf_slot_of_node)) deallocate (plan%leaf_slot_of_node)
-    if (allocated(plan%near_start)) deallocate (plan%near_start)
-    if (allocated(plan%near_nodes)) deallocate (plan%near_nodes)
-    if (allocated(plan%far_start)) deallocate (plan%far_start)
-    if (allocated(plan%far_nodes)) deallocate (plan%far_nodes)
-    if (allocated(plan%m2l_target_nodes)) deallocate (plan%m2l_target_nodes)
-    if (allocated(plan%m2l_source_nodes)) deallocate (plan%m2l_source_nodes)
-    if (allocated(plan%m2l_target_start)) deallocate (plan%m2l_target_start)
-    if (allocated(plan%m2l_pair_order)) deallocate (plan%m2l_pair_order)
-    if (allocated(plan%source_parent_of)) deallocate (plan%source_parent_of)
-    if (allocated(plan%parent_of)) deallocate (plan%parent_of)
-    if (allocated(plan%m2m_delta_idx)) deallocate (plan%m2m_delta_idx)
-    if (allocated(plan%l2l_delta_idx)) deallocate (plan%l2l_delta_idx)
-    if (allocated(plan%shift_axis1)) deallocate (plan%shift_axis1)
-    if (allocated(plan%shift_axis2)) deallocate (plan%shift_axis2)
-    if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
-    if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
-    if (allocated(plan%target_shift_monomial)) deallocate (plan%target_shift_monomial)
-    plan%options = fmm_options_type()
-    plan%built = .false.
-    plan%nsrc = 0_i32
-    plan%ncoef = 0_i32
-    plan%nderiv = 0_i32
-    plan%max_node = 0_i32
-    plan%nnode = 0_i32
-    plan%node_max_depth = 0_i32
-    plan%target_tree_ready = .false.
-    plan%target_max_node = 0_i32
-    plan%target_nnode = 0_i32
-    plan%target_node_max_depth = 0_i32
-    plan%nsource_leaf = 0_i32
-    plan%nleaf = 0_i32
-    plan%m2l_pair_count = 0_i32
-    plan%m2l_build_count = 0_i32
-    plan%m2l_visit_count = 0_i32
+    call reset_fmm_plan(plan)
   end subroutine core_destroy_plan_impl
 
   subroutine build_source_tree(plan)
@@ -312,6 +246,36 @@ contains
       plan%source_leaf_nodes(leaf_idx) = node_idx
     end do
   end subroutine build_source_leaf_index
+
+  subroutine precompute_source_p2m_basis(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: leaf_idx, node_idx, p, idx, p_end, alpha_idx
+    real(dp) :: d(3)
+    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
+    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+
+    if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
+    if (plan%nsrc <= 0_i32) return
+
+    allocate (plan%source_p2m_basis(plan%ncoef, plan%nsrc))
+    plan%source_p2m_basis = 0.0d0
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(plan) private(leaf_idx, node_idx, p, idx, p_end, alpha_idx, d, xpow, ypow, zpow)
+    do leaf_idx = 1_i32, plan%nsource_leaf
+      node_idx = plan%source_leaf_nodes(leaf_idx)
+      p_end = plan%node_start(node_idx) + plan%node_count(node_idx) - 1_i32
+      do p = plan%node_start(node_idx), p_end
+        idx = plan%elem_order(p)
+        d = plan%src_pos(:, idx) - plan%node_center(:, node_idx)
+        call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
+        do alpha_idx = 1_i32, plan%ncoef
+          plan%source_p2m_basis(alpha_idx, p) = xpow(plan%alpha(1, alpha_idx)) * ypow(plan%alpha(2, alpha_idx)) &
+                                                * zpow(plan%alpha(3, alpha_idx)) / plan%alpha_factorial(alpha_idx)
+        end do
+      end do
+    end do
+    !$omp end parallel do
+  end subroutine precompute_source_p2m_basis
 
   subroutine build_target_topology(plan)
     type(fmm_plan_type), intent(inout) :: plan
@@ -716,30 +680,64 @@ contains
 
   subroutine precompute_translation_operators(plan)
     type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: alpha_idx, beta_idx, gamma_idx, delta_idx
+    integer(i32) :: alpha_idx, beta_idx, gamma_idx, delta_idx, term_idx
     integer(i32) :: node_idx, n_target_nodes, parent_node
     integer(i32) :: delta(3)
+    integer(i32) :: max_m2m_terms, max_l2l_terms
     real(dp) :: d(3)
     real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
     real(dp) :: zpow(0:max(0_i32, plan%options%order))
 
-    if (allocated(plan%m2m_delta_idx)) deallocate (plan%m2m_delta_idx)
-    if (allocated(plan%l2l_delta_idx)) deallocate (plan%l2l_delta_idx)
-    allocate (plan%m2m_delta_idx(plan%ncoef, plan%ncoef), plan%l2l_delta_idx(plan%ncoef, plan%ncoef))
-    plan%m2m_delta_idx = 0_i32
-    plan%l2l_delta_idx = 0_i32
+    if (allocated(plan%m2m_term_count)) deallocate (plan%m2m_term_count)
+    if (allocated(plan%m2m_alpha_list)) deallocate (plan%m2m_alpha_list)
+    if (allocated(plan%m2m_delta_list)) deallocate (plan%m2m_delta_list)
+    if (allocated(plan%l2l_term_count)) deallocate (plan%l2l_term_count)
+    if (allocated(plan%l2l_gamma_list)) deallocate (plan%l2l_gamma_list)
+    if (allocated(plan%l2l_delta_list)) deallocate (plan%l2l_delta_list)
+
+    allocate (plan%m2m_term_count(plan%ncoef), plan%l2l_term_count(plan%ncoef))
+    plan%m2m_term_count = 0_i32
+    plan%l2l_term_count = 0_i32
     do beta_idx = 1_i32, plan%ncoef
       do alpha_idx = 1_i32, plan%ncoef
         if (any(plan%alpha(:, alpha_idx) > plan%alpha(:, beta_idx))) cycle
-        delta = plan%alpha(:, beta_idx) - plan%alpha(:, alpha_idx)
-        plan%m2m_delta_idx(beta_idx, alpha_idx) = plan%alpha_map(delta(1), delta(2), delta(3))
+        plan%m2m_term_count(beta_idx) = plan%m2m_term_count(beta_idx) + 1_i32
       end do
     end do
     do alpha_idx = 1_i32, plan%ncoef
       do gamma_idx = 1_i32, plan%ncoef
         if (any(plan%alpha(:, gamma_idx) < plan%alpha(:, alpha_idx))) cycle
+        plan%l2l_term_count(alpha_idx) = plan%l2l_term_count(alpha_idx) + 1_i32
+      end do
+    end do
+
+    max_m2m_terms = max(1_i32, maxval(plan%m2m_term_count))
+    max_l2l_terms = max(1_i32, maxval(plan%l2l_term_count))
+    allocate (plan%m2m_alpha_list(max_m2m_terms, plan%ncoef), plan%m2m_delta_list(max_m2m_terms, plan%ncoef))
+    allocate (plan%l2l_gamma_list(max_l2l_terms, plan%ncoef), plan%l2l_delta_list(max_l2l_terms, plan%ncoef))
+    plan%m2m_alpha_list = 0_i32
+    plan%m2m_delta_list = 0_i32
+    plan%l2l_gamma_list = 0_i32
+    plan%l2l_delta_list = 0_i32
+
+    do beta_idx = 1_i32, plan%ncoef
+      term_idx = 0_i32
+      do alpha_idx = 1_i32, plan%ncoef
+        if (any(plan%alpha(:, alpha_idx) > plan%alpha(:, beta_idx))) cycle
+        delta = plan%alpha(:, beta_idx) - plan%alpha(:, alpha_idx)
+        term_idx = term_idx + 1_i32
+        plan%m2m_alpha_list(term_idx, beta_idx) = alpha_idx
+        plan%m2m_delta_list(term_idx, beta_idx) = plan%alpha_map(delta(1), delta(2), delta(3))
+      end do
+    end do
+    do alpha_idx = 1_i32, plan%ncoef
+      term_idx = 0_i32
+      do gamma_idx = 1_i32, plan%ncoef
+        if (any(plan%alpha(:, gamma_idx) < plan%alpha(:, alpha_idx))) cycle
         delta = plan%alpha(:, gamma_idx) - plan%alpha(:, alpha_idx)
-        plan%l2l_delta_idx(alpha_idx, gamma_idx) = plan%alpha_map(delta(1), delta(2), delta(3))
+        term_idx = term_idx + 1_i32
+        plan%l2l_gamma_list(term_idx, alpha_idx) = gamma_idx
+        plan%l2l_delta_list(term_idx, alpha_idx) = plan%alpha_map(delta(1), delta(2), delta(3))
       end do
     end do
 

@@ -9,6 +9,8 @@ module bem_coulomb_fmm_types
   public :: fmm_options_type
   public :: fmm_plan_type
   public :: fmm_state_type
+  public :: reset_fmm_plan
+  public :: reset_fmm_state
 
   type :: fmm_options_type
     real(dp) :: theta = 0.5d0
@@ -79,10 +81,15 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: m2l_target_start(:), m2l_pair_order(:)
     integer(i32), allocatable :: source_parent_of(:)
     integer(i32), allocatable :: parent_of(:)
-    integer(i32), allocatable :: m2m_delta_idx(:, :)
-    integer(i32), allocatable :: l2l_delta_idx(:, :)
+    integer(i32), allocatable :: m2m_term_count(:)
+    integer(i32), allocatable :: m2m_alpha_list(:, :)
+    integer(i32), allocatable :: m2m_delta_list(:, :)
+    integer(i32), allocatable :: l2l_term_count(:)
+    integer(i32), allocatable :: l2l_gamma_list(:, :)
+    integer(i32), allocatable :: l2l_delta_list(:, :)
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     real(dp), allocatable :: m2l_deriv(:, :)
+    real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
     real(dp), allocatable :: target_shift_monomial(:, :)
   end type fmm_plan_type
@@ -93,6 +100,102 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: src_q(:)
     real(dp), allocatable :: multipole(:, :)
     real(dp), allocatable :: local(:, :)
+    integer(i32), allocatable :: multipole_active(:)
+    integer(i32), allocatable :: local_active(:)
   end type fmm_state_type
+
+contains
+
+  subroutine reset_fmm_plan(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+
+    if (allocated(plan%alpha)) deallocate (plan%alpha)
+    if (allocated(plan%alpha_degree)) deallocate (plan%alpha_degree)
+    if (allocated(plan%alpha_factorial)) deallocate (plan%alpha_factorial)
+    if (allocated(plan%alpha_sign)) deallocate (plan%alpha_sign)
+    if (allocated(plan%alpha_map)) deallocate (plan%alpha_map)
+    if (allocated(plan%alpha_plus_axis)) deallocate (plan%alpha_plus_axis)
+    if (allocated(plan%deriv_alpha)) deallocate (plan%deriv_alpha)
+    if (allocated(plan%deriv_degree)) deallocate (plan%deriv_degree)
+    if (allocated(plan%deriv_factorial)) deallocate (plan%deriv_factorial)
+    if (allocated(plan%deriv_map)) deallocate (plan%deriv_map)
+    if (allocated(plan%alpha_beta_deriv_idx)) deallocate (plan%alpha_beta_deriv_idx)
+    if (allocated(plan%src_pos)) deallocate (plan%src_pos)
+    if (allocated(plan%elem_order)) deallocate (plan%elem_order)
+    if (allocated(plan%node_start)) deallocate (plan%node_start)
+    if (allocated(plan%node_count)) deallocate (plan%node_count)
+    if (allocated(plan%child_count)) deallocate (plan%child_count)
+    if (allocated(plan%child_idx)) deallocate (plan%child_idx)
+    if (allocated(plan%child_octant)) deallocate (plan%child_octant)
+    if (allocated(plan%node_depth)) deallocate (plan%node_depth)
+    if (allocated(plan%node_level_start)) deallocate (plan%node_level_start)
+    if (allocated(plan%node_level_nodes)) deallocate (plan%node_level_nodes)
+    if (allocated(plan%node_center)) deallocate (plan%node_center)
+    if (allocated(plan%node_half_size)) deallocate (plan%node_half_size)
+    if (allocated(plan%node_radius)) deallocate (plan%node_radius)
+    if (allocated(plan%target_child_count)) deallocate (plan%target_child_count)
+    if (allocated(plan%target_child_idx)) deallocate (plan%target_child_idx)
+    if (allocated(plan%target_child_octant)) deallocate (plan%target_child_octant)
+    if (allocated(plan%target_node_depth)) deallocate (plan%target_node_depth)
+    if (allocated(plan%target_level_start)) deallocate (plan%target_level_start)
+    if (allocated(plan%target_level_nodes)) deallocate (plan%target_level_nodes)
+    if (allocated(plan%target_node_center)) deallocate (plan%target_node_center)
+    if (allocated(plan%target_node_half_size)) deallocate (plan%target_node_half_size)
+    if (allocated(plan%target_node_radius)) deallocate (plan%target_node_radius)
+    if (allocated(plan%source_leaf_nodes)) deallocate (plan%source_leaf_nodes)
+    if (allocated(plan%leaf_nodes)) deallocate (plan%leaf_nodes)
+    if (allocated(plan%leaf_slot_of_node)) deallocate (plan%leaf_slot_of_node)
+    if (allocated(plan%near_start)) deallocate (plan%near_start)
+    if (allocated(plan%near_nodes)) deallocate (plan%near_nodes)
+    if (allocated(plan%far_start)) deallocate (plan%far_start)
+    if (allocated(plan%far_nodes)) deallocate (plan%far_nodes)
+    if (allocated(plan%m2l_target_nodes)) deallocate (plan%m2l_target_nodes)
+    if (allocated(plan%m2l_source_nodes)) deallocate (plan%m2l_source_nodes)
+    if (allocated(plan%m2l_target_start)) deallocate (plan%m2l_target_start)
+    if (allocated(plan%m2l_pair_order)) deallocate (plan%m2l_pair_order)
+    if (allocated(plan%source_parent_of)) deallocate (plan%source_parent_of)
+    if (allocated(plan%parent_of)) deallocate (plan%parent_of)
+    if (allocated(plan%m2m_term_count)) deallocate (plan%m2m_term_count)
+    if (allocated(plan%m2m_alpha_list)) deallocate (plan%m2m_alpha_list)
+    if (allocated(plan%m2m_delta_list)) deallocate (plan%m2m_delta_list)
+    if (allocated(plan%l2l_term_count)) deallocate (plan%l2l_term_count)
+    if (allocated(plan%l2l_gamma_list)) deallocate (plan%l2l_gamma_list)
+    if (allocated(plan%l2l_delta_list)) deallocate (plan%l2l_delta_list)
+    if (allocated(plan%shift_axis1)) deallocate (plan%shift_axis1)
+    if (allocated(plan%shift_axis2)) deallocate (plan%shift_axis2)
+    if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
+    if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
+    if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
+    if (allocated(plan%target_shift_monomial)) deallocate (plan%target_shift_monomial)
+    plan%options = fmm_options_type()
+    plan%built = .false.
+    plan%nsrc = 0_i32
+    plan%ncoef = 0_i32
+    plan%nderiv = 0_i32
+    plan%max_node = 0_i32
+    plan%nnode = 0_i32
+    plan%node_max_depth = 0_i32
+    plan%target_tree_ready = .false.
+    plan%target_max_node = 0_i32
+    plan%target_nnode = 0_i32
+    plan%target_node_max_depth = 0_i32
+    plan%nsource_leaf = 0_i32
+    plan%nleaf = 0_i32
+    plan%m2l_pair_count = 0_i32
+    plan%m2l_build_count = 0_i32
+    plan%m2l_visit_count = 0_i32
+  end subroutine reset_fmm_plan
+
+  subroutine reset_fmm_state(state)
+    type(fmm_state_type), intent(inout) :: state
+
+    if (allocated(state%src_q)) deallocate (state%src_q)
+    if (allocated(state%multipole)) deallocate (state%multipole)
+    if (allocated(state%local)) deallocate (state%local)
+    if (allocated(state%multipole_active)) deallocate (state%multipole_active)
+    if (allocated(state%local_active)) deallocate (state%local_active)
+    state%ready = .false.
+    state%update_count = 0_i32
+  end subroutine reset_fmm_state
 
 end module bem_coulomb_fmm_types
