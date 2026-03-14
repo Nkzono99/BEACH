@@ -239,6 +239,11 @@ module bem_field_solver
       class(field_solver_type), intent(inout) :: self
     end subroutine reset_tree_storage
 
+    !> core FMM plan の可観測メタデータを solver view へ同期する。
+    module subroutine sync_core_plan_view(self)
+      class(field_solver_type), intent(inout) :: self
+    end subroutine sync_core_plan_view
+
     !> OpenMP 有効時は `omp_get_wtime`、それ以外は `cpu_time` を返す簡易タイマ。
     module function field_solver_time_seconds() result(time_s)
       real(dp) :: time_s

@@ -155,6 +155,7 @@ contains
 
       self%fmm_use_core = .true.
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
+      call sync_core_plan_view(self)
       self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
       self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
       self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count

@@ -72,7 +72,9 @@ program test_dynamics
   call test_treecode_field_accuracy()
   call test_fmm_field_accuracy()
   call test_fmm_free_box_dual_target_accuracy()
+  call test_fmm_core_free_box_dual_target_accuracy()
   call test_fmm_periodic2_field_accuracy()
+  call test_fmm_core_periodic2_field_accuracy()
   call test_fmm_periodic2_fallback_accuracy()
   call test_fmm_periodic2_image_layers_accuracy()
   call test_fmm_periodic2_m2l_cache_reuse()
@@ -444,6 +446,72 @@ contains
     call assert_true(max_rel_err <= 2.5d-2, 'fmm free/use_box E relative error exceeds 2.5e-2')
   end subroutine test_fmm_free_box_dual_target_accuracy
 
+  subroutine test_fmm_core_free_box_dual_target_accuracy()
+    type(mesh_type) :: mesh_fmm
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    integer(i32) :: i, valid_count
+    integer :: seed_size
+    integer, allocatable :: seed(:)
+    real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
+    real(dp) :: norm_direct, norm_diff, rel_err, center_dist
+
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=16_i32, n_lat=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    mesh_fmm%q_elem = 1.0d-12
+
+    sim = sim_config()
+    sim%softening = 0.0d0
+    sim%field_solver = 'fmm'
+    sim%field_bc_mode = 'free'
+    sim%tree_min_nelem = 64_i32
+    sim%use_box = .true.
+    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
+    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    call solver%init(mesh_fmm, sim)
+    call solver%refresh(mesh_fmm)
+
+    call assert_true(solver%fmm_use_core, 'softening=0 free FMM should use the core path')
+    call assert_true(solver%target_tree_ready, 'core free/use_box should expose target tree metadata')
+    call assert_allclose_1d( &
+      solver%target_node_center(:, 1_i32), 0.5d0 * (sim%box_min + sim%box_max), 1.0d-12, &
+      'core free/use_box target root center mismatch' &
+    )
+    call assert_allclose_1d( &
+      solver%target_node_half_size(:, 1_i32), 0.5d0 * (sim%box_max - sim%box_min), 1.0d-12, &
+      'core free/use_box target root half-size mismatch' &
+    )
+
+    call random_seed(size=seed_size)
+    allocate (seed(seed_size))
+    do i = 1_i32, int(seed_size, i32)
+      seed(i) = 271829 + 17 * i
+    end do
+    call random_seed(put=seed)
+    deallocate (seed)
+
+    max_rel_err = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, 120_i32
+      call random_number(r)
+      r = sim%box_min + r * (sim%box_max - sim%box_min)
+      center_dist = sqrt((r(1) - 0.5d0)**2 + (r(2) - 0.5d0)**2 + r(3)**2)
+      if (center_dist < 0.32d0) cycle
+
+      call electric_field_at(mesh_fmm, r, 0.0d0, e_direct)
+      call solver%eval_e(mesh_fmm, r, e_fmm)
+
+      norm_direct = sqrt(sum(e_direct * e_direct))
+      if (norm_direct <= 1.0d-12) cycle
+      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
+      rel_err = norm_diff / norm_direct
+      max_rel_err = max(max_rel_err, rel_err)
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count >= 80_i32, 'core free/use_box test has too few valid samples')
+    call assert_true(max_rel_err <= 5.0d-3, 'core free/use_box E relative error exceeds 5e-3')
+  end subroutine test_fmm_core_free_box_dual_target_accuracy
+
   subroutine test_fmm_periodic2_field_accuracy()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
@@ -506,6 +574,57 @@ contains
     call assert_true(valid_count >= 100_i32, 'fmm periodic2 accuracy test has too few valid samples')
     call assert_true(max_rel_err <= 2.0d-2, 'fmm periodic2 E relative error exceeds 2e-2')
   end subroutine test_fmm_periodic2_field_accuracy
+
+  subroutine test_fmm_core_periodic2_field_accuracy()
+    type(mesh_type) :: mesh_fmm
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    integer(i32) :: i, node_idx, leaf_slot, valid_count
+    real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
+    real(dp) :: norm_direct, norm_diff, rel_err
+
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=16_i32, n_lat=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    mesh_fmm%q_elem = 1.0d-12
+
+    sim = sim_config()
+    sim%softening = 0.0d0
+    sim%field_solver = 'fmm'
+    sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_image_layers = 1_i32
+    sim%tree_min_nelem = 64_i32
+    sim%use_box = .true.
+    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
+    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    call solver%init(mesh_fmm, sim)
+    call solver%refresh(mesh_fmm)
+
+    call assert_true(solver%fmm_use_core, 'softening=0 periodic2 FMM should use the core path')
+    call assert_true(solver%target_tree_ready, 'core periodic2 path should expose target tree metadata')
+    call assert_true(solver%nleaf > 0_i32, 'core periodic2 path should expose leaf metadata')
+
+    max_rel_err = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, min(120_i32, solver%nleaf)
+      leaf_slot = mod(i - 1_i32, solver%nleaf) + 1_i32
+      node_idx = solver%leaf_nodes(leaf_slot)
+      r = solver%target_node_center(:, node_idx)
+
+      call electric_field_at_periodic2_images(mesh_fmm, r, 0.0d0, sim%box_min, sim%box_max, [1_i32, 2_i32], 1_i32, e_direct)
+      call solver%eval_e(mesh_fmm, r, e_fmm)
+
+      norm_direct = sqrt(sum(e_direct * e_direct))
+      if (norm_direct <= 1.0d-12) cycle
+      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
+      rel_err = norm_diff / norm_direct
+      max_rel_err = max(max_rel_err, rel_err)
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count >= 20_i32, 'core periodic2 accuracy test has too few valid samples')
+    call assert_true(max_rel_err <= 6.0d-3, 'core periodic2 E relative error exceeds 6e-3')
+  end subroutine test_fmm_core_periodic2_field_accuracy
 
   subroutine test_fmm_periodic2_fallback_accuracy()
     type(mesh_type) :: mesh_fmm

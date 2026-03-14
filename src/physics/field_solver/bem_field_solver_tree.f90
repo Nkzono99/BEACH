@@ -34,6 +34,7 @@ contains
       call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
       t_moment_end = field_solver_time_seconds()
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
+      call sync_core_plan_view(self)
       self%fmm_last_moment_time_s = 0.0d0
       self%fmm_last_clear_time_s = 0.0d0
       self%fmm_last_m2l_time_s = 0.0d0
@@ -456,6 +457,114 @@ contains
     self%fmm_core_ready = .false.
     self%fmm_core_options = fmm_options_type()
   end procedure reset_tree_storage
+
+  module procedure sync_core_plan_view
+    self%tree_ready = self%fmm_core_plan%built
+    self%fmm_ready = self%fmm_core_state%ready
+    self%nelem = self%fmm_core_plan%nsrc
+    self%max_node = self%fmm_core_plan%max_node
+    self%nnode = self%fmm_core_plan%nnode
+    self%node_max_depth = self%fmm_core_plan%node_max_depth
+    self%nleaf = self%fmm_core_plan%nleaf
+    self%target_tree_ready = self%fmm_core_plan%target_tree_ready
+    self%target_max_node = self%fmm_core_plan%target_max_node
+    self%target_nnode = self%fmm_core_plan%target_nnode
+    self%target_node_max_depth = self%fmm_core_plan%target_node_max_depth
+    self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
+    self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
+    self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
+
+    call copy_i32_1d(self%elem_order, self%fmm_core_plan%elem_order)
+    call copy_i32_1d(self%node_start, self%fmm_core_plan%node_start)
+    call copy_i32_1d(self%node_count, self%fmm_core_plan%node_count)
+    call copy_i32_1d(self%child_count, self%fmm_core_plan%child_count)
+    call copy_i32_2d(self%child_idx, self%fmm_core_plan%child_idx)
+    call copy_i32_2d(self%child_octant, self%fmm_core_plan%child_octant)
+    call copy_i32_1d(self%node_depth, self%fmm_core_plan%node_depth)
+    call copy_i32_1d(self%node_level_start, self%fmm_core_plan%node_level_start)
+    call copy_i32_1d(self%node_level_nodes, self%fmm_core_plan%node_level_nodes)
+    call copy_dp_2d(self%node_center, self%fmm_core_plan%node_center)
+    call copy_dp_2d(self%node_half_size, self%fmm_core_plan%node_half_size)
+    call copy_dp_1d(self%node_radius, self%fmm_core_plan%node_radius)
+
+    call copy_i32_1d(self%leaf_nodes, self%fmm_core_plan%leaf_nodes)
+    call copy_i32_1d(self%leaf_slot_of_node, self%fmm_core_plan%leaf_slot_of_node)
+    call copy_i32_1d(self%near_start, self%fmm_core_plan%near_start)
+    call copy_i32_1d(self%near_nodes, self%fmm_core_plan%near_nodes)
+    call copy_i32_1d(self%far_start, self%fmm_core_plan%far_start)
+    call copy_i32_1d(self%far_nodes, self%fmm_core_plan%far_nodes)
+    call copy_i32_1d(self%fmm_m2l_target_nodes, self%fmm_core_plan%m2l_target_nodes)
+    call copy_i32_1d(self%fmm_m2l_source_nodes, self%fmm_core_plan%m2l_source_nodes)
+    call copy_i32_1d(self%fmm_m2l_target_start, self%fmm_core_plan%m2l_target_start)
+    call copy_i32_1d(self%fmm_m2l_pair_order, self%fmm_core_plan%m2l_pair_order)
+    call copy_i32_1d(self%fmm_parent_of, self%fmm_core_plan%parent_of)
+    call copy_dp_1d(self%fmm_shift_axis1, self%fmm_core_plan%shift_axis1)
+    call copy_dp_1d(self%fmm_shift_axis2, self%fmm_core_plan%shift_axis2)
+
+    if (self%target_tree_ready) then
+      call copy_i32_1d(self%target_child_count, self%fmm_core_plan%target_child_count)
+      call copy_i32_2d(self%target_child_idx, self%fmm_core_plan%target_child_idx)
+      call copy_i32_2d(self%target_child_octant, self%fmm_core_plan%target_child_octant)
+      call copy_i32_1d(self%target_node_depth, self%fmm_core_plan%target_node_depth)
+      call copy_i32_1d(self%target_level_start, self%fmm_core_plan%target_level_start)
+      call copy_i32_1d(self%target_level_nodes, self%fmm_core_plan%target_level_nodes)
+      call copy_dp_2d(self%target_node_center, self%fmm_core_plan%target_node_center)
+      call copy_dp_2d(self%target_node_half_size, self%fmm_core_plan%target_node_half_size)
+      call copy_dp_1d(self%target_node_radius, self%fmm_core_plan%target_node_radius)
+    else
+      if (allocated(self%target_child_count)) deallocate (self%target_child_count)
+      if (allocated(self%target_child_idx)) deallocate (self%target_child_idx)
+      if (allocated(self%target_child_octant)) deallocate (self%target_child_octant)
+      if (allocated(self%target_node_depth)) deallocate (self%target_node_depth)
+      if (allocated(self%target_level_start)) deallocate (self%target_level_start)
+      if (allocated(self%target_level_nodes)) deallocate (self%target_level_nodes)
+      if (allocated(self%target_node_center)) deallocate (self%target_node_center)
+      if (allocated(self%target_node_half_size)) deallocate (self%target_node_half_size)
+      if (allocated(self%target_node_radius)) deallocate (self%target_node_radius)
+    end if
+
+  contains
+
+    subroutine copy_i32_1d(dst, src)
+      integer(i32), allocatable, intent(inout) :: dst(:)
+      integer(i32), allocatable, intent(in) :: src(:)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src)))
+      dst = src
+    end subroutine copy_i32_1d
+
+    subroutine copy_i32_2d(dst, src)
+      integer(i32), allocatable, intent(inout) :: dst(:, :)
+      integer(i32), allocatable, intent(in) :: src(:, :)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src, 1), size(src, 2)))
+      dst = src
+    end subroutine copy_i32_2d
+
+    subroutine copy_dp_1d(dst, src)
+      real(dp), allocatable, intent(inout) :: dst(:)
+      real(dp), allocatable, intent(in) :: src(:)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src)))
+      dst = src
+    end subroutine copy_dp_1d
+
+    subroutine copy_dp_2d(dst, src)
+      real(dp), allocatable, intent(inout) :: dst(:, :)
+      real(dp), allocatable, intent(in) :: src(:, :)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src, 1), size(src, 2)))
+      dst = src
+    end subroutine copy_dp_2d
+  end procedure sync_core_plan_view
 
   module procedure field_solver_time_seconds
     call cpu_time(time_s)
