@@ -20,6 +20,7 @@ module bem_coulomb_fmm_core
     real(dp) :: theta = 0.5d0
     integer(i32) :: leaf_max = 16_i32
     integer(i32) :: order = 4_i32
+    real(dp) :: softening = 0.0d0
     logical :: use_periodic2 = .false.
     character(len=16) :: periodic_far_correction = 'none'
     integer(i32) :: periodic_axes(2) = 0_i32
@@ -108,6 +109,7 @@ contains
     if (size(src_pos, 1) /= 3) error stop 'FMM core expects src_pos(3,n).'
     if (options%leaf_max <= 0_i32) error stop 'FMM leaf_max must be > 0.'
     if (options%order < 0_i32) error stop 'FMM order must be >= 0.'
+    if (options%softening < 0.0d0) error stop 'FMM softening must be >= 0.'
     if (options%use_periodic2) then
       if (any(options%periodic_axes < 1_i32) .or. any(options%periodic_axes > 3_i32)) then
         error stop 'periodic2 requires periodic axes in 1..3.'
@@ -191,7 +193,7 @@ contains
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: near_pos, near_node, p, idx, p_end, alpha_idx, axis, deriv_idx
     integer(i32) :: axis1, axis2, nshift
-    real(dp) :: rt(3), center(3), dr(3)
+    real(dp) :: rt(3), center(3), dr(3), soft2
     real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
     real(dp) :: zpow(0:max(0_i32, plan%options%order)), monomial
 
@@ -200,17 +202,18 @@ contains
 
     rt = r
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
+    soft2 = plan%options%softening * plan%options%softening
 
     leaf_node = locate_target_leaf(plan, rt)
     if (leaf_node <= 0_i32) then
-      call eval_direct_all_sources(plan, state, rt, e)
+      call eval_direct_all_sources(plan, state, rt, soft2, e)
       if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e)
       return
     end if
 
     leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
-      call eval_direct_all_sources(plan, state, rt, e)
+      call eval_direct_all_sources(plan, state, rt, soft2, e)
       if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e)
       return
     end if
@@ -242,7 +245,7 @@ contains
       do p = plan%node_start(near_node), p_end
         idx = plan%elem_order(p)
         call add_point_charge_images_field( &
-          state%src_q(idx), plan%src_pos(:, idx), rt, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, e &
+          state%src_q(idx), plan%src_pos(:, idx), rt, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, e &
         )
       end do
     end do
@@ -1201,12 +1204,13 @@ contains
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: r(3)
     real(dp), intent(out) :: deriv(:)
-    real(dp) :: a, coeff
+    real(dp) :: a, coeff, soft2
     real(dp) :: q(plan%nderiv), power(plan%nderiv), accum(plan%nderiv), tmp(plan%nderiv)
     integer(i32) :: idx0, idx, n
 
     if (size(deriv) /= plan%nderiv) error stop 'Derivative buffer size mismatch.'
-    a = dot_product(r, r)
+    soft2 = plan%options%softening * plan%options%softening
+    a = dot_product(r, r) + soft2
     if (a <= tiny(1.0d0)) error stop 'Cannot expand Laplace kernel at r=0.'
 
     q = 0.0d0
@@ -1261,10 +1265,11 @@ contains
     end do
   end subroutine multiply_polynomials
 
-  subroutine eval_direct_all_sources(plan, state, target, e)
+  subroutine eval_direct_all_sources(plan, state, target, soft2, e)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: target(3)
+    real(dp), intent(in) :: soft2
     real(dp), intent(out) :: e(3)
     integer(i32) :: idx, axis1, axis2, nshift
 
@@ -1278,7 +1283,7 @@ contains
     nshift = size(plan%shift_axis1)
     do idx = 1_i32, plan%nsrc
       call add_point_charge_images_field( &
-        state%src_q(idx), plan%src_pos(:, idx), target, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, e &
+        state%src_q(idx), plan%src_pos(:, idx), target, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, e &
       )
     end do
   end subroutine eval_direct_all_sources
@@ -1443,8 +1448,9 @@ contains
     e = e + pref * dx
   end subroutine add_screened_point_charge
 
-  subroutine add_point_charge_images_field(q, src, target, axis1, axis2, shift_axis1, shift_axis2, nshift, e)
+  subroutine add_point_charge_images_field(q, src, target, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, e)
     real(dp), intent(in) :: q, src(3), target(3)
+    real(dp), intent(in) :: soft2
     integer(i32), intent(in) :: axis1, axis2, nshift
     real(dp), intent(in) :: shift_axis1(:), shift_axis2(:)
     real(dp), intent(inout) :: e(3)
@@ -1458,7 +1464,7 @@ contains
         if (axis1 > 0_i32) shifted(axis1) = shifted(axis1) + shift_axis1(img_i)
         if (axis2 > 0_i32) shifted(axis2) = shifted(axis2) + shift_axis2(img_j)
         dx = target - shifted
-        r2 = sum(dx * dx)
+        r2 = sum(dx * dx) + soft2
         if (r2 <= tiny(1.0d0)) cycle
         inv_r3 = 1.0d0 / (sqrt(r2) * r2)
         e = e + q * inv_r3 * dx

@@ -13,11 +13,13 @@ program test_coulomb_fmm_core
 
   call test_p2m_m2m_root_moments()
   call test_free_field_accuracy()
+  call test_softened_free_field_accuracy()
   call test_periodic2_field_accuracy()
   call test_periodic2_ewald_like_correction_effect()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
   call test_field_solver_core_adapter()
+  call test_field_solver_core_softened_adapter()
   call test_field_solver_core_periodic2_ewald_like_adapter()
 
 contains
@@ -92,6 +94,47 @@ contains
     call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_free_field_accuracy
+
+  subroutine test_softened_free_field_accuracy()
+    type(fmm_plan_type) :: plan
+    type(fmm_state_type) :: state
+    type(fmm_options_type) :: options
+    real(dp), allocatable :: src_pos(:, :), q(:)
+    real(dp) :: queries(3, 4), e_fmm(3), e_ref(3)
+    real(dp) :: norm_ref, rel_err, max_rel_err
+    integer(i32) :: i, valid_count
+
+    call make_free_sources(src_pos, q)
+    options%theta = 0.55d0
+    options%leaf_max = 4_i32
+    options%order = 4_i32
+    options%softening = 5.0d-2
+    call build_plan(plan, src_pos, options)
+    call update_state(plan, state, q)
+
+    queries(:, 1) = [1.8d0, 1.2d0, 1.5d0]
+    queries(:, 2) = [-1.7d0, 1.3d0, 1.1d0]
+    queries(:, 3) = [1.9d0, 0.8d0, -1.7d0]
+    queries(:, 4) = [-1.6d0, -1.2d0, -1.8d0]
+
+    max_rel_err = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, int(size(queries, 2), i32)
+      call eval_point(plan, state, queries(:, i), e_fmm)
+      call direct_field_free(src_pos, q, queries(:, i), e_ref, options%softening)
+      norm_ref = sqrt(sum(e_ref * e_ref))
+      if (norm_ref <= 1.0d-16) cycle
+      rel_err = sqrt(sum((e_fmm - e_ref) * (e_fmm - e_ref))) / norm_ref
+      max_rel_err = max(max_rel_err, rel_err)
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count == 4_i32, 'softened free core test lost valid samples')
+    call assert_true(max_rel_err <= 3.0d-3, 'softened free core FMM relative error exceeds 3e-3')
+
+    call destroy_state(state)
+    call destroy_plan(plan)
+  end subroutine test_softened_free_field_accuracy
 
   subroutine test_periodic2_field_accuracy()
     type(fmm_plan_type) :: plan
@@ -301,6 +344,41 @@ contains
     call assert_true(max_rel_err <= 5.0d-3, 'core adapter relative error exceeds 5e-3')
   end subroutine test_field_solver_core_adapter
 
+  subroutine test_field_solver_core_softened_adapter()
+    type(mesh_type) :: mesh_fmm
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp) :: r(3), e_direct(3), e_fmm(3), rel_err, norm_ref, max_rel_err
+    integer(i32) :: i, valid_count
+
+    call make_sphere(mesh_fmm, radius=0.35d0, n_lon=12_i32, n_lat=6_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    mesh_fmm%q_elem = 1.0d-12
+
+    sim = sim_config()
+    sim%field_solver = 'fmm'
+    sim%field_bc_mode = 'free'
+    sim%softening = 1.0d-4
+    call solver%init(mesh_fmm, sim)
+    call assert_true(solver%fmm_use_core, 'softening>0 free FMM should use the core path')
+    call solver%refresh(mesh_fmm)
+
+    max_rel_err = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, 4_i32
+      r = [1.2d0 + 0.1d0 * real(i - 1_i32, dp), -0.8d0 + 0.2d0 * real(i - 1_i32, dp), 0.9d0 - 0.1d0 * real(i - 1_i32, dp)]
+      call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
+      call solver%eval_e(mesh_fmm, r, e_fmm)
+      norm_ref = sqrt(sum(e_direct * e_direct))
+      if (norm_ref <= 1.0d-16) cycle
+      rel_err = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct))) / norm_ref
+      max_rel_err = max(max_rel_err, rel_err)
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count == 4_i32, 'softened core adapter test lost valid samples')
+    call assert_true(max_rel_err <= 5.0d-3, 'softened core adapter relative error exceeds 5e-3')
+  end subroutine test_field_solver_core_softened_adapter
+
   subroutine test_field_solver_core_periodic2_ewald_like_adapter()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver_base = field_solver_type()
@@ -432,16 +510,19 @@ contains
     end do
   end subroutine accumulate_direct_moments
 
-  subroutine direct_field_free(src_pos, q, r, e)
+  subroutine direct_field_free(src_pos, q, r, e, softening)
     real(dp), intent(in) :: src_pos(:, :), q(:), r(3)
     real(dp), intent(out) :: e(3)
+    real(dp), intent(in), optional :: softening
     integer(i32) :: idx
-    real(dp) :: d(3), r2, inv_r3
+    real(dp) :: d(3), r2, inv_r3, soft2
 
     e = 0.0d0
+    soft2 = 0.0d0
+    if (present(softening)) soft2 = softening * softening
     do idx = 1_i32, int(size(q), i32)
       d = r - src_pos(:, idx)
-      r2 = sum(d * d)
+      r2 = sum(d * d) + soft2
       if (r2 <= tiny(1.0d0)) cycle
       inv_r3 = 1.0d0 / (sqrt(r2) * r2)
       e = e + q(idx) * inv_r3 * d
@@ -461,18 +542,21 @@ contains
     end do
   end subroutine mesh_centers_as_sources
 
-  subroutine direct_field_periodic2(src_pos, q, r, box_min, box_max, periodic_axes, nimg, e)
+  subroutine direct_field_periodic2(src_pos, q, r, box_min, box_max, periodic_axes, nimg, e, softening)
     real(dp), intent(in) :: src_pos(:, :), q(:), r(3), box_min(3), box_max(3)
     integer(i32), intent(in) :: periodic_axes(2), nimg
     real(dp), intent(out) :: e(3)
+    real(dp), intent(in), optional :: softening
     integer(i32) :: idx, img_i, img_j, axis1, axis2
-    real(dp) :: shifted(3), d(3), r2, inv_r3, l1, l2
+    real(dp) :: shifted(3), d(3), r2, inv_r3, l1, l2, soft2
 
     axis1 = periodic_axes(1)
     axis2 = periodic_axes(2)
     l1 = box_max(axis1) - box_min(axis1)
     l2 = box_max(axis2) - box_min(axis2)
     e = 0.0d0
+    soft2 = 0.0d0
+    if (present(softening)) soft2 = softening * softening
     do idx = 1_i32, int(size(q), i32)
       do img_i = -nimg, nimg
         do img_j = -nimg, nimg
@@ -480,7 +564,7 @@ contains
           shifted(axis1) = shifted(axis1) + real(img_i, dp) * l1
           shifted(axis2) = shifted(axis2) + real(img_j, dp) * l2
           d = r - shifted
-          r2 = sum(d * d)
+          r2 = sum(d * d) + soft2
           if (r2 <= tiny(1.0d0)) cycle
           inv_r3 = 1.0d0 / (sqrt(r2) * r2)
           e = e + q(idx) * inv_r3 * d
