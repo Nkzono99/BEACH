@@ -1,5 +1,6 @@
 !> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule (bem_field_solver) bem_field_solver_tree
+  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
   implicit none
 contains
 
@@ -9,9 +10,53 @@ contains
     integer(i32) :: p, idx, p_end
     integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
     real(dp) :: q, abs_q, qx, qy, qz, qi
-    real(dp) :: t_moment_start, t_moment_end, avg_refresh
+    real(dp) :: t_moment_start, t_moment_end
+    real(dp), allocatable :: src_pos(:, :)
 
     if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
+
+    if (trim(self%mode) == 'fmm') then
+      t_moment_start = field_solver_time_seconds()
+      self%fmm_use_core = .true.
+      if (mesh%nelem <= 0_i32) then
+        call destroy_plan(self%fmm_core_plan)
+        call destroy_state(self%fmm_core_state)
+        self%fmm_core_ready = .false.
+        call sync_core_plan_view(self)
+        call sync_core_plan_stats(self)
+        self%fmm_last_moment_time_s = 0.0d0
+        self%fmm_last_clear_time_s = 0.0d0
+        self%fmm_last_m2l_time_s = 0.0d0
+        self%fmm_last_l2l_time_s = 0.0d0
+        self%fmm_last_copy_time_s = 0.0d0
+        self%fmm_last_refresh_time_s = 0.0d0
+        return
+      end if
+
+      if (.not. self%fmm_core_plan%built .or. self%fmm_core_plan%nsrc /= mesh%nelem) then
+        call destroy_plan(self%fmm_core_plan)
+        call destroy_state(self%fmm_core_state)
+        call build_core_source_positions(mesh, src_pos)
+        call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
+        deallocate (src_pos)
+      end if
+
+      call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+      t_moment_end = field_solver_time_seconds()
+      self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
+      call sync_core_plan_view(self)
+      call sync_core_plan_stats(self)
+      self%fmm_last_moment_time_s = 0.0d0
+      self%fmm_last_clear_time_s = 0.0d0
+      self%fmm_last_m2l_time_s = 0.0d0
+      self%fmm_last_l2l_time_s = 0.0d0
+      self%fmm_last_copy_time_s = 0.0d0
+      self%fmm_last_refresh_time_s = t_moment_end - t_moment_start
+      self%fmm_total_refresh_time_s = self%fmm_total_refresh_time_s + self%fmm_last_refresh_time_s
+      self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
+      return
+    end if
+
     if (mesh%nelem <= 0_i32) return
 
     if (.not. self%tree_ready .or. self%nelem /= mesh%nelem) then
@@ -85,36 +130,7 @@ contains
       self%fmm_last_moment_time_s = t_moment_end - t_moment_start
     end if
 
-    if (trim(self%mode) == 'fmm') then
-      if (.not. self%fmm_ready) call build_fmm_interactions(self)
-      call refresh_fmm_locals(self, mesh)
-      self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
-      self%fmm_last_refresh_time_s = self%fmm_last_moment_time_s + self%fmm_last_clear_time_s &
-                                     + self%fmm_last_m2l_time_s + self%fmm_last_l2l_time_s &
-                                     + self%fmm_last_copy_time_s
-      self%fmm_total_moment_time_s = self%fmm_total_moment_time_s + self%fmm_last_moment_time_s
-      self%fmm_total_clear_time_s = self%fmm_total_clear_time_s + self%fmm_last_clear_time_s
-      self%fmm_total_m2l_time_s = self%fmm_total_m2l_time_s + self%fmm_last_m2l_time_s
-      self%fmm_total_l2l_time_s = self%fmm_total_l2l_time_s + self%fmm_last_l2l_time_s
-      self%fmm_total_copy_time_s = self%fmm_total_copy_time_s + self%fmm_last_copy_time_s
-      self%fmm_total_refresh_time_s = self%fmm_total_refresh_time_s + self%fmm_last_refresh_time_s
-      if (self%fmm_profile_enabled) then
-        if (self%fmm_refresh_count <= 3_i32 .or. mod(self%fmm_refresh_count, 50_i32) == 0_i32) then
-          avg_refresh = self%fmm_total_refresh_time_s / real(self%fmm_refresh_count, dp)
-          write (*, '(A,I0,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)') &
-            'FMM profile refresh#', self%fmm_refresh_count, &
-            ' moments=', self%fmm_last_moment_time_s, &
-            ' clear=', self%fmm_last_clear_time_s, &
-            ' m2l=', self%fmm_last_m2l_time_s, &
-            ' l2l=', self%fmm_last_l2l_time_s, &
-            ' copy=', self%fmm_last_copy_time_s, &
-            ' total=', self%fmm_last_refresh_time_s, &
-            ' avg=', avg_refresh
-        end if
-      end if
-    else
-      self%fmm_ready = .false.
-    end if
+    self%fmm_ready = .false.
   end procedure refresh_field_solver
 
   !> 要素重心を octree に再配置して木構造トポロジを構築する。
@@ -330,6 +346,8 @@ contains
 
   !> treecode で使う作業配列を解放し、ノード状態を未初期化に戻す。
   module procedure reset_tree_storage
+    call destroy_plan(self%fmm_core_plan)
+    call destroy_state(self%fmm_core_state)
     if (allocated(self%elem_order)) deallocate (self%elem_order)
     if (allocated(self%node_start)) deallocate (self%node_start)
     if (allocated(self%node_count)) deallocate (self%node_count)
@@ -406,7 +424,143 @@ contains
     self%fmm_total_l2l_time_s = 0.0d0
     self%fmm_total_copy_time_s = 0.0d0
     self%fmm_total_refresh_time_s = 0.0d0
+    self%fmm_use_core = .false.
+    self%fmm_core_ready = .false.
+    self%fmm_core_options = fmm_options_type()
   end procedure reset_tree_storage
+
+  module procedure sync_core_plan_view
+    self%tree_ready = self%fmm_core_plan%built
+    self%fmm_ready = self%fmm_core_state%ready
+    self%nelem = self%fmm_core_plan%nsrc
+    self%max_node = self%fmm_core_plan%max_node
+    self%nnode = self%fmm_core_plan%nnode
+    self%node_max_depth = self%fmm_core_plan%node_max_depth
+    self%nleaf = self%fmm_core_plan%nleaf
+    self%target_tree_ready = self%fmm_core_plan%target_tree_ready
+    self%target_max_node = self%fmm_core_plan%target_max_node
+    self%target_nnode = self%fmm_core_plan%target_nnode
+    self%target_node_max_depth = self%fmm_core_plan%target_node_max_depth
+    self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
+    self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
+    self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
+
+    call copy_i32_1d(self%elem_order, self%fmm_core_plan%elem_order)
+    call copy_i32_1d(self%node_start, self%fmm_core_plan%node_start)
+    call copy_i32_1d(self%node_count, self%fmm_core_plan%node_count)
+    call copy_i32_1d(self%child_count, self%fmm_core_plan%child_count)
+    call copy_i32_2d(self%child_idx, self%fmm_core_plan%child_idx)
+    call copy_i32_2d(self%child_octant, self%fmm_core_plan%child_octant)
+    call copy_i32_1d(self%node_depth, self%fmm_core_plan%node_depth)
+    call copy_i32_1d(self%node_level_start, self%fmm_core_plan%node_level_start)
+    call copy_i32_1d(self%node_level_nodes, self%fmm_core_plan%node_level_nodes)
+    call copy_dp_2d(self%node_center, self%fmm_core_plan%node_center)
+    call copy_dp_2d(self%node_half_size, self%fmm_core_plan%node_half_size)
+    call copy_dp_1d(self%node_radius, self%fmm_core_plan%node_radius)
+
+    call copy_i32_1d(self%leaf_nodes, self%fmm_core_plan%leaf_nodes)
+    call copy_i32_1d(self%leaf_slot_of_node, self%fmm_core_plan%leaf_slot_of_node)
+    call copy_i32_1d(self%near_start, self%fmm_core_plan%near_start)
+    call copy_i32_1d(self%near_nodes, self%fmm_core_plan%near_nodes)
+    call copy_i32_1d(self%far_start, self%fmm_core_plan%far_start)
+    call copy_i32_1d(self%far_nodes, self%fmm_core_plan%far_nodes)
+    call copy_i32_1d(self%fmm_m2l_target_nodes, self%fmm_core_plan%m2l_target_nodes)
+    call copy_i32_1d(self%fmm_m2l_source_nodes, self%fmm_core_plan%m2l_source_nodes)
+    call copy_i32_1d(self%fmm_m2l_target_start, self%fmm_core_plan%m2l_target_start)
+    call copy_i32_1d(self%fmm_m2l_pair_order, self%fmm_core_plan%m2l_pair_order)
+    call copy_i32_1d(self%fmm_parent_of, self%fmm_core_plan%parent_of)
+    call copy_dp_1d(self%fmm_shift_axis1, self%fmm_core_plan%shift_axis1)
+    call copy_dp_1d(self%fmm_shift_axis2, self%fmm_core_plan%shift_axis2)
+
+    if (self%target_tree_ready) then
+      call copy_i32_1d(self%target_child_count, self%fmm_core_plan%target_child_count)
+      call copy_i32_2d(self%target_child_idx, self%fmm_core_plan%target_child_idx)
+      call copy_i32_2d(self%target_child_octant, self%fmm_core_plan%target_child_octant)
+      call copy_i32_1d(self%target_node_depth, self%fmm_core_plan%target_node_depth)
+      call copy_i32_1d(self%target_level_start, self%fmm_core_plan%target_level_start)
+      call copy_i32_1d(self%target_level_nodes, self%fmm_core_plan%target_level_nodes)
+      call copy_dp_2d(self%target_node_center, self%fmm_core_plan%target_node_center)
+      call copy_dp_2d(self%target_node_half_size, self%fmm_core_plan%target_node_half_size)
+      call copy_dp_1d(self%target_node_radius, self%fmm_core_plan%target_node_radius)
+    else
+      if (allocated(self%target_child_count)) deallocate (self%target_child_count)
+      if (allocated(self%target_child_idx)) deallocate (self%target_child_idx)
+      if (allocated(self%target_child_octant)) deallocate (self%target_child_octant)
+      if (allocated(self%target_node_depth)) deallocate (self%target_node_depth)
+      if (allocated(self%target_level_start)) deallocate (self%target_level_start)
+      if (allocated(self%target_level_nodes)) deallocate (self%target_level_nodes)
+      if (allocated(self%target_node_center)) deallocate (self%target_node_center)
+      if (allocated(self%target_node_half_size)) deallocate (self%target_node_half_size)
+      if (allocated(self%target_node_radius)) deallocate (self%target_node_radius)
+    end if
+
+  contains
+
+    subroutine copy_i32_1d(dst, src)
+      integer(i32), allocatable, intent(inout) :: dst(:)
+      integer(i32), allocatable, intent(in) :: src(:)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src)))
+      dst = src
+    end subroutine copy_i32_1d
+
+    subroutine copy_i32_2d(dst, src)
+      integer(i32), allocatable, intent(inout) :: dst(:, :)
+      integer(i32), allocatable, intent(in) :: src(:, :)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src, 1), size(src, 2)))
+      dst = src
+    end subroutine copy_i32_2d
+
+    subroutine copy_dp_1d(dst, src)
+      real(dp), allocatable, intent(inout) :: dst(:)
+      real(dp), allocatable, intent(in) :: src(:)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src)))
+      dst = src
+    end subroutine copy_dp_1d
+
+    subroutine copy_dp_2d(dst, src)
+      real(dp), allocatable, intent(inout) :: dst(:, :)
+      real(dp), allocatable, intent(in) :: src(:, :)
+
+      if (allocated(dst)) deallocate (dst)
+      if (.not. allocated(src)) return
+      allocate (dst(size(src, 1), size(src, 2)))
+      dst = src
+    end subroutine copy_dp_2d
+  end procedure sync_core_plan_view
+
+  module procedure build_core_source_positions
+    integer(i32) :: idx
+
+    allocate (src_pos(3, mesh%nelem))
+    do idx = 1_i32, mesh%nelem
+      src_pos(:, idx) = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
+    end do
+  end procedure build_core_source_positions
+
+  module procedure sync_core_plan_stats
+    self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
+    self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
+    self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
+    if (allocated(self%fmm_core_plan%near_nodes)) then
+      self%fmm_near_interaction_count = int(size(self%fmm_core_plan%near_nodes), i32)
+    else
+      self%fmm_near_interaction_count = 0_i32
+    end if
+    if (allocated(self%fmm_core_plan%far_nodes)) then
+      self%fmm_far_interaction_count = int(size(self%fmm_core_plan%far_nodes), i32)
+    else
+      self%fmm_far_interaction_count = 0_i32
+    end if
+  end procedure sync_core_plan_stats
 
   module procedure field_solver_time_seconds
     call cpu_time(time_s)

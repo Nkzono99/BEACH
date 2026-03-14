@@ -1,5 +1,6 @@
 !> `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 submodule (bem_field_solver) bem_field_solver_eval
+  use bem_coulomb_fmm_core, only: eval_point
   implicit none
 contains
 
@@ -7,8 +8,16 @@ contains
   module procedure eval_e_field_solver
     real(dp) :: rx, ry, rz, soft2, ex, ey, ez
 
-    if (trim(self%mode) == 'fmm' .and. self%tree_ready .and. self%fmm_ready) then
-      call eval_e_fmm(self, mesh, r, e)
+    if (trim(self%mode) == 'fmm') then
+      if (mesh%nelem <= 0_i32) then
+        e = 0.0d0
+        return
+      end if
+      if (.not. self%fmm_core_ready) then
+        error stop 'FMM core is not ready. Call solver%init/refresh before eval_e.'
+      end if
+      call eval_point(self%fmm_core_plan, self%fmm_core_state, r, e)
+      e = k_coulomb * e
       return
     end if
 

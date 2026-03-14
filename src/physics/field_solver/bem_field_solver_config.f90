@@ -1,5 +1,6 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule (bem_field_solver) bem_field_solver_config
+  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
   implicit none
 contains
 
@@ -8,6 +9,13 @@ contains
     character(len=16) :: requested_mode, field_bc_mode
     integer(i32) :: axis, n_periodic
     real(dp) :: span, min_periodic_len
+    real(dp), allocatable :: src_pos(:, :)
+
+    call destroy_plan(self%fmm_core_plan)
+    call destroy_state(self%fmm_core_state)
+    self%fmm_use_core = .false.
+    self%fmm_core_ready = .false.
+    call reset_tree_storage(self)
 
     self%softening = sim%softening
     self%min_nelem = sim%tree_min_nelem
@@ -119,7 +127,43 @@ contains
       self%leaf_max = sim%tree_leaf_max
     end if
 
-    if ((trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') .and. mesh%nelem > 0_i32) then
+    self%fmm_core_options = fmm_options_type()
+    self%fmm_core_options%theta = self%theta
+    self%fmm_core_options%leaf_max = self%leaf_max
+    self%fmm_core_options%order = 4_i32
+    self%fmm_core_options%softening = self%softening
+    self%fmm_core_options%use_periodic2 = self%use_periodic2
+    self%fmm_core_options%periodic_far_correction = self%periodic_far_correction
+    self%fmm_core_options%periodic_axes = self%periodic_axes
+    self%fmm_core_options%periodic_len = self%periodic_len
+    self%fmm_core_options%periodic_image_layers = self%periodic_image_layers
+    self%fmm_core_options%periodic_ewald_alpha = self%periodic_ewald_alpha
+    self%fmm_core_options%periodic_ewald_layers = self%periodic_ewald_layers
+    self%fmm_core_options%target_box_min = self%target_box_min
+    self%fmm_core_options%target_box_max = self%target_box_max
+
+    if (trim(self%mode) == 'fmm') then
+      select case (trim(self%periodic_far_correction))
+      case ('none', 'ewald_like')
+        continue
+      case default
+        error stop 'FMM core supports periodic far correction "none" or "ewald_like" only.'
+      end select
+      self%fmm_use_core = .true.
+      if (mesh%nelem > 0_i32) then
+        call build_core_source_positions(mesh, src_pos)
+        call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
+        call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+        deallocate (src_pos)
+        self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
+        call sync_core_plan_view(self)
+        call sync_core_plan_stats(self)
+        self%fmm_refresh_count = 1_i32
+      end if
+      return
+    end if
+
+    if (trim(self%mode) == 'treecode' .and. mesh%nelem > 0_i32) then
       call build_tree_topology(self, mesh)
       call refresh_field_solver(self, mesh)
     else

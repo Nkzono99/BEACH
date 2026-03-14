@@ -67,3 +67,8 @@ main = "test_injection_sampling.f90"
 name = "test_mpi_hybrid"
 source-dir = "tests/fortran"
 main = "test_mpi_hybrid.f90"
+
+[[test]]
+name = "test_coulomb_fmm_core"
+source-dir = "tests/fortran"
+main = "test_coulomb_fmm_core.f90"
