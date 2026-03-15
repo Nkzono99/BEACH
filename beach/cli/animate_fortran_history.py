@@ -8,17 +8,13 @@ from typing import Sequence
 
 from beach import Beach
 
+from ._shared import configure_entry_parser
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for history animation CLI.
+COMMAND_NAME = "animate"
+LEGACY_COMMAND_NAME = "beach-animate-history"
 
-    Returns
-    -------
-    argparse.ArgumentParser
-        Configured parser instance.
-    """
 
-    parser = argparse.ArgumentParser()
+def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("output_dir", nargs="?", default="outputs/latest")
     parser.add_argument(
         "--quantity",
@@ -62,25 +58,31 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="self-term treatment for potential reconstruction",
     )
-    return parser
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the history-animation CLI entry point.
+def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
+    """Build the argument parser for history animation CLI."""
 
-    Parameters
-    ----------
-    argv : sequence of str or None, default None
-        Command-line arguments. ``None`` uses ``sys.argv``.
+    parser = argparse.ArgumentParser(prog=prog)
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
 
-    Raises
-    ------
-    SystemExit
-        If arguments are invalid or required runtime dependencies are missing.
-    """
 
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+    """Register this command under the unified ``beachx`` CLI."""
+
+    parser = subparsers.add_parser(
+        COMMAND_NAME,
+        help="animate charge or potential history",
+    )
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
+
+
+def run(args: argparse.Namespace) -> None:
+    """Execute the history-animation command."""
+
+    parser = args._parser
     if args.total_frames is not None and args.frame_stride != 1:
         parser.error("--frame-stride and --total-frames cannot be used together.")
 
@@ -138,6 +140,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         rendered_frames = min(snapshot_count, args.total_frames)
     print(f"snapshots={snapshot_count}")
     print(f"rendered_frames={rendered_frames}")
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Run the history-animation CLI entry point."""
+
+    args = build_parser().parse_args(argv)
+    args.func(args)
 
 
 if __name__ == "__main__":

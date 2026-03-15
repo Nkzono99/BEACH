@@ -11,9 +11,9 @@ def main() -> None:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
 
-    from beach.cli_estimate_fortran_workload import main as cli_main
+    from beach.cli.main import main as cli_main
 
-    cli_main()
+    cli_main(["workload", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

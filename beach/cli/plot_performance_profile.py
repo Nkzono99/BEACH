@@ -7,11 +7,13 @@ import csv
 from pathlib import Path
 from typing import Any, Sequence
 
+from ._shared import configure_entry_parser
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for performance-profile plotting CLI."""
+COMMAND_NAME = "profile"
+LEGACY_COMMAND_NAME = "beach-plot-performance-profile"
 
-    parser = argparse.ArgumentParser()
+
+def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "profile_path",
         nargs="?",
@@ -49,14 +51,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dpi", type=int, default=150, help="save DPI")
     parser.add_argument("--show", action="store_true", help="display matplotlib window")
-    return parser
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the performance-profile plotting CLI."""
+def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
+    """Build the argument parser for performance-profile plotting CLI."""
 
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    parser = argparse.ArgumentParser(prog=prog)
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
+
+
+def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+    """Register this command under the unified ``beachx`` CLI."""
+
+    parser = subparsers.add_parser(
+        COMMAND_NAME,
+        help="plot one performance_profile.csv summary",
+    )
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
+
+
+def run(args: argparse.Namespace) -> None:
+    """Execute the performance-profile plotting command."""
 
     profile_path = _resolve_profile_path(args.profile_path)
     try:
@@ -102,6 +119,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         plt.show()
     else:
         plt.close(fig)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Run the performance-profile plotting CLI."""
+
+    args = build_parser().parse_args(argv)
+    args.func(args)
 
 
 def load_performance_profile(path: Path) -> tuple[dict[str, str], list[dict[str, Any]]]:

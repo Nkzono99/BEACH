@@ -15,11 +15,12 @@ dependencies = [
 ]
 
 [project.scripts]
-beach-inspect = "beach.cli.inspect_fortran_output:main"
-beach-animate-history = "beach.cli.animate_fortran_history:main"
-beach-plot-potential-slices = "beach.cli.plot_fortran_potential_slices:main"
-beach-estimate-workload = "beach.cli.estimate_fortran_workload:main"
-beach-plot-performance-profile = "beach.cli.plot_performance_profile:main"
+beachx = "beach.cli.main:main"
+beach-inspect = "beach.cli.legacy:inspect_main"
+beach-animate-history = "beach.cli.legacy:animate_main"
+beach-plot-potential-slices = "beach.cli.legacy:slices_main"
+beach-estimate-workload = "beach.cli.legacy:workload_main"
+beach-plot-performance-profile = "beach.cli.legacy:profile_main"
 
 [tool.setuptools]
 packages = ["beach", "beach.fortran_results", "beach.cli"]

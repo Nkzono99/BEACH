@@ -9,6 +9,11 @@ import os
 from pathlib import Path
 from typing import Any, Sequence
 
+from ._shared import configure_entry_parser
+
+COMMAND_NAME = "workload"
+LEGACY_COMMAND_NAME = "beach-estimate-workload"
+
 K_BOLTZMANN = 1.380649e-23
 EV_TO_K = 1.160451812e4
 
@@ -852,21 +857,7 @@ def _default_mpi_rank() -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for workload-estimation CLI.
-
-    Returns
-    -------
-    argparse.ArgumentParser
-        Configured parser instance.
-    """
-
-    parser = argparse.ArgumentParser(
-        description=(
-            "Estimate particle workload from Fortran TOML config: "
-            "per-batch local(rank) particles and per-thread particle counts."
-        )
-    )
+def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("config", type=Path, help="path to beach.toml")
     parser.add_argument(
         "--threads",
@@ -898,25 +889,39 @@ def build_parser() -> argparse.ArgumentParser:
         default=10,
         help="number of head batches to print in detail (default: 10)",
     )
-    return parser
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the workload-estimation CLI entry point.
+def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
+    """Build the argument parser for workload-estimation CLI."""
 
-    Parameters
-    ----------
-    argv : sequence of str or None, default None
-        Command-line arguments. ``None`` uses ``sys.argv``.
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description=(
+            "Estimate particle workload from Fortran TOML config: "
+            "per-batch local(rank) particles and per-thread particle counts."
+        ),
+    )
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
 
-    Raises
-    ------
-    SystemExit
-        If required files are missing or arguments/configuration are invalid.
-    """
 
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+    """Register this command under the unified ``beachx`` CLI."""
+
+    parser = subparsers.add_parser(
+        COMMAND_NAME,
+        help="estimate per-batch particle workload",
+        description=(
+            "Estimate particle workload from Fortran TOML config: "
+            "per-batch local(rank) particles and per-thread particle counts."
+        ),
+    )
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
+
+
+def run(args: argparse.Namespace) -> None:
+    """Execute the workload-estimation command."""
 
     if not args.config.exists():
         raise SystemExit(f"config file not found: {args.config}")
@@ -972,6 +977,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"per_thread=[{batch_thread_min[batch_idx]},{batch_thread_max[batch_idx]}] "
                 f"species={species_counts}"
             )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Run the workload-estimation CLI entry point."""
+
+    args = build_parser().parse_args(argv)
+    args.func(args)
 
 
 if __name__ == "__main__":

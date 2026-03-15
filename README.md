@@ -57,7 +57,7 @@ beach examples/beach.toml
 
 ```bash
 ls outputs/latest
-beach-inspect outputs/latest
+beachx inspect outputs/latest
 ```
 
 主な出力:
@@ -70,20 +70,22 @@ beach-inspect outputs/latest
 ### 2.3 可視化
 
 ```bash
-beach-inspect outputs/latest \
+beachx inspect outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png
 
-beach-animate-history outputs/latest \
+beachx animate outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif \
   --total-frames 200
 
-beach-plot-potential-slices outputs/latest \
+beachx slices outputs/latest \
   --grid-n 200 \
   --vmin -20 --vmax 20 \
   --save outputs/latest/potential_slices.png
 ```
+
+旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-potential-slices` なども当面は使えますが、今後は `beachx ...` を推奨します。
 
 Python から `mesh source` ごとの面積重み付き箱ひげ図を作る例:
 
@@ -114,7 +116,7 @@ fig_phi.savefig("outputs/latest/potential_box_by_source.png", dpi=150)
 ### 3.1 負荷見積もり
 
 ```bash
-beach-estimate-workload examples/beach.toml --threads 8
+beachx workload examples/beach.toml --threads 8
 ```
 
 ### 3.2 再開実行

@@ -8,17 +8,13 @@ from typing import Any, Sequence
 
 from beach import Beach
 
+from ._shared import configure_entry_parser
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for potential-slice plotting CLI.
+COMMAND_NAME = "slices"
+LEGACY_COMMAND_NAME = "beach-plot-potential-slices"
 
-    Returns
-    -------
-    argparse.ArgumentParser
-        Configured parser instance.
-    """
 
-    parser = argparse.ArgumentParser()
+def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("output_dir", nargs="?", default="outputs/latest")
     parser.add_argument(
         "--config",
@@ -92,7 +88,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="saved image DPI",
     )
     parser.add_argument("--show", action="store_true", help="display matplotlib window")
-    return parser
+
+
+def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
+    """Build the argument parser for potential-slice plotting CLI."""
+
+    parser = argparse.ArgumentParser(prog=prog)
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -235,22 +238,21 @@ def _default_slice_values(
     return xy, yz, xz
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the potential-slice plotting CLI entry point.
+def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+    """Register this command under the unified ``beachx`` CLI."""
 
-    Parameters
-    ----------
-    argv : sequence of str or None, default None
-        Command-line arguments. ``None`` uses ``sys.argv``.
+    parser = subparsers.add_parser(
+        COMMAND_NAME,
+        help="plot potential slices inside the simulation box",
+    )
+    _configure_parser(parser)
+    return configure_entry_parser(parser, run)
 
-    Raises
-    ------
-    SystemExit
-        If required files/dependencies are missing or arguments are invalid.
-    """
 
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def run(args: argparse.Namespace) -> None:
+    """Execute the potential-slice plotting command."""
+
+    parser = args._parser
     if args.grid_n < 2:
         parser.error("--grid-n must be >= 2.")
     if args.chunk_size <= 0:
@@ -333,6 +335,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         import matplotlib.pyplot as plt
 
         plt.close(fig)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Run the potential-slice plotting CLI entry point."""
+
+    args = build_parser().parse_args(argv)
+    args.func(args)
 
 
 if __name__ == "__main__":
