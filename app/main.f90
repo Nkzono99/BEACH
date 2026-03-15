@@ -1,8 +1,11 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
-  use bem_kinds, only: i32
+  use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size
+  use bem_performance_profile, only: perf_configure_from_env, perf_set_output_context, perf_region_begin, &
+    perf_region_end, perf_write_outputs, perf_region_program_total, perf_region_load_or_init, &
+    perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
@@ -17,11 +20,19 @@ program main
   type(mpi_context) :: mpi
   integer :: history_unit
   logical :: history_opened, resumed
+  real(dp) :: perf_t0, perf_program_t0
 
+  call perf_configure_from_env()
+  call perf_region_begin(perf_region_program_total, perf_program_t0)
   call mpi_initialize(mpi)
+  call perf_region_begin(perf_region_load_or_init, perf_t0)
   call load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi)
+  call perf_region_end(perf_region_load_or_init, perf_t0)
+  call perf_set_output_context(trim(app%output_dir), app%write_output)
   if (mpi_is_root(mpi)) then
+    call perf_region_begin(perf_region_history_open, perf_t0)
     call open_history_writer(app, resumed, history_opened, history_unit)
+    call perf_region_end(perf_region_history_open, perf_t0)
   else
     history_opened = .false.
     history_unit = -1
@@ -42,12 +53,18 @@ program main
   if (app%write_output) then
     call ensure_output_dir(app%output_dir)
     if (mpi_is_root(mpi)) then
+      call perf_region_begin(perf_region_write_results, perf_t0)
       call write_result_files(trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi))
+      call perf_region_end(perf_region_write_results, perf_t0)
     end if
+    call perf_region_begin(perf_region_write_checkpoint, perf_t0)
     call write_rng_state_file(trim(app%output_dir), mpi=mpi)
     call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi=mpi)
+    call perf_region_end(perf_region_write_checkpoint, perf_t0)
     if (mpi_is_root(mpi)) print '(a,a)', 'results written to ', trim(app%output_dir)
   end if
+  call perf_region_end(perf_region_program_total, perf_program_t0)
+  call perf_write_outputs(mpi)
   call mpi_shutdown(mpi)
 
 contains

@@ -1,6 +1,7 @@
 !> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule (bem_field_solver) bem_field_solver_tree
   use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
+  use bem_performance_profile, only: perf_wall_time_seconds
   implicit none
 contains
 
@@ -573,8 +574,7 @@ contains
   end procedure sync_core_plan_stats
 
   module procedure field_solver_time_seconds
-    call cpu_time(time_s)
-    !$ time_s = omp_get_wtime()
+    time_s = perf_wall_time_seconds()
   end procedure field_solver_time_seconds
 
 end submodule bem_field_solver_tree

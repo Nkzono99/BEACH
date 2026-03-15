@@ -22,6 +22,8 @@ module bem_mpi
   public :: mpi_split_count
   public :: mpi_allreduce_sum_real_dp_array
   public :: mpi_allreduce_sum_real_dp_scalar
+  public :: mpi_allreduce_min_real_dp_array
+  public :: mpi_allreduce_max_real_dp_array
   public :: mpi_allreduce_sum_i32_array
   public :: mpi_allreduce_sum_i32_scalar
   public :: mpi_world_barrier
@@ -150,6 +152,38 @@ contains
     value = recvval
 #endif
   end subroutine mpi_allreduce_sum_real_dp_scalar
+
+  !> 倍精度配列の最小値Allreduceをin-placeで実行する。
+  subroutine mpi_allreduce_min_real_dp_array(ctx, values)
+    type(mpi_context), intent(in) :: ctx
+    real(dp), intent(inout) :: values(:)
+#ifdef USE_MPI
+    include 'mpif.h'
+    real(dp), allocatable :: recvbuf(:)
+    integer :: ierr
+
+    if (.not. ctx%enabled) return
+    allocate(recvbuf(size(values)))
+    call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_MIN, MPI_COMM_WORLD, ierr)
+    values = recvbuf
+#endif
+  end subroutine mpi_allreduce_min_real_dp_array
+
+  !> 倍精度配列の最大値Allreduceをin-placeで実行する。
+  subroutine mpi_allreduce_max_real_dp_array(ctx, values)
+    type(mpi_context), intent(in) :: ctx
+    real(dp), intent(inout) :: values(:)
+#ifdef USE_MPI
+    include 'mpif.h'
+    real(dp), allocatable :: recvbuf(:)
+    integer :: ierr
+
+    if (.not. ctx%enabled) return
+    allocate(recvbuf(size(values)))
+    call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+    values = recvbuf
+#endif
+  end subroutine mpi_allreduce_max_real_dp_array
 
   !> 32bit整数配列の総和Allreduceをin-placeで実行する。
   subroutine mpi_allreduce_sum_i32_array(ctx, values)
