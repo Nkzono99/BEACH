@@ -4,7 +4,7 @@ module bem_coulomb_fmm_eval_ops
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_ewald_like, prepare_periodic2_ewald, &
-                                       add_screened_shifted_node_images, add_point_charge_images_field
+                                       add_screened_shifted_node_images
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                          active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
   implicit none
@@ -30,7 +30,9 @@ contains
     !$omp parallel do default(none) schedule(static) &
     !$omp shared(plan, state, target_pos, e, ntarget) private(i)
     do i = 1_i32, ntarget
-      call core_eval_point_impl(plan, state, target_pos(:, i), e(:, i))
+      call core_eval_point_xyz_impl( &
+        plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), e(1, i), e(2, i), e(3, i) &
+      )
     end do
     !$omp end parallel do
   end subroutine core_eval_points_impl
@@ -40,47 +42,70 @@ contains
     type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: r(3)
     real(dp), intent(out) :: e(3)
-    integer(i32) :: leaf_node, leaf_slot
-    integer(i32) :: near_pos, near_node, p, idx, p_end, alpha_idx, axis, deriv_idx
-    integer(i32) :: axis1, axis2, nshift
-    real(dp) :: rt(3), center(3), dr(3), soft2
-    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
-    real(dp) :: zpow(0:max(0_i32, plan%options%order)), monomial
 
-    e = 0.0d0
+    call core_eval_point_xyz_impl(plan, state, r(1), r(2), r(3), e(1), e(2), e(3))
+  end subroutine core_eval_point_impl
+
+  subroutine core_eval_point_xyz_impl(plan, state, rx, ry, rz, ex, ey, ez)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: rx, ry, rz
+    real(dp), intent(out) :: ex, ey, ez
+    integer(i32) :: leaf_node, leaf_slot
+    integer(i32) :: near_pos, idx, term_idx
+    integer(i32) :: axis1, axis2, nshift, order
+    integer(i32) :: near_source_begin, near_source_end
+    real(dp) :: rt(3), dr(3), soft2, monomial, e_arr(3)
+    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
+    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+
+    ex = 0.0d0
+    ey = 0.0d0
+    ez = 0.0d0
     if (.not. plan%built .or. .not. state%ready) return
 
-    rt = r
+    rt = [rx, ry, rz]
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
     soft2 = plan%options%softening * plan%options%softening
 
     leaf_node = locate_target_leaf(plan, rt)
     if (leaf_node <= 0_i32) then
-      call eval_direct_all_sources(plan, state, rt, soft2, e)
-      if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e)
+      call eval_direct_all_sources_scalar(plan, state, rt(1), rt(2), rt(3), soft2, ex, ey, ez)
+      if (use_periodic2_ewald_like(plan)) then
+        e_arr = [ex, ey, ez]
+        call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e_arr)
+        ex = e_arr(1)
+        ey = e_arr(2)
+        ez = e_arr(3)
+      end if
       return
     end if
 
     leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
-      call eval_direct_all_sources(plan, state, rt, soft2, e)
-      if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e)
+      call eval_direct_all_sources_scalar(plan, state, rt(1), rt(2), rt(3), soft2, ex, ey, ez)
+      if (use_periodic2_ewald_like(plan)) then
+        e_arr = [ex, ey, ez]
+        call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e_arr)
+        ex = e_arr(1)
+        ey = e_arr(2)
+        ez = e_arr(3)
+      end if
       return
     end if
 
-    center = active_tree_node_center(plan, plan%target_tree_ready, leaf_node)
-    dr = rt - center
-    call build_axis_powers(dr, plan%options%order, xpow, ypow, zpow)
-    do alpha_idx = 1_i32, plan%ncoef
-      if (plan%alpha_degree(alpha_idx) >= plan%options%order) cycle
-      monomial = xpow(plan%alpha(1, alpha_idx)) * ypow(plan%alpha(2, alpha_idx)) * zpow(plan%alpha(3, alpha_idx)) &
-                 / plan%alpha_factorial(alpha_idx)
-      do axis = 1_i32, 3_i32
-        deriv_idx = plan%alpha_plus_axis(axis, alpha_idx)
-        if (deriv_idx <= 0_i32) cycle
-        e(axis) = e(axis) - state%local(deriv_idx, leaf_node) * monomial
+    order = plan%options%order
+    if (order > 0_i32 .and. state%local_active(leaf_node) /= 0_i32 .and. plan%eval_term_count > 0_i32) then
+      dr = rt - active_tree_node_center(plan, plan%target_tree_ready, leaf_node)
+      call build_axis_powers(dr, order, xpow, ypow, zpow)
+      do term_idx = 1_i32, plan%eval_term_count
+        monomial = xpow(plan%eval_exp(1, term_idx)) * ypow(plan%eval_exp(2, term_idx)) &
+                   * zpow(plan%eval_exp(3, term_idx)) * plan%eval_inv_factorial(term_idx)
+        ex = ex - state%local(plan%eval_deriv_idx(1, term_idx), leaf_node) * monomial
+        ey = ey - state%local(plan%eval_deriv_idx(2, term_idx), leaf_node) * monomial
+        ez = ez - state%local(plan%eval_deriv_idx(3, term_idx), leaf_node) * monomial
       end do
-    end do
+    end if
 
     axis1 = 0_i32
     axis2 = 0_i32
@@ -88,42 +113,114 @@ contains
       axis1 = plan%options%periodic_axes(1)
       axis2 = plan%options%periodic_axes(2)
     end if
-    nshift = size(plan%shift_axis1)
-    do near_pos = plan%near_start(leaf_slot), plan%near_start(leaf_slot + 1_i32) - 1_i32
-      near_node = plan%near_nodes(near_pos)
-      p_end = plan%node_start(near_node) + plan%node_count(near_node) - 1_i32
-      do p = plan%node_start(near_node), p_end
-        idx = plan%elem_order(p)
-        call add_point_charge_images_field( &
-          state%src_q(idx), plan%src_pos(:, idx), rt, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, e &
-        )
-      end do
-    end do
-    if (use_periodic2_ewald_like(plan)) call add_periodic2_ewald_like_correction(plan, state, leaf_slot, rt, e)
-  end subroutine core_eval_point_impl
+    near_source_begin = plan%near_source_start(leaf_slot)
+    near_source_end = plan%near_source_start(leaf_slot + 1_i32) - 1_i32
+    if (near_source_end >= near_source_begin) then
+      if (plan%options%use_periodic2) then
+        nshift = size(plan%shift_axis1)
+        do near_pos = near_source_begin, near_source_end
+          idx = plan%near_source_idx(near_pos)
+          call accumulate_point_charge_images_field( &
+            state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+            rt(1), rt(2), rt(3), soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, ex, ey, ez &
+          )
+        end do
+      else
+        do near_pos = near_source_begin, near_source_end
+          idx = plan%near_source_idx(near_pos)
+          call accumulate_point_charge_field( &
+            state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+            rt(1), rt(2), rt(3), soft2, ex, ey, ez &
+          )
+        end do
+      end if
+    end if
+    if (use_periodic2_ewald_like(plan)) then
+      e_arr = [ex, ey, ez]
+      call add_periodic2_ewald_like_correction(plan, state, leaf_slot, rt, e_arr)
+      ex = e_arr(1)
+      ey = e_arr(2)
+      ez = e_arr(3)
+    end if
+  end subroutine core_eval_point_xyz_impl
 
-  subroutine eval_direct_all_sources(plan, state, target, soft2, e)
+  subroutine eval_direct_all_sources_scalar(plan, state, tx, ty, tz, soft2, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
-    real(dp), intent(in) :: target(3)
+    real(dp), intent(in) :: tx, ty, tz
     real(dp), intent(in) :: soft2
-    real(dp), intent(out) :: e(3)
+    real(dp), intent(out) :: ex, ey, ez
     integer(i32) :: idx, axis1, axis2, nshift
 
-    e = 0.0d0
+    ex = 0.0d0
+    ey = 0.0d0
+    ez = 0.0d0
     axis1 = 0_i32
     axis2 = 0_i32
     if (plan%options%use_periodic2) then
       axis1 = plan%options%periodic_axes(1)
       axis2 = plan%options%periodic_axes(2)
     end if
-    nshift = size(plan%shift_axis1)
-    do idx = 1_i32, plan%nsrc
-      call add_point_charge_images_field( &
-        state%src_q(idx), plan%src_pos(:, idx), target, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, e &
-      )
+    if (plan%options%use_periodic2) then
+      nshift = size(plan%shift_axis1)
+      do idx = 1_i32, plan%nsrc
+        call accumulate_point_charge_images_field( &
+          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          tx, ty, tz, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, ex, ey, ez &
+        )
+      end do
+    else
+      do idx = 1_i32, plan%nsrc
+        call accumulate_point_charge_field( &
+          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), tx, ty, tz, soft2, ex, ey, ez &
+        )
+      end do
+    end if
+  end subroutine eval_direct_all_sources_scalar
+
+  pure subroutine accumulate_point_charge_field(q, sx, sy, sz, tx, ty, tz, soft2, ex, ey, ez)
+    real(dp), intent(in) :: q, sx, sy, sz, tx, ty, tz, soft2
+    real(dp), intent(inout) :: ex, ey, ez
+    real(dp) :: dx, dy, dz, r2, inv_r3
+
+    if (abs(q) <= tiny(1.0d0)) return
+    dx = tx - sx
+    dy = ty - sy
+    dz = tz - sz
+    r2 = dx * dx + dy * dy + dz * dz + soft2
+    if (r2 <= tiny(1.0d0)) return
+    inv_r3 = 1.0d0 / (sqrt(r2) * r2)
+    ex = ex + q * inv_r3 * dx
+    ey = ey + q * inv_r3 * dy
+    ez = ez + q * inv_r3 * dz
+  end subroutine accumulate_point_charge_field
+
+  pure subroutine accumulate_point_charge_images_field( &
+    q, sx, sy, sz, tx, ty, tz, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, ex, ey, ez &
+  )
+    real(dp), intent(in) :: q, sx, sy, sz, tx, ty, tz, soft2
+    integer(i32), intent(in) :: axis1, axis2, nshift
+    real(dp), intent(in) :: shift_axis1(:), shift_axis2(:)
+    real(dp), intent(inout) :: ex, ey, ez
+    integer(i32) :: img_i, img_j
+    real(dp) :: sx_img, sy_img, sz_img
+
+    if (abs(q) <= tiny(1.0d0)) return
+    do img_i = 1_i32, nshift
+      do img_j = 1_i32, nshift
+        sx_img = sx
+        sy_img = sy
+        sz_img = sz
+        if (axis1 == 1_i32) sx_img = sx_img + shift_axis1(img_i)
+        if (axis1 == 2_i32) sy_img = sy_img + shift_axis1(img_i)
+        if (axis1 == 3_i32) sz_img = sz_img + shift_axis1(img_i)
+        if (axis2 == 1_i32) sx_img = sx_img + shift_axis2(img_j)
+        if (axis2 == 2_i32) sy_img = sy_img + shift_axis2(img_j)
+        if (axis2 == 3_i32) sz_img = sz_img + shift_axis2(img_j)
+        call accumulate_point_charge_field(q, sx_img, sy_img, sz_img, tx, ty, tz, soft2, ex, ey, ez)
+      end do
     end do
-  end subroutine eval_direct_all_sources
+  end subroutine accumulate_point_charge_images_field
 
   subroutine add_periodic2_ewald_like_correction(plan, state, leaf_slot, r, e)
     type(fmm_plan_type), intent(in) :: plan

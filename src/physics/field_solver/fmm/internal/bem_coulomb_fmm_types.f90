@@ -45,6 +45,10 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: deriv_factorial(:)
     integer(i32), allocatable :: deriv_map(:, :, :)
     integer(i32), allocatable :: alpha_beta_deriv_idx(:, :)
+    integer(i32) :: eval_term_count = 0_i32
+    integer(i32), allocatable :: eval_exp(:, :)
+    integer(i32), allocatable :: eval_deriv_idx(:, :)
+    real(dp), allocatable :: eval_inv_factorial(:)
     real(dp), allocatable :: src_pos(:, :)
     integer(i32) :: max_node = 0_i32
     integer(i32) :: nnode = 0_i32
@@ -73,6 +77,7 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: leaf_nodes(:)
     integer(i32), allocatable :: leaf_slot_of_node(:)
     integer(i32), allocatable :: near_start(:), near_nodes(:)
+    integer(i32), allocatable :: near_source_start(:), near_source_idx(:)
     integer(i32), allocatable :: far_start(:), far_nodes(:)
     integer(i32) :: m2l_pair_count = 0_i32
     integer(i32) :: m2l_build_count = 0_i32
@@ -120,6 +125,9 @@ contains
     if (allocated(plan%deriv_factorial)) deallocate (plan%deriv_factorial)
     if (allocated(plan%deriv_map)) deallocate (plan%deriv_map)
     if (allocated(plan%alpha_beta_deriv_idx)) deallocate (plan%alpha_beta_deriv_idx)
+    if (allocated(plan%eval_exp)) deallocate (plan%eval_exp)
+    if (allocated(plan%eval_deriv_idx)) deallocate (plan%eval_deriv_idx)
+    if (allocated(plan%eval_inv_factorial)) deallocate (plan%eval_inv_factorial)
     if (allocated(plan%src_pos)) deallocate (plan%src_pos)
     if (allocated(plan%elem_order)) deallocate (plan%elem_order)
     if (allocated(plan%node_start)) deallocate (plan%node_start)
@@ -147,6 +155,8 @@ contains
     if (allocated(plan%leaf_slot_of_node)) deallocate (plan%leaf_slot_of_node)
     if (allocated(plan%near_start)) deallocate (plan%near_start)
     if (allocated(plan%near_nodes)) deallocate (plan%near_nodes)
+    if (allocated(plan%near_source_start)) deallocate (plan%near_source_start)
+    if (allocated(plan%near_source_idx)) deallocate (plan%near_source_idx)
     if (allocated(plan%far_start)) deallocate (plan%far_start)
     if (allocated(plan%far_nodes)) deallocate (plan%far_nodes)
     if (allocated(plan%m2l_target_nodes)) deallocate (plan%m2l_target_nodes)
@@ -172,6 +182,7 @@ contains
     plan%nsrc = 0_i32
     plan%ncoef = 0_i32
     plan%nderiv = 0_i32
+    plan%eval_term_count = 0_i32
     plan%max_node = 0_i32
     plan%nnode = 0_i32
     plan%node_max_depth = 0_i32

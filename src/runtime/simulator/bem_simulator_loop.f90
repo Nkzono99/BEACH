@@ -70,7 +70,7 @@ contains
       batch_times = [batch_field_time, batch_push_time, batch_collision_time]
       call perf_region_begin(perf_region_mpi_reduce, t0)
       call mpi_allreduce_sum_i32_array(mpi_ctx, batch_counts)
-      call mpi_allreduce_sum_real_dp_array(mpi_ctx, batch_times)
+      call mpi_allreduce_max_real_dp_array(mpi_ctx, batch_times)
       call perf_region_end(perf_region_mpi_reduce, t0)
       call perf_region_begin(perf_region_stats_update, t0)
       call accumulate_batch_stats( &
@@ -112,28 +112,51 @@ contains
 
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
-    integer(i32) :: i, step, tid
+    integer(i32) :: i, step, tid, nth
     integer(i32) :: field_calls, push_calls, collision_calls
+    integer(i32) :: field_calls_thread(size(dq_thread, 2))
+    integer(i32) :: push_calls_thread(size(dq_thread, 2))
+    integer(i32) :: collision_calls_thread(size(dq_thread, 2))
     real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
     real(dp) :: t0
+    real(dp) :: field_time_thread(size(dq_thread, 2))
+    real(dp) :: push_time_thread(size(dq_thread, 2))
+    real(dp) :: collision_time_thread(size(dq_thread, 2))
+    real(dp) :: field_time_local, push_time_local, collision_time_local
+    integer(i32) :: field_calls_local, push_calls_local, collision_calls_local
     type(hit_info) :: hit
     logical :: escaped_by_boundary, detail_timing
 
+    nth = size(dq_thread, 2)
     field_time_s = 0.0d0
     push_time_s = 0.0d0
     collision_time_s = 0.0d0
     field_calls = 0_i32
     push_calls = 0_i32
     collision_calls = 0_i32
+    field_time_thread = 0.0d0
+    push_time_thread = 0.0d0
+    collision_time_thread = 0.0d0
+    field_calls_thread = 0_i32
+    push_calls_thread = 0_i32
+    collision_calls_thread = 0_i32
     detail_timing = perf_is_detail_enabled()
 
     !$omp parallel default(none) &
-    !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,detail_timing) &
-    !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary,t0) &
-    !$omp reduction(+:field_time_s,push_time_s,collision_time_s,field_calls,push_calls,collision_calls)
+    !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,detail_timing, &
+    !$omp& field_time_thread,push_time_thread,collision_time_thread,field_calls_thread,push_calls_thread, &
+    !$omp& collision_calls_thread,nth) &
+    !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary,t0,field_time_local,push_time_local, &
+    !$omp& collision_time_local,field_calls_local,push_calls_local,collision_calls_local)
     ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
     tid = 1
     !$ tid = omp_get_thread_num() + 1
+    field_time_local = 0.0d0
+    push_time_local = 0.0d0
+    collision_time_local = 0.0d0
+    field_calls_local = 0_i32
+    push_calls_local = 0_i32
+    collision_calls_local = 0_i32
     !$omp do schedule(static)
     do i = 1, pcls_batch%n
       if (.not. pcls_batch%alive(i)) cycle
@@ -143,20 +166,20 @@ contains
         if (detail_timing) then
           t0 = wall_time_seconds()
           call field_solver%eval_e(mesh, x0, e)
-          field_time_s = field_time_s + (wall_time_seconds() - t0)
-          field_calls = field_calls + 1_i32
+          field_time_local = field_time_local + (wall_time_seconds() - t0)
+          field_calls_local = field_calls_local + 1_i32
 
           t0 = wall_time_seconds()
           call boris_push( &
             x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
           )
-          push_time_s = push_time_s + (wall_time_seconds() - t0)
-          push_calls = push_calls + 1_i32
+          push_time_local = push_time_local + (wall_time_seconds() - t0)
+          push_calls_local = push_calls_local + 1_i32
 
           t0 = wall_time_seconds()
           call find_first_hit(mesh, x0, x1, hit)
-          collision_time_s = collision_time_s + (wall_time_seconds() - t0)
-          collision_calls = collision_calls + 1_i32
+          collision_time_local = collision_time_local + (wall_time_seconds() - t0)
+          collision_calls_local = collision_calls_local + 1_i32
         else
           call field_solver%eval_e(mesh, x0, e)
           call boris_push( &
@@ -181,7 +204,20 @@ contains
       end do
     end do
     !$omp end do
+    field_time_thread(tid) = field_time_local
+    push_time_thread(tid) = push_time_local
+    collision_time_thread(tid) = collision_time_local
+    field_calls_thread(tid) = field_calls_local
+    push_calls_thread(tid) = push_calls_local
+    collision_calls_thread(tid) = collision_calls_local
     !$omp end parallel
+
+    field_time_s = maxval(field_time_thread)
+    push_time_s = maxval(push_time_thread)
+    collision_time_s = maxval(collision_time_thread)
+    field_calls = sum(field_calls_thread)
+    push_calls = sum(push_calls_thread)
+    collision_calls = sum(collision_calls_thread)
 
     if (detail_timing) then
       call perf_add_elapsed(perf_region_particle_field_eval, field_time_s, field_calls)

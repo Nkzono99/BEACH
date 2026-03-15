@@ -9,7 +9,8 @@ module bem_simulator
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit
   use bem_boundary, only: apply_box_boundary
-  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array
+  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_max_real_dp_array, &
+                     mpi_allreduce_sum_i32_array
   implicit none
   private
 

@@ -103,6 +103,9 @@ BEACH_PROFILE=1 BEACH_PROFILE_DETAIL=1 OMP_NUM_THREADS=8 beach examples/beach.to
 ```
 
 `BEACH_PROFILE_DETAIL=1` は時刻取得回数が増えるため、粗粒度計測より遅くなります。  
+詳細計測の `particle_field_eval` / `particle_push` / `particle_collision` と `summary.txt` の
+`field_time_s` / `push_time_s` / `collision_time_s` は、他のフェーズ計測と比較しやすいよう
+thread 内訳の和ではなく wall-clock ベースで集計されます。  
 スケーリング比較には `performance_profile.csv` の `simulation_total` 行にある `rank_max_s` を使うのが推奨です。
 
 可視化例:

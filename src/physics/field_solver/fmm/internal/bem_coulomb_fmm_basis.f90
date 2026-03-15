@@ -14,7 +14,7 @@ contains
   subroutine initialize_basis_tables(plan, order)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32), intent(in) :: order
-    integer(i32) :: idx, alpha_idx, beta_idx, ax
+    integer(i32) :: idx, alpha_idx, beta_idx, ax, term_idx
     integer(i32) :: sum_exp(3)
 
     plan%ncoef = count_multi_indices(order)
@@ -44,6 +44,23 @@ contains
         sum_exp = plan%alpha(:, alpha_idx) + plan%alpha(:, beta_idx)
         plan%alpha_beta_deriv_idx(alpha_idx, beta_idx) = plan%deriv_map(sum_exp(1), sum_exp(2), sum_exp(3))
       end do
+    end do
+
+    plan%eval_term_count = count(plan%alpha_degree < order)
+    allocate (plan%eval_exp(3, max(1_i32, plan%eval_term_count)))
+    allocate (plan%eval_deriv_idx(3, max(1_i32, plan%eval_term_count)))
+    allocate (plan%eval_inv_factorial(max(1_i32, plan%eval_term_count)))
+    plan%eval_exp = 0_i32
+    plan%eval_deriv_idx = 0_i32
+    plan%eval_inv_factorial = 0.0d0
+
+    term_idx = 0_i32
+    do alpha_idx = 1_i32, plan%ncoef
+      if (plan%alpha_degree(alpha_idx) >= order) cycle
+      term_idx = term_idx + 1_i32
+      plan%eval_exp(:, term_idx) = plan%alpha(:, alpha_idx)
+      plan%eval_deriv_idx(:, term_idx) = plan%alpha_plus_axis(:, alpha_idx)
+      plan%eval_inv_factorial(term_idx) = 1.0d0 / plan%alpha_factorial(alpha_idx)
     end do
   end subroutine initialize_basis_tables
 

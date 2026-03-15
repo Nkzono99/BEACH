@@ -536,6 +536,7 @@ contains
     plan%far_nodes = 0_i32
     if (near_used > 0_i32) plan%near_nodes(1:near_used) = near_buf(1:near_used)
     if (far_used > 0_i32) plan%far_nodes(1:far_used) = far_buf(1:far_used)
+    call build_near_source_index(plan)
 
     allocate (plan%parent_of(n_target_nodes))
     plan%parent_of = 0_i32
@@ -566,6 +567,43 @@ contains
 
     deallocate (near_work, far_work, near_buf, far_buf, m2l_target_buf, m2l_source_buf)
   end subroutine build_interactions
+
+  subroutine build_near_source_index(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: leaf_idx, near_pos, near_node, p, p_end, near_source_used
+
+    if (allocated(plan%near_source_start)) deallocate (plan%near_source_start)
+    if (allocated(plan%near_source_idx)) deallocate (plan%near_source_idx)
+    if (plan%nleaf <= 0_i32) return
+
+    allocate (plan%near_source_start(plan%nleaf + 1_i32))
+    plan%near_source_start = 1_i32
+    near_source_used = 0_i32
+    do leaf_idx = 1_i32, plan%nleaf
+      plan%near_source_start(leaf_idx) = near_source_used + 1_i32
+      do near_pos = plan%near_start(leaf_idx), plan%near_start(leaf_idx + 1_i32) - 1_i32
+        near_node = plan%near_nodes(near_pos)
+        near_source_used = near_source_used + plan%node_count(near_node)
+      end do
+    end do
+    plan%near_source_start(plan%nleaf + 1_i32) = near_source_used + 1_i32
+
+    allocate (plan%near_source_idx(max(1_i32, near_source_used)))
+    plan%near_source_idx = 0_i32
+    if (near_source_used <= 0_i32) return
+
+    near_source_used = 0_i32
+    do leaf_idx = 1_i32, plan%nleaf
+      do near_pos = plan%near_start(leaf_idx), plan%near_start(leaf_idx + 1_i32) - 1_i32
+        near_node = plan%near_nodes(near_pos)
+        p_end = plan%node_start(near_node) + plan%node_count(near_node) - 1_i32
+        do p = plan%node_start(near_node), p_end
+          near_source_used = near_source_used + 1_i32
+          plan%near_source_idx(near_source_used) = plan%elem_order(p)
+        end do
+      end do
+    end do
+  end subroutine build_near_source_index
 
   recursive subroutine gather_leaf_interactions(plan, target_leaf, source_node, near_buf, near_n, far_buf, far_n)
     type(fmm_plan_type), intent(in) :: plan
