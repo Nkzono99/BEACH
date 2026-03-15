@@ -126,11 +126,11 @@ $$
 \mathbf{E}(\mathbf{x}) = - \nabla \phi(\mathbf{x})
 $$
 
-近傍 direct 和でも遠方展開でも、同じ `G_\epsilon` を使います。
+近傍 direct 和でも遠方展開でも、同じ $G_\epsilon$ を使います。
 
 ### 4.2 多重指数
 
-多重指数 `alpha = (alpha_x, alpha_y, alpha_z)` を使います。
+多重指数 $\alpha = (\alpha_x, \alpha_y, \alpha_z)$ を使います。
 
 $$
 |\alpha| = \alpha_x + \alpha_y + \alpha_z
@@ -146,7 +146,7 @@ $$
 
 ### 4.3 P2M
 
-node center を `c` とすると、葉ノードの multipole 係数は
+node center を $c$ とすると、葉ノードの multipole 係数は
 
 $$
 M_\alpha(c) = \sum_{j \in \text{leaf}} q_j
@@ -157,8 +157,8 @@ $$
 
 ### 4.4 M2M
 
-子ノード中心 `c_child` の係数を親中心 `c_parent` に平行移動して集約します。
-`d = c_child - c_parent` とすると
+子ノード中心 $c_{\mathrm{child}}$ の係数を親中心 $c_{\mathrm{parent}}$ に平行移動して集約します。
+$\mathbf{d} = c_{\mathrm{child}} - c_{\mathrm{parent}}$ とすると
 
 $$
 M_\beta(c_{\mathrm{parent}}) =
@@ -167,13 +167,13 @@ M_\alpha(c_{\mathrm{child}})
 \frac{\mathbf{d}^{\beta-\alpha}}{(\beta-\alpha)!}
 $$
 
-現行実装では `beta - alpha` に対応する index と
-`d^(beta-alpha) / (beta-alpha)!` を `build_plan` 時に前計算します。
+現行実装では $\beta - \alpha$ に対応する index と
+$\mathbf{d}^{\beta-\alpha} / (\beta-\alpha)!$ を `build_plan` 時に前計算します。
 
 ### 4.5 M2L
 
-source node 中心 `c_s`、target node 中心 `c_t` に対して
-`R = c_t - c_s` とします。
+source node 中心 $c_s$、target node 中心 $c_t$ に対して
+$R = c_t - c_s$ とします。
 
 局所展開係数は
 
@@ -186,13 +186,13 @@ $$
 
 で更新します。
 
-ここで `D^gamma` は multi-index 微分です。
-現行実装は `D^{alpha+beta} G_\epsilon(R)` を `m2l_deriv(:, pair)` として pair ごとに前計算します。
+ここで $D^\gamma$ は multi-index 微分です。
+現行実装は $D^{\alpha+\beta} G_\epsilon(R)$ を `m2l_deriv(:, pair)` として pair ごとに前計算します。
 
 ### 4.6 L2L
 
-親中心 `c_parent` の局所展開を子中心 `c_child` へ平行移動します。
-`d = c_child - c_parent` とすると
+親中心 $c_{\mathrm{parent}}$ の局所展開を子中心 $c_{\mathrm{child}}$ へ平行移動します。
+$\mathbf{d} = c_{\mathrm{child}} - c_{\mathrm{parent}}$ とすると
 
 $$
 L_\alpha(c_{\mathrm{child}}) \mathrel{+}=
@@ -205,18 +205,18 @@ $$
 
 ### 4.7 L2P
 
-評価点 `x` が属する target leaf の中心を `c_leaf` とし、
-`dr = x - c_leaf` とすると
+評価点 $x$ が属する target leaf の中心を $c_{\mathrm{leaf}}$ とし、
+$\mathbf{dr} = x - c_{\mathrm{leaf}}$ とすると
 
 $$
 E_k(x) =
 - \sum_{|\alpha| < p}
 L_{\alpha + e_k}(c_{\mathrm{leaf}})
-\frac{dr^\alpha}{\alpha!}
+\frac{\mathbf{dr}^\alpha}{\alpha!}
 $$
 
 で電場を評価します。
-ここで `e_k` は軸 `k` の単位 multi-index です。
+ここで $e_k$ は軸 $k$ の単位 multi-index です。
 
 ## 5. `build_plan` のアルゴリズム
 
@@ -254,13 +254,13 @@ $$
 
 です。
 
-- `r_s`: source node 半径
-- `r_t`: target node 半径
-- `d`: node center 間ベクトル
-- `theta_eff = theta` for `free`
-- `theta_eff = theta / 2` for `periodic2`
+- $r_s$: source node 半径
+- $r_t$: target node 半径
+- $\mathbf{d}$: node center 間ベクトル
+- $\theta_{\mathrm{eff}} = \theta$ for `free`
+- $\theta_{\mathrm{eff}} = \theta / 2$ for `periodic2`
 
-`periodic2` では `d` に minimum-image 補正を入れます。
+`periodic2` では $\mathbf{d}$ に minimum-image 補正を入れます。
 
 その後、dual-tree 再帰で M2L pair cache を作り、
 target node ごとの索引配列も準備します。
@@ -330,7 +330,7 @@ update_state(plan, state, src_q):
 
 `update_state` では次の無駄を避けています。
 
-- `beta - alpha` の multi-index 差分を毎回計算しない
+- $\beta - \alpha$ の multi-index 差分を毎回計算しない
 - 親子 center 差分のべき乗を毎回作り直さない
 - `P2M` の monomial 基底を source ごとに build 時に前計算する
 - `M2M/L2L` の有効な `(alpha, delta)` 項だけを圧縮して持ち、無効項を走査しない
@@ -403,41 +403,29 @@ q = M_{(0,0,0)}
 $$
 
 $$
-\mathbf{x}_{\mathrm{rep}}
-= \mathbf{c}_{\mathrm{node}}
-  + \frac{1}{q}
-    \begin{bmatrix}
-      M_{(1,0,0)} \\
-      M_{(0,1,0)} \\
-      M_{(0,0,1)}
-    \end{bmatrix}
+\mathbf{x}_{\mathrm{rep}} = \mathbf{c}_{\mathrm{node}} + \frac{1}{q} \begin{bmatrix} M_{(1,0,0)} \\ M_{(0,1,0)} \\ M_{(0,0,1)} \end{bmatrix}
 $$
 
 screened point charge の補正電場は
 
 $$
-\mathbf{E}_{\mathrm{screen}} =
-q \left(
-\frac{\operatorname{erfc}(\alpha r)}{r^3}
-+ \frac{2 \alpha}{\sqrt{\pi}}
-\frac{e^{-\alpha^2 r^2}}{r^2}
-\right) \mathbf{d}
+\mathbf{E}_{\mathrm{screen}} = q \left( \frac{\operatorname{erfc}(\alpha r)}{r^3} + \frac{2 \alpha}{\sqrt{\pi}} \frac{e^{-\alpha^2 r^2}}{r^2} \right) \mathbf{d}
 $$
 
 です。
 
-- `d = x - x_rep`
-- `r = ||d||`
+- $\mathbf{d} = \mathbf{x} - \mathbf{x}_{\mathrm{rep}}$
+- $r = \|\mathbf{d}\|$
 
-補正対象の画像は、近傍層 `N` の外側から `N + L` 層までです。
+補正対象の画像は、近傍層 $N$ の外側から $N + L$ 層までです。
 
 ## 9. 計算量の見方
 
-固定次数 `p`、bounded interaction list を仮定すると、実用上は次のように見てよいです。
+固定次数 $p$、bounded interaction list を仮定すると、実用上は次のように見てよいです。
 
-- `build_plan`: `O(n log n)` に近い
-- `update_state`: `O(n)` に近い
-- `eval_point`: `O(log n + n_near * n_img^2)` に近い
+- `build_plan`: $O(n \log n)$ に近い
+- `update_state`: $O(n)$ に近い
+- `eval_point`: $O(\log n + n_{\mathrm{near}} \, n_{\mathrm{img}}^2)$ に近い
 - `eval_points`: 上記の点評価を target ごとに並列実行
 
 厳密な定数因子は次に強く依存します。
