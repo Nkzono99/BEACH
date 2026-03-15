@@ -13,6 +13,7 @@ from .io import load_fortran_result
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
+    plot_coulomb_force_matrix,
     plot_mesh_source_boxplot,
     plot_potential_mesh,
     plot_potential_slices,
@@ -500,6 +501,56 @@ class Beach:
             softening=softening,
             self_term=self_term,
             showfliers=showfliers,
+        )
+
+    def plot_coulomb_force_matrix(
+        self,
+        *,
+        step: int | None = -1,
+        component: str = "z",
+        softening: float = 0.0,
+        target_kinds: Iterable[str] | None = None,
+        config_path: str | Path | None = None,
+        cmap: str = "coolwarm",
+        annotate: bool = True,
+    ):
+        """Plot an object-wise Coulomb-force matrix.
+
+        Parameters
+        ----------
+        step : int or None, default -1
+            History batch step used for charge snapshot.
+            ``None`` uses final charges from ``charges.csv``.
+        component : {"x", "y", "z"}, default "z"
+            Force component rendered in the matrix.
+        softening : float, default 0.0
+            Softening length in meters for Coulomb-force evaluation.
+        target_kinds : iterable of str or None, default None
+            Template kinds used as target objects. ``None`` means
+            ``("sphere",)`` when spheres exist, otherwise all objects.
+        config_path : str, pathlib.Path, or None, default None
+            Optional ``beach.toml`` path used for object labels/order.
+            ``None`` auto-detects near ``output_dir``.
+        cmap : str, default "coolwarm"
+            Matplotlib colormap name.
+        annotate : bool, default True
+            Whether to draw scientific-notation values inside each cell.
+
+        Returns
+        -------
+        tuple
+            ``(figure, axes)`` from matplotlib.
+        """
+
+        return plot_coulomb_force_matrix(
+            self.result,
+            step=step,
+            component=component,
+            softening=softening,
+            target_kinds=target_kinds,
+            config_path=config_path,
+            cmap=cmap,
+            annotate=annotate,
         )
 
     def animate_mesh(

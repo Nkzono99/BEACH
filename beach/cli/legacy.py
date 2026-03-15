@@ -8,6 +8,7 @@ from . import (
     animate_fortran_history,
     estimate_fortran_workload,
     inspect_fortran_output,
+    plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
 )
@@ -26,6 +27,13 @@ def animate_main(argv: Sequence[str] | None = None) -> None:
 
     print_legacy_warning("beach-animate-history", "animate")
     animate_fortran_history.main(argv)
+
+
+def coulomb_main(argv: Sequence[str] | None = None) -> None:
+    """Run the deprecated ``beach-plot-coulomb-force-matrix`` alias."""
+
+    print_legacy_warning("beach-plot-coulomb-force-matrix", "coulomb")
+    plot_coulomb_force_matrix.main(argv)
 
 
 def slices_main(argv: Sequence[str] | None = None) -> None:

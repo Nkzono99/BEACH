@@ -9,6 +9,7 @@ from . import (
     animate_fortran_history,
     estimate_fortran_workload,
     inspect_fortran_output,
+    plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
 )
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_fortran_output.add_subparser(subparsers)
     animate_fortran_history.add_subparser(subparsers)
+    plot_coulomb_force_matrix.add_subparser(subparsers)
     plot_fortran_potential_slices.add_subparser(subparsers)
     estimate_fortran_workload.add_subparser(subparsers)
     plot_performance_profile.add_subparser(subparsers)

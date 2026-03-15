@@ -18,6 +18,7 @@ from beach.fortran_results import (
     list_fortran_runs,
     load_fortran_result,
     plot_mesh_source_boxplot,
+    plot_coulomb_force_matrix,
     plot_potential_slices,
     plot_potential_mesh,
 )
@@ -98,6 +99,71 @@ def _write_three_mesh_fixture(out: Path) -> None:
         "10,12,1.0e-6,1,1.0e-9\n"
         "10,12,1.0e-6,2,2.0e-9\n"
         "10,12,1.0e-6,3,-3.0e-9\n",
+        encoding="utf-8",
+    )
+
+
+def _write_coulomb_matrix_fixture(out: Path) -> None:
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=3",
+                "processed_particles=12",
+                "absorbed=9",
+                "escaped=3",
+                "batches=10",
+                "last_rel_change=1.0e-6",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text(
+        "elem_idx,charge_C\n1,1.0e-9\n2,2.0e-9\n3,-3.0e-9\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,1.0e-9,1\n"
+        "2,1.0,0.0,0.0,1.0,1.0,0.0,1.0,0.0,1.0,2.0e-9,2\n"
+        "3,2.0,0.0,0.0,2.0,1.0,0.0,2.0,0.0,1.0,-3.0e-9,3\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_sources.csv").write_text(
+        "mesh_id,source_kind,template_kind,elem_count\n"
+        "1,template,plane,1\n"
+        "2,template,sphere,1\n"
+        "3,template,sphere,1\n",
+        encoding="utf-8",
+    )
+    (out / "charge_history.csv").write_text(
+        "batch,processed_particles,rel_change,elem_idx,charge_C\n"
+        "1,2,1.0e-1,1,5.0e-10\n"
+        "1,2,1.0e-1,2,1.0e-9\n"
+        "1,2,1.0e-1,3,-1.5e-9\n"
+        "10,12,1.0e-6,1,1.0e-9\n"
+        "10,12,1.0e-6,2,2.0e-9\n"
+        "10,12,1.0e-6,3,-3.0e-9\n",
+        encoding="utf-8",
+    )
+    (out / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[mesh]",
+                'mode = "template"',
+                "",
+                "[[mesh.templates]]",
+                'kind = "plane"',
+                "enabled = true",
+                "",
+                "[[mesh.templates]]",
+                'kind = "sphere"',
+                "enabled = true",
+                "",
+                "[[mesh.templates]]",
+                'kind = "sphere"',
+                "enabled = true",
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -1448,6 +1514,62 @@ def test_beach_plot_mesh_source_boxplot_uses_mesh_source_labels(tmp_path: Path) 
     assert "id=1 (template/plane)" in labels
     assert "id=2 (template/box)" in labels
     assert "id=3 (template/sphere)" in labels
+    fig.clf()
+
+
+def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(
+    tmp_path: Path,
+) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    out = tmp_path / "run_coulomb_matrix"
+    out.mkdir()
+    _write_coulomb_matrix_fixture(out)
+
+    beach = Beach(out)
+    fig, ax = beach.plot_coulomb_force_matrix(component="x")
+
+    matrix_info = getattr(ax, "_beach_coulomb_matrix")
+    assert matrix_info["target_labels"] == ("sphere1", "sphere2")
+    assert matrix_info["source_labels"] == ("plane", "sphere1", "sphere2", "net")
+    np.testing.assert_allclose(
+        matrix_info["matrix"],
+        K_COULOMB
+        * np.array(
+            [
+                [2.0e-18, -0.75e-18],
+                [0.0, -6.0e-18],
+                [6.0e-18, 0.0],
+                [8.0e-18, -6.75e-18],
+            ]
+        ),
+    )
+    fig.clf()
+
+
+def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(tmp_path: Path) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    out = tmp_path / "run_coulomb_matrix_plane"
+    out.mkdir()
+    _write_coulomb_matrix_fixture(out)
+
+    fig, ax = plot_coulomb_force_matrix(
+        Beach(out),
+        component="x",
+        target_kinds=("plane",),
+        annotate=False,
+    )
+
+    matrix_info = getattr(ax, "_beach_coulomb_matrix")
+    assert matrix_info["target_labels"] == ("plane",)
+    assert matrix_info["source_labels"] == ("plane", "sphere1", "sphere2", "net")
+    np.testing.assert_allclose(
+        matrix_info["matrix"][:, 0],
+        K_COULOMB * np.array([0.0, -2.0e-18, 0.75e-18, -1.25e-18]),
+    )
     fig.clf()
 
 

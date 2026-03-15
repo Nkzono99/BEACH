@@ -186,10 +186,17 @@ beachx slices outputs/latest \
   --grid-n 200 \
   --vmin -20 --vmax 20 \
   --save outputs/latest/potential_slices.png
+
+beachx coulomb outputs/latest \
+  --component z \
+  --save outputs/latest/coulomb_force_z.png
 ```
 
-旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-potential-slices` /
-`beach-estimate-workload` / `beach-plot-performance-profile` も当面は利用できますが、非推奨です。
+`beachx coulomb` は、近傍の `beach.toml` が見つかれば `mesh.templates` から object kind と順序を読み取り、sphere があれば既定で sphere 群を target にして可視化します。
+
+旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
+`beach-plot-potential-slices` / `beach-estimate-workload` / `beach-plot-performance-profile`
+も当面は利用できますが、非推奨です。
 
 ### 8.2 Python API
 
@@ -222,6 +229,12 @@ charge_step10 = beach.get_mesh_charge(1, step=10)
 
 interaction = beach.calc_coulomb(target=[mesh1, mesh2], source=[mesh3], step=10)
 print(interaction.force_on_a_N, interaction.torque_on_a_Nm)
+
+fig_force, ax_force = beach.plot_coulomb_force_matrix(
+    component="z",
+    target_kinds=("sphere",),
+)
+fig_force.savefig("outputs/latest/coulomb_force_z.png", dpi=150)
 ```
 
 ## 9. MPI経路テスト（開発向け）

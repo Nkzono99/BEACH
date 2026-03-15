@@ -9,6 +9,7 @@ from beach.cli import (
     estimate_fortran_workload,
     inspect_fortran_output,
     legacy,
+    plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
 )
@@ -34,6 +35,15 @@ CLI_CASES = [
         'Fortran output files are missing under "no_such_dir". '
         "Expected at least summary.txt and charges.csv.",
         "WARNING: `beach-animate-history` is deprecated; use `beachx animate` instead.",
+    ),
+    (
+        "coulomb",
+        plot_coulomb_force_matrix.build_parser,
+        legacy.coulomb_main,
+        ["no_such_dir"],
+        'Fortran output files are missing under "no_such_dir". '
+        "Expected at least summary.txt and charges.csv.",
+        "WARNING: `beach-plot-coulomb-force-matrix` is deprecated; use `beachx coulomb` instead.",
     ),
     (
         "slices",
@@ -107,6 +117,7 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     captured = capsys.readouterr()
     assert "inspect" in captured.out
     assert "animate" in captured.out
+    assert "coulomb" in captured.out
     assert "slices" in captured.out
     assert "workload" in captured.out
     assert "profile" in captured.out

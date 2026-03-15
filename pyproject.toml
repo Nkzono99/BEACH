@@ -18,6 +18,7 @@ dependencies = [
 beachx = "beach.cli.main:main"
 beach-inspect = "beach.cli.legacy:inspect_main"
 beach-animate-history = "beach.cli.legacy:animate_main"
+beach-plot-coulomb-force-matrix = "beach.cli.legacy:coulomb_main"
 beach-plot-potential-slices = "beach.cli.legacy:slices_main"
 beach-estimate-workload = "beach.cli.legacy:workload_main"
 beach-plot-performance-profile = "beach.cli.legacy:profile_main"
