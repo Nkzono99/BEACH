@@ -10,6 +10,7 @@ from . import (
     animate_fortran_history,
     estimate_fortran_workload,
     inspect_fortran_output,
+    model,
     plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
@@ -21,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="beachx",
-        description="BEACH post-processing tools for inspection and visualization.",
+        description="BEACH tools for post-processing, visualization, and model generation.",
     )
     subparsers = parser.add_subparsers(
         dest="command",
@@ -35,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     plot_fortran_potential_slices.add_subparser(subparsers)
     estimate_fortran_workload.add_subparser(subparsers)
     plot_performance_profile.add_subparser(subparsers)
+    model.add_subparser(subparsers)
     return parser
 
 

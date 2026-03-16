@@ -10,6 +10,7 @@ from beach.cli import (
     estimate_fortran_workload,
     inspect_fortran_output,
     legacy,
+    model_close_pack,
     plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
@@ -85,6 +86,19 @@ def _get_subparser(command: str) -> argparse.ArgumentParser:
     return subparsers.choices[command]
 
 
+def _get_nested_subparser(*commands: str) -> argparse.ArgumentParser:
+    parser = build_beachx_parser()
+    current_parser = parser
+    for command in commands:
+        subparsers = next(
+            action
+            for action in current_parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        current_parser = subparsers.choices[command]
+    return current_parser
+
+
 def _parser_signature(parser: argparse.ArgumentParser) -> list[tuple[object, ...]]:
     signature: list[tuple[object, ...]] = []
     for action in parser._actions:
@@ -123,12 +137,41 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     assert "slices" in captured.out
     assert "workload" in captured.out
     assert "profile" in captured.out
+    assert "model" in captured.out
+
+
+def test_beachx_model_help_lists_available_models(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["model", "--help"])
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "close-pack" in captured.out
 
 
 def test_beachx_mobility_subparser_matches_parser_shape() -> None:
     assert _parser_signature(_get_subparser("mobility")) == _parser_signature(
         analyze_coulomb_mobility.build_parser()
     )
+
+
+def test_beachx_model_close_pack_subparser_matches_parser_shape() -> None:
+    assert _parser_signature(
+        _get_nested_subparser("model", "close-pack")
+    ) == _parser_signature(model_close_pack.build_parser())
+
+
+def test_beachx_model_close_pack_missing_base_config_exits_with_friendly_message(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["model", "close-pack", "--layers", "4", "--radius", "0.2", "--cells-x", "2"])
+
+    assert str(excinfo.value) == "base config file not found: beach.toml"
 
 
 def test_beachx_mobility_missing_output_dir_exits_with_friendly_message() -> None:
