@@ -216,13 +216,23 @@ class Beach:
             adhesion_force_N=adhesion_force_N,
         )
 
-    def plot_mesh(self, *, cmap: str = "coolwarm"):
+    def plot_mesh(
+        self,
+        *,
+        cmap: str = "coolwarm",
+        view_elev: float = 24.0,
+        view_azim: float = -58.0,
+    ):
         """Plot a 3D mesh colored by surface charge density.
 
         Parameters
         ----------
         cmap : str, default "coolwarm"
             Matplotlib colormap name.
+        view_elev : float, default 24.0
+            Elevation angle in degrees.
+        view_azim : float, default -58.0
+            Azimuth angle in degrees.
 
         Returns
         -------
@@ -230,7 +240,12 @@ class Beach:
             ``(figure, axes)`` from matplotlib.
         """
 
-        return plot_charge_mesh(self.result, cmap=cmap)
+        return plot_charge_mesh(
+            self.result,
+            cmap=cmap,
+            view_elev=view_elev,
+            view_azim=view_azim,
+        )
 
     def plot_bar(self):
         """Plot per-element charges as a bar chart.
@@ -388,6 +403,8 @@ class Beach:
         softening: float | None = None,
         self_term: str = "auto",
         cmap: str = "viridis",
+        view_elev: float = 24.0,
+        view_azim: float = -58.0,
         periodic2: Mapping[str, object] | None = None,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
     ):
@@ -401,6 +418,10 @@ class Beach:
             Self-interaction model.
         cmap : str, default "viridis"
             Matplotlib colormap name.
+        view_elev : float, default 24.0
+            Elevation angle in degrees.
+        view_azim : float, default -58.0
+            Azimuth angle in degrees.
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_mesh`.
@@ -419,6 +440,8 @@ class Beach:
             softening=softening,
             self_term=self_term,
             cmap=cmap,
+            view_elev=view_elev,
+            view_azim=view_azim,
             periodic2=periodic2,
             reference_point=reference_point,
         )

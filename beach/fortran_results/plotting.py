@@ -9,7 +9,13 @@ from typing import Iterable, Mapping
 import numpy as np
 
 from .coulomb import calc_coulomb
-from .mesh import _plot_scalar_mesh, _surface_charge_density, _triangle_areas
+from .mesh import (
+    DEFAULT_MESH_VIEW_AZIM,
+    DEFAULT_MESH_VIEW_ELEV,
+    _plot_scalar_mesh,
+    _surface_charge_density,
+    _triangle_areas,
+)
 from .objects import normalize_kind_filter, resolve_object_specs
 from .potential import (
     _resolve_reference_point,
@@ -52,7 +58,13 @@ def plot_charges(result: FortranRunResult | object):
     return fig, ax
 
 
-def plot_charge_mesh(result: FortranRunResult | object, *, cmap: str = "coolwarm"):
+def plot_charge_mesh(
+    result: FortranRunResult | object,
+    *,
+    cmap: str = "coolwarm",
+    view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+    view_azim: float = DEFAULT_MESH_VIEW_AZIM,
+):
     """Plot a 3D mesh colored by surface charge density.
 
     Parameters
@@ -61,6 +73,10 @@ def plot_charge_mesh(result: FortranRunResult | object, *, cmap: str = "coolwarm
         Run result or object exposing ``result`` as ``FortranRunResult``.
     cmap : str, default "coolwarm"
         Matplotlib colormap name.
+    view_elev : float, default 24.0
+        Elevation angle in degrees passed to ``Axes3D.view_init``.
+    view_azim : float, default -58.0
+        Azimuth angle in degrees passed to ``Axes3D.view_init``.
 
     Returns
     -------
@@ -82,6 +98,8 @@ def plot_charge_mesh(result: FortranRunResult | object, *, cmap: str = "coolwarm
         title=f"Surface charge density mesh: {resolved.directory}",
         colorbar_label="surface charge density [C/m^2]",
         cmap=cmap,
+        view_elev=view_elev,
+        view_azim=view_azim,
     )
 
 
@@ -207,6 +225,8 @@ def plot_potential_mesh(
     softening: float | None = None,
     self_term: str = "auto",
     cmap: str = "viridis",
+    view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+    view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
 ):
@@ -222,6 +242,10 @@ def plot_potential_mesh(
         Self-interaction model for potential reconstruction.
     cmap : str, default "viridis"
         Matplotlib colormap name.
+    view_elev : float, default 24.0
+        Elevation angle in degrees passed to ``Axes3D.view_init``.
+    view_azim : float, default -58.0
+        Azimuth angle in degrees passed to ``Axes3D.view_init``.
     periodic2 : mapping or None, default None
         Two-axis periodic setting. See
         :func:`beach.fortran_results.compute_potential_mesh`.
@@ -257,6 +281,8 @@ def plot_potential_mesh(
         title=f"{title}: {resolved.directory}",
         colorbar_label=colorbar_label,
         cmap=cmap,
+        view_elev=view_elev,
+        view_azim=view_azim,
     )
 
 

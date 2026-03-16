@@ -1462,6 +1462,46 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
     fig.clf()
 
 
+def test_plot_potential_mesh_accepts_custom_view_angles() -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]],
+        ]
+    )
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9, -1.0e-9]),
+        triangles=triangles,
+    )
+
+    fig, ax = plot_potential_mesh(
+        result,
+        softening=0.5,
+        self_term="softened_point",
+        view_elev=11.0,
+        view_azim=37.0,
+    )
+
+    assert ax.elev == pytest.approx(11.0)
+    assert ax.azim == pytest.approx(37.0)
+    ax.view_init(elev=5.0, azim=15.0)
+    assert ax.elev == pytest.approx(5.0)
+    assert ax.azim == pytest.approx(15.0)
+    fig.clf()
+
+
 def test_plot_mesh_source_boxplot_charge_uses_area_weighted_statistics() -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")

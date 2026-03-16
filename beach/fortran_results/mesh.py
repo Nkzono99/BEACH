@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
+DEFAULT_MESH_VIEW_ELEV = 24.0
+DEFAULT_MESH_VIEW_AZIM = -58.0
+
 
 def _surface_charge_density(charges: np.ndarray, triangles: np.ndarray) -> np.ndarray:
     areas = _triangle_areas(triangles)
@@ -30,7 +33,13 @@ def _triangle_areas(triangles: np.ndarray) -> np.ndarray:
     return 0.5 * np.linalg.norm(cross, axis=1)
 
 
-def _configure_mesh_axes(ax, triangles: np.ndarray) -> None:
+def _configure_mesh_axes(
+    ax,
+    triangles: np.ndarray,
+    *,
+    view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+    view_azim: float = DEFAULT_MESH_VIEW_AZIM,
+) -> None:
     pts = triangles.reshape(-1, 3)
     mins = pts.min(axis=0)
     maxs = pts.max(axis=0)
@@ -45,7 +54,7 @@ def _configure_mesh_axes(ax, triangles: np.ndarray) -> None:
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_zlabel("z")
-    ax.view_init(elev=24.0, azim=-58.0)
+    ax.view_init(elev=view_elev, azim=view_azim)
 
 
 def _plot_scalar_mesh(
@@ -55,6 +64,8 @@ def _plot_scalar_mesh(
     title: str,
     colorbar_label: str,
     cmap: str,
+    view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+    view_azim: float = DEFAULT_MESH_VIEW_AZIM,
 ):
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -78,7 +89,12 @@ def _plot_scalar_mesh(
         alpha=0.88,
     )
     ax.add_collection3d(mesh)
-    _configure_mesh_axes(ax, triangles)
+    _configure_mesh_axes(
+        ax,
+        triangles,
+        view_elev=view_elev,
+        view_azim=view_azim,
+    )
     ax.set_title(title)
 
     sm.set_array(values)

@@ -41,6 +41,18 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         default="auto",
         help="self-term treatment for potential reconstruction",
     )
+    parser.add_argument(
+        "--view-elev",
+        type=float,
+        default=24.0,
+        help="elevation angle [deg] for 3D mesh plots",
+    )
+    parser.add_argument(
+        "--view-azim",
+        type=float,
+        default=-58.0,
+        help="azimuth angle [deg] for 3D mesh plots",
+    )
 
 
 def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
@@ -123,7 +135,10 @@ def run(args: argparse.Namespace) -> None:
 
         if need_mesh_plot:
             if result.triangles is not None:
-                mesh_fig, _ = beach.plot_mesh()
+                mesh_fig, _ = beach.plot_mesh(
+                    view_elev=args.view_elev,
+                    view_azim=args.view_azim,
+                )
                 if args.save_mesh is not None:
                     mesh_fig.savefig(args.save_mesh, dpi=150)
                     print(f"saved_mesh={args.save_mesh}")
@@ -136,6 +151,8 @@ def run(args: argparse.Namespace) -> None:
                     softening=args.potential_softening,
                     self_term=self_term,
                     reference_point=reference_point,
+                    view_elev=args.view_elev,
+                    view_azim=args.view_azim,
                 )
                 if args.save_potential_mesh is not None:
                     potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)
