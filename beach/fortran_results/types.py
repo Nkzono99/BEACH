@@ -106,6 +106,117 @@ class CoulombInteraction:
 
 
 @dataclass(frozen=True)
+class CoulombMobilityRecord:
+    """Per-object Coulomb mobility summary.
+
+    Attributes
+    ----------
+    mesh_id : int
+        Mesh identifier of the analyzed object.
+    label : str
+        Human-readable object label.
+    kind : str
+        Object kind resolved from ``beach.toml`` or ``mesh_sources.csv``.
+    step : int or None
+        History step used for the analysis snapshot.
+    center_m : numpy.ndarray
+        Object centroid in meters with shape ``(3,)``.
+    force_N : numpy.ndarray
+        Net Coulomb force in newtons with shape ``(3,)``.
+    torque_Nm : numpy.ndarray
+        Net Coulomb torque about object center in newton-meters with shape ``(3,)``.
+    force_normal_N : float
+        Force component along support normal. Positive means lift direction.
+    force_tangent_N : float
+        Tangential-force magnitude relative to the support normal.
+    torque_normal_Nm : float
+        Torque component along support normal.
+    torque_tangent_Nm : float
+        Tangential-torque magnitude relative to the support normal.
+    mass_kg : float or None
+        Estimated object mass. ``None`` when geometry or density is unavailable.
+    characteristic_radius_m : float or None
+        Characteristic radius used for rolling metrics when available.
+    weight_support_N : float or None
+        Weight component resisted by the support normal.
+    resisting_normal_N : float or None
+        Baseline normal resistance used for lift checks
+        (typically weight + adhesion).
+    effective_normal_load_N : float or None
+        Remaining compressive normal load after Coulomb lift is applied.
+    lift_ratio : float or None
+        ``max(force_normal, 0) / resisting_normal`` when available.
+    slide_ratio : float or None
+        ``force_tangent / (mu_static * effective_normal_load)`` when available.
+    roll_ratio : float or None
+        ``torque_tangent / (mu_roll * effective_normal_load * radius)`` when available.
+    notes : tuple of str
+        Diagnostic notes about unavailable assumptions or approximations.
+    """
+
+    mesh_id: int
+    label: str
+    kind: str
+    step: int | None
+    center_m: np.ndarray
+    force_N: np.ndarray
+    torque_Nm: np.ndarray
+    force_normal_N: float
+    force_tangent_N: float
+    torque_normal_Nm: float
+    torque_tangent_Nm: float
+    mass_kg: float | None
+    characteristic_radius_m: float | None
+    weight_support_N: float | None
+    resisting_normal_N: float | None
+    effective_normal_load_N: float | None
+    lift_ratio: float | None
+    slide_ratio: float | None
+    roll_ratio: float | None
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CoulombMobilityAnalysis:
+    """Collection of per-object Coulomb mobility records.
+
+    Attributes
+    ----------
+    step : int or None
+        History step used for the analysis snapshot.
+    softening : float
+        Softening length used in Coulomb-force evaluation.
+    gravity_m_s2 : numpy.ndarray
+        Gravity vector in meters per second squared with shape ``(3,)``.
+    support_normal_m : numpy.ndarray
+        Unit support normal with shape ``(3,)``.
+    support_kinds : tuple of str
+        Object kinds treated as supports and excluded by default from targets.
+    density_kg_m3 : float or None
+        Bulk density used for mass estimation.
+    mu_static : float or None
+        Static-friction coefficient used for slide checks.
+    mu_roll : float or None
+        Rolling-resistance coefficient used for roll checks.
+    adhesion_force_N : float
+        Additional normal adhesion resisting lift.
+    records : tuple of CoulombMobilityRecord
+        Per-object analysis records.
+    """
+
+    step: int | None
+    softening: float
+    gravity_m_s2: np.ndarray
+    support_normal_m: np.ndarray
+    support_kinds: tuple[str, ...]
+    density_kg_m3: float | None
+    mu_static: float | None
+    mu_roll: float | None
+    adhesion_force_N: float
+    records: tuple[CoulombMobilityRecord, ...]
+
+
+@dataclass(frozen=True)
 class FortranRunResult:
     """Container for one Fortran simulation output directory.
 

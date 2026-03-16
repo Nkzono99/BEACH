@@ -5,6 +5,7 @@ import argparse
 import pytest
 
 from beach.cli import (
+    analyze_coulomb_mobility,
     animate_fortran_history,
     estimate_fortran_workload,
     inspect_fortran_output,
@@ -118,9 +119,26 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     assert "inspect" in captured.out
     assert "animate" in captured.out
     assert "coulomb" in captured.out
+    assert "mobility" in captured.out
     assert "slices" in captured.out
     assert "workload" in captured.out
     assert "profile" in captured.out
+
+
+def test_beachx_mobility_subparser_matches_parser_shape() -> None:
+    assert _parser_signature(_get_subparser("mobility")) == _parser_signature(
+        analyze_coulomb_mobility.build_parser()
+    )
+
+
+def test_beachx_mobility_missing_output_dir_exits_with_friendly_message() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["mobility", "no_such_dir"])
+
+    assert (
+        str(excinfo.value)
+        == 'Fortran output files are missing under "no_such_dir". Expected at least summary.txt and charges.csv.'
+    )
 
 
 @pytest.mark.parametrize(

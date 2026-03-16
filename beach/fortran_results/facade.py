@@ -10,6 +10,7 @@ import numpy as np
 from .animation import animate_history_mesh
 from .coulomb import calc_coulomb
 from .io import load_fortran_result
+from .mobility import analyze_coulomb_mobility
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
@@ -181,6 +182,38 @@ class Beach:
             step=step,
             softening=softening,
             torque_origin=torque_origin,
+        )
+
+    def analyze_coulomb_mobility(
+        self,
+        *,
+        step: int | None = -1,
+        softening: float = 0.0,
+        config_path: str | Path | None = None,
+        gravity: Iterable[float] = (0.0, 0.0, -9.81),
+        support_normal: Iterable[float] | None = None,
+        support_kinds: Iterable[str] | None = ("plane",),
+        target_kinds: Iterable[str] | None = None,
+        density_kg_m3: float | None = None,
+        mu_static: float | None = None,
+        mu_roll: float | None = None,
+        adhesion_force_N: float = 0.0,
+    ):
+        """Analyze per-object Coulomb mobility indicators."""
+
+        return analyze_coulomb_mobility(
+            self.result,
+            step=step,
+            softening=softening,
+            config_path=config_path,
+            gravity=gravity,
+            support_normal=support_normal,
+            support_kinds=support_kinds,
+            target_kinds=target_kinds,
+            density_kg_m3=density_kg_m3,
+            mu_static=mu_static,
+            mu_roll=mu_roll,
+            adhesion_force_N=adhesion_force_N,
         )
 
     def plot_mesh(self, *, cmap: str = "coolwarm"):

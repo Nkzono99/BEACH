@@ -7,6 +7,7 @@ from .facade import Beach
 from .history import FortranChargeHistory
 from .io import list_fortran_runs, load_fortran_result
 from .mesh import _surface_charge_density
+from .mobility import analyze_coulomb_mobility
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
@@ -22,6 +23,8 @@ from .potential import (
 )
 from .types import (
     CoulombInteraction,
+    CoulombMobilityAnalysis,
+    CoulombMobilityRecord,
     FortranRunResult,
     MeshSelection,
     MeshSource,
@@ -34,12 +37,15 @@ __all__ = [
     "MeshSource",
     "MeshSelection",
     "CoulombInteraction",
+    "CoulombMobilityRecord",
+    "CoulombMobilityAnalysis",
     "FortranRunResult",
     "PotentialSlice2D",
     "load_fortran_result",
     "list_fortran_runs",
     "Beach",
     "calc_coulomb",
+    "analyze_coulomb_mobility",
     "plot_charges",
     "plot_charge_mesh",
     "plot_coulomb_force_matrix",

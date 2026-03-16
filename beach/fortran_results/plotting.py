@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -11,9 +10,8 @@ import numpy as np
 
 from .coulomb import calc_coulomb
 from .mesh import _plot_scalar_mesh, _surface_charge_density, _triangle_areas
+from .objects import normalize_kind_filter, resolve_object_specs
 from .potential import (
-    _find_config_path_near_output,
-    _load_toml,
     _resolve_reference_point,
     compute_potential_mesh,
     compute_potential_slices,
@@ -311,29 +309,29 @@ def plot_coulomb_force_matrix(
 
     resolved = _resolve_result(result)
     component_idx, component_label = _force_component_info(component)
-    object_specs = _resolve_coulomb_object_specs(resolved, config_path=config_path)
+    object_specs = resolve_object_specs(resolved, config_path=config_path)
 
-    resolved_target_kinds = _normalize_target_kinds(target_kinds)
+    resolved_target_kinds = normalize_kind_filter(target_kinds)
     target_specs = [
         spec
         for spec in object_specs
-        if resolved_target_kinds is None or spec["kind"] in resolved_target_kinds
+        if resolved_target_kinds is None or spec.kind in resolved_target_kinds
     ]
     if len(target_specs) == 0:
-        available_kinds = sorted({str(spec["kind"]) for spec in object_specs})
+        available_kinds = sorted({spec.kind for spec in object_specs})
         raise ValueError(
             "target_kinds did not match any objects. "
             f"available={available_kinds}"
         )
 
     matrix = np.zeros((len(object_specs) + 1, len(target_specs)), dtype=float)
-    source_labels = [str(spec["label"]) for spec in object_specs] + ["net"]
-    target_labels = [str(spec["label"]) for spec in target_specs]
+    source_labels = [spec.label for spec in object_specs] + ["net"]
+    target_labels = [spec.label for spec in target_specs]
 
     for col_idx, target_spec in enumerate(target_specs):
-        target_mesh_id = int(target_spec["mesh_id"])
+        target_mesh_id = int(target_spec.mesh_id)
         for row_idx, source_spec in enumerate(object_specs):
-            source_mesh_id = int(source_spec["mesh_id"])
+            source_mesh_id = int(source_spec.mesh_id)
             if source_mesh_id == target_mesh_id:
                 continue
             interaction = calc_coulomb(
@@ -348,9 +346,9 @@ def plot_coulomb_force_matrix(
             )
 
         net_sources = [
-            int(spec["mesh_id"])
+            int(spec.mesh_id)
             for spec in object_specs
-            if int(spec["mesh_id"]) != target_mesh_id
+            if int(spec.mesh_id) != target_mesh_id
         ]
         if net_sources:
             interaction = calc_coulomb(
@@ -410,8 +408,8 @@ def plot_coulomb_force_matrix(
         "component": component_label,
         "target_labels": tuple(target_labels),
         "source_labels": tuple(source_labels),
-        "target_mesh_ids": tuple(int(spec["mesh_id"]) for spec in target_specs),
-        "source_mesh_ids": tuple(int(spec["mesh_id"]) for spec in object_specs),
+        "target_mesh_ids": tuple(int(spec.mesh_id) for spec in target_specs),
+        "source_mesh_ids": tuple(int(spec.mesh_id) for spec in object_specs),
         "step": step,
         "softening": float(softening),
     }
@@ -644,120 +642,6 @@ def _force_component_info(component: str) -> tuple[int, str]:
     if normalized == "z":
         return 2, "Fz"
     raise ValueError("component must be one of {'x', 'y', 'z'}.")
-
-
-def _normalize_target_kinds(
-    target_kinds: Iterable[str] | None,
-) -> set[str] | None:
-    if target_kinds is None:
-        return None
-
-    normalized = {
-        str(kind).strip().lower()
-        for kind in target_kinds
-        if str(kind).strip()
-    }
-    if len(normalized) == 0 or "all" in normalized:
-        return None
-    return normalized
-
-
-def _resolve_coulomb_object_specs(
-    result: FortranRunResult,
-    *,
-    config_path: str | Path | None,
-) -> list[dict[str, object]]:
-    mesh_ids = tuple(int(v) for v in np.unique(_mesh_ids_or_default(result)))
-    config_specs = _object_specs_from_config(result, mesh_ids=mesh_ids, config_path=config_path)
-    if config_specs is not None:
-        return config_specs
-
-    if result.mesh_sources is not None:
-        kinds = [
-            _mesh_kind_from_source(result.mesh_sources.get(mesh_id))
-            for mesh_id in mesh_ids
-        ]
-        labels = _labels_from_kinds(kinds)
-        return [
-            {"mesh_id": mesh_id, "kind": kind, "label": label}
-            for mesh_id, kind, label in zip(mesh_ids, kinds, labels)
-        ]
-
-    fallback_kinds = [f"mesh{mesh_id}" for mesh_id in mesh_ids]
-    return [
-        {"mesh_id": mesh_id, "kind": kind, "label": kind}
-        for mesh_id, kind in zip(mesh_ids, fallback_kinds)
-    ]
-
-
-def _object_specs_from_config(
-    result: FortranRunResult,
-    *,
-    mesh_ids: tuple[int, ...],
-    config_path: str | Path | None,
-) -> list[dict[str, object]] | None:
-    path: Path | None
-    if config_path is None:
-        path = _find_config_path_near_output(result.directory)
-    else:
-        path = Path(config_path)
-        if not path.exists():
-            raise ValueError(f'config file is not found: "{path}".')
-
-    if path is None:
-        return None
-
-    config = _load_toml(path)
-    mesh_cfg = config.get("mesh")
-    if not isinstance(mesh_cfg, Mapping):
-        return None
-    templates = mesh_cfg.get("templates")
-    if not isinstance(templates, list):
-        return None
-
-    enabled_kinds: list[str] = []
-    for template in templates:
-        if not isinstance(template, Mapping):
-            continue
-        if not bool(template.get("enabled", True)):
-            continue
-        kind = str(template.get("kind", "mesh")).strip().lower() or "mesh"
-        enabled_kinds.append(kind)
-
-    if len(enabled_kinds) != len(mesh_ids):
-        return None
-
-    labels = _labels_from_kinds(enabled_kinds)
-    return [
-        {"mesh_id": mesh_id, "kind": kind, "label": label}
-        for mesh_id, kind, label in zip(mesh_ids, enabled_kinds, labels)
-    ]
-
-
-def _labels_from_kinds(kinds: Iterable[str]) -> list[str]:
-    normalized = [str(kind).strip().lower() or "mesh" for kind in kinds]
-    totals = Counter(normalized)
-    seen: Counter[str] = Counter()
-    labels: list[str] = []
-    for kind in normalized:
-        seen[kind] += 1
-        if totals[kind] == 1:
-            labels.append(kind)
-        else:
-            labels.append(f"{kind}{seen[kind]}")
-    return labels
-
-
-def _mesh_kind_from_source(source: MeshSource | None) -> str:
-    if source is None:
-        return "mesh"
-    template_kind = str(source.template_kind).strip().lower()
-    if template_kind:
-        return template_kind
-    source_kind = str(source.source_kind).strip().lower()
-    if source_kind:
-        return source_kind
-    return "mesh"
 
 
 def _quantity_axis_labels(quantity: str) -> tuple[str, str]:

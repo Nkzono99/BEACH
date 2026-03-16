@@ -4,8 +4,10 @@ import numpy as np
 import pytest
 
 from beach.fortran_results import (
+    analyze_coulomb_mobility,
     Beach,
     calc_coulomb,
+    CoulombMobilityAnalysis,
     FortranChargeHistory,
     K_COULOMB,
     FortranRunResult,
@@ -162,6 +164,59 @@ def _write_coulomb_matrix_fixture(out: Path) -> None:
                 "[[mesh.templates]]",
                 'kind = "sphere"',
                 "enabled = true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_mobility_fixture(out: Path) -> None:
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=2",
+                "processed_particles=2",
+                "absorbed=2",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text(
+        "elem_idx,charge_C\n1,1.0e-4\n2,2.0e-4\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,0.0,1.0e-4,1\n"
+        "2,0.0,0.0,1.0,1.0,0.0,1.0,0.0,1.0,1.0,2.0e-4,2\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_sources.csv").write_text(
+        "mesh_id,source_kind,template_kind,elem_count\n"
+        "1,template,plane,1\n"
+        "2,template,sphere,1\n",
+        encoding="utf-8",
+    )
+    (out / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[mesh]",
+                'mode = "template"',
+                "",
+                "[[mesh.templates]]",
+                'kind = "plane"',
+                "enabled = true",
+                "",
+                "[[mesh.templates]]",
+                'kind = "sphere"',
+                "enabled = true",
+                "radius = 0.1",
+                "center = [0.3333333333, 0.3333333333, 1.0]",
+                "n_lon = 8",
+                "n_lat = 4",
             ]
         ),
         encoding="utf-8",
@@ -1571,6 +1626,54 @@ def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(tmp_path: Path)
         K_COULOMB * np.array([0.0, -2.0e-18, 0.75e-18, -1.25e-18]),
     )
     fig.clf()
+
+
+def test_analyze_coulomb_mobility_defaults_to_non_support_objects(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_mobility_default"
+    out.mkdir()
+    _write_coulomb_matrix_fixture(out)
+
+    analysis = analyze_coulomb_mobility(Beach(out))
+
+    assert isinstance(analysis, CoulombMobilityAnalysis)
+    assert analysis.support_kinds == ("plane",)
+    assert [record.label for record in analysis.records] == ["sphere1", "sphere2"]
+    assert all(record.lift_ratio is None for record in analysis.records)
+
+
+def test_analyze_coulomb_mobility_computes_lift_and_slide_ratios(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_mobility_ratios"
+    out.mkdir()
+    _write_mobility_fixture(out)
+
+    analysis = analyze_coulomb_mobility(
+        Beach(out),
+        density_kg_m3=1000.0,
+        mu_static=0.5,
+    )
+
+    assert len(analysis.records) == 1
+    record = analysis.records[0]
+    expected_force = K_COULOMB * 2.0e-8
+    expected_mass = 1000.0 * (4.0 * np.pi * 0.1**3 / 3.0)
+    expected_weight = expected_mass * 9.81
+
+    assert record.label == "sphere"
+    np.testing.assert_allclose(record.force_N, np.array([0.0, 0.0, expected_force]))
+    np.testing.assert_allclose(record.torque_Nm, np.zeros(3))
+    assert record.force_normal_N == pytest.approx(expected_force)
+    assert record.force_tangent_N == pytest.approx(0.0)
+    assert record.mass_kg == pytest.approx(expected_mass)
+    assert record.weight_support_N == pytest.approx(expected_weight)
+    assert record.resisting_normal_N == pytest.approx(expected_weight)
+    assert record.effective_normal_load_N == pytest.approx(0.0)
+    assert record.lift_ratio == pytest.approx(expected_force / expected_weight)
+    assert record.slide_ratio == pytest.approx(0.0)
+    assert record.notes == ()
 
 
 def test_select_frame_columns_with_frame_stride() -> None:

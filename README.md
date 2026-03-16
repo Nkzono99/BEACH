@@ -87,9 +87,15 @@ beachx slices outputs/latest \
 beachx coulomb outputs/latest \
   --component z \
   --save outputs/latest/coulomb_force_z.png
+
+beachx mobility outputs/latest \
+  --density-kg-m3 2500 \
+  --mu-static 0.4 \
+  --save-csv outputs/latest/mobility_summary.csv
 ```
 
 `beachx coulomb` は、`beach.toml` の `mesh.templates` が見つかれば object の kind と順序をそこから読み取り、既定では全 object を target 軸に並べて行列を描きます。特定 kind だけに絞りたいときは `--target-kinds sphere` のように指定できます。
+`beachx mobility` は、既定で `plane` を support とみなし、それ以外の object について合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV に書き出します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` なども当面は使えますが、今後は `beachx ...` を推奨します。
@@ -122,6 +128,14 @@ fig_f, ax_f = run.plot_coulomb_force_matrix(
     component="z",
 )
 fig_f.savefig("outputs/latest/coulomb_force_z.png", dpi=150)
+
+# 移動可能性の簡易評価（既定では plane 以外を対象）
+mobility = run.analyze_coulomb_mobility(
+    density_kg_m3=2500.0,
+    mu_static=0.4,
+)
+for record in mobility.records:
+    print(record.label, record.lift_ratio, record.slide_ratio, record.roll_ratio)
 ```
 
 ## 3. 運用でよく使うコマンド

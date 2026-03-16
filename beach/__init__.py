@@ -1,10 +1,13 @@
 """BEACH (BEM + Accumulated CHarge) Python package."""
 
 from .fortran_results import (
+    analyze_coulomb_mobility,
     animate_history_mesh,
     Beach,
     calc_coulomb,
     CoulombInteraction,
+    CoulombMobilityAnalysis,
+    CoulombMobilityRecord,
     compute_potential_mesh,
     compute_potential_points,
     compute_potential_slices,
@@ -25,9 +28,12 @@ from .fortran_results import (
 
 __all__ = [
     "animate_history_mesh",
+    "analyze_coulomb_mobility",
     "Beach",
     "calc_coulomb",
     "CoulombInteraction",
+    "CoulombMobilityAnalysis",
+    "CoulombMobilityRecord",
     "compute_potential_mesh",
     "compute_potential_points",
     "compute_potential_slices",
