@@ -287,8 +287,7 @@ def plot_coulomb_force_matrix(
     softening : float, default 0.0
         Softening length in meters for Coulomb-force evaluation.
     target_kinds : iterable of str or None, default None
-        Template kinds used as target objects. ``None`` means
-        ``("sphere",)`` when spheres exist, otherwise all objects.
+        Template kinds used as target objects. ``None`` means all objects.
     config_path : str, pathlib.Path, or None, default None
         Optional ``beach.toml`` path used for object labels/order.
         ``None`` auto-detects near ``result.directory`` when possible.
@@ -315,9 +314,6 @@ def plot_coulomb_force_matrix(
     object_specs = _resolve_coulomb_object_specs(resolved, config_path=config_path)
 
     resolved_target_kinds = _normalize_target_kinds(target_kinds)
-    if resolved_target_kinds is None:
-        if any(spec["kind"] == "sphere" for spec in object_specs):
-            resolved_target_kinds = {"sphere"}
     target_specs = [
         spec
         for spec in object_specs

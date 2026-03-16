@@ -1531,17 +1531,17 @@ def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(
     fig, ax = beach.plot_coulomb_force_matrix(component="x")
 
     matrix_info = getattr(ax, "_beach_coulomb_matrix")
-    assert matrix_info["target_labels"] == ("sphere1", "sphere2")
+    assert matrix_info["target_labels"] == ("plane", "sphere1", "sphere2")
     assert matrix_info["source_labels"] == ("plane", "sphere1", "sphere2", "net")
     np.testing.assert_allclose(
         matrix_info["matrix"],
         K_COULOMB
         * np.array(
             [
-                [2.0e-18, -0.75e-18],
-                [0.0, -6.0e-18],
-                [6.0e-18, 0.0],
-                [8.0e-18, -6.75e-18],
+                [0.0, 2.0e-18, -0.75e-18],
+                [-2.0e-18, 0.0, -6.0e-18],
+                [0.75e-18, 6.0e-18, 0.0],
+                [-1.25e-18, 8.0e-18, -6.75e-18],
             ]
         ),
     )

@@ -37,7 +37,7 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--target-kinds",
         default=None,
-        help="comma-separated template kinds used as targets (default: sphere if available, else all)",
+        help="comma-separated template kinds used as targets (default: all objects)",
     )
     parser.add_argument(
         "--softening",

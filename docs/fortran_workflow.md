@@ -192,7 +192,7 @@ beachx coulomb outputs/latest \
   --save outputs/latest/coulomb_force_z.png
 ```
 
-`beachx coulomb` は、近傍の `beach.toml` が見つかれば `mesh.templates` から object kind と順序を読み取り、sphere があれば既定で sphere 群を target にして可視化します。
+`beachx coulomb` は、近傍の `beach.toml` が見つかれば `mesh.templates` から object kind と順序を読み取り、既定では全 object を target 軸に並べて可視化します。特定 kind だけに絞る場合は `--target-kinds sphere` のように指定します。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` / `beach-estimate-workload` / `beach-plot-performance-profile`
@@ -232,7 +232,6 @@ print(interaction.force_on_a_N, interaction.torque_on_a_Nm)
 
 fig_force, ax_force = beach.plot_coulomb_force_matrix(
     component="z",
-    target_kinds=("sphere",),
 )
 fig_force.savefig("outputs/latest/coulomb_force_z.png", dpi=150)
 ```

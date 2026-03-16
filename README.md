@@ -89,7 +89,7 @@ beachx coulomb outputs/latest \
   --save outputs/latest/coulomb_force_z.png
 ```
 
-`beachx coulomb` は、`beach.toml` の `mesh.templates` が見つかれば object の kind と順序をそこから読み取り、sphere があれば既定で sphere 群を target にして行列を描きます。
+`beachx coulomb` は、`beach.toml` の `mesh.templates` が見つかれば object の kind と順序をそこから読み取り、既定では全 object を target 軸に並べて行列を描きます。特定 kind だけに絞りたいときは `--target-kinds sphere` のように指定できます。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` なども当面は使えますが、今後は `beachx ...` を推奨します。
@@ -120,7 +120,6 @@ fig_phi.savefig("outputs/latest/potential_box_by_source.png", dpi=150)
 # object ごとの Coulomb 力行列（beach.toml があれば plane/sphere などを自動ラベル化）
 fig_f, ax_f = run.plot_coulomb_force_matrix(
     component="z",
-    target_kinds=("sphere",),  # 省略時は sphere があれば自動選択
 )
 fig_f.savefig("outputs/latest/coulomb_force_z.png", dpi=150)
 ```

@@ -526,8 +526,7 @@ class Beach:
         softening : float, default 0.0
             Softening length in meters for Coulomb-force evaluation.
         target_kinds : iterable of str or None, default None
-            Template kinds used as target objects. ``None`` means
-            ``("sphere",)`` when spheres exist, otherwise all objects.
+            Template kinds used as target objects. ``None`` means all objects.
         config_path : str, pathlib.Path, or None, default None
             Optional ``beach.toml`` path used for object labels/order.
             ``None`` auto-detects near ``output_dir``.
