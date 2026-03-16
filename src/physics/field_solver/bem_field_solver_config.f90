@@ -154,6 +154,7 @@ contains
         call build_core_source_positions(mesh, src_pos)
         call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
         call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+        self%fmm_core_state%profile_enabled = self%fmm_profile_enabled
         deallocate (src_pos)
         self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
         call sync_core_plan_view(self)

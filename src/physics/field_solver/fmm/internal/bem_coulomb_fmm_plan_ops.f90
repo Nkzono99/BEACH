@@ -497,7 +497,7 @@ contains
     integer(i32) :: n_target_nodes, child_k, parent_node, node_idx
     integer(i32) :: pair_cap, pair_used, nshift
     integer(i32), allocatable :: near_work(:), far_work(:), near_buf(:), far_buf(:)
-    integer(i32), allocatable :: m2l_target_buf(:), m2l_source_buf(:)
+    integer(i32), allocatable :: m2l_target_buf(:), m2l_source_buf(:), m2l_shift_idx1_buf(:), m2l_shift_idx2_buf(:)
     logical :: use_target_tree
 
     nshift = 1_i32
@@ -536,7 +536,6 @@ contains
     plan%far_nodes = 0_i32
     if (near_used > 0_i32) plan%near_nodes(1:near_used) = near_buf(1:near_used)
     if (far_used > 0_i32) plan%far_nodes(1:far_used) = far_buf(1:far_used)
-    call build_near_source_index(plan)
 
     allocate (plan%parent_of(n_target_nodes))
     plan%parent_of = 0_i32
@@ -548,59 +547,125 @@ contains
     end do
 
     pair_cap = max(64_i32, plan%nleaf * 32_i32)
-    allocate (m2l_target_buf(pair_cap), m2l_source_buf(pair_cap))
+    allocate (m2l_target_buf(pair_cap), m2l_source_buf(pair_cap), m2l_shift_idx1_buf(pair_cap), m2l_shift_idx2_buf(pair_cap))
     m2l_target_buf = 0_i32
     m2l_source_buf = 0_i32
+    m2l_shift_idx1_buf = 0_i32
+    m2l_shift_idx2_buf = 0_i32
     pair_used = 0_i32
     plan%m2l_visit_count = 0_i32
-    call accumulate_cached_pairs(plan, 1_i32, 1_i32, use_target_tree, m2l_target_buf, m2l_source_buf, pair_used, pair_cap)
-    allocate (plan%m2l_target_nodes(max(1_i32, pair_used)), plan%m2l_source_nodes(max(1_i32, pair_used)))
+    call accumulate_cached_pairs( &
+      plan, 1_i32, 1_i32, use_target_tree, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, &
+      pair_used, pair_cap &
+    )
+    call build_near_source_index( &
+      plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &
+    )
+    allocate ( &
+      plan%m2l_target_nodes(max(1_i32, pair_used)), plan%m2l_source_nodes(max(1_i32, pair_used)), &
+      plan%m2l_shift_idx1(max(1_i32, pair_used)), plan%m2l_shift_idx2(max(1_i32, pair_used)) &
+    )
     plan%m2l_target_nodes = 0_i32
     plan%m2l_source_nodes = 0_i32
+    plan%m2l_shift_idx1 = 0_i32
+    plan%m2l_shift_idx2 = 0_i32
     if (pair_used > 0_i32) then
       plan%m2l_target_nodes(1:pair_used) = m2l_target_buf(1:pair_used)
       plan%m2l_source_nodes(1:pair_used) = m2l_source_buf(1:pair_used)
+      plan%m2l_shift_idx1(1:pair_used) = m2l_shift_idx1_buf(1:pair_used)
+      plan%m2l_shift_idx2(1:pair_used) = m2l_shift_idx2_buf(1:pair_used)
     end if
     plan%m2l_pair_count = pair_used
     plan%m2l_build_count = plan%m2l_build_count + 1_i32
     call build_target_pair_index(plan, n_target_nodes)
 
-    deallocate (near_work, far_work, near_buf, far_buf, m2l_target_buf, m2l_source_buf)
+    deallocate (near_work, far_work, near_buf, far_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
   end subroutine build_interactions
 
-  subroutine build_near_source_index(plan)
+  subroutine build_near_source_index( &
+    plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &
+  )
     type(fmm_plan_type), intent(inout) :: plan
+    integer(i32), allocatable, intent(inout) :: m2l_target_buf(:), m2l_source_buf(:), m2l_shift_idx1_buf(:), m2l_shift_idx2_buf(:)
+    integer(i32), intent(inout) :: pair_used, pair_cap
     integer(i32) :: leaf_idx, near_pos, near_node, p, p_end, near_source_used
+    integer(i32) :: shift_idx1, shift_idx2, nshift, target_leaf
+    real(dp) :: shift1, shift2
 
     if (allocated(plan%near_source_start)) deallocate (plan%near_source_start)
     if (allocated(plan%near_source_idx)) deallocate (plan%near_source_idx)
+    if (allocated(plan%near_source_shift1)) deallocate (plan%near_source_shift1)
+    if (allocated(plan%near_source_shift2)) deallocate (plan%near_source_shift2)
     if (plan%nleaf <= 0_i32) return
 
     allocate (plan%near_source_start(plan%nleaf + 1_i32))
     plan%near_source_start = 1_i32
     near_source_used = 0_i32
+    nshift = max(1_i32, int(size(plan%shift_axis1), i32))
     do leaf_idx = 1_i32, plan%nleaf
       plan%near_source_start(leaf_idx) = near_source_used + 1_i32
+      target_leaf = plan%leaf_nodes(leaf_idx)
       do near_pos = plan%near_start(leaf_idx), plan%near_start(leaf_idx + 1_i32) - 1_i32
         near_node = plan%near_nodes(near_pos)
-        near_source_used = near_source_used + plan%node_count(near_node)
+        if (plan%options%use_periodic2) then
+          do shift_idx1 = 1_i32, nshift
+            shift1 = plan%shift_axis1(shift_idx1)
+            do shift_idx2 = 1_i32, nshift
+              shift2 = plan%shift_axis2(shift_idx2)
+              if (.not. nodes_well_separated_shifted(plan, target_leaf, near_node, shift1, shift2)) then
+                near_source_used = near_source_used + plan%node_count(near_node)
+              end if
+            end do
+          end do
+        else
+          near_source_used = near_source_used + plan%node_count(near_node)
+        end if
       end do
     end do
     plan%near_source_start(plan%nleaf + 1_i32) = near_source_used + 1_i32
 
-    allocate (plan%near_source_idx(max(1_i32, near_source_used)))
+    allocate ( &
+      plan%near_source_idx(max(1_i32, near_source_used)), &
+      plan%near_source_shift1(max(1_i32, near_source_used)), &
+      plan%near_source_shift2(max(1_i32, near_source_used)) &
+    )
     plan%near_source_idx = 0_i32
+    plan%near_source_shift1 = 0.0d0
+    plan%near_source_shift2 = 0.0d0
     if (near_source_used <= 0_i32) return
 
     near_source_used = 0_i32
     do leaf_idx = 1_i32, plan%nleaf
+      target_leaf = plan%leaf_nodes(leaf_idx)
       do near_pos = plan%near_start(leaf_idx), plan%near_start(leaf_idx + 1_i32) - 1_i32
         near_node = plan%near_nodes(near_pos)
         p_end = plan%node_start(near_node) + plan%node_count(near_node) - 1_i32
-        do p = plan%node_start(near_node), p_end
-          near_source_used = near_source_used + 1_i32
-          plan%near_source_idx(near_source_used) = plan%elem_order(p)
-        end do
+        if (plan%options%use_periodic2) then
+          do shift_idx1 = 1_i32, nshift
+            shift1 = plan%shift_axis1(shift_idx1)
+            do shift_idx2 = 1_i32, nshift
+              shift2 = plan%shift_axis2(shift_idx2)
+              if (nodes_well_separated_shifted(plan, target_leaf, near_node, shift1, shift2)) then
+                call append_m2l_pair( &
+                  m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap, &
+                  target_leaf, near_node, shift_idx1, shift_idx2 &
+                )
+                cycle
+              end if
+              do p = plan%node_start(near_node), p_end
+                near_source_used = near_source_used + 1_i32
+                plan%near_source_idx(near_source_used) = plan%elem_order(p)
+                plan%near_source_shift1(near_source_used) = shift1
+                plan%near_source_shift2(near_source_used) = shift2
+              end do
+            end do
+          end do
+        else
+          do p = plan%node_start(near_node), p_end
+            near_source_used = near_source_used + 1_i32
+            plan%near_source_idx(near_source_used) = plan%elem_order(p)
+          end do
+        end if
       end do
     end do
   end subroutine build_near_source_index
@@ -627,11 +692,13 @@ contains
     end do
   end subroutine gather_leaf_interactions
 
-  recursive subroutine accumulate_cached_pairs(plan, t_node, s_node, use_target_tree, target_buf, source_buf, pair_used, pair_cap)
+  recursive subroutine accumulate_cached_pairs( &
+    plan, t_node, s_node, use_target_tree, target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap &
+  )
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32), intent(in) :: t_node, s_node
     logical, intent(in) :: use_target_tree
-    integer(i32), allocatable, intent(inout) :: target_buf(:), source_buf(:)
+    integer(i32), allocatable, intent(inout) :: target_buf(:), source_buf(:), shift_idx1_buf(:), shift_idx2_buf(:)
     integer(i32), intent(inout) :: pair_used, pair_cap
     integer(i32) :: tc, sc, t_child, s_child
 
@@ -639,49 +706,62 @@ contains
     tc = active_tree_child_count(plan, use_target_tree, t_node)
     sc = plan%child_count(s_node)
     if (nodes_well_separated(plan, t_node, s_node)) then
-      call append_m2l_pair(target_buf, source_buf, pair_used, pair_cap, t_node, s_node)
+      call append_m2l_pair( &
+        target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap, t_node, s_node, 0_i32, 0_i32 &
+      )
       return
     end if
     if (tc <= 0_i32 .and. sc <= 0_i32) return
     if (sc > 0_i32 .and. (tc <= 0_i32 .or. plan%node_radius(s_node) >= active_tree_node_radius(plan, use_target_tree, t_node))) then
       do s_child = 1_i32, sc
         call accumulate_cached_pairs( &
-          plan, t_node, plan%child_idx(s_child, s_node), use_target_tree, target_buf, source_buf, pair_used, pair_cap &
+          plan, t_node, plan%child_idx(s_child, s_node), use_target_tree, target_buf, source_buf, shift_idx1_buf, &
+          shift_idx2_buf, pair_used, pair_cap &
         )
       end do
     else
       do t_child = 1_i32, tc
         call accumulate_cached_pairs( &
           plan, active_tree_child_idx(plan, use_target_tree, t_child, t_node), s_node, use_target_tree, &
-          target_buf, source_buf, pair_used, pair_cap &
+          target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap &
         )
       end do
     end if
   end subroutine accumulate_cached_pairs
 
-  subroutine append_m2l_pair(target_buf, source_buf, pair_used, pair_cap, t_node, s_node)
-    integer(i32), allocatable, intent(inout) :: target_buf(:), source_buf(:)
+  subroutine append_m2l_pair( &
+    target_buf, source_buf, shift_idx1_buf, shift_idx2_buf, pair_used, pair_cap, t_node, s_node, shift_idx1, shift_idx2 &
+  )
+    integer(i32), allocatable, intent(inout) :: target_buf(:), source_buf(:), shift_idx1_buf(:), shift_idx2_buf(:)
     integer(i32), intent(inout) :: pair_used, pair_cap
-    integer(i32), intent(in) :: t_node, s_node
-    integer(i32), allocatable :: tmp_target(:), tmp_source(:)
+    integer(i32), intent(in) :: t_node, s_node, shift_idx1, shift_idx2
+    integer(i32), allocatable :: tmp_target(:), tmp_source(:), tmp_shift_idx1(:), tmp_shift_idx2(:)
     integer(i32) :: new_capacity
 
     if (pair_used >= pair_cap) then
       new_capacity = max(pair_cap * 2_i32, pair_cap + 64_i32)
-      allocate (tmp_target(new_capacity), tmp_source(new_capacity))
+      allocate (tmp_target(new_capacity), tmp_source(new_capacity), tmp_shift_idx1(new_capacity), tmp_shift_idx2(new_capacity))
       tmp_target = 0_i32
       tmp_source = 0_i32
+      tmp_shift_idx1 = 0_i32
+      tmp_shift_idx2 = 0_i32
       if (pair_used > 0_i32) then
         tmp_target(1:pair_used) = target_buf(1:pair_used)
         tmp_source(1:pair_used) = source_buf(1:pair_used)
+        tmp_shift_idx1(1:pair_used) = shift_idx1_buf(1:pair_used)
+        tmp_shift_idx2(1:pair_used) = shift_idx2_buf(1:pair_used)
       end if
       call move_alloc(tmp_target, target_buf)
       call move_alloc(tmp_source, source_buf)
+      call move_alloc(tmp_shift_idx1, shift_idx1_buf)
+      call move_alloc(tmp_shift_idx2, shift_idx2_buf)
       pair_cap = new_capacity
     end if
     pair_used = pair_used + 1_i32
     target_buf(pair_used) = t_node
     source_buf(pair_used) = s_node
+    shift_idx1_buf(pair_used) = shift_idx1
+    shift_idx2_buf(pair_used) = shift_idx2
   end subroutine append_m2l_pair
 
   subroutine build_target_pair_index(plan, n_target_nodes)
@@ -824,7 +904,7 @@ contains
   subroutine precompute_m2l_derivatives(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: pair_idx, img_i, img_j, nshift
-    integer(i32) :: axis1, axis2, s_node, t_node
+    integer(i32) :: axis1, axis2, s_node, t_node, shift_idx1, shift_idx2
     real(dp) :: base(3), shift1, shift2, rimg(3)
     real(dp) :: deriv_tmp(plan%nderiv)
 
@@ -841,12 +921,33 @@ contains
     nshift = size(plan%shift_axis1)
     !$omp parallel do default(none) schedule(static) &
     !$omp shared(plan, axis1, axis2, nshift) &
-    !$omp private(pair_idx, img_i, img_j, s_node, t_node, base, shift1, shift2) &
+    !$omp private(pair_idx, img_i, img_j, s_node, t_node, base, shift1, shift2, shift_idx1, shift_idx2) &
     !$omp private(rimg, deriv_tmp)
     do pair_idx = 1_i32, plan%m2l_pair_count
       t_node = plan%m2l_target_nodes(pair_idx)
       s_node = plan%m2l_source_nodes(pair_idx)
       base = active_tree_node_center(plan, plan%target_tree_ready, t_node) - plan%node_center(:, s_node)
+      if (.not. plan%options%use_periodic2) then
+        call compute_laplace_derivatives(plan, base, deriv_tmp)
+        plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
+        cycle
+      end if
+      shift_idx1 = plan%m2l_shift_idx1(pair_idx)
+      shift_idx2 = plan%m2l_shift_idx2(pair_idx)
+      if (shift_idx1 > 0_i32 .and. shift_idx2 > 0_i32) then
+        shift1 = plan%shift_axis1(shift_idx1)
+        shift2 = plan%shift_axis2(shift_idx2)
+        rimg = base
+        if (axis1 == 1_i32) rimg(1) = rimg(1) - shift1
+        if (axis1 == 2_i32) rimg(2) = rimg(2) - shift1
+        if (axis1 == 3_i32) rimg(3) = rimg(3) - shift1
+        if (axis2 == 1_i32) rimg(1) = rimg(1) - shift2
+        if (axis2 == 2_i32) rimg(2) = rimg(2) - shift2
+        if (axis2 == 3_i32) rimg(3) = rimg(3) - shift2
+        call compute_laplace_derivatives(plan, rimg, deriv_tmp)
+        plan%m2l_deriv(:, pair_idx) = plan%m2l_deriv(:, pair_idx) + deriv_tmp
+        cycle
+      end if
       do img_i = 1_i32, nshift
         shift1 = plan%shift_axis1(img_i)
         do img_j = 1_i32, nshift
@@ -865,5 +966,43 @@ contains
     end do
     !$omp end parallel do
   end subroutine precompute_m2l_derivatives
+
+  logical function nodes_well_separated_shifted(plan, target_node, source_node, shift1, shift2)
+    type(fmm_plan_type), intent(in) :: plan
+    integer(i32), intent(in) :: target_node, source_node
+    real(dp), intent(in) :: shift1, shift2
+    real(dp) :: d(3), rs, rt, lhs, rhs, theta_eff, target_center(3), shifted_center(3)
+    integer(i32) :: axis1, axis2
+
+    if (plan%target_tree_ready) then
+      target_center = plan%target_node_center(:, target_node)
+      rt = plan%target_node_radius(target_node)
+    else
+      target_center = plan%node_center(:, target_node)
+      rt = plan%node_radius(target_node)
+    end if
+
+    shifted_center = plan%node_center(:, source_node)
+    axis1 = 0_i32
+    axis2 = 0_i32
+    if (plan%options%use_periodic2) then
+      axis1 = plan%options%periodic_axes(1)
+      axis2 = plan%options%periodic_axes(2)
+    end if
+    if (axis1 > 0_i32) shifted_center(axis1) = shifted_center(axis1) + shift1
+    if (axis2 > 0_i32) shifted_center(axis2) = shifted_center(axis2) + shift2
+
+    d = target_center - shifted_center
+    if (sum(d * d) <= 0.0d0) then
+      nodes_well_separated_shifted = .false.
+      return
+    end if
+
+    rs = plan%node_radius(source_node)
+    theta_eff = plan%options%theta
+    lhs = (rs + rt) * (rs + rt)
+    rhs = (theta_eff * theta_eff) * sum(d * d)
+    nodes_well_separated_shifted = (lhs < rhs)
+  end function nodes_well_separated_shifted
 
 end module bem_coulomb_fmm_plan_ops

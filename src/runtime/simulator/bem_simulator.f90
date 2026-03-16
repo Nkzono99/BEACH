@@ -55,7 +55,7 @@ module bem_simulator
     )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
-      type(field_solver_type), intent(in) :: field_solver
+      type(field_solver_type), intent(inout) :: field_solver
       type(particles_soa), intent(inout) :: pcls_batch
       real(dp), intent(inout) :: dq_thread(:, :)
       logical, intent(inout) :: escaped_boundary_flag(:)

@@ -151,7 +151,6 @@ contains
 
     rs = plan%node_radius(source_node)
     theta_eff = plan%options%theta
-    if (plan%options%use_periodic2) theta_eff = 0.5d0 * theta_eff
     lhs = (rs + rt) * (rs + rt)
     rhs = (theta_eff * theta_eff) * dist2
     nodes_well_separated = (lhs < rhs)

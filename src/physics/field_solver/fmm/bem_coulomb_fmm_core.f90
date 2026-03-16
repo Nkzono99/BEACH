@@ -30,14 +30,14 @@ module bem_coulomb_fmm_core
 
     module subroutine eval_points(plan, state, target_pos, e)
       type(fmm_plan_type), intent(in) :: plan
-      type(fmm_state_type), intent(in) :: state
+      type(fmm_state_type), intent(inout) :: state
       real(dp), intent(in) :: target_pos(:, :)
       real(dp), intent(out) :: e(:, :)
     end subroutine eval_points
 
     module subroutine eval_point(plan, state, r, e)
       type(fmm_plan_type), intent(in) :: plan
-      type(fmm_state_type), intent(in) :: state
+      type(fmm_state_type), intent(inout) :: state
       real(dp), intent(in) :: r(3)
       real(dp), intent(out) :: e(3)
     end subroutine eval_point

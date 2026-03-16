@@ -1,6 +1,6 @@
 !> Coulomb FMM コアで共有する型定義。
 module bem_coulomb_fmm_types
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   implicit none
   private
 
@@ -78,11 +78,13 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: leaf_slot_of_node(:)
     integer(i32), allocatable :: near_start(:), near_nodes(:)
     integer(i32), allocatable :: near_source_start(:), near_source_idx(:)
+    real(dp), allocatable :: near_source_shift1(:), near_source_shift2(:)
     integer(i32), allocatable :: far_start(:), far_nodes(:)
     integer(i32) :: m2l_pair_count = 0_i32
     integer(i32) :: m2l_build_count = 0_i32
     integer(i32) :: m2l_visit_count = 0_i32
     integer(i32), allocatable :: m2l_target_nodes(:), m2l_source_nodes(:)
+    integer(i32), allocatable :: m2l_shift_idx1(:), m2l_shift_idx2(:)
     integer(i32), allocatable :: m2l_target_start(:), m2l_pair_order(:)
     integer(i32), allocatable :: source_parent_of(:)
     integer(i32), allocatable :: parent_of(:)
@@ -102,6 +104,18 @@ module bem_coulomb_fmm_types
   type :: fmm_state_type
     logical :: ready = .false.
     integer(i32) :: update_count = 0_i32
+    logical :: profile_enabled = .false.
+    integer(i32) :: eval_count = 0_i32
+    integer(i32) :: eval_local_count = 0_i32
+    integer(i32) :: eval_fallback_count = 0_i32
+    integer(i32) :: eval_ewald_count = 0_i32
+    integer(i64) :: eval_near_source_count = 0_i64
+    integer(i64) :: eval_direct_kernel_count = 0_i64
+    real(dp) :: eval_locate_time_s = 0.0d0
+    real(dp) :: eval_local_time_s = 0.0d0
+    real(dp) :: eval_near_time_s = 0.0d0
+    real(dp) :: eval_fallback_time_s = 0.0d0
+    real(dp) :: eval_ewald_time_s = 0.0d0
     real(dp), allocatable :: src_q(:)
     real(dp), allocatable :: multipole(:, :)
     real(dp), allocatable :: local(:, :)
@@ -157,10 +171,14 @@ contains
     if (allocated(plan%near_nodes)) deallocate (plan%near_nodes)
     if (allocated(plan%near_source_start)) deallocate (plan%near_source_start)
     if (allocated(plan%near_source_idx)) deallocate (plan%near_source_idx)
+    if (allocated(plan%near_source_shift1)) deallocate (plan%near_source_shift1)
+    if (allocated(plan%near_source_shift2)) deallocate (plan%near_source_shift2)
     if (allocated(plan%far_start)) deallocate (plan%far_start)
     if (allocated(plan%far_nodes)) deallocate (plan%far_nodes)
     if (allocated(plan%m2l_target_nodes)) deallocate (plan%m2l_target_nodes)
     if (allocated(plan%m2l_source_nodes)) deallocate (plan%m2l_source_nodes)
+    if (allocated(plan%m2l_shift_idx1)) deallocate (plan%m2l_shift_idx1)
+    if (allocated(plan%m2l_shift_idx2)) deallocate (plan%m2l_shift_idx2)
     if (allocated(plan%m2l_target_start)) deallocate (plan%m2l_target_start)
     if (allocated(plan%m2l_pair_order)) deallocate (plan%m2l_pair_order)
     if (allocated(plan%source_parent_of)) deallocate (plan%source_parent_of)
@@ -207,6 +225,18 @@ contains
     if (allocated(state%local_active)) deallocate (state%local_active)
     state%ready = .false.
     state%update_count = 0_i32
+    state%profile_enabled = .false.
+    state%eval_count = 0_i32
+    state%eval_local_count = 0_i32
+    state%eval_fallback_count = 0_i32
+    state%eval_ewald_count = 0_i32
+    state%eval_near_source_count = 0_i64
+    state%eval_direct_kernel_count = 0_i64
+    state%eval_locate_time_s = 0.0d0
+    state%eval_local_time_s = 0.0d0
+    state%eval_near_time_s = 0.0d0
+    state%eval_fallback_time_s = 0.0d0
+    state%eval_ewald_time_s = 0.0d0
   end subroutine reset_fmm_state
 
 end module bem_coulomb_fmm_types

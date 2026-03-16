@@ -99,6 +99,32 @@ contains
     end do
     call perf_region_end(perf_region_simulation_total, sim_t0)
 
+    if (trim(field_solver%mode) == 'fmm') then
+        stats%fmm_profile_enabled = merge(1_i32, 0_i32, field_solver%fmm_profile_enabled)
+        stats%fmm_nnode = field_solver%nnode
+        stats%fmm_target_nnode = field_solver%target_nnode
+        stats%fmm_m2l_pair_count = field_solver%fmm_m2l_pair_count
+        stats%fmm_m2l_build_count = stats%fmm_m2l_build_count + field_solver%fmm_m2l_build_count
+        stats%fmm_m2l_visit_count = stats%fmm_m2l_visit_count + field_solver%fmm_m2l_visit_count
+        stats%fmm_near_interaction_count = field_solver%fmm_near_interaction_count
+        stats%fmm_far_interaction_count = field_solver%fmm_far_interaction_count
+        stats%fmm_refresh_count = stats%fmm_refresh_count + field_solver%fmm_refresh_count
+        stats%fmm_total_refresh_time_s = stats%fmm_total_refresh_time_s + field_solver%fmm_total_refresh_time_s
+        stats%fmm_eval_count = stats%fmm_eval_count + field_solver%fmm_core_state%eval_count
+        stats%fmm_eval_local_count = stats%fmm_eval_local_count + field_solver%fmm_core_state%eval_local_count
+        stats%fmm_eval_fallback_count = stats%fmm_eval_fallback_count + field_solver%fmm_core_state%eval_fallback_count
+        stats%fmm_eval_ewald_count = stats%fmm_eval_ewald_count + field_solver%fmm_core_state%eval_ewald_count
+        stats%fmm_eval_near_source_count = stats%fmm_eval_near_source_count + field_solver%fmm_core_state%eval_near_source_count
+        stats%fmm_eval_direct_kernel_count = &
+            stats%fmm_eval_direct_kernel_count + field_solver%fmm_core_state%eval_direct_kernel_count
+        stats%fmm_eval_locate_time_s = stats%fmm_eval_locate_time_s + field_solver%fmm_core_state%eval_locate_time_s
+        stats%fmm_eval_local_time_s = stats%fmm_eval_local_time_s + field_solver%fmm_core_state%eval_local_time_s
+        stats%fmm_eval_near_time_s = stats%fmm_eval_near_time_s + field_solver%fmm_core_state%eval_near_time_s
+        stats%fmm_eval_fallback_time_s = &
+            stats%fmm_eval_fallback_time_s + field_solver%fmm_core_state%eval_fallback_time_s
+        stats%fmm_eval_ewald_time_s = stats%fmm_eval_ewald_time_s + field_solver%fmm_core_state%eval_ewald_time_s
+    end if
+
     deallocate (dq_thread, dq, photo_emission_dq)
     end procedure run_absorption_insulator
 

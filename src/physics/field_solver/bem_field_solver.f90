@@ -124,7 +124,7 @@ module bem_field_solver
 
     !> 観測点 `r` の電場を設定されたソルバで評価する。
     module subroutine eval_e_field_solver(self, mesh, r, e)
-      class(field_solver_type), intent(in) :: self
+      class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
       real(dp), intent(in) :: r(3)
       real(dp), intent(out) :: e(3)

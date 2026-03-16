@@ -47,6 +47,7 @@ contains
       end if
 
       call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+      self%fmm_core_state%profile_enabled = self%fmm_profile_enabled
       t_moment_end = field_solver_time_seconds()
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
       self%tree_ready = self%fmm_core_plan%built

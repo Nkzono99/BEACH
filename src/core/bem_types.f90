@@ -1,6 +1,6 @@
 !> シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。
 module bem_types
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   implicit none
 
   integer(i32), parameter :: bc_open = 0_i32
@@ -59,6 +59,27 @@ module bem_types
     real(dp) :: field_time_s = 0.0d0
     real(dp) :: push_time_s = 0.0d0
     real(dp) :: collision_time_s = 0.0d0
+    integer(i32) :: fmm_profile_enabled = 0_i32
+    integer(i32) :: fmm_nnode = 0_i32
+    integer(i32) :: fmm_target_nnode = 0_i32
+    integer(i32) :: fmm_m2l_pair_count = 0_i32
+    integer(i32) :: fmm_m2l_build_count = 0_i32
+    integer(i32) :: fmm_m2l_visit_count = 0_i32
+    integer(i32) :: fmm_near_interaction_count = 0_i32
+    integer(i32) :: fmm_far_interaction_count = 0_i32
+    integer(i32) :: fmm_refresh_count = 0_i32
+    real(dp) :: fmm_total_refresh_time_s = 0.0d0
+    integer(i32) :: fmm_eval_count = 0_i32
+    integer(i32) :: fmm_eval_local_count = 0_i32
+    integer(i32) :: fmm_eval_fallback_count = 0_i32
+    integer(i32) :: fmm_eval_ewald_count = 0_i32
+    integer(i64) :: fmm_eval_near_source_count = 0_i64
+    integer(i64) :: fmm_eval_direct_kernel_count = 0_i64
+    real(dp) :: fmm_eval_locate_time_s = 0.0d0
+    real(dp) :: fmm_eval_local_time_s = 0.0d0
+    real(dp) :: fmm_eval_near_time_s = 0.0d0
+    real(dp) :: fmm_eval_fallback_time_s = 0.0d0
+    real(dp) :: fmm_eval_ewald_time_s = 0.0d0
   end type sim_stats
 
   !> 種ごとのマクロ粒子端数を保持し、再開時にも注入期待値を保つ。

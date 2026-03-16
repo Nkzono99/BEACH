@@ -18,6 +18,7 @@ program test_coulomb_fmm_core
   call test_periodic2_ewald_like_correction_effect()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
+  call test_state_eval_profile_counts()
   call test_field_solver_core_adapter()
   call test_field_solver_core_softened_adapter()
   call test_field_solver_core_periodic2_ewald_like_adapter()
@@ -308,6 +309,41 @@ contains
     call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_state_update_reuse
+
+  subroutine test_state_eval_profile_counts()
+    type(fmm_plan_type) :: plan
+    type(fmm_state_type) :: state
+    type(fmm_options_type) :: options
+    real(dp), allocatable :: src_pos(:, :), q(:)
+    real(dp) :: e(3)
+
+    call make_periodic_sources(src_pos, q)
+    options%leaf_max = 2_i32
+    options%order = 4_i32
+    options%use_periodic2 = .true.
+    options%periodic_axes = [1_i32, 2_i32]
+    options%periodic_len = [1.0d0, 1.0d0]
+    options%periodic_image_layers = 1_i32
+    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
+    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+    call build_plan(plan, src_pos, options)
+    call update_state(plan, state, q)
+    state%profile_enabled = .true.
+
+    call eval_point(plan, state, [0.35d0, 0.45d0, 0.55d0], e)
+    call eval_point(plan, state, [0.40d0, 0.50d0, -0.25d0], e)
+
+    call assert_equal_i32(state%eval_count, 2_i32, 'profile eval_count mismatch')
+    call assert_equal_i32(state%eval_fallback_count, 0_i32, 'profile should stay on target tree for this fixture')
+    call assert_true(state%eval_near_source_count > 0, 'profile should count near sources')
+    call assert_equal_i32( &
+      int(state%eval_direct_kernel_count, i32), int(state%eval_near_source_count, i32), &
+      'periodic2 direct-kernel count should match retained near source-image entries' &
+    )
+
+    call destroy_state(state)
+    call destroy_plan(plan)
+  end subroutine test_state_eval_profile_counts
 
   subroutine test_field_solver_core_adapter()
     type(mesh_type) :: mesh_fmm
