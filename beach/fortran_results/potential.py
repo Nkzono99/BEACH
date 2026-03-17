@@ -39,7 +39,7 @@ def compute_potential_mesh(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"`` or ``"ewald_like"``), ``ewald_alpha``
+        ``far_correction`` (``"none"``, ``"ewald_like"``, or ``"ewald"``), ``ewald_alpha``
         (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。
@@ -120,7 +120,7 @@ def compute_potential_points(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"`` or ``"ewald_like"``), ``ewald_alpha``
+        ``far_correction`` (``"none"``, ``"ewald_like"``, or ``"ewald"``), ``ewald_alpha``
         (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
@@ -485,7 +485,7 @@ def _compute_potential_points_periodic2(
                 inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
                 potential[start:stop] += inv_r @ charges
 
-    if far_correction == "ewald_like":
+    if far_correction in {"ewald_like", "ewald"}:
         img_outer = nimg + ewald_layers
         for ix in range(-img_outer, img_outer + 1):
             for iy in range(-img_outer, img_outer + 1):
@@ -553,7 +553,7 @@ def _compute_potential_mesh_periodic2(
             inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
             potential += inv_r @ charges
 
-    if far_correction == "ewald_like":
+    if far_correction in {"ewald_like", "ewald"}:
         img_outer = nimg + ewald_layers
         for ix in range(-img_outer, img_outer + 1):
             for iy in range(-img_outer, img_outer + 1):
@@ -620,20 +620,20 @@ def _coerce_periodic2(
         raise ValueError("periodic2.image_layers must be >= 0.")
 
     far_correction = str(periodic2.get("far_correction", "none")).strip().lower()
-    if far_correction not in {"none", "ewald_like"}:
-        raise ValueError('periodic2.far_correction must be "none" or "ewald_like".')
+    if far_correction not in {"none", "ewald_like", "ewald"}:
+        raise ValueError('periodic2.far_correction must be "none", "ewald_like", or "ewald".')
 
     alpha = float(periodic2.get("ewald_alpha", 0.0))
     if (not math.isfinite(alpha)) or alpha < 0.0:
         raise ValueError("periodic2.ewald_alpha must be finite and >= 0.")
-    if alpha <= 0.0 and far_correction == "ewald_like":
+    if alpha <= 0.0 and far_correction in {"ewald_like", "ewald"}:
         alpha = 1.2 / (float(nimg + 1) * min(lengths))
 
     ewald_layers = int(periodic2.get("ewald_layers", 4))
     if ewald_layers < 0:
         raise ValueError("periodic2.ewald_layers must be >= 0.")
-    if far_correction == "ewald_like" and ewald_layers < 1:
-        raise ValueError("periodic2.ewald_layers must be >= 1 for ewald_like.")
+    if far_correction in {"ewald_like", "ewald"} and ewald_layers < 1:
+        raise ValueError("periodic2.ewald_layers must be >= 1 for ewald_like/ewald.")
 
     return axes, lengths, origins, nimg, far_correction, alpha, ewald_layers
 

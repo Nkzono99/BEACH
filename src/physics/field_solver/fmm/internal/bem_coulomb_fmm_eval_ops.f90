@@ -3,8 +3,9 @@ module bem_coulomb_fmm_eval_ops
   use bem_kinds, only: dp, i32, i64
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
-  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_ewald_like, prepare_periodic2_ewald, &
-                                       add_screened_shifted_node_images
+  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_ewald, use_periodic2_exact_ewald, &
+                                       prepare_periodic2_ewald, add_screened_shifted_node_images, &
+                                       add_exact_periodic2_source_ewald_correction
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                          active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
   use bem_performance_profile, only: perf_wall_time_seconds
@@ -58,7 +59,7 @@ contains
     integer(i32) :: near_source_begin, near_source_end
     integer(i64) :: near_source_count_local, direct_kernel_count_local
     integer(i32) :: eval_count_local, local_count_local, fallback_count_local, ewald_count_local
-    logical :: profile_enabled, use_ewald
+    logical :: profile_enabled, use_ewald, use_exact_ewald
     real(dp) :: rt(3), dr(3), soft2, monomial, e_arr(3)
     real(dp) :: shift1, shift2
     real(dp) :: t0, locate_time_local, local_time_local, near_time_local, fallback_time_local, ewald_time_local
@@ -87,7 +88,8 @@ contains
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
     soft2 = plan%options%softening * plan%options%softening
 
-    use_ewald = use_periodic2_ewald_like(plan)
+    use_ewald = use_periodic2_ewald(plan)
+    use_exact_ewald = use_periodic2_exact_ewald(plan)
     if (profile_enabled) t0 = perf_wall_time_seconds()
     leaf_node = locate_target_leaf(plan, rt)
     if (profile_enabled) locate_time_local = perf_wall_time_seconds() - t0
@@ -101,7 +103,11 @@ contains
         ewald_count_local = 1_i32
         if (profile_enabled) t0 = perf_wall_time_seconds()
         e_arr = [ex, ey, ez]
-        call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e_arr)
+        if (use_exact_ewald) then
+          call add_periodic2_exact_ewald_correction(plan, state, rt, e_arr)
+        else
+          call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e_arr)
+        end if
         ex = e_arr(1)
         ey = e_arr(2)
         ez = e_arr(3)
@@ -126,7 +132,11 @@ contains
         ewald_count_local = 1_i32
         if (profile_enabled) t0 = perf_wall_time_seconds()
         e_arr = [ex, ey, ez]
-        call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e_arr)
+        if (use_exact_ewald) then
+          call add_periodic2_exact_ewald_correction(plan, state, rt, e_arr)
+        else
+          call add_periodic2_ewald_like_correction_all_leaves(plan, state, rt, e_arr)
+        end if
         ex = e_arr(1)
         ey = e_arr(2)
         ez = e_arr(3)
@@ -194,7 +204,11 @@ contains
       ewald_count_local = 1_i32
       if (profile_enabled) t0 = perf_wall_time_seconds()
       e_arr = [ex, ey, ez]
-      call add_periodic2_ewald_like_correction(plan, state, leaf_slot, rt, e_arr)
+      if (use_exact_ewald) then
+        call add_periodic2_exact_ewald_correction(plan, state, rt, e_arr)
+      else
+        call add_periodic2_ewald_like_correction(plan, state, leaf_slot, rt, e_arr)
+      end if
       ex = e_arr(1)
       ey = e_arr(2)
       ez = e_arr(3)
@@ -312,10 +326,15 @@ contains
     real(dp), intent(in) :: r(3)
     real(dp), intent(inout) :: e(3)
     integer(i32) :: node_pos, node_idx
-    integer(i32) :: nimg, img_outer, axis1, axis2
+    integer(i32) :: nimg, img_outer, kmax, axis1, axis2, axis_free
+    real(dp) :: cell_area
+    logical :: use_like, use_exact
     real(dp) :: alpha
 
-    if (.not. prepare_periodic2_ewald(plan, alpha, nimg, img_outer, axis1, axis2)) return
+    if (.not. prepare_periodic2_ewald( &
+      plan, alpha, nimg, img_outer, kmax, axis1, axis2, axis_free, cell_area, use_like, use_exact &
+    )) return
+    if (.not. use_like) return
 
     do node_pos = plan%far_start(leaf_slot), plan%far_start(leaf_slot + 1_i32) - 1_i32
       node_idx = plan%far_nodes(node_pos)
@@ -334,16 +353,45 @@ contains
     real(dp), intent(in) :: r(3)
     real(dp), intent(inout) :: e(3)
     integer(i32) :: node_idx
-    integer(i32) :: nimg, img_outer, axis1, axis2
+    integer(i32) :: nimg, img_outer, kmax, axis1, axis2, axis_free
+    real(dp) :: cell_area
+    logical :: use_like, use_exact
     real(dp) :: alpha
 
-    if (.not. prepare_periodic2_ewald(plan, alpha, nimg, img_outer, axis1, axis2)) return
+    if (.not. prepare_periodic2_ewald( &
+      plan, alpha, nimg, img_outer, kmax, axis1, axis2, axis_free, cell_area, use_like, use_exact &
+    )) return
+    if (.not. use_like) return
 
     do node_idx = 1_i32, plan%nnode
       if (plan%child_count(node_idx) > 0_i32) cycle
       call add_ewald_node_correction(plan, state, node_idx, r, axis1, axis2, nimg, img_outer, alpha, e)
     end do
   end subroutine add_periodic2_ewald_like_correction_all_leaves
+
+  subroutine add_periodic2_exact_ewald_correction(plan, state, r, e)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(inout) :: e(3)
+    integer(i32) :: idx
+    integer(i32) :: nimg, img_outer, kmax, axis1, axis2, axis_free
+    real(dp) :: alpha, cell_area, soft2
+    logical :: use_like, use_exact
+
+    if (.not. prepare_periodic2_ewald( &
+      plan, alpha, nimg, img_outer, kmax, axis1, axis2, axis_free, cell_area, use_like, use_exact &
+    )) return
+    if (.not. use_exact) return
+
+    soft2 = plan%options%softening * plan%options%softening
+    do idx = 1_i32, plan%nsrc
+      call add_exact_periodic2_source_ewald_correction( &
+        state%src_q(idx), plan%src_pos(:, idx), r, soft2, axis1, axis2, axis_free, plan%options%periodic_len, &
+        nimg, img_outer, kmax, alpha, cell_area, e &
+      )
+    end do
+  end subroutine add_periodic2_exact_ewald_correction
 
   subroutine add_ewald_node_correction(plan, state, node_idx, r, axis1, axis2, nimg, img_outer, alpha, e)
     type(fmm_plan_type), intent(in) :: plan

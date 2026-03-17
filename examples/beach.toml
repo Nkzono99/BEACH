@@ -20,6 +20,13 @@ rng_seed = 12345
 reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
 injection_face_phi_grid_n = 3
+# periodic2 + exact Ewald を使う場合の例:
+# field_solver = "fmm"
+# field_bc_mode = "periodic2"
+# field_periodic_image_layers = 1
+# field_periodic_far_correction = "ewald"
+# field_periodic_ewald_alpha = 1.2
+# field_periodic_ewald_layers = 4
 
 [particles]
 [[particles.species]]

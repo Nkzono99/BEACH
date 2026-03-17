@@ -93,9 +93,9 @@ history_stride = 1
 | `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
 | `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放） |
 | `field_periodic_image_layers` | int | `1` | `field_bc_mode="periodic2"` の近傍画像層数。各周期軸で `[-N, N]` の有限画像和を計算（`N>=0`） |
-| `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正モード。`none` / `ewald_like`。`ewald_like` は近傍画像外（`field_periodic_image_layers` より外側）を erfc スクリーン核で近似補正 |
-| `field_periodic_ewald_alpha` | float | `0.0` | `ewald_like` の分割係数。`>0` なら固定値、`0` は自動設定 |
-| `field_periodic_ewald_layers` | int | `4` | `ewald_like` で補正する追加画像層数（`field_periodic_image_layers + field_periodic_ewald_layers` までを補正、`>=0`） |
+| `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正モード。`none` / `ewald_like` / `ewald`。`ewald_like` は近傍画像外を erfc スクリーン核で近似補正し、`ewald` は 2D periodic Ewald 和の実空間項・逆空間項・`k=0` 項で補正 |
+| `field_periodic_ewald_alpha` | float | `0.0` | `ewald_like` / `ewald` の分割係数。`>0` なら固定値、`0` は自動設定 |
+| `field_periodic_ewald_layers` | int | `4` | `ewald_like` / `ewald` の打切り層数。実空間では `field_periodic_image_layers + field_periodic_ewald_layers` まで、`ewald` の逆空間では各周期軸の Fourier index `[-L, L]` までを評価（`>=0`） |
 | `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ（`0 < theta <= 1`、`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数（`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切替える要素数しきい値 |

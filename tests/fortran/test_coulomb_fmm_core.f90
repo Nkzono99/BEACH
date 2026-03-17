@@ -16,6 +16,7 @@ program test_coulomb_fmm_core
   call test_softened_free_field_accuracy()
   call test_periodic2_field_accuracy()
   call test_periodic2_ewald_like_correction_effect()
+  call test_periodic2_exact_ewald_accuracy()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
   call test_state_eval_profile_counts()
@@ -254,6 +255,86 @@ contains
     call destroy_plan(plan_base)
     call destroy_plan(plan_corr)
   end subroutine test_periodic2_ewald_like_correction_effect
+
+  subroutine test_periodic2_exact_ewald_accuracy()
+    type(fmm_plan_type) :: plan_base, plan_like, plan_exact
+    type(fmm_state_type) :: state_base, state_like, state_exact
+    type(fmm_options_type) :: options_base, options_like, options_exact
+    real(dp), allocatable :: src_pos(:, :), q(:)
+    real(dp) :: queries(3, 6), e_ref(3), e_base(3), e_like(3), e_exact(3)
+    real(dp) :: norm_ref, rel_base, rel_like, rel_exact
+    real(dp) :: mean_rel_base, mean_rel_like, mean_rel_exact, max_delta_like_exact
+    integer(i32) :: i, valid_count
+
+    call make_periodic_sources(src_pos, q)
+    options_base%theta = 0.55d0
+    options_base%leaf_max = 2_i32
+    options_base%order = 4_i32
+    options_base%use_periodic2 = .true.
+    options_base%periodic_axes = [1_i32, 2_i32]
+    options_base%periodic_len = [1.0d0, 1.0d0]
+    options_base%periodic_image_layers = 1_i32
+    options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
+    options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+    options_like = options_base
+    options_like%periodic_far_correction = 'ewald_like'
+    options_like%periodic_ewald_alpha = 1.2d0
+    options_like%periodic_ewald_layers = 6_i32
+    options_exact = options_like
+    options_exact%periodic_far_correction = 'ewald'
+    call build_plan(plan_base, src_pos, options_base)
+    call build_plan(plan_like, src_pos, options_like)
+    call build_plan(plan_exact, src_pos, options_exact)
+    call update_state(plan_base, state_base, q)
+    call update_state(plan_like, state_like, q)
+    call update_state(plan_exact, state_exact, q)
+
+    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
+    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
+    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
+    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
+    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
+    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
+
+    mean_rel_base = 0.0d0
+    mean_rel_like = 0.0d0
+    mean_rel_exact = 0.0d0
+    max_delta_like_exact = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, int(size(queries, 2), i32)
+      call direct_field_periodic2(src_pos, q, queries(:, i), options_base%target_box_min, options_base%target_box_max, &
+                                  options_base%periodic_axes, 8_i32, e_ref)
+      call eval_point(plan_base, state_base, queries(:, i), e_base)
+      call eval_point(plan_like, state_like, queries(:, i), e_like)
+      call eval_point(plan_exact, state_exact, queries(:, i), e_exact)
+      max_delta_like_exact = max(max_delta_like_exact, sqrt(sum((e_exact - e_like) * (e_exact - e_like))))
+
+      norm_ref = sqrt(sum(e_ref * e_ref))
+      if (norm_ref <= 1.0d-16) cycle
+      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
+      rel_like = sqrt(sum((e_like - e_ref) * (e_like - e_ref))) / norm_ref
+      rel_exact = sqrt(sum((e_exact - e_ref) * (e_exact - e_ref))) / norm_ref
+      mean_rel_base = mean_rel_base + rel_base
+      mean_rel_like = mean_rel_like + rel_like
+      mean_rel_exact = mean_rel_exact + rel_exact
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count == 6_i32, 'periodic2 exact ewald core test lost valid samples')
+    mean_rel_base = mean_rel_base / real(valid_count, dp)
+    mean_rel_like = mean_rel_like / real(valid_count, dp)
+    mean_rel_exact = mean_rel_exact / real(valid_count, dp)
+    call assert_true(max_delta_like_exact > 1.0d-18, 'exact ewald core correction should differ from ewald_like')
+    call assert_true(mean_rel_exact < mean_rel_base, 'exact ewald core should improve over finite-image periodic2')
+    call assert_true(mean_rel_exact <= mean_rel_like, 'exact ewald core should not be worse than ewald_like')
+
+    call destroy_state(state_base)
+    call destroy_state(state_like)
+    call destroy_state(state_exact)
+    call destroy_plan(plan_base)
+    call destroy_plan(plan_like)
+    call destroy_plan(plan_exact)
+  end subroutine test_periodic2_exact_ewald_accuracy
 
   subroutine test_target_box_dual_tree()
     type(fmm_plan_type) :: plan

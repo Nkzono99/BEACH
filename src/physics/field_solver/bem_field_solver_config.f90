@@ -144,10 +144,10 @@ contains
 
     if (trim(self%mode) == 'fmm') then
       select case (trim(self%periodic_far_correction))
-      case ('none', 'ewald_like')
+      case ('none', 'ewald_like', 'ewald')
         continue
       case default
-        error stop 'FMM core supports periodic far correction "none" or "ewald_like" only.'
+        error stop 'FMM core supports periodic far correction "none", "ewald_like", or "ewald" only.'
       end select
       self%fmm_use_core = .true.
       if (mesh%nelem > 0_i32) then

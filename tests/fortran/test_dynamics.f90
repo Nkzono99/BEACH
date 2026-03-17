@@ -389,7 +389,7 @@ contains
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err, center_dist
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=18_i32, n_lat=10_i32, center=[0.5d0, 0.5d0, 0.0d0])
     mesh_fmm%q_elem = 1.0d-12
 
     sim = sim_config()

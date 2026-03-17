@@ -45,7 +45,8 @@ contains
       if (.not. has_valid_target_box(plan%options)) then
         error stop 'periodic2 requires a valid target box.'
       end if
-      if (trim(options%periodic_far_correction) /= 'none' .and. trim(options%periodic_far_correction) /= 'ewald_like') then
+      if (trim(options%periodic_far_correction) /= 'none' .and. trim(options%periodic_far_correction) /= 'ewald_like' &
+          .and. trim(options%periodic_far_correction) /= 'ewald') then
         error stop 'Unsupported periodic far correction in FMM core.'
       end if
     end if
