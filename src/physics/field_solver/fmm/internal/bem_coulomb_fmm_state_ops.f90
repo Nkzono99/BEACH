@@ -58,6 +58,8 @@ contains
     end if
     !$omp end parallel
 
+    call build_exact_ewald_source_cache(plan, state)
+
     state%ready = .true.
     state%update_count = state%update_count + 1_i32
   end subroutine core_update_state_impl
@@ -100,7 +102,56 @@ contains
       if (size(state%local_active) /= max(1_i32, n_target_nodes)) deallocate (state%local_active)
     end if
     if (.not. allocated(state%local_active)) allocate (state%local_active(max(1_i32, n_target_nodes)))
+
+    if (plan%exact_ewald_k_count > 0_i32) then
+      if (allocated(state%exact_ewald_qcos)) then
+        if (size(state%exact_ewald_qcos, 1) /= max(1_i32, plan%nsrc) .or. &
+            size(state%exact_ewald_qcos, 2) /= plan%exact_ewald_k_count) then
+          deallocate (state%exact_ewald_qcos)
+        end if
+      end if
+      if (allocated(state%exact_ewald_qsin)) then
+        if (size(state%exact_ewald_qsin, 1) /= max(1_i32, plan%nsrc) .or. &
+            size(state%exact_ewald_qsin, 2) /= plan%exact_ewald_k_count) then
+          deallocate (state%exact_ewald_qsin)
+        end if
+      end if
+      if (.not. allocated(state%exact_ewald_qcos)) then
+        allocate (state%exact_ewald_qcos(max(1_i32, plan%nsrc), plan%exact_ewald_k_count))
+      end if
+      if (.not. allocated(state%exact_ewald_qsin)) then
+        allocate (state%exact_ewald_qsin(max(1_i32, plan%nsrc), plan%exact_ewald_k_count))
+      end if
+    else
+      if (allocated(state%exact_ewald_qcos)) deallocate (state%exact_ewald_qcos)
+      if (allocated(state%exact_ewald_qsin)) deallocate (state%exact_ewald_qsin)
+    end if
   end subroutine ensure_state_capacity
+
+  subroutine build_exact_ewald_source_cache(plan, state)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(inout) :: state
+    integer(i32) :: axis1, axis2, k_idx, idx
+    real(dp) :: k1, k2, theta
+
+    if (.not. plan%exact_ewald_ready) return
+    if (plan%exact_ewald_k_count <= 0_i32) return
+    if (plan%nsrc <= 0_i32) return
+
+    axis1 = plan%exact_ewald_axis1
+    axis2 = plan%exact_ewald_axis2
+    !$omp parallel do default(none) schedule(static) shared(plan, state, axis1, axis2) private(k_idx, idx, k1, k2, theta)
+    do k_idx = 1_i32, plan%exact_ewald_k_count
+      k1 = plan%exact_ewald_k1(k_idx)
+      k2 = plan%exact_ewald_k2(k_idx)
+      do idx = 1_i32, plan%nsrc
+        theta = k1 * plan%src_pos(axis1, idx) + k2 * plan%src_pos(axis2, idx)
+        state%exact_ewald_qcos(idx, k_idx) = state%src_q(idx) * cos(theta)
+        state%exact_ewald_qsin(idx, k_idx) = state%src_q(idx) * sin(theta)
+      end do
+    end do
+    !$omp end parallel do
+  end subroutine build_exact_ewald_source_cache
 
   subroutine p2m_leaf_moments(plan, state)
     type(fmm_plan_type), intent(in) :: plan

@@ -11,6 +11,9 @@ module bem_coulomb_fmm_plan_ops
   implicit none
   private
 
+  real(dp), parameter :: pi_dp = acos(-1.0d0)
+  real(dp), parameter :: two_pi_dp = 2.0d0 * pi_dp
+
   public :: core_build_plan_impl
   public :: core_destroy_plan_impl
 
@@ -59,6 +62,7 @@ contains
     call precompute_source_p2m_basis(plan)
     call build_target_topology(plan)
     call build_interactions(plan)
+    call precompute_exact_ewald_metadata(plan)
     call precompute_translation_operators(plan)
     call precompute_m2l_derivatives(plan)
     plan%built = .true.
@@ -582,6 +586,110 @@ contains
 
     deallocate (near_work, far_work, near_buf, far_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
   end subroutine build_interactions
+
+  subroutine precompute_exact_ewald_metadata(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: nimg, img_outer, kmax
+    integer(i32) :: axis1, axis2, axis_free
+    integer(i32) :: screen_count, inner_count, kcount
+    integer(i32) :: img_i, img_j, h1, h2, k_idx, idx
+    real(dp) :: alpha, cell_area, k1, k2, kmag
+
+    plan%exact_ewald_ready = .false.
+    plan%exact_ewald_axis1 = 0_i32
+    plan%exact_ewald_axis2 = 0_i32
+    plan%exact_ewald_axis_free = 0_i32
+    plan%exact_ewald_alpha = 0.0d0
+    plan%exact_ewald_soft2 = 0.0d0
+    plan%exact_ewald_cell_area = 0.0d0
+    plan%exact_ewald_k0_pref = 0.0d0
+    plan%exact_ewald_screen_count = 0_i32
+    plan%exact_ewald_inner_count = 0_i32
+    plan%exact_ewald_k_count = 0_i32
+    if (trim(plan%options%periodic_far_correction) /= 'ewald') return
+    if (.not. plan%options%use_periodic2) return
+
+    alpha = plan%options%periodic_ewald_alpha
+    if (alpha <= 0.0d0) return
+    nimg = max(0_i32, plan%options%periodic_image_layers)
+    kmax = max(0_i32, plan%options%periodic_ewald_layers)
+    if (kmax <= 0_i32) return
+    img_outer = nimg + kmax
+    cell_area = plan%options%periodic_len(1) * plan%options%periodic_len(2)
+    if (cell_area <= 0.0d0) return
+    axis1 = plan%options%periodic_axes(1)
+    axis2 = plan%options%periodic_axes(2)
+    if (axis1 <= 0_i32 .or. axis2 <= 0_i32) return
+    axis_free = 6_i32 - axis1 - axis2
+    if (axis_free <= 0_i32 .or. axis_free > 3_i32) return
+
+    screen_count = (2_i32 * img_outer + 1_i32) * (2_i32 * img_outer + 1_i32)
+    inner_count = (2_i32 * nimg + 1_i32) * (2_i32 * nimg + 1_i32)
+    kcount = (2_i32 * kmax + 1_i32) * (2_i32 * kmax + 1_i32) - 1_i32
+
+    allocate (plan%exact_ewald_screen_shift1(screen_count), plan%exact_ewald_screen_shift2(screen_count))
+    allocate (plan%exact_ewald_inner_shift1(inner_count), plan%exact_ewald_inner_shift2(inner_count))
+    allocate (plan%exact_ewald_src_free(max(1_i32, plan%nsrc)), plan%exact_ewald_src_alpha_free(max(1_i32, plan%nsrc)))
+    allocate ( &
+      plan%exact_ewald_k1(kcount), plan%exact_ewald_k2(kcount), plan%exact_ewald_kmag(kcount), &
+      plan%exact_ewald_karg0(kcount), plan%exact_ewald_kpref1(kcount), plan%exact_ewald_kpref2(kcount), &
+      plan%exact_ewald_kprefz(kcount) &
+    )
+
+    do idx = 1_i32, plan%nsrc
+      plan%exact_ewald_src_free(idx) = plan%src_pos(axis_free, idx)
+      plan%exact_ewald_src_alpha_free(idx) = alpha * plan%exact_ewald_src_free(idx)
+    end do
+
+    screen_count = 0_i32
+    do img_i = -img_outer, img_outer
+      do img_j = -img_outer, img_outer
+        screen_count = screen_count + 1_i32
+        plan%exact_ewald_screen_shift1(screen_count) = real(img_i, dp) * plan%options%periodic_len(1)
+        plan%exact_ewald_screen_shift2(screen_count) = real(img_j, dp) * plan%options%periodic_len(2)
+      end do
+    end do
+
+    inner_count = 0_i32
+    do img_i = -nimg, nimg
+      do img_j = -nimg, nimg
+        inner_count = inner_count + 1_i32
+        plan%exact_ewald_inner_shift1(inner_count) = real(img_i, dp) * plan%options%periodic_len(1)
+        plan%exact_ewald_inner_shift2(inner_count) = real(img_j, dp) * plan%options%periodic_len(2)
+      end do
+    end do
+
+    k_idx = 0_i32
+    do h1 = -kmax, kmax
+      k1 = two_pi_dp * real(h1, dp) / plan%options%periodic_len(1)
+      do h2 = -kmax, kmax
+        if (h1 == 0_i32 .and. h2 == 0_i32) cycle
+        k2 = two_pi_dp * real(h2, dp) / plan%options%periodic_len(2)
+        kmag = sqrt(k1 * k1 + k2 * k2)
+        if (kmag <= tiny(1.0d0)) cycle
+        k_idx = k_idx + 1_i32
+        plan%exact_ewald_k1(k_idx) = k1
+        plan%exact_ewald_k2(k_idx) = k2
+        plan%exact_ewald_kmag(k_idx) = kmag
+        plan%exact_ewald_karg0(k_idx) = 0.5d0 * kmag / alpha
+        plan%exact_ewald_kpref1(k_idx) = pi_dp * k1 / (cell_area * kmag)
+        plan%exact_ewald_kpref2(k_idx) = pi_dp * k2 / (cell_area * kmag)
+        plan%exact_ewald_kprefz(k_idx) = pi_dp / cell_area
+      end do
+    end do
+
+    plan%exact_ewald_screen_count = screen_count
+    plan%exact_ewald_inner_count = inner_count
+    plan%exact_ewald_k_count = k_idx
+    plan%exact_ewald_axis1 = axis1
+    plan%exact_ewald_axis2 = axis2
+    plan%exact_ewald_axis_free = axis_free
+    plan%exact_ewald_alpha = alpha
+    plan%exact_ewald_soft2 = plan%options%softening * plan%options%softening
+    plan%exact_ewald_cell_area = cell_area
+    plan%exact_ewald_k0_pref = 2.0d0 * pi_dp / cell_area
+    plan%exact_ewald_ready = .true.
+  end subroutine precompute_exact_ewald_metadata
 
   subroutine build_near_source_index( &
     plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &

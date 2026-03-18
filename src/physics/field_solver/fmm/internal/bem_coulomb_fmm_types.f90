@@ -95,6 +95,22 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: l2l_gamma_list(:, :)
     integer(i32), allocatable :: l2l_delta_list(:, :)
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
+    logical :: exact_ewald_ready = .false.
+    integer(i32) :: exact_ewald_axis1 = 0_i32
+    integer(i32) :: exact_ewald_axis2 = 0_i32
+    integer(i32) :: exact_ewald_axis_free = 0_i32
+    real(dp) :: exact_ewald_alpha = 0.0d0
+    real(dp) :: exact_ewald_soft2 = 0.0d0
+    real(dp) :: exact_ewald_cell_area = 0.0d0
+    real(dp) :: exact_ewald_k0_pref = 0.0d0
+    integer(i32) :: exact_ewald_screen_count = 0_i32
+    integer(i32) :: exact_ewald_inner_count = 0_i32
+    real(dp), allocatable :: exact_ewald_screen_shift1(:), exact_ewald_screen_shift2(:)
+    real(dp), allocatable :: exact_ewald_inner_shift1(:), exact_ewald_inner_shift2(:)
+    integer(i32) :: exact_ewald_k_count = 0_i32
+    real(dp), allocatable :: exact_ewald_k1(:), exact_ewald_k2(:), exact_ewald_kmag(:), exact_ewald_karg0(:)
+    real(dp), allocatable :: exact_ewald_kpref1(:), exact_ewald_kpref2(:), exact_ewald_kprefz(:)
+    real(dp), allocatable :: exact_ewald_src_free(:), exact_ewald_src_alpha_free(:)
     real(dp), allocatable :: m2l_deriv(:, :)
     real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
@@ -119,6 +135,7 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: src_q(:)
     real(dp), allocatable :: multipole(:, :)
     real(dp), allocatable :: local(:, :)
+    real(dp), allocatable :: exact_ewald_qcos(:, :), exact_ewald_qsin(:, :)
     integer(i32), allocatable :: multipole_active(:)
     integer(i32), allocatable :: local_active(:)
   end type fmm_state_type
@@ -191,6 +208,19 @@ contains
     if (allocated(plan%l2l_delta_list)) deallocate (plan%l2l_delta_list)
     if (allocated(plan%shift_axis1)) deallocate (plan%shift_axis1)
     if (allocated(plan%shift_axis2)) deallocate (plan%shift_axis2)
+    if (allocated(plan%exact_ewald_screen_shift1)) deallocate (plan%exact_ewald_screen_shift1)
+    if (allocated(plan%exact_ewald_screen_shift2)) deallocate (plan%exact_ewald_screen_shift2)
+    if (allocated(plan%exact_ewald_inner_shift1)) deallocate (plan%exact_ewald_inner_shift1)
+    if (allocated(plan%exact_ewald_inner_shift2)) deallocate (plan%exact_ewald_inner_shift2)
+    if (allocated(plan%exact_ewald_k1)) deallocate (plan%exact_ewald_k1)
+    if (allocated(plan%exact_ewald_k2)) deallocate (plan%exact_ewald_k2)
+    if (allocated(plan%exact_ewald_kmag)) deallocate (plan%exact_ewald_kmag)
+    if (allocated(plan%exact_ewald_karg0)) deallocate (plan%exact_ewald_karg0)
+    if (allocated(plan%exact_ewald_kpref1)) deallocate (plan%exact_ewald_kpref1)
+    if (allocated(plan%exact_ewald_kpref2)) deallocate (plan%exact_ewald_kpref2)
+    if (allocated(plan%exact_ewald_kprefz)) deallocate (plan%exact_ewald_kprefz)
+    if (allocated(plan%exact_ewald_src_free)) deallocate (plan%exact_ewald_src_free)
+    if (allocated(plan%exact_ewald_src_alpha_free)) deallocate (plan%exact_ewald_src_alpha_free)
     if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
     if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
     if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
@@ -213,6 +243,17 @@ contains
     plan%m2l_pair_count = 0_i32
     plan%m2l_build_count = 0_i32
     plan%m2l_visit_count = 0_i32
+    plan%exact_ewald_ready = .false.
+    plan%exact_ewald_axis1 = 0_i32
+    plan%exact_ewald_axis2 = 0_i32
+    plan%exact_ewald_axis_free = 0_i32
+    plan%exact_ewald_alpha = 0.0d0
+    plan%exact_ewald_soft2 = 0.0d0
+    plan%exact_ewald_cell_area = 0.0d0
+    plan%exact_ewald_k0_pref = 0.0d0
+    plan%exact_ewald_screen_count = 0_i32
+    plan%exact_ewald_inner_count = 0_i32
+    plan%exact_ewald_k_count = 0_i32
   end subroutine reset_fmm_plan
 
   subroutine reset_fmm_state(state)
@@ -221,6 +262,8 @@ contains
     if (allocated(state%src_q)) deallocate (state%src_q)
     if (allocated(state%multipole)) deallocate (state%multipole)
     if (allocated(state%local)) deallocate (state%local)
+    if (allocated(state%exact_ewald_qcos)) deallocate (state%exact_ewald_qcos)
+    if (allocated(state%exact_ewald_qsin)) deallocate (state%exact_ewald_qsin)
     if (allocated(state%multipole_active)) deallocate (state%multipole_active)
     if (allocated(state%local_active)) deallocate (state%local_active)
     state%ready = .false.
