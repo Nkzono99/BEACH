@@ -22,6 +22,12 @@ module bem_coulomb_fmm_tree_utils
 
 contains
 
+  !> 座標が親ノード中心のどの八分木に属するかを返す。
+  !! @param[in] x 判定する x 座標。
+  !! @param[in] y 判定する y 座標。
+  !! @param[in] z 判定する z 座標。
+  !! @param[in] center ノード中心座標。
+  !! @return 八分木の番号。
   pure integer(i32) function octant_index(x, y, z, center)
     real(dp), intent(in) :: x, y, z, center(3)
 
@@ -31,6 +37,10 @@ contains
     if (z >= center(3)) octant_index = octant_index + 4_i32
   end function octant_index
 
+  !> 現在有効な木のノード数を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @return ノード数。
   pure integer(i32) function active_tree_nnode(plan, use_target_tree)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -38,6 +48,11 @@ contains
     active_tree_nnode = merge(plan%target_nnode, plan%nnode, use_target_tree)
   end function active_tree_nnode
 
+  !> 有効な木の指定ノードにある子ノード数を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] node_idx ノード番号。
+  !! @return 子ノード数。
   pure integer(i32) function active_tree_child_count(plan, use_target_tree, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -50,6 +65,12 @@ contains
     end if
   end function active_tree_child_count
 
+  !> 有効な木の子ノード番号を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] child_k 子の連番。
+  !! @param[in] node_idx 親ノード番号。
+  !! @return 子ノード番号。
   pure integer(i32) function active_tree_child_idx(plan, use_target_tree, child_k, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -62,6 +83,12 @@ contains
     end if
   end function active_tree_child_idx
 
+  !> 有効な木の子ノードが属する八分木番号を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] child_k 子の連番。
+  !! @param[in] node_idx 親ノード番号。
+  !! @return 八分木番号。
   pure integer(i32) function active_tree_child_octant(plan, use_target_tree, child_k, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -74,6 +101,11 @@ contains
     end if
   end function active_tree_child_octant
 
+  !> 有効な木のノード中心座標を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] node_idx ノード番号。
+  !! @return ノード中心座標。
   pure function active_tree_node_center(plan, use_target_tree, node_idx) result(center)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -87,6 +119,11 @@ contains
     end if
   end function active_tree_node_center
 
+  !> 有効な木のノード半サイズを返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] node_idx ノード番号。
+  !! @return ノード半サイズ。
   pure function active_tree_node_half_size(plan, use_target_tree, node_idx) result(half_size)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -100,6 +137,11 @@ contains
     end if
   end function active_tree_node_half_size
 
+  !> 有効な木のノード外接半径を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] node_idx ノード番号。
+  !! @return 外接半径。
   pure real(dp) function active_tree_node_radius(plan, use_target_tree, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -112,6 +154,10 @@ contains
     end if
   end function active_tree_node_radius
 
+  !> 有効な木の最大深さを返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @return 最大深さ。
   pure integer(i32) function active_tree_max_depth(plan, use_target_tree)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -119,6 +165,12 @@ contains
     active_tree_max_depth = merge(plan%target_node_max_depth, plan%node_max_depth, use_target_tree)
   end function active_tree_max_depth
 
+  !> 指定深さのレベル範囲を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] depth 深さ。
+  !! @param[out] level_start_pos レベル先頭位置。
+  !! @param[out] level_end_pos レベル末尾位置。
   pure subroutine active_tree_level_bounds(plan, use_target_tree, depth, level_start_pos, level_end_pos)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -134,6 +186,11 @@ contains
     end if
   end subroutine active_tree_level_bounds
 
+  !> レベル配列からノード番号を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] use_target_tree target 木を使うなら `.true.`。
+  !! @param[in] level_pos レベル内位置。
+  !! @return ノード番号。
   pure integer(i32) function active_tree_level_node(plan, use_target_tree, level_pos)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
@@ -146,6 +203,11 @@ contains
     end if
   end function active_tree_level_node
 
+  !> 整数バッファへ値を追加し、必要なら容量を拡張する。
+  !! @param[inout] buf 追加先バッファ。
+  !! @param[inout] n_used 使用中要素数。
+  !! @param[inout] capacity 確保容量。
+  !! @param[in] value 追加する値。
   subroutine append_i32_buffer(buf, n_used, capacity, value)
     integer(i32), allocatable, intent(inout) :: buf(:)
     integer(i32), intent(inout) :: n_used, capacity
@@ -165,6 +227,11 @@ contains
     buf(n_used) = value
   end subroutine append_i32_buffer
 
+  !> target/source ノードが十分離れているかを判定する。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] target_node target ノード番号。
+  !! @param[in] source_node source ノード番号。
+  !! @return 十分離れていれば `.true.`。
   logical function nodes_well_separated(plan, target_node, source_node)
     type(fmm_plan_type), intent(in) :: plan
     integer(i32), intent(in) :: target_node, source_node

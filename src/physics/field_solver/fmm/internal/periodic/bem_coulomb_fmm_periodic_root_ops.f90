@@ -13,6 +13,8 @@ module bem_coulomb_fmm_periodic_root_ops
 
 contains
 
+  !> periodic2 の root operator を前計算する。
+  !! @param[inout] plan FMM 計画。
   subroutine precompute_periodic_root_operator(plan)
     type(fmm_plan_type), intent(inout) :: plan
 

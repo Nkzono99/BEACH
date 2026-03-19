@@ -18,12 +18,18 @@ module bem_coulomb_fmm_periodic
 
 contains
 
+  !> periodic2 の target box が有効かを判定する。
+  !! @param[in] options FMM 設定。
+  !! @return target_box_min < target_box_max を全軸で満たすなら `.true.`。
   logical function has_valid_target_box(options)
     type(fmm_options_type), intent(in) :: options
 
     has_valid_target_box = all(options%target_box_max > options%target_box_min)
   end function has_valid_target_box
 
+  !> periodic2 の far correction に trunc 版を使うか判定する。
+  !! @param[in] plan FMM 計画。
+  !! @return trunc 版を使うなら `.true.`。
   logical function use_periodic2_m2l_root_trunc(plan)
     type(fmm_plan_type), intent(in) :: plan
 
@@ -31,6 +37,9 @@ contains
                                    trim(plan%options%periodic_far_correction) == 'm2l_root_trunc'
   end function use_periodic2_m2l_root_trunc
 
+  !> periodic2 の far correction に oracle 版を使うか判定する。
+  !! @param[in] plan FMM 計画。
+  !! @return oracle 版を使うなら `.true.`。
   logical function use_periodic2_m2l_root_oracle(plan)
     type(fmm_plan_type), intent(in) :: plan
 
@@ -38,12 +47,20 @@ contains
                                     trim(plan%options%periodic_far_correction) == 'm2l_root_oracle'
   end function use_periodic2_m2l_root_oracle
 
+  !> periodic2 の root operator を使うか判定する。
+  !! @param[in] plan FMM 計画。
+  !! @return root operator を使うなら `.true.`。
   logical function use_periodic2_root_operator(plan)
     type(fmm_plan_type), intent(in) :: plan
 
     use_periodic2_root_operator = use_periodic2_m2l_root_trunc(plan) .or. use_periodic2_m2l_root_oracle(plan)
   end function use_periodic2_root_operator
 
+  !> periodic2 の画像シフト値を作成する。
+  !! @param[in] plan FMM 計画。
+  !! @param[out] shift_axis1 軸 1 のシフト値。
+  !! @param[out] shift_axis2 軸 2 のシフト値。
+  !! @param[out] nshift シフト数。
   subroutine build_periodic_shift_values(plan, shift_axis1, shift_axis2, nshift)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(out) :: shift_axis1(:), shift_axis2(:)
@@ -66,6 +83,9 @@ contains
     end do
   end subroutine build_periodic_shift_values
 
+  !> periodic2 の minimum image を差分ベクトルへ適用する。
+  !! @param[in] plan FMM 計画。
+  !! @param[inout] d 差分ベクトル。
   pure subroutine apply_periodic2_minimum_image(plan, d)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(inout) :: d(3)
@@ -85,6 +105,9 @@ contains
     end do
   end subroutine apply_periodic2_minimum_image
 
+  !> periodic2 領域内へ点座標を折り返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[inout] p 点座標。
   subroutine wrap_periodic2_point(plan, p)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(inout) :: p(3)
@@ -98,6 +121,11 @@ contains
     end do
   end subroutine wrap_periodic2_point
 
+  !> 点と source BBox の距離を返す。
+  !! @param[in] p 評価点。
+  !! @param[in] src_center source BBox 中心。
+  !! @param[in] src_half source BBox 半サイズ。
+  !! @return 距離 [m]。
   real(dp) function distance_to_source_bbox(p, src_center, src_half)
     real(dp), intent(in) :: p(3), src_center(3), src_half(3)
     real(dp) :: d(3), q(3)
@@ -110,6 +138,12 @@ contains
     distance_to_source_bbox = sqrt(sum(q*q))
   end function distance_to_source_bbox
 
+  !> periodic2 の minimum image を考慮した source BBox 距離を返す。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] p 評価点。
+  !! @param[in] src_center source BBox 中心。
+  !! @param[in] src_half source BBox 半サイズ。
+  !! @return 距離 [m]。
   real(dp) function distance_to_source_bbox_periodic(plan, p, src_center, src_half)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: p(3), src_center(3), src_half(3)
@@ -124,6 +158,17 @@ contains
     distance_to_source_bbox_periodic = sqrt(sum(q*q))
   end function distance_to_source_bbox_periodic
 
+  !> 画像電荷を足し合わせて点電荷の電場を加算する。
+  !! @param[in] q 電荷量。
+  !! @param[in] src 元の電荷位置。
+  !! @param[in] target 評価点。
+  !! @param[in] soft2 ソフトニング二乗。
+  !! @param[in] axis1 画像シフト軸 1。
+  !! @param[in] axis2 画像シフト軸 2。
+  !! @param[in] shift_axis1 軸 1 のシフト値。
+  !! @param[in] shift_axis2 軸 2 のシフト値。
+  !! @param[in] nshift シフト数。
+  !! @param[inout] e 電場。
   subroutine add_point_charge_images_field(q, src, target, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, e)
     real(dp), intent(in) :: q, src(3), target(3)
     real(dp), intent(in) :: soft2

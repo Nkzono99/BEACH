@@ -12,6 +12,10 @@ module bem_coulomb_fmm_state_ops
 
 contains
 
+  !> ソース電荷から FMM state を更新する。
+  !! @param[in] plan 構築済みの FMM 計画。
+  !! @param[inout] state 更新対象の state。
+  !! @param[in] src_q ソース電荷量。
   subroutine core_update_state_impl(plan, state, src_q)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
@@ -64,6 +68,8 @@ contains
     state%update_count = state%update_count + 1_i32
   end subroutine core_update_state_impl
 
+  !> FMM state に確保した資源を解放する。
+  !! @param[inout] state 解放対象の state。
   subroutine core_destroy_state_impl(state)
     type(fmm_state_type), intent(inout) :: state
 

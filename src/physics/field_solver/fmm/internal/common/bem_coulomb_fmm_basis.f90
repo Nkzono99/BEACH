@@ -11,6 +11,9 @@ module bem_coulomb_fmm_basis
 
 contains
 
+  !> FMM の多重指数テーブルと評価用補助テーブルを初期化する。
+  !! @param[inout] plan 初期化対象の FMM plan。
+  !! @param[in] order 展開次数。
   subroutine initialize_basis_tables(plan, order)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32), intent(in) :: order
@@ -108,6 +111,12 @@ contains
     end do
   end function factorial_value
 
+  !> 3 軸の冪を order まで順に計算する。
+  !! @param[in] d 軸方向の差分ベクトル。
+  !! @param[in] order 計算する最大次数。
+  !! @param[out] xpow x 軸の冪列。
+  !! @param[out] ypow y 軸の冪列。
+  !! @param[out] zpow z 軸の冪列。
   subroutine build_axis_powers(d, order, xpow, ypow, zpow)
     real(dp), intent(in) :: d(3)
     integer(i32), intent(in) :: order
@@ -124,6 +133,10 @@ contains
     end do
   end subroutine build_axis_powers
 
+  !> ラプラス核の多重微分係数を計算する。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] r 展開中心からの相対位置 [m]。
+  !! @param[out] deriv 微分係数ベクトル。
   subroutine compute_laplace_derivatives(plan, r, deriv)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: r(3)

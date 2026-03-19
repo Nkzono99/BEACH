@@ -150,6 +150,8 @@ module bem_coulomb_fmm_types
 
 contains
 
+  !> periodic2 Ewald 用の補助データを初期状態へ戻す。
+  !! @param[inout] data リセット対象の補助データ。
   subroutine reset_periodic2_ewald_data(data)
     type(periodic2_ewald_data_type), intent(inout) :: data
 
@@ -180,6 +182,8 @@ contains
     data%k_count = 0_i32
   end subroutine reset_periodic2_ewald_data
 
+  !> FMM plan を初期状態へ戻す。
+  !! @param[inout] plan リセット対象の FMM plan。
   subroutine reset_fmm_plan(plan)
     type(fmm_plan_type), intent(inout) :: plan
 
@@ -273,6 +277,8 @@ contains
     plan%periodic_root_operator_ready = .false.
   end subroutine reset_fmm_plan
 
+  !> FMM state を初期状態へ戻す。
+  !! @param[inout] state リセット対象の FMM state。
   subroutine reset_fmm_state(state)
     type(fmm_state_type), intent(inout) :: state
 

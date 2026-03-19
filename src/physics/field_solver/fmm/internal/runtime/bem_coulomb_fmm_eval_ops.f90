@@ -16,6 +16,11 @@ module bem_coulomb_fmm_eval_ops
 
 contains
 
+  !> 複数の評価点で電場を計算する。
+  !! @param[in] plan 構築済みの FMM 計画。
+  !! @param[inout] state 評価に使う FMM state。
+  !! @param[in] target_pos 評価点位置 `(3,m)` [m]。
+  !! @param[out] e 電場ベクトル `(3,m)` [V/m]。
   subroutine core_eval_points_impl(plan, state, target_pos, e)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
@@ -38,6 +43,11 @@ contains
     !!$omp end parallel do
   end subroutine core_eval_points_impl
 
+  !> 1 点で電場を計算する。
+  !! @param[in] plan 構築済みの FMM 計画。
+  !! @param[inout] state 評価に使う FMM state。
+  !! @param[in] r 評価点位置 `(x,y,z)` [m]。
+  !! @param[out] e 電場ベクトル `(x,y,z)` [V/m]。
   subroutine core_eval_point_impl(plan, state, r, e)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
@@ -47,6 +57,15 @@ contains
     call core_eval_point_xyz_impl(plan, state, r(1), r(2), r(3), e(1), e(2), e(3))
   end subroutine core_eval_point_impl
 
+  !> 1 点評価の本体処理を行う。
+  !! @param[in] plan 構築済みの FMM 計画。
+  !! @param[inout] state 評価に使う FMM state。
+  !! @param[in] rx 評価点 x 座標 [m]。
+  !! @param[in] ry 評価点 y 座標 [m]。
+  !! @param[in] rz 評価点 z 座標 [m]。
+  !! @param[out] ex 電場 x 成分 [V/m]。
+  !! @param[out] ey 電場 y 成分 [V/m]。
+  !! @param[out] ez 電場 z 成分 [V/m]。
   subroutine core_eval_point_xyz_impl(plan, state, rx, ry, rz, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state

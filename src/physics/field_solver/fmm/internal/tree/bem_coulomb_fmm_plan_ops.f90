@@ -18,6 +18,10 @@ module bem_coulomb_fmm_plan_ops
 
 contains
 
+  !> FMM 計画と木構造、転送演算子を構築する。
+  !! @param[inout] plan 構築対象の FMM 計画。
+  !! @param[in] src_pos ソース位置 `(3,n)` [m]。
+  !! @param[in] options FMM 設定。
   subroutine core_build_plan_impl(plan, src_pos, options)
     type(fmm_plan_type), intent(inout) :: plan
     real(dp), intent(in) :: src_pos(:, :)
@@ -72,6 +76,8 @@ contains
     plan%built = .true.
   end subroutine core_build_plan_impl
 
+  !> FMM 計画に確保した資源を解放する。
+  !! @param[inout] plan 解放対象の FMM 計画。
   subroutine core_destroy_plan_impl(plan)
     type(fmm_plan_type), intent(inout) :: plan
 

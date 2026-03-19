@@ -16,6 +16,9 @@ module bem_coulomb_fmm_periodic_ewald
 
 contains
 
+  !> periodic2 Ewald の減衰係数 alpha を決定する。
+  !! @param[in] plan FMM 計画。
+  !! @return 有効な alpha。
   real(dp) function resolve_periodic2_ewald_alpha(plan)
     type(fmm_plan_type), intent(in) :: plan
     real(dp) :: min_periodic_len
@@ -30,6 +33,8 @@ contains
     resolve_periodic2_ewald_alpha = 1.2d0/(real(plan%options%periodic_image_layers + 1_i32, dp)*min_periodic_len)
   end function resolve_periodic2_ewald_alpha
 
+  !> periodic2 Ewald の事前計算データを作成する。
+  !! @param[inout] plan FMM 計画。
   subroutine precompute_periodic2_ewald_data(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: img_i, img_j, h1, h2, k_idx
@@ -116,6 +121,11 @@ contains
     plan%options%periodic_ewald_alpha = alpha
   end subroutine precompute_periodic2_ewald_data
 
+  !> 全ソース分の periodic2 Ewald 補正を加算する。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] state ソース電荷を含む state。
+  !! @param[in] target 評価点。
+  !! @param[inout] e 電場。
   subroutine add_periodic2_exact_ewald_correction_all_sources(plan, state, target, e)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
@@ -129,6 +139,12 @@ contains
     end do
   end subroutine add_periodic2_exact_ewald_correction_all_sources
 
+  !> 1 粒子分の periodic2 Ewald 補正を加算する。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] q 電荷量。
+  !! @param[in] src ソース位置。
+  !! @param[in] target 評価点。
+  !! @param[inout] e 電場。
   subroutine add_periodic2_exact_ewald_correction_single_source(plan, q, src, target, e)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: q
