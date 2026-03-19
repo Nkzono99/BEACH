@@ -1,11 +1,10 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
-  use bem_performance_profile, only: perf_region_begin, perf_region_end, perf_add_elapsed, &
-                                     perf_is_detail_enabled, perf_region_simulation_total, perf_region_field_solver_init, &
-                                     perf_region_batch_total, perf_region_prepare_batch, perf_region_field_refresh, &
-                                     perf_region_particle_batch, perf_region_commit_charge, perf_region_count_outcomes, &
-                                     perf_region_mpi_reduce, perf_region_stats_update, perf_region_history_write, &
-                                     perf_region_particle_field_eval, perf_region_particle_push, perf_region_particle_collision
+  use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
+                                     perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
+                                     perf_region_field_solver_init, perf_region_history_write, perf_region_mpi_reduce, &
+                                     perf_region_particle_batch, perf_region_prepare_batch, perf_region_simulation_total, &
+                                     perf_region_stats_update
   implicit none
 contains
 
@@ -18,7 +17,6 @@ contains
   logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
   integer(i32) :: batch_counts(5)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0
-  real(dp) :: batch_field_time, batch_push_time, batch_collision_time, batch_times(3)
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(field_solver_type) :: field_solver = field_solver_type()
@@ -60,8 +58,7 @@ contains
 
     call perf_region_begin(perf_region_particle_batch, t0)
     call process_particle_batch( &
-      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
-      batch_field_time, batch_push_time, batch_collision_time &
+      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
       )
     call perf_region_end(perf_region_particle_batch, t0)
 
@@ -73,17 +70,12 @@ contains
     call count_batch_outcomes(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_counts)
     call perf_region_end(perf_region_count_outcomes, t0)
 
-    batch_times = [batch_field_time, batch_push_time, batch_collision_time]
-
     call perf_region_begin(perf_region_mpi_reduce, t0)
     call mpi_allreduce_sum_i32_array(mpi_ctx, batch_counts)
-    call mpi_allreduce_max_real_dp_array(mpi_ctx, batch_times)
     call perf_region_end(perf_region_mpi_reduce, t0)
 
     call perf_region_begin(perf_region_stats_update, t0)
-    call accumulate_batch_stats( &
-      stats, batch_counts, rel, batch_times(1), batch_times(2), batch_times(3) &
-      )
+    call accumulate_batch_stats(stats, batch_counts, rel)
     call perf_region_end(perf_region_stats_update, t0)
 
     call perf_region_begin(perf_region_history_write, t0)
@@ -98,32 +90,6 @@ contains
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   call perf_region_end(perf_region_simulation_total, sim_t0)
-
-  if (trim(field_solver%mode) == 'fmm') then
-    stats%fmm_profile_enabled = merge(1_i32, 0_i32, field_solver%fmm_profile_enabled)
-    stats%fmm_nnode = field_solver%nnode
-    stats%fmm_target_nnode = field_solver%target_nnode
-    stats%fmm_m2l_pair_count = field_solver%fmm_m2l_pair_count
-    stats%fmm_m2l_build_count = stats%fmm_m2l_build_count + field_solver%fmm_m2l_build_count
-    stats%fmm_m2l_visit_count = stats%fmm_m2l_visit_count + field_solver%fmm_m2l_visit_count
-    stats%fmm_near_interaction_count = field_solver%fmm_near_interaction_count
-    stats%fmm_far_interaction_count = field_solver%fmm_far_interaction_count
-    stats%fmm_refresh_count = stats%fmm_refresh_count + field_solver%fmm_refresh_count
-    stats%fmm_total_refresh_time_s = stats%fmm_total_refresh_time_s + field_solver%fmm_total_refresh_time_s
-    stats%fmm_eval_count = stats%fmm_eval_count + field_solver%fmm_core_state%eval_count
-    stats%fmm_eval_local_count = stats%fmm_eval_local_count + field_solver%fmm_core_state%eval_local_count
-    stats%fmm_eval_fallback_count = stats%fmm_eval_fallback_count + field_solver%fmm_core_state%eval_fallback_count
-    stats%fmm_eval_ewald_count = stats%fmm_eval_ewald_count + field_solver%fmm_core_state%eval_ewald_count
-    stats%fmm_eval_near_source_count = stats%fmm_eval_near_source_count + field_solver%fmm_core_state%eval_near_source_count
-    stats%fmm_eval_direct_kernel_count = &
-      stats%fmm_eval_direct_kernel_count + field_solver%fmm_core_state%eval_direct_kernel_count
-    stats%fmm_eval_locate_time_s = stats%fmm_eval_locate_time_s + field_solver%fmm_core_state%eval_locate_time_s
-    stats%fmm_eval_local_time_s = stats%fmm_eval_local_time_s + field_solver%fmm_core_state%eval_local_time_s
-    stats%fmm_eval_near_time_s = stats%fmm_eval_near_time_s + field_solver%fmm_core_state%eval_near_time_s
-    stats%fmm_eval_fallback_time_s = &
-      stats%fmm_eval_fallback_time_s + field_solver%fmm_core_state%eval_fallback_time_s
-    stats%fmm_eval_ewald_time_s = stats%fmm_eval_ewald_time_s + field_solver%fmm_core_state%eval_ewald_time_s
-  end if
 
   deallocate (dq_thread, dq, photo_emission_dq)
   end procedure run_absorption_insulator
@@ -150,80 +116,29 @@ contains
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth
-  integer(i32) :: field_calls, push_calls, collision_calls
-  integer(i32) :: field_calls_thread(size(dq_thread, 2))
-  integer(i32) :: push_calls_thread(size(dq_thread, 2))
-  integer(i32) :: collision_calls_thread(size(dq_thread, 2))
   real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
-  real(dp) :: t0
-  real(dp) :: field_time_thread(size(dq_thread, 2))
-  real(dp) :: push_time_thread(size(dq_thread, 2))
-  real(dp) :: collision_time_thread(size(dq_thread, 2))
-  real(dp) :: field_time_local, push_time_local, collision_time_local
-  integer(i32) :: field_calls_local, push_calls_local, collision_calls_local
   type(hit_info) :: hit
-  logical :: escaped_by_boundary, detail_timing
+  logical :: escaped_by_boundary
 
   nth = size(dq_thread, 2)
-  field_time_s = 0.0d0
-  push_time_s = 0.0d0
-  collision_time_s = 0.0d0
-  field_calls = 0_i32
-  push_calls = 0_i32
-  collision_calls = 0_i32
-  field_time_thread = 0.0d0
-  push_time_thread = 0.0d0
-  collision_time_thread = 0.0d0
-  field_calls_thread = 0_i32
-  push_calls_thread = 0_i32
-  collision_calls_thread = 0_i32
-  detail_timing = perf_is_detail_enabled()
 
   !$omp parallel default(none) &
-  !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,detail_timing, &
-  !$omp& field_time_thread,push_time_thread,collision_time_thread,field_calls_thread,push_calls_thread, &
-  !$omp& collision_calls_thread,nth) &
-  !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary,t0,field_time_local,push_time_local, &
-  !$omp& collision_time_local,field_calls_local,push_calls_local,collision_calls_local)
+  !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
+  !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
-  field_time_local = 0.0d0
-  push_time_local = 0.0d0
-  collision_time_local = 0.0d0
-  field_calls_local = 0_i32
-  push_calls_local = 0_i32
-  collision_calls_local = 0_i32
   !$omp do schedule(static)
   do i = 1, pcls_batch%n
     if (.not. pcls_batch%alive(i)) cycle
     do step = 1, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
-      if (detail_timing) then
-        t0 = wall_time_seconds()
-        call field_solver%eval_e(mesh, x0, e)
-        field_time_local = field_time_local + (wall_time_seconds() - t0)
-        field_calls_local = field_calls_local + 1_i32
-
-        t0 = wall_time_seconds()
-        call boris_push( &
-          x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
-          )
-        push_time_local = push_time_local + (wall_time_seconds() - t0)
-        push_calls_local = push_calls_local + 1_i32
-
-        t0 = wall_time_seconds()
-        call find_first_hit(mesh, x0, x1, hit)
-        collision_time_local = collision_time_local + (wall_time_seconds() - t0)
-        collision_calls_local = collision_calls_local + 1_i32
-      else
-        call field_solver%eval_e(mesh, x0, e)
-        call boris_push( &
-          x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
-          )
-        call find_first_hit(mesh, x0, x1, hit)
-      end if
+      call field_solver%eval_e(mesh, x0, e)
+      call boris_push( &
+        x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
+        )
+      call find_first_hit(mesh, x0, x1, hit)
       if (hit%has_hit) then
         qdep = pcls_batch%q(i)*pcls_batch%w(i)
         dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
@@ -241,26 +156,7 @@ contains
     end do
   end do
   !$omp end do
-  field_time_thread(tid) = field_time_local
-  push_time_thread(tid) = push_time_local
-  collision_time_thread(tid) = collision_time_local
-  field_calls_thread(tid) = field_calls_local
-  push_calls_thread(tid) = push_calls_local
-  collision_calls_thread(tid) = collision_calls_local
   !$omp end parallel
-
-  field_time_s = maxval(field_time_thread)
-  push_time_s = maxval(push_time_thread)
-  collision_time_s = maxval(collision_time_thread)
-  field_calls = sum(field_calls_thread)
-  push_calls = sum(push_calls_thread)
-  collision_calls = sum(collision_calls_thread)
-
-  if (detail_timing) then
-    call perf_add_elapsed(perf_region_particle_field_eval, field_time_s, field_calls)
-    call perf_add_elapsed(perf_region_particle_push, push_time_s, push_calls)
-    call perf_add_elapsed(perf_region_particle_collision, collision_time_s, collision_calls)
-  end if
   end procedure process_particle_batch
 
   !> スレッド別電荷差分を合算してメッシュへ反映し、相対変化量を返す。

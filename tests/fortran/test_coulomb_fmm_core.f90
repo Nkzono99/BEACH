@@ -21,7 +21,6 @@ program test_coulomb_fmm_core
   call test_periodic2_m2l_root_trunc_nonneutral_heuristic()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
-  call test_state_eval_profile_counts()
   call test_field_solver_core_adapter()
   call test_field_solver_core_softened_adapter()
   call test_field_solver_core_periodic2_m2l_root_trunc_adapter()
@@ -29,12 +28,13 @@ program test_coulomb_fmm_core
 contains
 
   subroutine test_p2m_m2m_root_moments()
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
+    type(fmm_plan_type), allocatable :: plan
+    type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q(:), expected(:)
     integer(i32) :: alpha_idx
 
+    allocate (plan, state)
     call make_free_sources(src_pos, q)
     options%theta = 0.55d0
     options%leaf_max = 2_i32
@@ -56,14 +56,15 @@ contains
   end subroutine test_p2m_m2m_root_moments
 
   subroutine test_free_field_accuracy()
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
+    type(fmm_plan_type), allocatable :: plan
+    type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 8), e_fmm(3), e_ref(3)
     real(dp) :: norm_ref, rel_err, max_rel_err
     integer(i32) :: i, valid_count
 
+    allocate (plan, state)
     call make_free_sources(src_pos, q)
     options%theta = 0.55d0
     options%leaf_max = 4_i32
@@ -100,14 +101,15 @@ contains
   end subroutine test_free_field_accuracy
 
   subroutine test_softened_free_field_accuracy()
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
+    type(fmm_plan_type), allocatable :: plan
+    type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 4), e_fmm(3), e_ref(3)
     real(dp) :: norm_ref, rel_err, max_rel_err
     integer(i32) :: i, valid_count
 
+    allocate (plan, state)
     call make_free_sources(src_pos, q)
     options%theta = 0.55d0
     options%leaf_max = 4_i32
@@ -141,14 +143,15 @@ contains
   end subroutine test_softened_free_field_accuracy
 
   subroutine test_periodic2_field_accuracy()
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
+    type(fmm_plan_type), allocatable :: plan
+    type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 6), e_fmm(3), e_ref(3)
     real(dp) :: norm_ref, rel_err, max_rel_err
     integer(i32) :: i, valid_count
 
+    allocate (plan, state)
     call make_periodic_sources(src_pos, q)
     options%theta = 0.55d0
     options%leaf_max = 2_i32
@@ -190,8 +193,8 @@ contains
   end subroutine test_periodic2_field_accuracy
 
   subroutine test_periodic2_m2l_root_trunc_correction_effect()
-    type(fmm_plan_type) :: plan_base, plan_root
-    type(fmm_state_type) :: state_base, state_root
+    type(fmm_plan_type), allocatable :: plan_base, plan_root
+    type(fmm_state_type), allocatable :: state_base, state_root
     type(fmm_options_type) :: options_base, options_root
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 6), e_ref(3), e_base(3), e_root(3), d_er(3)
@@ -199,6 +202,7 @@ contains
     real(dp) :: mean_rel_base, mean_rel_root, max_delta_base_root
     integer(i32) :: i, valid_count
 
+    allocate (plan_base, plan_root, state_base, state_root)
     call make_periodic_sources(src_pos, q)
     options_base%theta = 0.55d0
     options_base%leaf_max = 2_i32
@@ -261,14 +265,15 @@ contains
   end subroutine test_periodic2_m2l_root_trunc_correction_effect
 
   subroutine test_periodic2_m2l_root_trunc_nonneutral_heuristic()
-    type(fmm_plan_type) :: plan_base, plan_heuristic
-    type(fmm_state_type) :: state_base, state_heuristic
+    type(fmm_plan_type), allocatable :: plan_base, plan_heuristic
+    type(fmm_state_type), allocatable :: state_base, state_heuristic
     type(fmm_options_type) :: options_base, options_heuristic
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 5), e_base(3), e_heuristic(3), d_e(3)
     real(dp) :: norm_base, norm_heuristic, max_delta, max_norm_ratio
     integer(i32) :: i, valid_count
 
+    allocate (plan_base, plan_heuristic, state_base, state_heuristic)
     call make_periodic_sources_nonneutral(src_pos, q)
     options_base%theta = 0.55d0
     options_base%leaf_max = 2_i32
@@ -320,8 +325,8 @@ contains
   end subroutine test_periodic2_m2l_root_trunc_nonneutral_heuristic
 
   subroutine test_periodic2_m2l_root_oracle_correction_effect()
-    type(fmm_plan_type) :: plan_base, plan_oracle
-    type(fmm_state_type) :: state_base, state_oracle
+    type(fmm_plan_type), allocatable :: plan_base, plan_oracle
+    type(fmm_state_type), allocatable :: state_base, state_oracle
     type(fmm_options_type) :: options_base, options_oracle
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 6), e_ref(3), e_base(3), e_oracle(3), d_er(3)
@@ -329,6 +334,7 @@ contains
     real(dp) :: mean_rel_base, mean_rel_oracle, max_delta_base_oracle
     integer(i32) :: i, valid_count
 
+    allocate (plan_base, plan_oracle, state_base, state_oracle)
     call make_periodic_sources(src_pos, q)
     options_base%theta = 0.55d0
     options_base%leaf_max = 2_i32
@@ -346,7 +352,6 @@ contains
     call build_plan(plan_oracle, src_pos, options_oracle)
     call update_state(plan_base, state_base, q)
     call update_state(plan_oracle, state_oracle, q)
-    state_oracle%profile_enabled = .true.
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
@@ -385,8 +390,6 @@ contains
     mean_rel_oracle = mean_rel_oracle/real(valid_count, dp)
     call assert_true(max_delta_base_oracle > 1.0d-18, 'm2l_root_oracle should affect periodic2 field')
     call assert_true(mean_rel_oracle <= 1.2d0*mean_rel_base, 'm2l_root_oracle degrades periodic2 accuracy too much')
-    call assert_true(state_oracle%eval_ewald_count >= 1_i32, 'm2l_root_oracle fallback should record Ewald oracle usage')
-    call assert_true(state_oracle%eval_fallback_count >= 1_i32, 'm2l_root_oracle test should exercise fallback evaluation')
 
     call destroy_state(state_base)
     call destroy_state(state_oracle)
@@ -395,10 +398,11 @@ contains
   end subroutine test_periodic2_m2l_root_oracle_correction_effect
 
   subroutine test_target_box_dual_tree()
-    type(fmm_plan_type) :: plan
+    type(fmm_plan_type), allocatable :: plan
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q(:)
 
+    allocate (plan)
     call make_periodic_sources(src_pos, q)
     options%leaf_max = 2_i32
     options%order = 4_i32
@@ -423,13 +427,14 @@ contains
   end subroutine test_target_box_dual_tree
 
   subroutine test_state_update_reuse()
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
+    type(fmm_plan_type), allocatable :: plan
+    type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q1(:), q2(:)
     real(dp) :: e1(3), e2(3)
     integer(i32) :: pair_count, build_count
 
+    allocate (plan, state)
     call make_periodic_sources(src_pos, q1)
     q2 = 2.0d0*q1
     options%leaf_max = 2_i32
@@ -457,41 +462,6 @@ contains
     call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_state_update_reuse
-
-  subroutine test_state_eval_profile_counts()
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
-    type(fmm_options_type) :: options
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: e(3)
-
-    call make_periodic_sources(src_pos, q)
-    options%leaf_max = 2_i32
-    options%order = 4_i32
-    options%use_periodic2 = .true.
-    options%periodic_axes = [1_i32, 2_i32]
-    options%periodic_len = [1.0d0, 1.0d0]
-    options%periodic_image_layers = 1_i32
-    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    call build_plan(plan, src_pos, options)
-    call update_state(plan, state, q)
-    state%profile_enabled = .true.
-
-    call eval_point(plan, state, [0.35d0, 0.45d0, 0.55d0], e)
-    call eval_point(plan, state, [0.40d0, 0.50d0, -0.25d0], e)
-
-    call assert_equal_i32(state%eval_count, 2_i32, 'profile eval_count mismatch')
-    call assert_equal_i32(state%eval_fallback_count, 0_i32, 'profile should stay on target tree for this fixture')
-    call assert_true(state%eval_near_source_count > 0, 'profile should count near sources')
-    call assert_equal_i32( &
-      int(state%eval_direct_kernel_count, i32), int(state%eval_near_source_count, i32), &
-      'periodic2 direct-kernel count should match retained near source-image entries' &
-      )
-
-    call destroy_state(state)
-    call destroy_plan(plan)
-  end subroutine test_state_eval_profile_counts
 
   subroutine test_field_solver_core_adapter()
     type(mesh_type) :: mesh_fmm

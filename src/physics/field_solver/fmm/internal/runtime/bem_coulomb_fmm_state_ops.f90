@@ -1,7 +1,7 @@
 !> Coulomb FMM state 更新と upward/downward pass。
 module bem_coulomb_fmm_state_ops
   use bem_kinds, only: dp, i32
-  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, reset_fmm_state
+  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, initialize_fmm_state, reset_fmm_state
   use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_level_bounds, &
                                         active_tree_level_node
   implicit none
@@ -27,14 +27,14 @@ contains
 
     state%ready = .false.
     call ensure_state_capacity(plan, state)
-    n_target_nodes = active_tree_nnode(plan, plan%target_tree_ready)
+    n_target_nodes = merge(plan%target_nnode, plan%nnode, plan%target_tree_ready)
     !$omp parallel default(none) shared(plan, state, src_q, n_target_nodes)
-    if (allocated(state%multipole_active)) then
+    if (associated(state%multipole_active)) then
       !$omp workshare
       state%multipole_active = 0_i32
       !$omp end workshare
     end if
-    if (allocated(state%local_active)) then
+    if (associated(state%local_active)) then
       !$omp workshare
       state%local_active = 0_i32
       !$omp end workshare
@@ -44,12 +44,12 @@ contains
       state%src_q = src_q
       !$omp end workshare
     end if
-    if (plan%nsource_leaf <= 0_i32 .and. allocated(state%multipole)) then
+    if (plan%nsource_leaf <= 0_i32 .and. associated(state%multipole)) then
       !$omp workshare
       state%multipole = 0.0d0
       !$omp end workshare
     end if
-    if (plan%m2l_pair_count <= 0_i32 .and. allocated(state%local)) then
+    if (plan%m2l_pair_count <= 0_i32 .and. associated(state%local)) then
       !$omp workshare
       state%local = 0.0d0
       !$omp end workshare
@@ -81,33 +81,50 @@ contains
     type(fmm_state_type), intent(inout) :: state
     integer(i32) :: n_target_nodes
 
-    n_target_nodes = active_tree_nnode(plan, plan%target_tree_ready)
-    if (allocated(state%src_q)) then
+    n_target_nodes = plan%nnode
+    if (plan%target_tree_ready) n_target_nodes = plan%target_nnode
+
+    if (state%update_count <= 0_i32) then
+      call initialize_fmm_state(state)
+      if (associated(state%src_q)) deallocate (state%src_q)
+      if (associated(state%multipole)) deallocate (state%multipole)
+      if (associated(state%multipole_active)) deallocate (state%multipole_active)
+      if (associated(state%local)) deallocate (state%local)
+      if (associated(state%local_active)) deallocate (state%local_active)
+      allocate (state%src_q(plan%nsrc))
+      allocate (state%multipole(plan%ncoef, max(1_i32, plan%nnode)))
+      allocate (state%multipole_active(max(1_i32, plan%nnode)))
+      allocate (state%local(plan%ncoef, max(1_i32, n_target_nodes)))
+      allocate (state%local_active(max(1_i32, n_target_nodes)))
+      return
+    end if
+
+    if (associated(state%src_q)) then
       if (size(state%src_q) /= plan%nsrc) deallocate (state%src_q)
     end if
-    if (.not. allocated(state%src_q)) allocate (state%src_q(plan%nsrc))
+    if (.not. associated(state%src_q)) allocate (state%src_q(plan%nsrc))
 
-    if (allocated(state%multipole)) then
+    if (associated(state%multipole)) then
       if (size(state%multipole, 1) /= plan%ncoef .or. size(state%multipole, 2) /= max(1_i32, plan%nnode)) then
         deallocate (state%multipole)
       end if
     end if
-    if (.not. allocated(state%multipole)) allocate (state%multipole(plan%ncoef, max(1_i32, plan%nnode)))
-    if (allocated(state%multipole_active)) then
+    if (.not. associated(state%multipole)) allocate (state%multipole(plan%ncoef, max(1_i32, plan%nnode)))
+    if (associated(state%multipole_active)) then
       if (size(state%multipole_active) /= max(1_i32, plan%nnode)) deallocate (state%multipole_active)
     end if
-    if (.not. allocated(state%multipole_active)) allocate (state%multipole_active(max(1_i32, plan%nnode)))
+    if (.not. associated(state%multipole_active)) allocate (state%multipole_active(max(1_i32, plan%nnode)))
 
-    if (allocated(state%local)) then
+    if (associated(state%local)) then
       if (size(state%local, 1) /= plan%ncoef .or. size(state%local, 2) /= max(1_i32, n_target_nodes)) then
         deallocate (state%local)
       end if
     end if
-    if (.not. allocated(state%local)) allocate (state%local(plan%ncoef, max(1_i32, n_target_nodes)))
-    if (allocated(state%local_active)) then
+    if (.not. associated(state%local)) allocate (state%local(plan%ncoef, max(1_i32, n_target_nodes)))
+    if (associated(state%local_active)) then
       if (size(state%local_active) /= max(1_i32, n_target_nodes)) deallocate (state%local_active)
     end if
-    if (.not. allocated(state%local_active)) allocate (state%local_active(max(1_i32, n_target_nodes)))
+    if (.not. associated(state%local_active)) allocate (state%local_active(max(1_i32, n_target_nodes)))
   end subroutine ensure_state_capacity
 
   subroutine p2m_leaf_moments(plan, state)

@@ -1,6 +1,5 @@
-!> `bem_simulator` の進捗表示・履歴出力・簡易タイマを実装する submodule。
+!> `bem_simulator` の進捗表示と履歴出力を実装する submodule。
 submodule(bem_simulator) bem_simulator_io
-  use bem_performance_profile, only: perf_wall_time_seconds
   implicit none
 contains
 
@@ -27,10 +26,5 @@ contains
       rel_change, ',', elem_idx, ',', q_elem(elem_idx)
   end do
   end procedure write_history_snapshot
-
-  !> OpenMP有効時は壁時計、無効時は `cpu_time` を返すタイマ関数。
-  module procedure wall_time_seconds
-  time_s = perf_wall_time_seconds()
-  end procedure wall_time_seconds
 
 end submodule bem_simulator_io

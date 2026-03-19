@@ -17,7 +17,7 @@ program test_performance_profile
   call ensure_directory(out_dir)
   call delete_file_if_exists(profile_path)
 
-  call perf_configure(.true., .true.)
+  call perf_configure(.true.)
   call perf_set_output_context(out_dir, .true.)
   call perf_add_elapsed(perf_region_program_total, 1.5d0, 1_i32)
   call perf_add_elapsed(perf_region_simulation_total, 1.0d0, 2_i32)

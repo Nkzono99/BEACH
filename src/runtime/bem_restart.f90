@@ -1,6 +1,6 @@
 !> 出力ディレクトリに保存したチェックポイントの保存/復元を扱う補助モジュール。
 module bem_restart
-  use bem_kinds, only: dp, i32, i64
+  use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size
   implicit none
@@ -189,54 +189,6 @@ contains
       case ('last_rel_change')
         read (value, *) stats%last_rel_change
         found_rel = .true.
-      case ('field_time_s')
-        read (value, *) stats%field_time_s
-      case ('push_time_s')
-        read (value, *) stats%push_time_s
-      case ('collision_time_s')
-        read (value, *) stats%collision_time_s
-      case ('fmm_profile_enabled')
-        read (value, *) stats%fmm_profile_enabled
-      case ('fmm_nnode')
-        read (value, *) stats%fmm_nnode
-      case ('fmm_target_nnode')
-        read (value, *) stats%fmm_target_nnode
-      case ('fmm_m2l_pair_count')
-        read (value, *) stats%fmm_m2l_pair_count
-      case ('fmm_m2l_build_count')
-        read (value, *) stats%fmm_m2l_build_count
-      case ('fmm_m2l_visit_count')
-        read (value, *) stats%fmm_m2l_visit_count
-      case ('fmm_near_interaction_count')
-        read (value, *) stats%fmm_near_interaction_count
-      case ('fmm_far_interaction_count')
-        read (value, *) stats%fmm_far_interaction_count
-      case ('fmm_refresh_count')
-        read (value, *) stats%fmm_refresh_count
-      case ('fmm_total_refresh_time_s')
-        read (value, *) stats%fmm_total_refresh_time_s
-      case ('fmm_eval_count')
-        read (value, *) stats%fmm_eval_count
-      case ('fmm_eval_local_count')
-        read (value, *) stats%fmm_eval_local_count
-      case ('fmm_eval_fallback_count')
-        read (value, *) stats%fmm_eval_fallback_count
-      case ('fmm_eval_ewald_count')
-        read (value, *) stats%fmm_eval_ewald_count
-      case ('fmm_eval_near_source_count')
-        read (value, *) stats%fmm_eval_near_source_count
-      case ('fmm_eval_direct_kernel_count')
-        read (value, *) stats%fmm_eval_direct_kernel_count
-      case ('fmm_eval_locate_time_s')
-        read (value, *) stats%fmm_eval_locate_time_s
-      case ('fmm_eval_local_time_s')
-        read (value, *) stats%fmm_eval_local_time_s
-      case ('fmm_eval_near_time_s')
-        read (value, *) stats%fmm_eval_near_time_s
-      case ('fmm_eval_fallback_time_s')
-        read (value, *) stats%fmm_eval_fallback_time_s
-      case ('fmm_eval_ewald_time_s')
-        read (value, *) stats%fmm_eval_ewald_time_s
       end select
     end do
     close (u)

@@ -1,6 +1,6 @@
 !> Coulomb FMM コアで共有する型定義。
 module bem_coulomb_fmm_types
-  use bem_kinds, only: dp, i32, i64
+  use bem_kinds, only: dp, i32
   implicit none
   private
 
@@ -12,6 +12,7 @@ module bem_coulomb_fmm_types
   public :: fmm_state_type
   public :: reset_periodic2_ewald_data
   public :: reset_fmm_plan
+  public :: initialize_fmm_state
   public :: reset_fmm_state
 
   type :: fmm_options_type
@@ -129,23 +130,11 @@ module bem_coulomb_fmm_types
   type :: fmm_state_type
     logical :: ready = .false.
     integer(i32) :: update_count = 0_i32
-    logical :: profile_enabled = .false.
-    integer(i32) :: eval_count = 0_i32
-    integer(i32) :: eval_local_count = 0_i32
-    integer(i32) :: eval_fallback_count = 0_i32
-    integer(i32) :: eval_ewald_count = 0_i32
-    integer(i64) :: eval_near_source_count = 0_i64
-    integer(i64) :: eval_direct_kernel_count = 0_i64
-    real(dp) :: eval_locate_time_s = 0.0d0
-    real(dp) :: eval_local_time_s = 0.0d0
-    real(dp) :: eval_near_time_s = 0.0d0
-    real(dp) :: eval_fallback_time_s = 0.0d0
-    real(dp) :: eval_ewald_time_s = 0.0d0
-    real(dp), allocatable :: src_q(:)
-    real(dp), allocatable :: multipole(:, :)
-    real(dp), allocatable :: local(:, :)
-    integer(i32), allocatable :: multipole_active(:)
-    integer(i32), allocatable :: local_active(:)
+    real(dp), pointer :: src_q(:) => null()
+    real(dp), pointer :: multipole(:, :) => null()
+    real(dp), pointer :: local(:, :) => null()
+    integer(i32), pointer :: multipole_active(:) => null()
+    integer(i32), pointer :: local_active(:) => null()
   end type fmm_state_type
 
 contains
@@ -277,30 +266,31 @@ contains
     plan%periodic_root_operator_ready = .false.
   end subroutine reset_fmm_plan
 
+  !> FMM state のポインタ成分を未関連状態へ初期化する。
+  !! @param[inout] state 初期化対象の FMM state。
+  subroutine initialize_fmm_state(state)
+    type(fmm_state_type), intent(inout) :: state
+
+    nullify (state%src_q)
+    nullify (state%multipole)
+    nullify (state%local)
+    nullify (state%multipole_active)
+    nullify (state%local_active)
+    state%ready = .false.
+    state%update_count = 0_i32
+  end subroutine initialize_fmm_state
+
   !> FMM state を初期状態へ戻す。
   !! @param[inout] state リセット対象の FMM state。
   subroutine reset_fmm_state(state)
     type(fmm_state_type), intent(inout) :: state
 
-    if (allocated(state%src_q)) deallocate (state%src_q)
-    if (allocated(state%multipole)) deallocate (state%multipole)
-    if (allocated(state%local)) deallocate (state%local)
-    if (allocated(state%multipole_active)) deallocate (state%multipole_active)
-    if (allocated(state%local_active)) deallocate (state%local_active)
-    state%ready = .false.
-    state%update_count = 0_i32
-    state%profile_enabled = .false.
-    state%eval_count = 0_i32
-    state%eval_local_count = 0_i32
-    state%eval_fallback_count = 0_i32
-    state%eval_ewald_count = 0_i32
-    state%eval_near_source_count = 0_i64
-    state%eval_direct_kernel_count = 0_i64
-    state%eval_locate_time_s = 0.0d0
-    state%eval_local_time_s = 0.0d0
-    state%eval_near_time_s = 0.0d0
-    state%eval_fallback_time_s = 0.0d0
-    state%eval_ewald_time_s = 0.0d0
+    if (associated(state%src_q)) deallocate (state%src_q)
+    if (associated(state%multipole)) deallocate (state%multipole)
+    if (associated(state%local)) deallocate (state%local)
+    if (associated(state%multipole_active)) deallocate (state%multipole_active)
+    if (associated(state%local_active)) deallocate (state%local_active)
+    call initialize_fmm_state(state)
   end subroutine reset_fmm_state
 
 end module bem_coulomb_fmm_types

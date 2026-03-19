@@ -59,11 +59,6 @@ module bem_field_solver
     real(dp), allocatable :: target_node_radius(:)
     integer(i32), allocatable :: near_start(:), near_nodes(:)
     integer(i32), allocatable :: far_start(:), far_nodes(:)
-    integer(i32) :: fmm_m2l_pair_count = 0_i32
-    integer(i32) :: fmm_m2l_build_count = 0_i32
-    integer(i32) :: fmm_m2l_visit_count = 0_i32
-    integer(i32) :: fmm_near_interaction_count = 0_i32
-    integer(i32) :: fmm_far_interaction_count = 0_i32
     integer(i32), allocatable :: fmm_m2l_target_nodes(:), fmm_m2l_source_nodes(:)
     integer(i32), allocatable :: fmm_m2l_target_start(:), fmm_m2l_pair_order(:)
     integer(i32), allocatable :: fmm_parent_of(:)
@@ -74,25 +69,11 @@ module bem_field_solver
     real(dp), allocatable :: leaf_far_e0(:, :)
     real(dp), allocatable :: leaf_far_jac(:, :, :)
     real(dp), allocatable :: leaf_far_hess(:, :, :, :)
-    logical :: fmm_profile_enabled = .false.
-    integer(i32) :: fmm_refresh_count = 0_i32
-    real(dp) :: fmm_last_moment_time_s = 0.0d0
-    real(dp) :: fmm_last_clear_time_s = 0.0d0
-    real(dp) :: fmm_last_m2l_time_s = 0.0d0
-    real(dp) :: fmm_last_l2l_time_s = 0.0d0
-    real(dp) :: fmm_last_copy_time_s = 0.0d0
-    real(dp) :: fmm_last_refresh_time_s = 0.0d0
-    real(dp) :: fmm_total_moment_time_s = 0.0d0
-    real(dp) :: fmm_total_clear_time_s = 0.0d0
-    real(dp) :: fmm_total_m2l_time_s = 0.0d0
-    real(dp) :: fmm_total_l2l_time_s = 0.0d0
-    real(dp) :: fmm_total_copy_time_s = 0.0d0
-    real(dp) :: fmm_total_refresh_time_s = 0.0d0
     logical :: fmm_use_core = .false.
     logical :: fmm_core_ready = .false.
     type(fmm_options_type) :: fmm_core_options = fmm_options_type()
-    type(fmm_plan_type) :: fmm_core_plan
-    type(fmm_state_type) :: fmm_core_state
+    type(fmm_plan_type) :: fmm_core_plan = fmm_plan_type()
+    type(fmm_state_type) :: fmm_core_state = fmm_state_type()
   contains
     procedure :: init => init_field_solver
     procedure :: refresh => refresh_field_solver
@@ -193,16 +174,6 @@ module bem_field_solver
       type(mesh_type), intent(in) :: mesh
       real(dp), allocatable, intent(out) :: src_pos(:, :)
     end subroutine build_core_source_positions
-
-    !> core FMM plan 由来の pair 数・near/far 統計値を solver へ同期する。
-    module subroutine sync_core_plan_stats(self)
-      class(field_solver_type), intent(inout) :: self
-    end subroutine sync_core_plan_stats
-
-    !> OpenMP 有効時は `omp_get_wtime`、それ以外は `cpu_time` を返す簡易タイマ。
-    module function field_solver_time_seconds() result(time_s)
-      real(dp) :: time_s
-    end function field_solver_time_seconds
 
     !> ASCII英字を小文字化する。
     pure module function lower_ascii(s) result(out)

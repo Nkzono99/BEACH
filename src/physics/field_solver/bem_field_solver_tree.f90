@@ -1,7 +1,6 @@
 !> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule(bem_field_solver) bem_field_solver_tree
   use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
-  use bem_performance_profile, only: perf_wall_time_seconds
   implicit none
 contains
 
@@ -11,14 +10,12 @@ contains
   integer(i32) :: p, idx, p_end
   integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
   real(dp) :: q, abs_q, qx, qy, qz, qi
-  real(dp) :: t_moment_start, t_moment_end
   real(dp), allocatable :: src_pos(:, :)
   logical :: plan_view_dirty
 
   if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
 
   if (trim(self%mode) == 'fmm') then
-    t_moment_start = field_solver_time_seconds()
     self%fmm_use_core = .true.
     plan_view_dirty = .false.
     if (mesh%nelem <= 0_i32) then
@@ -27,13 +24,6 @@ contains
       self%fmm_core_ready = .false.
       plan_view_dirty = .true.
       call sync_core_plan_view(self)
-      call sync_core_plan_stats(self)
-      self%fmm_last_moment_time_s = 0.0d0
-      self%fmm_last_clear_time_s = 0.0d0
-      self%fmm_last_m2l_time_s = 0.0d0
-      self%fmm_last_l2l_time_s = 0.0d0
-      self%fmm_last_copy_time_s = 0.0d0
-      self%fmm_last_refresh_time_s = 0.0d0
       return
     end if
 
@@ -47,8 +37,6 @@ contains
     end if
 
     call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
-    self%fmm_core_state%profile_enabled = self%fmm_profile_enabled
-    t_moment_end = field_solver_time_seconds()
     self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
     self%tree_ready = self%fmm_core_plan%built
     self%fmm_ready = self%fmm_core_state%ready
@@ -56,16 +44,7 @@ contains
     self%target_tree_ready = self%fmm_core_plan%target_tree_ready
     if (plan_view_dirty) then
       call sync_core_plan_view(self)
-      call sync_core_plan_stats(self)
     end if
-    self%fmm_last_moment_time_s = 0.0d0
-    self%fmm_last_clear_time_s = 0.0d0
-    self%fmm_last_m2l_time_s = 0.0d0
-    self%fmm_last_l2l_time_s = 0.0d0
-    self%fmm_last_copy_time_s = 0.0d0
-    self%fmm_last_refresh_time_s = t_moment_end - t_moment_start
-    self%fmm_total_refresh_time_s = self%fmm_total_refresh_time_s + self%fmm_last_refresh_time_s
-    self%fmm_refresh_count = self%fmm_refresh_count + 1_i32
     return
   end if
 
@@ -80,7 +59,6 @@ contains
     call rebuild_source_level_cache(self)
   end if
 
-  if (trim(self%mode) == 'fmm') t_moment_start = field_solver_time_seconds()
   do depth = self%node_max_depth, 0_i32, -1_i32
     level_start_pos = self%node_level_start(depth + 1_i32)
     level_end_pos = self%node_level_start(depth + 2_i32) - 1_i32
@@ -137,10 +115,6 @@ contains
     end do
     !$omp end parallel do
   end do
-  if (trim(self%mode) == 'fmm') then
-    t_moment_end = field_solver_time_seconds()
-    self%fmm_last_moment_time_s = t_moment_end - t_moment_start
-  end if
 
   self%fmm_ready = .false.
   end procedure refresh_field_solver
@@ -418,24 +392,6 @@ contains
   self%tree_ready = .false.
   self%fmm_ready = .false.
   self%nelem = 0_i32
-  self%fmm_m2l_pair_count = 0_i32
-  self%fmm_m2l_build_count = 0_i32
-  self%fmm_m2l_visit_count = 0_i32
-  self%fmm_near_interaction_count = 0_i32
-  self%fmm_far_interaction_count = 0_i32
-  self%fmm_refresh_count = 0_i32
-  self%fmm_last_moment_time_s = 0.0d0
-  self%fmm_last_clear_time_s = 0.0d0
-  self%fmm_last_m2l_time_s = 0.0d0
-  self%fmm_last_l2l_time_s = 0.0d0
-  self%fmm_last_copy_time_s = 0.0d0
-  self%fmm_last_refresh_time_s = 0.0d0
-  self%fmm_total_moment_time_s = 0.0d0
-  self%fmm_total_clear_time_s = 0.0d0
-  self%fmm_total_m2l_time_s = 0.0d0
-  self%fmm_total_l2l_time_s = 0.0d0
-  self%fmm_total_copy_time_s = 0.0d0
-  self%fmm_total_refresh_time_s = 0.0d0
   self%fmm_use_core = .false.
   self%fmm_core_ready = .false.
   self%fmm_core_options = fmm_options_type()
@@ -453,9 +409,6 @@ contains
   self%target_max_node = self%fmm_core_plan%target_max_node
   self%target_nnode = self%fmm_core_plan%target_nnode
   self%target_node_max_depth = self%fmm_core_plan%target_node_max_depth
-  self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
-  self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
-  self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
 
   call copy_i32_1d(self%elem_order, self%fmm_core_plan%elem_order)
   call copy_i32_1d(self%node_start, self%fmm_core_plan%node_start)
@@ -557,25 +510,5 @@ contains
     src_pos(:, idx) = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
   end do
   end procedure build_core_source_positions
-
-  module procedure sync_core_plan_stats
-  self%fmm_m2l_pair_count = self%fmm_core_plan%m2l_pair_count
-  self%fmm_m2l_build_count = self%fmm_core_plan%m2l_build_count
-  self%fmm_m2l_visit_count = self%fmm_core_plan%m2l_visit_count
-  if (allocated(self%fmm_core_plan%near_nodes)) then
-    self%fmm_near_interaction_count = int(size(self%fmm_core_plan%near_nodes), i32)
-  else
-    self%fmm_near_interaction_count = 0_i32
-  end if
-  if (allocated(self%fmm_core_plan%far_nodes)) then
-    self%fmm_far_interaction_count = int(size(self%fmm_core_plan%far_nodes), i32)
-  else
-    self%fmm_far_interaction_count = 0_i32
-  end if
-  end procedure sync_core_plan_stats
-
-  module procedure field_solver_time_seconds
-  time_s = perf_wall_time_seconds()
-  end procedure field_solver_time_seconds
 
 end submodule bem_field_solver_tree

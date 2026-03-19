@@ -1,6 +1,6 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
-  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
+  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type, fmm_state_type
   implicit none
 contains
 
@@ -11,6 +11,8 @@ contains
   real(dp) :: span
   real(dp), allocatable :: src_pos(:, :)
 
+  self%fmm_core_plan = fmm_plan_type()
+  self%fmm_core_state = fmm_state_type()
   call destroy_plan(self%fmm_core_plan)
   call destroy_state(self%fmm_core_state)
   self%fmm_use_core = .false.
@@ -29,25 +31,6 @@ contains
   self%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
   self%target_box_min = 0.0d0
   self%target_box_max = 0.0d0
-  self%fmm_profile_enabled = env_flag_enabled('BEACH_FMM_PROFILE')
-  self%fmm_m2l_pair_count = 0_i32
-  self%fmm_m2l_build_count = 0_i32
-  self%fmm_m2l_visit_count = 0_i32
-  self%fmm_near_interaction_count = 0_i32
-  self%fmm_far_interaction_count = 0_i32
-  self%fmm_refresh_count = 0_i32
-  self%fmm_last_moment_time_s = 0.0d0
-  self%fmm_last_clear_time_s = 0.0d0
-  self%fmm_last_m2l_time_s = 0.0d0
-  self%fmm_last_l2l_time_s = 0.0d0
-  self%fmm_last_copy_time_s = 0.0d0
-  self%fmm_last_refresh_time_s = 0.0d0
-  self%fmm_total_moment_time_s = 0.0d0
-  self%fmm_total_clear_time_s = 0.0d0
-  self%fmm_total_m2l_time_s = 0.0d0
-  self%fmm_total_l2l_time_s = 0.0d0
-  self%fmm_total_copy_time_s = 0.0d0
-  self%fmm_total_refresh_time_s = 0.0d0
 
   requested_mode = lower_ascii(trim(sim%field_solver))
   field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
@@ -163,12 +146,9 @@ contains
       call build_core_source_positions(mesh, src_pos)
       call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
       call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
-      self%fmm_core_state%profile_enabled = self%fmm_profile_enabled
       deallocate (src_pos)
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
       call sync_core_plan_view(self)
-      call sync_core_plan_stats(self)
-      self%fmm_refresh_count = 1_i32
     end if
     return
   end if
@@ -211,21 +191,5 @@ contains
     end if
   end do
   end procedure lower_ascii
-
-  logical function env_flag_enabled(name)
-    character(len=*), intent(in) :: name
-    character(len=32) :: value
-    integer :: status, value_len
-
-    env_flag_enabled = .false.
-    value = ''
-    call get_environment_variable(name, value, length=value_len, status=status)
-    if (status /= 0) return
-
-    select case (trim(lower_ascii(value(1:value_len))))
-    case ('1', 'true', 'yes', 'on')
-      env_flag_enabled = .true.
-    end select
-  end function env_flag_enabled
 
 end submodule bem_field_solver_config

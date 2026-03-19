@@ -20,7 +20,6 @@ export OMP_NUM_THREADS="${THREADS_PER_RANK}"
 export OMP_PROC_BIND=spread
 export OMP_PLACES=cores
 export BEACH_PROFILE="${BEACH_PROFILE:-1}"
-export BEACH_PROFILE_DETAIL="${BEACH_PROFILE_DETAIL:-0}"
 
 CONFIG_PATH="${CONFIG_PATH:-beach.toml}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/latest}"

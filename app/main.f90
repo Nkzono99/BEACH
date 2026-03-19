@@ -200,34 +200,6 @@ contains
     print '(a,i0)', 'escaped_boundary=', stats%escaped_boundary
     print '(a,i0)', 'survived_max_step=', stats%survived_max_step
     print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
-    print '(a,es12.4)', 'field_time_s=', stats%field_time_s
-    print '(a,es12.4)', 'push_time_s=', stats%push_time_s
-    print '(a,es12.4)', 'collision_time_s=', stats%collision_time_s
-    if (stats%fmm_nnode > 0_i32 .or. stats%fmm_refresh_count > 0_i32) then
-      print '(a,i0)', 'fmm_profile_enabled=', stats%fmm_profile_enabled
-      print '(a,i0)', 'fmm_nnode=', stats%fmm_nnode
-      print '(a,i0)', 'fmm_target_nnode=', stats%fmm_target_nnode
-      print '(a,i0)', 'fmm_m2l_pair_count=', stats%fmm_m2l_pair_count
-      print '(a,i0)', 'fmm_m2l_build_count=', stats%fmm_m2l_build_count
-      print '(a,i0)', 'fmm_m2l_visit_count=', stats%fmm_m2l_visit_count
-      print '(a,i0)', 'fmm_near_interaction_count=', stats%fmm_near_interaction_count
-      print '(a,i0)', 'fmm_far_interaction_count=', stats%fmm_far_interaction_count
-      print '(a,i0)', 'fmm_refresh_count=', stats%fmm_refresh_count
-      print '(a,es12.4)', 'fmm_total_refresh_time_s=', stats%fmm_total_refresh_time_s
-      if (stats%fmm_profile_enabled /= 0_i32) then
-        print '(a,i0)', 'fmm_eval_count=', stats%fmm_eval_count
-        print '(a,i0)', 'fmm_eval_local_count=', stats%fmm_eval_local_count
-        print '(a,i0)', 'fmm_eval_fallback_count=', stats%fmm_eval_fallback_count
-        print '(a,i0)', 'fmm_eval_ewald_count=', stats%fmm_eval_ewald_count
-        print '(a,i0)', 'fmm_eval_near_source_count=', stats%fmm_eval_near_source_count
-        print '(a,i0)', 'fmm_eval_direct_kernel_count=', stats%fmm_eval_direct_kernel_count
-        print '(a,es12.4)', 'fmm_eval_locate_time_s=', stats%fmm_eval_locate_time_s
-        print '(a,es12.4)', 'fmm_eval_local_time_s=', stats%fmm_eval_local_time_s
-        print '(a,es12.4)', 'fmm_eval_near_time_s=', stats%fmm_eval_near_time_s
-        print '(a,es12.4)', 'fmm_eval_fallback_time_s=', stats%fmm_eval_fallback_time_s
-        print '(a,es12.4)', 'fmm_eval_ewald_time_s=', stats%fmm_eval_ewald_time_s
-      end if
-    end if
     print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
   end subroutine print_run_summary
 
@@ -289,32 +261,6 @@ contains
     write (u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
     write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
     write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
-    write (u, '(a,es24.16)') 'field_time_s=', stats%field_time_s
-    write (u, '(a,es24.16)') 'push_time_s=', stats%push_time_s
-    write (u, '(a,es24.16)') 'collision_time_s=', stats%collision_time_s
-    if (stats%fmm_nnode > 0_i32 .or. stats%fmm_refresh_count > 0_i32 .or. stats%fmm_profile_enabled /= 0_i32) then
-      write (u, '(a,i0)') 'fmm_profile_enabled=', stats%fmm_profile_enabled
-      write (u, '(a,i0)') 'fmm_nnode=', stats%fmm_nnode
-      write (u, '(a,i0)') 'fmm_target_nnode=', stats%fmm_target_nnode
-      write (u, '(a,i0)') 'fmm_m2l_pair_count=', stats%fmm_m2l_pair_count
-      write (u, '(a,i0)') 'fmm_m2l_build_count=', stats%fmm_m2l_build_count
-      write (u, '(a,i0)') 'fmm_m2l_visit_count=', stats%fmm_m2l_visit_count
-      write (u, '(a,i0)') 'fmm_near_interaction_count=', stats%fmm_near_interaction_count
-      write (u, '(a,i0)') 'fmm_far_interaction_count=', stats%fmm_far_interaction_count
-      write (u, '(a,i0)') 'fmm_refresh_count=', stats%fmm_refresh_count
-      write (u, '(a,es24.16)') 'fmm_total_refresh_time_s=', stats%fmm_total_refresh_time_s
-      write (u, '(a,i0)') 'fmm_eval_count=', stats%fmm_eval_count
-      write (u, '(a,i0)') 'fmm_eval_local_count=', stats%fmm_eval_local_count
-      write (u, '(a,i0)') 'fmm_eval_fallback_count=', stats%fmm_eval_fallback_count
-      write (u, '(a,i0)') 'fmm_eval_ewald_count=', stats%fmm_eval_ewald_count
-      write (u, '(a,i0)') 'fmm_eval_near_source_count=', stats%fmm_eval_near_source_count
-      write (u, '(a,i0)') 'fmm_eval_direct_kernel_count=', stats%fmm_eval_direct_kernel_count
-      write (u, '(a,es24.16)') 'fmm_eval_locate_time_s=', stats%fmm_eval_locate_time_s
-      write (u, '(a,es24.16)') 'fmm_eval_local_time_s=', stats%fmm_eval_local_time_s
-      write (u, '(a,es24.16)') 'fmm_eval_near_time_s=', stats%fmm_eval_near_time_s
-      write (u, '(a,es24.16)') 'fmm_eval_fallback_time_s=', stats%fmm_eval_fallback_time_s
-      write (u, '(a,es24.16)') 'fmm_eval_ewald_time_s=', stats%fmm_eval_ewald_time_s
-    end if
     close (u)
   end subroutine write_summary_file
 

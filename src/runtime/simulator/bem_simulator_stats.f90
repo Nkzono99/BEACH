@@ -31,9 +31,6 @@ contains
   stats%escaped = stats%escaped + batch_counts(3)
   stats%escaped_boundary = stats%escaped_boundary + batch_counts(4)
   stats%survived_max_step = stats%survived_max_step + batch_counts(5)
-  stats%field_time_s = stats%field_time_s + field_time_s
-  stats%push_time_s = stats%push_time_s + push_time_s
-  stats%collision_time_s = stats%collision_time_s + collision_time_s
   end procedure accumulate_batch_stats
 
 end submodule bem_simulator_stats

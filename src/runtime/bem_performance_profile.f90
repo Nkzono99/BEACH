@@ -25,10 +25,7 @@ module bem_performance_profile
   integer(i32), parameter, public :: perf_region_history_write = 14_i32
   integer(i32), parameter, public :: perf_region_write_results = 15_i32
   integer(i32), parameter, public :: perf_region_write_checkpoint = 16_i32
-  integer(i32), parameter, public :: perf_region_particle_field_eval = 17_i32
-  integer(i32), parameter, public :: perf_region_particle_push = 18_i32
-  integer(i32), parameter, public :: perf_region_particle_collision = 19_i32
-  integer(i32), parameter, public :: perf_region_count = 19_i32
+  integer(i32), parameter, public :: perf_region_count = 16_i32
 
   type :: perf_region_stats
     real(dp) :: total_s = 0.0d0
@@ -37,7 +34,6 @@ module bem_performance_profile
 
   type :: perf_state_type
     logical :: enabled = .false.
-    logical :: detail_enabled = .false.
     logical :: write_files = .false.
     integer(i32) :: omp_max_threads = 1_i32
     character(len=1024) :: output_dir = ''
@@ -62,10 +58,7 @@ module bem_performance_profile
                                                                           'stats_update', &
                                                                           'history_write', &
                                                                           'write_results', &
-                                                                          'write_checkpoint', &
-                                                                          'particle_field_eval', &
-                                                                          'particle_push', &
-                                                                          'particle_collision' &
+                                                                          'write_checkpoint' &
                                                                           ]
 
   public :: perf_reset
@@ -73,7 +66,6 @@ module bem_performance_profile
   public :: perf_configure_from_env
   public :: perf_set_output_context
   public :: perf_is_enabled
-  public :: perf_is_detail_enabled
   public :: perf_wall_time_seconds
   public :: perf_region_begin
   public :: perf_region_end
@@ -88,24 +80,21 @@ contains
   end subroutine perf_reset
 
   !> 明示フラグで計測状態を設定する。
-  subroutine perf_configure(enabled, detail_enabled)
+  subroutine perf_configure(enabled)
     logical, intent(in) :: enabled
-    logical, intent(in) :: detail_enabled
 
     call perf_reset()
-    perf_state%enabled = enabled .or. detail_enabled
-    perf_state%detail_enabled = detail_enabled
+    perf_state%enabled = enabled
     perf_state%omp_max_threads = 1_i32
 !$  perf_state%omp_max_threads = int(max(1, omp_get_max_threads()), i32)
   end subroutine perf_configure
 
-  !> 環境変数 `BEACH_PROFILE` / `BEACH_PROFILE_DETAIL` から計測状態を初期化する。
+  !> 環境変数 `BEACH_PROFILE` から計測状態を初期化する。
   subroutine perf_configure_from_env()
-    logical :: enabled, detail_enabled
+    logical :: enabled
 
     enabled = env_flag_enabled('BEACH_PROFILE')
-    detail_enabled = env_flag_enabled('BEACH_PROFILE_DETAIL')
-    call perf_configure(enabled, detail_enabled)
+    call perf_configure(enabled)
   end subroutine perf_configure_from_env
 
   !> 出力先ディレクトリとファイル書き出し可否を登録する。
@@ -122,11 +111,6 @@ contains
   logical function perf_is_enabled()
     perf_is_enabled = perf_state%enabled
   end function perf_is_enabled
-
-  !> 詳細計測が有効かを返す。
-  logical function perf_is_detail_enabled()
-    perf_is_detail_enabled = perf_state%detail_enabled
-  end function perf_is_detail_enabled
 
   !> OpenMP有効時は `omp_get_wtime`、それ以外は `system_clock` を使う壁時計。
   real(dp) function perf_wall_time_seconds()
@@ -214,10 +198,10 @@ contains
 
     if (.not. mpi_is_root(mpi)) return
 
-    write (output_unit, '(a,es12.4,a,es12.4,a,i0,a,i0,a,l1)') &
+    write (output_unit, '(a,es12.4,a,es12.4,a,i0,a,i0)') &
       'performance: program_total(rank_max)=', total_max(perf_region_program_total), &
       ' simulation_total(rank_max)=', total_max(perf_region_simulation_total), &
-      ' mpi=', world_size, ' omp=', perf_state%omp_max_threads, ' detail=', perf_state%detail_enabled
+      ' mpi=', world_size, ' omp=', perf_state%omp_max_threads
 
     if (.not. perf_state%write_files .or. len_trim(perf_state%output_dir) == 0) then
       flush (output_unit)
@@ -231,7 +215,6 @@ contains
     write (u, '(a)') '# BEACH performance profile'
     write (u, '(a,i0)') '# mpi_world_size=', world_size
     write (u, '(a,i0)') '# omp_max_threads=', perf_state%omp_max_threads
-    write (u, '(a,l1)') '# detail_enabled=', perf_state%detail_enabled
     write (u, '(a)') '# use rank_max_s of simulation_total for scaling comparisons'
     write (u, '(a)') 'region,calls_sum,calls_mean,rank_min_s,rank_mean_s,rank_max_s,imbalance_ratio'
 
