@@ -202,6 +202,27 @@ pytest -q
 fpm test
 ```
 
+### 4.5 Fortran 整形
+
+Fortran の `*.f90` / `*.F90` は `fprettify -i 4` を標準 formatter とします。
+生成バックアップの `*.i90` は整形対象外です。
+
+ローカルで hook を有効にするには:
+
+```bash
+python -m pip install pre-commit
+make install-hooks
+```
+
+手動整形と CI 相当の確認:
+
+```bash
+make fmt-fortran
+make fmt-check-fortran
+```
+
+GitHub Actions でも同じ `pre-commit` 設定を `--all-files` で実行し、整形漏れを検知します。
+
 ## 5. プロジェクト構成
 
 - [`src/`](src/), [`app/`](app/): Fortran 本体

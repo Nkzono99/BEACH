@@ -1,0 +1,11 @@
+repos:
+  - repo: local
+    hooks:
+      - id: fprettify
+        name: fprettify
+        entry: fprettify -i 4
+        language: python
+        additional_dependencies:
+          - fprettify
+        files: \.(f90|F90)$
+        exclude: \.i90$

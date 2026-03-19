@@ -2,6 +2,7 @@
 	install install-local install-auto install-generic install-camphor install-camphor-local \
 	install-intel install-intel-local \
 	build run test \
+	fmt-fortran fmt-check-fortran install-hooks \
 	build-mpi run-mpi test-mpi
 
 FPM ?= fpm
@@ -9,6 +10,8 @@ PROFILE ?= release
 CONFIG ?= beach.toml
 OPENMP_FLAG ?= -fopenmp
 INSTALL_PROFILE ?= auto
+FPRETTIFY ?= fprettify
+PRE_COMMIT ?= pre-commit
 
 MPI_FC ?= mpiifort
 MPI_OPENMP_FLAG ?= -qopenmp
@@ -48,6 +51,16 @@ run:
 
 test:
 	$(FPM) test --profile debug --flag "$(OPENMP_FLAG)"
+
+fmt-fortran:
+	find src app tests/fortran -type f \( -name '*.f90' -o -name '*.F90' \) -exec $(FPRETTIFY) -i 4 {} +
+
+fmt-check-fortran:
+	find src app tests/fortran -type f \( -name '*.f90' -o -name '*.F90' \) -exec $(FPRETTIFY) -i 4 --silent {} +
+	git diff --exit-code -- src app tests/fortran
+
+install-hooks:
+	$(PRE_COMMIT) install
 
 build-mpi:
 	FPM_FC=$(MPI_FC) $(FPM) build --profile $(PROFILE) --flag "$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)"

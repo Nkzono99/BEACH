@@ -51,6 +51,7 @@ Python CLI examples:
 - Python tests: `pytest -q`
 - Python lint: `ruff check .`
 - Fortran tests: `fpm test` (or per-target via `fpm test --target <name>`)
+- Fortran format: `fprettify -i 4` for `*.f90` / `*.F90` (`*.i90` is excluded). Prefer `make fmt-fortran`, `make fmt-check-fortran`, and `pre-commit install`.
 - Do not run multiple `fpm test` commands in parallel. They share the same `build/` directory and can conflict with each other.
 
 ## Coding rules
