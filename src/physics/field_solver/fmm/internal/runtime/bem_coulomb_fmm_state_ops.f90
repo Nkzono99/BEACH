@@ -2,7 +2,8 @@
 module bem_coulomb_fmm_state_ops
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, reset_fmm_state
-  use bem_coulomb_fmm_tree_utils, only: active_tree_nnode
+  use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_level_bounds, &
+                                         active_tree_level_node
   implicit none
   private
 
@@ -231,28 +232,14 @@ contains
     logical :: parent_active, node_active
 
     use_target_tree = plan%target_tree_ready
-    if (use_target_tree) then
-      max_depth = plan%target_node_max_depth
-    else
-      max_depth = plan%node_max_depth
-    end if
+    max_depth = active_tree_max_depth(plan, use_target_tree)
     if (max_depth <= 0_i32) return
 
     do depth = 1_i32, max_depth
-      if (use_target_tree) then
-        level_start_pos = plan%target_level_start(depth + 1_i32)
-        level_end_pos = plan%target_level_start(depth + 2_i32) - 1_i32
-      else
-        level_start_pos = plan%node_level_start(depth + 1_i32)
-        level_end_pos = plan%node_level_start(depth + 2_i32) - 1_i32
-      end if
+      call active_tree_level_bounds(plan, use_target_tree, depth, level_start_pos, level_end_pos)
       !$omp do schedule(static)
       do level_pos = level_start_pos, level_end_pos
-        if (use_target_tree) then
-          node_idx = plan%target_level_nodes(level_pos)
-        else
-          node_idx = plan%node_level_nodes(level_pos)
-        end if
+        node_idx = active_tree_level_node(plan, use_target_tree, level_pos)
         parent_node = plan%parent_of(node_idx)
         if (parent_node <= 0_i32) cycle
         parent_active = state%local_active(parent_node) /= 0_i32

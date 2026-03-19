@@ -1,11 +1,14 @@
 # Fortran Coulomb FMM コア仕様
 
 この文書は、現行 Fortran 実装の Coulomb FMM コア
-[`src/physics/field_solver/fmm/bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/bem_coulomb_fmm_core.f90)
+[`src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90)
 と、その実装を分割した関連ファイル群の仕様とアルゴリズムをまとめたものです。
 
-- 公開 API / 境界: `src/physics/field_solver/fmm/`
-- 内部実装: `src/physics/field_solver/fmm/internal/`
+- 公開 API / 境界: `src/physics/field_solver/fmm/api/`
+- 内部共通実装: `src/physics/field_solver/fmm/internal/common/`
+- tree / plan 実装: `src/physics/field_solver/fmm/internal/tree/`
+- state / eval 実装: `src/physics/field_solver/fmm/internal/runtime/`
+- periodic2 実装: `src/physics/field_solver/fmm/internal/periodic/`
 
 対象は simulator 非依存の内部 API で、`mesh_type` や `sim_config` を直接 `use` しません。
 BEACH 側では field solver adapter がこのコアを呼び出します。
@@ -457,25 +460,25 @@ $$
 主な対応箇所:
 
 - 公開 API / ラッパ:
-  `src/physics/field_solver/fmm/bem_coulomb_fmm_core.f90`,
-  `src/physics/field_solver/fmm/bem_coulomb_fmm_core_build.f90`,
-  `src/physics/field_solver/fmm/bem_coulomb_fmm_core_state.f90`,
-  `src/physics/field_solver/fmm/bem_coulomb_fmm_core_eval.f90`
+  `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90`,
+  `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_build.f90`,
+  `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_state.f90`,
+  `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_eval.f90`
 - shared 型定義:
   `fmm_options_type`, `fmm_plan_type`, `fmm_state_type`
-  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_types.f90`）
+  （`src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90`）
 - plan 構築:
   `build_plan`
-  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_plan_ops.f90`）
+  （`src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90`）
 - charge refresh:
   `update_state`, `p2m_leaf_moments`, `m2m_upward_pass`, `m2l_accumulate`, `l2l_downward_pass`
-  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_state_ops.f90`）
+  （`src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90`）
 - 評価:
   `eval_point`, `eval_points`
-  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_eval_ops.f90`）
+  （`src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90`）
 - periodic2 補助:
   `add_point_charge_images_field`, `wrap_periodic2_point`, `apply_periodic2_minimum_image`
-  （`src/physics/field_solver/fmm/internal/bem_coulomb_fmm_periodic.f90`）
+  （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90`）
 - BEACH adapter:
   `src/physics/field_solver/bem_field_solver_config.f90`,
   `src/physics/field_solver/bem_field_solver_tree.f90`,

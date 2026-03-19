@@ -14,6 +14,9 @@ module bem_coulomb_fmm_tree_utils
   public :: active_tree_node_center
   public :: active_tree_node_half_size
   public :: active_tree_node_radius
+  public :: active_tree_max_depth
+  public :: active_tree_level_bounds
+  public :: active_tree_level_node
   public :: append_i32_buffer
   public :: nodes_well_separated
 
@@ -28,14 +31,14 @@ contains
     if (z >= center(3)) octant_index = octant_index + 4_i32
   end function octant_index
 
-  integer(i32) function active_tree_nnode(plan, use_target_tree)
+  pure integer(i32) function active_tree_nnode(plan, use_target_tree)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
 
     active_tree_nnode = merge(plan%target_nnode, plan%nnode, use_target_tree)
   end function active_tree_nnode
 
-  integer(i32) function active_tree_child_count(plan, use_target_tree, node_idx)
+  pure integer(i32) function active_tree_child_count(plan, use_target_tree, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
     integer(i32), intent(in) :: node_idx
@@ -47,7 +50,7 @@ contains
     end if
   end function active_tree_child_count
 
-  integer(i32) function active_tree_child_idx(plan, use_target_tree, child_k, node_idx)
+  pure integer(i32) function active_tree_child_idx(plan, use_target_tree, child_k, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
     integer(i32), intent(in) :: child_k, node_idx
@@ -59,7 +62,7 @@ contains
     end if
   end function active_tree_child_idx
 
-  integer(i32) function active_tree_child_octant(plan, use_target_tree, child_k, node_idx)
+  pure integer(i32) function active_tree_child_octant(plan, use_target_tree, child_k, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
     integer(i32), intent(in) :: child_k, node_idx
@@ -71,7 +74,7 @@ contains
     end if
   end function active_tree_child_octant
 
-  function active_tree_node_center(plan, use_target_tree, node_idx) result(center)
+  pure function active_tree_node_center(plan, use_target_tree, node_idx) result(center)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
     integer(i32), intent(in) :: node_idx
@@ -84,7 +87,7 @@ contains
     end if
   end function active_tree_node_center
 
-  function active_tree_node_half_size(plan, use_target_tree, node_idx) result(half_size)
+  pure function active_tree_node_half_size(plan, use_target_tree, node_idx) result(half_size)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
     integer(i32), intent(in) :: node_idx
@@ -97,7 +100,7 @@ contains
     end if
   end function active_tree_node_half_size
 
-  real(dp) function active_tree_node_radius(plan, use_target_tree, node_idx)
+  pure real(dp) function active_tree_node_radius(plan, use_target_tree, node_idx)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
     integer(i32), intent(in) :: node_idx
@@ -108,6 +111,40 @@ contains
       active_tree_node_radius = plan%node_radius(node_idx)
     end if
   end function active_tree_node_radius
+
+  pure integer(i32) function active_tree_max_depth(plan, use_target_tree)
+    type(fmm_plan_type), intent(in) :: plan
+    logical, intent(in) :: use_target_tree
+
+    active_tree_max_depth = merge(plan%target_node_max_depth, plan%node_max_depth, use_target_tree)
+  end function active_tree_max_depth
+
+  pure subroutine active_tree_level_bounds(plan, use_target_tree, depth, level_start_pos, level_end_pos)
+    type(fmm_plan_type), intent(in) :: plan
+    logical, intent(in) :: use_target_tree
+    integer(i32), intent(in) :: depth
+    integer(i32), intent(out) :: level_start_pos, level_end_pos
+
+    if (use_target_tree) then
+      level_start_pos = plan%target_level_start(depth + 1_i32)
+      level_end_pos = plan%target_level_start(depth + 2_i32) - 1_i32
+    else
+      level_start_pos = plan%node_level_start(depth + 1_i32)
+      level_end_pos = plan%node_level_start(depth + 2_i32) - 1_i32
+    end if
+  end subroutine active_tree_level_bounds
+
+  pure integer(i32) function active_tree_level_node(plan, use_target_tree, level_pos)
+    type(fmm_plan_type), intent(in) :: plan
+    logical, intent(in) :: use_target_tree
+    integer(i32), intent(in) :: level_pos
+
+    if (use_target_tree) then
+      active_tree_level_node = plan%target_level_nodes(level_pos)
+    else
+      active_tree_level_node = plan%node_level_nodes(level_pos)
+    end if
+  end function active_tree_level_node
 
   subroutine append_i32_buffer(buf, n_used, capacity, value)
     integer(i32), allocatable, intent(inout) :: buf(:)
@@ -132,14 +169,11 @@ contains
     type(fmm_plan_type), intent(in) :: plan
     integer(i32), intent(in) :: target_node, source_node
     real(dp) :: d(3), dist2, rs, rt, theta_eff, lhs, rhs, target_center(3)
+    logical :: use_target_tree
 
-    if (plan%target_tree_ready) then
-      target_center = plan%target_node_center(:, target_node)
-      rt = plan%target_node_radius(target_node)
-    else
-      target_center = plan%node_center(:, target_node)
-      rt = plan%node_radius(target_node)
-    end if
+    use_target_tree = plan%target_tree_ready
+    target_center = active_tree_node_center(plan, use_target_tree, target_node)
+    rt = active_tree_node_radius(plan, use_target_tree, target_node)
 
     d = target_center - plan%node_center(:, source_node)
     call apply_periodic2_minimum_image(plan, d)

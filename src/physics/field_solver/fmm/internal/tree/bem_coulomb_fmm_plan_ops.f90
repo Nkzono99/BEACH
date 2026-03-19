@@ -895,11 +895,8 @@ contains
     do node_idx = 1_i32, n_target_nodes
       parent_node = plan%parent_of(node_idx)
       if (parent_node <= 0_i32) cycle
-      if (plan%target_tree_ready) then
-        d = plan%target_node_center(:, node_idx) - plan%target_node_center(:, parent_node)
-      else
-        d = plan%node_center(:, node_idx) - plan%node_center(:, parent_node)
-      end if
+      d = active_tree_node_center(plan, plan%target_tree_ready, node_idx) - &
+          active_tree_node_center(plan, plan%target_tree_ready, parent_node)
       call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
       do delta_idx = 1_i32, plan%ncoef
         plan%target_shift_monomial(delta_idx, node_idx) = xpow(plan%alpha(1, delta_idx)) * ypow(plan%alpha(2, delta_idx)) &
@@ -981,14 +978,11 @@ contains
     real(dp), intent(in) :: shift1, shift2
     real(dp) :: d(3), rs, rt, lhs, rhs, theta_eff, target_center(3), shifted_center(3)
     integer(i32) :: axis1, axis2
+    logical :: use_target_tree
 
-    if (plan%target_tree_ready) then
-      target_center = plan%target_node_center(:, target_node)
-      rt = plan%target_node_radius(target_node)
-    else
-      target_center = plan%node_center(:, target_node)
-      rt = plan%node_radius(target_node)
-    end if
+    use_target_tree = plan%target_tree_ready
+    target_center = active_tree_node_center(plan, use_target_tree, target_node)
+    rt = active_tree_node_radius(plan, use_target_tree, target_node)
 
     shifted_center = plan%node_center(:, source_node)
     axis1 = 0_i32
