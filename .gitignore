@@ -229,3 +229,5 @@ test_*_tmp.obj
 test_*_tmp.csv
 test_*_tmp/
 .lint/
+
+ref/
