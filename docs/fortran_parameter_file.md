@@ -93,9 +93,9 @@ history_stride = 1
 | `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
 | `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放） |
 | `field_periodic_image_layers` | int | `1` | `field_bc_mode="periodic2"` の近傍画像層数。各周期軸で `[-N, N]` の有限画像和を計算（`N>=0`） |
-| `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正モード。`none` / `ewald_like` / `ewald` / `m2l_root`。`ewald_like` は近傍画像外を erfc スクリーン核で近似補正し、`ewald` は 2D periodic Ewald 和の実空間項・逆空間項・`k=0` 項で補正し、`m2l_root` は近傍画像殻の外側を root periodic M2L 演算子として plan 構築時に前計算して runtime では root local へ注入 |
-| `field_periodic_ewald_alpha` | float | `0.0` | `ewald_like` / `ewald` の分割係数。`>0` なら固定値、`0` は自動設定。`m2l_root` では未使用 |
-| `field_periodic_ewald_layers` | int | `4` | `ewald_like` / `ewald` の打切り層数。実空間では `field_periodic_image_layers + field_periodic_ewald_layers` まで、`ewald` の逆空間では各周期軸の Fourier index `[-L, L]` までを評価。`m2l_root` では root periodic operator に畳み込む外側画像殻の深さとして使う（`>=0`） |
+| `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正モード。推奨は `m2l_root_trunc`。`none` は後方互換のため受理しつつ `field_solver="fmm"` かつ `field_bc_mode="periodic2"` では runtime で `m2l_root_trunc` に正規化する。legacy な `m2l_root` も `m2l_root_trunc` の alias として受理する。`m2l_root_trunc` は近傍画像殻の外側を truncated far-image root operator として plan 構築時に前計算し、runtime では root local へ注入する |
+| `field_periodic_ewald_alpha` | float | `0.0` | 予約キー。現行の `periodic2` 実装では未使用 |
+| `field_periodic_ewald_layers` | int | `4` | 名前は legacy だが、現行では `m2l_root_trunc` の外側画像殻深さとして使う。`field_periodic_image_layers = N` と合わせて `N < max(|i|,|j|) <= N + field_periodic_ewald_layers` の画像殻を truncated root operator に畳み込む（`>=0`、`m2l_root_trunc` 有効時は実質 `>=1`） |
 | `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ（`0 < theta <= 1`、`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数（`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切替える要素数しきい値 |

@@ -39,10 +39,12 @@ def compute_potential_mesh(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"``, ``"ewald_like"``, ``"ewald"``, or ``"m2l_root"``), ``ewald_alpha``
-        (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
+        ``far_correction`` (``"none"``, ``"m2l_root"``, or ``"m2l_root_trunc"``), ``ewald_alpha``
+        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
-        ``sim.field_bc_mode="periodic2"`` なら自動適用する。
+        ``sim.field_bc_mode="periodic2"`` なら自動適用する。この自動判定では
+        Fortran 実行時と合わせて ``far_correction="none"`` や legacy な ``"m2l_root"`` は
+        ``"m2l_root_trunc"`` とみなす。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。``"species1_injection_center"`` は
         ``particles.species[0]`` の注入面中心を使う。
@@ -120,8 +122,8 @@ def compute_potential_points(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"``, ``"ewald_like"``, ``"ewald"``, or ``"m2l_root"``), ``ewald_alpha``
-        (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
+        ``far_correction`` (``"none"``, ``"m2l_root"``, or ``"m2l_root_trunc"``), ``ewald_alpha``
+        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。
@@ -460,7 +462,7 @@ def _compute_potential_points_periodic2(
         int,
     ],
 ) -> np.ndarray:
-    axes, lengths, origins, nimg, far_correction, alpha, ewald_layers = periodic2
+    axes, lengths, origins, nimg, far_correction, _alpha, ewald_layers = periodic2
     axis1, axis2 = axes
     l1, l2 = lengths
     eps2 = softening * softening
@@ -485,7 +487,7 @@ def _compute_potential_points_periodic2(
                 inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
                 potential[start:stop] += inv_r @ charges
 
-    if far_correction in {"ewald_like", "ewald"}:
+    if far_correction == "m2l_root_trunc":
         img_outer = nimg + ewald_layers
         for ix in range(-img_outer, img_outer + 1):
             for iy in range(-img_outer, img_outer + 1):
@@ -498,9 +500,8 @@ def _compute_potential_points_periodic2(
                     stop = min(start + chunk_size, points.shape[0])
                     delta = wrapped_points[start:stop, None, :] - shifted[None, :, :]
                     dist2 = np.sum(delta * delta, axis=2) + eps2
-                    r = np.sqrt(np.maximum(dist2, min_dist2))
-                    kernel = np.erfc(alpha * r) / r
-                    potential[start:stop] += kernel @ charges
+                    inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
+                    potential[start:stop] += inv_r @ charges
 
     return potential
 
@@ -521,7 +522,7 @@ def _compute_potential_mesh_periodic2(
         int,
     ],
 ) -> np.ndarray:
-    axes, lengths, origins, nimg, far_correction, alpha, ewald_layers = periodic2
+    axes, lengths, origins, nimg, far_correction, _alpha, ewald_layers = periodic2
     axis1, axis2 = axes
     l1, l2 = lengths
     eps2 = softening * softening
@@ -553,7 +554,7 @@ def _compute_potential_mesh_periodic2(
             inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
             potential += inv_r @ charges
 
-    if far_correction in {"ewald_like", "ewald"}:
+    if far_correction == "m2l_root_trunc":
         img_outer = nimg + ewald_layers
         for ix in range(-img_outer, img_outer + 1):
             for iy in range(-img_outer, img_outer + 1):
@@ -564,9 +565,8 @@ def _compute_potential_mesh_periodic2(
                 shifted[:, axis2] += float(iy) * l2
                 delta = target_centers[:, None, :] - shifted[None, :, :]
                 dist2 = np.sum(delta * delta, axis=2) + eps2
-                r = np.sqrt(np.maximum(dist2, min_dist2))
-                kernel = np.erfc(alpha * r) / r
-                potential += kernel @ charges
+                inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
+                potential += inv_r @ charges
 
     return potential
 
@@ -620,20 +620,22 @@ def _coerce_periodic2(
         raise ValueError("periodic2.image_layers must be >= 0.")
 
     far_correction = str(periodic2.get("far_correction", "none")).strip().lower()
-    if far_correction not in {"none", "ewald_like", "ewald", "m2l_root"}:
-        raise ValueError('periodic2.far_correction must be "none", "ewald_like", "ewald", or "m2l_root".')
+    if far_correction not in {"none", "m2l_root", "m2l_root_trunc"}:
+        raise ValueError(
+            'periodic2.far_correction must be "none", "m2l_root", or "m2l_root_trunc".'
+        )
+    if far_correction in {"none", "m2l_root"}:
+        far_correction = "m2l_root_trunc"
 
     alpha = float(periodic2.get("ewald_alpha", 0.0))
     if (not math.isfinite(alpha)) or alpha < 0.0:
         raise ValueError("periodic2.ewald_alpha must be finite and >= 0.")
-    if alpha <= 0.0 and far_correction in {"ewald_like", "ewald"}:
-        alpha = 1.2 / (float(nimg + 1) * min(lengths))
 
     ewald_layers = int(periodic2.get("ewald_layers", 4))
     if ewald_layers < 0:
         raise ValueError("periodic2.ewald_layers must be >= 0.")
-    if far_correction in {"ewald_like", "ewald", "m2l_root"} and ewald_layers < 1:
-        raise ValueError("periodic2.ewald_layers must be >= 1 for ewald_like/ewald/m2l_root.")
+    if far_correction == "m2l_root_trunc" and ewald_layers < 1:
+        raise ValueError("periodic2.ewald_layers must be >= 1 for m2l_root_trunc.")
 
     return axes, lengths, origins, nimg, far_correction, alpha, ewald_layers
 
@@ -852,14 +854,20 @@ def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
     if lengths[0] <= 0.0 or lengths[1] <= 0.0:
         raise ValueError("periodic2 requires positive box length on periodic axes.")
 
+    far_correction = str(sim.get("field_periodic_far_correction", "none")).strip().lower()
+    ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
+    if far_correction in {"none", "m2l_root"}:
+        far_correction = "m2l_root_trunc"
+        ewald_layers = max(1, ewald_layers)
+
     return {
         "axes": tuple(periodic_axes),
         "lengths": tuple(lengths),
         "origins": tuple(box_min[axis] for axis in periodic_axes),
         "image_layers": int(sim.get("field_periodic_image_layers", 1)),
-        "far_correction": str(sim.get("field_periodic_far_correction", "none")),
+        "far_correction": far_correction,
         "ewald_alpha": float(sim.get("field_periodic_ewald_alpha", 0.0)),
-        "ewald_layers": int(sim.get("field_periodic_ewald_layers", 4)),
+        "ewald_layers": ewald_layers,
     }
 
 

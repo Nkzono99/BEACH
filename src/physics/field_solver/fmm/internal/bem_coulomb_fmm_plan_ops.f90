@@ -4,15 +4,12 @@ module bem_coulomb_fmm_plan_ops
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
   use bem_coulomb_fmm_periodic, only: has_valid_target_box, build_periodic_shift_values, distance_to_source_bbox, &
-                                       distance_to_source_bbox_periodic, use_periodic2_m2l_root
+                                       distance_to_source_bbox_periodic, use_periodic2_m2l_root_trunc
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                          active_tree_node_center, active_tree_node_radius, append_i32_buffer, &
                                          nodes_well_separated
   implicit none
   private
-
-  real(dp), parameter :: pi_dp = acos(-1.0d0)
-  real(dp), parameter :: two_pi_dp = 2.0d0 * pi_dp
 
   public :: core_build_plan_impl
   public :: core_destroy_plan_impl
@@ -48,9 +45,11 @@ contains
       if (.not. has_valid_target_box(plan%options)) then
         error stop 'periodic2 requires a valid target box.'
       end if
-      if (trim(options%periodic_far_correction) /= 'none' .and. trim(options%periodic_far_correction) /= 'ewald_like' &
-          .and. trim(options%periodic_far_correction) /= 'ewald' .and. trim(options%periodic_far_correction) /= 'm2l_root') then
+      if (trim(options%periodic_far_correction) /= 'none' .and. trim(options%periodic_far_correction) /= 'm2l_root_trunc') then
         error stop 'Unsupported periodic far correction in FMM core.'
+      end if
+      if (trim(options%periodic_far_correction) == 'm2l_root_trunc' .and. options%periodic_ewald_layers < 1_i32) then
+        error stop 'periodic2 m2l_root_trunc requires periodic_ewald_layers >= 1.'
       end if
     end if
 
@@ -62,9 +61,8 @@ contains
     call precompute_source_p2m_basis(plan)
     call build_target_topology(plan)
     call build_interactions(plan)
-    call precompute_exact_ewald_metadata(plan)
     call precompute_translation_operators(plan)
-    call precompute_periodic_root_operator(plan)
+    call precompute_periodic_root_trunc_operator(plan)
     call precompute_m2l_derivatives(plan)
     plan%built = .true.
   end subroutine core_build_plan_impl
@@ -588,135 +586,37 @@ contains
     deallocate (near_work, far_work, near_buf, far_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
   end subroutine build_interactions
 
-  subroutine precompute_exact_ewald_metadata(plan)
-    type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: nimg, img_outer, kmax
-    integer(i32) :: axis1, axis2, axis_free
-    integer(i32) :: screen_count, inner_count, kcount
-    integer(i32) :: img_i, img_j, h1, h2, k_idx, idx
-    real(dp) :: alpha, cell_area, k1, k2, kmag
-
-    plan%exact_ewald_ready = .false.
-    plan%exact_ewald_axis1 = 0_i32
-    plan%exact_ewald_axis2 = 0_i32
-    plan%exact_ewald_axis_free = 0_i32
-    plan%exact_ewald_alpha = 0.0d0
-    plan%exact_ewald_soft2 = 0.0d0
-    plan%exact_ewald_cell_area = 0.0d0
-    plan%exact_ewald_k0_pref = 0.0d0
-    plan%exact_ewald_screen_count = 0_i32
-    plan%exact_ewald_inner_count = 0_i32
-    plan%exact_ewald_k_count = 0_i32
-    if (trim(plan%options%periodic_far_correction) /= 'ewald') return
-    if (.not. plan%options%use_periodic2) return
-
-    alpha = plan%options%periodic_ewald_alpha
-    if (alpha <= 0.0d0) return
-    nimg = max(0_i32, plan%options%periodic_image_layers)
-    kmax = max(0_i32, plan%options%periodic_ewald_layers)
-    if (kmax <= 0_i32) return
-    img_outer = nimg + kmax
-    cell_area = plan%options%periodic_len(1) * plan%options%periodic_len(2)
-    if (cell_area <= 0.0d0) return
-    axis1 = plan%options%periodic_axes(1)
-    axis2 = plan%options%periodic_axes(2)
-    if (axis1 <= 0_i32 .or. axis2 <= 0_i32) return
-    axis_free = 6_i32 - axis1 - axis2
-    if (axis_free <= 0_i32 .or. axis_free > 3_i32) return
-
-    screen_count = (2_i32 * img_outer + 1_i32) * (2_i32 * img_outer + 1_i32)
-    inner_count = (2_i32 * nimg + 1_i32) * (2_i32 * nimg + 1_i32)
-    kcount = (2_i32 * kmax + 1_i32) * (2_i32 * kmax + 1_i32) - 1_i32
-
-    allocate (plan%exact_ewald_screen_shift1(screen_count), plan%exact_ewald_screen_shift2(screen_count))
-    allocate (plan%exact_ewald_inner_shift1(inner_count), plan%exact_ewald_inner_shift2(inner_count))
-    allocate (plan%exact_ewald_src_free(max(1_i32, plan%nsrc)), plan%exact_ewald_src_alpha_free(max(1_i32, plan%nsrc)))
-    allocate ( &
-      plan%exact_ewald_k1(kcount), plan%exact_ewald_k2(kcount), plan%exact_ewald_kmag(kcount), &
-      plan%exact_ewald_karg0(kcount), plan%exact_ewald_kpref1(kcount), plan%exact_ewald_kpref2(kcount), &
-      plan%exact_ewald_kprefz(kcount) &
-    )
-
-    do idx = 1_i32, plan%nsrc
-      plan%exact_ewald_src_free(idx) = plan%src_pos(axis_free, idx)
-      plan%exact_ewald_src_alpha_free(idx) = alpha * plan%exact_ewald_src_free(idx)
-    end do
-
-    screen_count = 0_i32
-    do img_i = -img_outer, img_outer
-      do img_j = -img_outer, img_outer
-        screen_count = screen_count + 1_i32
-        plan%exact_ewald_screen_shift1(screen_count) = real(img_i, dp) * plan%options%periodic_len(1)
-        plan%exact_ewald_screen_shift2(screen_count) = real(img_j, dp) * plan%options%periodic_len(2)
-      end do
-    end do
-
-    inner_count = 0_i32
-    do img_i = -nimg, nimg
-      do img_j = -nimg, nimg
-        inner_count = inner_count + 1_i32
-        plan%exact_ewald_inner_shift1(inner_count) = real(img_i, dp) * plan%options%periodic_len(1)
-        plan%exact_ewald_inner_shift2(inner_count) = real(img_j, dp) * plan%options%periodic_len(2)
-      end do
-    end do
-
-    k_idx = 0_i32
-    do h1 = -kmax, kmax
-      k1 = two_pi_dp * real(h1, dp) / plan%options%periodic_len(1)
-      do h2 = -kmax, kmax
-        if (h1 == 0_i32 .and. h2 == 0_i32) cycle
-        k2 = two_pi_dp * real(h2, dp) / plan%options%periodic_len(2)
-        kmag = sqrt(k1 * k1 + k2 * k2)
-        if (kmag <= tiny(1.0d0)) cycle
-        k_idx = k_idx + 1_i32
-        plan%exact_ewald_k1(k_idx) = k1
-        plan%exact_ewald_k2(k_idx) = k2
-        plan%exact_ewald_kmag(k_idx) = kmag
-        plan%exact_ewald_karg0(k_idx) = 0.5d0 * kmag / alpha
-        plan%exact_ewald_kpref1(k_idx) = pi_dp * k1 / (cell_area * kmag)
-        plan%exact_ewald_kpref2(k_idx) = pi_dp * k2 / (cell_area * kmag)
-        plan%exact_ewald_kprefz(k_idx) = pi_dp / cell_area
-      end do
-    end do
-
-    plan%exact_ewald_screen_count = screen_count
-    plan%exact_ewald_inner_count = inner_count
-    plan%exact_ewald_k_count = k_idx
-    plan%exact_ewald_axis1 = axis1
-    plan%exact_ewald_axis2 = axis2
-    plan%exact_ewald_axis_free = axis_free
-    plan%exact_ewald_alpha = alpha
-    plan%exact_ewald_soft2 = plan%options%softening * plan%options%softening
-    plan%exact_ewald_cell_area = cell_area
-    plan%exact_ewald_k0_pref = 2.0d0 * pi_dp / cell_area
-    plan%exact_ewald_ready = .true.
-  end subroutine precompute_exact_ewald_metadata
-
-  subroutine precompute_periodic_root_operator(plan)
+  subroutine precompute_periodic_root_trunc_operator(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: nimg, outer_img, img_i, img_j
-    integer(i32) :: axis1, axis2, alpha_idx, beta_idx, deriv_idx, idx0
-    real(dp) :: base(3), rimg(3), deriv_sum(plan%nderiv), deriv_tmp(plan%nderiv)
+    integer(i32) :: axis1, axis2, alpha_idx, beta_idx, deriv_idx, monopole_coef
+    real(dp) :: root_center_offset(3), rimg(3), deriv_sum(plan%nderiv), deriv_tmp(plan%nderiv)
 
-    if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
-    plan%periodic_root_operator_ready = .false.
-    if (.not. use_periodic2_m2l_root(plan)) return
+    if (allocated(plan%periodic_root_trunc_operator)) deallocate (plan%periodic_root_trunc_operator)
+    plan%periodic_root_trunc_operator_ready = .false.
+    if (.not. use_periodic2_m2l_root_trunc(plan)) return
     if (plan%ncoef <= 0_i32 .or. plan%nderiv <= 0_i32) return
 
     nimg = max(0_i32, plan%options%periodic_image_layers)
-    outer_img = nimg + max(1_i32, plan%options%periodic_ewald_layers)
+    outer_img = nimg + plan%options%periodic_ewald_layers
     axis1 = plan%options%periodic_axes(1)
     axis2 = plan%options%periodic_axes(2)
     if (outer_img <= nimg .or. axis1 <= 0_i32 .or. axis2 <= 0_i32) return
 
-    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef))
-    plan%periodic_root_operator = 0.0d0
+    allocate (plan%periodic_root_trunc_operator(plan%ncoef, plan%ncoef))
+    plan%periodic_root_trunc_operator = 0.0d0
     deriv_sum = 0.0d0
-    base = active_tree_node_center(plan, plan%target_tree_ready, 1_i32) - plan%node_center(:, 1_i32)
+
+    ! Precompute a truncated far-image root operator. This approximates the periodic
+    ! residual outside the finite image shell already handled explicitly at runtime.
+    ! It is not an exact Ewald operator.
+    ! Relative vector from source root center to target root center.
+    ! For shared source/target root topology this is usually zero.
+    root_center_offset = active_tree_node_center(plan, plan%target_tree_ready, 1_i32) - plan%node_center(:, 1_i32)
     do img_i = -outer_img, outer_img
       do img_j = -outer_img, outer_img
         if (abs(img_i) <= nimg .and. abs(img_j) <= nimg) cycle
-        rimg = base
+        rimg = root_center_offset
         rimg(axis1) = rimg(axis1) - real(img_i, dp) * plan%options%periodic_len(1)
         rimg(axis2) = rimg(axis2) - real(img_j, dp) * plan%options%periodic_len(2)
         call compute_laplace_derivatives(plan, rimg, deriv_tmp)
@@ -724,17 +624,21 @@ contains
       end do
     end do
 
-    ! Charged-walls closure fixes the otherwise divergent periodic monopole potential by gauge choice.
-    idx0 = plan%deriv_map(0_i32, 0_i32, 0_i32)
-    deriv_sum(idx0) = 0.0d0
+    ! Drop the whole monopole source column so this stays a truncated
+    ! neutral-residual operator rather than a charged-wall oracle.
+    monopole_coef = plan%alpha_map(0_i32, 0_i32, 0_i32)
     do beta_idx = 1_i32, plan%ncoef
+      if (beta_idx == monopole_coef) then
+        plan%periodic_root_trunc_operator(:, beta_idx) = 0.0d0
+        cycle
+      end if
       do alpha_idx = 1_i32, plan%ncoef
         deriv_idx = plan%alpha_beta_deriv_idx(alpha_idx, beta_idx)
-        plan%periodic_root_operator(alpha_idx, beta_idx) = plan%alpha_sign(beta_idx) * deriv_sum(deriv_idx)
+        plan%periodic_root_trunc_operator(alpha_idx, beta_idx) = plan%alpha_sign(beta_idx) * deriv_sum(deriv_idx)
       end do
     end do
-    plan%periodic_root_operator_ready = .true.
-  end subroutine precompute_periodic_root_operator
+    plan%periodic_root_trunc_operator_ready = .true.
+  end subroutine precompute_periodic_root_trunc_operator
 
   subroutine build_near_source_index( &
     plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &

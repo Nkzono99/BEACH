@@ -15,17 +15,14 @@ program test_coulomb_fmm_core
   call test_free_field_accuracy()
   call test_softened_free_field_accuracy()
   call test_periodic2_field_accuracy()
-  call test_periodic2_ewald_like_correction_effect()
-  call test_periodic2_m2l_root_correction_effect()
-  call test_periodic2_exact_ewald_accuracy()
-  call test_periodic2_m2l_root_charged_wall_closure()
+  call test_periodic2_m2l_root_trunc_correction_effect()
+  call test_periodic2_m2l_root_trunc_charged_wall_closure()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
   call test_state_eval_profile_counts()
   call test_field_solver_core_adapter()
   call test_field_solver_core_softened_adapter()
-  call test_field_solver_core_periodic2_ewald_like_adapter()
-  call test_field_solver_core_periodic2_m2l_root_adapter()
+  call test_field_solver_core_periodic2_m2l_root_trunc_adapter()
 
 contains
 
@@ -190,76 +187,7 @@ contains
     call destroy_plan(plan)
   end subroutine test_periodic2_field_accuracy
 
-  subroutine test_periodic2_ewald_like_correction_effect()
-    type(fmm_plan_type) :: plan_base, plan_corr
-    type(fmm_state_type) :: state_base, state_corr
-    type(fmm_options_type) :: options_base, options_corr
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 6), e_ref(3), e_base(3), e_corr(3), d_ec(3)
-    real(dp) :: norm_ref, rel_base, rel_corr
-    real(dp) :: mean_rel_base, mean_rel_corr, max_delta_base_corr
-    integer(i32) :: i, valid_count
-
-    call make_periodic_sources(src_pos, q)
-    options_base%theta = 0.55d0
-    options_base%leaf_max = 2_i32
-    options_base%order = 4_i32
-    options_base%use_periodic2 = .true.
-    options_base%periodic_axes = [1_i32, 2_i32]
-    options_base%periodic_len = [1.0d0, 1.0d0]
-    options_base%periodic_image_layers = 1_i32
-    options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    options_corr = options_base
-    options_corr%periodic_far_correction = 'ewald_like'
-    options_corr%periodic_ewald_alpha = 1.2d0
-    options_corr%periodic_ewald_layers = 2_i32
-    call build_plan(plan_base, src_pos, options_base)
-    call build_plan(plan_corr, src_pos, options_corr)
-    call update_state(plan_base, state_base, q)
-    call update_state(plan_corr, state_corr, q)
-
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
-    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
-    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
-    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
-    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
-
-    mean_rel_base = 0.0d0
-    mean_rel_corr = 0.0d0
-    max_delta_base_corr = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      call direct_field_periodic2(src_pos, q, queries(:, i), options_base%target_box_min, options_base%target_box_max, &
-                                  options_base%periodic_axes, 3_i32, e_ref)
-      call eval_point(plan_base, state_base, queries(:, i), e_base)
-      call eval_point(plan_corr, state_corr, queries(:, i), e_corr)
-      d_ec = e_corr - e_base
-      max_delta_base_corr = max(max_delta_base_corr, sqrt(sum(d_ec * d_ec)))
-
-      norm_ref = sqrt(sum(e_ref * e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
-      rel_corr = sqrt(sum((e_corr - e_ref) * (e_corr - e_ref))) / norm_ref
-      mean_rel_base = mean_rel_base + rel_base
-      mean_rel_corr = mean_rel_corr + rel_corr
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 6_i32, 'periodic2 ewald-like core test lost valid samples')
-    mean_rel_base = mean_rel_base / real(valid_count, dp)
-    mean_rel_corr = mean_rel_corr / real(valid_count, dp)
-    call assert_true(max_delta_base_corr > 1.0d-18, 'ewald-like core correction should affect periodic2 field')
-    call assert_true(mean_rel_corr <= 1.2d0 * mean_rel_base, 'ewald-like core correction degrades periodic2 accuracy too much')
-
-    call destroy_state(state_base)
-    call destroy_state(state_corr)
-    call destroy_plan(plan_base)
-    call destroy_plan(plan_corr)
-  end subroutine test_periodic2_ewald_like_correction_effect
-
-  subroutine test_periodic2_m2l_root_correction_effect()
+  subroutine test_periodic2_m2l_root_trunc_correction_effect()
     type(fmm_plan_type) :: plan_base, plan_root
     type(fmm_state_type) :: state_base, state_root
     type(fmm_options_type) :: options_base, options_root
@@ -280,7 +208,7 @@ contains
     options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     options_root = options_base
-    options_root%periodic_far_correction = 'm2l_root'
+    options_root%periodic_far_correction = 'm2l_root_trunc'
     options_root%periodic_ewald_layers = 4_i32
     call build_plan(plan_base, src_pos, options_base)
     call build_plan(plan_root, src_pos, options_root)
@@ -315,99 +243,19 @@ contains
       valid_count = valid_count + 1_i32
     end do
 
-    call assert_true(valid_count == 6_i32, 'periodic2 m2l_root core test lost valid samples')
+    call assert_true(valid_count == 6_i32, 'periodic2 m2l_root_trunc core test lost valid samples')
     mean_rel_base = mean_rel_base / real(valid_count, dp)
     mean_rel_root = mean_rel_root / real(valid_count, dp)
-    call assert_true(max_delta_base_root > 1.0d-18, 'm2l_root core correction should affect periodic2 field')
-    call assert_true(mean_rel_root <= 1.2d0 * mean_rel_base, 'm2l_root core correction degrades periodic2 accuracy too much')
+    call assert_true(max_delta_base_root > 1.0d-18, 'm2l_root_trunc core correction should affect periodic2 field')
+    call assert_true(mean_rel_root <= 1.2d0 * mean_rel_base, 'm2l_root_trunc core correction degrades periodic2 accuracy too much')
 
     call destroy_state(state_base)
     call destroy_state(state_root)
     call destroy_plan(plan_base)
     call destroy_plan(plan_root)
-  end subroutine test_periodic2_m2l_root_correction_effect
+  end subroutine test_periodic2_m2l_root_trunc_correction_effect
 
-  subroutine test_periodic2_exact_ewald_accuracy()
-    type(fmm_plan_type) :: plan_base, plan_like, plan_exact
-    type(fmm_state_type) :: state_base, state_like, state_exact
-    type(fmm_options_type) :: options_base, options_like, options_exact
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 6), e_ref(3), e_base(3), e_like(3), e_exact(3)
-    real(dp) :: norm_ref, rel_base, rel_like, rel_exact
-    real(dp) :: mean_rel_base, mean_rel_like, mean_rel_exact, max_delta_like_exact
-    integer(i32) :: i, valid_count
-
-    call make_periodic_sources(src_pos, q)
-    options_base%theta = 0.55d0
-    options_base%leaf_max = 2_i32
-    options_base%order = 4_i32
-    options_base%use_periodic2 = .true.
-    options_base%periodic_axes = [1_i32, 2_i32]
-    options_base%periodic_len = [1.0d0, 1.0d0]
-    options_base%periodic_image_layers = 1_i32
-    options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    options_like = options_base
-    options_like%periodic_far_correction = 'ewald_like'
-    options_like%periodic_ewald_alpha = 1.2d0
-    options_like%periodic_ewald_layers = 6_i32
-    options_exact = options_like
-    options_exact%periodic_far_correction = 'ewald'
-    call build_plan(plan_base, src_pos, options_base)
-    call build_plan(plan_like, src_pos, options_like)
-    call build_plan(plan_exact, src_pos, options_exact)
-    call update_state(plan_base, state_base, q)
-    call update_state(plan_like, state_like, q)
-    call update_state(plan_exact, state_exact, q)
-
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
-    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
-    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
-    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
-    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
-
-    mean_rel_base = 0.0d0
-    mean_rel_like = 0.0d0
-    mean_rel_exact = 0.0d0
-    max_delta_like_exact = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      call direct_field_periodic2(src_pos, q, queries(:, i), options_base%target_box_min, options_base%target_box_max, &
-                                  options_base%periodic_axes, 8_i32, e_ref)
-      call eval_point(plan_base, state_base, queries(:, i), e_base)
-      call eval_point(plan_like, state_like, queries(:, i), e_like)
-      call eval_point(plan_exact, state_exact, queries(:, i), e_exact)
-      max_delta_like_exact = max(max_delta_like_exact, sqrt(sum((e_exact - e_like) * (e_exact - e_like))))
-
-      norm_ref = sqrt(sum(e_ref * e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
-      rel_like = sqrt(sum((e_like - e_ref) * (e_like - e_ref))) / norm_ref
-      rel_exact = sqrt(sum((e_exact - e_ref) * (e_exact - e_ref))) / norm_ref
-      mean_rel_base = mean_rel_base + rel_base
-      mean_rel_like = mean_rel_like + rel_like
-      mean_rel_exact = mean_rel_exact + rel_exact
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 6_i32, 'periodic2 exact ewald core test lost valid samples')
-    mean_rel_base = mean_rel_base / real(valid_count, dp)
-    mean_rel_like = mean_rel_like / real(valid_count, dp)
-    mean_rel_exact = mean_rel_exact / real(valid_count, dp)
-    call assert_true(max_delta_like_exact > 1.0d-18, 'exact ewald core correction should differ from ewald_like')
-    call assert_true(mean_rel_exact < mean_rel_base, 'exact ewald core should improve over finite-image periodic2')
-    call assert_true(mean_rel_exact <= mean_rel_like, 'exact ewald core should not be worse than ewald_like')
-
-    call destroy_state(state_base)
-    call destroy_state(state_like)
-    call destroy_state(state_exact)
-    call destroy_plan(plan_base)
-    call destroy_plan(plan_like)
-    call destroy_plan(plan_exact)
-  end subroutine test_periodic2_exact_ewald_accuracy
-
-  subroutine test_periodic2_m2l_root_charged_wall_closure()
+  subroutine test_periodic2_m2l_root_trunc_charged_wall_closure()
     type(fmm_plan_type) :: plan
     type(fmm_state_type) :: state
     type(fmm_options_type) :: options
@@ -424,7 +272,7 @@ contains
     options%periodic_axes = [1_i32, 2_i32]
     options%periodic_len = [1.0d0, 1.0d0]
     options%periodic_image_layers = 1_i32
-    options%periodic_far_correction = 'm2l_root'
+    options%periodic_far_correction = 'm2l_root_trunc'
     options%periodic_ewald_layers = 4_i32
     options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
@@ -450,12 +298,12 @@ contains
       valid_count = valid_count + 1_i32
     end do
 
-    call assert_true(valid_count == 5_i32, 'periodic2 m2l_root charged-wall test lost valid samples')
-    call assert_true(max_rel_err <= 8.0d-2, 'm2l_root charged-wall closure accuracy exceeds 8e-2')
+    call assert_true(valid_count == 5_i32, 'periodic2 m2l_root_trunc charged-wall test lost valid samples')
+    call assert_true(max_rel_err <= 8.0d-2, 'm2l_root_trunc charged-wall closure accuracy exceeds 8e-2')
 
     call destroy_state(state)
     call destroy_plan(plan)
-  end subroutine test_periodic2_m2l_root_charged_wall_closure
+  end subroutine test_periodic2_m2l_root_trunc_charged_wall_closure
 
   subroutine test_target_box_dual_tree()
     type(fmm_plan_type) :: plan
@@ -617,15 +465,15 @@ contains
     call assert_true(max_rel_err <= 5.0d-3, 'softened core adapter relative error exceeds 5e-3')
   end subroutine test_field_solver_core_softened_adapter
 
-  subroutine test_field_solver_core_periodic2_ewald_like_adapter()
+  subroutine test_field_solver_core_periodic2_m2l_root_trunc_adapter()
     type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_base = field_solver_type()
-    type(field_solver_type) :: solver_corr = field_solver_type()
+    type(field_solver_type) :: solver_default = field_solver_type()
+    type(field_solver_type) :: solver_root = field_solver_type()
     type(sim_config) :: sim
     real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 4), e_raw(3), e_ref(3), e_base(3), e_corr(3)
-    real(dp) :: norm_ref, rel_base, rel_corr, mean_rel_base, mean_rel_corr
-    integer(i32) :: i, valid_count
+    real(dp) :: queries(3, 4), e_raw(3), e_ref(3), e_default(3), e_root(3)
+    real(dp) :: norm_ref, rel_default, rel_root, mean_rel_default, mean_rel_root, max_delta_default_root
+    integer(i32) :: i, valid_count, ref_layers
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     do i = 1_i32, mesh_fmm%nelem
@@ -647,120 +495,68 @@ contains
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_base%init(mesh_fmm, sim)
-    call solver_base%refresh(mesh_fmm)
+    call solver_default%init(mesh_fmm, sim)
+    call solver_default%refresh(mesh_fmm)
 
-    sim%field_periodic_far_correction = 'ewald_like'
-    sim%field_periodic_ewald_alpha = 1.2d0
-    sim%field_periodic_ewald_layers = 2_i32
-    call solver_corr%init(mesh_fmm, sim)
-    call solver_corr%refresh(mesh_fmm)
-
-    call assert_true(solver_base%fmm_use_core, 'softening=0 periodic2 base FMM should use the core path')
-    call assert_true(solver_corr%fmm_use_core, 'softening=0 periodic2 ewald-like FMM should use the core path')
-
-    call mesh_centers_as_sources(mesh_fmm, src_pos, q)
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.75d0, 0.75d0, 0.50d0]
-
-    mean_rel_base = 0.0d0
-    mean_rel_corr = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, 2_i32
-      call direct_field_periodic2(src_pos, q, queries(:, i), sim%box_min, sim%box_max, [1_i32, 2_i32], 3_i32, e_raw)
-      e_ref = k_coulomb * e_raw
-      call solver_base%eval_e(mesh_fmm, queries(:, i), e_base)
-      call solver_corr%eval_e(mesh_fmm, queries(:, i), e_corr)
-
-      norm_ref = sqrt(sum(e_ref * e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
-      rel_corr = sqrt(sum((e_corr - e_ref) * (e_corr - e_ref))) / norm_ref
-      mean_rel_base = mean_rel_base + rel_base
-      mean_rel_corr = mean_rel_corr + rel_corr
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 2_i32, 'core periodic2 ewald-like adapter test lost valid samples')
-    mean_rel_base = mean_rel_base / real(valid_count, dp)
-    mean_rel_corr = mean_rel_corr / real(valid_count, dp)
-    call assert_true( &
-      mean_rel_corr <= 1.2d0 * mean_rel_base, &
-      'core adapter ewald-like correction degrades periodic2 accuracy too much' &
-    )
-  end subroutine test_field_solver_core_periodic2_ewald_like_adapter
-
-  subroutine test_field_solver_core_periodic2_m2l_root_adapter()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_base = field_solver_type()
-    type(field_solver_type) :: solver_corr = field_solver_type()
-    type(sim_config) :: sim
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 4), e_raw(3), e_ref(3), e_base(3), e_corr(3)
-    real(dp) :: norm_ref, rel_base, rel_corr, mean_rel_base, mean_rel_corr
-    integer(i32) :: i, valid_count
-
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    do i = 1_i32, mesh_fmm%nelem
-      if (mod(i, 2_i32) == 0_i32) then
-        mesh_fmm%q_elem(i) = -1.0d-12
-      else
-        mesh_fmm%q_elem(i) = 1.0d-12
-      end if
-    end do
-
-    sim = sim_config()
-    sim%softening = 0.0d0
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_image_layers = 1_i32
-    sim%tree_min_nelem = 64_i32
-    sim%use_box = .true.
-    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
-    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
-    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_base%init(mesh_fmm, sim)
-    call solver_base%refresh(mesh_fmm)
-
-    sim%field_periodic_far_correction = 'm2l_root'
+    sim%field_periodic_far_correction = 'm2l_root_trunc'
     sim%field_periodic_ewald_layers = 4_i32
-    call solver_corr%init(mesh_fmm, sim)
-    call solver_corr%refresh(mesh_fmm)
+    call solver_root%init(mesh_fmm, sim)
+    call solver_root%refresh(mesh_fmm)
 
-    call assert_true(solver_base%fmm_use_core, 'softening=0 periodic2 base FMM should use the core path')
-    call assert_true(solver_corr%fmm_use_core, 'softening=0 periodic2 m2l_root FMM should use the core path')
+    call assert_true(solver_default%fmm_use_core, 'softening=0 periodic2 default FMM should use the core path')
+    call assert_true( &
+      solver_root%fmm_use_core, &
+      'softening=0 periodic2 m2l_root_trunc FMM should use the core path' &
+    )
+    call assert_true( &
+      trim(solver_default%periodic_far_correction) == 'm2l_root_trunc', &
+      'periodic2 default should normalize to m2l_root_trunc' &
+    )
+    call assert_true( &
+      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_trunc', &
+      'core adapter should pass normalized m2l_root_trunc into FMM options' &
+    )
 
     call mesh_centers_as_sources(mesh_fmm, src_pos, q)
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.75d0, 0.75d0, 0.50d0]
 
-    mean_rel_base = 0.0d0
-    mean_rel_corr = 0.0d0
+    ref_layers = solver_default%periodic_image_layers + solver_default%periodic_ewald_layers
+    mean_rel_default = 0.0d0
+    mean_rel_root = 0.0d0
+    max_delta_default_root = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, 2_i32
-      call direct_field_periodic2(src_pos, q, queries(:, i), sim%box_min, sim%box_max, [1_i32, 2_i32], 5_i32, e_raw)
+      call direct_field_periodic2(src_pos, q, queries(:, i), sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_raw)
       e_ref = k_coulomb * e_raw
-      call solver_base%eval_e(mesh_fmm, queries(:, i), e_base)
-      call solver_corr%eval_e(mesh_fmm, queries(:, i), e_corr)
+      call solver_default%eval_e(mesh_fmm, queries(:, i), e_default)
+      call solver_root%eval_e(mesh_fmm, queries(:, i), e_root)
+      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root) * (e_default - e_root))))
 
       norm_ref = sqrt(sum(e_ref * e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
-      rel_corr = sqrt(sum((e_corr - e_ref) * (e_corr - e_ref))) / norm_ref
-      mean_rel_base = mean_rel_base + rel_base
-      mean_rel_corr = mean_rel_corr + rel_corr
+      rel_default = sqrt(sum((e_default - e_ref) * (e_default - e_ref))) / norm_ref
+      rel_root = sqrt(sum((e_root - e_ref) * (e_root - e_ref))) / norm_ref
+      mean_rel_default = mean_rel_default + rel_default
+      mean_rel_root = mean_rel_root + rel_root
       valid_count = valid_count + 1_i32
     end do
 
-    call assert_true(valid_count == 2_i32, 'core periodic2 m2l_root adapter test lost valid samples')
-    mean_rel_base = mean_rel_base / real(valid_count, dp)
-    mean_rel_corr = mean_rel_corr / real(valid_count, dp)
     call assert_true( &
-      mean_rel_corr <= 1.2d0 * mean_rel_base, &
-      'core adapter m2l_root correction degrades periodic2 accuracy too much' &
+      valid_count == 2_i32, &
+      'core periodic2 default m2l_root_trunc adapter test lost valid samples' &
     )
-  end subroutine test_field_solver_core_periodic2_m2l_root_adapter
+    mean_rel_default = mean_rel_default / real(valid_count, dp)
+    mean_rel_root = mean_rel_root / real(valid_count, dp)
+    call assert_true( &
+      max_delta_default_root <= 1.0d-18 * max(1.0d0, sqrt(sum(e_ref * e_ref))), &
+      'default periodic2 and explicit m2l_root_trunc should agree at the adapter level' &
+    )
+    call assert_true( &
+      mean_rel_default <= 8.0d-2 .and. mean_rel_root <= 8.0d-2, &
+      'core adapter periodic2 m2l_root_trunc accuracy exceeds 8e-2' &
+    )
+  end subroutine test_field_solver_core_periodic2_m2l_root_trunc_adapter
 
   subroutine make_free_sources(src_pos, q)
     real(dp), allocatable, intent(out) :: src_pos(:, :)
@@ -784,7 +580,6 @@ contains
   subroutine make_periodic_sources(src_pos, q)
     real(dp), allocatable, intent(out) :: src_pos(:, :)
     real(dp), allocatable, intent(out) :: q(:)
-    integer(i32) :: idx
 
     allocate (src_pos(3, 8), q(8))
     src_pos(:, 1) = [0.20d0, 0.20d0, -0.40d0]
@@ -795,9 +590,10 @@ contains
     src_pos(:, 6) = [0.60d0, 0.55d0, 0.55d0]
     src_pos(:, 7) = [0.30d0, 0.60d0, 0.85d0]
     src_pos(:, 8) = [0.65d0, 0.30d0, -0.85d0]
-    do idx = 1_i32, 8_i32
-      q(idx) = real((-1_i32)**idx, dp) * 1.0d-12 * (1.0d0 + 0.1d0 * real(idx - 1_i32, dp))
-    end do
+    q = [ &
+      -1.0d-12, 1.1d-12, -1.2d-12, 1.3d-12, &
+      -1.4d-12, 1.5d-12, -1.6d-12, 1.3d-12 &
+    ]
   end subroutine make_periodic_sources
 
   subroutine make_periodic_sources_nonneutral(src_pos, q)

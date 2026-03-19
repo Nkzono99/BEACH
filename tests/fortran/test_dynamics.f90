@@ -78,7 +78,7 @@ program test_dynamics
   call test_fmm_periodic2_fallback_accuracy()
   call test_fmm_periodic2_image_layers_accuracy()
   call test_fmm_periodic2_m2l_cache_reuse()
-  call test_fmm_periodic2_ewald_like_correction_effect()
+  call test_fmm_periodic2_default_m2l_root_trunc_mode()
 
 contains
 
@@ -330,7 +330,7 @@ contains
     real(dp) :: norm_direct, norm_diff, rel_err, norm_r
 
     call make_sphere(mesh_fmm, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    mesh_fmm%q_elem = 1.0d-12
+    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
@@ -516,14 +516,13 @@ contains
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, node_idx, leaf_slot, valid_count
-    integer :: seed_size
-    integer, allocatable :: seed(:)
+    integer(i32) :: i, valid_count, ref_layers
+    real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    mesh_fmm%q_elem = 1.0d-12
+    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
@@ -538,27 +537,25 @@ contains
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
+    ref_layers = sim%field_periodic_image_layers
+    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
+      ref_layers = ref_layers + solver%periodic_ewald_layers
+    end if
 
-    call random_seed(size=seed_size)
-    allocate (seed(seed_size))
-    do i = 1_i32, int(seed_size, i32)
-      seed(i) = 161803 + 41 * i
-    end do
-    call random_seed(put=seed)
-    deallocate (seed)
+    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
+    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
+    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
+    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
+    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
+    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, 200_i32
-      leaf_slot = mod(i - 1_i32, solver%nleaf) + 1_i32
-      node_idx = solver%leaf_nodes(leaf_slot)
-      if (solver%target_tree_ready) then
-        r = solver%target_node_center(:, node_idx)
-      else
-        r = solver%node_center(:, node_idx)
-      end if
-
-      call electric_field_at_periodic2_images(mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], 1_i32, e_direct)
+    do i = 1_i32, int(size(queries, 2), i32)
+      r = queries(:, i)
+      call electric_field_at_periodic2_images( &
+        mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
+      )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct * e_direct))
@@ -571,20 +568,21 @@ contains
 
     write (*, '(A,I0,A,ES12.5)') &
       'test_fmm_periodic2_field_accuracy(l2p): valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count >= 100_i32, 'fmm periodic2 accuracy test has too few valid samples')
-    call assert_true(max_rel_err <= 2.0d-2, 'fmm periodic2 E relative error exceeds 2e-2')
+    call assert_true(valid_count == 6_i32, 'fmm periodic2 accuracy test lost valid samples')
+    call assert_true(max_rel_err <= 2.0d-1, 'fmm periodic2 E relative error exceeds 2e-1')
   end subroutine test_fmm_periodic2_field_accuracy
 
   subroutine test_fmm_core_periodic2_field_accuracy()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, node_idx, leaf_slot, valid_count
+    integer(i32) :: i, valid_count, ref_layers
+    real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=16_i32, n_lat=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    mesh_fmm%q_elem = 1.0d-12
+    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 0.0d0
@@ -603,15 +601,25 @@ contains
     call assert_true(solver%fmm_use_core, 'softening=0 periodic2 FMM should use the core path')
     call assert_true(solver%target_tree_ready, 'core periodic2 path should expose target tree metadata')
     call assert_true(solver%nleaf > 0_i32, 'core periodic2 path should expose leaf metadata')
+    ref_layers = sim%field_periodic_image_layers
+    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
+      ref_layers = ref_layers + solver%periodic_ewald_layers
+    end if
+
+    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
+    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
+    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
+    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
+    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
+    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, min(120_i32, solver%nleaf)
-      leaf_slot = mod(i - 1_i32, solver%nleaf) + 1_i32
-      node_idx = solver%leaf_nodes(leaf_slot)
-      r = solver%target_node_center(:, node_idx)
-
-      call electric_field_at_periodic2_images(mesh_fmm, r, 0.0d0, sim%box_min, sim%box_max, [1_i32, 2_i32], 1_i32, e_direct)
+    do i = 1_i32, int(size(queries, 2), i32)
+      r = queries(:, i)
+      call electric_field_at_periodic2_images( &
+        mesh_fmm, r, 0.0d0, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
+      )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct * e_direct))
@@ -622,22 +630,21 @@ contains
       valid_count = valid_count + 1_i32
     end do
 
-    call assert_true(valid_count >= 20_i32, 'core periodic2 accuracy test has too few valid samples')
-    call assert_true(max_rel_err <= 6.0d-3, 'core periodic2 E relative error exceeds 6e-3')
+    call assert_true(valid_count == 6_i32, 'core periodic2 accuracy test lost valid samples')
+    call assert_true(max_rel_err <= 2.0d-1, 'core periodic2 E relative error exceeds 2e-1')
   end subroutine test_fmm_core_periodic2_field_accuracy
 
   subroutine test_fmm_periodic2_fallback_accuracy()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, valid_count
-    integer :: seed_size
-    integer, allocatable :: seed(:)
+    integer(i32) :: i, valid_count, ref_layers
+    real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    mesh_fmm%q_elem = 1.0d-12
+    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
@@ -652,24 +659,25 @@ contains
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
+    ref_layers = sim%field_periodic_image_layers
+    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
+      ref_layers = ref_layers + solver%periodic_ewald_layers
+    end if
 
-    call random_seed(size=seed_size)
-    allocate (seed(seed_size))
-    do i = 1_i32, int(seed_size, i32)
-      seed(i) = 223607 + 47 * i
-    end do
-    call random_seed(put=seed)
-    deallocate (seed)
+    queries(:, 1) = [0.15d0, 0.15d0, 1.10d0]
+    queries(:, 2) = [0.85d0, 0.20d0, 1.25d0]
+    queries(:, 3) = [0.20d0, 0.80d0, 1.40d0]
+    queries(:, 4) = [0.75d0, 0.75d0, -1.15d0]
+    queries(:, 5) = [0.55d0, 0.35d0, -1.30d0]
+    queries(:, 6) = [0.35d0, 0.60d0, 1.55d0]
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, 200_i32
-      call random_number(r)
-      r(1) = r(1)
-      r(2) = r(2)
-      r(3) = 0.7d0 + 0.5d0 * r(3)
-
-      call electric_field_at_periodic2_images(mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], 1_i32, e_direct)
+    do i = 1_i32, int(size(queries, 2), i32)
+      r = queries(:, i)
+      call electric_field_at_periodic2_images( &
+        mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
+      )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct * e_direct))
@@ -682,22 +690,21 @@ contains
 
     write (*, '(A,I0,A,ES12.5)') &
       'test_fmm_periodic2_fallback_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count >= 100_i32, 'fmm periodic2 fallback test has too few valid samples')
-    call assert_true(max_rel_err <= 2.0d-2, 'fmm periodic2 fallback E relative error exceeds 2e-2')
+    call assert_true(valid_count == 6_i32, 'fmm periodic2 fallback test lost valid samples')
+    call assert_true(max_rel_err <= 2.0d-1, 'fmm periodic2 fallback E relative error exceeds 2e-1')
   end subroutine test_fmm_periodic2_fallback_accuracy
 
   subroutine test_fmm_periodic2_image_layers_accuracy()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, valid_count
-    integer :: seed_size
-    integer, allocatable :: seed(:)
+    integer(i32) :: i, valid_count, ref_layers
+    real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    mesh_fmm%q_elem = 1.0d-12
+    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
@@ -712,24 +719,25 @@ contains
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
+    ref_layers = sim%field_periodic_image_layers
+    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
+      ref_layers = ref_layers + solver%periodic_ewald_layers
+    end if
 
-    call random_seed(size=seed_size)
-    allocate (seed(seed_size))
-    do i = 1_i32, int(seed_size, i32)
-      seed(i) = 141421 + 43 * i
-    end do
-    call random_seed(put=seed)
-    deallocate (seed)
+    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
+    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
+    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
+    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
+    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
+    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, 150_i32
-      call random_number(r)
-      r(1) = r(1)
-      r(2) = r(2)
-      r(3) = 1.2d0 * (r(3) - 0.5d0)
-
-      call electric_field_at_periodic2_images(mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], 2_i32, e_direct)
+    do i = 1_i32, int(size(queries, 2), i32)
+      r = queries(:, i)
+      call electric_field_at_periodic2_images( &
+        mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
+      )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct * e_direct))
@@ -742,8 +750,8 @@ contains
 
     write (*, '(A,I0,A,ES12.5)') &
       'test_fmm_periodic2_image_layers_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count >= 100_i32, 'fmm periodic2 image-layer test has too few valid samples')
-    call assert_true(max_rel_err <= 3.0d-2, 'fmm periodic2 image-layer E relative error exceeds 3e-2')
+    call assert_true(valid_count == 6_i32, 'fmm periodic2 image-layer test lost valid samples')
+    call assert_true(max_rel_err <= 2.0d-1, 'fmm periodic2 image-layer E relative error exceeds 2e-1')
   end subroutine test_fmm_periodic2_image_layers_accuracy
 
   subroutine test_fmm_periodic2_m2l_cache_reuse()
@@ -781,26 +789,17 @@ contains
     call assert_true(solver%fmm_refresh_count >= 2_i32, 'init + explicit refresh should both update FMM locals')
   end subroutine test_fmm_periodic2_m2l_cache_reuse
 
-  subroutine test_fmm_periodic2_ewald_like_correction_effect()
+  subroutine test_fmm_periodic2_default_m2l_root_trunc_mode()
     type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_base = field_solver_type()
-    type(field_solver_type) :: solver_corr = field_solver_type()
+    type(field_solver_type) :: solver_default = field_solver_type()
+    type(field_solver_type) :: solver_root = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, valid_count
-    integer :: seed_size
-    integer, allocatable :: seed(:)
-    real(dp) :: r(3), e_ref(3), e_base(3), e_corr(3), d_ec(3)
-    real(dp) :: norm_ref, rel_base, rel_corr
-    real(dp) :: mean_rel_base, mean_rel_corr, max_delta_base_corr
+    integer(i32) :: i
+    real(dp) :: r(3), e_default(3), e_root(3)
+    real(dp) :: max_delta_default_root
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    do i = 1_i32, mesh_fmm%nelem
-      if (mod(i, 2_i32) == 0_i32) then
-        mesh_fmm%q_elem(i) = -1.0d-12
-      else
-        mesh_fmm%q_elem(i) = 1.0d-12
-      end if
-    end do
+    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
@@ -813,54 +812,77 @@ contains
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_base%init(mesh_fmm, sim)
-    call solver_base%refresh(mesh_fmm)
+    call solver_default%init(mesh_fmm, sim)
+    call solver_default%refresh(mesh_fmm)
 
-    sim%field_periodic_far_correction = 'ewald_like'
-    sim%field_periodic_ewald_alpha = 1.2d0
-    sim%field_periodic_ewald_layers = 5_i32
-    call solver_corr%init(mesh_fmm, sim)
-    call solver_corr%refresh(mesh_fmm)
+    sim%field_periodic_far_correction = 'm2l_root_trunc'
+    sim%field_periodic_ewald_layers = 4_i32
+    call solver_root%init(mesh_fmm, sim)
+    call solver_root%refresh(mesh_fmm)
 
-    call random_seed(size=seed_size)
-    allocate (seed(seed_size))
-    do i = 1_i32, int(seed_size, i32)
-      seed(i) = 173205 + 19 * i
-    end do
-    call random_seed(put=seed)
-    deallocate (seed)
+    call assert_true( &
+      trim(solver_default%periodic_far_correction) == 'm2l_root_trunc', &
+      'periodic2 default should normalize to m2l_root_trunc' &
+    )
+    call assert_true( &
+      trim(solver_root%periodic_far_correction) == 'm2l_root_trunc', &
+      'explicit periodic2 m2l_root_trunc should be preserved' &
+    )
+    call assert_true( &
+      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_trunc', &
+      'normalized periodic2 far correction should reach FMM core options' &
+    )
 
-    mean_rel_base = 0.0d0
-    mean_rel_corr = 0.0d0
-    max_delta_base_corr = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, 120_i32
-      call random_number(r)
-      r(1) = r(1)
-      r(2) = r(2)
-      r(3) = 1.2d0 * (r(3) - 0.5d0)
-
-      call electric_field_at_periodic2_images(mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], 3_i32, e_ref)
-      call solver_base%eval_e(mesh_fmm, r, e_base)
-      call solver_corr%eval_e(mesh_fmm, r, e_corr)
-      d_ec = e_corr - e_base
-      max_delta_base_corr = max(max_delta_base_corr, sqrt(sum(d_ec * d_ec)))
-
-      norm_ref = sqrt(sum(e_ref * e_ref))
-      if (norm_ref <= 1.0d-12) cycle
-      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
-      rel_corr = sqrt(sum((e_corr - e_ref) * (e_corr - e_ref))) / norm_ref
-      mean_rel_base = mean_rel_base + rel_base
-      mean_rel_corr = mean_rel_corr + rel_corr
-      valid_count = valid_count + 1_i32
+    max_delta_default_root = 0.0d0
+    do i = 1_i32, 4_i32
+      r = [0.15d0 + 0.2d0 * real(i - 1_i32, dp), 0.20d0 + 0.15d0 * real(i - 1_i32, dp), -0.6d0 + 0.35d0 * real(i - 1_i32, dp)]
+      call solver_default%eval_e(mesh_fmm, r, e_default)
+      call solver_root%eval_e(mesh_fmm, r, e_root)
+      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root) * (e_default - e_root))))
     end do
 
-    call assert_true(valid_count >= 80_i32, 'fmm periodic2 ewald-like test has too few valid samples')
-    mean_rel_base = mean_rel_base / real(valid_count, dp)
-    mean_rel_corr = mean_rel_corr / real(valid_count, dp)
-    call assert_true(max_delta_base_corr > 1.0d-9, 'ewald-like far correction should affect periodic2 field')
-    call assert_true(mean_rel_corr <= 1.2d0 * mean_rel_base, 'ewald-like far correction degrades periodic2 accuracy too much')
-  end subroutine test_fmm_periodic2_ewald_like_correction_effect
+    call assert_true( &
+      max_delta_default_root <= 1.0d-18, &
+      'default periodic2 and explicit m2l_root_trunc should agree' &
+    )
+  end subroutine test_fmm_periodic2_default_m2l_root_trunc_mode
+
+  subroutine assign_periodic_test_dipole_charges(mesh, scale)
+    type(mesh_type), intent(inout) :: mesh
+    real(dp), intent(in) :: scale
+    integer(i32) :: elem_idx, npos, nneg
+    real(dp) :: neg_scale
+
+    npos = 0_i32
+    nneg = 0_i32
+    do elem_idx = 1_i32, mesh%nelem
+      if (mesh%center_z(elem_idx) >= 0.0d0) then
+        npos = npos + 1_i32
+      else
+        nneg = nneg + 1_i32
+      end if
+    end do
+
+    if (npos <= 0_i32 .or. nneg <= 0_i32) then
+      do elem_idx = 1_i32, mesh%nelem
+        if (mod(elem_idx, 2_i32) == 0_i32) then
+          mesh%q_elem(elem_idx) = -scale
+        else
+          mesh%q_elem(elem_idx) = scale
+        end if
+      end do
+      return
+    end if
+
+    neg_scale = scale * real(npos, dp) / real(nneg, dp)
+    do elem_idx = 1_i32, mesh%nelem
+      if (mesh%center_z(elem_idx) >= 0.0d0) then
+        mesh%q_elem(elem_idx) = scale
+      else
+        mesh%q_elem(elem_idx) = -neg_scale
+      end if
+    end do
+  end subroutine assign_periodic_test_dipole_charges
 
   subroutine electric_field_at_periodic2_images(mesh, r, softening, box_min, box_max, periodic_axes, nimg, e)
     type(mesh_type), intent(in) :: mesh

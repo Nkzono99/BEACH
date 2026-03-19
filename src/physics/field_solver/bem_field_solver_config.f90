@@ -8,7 +8,7 @@ contains
   module procedure init_field_solver
     character(len=16) :: requested_mode, field_bc_mode
     integer(i32) :: axis, n_periodic
-    real(dp) :: span, min_periodic_len
+    real(dp) :: span
     real(dp), allocatable :: src_pos(:, :)
 
     call destroy_plan(self%fmm_core_plan)
@@ -83,11 +83,17 @@ contains
       end do
       self%target_box_min = sim%box_min
       self%target_box_max = sim%box_max
-      min_periodic_len = min(self%periodic_len(1), self%periodic_len(2))
-      if (self%periodic_ewald_alpha <= 0.0d0) then
-        ! 最初の省略画像殻で erfc(alpha*r) ~ 0.1 程度になるように自動設定する。
-        self%periodic_ewald_alpha = 1.2d0 / (real(self%periodic_image_layers + 1_i32, dp) * min_periodic_len)
-      end if
+      select case (trim(self%periodic_far_correction))
+      case ('none')
+        self%periodic_far_correction = 'm2l_root_trunc'
+        self%periodic_ewald_layers = max(1_i32, self%periodic_ewald_layers)
+      case ('m2l_root')
+        self%periodic_far_correction = 'm2l_root_trunc'
+      case ('m2l_root_trunc')
+        continue
+      case default
+        error stop 'periodic2 far correction supports "none" (auto->"m2l_root_trunc"), "m2l_root", or "m2l_root_trunc" only.'
+      end select
       self%use_periodic2 = .true.
     case default
       error stop 'Unknown sim.field_bc_mode in field solver init.'
@@ -144,10 +150,10 @@ contains
 
     if (trim(self%mode) == 'fmm') then
       select case (trim(self%periodic_far_correction))
-      case ('none', 'ewald_like', 'ewald', 'm2l_root')
+      case ('none', 'm2l_root_trunc')
         continue
       case default
-        error stop 'FMM core supports periodic far correction "none", "ewald_like", "ewald", or "m2l_root" only.'
+        error stop 'FMM core supports periodic far correction "none" or "m2l_root_trunc" only.'
       end select
       self%fmm_use_core = .true.
       if (mesh%nelem > 0_i32) then

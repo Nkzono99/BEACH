@@ -1029,13 +1029,19 @@ def test_compute_potential_points_supports_periodic2_image_sum() -> None:
         triangles=triangles,
     )
     points = np.array([[0.0, 0.0, 2.0]])
-    periodic2 = {"axes": (0, 1), "lengths": (1.0, 1.0), "image_layers": 1}
+    periodic2 = {
+        "axes": (0, 1),
+        "lengths": (1.0, 1.0),
+        "image_layers": 1,
+        "far_correction": "m2l_root_trunc",
+        "ewald_layers": 4,
+    }
 
     potential = compute_potential_points(result, points, periodic2=periodic2)
 
     expected_sum = 0.0
-    for ix in (-1, 0, 1):
-        for iy in (-1, 0, 1):
+    for ix in range(-5, 6):
+        for iy in range(-5, 6):
             radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
             expected_sum += charge[0] / radius
     np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
@@ -1057,7 +1063,13 @@ def test_compute_potential_mesh_supports_periodic2_image_sum() -> None:
         charges=charge,
         triangles=triangles,
     )
-    periodic2 = {"axes": (0, 1), "lengths": (1.0, 1.0), "image_layers": 1}
+    periodic2 = {
+        "axes": (0, 1),
+        "lengths": (1.0, 1.0),
+        "image_layers": 1,
+        "far_correction": "m2l_root_trunc",
+        "ewald_layers": 4,
+    }
 
     potential = compute_potential_mesh(
         result,
@@ -1066,8 +1078,8 @@ def test_compute_potential_mesh_supports_periodic2_image_sum() -> None:
     )
 
     expected_sum = 0.0
-    for ix in (-1, 0, 1):
-        for iy in (-1, 0, 1):
+    for ix in range(-5, 6):
+        for iy in range(-5, 6):
             if ix == 0 and iy == 0:
                 continue
             radius = np.sqrt(float(ix * ix + iy * iy))
@@ -1122,8 +1134,8 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(tmp_path: P
     potential = compute_potential_points(result, points)
 
     expected_sum = 0.0
-    for ix in (-1, 0, 1):
-        for iy in (-1, 0, 1):
+    for ix in range(-5, 6):
+        for iy in range(-5, 6):
             radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
             expected_sum += 2.0e-9 / radius
     np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
@@ -1184,8 +1196,8 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
     potential = compute_potential_points(result, points)
 
     expected_sum = 0.0
-    for ix in (-1, 0, 1):
-        for iy in (-1, 0, 1):
+    for ix in range(-5, 6):
+        for iy in range(-5, 6):
             expected_sum += 2.0e-9 / np.sqrt(float(ix * ix + iy * iy) + 1.0)
     expected = np.array([K_COULOMB * expected_sum, K_COULOMB * expected_sum])
     np.testing.assert_allclose(potential, expected)
@@ -1208,8 +1220,8 @@ def test_potential_history_supports_periodic2_image_sum() -> None:
     )
 
     image_sum = 0.0
-    for ix in (-1, 0, 1):
-        for iy in (-1, 0, 1):
+    for ix in range(-5, 6):
+        for iy in range(-5, 6):
             if ix == 0 and iy == 0:
                 continue
             image_sum += 1.0 / np.sqrt(float(ix * ix + iy * iy))
@@ -1217,23 +1229,24 @@ def test_potential_history_supports_periodic2_image_sum() -> None:
     np.testing.assert_allclose(potential, expected)
 
 
-def test_coerce_periodic2_accepts_exact_ewald_mode() -> None:
-    periodic2 = _coerce_periodic2(
-        {
-            "axes": (0, 1),
-            "lengths": (1.0, 1.0),
-            "image_layers": 1,
-            "far_correction": "ewald",
-            "ewald_alpha": 1.2,
-            "ewald_layers": 4,
-        }
-    )
+def test_coerce_periodic2_rejects_legacy_ewald_modes() -> None:
+    with pytest.raises(
+        ValueError,
+        match='periodic2.far_correction must be "none", "m2l_root", or "m2l_root_trunc"',
+    ):
+        _coerce_periodic2(
+            {
+                "axes": (0, 1),
+                "lengths": (1.0, 1.0),
+                "image_layers": 1,
+                "far_correction": "ewald",
+                "ewald_alpha": 1.2,
+                "ewald_layers": 4,
+            }
+        )
 
-    assert periodic2 is not None
-    assert periodic2[4] == "ewald"
 
-
-def test_coerce_periodic2_accepts_m2l_root_mode() -> None:
+def test_coerce_periodic2_accepts_legacy_m2l_root_alias() -> None:
     periodic2 = _coerce_periodic2(
         {
             "axes": (0, 1),
@@ -1245,7 +1258,7 @@ def test_coerce_periodic2_accepts_m2l_root_mode() -> None:
     )
 
     assert periodic2 is not None
-    assert periodic2[4] == "m2l_root"
+    assert periodic2[4] == "m2l_root_trunc"
 
 
 def test_potential_history_supports_reference_point_difference() -> None:

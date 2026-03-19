@@ -51,6 +51,7 @@ Python CLI examples:
 - Python tests: `pytest -q`
 - Python lint: `ruff check .`
 - Fortran tests: `fpm test` (or per-target via `fpm test --target <name>`)
+- Do not run multiple `fpm test` commands in parallel. They share the same `build/` directory and can conflict with each other.
 
 ## Coding rules
 - Do not change public APIs without updating docs + examples.

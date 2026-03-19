@@ -1,27 +1,18 @@
 !> Coulomb FMM の periodic2 境界処理。
 module bem_coulomb_fmm_periodic
   use bem_kinds, only: dp, i32
-  use bem_coulomb_fmm_types, only: inv_sqrt_pi, fmm_options_type, fmm_plan_type
+  use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type
   implicit none
   private
 
-  real(dp), parameter :: pi_dp = acos(-1.0d0)
-  real(dp), parameter :: two_pi_dp = 2.0d0 * pi_dp
-
   public :: has_valid_target_box
-  public :: use_periodic2_ewald
-  public :: use_periodic2_ewald_like
-  public :: use_periodic2_exact_ewald
-  public :: use_periodic2_m2l_root
+  public :: use_periodic2_m2l_root_trunc
   public :: build_periodic_shift_values
   public :: apply_periodic2_minimum_image
   public :: wrap_periodic2_point
   public :: distance_to_source_bbox
   public :: distance_to_source_bbox_periodic
-  public :: prepare_periodic2_ewald
-  public :: add_screened_shifted_node_images
   public :: add_point_charge_images_field
-  public :: add_exact_periodic2_real_space_source_correction
 
 contains
 
@@ -31,29 +22,11 @@ contains
     has_valid_target_box = all(options%target_box_max > options%target_box_min)
   end function has_valid_target_box
 
-  logical function use_periodic2_ewald_like(plan)
+  logical function use_periodic2_m2l_root_trunc(plan)
     type(fmm_plan_type), intent(in) :: plan
 
-    use_periodic2_ewald_like = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'ewald_like'
-  end function use_periodic2_ewald_like
-
-  logical function use_periodic2_exact_ewald(plan)
-    type(fmm_plan_type), intent(in) :: plan
-
-    use_periodic2_exact_ewald = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'ewald'
-  end function use_periodic2_exact_ewald
-
-  logical function use_periodic2_m2l_root(plan)
-    type(fmm_plan_type), intent(in) :: plan
-
-    use_periodic2_m2l_root = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'm2l_root'
-  end function use_periodic2_m2l_root
-
-  logical function use_periodic2_ewald(plan)
-    type(fmm_plan_type), intent(in) :: plan
-
-    use_periodic2_ewald = use_periodic2_ewald_like(plan) .or. use_periodic2_exact_ewald(plan)
-  end function use_periodic2_ewald
+    use_periodic2_m2l_root_trunc = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'm2l_root_trunc'
+  end function use_periodic2_m2l_root_trunc
 
   subroutine build_periodic_shift_values(plan, shift_axis1, shift_axis2, nshift)
     type(fmm_plan_type), intent(in) :: plan
@@ -135,75 +108,6 @@ contains
     distance_to_source_bbox_periodic = sqrt(sum(q * q))
   end function distance_to_source_bbox_periodic
 
-  logical function prepare_periodic2_ewald( &
-    plan, alpha, nimg, img_outer, kmax, axis1, axis2, axis_free, cell_area, use_like, use_exact &
-  )
-    type(fmm_plan_type), intent(in) :: plan
-    real(dp), intent(out) :: alpha
-    integer(i32), intent(out) :: nimg, img_outer, kmax, axis1, axis2, axis_free
-    real(dp), intent(out) :: cell_area
-    logical, intent(out) :: use_like, use_exact
-
-    prepare_periodic2_ewald = .false.
-    alpha = 0.0d0
-    nimg = 0_i32
-    img_outer = 0_i32
-    kmax = 0_i32
-    axis1 = 0_i32
-    axis2 = 0_i32
-    axis_free = 0_i32
-    cell_area = 0.0d0
-    use_like = .false.
-    use_exact = .false.
-
-    if (.not. use_periodic2_ewald(plan)) return
-    if (plan%options%periodic_ewald_layers <= 0_i32) return
-
-    alpha = plan%options%periodic_ewald_alpha
-    if (alpha <= 0.0d0) return
-
-    nimg = plan%options%periodic_image_layers
-    img_outer = nimg + plan%options%periodic_ewald_layers
-    kmax = plan%options%periodic_ewald_layers
-    if (img_outer <= nimg) return
-
-    axis1 = plan%options%periodic_axes(1)
-    axis2 = plan%options%periodic_axes(2)
-    if (axis1 <= 0_i32 .or. axis2 <= 0_i32) return
-    axis_free = 6_i32 - axis1 - axis2
-    if (axis_free <= 0_i32 .or. axis_free > 3_i32) return
-    cell_area = plan%options%periodic_len(1) * plan%options%periodic_len(2)
-    if (cell_area <= 0.0d0) return
-    use_like = use_periodic2_ewald_like(plan)
-    use_exact = use_periodic2_exact_ewald(plan)
-
-    prepare_periodic2_ewald = .true.
-  end function prepare_periodic2_ewald
-
-  subroutine add_screened_shifted_node_images(q, src, target, axis1, axis2, periodic_len, near_img, outer_img, alpha, e)
-    real(dp), intent(in) :: q
-    real(dp), intent(in) :: src(3)
-    real(dp), intent(in) :: target(3)
-    integer(i32), intent(in) :: axis1, axis2
-    real(dp), intent(in) :: periodic_len(2)
-    integer(i32), intent(in) :: near_img, outer_img
-    real(dp), intent(in) :: alpha
-    real(dp), intent(inout) :: e(3)
-    integer(i32) :: img_i, img_j
-    real(dp) :: shifted(3)
-
-    if (abs(q) <= tiny(1.0d0)) return
-    do img_i = -outer_img, outer_img
-      do img_j = -outer_img, outer_img
-        if (abs(img_i) <= near_img .and. abs(img_j) <= near_img) cycle
-        shifted = src
-        shifted(axis1) = shifted(axis1) + real(img_i, dp) * periodic_len(1)
-        shifted(axis2) = shifted(axis2) + real(img_j, dp) * periodic_len(2)
-        call add_screened_point_charge(q, target, shifted, alpha, e)
-      end do
-    end do
-  end subroutine add_screened_shifted_node_images
-
   subroutine add_point_charge_images_field(q, src, target, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, e)
     real(dp), intent(in) :: q, src(3), target(3)
     real(dp), intent(in) :: soft2
@@ -227,74 +131,5 @@ contains
       end do
     end do
   end subroutine add_point_charge_images_field
-
-  subroutine add_exact_periodic2_real_space_source_correction( &
-    q, src, target, soft2, axis1, axis2, screen_shift1, screen_shift2, screen_count, &
-    inner_shift1, inner_shift2, inner_count, alpha, e &
-  )
-    real(dp), intent(in) :: q
-    real(dp), intent(in) :: src(3), target(3)
-    real(dp), intent(in) :: soft2, alpha
-    integer(i32), intent(in) :: axis1, axis2, screen_count, inner_count
-    real(dp), intent(in) :: screen_shift1(:), screen_shift2(:), inner_shift1(:), inner_shift2(:)
-    real(dp), intent(inout) :: e(3)
-    integer(i32) :: shift_idx
-    real(dp) :: dx0(3), dx(3), r2, rmag, inv_r, inv_r2, inv_r3
-    real(dp) :: ar, screen, gaussian, pref, inv_r3_soft
-
-    if (abs(q) <= tiny(1.0d0)) return
-    dx0 = target - src
-
-    do shift_idx = 1_i32, screen_count
-      dx = dx0
-      if (axis1 > 0_i32) dx(axis1) = dx(axis1) - screen_shift1(shift_idx)
-      if (axis2 > 0_i32) dx(axis2) = dx(axis2) - screen_shift2(shift_idx)
-      r2 = sum(dx * dx)
-      if (r2 <= tiny(1.0d0)) cycle
-      rmag = sqrt(r2)
-      inv_r = 1.0d0 / rmag
-      inv_r2 = inv_r * inv_r
-      inv_r3 = inv_r2 * inv_r
-      ar = alpha * rmag
-      screen = erfc(ar)
-      gaussian = exp(-(ar * ar))
-      pref = q * (screen * inv_r3 + 2.0d0 * alpha * inv_sqrt_pi * gaussian * inv_r2)
-      e = e + pref * dx
-    end do
-
-    do shift_idx = 1_i32, inner_count
-      dx = dx0
-      if (axis1 > 0_i32) dx(axis1) = dx(axis1) - inner_shift1(shift_idx)
-      if (axis2 > 0_i32) dx(axis2) = dx(axis2) - inner_shift2(shift_idx)
-      r2 = sum(dx * dx) + soft2
-      if (r2 <= tiny(1.0d0)) cycle
-      inv_r3_soft = 1.0d0 / (sqrt(r2) * r2)
-      e = e - q * inv_r3_soft * dx
-    end do
-  end subroutine add_exact_periodic2_real_space_source_correction
-
-  subroutine add_screened_point_charge(q, target, source, alpha, e)
-    real(dp), intent(in) :: q
-    real(dp), intent(in) :: target(3), source(3)
-    real(dp), intent(in) :: alpha
-    real(dp), intent(inout) :: e(3)
-    real(dp) :: dx(3), r2, rmag, inv_r, inv_r2, inv_r3
-    real(dp) :: ar, screen, gaussian, pref
-
-    if (abs(q) <= tiny(1.0d0)) return
-    dx = target - source
-    r2 = sum(dx * dx)
-    if (r2 <= tiny(1.0d0)) return
-
-    rmag = sqrt(r2)
-    inv_r = 1.0d0 / rmag
-    inv_r2 = inv_r * inv_r
-    inv_r3 = inv_r2 * inv_r
-    ar = alpha * rmag
-    screen = erfc(ar)
-    gaussian = exp(-(ar * ar))
-    pref = q * (screen * inv_r3 + 2.0d0 * alpha * inv_sqrt_pi * gaussian * inv_r2)
-    e = e + pref * dx
-  end subroutine add_screened_point_charge
 
 end module bem_coulomb_fmm_periodic

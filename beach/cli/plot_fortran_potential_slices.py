@@ -185,6 +185,10 @@ def _resolve_periodic2_from_sim(
     except (TypeError, ValueError) as exc:
         raise SystemExit("invalid periodic2 potential settings in [sim].") from exc
 
+    if far_correction in {"none", "m2l_root"}:
+        far_correction = "m2l_root_trunc"
+        ewald_layers = max(1, ewald_layers)
+
     return {
         "axes": tuple(periodic_axes),
         "lengths": tuple(lengths),
