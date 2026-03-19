@@ -209,10 +209,7 @@ $$
 $\mathbf{dr} = x - c_{\mathrm{leaf}}$ とすると
 
 $$
-E_k(x) =
-- \sum_{|\alpha| < p}
-L_{\alpha + e_k}(c_{\mathrm{leaf}})
-\frac{\mathbf{dr}^\alpha}{\alpha!}
+E_k(x) = - \sum_{|\alpha| < p} L_{\alpha + e_k}(c_{\mathrm{leaf}}) \frac{\mathbf{dr}^\alpha}{\alpha!}
 $$
 
 で電場を評価します。
@@ -409,7 +406,7 @@ $$
 screened point charge の補正電場は
 
 $$
-\mathbf{E}_{\mathrm{screen}} = q \left( \frac{\operatorname{erfc}(\alpha r)}{r^3} + \frac{2 \alpha}{\sqrt{\pi}} \frac{e^{-\alpha^2 r^2}}{r^2} \right) \mathbf{d}
+\mathbf{E}_{\mathrm{screen}} = q \left( \frac{erfc(\alpha r)}{r^3} + \frac{2 \alpha}{\sqrt{\pi}} \frac{e^{-\alpha^2 r^2}}{r^2} \right) \mathbf{d}
 $$
 
 です。
@@ -433,7 +430,7 @@ $$
 実空間電場は screened Coulomb kernel
 
 $$
-\mathbf{E}_{\mathrm{screen}} = q \left( \frac{\operatorname{erfc}(\alpha r)}{r^3} + \frac{2 \alpha}{\sqrt{\pi}} \frac{e^{-\alpha^2 r^2}}{r^2} \right) \mathbf{d}
+\mathbf{E}_{\mathrm{screen}} = q \left( \frac{erfc(\alpha r)}{r^3} + \frac{2 \alpha}{\sqrt{\pi}} \frac{e^{-\alpha^2 r^2}}{r^2} \right) \mathbf{d}
 $$
 
 を使います。
