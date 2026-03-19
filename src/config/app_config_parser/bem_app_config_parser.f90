@@ -265,10 +265,10 @@ contains
     end select
     cfg%sim%field_periodic_far_correction = lower(trim(cfg%sim%field_periodic_far_correction))
     select case (trim(cfg%sim%field_periodic_far_correction))
-    case ('none', 'ewald_like', 'ewald')
+    case ('none', 'ewald_like', 'ewald', 'm2l_root')
       continue
     case default
-      error stop 'sim.field_periodic_far_correction must be "none", "ewald_like", or "ewald".'
+      error stop 'sim.field_periodic_far_correction must be "none", "ewald_like", "ewald", or "m2l_root".'
     end select
     if (cfg%sim%field_periodic_image_layers < 0_i32) then
       error stop 'sim.field_periodic_image_layers must be >= 0.'

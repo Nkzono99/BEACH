@@ -39,7 +39,7 @@ def compute_potential_mesh(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"``, ``"ewald_like"``, or ``"ewald"``), ``ewald_alpha``
+        ``far_correction`` (``"none"``, ``"ewald_like"``, ``"ewald"``, or ``"m2l_root"``), ``ewald_alpha``
         (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。
@@ -120,7 +120,7 @@ def compute_potential_points(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"``, ``"ewald_like"``, or ``"ewald"``), ``ewald_alpha``
+        ``far_correction`` (``"none"``, ``"ewald_like"``, ``"ewald"``, or ``"m2l_root"``), ``ewald_alpha``
         (float, default 0.0 for auto), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
@@ -620,8 +620,8 @@ def _coerce_periodic2(
         raise ValueError("periodic2.image_layers must be >= 0.")
 
     far_correction = str(periodic2.get("far_correction", "none")).strip().lower()
-    if far_correction not in {"none", "ewald_like", "ewald"}:
-        raise ValueError('periodic2.far_correction must be "none", "ewald_like", or "ewald".')
+    if far_correction not in {"none", "ewald_like", "ewald", "m2l_root"}:
+        raise ValueError('periodic2.far_correction must be "none", "ewald_like", "ewald", or "m2l_root".')
 
     alpha = float(periodic2.get("ewald_alpha", 0.0))
     if (not math.isfinite(alpha)) or alpha < 0.0:
@@ -632,8 +632,8 @@ def _coerce_periodic2(
     ewald_layers = int(periodic2.get("ewald_layers", 4))
     if ewald_layers < 0:
         raise ValueError("periodic2.ewald_layers must be >= 0.")
-    if far_correction in {"ewald_like", "ewald"} and ewald_layers < 1:
-        raise ValueError("periodic2.ewald_layers must be >= 1 for ewald_like/ewald.")
+    if far_correction in {"ewald_like", "ewald", "m2l_root"} and ewald_layers < 1:
+        raise ValueError("periodic2.ewald_layers must be >= 1 for ewald_like/ewald/m2l_root.")
 
     return axes, lengths, origins, nimg, far_correction, alpha, ewald_layers
 

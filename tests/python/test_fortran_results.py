@@ -1233,6 +1233,21 @@ def test_coerce_periodic2_accepts_exact_ewald_mode() -> None:
     assert periodic2[4] == "ewald"
 
 
+def test_coerce_periodic2_accepts_m2l_root_mode() -> None:
+    periodic2 = _coerce_periodic2(
+        {
+            "axes": (0, 1),
+            "lengths": (1.0, 1.0),
+            "image_layers": 1,
+            "far_correction": "m2l_root",
+            "ewald_layers": 4,
+        }
+    )
+
+    assert periodic2 is not None
+    assert periodic2[4] == "m2l_root"
+
+
 def test_potential_history_supports_reference_point_difference() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     charges_history = np.array([[2.0e-9, 4.0e-9]])

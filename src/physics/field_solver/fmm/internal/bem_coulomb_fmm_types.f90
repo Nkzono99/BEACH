@@ -111,6 +111,8 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: exact_ewald_k1(:), exact_ewald_k2(:), exact_ewald_kmag(:), exact_ewald_karg0(:)
     real(dp), allocatable :: exact_ewald_kpref1(:), exact_ewald_kpref2(:), exact_ewald_kprefz(:)
     real(dp), allocatable :: exact_ewald_src_free(:), exact_ewald_src_alpha_free(:)
+    logical :: periodic_root_operator_ready = .false.
+    real(dp), allocatable :: periodic_root_operator(:, :)
     real(dp), allocatable :: m2l_deriv(:, :)
     real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
@@ -221,6 +223,7 @@ contains
     if (allocated(plan%exact_ewald_kprefz)) deallocate (plan%exact_ewald_kprefz)
     if (allocated(plan%exact_ewald_src_free)) deallocate (plan%exact_ewald_src_free)
     if (allocated(plan%exact_ewald_src_alpha_free)) deallocate (plan%exact_ewald_src_alpha_free)
+    if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
     if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
     if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
     if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
@@ -254,6 +257,7 @@ contains
     plan%exact_ewald_screen_count = 0_i32
     plan%exact_ewald_inner_count = 0_i32
     plan%exact_ewald_k_count = 0_i32
+    plan%periodic_root_operator_ready = .false.
   end subroutine reset_fmm_plan
 
   subroutine reset_fmm_state(state)

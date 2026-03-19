@@ -24,8 +24,7 @@ injection_face_phi_grid_n = 3
 # field_solver = "fmm"
 # field_bc_mode = "periodic2"
 # field_periodic_image_layers = 1
-# field_periodic_far_correction = "ewald"
-# field_periodic_ewald_alpha = 1.2
+# field_periodic_far_correction = "m2l_root"
 # field_periodic_ewald_layers = 4
 
 [particles]

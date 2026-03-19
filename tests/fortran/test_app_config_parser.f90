@@ -107,7 +107,7 @@ program test_app_config_parser
   call assert_equal_i32(periodic_cfg%sim%bc_low(2), bc_periodic, 'periodic bc_y_low mismatch')
   call assert_equal_i32(periodic_cfg%sim%bc_high(2), bc_periodic, 'periodic bc_y_high mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_image_layers, 2_i32, 'periodic field_periodic_image_layers mismatch')
-  call assert_true(trim(periodic_cfg%sim%field_periodic_far_correction) == 'ewald', 'periodic far correction mismatch')
+  call assert_true(trim(periodic_cfg%sim%field_periodic_far_correction) == 'm2l_root', 'periodic far correction mismatch')
   call assert_close_dp(periodic_cfg%sim%field_periodic_ewald_alpha, 1.5d0, 1.0d-12, 'periodic ewald alpha mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_ewald_layers, 5_i32, 'periodic ewald layers mismatch')
 
@@ -272,7 +272,7 @@ contains
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
     write (u, '(a)') 'field_periodic_image_layers = 2'
-    write (u, '(a)') 'field_periodic_far_correction = "ewald"'
+    write (u, '(a)') 'field_periodic_far_correction = "m2l_root"'
     write (u, '(a)') 'field_periodic_ewald_alpha = 1.5'
     write (u, '(a)') 'field_periodic_ewald_layers = 5'
     write (u, '(a)') ''
