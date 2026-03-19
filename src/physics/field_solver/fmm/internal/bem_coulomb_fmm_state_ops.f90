@@ -54,7 +54,7 @@ contains
     call m2m_upward_pass(plan, state)
     if (n_target_nodes > 0_i32) then
       call m2l_accumulate(plan, state)
-      call apply_periodic_root_trunc_correction(plan, state)
+      call apply_periodic_root_correction(plan, state)
       call l2l_downward_pass(plan, state)
     end if
     !$omp end parallel
@@ -202,24 +202,24 @@ contains
     !$omp end do
   end subroutine m2l_accumulate
 
-  subroutine apply_periodic_root_trunc_correction(plan, state)
+  subroutine apply_periodic_root_correction(plan, state)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
     real(dp) :: root_local(plan%ncoef)
     logical :: root_active
 
-    if (.not. plan%periodic_root_trunc_operator_ready) return
+    if (.not. plan%periodic_root_operator_ready) return
     if (size(state%local, 2) <= 0) return
     !$omp single
     root_local = state%local(:, 1_i32)
     if (plan%nnode > 0_i32 .and. state%multipole_active(1_i32) /= 0_i32) then
-      root_local = root_local + matmul(plan%periodic_root_trunc_operator, state%multipole(:, 1_i32))
+      root_local = root_local + matmul(plan%periodic_root_operator, state%multipole(:, 1_i32))
     end if
     root_active = coefficient_vector_is_active(root_local)
     state%local(:, 1_i32) = root_local
     state%local_active(1_i32) = merge(1_i32, 0_i32, root_active)
     !$omp end single
-  end subroutine apply_periodic_root_trunc_correction
+  end subroutine apply_periodic_root_correction
 
   subroutine l2l_downward_pass(plan, state)
     type(fmm_plan_type), intent(in) :: plan

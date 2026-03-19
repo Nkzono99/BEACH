@@ -4,7 +4,9 @@ module bem_coulomb_fmm_plan_ops
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
   use bem_coulomb_fmm_periodic, only: has_valid_target_box, build_periodic_shift_values, distance_to_source_bbox, &
-                                       distance_to_source_bbox_periodic, use_periodic2_m2l_root_trunc
+                                       distance_to_source_bbox_periodic
+  use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data
+  use bem_coulomb_fmm_periodic_root_ops, only: precompute_periodic_root_operator
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                          active_tree_node_center, active_tree_node_radius, append_i32_buffer, &
                                          nodes_well_separated
@@ -45,11 +47,12 @@ contains
       if (.not. has_valid_target_box(plan%options)) then
         error stop 'periodic2 requires a valid target box.'
       end if
-      if (trim(options%periodic_far_correction) /= 'none' .and. trim(options%periodic_far_correction) /= 'm2l_root_trunc') then
+      if (trim(options%periodic_far_correction) /= 'none' .and. trim(options%periodic_far_correction) /= 'm2l_root_trunc' .and. &
+          trim(options%periodic_far_correction) /= 'm2l_root_oracle') then
         error stop 'Unsupported periodic far correction in FMM core.'
       end if
-      if (trim(options%periodic_far_correction) == 'm2l_root_trunc' .and. options%periodic_ewald_layers < 1_i32) then
-        error stop 'periodic2 m2l_root_trunc requires periodic_ewald_layers >= 1.'
+      if (trim(options%periodic_far_correction) /= 'none' .and. options%periodic_ewald_layers < 1_i32) then
+        error stop 'periodic2 root-operator far correction requires periodic_ewald_layers >= 1.'
       end if
     end if
 
@@ -62,7 +65,8 @@ contains
     call build_target_topology(plan)
     call build_interactions(plan)
     call precompute_translation_operators(plan)
-    call precompute_periodic_root_trunc_operator(plan)
+    call precompute_periodic2_ewald_data(plan)
+    call precompute_periodic_root_operator(plan)
     call precompute_m2l_derivatives(plan)
     plan%built = .true.
   end subroutine core_build_plan_impl
@@ -585,60 +589,6 @@ contains
 
     deallocate (near_work, far_work, near_buf, far_buf, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf)
   end subroutine build_interactions
-
-  subroutine precompute_periodic_root_trunc_operator(plan)
-    type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: nimg, outer_img, img_i, img_j
-    integer(i32) :: axis1, axis2, alpha_idx, beta_idx, deriv_idx, monopole_coef
-    real(dp) :: root_center_offset(3), rimg(3), deriv_sum(plan%nderiv), deriv_tmp(plan%nderiv)
-
-    if (allocated(plan%periodic_root_trunc_operator)) deallocate (plan%periodic_root_trunc_operator)
-    plan%periodic_root_trunc_operator_ready = .false.
-    if (.not. use_periodic2_m2l_root_trunc(plan)) return
-    if (plan%ncoef <= 0_i32 .or. plan%nderiv <= 0_i32) return
-
-    nimg = max(0_i32, plan%options%periodic_image_layers)
-    outer_img = nimg + plan%options%periodic_ewald_layers
-    axis1 = plan%options%periodic_axes(1)
-    axis2 = plan%options%periodic_axes(2)
-    if (outer_img <= nimg .or. axis1 <= 0_i32 .or. axis2 <= 0_i32) return
-
-    allocate (plan%periodic_root_trunc_operator(plan%ncoef, plan%ncoef))
-    plan%periodic_root_trunc_operator = 0.0d0
-    deriv_sum = 0.0d0
-
-    ! Precompute a truncated far-image root operator. This approximates the periodic
-    ! residual outside the finite image shell already handled explicitly at runtime.
-    ! It is not an exact Ewald operator.
-    ! Relative vector from source root center to target root center.
-    ! For shared source/target root topology this is usually zero.
-    root_center_offset = active_tree_node_center(plan, plan%target_tree_ready, 1_i32) - plan%node_center(:, 1_i32)
-    do img_i = -outer_img, outer_img
-      do img_j = -outer_img, outer_img
-        if (abs(img_i) <= nimg .and. abs(img_j) <= nimg) cycle
-        rimg = root_center_offset
-        rimg(axis1) = rimg(axis1) - real(img_i, dp) * plan%options%periodic_len(1)
-        rimg(axis2) = rimg(axis2) - real(img_j, dp) * plan%options%periodic_len(2)
-        call compute_laplace_derivatives(plan, rimg, deriv_tmp)
-        deriv_sum = deriv_sum + deriv_tmp
-      end do
-    end do
-
-    ! Drop the whole monopole source column so this stays a truncated
-    ! neutral-residual operator rather than a charged-wall oracle.
-    monopole_coef = plan%alpha_map(0_i32, 0_i32, 0_i32)
-    do beta_idx = 1_i32, plan%ncoef
-      if (beta_idx == monopole_coef) then
-        plan%periodic_root_trunc_operator(:, beta_idx) = 0.0d0
-        cycle
-      end if
-      do alpha_idx = 1_i32, plan%ncoef
-        deriv_idx = plan%alpha_beta_deriv_idx(alpha_idx, beta_idx)
-        plan%periodic_root_trunc_operator(alpha_idx, beta_idx) = plan%alpha_sign(beta_idx) * deriv_sum(deriv_idx)
-      end do
-    end do
-    plan%periodic_root_trunc_operator_ready = .true.
-  end subroutine precompute_periodic_root_trunc_operator
 
   subroutine build_near_source_index( &
     plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &

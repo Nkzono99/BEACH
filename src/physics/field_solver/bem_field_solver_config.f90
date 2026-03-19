@@ -91,8 +91,11 @@ contains
         self%periodic_far_correction = 'm2l_root_trunc'
       case ('m2l_root_trunc')
         continue
+      case ('m2l_root_oracle')
+        continue
       case default
-        error stop 'periodic2 far correction supports "none" (auto->"m2l_root_trunc"), "m2l_root", or "m2l_root_trunc" only.'
+        error stop 'periodic2 far correction supports "none" (auto->"m2l_root_trunc"), ' // &
+                   '"m2l_root", "m2l_root_trunc", or "m2l_root_oracle" only.'
       end select
       self%use_periodic2 = .true.
     case default
@@ -150,10 +153,10 @@ contains
 
     if (trim(self%mode) == 'fmm') then
       select case (trim(self%periodic_far_correction))
-      case ('none', 'm2l_root_trunc')
+      case ('none', 'm2l_root_trunc', 'm2l_root_oracle')
         continue
       case default
-        error stop 'FMM core supports periodic far correction "none" or "m2l_root_trunc" only.'
+        error stop 'FMM core supports periodic far correction "none", "m2l_root_trunc", or "m2l_root_oracle" only.'
       end select
       self%fmm_use_core = .true.
       if (mesh%nelem > 0_i32) then

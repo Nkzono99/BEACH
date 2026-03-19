@@ -3,7 +3,8 @@ module bem_coulomb_fmm_eval_ops
     use bem_kinds, only: dp, i32, i64
     use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
     use bem_coulomb_fmm_basis, only: build_axis_powers
-    use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_trunc
+    use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_trunc, use_periodic2_m2l_root_oracle
+    use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
     use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                           active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
     use bem_performance_profile, only: perf_wall_time_seconds
@@ -57,8 +58,9 @@ contains
         integer(i32) :: near_source_begin, near_source_end
         integer(i64) :: near_source_count_local, direct_kernel_count_local
         integer(i32) :: eval_count_local, local_count_local, fallback_count_local, ewald_count_local
-        logical :: profile_enabled, use_periodic_root_trunc_fallback
+        logical :: profile_enabled, use_periodic_root_trunc_fallback, use_periodic_root_oracle_fallback
         real(dp) :: rt(3), dr(3), soft2, monomial
+        real(dp) :: evec(3)
         real(dp) :: shift1, shift2
         real(dp) :: t0, locate_time_local, local_time_local, near_time_local, fallback_time_local, ewald_time_local
         real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
@@ -86,6 +88,7 @@ contains
         if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
         soft2 = plan%options%softening*plan%options%softening
         use_periodic_root_trunc_fallback = use_periodic2_m2l_root_trunc(plan)
+        use_periodic_root_oracle_fallback = use_periodic2_m2l_root_oracle(plan)
 
         if (profile_enabled) t0 = perf_wall_time_seconds()
 
@@ -99,8 +102,18 @@ contains
             if (use_periodic_root_trunc_fallback) then
                 call add_periodic2_truncated_far_image_correction_all_sources(plan, state, rt, soft2, ex, ey, ez)
                 direct_kernel_count_local = direct_kernel_count_local + estimate_periodic_outer_kernel_count(plan)
+            else if (use_periodic_root_oracle_fallback) then
+                evec = [ex, ey, ez]
+                call add_periodic2_exact_ewald_correction_all_sources(plan, state, rt, evec)
+                ex = evec(1)
+                ey = evec(2)
+                ez = evec(3)
+                ewald_count_local = 1_i32
             end if
-            if (profile_enabled) fallback_time_local = perf_wall_time_seconds() - t0
+            if (profile_enabled) then
+                fallback_time_local = perf_wall_time_seconds() - t0
+                if (use_periodic_root_oracle_fallback) ewald_time_local = fallback_time_local
+            end if
             call record_eval_profile( &
                 state, eval_count_local, local_count_local, fallback_count_local, ewald_count_local, &
                 near_source_count_local, direct_kernel_count_local, locate_time_local, local_time_local, &
@@ -118,8 +131,18 @@ contains
             if (use_periodic_root_trunc_fallback) then
                 call add_periodic2_truncated_far_image_correction_all_sources(plan, state, rt, soft2, ex, ey, ez)
                 direct_kernel_count_local = direct_kernel_count_local + estimate_periodic_outer_kernel_count(plan)
+            else if (use_periodic_root_oracle_fallback) then
+                evec = [ex, ey, ez]
+                call add_periodic2_exact_ewald_correction_all_sources(plan, state, rt, evec)
+                ex = evec(1)
+                ey = evec(2)
+                ez = evec(3)
+                ewald_count_local = 1_i32
             end if
-            if (profile_enabled) fallback_time_local = perf_wall_time_seconds() - t0
+            if (profile_enabled) then
+                fallback_time_local = perf_wall_time_seconds() - t0
+                if (use_periodic_root_oracle_fallback) ewald_time_local = fallback_time_local
+            end if
             call record_eval_profile( &
                 state, eval_count_local, local_count_local, fallback_count_local, ewald_count_local, &
                 near_source_count_local, direct_kernel_count_local, locate_time_local, local_time_local, &

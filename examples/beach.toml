@@ -20,11 +20,14 @@ rng_seed = 12345
 reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
 injection_face_phi_grid_n = 3
-# periodic2 は現状 m2l_root_trunc を既定で使います。legacy な m2l_root も alias として受理します。
+# periodic2 は既定で m2l_root_trunc を使います。legacy な m2l_root も alias として受理します。
+# exact periodic residual を build-time fit したい場合は m2l_root_oracle も使えます。
 # field_solver = "fmm"
 # field_bc_mode = "periodic2"
 # field_periodic_image_layers = 1
 # field_periodic_far_correction = "m2l_root_trunc"
+# field_periodic_far_correction = "m2l_root_oracle"
+# field_periodic_ewald_alpha = 0.0
 # field_periodic_ewald_layers = 4
 
 [particles]

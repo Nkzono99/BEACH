@@ -7,6 +7,8 @@ module bem_coulomb_fmm_periodic
 
   public :: has_valid_target_box
   public :: use_periodic2_m2l_root_trunc
+  public :: use_periodic2_m2l_root_oracle
+  public :: use_periodic2_root_operator
   public :: build_periodic_shift_values
   public :: apply_periodic2_minimum_image
   public :: wrap_periodic2_point
@@ -27,6 +29,18 @@ contains
 
     use_periodic2_m2l_root_trunc = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'm2l_root_trunc'
   end function use_periodic2_m2l_root_trunc
+
+  logical function use_periodic2_m2l_root_oracle(plan)
+    type(fmm_plan_type), intent(in) :: plan
+
+    use_periodic2_m2l_root_oracle = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'm2l_root_oracle'
+  end function use_periodic2_m2l_root_oracle
+
+  logical function use_periodic2_root_operator(plan)
+    type(fmm_plan_type), intent(in) :: plan
+
+    use_periodic2_root_operator = use_periodic2_m2l_root_trunc(plan) .or. use_periodic2_m2l_root_oracle(plan)
+  end function use_periodic2_root_operator
 
   subroutine build_periodic_shift_values(plan, shift_axis1, shift_axis2, nshift)
     type(fmm_plan_type), intent(in) :: plan

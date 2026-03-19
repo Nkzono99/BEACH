@@ -271,8 +271,10 @@ contains
       cfg%sim%field_periodic_far_correction = 'm2l_root_trunc'
     case ('m2l_root_trunc')
       continue
+    case ('m2l_root_oracle')
+      continue
     case default
-      error stop 'sim.field_periodic_far_correction must be "none", "m2l_root", or "m2l_root_trunc".'
+      error stop 'sim.field_periodic_far_correction must be "none", "m2l_root", "m2l_root_trunc", or "m2l_root_oracle".'
     end select
     if (cfg%sim%field_periodic_image_layers < 0_i32) then
       error stop 'sim.field_periodic_image_layers must be >= 0.'

@@ -4,9 +4,13 @@ module bem_coulomb_fmm_types
   implicit none
   private
 
+  real(dp), parameter, public :: inv_sqrt_pi = 0.56418958354775628695d0
+
+  public :: periodic2_ewald_data_type
   public :: fmm_options_type
   public :: fmm_plan_type
   public :: fmm_state_type
+  public :: reset_periodic2_ewald_data
   public :: reset_fmm_plan
   public :: reset_fmm_state
 
@@ -25,6 +29,26 @@ module bem_coulomb_fmm_types
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
   end type fmm_options_type
+
+  type :: periodic2_ewald_data_type
+    logical :: ready = .false.
+    integer(i32) :: axis1 = 0_i32
+    integer(i32) :: axis2 = 0_i32
+    integer(i32) :: axis_free = 0_i32
+    integer(i32) :: nimg = 0_i32
+    integer(i32) :: img_outer = 0_i32
+    integer(i32) :: kmax = 0_i32
+    real(dp) :: alpha = 0.0d0
+    real(dp) :: soft2 = 0.0d0
+    real(dp) :: cell_area = 0.0d0
+    real(dp) :: k0_pref = 0.0d0
+    integer(i32) :: screen_count = 0_i32
+    integer(i32) :: inner_count = 0_i32
+    integer(i32) :: k_count = 0_i32
+    real(dp), allocatable :: screen_shift1(:), screen_shift2(:)
+    real(dp), allocatable :: inner_shift1(:), inner_shift2(:)
+    real(dp), allocatable :: k1(:), k2(:), kmag(:), karg0(:), kpref1(:), kpref2(:), kprefz(:)
+  end type periodic2_ewald_data_type
 
   type :: fmm_plan_type
     type(fmm_options_type) :: options = fmm_options_type()
@@ -93,8 +117,9 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: l2l_gamma_list(:, :)
     integer(i32), allocatable :: l2l_delta_list(:, :)
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
-    logical :: periodic_root_trunc_operator_ready = .false.
-    real(dp), allocatable :: periodic_root_trunc_operator(:, :)
+    type(periodic2_ewald_data_type) :: periodic_ewald = periodic2_ewald_data_type()
+    logical :: periodic_root_operator_ready = .false.
+    real(dp), allocatable :: periodic_root_operator(:, :)
     real(dp), allocatable :: m2l_deriv(:, :)
     real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
@@ -124,6 +149,36 @@ module bem_coulomb_fmm_types
   end type fmm_state_type
 
 contains
+
+  subroutine reset_periodic2_ewald_data(data)
+    type(periodic2_ewald_data_type), intent(inout) :: data
+
+    if (allocated(data%screen_shift1)) deallocate (data%screen_shift1)
+    if (allocated(data%screen_shift2)) deallocate (data%screen_shift2)
+    if (allocated(data%inner_shift1)) deallocate (data%inner_shift1)
+    if (allocated(data%inner_shift2)) deallocate (data%inner_shift2)
+    if (allocated(data%k1)) deallocate (data%k1)
+    if (allocated(data%k2)) deallocate (data%k2)
+    if (allocated(data%kmag)) deallocate (data%kmag)
+    if (allocated(data%karg0)) deallocate (data%karg0)
+    if (allocated(data%kpref1)) deallocate (data%kpref1)
+    if (allocated(data%kpref2)) deallocate (data%kpref2)
+    if (allocated(data%kprefz)) deallocate (data%kprefz)
+    data%ready = .false.
+    data%axis1 = 0_i32
+    data%axis2 = 0_i32
+    data%axis_free = 0_i32
+    data%nimg = 0_i32
+    data%img_outer = 0_i32
+    data%kmax = 0_i32
+    data%alpha = 0.0d0
+    data%soft2 = 0.0d0
+    data%cell_area = 0.0d0
+    data%k0_pref = 0.0d0
+    data%screen_count = 0_i32
+    data%inner_count = 0_i32
+    data%k_count = 0_i32
+  end subroutine reset_periodic2_ewald_data
 
   subroutine reset_fmm_plan(plan)
     type(fmm_plan_type), intent(inout) :: plan
@@ -191,7 +246,8 @@ contains
     if (allocated(plan%l2l_delta_list)) deallocate (plan%l2l_delta_list)
     if (allocated(plan%shift_axis1)) deallocate (plan%shift_axis1)
     if (allocated(plan%shift_axis2)) deallocate (plan%shift_axis2)
-    if (allocated(plan%periodic_root_trunc_operator)) deallocate (plan%periodic_root_trunc_operator)
+    call reset_periodic2_ewald_data(plan%periodic_ewald)
+    if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
     if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
     if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
     if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
@@ -214,7 +270,7 @@ contains
     plan%m2l_pair_count = 0_i32
     plan%m2l_build_count = 0_i32
     plan%m2l_visit_count = 0_i32
-    plan%periodic_root_trunc_operator_ready = .false.
+    plan%periodic_root_operator_ready = .false.
   end subroutine reset_fmm_plan
 
   subroutine reset_fmm_state(state)

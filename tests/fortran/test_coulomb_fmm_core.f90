@@ -8,6 +8,7 @@ program test_coulomb_fmm_core
   use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, eval_point, &
                                    destroy_plan, destroy_state
+  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
   use test_support, only: assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
   implicit none
 
@@ -16,6 +17,7 @@ program test_coulomb_fmm_core
   call test_softened_free_field_accuracy()
   call test_periodic2_field_accuracy()
   call test_periodic2_m2l_root_trunc_correction_effect()
+  call test_periodic2_m2l_root_oracle_correction_effect()
   call test_periodic2_m2l_root_trunc_charged_wall_closure()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
@@ -304,6 +306,81 @@ contains
     call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_periodic2_m2l_root_trunc_charged_wall_closure
+
+  subroutine test_periodic2_m2l_root_oracle_correction_effect()
+    type(fmm_plan_type) :: plan_base, plan_oracle
+    type(fmm_state_type) :: state_base, state_oracle
+    type(fmm_options_type) :: options_base, options_oracle
+    real(dp), allocatable :: src_pos(:, :), q(:)
+    real(dp) :: queries(3, 6), e_ref(3), e_base(3), e_oracle(3), d_er(3)
+    real(dp) :: norm_ref, rel_base, rel_oracle
+    real(dp) :: mean_rel_base, mean_rel_oracle, max_delta_base_oracle
+    integer(i32) :: i, valid_count
+
+    call make_periodic_sources(src_pos, q)
+    options_base%theta = 0.55d0
+    options_base%leaf_max = 2_i32
+    options_base%order = 4_i32
+    options_base%use_periodic2 = .true.
+    options_base%periodic_axes = [1_i32, 2_i32]
+    options_base%periodic_len = [1.0d0, 1.0d0]
+    options_base%periodic_image_layers = 1_i32
+    options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
+    options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+    options_oracle = options_base
+    options_oracle%periodic_far_correction = 'm2l_root_oracle'
+    options_oracle%periodic_ewald_layers = 4_i32
+    call build_plan(plan_base, src_pos, options_base)
+    call build_plan(plan_oracle, src_pos, options_oracle)
+    call update_state(plan_base, state_base, q)
+    call update_state(plan_oracle, state_oracle, q)
+    state_oracle%profile_enabled = .true.
+
+    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
+    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
+    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
+    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
+    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
+    queries(:, 6) = [0.35d0, 0.60d0, 1.20d0]
+
+    call assert_true(plan_oracle%periodic_ewald%ready, 'm2l_root_oracle should precompute periodic Ewald data')
+    call assert_true(plan_oracle%periodic_root_operator_ready, 'm2l_root_oracle should build a root operator')
+
+    mean_rel_base = 0.0d0
+    mean_rel_oracle = 0.0d0
+    max_delta_base_oracle = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, int(size(queries, 2), i32)
+      call direct_field_periodic2(src_pos, q, queries(:, i), options_base%target_box_min, options_base%target_box_max, &
+                                  options_base%periodic_axes, options_base%periodic_image_layers, e_ref)
+      call add_periodic2_exact_ewald_correction_all_sources(plan_oracle, state_oracle, queries(:, i), e_ref)
+      call eval_point(plan_base, state_base, queries(:, i), e_base)
+      call eval_point(plan_oracle, state_oracle, queries(:, i), e_oracle)
+      d_er = e_oracle - e_base
+      max_delta_base_oracle = max(max_delta_base_oracle, sqrt(sum(d_er * d_er)))
+
+      norm_ref = sqrt(sum(e_ref * e_ref))
+      if (norm_ref <= 1.0d-16) cycle
+      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
+      rel_oracle = sqrt(sum((e_oracle - e_ref) * (e_oracle - e_ref))) / norm_ref
+      mean_rel_base = mean_rel_base + rel_base
+      mean_rel_oracle = mean_rel_oracle + rel_oracle
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count == 6_i32, 'periodic2 m2l_root_oracle core test lost valid samples')
+    mean_rel_base = mean_rel_base / real(valid_count, dp)
+    mean_rel_oracle = mean_rel_oracle / real(valid_count, dp)
+    call assert_true(max_delta_base_oracle > 1.0d-18, 'm2l_root_oracle should affect periodic2 field')
+    call assert_true(mean_rel_oracle <= 1.2d0 * mean_rel_base, 'm2l_root_oracle degrades periodic2 accuracy too much')
+    call assert_true(state_oracle%eval_ewald_count >= 1_i32, 'm2l_root_oracle fallback should record Ewald oracle usage')
+    call assert_true(state_oracle%eval_fallback_count >= 1_i32, 'm2l_root_oracle test should exercise fallback evaluation')
+
+    call destroy_state(state_base)
+    call destroy_state(state_oracle)
+    call destroy_plan(plan_base)
+    call destroy_plan(plan_oracle)
+  end subroutine test_periodic2_m2l_root_oracle_correction_effect
 
   subroutine test_target_box_dual_tree()
     type(fmm_plan_type) :: plan
