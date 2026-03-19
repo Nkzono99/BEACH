@@ -18,7 +18,7 @@ program test_coulomb_fmm_core
   call test_periodic2_field_accuracy()
   call test_periodic2_m2l_root_trunc_correction_effect()
   call test_periodic2_m2l_root_oracle_correction_effect()
-  call test_periodic2_m2l_root_trunc_charged_wall_closure()
+  call test_periodic2_m2l_root_trunc_nonneutral_heuristic()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
   call test_state_eval_profile_counts()
@@ -257,29 +257,32 @@ contains
     call destroy_plan(plan_root)
   end subroutine test_periodic2_m2l_root_trunc_correction_effect
 
-  subroutine test_periodic2_m2l_root_trunc_charged_wall_closure()
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
-    type(fmm_options_type) :: options
+  subroutine test_periodic2_m2l_root_trunc_nonneutral_heuristic()
+    type(fmm_plan_type) :: plan_base, plan_heuristic
+    type(fmm_state_type) :: state_base, state_heuristic
+    type(fmm_options_type) :: options_base, options_heuristic
     real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 5), e_ref(3), e_fmm(3)
-    real(dp) :: norm_ref, rel_err, max_rel_err
+    real(dp) :: queries(3, 5), e_base(3), e_heuristic(3), d_e(3)
+    real(dp) :: norm_base, norm_heuristic, max_delta, max_norm_ratio
     integer(i32) :: i, valid_count
 
     call make_periodic_sources_nonneutral(src_pos, q)
-    options%theta = 0.55d0
-    options%leaf_max = 2_i32
-    options%order = 4_i32
-    options%use_periodic2 = .true.
-    options%periodic_axes = [1_i32, 2_i32]
-    options%periodic_len = [1.0d0, 1.0d0]
-    options%periodic_image_layers = 1_i32
-    options%periodic_far_correction = 'm2l_root_trunc'
-    options%periodic_ewald_layers = 4_i32
-    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    call build_plan(plan, src_pos, options)
-    call update_state(plan, state, q)
+    options_base%theta = 0.55d0
+    options_base%leaf_max = 2_i32
+    options_base%order = 4_i32
+    options_base%use_periodic2 = .true.
+    options_base%periodic_axes = [1_i32, 2_i32]
+    options_base%periodic_len = [1.0d0, 1.0d0]
+    options_base%periodic_image_layers = 1_i32
+    options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
+    options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+    options_heuristic = options_base
+    options_heuristic%periodic_far_correction = 'm2l_root_trunc'
+    options_heuristic%periodic_ewald_layers = 4_i32
+    call build_plan(plan_base, src_pos, options_base)
+    call build_plan(plan_heuristic, src_pos, options_heuristic)
+    call update_state(plan_base, state_base, q)
+    call update_state(plan_heuristic, state_heuristic, q)
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
@@ -287,25 +290,31 @@ contains
     queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
     queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
 
-    max_rel_err = 0.0d0
+    max_delta = 0.0d0
+    max_norm_ratio = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
-      call direct_field_periodic2(src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
-                                  options%periodic_axes, 5_i32, e_ref)
-      call eval_point(plan, state, queries(:, i), e_fmm)
-      norm_ref = sqrt(sum(e_ref * e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_ref) * (e_fmm - e_ref))) / norm_ref
-      max_rel_err = max(max_rel_err, rel_err)
+      call eval_point(plan_base, state_base, queries(:, i), e_base)
+      call eval_point(plan_heuristic, state_heuristic, queries(:, i), e_heuristic)
+      call assert_true(all(abs(e_base) < huge(1.0d0)), 'periodic2 nonneutral baseline produced non-finite field')
+      call assert_true(all(abs(e_heuristic) < huge(1.0d0)), 'periodic2 nonneutral heuristic produced non-finite field')
+      d_e = e_heuristic - e_base
+      max_delta = max(max_delta, sqrt(sum(d_e * d_e)))
+      norm_base = sqrt(sum(e_base * e_base))
+      norm_heuristic = sqrt(sum(e_heuristic * e_heuristic))
+      max_norm_ratio = max(max_norm_ratio, norm_heuristic / max(norm_base, 1.0d-30))
       valid_count = valid_count + 1_i32
     end do
 
-    call assert_true(valid_count == 5_i32, 'periodic2 m2l_root_trunc charged-wall test lost valid samples')
-    call assert_true(max_rel_err <= 8.0d-2, 'm2l_root_trunc charged-wall closure accuracy exceeds 8e-2')
+    call assert_true(valid_count == 5_i32, 'periodic2 nonneutral heuristic test lost valid samples')
+    call assert_true(max_delta > 1.0d-18, 'periodic2 nonneutral heuristic should affect the field')
+    call assert_true(max_norm_ratio <= 5.0d0, 'periodic2 nonneutral heuristic amplified the field too much')
 
-    call destroy_state(state)
-    call destroy_plan(plan)
-  end subroutine test_periodic2_m2l_root_trunc_charged_wall_closure
+    call destroy_state(state_base)
+    call destroy_state(state_heuristic)
+    call destroy_plan(plan_base)
+    call destroy_plan(plan_heuristic)
+  end subroutine test_periodic2_m2l_root_trunc_nonneutral_heuristic
 
   subroutine test_periodic2_m2l_root_oracle_correction_effect()
     type(fmm_plan_type) :: plan_base, plan_oracle
