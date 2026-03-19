@@ -55,7 +55,7 @@ module bem_app_config_parser
     !> drifting Maxwellian に基づく片側流入束 `[1/m^2/s]` を返す。
     pure module function compute_inflow_flux_from_drifting_maxwellian( &
       number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal &
-    ) result(gamma_in)
+      ) result(gamma_in)
       real(dp), intent(in) :: number_density_m3
       real(dp), intent(in) :: temperature_k
       real(dp), intent(in) :: m_particle
@@ -239,7 +239,7 @@ contains
       case ('output')
         call apply_output_kv(cfg, line)
       case default
-        error stop ('Unknown TOML section: [' // trim(section) // ']')
+        error stop 'Unknown TOML section: ['//trim(section)//']'
       end select
     end do
     close (u)
@@ -380,7 +380,7 @@ contains
     if (per_batch_particles <= 0_i32 .and. .not. has_dynamic_source_species) then
       error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
     end if
-    cfg%n_particles = cfg%sim%batch_count * per_batch_particles
+    cfg%n_particles = cfg%sim%batch_count*per_batch_particles
   end subroutine load_toml_config
 
   !> `[[mesh.templates]]` の読み込み数に応じてテンプレート配列容量を拡張する。
@@ -400,7 +400,7 @@ contains
     end if
     if (old_capacity >= required_size) return
 
-    new_capacity = max(required_size, max(max_templates, max(1, 2 * old_capacity)))
+    new_capacity = max(required_size, max(max_templates, max(1, 2*old_capacity)))
     allocate (grown(new_capacity))
     if (old_capacity > 0) grown(1:old_capacity) = cfg%templates(1:old_capacity)
     call move_alloc(grown, cfg%templates)
@@ -423,7 +423,7 @@ contains
     end if
     if (old_capacity >= required_size) return
 
-    new_capacity = max(required_size, max(max_particle_species, max(1, 2 * old_capacity)))
+    new_capacity = max(required_size, max(max_particle_species, max(1, 2*old_capacity)))
     allocate (grown(new_capacity))
     grown = particle_species_spec()
     if (old_capacity > 0) grown(1:old_capacity) = cfg%particle_species(1:old_capacity)
@@ -522,7 +522,7 @@ contains
     case ('bc_z_high')
       call parse_boundary_mode(v, cfg%sim%bc_high(3))
     case default
-      error stop ('Unknown key in [sim]: ' // trim(k))
+      error stop 'Unknown key in [sim]: '//trim(k)
     end select
   end subroutine apply_sim_kv
 
@@ -534,7 +534,7 @@ contains
     character(len=256) :: v
 
     call split_key_value(line, k, v)
-    error stop ('Unknown key in [particles]: ' // trim(k))
+    error stop 'Unknown key in [particles]: '//trim(k)
   end subroutine apply_particles_kv
 
   !> `[[particles.species]]` のキーを粒子種設定へ適用する。
@@ -600,7 +600,7 @@ contains
       call parse_string(v, spec%inject_face)
       spec%inject_face = lower(trim(spec%inject_face))
     case default
-      error stop ('Unknown key in [[particles.species]]: ' // trim(k))
+      error stop 'Unknown key in [[particles.species]]: '//trim(k)
     end select
   end subroutine apply_particles_species_kv
 
@@ -620,7 +620,7 @@ contains
     case ('obj_path')
       call parse_string(v, cfg%obj_path)
     case default
-      error stop ('Unknown key in [mesh]: ' // trim(k))
+      error stop 'Unknown key in [mesh]: '//trim(k)
     end select
   end subroutine apply_mesh_kv
 
@@ -678,7 +678,7 @@ contains
     case ('n_lat')
       call parse_int(v, spec%n_lat)
     case default
-      error stop ('Unknown key in [[mesh.templates]]: ' // trim(k))
+      error stop 'Unknown key in [[mesh.templates]]: '//trim(k)
     end select
   end subroutine apply_template_kv
 
@@ -702,7 +702,7 @@ contains
     case ('resume')
       call parse_logical(v, cfg%resume_output)
     case default
-      error stop ('Unknown key in [output]: ' // trim(k))
+      error stop 'Unknown key in [output]: '//trim(k)
     end select
   end subroutine apply_output_kv
 

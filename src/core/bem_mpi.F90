@@ -132,7 +132,7 @@ contains
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate(recvbuf(size(values)))
+    allocate (recvbuf(size(values)))
     call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
     values = recvbuf
 #endif
@@ -163,7 +163,7 @@ contains
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate(recvbuf(size(values)))
+    allocate (recvbuf(size(values)))
     call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_MIN, MPI_COMM_WORLD, ierr)
     values = recvbuf
 #endif
@@ -179,7 +179,7 @@ contains
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate(recvbuf(size(values)))
+    allocate (recvbuf(size(values)))
     call MPI_Allreduce(values, recvbuf, size(values), MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
     values = recvbuf
 #endif
@@ -195,7 +195,7 @@ contains
     integer :: ierr
 
     if (.not. ctx%enabled) return
-    allocate(sendbuf(size(values)), recvbuf(size(values)))
+    allocate (sendbuf(size(values)), recvbuf(size(values)))
     sendbuf = int(values, kind=kind(0))
     call MPI_Allreduce(sendbuf, recvbuf, size(values), MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
     values = int(recvbuf, kind=i32)

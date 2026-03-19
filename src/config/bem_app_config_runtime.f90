@@ -71,7 +71,7 @@ contains
         if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
           error stop 'particles.species.npcls_per_step must be >= 0.'
         end if
-        counts(s) = cfg%sim%batch_count * cfg%particle_species(s)%npcls_per_step
+        counts(s) = cfg%sim%batch_count*cfg%particle_species(s)%npcls_per_step
       end if
     end do
 
@@ -87,7 +87,7 @@ contains
       if (counts(s) <= 0_i32) cycle
       call sample_species_state( &
         cfg%sim, cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s) &
-      )
+        )
     end do
 
     allocate (x(3, total_n), v(3, total_n), q(total_n), m(total_n), w(total_n))
@@ -118,7 +118,7 @@ contains
 
     call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'seed_particles_from_config')
 
-    seed_tmp = int(cfg%sim%rng_seed, kind=8) + 104729_8 * int(local_rank, kind=8)
+    seed_tmp = int(cfg%sim%rng_seed, kind=8) + 104729_8*int(local_rank, kind=8)
     seed_value = int(modulo(seed_tmp, int(huge(0_i32), kind=8)), kind=i32)
     call seed_rng([seed_value])
   end subroutine seed_particles_from_config
@@ -179,11 +179,11 @@ contains
         end if
         call reservoir_face_velocity_correction( &
           cfg%sim, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
-        )
+          )
         call compute_macro_particles_for_species( &
           cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s), &
           batch_duration_scale=1.0d0/real(n_ranks, dp) &
-        )
+          )
       case ('photo_raycast')
         global_count = cfg%particle_species(s)%rays_per_batch
         counts_max(s) = mpi_split_count(global_count, local_rank, n_ranks)
@@ -205,9 +205,10 @@ contains
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
       case ('volume_seed', 'reservoir_face')
         call sample_species_state( &
-          cfg%sim, cfg%particle_species(s), counts_max(s), x_species(:, 1:counts_max(s), s), v_species(:, 1:counts_max(s), s), &
+          cfg%sim, cfg%particle_species(s), counts_max(s), &
+          x_species(:, 1:counts_max(s), s), v_species(:, 1:counts_max(s), s), &
           barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s) &
-        )
+          )
         counts_actual(s) = counts_max(s)
         w_species(1:counts_actual(s), s) = cfg%particle_species(s)%w_particle
       case ('photo_raycast')
@@ -219,14 +220,14 @@ contains
           v_species(:, 1:counts_max(s), s), w_species(1:counts_max(s), s), counts_actual(s), &
           emit_elem_idx=emit_elem_species(1:counts_max(s), s), &
           global_rays_per_batch=cfg%particle_species(s)%rays_per_batch &
-        )
+          )
         if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
           do i = 1, counts_actual(s)
             if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > size(photo_emission_dq)) then
               error stop 'photo_raycast emitted invalid elem_idx.'
             end if
             photo_emission_dq(emit_elem_species(i, s)) = photo_emission_dq(emit_elem_species(i, s)) - &
-                                                         cfg%particle_species(s)%q_particle * w_species(i, s)
+                                                         cfg%particle_species(s)%q_particle*w_species(i, s)
           end do
         end if
       case default
@@ -282,31 +283,33 @@ contains
     select case (trim(lower(spec%source_mode)))
     case ('volume_seed')
       call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
-      call sample_shifted_maxwell_velocities(spec%drift_velocity, spec%m_particle, v, temperature_k=species_temperature_k(spec))
+      call sample_shifted_maxwell_velocities( &
+        spec%drift_velocity, spec%m_particle, v, temperature_k=species_temperature_k(spec) &
+        )
     case ('reservoir_face')
       if (present(barrier_normal_energy) .and. present(vmin_normal)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
           barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
-        )
+          )
       else if (present(barrier_normal_energy)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
           barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt &
-        )
+          )
       else if (present(vmin_normal)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
           vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
-        )
+          )
       else
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, position_jitter_dt=sim%dt &
-        )
+          )
       end if
     case ('photo_raycast')
       error stop 'sample_species_state does not support photo_raycast. Use sample_photo_species_state.'
@@ -347,13 +350,13 @@ contains
         mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch &
-      )
+        )
     else
       call sample_photo_raycast_particles( &
         mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx &
-      )
+        )
     end if
   end subroutine sample_photo_species_state
 
@@ -375,18 +378,18 @@ contains
 
     number_density_m3 = species_number_density_m3(spec)
     effective_batch_duration = sim%batch_duration
-    if (present(batch_duration_scale)) effective_batch_duration = sim%batch_duration * batch_duration_scale
+    if (present(batch_duration_scale)) effective_batch_duration = sim%batch_duration*batch_duration_scale
     if (present(vmin_normal)) then
       call compute_macro_particles_for_batch( &
         number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
         spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, spec%w_particle, residual, count, &
         vmin_normal=vmin_normal &
-      )
+        )
     else
       call compute_macro_particles_for_batch( &
         number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
         spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, spec%w_particle, residual, count &
-      )
+        )
     end if
   end subroutine compute_macro_particles_for_species
 
@@ -416,7 +419,7 @@ contains
       end if
       call compute_face_average_potential(mesh, sim, spec, phi_face)
       delta_phi = phi_face - sim%phi_infty
-      barrier_normal = 2.0d0 * spec%q_particle * delta_phi / spec%m_particle
+      barrier_normal = 2.0d0*spec%q_particle*delta_phi/spec%m_particle
       if (.not. ieee_is_finite(barrier_normal)) then
         error stop 'reservoir potential correction produced non-finite barrier.'
       end if
@@ -448,25 +451,25 @@ contains
 
     call resolve_face_sampling_geometry( &
       sim%box_min, sim%box_max, spec%inject_face, axis_n, axis_t1, axis_t2, boundary_value, inward_normal &
-    )
+      )
 
     ngrid = sim%injection_face_phi_grid_n
     phi_sum = 0.0d0
     do i = 1_i32, ngrid
-      t1 = (real(i, dp) - 0.5d0) / real(ngrid, dp)
+      t1 = (real(i, dp) - 0.5d0)/real(ngrid, dp)
       do j = 1_i32, ngrid
-        t2 = (real(j, dp) - 0.5d0) / real(ngrid, dp)
+        t2 = (real(j, dp) - 0.5d0)/real(ngrid, dp)
         pos = 0.0d0
         pos(axis_n) = boundary_value
-        pos(axis_t1) = spec%pos_low(axis_t1) + (spec%pos_high(axis_t1) - spec%pos_low(axis_t1)) * t1
-        pos(axis_t2) = spec%pos_low(axis_t2) + (spec%pos_high(axis_t2) - spec%pos_low(axis_t2)) * t2
-        pos = pos + inward_normal * 1.0d-12
+        pos(axis_t1) = spec%pos_low(axis_t1) + (spec%pos_high(axis_t1) - spec%pos_low(axis_t1))*t1
+        pos(axis_t2) = spec%pos_low(axis_t2) + (spec%pos_high(axis_t2) - spec%pos_low(axis_t2))*t2
+        pos = pos + inward_normal*1.0d-12
         call electric_potential_at(mesh, pos, sim%softening, phi)
         phi_sum = phi_sum + phi
       end do
     end do
 
-    phi_face = phi_sum / real(ngrid * ngrid, dp)
+    phi_face = phi_sum/real(ngrid*ngrid, dp)
   end subroutine compute_face_average_potential
 
   !> 注入面名から法線軸・接線軸・境界値・内向き法線を返す。
@@ -480,7 +483,7 @@ contains
   !! @param[out] inward_normal 注入面の内向き法線ベクトル。
   subroutine resolve_face_sampling_geometry( &
     box_min, box_max, inject_face, axis_n, axis_t1, axis_t2, boundary_value, inward_normal &
-  )
+    )
     real(dp), intent(in) :: box_min(3), box_max(3)
     character(len=*), intent(in) :: inject_face
     integer, intent(out) :: axis_n, axis_t1, axis_t2
@@ -537,7 +540,7 @@ contains
     type(particle_species_spec), intent(in) :: spec
 
     number_density_m3 = spec%number_density_m3
-    if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3 * 1.0d6
+    if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3*1.0d6
   end function species_number_density_m3
 
   !> 併存対応のため `mpi_context` と rank/size の両方を受け、最終的なrank/sizeを解決する。
@@ -550,9 +553,9 @@ contains
     call mpi_get_rank_size(local_rank, n_ranks, mpi)
     if (present(mpi_rank)) local_rank = mpi_rank
     if (present(mpi_size)) n_ranks = mpi_size
-    if (n_ranks <= 0_i32) error stop 'mpi_size must be > 0 in ' // trim(caller_name) // '.'
+    if (n_ranks <= 0_i32) error stop 'mpi_size must be > 0 in '//trim(caller_name)//'.'
     if (local_rank < 0_i32 .or. local_rank >= n_ranks) then
-      error stop 'mpi_rank is out of range in ' // trim(caller_name) // '.'
+      error stop 'mpi_rank is out of range in '//trim(caller_name)//'.'
     end if
   end subroutine resolve_parallel_rank_size
 
@@ -563,7 +566,7 @@ contains
     type(particle_species_spec), intent(in) :: spec
 
     temperature_k = spec%temperature_k
-    if (spec%has_temperature_ev) temperature_k = spec%temperature_ev * 1.160451812d4
+    if (spec%has_temperature_ev) temperature_k = spec%temperature_ev*1.160451812d4
   end function species_temperature_k
 
   !> 有効なテンプレートを連結し、1つのメッシュへまとめる。
@@ -617,13 +620,13 @@ contains
       call make_plate_hole( &
         mesh, size_x=spec%size_x, size_y=spec%size_y, radius=spec%radius, n_theta=spec%n_theta, n_r=spec%n_r, &
         center=spec%center &
-      )
+        )
     case ('disk')
       call make_disk(mesh, radius=spec%radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center)
     case ('annulus')
       call make_annulus( &
         mesh, radius=spec%radius, inner_radius=spec%inner_radius, n_theta=spec%n_theta, n_r=spec%n_r, center=spec%center &
-      )
+        )
     case ('box')
       call make_box(mesh, size=spec%size, center=spec%center, nx=spec%nx, ny=spec%ny, nz=spec%nz)
     case ('cylinder')
@@ -634,7 +637,7 @@ contains
       call make_cylinder( &
         mesh, radius=spec%radius, height=spec%height, n_theta=spec%n_theta, n_z=spec%n_z, &
         cap=spec%cap, center=spec%center, cap_top=cap_top, cap_bottom=cap_bottom &
-      )
+        )
     case ('sphere')
       call make_sphere(mesh, radius=spec%radius, n_lon=spec%n_lon, n_lat=spec%n_lat, center=spec%center)
     case default

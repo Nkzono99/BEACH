@@ -1,6 +1,6 @@
 !> 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。
 module bem_simulator
-  !$ use omp_lib
+!$ use omp_lib
   use, intrinsic :: iso_fortran_env, only: output_unit
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state
@@ -33,7 +33,7 @@ module bem_simulator
     module subroutine prepare_batch_state( &
       mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
       photo_emission_dq, mpi, inject_state &
-    )
+      )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
       type(sim_stats), intent(in) :: stats
@@ -52,7 +52,7 @@ module bem_simulator
     module subroutine process_particle_batch( &
       mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, &
       field_time_s, push_time_s, collision_time_s &
-    )
+      )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
       type(field_solver_type), intent(inout) :: field_solver

@@ -53,10 +53,10 @@ test:
 	$(FPM) test --profile debug --flag "$(OPENMP_FLAG)"
 
 fmt-fortran:
-	find src app tests/fortran -type f \( -name '*.f90' -o -name '*.F90' \) -exec $(FPRETTIFY) -i 4 {} +
+	find src app tests/fortran -type f \( -name '*.f90' -o -name '*.F90' \) -exec $(FPRETTIFY) -i 2 {} +
 
 fmt-check-fortran:
-	find src app tests/fortran -type f \( -name '*.f90' -o -name '*.F90' \) -exec $(FPRETTIFY) -i 4 --silent {} +
+	find src app tests/fortran -type f \( -name '*.f90' -o -name '*.F90' \) -exec $(FPRETTIFY) -i 2 --silent {} +
 	git diff --exit-code -- src app tests/fortran
 
 install-hooks:

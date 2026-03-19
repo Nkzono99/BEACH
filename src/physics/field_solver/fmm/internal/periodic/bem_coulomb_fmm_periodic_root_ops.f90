@@ -52,8 +52,8 @@ contains
       do img_j = -outer_img, outer_img
         if (abs(img_i) <= nimg .and. abs(img_j) <= nimg) cycle
         rimg = root_center_offset
-        rimg(axis1) = rimg(axis1) - real(img_i, dp) * plan%options%periodic_len(1)
-        rimg(axis2) = rimg(axis2) - real(img_j, dp) * plan%options%periodic_len(2)
+        rimg(axis1) = rimg(axis1) - real(img_i, dp)*plan%options%periodic_len(1)
+        rimg(axis2) = rimg(axis2) - real(img_j, dp)*plan%options%periodic_len(2)
         call compute_laplace_derivatives(plan, rimg, deriv_tmp)
         deriv_sum = deriv_sum + deriv_tmp
       end do
@@ -69,7 +69,7 @@ contains
       end if
       do alpha_idx = 1_i32, plan%ncoef
         deriv_idx = plan%alpha_beta_deriv_idx(alpha_idx, beta_idx)
-        plan%periodic_root_operator(alpha_idx, beta_idx) = plan%alpha_sign(beta_idx) * deriv_sum(deriv_idx)
+        plan%periodic_root_operator(alpha_idx, beta_idx) = plan%alpha_sign(beta_idx)*deriv_sum(deriv_idx)
       end do
     end do
     plan%periodic_root_operator_ready = .true.
@@ -89,8 +89,8 @@ contains
     if (.not. plan%periodic_ewald%ready) return
     if (plan%ncoef <= 1_i32) return
 
-    nproxy = 4_i32 * plan%ncoef
-    ncheck = 8_i32 * plan%ncoef
+    nproxy = 4_i32*plan%ncoef
+    ncheck = 8_i32*plan%ncoef
     source_center = plan%node_center(:, 1_i32)
     source_half = plan%node_half_size(:, 1_i32)
     target_center = active_tree_node_center(plan, plan%target_tree_ready, 1_i32)
@@ -101,8 +101,8 @@ contains
     call build_root_sample_points(target_center, target_half, ncheck, 0.37d0, check_points)
 
     allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
-    allocate (field_matrix(3_i32 * ncheck, plan%ncoef - 1_i32), normal_matrix(plan%ncoef - 1_i32, plan%ncoef - 1_i32))
-    allocate (field_rhs(3_i32 * ncheck), normal_rhs(plan%ncoef - 1_i32), coeff(plan%ncoef - 1_i32))
+    allocate (field_matrix(3_i32*ncheck, plan%ncoef - 1_i32), normal_matrix(plan%ncoef - 1_i32, plan%ncoef - 1_i32))
+    allocate (field_rhs(3_i32*ncheck), normal_rhs(plan%ncoef - 1_i32), coeff(plan%ncoef - 1_i32))
     allocate (proxy_gram(plan%ncoef, plan%ncoef), inv_proxy_gram(plan%ncoef, plan%ncoef), proxy_pinv(nproxy, plan%ncoef))
 
     call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
@@ -118,7 +118,7 @@ contains
         call add_periodic2_exact_ewald_correction_single_source(plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res)
         field_rhs(i) = e_res(1)
         field_rhs(ncheck + i) = e_res(2)
-        field_rhs(2_i32 * ncheck + i) = e_res(3)
+        field_rhs(2_i32*ncheck + i) = e_res(3)
       end do
       normal_rhs = matmul(transpose(field_matrix), field_rhs)
       call solve_square_system(normal_matrix, normal_rhs, coeff)
@@ -146,12 +146,12 @@ contains
     real(dp), parameter :: g3 = 0.4301597090019468d0
 
     do idx = 1_i32, npoint
-      f1 = modulo(offset + real(idx, dp) * g1, 1.0d0)
-      f2 = modulo(offset + real(idx, dp) * g2, 1.0d0)
-      f3 = modulo(offset + real(idx, dp) * g3, 1.0d0)
-      points(1, idx) = center(1) + (2.0d0 * (0.05d0 + 0.9d0 * f1) - 1.0d0) * half_size(1)
-      points(2, idx) = center(2) + (2.0d0 * (0.05d0 + 0.9d0 * f2) - 1.0d0) * half_size(2)
-      points(3, idx) = center(3) + (2.0d0 * (0.05d0 + 0.9d0 * f3) - 1.0d0) * half_size(3)
+      f1 = modulo(offset + real(idx, dp)*g1, 1.0d0)
+      f2 = modulo(offset + real(idx, dp)*g2, 1.0d0)
+      f3 = modulo(offset + real(idx, dp)*g3, 1.0d0)
+      points(1, idx) = center(1) + (2.0d0*(0.05d0 + 0.9d0*f1) - 1.0d0)*half_size(1)
+      points(2, idx) = center(2) + (2.0d0*(0.05d0 + 0.9d0*f2) - 1.0d0)*half_size(2)
+      points(3, idx) = center(3) + (2.0d0*(0.05d0 + 0.9d0*f3) - 1.0d0)*half_size(3)
     end do
   end subroutine build_root_sample_points
 
@@ -169,8 +169,8 @@ contains
       d = proxy_points(:, proxy_idx) - source_center
       call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
       do beta_idx = 1_i32, plan%ncoef
-        matrix(beta_idx, proxy_idx) = xpow(plan%alpha(1, beta_idx)) * ypow(plan%alpha(2, beta_idx)) &
-                                      * zpow(plan%alpha(3, beta_idx)) / plan%alpha_factorial(beta_idx)
+        matrix(beta_idx, proxy_idx) = xpow(plan%alpha(1, beta_idx))*ypow(plan%alpha(2, beta_idx)) &
+                                      *zpow(plan%alpha(3, beta_idx))/plan%alpha_factorial(beta_idx)
       end do
     end do
   end subroutine build_proxy_multipole_matrix
@@ -190,7 +190,7 @@ contains
       d = check_points(:, check_idx) - target_center
       call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
       do term_idx = 1_i32, plan%eval_term_count
-        monomial = xpow(plan%eval_exp(1, term_idx)) * ypow(plan%eval_exp(2, term_idx)) * zpow(plan%eval_exp(3, term_idx)) * &
+        monomial = xpow(plan%eval_exp(1, term_idx))*ypow(plan%eval_exp(2, term_idx))*zpow(plan%eval_exp(3, term_idx))* &
                    plan%eval_inv_factorial(term_idx)
         coeff_idx = plan%eval_deriv_idx(1, term_idx)
         if (coeff_idx > 1_i32) matrix(check_idx, coeff_idx - 1_i32) = matrix(check_idx, coeff_idx - 1_i32) - monomial
@@ -199,8 +199,8 @@ contains
           matrix(ncheck + check_idx, coeff_idx - 1_i32) = matrix(ncheck + check_idx, coeff_idx - 1_i32) - monomial
         end if
         coeff_idx = plan%eval_deriv_idx(3, term_idx)
-        if (coeff_idx > 1_i32) matrix(2_i32 * ncheck + check_idx, coeff_idx - 1_i32) = &
-          matrix(2_i32 * ncheck + check_idx, coeff_idx - 1_i32) - monomial
+        if (coeff_idx > 1_i32) matrix(2_i32*ncheck + check_idx, coeff_idx - 1_i32) = &
+          matrix(2_i32*ncheck + check_idx, coeff_idx - 1_i32) - monomial
       end do
     end do
   end subroutine build_local_field_matrix
@@ -212,7 +212,7 @@ contains
 
     do idx = 1_i32, int(size(matrix, 1), i32)
       scale = max(1.0d0, sum(abs(matrix(idx, :))))
-      matrix(idx, idx) = matrix(idx, idx) + 1.0d-12 * scale
+      matrix(idx, idx) = matrix(idx, idx) + 1.0d-12*scale
     end do
   end subroutine regularize_symmetric_system
 
@@ -274,20 +274,20 @@ contains
       end if
 
       factor = work(col_idx, col_idx)
-      work(col_idx, col_idx:ncol) = work(col_idx, col_idx:ncol) / factor
-      rhs_work(col_idx) = rhs_work(col_idx) / factor
+      work(col_idx, col_idx:ncol) = work(col_idx, col_idx:ncol)/factor
+      rhs_work(col_idx) = rhs_work(col_idx)/factor
       do row_idx = col_idx + 1_i32, ncol
         factor = work(row_idx, col_idx)
         if (abs(factor) <= tiny(1.0d0)) cycle
-        work(row_idx, col_idx:ncol) = work(row_idx, col_idx:ncol) - factor * work(col_idx, col_idx:ncol)
-        rhs_work(row_idx) = rhs_work(row_idx) - factor * rhs_work(col_idx)
+        work(row_idx, col_idx:ncol) = work(row_idx, col_idx:ncol) - factor*work(col_idx, col_idx:ncol)
+        rhs_work(row_idx) = rhs_work(row_idx) - factor*rhs_work(col_idx)
       end do
     end do
 
     solution = rhs_work
     do row_idx = ncol, 1_i32, -1_i32
       do swap_idx = row_idx + 1_i32, ncol
-        solution(row_idx) = solution(row_idx) - work(row_idx, swap_idx) * solution(swap_idx)
+        solution(row_idx) = solution(row_idx) - work(row_idx, swap_idx)*solution(swap_idx)
       end do
     end do
   end subroutine solve_square_system

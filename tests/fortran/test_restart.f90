@@ -3,7 +3,7 @@ program test_restart
   use bem_kinds, only: dp, i32
   use bem_mesh, only: init_mesh
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
-    restart_rng_state_path, restart_macro_residual_path
+                         restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: &
     assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, &
@@ -17,12 +17,12 @@ program test_restart
   character(len=1024) :: rng_rank_path, residual_rank_path
   character(len=*), parameter :: out_dir = 'test_restart_tmp'
 
-  call delete_file_if_exists(out_dir // '/summary.txt')
-  call delete_file_if_exists(out_dir // '/charges.csv')
-  call delete_file_if_exists(out_dir // '/rng_state.txt')
-  call delete_file_if_exists(out_dir // '/macro_residuals.csv')
-  call delete_file_if_exists(out_dir // '/rng_state_rank00001.txt')
-  call delete_file_if_exists(out_dir // '/macro_residuals_rank00001.csv')
+  call delete_file_if_exists(out_dir//'/summary.txt')
+  call delete_file_if_exists(out_dir//'/charges.csv')
+  call delete_file_if_exists(out_dir//'/rng_state.txt')
+  call delete_file_if_exists(out_dir//'/macro_residuals.csv')
+  call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
+  call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
   call remove_empty_directory(out_dir)
 
   call build_test_mesh(mesh)
@@ -34,20 +34,20 @@ program test_restart
   call write_summary_fixture(out_dir)
   call write_charges_fixture(out_dir)
   call write_rng_state_file(out_dir)
-  allocate(state%macro_residual(2))
+  allocate (state%macro_residual(2))
   state%macro_residual = [0.25d0, 0.75d0]
   call write_macro_residuals_file(out_dir, state)
-  inquire (file=trim(out_dir) // '/rng_state.txt', exist=exists)
+  inquire (file=trim(out_dir)//'/rng_state.txt', exist=exists)
   call assert_true(exists, 'rng_state.txt should be created')
-  inquire (file=trim(out_dir) // '/macro_residuals.csv', exist=exists)
+  inquire (file=trim(out_dir)//'/macro_residuals.csv', exist=exists)
   call assert_true(exists, 'macro_residuals.csv should be created')
 
   rng_rank_path = restart_rng_state_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   residual_rank_path = restart_macro_residual_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
-  call assert_true(trim(rng_rank_path) == trim(out_dir) // '/rng_state_rank00001.txt', 'ranked rng path mismatch')
+  call assert_true(trim(rng_rank_path) == trim(out_dir)//'/rng_state_rank00001.txt', 'ranked rng path mismatch')
   call assert_true( &
-    trim(residual_rank_path) == trim(out_dir) // '/macro_residuals_rank00001.csv', 'ranked residual path mismatch' &
-  )
+    trim(residual_rank_path) == trim(out_dir)//'/macro_residuals_rank00001.csv', 'ranked residual path mismatch' &
+    )
 
   call write_rng_state_file(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   call write_macro_residuals_file(out_dir, state, mpi_rank=1_i32, mpi_size=4_i32)
@@ -71,12 +71,12 @@ program test_restart
   call assert_allclose_1d(mesh%q_elem, [1.0d-12, -2.0d-12], 1.0d-24, 'charge restore mismatch')
   call assert_allclose_1d(state%macro_residual, [0.25d0, 0.75d0], 1.0d-12, 'macro residual restore mismatch')
 
-  call delete_file_if_exists(out_dir // '/summary.txt')
-  call delete_file_if_exists(out_dir // '/charges.csv')
-  call delete_file_if_exists(out_dir // '/rng_state.txt')
-  call delete_file_if_exists(out_dir // '/macro_residuals.csv')
-  call delete_file_if_exists(out_dir // '/rng_state_rank00001.txt')
-  call delete_file_if_exists(out_dir // '/macro_residuals_rank00001.csv')
+  call delete_file_if_exists(out_dir//'/summary.txt')
+  call delete_file_if_exists(out_dir//'/charges.csv')
+  call delete_file_if_exists(out_dir//'/rng_state.txt')
+  call delete_file_if_exists(out_dir//'/macro_residuals.csv')
+  call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
+  call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
   call remove_empty_directory(out_dir)
 
 contains
@@ -102,7 +102,7 @@ contains
     character(len=*), intent(in) :: dir_path
     integer :: u, ios
 
-    open (newunit=u, file=trim(dir_path) // '/summary.txt', status='replace', action='write', iostat=ios)
+    open (newunit=u, file=trim(dir_path)//'/summary.txt', status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open summary fixture'
     write (u, '(a)') 'mesh_nelem=2'
     write (u, '(a)') 'processed_particles=10'
@@ -121,7 +121,7 @@ contains
     character(len=*), intent(in) :: dir_path
     integer :: u, ios
 
-    open (newunit=u, file=trim(dir_path) // '/charges.csv', status='replace', action='write', iostat=ios)
+    open (newunit=u, file=trim(dir_path)//'/charges.csv', status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open charges fixture'
     write (u, '(a)') 'elem_idx,charge_C'
     write (u, '(a)') '1,1.0e-12'

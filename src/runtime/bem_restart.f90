@@ -37,15 +37,15 @@ contains
     has_restart = .false.
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'load_restart_checkpoint')
 
-    summary_path = trim(out_dir) // '/summary.txt'
-    charges_path = trim(out_dir) // '/charges.csv'
+    summary_path = trim(out_dir)//'/summary.txt'
+    charges_path = trim(out_dir)//'/charges.csv'
     rng_path = restart_rng_state_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
     residual_path = restart_macro_residual_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
 
-    inquire(file=trim(summary_path), exist=has_summary)
-    inquire(file=trim(charges_path), exist=has_charges)
-    inquire(file=trim(rng_path), exist=has_rng)
-    inquire(file=trim(residual_path), exist=has_residual)
+    inquire (file=trim(summary_path), exist=has_summary)
+    inquire (file=trim(charges_path), exist=has_charges)
+    inquire (file=trim(rng_path), exist=has_rng)
+    inquire (file=trim(residual_path), exist=has_residual)
 
     if (.not. has_summary .and. .not. has_charges .and. .not. has_rng) return
 
@@ -77,23 +77,23 @@ contains
 
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_rng_state_file')
     call random_seed(size=n)
-    allocate(seed(n))
+    allocate (seed(n))
     call random_seed(get=seed)
 
     path = restart_rng_state_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
-    open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open rng_state.txt.'
 
-    write(u, '(i0)') n
+    write (u, '(i0)') n
     do i = 1, n
-      write(u, '(i0)') seed(i)
+      write (u, '(i0)') seed(i)
     end do
-    close(u)
+    close (u)
   end subroutine write_rng_state_file
 
   !> マクロ粒子残差を `macro_residuals.csv` として保存する。
-  !! @param[in] out_dir 出力ディレクトリ。
-  !! @param[in] state 種別ごとのマクロ粒子残差を保持した注入状態。
+    !! @param[in] out_dir 出力ディレクトリ。
+    !! @param[in] state 種別ごとのマクロ粒子残差を保持した注入状態。
   subroutine write_macro_residuals_file(out_dir, state, mpi_rank, mpi_size, mpi)
     character(len=*), intent(in) :: out_dir
     type(injection_state), intent(in) :: state
@@ -109,14 +109,14 @@ contains
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_macro_residuals_file')
 
     path = restart_macro_residual_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
-    open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open macro_residuals.csv.'
 
-    write(u, '(a)') 'species_idx,residual'
+    write (u, '(a)') 'species_idx,residual'
     do i = 1, size(state%macro_residual)
-      write(u, '(i0,a,es24.16)') i, ',', state%macro_residual(i)
+      write (u, '(i0,a,es24.16)') i, ',', state%macro_residual(i)
     end do
-    close(u)
+    close (u)
   end subroutine write_macro_residuals_file
 
   !> `summary.txt` を読み込み、必須キーの存在と要素数整合を検証する。
@@ -149,11 +149,11 @@ contains
     found_rel = .false.
     found_world_size = .false.
 
-    open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary.txt for resume.'
 
     do
-      read(u, '(A)', iostat=ios) line
+      read (u, '(A)', iostat=ios) line
       if (ios /= 0) exit
       line = trim(adjustl(line))
       if (len_trim(line) == 0) cycle
@@ -165,83 +165,84 @@ contains
 
       select case (trim(key))
       case ('mesh_nelem')
-        read(value, *) mesh_nelem
+        read (value, *) mesh_nelem
         found_mesh = .true.
       case ('mpi_world_size')
-        read(value, *) saved_world_size
+        read (value, *) saved_world_size
         found_world_size = .true.
       case ('processed_particles')
-        read(value, *) stats%processed_particles
+        read (value, *) stats%processed_particles
         found_processed = .true.
       case ('absorbed')
-        read(value, *) stats%absorbed
+        read (value, *) stats%absorbed
         found_absorbed = .true.
       case ('escaped')
-        read(value, *) stats%escaped
+        read (value, *) stats%escaped
         found_escaped = .true.
       case ('batches')
-        read(value, *) stats%batches
+        read (value, *) stats%batches
         found_batches = .true.
       case ('escaped_boundary')
-        read(value, *) stats%escaped_boundary
+        read (value, *) stats%escaped_boundary
       case ('survived_max_step')
-        read(value, *) stats%survived_max_step
+        read (value, *) stats%survived_max_step
       case ('last_rel_change')
-        read(value, *) stats%last_rel_change
+        read (value, *) stats%last_rel_change
         found_rel = .true.
       case ('field_time_s')
-        read(value, *) stats%field_time_s
+        read (value, *) stats%field_time_s
       case ('push_time_s')
-        read(value, *) stats%push_time_s
+        read (value, *) stats%push_time_s
       case ('collision_time_s')
-        read(value, *) stats%collision_time_s
+        read (value, *) stats%collision_time_s
       case ('fmm_profile_enabled')
-        read(value, *) stats%fmm_profile_enabled
+        read (value, *) stats%fmm_profile_enabled
       case ('fmm_nnode')
-        read(value, *) stats%fmm_nnode
+        read (value, *) stats%fmm_nnode
       case ('fmm_target_nnode')
-        read(value, *) stats%fmm_target_nnode
+        read (value, *) stats%fmm_target_nnode
       case ('fmm_m2l_pair_count')
-        read(value, *) stats%fmm_m2l_pair_count
+        read (value, *) stats%fmm_m2l_pair_count
       case ('fmm_m2l_build_count')
-        read(value, *) stats%fmm_m2l_build_count
+        read (value, *) stats%fmm_m2l_build_count
       case ('fmm_m2l_visit_count')
-        read(value, *) stats%fmm_m2l_visit_count
+        read (value, *) stats%fmm_m2l_visit_count
       case ('fmm_near_interaction_count')
-        read(value, *) stats%fmm_near_interaction_count
+        read (value, *) stats%fmm_near_interaction_count
       case ('fmm_far_interaction_count')
-        read(value, *) stats%fmm_far_interaction_count
+        read (value, *) stats%fmm_far_interaction_count
       case ('fmm_refresh_count')
-        read(value, *) stats%fmm_refresh_count
+        read (value, *) stats%fmm_refresh_count
       case ('fmm_total_refresh_time_s')
-        read(value, *) stats%fmm_total_refresh_time_s
+        read (value, *) stats%fmm_total_refresh_time_s
       case ('fmm_eval_count')
-        read(value, *) stats%fmm_eval_count
+        read (value, *) stats%fmm_eval_count
       case ('fmm_eval_local_count')
-        read(value, *) stats%fmm_eval_local_count
+        read (value, *) stats%fmm_eval_local_count
       case ('fmm_eval_fallback_count')
-        read(value, *) stats%fmm_eval_fallback_count
+        read (value, *) stats%fmm_eval_fallback_count
       case ('fmm_eval_ewald_count')
-        read(value, *) stats%fmm_eval_ewald_count
+        read (value, *) stats%fmm_eval_ewald_count
       case ('fmm_eval_near_source_count')
-        read(value, *) stats%fmm_eval_near_source_count
+        read (value, *) stats%fmm_eval_near_source_count
       case ('fmm_eval_direct_kernel_count')
-        read(value, *) stats%fmm_eval_direct_kernel_count
+        read (value, *) stats%fmm_eval_direct_kernel_count
       case ('fmm_eval_locate_time_s')
-        read(value, *) stats%fmm_eval_locate_time_s
+        read (value, *) stats%fmm_eval_locate_time_s
       case ('fmm_eval_local_time_s')
-        read(value, *) stats%fmm_eval_local_time_s
+        read (value, *) stats%fmm_eval_local_time_s
       case ('fmm_eval_near_time_s')
-        read(value, *) stats%fmm_eval_near_time_s
+        read (value, *) stats%fmm_eval_near_time_s
       case ('fmm_eval_fallback_time_s')
-        read(value, *) stats%fmm_eval_fallback_time_s
+        read (value, *) stats%fmm_eval_fallback_time_s
       case ('fmm_eval_ewald_time_s')
-        read(value, *) stats%fmm_eval_ewald_time_s
+        read (value, *) stats%fmm_eval_ewald_time_s
       end select
     end do
-    close(u)
+    close (u)
 
-    if (.not. (found_mesh .and. found_processed .and. found_absorbed .and. found_escaped .and. found_batches .and. found_rel)) then
+    if (.not. (found_mesh .and. found_processed .and. found_absorbed .and. &
+               found_escaped .and. found_batches .and. found_rel)) then
       error stop 'Resume checkpoint summary is missing required keys.'
     end if
     if (mesh_nelem /= expected_nelem) then
@@ -273,19 +274,19 @@ contains
 
     if (.not. allocated(mesh%q_elem)) error stop 'Mesh charges are not allocated.'
 
-    allocate(seen(mesh%nelem))
+    allocate (seen(mesh%nelem))
     seen = .false.
     mesh%q_elem = 0.0d0
     n_loaded = 0_i32
 
-    open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open charges.csv for resume.'
 
-    read(u, '(A)', iostat=ios) header
+    read (u, '(A)', iostat=ios) header
     if (ios /= 0) error stop 'Failed to read charges.csv header.'
 
     do
-      read(u, *, iostat=ios) elem_idx, charge
+      read (u, *, iostat=ios) elem_idx, charge
       if (ios < 0) exit
       if (ios > 0) error stop 'Failed to parse charges.csv during resume.'
       if (elem_idx < 1_i32 .or. elem_idx > mesh%nelem) then
@@ -298,7 +299,7 @@ contains
       mesh%q_elem(elem_idx) = charge
       n_loaded = n_loaded + 1_i32
     end do
-    close(u)
+    close (u)
 
     if (n_loaded /= mesh%nelem) then
       error stop 'Resume checkpoint charges.csv does not match the current mesh.'
@@ -316,21 +317,21 @@ contains
 
     call random_seed(size=expected_n)
 
-    open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open rng_state.txt for resume.'
 
-    read(u, *, iostat=ios) file_n
+    read (u, *, iostat=ios) file_n
     if (ios /= 0) error stop 'Failed to read rng_state.txt header.'
     if (file_n /= expected_n) then
       error stop 'Resume checkpoint RNG state size does not match this build.'
     end if
 
-    allocate(seed(file_n))
+    allocate (seed(file_n))
     do i = 1, file_n
-      read(u, *, iostat=ios) seed(i)
+      read (u, *, iostat=ios) seed(i)
       if (ios /= 0) error stop 'Failed to parse rng_state.txt.'
     end do
-    close(u)
+    close (u)
 
     call random_seed(put=seed)
   end subroutine restore_rng_state
@@ -350,18 +351,18 @@ contains
 
     if (.not. allocated(state%macro_residual)) return
 
-    allocate(seen(size(state%macro_residual)))
+    allocate (seen(size(state%macro_residual)))
     seen = .false.
     state%macro_residual = 0.0d0
 
-    open(newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open macro_residuals.csv for resume.'
 
-    read(u, '(A)', iostat=ios) header
+    read (u, '(A)', iostat=ios) header
     if (ios /= 0) error stop 'Failed to read macro_residuals.csv header.'
 
     do
-      read(u, *, iostat=ios) species_idx, residual
+      read (u, *, iostat=ios) species_idx, residual
       if (ios < 0) exit
       if (ios > 0) error stop 'Failed to parse macro_residuals.csv during resume.'
       if (species_idx < 1_i32 .or. species_idx > size(state%macro_residual)) then
@@ -373,7 +374,7 @@ contains
       seen(species_idx) = .true.
       state%macro_residual(species_idx) = residual
     end do
-    close(u)
+    close (u)
   end subroutine load_macro_residual_file
 
   !> RNG状態ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
@@ -386,9 +387,9 @@ contains
 
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'restart_rng_state_path')
     if (world_size <= 1_i32) then
-      path = trim(out_dir) // '/rng_state.txt'
+      path = trim(out_dir)//'/rng_state.txt'
     else
-      write(path, '(a,a,i5.5,a)') trim(out_dir), '/rng_state_rank', local_rank, '.txt'
+      write (path, '(a,a,i5.5,a)') trim(out_dir), '/rng_state_rank', local_rank, '.txt'
     end if
   end function restart_rng_state_path
 
@@ -402,9 +403,9 @@ contains
 
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'restart_macro_residual_path')
     if (world_size <= 1_i32) then
-      path = trim(out_dir) // '/macro_residuals.csv'
+      path = trim(out_dir)//'/macro_residuals.csv'
     else
-      write(path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', local_rank, '.csv'
+      write (path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', local_rank, '.csv'
     end if
   end function restart_macro_residual_path
 
@@ -418,9 +419,9 @@ contains
     call mpi_get_rank_size(local_rank, world_size, mpi)
     if (present(mpi_rank)) local_rank = mpi_rank
     if (present(mpi_size)) world_size = mpi_size
-    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in ' // trim(caller_name) // '.'
+    if (world_size <= 0_i32) error stop 'mpi_size must be > 0 in '//trim(caller_name)//'.'
     if (local_rank < 0_i32 .or. local_rank >= world_size) then
-      error stop 'mpi_rank out of range in ' // trim(caller_name) // '.'
+      error stop 'mpi_rank out of range in '//trim(caller_name)//'.'
     end if
   end subroutine resolve_parallel_rank_size
 

@@ -6,10 +6,10 @@ program test_mpi_hybrid
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
-    restart_rng_state_path, restart_macro_residual_path
+                         restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, ensure_directory, &
-    remove_empty_directory
+                          remove_empty_directory
   implicit none
 
   type(mpi_context) :: mpi
@@ -30,10 +30,10 @@ program test_mpi_hybrid
 
   if (mpi_is_root(mpi)) then
     call delete_file_if_exists(history_path)
-    call delete_file_if_exists(out_dir // '/summary.txt')
-    call delete_file_if_exists(out_dir // '/charges.csv')
-    call delete_file_if_exists(out_dir // '/rng_state.txt')
-    call delete_file_if_exists(out_dir // '/macro_residuals.csv')
+    call delete_file_if_exists(out_dir//'/summary.txt')
+    call delete_file_if_exists(out_dir//'/charges.csv')
+    call delete_file_if_exists(out_dir//'/rng_state.txt')
+    call delete_file_if_exists(out_dir//'/macro_residuals.csv')
   end if
   call mpi_world_barrier(mpi)
 
@@ -74,10 +74,10 @@ program test_mpi_hybrid
   call seed_particles_from_config(cfg, mpi=mpi)
 
   if (mpi_is_root(mpi)) then
-    open(newunit=u, file=history_path, status='replace', action='write', iostat=ios)
+    open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open MPI hybrid history fixture'
     call run_absorption_insulator(mesh, cfg, stats, history_unit=u, history_stride=1_i32, mpi=mpi)
-    close(u)
+    close (u)
   else
     call run_absorption_insulator(mesh, cfg, stats, mpi=mpi)
   end if
@@ -90,14 +90,14 @@ program test_mpi_hybrid
 
   if (mpi_is_root(mpi)) then
     n_lines = 0_i32
-    open(newunit=u, file=history_path, status='old', action='read', iostat=ios)
+    open (newunit=u, file=history_path, status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to read MPI hybrid history fixture'
     do
-      read(u, '(A)', iostat=ios) line
+      read (u, '(A)', iostat=ios) line
       if (ios /= 0) exit
       n_lines = n_lines + 1_i32
     end do
-    close(u)
+    close (u)
     call assert_equal_i32(n_lines, 1_i32, 'mpi history snapshot line count mismatch')
     call delete_file_if_exists(history_path)
   end if
@@ -110,14 +110,14 @@ program test_mpi_hybrid
   end if
   call mpi_world_barrier(mpi)
 
-  allocate(state%macro_residual(1))
+  allocate (state%macro_residual(1))
   state%macro_residual(1) = 0.25d0 + real(mpi%rank, dp)
   call write_rng_state_file(out_dir, mpi=mpi)
   call write_macro_residuals_file(out_dir, state, mpi=mpi)
   call mpi_world_barrier(mpi)
 
   call init_mesh(mesh_restart, v0, v1, v2)
-  allocate(state_restart%macro_residual(1))
+  allocate (state_restart%macro_residual(1))
   state_restart%macro_residual = 0.0d0
   call load_restart_checkpoint(out_dir, mesh_restart, stats_restart, has_restart, state_restart, mpi=mpi)
   call assert_true(has_restart, 'mpi restart should be detected')
@@ -130,10 +130,10 @@ program test_mpi_hybrid
   call delete_file_if_exists(residual_path)
   call mpi_world_barrier(mpi)
   if (mpi_is_root(mpi)) then
-    call delete_file_if_exists(out_dir // '/summary.txt')
-    call delete_file_if_exists(out_dir // '/charges.csv')
-    call delete_file_if_exists(out_dir // '/rng_state.txt')
-    call delete_file_if_exists(out_dir // '/macro_residuals.csv')
+    call delete_file_if_exists(out_dir//'/summary.txt')
+    call delete_file_if_exists(out_dir//'/charges.csv')
+    call delete_file_if_exists(out_dir//'/rng_state.txt')
+    call delete_file_if_exists(out_dir//'/macro_residuals.csv')
     call remove_empty_directory(out_dir)
   end if
 
@@ -146,29 +146,29 @@ contains
     integer(i32), intent(in) :: mpi_world_size
     integer :: u, ios
 
-    open(newunit=u, file=trim(dir_path) // '/summary.txt', status='replace', action='write', iostat=ios)
+    open (newunit=u, file=trim(dir_path)//'/summary.txt', status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open MPI summary fixture'
-    write(u, '(a)') 'mesh_nelem=1'
-    write(u, '(a,i0)') 'mpi_world_size=', mpi_world_size
-    write(u, '(a)') 'processed_particles=8'
-    write(u, '(a)') 'absorbed=8'
-    write(u, '(a)') 'escaped=0'
-    write(u, '(a)') 'batches=2'
-    write(u, '(a)') 'escaped_boundary=0'
-    write(u, '(a)') 'survived_max_step=0'
-    write(u, '(a)') 'last_rel_change=1.0e-4'
-    close(u)
+    write (u, '(a)') 'mesh_nelem=1'
+    write (u, '(a,i0)') 'mpi_world_size=', mpi_world_size
+    write (u, '(a)') 'processed_particles=8'
+    write (u, '(a)') 'absorbed=8'
+    write (u, '(a)') 'escaped=0'
+    write (u, '(a)') 'batches=2'
+    write (u, '(a)') 'escaped_boundary=0'
+    write (u, '(a)') 'survived_max_step=0'
+    write (u, '(a)') 'last_rel_change=1.0e-4'
+    close (u)
   end subroutine write_summary_fixture
 
   subroutine write_charges_fixture(dir_path)
     character(len=*), intent(in) :: dir_path
     integer :: u, ios
 
-    open(newunit=u, file=trim(dir_path) // '/charges.csv', status='replace', action='write', iostat=ios)
+    open (newunit=u, file=trim(dir_path)//'/charges.csv', status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open MPI charges fixture'
-    write(u, '(a)') 'elem_idx,charge_C'
-    write(u, '(a)') '1,2.0'
-    close(u)
+    write (u, '(a)') 'elem_idx,charge_C'
+    write (u, '(a)') '1,2.0'
+    close (u)
   end subroutine write_charges_fixture
 
 end program test_mpi_hybrid

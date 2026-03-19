@@ -3,7 +3,7 @@ program test_performance_profile
   use bem_kinds, only: i32
   use bem_mpi, only: mpi_context
   use bem_performance_profile, only: perf_reset, perf_configure, perf_set_output_context, perf_add_elapsed, &
-    perf_write_outputs, perf_region_program_total, perf_region_simulation_total
+                                     perf_write_outputs, perf_region_program_total, perf_region_simulation_total
   use test_support, only: assert_true, delete_file_if_exists, ensure_directory, remove_empty_directory
   implicit none
 
@@ -23,17 +23,17 @@ program test_performance_profile
   call perf_add_elapsed(perf_region_simulation_total, 1.0d0, 2_i32)
   call perf_write_outputs(mpi)
 
-  inquire(file=profile_path, exist=exists)
+  inquire (file=profile_path, exist=exists)
   call assert_true(exists, 'performance_profile.csv should be created')
 
   saw_header = .false.
   saw_program_total = .false.
   saw_simulation_total = .false.
 
-  open(newunit=u, file=profile_path, status='old', action='read', iostat=ios)
+  open (newunit=u, file=profile_path, status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to open performance_profile.csv'
   do
-    read(u, '(A)', iostat=ios) line
+    read (u, '(A)', iostat=ios) line
     if (ios /= 0) exit
     if (index(line, 'region,calls_sum,calls_mean,rank_min_s,rank_mean_s,rank_max_s,imbalance_ratio') == 1) then
       saw_header = .true.
@@ -41,7 +41,7 @@ program test_performance_profile
     if (index(line, 'program_total,') == 1) saw_program_total = .true.
     if (index(line, 'simulation_total,') == 1) saw_simulation_total = .true.
   end do
-  close(u)
+  close (u)
 
   call assert_true(saw_header, 'performance_profile.csv header row is missing')
   call assert_true(saw_program_total, 'program_total row is missing from performance_profile.csv')

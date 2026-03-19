@@ -33,21 +33,21 @@ program test_reservoir_injection
   call compute_macro_particles_for_batch( &
     1.05d3, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
     'z_low', [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 0.0d0], 1.0d0, 1.0d2, residual, n_macro &
-  )
+    )
   call assert_equal_i32(n_macro, 10_i32, 'first macro particle count mismatch')
   call assert_close_dp(residual, 0.5d0, 1.0d-12, 'first residual mismatch')
 
   call compute_macro_particles_for_batch( &
     1.05d3, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
     'z_low', [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 0.0d0], 1.0d0, 1.0d2, residual, n_macro &
-  )
+    )
   call assert_equal_i32(n_macro, 11_i32, 'second macro particle count mismatch')
   call assert_close_dp(residual, 0.0d0, 1.0d-12, 'second residual mismatch')
 
   call compute_macro_particles_for_batch( &
     1.05d3, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
     'z_low', [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 0.0d0], 1.0d0, 1.0d2, residual, n_macro, vmin_normal=1.2d0 &
-  )
+    )
   call assert_equal_i32(n_macro, 0_i32, 'vmin cutoff should block deterministic inflow')
   call assert_close_dp(residual, 0.0d0, 1.0d-12, 'vmin cutoff residual mismatch')
 
@@ -62,10 +62,10 @@ program test_reservoir_injection
 
   inward_normal = [0.0d0, 0.0d0, -1.0d0]
   gamma1 = compute_inflow_flux_from_drifting_maxwellian( &
-    1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], inward_normal &
-  )
+           1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], inward_normal &
+           )
   area1 = compute_face_area_from_bounds('z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0])
-  expected_w1 = gamma1 * area1 * cfg_auto%sim%batch_duration / 300.0d0
+  expected_w1 = gamma1*area1*cfg_auto%sim%batch_duration/300.0d0
   call assert_close_dp(cfg_auto%particle_species(1)%w_particle, expected_w1, 1.0d-12, 'species-1 auto w mismatch')
   call assert_close_dp(cfg_auto%particle_species(2)%w_particle, expected_w1, 1.0d-12, 'species-2 shared w mismatch')
 
@@ -78,16 +78,16 @@ program test_reservoir_injection
       1000.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
       'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
       cfg_auto%sim%batch_duration, cfg_auto%particle_species(1)%w_particle, residual1, n1 &
-    )
+      )
     call compute_macro_particles_for_batch( &
       250.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, -1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
       'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
       cfg_auto%sim%batch_duration, cfg_auto%particle_species(2)%w_particle, residual2, n2 &
-    )
+      )
     sum1 = sum1 + n1
     sum2 = sum2 + n2
   end do
-  ratio = real(sum2, dp) / real(sum1, dp)
+  ratio = real(sum2, dp)/real(sum1, dp)
   call assert_close_dp(ratio, 0.25d0, 1.0d-12, 'reservoir species ratio mismatch')
 
   call delete_file_if_exists(cfg_fixed_path)

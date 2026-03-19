@@ -18,7 +18,7 @@ contains
 
     call scan_obj(path, nvert, ntri)
     if (nvert == 0 .or. ntri == 0) error stop "OBJ has no vertices/faces"
-    allocate(vertices(3, nvert), faces(3, ntri))
+    allocate (vertices(3, nvert), faces(3, ntri))
     call parse_obj(path, vertices, faces)
     call build_mesh_from_indexed(vertices, faces, mesh)
   end subroutine load_obj_mesh
@@ -39,7 +39,7 @@ contains
     end if
 
     ntri = size(faces, 2)
-    allocate(v0(3, ntri), v1(3, ntri), v2(3, ntri))
+    allocate (v0(3, ntri), v1(3, ntri), v2(3, ntri))
     do i = 1, ntri
       v0(:, i) = vertices(:, faces(1, i))
       v1(:, i) = vertices(:, faces(2, i))
@@ -60,11 +60,11 @@ contains
 
     nvert = 0
     ntri = 0
-    open(newunit=u, file=path, status='old', action='read', iostat=ios)
+    open (newunit=u, file=path, status='old', action='read', iostat=ios)
     if (ios /= 0) error stop "failed to open OBJ"
 
     do
-      read(u, '(A)', iostat=ios) line
+      read (u, '(A)', iostat=ios) line
       if (ios /= 0) exit
       if (is_vertex_line(line)) nvert = nvert + 1
       if (is_face_line(line)) then
@@ -72,7 +72,7 @@ contains
         if (ntok >= 3) ntri = ntri + (ntok - 2)
       end if
     end do
-    close(u)
+    close (u)
   end subroutine scan_obj
 
   !> OBJの頂点/面行を解析し、負インデックス対応で配列へ格納する。
@@ -89,11 +89,11 @@ contains
 
     iv = 0
     itri = 0
-    open(newunit=u, file=path, status='old', action='read', iostat=ios)
+    open (newunit=u, file=path, status='old', action='read', iostat=ios)
     if (ios /= 0) error stop "failed to open OBJ"
 
     do
-      read(u, '(A)', iostat=ios) line
+      read (u, '(A)', iostat=ios) line
       if (ios /= 0) exit
       if (is_vertex_line(line)) then
         iv = iv + 1
@@ -108,7 +108,7 @@ contains
         end if
       end if
     end do
-    close(u)
+    close (u)
   end subroutine parse_obj
 
   !> 与えられた行がOBJ頂点行(`v `)かを判定する。
@@ -169,7 +169,7 @@ contains
     real(dp), intent(out) :: p(3)
     character(len=1024) :: s
     s = trim(adjustl(line))
-    read(s(3:), *) p(1), p(2), p(3)
+    read (s(3:), *) p(1), p(2), p(3)
   end subroutine parse_vertex_line
 
   !> `f` 行の頂点参照を抽出し、`v/vt/vn` 形式から頂点インデックスのみを取り出す。
@@ -211,7 +211,7 @@ contains
 
       slash = index(tok, '/')
       if (slash > 0) tok = tok(1:slash - 1)
-      read(tok, *) vi
+      read (tok, *) vi
       if (vi < 0) vi = nvert + vi + 1
       if (vi <= 0 .or. vi > nvert) error stop "OBJ face index out of range"
       ntok = ntok + 1

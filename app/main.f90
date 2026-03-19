@@ -4,12 +4,12 @@ program main
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size
   use bem_performance_profile, only: perf_configure_from_env, perf_set_output_context, perf_region_begin, &
-    perf_region_end, perf_write_outputs, perf_region_program_total, perf_region_load_or_init, &
-    perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
+                                     perf_region_end, perf_write_outputs, perf_region_program_total, perf_region_load_or_init, &
+                                     perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
-    seed_particles_from_config, lower
+                            seed_particles_from_config, lower
   implicit none
 
   type(mesh_type) :: mesh
@@ -42,8 +42,8 @@ program main
     call run_absorption_insulator( &
       mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
       inject_state=inject_state, mpi=mpi &
-    )
-    close(history_unit)
+      )
+    close (history_unit)
   else
     call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi)
   end if
@@ -99,7 +99,7 @@ contains
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
       call load_restart_checkpoint( &
         trim(app%output_dir), mesh, initial_stats, resumed, inject_state, mpi=mpi &
-      )
+        )
     end if
 
     if (resumed) then
@@ -130,7 +130,7 @@ contains
       return
     end if
 
-    inquire(file=primary_config, exist=has_primary)
+    inquire (file=primary_config, exist=has_primary)
     if (has_primary) then
       path = primary_config
       found = .true.
@@ -144,7 +144,7 @@ contains
     type(injection_state), intent(out) :: state
     integer, intent(in) :: n_species
 
-    allocate(state%macro_residual(n_species))
+    allocate (state%macro_residual(n_species))
     state%macro_residual = 0.0d0
   end subroutine initialize_injection_state
 
@@ -169,18 +169,18 @@ contains
 
     call ensure_output_dir(app%output_dir)
 
-    history_path = trim(app%output_dir) // '/charge_history.csv'
-    inquire(file=trim(history_path), exist=history_exists)
+    history_path = trim(app%output_dir)//'/charge_history.csv'
+    inquire (file=trim(history_path), exist=history_exists)
     if (resumed) then
-      open(newunit=history_unit, file=trim(history_path), status='unknown', position='append', action='write', iostat=ios)
+      open (newunit=history_unit, file=trim(history_path), status='unknown', position='append', action='write', iostat=ios)
     else
-      open(newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
+      open (newunit=history_unit, file=trim(history_path), status='replace', action='write', iostat=ios)
     end if
     if (ios /= 0) error stop 'Failed to open charge history file.'
 
     if (.not. resumed .or. .not. history_exists) then
       ! 再開時は既存ファイルがある場合だけヘッダ追記を避ける。
-      write(history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
+      write (history_unit, '(a)') 'batch,processed_particles,rel_change,elem_idx,charge_C'
     end if
     history_opened = .true.
   end subroutine open_history_writer
@@ -256,7 +256,7 @@ contains
     character(len=1024) :: cmd
     integer :: ios
 
-    cmd = 'mkdir -p "' // trim(out_dir) // '"'
+    cmd = 'mkdir -p "'//trim(out_dir)//'"'
     call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
     if (ios /= 0) error stop 'Failed to create output directory.'
   end subroutine ensure_output_dir
@@ -274,48 +274,48 @@ contains
     integer :: u, ios
     integer(i32) :: world_size
 
-    summary_path = trim(out_dir) // '/summary.txt'
-    open(newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
+    summary_path = trim(out_dir)//'/summary.txt'
+    open (newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary file.'
     world_size = 1_i32
     if (present(mpi_world_size)) world_size = max(1_i32, mpi_world_size)
-    write(u, '(a,i0)') 'mesh_nelem=', mesh%nelem
-    write(u, '(a,i0)') 'mesh_count=', max(1_i32, maxval(mesh%elem_mesh_id))
-    write(u, '(a,i0)') 'mpi_world_size=', world_size
-    write(u, '(a,i0)') 'processed_particles=', stats%processed_particles
-    write(u, '(a,i0)') 'absorbed=', stats%absorbed
-    write(u, '(a,i0)') 'escaped=', stats%escaped
-    write(u, '(a,i0)') 'batches=', stats%batches
-    write(u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
-    write(u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
-    write(u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
-    write(u, '(a,es24.16)') 'field_time_s=', stats%field_time_s
-    write(u, '(a,es24.16)') 'push_time_s=', stats%push_time_s
-    write(u, '(a,es24.16)') 'collision_time_s=', stats%collision_time_s
+    write (u, '(a,i0)') 'mesh_nelem=', mesh%nelem
+    write (u, '(a,i0)') 'mesh_count=', max(1_i32, maxval(mesh%elem_mesh_id))
+    write (u, '(a,i0)') 'mpi_world_size=', world_size
+    write (u, '(a,i0)') 'processed_particles=', stats%processed_particles
+    write (u, '(a,i0)') 'absorbed=', stats%absorbed
+    write (u, '(a,i0)') 'escaped=', stats%escaped
+    write (u, '(a,i0)') 'batches=', stats%batches
+    write (u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
+    write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
+    write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
+    write (u, '(a,es24.16)') 'field_time_s=', stats%field_time_s
+    write (u, '(a,es24.16)') 'push_time_s=', stats%push_time_s
+    write (u, '(a,es24.16)') 'collision_time_s=', stats%collision_time_s
     if (stats%fmm_nnode > 0_i32 .or. stats%fmm_refresh_count > 0_i32 .or. stats%fmm_profile_enabled /= 0_i32) then
-      write(u, '(a,i0)') 'fmm_profile_enabled=', stats%fmm_profile_enabled
-      write(u, '(a,i0)') 'fmm_nnode=', stats%fmm_nnode
-      write(u, '(a,i0)') 'fmm_target_nnode=', stats%fmm_target_nnode
-      write(u, '(a,i0)') 'fmm_m2l_pair_count=', stats%fmm_m2l_pair_count
-      write(u, '(a,i0)') 'fmm_m2l_build_count=', stats%fmm_m2l_build_count
-      write(u, '(a,i0)') 'fmm_m2l_visit_count=', stats%fmm_m2l_visit_count
-      write(u, '(a,i0)') 'fmm_near_interaction_count=', stats%fmm_near_interaction_count
-      write(u, '(a,i0)') 'fmm_far_interaction_count=', stats%fmm_far_interaction_count
-      write(u, '(a,i0)') 'fmm_refresh_count=', stats%fmm_refresh_count
-      write(u, '(a,es24.16)') 'fmm_total_refresh_time_s=', stats%fmm_total_refresh_time_s
-      write(u, '(a,i0)') 'fmm_eval_count=', stats%fmm_eval_count
-      write(u, '(a,i0)') 'fmm_eval_local_count=', stats%fmm_eval_local_count
-      write(u, '(a,i0)') 'fmm_eval_fallback_count=', stats%fmm_eval_fallback_count
-      write(u, '(a,i0)') 'fmm_eval_ewald_count=', stats%fmm_eval_ewald_count
-      write(u, '(a,i0)') 'fmm_eval_near_source_count=', stats%fmm_eval_near_source_count
-      write(u, '(a,i0)') 'fmm_eval_direct_kernel_count=', stats%fmm_eval_direct_kernel_count
-      write(u, '(a,es24.16)') 'fmm_eval_locate_time_s=', stats%fmm_eval_locate_time_s
-      write(u, '(a,es24.16)') 'fmm_eval_local_time_s=', stats%fmm_eval_local_time_s
-      write(u, '(a,es24.16)') 'fmm_eval_near_time_s=', stats%fmm_eval_near_time_s
-      write(u, '(a,es24.16)') 'fmm_eval_fallback_time_s=', stats%fmm_eval_fallback_time_s
-      write(u, '(a,es24.16)') 'fmm_eval_ewald_time_s=', stats%fmm_eval_ewald_time_s
+      write (u, '(a,i0)') 'fmm_profile_enabled=', stats%fmm_profile_enabled
+      write (u, '(a,i0)') 'fmm_nnode=', stats%fmm_nnode
+      write (u, '(a,i0)') 'fmm_target_nnode=', stats%fmm_target_nnode
+      write (u, '(a,i0)') 'fmm_m2l_pair_count=', stats%fmm_m2l_pair_count
+      write (u, '(a,i0)') 'fmm_m2l_build_count=', stats%fmm_m2l_build_count
+      write (u, '(a,i0)') 'fmm_m2l_visit_count=', stats%fmm_m2l_visit_count
+      write (u, '(a,i0)') 'fmm_near_interaction_count=', stats%fmm_near_interaction_count
+      write (u, '(a,i0)') 'fmm_far_interaction_count=', stats%fmm_far_interaction_count
+      write (u, '(a,i0)') 'fmm_refresh_count=', stats%fmm_refresh_count
+      write (u, '(a,es24.16)') 'fmm_total_refresh_time_s=', stats%fmm_total_refresh_time_s
+      write (u, '(a,i0)') 'fmm_eval_count=', stats%fmm_eval_count
+      write (u, '(a,i0)') 'fmm_eval_local_count=', stats%fmm_eval_local_count
+      write (u, '(a,i0)') 'fmm_eval_fallback_count=', stats%fmm_eval_fallback_count
+      write (u, '(a,i0)') 'fmm_eval_ewald_count=', stats%fmm_eval_ewald_count
+      write (u, '(a,i0)') 'fmm_eval_near_source_count=', stats%fmm_eval_near_source_count
+      write (u, '(a,i0)') 'fmm_eval_direct_kernel_count=', stats%fmm_eval_direct_kernel_count
+      write (u, '(a,es24.16)') 'fmm_eval_locate_time_s=', stats%fmm_eval_locate_time_s
+      write (u, '(a,es24.16)') 'fmm_eval_local_time_s=', stats%fmm_eval_local_time_s
+      write (u, '(a,es24.16)') 'fmm_eval_near_time_s=', stats%fmm_eval_near_time_s
+      write (u, '(a,es24.16)') 'fmm_eval_fallback_time_s=', stats%fmm_eval_fallback_time_s
+      write (u, '(a,es24.16)') 'fmm_eval_ewald_time_s=', stats%fmm_eval_ewald_time_s
     end if
-    close(u)
+    close (u)
   end subroutine write_summary_file
 
   !> 要素電荷を `charges.csv` に書き出す。
@@ -327,14 +327,14 @@ contains
     character(len=1024) :: charges_path
     integer :: u, ios, i
 
-    charges_path = trim(out_dir) // '/charges.csv'
-    open(newunit=u, file=trim(charges_path), status='replace', action='write', iostat=ios)
+    charges_path = trim(out_dir)//'/charges.csv'
+    open (newunit=u, file=trim(charges_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open charges file.'
-    write(u, '(a)') 'elem_idx,charge_C'
+    write (u, '(a)') 'elem_idx,charge_C'
     do i = 1, mesh%nelem
-      write(u, '(i0,a,es24.16)') i, ',', mesh%q_elem(i)
+      write (u, '(i0,a,es24.16)') i, ',', mesh%q_elem(i)
     end do
-    close(u)
+    close (u)
   end subroutine write_charges_file
 
   !> 三角形メッシュを `mesh_triangles.csv` に書き出す。
@@ -346,17 +346,17 @@ contains
     character(len=1024) :: mesh_path
     integer :: u, ios, i
 
-    mesh_path = trim(out_dir) // '/mesh_triangles.csv'
-    open(newunit=u, file=trim(mesh_path), status='replace', action='write', iostat=ios)
+    mesh_path = trim(out_dir)//'/mesh_triangles.csv'
+    open (newunit=u, file=trim(mesh_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open mesh file.'
-    write(u, '(a)') 'elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id'
+    write (u, '(a)') 'elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id'
     do i = 1, mesh%nelem
-      write(u, '(i0,10(a,es24.16),a,i0)') i, ',', mesh%v0(1, i), ',', mesh%v0(2, i), ',', mesh%v0(3, i), &
-                                            ',', mesh%v1(1, i), ',', mesh%v1(2, i), ',', mesh%v1(3, i), &
-                                            ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', &
-                                            mesh%q_elem(i), ',', mesh%elem_mesh_id(i)
+      write (u, '(i0,10(a,es24.16),a,i0)') i, ',', mesh%v0(1, i), ',', mesh%v0(2, i), ',', mesh%v0(3, i), &
+        ',', mesh%v1(1, i), ',', mesh%v1(2, i), ',', mesh%v1(3, i), &
+        ',', mesh%v2(1, i), ',', mesh%v2(2, i), ',', mesh%v2(3, i), ',', &
+        mesh%q_elem(i), ',', mesh%elem_mesh_id(i)
     end do
-    close(u)
+    close (u)
   end subroutine write_mesh_file
 
   !> メッシュ識別情報を `mesh_sources.csv` に書き出す。
@@ -373,10 +373,10 @@ contains
     integer :: u, ios, i, mesh_id
     integer(i32) :: elem_count
 
-    path = trim(out_dir) // '/mesh_sources.csv'
-    open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    path = trim(out_dir)//'/mesh_sources.csv'
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open mesh_sources.csv.'
-    write(u, '(a)') 'mesh_id,source_kind,template_kind,elem_count'
+    write (u, '(a)') 'mesh_id,source_kind,template_kind,elem_count'
 
     mode_key = trim(lower(cfg%mesh_mode))
     if (mode_key == 'obj') then
@@ -384,7 +384,7 @@ contains
     else if (mode_key == 'template') then
       source_kind = 'template'
     else
-      inquire(file=trim(cfg%obj_path), exist=has_obj)
+      inquire (file=trim(cfg%obj_path), exist=has_obj)
       if (has_obj) then
         source_kind = 'obj'
       else
@@ -393,8 +393,8 @@ contains
     end if
 
     if (source_kind == 'obj') then
-      write(u, '(i0,a,a,a,a,a,i0)') 1, ',', 'obj', ',', 'obj', ',', mesh%nelem
-      close(u)
+      write (u, '(i0,a,a,a,a,a,i0)') 1, ',', 'obj', ',', 'obj', ',', mesh%nelem
+      close (u)
       return
     end if
 
@@ -404,9 +404,9 @@ contains
       mesh_id = mesh_id + 1
       template_kind = trim(lower(cfg%templates(i)%kind))
       elem_count = int(count(mesh%elem_mesh_id == mesh_id), kind=i32)
-      write(u, '(i0,a,a,a,a,a,i0)') mesh_id, ',', 'template', ',', trim(template_kind), ',', elem_count
+      write (u, '(i0,a,a,a,a,a,i0)') mesh_id, ',', 'template', ',', trim(template_kind), ',', elem_count
     end do
-    close(u)
+    close (u)
   end subroutine write_mesh_sources_file
 
 end program main

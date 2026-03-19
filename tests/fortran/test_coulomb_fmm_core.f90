@@ -7,7 +7,7 @@ program test_coulomb_fmm_core
   use bem_field, only: electric_field_at
   use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, eval_point, &
-                                   destroy_plan, destroy_state
+                                  destroy_plan, destroy_state
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
   use test_support, only: assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
   implicit none
@@ -47,8 +47,8 @@ contains
     do alpha_idx = 1_i32, plan%ncoef
       call assert_close_dp( &
         state%multipole(alpha_idx, 1_i32), expected(alpha_idx), &
-        max(1.0d-12, 1.0d-11 * abs(expected(alpha_idx))), 'root multipole moment mismatch' &
-      )
+        max(1.0d-12, 1.0d-11*abs(expected(alpha_idx))), 'root multipole moment mismatch' &
+        )
     end do
 
     call destroy_state(state)
@@ -85,9 +85,9 @@ contains
     do i = 1_i32, int(size(queries, 2), i32)
       call eval_point(plan, state, queries(:, i), e_fmm)
       call direct_field_free(src_pos, q, queries(:, i), e_ref)
-      norm_ref = sqrt(sum(e_ref * e_ref))
+      norm_ref = sqrt(sum(e_ref*e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_ref) * (e_fmm - e_ref))) / norm_ref
+      rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -126,9 +126,9 @@ contains
     do i = 1_i32, int(size(queries, 2), i32)
       call eval_point(plan, state, queries(:, i), e_fmm)
       call direct_field_free(src_pos, q, queries(:, i), e_ref, options%softening)
-      norm_ref = sqrt(sum(e_ref * e_ref))
+      norm_ref = sqrt(sum(e_ref*e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_ref) * (e_fmm - e_ref))) / norm_ref
+      rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -175,9 +175,9 @@ contains
       call eval_point(plan, state, queries(:, i), e_fmm)
       call direct_field_periodic2(src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
                                   options%periodic_axes, options%periodic_image_layers, e_ref)
-      norm_ref = sqrt(sum(e_ref * e_ref))
+      norm_ref = sqrt(sum(e_ref*e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_ref) * (e_fmm - e_ref))) / norm_ref
+      rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -234,22 +234,25 @@ contains
       call eval_point(plan_base, state_base, queries(:, i), e_base)
       call eval_point(plan_root, state_root, queries(:, i), e_root)
       d_er = e_root - e_base
-      max_delta_base_root = max(max_delta_base_root, sqrt(sum(d_er * d_er)))
+      max_delta_base_root = max(max_delta_base_root, sqrt(sum(d_er*d_er)))
 
-      norm_ref = sqrt(sum(e_ref * e_ref))
+      norm_ref = sqrt(sum(e_ref*e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
-      rel_root = sqrt(sum((e_root - e_ref) * (e_root - e_ref))) / norm_ref
+      rel_base = sqrt(sum((e_base - e_ref)*(e_base - e_ref)))/norm_ref
+      rel_root = sqrt(sum((e_root - e_ref)*(e_root - e_ref)))/norm_ref
       mean_rel_base = mean_rel_base + rel_base
       mean_rel_root = mean_rel_root + rel_root
       valid_count = valid_count + 1_i32
     end do
 
     call assert_true(valid_count == 6_i32, 'periodic2 m2l_root_trunc core test lost valid samples')
-    mean_rel_base = mean_rel_base / real(valid_count, dp)
-    mean_rel_root = mean_rel_root / real(valid_count, dp)
+    mean_rel_base = mean_rel_base/real(valid_count, dp)
+    mean_rel_root = mean_rel_root/real(valid_count, dp)
     call assert_true(max_delta_base_root > 1.0d-18, 'm2l_root_trunc core correction should affect periodic2 field')
-    call assert_true(mean_rel_root <= 1.2d0 * mean_rel_base, 'm2l_root_trunc core correction degrades periodic2 accuracy too much')
+    call assert_true( &
+      mean_rel_root <= 1.2d0*mean_rel_base, &
+      'm2l_root_trunc core correction degrades periodic2 accuracy too much' &
+      )
 
     call destroy_state(state_base)
     call destroy_state(state_root)
@@ -299,10 +302,10 @@ contains
       call assert_true(all(abs(e_base) < huge(1.0d0)), 'periodic2 nonneutral baseline produced non-finite field')
       call assert_true(all(abs(e_heuristic) < huge(1.0d0)), 'periodic2 nonneutral heuristic produced non-finite field')
       d_e = e_heuristic - e_base
-      max_delta = max(max_delta, sqrt(sum(d_e * d_e)))
-      norm_base = sqrt(sum(e_base * e_base))
-      norm_heuristic = sqrt(sum(e_heuristic * e_heuristic))
-      max_norm_ratio = max(max_norm_ratio, norm_heuristic / max(norm_base, 1.0d-30))
+      max_delta = max(max_delta, sqrt(sum(d_e*d_e)))
+      norm_base = sqrt(sum(e_base*e_base))
+      norm_heuristic = sqrt(sum(e_heuristic*e_heuristic))
+      max_norm_ratio = max(max_norm_ratio, norm_heuristic/max(norm_base, 1.0d-30))
       valid_count = valid_count + 1_i32
     end do
 
@@ -366,22 +369,22 @@ contains
       call eval_point(plan_base, state_base, queries(:, i), e_base)
       call eval_point(plan_oracle, state_oracle, queries(:, i), e_oracle)
       d_er = e_oracle - e_base
-      max_delta_base_oracle = max(max_delta_base_oracle, sqrt(sum(d_er * d_er)))
+      max_delta_base_oracle = max(max_delta_base_oracle, sqrt(sum(d_er*d_er)))
 
-      norm_ref = sqrt(sum(e_ref * e_ref))
+      norm_ref = sqrt(sum(e_ref*e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_base = sqrt(sum((e_base - e_ref) * (e_base - e_ref))) / norm_ref
-      rel_oracle = sqrt(sum((e_oracle - e_ref) * (e_oracle - e_ref))) / norm_ref
+      rel_base = sqrt(sum((e_base - e_ref)*(e_base - e_ref)))/norm_ref
+      rel_oracle = sqrt(sum((e_oracle - e_ref)*(e_oracle - e_ref)))/norm_ref
       mean_rel_base = mean_rel_base + rel_base
       mean_rel_oracle = mean_rel_oracle + rel_oracle
       valid_count = valid_count + 1_i32
     end do
 
     call assert_true(valid_count == 6_i32, 'periodic2 m2l_root_oracle core test lost valid samples')
-    mean_rel_base = mean_rel_base / real(valid_count, dp)
-    mean_rel_oracle = mean_rel_oracle / real(valid_count, dp)
+    mean_rel_base = mean_rel_base/real(valid_count, dp)
+    mean_rel_oracle = mean_rel_oracle/real(valid_count, dp)
     call assert_true(max_delta_base_oracle > 1.0d-18, 'm2l_root_oracle should affect periodic2 field')
-    call assert_true(mean_rel_oracle <= 1.2d0 * mean_rel_base, 'm2l_root_oracle degrades periodic2 accuracy too much')
+    call assert_true(mean_rel_oracle <= 1.2d0*mean_rel_base, 'm2l_root_oracle degrades periodic2 accuracy too much')
     call assert_true(state_oracle%eval_ewald_count >= 1_i32, 'm2l_root_oracle fallback should record Ewald oracle usage')
     call assert_true(state_oracle%eval_fallback_count >= 1_i32, 'm2l_root_oracle test should exercise fallback evaluation')
 
@@ -403,9 +406,18 @@ contains
     options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     call build_plan(plan, src_pos, options)
 
-    call assert_true(plan%target_tree_ready, 'core free/use_box should enable dual target tree')
-    call assert_allclose_1d(plan%target_node_center(:, 1_i32), [0.5d0, 0.5d0, 0.0d0], 1.0d-12, 'target root center mismatch')
-    call assert_allclose_1d(plan%target_node_half_size(:, 1_i32), [0.5d0, 0.5d0, 1.0d0], 1.0d-12, 'target root half-size mismatch')
+    call assert_true( &
+      plan%target_tree_ready, &
+      'core free/use_box should enable dual target tree' &
+      )
+    call assert_allclose_1d( &
+      plan%target_node_center(:, 1_i32), [0.5d0, 0.5d0, 0.0d0], 1.0d-12, &
+      'target root center mismatch' &
+      )
+    call assert_allclose_1d( &
+      plan%target_node_half_size(:, 1_i32), [0.5d0, 0.5d0, 1.0d0], 1.0d-12, &
+      'target root half-size mismatch' &
+      )
 
     call destroy_plan(plan)
   end subroutine test_target_box_dual_tree
@@ -419,7 +431,7 @@ contains
     integer(i32) :: pair_count, build_count
 
     call make_periodic_sources(src_pos, q1)
-    q2 = 2.0d0 * q1
+    q2 = 2.0d0*q1
     options%leaf_max = 2_i32
     options%order = 4_i32
     options%use_periodic2 = .true.
@@ -440,7 +452,7 @@ contains
     call assert_equal_i32(plan%m2l_pair_count, pair_count, 'state update should preserve M2L pair count')
     call assert_equal_i32(plan%m2l_build_count, build_count, 'state update should not rebuild the M2L cache')
     call assert_equal_i32(state%update_count, 2_i32, 'state update count mismatch')
-    call assert_true(sqrt(sum((e2 - 2.0d0 * e1) * (e2 - 2.0d0 * e1))) <= 1.0d-10, 'field should scale linearly with charge')
+    call assert_true(sqrt(sum((e2 - 2.0d0*e1)*(e2 - 2.0d0*e1))) <= 1.0d-10, 'field should scale linearly with charge')
 
     call destroy_state(state)
     call destroy_plan(plan)
@@ -475,7 +487,7 @@ contains
     call assert_equal_i32( &
       int(state%eval_direct_kernel_count, i32), int(state%eval_near_source_count, i32), &
       'periodic2 direct-kernel count should match retained near source-image entries' &
-    )
+      )
 
     call destroy_state(state)
     call destroy_plan(plan)
@@ -502,12 +514,12 @@ contains
     max_rel_err = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, 4_i32
-      r = [1.2d0 + 0.1d0 * real(i - 1_i32, dp), -0.8d0 + 0.2d0 * real(i - 1_i32, dp), 0.9d0 - 0.1d0 * real(i - 1_i32, dp)]
+      r = [1.2d0 + 0.1d0*real(i - 1_i32, dp), -0.8d0 + 0.2d0*real(i - 1_i32, dp), 0.9d0 - 0.1d0*real(i - 1_i32, dp)]
       call electric_field_at(mesh_fmm, r, 0.0d0, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
-      norm_ref = sqrt(sum(e_direct * e_direct))
+      norm_ref = sqrt(sum(e_direct*e_direct))
       if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct))) / norm_ref
+      rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_ref
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -537,12 +549,12 @@ contains
     max_rel_err = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, 4_i32
-      r = [1.2d0 + 0.1d0 * real(i - 1_i32, dp), -0.8d0 + 0.2d0 * real(i - 1_i32, dp), 0.9d0 - 0.1d0 * real(i - 1_i32, dp)]
+      r = [1.2d0 + 0.1d0*real(i - 1_i32, dp), -0.8d0 + 0.2d0*real(i - 1_i32, dp), 0.9d0 - 0.1d0*real(i - 1_i32, dp)]
       call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
-      norm_ref = sqrt(sum(e_direct * e_direct))
+      norm_ref = sqrt(sum(e_direct*e_direct))
       if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct))) / norm_ref
+      rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_ref
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -593,15 +605,15 @@ contains
     call assert_true( &
       solver_root%fmm_use_core, &
       'softening=0 periodic2 m2l_root_trunc FMM should use the core path' &
-    )
+      )
     call assert_true( &
       trim(solver_default%periodic_far_correction) == 'm2l_root_trunc', &
       'periodic2 default should normalize to m2l_root_trunc' &
-    )
+      )
     call assert_true( &
       trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_trunc', &
       'core adapter should pass normalized m2l_root_trunc into FMM options' &
-    )
+      )
 
     call mesh_centers_as_sources(mesh_fmm, src_pos, q)
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
@@ -614,15 +626,15 @@ contains
     valid_count = 0_i32
     do i = 1_i32, 2_i32
       call direct_field_periodic2(src_pos, q, queries(:, i), sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_raw)
-      e_ref = k_coulomb * e_raw
+      e_ref = k_coulomb*e_raw
       call solver_default%eval_e(mesh_fmm, queries(:, i), e_default)
       call solver_root%eval_e(mesh_fmm, queries(:, i), e_root)
-      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root) * (e_default - e_root))))
+      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root)*(e_default - e_root))))
 
-      norm_ref = sqrt(sum(e_ref * e_ref))
+      norm_ref = sqrt(sum(e_ref*e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_default = sqrt(sum((e_default - e_ref) * (e_default - e_ref))) / norm_ref
-      rel_root = sqrt(sum((e_root - e_ref) * (e_root - e_ref))) / norm_ref
+      rel_default = sqrt(sum((e_default - e_ref)*(e_default - e_ref)))/norm_ref
+      rel_root = sqrt(sum((e_root - e_ref)*(e_root - e_ref)))/norm_ref
       mean_rel_default = mean_rel_default + rel_default
       mean_rel_root = mean_rel_root + rel_root
       valid_count = valid_count + 1_i32
@@ -631,17 +643,17 @@ contains
     call assert_true( &
       valid_count == 2_i32, &
       'core periodic2 default m2l_root_trunc adapter test lost valid samples' &
-    )
-    mean_rel_default = mean_rel_default / real(valid_count, dp)
-    mean_rel_root = mean_rel_root / real(valid_count, dp)
+      )
+    mean_rel_default = mean_rel_default/real(valid_count, dp)
+    mean_rel_root = mean_rel_root/real(valid_count, dp)
     call assert_true( &
-      max_delta_default_root <= 1.0d-18 * max(1.0d0, sqrt(sum(e_ref * e_ref))), &
+      max_delta_default_root <= 1.0d-18*max(1.0d0, sqrt(sum(e_ref*e_ref))), &
       'default periodic2 and explicit m2l_root_trunc should agree at the adapter level' &
-    )
+      )
     call assert_true( &
       mean_rel_default <= 8.0d-2 .and. mean_rel_root <= 8.0d-2, &
       'core adapter periodic2 m2l_root_trunc accuracy exceeds 8e-2' &
-    )
+      )
   end subroutine test_field_solver_core_periodic2_m2l_root_trunc_adapter
 
   subroutine make_free_sources(src_pos, q)
@@ -657,7 +669,7 @@ contains
         do iz = 1_i32, 3_i32
           idx = idx + 1_i32
           src_pos(:, idx) = [axis_vals(ix), axis_vals(iy), axis_vals(iz)]
-          q(idx) = real((-1_i32)**idx, dp) * 1.0d-12 * (1.0d0 + 0.05d0 * real(mod(idx, 5_i32), dp))
+          q(idx) = real((-1_i32)**idx, dp)*1.0d-12*(1.0d0 + 0.05d0*real(mod(idx, 5_i32), dp))
         end do
       end do
     end do
@@ -677,9 +689,9 @@ contains
     src_pos(:, 7) = [0.30d0, 0.60d0, 0.85d0]
     src_pos(:, 8) = [0.65d0, 0.30d0, -0.85d0]
     q = [ &
-      -1.0d-12, 1.1d-12, -1.2d-12, 1.3d-12, &
-      -1.4d-12, 1.5d-12, -1.6d-12, 1.3d-12 &
-    ]
+        -1.0d-12, 1.1d-12, -1.2d-12, 1.3d-12, &
+        -1.4d-12, 1.5d-12, -1.6d-12, 1.3d-12 &
+        ]
   end subroutine make_periodic_sources
 
   subroutine make_periodic_sources_nonneutral(src_pos, q)
@@ -711,8 +723,8 @@ contains
       d = src_pos(:, idx) - center
       call build_powers(d, plan%options%order, xpow, ypow, zpow)
       do alpha_idx = 1_i32, plan%ncoef
-        moments(alpha_idx) = moments(alpha_idx) + q(idx) * xpow(plan%alpha(1, alpha_idx)) * ypow(plan%alpha(2, alpha_idx)) &
-                             * zpow(plan%alpha(3, alpha_idx)) / plan%alpha_factorial(alpha_idx)
+        moments(alpha_idx) = moments(alpha_idx) + q(idx)*xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
+                             *zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
       end do
     end do
   end subroutine accumulate_direct_moments
@@ -726,13 +738,13 @@ contains
 
     e = 0.0d0
     soft2 = 0.0d0
-    if (present(softening)) soft2 = softening * softening
+    if (present(softening)) soft2 = softening*softening
     do idx = 1_i32, int(size(q), i32)
       d = r - src_pos(:, idx)
-      r2 = sum(d * d) + soft2
+      r2 = sum(d*d) + soft2
       if (r2 <= tiny(1.0d0)) cycle
-      inv_r3 = 1.0d0 / (sqrt(r2) * r2)
-      e = e + q(idx) * inv_r3 * d
+      inv_r3 = 1.0d0/(sqrt(r2)*r2)
+      e = e + q(idx)*inv_r3*d
     end do
   end subroutine direct_field_free
 
@@ -763,18 +775,18 @@ contains
     l2 = box_max(axis2) - box_min(axis2)
     e = 0.0d0
     soft2 = 0.0d0
-    if (present(softening)) soft2 = softening * softening
+    if (present(softening)) soft2 = softening*softening
     do idx = 1_i32, int(size(q), i32)
       do img_i = -nimg, nimg
         do img_j = -nimg, nimg
           shifted = src_pos(:, idx)
-          shifted(axis1) = shifted(axis1) + real(img_i, dp) * l1
-          shifted(axis2) = shifted(axis2) + real(img_j, dp) * l2
+          shifted(axis1) = shifted(axis1) + real(img_i, dp)*l1
+          shifted(axis2) = shifted(axis2) + real(img_j, dp)*l2
           d = r - shifted
-          r2 = sum(d * d) + soft2
+          r2 = sum(d*d) + soft2
           if (r2 <= tiny(1.0d0)) cycle
-          inv_r3 = 1.0d0 / (sqrt(r2) * r2)
-          e = e + q(idx) * inv_r3 * d
+          inv_r3 = 1.0d0/(sqrt(r2)*r2)
+          e = e + q(idx)*inv_r3*d
         end do
       end do
     end do
@@ -790,9 +802,9 @@ contains
     ypow(0) = 1.0d0
     zpow(0) = 1.0d0
     do k = 1_i32, order
-      xpow(k) = xpow(k - 1_i32) * d(1)
-      ypow(k) = ypow(k - 1_i32) * d(2)
-      zpow(k) = zpow(k - 1_i32) * d(3)
+      xpow(k) = xpow(k - 1_i32)*d(1)
+      ypow(k) = ypow(k - 1_i32)*d(2)
+      zpow(k) = zpow(k - 1_i32)*d(3)
     end do
   end subroutine build_powers
 

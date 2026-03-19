@@ -154,7 +154,7 @@ contains
     integer(i32) :: new_capacity
 
     if (n_used >= capacity) then
-      new_capacity = max(capacity * 2_i32, capacity + 32_i32)
+      new_capacity = max(capacity*2_i32, capacity + 32_i32)
       allocate (tmp(new_capacity))
       tmp = 0_i32
       if (n_used > 0_i32) tmp(1:n_used) = buf(1:n_used)
@@ -177,7 +177,7 @@ contains
 
     d = target_center - plan%node_center(:, source_node)
     call apply_periodic2_minimum_image(plan, d)
-    dist2 = sum(d * d)
+    dist2 = sum(d*d)
     if (dist2 <= 0.0d0) then
       nodes_well_separated = .false.
       return
@@ -185,8 +185,8 @@ contains
 
     rs = plan%node_radius(source_node)
     theta_eff = plan%options%theta
-    lhs = (rs + rt) * (rs + rt)
-    rhs = (theta_eff * theta_eff) * dist2
+    lhs = (rs + rt)*(rs + rt)
+    rhs = (theta_eff*theta_eff)*dist2
     nodes_well_separated = (lhs < rhs)
   end function nodes_well_separated
 

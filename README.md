@@ -204,7 +204,7 @@ fpm test
 
 ### 4.5 Fortran 整形
 
-Fortran の `*.f90` / `*.F90` は `fprettify -i 4` を標準 formatter とします。
+Fortran の `*.f90` / `*.F90` は `fprettify -i 2` を標準 formatter とします。
 生成バックアップの `*.i90` は整形対象外です。
 
 ローカルで hook を有効にするには:

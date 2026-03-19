@@ -220,7 +220,7 @@ program test_templates_importers_runtime
   expected_photo_counter = 0.0d0
   do i = 1_i32, pcls%n
     if (pcls%q(i) < 0.0d0) then
-      expected_photo_counter = expected_photo_counter - pcls%q(i) * pcls%w(i)
+      expected_photo_counter = expected_photo_counter - pcls%q(i)*pcls%w(i)
       call assert_true(pcls%w(i) > 0.0d0, 'mixed batch photo weight should be positive')
     end if
   end do

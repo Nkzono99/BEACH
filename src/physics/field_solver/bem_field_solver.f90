@@ -1,6 +1,6 @@
 !> 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。
 module bem_field_solver
-  !$ use omp_lib
+!$ use omp_lib
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic

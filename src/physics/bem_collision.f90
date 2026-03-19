@@ -38,7 +38,7 @@ contains
     if (use_box_filter) then
       box_min_local = box_min
       box_max_local = box_max
-      box_tol = 1.0d-12 * max(1.0d0, maxval(abs(box_max_local - box_min_local)))
+      box_tol = 1.0d-12*max(1.0d0, maxval(abs(box_max_local - box_min_local)))
     else
       box_min_local = 0.0d0
       box_max_local = 0.0d0
@@ -55,12 +55,12 @@ contains
       call find_first_hit_grid( &
         mesh, p0, p1, d, seg_min, seg_max, hit, best_t, &
         use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
-      )
+        )
     else
       call find_first_hit_linear( &
         mesh, p0, p1, seg_min, seg_max, hit, best_t, &
         use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
-      )
+        )
     end if
   end subroutine find_first_hit
 
@@ -87,7 +87,7 @@ contains
   !> 旧実装と同じ線形探索で最初の命中要素を探索する。
   subroutine find_first_hit_linear( &
     mesh, p0, p1, seg_min, seg_max, hit, best_t, use_box_filter, box_min, box_max, box_tol, require_elem_inside &
-  )
+    )
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3), seg_min(3), seg_max(3)
     type(hit_info), intent(inout) :: hit
@@ -126,7 +126,7 @@ contains
   !> 一様グリッド + 3D-DDA で候補セルのみ探索し、最初の命中要素を返す。
   subroutine find_first_hit_grid( &
     mesh, p0, p1, d, seg_min, seg_max, hit, best_t, use_box_filter, box_min, box_max, box_tol, require_elem_inside &
-  )
+    )
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3), d(3), seg_min(3), seg_max(3)
     type(hit_info), intent(inout) :: hit
@@ -151,7 +151,7 @@ contains
     t_cur = max(0.0d0, t_entry)
     if (t_cur > t_exit) return
 
-    p_entry = p0 + t_cur * d
+    p_entry = p0 + t_cur*d
     do axis = 1, 3
       cell(axis) = coord_to_cell(mesh, p_entry(axis), int(axis, kind=i32))
       if (abs(d(axis)) <= eps) then
@@ -159,15 +159,15 @@ contains
         t_max(axis) = huge(1.0d0)
         t_delta(axis) = huge(1.0d0)
       else
-        cell_size = 1.0d0 / mesh%grid_inv_cell(axis)
+        cell_size = 1.0d0/mesh%grid_inv_cell(axis)
         if (d(axis) > 0.0d0) then
           step(axis) = 1_i32
-          t_max(axis) = (mesh%grid_bb_min(axis) + real(cell(axis), dp) * cell_size - p0(axis)) / d(axis)
-          t_delta(axis) = cell_size / d(axis)
+          t_max(axis) = (mesh%grid_bb_min(axis) + real(cell(axis), dp)*cell_size - p0(axis))/d(axis)
+          t_delta(axis) = cell_size/d(axis)
         else
           step(axis) = -1_i32
-          t_max(axis) = (mesh%grid_bb_min(axis) + real(cell(axis) - 1_i32, dp) * cell_size - p0(axis)) / d(axis)
-          t_delta(axis) = -cell_size / d(axis)
+          t_max(axis) = (mesh%grid_bb_min(axis) + real(cell(axis) - 1_i32, dp)*cell_size - p0(axis))/d(axis)
+          t_delta(axis) = -cell_size/d(axis)
         end if
         do while (t_max(axis) < t_cur - eps)
           t_max(axis) = t_max(axis) + t_delta(axis)
@@ -188,15 +188,18 @@ contains
       do k = start_idx, end_idx
         elem_idx = mesh%grid_cell_elem(k)
         if (use_box_filter) then
-          if (.not. segment_bbox_overlap_precomputed(mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx), box_min, box_max)) cycle
+          if (.not. segment_bbox_overlap_precomputed( &
+              mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx), box_min, box_max)) cycle
           if (require_elem_inside) then
-            if (.not. bbox_inside_box(mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx), box_min, box_max, box_tol)) cycle
+            if (.not. bbox_inside_box( &
+                mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx), box_min, box_max, box_tol)) cycle
           end if
         end if
-        if (.not. segment_bbox_overlap_precomputed(seg_min, seg_max, mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx))) cycle
+        if (.not. segment_bbox_overlap_precomputed( &
+            seg_min, seg_max, mesh%bb_min(:, elem_idx), mesh%bb_max(:, elem_idx))) cycle
         call segment_triangle_intersect( &
           p0, p1, mesh%v0(:, elem_idx), mesh%v1(:, elem_idx), mesh%v2(:, elem_idx), ok, t, h &
-        )
+          )
         if (.not. ok) cycle
         if (use_box_filter) then
           if (.not. point_inside_box(h, box_min, box_max, box_tol)) cycle
@@ -248,9 +251,9 @@ contains
           return
         end if
       else
-        inv_d = 1.0d0 / d(axis)
-        t_near = (bb_min(axis) - p0(axis)) * inv_d
-        t_far = (bb_max(axis) - p0(axis)) * inv_d
+        inv_d = 1.0d0/d(axis)
+        t_near = (bb_min(axis) - p0(axis))*inv_d
+        t_far = (bb_max(axis) - p0(axis))*inv_d
         if (t_near > t_far) then
           tmp = t_near
           t_near = t_far
@@ -288,7 +291,7 @@ contains
       return
     end if
 
-    u = (x - mesh%grid_bb_min(axis)) * mesh%grid_inv_cell(axis)
+    u = (x - mesh%grid_bb_min(axis))*mesh%grid_inv_cell(axis)
     idx = int(u, kind=i32) + 1_i32
     if (idx < 1_i32) idx = 1_i32
     if (idx > mesh%grid_ncell(axis)) idx = mesh%grid_ncell(axis)
@@ -297,7 +300,7 @@ contains
   !> 3次元セル添字 `(ix,iy,iz)` をCSR一次元インデックスへ変換する。
   pure integer(i32) function cell_id(ix, iy, iz, nx, ny) result(cid)
     integer(i32), intent(in) :: ix, iy, iz, nx, ny
-    cid = (iz - 1_i32) * (nx * ny) + (iy - 1_i32) * nx + ix
+    cid = (iz - 1_i32)*(nx*ny) + (iy - 1_i32)*nx + ix
   end function cell_id
 
   pure logical function point_inside_box(p, box_min, box_max, tol)
@@ -336,25 +339,25 @@ contains
       ok = .false.; return
     end if
 
-    f = 1.0d0 / a
+    f = 1.0d0/a
     s = p0 - v0
-    u = f * dot_product(s, hh)
+    u = f*dot_product(s, hh)
     if (u < 0.0d0 .or. u > 1.0d0) then
       ok = .false.; return
     end if
 
     q = cross(s, e1)
-    v = f * dot_product(d, q)
+    v = f*dot_product(d, q)
     if (v < 0.0d0 .or. (u + v) > 1.0d0) then
       ok = .false.; return
     end if
 
-    t = f * dot_product(e2, q)
+    t = f*dot_product(e2, q)
     if (t < 0.0d0 .or. t > 1.0d0) then
       ok = .false.; return
     end if
 
-    h = p0 + t * d
+    h = p0 + t*d
     ok = .true.
   end subroutine segment_triangle_intersect
 
@@ -365,9 +368,9 @@ contains
   pure function cross(a, b) result(c)
     real(dp), intent(in) :: a(3), b(3)
     real(dp) :: c(3)
-    c(1) = a(2) * b(3) - a(3) * b(2)
-    c(2) = a(3) * b(1) - a(1) * b(3)
-    c(3) = a(1) * b(2) - a(2) * b(1)
+    c(1) = a(2)*b(3) - a(3)*b(2)
+    c(2) = a(3)*b(1) - a(1)*b(3)
+    c(3) = a(1)*b(2) - a(2)*b(1)
   end function cross
 
 end module bem_collision

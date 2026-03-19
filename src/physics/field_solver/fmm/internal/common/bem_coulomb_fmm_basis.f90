@@ -18,10 +18,11 @@ contains
     integer(i32) :: sum_exp(3)
 
     plan%ncoef = count_multi_indices(order)
-    plan%nderiv = count_multi_indices(2_i32 * order)
+    plan%nderiv = count_multi_indices(2_i32*order)
     call build_multi_index_table(order, plan%alpha, plan%alpha_degree, plan%alpha_factorial, plan%alpha_map)
-    call build_multi_index_table(2_i32 * order, plan%deriv_alpha, plan%deriv_degree, plan%deriv_factorial, plan%deriv_map)
-    allocate (plan%alpha_sign(plan%ncoef), plan%alpha_plus_axis(3, plan%ncoef), plan%alpha_beta_deriv_idx(plan%ncoef, plan%ncoef))
+    call build_multi_index_table(2_i32*order, plan%deriv_alpha, plan%deriv_degree, plan%deriv_factorial, plan%deriv_map)
+    allocate (plan%alpha_sign(plan%ncoef), plan%alpha_plus_axis(3, plan%ncoef), &
+              plan%alpha_beta_deriv_idx(plan%ncoef, plan%ncoef))
     do idx = 1_i32, plan%ncoef
       if (mod(plan%alpha_degree(idx), 2_i32) == 0_i32) then
         plan%alpha_sign(idx) = 1.0d0
@@ -60,14 +61,14 @@ contains
       term_idx = term_idx + 1_i32
       plan%eval_exp(:, term_idx) = plan%alpha(:, alpha_idx)
       plan%eval_deriv_idx(:, term_idx) = plan%alpha_plus_axis(:, alpha_idx)
-      plan%eval_inv_factorial(term_idx) = 1.0d0 / plan%alpha_factorial(alpha_idx)
+      plan%eval_inv_factorial(term_idx) = 1.0d0/plan%alpha_factorial(alpha_idx)
     end do
   end subroutine initialize_basis_tables
 
   integer(i32) function count_multi_indices(order)
     integer(i32), intent(in) :: order
 
-    count_multi_indices = (order + 1_i32) * (order + 2_i32) * (order + 3_i32) / 6_i32
+    count_multi_indices = (order + 1_i32)*(order + 2_i32)*(order + 3_i32)/6_i32
   end function count_multi_indices
 
   subroutine build_multi_index_table(order, alpha, degree, factorials, map)
@@ -90,7 +91,7 @@ contains
           idx = idx + 1_i32
           alpha(:, idx) = [ax, ay, az]
           degree(idx) = total
-          factorials(idx) = factorial_value(ax) * factorial_value(ay) * factorial_value(az)
+          factorials(idx) = factorial_value(ax)*factorial_value(ay)*factorial_value(az)
           map(ax, ay, az) = idx
         end do
       end do
@@ -103,7 +104,7 @@ contains
 
     factorial_value = 1.0d0
     do i = 2_i32, n
-      factorial_value = factorial_value * real(i, dp)
+      factorial_value = factorial_value*real(i, dp)
     end do
   end function factorial_value
 
@@ -117,9 +118,9 @@ contains
     ypow(0) = 1.0d0
     zpow(0) = 1.0d0
     do k = 1_i32, order
-      xpow(k) = xpow(k - 1_i32) * d(1)
-      ypow(k) = ypow(k - 1_i32) * d(2)
-      zpow(k) = zpow(k - 1_i32) * d(3)
+      xpow(k) = xpow(k - 1_i32)*d(1)
+      ypow(k) = ypow(k - 1_i32)*d(2)
+      zpow(k) = zpow(k - 1_i32)*d(3)
     end do
   end subroutine build_axis_powers
 
@@ -132,7 +133,7 @@ contains
     integer(i32) :: idx0, idx, n
 
     if (size(deriv) /= plan%nderiv) error stop 'Derivative buffer size mismatch.'
-    soft2 = plan%options%softening * plan%options%softening
+    soft2 = plan%options%softening*plan%options%softening
     a = dot_product(r, r) + soft2
     if (a <= tiny(1.0d0)) error stop 'Cannot expand Laplace kernel at r=0.'
 
@@ -143,26 +144,26 @@ contains
     power(idx0) = 1.0d0
     accum(idx0) = 1.0d0
     if (plan%options%order >= 1_i32) then
-      q(plan%deriv_map(1_i32, 0_i32, 0_i32)) = 2.0d0 * r(1) / a
-      q(plan%deriv_map(0_i32, 1_i32, 0_i32)) = 2.0d0 * r(2) / a
-      q(plan%deriv_map(0_i32, 0_i32, 1_i32)) = 2.0d0 * r(3) / a
+      q(plan%deriv_map(1_i32, 0_i32, 0_i32)) = 2.0d0*r(1)/a
+      q(plan%deriv_map(0_i32, 1_i32, 0_i32)) = 2.0d0*r(2)/a
+      q(plan%deriv_map(0_i32, 0_i32, 1_i32)) = 2.0d0*r(3)/a
     end if
-    if (2_i32 <= 2_i32 * plan%options%order) then
-      q(plan%deriv_map(2_i32, 0_i32, 0_i32)) = q(plan%deriv_map(2_i32, 0_i32, 0_i32)) + 1.0d0 / a
-      q(plan%deriv_map(0_i32, 2_i32, 0_i32)) = q(plan%deriv_map(0_i32, 2_i32, 0_i32)) + 1.0d0 / a
-      q(plan%deriv_map(0_i32, 0_i32, 2_i32)) = q(plan%deriv_map(0_i32, 0_i32, 2_i32)) + 1.0d0 / a
+    if (2_i32 <= 2_i32*plan%options%order) then
+      q(plan%deriv_map(2_i32, 0_i32, 0_i32)) = q(plan%deriv_map(2_i32, 0_i32, 0_i32)) + 1.0d0/a
+      q(plan%deriv_map(0_i32, 2_i32, 0_i32)) = q(plan%deriv_map(0_i32, 2_i32, 0_i32)) + 1.0d0/a
+      q(plan%deriv_map(0_i32, 0_i32, 2_i32)) = q(plan%deriv_map(0_i32, 0_i32, 2_i32)) + 1.0d0/a
     end if
 
     coeff = 1.0d0
-    do n = 1_i32, 2_i32 * plan%options%order
+    do n = 1_i32, 2_i32*plan%options%order
       call multiply_polynomials(plan, power, q, tmp)
       power = tmp
-      coeff = coeff * (-(2.0d0 * real(n, dp) - 1.0d0) / (2.0d0 * real(n, dp)))
-      accum = accum + coeff * power
+      coeff = coeff*(-(2.0d0*real(n, dp) - 1.0d0)/(2.0d0*real(n, dp)))
+      accum = accum + coeff*power
     end do
-    accum = accum / sqrt(a)
+    accum = accum/sqrt(a)
     do idx = 1_i32, plan%nderiv
-      deriv(idx) = accum(idx) * plan%deriv_factorial(idx)
+      deriv(idx) = accum(idx)*plan%deriv_factorial(idx)
     end do
   end subroutine compute_laplace_derivatives
 
@@ -183,9 +184,9 @@ contains
       do ib = 1_i32, plan%nderiv
         if (abs(b_poly(ib)) <= tiny(1.0d0)) cycle
         sum_exp = plan%deriv_alpha(:, ia) + plan%deriv_alpha(:, ib)
-        if (sum(sum_exp) > 2_i32 * plan%options%order) cycle
+        if (sum(sum_exp) > 2_i32*plan%options%order) cycle
         idx = plan%deriv_map(sum_exp(1), sum_exp(2), sum_exp(3))
-        out_poly(idx) = out_poly(idx) + a_poly(ia) * b_poly(ib)
+        out_poly(idx) = out_poly(idx) + a_poly(ia)*b_poly(ib)
       end do
     end do
   end subroutine multiply_polynomials

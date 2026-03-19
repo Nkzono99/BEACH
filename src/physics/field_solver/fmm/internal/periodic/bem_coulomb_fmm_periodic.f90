@@ -27,13 +27,15 @@ contains
   logical function use_periodic2_m2l_root_trunc(plan)
     type(fmm_plan_type), intent(in) :: plan
 
-    use_periodic2_m2l_root_trunc = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'm2l_root_trunc'
+    use_periodic2_m2l_root_trunc = plan%options%use_periodic2 .and. &
+                                   trim(plan%options%periodic_far_correction) == 'm2l_root_trunc'
   end function use_periodic2_m2l_root_trunc
 
   logical function use_periodic2_m2l_root_oracle(plan)
     type(fmm_plan_type), intent(in) :: plan
 
-    use_periodic2_m2l_root_oracle = plan%options%use_periodic2 .and. trim(plan%options%periodic_far_correction) == 'm2l_root_oracle'
+    use_periodic2_m2l_root_oracle = plan%options%use_periodic2 .and. &
+                                    trim(plan%options%periodic_far_correction) == 'm2l_root_oracle'
   end function use_periodic2_m2l_root_oracle
 
   logical function use_periodic2_root_operator(plan)
@@ -53,14 +55,14 @@ contains
     shift_axis2(1) = 0.0d0
     if (.not. plan%options%use_periodic2) return
 
-    nshift = 2_i32 * plan%options%periodic_image_layers + 1_i32
+    nshift = 2_i32*plan%options%periodic_image_layers + 1_i32
     if (size(shift_axis1) < nshift .or. size(shift_axis2) < nshift) then
       error stop 'periodic shift buffer is too small.'
     end if
     do s = 1_i32, nshift
       img = s - plan%options%periodic_image_layers - 1_i32
-      shift_axis1(s) = real(img, dp) * plan%options%periodic_len(1)
-      shift_axis2(s) = real(img, dp) * plan%options%periodic_len(2)
+      shift_axis1(s) = real(img, dp)*plan%options%periodic_len(1)
+      shift_axis2(s) = real(img, dp)*plan%options%periodic_len(2)
     end do
   end subroutine build_periodic_shift_values
 
@@ -74,7 +76,7 @@ contains
     do k = 1_i32, 2_i32
       axis = plan%options%periodic_axes(k)
       len_k = plan%options%periodic_len(k)
-      half_len = 0.5d0 * len_k
+      half_len = 0.5d0*len_k
       if (d(axis) > half_len) then
         d(axis) = d(axis) - len_k
       else if (d(axis) < -half_len) then
@@ -105,7 +107,7 @@ contains
     do axis = 1_i32, 3_i32
       q(axis) = max(0.0d0, abs(d(axis)) - src_half(axis))
     end do
-    distance_to_source_bbox = sqrt(sum(q * q))
+    distance_to_source_bbox = sqrt(sum(q*q))
   end function distance_to_source_bbox
 
   real(dp) function distance_to_source_bbox_periodic(plan, p, src_center, src_half)
@@ -119,7 +121,7 @@ contains
     do axis = 1_i32, 3_i32
       q(axis) = max(0.0d0, abs(d(axis)) - src_half(axis))
     end do
-    distance_to_source_bbox_periodic = sqrt(sum(q * q))
+    distance_to_source_bbox_periodic = sqrt(sum(q*q))
   end function distance_to_source_bbox_periodic
 
   subroutine add_point_charge_images_field(q, src, target, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, e)
@@ -138,10 +140,10 @@ contains
         if (axis1 > 0_i32) shifted(axis1) = shifted(axis1) + shift_axis1(img_i)
         if (axis2 > 0_i32) shifted(axis2) = shifted(axis2) + shift_axis2(img_j)
         dx = target - shifted
-        r2 = sum(dx * dx) + soft2
+        r2 = sum(dx*dx) + soft2
         if (r2 <= tiny(1.0d0)) cycle
-        inv_r3 = 1.0d0 / (sqrt(r2) * r2)
-        e = e + q * inv_r3 * dx
+        inv_r3 = 1.0d0/(sqrt(r2)*r2)
+        e = e + q*inv_r3*dx
       end do
     end do
   end subroutine add_point_charge_images_field

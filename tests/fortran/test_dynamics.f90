@@ -26,9 +26,9 @@ program test_dynamics
   call init_mesh(mesh_field, v0_field, v1_field, v2_field, q0=q0_field)
 
   call electric_field_at(mesh_field, [1.0d0, 0.0d0, 0.0d0], 0.5d0, e)
-  inv_r3 = 1.0d0 / (sqrt(1.25d0) * 1.25d0)
-  expected_ex = k_coulomb * q0_field(1) * inv_r3
-  call assert_close_dp(e(1), expected_ex, abs(expected_ex) * 1.0d-12, 'electric field Ex mismatch')
+  inv_r3 = 1.0d0/(sqrt(1.25d0)*1.25d0)
+  expected_ex = k_coulomb*q0_field(1)*inv_r3
+  call assert_close_dp(e(1), expected_ex, abs(expected_ex)*1.0d-12, 'electric field Ex mismatch')
   call assert_close_dp(e(2), 0.0d0, 1.0d-20, 'electric field Ey should be zero')
   call assert_close_dp(e(3), 0.0d0, 1.0d-20, 'electric field Ez should be zero')
 
@@ -36,7 +36,7 @@ program test_dynamics
     [0.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 0.0d0], &
     2.0d0, 1.0d0, 0.5d0, [1.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 0.0d0], &
     x_new, v_new &
-  )
+    )
   call assert_allclose_1d(v_new, [1.0d0, 0.0d0, 0.0d0], 1.0d-12, 'boris (E only) velocity mismatch')
   call assert_allclose_1d(x_new, [0.5d0, 0.0d0, 0.0d0], 1.0d-12, 'boris (E only) position mismatch')
 
@@ -44,9 +44,9 @@ program test_dynamics
     [0.0d0, 0.0d0, 0.0d0], [1.0d0, 2.0d0, -0.5d0], &
     1.0d0, 1.0d0, 0.1d0, [0.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 2.0d0], &
     x_new, v_new &
-  )
+    )
   speed0 = sqrt(1.0d0 + 4.0d0 + 0.25d0)
-  speed1 = sqrt(sum(v_new * v_new))
+  speed1 = sqrt(sum(v_new*v_new))
   call assert_close_dp(speed1, speed0, 1.0d-12, 'boris should preserve speed when E=0')
 
   v0_hit(:, 1) = [0.0d0, 0.0d0, 1.0d0]
@@ -60,7 +60,7 @@ program test_dynamics
   call find_first_hit(mesh_hit, [0.2d0, 0.2d0, 2.0d0], [0.2d0, 0.2d0, -1.0d0], hit)
   call assert_true(hit%has_hit, 'segment should hit the mesh')
   call assert_equal_i32(hit%elem_idx, 1_i32, 'first hit should be the nearer triangle')
-  call assert_close_dp(hit%t, 1.0d0 / 3.0d0, 1.0d-12, 'hit parameter mismatch')
+  call assert_close_dp(hit%t, 1.0d0/3.0d0, 1.0d-12, 'hit parameter mismatch')
   call assert_close_dp(hit%pos(3), 1.0d0, 1.0d-12, 'hit position mismatch')
 
   call find_first_hit(mesh_hit, [0.9d0, 0.9d0, 2.0d0], [0.9d0, 0.9d0, -1.0d0], hit)
@@ -99,7 +99,7 @@ contains
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
     do i = 1, seed_size
-      seed(i) = 12345 + 37 * i
+      seed(i) = 12345 + 37*i
     end do
     call random_seed(put=seed)
     deallocate (seed)
@@ -107,8 +107,8 @@ contains
     do i = 1, 200
       call random_number(p0)
       call random_number(p1)
-      p0 = [1.4d0 * (p0(1) - 0.5d0), 1.4d0 * (p0(2) - 0.5d0), 3.0d0 * (p0(3) - 0.5d0)]
-      p1 = [1.4d0 * (p1(1) - 0.5d0), 1.4d0 * (p1(2) - 0.5d0), 3.0d0 * (p1(3) - 0.5d0)]
+      p0 = [1.4d0*(p0(1) - 0.5d0), 1.4d0*(p0(2) - 0.5d0), 3.0d0*(p0(3) - 0.5d0)]
+      p1 = [1.4d0*(p1(1) - 0.5d0), 1.4d0*(p1(2) - 0.5d0), 3.0d0*(p1(3) - 0.5d0)]
       if (abs(p0(3)) < 1.0d-8) p0(3) = p0(3) + 1.0d-4
       if (abs(p1(3)) < 1.0d-8) p1(3) = p1(3) + 1.0d-4
       call assert_hit_equivalent(mesh_grid, p0, p1, 'random segment equivalence')
@@ -239,7 +239,7 @@ contains
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
     do i = 1_i32, int(seed_size, i32)
-      seed(i) = 314159 + 17 * i
+      seed(i) = 314159 + 17*i
     end do
     call random_seed(put=seed)
     deallocate (seed)
@@ -248,11 +248,11 @@ contains
     valid_count = 0_i32
     do i = 1_i32, 200_i32
       call random_number(r)
-      r = 100.0d0 * (r - 0.5d0)
-      norm_r = sqrt(sum(r * r))
+      r = 100.0d0*(r - 0.5d0)
+      norm_r = sqrt(sum(r*r))
       if (norm_r < 20.0d0) then
         if (norm_r > 1.0d-12) then
-          r = r * (20.0d0 / norm_r)
+          r = r*(20.0d0/norm_r)
         else
           r = [20.0d0, 0.0d0, 0.0d0]
         end if
@@ -261,10 +261,10 @@ contains
       call electric_field_at(mesh_tree, r, sim%softening, e_direct)
       call solver%eval_e(mesh_tree, r, e_tree)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_tree - e_direct) * (e_tree - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_tree - e_direct)*(e_tree - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -344,7 +344,7 @@ contains
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
     do i = 1_i32, int(seed_size, i32)
-      seed(i) = 271828 + 29 * i
+      seed(i) = 271828 + 29*i
     end do
     call random_seed(put=seed)
     deallocate (seed)
@@ -353,11 +353,11 @@ contains
     valid_count = 0_i32
     do i = 1_i32, 200_i32
       call random_number(r)
-      r = 100.0d0 * (r - 0.5d0)
-      norm_r = sqrt(sum(r * r))
+      r = 100.0d0*(r - 0.5d0)
+      norm_r = sqrt(sum(r*r))
       if (norm_r < 20.0d0) then
         if (norm_r > 1.0d-12) then
-          r = r * (20.0d0 / norm_r)
+          r = r*(20.0d0/norm_r)
         else
           r = [20.0d0, 0.0d0, 0.0d0]
         end if
@@ -366,10 +366,10 @@ contains
       call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -405,18 +405,18 @@ contains
 
     call assert_true(solver%target_tree_ready, 'fmm free/use_box should enable dual target tree')
     call assert_allclose_1d( &
-      solver%target_node_center(:, 1_i32), 0.5d0 * (sim%box_min + sim%box_max), 1.0d-12, &
+      solver%target_node_center(:, 1_i32), 0.5d0*(sim%box_min + sim%box_max), 1.0d-12, &
       'fmm free/use_box target root center mismatch' &
-    )
+      )
     call assert_allclose_1d( &
-      solver%target_node_half_size(:, 1_i32), 0.5d0 * (sim%box_max - sim%box_min), 1.0d-12, &
+      solver%target_node_half_size(:, 1_i32), 0.5d0*(sim%box_max - sim%box_min), 1.0d-12, &
       'fmm free/use_box target root half-size mismatch' &
-    )
+      )
 
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
     do i = 1_i32, int(seed_size, i32)
-      seed(i) = 314159 + 31 * i
+      seed(i) = 314159 + 31*i
     end do
     call random_seed(put=seed)
     deallocate (seed)
@@ -425,17 +425,17 @@ contains
     valid_count = 0_i32
     do i = 1_i32, 200_i32
       call random_number(r)
-      r = sim%box_min + r * (sim%box_max - sim%box_min)
+      r = sim%box_min + r*(sim%box_max - sim%box_min)
       center_dist = sqrt((r(1) - 0.5d0)**2 + (r(2) - 0.5d0)**2 + r(3)**2)
       if (center_dist < 0.35d0) cycle
 
       call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -473,18 +473,18 @@ contains
     call assert_true(solver%fmm_use_core, 'softening=0 free FMM should use the core path')
     call assert_true(solver%target_tree_ready, 'core free/use_box should expose target tree metadata')
     call assert_allclose_1d( &
-      solver%target_node_center(:, 1_i32), 0.5d0 * (sim%box_min + sim%box_max), 1.0d-12, &
+      solver%target_node_center(:, 1_i32), 0.5d0*(sim%box_min + sim%box_max), 1.0d-12, &
       'core free/use_box target root center mismatch' &
-    )
+      )
     call assert_allclose_1d( &
-      solver%target_node_half_size(:, 1_i32), 0.5d0 * (sim%box_max - sim%box_min), 1.0d-12, &
+      solver%target_node_half_size(:, 1_i32), 0.5d0*(sim%box_max - sim%box_min), 1.0d-12, &
       'core free/use_box target root half-size mismatch' &
-    )
+      )
 
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
     do i = 1_i32, int(seed_size, i32)
-      seed(i) = 271829 + 17 * i
+      seed(i) = 271829 + 17*i
     end do
     call random_seed(put=seed)
     deallocate (seed)
@@ -493,17 +493,17 @@ contains
     valid_count = 0_i32
     do i = 1_i32, 120_i32
       call random_number(r)
-      r = sim%box_min + r * (sim%box_max - sim%box_min)
+      r = sim%box_min + r*(sim%box_max - sim%box_min)
       center_dist = sqrt((r(1) - 0.5d0)**2 + (r(2) - 0.5d0)**2 + r(3)**2)
       if (center_dist < 0.32d0) cycle
 
       call electric_field_at(mesh_fmm, r, 0.0d0, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -555,13 +555,13 @@ contains
       r = queries(:, i)
       call electric_field_at_periodic2_images( &
         mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-      )
+        )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -619,13 +619,13 @@ contains
       r = queries(:, i)
       call electric_field_at_periodic2_images( &
         mesh_fmm, r, 0.0d0, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-      )
+        )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -677,13 +677,13 @@ contains
       r = queries(:, i)
       call electric_field_at_periodic2_images( &
         mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-      )
+        )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -737,13 +737,13 @@ contains
       r = queries(:, i)
       call electric_field_at_periodic2_images( &
         mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-      )
+        )
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
-      norm_direct = sqrt(sum(e_direct * e_direct))
+      norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct) * (e_fmm - e_direct)))
-      rel_err = norm_diff / norm_direct
+      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
+      rel_err = norm_diff/norm_direct
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
     end do
@@ -781,7 +781,7 @@ contains
     call assert_true(initial_pair_count > 0_i32, 'periodic2 fmm should build at least one cached M2L pair')
     call assert_equal_i32(initial_build_count, 1_i32, 'periodic2 fmm should build the M2L cache exactly once at init')
 
-    mesh_fmm%q_elem = 2.0d0 * mesh_fmm%q_elem
+    mesh_fmm%q_elem = 2.0d0*mesh_fmm%q_elem
     call solver%refresh(mesh_fmm)
 
     call assert_equal_i32(solver%fmm_m2l_build_count, initial_build_count, 'refresh should reuse cached M2L pairs')
@@ -823,28 +823,28 @@ contains
     call assert_true( &
       trim(solver_default%periodic_far_correction) == 'm2l_root_trunc', &
       'periodic2 default should normalize to m2l_root_trunc' &
-    )
+      )
     call assert_true( &
       trim(solver_root%periodic_far_correction) == 'm2l_root_trunc', &
       'explicit periodic2 m2l_root_trunc should be preserved' &
-    )
+      )
     call assert_true( &
       trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_trunc', &
       'normalized periodic2 far correction should reach FMM core options' &
-    )
+      )
 
     max_delta_default_root = 0.0d0
     do i = 1_i32, 4_i32
-      r = [0.15d0 + 0.2d0 * real(i - 1_i32, dp), 0.20d0 + 0.15d0 * real(i - 1_i32, dp), -0.6d0 + 0.35d0 * real(i - 1_i32, dp)]
+      r = [0.15d0 + 0.2d0*real(i - 1_i32, dp), 0.20d0 + 0.15d0*real(i - 1_i32, dp), -0.6d0 + 0.35d0*real(i - 1_i32, dp)]
       call solver_default%eval_e(mesh_fmm, r, e_default)
       call solver_root%eval_e(mesh_fmm, r, e_root)
-      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root) * (e_default - e_root))))
+      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root)*(e_default - e_root))))
     end do
 
     call assert_true( &
       max_delta_default_root <= 1.0d-18, &
       'default periodic2 and explicit m2l_root_trunc should agree' &
-    )
+      )
   end subroutine test_fmm_periodic2_default_m2l_root_trunc_mode
 
   subroutine assign_periodic_test_dipole_charges(mesh, scale)
@@ -874,7 +874,7 @@ contains
       return
     end if
 
-    neg_scale = scale * real(npos, dp) / real(nneg, dp)
+    neg_scale = scale*real(npos, dp)/real(nneg, dp)
     do elem_idx = 1_i32, mesh%nelem
       if (mesh%center_z(elem_idx) >= 0.0d0) then
         mesh%q_elem(elem_idx) = scale
@@ -903,7 +903,7 @@ contains
     axis2 = periodic_axes(2)
     l1 = box_max(axis1) - box_min(axis1)
     l2 = box_max(axis2) - box_min(axis2)
-    soft2 = softening * softening
+    soft2 = softening*softening
     ex = 0.0d0
     ey = 0.0d0
     ez = 0.0d0
@@ -912,22 +912,22 @@ contains
       do ix = -nimg, nimg
         do iy = -nimg, nimg
           src = [mesh%center_x(i), mesh%center_y(i), mesh%center_z(i)]
-          shift1 = real(ix, dp) * l1
-          shift2 = real(iy, dp) * l2
+          shift1 = real(ix, dp)*l1
+          shift2 = real(iy, dp)*l2
           src(axis1) = src(axis1) + shift1
           src(axis2) = src(axis2) + shift2
           d = r - src
-          r2 = sum(d * d) + soft2
-          inv_r3 = 1.0d0 / (sqrt(r2) * r2)
-          ex = ex + mesh%q_elem(i) * inv_r3 * d(1)
-          ey = ey + mesh%q_elem(i) * inv_r3 * d(2)
-          ez = ez + mesh%q_elem(i) * inv_r3 * d(3)
+          r2 = sum(d*d) + soft2
+          inv_r3 = 1.0d0/(sqrt(r2)*r2)
+          ex = ex + mesh%q_elem(i)*inv_r3*d(1)
+          ey = ey + mesh%q_elem(i)*inv_r3*d(2)
+          ez = ez + mesh%q_elem(i)*inv_r3*d(3)
         end do
       end do
     end do
 
-    e(1) = k_coulomb * ex
-    e(2) = k_coulomb * ey
-    e(3) = k_coulomb * ez
+    e(1) = k_coulomb*ex
+    e(2) = k_coulomb*ey
+    e(3) = k_coulomb*ez
   end subroutine electric_field_at_periodic2_images
 end program test_dynamics

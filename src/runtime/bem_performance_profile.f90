@@ -1,11 +1,11 @@
 !> 実行フェーズごとの壁時計計測と MPI 集約出力を担う軽量プロファイラ。
 module bem_performance_profile
-  !$ use omp_lib
+!$ use omp_lib
   use, intrinsic :: iso_fortran_env, only: int64, output_unit
   use bem_kinds, only: dp, i32
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_is_root, &
-    mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
-    mpi_allreduce_min_real_dp_array, mpi_allreduce_max_real_dp_array
+                     mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
+                     mpi_allreduce_min_real_dp_array, mpi_allreduce_max_real_dp_array
   implicit none
   private
 
@@ -47,26 +47,26 @@ module bem_performance_profile
   type(perf_state_type), save :: perf_state = perf_state_type()
 
   character(len=32), parameter :: perf_region_names(perf_region_count) = [character(len=32) :: &
-    'program_total', &
-    'load_or_init', &
-    'history_open', &
-    'simulation_total', &
-    'field_solver_init', &
-    'batch_total', &
-    'prepare_batch', &
-    'field_refresh', &
-    'particle_batch', &
-    'commit_charge', &
-    'count_outcomes', &
-    'mpi_reduce', &
-    'stats_update', &
-    'history_write', &
-    'write_results', &
-    'write_checkpoint', &
-    'particle_field_eval', &
-    'particle_push', &
-    'particle_collision' &
-  ]
+                                                                          'program_total', &
+                                                                          'load_or_init', &
+                                                                          'history_open', &
+                                                                          'simulation_total', &
+                                                                          'field_solver_init', &
+                                                                          'batch_total', &
+                                                                          'prepare_batch', &
+                                                                          'field_refresh', &
+                                                                          'particle_batch', &
+                                                                          'commit_charge', &
+                                                                          'count_outcomes', &
+                                                                          'mpi_reduce', &
+                                                                          'stats_update', &
+                                                                          'history_write', &
+                                                                          'write_results', &
+                                                                          'write_checkpoint', &
+                                                                          'particle_field_eval', &
+                                                                          'particle_push', &
+                                                                          'particle_collision' &
+                                                                          ]
 
   public :: perf_reset
   public :: perf_configure
@@ -96,7 +96,7 @@ contains
     perf_state%enabled = enabled .or. detail_enabled
     perf_state%detail_enabled = detail_enabled
     perf_state%omp_max_threads = 1_i32
-    !$ perf_state%omp_max_threads = int(max(1, omp_get_max_threads()), i32)
+!$  perf_state%omp_max_threads = int(max(1, omp_get_max_threads()), i32)
   end subroutine perf_configure
 
   !> 環境変数 `BEACH_PROFILE` / `BEACH_PROFILE_DETAIL` から計測状態を初期化する。
@@ -132,12 +132,12 @@ contains
   real(dp) function perf_wall_time_seconds()
     integer(int64) :: count, rate
 
-    !$ perf_wall_time_seconds = omp_get_wtime()
-    !$ return
+!$  perf_wall_time_seconds = omp_get_wtime()
+!$  return
 
     call system_clock(count=count, count_rate=rate)
     if (rate > 0_int64) then
-      perf_wall_time_seconds = real(count, dp) / real(rate, dp)
+      perf_wall_time_seconds = real(count, dp)/real(rate, dp)
     else
       call cpu_time(perf_wall_time_seconds)
     end if
@@ -224,8 +224,8 @@ contains
       return
     end if
 
-    path = trim(perf_state%output_dir) // '/performance_profile.csv'
-    open(newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    path = trim(perf_state%output_dir)//'/performance_profile.csv'
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open performance_profile.csv.'
 
     write (u, '(a)') '# BEACH performance profile'
@@ -236,19 +236,19 @@ contains
     write (u, '(a)') 'region,calls_sum,calls_mean,rank_min_s,rank_mean_s,rank_max_s,imbalance_ratio'
 
     do region_idx = 1, perf_region_count
-      total_mean = total_sum(region_idx) / real(max(1_i32, world_size), dp)
+      total_mean = total_sum(region_idx)/real(max(1_i32, world_size), dp)
       if (total_mean > tiny(1.0d0)) then
-        imbalance = total_max(region_idx) / total_mean
+        imbalance = total_max(region_idx)/total_mean
       else
         imbalance = 0.0d0
       end if
       write (u, '(a,a,i0,a,es24.16,a,es24.16,a,es24.16,a,es24.16,a,es24.16)') &
         trim(perf_region_names(region_idx)), ',', call_sum(region_idx), ',', &
-        real(call_sum(region_idx), dp) / real(max(1_i32, world_size), dp), ',', &
+        real(call_sum(region_idx), dp)/real(max(1_i32, world_size), dp), ',', &
         total_min(region_idx), ',', total_mean, ',', total_max(region_idx), ',', imbalance
     end do
 
-    close(u)
+    close (u)
     write (output_unit, '(a,a)') 'performance profile written to ', trim(path)
     flush (output_unit)
   end subroutine perf_write_outputs

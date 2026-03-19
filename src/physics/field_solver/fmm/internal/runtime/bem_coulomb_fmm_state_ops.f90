@@ -3,7 +3,7 @@ module bem_coulomb_fmm_state_ops
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, reset_fmm_state
   use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_level_bounds, &
-                                         active_tree_level_node
+                                        active_tree_level_node
   implicit none
   private
 
@@ -122,7 +122,7 @@ contains
         idx = plan%elem_order(p)
         if (abs(state%src_q(idx)) <= tiny(1.0d0)) cycle
         do alpha_idx = 1_i32, plan%ncoef
-          leaf_multipole(alpha_idx) = leaf_multipole(alpha_idx) + state%src_q(idx) * plan%source_p2m_basis(alpha_idx, p)
+          leaf_multipole(alpha_idx) = leaf_multipole(alpha_idx) + state%src_q(idx)*plan%source_p2m_basis(alpha_idx, p)
         end do
       end do
       leaf_active = coefficient_vector_is_active(leaf_multipole)
@@ -157,8 +157,8 @@ contains
               alpha_idx = plan%m2m_alpha_list(term_idx, beta_idx)
               delta_idx = plan%m2m_delta_list(term_idx, beta_idx)
               node_multipole(beta_idx) = node_multipole(beta_idx) &
-                                          + state%multipole(alpha_idx, child_node) &
-                                          * plan%source_shift_monomial(delta_idx, child_node)
+                                         + state%multipole(alpha_idx, child_node) &
+                                         *plan%source_shift_monomial(delta_idx, child_node)
             end do
           end do
         end do
@@ -188,11 +188,11 @@ contains
         s_node = plan%m2l_source_nodes(pair_idx)
         if (state%multipole_active(s_node) == 0_i32) cycle
         do beta_idx = 1_i32, plan%ncoef
-          source_coeff = plan%alpha_sign(beta_idx) * state%multipole(beta_idx, s_node)
+          source_coeff = plan%alpha_sign(beta_idx)*state%multipole(beta_idx, s_node)
           if (abs(source_coeff) <= tiny(1.0d0)) cycle
           do alpha_idx = 1_i32, plan%ncoef
             deriv_idx = plan%alpha_beta_deriv_idx(alpha_idx, beta_idx)
-            local_acc(alpha_idx) = local_acc(alpha_idx) + source_coeff * plan%m2l_deriv(deriv_idx, pair_idx)
+            local_acc(alpha_idx) = local_acc(alpha_idx) + source_coeff*plan%m2l_deriv(deriv_idx, pair_idx)
           end do
         end do
       end do
@@ -253,7 +253,7 @@ contains
               gamma_idx = plan%l2l_gamma_list(term_idx, alpha_idx)
               delta_idx = plan%l2l_delta_list(term_idx, alpha_idx)
               local_acc(alpha_idx) = local_acc(alpha_idx) + parent_local(gamma_idx) &
-                                     * plan%target_shift_monomial(delta_idx, node_idx)
+                                     *plan%target_shift_monomial(delta_idx, node_idx)
             end do
           end do
         end if

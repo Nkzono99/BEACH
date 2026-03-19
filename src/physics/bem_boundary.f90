@@ -40,14 +40,18 @@ contains
 
       do while (x(axis) < cfg%box_min(axis))
         bc = cfg%bc_low(axis)
-        call apply_one_side_boundary(axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary)
+        call apply_one_side_boundary( &
+          axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary &
+          )
         if ((.not. alive) .or. (.not. escaped_boundary .and. x(axis) >= cfg%box_min(axis))) exit
       end do
       if (.not. alive) return
 
       do while (x(axis) > cfg%box_max(axis))
         bc = cfg%bc_high(axis)
-        call apply_one_side_boundary(axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary)
+        call apply_one_side_boundary( &
+          axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary &
+          )
         if ((.not. alive) .or. (.not. escaped_boundary .and. x(axis) <= cfg%box_max(axis))) exit
       end do
       if (.not. alive) return

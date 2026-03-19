@@ -21,7 +21,7 @@ contains
   subroutine fail_test(message)
     character(len=*), intent(in) :: message
 
-    write (error_unit, '(a)') 'TEST FAILURE: ' // trim(message)
+    write (error_unit, '(a)') 'TEST FAILURE: '//trim(message)
     error stop 1
   end subroutine fail_test
 
@@ -101,9 +101,9 @@ contains
     character(len=1024) :: cmd
     integer :: ios
 
-    cmd = 'mkdir -p "' // trim(path) // '"'
+    cmd = 'mkdir -p "'//trim(path)//'"'
     call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
-    if (ios /= 0) call fail_test('failed to create directory: ' // trim(path))
+    if (ios /= 0) call fail_test('failed to create directory: '//trim(path))
   end subroutine ensure_directory
 
   !> 空ディレクトリを削除する。
@@ -113,7 +113,7 @@ contains
     character(len=1024) :: cmd
     integer :: ios
 
-    cmd = 'if [ -d "' // trim(path) // '" ]; then rmdir "' // trim(path) // '"; fi'
+    cmd = 'if [ -d "'//trim(path)//'" ]; then rmdir "'//trim(path)//'"; fi'
     call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
   end subroutine remove_empty_directory
 

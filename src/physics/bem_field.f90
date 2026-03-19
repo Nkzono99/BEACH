@@ -24,7 +24,7 @@ contains
     ex = 0.0d0
     ey = 0.0d0
     ez = 0.0d0
-    soft2 = softening * softening
+    soft2 = softening*softening
     rx = r(1)
     ry = r(2)
     rz = r(3)
@@ -34,17 +34,17 @@ contains
       dx = rx - mesh%center_x(i)
       dy = ry - mesh%center_y(i)
       dz = rz - mesh%center_z(i)
-      r2 = dx * dx + dy * dy + dz * dz + soft2
-      inv_r3 = 1.0d0 / (sqrt(r2) * r2)
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      inv_r3 = 1.0d0/(sqrt(r2)*r2)
       qi = mesh%q_elem(i)
-      ex = ex + qi * inv_r3 * dx
-      ey = ey + qi * inv_r3 * dy
-      ez = ez + qi * inv_r3 * dz
+      ex = ex + qi*inv_r3*dx
+      ey = ey + qi*inv_r3*dy
+      ez = ez + qi*inv_r3*dz
     end do
 
-    e(1) = k_coulomb * ex
-    e(2) = k_coulomb * ey
-    e(3) = k_coulomb * ez
+    e(1) = k_coulomb*ex
+    e(2) = k_coulomb*ey
+    e(3) = k_coulomb*ez
   end subroutine electric_field_at
 
   !> 全要素電荷を点電荷近似で総和し、softening付きで観測点 `r` の電位を返す。
@@ -63,7 +63,7 @@ contains
     real(dp) :: rx, ry, rz, dx, dy, dz
 
     phi_sum = 0.0d0
-    soft2 = softening * softening
+    soft2 = softening*softening
     rx = r(1)
     ry = r(2)
     rz = r(3)
@@ -73,12 +73,12 @@ contains
       dx = rx - mesh%center_x(i)
       dy = ry - mesh%center_y(i)
       dz = rz - mesh%center_z(i)
-      r2 = dx * dx + dy * dy + dz * dz + soft2
-      inv_r = 1.0d0 / sqrt(r2)
-      phi_sum = phi_sum + mesh%q_elem(i) * inv_r
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      inv_r = 1.0d0/sqrt(r2)
+      phi_sum = phi_sum + mesh%q_elem(i)*inv_r
     end do
 
-    phi = k_coulomb * phi_sum
+    phi = k_coulomb*phi_sum
   end subroutine electric_potential_at
 
 end module bem_field

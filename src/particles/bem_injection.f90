@@ -29,16 +29,16 @@ contains
     integer, allocatable :: put(:)
 
     call random_seed(size=n)
-    allocate(put(n))
+    allocate (put(n))
 
     if (present(seed)) then
       do i = 1, n
-        put(i) = seed(mod(i - 1, size(seed)) + 1) + 104729 * i
+        put(i) = seed(mod(i - 1, size(seed)) + 1) + 104729*i
       end do
     else
       call system_clock(count=clk)
       do i = 1, n
-        put(i) = clk + 37 * i
+        put(i) = clk + 37*i
       end do
     end if
 
@@ -57,9 +57,9 @@ contains
     if (size(x, 1) /= 3) error stop "x first dimension must be 3"
     if (any(high < low)) error stop "high must be >= low for all axes"
 
-    allocate(u(3, size(x, 2)))
+    allocate (u(3, size(x, 2)))
     call random_number(u)
-    x = spread(low, dim=2, ncopies=size(x, 2)) + spread(high - low, dim=2, ncopies=size(x, 2)) * u
+    x = spread(low, dim=2, ncopies=size(x, 2)) + spread(high - low, dim=2, ncopies=size(x, 2))*u
   end subroutine sample_uniform_positions
 
   !> ドリフト速度付きMaxwell分布(温度または熱速度指定)から粒子速度を生成する。
@@ -90,14 +90,14 @@ contains
       sigma = thermal_speed
     else
       if (temperature_k < 0.0_dp) error stop "temperature_k must be >= 0"
-      sigma = sqrt(k_boltzmann * temperature_k / m_particle)
+      sigma = sqrt(k_boltzmann*temperature_k/m_particle)
     end if
 
     n = size(v, 2)
-    allocate(z(3, n))
+    allocate (z(3, n))
     call sample_standard_normal(z)
 
-    v = sigma * z + spread(drift_velocity, dim=2, ncopies=n)
+    v = sigma*z + spread(drift_velocity, dim=2, ncopies=n)
   end subroutine sample_shifted_maxwell_velocities
 
   !> 指定粒子数ぶんの位置/速度/電荷/質量/重みを生成し `particles_soa` を初期化する。
@@ -123,7 +123,7 @@ contains
 
     if (n < 0) error stop "n must be non-negative"
 
-    allocate(x(3, n), v(3, n), q(n), m(n), w(n))
+    allocate (x(3, n), v(3, n), q(n), m(n), w(n))
     call sample_uniform_positions(pos_low, pos_high, x)
     call sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k, thermal_speed)
     q = q_particle
@@ -143,7 +143,7 @@ contains
   !! @return gamma_in 片側流入束 [1/m^2/s]。
   real(dp) function compute_inflow_flux_from_drifting_maxwellian( &
     number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal &
-  ) result(gamma_in)
+    ) result(gamma_in)
     real(dp), intent(in) :: number_density_m3
     real(dp), intent(in) :: temperature_k
     real(dp), intent(in) :: m_particle
@@ -159,17 +159,17 @@ contains
     vmin = 0.0_dp
     if (present(vmin_normal)) vmin = max(0.0_dp, vmin_normal)
     u_n = dot_product(drift_velocity, inward_normal)
-    sigma = sqrt(k_boltzmann * temperature_k / m_particle)
+    sigma = sqrt(k_boltzmann*temperature_k/m_particle)
     if (sigma <= 0.0_dp) then
       if (u_n < vmin) then
         gamma_in = 0.0_dp
       else
-        gamma_in = number_density_m3 * u_n
+        gamma_in = number_density_m3*u_n
       end if
       return
     end if
 
-    gamma_in = number_density_m3 * flux_weighted_normal_tail(vmin, u_n, sigma)
+    gamma_in = number_density_m3*flux_weighted_normal_tail(vmin, u_n, sigma)
   end function compute_inflow_flux_from_drifting_maxwellian
 
   !> 注入面上の矩形開口から有効面積[m^2]を返す。
@@ -183,7 +183,7 @@ contains
     integer :: axis_t1, axis_t2
 
     call resolve_face_axes(inject_face, axis_t1, axis_t2)
-    area = (pos_high(axis_t1) - pos_low(axis_t1)) * (pos_high(axis_t2) - pos_low(axis_t2))
+    area = (pos_high(axis_t1) - pos_low(axis_t1))*(pos_high(axis_t2) - pos_low(axis_t2))
   end function compute_face_area_from_bounds
 
   !> 物理流量・重み・残差から今バッチのマクロ粒子数を決める。
@@ -204,7 +204,7 @@ contains
   subroutine compute_macro_particles_for_batch( &
     number_density_m3, temperature_k, m_particle, drift_velocity, box_min, box_max, inject_face, pos_low, pos_high, &
     batch_duration, w_particle, residual, n_macro, vmin_normal &
-  )
+    )
     real(dp), intent(in) :: number_density_m3
     real(dp), intent(in) :: temperature_k
     real(dp), intent(in) :: m_particle
@@ -225,11 +225,11 @@ contains
 
     call resolve_face_geometry(box_min, box_max, inject_face, inward_normal=inward_normal)
     gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
-      number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal=vmin_normal &
-    )
+               number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal=vmin_normal &
+               )
     area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
-    n_phys_batch = gamma_in * area * batch_duration
-    n_macro_expected = n_phys_batch / w_particle
+    n_phys_batch = gamma_in*area*batch_duration
+    n_macro_expected = n_phys_batch/w_particle
     macro_budget = residual + n_macro_expected
     if (macro_budget < 0.0_dp) macro_budget = 0.0_dp
     if (macro_budget > real(huge(0_i32), dp)) error stop "macro particle count exceeds integer range"
@@ -255,7 +255,7 @@ contains
   subroutine sample_reservoir_face_particles( &
     box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v, &
     barrier_normal_energy, vmin_normal, position_jitter_dt &
-  )
+    )
     real(dp), intent(in) :: box_min(3), box_max(3)
     character(len=*), intent(in) :: inject_face
     real(dp), intent(in) :: pos_low(3), pos_high(3), drift_velocity(3)
@@ -284,7 +284,7 @@ contains
     call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
     call resolve_face_axes(inject_face, axis_t1, axis_t2)
 
-    sigma = sqrt(k_boltzmann * temperature_k / m_particle)
+    sigma = sqrt(k_boltzmann*temperature_k/m_particle)
     u_n = dot_product(drift_velocity, inward_normal)
     barrier = 0.0_dp
     if (present(barrier_normal_energy)) barrier = barrier_normal_energy
@@ -296,24 +296,24 @@ contains
     call sample_flux_weighted_normal_component(u_n, sigma, v(axis_n, :), vmin_normal=vn_floor)
     do i = 1, size(v, 2)
       vn_inf = v(axis_n, i)
-      vn_inf = sqrt(max(0.0_dp, vn_inf * vn_inf - barrier))
-      v(axis_n, i) = inward_normal(axis_n) * vn_inf
+      vn_inf = sqrt(max(0.0_dp, vn_inf*vn_inf - barrier))
+      v(axis_n, i) = inward_normal(axis_n)*vn_inf
     end do
 
-    allocate(u(2, size(x, 2)))
+    allocate (u(2, size(x, 2)))
     call random_number(u)
     if (jitter_dt > 0.0_dp) then
-      allocate(tau(size(x, 2)))
+      allocate (tau(size(x, 2)))
       call random_number(tau)
     end if
 
     do i = 1, size(x, 2)
       x(:, i) = 0.0_dp
       x(axis_n, i) = boundary_value
-      x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1)) * u(1, i)
-      x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2)) * u(2, i)
-      if (jitter_dt > 0.0_dp) x(:, i) = x(:, i) + v(:, i) * (tau(i) * jitter_dt)
-      x(:, i) = x(:, i) + inward_normal * 1.0d-12
+      x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*u(1, i)
+      x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*u(2, i)
+      if (jitter_dt > 0.0_dp) x(:, i) = x(:, i) + v(:, i)*(tau(i)*jitter_dt)
+      x(:, i) = x(:, i) + inward_normal*1.0d-12
     end do
   end subroutine sample_reservoir_face_particles
 
@@ -339,7 +339,7 @@ contains
   subroutine sample_photo_raycast_particles( &
     mesh, sim, inject_face, pos_low, pos_high, ray_direction, m_particle, temperature_k, normal_drift_speed, &
     emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch &
-  )
+    )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     character(len=*), intent(in) :: inject_face
@@ -391,33 +391,33 @@ contains
     call resolve_face_axes(inject_face, axis_t1, axis_t2)
 
     launch_dir = ray_direction
-    launch_dir_norm = sqrt(sum(launch_dir * launch_dir))
+    launch_dir_norm = sqrt(sum(launch_dir*launch_dir))
     if (launch_dir_norm <= 0.0_dp) error stop "ray_direction norm must be > 0"
-    launch_dir = launch_dir / launch_dir_norm
+    launch_dir = launch_dir/launch_dir_norm
     inward_dot = dot_product(launch_dir, inward_normal)
     if (inward_dot <= 0.0_dp) error stop "ray_direction must point inward from inject_face"
 
     launch_area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
     if (launch_area <= 0.0_dp) error stop "photo_raycast opening area must be positive"
-    projected_area = launch_area * abs(inward_dot)
-    w_hit = emit_current_density_a_m2 * projected_area * sim%batch_duration / (abs(q_particle) * real(total_rays, dp))
+    projected_area = launch_area*abs(inward_dot)
+    w_hit = emit_current_density_a_m2*projected_area*sim%batch_duration/(abs(q_particle)*real(total_rays, dp))
     if (w_hit <= 0.0_dp) error stop "photo_raycast produced invalid w_hit"
-    sigma = sqrt(k_boltzmann * temperature_k / m_particle)
+    sigma = sqrt(k_boltzmann*temperature_k/m_particle)
 
     n_emit = 0_i32
     x = 0.0_dp
     v = 0.0_dp
     w = 0.0_dp
 
-    allocate(u(2, rays_per_batch))
+    allocate (u(2, rays_per_batch))
     call random_number(u)
     do i = 1_i32, rays_per_batch
       ray_pos = 0.0_dp
       ray_pos(axis_n) = boundary_value
-      ray_pos(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1)) * u(1, i)
-      ray_pos(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2)) * u(2, i)
+      ray_pos(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*u(1, i)
+      ray_pos(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*u(2, i)
       ray_dir = launch_dir
-      ray_pos = ray_pos + ray_dir * eps
+      ray_pos = ray_pos + ray_dir*eps
 
       alive = .true.
       bounce_count = 0_i32
@@ -427,7 +427,7 @@ contains
 
         call find_first_hit( &
           mesh, ray_pos, seg_end, hit, box_min=sim%box_min, box_max=sim%box_max, require_elem_inside=.true. &
-        )
+          )
         if (hit%has_hit) then
           if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
           n_emit = n_emit + 1_i32
@@ -435,19 +435,19 @@ contains
           if (dot_product(surf_normal, ray_dir) > 0.0_dp) surf_normal = -surf_normal
           call build_tangent_basis(surf_normal, tangent1, tangent2)
           call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
-          x(:, n_emit) = hit%pos + surf_normal * eps
+          x(:, n_emit) = hit%pos + surf_normal*eps
           w(n_emit) = w_hit
           if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit%elem_idx
           exit
         end if
 
-        boundary_probe = seg_end + ray_dir * eps
+        boundary_probe = seg_end + ray_dir*eps
         boundary_dir = ray_dir
         escaped_boundary = .false.
         call apply_box_boundary(sim, boundary_probe, boundary_dir, alive, escaped_boundary)
         if (.not. alive) exit
-        ray_dir = boundary_dir / sqrt(sum(boundary_dir * boundary_dir))
-        ray_pos = boundary_probe + ray_dir * eps
+        ray_dir = boundary_dir/sqrt(sum(boundary_dir*boundary_dir))
+        ray_pos = boundary_probe + ray_dir*eps
         bounce_count = bounce_count + 1_i32
       end do
     end do
@@ -473,23 +473,23 @@ contains
     t_hit = huge(1.0_dp)
     do axis = 1, 3
       if (ray_dir(axis) > eps) then
-        t_axis = (box_max(axis) - x0(axis)) / ray_dir(axis)
+        t_axis = (box_max(axis) - x0(axis))/ray_dir(axis)
       else if (ray_dir(axis) < -eps) then
-        t_axis = (box_min(axis) - x0(axis)) / ray_dir(axis)
+        t_axis = (box_min(axis) - x0(axis))/ray_dir(axis)
       else
         cycle
       end if
       if (t_axis > eps .and. t_axis < t_hit) t_hit = t_axis
     end do
 
-    if (t_hit >= huge(1.0_dp) * 0.5_dp) then
+    if (t_hit >= huge(1.0_dp)*0.5_dp) then
       reached_boundary = .false.
       x1 = x0
       return
     end if
 
     reached_boundary = .true.
-    x1 = x0 + ray_dir * t_hit
+    x1 = x0 + ray_dir*t_hit
     x1 = min(box_max, max(box_min, x1))
   end subroutine step_ray_to_boundary
 
@@ -503,9 +503,9 @@ contains
 
     real(dp) :: n(3), ref(3), norm_n, norm_t1
 
-    norm_n = sqrt(sum(normal * normal))
+    norm_n = sqrt(sum(normal*normal))
     if (norm_n <= 0.0_dp) error stop "surface normal norm must be > 0"
-    n = normal / norm_n
+    n = normal/norm_n
 
     if (abs(n(1)) < 0.9_dp) then
       ref = [1.0_dp, 0.0_dp, 0.0_dp]
@@ -514,9 +514,9 @@ contains
     end if
 
     tangent1 = cross3(n, ref)
-    norm_t1 = sqrt(sum(tangent1 * tangent1))
+    norm_t1 = sqrt(sum(tangent1*tangent1))
     if (norm_t1 <= 0.0_dp) error stop "failed to build tangent basis"
-    tangent1 = tangent1 / norm_t1
+    tangent1 = tangent1/norm_t1
     tangent2 = cross3(n, tangent1)
   end subroutine build_tangent_basis
 
@@ -539,10 +539,10 @@ contains
     vt2 = 0.0_dp
     if (sigma > 0.0_dp) then
       call sample_standard_normal(z)
-      vt1 = sigma * z(1, 1)
-      vt2 = sigma * z(2, 1)
+      vt1 = sigma*z(1, 1)
+      vt2 = sigma*z(2, 1)
     end if
-    vel = normal * vn(1) + tangent1 * vt1 + tangent2 * vt2
+    vel = normal*vn(1) + tangent1*vt1 + tangent2*vt2
   end subroutine sample_photo_emission_velocity
 
   !> 3次元外積を返す。
@@ -550,9 +550,9 @@ contains
     real(dp), intent(in) :: a(3), b(3)
     real(dp) :: c(3)
 
-    c(1) = a(2) * b(3) - a(3) * b(2)
-    c(2) = a(3) * b(1) - a(1) * b(3)
-    c(3) = a(1) * b(2) - a(2) * b(1)
+    c(1) = a(2)*b(3) - a(3)*b(2)
+    c(2) = a(3)*b(1) - a(1)*b(3)
+    c(3) = a(1)*b(2) - a(2)*b(1)
   end function cross3
 
   !> Box–Muller法で標準正規乱数を生成し、任意形状配列へ詰める。
@@ -564,20 +564,20 @@ contains
     real(dp) :: r, theta, pi
 
     n_total = size(z)
-    n_pair = (n_total + 1) / 2
+    n_pair = (n_total + 1)/2
     pi = acos(-1.0_dp)
 
-    allocate(out(n_total), u1(n_pair), u2(n_pair))
+    allocate (out(n_total), u1(n_pair), u2(n_pair))
     call random_number(u1)
     call random_number(u2)
 
     i = 1
     do n_pair = 1, size(u1)
       if (u1(n_pair) <= tiny(1.0_dp)) u1(n_pair) = tiny(1.0_dp)
-      r = sqrt(-2.0_dp * log(u1(n_pair)))
-      theta = 2.0_dp * pi * u2(n_pair)
-      out(i) = r * cos(theta)
-      if (i + 1 <= n_total) out(i + 1) = r * sin(theta)
+      r = sqrt(-2.0_dp*log(u1(n_pair)))
+      theta = 2.0_dp*pi*u2(n_pair)
+      out(i) = r*cos(theta)
+      if (i + 1 <= n_total) out(i + 1) = r*sin(theta)
       i = i + 2
     end do
 
@@ -591,7 +591,7 @@ contains
     real(dp), intent(in) :: x
     real(dp), parameter :: inv_sqrt_2pi = 3.98942280401432678d-1
 
-    pdf = inv_sqrt_2pi * exp(-0.5_dp * x * x)
+    pdf = inv_sqrt_2pi*exp(-0.5_dp*x*x)
   end function standard_normal_pdf
 
   !> 標準正規分布の CDF を返す。
@@ -601,7 +601,7 @@ contains
     real(dp), intent(in) :: x
     real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
 
-    cdf = 0.5_dp * (1.0_dp + erf(x * inv_sqrt_2))
+    cdf = 0.5_dp*(1.0_dp + erf(x*inv_sqrt_2))
   end function standard_normal_cdf
 
   !> 注入面名から接線2軸を返す。
@@ -702,19 +702,19 @@ contains
     do i = 1, size(vn)
       call random_number(target)
       low = vmin
-      high = max(vmin + 8.0_dp * sigma, mu + 8.0_dp * sigma)
+      high = max(vmin + 8.0_dp*sigma, mu + 8.0_dp*sigma)
       do while (flux_weighted_normal_cdf(high, mu, sigma, vmin_normal=vmin) < target)
-        high = high * 2.0_dp
+        high = high*2.0_dp
       end do
-      do while ((high - low) > max(1.0d-12, 1.0d-10 * (1.0d0 + high)))
-        mid = 0.5_dp * (low + high)
+      do while ((high - low) > max(1.0d-12, 1.0d-10*(1.0d0 + high)))
+        mid = 0.5_dp*(low + high)
         if (flux_weighted_normal_cdf(mid, mu, sigma, vmin_normal=vmin) < target) then
           low = mid
         else
           high = mid
         end if
       end do
-      vn(i) = 0.5_dp * (low + high)
+      vn(i) = 0.5_dp*(low + high)
     end do
   end subroutine sample_flux_weighted_normal_component
 
@@ -747,7 +747,7 @@ contains
     end if
 
     num = denom - flux_weighted_normal_tail(vn, mu, sigma)
-    cdf = min(1.0_dp, max(0.0_dp, num / denom))
+    cdf = min(1.0_dp, max(0.0_dp, num/denom))
   end function flux_weighted_normal_cdf
 
   !> flux-weighted 正規分布の tail 積分 `∫[vmin,∞] v f(v) dv` を返す。
@@ -768,8 +768,8 @@ contains
       return
     end if
 
-    x = (vmin - mu) / sigma
-    tail = mu * (1.0_dp - standard_normal_cdf(x)) + sigma * standard_normal_pdf(x)
+    x = (vmin - mu)/sigma
+    tail = mu*(1.0_dp - standard_normal_cdf(x)) + sigma*standard_normal_pdf(x)
     if (tail < 0.0_dp) tail = 0.0_dp
   end function flux_weighted_normal_tail
 

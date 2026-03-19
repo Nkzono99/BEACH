@@ -27,7 +27,7 @@ contains
     end if
 
     pcls%n = n
-    allocate(pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), pcls%alive(n))
+    allocate (pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), pcls%alive(n))
     pcls%x = x
     pcls%v = v
     pcls%q = q

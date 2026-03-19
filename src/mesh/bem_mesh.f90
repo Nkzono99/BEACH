@@ -30,19 +30,19 @@ contains
       error stop "mesh vertex input size mismatch"
     end if
     mesh%nelem = n
-    allocate(mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
-    allocate(mesh%centers(3, n), mesh%center_x(n), mesh%center_y(n), mesh%center_z(n), mesh%normals(3, n))
-    allocate(mesh%bb_min(3, n), mesh%bb_max(3, n))
-    allocate(mesh%h_elem(n), mesh%q_elem(n), mesh%elem_mesh_id(n))
+    allocate (mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
+    allocate (mesh%centers(3, n), mesh%center_x(n), mesh%center_y(n), mesh%center_z(n), mesh%normals(3, n))
+    allocate (mesh%bb_min(3, n), mesh%bb_max(3, n))
+    allocate (mesh%h_elem(n), mesh%q_elem(n), mesh%elem_mesh_id(n))
 
     mesh%v0 = v0
     mesh%v1 = v1
     mesh%v2 = v2
 
     do i = 1, n
-      cx = (v0(1, i) + v1(1, i) + v2(1, i)) / 3.0d0
-      cy = (v0(2, i) + v1(2, i) + v2(2, i)) / 3.0d0
-      cz = (v0(3, i) + v1(3, i) + v2(3, i)) / 3.0d0
+      cx = (v0(1, i) + v1(1, i) + v2(1, i))/3.0d0
+      cy = (v0(2, i) + v1(2, i) + v2(2, i))/3.0d0
+      cz = (v0(3, i) + v1(3, i) + v2(3, i))/3.0d0
       mesh%centers(1, i) = cx
       mesh%centers(2, i) = cy
       mesh%centers(3, i) = cz
@@ -55,13 +55,13 @@ contains
       e1 = v1(:, i) - v0(:, i)
       e2 = v2(:, i) - v0(:, i)
       nvec = cross(e1, e2)
-      nn = sqrt(sum(nvec * nvec))
+      nn = sqrt(sum(nvec*nvec))
       if (nn > 0.0d0) then
-        mesh%normals(:, i) = nvec / nn
+        mesh%normals(:, i) = nvec/nn
       else
         mesh%normals(:, i) = 0.0d0
       end if
-      mesh%h_elem(i) = sqrt(0.5d0 * nn)
+      mesh%h_elem(i) = sqrt(0.5d0*nn)
     end do
 
     if (present(q0)) then
@@ -114,30 +114,30 @@ contains
 
     span = mesh%grid_bb_max - mesh%grid_bb_min
     span_ref = max(maxval(abs(span)), 1.0d0)
-    eps_expand = max(abs_span_eps, rel_span_eps * span_ref)
+    eps_expand = max(abs_span_eps, rel_span_eps*span_ref)
     do iaxis = 1, 3
       if (span(iaxis) <= abs_span_eps) then
-        mesh%grid_bb_min(iaxis) = mesh%grid_bb_min(iaxis) - 0.5d0 * eps_expand
-        mesh%grid_bb_max(iaxis) = mesh%grid_bb_max(iaxis) + 0.5d0 * eps_expand
+        mesh%grid_bb_min(iaxis) = mesh%grid_bb_min(iaxis) - 0.5d0*eps_expand
+        mesh%grid_bb_max(iaxis) = mesh%grid_bb_max(iaxis) + 0.5d0*eps_expand
       end if
     end do
     span = mesh%grid_bb_max - mesh%grid_bb_min
 
-    target_cells = max(1.0d0, real(mesh%nelem, dp) / real(target_elems_per_cell, dp))
-    cell_size = (span(1) * span(2) * span(3) / target_cells)**(1.0d0 / 3.0d0)
+    target_cells = max(1.0d0, real(mesh%nelem, dp)/real(target_elems_per_cell, dp))
+    cell_size = (span(1)*span(2)*span(3)/target_cells)**(1.0d0/3.0d0)
     if (cell_size <= 0.0d0) cell_size = span_ref
 
     do iaxis = 1, 3
-      mesh%grid_ncell(iaxis) = int(span(iaxis) / cell_size, kind=i32)
+      mesh%grid_ncell(iaxis) = int(span(iaxis)/cell_size, kind=i32)
       if (mesh%grid_ncell(iaxis) < 1_i32) mesh%grid_ncell(iaxis) = 1_i32
       if (mesh%grid_ncell(iaxis) > max_cells_axis) mesh%grid_ncell(iaxis) = max_cells_axis
-      mesh%grid_inv_cell(iaxis) = real(mesh%grid_ncell(iaxis), dp) / span(iaxis)
+      mesh%grid_inv_cell(iaxis) = real(mesh%grid_ncell(iaxis), dp)/span(iaxis)
     end do
 
     nx = mesh%grid_ncell(1)
     ny = mesh%grid_ncell(2)
     nz = mesh%grid_ncell(3)
-    ncells = nx * ny * nz
+    ncells = nx*ny*nz
 
     allocate (counts(ncells))
     counts = 0_i32
@@ -214,7 +214,7 @@ contains
       return
     end if
 
-    u = (x - mesh%grid_bb_min(axis)) * mesh%grid_inv_cell(axis)
+    u = (x - mesh%grid_bb_min(axis))*mesh%grid_inv_cell(axis)
     idx = int(u, kind=i32) + 1_i32
     if (idx < 1_i32) idx = 1_i32
     if (idx > mesh%grid_ncell(axis)) idx = mesh%grid_ncell(axis)
@@ -223,7 +223,7 @@ contains
   !> 3次元セル添字 `(ix,iy,iz)` をCSR一次元インデックスへ変換する。
   pure integer(i32) function cell_id(ix, iy, iz, nx, ny) result(cid)
     integer(i32), intent(in) :: ix, iy, iz, nx, ny
-    cid = (iz - 1_i32) * (nx * ny) + (iy - 1_i32) * nx + ix
+    cid = (iz - 1_i32)*(nx*ny) + (iy - 1_i32)*nx + ix
   end function cell_id
 
   !> 3次元ベクトルの外積を返す基本演算。
@@ -233,9 +233,9 @@ contains
   pure function cross(a, b) result(c)
     real(dp), intent(in) :: a(3), b(3)
     real(dp) :: c(3)
-    c(1) = a(2) * b(3) - a(3) * b(2)
-    c(2) = a(3) * b(1) - a(1) * b(3)
-    c(3) = a(1) * b(2) - a(2) * b(1)
+    c(1) = a(2)*b(3) - a(3)*b(2)
+    c(2) = a(3)*b(1) - a(1)*b(3)
+    c(3) = a(1)*b(2) - a(2)*b(1)
   end function cross
 
 end module bem_mesh

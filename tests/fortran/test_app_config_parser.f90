@@ -3,7 +3,7 @@ program test_app_config_parser
   use bem_kinds, only: dp, i32
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config, only: app_config, default_app_config, load_app_config, &
-    particles_per_batch_from_config, total_particles_from_config
+                            particles_per_batch_from_config, total_particles_from_config
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
@@ -80,10 +80,13 @@ program test_app_config_parser
   call assert_close_dp(photo_cfg%particle_species(1)%emit_current_density_a_m2, 2.0d-3, 1.0d-15, 'photo emit_current mismatch')
   call assert_equal_i32(photo_cfg%particle_species(1)%rays_per_batch, 40_i32, 'photo rays_per_batch mismatch')
   call assert_close_dp(photo_cfg%particle_species(1)%normal_drift_speed, 1.5d5, 1.0d-12, 'photo normal_drift_speed mismatch')
-  call assert_true(photo_cfg%particle_species(1)%deposit_opposite_charge_on_emit, 'photo deposit_opposite_charge_on_emit mismatch')
+  call assert_true( &
+    photo_cfg%particle_species(1)%deposit_opposite_charge_on_emit, &
+    'photo deposit_opposite_charge_on_emit mismatch' &
+    )
   call assert_allclose_1d( &
     photo_cfg%particle_species(1)%ray_direction, [0.0d0, 0.0d0, -1.0d0], 1.0d-12, 'photo ray_direction mismatch' &
-  )
+    )
   call assert_equal_i32(photo_cfg%sim%raycast_max_bounce, 16_i32, 'photo default raycast_max_bounce mismatch')
   call assert_equal_i32(particles_per_batch_from_config(photo_cfg), 0_i32, 'photo per-batch particle count mismatch')
   call assert_equal_i32(total_particles_from_config(photo_cfg), 0_i32, 'photo total particle count mismatch')
@@ -119,13 +122,13 @@ program test_app_config_parser
   call assert_true( &
     trim(periodic_oracle_cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle', &
     'periodic oracle far correction mismatch' &
-  )
+    )
   call assert_equal_i32( &
     periodic_oracle_cfg%sim%field_periodic_ewald_layers, 3_i32, 'periodic oracle ewald layers mismatch' &
-  )
+    )
   call assert_close_dp( &
     periodic_oracle_cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'periodic oracle ewald alpha mismatch' &
-  )
+    )
 
   call delete_file_if_exists(cfg_path)
   call delete_file_if_exists(photo_cfg_path)
