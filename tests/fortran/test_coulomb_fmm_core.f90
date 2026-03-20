@@ -23,7 +23,7 @@ program test_coulomb_fmm_core
   call test_state_update_reuse()
   call test_field_solver_core_adapter()
   call test_field_solver_core_softened_adapter()
-  call test_field_solver_core_periodic2_m2l_root_trunc_adapter()
+  call test_field_solver_core_periodic2_m2l_root_oracle_adapter()
 
 contains
 
@@ -533,7 +533,7 @@ contains
     call assert_true(max_rel_err <= 5.0d-3, 'softened core adapter relative error exceeds 5e-3')
   end subroutine test_field_solver_core_softened_adapter
 
-  subroutine test_field_solver_core_periodic2_m2l_root_trunc_adapter()
+  subroutine test_field_solver_core_periodic2_m2l_root_oracle_adapter()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver_default = field_solver_type()
     type(field_solver_type) :: solver_root = field_solver_type()
@@ -566,7 +566,7 @@ contains
     call solver_default%init(mesh_fmm, sim)
     call solver_default%refresh(mesh_fmm)
 
-    sim%field_periodic_far_correction = 'm2l_root_trunc'
+    sim%field_periodic_far_correction = 'm2l_root_oracle'
     sim%field_periodic_ewald_layers = 4_i32
     call solver_root%init(mesh_fmm, sim)
     call solver_root%refresh(mesh_fmm)
@@ -574,15 +574,15 @@ contains
     call assert_true(solver_default%fmm_use_core, 'softening=0 periodic2 default FMM should use the core path')
     call assert_true( &
       solver_root%fmm_use_core, &
-      'softening=0 periodic2 m2l_root_trunc FMM should use the core path' &
+      'softening=0 periodic2 m2l_root_oracle FMM should use the core path' &
       )
     call assert_true( &
-      trim(solver_default%periodic_far_correction) == 'm2l_root_trunc', &
-      'periodic2 default should normalize to m2l_root_trunc' &
+      trim(solver_default%periodic_far_correction) == 'm2l_root_oracle', &
+      'periodic2 default should normalize to m2l_root_oracle' &
       )
     call assert_true( &
-      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_trunc', &
-      'core adapter should pass normalized m2l_root_trunc into FMM options' &
+      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_oracle', &
+      'core adapter should pass normalized m2l_root_oracle into FMM options' &
       )
 
     call mesh_centers_as_sources(mesh_fmm, src_pos, q)
@@ -612,19 +612,19 @@ contains
 
     call assert_true( &
       valid_count == 2_i32, &
-      'core periodic2 default m2l_root_trunc adapter test lost valid samples' &
+      'core periodic2 default m2l_root_oracle adapter test lost valid samples' &
       )
     mean_rel_default = mean_rel_default/real(valid_count, dp)
     mean_rel_root = mean_rel_root/real(valid_count, dp)
     call assert_true( &
       max_delta_default_root <= 1.0d-18*max(1.0d0, sqrt(sum(e_ref*e_ref))), &
-      'default periodic2 and explicit m2l_root_trunc should agree at the adapter level' &
+      'default periodic2 and explicit m2l_root_oracle should agree at the adapter level' &
       )
     call assert_true( &
       mean_rel_default <= 8.0d-2 .and. mean_rel_root <= 8.0d-2, &
-      'core adapter periodic2 m2l_root_trunc accuracy exceeds 8e-2' &
+      'core adapter periodic2 m2l_root_oracle accuracy exceeds 8e-2' &
       )
-  end subroutine test_field_solver_core_periodic2_m2l_root_trunc_adapter
+  end subroutine test_field_solver_core_periodic2_m2l_root_oracle_adapter
 
   subroutine make_free_sources(src_pos, q)
     real(dp), allocatable, intent(out) :: src_pos(:, :)

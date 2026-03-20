@@ -22,7 +22,7 @@ module bem_field_solver
     integer(i32) :: periodic_axes(2) = 0_i32
     real(dp) :: periodic_len(2) = 0.0d0
     integer(i32) :: periodic_image_layers = 1_i32
-    character(len=16) :: periodic_far_correction = 'none'
+    character(len=16) :: periodic_far_correction = 'auto'
     real(dp) :: periodic_ewald_alpha = 0.0d0
     integer(i32) :: periodic_ewald_layers = 4_i32
     real(dp) :: target_box_min(3) = 0.0d0

@@ -67,8 +67,8 @@ contains
     self%target_box_min = sim%box_min
     self%target_box_max = sim%box_max
     select case (trim(self%periodic_far_correction))
-    case ('none')
-      self%periodic_far_correction = 'm2l_root_trunc'
+    case ('auto', 'none')
+      self%periodic_far_correction = 'm2l_root_oracle'
       self%periodic_ewald_layers = max(1_i32, self%periodic_ewald_layers)
     case ('m2l_root')
       self%periodic_far_correction = 'm2l_root_trunc'
@@ -77,7 +77,7 @@ contains
     case ('m2l_root_oracle')
       continue
     case default
-      error stop 'periodic2 far correction supports "none" (auto->"m2l_root_trunc"), '// &
+      error stop 'periodic2 far correction supports "auto" (legacy "none"), '// &
         '"m2l_root", "m2l_root_trunc", or "m2l_root_oracle" only.'
     end select
     self%use_periodic2 = .true.
@@ -136,10 +136,10 @@ contains
 
   if (trim(self%mode) == 'fmm') then
     select case (trim(self%periodic_far_correction))
-    case ('none', 'm2l_root_trunc', 'm2l_root_oracle')
+    case ('auto', 'none', 'm2l_root_trunc', 'm2l_root_oracle')
       continue
     case default
-      error stop 'FMM core supports periodic far correction "none", "m2l_root_trunc", or "m2l_root_oracle" only.'
+      error stop 'FMM core supports periodic far correction "auto" (legacy "none"), "m2l_root_trunc", or "m2l_root_oracle" only.'
     end select
     self%fmm_use_core = .true.
     if (mesh%nelem > 0_i32) then

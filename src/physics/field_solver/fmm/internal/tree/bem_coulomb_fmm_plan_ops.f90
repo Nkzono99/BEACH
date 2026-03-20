@@ -51,13 +51,20 @@ contains
       if (.not. has_valid_target_box(plan%options)) then
         error stop 'periodic2 requires a valid target box.'
       end if
-      if (trim(options%periodic_far_correction) /= 'none' .and. &
-          trim(options%periodic_far_correction) /= 'm2l_root_trunc' .and. &
-          trim(options%periodic_far_correction) /= 'm2l_root_oracle') then
+      select case (trim(plan%options%periodic_far_correction))
+      case ('auto', 'none')
+        plan%options%periodic_far_correction = 'm2l_root_oracle'
+        plan%options%periodic_ewald_layers = max(1_i32, plan%options%periodic_ewald_layers)
+      case ('m2l_root_trunc', 'm2l_root_oracle')
+        continue
+      case default
         error stop 'Unsupported periodic far correction in FMM core.'
-      end if
-      if (trim(options%periodic_far_correction) /= 'none' .and. options%periodic_ewald_layers < 1_i32) then
-        error stop 'periodic2 root-operator far correction requires periodic_ewald_layers >= 1.'
+      end select
+      if (trim(plan%options%periodic_far_correction) == 'm2l_root_trunc' .or. &
+          trim(plan%options%periodic_far_correction) == 'm2l_root_oracle') then
+        if (plan%options%periodic_ewald_layers < 1_i32) then
+          error stop 'periodic2 root-operator far correction requires periodic_ewald_layers >= 1.'
+        end if
       end if
     end if
 

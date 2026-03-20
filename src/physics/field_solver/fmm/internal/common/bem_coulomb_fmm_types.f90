@@ -21,7 +21,7 @@ module bem_coulomb_fmm_types
     integer(i32) :: order = 4_i32
     real(dp) :: softening = 0.0d0
     logical :: use_periodic2 = .false.
-    character(len=16) :: periodic_far_correction = 'none'
+    character(len=16) :: periodic_far_correction = 'auto'
     integer(i32) :: periodic_axes(2) = 0_i32
     real(dp) :: periodic_len(2) = 0.0d0
     integer(i32) :: periodic_image_layers = 1_i32

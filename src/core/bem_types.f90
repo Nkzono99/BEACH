@@ -23,7 +23,7 @@ module bem_types
     character(len=16) :: field_solver = 'auto'
     character(len=16) :: field_bc_mode = 'free'
     integer(i32) :: field_periodic_image_layers = 1_i32
-    character(len=16) :: field_periodic_far_correction = 'none'
+    character(len=16) :: field_periodic_far_correction = 'auto'
     real(dp) :: field_periodic_ewald_alpha = 0.0d0
     integer(i32) :: field_periodic_ewald_layers = 4_i32
     real(dp) :: tree_theta = 0.5d0

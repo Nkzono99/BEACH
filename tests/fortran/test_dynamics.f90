@@ -78,7 +78,7 @@ program test_dynamics
   call test_fmm_periodic2_fallback_accuracy()
   call test_fmm_periodic2_image_layers_accuracy()
   call test_fmm_periodic2_m2l_cache_reuse()
-  call test_fmm_periodic2_default_m2l_root_trunc_mode()
+  call test_fmm_periodic2_default_m2l_root_oracle_mode()
 
 contains
 
@@ -779,7 +779,7 @@ contains
     call solver%refresh(mesh_fmm)
   end subroutine test_fmm_periodic2_m2l_cache_reuse
 
-  subroutine test_fmm_periodic2_default_m2l_root_trunc_mode()
+  subroutine test_fmm_periodic2_default_m2l_root_oracle_mode()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver_default = field_solver_type()
     type(field_solver_type) :: solver_root = field_solver_type()
@@ -805,21 +805,21 @@ contains
     call solver_default%init(mesh_fmm, sim)
     call solver_default%refresh(mesh_fmm)
 
-    sim%field_periodic_far_correction = 'm2l_root_trunc'
+    sim%field_periodic_far_correction = 'm2l_root_oracle'
     sim%field_periodic_ewald_layers = 4_i32
     call solver_root%init(mesh_fmm, sim)
     call solver_root%refresh(mesh_fmm)
 
     call assert_true( &
-      trim(solver_default%periodic_far_correction) == 'm2l_root_trunc', &
-      'periodic2 default should normalize to m2l_root_trunc' &
+      trim(solver_default%periodic_far_correction) == 'm2l_root_oracle', &
+      'periodic2 default should normalize to m2l_root_oracle' &
       )
     call assert_true( &
-      trim(solver_root%periodic_far_correction) == 'm2l_root_trunc', &
-      'explicit periodic2 m2l_root_trunc should be preserved' &
+      trim(solver_root%periodic_far_correction) == 'm2l_root_oracle', &
+      'explicit periodic2 m2l_root_oracle should be preserved' &
       )
     call assert_true( &
-      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_trunc', &
+      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_oracle', &
       'normalized periodic2 far correction should reach FMM core options' &
       )
 
@@ -833,9 +833,9 @@ contains
 
     call assert_true( &
       max_delta_default_root <= 1.0d-18, &
-      'default periodic2 and explicit m2l_root_trunc should agree' &
+      'default periodic2 and explicit m2l_root_oracle should agree' &
       )
-  end subroutine test_fmm_periodic2_default_m2l_root_trunc_mode
+  end subroutine test_fmm_periodic2_default_m2l_root_oracle_mode
 
   subroutine assign_periodic_test_dipole_charges(mesh, scale)
     type(mesh_type), intent(inout) :: mesh

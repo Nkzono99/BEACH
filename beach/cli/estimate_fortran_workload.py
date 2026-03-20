@@ -24,7 +24,7 @@ DEFAULT_SIM: dict[str, Any] = {
     "field_solver": "auto",
     "field_bc_mode": "free",
     "field_periodic_image_layers": 1,
-    "field_periodic_far_correction": "none",
+    "field_periodic_far_correction": "auto",
     "field_periodic_ewald_alpha": 0.0,
     "field_periodic_ewald_layers": 4,
     "tree_theta": 0.5,

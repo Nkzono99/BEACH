@@ -39,12 +39,14 @@ def compute_potential_mesh(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"``, ``"m2l_root"``, or ``"m2l_root_trunc"``), ``ewald_alpha``
+        ``far_correction`` (``"auto"``, legacy ``"none"``, ``"m2l_root"``,
+        ``"m2l_root_trunc"``, or ``"m2l_root_oracle"``), ``ewald_alpha``
         (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
-        ``sim.field_bc_mode="periodic2"`` なら自動適用する。この自動判定では
-        Fortran 実行時と合わせて ``far_correction="none"`` や legacy な ``"m2l_root"`` は
-        ``"m2l_root_trunc"`` とみなす。
+        ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
+        image-shell 近似のみを再構成するため、``auto``、legacy な
+        ``"none"``、``"m2l_root"``、および ``"m2l_root_oracle"`` は
+        内部で ``"m2l_root_trunc"`` として扱う。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。``"species1_injection_center"`` は
         ``particles.species[0]`` の注入面中心を使う。
@@ -122,9 +124,14 @@ def compute_potential_points(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"none"``, ``"m2l_root"``, or ``"m2l_root_trunc"``), ``ewald_alpha``
+        ``far_correction`` (``"auto"``, legacy ``"none"``, ``"m2l_root"``,
+        ``"m2l_root_trunc"``, or ``"m2l_root_oracle"``), ``ewald_alpha``
         (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
-        If ``None``, ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
+        If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
+        ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
+        image-shell 近似のみを再構成するため、``auto``、legacy な
+        ``"none"``、``"m2l_root"``、および ``"m2l_root_oracle"`` は
+        内部で ``"m2l_root_trunc"`` として扱う。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。
 
@@ -619,21 +626,25 @@ def _coerce_periodic2(
     if nimg < 0:
         raise ValueError("periodic2.image_layers must be >= 0.")
 
-    far_correction = str(periodic2.get("far_correction", "none")).strip().lower()
-    if far_correction not in {"none", "m2l_root", "m2l_root_trunc"}:
+    ewald_layers = int(periodic2.get("ewald_layers", 4))
+    if ewald_layers < 0:
+        raise ValueError("periodic2.ewald_layers must be >= 0.")
+
+    far_correction = str(periodic2.get("far_correction", "auto")).strip().lower()
+    if far_correction not in {"auto", "none", "m2l_root", "m2l_root_trunc", "m2l_root_oracle"}:
         raise ValueError(
-            'periodic2.far_correction must be "none", "m2l_root", or "m2l_root_trunc".'
+            'periodic2.far_correction must be "auto", "none", "m2l_root", '
+            '"m2l_root_trunc", or "m2l_root_oracle".'
         )
-    if far_correction in {"none", "m2l_root"}:
+    # Python post-processing only reconstructs the image-shell approximation,
+    # so default/legacy/oracle settings are normalized to the truncated runtime form.
+    if far_correction in {"auto", "none", "m2l_root", "m2l_root_oracle"}:
         far_correction = "m2l_root_trunc"
+        ewald_layers = max(1, ewald_layers)
 
     alpha = float(periodic2.get("ewald_alpha", 0.0))
     if (not math.isfinite(alpha)) or alpha < 0.0:
         raise ValueError("periodic2.ewald_alpha must be finite and >= 0.")
-
-    ewald_layers = int(periodic2.get("ewald_layers", 4))
-    if ewald_layers < 0:
-        raise ValueError("periodic2.ewald_layers must be >= 0.")
     if far_correction == "m2l_root_trunc" and ewald_layers < 1:
         raise ValueError("periodic2.ewald_layers must be >= 1 for m2l_root_trunc.")
 
@@ -854,9 +865,9 @@ def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
     if lengths[0] <= 0.0 or lengths[1] <= 0.0:
         raise ValueError("periodic2 requires positive box length on periodic axes.")
 
-    far_correction = str(sim.get("field_periodic_far_correction", "none")).strip().lower()
+    far_correction = str(sim.get("field_periodic_far_correction", "auto")).strip().lower()
     ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
-    if far_correction in {"none", "m2l_root"}:
+    if far_correction in {"auto", "none", "m2l_root", "m2l_root_oracle"}:
         far_correction = "m2l_root_trunc"
         ewald_layers = max(1, ewald_layers)
 

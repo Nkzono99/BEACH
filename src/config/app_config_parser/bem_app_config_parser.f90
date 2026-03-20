@@ -265,8 +265,10 @@ contains
     end select
     cfg%sim%field_periodic_far_correction = lower(trim(cfg%sim%field_periodic_far_correction))
     select case (trim(cfg%sim%field_periodic_far_correction))
-    case ('none')
+    case ('auto')
       continue
+    case ('none')
+      cfg%sim%field_periodic_far_correction = 'auto'
     case ('m2l_root')
       cfg%sim%field_periodic_far_correction = 'm2l_root_trunc'
     case ('m2l_root_trunc')
@@ -274,8 +276,18 @@ contains
     case ('m2l_root_oracle')
       continue
     case default
-      error stop 'sim.field_periodic_far_correction must be "none", "m2l_root", "m2l_root_trunc", or "m2l_root_oracle".'
+      error stop 'sim.field_periodic_far_correction must be "auto" (legacy "none"), '// &
+        '"m2l_root", "m2l_root_trunc", or "m2l_root_oracle".'
     end select
+    if (trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_trunc' .or. &
+        trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle') then
+      if (trim(cfg%sim%field_solver) /= 'fmm' .or. trim(cfg%sim%field_bc_mode) /= 'periodic2') then
+        error stop 'sim.field_periodic_far_correction requires sim.field_solver="fmm" and sim.field_bc_mode="periodic2".'
+      end if
+      if (cfg%sim%field_periodic_ewald_layers < 1_i32) then
+        error stop 'sim.field_periodic_ewald_layers must be >= 1 when far correction is enabled.'
+      end if
+    end if
     if (cfg%sim%field_periodic_image_layers < 0_i32) then
       error stop 'sim.field_periodic_image_layers must be >= 0.'
     end if
@@ -284,14 +296,6 @@ contains
     end if
     if (cfg%sim%field_periodic_ewald_layers < 0_i32) then
       error stop 'sim.field_periodic_ewald_layers must be >= 0.'
-    end if
-    if (trim(cfg%sim%field_periodic_far_correction) /= 'none') then
-      if (trim(cfg%sim%field_solver) /= 'fmm' .or. trim(cfg%sim%field_bc_mode) /= 'periodic2') then
-        error stop 'sim.field_periodic_far_correction requires sim.field_solver="fmm" and sim.field_bc_mode="periodic2".'
-      end if
-      if (cfg%sim%field_periodic_ewald_layers < 1_i32) then
-        error stop 'sim.field_periodic_ewald_layers must be >= 1 when far correction is enabled.'
-      end if
     end if
     select case (trim(cfg%sim%field_solver))
     case ('direct', 'treecode', 'auto')

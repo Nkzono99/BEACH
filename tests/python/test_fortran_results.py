@@ -1087,7 +1087,10 @@ def test_compute_potential_mesh_supports_periodic2_image_sum() -> None:
     np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
 
 
-def test_compute_potential_points_auto_detects_periodic2_from_config(tmp_path: Path) -> None:
+@pytest.mark.parametrize("far_correction", ["auto", "m2l_root_oracle"])
+def test_compute_potential_points_auto_detects_periodic2_from_config(
+    tmp_path: Path, far_correction: str
+) -> None:
     out = tmp_path / "run_periodic"
     out.mkdir()
     (out / "summary.txt").write_text(
@@ -1123,7 +1126,7 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(tmp_path: P
                 'bc_z_low = "open"',
                 'bc_z_high = "open"',
                 "field_periodic_image_layers = 1",
-                'field_periodic_far_correction = "none"',
+                f'field_periodic_far_correction = "{far_correction}"',
             ]
         ),
         encoding="utf-8",
@@ -1232,7 +1235,10 @@ def test_potential_history_supports_periodic2_image_sum() -> None:
 def test_coerce_periodic2_rejects_legacy_ewald_modes() -> None:
     with pytest.raises(
         ValueError,
-        match='periodic2.far_correction must be "none", "m2l_root", or "m2l_root_trunc"',
+        match=(
+            'periodic2.far_correction must be "auto", "none", "m2l_root", '
+            '"m2l_root_trunc", or "m2l_root_oracle"'
+        ),
     ):
         _coerce_periodic2(
             {
@@ -1244,6 +1250,21 @@ def test_coerce_periodic2_rejects_legacy_ewald_modes() -> None:
                 "ewald_layers": 4,
             }
         )
+
+
+def test_coerce_periodic2_accepts_auto_default() -> None:
+    periodic2 = _coerce_periodic2(
+        {
+            "axes": (0, 1),
+            "lengths": (1.0, 1.0),
+            "image_layers": 1,
+            "far_correction": "auto",
+            "ewald_layers": 4,
+        }
+    )
+
+    assert periodic2 is not None
+    assert periodic2[4] == "m2l_root_trunc"
 
 
 def test_coerce_periodic2_accepts_legacy_m2l_root_alias() -> None:

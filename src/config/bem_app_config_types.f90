@@ -164,7 +164,7 @@ contains
     cfg%sim%field_solver = 'auto'
     cfg%sim%field_bc_mode = 'free'
     cfg%sim%field_periodic_image_layers = 1_i32
-    cfg%sim%field_periodic_far_correction = 'none'
+    cfg%sim%field_periodic_far_correction = 'auto'
     cfg%sim%field_periodic_ewald_alpha = 0.0d0
     cfg%sim%field_periodic_ewald_layers = 4_i32
     cfg%sim%tree_theta = 0.5d0

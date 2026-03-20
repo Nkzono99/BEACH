@@ -24,7 +24,7 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field_bc_mode mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_image_layers, 1_i32, 'default field_periodic_image_layers mismatch')
-  call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'none', 'default field_periodic_far_correction mismatch')
+  call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'auto', 'default field_periodic_far_correction mismatch')
   call assert_close_dp(cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'default field_periodic_ewald_alpha mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_ewald_layers, 4_i32, 'default field_periodic_ewald_layers mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.5d0, 1.0d-15, 'default tree_theta mismatch')
@@ -112,7 +112,7 @@ program test_app_config_parser
   call assert_equal_i32(periodic_cfg%sim%bc_low(2), bc_periodic, 'periodic bc_y_low mismatch')
   call assert_equal_i32(periodic_cfg%sim%bc_high(2), bc_periodic, 'periodic bc_y_high mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_image_layers, 2_i32, 'periodic field_periodic_image_layers mismatch')
-  call assert_true(trim(periodic_cfg%sim%field_periodic_far_correction) == 'm2l_root_trunc', 'periodic far correction mismatch')
+  call assert_true(trim(periodic_cfg%sim%field_periodic_far_correction) == 'auto', 'periodic far correction mismatch')
   call assert_close_dp(periodic_cfg%sim%field_periodic_ewald_alpha, 1.5d0, 1.0d-12, 'periodic ewald alpha mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_ewald_layers, 5_i32, 'periodic ewald layers mismatch')
 
@@ -269,7 +269,7 @@ contains
     close (u)
   end subroutine write_large_config_fixture
 
-  !> `field_bc_mode="periodic2"` が受理される設定を書き出す。
+  !> `field_bc_mode="periodic2"` の legacy `none` alias を確認する設定を書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
   subroutine write_periodic_config_fixture(path)
     character(len=*), intent(in) :: path
@@ -292,7 +292,7 @@ contains
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
     write (u, '(a)') 'field_periodic_image_layers = 2'
-    write (u, '(a)') 'field_periodic_far_correction = "m2l_root"'
+    write (u, '(a)') 'field_periodic_far_correction = "none"'
     write (u, '(a)') 'field_periodic_ewald_alpha = 1.5'
     write (u, '(a)') 'field_periodic_ewald_layers = 5'
     write (u, '(a)') ''

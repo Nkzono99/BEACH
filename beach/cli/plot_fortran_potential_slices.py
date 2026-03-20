@@ -179,13 +179,13 @@ def _resolve_periodic2_from_sim(
 
     try:
         image_layers = int(sim.get("field_periodic_image_layers", 1))
-        far_correction = str(sim.get("field_periodic_far_correction", "none")).strip().lower()
+        far_correction = str(sim.get("field_periodic_far_correction", "auto")).strip().lower()
         ewald_alpha = float(sim.get("field_periodic_ewald_alpha", 0.0))
         ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
     except (TypeError, ValueError) as exc:
         raise SystemExit("invalid periodic2 potential settings in [sim].") from exc
 
-    if far_correction in {"none", "m2l_root"}:
+    if far_correction in {"auto", "none", "m2l_root", "m2l_root_oracle"}:
         far_correction = "m2l_root_trunc"
         ewald_layers = max(1, ewald_layers)
 
