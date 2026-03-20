@@ -598,14 +598,10 @@ def _coerce_periodic2(
     if ewald_layers < 0:
         raise ValueError("periodic2.ewald_layers must be >= 0.")
 
-    far_correction = str(periodic2.get("far_correction", "auto")).strip().lower()
-    if far_correction not in {"auto", "none", "m2l_root_oracle"}:
-        raise ValueError(
-            'periodic2.far_correction must be "auto", "none", or "m2l_root_oracle".'
-        )
-    if far_correction in {"auto", "none"}:
-        far_correction = "m2l_root_oracle"
-        ewald_layers = max(1, ewald_layers)
+    far_correction, ewald_layers = _normalize_periodic2_far_correction(
+        periodic2.get("far_correction", "auto"),
+        ewald_layers=ewald_layers,
+    )
 
     alpha = float(periodic2.get("ewald_alpha", 0.0))
     if (not math.isfinite(alpha)) or alpha < 0.0:
@@ -830,11 +826,11 @@ def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
     if lengths[0] <= 0.0 or lengths[1] <= 0.0:
         raise ValueError("periodic2 requires positive box length on periodic axes.")
 
-    far_correction = str(sim.get("field_periodic_far_correction", "auto")).strip().lower()
     ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
-    if far_correction in {"auto", "none"}:
-        far_correction = "m2l_root_oracle"
-        ewald_layers = max(1, ewald_layers)
+    far_correction, ewald_layers = _normalize_periodic2_far_correction(
+        sim.get("field_periodic_far_correction", "auto"),
+        ewald_layers=ewald_layers,
+    )
 
     return {
         "axes": tuple(periodic_axes),
@@ -845,6 +841,21 @@ def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
         "ewald_alpha": float(sim.get("field_periodic_ewald_alpha", 0.0)),
         "ewald_layers": ewald_layers,
     }
+
+
+def _normalize_periodic2_far_correction(
+    raw_far_correction: object,
+    *,
+    ewald_layers: int,
+) -> tuple[str, int]:
+    far_correction = str(raw_far_correction).strip().lower()
+    if far_correction not in {"auto", "none", "m2l_root_oracle"}:
+        raise ValueError(
+            'periodic2.far_correction must be "auto", "none", or "m2l_root_oracle".'
+        )
+    if far_correction in {"auto", "none"}:
+        return "m2l_root_oracle", max(1, ewald_layers)
+    return far_correction, ewald_layers
 
 
 def _coerce_vec3(value: object, *, name: str) -> tuple[float, float, float]:

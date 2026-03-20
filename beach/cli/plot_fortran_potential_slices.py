@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from beach import Beach
+from beach.fortran_results.potential import _periodic2_from_sim
 
 from ._shared import configure_entry_parser
 
@@ -147,59 +148,6 @@ def _find_config_path(output_dir: Path, explicit: Path | None) -> Path:
     )
 
 
-def _resolve_periodic2_from_sim(
-    sim: dict[str, Any],
-    *,
-    box_min: list[float],
-    box_max: list[float],
-) -> dict[str, object] | None:
-    field_bc_mode = str(sim.get("field_bc_mode", "free")).strip().lower()
-    if field_bc_mode != "periodic2":
-        return None
-
-    periodic_axes: list[int] = []
-    for axis_idx, axis_name in enumerate(("x", "y", "z")):
-        low_raw = str(sim.get(f"bc_{axis_name}_low", "open")).strip().lower()
-        high_raw = str(sim.get(f"bc_{axis_name}_high", "open")).strip().lower()
-        low = "open" if low_raw in {"open", "outflow", "escape"} else low_raw
-        high = "open" if high_raw in {"open", "outflow", "escape"} else high_raw
-        if (low == "periodic") != (high == "periodic"):
-            raise SystemExit(
-                "periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes."
-            )
-        if low == "periodic":
-            periodic_axes.append(axis_idx)
-
-    if len(periodic_axes) != 2:
-        raise SystemExit('sim.field_bc_mode="periodic2" requires exactly two periodic axes.')
-
-    lengths = [box_max[axis] - box_min[axis] for axis in periodic_axes]
-    if lengths[0] <= 0.0 or lengths[1] <= 0.0:
-        raise SystemExit("periodic2 requires positive box length on periodic axes.")
-
-    try:
-        image_layers = int(sim.get("field_periodic_image_layers", 1))
-        far_correction = str(sim.get("field_periodic_far_correction", "auto")).strip().lower()
-        ewald_alpha = float(sim.get("field_periodic_ewald_alpha", 0.0))
-        ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
-    except (TypeError, ValueError) as exc:
-        raise SystemExit("invalid periodic2 potential settings in [sim].") from exc
-
-    if far_correction in {"auto", "none"}:
-        far_correction = "m2l_root_oracle"
-        ewald_layers = max(1, ewald_layers)
-
-    return {
-        "axes": tuple(periodic_axes),
-        "lengths": tuple(lengths),
-        "origins": tuple(box_min[axis] for axis in periodic_axes),
-        "image_layers": image_layers,
-        "far_correction": far_correction,
-        "ewald_alpha": ewald_alpha,
-        "ewald_layers": ewald_layers,
-    }
-
-
 def _load_sim_box(
     config_path: Path,
 ) -> tuple[list[float], list[float], bool, dict[str, object] | None]:
@@ -220,11 +168,10 @@ def _load_sim_box(
             )
 
     use_box = bool(sim.get("use_box", False))
-    periodic2 = _resolve_periodic2_from_sim(
-        sim,
-        box_min=box_min,
-        box_max=box_max,
-    )
+    try:
+        periodic2 = _periodic2_from_sim(sim)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     return box_min, box_max, use_box, periodic2
 
 

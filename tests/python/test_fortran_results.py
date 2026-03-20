@@ -24,7 +24,11 @@ from beach.fortran_results import (
     plot_potential_slices,
     plot_potential_mesh,
 )
-from beach.fortran_results.potential import _coerce_periodic2, _potential_history
+from beach.fortran_results.potential import (
+    _auto_periodic2_from_result,
+    _coerce_periodic2,
+    _potential_history,
+)
 
 
 def _make_history(
@@ -1204,6 +1208,58 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
             expected_sum += 2.0e-9 / np.sqrt(float(ix * ix + iy * iy) + 1.0)
     expected = np.array([K_COULOMB * expected_sum, K_COULOMB * expected_sum])
     np.testing.assert_allclose(potential, expected)
+
+
+def test_auto_periodic2_from_result_defaults_far_correction_to_oracle(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_periodic_default_far_correction"
+    out.mkdir()
+    (out / "summary.txt").write_text(
+        "\n".join(
+            [
+                "mesh_nelem=1",
+                "processed_particles=0",
+                "absorbed=0",
+                "escaped=0",
+                "batches=1",
+                "last_rel_change=0.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,2.0e-9\n", encoding="utf-8")
+    (out / "mesh_triangles.csv").write_text(
+        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+        "1,-1.0,-1.0,0.0,1.0,-1.0,0.0,0.0,2.0,0.0,2.0e-9,1\n",
+        encoding="utf-8",
+    )
+    (out / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                'field_solver = "fmm"',
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -1.0]",
+                "box_max = [1.0, 1.0, 1.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                "field_periodic_image_layers = 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+    periodic2 = _auto_periodic2_from_result(result)
+
+    assert periodic2 is not None
+    assert periodic2[4] == "m2l_root_oracle"
+    assert periodic2[6] == 4
 
 
 def test_potential_history_supports_periodic2_image_sum() -> None:
