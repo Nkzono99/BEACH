@@ -269,18 +269,13 @@ contains
       continue
     case ('none')
       cfg%sim%field_periodic_far_correction = 'auto'
-    case ('m2l_root')
-      cfg%sim%field_periodic_far_correction = 'm2l_root_trunc'
-    case ('m2l_root_trunc')
-      continue
     case ('m2l_root_oracle')
       continue
     case default
       error stop 'sim.field_periodic_far_correction must be "auto" (legacy "none"), '// &
-        '"m2l_root", "m2l_root_trunc", or "m2l_root_oracle".'
+        'or "m2l_root_oracle".'
     end select
-    if (trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_trunc' .or. &
-        trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle') then
+    if (trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle') then
       if (trim(cfg%sim%field_solver) /= 'fmm' .or. trim(cfg%sim%field_bc_mode) /= 'periodic2') then
         error stop 'sim.field_periodic_far_correction requires sim.field_solver="fmm" and sim.field_bc_mode="periodic2".'
       end if

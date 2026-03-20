@@ -55,13 +55,12 @@ contains
       case ('auto', 'none')
         plan%options%periodic_far_correction = 'm2l_root_oracle'
         plan%options%periodic_ewald_layers = max(1_i32, plan%options%periodic_ewald_layers)
-      case ('m2l_root_trunc', 'm2l_root_oracle')
+      case ('m2l_root_oracle')
         continue
       case default
         error stop 'Unsupported periodic far correction in FMM core.'
       end select
-      if (trim(plan%options%periodic_far_correction) == 'm2l_root_trunc' .or. &
-          trim(plan%options%periodic_far_correction) == 'm2l_root_oracle') then
+      if (trim(plan%options%periodic_far_correction) == 'm2l_root_oracle') then
         if (plan%options%periodic_ewald_layers < 1_i32) then
           error stop 'periodic2 root-operator far correction requires periodic_ewald_layers >= 1.'
         end if

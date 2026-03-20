@@ -6,7 +6,6 @@ module bem_coulomb_fmm_periodic
   private
 
   public :: has_valid_target_box
-  public :: use_periodic2_m2l_root_trunc
   public :: use_periodic2_m2l_root_oracle
   public :: use_periodic2_root_operator
   public :: build_periodic_shift_values
@@ -27,16 +26,6 @@ contains
     has_valid_target_box = all(options%target_box_max > options%target_box_min)
   end function has_valid_target_box
 
-  !> periodic2 の far correction に trunc 版を使うか判定する。
-  !! @param[in] plan FMM 計画。
-  !! @return trunc 版を使うなら `.true.`。
-  logical function use_periodic2_m2l_root_trunc(plan)
-    type(fmm_plan_type), intent(in) :: plan
-
-    use_periodic2_m2l_root_trunc = plan%options%use_periodic2 .and. &
-                                   trim(plan%options%periodic_far_correction) == 'm2l_root_trunc'
-  end function use_periodic2_m2l_root_trunc
-
   !> periodic2 の far correction に oracle 版を使うか判定する。
   !! @param[in] plan FMM 計画。
   !! @return oracle 版を使うなら `.true.`。
@@ -53,7 +42,7 @@ contains
   logical function use_periodic2_root_operator(plan)
     type(fmm_plan_type), intent(in) :: plan
 
-    use_periodic2_root_operator = use_periodic2_m2l_root_trunc(plan) .or. use_periodic2_m2l_root_oracle(plan)
+    use_periodic2_root_operator = use_periodic2_m2l_root_oracle(plan)
   end function use_periodic2_root_operator
 
   !> periodic2 の画像シフト値を作成する。

@@ -16,9 +16,7 @@ program test_coulomb_fmm_core
   call test_free_field_accuracy()
   call test_softened_free_field_accuracy()
   call test_periodic2_field_accuracy()
-  call test_periodic2_m2l_root_trunc_correction_effect()
   call test_periodic2_m2l_root_oracle_correction_effect()
-  call test_periodic2_m2l_root_trunc_nonneutral_heuristic()
   call test_target_box_dual_tree()
   call test_state_update_reuse()
   call test_field_solver_core_adapter()
@@ -191,138 +189,6 @@ contains
     call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_periodic2_field_accuracy
-
-  subroutine test_periodic2_m2l_root_trunc_correction_effect()
-    type(fmm_plan_type), allocatable :: plan_base, plan_root
-    type(fmm_state_type), allocatable :: state_base, state_root
-    type(fmm_options_type) :: options_base, options_root
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 6), e_ref(3), e_base(3), e_root(3), d_er(3)
-    real(dp) :: norm_ref, rel_base, rel_root
-    real(dp) :: mean_rel_base, mean_rel_root, max_delta_base_root
-    integer(i32) :: i, valid_count
-
-    allocate (plan_base, plan_root, state_base, state_root)
-    call make_periodic_sources(src_pos, q)
-    options_base%theta = 0.55d0
-    options_base%leaf_max = 2_i32
-    options_base%order = 4_i32
-    options_base%use_periodic2 = .true.
-    options_base%periodic_axes = [1_i32, 2_i32]
-    options_base%periodic_len = [1.0d0, 1.0d0]
-    options_base%periodic_image_layers = 1_i32
-    options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    options_root = options_base
-    options_root%periodic_far_correction = 'm2l_root_trunc'
-    options_root%periodic_ewald_layers = 4_i32
-    call build_plan(plan_base, src_pos, options_base)
-    call build_plan(plan_root, src_pos, options_root)
-    call update_state(plan_base, state_base, q)
-    call update_state(plan_root, state_root, q)
-
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
-    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
-    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
-    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
-    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
-
-    mean_rel_base = 0.0d0
-    mean_rel_root = 0.0d0
-    max_delta_base_root = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      call direct_field_periodic2(src_pos, q, queries(:, i), options_base%target_box_min, options_base%target_box_max, &
-                                  options_base%periodic_axes, 5_i32, e_ref)
-      call eval_point(plan_base, state_base, queries(:, i), e_base)
-      call eval_point(plan_root, state_root, queries(:, i), e_root)
-      d_er = e_root - e_base
-      max_delta_base_root = max(max_delta_base_root, sqrt(sum(d_er*d_er)))
-
-      norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_base = sqrt(sum((e_base - e_ref)*(e_base - e_ref)))/norm_ref
-      rel_root = sqrt(sum((e_root - e_ref)*(e_root - e_ref)))/norm_ref
-      mean_rel_base = mean_rel_base + rel_base
-      mean_rel_root = mean_rel_root + rel_root
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 6_i32, 'periodic2 m2l_root_trunc core test lost valid samples')
-    mean_rel_base = mean_rel_base/real(valid_count, dp)
-    mean_rel_root = mean_rel_root/real(valid_count, dp)
-    call assert_true(max_delta_base_root > 1.0d-18, 'm2l_root_trunc core correction should affect periodic2 field')
-    call assert_true( &
-      mean_rel_root <= 1.2d0*mean_rel_base, &
-      'm2l_root_trunc core correction degrades periodic2 accuracy too much' &
-      )
-
-    call destroy_state(state_base)
-    call destroy_state(state_root)
-    call destroy_plan(plan_base)
-    call destroy_plan(plan_root)
-  end subroutine test_periodic2_m2l_root_trunc_correction_effect
-
-  subroutine test_periodic2_m2l_root_trunc_nonneutral_heuristic()
-    type(fmm_plan_type), allocatable :: plan_base, plan_heuristic
-    type(fmm_state_type), allocatable :: state_base, state_heuristic
-    type(fmm_options_type) :: options_base, options_heuristic
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 5), e_base(3), e_heuristic(3), d_e(3)
-    real(dp) :: norm_base, norm_heuristic, max_delta, max_norm_ratio
-    integer(i32) :: i, valid_count
-
-    allocate (plan_base, plan_heuristic, state_base, state_heuristic)
-    call make_periodic_sources_nonneutral(src_pos, q)
-    options_base%theta = 0.55d0
-    options_base%leaf_max = 2_i32
-    options_base%order = 4_i32
-    options_base%use_periodic2 = .true.
-    options_base%periodic_axes = [1_i32, 2_i32]
-    options_base%periodic_len = [1.0d0, 1.0d0]
-    options_base%periodic_image_layers = 1_i32
-    options_base%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options_base%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    options_heuristic = options_base
-    options_heuristic%periodic_far_correction = 'm2l_root_trunc'
-    options_heuristic%periodic_ewald_layers = 4_i32
-    call build_plan(plan_base, src_pos, options_base)
-    call build_plan(plan_heuristic, src_pos, options_heuristic)
-    call update_state(plan_base, state_base, q)
-    call update_state(plan_heuristic, state_heuristic, q)
-
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
-    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
-    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
-    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
-
-    max_delta = 0.0d0
-    max_norm_ratio = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      call eval_point(plan_base, state_base, queries(:, i), e_base)
-      call eval_point(plan_heuristic, state_heuristic, queries(:, i), e_heuristic)
-      call assert_true(all(abs(e_base) < huge(1.0d0)), 'periodic2 nonneutral baseline produced non-finite field')
-      call assert_true(all(abs(e_heuristic) < huge(1.0d0)), 'periodic2 nonneutral heuristic produced non-finite field')
-      d_e = e_heuristic - e_base
-      max_delta = max(max_delta, sqrt(sum(d_e*d_e)))
-      norm_base = sqrt(sum(e_base*e_base))
-      norm_heuristic = sqrt(sum(e_heuristic*e_heuristic))
-      max_norm_ratio = max(max_norm_ratio, norm_heuristic/max(norm_base, 1.0d-30))
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 5_i32, 'periodic2 nonneutral heuristic test lost valid samples')
-    call assert_true(max_delta > 1.0d-18, 'periodic2 nonneutral heuristic should affect the field')
-    call assert_true(max_norm_ratio <= 5.0d0, 'periodic2 nonneutral heuristic amplified the field too much')
-
-    call destroy_state(state_base)
-    call destroy_state(state_heuristic)
-    call destroy_plan(plan_base)
-    call destroy_plan(plan_heuristic)
-  end subroutine test_periodic2_m2l_root_trunc_nonneutral_heuristic
 
   subroutine test_periodic2_m2l_root_oracle_correction_effect()
     type(fmm_plan_type), allocatable :: plan_base, plan_oracle
@@ -541,7 +407,7 @@ contains
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 4), e_raw(3), e_ref(3), e_default(3), e_root(3)
     real(dp) :: norm_ref, rel_default, rel_root, mean_rel_default, mean_rel_root, max_delta_default_root
-    integer(i32) :: i, valid_count, ref_layers
+    integer(i32) :: i, valid_count
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     do i = 1_i32, mesh_fmm%nelem
@@ -589,13 +455,17 @@ contains
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.75d0, 0.75d0, 0.50d0]
 
-    ref_layers = solver_default%periodic_image_layers + solver_default%periodic_ewald_layers
     mean_rel_default = 0.0d0
     mean_rel_root = 0.0d0
     max_delta_default_root = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, 2_i32
-      call direct_field_periodic2(src_pos, q, queries(:, i), sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_raw)
+      call direct_field_periodic2( &
+        src_pos, q, queries(:, i), sim%box_min, sim%box_max, [1_i32, 2_i32], solver_default%periodic_image_layers, e_raw &
+        )
+      call add_periodic2_exact_ewald_correction_all_sources( &
+        solver_root%fmm_core_plan, solver_root%fmm_core_state, queries(:, i), e_raw &
+        )
       e_ref = k_coulomb*e_raw
       call solver_default%eval_e(mesh_fmm, queries(:, i), e_default)
       call solver_root%eval_e(mesh_fmm, queries(:, i), e_root)

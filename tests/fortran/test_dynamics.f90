@@ -7,6 +7,7 @@ program test_dynamics
   use bem_templates, only: make_plane, make_sphere
   use bem_field, only: electric_field_at
   use bem_field_solver, only: field_solver_type
+  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit, segment_triangle_intersect
   use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
@@ -516,7 +517,7 @@ contains
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, valid_count, ref_layers
+    integer(i32) :: i, valid_count
     real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
@@ -537,10 +538,6 @@ contains
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
-    ref_layers = sim%field_periodic_image_layers
-    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
-      ref_layers = ref_layers + solver%periodic_ewald_layers
-    end if
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
@@ -553,9 +550,7 @@ contains
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       r = queries(:, i)
-      call electric_field_at_periodic2_images( &
-        mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-        )
+      call electric_field_at_periodic2_reference(mesh_fmm, solver, r, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -576,7 +571,7 @@ contains
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, valid_count, ref_layers
+    integer(i32) :: i, valid_count
     real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
@@ -601,10 +596,6 @@ contains
     call assert_true(solver%fmm_use_core, 'softening=0 periodic2 FMM should use the core path')
     call assert_true(solver%target_tree_ready, 'core periodic2 path should expose target tree metadata')
     call assert_true(solver%nleaf > 0_i32, 'core periodic2 path should expose leaf metadata')
-    ref_layers = sim%field_periodic_image_layers
-    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
-      ref_layers = ref_layers + solver%periodic_ewald_layers
-    end if
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
@@ -617,9 +608,7 @@ contains
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       r = queries(:, i)
-      call electric_field_at_periodic2_images( &
-        mesh_fmm, r, 0.0d0, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-        )
+      call electric_field_at_periodic2_reference(mesh_fmm, solver, r, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -638,7 +627,7 @@ contains
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, valid_count, ref_layers
+    integer(i32) :: i, valid_count
     real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
@@ -659,10 +648,6 @@ contains
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
-    ref_layers = sim%field_periodic_image_layers
-    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
-      ref_layers = ref_layers + solver%periodic_ewald_layers
-    end if
 
     queries(:, 1) = [0.15d0, 0.15d0, 1.10d0]
     queries(:, 2) = [0.85d0, 0.20d0, 1.25d0]
@@ -675,9 +660,7 @@ contains
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       r = queries(:, i)
-      call electric_field_at_periodic2_images( &
-        mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-        )
+      call electric_field_at_periodic2_reference(mesh_fmm, solver, r, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -698,7 +681,7 @@ contains
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i, valid_count, ref_layers
+    integer(i32) :: i, valid_count
     real(dp) :: queries(3, 6)
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
@@ -719,10 +702,6 @@ contains
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
-    ref_layers = sim%field_periodic_image_layers
-    if (trim(solver%periodic_far_correction) == 'm2l_root_trunc') then
-      ref_layers = ref_layers + solver%periodic_ewald_layers
-    end if
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
@@ -735,9 +714,7 @@ contains
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       r = queries(:, i)
-      call electric_field_at_periodic2_images( &
-        mesh_fmm, r, sim%softening, sim%box_min, sim%box_max, [1_i32, 2_i32], ref_layers, e_direct &
-        )
+      call electric_field_at_periodic2_reference(mesh_fmm, solver, r, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -920,4 +897,33 @@ contains
     e(2) = k_coulomb*ey
     e(3) = k_coulomb*ez
   end subroutine electric_field_at_periodic2_images
+
+  subroutine electric_field_at_periodic2_reference(mesh, solver, r, e)
+    type(mesh_type), intent(in) :: mesh
+    type(field_solver_type), intent(in) :: solver
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(out) :: e(3)
+    real(dp) :: wrapped_r(3), e_core(3)
+    integer(i32) :: axis
+
+    wrapped_r = r
+    do axis = 1_i32, 2_i32
+      wrapped_r(solver%periodic_axes(axis)) = solver%target_box_min(solver%periodic_axes(axis)) + &
+                                              modulo( &
+                                              wrapped_r(solver%periodic_axes(axis)) - &
+                                              solver%target_box_min(solver%periodic_axes(axis)), &
+                                              solver%periodic_len(axis) &
+                                              )
+    end do
+
+    call electric_field_at_periodic2_images( &
+      mesh, wrapped_r, solver%softening, solver%target_box_min, solver%target_box_max, solver%periodic_axes, &
+      solver%periodic_image_layers, e &
+      )
+    if (trim(solver%periodic_far_correction) /= 'm2l_root_oracle') return
+
+    e_core = e/k_coulomb
+    call add_periodic2_exact_ewald_correction_all_sources(solver%fmm_core_plan, solver%fmm_core_state, wrapped_r, e_core)
+    e = k_coulomb*e_core
+  end subroutine electric_field_at_periodic2_reference
 end program test_dynamics

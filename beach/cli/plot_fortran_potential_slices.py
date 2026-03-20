@@ -185,8 +185,8 @@ def _resolve_periodic2_from_sim(
     except (TypeError, ValueError) as exc:
         raise SystemExit("invalid periodic2 potential settings in [sim].") from exc
 
-    if far_correction in {"auto", "none", "m2l_root", "m2l_root_oracle"}:
-        far_correction = "m2l_root_trunc"
+    if far_correction in {"auto", "none"}:
+        far_correction = "m2l_root_oracle"
         ewald_layers = max(1, ewald_layers)
 
     return {

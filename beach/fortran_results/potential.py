@@ -39,14 +39,13 @@ def compute_potential_mesh(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"``, legacy ``"none"``, ``"m2l_root"``,
-        ``"m2l_root_trunc"``, or ``"m2l_root_oracle"``), ``ewald_alpha``
-        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
+        ``far_correction`` (``"auto"``, legacy ``"none"``, or
+        ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
+        ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
-        image-shell 近似のみを再構成するため、``auto``、legacy な
-        ``"none"``、``"m2l_root"``、および ``"m2l_root_oracle"`` は
-        内部で ``"m2l_root_trunc"`` として扱う。
+        explicit な image shell のみを再構成し、oracle residual 自体は
+        再現しないため、``far_correction`` は設定互換のために保持する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。``"species1_injection_center"`` は
         ``particles.species[0]`` の注入面中心を使う。
@@ -124,14 +123,13 @@ def compute_potential_points(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"``, legacy ``"none"``, ``"m2l_root"``,
-        ``"m2l_root_trunc"``, or ``"m2l_root_oracle"``), ``ewald_alpha``
-        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
+        ``far_correction`` (``"auto"``, legacy ``"none"``, or
+        ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
+        ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
-        image-shell 近似のみを再構成するため、``auto``、legacy な
-        ``"none"``、``"m2l_root"``、および ``"m2l_root_oracle"`` は
-        内部で ``"m2l_root_trunc"`` として扱う。
+        explicit な image shell のみを再構成し、oracle residual 自体は
+        再現しないため、``far_correction`` は設定互換のために保持する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。
 
@@ -469,7 +467,7 @@ def _compute_potential_points_periodic2(
         int,
     ],
 ) -> np.ndarray:
-    axes, lengths, origins, nimg, far_correction, _alpha, ewald_layers = periodic2
+    axes, lengths, origins, nimg, _far_correction, _alpha, _ewald_layers = periodic2
     axis1, axis2 = axes
     l1, l2 = lengths
     eps2 = softening * softening
@@ -494,22 +492,6 @@ def _compute_potential_points_periodic2(
                 inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
                 potential[start:stop] += inv_r @ charges
 
-    if far_correction == "m2l_root_trunc":
-        img_outer = nimg + ewald_layers
-        for ix in range(-img_outer, img_outer + 1):
-            for iy in range(-img_outer, img_outer + 1):
-                if abs(ix) <= nimg and abs(iy) <= nimg:
-                    continue
-                shifted = centers.copy()
-                shifted[:, axis1] += float(ix) * l1
-                shifted[:, axis2] += float(iy) * l2
-                for start in range(0, points.shape[0], chunk_size):
-                    stop = min(start + chunk_size, points.shape[0])
-                    delta = wrapped_points[start:stop, None, :] - shifted[None, :, :]
-                    dist2 = np.sum(delta * delta, axis=2) + eps2
-                    inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
-                    potential[start:stop] += inv_r @ charges
-
     return potential
 
 
@@ -529,7 +511,7 @@ def _compute_potential_mesh_periodic2(
         int,
     ],
 ) -> np.ndarray:
-    axes, lengths, origins, nimg, far_correction, _alpha, ewald_layers = periodic2
+    axes, lengths, origins, nimg, _far_correction, _alpha, _ewald_layers = periodic2
     axis1, axis2 = axes
     l1, l2 = lengths
     eps2 = softening * softening
@@ -560,20 +542,6 @@ def _compute_potential_mesh_periodic2(
             dist2 = np.sum(delta * delta, axis=2) + eps2
             inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
             potential += inv_r @ charges
-
-    if far_correction == "m2l_root_trunc":
-        img_outer = nimg + ewald_layers
-        for ix in range(-img_outer, img_outer + 1):
-            for iy in range(-img_outer, img_outer + 1):
-                if abs(ix) <= nimg and abs(iy) <= nimg:
-                    continue
-                shifted = centers.copy()
-                shifted[:, axis1] += float(ix) * l1
-                shifted[:, axis2] += float(iy) * l2
-                delta = target_centers[:, None, :] - shifted[None, :, :]
-                dist2 = np.sum(delta * delta, axis=2) + eps2
-                inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
-                potential += inv_r @ charges
 
     return potential
 
@@ -631,22 +599,19 @@ def _coerce_periodic2(
         raise ValueError("periodic2.ewald_layers must be >= 0.")
 
     far_correction = str(periodic2.get("far_correction", "auto")).strip().lower()
-    if far_correction not in {"auto", "none", "m2l_root", "m2l_root_trunc", "m2l_root_oracle"}:
+    if far_correction not in {"auto", "none", "m2l_root_oracle"}:
         raise ValueError(
-            'periodic2.far_correction must be "auto", "none", "m2l_root", '
-            '"m2l_root_trunc", or "m2l_root_oracle".'
+            'periodic2.far_correction must be "auto", "none", or "m2l_root_oracle".'
         )
-    # Python post-processing only reconstructs the image-shell approximation,
-    # so default/legacy/oracle settings are normalized to the truncated runtime form.
-    if far_correction in {"auto", "none", "m2l_root", "m2l_root_oracle"}:
-        far_correction = "m2l_root_trunc"
+    if far_correction in {"auto", "none"}:
+        far_correction = "m2l_root_oracle"
         ewald_layers = max(1, ewald_layers)
 
     alpha = float(periodic2.get("ewald_alpha", 0.0))
     if (not math.isfinite(alpha)) or alpha < 0.0:
         raise ValueError("periodic2.ewald_alpha must be finite and >= 0.")
-    if far_correction == "m2l_root_trunc" and ewald_layers < 1:
-        raise ValueError("periodic2.ewald_layers must be >= 1 for m2l_root_trunc.")
+    if far_correction == "m2l_root_oracle" and ewald_layers < 1:
+        raise ValueError("periodic2.ewald_layers must be >= 1 for m2l_root_oracle.")
 
     return axes, lengths, origins, nimg, far_correction, alpha, ewald_layers
 
@@ -867,8 +832,8 @@ def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
 
     far_correction = str(sim.get("field_periodic_far_correction", "auto")).strip().lower()
     ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
-    if far_correction in {"auto", "none", "m2l_root", "m2l_root_oracle"}:
-        far_correction = "m2l_root_trunc"
+    if far_correction in {"auto", "none"}:
+        far_correction = "m2l_root_oracle"
         ewald_layers = max(1, ewald_layers)
 
     return {

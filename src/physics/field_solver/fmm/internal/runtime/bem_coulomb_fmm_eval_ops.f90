@@ -3,7 +3,7 @@ module bem_coulomb_fmm_eval_ops
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
-  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_trunc, use_periodic2_m2l_root_oracle
+  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_oracle
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
@@ -70,7 +70,7 @@ contains
     real(dp), intent(out) :: ex, ey, ez
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: axes(2)
-    logical :: use_periodic_root_trunc_fallback, use_periodic_root_oracle_fallback
+    logical :: use_periodic_root_oracle_fallback
     real(dp) :: rt(3), soft2
 
     ex = 0.0d0
@@ -81,7 +81,6 @@ contains
     rt = [rx, ry, rz]
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
     soft2 = plan%options%softening*plan%options%softening
-    use_periodic_root_trunc_fallback = use_periodic2_m2l_root_trunc(plan)
     use_periodic_root_oracle_fallback = use_periodic2_m2l_root_oracle(plan)
 
     leaf_node = locate_target_leaf(plan, rt)
@@ -89,7 +88,7 @@ contains
     if (leaf_node > 0_i32) leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
       call apply_direct_fallback_field( &
-        plan, state, rt, soft2, use_periodic_root_trunc_fallback, use_periodic_root_oracle_fallback, ex, ey, ez &
+        plan, state, rt, soft2, use_periodic_root_oracle_fallback, ex, ey, ez &
         )
       return
     end if
@@ -99,21 +98,17 @@ contains
     call accumulate_near_direct_field(plan, state, leaf_slot, rt, soft2, axes, ex, ey, ez)
   end subroutine core_eval_point_xyz_impl
 
-  subroutine apply_direct_fallback_field( &
-    plan, state, rt, soft2, use_periodic_root_trunc_fallback, use_periodic_root_oracle_fallback, ex, ey, ez &
-    )
+  subroutine apply_direct_fallback_field(plan, state, rt, soft2, use_periodic_root_oracle_fallback, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: rt(3)
     real(dp), intent(in) :: soft2
-    logical, intent(in) :: use_periodic_root_trunc_fallback, use_periodic_root_oracle_fallback
+    logical, intent(in) :: use_periodic_root_oracle_fallback
     real(dp), intent(inout) :: ex, ey, ez
     real(dp) :: evec(3)
 
     call eval_direct_all_sources_scalar(plan, state, rt(1), rt(2), rt(3), soft2, ex, ey, ez)
-    if (use_periodic_root_trunc_fallback) then
-      call add_periodic2_truncated_far_image_correction_all_sources(plan, state, rt, soft2, ex, ey, ez)
-    else if (use_periodic_root_oracle_fallback) then
+    if (use_periodic_root_oracle_fallback) then
       evec = [ex, ey, ez]
       call add_periodic2_exact_ewald_correction_all_sources(plan, state, rt, evec)
       ex = evec(1)
@@ -300,40 +295,6 @@ contains
     if (axis2 == 3_i32) sz_img = sz_img + shift2
     call accumulate_point_charge_field(q, sx_img, sy_img, sz_img, tx, ty, tz, soft2, ex, ey, ez)
   end subroutine accumulate_point_charge_shifted_field
-
-  subroutine add_periodic2_truncated_far_image_correction_all_sources(plan, state, r, soft2, ex, ey, ez)
-    type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
-    real(dp), intent(in) :: r(3)
-    real(dp), intent(in) :: soft2
-    real(dp), intent(inout) :: ex, ey, ez
-    integer(i32) :: idx, img_i, img_j, nimg, outer_img
-    integer(i32) :: axis1, axis2
-    real(dp) :: shift1, shift2
-
-    if (.not. use_periodic2_m2l_root_trunc(plan)) return
-    if (plan%nsrc <= 0_i32) return
-
-    nimg = max(0_i32, plan%options%periodic_image_layers)
-    outer_img = nimg + plan%options%periodic_ewald_layers
-    if (outer_img <= nimg) return
-
-    axis1 = plan%options%periodic_axes(1)
-    axis2 = plan%options%periodic_axes(2)
-    do idx = 1_i32, plan%nsrc
-      do img_i = -outer_img, outer_img
-        shift1 = real(img_i, dp)*plan%options%periodic_len(1)
-        do img_j = -outer_img, outer_img
-          if (abs(img_i) <= nimg .and. abs(img_j) <= nimg) cycle
-          shift2 = real(img_j, dp)*plan%options%periodic_len(2)
-          call accumulate_point_charge_shifted_field( &
-            state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
-            shift1, shift2, axis1, axis2, r(1), r(2), r(3), soft2, ex, ey, ez &
-            )
-        end do
-      end do
-    end do
-  end subroutine add_periodic2_truncated_far_image_correction_all_sources
 
   integer(i32) function locate_target_leaf(plan, r)
     type(fmm_plan_type), intent(in) :: plan
