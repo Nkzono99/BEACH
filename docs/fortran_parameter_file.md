@@ -108,6 +108,12 @@ history_stride = 1
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
 | `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の格子分割数 `N x N` |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` レイ追跡の最大反射回数 |
+| `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
+| `sheath_alpha_deg` | float | `60.0` | Zhao シースの太陽高度角 [deg] |
+| `sheath_photoelectron_ref_density_cm3` | float | `64.0` | Zhao シースの基準光電子密度 [cm^-3] |
+| `sheath_reference_coordinate` | float | 未指定 | シース 1D 座標の基準平面位置 [m]（軸は共有 `inject_face` から決定） |
+| `sheath_electron_drift_mode` | string | `"normal"` | `normal` / `full` |
+| `sheath_ion_drift_mode` | string | `"normal"` | `normal` / `full` |
 | `use_box` | bool | `false` | ボックス境界を有効化 |
 | `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限 [m] |
 | `box_max` | float[3] | `[1,1,1]` | ボックス上限 [m] |
@@ -118,6 +124,7 @@ history_stride = 1
 - `batch_duration` と `batch_duration_step` の同時指定はエラーです。
 - `batch_duration_step` 指定時は `batch_duration = dt * batch_duration_step` に解決します。
 - `reservoir_face` / `photo_raycast` を使う場合、解決後の `batch_duration > 0` が必須です。
+- `sheath_injection_model != "none"` は現状 `reservoir_potential_model = "none"` と組み合わせてください。
 
 重要な実行挙動:
 
@@ -210,6 +217,32 @@ history_stride = 1
 
 - `w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)`
 - 実際の放出数はレイの命中率で決まるため、バッチごとの生成粒子数は `rays_per_batch` 以下になります。
+
+### `sim.sheath_injection_model`
+
+`sim.sheath_injection_model` は既存の `reservoir_face` / `photo_raycast` species を束ねて、
+シースに対応する流束・法線速度 cutoff を上書きする共有設定です。
+
+- `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c`
+  - Zhao の 1D 光電子シース条件を使います。
+  - 自動検出対象:
+    - 最初の負電荷 `reservoir_face` species を solar-wind electron
+    - 最初の正電荷 `reservoir_face` species を ion
+    - 最初の負電荷 `photo_raycast` species を photoelectron
+  - electron reservoir species は、流束計算に使う有効密度が Zhao 解の `n_swe_inf` へ置き換わります。
+  - electron reservoir species の法線速度分布は Zhao の障壁に応じた `vmin_normal` 付きになります。
+  - photoelectron `photo_raycast` species は、`emit_current_density_a_m2` が Zhao の自由光電子電流へ上書きされ、`normal_drift_speed` は 0 として扱います。
+- `floating_no_photo`
+  - 光電子を含まない簡易 floating sheath です。
+  - 最初の負電荷 / 正電荷 `reservoir_face` species の電流釣り合いから負の浮遊電位を解き、electron reservoir species へ cutoff を掛けます。
+  - `photo_raycast` species があっても放出電流は 0 とみなします。
+
+注意:
+
+- Zhao 系モデルは `temperature_ev`/`temperature_k`, `number_density_*`, `drift_velocity`, `m_particle`, `q_particle` といった既存 species パラメータを背景プラズマ条件として再利用します。
+- `sheath_reference_coordinate` を指定すると、共有 `inject_face` の法線軸に沿ってその座標を基準平面に使います。たとえば `inject_face = "z_high"` かつ `sheath_reference_coordinate = 0.02` なら、平面 `z = 0.02` を `z_sheath = 0` とみなします。未指定時は `inject_face` が指す box 境界面座標を使います。
+- 現在の Fortran 実装は Zhao / floating の空間分布 `phi(z)` 自体はまだサンプリングしておらず、この基準平面はシース座標系の原点定義として保持されます。
+- `zhao_auto` は `alpha < 20 deg` で `C -> A -> B`、それ以外では `A -> B -> C` の順に分枝解を試みます。
 
 ### 3.3 `[mesh]`
 

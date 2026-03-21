@@ -252,9 +252,10 @@ contains
   !! @param[in] barrier_normal_energy 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]（省略時 0）。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は `barrier_normal_energy` から自動導出）。
   !! @param[in] position_jitter_dt 初期位置に速度方向で与えるランダムジッタ時間幅[s]（省略時は 0）。
+  !! @param[in] apply_barrier_energy_shift `.true.` のとき法線速度へ障壁エネルギー変換を適用する。
   subroutine sample_reservoir_face_particles( &
     box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v, &
-    barrier_normal_energy, vmin_normal, position_jitter_dt &
+    barrier_normal_energy, vmin_normal, position_jitter_dt, apply_barrier_energy_shift &
     )
     real(dp), intent(in) :: box_min(3), box_max(3)
     character(len=*), intent(in) :: inject_face
@@ -265,10 +266,12 @@ contains
     real(dp), intent(in), optional :: barrier_normal_energy
     real(dp), intent(in), optional :: vmin_normal
     real(dp), intent(in), optional :: position_jitter_dt
+    logical, intent(in), optional :: apply_barrier_energy_shift
 
     integer :: i, axis_n, axis_t1, axis_t2
     real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, barrier, vn_inf, jitter_dt
     real(dp), allocatable :: u(:, :), tau(:)
+    logical :: apply_energy_shift
 
     if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "reservoir particle arrays must have first dimension 3"
     if (size(x, 2) /= size(v, 2)) error stop "reservoir x/v size mismatch"
@@ -279,6 +282,8 @@ contains
     else
       jitter_dt = 0.0_dp
     end if
+    apply_energy_shift = .true.
+    if (present(apply_barrier_energy_shift)) apply_energy_shift = apply_barrier_energy_shift
     if (size(x, 2) == 0) return
 
     call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
@@ -295,9 +300,13 @@ contains
     call sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k=temperature_k)
     call sample_flux_weighted_normal_component(u_n, sigma, v(axis_n, :), vmin_normal=vn_floor)
     do i = 1, size(v, 2)
-      vn_inf = v(axis_n, i)
-      vn_inf = sqrt(max(0.0_dp, vn_inf*vn_inf - barrier))
-      v(axis_n, i) = inward_normal(axis_n)*vn_inf
+      if (apply_energy_shift) then
+        vn_inf = v(axis_n, i)
+        vn_inf = sqrt(max(0.0_dp, vn_inf*vn_inf - barrier))
+        v(axis_n, i) = inward_normal(axis_n)*vn_inf
+      else
+        v(axis_n, i) = inward_normal(axis_n)*v(axis_n, i)
+      end if
     end do
 
     allocate (u(2, size(x, 2)))
@@ -331,6 +340,7 @@ contains
   !! @param[in] q_particle 粒子1個あたりの電荷 [C]。
   !! @param[in] rays_per_batch このrankで発射するレイ本数。
   !! @param[in] global_rays_per_batch 全rank合計のレイ本数（省略時は `rays_per_batch`）。
+  !! @param[in] vmin_normal 放出法線速度の下限 [m/s]（省略時は 0）。
   !! @param[out] x 放出位置配列 `x(3,rays_per_batch)` [m]。
   !! @param[out] v 放出速度配列 `v(3,rays_per_batch)` [m/s]。
   !! @param[out] w 各マクロ粒子重み `w(rays_per_batch)`。
@@ -338,7 +348,8 @@ contains
   !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(rays_per_batch)`（省略可）。
   subroutine sample_photo_raycast_particles( &
     mesh, sim, inject_face, pos_low, pos_high, ray_direction, m_particle, temperature_k, normal_drift_speed, &
-    emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch &
+    emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
+    vmin_normal &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -354,6 +365,7 @@ contains
     integer(i32), intent(out) :: n_emit
     integer(i32), intent(out), optional :: emit_elem_idx(:)
     integer(i32), intent(in), optional :: global_rays_per_batch
+    real(dp), intent(in), optional :: vmin_normal
 
     real(dp), parameter :: eps = 1.0d-12
     integer(i32) :: i, total_rays
@@ -434,7 +446,13 @@ contains
           surf_normal = mesh%normals(:, hit%elem_idx)
           if (dot_product(surf_normal, ray_dir) > 0.0_dp) surf_normal = -surf_normal
           call build_tangent_basis(surf_normal, tangent1, tangent2)
-          call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
+          if (present(vmin_normal)) then
+            call sample_photo_emission_velocity( &
+              sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit), vmin_normal=vmin_normal &
+              )
+          else
+            call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
+          end if
           x(:, n_emit) = hit%pos + surf_normal*eps
           w(n_emit) = w_hit
           if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit%elem_idx
@@ -526,15 +544,21 @@ contains
   !! @param[in] normal 放出法線ベクトル（単位化済み）。
   !! @param[in] tangent1 第1接線ベクトル（単位化済み）。
   !! @param[in] tangent2 第2接線ベクトル（単位化済み）。
+  !! @param[in] vmin_normal 放出法線速度の下限 [m/s]（省略時は 0）。
   !! @param[out] vel サンプルした速度ベクトル [m/s]。
-  subroutine sample_photo_emission_velocity(sigma, normal_drift_speed, normal, tangent1, tangent2, vel)
+  subroutine sample_photo_emission_velocity(sigma, normal_drift_speed, normal, tangent1, tangent2, vel, vmin_normal)
     real(dp), intent(in) :: sigma, normal_drift_speed
     real(dp), intent(in) :: normal(3), tangent1(3), tangent2(3)
     real(dp), intent(out) :: vel(3)
+    real(dp), intent(in), optional :: vmin_normal
 
     real(dp) :: vn(1), z(2, 1), vt1, vt2
 
-    call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn)
+    if (present(vmin_normal)) then
+      call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn, vmin_normal=vmin_normal)
+    else
+      call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn)
+    end if
     vt1 = 0.0_dp
     vt2 = 0.0_dp
     if (sigma > 0.0_dp) then

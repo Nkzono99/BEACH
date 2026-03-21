@@ -344,6 +344,45 @@ contains
     if (.not. ieee_is_finite(cfg%sim%phi_infty)) then
       error stop 'sim.phi_infty must be finite.'
     end if
+    cfg%sim%sheath_injection_model = lower(trim(cfg%sim%sheath_injection_model))
+    select case (trim(cfg%sim%sheath_injection_model))
+    case ('none', 'zhao_auto', 'zhao_a', 'zhao_b', 'zhao_c', 'floating_no_photo')
+      continue
+    case default
+      error stop 'sim.sheath_injection_model must be "none", "zhao_auto", "zhao_a", "zhao_b", "zhao_c", or "floating_no_photo".'
+    end select
+    cfg%sim%sheath_electron_drift_mode = lower(trim(cfg%sim%sheath_electron_drift_mode))
+    select case (trim(cfg%sim%sheath_electron_drift_mode))
+    case ('normal', 'full')
+      continue
+    case default
+      error stop 'sim.sheath_electron_drift_mode must be "normal" or "full".'
+    end select
+    cfg%sim%sheath_ion_drift_mode = lower(trim(cfg%sim%sheath_ion_drift_mode))
+    select case (trim(cfg%sim%sheath_ion_drift_mode))
+    case ('normal', 'full')
+      continue
+    case default
+      error stop 'sim.sheath_ion_drift_mode must be "normal" or "full".'
+    end select
+    if (.not. ieee_is_finite(cfg%sim%sheath_alpha_deg) .or. cfg%sim%sheath_alpha_deg < 0.0d0 .or. &
+        cfg%sim%sheath_alpha_deg > 90.0d0) then
+      error stop 'sim.sheath_alpha_deg must be finite and satisfy 0 <= alpha <= 90.'
+    end if
+    if (index(trim(cfg%sim%sheath_injection_model), 'zhao_') == 1) then
+      if (.not. ieee_is_finite(cfg%sim%sheath_photoelectron_ref_density_cm3) .or. &
+          cfg%sim%sheath_photoelectron_ref_density_cm3 <= 0.0d0) then
+        error stop 'sim.sheath_photoelectron_ref_density_cm3 must be > 0 for Zhao sheath injection.'
+      end if
+    end if
+    if (cfg%sim%has_sheath_reference_coordinate) then
+      if (.not. ieee_is_finite(cfg%sim%sheath_reference_coordinate)) then
+        error stop 'sim.sheath_reference_coordinate must be finite.'
+      end if
+    end if
+    if (trim(cfg%sim%sheath_injection_model) /= 'none' .and. trim(cfg%sim%reservoir_potential_model) /= 'none') then
+      error stop 'sim.sheath_injection_model currently requires sim.reservoir_potential_model="none".'
+    end if
     call resolve_batch_duration(cfg)
     per_batch_particles = 0_i32
     has_dynamic_source_species = .false.
@@ -502,6 +541,22 @@ contains
       call parse_int(v, cfg%sim%injection_face_phi_grid_n)
     case ('raycast_max_bounce')
       call parse_int(v, cfg%sim%raycast_max_bounce)
+    case ('sheath_injection_model')
+      call parse_string(v, cfg%sim%sheath_injection_model)
+      cfg%sim%sheath_injection_model = lower(trim(cfg%sim%sheath_injection_model))
+    case ('sheath_alpha_deg')
+      call parse_real(v, cfg%sim%sheath_alpha_deg)
+    case ('sheath_photoelectron_ref_density_cm3')
+      call parse_real(v, cfg%sim%sheath_photoelectron_ref_density_cm3)
+    case ('sheath_reference_coordinate')
+      call parse_real(v, cfg%sim%sheath_reference_coordinate)
+      cfg%sim%has_sheath_reference_coordinate = .true.
+    case ('sheath_electron_drift_mode')
+      call parse_string(v, cfg%sim%sheath_electron_drift_mode)
+      cfg%sim%sheath_electron_drift_mode = lower(trim(cfg%sim%sheath_electron_drift_mode))
+    case ('sheath_ion_drift_mode')
+      call parse_string(v, cfg%sim%sheath_ion_drift_mode)
+      cfg%sim%sheath_ion_drift_mode = lower(trim(cfg%sim%sheath_ion_drift_mode))
     case ('use_box')
       call parse_logical(v, cfg%sim%use_box)
     case ('box_min')

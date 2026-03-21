@@ -40,6 +40,13 @@ module bem_types
     real(dp) :: phi_infty = 0.0d0
     integer(i32) :: injection_face_phi_grid_n = 3_i32
     integer(i32) :: raycast_max_bounce = 16_i32
+    character(len=32) :: sheath_injection_model = 'none'
+    real(dp) :: sheath_alpha_deg = 60.0d0
+    real(dp) :: sheath_photoelectron_ref_density_cm3 = 64.0d0
+    real(dp) :: sheath_reference_coordinate = 0.0d0
+    logical :: has_sheath_reference_coordinate = .false.
+    character(len=16) :: sheath_electron_drift_mode = 'normal'
+    character(len=16) :: sheath_ion_drift_mode = 'normal'
     logical :: use_box = .false.
     real(dp) :: box_min(3) = [-1.0d0, -1.0d0, -1.0d0]
     real(dp) :: box_max(3) = [1.0d0, 1.0d0, 1.0d0]

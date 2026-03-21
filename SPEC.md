@@ -125,6 +125,8 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - 残差繰越つきで `floor` して今バッチのマクロ粒子数を決定
 - `target_macro_particles_per_batch` 指定時は `w_particle` を自動解決
 - `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限を補正
+- `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる
+- シース 1D 座標の基準平面は共有 `inject_face` の法線方向で定義し、`sim.sheath_reference_coordinate` があればその座標を、未指定なら対応 box face の座標を使う
 
 ### 6.3 `photo_raycast`
 
@@ -132,6 +134,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - 各レイは最初の命中要素からのみ放出（命中しなければ放出なし）
 - 1ヒット重み:
   - `w_hit = J_perp * A_perp * batch_duration / (|q| * rays_per_batch)`
+- `sheath_injection_model` が Zhao 系のとき、最初の負電荷 `photo_raycast` species の `emit_current_density_a_m2` は Zhao の自由光電子電流へ上書きされ、法線速度 cutoff も分枝に応じて適用される
 
 ## 7. 実行制御と停止条件
 

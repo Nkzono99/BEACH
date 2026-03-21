@@ -86,6 +86,16 @@ program test_injection_sampling
     call assert_close_dp(v(1, i), expected_vn, 1.0d-10, 'barrier-corrected normal speed mismatch')
   end do
 
+  call sample_reservoir_face_particles( &
+    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
+    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
+    1.0d0, 0.0d0, 0.1d0, x(:, 1:4), v(:, 1:4), barrier_normal_energy=4.0d0, &
+    apply_barrier_energy_shift=.false. &
+    )
+  do i = 1, 4
+    call assert_close_dp(v(1, i), 3.0d0, 1.0d-12, 'barrier cutoff-only normal speed mismatch')
+  end do
+
   tri_v0(:, 1) = [0.0d0, 0.0d0, 0.05d0]
   tri_v1(:, 1) = [1.0d0, 0.0d0, 0.05d0]
   tri_v2(:, 1) = [0.0d0, 1.0d0, 0.05d0]
@@ -125,6 +135,14 @@ program test_injection_sampling
   call assert_true(all(v(3, 1:n_emit) > 0.0d0), 'photo_raycast emitted normal speed should be outward')
   call assert_true(all(emit_elem(1:n_emit) >= 1_i32), 'photo_raycast emit_elem should be positive')
   call assert_true(all(emit_elem(1:n_emit) <= mesh%nelem), 'photo_raycast emit_elem should be in range')
+
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 0.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit, &
+    vmin_normal=2.5d0 &
+    )
+  call assert_equal_i32(n_emit, 10_i32, 'photo_raycast cutoff run should emit all rays')
+  call assert_true(all(v(3, 1:n_emit) >= 2.5d0), 'photo_raycast cutoff should raise normal speed floor')
 
   sim%bc_low(2) = bc_periodic
   sim%bc_high(2) = bc_periodic

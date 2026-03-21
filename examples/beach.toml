@@ -20,6 +20,13 @@ rng_seed = 12345
 reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
 injection_face_phi_grid_n = 3
+# sheath_injection_model = "zhao_auto"
+# sheath_alpha_deg = 60.0
+# sheath_photoelectron_ref_density_cm3 = 64.0
+# sheath_reference_coordinate = 0.02
+# sheath_electron_drift_mode = "normal"
+# sheath_ion_drift_mode = "normal"
+# 注意: 現状は sheath_injection_model と reservoir_potential_model を同時に使えません。
 # periodic2 は既定で m2l_root_trunc を使います。legacy な m2l_root も alias として受理します。
 # exact periodic residual を build-time fit したい場合は m2l_root_oracle も使えます。
 # field_solver = "fmm"
@@ -46,13 +53,13 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 
 # [[particles.species]]
 # source_mode = "photo_raycast"
-# emit_current_density_a_m2 = 2.0e-4
+# emit_current_density_a_m2 = 2.0e-4  # Zhao シース有効時は自動上書き
 # rays_per_batch = 500
 # deposit_opposite_charge_on_emit = true
 # q_particle = -1.602176634e-19
 # m_particle = 9.10938356e-31
 # temperature_ev = 1.5
-# normal_drift_speed = 1.0e5
+# normal_drift_speed = 1.0e5         # Zhao シース有効時は 0 として扱う
 # inject_face = "z_high"
 # pos_low = [0.0, 0.0, 4.0]
 # pos_high = [1.0, 1.0, 4.0]

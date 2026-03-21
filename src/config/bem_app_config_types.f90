@@ -175,6 +175,13 @@ contains
     cfg%sim%phi_infty = 0.0d0
     cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%sim%raycast_max_bounce = 16_i32
+    cfg%sim%sheath_injection_model = 'none'
+    cfg%sim%sheath_alpha_deg = 60.0d0
+    cfg%sim%sheath_photoelectron_ref_density_cm3 = 64.0d0
+    cfg%sim%sheath_reference_coordinate = 0.0d0
+    cfg%sim%has_sheath_reference_coordinate = .false.
+    cfg%sim%sheath_electron_drift_mode = 'normal'
+    cfg%sim%sheath_ion_drift_mode = 'normal'
     cfg%n_templates = 1_i32
     cfg%n_particles = 0_i32
 

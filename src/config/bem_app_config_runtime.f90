@@ -9,12 +9,14 @@ module bem_app_config_runtime
   use bem_importers, only: load_obj_mesh
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
-    sample_reservoir_face_particles, sample_photo_raycast_particles
+    sample_reservoir_face_particles, sample_photo_raycast_particles, &
+    compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_particles, only: init_particles
+  use bem_sheath_injection_model, only: sheath_injection_context, resolve_sheath_injection_context
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, particles_per_batch_from_config, &
     total_particles_from_config
-  use bem_app_config_parser, only: lower
+  use bem_app_config_parser, only: lower, resolve_inward_normal
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -142,9 +144,12 @@ contains
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
-    real(dp), allocatable :: vmin_normal(:), barrier_normal(:)
+    real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
+                             photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:)
+    logical, allocatable :: apply_barrier_energy_shift(:)
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
+    type(sheath_injection_context) :: sheath_ctx
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
     if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
@@ -163,10 +168,64 @@ contains
 
     allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
+    allocate (effective_density_m3(cfg%n_particle_species), w_effective(cfg%n_particle_species))
+    allocate (photo_emit_current_density(cfg%n_particle_species), photo_vmin_normal(cfg%n_particle_species))
+    allocate (photo_normal_drift_speed(cfg%n_particle_species), apply_barrier_energy_shift(cfg%n_particle_species))
     counts_max = 0_i32
     counts_actual = 0_i32
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
+    effective_density_m3 = 0.0d0
+    w_effective = 0.0d0
+    photo_emit_current_density = 0.0d0
+    photo_vmin_normal = 0.0d0
+    photo_normal_drift_speed = 0.0d0
+    apply_barrier_energy_shift = .true.
+    do s = 1, cfg%n_particle_species
+      if (.not. cfg%particle_species(s)%enabled) cycle
+      select case (trim(lower(cfg%particle_species(s)%source_mode)))
+      case ('volume_seed')
+        w_effective(s) = cfg%particle_species(s)%w_particle
+      case ('reservoir_face')
+        effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
+        w_effective(s) = cfg%particle_species(s)%w_particle
+      case ('photo_raycast')
+        photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
+        photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
+      end select
+    end do
+
+    call resolve_sheath_injection_context(cfg, sheath_ctx)
+    if (sheath_ctx%enabled) then
+      s = int(sheath_ctx%electron_species)
+      effective_density_m3(s) = sheath_ctx%electron_number_density_m3
+      vmin_normal(s) = max(vmin_normal(s), sheath_ctx%electron_vmin_normal)
+      apply_barrier_energy_shift(s) = .false.
+
+      if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
+          cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
+        call resolve_reservoir_target_weight( &
+          cfg%sim, cfg%particle_species(s), effective_density_m3(s), vmin_normal(s), &
+          cfg%particle_species(s)%target_macro_particles_per_batch, w_effective(s) &
+          )
+      end if
+
+      if (sheath_ctx%has_photo_species) then
+        s = int(sheath_ctx%photo_species)
+        photo_emit_current_density(s) = sheath_ctx%photo_emit_current_density_a_m2
+        photo_vmin_normal(s) = sheath_ctx%photo_vmin_normal
+        photo_normal_drift_speed(s) = 0.0d0
+      end if
+
+      do s = 1, cfg%n_particle_species
+        if (.not. cfg%particle_species(s)%enabled) cycle
+        if (trim(lower(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
+        if (.not. cfg%particle_species(s)%has_target_macro_particles_per_batch) cycle
+        if (cfg%particle_species(s)%target_macro_particles_per_batch == -1_i32) then
+          w_effective(s) = w_effective(1)
+        end if
+      end do
+    end if
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
@@ -182,7 +241,8 @@ contains
           )
         call compute_macro_particles_for_species( &
           cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s), &
-          batch_duration_scale=1.0d0/real(n_ranks, dp) &
+          batch_duration_scale=1.0d0/real(n_ranks, dp), number_density_override=effective_density_m3(s), &
+          w_particle_override=w_effective(s) &
           )
       case ('photo_raycast')
         global_count = cfg%particle_species(s)%rays_per_batch
@@ -207,19 +267,26 @@ contains
         call sample_species_state( &
           cfg%sim, cfg%particle_species(s), counts_max(s), &
           x_species(:, 1:counts_max(s), s), v_species(:, 1:counts_max(s), s), &
-          barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s) &
+          barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
+          apply_barrier_energy_shift=apply_barrier_energy_shift(s) &
           )
         counts_actual(s) = counts_max(s)
-        w_species(1:counts_actual(s), s) = cfg%particle_species(s)%w_particle
+        w_species(1:counts_actual(s), s) = w_effective(s)
       case ('photo_raycast')
         if (.not. present(mesh)) then
           error stop 'photo_raycast requires mesh in init_particle_batch_from_config.'
+        end if
+        if (photo_emit_current_density(s) <= 0.0d0) then
+          counts_actual(s) = 0_i32
+          cycle
         end if
         call sample_photo_species_state( &
           cfg%sim, cfg%particle_species(s), mesh, counts_max(s), x_species(:, 1:counts_max(s), s), &
           v_species(:, 1:counts_max(s), s), w_species(1:counts_max(s), s), counts_actual(s), &
           emit_elem_idx=emit_elem_species(1:counts_max(s), s), &
-          global_rays_per_batch=cfg%particle_species(s)%rays_per_batch &
+          global_rays_per_batch=cfg%particle_species(s)%rays_per_batch, &
+          emit_current_density_override=photo_emit_current_density(s), &
+          normal_drift_speed_override=photo_normal_drift_speed(s), vmin_normal=photo_vmin_normal(s) &
           )
         if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
           do i = 1, counts_actual(s)
@@ -270,7 +337,8 @@ contains
   !! @param[out] v 生成した速度配列 `v(3,n)` [m/s]。
   !! @param[in] barrier_normal_energy reservoir_face 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] vmin_normal reservoir_face 法線速度の下限 [m/s]。
-  subroutine sample_species_state(sim, spec, n, x, v, barrier_normal_energy, vmin_normal)
+  !! @param[in] apply_barrier_energy_shift reservoir_face 法線速度へ障壁エネルギー変換を適用するか。
+  subroutine sample_species_state(sim, spec, n, x, v, barrier_normal_energy, vmin_normal, apply_barrier_energy_shift)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     integer(i32), intent(in) :: n
@@ -278,8 +346,12 @@ contains
     real(dp), intent(out) :: v(:, :)
     real(dp), intent(in), optional :: barrier_normal_energy
     real(dp), intent(in), optional :: vmin_normal
+    logical, intent(in), optional :: apply_barrier_energy_shift
+    logical :: apply_shift
 
     if (n <= 0_i32) return
+    apply_shift = .true.
+    if (present(apply_barrier_energy_shift)) apply_shift = apply_barrier_energy_shift
     select case (trim(lower(spec%source_mode)))
     case ('volume_seed')
       call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
@@ -291,24 +363,27 @@ contains
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
-          barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
+          barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
+          apply_barrier_energy_shift=apply_shift &
           )
       else if (present(barrier_normal_energy)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
-          barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt &
+          barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, &
+          apply_barrier_energy_shift=apply_shift &
           )
       else if (present(vmin_normal)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
           spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
-          vmin_normal=vmin_normal, position_jitter_dt=sim%dt &
+          vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
           )
       else
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
-          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, position_jitter_dt=sim%dt &
+          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
+          apply_barrier_energy_shift=apply_shift &
           )
       end if
     case ('photo_raycast')
@@ -328,7 +403,13 @@ contains
   !! @param[out] w 生成した重み配列 `w(n_rays)`。
   !! @param[out] n_emit 実際に放出された粒子数。
   !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(n_rays)`（省略可）。
-  subroutine sample_photo_species_state(sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch)
+  !! @param[in] emit_current_density_override 放出電流密度の上書き値 [A/m^2]。
+  !! @param[in] normal_drift_speed_override 放出法線ドリフトの上書き値 [m/s]。
+  !! @param[in] vmin_normal 放出法線速度の下限 [m/s]。
+  subroutine sample_photo_species_state( &
+    sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
+    emit_current_density_override, normal_drift_speed_override, vmin_normal &
+    )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     type(mesh_type), intent(in) :: mesh
@@ -339,24 +420,48 @@ contains
     integer(i32), intent(out) :: n_emit
     integer(i32), intent(out), optional :: emit_elem_idx(:)
     integer(i32), intent(in), optional :: global_rays_per_batch
+    real(dp), intent(in), optional :: emit_current_density_override
+    real(dp), intent(in), optional :: normal_drift_speed_override
+    real(dp), intent(in), optional :: vmin_normal
+    real(dp) :: emit_current_density, normal_drift_speed
 
     if (n_rays <= 0_i32) then
       if (present(emit_elem_idx)) emit_elem_idx = -1_i32
       n_emit = 0_i32
       return
     end if
+    emit_current_density = spec%emit_current_density_a_m2
+    if (present(emit_current_density_override)) emit_current_density = emit_current_density_override
+    normal_drift_speed = spec%normal_drift_speed
+    if (present(normal_drift_speed_override)) normal_drift_speed = normal_drift_speed_override
     if (present(global_rays_per_batch)) then
-      call sample_photo_raycast_particles( &
-        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
-        species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
-        n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch &
-        )
+      if (present(vmin_normal)) then
+        call sample_photo_raycast_particles( &
+          mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+          species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
+          n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, vmin_normal=vmin_normal &
+          )
+      else
+        call sample_photo_raycast_particles( &
+          mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+          species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
+          n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch &
+          )
+      end if
     else
-      call sample_photo_raycast_particles( &
-        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
-        species_temperature_k(spec), spec%normal_drift_speed, spec%emit_current_density_a_m2, spec%q_particle, &
-        n_rays, x, v, w, n_emit, emit_elem_idx &
-        )
+      if (present(vmin_normal)) then
+        call sample_photo_raycast_particles( &
+          mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+          species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
+          n_rays, x, v, w, n_emit, emit_elem_idx, vmin_normal=vmin_normal &
+          )
+      else
+        call sample_photo_raycast_particles( &
+          mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+          species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
+          n_rays, x, v, w, n_emit, emit_elem_idx &
+          )
+      end if
     end if
   end subroutine sample_photo_species_state
 
@@ -366,32 +471,74 @@ contains
   !! @param[inout] residual 前バッチから繰り越した端数。
   !! @param[out] count 今バッチで生成するマクロ粒子数。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
-  subroutine compute_macro_particles_for_species(sim, spec, residual, count, vmin_normal, batch_duration_scale)
+  !! @param[in] number_density_override 数密度の上書き値 [1/m^3]。
+  !! @param[in] w_particle_override マクロ粒子重みの上書き値。
+  subroutine compute_macro_particles_for_species( &
+    sim, spec, residual, count, vmin_normal, batch_duration_scale, number_density_override, w_particle_override &
+    )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     real(dp), intent(inout) :: residual
     integer(i32), intent(out) :: count
     real(dp), intent(in), optional :: vmin_normal
     real(dp), intent(in), optional :: batch_duration_scale
+    real(dp), intent(in), optional :: number_density_override
+    real(dp), intent(in), optional :: w_particle_override
 
-    real(dp) :: number_density_m3, effective_batch_duration
+    real(dp) :: number_density_m3, effective_batch_duration, w_particle
 
     number_density_m3 = species_number_density_m3(spec)
+    if (present(number_density_override)) number_density_m3 = number_density_override
+    w_particle = spec%w_particle
+    if (present(w_particle_override)) w_particle = w_particle_override
     effective_batch_duration = sim%batch_duration
     if (present(batch_duration_scale)) effective_batch_duration = sim%batch_duration*batch_duration_scale
     if (present(vmin_normal)) then
       call compute_macro_particles_for_batch( &
         number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
-        spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, spec%w_particle, residual, count, &
+        spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, count, &
         vmin_normal=vmin_normal &
         )
     else
       call compute_macro_particles_for_batch( &
         number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
-        spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, spec%w_particle, residual, count &
+        spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, count &
         )
     end if
   end subroutine compute_macro_particles_for_species
+
+  !> reservoir_face の target 個数からシース補正込み重みを解決する。
+  !! @param[in] sim シミュレーション設定。
+  !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[in] number_density_m3 実効数密度 [1/m^3]。
+  !! @param[in] vmin_normal 法線速度の下限 [m/s]。
+  !! @param[in] target_macro_particles_per_batch 目標マクロ粒子数。
+  !! @param[out] w_particle 解決したマクロ粒子重み。
+  subroutine resolve_reservoir_target_weight( &
+    sim, spec, number_density_m3, vmin_normal, target_macro_particles_per_batch, w_particle &
+    )
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec
+    real(dp), intent(in) :: number_density_m3, vmin_normal
+    integer(i32), intent(in) :: target_macro_particles_per_batch
+    real(dp), intent(out) :: w_particle
+
+    real(dp) :: inward_normal(3), gamma_in, area
+
+    if (target_macro_particles_per_batch <= 0_i32) then
+      error stop 'resolve_reservoir_target_weight requires target_macro_particles_per_batch > 0.'
+    end if
+    call resolve_inward_normal(spec%inject_face, inward_normal)
+    gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
+               number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, inward_normal, &
+               vmin_normal=vmin_normal &
+               )
+    area = compute_face_area_from_bounds(spec%inject_face, spec%pos_low, spec%pos_high)
+    w_particle = gamma_in*area*sim%batch_duration/real(target_macro_particles_per_batch, dp)
+    if (.not. ieee_is_finite(w_particle) .or. w_particle <= 0.0d0) then
+      error stop 'sheath-adjusted target_macro_particles_per_batch produced invalid w_particle.'
+    end if
+  end subroutine resolve_reservoir_target_weight
 
   !> reservoir_face 注入に対する法線速度補正パラメータを計算する。
   !! @param[in] sim シミュレーション設定。
