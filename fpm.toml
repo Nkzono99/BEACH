@@ -69,6 +69,11 @@ source-dir = "tests/fortran"
 main = "test_sheath_injection_model.f90"
 
 [[test]]
+name = "test_sheath_model_core"
+source-dir = "tests/fortran"
+main = "test_sheath_model_core.f90"
+
+[[test]]
 name = "test_performance_profile"
 source-dir = "tests/fortran"
 main = "test_performance_profile.f90"
