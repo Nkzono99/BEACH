@@ -87,3 +87,8 @@ main = "test_mpi_hybrid.f90"
 name = "test_coulomb_fmm_core"
 source-dir = "tests/fortran"
 main = "test_coulomb_fmm_core.f90"
+
+[[test]]
+name = "test_output_writer"
+source-dir = "tests/fortran"
+main = "test_output_writer.f90"

@@ -79,6 +79,7 @@ module bem_app_config_types
     type(particle_species_spec), allocatable :: particle_species(:)
 
     logical :: write_output = .true.
+    logical :: write_mesh_potential = .false.
     character(len=256) :: output_dir = 'outputs/latest'
     integer(i32) :: history_stride = 1
     logical :: resume_output = .false.
@@ -148,6 +149,7 @@ contains
     cfg%n_particles = 0_i32
     cfg%n_particle_species = 0_i32
     cfg%write_output = .true.
+    cfg%write_mesh_potential = .false.
     cfg%output_dir = 'outputs/latest'
     cfg%history_stride = 1_i32
     cfg%resume_output = .false.

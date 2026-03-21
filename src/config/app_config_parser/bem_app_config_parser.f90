@@ -749,6 +749,8 @@ contains
     select case (trim(k))
     case ('write_files')
       call parse_logical(v, cfg%write_output)
+    case ('write_mesh_potential')
+      call parse_logical(v, cfg%write_mesh_potential)
     case ('dir')
       call parse_string(v, cfg%output_dir)
     case ('history_stride')

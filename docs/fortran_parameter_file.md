@@ -71,6 +71,7 @@ center = [0.5, 0.5, 0.02]
 
 [output]
 write_files = true
+write_mesh_potential = false
 dir = "outputs/latest"
 history_stride = 1
 ```
@@ -282,6 +283,7 @@ history_stride = 1
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `write_files` | bool | `true` | ファイル出力の有効/無効 |
+| `write_mesh_potential` | bool | `false` | 要素重心で評価した電位を `mesh_potential.csv` として出力 |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 | `history_stride` | int | `1` | `charge_history.csv` の出力間隔（バッチ単位） |
 | `resume` | bool | `false` | 既存チェックポイントから再開 |
@@ -290,6 +292,7 @@ history_stride = 1
 
 - `summary.txt`
 - `charges.csv`
+- `mesh_potential.csv`（`write_mesh_potential = true` のとき）
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0` のとき）
@@ -297,6 +300,8 @@ history_stride = 1
 - `macro_residuals.csv`
 
 `mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別と要素数を確認できます。
+
+`mesh_potential.csv` は要素重心での電位 [V] を記録します。自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。`periodic2` では explicit image shell に加えて、`field_periodic_far_correction` が `m2l_root_oracle` に正規化される設定では exact Ewald residual も加えます。
 
 MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイルになります。
 

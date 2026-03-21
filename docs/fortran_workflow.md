@@ -111,6 +111,7 @@ beachx profile outputs/latest/performance_profile.csv \
 
 - `summary.txt`
 - `charges.csv`
+- `mesh_potential.csv`（`write_mesh_potential = true`）
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0`）
@@ -118,7 +119,7 @@ beachx profile outputs/latest/performance_profile.csv \
 - `rng_state.txt`
 - `macro_residuals.csv`
 
-`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と元メッシュ設定（template kind / 要素数）を対応付けます。
+`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と元メッシュ設定（template kind / 要素数）を対応付けます。`mesh_potential.csv` を有効にすると、同じ要素順で centroid 電位 [V] も保存されます。
 
 MPI実行（`world_size > 1`）では乱数状態・残差は rank 別です。
 

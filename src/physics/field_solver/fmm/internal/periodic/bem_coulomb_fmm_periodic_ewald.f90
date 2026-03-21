@@ -13,6 +13,8 @@ module bem_coulomb_fmm_periodic_ewald
   public :: precompute_periodic2_ewald_data
   public :: add_periodic2_exact_ewald_correction_single_source
   public :: add_periodic2_exact_ewald_correction_all_sources
+  public :: add_periodic2_exact_ewald_potential_correction_single_source
+  public :: add_periodic2_exact_ewald_potential_correction_all_sources
 
 contains
 
@@ -143,6 +145,28 @@ contains
     call add_exact_periodic2_charged_wall_total_charge_correction(plan, total_charge, target, e)
   end subroutine add_periodic2_exact_ewald_correction_all_sources
 
+  !> 全ソース分の periodic2 Ewald の電位補正を加算する。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] state ソース電荷を含む state。
+  !! @param[in] target 評価点。
+  !! @param[inout] phi 電位。
+  subroutine add_periodic2_exact_ewald_potential_correction_all_sources(plan, state, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: idx
+    real(dp) :: total_charge
+
+    if (.not. plan%periodic_ewald%ready) return
+    total_charge = 0.0d0
+    do idx = 1_i32, plan%nsrc
+      total_charge = total_charge + state%src_q(idx)
+      call add_periodic2_exact_ewald_potential_correction_single_source(plan, state%src_q(idx), plan%src_pos(:, idx), target, phi)
+    end do
+    call add_exact_periodic2_charged_wall_phi_correction(plan, total_charge, target, phi)
+  end subroutine add_periodic2_exact_ewald_potential_correction_all_sources
+
   !> 1 粒子分の periodic2 Ewald 補正を加算する。
   !! @param[in] plan FMM 計画。
   !! @param[in] q 電荷量。
@@ -162,6 +186,26 @@ contains
     call add_exact_periodic2_reciprocal_space_correction(plan, q, src, target, e)
     call add_exact_periodic2_k0_correction(plan, q, src, target, e)
   end subroutine add_periodic2_exact_ewald_correction_single_source
+
+  !> 1 粒子分の periodic2 Ewald の電位補正を加算する。
+  !! @param[in] plan FMM 計画。
+  !! @param[in] q 電荷量。
+  !! @param[in] src ソース位置。
+  !! @param[in] target 評価点。
+  !! @param[inout] phi 電位。
+  subroutine add_periodic2_exact_ewald_potential_correction_single_source(plan, q, src, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: src(3), target(3)
+    real(dp), intent(inout) :: phi
+
+    if (.not. plan%periodic_ewald%ready) return
+    if (abs(q) <= tiny(1.0d0)) return
+
+    call add_exact_periodic2_real_space_potential_correction(plan, q, src, target, phi)
+    call add_exact_periodic2_reciprocal_space_potential_correction(plan, q, src, target, phi)
+    call add_exact_periodic2_k0_potential_correction(plan, q, src, target, phi)
+  end subroutine add_periodic2_exact_ewald_potential_correction_single_source
 
   subroutine add_exact_periodic2_real_space_correction(plan, q, src, target, e)
     type(fmm_plan_type), intent(in) :: plan
@@ -219,6 +263,57 @@ contains
                                        + plan%periodic_ewald%k0_pref*q*erf(plan%periodic_ewald%alpha*dz)
   end subroutine add_exact_periodic2_k0_correction
 
+  subroutine add_exact_periodic2_real_space_potential_correction(plan, q, src, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q, src(3), target(3)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: shift_idx
+    real(dp) :: shifted(3)
+
+    do shift_idx = 1_i32, plan%periodic_ewald%screen_count
+      shifted = src
+      shifted(plan%periodic_ewald%axis1) = shifted(plan%periodic_ewald%axis1) + plan%periodic_ewald%screen_shift1(shift_idx)
+      shifted(plan%periodic_ewald%axis2) = shifted(plan%periodic_ewald%axis2) + plan%periodic_ewald%screen_shift2(shift_idx)
+      call add_screened_point_charge_potential(q, target, shifted, plan%periodic_ewald%alpha, phi)
+    end do
+
+    do shift_idx = 1_i32, plan%periodic_ewald%inner_count
+      shifted = src
+      shifted(plan%periodic_ewald%axis1) = shifted(plan%periodic_ewald%axis1) + plan%periodic_ewald%inner_shift1(shift_idx)
+      shifted(plan%periodic_ewald%axis2) = shifted(plan%periodic_ewald%axis2) + plan%periodic_ewald%inner_shift2(shift_idx)
+      call add_softened_point_charge_potential(-q, target, shifted, plan%periodic_ewald%soft2, phi)
+    end do
+  end subroutine add_exact_periodic2_real_space_potential_correction
+
+  subroutine add_exact_periodic2_reciprocal_space_potential_correction(plan, q, src, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q, src(3), target(3)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: k_idx
+    real(dp) :: theta, dz, phase_cos, term_p, term_m
+
+    dz = target(plan%periodic_ewald%axis_free) - src(plan%periodic_ewald%axis_free)
+    do k_idx = 1_i32, plan%periodic_ewald%k_count
+      theta = plan%periodic_ewald%k1(k_idx)*(target(plan%periodic_ewald%axis1) - src(plan%periodic_ewald%axis1)) + &
+              plan%periodic_ewald%k2(k_idx)*(target(plan%periodic_ewald%axis2) - src(plan%periodic_ewald%axis2))
+      phase_cos = cos(theta)
+      term_p = exp(plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) + plan%periodic_ewald%alpha*dz)
+      term_m = exp(-plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) - plan%periodic_ewald%alpha*dz)
+      phi = phi + q*plan%periodic_ewald%kprefz(k_idx)*phase_cos*(term_p + term_m)/plan%periodic_ewald%kmag(k_idx)
+    end do
+  end subroutine add_exact_periodic2_reciprocal_space_potential_correction
+
+  subroutine add_exact_periodic2_k0_potential_correction(plan, q, src, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q, src(3), target(3)
+    real(dp), intent(inout) :: phi
+    real(dp) :: dz, arg
+
+    dz = target(plan%periodic_ewald%axis_free) - src(plan%periodic_ewald%axis_free)
+    arg = plan%periodic_ewald%alpha*dz
+    phi = phi - plan%periodic_ewald%k0_pref*q*(dz*erf(arg) + exp(-(arg*arg))/(plan%periodic_ewald%alpha*sqrt(pi_dp)))
+  end subroutine add_exact_periodic2_k0_potential_correction
+
   !> 非中性 slab を charged-walls で閉じる total-charge 補正を加算する。
   !! 壁の場は slab 内では相殺されるため、box 外評価にだけ効く。
   subroutine add_exact_periodic2_charged_wall_total_charge_correction(plan, total_charge, target, e)
@@ -248,6 +343,36 @@ contains
       e(axis_free) = e(axis_free) - pref
     end if
   end subroutine add_exact_periodic2_charged_wall_total_charge_correction
+
+  !> charged-walls total-charge 補正の電位版を加算する。
+  !! slab 内を基準電位 0 とする。
+  subroutine add_exact_periodic2_charged_wall_phi_correction(plan, total_charge, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: total_charge, target(3)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: axis_free
+    real(dp) :: z, z_low, z_high, pref, tol
+
+    if (abs(total_charge) <= tiny(1.0d0)) return
+    if (plan%periodic_ewald%cell_area <= 0.0d0) return
+
+    axis_free = plan%periodic_ewald%axis_free
+    if (axis_free <= 0_i32 .or. axis_free > 3_i32) return
+
+    z_low = plan%options%target_box_min(axis_free)
+    z_high = plan%options%target_box_max(axis_free)
+    if (z_high <= z_low) return
+
+    z = target(axis_free)
+    tol = 1.0d-12*max(1.0d0, max(abs(z_low), abs(z_high)))
+    pref = two_pi_dp*total_charge/plan%periodic_ewald%cell_area
+
+    if (z < z_low - tol) then
+      phi = phi - pref*(z - z_low)
+    else if (z > z_high + tol) then
+      phi = phi + pref*(z - z_high)
+    end if
+  end subroutine add_exact_periodic2_charged_wall_phi_correction
 
   subroutine add_screened_point_charge(q, target, source, alpha, e)
     real(dp), intent(in) :: q
@@ -284,5 +409,32 @@ contains
     inv_r3 = 1.0d0/(sqrt(r2)*r2)
     e = e + q*inv_r3*dx
   end subroutine add_softened_point_charge
+
+  subroutine add_screened_point_charge_potential(q, target, source, alpha, phi)
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: target(3), source(3)
+    real(dp), intent(in) :: alpha
+    real(dp), intent(inout) :: phi
+    real(dp) :: dx(3), r2, rmag
+
+    dx = target - source
+    r2 = sum(dx*dx)
+    if (r2 <= tiny(1.0d0)) return
+    rmag = sqrt(r2)
+    phi = phi + q*erfc(alpha*rmag)/rmag
+  end subroutine add_screened_point_charge_potential
+
+  subroutine add_softened_point_charge_potential(q, target, source, soft2, phi)
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: target(3), source(3)
+    real(dp), intent(in) :: soft2
+    real(dp), intent(inout) :: phi
+    real(dp) :: dx(3), r2
+
+    dx = target - source
+    r2 = sum(dx*dx) + soft2
+    if (r2 <= tiny(1.0d0)) return
+    phi = phi + q/sqrt(r2)
+  end subroutine add_softened_point_charge_potential
 
 end module bem_coulomb_fmm_periodic_ewald
