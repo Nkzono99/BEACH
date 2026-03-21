@@ -17,7 +17,9 @@ module bem_simulator
 
   interface
     !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
-    module subroutine run_absorption_insulator(mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi)
+    module subroutine run_absorption_insulator( &
+      mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v &
+      )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
       type(sim_stats), intent(out) :: stats
@@ -26,6 +28,7 @@ module bem_simulator
       type(sim_stats), intent(in), optional :: initial_stats
       type(injection_state), intent(inout), optional :: inject_state
       type(mpi_context), intent(in), optional :: mpi
+      real(dp), allocatable, intent(out), optional :: mesh_potential_v(:)
     end subroutine run_absorption_insulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。

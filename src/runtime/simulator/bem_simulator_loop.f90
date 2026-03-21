@@ -1,5 +1,6 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
+  use bem_output_writer, only: compute_mesh_potential_fmm_core
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
                                      perf_region_field_solver_init, perf_region_history_write, perf_region_mpi_reduce, &
@@ -90,6 +91,16 @@ contains
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   call perf_region_end(perf_region_simulation_total, sim_t0)
+
+  if (present(mesh_potential_v)) then
+    if (mpi_is_root(mpi_ctx) .and. trim(field_solver%mode) == 'fmm' .and. field_solver%fmm_core_ready) then
+      call perf_region_begin(perf_region_field_refresh, t0)
+      call field_solver%refresh(mesh)
+      call perf_region_end(perf_region_field_refresh, t0)
+      allocate (mesh_potential_v(mesh%nelem))
+      call compute_mesh_potential_fmm_core(mesh, field_solver%fmm_core_plan, field_solver%fmm_core_state, mesh_potential_v)
+    end if
+  end if
 
   deallocate (dq_thread, dq, photo_emission_dq)
   end procedure run_absorption_insulator

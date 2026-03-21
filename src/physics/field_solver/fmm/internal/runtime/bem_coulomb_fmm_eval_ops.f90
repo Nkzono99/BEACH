@@ -4,7 +4,8 @@ module bem_coulomb_fmm_eval_ops
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_oracle
-  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
+  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources, &
+                                            add_periodic2_exact_ewald_potential_correction_all_sources
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
   implicit none
@@ -12,6 +13,8 @@ module bem_coulomb_fmm_eval_ops
 
   public :: core_eval_points_impl
   public :: core_eval_point_impl
+  public :: core_eval_potential_points_impl
+  public :: core_eval_potential_point_impl
 
 contains
 
@@ -53,6 +56,45 @@ contains
 
     call core_eval_point_xyz_impl(plan, state, r(1), r(2), r(3), e(1), e(2), e(3))
   end subroutine core_eval_point_impl
+
+  !> 複数の評価点で電位を計算する。
+  !! @param[in] plan 構築済みの FMM 計画。
+  !! @param[inout] state 評価に使う FMM state。
+  !! @param[in] target_pos 評価点位置 `(3,m)` [m]。
+  !! @param[out] phi 電位 `(m)` [V]（`k_coulomb` は含まない）。
+  subroutine core_eval_potential_points_impl(plan, state, target_pos, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(inout) :: state
+    real(dp), intent(in) :: target_pos(:, :)
+    real(dp), intent(out) :: phi(:)
+    integer(i32) :: i, ntarget
+
+    if (size(target_pos, 1) /= 3) error stop 'FMM core expects target_pos(3,m).'
+    if (size(phi) /= size(target_pos, 2)) then
+      error stop 'FMM eval_potential_points expects phi(m).'
+    end if
+    ntarget = int(size(target_pos, 2), i32)
+
+    do i = 1_i32, ntarget
+      call core_eval_potential_point_xyz_impl( &
+        plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), phi(i) &
+        )
+    end do
+  end subroutine core_eval_potential_points_impl
+
+  !> 1 点で電位を計算する。
+  !! @param[in] plan 構築済みの FMM 計画。
+  !! @param[inout] state 評価に使う FMM state。
+  !! @param[in] r 評価点位置 `(x,y,z)` [m]。
+  !! @param[out] phi 電位 [V]（`k_coulomb` は含まない）。
+  subroutine core_eval_potential_point_impl(plan, state, r, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(inout) :: state
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(out) :: phi
+
+    call core_eval_potential_point_xyz_impl(plan, state, r(1), r(2), r(3), phi)
+  end subroutine core_eval_potential_point_impl
 
   !> 1 点評価の本体処理を行う。
   !! @param[in] plan 構築済みの FMM 計画。
@@ -98,6 +140,38 @@ contains
     call accumulate_near_direct_field(plan, state, leaf_slot, rt, soft2, axes, ex, ey, ez)
   end subroutine core_eval_point_xyz_impl
 
+  !> 1 点評価の電位本体処理を行う。
+  subroutine core_eval_potential_point_xyz_impl(plan, state, rx, ry, rz, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(inout) :: state
+    real(dp), intent(in) :: rx, ry, rz
+    real(dp), intent(out) :: phi
+    integer(i32) :: leaf_node, leaf_slot
+    integer(i32) :: axes(2)
+    logical :: use_periodic_root_oracle_fallback
+    real(dp) :: rt(3), soft2
+
+    phi = 0.0d0
+    if (.not. plan%built .or. .not. state%ready) return
+
+    rt = [rx, ry, rz]
+    if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
+    soft2 = plan%options%softening*plan%options%softening
+    use_periodic_root_oracle_fallback = use_periodic2_m2l_root_oracle(plan)
+
+    leaf_node = locate_target_leaf(plan, rt)
+    leaf_slot = 0_i32
+    if (leaf_node > 0_i32) leaf_slot = plan%leaf_slot_of_node(leaf_node)
+    if (leaf_slot <= 0_i32) then
+      call apply_direct_fallback_potential(plan, state, rt, soft2, use_periodic_root_oracle_fallback, phi)
+      return
+    end if
+
+    call accumulate_leaf_local_potential_expansion(plan, state, leaf_node, rt, phi)
+    axes = active_periodic_axes(plan)
+    call accumulate_near_direct_potential(plan, state, leaf_slot, rt, soft2, axes, phi)
+  end subroutine core_eval_potential_point_xyz_impl
+
   subroutine apply_direct_fallback_field(plan, state, rt, soft2, use_periodic_root_oracle_fallback, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
@@ -116,6 +190,20 @@ contains
       ez = evec(3)
     end if
   end subroutine apply_direct_fallback_field
+
+  subroutine apply_direct_fallback_potential(plan, state, rt, soft2, use_periodic_root_oracle_fallback, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: rt(3)
+    real(dp), intent(in) :: soft2
+    logical, intent(in) :: use_periodic_root_oracle_fallback
+    real(dp), intent(inout) :: phi
+
+    call eval_direct_all_sources_potential_scalar(plan, state, rt(1), rt(2), rt(3), soft2, phi)
+    if (use_periodic_root_oracle_fallback) then
+      call add_periodic2_exact_ewald_potential_correction_all_sources(plan, state, rt, phi)
+    end if
+  end subroutine apply_direct_fallback_potential
 
   subroutine accumulate_leaf_local_expansion(plan, state, leaf_node, rt, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
@@ -143,6 +231,29 @@ contains
       ez = ez - state%local(plan%eval_deriv_idx(3, term_idx), leaf_node)*monomial
     end do
   end subroutine accumulate_leaf_local_expansion
+
+  subroutine accumulate_leaf_local_potential_expansion(plan, state, leaf_node, rt, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: leaf_node
+    real(dp), intent(in) :: rt(3)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: order, alpha_idx
+    real(dp) :: dr(3), monomial
+    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
+    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+
+    order = active_local_expansion_order(plan)
+    if (state%local_active(leaf_node) == 0_i32) return
+
+    dr = rt - active_tree_node_center(plan, plan%target_tree_ready, leaf_node)
+    call build_axis_powers(dr, order, xpow, ypow, zpow)
+    do alpha_idx = 1_i32, plan%ncoef
+      monomial = xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
+                 *zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
+      phi = phi + state%local(alpha_idx, leaf_node)*monomial
+    end do
+  end subroutine accumulate_leaf_local_potential_expansion
 
   pure function active_local_expansion_order(plan) result(order)
     type(fmm_plan_type), intent(in) :: plan
@@ -199,6 +310,46 @@ contains
     end if
   end subroutine accumulate_near_direct_field
 
+  pure subroutine accumulate_near_direct_potential(plan, state, leaf_slot, rt, soft2, axes, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: leaf_slot
+    real(dp), intent(in) :: rt(3)
+    real(dp), intent(in) :: soft2
+    integer(i32), intent(in) :: axes(2)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: near_pos, idx, axis1, axis2
+    integer(i32) :: near_source_begin, near_source_end
+    real(dp) :: shift1, shift2
+
+    if (leaf_slot <= 0_i32) return
+    near_source_begin = plan%near_source_start(leaf_slot)
+    near_source_end = plan%near_source_start(leaf_slot + 1_i32) - 1_i32
+    if (near_source_end < near_source_begin) return
+
+    if (plan%options%use_periodic2) then
+      axis1 = axes(1)
+      axis2 = axes(2)
+      do near_pos = near_source_begin, near_source_end
+        idx = plan%near_source_idx(near_pos)
+        shift1 = plan%near_source_shift1(near_pos)
+        shift2 = plan%near_source_shift2(near_pos)
+        call accumulate_point_charge_shifted_potential( &
+          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), shift1, shift2, &
+          axis1, axis2, rt(1), rt(2), rt(3), soft2, phi &
+          )
+      end do
+    else
+      do near_pos = near_source_begin, near_source_end
+        idx = plan%near_source_idx(near_pos)
+        call accumulate_point_charge_potential( &
+          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          rt(1), rt(2), rt(3), soft2, phi &
+          )
+      end do
+    end if
+  end subroutine accumulate_near_direct_potential
+
   subroutine eval_direct_all_sources_scalar(plan, state, tx, ty, tz, soft2, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
@@ -232,6 +383,37 @@ contains
     end if
   end subroutine eval_direct_all_sources_scalar
 
+  subroutine eval_direct_all_sources_potential_scalar(plan, state, tx, ty, tz, soft2, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: tx, ty, tz
+    real(dp), intent(in) :: soft2
+    real(dp), intent(out) :: phi
+    integer(i32) :: idx, axis1, axis2, nshift
+    integer(i32) :: axes(2)
+
+    phi = 0.0d0
+    axes = active_periodic_axes(plan)
+    axis1 = axes(1)
+    axis2 = axes(2)
+    if (plan%options%use_periodic2) then
+      nshift = size(plan%shift_axis1)
+      do idx = 1_i32, plan%nsrc
+        call accumulate_point_charge_images_potential( &
+          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          tx, ty, tz, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, phi &
+          )
+      end do
+    else
+      do idx = 1_i32, plan%nsrc
+        call accumulate_point_charge_potential( &
+          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          tx, ty, tz, soft2, phi &
+          )
+      end do
+    end if
+  end subroutine eval_direct_all_sources_potential_scalar
+
   pure subroutine accumulate_point_charge_field(q, sx, sy, sz, tx, ty, tz, soft2, ex, ey, ez)
     real(dp), intent(in) :: q, sx, sy, sz, tx, ty, tz, soft2
     real(dp), intent(inout) :: ex, ey, ez
@@ -248,6 +430,20 @@ contains
     ey = ey + q*inv_r3*dy
     ez = ez + q*inv_r3*dz
   end subroutine accumulate_point_charge_field
+
+  pure subroutine accumulate_point_charge_potential(q, sx, sy, sz, tx, ty, tz, soft2, phi)
+    real(dp), intent(in) :: q, sx, sy, sz, tx, ty, tz, soft2
+    real(dp), intent(inout) :: phi
+    real(dp) :: dx, dy, dz, r2
+
+    if (abs(q) <= tiny(1.0d0)) return
+    dx = tx - sx
+    dy = ty - sy
+    dz = tz - sz
+    r2 = dx*dx + dy*dy + dz*dz + soft2
+    if (r2 <= tiny(1.0d0)) return
+    phi = phi + q/sqrt(r2)
+  end subroutine accumulate_point_charge_potential
 
   pure subroutine accumulate_point_charge_images_field( &
     q, sx, sy, sz, tx, ty, tz, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, ex, ey, ez &
@@ -276,6 +472,33 @@ contains
     end do
   end subroutine accumulate_point_charge_images_field
 
+  pure subroutine accumulate_point_charge_images_potential( &
+    q, sx, sy, sz, tx, ty, tz, soft2, axis1, axis2, shift_axis1, shift_axis2, nshift, phi &
+    )
+    real(dp), intent(in) :: q, sx, sy, sz, tx, ty, tz, soft2
+    integer(i32), intent(in) :: axis1, axis2, nshift
+    real(dp), intent(in) :: shift_axis1(:), shift_axis2(:)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: img_i, img_j
+    real(dp) :: sx_img, sy_img, sz_img
+
+    if (abs(q) <= tiny(1.0d0)) return
+    do img_i = 1_i32, nshift
+      do img_j = 1_i32, nshift
+        sx_img = sx
+        sy_img = sy
+        sz_img = sz
+        if (axis1 == 1_i32) sx_img = sx_img + shift_axis1(img_i)
+        if (axis1 == 2_i32) sy_img = sy_img + shift_axis1(img_i)
+        if (axis1 == 3_i32) sz_img = sz_img + shift_axis1(img_i)
+        if (axis2 == 1_i32) sx_img = sx_img + shift_axis2(img_j)
+        if (axis2 == 2_i32) sy_img = sy_img + shift_axis2(img_j)
+        if (axis2 == 3_i32) sz_img = sz_img + shift_axis2(img_j)
+        call accumulate_point_charge_potential(q, sx_img, sy_img, sz_img, tx, ty, tz, soft2, phi)
+      end do
+    end do
+  end subroutine accumulate_point_charge_images_potential
+
   pure subroutine accumulate_point_charge_shifted_field( &
     q, sx, sy, sz, shift1, shift2, axis1, axis2, tx, ty, tz, soft2, ex, ey, ez &
     )
@@ -295,6 +518,26 @@ contains
     if (axis2 == 3_i32) sz_img = sz_img + shift2
     call accumulate_point_charge_field(q, sx_img, sy_img, sz_img, tx, ty, tz, soft2, ex, ey, ez)
   end subroutine accumulate_point_charge_shifted_field
+
+  pure subroutine accumulate_point_charge_shifted_potential( &
+    q, sx, sy, sz, shift1, shift2, axis1, axis2, tx, ty, tz, soft2, phi &
+    )
+    real(dp), intent(in) :: q, sx, sy, sz, shift1, shift2, tx, ty, tz, soft2
+    integer(i32), intent(in) :: axis1, axis2
+    real(dp), intent(inout) :: phi
+    real(dp) :: sx_img, sy_img, sz_img
+
+    sx_img = sx
+    sy_img = sy
+    sz_img = sz
+    if (axis1 == 1_i32) sx_img = sx_img + shift1
+    if (axis1 == 2_i32) sy_img = sy_img + shift1
+    if (axis1 == 3_i32) sz_img = sz_img + shift1
+    if (axis2 == 1_i32) sx_img = sx_img + shift2
+    if (axis2 == 2_i32) sy_img = sy_img + shift2
+    if (axis2 == 3_i32) sz_img = sz_img + shift2
+    call accumulate_point_charge_potential(q, sx_img, sy_img, sz_img, tx, ty, tz, soft2, phi)
+  end subroutine accumulate_point_charge_shifted_potential
 
   integer(i32) function locate_target_leaf(plan, r)
     type(fmm_plan_type), intent(in) :: plan

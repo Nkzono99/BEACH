@@ -22,6 +22,7 @@ program main
   integer :: history_unit
   logical :: history_opened, resumed
   real(dp) :: perf_t0, perf_program_t0
+  real(dp), allocatable :: mesh_potential_v(:)
 
   call perf_configure_from_env()
   call perf_region_begin(perf_region_program_total, perf_program_t0)
@@ -40,13 +41,27 @@ program main
   end if
 
   if (history_opened) then
-    call run_absorption_insulator( &
-      mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-      inject_state=inject_state, mpi=mpi &
-      )
+    if (app%write_mesh_potential) then
+      call run_absorption_insulator( &
+        mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
+        inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v &
+        )
+    else
+      call run_absorption_insulator( &
+        mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
+        inject_state=inject_state, mpi=mpi &
+        )
+    end if
     close (history_unit)
   else
-    call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi)
+    if (app%write_mesh_potential) then
+      call run_absorption_insulator( &
+        mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
+        mesh_potential_v=mesh_potential_v &
+        )
+    else
+      call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi)
+    end if
   end if
 
   if (mpi_is_root(mpi)) call print_run_summary(mesh, stats)
@@ -55,7 +70,13 @@ program main
     call ensure_output_dir(app%output_dir)
     if (mpi_is_root(mpi)) then
       call perf_region_begin(perf_region_write_results, perf_t0)
-      call write_result_files(trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi))
+      if (allocated(mesh_potential_v)) then
+        call write_result_files( &
+          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), mesh_potential_v=mesh_potential_v &
+          )
+      else
+        call write_result_files(trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi))
+      end if
       call perf_region_end(perf_region_write_results, perf_t0)
     end if
     call perf_region_begin(perf_region_write_checkpoint, perf_t0)

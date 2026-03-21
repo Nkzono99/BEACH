@@ -12,6 +12,8 @@ module bem_coulomb_fmm_core
   public :: update_state
   public :: eval_points
   public :: eval_point
+  public :: eval_potential_points
+  public :: eval_potential_point
   public :: destroy_plan
   public :: destroy_state
 
@@ -59,6 +61,30 @@ module bem_coulomb_fmm_core
       real(dp), intent(in) :: r(3)
       real(dp), intent(out) :: e(3)
     end subroutine eval_point
+
+    !> 複数の評価点で電位を計算する。
+    !! @param[in] plan 構築済みの FMM 計画。
+    !! @param[inout] state 評価に使う FMM state。
+    !! @param[in] target_pos 評価点位置 `(3,m)` [m]。
+    !! @param[out] phi 電位 `(m)` [V]（`k_coulomb` は含まない）。
+    module subroutine eval_potential_points(plan, state, target_pos, phi)
+      type(fmm_plan_type), intent(in) :: plan
+      type(fmm_state_type), intent(inout) :: state
+      real(dp), intent(in) :: target_pos(:, :)
+      real(dp), intent(out) :: phi(:)
+    end subroutine eval_potential_points
+
+    !> 1 点で電位を計算する。
+    !! @param[in] plan 構築済みの FMM 計画。
+    !! @param[inout] state 評価に使う FMM state。
+    !! @param[in] r 評価点位置 `(x,y,z)` [m]。
+    !! @param[out] phi 電位 [V]（`k_coulomb` は含まない）。
+    module subroutine eval_potential_point(plan, state, r, phi)
+      type(fmm_plan_type), intent(in) :: plan
+      type(fmm_state_type), intent(inout) :: state
+      real(dp), intent(in) :: r(3)
+      real(dp), intent(out) :: phi
+    end subroutine eval_potential_point
 
     !> FMM 計画を解放する。
     !! @param[inout] plan 解放対象の計画。

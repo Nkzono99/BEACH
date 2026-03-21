@@ -3,8 +3,10 @@ program test_output_writer
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_mesh, only: init_mesh
-  use bem_output_writer, only: write_result_files
+  use bem_output_writer, only: write_result_files, compute_mesh_potential_fmm_core
   use bem_app_config, only: app_config, default_app_config
+  use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, &
+                                  destroy_plan, destroy_state
   use bem_types, only: mesh_type, sim_stats, bc_open, bc_periodic
   use test_support, only: &
     assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
@@ -67,6 +69,8 @@ program test_output_writer
   call assert_equal_i32(int(size(values), i32), 1_i32, 'periodic mesh_potential.csv row count mismatch')
   call assert_close_dp(values(1), expected_periodic_potential(), 1.0d-9, 'periodic potential mismatch')
 
+  call test_fmm_core_mesh_potential(mesh, expected_periodic_potential(), values)
+
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_free)
   call cleanup_output_dir(out_dir_periodic)
@@ -97,6 +101,41 @@ contains
     v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
     call init_mesh(mesh, v0, v1, v2)
   end subroutine build_single_element_mesh
+
+  subroutine test_fmm_core_mesh_potential(mesh, expected_phi, values)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: expected_phi
+    real(dp), allocatable, intent(out) :: values(:)
+    type(fmm_options_type) :: options
+    type(fmm_plan_type) :: plan
+    type(fmm_state_type) :: state
+
+    call initialize_fmm_options(options)
+    call build_plan(plan, mesh%centers, options)
+    call update_state(plan, state, mesh%q_elem)
+    allocate (values(mesh%nelem))
+    call compute_mesh_potential_fmm_core(mesh, plan, state, values)
+    call assert_close_dp(values(1), expected_phi, 1.0d-9, 'periodic FMM mesh potential mismatch')
+    call destroy_state(state)
+    call destroy_plan(plan)
+  end subroutine test_fmm_core_mesh_potential
+
+  subroutine initialize_fmm_options(options)
+    type(fmm_options_type), intent(out) :: options
+
+    options%theta = 0.55d0
+    options%leaf_max = 2_i32
+    options%order = 4_i32
+    options%softening = 0.0d0
+    options%use_periodic2 = .true.
+    options%periodic_axes = [1_i32, 2_i32]
+    options%periodic_len = [1.0d0, 1.0d0]
+    options%periodic_image_layers = 1_i32
+    options%periodic_far_correction = 'm2l_root_oracle'
+    options%periodic_ewald_layers = 1_i32
+    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
+    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+  end subroutine initialize_fmm_options
 
   !> `mesh_potential.csv` を読み込む。
   subroutine read_potential_values(out_dir, values)

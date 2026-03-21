@@ -4,7 +4,9 @@ module bem_output_writer
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_stats, sim_config, bc_periodic
   use bem_app_config_types, only: app_config
+  use bem_coulomb_fmm_core, only: eval_potential_points
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, reset_fmm_plan, initialize_fmm_state, reset_fmm_state
+  use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle
   use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data, &
                                             add_periodic2_exact_ewald_potential_correction_all_sources
   implicit none
@@ -16,6 +18,7 @@ module bem_output_writer
   public :: print_run_summary
   public :: write_result_files
   public :: ensure_output_dir
+  public :: compute_mesh_potential_fmm_core
 
 contains
 
@@ -79,17 +82,24 @@ contains
   !! @param[in] mesh 書き出し対象のメッシュ。
   !! @param[in] stats 書き出し対象の統計値。
   !! @param[in] cfg 出力設定を含むアプリ設定。
-  subroutine write_result_files(out_dir, mesh, stats, cfg, mpi_world_size)
+  subroutine write_result_files(out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in), optional :: mpi_world_size
+    real(dp), intent(in), optional :: mesh_potential_v(:)
 
     call ensure_output_dir(out_dir)
     call write_summary_file(out_dir, mesh, stats, mpi_world_size=mpi_world_size)
     call write_charges_file(out_dir, mesh)
-    if (cfg%write_mesh_potential) call write_mesh_potential_file(out_dir, mesh, cfg%sim)
+    if (cfg%write_mesh_potential) then
+      if (present(mesh_potential_v)) then
+        call write_mesh_potential_file(out_dir, mesh, cfg%sim, precomputed_potential_v=mesh_potential_v)
+      else
+        call write_mesh_potential_file(out_dir, mesh, cfg%sim)
+      end if
+    end if
     call write_mesh_file(out_dir, mesh)
     call write_mesh_sources_file(out_dir, mesh, cfg)
   end subroutine write_result_files
@@ -160,16 +170,22 @@ contains
   !! @param[in] out_dir 出力先ディレクトリ。
   !! @param[in] mesh 要素重心と電荷を含むメッシュ情報。
   !! @param[in] sim 場の境界条件を含む実行設定。
-  subroutine write_mesh_potential_file(out_dir, mesh, sim)
+  subroutine write_mesh_potential_file(out_dir, mesh, sim, precomputed_potential_v)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
+    real(dp), intent(in), optional :: precomputed_potential_v(:)
     character(len=1024) :: potential_path
     real(dp), allocatable :: potential_v(:)
     integer :: u, ios, i
 
     allocate (potential_v(mesh%nelem))
-    call compute_mesh_potential(mesh, sim, potential_v)
+    if (present(precomputed_potential_v)) then
+      if (size(precomputed_potential_v) /= mesh%nelem) error stop 'precomputed mesh potential size mismatch.'
+      potential_v = precomputed_potential_v
+    else
+      call compute_mesh_potential(mesh, sim, potential_v)
+    end if
 
     potential_path = trim(out_dir)//'/mesh_potential.csv'
     open (newunit=u, file=trim(potential_path), status='replace', action='write', iostat=ios)
@@ -252,6 +268,115 @@ contains
     end do
     close (u)
   end subroutine write_mesh_sources_file
+
+  !> 構築済み Coulomb FMM core を使って要素重心電位を計算する。
+  !! `periodic2 + m2l_root_oracle` では root local の定数 mode が 0 固定のため、
+  !! 1 点の exact 電位で gauge を補正する。
+  subroutine compute_mesh_potential_fmm_core(mesh, plan, state, potential_v)
+    type(mesh_type), intent(in) :: mesh
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(inout) :: state
+    real(dp), intent(out) :: potential_v(:)
+
+    real(dp) :: phi_anchor_exact, phi_offset, self_coeff, softening
+    integer(i32) :: i
+
+    if (size(potential_v) /= mesh%nelem) error stop 'mesh potential output array size mismatch.'
+    if (.not. plan%built .or. .not. state%ready) error stop 'FMM core is not ready for mesh potential output.'
+    if (plan%nsrc /= mesh%nelem) error stop 'FMM source count does not match mesh size.'
+
+    potential_v = 0.0d0
+    if (mesh%nelem <= 0) return
+
+    softening = plan%options%softening
+    if (softening < 0.0d0) error stop 'mesh potential output requires non-negative FMM softening.'
+
+    call eval_potential_points(plan, state, mesh%centers, potential_v)
+
+    if (use_periodic2_m2l_root_oracle(plan)) then
+      call compute_exact_potential_point_from_core(plan, state, mesh%centers(:, 1), phi_anchor_exact)
+      phi_offset = phi_anchor_exact - potential_v(1)
+      potential_v = potential_v + phi_offset
+    end if
+
+    if (softening <= 0.0d0) then
+      do i = 1, mesh%nelem
+        self_coeff = 2.0d0*sqrt(pi_dp)/max(mesh%h_elem(i), sqrt(tiny(1.0d0)))
+        potential_v(i) = potential_v(i) + self_coeff*mesh%q_elem(i)
+      end do
+    end if
+
+    potential_v = k_coulomb*potential_v
+  end subroutine compute_mesh_potential_fmm_core
+
+  !> FMM source/state を使って 1 点の exact 電位を O(N) で再評価する。
+  !! periodic2 では explicit image shell と oracle residual を含む。
+  subroutine compute_exact_potential_point_from_core(plan, state, target_in, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: target_in(3)
+    real(dp), intent(out) :: phi
+
+    integer(i32) :: j, img_i, img_j, axis1, axis2, nimg
+    real(dp) :: target(3), shifted(3), dx, dy, dz, r2, soft2, min_dist2
+
+    phi = 0.0d0
+    if (.not. plan%built .or. .not. state%ready) return
+
+    soft2 = plan%options%softening*plan%options%softening
+    min_dist2 = tiny(1.0d0)
+    target = target_in
+
+    if (.not. plan%options%use_periodic2) then
+      do j = 1, plan%nsrc
+        if (abs(state%src_q(j)) <= tiny(1.0d0)) cycle
+        dx = target(1) - plan%src_pos(1, j)
+        dy = target(2) - plan%src_pos(2, j)
+        dz = target(3) - plan%src_pos(3, j)
+        r2 = dx*dx + dy*dy + dz*dz + soft2
+        if (r2 <= min_dist2) cycle
+        phi = phi + state%src_q(j)/sqrt(r2)
+      end do
+      return
+    end if
+
+    axis1 = plan%options%periodic_axes(1)
+    axis2 = plan%options%periodic_axes(2)
+    nimg = max(0_i32, plan%options%periodic_image_layers)
+    target(axis1) = wrap_periodic_coord(target(axis1), plan%options%target_box_min(axis1), plan%options%periodic_len(1))
+    target(axis2) = wrap_periodic_coord(target(axis2), plan%options%target_box_min(axis2), plan%options%periodic_len(2))
+
+    do j = 1, plan%nsrc
+      if (abs(state%src_q(j)) <= tiny(1.0d0)) cycle
+      dx = target(1) - plan%src_pos(1, j)
+      dy = target(2) - plan%src_pos(2, j)
+      dz = target(3) - plan%src_pos(3, j)
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 > min_dist2) phi = phi + state%src_q(j)/sqrt(r2)
+    end do
+
+    do img_i = -nimg, nimg
+      do img_j = -nimg, nimg
+        if (img_i == 0_i32 .and. img_j == 0_i32) cycle
+        do j = 1, plan%nsrc
+          if (abs(state%src_q(j)) <= tiny(1.0d0)) cycle
+          shifted = plan%src_pos(:, j)
+          shifted(axis1) = shifted(axis1) + real(img_i, dp)*plan%options%periodic_len(1)
+          shifted(axis2) = shifted(axis2) + real(img_j, dp)*plan%options%periodic_len(2)
+          dx = target(1) - shifted(1)
+          dy = target(2) - shifted(2)
+          dz = target(3) - shifted(3)
+          r2 = dx*dx + dy*dy + dz*dz + soft2
+          if (r2 <= min_dist2) cycle
+          phi = phi + state%src_q(j)/sqrt(r2)
+        end do
+      end do
+    end do
+
+    if (use_periodic2_m2l_root_oracle(plan)) then
+      call add_periodic2_exact_ewald_potential_correction_all_sources(plan, state, target, phi)
+    end if
+  end subroutine compute_exact_potential_point_from_core
 
   !> 要素重心での電位を計算する。
   !! `periodic2` では explicit image shell に加えて、
