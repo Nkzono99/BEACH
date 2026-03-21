@@ -92,3 +92,8 @@ main = "test_coulomb_fmm_core.f90"
 name = "test_output_writer"
 source-dir = "tests/fortran"
 main = "test_output_writer.f90"
+
+[[test]]
+name = "test_periodic2_flat_oracle_diag"
+source-dir = "tests/fortran"
+main = "test_periodic2_flat_oracle_diag.f90"
