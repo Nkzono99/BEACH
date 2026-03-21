@@ -132,11 +132,15 @@ contains
     real(dp), intent(in) :: target(3)
     real(dp), intent(inout) :: e(3)
     integer(i32) :: idx
+    real(dp) :: total_charge
 
     if (.not. plan%periodic_ewald%ready) return
+    total_charge = 0.0d0
     do idx = 1_i32, plan%nsrc
+      total_charge = total_charge + state%src_q(idx)
       call add_periodic2_exact_ewald_correction_single_source(plan, state%src_q(idx), plan%src_pos(:, idx), target, e)
     end do
+    call add_exact_periodic2_charged_wall_total_charge_correction(plan, total_charge, target, e)
   end subroutine add_periodic2_exact_ewald_correction_all_sources
 
   !> 1 粒子分の periodic2 Ewald 補正を加算する。
@@ -214,6 +218,36 @@ contains
     e(plan%periodic_ewald%axis_free) = e(plan%periodic_ewald%axis_free) &
                                        + plan%periodic_ewald%k0_pref*q*erf(plan%periodic_ewald%alpha*dz)
   end subroutine add_exact_periodic2_k0_correction
+
+  !> 非中性 slab を charged-walls で閉じる total-charge 補正を加算する。
+  !! 壁の場は slab 内では相殺されるため、box 外評価にだけ効く。
+  subroutine add_exact_periodic2_charged_wall_total_charge_correction(plan, total_charge, target, e)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: total_charge, target(3)
+    real(dp), intent(inout) :: e(3)
+    integer(i32) :: axis_free
+    real(dp) :: z, z_low, z_high, pref, tol
+
+    if (abs(total_charge) <= tiny(1.0d0)) return
+    if (plan%periodic_ewald%cell_area <= 0.0d0) return
+
+    axis_free = plan%periodic_ewald%axis_free
+    if (axis_free <= 0_i32 .or. axis_free > 3_i32) return
+
+    z_low = plan%options%target_box_min(axis_free)
+    z_high = plan%options%target_box_max(axis_free)
+    if (z_high <= z_low) return
+
+    z = target(axis_free)
+    tol = 1.0d-12*max(1.0d0, max(abs(z_low), abs(z_high)))
+    pref = two_pi_dp*total_charge/plan%periodic_ewald%cell_area
+
+    if (z < z_low - tol) then
+      e(axis_free) = e(axis_free) + pref
+    else if (z > z_high + tol) then
+      e(axis_free) = e(axis_free) - pref
+    end if
+  end subroutine add_exact_periodic2_charged_wall_total_charge_correction
 
   subroutine add_screened_point_charge(q, target, source, alpha, e)
     real(dp), intent(in) :: q

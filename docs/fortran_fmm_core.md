@@ -532,7 +532,7 @@ $$
 q\,\frac{2\pi}{A}\operatorname{erf}(\alpha z)\,\mathbf e_f
 $$
 
-です。`k=0` のポテンシャルモードは定数ゲージとして扱われるため、field-only の実装では電場に落としたこの形だけを保持します。
+です。single-source の oracle では `k=0` の電場寄与としてこの形を保持します。
 
 #### 8.2.5 実装される補正
 
@@ -546,7 +546,24 @@ $$
 + \mathbf E_0
 $$
 
-です。`add_periodic2_exact_ewald_correction_all_sources` はこれを全ソースに対して総和します。
+です。`add_periodic2_exact_ewald_correction_all_sources` はまずこれを全ソースに対して総和します。
+
+#### 8.2.6 `charged_walls` total-charge 補正
+
+非中性 slab の `charged_walls` closure に合わせて、`add_periodic2_exact_ewald_correction_all_sources` は全ソース和のあとに total-charge 補正
+
+$$
+\mathbf E_{\mathrm{walls}}(z)
+=
+\begin{cases}
+\ \ \frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f & (z < z_{\mathrm{low}}), \\\\
+\ \ 0 & (z_{\mathrm{low}} \le z \le z_{\mathrm{high}}), \\\\
+-\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f & (z > z_{\mathrm{high}})
+\end{cases}
+$$
+
+を加えます。ここで `A = L_1 L_2` は周期セル面積、`Q_tot = \sum_j q_j`、`z_low/high` は `target_box_min/max` の非周期軸境界です。
+この項は 2 枚の補償壁の場に対応し、slab 内では厳密に打ち消し合うため、target box 内で build する root oracle や通常の粒子前進には影響しません。影響するのは target box 外へ落ちた direct fallback 評価だけです。
 
 `field_periodic_ewald_alpha` が `<= 0` の場合、`resolve_periodic2_ewald_alpha` は
 
@@ -565,12 +582,13 @@ $$
 \sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
 +
 \mathbf E_{\mathrm{corr}}
++
+\mathbf E_{\mathrm{walls}}
 $$
 
-で、`m2l_root_oracle` の build-time fit ではこの式を proxy/check 点で評価して root local 演算子を数値同定します。
-`periodic_root_operator` 側では定数 potential mode を使わないため、monopole column は 0 に固定されます。
+です。`m2l_root_oracle` の build-time fit では check points が target box 内にあるため `\mathbf E_{\mathrm{walls}} = 0` となり、teacher には single-source の `\mathbf E_{\mathrm{corr}}` だけが使われます。`periodic_root_operator` 側では定数 potential mode を使わないため、monopole column は 0 に固定されます。
 
-#### 8.2.6 `m2l_root_oracle`
+#### 8.2.7 `m2l_root_oracle`
 
 `m2l_root_oracle` は、この Ewald2P 補正を teacher にして root multipole から root local への演算子を proxy/check 点で fit するモードです。
 
