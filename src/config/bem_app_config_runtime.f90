@@ -145,6 +145,7 @@ contains
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
+                             effective_temperature_k(:), effective_drift_velocity(:, :), &
                              photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:)
     logical, allocatable :: apply_barrier_energy_shift(:)
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
@@ -169,6 +170,7 @@ contains
     allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
     allocate (effective_density_m3(cfg%n_particle_species), w_effective(cfg%n_particle_species))
+    allocate (effective_temperature_k(cfg%n_particle_species), effective_drift_velocity(3, cfg%n_particle_species))
     allocate (photo_emit_current_density(cfg%n_particle_species), photo_vmin_normal(cfg%n_particle_species))
     allocate (photo_normal_drift_speed(cfg%n_particle_species), apply_barrier_energy_shift(cfg%n_particle_species))
     counts_max = 0_i32
@@ -177,6 +179,8 @@ contains
     barrier_normal = 0.0d0
     effective_density_m3 = 0.0d0
     w_effective = 0.0d0
+    effective_temperature_k = 0.0d0
+    effective_drift_velocity = 0.0d0
     photo_emit_current_density = 0.0d0
     photo_vmin_normal = 0.0d0
     photo_normal_drift_speed = 0.0d0
@@ -186,9 +190,13 @@ contains
       select case (trim(lower(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
         w_effective(s) = cfg%particle_species(s)%w_particle
+        effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
+        effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
       case ('reservoir_face')
         effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
         w_effective(s) = cfg%particle_species(s)%w_particle
+        effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
+        effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
       case ('photo_raycast')
         photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
         photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
@@ -206,8 +214,28 @@ contains
           cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
         call resolve_reservoir_target_weight( &
           cfg%sim, cfg%particle_species(s), effective_density_m3(s), vmin_normal(s), &
+          effective_temperature_k(s), effective_drift_velocity(:, s), &
           cfg%particle_species(s)%target_macro_particles_per_batch, w_effective(s) &
           )
+      end if
+
+      if (sheath_ctx%has_local_reservoir_profile) then
+        s = int(sheath_ctx%ion_species)
+        effective_density_m3(s) = sheath_ctx%ion_number_density_m3
+        effective_temperature_k(s) = 0.0d0
+        call apply_normal_speed_override( &
+          cfg%particle_species(s)%drift_velocity, sheath_ctx%reference_inward_normal, &
+          sheath_ctx%ion_normal_speed_mps, effective_drift_velocity(:, s) &
+          )
+
+        if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
+            cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
+          call resolve_reservoir_target_weight( &
+            cfg%sim, cfg%particle_species(s), effective_density_m3(s), vmin_normal(s), &
+            effective_temperature_k(s), effective_drift_velocity(:, s), &
+            cfg%particle_species(s)%target_macro_particles_per_batch, w_effective(s) &
+            )
+        end if
       end if
 
       if (sheath_ctx%has_photo_species) then
@@ -242,6 +270,7 @@ contains
         call compute_macro_particles_for_species( &
           cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s), &
           batch_duration_scale=1.0d0/real(n_ranks, dp), number_density_override=effective_density_m3(s), &
+          temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
           w_particle_override=w_effective(s) &
           )
       case ('photo_raycast')
@@ -268,7 +297,8 @@ contains
           cfg%sim, cfg%particle_species(s), counts_max(s), &
           x_species(:, 1:counts_max(s), s), v_species(:, 1:counts_max(s), s), &
           barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
-          apply_barrier_energy_shift=apply_barrier_energy_shift(s) &
+          apply_barrier_energy_shift=apply_barrier_energy_shift(s), &
+          temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
           )
         counts_actual(s) = counts_max(s)
         w_species(1:counts_actual(s), s) = w_effective(s)
@@ -338,7 +368,10 @@ contains
   !! @param[in] barrier_normal_energy reservoir_face 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] vmin_normal reservoir_face 法線速度の下限 [m/s]。
   !! @param[in] apply_barrier_energy_shift reservoir_face 法線速度へ障壁エネルギー変換を適用するか。
-  subroutine sample_species_state(sim, spec, n, x, v, barrier_normal_energy, vmin_normal, apply_barrier_energy_shift)
+  subroutine sample_species_state( &
+    sim, spec, n, x, v, barrier_normal_energy, vmin_normal, apply_barrier_energy_shift, &
+    temperature_k_override, drift_velocity_override &
+    )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     integer(i32), intent(in) :: n
@@ -347,42 +380,49 @@ contains
     real(dp), intent(in), optional :: barrier_normal_energy
     real(dp), intent(in), optional :: vmin_normal
     logical, intent(in), optional :: apply_barrier_energy_shift
+    real(dp), intent(in), optional :: temperature_k_override
+    real(dp), intent(in), optional :: drift_velocity_override(3)
     logical :: apply_shift
+    real(dp) :: temperature_k_local, drift_velocity_local(3)
 
     if (n <= 0_i32) return
     apply_shift = .true.
     if (present(apply_barrier_energy_shift)) apply_shift = apply_barrier_energy_shift
+    temperature_k_local = species_temperature_k(spec)
+    if (present(temperature_k_override)) temperature_k_local = temperature_k_override
+    drift_velocity_local = spec%drift_velocity
+    if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     select case (trim(lower(spec%source_mode)))
     case ('volume_seed')
       call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
       call sample_shifted_maxwell_velocities( &
-        spec%drift_velocity, spec%m_particle, v, temperature_k=species_temperature_k(spec) &
+        drift_velocity_local, spec%m_particle, v, temperature_k=temperature_k_local &
         )
     case ('reservoir_face')
       if (present(barrier_normal_energy) .and. present(vmin_normal)) then
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
-          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
           barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
           apply_barrier_energy_shift=apply_shift &
           )
       else if (present(barrier_normal_energy)) then
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
-          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
           barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, &
           apply_barrier_energy_shift=apply_shift &
           )
       else if (present(vmin_normal)) then
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
-          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
           vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
           )
       else
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, spec%drift_velocity, &
-          spec%m_particle, species_temperature_k(spec), sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
+          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          spec%m_particle, temperature_k_local, sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
           apply_barrier_energy_shift=apply_shift &
           )
       end if
@@ -473,8 +513,11 @@ contains
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[in] number_density_override 数密度の上書き値 [1/m^3]。
   !! @param[in] w_particle_override マクロ粒子重みの上書き値。
+  !! @param[in] temperature_k_override 温度の上書き値 [K]。
+  !! @param[in] drift_velocity_override ドリフト速度の上書き値 [m/s]。
   subroutine compute_macro_particles_for_species( &
-    sim, spec, residual, count, vmin_normal, batch_duration_scale, number_density_override, w_particle_override &
+    sim, spec, residual, count, vmin_normal, batch_duration_scale, number_density_override, w_particle_override, &
+    temperature_k_override, drift_velocity_override &
     )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -484,24 +527,30 @@ contains
     real(dp), intent(in), optional :: batch_duration_scale
     real(dp), intent(in), optional :: number_density_override
     real(dp), intent(in), optional :: w_particle_override
+    real(dp), intent(in), optional :: temperature_k_override
+    real(dp), intent(in), optional :: drift_velocity_override(3)
 
-    real(dp) :: number_density_m3, effective_batch_duration, w_particle
+    real(dp) :: number_density_m3, effective_batch_duration, w_particle, temperature_k_local, drift_velocity_local(3)
 
     number_density_m3 = species_number_density_m3(spec)
     if (present(number_density_override)) number_density_m3 = number_density_override
     w_particle = spec%w_particle
     if (present(w_particle_override)) w_particle = w_particle_override
+    temperature_k_local = species_temperature_k(spec)
+    if (present(temperature_k_override)) temperature_k_local = temperature_k_override
+    drift_velocity_local = spec%drift_velocity
+    if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     effective_batch_duration = sim%batch_duration
     if (present(batch_duration_scale)) effective_batch_duration = sim%batch_duration*batch_duration_scale
     if (present(vmin_normal)) then
       call compute_macro_particles_for_batch( &
-        number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
+        number_density_m3, temperature_k_local, spec%m_particle, drift_velocity_local, sim%box_min, sim%box_max, &
         spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, count, &
         vmin_normal=vmin_normal &
         )
     else
       call compute_macro_particles_for_batch( &
-        number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, sim%box_min, sim%box_max, &
+        number_density_m3, temperature_k_local, spec%m_particle, drift_velocity_local, sim%box_min, sim%box_max, &
         spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, count &
         )
     end if
@@ -512,14 +561,16 @@ contains
   !! @param[in] spec reservoir_face 粒子種設定。
   !! @param[in] number_density_m3 実効数密度 [1/m^3]。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]。
+  !! @param[in] temperature_k 実効温度 [K]。
+  !! @param[in] drift_velocity 実効ドリフト速度 [m/s]。
   !! @param[in] target_macro_particles_per_batch 目標マクロ粒子数。
   !! @param[out] w_particle 解決したマクロ粒子重み。
   subroutine resolve_reservoir_target_weight( &
-    sim, spec, number_density_m3, vmin_normal, target_macro_particles_per_batch, w_particle &
+    sim, spec, number_density_m3, vmin_normal, temperature_k, drift_velocity, target_macro_particles_per_batch, w_particle &
     )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
-    real(dp), intent(in) :: number_density_m3, vmin_normal
+    real(dp), intent(in) :: number_density_m3, vmin_normal, temperature_k, drift_velocity(3)
     integer(i32), intent(in) :: target_macro_particles_per_batch
     real(dp), intent(out) :: w_particle
 
@@ -530,7 +581,7 @@ contains
     end if
     call resolve_inward_normal(spec%inject_face, inward_normal)
     gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
-               number_density_m3, species_temperature_k(spec), spec%m_particle, spec%drift_velocity, inward_normal, &
+               number_density_m3, temperature_k, spec%m_particle, drift_velocity, inward_normal, &
                vmin_normal=vmin_normal &
                )
     area = compute_face_area_from_bounds(spec%inject_face, spec%pos_low, spec%pos_high)
@@ -539,6 +590,13 @@ contains
       error stop 'sheath-adjusted target_macro_particles_per_batch produced invalid w_particle.'
     end if
   end subroutine resolve_reservoir_target_weight
+
+  subroutine apply_normal_speed_override(drift_velocity, inward_normal, normal_speed, drift_velocity_out)
+    real(dp), intent(in) :: drift_velocity(3), inward_normal(3), normal_speed
+    real(dp), intent(out) :: drift_velocity_out(3)
+
+    drift_velocity_out = drift_velocity - dot_product(drift_velocity, inward_normal)*inward_normal + normal_speed*inward_normal
+  end subroutine apply_normal_speed_override
 
   !> reservoir_face 注入に対する法線速度補正パラメータを計算する。
   !! @param[in] sim シミュレーション設定。

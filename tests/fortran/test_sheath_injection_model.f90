@@ -31,11 +31,17 @@ program test_sheath_injection_model
     )
 
   call configure_zhao_fixture(cfg, 60.0d0)
-  cfg%sim%sheath_reference_coordinate = 0.02d0
+  cfg%sim%sheath_reference_coordinate = 0.0d0
   cfg%sim%has_sheath_reference_coordinate = .true.
   call resolve_sheath_injection_context(cfg, ctx)
-  call assert_close_dp(ctx%reference_coordinate, 0.02d0, 1.0d-12, 'explicit sheath reference coordinate mismatch')
-  call assert_close_dp(ctx%phi0_v, 2.9712182827319435d0, 5.0d-6, 'explicit reference Type-A phi0 mismatch')
+  call assert_close_dp(ctx%reference_coordinate, 0.0d0, 1.0d-12, 'explicit sheath reference coordinate mismatch')
+  call assert_true(ctx%has_local_reservoir_profile, 'explicit reference should enable local reservoir profile')
+  call assert_close_dp(ctx%reservoir_plane_distance_m, 4.0d0, 1.0d-12, 'Type-A reservoir plane distance mismatch')
+  call assert_close_dp(ctx%reservoir_phi_v, -4.047310136961665d-2, 5.0d-8, 'Type-A local phi mismatch')
+  call assert_close_dp(ctx%electron_number_density_m3, 7.792887827459829d6, 5.0d1, 'Type-A local electron source density mismatch')
+  call assert_close_dp(ctx%electron_vmin_normal, 5.2261201693750557d5, 5.0d-1, 'Type-A local electron cutoff mismatch')
+  call assert_close_dp(ctx%ion_number_density_m3, 8.699794680592455d6, 5.0d1, 'Type-A local ion density mismatch')
+  call assert_close_dp(ctx%ion_normal_speed_mps, 4.053094542466367d5, 5.0d-1, 'Type-A local ion speed mismatch')
 
   call configure_zhao_fixture(cfg, 10.0d0)
   call resolve_sheath_injection_context(cfg, ctx)
@@ -43,6 +49,17 @@ program test_sheath_injection_model
   call assert_close_dp(ctx%phi0_v, -4.798298347150015d0, 5.0d-6, 'Type-C phi0 mismatch')
   call assert_close_dp(ctx%n_swe_inf_m3, 8.168603119546532d6, 5.0d1, 'Type-C n_swe_inf mismatch')
   call assert_true(ctx%photo_emit_current_density_a_m2 > 0.0d0, 'Type-C photo current should be positive')
+
+  call configure_zhao_fixture(cfg, 10.0d0)
+  cfg%sim%sheath_reference_coordinate = 0.0d0
+  cfg%sim%has_sheath_reference_coordinate = .true.
+  call resolve_sheath_injection_context(cfg, ctx)
+  call assert_true(ctx%has_local_reservoir_profile, 'Type-C explicit reference should enable local reservoir profile')
+  call assert_close_dp(ctx%reservoir_phi_v, -3.43310064584225d0, 1.0d-4, 'Type-C local phi mismatch')
+  call assert_close_dp(ctx%electron_number_density_m3, 6.136203306856032d6, 1.0d2, 'Type-C local electron source density mismatch')
+  call assert_close_dp(ctx%electron_vmin_normal, 0.0d0, 1.0d-12, 'Type-C reflected electrons should fill the low-speed range')
+  call assert_close_dp(ctx%ion_number_density_m3, 8.296687096334287d6, 2.0d1, 'Type-C local ion density mismatch')
+  call assert_close_dp(ctx%ion_normal_speed_mps, 8.521786009033145d4, 1.0d-1, 'Type-C local ion speed mismatch')
 
   call configure_no_photo_fixture(cfg)
   call resolve_sheath_injection_context(cfg, ctx)

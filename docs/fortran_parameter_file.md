@@ -231,6 +231,7 @@ history_stride = 1
     - 最初の負電荷 `photo_raycast` species を photoelectron
   - electron reservoir species は、流束計算に使う有効密度が Zhao 解の `n_swe_inf` へ置き換わります。
   - electron reservoir species の法線速度分布は Zhao の障壁に応じた `vmin_normal` 付きになります。
+  - `sheath_reference_coordinate` を明示した場合は、指定平面から reservoir 境界までの Zhao 局所状態を再構成し、electron reservoir は局所 `phi(z)` に応じた有効密度と cutoff、ion reservoir は局所密度・局所法線速度・冷たいビーム近似へ更新されます。
   - photoelectron `photo_raycast` species は、`emit_current_density_a_m2` が Zhao の自由光電子電流へ上書きされ、`normal_drift_speed` は 0 として扱います。
 - `floating_no_photo`
   - 光電子を含まない簡易 floating sheath です。
@@ -241,7 +242,8 @@ history_stride = 1
 
 - Zhao 系モデルは `temperature_ev`/`temperature_k`, `number_density_*`, `drift_velocity`, `m_particle`, `q_particle` といった既存 species パラメータを背景プラズマ条件として再利用します。
 - `sheath_reference_coordinate` を指定すると、共有 `inject_face` の法線軸に沿ってその座標を基準平面に使います。たとえば `inject_face = "z_high"` かつ `sheath_reference_coordinate = 0.02` なら、平面 `z = 0.02` を `z_sheath = 0` とみなします。未指定時は `inject_face` が指す box 境界面座標を使います。
-- 現在の Fortran 実装は Zhao / floating の空間分布 `phi(z)` 自体はまだサンプリングしておらず、この基準平面はシース座標系の原点定義として保持されます。
+- `sheath_reference_coordinate` を未指定のまま Zhao を使う場合は、従来どおり共有 cutoff ベースの補正のみを適用します。局所 VDF の変形を反映したい場合は基準平面を明示してください。
+- 現在の Fortran 実装では、Type-A の局所プロファイルは 1 次積分から、Type-B/C の局所プロファイルは Zhao の単調分枝を 1 次積分で再構成して評価します。Python 実装の BVP 解と十分近い値を使いますが、完全に同一の離散化ではありません。
 - `zhao_auto` は `alpha < 20 deg` で `C -> A -> B`、それ以外では `A -> B -> C` の順に分枝解を試みます。
 
 ### 3.3 `[mesh]`

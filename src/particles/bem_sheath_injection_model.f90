@@ -11,14 +11,38 @@ module bem_sheath_injection_model
   implicit none
 
   real(dp), parameter :: pi = 3.1415926535897932384626433832795d0
+  real(dp), parameter :: eps0 = 8.8541878128d-12
   real(dp), parameter :: qe = 1.602176634d-19
   real(dp), parameter :: nonlinear_tol = 1.0d-5
   integer, parameter :: nonlinear_max_iter = 60
   integer, parameter :: nonlinear_max_backtrack = 20
+  real(dp), parameter :: zhao_profile_phi_tol_hat = 1.0d-3
+  real(dp), parameter :: zhao_type_a_phi_m_eps_hat = 1.0d-5
+  integer, parameter :: zhao_profile_grid = 8000
+
+  type :: zhao_local_state_type
+    character(len=1) :: branch = ' '
+    character(len=16) :: side = 'monotonic'
+    real(dp) :: z_m_m = 0.0d0
+    real(dp) :: phi_hat = 0.0d0
+    real(dp) :: phi_v = 0.0d0
+    real(dp) :: n_swi_m3 = 0.0d0
+    real(dp) :: n_swe_f_m3 = 0.0d0
+    real(dp) :: n_swe_r_m3 = 0.0d0
+    real(dp) :: n_phe_f_m3 = 0.0d0
+    real(dp) :: n_phe_c_m3 = 0.0d0
+    real(dp) :: electron_source_density_m3 = 0.0d0
+    real(dp) :: vcut_swe_mps = 0.0d0
+    real(dp) :: vcut_phe_mps = 0.0d0
+    real(dp) :: v_i_mps = 0.0d0
+    logical :: swe_reflected_active = .false.
+    logical :: phe_captured_active = .false.
+  end type zhao_local_state_type
 
   type :: sheath_injection_context
     logical :: enabled = .false.
     logical :: has_photo_species = .false.
+    logical :: has_local_reservoir_profile = .false.
     character(len=32) :: model = 'none'
     character(len=1) :: branch = ' '
     integer(i32) :: electron_species = 0_i32
@@ -28,11 +52,15 @@ module bem_sheath_injection_model
     integer(i32) :: reference_axis = 0_i32
     real(dp) :: reference_coordinate = 0.0d0
     real(dp) :: reference_inward_normal(3) = 0.0d0
+    real(dp) :: reservoir_plane_distance_m = 0.0d0
+    real(dp) :: reservoir_phi_v = 0.0d0
     real(dp) :: phi0_v = 0.0d0
     real(dp) :: phi_m_v = 0.0d0
     real(dp) :: n_swe_inf_m3 = 0.0d0
     real(dp) :: electron_number_density_m3 = 0.0d0
     real(dp) :: electron_vmin_normal = 0.0d0
+    real(dp) :: ion_number_density_m3 = 0.0d0
+    real(dp) :: ion_normal_speed_mps = 0.0d0
     real(dp) :: photo_emit_current_density_a_m2 = 0.0d0
     real(dp) :: photo_vmin_normal = 0.0d0
   end type sheath_injection_context
@@ -65,6 +93,7 @@ module bem_sheath_injection_model
     real(dp) :: mach = 0.0d0
     real(dp) :: u = 0.0d0
     real(dp) :: tau = 0.0d0
+    real(dp) :: lambda_d_phe_ref_m = 0.0d0
   end type zhao_params_type
 
 contains
@@ -83,6 +112,7 @@ contains
     integer :: reference_axis
     real(dp) :: reference_coordinate, reference_inward_normal(3)
     type(zhao_params_type) :: params
+    type(zhao_local_state_type) :: local_state
     character(len=32) :: model
     character(len=1) :: branch
 
@@ -182,6 +212,22 @@ contains
         ctx%photo_emit_current_density_a_m2 = abs(spec_p%q_particle)* &
                                               n_phe0_m3*params%v_phe_th_mps/(2.0d0*sqrt(pi))
       end select
+
+      if (cfg%sim%has_sheath_reference_coordinate) then
+        call sample_zhao_reservoir_state( &
+          cfg%sim, spec_e, params, branch, phi0_v, phi_m_v, n_swe_inf_m3, ctx, local_state &
+          )
+        ctx%has_local_reservoir_profile = .true.
+        ctx%reservoir_phi_v = local_state%phi_v
+        ctx%electron_number_density_m3 = local_state%electron_source_density_m3
+        if (local_state%swe_reflected_active) then
+          ctx%electron_vmin_normal = 0.0d0
+        else
+          ctx%electron_vmin_normal = local_state%vcut_swe_mps
+        end if
+        ctx%ion_number_density_m3 = local_state%n_swi_m3
+        ctx%ion_normal_speed_mps = local_state%v_i_mps
+      end if
     case default
       error stop 'Unknown sim.sheath_injection_model in runtime.'
     end select
@@ -275,6 +321,359 @@ contains
               ) - gamma_i
   end function no_photo_current_balance
 
+  subroutine sample_zhao_reservoir_state(sim, spec_e, p, branch, phi0_v, phi_m_v, n_swe_inf_m3, ctx, state)
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec_e
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: phi0_v, phi_m_v, n_swe_inf_m3
+    type(sheath_injection_context), intent(inout) :: ctx
+    type(zhao_local_state_type), intent(out) :: state
+
+    integer :: axis
+    real(dp) :: boundary_value, distance_m, axis_sign
+
+    call resolve_inject_face(sim%box_min, sim%box_max, spec_e%inject_face, axis, boundary_value)
+    axis_sign = -ctx%reference_inward_normal(axis)
+    distance_m = (boundary_value - ctx%reference_coordinate)*axis_sign
+    if (distance_m < -1.0d-12) then
+      error stop 'sheath_reference_coordinate must lie on or inside the shared reservoir_face boundary.'
+    end if
+    ctx%reservoir_plane_distance_m = max(0.0d0, distance_m)
+    call sample_zhao_state_at_z(p, branch, phi0_v, phi_m_v, n_swe_inf_m3, ctx%reservoir_plane_distance_m, state)
+  end subroutine sample_zhao_reservoir_state
+
+  subroutine sample_zhao_state_at_z(p, branch, phi0_v, phi_m_v, n_swe_inf_m3, z_m, state)
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: phi0_v, phi_m_v, n_swe_inf_m3, z_m
+    type(zhao_local_state_type), intent(out) :: state
+
+    real(dp) :: phi0_hat, phi_m_hat, phi_hat, z_m_hat
+    character(len=16) :: side
+
+    phi0_hat = phi0_v/p%t_phe_ev
+    phi_m_hat = phi_m_v/p%t_phe_ev
+    if (z_m <= 0.0d0) then
+      phi_hat = phi0_hat
+      if (branch == 'A') then
+        side = 'lower'
+      else
+        side = 'monotonic'
+      end if
+      z_m_hat = 0.0d0
+    else
+      select case (branch)
+      case ('A')
+        call sample_type_a_phi_hat_at_z(p, phi0_hat, phi_m_hat, n_swe_inf_m3/p%n_phe_ref_m3, z_m, phi_hat, side, z_m_hat)
+      case ('B', 'C')
+        call sample_monotonic_phi_hat_at_z( &
+          p, branch, phi0_hat, phi_m_hat, n_swe_inf_m3/p%n_phe_ref_m3, z_m, phi_hat, side, z_m_hat &
+          )
+      case default
+        error stop 'Unknown Zhao branch in local state reconstruction.'
+      end select
+    end if
+
+    call evaluate_zhao_state_from_phi_hat( &
+      p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_m3, z_m_hat*p%lambda_d_phe_ref_m, state &
+      )
+  end subroutine sample_zhao_state_at_z
+
+  subroutine sample_type_a_phi_hat_at_z(p, phi0_hat, phi_m_hat, n_swe_inf_hat, z_m, phi_hat, side, z_m_hat)
+    type(zhao_params_type), intent(in) :: p
+    real(dp), intent(in) :: phi0_hat, phi_m_hat, n_swe_inf_hat, z_m
+    real(dp), intent(out) :: phi_hat, z_m_hat
+    character(len=16), intent(out) :: side
+
+    integer :: i, ngrid_lower, ngrid_upper
+    real(dp) :: z_hat_target, phi_m_eps_hat, phi_end_hat, x
+    real(dp), allocatable :: phi_lower_asc(:), s_lower_asc(:), phi_upper_asc(:), s_upper_asc(:)
+    real(dp), allocatable :: z_lower_desc(:), phi_lower_desc(:), z_upper_asc(:)
+
+    z_hat_target = z_m/p%lambda_d_phe_ref_m
+    phi_m_eps_hat = min(zhao_type_a_phi_m_eps_hat, 5.0d-2*max(1.0d-8, abs(phi_m_hat)))
+    phi_m_eps_hat = max(phi_m_eps_hat, 1.0d-8)
+    phi_end_hat = -abs(zhao_profile_phi_tol_hat)
+    if (phi_end_hat <= phi_m_hat) phi_end_hat = 0.5d0*phi_m_hat
+
+    ngrid_upper = max(2000, zhao_profile_grid)
+    ngrid_lower = max(ngrid_upper/2, 1500)
+    allocate (phi_lower_asc(ngrid_lower), s_lower_asc(ngrid_lower))
+    allocate (phi_upper_asc(ngrid_upper), s_upper_asc(ngrid_upper), z_upper_asc(ngrid_upper))
+    allocate (z_lower_desc(ngrid_lower), phi_lower_desc(ngrid_lower))
+
+    do i = 1, ngrid_lower
+      x = real(i - 1, dp)/real(ngrid_lower - 1, dp)
+      phi_lower_asc(i) = (phi_m_hat + phi_m_eps_hat) + (phi0_hat - (phi_m_hat + phi_m_eps_hat))*x*x
+    end do
+    call build_type_a_branch_from_minimum(p, phi_lower_asc, phi0_hat, n_swe_inf_hat, phi_m_hat, 'lower', s_lower_asc)
+    z_m_hat = s_lower_asc(ngrid_lower)
+    do i = 1, ngrid_lower
+      phi_lower_desc(i) = phi_lower_asc(ngrid_lower - i + 1)
+      z_lower_desc(i) = z_m_hat - s_lower_asc(ngrid_lower - i + 1)
+    end do
+
+    do i = 1, ngrid_upper
+      x = real(i - 1, dp)/real(ngrid_upper - 1, dp)
+      phi_upper_asc(i) = (phi_m_hat + phi_m_eps_hat) + (phi_end_hat - (phi_m_hat + phi_m_eps_hat))*(2.0d0*x - x*x)
+    end do
+    call build_type_a_branch_from_minimum(p, phi_upper_asc, phi0_hat, n_swe_inf_hat, phi_m_hat, 'upper', s_upper_asc)
+    z_upper_asc = z_m_hat + s_upper_asc
+
+    if (z_hat_target <= z_m_hat) then
+      side = 'lower'
+      phi_hat = interpolate_profile_value(z_lower_desc, phi_lower_desc, z_hat_target)
+    else if (z_hat_target <= z_upper_asc(ngrid_upper)) then
+      side = 'upper'
+      phi_hat = interpolate_profile_value(z_upper_asc, phi_upper_asc, z_hat_target)
+    else
+      side = 'upper'
+      phi_hat = 0.0d0
+    end if
+  end subroutine sample_type_a_phi_hat_at_z
+
+  subroutine sample_monotonic_phi_hat_at_z(p, branch, phi0_hat, phi_m_hat, n_swe_inf_hat, z_m, phi_hat, side, z_m_hat)
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: phi0_hat, phi_m_hat, n_swe_inf_hat, z_m
+    real(dp), intent(out) :: phi_hat, z_m_hat
+    character(len=16), intent(out) :: side
+
+    integer :: i, ngrid
+    real(dp) :: z_hat_target, x, phi_end_hat, dphi, integral
+    real(dp), allocatable :: phi_nodes(:), rho_nodes(:), e2_nodes(:), z_nodes(:), cumulative(:)
+
+    z_hat_target = z_m/p%lambda_d_phe_ref_m
+    z_m_hat = 0.0d0
+    side = 'monotonic'
+    ngrid = max(2000, zhao_profile_grid)
+    allocate (phi_nodes(ngrid), rho_nodes(ngrid), e2_nodes(ngrid), z_nodes(ngrid))
+
+    select case (branch)
+    case ('B')
+      phi_end_hat = abs(zhao_profile_phi_tol_hat)
+      do i = 1, ngrid
+        x = real(i - 1, dp)/real(ngrid - 1, dp)
+        phi_nodes(i) = phi0_hat + (phi_end_hat - phi0_hat)*(2.0d0*x - x*x)
+      end do
+      do i = 1, ngrid
+        call evaluate_zhao_rho_hat(p, branch, side, phi_nodes(i), phi0_hat, phi_m_hat, n_swe_inf_hat, rho_nodes(i))
+      end do
+      e2_nodes(ngrid) = 0.0d0
+      integral = 0.0d0
+      do i = ngrid - 1, 1, -1
+        dphi = phi_nodes(i + 1) - phi_nodes(i)
+        integral = integral + 0.5d0*(rho_nodes(i) + rho_nodes(i + 1))*dphi
+        e2_nodes(i) = max(2.0d0*integral, 0.0d0)
+      end do
+    case ('C')
+      phi_end_hat = -abs(zhao_profile_phi_tol_hat)
+      allocate (cumulative(ngrid))
+      do i = 1, ngrid
+        x = real(i - 1, dp)/real(ngrid - 1, dp)
+        phi_nodes(i) = phi0_hat + (phi_end_hat - phi0_hat)*(2.0d0*x - x*x)
+      end do
+      do i = 1, ngrid
+        call evaluate_zhao_rho_hat(p, branch, side, phi_nodes(i), phi0_hat, phi_m_hat, n_swe_inf_hat, rho_nodes(i))
+      end do
+      cumulative(1) = 0.0d0
+      do i = 2, ngrid
+        dphi = phi_nodes(i) - phi_nodes(i - 1)
+        cumulative(i) = cumulative(i - 1) + 0.5d0*(rho_nodes(i - 1) + rho_nodes(i))*dphi
+      end do
+      do i = 1, ngrid
+        e2_nodes(i) = max(2.0d0*(cumulative(ngrid) - cumulative(i)), 0.0d0)
+      end do
+      deallocate (cumulative)
+    case default
+      error stop 'Unknown monotonic Zhao branch.'
+    end select
+
+    z_nodes(1) = 0.0d0
+    do i = 2, ngrid
+      dphi = abs(phi_nodes(i) - phi_nodes(i - 1))
+      z_nodes(i) = z_nodes(i - 1) + dphi/sqrt(max(0.5d0*(e2_nodes(i - 1) + e2_nodes(i)), 1.0d-14))
+    end do
+
+    if (z_hat_target <= z_nodes(ngrid)) then
+      phi_hat = interpolate_profile_value(z_nodes, phi_nodes, z_hat_target)
+    else
+      phi_hat = 0.0d0
+    end if
+  end subroutine sample_monotonic_phi_hat_at_z
+
+  subroutine build_type_a_branch_from_minimum(p, phi_nodes_asc, phi0_hat, n_swe_inf_hat, phi_m_hat, side, s_nodes)
+    type(zhao_params_type), intent(in) :: p
+    real(dp), intent(in) :: phi_nodes_asc(:), phi0_hat, n_swe_inf_hat, phi_m_hat
+    character(len=*), intent(in) :: side
+    real(dp), intent(out) :: s_nodes(:)
+
+    integer :: i
+    real(dp) :: rho_m_hat, dphi0, integral_node, e2_mid, rho_m_neg, dphi
+    real(dp), allocatable :: rho_nodes(:)
+
+    if (size(phi_nodes_asc) /= size(s_nodes)) error stop 'Type-A profile work array size mismatch.'
+    allocate (rho_nodes(size(phi_nodes_asc)))
+    do i = 1, size(phi_nodes_asc)
+      call evaluate_zhao_rho_hat(p, 'A', side, phi_nodes_asc(i), phi0_hat, phi_m_hat, n_swe_inf_hat, rho_nodes(i))
+    end do
+    call evaluate_zhao_rho_hat(p, 'A', side, phi_m_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, rho_m_hat)
+
+    rho_m_neg = max(-rho_m_hat, 1.0d-14)
+    dphi0 = phi_nodes_asc(1) - phi_m_hat
+    integral_node = 0.5d0*(rho_m_hat + rho_nodes(1))*dphi0
+    s_nodes(1) = sqrt(max(0.0d0, 2.0d0*dphi0/rho_m_neg))
+
+    do i = 2, size(phi_nodes_asc)
+      dphi = phi_nodes_asc(i) - phi_nodes_asc(i - 1)
+      integral_node = integral_node + 0.5d0*(rho_nodes(i - 1) + rho_nodes(i))*dphi
+      e2_mid = max(-2.0d0*(integral_node - 0.25d0*(rho_nodes(i - 1) + rho_nodes(i))*dphi), 1.0d-14)
+      s_nodes(i) = s_nodes(i - 1) + dphi/sqrt(e2_mid)
+    end do
+  end subroutine build_type_a_branch_from_minimum
+
+  subroutine evaluate_zhao_state_from_phi_hat(p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_m3, z_m_m, state)
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    character(len=*), intent(in) :: side
+    real(dp), intent(in) :: phi_hat, phi0_hat, phi_m_hat, n_swe_inf_m3, z_m_m
+    type(zhao_local_state_type), intent(out) :: state
+
+    real(dp) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
+    real(dp) :: arg_ion, a_swe, a_phe
+
+    call evaluate_zhao_density_hat( &
+      p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_m3/p%n_phe_ref_m3, &
+      n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat &
+      )
+
+    arg_ion = 1.0d0 - 2.0d0*phi_hat/(p%tau*p%mach*p%mach)
+    if (arg_ion <= 0.0d0) error stop 'Zhao local ion energy argument became non-positive.'
+
+    select case (branch)
+    case ('A')
+      a_swe = sqrt(max(0.0d0, (phi_hat - phi_m_hat)/p%tau))
+      a_phe = sqrt(max(0.0d0, phi_hat - phi_m_hat))
+      state%swe_reflected_active = trim(side) == 'upper'
+      state%phe_captured_active = trim(side) == 'lower'
+    case ('B')
+      a_swe = 0.0d0
+      a_phe = sqrt(max(0.0d0, phi_hat))
+      state%swe_reflected_active = .false.
+      state%phe_captured_active = .true.
+    case ('C')
+      a_swe = sqrt(max(0.0d0, (phi_hat - phi0_hat)/p%tau))
+      a_phe = sqrt(max(0.0d0, phi_hat - phi0_hat))
+      state%swe_reflected_active = .true.
+      state%phe_captured_active = .false.
+    case default
+      error stop 'Unknown Zhao branch in local state evaluation.'
+    end select
+
+    state%branch = branch
+    state%side = side
+    state%z_m_m = z_m_m
+    state%phi_hat = phi_hat
+    state%phi_v = phi_hat*p%t_phe_ev
+    state%n_swi_m3 = n_swi_hat*p%n_phe_ref_m3
+    state%n_swe_f_m3 = n_swe_f_hat*p%n_phe_ref_m3
+    state%n_swe_r_m3 = n_swe_r_hat*p%n_phe_ref_m3
+    state%n_phe_f_m3 = n_phe_f_hat*p%n_phe_ref_m3
+    state%n_phe_c_m3 = n_phe_c_hat*p%n_phe_ref_m3
+    state%electron_source_density_m3 = n_swe_inf_m3*exp(phi_hat/p%tau)
+    state%vcut_swe_mps = a_swe*p%v_swe_th_mps
+    state%vcut_phe_mps = a_phe*p%v_phe_th_mps
+    state%v_i_mps = p%v_d_ion_mps*sqrt(arg_ion)
+  end subroutine evaluate_zhao_state_from_phi_hat
+
+  subroutine evaluate_zhao_rho_hat(p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, rho_hat)
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    character(len=*), intent(in) :: side
+    real(dp), intent(in) :: phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat
+    real(dp), intent(out) :: rho_hat
+
+    real(dp) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
+
+    call evaluate_zhao_density_hat( &
+      p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, &
+      n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat &
+      )
+    rho_hat = n_swi_hat - n_swe_f_hat - n_swe_r_hat - n_phe_f_hat - n_phe_c_hat
+  end subroutine evaluate_zhao_rho_hat
+
+  subroutine evaluate_zhao_density_hat( &
+    p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, &
+    n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat &
+    )
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    character(len=*), intent(in) :: side
+    real(dp), intent(in) :: phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat
+    real(dp), intent(out) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
+
+    real(dp) :: arg_ion, s_swe, s_phe, sin_alpha
+
+    sin_alpha = p%n_phe0_m3/p%n_phe_ref_m3
+    arg_ion = 1.0d0 - 2.0d0*phi_hat/(p%tau*p%mach*p%mach)
+    if (arg_ion <= 0.0d0) error stop 'Zhao ion density argument became non-positive.'
+    n_swi_hat = (p%n_swi_inf_m3/p%n_phe_ref_m3)*arg_ion**(-0.5d0)
+
+    select case (branch)
+    case ('A')
+      s_swe = sqrt(max(0.0d0, (phi_hat - phi_m_hat)/p%tau))
+      s_phe = sqrt(max(0.0d0, phi_hat - phi_m_hat))
+      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 - erf(s_swe - p%u))
+      n_phe_f_hat = 0.5d0*sin_alpha*exp(phi_hat - phi0_hat)*(1.0d0 - erf(s_phe))
+      if (trim(side) == 'lower') then
+        n_swe_r_hat = 0.0d0
+        n_phe_c_hat = sin_alpha*exp(phi_hat - phi0_hat)*erf(s_phe)
+      else if (trim(side) == 'upper') then
+        n_swe_r_hat = n_swe_inf_hat*exp(phi_hat/p%tau)*(erf(s_swe - p%u) + erf(p%u))
+        n_phe_c_hat = 0.0d0
+      else
+        error stop 'Unknown Type-A Zhao side.'
+      end if
+    case ('B')
+      s_phe = sqrt(max(0.0d0, phi_hat))
+      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 + erf(p%u))
+      n_swe_r_hat = 0.0d0
+      n_phe_f_hat = 0.5d0*sin_alpha*exp(phi_hat - phi0_hat)*(1.0d0 - erf(s_phe))
+      n_phe_c_hat = sin_alpha*exp(phi_hat - phi0_hat)*erf(s_phe)
+    case ('C')
+      s_swe = sqrt(max(0.0d0, (phi_hat - phi0_hat)/p%tau))
+      s_phe = sqrt(max(0.0d0, phi_hat - phi0_hat))
+      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 - erf(s_swe - p%u))
+      n_swe_r_hat = n_swe_inf_hat*exp(phi_hat/p%tau)*(erf(s_swe - p%u) + erf(p%u))
+      n_phe_f_hat = 0.5d0*sin_alpha*exp(phi_hat - phi0_hat)*erfc(s_phe)
+      n_phe_c_hat = 0.0d0
+    case default
+      error stop 'Unknown Zhao branch in density evaluation.'
+    end select
+  end subroutine evaluate_zhao_density_hat
+
+  real(dp) function interpolate_profile_value(x_nodes, y_nodes, x_query) result(y_query)
+    real(dp), intent(in) :: x_nodes(:), y_nodes(:), x_query
+
+    integer :: i
+    real(dp) :: t
+
+    if (size(x_nodes) /= size(y_nodes)) error stop 'Interpolation node size mismatch.'
+    if (x_query <= x_nodes(1)) then
+      y_query = y_nodes(1)
+      return
+    end if
+    do i = 2, size(x_nodes)
+      if (x_query <= x_nodes(i)) then
+        t = (x_query - x_nodes(i - 1))/max(x_nodes(i) - x_nodes(i - 1), tiny(1.0d0))
+        y_query = (1.0d0 - t)*y_nodes(i - 1) + t*y_nodes(i)
+        return
+      end if
+    end do
+    y_query = y_nodes(size(y_nodes))
+  end function interpolate_profile_value
+
   subroutine build_zhao_params( &
     alpha_deg, n_swi_inf_m3, n_phe_ref_m3, t_swe_ev, t_phe_ev, v_d_electron_mps, v_d_ion_mps, m_i_kg, m_e_kg, p &
     )
@@ -305,6 +704,7 @@ contains
     p%mach = p%v_d_ion_mps/p%cs_mps
     p%u = p%v_d_electron_mps/p%v_swe_th_mps
     p%tau = p%t_swe_ev/p%t_phe_ev
+    p%lambda_d_phe_ref_m = sqrt(eps0*qe*p%t_phe_ev/(p%n_phe_ref_m3*qe*qe))
 
     if (.not. ieee_is_finite(p%mach) .or. p%mach <= 0.0d0) then
       error stop 'Zhao sheath produced an invalid Mach number.'

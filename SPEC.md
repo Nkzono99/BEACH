@@ -127,6 +127,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限を補正
 - `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる
 - シース 1D 座標の基準平面は共有 `inject_face` の法線方向で定義し、`sim.sheath_reference_coordinate` があればその座標を、未指定なら対応 box face の座標を使う
+- `sim.sheath_reference_coordinate` を明示した Zhao モデルでは、基準平面から reservoir 境界までの局所 `phi(z)` を使って electron reservoir の有効密度・cutoff と ion reservoir の局所密度・法線ドリフトを更新し、シースによる VDF 変形を近似する
 
 ### 6.3 `photo_raycast`
 

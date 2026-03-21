@@ -23,7 +23,7 @@ injection_face_phi_grid_n = 3
 # sheath_injection_model = "zhao_auto"
 # sheath_alpha_deg = 60.0
 # sheath_photoelectron_ref_density_cm3 = 64.0
-# sheath_reference_coordinate = 0.02
+# sheath_reference_coordinate = 0.02  # 指定すると、この平面から reservoir_face 境界までの局所 VDF 変形も反映
 # sheath_electron_drift_mode = "normal"
 # sheath_ion_drift_mode = "normal"
 # 注意: 現状は sheath_injection_model と reservoir_potential_model を同時に使えません。
