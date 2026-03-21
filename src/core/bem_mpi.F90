@@ -38,9 +38,9 @@ contains
     logical :: is_initialized
     integer :: ierr
     integer :: rank_int, size_int
-
+#endif
     ctx = mpi_context()
-
+#ifdef USE_MPI
     call MPI_Initialized(is_initialized, ierr)
     if (.not. is_initialized) then
       call MPI_Init(ierr)
@@ -52,9 +52,10 @@ contains
     ctx%rank = int(rank_int, i32)
     ctx%size = int(size_int, i32)
     ctx%enabled = (ctx%size > 1_i32)
-#else
-    ctx = mpi_context()
 #endif
+    ! 非MPIビルド時、または MPI 実行系が 1 rank としか見えていない場合でも、
+    ! launcher 環境変数から rank/size を補完して root 専用ログの重複を避ける。
+    if (ctx%size <= 1_i32) call infer_launcher_rank_size(ctx)
   end subroutine mpi_initialize
 
   !> `mpi_initialize` が実際に初期化した場合のみ `MPI_Finalize` を呼ぶ。
@@ -106,6 +107,58 @@ contains
       error stop 'mpi_get_rank_size detected an invalid rank/size pair.'
     end if
   end subroutine mpi_get_rank_size
+
+  !> 非MPIビルド時に launcher 環境変数から rank / size を補完する。
+  subroutine infer_launcher_rank_size(ctx)
+    type(mpi_context), intent(inout) :: ctx
+    logical :: found
+
+    call try_launcher_env_pair(ctx, 'OMPI_COMM_WORLD_RANK', 'OMPI_COMM_WORLD_SIZE', found)
+    if (found) return
+    call try_launcher_env_pair(ctx, 'PMI_RANK', 'PMI_SIZE', found)
+    if (found) return
+    call try_launcher_env_pair(ctx, 'MV2_COMM_WORLD_RANK', 'MV2_COMM_WORLD_SIZE', found)
+  end subroutine infer_launcher_rank_size
+
+  !> rank/size の環境変数ペアを解釈できたときだけ `ctx` を更新する。
+  subroutine try_launcher_env_pair(ctx, rank_name, size_name, found)
+    type(mpi_context), intent(inout) :: ctx
+    character(len=*), intent(in) :: rank_name, size_name
+    logical, intent(out) :: found
+    integer(i32) :: rank_value, size_value
+    logical :: has_rank, has_size
+
+    found = .false.
+    call read_env_i32(rank_name, rank_value, has_rank)
+    call read_env_i32(size_name, size_value, has_size)
+    if (.not. has_rank .or. .not. has_size) return
+    if (size_value <= 0_i32) return
+    if (rank_value < 0_i32 .or. rank_value >= size_value) return
+
+    ctx%rank = rank_value
+    ctx%size = size_value
+    ctx%enabled = (ctx%size > 1_i32)
+    found = .true.
+  end subroutine try_launcher_env_pair
+
+  !> 整数環境変数を読み取る。未設定や parse 失敗時は `found=.false.`。
+  subroutine read_env_i32(name, value, found)
+    character(len=*), intent(in) :: name
+    integer(i32), intent(out) :: value
+    logical, intent(out) :: found
+    integer :: status, length, ios
+    character(len=64) :: raw
+
+    value = 0_i32
+    found = .false.
+    raw = ''
+    call get_environment_variable(name, raw, length=length, status=status)
+    if (status /= 0 .or. length <= 0 .or. length > len(raw)) return
+
+    read (raw(:length), *, iostat=ios) value
+    if (ios /= 0) return
+    found = .true.
+  end subroutine read_env_i32
 
   !> 総数 `total_count` をrankへ均等分割したときの局所個数を返す。
   integer(i32) function mpi_split_count(total_count, rank, size) result(local_count)
