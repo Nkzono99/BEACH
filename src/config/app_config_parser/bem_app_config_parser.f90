@@ -268,11 +268,11 @@ contains
     case ('auto')
       continue
     case ('none')
-      cfg%sim%field_periodic_far_correction = 'auto'
+      continue
     case ('m2l_root_oracle')
       continue
     case default
-      error stop 'sim.field_periodic_far_correction must be "auto" (legacy "none"), '// &
+      error stop 'sim.field_periodic_far_correction must be "auto", "none", '// &
         'or "m2l_root_oracle".'
     end select
     if (trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle') then

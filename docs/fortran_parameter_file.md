@@ -94,7 +94,7 @@ history_stride = 1
 | `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
 | `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放） |
 | `field_periodic_image_layers` | int | `1` | `field_bc_mode="periodic2"` の近傍画像層数。各周期軸で `[-N, N]` の有限画像和を計算（`N>=0`） |
-| `field_periodic_far_correction` | string | `"auto"` | `periodic2` の遠方補正モード。`auto` が既定値で、`field_solver="fmm"` かつ `field_bc_mode="periodic2"` では内部的に `m2l_root_oracle` に正規化する。legacy な `none` も `auto` の alias として受理する。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使って root operator へ fit する |
+| `field_periodic_far_correction` | string | `"auto"` | `periodic2` の遠方補正モード。`auto` が既定値で、`field_solver="fmm"` かつ `field_bc_mode="periodic2"` では内部的に `m2l_root_oracle` に正規化する。`none` は遠方補正を無効化する。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使って root operator へ fit する |
 | `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用の Ewald 分解パラメータ。`0.0` のときは box サイズと `field_periodic_image_layers` から自動決定する |
 | `field_periodic_ewald_layers` | int | `4` | `m2l_root_oracle` の build-time exact Ewald oracle における real-space outer shell / reciprocal cutoff 深さ（`>=0`、far correction 有効時は実質 `>=1`） |
 | `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ（`0 < theta <= 1`、`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
@@ -301,7 +301,7 @@ history_stride = 1
 
 `mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別と要素数を確認できます。
 
-`mesh_potential.csv` は要素重心での電位 [V] を記録します。自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。`periodic2` では explicit image shell に加えて、`field_periodic_far_correction` が `m2l_root_oracle` に正規化される設定では exact Ewald residual も加えます。
+`mesh_potential.csv` は要素重心での電位 [V] を記録します。自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。`periodic2` では explicit image shell に加えて、`field_periodic_far_correction` が `auto` または `m2l_root_oracle` のときは exact Ewald residual も加えます。`none` では residual を加えません。
 
 MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイルになります。
 

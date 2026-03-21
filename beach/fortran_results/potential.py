@@ -39,7 +39,7 @@ def compute_potential_mesh(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"``, legacy ``"none"``, or
+        ``far_correction`` (``"auto"``, ``"none"``, or
         ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
         ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
@@ -146,7 +146,7 @@ def compute_potential_points(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"``, legacy ``"none"``, or
+        ``far_correction`` (``"auto"``, ``"none"``, or
         ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
         ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
@@ -910,7 +910,7 @@ def _normalize_periodic2_far_correction(
         raise ValueError(
             'periodic2.far_correction must be "auto", "none", or "m2l_root_oracle".'
         )
-    if far_correction in {"auto", "none"}:
+    if far_correction == "auto":
         return "m2l_root_oracle", max(1, ewald_layers)
     return far_correction, ewald_layers
 

@@ -80,6 +80,7 @@ program test_dynamics
   call test_fmm_periodic2_image_layers_accuracy()
   call test_fmm_periodic2_m2l_cache_reuse()
   call test_fmm_periodic2_default_m2l_root_oracle_mode()
+  call test_fmm_periodic2_none_disables_far_correction()
 
 contains
 
@@ -813,6 +814,44 @@ contains
       'default periodic2 and explicit m2l_root_oracle should agree' &
       )
   end subroutine test_fmm_periodic2_default_m2l_root_oracle_mode
+
+  subroutine test_fmm_periodic2_none_disables_far_correction()
+    type(mesh_type) :: mesh_fmm
+    type(field_solver_type) :: solver_none = field_solver_type()
+    type(sim_config) :: sim
+
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
+
+    sim = sim_config()
+    sim%softening = 1.0d-4
+    sim%field_solver = 'fmm'
+    sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'none'
+    sim%field_periodic_image_layers = 1_i32
+    sim%tree_min_nelem = 64_i32
+    sim%use_box = .true.
+    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
+    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    call solver_none%init(mesh_fmm, sim)
+    call solver_none%refresh(mesh_fmm)
+
+    call assert_true(trim(solver_none%periodic_far_correction) == 'none', 'periodic2 none should be preserved')
+    call assert_true( &
+      trim(solver_none%fmm_core_options%periodic_far_correction) == 'none', &
+      'periodic2 none should reach FMM core options' &
+      )
+    call assert_true( &
+      .not. solver_none%fmm_core_plan%periodic_root_operator_ready, &
+      'periodic2 none should not build a root-operator far correction' &
+      )
+    call assert_true( &
+      .not. solver_none%fmm_core_plan%periodic_ewald%ready, &
+      'periodic2 none should not precompute oracle Ewald data' &
+      )
+  end subroutine test_fmm_periodic2_none_disables_far_correction
 
   subroutine assign_periodic_test_dipole_charges(mesh, scale)
     type(mesh_type), intent(inout) :: mesh

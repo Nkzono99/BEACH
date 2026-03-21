@@ -505,9 +505,11 @@ contains
     far_correction = trim(lower_ascii(sim%field_periodic_far_correction))
     ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
     select case (trim(far_correction))
-    case ('auto', 'none')
+    case ('auto')
       far_correction = 'm2l_root_oracle'
       ewald_layers = max(1_i32, ewald_layers)
+    case ('none')
+      return
     case ('m2l_root_oracle')
       ewald_layers = max(1_i32, ewald_layers)
     case default
