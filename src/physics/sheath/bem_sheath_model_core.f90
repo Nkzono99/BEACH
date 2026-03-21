@@ -1036,8 +1036,9 @@ contains
     end select
   end function zhao_photo_emit_current_density
 
-  pure character(len=len(text)) function lower_ascii(text) result(lowered)
+  pure function lower_ascii(text) result(lowered)
     character(len=*), intent(in) :: text
+    character(len=len(text)) :: lowered
 
     integer :: i, code
 
