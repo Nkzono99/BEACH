@@ -5,14 +5,17 @@ module bem_coulomb_fmm_periodic_root_ops
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_single_source
-  use bem_coulomb_fmm_tree_utils, only: active_tree_node_center, active_tree_node_half_size
+  use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_child_count, &
+                                        active_tree_child_idx, active_tree_node_center, active_tree_node_half_size
   implicit none
   private
 
+  integer(i32), parameter :: root_oracle_target_depth = 1_i32
   real(dp), parameter :: root_oracle_proxy_multiplier = 8.0d0
   real(dp), parameter :: root_oracle_check_multiplier = 24.0d0
   real(dp), parameter :: root_oracle_proxy_shell_scale = 1.15d0
   real(dp), parameter :: root_oracle_check_shell_scale = 0.92d0
+  real(dp), parameter :: root_oracle_tall_box_ratio = 4.0d0
   real(dp), parameter :: root_oracle_lstsq_ridge = 1.0d-12
   real(dp), parameter :: root_oracle_qr_tol = 1.0d-12
 
@@ -25,8 +28,10 @@ contains
   subroutine precompute_periodic_root_operator(plan)
     type(fmm_plan_type), intent(inout) :: plan
 
+    if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
     plan%periodic_root_operator_ready = .false.
+    plan%periodic_root_target_count = 0_i32
 
     if (use_periodic2_m2l_root_oracle(plan)) then
       call precompute_periodic_root_oracle_operator(plan)
@@ -35,27 +40,39 @@ contains
 
   subroutine precompute_periodic_root_oracle_operator(plan)
     type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: nproxy, ncheck, j, i
-    real(dp) :: source_center(3), source_half(3), target_center(3), target_half(3)
+    integer(i32) :: nproxy, ncheck, j, i, target_idx, node_idx, n_target_nodes, anchor_depth, target_count
+    real(dp) :: source_center(3), source_half(3), proxy_half(3), target_center(3), target_half(3)
     real(dp), allocatable :: proxy_points(:, :), check_points(:, :)
     real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :)
     real(dp), allocatable :: field_matrix(:, :), field_rhs(:)
     real(dp), allocatable :: coeff(:), proxy_pinv(:, :)
     real(dp) :: e_res(3)
+    integer(i32), allocatable :: target_nodes(:)
+    logical :: use_target_tree
 
     if (.not. plan%periodic_ewald%ready) return
     if (plan%ncoef <= 1_i32) return
+    use_target_tree = plan%target_tree_ready
+    n_target_nodes = active_tree_nnode(plan, use_target_tree)
+    if (n_target_nodes <= 0_i32) return
 
     nproxy = max(4_i32*plan%ncoef, int(root_oracle_proxy_multiplier*real(plan%ncoef, dp), i32))
     ncheck = max(8_i32*plan%ncoef, int(root_oracle_check_multiplier*real(plan%ncoef, dp), i32))
     source_center = plan%node_center(:, 1_i32)
     source_half = plan%node_half_size(:, 1_i32)
-    target_center = active_tree_node_center(plan, plan%target_tree_ready, 1_i32)
-    target_half = active_tree_node_half_size(plan, plan%target_tree_ready, 1_i32)
+    proxy_half = source_half
+    proxy_half = max(proxy_half, 0.25d0*min(plan%options%periodic_len(1), plan%options%periodic_len(2)))
+    anchor_depth = periodic_root_anchor_depth(plan, use_target_tree)
+    allocate (target_nodes(max(1_i32, n_target_nodes)))
+    target_count = 0_i32
+    call collect_periodic_root_targets(plan, use_target_tree, 1_i32, anchor_depth, target_nodes, target_count)
+    if (target_count <= 0_i32) then
+      deallocate (target_nodes)
+      return
+    end if
 
     allocate (proxy_points(3, nproxy), check_points(3, ncheck))
-    call build_root_surface_points(source_center, source_half, nproxy, 0.13d0, root_oracle_proxy_shell_scale, proxy_points)
-    call build_root_surface_points(target_center, target_half, ncheck, 0.37d0, root_oracle_check_shell_scale, check_points)
+    call build_root_surface_points(source_center, proxy_half, nproxy, 0.13d0, root_oracle_proxy_shell_scale, proxy_points)
 
     allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
     allocate (field_matrix(3_i32*ncheck, plan%ncoef - 1_i32))
@@ -63,28 +80,85 @@ contains
     allocate (proxy_pinv(nproxy, plan%ncoef))
 
     call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
-    call build_local_field_matrix(plan, target_center, check_points, field_matrix)
+    call build_minimum_norm_pseudoinverse(proxy_to_multipole, proxy_pinv)
 
-    proxy_to_local = 0.0d0
-    do j = 1_i32, nproxy
-      field_rhs = 0.0d0
-      do i = 1_i32, ncheck
-        e_res = 0.0d0
-        call add_periodic2_exact_ewald_correction_single_source(plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res)
-        field_rhs(i) = e_res(1)
-        field_rhs(ncheck + i) = e_res(2)
-        field_rhs(2_i32*ncheck + i) = e_res(3)
+    plan%periodic_root_target_count = target_count
+    allocate (plan%periodic_root_target_nodes(target_count))
+    plan%periodic_root_target_nodes = target_nodes(1:target_count)
+    deallocate (target_nodes)
+    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, target_count))
+    plan%periodic_root_operator = 0.0d0
+
+    do target_idx = 1_i32, plan%periodic_root_target_count
+      node_idx = plan%periodic_root_target_nodes(target_idx)
+      target_center = active_tree_node_center(plan, use_target_tree, node_idx)
+      target_half = active_tree_node_half_size(plan, use_target_tree, node_idx)
+      call build_root_surface_points(target_center, target_half, ncheck, 0.37d0, root_oracle_check_shell_scale, check_points)
+      call build_local_field_matrix(plan, target_center, check_points, field_matrix)
+
+      proxy_to_local = 0.0d0
+      do j = 1_i32, nproxy
+        field_rhs = 0.0d0
+        do i = 1_i32, ncheck
+          e_res = 0.0d0
+          call add_periodic2_exact_ewald_correction_single_source(plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res)
+          field_rhs(i) = e_res(1)
+          field_rhs(ncheck + i) = e_res(2)
+          field_rhs(2_i32*ncheck + i) = e_res(3)
+        end do
+        call solve_regularized_least_squares(field_matrix, field_rhs, coeff)
+        proxy_to_local(2:plan%ncoef, j) = coeff
       end do
-      call solve_regularized_least_squares(field_matrix, field_rhs, coeff)
-      proxy_to_local(2:plan%ncoef, j) = coeff
+
+      plan%periodic_root_operator(:, :, target_idx) = matmul(proxy_to_local, proxy_pinv)
+      plan%periodic_root_operator(1_i32, :, target_idx) = 0.0d0
     end do
 
-    call build_minimum_norm_pseudoinverse(proxy_to_multipole, proxy_pinv)
-    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef))
-    plan%periodic_root_operator = matmul(proxy_to_local, proxy_pinv)
-    plan%periodic_root_operator(1_i32, :) = 0.0d0
     plan%periodic_root_operator_ready = .true.
   end subroutine precompute_periodic_root_oracle_operator
+
+  pure integer(i32) function periodic_root_anchor_depth(plan, use_target_tree)
+    type(fmm_plan_type), intent(in) :: plan
+    logical, intent(in) :: use_target_tree
+    real(dp) :: target_half(3), periodic_span, target_span_ratio
+
+    periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), root_oracle_target_depth)
+    target_half = active_tree_node_half_size(plan, use_target_tree, 1_i32)
+    periodic_span = max(minval(plan%options%periodic_len), tiny(1.0d0))
+    target_span_ratio = maxval(2.0d0*target_half)/periodic_span
+    if (target_span_ratio > root_oracle_tall_box_ratio) then
+      periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), root_oracle_target_depth + 1_i32)
+    end if
+  end function periodic_root_anchor_depth
+
+  recursive subroutine collect_periodic_root_targets(plan, use_target_tree, node_idx, anchor_depth, target_nodes, target_count)
+    type(fmm_plan_type), intent(in) :: plan
+    logical, intent(in) :: use_target_tree
+    integer(i32), intent(in) :: node_idx, anchor_depth
+    integer(i32), intent(inout) :: target_nodes(:)
+    integer(i32), intent(inout) :: target_count
+    integer(i32) :: node_depth, child_k, child_count
+
+    if (node_idx <= 0_i32) return
+    if (use_target_tree) then
+      node_depth = plan%target_node_depth(node_idx)
+    else
+      node_depth = plan%node_depth(node_idx)
+    end if
+    child_count = active_tree_child_count(plan, use_target_tree, node_idx)
+    if (child_count <= 0_i32 .or. node_depth >= anchor_depth) then
+      target_count = target_count + 1_i32
+      target_nodes(target_count) = node_idx
+      return
+    end if
+
+    do child_k = 1_i32, child_count
+      call collect_periodic_root_targets( &
+        plan, use_target_tree, active_tree_child_idx(plan, use_target_tree, child_k, node_idx), &
+        anchor_depth, target_nodes, target_count &
+        )
+    end do
+  end subroutine collect_periodic_root_targets
 
   subroutine build_root_surface_points(center, half_size, npoint, offset, scale, points)
     real(dp), intent(in) :: center(3), half_size(3), offset, scale

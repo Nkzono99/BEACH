@@ -120,7 +120,9 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     type(periodic2_ewald_data_type) :: periodic_ewald = periodic2_ewald_data_type()
     logical :: periodic_root_operator_ready = .false.
-    real(dp), allocatable :: periodic_root_operator(:, :)
+    integer(i32) :: periodic_root_target_count = 0_i32
+    integer(i32), allocatable :: periodic_root_target_nodes(:)
+    real(dp), allocatable :: periodic_root_operator(:, :, :)
     real(dp), allocatable :: m2l_deriv(:, :)
     real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
@@ -240,6 +242,7 @@ contains
     if (allocated(plan%shift_axis1)) deallocate (plan%shift_axis1)
     if (allocated(plan%shift_axis2)) deallocate (plan%shift_axis2)
     call reset_periodic2_ewald_data(plan%periodic_ewald)
+    if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
     if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
     if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
@@ -264,6 +267,7 @@ contains
     plan%m2l_build_count = 0_i32
     plan%m2l_visit_count = 0_i32
     plan%periodic_root_operator_ready = .false.
+    plan%periodic_root_target_count = 0_i32
   end subroutine reset_fmm_plan
 
   !> FMM state のポインタ成分を未関連状態へ初期化する。

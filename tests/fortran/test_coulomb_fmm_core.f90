@@ -17,7 +17,7 @@ program test_coulomb_fmm_core
   call test_free_field_accuracy()
   call test_softened_free_field_accuracy()
   call test_periodic2_field_accuracy()
-  call test_periodic2_root_oracle_operator_residual_accuracy()
+  call test_periodic2_target_oracle_operator_residual_accuracy()
   call test_periodic2_m2l_root_oracle_correction_effect()
   call test_periodic2_nonneutral_charged_wall_outside_box()
   call test_target_box_dual_tree()
@@ -196,15 +196,15 @@ contains
     call destroy_plan(plan)
   end subroutine test_periodic2_field_accuracy
 
-  subroutine test_periodic2_root_oracle_operator_residual_accuracy()
+  subroutine test_periodic2_target_oracle_operator_residual_accuracy()
     type(fmm_plan_type), allocatable :: plan
     type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
-    real(dp), allocatable :: src_pos(:, :), q(:), probes(:, :), root_local(:)
+    real(dp), allocatable :: src_pos(:, :), q(:), probes(:, :), target_local(:)
     real(dp) :: e_operator(3), e_ref(3)
     real(dp) :: norm_ref, rel_err, max_rel_err, mean_rel_err, global_rel_err
     real(dp) :: sq_err_sum, sq_ref_sum
-    integer(i32) :: i, nprobe, valid_count
+    integer(i32) :: i, nprobe, valid_count, ntarget_sample, sample_idx, target_idx, node_idx
 
     allocate (plan, state)
     call make_periodic_sources(src_pos, q)
@@ -222,45 +222,65 @@ contains
     call build_plan(plan, src_pos, options)
     call update_state(plan, state, q)
 
-    call assert_true(plan%periodic_root_operator_ready, 'm2l_root_oracle should build a root operator')
-    nprobe = 6_i32*plan%ncoef
-    allocate (probes(3, nprobe), root_local(plan%ncoef))
-    call build_test_root_sample_points( &
-      plan%target_node_center(:, 1_i32), plan%target_node_half_size(:, 1_i32), nprobe, 0.61d0, probes &
+    call assert_true(plan%periodic_root_operator_ready, 'm2l_root_oracle should build target operators')
+    call assert_true(plan%periodic_root_target_count > 1_i32, 'target oracle should cover multiple target nodes')
+    call assert_true( &
+      size(plan%periodic_root_operator, 3) == plan%periodic_root_target_count, &
+      'target operator count should match stored target nodes' &
       )
-    root_local = matmul(plan%periodic_root_operator, state%multipole(:, 1_i32))
+    nprobe = 4_i32*plan%ncoef
+    ntarget_sample = min(plan%periodic_root_target_count, 8_i32)
+    allocate (probes(3, nprobe), target_local(plan%ncoef))
 
     max_rel_err = 0.0d0
     mean_rel_err = 0.0d0
     sq_err_sum = 0.0d0
     sq_ref_sum = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, nprobe
-      call eval_local_field_from_coeff(plan, plan%target_node_center(:, 1_i32), root_local, probes(:, i), e_operator)
-      e_ref = 0.0d0
-      call add_periodic2_exact_ewald_correction_all_sources(plan, state, probes(:, i), e_ref)
-      norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-18) cycle
-      rel_err = sqrt(sum((e_operator - e_ref)*(e_operator - e_ref)))/norm_ref
-      max_rel_err = max(max_rel_err, rel_err)
-      mean_rel_err = mean_rel_err + rel_err
-      sq_err_sum = sq_err_sum + sum((e_operator - e_ref)*(e_operator - e_ref))
-      sq_ref_sum = sq_ref_sum + sum(e_ref*e_ref)
-      valid_count = valid_count + 1_i32
+    do sample_idx = 1_i32, ntarget_sample
+      if (ntarget_sample == 1_i32) then
+        target_idx = 1_i32
+      else
+        target_idx = 1_i32 + int( &
+                     real(plan%periodic_root_target_count - 1_i32, dp)*real(sample_idx - 1_i32, dp)/ &
+                     real(ntarget_sample - 1_i32, dp), i32 &
+                     )
+      end if
+      node_idx = plan%periodic_root_target_nodes(target_idx)
+      call build_test_root_sample_points( &
+        plan%target_node_center(:, node_idx), plan%target_node_half_size(:, node_idx), nprobe, 0.61d0, probes &
+        )
+      target_local = matmul(plan%periodic_root_operator(:, :, target_idx), state%multipole(:, 1_i32))
+      do i = 1_i32, nprobe
+        call eval_local_field_from_coeff(plan, plan%target_node_center(:, node_idx), target_local, probes(:, i), e_operator)
+        e_ref = 0.0d0
+        call add_periodic2_exact_ewald_correction_all_sources(plan, state, probes(:, i), e_ref)
+        norm_ref = sqrt(sum(e_ref*e_ref))
+        if (norm_ref <= 1.0d-18) cycle
+        rel_err = sqrt(sum((e_operator - e_ref)*(e_operator - e_ref)))/norm_ref
+        max_rel_err = max(max_rel_err, rel_err)
+        mean_rel_err = mean_rel_err + rel_err
+        sq_err_sum = sq_err_sum + sum((e_operator - e_ref)*(e_operator - e_ref))
+        sq_ref_sum = sq_ref_sum + sum(e_ref*e_ref)
+        valid_count = valid_count + 1_i32
+      end do
     end do
 
-    call assert_true(valid_count >= nprobe - 2_i32, 'periodic2 root oracle operator test lost too many valid samples')
+    call assert_true( &
+      valid_count >= max(1_i32, ntarget_sample*nprobe/2_i32), &
+      'periodic2 target oracle operator test lost too many valid samples' &
+      )
     mean_rel_err = mean_rel_err/real(valid_count, dp)
     global_rel_err = sqrt(sq_err_sum/max(sq_ref_sum, tiny(1.0d0)))
     write (*, '(A,I0,A,ES12.5,A,ES12.5,A,ES12.5)') &
-      'test_periodic2_root_oracle_operator_residual_accuracy: valid_count=', valid_count, &
+      'test_periodic2_target_oracle_operator_residual_accuracy: valid_count=', valid_count, &
       ', global_rel_err=', global_rel_err, ', mean_rel_err=', mean_rel_err, ', max_rel_err=', max_rel_err
-    call assert_true(global_rel_err <= 5.0d-2, 'periodic2 root oracle operator global relative error exceeds 5e-2')
-    call assert_true(max_rel_err <= 1.0d-1, 'periodic2 root oracle operator pointwise relative error exceeds 1e-1')
+    call assert_true(global_rel_err <= 5.0d-2, 'periodic2 target oracle operator global relative error exceeds 5e-2')
+    call assert_true(max_rel_err <= 1.0d-1, 'periodic2 target oracle operator pointwise relative error exceeds 1e-1')
 
     call destroy_state(state)
     call destroy_plan(plan)
-  end subroutine test_periodic2_root_oracle_operator_residual_accuracy
+  end subroutine test_periodic2_target_oracle_operator_residual_accuracy
 
   subroutine test_periodic2_m2l_root_oracle_correction_effect()
     type(fmm_plan_type), allocatable :: plan_oracle
@@ -295,7 +315,7 @@ contains
     queries(:, 6) = [0.35d0, 0.60d0, 1.20d0]
 
     call assert_true(plan_oracle%periodic_ewald%ready, 'm2l_root_oracle should precompute periodic Ewald data')
-    call assert_true(plan_oracle%periodic_root_operator_ready, 'm2l_root_oracle should build a root operator')
+    call assert_true(plan_oracle%periodic_root_operator_ready, 'm2l_root_oracle should build target operators')
 
     max_rel_oracle = 0.0d0
     valid_count = 0_i32
