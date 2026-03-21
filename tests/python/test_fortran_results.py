@@ -260,6 +260,10 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         "2,template,sphere,1\n",
         encoding="utf-8",
     )
+    (out / "mesh_potential.csv").write_text(
+        "elem_idx,potential_V\n1,1.5\n2,-2.5\n",
+        encoding="utf-8",
+    )
 
     (out / "charge_history.csv").write_text(
         "batch,processed_particles,rel_change,elem_idx,charge_C\n"
@@ -284,6 +288,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     assert result.mesh_sources is not None
     assert result.mesh_sources[1].template_kind == "plane"
     np.testing.assert_allclose(result.charges, np.array([1.0e-10, -2.0e-10]))
+    assert result.mesh_potential_v is not None
+    np.testing.assert_allclose(result.mesh_potential_v, np.array([1.5, -2.5]))
     np.testing.assert_allclose(
         result.history.as_array(),
         np.array([[2.0e-11, 1.0e-10], [-1.0e-11, -2.0e-10]]),
@@ -578,6 +584,48 @@ def test_surface_charge_density_uses_triangle_area() -> None:
     density = _surface_charge_density(charges, triangles)
 
     np.testing.assert_allclose(density, np.array([6.0, -3.0]))
+
+
+
+def test_compute_potential_mesh_uses_precomputed_output_when_available() -> None:
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9, -1.0e-9]),
+        mesh_potential_v=np.array([3.0, -4.0]),
+    )
+
+    potential = compute_potential_mesh(result)
+
+    np.testing.assert_allclose(potential, np.array([3.0, -4.0]))
+
+
+
+def test_compute_potential_mesh_requires_triangles_when_precomputed_output_is_incompatible() -> None:
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        mesh_potential_v=np.array([2.0]),
+    )
+
+    with pytest.raises(ValueError, match="mesh_triangles.csv"):
+        compute_potential_mesh(result, self_term="exclude")
+
 
 
 def test_compute_potential_mesh_matches_area_equivalent_expected_values() -> None:

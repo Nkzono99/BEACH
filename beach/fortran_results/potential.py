@@ -44,8 +44,10 @@ def compute_potential_mesh(
         ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
-        explicit な image shell のみを再構成し、oracle residual 自体は
-        再現しないため、``far_correction`` は設定互換のために保持する。
+        互換条件が合えば ``mesh_potential.csv`` の値を優先し、そうでない場合は
+        explicit な image shell を Python 側で再構成する。Python 再構成側は
+        oracle residual 自体は再現しないため、``far_correction`` は設定互換の
+        ために保持する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。``"species1_injection_center"`` は
         ``particles.species[0]`` の注入面中心を使う。
@@ -65,14 +67,36 @@ def compute_potential_mesh(
     resolved_softening = _resolve_softening(resolved, softening)
     self_term_key = _resolve_self_term(self_term, resolved_softening)
 
+    periodic_cfg = _coerce_periodic2(periodic2)
+    if periodic_cfg is None:
+        periodic_cfg = _auto_periodic2_from_result(resolved)
+    reference_xyz = _resolve_reference_point(resolved, reference_point)
+    precomputed_potential_v = _maybe_get_precomputed_mesh_potential_volts(
+        resolved,
+        softening=softening,
+        resolved_softening=resolved_softening,
+        self_term=self_term,
+        self_term_key=self_term_key,
+        periodic2_arg=periodic2,
+    )
+    if precomputed_potential_v is not None:
+        if reference_xyz is None:
+            return precomputed_potential_v
+        triangles = _require_triangles(resolved)
+        centers = _triangle_centers(triangles)
+        return precomputed_potential_v - _compute_reference_potential_volts(
+            reference_xyz,
+            centers,
+            resolved.charges,
+            softening=resolved_softening,
+            periodic2=periodic_cfg,
+        )
+
     triangles = _require_triangles(resolved)
     centers = _triangle_centers(triangles)
     self_coeff = _self_potential_coefficients(
         triangles, self_term=self_term_key, softening=resolved_softening
     )
-    periodic_cfg = _coerce_periodic2(periodic2)
-    if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved)
     if periodic_cfg is None:
         offdiag_kernel = _potential_offdiag_kernel(centers, softening=resolved_softening)
         potential = offdiag_kernel @ resolved.charges + self_coeff * resolved.charges
@@ -85,7 +109,6 @@ def compute_potential_mesh(
             periodic2=periodic_cfg,
         )
     potential_v = K_COULOMB * potential
-    reference_xyz = _resolve_reference_point(resolved, reference_point)
     if reference_xyz is not None:
         potential_v = potential_v - _compute_reference_potential_volts(
             reference_xyz,
@@ -653,6 +676,40 @@ def _resolve_self_term(self_term: str, softening: float) -> str:
         "self_term must be one of {'auto', 'area_equivalent', 'exclude', 'softened_point'}."
     )
 
+
+
+
+def _maybe_get_precomputed_mesh_potential_volts(
+    resolved: FortranRunResult,
+    *,
+    softening: float | None,
+    resolved_softening: float,
+    self_term: str,
+    self_term_key: str,
+    periodic2_arg: Mapping[str, object] | None,
+) -> np.ndarray | None:
+    if resolved.mesh_potential_v is None:
+        return None
+    if periodic2_arg is not None:
+        return None
+
+    normalized_self_term = str(self_term).strip().lower().replace("-", "_")
+    if softening is None and normalized_self_term == "auto":
+        return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
+
+    sim = _load_sim_near_output(resolved.directory)
+    if sim is None:
+        return None
+
+    run_softening = float(sim.get("softening", 0.0))
+    if (not math.isfinite(run_softening)) or run_softening < 0.0:
+        return None
+    run_self_term = "softened_point" if run_softening > 0.0 else "area_equivalent"
+    if resolved_softening != run_softening:
+        return None
+    if self_term_key != run_self_term:
+        return None
+    return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
 
 def _resolve_reference_point(
     resolved: FortranRunResult,

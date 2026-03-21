@@ -248,6 +248,8 @@ class FortranRunResult:
         Per-element mesh id array with shape ``(mesh_nelem,)``.
     mesh_sources : dict[int, MeshSource] or None, default None
         Mesh-source metadata indexed by mesh id.
+    mesh_potential_v : numpy.ndarray or None, default None
+        Optional per-element centroid potential loaded from ``mesh_potential.csv``.
     history : FortranChargeHistory or None, default None
         Lazy charge-history accessor.
     """
@@ -265,6 +267,7 @@ class FortranRunResult:
     triangles: np.ndarray | None = None
     mesh_ids: np.ndarray | None = None
     mesh_sources: dict[int, MeshSource] | None = None
+    mesh_potential_v: np.ndarray | None = None
     history: FortranChargeHistory | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:

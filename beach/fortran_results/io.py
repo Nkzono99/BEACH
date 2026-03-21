@@ -43,6 +43,9 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
 
     triangles, mesh_ids = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
     mesh_sources = _load_mesh_sources_if_exists(out_dir / "mesh_sources.csv")
+    mesh_potential_v = _load_mesh_potential_if_exists(
+        out_dir / "mesh_potential.csv", mesh_nelem=mesh_nelem
+    )
     history_path = out_dir / "charge_history.csv"
     history: FortranChargeHistory | None = None
 
@@ -63,6 +66,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         triangles=triangles,
         mesh_ids=mesh_ids,
         mesh_sources=mesh_sources,
+        mesh_potential_v=mesh_potential_v,
         history=history,
     )
 
@@ -150,6 +154,32 @@ def _load_mesh_sources_if_exists(path: Path) -> dict[int, MeshSource] | None:
             elem_count=int(row.get("elem_count", "0")),
         )
     return out
+
+
+def _load_mesh_potential_if_exists(
+    path: Path, *, mesh_nelem: int
+) -> np.ndarray | None:
+    if not path.exists():
+        return None
+
+    data = np.loadtxt(path, delimiter=",", skiprows=1)
+    if data.size == 0:
+        if mesh_nelem != 0:
+            raise ValueError("mesh_potential.csv is empty but mesh_nelem > 0.")
+        return np.empty(0, dtype=float)
+    if data.ndim == 1:
+        data = data[None, :]
+    if data.shape[1] < 2:
+        raise ValueError("mesh_potential.csv must contain elem_idx and potential_V columns.")
+    if data.shape[0] != mesh_nelem:
+        raise ValueError(
+            f"mesh_potential.csv row count ({data.shape[0]}) does not match mesh_nelem ({mesh_nelem})."
+        )
+    elem_idx = data[:, 0].astype(np.int64)
+    expected = np.arange(1, mesh_nelem + 1, dtype=np.int64)
+    if not np.array_equal(elem_idx, expected):
+        raise ValueError("mesh_potential.csv elem_idx column must be 1..mesh_nelem in order.")
+    return np.asarray(data[:, 1], dtype=float)
 
 
 def _ensure_keys(data: dict[str, str], required: Iterable[str]) -> None:

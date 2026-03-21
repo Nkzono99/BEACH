@@ -554,7 +554,11 @@ def _boxplot_values_for_quantity(
         return _charges_for_step(result, step=step)
     if quantity == "potential":
         charges = _charges_for_step(result, step=step)
-        potential_result = replace(result, charges=charges)
+        potential_result = replace(
+            result,
+            charges=charges,
+            mesh_potential_v=result.mesh_potential_v if step is None else None,
+        )
         return compute_potential_mesh(
             potential_result,
             softening=softening,
