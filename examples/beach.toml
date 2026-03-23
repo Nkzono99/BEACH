@@ -1,3 +1,5 @@
+#:schema ../schemas/beach.schema.json
+
 [sim]
 # max_step = 500 は固定のまま、通過時間が十分になるよう dt を増やす
 dt = 1.4e-8
