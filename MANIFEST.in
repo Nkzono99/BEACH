@@ -10,7 +10,7 @@ include fpm.toml
 
 recursive-include app *.f90
 recursive-include src *.f90 *.F90
-recursive-include beach *.py
+recursive-include beach *.py *.toml
 recursive-include docs *.md
 recursive-include env *.env *.md
 recursive-include examples *.toml *.py *.sh

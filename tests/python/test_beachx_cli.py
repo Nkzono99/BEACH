@@ -7,10 +7,12 @@ import pytest
 from beach.cli import (
     analyze_coulomb_mobility,
     animate_fortran_history,
+    config,
     estimate_fortran_workload,
     inspect_fortran_output,
     legacy,
     model_close_pack,
+    preset,
     plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
@@ -137,6 +139,8 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     assert "slices" in captured.out
     assert "workload" in captured.out
     assert "profile" in captured.out
+    assert "config" in captured.out
+    assert "preset" in captured.out
     assert "model" in captured.out
 
 
@@ -151,6 +155,37 @@ def test_beachx_model_help_lists_available_models(
     assert "close-pack" in captured.out
 
 
+def test_beachx_config_help_lists_available_subcommands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["config", "--help"])
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "init" in captured.out
+    assert "render" in captured.out
+    assert "validate" in captured.out
+    assert "diff" in captured.out
+    assert "save" in captured.out
+    assert "list-saved" in captured.out
+
+
+def test_beachx_preset_help_lists_available_subcommands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["preset", "--help"])
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "new" in captured.out
+    assert "list" in captured.out
+    assert "show" in captured.out
+    assert "path" in captured.out
+    assert "validate" in captured.out
+
+
 def test_beachx_mobility_subparser_matches_parser_shape() -> None:
     assert _parser_signature(_get_subparser("mobility")) == _parser_signature(
         analyze_coulomb_mobility.build_parser()
@@ -161,6 +196,30 @@ def test_beachx_model_close_pack_subparser_matches_parser_shape() -> None:
     assert _parser_signature(
         _get_nested_subparser("model", "close-pack")
     ) == _parser_signature(model_close_pack.build_parser())
+
+
+def test_beachx_config_render_subparser_matches_parser_shape() -> None:
+    config_parser = config.build_parser()
+    config_subparsers = next(
+        action
+        for action in config_parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    assert _parser_signature(
+        _get_nested_subparser("config", "render")
+    ) == _parser_signature(config_subparsers.choices["render"])
+
+
+def test_beachx_preset_new_subparser_matches_parser_shape() -> None:
+    preset_parser = preset.build_parser()
+    preset_subparsers = next(
+        action
+        for action in preset_parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    assert _parser_signature(
+        _get_nested_subparser("preset", "new")
+    ) == _parser_signature(preset_subparsers.choices["new"])
 
 
 def test_beachx_model_close_pack_missing_base_config_exits_with_friendly_message(

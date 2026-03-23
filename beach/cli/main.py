@@ -8,9 +8,11 @@ from typing import Sequence
 from . import (
     analyze_coulomb_mobility,
     animate_fortran_history,
+    config,
     estimate_fortran_workload,
     inspect_fortran_output,
     model,
+    preset,
     plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
@@ -36,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     plot_fortran_potential_slices.add_subparser(subparsers)
     estimate_fortran_workload.add_subparser(subparsers)
     plot_performance_profile.add_subparser(subparsers)
+    config.add_subparser(subparsers)
+    preset.add_subparser(subparsers)
     model.add_subparser(subparsers)
     return parser
 

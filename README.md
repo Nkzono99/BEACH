@@ -54,6 +54,42 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## 2. 実行
 
+### 2.0 `case.toml` から `beach.toml` を生成する
+
+`beachx config` を使うと、preset の組合せとローカル override から実行用 `beach.toml` を生成できます。
+日常的な編集対象は `case.toml`、Fortran 実行系が読むのは生成後の `beach.toml` です。
+
+```bash
+mkdir run_periodic2
+cd run_periodic2
+
+beachx config init
+beachx config validate
+beachx config render
+beach beach.toml
+```
+
+`beachx config init` の既定値は、次の built-in preset を組み合わせた `case.toml` を作ります。
+
+- `sim/periodic2_fmm`
+- `species/solarwind_electron`
+- `species/solarwind_ion`
+- `mesh/plane_basic`
+- `output/standard`
+
+preset の探索順は `./.beachx/presets/` → `~/.config/beachx/presets/` → package 同梱 preset です。
+研究室ローカルやプロジェクトローカルの設定は、この preset 置き場へ `sim/...` や `mesh/...` として TOML 断片を追加して再利用できます。
+サンプルの `case.toml` は [`examples/periodic2_basic/case.toml`](examples/periodic2_basic/case.toml) にあります。
+
+user preset を CLI から作る場合は、たとえば次のように使えます。
+
+```bash
+beachx preset new sim/lab/periodic2_fast --from sim/periodic2_fmm
+beachx preset new output/project/debug --local
+beachx preset list
+beachx preset show sim/lab/periodic2_fast
+```
+
 ### 2.1 推奨: `beach` コマンド
 
 ```bash

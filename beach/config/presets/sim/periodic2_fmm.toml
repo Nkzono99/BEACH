@@ -1,0 +1,19 @@
+[sim]
+dt = 2.0e-8
+batch_duration_step = 60000.0
+batch_count = 100
+max_step = 10000
+softening = 1.0e-6
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+rng_seed = 12345
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_far_correction = "auto"

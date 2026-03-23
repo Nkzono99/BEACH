@@ -1,0 +1,14 @@
+# Generated example for preset-based config rendering.
+
+schema_version = 1
+title = "Periodic2 FMM example"
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "species/solarwind_ion",
+  "mesh/plane_basic",
+  "output/standard",
+]
+
+[override.output]
+dir = "outputs/periodic2_basic"

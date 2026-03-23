@@ -5,6 +5,9 @@ title: Fortran パラメータファイル仕様（beach.toml）
 この文書は、**現行実装（Fortran 実行系）で推奨する設定方法**をまとめたものです。  
 「以前の書き方との互換」は最後に短く載せ、本文は初見向けに現在の推奨仕様だけを先に説明します。
 
+`beach` 自体が読むのは最終的な `beach.toml` です。
+Python 側の `beachx config render` を使う場合は、`case.toml` から preset 合成でこの `beach.toml` を生成できます。
+
 ## 1. 読み込みルール
 
 - `beach .../config.toml` で明示指定できます。

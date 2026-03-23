@@ -1,0 +1,5 @@
+[output]
+write_files = true
+write_mesh_potential = false
+dir = "outputs/latest"
+history_stride = 1
