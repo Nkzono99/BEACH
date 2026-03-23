@@ -11,6 +11,7 @@ program main
   use bem_output_writer, only: open_history_writer, print_run_summary, write_result_files, ensure_output_dir
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
+  use bem_mesh, only: prepare_periodic2_collision_mesh
   implicit none
 
   type(mesh_type) :: mesh
@@ -114,6 +115,7 @@ contains
     end if
 
     call build_mesh_from_config(app, mesh)
+    call prepare_periodic2_collision_mesh(mesh, app%sim)
     call initialize_injection_state(inject_state, app%n_particle_species)
     initial_stats = sim_stats()
     resumed = .false.
@@ -171,4 +173,3 @@ contains
   end subroutine initialize_injection_state
 
 end program main
-

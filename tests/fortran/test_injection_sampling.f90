@@ -2,7 +2,7 @@
 program test_injection_sampling
   use bem_kinds, only: dp, i32
   use bem_types, only: particles_soa, mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
-  use bem_mesh, only: init_mesh
+  use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_injection, only: &
     seed_rng, sample_shifted_maxwell_velocities, init_random_beam_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
@@ -169,6 +169,26 @@ program test_injection_sampling
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast should emit from in-box element')
   call assert_equal_i32(emit_elem(1), 2_i32, 'photo_raycast should ignore out-of-box element')
 
+  tri_v0(:, 1) = [0.20d0, -0.05d0, 0.05d0]
+  tri_v1(:, 1) = [0.40d0, -0.05d0, 0.05d0]
+  tri_v2(:, 1) = [0.20d0, 0.15d0, 0.05d0]
+  tri_v0(:, 2) = [0.70d0, 0.70d0, 0.60d0]
+  tri_v1(:, 2) = [0.90d0, 0.70d0, 0.60d0]
+  tri_v2(:, 2) = [0.70d0, 0.90d0, 0.60d0]
+  call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+  sim%field_bc_mode = 'periodic2'
+  sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+  sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  call prepare_periodic2_collision_mesh(mesh, sim)
+  ray_dir = [0.0d0, 0.0d0, -1.0d0]
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.25d0, 1.0d0, 1.0d0], [0.25d0, 1.0d0, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
+    )
+  call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 should emit from wrapped hit')
+  call assert_true(x(2, 1) >= -1.0d-12, 'photo_raycast periodic2 wrapped y should stay in primary cell')
+  call assert_true(x(2, 1) < 1.0d-6, 'photo_raycast periodic2 should use wrapped emission position')
+
   tri_v0(:, 1) = [0.0d0, 0.0d0, 0.05d0]
   tri_v1(:, 1) = [1.0d0, 0.0d0, 0.05d0]
   tri_v2(:, 1) = [0.0d0, 1.0d0, 0.05d0]
@@ -176,6 +196,7 @@ program test_injection_sampling
   tri_v1(:, 2) = [0.0d0, 1.0d0, 0.05d0]
   tri_v2(:, 2) = [1.0d0, 0.0d0, 0.05d0]
   call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+  sim%field_bc_mode = 'free'
   sim%bc_low(2) = bc_periodic
   sim%bc_high(2) = bc_periodic
   ray_dir = [0.0d0, 1.0d0, -0.2d0]

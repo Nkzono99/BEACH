@@ -104,6 +104,9 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 - 線分 `x0 -> x1` と三角形群の交差
 - 複数候補がある場合は最小 `t`（最初の衝突）を採用
+- `sim.field_bc_mode="periodic2"` では、mesh は primitive cell の base element のみ保持しつつ、衝突判定だけ periodic image を implicit に探索する
+- periodic2 collision 用 mesh は runtime で canonical unwrapped 形へ平行移動して collision grid を再構築する。raw 頂点は periodic 軸で box 外を含んでよい
+- periodic2 hit の `elem_idx` は常に base element index を返し、吸収・堆積先も primitive cell 側へ集約する
 
 ### 5.4 ボックス境界
 
@@ -135,6 +138,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - 各レイは最初の命中要素からのみ放出（命中しなければ放出なし）
 - 1ヒット重み:
   - `w_hit = J_perp * A_perp * batch_duration / (|q| * rays_per_batch)`
+- `sim.field_bc_mode="periodic2"` で periodic image に命中した場合も、放出位置は primary cell に wrap した hit 座標を使う
 - `sheath_injection_model` が Zhao 系のとき、最初の負電荷 `photo_raycast` species の `emit_current_density_a_m2` は Zhao の自由光電子電流へ上書きされ、法線速度 cutoff も分枝に応じて適用される
 
 ## 7. 実行制御と停止条件

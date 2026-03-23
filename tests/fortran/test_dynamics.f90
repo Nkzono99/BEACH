@@ -3,7 +3,7 @@ program test_dynamics
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, hit_info, sim_config, bc_open, bc_periodic
-  use bem_mesh, only: init_mesh
+  use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_templates, only: make_plane, make_sphere
   use bem_field, only: electric_field_at
   use bem_field_solver, only: field_solver_type
@@ -68,6 +68,10 @@ program test_dynamics
   call assert_true(.not. hit%has_hit, 'segment outside triangle should not hit')
 
   call test_collision_grid_equivalence()
+  call test_periodic2_collision_wrap()
+  call test_periodic2_collision_multi_cell()
+  call test_periodic2_collision_canonical_prepare()
+  call test_periodic2_collision_grid_equivalence()
   call test_field_solver_auto_mode()
   call test_field_solver_explicit_mode_autotune()
   call test_treecode_field_accuracy()
@@ -166,6 +170,124 @@ contains
       end if
     end do
   end subroutine find_first_hit_bruteforce
+
+  subroutine test_periodic2_collision_wrap()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    call find_first_hit(mesh_periodic, [1.2d0, 0.25d0, 1.0d0], [1.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim)
+    call assert_true(hit_periodic%has_hit, 'periodic2 collision should hit opposite-side image')
+    call assert_equal_i32(hit_periodic%elem_idx, 1_i32, 'periodic2 collision elem_idx mismatch')
+    call assert_close_dp(hit_periodic%t, 0.5d0, 1.0d-12, 'periodic2 collision t mismatch')
+    call assert_close_dp(hit_periodic%pos(1), 1.2d0, 1.0d-12, 'periodic2 collision unwrapped x mismatch')
+    call assert_close_dp(hit_periodic%pos_wrapped(1), 0.2d0, 1.0d-12, 'periodic2 collision wrapped x mismatch')
+    call assert_close_dp(hit_periodic%pos_wrapped(2), 0.25d0, 1.0d-12, 'periodic2 collision wrapped y mismatch')
+    call assert_equal_i32(hit_periodic%image_shift(1), 1_i32, 'periodic2 collision x image shift mismatch')
+    call assert_equal_i32(hit_periodic%image_shift(2), 0_i32, 'periodic2 collision y image shift mismatch')
+  end subroutine test_periodic2_collision_wrap
+
+  subroutine test_periodic2_collision_multi_cell()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    call find_first_hit(mesh_periodic, [3.2d0, -0.75d0, 1.0d0], [3.2d0, -0.75d0, -1.0d0], hit_periodic, sim=sim)
+    call assert_true(hit_periodic%has_hit, 'periodic2 collision should support multi-cell image search')
+    call assert_close_dp(hit_periodic%pos_wrapped(1), 0.2d0, 1.0d-12, 'periodic2 multi-cell wrapped x mismatch')
+    call assert_close_dp(hit_periodic%pos_wrapped(2), 0.25d0, 1.0d-12, 'periodic2 multi-cell wrapped y mismatch')
+    call assert_equal_i32(hit_periodic%image_shift(1), 3_i32, 'periodic2 multi-cell x image shift mismatch')
+    call assert_equal_i32(hit_periodic%image_shift(2), -1_i32, 'periodic2 multi-cell y image shift mismatch')
+  end subroutine test_periodic2_collision_multi_cell
+
+  subroutine test_periodic2_collision_canonical_prepare()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.2d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [-0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    call assert_true(mesh_periodic%periodic2_collision_ready, 'periodic2 collision prep flag should be set')
+    call assert_close_dp(mesh_periodic%bb_min(1, 1), -0.1d0, 1.0d-12, 'canonical triangle bb_min mismatch')
+    call assert_close_dp(mesh_periodic%bb_max(1, 1), 0.2d0, 1.0d-12, 'canonical triangle bb_max mismatch')
+
+    call find_first_hit(mesh_periodic, [1.1d0, 0.25d0, 1.0d0], [1.1d0, 0.25d0, -1.0d0], hit_periodic, sim=sim)
+    call assert_true(hit_periodic%has_hit, 'canonical periodic triangle should remain hittable')
+    call assert_close_dp(hit_periodic%pos_wrapped(1), 0.1d0, 1.0d-12, 'canonical periodic triangle wrapped x mismatch')
+  end subroutine test_periodic2_collision_canonical_prepare
+
+  subroutine test_periodic2_collision_grid_equivalence()
+    type(mesh_type) :: mesh_grid, mesh_linear
+    type(sim_config) :: sim
+
+    call make_plane(mesh_grid, size_x=1.0d0, size_y=1.0d0, nx=8_i32, ny=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_grid, sim)
+    call assert_true(mesh_grid%use_collision_grid, 'periodic2 dense mesh should use collision grid')
+
+    mesh_linear = mesh_grid
+    mesh_linear%use_collision_grid = .false.
+    call assert_periodic_hit_equivalent( &
+      mesh_grid, mesh_linear, sim, [2.2d0, -1.7d0, 1.0d0], [2.2d0, -1.7d0, -1.0d0], &
+      'periodic2 grid/linear equivalence' &
+      )
+  end subroutine test_periodic2_collision_grid_equivalence
+
+  subroutine assert_periodic_hit_equivalent(mesh_fast, mesh_ref, sim, p0, p1, label)
+    type(mesh_type), intent(in) :: mesh_fast, mesh_ref
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(in) :: p0(3), p1(3)
+    character(len=*), intent(in) :: label
+    type(hit_info) :: hit_fast, hit_ref
+
+    call find_first_hit(mesh_fast, p0, p1, hit_fast, sim=sim)
+    call find_first_hit(mesh_ref, p0, p1, hit_ref, sim=sim)
+
+    call assert_true(hit_fast%has_hit .eqv. hit_ref%has_hit, trim(label)//': has_hit mismatch')
+    if (.not. hit_ref%has_hit) return
+
+    call assert_equal_i32(hit_fast%elem_idx, hit_ref%elem_idx, trim(label)//': elem_idx mismatch')
+    call assert_close_dp(hit_fast%t, hit_ref%t, 1.0d-11, trim(label)//': t mismatch')
+    call assert_allclose_1d(hit_fast%pos, hit_ref%pos, 1.0d-10, trim(label)//': position mismatch')
+    call assert_allclose_1d(hit_fast%pos_wrapped, hit_ref%pos_wrapped, 1.0d-10, trim(label)//': wrapped mismatch')
+    call assert_equal_i32(hit_fast%image_shift(1), hit_ref%image_shift(1), trim(label)//': shift(1) mismatch')
+    call assert_equal_i32(hit_fast%image_shift(2), hit_ref%image_shift(2), trim(label)//': shift(2) mismatch')
+  end subroutine assert_periodic_hit_equivalent
+
+  subroutine init_periodic2_test_sim(sim)
+    type(sim_config), intent(out) :: sim
+
+    sim = sim_config()
+    sim%field_solver = 'fmm'
+    sim%field_bc_mode = 'periodic2'
+    sim%use_box = .true.
+    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
+    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  end subroutine init_periodic2_test_sim
 
   subroutine test_field_solver_auto_mode()
     type(mesh_type) :: mesh_small, mesh_large

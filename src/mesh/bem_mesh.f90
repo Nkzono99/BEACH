@@ -1,7 +1,7 @@
 !> 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。
 module bem_mesh
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type
+  use bem_types, only: mesh_type, sim_config, bc_periodic
   implicit none
 contains
 
@@ -17,9 +17,7 @@ contains
     real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
     real(dp), intent(in), optional :: q0(:)
     integer(i32), intent(in), optional :: elem_mesh_id0(:)
-    integer(i32) :: n, i
-    real(dp) :: e1(3), e2(3), nvec(3), nn
-    real(dp) :: cx, cy, cz
+    integer(i32) :: n
 
     if (size(v0, 1) /= 3 .or. size(v1, 1) /= 3 .or. size(v2, 1) /= 3) then
       error stop "mesh vertex input first dimension must be 3"
@@ -39,31 +37,6 @@ contains
     mesh%v1 = v1
     mesh%v2 = v2
 
-    do i = 1, n
-      cx = (v0(1, i) + v1(1, i) + v2(1, i))/3.0d0
-      cy = (v0(2, i) + v1(2, i) + v2(2, i))/3.0d0
-      cz = (v0(3, i) + v1(3, i) + v2(3, i))/3.0d0
-      mesh%centers(1, i) = cx
-      mesh%centers(2, i) = cy
-      mesh%centers(3, i) = cz
-      mesh%center_x(i) = cx
-      mesh%center_y(i) = cy
-      mesh%center_z(i) = cz
-      mesh%bb_min(:, i) = min(min(v0(:, i), v1(:, i)), v2(:, i))
-      mesh%bb_max(:, i) = max(max(v0(:, i), v1(:, i)), v2(:, i))
-
-      e1 = v1(:, i) - v0(:, i)
-      e2 = v2(:, i) - v0(:, i)
-      nvec = cross(e1, e2)
-      nn = sqrt(sum(nvec*nvec))
-      if (nn > 0.0d0) then
-        mesh%normals(:, i) = nvec/nn
-      else
-        mesh%normals(:, i) = 0.0d0
-      end if
-      mesh%h_elem(i) = sqrt(0.5d0*nn)
-    end do
-
     if (present(q0)) then
       if (size(q0) /= n) error stop "q0 size mismatch"
       mesh%q_elem = q0
@@ -78,8 +51,80 @@ contains
       mesh%elem_mesh_id = 1_i32
     end if
 
-    call build_collision_grid(mesh)
+    mesh%periodic2_collision_ready = .false.
+    call update_mesh_geometry(mesh)
   end subroutine init_mesh
+
+  !> periodic2 用に primitive cell メッシュを canonical unwrapped 形へ平行移動し、
+  !! 幾何キャッシュと collision grid を再構築する。
+  subroutine prepare_periodic2_collision_mesh(mesh, sim)
+    type(mesh_type), intent(inout) :: mesh
+    type(sim_config), intent(in) :: sim
+
+    integer(i32) :: periodic_axes(2), iaxis, i
+    real(dp) :: periodic_len(2), box_center(2), center_axis, shift
+    logical :: use_periodic2
+
+    call resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
+    mesh%periodic2_collision_ready = .false.
+    if (.not. use_periodic2) return
+
+    do iaxis = 1, 2
+      box_center(iaxis) = 0.5d0*(sim%box_min(periodic_axes(iaxis)) + sim%box_max(periodic_axes(iaxis)))
+    end do
+
+    do i = 1, mesh%nelem
+      do iaxis = 1, 2
+        center_axis = (mesh%v0(periodic_axes(iaxis), i) + mesh%v1(periodic_axes(iaxis), i) + &
+                       mesh%v2(periodic_axes(iaxis), i))/3.0d0
+        shift = periodic_len(iaxis)*anint((box_center(iaxis) - center_axis)/periodic_len(iaxis))
+        if (shift /= 0.0d0) then
+          mesh%v0(periodic_axes(iaxis), i) = mesh%v0(periodic_axes(iaxis), i) + shift
+          mesh%v1(periodic_axes(iaxis), i) = mesh%v1(periodic_axes(iaxis), i) + shift
+          mesh%v2(periodic_axes(iaxis), i) = mesh%v2(periodic_axes(iaxis), i) + shift
+        end if
+      end do
+    end do
+
+    call update_mesh_geometry(mesh)
+    mesh%periodic2_collision_ready = .true.
+  end subroutine prepare_periodic2_collision_mesh
+
+  !> 頂点配列から重心・法線・AABB・代表長・collision grid を再構築する。
+  subroutine update_mesh_geometry(mesh)
+    type(mesh_type), intent(inout) :: mesh
+
+    integer(i32) :: i
+    real(dp) :: e1(3), e2(3), nvec(3), nn
+    real(dp) :: cx, cy, cz
+
+    do i = 1, mesh%nelem
+      cx = (mesh%v0(1, i) + mesh%v1(1, i) + mesh%v2(1, i))/3.0d0
+      cy = (mesh%v0(2, i) + mesh%v1(2, i) + mesh%v2(2, i))/3.0d0
+      cz = (mesh%v0(3, i) + mesh%v1(3, i) + mesh%v2(3, i))/3.0d0
+      mesh%centers(1, i) = cx
+      mesh%centers(2, i) = cy
+      mesh%centers(3, i) = cz
+      mesh%center_x(i) = cx
+      mesh%center_y(i) = cy
+      mesh%center_z(i) = cz
+      mesh%bb_min(:, i) = min(min(mesh%v0(:, i), mesh%v1(:, i)), mesh%v2(:, i))
+      mesh%bb_max(:, i) = max(max(mesh%v0(:, i), mesh%v1(:, i)), mesh%v2(:, i))
+
+      e1 = mesh%v1(:, i) - mesh%v0(:, i)
+      e2 = mesh%v2(:, i) - mesh%v0(:, i)
+      nvec = cross(e1, e2)
+      nn = sqrt(sum(nvec*nvec))
+      if (nn > 0.0d0) then
+        mesh%normals(:, i) = nvec/nn
+      else
+        mesh%normals(:, i) = 0.0d0
+      end if
+      mesh%h_elem(i) = sqrt(0.5d0*nn)
+    end do
+
+    call build_collision_grid(mesh)
+  end subroutine update_mesh_geometry
 
   !> 三角形AABBを一様グリッドへ登録し、衝突判定の候補探索を高速化する。
   !! 要素数が少ない場合は線形探索にフォールバックする。
@@ -237,5 +282,64 @@ contains
     c(2) = a(3)*b(1) - a(1)*b(3)
     c(3) = a(1)*b(2) - a(2)*b(1)
   end function cross
+
+  !> periodic2 collision で使う 2 軸周期設定を検証付きで解決する。
+  subroutine resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
+    type(sim_config), intent(in) :: sim
+    logical, intent(out) :: use_periodic2
+    integer(i32), intent(out) :: periodic_axes(2)
+    real(dp), intent(out) :: periodic_len(2)
+
+    character(len=16) :: field_bc_mode
+    integer(i32) :: axis, n_periodic
+    real(dp) :: span
+
+    use_periodic2 = .false.
+    periodic_axes = 0_i32
+    periodic_len = 0.0d0
+    field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
+    if (trim(field_bc_mode) /= 'periodic2') return
+
+    if (.not. sim%use_box) then
+      error stop 'sim.field_bc_mode="periodic2" requires sim.use_box=true.'
+    end if
+
+    n_periodic = 0_i32
+    do axis = 1_i32, 3_i32
+      if ((sim%bc_low(axis) == bc_periodic) .neqv. (sim%bc_high(axis) == bc_periodic)) then
+        error stop 'periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes.'
+      end if
+      if (sim%bc_low(axis) == bc_periodic) then
+        n_periodic = n_periodic + 1_i32
+        if (n_periodic <= 2_i32) periodic_axes(n_periodic) = axis
+      end if
+    end do
+    if (n_periodic /= 2_i32) then
+      error stop 'sim.field_bc_mode="periodic2" requires exactly two periodic axes.'
+    end if
+
+    do axis = 1_i32, 2_i32
+      span = sim%box_max(periodic_axes(axis)) - sim%box_min(periodic_axes(axis))
+      if (span <= 0.0d0) error stop 'periodic2 requires positive box length on periodic axes.'
+      periodic_len(axis) = span
+    end do
+
+    use_periodic2 = .true.
+  end subroutine resolve_periodic2_collision_config
+
+  !> ASCII英字を小文字化する。
+  pure function lower_ascii(s) result(out)
+    character(len=*), intent(in) :: s
+    character(len=len(s)) :: out
+    integer :: i, code
+
+    out = s
+    do i = 1, len(s)
+      code = iachar(out(i:i))
+      if (code >= iachar('A') .and. code <= iachar('Z')) then
+        out(i:i) = achar(code + 32)
+      end if
+    end do
+  end function lower_ascii
 
 end module bem_mesh

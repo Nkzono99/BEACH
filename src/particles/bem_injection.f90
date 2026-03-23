@@ -438,7 +438,7 @@ contains
         if (.not. reached_boundary) exit
 
         call find_first_hit( &
-          mesh, ray_pos, seg_end, hit, box_min=sim%box_min, box_max=sim%box_max, require_elem_inside=.true. &
+          mesh, ray_pos, seg_end, hit, sim=sim, box_min=sim%box_min, box_max=sim%box_max, require_elem_inside=.true. &
           )
         if (hit%has_hit) then
           if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
@@ -453,7 +453,11 @@ contains
           else
             call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
           end if
-          x(:, n_emit) = hit%pos + surf_normal*eps
+          if (trim(lower_ascii(sim%field_bc_mode)) == 'periodic2') then
+            x(:, n_emit) = hit%pos_wrapped + surf_normal*eps
+          else
+            x(:, n_emit) = hit%pos + surf_normal*eps
+          end if
           w(n_emit) = w_hit
           if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit%elem_idx
           exit
@@ -796,5 +800,20 @@ contains
     tail = mu*(1.0_dp - standard_normal_cdf(x)) + sigma*standard_normal_pdf(x)
     if (tail < 0.0_dp) tail = 0.0_dp
   end function flux_weighted_normal_tail
+
+  !> ASCII英字を小文字化する。
+  pure function lower_ascii(s) result(out)
+    character(len=*), intent(in) :: s
+    character(len=len(s)) :: out
+    integer :: i, code
+
+    out = s
+    do i = 1, len(s)
+      code = iachar(out(i:i))
+      if (code >= iachar('A') .and. code <= iachar('Z')) then
+        out(i:i) = achar(code + 32)
+      end if
+    end do
+  end function lower_ascii
 
 end module bem_injection

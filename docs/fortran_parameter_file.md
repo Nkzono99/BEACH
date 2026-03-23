@@ -92,7 +92,7 @@ history_stride = 1
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
 | `softening` | float | `1.0e-6` | 電場計算の softening 長さ [m] |
 | `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
-| `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放） |
+| `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放）。場評価だけでなく collision / `photo_raycast` raycast でも periodic image を考慮し、mesh は primitive cell の base element のまま扱う |
 | `field_periodic_image_layers` | int | `1` | `field_bc_mode="periodic2"` の近傍画像層数。各周期軸で `[-N, N]` の有限画像和を計算（`N>=0`） |
 | `field_periodic_far_correction` | string | `"auto"` | `periodic2` の遠方補正モード。`auto` が既定値で、`field_solver="fmm"` かつ `field_bc_mode="periodic2"` では内部的に `m2l_root_oracle` に正規化する。`none` は遠方補正を無効化する。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使って root operator へ fit する |
 | `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用の Ewald 分解パラメータ。`0.0` のときは box サイズと `field_periodic_image_layers` から自動決定する |
@@ -139,6 +139,7 @@ history_stride = 1
 - `10000 <= nelem < 50000`: `theta = 0.58`, `leaf_max = 20`
 - `50000 <= nelem`: `theta = 0.65`, `leaf_max = 24`
 - `field_bc_mode = "periodic2"` でも同じ表を使い、追加の periodic2 専用 clamp は行いません。
+- `field_bc_mode = "periodic2"` の mesh は runtime で collision 用 canonical unwrapped 表現へ平行移動してから ray-triangle 判定します。raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangle を頂点ごとに mod 折り返すことはしません。
 
 ### 3.2 `[[particles.species]]`
 
@@ -218,6 +219,7 @@ history_stride = 1
 
 - `w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)`
 - 実際の放出数はレイの命中率で決まるため、バッチごとの生成粒子数は `rays_per_batch` 以下になります。
+- `field_bc_mode = "periodic2"` のとき、periodic image に命中しても放出位置は primary cell に wrap した hit 座標を使います。
 
 ### `sim.sheath_injection_model`
 

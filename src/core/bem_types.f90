@@ -93,6 +93,7 @@ module bem_types
     integer(i32), allocatable :: grid_cell_start(:)
     integer(i32), allocatable :: grid_cell_elem(:)
     logical :: use_collision_grid = .false.
+    logical :: periodic2_collision_ready = .false.
   end type mesh_type
 
   !> 粒子の位置・速度・物性値・生存フラグをSoA形式で保持する型。
@@ -112,6 +113,8 @@ module bem_types
     integer(i32) :: elem_idx = -1
     real(dp) :: t = 0.0d0
     real(dp) :: pos(3) = 0.0d0
+    integer(i32) :: image_shift(2) = 0_i32
+    real(dp) :: pos_wrapped(3) = 0.0d0
   end type hit_info
 
 end module bem_types

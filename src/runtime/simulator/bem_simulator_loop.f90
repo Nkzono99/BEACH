@@ -149,7 +149,7 @@ contains
       call boris_push( &
         x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
         )
-      call find_first_hit(mesh, x0, x1, hit)
+      call find_first_hit(mesh, x0, x1, hit, sim=app%sim)
       if (hit%has_hit) then
         qdep = pcls_batch%q(i)*pcls_batch%w(i)
         dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
