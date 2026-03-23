@@ -3,15 +3,27 @@
 	install-intel install-intel-local \
 	build run test \
 	fmt-fortran fmt-check-fortran install-hooks \
-	build-mpi run-mpi test-mpi
+	build-mpi run-mpi test-mpi \
+	docs-fortran docs-clean
 
+PYTHON ?= $(shell if command -v python >/dev/null 2>&1; then echo python; \
+	elif command -v python3.11 >/dev/null 2>&1; then echo python3.11; \
+	elif command -v python3.12 >/dev/null 2>&1; then echo python3.12; \
+	else echo python3; fi)
 FPM ?= fpm
+FORD ?= $(PYTHON) -m ford
+FORD_CONFIG ?= preprocessor = "$(PYTHON) -W ignore::RuntimeWarning -m pcpp.pcmd -D__GFORTRAN__ --passthru-comments"
 PROFILE ?= release
 CONFIG ?= beach.toml
 OPENMP_FLAG ?= -fopenmp
 INSTALL_PROFILE ?= auto
 FPRETTIFY ?= fprettify
 PRE_COMMIT ?= pre-commit
+DOCS_PROJECT_FILE ?= ford.md
+DOCS_OUTPUT_DIR ?= build/ford-docs
+FORTRAN_DEP_MAP_MD ?= docs/fortran_dependency_map.md
+FORTRAN_DEP_MAP_DOT ?= build/fortran_module_dependencies.dot
+FORTRAN_DEP_MAP_SVG ?= docs/media/fortran_module_dependencies.svg
 
 MPI_FC ?= mpiifort
 MPI_OPENMP_FLAG ?= -qopenmp
@@ -72,3 +84,13 @@ run-mpi:
 test-mpi:
 	FPM_FC=$(MPI_FC) $(FPM) test --target test_mpi_hybrid --profile debug \
 		--flag "$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)" --runner "$(MPI_RUNNER)"
+
+docs-fortran:
+	$(PYTHON) tools/generate_fortran_dependency_report.py \
+		--markdown $(FORTRAN_DEP_MAP_MD) \
+		--dot $(FORTRAN_DEP_MAP_DOT) \
+		--svg $(FORTRAN_DEP_MAP_SVG)
+	$(FORD) $(DOCS_PROJECT_FILE) --output_dir $(DOCS_OUTPUT_DIR) --config '$(FORD_CONFIG)'
+
+docs-clean:
+	rm -rf $(DOCS_OUTPUT_DIR)

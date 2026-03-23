@@ -1,3 +1,5 @@
+title: Fortran パラメータファイル仕様（beach.toml）
+
 # Fortran パラメータファイル仕様（`beach.toml`）
 
 この文書は、**現行実装（Fortran 実行系）で推奨する設定方法**をまとめたものです。  
@@ -13,7 +15,7 @@
 
 ### Editor schema
 
-- JSON Schema は [`schemas/beach.schema.json`](../schemas/beach.schema.json) に同梱しています。
+- JSON Schema は [`schemas/beach.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json) に同梱しています。
 - VS Code の Even Better TOML / Taplo では、各 `beach.toml` の先頭へ `#:schema ...` コメントを置くと補完・型検証・必須項目チェックが有効になります。
 - BEACH の Fortran パーサは「最初のセクションより前の `key = value`」を受け付けないため、`"$schema" = "..."` は使わずコメント directive を使ってください。
 

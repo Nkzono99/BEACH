@@ -1,7 +1,9 @@
+title: Fortran Coulomb FMM コア仕様
+
 # Fortran Coulomb FMM コア仕様
 
 この文書は、現行 Fortran 実装の Coulomb FMM コア
-[`src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90)
+[`bem_coulomb_fmm_core` module page](../module/bem_coulomb_fmm_core.html)
 と、その実装を分割した関連ファイル群の仕様とアルゴリズムをまとめたものです。
 
 - 公開 API / 境界: `src/physics/field_solver/fmm/api/`
