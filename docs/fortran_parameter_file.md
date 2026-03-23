@@ -54,6 +54,9 @@ bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
 rng_seed = 12345
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_far_correction = "none"
 
 [[particles.species]]
 source_mode = "reservoir_face"
