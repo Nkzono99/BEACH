@@ -1,9 +1,9 @@
 project: BEACH
 summary: BEM + Accumulated Charge simulator with a Fortran runtime and Python post-processing utilities.
 author: beach contributors
-license: MIT
-doc_license: mit
-version: 0.7.2
+license: Apache-2.0
+doc_license:
+version: 0.7.3
 src_dir: src
 src_dir: app
 page_dir: docs
