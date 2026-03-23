@@ -68,7 +68,25 @@
         "box_size": {
           "$ref": "#/$defs/positiveVec3"
         }
-      }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "box_origin",
+              "box_min"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "box_size",
+              "box_max"
+            ]
+          }
+        }
+      ]
     },
     "speciesFragment": {
       "type": "object",
@@ -98,7 +116,43 @@
         "uv_high": {
           "$ref": "#/$defs/vec2"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "inject_region_mode"
+                ]
+              },
+              {
+                "required": [
+                  "uv_low"
+                ]
+              },
+              {
+                "required": [
+                  "uv_high"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "source_mode": {
+                "enum": [
+                  "reservoir_face",
+                  "photo_raycast"
+                ]
+              }
+            },
+            "required": [
+              "source_mode"
+            ]
+          }
+        }
+      ]
     },
     "particlesFragment": {
       "type": "object",

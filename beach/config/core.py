@@ -38,6 +38,7 @@ _FRAGMENT_TOP_LEVEL_KEYS = frozenset({"sim", "particles", "mesh", "output"})
 _PRESET_FORBIDDEN_KEYS = frozenset(
     {"schema_version", "title", "use_presets", "override", "base_case"}
 )
+_FACE_SOURCE_MODES = frozenset({"reservoir_face", "photo_raycast"})
 
 
 class ConfigError(ValueError):
@@ -217,6 +218,7 @@ def load_case_document(path: str | Path) -> CaseDocument:
         context="case override",
         allow_meta_keys=False,
     )
+    _validate_high_level_fragment(override_document, context="case override")
 
     return CaseDocument(
         schema_version=schema_version,
@@ -307,6 +309,7 @@ def resolve_preset(name: str, *, case_dir: str | Path) -> ResolvedPreset:
         context=f'preset "{normalized_name}"',
         allow_meta_keys=False,
     )
+    _validate_high_level_fragment(data, context=f'preset "{normalized_name}"')
 
     shadowed_sources = tuple(str(path) for _, path in existing[1:])
     return ResolvedPreset(
@@ -385,12 +388,18 @@ def _resolve_species_high_level(
     mode = species.pop("inject_region_mode", None)
     uv_low = species.pop("uv_low", None)
     uv_high = species.pop("uv_high", None)
+    source_mode = species.get("source_mode", "volume_seed")
     if mode is None:
         if uv_low is not None or uv_high is not None:
             raise ConfigError(
                 "high-level config error: uv_low/uv_high require inject_region_mode=\"face_fraction\"."
             )
         return species
+    if not isinstance(source_mode, str) or source_mode not in _FACE_SOURCE_MODES:
+        raise ConfigError(
+            "high-level config error: inject_region_mode is only supported for "
+            'source_mode="reservoir_face" or "photo_raycast".'
+        )
     if not isinstance(mode, str):
         raise ConfigError("high-level config error: inject_region_mode must be a string.")
     if mode == "absolute":
@@ -909,7 +918,7 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
 
     sim = _require_table(final_config, "sim", context="rendered config")
     particles = _require_table(final_config, "particles", context="rendered config")
-    _require_table(final_config, "mesh", context="rendered config")
+    mesh = _require_table(final_config, "mesh", context="rendered config")
     _require_table(final_config, "output", context="rendered config")
 
     species = particles.get("species")
@@ -1054,6 +1063,8 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
         raise RenderValidationError(
             "BEACH constraint error: volume_seed species require total npcls_per_step >= 1."
         )
+
+    _validate_rendered_mesh(mesh)
 
 
 def render_beach_toml(
@@ -1207,6 +1218,7 @@ def save_preset_fragment(
         context=f'preset "{name}"',
         allow_meta_keys=False,
     )
+    _validate_high_level_fragment(materialized, context=f'preset "{name}"')
     destination = preset_target_path(name, scope=scope, case_dir=case_dir)
     if destination.exists() and not force:
         raise FileExistsError(f"preset already exists: {name}")
@@ -1450,6 +1462,40 @@ def _validate_fragment_structure(
             )
 
 
+def _validate_high_level_fragment(
+    document: Mapping[str, Any],
+    *,
+    context: str,
+) -> None:
+    sim = document.get("sim")
+    if isinstance(sim, Mapping):
+        if "box_origin" in sim and "box_min" in sim:
+            raise CaseSpecError(
+                f"{context} error: sim.box_origin and sim.box_min cannot be specified "
+                "in the same fragment."
+            )
+        if "box_size" in sim and "box_max" in sim:
+            raise CaseSpecError(
+                f"{context} error: sim.box_size and sim.box_max cannot be specified "
+                "in the same fragment."
+            )
+
+    particles = document.get("particles")
+    species = particles.get("species") if isinstance(particles, Mapping) else None
+    if isinstance(species, list):
+        for index, item in enumerate(species, start=1):
+            if not isinstance(item, Mapping):
+                continue
+            if not any(key in item for key in ("inject_region_mode", "uv_low", "uv_high")):
+                continue
+            source_mode = item.get("source_mode", "volume_seed")
+            if not isinstance(source_mode, str) or source_mode not in _FACE_SOURCE_MODES:
+                raise CaseSpecError(
+                    f"{context} error: particles.species[{index}] uses inject_region_mode/uv_* "
+                    'but source_mode must be "reservoir_face" or "photo_raycast".'
+                )
+
+
 def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
     dt = float(sim.get("dt", 0.0))
     has_batch_duration = "batch_duration" in sim
@@ -1557,6 +1603,11 @@ def _validate_face_bounds(
     for other_axis in range(3):
         if other_axis == axis:
             continue
+        if pos_low[other_axis] > pos_high[other_axis]:
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}] pos_low must be <= "
+                "pos_high along the inject-face coordinates."
+            )
         low_bound = float(box_min[other_axis])
         high_bound = float(box_max[other_axis])
         if not (low_bound <= pos_low[other_axis] <= high_bound):
@@ -1581,6 +1632,138 @@ def _require_table(
             f"BEACH constraint error: {context} requires [{key}] to be a table."
         )
     return dict(value)
+
+
+def _validate_rendered_mesh(mesh: Mapping[str, Any]) -> None:
+    templates = mesh.get("templates")
+    if templates is None:
+        return
+    if not isinstance(templates, list) or not all(isinstance(item, Mapping) for item in templates):
+        raise RenderValidationError(
+            "BEACH constraint error: mesh.templates must be an array of tables."
+        )
+    for index, item in enumerate(templates, start=1):
+        _validate_rendered_template(dict(item), index=index)
+
+
+def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> None:
+    kind_value = template.get("kind", "plane")
+    if not isinstance(kind_value, str):
+        raise RenderValidationError(
+            f"BEACH constraint error: mesh.templates[{index}].kind must be a string."
+        )
+    kind = kind_value.strip().lower() or "plane"
+
+    if "center" in template:
+        _maybe_vec3(template.get("center"), name=f"mesh.templates[{index}].center")
+
+    if kind == "plane":
+        _positive_template_scalar(template, index=index, key="size_x", default=1.0)
+        _positive_template_scalar(template, index=index, key="size_y", default=1.0)
+        return
+
+    if kind in {"plate_hole", "plane_hole"}:
+        size_x = _positive_template_scalar(template, index=index, key="size_x", default=1.0)
+        size_y = _positive_template_scalar(template, index=index, key="size_y", default=1.0)
+        radius = _positive_template_scalar(template, index=index, key="radius", default=0.2)
+        if radius >= 0.5 * min(size_x, size_y):
+            raise RenderValidationError(
+                f"BEACH constraint error: mesh.templates[{index}] radius must be smaller "
+                "than half of min(size_x, size_y)."
+            )
+        return
+
+    if kind == "disk":
+        _positive_template_scalar(template, index=index, key="radius", default=0.5)
+        return
+
+    if kind == "annulus":
+        radius = _positive_template_scalar(template, index=index, key="radius", default=0.5)
+        inner_radius = _nonnegative_template_scalar(
+            template,
+            index=index,
+            key="inner_radius",
+            default=0.25,
+        )
+        if inner_radius >= radius:
+            raise RenderValidationError(
+                f"BEACH constraint error: mesh.templates[{index}].inner_radius must be "
+                "smaller than radius."
+            )
+        return
+
+    if kind == "box":
+        size = _maybe_vec3(
+            template.get("size", [1.0, 1.0, 1.0]),
+            name=f"mesh.templates[{index}].size",
+        )
+        if size is None:
+            raise RenderValidationError(
+                f"BEACH constraint error: mesh.templates[{index}].size must be a 3-element array."
+            )
+        if any(component <= 0.0 for component in size):
+            raise RenderValidationError(
+                f"BEACH constraint error: mesh.templates[{index}].size must be positive on all axes."
+            )
+        return
+
+    if kind == "cylinder":
+        _positive_template_scalar(template, index=index, key="radius", default=0.5)
+        _positive_template_scalar(template, index=index, key="height", default=1.0)
+        return
+
+    if kind == "sphere":
+        _positive_template_scalar(template, index=index, key="radius", default=0.5)
+        return
+
+    raise RenderValidationError(
+        f"BEACH constraint error: mesh.templates[{index}] has unsupported kind={kind_value!r}."
+    )
+
+
+def _positive_template_scalar(
+    template: Mapping[str, Any],
+    *,
+    index: int,
+    key: str,
+    default: float,
+) -> float:
+    value = _template_scalar(template, index=index, key=key, default=default)
+    if value <= 0.0:
+        raise RenderValidationError(
+            f"BEACH constraint error: mesh.templates[{index}].{key} must be > 0."
+        )
+    return value
+
+
+def _nonnegative_template_scalar(
+    template: Mapping[str, Any],
+    *,
+    index: int,
+    key: str,
+    default: float,
+) -> float:
+    value = _template_scalar(template, index=index, key=key, default=default)
+    if value < 0.0:
+        raise RenderValidationError(
+            f"BEACH constraint error: mesh.templates[{index}].{key} must be >= 0."
+        )
+    return value
+
+
+def _template_scalar(
+    template: Mapping[str, Any],
+    *,
+    index: int,
+    key: str,
+    default: float,
+) -> float:
+    raw = template.get(key, default)
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        raise RenderValidationError(
+            f"BEACH constraint error: mesh.templates[{index}].{key} must be numeric."
+        )
+    return float(raw)
 
 
 def _maybe_vec3(value: object, *, name: str) -> list[float] | None:

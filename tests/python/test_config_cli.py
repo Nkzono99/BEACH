@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from beach.cli.main import main as beachx_main
-from beach.config import DEFAULT_PRESET_NAMES, render_case_file
+from beach.config import (
+    DEFAULT_PRESET_NAMES,
+    CaseSpecError,
+    RenderValidationError,
+    render_case_file,
+)
 
 
 def test_render_case_file_merges_builtin_presets_and_override(tmp_path: Path) -> None:
@@ -213,6 +218,159 @@ npcls_per_step = 10
     assert "groups" not in result.config["mesh"]
 
 
+def test_render_case_file_rejects_box_origin_with_box_min_in_same_fragment(
+    tmp_path: Path,
+) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+box_origin = [0.0, 0.0, 0.0]
+box_size = [1.0, 1.0, 1.0]
+box_min = [0.0, 0.0, 0.0]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CaseSpecError, match="sim.box_origin and sim.box_min"):
+        render_case_file(case_path)
+
+
+def test_render_case_file_rejects_high_level_inject_region_for_volume_seed(
+    tmp_path: Path,
+) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+
+[override.mesh]
+mode = "template"
+
+[[override.mesh.templates]]
+kind = "plane"
+size_x = 1.0
+size_y = 1.0
+nx = 1
+ny = 1
+center = [0.0, 0.0, 0.0]
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+inject_region_mode = "face_fraction"
+uv_low = [0.0, 0.0]
+uv_high = [1.0, 1.0]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        CaseSpecError,
+        match='source_mode must be "reservoir_face" or "photo_raycast"',
+    ):
+        render_case_file(case_path)
+
+
+def test_render_case_file_rejects_negative_rendered_mesh_dimensions(
+    tmp_path: Path,
+) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+use_box = true
+box_origin = [0.0, 0.0, 0.0]
+box_size = [2.0, 2.0, 2.0]
+
+[override.mesh]
+mode = "template"
+
+[[override.mesh.templates]]
+kind = "plane"
+placement_mode = "box_anchor"
+anchor = "box_center"
+size_mode = "box_fraction"
+size_frac = [-0.5, 0.5]
+nx = 1
+ny = 1
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match="size_x must be > 0"):
+        render_case_file(case_path)
+
+
+def test_render_case_file_rejects_invalid_annulus_dimensions(tmp_path: Path) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+
+[override.mesh]
+mode = "template"
+
+[[override.mesh.templates]]
+kind = "annulus"
+radius = 0.2
+inner_radius = 0.3
+n_theta = 8
+n_r = 2
+center = [0.0, 0.0, 0.0]
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match="inner_radius must be smaller than radius"):
+        render_case_file(case_path)
+
+
 def test_config_cli_init_render_validate_save_and_from(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -360,6 +518,8 @@ def test_case_schema_files_exist_and_example_case_has_schema_directive() -> None
     assert loaded_preset_schema["title"] == "BEACH Preset Fragment"
     assert "box_origin" in loaded_case_schema["$defs"]["simFragment"]["properties"]
     assert "scale_from" in loaded_preset_schema["$defs"]["meshGroup"]["properties"]
+    assert "allOf" in loaded_case_schema["$defs"]["simFragment"]
+    assert "allOf" in loaded_preset_schema["$defs"]["speciesFragment"]
     assert (
         example_case.read_text(encoding="utf-8").splitlines()[0]
         == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.case.schema.json"
