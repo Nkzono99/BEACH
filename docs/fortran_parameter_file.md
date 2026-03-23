@@ -127,10 +127,6 @@ history_stride = 1
 | `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ（`0 < theta <= 1`、`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数（`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切替える要素数しきい値 |
-| `use_hybrid` | bool | `true` | 予約キー（現行電場計算では未使用） |
-| `r_switch_factor` | float | `3.0` | 予約キー（未使用） |
-| `n_sub` | int | `2` | 予約キー（未使用） |
-| `softening_factor` | float | `0.1` | 予約キー（未使用） |
 | `b0` | float[3] | `[0,0,0]` | 一様磁場 [T] |
 | `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |

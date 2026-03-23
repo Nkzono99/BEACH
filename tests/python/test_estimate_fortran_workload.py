@@ -143,6 +143,27 @@ def test_estimate_workload_rejects_unknown_sim_key() -> None:
         estimate_workload(config=config, threads=1)
 
 
+def test_estimate_workload_rejects_removed_reserved_sim_key() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "use_hybrid": True,
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 1,
+                },
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match=r"Unknown key in \[sim\]: use_hybrid"):
+        estimate_workload(config=config, threads=1)
+
+
 def test_estimate_workload_accepts_treecode_sim_keys() -> None:
     config = {
         "sim": {

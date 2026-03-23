@@ -247,24 +247,6 @@
           "minimum": 1,
           "default": 256
         },
-        "use_hybrid": {
-          "type": "boolean",
-          "default": true
-        },
-        "r_switch_factor": {
-          "type": "number",
-          "default": 3.0
-        },
-        "n_sub": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 2
-        },
-        "softening_factor": {
-          "type": "number",
-          "minimum": 0,
-          "default": 0.1
-        },
         "b0": {
           "$ref": "#/$defs/vec3",
           "default": [

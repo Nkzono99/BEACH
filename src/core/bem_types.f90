@@ -31,10 +31,6 @@ module bem_types
     integer(i32) :: tree_leaf_max = 16_i32
     logical :: has_tree_leaf_max = .false.
     integer(i32) :: tree_min_nelem = 256_i32
-    logical :: use_hybrid = .true.
-    real(dp) :: r_switch_factor = 3.0d0
-    integer(i32) :: n_sub = 2
-    real(dp) :: softening_factor = 0.1d0
     real(dp) :: b0(3) = 0.0d0
     character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0

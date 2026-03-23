@@ -264,6 +264,5 @@ fpm test --target test_mpi_hybrid \
 - 実行は `sim.batch_count` 分だけ進みます。
 - `sim.tol_rel` は監視値で、現行実装では早期終了条件に使いません。
 - Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
-- `sim.use_hybrid` / `r_switch_factor` / `n_sub` / `softening_factor` は予約キーです。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。
