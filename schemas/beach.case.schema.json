@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "BEACH Case File",
+  "description": "Schema for preset-based BEACH case.toml files. Use with TOML-aware editors such as Even Better TOML / Taplo.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "default": 1,
+      "description": "Version of the case-layer file format."
+    },
+    "title": {
+      "type": "string",
+      "description": "Optional human-readable case title."
+    },
+    "use_presets": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered list of preset names to merge before applying override.",
+      "items": {
+        "$ref": "#/$defs/presetName"
+      }
+    },
+    "override": {
+      "$ref": "#/$defs/configFragment"
+    }
+  },
+  "required": [
+    "use_presets"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "presetName": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.toml$)(?!.*(?:^|/)\\.\\.?($|/))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+$",
+      "description": "Preset name such as sim/periodic2_fmm."
+    },
+    "particlesFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "species": {
+          "type": "array",
+          "items": {
+            "$ref": "./beach.schema.json#/$defs/species"
+          }
+        }
+      }
+    },
+    "configFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sim": {
+          "$ref": "./beach.schema.json#/$defs/sim"
+        },
+        "particles": {
+          "$ref": "#/$defs/particlesFragment"
+        },
+        "mesh": {
+          "$ref": "./beach.schema.json#/$defs/mesh"
+        },
+        "output": {
+          "$ref": "./beach.schema.json#/$defs/output"
+        }
+      }
+    }
+  }
+}

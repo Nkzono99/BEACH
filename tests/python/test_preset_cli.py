@@ -31,6 +31,10 @@ def test_preset_cli_new_from_builtin_creates_user_preset(
     assert preset_path.exists()
     assert "scope=user" in created.out
     assert "from=sim/periodic2_fmm" in created.out
+    assert (
+        preset_path.read_text(encoding="utf-8").splitlines()[0]
+        == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json"
+    )
 
     beachx_main(["preset", "path", "sim/lab/periodic2_fast"])
     path_streams = capsys.readouterr()
@@ -56,6 +60,10 @@ def test_preset_cli_new_local_creates_project_local_skeleton(
     )
     assert preset_path.exists()
     assert "scope=project-local" in created.out
+    assert (
+        preset_path.read_text(encoding="utf-8").splitlines()[0]
+        == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json"
+    )
 
     beachx_main(["preset", "show", "output/project/debug"])
     show_streams = capsys.readouterr()
@@ -141,3 +149,14 @@ kind = "plane"
 
     assert "[mesh]" in streams.out
     assert 'warning: preset "mesh/plane_basic"' in streams.err
+
+
+def test_builtin_presets_have_schema_directive() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    preset_root = repo_root / "beach" / "config" / "presets"
+
+    for path in preset_root.rglob("*.toml"):
+        assert (
+            path.read_text(encoding="utf-8").splitlines()[0]
+            == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json"
+        )

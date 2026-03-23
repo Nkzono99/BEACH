@@ -1,3 +1,5 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.case.schema.json
+
 # Generated example for preset-based config rendering.
 
 schema_version = 1

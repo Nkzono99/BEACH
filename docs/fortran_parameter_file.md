@@ -19,7 +19,9 @@ Python 側の `beachx config render` を使う場合は、`case.toml` から pre
 ### Editor schema
 
 - JSON Schema は [`schemas/beach.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json) に同梱しています。
+- preset 合成レイヤの `case.toml` / preset 用には [`schemas/beach.case.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.case.schema.json) と [`schemas/beach.preset.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json) もあります。
 - VS Code の Even Better TOML / Taplo では、各 `beach.toml` の先頭へ `#:schema ...` コメントを置くと補完・型検証・必須項目チェックが有効になります。
+- `beachx config init` と `beachx preset new` が生成するファイルにも、対応する `#:schema ...` コメントを自動で付与します。
 - BEACH の Fortran パーサは「最初のセクションより前の `key = value`」を受け付けないため、`"$schema" = "..."` は使わずコメント directive を使ってください。
 
 ローカル相対パスの例:

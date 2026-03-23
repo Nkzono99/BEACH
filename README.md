@@ -80,6 +80,7 @@ beach beach.toml
 preset の探索順は `./.beachx/presets/` → `~/.config/beachx/presets/` → package 同梱 preset です。
 研究室ローカルやプロジェクトローカルの設定は、この preset 置き場へ `sim/...` や `mesh/...` として TOML 断片を追加して再利用できます。
 サンプルの `case.toml` は [`examples/periodic2_basic/case.toml`](examples/periodic2_basic/case.toml) にあります。
+生成される `case.toml` / preset / `beach.toml` にはそれぞれ対応する `#:schema ...` directive を自動で付けています。
 
 user preset を CLI から作る場合は、たとえば次のように使えます。
 

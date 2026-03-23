@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,10 @@ def test_config_cli_init_render_validate_save_and_from(
     init_streams = capsys.readouterr()
     assert "saved=case.toml" in init_streams.out
     assert (tmp_path / "case.toml").exists()
+    assert (
+        (tmp_path / "case.toml").read_text(encoding="utf-8").splitlines()[0]
+        == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.case.schema.json"
+    )
 
     beachx_main(["config", "validate"])
     validate_streams = capsys.readouterr()
@@ -92,6 +97,10 @@ def test_config_cli_init_render_validate_save_and_from(
     render_streams = capsys.readouterr()
     assert "saved=beach.toml" in render_streams.out
     assert (tmp_path / "beach.toml").exists()
+    assert (
+        (tmp_path / "beach.toml").read_text(encoding="utf-8").splitlines()[0]
+        == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json"
+    )
 
     beachx_main(["config", "save", "baseline"])
     save_streams = capsys.readouterr()
@@ -194,3 +203,20 @@ dt = 1.0e-8
 
     assert "sim.dt" in streams.out
     assert "1e-08" in streams.out
+
+
+def test_case_schema_files_exist_and_example_case_has_schema_directive() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    case_schema = repo_root / "schemas" / "beach.case.schema.json"
+    preset_schema = repo_root / "schemas" / "beach.preset.schema.json"
+    example_case = repo_root / "examples" / "periodic2_basic" / "case.toml"
+
+    loaded_case_schema = json.loads(case_schema.read_text(encoding="utf-8"))
+    loaded_preset_schema = json.loads(preset_schema.read_text(encoding="utf-8"))
+
+    assert loaded_case_schema["title"] == "BEACH Case File"
+    assert loaded_preset_schema["title"] == "BEACH Preset Fragment"
+    assert (
+        example_case.read_text(encoding="utf-8").splitlines()[0]
+        == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.case.schema.json"
+    )

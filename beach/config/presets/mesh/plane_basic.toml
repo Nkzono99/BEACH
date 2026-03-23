@@ -1,3 +1,5 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json
+
 [mesh]
 mode = "template"
 

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "BEACH Preset Fragment",
+  "description": "Schema for reusable BEACH preset TOML fragments. Presets are beach.toml fragments and cannot define use_presets or override.",
+  "type": "object",
+  "minProperties": 1,
+  "additionalProperties": false,
+  "properties": {
+    "sim": {
+      "$ref": "./beach.schema.json#/$defs/sim"
+    },
+    "particles": {
+      "$ref": "#/$defs/particlesFragment"
+    },
+    "mesh": {
+      "$ref": "./beach.schema.json#/$defs/mesh"
+    },
+    "output": {
+      "$ref": "./beach.schema.json#/$defs/output"
+    }
+  },
+  "$defs": {
+    "particlesFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "species": {
+          "type": "array",
+          "items": {
+            "$ref": "./beach.schema.json#/$defs/species"
+          }
+        }
+      }
+    }
+  }
+}

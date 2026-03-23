@@ -1,3 +1,5 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json
+
 [sim]
 dt = 2.0e-8
 batch_duration_step = 60000.0
