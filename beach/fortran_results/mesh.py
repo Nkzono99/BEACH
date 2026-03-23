@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Mapping
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from .types import FortranRunResult
 
 DEFAULT_MESH_VIEW_ELEV = 24.0
 DEFAULT_MESH_VIEW_AZIM = -58.0
@@ -31,6 +36,55 @@ def _triangle_areas(triangles: np.ndarray) -> np.ndarray:
     edge_b = triangles[:, 2, :] - triangles[:, 0, :]
     cross = np.cross(edge_a, edge_b)
     return 0.5 * np.linalg.norm(cross, axis=1)
+
+
+def _wrap_periodic2_triangles_by_centroid(
+    triangles: np.ndarray,
+    *,
+    axes: tuple[int, int],
+    lengths: tuple[float, float],
+    origins: tuple[float, float],
+) -> np.ndarray:
+    shifted = np.asarray(triangles, dtype=float).copy()
+    centers = _triangle_centers(shifted)
+    shift = np.zeros((shifted.shape[0], 3), dtype=float)
+
+    for axis, length, origin in zip(axes, lengths, origins):
+        wrapped_centers = origin + np.mod(centers[:, axis] - origin, length)
+        shift[:, axis] = wrapped_centers - centers[:, axis]
+
+    shifted += shift[:, None, :]
+    return shifted
+
+
+def _maybe_apply_periodic2_mesh(
+    resolved: "FortranRunResult",
+    triangles: np.ndarray,
+    *,
+    periodic2: Mapping[str, object] | None = None,
+    apply_periodic2_mesh: bool = False,
+) -> np.ndarray:
+    if not apply_periodic2_mesh:
+        return triangles
+
+    from .potential import _auto_periodic2_from_result, _coerce_periodic2
+
+    periodic_cfg = _coerce_periodic2(periodic2)
+    if periodic_cfg is None:
+        periodic_cfg = _auto_periodic2_from_result(resolved)
+    if periodic_cfg is None:
+        raise ValueError(
+            "apply_periodic2_mesh requires periodic2 settings or nearby beach.toml "
+            'with sim.field_bc_mode="periodic2".'
+        )
+
+    axes, lengths, origins, _nimg, _far_correction, _alpha, _ewald_layers = periodic_cfg
+    return _wrap_periodic2_triangles_by_centroid(
+        triangles,
+        axes=axes,
+        lengths=lengths,
+        origins=origins,
+    )
 
 
 def _configure_mesh_axes(

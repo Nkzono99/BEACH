@@ -38,17 +38,20 @@ beachx inspect "${OUTPUT_DIR}" \
   --save-bar "${OUTPUT_DIR}/charges_bar.png" \
   --save-mesh "${OUTPUT_DIR}/charges_mesh.png" \
   --save-potential-mesh "${OUTPUT_DIR}/potential_mesh.png" \
-  --potential-self-term area-equivalent
+  --potential-self-term area-equivalent \
+  --apply-periodic2-mesh
 
 beachx animate "${OUTPUT_DIR}" \
   --quantity charge \
   --save-gif "${OUTPUT_DIR}/charge_history.gif" \
-  --total-frames 300
+  --total-frames 300 \
+  --apply-periodic2-mesh
 
 beachx animate "${OUTPUT_DIR}" \
   --quantity potential \
   --save-gif "${OUTPUT_DIR}/potential_history.gif" \
   --potential-self-term area-equivalent \
-  --total-frames 300
+  --total-frames 300 \
+  --apply-periodic2-mesh
 
 date

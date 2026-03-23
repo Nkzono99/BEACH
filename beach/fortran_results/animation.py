@@ -7,7 +7,11 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
-from .mesh import _configure_mesh_axes, _surface_charge_density_history
+from .mesh import (
+    _configure_mesh_axes,
+    _maybe_apply_periodic2_mesh,
+    _surface_charge_density_history,
+)
 from .potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
@@ -35,6 +39,7 @@ def animate_history_mesh(
     softening: float | None = None,
     self_term: str = "auto",
     periodic2: Mapping[str, object] | None = None,
+    apply_periodic2_mesh: bool = False,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
 ) -> Path | FuncAnimation:
     """Render mesh history as an animation.
@@ -63,6 +68,9 @@ def animate_history_mesh(
     periodic2 : mapping or None, default None
         Two-axis periodic setting for potential mode. ``None`` の場合は
         出力ディレクトリ近傍の ``beach.toml`` から自動判定する。
+    apply_periodic2_mesh : bool, default False
+        ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
+        適用して描画する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
         基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
 
@@ -92,6 +100,12 @@ def animate_history_mesh(
         raise ValueError("frame_stride and total_frames cannot be used together.")
 
     triangles = _require_triangles(resolved)
+    plot_triangles = _maybe_apply_periodic2_mesh(
+        resolved,
+        triangles,
+        periodic2=periodic2,
+        apply_periodic2_mesh=apply_periodic2_mesh,
+    )
     history = _require_history(resolved)
     charge_history = history.as_array()
     batch_indices = history.batch_indices
@@ -140,14 +154,14 @@ def animate_history_mesh(
     fig = plt.figure(figsize=(7, 6))
     ax = fig.add_subplot(111, projection="3d")
     mesh = Poly3DCollection(
-        triangles,
+        plot_triangles,
         facecolors=sm.to_rgba(values_history[:, 0]),
         edgecolor=(0.0, 0.0, 0.0, 0.45),
         linewidth=0.35,
         alpha=0.88,
     )
     ax.add_collection3d(mesh)
-    _configure_mesh_axes(ax, triangles)
+    _configure_mesh_axes(ax, plot_triangles)
 
     def _title_for_frame(frame_idx: int) -> str:
         col = int(frame_cols[frame_idx])

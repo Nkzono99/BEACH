@@ -74,6 +74,12 @@ beachx inspect outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png
 
+# sim.field_bc_mode = "periodic2" の mesh を周期セルへ寄せて描く場合
+beachx inspect outputs/latest \
+  --save-mesh outputs/latest/charges_mesh_periodic.png \
+  --save-potential-mesh outputs/latest/potential_mesh_periodic.png \
+  --apply-periodic2-mesh
+
 beachx animate outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif \
@@ -114,6 +120,10 @@ fig_q, ax_q = run.plot_mesh_source_boxplot(
     showfliers=False,
 )
 fig_q.savefig("outputs/latest/charge_box_by_source.png", dpi=150)
+
+# periodic2 mesh を周期セルへ寄せて表示
+run.plot_mesh(apply_periodic2_mesh=True)
+run.plot_potential(apply_periodic2_mesh=True)
 
 # ポテンシャル [V] の面積重み付き箱ひげ図（mesh sourceごと）
 fig_phi, ax_phi = run.plot_mesh_source_boxplot(
@@ -237,6 +247,7 @@ GitHub Actions でも同じ `pre-commit` 設定を `--all-files` で実行し、
 
 - Fortran 実行フロー: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
 - `beach.toml` 仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
+- `beach.toml` JSON Schema: [`schemas/beach.schema.json`](schemas/beach.schema.json)
 - Coulomb FMM コア仕様: [`docs/fortran_fmm_core.md`](docs/fortran_fmm_core.md)
 - 実装仕様（source of truth）: [`SPEC.md`](SPEC.md)
 - 設定サンプル: [`examples/beach.toml`](examples/beach.toml)

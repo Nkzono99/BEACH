@@ -53,6 +53,14 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         default=-58.0,
         help="azimuth angle [deg] for 3D mesh plots",
     )
+    parser.add_argument(
+        "--apply-periodic2-mesh",
+        action="store_true",
+        help=(
+            "wrap each plotted triangle into the periodic2 cell from nearby "
+            "beach.toml using its centroid"
+        ),
+    )
 
 
 def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
@@ -138,6 +146,7 @@ def run(args: argparse.Namespace) -> None:
                 mesh_fig, _ = beach.plot_mesh(
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
+                    apply_periodic2_mesh=args.apply_periodic2_mesh,
                 )
                 if args.save_mesh is not None:
                     mesh_fig.savefig(args.save_mesh, dpi=150)
@@ -153,6 +162,7 @@ def run(args: argparse.Namespace) -> None:
                     reference_point=reference_point,
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
+                    apply_periodic2_mesh=args.apply_periodic2_mesh,
                 )
                 if args.save_potential_mesh is not None:
                     potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)

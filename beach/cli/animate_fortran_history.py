@@ -58,6 +58,14 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         default="auto",
         help="self-term treatment for potential reconstruction",
     )
+    parser.add_argument(
+        "--apply-periodic2-mesh",
+        action="store_true",
+        help=(
+            "wrap each plotted triangle into the periodic2 cell from nearby "
+            "beach.toml using its centroid"
+        ),
+    )
 
 
 def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
@@ -112,6 +120,7 @@ def run(args: argparse.Namespace) -> None:
             cmap=args.cmap,
             softening=args.potential_softening,
             self_term=self_term,
+            apply_periodic2_mesh=args.apply_periodic2_mesh,
         )
     except ModuleNotFoundError as exc:
         if exc.name is not None and (

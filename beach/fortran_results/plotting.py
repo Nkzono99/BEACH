@@ -12,6 +12,7 @@ from .coulomb import calc_coulomb
 from .mesh import (
     DEFAULT_MESH_VIEW_AZIM,
     DEFAULT_MESH_VIEW_ELEV,
+    _maybe_apply_periodic2_mesh,
     _plot_scalar_mesh,
     _surface_charge_density,
     _triangle_areas,
@@ -64,6 +65,8 @@ def plot_charge_mesh(
     cmap: str = "coolwarm",
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
+    periodic2: Mapping[str, object] | None = None,
+    apply_periodic2_mesh: bool = False,
 ):
     """Plot a 3D mesh colored by surface charge density.
 
@@ -77,6 +80,12 @@ def plot_charge_mesh(
         Elevation angle in degrees passed to ``Axes3D.view_init``.
     view_azim : float, default -58.0
         Azimuth angle in degrees passed to ``Axes3D.view_init``.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting used when ``apply_periodic2_mesh=True``.
+        ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定する。
+    apply_periodic2_mesh : bool, default False
+        ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
+        適用して描画する。
 
     Returns
     -------
@@ -91,6 +100,12 @@ def plot_charge_mesh(
 
     resolved = _resolve_result(result)
     triangles = _require_triangles(resolved)
+    triangles = _maybe_apply_periodic2_mesh(
+        resolved,
+        triangles,
+        periodic2=periodic2,
+        apply_periodic2_mesh=apply_periodic2_mesh,
+    )
     sigma = _surface_charge_density(resolved.charges, triangles)
     return _plot_scalar_mesh(
         triangles,
@@ -228,6 +243,7 @@ def plot_potential_mesh(
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
+    apply_periodic2_mesh: bool = False,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
 ):
     """Plot a 3D mesh colored by reconstructed electric potential.
@@ -249,6 +265,10 @@ def plot_potential_mesh(
     periodic2 : mapping or None, default None
         Two-axis periodic setting. See
         :func:`beach.fortran_results.compute_potential_mesh`.
+    apply_periodic2_mesh : bool, default False
+        ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
+        適用して描画する。``periodic2`` が ``None`` なら近傍の ``beach.toml`` から
+        自動判定する。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
         基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
 
@@ -265,6 +285,12 @@ def plot_potential_mesh(
 
     resolved = _resolve_result(result)
     triangles = _require_triangles(resolved)
+    plot_triangles = _maybe_apply_periodic2_mesh(
+        resolved,
+        triangles,
+        periodic2=periodic2,
+        apply_periodic2_mesh=apply_periodic2_mesh,
+    )
     resolved_reference = _resolve_reference_point(resolved, reference_point)
     phi = compute_potential_mesh(
         resolved,
@@ -276,7 +302,7 @@ def plot_potential_mesh(
     title = "Electric potential mesh" if resolved_reference is None else "Electric potential difference mesh"
     colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
     return _plot_scalar_mesh(
-        triangles,
+        plot_triangles,
         phi,
         title=f"{title}: {resolved.directory}",
         colorbar_label=colorbar_label,

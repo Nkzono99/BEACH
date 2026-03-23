@@ -20,10 +20,12 @@ from beach.fortran_results import (
     list_fortran_runs,
     load_fortran_result,
     plot_mesh_source_boxplot,
+    plot_charge_mesh,
     plot_coulomb_force_matrix,
     plot_potential_slices,
     plot_potential_mesh,
 )
+from beach.fortran_results.mesh import _wrap_periodic2_triangles_by_centroid
 from beach.fortran_results.potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
@@ -1673,6 +1675,70 @@ def test_plot_potential_slices_rejects_invalid_vmin_vmax() -> None:
         )
 
 
+def test_wrap_periodic2_triangles_by_centroid_keeps_face_shape() -> None:
+    triangles = np.array(
+        [
+            [[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]],
+            [[-0.20, 1.05, 1.0], [-0.10, 1.05, 1.0], [-0.20, 1.15, 1.0]],
+        ]
+    )
+
+    wrapped = _wrap_periodic2_triangles_by_centroid(
+        triangles,
+        axes=(0, 1),
+        lengths=(1.0, 1.0),
+        origins=(0.0, 0.0),
+    )
+
+    centers = wrapped.mean(axis=1)
+    assert np.all(centers[:, 0] >= 0.0)
+    assert np.all(centers[:, 0] < 1.0)
+    assert np.all(centers[:, 1] >= 0.0)
+    assert np.all(centers[:, 1] < 1.0)
+    np.testing.assert_allclose(
+        wrapped[:, 1, :] - wrapped[:, 0, :],
+        triangles[:, 1, :] - triangles[:, 0, :],
+    )
+    np.testing.assert_allclose(
+        wrapped[:, 2, :] - wrapped[:, 0, :],
+        triangles[:, 2, :] - triangles[:, 0, :],
+    )
+
+
+def test_plot_charge_mesh_can_apply_periodic2_mesh_wrapping() -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    triangles = np.array(
+        [[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]]
+    )
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    fig, ax = plot_charge_mesh(
+        result,
+        periodic2={"axes": (0, 1), "lengths": (1.0, 1.0), "origins": (0.0, 0.0)},
+        apply_periodic2_mesh=True,
+    )
+
+    x_center = 0.5 * sum(ax.get_xlim())
+    y_center = 0.5 * sum(ax.get_ylim())
+    assert x_center == pytest.approx(0.15)
+    assert y_center == pytest.approx(0.15)
+    fig.clf()
+
+
 def test_plot_potential_mesh_returns_figure_and_axes() -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
@@ -1701,6 +1767,42 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
 
     assert fig is not None
     assert ax is not None
+    fig.clf()
+
+
+def test_plot_potential_mesh_can_apply_periodic2_mesh_wrapping() -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    triangles = np.array(
+        [[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]]
+    )
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+    )
+
+    fig, ax = plot_potential_mesh(
+        result,
+        softening=0.5,
+        self_term="softened_point",
+        periodic2={"axes": (0, 1), "lengths": (1.0, 1.0), "origins": (0.0, 0.0)},
+        apply_periodic2_mesh=True,
+    )
+
+    x_center = 0.5 * sum(ax.get_xlim())
+    y_center = 0.5 * sum(ax.get_ylim())
+    assert x_center == pytest.approx(0.15)
+    assert y_center == pytest.approx(0.15)
     fig.clf()
 
 

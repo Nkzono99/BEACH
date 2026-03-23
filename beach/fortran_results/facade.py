@@ -222,6 +222,8 @@ class Beach:
         cmap: str = "coolwarm",
         view_elev: float = 24.0,
         view_azim: float = -58.0,
+        periodic2: Mapping[str, object] | None = None,
+        apply_periodic2_mesh: bool = False,
     ):
         """Plot a 3D mesh colored by surface charge density.
 
@@ -233,6 +235,12 @@ class Beach:
             Elevation angle in degrees.
         view_azim : float, default -58.0
             Azimuth angle in degrees.
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting used when ``apply_periodic2_mesh=True``.
+            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        apply_periodic2_mesh : bool, default False
+            ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
+            適用して描画する。
 
         Returns
         -------
@@ -245,6 +253,8 @@ class Beach:
             cmap=cmap,
             view_elev=view_elev,
             view_azim=view_azim,
+            periodic2=periodic2,
+            apply_periodic2_mesh=apply_periodic2_mesh,
         )
 
     def plot_bar(self):
@@ -406,6 +416,7 @@ class Beach:
         view_elev: float = 24.0,
         view_azim: float = -58.0,
         periodic2: Mapping[str, object] | None = None,
+        apply_periodic2_mesh: bool = False,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
     ):
         """Plot a 3D mesh colored by reconstructed electric potential.
@@ -426,6 +437,9 @@ class Beach:
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_mesh`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        apply_periodic2_mesh : bool, default False
+            ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
+            適用して描画する。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
             基準電位を差し引く参照点。
 
@@ -443,6 +457,7 @@ class Beach:
             view_elev=view_elev,
             view_azim=view_azim,
             periodic2=periodic2,
+            apply_periodic2_mesh=apply_periodic2_mesh,
             reference_point=reference_point,
         )
 
@@ -620,6 +635,7 @@ class Beach:
         softening: float | None = None,
         self_term: str = "auto",
         periodic2: Mapping[str, object] | None = None,
+        apply_periodic2_mesh: bool = False,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
     ) -> Path | FuncAnimation:
         """Animate charge or potential history on the 3D surface mesh.
@@ -645,6 +661,9 @@ class Beach:
         periodic2 : mapping or None, default None
             Two-axis periodic setting for potential mode. ``None`` の場合は
             出力ディレクトリ近傍の ``beach.toml`` から自動判定。
+        apply_periodic2_mesh : bool, default False
+            ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
+            適用して描画する。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
             基準電位を差し引く参照点。
 
@@ -665,5 +684,6 @@ class Beach:
             softening=softening,
             self_term=self_term,
             periodic2=periodic2,
+            apply_periodic2_mesh=apply_periodic2_mesh,
             reference_point=reference_point,
         )

@@ -168,6 +168,12 @@ beachx inspect outputs/latest \
   --save-potential-mesh outputs/latest/potential_mesh.png \
   --potential-self-term area-equivalent
 
+# sim.field_bc_mode = "periodic2" の mesh を周期セルへ寄せて描く
+beachx inspect outputs/latest \
+  --save-mesh outputs/latest/charges_mesh_periodic.png \
+  --save-potential-mesh outputs/latest/potential_mesh_periodic.png \
+  --apply-periodic2-mesh
+
 beachx animate outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif \
@@ -210,6 +216,8 @@ if beach.result.history is not None:
 beach.plot_bar()
 beach.plot_mesh()
 beach.plot_potential()
+beach.plot_mesh(apply_periodic2_mesh=True)
+beach.plot_potential(apply_periodic2_mesh=True)
 beach.plot_potential_slices(
     box_min=[0.0, 0.0, 0.0],
     box_max=[1.0, 1.0, 10.0],
