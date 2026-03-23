@@ -7,6 +7,7 @@ title: Fortran パラメータファイル仕様（beach.toml）
 
 `beach` 自体が読むのは最終的な `beach.toml` です。
 Python 側の `beachx config render` を使う場合は、`case.toml` から preset 合成でこの `beach.toml` を生成できます。
+高水準記法（`box_origin` / `box_size`、`face_fraction`、`mesh.groups.*` など）は `case.toml` / preset 側でのみ使い、render 時に通常の数値キーへ解決されます。
 
 ## 1. 読み込みルール
 

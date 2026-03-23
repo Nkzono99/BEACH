@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "BEACH Case File",
-  "description": "Schema for preset-based BEACH case.toml files. Use with TOML-aware editors such as Even Better TOML / Taplo.",
+  "description": "Schema for preset-based BEACH case.toml files. Supports high-level spatial notation that is resolved by `beachx config render`.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -36,14 +36,193 @@
       "pattern": "^(?!/)(?!.*\\.toml$)(?!.*(?:^|/)\\.\\.?($|/))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+$",
       "description": "Preset name such as sim/periodic2_fmm."
     },
+    "vec2": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "vec3": {
+      "$ref": "./beach.schema.json#/$defs/vec3"
+    },
+    "positiveVec3": {
+      "$ref": "./beach.schema.json#/$defs/positiveVec3"
+    },
+    "anchor": {
+      "type": "string",
+      "enum": [
+        "box_center",
+        "x_low_face_center",
+        "x_high_face_center",
+        "y_low_face_center",
+        "y_high_face_center",
+        "z_low_face_center",
+        "z_high_face_center"
+      ]
+    },
+    "scaleFrom": {
+      "type": "string",
+      "enum": [
+        "box_x",
+        "box_y",
+        "box_z",
+        "box_min_xy",
+        "box_max_xy",
+        "box_min_xyz",
+        "box_max_xyz"
+      ]
+    },
+    "simFragment": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "box_origin": {
+          "$ref": "#/$defs/vec3"
+        },
+        "box_size": {
+          "$ref": "#/$defs/positiveVec3"
+        }
+      }
+    },
+    "speciesFragment": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "source_mode": {
+          "type": "string",
+          "enum": [
+            "volume_seed",
+            "reservoir_face",
+            "photo_raycast"
+          ]
+        },
+        "inject_face": {
+          "$ref": "./beach.schema.json#/$defs/injectFace"
+        },
+        "inject_region_mode": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "face_fraction"
+          ]
+        },
+        "uv_low": {
+          "$ref": "#/$defs/vec2"
+        },
+        "uv_high": {
+          "$ref": "#/$defs/vec2"
+        }
+      }
+    },
     "particlesFragment": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "species": {
           "type": "array",
           "items": {
-            "$ref": "./beach.schema.json#/$defs/species"
+            "$ref": "#/$defs/speciesFragment"
+          }
+        }
+      }
+    },
+    "meshGroup": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "placement_mode": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "box_anchor"
+          ]
+        },
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        },
+        "offset": {
+          "$ref": "#/$defs/vec3"
+        },
+        "offset_frac": {
+          "$ref": "#/$defs/vec3"
+        },
+        "scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "scale_from": {
+          "$ref": "#/$defs/scaleFrom"
+        },
+        "scale_factor": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "templateFragment": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "placement_mode": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "box_anchor"
+          ]
+        },
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        },
+        "offset": {
+          "$ref": "#/$defs/vec3"
+        },
+        "offset_frac": {
+          "$ref": "#/$defs/vec3"
+        },
+        "size_mode": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "box_fraction"
+          ]
+        },
+        "size_frac": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/vec2"
+            },
+            {
+              "$ref": "#/$defs/vec3"
+            }
+          ]
+        },
+        "group": {
+          "type": "string"
+        },
+        "center_local": {
+          "$ref": "#/$defs/vec3"
+        }
+      }
+    },
+    "meshFragment": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/meshGroup"
+          }
+        },
+        "templates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/templateFragment"
           }
         }
       }
@@ -53,13 +232,13 @@
       "additionalProperties": false,
       "properties": {
         "sim": {
-          "$ref": "./beach.schema.json#/$defs/sim"
+          "$ref": "#/$defs/simFragment"
         },
         "particles": {
           "$ref": "#/$defs/particlesFragment"
         },
         "mesh": {
-          "$ref": "./beach.schema.json#/$defs/mesh"
+          "$ref": "#/$defs/meshFragment"
         },
         "output": {
           "$ref": "./beach.schema.json#/$defs/output"

@@ -82,6 +82,8 @@ preset の探索順は `./.beachx/presets/` → `~/.config/beachx/presets/` → 
 サンプルの `case.toml` は [`examples/periodic2_basic/case.toml`](examples/periodic2_basic/case.toml) にあります。
 生成される `case.toml` / preset / `beach.toml` にはそれぞれ対応する `#:schema ...` directive を自動で付けています。
 
+空間座標系まわりは、render 後の `beach.toml` を直接いじらなくても、`case.toml` / preset 側の高水準記法で指定できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` のような指定は、`beachx config render` 時に具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ展開されます。
+
 user preset を CLI から作る場合は、たとえば次のように使えます。
 
 ```bash
