@@ -17,14 +17,21 @@
 - VS Code の Even Better TOML / Taplo では、各 `beach.toml` の先頭へ `#:schema ...` コメントを置くと補完・型検証・必須項目チェックが有効になります。
 - BEACH の Fortran パーサは「最初のセクションより前の `key = value`」を受け付けないため、`"$schema" = "..."` は使わずコメント directive を使ってください。
 
-例:
+ローカル相対パスの例:
 
 ```toml
 #:schema ../schemas/beach.schema.json
 ```
 
+- GitHub Raw を使う例:
+
+```toml
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+```
+
 - 相対パスは、その `beach.toml` 自身から見た相対パスです。
-- `examples/beach.toml` にはこの directive を入れてあります。`outputs/.../beach.toml` のような深い場所では、たとえば `../../schemas/beach.schema.json` のように調整してください。
+- `examples/beach.toml` は Raw URL 版を使っています。ローカル未公開の変更を即座に見たい場合は、相対パス版へ切り替えてください。
+- `outputs/.../beach.toml` のような深い場所で相対パスを使うなら、たとえば `../../schemas/beach.schema.json` のように調整してください。
 
 ## 2. 初見向けの最小推奨例
 
