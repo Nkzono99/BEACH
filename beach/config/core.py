@@ -555,6 +555,13 @@ def save_case_file(
     return destination
 
 
+def preset_category(name: str) -> str:
+    """Return the category prefix for one preset name."""
+
+    normalized = normalize_preset_name(name)
+    return PurePosixPath(normalized).parts[0]
+
+
 def preset_target_path(
     name: str,
     *,
@@ -675,6 +682,63 @@ def list_presets(*, case_dir: str | Path) -> list[ListedPreset]:
     return listed
 
 
+def extract_preset_fragment(
+    config: Mapping[str, Any],
+    *,
+    section: str,
+    index: int | None = None,
+) -> dict[str, Any]:
+    """Extract one reusable preset fragment from a rendered config."""
+
+    normalized = _normalize_preset_section(section)
+    materialized = copy.deepcopy(dict(config))
+
+    if normalized == "sim":
+        sim = materialized.get("sim")
+        if not isinstance(sim, Mapping):
+            raise ConfigError('preset save error: rendered config does not contain [sim].')
+        return {"sim": dict(sim)}
+
+    if normalized == "mesh":
+        mesh = materialized.get("mesh")
+        if not isinstance(mesh, Mapping):
+            raise ConfigError('preset save error: rendered config does not contain [mesh].')
+        return {"mesh": dict(mesh)}
+
+    if normalized == "output":
+        output = materialized.get("output")
+        if not isinstance(output, Mapping):
+            raise ConfigError('preset save error: rendered config does not contain [output].')
+        return {"output": dict(output)}
+
+    if normalized == "species":
+        species_list = _extract_array_of_tables(
+            materialized,
+            table_key="particles",
+            array_key="species",
+            section_label="particles.species",
+        )
+        selected = _select_indexed_item(
+            species_list,
+            index=index,
+            section_label="particles.species",
+        )
+        return {"particles": {"species": [selected]}}
+
+    templates = _extract_array_of_tables(
+        materialized,
+        table_key="mesh",
+        array_key="templates",
+        section_label="mesh.templates",
+    )
+    selected = _select_indexed_item(
+        templates,
+        index=index,
+        section_label="mesh.templates",
+    )
+    return {"mesh": {"templates": [selected]}}
+
+
 def semantic_diff(left: Any, right: Any) -> list[str]:
     """Return human-readable semantic differences between two TOML payloads."""
 
@@ -699,6 +763,12 @@ def normalize_preset_name(name: str) -> str:
             f"case spec error: invalid preset name {name!r}. Use names like sim/periodic2_fmm."
         )
     return str(path)
+
+
+def normalize_preset_section(section: str) -> str:
+    """Validate and normalize one preset extraction section selector."""
+
+    return _normalize_preset_section(section)
 
 
 def preset_name_to_path(name: str) -> Path:
@@ -939,6 +1009,62 @@ def _maybe_vec3(value: object, *, name: str) -> list[float] | None:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 3:
         raise RenderValidationError(f"BEACH constraint error: {name} must be a 3-element array.")
     return [float(value[0]), float(value[1]), float(value[2])]
+
+
+def _normalize_preset_section(section: str) -> str:
+    normalized = section.strip().lower()
+    aliases = {
+        "sim": "sim",
+        "mesh": "mesh",
+        "output": "output",
+        "species": "species",
+        "particles.species": "species",
+        "particle-species": "species",
+        "template": "mesh.templates",
+        "templates": "mesh.templates",
+        "mesh.templates": "mesh.templates",
+        "mesh-template": "mesh.templates",
+    }
+    if normalized not in aliases:
+        raise CaseSpecError(
+            "case spec error: unsupported --section. Use sim, mesh, output, "
+            "species, or mesh.templates."
+        )
+    return aliases[normalized]
+
+
+def _extract_array_of_tables(
+    document: Mapping[str, Any],
+    *,
+    table_key: str,
+    array_key: str,
+    section_label: str,
+) -> list[dict[str, Any]]:
+    table = document.get(table_key)
+    if not isinstance(table, Mapping):
+        raise ConfigError(f"preset save error: rendered config does not contain [{table_key}].")
+    value = table.get(array_key)
+    if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
+        raise ConfigError(f"preset save error: rendered config does not contain {section_label}.")
+    return [dict(item) for item in value]
+
+
+def _select_indexed_item(
+    items: Sequence[Mapping[str, Any]],
+    *,
+    index: int | None,
+    section_label: str,
+) -> dict[str, Any]:
+    if index is None:
+        raise ConfigError(
+            f"preset save error: --section {section_label} requires --index <1-based index>."
+        )
+    if index < 1 or index > len(items):
+        raise ConfigError(
+            f"preset save error: --index {index} is out of range for {section_label} "
+            f"(count={len(items)})."
+        )
+    return copy.deepcopy(dict(items[index - 1]))
 
 
 def _shadow_warnings(preset: ResolvedPreset) -> list[str]:

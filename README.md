@@ -87,6 +87,9 @@ user preset を CLI から作る場合は、たとえば次のように使えま
 ```bash
 beachx preset new sim/lab/periodic2_fast --from sim/periodic2_fmm
 beachx preset new output/project/debug --local
+beachx preset save sim/lab/current_run --section sim
+beachx preset save species/lab/ion --section species --index 2 --rendered
+beachx preset edit sim/lab/periodic2_fast
 beachx preset list
 beachx preset show sim/lab/periodic2_fast
 ```

@@ -70,6 +70,178 @@ def test_preset_cli_new_local_creates_project_local_skeleton(
     assert "[output]" in show_streams.out
 
 
+def test_preset_cli_save_extracts_sim_from_case_document(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    beachx_home = tmp_path / "beachx-home"
+    monkeypatch.setenv("BEACHX_HOME", str(beachx_home))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "case.toml").write_text(
+        """
+schema_version = 1
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "species/solarwind_ion",
+  "mesh/plane_basic",
+  "output/standard",
+]
+
+[override.sim]
+dt = 9.9e-9
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    beachx_main(["preset", "save", "sim/lab/run_baseline", "--section", "sim"])
+    saved = capsys.readouterr()
+
+    preset_path = beachx_home / "presets" / "sim" / "lab" / "run_baseline.toml"
+    text = preset_path.read_text(encoding="utf-8")
+    assert preset_path.exists()
+    assert "saved=" in saved.out
+    assert "[sim]" in text
+    assert "dt = 9.9e-09" in text
+
+
+def test_preset_cli_save_extracts_species_from_rendered_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    beachx_home = tmp_path / "beachx-home"
+    monkeypatch.setenv("BEACHX_HOME", str(beachx_home))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "beach.toml").write_text(
+        """
+[sim]
+dt = 2.0e-8
+batch_duration_step = 60000.0
+batch_count = 100
+max_step = 10000
+softening = 1.0e-6
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+rng_seed = 12345
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_far_correction = "auto"
+
+[particles]
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+target_macro_particles_per_batch = 5000
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 10.0]
+pos_high = [1.0, 1.0, 10.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
+
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = 1.602176634e-19
+m_particle = 1.672482821616e-27
+target_macro_particles_per_batch = -1
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 10.0]
+pos_high = [1.0, 1.0, 10.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.5, 0.5, 0.02]
+
+[output]
+write_files = true
+write_mesh_potential = false
+dir = "outputs/latest"
+history_stride = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    beachx_main(
+        [
+            "preset",
+            "save",
+            "species/lab/ion",
+            "--section",
+            "species",
+            "--index",
+            "2",
+            "--rendered",
+        ]
+    )
+    saved = capsys.readouterr()
+
+    preset_path = beachx_home / "presets" / "species" / "lab" / "ion.toml"
+    assert preset_path.exists()
+    beachx_main(["preset", "show", "species/lab/ion"])
+    shown = capsys.readouterr()
+    assert "section=species" in saved.out
+    assert "[[particles.species]]" in shown.out
+    assert "q_particle = 1.602176634e-19" in shown.out
+
+
+def test_preset_cli_edit_opens_editor_for_user_preset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    beachx_home = tmp_path / "beachx-home"
+    monkeypatch.setenv("BEACHX_HOME", str(beachx_home))
+    monkeypatch.chdir(tmp_path)
+    editor_script = tmp_path / "fake-editor.sh"
+    editor_script.write_text(
+        "#!/usr/bin/env bash\nprintf '\\n# edited\\n' >> \"$1\"\n",
+        encoding="utf-8",
+    )
+    editor_script.chmod(0o755)
+    monkeypatch.setenv("EDITOR", str(editor_script))
+
+    beachx_main(["preset", "new", "output/lab/edit-me"])
+    capsys.readouterr()
+
+    beachx_main(["preset", "edit", "output/lab/edit-me"])
+    edited = capsys.readouterr()
+
+    preset_path = beachx_home / "presets" / "output" / "lab" / "edit-me.toml"
+    assert "edited=" in edited.out
+    assert "# edited" in preset_path.read_text(encoding="utf-8")
+
+
+def test_preset_cli_edit_rejects_builtin_preset(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["preset", "edit", "sim/periodic2_fmm"])
+
+    assert "read-only" in str(excinfo.value)
+    capsys.readouterr()
+
+
 def test_preset_cli_list_prefers_project_local_over_user_and_builtin(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -180,7 +180,9 @@ def test_beachx_preset_help_lists_available_subcommands(
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
     assert "new" in captured.out
+    assert "save" in captured.out
     assert "list" in captured.out
+    assert "edit" in captured.out
     assert "show" in captured.out
     assert "path" in captured.out
     assert "validate" in captured.out
@@ -220,6 +222,18 @@ def test_beachx_preset_new_subparser_matches_parser_shape() -> None:
     assert _parser_signature(
         _get_nested_subparser("preset", "new")
     ) == _parser_signature(preset_subparsers.choices["new"])
+
+
+def test_beachx_preset_save_subparser_matches_parser_shape() -> None:
+    preset_parser = preset.build_parser()
+    preset_subparsers = next(
+        action
+        for action in preset_parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    assert _parser_signature(
+        _get_nested_subparser("preset", "save")
+    ) == _parser_signature(preset_subparsers.choices["save"])
 
 
 def test_beachx_model_close_pack_missing_base_config_exits_with_friendly_message(
