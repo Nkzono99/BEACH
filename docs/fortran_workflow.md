@@ -61,7 +61,30 @@ fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 
 ## 3. 実行フロー
 
-1. `beach.toml` を用意（仕様は `docs/fortran_parameter_file.md`）
+通常は、`case.toml` から `beach.toml` を生成して実行します。preset 合成と高水準記法の詳細は
+[beachx config / preset / 高水準記法ガイド](config_workflow.html) を参照してください。
+
+1. `case.toml` を用意し、必要なら preset を追加・編集する
+2. `beachx config render` で `beach.toml` を生成する
+3. `beach` でシミュレーション実行
+4. `output.dir` の出力ファイルを確認
+5. Python CLI または `Beach` API で可視化
+
+最終 `beach.toml` を手で管理する場合は、仕様を [Fortran パラメータファイル仕様](fortran_parameter_file.html) で確認してください。
+
+### 3.1 `case.toml` から実行する最短例
+
+```bash
+mkdir run_periodic2
+cd run_periodic2
+beachx config init
+beachx config render
+beach beach.toml
+```
+
+### 3.2 `beach.toml` を直接使う場合
+
+1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](fortran_parameter_file.html)）
 2. `beach` でシミュレーション実行
 3. `output.dir` の出力ファイルを確認
 4. Python CLI または `Beach` API で可視化

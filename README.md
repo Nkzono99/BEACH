@@ -59,6 +59,11 @@ export PATH="$HOME/.local/bin:$PATH"
 `beachx config` を使うと、preset の組合せとローカル override から実行用 `beach.toml` を生成できます。
 日常的な編集対象は `case.toml`、Fortran 実行系が読むのは生成後の `beach.toml` です。
 
+詳しい使い方は次を参照してください。
+
+- [`docs/config_workflow.md`](docs/config_workflow.md): `case.toml`、preset、`beachx config` / `beachx preset`、高水準記法の運用ガイド
+- [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md): render 後の `beach.toml` に残る最終キー仕様
+
 ```bash
 mkdir run_periodic2
 cd run_periodic2
@@ -81,6 +86,13 @@ preset の探索順は `./.beachx/presets/` → `~/.config/beachx/presets/` → 
 研究室ローカルやプロジェクトローカルの設定は、この preset 置き場へ `sim/...` や `mesh/...` として TOML 断片を追加して再利用できます。
 サンプルの `case.toml` は [`examples/periodic2_basic/case.toml`](examples/periodic2_basic/case.toml) にあります。
 生成される `case.toml` / preset / `beach.toml` にはそれぞれ対応する `#:schema ...` directive を自動で付けています。
+
+merge ルールの要点は次です。
+
+- `use_presets` を上から順に適用し、最後に `override` を適用します
+- table は deep merge、scalar と通常配列は後勝ち置換です
+- `particles.species` と `mesh.templates` は append されます
+- `mesh.groups.<name>` は preset 間で同名定義できず、`override.mesh.groups.<name>` による最終上書きだけを許可します
 
 空間座標系まわりは、render 後の `beach.toml` を直接いじらなくても、`case.toml` / preset 側の高水準記法で指定できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` のような指定は、`beachx config render` 時に具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ展開されます。
 
