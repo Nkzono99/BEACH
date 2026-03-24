@@ -25,6 +25,7 @@ program test_coulomb_fmm_core
   call test_field_solver_core_adapter()
   call test_field_solver_core_softened_adapter()
   call test_field_solver_core_periodic2_m2l_root_oracle_adapter()
+  call test_periodic2_canonical_seam_accuracy()
 
 contains
 
@@ -177,7 +178,7 @@ contains
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       call eval_point(plan, state, queries(:, i), e_fmm)
-      call direct_field_periodic2(src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
+      call direct_field_periodic2(plan%src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
                                   options%periodic_axes, options%periodic_image_layers, e_ref)
       if (trim(plan%options%periodic_far_correction) == 'm2l_root_oracle') then
         call add_periodic2_exact_ewald_correction_all_sources(plan, state, queries(:, i), e_ref)
@@ -320,8 +321,10 @@ contains
     max_rel_oracle = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
-      call direct_field_periodic2(src_pos, q, queries(:, i), options_oracle%target_box_min, options_oracle%target_box_max, &
-                                  options_oracle%periodic_axes, options_oracle%periodic_image_layers, e_ref)
+      call direct_field_periodic2( &
+        plan_oracle%src_pos, q, queries(:, i), options_oracle%target_box_min, &
+        options_oracle%target_box_max, options_oracle%periodic_axes, &
+        options_oracle%periodic_image_layers, e_ref)
       call add_periodic2_exact_ewald_correction_all_sources(plan_oracle, state_oracle, queries(:, i), e_ref)
       call eval_point(plan_oracle, state_oracle, queries(:, i), e_oracle)
 
@@ -593,7 +596,8 @@ contains
     valid_count = 0_i32
     do i = 1_i32, 2_i32
       call direct_field_periodic2( &
-        src_pos, q, queries(:, i), sim%box_min, sim%box_max, [1_i32, 2_i32], solver_default%periodic_image_layers, e_raw &
+        solver_root%fmm_core_plan%src_pos, q, queries(:, i), sim%box_min, sim%box_max, &
+        [1_i32, 2_i32], solver_default%periodic_image_layers, e_raw &
         )
       call add_periodic2_exact_ewald_correction_all_sources( &
         solver_root%fmm_core_plan, solver_root%fmm_core_state, queries(:, i), e_raw &
@@ -627,6 +631,76 @@ contains
       'core adapter periodic2 m2l_root_oracle accuracy exceeds 8e-2' &
       )
   end subroutine test_field_solver_core_periodic2_m2l_root_oracle_adapter
+
+  subroutine test_periodic2_canonical_seam_accuracy()
+    type(fmm_plan_type), allocatable :: plan
+    type(fmm_state_type), allocatable :: state
+    type(fmm_options_type) :: options
+    real(dp), allocatable :: src_pos(:, :), q(:)
+    real(dp) :: queries(3, 4), e_fmm(3), e_ref(3)
+    real(dp) :: norm_ref, rel_err, max_rel_err, bb_width_x, bb_width_y
+    integer(i32) :: i, valid_count
+
+    allocate (plan, state)
+    allocate (src_pos(3, 6), q(6))
+    src_pos(:, 1) = [0.02d0, 0.03d0, -0.30d0]
+    src_pos(:, 2) = [0.04d0, 0.97d0, 0.20d0]
+    src_pos(:, 3) = [0.96d0, 0.02d0, -0.10d0]
+    src_pos(:, 4) = [0.98d0, 0.98d0, 0.40d0]
+    src_pos(:, 5) = [0.50d0, 0.50d0, 0.00d0]
+    src_pos(:, 6) = [0.03d0, 0.95d0, -0.50d0]
+    q = [-1.0d-12, 1.1d-12, -0.9d-12, 1.2d-12, -1.3d-12, 1.0d-12]
+
+    options%theta = 0.55d0
+    options%leaf_max = 2_i32
+    options%order = 4_i32
+    options%use_periodic2 = .true.
+    options%periodic_axes = [1_i32, 2_i32]
+    options%periodic_len = [1.0d0, 1.0d0]
+    options%periodic_image_layers = 1_i32
+    options%periodic_far_correction = 'm2l_root_oracle'
+    options%periodic_ewald_layers = 4_i32
+    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
+    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+    call build_plan(plan, src_pos, options)
+    call update_state(plan, state, q)
+
+    bb_width_x = maxval(plan%src_pos(1, :)) - minval(plan%src_pos(1, :))
+    bb_width_y = maxval(plan%src_pos(2, :)) - minval(plan%src_pos(2, :))
+    call assert_true( &
+      bb_width_x < 0.60d0, &
+      'canonical seam should compact x bounding box' &
+      )
+    call assert_true( &
+      bb_width_y < 0.60d0, &
+      'canonical seam should compact y bounding box' &
+      )
+
+    queries(:, 1) = [0.15d0, 0.15d0, -0.50d0]
+    queries(:, 2) = [0.85d0, 0.85d0, 0.30d0]
+    queries(:, 3) = [0.50d0, 0.50d0, -0.80d0]
+    queries(:, 4) = [0.30d0, 0.70d0, 0.60d0]
+
+    max_rel_err = 0.0d0
+    valid_count = 0_i32
+    do i = 1_i32, 4_i32
+      call eval_point(plan, state, queries(:, i), e_fmm)
+      call direct_field_periodic2(plan%src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
+                                  options%periodic_axes, options%periodic_image_layers, e_ref)
+      call add_periodic2_exact_ewald_correction_all_sources(plan, state, queries(:, i), e_ref)
+      norm_ref = sqrt(sum(e_ref*e_ref))
+      if (norm_ref <= 1.0d-16) cycle
+      rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
+      max_rel_err = max(max_rel_err, rel_err)
+      valid_count = valid_count + 1_i32
+    end do
+
+    call assert_true(valid_count >= 3_i32, 'canonical seam test lost valid samples')
+    call assert_true(max_rel_err <= 5.0d-2, 'canonical seam FMM relative error exceeds 5e-2')
+
+    call destroy_state(state)
+    call destroy_plan(plan)
+  end subroutine test_periodic2_canonical_seam_accuracy
 
   subroutine make_free_sources(src_pos, q)
     real(dp), allocatable, intent(out) :: src_pos(:, :)

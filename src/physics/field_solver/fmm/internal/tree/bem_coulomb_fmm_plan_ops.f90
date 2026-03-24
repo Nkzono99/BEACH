@@ -4,7 +4,7 @@ module bem_coulomb_fmm_plan_ops
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
   use bem_coulomb_fmm_periodic, only: has_valid_target_box, build_periodic_shift_values, distance_to_source_bbox, &
-                                      distance_to_source_bbox_periodic
+                                      distance_to_source_bbox_periodic, wrap_src_pos_to_primary_cell
   use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data
   use bem_coulomb_fmm_periodic_root_ops, only: precompute_periodic_root_operator
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
@@ -71,6 +71,8 @@ contains
 
     allocate (plan%src_pos(3, max(0_i32, nsrc)))
     if (nsrc > 0_i32) plan%src_pos = src_pos
+
+    if (options%use_periodic2 .and. nsrc > 0_i32) call build_canonical_src_pos(plan)
 
     call initialize_basis_tables(plan, options%order)
     call build_source_tree(plan)
@@ -1027,5 +1029,79 @@ contains
     rhs = (theta_eff*theta_eff)*sum(d*d)
     nodes_well_separated_shifted = (lhs < rhs)
   end function nodes_well_separated_shifted
+
+  !> ソース位置を primary cell へ wrap した上で、各 periodic 軸の
+  !! 最大空白 (largest gap) に seam を配置し、seam をまたぐ点群を
+  !! periodic-unwrap した canonical source set を構成する。
+  !! @param[inout] plan FMM 計画（`plan%src_pos` が変更される）。
+  subroutine build_canonical_src_pos(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: i, k, axis, nsrc, j
+    real(dp) :: len_k, lo, gap_size, max_gap, new_origin
+    real(dp), allocatable :: pos_sorted(:)
+
+    call wrap_src_pos_to_primary_cell(plan)
+
+    nsrc = plan%nsrc
+    if (nsrc <= 1_i32) return
+
+    do k = 1_i32, 2_i32
+      axis = plan%options%periodic_axes(k)
+      len_k = plan%options%periodic_len(k)
+      lo = plan%options%target_box_min(axis)
+
+      allocate (pos_sorted(nsrc))
+      do i = 1_i32, nsrc
+        pos_sorted(i) = plan%src_pos(axis, i) - lo
+      end do
+      call sort_real_ascending(pos_sorted, nsrc)
+
+      max_gap = 0.0d0
+      new_origin = lo
+
+      do j = 1_i32, nsrc - 1_i32
+        gap_size = pos_sorted(j + 1_i32) - pos_sorted(j)
+        if (gap_size > max_gap) then
+          max_gap = gap_size
+          new_origin = lo + pos_sorted(j) + 0.5d0*gap_size
+        end if
+      end do
+
+      gap_size = pos_sorted(1_i32) + len_k - pos_sorted(nsrc)
+      if (gap_size > max_gap) then
+        max_gap = gap_size
+        new_origin = lo + modulo(pos_sorted(nsrc) + 0.5d0*gap_size, len_k)
+      end if
+
+      deallocate (pos_sorted)
+
+      if (new_origin <= lo) cycle
+      do i = 1_i32, nsrc
+        if (plan%src_pos(axis, i) < new_origin) then
+          plan%src_pos(axis, i) = plan%src_pos(axis, i) + len_k
+        end if
+      end do
+    end do
+  end subroutine build_canonical_src_pos
+
+  !> 実数配列を昇順ソートする（挿入ソート）。
+  !! @param[inout] a ソート対象の配列。
+  !! @param[in] n 配列要素数。
+  pure subroutine sort_real_ascending(a, n)
+    real(dp), intent(inout) :: a(:)
+    integer(i32), intent(in) :: n
+    integer(i32) :: i, j
+    real(dp) :: key
+
+    do i = 2_i32, n
+      key = a(i)
+      j = i - 1_i32
+      do while (j >= 1_i32 .and. a(j) > key)
+        a(j + 1_i32) = a(j)
+        j = j - 1_i32
+      end do
+      a(j + 1_i32) = key
+    end do
+  end subroutine sort_real_ascending
 
 end module bem_coulomb_fmm_plan_ops

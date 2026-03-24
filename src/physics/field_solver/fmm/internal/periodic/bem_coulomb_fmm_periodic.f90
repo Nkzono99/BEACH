@@ -11,6 +11,7 @@ module bem_coulomb_fmm_periodic
   public :: build_periodic_shift_values
   public :: apply_periodic2_minimum_image
   public :: wrap_periodic2_point
+  public :: wrap_src_pos_to_primary_cell
   public :: distance_to_source_bbox
   public :: distance_to_source_bbox_periodic
   public :: add_point_charge_images_field
@@ -109,6 +110,24 @@ contains
                 + modulo(p(axis) - plan%options%target_box_min(axis), plan%options%periodic_len(k))
     end do
   end subroutine wrap_periodic2_point
+
+  !> plan 内の全ソース位置を primary cell `[target_box_min, target_box_min+L)` へ折り返す。
+  !! @param[inout] plan FMM 計画（`plan%src_pos` が変更される）。
+  subroutine wrap_src_pos_to_primary_cell(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: i, k, axis
+    real(dp) :: len_k, lo
+
+    if (.not. plan%options%use_periodic2) return
+    do i = 1_i32, plan%nsrc
+      do k = 1_i32, 2_i32
+        axis = plan%options%periodic_axes(k)
+        len_k = plan%options%periodic_len(k)
+        lo = plan%options%target_box_min(axis)
+        plan%src_pos(axis, i) = lo + modulo(plan%src_pos(axis, i) - lo, len_k)
+      end do
+    end do
+  end subroutine wrap_src_pos_to_primary_cell
 
   !> 点と source BBox の距離を返す。
   !! @param[in] p 評価点。
