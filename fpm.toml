@@ -44,9 +44,19 @@ source-dir = "tests/fortran"
 main = "test_reservoir_injection.f90"
 
 [[test]]
-name = "test_dynamics"
+name = "test_dynamics_basic"
 source-dir = "tests/fortran"
-main = "test_dynamics.f90"
+main = "test_dynamics_basic.f90"
+
+[[test]]
+name = "test_dynamics_field_solver"
+source-dir = "tests/fortran"
+main = "test_dynamics_field_solver.f90"
+
+[[test]]
+name = "test_dynamics_fmm"
+source-dir = "tests/fortran"
+main = "test_dynamics_fmm.f90"
 
 [[test]]
 name = "test_templates_importers_runtime"
@@ -84,14 +94,24 @@ source-dir = "tests/fortran"
 main = "test_mpi_hybrid.f90"
 
 [[test]]
-name = "test_coulomb_fmm_core"
+name = "test_coulomb_fmm_core_basic"
 source-dir = "tests/fortran"
-main = "test_coulomb_fmm_core.f90"
+main = "test_coulomb_fmm_core_basic.f90"
 
 [[test]]
-name = "test_output_writer"
+name = "test_coulomb_fmm_core_periodic"
 source-dir = "tests/fortran"
-main = "test_output_writer.f90"
+main = "test_coulomb_fmm_core_periodic.f90"
+
+[[test]]
+name = "test_output_writer_io"
+source-dir = "tests/fortran"
+main = "test_output_writer_io.f90"
+
+[[test]]
+name = "test_output_writer_potential"
+source-dir = "tests/fortran"
+main = "test_output_writer_potential.f90"
 
 [[test]]
 name = "test_periodic2_flat_oracle_diag"

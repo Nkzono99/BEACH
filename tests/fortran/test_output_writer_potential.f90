@@ -1,12 +1,12 @@
-!> 最終出力 writer の CSV 生成と mesh 電位出力を検証するテスト。
-program test_output_writer
+!> 電位計算 + CSV 出力テスト: free-space / periodic2 / FMM core のメッシュ電位検証。
+program test_output_writer_potential
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_mesh, only: init_mesh
   use bem_output_writer, only: write_result_files
   use bem_app_config, only: app_config, default_app_config
   use bem_field_solver, only: field_solver_type
-  use bem_types, only: mesh_type, sim_stats, bc_open, bc_periodic
+  use bem_types, only: mesh_type, sim_stats, sim_config, bc_open, bc_periodic
   use test_support, only: &
     assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
   implicit none
@@ -15,28 +15,19 @@ program test_output_writer
   type(app_config) :: cfg
   type(sim_stats) :: stats
   type(field_solver_type) :: solver
-  logical :: exists
   real(dp), parameter :: pi_dp = acos(-1.0d0)
   real(dp), allocatable :: values(:), potential_v(:)
-  character(len=*), parameter :: out_dir_disabled = 'test_output_writer_disabled_tmp'
-  character(len=*), parameter :: out_dir_free = 'test_output_writer_free_tmp'
-  character(len=*), parameter :: out_dir_periodic = 'test_output_writer_periodic_tmp'
+  character(len=*), parameter :: out_dir_free = 'test_output_writer_pot_free_tmp'
+  character(len=*), parameter :: out_dir_periodic = 'test_output_writer_pot_periodic_tmp'
 
   stats = sim_stats()
 
-  call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_free)
   call cleanup_output_dir(out_dir_periodic)
 
+  ! --- free-space mesh potential test ---
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
-
-  call default_app_config(cfg)
-  cfg%output_dir = out_dir_disabled
-  cfg%write_mesh_potential = .false.
-  call write_result_files(out_dir_disabled, mesh, stats, cfg)
-  inquire (file=trim(out_dir_disabled)//'/mesh_potential.csv', exist=exists)
-  call assert_true(.not. exists, 'mesh_potential.csv should not be written when output.write_mesh_potential=false')
 
   call default_app_config(cfg)
   cfg%output_dir = out_dir_free
@@ -54,6 +45,7 @@ program test_output_writer
   call assert_close_dp(values(1), expected_free_potential_1(), 1.0d-9, 'free-space potential(1) mismatch')
   call assert_close_dp(values(2), expected_free_potential_2(), 1.0d-9, 'free-space potential(2) mismatch')
 
+  ! --- periodic mesh potential test ---
   call build_single_element_mesh(mesh)
   mesh%q_elem = [1.0d-12]
   call default_app_config(cfg)
@@ -80,10 +72,10 @@ program test_output_writer
   call assert_equal_i32(int(size(values), i32), 1_i32, 'periodic mesh_potential.csv row count mismatch')
   call assert_close_dp(values(1), expected_periodic_potential(), 1.0d-9, 'periodic potential mismatch')
 
+  ! --- FMM core mesh potential test ---
   call test_fmm_core_mesh_potential(mesh, cfg%sim, expected_periodic_potential(), values)
   deallocate (potential_v)
 
-  call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_free)
   call cleanup_output_dir(out_dir_periodic)
 
@@ -116,7 +108,6 @@ contains
 
   !> field_solver 経由で FMM メッシュ電位を計算し検証する。
   subroutine test_fmm_core_mesh_potential(mesh, sim, expected_phi, values)
-    use bem_types, only: sim_config
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     real(dp), intent(in) :: expected_phi
@@ -143,7 +134,7 @@ contains
     call assert_true(exists, 'mesh_potential.csv should exist')
 
     open (newunit=u, file=trim(out_dir)//'/mesh_potential.csv', status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'failed to open mesh_potential.csv in test_output_writer'
+    if (ios /= 0) error stop 'failed to open mesh_potential.csv in test_output_writer_potential'
 
     read (u, '(a)', iostat=ios) header
     call assert_true(ios == 0, 'mesh_potential.csv header read failed')
@@ -254,4 +245,4 @@ contains
     call remove_empty_directory(out_dir)
   end subroutine cleanup_output_dir
 
-end program test_output_writer
+end program test_output_writer_potential
