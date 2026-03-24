@@ -108,6 +108,11 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional identifier for ID-based merge in overrides."
+        },
         "source_mode": {
           "type": "string",
           "enum": [
@@ -219,6 +224,11 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional identifier for ID-based merge in overrides."
+        },
         "placement_mode": {
           "type": "string",
           "enum": [

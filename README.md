@@ -92,6 +92,7 @@ merge ルールの要点は次です。
 - `use_presets` を上から順に適用し、最後に `override` を適用します
 - table は deep merge、scalar と通常配列は後勝ち置換です
 - `particles.species` と `mesh.templates` は append されます
+- 各要素に `id` を付けると、同じ `id` の要素同士を deep merge できます（preset の template/species を `override` で部分上書き可能）
 - `mesh.groups.<name>` は preset 間で同名定義できず、`override.mesh.groups.<name>` による最終上書きだけを許可します
 
 空間座標系まわりは、render 後の `beach.toml` を直接いじらなくても、`case.toml` / preset 側の高水準記法で指定できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` のような指定は、`beachx config render` 時に具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ展開されます。

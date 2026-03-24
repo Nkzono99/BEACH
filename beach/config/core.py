@@ -347,6 +347,30 @@ def merge_fragments(
     return merged
 
 
+def _strip_id_fields(config: dict[str, Any]) -> None:
+    """Remove ``id`` keys from array-of-tables entries after merging.
+
+    The ``id`` field is used only during merge to match overlay elements
+    to base elements and must not appear in the final rendered config.
+    """
+    _ARRAY_OF_TABLE_PATHS = (
+        ("particles", "species"),
+        ("mesh", "templates"),
+    )
+    for path in _ARRAY_OF_TABLE_PATHS:
+        table = config
+        for segment in path[:-1]:
+            table = table.get(segment, {})
+            if not isinstance(table, Mapping):
+                break
+        else:
+            items = table.get(path[-1])
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        item.pop("id", None)
+
+
 def resolve_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
     """Resolve high-level spatial notation into plain beach.toml values."""
 
@@ -372,6 +396,7 @@ def resolve_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(mesh, Mapping):
         resolved["mesh"] = _resolve_mesh_high_level(dict(mesh), box_min=box_min, box_max=box_max)
 
+    _strip_id_fields(resolved)
     return resolved
 
 
@@ -1397,6 +1422,41 @@ def _fragment_group_names(fragment: Mapping[str, Any]) -> set[str]:
     return {str(name) for name in groups}
 
 
+def _merge_array_of_tables(
+    base: list[Any],
+    overlay: list[Any],
+    *,
+    path: tuple[str, ...],
+) -> None:
+    """Merge two array-of-tables lists with optional id-based matching.
+
+    Overlay elements that carry an ``id`` matching a base element's ``id``
+    are deep-merged into the matching base element.  All other overlay
+    elements are appended (preserving the existing append semantics).
+    """
+    base_index: dict[str, int] = {}
+    for idx, item in enumerate(base):
+        if isinstance(item, Mapping):
+            item_id = item.get("id")
+            if isinstance(item_id, str) and item_id:
+                if item_id in base_index:
+                    raise MergeError(
+                        f"merge error: duplicate id {item_id!r} "
+                        f"in array-of-tables at {_format_path(path)}."
+                    )
+                base_index[item_id] = idx
+
+    for overlay_item in overlay:
+        overlay_copy = copy.deepcopy(overlay_item)
+        if isinstance(overlay_copy, Mapping):
+            overlay_id = overlay_copy.get("id")
+            if isinstance(overlay_id, str) and overlay_id and overlay_id in base_index:
+                matched_idx = base_index[overlay_id]
+                _merge_into(base[matched_idx], dict(overlay_copy), path=path)
+                continue
+        base.append(overlay_copy)
+
+
 def _merge_into(base: dict[str, Any], overlay: dict[str, Any], *, path: tuple[str, ...]) -> None:
     for key, overlay_value in overlay.items():
         current_path = (*path, key)
@@ -1420,7 +1480,7 @@ def _merge_into(base: dict[str, Any], overlay: dict[str, Any], *, path: tuple[st
                     f"merge error: type conflict at {_format_path(current_path)}. "
                     "Array-of-tables values must merge with the same kind."
                 )
-            base_value.extend(copy.deepcopy(list(overlay_value)))
+            _merge_array_of_tables(base_value, list(overlay_value), path=current_path)
             continue
 
         if isinstance(overlay_value, Mapping):
@@ -1430,6 +1490,25 @@ def _merge_into(base: dict[str, Any], overlay: dict[str, Any], *, path: tuple[st
             )
 
         base[key] = copy.deepcopy(overlay_value)
+
+
+def _validate_id_fields(
+    items: list[Any],
+    *,
+    context: str,
+    table_name: str,
+) -> None:
+    """Validate that ``id`` fields, when present, are non-empty strings."""
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, Mapping):
+            continue
+        item_id = item.get("id")
+        if item_id is None:
+            continue
+        if not isinstance(item_id, str) or not item_id:
+            raise CaseSpecError(
+                f"{context} error: {table_name}[{index}].id must be a non-empty string."
+            )
 
 
 def _validate_fragment_structure(
@@ -1463,6 +1542,7 @@ def _validate_fragment_structure(
             raise CaseSpecError(
                 f"{context} error: particles.species must be an array of tables."
             )
+        _validate_id_fields(species, context=context, table_name="particles.species")
 
     mesh = document.get("mesh")
     if isinstance(mesh, Mapping) and "templates" in mesh:
@@ -1473,6 +1553,7 @@ def _validate_fragment_structure(
             raise CaseSpecError(
                 f"{context} error: mesh.templates must be an array of tables."
             )
+        _validate_id_fields(templates, context=context, table_name="mesh.templates")
 
 
 def _validate_high_level_fragment(

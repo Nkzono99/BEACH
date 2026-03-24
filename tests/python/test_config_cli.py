@@ -725,3 +725,210 @@ def test_case_schema_files_exist_and_example_case_has_schema_directive() -> None
         example_case.read_text(encoding="utf-8").splitlines()[0]
         == "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.case.schema.json"
     )
+
+
+# --- ID-based merge tests ---
+
+
+def test_override_merges_template_by_id(tmp_path: Path) -> None:
+    """Override with matching id deep-merges into preset template."""
+    _write_renderable_test_presets(tmp_path)
+    # Re-write mesh preset with an id field
+    _write_project_preset(
+        tmp_path,
+        "mesh/plane_basic",
+        """
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+id = "main_plane"
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.5, 0.5, 0.0]
+""",
+    )
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "mesh/plane_basic",
+  "output/standard",
+]
+
+[[override.mesh.templates]]
+id = "main_plane"
+nx = 40
+ny = 40
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = render_case_file(case_path)
+
+    # Should still have exactly 1 template (merged, not appended)
+    assert len(result.config["mesh"]["templates"]) == 1
+    tmpl = result.config["mesh"]["templates"][0]
+    # Overridden values
+    assert tmpl["nx"] == 40
+    assert tmpl["ny"] == 40
+    # Preserved original values
+    assert tmpl["size_x"] == pytest.approx(1.0)
+    assert tmpl["kind"] == "plane"
+    assert tmpl["center"] == [0.5, 0.5, 0.0]
+    # id should be stripped from rendered output
+    assert "id" not in tmpl
+
+
+def test_override_merges_species_by_id(tmp_path: Path) -> None:
+    """Override with matching id deep-merges into preset species."""
+    _write_renderable_test_presets(tmp_path)
+    # Re-write species preset with an id field
+    _write_project_preset(
+        tmp_path,
+        "species/solarwind_electron",
+        """
+[particles]
+[[particles.species]]
+id = "electron"
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 10
+""",
+    )
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "mesh/plane_basic",
+  "output/standard",
+]
+
+[[override.particles.species]]
+id = "electron"
+npcls_per_step = 100
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = render_case_file(case_path)
+
+    assert len(result.config["particles"]["species"]) == 1
+    sp = result.config["particles"]["species"][0]
+    assert sp["npcls_per_step"] == 100
+    assert sp["q_particle"] == pytest.approx(-1.602176634e-19)
+    assert "id" not in sp
+
+
+def test_override_without_id_still_appends(tmp_path: Path) -> None:
+    """Override without id uses classic append semantics."""
+    _write_renderable_test_presets(tmp_path)
+    _write_project_preset(
+        tmp_path,
+        "mesh/plane_basic",
+        """
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+id = "main_plane"
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.5, 0.5, 0.0]
+""",
+    )
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "mesh/plane_basic",
+  "output/standard",
+]
+
+[[override.mesh.templates]]
+kind = "plane"
+size_x = 0.5
+size_y = 0.5
+nx = 5
+ny = 5
+center = [0.25, 0.25, 1.0]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = render_case_file(case_path)
+
+    # id-less override appends a new template
+    assert len(result.config["mesh"]["templates"]) == 2
+
+
+def test_id_based_merge_with_unmatched_id_appends(tmp_path: Path) -> None:
+    """Override with an id that doesn't match any base element appends."""
+    _write_renderable_test_presets(tmp_path)
+    _write_project_preset(
+        tmp_path,
+        "mesh/plane_basic",
+        """
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+id = "main_plane"
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.5, 0.5, 0.0]
+""",
+    )
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "mesh/plane_basic",
+  "output/standard",
+]
+
+[[override.mesh.templates]]
+id = "extra_plane"
+kind = "plane"
+size_x = 0.3
+size_y = 0.3
+nx = 3
+ny = 3
+center = [0.0, 0.0, 5.0]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = render_case_file(case_path)
+
+    # Unmatched id appends a new template
+    assert len(result.config["mesh"]["templates"]) == 2

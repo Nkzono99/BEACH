@@ -108,6 +108,65 @@ merge の意味は次のとおりです。
 
 つまり、species や template は preset を足し合わせる使い方に向いています。一方で `sim.box_min` や `output.dir` のような単一値は後から置き換わります。
 
+### 4.1 `id` による要素単位の上書き
+
+`particles.species` や `mesh.templates` は通常 append ですが、各要素に `id` を付けると、同じ `id` を持つ要素同士を deep merge できます。これにより、preset で定義した template や species の一部パラメータだけを `case.toml` の `override` で書き換えられます。
+
+preset 側で `id` を付与します。
+
+```toml
+# mesh/plane_basic.toml
+[[mesh.templates]]
+id = "main_plane"
+kind = "plane"
+size_mode = "box_fraction"
+size_frac = [1.0, 1.0]
+placement_mode = "box_anchor"
+anchor = "z_low_face_center"
+offset_frac = [0.0, 0.0, 0.02]
+nx = 20
+ny = 20
+```
+
+`case.toml` の `override` で同じ `id` を指定すると、一致する要素に deep merge されます。
+
+```toml
+# case.toml
+[[override.mesh.templates]]
+id = "main_plane"
+nx = 40
+ny = 40
+```
+
+この場合、`nx` と `ny` だけが上書きされ、残りのキー（`kind`, `size_mode`, `size_frac` など）は preset の値がそのまま残ります。結果の template 数も 1 のままです。
+
+`[[particles.species]]` でも同様に使えます。
+
+```toml
+# species/solarwind_electron.toml
+[[particles.species]]
+id = "electron"
+source_mode = "reservoir_face"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+target_macro_particles_per_batch = 5000
+```
+
+```toml
+# case.toml
+[[override.particles.species]]
+id = "electron"
+target_macro_particles_per_batch = 10000
+```
+
+ルール:
+
+- `id` はオプションです。付けない要素は従来どおり append されます
+- `id` は非空文字列でなければなりません
+- 同一配列内で `id` が重複するとエラーになります
+- overlay 側の `id` が base のどの要素とも一致しない場合は新規要素として append されます
+- `id` は render 後の `beach.toml` からは除去されます（Fortran 側には渡りません）
+
 ## 5. `beachx config` コマンド
 
 ### 5.1 `init`
@@ -402,7 +461,7 @@ grouped template では `center_local` を使い、render 時に `center` へ変
 - `size_x`, `size_y`, `size`
 - `radius`, `inner_radius`, `height`
 
-高水準キーは render 後に消し込まれます。
+高水準キーと `id` は render 後に消し込まれます。
 
 ## 8. schema と editor 補完
 
