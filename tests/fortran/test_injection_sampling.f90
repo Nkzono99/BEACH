@@ -182,7 +182,7 @@ program test_injection_sampling
   call prepare_periodic2_collision_mesh(mesh, sim)
   ray_dir = [0.0d0, 0.0d0, -1.0d0]
   call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.25d0, 1.0d0, 1.0d0], [0.25d0, 1.0d0, 1.0d0], ray_dir, &
+    mesh, sim, 'z_high', [0.245d0, 0.995d0, 1.0d0], [0.255d0, 1.005d0, 1.0d0], ray_dir, &
     1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
     )
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 should emit from wrapped hit')

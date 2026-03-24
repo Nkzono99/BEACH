@@ -1096,7 +1096,8 @@ contains
     do i = 2_i32, n
       key = a(i)
       j = i - 1_i32
-      do while (j >= 1_i32 .and. a(j) > key)
+      do while (j >= 1_i32)
+        if (a(j) <= key) exit
         a(j + 1_i32) = a(j)
         j = j - 1_i32
       end do
