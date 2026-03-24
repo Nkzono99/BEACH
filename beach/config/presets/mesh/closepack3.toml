@@ -15,7 +15,7 @@ placement_mode = "box_anchor"
 anchor = "z_low_face_center"
 scale_from = "box_x"
 scale_factor = 1.0
-offset_frac = [0.0, 0.0, 0.02]
+offset_frac = [0.0, 0.0, 0.002]
 
 [[mesh.templates]]
 id = "closepackA11"
