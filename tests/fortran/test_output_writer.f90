@@ -3,10 +3,9 @@ program test_output_writer
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_mesh, only: init_mesh
-  use bem_output_writer, only: write_result_files, compute_mesh_potential_fmm_core
+  use bem_output_writer, only: write_result_files
   use bem_app_config, only: app_config, default_app_config
-  use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, &
-                                  destroy_plan, destroy_state
+  use bem_field_solver, only: field_solver_type
   use bem_types, only: mesh_type, sim_stats, bc_open, bc_periodic
   use test_support, only: &
     assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
@@ -15,9 +14,10 @@ program test_output_writer
   type(mesh_type) :: mesh
   type(app_config) :: cfg
   type(sim_stats) :: stats
+  type(field_solver_type) :: solver
   logical :: exists
   real(dp), parameter :: pi_dp = acos(-1.0d0)
-  real(dp), allocatable :: values(:)
+  real(dp), allocatable :: values(:), potential_v(:)
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_disabled_tmp'
   character(len=*), parameter :: out_dir_free = 'test_output_writer_free_tmp'
   character(len=*), parameter :: out_dir_periodic = 'test_output_writer_periodic_tmp'
@@ -42,7 +42,13 @@ program test_output_writer
   cfg%output_dir = out_dir_free
   cfg%write_mesh_potential = .true.
   cfg%sim%softening = 0.0d0
-  call write_result_files(out_dir_free, mesh, stats, cfg)
+  solver = field_solver_type()
+  call solver%init(mesh, cfg%sim)
+  call solver%refresh(mesh)
+  allocate (potential_v(mesh%nelem))
+  call solver%compute_mesh_potential(mesh, cfg%sim, potential_v)
+  call write_result_files(out_dir_free, mesh, stats, cfg, mesh_potential_v=potential_v)
+  deallocate (potential_v)
   call read_potential_values(out_dir_free, values)
   call assert_equal_i32(int(size(values), i32), 2_i32, 'free-space mesh_potential.csv row count mismatch')
   call assert_close_dp(values(1), expected_free_potential_1(), 1.0d-9, 'free-space potential(1) mismatch')
@@ -64,12 +70,18 @@ program test_output_writer
   cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
   cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-  call write_result_files(out_dir_periodic, mesh, stats, cfg)
+  solver = field_solver_type()
+  call solver%init(mesh, cfg%sim)
+  call solver%refresh(mesh)
+  allocate (potential_v(mesh%nelem))
+  call solver%compute_mesh_potential(mesh, cfg%sim, potential_v)
+  call write_result_files(out_dir_periodic, mesh, stats, cfg, mesh_potential_v=potential_v)
   call read_potential_values(out_dir_periodic, values)
   call assert_equal_i32(int(size(values), i32), 1_i32, 'periodic mesh_potential.csv row count mismatch')
   call assert_close_dp(values(1), expected_periodic_potential(), 1.0d-9, 'periodic potential mismatch')
 
-  call test_fmm_core_mesh_potential(mesh, expected_periodic_potential(), values)
+  call test_fmm_core_mesh_potential(mesh, cfg%sim, expected_periodic_potential(), values)
+  deallocate (potential_v)
 
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_free)
@@ -102,40 +114,22 @@ contains
     call init_mesh(mesh, v0, v1, v2)
   end subroutine build_single_element_mesh
 
-  subroutine test_fmm_core_mesh_potential(mesh, expected_phi, values)
+  !> field_solver 経由で FMM メッシュ電位を計算し検証する。
+  subroutine test_fmm_core_mesh_potential(mesh, sim, expected_phi, values)
+    use bem_types, only: sim_config
     type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
     real(dp), intent(in) :: expected_phi
     real(dp), allocatable, intent(out) :: values(:)
-    type(fmm_options_type) :: options
-    type(fmm_plan_type) :: plan
-    type(fmm_state_type) :: state
+    type(field_solver_type) :: fmm_solver
 
-    call initialize_fmm_options(options)
-    call build_plan(plan, mesh%centers, options)
-    call update_state(plan, state, mesh%q_elem)
+    fmm_solver = field_solver_type()
+    call fmm_solver%init(mesh, sim)
+    call fmm_solver%refresh(mesh)
     allocate (values(mesh%nelem))
-    call compute_mesh_potential_fmm_core(mesh, plan, state, values)
+    call fmm_solver%compute_mesh_potential(mesh, sim, values)
     call assert_close_dp(values(1), expected_phi, 1.0d-9, 'periodic FMM mesh potential mismatch')
-    call destroy_state(state)
-    call destroy_plan(plan)
   end subroutine test_fmm_core_mesh_potential
-
-  subroutine initialize_fmm_options(options)
-    type(fmm_options_type), intent(out) :: options
-
-    options%theta = 0.55d0
-    options%leaf_max = 2_i32
-    options%order = 4_i32
-    options%softening = 0.0d0
-    options%use_periodic2 = .true.
-    options%periodic_axes = [1_i32, 2_i32]
-    options%periodic_len = [1.0d0, 1.0d0]
-    options%periodic_image_layers = 1_i32
-    options%periodic_far_correction = 'm2l_root_oracle'
-    options%periodic_ewald_layers = 1_i32
-    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-  end subroutine initialize_fmm_options
 
   !> `mesh_potential.csv` を読み込む。
   subroutine read_potential_values(out_dir, values)

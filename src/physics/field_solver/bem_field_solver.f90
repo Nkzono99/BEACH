@@ -6,6 +6,7 @@ module bem_field_solver
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field, only: electric_field_at
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
+  use bem_string_utils, only: lower_ascii
   implicit none
   private
 
@@ -78,6 +79,7 @@ module bem_field_solver
     procedure :: init => init_field_solver
     procedure :: refresh => refresh_field_solver
     procedure :: eval_e => eval_e_field_solver
+    procedure :: compute_mesh_potential => compute_mesh_potential_field_solver
   end type field_solver_type
 
   public :: field_solver_type
@@ -175,11 +177,14 @@ module bem_field_solver
       real(dp), allocatable, intent(out) :: src_pos(:, :)
     end subroutine build_core_source_positions
 
-    !> ASCII英字を小文字化する。
-    pure module function lower_ascii(s) result(out)
-      character(len=*), intent(in) :: s
-      character(len=len(s)) :: out
-    end function lower_ascii
+    !> メッシュ重心での電位を計算する（FMM/direct 自動切替）。
+    module subroutine compute_mesh_potential_field_solver(self, mesh, sim, potential_v)
+      class(field_solver_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      type(sim_config), intent(in) :: sim
+      real(dp), intent(out) :: potential_v(:)
+    end subroutine compute_mesh_potential_field_solver
+
   end interface
 
 end module bem_field_solver
