@@ -7,19 +7,53 @@ program test_dynamics_fmm
   use bem_field, only: electric_field_at
   use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
-  use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
+  call test_init(10)
+
+  call test_begin('fmm_field_accuracy')
   call test_fmm_field_accuracy()
+  call test_end()
+
+  call test_begin('fmm_free_box_dual_target_accuracy')
   call test_fmm_free_box_dual_target_accuracy()
+  call test_end()
+
+  call test_begin('fmm_core_free_box_dual_target_accuracy')
   call test_fmm_core_free_box_dual_target_accuracy()
+  call test_end()
+
+  call test_begin('fmm_periodic2_field_accuracy')
   call test_fmm_periodic2_field_accuracy()
+  call test_end()
+
+  call test_begin('fmm_core_periodic2_field_accuracy')
   call test_fmm_core_periodic2_field_accuracy()
+  call test_end()
+
+  call test_begin('fmm_periodic2_fallback_accuracy')
   call test_fmm_periodic2_fallback_accuracy()
+  call test_end()
+
+  call test_begin('fmm_periodic2_image_layers_accuracy')
   call test_fmm_periodic2_image_layers_accuracy()
+  call test_end()
+
+  call test_begin('fmm_periodic2_m2l_cache_reuse')
   call test_fmm_periodic2_m2l_cache_reuse()
+  call test_end()
+
+  call test_begin('fmm_periodic2_default_m2l_root_oracle_mode')
   call test_fmm_periodic2_default_m2l_root_oracle_mode()
+  call test_end()
+
+  call test_begin('fmm_periodic2_none_disables_far_correction')
   call test_fmm_periodic2_none_disables_far_correction()
+  call test_end()
+
+  call test_summary()
 
 contains
 

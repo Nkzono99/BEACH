@@ -5,9 +5,9 @@ program test_restart
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, sim_stats, injection_state
-  use test_support, only: &
-    assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, &
-    delete_file_if_exists, ensure_directory, remove_empty_directory
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, &
+                          delete_file_if_exists, ensure_directory, remove_empty_directory
   implicit none
 
   type(mesh_type) :: mesh
@@ -25,11 +25,16 @@ program test_restart
   call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
   call remove_empty_directory(out_dir)
 
+  call test_init(4)
+
+  call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
   call load_restart_checkpoint('test_restart_missing', mesh, stats, has_restart)
   call assert_true(.not. has_restart, 'missing checkpoint should not be reported as restart')
   call assert_equal_i32(stats%batches, 0_i32, 'missing checkpoint should keep stats at defaults')
+  call test_end()
 
+  call test_begin('write_checkpoint')
   call ensure_directory(out_dir)
   call write_summary_fixture(out_dir)
   call write_charges_fixture(out_dir)
@@ -41,7 +46,9 @@ program test_restart
   call assert_true(exists, 'rng_state.txt should be created')
   inquire (file=trim(out_dir)//'/macro_residuals.csv', exist=exists)
   call assert_true(exists, 'macro_residuals.csv should be created')
+  call test_end()
 
+  call test_begin('ranked_paths')
   rng_rank_path = restart_rng_state_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   residual_rank_path = restart_macro_residual_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   call assert_true(trim(rng_rank_path) == trim(out_dir)//'/rng_state_rank00001.txt', 'ranked rng path mismatch')
@@ -55,7 +62,9 @@ program test_restart
   call assert_true(exists, 'rng_state_rank00001.txt should be created')
   inquire (file=trim(residual_rank_path), exist=exists)
   call assert_true(exists, 'macro_residuals_rank00001.csv should be created')
+  call test_end()
 
+  call test_begin('load_checkpoint')
   call build_test_mesh(mesh)
   mesh%q_elem = [3.0d0, 4.0d0]
   state%macro_residual = 0.0d0
@@ -70,6 +79,7 @@ program test_restart
   call assert_close_dp(stats%last_rel_change, 1.0d-3, 1.0d-12, 'last_rel_change mismatch')
   call assert_allclose_1d(mesh%q_elem, [1.0d-12, -2.0d-12], 1.0d-24, 'charge restore mismatch')
   call assert_allclose_1d(state%macro_residual, [0.25d0, 0.75d0], 1.0d-12, 'macro residual restore mismatch')
+  call test_end()
 
   call delete_file_if_exists(out_dir//'/summary.txt')
   call delete_file_if_exists(out_dir//'/charges.csv')
@@ -78,6 +88,8 @@ program test_restart
   call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
   call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
   call remove_empty_directory(out_dir)
+
+  call test_summary()
 
 contains
 

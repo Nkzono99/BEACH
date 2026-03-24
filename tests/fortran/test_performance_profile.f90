@@ -4,7 +4,8 @@ program test_performance_profile
   use bem_mpi, only: mpi_context
   use bem_performance_profile, only: perf_reset, perf_configure, perf_set_output_context, perf_add_elapsed, &
                                      perf_write_outputs, perf_region_program_total, perf_region_simulation_total
-  use test_support, only: assert_true, delete_file_if_exists, ensure_directory, remove_empty_directory
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, delete_file_if_exists, ensure_directory, remove_empty_directory
   implicit none
 
   type(mpi_context) :: mpi
@@ -14,9 +15,12 @@ program test_performance_profile
   logical :: exists, saw_header, saw_program_total, saw_simulation_total
   integer :: u, ios
 
+  call test_init(1)
+
   call ensure_directory(out_dir)
   call delete_file_if_exists(profile_path)
 
+  call test_begin('performance_profile_csv')
   call perf_configure(.true.)
   call perf_set_output_context(out_dir, .true.)
   call perf_add_elapsed(perf_region_program_total, 1.5d0, 1_i32)
@@ -46,8 +50,11 @@ program test_performance_profile
   call assert_true(saw_header, 'performance_profile.csv header row is missing')
   call assert_true(saw_program_total, 'program_total row is missing from performance_profile.csv')
   call assert_true(saw_simulation_total, 'simulation_total row is missing from performance_profile.csv')
+  call test_end()
 
   call perf_reset()
   call delete_file_if_exists(profile_path)
   call remove_empty_directory(out_dir)
+
+  call test_summary()
 end program test_performance_profile

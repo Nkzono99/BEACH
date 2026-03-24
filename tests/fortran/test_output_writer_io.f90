@@ -5,7 +5,8 @@ program test_output_writer_io
   use bem_output_writer, only: write_result_files
   use bem_app_config, only: app_config, default_app_config
   use bem_types, only: mesh_type, sim_stats
-  use test_support, only: assert_true, delete_file_if_exists, remove_empty_directory
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, delete_file_if_exists, remove_empty_directory
   implicit none
 
   type(mesh_type) :: mesh
@@ -14,10 +15,13 @@ program test_output_writer_io
   logical :: exists
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
 
+  call test_init(1)
+
   stats = sim_stats()
 
   call cleanup_output_dir(out_dir_disabled)
 
+  call test_begin('write_mesh_potential_disabled')
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
 
@@ -27,8 +31,11 @@ program test_output_writer_io
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   inquire (file=trim(out_dir_disabled)//'/mesh_potential.csv', exist=exists)
   call assert_true(.not. exists, 'mesh_potential.csv should not be written when output.write_mesh_potential=false')
+  call test_end()
 
   call cleanup_output_dir(out_dir_disabled)
+
+  call test_summary()
 
 contains
 

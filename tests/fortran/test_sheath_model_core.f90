@@ -5,7 +5,8 @@ program test_sheath_model_core
     sheath_model_species, zhao_params_type, zhao_local_state_type, &
     solve_no_photo_floating_potential, build_zhao_params, solve_zhao_unknowns, sample_zhao_state_at_z, &
     resolve_species_drift_speed, zhao_electron_vmin_normal, zhao_photo_emit_current_density
-  use test_support, only: assert_true, assert_close_dp
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_close_dp
   implicit none
 
   real(dp), parameter :: ev_to_k = 1.160451812d4
@@ -17,8 +18,11 @@ program test_sheath_model_core
   real(dp) :: v_d_electron_mps, v_d_ion_mps
   character(len=1) :: branch
 
+  call test_init(3)
+
   inward_normal = [0.0d0, 0.0d0, -1.0d0]
 
+  call test_begin('zhao_type_a')
   call configure_zhao_fixture(60.0d0, spec_e, spec_i, spec_p)
   v_d_electron_mps = resolve_species_drift_speed(spec_e, 'normal', inward_normal)
   v_d_ion_mps = resolve_species_drift_speed(spec_i, 'normal', inward_normal)
@@ -42,7 +46,9 @@ program test_sheath_model_core
   call sample_zhao_state_at_z(params, branch, phi0_v, phi_m_v, n_swe_inf_m3, 4.0d0, state)
   call assert_close_dp(state%phi_v, -4.047310136961665d-2, 5.0d-8, 'core Type-A local phi mismatch')
   call assert_close_dp(state%electron_source_density_m3, 7.792887827459829d6, 5.0d1, 'core Type-A local electron density mismatch')
+  call test_end()
 
+  call test_begin('zhao_type_c')
   call configure_zhao_fixture(10.0d0, spec_e, spec_i, spec_p)
   v_d_electron_mps = resolve_species_drift_speed(spec_e, 'normal', inward_normal)
   v_d_ion_mps = resolve_species_drift_speed(spec_i, 'normal', inward_normal)
@@ -57,10 +63,15 @@ program test_sheath_model_core
   call assert_close_dp(state%phi_v, -3.43310064584225d0, 1.0d-4, 'core Type-C local phi mismatch')
   call assert_close_dp(state%electron_source_density_m3, 6.136203306856032d6, 1.0d2, 'core Type-C local electron density mismatch')
   call assert_close_dp(state%v_i_mps, 8.521786009033145d4, 1.0d-1, 'core Type-C local ion speed mismatch')
+  call test_end()
 
+  call test_begin('no_photo_floating')
   call configure_no_photo_fixture(spec_e, spec_i)
   call solve_no_photo_floating_potential(spec_e, spec_i, inward_normal, phi0_v)
   call assert_true(phi0_v < 0.0d0, 'core floating_no_photo phi0 should be negative')
+  call test_end()
+
+  call test_summary()
 
 contains
 

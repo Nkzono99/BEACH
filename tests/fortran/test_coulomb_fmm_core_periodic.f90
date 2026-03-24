@@ -10,15 +10,37 @@ program test_coulomb_fmm_core_periodic
                                   destroy_plan, destroy_state
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources, &
                                             add_periodic2_exact_ewald_correction_single_source
-  use test_support, only: assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
   implicit none
 
+  call test_init(6)
+
+  call test_begin('periodic2_field_accuracy')
   call test_periodic2_field_accuracy()
+  call test_end()
+
+  call test_begin('periodic2_target_oracle_operator_residual_accuracy')
   call test_periodic2_target_oracle_operator_residual_accuracy()
+  call test_end()
+
+  call test_begin('periodic2_m2l_root_oracle_correction_effect')
   call test_periodic2_m2l_root_oracle_correction_effect()
+  call test_end()
+
+  call test_begin('periodic2_nonneutral_charged_wall_outside_box')
   call test_periodic2_nonneutral_charged_wall_outside_box()
+  call test_end()
+
+  call test_begin('field_solver_core_periodic2_m2l_root_oracle_adapter')
   call test_field_solver_core_periodic2_m2l_root_oracle_adapter()
+  call test_end()
+
+  call test_begin('periodic2_canonical_seam_accuracy')
   call test_periodic2_canonical_seam_accuracy()
+  call test_end()
+
+  call test_summary()
 
 contains
 

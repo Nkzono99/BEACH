@@ -7,6 +7,7 @@ program test_periodic2_flat_oracle_diag
   use bem_templates, only: make_plane
   use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
+  use test_support, only: test_init, test_begin, test_end, test_summary
   implicit none
 
   type(mesh_type) :: mesh_fmm
@@ -20,6 +21,9 @@ program test_periodic2_flat_oracle_diag
   real(dp) :: ref_norm, none_ref_norm, diff_norm
   real(dp) :: max_none_rel_err, max_oracle_rel_err, max_corr_rel_err, max_corr_vs_shell
 
+  call test_init(1)
+
+  call test_begin('periodic2_flat_oracle_diag')
   call make_plane(mesh_fmm, size_x=1.0d0, size_y=1.0d0, nx=20_i32, ny=20_i32, center=[0.5d0, 0.5d0, 0.02d0])
   call assign_flat_periodic_test_charges(mesh_fmm)
 
@@ -105,6 +109,9 @@ program test_periodic2_flat_oracle_diag
   write (output_unit, '(a,es12.4,a,i0)') 'diag_flat_oracle_rel_err=', max_oracle_rel_err, ' idx=', max_oracle_idx
   write (output_unit, '(a,es12.4,a,i0)') 'diag_flat_corr_rel_err=', max_corr_rel_err, ' idx=', max_corr_idx
   write (output_unit, '(a,es12.4)') 'diag_flat_corr_vs_shell=', max_corr_vs_shell
+  call test_end()
+
+  call test_summary()
 
 contains
 

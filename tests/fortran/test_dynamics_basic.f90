@@ -8,7 +8,8 @@ program test_dynamics_basic
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit, segment_triangle_intersect
-  use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
   type(mesh_type) :: mesh_field, mesh_hit
@@ -18,6 +19,9 @@ program test_dynamics_basic
   real(dp) :: e(3), x_new(3), v_new(3), speed0, speed1
   real(dp) :: inv_r3, expected_ex
 
+  call test_init(9)
+
+  call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
   v1_field(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   v2_field(:, 1) = [-1.0d0, -1.0d0, 0.0d0]
@@ -30,7 +34,9 @@ program test_dynamics_basic
   call assert_close_dp(e(1), expected_ex, abs(expected_ex)*1.0d-12, 'electric field Ex mismatch')
   call assert_close_dp(e(2), 0.0d0, 1.0d-20, 'electric field Ey should be zero')
   call assert_close_dp(e(3), 0.0d0, 1.0d-20, 'electric field Ez should be zero')
+  call test_end()
 
+  call test_begin('boris_push_e_only')
   call boris_push( &
     [0.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 0.0d0], &
     2.0d0, 1.0d0, 0.5d0, [1.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 0.0d0], &
@@ -38,7 +44,9 @@ program test_dynamics_basic
     )
   call assert_allclose_1d(v_new, [1.0d0, 0.0d0, 0.0d0], 1.0d-12, 'boris (E only) velocity mismatch')
   call assert_allclose_1d(x_new, [0.5d0, 0.0d0, 0.0d0], 1.0d-12, 'boris (E only) position mismatch')
+  call test_end()
 
+  call test_begin('boris_push_b_speed_preserve')
   call boris_push( &
     [0.0d0, 0.0d0, 0.0d0], [1.0d0, 2.0d0, -0.5d0], &
     1.0d0, 1.0d0, 0.1d0, [0.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 2.0d0], &
@@ -47,7 +55,9 @@ program test_dynamics_basic
   speed0 = sqrt(1.0d0 + 4.0d0 + 0.25d0)
   speed1 = sqrt(sum(v_new*v_new))
   call assert_close_dp(speed1, speed0, 1.0d-12, 'boris should preserve speed when E=0')
+  call test_end()
 
+  call test_begin('find_first_hit')
   v0_hit(:, 1) = [0.0d0, 0.0d0, 1.0d0]
   v1_hit(:, 1) = [1.0d0, 0.0d0, 1.0d0]
   v2_hit(:, 1) = [0.0d0, 1.0d0, 1.0d0]
@@ -64,12 +74,29 @@ program test_dynamics_basic
 
   call find_first_hit(mesh_hit, [0.9d0, 0.9d0, 2.0d0], [0.9d0, 0.9d0, -1.0d0], hit)
   call assert_true(.not. hit%has_hit, 'segment outside triangle should not hit')
+  call test_end()
 
+  call test_begin('collision_grid_equivalence')
   call test_collision_grid_equivalence()
+  call test_end()
+
+  call test_begin('periodic2_collision_wrap')
   call test_periodic2_collision_wrap()
+  call test_end()
+
+  call test_begin('periodic2_collision_multi_cell')
   call test_periodic2_collision_multi_cell()
+  call test_end()
+
+  call test_begin('periodic2_collision_canonical_prepare')
   call test_periodic2_collision_canonical_prepare()
+  call test_end()
+
+  call test_begin('periodic2_collision_grid_equivalence')
   call test_periodic2_collision_grid_equivalence()
+  call test_end()
+
+  call test_summary()
 
 contains
 

@@ -5,13 +5,17 @@ program test_sheath_injection_model
   use bem_sheath_injection_model, only: sheath_injection_context, resolve_sheath_injection_context
   use bem_injection, only: compute_inflow_flux_from_drifting_maxwellian
   use bem_config_helpers, only: resolve_inward_normal
-  use test_support, only: assert_true, assert_close_dp, assert_allclose_1d
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
   type(app_config) :: cfg
   type(sheath_injection_context) :: ctx
   real(dp) :: gamma_e, gamma_i, inward_normal(3)
 
+  call test_init(5)
+
+  call test_begin('zhao_60_basic')
   call configure_zhao_fixture(cfg, 60.0d0)
   call resolve_sheath_injection_context(cfg, ctx)
 
@@ -29,7 +33,9 @@ program test_sheath_injection_model
   call assert_allclose_1d( &
     ctx%reference_inward_normal, [0.0d0, 0.0d0, -1.0d0], 1.0d-12, 'default sheath reference normal mismatch' &
     )
+  call test_end()
 
+  call test_begin('zhao_60_explicit_reference')
   call configure_zhao_fixture(cfg, 60.0d0)
   cfg%sim%sheath_reference_coordinate = 0.0d0
   cfg%sim%has_sheath_reference_coordinate = .true.
@@ -42,14 +48,18 @@ program test_sheath_injection_model
   call assert_close_dp(ctx%electron_vmin_normal, 5.2261201693750557d5, 5.0d-1, 'Type-A local electron cutoff mismatch')
   call assert_close_dp(ctx%ion_number_density_m3, 8.699794680592455d6, 5.0d1, 'Type-A local ion density mismatch')
   call assert_close_dp(ctx%ion_normal_speed_mps, 4.053094542466367d5, 5.0d-1, 'Type-A local ion speed mismatch')
+  call test_end()
 
+  call test_begin('zhao_10_basic')
   call configure_zhao_fixture(cfg, 10.0d0)
   call resolve_sheath_injection_context(cfg, ctx)
   call assert_true(ctx%branch == 'C', 'alpha=10 Zhao auto should select Type C')
   call assert_close_dp(ctx%phi0_v, -4.798298347150015d0, 5.0d-6, 'Type-C phi0 mismatch')
   call assert_close_dp(ctx%n_swe_inf_m3, 8.168603119546532d6, 5.0d1, 'Type-C n_swe_inf mismatch')
   call assert_true(ctx%photo_emit_current_density_a_m2 > 0.0d0, 'Type-C photo current should be positive')
+  call test_end()
 
+  call test_begin('zhao_10_explicit_reference')
   call configure_zhao_fixture(cfg, 10.0d0)
   cfg%sim%sheath_reference_coordinate = 0.0d0
   cfg%sim%has_sheath_reference_coordinate = .true.
@@ -60,7 +70,9 @@ program test_sheath_injection_model
   call assert_close_dp(ctx%electron_vmin_normal, 0.0d0, 1.0d-12, 'Type-C reflected electrons should fill the low-speed range')
   call assert_close_dp(ctx%ion_number_density_m3, 8.296687096334287d6, 2.0d1, 'Type-C local ion density mismatch')
   call assert_close_dp(ctx%ion_normal_speed_mps, 8.521786009033145d4, 1.0d-1, 'Type-C local ion speed mismatch')
+  call test_end()
 
+  call test_begin('floating_no_photo')
   call configure_no_photo_fixture(cfg)
   call resolve_sheath_injection_context(cfg, ctx)
   call assert_true(ctx%branch == 'N', 'floating_no_photo should return synthetic branch N')
@@ -78,6 +90,9 @@ program test_sheath_injection_model
             cfg%particle_species(2)%m_particle, cfg%particle_species(2)%drift_velocity, inward_normal &
             )
   call assert_close_dp(gamma_e, gamma_i, 1.0d-6*max(1.0d0, gamma_i), 'floating_no_photo current balance mismatch')
+  call test_end()
+
+  call test_summary()
 
 contains
 

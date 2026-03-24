@@ -4,7 +4,8 @@ program test_reservoir_injection
   use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
-  use test_support, only: assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
 
   type(app_config) :: cfg_fixed, cfg_auto
@@ -17,8 +18,11 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
+  call test_init(5)
+
   call write_fixed_duration_fixture(cfg_fixed_path)
 
+  call test_begin('fixed_duration_config')
   call default_app_config(cfg_fixed)
   call load_app_config(cfg_fixed_path, cfg_fixed)
 
@@ -28,7 +32,9 @@ program test_reservoir_injection
   call assert_close_dp(cfg_fixed%particle_species(1)%temperature_ev, 10.0d0, 1.0d-12, 'temperature_ev mismatch')
   call assert_true(trim(cfg_fixed%particle_species(1)%inject_face) == 'z_low', 'inject_face mismatch')
   call assert_equal_i32(particles_per_batch_from_config(cfg_fixed), 0_i32, 'reservoir static particle count should be zero')
+  call test_end()
 
+  call test_begin('deterministic_batches')
   residual = 0.0d0
   call compute_macro_particles_for_batch( &
     1.05d3, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
@@ -43,16 +49,20 @@ program test_reservoir_injection
     )
   call assert_equal_i32(n_macro, 11_i32, 'second macro particle count mismatch')
   call assert_close_dp(residual, 0.0d0, 1.0d-12, 'second residual mismatch')
+  call test_end()
 
+  call test_begin('vmin_cutoff')
   call compute_macro_particles_for_batch( &
     1.05d3, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
     'z_low', [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 0.0d0], 1.0d0, 1.0d2, residual, n_macro, vmin_normal=1.2d0 &
     )
   call assert_equal_i32(n_macro, 0_i32, 'vmin cutoff should block deterministic inflow')
   call assert_close_dp(residual, 0.0d0, 1.0d-12, 'vmin cutoff residual mismatch')
+  call test_end()
 
   call write_auto_duration_fixture(cfg_auto_path)
 
+  call test_begin('auto_duration_config')
   call default_app_config(cfg_auto)
   call load_app_config(cfg_auto_path, cfg_auto)
 
@@ -68,7 +78,9 @@ program test_reservoir_injection
   expected_w1 = gamma1*area1*cfg_auto%sim%batch_duration/300.0d0
   call assert_close_dp(cfg_auto%particle_species(1)%w_particle, expected_w1, 1.0d-12, 'species-1 auto w mismatch')
   call assert_close_dp(cfg_auto%particle_species(2)%w_particle, expected_w1, 1.0d-12, 'species-2 shared w mismatch')
+  call test_end()
 
+  call test_begin('species_ratio')
   residual1 = 0.0d0
   residual2 = 0.0d0
   sum1 = 0_i32
@@ -89,9 +101,12 @@ program test_reservoir_injection
   end do
   ratio = real(sum2, dp)/real(sum1, dp)
   call assert_close_dp(ratio, 0.25d0, 1.0d-12, 'reservoir species ratio mismatch')
+  call test_end()
 
   call delete_file_if_exists(cfg_fixed_path)
   call delete_file_if_exists(cfg_auto_path)
+
+  call test_summary()
 
 contains
 

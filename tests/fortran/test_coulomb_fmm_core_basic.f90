@@ -8,16 +8,41 @@ program test_coulomb_fmm_core_basic
   use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, eval_point, &
                                   destroy_plan, destroy_state
-  use test_support, only: assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
   implicit none
 
+  call test_init(7)
+
+  call test_begin('p2m_m2m_root_moments')
   call test_p2m_m2m_root_moments()
+  call test_end()
+
+  call test_begin('free_field_accuracy')
   call test_free_field_accuracy()
+  call test_end()
+
+  call test_begin('softened_free_field_accuracy')
   call test_softened_free_field_accuracy()
+  call test_end()
+
+  call test_begin('target_box_dual_tree')
   call test_target_box_dual_tree()
+  call test_end()
+
+  call test_begin('state_update_reuse')
   call test_state_update_reuse()
+  call test_end()
+
+  call test_begin('field_solver_core_adapter')
   call test_field_solver_core_adapter()
+  call test_end()
+
+  call test_begin('field_solver_core_softened_adapter')
   call test_field_solver_core_softened_adapter()
+  call test_end()
+
+  call test_summary()
 
 contains
 

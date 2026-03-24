@@ -8,8 +8,8 @@ program test_templates_importers_runtime
   use bem_app_config, only: &
     app_config, default_app_config, species_from_defaults, &
     build_mesh_from_config, init_particles_from_config, seed_particles_from_config, init_particle_batch_from_config
-  use test_support, only: &
-    assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
   type(mesh_type) :: mesh
@@ -23,6 +23,9 @@ program test_templates_importers_runtime
   character(len=*), parameter :: obj_path = 'test_templates_runtime_tmp.obj'
   character(len=*), parameter :: missing_obj_path = 'test_templates_runtime_missing.obj'
 
+  call test_init(7)
+
+  call test_begin('template_shapes')
   call make_plane(mesh, nx=2_i32, ny=3_i32)
   call assert_equal_i32(mesh%nelem, 12_i32, 'plane element count mismatch')
 
@@ -52,17 +55,23 @@ program test_templates_importers_runtime
 
   call make_sphere(mesh, n_lon=8_i32, n_lat=4_i32)
   call assert_equal_i32(mesh%nelem, 48_i32, 'sphere element count mismatch')
+  call test_end()
 
+  call test_begin('obj_import')
   call write_obj_fixture(obj_path)
   call load_obj_mesh(obj_path, mesh)
   call assert_equal_i32(mesh%nelem, 3_i32, 'OBJ triangulation count mismatch')
+  call test_end()
 
+  call test_begin('mesh_mode_obj')
   call default_app_config(cfg)
   cfg%mesh_mode = 'obj'
   cfg%obj_path = obj_path
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 3_i32, 'mesh_mode=obj should load OBJ mesh')
+  call test_end()
 
+  call test_begin('mesh_mode_auto')
   call default_app_config(cfg)
   cfg%mesh_mode = 'auto'
   cfg%obj_path = missing_obj_path
@@ -75,7 +84,9 @@ program test_templates_importers_runtime
   cfg%templates(1)%center = [0.0d0, 0.0d0, 0.1d0]
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 2_i32, 'mesh_mode=auto should fallback to template mesh')
+  call test_end()
 
+  call test_begin('mesh_mode_template')
   call default_app_config(cfg)
   cfg%mesh_mode = 'template'
   cfg%templates(1)%enabled = .true.
@@ -112,7 +123,9 @@ program test_templates_importers_runtime
   cfg%templates(1)%has_cap_bottom = .true.
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 24_i32, 'mesh_mode=template cylinder cap_top/cap_bottom mismatch')
+  call test_end()
 
+  call test_begin('seed_and_init_particles')
   call default_app_config(cfg)
   cfg%sim%rng_seed = 2468_i32
   cfg%sim%batch_count = 2_i32
@@ -154,7 +167,9 @@ program test_templates_importers_runtime
   call assert_allclose_1d(pcls%x(:, 5), [0.0d0, 0.0d0, 0.0d0], 1.0d-12, 'species-1 position mismatch')
   call assert_allclose_1d(pcls%v(:, 5), [1.0d0, 0.0d0, 0.0d0], 1.0d-12, 'species-1 velocity mismatch')
   call assert_true(all(pcls%alive), 'all particles should start alive')
+  call test_end()
 
+  call test_begin('photo_batch')
   photo_v0(:, 1) = [0.0d0, 0.0d0, 0.1d0]
   photo_v1(:, 1) = [1.0d0, 0.0d0, 0.1d0]
   photo_v2(:, 1) = [0.0d0, 1.0d0, 0.1d0]
@@ -228,8 +243,11 @@ program test_templates_importers_runtime
   call assert_close_dp(sum(photo_emission_dq), expected_photo_counter, 1.0d-12, 'photo counter charge mismatch')
   call assert_true(state%macro_residual(2) >= 0.0d0, 'reservoir residual should be non-negative')
   call assert_true(state%macro_residual(2) < 1.0d0, 'reservoir residual should be < 1')
+  call test_end()
 
   call delete_file_if_exists(obj_path)
+
+  call test_summary()
 
 contains
 

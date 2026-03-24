@@ -5,8 +5,8 @@ program test_simulator
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
   use bem_types, only: mesh_type, sim_stats
-  use test_support, only: &
-    assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
 
   type(mesh_type) :: mesh
@@ -84,6 +84,9 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
+  call test_init(4)
+
+  call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
   open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'failed to open simulator history fixture'
@@ -98,7 +101,9 @@ program test_simulator
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
   call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
   call assert_true(stats%last_rel_change > 0.0d0, 'last_rel_change should be positive')
+  call test_end()
 
+  call test_begin('history_output')
   n_lines = 0_i32
   open (newunit=u, file=history_path, status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to read simulator history fixture'
@@ -111,7 +116,9 @@ program test_simulator
   call assert_equal_i32(n_lines, 1_i32, 'history snapshot line count mismatch')
 
   call delete_file_if_exists(history_path)
+  call test_end()
 
+  call test_begin('treecode_equivalence')
   call init_mesh(mesh_tree, v0, v1, v2)
   cfg_tree = cfg
   cfg_tree%sim%field_solver = 'treecode'
@@ -125,7 +132,9 @@ program test_simulator
   call assert_equal_i32(stats_tree%survived_max_step, stats%survived_max_step, 'treecode survived_max_step mismatch')
   call assert_equal_i32(stats_tree%batches, stats%batches, 'treecode batches mismatch')
   call assert_close_dp(mesh_tree%q_elem(1), mesh%q_elem(1), 1.0d-12, 'treecode deposited charge mismatch')
+  call test_end()
 
+  call test_begin('resume_stats')
   call init_mesh(mesh_resume, v0, v1, v2)
   call seed_particles_from_config(cfg)
   stats_seed = sim_stats()
@@ -146,4 +155,7 @@ program test_simulator
   call assert_equal_i32(stats_resume%batches, 8_i32, 'resume batches mismatch')
   call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')
   call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
+  call test_end()
+
+  call test_summary()
 end program test_simulator

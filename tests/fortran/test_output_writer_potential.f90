@@ -7,8 +7,8 @@ program test_output_writer_potential
   use bem_app_config, only: app_config, default_app_config
   use bem_field_solver, only: field_solver_type
   use bem_types, only: mesh_type, sim_stats, sim_config, bc_open, bc_periodic
-  use test_support, only: &
-    assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
   implicit none
 
   type(mesh_type) :: mesh
@@ -20,12 +20,15 @@ program test_output_writer_potential
   character(len=*), parameter :: out_dir_free = 'test_output_writer_pot_free_tmp'
   character(len=*), parameter :: out_dir_periodic = 'test_output_writer_pot_periodic_tmp'
 
+  call test_init(3)
+
   stats = sim_stats()
 
   call cleanup_output_dir(out_dir_free)
   call cleanup_output_dir(out_dir_periodic)
 
   ! --- free-space mesh potential test ---
+  call test_begin('free_space_mesh_potential')
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
 
@@ -44,8 +47,10 @@ program test_output_writer_potential
   call assert_equal_i32(int(size(values), i32), 2_i32, 'free-space mesh_potential.csv row count mismatch')
   call assert_close_dp(values(1), expected_free_potential_1(), 1.0d-9, 'free-space potential(1) mismatch')
   call assert_close_dp(values(2), expected_free_potential_2(), 1.0d-9, 'free-space potential(2) mismatch')
+  call test_end()
 
   ! --- periodic mesh potential test ---
+  call test_begin('periodic_mesh_potential')
   call build_single_element_mesh(mesh)
   mesh%q_elem = [1.0d-12]
   call default_app_config(cfg)
@@ -71,13 +76,18 @@ program test_output_writer_potential
   call read_potential_values(out_dir_periodic, values)
   call assert_equal_i32(int(size(values), i32), 1_i32, 'periodic mesh_potential.csv row count mismatch')
   call assert_close_dp(values(1), expected_periodic_potential(), 1.0d-9, 'periodic potential mismatch')
+  call test_end()
 
   ! --- FMM core mesh potential test ---
+  call test_begin('fmm_core_mesh_potential')
   call test_fmm_core_mesh_potential(mesh, cfg%sim, expected_periodic_potential(), values)
+  call test_end()
   deallocate (potential_v)
 
   call cleanup_output_dir(out_dir_free)
   call cleanup_output_dir(out_dir_periodic)
+
+  call test_summary()
 
 contains
 

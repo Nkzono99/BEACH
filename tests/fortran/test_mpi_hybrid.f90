@@ -8,7 +8,8 @@ program test_mpi_hybrid
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, sim_stats, injection_state
-  use test_support, only: assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, ensure_directory, &
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, ensure_directory, &
                           remove_empty_directory
   implicit none
 
@@ -73,6 +74,9 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
+  call test_init(3)
+
+  call test_begin('mpi_simulation')
   if (mpi_is_root(mpi)) then
     open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open MPI hybrid history fixture'
@@ -87,7 +91,9 @@ program test_mpi_hybrid
   call assert_equal_i32(stats%escaped, 0_i32, 'mpi escaped mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'mpi batches mismatch')
   call assert_close_dp(mesh%q_elem(1), 4.0d0, 1.0d-12, 'mpi deposited charge mismatch')
+  call test_end()
 
+  call test_begin('mpi_history')
   if (mpi_is_root(mpi)) then
     n_lines = 0_i32
     open (newunit=u, file=history_path, status='old', action='read', iostat=ios)
@@ -102,7 +108,9 @@ program test_mpi_hybrid
     call delete_file_if_exists(history_path)
   end if
   call mpi_world_barrier(mpi)
+  call test_end()
 
+  call test_begin('mpi_restart')
   call ensure_directory(out_dir)
   if (mpi_is_root(mpi)) then
     call write_summary_fixture(out_dir, mpi%size)
@@ -125,6 +133,7 @@ program test_mpi_hybrid
   call assert_equal_i32(stats_restart%batches, 2_i32, 'mpi restart batches mismatch')
   call assert_close_dp(mesh_restart%q_elem(1), 2.0d0, 1.0d-12, 'mpi restart charge mismatch')
   call assert_close_dp(state_restart%macro_residual(1), 0.25d0 + real(mpi%rank, dp), 1.0d-12, 'mpi residual mismatch')
+  call test_end()
 
   call delete_file_if_exists(rng_path)
   call delete_file_if_exists(residual_path)
@@ -136,6 +145,8 @@ program test_mpi_hybrid
     call delete_file_if_exists(out_dir//'/macro_residuals.csv')
     call remove_empty_directory(out_dir)
   end if
+
+  call test_summary()
 
   call mpi_shutdown(mpi)
 

@@ -1,10 +1,21 @@
-!> Fortranテスト用の簡易アサートと一時ファイル補助。
+!> Fortranテスト用の簡易アサート・進捗表示・一時ファイル補助。
 module test_support
-  use iso_fortran_env, only: error_unit
+  use iso_fortran_env, only: error_unit, output_unit
   use bem_kinds, only: dp, i32
   implicit none
   private
 
+  !> テストランナー状態（モジュール変数）。
+  integer, save :: ts_total_tests = 0
+  integer, save :: ts_current_test = 0
+  integer, save :: ts_passed = 0
+  integer, save :: ts_failed = 0
+  integer, save :: ts_assertions = 0
+  logical, save :: ts_current_ok = .true.
+  logical, save :: ts_in_test = .false.
+  character(len=128), save :: ts_current_name = ''
+
+  ! 既存 API（完全互換）
   public :: fail_test
   public :: assert_true
   public :: assert_equal_i32
@@ -14,14 +25,101 @@ module test_support
   public :: ensure_directory
   public :: remove_empty_directory
 
+  ! 新 API（テストランナー）
+  public :: test_init
+  public :: test_begin
+  public :: test_end
+  public :: test_summary
+
 contains
+
+  ! ============================================================
+  !  テストランナー API
+  ! ============================================================
+
+  !> テストスイートを初期化する。
+  !! @param[in] total_tests 予定テスト数（進捗表示 [n/total] に使用）。
+  subroutine test_init(total_tests)
+    integer, intent(in) :: total_tests
+
+    ts_total_tests = total_tests
+    ts_current_test = 0
+    ts_passed = 0
+    ts_failed = 0
+    ts_assertions = 0
+    ts_in_test = .false.
+  end subroutine test_init
+
+  !> テストケースの開始を宣言する。
+  !! @param[in] name テストケース名。
+  subroutine test_begin(name)
+    character(len=*), intent(in) :: name
+
+    ! 前のテストが test_end 未呼びのまま来た場合の安全策
+    if (ts_in_test) call test_end()
+
+    ts_current_test = ts_current_test + 1
+    ts_current_name = name
+    ts_current_ok = .true.
+    ts_in_test = .true.
+
+    if (ts_total_tests > 0) then
+      write (output_unit, '(a,i0,a,i0,a,a,a)', advance='no') &
+        '[', ts_current_test, '/', ts_total_tests, '] ', trim(name), ' ... '
+    else
+      write (output_unit, '(a,i0,a,a,a)', advance='no') &
+        '[', ts_current_test, '] ', trim(name), ' ... '
+    end if
+    flush (output_unit)
+  end subroutine test_begin
+
+  !> テストケースの終了を宣言し、結果を表示する。
+  subroutine test_end()
+    if (.not. ts_in_test) return
+
+    if (ts_current_ok) then
+      ts_passed = ts_passed + 1
+      write (output_unit, '(a)') 'PASS'
+    end if
+    ! FAIL の場合は assert 内で既に表示済み
+    flush (output_unit)
+    ts_in_test = .false.
+  end subroutine test_end
+
+  !> テストスイートのサマリーを表示し、失敗があれば error stop する。
+  subroutine test_summary()
+    ! 閉じ忘れ対策
+    if (ts_in_test) call test_end()
+
+    write (output_unit, '(a)') ''
+    write (output_unit, '(a,i0,a,i0,a,i0,a)') &
+      '=== ', ts_passed, ' passed, ', ts_failed, ' failed (', &
+      ts_assertions, ' assertions) ==='
+    flush (output_unit)
+
+    if (ts_failed > 0) error stop 1
+  end subroutine test_summary
+
+  ! ============================================================
+  !  アサート API（強化版、既存シグネチャ完全互換）
+  ! ============================================================
 
   !> 失敗理由を表示してテストを停止する。
   !! @param[in] message 失敗理由メッセージ。
   subroutine fail_test(message)
     character(len=*), intent(in) :: message
 
-    write (error_unit, '(a)') 'TEST FAILURE: '//trim(message)
+    ts_assertions = ts_assertions + 1
+
+    if (ts_in_test .and. ts_current_ok) then
+      ts_current_ok = .false.
+      ts_failed = ts_failed + 1
+      write (output_unit, '(a)') 'FAIL'
+    end if
+
+    write (error_unit, '(a,a)') '  ASSERT FAILED: ', trim(message)
+    flush (error_unit)
+    flush (output_unit)
     error stop 1
   end subroutine fail_test
 
@@ -32,6 +130,7 @@ contains
     logical, intent(in) :: condition
     character(len=*), intent(in) :: message
 
+    ts_assertions = ts_assertions + 1
     if (.not. condition) call fail_test(message)
   end subroutine assert_true
 
@@ -44,7 +143,11 @@ contains
     integer(i32), intent(in) :: expected
     character(len=*), intent(in) :: message
 
-    if (actual /= expected) call fail_test(message)
+    ts_assertions = ts_assertions + 1
+    if (actual /= expected) then
+      call report_i32_mismatch(actual, expected, message)
+      call fail_test(message)
+    end if
   end subroutine assert_equal_i32
 
   !> 倍精度実数の近接一致を確認する。
@@ -58,7 +161,11 @@ contains
     real(dp), intent(in) :: tol
     character(len=*), intent(in) :: message
 
-    if (abs(actual - expected) > tol) call fail_test(message)
+    ts_assertions = ts_assertions + 1
+    if (abs(actual - expected) > tol) then
+      call report_dp_mismatch(actual, expected, abs(actual - expected), tol, message)
+      call fail_test(message)
+    end if
   end subroutine assert_close_dp
 
   !> 1次元実数配列の要素ごとの近接一致を確認する。
@@ -73,11 +180,59 @@ contains
     character(len=*), intent(in) :: message
     integer :: i
 
-    if (size(actual) /= size(expected)) call fail_test(message)
+    ts_assertions = ts_assertions + 1
+    if (size(actual) /= size(expected)) then
+      write (error_unit, '(a,i0,a,i0)') '  size mismatch: actual=', size(actual), ', expected=', size(expected)
+      call fail_test(message)
+    end if
     do i = 1, size(actual)
-      if (abs(actual(i) - expected(i)) > tol) call fail_test(message)
+      if (abs(actual(i) - expected(i)) > tol) then
+        write (error_unit, '(a,i0,a)') '  element ', i, ':'
+        call report_dp_mismatch(actual(i), expected(i), abs(actual(i) - expected(i)), tol, message)
+        call fail_test(message)
+      end if
     end do
   end subroutine assert_allclose_1d
+
+  ! ============================================================
+  !  診断出力ヘルパー（private）
+  ! ============================================================
+
+  subroutine report_i32_mismatch(actual, expected, message)
+    integer(i32), intent(in) :: actual, expected
+    character(len=*), intent(in) :: message
+
+    if (ts_in_test .and. ts_current_ok) then
+      ts_current_ok = .false.
+      ts_failed = ts_failed + 1
+      write (output_unit, '(a)') 'FAIL'
+    end if
+    write (error_unit, '(a,a)') '  ASSERT FAILED: ', trim(message)
+    write (error_unit, '(a,i0)') '    actual   = ', actual
+    write (error_unit, '(a,i0)') '    expected = ', expected
+    flush (error_unit)
+  end subroutine report_i32_mismatch
+
+  subroutine report_dp_mismatch(actual, expected, diff, tol, message)
+    real(dp), intent(in) :: actual, expected, diff, tol
+    character(len=*), intent(in) :: message
+
+    if (ts_in_test .and. ts_current_ok) then
+      ts_current_ok = .false.
+      ts_failed = ts_failed + 1
+      write (output_unit, '(a)') 'FAIL'
+    end if
+    write (error_unit, '(a,a)') '  ASSERT FAILED: ', trim(message)
+    write (error_unit, '(a,es22.14)') '    actual   = ', actual
+    write (error_unit, '(a,es22.14)') '    expected = ', expected
+    write (error_unit, '(a,es22.14)') '    diff     = ', diff
+    write (error_unit, '(a,es22.14)') '    tol      = ', tol
+    flush (error_unit)
+  end subroutine report_dp_mismatch
+
+  ! ============================================================
+  !  ファイル / ディレクトリ補助
+  ! ============================================================
 
   !> 既存ファイルがあれば削除する。
   !! @param[in] path 削除対象ファイルパス。

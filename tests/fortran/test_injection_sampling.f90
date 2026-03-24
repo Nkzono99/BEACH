@@ -7,7 +7,8 @@ program test_injection_sampling
     seed_rng, sample_shifted_maxwell_velocities, init_random_beam_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
     sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
-  use test_support, only: assert_true, assert_equal_i32, assert_close_dp
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
   type(particles_soa) :: pcls
@@ -20,14 +21,19 @@ program test_injection_sampling
   integer(i32) :: n_macro, n_emit
   integer :: i
 
+  call test_init(16)
+
   call seed_rng()
 
+  call test_begin('thermal_velocity_sampling')
   allocate (v(3, 8))
   call sample_shifted_maxwell_velocities( &
     [10.0d0, -5.0d0, 2.0d0], 2.0d0, v, thermal_speed=3.0d0 &
     )
   call assert_true(all(abs(v) < 1.0d3), 'thermal_speed branch produced invalid velocities')
+  call test_end()
 
+  call test_begin('beam_particles')
   call init_random_beam_particles( &
     pcls, 4_i32, -1.0d0, 2.0d0, 100.0d0, &
     [-0.5d0, -0.5d0, -0.5d0], [0.5d0, 0.5d0, 0.5d0], [1.0d0, 0.0d0, 0.0d0], &
@@ -35,7 +41,9 @@ program test_injection_sampling
     )
   call assert_equal_i32(pcls%n, 4_i32, 'init_random_beam_particles count mismatch')
   call assert_true(all(pcls%alive), 'init_random_beam_particles should initialize alive flags')
+  call test_end()
 
+  call test_begin('inflow_flux')
   gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
              1.0d10, 400.0d0, 1.0d-26, [0.0d0, 0.0d0, 3.0d0], [0.0d0, 0.0d0, 1.0d0] &
              )
@@ -45,14 +53,18 @@ program test_injection_sampling
               )
   call assert_true(gamma_cut > 0.0d0, 'cutoff inflow flux should remain positive')
   call assert_true(gamma_cut < gamma_in, 'cutoff inflow flux should be smaller than full inflow flux')
+  call test_end()
 
+  call test_begin('face_area')
   area = compute_face_area_from_bounds('x_low', [-1.0d0, -2.0d0, -3.0d0], [-1.0d0, 2.0d0, 3.0d0])
   call assert_close_dp(area, 24.0d0, 1.0d-12, 'face area (x_low) mismatch')
   area = compute_face_area_from_bounds('y_high', [-4.0d0, 1.0d0, -1.5d0], [4.0d0, 1.0d0, 2.5d0])
   call assert_close_dp(area, 32.0d0, 1.0d-12, 'face area (y_high) mismatch')
+  call test_end()
 
   deallocate (v)
   allocate (x(3, 16), v(3, 16))
+  call test_begin('reservoir_face_basic')
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
     [-1.0d0, -0.5d0, -0.25d0], [-1.0d0, 0.5d0, 0.25d0], [2.0d0, 0.0d0, 0.0d0], &
@@ -64,7 +76,9 @@ program test_injection_sampling
     call assert_true(x(1, i) < -9.99999d-1, 'reservoir sampled x should not advect by batch_duration')
     call assert_true(v(1, i) >= 0.0d0, 'reservoir normal velocity should be inward')
   end do
+  call test_end()
 
+  call test_begin('reservoir_face_jitter')
   jitter_dt = 1.0d-3
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
@@ -75,7 +89,9 @@ program test_injection_sampling
     call assert_true(x(1, i) > -1.0d0, 'reservoir jittered x should stay inside the domain')
     call assert_true(x(1, i) <= -1.0d0 + 2.0d0*jitter_dt + 1.0d-12, 'reservoir jittered x exceeded dt bound')
   end do
+  call test_end()
 
+  call test_begin('reservoir_face_barrier_shift')
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
     [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
@@ -85,7 +101,9 @@ program test_injection_sampling
   do i = 1, 4
     call assert_close_dp(v(1, i), expected_vn, 1.0d-10, 'barrier-corrected normal speed mismatch')
   end do
+  call test_end()
 
+  call test_begin('reservoir_face_barrier_cutoff')
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
     [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
@@ -95,6 +113,7 @@ program test_injection_sampling
   do i = 1, 4
     call assert_close_dp(v(1, i), 3.0d0, 1.0d-12, 'barrier cutoff-only normal speed mismatch')
   end do
+  call test_end()
 
   tri_v0(:, 1) = [0.0d0, 0.0d0, 0.05d0]
   tri_v1(:, 1) = [1.0d0, 0.0d0, 0.05d0]
@@ -117,12 +136,15 @@ program test_injection_sampling
 
   allocate (w_photo(10))
   allocate (emit_elem(10))
+  call test_begin('photo_raycast_open')
   call sample_photo_raycast_particles( &
     mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
     1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
     )
   call assert_equal_i32(n_emit, 0_i32, 'photo_raycast open boundary should not emit particles')
+  call test_end()
 
+  call test_begin('photo_raycast_reflect')
   sim%bc_low(2) = bc_reflect
   sim%bc_high(2) = bc_reflect
   call sample_photo_raycast_particles( &
@@ -135,7 +157,9 @@ program test_injection_sampling
   call assert_true(all(v(3, 1:n_emit) > 0.0d0), 'photo_raycast emitted normal speed should be outward')
   call assert_true(all(emit_elem(1:n_emit) >= 1_i32), 'photo_raycast emit_elem should be positive')
   call assert_true(all(emit_elem(1:n_emit) <= mesh%nelem), 'photo_raycast emit_elem should be in range')
+  call test_end()
 
+  call test_begin('photo_raycast_cutoff')
   call sample_photo_raycast_particles( &
     mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
     1.0d0, 0.0d0, 0.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit, &
@@ -143,7 +167,9 @@ program test_injection_sampling
     )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast cutoff run should emit all rays')
   call assert_true(all(v(3, 1:n_emit) >= 2.5d0), 'photo_raycast cutoff should raise normal speed floor')
+  call test_end()
 
+  call test_begin('photo_raycast_periodic')
   sim%bc_low(2) = bc_periodic
   sim%bc_high(2) = bc_periodic
   call sample_photo_raycast_particles( &
@@ -151,7 +177,9 @@ program test_injection_sampling
     1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
     )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast periodic boundary should emit all rays')
+  call test_end()
 
+  call test_begin('photo_raycast_in_box')
   tri_v0(:, 1) = [0.20d0, 0.20d0, 0.80d0]
   tri_v1(:, 1) = [1.20d0, 0.20d0, 0.80d0]
   tri_v2(:, 1) = [0.20d0, 1.20d0, 0.80d0]
@@ -168,7 +196,9 @@ program test_injection_sampling
     )
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast should emit from in-box element')
   call assert_equal_i32(emit_elem(1), 2_i32, 'photo_raycast should ignore out-of-box element')
+  call test_end()
 
+  call test_begin('photo_raycast_periodic2')
   tri_v0(:, 1) = [0.20d0, -0.05d0, 0.05d0]
   tri_v1(:, 1) = [0.40d0, -0.05d0, 0.05d0]
   tri_v2(:, 1) = [0.20d0, 0.15d0, 0.05d0]
@@ -188,7 +218,9 @@ program test_injection_sampling
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 should emit from wrapped hit')
   call assert_true(x(2, 1) >= -1.0d-12, 'photo_raycast periodic2 wrapped y should stay in primary cell')
   call assert_true(x(2, 1) < 1.0d-6, 'photo_raycast periodic2 should use wrapped emission position')
+  call test_end()
 
+  call test_begin('photo_raycast_max_bounce')
   tri_v0(:, 1) = [0.0d0, 0.0d0, 0.05d0]
   tri_v1(:, 1) = [1.0d0, 0.0d0, 0.05d0]
   tri_v2(:, 1) = [0.0d0, 1.0d0, 0.05d0]
@@ -208,7 +240,9 @@ program test_injection_sampling
     1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
     )
   call assert_equal_i32(n_emit, 0_i32, 'photo_raycast max bounce should terminate rays before emission')
+  call test_end()
 
+  call test_begin('macro_particles_clamp')
   residual = -0.2d0
   call compute_macro_particles_for_batch( &
     0.0d0, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 0.0d0], &
@@ -218,4 +252,7 @@ program test_injection_sampling
     )
   call assert_equal_i32(n_macro, 0_i32, 'macro count should clamp to zero for negative budget')
   call assert_close_dp(residual, 0.0d0, 1.0d-12, 'macro residual clamp mismatch')
+  call test_end()
+
+  call test_summary()
 end program test_injection_sampling

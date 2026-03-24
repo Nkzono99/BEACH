@@ -3,18 +3,22 @@ program test_boundary
   use bem_kinds, only: dp
   use bem_boundary, only: apply_box_boundary
   use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic
-  use test_support, only: assert_true, assert_close_dp, assert_allclose_1d
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
   type(sim_config) :: cfg
   real(dp) :: x(3), v(3), expected(3)
   logical :: alive, escaped_boundary
 
+  call test_init(5)
+
   cfg = sim_config()
   cfg%use_box = .true.
   cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
   cfg%box_max = [1.0d0, 1.0d0, 1.0d0]
 
+  call test_begin('open_boundary')
   x = [1.1d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
@@ -22,7 +26,9 @@ program test_boundary
   call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
   call assert_true(.not. alive, 'open boundary should kill the particle')
   call assert_true(escaped_boundary, 'open boundary should mark escaped_boundary')
+  call test_end()
 
+  call test_begin('reflect_boundary')
   x = [1.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
@@ -34,7 +40,9 @@ program test_boundary
   call assert_allclose_1d(x, expected, 1.0d-10, 'reflect position mismatch')
   call assert_close_dp(v(1), -1.0d0, 1.0d-12, 'reflect velocity mismatch')
   call assert_close_dp(v(2), 2.0d0, 1.0d-12, 'reflect should preserve tangential velocity')
+  call test_end()
 
+  call test_begin('periodic_boundary')
   x = [-0.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
@@ -45,7 +53,9 @@ program test_boundary
   call assert_true(.not. escaped_boundary, 'periodic boundary should not mark escaped')
   call assert_allclose_1d(x, expected, 1.0d-10, 'periodic position mismatch')
   call assert_allclose_1d(v, [1.0d0, 2.0d0, 3.0d0], 1.0d-12, 'periodic should preserve velocity')
+  call test_end()
 
+  call test_begin('disabled_box')
   cfg = sim_config()
   x = [1.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
@@ -54,7 +64,9 @@ program test_boundary
   call assert_true(alive, 'disabled box should not change alive flag')
   call assert_true(.not. escaped_boundary, 'disabled box should not mark escaped')
   call assert_allclose_1d(x, [1.2d0, 0.5d0, 0.5d0], 1.0d-12, 'disabled box should preserve position')
+  call test_end()
 
+  call test_begin('degenerate_box')
   cfg = sim_config()
   cfg%use_box = .true.
   cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
@@ -65,5 +77,8 @@ program test_boundary
   call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
   call assert_true(.not. alive, 'degenerate box should stop the particle')
   call assert_true(escaped_boundary, 'degenerate box should mark escaped_boundary')
+  call test_end()
+
+  call test_summary()
 
 end program test_boundary

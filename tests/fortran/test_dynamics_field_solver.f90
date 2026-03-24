@@ -6,12 +6,25 @@ program test_dynamics_field_solver
   use bem_templates, only: make_plane, make_sphere
   use bem_field, only: electric_field_at
   use bem_field_solver, only: field_solver_type
-  use test_support, only: assert_true, assert_equal_i32, assert_close_dp
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
+  call test_init(3)
+
+  call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
+  call test_end()
+
+  call test_begin('field_solver_explicit_mode_autotune')
   call test_field_solver_explicit_mode_autotune()
+  call test_end()
+
+  call test_begin('treecode_field_accuracy')
   call test_treecode_field_accuracy()
+  call test_end()
+
+  call test_summary()
 
 contains
 

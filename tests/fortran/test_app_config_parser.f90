@@ -4,7 +4,8 @@ program test_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config, only: app_config, default_app_config, load_app_config, &
                             particles_per_batch_from_config, total_particles_from_config
-  use test_support, only: assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
+  use test_support, only: test_init, test_begin, test_end, test_summary, &
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
   type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg
@@ -22,6 +23,9 @@ program test_app_config_parser
   call write_periodic_oracle_config_fixture(periodic_oracle_cfg_path)
   call write_sheath_config_fixture(sheath_cfg_path)
 
+  call test_init(6)
+
+  call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field_bc_mode mismatch')
@@ -75,7 +79,9 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%tree_leaf_max, 12_i32, 'tree_leaf_max mismatch')
   call assert_true(cfg%sim%has_tree_leaf_max, 'has_tree_leaf_max mismatch')
   call assert_equal_i32(cfg%sim%tree_min_nelem, 1024_i32, 'tree_min_nelem mismatch')
+  call test_end()
 
+  call test_begin('photo_raycast_config')
   call default_app_config(photo_cfg)
   call load_app_config(photo_cfg_path, photo_cfg)
 
@@ -95,7 +101,9 @@ program test_app_config_parser
   call assert_equal_i32(particles_per_batch_from_config(photo_cfg), 0_i32, 'photo per-batch particle count mismatch')
   call assert_equal_i32(total_particles_from_config(photo_cfg), 0_i32, 'photo total particle count mismatch')
   call assert_equal_i32(photo_cfg%n_particles, 0_i32, 'photo cached n_particles mismatch')
+  call test_end()
 
+  call test_begin('large_species_config')
   call default_app_config(large_cfg)
   call load_app_config(large_cfg_path, large_cfg)
 
@@ -105,7 +113,9 @@ program test_app_config_parser
   call assert_equal_i32(large_cfg%particle_species(12)%npcls_per_step, 1_i32, 'large 12th species npcls mismatch')
   call assert_equal_i32(particles_per_batch_from_config(large_cfg), 12_i32, 'large per-batch particle count mismatch')
   call assert_equal_i32(total_particles_from_config(large_cfg), 24_i32, 'large total particle count mismatch')
+  call test_end()
 
+  call test_begin('periodic_config')
   call default_app_config(periodic_cfg)
   call load_app_config(periodic_cfg_path, periodic_cfg)
   call assert_true(trim(periodic_cfg%sim%field_solver) == 'fmm', 'periodic field_solver mismatch')
@@ -119,7 +129,9 @@ program test_app_config_parser
   call assert_true(trim(periodic_cfg%sim%field_periodic_far_correction) == 'none', 'periodic far correction mismatch')
   call assert_close_dp(periodic_cfg%sim%field_periodic_ewald_alpha, 1.5d0, 1.0d-12, 'periodic ewald alpha mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_ewald_layers, 5_i32, 'periodic ewald layers mismatch')
+  call test_end()
 
+  call test_begin('periodic_oracle_config')
   call default_app_config(periodic_oracle_cfg)
   call load_app_config(periodic_oracle_cfg_path, periodic_oracle_cfg)
   call assert_true(trim(periodic_oracle_cfg%sim%field_bc_mode) == 'periodic2', 'periodic oracle field_bc_mode mismatch')
@@ -133,7 +145,9 @@ program test_app_config_parser
   call assert_close_dp( &
     periodic_oracle_cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'periodic oracle ewald alpha mismatch' &
     )
+  call test_end()
 
+  call test_begin('sheath_config')
   call default_app_config(sheath_cfg)
   call load_app_config(sheath_cfg_path, sheath_cfg)
   call assert_true(trim(sheath_cfg%sim%sheath_injection_model) == 'zhao_auto', 'sheath model mismatch')
@@ -147,6 +161,7 @@ program test_app_config_parser
     )
   call assert_true(trim(sheath_cfg%sim%sheath_electron_drift_mode) == 'full', 'sheath electron drift mode mismatch')
   call assert_true(trim(sheath_cfg%sim%sheath_ion_drift_mode) == 'normal', 'sheath ion drift mode mismatch')
+  call test_end()
 
   call delete_file_if_exists(cfg_path)
   call delete_file_if_exists(photo_cfg_path)
@@ -154,6 +169,8 @@ program test_app_config_parser
   call delete_file_if_exists(periodic_cfg_path)
   call delete_file_if_exists(periodic_oracle_cfg_path)
   call delete_file_if_exists(sheath_cfg_path)
+
+  call test_summary()
 
 contains
 
