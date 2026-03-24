@@ -1,5 +1,6 @@
 !> `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。
 submodule(bem_app_config_parser) bem_app_config_parser_validate
+  use bem_config_helpers, only: resolve_inject_face, resolve_inward_normal, species_number_density_m3, species_temperature_k
   implicit none
 contains
 
@@ -68,7 +69,7 @@ contains
       if (.not. cfg%particle_species(1)%enabled) then
         error stop 'target_macro_particles_per_batch=-1 requires particles.species[1] to be enabled.'
       end if
-      if (trim(lower(cfg%particle_species(1)%source_mode)) /= 'reservoir_face') then
+      if (trim(lower_ascii(cfg%particle_species(1)%source_mode)) /= 'reservoir_face') then
         error stop 'target_macro_particles_per_batch=-1 requires particles.species[1].source_mode="reservoir_face".'
       end if
       if (.not. cfg%particle_species(1)%has_w_particle .or. cfg%particle_species(1)%w_particle <= 0.0d0) then
@@ -241,65 +242,6 @@ contains
   cfg%particle_species(species_idx) = spec
   end procedure validate_photo_raycast_species
 
-  !> 注入面識別子から法線軸と対応境界座標を返す。
-  module procedure resolve_inject_face
-  select case (trim(lower(inject_face)))
-  case ('x_low')
-    axis = 1
-    boundary_value = box_min(1)
-  case ('x_high')
-    axis = 1
-    boundary_value = box_max(1)
-  case ('y_low')
-    axis = 2
-    boundary_value = box_min(2)
-  case ('y_high')
-    axis = 2
-    boundary_value = box_max(2)
-  case ('z_low')
-    axis = 3
-    boundary_value = box_min(3)
-  case ('z_high')
-    axis = 3
-    boundary_value = box_max(3)
-  case default
-    error stop 'Unknown particles.species.inject_face.'
-  end select
-  end procedure resolve_inject_face
-
-  !> 注入面識別子から内向き法線ベクトルを返す。
-  module procedure resolve_inward_normal
-  inward_normal = 0.0d0
-  select case (trim(lower(inject_face)))
-  case ('x_low')
-    inward_normal(1) = 1.0d0
-  case ('x_high')
-    inward_normal(1) = -1.0d0
-  case ('y_low')
-    inward_normal(2) = 1.0d0
-  case ('y_high')
-    inward_normal(2) = -1.0d0
-  case ('z_low')
-    inward_normal(3) = 1.0d0
-  case ('z_high')
-    inward_normal(3) = -1.0d0
-  case default
-    error stop 'Unknown particles.species.inject_face.'
-  end select
-  end procedure resolve_inward_normal
-
-  !> 粒子種設定から有効粒子数密度 `[1/m^3]` を計算する。
-  module procedure species_number_density_m3
-  number_density_m3 = spec%number_density_m3
-  if (spec%has_number_density_cm3) number_density_m3 = spec%number_density_cm3*1.0d6
-  end procedure species_number_density_m3
-
-  !> 粒子種設定から有効温度 `[K]` を計算する。
-  module procedure species_temperature_k
-  temperature_k = spec%temperature_k
-  if (spec%has_temperature_ev) temperature_k = spec%temperature_ev*1.160451812d4
-  end procedure species_temperature_k
-
   !> drifting Maxwellian の片側流入束 `[1/m^2/s]` を評価する。
   module procedure compute_inflow_flux_from_drifting_maxwellian
   real(dp) :: sigma, alpha, u_n
@@ -339,7 +281,7 @@ contains
 
   !> 注入面識別子から接線2軸インデックスを返す。
   module procedure resolve_face_axes
-  select case (trim(lower(inject_face)))
+  select case (trim(lower_ascii(inject_face)))
   case ('x_low', 'x_high')
     axis_t1 = 2
     axis_t2 = 3

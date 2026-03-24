@@ -1,14 +1,12 @@
 !> Zhao 系シース数値モデルの core 実装。
 module bem_sheath_model_core
   use bem_kinds, only: dp
-  use bem_constants, only: k_boltzmann
+  use bem_constants, only: k_boltzmann, pi, eps0, qe
   use bem_injection, only: compute_inflow_flux_from_drifting_maxwellian
+  use bem_string_utils, only: lower_ascii
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
-  real(dp), parameter :: pi = 3.1415926535897932384626433832795d0
-  real(dp), parameter :: eps0 = 8.8541878128d-12
-  real(dp), parameter :: qe = 1.602176634d-19
   real(dp), parameter :: nonlinear_tol = 1.0d-5
   integer, parameter :: nonlinear_max_iter = 60
   integer, parameter :: nonlinear_max_backtrack = 20
@@ -1035,18 +1033,5 @@ contains
       error stop 'Unexpected Zhao sheath branch.'
     end select
   end function zhao_photo_emit_current_density
-
-  pure function lower_ascii(text) result(lowered)
-    character(len=*), intent(in) :: text
-    character(len=len(text)) :: lowered
-
-    integer :: i, code
-
-    lowered = text
-    do i = 1, len(text)
-      code = iachar(lowered(i:i))
-      if (code >= iachar('A') .and. code <= iachar('Z')) lowered(i:i) = achar(code + 32)
-    end do
-  end function lower_ascii
 
 end module bem_sheath_model_core

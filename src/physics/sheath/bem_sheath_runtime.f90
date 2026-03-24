@@ -1,18 +1,17 @@
 !> シース数値モデルと app_config / 注入ランタイムの橋渡しを行うモジュール。
 module bem_sheath_runtime
   use bem_kinds, only: dp, i32
-  use bem_constants, only: k_boltzmann
+  use bem_constants, only: k_boltzmann, qe
   use bem_types, only: sim_config
   use bem_app_config_types, only: app_config, particle_species_spec
-  use bem_app_config_parser, only: &
-    lower, resolve_inject_face, resolve_inward_normal, species_number_density_m3, species_temperature_k
+  use bem_string_utils, only: lower_ascii
+  use bem_config_helpers, only: &
+    resolve_inject_face, resolve_inward_normal, species_number_density_m3, species_temperature_k
   use bem_sheath_model_core, only: &
     sheath_model_species, zhao_params_type, zhao_local_state_type, &
     solve_no_photo_floating_potential, build_zhao_params, solve_zhao_unknowns, sample_zhao_state_at_z, &
     resolve_species_drift_speed, zhao_electron_vmin_normal, zhao_photo_vmin_normal, zhao_photo_emit_current_density
   implicit none
-
-  real(dp), parameter :: qe = 1.602176634d-19
 
   type :: sheath_injection_context
     logical :: enabled = .false.
@@ -63,7 +62,7 @@ contains
     character(len=1) :: branch
 
     ctx = sheath_injection_context()
-    model = trim(lower(cfg%sim%sheath_injection_model))
+    model = trim(lower_ascii(cfg%sim%sheath_injection_model))
     ctx%model = model
     if (model == 'none') return
 
@@ -76,7 +75,7 @@ contains
     ctx%enabled = .true.
     ctx%electron_species = electron_idx
     ctx%ion_species = ion_idx
-    ctx%reference_face = trim(lower(spec_e_cfg%inject_face))
+    ctx%reference_face = trim(lower_ascii(spec_e_cfg%inject_face))
     call resolve_sheath_reference_plane( &
       cfg%sim, ctx%reference_face, reference_axis, reference_coordinate, reference_inward_normal &
       )
@@ -87,8 +86,12 @@ contains
     n_e_inf_m3 = spec_e%number_density_m3
     n_i_inf_m3 = spec_i%number_density_m3
     t_swe_ev = spec_e%temperature_k*k_boltzmann/qe
-    v_d_electron_mps = resolve_species_drift_speed(spec_e, trim(lower(cfg%sim%sheath_electron_drift_mode)), reference_inward_normal)
-    v_d_ion_mps = resolve_species_drift_speed(spec_i, trim(lower(cfg%sim%sheath_ion_drift_mode)), reference_inward_normal)
+    v_d_electron_mps = resolve_species_drift_speed( &
+                       spec_e, trim(lower_ascii(cfg%sim%sheath_electron_drift_mode)), &
+                       reference_inward_normal)
+    v_d_ion_mps = resolve_species_drift_speed( &
+                  spec_i, trim(lower_ascii(cfg%sim%sheath_ion_drift_mode)), &
+                  reference_inward_normal)
 
     if (v_d_electron_mps <= 0.0d0) error stop 'sheath electron drift must point inward.'
     if (v_d_ion_mps <= 0.0d0) error stop 'sheath ion drift must point inward.'
@@ -160,7 +163,7 @@ contains
     photo_idx = 0_i32
     do s = 1_i32, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
-      mode = trim(lower(cfg%particle_species(s)%source_mode))
+      mode = trim(lower_ascii(cfg%particle_species(s)%source_mode))
       select case (mode)
       case ('reservoir_face')
         if (cfg%particle_species(s)%q_particle < 0.0d0) then
@@ -175,7 +178,8 @@ contains
 
     if (electron_idx <= 0_i32) error stop 'sheath injection requires one enabled negative-q reservoir_face species.'
     if (ion_idx <= 0_i32) error stop 'sheath injection requires one enabled positive-q reservoir_face species.'
-    if (trim(lower(cfg%particle_species(electron_idx)%inject_face)) /= trim(lower(cfg%particle_species(ion_idx)%inject_face))) then
+    if (trim(lower_ascii(cfg%particle_species(electron_idx)%inject_face)) &
+        /= trim(lower_ascii(cfg%particle_species(ion_idx)%inject_face))) then
       error stop 'sheath electron/ion reservoir species must share the same inject_face.'
     end if
   end subroutine detect_sheath_species

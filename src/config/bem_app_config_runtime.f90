@@ -16,7 +16,8 @@ module bem_app_config_runtime
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, particles_per_batch_from_config, &
     total_particles_from_config
-  use bem_app_config_parser, only: lower, resolve_inward_normal
+  use bem_string_utils, only: lower_ascii
+  use bem_config_helpers, only: resolve_inward_normal
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -30,7 +31,7 @@ contains
     type(mesh_type), intent(out) :: mesh
     logical :: has_obj
 
-    select case (trim(lower(cfg%mesh_mode)))
+    select case (trim(lower_ascii(cfg%mesh_mode)))
     case ('obj')
       call load_obj_mesh(trim(cfg%obj_path), mesh)
     case ('template')
@@ -66,8 +67,8 @@ contains
     counts = 0_i32
     do s = 1, cfg%n_particle_species
       if (cfg%particle_species(s)%enabled) then
-        if (trim(lower(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
-            trim(lower(cfg%particle_species(s)%source_mode)) == 'photo_raycast') then
+        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
+            trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'photo_raycast') then
           error stop 'init_particles_from_config supports volume_seed only. Use init_particle_batch_from_config.'
         end if
         if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
@@ -187,7 +188,7 @@ contains
     apply_barrier_energy_shift = .true.
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
-      select case (trim(lower(cfg%particle_species(s)%source_mode)))
+      select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
         w_effective(s) = cfg%particle_species(s)%w_particle
         effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
@@ -247,7 +248,7 @@ contains
 
       do s = 1, cfg%n_particle_species
         if (.not. cfg%particle_species(s)%enabled) cycle
-        if (trim(lower(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
+        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
         if (.not. cfg%particle_species(s)%has_target_macro_particles_per_batch) cycle
         if (cfg%particle_species(s)%target_macro_particles_per_batch == -1_i32) then
           w_effective(s) = w_effective(1)
@@ -256,7 +257,7 @@ contains
     end if
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
-      select case (trim(lower(cfg%particle_species(s)%source_mode)))
+      select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
         global_count = cfg%particle_species(s)%npcls_per_step
         counts_max(s) = mpi_split_count(global_count, local_rank, n_ranks)
@@ -291,7 +292,7 @@ contains
     emit_elem_species = -1_i32
     do s = 1, cfg%n_particle_species
       if (counts_max(s) <= 0_i32) cycle
-      select case (trim(lower(cfg%particle_species(s)%source_mode)))
+      select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
       case ('volume_seed', 'reservoir_face')
         call sample_species_state( &
           cfg%sim, cfg%particle_species(s), counts_max(s), &
@@ -392,7 +393,7 @@ contains
     if (present(temperature_k_override)) temperature_k_local = temperature_k_override
     drift_velocity_local = spec%drift_velocity
     if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
-    select case (trim(lower(spec%source_mode)))
+    select case (trim(lower_ascii(spec%source_mode)))
     case ('volume_seed')
       call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
       call sample_shifted_maxwell_velocities( &
@@ -615,7 +616,7 @@ contains
 
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
-    select case (trim(lower(sim%reservoir_potential_model)))
+    select case (trim(lower_ascii(sim%reservoir_potential_model)))
     case ('none')
       return
     case ('infinity_barrier')
@@ -696,7 +697,7 @@ contains
     real(dp), intent(out) :: inward_normal(3)
 
     inward_normal = 0.0d0
-    select case (trim(lower(inject_face)))
+    select case (trim(lower_ascii(inject_face)))
     case ('x_low')
       axis_n = 1
       axis_t1 = 2
@@ -818,7 +819,7 @@ contains
     type(mesh_type), intent(out) :: mesh
     logical :: cap_top, cap_bottom
 
-    select case (trim(lower(spec%kind)))
+    select case (trim(lower_ascii(spec%kind)))
     case ('plane')
       call make_plane(mesh, size_x=spec%size_x, size_y=spec%size_y, nx=spec%nx, ny=spec%ny, center=spec%center)
     case ('plate_hole', 'plane_hole')
