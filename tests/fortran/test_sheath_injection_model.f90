@@ -4,7 +4,7 @@ program test_sheath_injection_model
   use bem_app_config, only: app_config, default_app_config
   use bem_sheath_injection_model, only: sheath_injection_context, resolve_sheath_injection_context
   use bem_injection, only: compute_inflow_flux_from_drifting_maxwellian
-  use bem_app_config_parser, only: resolve_inward_normal
+  use bem_config_helpers, only: resolve_inward_normal
   use test_support, only: assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
