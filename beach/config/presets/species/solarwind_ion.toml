@@ -8,6 +8,8 @@ q_particle = 1.602176634e-19
 m_particle = 1.672482821616e-27
 target_macro_particles_per_batch = -1
 inject_face = "z_high"
-pos_low = [0.0, 0.0, 10.0]
-pos_high = [1.0, 1.0, 10.0]
+
+inject_region_mode = "face_fraction"
+uv_low = [0.0, 0.0]
+uv_high = [1.0,1.0]
 drift_velocity = [0.0, 0.0, -4.0e5]

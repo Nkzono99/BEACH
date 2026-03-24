@@ -1,0 +1,78 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json
+
+# 周期境界を考慮した最密配置
+#    x-y の 1x1 正方周期セルに対する 2 球 basis の最密層
+#    半径 r = 1/(2*sqrt(2)) = 0.3535533905932738
+#    層間距離 h = 0.5
+#    z1 = 0.02 + r
+#    z2 = z1 + h
+#    z3 = z2 + h
+[mesh]
+mode = "template"
+
+[mesh.groups.closepack3]
+placement_mode = "box_anchor"
+anchor = "z_low_face_center"
+scale_from = "box_x"
+scale_factor = 1.0
+offset_frac = [0.0, 0.0, 0.02]
+
+[[mesh.templates]]
+id = "closepackA11"
+group = "closepack3"
+kind = "sphere"
+enabled = true
+radius = 0.3535533905932738
+center_local = [-0.25, -0.25, 0.3535533905932738]   # layer A
+n_lon = 24
+n_lat = 10
+
+[[mesh.templates]]
+id = "closepackA12"
+group = "closepack3"
+kind = "sphere"
+enabled = true
+radius = 0.3535533905932738
+center_local = [0.25, 0.25, 0.3535533905932738]   # layer A
+n_lon = 24
+n_lat = 10
+
+[[mesh.templates]]
+id = "closepackB1"
+group = "closepack3"
+kind = "sphere"
+enabled = true
+radius = 0.3535533905932738
+center_local = [0.25, -0.25, 0.8535533905932738]   # layer B
+n_lon = 24
+n_lat = 10
+
+[[mesh.templates]]
+id = "closepackB2"
+group = "closepack3"
+kind = "sphere"
+enabled = true
+radius = 0.3535533905932738
+center_local = [-0.25, 0.25, 0.8535533905932738]   # layer B
+n_lon = 24
+n_lat = 10
+
+[[mesh.templates]]
+id = "closepackA21"
+group = "closepack3"
+kind = "sphere"
+enabled = true
+radius = 0.3535533905932738
+center_local = [-0.25, -0.25, 1.3535533905932738]   # layer A
+n_lon = 24
+n_lat = 10
+
+[[mesh.templates]]
+id = "closepackA22"
+group = "closepack3"
+kind = "sphere"
+enabled = true
+radius = 0.3535533905932738
+center_local = [0.25, 0.25, 1.3535533905932738]   # layer A
+n_lon = 24
+n_lat = 10
