@@ -53,6 +53,7 @@ Python CLI examples:
 - Fortran tests: `fpm test` (or per-target via `fpm test --target <name>`)
 - Fortran format: `fprettify -i 2` for `*.f90` / `*.F90` (`*.i90` is excluded). Prefer `make fmt-fortran`, `make fmt-check-fortran`, and `pre-commit install`.
 - Do not run multiple `fpm test` commands in parallel. They share the same `build/` directory and can conflict with each other.
+- `fpm test` は時間がかかるため、Bash ツールの `run_in_background: true` でバックグラウンド実行し、完了通知を待つ間に他の作業（コードレビュー・編集など）を並行して進めること。ただし同時に複数の `fpm test` をバックグラウンドで走らせてはいけない。
 
 ## Coding rules
 - Do not change public APIs without updating docs + examples.
