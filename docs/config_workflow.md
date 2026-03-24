@@ -173,15 +173,21 @@ beachx config init --from baseline_periodic2
 
 同名 preset は次の優先順位で解決されます。
 
-1. `./.beachx/presets/`
-2. `~/.config/beachx/presets/`
-3. package 同梱の built-in preset
+1. `case.toml` または現在位置から見て最も近い `.beachx/presets/`
+2. その親ディレクトリの `.beachx/presets/`
+3. さらに親方向の `.beachx/presets/`
+4. `~/.config/beachx/presets/`
+5. package 同梱の built-in preset
 
 たとえば `sim/periodic2_fmm` は次のいずれかから探されます。
 
 - `./.beachx/presets/sim/periodic2_fmm.toml`
+- `../.beachx/presets/sim/periodic2_fmm.toml`
+- `../../.beachx/presets/sim/periodic2_fmm.toml`
 - `~/.config/beachx/presets/sim/periodic2_fmm.toml`
 - `beach/config/presets/sim/periodic2_fmm.toml`
+
+複数の project-local preset が見つかった場合は、最短パスになるもの、つまり最も近い親ディレクトリ側の preset が使われます。
 
 ### 6.2 命名規則
 
@@ -415,7 +421,7 @@ VS Code の Even Better TOML / Taplo では、この `#:schema ...` により補
 まず次を順に確認してください。
 
 1. 名前に `.toml` を付けていないか
-2. `./.beachx/presets/` に同名ファイルがないか
+2. 現在位置や `case.toml` の親方向に `.beachx/presets/` があるか
 3. `~/.config/beachx/presets/` に保存したつもりの preset があるか
 4. built-in preset 名を打ち間違えていないか
 

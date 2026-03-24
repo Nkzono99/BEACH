@@ -24,6 +24,7 @@ DEFAULT_PRESET_NAMES = (
     "species/solarwind_electron",
     "species/solarwind_ion",
     "mesh/plane_basic",
+    "mesh/closepack3",
     "output/standard",
 )
 TOP_LEVEL_RENDER_ORDER = ("sim", "particles", "mesh", "output")
@@ -147,6 +148,15 @@ def project_presets_dir(base_dir: str | Path) -> Path:
     """Return the project-local preset directory for one case directory."""
 
     return Path(base_dir) / ".beachx" / "presets"
+
+
+def project_preset_search_dirs(base_dir: str | Path) -> tuple[Path, ...]:
+    """Return project-local preset roots from the current directory up to root."""
+
+    base_path = Path(base_dir).expanduser().resolve()
+    return tuple(
+        project_presets_dir(directory) for directory in (base_path, *base_path.parents)
+    )
 
 
 def default_case_document(
@@ -275,17 +285,20 @@ def render_case_document(case_document: CaseDocument) -> RenderResult:
 
 
 def resolve_preset(name: str, *, case_dir: str | Path) -> ResolvedPreset:
-    """Resolve one preset name from project-local, user, or built-in storage."""
+    """Resolve one preset name from nearest-local, user, or built-in storage."""
 
     normalized_name = normalize_preset_name(name)
     relative_path = preset_name_to_path(normalized_name)
 
-    project_candidate = project_presets_dir(case_dir) / relative_path
+    project_candidates = [
+        ("project-local", root / relative_path)
+        for root in project_preset_search_dirs(case_dir)
+    ]
     user_candidate = user_presets_dir() / relative_path
     builtin_candidate = builtin_presets_dir() / relative_path
 
     candidates = (
-        ("project-local", project_candidate),
+        *project_candidates,
         ("user", user_candidate),
         ("built-in", builtin_candidate),
     )
@@ -1231,11 +1244,11 @@ def save_preset_fragment(
 
 
 def list_presets(*, case_dir: str | Path) -> list[ListedPreset]:
-    """List visible presets with local/user/built-in precedence applied."""
+    """List visible presets with nearest-local/user/built-in precedence applied."""
 
     grouped: dict[str, list[tuple[str, Path]]] = {}
     search_roots = (
-        ("project-local", project_presets_dir(case_dir)),
+        *(("project-local", root) for root in project_preset_search_dirs(case_dir)),
         ("user", user_presets_dir()),
         ("built-in", builtin_presets_dir()),
     )

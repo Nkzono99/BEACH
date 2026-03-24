@@ -7,14 +7,116 @@ import pytest
 
 from beach.cli.main import main as beachx_main
 from beach.config import (
-    DEFAULT_PRESET_NAMES,
     CaseSpecError,
     RenderValidationError,
     render_case_file,
 )
 
 
+def _write_project_preset(root: Path, name: str, body: str) -> None:
+    path = root / ".beachx" / "presets" / f"{name}.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body.strip() + "\n", encoding="utf-8")
+
+
+def _write_renderable_test_presets(root: Path) -> None:
+    _write_project_preset(
+        root,
+        "sim/periodic2_fmm",
+        """
+[sim]
+dt = 2.0e-8
+batch_duration_step = 60000.0
+batch_count = 100
+max_step = 10000
+softening = 1.0e-6
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+rng_seed = 12345
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_far_correction = "none"
+""",
+    )
+    _write_project_preset(
+        root,
+        "species/solarwind_electron",
+        """
+[particles]
+[[particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 10
+""",
+    )
+    _write_project_preset(
+        root,
+        "species/solarwind_ion",
+        """
+[particles]
+[[particles.species]]
+source_mode = "volume_seed"
+q_particle = 1.602176634e-19
+m_particle = 1.672482821616e-27
+npcls_per_step = 10
+""",
+    )
+    _write_project_preset(
+        root,
+        "mesh/plane_basic",
+        """
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.5, 0.5, 0.0]
+""",
+    )
+    _write_project_preset(
+        root,
+        "mesh/closepack3",
+        """
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 0.4
+size_y = 0.4
+nx = 8
+ny = 8
+center = [0.5, 0.5, 0.2]
+""",
+    )
+    _write_project_preset(
+        root,
+        "output/standard",
+        """
+[output]
+write_files = true
+dir = "outputs/latest"
+history_stride = 1
+""",
+    )
+
+
 def test_render_case_file_merges_builtin_presets_and_override(tmp_path: Path) -> None:
+    _write_renderable_test_presets(tmp_path)
     case_path = tmp_path / "case.toml"
     case_path.write_text(
         """
@@ -40,7 +142,13 @@ dir = "outputs/custom"
 
     result = render_case_file(case_path)
 
-    assert result.case.use_presets == DEFAULT_PRESET_NAMES
+    assert result.case.use_presets == (
+        "sim/periodic2_fmm",
+        "species/solarwind_electron",
+        "species/solarwind_ion",
+        "mesh/plane_basic",
+        "output/standard",
+    )
     assert result.config["sim"]["dt"] == pytest.approx(1.5e-8)
     assert result.config["sim"]["b0"] == [1.0, 0.0, 0.0]
     assert result.config["output"]["dir"] == "outputs/custom"
@@ -49,6 +157,7 @@ dir = "outputs/custom"
 
 
 def test_render_case_file_appends_override_species(tmp_path: Path) -> None:
+    _write_renderable_test_presets(tmp_path)
     case_path = tmp_path / "case.toml"
     case_path.write_text(
         """
@@ -379,6 +488,7 @@ def test_config_cli_init_render_validate_save_and_from(
     beachx_home = tmp_path / "beachx-home"
     monkeypatch.setenv("BEACHX_HOME", str(beachx_home))
     monkeypatch.chdir(tmp_path)
+    _write_renderable_test_presets(tmp_path)
 
     beachx_main(["config", "init", "--title", "CLI Test Case"])
     init_streams = capsys.readouterr()
@@ -425,8 +535,8 @@ def test_config_cli_render_uses_project_local_preset_shadow(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    _write_renderable_test_presets(tmp_path)
     local_preset = tmp_path / ".beachx" / "presets" / "output" / "standard.toml"
-    local_preset.parent.mkdir(parents=True)
     local_preset.write_text(
         """
 [output]
@@ -460,10 +570,101 @@ use_presets = [
     assert 'warning: preset "output/standard"' in streams.err
 
 
+def test_render_case_file_uses_parent_project_local_preset(
+    tmp_path: Path,
+) -> None:
+    _write_renderable_test_presets(tmp_path)
+    parent_preset = tmp_path / ".beachx" / "presets" / "output" / "standard.toml"
+    parent_preset.write_text(
+        """
+[output]
+write_files = true
+dir = "outputs/parent-local"
+history_stride = 3
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    case_dir = tmp_path / "runs" / "exp1"
+    case_dir.mkdir(parents=True)
+    case_path = case_dir / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "species/solarwind_ion",
+  "mesh/plane_basic",
+  "output/standard",
+]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = render_case_file(case_path)
+
+    assert result.config["output"]["dir"] == "outputs/parent-local"
+
+
+def test_render_case_file_prefers_closest_parent_project_local_preset(
+    tmp_path: Path,
+) -> None:
+    _write_renderable_test_presets(tmp_path)
+    top_preset = tmp_path / ".beachx" / "presets" / "output" / "standard.toml"
+    top_preset.write_text(
+        """
+[output]
+write_files = true
+dir = "outputs/top-local"
+history_stride = 7
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    middle_dir = tmp_path / "runs"
+    middle_preset = middle_dir / ".beachx" / "presets" / "output" / "standard.toml"
+    middle_preset.parent.mkdir(parents=True)
+    middle_preset.write_text(
+        """
+[output]
+write_files = true
+dir = "outputs/middle-local"
+history_stride = 9
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    case_dir = middle_dir / "exp1"
+    case_dir.mkdir(parents=True)
+    case_path = case_dir / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = [
+  "sim/periodic2_fmm",
+  "species/solarwind_electron",
+  "species/solarwind_ion",
+  "mesh/plane_basic",
+  "output/standard",
+]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = render_case_file(case_path)
+
+    assert result.config["output"]["dir"] == "outputs/middle-local"
+    assert any(str(top_preset) in warning for warning in result.warnings)
+
+
 def test_config_cli_diff_rendered_reports_changed_value(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    _write_renderable_test_presets(tmp_path)
     left = tmp_path / "left.toml"
     right = tmp_path / "right.toml"
     left.write_text(

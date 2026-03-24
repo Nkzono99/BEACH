@@ -82,7 +82,7 @@ beach beach.toml
 - `mesh/plane_basic`
 - `output/standard`
 
-preset の探索順は `./.beachx/presets/` → `~/.config/beachx/presets/` → package 同梱 preset です。
+preset の探索順は「`case.toml` や現在位置から見て最も近い `.beachx/presets/` を親方向に探索」→ `~/.config/beachx/presets/` → package 同梱 preset です。
 研究室ローカルやプロジェクトローカルの設定は、この preset 置き場へ `sim/...` や `mesh/...` として TOML 断片を追加して再利用できます。
 サンプルの `case.toml` は [`examples/periodic2_basic/case.toml`](examples/periodic2_basic/case.toml) にあります。
 生成される `case.toml` / preset / `beach.toml` にはそれぞれ対応する `#:schema ...` directive を自動で付けています。

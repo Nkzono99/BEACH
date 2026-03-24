@@ -7,6 +7,91 @@ import pytest
 from beach.cli.main import main as beachx_main
 
 
+def _write_project_preset(root: Path, name: str, body: str) -> None:
+    path = root / ".beachx" / "presets" / f"{name}.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body.strip() + "\n", encoding="utf-8")
+
+
+def _write_renderable_test_presets(root: Path) -> None:
+    _write_project_preset(
+        root,
+        "sim/periodic2_fmm",
+        """
+[sim]
+dt = 2.0e-8
+batch_duration_step = 60000.0
+batch_count = 100
+max_step = 10000
+softening = 1.0e-6
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+rng_seed = 12345
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_far_correction = "none"
+""",
+    )
+    _write_project_preset(
+        root,
+        "species/solarwind_electron",
+        """
+[particles]
+[[particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 10
+""",
+    )
+    _write_project_preset(
+        root,
+        "species/solarwind_ion",
+        """
+[particles]
+[[particles.species]]
+source_mode = "volume_seed"
+q_particle = 1.602176634e-19
+m_particle = 1.672482821616e-27
+npcls_per_step = 10
+""",
+    )
+    _write_project_preset(
+        root,
+        "mesh/plane_basic",
+        """
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.5, 0.5, 0.0]
+""",
+    )
+    _write_project_preset(
+        root,
+        "output/standard",
+        """
+[output]
+write_files = true
+dir = "outputs/latest"
+history_stride = 1
+""",
+    )
+
+
 def test_preset_cli_new_from_builtin_creates_user_preset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -78,6 +163,7 @@ def test_preset_cli_save_extracts_sim_from_case_document(
     beachx_home = tmp_path / "beachx-home"
     monkeypatch.setenv("BEACHX_HOME", str(beachx_home))
     monkeypatch.chdir(tmp_path)
+    _write_renderable_test_presets(tmp_path)
     (tmp_path / "case.toml").write_text(
         """
 schema_version = 1
@@ -280,6 +366,51 @@ dir = "outputs/local"
     assert len(output_lines) == 1
     assert "\tproject-local\t" in output_lines[0]
     assert str(local_preset) in output_lines[0]
+
+
+def test_preset_cli_list_prefers_closest_parent_project_local(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    work_dir = tmp_path / "runs" / "exp1"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(work_dir)
+
+    top_local = tmp_path / ".beachx" / "presets" / "mesh" / "plane_basic.toml"
+    top_local.parent.mkdir(parents=True)
+    top_local.write_text(
+        """
+[mesh]
+mode = "template"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    middle_local = (
+        tmp_path / "runs" / ".beachx" / "presets" / "mesh" / "plane_basic.toml"
+    )
+    middle_local.parent.mkdir(parents=True)
+    middle_local.write_text(
+        """
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    beachx_main(["preset", "list"])
+    listed = capsys.readouterr()
+    output_lines = [line for line in listed.out.splitlines() if line.startswith("mesh/plane_basic")]
+
+    assert len(output_lines) == 1
+    assert "\tproject-local\t" in output_lines[0]
+    assert str(middle_local) in output_lines[0]
 
 
 def test_preset_cli_show_warns_when_shadowing_occurs(
