@@ -6,7 +6,8 @@ module bem_app_config
   use bem_app_config_parser, only: &
     load_app_config, load_toml_config, apply_sim_kv, apply_particles_kv, apply_particles_species_kv, &
     apply_mesh_kv, apply_template_kv, apply_output_kv, split_key_value, parse_real, parse_int, &
-    parse_logical, parse_string, parse_real3, parse_boundary_mode, strip_comment, lower, ends_with
+    parse_logical, parse_string, parse_real3, parse_boundary_mode, strip_comment, ends_with
+  use bem_string_utils, only: lower_ascii
   use bem_app_config_runtime, only: &
     build_mesh_from_config, init_particles_from_config, seed_particles_from_config, &
     init_particle_batch_from_config, sample_species_state, build_template_mesh, build_one_template, &

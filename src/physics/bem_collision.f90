@@ -2,6 +2,7 @@
 module bem_collision
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, hit_info, sim_config, bc_periodic
+  use bem_string_utils, only: lower_ascii
   implicit none
 contains
 
@@ -631,20 +632,5 @@ contains
       prefer_periodic_candidate = image_shift(2) < best_hit%image_shift(2)
     end if
   end function prefer_periodic_candidate
-
-  !> ASCII英字を小文字化する。
-  pure function lower_ascii(s) result(out)
-    character(len=*), intent(in) :: s
-    character(len=len(s)) :: out
-    integer :: i, code
-
-    out = s
-    do i = 1, len(s)
-      code = iachar(out(i:i))
-      if (code >= iachar('A') .and. code <= iachar('Z')) then
-        out(i:i) = achar(code + 32)
-      end if
-    end do
-  end function lower_ascii
 
 end module bem_collision

@@ -2,6 +2,7 @@
 module bem_mesh
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_periodic
+  use bem_string_utils, only: lower_ascii
   implicit none
 contains
 
@@ -326,20 +327,5 @@ contains
 
     use_periodic2 = .true.
   end subroutine resolve_periodic2_collision_config
-
-  !> ASCII英字を小文字化する。
-  pure function lower_ascii(s) result(out)
-    character(len=*), intent(in) :: s
-    character(len=len(s)) :: out
-    integer :: i, code
-
-    out = s
-    do i = 1, len(s)
-      code = iachar(out(i:i))
-      if (code >= iachar('A') .and. code <= iachar('Z')) then
-        out(i:i) = achar(code + 32)
-      end if
-    end do
-  end function lower_ascii
 
 end module bem_mesh

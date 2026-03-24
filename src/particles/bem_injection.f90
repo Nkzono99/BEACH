@@ -6,6 +6,7 @@ module bem_injection
   use bem_types, only: particles_soa, mesh_type, sim_config, hit_info
   use bem_boundary, only: apply_box_boundary
   use bem_collision, only: find_first_hit
+  use bem_string_utils, only: lower_ascii
   implicit none
 
   private
@@ -800,20 +801,5 @@ contains
     tail = mu*(1.0_dp - standard_normal_cdf(x)) + sigma*standard_normal_pdf(x)
     if (tail < 0.0_dp) tail = 0.0_dp
   end function flux_weighted_normal_tail
-
-  !> ASCII英字を小文字化する。
-  pure function lower_ascii(s) result(out)
-    character(len=*), intent(in) :: s
-    character(len=len(s)) :: out
-    integer :: i, code
-
-    out = s
-    do i = 1, len(s)
-      code = iachar(out(i:i))
-      if (code >= iachar('A') .and. code <= iachar('Z')) then
-        out(i:i) = achar(code + 32)
-      end if
-    end do
-  end function lower_ascii
 
 end module bem_injection

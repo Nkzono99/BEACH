@@ -5,6 +5,7 @@ module bem_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
+  use bem_string_utils, only: lower_ascii
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -25,32 +26,6 @@ module bem_app_config_parser
       type(app_config), intent(inout) :: cfg
       integer, intent(in) :: species_idx
     end subroutine validate_photo_raycast_species
-
-    !> 注入面名から法線軸と境界座標値を解決する。
-    module subroutine resolve_inject_face(box_min, box_max, inject_face, axis, boundary_value)
-      real(dp), intent(in) :: box_min(3), box_max(3)
-      character(len=*), intent(in) :: inject_face
-      integer, intent(out) :: axis
-      real(dp), intent(out) :: boundary_value
-    end subroutine resolve_inject_face
-
-    !> 注入面名から内向き法線ベクトルを解決する。
-    module subroutine resolve_inward_normal(inject_face, inward_normal)
-      character(len=*), intent(in) :: inject_face
-      real(dp), intent(out) :: inward_normal(3)
-    end subroutine resolve_inward_normal
-
-    !> 粒子種設定から実効数密度 `[1/m^3]` を返す。
-    pure module function species_number_density_m3(spec) result(number_density_m3)
-      type(particle_species_spec), intent(in) :: spec
-      real(dp) :: number_density_m3
-    end function species_number_density_m3
-
-    !> 粒子種設定から実効温度 `[K]` を返す。
-    pure module function species_temperature_k(spec) result(temperature_k)
-      type(particle_species_spec), intent(in) :: spec
-      real(dp) :: temperature_k
-    end function species_temperature_k
 
     !> drifting Maxwellian に基づく片側流入束 `[1/m^2/s]` を返す。
     pure module function compute_inflow_flux_from_drifting_maxwellian( &
@@ -138,12 +113,6 @@ module bem_app_config_parser
       character(len=len(line)) :: out
     end function strip_comment
 
-    !> ASCII 英字だけを小文字化した文字列を返す。
-    pure module function lower(s) result(o)
-      character(len=*), intent(in) :: s
-      character(len=len(s)) :: o
-    end function lower
-
     !> 文字列が指定接尾辞で終わるかを判定する。
     pure module function ends_with(s, suffix) result(ends_it)
       character(len=*), intent(in) :: s
@@ -161,7 +130,7 @@ contains
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
 
-    if (.not. ends_with(lower(trim(path)), '.toml')) then
+    if (.not. ends_with(lower_ascii(trim(path)), '.toml')) then
       error stop 'Only TOML config is supported. Please pass a .toml file.'
     end if
     call load_toml_config(path, cfg)
@@ -218,7 +187,7 @@ contains
           cfg%particle_species(s_idx)%enabled = .true.
           section = 'particles.species'
         else
-          section = lower(trim(adjustl(line(2:len_trim(line) - 1))))
+          section = lower_ascii(trim(adjustl(line(2:len_trim(line) - 1))))
         end if
         cycle
       end if
@@ -249,21 +218,21 @@ contains
     if (t_idx > 0) cfg%n_templates = int(t_idx, i32)
 
     cfg%n_particle_species = int(s_idx, i32)
-    cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
+    cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
     select case (trim(cfg%sim%field_solver))
     case ('direct', 'treecode', 'fmm', 'auto')
       continue
     case default
       error stop 'sim.field_solver must be "direct", "treecode", "fmm", or "auto".'
     end select
-    cfg%sim%field_bc_mode = lower(trim(cfg%sim%field_bc_mode))
+    cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))
     select case (trim(cfg%sim%field_bc_mode))
     case ('free', 'periodic2')
       continue
     case default
       error stop 'sim.field_bc_mode must be "free" or "periodic2".'
     end select
-    cfg%sim%field_periodic_far_correction = lower(trim(cfg%sim%field_periodic_far_correction))
+    cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
     select case (trim(cfg%sim%field_periodic_far_correction))
     case ('auto')
       continue
@@ -328,7 +297,7 @@ contains
     if (cfg%sim%tree_min_nelem < 1_i32) then
       error stop 'sim.tree_min_nelem must be >= 1.'
     end if
-    cfg%sim%reservoir_potential_model = lower(trim(cfg%sim%reservoir_potential_model))
+    cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
     select case (trim(cfg%sim%reservoir_potential_model))
     case ('none', 'infinity_barrier')
       continue
@@ -344,21 +313,21 @@ contains
     if (.not. ieee_is_finite(cfg%sim%phi_infty)) then
       error stop 'sim.phi_infty must be finite.'
     end if
-    cfg%sim%sheath_injection_model = lower(trim(cfg%sim%sheath_injection_model))
+    cfg%sim%sheath_injection_model = lower_ascii(trim(cfg%sim%sheath_injection_model))
     select case (trim(cfg%sim%sheath_injection_model))
     case ('none', 'zhao_auto', 'zhao_a', 'zhao_b', 'zhao_c', 'floating_no_photo')
       continue
     case default
       error stop 'sim.sheath_injection_model must be "none", "zhao_auto", "zhao_a", "zhao_b", "zhao_c", or "floating_no_photo".'
     end select
-    cfg%sim%sheath_electron_drift_mode = lower(trim(cfg%sim%sheath_electron_drift_mode))
+    cfg%sim%sheath_electron_drift_mode = lower_ascii(trim(cfg%sim%sheath_electron_drift_mode))
     select case (trim(cfg%sim%sheath_electron_drift_mode))
     case ('normal', 'full')
       continue
     case default
       error stop 'sim.sheath_electron_drift_mode must be "normal" or "full".'
     end select
-    cfg%sim%sheath_ion_drift_mode = lower(trim(cfg%sim%sheath_ion_drift_mode))
+    cfg%sim%sheath_ion_drift_mode = lower_ascii(trim(cfg%sim%sheath_ion_drift_mode))
     select case (trim(cfg%sim%sheath_ion_drift_mode))
     case ('normal', 'full')
       continue
@@ -389,7 +358,7 @@ contains
     do i = 1, s_idx
       if (.not. cfg%particle_species(i)%enabled) cycle
 
-      cfg%particle_species(i)%source_mode = lower(trim(cfg%particle_species(i)%source_mode))
+      cfg%particle_species(i)%source_mode = lower_ascii(trim(cfg%particle_species(i)%source_mode))
       select case (trim(cfg%particle_species(i)%source_mode))
       case ('volume_seed')
         if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
@@ -501,15 +470,15 @@ contains
       call parse_real(v, cfg%sim%softening)
     case ('field_solver')
       call parse_string(v, cfg%sim%field_solver)
-      cfg%sim%field_solver = lower(trim(cfg%sim%field_solver))
+      cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
     case ('field_bc_mode')
       call parse_string(v, cfg%sim%field_bc_mode)
-      cfg%sim%field_bc_mode = lower(trim(cfg%sim%field_bc_mode))
+      cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))
     case ('field_periodic_image_layers')
       call parse_int(v, cfg%sim%field_periodic_image_layers)
     case ('field_periodic_far_correction')
       call parse_string(v, cfg%sim%field_periodic_far_correction)
-      cfg%sim%field_periodic_far_correction = lower(trim(cfg%sim%field_periodic_far_correction))
+      cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
     case ('field_periodic_ewald_alpha')
       call parse_real(v, cfg%sim%field_periodic_ewald_alpha)
     case ('field_periodic_ewald_layers')
@@ -526,7 +495,7 @@ contains
       call parse_real3(v, cfg%sim%b0)
     case ('reservoir_potential_model')
       call parse_string(v, cfg%sim%reservoir_potential_model)
-      cfg%sim%reservoir_potential_model = lower(trim(cfg%sim%reservoir_potential_model))
+      cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
     case ('phi_infty')
       call parse_real(v, cfg%sim%phi_infty)
     case ('injection_face_phi_grid_n')
@@ -535,7 +504,7 @@ contains
       call parse_int(v, cfg%sim%raycast_max_bounce)
     case ('sheath_injection_model')
       call parse_string(v, cfg%sim%sheath_injection_model)
-      cfg%sim%sheath_injection_model = lower(trim(cfg%sim%sheath_injection_model))
+      cfg%sim%sheath_injection_model = lower_ascii(trim(cfg%sim%sheath_injection_model))
     case ('sheath_alpha_deg')
       call parse_real(v, cfg%sim%sheath_alpha_deg)
     case ('sheath_photoelectron_ref_density_cm3')
@@ -545,10 +514,10 @@ contains
       cfg%sim%has_sheath_reference_coordinate = .true.
     case ('sheath_electron_drift_mode')
       call parse_string(v, cfg%sim%sheath_electron_drift_mode)
-      cfg%sim%sheath_electron_drift_mode = lower(trim(cfg%sim%sheath_electron_drift_mode))
+      cfg%sim%sheath_electron_drift_mode = lower_ascii(trim(cfg%sim%sheath_electron_drift_mode))
     case ('sheath_ion_drift_mode')
       call parse_string(v, cfg%sim%sheath_ion_drift_mode)
-      cfg%sim%sheath_ion_drift_mode = lower(trim(cfg%sim%sheath_ion_drift_mode))
+      cfg%sim%sheath_ion_drift_mode = lower_ascii(trim(cfg%sim%sheath_ion_drift_mode))
     case ('use_box')
       call parse_logical(v, cfg%sim%use_box)
     case ('box_min')
@@ -601,7 +570,7 @@ contains
       spec%has_npcls_per_step = .true.
     case ('source_mode')
       call parse_string(v, spec%source_mode)
-      spec%source_mode = lower(trim(spec%source_mode))
+      spec%source_mode = lower_ascii(trim(spec%source_mode))
     case ('number_density_cm3')
       call parse_real(v, spec%number_density_cm3)
       spec%has_number_density_cm3 = .true.
@@ -644,7 +613,7 @@ contains
       spec%has_ray_direction = .true.
     case ('inject_face')
       call parse_string(v, spec%inject_face)
-      spec%inject_face = lower(trim(spec%inject_face))
+      spec%inject_face = lower_ascii(trim(spec%inject_face))
     case default
       error stop 'Unknown key in [[particles.species]]: '//trim(k)
     end select

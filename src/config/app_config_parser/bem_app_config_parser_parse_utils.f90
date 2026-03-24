@@ -13,7 +13,7 @@ contains
     value = ''
     return
   end if
-  key = lower(trim(adjustl(line(:p - 1))))
+  key = lower_ascii(trim(adjustl(line(:p - 1))))
   value = trim(adjustl(line(p + 1:)))
   end procedure split_key_value
 
@@ -31,7 +31,7 @@ contains
   module procedure parse_logical
   character(len=32) :: t
 
-  t = lower(trim(adjustl(text)))
+  t = lower_ascii(trim(adjustl(text)))
   select case (t)
   case ('true', '.true.')
     out = .true.
@@ -68,7 +68,7 @@ contains
   character(len=64) :: mode
 
   call parse_string(text, mode)
-  select case (trim(lower(mode)))
+  select case (trim(lower_ascii(mode)))
   case ('open', 'outflow', 'escape')
     out = bc_open
   case ('reflect', 'reflection')
@@ -91,17 +91,6 @@ contains
     out = trim(line)
   end if
   end procedure strip_comment
-
-  !> ASCII 英字を小文字化した文字列を返す。
-  module procedure lower
-  integer :: i, c
-
-  o = s
-  do i = 1, len(s)
-    c = iachar(s(i:i))
-    if (c >= iachar('A') .and. c <= iachar('Z')) o(i:i) = achar(c + 32)
-  end do
-  end procedure lower
 
   !> 文字列が指定した接尾辞で終わるかを判定する。
   module procedure ends_with

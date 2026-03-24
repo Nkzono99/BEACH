@@ -6,6 +6,7 @@ module bem_performance_profile
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_is_root, &
                      mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
                      mpi_allreduce_min_real_dp_array, mpi_allreduce_max_real_dp_array
+  use bem_string_utils, only: lower_ascii
   implicit none
   private
 
@@ -259,18 +260,5 @@ contains
       env_flag_enabled = .true.
     end select
   end function env_flag_enabled
-
-  !> ASCII英字だけを小文字化する。
-  pure function lower_ascii(s) result(out)
-    character(len=*), intent(in) :: s
-    character(len=len(s)) :: out
-    integer :: i, code
-
-    out = s
-    do i = 1, len(s)
-      code = iachar(out(i:i))
-      if (code >= iachar('A') .and. code <= iachar('Z')) out(i:i) = achar(code + 32)
-    end do
-  end function lower_ascii
 
 end module bem_performance_profile

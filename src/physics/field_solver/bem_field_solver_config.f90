@@ -177,17 +177,4 @@ contains
   end if
   end procedure estimate_auto_tree_params
 
-  !> ASCII 英字を小文字化し、設定キー比較に使う正規化文字列を返す。
-  module procedure lower_ascii
-  integer :: i, code
-
-  out = s
-  do i = 1, len(s)
-    code = iachar(out(i:i))
-    if (code >= iachar('A') .and. code <= iachar('Z')) then
-      out(i:i) = achar(code + 32)
-    end if
-  end do
-  end procedure lower_ascii
-
 end submodule bem_field_solver_config
