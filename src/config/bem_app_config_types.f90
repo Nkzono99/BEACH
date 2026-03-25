@@ -71,6 +71,9 @@ module bem_app_config_types
   type :: app_config
     character(len=16) :: mesh_mode = 'auto'
     character(len=256) :: obj_path = 'examples/simple_plate.obj'
+    real(dp) :: obj_scale = 1.0d0
+    real(dp) :: obj_rotation(3) = [0.0d0, 0.0d0, 0.0d0]
+    real(dp) :: obj_offset(3) = [0.0d0, 0.0d0, 0.0d0]
     integer(i32) :: n_templates = 0_i32
     type(template_spec), allocatable :: templates(:)
 
@@ -146,6 +149,9 @@ contains
 
     cfg%mesh_mode = 'auto'
     cfg%obj_path = 'examples/simple_plate.obj'
+    cfg%obj_scale = 1.0d0
+    cfg%obj_rotation = [0.0d0, 0.0d0, 0.0d0]
+    cfg%obj_offset = [0.0d0, 0.0d0, 0.0d0]
     cfg%n_templates = 0_i32
     cfg%n_particles = 0_i32
     cfg%n_particle_species = 0_i32

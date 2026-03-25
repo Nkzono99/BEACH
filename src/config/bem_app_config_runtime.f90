@@ -29,22 +29,77 @@ contains
   subroutine build_mesh_from_config(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
-    logical :: has_obj
+    logical :: has_obj, loaded_obj, need_transform
 
+    loaded_obj = .false.
     select case (trim(lower_ascii(cfg%mesh_mode)))
     case ('obj')
       call load_obj_mesh(trim(cfg%obj_path), mesh)
+      loaded_obj = .true.
     case ('template')
       call build_template_mesh(cfg, mesh)
     case default
       inquire (file=trim(cfg%obj_path), exist=has_obj)
       if (has_obj) then
         call load_obj_mesh(trim(cfg%obj_path), mesh)
+        loaded_obj = .true.
       else
         call build_template_mesh(cfg, mesh)
       end if
     end select
+
+    if (loaded_obj) then
+      need_transform = (cfg%obj_scale /= 1.0d0) .or. &
+                       any(cfg%obj_rotation /= 0.0d0) .or. &
+                       any(cfg%obj_offset /= 0.0d0)
+      if (need_transform) then
+        call apply_obj_transform(mesh, cfg%obj_scale, cfg%obj_rotation, cfg%obj_offset)
+      end if
+    end if
   end subroutine build_mesh_from_config
+
+  !> OBJ メッシュの全頂点にスケール→回転→平行移動を適用し再初期化する。
+  !! 変換順序: v_new = R(rotation) * (v_old * scale) + offset
+  !! 回転は度単位で x→y→z の順に外因性 (extrinsic) 回転を適用する。
+  !! @param[inout] mesh 変換対象の三角形メッシュ。
+  !! @param[in] scale 一様スケーリング係数。
+  !! @param[in] rotation_deg 回転角度 [rx, ry, rz] (度)。
+  !! @param[in] offset 平行移動ベクトル (3成分)。
+  subroutine apply_obj_transform(mesh, scale, rotation_deg, offset)
+    type(mesh_type), intent(inout) :: mesh
+    real(dp), intent(in) :: scale
+    real(dp), intent(in) :: rotation_deg(3)
+    real(dp), intent(in) :: offset(3)
+    real(dp), parameter :: deg2rad = acos(-1.0d0)/180.0d0
+    real(dp) :: rx, ry, rz, cx, sx, cy, sy, cz, sz
+    real(dp) :: R(3, 3), v(3)
+    real(dp), allocatable :: tv0(:, :), tv1(:, :), tv2(:, :)
+    integer(i32) :: i, n
+
+    rx = rotation_deg(1)*deg2rad
+    ry = rotation_deg(2)*deg2rad
+    rz = rotation_deg(3)*deg2rad
+    cx = cos(rx); sx = sin(rx)
+    cy = cos(ry); sy = sin(ry)
+    cz = cos(rz); sz = sin(rz)
+
+    ! R = Rz * Ry * Rx (extrinsic x→y→z)
+    R(1, 1) = cy*cz; R(1, 2) = sx*sy*cz - cx*sz; R(1, 3) = cx*sy*cz + sx*sz
+    R(2, 1) = cy*sz; R(2, 2) = sx*sy*sz + cx*cz; R(2, 3) = cx*sy*sz - sx*cz
+    R(3, 1) = -sy; R(3, 2) = sx*cy; R(3, 3) = cx*cy
+
+    n = mesh%nelem
+    allocate (tv0(3, n), tv1(3, n), tv2(3, n))
+    do i = 1, n
+      v = mesh%v0(:, i)*scale
+      tv0(:, i) = matmul(R, v) + offset
+      v = mesh%v1(:, i)*scale
+      tv1(:, i) = matmul(R, v) + offset
+      v = mesh%v2(:, i)*scale
+      tv2(:, i) = matmul(R, v) + offset
+    end do
+    call init_mesh(mesh, tv0, tv1, tv2)
+  end subroutine apply_obj_transform
 
   !> 設定全体ぶんの粒子群を生成し、SoA へ詰める。
   !! 粒子種ごとに乱数サンプルした後、種ごとに rank を揃えて interleave する。

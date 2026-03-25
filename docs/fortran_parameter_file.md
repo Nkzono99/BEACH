@@ -287,9 +287,15 @@ history_stride = 1
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `mode` | string | `"auto"` | `auto` / `obj` / `template` |
-| `obj_path` | string | `"examples/simple_plate.obj"` | OBJ パス |
+| `obj_path` | string | `"examples/simple_plate.obj"` | OBJ ファイルパス |
+| `obj_scale` | float | `1.0` | OBJ 読み込み後に適用する一様スケーリング係数 |
+| `obj_rotation` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する回転角 [度]。x→y→z の順で外因性 (extrinsic) 回転（Rz·Ry·Rx）を適用 |
+| `obj_offset` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する平行移動 [m] |
 
 `mode = "auto"` のときは `obj_path` が存在すれば OBJ、なければ template を使います。
+
+OBJ メッシュの変換順序は **scale → rotate → offset** です: `v_new = R(rotation) * (v_old * scale) + offset`。
+CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` のいずれの形式にも対応し、四角形以上のポリゴンはファン三角形分割されます。
 
 ### 3.4 `[[mesh.templates]]`
 

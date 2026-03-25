@@ -23,7 +23,9 @@ program test_templates_importers_runtime
   character(len=*), parameter :: obj_path = 'test_templates_runtime_tmp.obj'
   character(len=*), parameter :: missing_obj_path = 'test_templates_runtime_missing.obj'
 
-  call test_init(7)
+  character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
+
+  call test_init(10)
 
   call test_begin('template_shapes')
   call make_plane(mesh, nx=2_i32, ny=3_i32)
@@ -61,6 +63,33 @@ program test_templates_importers_runtime
   call write_obj_fixture(obj_path)
   call load_obj_mesh(obj_path, mesh)
   call assert_equal_i32(mesh%nelem, 3_i32, 'OBJ triangulation count mismatch')
+  call test_end()
+
+  call test_begin('obj_import_crlf')
+  call write_obj_crlf_fixture(crlf_obj_path)
+  call load_obj_mesh(crlf_obj_path, mesh)
+  call assert_equal_i32(mesh%nelem, 2_i32, 'CRLF OBJ triangulation count mismatch')
+  call delete_file_if_exists(crlf_obj_path)
+  call test_end()
+
+  call test_begin('obj_import_vn_format')
+  call write_obj_vn_fixture(obj_path)
+  call load_obj_mesh(obj_path, mesh)
+  call assert_equal_i32(mesh%nelem, 2_i32, 'v//vn OBJ triangulation count mismatch')
+  call test_end()
+
+  call test_begin('obj_transform')
+  call write_obj_fixture(obj_path)
+  call default_app_config(cfg)
+  cfg%mesh_mode = 'obj'
+  cfg%obj_path = obj_path
+  cfg%obj_scale = 2.0d0
+  cfg%obj_offset = [10.0d0, 0.0d0, 0.0d0]
+  cfg%obj_rotation = [0.0d0, 0.0d0, 0.0d0]
+  call build_mesh_from_config(cfg, mesh)
+  call assert_equal_i32(mesh%nelem, 3_i32, 'transform should preserve element count')
+  call assert_close_dp(mesh%v0(1, 1), 10.0d0, 1.0d-10, 'scale+offset v0 x mismatch')
+  call assert_close_dp(mesh%v1(1, 1), 12.0d0, 1.0d-10, 'scale+offset v1 x mismatch')
   call test_end()
 
   call test_begin('mesh_mode_obj')
@@ -267,5 +296,39 @@ contains
     write (u, '(a)') 'f -4 -3 -2'
     close (u)
   end subroutine write_obj_fixture
+
+  !> CRLF改行のOBJフィクスチャを作成する（クアッド1面）。
+  subroutine write_obj_crlf_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+    character(len=1), parameter :: CR = char(13)
+
+    open (newunit=u, file=trim(path), status='replace', action='write', &
+          form='unformatted', access='stream', iostat=ios)
+    if (ios /= 0) error stop 'failed to open CRLF OBJ fixture'
+    write (u) '# CRLF test'//CR//char(10)
+    write (u) 'v 0.0 0.0 0.0'//CR//char(10)
+    write (u) 'v 1.0 0.0 0.0'//CR//char(10)
+    write (u) 'v 1.0 1.0 0.0'//CR//char(10)
+    write (u) 'v 0.0 1.0 0.0'//CR//char(10)
+    write (u) 'f 1 2 3 4'//CR//char(10)
+    close (u)
+  end subroutine write_obj_crlf_fixture
+
+  !> v//vn 形式の面を含むOBJフィクスチャを作成する。
+  subroutine write_obj_vn_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open v//vn OBJ fixture'
+    write (u, '(a)') 'v 0.0 0.0 0.0'
+    write (u, '(a)') 'v 1.0 0.0 0.0'
+    write (u, '(a)') 'v 1.0 1.0 0.0'
+    write (u, '(a)') 'v 0.0 1.0 0.0'
+    write (u, '(a)') 'vn 0.0 0.0 1.0'
+    write (u, '(a)') 'f 1//1 2//1 3//1 4//1'
+    close (u)
+  end subroutine write_obj_vn_fixture
 
 end program test_templates_importers_runtime

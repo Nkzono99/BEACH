@@ -634,6 +634,12 @@ contains
       call parse_string(v, cfg%mesh_mode)
     case ('obj_path')
       call parse_string(v, cfg%obj_path)
+    case ('obj_scale')
+      call parse_real(v, cfg%obj_scale)
+    case ('obj_rotation')
+      call parse_real3(v, cfg%obj_rotation)
+    case ('obj_offset')
+      call parse_real3(v, cfg%obj_offset)
     case default
       error stop 'Unknown key in [mesh]: '//trim(k)
     end select

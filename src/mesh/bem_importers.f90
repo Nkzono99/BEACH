@@ -66,6 +66,7 @@ contains
     do
       read (u, '(A)', iostat=ios) line
       if (ios /= 0) exit
+      call strip_cr(line)
       if (is_vertex_line(line)) nvert = nvert + 1
       if (is_face_line(line)) then
         ntok = count_face_tokens(line)
@@ -95,6 +96,7 @@ contains
     do
       read (u, '(A)', iostat=ios) line
       if (ios /= 0) exit
+      call strip_cr(line)
       if (is_vertex_line(line)) then
         iv = iv + 1
         call parse_vertex_line(line, vertices(:, iv))
@@ -218,5 +220,19 @@ contains
       idx(ntok) = vi
     end do
   end subroutine parse_face_line
+
+  !> 行末の CR 文字 (char 13) をスペースに置換し、CRLF 改行の OBJ に対応する。
+  !! @param[inout] line 処理対象の行文字列。
+  subroutine strip_cr(line)
+    character(len=*), intent(inout) :: line
+    integer :: i
+    do i = len_trim(line), 1, -1
+      if (ichar(line(i:i)) == 13) then
+        line(i:i) = ' '
+      else
+        exit
+      end if
+    end do
+  end subroutine strip_cr
 
 end module bem_importers

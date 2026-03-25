@@ -1007,6 +1007,27 @@
           "type": "string",
           "default": "examples/simple_plate.obj"
         },
+        "obj_scale": {
+          "type": "number",
+          "default": 1.0,
+          "description": "OBJ読み込み後に適用する一様スケーリング係数"
+        },
+        "obj_rotation": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "default": [0.0, 0.0, 0.0],
+          "description": "OBJ読み込み後に適用する回転角 [度]。x→y→z 外因性回転 (Rz·Ry·Rx)"
+        },
+        "obj_offset": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "default": [0.0, 0.0, 0.0],
+          "description": "OBJ読み込み後に適用する平行移動 [m]"
+        },
         "templates": {
           "type": "array",
           "items": {
