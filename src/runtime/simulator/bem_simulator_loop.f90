@@ -85,8 +85,6 @@ contains
     end if
     call perf_region_end(perf_region_history_write, t0)
 
-    deallocate (escaped_boundary_flag, absorbed_flag)
-
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   call perf_region_end(perf_region_simulation_total, sim_t0)
@@ -101,6 +99,8 @@ contains
     end if
   end if
 
+  if (allocated(escaped_boundary_flag)) deallocate (escaped_boundary_flag)
+  if (allocated(absorbed_flag)) deallocate (absorbed_flag)
   deallocate (dq_thread, dq, photo_emission_dq)
   end procedure run_absorption_insulator
 
@@ -117,9 +117,24 @@ contains
       app, local_batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi &
       )
   end if
-  allocate (escaped_boundary_flag(pcls_batch%n), absorbed_flag(pcls_batch%n))
-  escaped_boundary_flag = .false.
-  absorbed_flag = .false.
+  if (allocated(escaped_boundary_flag)) then
+    if (size(escaped_boundary_flag) < pcls_batch%n) then
+      deallocate (escaped_boundary_flag)
+      allocate (escaped_boundary_flag(pcls_batch%n))
+    end if
+  else
+    allocate (escaped_boundary_flag(pcls_batch%n))
+  end if
+  if (allocated(absorbed_flag)) then
+    if (size(absorbed_flag) < pcls_batch%n) then
+      deallocate (absorbed_flag)
+      allocate (absorbed_flag(pcls_batch%n))
+    end if
+  else
+    allocate (absorbed_flag(pcls_batch%n))
+  end if
+  escaped_boundary_flag(:pcls_batch%n) = .false.
+  absorbed_flag(:pcls_batch%n) = .false.
   dq_thread = 0.0d0
   end procedure prepare_batch_state
 

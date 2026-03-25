@@ -36,11 +36,14 @@ contains
     end if
     ntarget = int(size(target_pos, 2), i32)
 
+    !$omp parallel do default(none) schedule(static) &
+    !$omp   shared(plan, state, target_pos, e, ntarget) private(i)
     do i = 1_i32, ntarget
       call core_eval_point_xyz_impl( &
         plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), e(1, i), e(2, i), e(3, i) &
         )
     end do
+    !$omp end parallel do
   end subroutine core_eval_points_impl
 
   !> 1 点で電場を計算する。
@@ -75,11 +78,14 @@ contains
     end if
     ntarget = int(size(target_pos, 2), i32)
 
+    !$omp parallel do default(none) schedule(static) &
+    !$omp   shared(plan, state, target_pos, phi, ntarget) private(i)
     do i = 1_i32, ntarget
       call core_eval_potential_point_xyz_impl( &
         plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), phi(i) &
         )
     end do
+    !$omp end parallel do
   end subroutine core_eval_potential_points_impl
 
   !> 1 点で電位を計算する。

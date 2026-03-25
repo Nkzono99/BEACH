@@ -312,6 +312,8 @@ contains
     end do
 
     if (.not. use_periodic2) then
+      !$omp parallel do default(none) schedule(static) &
+      !$omp   shared(mesh, soft2, min_dist2, potential_v) private(i, j, dx, dy, dz, r2)
       do i = 1, mesh%nelem
         do j = 1, mesh%nelem
           if (j == i) cycle
@@ -322,10 +324,16 @@ contains
           potential_v(i) = potential_v(i) + mesh%q_elem(j)/sqrt(max(r2, min_dist2))
         end do
       end do
+      !$omp end parallel do
       potential_v = k_coulomb*potential_v
       return
     end if
 
+    !$omp parallel do default(none) schedule(static) &
+    !$omp   shared(mesh, soft2, min_dist2, potential_v, axis1, axis2, &
+    !$omp          periodic_origins, periodic_len, image_layers, &
+    !$omp          use_exact_ewald_residual, ewald_plan, ewald_state) &
+    !$omp   private(i, j, ix, iy, target, shifted, dx, dy, dz, r2)
     do i = 1, mesh%nelem
       target = mesh%centers(:, i)
       target(axis1) = wrap_periodic(target(axis1), periodic_origins(1), periodic_len(1))
@@ -360,6 +368,7 @@ contains
         call add_periodic2_exact_ewald_potential_correction_all_sources(ewald_plan, ewald_state, target, potential_v(i))
       end if
     end do
+    !$omp end parallel do
 
     if (use_exact_ewald_residual) then
       call reset_fmm_state(ewald_state)

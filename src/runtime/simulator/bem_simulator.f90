@@ -43,8 +43,8 @@ module bem_simulator
       integer(i32), intent(out) :: batch_idx
       real(dp), intent(inout) :: dq_thread(:, :)
       type(particles_soa), intent(out) :: pcls_batch
-      logical, allocatable, intent(out) :: escaped_boundary_flag(:)
-      logical, allocatable, intent(out) :: absorbed_flag(:)
+      logical, allocatable, intent(inout) :: escaped_boundary_flag(:)
+      logical, allocatable, intent(inout) :: absorbed_flag(:)
       real(dp), intent(out) :: photo_emission_dq(:)
       type(mpi_context), intent(in) :: mpi
       type(injection_state), intent(inout), optional :: inject_state
