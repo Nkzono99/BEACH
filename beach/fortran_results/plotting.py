@@ -13,6 +13,7 @@ from .mesh import (
     DEFAULT_MESH_VIEW_AZIM,
     DEFAULT_MESH_VIEW_ELEV,
     _maybe_apply_periodic2_mesh,
+    _maybe_replicate_periodic2,
     _plot_scalar_mesh,
     _surface_charge_density,
     _triangle_areas,
@@ -67,6 +68,7 @@ def plot_charge_mesh(
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
+    periodic2_repeat: int = 0,
 ):
     """Plot a 3D mesh colored by surface charge density.
 
@@ -86,6 +88,9 @@ def plot_charge_mesh(
     apply_periodic2_mesh : bool, default False
         ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
         適用して描画する。
+    periodic2_repeat : int, default 0
+        周期イメージの複製数。``n`` を指定すると各周期軸方向に ``-n`` から ``+n``
+        までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
 
     Returns
     -------
@@ -107,6 +112,13 @@ def plot_charge_mesh(
         apply_periodic2_mesh=apply_periodic2_mesh,
     )
     sigma = _surface_charge_density(resolved.charges, triangles)
+    triangles, sigma = _maybe_replicate_periodic2(
+        resolved,
+        triangles,
+        sigma,
+        periodic2=periodic2,
+        periodic2_repeat=periodic2_repeat,
+    )
     return _plot_scalar_mesh(
         triangles,
         sigma,
@@ -244,6 +256,7 @@ def plot_potential_mesh(
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
+    periodic2_repeat: int = 0,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
 ):
     """Plot a 3D mesh colored by reconstructed electric potential.
@@ -269,6 +282,9 @@ def plot_potential_mesh(
         ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
         適用して描画する。``periodic2`` が ``None`` なら近傍の ``beach.toml`` から
         自動判定する。
+    periodic2_repeat : int, default 0
+        周期イメージの複製数。``n`` を指定すると各周期軸方向に ``-n`` から ``+n``
+        までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
         基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
 
@@ -298,6 +314,13 @@ def plot_potential_mesh(
         self_term=self_term,
         periodic2=periodic2,
         reference_point=reference_point,
+    )
+    plot_triangles, phi = _maybe_replicate_periodic2(
+        resolved,
+        plot_triangles,
+        phi,
+        periodic2=periodic2,
+        periodic2_repeat=periodic2_repeat,
     )
     title = "Electric potential mesh" if resolved_reference is None else "Electric potential difference mesh"
     colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"

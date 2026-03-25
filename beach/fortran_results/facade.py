@@ -224,6 +224,7 @@ class Beach:
         view_azim: float = -58.0,
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
+        periodic2_repeat: int = 0,
     ):
         """Plot a 3D mesh colored by surface charge density.
 
@@ -241,6 +242,8 @@ class Beach:
         apply_periodic2_mesh : bool, default False
             ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
             適用して描画する。
+        periodic2_repeat : int, default 0
+            周期イメージの複製数。``0`` は複製なし。
 
         Returns
         -------
@@ -255,6 +258,7 @@ class Beach:
             view_azim=view_azim,
             periodic2=periodic2,
             apply_periodic2_mesh=apply_periodic2_mesh,
+            periodic2_repeat=periodic2_repeat,
         )
 
     def plot_bar(self):
@@ -417,6 +421,7 @@ class Beach:
         view_azim: float = -58.0,
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
+        periodic2_repeat: int = 0,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
     ):
         """Plot a 3D mesh colored by reconstructed electric potential.
@@ -440,6 +445,8 @@ class Beach:
         apply_periodic2_mesh : bool, default False
             ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
             適用して描画する。
+        periodic2_repeat : int, default 0
+            周期イメージの複製数。``0`` は複製なし。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
             基準電位を差し引く参照点。
 
@@ -458,6 +465,7 @@ class Beach:
             view_azim=view_azim,
             periodic2=periodic2,
             apply_periodic2_mesh=apply_periodic2_mesh,
+            periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
         )
 
@@ -636,6 +644,7 @@ class Beach:
         self_term: str = "auto",
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
+        periodic2_repeat: int = 0,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
     ) -> Path | FuncAnimation:
         """Animate charge or potential history on the 3D surface mesh.
@@ -664,6 +673,8 @@ class Beach:
         apply_periodic2_mesh : bool, default False
             ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
             適用して描画する。
+        periodic2_repeat : int, default 0
+            周期イメージの複製数。``0`` は複製なし。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
             基準電位を差し引く参照点。
 
@@ -685,5 +696,6 @@ class Beach:
             self_term=self_term,
             periodic2=periodic2,
             apply_periodic2_mesh=apply_periodic2_mesh,
+            periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
         )

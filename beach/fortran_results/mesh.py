@@ -87,6 +87,88 @@ def _maybe_apply_periodic2_mesh(
     )
 
 
+def _replicate_periodic2(
+    triangles: np.ndarray,
+    values: np.ndarray,
+    *,
+    axes: tuple[int, int],
+    lengths: tuple[float, float],
+    n_repeat: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Tile triangles and per-element values over periodic images.
+
+    Parameters
+    ----------
+    triangles : numpy.ndarray
+        Triangle vertices with shape ``(nelem, 3, 3)``.
+    values : numpy.ndarray
+        Per-element scalar values with shape ``(nelem,)`` or
+        ``(nelem, n_snapshots)`` for history data.
+    axes : tuple of int
+        Two periodic axis indices.
+    lengths : tuple of float
+        Box lengths along each periodic axis.
+    n_repeat : int
+        Number of periodic images in each direction.
+        ``n_repeat=1`` produces offsets ``-1, 0, +1`` → 3×3 = 9 copies.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``(replicated_triangles, replicated_values)``.
+    """
+    if n_repeat <= 0:
+        return triangles, values
+
+    all_triangles: list[np.ndarray] = []
+    all_values: list[np.ndarray] = []
+    for ix in range(-n_repeat, n_repeat + 1):
+        for iy in range(-n_repeat, n_repeat + 1):
+            shifted = triangles.copy()
+            shifted[:, :, axes[0]] += ix * lengths[0]
+            shifted[:, :, axes[1]] += iy * lengths[1]
+            all_triangles.append(shifted)
+            all_values.append(values)
+
+    return np.concatenate(all_triangles, axis=0), np.concatenate(all_values, axis=0)
+
+
+def _maybe_replicate_periodic2(
+    resolved: "FortranRunResult",
+    triangles: np.ndarray,
+    values: np.ndarray,
+    *,
+    periodic2: Mapping[str, object] | None = None,
+    periodic2_repeat: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Replicate triangles and values for periodic display when requested.
+
+    Returns the original arrays unchanged when ``periodic2_repeat <= 0``.
+    """
+    if periodic2_repeat <= 0:
+        return triangles, values
+
+    from .potential import _auto_periodic2_from_result, _coerce_periodic2
+
+    periodic_cfg = _coerce_periodic2(periodic2)
+    if periodic_cfg is None:
+        periodic_cfg = _auto_periodic2_from_result(resolved)
+    if periodic_cfg is None:
+        raise ValueError(
+            "periodic2_repeat requires periodic2 settings or nearby beach.toml "
+            'with sim.field_bc_mode="periodic2".'
+        )
+
+    axes, lengths, _origins, _nimg, _far_correction, _alpha, _ewald_layers = periodic_cfg
+    return _replicate_periodic2(
+        triangles,
+        values,
+        axes=axes,
+        lengths=lengths,
+        n_repeat=periodic2_repeat,
+    )
+
+
 def _configure_mesh_axes(
     ax,
     triangles: np.ndarray,

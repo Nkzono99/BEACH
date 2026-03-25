@@ -10,6 +10,7 @@ import numpy as np
 from .mesh import (
     _configure_mesh_axes,
     _maybe_apply_periodic2_mesh,
+    _maybe_replicate_periodic2,
     _surface_charge_density_history,
 )
 from .potential import (
@@ -40,6 +41,7 @@ def animate_history_mesh(
     self_term: str = "auto",
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
+    periodic2_repeat: int = 0,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
 ) -> Path | FuncAnimation:
     """Render mesh history as an animation.
@@ -71,6 +73,9 @@ def animate_history_mesh(
     apply_periodic2_mesh : bool, default False
         ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
         適用して描画する。
+    periodic2_repeat : int, default 0
+        周期イメージの複製数。``n`` を指定すると各周期軸方向に ``-n`` から ``+n``
+        までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
         基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
 
@@ -144,6 +149,14 @@ def animate_history_mesh(
         use_cmap = "viridis" if cmap is None else cmap
     else:
         raise ValueError("quantity must be one of {'charge', 'potential'}.")
+
+    plot_triangles, values_history = _maybe_replicate_periodic2(
+        resolved,
+        plot_triangles,
+        values_history,
+        periodic2=periodic2,
+        periodic2_repeat=periodic2_repeat,
+    )
 
     max_abs = float(np.max(np.abs(values_history)))
     if max_abs <= np.finfo(float).tiny:

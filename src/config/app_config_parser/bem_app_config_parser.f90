@@ -712,6 +712,8 @@ contains
       call parse_logical(v, cfg%write_output)
     case ('write_mesh_potential')
       call parse_logical(v, cfg%write_mesh_potential)
+    case ('write_potential_history')
+      call parse_logical(v, cfg%write_potential_history)
     case ('dir')
       call parse_string(v, cfg%output_dir)
     case ('history_stride')

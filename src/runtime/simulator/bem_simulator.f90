@@ -3,7 +3,7 @@ module bem_simulator
 !$ use omp_lib
   use, intrinsic :: iso_fortran_env, only: output_unit
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state
+  use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state, sim_config
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_field_solver, only: field_solver_type
   use bem_pusher, only: boris_push
@@ -18,7 +18,8 @@ module bem_simulator
   interface
     !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
     module subroutine run_absorption_insulator( &
-      mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v &
+      mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
+      potential_history_unit &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -29,6 +30,7 @@ module bem_simulator
       type(injection_state), intent(inout), optional :: inject_state
       type(mpi_context), intent(in), optional :: mpi
       real(dp), allocatable, intent(out), optional :: mesh_potential_v(:)
+      integer, intent(in), optional :: potential_history_unit
     end subroutine run_absorption_insulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。
@@ -115,6 +117,28 @@ module bem_simulator
       real(dp), intent(in) :: rel_change
       real(dp), intent(in) :: q_elem(:)
     end subroutine write_history_snapshot
+
+    !> 電位履歴出力条件を満たすバッチだけ電位スナップショットを書き出す。
+    module subroutine maybe_write_potential_history_snapshot( &
+      potential_history_enabled, pot_hist_unit, hist_stride, stats, &
+      field_solver, mesh, sim, potential_buf &
+      )
+      logical, intent(in) :: potential_history_enabled
+      integer, intent(in) :: pot_hist_unit
+      integer(i32), intent(in) :: hist_stride
+      type(sim_stats), intent(in) :: stats
+      type(field_solver_type), intent(inout) :: field_solver
+      type(mesh_type), intent(inout) :: mesh
+      type(sim_config), intent(in) :: sim
+      real(dp), intent(inout) :: potential_buf(:)
+    end subroutine maybe_write_potential_history_snapshot
+
+    !> 全要素電位を電位履歴CSV形式で1バッチ分書き出す。
+    module subroutine write_potential_history_snapshot(unit_id, batch_idx, potential_v)
+      integer, intent(in) :: unit_id
+      integer(i32), intent(in) :: batch_idx
+      real(dp), intent(in) :: potential_v(:)
+    end subroutine write_potential_history_snapshot
 
   end interface
 

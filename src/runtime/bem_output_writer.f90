@@ -8,6 +8,7 @@ module bem_output_writer
   private
 
   public :: open_history_writer
+  public :: open_potential_history_writer
   public :: print_run_summary
   public :: write_result_files
   public :: ensure_output_dir
@@ -50,6 +51,43 @@ contains
     end if
     history_opened = .true.
   end subroutine open_history_writer
+
+  !> 電位履歴 CSV のオープンとヘッダ初期化を行う。
+  !! @param[in] app 出力設定を含むアプリ設定。
+  !! @param[in] resumed 再開実行かどうか。
+  !! @param[out] potential_history_opened ファイルを開けた場合に `.true.`。
+  !! @param[out] potential_history_unit 電位履歴CSVの出力ユニット番号（未使用時は `-1`）。
+  subroutine open_potential_history_writer(app, resumed, potential_history_opened, potential_history_unit)
+    type(app_config), intent(in) :: app
+    logical, intent(in) :: resumed
+    logical, intent(out) :: potential_history_opened
+    integer, intent(out) :: potential_history_unit
+    character(len=1024) :: path
+    integer :: ios
+    logical :: file_exists
+
+    potential_history_opened = .false.
+    potential_history_unit = -1
+    if (.not. app%write_output) return
+    if (.not. app%write_potential_history) return
+    if (app%history_stride <= 0) return
+
+    call ensure_output_dir(app%output_dir)
+
+    path = trim(app%output_dir)//'/potential_history.csv'
+    inquire (file=trim(path), exist=file_exists)
+    if (resumed) then
+      open (newunit=potential_history_unit, file=trim(path), status='unknown', position='append', action='write', iostat=ios)
+    else
+      open (newunit=potential_history_unit, file=trim(path), status='replace', action='write', iostat=ios)
+    end if
+    if (ios /= 0) error stop 'Failed to open potential history file.'
+
+    if (.not. resumed .or. .not. file_exists) then
+      write (potential_history_unit, '(a)') 'batch,elem_idx,potential_V'
+    end if
+    potential_history_opened = .true.
+  end subroutine open_potential_history_writer
 
   !> 実行結果の主要統計を標準出力へ表示する。
   !! @param[in] mesh 実行後のメッシュ情報。

@@ -8,7 +8,8 @@ program main
                                      perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
-  use bem_output_writer, only: open_history_writer, print_run_summary, write_result_files, ensure_output_dir
+  use bem_output_writer, only: open_history_writer, open_potential_history_writer, print_run_summary, write_result_files, &
+                               ensure_output_dir
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
@@ -21,7 +22,8 @@ program main
   type(injection_state) :: inject_state
   type(mpi_context) :: mpi
   integer :: history_unit
-  logical :: history_opened, resumed
+  integer :: potential_history_unit
+  logical :: history_opened, potential_history_opened, resumed
   real(dp) :: perf_t0, perf_program_t0
   real(dp), allocatable :: mesh_potential_v(:)
 
@@ -35,35 +37,70 @@ program main
   if (mpi_is_root(mpi)) then
     call perf_region_begin(perf_region_history_open, perf_t0)
     call open_history_writer(app, resumed, history_opened, history_unit)
+    call open_potential_history_writer(app, resumed, potential_history_opened, potential_history_unit)
     call perf_region_end(perf_region_history_open, perf_t0)
   else
     history_opened = .false.
     history_unit = -1
+    potential_history_opened = .false.
+    potential_history_unit = -1
   end if
 
   if (history_opened) then
     if (app%write_mesh_potential) then
-      call run_absorption_insulator( &
-        mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-        inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v &
-        )
+      if (potential_history_opened) then
+        call run_absorption_insulator( &
+          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
+          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, &
+          potential_history_unit=potential_history_unit &
+          )
+      else
+        call run_absorption_insulator( &
+          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
+          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v &
+          )
+      end if
     else
-      call run_absorption_insulator( &
-        mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-        inject_state=inject_state, mpi=mpi &
-        )
+      if (potential_history_opened) then
+        call run_absorption_insulator( &
+          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
+          inject_state=inject_state, mpi=mpi, &
+          potential_history_unit=potential_history_unit &
+          )
+      else
+        call run_absorption_insulator( &
+          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
+          inject_state=inject_state, mpi=mpi &
+          )
+      end if
     end if
     close (history_unit)
   else
     if (app%write_mesh_potential) then
-      call run_absorption_insulator( &
-        mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-        mesh_potential_v=mesh_potential_v &
-        )
+      if (potential_history_opened) then
+        call run_absorption_insulator( &
+          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
+          mesh_potential_v=mesh_potential_v, &
+          potential_history_unit=potential_history_unit &
+          )
+      else
+        call run_absorption_insulator( &
+          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
+          mesh_potential_v=mesh_potential_v &
+          )
+      end if
     else
-      call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi)
+      if (potential_history_opened) then
+        call run_absorption_insulator( &
+          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
+          potential_history_unit=potential_history_unit &
+          )
+      else
+        call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi)
+      end if
     end if
   end if
+  if (potential_history_opened) close (potential_history_unit)
 
   if (mpi_is_root(mpi)) call print_run_summary(mesh, stats)
 

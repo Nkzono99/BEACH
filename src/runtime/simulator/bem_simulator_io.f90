@@ -27,4 +27,22 @@ contains
   end do
   end procedure write_history_snapshot
 
+  !> 電位履歴出力条件を満たすバッチだけ電位スナップショットを書き出す。
+  module procedure maybe_write_potential_history_snapshot
+  if (.not. potential_history_enabled) return
+  if (mod(stats%batches - 1_i32, hist_stride) /= 0_i32) return
+  call field_solver%refresh(mesh)
+  call field_solver%compute_mesh_potential(mesh, sim, potential_buf)
+  call write_potential_history_snapshot(pot_hist_unit, stats%batches, potential_buf)
+  end procedure maybe_write_potential_history_snapshot
+
+  !> 全要素電位を電位履歴CSV形式で1バッチ分書き出す。
+  module procedure write_potential_history_snapshot
+  integer(i32) :: elem_idx
+
+  do elem_idx = 1, size(potential_v)
+    write (unit_id, '(i0,a,i0,a,es24.16)') batch_idx, ',', elem_idx, ',', potential_v(elem_idx)
+  end do
+  end procedure write_potential_history_snapshot
+
 end submodule bem_simulator_io

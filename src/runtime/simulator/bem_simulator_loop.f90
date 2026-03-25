@@ -13,6 +13,9 @@ contains
   integer(i32) :: batch_idx, final_batch_idx, local_batch_idx, nth, hist_stride
   integer :: hist_unit
   logical :: history_enabled
+  logical :: potential_history_enabled
+  integer :: pot_hist_unit
+  real(dp), allocatable :: potential_buf(:)
   real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
   logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
   integer(i32) :: batch_counts(5)
@@ -35,6 +38,12 @@ contains
   if (history_enabled) hist_unit = history_unit
   hist_stride = 1_i32
   if (present(history_stride)) hist_stride = max(1_i32, history_stride)
+  potential_history_enabled = present(potential_history_unit)
+  pot_hist_unit = 0
+  if (potential_history_enabled) then
+    pot_hist_unit = potential_history_unit
+    allocate (potential_buf(mesh%nelem))
+  end if
   bfield = app%sim%b0
   final_batch_idx = stats%batches + app%sim%batch_count
   call perf_region_begin(perf_region_simulation_total, sim_t0)
@@ -82,6 +91,12 @@ contains
     if (mpi_is_root(mpi_ctx)) then
       call print_batch_progress(batch_idx, final_batch_idx, rel)
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
+      if (potential_history_enabled) then
+        call maybe_write_potential_history_snapshot( &
+          potential_history_enabled, pot_hist_unit, hist_stride, stats, &
+          field_solver, mesh, app%sim, potential_buf &
+          )
+      end if
     end if
     call perf_region_end(perf_region_history_write, t0)
 
@@ -99,6 +114,7 @@ contains
     end if
   end if
 
+  if (allocated(potential_buf)) deallocate (potential_buf)
   if (allocated(escaped_boundary_flag)) deallocate (escaped_boundary_flag)
   if (allocated(absorbed_flag)) deallocate (absorbed_flag)
   deallocate (dq_thread, dq, photo_emission_dq)

@@ -61,6 +61,15 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
             "beach.toml using its centroid"
         ),
     )
+    parser.add_argument(
+        "--periodic2-repeat",
+        type=int,
+        default=0,
+        help=(
+            "replicate the mesh over periodic images; n produces (2n+1)^2 copies "
+            "(default: 0 = no replication)"
+        ),
+    )
 
 
 def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
@@ -147,6 +156,7 @@ def run(args: argparse.Namespace) -> None:
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
                     apply_periodic2_mesh=args.apply_periodic2_mesh,
+                    periodic2_repeat=args.periodic2_repeat,
                 )
                 if args.save_mesh is not None:
                     mesh_fig.savefig(args.save_mesh, dpi=150)
@@ -163,6 +173,7 @@ def run(args: argparse.Namespace) -> None:
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
                     apply_periodic2_mesh=args.apply_periodic2_mesh,
+                    periodic2_repeat=args.periodic2_repeat,
                 )
                 if args.save_potential_mesh is not None:
                     potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)

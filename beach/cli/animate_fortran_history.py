@@ -66,6 +66,15 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
             "beach.toml using its centroid"
         ),
     )
+    parser.add_argument(
+        "--periodic2-repeat",
+        type=int,
+        default=0,
+        help=(
+            "replicate the mesh over periodic images; n produces (2n+1)^2 copies "
+            "(default: 0 = no replication)"
+        ),
+    )
 
 
 def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
@@ -121,6 +130,7 @@ def run(args: argparse.Namespace) -> None:
             softening=args.potential_softening,
             self_term=self_term,
             apply_periodic2_mesh=args.apply_periodic2_mesh,
+            periodic2_repeat=args.periodic2_repeat,
         )
     except ModuleNotFoundError as exc:
         if exc.name is not None and (
