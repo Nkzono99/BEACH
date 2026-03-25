@@ -140,6 +140,7 @@ beachx profile outputs/latest/performance_profile.csv \
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0`）
+- `potential_history.csv`（`write_potential_history = true` かつ `history_stride > 0`）
 - `performance_profile.csv`（`BEACH_PROFILE=1`）
 - `rng_state.txt`
 - `macro_residuals.csv`

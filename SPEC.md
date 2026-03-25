@@ -164,6 +164,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0`）
+- `potential_history.csv`（`output.write_potential_history = true` 時、`history_stride` に従う）
 - `mesh_potential.csv`（`output.write_mesh_potential = true` 時）
 - `rng_state.txt`
 - `macro_residuals.csv`

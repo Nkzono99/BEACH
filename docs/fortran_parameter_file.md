@@ -319,8 +319,9 @@ history_stride = 1
 |---|---|---:|---|
 | `write_files` | bool | `true` | ファイル出力の有効/無効 |
 | `write_mesh_potential` | bool | `false` | 要素重心で評価した電位を `mesh_potential.csv` として出力 |
+| `write_potential_history` | bool | `false` | バッチごとの電位履歴を `potential_history.csv` として出力（`history_stride` に従う） |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
-| `history_stride` | int | `1` | `charge_history.csv` の出力間隔（バッチ単位） |
+| `history_stride` | int | `1` | `charge_history.csv` / `potential_history.csv` の出力間隔（バッチ単位） |
 | `resume` | bool | `false` | 既存チェックポイントから再開 |
 
 出力ファイル:
@@ -331,12 +332,15 @@ history_stride = 1
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0` のとき）
+- `potential_history.csv`（`write_potential_history = true` かつ `history_stride > 0` のとき）
 - `rng_state.txt`
 - `macro_residuals.csv`
 
 `mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別と要素数を確認できます。
 
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。`periodic2` では explicit image shell に加えて、`field_periodic_far_correction` が `auto` または `m2l_root_oracle` のときは exact Ewald residual も加えます。`none` では residual を加えません。
+
+`potential_history.csv` は `charge_history.csv` と同じ `history_stride` で要素ごとの電位を記録します。フォーマットは `batch,elem_idx,potential_V`。`history_stride` ごとに `field_solver%refresh` + `compute_mesh_potential` が実行されるため、有効化すると計算コストが増加します。
 
 MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイルになります。
 

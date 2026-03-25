@@ -130,6 +130,7 @@ beachx inspect outputs/latest
 - `charges.csv`
 - `mesh_triangles.csv`
 - `charge_history.csv`（`history_stride > 0` のとき）
+- `potential_history.csv`（`write_potential_history = true` のとき）
 
 ### 2.3 可視化
 
@@ -143,6 +144,11 @@ beachx inspect outputs/latest \
   --save-mesh outputs/latest/charges_mesh_periodic.png \
   --save-potential-mesh outputs/latest/potential_mesh_periodic.png \
   --apply-periodic2-mesh
+
+# 周期メッシュを n 周期分複製して描く場合（1 なら 3×3 = 9 コピー）
+beachx inspect outputs/latest \
+  --save-mesh outputs/latest/charges_mesh_tiled.png \
+  --periodic2-repeat 1 --apply-periodic2-mesh
 
 beachx animate outputs/latest \
   --quantity charge \
@@ -188,6 +194,10 @@ fig_q.savefig("outputs/latest/charge_box_by_source.png", dpi=150)
 # periodic2 mesh を周期セルへ寄せて表示
 run.plot_mesh(apply_periodic2_mesh=True)
 run.plot_potential(apply_periodic2_mesh=True)
+
+# n 周期分複製して表示（1 なら 3×3 = 9 コピー）
+run.plot_mesh(apply_periodic2_mesh=True, periodic2_repeat=1)
+run.animate_mesh("charge_tiled.gif", apply_periodic2_mesh=True, periodic2_repeat=1)
 
 # ポテンシャル [V] の面積重み付き箱ひげ図（mesh sourceごと）
 fig_phi, ax_phi = run.plot_mesh_source_boxplot(

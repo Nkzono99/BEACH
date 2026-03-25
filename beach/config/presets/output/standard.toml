@@ -3,5 +3,6 @@
 [output]
 write_files = true
 write_mesh_potential = true
+write_potential_history = false
 dir = "outputs/latest"
 history_stride = 1
