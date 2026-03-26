@@ -198,3 +198,29 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 - 推奨導線: `pip install beach-bem` で導入し、`beach [config.toml]` で実行
 - 開発版導線: `python -m pip install "git+https://github.com/Nkzono99/BEACH.git"` で導入
 - 開発時の導線: `python -m pip install -e .` + `make` を利用し、必要に応じて `fpm run -- ...` で直接実行
+
+## 11. Python 後処理レイヤ
+
+Python パッケージ `beach` は Fortran 出力を読み込み、後処理・可視化を行います。
+詳細な API リファレンスは `docs/python_postprocess_api.md` を参照してください。
+
+### 11.1 電位再構成・電場計算
+
+- `compute_potential_mesh` / `compute_potential_points`: 重心点電荷近似による電位の Python 側再構成
+- `compute_electric_field_points`: 任意 3D 点での電場ベクトル。`E(r) = K * sum_j q_j * (r - r_j) / |r - r_j|^3` の direct 和で計算
+
+### 11.2 Coulomb 力と periodic2 対応
+
+- `calc_coulomb`: メッシュグループ間の Coulomb 力/トルク計算
+- `periodic2` パラメータ: Fortran 側の `sim.field_bc_mode="periodic2"` に対応し、Python 側でも 2 軸周期境界での画像シェル和をサポート。ソース電荷を `ix in [-nimg, nimg], iy in [-nimg, nimg]` でシフトして直接和を取る
+- `periodic2=None` では出力ディレクトリ近傍の `beach.toml` から `field_bc_mode` を自動判定
+
+### 11.3 電気力線追跡
+
+- `trace_field_lines`: シード点から RK4 積分で電気力線を追跡。`direction` で順方向 / 逆方向 / 両方向を選択可能
+- `plot_field_lines_3d`: 力線を 3D 描画し、三角形メッシュを電荷密度で着色してオーバーレイ
+
+### 11.4 Python 側の制限
+
+- Python 側の電場・電位計算は要素重心の点電荷による direct 和のみ（Fortran 側の treecode / fmm は使用しない）
+- periodic2 の Ewald 遠方補正（`m2l_root_oracle`）は Python 側では再現しない。explicit image shell のみ
