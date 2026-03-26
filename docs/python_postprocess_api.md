@@ -446,6 +446,29 @@ fig, ax = b.plot_coulomb_force_matrix(component="z")
 
 ## 11. CLI コマンド
 
+### 11.1 統一 CLI (`beachx`)
+
+v1.0.0 以降は `beachx` 統一 CLI を推奨します。
+
+| コマンド | 説明 |
+|---|---|
+| `beachx inspect <output_dir>` | 出力ディレクトリの要約表示 |
+| `beachx animate <output_dir>` | 電荷/電位履歴のアニメーション GIF 生成 |
+| `beachx workload <config.toml>` | ワークロード見積もり |
+| `beachx slices <output_dir>` | 電位断面の描画 |
+| `beachx profile <output_dir>` | パフォーマンスプロファイルの描画 |
+| `beachx coulomb <output_dir>` | Coulomb 力行列の描画 |
+| `beachx mobility <output_dir>` | Coulomb mobility 解析 |
+| `beachx config render <config.toml>` | 設定ファイルのレンダリング（プリセット適用後） |
+| `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
+| `beachx preset list` | 利用可能なプリセット一覧 |
+| `beachx preset show <name>` | プリセット内容の表示 |
+| `beachx model close-pack` | 密充填モデルの生成 |
+
+### 11.2 旧 CLI（非推奨）
+
+以下の旧エントリポイントは後方互換のため残されていますが、将来のバージョンで削除される可能性があります。
+
 | コマンド | 説明 |
 |---|---|
 | `beach-inspect <output_dir>` | 出力ディレクトリの要約表示 |

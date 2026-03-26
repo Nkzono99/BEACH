@@ -2,7 +2,7 @@
 module bem_simulator
 !$ use omp_lib
   use, intrinsic :: iso_fortran_env, only: output_unit
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state, sim_config
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_field_solver, only: field_solver_type
@@ -113,7 +113,7 @@ module bem_simulator
     module subroutine write_history_snapshot(unit_id, batch_idx, processed_particles, rel_change, q_elem)
       integer, intent(in) :: unit_id
       integer(i32), intent(in) :: batch_idx
-      integer(i32), intent(in) :: processed_particles
+      integer(i64), intent(in) :: processed_particles
       real(dp), intent(in) :: rel_change
       real(dp), intent(in) :: q_elem(:)
     end subroutine write_history_snapshot

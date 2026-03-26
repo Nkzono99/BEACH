@@ -1,7 +1,7 @@
 !> Fortranテスト用の簡易アサート・進捗表示・一時ファイル補助。
 module test_support
   use iso_fortran_env, only: error_unit, output_unit
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   implicit none
   private
 
@@ -19,6 +19,7 @@ module test_support
   public :: fail_test
   public :: assert_true
   public :: assert_equal_i32
+  public :: assert_equal_i64
   public :: assert_close_dp
   public :: assert_allclose_1d
   public :: delete_file_if_exists
@@ -150,6 +151,19 @@ contains
     end if
   end subroutine assert_equal_i32
 
+  !> 64bit整数の一致を確認する。
+  subroutine assert_equal_i64(actual, expected, message)
+    integer(i64), intent(in) :: actual
+    integer(i64), intent(in) :: expected
+    character(len=*), intent(in) :: message
+
+    ts_assertions = ts_assertions + 1
+    if (actual /= expected) then
+      call report_i64_mismatch(actual, expected, message)
+      call fail_test(message)
+    end if
+  end subroutine assert_equal_i64
+
   !> 倍精度実数の近接一致を確認する。
   !! @param[in] actual 実測値。
   !! @param[in] expected 期待値。
@@ -212,6 +226,21 @@ contains
     write (error_unit, '(a,i0)') '    expected = ', expected
     flush (error_unit)
   end subroutine report_i32_mismatch
+
+  subroutine report_i64_mismatch(actual, expected, message)
+    integer(i64), intent(in) :: actual, expected
+    character(len=*), intent(in) :: message
+
+    if (ts_in_test .and. ts_current_ok) then
+      ts_current_ok = .false.
+      ts_failed = ts_failed + 1
+      write (output_unit, '(a)') 'FAIL'
+    end if
+    write (error_unit, '(a,a)') '  ASSERT FAILED: ', trim(message)
+    write (error_unit, '(a,i0)') '    actual   = ', actual
+    write (error_unit, '(a,i0)') '    expected = ', expected
+    flush (error_unit)
+  end subroutine report_i64_mismatch
 
   subroutine report_dp_mismatch(actual, expected, diff, tol, message)
     real(dp), intent(in) :: actual, expected, diff, tol

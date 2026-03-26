@@ -64,6 +64,4 @@ __all__ = [
     "plot_potential_slices",
     "plot_potential_mesh",
     "animate_history_mesh",
-    "_select_frame_columns",
-    "_surface_charge_density",
 ]

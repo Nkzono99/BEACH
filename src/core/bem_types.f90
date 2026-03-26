@@ -1,6 +1,6 @@
 !> シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。
 module bem_types
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   implicit none
 
   integer(i32), parameter :: bc_open = 0_i32
@@ -52,11 +52,11 @@ module bem_types
 
   !> 処理済み粒子数、吸着/脱出数、バッチ数、最終相対変化量を集計する統計型。
   type :: sim_stats
-    integer(i32) :: processed_particles = 0
-    integer(i32) :: absorbed = 0
-    integer(i32) :: escaped = 0
-    integer(i32) :: escaped_boundary = 0
-    integer(i32) :: survived_max_step = 0
+    integer(i64) :: processed_particles = 0_i64
+    integer(i64) :: absorbed = 0_i64
+    integer(i64) :: escaped = 0_i64
+    integer(i64) :: escaped_boundary = 0_i64
+    integer(i64) :: survived_max_step = 0_i64
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
   end type sim_stats

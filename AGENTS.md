@@ -15,7 +15,7 @@ Core batch loop (current Fortran implementation):
 4) deposit charge to hit element (insulator accumulation)
 5) commit charge deltas per batch and update stats/history
 
-v0.x focuses on insulator accumulation. Keep extension points for conductor/resistive models.
+v1.0 focuses on insulator accumulation. Keep extension points for conductor/resistive models.
 
 ## Repo layout
 - `src/`, `app/`: Fortran runtime and physics core
@@ -64,7 +64,7 @@ Python CLI examples:
 - Keep Python side lightweight; avoid heavy dependencies unless justified.
 - Ignore `*.i90` files, as they are automatically generated backup files.
 
-## Simulator invariants (v0.x)
+## Simulator invariants (v1.0)
 - Interaction: absorption only (default).
 - Surface model: insulator accumulation only.
 - Batch execution: run for configured `sim.batch_count` batches.

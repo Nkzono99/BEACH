@@ -29,13 +29,14 @@ injection_face_phi_grid_n = 3
 # sheath_electron_drift_mode = "normal"
 # sheath_ion_drift_mode = "normal"
 # 注意: 現状は sheath_injection_model と reservoir_potential_model を同時に使えません。
-# periodic2 は既定で m2l_root_trunc を使います。legacy な m2l_root も alias として受理します。
-# exact periodic residual を build-time fit したい場合は m2l_root_oracle も使えます。
+# periodic2 + fmm 有効時、field_periodic_far_correction の選択肢:
+#   "auto"            — periodic2 + fmm では内部的に m2l_root_oracle へ正規化
+#   "none"            — 遠方補正なし
+#   "m2l_root_oracle" — Ewald residual を build-time fit
 # field_solver = "fmm"
 # field_bc_mode = "periodic2"
 # field_periodic_image_layers = 1
-# field_periodic_far_correction = "m2l_root_trunc"
-# field_periodic_far_correction = "m2l_root_oracle"
+# field_periodic_far_correction = "auto"
 # field_periodic_ewald_alpha = 0.0
 # field_periodic_ewald_layers = 4
 

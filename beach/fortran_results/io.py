@@ -37,9 +37,12 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     summary = _load_summary(out_dir / "summary.txt")
     mesh_nelem = int(summary["mesh_nelem"])
     charges = np.loadtxt(out_dir / "charges.csv", delimiter=",", skiprows=1)
-    if charges.ndim == 1:
-        charges = charges[None, :]
-    q_values = charges[:, 1]
+    if charges.size == 0:
+        q_values = np.empty(0, dtype=float)
+    else:
+        if charges.ndim == 1:
+            charges = charges[None, :]
+        q_values = charges[:, 1]
 
     triangles, mesh_ids = _load_triangles_if_exists(out_dir / "mesh_triangles.csv")
     mesh_sources = _load_mesh_sources_if_exists(out_dir / "mesh_sources.csv")
@@ -125,6 +128,8 @@ def _load_triangles_if_exists(path: Path) -> tuple[np.ndarray | None, np.ndarray
         header_line = stream.readline().strip()
     header = [name.strip() for name in header_line.split(",")] if header_line else []
     data = np.loadtxt(path, delimiter=",", skiprows=1)
+    if data.size == 0:
+        return None, None
     if data.ndim == 1:
         data = data[None, :]
     verts = data[:, 1:10].reshape(-1, 3, 3)

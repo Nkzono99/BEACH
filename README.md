@@ -12,7 +12,7 @@
 BEACH は、**BEM（境界要素法）ベースの表面帯電 + テスト粒子追跡シミュレータ**です。  
 計算本体は Fortran（`fpm` 管理）、Python は後処理・可視化を担当します。
 
-v0.x の主対象は **insulator accumulation（絶縁体への電荷蓄積）** です。
+v1.0 の主対象は **insulator accumulation（絶縁体への電荷蓄積）** です。
 
 ## 推奨ワークフロー
 

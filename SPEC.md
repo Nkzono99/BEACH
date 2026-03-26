@@ -187,7 +187,7 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 
 ## 9. 設計方針
 
-- v0.x は insulator accumulation を正規仕様とする
+- v1.0 は insulator accumulation を正規仕様とする
 - 拡張点は維持しつつ、現行利用者向けには実装済み挙動を優先して文書化する
 - 設定追加・削除時は `docs/fortran_parameter_file.md` を同時更新する
 

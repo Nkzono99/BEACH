@@ -1,6 +1,6 @@
 !> アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。
 module bem_app_config_types
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_config
   implicit none
 
@@ -135,11 +135,16 @@ contains
   !! @return total_n 総粒子数。
   integer(i32) function total_particles_from_config(cfg) result(total_n)
     type(app_config), intent(in) :: cfg
+    integer(i64) :: total_n_i64
 
     if (cfg%sim%batch_count <= 0_i32) then
       error stop 'sim.batch_count must be > 0.'
     end if
-    total_n = cfg%sim%batch_count*particles_per_batch_from_config(cfg)
+    total_n_i64 = int(cfg%sim%batch_count, i64)*int(particles_per_batch_from_config(cfg), i64)
+    if (total_n_i64 > int(huge(0_i32), i64)) then
+      error stop 'total particle count overflows 32-bit integer. Reduce batch_count or npcls_per_step.'
+    end if
+    total_n = int(total_n_i64, i32)
   end function total_particles_from_config
 
   !> `app_config` を既定値で初期化し、TOML 上書き前の状態を作る。

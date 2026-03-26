@@ -426,7 +426,7 @@ class Beach:
         *,
         softening: float | None = None,
         self_term: str = "auto",
-        cmap: str = "jet",
+        cmap: str = "viridis",
         view_elev: float = 24.0,
         view_azim: float = -58.0,
         periodic2: Mapping[str, object] | None = None,

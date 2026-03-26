@@ -1,6 +1,6 @@
 !> MPI+OpenMPハイブリッド実行時の集約・rank別resumeファイルを検証する。
 program test_mpi_hybrid
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_barrier
   use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator
@@ -9,8 +9,9 @@ program test_mpi_hybrid
                          restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, ensure_directory, &
-                          remove_empty_directory
+                          assert_true, assert_equal_i32, assert_equal_i64, &
+                          assert_close_dp, delete_file_if_exists, &
+                          ensure_directory, remove_empty_directory
   implicit none
 
   type(mpi_context) :: mpi
@@ -86,9 +87,9 @@ program test_mpi_hybrid
     call run_absorption_insulator(mesh, cfg, stats, mpi=mpi)
   end if
 
-  call assert_equal_i32(stats%processed_particles, 4_i32, 'mpi processed_particles mismatch')
-  call assert_equal_i32(stats%absorbed, 4_i32, 'mpi absorbed mismatch')
-  call assert_equal_i32(stats%escaped, 0_i32, 'mpi escaped mismatch')
+  call assert_equal_i64(stats%processed_particles, 4_i64, 'mpi processed_particles mismatch')
+  call assert_equal_i64(stats%absorbed, 4_i64, 'mpi absorbed mismatch')
+  call assert_equal_i64(stats%escaped, 0_i64, 'mpi escaped mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'mpi batches mismatch')
   call assert_close_dp(mesh%q_elem(1), 4.0d0, 1.0d-12, 'mpi deposited charge mismatch')
   call test_end()
@@ -129,7 +130,7 @@ program test_mpi_hybrid
   state_restart%macro_residual = 0.0d0
   call load_restart_checkpoint(out_dir, mesh_restart, stats_restart, has_restart, state_restart, mpi=mpi)
   call assert_true(has_restart, 'mpi restart should be detected')
-  call assert_equal_i32(stats_restart%processed_particles, 8_i32, 'mpi restart processed_particles mismatch')
+  call assert_equal_i64(stats_restart%processed_particles, 8_i64, 'mpi restart processed_particles mismatch')
   call assert_equal_i32(stats_restart%batches, 2_i32, 'mpi restart batches mismatch')
   call assert_close_dp(mesh_restart%q_elem(1), 2.0d0, 1.0d-12, 'mpi restart charge mismatch')
   call assert_close_dp(state_restart%macro_residual(1), 0.25d0 + real(mpi%rank, dp), 1.0d-12, 'mpi residual mismatch')

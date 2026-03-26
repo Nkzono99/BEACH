@@ -1,12 +1,12 @@
 !> 吸着ループの統計更新・堆積・履歴出力を検証する統合テスト。
 program test_simulator
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
   use bem_types, only: mesh_type, sim_stats
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
+                          assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
   implicit none
 
   type(mesh_type) :: mesh
@@ -93,11 +93,11 @@ program test_simulator
   call run_absorption_insulator(mesh, cfg, stats, history_unit=u, history_stride=1_i32)
   close (u)
 
-  call assert_equal_i32(stats%processed_particles, 4_i32, 'processed_particles mismatch')
-  call assert_equal_i32(stats%absorbed, 2_i32, 'absorbed mismatch')
-  call assert_equal_i32(stats%escaped, 2_i32, 'escaped mismatch')
-  call assert_equal_i32(stats%escaped_boundary, 1_i32, 'escaped_boundary mismatch')
-  call assert_equal_i32(stats%survived_max_step, 1_i32, 'survived_max_step mismatch')
+  call assert_equal_i64(stats%processed_particles, 4_i64, 'processed_particles mismatch')
+  call assert_equal_i64(stats%absorbed, 2_i64, 'absorbed mismatch')
+  call assert_equal_i64(stats%escaped, 2_i64, 'escaped mismatch')
+  call assert_equal_i64(stats%escaped_boundary, 1_i64, 'escaped_boundary mismatch')
+  call assert_equal_i64(stats%survived_max_step, 1_i64, 'survived_max_step mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
   call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
   call assert_true(stats%last_rel_change > 0.0d0, 'last_rel_change should be positive')
@@ -125,11 +125,11 @@ program test_simulator
   call seed_particles_from_config(cfg_tree)
   call run_absorption_insulator(mesh_tree, cfg_tree, stats_tree)
 
-  call assert_equal_i32(stats_tree%processed_particles, stats%processed_particles, 'treecode processed_particles mismatch')
-  call assert_equal_i32(stats_tree%absorbed, stats%absorbed, 'treecode absorbed mismatch')
-  call assert_equal_i32(stats_tree%escaped, stats%escaped, 'treecode escaped mismatch')
-  call assert_equal_i32(stats_tree%escaped_boundary, stats%escaped_boundary, 'treecode escaped_boundary mismatch')
-  call assert_equal_i32(stats_tree%survived_max_step, stats%survived_max_step, 'treecode survived_max_step mismatch')
+  call assert_equal_i64(stats_tree%processed_particles, stats%processed_particles, 'treecode processed_particles mismatch')
+  call assert_equal_i64(stats_tree%absorbed, stats%absorbed, 'treecode absorbed mismatch')
+  call assert_equal_i64(stats_tree%escaped, stats%escaped, 'treecode escaped mismatch')
+  call assert_equal_i64(stats_tree%escaped_boundary, stats%escaped_boundary, 'treecode escaped_boundary mismatch')
+  call assert_equal_i64(stats_tree%survived_max_step, stats%survived_max_step, 'treecode survived_max_step mismatch')
   call assert_equal_i32(stats_tree%batches, stats%batches, 'treecode batches mismatch')
   call assert_close_dp(mesh_tree%q_elem(1), mesh%q_elem(1), 1.0d-12, 'treecode deposited charge mismatch')
   call test_end()
@@ -138,20 +138,20 @@ program test_simulator
   call init_mesh(mesh_resume, v0, v1, v2)
   call seed_particles_from_config(cfg)
   stats_seed = sim_stats()
-  stats_seed%processed_particles = 10_i32
-  stats_seed%absorbed = 4_i32
-  stats_seed%escaped = 6_i32
-  stats_seed%escaped_boundary = 3_i32
-  stats_seed%survived_max_step = 3_i32
+  stats_seed%processed_particles = 10_i64
+  stats_seed%absorbed = 4_i64
+  stats_seed%escaped = 6_i64
+  stats_seed%escaped_boundary = 3_i64
+  stats_seed%survived_max_step = 3_i64
   stats_seed%batches = 7_i32
   stats_seed%last_rel_change = 1.0d-3
   call run_absorption_insulator(mesh_resume, cfg, stats_resume, initial_stats=stats_seed)
 
-  call assert_equal_i32(stats_resume%processed_particles, 14_i32, 'resume processed_particles mismatch')
-  call assert_equal_i32(stats_resume%absorbed, 6_i32, 'resume absorbed mismatch')
-  call assert_equal_i32(stats_resume%escaped, 8_i32, 'resume escaped mismatch')
-  call assert_equal_i32(stats_resume%escaped_boundary, 4_i32, 'resume escaped_boundary mismatch')
-  call assert_equal_i32(stats_resume%survived_max_step, 4_i32, 'resume survived_max_step mismatch')
+  call assert_equal_i64(stats_resume%processed_particles, 14_i64, 'resume processed_particles mismatch')
+  call assert_equal_i64(stats_resume%absorbed, 6_i64, 'resume absorbed mismatch')
+  call assert_equal_i64(stats_resume%escaped, 8_i64, 'resume escaped mismatch')
+  call assert_equal_i64(stats_resume%escaped_boundary, 4_i64, 'resume escaped_boundary mismatch')
+  call assert_equal_i64(stats_resume%survived_max_step, 4_i64, 'resume survived_max_step mismatch')
   call assert_equal_i32(stats_resume%batches, 8_i32, 'resume batches mismatch')
   call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')
   call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
