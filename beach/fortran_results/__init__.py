@@ -4,6 +4,11 @@ from .animation import _select_frame_columns, animate_history_mesh
 from .constants import K_COULOMB
 from .coulomb import calc_coulomb
 from .facade import Beach
+from .field_lines import (
+    compute_electric_field_points,
+    plot_field_lines_3d,
+    trace_field_lines,
+)
 from .history import FortranChargeHistory
 from .io import list_fortran_runs, load_fortran_result
 from .mesh import _surface_charge_density
@@ -46,6 +51,9 @@ __all__ = [
     "Beach",
     "calc_coulomb",
     "analyze_coulomb_mobility",
+    "compute_electric_field_points",
+    "trace_field_lines",
+    "plot_field_lines_3d",
     "plot_charges",
     "plot_charge_mesh",
     "plot_coulomb_force_matrix",

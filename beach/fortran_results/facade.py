@@ -9,6 +9,11 @@ import numpy as np
 
 from .animation import animate_history_mesh
 from .coulomb import calc_coulomb
+from .field_lines import (
+    compute_electric_field_points,
+    plot_field_lines_3d,
+    trace_field_lines,
+)
 from .io import load_fortran_result
 from .mobility import analyze_coulomb_mobility
 from .plotting import (
@@ -153,6 +158,7 @@ class Beach:
             "group_a_center",
             "group_b_center",
         ] = "target_center",
+        periodic2: Mapping[str, object] | None = None,
     ):
         """Compute Coulomb force/torque from source acting on target.
 
@@ -168,6 +174,9 @@ class Beach:
             Softening length in meters.
         torque_origin : {"target_center", "source_center", "origin", "group_a_center", "group_b_center"}, default "target_center"
             Torque reference point.
+        periodic2 : mapping or None, default None
+            Two-axis periodic boundary setting. ``None`` の場合は出力
+            ディレクトリ近傍の ``beach.toml`` から自動判定。
 
         Returns
         -------
@@ -182,6 +191,7 @@ class Beach:
             step=step,
             softening=softening,
             torque_origin=torque_origin,
+            periodic2=periodic2,
         )
 
     def analyze_coulomb_mobility(
@@ -698,4 +708,177 @@ class Beach:
             apply_periodic2_mesh=apply_periodic2_mesh,
             periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
+        )
+
+    def compute_electric_field(
+        self,
+        points: np.ndarray,
+        *,
+        softening: float | None = None,
+        chunk_size: int = 2048,
+        periodic2: Mapping[str, object] | None = None,
+    ) -> np.ndarray:
+        """Compute the electric field vector at arbitrary 3D points.
+
+        Parameters
+        ----------
+        points : numpy.ndarray
+            Sampling points with shape ``(n_points, 3)``.
+        softening : float or None, default None
+            Softening length in meters.
+        chunk_size : int, default 2048
+            Number of points processed per chunk.
+        periodic2 : mapping or None, default None
+            Two-axis periodic boundary setting. ``None`` で自動判定。
+
+        Returns
+        -------
+        numpy.ndarray
+            Electric field vectors in V/m with shape ``(n_points, 3)``.
+        """
+
+        return compute_electric_field_points(
+            self.result,
+            points,
+            softening=softening,
+            chunk_size=chunk_size,
+            periodic2=periodic2,
+        )
+
+    def trace_field_lines(
+        self,
+        seed_points: np.ndarray,
+        *,
+        ds: float | None = None,
+        max_steps: int = 500,
+        softening: float | None = None,
+        periodic2: Mapping[str, object] | None = None,
+        direction: str = "both",
+        box_min: Iterable[float] | None = None,
+        box_max: Iterable[float] | None = None,
+    ) -> list[np.ndarray]:
+        """Trace electric field lines from seed points.
+
+        Parameters
+        ----------
+        seed_points : numpy.ndarray
+            Starting points with shape ``(n_seeds, 3)``.
+        ds : float or None
+            Integration step size. ``None`` で自動設定。
+        max_steps : int, default 500
+            Maximum steps per direction.
+        softening : float or None
+            Softening length.
+        periodic2 : mapping or None
+            Periodic setting. ``None`` で自動判定。
+        direction : {"both", "forward", "backward"}
+            Tracing direction.
+        box_min, box_max : iterable of float or None
+            Bounding box for termination.
+
+        Returns
+        -------
+        list of numpy.ndarray
+            Each element is shape ``(n_points_i, 3)``.
+        """
+
+        return trace_field_lines(
+            self.result,
+            seed_points,
+            ds=ds,
+            max_steps=max_steps,
+            softening=softening,
+            periodic2=periodic2,
+            direction=direction,
+            box_min=box_min,
+            box_max=box_max,
+        )
+
+    def plot_field_lines(
+        self,
+        seed_points: np.ndarray,
+        *,
+        ds: float | None = None,
+        max_steps: int = 500,
+        softening: float | None = None,
+        periodic2: Mapping[str, object] | None = None,
+        direction: str = "both",
+        box_min: Iterable[float] | None = None,
+        box_max: Iterable[float] | None = None,
+        show_mesh: bool = True,
+        mesh_alpha: float = 0.25,
+        mesh_cmap: str = "coolwarm",
+        line_color: str | None = None,
+        line_cmap: str = "plasma",
+        line_width: float = 1.2,
+        view_elev: float = 24.0,
+        view_azim: float = -58.0,
+        title: str = "Electric field lines",
+        figsize: tuple[float, float] = (9, 7),
+    ):
+        """Plot 3D electric field lines with optional mesh overlay.
+
+        Parameters
+        ----------
+        seed_points : numpy.ndarray
+            Starting points with shape ``(n_seeds, 3)``.
+        ds : float or None
+            Integration step size.
+        max_steps : int
+            Maximum steps per direction.
+        softening : float or None
+            Softening length.
+        periodic2 : mapping or None
+            Periodic setting.
+        direction : {"both", "forward", "backward"}
+            Tracing direction.
+        box_min, box_max : iterable of float or None
+            Bounding box.
+        show_mesh : bool, default True
+            Overlay mesh surface.
+        mesh_alpha : float, default 0.25
+            Mesh transparency.
+        mesh_cmap : str, default "coolwarm"
+            Mesh colormap.
+        line_color : str or None
+            Fixed line color.
+        line_cmap : str, default "plasma"
+            Colormap for lines.
+        line_width : float, default 1.2
+            Line width.
+        view_elev : float, default 24.0
+            Elevation angle.
+        view_azim : float, default -58.0
+            Azimuth angle.
+        title : str
+            Plot title.
+        figsize : tuple of float
+            Figure size.
+
+        Returns
+        -------
+        tuple
+            ``(figure, axes)`` from matplotlib.
+        """
+
+        return plot_field_lines_3d(
+            self.result,
+            seed_points,
+            ds=ds,
+            max_steps=max_steps,
+            softening=softening,
+            periodic2=periodic2,
+            direction=direction,
+            box_min=box_min,
+            box_max=box_max,
+            show_mesh=show_mesh,
+            mesh_alpha=mesh_alpha,
+            mesh_cmap=mesh_cmap,
+            line_color=line_color,
+            line_cmap=line_cmap,
+            line_width=line_width,
+            view_elev=view_elev,
+            view_azim=view_azim,
+            title=title,
+            figsize=figsize,
         )

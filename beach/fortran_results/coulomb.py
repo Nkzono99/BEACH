@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Literal
+from typing import Iterable, Literal, Mapping
 
 import numpy as np
 
@@ -26,6 +26,7 @@ def calc_coulomb(
         "group_a_center",
         "group_b_center",
     ] = "target_center",
+    periodic2: Mapping[str, object] | None = None,
 ) -> CoulombInteraction:
     """Compute Coulomb force/torque where target receives interaction from source.
 
@@ -44,6 +45,13 @@ def calc_coulomb(
         Softening length in meters.
     torque_origin : {"target_center", "source_center", "origin", "group_a_center", "group_b_center"}, default "target_center"
         Reference point for torque computation.
+    periodic2 : mapping or None, default None
+        Two-axis periodic boundary setting. Uses a mapping with keys
+        ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
+        positive box lengths), and optional ``origins``, ``box_min``,
+        ``image_layers`` (int, default 1).
+        If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
+        ``sim.field_bc_mode="periodic2"`` なら自動適用する。
 
     Returns
     -------
@@ -55,6 +63,8 @@ def calc_coulomb(
     ValueError
         If selection is empty, softening is negative, or arguments are invalid.
     """
+
+    from .potential import _auto_periodic2_from_result, _coerce_periodic2
 
     resolved = _resolve_result(result)
     if softening < 0.0:
@@ -83,6 +93,10 @@ def calc_coulomb(
             "torque_origin must be one of {'target_center', 'source_center', 'origin'}."
         )
 
+    periodic_cfg = _coerce_periodic2(periodic2)
+    if periodic_cfg is None:
+        periodic_cfg = _auto_periodic2_from_result(resolved)
+
     centers_target = _triangle_centers(sel_target.triangles)
     centers_source = _triangle_centers(sel_source.triangles)
     force_target, torque_target = _pairwise_force_torque(
@@ -92,6 +106,7 @@ def calc_coulomb(
         sel_source.charges,
         origin=origin,
         softening=softening,
+        periodic2=periodic_cfg,
     )
     force_source = -force_target
     torque_source = -torque_target
@@ -120,7 +135,26 @@ def _pairwise_force_torque(
     *,
     origin: np.ndarray,
     softening: float,
+    periodic2: tuple | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Compute pairwise Coulomb force and torque.
+
+    When *periodic2* is provided, image shells of the source charges are
+    included so that the nearest-cell summation accounts for periodic
+    boundary conditions along two axes.
+    """
+
+    if periodic2 is not None:
+        return _pairwise_force_torque_periodic2(
+            centers_a,
+            charges_a,
+            centers_b,
+            charges_b,
+            origin=origin,
+            softening=softening,
+            periodic2=periodic2,
+        )
+
     force = np.zeros(3, dtype=float)
     torque = np.zeros(3, dtype=float)
     eps2 = softening * softening
@@ -136,5 +170,47 @@ def _pairwise_force_torque(
         f_i = np.sum(coeff[:, None] * delta, axis=0)
         force += f_i
         torque += np.cross(centers_a[i] - origin, f_i)
+
+    return force, torque
+
+
+def _pairwise_force_torque_periodic2(
+    centers_a: np.ndarray,
+    charges_a: np.ndarray,
+    centers_b: np.ndarray,
+    charges_b: np.ndarray,
+    *,
+    origin: np.ndarray,
+    softening: float,
+    periodic2: tuple,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pairwise Coulomb force/torque with periodic2 image-shell summation."""
+
+    axes, lengths, origins, nimg, _far_correction, _alpha, _ewald_layers = periodic2
+    axis1, axis2 = axes
+    l1, l2 = lengths
+
+    force = np.zeros(3, dtype=float)
+    torque = np.zeros(3, dtype=float)
+    eps2 = softening * softening
+    min_dist2 = np.finfo(float).tiny
+
+    for ix in range(-nimg, nimg + 1):
+        for iy in range(-nimg, nimg + 1):
+            shifted_b = centers_b.copy()
+            shifted_b[:, axis1] += float(ix) * l1
+            shifted_b[:, axis2] += float(iy) * l2
+
+            for i in range(centers_a.shape[0]):
+                delta = centers_a[i] - shifted_b
+                dist2 = np.sum(delta * delta, axis=1) + eps2
+                inv_r3 = 1.0 / (
+                    np.maximum(dist2, min_dist2)
+                    * np.sqrt(np.maximum(dist2, min_dist2))
+                )
+                coeff = K_COULOMB * charges_a[i] * charges_b * inv_r3
+                f_i = np.sum(coeff[:, None] * delta, axis=0)
+                force += f_i
+                torque += np.cross(centers_a[i] - origin, f_i)
 
     return force, torque

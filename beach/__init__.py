@@ -5,6 +5,7 @@ from .fortran_results import (
     animate_history_mesh,
     Beach,
     calc_coulomb,
+    compute_electric_field_points,
     CoulombInteraction,
     CoulombMobilityAnalysis,
     CoulombMobilityRecord,
@@ -21,9 +22,11 @@ from .fortran_results import (
     plot_charge_mesh,
     plot_charges,
     plot_coulomb_force_matrix,
+    plot_field_lines_3d,
     plot_mesh_source_boxplot,
     plot_potential_mesh,
     plot_potential_slices,
+    trace_field_lines,
 )
 
 __all__ = [
@@ -31,6 +34,7 @@ __all__ = [
     "analyze_coulomb_mobility",
     "Beach",
     "calc_coulomb",
+    "compute_electric_field_points",
     "CoulombInteraction",
     "CoulombMobilityAnalysis",
     "CoulombMobilityRecord",
@@ -47,7 +51,9 @@ __all__ = [
     "plot_charges",
     "plot_charge_mesh",
     "plot_coulomb_force_matrix",
+    "plot_field_lines_3d",
     "plot_mesh_source_boxplot",
     "plot_potential_mesh",
     "plot_potential_slices",
+    "trace_field_lines",
 ]
