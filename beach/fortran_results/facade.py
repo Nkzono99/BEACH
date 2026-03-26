@@ -656,6 +656,8 @@ class Beach:
         apply_periodic2_mesh: bool = False,
         periodic2_repeat: int = 0,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
+        view_elev: float | None = None,
+        view_azim: float | None = None,
     ) -> Path | FuncAnimation:
         """Animate charge or potential history on the 3D surface mesh.
 
@@ -687,6 +689,10 @@ class Beach:
             周期イメージの複製数。``0`` は複製なし。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
             基準電位を差し引く参照点。
+        view_elev : float or None, default None
+            3D view elevation angle in degrees.
+        view_azim : float or None, default None
+            3D view azimuth angle in degrees.
 
         Returns
         -------
@@ -708,6 +714,8 @@ class Beach:
             apply_periodic2_mesh=apply_periodic2_mesh,
             periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
+            view_elev=view_elev,
+            view_azim=view_azim,
         )
 
     def compute_electric_field(

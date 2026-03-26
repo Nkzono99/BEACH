@@ -75,6 +75,18 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
             "(default: 0 = no replication)"
         ),
     )
+    parser.add_argument(
+        "--view-elev",
+        type=float,
+        default=None,
+        help="3D view elevation angle in degrees (default: 24.0)",
+    )
+    parser.add_argument(
+        "--view-azim",
+        type=float,
+        default=None,
+        help="3D view azimuth angle in degrees (default: -58.0)",
+    )
 
 
 def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
@@ -131,6 +143,8 @@ def run(args: argparse.Namespace) -> None:
             self_term=self_term,
             apply_periodic2_mesh=args.apply_periodic2_mesh,
             periodic2_repeat=args.periodic2_repeat,
+            view_elev=args.view_elev,
+            view_azim=args.view_azim,
         )
     except ModuleNotFoundError as exc:
         if exc.name is not None and (

@@ -43,6 +43,8 @@ def animate_history_mesh(
     apply_periodic2_mesh: bool = False,
     periodic2_repeat: int = 0,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
+    view_elev: float | None = None,
+    view_azim: float | None = None,
 ) -> Path | FuncAnimation:
     """Render mesh history as an animation.
 
@@ -78,6 +80,10 @@ def animate_history_mesh(
         までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
         基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
+    view_elev : float or None, default None
+        3D view elevation angle in degrees. ``None`` uses the default (24.0).
+    view_azim : float or None, default None
+        3D view azimuth angle in degrees. ``None`` uses the default (-58.0).
 
     Returns
     -------
@@ -174,7 +180,7 @@ def animate_history_mesh(
         alpha=0.88,
     )
     ax.add_collection3d(mesh)
-    _configure_mesh_axes(ax, plot_triangles)
+    _configure_mesh_axes(ax, plot_triangles, view_elev=view_elev, view_azim=view_azim)
 
     def _title_for_frame(frame_idx: int) -> str:
         col = int(frame_cols[frame_idx])
