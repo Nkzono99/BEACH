@@ -13,13 +13,24 @@ BEACH は、**BEM（境界要素法）ベースの表面帯電 + テスト粒子
 計算本体は Fortran（`fpm` 管理）、Python は後処理・可視化を担当します。
 
 v1.0 の主対象は **insulator accumulation（絶縁体への電荷蓄積）** です。
+BEM による電荷堆積とテスト粒子追跡を繰り返すことで、各 batch ごとに表面電位が更新されていきます。
 
-## 推奨ワークフロー
+<div align="center">
+  <img src="docs/images/potential_history.gif" alt="帯電シミュレーションの電位変化" width="80%">
+  <p><i>電子ビーム照射下での絶縁体メッシュ上の電位分布の時間発展</i></p>
+  <sub>3D model: <a href="https://www.turbosquid.com/ja/3d-models/rubber-duck-pbr-game-ready-model-2001526">Rubber Duck PBR Game Ready</a> (TurboSquid)</sub>
+</div>
 
-通常利用では、**`pip install beach-bem` で導入して `beach` を実行する運用**を推奨します。  
+```bash
+# シミュレーション実行 → 可視化
+beach beach.toml
+beachx animate outputs/latest --quantity potential --save-gif potential_history.gif
+```
+
+## 1. セットアップ
+
+通常利用では、**`pip install beach-bem` で導入して `beach` を実行する運用**を推奨します。
 `pip install -e` や `make` は、開発に参加する場合の手順として扱います。
-
-## 1. 利用者向けセットアップ
 
 ### 1.1 前提ツール
 
