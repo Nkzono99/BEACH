@@ -5,16 +5,20 @@
   "type": "object",
   "properties": {
     "sim": {
-      "$ref": "#/$defs/sim"
+      "$ref": "#/$defs/sim",
+      "description": "Simulation settings."
     },
     "particles": {
-      "$ref": "#/$defs/particles"
+      "$ref": "#/$defs/particles",
+      "description": "Particle species definitions."
     },
     "mesh": {
-      "$ref": "#/$defs/mesh"
+      "$ref": "#/$defs/mesh",
+      "description": "Mesh geometry settings."
     },
     "output": {
-      "$ref": "#/$defs/output"
+      "$ref": "#/$defs/output",
+      "description": "Output file settings."
     }
   },
   "required": [
@@ -99,6 +103,7 @@
   ],
   "$defs": {
     "vec3": {
+      "description": "3-component vector [x, y, z].",
       "type": "array",
       "items": {
         "type": "number"
@@ -107,6 +112,7 @@
       "maxItems": 3
     },
     "positiveVec3": {
+      "description": "3-component vector [x, y, z] with all positive values.",
       "type": "array",
       "items": {
         "type": "number",
@@ -116,6 +122,7 @@
       "maxItems": 3
     },
     "boundaryMode": {
+      "description": "Boundary condition mode: open/outflow/escape, reflect/reflection, or periodic.",
       "type": "string",
       "enum": [
         "open",
@@ -127,6 +134,7 @@
       ]
     },
     "injectFace": {
+      "description": "Box face identifier for particle injection.",
       "type": "string",
       "enum": [
         "x_low",
@@ -197,7 +205,8 @@
             "fmm",
             "auto"
           ],
-          "default": "auto"
+          "default": "auto",
+          "description": "Electric field evaluation method."
         },
         "field_bc_mode": {
           "type": "string",
@@ -205,12 +214,14 @@
             "free",
             "periodic2"
           ],
-          "default": "free"
+          "default": "free",
+          "description": "Field boundary condition mode. periodic2 requires field_solver=fmm."
         },
         "field_periodic_image_layers": {
           "type": "integer",
           "minimum": 0,
-          "default": 1
+          "default": 1,
+          "description": "Nearby image layers for periodic2. Computes [-N, N] finite image sum per periodic axis."
         },
         "field_periodic_far_correction": {
           "type": "string",
@@ -219,33 +230,39 @@
             "none",
             "m2l_root_oracle"
           ],
-          "default": "auto"
+          "default": "auto",
+          "description": "Far-field correction mode for periodic2."
         },
         "field_periodic_ewald_alpha": {
           "type": "number",
           "minimum": 0,
-          "default": 0.0
+          "default": 0.0,
+          "description": "Ewald splitting parameter for m2l_root_oracle. 0 = auto-determined from box size."
         },
         "field_periodic_ewald_layers": {
           "type": "integer",
           "minimum": 0,
-          "default": 4
+          "default": 4,
+          "description": "Ewald real-space/reciprocal shell depth for m2l_root_oracle build-time oracle."
         },
         "tree_theta": {
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 1,
-          "default": 0.5
+          "default": 0.5,
+          "description": "MAC parameter for treecode/FMM (0 < theta <= 1)."
         },
         "tree_leaf_max": {
           "type": "integer",
           "minimum": 1,
-          "default": 16
+          "default": 16,
+          "description": "Maximum elements per leaf node in treecode/FMM."
         },
         "tree_min_nelem": {
           "type": "integer",
           "minimum": 1,
-          "default": 256
+          "default": 256,
+          "description": "Element count threshold for field_solver=auto to switch to treecode."
         },
         "b0": {
           "$ref": "#/$defs/vec3",
@@ -262,21 +279,25 @@
             "none",
             "infinity_barrier"
           ],
-          "default": "none"
+          "default": "none",
+          "description": "Reservoir potential model for injection."
         },
         "phi_infty": {
           "type": "number",
-          "default": 0.0
+          "default": 0.0,
+          "description": "Reference potential at infinity [V]."
         },
         "injection_face_phi_grid_n": {
           "type": "integer",
           "minimum": 1,
-          "default": 3
+          "default": 3,
+          "description": "Grid resolution N×N for injection face average potential."
         },
         "raycast_max_bounce": {
           "type": "integer",
           "minimum": 1,
-          "default": 16
+          "default": 16,
+          "description": "Maximum bounce count for photo_raycast ray tracing."
         },
         "sheath_injection_model": {
           "type": "string",
@@ -288,17 +309,20 @@
             "zhao_c",
             "floating_no_photo"
           ],
-          "default": "none"
+          "default": "none",
+          "description": "Sheath injection model."
         },
         "sheath_alpha_deg": {
           "type": "number",
           "minimum": 0,
           "maximum": 90,
-          "default": 60.0
+          "default": 60.0,
+          "description": "Solar elevation angle [deg] for Zhao sheath models."
         },
         "sheath_photoelectron_ref_density_cm3": {
           "type": "number",
-          "default": 64.0
+          "default": 64.0,
+          "description": "Reference photoelectron density [cm^-3] for Zhao sheath models."
         },
         "sheath_reference_coordinate": {
           "type": "number",
@@ -310,7 +334,8 @@
             "normal",
             "full"
           ],
-          "default": "normal"
+          "default": "normal",
+          "description": "Electron drift mode for sheath injection."
         },
         "sheath_ion_drift_mode": {
           "type": "string",
@@ -318,11 +343,13 @@
             "normal",
             "full"
           ],
-          "default": "normal"
+          "default": "normal",
+          "description": "Ion drift mode for sheath injection."
         },
         "use_box": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Enable box boundary."
         },
         "box_min": {
           "$ref": "#/$defs/vec3",
@@ -330,7 +357,8 @@
             -1.0,
             -1.0,
             -1.0
-          ]
+          ],
+          "description": "Box lower bound [m]."
         },
         "box_max": {
           "$ref": "#/$defs/vec3",
@@ -338,31 +366,38 @@
             1.0,
             1.0,
             1.0
-          ]
+          ],
+          "description": "Box upper bound [m]."
         },
         "bc_x_low": {
           "$ref": "#/$defs/boundaryMode",
-          "default": "open"
+          "default": "open",
+          "description": "Boundary condition at x lower face."
         },
         "bc_x_high": {
           "$ref": "#/$defs/boundaryMode",
-          "default": "open"
+          "default": "open",
+          "description": "Boundary condition at x upper face."
         },
         "bc_y_low": {
           "$ref": "#/$defs/boundaryMode",
-          "default": "open"
+          "default": "open",
+          "description": "Boundary condition at y lower face."
         },
         "bc_y_high": {
           "$ref": "#/$defs/boundaryMode",
-          "default": "open"
+          "default": "open",
+          "description": "Boundary condition at y upper face."
         },
         "bc_z_low": {
           "$ref": "#/$defs/boundaryMode",
-          "default": "open"
+          "default": "open",
+          "description": "Boundary condition at z lower face."
         },
         "bc_z_high": {
           "$ref": "#/$defs/boundaryMode",
-          "default": "open"
+          "default": "open",
+          "description": "Boundary condition at z upper face."
         }
       },
       "allOf": [
@@ -634,7 +669,8 @@
           "minItems": 1,
           "items": {
             "$ref": "#/$defs/species"
-          }
+          },
+          "description": "List of particle species (at least one required)."
         }
       },
       "required": [
@@ -647,12 +683,14 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Enable this species."
         },
         "npcls_per_step": {
           "type": "integer",
           "minimum": 0,
-          "default": 0
+          "default": 0,
+          "description": "Macro-particles generated per batch for volume_seed."
         },
         "source_mode": {
           "type": "string",
@@ -661,7 +699,8 @@
             "reservoir_face",
             "photo_raycast"
           ],
-          "default": "volume_seed"
+          "default": "volume_seed",
+          "description": "Particle source mode."
         },
         "number_density_cm3": {
           "type": "number",
@@ -673,17 +712,20 @@
         },
         "q_particle": {
           "type": "number",
-          "default": -1.602176634e-19
+          "default": -1.602176634e-19,
+          "description": "Particle charge [C]."
         },
         "m_particle": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 9.10938356e-31
+          "default": 9.10938356e-31,
+          "description": "Particle mass [kg]."
         },
         "w_particle": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0
+          "default": 1.0,
+          "description": "Macro-particle weight."
         },
         "target_macro_particles_per_batch": {
           "oneOf": [
@@ -703,7 +745,8 @@
             -0.4,
             -0.4,
             0.2
-          ]
+          ],
+          "description": "Lower bound of position range [m]."
         },
         "pos_high": {
           "$ref": "#/$defs/vec3",
@@ -711,7 +754,8 @@
             0.4,
             0.4,
             0.5
-          ]
+          ],
+          "description": "Upper bound of position range [m]."
         },
         "drift_velocity": {
           "$ref": "#/$defs/vec3",
@@ -719,16 +763,19 @@
             0.0,
             0.0,
             -800000.0
-          ]
+          ],
+          "description": "Drift velocity [m/s]."
         },
         "temperature_k": {
           "type": "number",
           "minimum": 0,
-          "default": 20000.0
+          "default": 20000.0,
+          "description": "Temperature [K]. Mutually exclusive with temperature_ev."
         },
         "temperature_ev": {
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Temperature [eV]. Mutually exclusive with temperature_k."
         },
         "emit_current_density_a_m2": {
           "type": "number",
@@ -741,17 +788,21 @@
         },
         "deposit_opposite_charge_on_emit": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Deposit opposite-sign charge on emitting element for photo_raycast."
         },
         "normal_drift_speed": {
           "type": "number",
-          "default": 0.0
+          "default": 0.0,
+          "description": "Surface-normal drift speed [m/s] for photo_raycast emission."
         },
         "ray_direction": {
-          "$ref": "#/$defs/vec3"
+          "$ref": "#/$defs/vec3",
+          "description": "Ray direction vector for photo_raycast. Defaults to inward face normal."
         },
         "inject_face": {
-          "$ref": "#/$defs/injectFace"
+          "$ref": "#/$defs/injectFace",
+          "description": "Injection face. Required for reservoir_face and photo_raycast."
         }
       },
       "allOf": [
@@ -1001,11 +1052,13 @@
             "obj",
             "template"
           ],
-          "default": "auto"
+          "default": "auto",
+          "description": "Mesh input method. auto selects obj if obj_path exists, otherwise template."
         },
         "obj_path": {
           "type": "string",
-          "default": "examples/simple_plate.obj"
+          "default": "examples/simple_plate.obj",
+          "description": "Path to OBJ mesh file."
         },
         "obj_scale": {
           "type": "number",
@@ -1032,7 +1085,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/template"
-          }
+          },
+          "description": "List of procedural mesh templates."
         }
       }
     },
@@ -1042,7 +1096,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Enable this template."
         },
         "kind": {
           "type": "string",
@@ -1056,7 +1111,8 @@
             "cylinder",
             "sphere"
           ],
-          "default": "plane"
+          "default": "plane",
+          "description": "Template shape type."
         },
         "center": {
           "$ref": "#/$defs/vec3",
@@ -1064,17 +1120,20 @@
             0.0,
             0.0,
             0.0
-          ]
+          ],
+          "description": "Template center position [m]."
         },
         "size_x": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0
+          "default": 1.0,
+          "description": "X-direction size [m] for plane/plate_hole."
         },
         "size_y": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0
+          "default": 1.0,
+          "description": "Y-direction size [m] for plane/plate_hole."
         },
         "size": {
           "$ref": "#/$defs/positiveVec3",
@@ -1082,72 +1141,87 @@
             1.0,
             1.0,
             1.0
-          ]
+          ],
+          "description": "Box dimensions [x, y, z] [m]."
         },
         "nx": {
           "type": "integer",
           "minimum": 1,
-          "default": 1
+          "default": 1,
+          "description": "X-direction subdivision count for plane/box."
         },
         "ny": {
           "type": "integer",
           "minimum": 1,
-          "default": 1
+          "default": 1,
+          "description": "Y-direction subdivision count for plane/box."
         },
         "nz": {
           "type": "integer",
           "minimum": 1,
-          "default": 1
+          "default": 1,
+          "description": "Z-direction subdivision count for box."
         },
         "radius": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 0.5
+          "default": 0.5,
+          "description": "Radius [m] for disk/annulus/plate_hole/cylinder/sphere."
         },
         "inner_radius": {
           "type": "number",
           "minimum": 0,
-          "default": 0.25
+          "default": 0.25,
+          "description": "Inner radius [m] for annulus."
         },
         "height": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0
+          "default": 1.0,
+          "description": "Height [m] for cylinder."
         },
         "n_theta": {
           "type": "integer",
           "minimum": 3,
-          "default": 24
+          "default": 24,
+          "description": "Azimuthal subdivision count for disk/annulus/plate_hole/cylinder."
         },
         "n_r": {
           "type": "integer",
           "minimum": 1,
-          "default": 4
+          "default": 4,
+          "description": "Radial subdivision count for disk/annulus/plate_hole."
         },
         "n_z": {
           "type": "integer",
           "minimum": 1,
-          "default": 1
+          "default": 1,
+          "description": "Axial subdivision count for cylinder."
         },
         "cap": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Enable both end caps for cylinder."
         },
         "cap_top": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Enable top end cap for cylinder (overrides cap)."
         },
         "cap_bottom": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Enable bottom end cap for cylinder (overrides cap)."
         },
         "n_lon": {
           "type": "integer",
           "minimum": 3,
-          "default": 24
+          "default": 24,
+          "description": "Longitudinal subdivision count for sphere."
         },
         "n_lat": {
           "type": "integer",
           "minimum": 2,
-          "default": 12
+          "default": 12,
+          "description": "Latitudinal subdivision count for sphere."
         }
       }
     },
@@ -1157,24 +1231,29 @@
       "properties": {
         "write_files": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Enable file output."
         },
         "write_mesh_potential": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Output element centroid potentials to mesh_potential.csv."
         },
         "dir": {
           "type": "string",
-          "default": "outputs/latest"
+          "default": "outputs/latest",
+          "description": "Output directory path."
         },
         "history_stride": {
           "type": "integer",
           "minimum": 0,
-          "default": 1
+          "default": 1,
+          "description": "Output interval for charge_history.csv [batches]. 0 disables."
         },
         "resume": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Resume from existing checkpoint in output directory."
         }
       },
       "allOf": [
