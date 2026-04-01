@@ -231,3 +231,4 @@ test_*_tmp/
 .lint/
 
 ref/
+.claude/settings.local.json
