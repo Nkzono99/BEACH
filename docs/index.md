@@ -3,6 +3,7 @@ ordered_subpage: fortran_workflow.md
 ordered_subpage: config_workflow.md
 ordered_subpage: fortran_parameter_file.md
 ordered_subpage: fortran_fmm_core.md
+ordered_subpage: batch_duration_stability.md
 ordered_subpage: fortran_dependency_map.md
 ordered_subpage: python_postprocess_api.md
 
@@ -14,6 +15,7 @@ ordered_subpage: python_postprocess_api.md
 - [beachx config / preset / 高水準記法ガイド](config_workflow.html)
 - [Fortran パラメータファイル仕様](fortran_parameter_file.html)
 - [Fortran Coulomb FMM コア仕様](fortran_fmm_core.html)
+- [`batch_duration` の安定性と定常値の理論](batch_duration_stability.html)
 - [Fortran 依存関係マップ](fortran_dependency_map.html)
 - [Python 後処理 API リファレンス](python_postprocess_api.html)
 
