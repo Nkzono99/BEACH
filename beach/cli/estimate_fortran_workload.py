@@ -53,6 +53,7 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "velocity_distribution": "maxwellian",
     "velocity_grid_path": "",
     "velocity_grid_pdf_kind": "phase_space",
+    "velocity_grid_sampling": "auto",
     "particle_flux_m2_s": 0.0,
     "current_density_a_m2": 0.0,
     "drift_velocity": [0.0, 0.0, -8.0e5],
@@ -121,6 +122,7 @@ ALLOWED_SPECIES_KEYS = frozenset(
         "velocity_distribution",
         "velocity_grid_path",
         "velocity_grid_pdf_kind",
+        "velocity_grid_sampling",
         "particle_flux_m2_s",
         "current_density_a_m2",
         "drift_velocity",
@@ -435,11 +437,16 @@ def _validate_reservoir_species(
 
     velocity_distribution = str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
     velocity_grid_pdf_kind = str(spec.get("velocity_grid_pdf_kind", "phase_space")).strip().lower()
+    velocity_grid_sampling = str(spec.get("velocity_grid_sampling", "auto")).strip().lower()
     if velocity_distribution not in ("maxwellian", "grid"):
         raise SystemExit('particles.species.velocity_distribution must be "maxwellian" or "grid".')
     if velocity_grid_pdf_kind not in ("phase_space", "flux_weighted"):
         raise SystemExit(
             'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
+        )
+    if velocity_grid_sampling not in ("auto", "rectilinear", "discrete"):
+        raise SystemExit(
+            'particles.species.velocity_grid_sampling must be "auto", "rectilinear", or "discrete".'
         )
 
     m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
@@ -491,6 +498,8 @@ def _validate_reservoir_species(
 
     if str(spec.get("velocity_grid_path", "")).strip():
         raise SystemExit('velocity_grid_path is only valid with velocity_distribution="grid".')
+    if str(spec.get("velocity_grid_sampling", "auto")).strip().lower() != "auto":
+        raise SystemExit('velocity_grid_sampling is only valid with velocity_distribution="grid".')
     if bool(spec.get("_has_particle_flux_m2_s", False)) or bool(
         spec.get("_has_current_density_a_m2", False)
     ):
@@ -572,6 +581,7 @@ def _validate_photo_raycast_species(
         str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
         != "maxwellian"
         or str(spec.get("velocity_grid_path", "")).strip()
+        or str(spec.get("velocity_grid_sampling", "auto")).strip().lower() != "auto"
         or bool(spec.get("_has_particle_flux_m2_s", False))
         or bool(spec.get("_has_current_density_a_m2", False))
     ):
@@ -801,6 +811,9 @@ def estimate_workload(
         spec["velocity_grid_pdf_kind"] = (
             str(spec.get("velocity_grid_pdf_kind", "phase_space")).strip().lower()
         )
+        spec["velocity_grid_sampling"] = (
+            str(spec.get("velocity_grid_sampling", "auto")).strip().lower()
+        )
         if spec["velocity_distribution"] not in ("maxwellian", "grid"):
             raise SystemExit(
                 'particles.species.velocity_distribution must be "maxwellian" or "grid".'
@@ -808,6 +821,10 @@ def estimate_workload(
         if spec["velocity_grid_pdf_kind"] not in ("phase_space", "flux_weighted"):
             raise SystemExit(
                 'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
+            )
+        if spec["velocity_grid_sampling"] not in ("auto", "rectilinear", "discrete"):
+            raise SystemExit(
+                'particles.species.velocity_grid_sampling must be "auto", "rectilinear", or "discrete".'
             )
         spec["_has_number_density_cm3"] = "number_density_cm3" in raw
         spec["_has_number_density_m3"] = "number_density_m3" in raw
@@ -847,6 +864,7 @@ def estimate_workload(
                 str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
                 != "maxwellian"
                 or str(spec.get("velocity_grid_path", "")).strip()
+                or str(spec.get("velocity_grid_sampling", "auto")).strip().lower() != "auto"
                 or bool(spec.get("_has_particle_flux_m2_s", False))
                 or bool(spec.get("_has_current_density_a_m2", False))
             ):

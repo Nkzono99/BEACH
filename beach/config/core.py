@@ -1014,6 +1014,9 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
         velocity_grid_pdf_kind = str(
             species_table.get("velocity_grid_pdf_kind", "phase_space")
         ).strip().lower()
+        velocity_grid_sampling = str(
+            species_table.get("velocity_grid_sampling", "auto")
+        ).strip().lower()
         if velocity_distribution not in {"maxwellian", "grid"}:
             raise RenderValidationError(
                 f"BEACH constraint error: particles.species[{index}] has unsupported "
@@ -1023,6 +1026,11 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
             raise RenderValidationError(
                 f"BEACH constraint error: particles.species[{index}] has unsupported "
                 f"velocity_grid_pdf_kind={velocity_grid_pdf_kind!r}."
+            )
+        if velocity_grid_sampling not in {"auto", "rectilinear", "discrete"}:
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}] has unsupported "
+                f"velocity_grid_sampling={velocity_grid_sampling!r}."
             )
 
         if source_mode == "volume_seed":
@@ -1746,6 +1754,11 @@ def _validate_velocity_grid_forbidden(
         raise RenderValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and cannot define velocity_distribution="grid".'
+        )
+    if str(species_table.get("velocity_grid_sampling", "auto")).strip().lower() != "auto":
+        raise RenderValidationError(
+            f"BEACH constraint error: particles.species[{index}] uses "
+            f'source_mode="{source_mode}" and cannot define velocity_grid_sampling.'
         )
     for key in ("velocity_grid_path", "particle_flux_m2_s", "current_density_a_m2"):
         if key in species_table:

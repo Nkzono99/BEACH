@@ -29,6 +29,7 @@ module bem_app_config_types
     character(len=16) :: velocity_distribution = 'maxwellian'
     character(len=256) :: velocity_grid_path = ''
     character(len=16) :: velocity_grid_pdf_kind = 'phase_space'
+    character(len=16) :: velocity_grid_sampling = 'auto'
     real(dp) :: particle_flux_m2_s = 0.0d0
     logical :: has_particle_flux_m2_s = .false.
     real(dp) :: current_density_a_m2 = 0.0d0

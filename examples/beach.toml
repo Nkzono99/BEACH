@@ -65,6 +65,7 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 # velocity_distribution = "grid"
 # velocity_grid_path = "examples/velocity_grid.csv"
 # velocity_grid_pdf_kind = "phase_space"  # or "flux_weighted"
+# velocity_grid_sampling = "rectilinear"  # or "auto", "discrete"
 # particle_flux_m2_s = 1.0e12
 # # current_density_a_m2 = -1.602176634e-7  # particle_flux_m2_s と排他
 # q_particle = -1.602176634e-19

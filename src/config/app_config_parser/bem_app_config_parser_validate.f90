@@ -87,6 +87,7 @@ contains
   spec = cfg%particle_species(species_idx)
   spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
   spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
+  spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
 
   if (spec%has_npcls_per_step) then
     error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
@@ -151,6 +152,12 @@ contains
   case default
     error stop 'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
   end select
+  select case (trim(spec%velocity_grid_sampling))
+  case ('auto', 'rectilinear', 'discrete')
+    continue
+  case default
+    error stop 'particles.species.velocity_grid_sampling must be "auto", "rectilinear", or "discrete".'
+  end select
 
   if (use_velocity_grid) then
     if (len_trim(spec%velocity_grid_path) == 0) then
@@ -185,6 +192,9 @@ contains
   else
     if (len_trim(spec%velocity_grid_path) > 0) then
       error stop 'velocity_grid_path is only valid with velocity_distribution="grid".'
+    end if
+    if (trim(spec%velocity_grid_sampling) /= 'auto') then
+      error stop 'velocity_grid_sampling is only valid with velocity_distribution="grid".'
     end if
     if (spec%has_particle_flux_m2_s .or. spec%has_current_density_a_m2) then
       error stop 'particle_flux_m2_s/current_density_a_m2 are only valid with velocity_distribution="grid".'
@@ -276,6 +286,7 @@ contains
     error stop 'target_macro_particles_per_batch is not allowed for photo_raycast.'
   end if
   if (trim(lower_ascii(spec%velocity_distribution)) /= 'maxwellian' .or. len_trim(spec%velocity_grid_path) > 0 .or. &
+      trim(lower_ascii(spec%velocity_grid_sampling)) /= 'auto' .or. &
       spec%has_particle_flux_m2_s .or. spec%has_current_density_a_m2) then
     error stop 'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
   end if

@@ -151,6 +151,14 @@
             "flux_weighted"
           ]
         },
+        "velocity_grid_sampling": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "rectilinear",
+            "discrete"
+          ]
+        },
         "particle_flux_m2_s": {
           "type": "number",
           "exclusiveMinimum": 0

@@ -220,6 +220,7 @@ history_stride = 1
 | `target_macro_particles_per_batch` | int | `w_particle` 自動解決用（`>0` または `-1`） |
 | `velocity_grid_path` | string | `velocity_distribution="grid"` の CSV パス |
 | `velocity_grid_pdf_kind` | string | `"phase_space"` / `"flux_weighted"` |
+| `velocity_grid_sampling` | string | `"auto"` / `"rectilinear"` / `"discrete"` |
 | `particle_flux_m2_s` / `current_density_a_m2` | float | `velocity_distribution="grid"` の流入量（どちらか片方必須） |
 
 制約:
@@ -233,7 +234,9 @@ history_stride = 1
 - `velocity_distribution="maxwellian"`（既定）では `number_density_*` と温度から drifting Maxwellian の片側流束を計算します。
 - `velocity_distribution="grid"` では `velocity_grid_path` の `vx_m_s,vy_m_s,vz_m_s,f` CSV を読み込み、`sum f = 1` へ内部規格化します。この場合 `number_density_*` / `temperature_*` は使わず、`particle_flux_m2_s` または `current_density_a_m2` のどちらか片方で流入量を決めます。`current_density_a_m2` は `abs(J / q_particle)` として粒子 flux に変換します。
 - `velocity_grid_path` の相対パスは実行時のカレントディレクトリ基準です。
-- `velocity_grid_pdf_kind="phase_space"` では流入面の内向き法線速度 `v_n` を掛けた `v_n f(v)` でサンプルします。`"flux_weighted"` では CSV の `f` をすでに流束重み済みの流入分布として扱います。どちらも `v_n > 0` の行だけを使います。
+- `velocity_grid_sampling="auto"`（既定）では、CSV が完全な直交格子（各 `vx,vy,vz` 軸の直積がすべて埋まっている形）ならセル内で `f` を三線形補間して連続的な速度をサンプルし、不完全格子や散布点の場合は従来どおり CSV 行の離散サンプルにフォールバックします。
+- `velocity_grid_sampling="rectilinear"` は直交格子補間を強制し、完全な直交格子として解釈できない場合はエラーにします。直交格子入力を前提にする場合の推奨モードです。`"discrete"` は補間を使わず CSV 行を直接サンプルします。
+- `velocity_grid_pdf_kind="phase_space"` では流入面の内向き法線速度 `v_n` を掛けた `v_n f(v)` でサンプルします。`"flux_weighted"` では CSV の `f` をすでに流束重み済みの流入分布として扱います。どちらも `v_n > 0` の速度だけを使います。
 - 現状 `velocity_distribution="grid"` は `sim.sheath_injection_model="none"` のときのみ有効です。
 
 粒子数決定（1種あたり）:

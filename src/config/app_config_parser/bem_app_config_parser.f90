@@ -367,6 +367,7 @@ contains
       cfg%particle_species(i)%source_mode = lower_ascii(trim(cfg%particle_species(i)%source_mode))
       cfg%particle_species(i)%velocity_distribution = lower_ascii(trim(cfg%particle_species(i)%velocity_distribution))
       cfg%particle_species(i)%velocity_grid_pdf_kind = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
+      cfg%particle_species(i)%velocity_grid_sampling = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_sampling))
       select case (trim(cfg%particle_species(i)%velocity_distribution))
       case ('maxwellian', 'grid')
         continue
@@ -379,6 +380,12 @@ contains
       case default
         error stop 'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
       end select
+      select case (trim(cfg%particle_species(i)%velocity_grid_sampling))
+      case ('auto', 'rectilinear', 'discrete')
+        continue
+      case default
+        error stop 'particles.species.velocity_grid_sampling must be "auto", "rectilinear", or "discrete".'
+      end select
       select case (trim(cfg%particle_species(i)%source_mode))
       case ('volume_seed')
         if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
@@ -386,6 +393,7 @@ contains
         end if
         if (trim(cfg%particle_species(i)%velocity_distribution) /= 'maxwellian' .or. &
             len_trim(cfg%particle_species(i)%velocity_grid_path) > 0 .or. &
+            trim(cfg%particle_species(i)%velocity_grid_sampling) /= 'auto' .or. &
             cfg%particle_species(i)%has_particle_flux_m2_s .or. cfg%particle_species(i)%has_current_density_a_m2) then
           error stop 'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
         end if
@@ -636,6 +644,9 @@ contains
     case ('velocity_grid_pdf_kind')
       call parse_string(v, spec%velocity_grid_pdf_kind)
       spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
+    case ('velocity_grid_sampling')
+      call parse_string(v, spec%velocity_grid_sampling)
+      spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
     case ('particle_flux_m2_s')
       call parse_real(v, spec%particle_flux_m2_s)
       spec%has_particle_flux_m2_s = .true.

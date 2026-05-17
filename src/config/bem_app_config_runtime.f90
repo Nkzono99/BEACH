@@ -470,25 +470,27 @@ contains
             sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
             barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
-            apply_barrier_energy_shift=apply_shift &
+            apply_barrier_energy_shift=apply_shift, velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         else if (present(barrier_normal_energy)) then
           call sample_reservoir_velocity_grid_particles( &
             sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
-            barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
+            barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift, &
+            velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         else if (present(vmin_normal)) then
           call sample_reservoir_velocity_grid_particles( &
             sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
-            vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
+            vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift, &
+            velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         else
           call sample_reservoir_velocity_grid_particles( &
             sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
-            apply_barrier_energy_shift=apply_shift &
+            apply_barrier_energy_shift=apply_shift, velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         end if
       else if (present(barrier_normal_energy) .and. present(vmin_normal)) then
