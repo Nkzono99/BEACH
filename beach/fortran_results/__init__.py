@@ -11,6 +11,14 @@ from .field_lines import (
 )
 from .history import FortranChargeHistory
 from .io import list_fortran_runs, load_fortran_result
+from .kernel import (
+    calc_object_forces_kernel,
+    field_kernel_options_from_result,
+    FieldKernel,
+    FieldKernelError,
+    FieldKernelOptions,
+    KernelObjectForceRecord,
+)
 from .mesh import _surface_charge_density
 from .mobility import analyze_coulomb_mobility
 from .plotting import (
@@ -26,6 +34,7 @@ from .potential import (
     compute_potential_points,
     compute_potential_slices,
 )
+from .scene import BeachScene, RigidTransform
 from .types import (
     CoulombInteraction,
     CoulombMobilityAnalysis,
@@ -46,10 +55,18 @@ __all__ = [
     "CoulombMobilityAnalysis",
     "FortranRunResult",
     "PotentialSlice2D",
+    "BeachScene",
+    "FieldKernel",
+    "FieldKernelError",
+    "FieldKernelOptions",
+    "KernelObjectForceRecord",
+    "RigidTransform",
     "load_fortran_result",
     "list_fortran_runs",
     "Beach",
     "calc_coulomb",
+    "calc_object_forces_kernel",
+    "field_kernel_options_from_result",
     "analyze_coulomb_mobility",
     "compute_electric_field_points",
     "trace_field_lines",
@@ -64,4 +81,6 @@ __all__ = [
     "plot_potential_slices",
     "plot_potential_mesh",
     "animate_history_mesh",
+    "_select_frame_columns",
+    "_surface_charge_density",
 ]

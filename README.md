@@ -179,10 +179,16 @@ beachx mobility outputs/latest \
   --density-kg-m3 2500 \
   --mu-static 0.4 \
   --save-csv outputs/latest/mobility_summary.csv
+
+# Fortran FMM core と同じ field kernel で object ごとの総電荷・合力・合トルクを出す場合
+make build-kernel
+beachx kernel-forces outputs/latest \
+  --save-csv outputs/latest/object_forces_kernel.csv
 ```
 
 `beachx coulomb` は、`beach.toml` の `mesh.templates` が見つかれば object の kind と順序をそこから読み取り、既定では全 object を target 軸に並べて行列を描きます。特定 kind だけに絞りたいときは `--target-kinds sphere` のように指定できます。
 `beachx mobility` は、既定で `plane` を support とみなし、それ以外の object について合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV に書き出します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
+`beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran FMM core を Python から呼び出し、`beach.toml` の `sim.softening` / `sim.field_bc_mode` / periodic2 / tree 設定を使って object ごとの net force を計算します。共有ライブラリは `make build-kernel` で `build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または `BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は `--config path/to/beach.toml` を指定します。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` なども当面は使えますが、今後は `beachx ...` を推奨します。
@@ -192,7 +198,7 @@ Python から `mesh source` ごとの面積重み付き箱ひげ図を作る例:
 ```python
 from beach import Beach
 
-run = Beach("outputs/latest")
+run = Beach("outputs/latest")  # config_path=... で beach.toml を明示指定可能
 
 # 電荷 [C] の面積重み付き箱ひげ図（mesh sourceごと）
 fig_q, ax_q = run.plot_mesh_source_boxplot(
@@ -231,6 +237,21 @@ mobility = run.analyze_coulomb_mobility(
 )
 for record in mobility.records:
     print(record.label, record.lift_ratio, record.slide_ratio, record.roll_ratio)
+
+# Fortran FMM core を共有ライブラリとして呼び、object ごとの総電荷・合力を計算
+kernel_records = run.calc_object_forces_kernel()
+for record in kernel_records:
+    print(record.mesh_id, record.total_charge_C, record.force_N)
+
+# object を一時的に移動・回転した what-if scene で力を再評価
+scene = run.scene()
+moved = scene.move(2, by=[1.0e-3, 0.0, 0.0]).rotate(
+    2,
+    axis=[0.0, 0.0, 1.0],
+    angle_deg=15.0,
+)
+records = moved.calc_object_forces_kernel(target_mesh_ids=[2])
+print(records[0].force_N, records[0].torque_Nm)
 ```
 
 ## 3. 運用でよく使うコマンド

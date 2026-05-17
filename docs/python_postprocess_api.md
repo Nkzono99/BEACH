@@ -13,6 +13,8 @@ Fortran 実行系が出力するファイル群（`summary.txt`, `charges.csv`, 
 | `beach.fortran_results.facade` | 高水準ファサード `Beach` クラス |
 | `beach.fortran_results.potential` | 電位再構成 (`compute_potential_mesh`, `compute_potential_points`, `compute_potential_slices`) |
 | `beach.fortran_results.coulomb` | Coulomb 力/トルク計算 (`calc_coulomb`) |
+| `beach.fortran_results.kernel` | Fortran FMM field kernel の共有ライブラリ呼び出し (`FieldKernel`, `calc_object_forces_kernel`) |
+| `beach.fortran_results.scene` | object の一時移動・回転と編集後 scene の field-kernel 評価 |
 | `beach.fortran_results.field_lines` | 電場計算・電気力線追跡・3D 描画 (`compute_electric_field_points`, `trace_field_lines`, `plot_field_lines_3d`) |
 | `beach.fortran_results.mobility` | Coulomb mobility 解析 (`analyze_coulomb_mobility`) |
 | `beach.fortran_results.plotting` | 各種プロット (`plot_charge_mesh`, `plot_charges`, `plot_potential_mesh` 等) |
@@ -35,6 +37,8 @@ from beach import Beach, calc_coulomb, compute_electric_field_points, trace_fiel
 b = Beach("outputs/latest")
 ```
 
+`Beach("outputs/latest", config_path="path/to/beach.toml")` のように設定ファイルを明示できます。`config_path=None` の場合は `output_dir/beach.toml`, 親ディレクトリ, 祖父ディレクトリの順に自動探索します。config-aware な object / kernel 解析では、この `beach.toml` から object kind/order、`sim.softening`、periodic2、tree パラメータを解決します。
+
 ### 2.1 コンストラクタ
 
 | パラメータ | 型 | デフォルト | 説明 |
@@ -56,6 +60,8 @@ b = Beach("outputs/latest")
 | `get_mesh(*mesh_ids, step)` | 内部 | mesh ID で `MeshSelection` を取得 |
 | `get_mesh_charge(*mesh_ids, step)` | 内部 | mesh ID で要素電荷配列を取得 |
 | `calc_coulomb(target, source, ...)` | `calc_coulomb` | Coulomb 力/トルク計算 |
+| `calc_object_forces_kernel(...)` | `calc_object_forces_kernel` | Fortran field kernel による object 別合力計算 |
+| `scene(step, ...)` | `BeachScene.from_result` | object を一時的に移動・回転する what-if scene |
 | `analyze_coulomb_mobility(...)` | `analyze_coulomb_mobility` | オブジェクト別 mobility 解析 |
 | `compute_potential(...)` | `compute_potential_mesh` | 重心での電位再構成 |
 | `compute_potential_points(points, ...)` | `compute_potential_points` | 任意点での電位 |
@@ -414,16 +420,66 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 
 戻り値: `CoulombMobilityAnalysis` (`.records` に `CoulombMobilityRecord` のタプルを格納)
 
-## 10. 可視化関数
+## 10. Fortran field kernel 連携
 
-### 10.1 電荷/電位メッシュ描画
+### 10.1 `FieldKernel`
+
+`make build-kernel` で生成した `build/libbeach_field_kernel.so` を `ctypes` 経由で読み込み、シミュレーションと同じ Fortran FMM core で電場・電位を評価します。`config_path` または自動探索された `beach.toml` から、softening、periodic2、tree 設定を読みます。
+
+```python
+from beach import Beach, FieldKernel
+
+run = Beach("outputs/latest")
+with FieldKernel.from_result(run) as kernel:
+    e = kernel.eval_e([[0.0, 0.0, 0.01]])
+```
+
+共有ライブラリを別パスに置く場合は `library_path=` または環境変数 `BEACH_FIELD_KERNEL_LIB` を指定します。
+
+### 10.2 `calc_object_forces_kernel(result, ...)`
+
+各 object について自身の source 電荷をゼロにしたうえで、`sum(q_i E_not_self(r_i))` とトルクを計算します。`periodic2 + m2l_root_oracle` を含む Fortran kernel 経路を使うため、Python direct 和の `calc_coulomb` よりシミュレーション側の場定義に近い診断です。
+
+```python
+from beach import Beach
+
+run = Beach("outputs/latest")
+records = run.calc_object_forces_kernel()
+for record in records:
+    print(record.mesh_id, record.total_charge_C, record.force_N)
+```
+
+### 10.3 `BeachScene`
+
+`Beach.scene()` は、出力済みの帯電 mesh を Python 側で一時編集する what-if view です。
+`move` / `rotate` は新しい scene を返し、各要素の電荷は同じ要素に付いたまま重心・頂点だけを剛体変換します。その後 `calc_object_forces_kernel` を呼ぶと、編集後の geometry を source/target として Fortran field kernel に渡します。
+
+```python
+from beach import Beach
+
+run = Beach("outputs/latest", config_path="examples/beach.toml")
+scene = run.scene()
+moved = scene.move(2, by=[1.0e-3, 0.0, 0.0]).rotate(
+    2,
+    axis=[0.0, 0.0, 1.0],
+    angle_deg=15.0,
+)
+records = moved.calc_object_forces_kernel(target_mesh_ids=[2])
+print(records[0].force_N, records[0].torque_Nm)
+```
+
+Python 側の剛体変換は既定では NumPy で処理します。Numba を使いたい場合は任意依存として `pip install ".[accel]"` を入れ、`run.scene(transform_backend="numba")` を指定できます。FMM・periodic2・遠方補正の意味を決める主計算は引き続き Fortran kernel 側で行います。
+
+## 11. 可視化関数
+
+### 11.1 電荷/電位メッシュ描画
 
 ```python
 fig, ax = b.plot_mesh(cmap="coolwarm")                        # 電荷密度
 fig, ax = b.plot_potential(reference_point="species1_injection_center")  # 電位
 ```
 
-### 10.2 電位断面
+### 11.2 電位断面
 
 ```python
 fig, axes = b.plot_potential_slices(
@@ -432,21 +488,21 @@ fig, axes = b.plot_potential_slices(
 )
 ```
 
-### 10.3 履歴アニメーション
+### 11.3 履歴アニメーション
 
 ```python
 gif_path = b.animate_mesh("charge_animation.gif", quantity="charge", fps=10)
 ```
 
-### 10.4 Coulomb 力行列
+### 11.4 Coulomb 力行列
 
 ```python
 fig, ax = b.plot_coulomb_force_matrix(component="z")
 ```
 
-## 11. CLI コマンド
+## 12. CLI コマンド
 
-### 11.1 統一 CLI (`beachx`)
+### 12.1 統一 CLI (`beachx`)
 
 v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 
@@ -459,13 +515,14 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beachx profile <output_dir>` | パフォーマンスプロファイルの描画 |
 | `beachx coulomb <output_dir>` | Coulomb 力行列の描画 |
 | `beachx mobility <output_dir>` | Coulomb mobility 解析 |
+| `beachx kernel-forces <output_dir>` | Fortran field kernel による object 別合力 CSV 出力 |
 | `beachx config render <config.toml>` | 設定ファイルのレンダリング（プリセット適用後） |
 | `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
 | `beachx preset list` | 利用可能なプリセット一覧 |
 | `beachx preset show <name>` | プリセット内容の表示 |
 | `beachx model close-pack` | 密充填モデルの生成 |
 
-### 11.2 旧 CLI（非推奨）
+### 12.2 旧 CLI（非推奨）
 
 以下の旧エントリポイントは後方互換のため残されていますが、将来のバージョンで削除される可能性があります。
 

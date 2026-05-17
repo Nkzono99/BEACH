@@ -1,7 +1,7 @@
 .PHONY: \
 	install install-local install-auto install-generic install-camphor install-camphor-local \
 	install-intel install-intel-local \
-	build run test \
+	build build-kernel run test \
 	fmt-fortran fmt-check-fortran install-hooks \
 	build-mpi run-mpi test-mpi \
 	docs-fortran docs-clean
@@ -16,6 +16,9 @@ FORD_CONFIG ?= preprocessor = "$(PYTHON) -W ignore::RuntimeWarning -m pcpp.pcmd 
 PROFILE ?= release
 CONFIG ?= beach.toml
 OPENMP_FLAG ?= -fopenmp
+KERNEL_FC ?= gfortran
+KERNEL_LIB ?= build/libbeach_field_kernel.so
+KERNEL_FPM_FLAG ?= $(OPENMP_FLAG) -fPIC
 INSTALL_PROFILE ?= auto
 FPRETTIFY ?= fprettify
 PRE_COMMIT ?= pre-commit
@@ -57,6 +60,16 @@ install-intel-local:
 
 build:
 	$(FPM) build --profile $(PROFILE) --flag "$(OPENMP_FLAG)"
+
+build-kernel:
+	$(FPM) build --profile $(PROFILE) --flag "$(KERNEL_FPM_FLAG)"
+	@set -eu; \
+	lib=$$(find build -name libbeach_fortran.a -printf '%T@ %p\n' | sort -nr | awk 'NR==1 {print $$2}'); \
+	if [ -z "$$lib" ]; then echo "libbeach_fortran.a not found; run fpm build first." >&2; exit 1; fi; \
+	mkdir -p "$$(dirname "$(KERNEL_LIB)")"; \
+	$(KERNEL_FC) -shared -o "$(KERNEL_LIB)" \
+		-Wl,--whole-archive "$$lib" -Wl,--no-whole-archive $(OPENMP_FLAG); \
+	echo "built $(KERNEL_LIB)"
 
 run:
 	$(FPM) run --profile $(PROFILE) --flag "$(OPENMP_FLAG)" -- $(CONFIG)

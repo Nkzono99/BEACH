@@ -15,6 +15,7 @@ from .field_lines import (
     trace_field_lines,
 )
 from .io import load_fortran_result
+from .kernel import calc_object_forces_kernel, FieldKernel
 from .mobility import analyze_coulomb_mobility
 from .plotting import (
     plot_charge_mesh,
@@ -29,6 +30,7 @@ from .potential import (
     compute_potential_points,
     compute_potential_slices,
 )
+from .scene import BeachScene, TransformBackend
 from .selection import _build_mesh_selection, _mesh_ids_or_default
 from .types import FortranRunResult, MeshSelection
 
@@ -43,13 +45,19 @@ class Beach:
     ----------
     output_dir : str or pathlib.Path, default "outputs/latest"
         Directory containing Fortran output files.
+    config_path : str, pathlib.Path, or None, default None
+        Optional ``beach.toml`` path used by config-aware object/kernel analyses.
+        ``None`` keeps the existing auto-detection near ``output_dir``.
     """
 
     def __init__(
         self,
         output_dir: str | Path = "outputs/latest",
+        *,
+        config_path: str | Path | None = None,
     ) -> None:
         self.output_dir = Path(output_dir)
+        self.config_path = None if config_path is None else Path(config_path)
         self._result: FortranRunResult | None = None
 
     @property
@@ -77,6 +85,11 @@ class Beach:
 
         self._result = load_fortran_result(self.output_dir)
         return self._result
+
+    def _resolve_config_path(self, config_path: str | Path | None) -> Path | None:
+        if config_path is not None:
+            return Path(config_path)
+        return self.config_path
 
     @property
     def mesh_ids(self) -> tuple[int, ...]:
@@ -215,7 +228,7 @@ class Beach:
             self.result,
             step=step,
             softening=softening,
-            config_path=config_path,
+            config_path=self._resolve_config_path(config_path),
             gravity=gravity,
             support_normal=support_normal,
             support_kinds=support_kinds,
@@ -224,6 +237,76 @@ class Beach:
             mu_static=mu_static,
             mu_roll=mu_roll,
             adhesion_force_N=adhesion_force_N,
+        )
+
+    def field_kernel(
+        self,
+        *,
+        step: int | None = -1,
+        softening: float | None = None,
+        periodic2: Mapping[str, object] | None = None,
+        theta: float | None = None,
+        leaf_max: int | None = None,
+        order: int = 4,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
+    ):
+        """Build a Python handle to the Fortran FMM field kernel."""
+
+        return FieldKernel.from_result(
+            self.result,
+            step=step,
+            softening=softening,
+            periodic2=periodic2,
+            theta=theta,
+            leaf_max=leaf_max,
+            order=order,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
+        )
+
+    def calc_object_forces_kernel(
+        self,
+        *,
+        step: int | None = -1,
+        target_mesh_ids: int | Iterable[int] | None = None,
+        softening: float | None = None,
+        periodic2: Mapping[str, object] | None = None,
+        theta: float | None = None,
+        leaf_max: int | None = None,
+        order: int = 4,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
+    ):
+        """Compute object-wise net force using the Fortran FMM field kernel."""
+
+        return calc_object_forces_kernel(
+            self.result,
+            step=step,
+            target_mesh_ids=target_mesh_ids,
+            softening=softening,
+            periodic2=periodic2,
+            theta=theta,
+            leaf_max=leaf_max,
+            order=order,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
+        )
+
+    def scene(
+        self,
+        *,
+        step: int | None = -1,
+        config_path: str | Path | None = None,
+        transform_backend: TransformBackend = "numpy",
+    ) -> BeachScene:
+        """Create an editable what-if scene for this output snapshot."""
+
+        return BeachScene.from_result(
+            self.result,
+            step=step,
+            config_path=self._resolve_config_path(config_path),
+            transform_backend=transform_backend,
         )
 
     def plot_mesh(
@@ -636,7 +719,7 @@ class Beach:
             component=component,
             softening=softening,
             target_kinds=target_kinds,
-            config_path=config_path,
+            config_path=self._resolve_config_path(config_path),
             cmap=cmap,
             annotate=annotate,
         )

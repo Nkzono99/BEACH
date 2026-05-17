@@ -56,7 +56,34 @@ call eval_point(plan, state, r, e)
 - `build_plan` は幾何依存処理、`update_state` は電荷依存処理です。
 - `eval_point(s)` は `plan` と `state` が ready な前提です。
 
-### 2.1 BEACH adapter での使い方
+### 2.2 C ABI / Python 連携
+
+`src/physics/field_solver/bem_field_kernel_c.f90` は、この Fortran API を
+`iso_c_binding` の opaque handle API として公開します。共有ライブラリは
+`make build-kernel` で `build/libbeach_field_kernel.so` に生成します。
+
+主な C ABI:
+
+```text
+beach_kernel_create(handle)
+beach_kernel_destroy(handle)
+beach_kernel_build(handle, src_pos, options...)
+beach_kernel_update_charges(handle, src_q)
+beach_kernel_eval_e(handle, target_pos, e)
+beach_kernel_eval_phi(handle, target_pos, phi)
+beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torque)
+```
+
+Python 側は `beach.fortran_results.kernel.FieldKernel` がこの ABI を `ctypes`
+で呼びます。`calc_object_forces_kernel` は object 自身の source 電荷をゼロにして
+`sum(q_i E_not_self(r_i))` を評価するため、自己力の混入を避けながら
+`periodic2 + m2l_root_oracle` を含む同じ field kernel を使えます。
+`Beach.scene()` / `BeachScene` は Python 側で object の剛体移動・回転を一時的に
+適用し、編集後の重心配列を同じ ABI に渡します。剛体変換の補助処理は NumPy
+既定で、任意依存の Numba backend も選べますが、場評価そのものは Fortran
+kernel が担当します。
+
+### 2.3 BEACH adapter での使い方
 
 BEACH の field solver adapter は、メッシュ要素重心を `src_pos` としてこのコアへ渡します。
 
