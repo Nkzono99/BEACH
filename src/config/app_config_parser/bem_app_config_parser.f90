@@ -15,6 +15,11 @@ module bem_app_config_parser
       type(app_config), intent(inout) :: cfg
     end subroutine resolve_batch_duration
 
+    !> `sim.e0` または `sim.e0_abs` + angle 指定を内部ベクトルへ正規化する。
+    module subroutine resolve_external_e_field(cfg)
+      type(app_config), intent(inout) :: cfg
+    end subroutine resolve_external_e_field
+
     !> `reservoir_face` 粒子種の入力値を検証し、必要なら `w_particle` を解決する。
     module subroutine validate_reservoir_species(cfg, species_idx)
       type(app_config), intent(inout) :: cfg
@@ -297,6 +302,7 @@ contains
     if (cfg%sim%tree_min_nelem < 1_i32) then
       error stop 'sim.tree_min_nelem must be >= 1.'
     end if
+    call resolve_external_e_field(cfg)
     cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
     select case (trim(cfg%sim%reservoir_potential_model))
     case ('none', 'infinity_barrier')
@@ -359,10 +365,29 @@ contains
       if (.not. cfg%particle_species(i)%enabled) cycle
 
       cfg%particle_species(i)%source_mode = lower_ascii(trim(cfg%particle_species(i)%source_mode))
+      cfg%particle_species(i)%velocity_distribution = lower_ascii(trim(cfg%particle_species(i)%velocity_distribution))
+      cfg%particle_species(i)%velocity_grid_pdf_kind = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
+      select case (trim(cfg%particle_species(i)%velocity_distribution))
+      case ('maxwellian', 'grid')
+        continue
+      case default
+        error stop 'particles.species.velocity_distribution must be "maxwellian" or "grid".'
+      end select
+      select case (trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
+      case ('phase_space', 'flux_weighted')
+        continue
+      case default
+        error stop 'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
+      end select
       select case (trim(cfg%particle_species(i)%source_mode))
       case ('volume_seed')
         if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
           error stop 'particles.species.npcls_per_step must be >= 0.'
+        end if
+        if (trim(cfg%particle_species(i)%velocity_distribution) /= 'maxwellian' .or. &
+            len_trim(cfg%particle_species(i)%velocity_grid_path) > 0 .or. &
+            cfg%particle_species(i)%has_particle_flux_m2_s .or. cfg%particle_species(i)%has_current_density_a_m2) then
+          error stop 'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
         end if
         if (cfg%particle_species(i)%has_target_macro_particles_per_batch) then
           error stop 'target_macro_particles_per_batch is only valid for reservoir_face.'
@@ -491,6 +516,18 @@ contains
       cfg%sim%has_tree_leaf_max = .true.
     case ('tree_min_nelem')
       call parse_int(v, cfg%sim%tree_min_nelem)
+    case ('e0')
+      call parse_real3(v, cfg%sim%e0)
+      cfg%sim%has_e0_vector = .true.
+    case ('e0_abs')
+      call parse_real(v, cfg%sim%e0_abs)
+      cfg%sim%has_e0_abs = .true.
+    case ('e0_phi_xy_deg')
+      call parse_real(v, cfg%sim%e0_phi_xy_deg)
+      cfg%sim%has_e0_phi_xy_deg = .true.
+    case ('e0_phi_z_deg')
+      call parse_real(v, cfg%sim%e0_phi_z_deg)
+      cfg%sim%has_e0_phi_z_deg = .true.
     case ('b0')
       call parse_real3(v, cfg%sim%b0)
     case ('reservoir_potential_model')
@@ -591,6 +628,20 @@ contains
       call parse_real3(v, spec%pos_low)
     case ('pos_high')
       call parse_real3(v, spec%pos_high)
+    case ('velocity_distribution')
+      call parse_string(v, spec%velocity_distribution)
+      spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
+    case ('velocity_grid_path')
+      call parse_string(v, spec%velocity_grid_path)
+    case ('velocity_grid_pdf_kind')
+      call parse_string(v, spec%velocity_grid_pdf_kind)
+      spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
+    case ('particle_flux_m2_s')
+      call parse_real(v, spec%particle_flux_m2_s)
+      spec%has_particle_flux_m2_s = .true.
+    case ('current_density_a_m2')
+      call parse_real(v, spec%current_density_a_m2)
+      spec%has_current_density_a_m2 = .true.
     case ('drift_velocity')
       call parse_real3(v, spec%drift_velocity)
     case ('temperature_k')

@@ -9,7 +9,8 @@ module bem_app_config_runtime
   use bem_importers, only: load_obj_mesh
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
-    sample_reservoir_face_particles, sample_photo_raycast_particles, &
+    compute_macro_particles_from_flux, sample_reservoir_face_particles, sample_reservoir_velocity_grid_particles, &
+    sample_photo_raycast_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_particles, only: init_particles
   use bem_sheath_injection_model, only: sheath_injection_context, resolve_sheath_injection_context
@@ -201,6 +202,7 @@ contains
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
+                             effective_particle_flux_m2_s(:), &
                              effective_temperature_k(:), effective_drift_velocity(:, :), &
                              photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:)
     logical, allocatable :: apply_barrier_energy_shift(:)
@@ -226,6 +228,7 @@ contains
     allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
     allocate (effective_density_m3(cfg%n_particle_species), w_effective(cfg%n_particle_species))
+    allocate (effective_particle_flux_m2_s(cfg%n_particle_species))
     allocate (effective_temperature_k(cfg%n_particle_species), effective_drift_velocity(3, cfg%n_particle_species))
     allocate (photo_emit_current_density(cfg%n_particle_species), photo_vmin_normal(cfg%n_particle_species))
     allocate (photo_normal_drift_speed(cfg%n_particle_species), apply_barrier_energy_shift(cfg%n_particle_species))
@@ -235,6 +238,7 @@ contains
     barrier_normal = 0.0d0
     effective_density_m3 = 0.0d0
     w_effective = 0.0d0
+    effective_particle_flux_m2_s = 0.0d0
     effective_temperature_k = 0.0d0
     effective_drift_velocity = 0.0d0
     photo_emit_current_density = 0.0d0
@@ -249,7 +253,11 @@ contains
         effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
         effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
       case ('reservoir_face')
-        effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
+        if (trim(lower_ascii(cfg%particle_species(s)%velocity_distribution)) == 'grid') then
+          effective_particle_flux_m2_s(s) = cfg%particle_species(s)%particle_flux_m2_s
+        else
+          effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
+        end if
         w_effective(s) = cfg%particle_species(s)%w_particle
         effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
         effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
@@ -326,6 +334,7 @@ contains
         call compute_macro_particles_for_species( &
           cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s), &
           batch_duration_scale=1.0d0/real(n_ranks, dp), number_density_override=effective_density_m3(s), &
+          particle_flux_override=effective_particle_flux_m2_s(s), &
           temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
           w_particle_override=w_effective(s) &
           )
@@ -455,7 +464,34 @@ contains
         drift_velocity_local, spec%m_particle, v, temperature_k=temperature_k_local &
         )
     case ('reservoir_face')
-      if (present(barrier_normal_energy) .and. present(vmin_normal)) then
+      if (trim(lower_ascii(spec%velocity_distribution)) == 'grid') then
+        if (present(barrier_normal_energy) .and. present(vmin_normal)) then
+          call sample_reservoir_velocity_grid_particles( &
+            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
+            barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
+            apply_barrier_energy_shift=apply_shift &
+            )
+        else if (present(barrier_normal_energy)) then
+          call sample_reservoir_velocity_grid_particles( &
+            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
+            barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
+            )
+        else if (present(vmin_normal)) then
+          call sample_reservoir_velocity_grid_particles( &
+            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
+            vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
+            )
+        else
+          call sample_reservoir_velocity_grid_particles( &
+            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
+            apply_barrier_energy_shift=apply_shift &
+            )
+        end if
+      else if (present(barrier_normal_energy) .and. present(vmin_normal)) then
         call sample_reservoir_face_particles( &
           sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
           spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
@@ -568,12 +604,13 @@ contains
   !! @param[out] count 今バッチで生成するマクロ粒子数。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[in] number_density_override 数密度の上書き値 [1/m^3]。
+  !! @param[in] particle_flux_override 粒子数 flux の上書き値 [1/m^2/s]。
   !! @param[in] w_particle_override マクロ粒子重みの上書き値。
   !! @param[in] temperature_k_override 温度の上書き値 [K]。
   !! @param[in] drift_velocity_override ドリフト速度の上書き値 [m/s]。
   subroutine compute_macro_particles_for_species( &
     sim, spec, residual, count, vmin_normal, batch_duration_scale, number_density_override, w_particle_override, &
-    temperature_k_override, drift_velocity_override &
+    temperature_k_override, drift_velocity_override, particle_flux_override &
     )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -585,8 +622,10 @@ contains
     real(dp), intent(in), optional :: w_particle_override
     real(dp), intent(in), optional :: temperature_k_override
     real(dp), intent(in), optional :: drift_velocity_override(3)
+    real(dp), intent(in), optional :: particle_flux_override
 
-    real(dp) :: number_density_m3, effective_batch_duration, w_particle, temperature_k_local, drift_velocity_local(3)
+    real(dp) :: number_density_m3, effective_batch_duration, particle_flux_m2_s, w_particle, temperature_k_local
+    real(dp) :: drift_velocity_local(3)
 
     number_density_m3 = species_number_density_m3(spec)
     if (present(number_density_override)) number_density_m3 = number_density_override
@@ -598,6 +637,14 @@ contains
     if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     effective_batch_duration = sim%batch_duration
     if (present(batch_duration_scale)) effective_batch_duration = sim%batch_duration*batch_duration_scale
+    if (trim(lower_ascii(spec%velocity_distribution)) == 'grid') then
+      particle_flux_m2_s = spec%particle_flux_m2_s
+      if (present(particle_flux_override)) particle_flux_m2_s = particle_flux_override
+      call compute_macro_particles_from_flux( &
+        particle_flux_m2_s, spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, count &
+        )
+      return
+    end if
     if (present(vmin_normal)) then
       call compute_macro_particles_for_batch( &
         number_density_m3, temperature_k_local, spec%m_particle, drift_velocity_local, sim%box_min, sim%box_max, &

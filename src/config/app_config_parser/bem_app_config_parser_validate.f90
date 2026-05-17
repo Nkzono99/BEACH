@@ -32,15 +32,61 @@ contains
   end if
   end procedure resolve_batch_duration
 
+  !> 一様外部電場指定を検証し、`sim%e0` へ正規化する。
+  module procedure resolve_external_e_field
+  real(dp), parameter :: deg2rad = acos(-1.0d0)/180.0d0
+  real(dp) :: phi_xy, phi_z
+
+  if (cfg%sim%has_e0_vector .and. &
+      (cfg%sim%has_e0_abs .or. cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg)) then
+    error stop 'sim.e0 cannot be combined with sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg.'
+  end if
+
+  if (cfg%sim%has_e0_vector) then
+    if (.not. all(ieee_is_finite(cfg%sim%e0))) error stop 'sim.e0 must contain finite values.'
+    return
+  end if
+
+  if (cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg) then
+    if (.not. cfg%sim%has_e0_abs) then
+      error stop 'sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs.'
+    end if
+  end if
+
+  if (.not. cfg%sim%has_e0_abs) then
+    cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
+    return
+  end if
+
+  if (.not. ieee_is_finite(cfg%sim%e0_abs) .or. cfg%sim%e0_abs < 0.0d0) then
+    error stop 'sim.e0_abs must be finite and >= 0.'
+  end if
+  if (.not. ieee_is_finite(cfg%sim%e0_phi_xy_deg)) then
+    error stop 'sim.e0_phi_xy_deg must be finite.'
+  end if
+  if (.not. ieee_is_finite(cfg%sim%e0_phi_z_deg)) then
+    error stop 'sim.e0_phi_z_deg must be finite.'
+  end if
+
+  phi_xy = cfg%sim%e0_phi_xy_deg*deg2rad
+  phi_z = cfg%sim%e0_phi_z_deg*deg2rad
+  cfg%sim%e0(1) = cfg%sim%e0_abs*cos(phi_z)*cos(phi_xy)
+  cfg%sim%e0(2) = cfg%sim%e0_abs*cos(phi_z)*sin(phi_xy)
+  cfg%sim%e0(3) = cfg%sim%e0_abs*sin(phi_z)
+  end procedure resolve_external_e_field
+
   !> `reservoir_face` 粒子種の必須項目と幾何条件を検証する。
   module procedure validate_reservoir_species
   integer :: axis, axis_t1, axis_t2
   real(dp) :: boundary_value, area
   real(dp) :: number_density_m3, temperature_k, gamma_in, w_particle
   real(dp) :: inward_normal(3)
+  logical :: use_velocity_grid
   type(particle_species_spec) :: spec
 
   spec = cfg%particle_species(species_idx)
+  spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
+  spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
 
   if (spec%has_npcls_per_step) then
     error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
@@ -83,29 +129,87 @@ contains
   if (cfg%sim%batch_duration <= 0.0d0) then
     error stop 'sim.batch_duration must be > 0 for reservoir_face.'
   end if
-  if (spec%has_number_density_cm3 .and. spec%has_number_density_m3) then
-    error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
-  end if
-  if (.not. spec%has_number_density_cm3 .and. .not. spec%has_number_density_m3) then
-    error stop 'reservoir_face requires number_density_cm3 or number_density_m3.'
-  end if
-  if (spec%has_number_density_cm3) then
-    if (spec%number_density_cm3 <= 0.0d0) error stop 'number_density_cm3 must be > 0.'
-  else
-    if (spec%number_density_m3 <= 0.0d0) error stop 'number_density_m3 must be > 0.'
-  end if
-  if (spec%has_temperature_ev .and. spec%has_temperature_k) then
-    error stop 'Specify either temperature_ev or temperature_k, not both.'
-  end if
-  if (spec%has_temperature_ev) then
-    if (spec%temperature_ev < 0.0d0) error stop 'temperature_ev must be >= 0.'
-  else if (spec%has_temperature_k) then
-    if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
-  else
-    if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
-  end if
   if (spec%m_particle <= 0.0d0) then
     error stop 'm_particle must be > 0.'
+  end if
+  if (.not. ieee_is_finite(spec%q_particle) .or. abs(spec%q_particle) <= 0.0d0) then
+    error stop 'q_particle must be finite and non-zero for reservoir_face.'
+  end if
+
+  select case (trim(spec%velocity_distribution))
+  case ('maxwellian')
+    use_velocity_grid = .false.
+  case ('grid')
+    use_velocity_grid = .true.
+  case default
+    error stop 'particles.species.velocity_distribution must be "maxwellian" or "grid".'
+  end select
+
+  select case (trim(spec%velocity_grid_pdf_kind))
+  case ('phase_space', 'flux_weighted')
+    continue
+  case default
+    error stop 'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
+  end select
+
+  if (use_velocity_grid) then
+    if (len_trim(spec%velocity_grid_path) == 0) then
+      error stop 'velocity_distribution="grid" requires velocity_grid_path.'
+    end if
+    if (trim(lower_ascii(cfg%sim%sheath_injection_model)) /= 'none') then
+      error stop 'velocity_distribution="grid" currently requires sim.sheath_injection_model="none".'
+    end if
+    if (spec%has_number_density_cm3 .or. spec%has_number_density_m3) then
+      error stop 'velocity_distribution="grid" uses particle_flux_m2_s/current_density_a_m2, not number_density.'
+    end if
+    if (spec%has_temperature_ev .or. spec%has_temperature_k) then
+      error stop 'temperature_ev/temperature_k are not used with velocity_distribution="grid".'
+    end if
+    if (spec%has_particle_flux_m2_s .and. spec%has_current_density_a_m2) then
+      error stop 'Specify either particle_flux_m2_s or current_density_a_m2, not both.'
+    end if
+    if (.not. spec%has_particle_flux_m2_s .and. .not. spec%has_current_density_a_m2) then
+      error stop 'velocity_distribution="grid" requires particle_flux_m2_s or current_density_a_m2.'
+    end if
+    if (spec%has_particle_flux_m2_s) then
+      if (.not. ieee_is_finite(spec%particle_flux_m2_s) .or. spec%particle_flux_m2_s <= 0.0d0) then
+        error stop 'particle_flux_m2_s must be finite and > 0.'
+      end if
+    else
+      if (.not. ieee_is_finite(spec%current_density_a_m2) .or. abs(spec%current_density_a_m2) <= 0.0d0) then
+        error stop 'current_density_a_m2 must be finite and non-zero.'
+      end if
+      spec%particle_flux_m2_s = abs(spec%current_density_a_m2/spec%q_particle)
+      spec%has_particle_flux_m2_s = .true.
+    end if
+  else
+    if (len_trim(spec%velocity_grid_path) > 0) then
+      error stop 'velocity_grid_path is only valid with velocity_distribution="grid".'
+    end if
+    if (spec%has_particle_flux_m2_s .or. spec%has_current_density_a_m2) then
+      error stop 'particle_flux_m2_s/current_density_a_m2 are only valid with velocity_distribution="grid".'
+    end if
+    if (spec%has_number_density_cm3 .and. spec%has_number_density_m3) then
+      error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
+    end if
+    if (.not. spec%has_number_density_cm3 .and. .not. spec%has_number_density_m3) then
+      error stop 'reservoir_face requires number_density_cm3 or number_density_m3.'
+    end if
+    if (spec%has_number_density_cm3) then
+      if (spec%number_density_cm3 <= 0.0d0) error stop 'number_density_cm3 must be > 0.'
+    else
+      if (spec%number_density_m3 <= 0.0d0) error stop 'number_density_m3 must be > 0.'
+    end if
+    if (spec%has_temperature_ev .and. spec%has_temperature_k) then
+      error stop 'Specify either temperature_ev or temperature_k, not both.'
+    end if
+    if (spec%has_temperature_ev) then
+      if (spec%temperature_ev < 0.0d0) error stop 'temperature_ev must be >= 0.'
+    else if (spec%has_temperature_k) then
+      if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
+    else
+      if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
+    end if
   end if
 
   call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec%inject_face, axis, boundary_value)
@@ -129,6 +233,8 @@ contains
   if (spec%has_target_macro_particles_per_batch) then
     if (spec%target_macro_particles_per_batch == -1_i32) then
       w_particle = cfg%particle_species(1)%w_particle
+    else if (use_velocity_grid) then
+      w_particle = spec%particle_flux_m2_s*area*cfg%sim%batch_duration/real(spec%target_macro_particles_per_batch, dp)
     else
       number_density_m3 = species_number_density_m3(spec)
       temperature_k = species_temperature_k(spec)
@@ -168,6 +274,10 @@ contains
   end if
   if (spec%has_target_macro_particles_per_batch) then
     error stop 'target_macro_particles_per_batch is not allowed for photo_raycast.'
+  end if
+  if (trim(lower_ascii(spec%velocity_distribution)) /= 'maxwellian' .or. len_trim(spec%velocity_grid_path) > 0 .or. &
+      spec%has_particle_flux_m2_s .or. spec%has_current_density_a_m2) then
+    error stop 'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
   end if
   if (.not. cfg%sim%use_box) then
     error stop 'particles.species.source_mode="photo_raycast" requires sim.use_box = true.'

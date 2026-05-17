@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 import shutil
 from collections.abc import Mapping, Sequence
@@ -958,6 +959,7 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
     particles = _require_table(final_config, "particles", context="rendered config")
     mesh = _require_table(final_config, "mesh", context="rendered config")
     _require_table(final_config, "output", context="rendered config")
+    _validate_rendered_external_e_field(sim)
 
     species = particles.get("species")
     if not isinstance(species, list) or len(species) == 0 or not all(
@@ -1006,9 +1008,30 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                 f"BEACH constraint error: particles.species[{index}] cannot define both "
                 "temperature_k and temperature_ev."
             )
+        velocity_distribution = str(
+            species_table.get("velocity_distribution", "maxwellian")
+        ).strip().lower()
+        velocity_grid_pdf_kind = str(
+            species_table.get("velocity_grid_pdf_kind", "phase_space")
+        ).strip().lower()
+        if velocity_distribution not in {"maxwellian", "grid"}:
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}] has unsupported "
+                f"velocity_distribution={velocity_distribution!r}."
+            )
+        if velocity_grid_pdf_kind not in {"phase_space", "flux_weighted"}:
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}] has unsupported "
+                f"velocity_grid_pdf_kind={velocity_grid_pdf_kind!r}."
+            )
 
         if source_mode == "volume_seed":
             has_volume_seed = True
+            _validate_velocity_grid_forbidden(
+                species_table,
+                index=index,
+                source_mode=source_mode,
+            )
             npcls_per_step = species_table.get("npcls_per_step", 0)
             if not isinstance(npcls_per_step, int):
                 raise RenderValidationError(
@@ -1036,15 +1059,6 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                 box_max=box_max,
             )
             if (
-                "number_density_cm3" not in species_table
-                and "number_density_m3" not in species_table
-            ):
-                raise RenderValidationError(
-                    f"BEACH constraint error: particles.species[{index}] uses "
-                    'source_mode="reservoir_face" and requires number_density_cm3 '
-                    "or number_density_m3."
-                )
-            if (
                 "w_particle" in species_table
                 and "target_macro_particles_per_batch" in species_table
             ):
@@ -1052,10 +1066,48 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                     f"BEACH constraint error: particles.species[{index}] cannot define both "
                     "w_particle and target_macro_particles_per_batch."
                 )
+            if velocity_distribution == "grid":
+                if "velocity_grid_path" not in species_table:
+                    raise RenderValidationError(
+                        f"BEACH constraint error: particles.species[{index}] uses "
+                        'velocity_distribution="grid" and requires velocity_grid_path.'
+                    )
+                _validate_grid_flux_keys(species_table, index=index)
+                for key in (
+                    "number_density_cm3",
+                    "number_density_m3",
+                    "temperature_k",
+                    "temperature_ev",
+                ):
+                    if key in species_table:
+                        raise RenderValidationError(
+                            f"BEACH constraint error: particles.species[{index}] uses "
+                            f'velocity_distribution="grid" and cannot define {key}.'
+                        )
+            else:
+                _validate_velocity_grid_forbidden(
+                    species_table,
+                    index=index,
+                    source_mode=source_mode,
+                )
+                if (
+                    "number_density_cm3" not in species_table
+                    and "number_density_m3" not in species_table
+                ):
+                    raise RenderValidationError(
+                        f"BEACH constraint error: particles.species[{index}] uses "
+                        'source_mode="reservoir_face" and requires number_density_cm3 '
+                        "or number_density_m3."
+                    )
             continue
 
         if source_mode == "photo_raycast":
             uses_face_sources = True
+            _validate_velocity_grid_forbidden(
+                species_table,
+                index=index,
+                source_mode=source_mode,
+            )
             _validate_face_source_common(
                 species_table,
                 index=index,
@@ -1602,6 +1654,105 @@ def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
     if has_batch_duration_step:
         return dt * float(sim["batch_duration_step"])
     return float(sim.get("batch_duration", 0.0))
+
+
+def _validate_rendered_external_e_field(sim: Mapping[str, Any]) -> None:
+    has_vector = "e0" in sim
+    has_abs = "e0_abs" in sim
+    has_phi_xy = "e0_phi_xy_deg" in sim
+    has_phi_z = "e0_phi_z_deg" in sim
+    if has_vector and (has_abs or has_phi_xy or has_phi_z):
+        raise RenderValidationError(
+            "BEACH constraint error: sim.e0 cannot be combined with "
+            "sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg."
+        )
+    if has_vector:
+        e0 = sim.get("e0")
+        if (
+            not isinstance(e0, Sequence)
+            or isinstance(e0, (str, bytes))
+            or len(e0) != 3
+            or not all(isinstance(v, (int, float)) and math.isfinite(float(v)) for v in e0)
+        ):
+            raise RenderValidationError(
+                "BEACH constraint error: sim.e0 must contain 3 finite values."
+            )
+        return
+    if (has_phi_xy or has_phi_z) and not has_abs:
+        raise RenderValidationError(
+            "BEACH constraint error: sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs."
+        )
+    if has_abs:
+        e0_abs = sim.get("e0_abs")
+        if not isinstance(e0_abs, (int, float)) or not math.isfinite(float(e0_abs)) or float(e0_abs) < 0.0:
+            raise RenderValidationError(
+                "BEACH constraint error: sim.e0_abs must be finite and >= 0."
+            )
+        for key in ("e0_phi_xy_deg", "e0_phi_z_deg"):
+            value = sim.get(key, 0.0)
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise RenderValidationError(
+                    f"BEACH constraint error: sim.{key} must be finite."
+                )
+
+
+def _validate_grid_flux_keys(species_table: Mapping[str, Any], *, index: int) -> None:
+    has_flux = "particle_flux_m2_s" in species_table
+    has_current = "current_density_a_m2" in species_table
+    if has_flux and has_current:
+        raise RenderValidationError(
+            f"BEACH constraint error: particles.species[{index}] cannot define both "
+            "particle_flux_m2_s and current_density_a_m2."
+        )
+    if not has_flux and not has_current:
+        raise RenderValidationError(
+            f"BEACH constraint error: particles.species[{index}] uses "
+            'velocity_distribution="grid" and requires particle_flux_m2_s '
+            "or current_density_a_m2."
+        )
+    if has_flux:
+        value = species_table["particle_flux_m2_s"]
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0.0:
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}].particle_flux_m2_s "
+                "must be finite and > 0."
+            )
+    if has_current:
+        value = species_table["current_density_a_m2"]
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) == 0.0:
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}].current_density_a_m2 "
+                "must be finite and non-zero."
+            )
+        q_particle = species_table.get("q_particle", -1.602176634e-19)
+        if (
+            not isinstance(q_particle, (int, float))
+            or not math.isfinite(float(q_particle))
+            or float(q_particle) == 0.0
+        ):
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}].q_particle "
+                "must be finite and non-zero for current_density_a_m2."
+            )
+
+
+def _validate_velocity_grid_forbidden(
+    species_table: Mapping[str, Any],
+    *,
+    index: int,
+    source_mode: str,
+) -> None:
+    if str(species_table.get("velocity_distribution", "maxwellian")).strip().lower() != "maxwellian":
+        raise RenderValidationError(
+            f"BEACH constraint error: particles.species[{index}] uses "
+            f'source_mode="{source_mode}" and cannot define velocity_distribution="grid".'
+        )
+    for key in ("velocity_grid_path", "particle_flux_m2_s", "current_density_a_m2"):
+        if key in species_table:
+            raise RenderValidationError(
+                f"BEACH constraint error: particles.species[{index}] uses "
+                f'source_mode="{source_mode}" and cannot define {key}.'
+            )
 
 
 def _periodic_axis_count(sim: Mapping[str, Any]) -> int:

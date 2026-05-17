@@ -4,7 +4,13 @@ import numpy as np
 import pytest
 
 from beach.cli.kernel_forces import main as kernel_forces_main
-from beach import BeachScene, FieldKernel, FortranRunResult, calc_object_forces_kernel
+from beach import (
+    BeachScene,
+    FieldKernel,
+    FieldKernelOptions,
+    FortranRunResult,
+    calc_object_forces_kernel,
+)
 from beach.fortran_results.constants import K_COULOMB
 
 
@@ -36,6 +42,27 @@ def test_field_kernel_eval_e_matches_direct_sum() -> None:
         axis=0,
     )
     np.testing.assert_allclose(field[0], expected, rtol=1.0e-14, atol=1.0e-14)
+
+
+def test_field_kernel_adds_uniform_external_e0() -> None:
+    lib = _kernel_lib()
+    source_pos = np.array([[0.0, 0.0, 0.0]], dtype=float)
+    source_q = np.array([0.0], dtype=float)
+    target = np.array([[0.0, 1.0, 0.0], [0.0, 2.0, 0.0]], dtype=float)
+    target_q = np.array([2.0, 3.0], dtype=float)
+
+    with FieldKernel(
+        source_pos,
+        source_q,
+        options=FieldKernelOptions(external_e0=(1.0, 0.0, 0.0)),
+        library_path=lib,
+    ) as kernel:
+        field = kernel.eval_e(target)
+        force, torque = kernel.force_on_charges(target, target_q, origin=(0.0, 0.0, 0.0))
+
+    np.testing.assert_allclose(field, np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]))
+    np.testing.assert_allclose(force, np.array([5.0, 0.0, 0.0]))
+    np.testing.assert_allclose(torque, np.array([0.0, 0.0, -8.0]))
 
 
 def test_calc_object_forces_kernel_excludes_self_sources(tmp_path: Path) -> None:

@@ -197,6 +197,30 @@
           "default": 1.0e-6,
           "description": "Electric-field softening length [m]."
         },
+        "e0": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "Uniform external electric field vector [V/m]. Mutually exclusive with e0_abs/e0_phi_*."
+        },
+        "e0_abs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Magnitude of the uniform external electric field [V/m]."
+        },
+        "e0_phi_xy_deg": {
+          "type": "number",
+          "default": 0.0,
+          "description": "Azimuth angle of e0 in the x-y plane [deg]. Requires e0_abs."
+        },
+        "e0_phi_z_deg": {
+          "type": "number",
+          "default": 0.0,
+          "description": "Elevation angle of e0 from the x-y plane [deg]. Requires e0_abs."
+        },
         "field_solver": {
           "type": "string",
           "enum": [
@@ -406,6 +430,51 @@
             "required": [
               "batch_duration",
               "batch_duration_step"
+            ]
+          }
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "e0",
+                  "e0_abs"
+                ]
+              },
+              {
+                "required": [
+                  "e0",
+                  "e0_phi_xy_deg"
+                ]
+              },
+              {
+                "required": [
+                  "e0",
+                  "e0_phi_z_deg"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "e0_phi_xy_deg"
+                ]
+              },
+              {
+                "required": [
+                  "e0_phi_z_deg"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "e0_abs"
             ]
           }
         },
@@ -757,6 +826,38 @@
           ],
           "description": "Upper bound of position range [m]."
         },
+        "velocity_distribution": {
+          "type": "string",
+          "enum": [
+            "maxwellian",
+            "grid"
+          ],
+          "default": "maxwellian",
+          "description": "Velocity distribution model. grid is available for reservoir_face."
+        },
+        "velocity_grid_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "CSV file with columns vx_m_s,vy_m_s,vz_m_s,f for velocity_distribution=grid."
+        },
+        "velocity_grid_pdf_kind": {
+          "type": "string",
+          "enum": [
+            "phase_space",
+            "flux_weighted"
+          ],
+          "default": "phase_space",
+          "description": "Interpretation of f in velocity_grid_path."
+        },
+        "particle_flux_m2_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Incoming particle flux [1/m^2/s] for velocity_distribution=grid."
+        },
+        "current_density_a_m2": {
+          "type": "number",
+          "description": "Incoming current density [A/m^2] for velocity_distribution=grid. Mutually exclusive with particle_flux_m2_s."
+        },
         "drift_velocity": {
           "$ref": "#/$defs/vec3",
           "default": [
@@ -837,6 +938,11 @@
             ]
           },
           "then": {
+            "properties": {
+              "velocity_distribution": {
+                "const": "maxwellian"
+              }
+            },
             "not": {
               "anyOf": [
                 {
@@ -862,6 +968,21 @@
                 {
                   "required": [
                     "deposit_opposite_charge_on_emit"
+                  ]
+                },
+                {
+                  "required": [
+                    "velocity_grid_path"
+                  ]
+                },
+                {
+                  "required": [
+                    "particle_flux_m2_s"
+                  ]
+                },
+                {
+                  "required": [
+                    "current_density_a_m2"
                   ]
                 }
               ]
@@ -942,38 +1063,132 @@
                 ]
               },
               {
-                "oneOf": [
-                  {
-                    "required": [
-                      "number_density_cm3"
-                    ],
-                    "not": {
-                      "required": [
-                        "number_density_m3"
-                      ]
-                    },
-                    "properties": {
-                      "number_density_cm3": {
-                        "exclusiveMinimum": 0
-                      }
+                "if": {
+                  "properties": {
+                    "velocity_distribution": {
+                      "const": "grid"
                     }
                   },
-                  {
-                    "required": [
-                      "number_density_m3"
-                    ],
-                    "not": {
+                  "required": [
+                    "velocity_distribution"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "velocity_grid_path"
+                  ],
+                  "oneOf": [
+                    {
                       "required": [
-                        "number_density_cm3"
-                      ]
+                        "particle_flux_m2_s"
+                      ],
+                      "not": {
+                        "required": [
+                          "current_density_a_m2"
+                        ]
+                      }
                     },
-                    "properties": {
-                      "number_density_m3": {
-                        "exclusiveMinimum": 0
+                    {
+                      "required": [
+                        "current_density_a_m2"
+                      ],
+                      "not": {
+                        "required": [
+                          "particle_flux_m2_s"
+                        ]
+                      },
+                      "properties": {
+                        "current_density_a_m2": {
+                          "not": {
+                            "const": 0
+                          }
+                        }
                       }
                     }
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "number_density_cm3"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "number_density_m3"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temperature_k"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temperature_ev"
+                        ]
+                      }
+                    ]
                   }
-                ]
+                },
+                "else": {
+                  "properties": {
+                    "velocity_distribution": {
+                      "const": "maxwellian"
+                    }
+                  },
+                  "oneOf": [
+                    {
+                      "required": [
+                        "number_density_cm3"
+                      ],
+                      "not": {
+                        "required": [
+                          "number_density_m3"
+                        ]
+                      },
+                      "properties": {
+                        "number_density_cm3": {
+                          "exclusiveMinimum": 0
+                        }
+                      }
+                    },
+                    {
+                      "required": [
+                        "number_density_m3"
+                      ],
+                      "not": {
+                        "required": [
+                          "number_density_cm3"
+                        ]
+                      },
+                      "properties": {
+                        "number_density_m3": {
+                          "exclusiveMinimum": 0
+                        }
+                      }
+                    }
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "velocity_grid_path"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "particle_flux_m2_s"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "current_density_a_m2"
+                        ]
+                      }
+                    ]
+                  }
+                }
               }
             ]
           }
@@ -1021,10 +1236,28 @@
                   "required": [
                     "number_density_m3"
                   ]
+                },
+                {
+                  "required": [
+                    "velocity_grid_path"
+                  ]
+                },
+                {
+                  "required": [
+                    "particle_flux_m2_s"
+                  ]
+                },
+                {
+                  "required": [
+                    "current_density_a_m2"
+                  ]
                 }
               ]
             },
             "properties": {
+              "velocity_distribution": {
+                "const": "maxwellian"
+              },
               "emit_current_density_a_m2": {
                 "exclusiveMinimum": 0
               },

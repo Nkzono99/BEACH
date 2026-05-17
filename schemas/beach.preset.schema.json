@@ -67,6 +67,19 @@
         },
         "box_size": {
           "$ref": "#/$defs/positiveVec3"
+        },
+        "e0": {
+          "$ref": "#/$defs/vec3"
+        },
+        "e0_abs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "e0_phi_xy_deg": {
+          "type": "number"
+        },
+        "e0_phi_z_deg": {
+          "type": "number"
         }
       },
       "allOf": [
@@ -120,6 +133,30 @@
         },
         "uv_high": {
           "$ref": "#/$defs/vec2"
+        },
+        "velocity_distribution": {
+          "type": "string",
+          "enum": [
+            "maxwellian",
+            "grid"
+          ]
+        },
+        "velocity_grid_path": {
+          "type": "string"
+        },
+        "velocity_grid_pdf_kind": {
+          "type": "string",
+          "enum": [
+            "phase_space",
+            "flux_weighted"
+          ]
+        },
+        "particle_flux_m2_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "current_density_a_m2": {
+          "type": "number"
         }
       },
       "allOf": [

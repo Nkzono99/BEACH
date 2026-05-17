@@ -30,6 +30,10 @@ DEFAULT_SIM: dict[str, Any] = {
     "tree_theta": 0.5,
     "tree_leaf_max": 16,
     "tree_min_nelem": 256,
+    "e0": [0.0, 0.0, 0.0],
+    "e0_abs": 0.0,
+    "e0_phi_xy_deg": 0.0,
+    "e0_phi_z_deg": 0.0,
     "use_box": False,
     "box_min": [-1.0, -1.0, -1.0],
     "box_max": [1.0, 1.0, 1.0],
@@ -40,11 +44,17 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "source_mode": "volume_seed",
     "npcls_per_step": 0,
     "temperature_k": 2.0e4,
+    "q_particle": -1.602176634e-19,
     "m_particle": 9.10938356e-31,
     "w_particle": 1.0,
     "target_macro_particles_per_batch": 0,
     "pos_low": [-0.4, -0.4, 0.2],
     "pos_high": [0.4, 0.4, 0.5],
+    "velocity_distribution": "maxwellian",
+    "velocity_grid_path": "",
+    "velocity_grid_pdf_kind": "phase_space",
+    "particle_flux_m2_s": 0.0,
+    "current_density_a_m2": 0.0,
     "drift_velocity": [0.0, 0.0, -8.0e5],
     "emit_current_density_a_m2": 0.0,
     "rays_per_batch": 0,
@@ -74,6 +84,10 @@ ALLOWED_SIM_KEYS = frozenset(
         "tree_theta",
         "tree_leaf_max",
         "tree_min_nelem",
+        "e0",
+        "e0_abs",
+        "e0_phi_xy_deg",
+        "e0_phi_z_deg",
         "b0",
         "reservoir_potential_model",
         "phi_infty",
@@ -104,6 +118,11 @@ ALLOWED_SPECIES_KEYS = frozenset(
         "target_macro_particles_per_batch",
         "pos_low",
         "pos_high",
+        "velocity_distribution",
+        "velocity_grid_path",
+        "velocity_grid_pdf_kind",
+        "particle_flux_m2_s",
+        "current_density_a_m2",
         "drift_velocity",
         "temperature_k",
         "temperature_ev",
@@ -232,6 +251,72 @@ def _species_density_m3(spec: dict[str, Any]) -> float:
     return float(spec["number_density_m3"])
 
 
+def _validate_external_e_field(
+    sim_raw: dict[str, Any],
+    sim_cfg: dict[str, Any],
+) -> None:
+    has_vector = "e0" in sim_raw
+    has_abs = "e0_abs" in sim_raw
+    has_phi_xy = "e0_phi_xy_deg" in sim_raw
+    has_phi_z = "e0_phi_z_deg" in sim_raw
+    if has_vector and (has_abs or has_phi_xy or has_phi_z):
+        raise SystemExit(
+            "sim.e0 cannot be combined with sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg."
+        )
+    if has_vector:
+        e0 = [float(x) for x in sim_cfg.get("e0", DEFAULT_SIM["e0"])]
+        if len(e0) != 3 or not all(math.isfinite(x) for x in e0):
+            raise SystemExit("sim.e0 must contain 3 finite values.")
+        sim_cfg["e0"] = e0
+        return
+    if (has_phi_xy or has_phi_z) and not has_abs:
+        raise SystemExit("sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs.")
+    if has_abs:
+        e0_abs = float(sim_cfg.get("e0_abs", 0.0))
+        phi_xy = float(sim_cfg.get("e0_phi_xy_deg", 0.0))
+        phi_z = float(sim_cfg.get("e0_phi_z_deg", 0.0))
+        if not math.isfinite(e0_abs) or e0_abs < 0.0:
+            raise SystemExit("sim.e0_abs must be finite and >= 0.")
+        if not math.isfinite(phi_xy):
+            raise SystemExit("sim.e0_phi_xy_deg must be finite.")
+        if not math.isfinite(phi_z):
+            raise SystemExit("sim.e0_phi_z_deg must be finite.")
+        phi_xy_rad = math.radians(phi_xy)
+        phi_z_rad = math.radians(phi_z)
+        sim_cfg["e0"] = [
+            e0_abs * math.cos(phi_z_rad) * math.cos(phi_xy_rad),
+            e0_abs * math.cos(phi_z_rad) * math.sin(phi_xy_rad),
+            e0_abs * math.sin(phi_z_rad),
+        ]
+
+
+def _grid_particle_flux_m2_s(spec: dict[str, Any]) -> float:
+    has_flux = bool(spec.get("_has_particle_flux_m2_s", False))
+    has_current = bool(spec.get("_has_current_density_a_m2", False))
+    if has_flux and has_current:
+        raise SystemExit("Specify either particle_flux_m2_s or current_density_a_m2, not both.")
+    if not has_flux and not has_current:
+        raise SystemExit(
+            'velocity_distribution="grid" requires particle_flux_m2_s or current_density_a_m2.'
+        )
+    if has_flux:
+        particle_flux = float(spec.get("particle_flux_m2_s", 0.0))
+        if (not math.isfinite(particle_flux)) or particle_flux <= 0.0:
+            raise SystemExit("particle_flux_m2_s must be finite and > 0.")
+        return particle_flux
+
+    current_density = float(spec.get("current_density_a_m2", 0.0))
+    q_particle = float(spec.get("q_particle", DEFAULT_SPECIES["q_particle"]))
+    if (not math.isfinite(current_density)) or abs(current_density) <= 0.0:
+        raise SystemExit("current_density_a_m2 must be finite and non-zero.")
+    if (not math.isfinite(q_particle)) or abs(q_particle) <= 0.0:
+        raise SystemExit("q_particle must be finite and non-zero for reservoir_face.")
+    particle_flux = abs(current_density / q_particle)
+    if (not math.isfinite(particle_flux)) or particle_flux <= 0.0:
+        raise SystemExit("current_density_a_m2 produced invalid particle flux.")
+    return particle_flux
+
+
 def _compute_inflow_flux(
     number_density_m3: float,
     temperature_k: float,
@@ -348,6 +433,71 @@ def _validate_reservoir_species(
                 )
             w_particle = float(params1["w_particle"])
 
+    velocity_distribution = str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
+    velocity_grid_pdf_kind = str(spec.get("velocity_grid_pdf_kind", "phase_space")).strip().lower()
+    if velocity_distribution not in ("maxwellian", "grid"):
+        raise SystemExit('particles.species.velocity_distribution must be "maxwellian" or "grid".')
+    if velocity_grid_pdf_kind not in ("phase_space", "flux_weighted"):
+        raise SystemExit(
+            'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
+        )
+
+    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
+    if m_particle <= 0.0:
+        raise SystemExit("m_particle must be > 0.")
+
+    if velocity_distribution == "grid":
+        if not str(spec.get("velocity_grid_path", "")).strip():
+            raise SystemExit('velocity_distribution="grid" requires velocity_grid_path.')
+        if bool(spec.get("_has_number_density_cm3", False)) or bool(
+            spec.get("_has_number_density_m3", False)
+        ):
+            raise SystemExit(
+                'velocity_distribution="grid" uses particle_flux_m2_s/current_density_a_m2, not number_density.'
+            )
+        if bool(spec.get("_has_temperature_k", False)) or bool(
+            spec.get("_has_temperature_ev", False)
+        ):
+            raise SystemExit(
+                'temperature_ev/temperature_k are not used with velocity_distribution="grid".'
+            )
+        particle_flux_m2_s = _grid_particle_flux_m2_s(spec)
+        inject_face, pos_low, pos_high, area = _parse_reservoir_species_geometry(
+            sim_cfg, spec
+        )
+        if has_target_macro and target_macro != -1:
+            w_particle = (
+                particle_flux_m2_s * area * resolved_batch_duration / float(target_macro)
+            )
+            if (not math.isfinite(w_particle)) or w_particle <= 0.0:
+                raise SystemExit(
+                    "target_macro_particles_per_batch produced invalid w_particle."
+                )
+        return {
+            "inject_face": inject_face,
+            "pos_low": pos_low,
+            "pos_high": pos_high,
+            "area": area,
+            "w_particle": w_particle,
+            "drift_velocity": [
+                float(x)
+                for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
+            ],
+            "m_particle": m_particle,
+            "temperature_k": 0.0,
+            "number_density_m3": 0.0,
+            "gamma_in": particle_flux_m2_s,
+        }
+
+    if str(spec.get("velocity_grid_path", "")).strip():
+        raise SystemExit('velocity_grid_path is only valid with velocity_distribution="grid".')
+    if bool(spec.get("_has_particle_flux_m2_s", False)) or bool(
+        spec.get("_has_current_density_a_m2", False)
+    ):
+        raise SystemExit(
+            'particle_flux_m2_s/current_density_a_m2 are only valid with velocity_distribution="grid".'
+        )
+
     has_cm3 = bool(spec.get("_has_number_density_cm3", False))
     has_m3 = bool(spec.get("_has_number_density_m3", False))
     if has_cm3 and has_m3:
@@ -371,10 +521,6 @@ def _validate_reservoir_species(
         raise SystemExit("temperature_ev must be >= 0.")
     if has_temp_k and float(spec["temperature_k"]) < 0.0:
         raise SystemExit("temperature_k must be >= 0.")
-
-    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
-    if m_particle <= 0.0:
-        raise SystemExit("m_particle must be > 0.")
 
     drift_velocity = [
         float(x) for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
@@ -421,6 +567,17 @@ def _validate_photo_raycast_species(
 ) -> dict[str, Any]:
     if not bool(sim_cfg.get("use_box", False)):
         raise SystemExit('particles.species.source_mode="photo_raycast" requires sim.use_box = true.')
+
+    if (
+        str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
+        != "maxwellian"
+        or str(spec.get("velocity_grid_path", "")).strip()
+        or bool(spec.get("_has_particle_flux_m2_s", False))
+        or bool(spec.get("_has_current_density_a_m2", False))
+    ):
+        raise SystemExit(
+            'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
+        )
 
     if abs(float(spec.get("emit_current_density_a_m2", 0.0))) <= 0.0:
         raise SystemExit("photo_raycast requires emit_current_density_a_m2 > 0.")
@@ -618,6 +775,7 @@ def estimate_workload(
 
     sim_cfg = dict(DEFAULT_SIM)
     sim_cfg.update(sim_raw)
+    _validate_external_e_field(sim_raw, sim_cfg)
 
     species_list_raw = particles_raw.get("species", [])
     if not isinstance(species_list_raw, list) or len(species_list_raw) == 0:
@@ -637,6 +795,20 @@ def estimate_workload(
         spec["source_mode"] = (
             str(spec.get("source_mode", "volume_seed")).strip().lower()
         )
+        spec["velocity_distribution"] = (
+            str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
+        )
+        spec["velocity_grid_pdf_kind"] = (
+            str(spec.get("velocity_grid_pdf_kind", "phase_space")).strip().lower()
+        )
+        if spec["velocity_distribution"] not in ("maxwellian", "grid"):
+            raise SystemExit(
+                'particles.species.velocity_distribution must be "maxwellian" or "grid".'
+            )
+        if spec["velocity_grid_pdf_kind"] not in ("phase_space", "flux_weighted"):
+            raise SystemExit(
+                'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
+            )
         spec["_has_number_density_cm3"] = "number_density_cm3" in raw
         spec["_has_number_density_m3"] = "number_density_m3" in raw
         spec["_has_temperature_k"] = "temperature_k" in raw
@@ -645,6 +817,8 @@ def estimate_workload(
         spec["_has_target_macro_particles_per_batch"] = (
             "target_macro_particles_per_batch" in raw
         )
+        spec["_has_particle_flux_m2_s"] = "particle_flux_m2_s" in raw
+        spec["_has_current_density_a_m2"] = "current_density_a_m2" in raw
         spec["_has_ray_direction"] = "ray_direction" in raw
         spec["_has_deposit_opposite_charge_on_emit"] = (
             "deposit_opposite_charge_on_emit" in raw
@@ -669,6 +843,16 @@ def estimate_workload(
             continue
         source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
         if source_mode == "volume_seed":
+            if (
+                str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
+                != "maxwellian"
+                or str(spec.get("velocity_grid_path", "")).strip()
+                or bool(spec.get("_has_particle_flux_m2_s", False))
+                or bool(spec.get("_has_current_density_a_m2", False))
+            ):
+                raise SystemExit(
+                    'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
+                )
             if bool(spec.get("_has_target_macro_particles_per_batch", False)):
                 raise SystemExit(
                     "target_macro_particles_per_batch is only valid for reservoir_face."

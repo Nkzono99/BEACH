@@ -26,6 +26,13 @@ module bem_app_config_types
     logical :: has_target_macro_particles_per_batch = .false.
     real(dp) :: pos_low(3) = [-0.4d0, -0.4d0, 0.2d0]
     real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
+    character(len=16) :: velocity_distribution = 'maxwellian'
+    character(len=256) :: velocity_grid_path = ''
+    character(len=16) :: velocity_grid_pdf_kind = 'phase_space'
+    real(dp) :: particle_flux_m2_s = 0.0d0
+    logical :: has_particle_flux_m2_s = .false.
+    real(dp) :: current_density_a_m2 = 0.0d0
+    logical :: has_current_density_a_m2 = .false.
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
     real(dp) :: temperature_k = 2.0d4
     real(dp) :: temperature_ev = -1.0d0
@@ -185,6 +192,14 @@ contains
     cfg%sim%tree_theta = 0.5d0
     cfg%sim%tree_leaf_max = 16_i32
     cfg%sim%tree_min_nelem = 256_i32
+    cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
+    cfg%sim%has_e0_vector = .false.
+    cfg%sim%e0_abs = 0.0d0
+    cfg%sim%has_e0_abs = .false.
+    cfg%sim%e0_phi_xy_deg = 0.0d0
+    cfg%sim%has_e0_phi_xy_deg = .false.
+    cfg%sim%e0_phi_z_deg = 0.0d0
+    cfg%sim%has_e0_phi_z_deg = .false.
     cfg%sim%b0 = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%reservoir_potential_model = 'none'
     cfg%sim%phi_infty = 0.0d0

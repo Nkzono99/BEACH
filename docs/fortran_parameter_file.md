@@ -137,6 +137,10 @@ history_stride = 1
 | `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ（`0 < theta <= 1`、`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数（`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
 | `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切替える要素数しきい値 |
+| `e0` | float[3] | `[0,0,0]` | 一様外部電場 [V/m]（`e0_abs` 系と排他） |
+| `e0_abs` | float | 未指定 | 一様外部電場の大きさ [V/m]（`e0` と排他） |
+| `e0_phi_xy_deg` | float | `0.0` | `e0_abs` 指定時の xy 面内方位角 [deg] |
+| `e0_phi_z_deg` | float | `0.0` | `e0_abs` 指定時の xy 面からの仰角 [deg] |
 | `b0` | float[3] | `[0,0,0]` | 一様磁場 [T] |
 | `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
@@ -159,6 +163,7 @@ history_stride = 1
 - `batch_duration_step` 指定時は `batch_duration = dt * batch_duration_step` に解決します。
 - `reservoir_face` / `photo_raycast` を使う場合、解決後の `batch_duration > 0` が必須です。
 - `sheath_injection_model != "none"` は現状 `reservoir_potential_model = "none"` と組み合わせてください。
+- 一様外部電場は `e0 = [Ex,Ey,Ez]` で直接指定するか、`e0_abs` と角度 `e0_phi_xy_deg` / `e0_phi_z_deg` で指定します。両形式の混在はエラーです。
 
 重要な実行挙動:
 
@@ -191,6 +196,7 @@ history_stride = 1
 | `drift_velocity` | float[3] | `[0,0,-8e5]` | ドリフト速度 [m/s] |
 | `temperature_k` | float | `2.0e4` | 温度 [K] |
 | `temperature_ev` | float | 未指定 | 温度 [eV]（`temperature_k` と排他） |
+| `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
 | `inject_face` | string | 未指定 | `x_low/x_high/y_low/y_high/z_low/z_high` |
 
 ### `source_mode = "volume_seed"`
@@ -212,6 +218,9 @@ history_stride = 1
 | `number_density_cm3` / `number_density_m3` | float | 上流密度（どちらか片方必須） |
 | `w_particle` | float | マクロ粒子重み（正値） |
 | `target_macro_particles_per_batch` | int | `w_particle` 自動解決用（`>0` または `-1`） |
+| `velocity_grid_path` | string | `velocity_distribution="grid"` の CSV パス |
+| `velocity_grid_pdf_kind` | string | `"phase_space"` / `"flux_weighted"` |
+| `particle_flux_m2_s` / `current_density_a_m2` | float | `velocity_distribution="grid"` の流入量（どちらか片方必須） |
 
 制約:
 
@@ -221,6 +230,11 @@ history_stride = 1
 - `pos_low` / `pos_high` は指定 face 上になければエラー
 - `w_particle` と `target_macro_particles_per_batch` は同時指定不可
 - `target_macro_particles_per_batch = -1` は species[2] 以降のみ可（species[1] の `w_particle` を共有）
+- `velocity_distribution="maxwellian"`（既定）では `number_density_*` と温度から drifting Maxwellian の片側流束を計算します。
+- `velocity_distribution="grid"` では `velocity_grid_path` の `vx_m_s,vy_m_s,vz_m_s,f` CSV を読み込み、`sum f = 1` へ内部規格化します。この場合 `number_density_*` / `temperature_*` は使わず、`particle_flux_m2_s` または `current_density_a_m2` のどちらか片方で流入量を決めます。`current_density_a_m2` は `abs(J / q_particle)` として粒子 flux に変換します。
+- `velocity_grid_path` の相対パスは実行時のカレントディレクトリ基準です。
+- `velocity_grid_pdf_kind="phase_space"` では流入面の内向き法線速度 `v_n` を掛けた `v_n f(v)` でサンプルします。`"flux_weighted"` では CSV の `f` をすでに流束重み済みの流入分布として扱います。どちらも `v_n > 0` の行だけを使います。
+- 現状 `velocity_distribution="grid"` は `sim.sheath_injection_model="none"` のときのみ有効です。
 
 粒子数決定（1種あたり）:
 

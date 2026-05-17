@@ -44,6 +44,11 @@ source-dir = "tests/fortran"
 main = "test_reservoir_injection.f90"
 
 [[test]]
+name = "test_external_field_velocity_grid"
+source-dir = "tests/fortran"
+main = "test_external_field_velocity_grid.f90"
+
+[[test]]
 name = "test_dynamics_basic"
 source-dir = "tests/fortran"
 main = "test_dynamics_basic.f90"

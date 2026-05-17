@@ -176,6 +176,7 @@ contains
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
       call field_solver%eval_e(mesh, x0, e)
+      e = e + app%sim%e0
       call boris_push( &
         x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
         )

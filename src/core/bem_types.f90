@@ -31,6 +31,14 @@ module bem_types
     integer(i32) :: tree_leaf_max = 16_i32
     logical :: has_tree_leaf_max = .false.
     integer(i32) :: tree_min_nelem = 256_i32
+    real(dp) :: e0(3) = 0.0d0
+    logical :: has_e0_vector = .false.
+    real(dp) :: e0_abs = 0.0d0
+    logical :: has_e0_abs = .false.
+    real(dp) :: e0_phi_xy_deg = 0.0d0
+    logical :: has_e0_phi_xy_deg = .false.
+    real(dp) :: e0_phi_z_deg = 0.0d0
+    logical :: has_e0_phi_z_deg = .false.
     real(dp) :: b0(3) = 0.0d0
     character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0

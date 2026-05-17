@@ -7,6 +7,7 @@ module bem_injection
   use bem_boundary, only: apply_box_boundary
   use bem_collision, only: find_first_hit
   use bem_string_utils, only: lower_ascii
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
   private
@@ -17,7 +18,9 @@ module bem_injection
   public :: compute_inflow_flux_from_drifting_maxwellian
   public :: compute_face_area_from_bounds
   public :: compute_macro_particles_for_batch
+  public :: compute_macro_particles_from_flux
   public :: sample_reservoir_face_particles
+  public :: sample_reservoir_velocity_grid_particles
   public :: sample_photo_raycast_particles
 
 contains
@@ -238,6 +241,43 @@ contains
     residual = macro_budget - real(n_macro, dp)
   end subroutine compute_macro_particles_for_batch
 
+  !> 指定済み粒子 flux・重み・残差から今バッチのマクロ粒子数を決める。
+  !! @param[in] particle_flux_m2_s 粒子数 flux [1/m^2/s]。
+  !! @param[in] inject_face 注入面識別子。
+  !! @param[in] pos_low 注入口矩形の下限座標 `(x,y,z)` [m]。
+  !! @param[in] pos_high 注入口矩形の上限座標 `(x,y,z)` [m]。
+  !! @param[in] batch_duration 1バッチの物理時間長 [s]。
+  !! @param[in] w_particle マクロ粒子重み。
+  !! @param[inout] residual 前バッチから繰り越すマクロ粒子端数。
+  !! @param[out] n_macro 今バッチで生成するマクロ粒子数。
+  subroutine compute_macro_particles_from_flux( &
+    particle_flux_m2_s, inject_face, pos_low, pos_high, batch_duration, w_particle, residual, n_macro &
+    )
+    real(dp), intent(in) :: particle_flux_m2_s
+    character(len=*), intent(in) :: inject_face
+    real(dp), intent(in) :: pos_low(3), pos_high(3)
+    real(dp), intent(in) :: batch_duration, w_particle
+    real(dp), intent(inout) :: residual
+    integer(i32), intent(out) :: n_macro
+
+    real(dp) :: area, n_phys_batch, n_macro_expected, macro_budget
+
+    if (.not. ieee_is_finite(particle_flux_m2_s) .or. particle_flux_m2_s < 0.0_dp) then
+      error stop "particle_flux_m2_s must be finite and >= 0"
+    end if
+    if (w_particle <= 0.0_dp) error stop "w_particle must be > 0"
+    if (batch_duration < 0.0_dp) error stop "batch_duration must be >= 0"
+
+    area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
+    n_phys_batch = particle_flux_m2_s*area*batch_duration
+    n_macro_expected = n_phys_batch/w_particle
+    macro_budget = residual + n_macro_expected
+    if (macro_budget < 0.0_dp) macro_budget = 0.0_dp
+    if (macro_budget > real(huge(0_i32), dp)) error stop "macro particle count exceeds integer range"
+    n_macro = int(floor(macro_budget), i32)
+    residual = macro_budget - real(n_macro, dp)
+  end subroutine compute_macro_particles_from_flux
+
   !> 上流リザーバ境界から流入する粒子群を面注入としてサンプルする。
   !! @param[in] box_min シミュレーションボックス下限座標 `(x,y,z)` [m]。
   !! @param[in] box_max シミュレーションボックス上限座標 `(x,y,z)` [m]。
@@ -326,6 +366,78 @@ contains
       x(:, i) = x(:, i) + inward_normal*1.0d-12
     end do
   end subroutine sample_reservoir_face_particles
+
+  !> 速度グリッド分布から reservoir_face 粒子をサンプルする。
+  !! `velocity_grid_pdf_kind="phase_space"` では `max(v_n,0) f(v)` で流入粒子を選び、
+  !! `"flux_weighted"` では入力 `f` を流入粒子分布として扱う。
+  subroutine sample_reservoir_velocity_grid_particles( &
+    box_min, box_max, inject_face, pos_low, pos_high, velocity_grid_path, velocity_grid_pdf_kind, batch_duration, x, v, &
+    barrier_normal_energy, vmin_normal, position_jitter_dt, apply_barrier_energy_shift &
+    )
+    real(dp), intent(in) :: box_min(3), box_max(3)
+    character(len=*), intent(in) :: inject_face
+    real(dp), intent(in) :: pos_low(3), pos_high(3)
+    character(len=*), intent(in) :: velocity_grid_path, velocity_grid_pdf_kind
+    real(dp), intent(in) :: batch_duration
+    real(dp), intent(out) :: x(:, :)
+    real(dp), intent(out) :: v(:, :)
+    real(dp), intent(in), optional :: barrier_normal_energy
+    real(dp), intent(in), optional :: vmin_normal
+    real(dp), intent(in), optional :: position_jitter_dt
+    logical, intent(in), optional :: apply_barrier_energy_shift
+
+    integer :: i, axis_n, axis_t1, axis_t2
+    real(dp) :: boundary_value, inward_normal(3), vn_floor, barrier, jitter_dt, vn_inf, vn_out
+    real(dp), allocatable :: u(:, :), tau(:)
+    logical :: apply_energy_shift
+
+    if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "reservoir particle arrays must have first dimension 3"
+    if (size(x, 2) /= size(v, 2)) error stop "reservoir x/v size mismatch"
+    if (batch_duration < 0.0_dp) error stop "batch_duration must be >= 0"
+    if (present(position_jitter_dt)) then
+      if (position_jitter_dt < 0.0_dp) error stop "position_jitter_dt must be >= 0"
+      jitter_dt = position_jitter_dt
+    else
+      jitter_dt = 0.0_dp
+    end if
+    apply_energy_shift = .true.
+    if (present(apply_barrier_energy_shift)) apply_energy_shift = apply_barrier_energy_shift
+    if (size(x, 2) == 0) return
+
+    call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
+    call resolve_face_axes(inject_face, axis_t1, axis_t2)
+
+    barrier = 0.0_dp
+    if (present(barrier_normal_energy)) barrier = barrier_normal_energy
+    vn_floor = 0.0_dp
+    if (barrier > 0.0_dp) vn_floor = sqrt(barrier)
+    if (present(vmin_normal)) vn_floor = max(vn_floor, max(0.0_dp, vmin_normal))
+
+    call sample_velocity_grid_distribution(velocity_grid_path, velocity_grid_pdf_kind, inward_normal, vn_floor, v)
+    if (apply_energy_shift) then
+      do i = 1, size(v, 2)
+        vn_inf = dot_product(v(:, i), inward_normal)
+        vn_out = sqrt(max(0.0_dp, vn_inf*vn_inf - barrier))
+        v(:, i) = v(:, i) - inward_normal*vn_inf + inward_normal*vn_out
+      end do
+    end if
+
+    allocate (u(2, size(x, 2)))
+    call random_number(u)
+    if (jitter_dt > 0.0_dp) then
+      allocate (tau(size(x, 2)))
+      call random_number(tau)
+    end if
+
+    do i = 1, size(x, 2)
+      x(:, i) = 0.0_dp
+      x(axis_n, i) = boundary_value
+      x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*u(1, i)
+      x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*u(2, i)
+      if (jitter_dt > 0.0_dp) x(:, i) = x(:, i) + v(:, i)*(tau(i)*jitter_dt)
+      x(:, i) = x(:, i) + inward_normal*1.0d-12
+    end do
+  end subroutine sample_reservoir_velocity_grid_particles
 
   !> 光線を注入面からレイキャストし、最初の命中要素から光電子を放出する。
   !! @param[in] mesh 交差判定に使うメッシュ。
@@ -612,6 +724,129 @@ contains
 
     z = reshape(out, shape(z))
   end subroutine sample_standard_normal
+
+  !> CSV 速度グリッドから、流入条件で重み付けした速度をサンプルする。
+  subroutine sample_velocity_grid_distribution(path, pdf_kind, inward_normal, vmin_normal, v)
+    character(len=*), intent(in) :: path, pdf_kind
+    real(dp), intent(in) :: inward_normal(3), vmin_normal
+    real(dp), intent(out) :: v(:, :)
+
+    real(dp), allocatable :: grid_v(:, :), f(:), weights(:), cdf(:)
+    real(dp) :: f_sum, w_sum, vn, draw
+    integer :: i, j, ngrid
+    character(len=16) :: kind
+
+    if (size(v, 1) /= 3) error stop "v first dimension must be 3"
+    if (size(v, 2) == 0) return
+    call read_velocity_grid_csv(path, grid_v, f)
+    ngrid = size(f)
+    if (ngrid <= 0) error stop "velocity grid must contain at least one row"
+
+    f_sum = sum(f)
+    if (.not. ieee_is_finite(f_sum) .or. f_sum <= 0.0_dp) error stop "velocity grid f sum must be > 0"
+    f = f/f_sum
+    allocate (weights(ngrid), cdf(ngrid))
+    weights = 0.0_dp
+    kind = lower_ascii(trim(pdf_kind))
+    do i = 1, ngrid
+      vn = dot_product(grid_v(:, i), inward_normal)
+      select case (trim(kind))
+      case ('phase_space')
+        if (vn >= vmin_normal .and. vn > 0.0_dp) weights(i) = vn*f(i)
+      case ('flux_weighted')
+        if (vn >= vmin_normal .and. vn > 0.0_dp) weights(i) = f(i)
+      case default
+        error stop 'velocity_grid_pdf_kind must be "phase_space" or "flux_weighted"'
+      end select
+    end do
+    w_sum = sum(weights)
+    if (.not. ieee_is_finite(w_sum) .or. w_sum <= 0.0_dp) then
+      error stop "velocity grid has no inward entries after vmin_normal filtering"
+    end if
+
+    cdf(1) = weights(1)
+    do i = 2, ngrid
+      cdf(i) = cdf(i - 1) + weights(i)
+    end do
+    do j = 1, size(v, 2)
+      call random_number(draw)
+      draw = draw*w_sum
+      do i = 1, ngrid
+        if (draw <= cdf(i) .or. i == ngrid) then
+          v(:, j) = grid_v(:, i)
+          exit
+        end if
+      end do
+    end do
+  end subroutine sample_velocity_grid_distribution
+
+  !> `vx,vy,vz,f` CSV を読み込む。先頭の非数値行は header とみなして無視する。
+  subroutine read_velocity_grid_csv(path, grid_v, f)
+    character(len=*), intent(in) :: path
+    real(dp), allocatable, intent(out) :: grid_v(:, :)
+    real(dp), allocatable, intent(out) :: f(:)
+
+    integer :: u, ios, parse_ios, n, row
+    character(len=512) :: line
+    real(dp) :: vx, vy, vz, weight
+    logical :: skipped_header
+
+    n = 0
+    skipped_header = .false.
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop "could not open velocity_grid_path"
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (is_blank_or_comment(line)) cycle
+      read (line, *, iostat=parse_ios) vx, vy, vz, weight
+      if (parse_ios /= 0) then
+        if (.not. skipped_header .and. n == 0) then
+          skipped_header = .true.
+          cycle
+        end if
+        error stop "invalid velocity grid CSV row"
+      end if
+      n = n + 1
+    end do
+    close (u)
+
+    if (n <= 0) error stop "velocity grid CSV contains no numeric rows"
+    allocate (grid_v(3, n), f(n))
+    row = 0
+    skipped_header = .false.
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop "could not reopen velocity_grid_path"
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (is_blank_or_comment(line)) cycle
+      read (line, *, iostat=parse_ios) vx, vy, vz, weight
+      if (parse_ios /= 0) then
+        if (.not. skipped_header .and. row == 0) then
+          skipped_header = .true.
+          cycle
+        end if
+        error stop "invalid velocity grid CSV row"
+      end if
+      if (.not. all(ieee_is_finite([vx, vy, vz, weight]))) error stop "velocity grid values must be finite"
+      if (weight < 0.0_dp) error stop "velocity grid f values must be >= 0"
+      row = row + 1
+      grid_v(:, row) = [vx, vy, vz]
+      f(row) = weight
+    end do
+    close (u)
+  end subroutine read_velocity_grid_csv
+
+  !> 空行または `#` コメント行かを判定する。
+  pure logical function is_blank_or_comment(line) result(is_skip)
+    character(len=*), intent(in) :: line
+    character(len=:), allocatable :: trimmed
+
+    trimmed = adjustl(trim(line))
+    is_skip = len_trim(trimmed) == 0
+    if (.not. is_skip) is_skip = trimmed(1:1) == '#'
+  end function is_blank_or_comment
 
   !> 標準正規分布の PDF を返す。
   !! @param[in] x 評価点。

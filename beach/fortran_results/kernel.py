@@ -61,6 +61,7 @@ class FieldKernelOptions:
     ] | None = None
     box_min: tuple[float, float, float] | None = None
     box_max: tuple[float, float, float] | None = None
+    external_e0: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class FieldKernel:
         self._handle = ctypes.c_void_p()
         self._closed = False
         self._source_count = 0
+        self._options = FieldKernelOptions()
         status = self._lib.beach_kernel_create(ctypes.byref(self._handle))
         _check_status(status, "beach_kernel_create")
         try:
@@ -214,6 +216,7 @@ class FieldKernel:
         )
         _check_status(status, "beach_kernel_build")
         self._source_count = nsrc
+        self._options = opts
         self._keepalive = keepalive
 
     def update_charges(self, source_charges: np.ndarray) -> None:
@@ -245,7 +248,11 @@ class FieldKernel:
             e.ctypes.data_as(ctypes.c_void_p),
         )
         _check_status(status, "beach_kernel_eval_e")
-        return np.ascontiguousarray(e.T)
+        field = np.ascontiguousarray(e.T)
+        external_e0 = np.asarray(self._options.external_e0, dtype=np.float64)
+        if np.any(external_e0 != 0.0):
+            field = field + external_e0
+        return field
 
     def eval_phi(self, points: np.ndarray) -> np.ndarray:
         """Evaluate electric potential at points with shape ``(n, 3)``."""
@@ -291,6 +298,12 @@ class FieldKernel:
             torque.ctypes.data_as(ctypes.c_void_p),
         )
         _check_status(status, "beach_kernel_force_on_charges")
+        external_e0 = np.asarray(self._options.external_e0, dtype=np.float64)
+        if np.any(external_e0 != 0.0) and ntarget > 0:
+            force_i = target_q[:, None] * external_e0[None, :]
+            force += np.sum(force_i, axis=0)
+            rel_pos = target_pos.T - origin_arr[None, :]
+            torque += np.sum(np.cross(rel_pos, force_i), axis=0)
         return force, torque
 
     def close(self) -> None:
@@ -338,8 +351,9 @@ def calc_object_forces_kernel(
     """Compute object-wise net force using the Fortran FMM field kernel.
 
     For each target object, its own source charges are zeroed before evaluating
-    ``sum(q_i E_not_self(r_i))``. This avoids self-force contamination while
-    preserving the simulator's FMM/periodic2 far-correction semantics.
+    ``sum(q_i E_not_self(r_i))``. A configured uniform ``sim.e0`` is added to
+    the target field, matching the simulator pusher semantics while avoiding
+    Coulomb self-force contamination.
     """
 
     resolved = _resolve_result(result)
@@ -444,6 +458,7 @@ def _options_from_result(
         box_max = tuple(float(v) for v in sim["box_max"])  # type: ignore[index]
     return FieldKernelOptions(
         softening=resolved_softening,
+        external_e0=_external_e0_from_sim(sim),
         theta=resolved_theta,
         leaf_max=resolved_leaf_max,
         order=int(order),
@@ -473,6 +488,39 @@ def _load_sim_config(
 
 def _load_sim_config_near_output(output_dir: Path) -> Mapping[str, object] | None:
     return _load_sim_config(output_dir, config_path=None)
+
+
+def _external_e0_from_sim(sim: Mapping[str, object] | None) -> tuple[float, float, float]:
+    if sim is None:
+        return (0.0, 0.0, 0.0)
+    has_vector = "e0" in sim
+    has_abs = "e0_abs" in sim
+    has_phi_xy = "e0_phi_xy_deg" in sim
+    has_phi_z = "e0_phi_z_deg" in sim
+    if has_vector and (has_abs or has_phi_xy or has_phi_z):
+        raise ValueError(
+            "sim.e0 cannot be combined with sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg."
+        )
+    if has_vector:
+        e0 = _vec3(sim["e0"], name="e0")
+        return tuple(float(v) for v in e0)
+    if (has_phi_xy or has_phi_z) and not has_abs:
+        raise ValueError("sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs.")
+    if not has_abs:
+        return (0.0, 0.0, 0.0)
+
+    e0_abs = float(sim.get("e0_abs", 0.0))
+    phi_xy = np.deg2rad(float(sim.get("e0_phi_xy_deg", 0.0)))
+    phi_z = np.deg2rad(float(sim.get("e0_phi_z_deg", 0.0)))
+    if not np.isfinite(e0_abs) or e0_abs < 0.0:
+        raise ValueError("sim.e0_abs must be finite and >= 0.")
+    if not np.isfinite(phi_xy) or not np.isfinite(phi_z):
+        raise ValueError("sim.e0_phi_xy_deg/e0_phi_z_deg must be finite.")
+    return (
+        float(e0_abs * np.cos(phi_z) * np.cos(phi_xy)),
+        float(e0_abs * np.cos(phi_z) * np.sin(phi_xy)),
+        float(e0_abs * np.sin(phi_z)),
+    )
 
 
 def _resolve_kernel_softening(
