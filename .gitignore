@@ -232,3 +232,5 @@ test_*_tmp/
 
 ref/
 .claude/settings.local.json
+
+_handoff/
