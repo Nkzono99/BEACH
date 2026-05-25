@@ -214,10 +214,12 @@ contains
     real(dp), intent(in) :: box_min(3), box_max(3), box_tol
     logical, intent(in) :: require_elem_inside
 
-    real(dp), parameter :: eps = 1.0d-12
+    real(dp), parameter :: t_eps = 1.0d-12
+    real(dp), parameter :: axis_rel_eps = 64.0d0*epsilon(1.0d0)
     real(dp) :: t_entry, t_exit, t_cur, t_next
     real(dp) :: t_max(3), t_delta(3), cell_size
     real(dp) :: t, h(3), p_entry(3)
+    real(dp) :: axis_eps
     integer(i32) :: axis, nx, ny, cid
     integer(i32) :: cell(3), step(3)
     integer(i32) :: k, start_idx, end_idx, elem_idx
@@ -231,9 +233,10 @@ contains
     if (t_cur > t_exit) return
 
     p_entry = p0 + t_cur*d
+    axis_eps = axis_rel_eps*maxval(abs(d))
     do axis = 1, 3
       cell(axis) = coord_to_cell(mesh, p_entry(axis), int(axis, kind=i32))
-      if (abs(d(axis)) <= eps) then
+      if (abs(d(axis)) <= axis_eps) then
         step(axis) = 0_i32
         t_max(axis) = huge(1.0d0)
         t_delta(axis) = huge(1.0d0)
@@ -248,7 +251,7 @@ contains
           t_max(axis) = (mesh%grid_bb_min(axis) + real(cell(axis) - 1_i32, dp)*cell_size - p0(axis))/d(axis)
           t_delta(axis) = -cell_size/d(axis)
         end if
-        do while (t_max(axis) < t_cur - eps)
+        do while (t_max(axis) < t_cur - t_eps)
           t_max(axis) = t_max(axis) + t_delta(axis)
         end do
       end if
@@ -258,8 +261,8 @@ contains
     ny = mesh%grid_ncell(2)
 
     do
-      if (t_cur > t_exit + eps) exit
-      if (t_cur > best_t + eps) exit
+      if (t_cur > t_exit + t_eps) exit
+      if (t_cur > best_t + t_eps) exit
 
       cid = cell_id(cell(1), cell(2), cell(3), nx, ny)
       start_idx = mesh%grid_cell_start(cid)
@@ -295,11 +298,11 @@ contains
       end do
 
       t_next = min(t_max(1), min(t_max(2), t_max(3)))
-      if (t_next > t_exit + eps) exit
-      if (t_next > best_t + eps) exit
+      if (t_next > t_exit + t_eps) exit
+      if (t_next > best_t + t_eps) exit
 
       do axis = 1, 3
-        if (t_max(axis) <= t_next + eps) then
+        if (t_max(axis) <= t_next + t_eps) then
           if (step(axis) /= 0_i32) then
             cell(axis) = cell(axis) + step(axis)
             if (cell(axis) < 1_i32 .or. cell(axis) > mesh%grid_ncell(axis)) return
@@ -317,14 +320,20 @@ contains
     logical, intent(out) :: ok
     real(dp), intent(out) :: t_entry, t_exit
 
-    real(dp), parameter :: eps = 1.0d-14
+    real(dp), parameter :: axis_rel_eps = 64.0d0*epsilon(1.0d0)
     real(dp) :: t0, t1, t_near, t_far, inv_d, tmp
+    real(dp) :: axis_eps
     integer(i32) :: axis
 
     t0 = 0.0d0
     t1 = 1.0d0
+    axis_eps = axis_rel_eps*max( &
+               maxval(abs(d)), &
+               maxval(abs(bb_max - bb_min)), &
+               tiny(1.0d0) &
+               )
     do axis = 1, 3
-      if (abs(d(axis)) <= eps) then
+      if (abs(d(axis)) <= axis_eps) then
         if (p0(axis) < bb_min(axis) .or. p0(axis) > bb_max(axis)) then
           ok = .false.
           t_entry = 0.0d0
@@ -432,15 +441,20 @@ contains
     logical, intent(out) :: ok
     real(dp), intent(out) :: t, h(3)
 
-    real(dp), parameter :: eps = 1.0d-12
+    real(dp), parameter :: det_rel_eps = 64.0d0*epsilon(1.0d0)
     real(dp) :: d(3), e1(3), e2(3), q(3), s(3), hh(3), a, f, u, v
+    real(dp) :: det_scale
 
     d = p1 - p0
     e1 = v1 - v0
     e2 = v2 - v0
     hh = cross(d, e2)
     a = dot_product(e1, hh)
-    if (abs(a) < eps) then
+    det_scale = sqrt(sum(d*d))*sqrt(sum(e1*e1))*sqrt(sum(e2*e2))
+    if (det_scale <= tiny(1.0d0)) then
+      ok = .false.; return
+    end if
+    if (abs(a) <= det_rel_eps*det_scale) then
       ok = .false.; return
     end if
 

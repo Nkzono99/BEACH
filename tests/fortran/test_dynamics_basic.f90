@@ -19,7 +19,7 @@ program test_dynamics_basic
   real(dp) :: e(3), x_new(3), v_new(3), speed0, speed1
   real(dp) :: inv_r3, expected_ex
 
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -76,6 +76,10 @@ program test_dynamics_basic
   call assert_true(.not. hit%has_hit, 'segment outside triangle should not hit')
   call test_end()
 
+  call test_begin('segment_triangle_intersect_small_scale')
+  call test_segment_triangle_intersect_small_scale()
+  call test_end()
+
   call test_begin('collision_grid_equivalence')
   call test_collision_grid_equivalence()
   call test_end()
@@ -99,6 +103,24 @@ program test_dynamics_basic
   call test_summary()
 
 contains
+
+  subroutine test_segment_triangle_intersect_small_scale()
+    logical :: ok
+    real(dp) :: p0(3), p1(3), tri0(3), tri1(3), tri2(3), t, h(3)
+    real(dp), parameter :: scale = 9.899494936611664d-5
+
+    tri0 = [0.0d0, 0.0d0, 0.0d0]*scale
+    tri1 = [1.0d0, 0.0d0, 0.0d0]*scale
+    tri2 = [0.0d0, 1.0d0, 0.0d0]*scale
+    p0 = [0.25d0, 0.25d0, 0.02d0]*scale
+    p1 = [0.25d0, 0.25d0, -0.02d0]*scale
+
+    call segment_triangle_intersect(p0, p1, tri0, tri1, tri2, ok, t, h)
+
+    call assert_true(ok, 'small-scale segment should hit triangle')
+    call assert_close_dp(t, 0.5d0, 1.0d-12, 'small-scale hit parameter mismatch')
+    call assert_allclose_1d(h, [0.25d0, 0.25d0, 0.0d0]*scale, 1.0d-16, 'small-scale hit position mismatch')
+  end subroutine test_segment_triangle_intersect_small_scale
 
   subroutine test_collision_grid_equivalence()
     type(mesh_type) :: mesh_grid

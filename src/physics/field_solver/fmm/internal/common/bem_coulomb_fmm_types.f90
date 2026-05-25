@@ -118,7 +118,7 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: l2l_gamma_list(:, :)
     integer(i32), allocatable :: l2l_delta_list(:, :)
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
-    type(periodic2_ewald_data_type) :: periodic_ewald = periodic2_ewald_data_type()
+    type(periodic2_ewald_data_type) :: periodic_ewald
     logical :: periodic_root_operator_ready = .false.
     integer(i32) :: periodic_root_target_count = 0_i32
     integer(i32), allocatable :: periodic_root_target_nodes(:)
