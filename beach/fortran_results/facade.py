@@ -317,7 +317,9 @@ class Beach:
         view_azim: float = -58.0,
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
+        periodic2_mesh_mode: str = "centroid",
         periodic2_repeat: int = 0,
+        axis_unit: str = "m",
     ):
         """Plot a 3D mesh colored by surface charge density.
 
@@ -335,8 +337,12 @@ class Beach:
         apply_periodic2_mesh : bool, default False
             ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
             適用して描画する。
+        periodic2_mesh_mode : {"centroid", "mesh"}, default "centroid"
+            周期セルへ wrap する単位。``"mesh"`` は粒子を割らずに表示する。
         periodic2_repeat : int, default 0
             周期イメージの複製数。``0`` は複製なし。
+        axis_unit : {"m", "um", "nm"}, default "m"
+            Coordinate unit used for 3D axes.
 
         Returns
         -------
@@ -351,7 +357,9 @@ class Beach:
             view_azim=view_azim,
             periodic2=periodic2,
             apply_periodic2_mesh=apply_periodic2_mesh,
+            periodic2_mesh_mode=periodic2_mesh_mode,
             periodic2_repeat=periodic2_repeat,
+            axis_unit=axis_unit,
         )
 
     def plot_bar(self):
@@ -514,8 +522,10 @@ class Beach:
         view_azim: float = -58.0,
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
+        periodic2_mesh_mode: str = "centroid",
         periodic2_repeat: int = 0,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
+        axis_unit: str = "m",
     ):
         """Plot a 3D mesh colored by reconstructed electric potential.
 
@@ -538,10 +548,14 @@ class Beach:
         apply_periodic2_mesh : bool, default False
             ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
             適用して描画する。
+        periodic2_mesh_mode : {"centroid", "mesh"}, default "centroid"
+            周期セルへ wrap する単位。``"mesh"`` は粒子を割らずに表示する。
         periodic2_repeat : int, default 0
             周期イメージの複製数。``0`` は複製なし。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
             基準電位を差し引く参照点。
+        axis_unit : {"m", "um", "nm"}, default "m"
+            Coordinate unit used for 3D axes.
 
         Returns
         -------
@@ -558,8 +572,10 @@ class Beach:
             view_azim=view_azim,
             periodic2=periodic2,
             apply_periodic2_mesh=apply_periodic2_mesh,
+            periodic2_mesh_mode=periodic2_mesh_mode,
             periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
+            axis_unit=axis_unit,
         )
 
     def plot_potential_slices(
@@ -578,6 +594,7 @@ class Beach:
         vmax: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
+        axis_unit: str = "m",
     ):
         """Plot XY/YZ/XZ potential slices with a shared color scale.
 
@@ -611,6 +628,8 @@ class Beach:
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
             基準電位を差し引く参照点。
+        axis_unit : {"m", "um", "nm"}, default "m"
+            Coordinate unit used for slice axes.
 
         Returns
         -------
@@ -633,6 +652,7 @@ class Beach:
             vmax=vmax,
             periodic2=periodic2,
             reference_point=reference_point,
+            axis_unit=axis_unit,
         )
 
     def plot_mesh_source_boxplot(

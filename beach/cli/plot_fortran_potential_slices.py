@@ -88,6 +88,12 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         default=150,
         help="saved image DPI",
     )
+    parser.add_argument(
+        "--axis-unit",
+        choices=("m", "um", "nm"),
+        default="m",
+        help="coordinate unit for slice axes",
+    )
     parser.add_argument("--show", action="store_true", help="display matplotlib window")
 
 
@@ -255,6 +261,7 @@ def run(args: argparse.Namespace) -> None:
             vmin=args.vmin,
             vmax=args.vmax,
             periodic2=periodic2,
+            axis_unit=args.axis_unit,
         )
     except ModuleNotFoundError as exc:
         if exc.name is not None and exc.name.startswith("matplotlib"):

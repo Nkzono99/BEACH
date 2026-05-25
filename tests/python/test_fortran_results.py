@@ -25,7 +25,10 @@ from beach.fortran_results import (
     plot_potential_slices,
     plot_potential_mesh,
 )
-from beach.fortran_results.mesh import _wrap_periodic2_triangles_by_centroid
+from beach.fortran_results.mesh import (
+    _wrap_periodic2_triangles_by_centroid,
+    _wrap_periodic2_triangles_by_mesh_centroid,
+)
 from beach.fortran_results.potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
@@ -1705,6 +1708,35 @@ def test_wrap_periodic2_triangles_by_centroid_keeps_face_shape() -> None:
     )
 
 
+def test_wrap_periodic2_triangles_by_mesh_centroid_keeps_object_intact() -> None:
+    triangles = np.array(
+        [
+            [[0.90, 0.10, 0.0], [0.95, 0.10, 0.0], [0.90, 0.15, 0.0]],
+            [[1.10, 0.10, 0.0], [1.15, 0.10, 0.0], [1.10, 0.15, 0.0]],
+        ]
+    )
+
+    face_wrapped = _wrap_periodic2_triangles_by_centroid(
+        triangles,
+        axes=(0, 1),
+        lengths=(1.0, 1.0),
+        origins=(0.0, 0.0),
+    )
+    mesh_wrapped = _wrap_periodic2_triangles_by_mesh_centroid(
+        triangles,
+        np.array([2, 2]),
+        axes=(0, 1),
+        lengths=(1.0, 1.0),
+        origins=(0.0, 0.0),
+    )
+
+    original_dx = triangles[1].mean(axis=0)[0] - triangles[0].mean(axis=0)[0]
+    face_dx = face_wrapped[1].mean(axis=0)[0] - face_wrapped[0].mean(axis=0)[0]
+    mesh_dx = mesh_wrapped[1].mean(axis=0)[0] - mesh_wrapped[0].mean(axis=0)[0]
+    assert abs(face_dx) > 0.5
+    assert mesh_dx == pytest.approx(original_dx)
+
+
 def test_plot_charge_mesh_can_apply_periodic2_mesh_wrapping() -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
@@ -1767,6 +1799,15 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
 
     assert fig is not None
     assert ax is not None
+    fig.clf()
+
+    fig, ax = plot_potential_mesh(
+        result,
+        softening=0.5,
+        self_term="softened_point",
+        axis_unit="um",
+    )
+    assert ax.get_xlabel() == "x [um]"
     fig.clf()
 
 

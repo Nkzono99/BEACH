@@ -582,6 +582,8 @@ def _coerce_periodic2(
 ] | None:
     if periodic2 is None:
         return None
+    if isinstance(periodic2, tuple) and len(periodic2) == 7:
+        return periodic2
     if not isinstance(periodic2, Mapping):
         raise ValueError("periodic2 must be a mapping or None.")
 

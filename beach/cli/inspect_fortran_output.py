@@ -62,6 +62,15 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--periodic2-mesh-mode",
+        choices=("centroid", "mesh"),
+        default="centroid",
+        help=(
+            "periodic2 wrapping unit for mesh plots; 'mesh' keeps each mesh_id "
+            "object intact"
+        ),
+    )
+    parser.add_argument(
         "--periodic2-repeat",
         type=int,
         default=0,
@@ -69,6 +78,12 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
             "replicate the mesh over periodic images; n produces (2n+1)^2 copies "
             "(default: 0 = no replication)"
         ),
+    )
+    parser.add_argument(
+        "--axis-unit",
+        choices=("m", "um", "nm"),
+        default="m",
+        help="coordinate unit for 3D mesh plot axes",
     )
 
 
@@ -156,7 +171,9 @@ def run(args: argparse.Namespace) -> None:
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
                     apply_periodic2_mesh=args.apply_periodic2_mesh,
+                    periodic2_mesh_mode=args.periodic2_mesh_mode,
                     periodic2_repeat=args.periodic2_repeat,
+                    axis_unit=args.axis_unit,
                 )
                 if args.save_mesh is not None:
                     mesh_fig.savefig(args.save_mesh, dpi=150)
@@ -173,7 +190,9 @@ def run(args: argparse.Namespace) -> None:
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
                     apply_periodic2_mesh=args.apply_periodic2_mesh,
+                    periodic2_mesh_mode=args.periodic2_mesh_mode,
                     periodic2_repeat=args.periodic2_repeat,
+                    axis_unit=args.axis_unit,
                 )
                 if args.save_potential_mesh is not None:
                     potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)

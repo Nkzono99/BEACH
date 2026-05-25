@@ -17,6 +17,7 @@ from .mesh import (
     _maybe_apply_periodic2_mesh,
     _maybe_replicate_periodic2,
     _plot_scalar_mesh,
+    _resolve_axis_unit,
     _surface_charge_density,
     _triangle_areas,
 )
@@ -111,7 +112,9 @@ def plot_charge_mesh(
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
+    periodic2_mesh_mode: str = "centroid",
     periodic2_repeat: int = 0,
+    axis_unit: str = "m",
 ):
     """Plot a 3D mesh colored by surface charge density.
 
@@ -131,9 +134,14 @@ def plot_charge_mesh(
     apply_periodic2_mesh : bool, default False
         ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
         適用して描画する。
+    periodic2_mesh_mode : {"centroid", "mesh"}, default "centroid"
+        周期セルへ wrap する単位。``"centroid"`` は face ごと、``"mesh"`` は
+        mesh_id ごとに丸ごと移動して粒子形状を保つ。
     periodic2_repeat : int, default 0
         周期イメージの複製数。``n`` を指定すると各周期軸方向に ``-n`` から ``+n``
         までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
+    axis_unit : {"m", "um", "nm"}, default "m"
+        Coordinate unit used for 3D axes.
 
     Returns
     -------
@@ -153,6 +161,7 @@ def plot_charge_mesh(
         triangles,
         periodic2=periodic2,
         apply_periodic2_mesh=apply_periodic2_mesh,
+        periodic2_mesh_mode=periodic2_mesh_mode,
     )
     sigma = _surface_charge_density(resolved.charges, triangles)
     triangles, sigma = _maybe_replicate_periodic2(
@@ -165,11 +174,12 @@ def plot_charge_mesh(
     return _plot_scalar_mesh(
         triangles,
         sigma,
-        title=f"Surface charge density mesh: {resolved.directory}",
+        title=f"Surface charge density mesh: {_short_directory_label(resolved.directory)}",
         colorbar_label="surface charge density [C/m^2]",
         cmap=cmap,
         view_elev=view_elev,
         view_azim=view_azim,
+        axis_unit=axis_unit,
     )
 
 
@@ -189,6 +199,7 @@ def plot_potential_slices(
     vmax: float | None = None,
     periodic2: Mapping[str, object] | None = None,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
+    axis_unit: str = "m",
 ):
     """Plot XY/YZ/XZ potential slices in one figure.
 
@@ -223,6 +234,8 @@ def plot_potential_slices(
         :func:`beach.fortran_results.compute_potential_points`.
     reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
         基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
+    axis_unit : {"m", "um", "nm"}, default "m"
+        Coordinate unit used for slice axes.
 
     Returns
     -------
@@ -238,6 +251,7 @@ def plot_potential_slices(
     import matplotlib.pyplot as plt
 
     resolved = _resolve_result(result)
+    axis_label, axis_scale = _resolve_axis_unit(axis_unit)
     resolved_reference = _resolve_reference_point(resolved, reference_point)
     slices = compute_potential_slices(
         result,
@@ -268,18 +282,19 @@ def plot_potential_slices(
     for ax, plane in zip(axes, ordered_planes):
         slc = slices[plane]
         mappable = ax.pcolormesh(
-            slc.u_values_m,
-            slc.v_values_m,
+            slc.u_values_m * axis_scale,
+            slc.v_values_m * axis_scale,
             slc.potential_V,
             shading="auto",
             cmap=cmap,
             vmin=global_min,
             vmax=global_max,
         )
-        ax.set_xlabel(f"{slc.axis_u} [m]")
-        ax.set_ylabel(f"{slc.axis_v} [m]")
+        ax.set_xlabel(f"{slc.axis_u} [{axis_label}]")
+        ax.set_ylabel(f"{slc.axis_v} [{axis_label}]")
         ax.set_title(
-            f"{slc.plane.upper()} ({slc.fixed_axis}={slc.fixed_value_m:.3e} m)"
+            f"{slc.plane.upper()} "
+            f"({slc.fixed_axis}={slc.fixed_value_m * axis_scale:.3g} {axis_label})"
         )
         ax.set_aspect("equal", adjustable="box")
 
@@ -299,8 +314,10 @@ def plot_potential_mesh(
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
+    periodic2_mesh_mode: str = "centroid",
     periodic2_repeat: int = 0,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
+    axis_unit: str = "m",
 ):
     """Plot a 3D mesh colored by reconstructed electric potential.
 
@@ -325,11 +342,15 @@ def plot_potential_mesh(
         ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
         適用して描画する。``periodic2`` が ``None`` なら近傍の ``beach.toml`` から
         自動判定する。
+    periodic2_mesh_mode : {"centroid", "mesh"}, default "centroid"
+        周期セルへ wrap する単位。``"mesh"`` は粒子を割らずに表示したい場合に使う。
     periodic2_repeat : int, default 0
         周期イメージの複製数。``n`` を指定すると各周期軸方向に ``-n`` から ``+n``
         までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
         基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
+    axis_unit : {"m", "um", "nm"}, default "m"
+        Coordinate unit used for 3D axes.
 
     Returns
     -------
@@ -349,6 +370,7 @@ def plot_potential_mesh(
         triangles,
         periodic2=periodic2,
         apply_periodic2_mesh=apply_periodic2_mesh,
+        periodic2_mesh_mode=periodic2_mesh_mode,
     )
     resolved_reference = _resolve_reference_point(resolved, reference_point)
     phi = compute_potential_mesh(
@@ -370,11 +392,12 @@ def plot_potential_mesh(
     return _plot_scalar_mesh(
         plot_triangles,
         phi,
-        title=f"{title}: {resolved.directory}",
+        title=f"{title}: {_short_directory_label(resolved.directory)}",
         colorbar_label=colorbar_label,
         cmap=cmap,
         view_elev=view_elev,
         view_azim=view_azim,
+        axis_unit=axis_unit,
     )
 
 
@@ -581,6 +604,13 @@ def _periodic2_for_coulomb_matrix(
     if not isinstance(sim, Mapping):
         return None
     return _periodic2_from_sim(sim)
+
+
+def _short_directory_label(directory: Path) -> str:
+    parts = Path(directory).parts
+    if len(parts) >= 2:
+        return str(Path(*parts[-2:]))
+    return str(directory)
 
 
 def plot_mesh_source_boxplot(
