@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -20,6 +22,9 @@ from .mesh import (
 )
 from .objects import normalize_kind_filter, resolve_object_specs
 from .potential import (
+    _find_config_path_near_output,
+    _load_toml,
+    _periodic2_from_sim,
     _resolve_reference_point,
     compute_potential_mesh,
     compute_potential_slices,
@@ -31,6 +36,44 @@ from .selection import (
     _resolve_result,
 )
 from .types import FortranRunResult, MeshSource
+
+
+_COULOMB_MATRIX_WORKER_CONTEXT: dict[str, object] = {}
+
+
+def _init_coulomb_matrix_worker(
+    resolved: FortranRunResult,
+    step: int | None,
+    softening: float,
+    component_idx: int,
+    periodic2: Mapping[str, object] | None,
+) -> None:
+    _COULOMB_MATRIX_WORKER_CONTEXT.clear()
+    _COULOMB_MATRIX_WORKER_CONTEXT.update(
+        {
+            "resolved": resolved,
+            "step": step,
+            "softening": softening,
+            "component_idx": component_idx,
+            "periodic2": periodic2,
+        }
+    )
+
+
+def _compute_coulomb_matrix_entry_worker(
+    task: tuple[int, int, int, list[int]],
+) -> tuple[int, int, float]:
+    row_idx, col_idx, target_mesh_id, source_mesh_ids = task
+    interaction = calc_coulomb(
+        _COULOMB_MATRIX_WORKER_CONTEXT["resolved"],
+        target=target_mesh_id,
+        source=source_mesh_ids,
+        step=_COULOMB_MATRIX_WORKER_CONTEXT["step"],
+        softening=_COULOMB_MATRIX_WORKER_CONTEXT["softening"],
+        periodic2=_COULOMB_MATRIX_WORKER_CONTEXT["periodic2"],
+    )
+    component_idx = int(_COULOMB_MATRIX_WORKER_CONTEXT["component_idx"])
+    return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
 
 
 def plot_charges(result: FortranRunResult | object):
@@ -345,6 +388,7 @@ def plot_coulomb_force_matrix(
     config_path: str | Path | None = None,
     cmap: str = "coolwarm",
     annotate: bool = True,
+    workers: int = 1,
 ):
     """Plot an object-wise Coulomb-force matrix.
 
@@ -368,6 +412,8 @@ def plot_coulomb_force_matrix(
         Matplotlib colormap name.
     annotate : bool, default True
         Whether to draw scientific-notation values inside each cell.
+    workers : int, default 1
+        Number of worker processes used for source/target force entries.
 
     Returns
     -------
@@ -383,8 +429,11 @@ def plot_coulomb_force_matrix(
     import matplotlib.pyplot as plt
 
     resolved = _resolve_result(result)
+    if workers < 1:
+        raise ValueError("workers must be >= 1.")
     component_idx, component_label = _force_component_info(component)
     object_specs = resolve_object_specs(resolved, config_path=config_path)
+    periodic2 = _periodic2_for_coulomb_matrix(resolved, config_path=config_path)
 
     resolved_target_kinds = normalize_kind_filter(target_kinds)
     target_specs = [
@@ -403,22 +452,14 @@ def plot_coulomb_force_matrix(
     source_labels = [spec.label for spec in object_specs] + ["net"]
     target_labels = [spec.label for spec in target_specs]
 
+    tasks: list[tuple[int, int, int, list[int]]] = []
     for col_idx, target_spec in enumerate(target_specs):
         target_mesh_id = int(target_spec.mesh_id)
         for row_idx, source_spec in enumerate(object_specs):
             source_mesh_id = int(source_spec.mesh_id)
             if source_mesh_id == target_mesh_id:
                 continue
-            interaction = calc_coulomb(
-                resolved,
-                target=target_mesh_id,
-                source=source_mesh_id,
-                step=step,
-                softening=softening,
-            )
-            matrix[row_idx, col_idx] = float(
-                interaction.force_on_a_N[component_idx]
-            )
+            tasks.append((row_idx, col_idx, target_mesh_id, [source_mesh_id]))
 
         net_sources = [
             int(spec.mesh_id)
@@ -426,14 +467,43 @@ def plot_coulomb_force_matrix(
             if int(spec.mesh_id) != target_mesh_id
         ]
         if net_sources:
-            interaction = calc_coulomb(
-                resolved,
-                target=target_mesh_id,
-                source=net_sources,
-                step=step,
-                softening=softening,
-            )
-            matrix[-1, col_idx] = float(interaction.force_on_a_N[component_idx])
+            tasks.append((len(object_specs), col_idx, target_mesh_id, net_sources))
+
+    def _compute_entry_serial(
+        task: tuple[int, int, int, list[int]],
+    ) -> tuple[int, int, float]:
+        row_idx, col_idx, target_mesh_id, source_mesh_ids = task
+        interaction = calc_coulomb(
+            resolved,
+            target=target_mesh_id,
+            source=source_mesh_ids,
+            step=step,
+            softening=softening,
+            periodic2=periodic2,
+        )
+        return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
+
+    if workers == 1 or len(tasks) <= 1:
+        entries = map(_compute_entry_serial, tasks)
+        for row_idx, col_idx, value in entries:
+            matrix[row_idx, col_idx] = value
+    else:
+        max_workers = min(int(workers), len(tasks))
+        try:
+            mp_context = mp.get_context("fork")
+        except ValueError:
+            mp_context = None
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=mp_context,
+            initializer=_init_coulomb_matrix_worker,
+            initargs=(resolved, step, softening, component_idx, periodic2),
+        ) as executor:
+            for row_idx, col_idx, value in executor.map(
+                _compute_coulomb_matrix_entry_worker,
+                tasks,
+            ):
+                matrix[row_idx, col_idx] = value
 
     fig_width = max(6.0, 1.2 * len(target_specs) + 2.8)
     fig_height = max(4.8, 0.7 * len(source_labels) + 2.0)
@@ -487,9 +557,30 @@ def plot_coulomb_force_matrix(
         "source_mesh_ids": tuple(int(spec.mesh_id) for spec in object_specs),
         "step": step,
         "softening": float(softening),
+        "workers": int(workers),
     }
     fig.tight_layout()
     return fig, ax
+
+
+def _periodic2_for_coulomb_matrix(
+    resolved: FortranRunResult,
+    *,
+    config_path: str | Path | None,
+) -> Mapping[str, object] | None:
+    if config_path is None:
+        path = _find_config_path_near_output(resolved.directory)
+        if path is None:
+            return None
+    else:
+        path = Path(config_path)
+    if not path.exists():
+        raise ValueError(f'config file is not found: "{path}".')
+    config = _load_toml(path)
+    sim = config.get("sim")
+    if not isinstance(sim, Mapping):
+        return None
+    return _periodic2_from_sim(sim)
 
 
 def plot_mesh_source_boxplot(

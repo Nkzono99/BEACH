@@ -685,6 +685,7 @@ class Beach:
         config_path: str | Path | None = None,
         cmap: str = "coolwarm",
         annotate: bool = True,
+        workers: int = 1,
     ):
         """Plot an object-wise Coulomb-force matrix.
 
@@ -706,6 +707,8 @@ class Beach:
             Matplotlib colormap name.
         annotate : bool, default True
             Whether to draw scientific-notation values inside each cell.
+        workers : int, default 1
+            Number of worker processes used for source/target force entries.
 
         Returns
         -------
@@ -722,6 +725,7 @@ class Beach:
             config_path=self._resolve_config_path(config_path),
             cmap=cmap,
             annotate=annotate,
+            workers=workers,
         )
 
     def animate_mesh(

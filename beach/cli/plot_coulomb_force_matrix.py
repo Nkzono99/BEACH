@@ -63,6 +63,12 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         help="saved image DPI",
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="worker processes for Coulomb-force entries (default: 1)",
+    )
+    parser.add_argument(
         "--no-annotate",
         action="store_true",
         help="do not draw numeric values in each matrix cell",
@@ -103,6 +109,8 @@ def run(args: argparse.Namespace) -> None:
         parser.error("--dpi must be > 0.")
     if args.softening < 0.0:
         parser.error("--softening must be >= 0.")
+    if args.workers < 1:
+        parser.error("--workers must be >= 1.")
 
     target_kinds = _parse_target_kinds(args.target_kinds)
     output_dir = Path(args.output_dir)
@@ -130,6 +138,7 @@ def run(args: argparse.Namespace) -> None:
             config_path=args.config,
             cmap=args.cmap,
             annotate=not args.no_annotate,
+            workers=args.workers,
         )
         fig.savefig(save_path, dpi=args.dpi)
     except ModuleNotFoundError as exc:

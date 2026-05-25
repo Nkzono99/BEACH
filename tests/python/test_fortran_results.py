@@ -1986,6 +1986,12 @@ def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(
     )
     fig.clf()
 
+    fig, ax = beach.plot_coulomb_force_matrix(component="x", workers=2)
+    worker_info = getattr(ax, "_beach_coulomb_matrix")
+    assert worker_info["workers"] == 2
+    np.testing.assert_allclose(worker_info["matrix"], matrix_info["matrix"])
+    fig.clf()
+
 
 def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(tmp_path: Path) -> None:
     matplotlib = pytest.importorskip("matplotlib")
