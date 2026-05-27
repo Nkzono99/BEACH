@@ -12,7 +12,7 @@ contains
 
   !> 観測点の電場を direct / treecode / fmm で評価して返す。
   module procedure eval_e_field_solver
-  real(dp) :: rx, ry, rz, soft2, ex, ey, ez
+  real(dp) :: rx, ry, rz, soft2, ex, ey, ez, r_scaled(3)
 
   if (trim(self%mode) == 'fmm') then
     if (mesh%nelem <= 0_i32) then
@@ -22,29 +22,30 @@ contains
     if (.not. self%fmm_core_ready) then
       error stop 'FMM core is not ready. Call solver%init/refresh before eval_e.'
     end if
-    call eval_point(self%fmm_core_plan, self%fmm_core_state, r, e)
-    e = k_coulomb*e
+    r_scaled = (r - self%field_origin)*self%field_inv_length_scale
+    call eval_point(self%fmm_core_plan, self%fmm_core_state, r_scaled, e)
+    e = self%field_output_scale*e
     return
   end if
 
   if (trim(self%mode) /= 'treecode' .or. .not. self%tree_ready) then
-    call electric_field_at(mesh, r, self%softening, e)
+    call electric_field_at_normalized(mesh, r, self%softening, self%field_inv_length_scale, self%field_output_scale, e)
     return
   end if
 
   rx = r(1)
   ry = r(2)
   rz = r(3)
-  soft2 = self%softening*self%softening
+  soft2 = (self%softening*self%field_inv_length_scale)**2
   ex = 0.0d0
   ey = 0.0d0
   ez = 0.0d0
 
   call traverse_node(self, mesh, 1_i32, rx, ry, rz, soft2, ex, ey, ez)
 
-  e(1) = k_coulomb*ex
-  e(2) = k_coulomb*ey
-  e(3) = k_coulomb*ez
+  e(1) = self%field_output_scale*ex
+  e(2) = self%field_output_scale*ey
+  e(3) = self%field_output_scale*ez
   end procedure eval_e_field_solver
 
   !> ノードを再帰走査し、葉は direct 総和・遠方は monopole 近似で加算する。
@@ -56,9 +57,9 @@ contains
     p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
     do p = self%node_start(node_idx), p_end
       idx = self%elem_order(p)
-      dx = rx - mesh%center_x(idx)
-      dy = ry - mesh%center_y(idx)
-      dz = rz - mesh%center_z(idx)
+      dx = (rx - mesh%center_x(idx))*self%field_inv_length_scale
+      dy = (ry - mesh%center_y(idx))*self%field_inv_length_scale
+      dz = (rz - mesh%center_z(idx))*self%field_inv_length_scale
       r2 = dx*dx + dy*dy + dz*dz + soft2
       inv_r3 = 1.0d0/(sqrt(r2)*r2)
       qi = mesh%q_elem(idx)
@@ -72,9 +73,9 @@ contains
   if (accept_node(self, node_idx, rx, ry, rz)) then
     qi = self%node_q(node_idx)
     if (abs(qi) > 0.0d0) then
-      dx = rx - self%node_charge_center(1, node_idx)
-      dy = ry - self%node_charge_center(2, node_idx)
-      dz = rz - self%node_charge_center(3, node_idx)
+      dx = (rx - self%node_charge_center(1, node_idx))*self%field_inv_length_scale
+      dy = (ry - self%node_charge_center(2, node_idx))*self%field_inv_length_scale
+      dz = (rz - self%node_charge_center(3, node_idx))*self%field_inv_length_scale
       r2 = dx*dx + dy*dy + dz*dz + soft2
       inv_r3 = 1.0d0/(sqrt(r2)*r2)
       ex = ex + qi*inv_r3*dx
@@ -142,7 +143,8 @@ contains
     real(dp), intent(out) :: potential_v(:)
 
     real(dp), parameter :: pi_dp = acos(-1.0d0)
-    real(dp) :: phi_anchor_exact, phi_offset, self_coeff, softening
+    real(dp) :: phi_anchor_exact, phi_offset, self_coeff, softening, h_elem_scaled
+    real(dp), allocatable :: centers_scaled(:, :)
     integer(i32) :: i
 
     if (.not. self%fmm_core_plan%built .or. .not. self%fmm_core_state%ready) &
@@ -153,22 +155,28 @@ contains
     softening = self%fmm_core_plan%options%softening
     if (softening < 0.0d0) error stop 'mesh potential output requires non-negative FMM softening.'
 
-    call eval_potential_points(self%fmm_core_plan, self%fmm_core_state, mesh%centers, potential_v)
+    allocate (centers_scaled(3, mesh%nelem))
+    do i = 1, mesh%nelem
+      centers_scaled(:, i) = (mesh%centers(:, i) - self%field_origin)*self%field_inv_length_scale
+    end do
+    call eval_potential_points(self%fmm_core_plan, self%fmm_core_state, centers_scaled, potential_v)
 
     if (use_periodic2_m2l_root_oracle(self%fmm_core_plan)) then
-      call compute_exact_potential_point(self%fmm_core_plan, self%fmm_core_state, mesh%centers(:, 1), phi_anchor_exact)
+      call compute_exact_potential_point(self%fmm_core_plan, self%fmm_core_state, centers_scaled(:, 1), phi_anchor_exact)
       phi_offset = phi_anchor_exact - potential_v(1)
       potential_v = potential_v + phi_offset
     end if
 
     if (softening <= 0.0d0) then
       do i = 1, mesh%nelem
-        self_coeff = 2.0d0*sqrt(pi_dp)/max(mesh%h_elem(i), sqrt(tiny(1.0d0)))
+        h_elem_scaled = mesh%h_elem(i)*self%field_inv_length_scale
+        self_coeff = 2.0d0*sqrt(pi_dp)/max(h_elem_scaled, sqrt(tiny(1.0d0)))
         potential_v(i) = potential_v(i) + self_coeff*mesh%q_elem(i)
       end do
     end if
 
-    potential_v = k_coulomb*potential_v
+    potential_v = self%potential_output_scale*potential_v
+    deallocate (centers_scaled)
   end subroutine compute_mesh_potential_fmm
 
   !> FMM source/state を使って 1 点の exact 電位を O(N) で再評価する。
@@ -249,7 +257,7 @@ contains
     real(dp), parameter :: pi_dp = acos(-1.0d0)
     integer(i32) :: i, j, ix, iy, axis1, axis2, image_layers
     integer(i32) :: periodic_axes(2), n_periodic, axis
-    real(dp) :: softening, soft2, min_dist2, self_coeff
+    real(dp) :: softening, softening_scaled, soft2, min_dist2, self_coeff, h_elem_scaled
     real(dp) :: periodic_len(2), periodic_origins(2), span
     real(dp) :: target(3), shifted(3), dx, dy, dz, r2
     logical :: use_periodic2, use_exact_ewald_residual
@@ -259,7 +267,8 @@ contains
 
     softening = sim%softening
     if (softening < 0.0d0) error stop 'sim.softening must be >= 0 for mesh potential output.'
-    soft2 = softening*softening
+    softening_scaled = softening*self%field_inv_length_scale
+    soft2 = softening_scaled*softening_scaled
     min_dist2 = tiny(1.0d0)
     potential_v = 0.0d0
 
@@ -299,51 +308,57 @@ contains
     axis2 = periodic_axes(2)
     call initialize_fmm_state(ewald_state)
     call init_ewald_context( &
-      mesh, sim, use_periodic2, periodic_axes, periodic_len, image_layers, ewald_plan, ewald_state, use_exact_ewald_residual &
+      mesh, sim, use_periodic2, periodic_axes, periodic_len, image_layers, self%field_inv_length_scale, &
+      self%field_length_scale, self%field_origin, ewald_plan, ewald_state, use_exact_ewald_residual &
       )
 
     do i = 1, mesh%nelem
       if (softening > 0.0d0) then
-        self_coeff = 1.0d0/softening
+        self_coeff = 1.0d0/softening_scaled
       else
-        self_coeff = 2.0d0*sqrt(pi_dp)/max(mesh%h_elem(i), sqrt(tiny(1.0d0)))
+        h_elem_scaled = mesh%h_elem(i)*self%field_inv_length_scale
+        self_coeff = 2.0d0*sqrt(pi_dp)/max(h_elem_scaled, sqrt(tiny(1.0d0)))
       end if
       potential_v(i) = self_coeff*mesh%q_elem(i)
     end do
 
     if (.not. use_periodic2) then
       !$omp parallel do default(none) schedule(static) &
-      !$omp   shared(mesh, soft2, min_dist2, potential_v) private(i, j, dx, dy, dz, r2)
+      !$omp   shared(mesh, soft2, min_dist2, potential_v, self) private(i, j, dx, dy, dz, r2)
       do i = 1, mesh%nelem
         do j = 1, mesh%nelem
           if (j == i) cycle
-          dx = mesh%center_x(i) - mesh%center_x(j)
-          dy = mesh%center_y(i) - mesh%center_y(j)
-          dz = mesh%center_z(i) - mesh%center_z(j)
+          dx = (mesh%center_x(i) - mesh%center_x(j))*self%field_inv_length_scale
+          dy = (mesh%center_y(i) - mesh%center_y(j))*self%field_inv_length_scale
+          dz = (mesh%center_z(i) - mesh%center_z(j))*self%field_inv_length_scale
           r2 = dx*dx + dy*dy + dz*dz + soft2
           potential_v(i) = potential_v(i) + mesh%q_elem(j)/sqrt(max(r2, min_dist2))
         end do
       end do
       !$omp end parallel do
-      potential_v = k_coulomb*potential_v
+      potential_v = self%potential_output_scale*potential_v
       return
     end if
 
+    periodic_len = periodic_len*self%field_inv_length_scale
+    periodic_origins(1) = (periodic_origins(1) - self%field_origin(axis1))*self%field_inv_length_scale
+    periodic_origins(2) = (periodic_origins(2) - self%field_origin(axis2))*self%field_inv_length_scale
     !$omp parallel do default(none) schedule(static) &
     !$omp   shared(mesh, soft2, min_dist2, potential_v, axis1, axis2, &
     !$omp          periodic_origins, periodic_len, image_layers, &
-    !$omp          use_exact_ewald_residual, ewald_plan, ewald_state) &
+    !$omp          use_exact_ewald_residual, ewald_plan, ewald_state, self) &
     !$omp   private(i, j, ix, iy, target, shifted, dx, dy, dz, r2)
     do i = 1, mesh%nelem
-      target = mesh%centers(:, i)
+      target = (mesh%centers(:, i) - self%field_origin)*self%field_inv_length_scale
       target(axis1) = wrap_periodic(target(axis1), periodic_origins(1), periodic_len(1))
       target(axis2) = wrap_periodic(target(axis2), periodic_origins(2), periodic_len(2))
 
       do j = 1, mesh%nelem
         if (j == i) cycle
-        dx = target(1) - mesh%centers(1, j)
-        dy = target(2) - mesh%centers(2, j)
-        dz = target(3) - mesh%centers(3, j)
+        shifted = (mesh%centers(:, j) - self%field_origin)*self%field_inv_length_scale
+        dx = target(1) - shifted(1)
+        dy = target(2) - shifted(2)
+        dz = target(3) - shifted(3)
         r2 = dx*dx + dy*dy + dz*dz + soft2
         potential_v(i) = potential_v(i) + mesh%q_elem(j)/sqrt(max(r2, min_dist2))
       end do
@@ -352,7 +367,7 @@ contains
         do iy = -image_layers, image_layers
           if (ix == 0_i32 .and. iy == 0_i32) cycle
           do j = 1, mesh%nelem
-            shifted = mesh%centers(:, j)
+            shifted = (mesh%centers(:, j) - self%field_origin)*self%field_inv_length_scale
             shifted(axis1) = shifted(axis1) + real(ix, dp)*periodic_len(1)
             shifted(axis2) = shifted(axis2) + real(iy, dp)*periodic_len(2)
             dx = target(1) - shifted(1)
@@ -374,24 +389,26 @@ contains
       call reset_fmm_state(ewald_state)
       call reset_fmm_plan(ewald_plan)
     end if
-    potential_v = k_coulomb*potential_v
+    potential_v = self%potential_output_scale*potential_v
   end subroutine compute_mesh_potential_direct
 
   !> exact Ewald residual 用の最小 periodic2 context を作る。
   subroutine init_ewald_context( &
-    mesh, sim, use_periodic2, periodic_axes, periodic_len, image_layers, plan, state, enabled &
+    mesh, sim, use_periodic2, periodic_axes, periodic_len, image_layers, inv_length_scale, length_scale, origin, &
+    plan, state, enabled &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     logical, intent(in) :: use_periodic2
     integer(i32), intent(in) :: periodic_axes(2), image_layers
     real(dp), intent(in) :: periodic_len(2)
+    real(dp), intent(in) :: inv_length_scale, length_scale, origin(3)
     type(fmm_plan_type), intent(inout) :: plan
     type(fmm_state_type), intent(inout) :: state
     logical, intent(out) :: enabled
 
     character(len=16) :: far_correction
-    integer(i32) :: ewald_layers
+    integer(i32) :: ewald_layers, src_idx
 
     enabled = .false.
     call reset_fmm_plan(plan)
@@ -415,16 +432,18 @@ contains
     plan%options%use_periodic2 = .true.
     plan%options%periodic_far_correction = far_correction
     plan%options%periodic_axes = periodic_axes
-    plan%options%periodic_len = periodic_len
+    plan%options%periodic_len = periodic_len*inv_length_scale
     plan%options%periodic_image_layers = image_layers
-    plan%options%periodic_ewald_alpha = sim%field_periodic_ewald_alpha
+    plan%options%periodic_ewald_alpha = sim%field_periodic_ewald_alpha*length_scale
     plan%options%periodic_ewald_layers = ewald_layers
-    plan%options%softening = sim%softening
-    plan%options%target_box_min = sim%box_min
-    plan%options%target_box_max = sim%box_max
+    plan%options%softening = sim%softening*inv_length_scale
+    plan%options%target_box_min = (sim%box_min - origin)*inv_length_scale
+    plan%options%target_box_max = (sim%box_max - origin)*inv_length_scale
     plan%nsrc = mesh%nelem
     allocate (plan%src_pos(3, mesh%nelem))
-    plan%src_pos = mesh%centers
+    do src_idx = 1_i32, mesh%nelem
+      plan%src_pos(:, src_idx) = (mesh%centers(:, src_idx) - origin)*inv_length_scale
+    end do
     allocate (state%src_q(mesh%nelem))
     state%src_q = mesh%q_elem
     state%ready = .true.
@@ -443,5 +462,41 @@ contains
 
     wrapped = origin + modulo(x - origin, periodic_len)
   end function wrap_periodic
+
+  !> 正規化長さで direct 電場を評価し、SI 電場へ戻す。
+  subroutine electric_field_at_normalized(mesh, r, softening, inv_length_scale, output_scale, e)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: r(3), softening, inv_length_scale, output_scale
+    real(dp), intent(out) :: e(3)
+
+    integer(i32) :: i
+    real(dp) :: soft2, r2, inv_r3, ex, ey, ez
+    real(dp) :: rx, ry, rz, dx, dy, dz, qi
+
+    ex = 0.0d0
+    ey = 0.0d0
+    ez = 0.0d0
+    soft2 = (softening*inv_length_scale)**2
+    rx = r(1)
+    ry = r(2)
+    rz = r(3)
+
+    !$omp simd reduction(+:ex,ey,ez) private(dx,dy,dz,r2,inv_r3,qi)
+    do i = 1, mesh%nelem
+      dx = (rx - mesh%center_x(i))*inv_length_scale
+      dy = (ry - mesh%center_y(i))*inv_length_scale
+      dz = (rz - mesh%center_z(i))*inv_length_scale
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      inv_r3 = 1.0d0/(sqrt(r2)*r2)
+      qi = mesh%q_elem(i)
+      ex = ex + qi*inv_r3*dx
+      ey = ey + qi*inv_r3*dy
+      ez = ez + qi*inv_r3*dz
+    end do
+
+    e(1) = output_scale*ex
+    e(2) = output_scale*ey
+    e(3) = output_scale*ez
+  end subroutine electric_field_at_normalized
 
 end submodule bem_field_solver_eval

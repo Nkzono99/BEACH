@@ -10,7 +10,7 @@ program test_dynamics_field_solver
                           assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
-  call test_init(3)
+  call test_init(7)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -22,6 +22,22 @@ program test_dynamics_field_solver
 
   call test_begin('treecode_field_accuracy')
   call test_treecode_field_accuracy()
+  call test_end()
+
+  call test_begin('direct_field_length_normalization_accuracy')
+  call test_direct_field_length_normalization_accuracy()
+  call test_end()
+
+  call test_begin('treecode_field_length_normalization_accuracy')
+  call test_treecode_field_length_normalization_accuracy()
+  call test_end()
+
+  call test_begin('fmm_field_length_normalization_accuracy')
+  call test_fmm_field_length_normalization_accuracy()
+  call test_end()
+
+  call test_begin('fmm_field_box_normalization_origin')
+  call test_fmm_field_box_normalization_origin()
   call test_end()
 
   call test_summary()
@@ -181,5 +197,132 @@ contains
     call assert_true(valid_count >= 100_i32, 'treecode accuracy test has too few valid samples')
     call assert_true(max_rel_err <= 1.0d-3, 'treecode E relative error exceeds 1e-3')
   end subroutine test_treecode_field_accuracy
+
+  subroutine test_direct_field_length_normalization_accuracy()
+    type(mesh_type) :: mesh_direct
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp) :: r(3), e_direct(3), e_solver(3), norm_direct, rel_err
+
+    call make_sphere(mesh_direct, radius=2.0d-5, n_lon=8_i32, n_lat=4_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    mesh_direct%q_elem = 1.0d-13
+
+    sim = sim_config()
+    sim%softening = 1.0d-7
+    sim%field_solver = 'direct'
+    sim%field_normalization = 'length'
+    sim%field_length_scale = 1.0d-4
+    call solver%init(mesh_direct, sim)
+    call solver%refresh(mesh_direct)
+
+    r = [8.0d-5, -6.0d-5, 7.0d-5]
+    call electric_field_at(mesh_direct, r, sim%softening, e_direct)
+    call solver%eval_e(mesh_direct, r, e_solver)
+
+    norm_direct = sqrt(sum(e_direct*e_direct))
+    rel_err = sqrt(sum((e_solver - e_direct)*(e_solver - e_direct)))/norm_direct
+    call assert_true(rel_err <= 1.0d-12, 'normalized direct E relative error exceeds 1e-12')
+    call assert_close_dp( &
+      solver%field_output_scale, k_coulomb/(sim%field_length_scale*sim%field_length_scale), 1.0d3, &
+      'normalized direct E output scale mismatch' &
+      )
+  end subroutine test_direct_field_length_normalization_accuracy
+
+  subroutine test_treecode_field_length_normalization_accuracy()
+    type(mesh_type) :: mesh_tree
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp) :: r(3), e_direct(3), e_tree(3), norm_direct, rel_err
+
+    call make_sphere(mesh_tree, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    mesh_tree%q_elem = 1.0d-13
+
+    sim = sim_config()
+    sim%softening = 1.0d-7
+    sim%field_solver = 'treecode'
+    sim%field_normalization = 'length'
+    sim%field_length_scale = 1.0d-4
+    sim%tree_theta = 0.10d0
+    sim%tree_leaf_max = 10000_i32
+    sim%has_tree_leaf_max = .true.
+    sim%tree_min_nelem = 64_i32
+    call solver%init(mesh_tree, sim)
+    call solver%refresh(mesh_tree)
+
+    r = [8.0d-5, -6.0d-5, 7.0d-5]
+    call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+    call solver%eval_e(mesh_tree, r, e_tree)
+
+    norm_direct = sqrt(sum(e_direct*e_direct))
+    rel_err = sqrt(sum((e_tree - e_direct)*(e_tree - e_direct)))/norm_direct
+    call assert_true(rel_err <= 1.0d-12, 'normalized treecode E relative error exceeds 1e-12')
+  end subroutine test_treecode_field_length_normalization_accuracy
+
+  subroutine test_fmm_field_length_normalization_accuracy()
+    type(mesh_type) :: mesh_fmm
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp) :: r(3), e_direct(3), e_fmm(3), norm_direct, rel_err
+
+    call make_sphere(mesh_fmm, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    mesh_fmm%q_elem = 1.0d-13
+
+    sim = sim_config()
+    sim%softening = 1.0d-7
+    sim%field_solver = 'fmm'
+    sim%field_normalization = 'length'
+    sim%field_length_scale = 1.0d-4
+    sim%tree_theta = 0.4d0
+    sim%tree_leaf_max = 12_i32
+    sim%tree_min_nelem = 64_i32
+    call solver%init(mesh_fmm, sim)
+    call solver%refresh(mesh_fmm)
+
+    r = [8.0d-5, -6.0d-5, 7.0d-5]
+    call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
+    call solver%eval_e(mesh_fmm, r, e_fmm)
+
+    norm_direct = sqrt(sum(e_direct*e_direct))
+    rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_direct
+    call assert_true(rel_err <= 5.0d-3, 'normalized FMM E relative error exceeds 5e-3')
+    call assert_close_dp( &
+      solver%fmm_core_options%softening, sim%softening/sim%field_length_scale, 1.0d-15, &
+      'normalized FMM softening mismatch' &
+      )
+  end subroutine test_fmm_field_length_normalization_accuracy
+
+  subroutine test_fmm_field_box_normalization_origin()
+    type(mesh_type) :: mesh_fmm
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp) :: r(3), e_direct(3), e_fmm(3), norm_direct, rel_err
+
+    call make_sphere(mesh_fmm, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[1.05d-3, 2.05d-3, -0.95d-3])
+    mesh_fmm%q_elem = 1.0d-13
+
+    sim = sim_config()
+    sim%softening = 1.0d-7
+    sim%field_solver = 'fmm'
+    sim%field_normalization = 'box'
+    sim%use_box = .true.
+    sim%box_min = [1.0d-3, 2.0d-3, -1.0d-3]
+    sim%box_max = [1.1d-3, 2.1d-3, -0.8d-3]
+    sim%tree_theta = 0.4d0
+    sim%tree_leaf_max = 12_i32
+    sim%tree_min_nelem = 64_i32
+    call solver%init(mesh_fmm, sim)
+    call solver%refresh(mesh_fmm)
+
+    r = [1.08d-3, 1.94d-3, -0.93d-3]
+    call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
+    call solver%eval_e(mesh_fmm, r, e_fmm)
+
+    norm_direct = sqrt(sum(e_direct*e_direct))
+    rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_direct
+    call assert_true(rel_err <= 5.0d-3, 'box-normalized FMM E relative error exceeds 5e-3')
+    call assert_close_dp(solver%fmm_core_options%target_box_min(1), 0.0d0, 1.0d-15, 'box-normalized xmin mismatch')
+    call assert_close_dp(solver%fmm_core_options%target_box_min(2), 0.0d0, 1.0d-15, 'box-normalized ymin mismatch')
+    call assert_close_dp(solver%fmm_core_options%target_box_min(3), 0.0d0, 1.0d-15, 'box-normalized zmin mismatch')
+  end subroutine test_fmm_field_box_normalization_origin
 
 end program test_dynamics_field_solver

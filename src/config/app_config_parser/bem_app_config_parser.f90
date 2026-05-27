@@ -230,6 +230,19 @@ contains
     case default
       error stop 'sim.field_solver must be "direct", "treecode", "fmm", or "auto".'
     end select
+    cfg%sim%field_normalization = lower_ascii(trim(cfg%sim%field_normalization))
+    select case (trim(cfg%sim%field_normalization))
+    case ('si', 'box', 'mesh', 'length')
+      continue
+    case default
+      error stop 'sim.field_normalization must be "si", "box", "mesh", or "length".'
+    end select
+    if (.not. ieee_is_finite(cfg%sim%field_length_scale) .or. cfg%sim%field_length_scale <= 0.0d0) then
+      error stop 'sim.field_length_scale must be finite and > 0.'
+    end if
+    if (trim(cfg%sim%field_normalization) == 'length' .and. cfg%sim%field_length_scale <= 0.0d0) then
+      error stop 'sim.field_normalization="length" requires sim.field_length_scale > 0.'
+    end if
     cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))
     select case (trim(cfg%sim%field_bc_mode))
     case ('free', 'periodic2')
@@ -504,6 +517,11 @@ contains
     case ('field_solver')
       call parse_string(v, cfg%sim%field_solver)
       cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
+    case ('field_normalization')
+      call parse_string(v, cfg%sim%field_normalization)
+      cfg%sim%field_normalization = lower_ascii(trim(cfg%sim%field_normalization))
+    case ('field_length_scale')
+      call parse_real(v, cfg%sim%field_length_scale)
     case ('field_bc_mode')
       call parse_string(v, cfg%sim%field_bc_mode)
       cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))

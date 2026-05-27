@@ -20,7 +20,7 @@ program test_output_writer_potential
   character(len=*), parameter :: out_dir_free = 'test_output_writer_pot_free_tmp'
   character(len=*), parameter :: out_dir_periodic = 'test_output_writer_pot_periodic_tmp'
 
-  call test_init(3)
+  call test_init(4)
 
   stats = sim_stats()
 
@@ -47,6 +47,23 @@ program test_output_writer_potential
   call assert_equal_i32(int(size(values), i32), 2_i32, 'free-space mesh_potential.csv row count mismatch')
   call assert_close_dp(values(1), expected_free_potential_1(), 1.0d-9, 'free-space potential(1) mismatch')
   call assert_close_dp(values(2), expected_free_potential_2(), 1.0d-9, 'free-space potential(2) mismatch')
+  call test_end()
+
+  call test_begin('free_space_mesh_potential_length_normalized')
+  call build_two_element_mesh(mesh)
+  mesh%q_elem = [2.0d-12, -1.0d-12]
+  call default_app_config(cfg)
+  cfg%sim%softening = 0.0d0
+  cfg%sim%field_normalization = 'length'
+  cfg%sim%field_length_scale = 2.0d0
+  solver = field_solver_type()
+  call solver%init(mesh, cfg%sim)
+  call solver%refresh(mesh)
+  allocate (potential_v(mesh%nelem))
+  call solver%compute_mesh_potential(mesh, cfg%sim, potential_v)
+  call assert_close_dp(potential_v(1), expected_free_potential_1(), 1.0d-9, 'normalized potential(1) mismatch')
+  call assert_close_dp(potential_v(2), expected_free_potential_2(), 1.0d-9, 'normalized potential(2) mismatch')
+  deallocate (potential_v)
   call test_end()
 
   ! --- periodic mesh potential test ---

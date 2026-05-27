@@ -4,7 +4,6 @@ module bem_field_solver
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic
-  use bem_field, only: electric_field_at
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -16,6 +15,12 @@ module bem_field_solver
     character(len=16) :: mode = 'direct'
     character(len=16) :: field_bc_mode = 'free'
     real(dp) :: softening = 1.0d-6
+    character(len=16) :: field_normalization = 'si'
+    real(dp) :: field_length_scale = 1.0d0
+    real(dp) :: field_origin(3) = 0.0d0
+    real(dp) :: field_inv_length_scale = 1.0d0
+    real(dp) :: field_output_scale = k_coulomb
+    real(dp) :: potential_output_scale = k_coulomb
     real(dp) :: theta = 0.5d0
     integer(i32) :: leaf_max = 16_i32
     integer(i32) :: min_nelem = 256_i32
@@ -172,8 +177,10 @@ module bem_field_solver
     end subroutine sync_core_plan_view
 
     !> mesh 重心から core FMM 用の source 座標配列 `src_pos(3,n)` を作る。
-    module subroutine build_core_source_positions(mesh, src_pos)
+    module subroutine build_core_source_positions(mesh, src_pos, inv_length_scale, origin)
       type(mesh_type), intent(in) :: mesh
+      real(dp), intent(in) :: inv_length_scale
+      real(dp), intent(in) :: origin(3)
       real(dp), allocatable, intent(out) :: src_pos(:, :)
     end subroutine build_core_source_positions
 

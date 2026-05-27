@@ -185,6 +185,8 @@ contains
     cfg%sim%tol_rel = 1.0d-8
     cfg%sim%softening = 1.0d-6
     cfg%sim%field_solver = 'auto'
+    cfg%sim%field_normalization = 'si'
+    cfg%sim%field_length_scale = 1.0d0
     cfg%sim%field_bc_mode = 'free'
     cfg%sim%field_periodic_image_layers = 1_i32
     cfg%sim%field_periodic_far_correction = 'auto'

@@ -28,6 +28,8 @@ program test_app_config_parser
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
+  call assert_true(trim(cfg%sim%field_normalization) == 'si', 'default field_normalization mismatch')
+  call assert_close_dp(cfg%sim%field_length_scale, 1.0d0, 1.0d-15, 'default field_length_scale mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field_bc_mode mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_image_layers, 1_i32, 'default field_periodic_image_layers mismatch')
   call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'auto', 'default field_periodic_far_correction mismatch')
@@ -73,6 +75,8 @@ program test_app_config_parser
   call assert_true(cfg%write_mesh_potential, 'write_mesh_potential mismatch')
   call assert_close_dp(cfg%sim%dt, 2.5d-9, 1.0d-15, 'dt mismatch')
   call assert_true(trim(cfg%sim%field_solver) == 'fmm', 'field_solver mismatch')
+  call assert_true(trim(cfg%sim%field_normalization) == 'length', 'field_normalization mismatch')
+  call assert_close_dp(cfg%sim%field_length_scale, 2.0d-6, 1.0d-18, 'field_length_scale mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'field_bc_mode mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.35d0, 1.0d-15, 'tree_theta mismatch')
   call assert_true(cfg%sim%has_tree_theta, 'has_tree_theta mismatch')
@@ -190,6 +194,8 @@ contains
     write (u, '(a)') 'phi_infty = -2.0'
     write (u, '(a)') 'injection_face_phi_grid_n = 5'
     write (u, '(a)') 'field_solver = "fmm"'
+    write (u, '(a)') 'field_normalization = "length"'
+    write (u, '(a)') 'field_length_scale = 2.0e-6'
     write (u, '(a)') 'field_bc_mode = "free"'
     write (u, '(a)') 'tree_theta = 0.35'
     write (u, '(a)') 'tree_leaf_max = 12'

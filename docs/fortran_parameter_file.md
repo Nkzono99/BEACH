@@ -129,6 +129,8 @@ history_stride = 1
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
 | `softening` | float | `1.0e-6` | 電場計算の softening 長さ [m] |
 | `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
+| `field_normalization` | string | `"si"` | 場計算内部の長さ正規化。`si` / `box` / `mesh` / `length`。`box` は最大 box 幅、`mesh` は mesh bbox 最大幅、`length` は `field_length_scale` を `L0` とし、場計算内部で座標・softening・periodic cell を `L0` で割る。出力電場・電位は SI に戻す |
+| `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh が空の `mesh` 正規化で使う長さスケール [m] |
 | `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放）。場評価だけでなく collision / `photo_raycast` raycast でも periodic image を考慮し、mesh は primitive cell の base element のまま扱う |
 | `field_periodic_image_layers` | int | `1` | `field_bc_mode="periodic2"` の近傍画像層数。各周期軸で `[-N, N]` の有限画像和を計算（`N>=0`） |
 | `field_periodic_far_correction` | string | `"auto"` | `periodic2` の遠方補正モード。`auto` が既定値で、`field_solver="fmm"` かつ `field_bc_mode="periodic2"` では内部的に `m2l_root_oracle` に正規化する。`none` は遠方補正を無効化する。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使って root operator へ fit する |

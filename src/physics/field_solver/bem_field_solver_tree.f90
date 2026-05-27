@@ -30,7 +30,7 @@ contains
     if (.not. self%fmm_core_plan%built .or. self%fmm_core_plan%nsrc /= mesh%nelem) then
       call destroy_plan(self%fmm_core_plan)
       call destroy_state(self%fmm_core_state)
-      call build_core_source_positions(mesh, src_pos)
+      call build_core_source_positions(mesh, src_pos, self%field_inv_length_scale, self%field_origin)
       call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
       deallocate (src_pos)
       plan_view_dirty = .true.
@@ -507,7 +507,7 @@ contains
 
   allocate (src_pos(3, mesh%nelem))
   do idx = 1_i32, mesh%nelem
-    src_pos(:, idx) = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
+    src_pos(:, idx) = inv_length_scale*([mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)] - origin)
   end do
   end procedure build_core_source_positions
 

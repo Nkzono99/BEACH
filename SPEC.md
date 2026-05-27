@@ -98,6 +98,8 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正は `auto` を既定とし、`m2l_root_oracle` をサポートします。`sim.field_periodic_far_correction="auto"` は `field_solver="fmm"` かつ `field_bc_mode="periodic2"` のとき内部的に `m2l_root_oracle` に正規化され、`none` は遠方補正を無効化する独立の値であり、`auto` の alias ではありません。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使い、proxy/check 点から root local 演算子へ fit します。runtime では `local(:,root) += T_root * multipole(:,root)` の形で root local へ注入され、tree 外 fallback では同じ exact Ewald correction を直接足します。非中性ケースでは、slab 外評価に対して `charged_walls` に対応する total-charge 補正を追加します。2 枚の補償壁の場は slab 内では相殺されるため、粒子前進に使う in-box field は従来どおり periodic pair field と一致します。`field_periodic_ewald_alpha` は `m2l_root_oracle` の Ewald 分解パラメータ、`field_periodic_ewald_layers` は real/reciprocal の打切り深さとして使います。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
+`sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
+
 ### 5.2 粒子前進
 
 - Boris 法（`E`, `B`）
