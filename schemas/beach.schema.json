@@ -1109,9 +1109,14 @@
                       },
                       "properties": {
                         "current_density_a_m2": {
-                          "not": {
-                            "const": 0
-                          }
+                          "anyOf": [
+                            {
+                              "exclusiveMaximum": 0
+                            },
+                            {
+                              "exclusiveMinimum": 0
+                            }
+                          ]
                         }
                       }
                     }
@@ -1275,9 +1280,14 @@
                 "minimum": 1
               },
               "q_particle": {
-                "not": {
-                  "const": 0
-                }
+                "anyOf": [
+                  {
+                    "exclusiveMaximum": 0
+                  },
+                  {
+                    "exclusiveMinimum": 0
+                  }
+                ]
               }
             }
           }

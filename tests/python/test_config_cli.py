@@ -708,13 +708,19 @@ dt = 1.0e-8
 
 def test_case_schema_files_exist_and_example_case_has_schema_directive() -> None:
     repo_root = Path(__file__).resolve().parents[2]
+    beach_schema = repo_root / "schemas" / "beach.schema.json"
     case_schema = repo_root / "schemas" / "beach.case.schema.json"
     preset_schema = repo_root / "schemas" / "beach.preset.schema.json"
     example_case = repo_root / "examples" / "periodic2_basic" / "case.toml"
 
+    loaded_beach_schema = json.loads(beach_schema.read_text(encoding="utf-8"))
     loaded_case_schema = json.loads(case_schema.read_text(encoding="utf-8"))
     loaded_preset_schema = json.loads(preset_schema.read_text(encoding="utf-8"))
 
+    photo_species_rules = loaded_beach_schema["$defs"]["species"]["allOf"][3]["then"]["properties"]
+    assert photo_species_rules["q_particle"] == {
+        "anyOf": [{"exclusiveMaximum": 0}, {"exclusiveMinimum": 0}]
+    }
     assert loaded_case_schema["title"] == "BEACH Case File"
     assert loaded_preset_schema["title"] == "BEACH Preset Fragment"
     assert "box_origin" in loaded_case_schema["$defs"]["simFragment"]["properties"]
