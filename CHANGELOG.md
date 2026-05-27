@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0] - 2026-05-27
+
+### Added
+- Internal field normalization controls (`field_normalization`, `field_length_scale`) for direct, treecode, and FMM Coulomb kernels
+- External electric-field and velocity-grid injection support
+- Field-kernel scene analysis utilities
+- Batch-duration stability theory documentation
+- Agent user guide for AI-assisted simulation workflows
+
+### Changed
+- Periodic mesh visualization can preserve whole mesh objects while wrapping periodic domains
+- Coulomb force matrix plotting supports parallel workers for larger mesh-group analyses
+- JSON Schema numeric constraints now consistently reject nonzero-only invalid values
+
+### Fixed
+- Small-scale collision tolerances for regolith-scale geometries
+
 ## [1.0.0] - 2026-03-26
 
 ### Added
