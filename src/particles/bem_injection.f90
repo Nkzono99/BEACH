@@ -492,8 +492,11 @@ contains
     real(dp) :: launch_area, projected_area, w_hit, sigma
     real(dp) :: ray_pos(3), ray_dir(3), seg_end(3), boundary_probe(3), boundary_dir(3)
     real(dp) :: surf_normal(3), tangent1(3), tangent2(3)
-    real(dp), allocatable :: u(:, :)
+    real(dp), allocatable :: u(:, :), hit_pos(:, :), hit_normal(:, :)
+    integer(i32), allocatable :: hit_elem(:)
+    logical, allocatable :: ray_emitted(:)
     logical :: reached_boundary, alive, escaped_boundary
+    logical :: use_periodic2_mode
     type(hit_info) :: hit
 
     if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "photo_raycast particle arrays must have first dimension 3"
@@ -538,8 +541,21 @@ contains
     v = 0.0_dp
     w = 0.0_dp
 
+    use_periodic2_mode = trim(lower_ascii(sim%field_bc_mode)) == 'periodic2'
+
     allocate (u(2, rays_per_batch))
+    allocate (hit_pos(3, rays_per_batch), hit_normal(3, rays_per_batch), hit_elem(rays_per_batch), ray_emitted(rays_per_batch))
     call random_number(u)
+    hit_pos = 0.0_dp
+    hit_normal = 0.0_dp
+    hit_elem = -1_i32
+    ray_emitted = .false.
+
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(rays_per_batch, axis_n, axis_t1, axis_t2, boundary_value, pos_low, pos_high, u, launch_dir, sim, mesh, &
+    !$omp        use_periodic2_mode, ray_emitted, hit_pos, hit_normal, hit_elem) &
+    !$omp private(i, ray_pos, ray_dir, seg_end, reached_boundary, alive, bounce_count, hit, surf_normal, boundary_probe, &
+    !$omp         boundary_dir, escaped_boundary)
     do i = 1_i32, rays_per_batch
       ray_pos = 0.0_dp
       ray_pos(axis_n) = boundary_value
@@ -558,25 +574,16 @@ contains
           mesh, ray_pos, seg_end, hit, sim=sim, box_min=sim%box_min, box_max=sim%box_max, require_elem_inside=.true. &
           )
         if (hit%has_hit) then
-          if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
-          n_emit = n_emit + 1_i32
           surf_normal = mesh%normals(:, hit%elem_idx)
           if (dot_product(surf_normal, ray_dir) > 0.0_dp) surf_normal = -surf_normal
-          call build_tangent_basis(surf_normal, tangent1, tangent2)
-          if (present(vmin_normal)) then
-            call sample_photo_emission_velocity( &
-              sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit), vmin_normal=vmin_normal &
-              )
+          if (use_periodic2_mode) then
+            hit_pos(:, i) = hit%pos_wrapped + surf_normal*eps
           else
-            call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
+            hit_pos(:, i) = hit%pos + surf_normal*eps
           end if
-          if (trim(lower_ascii(sim%field_bc_mode)) == 'periodic2') then
-            x(:, n_emit) = hit%pos_wrapped + surf_normal*eps
-          else
-            x(:, n_emit) = hit%pos + surf_normal*eps
-          end if
-          w(n_emit) = w_hit
-          if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit%elem_idx
+          hit_normal(:, i) = surf_normal
+          hit_elem(i) = hit%elem_idx
+          ray_emitted(i) = .true.
           exit
         end if
 
@@ -589,6 +596,25 @@ contains
         ray_pos = boundary_probe + ray_dir*eps
         bounce_count = bounce_count + 1_i32
       end do
+    end do
+    !$omp end parallel do
+
+    do i = 1_i32, rays_per_batch
+      if (.not. ray_emitted(i)) cycle
+      if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
+      n_emit = n_emit + 1_i32
+      surf_normal = hit_normal(:, i)
+      call build_tangent_basis(surf_normal, tangent1, tangent2)
+      if (present(vmin_normal)) then
+        call sample_photo_emission_velocity( &
+          sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit), vmin_normal=vmin_normal &
+          )
+      else
+        call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
+      end if
+      x(:, n_emit) = hit_pos(:, i)
+      w(n_emit) = w_hit
+      if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit_elem(i)
     end do
   end subroutine sample_photo_raycast_particles
 

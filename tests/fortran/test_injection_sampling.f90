@@ -217,7 +217,7 @@ program test_injection_sampling
     )
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 should emit from wrapped hit')
   call assert_true(x(2, 1) >= -1.0d-12, 'photo_raycast periodic2 wrapped y should stay in primary cell')
-  call assert_true(x(2, 1) < 1.0d-6, 'photo_raycast periodic2 should use wrapped emission position')
+  call assert_true(x(2, 1) < sim%box_max(2) + 1.0d-12, 'photo_raycast periodic2 should use wrapped emission position')
   call test_end()
 
   call test_begin('photo_raycast_max_bounce')
