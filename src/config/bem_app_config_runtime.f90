@@ -421,7 +421,7 @@ contains
       w(i) = w_species(species_cursor(s), s)
     end do
 
-    call init_particles(pcls, x, v, q, m, w)
+    call init_particles(pcls, x, v, q, m, w, species_id=species_id)
   end subroutine init_particle_batch_from_config
 
   !> 1粒子種ぶんの位置・速度サンプルをまとめて生成する。

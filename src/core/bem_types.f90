@@ -110,6 +110,7 @@ module bem_types
     real(dp), allocatable :: q(:)
     real(dp), allocatable :: m(:)
     real(dp), allocatable :: w(:)
+    integer(i32), allocatable :: species_id(:)
     logical, allocatable :: alive(:)
   end type particles_soa
 

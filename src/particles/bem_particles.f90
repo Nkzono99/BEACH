@@ -12,10 +12,12 @@ contains
   !! @param[in] q 粒子電荷配列 `q(n)` [C]。
   !! @param[in] m 粒子質量配列 `m(n)` [kg]。
   !! @param[in] w マクロ粒子重み配列 `w(n)`（省略時は1）。
-  subroutine init_particles(pcls, x, v, q, m, w)
+  !! @param[in] species_id 粒子種ID `species_id(n)`（省略時は0）。
+  subroutine init_particles(pcls, x, v, q, m, w, species_id)
     type(particles_soa), intent(out) :: pcls
     real(dp), intent(in) :: x(:, :), v(:, :), q(:), m(:)
     real(dp), intent(in), optional :: w(:)
+    integer(i32), intent(in), optional :: species_id(:)
     integer(i32) :: n
 
     n = size(q)
@@ -27,7 +29,7 @@ contains
     end if
 
     pcls%n = n
-    allocate (pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), pcls%alive(n))
+    allocate (pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), pcls%species_id(n), pcls%alive(n))
     pcls%x = x
     pcls%v = v
     pcls%q = q
@@ -37,6 +39,12 @@ contains
       pcls%w = w
     else
       pcls%w = 1.0d0
+    end if
+    if (present(species_id)) then
+      if (size(species_id) /= n) error stop "species_id size mismatch"
+      pcls%species_id = species_id
+    else
+      pcls%species_id = 0_i32
     end if
     pcls%alive = .true.
   end subroutine init_particles

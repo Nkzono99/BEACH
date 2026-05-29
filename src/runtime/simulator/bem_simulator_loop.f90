@@ -1,5 +1,6 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
+  use, intrinsic :: iso_fortran_env, only: output_unit
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
                                      perf_region_field_solver_init, perf_region_history_write, perf_region_mpi_reduce, &
@@ -67,7 +68,7 @@ contains
 
     call perf_region_begin(perf_region_particle_batch, t0)
     call process_particle_batch( &
-      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
+      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank &
       )
     call perf_region_end(perf_region_particle_batch, t0)
 
@@ -156,20 +157,23 @@ contains
 
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
-  integer(i32) :: i, step, tid, nth
+  integer(i32) :: i, step, tid, nth, warn_stride
   real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
   type(hit_info) :: hit
-  logical :: escaped_by_boundary
+  logical :: escaped_by_boundary, has_warn_stride
 
   nth = size(dq_thread, 2)
+  call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
+  if (.not. has_warn_stride) warn_stride = 0_i32
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
+  !$omp shared(warn_stride,batch_idx,mpi_rank) &
   !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
-  !$omp do schedule(static)
+  !$omp do schedule(dynamic, 1)
   do i = 1, pcls_batch%n
     if (.not. pcls_batch%alive(i)) cycle
     do step = 1, app%sim%max_step
@@ -195,11 +199,53 @@ contains
 
       pcls_batch%x(:, i) = x1
       pcls_batch%v(:, i) = v1
+      if (warn_stride > 0_i32) then
+        if (modulo(step, warn_stride) == 0_i32) then
+          !$omp critical (beach_long_particle_warn)
+          write (output_unit, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a,3es13.5,a,3es13.5)') &
+            'BEACH long-particle batch=', batch_idx, ' rank=', mpi_rank, ' thread=', tid, &
+            ' particle=', i, ' species=', pcls_batch%species_id(i), ' step=', step, &
+            ' x=', pcls_batch%x(:, i), ' v=', pcls_batch%v(:, i)
+          flush (output_unit)
+          !$omp end critical (beach_long_particle_warn)
+        end if
+      end if
     end do
+    if (warn_stride > 0_i32 .and. pcls_batch%alive(i)) then
+      !$omp critical (beach_long_particle_warn)
+      write (output_unit, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a,3es13.5,a,3es13.5)') &
+        'BEACH max-step-survivor batch=', batch_idx, ' rank=', mpi_rank, ' thread=', tid, &
+        ' particle=', i, ' species=', pcls_batch%species_id(i), ' step=', app%sim%max_step, &
+        ' x=', pcls_batch%x(:, i), ' v=', pcls_batch%v(:, i)
+      flush (output_unit)
+      !$omp end critical (beach_long_particle_warn)
+    end if
   end do
   !$omp end do
   !$omp end parallel
   end procedure process_particle_batch
+
+  !> 正の整数環境変数を読む。未設定、不正値、ゼロ以下の場合は found=.false.。
+  subroutine read_env_i32_local(name, value, found)
+    character(len=*), intent(in) :: name
+    integer(i32), intent(out) :: value
+    logical, intent(out) :: found
+    character(len=64) :: raw
+    integer :: length, status, ios
+
+    value = 0_i32
+    found = .false.
+    raw = ''
+    call get_environment_variable(name, raw, length=length, status=status)
+    if (status /= 0 .or. length <= 0 .or. length > len(raw)) return
+
+    read (raw(:length), *, iostat=ios) value
+    if (ios /= 0 .or. value <= 0_i32) then
+      value = 0_i32
+      return
+    end if
+    found = .true.
+  end subroutine read_env_i32_local
 
   !> スレッド別電荷差分を合算してメッシュへ反映し、相対変化量を返す。
   module procedure commit_batch_charge

@@ -54,7 +54,7 @@ module bem_simulator
 
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
-      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield &
+      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -64,6 +64,8 @@ module bem_simulator
       logical, intent(inout) :: escaped_boundary_flag(:)
       logical, intent(inout) :: absorbed_flag(:)
       real(dp), intent(in) :: bfield(3)
+      integer(i32), intent(in) :: batch_idx
+      integer(i32), intent(in) :: mpi_rank
     end subroutine process_particle_batch
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
