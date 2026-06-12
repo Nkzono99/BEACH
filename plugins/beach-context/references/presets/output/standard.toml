@@ -1,0 +1,8 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json
+
+[output]
+write_files = true
+write_mesh_potential = true
+write_potential_history = false
+dir = "outputs/latest"
+history_stride = 1

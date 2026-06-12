@@ -1,0 +1,38 @@
+{
+  "name": "beach-context",
+  "version": "0.1.0",
+  "description": "Context, skills, issue workflows, and bundled references for BEACH simulation users and maintainers.",
+  "author": {
+    "name": "beach contributors",
+    "url": "https://github.com/Nkzono99/BEACH"
+  },
+  "homepage": "https://github.com/Nkzono99/BEACH/tree/main/plugins/beach-context",
+  "repository": "https://github.com/Nkzono99/BEACH",
+  "license": "Apache-2.0",
+  "keywords": [
+    "beach",
+    "bem",
+    "simulation",
+    "fortran",
+    "surface-charging"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "BEACH Context",
+    "shortDescription": "Simulator-specific context for BEACH configs, runs, outputs, and learning.",
+    "longDescription": "Multilingual skills, bundled references, and workflows for reviewing BEACH configs, diagnosing failed runs, designing cases, analyzing outputs, learning simulator concepts, preparing user issues, and summarizing numerical methods.",
+    "developerName": "beach contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/Nkzono99/BEACH",
+    "defaultPrompt": [
+      "Review this BEACH config file.",
+      "Diagnose this failed BEACH run.",
+      "Analyze this BEACH output directory."
+    ],
+    "brandColor": "#0EA5A4"
+  }
+}

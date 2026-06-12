@@ -1,0 +1,1535 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "BEACH Parameter File",
+  "description": "Schema for BEACH Fortran runtime parameter files (beach.toml). Use with TOML-aware editors such as Even Better TOML / Taplo.",
+  "type": "object",
+  "properties": {
+    "sim": {
+      "$ref": "#/$defs/sim",
+      "description": "Simulation settings."
+    },
+    "particles": {
+      "$ref": "#/$defs/particles",
+      "description": "Particle species definitions."
+    },
+    "mesh": {
+      "$ref": "#/$defs/mesh",
+      "description": "Mesh geometry settings."
+    },
+    "output": {
+      "$ref": "#/$defs/output",
+      "description": "Output file settings."
+    }
+  },
+  "required": [
+    "particles"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "particles": {
+            "type": "object",
+            "properties": {
+              "species": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "source_mode": {
+                      "enum": [
+                        "reservoir_face",
+                        "photo_raycast"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "source_mode"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "species"
+            ]
+          }
+        },
+        "required": [
+          "particles"
+        ]
+      },
+      "then": {
+        "required": [
+          "sim"
+        ],
+        "properties": {
+          "sim": {
+            "type": "object",
+            "properties": {
+              "use_box": {
+                "const": true
+              }
+            },
+            "required": [
+              "use_box"
+            ],
+            "anyOf": [
+              {
+                "properties": {
+                  "batch_duration": {
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "batch_duration"
+                ]
+              },
+              {
+                "properties": {
+                  "batch_duration_step": {
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "batch_duration_step"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "vec3": {
+      "description": "3-component vector [x, y, z].",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "positiveVec3": {
+      "description": "3-component vector [x, y, z] with all positive values.",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "boundaryMode": {
+      "description": "Boundary condition mode: open/outflow/escape, reflect/reflection, or periodic.",
+      "type": "string",
+      "enum": [
+        "open",
+        "outflow",
+        "escape",
+        "reflect",
+        "reflection",
+        "periodic"
+      ]
+    },
+    "injectFace": {
+      "description": "Box face identifier for particle injection.",
+      "type": "string",
+      "enum": [
+        "x_low",
+        "x_high",
+        "y_low",
+        "y_high",
+        "z_low",
+        "z_high"
+      ]
+    },
+    "sim": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dt": {
+          "type": "number",
+          "default": 1.0e-9,
+          "description": "Time step [s]."
+        },
+        "rng_seed": {
+          "type": "integer",
+          "default": 12345,
+          "description": "Random seed."
+        },
+        "batch_count": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Number of batches per run."
+        },
+        "batch_duration": {
+          "type": "number",
+          "description": "Batch duration [s]. Mutually exclusive with batch_duration_step."
+        },
+        "batch_duration_step": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Resolved as batch_duration = dt * batch_duration_step."
+        },
+        "max_step": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 400,
+          "description": "Maximum push steps per particle."
+        },
+        "tol_rel": {
+          "type": "number",
+          "default": 1.0e-8,
+          "description": "Monitoring metric; not an early-stop condition."
+        },
+        "q_floor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0e-30,
+          "description": "Denominator floor for rel_change."
+        },
+        "softening": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1.0e-6,
+          "description": "Electric-field softening length [m]."
+        },
+        "e0": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "Uniform external electric field vector [V/m]. Mutually exclusive with e0_abs/e0_phi_*."
+        },
+        "e0_abs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Magnitude of the uniform external electric field [V/m]."
+        },
+        "e0_phi_xy_deg": {
+          "type": "number",
+          "default": 0.0,
+          "description": "Azimuth angle of e0 in the x-y plane [deg]. Requires e0_abs."
+        },
+        "e0_phi_z_deg": {
+          "type": "number",
+          "default": 0.0,
+          "description": "Elevation angle of e0 from the x-y plane [deg]. Requires e0_abs."
+        },
+        "field_solver": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "treecode",
+            "fmm",
+            "auto"
+          ],
+          "default": "auto",
+          "description": "Electric field evaluation method."
+        },
+        "field_bc_mode": {
+          "type": "string",
+          "enum": [
+            "free",
+            "periodic2"
+          ],
+          "default": "free",
+          "description": "Field boundary condition mode. periodic2 requires field_solver=fmm."
+        },
+        "field_periodic_image_layers": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1,
+          "description": "Nearby image layers for periodic2. Computes [-N, N] finite image sum per periodic axis."
+        },
+        "field_periodic_far_correction": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "m2l_root_oracle"
+          ],
+          "default": "auto",
+          "description": "Far-field correction mode for periodic2."
+        },
+        "field_periodic_ewald_alpha": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.0,
+          "description": "Ewald splitting parameter for m2l_root_oracle. 0 = auto-determined from box size."
+        },
+        "field_periodic_ewald_layers": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 4,
+          "description": "Ewald real-space/reciprocal shell depth for m2l_root_oracle build-time oracle."
+        },
+        "tree_theta": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.5,
+          "description": "MAC parameter for treecode/FMM (0 < theta <= 1)."
+        },
+        "tree_leaf_max": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16,
+          "description": "Maximum elements per leaf node in treecode/FMM."
+        },
+        "tree_min_nelem": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 256,
+          "description": "Element count threshold for field_solver=auto to switch to treecode."
+        },
+        "b0": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "Uniform magnetic field [T]."
+        },
+        "reservoir_potential_model": {
+          "type": "string",
+          "enum": [
+            "none",
+            "infinity_barrier"
+          ],
+          "default": "none",
+          "description": "Reservoir potential model for injection."
+        },
+        "phi_infty": {
+          "type": "number",
+          "default": 0.0,
+          "description": "Reference potential at infinity [V]."
+        },
+        "injection_face_phi_grid_n": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Grid resolution N×N for injection face average potential."
+        },
+        "raycast_max_bounce": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16,
+          "description": "Maximum bounce count for photo_raycast ray tracing."
+        },
+        "sheath_injection_model": {
+          "type": "string",
+          "enum": [
+            "none",
+            "zhao_auto",
+            "zhao_a",
+            "zhao_b",
+            "zhao_c",
+            "floating_no_photo"
+          ],
+          "default": "none",
+          "description": "Sheath injection model."
+        },
+        "sheath_alpha_deg": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 90,
+          "default": 60.0,
+          "description": "Solar elevation angle [deg] for Zhao sheath models."
+        },
+        "sheath_photoelectron_ref_density_cm3": {
+          "type": "number",
+          "default": 64.0,
+          "description": "Reference photoelectron density [cm^-3] for Zhao sheath models."
+        },
+        "sheath_reference_coordinate": {
+          "type": "number",
+          "description": "Reference plane position [m] for sheath reconstruction."
+        },
+        "sheath_electron_drift_mode": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "full"
+          ],
+          "default": "normal",
+          "description": "Electron drift mode for sheath injection."
+        },
+        "sheath_ion_drift_mode": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "full"
+          ],
+          "default": "normal",
+          "description": "Ion drift mode for sheath injection."
+        },
+        "use_box": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable box boundary."
+        },
+        "box_min": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            -1.0,
+            -1.0,
+            -1.0
+          ],
+          "description": "Box lower bound [m]."
+        },
+        "box_max": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "description": "Box upper bound [m]."
+        },
+        "bc_x_low": {
+          "$ref": "#/$defs/boundaryMode",
+          "default": "open",
+          "description": "Boundary condition at x lower face."
+        },
+        "bc_x_high": {
+          "$ref": "#/$defs/boundaryMode",
+          "default": "open",
+          "description": "Boundary condition at x upper face."
+        },
+        "bc_y_low": {
+          "$ref": "#/$defs/boundaryMode",
+          "default": "open",
+          "description": "Boundary condition at y lower face."
+        },
+        "bc_y_high": {
+          "$ref": "#/$defs/boundaryMode",
+          "default": "open",
+          "description": "Boundary condition at y upper face."
+        },
+        "bc_z_low": {
+          "$ref": "#/$defs/boundaryMode",
+          "default": "open",
+          "description": "Boundary condition at z lower face."
+        },
+        "bc_z_high": {
+          "$ref": "#/$defs/boundaryMode",
+          "default": "open",
+          "description": "Boundary condition at z upper face."
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "batch_duration",
+              "batch_duration_step"
+            ]
+          }
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "e0",
+                  "e0_abs"
+                ]
+              },
+              {
+                "required": [
+                  "e0",
+                  "e0_phi_xy_deg"
+                ]
+              },
+              {
+                "required": [
+                  "e0",
+                  "e0_phi_z_deg"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "e0_phi_xy_deg"
+                ]
+              },
+              {
+                "required": [
+                  "e0_phi_z_deg"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "e0_abs"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "batch_duration_step"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dt": {
+                "exclusiveMinimum": 0
+              },
+              "batch_duration_step": {
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "field_periodic_far_correction": {
+                "const": "m2l_root_oracle"
+              }
+            },
+            "required": [
+              "field_periodic_far_correction"
+            ]
+          },
+          "then": {
+            "required": [
+              "field_solver",
+              "field_bc_mode"
+            ],
+            "properties": {
+              "field_solver": {
+                "const": "fmm"
+              },
+              "field_bc_mode": {
+                "const": "periodic2"
+              },
+              "field_periodic_ewald_layers": {
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "field_bc_mode": {
+                "const": "periodic2"
+              }
+            },
+            "required": [
+              "field_bc_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "field_solver",
+              "use_box"
+            ],
+            "properties": {
+              "field_solver": {
+                "const": "fmm"
+              },
+              "use_box": {
+                "const": true
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "bc_x_low",
+                  "bc_x_high",
+                  "bc_y_low",
+                  "bc_y_high",
+                  "bc_z_low",
+                  "bc_z_high"
+                ],
+                "properties": {
+                  "bc_x_low": {
+                    "const": "periodic"
+                  },
+                  "bc_x_high": {
+                    "const": "periodic"
+                  },
+                  "bc_y_low": {
+                    "const": "periodic"
+                  },
+                  "bc_y_high": {
+                    "const": "periodic"
+                  },
+                  "bc_z_low": {
+                    "enum": [
+                      "open",
+                      "outflow",
+                      "escape",
+                      "reflect",
+                      "reflection"
+                    ]
+                  },
+                  "bc_z_high": {
+                    "enum": [
+                      "open",
+                      "outflow",
+                      "escape",
+                      "reflect",
+                      "reflection"
+                    ]
+                  }
+                }
+              },
+              {
+                "required": [
+                  "bc_x_low",
+                  "bc_x_high",
+                  "bc_y_low",
+                  "bc_y_high",
+                  "bc_z_low",
+                  "bc_z_high"
+                ],
+                "properties": {
+                  "bc_x_low": {
+                    "const": "periodic"
+                  },
+                  "bc_x_high": {
+                    "const": "periodic"
+                  },
+                  "bc_z_low": {
+                    "const": "periodic"
+                  },
+                  "bc_z_high": {
+                    "const": "periodic"
+                  },
+                  "bc_y_low": {
+                    "enum": [
+                      "open",
+                      "outflow",
+                      "escape",
+                      "reflect",
+                      "reflection"
+                    ]
+                  },
+                  "bc_y_high": {
+                    "enum": [
+                      "open",
+                      "outflow",
+                      "escape",
+                      "reflect",
+                      "reflection"
+                    ]
+                  }
+                }
+              },
+              {
+                "required": [
+                  "bc_x_low",
+                  "bc_x_high",
+                  "bc_y_low",
+                  "bc_y_high",
+                  "bc_z_low",
+                  "bc_z_high"
+                ],
+                "properties": {
+                  "bc_y_low": {
+                    "const": "periodic"
+                  },
+                  "bc_y_high": {
+                    "const": "periodic"
+                  },
+                  "bc_z_low": {
+                    "const": "periodic"
+                  },
+                  "bc_z_high": {
+                    "const": "periodic"
+                  },
+                  "bc_x_low": {
+                    "enum": [
+                      "open",
+                      "outflow",
+                      "escape",
+                      "reflect",
+                      "reflection"
+                    ]
+                  },
+                  "bc_x_high": {
+                    "enum": [
+                      "open",
+                      "outflow",
+                      "escape",
+                      "reflect",
+                      "reflection"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sheath_injection_model": {
+                "enum": [
+                  "zhao_auto",
+                  "zhao_a",
+                  "zhao_b",
+                  "zhao_c"
+                ]
+              }
+            },
+            "required": [
+              "sheath_injection_model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sheath_photoelectron_ref_density_cm3": {
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sheath_injection_model": {
+                "enum": [
+                  "zhao_auto",
+                  "zhao_a",
+                  "zhao_b",
+                  "zhao_c",
+                  "floating_no_photo"
+                ]
+              }
+            },
+            "required": [
+              "sheath_injection_model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reservoir_potential_model": {
+                "const": "none"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "particles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "species": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/species"
+          },
+          "description": "List of particle species (at least one required)."
+        }
+      },
+      "required": [
+        "species"
+      ]
+    },
+    "species": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable this species."
+        },
+        "npcls_per_step": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Macro-particles generated per batch for volume_seed."
+        },
+        "source_mode": {
+          "type": "string",
+          "enum": [
+            "volume_seed",
+            "reservoir_face",
+            "photo_raycast"
+          ],
+          "default": "volume_seed",
+          "description": "Particle source mode."
+        },
+        "number_density_cm3": {
+          "type": "number",
+          "description": "Upstream density [cm^-3] for reservoir_face."
+        },
+        "number_density_m3": {
+          "type": "number",
+          "description": "Upstream density [m^-3] for reservoir_face."
+        },
+        "q_particle": {
+          "type": "number",
+          "default": -1.602176634e-19,
+          "description": "Particle charge [C]."
+        },
+        "m_particle": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 9.10938356e-31,
+          "description": "Particle mass [kg]."
+        },
+        "w_particle": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0,
+          "description": "Macro-particle weight."
+        },
+        "target_macro_particles_per_batch": {
+          "oneOf": [
+            {
+              "const": -1
+            },
+            {
+              "type": "integer",
+              "minimum": 1
+            }
+          ],
+          "description": "For reservoir_face, either a positive count or -1 to reuse species[1] weight."
+        },
+        "pos_low": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            -0.4,
+            -0.4,
+            0.2
+          ],
+          "description": "Lower bound of position range [m]."
+        },
+        "pos_high": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            0.4,
+            0.4,
+            0.5
+          ],
+          "description": "Upper bound of position range [m]."
+        },
+        "velocity_distribution": {
+          "type": "string",
+          "enum": [
+            "maxwellian",
+            "grid"
+          ],
+          "default": "maxwellian",
+          "description": "Velocity distribution model. grid is available for reservoir_face."
+        },
+        "velocity_grid_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "CSV file with columns vx_m_s,vy_m_s,vz_m_s,f for velocity_distribution=grid. Complete rectilinear grids are sampled with trilinear interpolation; other inputs fall back to discrete row sampling."
+        },
+        "velocity_grid_pdf_kind": {
+          "type": "string",
+          "enum": [
+            "phase_space",
+            "flux_weighted"
+          ],
+          "default": "phase_space",
+          "description": "Interpretation of f in velocity_grid_path. phase_space samples v_n f(v); flux_weighted treats f as the incoming flux-weighted distribution."
+        },
+        "velocity_grid_sampling": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "rectilinear",
+            "discrete"
+          ],
+          "default": "auto",
+          "description": "Sampling mode for velocity_distribution=grid. auto tries rectilinear trilinear interpolation and falls back to discrete rows; rectilinear requires a complete rectilinear grid; discrete samples CSV rows directly."
+        },
+        "particle_flux_m2_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Incoming particle flux [1/m^2/s] for velocity_distribution=grid."
+        },
+        "current_density_a_m2": {
+          "type": "number",
+          "description": "Incoming current density [A/m^2] for velocity_distribution=grid. Mutually exclusive with particle_flux_m2_s."
+        },
+        "drift_velocity": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            0.0,
+            0.0,
+            -800000.0
+          ],
+          "description": "Drift velocity [m/s]."
+        },
+        "temperature_k": {
+          "type": "number",
+          "minimum": 0,
+          "default": 20000.0,
+          "description": "Temperature [K]. Mutually exclusive with temperature_ev."
+        },
+        "temperature_ev": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Temperature [eV]. Mutually exclusive with temperature_k."
+        },
+        "emit_current_density_a_m2": {
+          "type": "number",
+          "description": "Photoemission current density [A/m^2] for photo_raycast."
+        },
+        "rays_per_batch": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Ray count per batch for photo_raycast."
+        },
+        "deposit_opposite_charge_on_emit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Deposit opposite-sign charge on emitting element for photo_raycast."
+        },
+        "normal_drift_speed": {
+          "type": "number",
+          "default": 0.0,
+          "description": "Surface-normal drift speed [m/s] for photo_raycast emission."
+        },
+        "ray_direction": {
+          "$ref": "#/$defs/vec3",
+          "description": "Ray direction vector for photo_raycast. Defaults to inward face normal."
+        },
+        "inject_face": {
+          "$ref": "#/$defs/injectFace",
+          "description": "Injection face. Required for reservoir_face and photo_raycast."
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "temperature_k",
+              "temperature_ev"
+            ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "not": {
+                  "required": [
+                    "source_mode"
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "source_mode": {
+                    "const": "volume_seed"
+                  }
+                },
+                "required": [
+                  "source_mode"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "velocity_distribution": {
+                "const": "maxwellian"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "target_macro_particles_per_batch"
+                  ]
+                },
+                {
+                  "required": [
+                    "emit_current_density_a_m2"
+                  ]
+                },
+                {
+                  "required": [
+                    "rays_per_batch"
+                  ]
+                },
+                {
+                  "required": [
+                    "ray_direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "deposit_opposite_charge_on_emit"
+                  ]
+                },
+                {
+                  "required": [
+                    "velocity_grid_path"
+                  ]
+                },
+                {
+                  "required": [
+                    "particle_flux_m2_s"
+                  ]
+                },
+                {
+                  "required": [
+                    "current_density_a_m2"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_mode": {
+                "const": "reservoir_face"
+              }
+            },
+            "required": [
+              "source_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "inject_face"
+            ],
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "npcls_per_step"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "emit_current_density_a_m2"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "rays_per_batch"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ray_direction"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "deposit_opposite_charge_on_emit"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "oneOf": [
+                  {
+                    "required": [
+                      "w_particle"
+                    ],
+                    "not": {
+                      "required": [
+                        "target_macro_particles_per_batch"
+                      ]
+                    }
+                  },
+                  {
+                    "required": [
+                      "target_macro_particles_per_batch"
+                    ],
+                    "not": {
+                      "required": [
+                        "w_particle"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "if": {
+                  "properties": {
+                    "velocity_distribution": {
+                      "const": "grid"
+                    }
+                  },
+                  "required": [
+                    "velocity_distribution"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "velocity_grid_path"
+                  ],
+                  "oneOf": [
+                    {
+                      "required": [
+                        "particle_flux_m2_s"
+                      ],
+                      "not": {
+                        "required": [
+                          "current_density_a_m2"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "current_density_a_m2"
+                      ],
+                      "not": {
+                        "required": [
+                          "particle_flux_m2_s"
+                        ]
+                      },
+                      "properties": {
+                        "current_density_a_m2": {
+                          "anyOf": [
+                            {
+                              "exclusiveMaximum": 0
+                            },
+                            {
+                              "exclusiveMinimum": 0
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "number_density_cm3"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "number_density_m3"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temperature_k"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temperature_ev"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "velocity_distribution": {
+                      "const": "maxwellian"
+                    }
+                  },
+                  "oneOf": [
+                    {
+                      "required": [
+                        "number_density_cm3"
+                      ],
+                      "not": {
+                        "required": [
+                          "number_density_m3"
+                        ]
+                      },
+                      "properties": {
+                        "number_density_cm3": {
+                          "exclusiveMinimum": 0
+                        }
+                      }
+                    },
+                    {
+                      "required": [
+                        "number_density_m3"
+                      ],
+                      "not": {
+                        "required": [
+                          "number_density_cm3"
+                        ]
+                      },
+                      "properties": {
+                        "number_density_m3": {
+                          "exclusiveMinimum": 0
+                        }
+                      }
+                    }
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "velocity_grid_path"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "particle_flux_m2_s"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "current_density_a_m2"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_mode": {
+                "const": "photo_raycast"
+              }
+            },
+            "required": [
+              "source_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "inject_face",
+              "emit_current_density_a_m2",
+              "rays_per_batch"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "npcls_per_step"
+                  ]
+                },
+                {
+                  "required": [
+                    "w_particle"
+                  ]
+                },
+                {
+                  "required": [
+                    "target_macro_particles_per_batch"
+                  ]
+                },
+                {
+                  "required": [
+                    "number_density_cm3"
+                  ]
+                },
+                {
+                  "required": [
+                    "number_density_m3"
+                  ]
+                },
+                {
+                  "required": [
+                    "velocity_grid_path"
+                  ]
+                },
+                {
+                  "required": [
+                    "particle_flux_m2_s"
+                  ]
+                },
+                {
+                  "required": [
+                    "current_density_a_m2"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "velocity_distribution": {
+                "const": "maxwellian"
+              },
+              "emit_current_density_a_m2": {
+                "exclusiveMinimum": 0
+              },
+              "rays_per_batch": {
+                "minimum": 1
+              },
+              "q_particle": {
+                "anyOf": [
+                  {
+                    "exclusiveMaximum": 0
+                  },
+                  {
+                    "exclusiveMinimum": 0
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "mesh": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "obj",
+            "template"
+          ],
+          "default": "auto",
+          "description": "Mesh input method. auto selects obj if obj_path exists, otherwise template."
+        },
+        "obj_path": {
+          "type": "string",
+          "default": "examples/simple_plate.obj",
+          "description": "Path to OBJ mesh file."
+        },
+        "obj_scale": {
+          "type": "number",
+          "default": 1.0,
+          "description": "OBJ読み込み後に適用する一様スケーリング係数"
+        },
+        "obj_rotation": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "default": [0.0, 0.0, 0.0],
+          "description": "OBJ読み込み後に適用する回転角 [度]。x→y→z 外因性回転 (Rz·Ry·Rx)"
+        },
+        "obj_offset": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "default": [0.0, 0.0, 0.0],
+          "description": "OBJ読み込み後に適用する平行移動 [m]"
+        },
+        "templates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/template"
+          },
+          "description": "List of procedural mesh templates."
+        }
+      }
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable this template."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "plane",
+            "plate_hole",
+            "plane_hole",
+            "disk",
+            "annulus",
+            "box",
+            "cylinder",
+            "sphere"
+          ],
+          "default": "plane",
+          "description": "Template shape type."
+        },
+        "center": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "Template center position [m]."
+        },
+        "size_x": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0,
+          "description": "X-direction size [m] for plane/plate_hole."
+        },
+        "size_y": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0,
+          "description": "Y-direction size [m] for plane/plate_hole."
+        },
+        "size": {
+          "$ref": "#/$defs/positiveVec3",
+          "default": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "description": "Box dimensions [x, y, z] [m]."
+        },
+        "nx": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "X-direction subdivision count for plane/box."
+        },
+        "ny": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Y-direction subdivision count for plane/box."
+        },
+        "nz": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Z-direction subdivision count for box."
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 0.5,
+          "description": "Radius [m] for disk/annulus/plate_hole/cylinder/sphere."
+        },
+        "inner_radius": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.25,
+          "description": "Inner radius [m] for annulus."
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0,
+          "description": "Height [m] for cylinder."
+        },
+        "n_theta": {
+          "type": "integer",
+          "minimum": 3,
+          "default": 24,
+          "description": "Azimuthal subdivision count for disk/annulus/plate_hole/cylinder."
+        },
+        "n_r": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Radial subdivision count for disk/annulus/plate_hole."
+        },
+        "n_z": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Axial subdivision count for cylinder."
+        },
+        "cap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable both end caps for cylinder."
+        },
+        "cap_top": {
+          "type": "boolean",
+          "description": "Enable top end cap for cylinder (overrides cap)."
+        },
+        "cap_bottom": {
+          "type": "boolean",
+          "description": "Enable bottom end cap for cylinder (overrides cap)."
+        },
+        "n_lon": {
+          "type": "integer",
+          "minimum": 3,
+          "default": 24,
+          "description": "Longitudinal subdivision count for sphere."
+        },
+        "n_lat": {
+          "type": "integer",
+          "minimum": 2,
+          "default": 12,
+          "description": "Latitudinal subdivision count for sphere."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "write_files": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable file output."
+        },
+        "write_mesh_potential": {
+          "type": "boolean",
+          "default": false,
+          "description": "Output element centroid potentials to mesh_potential.csv."
+        },
+        "dir": {
+          "type": "string",
+          "default": "outputs/latest",
+          "description": "Output directory path."
+        },
+        "history_stride": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1,
+          "description": "Output interval for charge_history.csv [batches]. 0 disables."
+        },
+        "resume": {
+          "type": "boolean",
+          "default": false,
+          "description": "Resume from existing checkpoint in output directory."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "resume": {
+                "const": true
+              }
+            },
+            "required": [
+              "resume"
+            ]
+          },
+          "then": {
+            "properties": {
+              "write_files": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

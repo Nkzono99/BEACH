@@ -1,0 +1,153 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+
+[sim]
+# max_step = 500 は固定のまま、通過時間が十分になるよう dt を増やす
+dt = 1.4e-8
+batch_duration_step = 200.0
+batch_count = 5
+max_step = 500
+tol_rel = 1.0e-8
+softening = 1.0e-6
+b0 = [0.0, 0.0, 0.0]
+# 一様外部電場はベクトル直接指定か、abs + 角度指定のどちらか片方を使う
+# e0 = [0.0, 0.0, -5.0]
+# e0_abs = 5.0
+# e0_phi_xy_deg = 0.0
+# e0_phi_z_deg = -90.0
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "reflect"
+bc_y_high = "reflect"
+bc_z_low = "open"
+bc_z_high = "open"
+rng_seed = 12345
+reservoir_potential_model = "infinity_barrier"
+phi_infty = 0.0
+injection_face_phi_grid_n = 3
+# sheath_injection_model = "zhao_auto"
+# sheath_alpha_deg = 60.0
+# sheath_photoelectron_ref_density_cm3 = 64.0
+# sheath_reference_coordinate = 0.02  # 指定すると、この平面から reservoir_face 境界までの局所 VDF 変形も反映
+# sheath_electron_drift_mode = "normal"
+# sheath_ion_drift_mode = "normal"
+# 注意: 現状は sheath_injection_model と reservoir_potential_model を同時に使えません。
+# periodic2 + fmm 有効時、field_periodic_far_correction の選択肢:
+#   "auto"            — periodic2 + fmm では内部的に m2l_root_oracle へ正規化
+#   "none"            — 遠方補正なし
+#   "m2l_root_oracle" — Ewald residual を build-time fit
+# field_solver = "fmm"
+# field_bc_mode = "periodic2"
+# field_periodic_image_layers = 1
+# field_periodic_far_correction = "auto"
+# field_periodic_ewald_alpha = 0.0
+# field_periodic_ewald_layers = 4
+
+[particles]
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+target_macro_particles_per_batch = 300
+# w_particle = 1.0e6  # 直接指定したい場合はこちらを有効化し、target は削除する
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
+
+# 任意速度グリッドを使う例:
+# [[particles.species]]
+# source_mode = "reservoir_face"
+# velocity_distribution = "grid"
+# velocity_grid_path = "examples/velocity_grid.csv"
+# velocity_grid_pdf_kind = "phase_space"  # or "flux_weighted"
+# velocity_grid_sampling = "rectilinear"  # or "auto", "discrete"
+# particle_flux_m2_s = 1.0e12
+# # current_density_a_m2 = -1.602176634e-7  # particle_flux_m2_s と排他
+# q_particle = -1.602176634e-19
+# m_particle = 9.10938356e-31
+# target_macro_particles_per_batch = 300
+# inject_face = "z_high"
+# pos_low = [0.0, 0.0, 4.0]
+# pos_high = [1.0, 1.0, 4.0]
+
+# [[particles.species]]
+# source_mode = "photo_raycast"
+# emit_current_density_a_m2 = 2.0e-4  # Zhao シース有効時は自動上書き
+# rays_per_batch = 500
+# deposit_opposite_charge_on_emit = true
+# q_particle = -1.602176634e-19
+# m_particle = 9.10938356e-31
+# temperature_ev = 1.5
+# normal_drift_speed = 1.0e5         # Zhao シース有効時は 0 として扱う
+# inject_face = "z_high"
+# pos_low = [0.0, 0.0, 4.0]
+# pos_high = [1.0, 1.0, 4.0]
+# ray_direction = [0.2, 0.0, -1.0]
+
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = 1.602176634e-19
+m_particle = 9.10938356e-28
+target_macro_particles_per_batch = -1
+# w_particle = 1.0e6  # 直接指定したい場合はこちらを有効化し、target は削除する
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 4.0]
+pos_high = [1.0, 1.0, 4.0]
+drift_velocity = [0.0, 0.0, -4.0e5]
+
+[mesh]
+mode = "template"
+
+# 1) 床（箱の中心に置く。境界 z=0 直上に上げて数値的な不安定/すり抜けを避ける）
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 20
+ny = 20
+center = [0.50, 0.50, 0.02]
+
+# 2) 小平板（局所構造：箱内に余裕を持って配置）
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 0.35
+size_y = 0.22
+nx = 6
+ny = 4
+center = [0.32, 0.30, 0.30]
+
+# 3) 円柱（床に接地：center_z = z_floor + height/2）
+[[mesh.templates]]
+kind = "cylinder"
+enabled = true
+radius = 0.14
+height = 0.28
+center = [0.72, 0.58, 0.16]   # 0.02 + 0.14 = 0.16
+cap = true
+n_theta = 14
+n_z = 4
+
+# 4) 球（床に接地：center_z = z_floor + radius）
+[[mesh.templates]]
+kind = "sphere"
+enabled = true
+radius = 0.14
+center = [0.34, 0.74, 0.16]   # 0.02 + 0.14 = 0.16
+n_lon = 14
+n_lat = 6
+
+[output]
+write_files = true
+write_mesh_potential = false
+write_potential_history = false
+dir = "outputs/latest"
+history_stride = 1

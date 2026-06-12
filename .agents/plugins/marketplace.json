@@ -1,0 +1,20 @@
+{
+  "name": "beach",
+  "interface": {
+    "displayName": "BEACH Plugins"
+  },
+  "plugins": [
+    {
+      "name": "beach-context",
+      "source": {
+        "source": "local",
+        "path": "./plugins/beach-context"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
