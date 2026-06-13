@@ -157,6 +157,8 @@ def _load_mesh_sources_if_exists(path: Path) -> dict[int, MeshSource] | None:
             source_kind=row.get("source_kind", ""),
             template_kind=row.get("template_kind", ""),
             elem_count=int(row.get("elem_count", "0")),
+            surface_model=(row.get("surface_model") or "insulator").strip().lower(),
+            epsilon_r=float(row.get("epsilon_r") or "1.0"),
         )
     return out
 

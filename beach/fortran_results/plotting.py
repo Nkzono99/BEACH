@@ -830,7 +830,8 @@ def _mesh_source_label(
     source = mesh_sources[mesh_id]
     source_kind = source.source_kind or "unknown"
     template_kind = source.template_kind or "n/a"
-    return f"id={mesh_id} ({source_kind}/{template_kind})"
+    surface_model = source.surface_model or "insulator"
+    return f"id={mesh_id} ({source_kind}/{template_kind}/{surface_model}/eps={source.epsilon_r:g})"
 
 
 def _force_component_info(component: str) -> tuple[int, str]:

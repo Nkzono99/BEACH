@@ -26,12 +26,18 @@ class MeshSource:
         Template subtype when ``source_kind`` is ``"template"``.
     elem_count : int
         Number of triangle elements belonging to the mesh.
+    surface_model : str
+        Surface response model for this mesh group.
+    epsilon_r : float
+        Relative permittivity associated with this mesh group.
     """
 
     mesh_id: int
     source_kind: str
     template_kind: str
     elem_count: int
+    surface_model: str = "insulator"
+    epsilon_r: float = 1.0
 
 
 @dataclass(frozen=True)

@@ -30,6 +30,8 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
   call assert_true(trim(cfg%sim%field_normalization) == 'si', 'default field_normalization mismatch')
   call assert_close_dp(cfg%sim%field_length_scale, 1.0d0, 1.0d-15, 'default field_length_scale mismatch')
+  call assert_true(trim(cfg%mesh_surface_model) == 'insulator', 'default mesh surface_model mismatch')
+  call assert_close_dp(cfg%mesh_epsilon_r, 1.0d0, 1.0d-15, 'default mesh epsilon_r mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field_bc_mode mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_image_layers, 1_i32, 'default field_periodic_image_layers mismatch')
   call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'auto', 'default field_periodic_far_correction mismatch')
@@ -44,6 +46,8 @@ program test_app_config_parser
   call load_app_config(cfg_path, cfg)
 
   call assert_true(trim(cfg%mesh_mode) == 'template', 'mesh.mode was not parsed')
+  call assert_true(trim(cfg%mesh_surface_model) == 'dielectric', 'mesh surface_model was not parsed')
+  call assert_close_dp(cfg%mesh_epsilon_r, 2.5d0, 1.0d-15, 'mesh epsilon_r was not parsed')
   call assert_true(trim(cfg%templates(2)%kind) == 'sphere', 'second template kind mismatch')
   call assert_true(trim(cfg%templates(3)%kind) == 'annulus', 'third template kind mismatch')
   call assert_close_dp(cfg%templates(3)%radius, 0.3d0, 1.0d-12, 'annulus radius mismatch')
@@ -78,6 +82,10 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_normalization) == 'length', 'field_normalization mismatch')
   call assert_close_dp(cfg%sim%field_length_scale, 2.0d-6, 1.0d-18, 'field_length_scale mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'field_bc_mode mismatch')
+  call assert_true(trim(cfg%templates(1)%surface_model) == 'insulator', 'default surface_model mismatch')
+  call assert_true(trim(cfg%templates(2)%surface_model) == 'conductor', 'second template surface_model mismatch')
+  call assert_true(trim(cfg%templates(3)%surface_model) == 'dielectric', 'third template surface_model mismatch')
+  call assert_close_dp(cfg%templates(3)%epsilon_r, 3.9d0, 1.0d-15, 'third template epsilon_r mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.35d0, 1.0d-15, 'tree_theta mismatch')
   call assert_true(cfg%sim%has_tree_theta, 'has_tree_theta mismatch')
   call assert_equal_i32(cfg%sim%tree_leaf_max, 12_i32, 'tree_leaf_max mismatch')
@@ -214,16 +222,21 @@ contains
     write (u, '(a)') ''
     write (u, '(a)') '[mesh]'
     write (u, '(a)') 'mode = "template"'
+    write (u, '(a)') 'surface_model = "dielectric"'
+    write (u, '(a)') 'epsilon_r = 2.5'
     write (u, '(a)') '[[mesh.templates]]'
     write (u, '(a)') 'kind = "plane"'
     write (u, '(a)') 'enabled = true'
     write (u, '(a)') '[[mesh.templates]]'
     write (u, '(a)') 'kind = "sphere"'
     write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'surface_model = "conductor"'
     write (u, '(a)') 'radius = 0.25'
     write (u, '(a)') '[[mesh.templates]]'
     write (u, '(a)') 'kind = "annulus"'
     write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'surface_model = "dielectric"'
+    write (u, '(a)') 'epsilon_r = 3.9'
     write (u, '(a)') 'radius = 0.3'
     write (u, '(a)') 'inner_radius = 0.1'
     write (u, '(a)') 'n_theta = 16'

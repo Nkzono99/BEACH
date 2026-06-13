@@ -7,6 +7,10 @@ module bem_types
   integer(i32), parameter :: bc_reflect = 1_i32
   integer(i32), parameter :: bc_periodic = 2_i32
 
+  integer(i32), parameter :: surface_model_insulator = 1_i32
+  integer(i32), parameter :: surface_model_conductor = 2_i32
+  integer(i32), parameter :: surface_model_dielectric = 3_i32
+
   !> 時間刻み・収束判定・バッチ回数・外部磁場など実行制御パラメータを保持する。
   type :: sim_config
     real(dp) :: dt = 1.0d-12
@@ -92,6 +96,8 @@ module bem_types
     real(dp), allocatable :: h_elem(:)
     real(dp), allocatable :: q_elem(:)
     integer(i32), allocatable :: elem_mesh_id(:)
+    integer(i32), allocatable :: elem_surface_model(:)
+    real(dp), allocatable :: elem_epsilon_r(:)
     real(dp) :: grid_bb_min(3) = 0.0d0
     real(dp) :: grid_bb_max(3) = 0.0d0
     integer(i32) :: grid_ncell(3) = 1_i32

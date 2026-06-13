@@ -480,6 +480,111 @@ npcls_per_step = 1
         render_case_file(case_path)
 
 
+def test_render_case_file_rejects_invalid_mesh_surface_model(tmp_path: Path) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+
+[override.mesh]
+mode = "obj"
+obj_path = "examples/simple_plate.obj"
+surface_model = "metal"
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match="mesh.surface_model"):
+        render_case_file(case_path)
+
+
+def test_render_case_file_rejects_invalid_epsilon_r(tmp_path: Path) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+
+[override.mesh]
+mode = "template"
+
+[[override.mesh.templates]]
+kind = "plane"
+surface_model = "dielectric"
+epsilon_r = 0.5
+size_x = 1.0
+size_y = 1.0
+center = [0.0, 0.0, 0.0]
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match=r"mesh\.templates\[1\]\.epsilon_r"):
+        render_case_file(case_path)
+
+
+def test_render_case_file_rejects_bool_epsilon_r(tmp_path: Path) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+
+[override.mesh]
+mode = "obj"
+obj_path = "examples/simple_plate.obj"
+epsilon_r = true
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match=r"mesh\.epsilon_r"):
+        render_case_file(case_path)
+
+
 def test_config_cli_init_render_validate_save_and_from(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

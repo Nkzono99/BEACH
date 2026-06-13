@@ -204,9 +204,9 @@ def _write_mobility_fixture(out: Path) -> None:
         encoding="utf-8",
     )
     (out / "mesh_sources.csv").write_text(
-        "mesh_id,source_kind,template_kind,elem_count\n"
-        "1,template,plane,1\n"
-        "2,template,sphere,1\n",
+        "mesh_id,source_kind,template_kind,surface_model,epsilon_r,elem_count\n"
+        "1,template,plane,insulator,1.0,1\n"
+        "2,template,sphere,conductor,2.5,1\n",
         encoding="utf-8",
     )
     (out / "beach.toml").write_text(
@@ -260,9 +260,9 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (out / "mesh_sources.csv").write_text(
-        "mesh_id,source_kind,template_kind,elem_count\n"
-        "1,template,plane,1\n"
-        "2,template,sphere,1\n",
+        "mesh_id,source_kind,template_kind,surface_model,epsilon_r,elem_count\n"
+        "1,template,plane,insulator,1.0,1\n"
+        "2,template,sphere,conductor,2.5,1\n",
         encoding="utf-8",
     )
     (out / "mesh_potential.csv").write_text(
@@ -292,6 +292,10 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     np.testing.assert_array_equal(result.mesh_ids, np.array([1, 2]))
     assert result.mesh_sources is not None
     assert result.mesh_sources[1].template_kind == "plane"
+    assert result.mesh_sources[1].surface_model == "insulator"
+    assert result.mesh_sources[1].epsilon_r == 1.0
+    assert result.mesh_sources[2].surface_model == "conductor"
+    assert result.mesh_sources[2].epsilon_r == 2.5
     np.testing.assert_allclose(result.charges, np.array([1.0e-10, -2.0e-10]))
     assert result.mesh_potential_v is not None
     np.testing.assert_allclose(result.mesh_potential_v, np.array([1.5, -2.5]))
@@ -1991,9 +1995,9 @@ def test_beach_plot_mesh_source_boxplot_uses_mesh_source_labels(tmp_path: Path) 
 
     stats = getattr(ax, "_beach_box_stats")
     labels = [str(item["label"]) for item in stats]
-    assert "id=1 (template/plane)" in labels
-    assert "id=2 (template/box)" in labels
-    assert "id=3 (template/sphere)" in labels
+    assert "id=1 (template/plane/insulator/eps=1)" in labels
+    assert "id=2 (template/box/insulator/eps=1)" in labels
+    assert "id=3 (template/sphere/insulator/eps=1)" in labels
     fig.clf()
 
 

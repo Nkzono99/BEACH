@@ -2,6 +2,7 @@
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
+  use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count
   use bem_field, only: electric_potential_at
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
@@ -36,6 +37,8 @@ contains
     select case (trim(lower_ascii(cfg%mesh_mode)))
     case ('obj')
       call load_obj_mesh(trim(cfg%obj_path), mesh)
+      call apply_uniform_surface_model(mesh, surface_model_id_from_name(cfg%mesh_surface_model))
+      call apply_uniform_epsilon_r(mesh, cfg%mesh_epsilon_r)
       loaded_obj = .true.
     case ('template')
       call build_template_mesh(cfg, mesh)
@@ -43,6 +46,8 @@ contains
       inquire (file=trim(cfg%obj_path), exist=has_obj)
       if (has_obj) then
         call load_obj_mesh(trim(cfg%obj_path), mesh)
+        call apply_uniform_surface_model(mesh, surface_model_id_from_name(cfg%mesh_surface_model))
+        call apply_uniform_epsilon_r(mesh, cfg%mesh_epsilon_r)
         loaded_obj = .true.
       else
         call build_template_mesh(cfg, mesh)
@@ -75,6 +80,8 @@ contains
     real(dp) :: rx, ry, rz, cx, sx, cy, sy, cz, sz
     real(dp) :: R(3, 3), v(3)
     real(dp), allocatable :: tv0(:, :), tv1(:, :), tv2(:, :)
+    real(dp), allocatable :: elem_epsilon_r(:)
+    integer(i32), allocatable :: elem_mesh_id(:), elem_surface_model(:)
     integer(i32) :: i, n
 
     rx = rotation_deg(1)*deg2rad
@@ -91,6 +98,18 @@ contains
 
     n = mesh%nelem
     allocate (tv0(3, n), tv1(3, n), tv2(3, n))
+    if (allocated(mesh%elem_mesh_id)) then
+      allocate (elem_mesh_id(n))
+      elem_mesh_id = mesh%elem_mesh_id
+    end if
+    if (allocated(mesh%elem_surface_model)) then
+      allocate (elem_surface_model(n))
+      elem_surface_model = mesh%elem_surface_model
+    end if
+    if (allocated(mesh%elem_epsilon_r)) then
+      allocate (elem_epsilon_r(n))
+      elem_epsilon_r = mesh%elem_epsilon_r
+    end if
     do i = 1, n
       v = mesh%v0(:, i)*scale
       tv0(:, i) = matmul(R, v) + offset
@@ -99,8 +118,38 @@ contains
       v = mesh%v2(:, i)*scale
       tv2(:, i) = matmul(R, v) + offset
     end do
-    call init_mesh(mesh, tv0, tv1, tv2)
+    if (allocated(elem_mesh_id) .and. allocated(elem_surface_model) .and. allocated(elem_epsilon_r)) then
+      call init_mesh( &
+        mesh, tv0, tv1, tv2, elem_mesh_id0=elem_mesh_id, elem_surface_model0=elem_surface_model, &
+        elem_epsilon_r0=elem_epsilon_r &
+        )
+    else if (allocated(elem_mesh_id)) then
+      call init_mesh(mesh, tv0, tv1, tv2, elem_mesh_id0=elem_mesh_id)
+    else if (allocated(elem_surface_model)) then
+      call init_mesh(mesh, tv0, tv1, tv2, elem_surface_model0=elem_surface_model)
+    else
+      call init_mesh(mesh, tv0, tv1, tv2)
+    end if
   end subroutine apply_obj_transform
+
+  !> 全要素に同じ表面モデルIDを付与する。
+  subroutine apply_uniform_surface_model(mesh, surface_model_id)
+    type(mesh_type), intent(inout) :: mesh
+    integer(i32), intent(in) :: surface_model_id
+
+    if (.not. allocated(mesh%elem_surface_model)) return
+    mesh%elem_surface_model = surface_model_id
+  end subroutine apply_uniform_surface_model
+
+  !> 全要素に同じ相対誘電率を付与する。
+  subroutine apply_uniform_epsilon_r(mesh, epsilon_r)
+    type(mesh_type), intent(inout) :: mesh
+    real(dp), intent(in) :: epsilon_r
+
+    if (epsilon_r < 1.0d0) error stop 'epsilon_r must be >= 1.'
+    if (.not. allocated(mesh%elem_epsilon_r)) return
+    mesh%elem_epsilon_r = epsilon_r
+  end subroutine apply_uniform_epsilon_r
 
   !> 設定全体ぶんの粒子群を生成し、SoA へ詰める。
   !! 粒子種ごとに乱数サンプルした後、種ごとに rank を揃えて interleave する。
@@ -887,10 +936,12 @@ contains
     type(mesh_type), intent(out) :: mesh
     type(mesh_type) :: part
     real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
+    real(dp), allocatable :: elem_epsilon_r(:), part_epsilon_r(:)
     integer(i32), allocatable :: elem_mesh_id(:), part_mesh_id(:)
+    integer(i32), allocatable :: elem_surface_model(:), part_surface_model(:)
     integer(i32) :: i, mesh_id
 
-    allocate (v0(3, 0), v1(3, 0), v2(3, 0), elem_mesh_id(0))
+    allocate (v0(3, 0), v1(3, 0), v2(3, 0), elem_mesh_id(0), elem_surface_model(0), elem_epsilon_r(0))
     mesh_id = 0_i32
     if (.not. allocated(cfg%templates)) then
       error stop 'Template storage is not allocated in configuration.'
@@ -907,12 +958,23 @@ contains
       allocate (part_mesh_id(part%nelem))
       part_mesh_id = mesh_id
       call append_mesh_ids(elem_mesh_id, part_mesh_id)
+      if (allocated(part_surface_model)) deallocate (part_surface_model)
+      allocate (part_surface_model(part%nelem))
+      part_surface_model = surface_model_id_from_name(cfg%templates(i)%surface_model)
+      call append_mesh_ids(elem_surface_model, part_surface_model)
+      if (allocated(part_epsilon_r)) deallocate (part_epsilon_r)
+      allocate (part_epsilon_r(part%nelem))
+      part_epsilon_r = cfg%templates(i)%epsilon_r
+      call append_real_values(elem_epsilon_r, part_epsilon_r)
     end do
 
     if (size(v0, 2) == 0) then
       error stop 'No enabled template found in configuration.'
     end if
-    call init_mesh(mesh, v0, v1, v2, elem_mesh_id0=elem_mesh_id)
+    call init_mesh( &
+      mesh, v0, v1, v2, elem_mesh_id0=elem_mesh_id, elem_surface_model0=elem_surface_model, &
+      elem_epsilon_r0=elem_epsilon_r &
+      )
   end subroutine build_template_mesh
 
   !> テンプレート種別に応じて形状生成ルーチンへディスパッチする。
@@ -1000,5 +1062,38 @@ contains
     if (n1 > 0) tmp(n0 + 1:n0 + n1) = add_ids
     call move_alloc(tmp, mesh_ids)
   end subroutine append_mesh_ids
+
+  !> 既存の実数要素配列へ追加分を連結する。
+  subroutine append_real_values(values, add_values)
+    real(dp), allocatable, intent(inout) :: values(:)
+    real(dp), intent(in) :: add_values(:)
+    real(dp), allocatable :: tmp(:)
+    integer(i32) :: n0, n1
+
+    n0 = size(values)
+    n1 = size(add_values)
+    allocate (tmp(n0 + n1))
+    if (n0 > 0) tmp(1:n0) = values
+    if (n1 > 0) tmp(n0 + 1:n0 + n1) = add_values
+    call move_alloc(tmp, values)
+  end subroutine append_real_values
+
+  !> 表面モデル名をメッシュ要素用の整数IDへ変換する。
+  !! @param[in] name `insulator` / `conductor` / `dielectric`。
+  !! @return model_id 内部表面モデルID。
+  integer(i32) function surface_model_id_from_name(name) result(model_id)
+    character(len=*), intent(in) :: name
+
+    select case (trim(lower_ascii(name)))
+    case ('insulator')
+      model_id = surface_model_insulator
+    case ('conductor')
+      model_id = surface_model_conductor
+    case ('dielectric')
+      model_id = surface_model_dielectric
+    case default
+      error stop 'Unknown surface_model.'
+    end select
+  end function surface_model_id_from_name
 
 end module bem_app_config_runtime

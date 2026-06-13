@@ -223,6 +223,24 @@ contains
     if (t_idx > 0) cfg%n_templates = int(t_idx, i32)
 
     cfg%n_particle_species = int(s_idx, i32)
+    cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
+    select case (trim(cfg%mesh_surface_model))
+    case ('insulator', 'conductor', 'dielectric')
+      continue
+    case default
+      error stop 'mesh.surface_model must be "insulator", "conductor", or "dielectric".'
+    end select
+    if (cfg%mesh_epsilon_r < 1.0d0) error stop 'mesh.epsilon_r must be >= 1.'
+    do i = 1, cfg%n_templates
+      cfg%templates(i)%surface_model = lower_ascii(trim(cfg%templates(i)%surface_model))
+      select case (trim(cfg%templates(i)%surface_model))
+      case ('insulator', 'conductor', 'dielectric')
+        continue
+      case default
+        error stop 'mesh.templates.surface_model must be "insulator", "conductor", or "dielectric".'
+      end select
+      if (cfg%templates(i)%epsilon_r < 1.0d0) error stop 'mesh.templates.epsilon_r must be >= 1.'
+    end do
     cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
     select case (trim(cfg%sim%field_solver))
     case ('direct', 'treecode', 'fmm', 'auto')
@@ -714,6 +732,11 @@ contains
       call parse_string(v, cfg%mesh_mode)
     case ('obj_path')
       call parse_string(v, cfg%obj_path)
+    case ('surface_model')
+      call parse_string(v, cfg%mesh_surface_model)
+      cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
+    case ('epsilon_r')
+      call parse_real(v, cfg%mesh_epsilon_r)
     case ('obj_scale')
       call parse_real(v, cfg%obj_scale)
     case ('obj_rotation')
@@ -740,6 +763,11 @@ contains
       call parse_logical(v, spec%enabled)
     case ('kind')
       call parse_string(v, spec%kind)
+    case ('surface_model')
+      call parse_string(v, spec%surface_model)
+      spec%surface_model = lower_ascii(trim(spec%surface_model))
+    case ('epsilon_r')
+      call parse_real(v, spec%epsilon_r)
     case ('center')
       call parse_real3(v, spec%center)
     case ('size_x')

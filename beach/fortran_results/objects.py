@@ -21,6 +21,8 @@ class ResolvedObjectSpec:
     mesh_id: int
     kind: str
     label: str
+    surface_model: str = "insulator"
+    epsilon_r: float = 1.0
     template: Mapping[str, object] | None = None
 
 
@@ -63,7 +65,13 @@ def resolve_object_specs(
         ]
         labels = _labels_from_kinds(kinds)
         return [
-            ResolvedObjectSpec(mesh_id=mesh_id, kind=kind, label=label)
+            ResolvedObjectSpec(
+                mesh_id=mesh_id,
+                kind=kind,
+                label=label,
+                surface_model=_surface_model_from_source(result.mesh_sources.get(mesh_id)),
+                epsilon_r=_epsilon_r_from_source(result.mesh_sources.get(mesh_id)),
+            )
             for mesh_id, kind, label in zip(mesh_ids, kinds, labels)
         ]
 
@@ -119,6 +127,8 @@ def _object_specs_from_config(
             mesh_id=mesh_id,
             kind=kind,
             label=label,
+            surface_model=_surface_model_from_template(template),
+            epsilon_r=_epsilon_r_from_template(template),
             template=template,
         )
         for mesh_id, kind, label, template in zip(
@@ -154,3 +164,23 @@ def _mesh_kind_from_source(source: MeshSource | None) -> str:
     if source_kind:
         return source_kind
     return "mesh"
+
+
+def _surface_model_from_template(template: Mapping[str, object]) -> str:
+    return str(template.get("surface_model", "insulator")).strip().lower() or "insulator"
+
+
+def _surface_model_from_source(source: MeshSource | None) -> str:
+    if source is None:
+        return "insulator"
+    return str(source.surface_model).strip().lower() or "insulator"
+
+
+def _epsilon_r_from_template(template: Mapping[str, object]) -> float:
+    return float(template.get("epsilon_r", 1.0))
+
+
+def _epsilon_r_from_source(source: MeshSource | None) -> float:
+    if source is None:
+        return 1.0
+    return float(source.epsilon_r)

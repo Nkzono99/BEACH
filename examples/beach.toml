@@ -109,6 +109,7 @@ mode = "template"
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_model = "insulator"
 size_x = 1.0
 size_y = 1.0
 nx = 20
@@ -119,6 +120,7 @@ center = [0.50, 0.50, 0.02]
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_model = "conductor"
 size_x = 0.35
 size_y = 0.22
 nx = 6
@@ -129,6 +131,8 @@ center = [0.32, 0.30, 0.30]
 [[mesh.templates]]
 kind = "cylinder"
 enabled = true
+surface_model = "dielectric"
+epsilon_r = 3.9
 radius = 0.14
 height = 0.28
 center = [0.72, 0.58, 0.16]   # 0.02 + 0.14 = 0.16
@@ -140,6 +144,7 @@ n_z = 4
 [[mesh.templates]]
 kind = "sphere"
 enabled = true
+surface_model = "insulator"
 radius = 0.14
 center = [0.34, 0.74, 0.16]   # 0.02 + 0.14 = 0.16
 n_lon = 14

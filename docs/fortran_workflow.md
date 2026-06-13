@@ -193,7 +193,12 @@ beachx profile outputs/latest/performance_profile.csv \
 - `rng_state.txt`
 - `macro_residuals.csv`
 
-`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と元メッシュ設定（template kind / 要素数）を対応付けます。`mesh_potential.csv` を有効にすると、同じ要素順で centroid 電位 [V] も保存されます。
+`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と
+元メッシュ設定（template kind / surface model / epsilon_r / 要素数）を対応付けます。
+`conductor` は `field_bc_mode = "free"` の浮遊導体として等電位再配分され、
+`dielectric` は現行ではメタデータのみなので、
+含まれる場合は `summary.txt` に注意書きも出力します。
+`mesh_potential.csv` を有効にすると、同じ要素順で centroid 電位 [V] も保存されます。
 
 MPI実行（`world_size > 1`）では乱数状態・残差は rank 別です。
 

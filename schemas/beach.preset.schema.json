@@ -258,6 +258,18 @@
           "minLength": 1,
           "description": "Optional identifier for ID-based merge in overrides."
         },
+        "surface_model": {
+          "type": "string",
+          "enum": [
+            "insulator",
+            "conductor",
+            "dielectric"
+          ]
+        },
+        "epsilon_r": {
+          "type": "number",
+          "minimum": 1.0
+        },
         "placement_mode": {
           "type": "string",
           "enum": [
@@ -306,6 +318,18 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "surface_model": {
+          "type": "string",
+          "enum": [
+            "insulator",
+            "conductor",
+            "dielectric"
+          ]
+        },
+        "epsilon_r": {
+          "type": "number",
+          "minimum": 1.0
+        },
         "groups": {
           "type": "object",
           "additionalProperties": {

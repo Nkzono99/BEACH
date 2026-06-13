@@ -1,7 +1,7 @@
 !> 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。
 module bem_mesh
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config, bc_periodic
+  use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
   use bem_string_utils, only: lower_ascii
   implicit none
 contains
@@ -13,11 +13,15 @@ contains
   !! @param[in] v2 各三角形の頂点2配列 `v2(3,nelem)` [m]。
   !! @param[in] q0 初期要素電荷 `q_elem(nelem)` [C]（省略時は0）。
   !! @param[in] elem_mesh_id0 要素ごとのメッシュ識別ID `elem_mesh_id(nelem)`（省略時は全要素1）。
-  subroutine init_mesh(mesh, v0, v1, v2, q0, elem_mesh_id0)
+  !! @param[in] elem_surface_model0 要素ごとの表面モデルID（省略時は全要素 insulator）。
+  !! @param[in] elem_epsilon_r0 要素ごとの相対誘電率（省略時は全要素1）。
+  subroutine init_mesh(mesh, v0, v1, v2, q0, elem_mesh_id0, elem_surface_model0, elem_epsilon_r0)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
     real(dp), intent(in), optional :: q0(:)
     integer(i32), intent(in), optional :: elem_mesh_id0(:)
+    integer(i32), intent(in), optional :: elem_surface_model0(:)
+    real(dp), intent(in), optional :: elem_epsilon_r0(:)
     integer(i32) :: n
 
     if (size(v0, 1) /= 3 .or. size(v1, 1) /= 3 .or. size(v2, 1) /= 3) then
@@ -32,7 +36,7 @@ contains
     allocate (mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
     allocate (mesh%centers(3, n), mesh%center_x(n), mesh%center_y(n), mesh%center_z(n), mesh%normals(3, n))
     allocate (mesh%bb_min(3, n), mesh%bb_max(3, n))
-    allocate (mesh%h_elem(n), mesh%q_elem(n), mesh%elem_mesh_id(n))
+    allocate (mesh%h_elem(n), mesh%q_elem(n), mesh%elem_mesh_id(n), mesh%elem_surface_model(n), mesh%elem_epsilon_r(n))
 
     mesh%v0 = v0
     mesh%v1 = v1
@@ -50,6 +54,19 @@ contains
       mesh%elem_mesh_id = elem_mesh_id0
     else
       mesh%elem_mesh_id = 1_i32
+    end if
+    if (present(elem_surface_model0)) then
+      if (size(elem_surface_model0) /= n) error stop "elem_surface_model0 size mismatch"
+      mesh%elem_surface_model = elem_surface_model0
+    else
+      mesh%elem_surface_model = surface_model_insulator
+    end if
+    if (present(elem_epsilon_r0)) then
+      if (size(elem_epsilon_r0) /= n) error stop "elem_epsilon_r0 size mismatch"
+      if (any(elem_epsilon_r0 < 1.0d0)) error stop "elem_epsilon_r0 must be >= 1"
+      mesh%elem_epsilon_r = elem_epsilon_r0
+    else
+      mesh%elem_epsilon_r = 1.0d0
     end if
 
     mesh%periodic2_collision_ready = .false.

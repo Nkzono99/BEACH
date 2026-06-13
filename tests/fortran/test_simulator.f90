@@ -11,14 +11,18 @@ program test_simulator
 
   type(mesh_type) :: mesh
   type(mesh_type) :: mesh_tree
+  type(mesh_type) :: mesh_potential_history
   type(mesh_type) :: mesh_resume
-  type(app_config) :: cfg, cfg_tree
-  type(sim_stats) :: stats, stats_tree, stats_seed, stats_resume
+  type(app_config) :: cfg, cfg_tree, cfg_potential_history
+  type(sim_stats) :: stats, stats_tree, stats_potential_history, stats_seed, stats_resume
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
+  real(dp) :: potential_value
   integer :: u, ios
+  integer(i32) :: potential_batch_idx, potential_elem_idx
   character(len=256) :: line
   integer(i32) :: n_lines
   character(len=*), parameter :: history_path = 'test_simulator_history_tmp.csv'
+  character(len=*), parameter :: potential_history_path = 'test_simulator_potential_history_tmp.csv'
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
   v1(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -84,7 +88,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(4)
+  call test_init(5)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -132,6 +136,30 @@ program test_simulator
   call assert_equal_i64(stats_tree%survived_max_step, stats%survived_max_step, 'treecode survived_max_step mismatch')
   call assert_equal_i32(stats_tree%batches, stats%batches, 'treecode batches mismatch')
   call assert_close_dp(mesh_tree%q_elem(1), mesh%q_elem(1), 1.0d-12, 'treecode deposited charge mismatch')
+  call test_end()
+
+  call test_begin('fmm_potential_history_refreshes_after_commit')
+  call init_mesh(mesh_potential_history, v0, v1, v2)
+  cfg_potential_history = cfg
+  cfg_potential_history%sim%field_solver = 'fmm'
+  call seed_particles_from_config(cfg_potential_history)
+  call delete_file_if_exists(potential_history_path)
+  open (newunit=u, file=potential_history_path, status='replace', action='write', iostat=ios)
+  if (ios /= 0) error stop 'failed to open simulator potential history fixture'
+  call run_absorption_insulator( &
+    mesh_potential_history, cfg_potential_history, stats_potential_history, &
+    potential_history_unit=u, history_stride=1_i32 &
+    )
+  close (u)
+  open (newunit=u, file=potential_history_path, status='old', action='read', iostat=ios)
+  if (ios /= 0) error stop 'failed to read simulator potential history fixture'
+  read (u, *, iostat=ios) potential_batch_idx, potential_elem_idx, potential_value
+  close (u)
+  if (ios /= 0) error stop 'failed to parse simulator potential history fixture'
+  call assert_equal_i32(potential_batch_idx, 1_i32, 'potential history batch mismatch')
+  call assert_equal_i32(potential_elem_idx, 1_i32, 'potential history elem mismatch')
+  call assert_true(potential_value > 0.0d0, 'FMM potential history should use post-commit charges')
+  call delete_file_if_exists(potential_history_path)
   call test_end()
 
   call test_begin('resume_stats')

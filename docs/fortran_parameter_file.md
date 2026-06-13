@@ -307,11 +307,14 @@ history_stride = 1
 |---|---|---:|---|
 | `mode` | string | `"auto"` | `auto` / `obj` / `template` |
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ ファイルパス |
+| `surface_model` | string | `"insulator"` | OBJ メッシュ全体に割り当てる表面モデル (`insulator` / `conductor` / `dielectric`) |
+| `epsilon_r` | float | `1.0` | OBJ メッシュ全体に割り当てる相対誘電率 (`>= 1`) |
 | `obj_scale` | float | `1.0` | OBJ 読み込み後に適用する一様スケーリング係数 |
 | `obj_rotation` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する回転角 [度]。x→y→z の順で外因性 (extrinsic) 回転（Rz·Ry·Rx）を適用 |
 | `obj_offset` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する平行移動 [m] |
 
 `mode = "auto"` のときは `obj_path` が存在すれば OBJ、なければ template を使います。
+`surface_model` は OBJ 入力時の単一メッシュに適用されます。テンプレート入力では `[[mesh.templates]]` ごとの `surface_model` を使います。
 
 OBJ メッシュの変換順序は **scale → rotate → offset** です: `v_new = R(rotation) * (v_old * scale) + offset`。
 CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` のいずれの形式にも対応し、四角形以上のポリゴンはファン三角形分割されます。
@@ -322,6 +325,8 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 
 - `enabled` (bool)
 - `kind` (`plane` / `plate_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere`)
+- `surface_model` (`insulator` / `conductor` / `dielectric`, 既定 `insulator`)
+- `epsilon_r` (float, `>= 1`, 既定 `1.0`)
 - `center` (float[3])
 
 `kind` ごとの主要キー:
@@ -337,6 +342,13 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 注意:
 
 - `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は「定義した件数」で解決されます。
+- `conductor` は mesh_id ごとの浮遊導体として、バッチごとに総電荷を保存しながら
+  等電位になるよう要素電荷を再配分します。
+  現時点では `field_bc_mode = "free"` の直接Coulomb係数で再配分します。
+  conductor 要素全体に対する dense solve のため、導体要素数が大きいケースでは
+  バッチごとの追加コストが増えます。
+- `dielectric` は object ごとの物性を保持するための設定・出力メタデータで、
+  `epsilon_r` を保存します。誘電体分極の物理分岐は今後の拡張点です。
 
 ### 3.5 `[output]`
 
@@ -361,7 +373,9 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 - `rng_state.txt`
 - `macro_residuals.csv`
 
-`mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別と要素数を確認できます。
+`mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別、`surface_model`、`epsilon_r`、要素数を確認できます。
+`dielectric` を含む場合、現行の時間発展では誘電体分極は未分岐なので、
+`summary.txt` に `surface_model_dielectric_elem_count` と `surface_model_note` を出力します。
 
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。`periodic2` では explicit image shell に加えて、`field_periodic_far_correction` が `auto` または `m2l_root_oracle` のときは exact Ewald residual も加えます。`none` では residual を加えません。
 

@@ -1,7 +1,7 @@
 !> テンプレート生成・OBJ取込・app_config実行時変換の連携を検証するテスト。
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, particles_soa, injection_state
+  use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor, surface_model_dielectric
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
@@ -83,6 +83,8 @@ program test_templates_importers_runtime
   call default_app_config(cfg)
   cfg%mesh_mode = 'obj'
   cfg%obj_path = obj_path
+  cfg%mesh_surface_model = 'conductor'
+  cfg%mesh_epsilon_r = 5.0d0
   cfg%obj_scale = 2.0d0
   cfg%obj_offset = [10.0d0, 0.0d0, 0.0d0]
   cfg%obj_rotation = [0.0d0, 0.0d0, 0.0d0]
@@ -90,14 +92,20 @@ program test_templates_importers_runtime
   call assert_equal_i32(mesh%nelem, 3_i32, 'transform should preserve element count')
   call assert_close_dp(mesh%v0(1, 1), 10.0d0, 1.0d-10, 'scale+offset v0 x mismatch')
   call assert_close_dp(mesh%v1(1, 1), 12.0d0, 1.0d-10, 'scale+offset v1 x mismatch')
+  call assert_true(all(mesh%elem_surface_model == surface_model_conductor), 'transform should preserve surface_model')
+  call assert_true(all(abs(mesh%elem_epsilon_r - 5.0d0) < 1.0d-15), 'transform should preserve epsilon_r')
   call test_end()
 
   call test_begin('mesh_mode_obj')
   call default_app_config(cfg)
   cfg%mesh_mode = 'obj'
   cfg%obj_path = obj_path
+  cfg%mesh_surface_model = 'dielectric'
+  cfg%mesh_epsilon_r = 3.0d0
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 3_i32, 'mesh_mode=obj should load OBJ mesh')
+  call assert_true(all(mesh%elem_surface_model == surface_model_dielectric), 'OBJ surface_model mismatch')
+  call assert_true(all(abs(mesh%elem_epsilon_r - 3.0d0) < 1.0d-15), 'OBJ epsilon_r mismatch')
   call test_end()
 
   call test_begin('mesh_mode_auto')
@@ -120,6 +128,8 @@ program test_templates_importers_runtime
   cfg%mesh_mode = 'template'
   cfg%templates(1)%enabled = .true.
   cfg%templates(1)%kind = 'plate_hole'
+  cfg%templates(1)%surface_model = 'conductor'
+  cfg%templates(1)%epsilon_r = 7.0d0
   cfg%templates(1)%size_x = 1.0d0
   cfg%templates(1)%size_y = 1.0d0
   cfg%templates(1)%radius = 0.2d0
@@ -127,6 +137,8 @@ program test_templates_importers_runtime
   cfg%templates(1)%n_r = 1_i32
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 28_i32, 'mesh_mode=template plate_hole element count mismatch')
+  call assert_true(all(mesh%elem_surface_model == surface_model_conductor), 'template surface_model mismatch')
+  call assert_true(all(abs(mesh%elem_epsilon_r - 7.0d0) < 1.0d-15), 'template epsilon_r mismatch')
 
   call default_app_config(cfg)
   cfg%mesh_mode = 'template'

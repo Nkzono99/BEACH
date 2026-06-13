@@ -73,7 +73,10 @@ contains
     call perf_region_end(perf_region_particle_batch, t0)
 
     call perf_region_begin(perf_region_commit_charge, t0)
-    call commit_batch_charge(mesh, app%sim%q_floor, dq_thread, photo_emission_dq, dq, rel, mpi_ctx)
+    call commit_batch_charge( &
+      mesh, app%sim%q_floor, app%sim%softening, app%sim%e0, app%sim%field_bc_mode, &
+      dq_thread, photo_emission_dq, dq, rel, mpi_ctx &
+      )
     call perf_region_end(perf_region_commit_charge, t0)
 
     call perf_region_begin(perf_region_count_outcomes, t0)
@@ -93,6 +96,7 @@ contains
       call print_batch_progress(batch_idx, final_batch_idx, rel)
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (potential_history_enabled) then
+        call field_solver%refresh(mesh)
         call maybe_write_potential_history_snapshot( &
           potential_history_enabled, pot_hist_unit, hist_stride, stats, &
           field_solver, mesh, app%sim, potential_buf &
@@ -250,10 +254,15 @@ contains
   !> スレッド別電荷差分を合算してメッシュへ反映し、相対変化量を返す。
   module procedure commit_batch_charge
   real(dp) :: norm_dq, norm_q
+  real(dp), allocatable :: q_before(:)
 
+  allocate (q_before(mesh%nelem))
+  q_before = mesh%q_elem
   dq = sum(dq_thread, dim=2) + photo_emission_dq
   call mpi_allreduce_sum_real_dp_array(mpi, dq)
   mesh%q_elem = mesh%q_elem + dq
+  call apply_surface_model_charge_relaxation(mesh, softening, external_e, field_bc_mode=field_bc_mode)
+  dq = mesh%q_elem - q_before
   norm_dq = sqrt(sum(dq*dq))
   norm_q = sqrt(sum(mesh%q_elem*mesh%q_elem))
   rel = norm_dq/max(norm_q, q_floor)

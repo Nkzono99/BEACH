@@ -1893,6 +1893,11 @@ def _require_table(
 
 
 def _validate_rendered_mesh(mesh: Mapping[str, Any]) -> None:
+    _validate_surface_model(
+        mesh.get("surface_model", "insulator"),
+        name="mesh.surface_model",
+    )
+    _validate_epsilon_r(mesh.get("epsilon_r", 1.0), name="mesh.epsilon_r")
     templates = mesh.get("templates")
     if templates is None:
         return
@@ -1911,6 +1916,14 @@ def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> N
             f"BEACH constraint error: mesh.templates[{index}].kind must be a string."
         )
     kind = kind_value.strip().lower() or "plane"
+    _validate_surface_model(
+        template.get("surface_model", "insulator"),
+        name=f"mesh.templates[{index}].surface_model",
+    )
+    _validate_epsilon_r(
+        template.get("epsilon_r", 1.0),
+        name=f"mesh.templates[{index}].epsilon_r",
+    )
 
     if "center" in template:
         _maybe_vec3(template.get("center"), name=f"mesh.templates[{index}].center")
@@ -1977,6 +1990,24 @@ def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> N
     raise RenderValidationError(
         f"BEACH constraint error: mesh.templates[{index}] has unsupported kind={kind_value!r}."
     )
+
+
+def _validate_surface_model(value: object, *, name: str) -> None:
+    if not isinstance(value, str):
+        raise RenderValidationError(f"BEACH constraint error: {name} must be a string.")
+    if value.strip().lower() not in {"insulator", "conductor", "dielectric"}:
+        raise RenderValidationError(
+            f'BEACH constraint error: {name} must be "insulator", "conductor", or "dielectric".'
+        )
+
+
+def _validate_epsilon_r(value: object, *, name: str) -> None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise RenderValidationError(f"BEACH constraint error: {name} must be numeric.")
+    if not math.isfinite(float(value)):
+        raise RenderValidationError(f"BEACH constraint error: {name} must be finite.")
+    if float(value) < 1.0:
+        raise RenderValidationError(f"BEACH constraint error: {name} must be >= 1.")
 
 
 def _positive_template_scalar(

@@ -41,6 +41,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_external_field_velocity_grid \
 	test_dynamics_basic \
 	test_dynamics_field_solver \
+	test_surface_models \
 	test_templates_importers_runtime \
 	test_simulator \
 	test_injection_sampling \

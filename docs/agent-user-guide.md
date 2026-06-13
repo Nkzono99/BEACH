@@ -241,6 +241,8 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 |------------|------|-----------|------|
 | `mode` | string | "auto" | auto, obj, template |
 | `obj_path` | string | examples/simple_plate.obj | OBJ ファイルパス |
+| `surface_model` | string | "insulator" | OBJ メッシュ全体の表面モデル (`insulator`, `conductor`, `dielectric`) |
+| `epsilon_r` | float | 1.0 | OBJ メッシュ全体の相対誘電率 (`>= 1`) |
 | `obj_scale` | float | 1.0 | スケーリング係数 |
 | `obj_rotation` | float[3] | [0, 0, 0] | 回転角 [deg] (外因性 x→y→z) |
 | `obj_offset` | float[3] | [0, 0, 0] | 平行移動 [m] |
@@ -249,7 +251,9 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 
 #### [[mesh.templates]] — 手続き的メッシュ生成
 
-共通: `enabled` (bool), `kind` (enum), `center` (float[3])
+共通: `enabled` (bool), `kind` (enum), `surface_model` (enum), `epsilon_r` (float), `center` (float[3])
+
+`conductor` は mesh_id ごとの浮遊導体として等電位再配分されます。`dielectric` は現行では object ごとの `epsilon_r` を保持するメタデータで、誘電体分極の物理分岐は今後の拡張点です。
 
 | kind | 主要パラメータ |
 |------|---------------|
@@ -285,7 +289,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `summary.txt` | テキスト (Key-Value) | 実行メタデータ・統計情報 |
 | `charges.csv` | CSV: `elem_idx, charge_C` | 最終要素電荷 |
 | `mesh_triangles.csv` | CSV: `elem_idx, vertex_i, vertex_j, vertex_k, center_x, center_y, center_z, mesh_id` | 三角形メッシュ接続性 |
-| `mesh_sources.csv` | CSV: `mesh_id, source_type, element_count` | メッシュソースメタデータ |
+| `mesh_sources.csv` | CSV: `mesh_id, source_kind, template_kind, surface_model, epsilon_r, elem_count` | メッシュソースメタデータ |
 | `rng_state.txt` | テキスト | 乱数状態 (リジューム用) |
 
 ### オプション出力ファイル

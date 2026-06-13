@@ -59,6 +59,11 @@ source-dir = "tests/fortran"
 main = "test_dynamics_field_solver.f90"
 
 [[test]]
+name = "test_surface_models"
+source-dir = "tests/fortran"
+main = "test_surface_models.f90"
+
+[[test]]
 name = "test_dynamics_fmm"
 source-dir = "tests/fortran"
 main = "test_dynamics_fmm.f90"

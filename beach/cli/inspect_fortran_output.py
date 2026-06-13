@@ -135,7 +135,8 @@ def run(args: argparse.Namespace) -> None:
             print(
                 "mesh_source="
                 f"id:{src.mesh_id} source:{src.source_kind} "
-                f"template:{src.template_kind} elems:{src.elem_count}"
+                f"template:{src.template_kind} surface:{src.surface_model} "
+                f"epsilon_r:{src.epsilon_r:g} elems:{src.elem_count}"
             )
     if result.triangles is not None:
         potential = beach.compute_potential(

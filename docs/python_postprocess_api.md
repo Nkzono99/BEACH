@@ -110,7 +110,7 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 | `charges` | `ndarray (mesh_nelem,)` | 要素電荷配列 [C] |
 | `triangles` | `ndarray (mesh_nelem, 3, 3) \| None` | 三角形頂点座標 [m] |
 | `mesh_ids` | `ndarray (mesh_nelem,) \| None` | 要素 mesh ID |
-| `mesh_sources` | `dict[int, MeshSource] \| None` | mesh 種別メタデータ |
+| `mesh_sources` | `dict[int, MeshSource] \| None` | mesh 種別・surface model・epsilon_r メタデータ |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Fortran 出力の重心電位 [V] |
 | `history` | `FortranChargeHistory \| None` | 電荷履歴アクセサ |
 

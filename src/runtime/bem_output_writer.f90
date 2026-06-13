@@ -1,7 +1,7 @@
 !> 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。
 module bem_output_writer
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_stats
+  use bem_types, only: mesh_type, sim_stats, surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_app_config_types, only: app_config
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -95,6 +95,7 @@ contains
   subroutine print_run_summary(mesh, stats)
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
+    integer(i32) :: dielectric_count
 
     print '(a,i0)', 'mesh nelem=', mesh%nelem
     print '(a,i0)', 'processed_particles=', stats%processed_particles
@@ -105,6 +106,11 @@ contains
     print '(a,i0)', 'survived_max_step=', stats%survived_max_step
     print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
     print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
+    dielectric_count = count_dielectric_surfaces(mesh)
+    if (dielectric_count > 0_i32) then
+      print '(a,i0)', 'surface_model_dielectric_elem_count=', dielectric_count
+      print '(a)', 'surface_model_note=dielectric surface models are metadata-only in this version.'
+    end if
   end subroutine print_run_summary
 
   !> 解析結果を `summary.txt` / `charges.csv` / `mesh_triangles.csv` などとして保存する。
@@ -173,6 +179,10 @@ contains
     write (u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
     write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
     write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
+    if (count_dielectric_surfaces(mesh) > 0_i32) then
+      write (u, '(a,i0)') 'surface_model_dielectric_elem_count=', count_dielectric_surfaces(mesh)
+      write (u, '(a)') 'surface_model_note=metadata_only_dielectric_present'
+    end if
     close (u)
   end subroutine write_summary_file
 
@@ -250,6 +260,8 @@ contains
     type(app_config), intent(in) :: cfg
     character(len=1024) :: path
     character(len=16) :: mode_key, source_kind, template_kind
+    character(len=16) :: surface_model
+    real(dp) :: epsilon_r
     logical :: has_obj
     integer :: u, ios, i, mesh_id
     integer(i32) :: elem_count
@@ -257,7 +269,7 @@ contains
     path = trim(out_dir)//'/mesh_sources.csv'
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open mesh_sources.csv.'
-    write (u, '(a)') 'mesh_id,source_kind,template_kind,elem_count'
+    write (u, '(a)') 'mesh_id,source_kind,template_kind,surface_model,epsilon_r,elem_count'
 
     mode_key = trim(lower_ascii(cfg%mesh_mode))
     if (mode_key == 'obj') then
@@ -274,7 +286,10 @@ contains
     end if
 
     if (source_kind == 'obj') then
-      write (u, '(i0,a,a,a,a,a,i0)') 1, ',', 'obj', ',', 'obj', ',', mesh%nelem
+      surface_model = mesh_surface_model_name(mesh, 1)
+      epsilon_r = mesh_epsilon_r(mesh, 1)
+      write (u, '(i0,a,a,a,a,a,a,a,es16.8,a,i0)') &
+        1, ',', 'obj', ',', 'obj', ',', trim(surface_model), ',', epsilon_r, ',', mesh%nelem
       close (u)
       return
     end if
@@ -284,10 +299,64 @@ contains
       if (.not. cfg%templates(i)%enabled) cycle
       mesh_id = mesh_id + 1
       template_kind = trim(lower_ascii(cfg%templates(i)%kind))
+      surface_model = mesh_surface_model_name(mesh, mesh_id)
+      epsilon_r = mesh_epsilon_r(mesh, mesh_id)
       elem_count = int(count(mesh%elem_mesh_id == mesh_id), kind=i32)
-      write (u, '(i0,a,a,a,a,a,i0)') mesh_id, ',', 'template', ',', trim(template_kind), ',', elem_count
+      write (u, '(i0,a,a,a,a,a,a,a,es16.8,a,i0)') &
+        mesh_id, ',', 'template', ',', trim(template_kind), ',', trim(surface_model), ',', epsilon_r, ',', elem_count
     end do
     close (u)
   end subroutine write_mesh_sources_file
+
+  !> mesh_id に対応する表面モデル名を返す。
+  !! 複数モデルが混在している場合は最初の要素のモデル名を代表値として返す。
+  function mesh_surface_model_name(mesh, mesh_id) result(name)
+    type(mesh_type), intent(in) :: mesh
+    integer, intent(in) :: mesh_id
+    character(len=16) :: name
+    integer :: i
+
+    name = 'insulator'
+    if (.not. allocated(mesh%elem_surface_model)) return
+    do i = 1, mesh%nelem
+      if (mesh%elem_mesh_id(i) /= mesh_id) cycle
+      select case (mesh%elem_surface_model(i))
+      case (surface_model_insulator)
+        name = 'insulator'
+      case (surface_model_conductor)
+        name = 'conductor'
+      case (surface_model_dielectric)
+        name = 'dielectric'
+      case default
+        name = 'unknown'
+      end select
+      return
+    end do
+  end function mesh_surface_model_name
+
+  !> mesh_id に対応する相対誘電率を返す。
+  function mesh_epsilon_r(mesh, mesh_id) result(epsilon_r)
+    type(mesh_type), intent(in) :: mesh
+    integer, intent(in) :: mesh_id
+    real(dp) :: epsilon_r
+    integer :: i
+
+    epsilon_r = 1.0d0
+    if (.not. allocated(mesh%elem_epsilon_r)) return
+    do i = 1, mesh%nelem
+      if (mesh%elem_mesh_id(i) /= mesh_id) cycle
+      epsilon_r = mesh%elem_epsilon_r(i)
+      return
+    end do
+  end function mesh_epsilon_r
+
+  !> 現行物理モデルで未分岐の dielectric 要素数を数える。
+  integer(i32) function count_dielectric_surfaces(mesh) result(n)
+    type(mesh_type), intent(in) :: mesh
+
+    n = 0_i32
+    if (.not. allocated(mesh%elem_surface_model)) return
+    n = int(count(mesh%elem_surface_model == surface_model_dielectric), kind=i32)
+  end function count_dielectric_surfaces
 
 end module bem_output_writer

@@ -9,6 +9,7 @@ module bem_simulator
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit
   use bem_boundary, only: apply_box_boundary
+  use bem_surface_models, only: apply_surface_model_charge_relaxation
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array
   implicit none
   private
@@ -69,9 +70,14 @@ module bem_simulator
     end subroutine process_particle_batch
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
-    module subroutine commit_batch_charge(mesh, q_floor, dq_thread, photo_emission_dq, dq, rel, mpi)
+    module subroutine commit_batch_charge( &
+      mesh, q_floor, softening, external_e, field_bc_mode, dq_thread, photo_emission_dq, dq, rel, mpi &
+      )
       type(mesh_type), intent(inout) :: mesh
       real(dp), intent(in) :: q_floor
+      real(dp), intent(in) :: softening
+      real(dp), intent(in) :: external_e(3)
+      character(len=*), intent(in) :: field_bc_mode
       real(dp), intent(in) :: dq_thread(:, :)
       real(dp), intent(in) :: photo_emission_dq(:)
       real(dp), intent(out) :: dq(:)
