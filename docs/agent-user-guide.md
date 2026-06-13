@@ -65,12 +65,20 @@ beach beach.toml
 ### ビルドコマンド
 
 ```bash
-make                           # auto-detect コンパイラでビルド
+make check                     # 開発用ビルド確認（version は dev 固定）
+make build                     # git describe 付き version でビルド
+make run CONFIG=beach.toml     # dev 固定 version で実行
 make install-generic           # gfortran ポータブル
 make install-camphor           # Intel コンパイラ最適化
+make test                      # L1: Python + quick Fortran tests
 ```
 
-### 開発者向け直接実行
+`make check` / `make test` / `make run` は `BEACH_VERSION_MODE=dev` を使い、Fortran に渡す
+version macro を安定させる。git hash が変わっても fpm の compile-flag hash が変わらないため、
+開発中の差分コンパイルを再利用しやすい。git hash 付きの実行ファイルが必要な場合は
+`make build VERSION_MODE=git` または `make install` を使う。
+
+### 低レベル fpm 直接実行
 
 ```bash
 fpm run --profile release --flag "-fopenmp" -- beach.toml
@@ -87,11 +95,19 @@ FPM_FC=mpiifort fpm run --profile release \
 ### テスト
 
 ```bash
-fpm test          # Fortran テスト
-make test         # OpenMP 付き
+make test-l0      # L0: static/schema/build check
+make test         # L1: normal development loop
+make test-l2      # L2: contract/integration
+make test-l3      # L3: heavy/release gate
+make test-heavy   # heavy Fortran targets only
+make test-full    # unfiltered fpm test
 make test-mpi     # MPI テスト
-pytest -q         # Python テスト
+pytest -q         # Python テストのみ
 ```
+
+`make test` は L1 の alias で、通常の AI/開発内側ループではここまでを基本にする。
+FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。
+個別 target は `FPM_ACTION=test ./build.sh --target <name>` で確認できる。
 
 ---
 

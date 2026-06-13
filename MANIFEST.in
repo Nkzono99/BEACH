@@ -5,6 +5,7 @@ include SPEC.md
 include pyproject.toml
 include setup.py
 include Makefile
+include build.sh
 include install.sh
 include fpm.toml
 

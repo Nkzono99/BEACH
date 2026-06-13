@@ -43,21 +43,69 @@ python -m pip install -e . --no-build-isolation
 ### 2.2 Fortran 実行系（`make`）
 
 ```bash
-make
+make check
+make run CONFIG=examples/beach.toml
 ```
 
-必要に応じてプロファイルを明示します。
+開発中の標準確認は `make check` です。`BEACH_VERSION_MODE=dev` を使って
+Fortran 側へ渡す version 文字列を `1.1.0-dev` のように固定するため、git hash が変わっても
+fpm の compile-flag hash が変わらず、差分コンパイルを再利用できます。
+
+`make build` と `make install` は既定で git hash 付き version を埋め込みます。必要なら version mode を明示します。
+
+```bash
+make build VERSION_MODE=dev
+make build VERSION_MODE=plain
+make build VERSION_MODE=git
+```
+
+インストールプロファイルは必要に応じて明示します。
 
 ```bash
 make install-generic
 make install-camphor
 ```
 
-### 2.3 `fpm` 直接実行（開発向け）
+### 2.3 `fpm` 直接実行（低レベル確認向け）
 
 ```bash
 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
+
+通常の開発では `build.sh` 経由の `make run` / `make check` を優先してください。
+`build.sh` が `__BEACH_VERSION__` と `__BEACH_VERSION_MODE__` を安定した形で渡します。
+
+### 2.4 テスト
+
+```bash
+make test-l0      # L0: static/schema/build check
+make test         # L1: normal development loop
+make test-l2      # L2: contract/integration
+make test-l3      # L3: heavy/release gate
+make test-heavy   # heavy Fortran targets only
+make test-full    # unfiltered fpm test
+```
+
+BEACH のテストは開発ループ向けに階層化しています。
+
+- L0: `git diff --check`、JSON schema parse check、`make check`
+- L1: L0 + Python tests + 軽量 Fortran test targets（`make test` / `make test-l1`）
+- L2: L1 + contract/integration targets（C field-kernel contract など）
+- L3: L2 + heavy FMM targets / full fpm suite（release gate / nightly / main 統合前）
+
+`make test-fortran` は軽量 Fortran target の alias です。重い FMM 系
+（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_periodic`,
+`test_periodic2_flat_oracle_diag`）は通常の `make test` から外し、`make test-l3` /
+`make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行します。
+
+個別 target だけ確認する場合は次を使います。
+
+```bash
+FPM_ACTION=test ./build.sh --target test_version
+```
+
+KUDPC のログインノード上では、`make test*` / `fpm test` や同等の build/test を直接実行せず、
+`tssrun` または `sbatch` で計算ノードに投入してください。
 
 ## 3. 実行フロー
 

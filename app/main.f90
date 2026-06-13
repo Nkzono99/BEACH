@@ -1,6 +1,7 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
   use bem_kinds, only: dp, i32
+  use bem_version, only: beach_version
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size
   use bem_performance_profile, only: perf_configure_from_env, perf_set_output_context, perf_region_begin, &
@@ -26,6 +27,8 @@ program main
   logical :: history_opened, potential_history_opened, resumed
   real(dp) :: perf_t0, perf_program_t0
   real(dp), allocatable :: mesh_potential_v(:)
+
+  call handle_early_cli()
 
   call perf_configure_from_env()
   call perf_region_begin(perf_region_program_total, perf_program_t0)
@@ -128,6 +131,23 @@ program main
   call mpi_shutdown(mpi)
 
 contains
+
+  !> 設定読込を始める前に完結する CLI option を処理する。
+  subroutine handle_early_cli()
+    character(len=256) :: arg
+
+    if (command_argument_count() < 1) return
+    call get_command_argument(1, arg)
+    select case (trim(arg))
+    case ('--version', '-V')
+      print '(a)', trim(beach_version)
+      stop
+    case ('--help', '-h')
+      print '(a)', 'usage: beach [beach.toml]'
+      print '(a)', '       beach --version'
+      stop
+    end select
+  end subroutine handle_early_cli
 
   !> 設定読込・メッシュ構築・再開判定・乱数初期化をまとめて行う。
   !! @param[out] app 読み込み・既定値適用後のアプリ設定。

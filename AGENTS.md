@@ -50,8 +50,17 @@ Python CLI examples:
 ## Tests / quality
 - Python tests: `pytest -q`
 - Python lint: `ruff check .`
-- Fortran tests: `fpm test` (or per-target via `fpm test --target <name>`)
+- Fortran build check: `make check` (uses stable dev version metadata for incremental fpm builds)
+- Tiered tests:
+  - L0 static/build: `make test-l0` (`git diff --check`, JSON schema parse checks, `make check`)
+  - L1 development loop: `make test` or `make test-l1` (Python tests + quick Fortran targets, excluding heavy FMM)
+  - L2 contract/integration: `make test-l2` (L1 + C/kernel contract target)
+  - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)
+- Per-target Fortran test: `FPM_ACTION=test ./build.sh --target <name>`
 - Fortran format: `fprettify -i 2` for `*.f90` / `*.F90` (`*.i90` is excluded). Prefer `make fmt-fortran`, `make fmt-check-fortran`, and `pre-commit install`.
+- KUDPC のログインノード（`camphor*`, `laurel*`, `cinnamon*`, `gardenia*`）、アプリケーションサーバ、ファイル転送サーバでは、`make test*` / `fpm test` / 長時間の Fortran テストターゲットを直接実行しない。KUDPC plugin のホスト判定または `hostname` でノード種別を確認し、Slurm 割当内でない場合は計算ノードに投入する。
+- KUDPC で全体テストや長時間テストが必要な場合は、計算ノード上で実行する。短い対話確認は `tssrun`、バッチ実行は `sbatch` ジョブ内の `srun` を使う。ログインノードでは編集、軽いログ確認、`make check` 程度のビルド確認、ジョブ投入・監視までに留める。
+- `make test` は開発用 L1 とし、重い FMM 系（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_periodic`, `test_periodic2_flat_oracle_diag`）は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。新しい長時間 FMM 回帰テストは、`make test` の既定経路に足す前に opt-in の L3/heavy へ分離する。
 - Do not run multiple `fpm test` commands in parallel. They share the same `build/` directory and can conflict with each other.
 - `fpm test` は時間がかかるため、Bash ツールの `run_in_background: true` でバックグラウンド実行し、完了通知を待つ間に他の作業（コードレビュー・編集など）を並行して進めること。ただし同時に複数の `fpm test` をバックグラウンドで走らせてはいけない。
 

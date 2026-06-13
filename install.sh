@@ -105,6 +105,11 @@ if ! command -v "${FPM_FC}" >/dev/null 2>&1; then
   exit 1
 fi
 
-fpm install --profile "${PROFILE}" --compiler "${FPM_FC}" --flag "${FPM_FFLAGS}" --prefix "${PREFIX}"
+BEACH_VERSION_MODE="${BEACH_VERSION_MODE:-git}" \
+  FPM_ACTION=install \
+  FPM_PROFILE="${PROFILE}" \
+  FPM_FFLAGS="${FPM_FFLAGS}" \
+  PREFIX="${PREFIX}" \
+  "${ROOT_DIR}/build.sh" --compiler "${FPM_FC}"
 
 echo "[install.sh] done: ${PREFIX}/bin/beach"

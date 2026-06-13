@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -154,7 +155,7 @@ history_stride = 13
 
     command = " ".join(
         [
-            "python",
+            shlex.quote(sys.executable),
             shlex.quote(str(repo_root / "examples" / "generate_closepack_config.py")),
             shlex.quote(str(base_path)),
             "--layers",

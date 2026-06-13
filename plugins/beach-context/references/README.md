@@ -286,22 +286,38 @@ python -m pip install -e . --no-build-isolation
 ### 4.2 Fortran 実行系（`make`）
 
 ```bash
-make
+make check
+make run CONFIG=examples/beach.toml
+```
+
+開発中の標準確認は `make check` です。`BEACH_VERSION_MODE=dev` を使って
+Fortran 側へ渡す version 文字列を `1.1.0-dev` のように固定するため、git hash が変わっても
+fpm の compile-flag hash が変わらず、差分コンパイルを再利用できます。
+
+`make build` と `make install` は既定で git hash 付き version を埋め込みます。必要なら明示指定できます。
+
+```bash
+make build VERSION_MODE=dev       # 開発中の差分コンパイル優先
+make build VERSION_MODE=plain     # fpm.toml の version だけを埋め込む
+make build VERSION_MODE=git       # git describe 付き（既定）
 ```
 
 `make` のデフォルトターゲットは `install` で、`BUILD_PROFILE=auto`（ホスト自動判定）を使います。
-必要に応じて明示指定できます。
+インストールプロファイルは必要に応じて明示指定できます。
 
 ```bash
 make install-generic
 make install-camphor
 ```
 
-### 4.3 `fpm` 直接実行（開発向け）
+### 4.3 `fpm` 直接実行（低レベル確認向け）
 
 ```bash
 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
+
+通常の開発では `build.sh` 経由の `make run` / `make check` を優先してください。
+`build.sh` が `__BEACH_VERSION__` と `__BEACH_VERSION_MODE__` を安定した形で渡します。
 
 MPI + OpenMP（`USE_MPI` 有効化）:
 
@@ -314,9 +330,24 @@ fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
 ### 4.4 テスト
 
 ```bash
-pytest -q
-fpm test
+make test-l0      # L0: static/schema/build check
+make test         # L1: normal development loop
+make test-l2      # L2: contract/integration
+make test-l3      # L3: heavy/release gate
+make test-heavy   # heavy Fortran targets only
+make test-full    # unfiltered fpm test
 ```
+
+`make test` は L1 の alias で、Python tests と軽量 Fortran target を実行します。
+FMM 系の長時間 target は通常の開発ループから外し、`make test-l3` / `make test-heavy` /
+`make test-fortran-heavy` / `make test-full` で明示実行します。個別 target だけ確認する場合は次を使います。
+
+```bash
+FPM_ACTION=test ./build.sh --target test_version
+```
+
+KUDPC のログインノードでは `make test*` / `fpm test` を直接実行せず、`tssrun` または
+`sbatch` ジョブ内の計算ノードで実行してください。
 
 ### 4.5 Fortran 整形
 

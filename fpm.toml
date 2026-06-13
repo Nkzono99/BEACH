@@ -127,3 +127,8 @@ main = "test_periodic2_flat_oracle_diag.f90"
 name = "test_field_kernel_c"
 source-dir = "tests/fortran"
 main = "test_field_kernel_c.f90"
+
+[[test]]
+name = "test_version"
+source-dir = "tests/fortran"
+main = "test_version.f90"
