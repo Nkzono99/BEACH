@@ -121,7 +121,7 @@ history_stride = 1
 |---|---|---:|---|
 | `dt` | float | `1.0e-9` | 時間刻み [s] |
 | `rng_seed` | int | `12345` | 乱数シード |
-| `batch_count` | int | `1` | 1回の実行で処理するバッチ数 |
+| `batch_count` | int | `1` | 通常実行では処理するバッチ数。`output.resume=true` では累積の到達バッチ数 |
 | `batch_duration` | float | `0.0` | 1バッチの物理時間 [s] |
 | `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` |
 | `max_step` | int | `400` | 粒子あたり最大ステップ数 |
@@ -169,7 +169,7 @@ history_stride = 1
 
 重要な実行挙動:
 
-- 実行ループは `batch_count` 分だけ進みます。
+- 通常実行は `batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `batch_count` に達するまで進みます。
 - `tol_rel` は出力監視値であり、現行実装では早期終了条件には使いません。
 
 `tree_theta` / `tree_leaf_max` の自動推定値:

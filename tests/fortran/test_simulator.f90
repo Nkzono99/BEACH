@@ -164,6 +164,7 @@ program test_simulator
 
   call test_begin('resume_stats')
   call init_mesh(mesh_resume, v0, v1, v2)
+  cfg%sim%batch_count = 8_i32
   call seed_particles_from_config(cfg)
   stats_seed = sim_stats()
   stats_seed%processed_particles = 10_i64

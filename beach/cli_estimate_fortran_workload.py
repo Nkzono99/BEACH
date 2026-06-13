@@ -6,10 +6,12 @@ from .cli.estimate_fortran_workload import (
     DEFAULT_SIM,
     DEFAULT_SPECIES,
     build_parser,
+    completed_batches_from_resume_config,
     estimate_workload,
     load_toml,
     main,
     read_macro_residuals,
+    read_summary_batches,
 )
 
 __all__ = [
@@ -19,6 +21,8 @@ __all__ = [
     "DEFAULT_SPECIES",
     "load_toml",
     "read_macro_residuals",
+    "read_summary_batches",
+    "completed_batches_from_resume_config",
     "estimate_workload",
     "build_parser",
     "main",

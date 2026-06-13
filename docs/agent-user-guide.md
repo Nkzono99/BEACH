@@ -125,7 +125,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 |------------|------|-----------|------|
 | `dt` | float | 1.0e-9 | タイムステップ [s] |
 | `rng_seed` | int | 12345 | 乱数シード |
-| `batch_count` | int | 1 | バッチ数 |
+| `batch_count` | int | 1 | 通常実行ではバッチ数。resume 時は累積の到達バッチ数 |
 | `batch_duration` | float | — | バッチ持続時間 [s] (`batch_duration_step` と排他) |
 | `batch_duration_step` | float | — | `batch_duration = dt * batch_duration_step` として解決 |
 | `max_step` | int | 400 | 粒子あたり最大積分ステップ数 |

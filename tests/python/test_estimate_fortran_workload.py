@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from beach.cli_estimate_fortran_workload import estimate_workload
+from beach.cli_estimate_fortran_workload import (
+    completed_batches_from_resume_config,
+    estimate_workload,
+)
 
 
 def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets() -> None:
@@ -47,6 +50,86 @@ def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets
 
     assert result["resolved_batch_duration"] == pytest.approx(3.0)
     assert result["species_per_batch"] == [[300, 150], [300, 150], [300, 150]]
+
+
+def test_estimate_workload_resume_counts_only_remaining_batches() -> None:
+    config = {
+        "sim": {
+            "batch_count": 5,
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 10,
+                },
+            ]
+        },
+    }
+
+    result = estimate_workload(config=config, threads=2, completed_batches=2)
+
+    assert result["target_batch_count"] == 5
+    assert result["completed_batches"] == 2
+    assert result["batch_count"] == 3
+    assert result["batch_totals"] == [10, 10, 10]
+    assert result["total_particles"] == 30
+
+
+def test_estimate_workload_resume_all_batches_completed_is_zero_work() -> None:
+    config = {
+        "sim": {
+            "batch_count": 5,
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 10,
+                },
+            ]
+        },
+    }
+
+    result = estimate_workload(config=config, threads=2, completed_batches=5)
+
+    assert result["batch_count"] == 0
+    assert result["batch_totals"] == []
+    assert result["total_particles"] == 0
+
+
+def test_estimate_workload_rejects_resume_target_before_checkpoint() -> None:
+    config = {
+        "sim": {
+            "batch_count": 2,
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 1,
+                },
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="completed checkpoint batches"):
+        estimate_workload(config=config, threads=1, completed_batches=3)
+
+
+def test_completed_batches_from_resume_config_reads_summary(tmp_path) -> None:
+    out_dir = tmp_path / "outputs" / "latest"
+    out_dir.mkdir(parents=True)
+    (out_dir / "summary.txt").write_text(
+        "mesh_nelem=1\nbatches=4\nlast_rel_change=0.0\n",
+        encoding="utf-8",
+    )
+    config = {"output": {"resume": True, "dir": str(out_dir)}}
+
+    assert completed_batches_from_resume_config(config) == 4
 
 
 def test_estimate_workload_supports_species_target_minus_one_following_species1_w() -> None:

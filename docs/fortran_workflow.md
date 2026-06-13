@@ -232,7 +232,7 @@ resume = true
 ```
 
 同じ `output.dir` で `beach` を再実行すると、`summary.txt` / `charges.csv` / RNG状態を読み込んで続きから計算します。  
-`sim.batch_count` は「今回追加するバッチ数」です。
+`sim.batch_count` は累積の到達バッチ数です。例えば既存 checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が既存の処理済みバッチ数より小さい場合は停止します。
 
 MPI再開時は `summary.txt` の `mpi_world_size` と現在の rank 数が一致している必要があります。
 
@@ -338,7 +338,7 @@ fpm test --target test_mpi_hybrid \
 
 ## 10. 実装挙動で誤解しやすい点
 
-- 実行は `sim.batch_count` 分だけ進みます。
+- 通常実行は `sim.batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `sim.batch_count` に達するまで進みます。
 - `sim.tol_rel` は監視値で、現行実装では早期終了条件に使いません。
 - Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
 

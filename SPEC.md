@@ -154,7 +154,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 現行実装の停止条件は次の通りです。
 
-- ループは常に `batch_count` バッチ実行
+- 通常実行では `batch_count` バッチ実行し、再開実行では処理済みバッチ数が `batch_count` に達するまで実行
 - 各粒子は `max_step` で打ち切り
 
 補足:
@@ -187,7 +187,7 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
 - 任意: `macro_residuals.csv`（MPI 時は `macro_residuals_rankNNNNN.csv`）
 
-`sim.batch_count` は「今回追加するバッチ数」です。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
+`sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
 
 ## 9. 設計方針

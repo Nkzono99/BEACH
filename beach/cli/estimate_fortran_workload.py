@@ -743,12 +743,48 @@ def read_macro_residuals(path: Path | None, n_species: int) -> list[float]:
     return residuals
 
 
+def read_summary_batches(path: Path) -> int:
+    """Load completed batch count from a Fortran ``summary.txt`` file."""
+
+    if not path.exists():
+        raise SystemExit(f"summary file not found: {path}")
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    try:
+        batches = int(values["batches"])
+    except KeyError as exc:
+        raise SystemExit(f"summary file is missing batches: {path}") from exc
+    except ValueError as exc:
+        raise SystemExit(f"summary batches must be an integer: {path}") from exc
+    if batches < 0:
+        raise SystemExit(f"summary batches must be >= 0: {path}")
+    return batches
+
+
+def completed_batches_from_resume_config(config: dict[str, Any]) -> int:
+    """Return checkpoint batch count when ``output.resume`` is enabled."""
+
+    output_raw = config.get("output", {})
+    if not isinstance(output_raw, dict):
+        return 0
+    if not bool(output_raw.get("resume", False)):
+        return 0
+    output_dir = Path(str(output_raw.get("dir", "outputs/latest")))
+    return read_summary_batches(output_dir / "summary.txt")
+
+
 def estimate_workload(
     config: dict[str, Any],
     threads: int,
     initial_residuals: list[float] | None = None,
     mpi_ranks: int = 1,
     mpi_rank: int = 0,
+    completed_batches: int = 0,
 ) -> dict[str, Any]:
     """Estimate particle workload for one local MPI rank.
 
@@ -764,6 +800,10 @@ def estimate_workload(
         MPI world size.
     mpi_rank : int, default 0
         Local rank index used for split-count estimation.
+    completed_batches : int, default 0
+        Completed checkpoint batches. ``sim.batch_count`` is treated as the
+        cumulative target, so only ``sim.batch_count - completed_batches``
+        batches are estimated.
 
     Returns
     -------
@@ -850,9 +890,16 @@ def estimate_workload(
         )
         species_list.append(spec)
 
-    batch_count = int(sim_cfg["batch_count"])
-    if batch_count <= 0:
+    target_batch_count = int(sim_cfg["batch_count"])
+    if target_batch_count <= 0:
         raise SystemExit("sim.batch_count must be > 0")
+    if completed_batches < 0:
+        raise SystemExit("completed_batches must be >= 0")
+    if completed_batches > target_batch_count:
+        raise SystemExit(
+            "sim.batch_count must be >= completed checkpoint batches when resuming."
+        )
+    batch_count = target_batch_count - completed_batches
 
     if threads <= 0:
         raise SystemExit("threads must be > 0")
@@ -1010,6 +1057,8 @@ def estimate_workload(
 
     return {
         "batch_count": batch_count,
+        "target_batch_count": target_batch_count,
+        "completed_batches": completed_batches,
         "threads": threads,
         "mpi_ranks": mpi_ranks,
         "mpi_rank": mpi_rank,
@@ -1135,6 +1184,7 @@ def run(args: argparse.Namespace) -> None:
     config = load_toml(args.config)
     species_raw = config.get("particles", {}).get("species", [])
     initial_residuals = read_macro_residuals(args.macro_residuals, len(species_raw))
+    completed_batches = completed_batches_from_resume_config(config)
 
     result = estimate_workload(
         config=config,
@@ -1142,6 +1192,7 @@ def run(args: argparse.Namespace) -> None:
         initial_residuals=initial_residuals,
         mpi_ranks=args.mpi_ranks,
         mpi_rank=args.mpi_rank,
+        completed_batches=completed_batches,
     )
 
     batch_totals = result["batch_totals"]
@@ -1149,6 +1200,8 @@ def run(args: argparse.Namespace) -> None:
     batch_thread_max = result["batch_thread_max"]
     total_particles = result["total_particles"]
     batch_count = result["batch_count"]
+    target_batch_count = result["target_batch_count"]
+    completed_batches = result["completed_batches"]
     threads = result["threads"]
     mpi_ranks = result["mpi_ranks"]
     mpi_rank = result["mpi_rank"]
@@ -1158,17 +1211,28 @@ def run(args: argparse.Namespace) -> None:
     print(f"mpi_ranks={mpi_ranks}")
     print(f"mpi_rank={mpi_rank}")
     print("estimate_scope=local_rank")
-    print(f"batch_count={batch_count}")
+    print(f"target_batch_count={target_batch_count}")
+    print(f"completed_batches={completed_batches}")
+    print(f"remaining_batch_count={batch_count}")
     print(f"resolved_batch_duration={result['resolved_batch_duration']}")
     print(f"total_particles={total_particles}")
-    print(f"particles_per_batch_min={min(batch_totals)}")
-    print(f"particles_per_batch_max={max(batch_totals)}")
-    print(f"particles_per_batch_avg={total_particles / batch_count:.3f}")
-    print(f"per_thread_particles_min={min(batch_thread_min)}")
-    print(f"per_thread_particles_max={max(batch_thread_max)}")
-    print(
-        "per_thread_particles_avg=" f"{total_particles / (batch_count * threads):.3f}"
-    )
+    if batch_count > 0:
+        print(f"particles_per_batch_min={min(batch_totals)}")
+        print(f"particles_per_batch_max={max(batch_totals)}")
+        print(f"particles_per_batch_avg={total_particles / batch_count:.3f}")
+        print(f"per_thread_particles_min={min(batch_thread_min)}")
+        print(f"per_thread_particles_max={max(batch_thread_max)}")
+        print(
+            "per_thread_particles_avg="
+            f"{total_particles / (batch_count * threads):.3f}"
+        )
+    else:
+        print("particles_per_batch_min=0")
+        print("particles_per_batch_max=0")
+        print("particles_per_batch_avg=0.000")
+        print("per_thread_particles_min=0")
+        print("per_thread_particles_max=0")
+        print("per_thread_particles_avg=0.000")
     print(f"final_macro_residuals={result['final_residuals']}")
 
     n_detail = max(0, min(args.show_batches, batch_count))

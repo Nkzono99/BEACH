@@ -11,7 +11,7 @@ contains
 
   !> 吸着モデルのバッチループを実行し、電荷更新と統計集計を進める。
   module procedure run_absorption_insulator
-  integer(i32) :: batch_idx, final_batch_idx, local_batch_idx, nth, hist_stride
+  integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
   integer :: hist_unit
   logical :: history_enabled
   logical :: potential_history_enabled
@@ -46,18 +46,23 @@ contains
     allocate (potential_buf(mesh%nelem))
   end if
   bfield = app%sim%b0
-  final_batch_idx = stats%batches + app%sim%batch_count
+  final_batch_idx = app%sim%batch_count
+  if (stats%batches < 0_i32) error stop 'Initial simulation batch count must be >= 0.'
+  if (stats%batches > final_batch_idx) then
+    error stop 'sim.batch_count must be >= completed checkpoint batches when resuming.'
+  end if
+  batch_count_this_run = final_batch_idx - stats%batches
   call perf_region_begin(perf_region_simulation_total, sim_t0)
   call perf_region_begin(perf_region_field_solver_init, t0)
   call field_solver%init(mesh, app%sim)
   call perf_region_end(perf_region_field_solver_init, t0)
 
-  do local_batch_idx = 1, app%sim%batch_count
+  do local_batch_idx = 1, batch_count_this_run
     call perf_region_begin(perf_region_batch_total, batch_t0)
 
     call perf_region_begin(perf_region_prepare_batch, t0)
     call prepare_batch_state( &
-      mesh, app, stats, local_batch_idx, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
+      mesh, app, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
       photo_emission_dq, mpi_ctx, inject_state &
       )
     call perf_region_end(perf_region_prepare_batch, t0)
@@ -130,12 +135,12 @@ contains
   batch_idx = stats%batches + 1_i32
   if (present(inject_state)) then
     call init_particle_batch_from_config( &
-      app, local_batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
+      app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
       mpi=mpi &
       )
   else
     call init_particle_batch_from_config( &
-      app, local_batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi &
+      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi &
       )
   end if
   if (allocated(escaped_boundary_flag)) then
