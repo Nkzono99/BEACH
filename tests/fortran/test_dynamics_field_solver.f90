@@ -10,7 +10,7 @@ program test_dynamics_field_solver
                           assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -22,6 +22,10 @@ program test_dynamics_field_solver
 
   call test_begin('treecode_field_accuracy')
   call test_treecode_field_accuracy()
+  call test_end()
+
+  call test_begin('zero_softening_self_singularity_skip')
+  call test_zero_softening_self_singularity_skip()
   call test_end()
 
   call test_begin('direct_field_length_normalization_accuracy')
@@ -197,6 +201,29 @@ contains
     call assert_true(valid_count >= 100_i32, 'treecode accuracy test has too few valid samples')
     call assert_true(max_rel_err <= 1.0d-3, 'treecode E relative error exceeds 1e-3')
   end subroutine test_treecode_field_accuracy
+
+  subroutine test_zero_softening_self_singularity_skip()
+    type(mesh_type) :: mesh_direct
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp) :: r(3), e_direct(3), e_solver(3)
+
+    call make_plane(mesh_direct, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    mesh_direct%q_elem = 0.0d0
+    mesh_direct%q_elem(1) = 1.0d-12
+    r = [mesh_direct%center_x(1), mesh_direct%center_y(1), mesh_direct%center_z(1)]
+
+    call electric_field_at(mesh_direct, r, 0.0d0, e_direct)
+    call assert_true(all(e_direct == 0.0d0), 'direct self field should be skipped')
+
+    sim = sim_config()
+    sim%softening = 0.0d0
+    sim%field_solver = 'direct'
+    call solver%init(mesh_direct, sim)
+    call solver%refresh(mesh_direct)
+    call solver%eval_e(mesh_direct, r, e_solver)
+    call assert_true(all(e_solver == 0.0d0), 'solver direct self field should be skipped')
+  end subroutine test_zero_softening_self_singularity_skip
 
   subroutine test_direct_field_length_normalization_accuracy()
     type(mesh_type) :: mesh_direct

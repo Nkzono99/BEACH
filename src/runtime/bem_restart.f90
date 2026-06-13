@@ -1,6 +1,7 @@
 !> 出力ディレクトリに保存したチェックポイントの保存/復元を扱う補助モジュール。
 module bem_restart
-  use bem_kinds, only: dp, i32
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size
   implicit none
@@ -20,7 +21,9 @@ contains
   !! @param[out] stats 復元された統計値。
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
   !! @param[inout] state 種別ごとのマクロ粒子残差（指定時のみ復元）。
-  subroutine load_restart_checkpoint(out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi)
+  subroutine load_restart_checkpoint( &
+    out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi, require_checkpoint &
+    )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
     type(sim_stats), intent(out) :: stats
@@ -28,13 +31,17 @@ contains
     type(injection_state), intent(inout), optional :: state
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
     type(mpi_context), intent(in), optional :: mpi
+    logical, intent(in), optional :: require_checkpoint
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path
     logical :: has_summary, has_charges, has_rng, has_residual
+    logical :: must_have_checkpoint
     integer(i32) :: local_rank, world_size
 
     stats = sim_stats()
     has_restart = .false.
+    must_have_checkpoint = .false.
+    if (present(require_checkpoint)) must_have_checkpoint = require_checkpoint
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'load_restart_checkpoint')
 
     summary_path = trim(out_dir)//'/summary.txt'
@@ -47,7 +54,10 @@ contains
     inquire (file=trim(rng_path), exist=has_rng)
     inquire (file=trim(residual_path), exist=has_residual)
 
-    if (.not. has_summary .and. .not. has_charges .and. .not. has_rng) return
+    if (.not. has_summary .and. .not. has_charges .and. .not. has_rng) then
+      if (must_have_checkpoint) error stop 'Resume requested but checkpoint files are missing in output directory.'
+      return
+    end if
 
     if (.not. (has_summary .and. has_charges .and. has_rng)) then
       error stop 'Resume requested but checkpoint files are incomplete in output directory.'
@@ -200,6 +210,7 @@ contains
     if (mesh_nelem /= expected_nelem) then
       error stop 'Resume checkpoint mesh element count does not match current mesh.'
     end if
+    call validate_summary_stats(stats)
     if (present(expected_world_size)) then
       if (.not. found_world_size .and. expected_world_size > 1_i32) then
         error stop 'Resume checkpoint summary is missing mpi_world_size.'
@@ -246,6 +257,9 @@ contains
       end if
       if (seen(elem_idx)) then
         error stop 'Resume checkpoint charges.csv contains duplicate element rows.'
+      end if
+      if (.not. ieee_is_finite(charge)) then
+        error stop 'Resume checkpoint charges.csv contains non-finite charge values.'
       end if
       seen(elem_idx) = .true.
       mesh%q_elem(elem_idx) = charge
@@ -323,6 +337,9 @@ contains
       if (seen(species_idx)) then
         error stop 'Resume checkpoint macro_residuals.csv contains duplicate species rows.'
       end if
+      if (.not. ieee_is_finite(residual) .or. residual < 0.0d0 .or. residual >= 1.0d0) then
+        error stop 'Resume checkpoint macro_residuals.csv residual values must be finite and in [0, 1).'
+      end if
       seen(species_idx) = .true.
       state%macro_residual(species_idx) = residual
     end do
@@ -360,6 +377,21 @@ contains
       write (path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', local_rank, '.csv'
     end if
   end function restart_macro_residual_path
+
+  !> summary.txt から復元した統計値が壊れていないことを検証する。
+  subroutine validate_summary_stats(stats)
+    type(sim_stats), intent(in) :: stats
+
+    if (stats%processed_particles < 0_i64) error stop 'Resume checkpoint processed_particles must be >= 0.'
+    if (stats%absorbed < 0_i64) error stop 'Resume checkpoint absorbed must be >= 0.'
+    if (stats%escaped < 0_i64) error stop 'Resume checkpoint escaped must be >= 0.'
+    if (stats%escaped_boundary < 0_i64) error stop 'Resume checkpoint escaped_boundary must be >= 0.'
+    if (stats%survived_max_step < 0_i64) error stop 'Resume checkpoint survived_max_step must be >= 0.'
+    if (stats%batches < 0_i32) error stop 'Resume checkpoint batches must be >= 0.'
+    if (.not. ieee_is_finite(stats%last_rel_change) .or. stats%last_rel_change < 0.0d0) then
+      error stop 'Resume checkpoint last_rel_change must be finite and >= 0.'
+    end if
+  end subroutine validate_summary_stats
 
   !> 併存対応のため `mpi_context` と rank/size の両方を受け、最終的なrank/sizeを解決する。
   subroutine resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, caller_name)

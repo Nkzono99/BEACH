@@ -233,6 +233,46 @@ def _write_mobility_fixture(out: Path) -> None:
     )
 
 
+def _write_minimal_result_fixture(
+    out: Path,
+    *,
+    charges_text: str | None = None,
+    mesh_triangles_text: str | None = None,
+    mesh_sources_text: str | None = None,
+    mesh_potential_text: str | None = None,
+    summary_extra: list[str] | None = None,
+) -> None:
+    summary_lines = [
+        "mesh_nelem=2",
+        "processed_particles=10",
+        "absorbed=7",
+        "escaped=3",
+        "batches=1",
+        "last_rel_change=1.0e-8",
+    ]
+    if summary_extra is not None:
+        summary_lines.extend(summary_extra)
+    (out / "summary.txt").write_text("\n".join(summary_lines), encoding="utf-8")
+    (out / "charges.csv").write_text(
+        charges_text
+        or "elem_idx,charge_C\n1,1.0e-10\n2,-2.0e-10\n",
+        encoding="utf-8",
+    )
+    (out / "mesh_triangles.csv").write_text(
+        mesh_triangles_text
+        or (
+            "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+            "1,0,0,0,1,0,0,0,1,0,1.0e-10,1\n"
+            "2,0,0,1,1,0,1,0,1,1,-2.0e-10,2\n"
+        ),
+        encoding="utf-8",
+    )
+    if mesh_sources_text is not None:
+        (out / "mesh_sources.csv").write_text(mesh_sources_text, encoding="utf-8")
+    if mesh_potential_text is not None:
+        (out / "mesh_potential.csv").write_text(mesh_potential_text, encoding="utf-8")
+
+
 def test_load_fortran_result(tmp_path: Path) -> None:
     out = tmp_path / "run1"
     out.mkdir()
@@ -307,6 +347,112 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     np.testing.assert_array_equal(result.history.processed_particles_by_batch, np.array([5, 10]))
     np.testing.assert_allclose(result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
+
+
+def test_load_fortran_result_rejects_charges_row_count_mismatch(tmp_path: Path) -> None:
+    out = tmp_path / "run_bad_charges_count"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        charges_text="elem_idx,charge_C\n1,1.0e-10\n",
+    )
+
+    with pytest.raises(ValueError, match="charges.csv row count"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_charges_invalid_elem_idx(tmp_path: Path) -> None:
+    out = tmp_path / "run_bad_charges_elem"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        charges_text="elem_idx,charge_C\n1,1.0e-10\n3,-2.0e-10\n",
+    )
+
+    with pytest.raises(ValueError, match="charges.csv elem_idx"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_nonfinite_charge(tmp_path: Path) -> None:
+    out = tmp_path / "run_bad_charge_nan"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        charges_text="elem_idx,charge_C\n1,1.0e-10\n2,nan\n",
+    )
+
+    with pytest.raises(ValueError, match="charge_C"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_mesh_triangle_row_count_mismatch(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_bad_triangles_count"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        mesh_triangles_text=(
+            "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+            "1,0,0,0,1,0,0,0,1,0,1.0e-10,1\n"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="mesh_triangles.csv row count"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_nonfinite_triangle_vertex(tmp_path: Path) -> None:
+    out = tmp_path / "run_bad_triangle_nan"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        mesh_triangles_text=(
+            "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+            "1,0,0,0,1,0,0,0,1,0,1.0e-10,1\n"
+            "2,0,0,1,1,nan,1,0,1,1,-2.0e-10,2\n"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="vertex values"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_bad_mesh_source_material(tmp_path: Path) -> None:
+    out = tmp_path / "run_bad_mesh_source_material"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        mesh_sources_text=(
+            "mesh_id,source_kind,template_kind,surface_model,epsilon_r,elem_count\n"
+            "1,template,plane,insulator,1.0,1\n"
+            "2,template,sphere,dielectric,nan,1\n"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="epsilon_r"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_nonfinite_mesh_potential(tmp_path: Path) -> None:
+    out = tmp_path / "run_bad_mesh_potential"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        mesh_potential_text="elem_idx,potential_V\n1,1.5\n2,inf\n",
+    )
+
+    with pytest.raises(ValueError, match="potential_V"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_negative_summary_stat(tmp_path: Path) -> None:
+    out = tmp_path / "run_bad_summary"
+    out.mkdir()
+    _write_minimal_result_fixture(out, summary_extra=["escaped_boundary=-1"])
+
+    with pytest.raises(ValueError, match="escaped_boundary"):
+        load_fortran_result(out)
 
 
 def test_resolve_object_specs_prefers_mesh_source_materials(tmp_path: Path) -> None:

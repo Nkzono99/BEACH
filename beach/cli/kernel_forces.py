@@ -11,7 +11,11 @@ import numpy as np
 
 from beach import Beach, FieldKernelError
 
-from ._shared import configure_entry_parser
+from ._shared import (
+    configure_entry_parser,
+    require_nonnegative_finite,
+    require_positive_finite,
+)
 
 COMMAND_NAME = "kernel-forces"
 
@@ -96,10 +100,8 @@ def run(args: argparse.Namespace) -> None:
     """Execute the kernel-force command."""
 
     parser = args._parser
-    if args.softening is not None and args.softening < 0.0:
-        parser.error("--softening must be >= 0.")
-    if args.theta is not None and args.theta <= 0.0:
-        parser.error("--theta must be > 0.")
+    require_nonnegative_finite(parser, args.softening, "--softening")
+    require_positive_finite(parser, args.theta, "--theta")
     if args.leaf_max is not None and args.leaf_max <= 0:
         parser.error("--leaf-max must be > 0.")
     if args.order < 0:

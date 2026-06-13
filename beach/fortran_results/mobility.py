@@ -78,16 +78,24 @@ def analyze_coulomb_mobility(
     """
 
     resolved = _resolve_result(result)
-    if softening < 0.0:
-        raise ValueError("softening must be >= 0.")
-    if density_kg_m3 is not None and density_kg_m3 <= 0.0:
-        raise ValueError("density_kg_m3 must be > 0 when specified.")
-    if mu_static is not None and mu_static < 0.0:
-        raise ValueError("mu_static must be >= 0 when specified.")
-    if mu_roll is not None and mu_roll < 0.0:
-        raise ValueError("mu_roll must be >= 0 when specified.")
-    if adhesion_force_N < 0.0:
-        raise ValueError("adhesion_force_N must be >= 0.")
+    softening = float(softening)
+    if not np.isfinite(softening) or softening < 0.0:
+        raise ValueError("softening must be finite and >= 0.")
+    if density_kg_m3 is not None:
+        density_kg_m3 = float(density_kg_m3)
+        if not np.isfinite(density_kg_m3) or density_kg_m3 <= 0.0:
+            raise ValueError("density_kg_m3 must be finite and > 0 when specified.")
+    if mu_static is not None:
+        mu_static = float(mu_static)
+        if not np.isfinite(mu_static) or mu_static < 0.0:
+            raise ValueError("mu_static must be finite and >= 0 when specified.")
+    if mu_roll is not None:
+        mu_roll = float(mu_roll)
+        if not np.isfinite(mu_roll) or mu_roll < 0.0:
+            raise ValueError("mu_roll must be finite and >= 0 when specified.")
+    adhesion_force_N = float(adhesion_force_N)
+    if not np.isfinite(adhesion_force_N) or adhesion_force_N < 0.0:
+        raise ValueError("adhesion_force_N must be finite and >= 0.")
 
     gravity_vec = _coerce_vec3(gravity, name="gravity")
     support_normal_vec = _resolve_support_normal(gravity_vec, support_normal)

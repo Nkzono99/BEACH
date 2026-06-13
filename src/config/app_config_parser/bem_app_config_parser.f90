@@ -219,8 +219,27 @@ contains
     close (u)
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
+    if (.not. ieee_is_finite(cfg%sim%dt) .or. cfg%sim%dt <= 0.0d0) then
+      error stop 'sim.dt must be finite and > 0.'
+    end if
+    if (cfg%sim%max_step <= 0_i32) error stop 'sim.max_step must be > 0.'
+    if (.not. ieee_is_finite(cfg%sim%tol_rel) .or. cfg%sim%tol_rel < 0.0d0) then
+      error stop 'sim.tol_rel must be finite and >= 0.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%q_floor) .or. cfg%sim%q_floor <= 0.0d0) then
+      error stop 'sim.q_floor must be finite and > 0.'
+    end if
     if (.not. ieee_is_finite(cfg%sim%softening) .or. cfg%sim%softening < 0.0d0) then
       error stop 'sim.softening must be finite and >= 0.'
+    end if
+    if (.not. all(ieee_is_finite(cfg%sim%b0))) error stop 'sim.b0 must contain finite values.'
+    if (cfg%sim%use_box) then
+      if (.not. all(ieee_is_finite(cfg%sim%box_min)) .or. .not. all(ieee_is_finite(cfg%sim%box_max))) then
+        error stop 'sim.box_min/box_max must contain finite values.'
+      end if
+      if (any(cfg%sim%box_max <= cfg%sim%box_min)) then
+        error stop 'sim.box_max must be greater than sim.box_min on all axes when sim.use_box=true.'
+      end if
     end if
     if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
     if (t_idx > 0) cfg%n_templates = int(t_idx, i32)
@@ -416,6 +435,35 @@ contains
       cfg%particle_species(i)%velocity_distribution = lower_ascii(trim(cfg%particle_species(i)%velocity_distribution))
       cfg%particle_species(i)%velocity_grid_pdf_kind = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
       cfg%particle_species(i)%velocity_grid_sampling = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_sampling))
+      if (.not. all(ieee_is_finite(cfg%particle_species(i)%pos_low)) .or. &
+          .not. all(ieee_is_finite(cfg%particle_species(i)%pos_high))) then
+        error stop 'particles.species.pos_low/pos_high must contain finite values.'
+      end if
+      if (.not. all(ieee_is_finite(cfg%particle_species(i)%drift_velocity))) then
+        error stop 'particles.species.drift_velocity must contain finite values.'
+      end if
+      if (.not. ieee_is_finite(cfg%particle_species(i)%q_particle) .or. &
+          abs(cfg%particle_species(i)%q_particle) <= 0.0d0) then
+        error stop 'particles.species.q_particle must be finite and non-zero.'
+      end if
+      if (.not. ieee_is_finite(cfg%particle_species(i)%m_particle) .or. cfg%particle_species(i)%m_particle <= 0.0d0) then
+        error stop 'particles.species.m_particle must be finite and > 0.'
+      end if
+      if (.not. ieee_is_finite(cfg%particle_species(i)%w_particle) .or. cfg%particle_species(i)%w_particle <= 0.0d0) then
+        error stop 'particles.species.w_particle must be finite and > 0.'
+      end if
+      if (cfg%particle_species(i)%has_temperature_ev) then
+        if (.not. ieee_is_finite(cfg%particle_species(i)%temperature_ev) .or. &
+            cfg%particle_species(i)%temperature_ev < 0.0d0) then
+          error stop 'particles.species.temperature_ev must be finite and >= 0.'
+        end if
+      end if
+      if (cfg%particle_species(i)%has_temperature_k) then
+        if (.not. ieee_is_finite(cfg%particle_species(i)%temperature_k) .or. &
+            cfg%particle_species(i)%temperature_k < 0.0d0) then
+          error stop 'particles.species.temperature_k must be finite and >= 0.'
+        end if
+      end if
       select case (trim(cfg%particle_species(i)%velocity_distribution))
       case ('maxwellian', 'grid')
         continue

@@ -51,8 +51,9 @@ contains
   !> ノードを再帰走査し、葉は direct 総和・遠方は monopole 近似で加算する。
   module procedure traverse_node
   integer(i32) :: child_k, p, idx, p_end
-  real(dp) :: dx, dy, dz, r2, inv_r3, qi
+  real(dp) :: dx, dy, dz, r2, inv_r3, qi, min_dist2
 
+  min_dist2 = tiny(1.0d0)
   if (self%child_count(node_idx) <= 0_i32) then
     p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
     do p = self%node_start(node_idx), p_end
@@ -61,6 +62,7 @@ contains
       dy = (ry - mesh%center_y(idx))*self%field_inv_length_scale
       dz = (rz - mesh%center_z(idx))*self%field_inv_length_scale
       r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) cycle
       inv_r3 = 1.0d0/(sqrt(r2)*r2)
       qi = mesh%q_elem(idx)
       ex = ex + qi*inv_r3*dx
@@ -77,6 +79,7 @@ contains
       dy = (ry - self%node_charge_center(2, node_idx))*self%field_inv_length_scale
       dz = (rz - self%node_charge_center(3, node_idx))*self%field_inv_length_scale
       r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) return
       inv_r3 = 1.0d0/(sqrt(r2)*r2)
       ex = ex + qi*inv_r3*dx
       ey = ey + qi*inv_r3*dy
@@ -470,13 +473,14 @@ contains
     real(dp), intent(out) :: e(3)
 
     integer(i32) :: i
-    real(dp) :: soft2, r2, inv_r3, ex, ey, ez
+    real(dp) :: soft2, r2, inv_r3, ex, ey, ez, min_dist2
     real(dp) :: rx, ry, rz, dx, dy, dz, qi
 
     ex = 0.0d0
     ey = 0.0d0
     ez = 0.0d0
     soft2 = (softening*inv_length_scale)**2
+    min_dist2 = tiny(1.0d0)
     rx = r(1)
     ry = r(2)
     rz = r(3)
@@ -487,6 +491,7 @@ contains
       dy = (ry - mesh%center_y(i))*inv_length_scale
       dz = (rz - mesh%center_z(i))*inv_length_scale
       r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) cycle
       inv_r3 = 1.0d0/(sqrt(r2)*r2)
       qi = mesh%q_elem(i)
       ex = ex + qi*inv_r3*dx

@@ -9,7 +9,11 @@ from typing import Any, Sequence
 from beach import Beach
 from beach.fortran_results.potential import _periodic2_from_sim
 
-from ._shared import configure_entry_parser
+from ._shared import (
+    configure_entry_parser,
+    require_finite,
+    require_nonnegative_finite,
+)
 
 COMMAND_NAME = "slices"
 LEGACY_COMMAND_NAME = "beach-plot-potential-slices"
@@ -216,6 +220,12 @@ def run(args: argparse.Namespace) -> None:
         parser.error("--chunk-size must be > 0.")
     if args.dpi <= 0:
         parser.error("--dpi must be > 0.")
+    require_finite(parser, args.xy_z, "--xy-z")
+    require_finite(parser, args.yz_x, "--yz-x")
+    require_finite(parser, args.xz_y, "--xz-y")
+    require_nonnegative_finite(parser, args.potential_softening, "--potential-softening")
+    require_finite(parser, args.vmin, "--vmin")
+    require_finite(parser, args.vmax, "--vmax")
     if (
         args.vmin is not None
         and args.vmax is not None

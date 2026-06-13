@@ -418,8 +418,9 @@ def _potential_history(
     | None = None,
     reference_point: np.ndarray | None = None,
 ) -> np.ndarray:
-    if softening < 0.0:
-        raise ValueError("softening must be >= 0.")
+    softening = float(softening)
+    if not math.isfinite(softening) or softening < 0.0:
+        raise ValueError("softening must be finite and >= 0.")
 
     centers = _triangle_centers(triangles)
     self_coeff = _self_potential_coefficients(

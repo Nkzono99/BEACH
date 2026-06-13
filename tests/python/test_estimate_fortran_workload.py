@@ -221,6 +221,34 @@ def test_estimate_workload_accepts_periodic_field_sim_keys() -> None:
     assert result["batch_totals"] == [3]
 
 
+def test_estimate_workload_accepts_normalization_and_sheath_sim_keys() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "field_normalization": "length",
+            "field_length_scale": 2.0,
+            "sheath_injection_model": "none",
+            "sheath_alpha_deg": 60.0,
+            "sheath_photoelectron_ref_density_cm3": 64.0,
+            "sheath_reference_coordinate": 0.02,
+            "sheath_electron_drift_mode": "normal",
+            "sheath_ion_drift_mode": "normal",
+            "use_box": True,
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 3,
+                },
+            ]
+        },
+    }
+
+    result = estimate_workload(config=config, threads=1)
+    assert result["batch_totals"] == [3]
+
+
 def test_estimate_workload_rejects_w_and_target_together_for_reservoir() -> None:
     config = {
         "sim": {

@@ -67,8 +67,9 @@ def calc_coulomb(
     from .potential import _auto_periodic2_from_result, _coerce_periodic2
 
     resolved = _resolve_result(result)
-    if softening < 0.0:
-        raise ValueError("softening must be >= 0.")
+    softening = float(softening)
+    if not np.isfinite(softening) or softening < 0.0:
+        raise ValueError("softening must be finite and >= 0.")
 
     sel_target = _coerce_group_selection(resolved, target, step=step)
     sel_source = _coerce_group_selection(resolved, source, step=step)

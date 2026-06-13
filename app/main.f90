@@ -179,7 +179,8 @@ contains
     if (app%resume_output) then
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
       call load_restart_checkpoint( &
-        trim(app%output_dir), mesh, initial_stats, resumed, inject_state, mpi=mpi &
+        trim(app%output_dir), mesh, initial_stats, resumed, inject_state, &
+        mpi=mpi, require_checkpoint=.true. &
         )
     end if
 

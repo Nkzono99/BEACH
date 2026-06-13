@@ -8,7 +8,7 @@ from typing import Sequence
 
 from beach import Beach
 
-from ._shared import configure_entry_parser
+from ._shared import configure_entry_parser, require_nonnegative_finite
 
 COMMAND_NAME = "coulomb"
 LEGACY_COMMAND_NAME = "beach-plot-coulomb-force-matrix"
@@ -107,8 +107,7 @@ def run(args: argparse.Namespace) -> None:
     parser = args._parser
     if args.dpi <= 0:
         parser.error("--dpi must be > 0.")
-    if args.softening < 0.0:
-        parser.error("--softening must be >= 0.")
+    require_nonnegative_finite(parser, args.softening, "--softening")
     if args.workers < 1:
         parser.error("--workers must be >= 1.")
 

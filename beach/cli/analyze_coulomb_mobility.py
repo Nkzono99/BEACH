@@ -9,7 +9,11 @@ from typing import Sequence
 
 from beach import Beach
 
-from ._shared import configure_entry_parser
+from ._shared import (
+    configure_entry_parser,
+    require_nonnegative_finite,
+    require_positive_finite,
+)
 
 COMMAND_NAME = "mobility"
 
@@ -195,10 +199,11 @@ def run(args: argparse.Namespace) -> None:
     """Execute the Coulomb mobility command."""
 
     parser = args._parser
-    if args.softening < 0.0:
-        parser.error("--softening must be >= 0.")
-    if args.adhesion_force_N < 0.0:
-        parser.error("--adhesion-force-N must be >= 0.")
+    require_nonnegative_finite(parser, args.softening, "--softening")
+    require_nonnegative_finite(parser, args.adhesion_force_N, "--adhesion-force-N")
+    require_positive_finite(parser, args.density_kg_m3, "--density-kg-m3")
+    require_nonnegative_finite(parser, args.mu_static, "--mu-static")
+    require_nonnegative_finite(parser, args.mu_roll, "--mu-roll")
 
     output_dir = Path(args.output_dir)
     save_csv = (

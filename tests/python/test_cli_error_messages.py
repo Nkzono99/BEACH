@@ -6,6 +6,8 @@ from beach.cli_animate_fortran_history import main as animate_main
 from beach.cli_inspect_fortran_output import main as inspect_main
 from beach.cli_plot_coulomb_force_matrix import main as plot_coulomb_main
 from beach.cli_plot_performance_profile import main as plot_performance_main
+from beach.cli.analyze_coulomb_mobility import main as mobility_main
+from beach.cli.kernel_forces import main as kernel_forces_main
 from beach.cli.plot_fortran_potential_slices import _load_sim_box
 from beach.cli_plot_fortran_potential_slices import main as plot_slices_main
 
@@ -48,6 +50,54 @@ def test_plot_performance_missing_profile_exits_with_friendly_message() -> None:
         match=r'Performance profile file is missing under "no_such_dir/performance_profile.csv"\.',
     ):
         plot_performance_main(["no_such_dir"])
+
+
+def test_plot_coulomb_rejects_nan_softening(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        plot_coulomb_main(["--softening", "nan"])
+
+    assert exc.value.code == 2
+    assert "--softening must be finite." in capsys.readouterr().err
+
+
+def test_kernel_forces_rejects_nan_theta(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        kernel_forces_main(["--theta", "nan"])
+
+    assert exc.value.code == 2
+    assert "--theta must be finite." in capsys.readouterr().err
+
+
+def test_mobility_rejects_infinite_density(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        mobility_main(["--density-kg-m3", "inf"])
+
+    assert exc.value.code == 2
+    assert "--density-kg-m3 must be finite." in capsys.readouterr().err
+
+
+def test_inspect_rejects_nan_view_angle(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        inspect_main(["--view-elev", "nan"])
+
+    assert exc.value.code == 2
+    assert "--view-elev must be finite." in capsys.readouterr().err
+
+
+def test_animate_rejects_nonpositive_fps(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        animate_main(["--fps", "0"])
+
+    assert exc.value.code == 2
+    assert "--fps must be > 0." in capsys.readouterr().err
+
+
+def test_plot_slices_rejects_nan_vmin(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        plot_slices_main(["--vmin", "nan"])
+
+    assert exc.value.code == 2
+    assert "--vmin must be finite." in capsys.readouterr().err
 
 
 def test_plot_slices_load_sim_box_defaults_periodic2_far_correction_to_oracle(

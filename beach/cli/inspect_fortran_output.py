@@ -8,7 +8,11 @@ from typing import Sequence
 
 from beach import Beach, list_fortran_runs
 
-from ._shared import configure_entry_parser
+from ._shared import (
+    configure_entry_parser,
+    require_finite,
+    require_nonnegative_finite,
+)
 
 COMMAND_NAME = "inspect"
 LEGACY_COMMAND_NAME = "beach-inspect"
@@ -108,6 +112,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentPa
 
 def run(args: argparse.Namespace) -> None:
     """Execute the output-inspection command."""
+
+    parser = args._parser
+    require_nonnegative_finite(parser, args.potential_softening, "--potential-softening")
+    require_finite(parser, args.view_elev, "--view-elev")
+    require_finite(parser, args.view_azim, "--view-azim")
+    if args.periodic2_repeat < 0:
+        parser.error("--periodic2-repeat must be >= 0.")
 
     self_term = args.potential_self_term.replace("-", "_")
     reference_point = "species1_injection_center"

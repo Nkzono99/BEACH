@@ -930,13 +930,25 @@ def _require_box_size(
 def _coerce_numeric_sequence(value: object, *, length: int, name: str) -> list[float]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != length:
         raise ConfigError(f"high-level config error: {name} must be a {length}-element numeric array.")
-    return [float(value[index]) for index in range(length)]
+    out: list[float] = []
+    for index in range(length):
+        item = value[index]
+        if not isinstance(item, (int, float)) or isinstance(item, bool):
+            raise ConfigError(f"high-level config error: {name} must contain only numeric values.")
+        numeric = float(item)
+        if not math.isfinite(numeric):
+            raise ConfigError(f"high-level config error: {name} must contain only finite values.")
+        out.append(numeric)
+    return out
 
 
 def _coerce_numeric_scalar(value: object, *, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ConfigError(f"high-level config error: {name} must be numeric.")
-    return float(value)
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ConfigError(f"high-level config error: {name} must be finite.")
+    return numeric
 
 
 def validate_rendered_config(config: Mapping[str, Any]) -> None:
@@ -2100,7 +2112,12 @@ def _template_scalar(
         raise RenderValidationError(
             f"BEACH constraint error: mesh.templates[{index}].{key} must be numeric."
         )
-    return float(raw)
+    value = float(raw)
+    if not math.isfinite(value):
+        raise RenderValidationError(
+            f"BEACH constraint error: mesh.templates[{index}].{key} must be finite."
+        )
+    return value
 
 
 def _maybe_vec3(value: object, *, name: str) -> list[float] | None:
@@ -2108,7 +2125,19 @@ def _maybe_vec3(value: object, *, name: str) -> list[float] | None:
         return None
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 3:
         raise RenderValidationError(f"BEACH constraint error: {name} must be a 3-element array.")
-    return [float(value[0]), float(value[1]), float(value[2])]
+    out: list[float] = []
+    for item in value:
+        if not isinstance(item, (int, float)) or isinstance(item, bool):
+            raise RenderValidationError(
+                f"BEACH constraint error: {name} must contain only numeric values."
+            )
+        numeric = float(item)
+        if not math.isfinite(numeric):
+            raise RenderValidationError(
+                f"BEACH constraint error: {name} must contain only finite values."
+            )
+        out.append(numeric)
+    return out
 
 
 def _normalize_preset_section(section: str) -> str:

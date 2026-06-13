@@ -120,7 +120,7 @@ program test_mpi_hybrid
   call mpi_world_barrier(mpi)
 
   allocate (state%macro_residual(1))
-  state%macro_residual(1) = 0.25d0 + real(mpi%rank, dp)
+  state%macro_residual(1) = 0.25d0 + 0.01d0*real(mpi%rank, dp)
   call write_rng_state_file(out_dir, mpi=mpi)
   call write_macro_residuals_file(out_dir, state, mpi=mpi)
   call mpi_world_barrier(mpi)
@@ -133,7 +133,7 @@ program test_mpi_hybrid
   call assert_equal_i64(stats_restart%processed_particles, 8_i64, 'mpi restart processed_particles mismatch')
   call assert_equal_i32(stats_restart%batches, 2_i32, 'mpi restart batches mismatch')
   call assert_close_dp(mesh_restart%q_elem(1), 2.0d0, 1.0d-12, 'mpi restart charge mismatch')
-  call assert_close_dp(state_restart%macro_residual(1), 0.25d0 + real(mpi%rank, dp), 1.0d-12, 'mpi residual mismatch')
+  call assert_close_dp(state_restart%macro_residual(1), 0.25d0 + 0.01d0*real(mpi%rank, dp), 1.0d-12, 'mpi residual mismatch')
   call test_end()
 
   call delete_file_if_exists(rng_path)

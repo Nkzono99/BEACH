@@ -18,13 +18,14 @@ contains
     real(dp), intent(out) :: e(3)
 
     integer(i32) :: i
-    real(dp) :: soft2, r2, inv_r3, ex, ey, ez
+    real(dp) :: soft2, r2, inv_r3, ex, ey, ez, min_dist2
     real(dp) :: rx, ry, rz, dx, dy, dz, qi
 
     ex = 0.0d0
     ey = 0.0d0
     ez = 0.0d0
     soft2 = softening*softening
+    min_dist2 = tiny(1.0d0)
     rx = r(1)
     ry = r(2)
     rz = r(3)
@@ -35,6 +36,7 @@ contains
       dy = ry - mesh%center_y(i)
       dz = rz - mesh%center_z(i)
       r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) cycle
       inv_r3 = 1.0d0/(sqrt(r2)*r2)
       qi = mesh%q_elem(i)
       ex = ex + qi*inv_r3*dx
@@ -59,11 +61,12 @@ contains
     real(dp), intent(out) :: phi
 
     integer(i32) :: i
-    real(dp) :: soft2, r2, inv_r, phi_sum
+    real(dp) :: soft2, r2, inv_r, phi_sum, min_dist2
     real(dp) :: rx, ry, rz, dx, dy, dz
 
     phi_sum = 0.0d0
     soft2 = softening*softening
+    min_dist2 = tiny(1.0d0)
     rx = r(1)
     ry = r(2)
     rz = r(3)
@@ -74,6 +77,7 @@ contains
       dy = ry - mesh%center_y(i)
       dz = rz - mesh%center_z(i)
       r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) cycle
       inv_r = 1.0d0/sqrt(r2)
       phi_sum = phi_sum + mesh%q_elem(i)*inv_r
     end do

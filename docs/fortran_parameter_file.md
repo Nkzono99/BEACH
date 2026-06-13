@@ -395,6 +395,9 @@ MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイル
 - `output.dir` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
 - `macro_residuals.csv` は存在すれば読み込みます
 
+必須 checkpoint が存在しない場合、`resume = true` は新規実行にフォールバックせず停止します。
+読み込み時には `summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差が有限で基本範囲内にあることを検証します。
+
 MPI実行での追加要件:
 
 - `summary.txt` の `mpi_world_size` が現在のrank数と一致している必要があります

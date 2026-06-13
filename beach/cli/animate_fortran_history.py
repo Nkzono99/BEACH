@@ -8,7 +8,12 @@ from typing import Sequence
 
 from beach import Beach
 
-from ._shared import configure_entry_parser
+from ._shared import (
+    configure_entry_parser,
+    require_finite,
+    require_nonnegative_finite,
+    require_positive_finite,
+)
 
 COMMAND_NAME = "animate"
 LEGACY_COMMAND_NAME = "beach-animate-history"
@@ -112,6 +117,14 @@ def run(args: argparse.Namespace) -> None:
     """Execute the history-animation command."""
 
     parser = args._parser
+    require_positive_finite(parser, args.fps, "--fps")
+    require_positive_finite(parser, args.frame_stride, "--frame-stride")
+    require_positive_finite(parser, args.total_frames, "--total-frames")
+    require_nonnegative_finite(parser, args.potential_softening, "--potential-softening")
+    require_finite(parser, args.view_elev, "--view-elev")
+    require_finite(parser, args.view_azim, "--view-azim")
+    if args.periodic2_repeat < 0:
+        parser.error("--periodic2-repeat must be >= 0.")
     if args.total_frames is not None and args.frame_stride != 1:
         parser.error("--frame-stride and --total-frames cannot be used together.")
 
