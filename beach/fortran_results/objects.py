@@ -56,7 +56,7 @@ def resolve_object_specs(
         config_path=config_path,
     )
     if config_specs is not None:
-        return config_specs
+        return _with_mesh_source_materials(config_specs, result.mesh_sources)
 
     if result.mesh_sources is not None:
         kinds = [
@@ -152,6 +152,31 @@ def _labels_from_kinds(kinds: Iterable[str]) -> list[str]:
         else:
             labels.append(f"{kind}{seen[kind]}")
     return labels
+
+
+def _with_mesh_source_materials(
+    specs: list[ResolvedObjectSpec],
+    mesh_sources: Mapping[int, MeshSource] | None,
+) -> list[ResolvedObjectSpec]:
+    if mesh_sources is None:
+        return specs
+    resolved: list[ResolvedObjectSpec] = []
+    for spec in specs:
+        source = mesh_sources.get(spec.mesh_id)
+        if source is None:
+            resolved.append(spec)
+            continue
+        resolved.append(
+            ResolvedObjectSpec(
+                mesh_id=spec.mesh_id,
+                kind=spec.kind,
+                label=spec.label,
+                surface_model=_surface_model_from_source(source),
+                epsilon_r=_epsilon_r_from_source(source),
+                template=spec.template,
+            )
+        )
+    return resolved
 
 
 def _mesh_kind_from_source(source: MeshSource | None) -> str:

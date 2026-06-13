@@ -29,6 +29,7 @@ from beach.fortran_results.mesh import (
     _wrap_periodic2_triangles_by_centroid,
     _wrap_periodic2_triangles_by_mesh_centroid,
 )
+from beach.fortran_results.objects import resolve_object_specs
 from beach.fortran_results.potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
@@ -306,6 +307,19 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     np.testing.assert_array_equal(result.history.processed_particles_by_batch, np.array([5, 10]))
     np.testing.assert_allclose(result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
+
+
+def test_resolve_object_specs_prefers_mesh_source_materials(tmp_path: Path) -> None:
+    out = tmp_path / "run_materials"
+    out.mkdir()
+    _write_mobility_fixture(out)
+
+    result = load_fortran_result(out)
+    specs = resolve_object_specs(result, config_path=out / "beach.toml")
+
+    assert [spec.kind for spec in specs] == ["plane", "sphere"]
+    assert [spec.surface_model for spec in specs] == ["insulator", "conductor"]
+    assert [spec.epsilon_r for spec in specs] == [1.0, 2.5]
 
 
 def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> None:

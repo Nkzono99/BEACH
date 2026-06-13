@@ -314,7 +314,7 @@ history_stride = 1
 | `obj_offset` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する平行移動 [m] |
 
 `mode = "auto"` のときは `obj_path` が存在すれば OBJ、なければ template を使います。
-`surface_model` は OBJ 入力時の単一メッシュに適用されます。テンプレート入力では `[[mesh.templates]]` ごとの `surface_model` を使います。
+`surface_model` は OBJ 入力時の単一メッシュに適用されます。OBJ 入力はファイル全体を `mesh_id = 1` として読むため、1つの OBJ 内の離れた `conductor` 部品も同じ浮遊導体として扱われます。独立導体として扱いたい場合はテンプレート入力などで mesh_id を分けてください。テンプレート入力では `[[mesh.templates]]` ごとの `surface_model` を使います。
 
 OBJ メッシュの変換順序は **scale → rotate → offset** です: `v_new = R(rotation) * (v_old * scale) + offset`。
 CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` のいずれの形式にも対応し、四角形以上のポリゴンはファン三角形分割されます。
@@ -345,10 +345,11 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 - `conductor` は mesh_id ごとの浮遊導体として、バッチごとに総電荷を保存しながら
   等電位になるよう要素電荷を再配分します。
   現時点では `field_bc_mode = "free"` の直接Coulomb係数で再配分します。
+  `field_bc_mode = "periodic2"` とは併用できません。
   conductor 要素全体に対する dense solve のため、導体要素数が大きいケースでは
   バッチごとの追加コストが増えます。
 - `dielectric` は object ごとの物性を保持するための設定・出力メタデータで、
-  `epsilon_r` を保存します。誘電体分極の物理分岐は今後の拡張点です。
+  `epsilon_r` を保存します。現行の電場計算・電荷蓄積では `epsilon_r` による誘電体分極や境界条件の分岐はまだ行いません。誘電体分極の物理分岐は今後の拡張点です。
 
 ### 3.5 `[output]`
 

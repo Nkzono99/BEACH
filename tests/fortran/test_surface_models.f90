@@ -8,7 +8,7 @@ program test_surface_models
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
   implicit none
 
-  call test_init(3)
+  call test_init(4)
 
   call test_begin('isolated_conductor_equalizes_symmetric_charge')
   call test_isolated_conductor_equalizes_symmetric_charge()
@@ -20,6 +20,10 @@ program test_surface_models
 
   call test_begin('uniform_field_induces_conductor_dipole')
   call test_uniform_field_induces_conductor_dipole()
+  call test_end()
+
+  call test_begin('multiple_mesh_id_conductors_conserve_charge_independently')
+  call test_multiple_mesh_id_conductors_conserve_charge_independently()
   call test_end()
 
   call test_summary()
@@ -90,6 +94,29 @@ contains
     call assert_true(mesh%q_elem(1) < 0.0d0, 'left side should become negative for +x external field')
     call assert_true(mesh%q_elem(2) > 0.0d0, 'right side should become positive for +x external field')
   end subroutine test_uniform_field_induces_conductor_dipole
+
+  subroutine test_multiple_mesh_id_conductors_conserve_charge_independently()
+    type(mesh_type) :: mesh
+    real(dp) :: centers(3, 4), q0(4)
+    integer(i32) :: mesh_ids(4), surface_models(4)
+
+    centers(:, 1) = [0.0d0, 0.0d0, 0.0d0]
+    centers(:, 2) = [1.0d0, 0.0d0, 0.0d0]
+    centers(:, 3) = [4.0d0, 0.0d0, 0.0d0]
+    centers(:, 4) = [5.0d0, 0.0d0, 0.0d0]
+    q0 = [2.0d-12, 0.0d0, 4.0d-12, 0.0d0]
+    mesh_ids = [1_i32, 1_i32, 2_i32, 2_i32]
+    surface_models = [surface_model_conductor, surface_model_conductor, &
+                      surface_model_conductor, surface_model_conductor]
+    call init_test_mesh(mesh, centers, q0, mesh_ids, surface_models)
+
+    call apply_surface_model_charge_relaxation(mesh, 0.2d0, [0.0d0, 0.0d0, 0.0d0])
+
+    call assert_close_dp(sum(mesh%q_elem(1:2)), 2.0d-12, 1.0d-23, &
+                         'first conductor mesh_id total charge mismatch')
+    call assert_close_dp(sum(mesh%q_elem(3:4)), 4.0d-12, 1.0d-23, &
+                         'second conductor mesh_id total charge mismatch')
+  end subroutine test_multiple_mesh_id_conductors_conserve_charge_independently
 
   subroutine init_test_mesh(mesh, centers, q0, mesh_ids, surface_models)
     type(mesh_type), intent(out) :: mesh

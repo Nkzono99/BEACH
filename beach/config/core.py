@@ -960,6 +960,8 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
     mesh = _require_table(final_config, "mesh", context="rendered config")
     _require_table(final_config, "output", context="rendered config")
     _validate_rendered_external_e_field(sim)
+    _validate_nonnegative_finite_number(sim.get("softening", 1.0e-6), name="sim.softening")
+    _validate_rendered_mesh(mesh)
 
     species = particles.get("species")
     if not isinstance(species, list) or len(species) == 0 or not all(
@@ -974,6 +976,15 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
 
     field_bc_mode = sim.get("field_bc_mode", "free")
     field_solver = sim.get("field_solver", "auto")
+    if field_solver not in {"direct", "treecode", "fmm", "auto"}:
+        raise RenderValidationError(
+            'BEACH constraint error: sim.field_solver must be "direct", "treecode", '
+            '"fmm", or "auto".'
+        )
+    if field_bc_mode not in {"free", "periodic2"}:
+        raise RenderValidationError(
+            'BEACH constraint error: sim.field_bc_mode must be "free" or "periodic2".'
+        )
     if field_bc_mode == "periodic2":
         if field_solver != "fmm":
             raise RenderValidationError(
@@ -989,6 +1000,11 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                 "BEACH constraint error: field_bc_mode=\"periodic2\" requires exactly "
                 "two periodic axes."
             )
+    if field_bc_mode != "free" and _mesh_has_surface_model(mesh, "conductor"):
+        raise RenderValidationError(
+            'BEACH constraint error: surface_model="conductor" currently requires '
+            'sim.field_bc_mode="free".'
+        )
 
     box_min = _maybe_vec3(sim.get("box_min"), name="sim.box_min")
     box_max = _maybe_vec3(sim.get("box_max"), name="sim.box_max")
@@ -1161,8 +1177,6 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
         raise RenderValidationError(
             "BEACH constraint error: volume_seed species require total npcls_per_step >= 1."
         )
-
-    _validate_rendered_mesh(mesh)
 
 
 def render_beach_toml(
@@ -1893,6 +1907,11 @@ def _require_table(
 
 
 def _validate_rendered_mesh(mesh: Mapping[str, Any]) -> None:
+    mode = mesh.get("mode", "auto")
+    if not isinstance(mode, str) or mode not in {"auto", "obj", "template"}:
+        raise RenderValidationError(
+            'BEACH constraint error: mesh.mode must be "auto", "obj", or "template".'
+        )
     _validate_surface_model(
         mesh.get("surface_model", "insulator"),
         name="mesh.surface_model",
@@ -1995,10 +2014,39 @@ def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> N
 def _validate_surface_model(value: object, *, name: str) -> None:
     if not isinstance(value, str):
         raise RenderValidationError(f"BEACH constraint error: {name} must be a string.")
-    if value.strip().lower() not in {"insulator", "conductor", "dielectric"}:
+    if value not in {"insulator", "conductor", "dielectric"}:
         raise RenderValidationError(
             f'BEACH constraint error: {name} must be "insulator", "conductor", or "dielectric".'
         )
+
+
+def _mesh_has_surface_model(mesh: Mapping[str, Any], target: str) -> bool:
+    mode = str(mesh.get("mode", "auto")).strip().lower()
+    if mode != "template" and mesh.get("surface_model", "insulator") == target:
+        return True
+    if mode == "obj":
+        return False
+    templates = mesh.get("templates")
+    if not isinstance(templates, list):
+        return False
+    for template in templates:
+        if not isinstance(template, Mapping):
+            continue
+        if not bool(template.get("enabled", True)):
+            continue
+        if template.get("surface_model", "insulator") == target:
+            return True
+    return False
+
+
+def _validate_nonnegative_finite_number(value: object, *, name: str) -> None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise RenderValidationError(f"BEACH constraint error: {name} must be numeric.")
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise RenderValidationError(f"BEACH constraint error: {name} must be finite.")
+    if numeric < 0.0:
+        raise RenderValidationError(f"BEACH constraint error: {name} must be >= 0.")
 
 
 def _validate_epsilon_r(value: object, *, name: str) -> None:

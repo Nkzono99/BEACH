@@ -219,10 +219,20 @@ contains
     close (u)
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
+    if (.not. ieee_is_finite(cfg%sim%softening) .or. cfg%sim%softening < 0.0d0) then
+      error stop 'sim.softening must be finite and >= 0.'
+    end if
     if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
     if (t_idx > 0) cfg%n_templates = int(t_idx, i32)
 
     cfg%n_particle_species = int(s_idx, i32)
+    cfg%mesh_mode = lower_ascii(trim(cfg%mesh_mode))
+    select case (trim(cfg%mesh_mode))
+    case ('auto', 'obj', 'template')
+      continue
+    case default
+      error stop 'mesh.mode must be "auto", "obj", or "template".'
+    end select
     cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
     select case (trim(cfg%mesh_surface_model))
     case ('insulator', 'conductor', 'dielectric')
@@ -230,7 +240,9 @@ contains
     case default
       error stop 'mesh.surface_model must be "insulator", "conductor", or "dielectric".'
     end select
-    if (cfg%mesh_epsilon_r < 1.0d0) error stop 'mesh.epsilon_r must be >= 1.'
+    if (.not. ieee_is_finite(cfg%mesh_epsilon_r) .or. cfg%mesh_epsilon_r < 1.0d0) then
+      error stop 'mesh.epsilon_r must be finite and >= 1.'
+    end if
     do i = 1, cfg%n_templates
       cfg%templates(i)%surface_model = lower_ascii(trim(cfg%templates(i)%surface_model))
       select case (trim(cfg%templates(i)%surface_model))
@@ -239,7 +251,9 @@ contains
       case default
         error stop 'mesh.templates.surface_model must be "insulator", "conductor", or "dielectric".'
       end select
-      if (cfg%templates(i)%epsilon_r < 1.0d0) error stop 'mesh.templates.epsilon_r must be >= 1.'
+      if (.not. ieee_is_finite(cfg%templates(i)%epsilon_r) .or. cfg%templates(i)%epsilon_r < 1.0d0) then
+        error stop 'mesh.templates.epsilon_r must be finite and >= 1.'
+      end if
     end do
     cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
     select case (trim(cfg%sim%field_solver))
@@ -324,6 +338,9 @@ contains
         end if
       end if
     end select
+    if (trim(cfg%sim%field_bc_mode) /= 'free' .and. config_uses_conductor_surface_model(cfg)) then
+      error stop 'surface_model="conductor" currently requires sim.field_bc_mode="free".'
+    end if
     if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0d0 .or. cfg%sim%tree_theta > 1.0d0) then
       error stop 'sim.tree_theta must be finite and satisfy 0 < theta <= 1.'
     end if
@@ -838,5 +855,34 @@ contains
       error stop 'Unknown key in [output]: '//trim(k)
     end select
   end subroutine apply_output_kv
+
+  !> 現在のメッシュ入力設定が conductor 表面を生成し得るかを返す。
+  logical function config_uses_conductor_surface_model(cfg) result(uses_conductor)
+    type(app_config), intent(in) :: cfg
+    character(len=16) :: mode
+    logical :: has_obj
+    integer :: i
+
+    uses_conductor = .false.
+    mode = trim(cfg%mesh_mode)
+    select case (mode)
+    case ('obj')
+      uses_conductor = trim(cfg%mesh_surface_model) == 'conductor'
+      return
+    case ('auto')
+      inquire (file=trim(cfg%obj_path), exist=has_obj)
+      if (has_obj) then
+        uses_conductor = trim(cfg%mesh_surface_model) == 'conductor'
+        return
+      end if
+    end select
+    do i = 1, cfg%n_templates
+      if (.not. cfg%templates(i)%enabled) cycle
+      if (trim(cfg%templates(i)%surface_model) == 'conductor') then
+        uses_conductor = .true.
+        return
+      end if
+    end do
+  end function config_uses_conductor_surface_model
 
 end module bem_app_config_parser

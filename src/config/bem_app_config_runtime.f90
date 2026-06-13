@@ -146,7 +146,7 @@ contains
     type(mesh_type), intent(inout) :: mesh
     real(dp), intent(in) :: epsilon_r
 
-    if (epsilon_r < 1.0d0) error stop 'epsilon_r must be >= 1.'
+    if (.not. ieee_is_finite(epsilon_r) .or. epsilon_r < 1.0d0) error stop 'epsilon_r must be finite and >= 1.'
     if (.not. allocated(mesh%elem_epsilon_r)) return
     mesh%elem_epsilon_r = epsilon_r
   end subroutine apply_uniform_epsilon_r

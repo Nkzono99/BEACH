@@ -253,7 +253,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 
 共通: `enabled` (bool), `kind` (enum), `surface_model` (enum), `epsilon_r` (float), `center` (float[3])
 
-`conductor` は mesh_id ごとの浮遊導体として等電位再配分されます。`dielectric` は現行では object ごとの `epsilon_r` を保持するメタデータで、誘電体分極の物理分岐は今後の拡張点です。
+`conductor` は mesh_id ごとの浮遊導体として等電位再配分されます。現行実装では `sim.field_bc_mode = "free"` のみ対応します。OBJ 入力はファイル全体を `mesh_id = 1` として読むため、1つの OBJ 内の離れた conductor 部品も同じ浮遊導体として扱われます。独立導体として扱う場合はテンプレート入力などで mesh_id を分けてください。`dielectric` は現行では object ごとの `epsilon_r` を保持するメタデータで、誘電体分極の物理分岐は今後の拡張点です。
 
 | kind | 主要パラメータ |
 |------|---------------|
@@ -288,7 +288,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 |----------|------|------|
 | `summary.txt` | テキスト (Key-Value) | 実行メタデータ・統計情報 |
 | `charges.csv` | CSV: `elem_idx, charge_C` | 最終要素電荷 |
-| `mesh_triangles.csv` | CSV: `elem_idx, vertex_i, vertex_j, vertex_k, center_x, center_y, center_z, mesh_id` | 三角形メッシュ接続性 |
+| `mesh_triangles.csv` | CSV: `elem_idx, v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z, charge_C, mesh_id` | 三角形頂点・電荷・mesh_id |
 | `mesh_sources.csv` | CSV: `mesh_id, source_kind, template_kind, surface_model, epsilon_r, elem_count` | メッシュソースメタデータ |
 | `rng_state.txt` | テキスト | 乱数状態 (リジューム用) |
 

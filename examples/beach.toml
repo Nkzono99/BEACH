@@ -128,6 +128,7 @@ ny = 4
 center = [0.32, 0.30, 0.30]
 
 # 3) 円柱（床に接地：center_z = z_floor + height/2）
+# dielectric は現行では epsilon_r を出力メタデータとして保持するのみ
 [[mesh.templates]]
 kind = "cylinder"
 enabled = true

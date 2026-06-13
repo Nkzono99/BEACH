@@ -513,6 +513,39 @@ npcls_per_step = 1
         render_case_file(case_path)
 
 
+def test_render_case_file_rejects_noncanonical_mesh_surface_model(tmp_path: Path) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+
+[override.mesh]
+mode = "obj"
+obj_path = "examples/simple_plate.obj"
+surface_model = "Conductor"
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match="mesh.surface_model"):
+        render_case_file(case_path)
+
+
 def test_render_case_file_rejects_invalid_epsilon_r(tmp_path: Path) -> None:
     case_path = tmp_path / "case.toml"
     case_path.write_text(
@@ -582,6 +615,92 @@ npcls_per_step = 1
     )
 
     with pytest.raises(RenderValidationError, match=r"mesh\.epsilon_r"):
+        render_case_file(case_path)
+
+
+def test_render_case_file_rejects_negative_softening(tmp_path: Path) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = -1.0e-6
+
+[override.mesh]
+mode = "template"
+
+[[override.mesh.templates]]
+kind = "plane"
+size_x = 1.0
+size_y = 1.0
+center = [0.0, 0.0, 0.0]
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match=r"sim\.softening"):
+        render_case_file(case_path)
+
+
+def test_render_case_file_rejects_conductor_with_periodic2(tmp_path: Path) -> None:
+    case_path = tmp_path / "case.toml"
+    case_path.write_text(
+        """
+schema_version = 1
+use_presets = ["output/standard"]
+
+[override.sim]
+dt = 2.0e-8
+batch_duration_step = 1.0
+batch_count = 1
+max_step = 10
+softening = 1.0e-6
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+
+[override.mesh]
+mode = "template"
+
+[[override.mesh.templates]]
+kind = "plane"
+surface_model = "conductor"
+size_x = 1.0
+size_y = 1.0
+center = [0.0, 0.0, 0.0]
+
+[[override.particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match='surface_model="conductor"'):
         render_case_file(case_path)
 
 

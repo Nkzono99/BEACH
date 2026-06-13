@@ -3,6 +3,7 @@ module bem_mesh
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
   use bem_string_utils, only: lower_ascii
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 contains
 
@@ -63,7 +64,9 @@ contains
     end if
     if (present(elem_epsilon_r0)) then
       if (size(elem_epsilon_r0) /= n) error stop "elem_epsilon_r0 size mismatch"
-      if (any(elem_epsilon_r0 < 1.0d0)) error stop "elem_epsilon_r0 must be >= 1"
+      if (any(.not. ieee_is_finite(elem_epsilon_r0)) .or. any(elem_epsilon_r0 < 1.0d0)) then
+        error stop "elem_epsilon_r0 must be finite and >= 1"
+      end if
       mesh%elem_epsilon_r = elem_epsilon_r0
     else
       mesh%elem_epsilon_r = 1.0d0
