@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `beachx lint <beach.toml>` for TOML parsing, packaged JSON Schema validation, high-level config rendering, and semantic BEACH config checks
+
 ### Removed
 - **BREAKING**: Removed the preset/case config layer, including `beachx preset`, `case.toml`, preset package data, and case/preset schemas
 

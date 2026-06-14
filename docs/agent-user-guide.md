@@ -101,7 +101,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 ### 設定ワークフロー
 
 1. **beach.toml**: 通常の編集対象で、Fortran 実行ファイルが直接読む設定
-2. **beachx config validate**: 高水準記法と既知制約を検証
+2. **beachx lint**: TOML parse、JSON Schema、高水準記法、既知制約を検証
 3. **beachx config render**: 高水準記法を `box_min` / `box_max` / `center` などの最終キーへ展開
 
 ### [sim] セクション — シミュレーション基本
@@ -299,9 +299,10 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 ### config — 設定管理
 
 ```bash
+beachx lint [beach.toml]                           # schema と意味制約をまとめて検査
 beachx config init [beach.toml]                    # beach.toml を新規作成
 beachx config render [beach.toml]                  # 高水準記法を最終キーへレンダリング
-beachx config validate [beach.toml]                # バリデーション
+beachx config validate [beach.toml]                # 高水準記法と意味制約の検証
 beachx config diff left.toml right.toml            # 設定比較
 ```
 
@@ -423,7 +424,7 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 - `sim.box_origin` + `sim.box_size` -> `sim.box_min` / `sim.box_max`
 - `inject_region_mode = "face_fraction"` + `uv_low` / `uv_high` -> `pos_low` / `pos_high`
 - `mesh.templates` の `placement_mode = "box_anchor"` -> `center`
-- `mesh.groups.*` の `scale_from` / `origin_mode` -> template ごとの実寸・実座標
+- `mesh.groups.*` の `scale_from` / `placement_mode` -> template ごとの実寸・実座標
 
 `schema_version`、`use_presets`、`override`、`base_case` は現行の direct `beach.toml` では使わない。
 

@@ -516,6 +516,7 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beachx coulomb <output_dir>` | Coulomb 力行列の描画 |
 | `beachx mobility <output_dir>` | Coulomb mobility 解析 |
 | `beachx kernel-forces <output_dir>` | Fortran field kernel による object 別合力 CSV 出力 |
+| `beachx lint <config.toml>` | TOML / JSON Schema / BEACH 制約の設定検査 |
 | `beachx config render <config.toml>` | 高水準記法を最終 `beach.toml` キーへ展開 |
 | `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
 | `beachx model close-pack` | 密充填モデルの生成 |

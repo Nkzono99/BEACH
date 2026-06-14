@@ -6,7 +6,7 @@
 mkdir run_periodic2
 cd run_periodic2
 beachx config init
-beachx config validate
+beachx lint beach.toml
 beachx config render
 beach beach.toml
 ```

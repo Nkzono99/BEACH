@@ -16,7 +16,7 @@ Configuration entry points:
 
 - Usually edit `beach.toml` directly, then use `beachx config render` when high-level notation needs to be expanded.
 - The Fortran runtime reads `beach.toml`.
-- `beachx config validate` performs pre-run checks including high-level notation and known constraints.
+- `beachx lint beach.toml` performs pre-run checks including TOML parsing, JSON Schema, high-level notation, and known constraints.
 - The final key specification is `references/fortran_parameter_file.md`.
 
 Primary outputs:

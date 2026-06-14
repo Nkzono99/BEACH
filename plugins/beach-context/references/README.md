@@ -67,7 +67,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ### 2.0 `beach.toml` を作成・検証する
 
-`beachx config` を使うと、実行用 `beach.toml` のひな形作成、検証、高水準記法の展開ができます。
+`beachx config` を使うと、実行用 `beach.toml` のひな形作成と高水準記法の展開ができます。
+実行前の検査には `beachx lint beach.toml` を使います。
 日常的な編集対象も Fortran 実行系が読むファイルも `beach.toml` です。
 
 詳しい使い方は次を参照してください。
@@ -80,7 +81,7 @@ mkdir run_periodic2
 cd run_periodic2
 
 beachx config init
-beachx config validate
+beachx lint beach.toml
 beachx config render
 beach beach.toml
 ```

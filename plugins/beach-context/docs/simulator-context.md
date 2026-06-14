@@ -16,7 +16,7 @@ BEACH は BEM による表面帯電とテスト粒子追跡を組み合わせた
 
 - 普段は `beach.toml` を直接編集し、必要に応じて `beachx config render` で高水準記法を最終キーへ展開する。
 - Fortran 実行系が直接読むのは `beach.toml`。
-- `beachx config validate` は高水準記法と既知制約を含む事前検査。
+- `beachx lint beach.toml` は TOML parse、JSON Schema、高水準記法、既知制約を含む事前検査。
 - 最終キー仕様は `references/fortran_parameter_file.md`。
 
 主要な出力:

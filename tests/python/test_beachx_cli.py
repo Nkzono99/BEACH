@@ -11,6 +11,7 @@ from beach.cli import (
     estimate_fortran_workload,
     inspect_fortran_output,
     legacy,
+    lint,
     model_close_pack,
     plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
@@ -138,6 +139,7 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     assert "slices" in captured.out
     assert "workload" in captured.out
     assert "profile" in captured.out
+    assert "lint" in captured.out
     assert "config" in captured.out
     assert "model" in captured.out
 
@@ -189,6 +191,12 @@ def test_beachx_config_render_subparser_matches_parser_shape() -> None:
     assert _parser_signature(
         _get_nested_subparser("config", "render")
     ) == _parser_signature(config_subparsers.choices["render"])
+
+
+def test_beachx_lint_subparser_matches_parser_shape() -> None:
+    assert _parser_signature(_get_subparser("lint")) == _parser_signature(
+        lint.build_parser()
+    )
 
 
 def test_beachx_model_close_pack_missing_base_config_exits_with_friendly_message(

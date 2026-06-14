@@ -142,6 +142,69 @@ history_stride = 1
     assert template["size_y"] == pytest.approx(1.0)
 
 
+def _write_high_level_authoring_config(path: Path) -> None:
+    path.write_text(
+        """
+[sim]
+dt = 2.0e-8
+batch_duration_step = 10.0
+batch_count = 2
+max_step = 100
+softening = 1.0e-6
+use_box = true
+box_origin = [1.0, 2.0, 3.0]
+box_size = [2.0, 4.0, 6.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+rng_seed = 12345
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+
+[particles]
+[[particles.species]]
+source_mode = "reservoir_face"
+number_density_m3 = 1.0
+temperature_k = 0.0
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+w_particle = 1.0
+inject_face = "z_high"
+inject_region_mode = "face_fraction"
+uv_low = [0.25, 0.5]
+uv_high = [0.75, 1.0]
+drift_velocity = [0.0, 0.0, -1.0]
+
+[mesh]
+mode = "template"
+
+[mesh.groups.cavity_unit]
+placement_mode = "box_anchor"
+anchor = "box_center"
+scale_from = "box_x"
+scale_factor = 0.5
+
+[[mesh.templates]]
+group = "cavity_unit"
+kind = "sphere"
+radius = 0.2
+n_lon = 8
+n_lat = 4
+center_local = [0.0, 0.0, 0.0]
+
+[output]
+write_files = true
+dir = "outputs/latest"
+history_stride = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_load_config_file_rejects_legacy_composition_keys(tmp_path: Path) -> None:
     config_path = tmp_path / "legacy_composition.toml"
     config_path.write_text(
@@ -212,3 +275,82 @@ def test_config_cli_init_render_validate_and_diff(
     beachx_main(["config", "diff", "beach.toml", str(modified)])
     diff_streams = capsys.readouterr()
     assert "sim.batch_count: 100 -> 101" in diff_streams.out
+
+
+def test_lint_cli_accepts_valid_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "beach.toml"
+    _write_base_config(config_path)
+
+    beachx_main(["lint", str(config_path)])
+    streams = capsys.readouterr()
+
+    assert f"config={config_path}" in streams.out
+    assert "schema=package:beach.config/schemas/beach.schema.json" in streams.out
+    assert "checks=toml,schema,semantic" in streams.out
+    assert "status=ok" in streams.out
+
+
+def test_lint_cli_accepts_high_level_authoring_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "beach.toml"
+    _write_high_level_authoring_config(config_path)
+
+    beachx_main(["lint", str(config_path)])
+    streams = capsys.readouterr()
+
+    assert "checks=toml,schema,semantic" in streams.out
+    assert "status=ok" in streams.out
+
+
+def test_lint_cli_reports_authoring_schema_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "beach.toml"
+    _write_high_level_authoring_config(config_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace("scale_factor", "scale_factorr"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["lint", str(config_path)])
+
+    message = str(excinfo.value)
+    assert "schema validation failed" in message
+    assert "schema phase=authoring" in message
+    assert "schema error at mesh.groups.cavity_unit" in message
+
+
+def test_lint_cli_reports_schema_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "beach.toml"
+    _write_base_config(config_path)
+    text = config_path.read_text(encoding="utf-8").replace(
+        "write_files = true",
+        'write_files = "yes"',
+    )
+    config_path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["lint", str(config_path)])
+
+    message = str(excinfo.value)
+    assert "schema validation failed" in message
+    assert "schema error at output.write_files" in message
+
+
+def test_lint_cli_reports_semantic_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "beach.toml"
+    _write_base_config(config_path)
+    text = config_path.read_text(encoding="utf-8").replace(
+        "center = [0.5, 0.5, 0.0]",
+        'center = [0.5, 0.5, 0.0]\nsurface_model = "conductor"',
+    )
+    config_path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["lint", str(config_path)])
+
+    assert 'surface_model="conductor"' in str(excinfo.value)

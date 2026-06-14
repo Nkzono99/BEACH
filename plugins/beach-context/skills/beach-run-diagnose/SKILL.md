@@ -33,7 +33,7 @@ Prefer:
    - resume/continuation
 2. Extract the first meaningful error. Later MPI/fpm/Python errors are often downstream.
 3. Map symptoms to BEACH facts:
-   - `beachx config validate` checks direct `beach.toml` files.
+   - `beachx lint beach.toml` checks direct `beach.toml` files with schema and semantic validation.
    - The Fortran runtime reads `beach.toml`.
    - Unknown TOML sections/keys are runtime parser errors.
    - `tol_rel` is not an early-stop condition.

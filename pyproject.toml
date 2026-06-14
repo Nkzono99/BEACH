@@ -10,6 +10,7 @@ readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
 dependencies = [
+    "jsonschema>=4.0",
     "matplotlib>=3.8",
     "numpy>=1.24",
     "tomli>=2.0.1; python_version < '3.11'",
@@ -31,6 +32,9 @@ beach-plot-performance-profile = "beach.cli.legacy:profile_main"
 
 [tool.setuptools]
 packages = ["beach", "beach.fortran_results", "beach.cli", "beach.config"]
+
+[tool.setuptools.package-data]
+"beach.config" = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

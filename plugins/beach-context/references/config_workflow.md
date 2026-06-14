@@ -17,7 +17,7 @@ cd run_periodic2
 
 beachx config init
 $EDITOR beach.toml
-beachx config validate
+beachx lint beach.toml
 beachx config render
 beach beach.toml
 ```
@@ -43,16 +43,26 @@ beachx config init --force
 
 初期値は、周期 2 軸 FMM、volume seed の電子・イオン、平面メッシュ、標準出力設定を含む小さな確認用設定です。
 
-### 2.2 `validate`
+### 2.2 `lint`
+
+TOML parse、JSON Schema、高水準記法、BEACH の既知制約をまとめて検証します。
+
+```bash
+beachx lint beach.toml
+beachx lint run.toml --schema schemas/beach.schema.json
+```
+
+### 2.3 `validate`
 
 `beach.toml` を読み、高水準記法の整合性と最終設定の既知制約を検証します。
+JSON Schema も含めて確認したい場合は `beachx lint` を使います。
 
 ```bash
 beachx config validate
 beachx config validate run.toml
 ```
 
-### 2.3 `render`
+### 2.4 `render`
 
 高水準記法を Fortran 実行系が読む最終キーに展開します。
 
@@ -61,7 +71,7 @@ beachx config render
 beachx config render run.toml --output rendered/beach.toml
 ```
 
-### 2.4 `diff`
+### 2.5 `diff`
 
 2 つの設定を意味的に比較します。既定では高水準記法を展開してから比較します。
 
@@ -133,10 +143,10 @@ render 後は `size_x` / `size_y` / `center` などへ展開されます。
 
 ```toml
 [mesh.groups.cavity_unit]
-origin_mode = "box_anchor"
+placement_mode = "box_anchor"
 anchor = "box_center"
 scale_from = "box_x"
-scale = 0.5
+scale_factor = 0.5
 
 [[mesh.templates]]
 group = "cavity_unit"

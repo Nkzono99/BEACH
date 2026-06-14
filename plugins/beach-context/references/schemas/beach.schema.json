@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "BEACH Parameter File",
-  "description": "Schema for BEACH Fortran runtime parameter files (beach.toml). Use with TOML-aware editors such as Even Better TOML / Taplo.",
+  "description": "Schema for BEACH beach.toml files, including direct Fortran runtime keys and beachx config render high-level authoring keys. Use with TOML-aware editors such as Even Better TOML / Taplo.",
   "type": "object",
   "properties": {
     "sim": {
@@ -111,6 +111,36 @@
       "minItems": 3,
       "maxItems": 3
     },
+    "vec2": {
+      "description": "2-component vector [u, v].",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "fractionVec2": {
+      "description": "2-component normalized range coordinate [u, v].",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "positiveVec2": {
+      "description": "2-component vector [x, y] with all positive values.",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
     "positiveVec3": {
       "description": "3-component vector [x, y, z] with all positive values.",
       "type": "array",
@@ -120,6 +150,55 @@
       },
       "minItems": 3,
       "maxItems": 3
+    },
+    "sizeFraction": {
+      "description": "Box-relative template size. Shape depends on template kind.",
+      "oneOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "$ref": "#/$defs/positiveVec2"
+        },
+        {
+          "$ref": "#/$defs/positiveVec3"
+        }
+      ]
+    },
+    "placementMode": {
+      "description": "High-level placement mode resolved by beachx config render.",
+      "type": "string",
+      "enum": [
+        "absolute",
+        "box_anchor"
+      ]
+    },
+    "boxAnchor": {
+      "description": "Anchor point inside sim.box_min/sim.box_max.",
+      "type": "string",
+      "enum": [
+        "box_center",
+        "x_low_face_center",
+        "x_high_face_center",
+        "y_low_face_center",
+        "y_high_face_center",
+        "z_low_face_center",
+        "z_high_face_center"
+      ]
+    },
+    "scaleReference": {
+      "description": "Box dimension used as a high-level mesh group scale reference.",
+      "type": "string",
+      "enum": [
+        "box_x",
+        "box_y",
+        "box_z",
+        "box_min_xy",
+        "box_max_xy",
+        "box_min_xyz",
+        "box_max_xyz"
+      ]
     },
     "boundaryMode": {
       "description": "Boundary condition mode: open/outflow/escape, reflect/reflection, or periodic.",
@@ -410,6 +489,14 @@
           ],
           "description": "Box upper bound [m]."
         },
+        "box_origin": {
+          "$ref": "#/$defs/vec3",
+          "description": "High-level box lower bound [m]. Resolved with box_size into box_min/box_max."
+        },
+        "box_size": {
+          "$ref": "#/$defs/positiveVec3",
+          "description": "High-level box dimensions [m]. Resolved with box_origin into box_min/box_max."
+        },
         "bc_x_low": {
           "$ref": "#/$defs/boundaryMode",
           "default": "open",
@@ -447,6 +534,46 @@
             "required": [
               "batch_duration",
               "batch_duration_step"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "box_origin",
+              "box_min"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "box_size",
+              "box_max"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "box_origin"
+            ]
+          },
+          "then": {
+            "required": [
+              "box_size"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "box_size"
+            ]
+          },
+          "then": {
+            "required": [
+              "box_origin"
             ]
           }
         },
@@ -931,6 +1058,23 @@
         "inject_face": {
           "$ref": "#/$defs/injectFace",
           "description": "Injection face. Required for reservoir_face and photo_raycast."
+        },
+        "inject_region_mode": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "face_fraction"
+          ],
+          "default": "absolute",
+          "description": "High-level injection-region mode. face_fraction resolves uv_low/uv_high into pos_low/pos_high."
+        },
+        "uv_low": {
+          "$ref": "#/$defs/fractionVec2",
+          "description": "Lower [u, v] range on inject_face for inject_region_mode=\"face_fraction\"."
+        },
+        "uv_high": {
+          "$ref": "#/$defs/fractionVec2",
+          "description": "Upper [u, v] range on inject_face for inject_region_mode=\"face_fraction\"."
         }
       },
       "allOf": [
@@ -940,6 +1084,127 @@
               "temperature_k",
               "temperature_ev"
             ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "inject_region_mode"
+                ]
+              },
+              {
+                "required": [
+                  "uv_low"
+                ]
+              },
+              {
+                "required": [
+                  "uv_high"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "source_mode"
+            ],
+            "properties": {
+              "source_mode": {
+                "enum": [
+                  "reservoir_face",
+                  "photo_raycast"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "uv_low"
+                ]
+              },
+              {
+                "required": [
+                  "uv_high"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "inject_region_mode"
+            ],
+            "properties": {
+              "inject_region_mode": {
+                "const": "face_fraction"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inject_region_mode": {
+                "const": "absolute"
+              }
+            },
+            "required": [
+              "inject_region_mode"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "uv_low"
+                  ]
+                },
+                {
+                  "required": [
+                    "uv_high"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inject_region_mode": {
+                "const": "face_fraction"
+              }
+            },
+            "required": [
+              "inject_region_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "inject_face",
+              "uv_low",
+              "uv_high"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "pos_low"
+                  ]
+                },
+                {
+                  "required": [
+                    "pos_high"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
@@ -1373,8 +1638,113 @@
             "$ref": "#/$defs/template"
           },
           "description": "List of procedural mesh templates."
+        },
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/meshGroup"
+          },
+          "description": "High-level named mesh groups that provide a common origin and scale for templates."
         }
       }
+    },
+    "meshGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "placement_mode": {
+          "$ref": "#/$defs/placementMode",
+          "default": "absolute",
+          "description": "High-level group origin mode."
+        },
+        "anchor": {
+          "$ref": "#/$defs/boxAnchor",
+          "description": "Box anchor used when placement_mode=\"box_anchor\"."
+        },
+        "offset": {
+          "$ref": "#/$defs/vec3",
+          "description": "Offset [m] added to the group origin."
+        },
+        "offset_frac": {
+          "$ref": "#/$defs/vec3",
+          "description": "Box-size-relative offset added to the group origin."
+        },
+        "scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Absolute group scale factor for local template coordinates and lengths."
+        },
+        "scale_from": {
+          "$ref": "#/$defs/scaleReference",
+          "description": "Box dimension used with scale_factor to compute group scale."
+        },
+        "scale_factor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Multiplier applied to scale_from."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "placement_mode": {
+                "const": "box_anchor"
+              }
+            },
+            "required": [
+              "placement_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "anchor"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "scale_from"
+            ]
+          },
+          "then": {
+            "required": [
+              "scale_factor"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "scale_factor"
+            ]
+          },
+          "then": {
+            "required": [
+              "scale_from"
+            ]
+          }
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "scale",
+                  "scale_from"
+                ]
+              },
+              {
+                "required": [
+                  "scale",
+                  "scale_factor"
+                ]
+              }
+            ]
+          }
+        }
+      ]
     },
     "template": {
       "type": "object",
@@ -1524,8 +1894,191 @@
           "minimum": 2,
           "default": 12,
           "description": "Latitudinal subdivision count for sphere."
+        },
+        "placement_mode": {
+          "$ref": "#/$defs/placementMode",
+          "default": "absolute",
+          "description": "High-level template placement mode."
+        },
+        "anchor": {
+          "$ref": "#/$defs/boxAnchor",
+          "description": "Box anchor used when placement_mode=\"box_anchor\"."
+        },
+        "offset": {
+          "$ref": "#/$defs/vec3",
+          "description": "Offset [m] added to the anchored template center."
+        },
+        "offset_frac": {
+          "$ref": "#/$defs/vec3",
+          "description": "Box-size-relative offset added to the anchored template center."
+        },
+        "size_mode": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "box_fraction"
+          ],
+          "default": "absolute",
+          "description": "High-level template sizing mode."
+        },
+        "size_frac": {
+          "$ref": "#/$defs/sizeFraction",
+          "description": "Box-relative size used when size_mode=\"box_fraction\"."
+        },
+        "group": {
+          "type": "string",
+          "minLength": 1,
+          "description": "High-level mesh group name. Grouped templates use center_local and group scale/origin."
+        },
+        "center_local": {
+          "$ref": "#/$defs/vec3",
+          "description": "Template center in group-local coordinates."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "placement_mode": {
+                "const": "box_anchor"
+              }
+            },
+            "required": [
+              "placement_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "anchor"
+            ],
+            "not": {
+              "required": [
+                "center"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "placement_mode": {
+                "const": "absolute"
+              }
+            },
+            "required": [
+              "placement_mode"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "anchor"
+                  ]
+                },
+                {
+                  "required": [
+                    "offset"
+                  ]
+                },
+                {
+                  "required": [
+                    "offset_frac"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "size_mode": {
+                "const": "box_fraction"
+              }
+            },
+            "required": [
+              "size_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "size_frac"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "size_mode": {
+                "const": "absolute"
+              }
+            },
+            "required": [
+              "size_mode"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "size_frac"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "group"
+            ]
+          },
+          "then": {
+            "required": [
+              "center_local"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "center"
+                  ]
+                },
+                {
+                  "required": [
+                    "placement_mode"
+                  ]
+                },
+                {
+                  "required": [
+                    "anchor"
+                  ]
+                },
+                {
+                  "required": [
+                    "offset"
+                  ]
+                },
+                {
+                  "required": [
+                    "offset_frac"
+                  ]
+                },
+                {
+                  "required": [
+                    "size_mode"
+                  ]
+                },
+                {
+                  "required": [
+                    "size_frac"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
     },
     "output": {
       "type": "object",

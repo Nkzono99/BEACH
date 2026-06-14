@@ -64,7 +64,7 @@ See [docs/skills-guide.en.md](docs/skills-guide.en.md) for detailed skill select
 - `schemas/beach.schema.json`
 - `examples/beach.toml`, `examples/periodic2_basic/beach.toml`
 
-For pre-run checks, prefer `beachx config validate`; for rendered-config estimates, use `beachx estimate-workload`; for output inspection, use `beachx inspect outputs/latest`.
+For pre-run checks, prefer `beachx lint beach.toml`; for rendered-config estimates, use `beachx estimate-workload`; for output inspection, use `beachx inspect outputs/latest`.
 
 ## Distribution Policy
 

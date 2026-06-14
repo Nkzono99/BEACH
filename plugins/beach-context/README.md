@@ -64,7 +64,7 @@ codex plugin marketplace add /path/to/BEACH
 - `schemas/beach.schema.json`
 - `examples/beach.toml`, `examples/periodic2_basic/beach.toml`
 
-設定ファイルの事前検査には `beachx config validate`、render 後の軽量確認には `beachx estimate-workload`、出力確認には `beachx inspect outputs/latest` を優先します。
+設定ファイルの事前検査には `beachx lint beach.toml`、render 後の軽量確認には `beachx estimate-workload`、出力確認には `beachx inspect outputs/latest` を優先します。
 
 ## 配布方針
 

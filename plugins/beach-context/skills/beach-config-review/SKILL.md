@@ -21,7 +21,7 @@ Prefer sources in this order:
 4. Repo primary docs/source only when the full checkout is available and may be newer.
 
 Do not invent defaults. If a value is not present and not documented in accessible sources, mark it unknown.
-Prefer calling or suggesting `beachx config validate` when the CLI is available.
+Prefer calling or suggesting `beachx lint beach.toml` when the CLI is available.
 For workload questions, use schema/TOML inspection and `beachx estimate-workload <config> --threads N` when relevant.
 
 ## Review Checklist
@@ -67,4 +67,4 @@ Return a concise report in the response language. Translate headings when approp
 - ...
 ```
 
-Suggest concrete commands only when they fit the environment, for example `beachx config validate`, `beachx config render`, `beachx estimate-workload beach.toml --threads 8`, or `beach examples/beach.toml`.
+Suggest concrete commands only when they fit the environment, for example `beachx lint beach.toml`, `beachx config render`, `beachx estimate-workload beach.toml --threads 8`, or `beach examples/beach.toml`.
