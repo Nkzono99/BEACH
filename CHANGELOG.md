@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.0] - 2026-06-14
+
+### Added
+- Codex context plugin for BEACH repository workflows
+- Tiered developer test targets (`test-l0`, `test-l1`, `test-l2`, `test-l3`, `test-heavy`, `test-full`)
+- Object surface material models, including limited free-space floating conductor support
+- Stable development version metadata mode for faster incremental fpm builds
+
+### Changed
+- **BREAKING**: `sim.batch_count` is now the cumulative target batch count when `output.resume=true`; resuming from `batches=100` with `batch_count=150` runs 50 more batches
+- Resume progress, history, and workload estimates now use remaining batches derived from checkpoint state
+- Surface material validation and documentation are aligned with current conductor/dielectric support
+
+### Fixed
+- Resume now fails when required checkpoint files are missing instead of silently starting a new run
+- Restart, config, CLI, and Python result readers now reject non-finite or invalid numeric values more consistently
+- Zero-softening self-field singularities are skipped in direct and tree field paths
+- Workload estimator accepts the current normalization and sheath configuration keys
+
 ## [1.1.0] - 2026-05-27
 
 ### Added

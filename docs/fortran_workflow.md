@@ -48,7 +48,7 @@ make run CONFIG=examples/beach.toml
 ```
 
 開発中の標準確認は `make check` です。`BEACH_VERSION_MODE=dev` を使って
-Fortran 側へ渡す version 文字列を `1.1.0-dev` のように固定するため、git hash が変わっても
+Fortran 側へ渡す version 文字列を `1.2.0-dev` のように固定するため、git hash が変わっても
 fpm の compile-flag hash が変わらず、差分コンパイルを再利用できます。
 
 `make build` と `make install` は既定で git hash 付き version を埋め込みます。必要なら version mode を明示します。
