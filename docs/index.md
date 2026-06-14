@@ -12,7 +12,7 @@ ordered_subpage: python_postprocess_api.md
 このセクションでは、BEACH の設定ワークフロー、Fortran 実行系の運用、設定仕様、依存関係マップ、Python 後処理 API をまとめます。
 
 - [Fortran 中心ワークフロー](fortran_workflow.html)
-- [beachx config / preset / 高水準記法ガイド](config_workflow.html)
+- [beachx config / 高水準記法ガイド](config_workflow.html)
 - [Fortran パラメータファイル仕様](fortran_parameter_file.html)
 - [Fortran Coulomb FMM コア仕様](fortran_fmm_core.html)
 - [`batch_duration` の安定性と定常値の理論](batch_duration_stability.html)

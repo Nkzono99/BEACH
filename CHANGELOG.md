@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Removed
+- **BREAKING**: Removed the preset/case config layer, including `beachx preset`, `case.toml`, preset package data, and case/preset schemas
+
+### Changed
+- `beachx config` now creates, validates, renders, and diffs direct `beach.toml` files
+- BEACH context plugin references now document the direct `beach.toml` workflow
+
 ## [1.2.0] - 2026-06-14
 
 ### Added

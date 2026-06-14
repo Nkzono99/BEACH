@@ -11,7 +11,7 @@ beachx config render
 beach beach.toml
 ```
 
-`case.toml` は日常編集用、`beach.toml` は Fortran runtime 用の生成物です。preset は `.beachx/presets/`、`~/.config/beachx/presets/`、package built-in の順に解決されます。
+`beach.toml` は日常編集用であり、Fortran runtime が直接読む設定ファイルでもあります。高水準記法を使った場合は `beachx config render` で最終キーへ展開します。
 
 ## rendered config の直接実行
 

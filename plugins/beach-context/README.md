@@ -4,7 +4,7 @@ Lang: [English](README.en.md) | [日本語](README.md)
 
 BEACH の設定ファイル、実行手順、出力解析、既知の失敗モード、学習導線、issue 作成補助を Codex に渡すための repo-local plugin です。各 skill はユーザーの言語に合わせて、日本語・英語などで応答する前提です。
 
-利用者が `pip install beach-bem` だけで BEACH を入れており、repo 全体を読めない状況を前提にしています。そのため、この plugin は `references/` に `SPEC.md`、設定 workflow、最終 `beach.toml` 仕様、Python 後処理 API、schema、代表 example、built-in preset などのスナップショットを同梱しています。repo 全体を読める開発環境では、同名の最新 docs を優先して確認してください。
+利用者が `pip install beach-bem` だけで BEACH を入れており、repo 全体を読めない状況を前提にしています。そのため、この plugin は `references/` に `SPEC.md`、設定 workflow、`beach.toml` 仕様、Python 後処理 API、schema、代表 example などのスナップショットを同梱しています。repo 全体を読める開発環境では、同名の最新 docs を優先して確認してください。
 
 ## 導入
 
@@ -42,9 +42,9 @@ codex plugin marketplace add /path/to/BEACH
 
 ## 同梱 skill
 
-- `beach-config-review`: `beach.toml`、`case.toml`、preset の設定レビューと検証方針
+- `beach-config-review`: `beach.toml` の設定レビューと検証方針
 - `beach-run-diagnose`: install/build/実行失敗、異常終了、出力欠損、restart 問題の診断
-- `beach-case-design`: 物理意図から BEACH case、preset、sweep を設計
+- `beach-case-design`: 物理意図から BEACH 設定、parameter sweep を設計
 - `beach-output-analysis`: `outputs/latest`、CSV、履歴、Python API、`beachx` による解析導線
 - `beach-simulator-guide`: 利用者向けの学習・運用ガイド
 - `beach-method-summary`: 論文・発表・README 用の手法説明
@@ -61,9 +61,8 @@ codex plugin marketplace add /path/to/BEACH
 - `config_workflow.md`, `fortran_parameter_file.md`
 - `python_postprocess_api.md`
 - `fortran_fmm_core.md`, `batch_duration_stability.md`
-- `schemas/beach.schema.json`, `schemas/beach.case.schema.json`, `schemas/beach.preset.schema.json`
-- `examples/beach.toml`, `examples/periodic2_basic/case.toml`
-- `presets/...` の built-in preset snapshot
+- `schemas/beach.schema.json`
+- `examples/beach.toml`, `examples/periodic2_basic/beach.toml`
 
 設定ファイルの事前検査には `beachx config validate`、render 後の軽量確認には `beachx estimate-workload`、出力確認には `beachx inspect outputs/latest` を優先します。
 

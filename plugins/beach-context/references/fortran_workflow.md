@@ -48,7 +48,7 @@ make run CONFIG=examples/beach.toml
 ```
 
 開発中の標準確認は `make check` です。`BEACH_VERSION_MODE=dev` を使って
-Fortran 側へ渡す version 文字列を `1.1.0-dev` のように固定するため、git hash が変わっても
+Fortran 側へ渡す version 文字列を `1.2.0-dev` のように固定するため、git hash が変わっても
 fpm の compile-flag hash が変わらず、差分コンパイルを再利用できます。
 
 `make build` と `make install` は既定で git hash 付き version を埋め込みます。必要なら version mode を明示します。
@@ -109,23 +109,24 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 
 ## 3. 実行フロー
 
-通常は、`case.toml` から `beach.toml` を生成して実行します。preset 合成と高水準記法の詳細は
-[beachx config / preset / 高水準記法ガイド](config_workflow.html) を参照してください。
+通常は、`beach.toml` を直接編集して実行します。高水準記法の詳細は
+[beachx config / 高水準記法ガイド](config_workflow.html) を参照してください。
 
-1. `case.toml` を用意し、必要なら preset を追加・編集する
-2. `beachx config render` で `beach.toml` を生成する
+1. `beach.toml` を用意する
+2. 必要なら `beachx config render` で高水準記法を最終キーへ展開する
 3. `beach` でシミュレーション実行
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化
 
-最終 `beach.toml` を手で管理する場合は、仕様を [Fortran パラメータファイル仕様](fortran_parameter_file.html) で確認してください。
+`beach.toml` の仕様は [Fortran パラメータファイル仕様](fortran_parameter_file.html) で確認してください。
 
-### 3.1 `case.toml` から実行する最短例
+### 3.1 最短例
 
 ```bash
 mkdir run_periodic2
 cd run_periodic2
 beachx config init
+beachx config validate
 beachx config render
 beach beach.toml
 ```
@@ -193,7 +194,12 @@ beachx profile outputs/latest/performance_profile.csv \
 - `rng_state.txt`
 - `macro_residuals.csv`
 
-`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と元メッシュ設定（template kind / 要素数）を対応付けます。`mesh_potential.csv` を有効にすると、同じ要素順で centroid 電位 [V] も保存されます。
+`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と
+元メッシュ設定（template kind / surface model / epsilon_r / 要素数）を対応付けます。
+`conductor` は `field_bc_mode = "free"` の浮遊導体として等電位再配分され、
+`dielectric` は現行ではメタデータのみなので、
+含まれる場合は `summary.txt` に注意書きも出力します。
+`mesh_potential.csv` を有効にすると、同じ要素順で centroid 電位 [V] も保存されます。
 
 MPI実行（`world_size > 1`）では乱数状態・残差は rank 別です。
 
@@ -227,7 +233,7 @@ resume = true
 ```
 
 同じ `output.dir` で `beach` を再実行すると、`summary.txt` / `charges.csv` / RNG状態を読み込んで続きから計算します。  
-`sim.batch_count` は「今回追加するバッチ数」です。
+`sim.batch_count` は累積の到達バッチ数です。例えば既存 checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が既存の処理済みバッチ数より小さい場合は停止します。
 
 MPI再開時は `summary.txt` の `mpi_world_size` と現在の rank 数が一致している必要があります。
 
@@ -333,7 +339,7 @@ fpm test --target test_mpi_hybrid \
 
 ## 10. 実装挙動で誤解しやすい点
 
-- 実行は `sim.batch_count` 分だけ進みます。
+- 通常実行は `sim.batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `sim.batch_count` に達するまで進みます。
 - `sim.tol_rel` は監視値で、現行実装では早期終了条件に使いません。
 - Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
 

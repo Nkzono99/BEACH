@@ -37,7 +37,7 @@ Collect or ask for missing critical fields when possible:
 - BEACH version: `beachx --version` if available, package version, or git commit/tag.
 - Install method: `pip install beach-bem`, Git URL, editable source build, local binary.
 - Execution command: `beach ...`, `fpm run ...`, MPI/Slurm command if used.
-- Config type: `case.toml`, preset, rendered `beach.toml`.
+- Config type: direct `beach.toml` or generated snippet.
 - Minimal config or redacted snippet.
 - First meaningful error log, not only the final wrapper abort line.
 - Expected behavior and actual behavior.

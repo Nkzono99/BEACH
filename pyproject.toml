@@ -32,8 +32,5 @@ beach-plot-performance-profile = "beach.cli.legacy:profile_main"
 [tool.setuptools]
 packages = ["beach", "beach.fortran_results", "beach.cli", "beach.config"]
 
-[tool.setuptools.package-data]
-"beach.config" = ["presets/**/*.toml"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

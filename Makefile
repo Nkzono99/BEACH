@@ -31,7 +31,7 @@ VERSION_MODE ?=
 BUILD_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),git)
 CHECK_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
 RUN_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
-SCHEMAS ?= schemas/beach.schema.json schemas/beach.case.schema.json schemas/beach.preset.schema.json
+SCHEMAS ?= schemas/beach.schema.json
 FORTRAN_L1_TARGETS ?= \
 	test_version \
 	test_app_config_parser \

@@ -1,6 +1,6 @@
 ---
 name: beach-config-review
-description: Review BEACH beach.toml, case.toml, or preset files for schema, parameter, physics, injection, boundary, mesh, output, and resume consistency.
+description: Review BEACH beach.toml files for schema, parameter, physics, injection, boundary, mesh, output, and resume consistency.
 ---
 
 Use this skill when a user asks to review, validate, sanity-check, or explain a BEACH config file.
@@ -15,20 +15,20 @@ Use this skill when a user asks to review, validate, sanity-check, or explain a 
 
 Prefer sources in this order:
 
-1. User-provided `beach.toml`, `case.toml`, preset, or generated snippet.
-2. Bundled references: `../../references/fortran_parameter_file.md`, `../../references/config_workflow.md`, `../../references/SPEC.md`, `../../references/schemas/beach.schema.json`, `../../references/schemas/beach.case.schema.json`, `../../references/schemas/beach.preset.schema.json`, `../../references/examples/beach.toml`, `../../references/examples/periodic2_basic/case.toml`.
+1. User-provided `beach.toml` or generated snippet.
+2. Bundled references: `../../references/fortran_parameter_file.md`, `../../references/config_workflow.md`, `../../references/SPEC.md`, `../../references/schemas/beach.schema.json`, `../../references/examples/beach.toml`, `../../references/examples/periodic2_basic/beach.toml`.
 3. Bundled docs: `../../docs/simulator-context.md`, `../../docs/known-failure-modes.md`, `../../docs/usage-workflows.md`, `../../docs/skills-guide.md`.
 4. Repo primary docs/source only when the full checkout is available and may be newer.
 
 Do not invent defaults. If a value is not present and not documented in accessible sources, mark it unknown.
-For `case.toml` or presets, prefer calling or suggesting `beachx config validate` when the CLI is available.
-For rendered `beach.toml`, prefer schema/TOML inspection and `beachx estimate-workload <config> --threads N` when workload is relevant.
+Prefer calling or suggesting `beachx config validate` when the CLI is available.
+For workload questions, use schema/TOML inspection and `beachx estimate-workload <config> --threads N` when relevant.
 
 ## Review Checklist
 
-- Determine input type: `case.toml`, preset, rendered `beach.toml`, or legacy/direct config.
+- Determine whether the input is a direct `beach.toml` or a snippet.
 - Check schema directive style. Use `#:schema ...`, not `"$schema"` before the first section.
-- For `case.toml`, check `schema_version`, `use_presets`, `override`, preset resolution, and `id`-based merge expectations.
+- Reject legacy composition keys such as `schema_version`, `use_presets`, `override`, and `base_case`.
 - Check required sections: `[sim]`, `[[particles.species]]`, `[mesh]`, and `[output]` for rendered configs.
 - Check batch controls: `dt`, `batch_count`, `batch_duration` vs `batch_duration_step`, `max_step`, and `tol_rel` expectations.
 - Check source modes:

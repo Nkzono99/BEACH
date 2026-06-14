@@ -4,9 +4,9 @@ For BEACH-specific user support, choose skills as follows.
 
 | Skill | Use Case |
 | --- | --- |
-| `beach-config-review` | Review `beach.toml`, `case.toml`, presets, schema validation, and input consistency. |
+| `beach-config-review` | Review `beach.toml`, schema validation, and input consistency. |
 | `beach-run-diagnose` | Diagnose failed install/build/run attempts, missing outputs, restart issues, or abnormal results. |
-| `beach-case-design` | Design new cases, presets, parameter sweeps, and settings from a research objective. |
+| `beach-case-design` | Design new configs, parameter sweeps, and settings from a research objective. |
 | `beach-output-analysis` | Read `outputs/latest`, use `beachx`, use Python APIs, and analyze histories. |
 | `beach-simulator-guide` | Explain BEACH concepts, learning paths, docs, and user tutorials. |
 | `beach-method-summary` | Draft method descriptions for papers, presentations, README, and design notes. |

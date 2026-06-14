@@ -4,9 +4,9 @@ BEACH 固有の利用者支援では、次の順で skill を選びます。
 
 | Skill | 使う場面 |
 | --- | --- |
-| `beach-config-review` | `beach.toml`、`case.toml`、preset、schema validation、入力設定の整合性確認 |
+| `beach-config-review` | `beach.toml`、schema validation、入力設定の整合性確認 |
 | `beach-run-diagnose` | install/build/run が失敗した、出力がない、restart が壊れた、実行結果が異常 |
-| `beach-case-design` | 新しい計算ケース、preset、parameter sweep、研究目的から設定値を決める |
+| `beach-case-design` | 新しい計算設定、parameter sweep、研究目的から設定値を決める |
 | `beach-output-analysis` | `outputs/latest` の読み方、`beachx` 可視化、Python API、履歴解析 |
 | `beach-simulator-guide` | BEACH の全体像、学習順、ドキュメント案内、ユーザー向け tutorial |
 | `beach-method-summary` | 論文、発表、README、設計メモ向けの手法説明 |

@@ -11,7 +11,7 @@ beachx config render
 beach beach.toml
 ```
 
-`case.toml` is the everyday editing entry point; `beach.toml` is generated for the Fortran runtime. Presets are resolved from `.beachx/presets/`, `~/.config/beachx/presets/`, then package built-ins.
+`beach.toml` is both the everyday editing entry point and the file read by the Fortran runtime. When high-level notation is used, `beachx config render` expands it to final runtime keys.
 
 ## Direct Rendered-Config Run
 

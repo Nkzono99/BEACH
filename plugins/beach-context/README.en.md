@@ -4,7 +4,7 @@ Lang: [日本語](README.md) | [English](README.en.md)
 
 This repo-local plugin gives Codex BEACH-specific context for configuration files, run workflows, output analysis, known failure modes, simulator guidance, and issue reporting. Skills are expected to respond in the user's language, including Japanese and English, while keeping code identifiers, commands, file names, and parameter names unchanged.
 
-The plugin assumes that many users installed BEACH only through `pip install beach-bem` and cannot read the full repository. For that reason, `references/` bundles snapshots of `SPEC.md`, the config workflow, the final `beach.toml` specification, the Python post-processing API, schemas, representative examples, and built-in presets. In a development checkout where the full repository is available, prefer the latest root docs with the same names when needed.
+The plugin assumes that many users installed BEACH only through `pip install beach-bem` and cannot read the full repository. For that reason, `references/` bundles snapshots of `SPEC.md`, the config workflow, the `beach.toml` specification, the Python post-processing API, schemas, and representative examples. In a development checkout where the full repository is available, prefer the latest root docs with the same names when needed.
 
 ## Installation
 
@@ -42,9 +42,9 @@ In this case too, install `BEACH Context` from `/plugins` after registering the 
 
 ## Bundled Skills
 
-- `beach-config-review`: Review `beach.toml`, `case.toml`, and presets.
+- `beach-config-review`: Review `beach.toml` configuration files.
 - `beach-run-diagnose`: Diagnose install, build, run, abnormal-exit, missing-output, and restart problems.
-- `beach-case-design`: Design BEACH cases, presets, and sweeps from a physical objective.
+- `beach-case-design`: Design BEACH configs and sweeps from a physical objective.
 - `beach-output-analysis`: Guide analysis of `outputs/latest`, CSV files, histories, Python APIs, and `beachx`.
 - `beach-simulator-guide`: Provide learning and usage guides for BEACH users.
 - `beach-method-summary`: Draft method descriptions for papers, presentations, and README-style docs.
@@ -61,9 +61,8 @@ See [docs/skills-guide.en.md](docs/skills-guide.en.md) for detailed skill select
 - `config_workflow.md`, `fortran_parameter_file.md`
 - `python_postprocess_api.md`
 - `fortran_fmm_core.md`, `batch_duration_stability.md`
-- `schemas/beach.schema.json`, `schemas/beach.case.schema.json`, `schemas/beach.preset.schema.json`
-- `examples/beach.toml`, `examples/periodic2_basic/case.toml`
-- built-in preset snapshots under `presets/...`
+- `schemas/beach.schema.json`
+- `examples/beach.toml`, `examples/periodic2_basic/beach.toml`
 
 For pre-run checks, prefer `beachx config validate`; for rendered-config estimates, use `beachx estimate-workload`; for output inspection, use `beachx inspect outputs/latest`.
 

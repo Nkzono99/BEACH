@@ -33,8 +33,8 @@ Prefer:
    - resume/continuation
 2. Extract the first meaningful error. Later MPI/fpm/Python errors are often downstream.
 3. Map symptoms to BEACH facts:
-   - `beachx config validate` checks `case.toml` and preset composition.
-   - The Fortran runtime reads rendered `beach.toml`.
+   - `beachx config validate` checks direct `beach.toml` files.
+   - The Fortran runtime reads `beach.toml`.
    - Unknown TOML sections/keys are runtime parser errors.
    - `tol_rel` is not an early-stop condition.
    - `history_stride <= 0` means no `charge_history.csv`.

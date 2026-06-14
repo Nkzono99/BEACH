@@ -65,15 +65,15 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## 2. 実行
 
-### 2.0 `case.toml` から `beach.toml` を生成する
+### 2.0 `beach.toml` を作成・検証する
 
-`beachx config` を使うと、preset の組合せとローカル override から実行用 `beach.toml` を生成できます。
-日常的な編集対象は `case.toml`、Fortran 実行系が読むのは生成後の `beach.toml` です。
+`beachx config` を使うと、実行用 `beach.toml` のひな形作成、検証、高水準記法の展開ができます。
+日常的な編集対象も Fortran 実行系が読むファイルも `beach.toml` です。
 
 詳しい使い方は次を参照してください。
 
-- [`docs/config_workflow.md`](docs/config_workflow.md): `case.toml`、preset、`beachx config` / `beachx preset`、高水準記法の運用ガイド
-- [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md): render 後の `beach.toml` に残る最終キー仕様
+- [`docs/config_workflow.md`](docs/config_workflow.md): `beachx config` と高水準記法の運用ガイド
+- [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md): `beach.toml` に残る最終キー仕様
 
 ```bash
 mkdir run_periodic2
@@ -85,40 +85,11 @@ beachx config render
 beach beach.toml
 ```
 
-`beachx config init` の既定値は、次の built-in preset を組み合わせた `case.toml` を作ります。
+`beachx config init` は周期 2 軸 FMM、volume seed の電子・イオン、平面メッシュ、標準出力設定を含む小さな `beach.toml` を作ります。
+サンプルは [`examples/periodic2_basic/beach.toml`](examples/periodic2_basic/beach.toml) にあります。
+生成される `beach.toml` には `schemas/beach.schema.json` への `#:schema ...` directive を付けています。
 
-- `sim/periodic2_fmm`
-- `species/solarwind_electron`
-- `species/solarwind_ion`
-- `mesh/plane_basic`
-- `output/standard`
-
-preset の探索順は「`case.toml` や現在位置から見て最も近い `.beachx/presets/` を親方向に探索」→ `~/.config/beachx/presets/` → package 同梱 preset です。
-研究室ローカルやプロジェクトローカルの設定は、この preset 置き場へ `sim/...` や `mesh/...` として TOML 断片を追加して再利用できます。
-サンプルの `case.toml` は [`examples/periodic2_basic/case.toml`](examples/periodic2_basic/case.toml) にあります。
-生成される `case.toml` / preset / `beach.toml` にはそれぞれ対応する `#:schema ...` directive を自動で付けています。
-
-merge ルールの要点は次です。
-
-- `use_presets` を上から順に適用し、最後に `override` を適用します
-- table は deep merge、scalar と通常配列は後勝ち置換です
-- `particles.species` と `mesh.templates` は append されます
-- 各要素に `id` を付けると、同じ `id` の要素同士を deep merge できます（preset の template/species を `override` で部分上書き可能）
-- `mesh.groups.<name>` は preset 間で同名定義できず、`override.mesh.groups.<name>` による最終上書きだけを許可します
-
-空間座標系まわりは、render 後の `beach.toml` を直接いじらなくても、`case.toml` / preset 側の高水準記法で指定できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` のような指定は、`beachx config render` 時に具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ展開されます。
-
-user preset を CLI から作る場合は、たとえば次のように使えます。
-
-```bash
-beachx preset new sim/lab/periodic2_fast --from sim/periodic2_fmm
-beachx preset new output/project/debug --local
-beachx preset save sim/lab/current_run --section sim
-beachx preset save species/lab/ion --section species --index 2 --rendered
-beachx preset edit sim/lab/periodic2_fast
-beachx preset list
-beachx preset show sim/lab/periodic2_fast
-```
+空間座標系まわりは、高水準記法で指定して `beachx config render` で最終キーへ展開できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` は、具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ変換されます。
 
 ### 2.1 推奨: `beach` コマンド
 
@@ -291,7 +262,7 @@ make run CONFIG=examples/beach.toml
 ```
 
 開発中の標準確認は `make check` です。`BEACH_VERSION_MODE=dev` を使って
-Fortran 側へ渡す version 文字列を `1.1.0-dev` のように固定するため、git hash が変わっても
+Fortran 側へ渡す version 文字列を `1.2.0-dev` のように固定するため、git hash が変わっても
 fpm の compile-flag hash が変わらず、差分コンパイルを再利用できます。
 
 `make build` と `make install` は既定で git hash 付き version を埋め込みます。必要なら明示指定できます。

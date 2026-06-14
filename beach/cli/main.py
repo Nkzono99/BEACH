@@ -13,7 +13,6 @@ from . import (
     inspect_fortran_output,
     kernel_forces,
     model,
-    preset,
     plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
@@ -41,7 +40,6 @@ def build_parser() -> argparse.ArgumentParser:
     estimate_fortran_workload.add_subparser(subparsers)
     plot_performance_profile.add_subparser(subparsers)
     config.add_subparser(subparsers)
-    preset.add_subparser(subparsers)
     model.add_subparser(subparsers)
     return parser
 

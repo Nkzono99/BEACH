@@ -18,7 +18,7 @@ Prefer bundled references because ordinary users may only have a pip install plu
 - `../../references/README.md`: quick start, commands, Python examples.
 - `../../references/SPEC.md`: source-of-truth behavior, batch loop, physical models, outputs, resume.
 - `../../references/agent-user-guide.md`: user-oriented workflow.
-- `../../references/config_workflow.md`: `case.toml`, presets, high-level notation, render/validate.
+- `../../references/config_workflow.md`: `beachx config`, high-level notation, render/validate.
 - `../../references/fortran_parameter_file.md`: final `beach.toml` keys.
 - `../../references/python_postprocess_api.md`: `Beach` facade and analysis functions.
 - `../../references/fortran_workflow.md`: developer/build workflow.
@@ -31,7 +31,7 @@ Use `../../docs/simulator-context.md`, `../../docs/usage-workflows.md`, and `../
 Choose the mode that matches the user's goal:
 
 - New user: install, generate config, run example, inspect output.
-- Config user: `case.toml`, presets, rendered `beach.toml`, schema, validation.
+- Config user: direct `beach.toml`, schema, validation, high-level notation.
 - Physics learner: BEM charges, E-field, Boris pusher, collision, absorption, insulator accumulation.
 - Algorithm learner: direct/treecode/FMM field solvers, periodic2, collision acceleration, batch loop.
 - Analysis learner: CSV outputs, history, `beachx`, Python `Beach` facade.

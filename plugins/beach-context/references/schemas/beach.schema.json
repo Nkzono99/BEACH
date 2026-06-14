@@ -232,6 +232,23 @@
           "default": "auto",
           "description": "Electric field evaluation method."
         },
+        "field_normalization": {
+          "type": "string",
+          "enum": [
+            "si",
+            "box",
+            "mesh",
+            "length"
+          ],
+          "default": "si",
+          "description": "Length normalization used internally by field solvers."
+        },
+        "field_length_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0,
+          "description": "Reference length [m] when field_normalization=\"length\"."
+        },
         "field_bc_mode": {
           "type": "string",
           "enum": [
@@ -1313,6 +1330,22 @@
           "default": "examples/simple_plate.obj",
           "description": "Path to OBJ mesh file."
         },
+        "surface_model": {
+          "type": "string",
+          "enum": [
+            "insulator",
+            "conductor",
+            "dielectric"
+          ],
+          "default": "insulator",
+          "description": "Surface response model assigned to OBJ mesh elements. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release. Template meshes use per-template surface_model instead."
+        },
+        "epsilon_r": {
+          "type": "number",
+          "minimum": 1.0,
+          "default": 1.0,
+          "description": "Relative permittivity assigned to OBJ mesh elements. Stored for all surface models; dielectric polarization is not solved in the current release."
+        },
         "obj_scale": {
           "type": "number",
           "default": 1.0,
@@ -1366,6 +1399,22 @@
           ],
           "default": "plane",
           "description": "Template shape type."
+        },
+        "surface_model": {
+          "type": "string",
+          "enum": [
+            "insulator",
+            "conductor",
+            "dielectric"
+          ],
+          "default": "insulator",
+          "description": "Surface response model assigned to elements generated from this template. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release."
+        },
+        "epsilon_r": {
+          "type": "number",
+          "minimum": 1.0,
+          "default": 1.0,
+          "description": "Relative permittivity assigned to elements generated from this template. Stored for all surface models; dielectric polarization is not solved in the current release."
         },
         "center": {
           "$ref": "#/$defs/vec3",
@@ -1491,6 +1540,11 @@
           "type": "boolean",
           "default": false,
           "description": "Output element centroid potentials to mesh_potential.csv."
+        },
+        "write_potential_history": {
+          "type": "boolean",
+          "default": false,
+          "description": "Output element centroid potential snapshots to potential_history.csv at history_stride intervals."
         },
         "dir": {
           "type": "string",

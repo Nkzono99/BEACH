@@ -14,9 +14,9 @@ BEACH は BEM による表面帯電とテスト粒子追跡を組み合わせた
 
 設定入口:
 
-- 普段は `case.toml` + preset を編集し、`beachx config render` で `beach.toml` を生成する。
-- Fortran 実行系が直接読むのは render 後の `beach.toml`。
-- `beachx config validate` は preset 解決と高水準記法展開を含む事前検査。
+- 普段は `beach.toml` を直接編集し、必要に応じて `beachx config render` で高水準記法を最終キーへ展開する。
+- Fortran 実行系が直接読むのは `beach.toml`。
+- `beachx config validate` は高水準記法と既知制約を含む事前検査。
 - 最終キー仕様は `references/fortran_parameter_file.md`。
 
 主要な出力:

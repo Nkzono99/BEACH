@@ -14,9 +14,9 @@ Core v1 behavior:
 
 Configuration entry points:
 
-- Usually edit `case.toml` plus presets, then generate `beach.toml` with `beachx config render`.
-- The Fortran runtime reads only the rendered `beach.toml`.
-- `beachx config validate` performs pre-run checks including preset resolution and high-level notation expansion.
+- Usually edit `beach.toml` directly, then use `beachx config render` when high-level notation needs to be expanded.
+- The Fortran runtime reads `beach.toml`.
+- `beachx config validate` performs pre-run checks including high-level notation and known constraints.
 - The final key specification is `references/fortran_parameter_file.md`.
 
 Primary outputs:

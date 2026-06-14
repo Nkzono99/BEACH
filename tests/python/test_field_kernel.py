@@ -107,7 +107,7 @@ def test_calc_object_forces_kernel_uses_explicit_config_softening(tmp_path: Path
     lib = _kernel_lib()
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    config_path = tmp_path / "case.toml"
+    config_path = tmp_path / "beach.toml"
     config_path.write_text("[sim]\nsoftening = 0.5\ntree_leaf_max = 8\n", encoding="utf-8")
     triangles = np.array(
         [
@@ -236,7 +236,7 @@ def test_kernel_forces_cli_writes_csv(tmp_path: Path) -> None:
     lib = _kernel_lib()
     out = tmp_path / "run"
     out.mkdir()
-    config_path = tmp_path / "case.toml"
+    config_path = tmp_path / "beach.toml"
     config_path.write_text("[sim]\nsoftening = 0.0\n", encoding="utf-8")
     (out / "summary.txt").write_text(
         "\n".join(

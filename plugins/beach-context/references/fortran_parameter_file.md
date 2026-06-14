@@ -6,11 +6,11 @@ title: Fortran パラメータファイル仕様（beach.toml）
 「以前の書き方との互換」は最後に短く載せ、本文は初見向けに現在の推奨仕様だけを先に説明します。
 
 `beach` 自体が読むのは最終的な `beach.toml` です。
-Python 側の `beachx config render` を使う場合は、`case.toml` から preset 合成でこの `beach.toml` を生成できます。
-高水準記法（`box_origin` / `box_size`、`face_fraction`、`mesh.groups.*` など）は `case.toml` / preset 側でのみ使い、render 時に通常の数値キーへ解決されます。
+Python 側の `beachx config render` を使う場合は、同じ `beach.toml` 内の高水準記法を通常の数値キーへ解決できます。
+高水準記法には `box_origin` / `box_size`、`face_fraction`、`mesh.groups.*` などがあります。
 
-`case.toml`、preset、`beachx config` / `beachx preset`、高水準記法の全体像は
-[beachx config / preset / 高水準記法ガイド](config_workflow.html) を参照してください。
+`beachx config` と高水準記法の全体像は
+[beachx config / 高水準記法ガイド](config_workflow.html) を参照してください。
 この文書では、render 後の **最終 `beach.toml` に残るキー** を中心に説明します。
 
 ## 1. 読み込みルール
@@ -24,9 +24,8 @@ Python 側の `beachx config render` を使う場合は、`case.toml` から pre
 ### Editor schema
 
 - JSON Schema は [`schemas/beach.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json) に同梱しています。
-- preset 合成レイヤの `case.toml` / preset 用には [`schemas/beach.case.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.case.schema.json) と [`schemas/beach.preset.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.preset.schema.json) もあります。
 - VS Code の Even Better TOML / Taplo では、各 `beach.toml` の先頭へ `#:schema ...` コメントを置くと補完・型検証・必須項目チェックが有効になります。
-- `beachx config init` / `beachx config render` / `beachx preset new` / `beachx preset save` が生成するファイルにも、対応する `#:schema ...` コメントを自動で付与します。
+- `beachx config init` / `beachx config render` が生成するファイルにも、対応する `#:schema ...` コメントを自動で付与します。
 - BEACH の Fortran パーサは「最初のセクションより前の `key = value`」を受け付けないため、`"$schema" = "..."` は使わずコメント directive を使ってください。
 
 ローカル相対パスの例:
@@ -121,7 +120,7 @@ history_stride = 1
 |---|---|---:|---|
 | `dt` | float | `1.0e-9` | 時間刻み [s] |
 | `rng_seed` | int | `12345` | 乱数シード |
-| `batch_count` | int | `1` | 1回の実行で処理するバッチ数 |
+| `batch_count` | int | `1` | 通常実行では処理するバッチ数。`output.resume=true` では累積の到達バッチ数 |
 | `batch_duration` | float | `0.0` | 1バッチの物理時間 [s] |
 | `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` |
 | `max_step` | int | `400` | 粒子あたり最大ステップ数 |
@@ -169,7 +168,7 @@ history_stride = 1
 
 重要な実行挙動:
 
-- 実行ループは `batch_count` 分だけ進みます。
+- 通常実行は `batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `batch_count` に達するまで進みます。
 - `tol_rel` は出力監視値であり、現行実装では早期終了条件には使いません。
 
 `tree_theta` / `tree_leaf_max` の自動推定値:
@@ -307,11 +306,14 @@ history_stride = 1
 |---|---|---:|---|
 | `mode` | string | `"auto"` | `auto` / `obj` / `template` |
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ ファイルパス |
+| `surface_model` | string | `"insulator"` | OBJ メッシュ全体に割り当てる表面モデル (`insulator` / `conductor` / `dielectric`) |
+| `epsilon_r` | float | `1.0` | OBJ メッシュ全体に割り当てる相対誘電率 (`>= 1`) |
 | `obj_scale` | float | `1.0` | OBJ 読み込み後に適用する一様スケーリング係数 |
 | `obj_rotation` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する回転角 [度]。x→y→z の順で外因性 (extrinsic) 回転（Rz·Ry·Rx）を適用 |
 | `obj_offset` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する平行移動 [m] |
 
 `mode = "auto"` のときは `obj_path` が存在すれば OBJ、なければ template を使います。
+`surface_model` は OBJ 入力時の単一メッシュに適用されます。OBJ 入力はファイル全体を `mesh_id = 1` として読むため、1つの OBJ 内の離れた `conductor` 部品も同じ浮遊導体として扱われます。独立導体として扱いたい場合はテンプレート入力などで mesh_id を分けてください。テンプレート入力では `[[mesh.templates]]` ごとの `surface_model` を使います。
 
 OBJ メッシュの変換順序は **scale → rotate → offset** です: `v_new = R(rotation) * (v_old * scale) + offset`。
 CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` のいずれの形式にも対応し、四角形以上のポリゴンはファン三角形分割されます。
@@ -322,6 +324,8 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 
 - `enabled` (bool)
 - `kind` (`plane` / `plate_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere`)
+- `surface_model` (`insulator` / `conductor` / `dielectric`, 既定 `insulator`)
+- `epsilon_r` (float, `>= 1`, 既定 `1.0`)
 - `center` (float[3])
 
 `kind` ごとの主要キー:
@@ -337,6 +341,14 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 注意:
 
 - `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は「定義した件数」で解決されます。
+- `conductor` は mesh_id ごとの浮遊導体として、バッチごとに総電荷を保存しながら
+  等電位になるよう要素電荷を再配分します。
+  現時点では `field_bc_mode = "free"` の直接Coulomb係数で再配分します。
+  `field_bc_mode = "periodic2"` とは併用できません。
+  conductor 要素全体に対する dense solve のため、導体要素数が大きいケースでは
+  バッチごとの追加コストが増えます。
+- `dielectric` は object ごとの物性を保持するための設定・出力メタデータで、
+  `epsilon_r` を保存します。現行の電場計算・電荷蓄積では `epsilon_r` による誘電体分極や境界条件の分岐はまだ行いません。誘電体分極の物理分岐は今後の拡張点です。
 
 ### 3.5 `[output]`
 
@@ -361,7 +373,9 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 - `rng_state.txt`
 - `macro_residuals.csv`
 
-`mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別と要素数を確認できます。
+`mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別、`surface_model`、`epsilon_r`、要素数を確認できます。
+`dielectric` を含む場合、現行の時間発展では誘電体分極は未分岐なので、
+`summary.txt` に `surface_model_dielectric_elem_count` と `surface_model_note` を出力します。
 
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。`periodic2` では explicit image shell に加えて、`field_periodic_far_correction` が `auto` または `m2l_root_oracle` のときは exact Ewald residual も加えます。`none` では residual を加えません。
 
@@ -379,6 +393,9 @@ MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイル
 - `write_files = true` 必須
 - `output.dir` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
 - `macro_residuals.csv` は存在すれば読み込みます
+
+必須 checkpoint が存在しない場合、`resume = true` は新規実行にフォールバックせず停止します。
+読み込み時には `summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差が有限で基本範囲内にあることを検証します。
 
 MPI実行での追加要件:
 

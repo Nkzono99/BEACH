@@ -110,7 +110,7 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 | `charges` | `ndarray (mesh_nelem,)` | 要素電荷配列 [C] |
 | `triangles` | `ndarray (mesh_nelem, 3, 3) \| None` | 三角形頂点座標 [m] |
 | `mesh_ids` | `ndarray (mesh_nelem,) \| None` | 要素 mesh ID |
-| `mesh_sources` | `dict[int, MeshSource] \| None` | mesh 種別メタデータ |
+| `mesh_sources` | `dict[int, MeshSource] \| None` | mesh 種別・surface model・epsilon_r メタデータ |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Fortran 出力の重心電位 [V] |
 | `history` | `FortranChargeHistory \| None` | 電荷履歴アクセサ |
 
@@ -516,10 +516,8 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beachx coulomb <output_dir>` | Coulomb 力行列の描画 |
 | `beachx mobility <output_dir>` | Coulomb mobility 解析 |
 | `beachx kernel-forces <output_dir>` | Fortran field kernel による object 別合力 CSV 出力 |
-| `beachx config render <config.toml>` | 設定ファイルのレンダリング（プリセット適用後） |
+| `beachx config render <config.toml>` | 高水準記法を最終 `beach.toml` キーへ展開 |
 | `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
-| `beachx preset list` | 利用可能なプリセット一覧 |
-| `beachx preset show <name>` | プリセット内容の表示 |
 | `beachx model close-pack` | 密充填モデルの生成 |
 
 ### 12.2 旧 CLI（非推奨）
