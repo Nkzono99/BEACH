@@ -53,9 +53,18 @@ contains
     ctx%size = int(size_int, i32)
     ctx%enabled = (ctx%size > 1_i32)
 #endif
-    ! 非MPIビルド時、または MPI 実行系が 1 rank としか見えていない場合でも、
-    ! launcher 環境変数から rank/size を補完して root 専用ログの重複を避ける。
+    ! MPI ビルド時に launcher 環境変数から rank/size を補完して
+    ! root 専用ログの重複を避ける。非 MPI build では collective が no-op
+    ! になるため、複数 task launcher を検出したら明示的に停止する。
+#ifdef USE_MPI
     if (ctx%size <= 1_i32) call infer_launcher_rank_size(ctx)
+#else
+    call infer_launcher_rank_size(ctx)
+    if (ctx%size > 1_i32) then
+      error stop 'BEACH was built without MPI but launcher reports multiple ranks. Rebuild with USE_MPI or run one task.'
+    end if
+    ctx = mpi_context()
+#endif
   end subroutine mpi_initialize
 
   !> `mpi_initialize` が実際に初期化した場合のみ `MPI_Finalize` を呼ぶ。
