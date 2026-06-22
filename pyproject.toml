@@ -14,6 +14,7 @@ dependencies = [
     "matplotlib>=3.8",
     "numpy>=1.24",
     "tomli>=2.0.1; python_version < '3.11'",
+    "tomli-w>=1.0.0",
 ]
 
 [project.optional-dependencies]
