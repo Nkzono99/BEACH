@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-22
+
 ### Added
 - `beachx lint <beach.toml>` for TOML parsing, packaged JSON Schema validation, high-level config rendering, and semantic BEACH config checks
 
@@ -12,8 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **BREAKING**: Removed the preset/case config layer, including `beachx preset`, `case.toml`, preset package data, and case/preset schemas
 
 ### Changed
+- Fortran config loading now uses `toml-f` for standard TOML syntax, including multiline arrays, dotted keys, inline tables, and literal `#` characters in strings
+- Python config rendering now uses `tomli-w` instead of maintaining duplicate in-project TOML writer code
 - `beachx config` now creates, validates, renders, and diffs direct `beach.toml` files
 - BEACH context plugin references now document the direct `beach.toml` workflow
+
+### Fixed
+- Serial builds now reject multi-rank launcher configuration before entering MPI initialization
 
 ## [1.2.0] - 2026-06-14
 
