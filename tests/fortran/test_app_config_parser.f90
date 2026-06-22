@@ -9,12 +9,15 @@ program test_app_config_parser
   implicit none
 
   type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg
+  type(app_config) :: multiline_cfg, toml_syntax_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
   character(len=*), parameter :: photo_cfg_path = 'test_app_config_parser_photo_tmp.toml'
   character(len=*), parameter :: large_cfg_path = 'test_app_config_parser_large_tmp.toml'
   character(len=*), parameter :: periodic_cfg_path = 'test_app_config_parser_periodic_tmp.toml'
   character(len=*), parameter :: periodic_oracle_cfg_path = 'test_app_config_parser_periodic_oracle_tmp.toml'
   character(len=*), parameter :: sheath_cfg_path = 'test_app_config_parser_sheath_tmp.toml'
+  character(len=*), parameter :: multiline_cfg_path = 'test_app_config_parser_multiline_tmp.toml'
+  character(len=*), parameter :: toml_syntax_cfg_path = 'test_app_config_parser_toml_syntax_tmp.toml'
 
   call write_config_fixture(cfg_path)
   call write_photo_config_fixture(photo_cfg_path)
@@ -22,8 +25,10 @@ program test_app_config_parser
   call write_periodic_config_fixture(periodic_cfg_path)
   call write_periodic_oracle_config_fixture(periodic_oracle_cfg_path)
   call write_sheath_config_fixture(sheath_cfg_path)
+  call write_multiline_config_fixture(multiline_cfg_path)
+  call write_toml_syntax_config_fixture(toml_syntax_cfg_path)
 
-  call test_init(6)
+  call test_init(8)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -175,12 +180,53 @@ program test_app_config_parser
   call assert_true(trim(sheath_cfg%sim%sheath_ion_drift_mode) == 'normal', 'sheath ion drift mode mismatch')
   call test_end()
 
+  call test_begin('multiline_array_config')
+  call default_app_config(multiline_cfg)
+  call load_app_config(multiline_cfg_path, multiline_cfg)
+  call assert_true(multiline_cfg%sim%has_e0_vector, 'multiline e0 flag mismatch')
+  call assert_allclose_1d(multiline_cfg%sim%e0, [1.0d0, 2.0d0, 3.0d0], 1.0d-12, 'multiline e0 mismatch')
+  call assert_allclose_1d(multiline_cfg%sim%b0, [4.0d0, 5.0d0, 6.0d0], 1.0d-12, 'multiline b0 mismatch')
+  call assert_allclose_1d(multiline_cfg%sim%box_min, [-1.0d0, -2.0d0, -3.0d0], 1.0d-12, 'box_min mismatch')
+  call assert_allclose_1d(multiline_cfg%sim%box_max, [1.0d0, 2.0d0, 3.0d0], 1.0d-12, 'box_max mismatch')
+  call assert_allclose_1d( &
+    multiline_cfg%particle_species(1)%pos_low, [-0.2d0, -0.1d0, 0.0d0], 1.0d-12, 'pos_low mismatch' &
+    )
+  call assert_allclose_1d( &
+    multiline_cfg%particle_species(1)%pos_high, [0.2d0, 0.1d0, 0.5d0], 1.0d-12, 'pos_high mismatch' &
+    )
+  call assert_allclose_1d( &
+    multiline_cfg%particle_species(1)%drift_velocity, [7.0d0, 8.0d0, 9.0d0], 1.0d-12, 'drift_velocity mismatch' &
+    )
+  call assert_allclose_1d(multiline_cfg%templates(1)%center, [0.1d0, 0.2d0, 0.3d0], 1.0d-12, 'center mismatch')
+  call assert_equal_i32(particles_per_batch_from_config(multiline_cfg), 2_i32, 'multiline per-batch mismatch')
+  call test_end()
+
+  call test_begin('toml_native_syntax_config')
+  call default_app_config(toml_syntax_cfg)
+  call load_app_config(toml_syntax_cfg_path, toml_syntax_cfg)
+  call assert_equal_i32(toml_syntax_cfg%sim%batch_count, 1_i32, 'dotted batch_count mismatch')
+  call assert_allclose_1d(toml_syntax_cfg%sim%box_min, [0.0d0, 0.0d0, 0.0d0], 1.0d-12, 'dotted box_min mismatch')
+  call assert_allclose_1d(toml_syntax_cfg%sim%box_max, [1.0d0, 1.0d0, 1.0d0], 1.0d-12, 'dotted box_max mismatch')
+  call assert_equal_i32(toml_syntax_cfg%n_particle_species, 1_i32, 'inline species count mismatch')
+  call assert_equal_i32(toml_syntax_cfg%particle_species(1)%npcls_per_step, 3_i32, 'inline species npcls mismatch')
+  call assert_allclose_1d( &
+    toml_syntax_cfg%particle_species(1)%drift_velocity, [1.0d0, 2.0d0, 3.0d0], 1.0d-12, &
+    'inline species drift_velocity mismatch' &
+    )
+  call assert_equal_i32(toml_syntax_cfg%n_templates, 1_i32, 'inline template count mismatch')
+  call assert_true(trim(toml_syntax_cfg%templates(1)%kind) == 'sphere', 'inline template kind mismatch')
+  call assert_allclose_1d(toml_syntax_cfg%templates(1)%center, [0.1d0, 0.2d0, 0.3d0], 1.0d-12, 'inline center mismatch')
+  call assert_true(trim(toml_syntax_cfg%output_dir) == 'outputs/#literal', 'literal hash in string mismatch')
+  call test_end()
+
   call delete_file_if_exists(cfg_path)
   call delete_file_if_exists(photo_cfg_path)
   call delete_file_if_exists(large_cfg_path)
   call delete_file_if_exists(periodic_cfg_path)
   call delete_file_if_exists(periodic_oracle_cfg_path)
   call delete_file_if_exists(sheath_cfg_path)
+  call delete_file_if_exists(multiline_cfg_path)
+  call delete_file_if_exists(toml_syntax_cfg_path)
 
   call test_summary()
 
@@ -429,5 +475,105 @@ contains
 
     close (u)
   end subroutine write_sheath_config_fixture
+
+  !> 標準 TOML の複数行配列を含む設定を書き出す。
+  subroutine write_multiline_config_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open multiline config fixture'
+
+    write (u, '(a)') '[sim]'
+    write (u, '(a)') 'batch_count = 1'
+    write (u, '(a)') 'use_box = true'
+    write (u, '(a)') 'e0 = ['
+    write (u, '(a)') '  1.0,'
+    write (u, '(a)') '  2.0,'
+    write (u, '(a)') '  3.0,'
+    write (u, '(a)') ']'
+    write (u, '(a)') 'b0 = ['
+    write (u, '(a)') '  4.0,'
+    write (u, '(a)') '  5.0,'
+    write (u, '(a)') '  6.0,'
+    write (u, '(a)') ']'
+    write (u, '(a)') 'box_min = ['
+    write (u, '(a)') '  -1.0,'
+    write (u, '(a)') '  -2.0,'
+    write (u, '(a)') '  -3.0,'
+    write (u, '(a)') ']'
+    write (u, '(a)') 'box_max = ['
+    write (u, '(a)') '  1.0,'
+    write (u, '(a)') '  2.0,'
+    write (u, '(a)') '  3.0,'
+    write (u, '(a)') ']'
+    write (u, '(a)') ''
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'npcls_per_step = 2'
+    write (u, '(a)') 'pos_low = ['
+    write (u, '(a)') '  -0.2,'
+    write (u, '(a)') '  -0.1,'
+    write (u, '(a)') '  0.0,'
+    write (u, '(a)') ']'
+    write (u, '(a)') 'pos_high = ['
+    write (u, '(a)') '  0.2,'
+    write (u, '(a)') '  0.1,'
+    write (u, '(a)') '  0.5,'
+    write (u, '(a)') ']'
+    write (u, '(a)') 'drift_velocity = ['
+    write (u, '(a)') '  7.0,'
+    write (u, '(a)') '  8.0,'
+    write (u, '(a)') '  9.0,'
+    write (u, '(a)') ']'
+    write (u, '(a)') ''
+    write (u, '(a)') '[mesh]'
+    write (u, '(a)') 'mode = "template"'
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "sphere"'
+    write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'radius = 0.2'
+    write (u, '(a)') 'center = ['
+    write (u, '(a)') '  0.1,'
+    write (u, '(a)') '  0.2,'
+    write (u, '(a)') '  0.3,'
+    write (u, '(a)') ']'
+
+    close (u)
+  end subroutine write_multiline_config_fixture
+
+  !> dotted key と inline table 配列を含む標準 TOML 設定を書き出す。
+  subroutine write_toml_syntax_config_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open TOML syntax config fixture'
+
+    write (u, '(a)') 'sim.batch_count = 1'
+    write (u, '(a)') 'sim.use_box = true'
+    write (u, '(a)') 'sim.box_min = [0.0, 0.0, 0.0]'
+    write (u, '(a)') 'sim.box_max = [1.0, 1.0, 1.0]'
+    write (u, '(a)') ''
+    write (u, '(a)') 'particles.species = ['
+    write (u, '(a)') '  {'
+    write (u, '(a)') '    npcls_per_step = 3,'
+    write (u, '(a)') '    drift_velocity = [1.0, 2.0, 3.0],'
+    write (u, '(a)') '  },'
+    write (u, '(a)') ']'
+    write (u, '(a)') ''
+    write (u, '(a)') 'mesh.mode = "template"'
+    write (u, '(a)') 'mesh.templates = ['
+    write (u, '(a)') '  {'
+    write (u, '(a)') '    kind = "sphere",'
+    write (u, '(a)') '    enabled = true,'
+    write (u, '(a)') '    radius = 0.2,'
+    write (u, '(a)') '    center = [0.1, 0.2, 0.3],'
+    write (u, '(a)') '  },'
+    write (u, '(a)') ']'
+    write (u, '(a)') ''
+    write (u, '(a)') 'output.dir = "outputs/#literal"'
+
+    close (u)
+  end subroutine write_toml_syntax_config_fixture
 
 end program test_app_config_parser

@@ -1,4 +1,4 @@
-!> TOML風設定ファイルを `app_config` へ読み込む軽量パーサ。
+!> TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。
 module bem_app_config_parser
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann
@@ -6,6 +6,7 @@ module bem_app_config_parser
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
   use bem_string_utils, only: lower_ascii
+  use tomlf, only: toml_array, toml_error, toml_key, toml_parse, toml_stat, toml_table, get_value, toml_len => len
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -69,61 +70,6 @@ module bem_app_config_parser
       integer, intent(out) :: axis_t1, axis_t2
     end subroutine resolve_face_axes
 
-    !> `key = value` 行を分割し、正規化キーと値文字列を返す。
-    module subroutine split_key_value(line, key, value)
-      character(len=*), intent(in) :: line
-      character(len=*), intent(out) :: key
-      character(len=*), intent(out) :: value
-    end subroutine split_key_value
-
-    !> 文字列表現を倍精度実数へ変換する。
-    module subroutine parse_real(text, out)
-      character(len=*), intent(in) :: text
-      real(dp), intent(out) :: out
-    end subroutine parse_real
-
-    !> 文字列表現を `integer(i32)` へ変換する。
-    module subroutine parse_int(text, out)
-      character(len=*), intent(in) :: text
-      integer(i32), intent(out) :: out
-    end subroutine parse_int
-
-    !> `true/false` 表現を論理値へ変換する。
-    module subroutine parse_logical(text, out)
-      character(len=*), intent(in) :: text
-      logical, intent(out) :: out
-    end subroutine parse_logical
-
-    !> 引用符付き/裸の文字列表現を値へ変換する。
-    module subroutine parse_string(text, out)
-      character(len=*), intent(in) :: text
-      character(len=*), intent(out) :: out
-    end subroutine parse_string
-
-    !> `[x,y,z]` 形式の3成分ベクトル文字列を配列へ変換する。
-    module subroutine parse_real3(text, out)
-      character(len=*), intent(in) :: text
-      real(dp), intent(out) :: out(3)
-    end subroutine parse_real3
-
-    !> 境界条件モード文字列を内部定数へ変換する。
-    module subroutine parse_boundary_mode(text, out)
-      character(len=*), intent(in) :: text
-      integer(i32), intent(out) :: out
-    end subroutine parse_boundary_mode
-
-    !> 行文字列から `#` 以降のコメント部分を除去する。
-    pure module function strip_comment(line) result(out)
-      character(len=*), intent(in) :: line
-      character(len=len(line)) :: out
-    end function strip_comment
-
-    !> 文字列が指定接尾辞で終わるかを判定する。
-    pure module function ends_with(s, suffix) result(ends_it)
-      character(len=*), intent(in) :: s
-      character(len=*), intent(in) :: suffix
-      logical :: ends_it
-    end function ends_with
   end interface
 
 contains
@@ -135,28 +81,41 @@ contains
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
 
-    if (.not. ends_with(lower_ascii(trim(path)), '.toml')) then
+    if (.not. has_suffix(lower_ascii(trim(path)), '.toml')) then
       error stop 'Only TOML config is supported. Please pass a .toml file.'
     end if
     call load_toml_config(path, cfg)
   end subroutine load_app_config
 
-  !> 最小限の TOML セクションと `key = value` を解釈して設定へ反映する。
+  !> 文字列が指定した接尾辞で終わるかを判定する。
+  pure logical function has_suffix(s, suffix)
+    character(len=*), intent(in) :: s
+    character(len=*), intent(in) :: suffix
+    integer :: ls, lf
+
+    ls = len_trim(s)
+    lf = len_trim(suffix)
+    if (lf > ls) then
+      has_suffix = .false.
+    else
+      has_suffix = (s(ls - lf + 1:ls) == suffix(1:lf))
+    end if
+  end function has_suffix
+
+  !> TOML 文書を `toml-f` で解釈して設定へ反映する。
   !! 現在は `sim` / `mesh` / `output` / `[[mesh.templates]]` / `[[particles.species]]` を扱う。
   !! @param[in] path 読み込むTOMLファイルパス。
   !! @param[inout] cfg 読み込み結果で更新するアプリ設定。
   subroutine load_toml_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
-    integer :: u, ios, i, axis, t_idx, s_idx
+    integer :: u, ios, i, axis
     integer(i32) :: per_batch_particles
     integer(i32) :: n_periodic_axes
     logical :: has_dynamic_source_species
-    character(len=512) :: raw, line, section
+    type(toml_table), allocatable :: document
+    type(toml_error), allocatable :: parse_error
 
-    t_idx = 0
-    s_idx = 0
-    section = ''
     if (.not. allocated(cfg%templates)) then
       allocate (cfg%templates(max_templates))
       cfg%n_templates = 0_i32
@@ -169,54 +128,15 @@ contains
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Could not open TOML file.'
-
-    do
-      read (u, '(A)', iostat=ios) raw
-      if (ios /= 0) exit
-      line = strip_comment(trim(raw))
-      if (len_trim(line) == 0) cycle
-
-      if (line(1:1) == '[') then
-        ! 配列テーブルは専用カウンタを進める。
-        if (trim(line) == '[[mesh.templates]]') then
-          t_idx = t_idx + 1
-          call ensure_template_capacity(cfg, t_idx)
-          if (int(t_idx, i32) > cfg%n_templates) cfg%n_templates = int(t_idx, i32)
-          cfg%templates(t_idx)%enabled = .true.
-          section = 'mesh.template'
-        else if (trim(line) == '[[particles.species]]') then
-          s_idx = s_idx + 1
-          call ensure_particle_species_capacity(cfg, s_idx)
-          if (int(s_idx, i32) > cfg%n_particle_species) cfg%n_particle_species = int(s_idx, i32)
-          cfg%particle_species(s_idx) = species_from_defaults()
-          cfg%particle_species(s_idx)%enabled = .true.
-          section = 'particles.species'
-        else
-          section = lower_ascii(trim(adjustl(line(2:len_trim(line) - 1))))
-        end if
-        cycle
-      end if
-
-      select case (trim(section))
-      case ('')
-        error stop 'Found key-value pair before any TOML section.'
-      case ('sim')
-        call apply_sim_kv(cfg, line)
-      case ('particles')
-        call apply_particles_kv(line)
-      case ('particles.species')
-        call apply_particles_species_kv(cfg%particle_species(s_idx), line)
-      case ('mesh')
-        call apply_mesh_kv(cfg, line)
-      case ('mesh.template')
-        call apply_template_kv(cfg%templates(t_idx), line)
-      case ('output')
-        call apply_output_kv(cfg, line)
-      case default
-        error stop 'Unknown TOML section: ['//trim(section)//']'
-      end select
-    end do
+    call toml_parse(document, u, parse_error)
     close (u)
+    if (allocated(parse_error)) then
+      error stop 'Failed to parse TOML config: '//parse_error%message
+    end if
+    if (.not. allocated(document)) error stop 'Failed to parse TOML config.'
+
+    call apply_toml_document(cfg, document)
+    call document%destroy
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
     if (.not. ieee_is_finite(cfg%sim%dt) .or. cfg%sim%dt <= 0.0d0) then
@@ -241,10 +161,8 @@ contains
         error stop 'sim.box_max must be greater than sim.box_min on all axes when sim.use_box=true.'
       end if
     end if
-    if (s_idx <= 0) error stop 'At least one [[particles.species]] entry is required.'
-    if (t_idx > 0) cfg%n_templates = int(t_idx, i32)
+    if (cfg%n_particle_species <= 0_i32) error stop 'At least one [[particles.species]] entry is required.'
 
-    cfg%n_particle_species = int(s_idx, i32)
     cfg%mesh_mode = lower_ascii(trim(cfg%mesh_mode))
     select case (trim(cfg%mesh_mode))
     case ('auto', 'obj', 'template')
@@ -428,7 +346,7 @@ contains
     call resolve_batch_duration(cfg)
     per_batch_particles = 0_i32
     has_dynamic_source_species = .false.
-    do i = 1, s_idx
+    do i = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(i)%enabled) cycle
 
       cfg%particle_species(i)%source_mode = lower_ascii(trim(cfg%particle_species(i)%source_mode))
@@ -519,6 +437,146 @@ contains
     cfg%n_particles = cfg%sim%batch_count*per_batch_particles
   end subroutine load_toml_config
 
+  !> `toml-f` のルートテーブルから既知セクションを読み込む。
+  subroutine apply_toml_document(cfg, document)
+    type(app_config), intent(inout) :: cfg
+    type(toml_table), intent(inout) :: document
+    type(toml_key), allocatable :: keys(:)
+    type(toml_table), pointer :: section
+    integer :: ikey, stat
+    character(len=:), allocatable :: key_name
+
+    call document%get_keys(keys)
+    do ikey = 1, size(keys)
+      key_name = lower_ascii(trim(keys(ikey)%key))
+      nullify (section)
+      call get_value(document, keys(ikey), section, requested=.false., stat=stat)
+      call require_toml_success(stat, '['//trim(keys(ikey)%key)//']')
+      select case (trim(key_name))
+      case ('sim')
+        if (.not. associated(section)) error stop 'TOML section [sim] must be a table.'
+        call apply_sim_toml_table(cfg, section)
+      case ('particles')
+        if (.not. associated(section)) error stop 'TOML section [particles] must be a table.'
+        call apply_particles_toml_table(cfg, section)
+      case ('mesh')
+        if (.not. associated(section)) error stop 'TOML section [mesh] must be a table.'
+        call apply_mesh_toml_table(cfg, section)
+      case ('output')
+        if (.not. associated(section)) error stop 'TOML section [output] must be a table.'
+        call apply_output_toml_table(cfg, section)
+      case default
+        error stop 'Unknown TOML section or top-level key: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_toml_document
+
+  !> `toml-f` の status を BEACH の停止メッセージへ変換する。
+  subroutine require_toml_success(stat, context)
+    integer, intent(in) :: stat
+    character(len=*), intent(in) :: context
+
+    if (stat /= toml_stat%success) then
+      error stop 'Invalid TOML value for '//trim(context)//'.'
+    end if
+  end subroutine require_toml_success
+
+  !> TOML の数値キーを倍精度実数として読み込む。
+  subroutine get_toml_real(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    real(dp), intent(out) :: value
+    character(len=*), intent(in) :: context
+    integer :: stat
+
+    call get_value(table, key, value, stat=stat)
+    call require_toml_success(stat, context)
+  end subroutine get_toml_real
+
+  !> TOML の整数キーを `integer(i32)` として読み込む。
+  subroutine get_toml_int(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    integer(i32), intent(out) :: value
+    character(len=*), intent(in) :: context
+    integer :: stat, tmp
+
+    call get_value(table, key, tmp, stat=stat)
+    call require_toml_success(stat, context)
+    value = int(tmp, i32)
+  end subroutine get_toml_int
+
+  !> TOML の論理値キーを読み込む。
+  subroutine get_toml_logical(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    logical, intent(out) :: value
+    character(len=*), intent(in) :: context
+    integer :: stat
+
+    call get_value(table, key, value, stat=stat)
+    call require_toml_success(stat, context)
+  end subroutine get_toml_logical
+
+  !> TOML の文字列キーを固定長文字列へ読み込む。
+  subroutine get_toml_string(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    character(len=*), intent(out) :: value
+    character(len=*), intent(in) :: context
+    character(len=:), allocatable :: tmp
+    integer :: stat
+
+    call get_value(table, key, tmp, stat=stat)
+    call require_toml_success(stat, context)
+    if (.not. allocated(tmp)) error stop 'Invalid TOML value for '//trim(context)//'.'
+    value = ''
+    value = trim(tmp)
+  end subroutine get_toml_string
+
+  !> TOML の3成分数値配列キーを読み込む。
+  subroutine get_toml_real3(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    real(dp), intent(out) :: value(3)
+    character(len=*), intent(in) :: context
+    type(toml_array), pointer :: array
+    integer :: i, stat
+
+    nullify (array)
+    call get_value(table, key, array, stat=stat)
+    call require_toml_success(stat, context)
+    if (.not. associated(array)) error stop 'Invalid TOML value for '//trim(context)//'.'
+    if (toml_len(array) /= 3) then
+      error stop trim(context)//' must be an array of 3 numbers.'
+    end if
+    do i = 1, 3
+      call get_value(array, i, value(i), stat=stat)
+      call require_toml_success(stat, context)
+    end do
+  end subroutine get_toml_real3
+
+  !> TOML の文字列キーを境界条件モードへ変換する。
+  subroutine get_toml_boundary_mode(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    integer(i32), intent(out) :: value
+    character(len=*), intent(in) :: context
+    character(len=64) :: mode
+
+    call get_toml_string(table, key, mode, context)
+    select case (trim(lower_ascii(mode)))
+    case ('open', 'outflow', 'escape')
+      value = bc_open
+    case ('reflect', 'reflection')
+      value = bc_reflect
+    case ('periodic')
+      value = bc_periodic
+    case default
+      error stop 'Unknown boundary condition mode in [sim].'
+    end select
+  end subroutine get_toml_boundary_mode
+
   !> `[[mesh.templates]]` の読み込み数に応じてテンプレート配列容量を拡張する。
   !! @param[inout] cfg 容量拡張対象のアプリ設定。
   !! @param[in] required_size 必要最小要素数。
@@ -566,343 +624,432 @@ contains
     call move_alloc(grown, cfg%particle_species)
   end subroutine ensure_particle_species_capacity
 
-  !> `[sim]` セクションのキーを `sim_config` へ適用する。
-  !! @param[inout] cfg 更新対象のアプリ設定。
-  !! @param[in] line `key = value` 形式の設定行。
-  subroutine apply_sim_kv(cfg, line)
+  !> `[sim]` TOML テーブルを `sim_config` へ適用する。
+  subroutine apply_sim_toml_table(cfg, table)
     type(app_config), intent(inout) :: cfg
-    character(len=*), intent(in) :: line
-    character(len=64) :: k
-    character(len=256) :: v
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
 
-    call split_key_value(line, k, v)
-    select case (trim(k))
-    case ('dt')
-      call parse_real(v, cfg%sim%dt)
-    case ('rng_seed')
-      call parse_int(v, cfg%sim%rng_seed)
-    case ('batch_count')
-      call parse_int(v, cfg%sim%batch_count)
-    case ('batch_duration')
-      call parse_real(v, cfg%sim%batch_duration)
-      cfg%sim%has_batch_duration = .true.
-    case ('batch_duration_step')
-      call parse_real(v, cfg%sim%batch_duration_step)
-      cfg%sim%has_batch_duration_step = .true.
-    case ('max_step')
-      call parse_int(v, cfg%sim%max_step)
-    case ('tol_rel')
-      call parse_real(v, cfg%sim%tol_rel)
-    case ('q_floor')
-      call parse_real(v, cfg%sim%q_floor)
-    case ('softening')
-      call parse_real(v, cfg%sim%softening)
-    case ('field_solver')
-      call parse_string(v, cfg%sim%field_solver)
-      cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
-    case ('field_normalization')
-      call parse_string(v, cfg%sim%field_normalization)
-      cfg%sim%field_normalization = lower_ascii(trim(cfg%sim%field_normalization))
-    case ('field_length_scale')
-      call parse_real(v, cfg%sim%field_length_scale)
-    case ('field_bc_mode')
-      call parse_string(v, cfg%sim%field_bc_mode)
-      cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))
-    case ('field_periodic_image_layers')
-      call parse_int(v, cfg%sim%field_periodic_image_layers)
-    case ('field_periodic_far_correction')
-      call parse_string(v, cfg%sim%field_periodic_far_correction)
-      cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
-    case ('field_periodic_ewald_alpha')
-      call parse_real(v, cfg%sim%field_periodic_ewald_alpha)
-    case ('field_periodic_ewald_layers')
-      call parse_int(v, cfg%sim%field_periodic_ewald_layers)
-    case ('tree_theta')
-      call parse_real(v, cfg%sim%tree_theta)
-      cfg%sim%has_tree_theta = .true.
-    case ('tree_leaf_max')
-      call parse_int(v, cfg%sim%tree_leaf_max)
-      cfg%sim%has_tree_leaf_max = .true.
-    case ('tree_min_nelem')
-      call parse_int(v, cfg%sim%tree_min_nelem)
-    case ('e0')
-      call parse_real3(v, cfg%sim%e0)
-      cfg%sim%has_e0_vector = .true.
-    case ('e0_abs')
-      call parse_real(v, cfg%sim%e0_abs)
-      cfg%sim%has_e0_abs = .true.
-    case ('e0_phi_xy_deg')
-      call parse_real(v, cfg%sim%e0_phi_xy_deg)
-      cfg%sim%has_e0_phi_xy_deg = .true.
-    case ('e0_phi_z_deg')
-      call parse_real(v, cfg%sim%e0_phi_z_deg)
-      cfg%sim%has_e0_phi_z_deg = .true.
-    case ('b0')
-      call parse_real3(v, cfg%sim%b0)
-    case ('reservoir_potential_model')
-      call parse_string(v, cfg%sim%reservoir_potential_model)
-      cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
-    case ('phi_infty')
-      call parse_real(v, cfg%sim%phi_infty)
-    case ('injection_face_phi_grid_n')
-      call parse_int(v, cfg%sim%injection_face_phi_grid_n)
-    case ('raycast_max_bounce')
-      call parse_int(v, cfg%sim%raycast_max_bounce)
-    case ('sheath_injection_model')
-      call parse_string(v, cfg%sim%sheath_injection_model)
-      cfg%sim%sheath_injection_model = lower_ascii(trim(cfg%sim%sheath_injection_model))
-    case ('sheath_alpha_deg')
-      call parse_real(v, cfg%sim%sheath_alpha_deg)
-    case ('sheath_photoelectron_ref_density_cm3')
-      call parse_real(v, cfg%sim%sheath_photoelectron_ref_density_cm3)
-    case ('sheath_reference_coordinate')
-      call parse_real(v, cfg%sim%sheath_reference_coordinate)
-      cfg%sim%has_sheath_reference_coordinate = .true.
-    case ('sheath_electron_drift_mode')
-      call parse_string(v, cfg%sim%sheath_electron_drift_mode)
-      cfg%sim%sheath_electron_drift_mode = lower_ascii(trim(cfg%sim%sheath_electron_drift_mode))
-    case ('sheath_ion_drift_mode')
-      call parse_string(v, cfg%sim%sheath_ion_drift_mode)
-      cfg%sim%sheath_ion_drift_mode = lower_ascii(trim(cfg%sim%sheath_ion_drift_mode))
-    case ('use_box')
-      call parse_logical(v, cfg%sim%use_box)
-    case ('box_min')
-      call parse_real3(v, cfg%sim%box_min)
-    case ('box_max')
-      call parse_real3(v, cfg%sim%box_max)
-    case ('bc_x_low')
-      call parse_boundary_mode(v, cfg%sim%bc_low(1))
-    case ('bc_x_high')
-      call parse_boundary_mode(v, cfg%sim%bc_high(1))
-    case ('bc_y_low')
-      call parse_boundary_mode(v, cfg%sim%bc_low(2))
-    case ('bc_y_high')
-      call parse_boundary_mode(v, cfg%sim%bc_high(2))
-    case ('bc_z_low')
-      call parse_boundary_mode(v, cfg%sim%bc_low(3))
-    case ('bc_z_high')
-      call parse_boundary_mode(v, cfg%sim%bc_high(3))
-    case default
-      error stop 'Unknown key in [sim]: '//trim(k)
-    end select
-  end subroutine apply_sim_kv
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('dt')
+        call get_toml_real(table, keys(ikey), cfg%sim%dt, 'sim.dt')
+      case ('rng_seed')
+        call get_toml_int(table, keys(ikey), cfg%sim%rng_seed, 'sim.rng_seed')
+      case ('batch_count')
+        call get_toml_int(table, keys(ikey), cfg%sim%batch_count, 'sim.batch_count')
+      case ('batch_duration')
+        call get_toml_real(table, keys(ikey), cfg%sim%batch_duration, 'sim.batch_duration')
+        cfg%sim%has_batch_duration = .true.
+      case ('batch_duration_step')
+        call get_toml_real(table, keys(ikey), cfg%sim%batch_duration_step, 'sim.batch_duration_step')
+        cfg%sim%has_batch_duration_step = .true.
+      case ('max_step')
+        call get_toml_int(table, keys(ikey), cfg%sim%max_step, 'sim.max_step')
+      case ('tol_rel')
+        call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'sim.tol_rel')
+      case ('q_floor')
+        call get_toml_real(table, keys(ikey), cfg%sim%q_floor, 'sim.q_floor')
+      case ('softening')
+        call get_toml_real(table, keys(ikey), cfg%sim%softening, 'sim.softening')
+      case ('field_solver')
+        call get_toml_string(table, keys(ikey), cfg%sim%field_solver, 'sim.field_solver')
+        cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
+      case ('field_normalization')
+        call get_toml_string(table, keys(ikey), cfg%sim%field_normalization, 'sim.field_normalization')
+        cfg%sim%field_normalization = lower_ascii(trim(cfg%sim%field_normalization))
+      case ('field_length_scale')
+        call get_toml_real(table, keys(ikey), cfg%sim%field_length_scale, 'sim.field_length_scale')
+      case ('field_bc_mode')
+        call get_toml_string(table, keys(ikey), cfg%sim%field_bc_mode, 'sim.field_bc_mode')
+        cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))
+      case ('field_periodic_image_layers')
+        call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_image_layers, 'sim.field_periodic_image_layers')
+      case ('field_periodic_far_correction')
+        call get_toml_string( &
+          table, keys(ikey), cfg%sim%field_periodic_far_correction, 'sim.field_periodic_far_correction' &
+          )
+        cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
+      case ('field_periodic_ewald_alpha')
+        call get_toml_real(table, keys(ikey), cfg%sim%field_periodic_ewald_alpha, 'sim.field_periodic_ewald_alpha')
+      case ('field_periodic_ewald_layers')
+        call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_ewald_layers, 'sim.field_periodic_ewald_layers')
+      case ('tree_theta')
+        call get_toml_real(table, keys(ikey), cfg%sim%tree_theta, 'sim.tree_theta')
+        cfg%sim%has_tree_theta = .true.
+      case ('tree_leaf_max')
+        call get_toml_int(table, keys(ikey), cfg%sim%tree_leaf_max, 'sim.tree_leaf_max')
+        cfg%sim%has_tree_leaf_max = .true.
+      case ('tree_min_nelem')
+        call get_toml_int(table, keys(ikey), cfg%sim%tree_min_nelem, 'sim.tree_min_nelem')
+      case ('e0')
+        call get_toml_real3(table, keys(ikey), cfg%sim%e0, 'sim.e0')
+        cfg%sim%has_e0_vector = .true.
+      case ('e0_abs')
+        call get_toml_real(table, keys(ikey), cfg%sim%e0_abs, 'sim.e0_abs')
+        cfg%sim%has_e0_abs = .true.
+      case ('e0_phi_xy_deg')
+        call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_xy_deg, 'sim.e0_phi_xy_deg')
+        cfg%sim%has_e0_phi_xy_deg = .true.
+      case ('e0_phi_z_deg')
+        call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_z_deg, 'sim.e0_phi_z_deg')
+        cfg%sim%has_e0_phi_z_deg = .true.
+      case ('b0')
+        call get_toml_real3(table, keys(ikey), cfg%sim%b0, 'sim.b0')
+      case ('reservoir_potential_model')
+        call get_toml_string(table, keys(ikey), cfg%sim%reservoir_potential_model, 'sim.reservoir_potential_model')
+        cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
+      case ('phi_infty')
+        call get_toml_real(table, keys(ikey), cfg%sim%phi_infty, 'sim.phi_infty')
+      case ('injection_face_phi_grid_n')
+        call get_toml_int(table, keys(ikey), cfg%sim%injection_face_phi_grid_n, 'sim.injection_face_phi_grid_n')
+      case ('raycast_max_bounce')
+        call get_toml_int(table, keys(ikey), cfg%sim%raycast_max_bounce, 'sim.raycast_max_bounce')
+      case ('sheath_injection_model')
+        call get_toml_string(table, keys(ikey), cfg%sim%sheath_injection_model, 'sim.sheath_injection_model')
+        cfg%sim%sheath_injection_model = lower_ascii(trim(cfg%sim%sheath_injection_model))
+      case ('sheath_alpha_deg')
+        call get_toml_real(table, keys(ikey), cfg%sim%sheath_alpha_deg, 'sim.sheath_alpha_deg')
+      case ('sheath_photoelectron_ref_density_cm3')
+        call get_toml_real( &
+          table, keys(ikey), cfg%sim%sheath_photoelectron_ref_density_cm3, &
+          'sim.sheath_photoelectron_ref_density_cm3' &
+          )
+      case ('sheath_reference_coordinate')
+        call get_toml_real(table, keys(ikey), cfg%sim%sheath_reference_coordinate, 'sim.sheath_reference_coordinate')
+        cfg%sim%has_sheath_reference_coordinate = .true.
+      case ('sheath_electron_drift_mode')
+        call get_toml_string(table, keys(ikey), cfg%sim%sheath_electron_drift_mode, 'sim.sheath_electron_drift_mode')
+        cfg%sim%sheath_electron_drift_mode = lower_ascii(trim(cfg%sim%sheath_electron_drift_mode))
+      case ('sheath_ion_drift_mode')
+        call get_toml_string(table, keys(ikey), cfg%sim%sheath_ion_drift_mode, 'sim.sheath_ion_drift_mode')
+        cfg%sim%sheath_ion_drift_mode = lower_ascii(trim(cfg%sim%sheath_ion_drift_mode))
+      case ('use_box')
+        call get_toml_logical(table, keys(ikey), cfg%sim%use_box, 'sim.use_box')
+      case ('box_min')
+        call get_toml_real3(table, keys(ikey), cfg%sim%box_min, 'sim.box_min')
+      case ('box_max')
+        call get_toml_real3(table, keys(ikey), cfg%sim%box_max, 'sim.box_max')
+      case ('bc_x_low')
+        call get_toml_boundary_mode(table, keys(ikey), cfg%sim%bc_low(1), 'sim.bc_x_low')
+      case ('bc_x_high')
+        call get_toml_boundary_mode(table, keys(ikey), cfg%sim%bc_high(1), 'sim.bc_x_high')
+      case ('bc_y_low')
+        call get_toml_boundary_mode(table, keys(ikey), cfg%sim%bc_low(2), 'sim.bc_y_low')
+      case ('bc_y_high')
+        call get_toml_boundary_mode(table, keys(ikey), cfg%sim%bc_high(2), 'sim.bc_y_high')
+      case ('bc_z_low')
+        call get_toml_boundary_mode(table, keys(ikey), cfg%sim%bc_low(3), 'sim.bc_z_low')
+      case ('bc_z_high')
+        call get_toml_boundary_mode(table, keys(ikey), cfg%sim%bc_high(3), 'sim.bc_z_high')
+      case default
+        error stop 'Unknown key in [sim]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_sim_toml_table
 
-  !> `[particles]` セクションのキーを検証する。
-  !! @param[in] line `key = value` 形式の設定行。
-  subroutine apply_particles_kv(line)
-    character(len=*), intent(in) :: line
-    character(len=64) :: k
-    character(len=256) :: v
+  !> `[particles]` TOML テーブルを適用する。
+  subroutine apply_particles_toml_table(cfg, table)
+    type(app_config), intent(inout) :: cfg
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
 
-    call split_key_value(line, k, v)
-    error stop 'Unknown key in [particles]: '//trim(k)
-  end subroutine apply_particles_kv
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('species')
+        call read_particle_species_array(cfg, table, keys(ikey))
+      case default
+        error stop 'Unknown key in [particles]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_particles_toml_table
 
-  !> `[[particles.species]]` のキーを粒子種設定へ適用する。
-  !! @param[inout] spec 更新対象の粒子種設定。
-  !! @param[in] line `key = value` 形式の設定行。
-  subroutine apply_particles_species_kv(spec, line)
+  !> `[[particles.species]]` の配列テーブルを読み込む。
+  subroutine read_particle_species_array(cfg, table, key)
+    type(app_config), intent(inout) :: cfg
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    type(toml_array), pointer :: array
+    type(toml_table), pointer :: child
+    integer :: ispec, n, stat
+
+    nullify (array)
+    call get_value(table, key, array, stat=stat)
+    call require_toml_success(stat, 'particles.species')
+    if (.not. associated(array)) error stop 'particles.species must be an array of tables.'
+
+    n = toml_len(array)
+    call ensure_particle_species_capacity(cfg, n)
+    if (n > 0) cfg%particle_species(1:n) = particle_species_spec()
+    do ispec = 1, n
+      nullify (child)
+      call get_value(array, ispec, child, stat=stat)
+      call require_toml_success(stat, 'particles.species entry')
+      if (.not. associated(child)) error stop 'particles.species entries must be tables.'
+      cfg%particle_species(ispec) = species_from_defaults()
+      cfg%particle_species(ispec)%enabled = .true.
+      call apply_particles_species_toml_table(cfg%particle_species(ispec), child)
+    end do
+    cfg%n_particle_species = int(n, i32)
+  end subroutine read_particle_species_array
+
+  !> `[[particles.species]]` の1要素を粒子種設定へ適用する。
+  subroutine apply_particles_species_toml_table(spec, table)
     type(particle_species_spec), intent(inout) :: spec
-    character(len=*), intent(in) :: line
-    character(len=64) :: k
-    character(len=256) :: v
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
 
-    call split_key_value(line, k, v)
-    select case (trim(k))
-    case ('enabled')
-      call parse_logical(v, spec%enabled)
-    case ('npcls_per_step')
-      call parse_int(v, spec%npcls_per_step)
-      spec%has_npcls_per_step = .true.
-    case ('source_mode')
-      call parse_string(v, spec%source_mode)
-      spec%source_mode = lower_ascii(trim(spec%source_mode))
-    case ('number_density_cm3')
-      call parse_real(v, spec%number_density_cm3)
-      spec%has_number_density_cm3 = .true.
-    case ('number_density_m3')
-      call parse_real(v, spec%number_density_m3)
-      spec%has_number_density_m3 = .true.
-    case ('q_particle')
-      call parse_real(v, spec%q_particle)
-    case ('m_particle')
-      call parse_real(v, spec%m_particle)
-    case ('w_particle')
-      call parse_real(v, spec%w_particle)
-      spec%has_w_particle = .true.
-    case ('target_macro_particles_per_batch')
-      call parse_int(v, spec%target_macro_particles_per_batch)
-      spec%has_target_macro_particles_per_batch = .true.
-    case ('pos_low')
-      call parse_real3(v, spec%pos_low)
-    case ('pos_high')
-      call parse_real3(v, spec%pos_high)
-    case ('velocity_distribution')
-      call parse_string(v, spec%velocity_distribution)
-      spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
-    case ('velocity_grid_path')
-      call parse_string(v, spec%velocity_grid_path)
-    case ('velocity_grid_pdf_kind')
-      call parse_string(v, spec%velocity_grid_pdf_kind)
-      spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
-    case ('velocity_grid_sampling')
-      call parse_string(v, spec%velocity_grid_sampling)
-      spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
-    case ('particle_flux_m2_s')
-      call parse_real(v, spec%particle_flux_m2_s)
-      spec%has_particle_flux_m2_s = .true.
-    case ('current_density_a_m2')
-      call parse_real(v, spec%current_density_a_m2)
-      spec%has_current_density_a_m2 = .true.
-    case ('drift_velocity')
-      call parse_real3(v, spec%drift_velocity)
-    case ('temperature_k')
-      call parse_real(v, spec%temperature_k)
-      spec%has_temperature_k = .true.
-    case ('temperature_ev')
-      call parse_real(v, spec%temperature_ev)
-      spec%has_temperature_ev = .true.
-    case ('emit_current_density_a_m2')
-      call parse_real(v, spec%emit_current_density_a_m2)
-    case ('rays_per_batch')
-      call parse_int(v, spec%rays_per_batch)
-    case ('deposit_opposite_charge_on_emit')
-      call parse_logical(v, spec%deposit_opposite_charge_on_emit)
-      spec%has_deposit_opposite_charge_on_emit = .true.
-    case ('normal_drift_speed')
-      call parse_real(v, spec%normal_drift_speed)
-    case ('ray_direction')
-      call parse_real3(v, spec%ray_direction)
-      spec%has_ray_direction = .true.
-    case ('inject_face')
-      call parse_string(v, spec%inject_face)
-      spec%inject_face = lower_ascii(trim(spec%inject_face))
-    case default
-      error stop 'Unknown key in [[particles.species]]: '//trim(k)
-    end select
-  end subroutine apply_particles_species_kv
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('enabled')
+        call get_toml_logical(table, keys(ikey), spec%enabled, 'particles.species.enabled')
+      case ('npcls_per_step')
+        call get_toml_int(table, keys(ikey), spec%npcls_per_step, 'particles.species.npcls_per_step')
+        spec%has_npcls_per_step = .true.
+      case ('source_mode')
+        call get_toml_string(table, keys(ikey), spec%source_mode, 'particles.species.source_mode')
+        spec%source_mode = lower_ascii(trim(spec%source_mode))
+      case ('number_density_cm3')
+        call get_toml_real(table, keys(ikey), spec%number_density_cm3, 'particles.species.number_density_cm3')
+        spec%has_number_density_cm3 = .true.
+      case ('number_density_m3')
+        call get_toml_real(table, keys(ikey), spec%number_density_m3, 'particles.species.number_density_m3')
+        spec%has_number_density_m3 = .true.
+      case ('q_particle')
+        call get_toml_real(table, keys(ikey), spec%q_particle, 'particles.species.q_particle')
+      case ('m_particle')
+        call get_toml_real(table, keys(ikey), spec%m_particle, 'particles.species.m_particle')
+      case ('w_particle')
+        call get_toml_real(table, keys(ikey), spec%w_particle, 'particles.species.w_particle')
+        spec%has_w_particle = .true.
+      case ('target_macro_particles_per_batch')
+        call get_toml_int( &
+          table, keys(ikey), spec%target_macro_particles_per_batch, &
+          'particles.species.target_macro_particles_per_batch' &
+          )
+        spec%has_target_macro_particles_per_batch = .true.
+      case ('pos_low')
+        call get_toml_real3(table, keys(ikey), spec%pos_low, 'particles.species.pos_low')
+      case ('pos_high')
+        call get_toml_real3(table, keys(ikey), spec%pos_high, 'particles.species.pos_high')
+      case ('velocity_distribution')
+        call get_toml_string(table, keys(ikey), spec%velocity_distribution, 'particles.species.velocity_distribution')
+        spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
+      case ('velocity_grid_path')
+        call get_toml_string(table, keys(ikey), spec%velocity_grid_path, 'particles.species.velocity_grid_path')
+      case ('velocity_grid_pdf_kind')
+        call get_toml_string(table, keys(ikey), spec%velocity_grid_pdf_kind, 'particles.species.velocity_grid_pdf_kind')
+        spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
+      case ('velocity_grid_sampling')
+        call get_toml_string(table, keys(ikey), spec%velocity_grid_sampling, 'particles.species.velocity_grid_sampling')
+        spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
+      case ('particle_flux_m2_s')
+        call get_toml_real(table, keys(ikey), spec%particle_flux_m2_s, 'particles.species.particle_flux_m2_s')
+        spec%has_particle_flux_m2_s = .true.
+      case ('current_density_a_m2')
+        call get_toml_real(table, keys(ikey), spec%current_density_a_m2, 'particles.species.current_density_a_m2')
+        spec%has_current_density_a_m2 = .true.
+      case ('drift_velocity')
+        call get_toml_real3(table, keys(ikey), spec%drift_velocity, 'particles.species.drift_velocity')
+      case ('temperature_k')
+        call get_toml_real(table, keys(ikey), spec%temperature_k, 'particles.species.temperature_k')
+        spec%has_temperature_k = .true.
+      case ('temperature_ev')
+        call get_toml_real(table, keys(ikey), spec%temperature_ev, 'particles.species.temperature_ev')
+        spec%has_temperature_ev = .true.
+      case ('emit_current_density_a_m2')
+        call get_toml_real(table, keys(ikey), spec%emit_current_density_a_m2, 'particles.species.emit_current_density_a_m2')
+      case ('rays_per_batch')
+        call get_toml_int(table, keys(ikey), spec%rays_per_batch, 'particles.species.rays_per_batch')
+      case ('deposit_opposite_charge_on_emit')
+        call get_toml_logical( &
+          table, keys(ikey), spec%deposit_opposite_charge_on_emit, &
+          'particles.species.deposit_opposite_charge_on_emit' &
+          )
+        spec%has_deposit_opposite_charge_on_emit = .true.
+      case ('normal_drift_speed')
+        call get_toml_real(table, keys(ikey), spec%normal_drift_speed, 'particles.species.normal_drift_speed')
+      case ('ray_direction')
+        call get_toml_real3(table, keys(ikey), spec%ray_direction, 'particles.species.ray_direction')
+        spec%has_ray_direction = .true.
+      case ('inject_face')
+        call get_toml_string(table, keys(ikey), spec%inject_face, 'particles.species.inject_face')
+        spec%inject_face = lower_ascii(trim(spec%inject_face))
+      case default
+        error stop 'Unknown key in [[particles.species]]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_particles_species_toml_table
 
-  !> `[mesh]` セクションのキーをメッシュ入力設定へ適用する。
-  !! @param[inout] cfg 更新対象のアプリ設定。
-  !! @param[in] line `key = value` 形式の設定行。
-  subroutine apply_mesh_kv(cfg, line)
+  !> `[mesh]` TOML テーブルをメッシュ入力設定へ適用する。
+  subroutine apply_mesh_toml_table(cfg, table)
     type(app_config), intent(inout) :: cfg
-    character(len=*), intent(in) :: line
-    character(len=64) :: k
-    character(len=256) :: v
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
 
-    call split_key_value(line, k, v)
-    select case (trim(k))
-    case ('mode')
-      call parse_string(v, cfg%mesh_mode)
-    case ('obj_path')
-      call parse_string(v, cfg%obj_path)
-    case ('surface_model')
-      call parse_string(v, cfg%mesh_surface_model)
-      cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
-    case ('epsilon_r')
-      call parse_real(v, cfg%mesh_epsilon_r)
-    case ('obj_scale')
-      call parse_real(v, cfg%obj_scale)
-    case ('obj_rotation')
-      call parse_real3(v, cfg%obj_rotation)
-    case ('obj_offset')
-      call parse_real3(v, cfg%obj_offset)
-    case default
-      error stop 'Unknown key in [mesh]: '//trim(k)
-    end select
-  end subroutine apply_mesh_kv
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('mode')
+        call get_toml_string(table, keys(ikey), cfg%mesh_mode, 'mesh.mode')
+      case ('obj_path')
+        call get_toml_string(table, keys(ikey), cfg%obj_path, 'mesh.obj_path')
+      case ('surface_model')
+        call get_toml_string(table, keys(ikey), cfg%mesh_surface_model, 'mesh.surface_model')
+        cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
+      case ('epsilon_r')
+        call get_toml_real(table, keys(ikey), cfg%mesh_epsilon_r, 'mesh.epsilon_r')
+      case ('obj_scale')
+        call get_toml_real(table, keys(ikey), cfg%obj_scale, 'mesh.obj_scale')
+      case ('obj_rotation')
+        call get_toml_real3(table, keys(ikey), cfg%obj_rotation, 'mesh.obj_rotation')
+      case ('obj_offset')
+        call get_toml_real3(table, keys(ikey), cfg%obj_offset, 'mesh.obj_offset')
+      case ('templates')
+        call read_template_array(cfg, table, keys(ikey))
+      case default
+        error stop 'Unknown key in [mesh]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_mesh_toml_table
 
-  !> `[[mesh.templates]]` のキーをテンプレート設定へ適用する。
-  !! @param[inout] spec 更新対象のテンプレート設定。
-  !! @param[in] line `key = value` 形式の設定行。
-  subroutine apply_template_kv(spec, line)
+  !> `[[mesh.templates]]` の配列テーブルを読み込む。
+  subroutine read_template_array(cfg, table, key)
+    type(app_config), intent(inout) :: cfg
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    type(toml_array), pointer :: array
+    type(toml_table), pointer :: child
+    integer :: itemplate, n, stat
+
+    nullify (array)
+    call get_value(table, key, array, stat=stat)
+    call require_toml_success(stat, 'mesh.templates')
+    if (.not. associated(array)) error stop 'mesh.templates must be an array of tables.'
+
+    n = toml_len(array)
+    call ensure_template_capacity(cfg, n)
+    if (n > 0) cfg%templates(1:n) = template_spec()
+    do itemplate = 1, n
+      nullify (child)
+      call get_value(array, itemplate, child, stat=stat)
+      call require_toml_success(stat, 'mesh.templates entry')
+      if (.not. associated(child)) error stop 'mesh.templates entries must be tables.'
+      cfg%templates(itemplate)%enabled = .true.
+      call apply_template_toml_table(cfg%templates(itemplate), child)
+    end do
+    cfg%n_templates = int(n, i32)
+  end subroutine read_template_array
+
+  !> `[[mesh.templates]]` の1要素をテンプレート設定へ適用する。
+  subroutine apply_template_toml_table(spec, table)
     type(template_spec), intent(inout) :: spec
-    character(len=*), intent(in) :: line
-    character(len=64) :: k
-    character(len=256) :: v
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
 
-    call split_key_value(line, k, v)
-    select case (trim(k))
-    case ('enabled')
-      call parse_logical(v, spec%enabled)
-    case ('kind')
-      call parse_string(v, spec%kind)
-    case ('surface_model')
-      call parse_string(v, spec%surface_model)
-      spec%surface_model = lower_ascii(trim(spec%surface_model))
-    case ('epsilon_r')
-      call parse_real(v, spec%epsilon_r)
-    case ('center')
-      call parse_real3(v, spec%center)
-    case ('size_x')
-      call parse_real(v, spec%size_x)
-    case ('size_y')
-      call parse_real(v, spec%size_y)
-    case ('size')
-      call parse_real3(v, spec%size)
-    case ('nx')
-      call parse_int(v, spec%nx)
-    case ('ny')
-      call parse_int(v, spec%ny)
-    case ('nz')
-      call parse_int(v, spec%nz)
-    case ('radius')
-      call parse_real(v, spec%radius)
-    case ('inner_radius')
-      call parse_real(v, spec%inner_radius)
-    case ('height')
-      call parse_real(v, spec%height)
-    case ('n_theta')
-      call parse_int(v, spec%n_theta)
-    case ('n_r')
-      call parse_int(v, spec%n_r)
-    case ('n_z')
-      call parse_int(v, spec%n_z)
-    case ('cap')
-      call parse_logical(v, spec%cap)
-    case ('cap_top')
-      call parse_logical(v, spec%cap_top)
-      spec%has_cap_top = .true.
-    case ('cap_bottom')
-      call parse_logical(v, spec%cap_bottom)
-      spec%has_cap_bottom = .true.
-    case ('n_lon')
-      call parse_int(v, spec%n_lon)
-    case ('n_lat')
-      call parse_int(v, spec%n_lat)
-    case default
-      error stop 'Unknown key in [[mesh.templates]]: '//trim(k)
-    end select
-  end subroutine apply_template_kv
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('enabled')
+        call get_toml_logical(table, keys(ikey), spec%enabled, 'mesh.templates.enabled')
+      case ('kind')
+        call get_toml_string(table, keys(ikey), spec%kind, 'mesh.templates.kind')
+      case ('surface_model')
+        call get_toml_string(table, keys(ikey), spec%surface_model, 'mesh.templates.surface_model')
+        spec%surface_model = lower_ascii(trim(spec%surface_model))
+      case ('epsilon_r')
+        call get_toml_real(table, keys(ikey), spec%epsilon_r, 'mesh.templates.epsilon_r')
+      case ('center')
+        call get_toml_real3(table, keys(ikey), spec%center, 'mesh.templates.center')
+      case ('size_x')
+        call get_toml_real(table, keys(ikey), spec%size_x, 'mesh.templates.size_x')
+      case ('size_y')
+        call get_toml_real(table, keys(ikey), spec%size_y, 'mesh.templates.size_y')
+      case ('size')
+        call get_toml_real3(table, keys(ikey), spec%size, 'mesh.templates.size')
+      case ('nx')
+        call get_toml_int(table, keys(ikey), spec%nx, 'mesh.templates.nx')
+      case ('ny')
+        call get_toml_int(table, keys(ikey), spec%ny, 'mesh.templates.ny')
+      case ('nz')
+        call get_toml_int(table, keys(ikey), spec%nz, 'mesh.templates.nz')
+      case ('radius')
+        call get_toml_real(table, keys(ikey), spec%radius, 'mesh.templates.radius')
+      case ('inner_radius')
+        call get_toml_real(table, keys(ikey), spec%inner_radius, 'mesh.templates.inner_radius')
+      case ('height')
+        call get_toml_real(table, keys(ikey), spec%height, 'mesh.templates.height')
+      case ('n_theta')
+        call get_toml_int(table, keys(ikey), spec%n_theta, 'mesh.templates.n_theta')
+      case ('n_r')
+        call get_toml_int(table, keys(ikey), spec%n_r, 'mesh.templates.n_r')
+      case ('n_z')
+        call get_toml_int(table, keys(ikey), spec%n_z, 'mesh.templates.n_z')
+      case ('cap')
+        call get_toml_logical(table, keys(ikey), spec%cap, 'mesh.templates.cap')
+      case ('cap_top')
+        call get_toml_logical(table, keys(ikey), spec%cap_top, 'mesh.templates.cap_top')
+        spec%has_cap_top = .true.
+      case ('cap_bottom')
+        call get_toml_logical(table, keys(ikey), spec%cap_bottom, 'mesh.templates.cap_bottom')
+        spec%has_cap_bottom = .true.
+      case ('n_lon')
+        call get_toml_int(table, keys(ikey), spec%n_lon, 'mesh.templates.n_lon')
+      case ('n_lat')
+        call get_toml_int(table, keys(ikey), spec%n_lat, 'mesh.templates.n_lat')
+      case default
+        error stop 'Unknown key in [[mesh.templates]]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_template_toml_table
 
-  !> `[output]` セクションのキーを出力制御設定へ適用する。
-  !! @param[inout] cfg 更新対象のアプリ設定。
-  !! @param[in] line `key = value` 形式の設定行。
-  subroutine apply_output_kv(cfg, line)
+  !> `[output]` TOML テーブルを出力制御設定へ適用する。
+  subroutine apply_output_toml_table(cfg, table)
     type(app_config), intent(inout) :: cfg
-    character(len=*), intent(in) :: line
-    character(len=64) :: k
-    character(len=256) :: v
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
 
-    call split_key_value(line, k, v)
-    select case (trim(k))
-    case ('write_files')
-      call parse_logical(v, cfg%write_output)
-    case ('write_mesh_potential')
-      call parse_logical(v, cfg%write_mesh_potential)
-    case ('write_potential_history')
-      call parse_logical(v, cfg%write_potential_history)
-    case ('dir')
-      call parse_string(v, cfg%output_dir)
-    case ('history_stride')
-      call parse_int(v, cfg%history_stride)
-    case ('resume')
-      call parse_logical(v, cfg%resume_output)
-    case default
-      error stop 'Unknown key in [output]: '//trim(k)
-    end select
-  end subroutine apply_output_kv
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('write_files')
+        call get_toml_logical(table, keys(ikey), cfg%write_output, 'output.write_files')
+      case ('write_mesh_potential')
+        call get_toml_logical(table, keys(ikey), cfg%write_mesh_potential, 'output.write_mesh_potential')
+      case ('write_potential_history')
+        call get_toml_logical(table, keys(ikey), cfg%write_potential_history, 'output.write_potential_history')
+      case ('dir')
+        call get_toml_string(table, keys(ikey), cfg%output_dir, 'output.dir')
+      case ('history_stride')
+        call get_toml_int(table, keys(ikey), cfg%history_stride, 'output.history_stride')
+      case ('resume')
+        call get_toml_logical(table, keys(ikey), cfg%resume_output, 'output.resume')
+      case default
+        error stop 'Unknown key in [output]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_output_toml_table
 
   !> 現在のメッシュ入力設定が conductor 表面を生成し得るかを返す。
   logical function config_uses_conductor_surface_model(cfg) result(uses_conductor)

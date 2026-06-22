@@ -27,7 +27,7 @@ SUBMODULE_RE = re.compile(
 )
 PROGRAM_RE = re.compile(r"^\s*program\s+(?P<name>[a-z]\w*)\b", re.IGNORECASE)
 USE_RE = re.compile(
-    r"^\s*use(?:\s*,\s*(?:non_intrinsic|intrinsic)\s*)?(?:\s*::)?\s*(?P<name>[a-z]\w*)\b",
+    r"^\s*use\b(?:\s*,\s*(?:non_intrinsic|intrinsic)\s*)?(?:\s*::)?\s*(?P<name>[a-z]\w*)\b",
     re.IGNORECASE,
 )
 
