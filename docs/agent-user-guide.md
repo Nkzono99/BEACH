@@ -260,6 +260,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `dir` | string | "outputs/latest" | 出力ディレクトリ |
 | `history_stride` | int | 1 | 履歴出力間隔 [バッチ] (0 で無効化) |
 | `resume` | bool | false | チェックポイントから再開 |
+| `restart_from` | string | なし | `resume=true` 時の checkpoint 読み込み元。新しい出力は `dir` に保存 |
 
 ---
 
@@ -512,7 +513,7 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
 | `periodic2` | `field_solver=fmm`, ちょうど 2 軸が periodic, `use_box=true` |
 | シースモデル | `reservoir_potential_model = "none"` と互換 |
-| リジューム | `write_files=true`, チェックポイントファイル存在, MPI サイズ一致 |
+| リジューム | `write_files=true`, checkpoint ファイル存在 (`restart_from` 指定時はそのディレクトリ), MPI サイズ一致 |
 | 性能プロファイル | 環境変数 `BEACH_PROFILE=1` |
 | MPI 実行 | `-DUSE_MPI` でコンパイル, MPI コンパイララッパー使用 |
 

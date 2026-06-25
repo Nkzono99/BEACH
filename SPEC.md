@@ -182,7 +182,7 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 
 ### 8.2 再開（`output.resume = true`）
 
-再開時は同一 `output.dir` から以下を読み込みます。
+再開時は既定で `output.dir` から以下を読み込みます。`output.restart_from` を指定した場合は、そのディレクトリから checkpoint を読み込み、新しい出力は引き続き `output.dir` に書きます。
 
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
 - 任意: `macro_residuals.csv`（MPI 時は `macro_residuals_rankNNNNN.csv`）

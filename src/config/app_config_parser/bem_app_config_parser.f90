@@ -162,6 +162,9 @@ contains
       end if
     end if
     if (cfg%n_particle_species <= 0_i32) error stop 'At least one [[particles.species]] entry is required.'
+    if (len_trim(cfg%output_restart_from) > 0 .and. .not. cfg%resume_output) then
+      error stop 'output.restart_from requires output.resume = true.'
+    end if
 
     cfg%mesh_mode = lower_ascii(trim(cfg%mesh_mode))
     select case (trim(cfg%mesh_mode))
@@ -1045,6 +1048,8 @@ contains
         call get_toml_int(table, keys(ikey), cfg%history_stride, 'output.history_stride')
       case ('resume')
         call get_toml_logical(table, keys(ikey), cfg%resume_output, 'output.resume')
+      case ('restart_from')
+        call get_toml_string(table, keys(ikey), cfg%output_restart_from, 'output.restart_from')
       case default
         error stop 'Unknown key in [output]: '//trim(keys(ikey)%key)
       end select

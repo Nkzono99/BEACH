@@ -1,4 +1,4 @@
-!> 出力ディレクトリに保存したチェックポイントの保存/復元を扱う補助モジュール。
+!> チェックポイントファイルの保存/復元を扱う補助モジュール。
 module bem_restart
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
@@ -15,8 +15,8 @@ module bem_restart
 
 contains
 
-  !> 既存出力ディレクトリから統計・要素電荷・乱数状態を復元する。
-  !! @param[in] out_dir チェックポイントを探索する出力ディレクトリ。
+  !> 既存チェックポイントディレクトリから統計・要素電荷・乱数状態を復元する。
+  !! @param[in] out_dir チェックポイントを探索するディレクトリ。
   !! @param[inout] mesh 現在のメッシュ。`q_elem` を復元値で上書きする。
   !! @param[out] stats 復元された統計値。
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
@@ -55,12 +55,12 @@ contains
     inquire (file=trim(residual_path), exist=has_residual)
 
     if (.not. has_summary .and. .not. has_charges .and. .not. has_rng) then
-      if (must_have_checkpoint) error stop 'Resume requested but checkpoint files are missing in output directory.'
+      if (must_have_checkpoint) error stop 'Resume requested but checkpoint files are missing in checkpoint directory.'
       return
     end if
 
     if (.not. (has_summary .and. has_charges .and. has_rng)) then
-      error stop 'Resume requested but checkpoint files are incomplete in output directory.'
+      error stop 'Resume requested but checkpoint files are incomplete in checkpoint directory.'
     end if
 
     call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)

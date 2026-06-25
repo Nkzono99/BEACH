@@ -48,6 +48,7 @@ program test_app_config_parser
   call assert_true(.not. cfg%sim%has_tree_leaf_max, 'default has_tree_leaf_max should be false')
   call assert_equal_i32(cfg%sim%tree_min_nelem, 256_i32, 'default tree_min_nelem mismatch')
   call assert_true(.not. cfg%write_mesh_potential, 'default write_mesh_potential should be false')
+  call assert_true(len_trim(cfg%output_restart_from) == 0, 'default output_restart_from should be empty')
   call load_app_config(cfg_path, cfg)
 
   call assert_true(trim(cfg%mesh_mode) == 'template', 'mesh.mode was not parsed')
@@ -82,6 +83,7 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%injection_face_phi_grid_n, 5_i32, 'injection_face_phi_grid_n mismatch')
   call assert_equal_i32(cfg%history_stride, 2_i32, 'history_stride mismatch')
   call assert_true(cfg%write_mesh_potential, 'write_mesh_potential mismatch')
+  call assert_true(trim(cfg%output_restart_from) == 'outputs/parent', 'output.restart_from mismatch')
   call assert_close_dp(cfg%sim%dt, 2.5d-9, 1.0d-15, 'dt mismatch')
   call assert_true(trim(cfg%sim%field_solver) == 'fmm', 'field_solver mismatch')
   call assert_true(trim(cfg%sim%field_normalization) == 'length', 'field_normalization mismatch')
@@ -304,6 +306,8 @@ contains
     write (u, '(a)') '[output]'
     write (u, '(a)') 'history_stride = 2'
     write (u, '(a)') 'write_mesh_potential = true'
+    write (u, '(a)') 'resume = true'
+    write (u, '(a)') 'restart_from = "outputs/parent"'
 
     close (u)
   end subroutine write_config_fixture

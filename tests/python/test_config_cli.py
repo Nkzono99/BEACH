@@ -293,6 +293,25 @@ def test_lint_cli_accepts_valid_config(
     assert "status=ok" in streams.out
 
 
+def test_lint_cli_accepts_output_restart_from(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = tmp_path / "beach.toml"
+    _write_base_config(config_path)
+    text = config_path.read_text(encoding="utf-8").replace(
+        "history_stride = 1",
+        'history_stride = 1\nresume = true\nrestart_from = "outputs/parent"',
+    )
+    config_path.write_text(text, encoding="utf-8")
+
+    beachx_main(["lint", str(config_path)])
+    streams = capsys.readouterr()
+
+    assert "checks=toml,schema,semantic" in streams.out
+    assert "status=ok" in streams.out
+
+
 def test_lint_cli_accepts_high_level_authoring_config(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -339,6 +358,23 @@ def test_lint_cli_reports_schema_error(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert "schema validation failed" in message
     assert "schema error at output.write_files" in message
+
+
+def test_lint_cli_rejects_restart_from_without_resume(tmp_path: Path) -> None:
+    config_path = tmp_path / "beach.toml"
+    _write_base_config(config_path)
+    text = config_path.read_text(encoding="utf-8").replace(
+        "history_stride = 1",
+        'history_stride = 1\nrestart_from = "outputs/parent"',
+    )
+    config_path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        beachx_main(["lint", str(config_path)])
+
+    message = str(excinfo.value)
+    assert "schema validation failed" in message
+    assert "resume" in message
 
 
 def test_lint_cli_reports_semantic_error(tmp_path: Path) -> None:

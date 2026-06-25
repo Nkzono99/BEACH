@@ -243,6 +243,14 @@ resume = true
 ```
 
 同じ `output.dir` で `beach` を再実行すると続きから計算します。
+checkpoint の読み込み元と新しい出力先を分ける場合は `restart_from` を指定します。
+
+```toml
+[output]
+dir = "outputs/continuation"
+resume = true
+restart_from = "../parent_run/outputs/latest"
+```
 
 ## 4. 開発に携わる場合
 

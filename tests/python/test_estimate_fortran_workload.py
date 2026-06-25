@@ -132,6 +132,30 @@ def test_completed_batches_from_resume_config_reads_summary(tmp_path) -> None:
     assert completed_batches_from_resume_config(config) == 4
 
 
+def test_completed_batches_from_resume_config_reads_restart_from(tmp_path) -> None:
+    out_dir = tmp_path / "outputs" / "new"
+    restart_dir = tmp_path / "outputs" / "parent"
+    out_dir.mkdir(parents=True)
+    restart_dir.mkdir(parents=True)
+    (out_dir / "summary.txt").write_text(
+        "mesh_nelem=1\nbatches=1\nlast_rel_change=0.0\n",
+        encoding="utf-8",
+    )
+    (restart_dir / "summary.txt").write_text(
+        "mesh_nelem=1\nbatches=6\nlast_rel_change=0.0\n",
+        encoding="utf-8",
+    )
+    config = {
+        "output": {
+            "resume": True,
+            "dir": str(out_dir),
+            "restart_from": str(restart_dir),
+        }
+    }
+
+    assert completed_batches_from_resume_config(config) == 6
+
+
 def test_estimate_workload_supports_species_target_minus_one_following_species1_w() -> None:
     config = {
         "sim": {

@@ -97,6 +97,7 @@ module bem_app_config_types
     logical :: write_mesh_potential = .false.
     logical :: write_potential_history = .false.
     character(len=256) :: output_dir = 'outputs/latest'
+    character(len=256) :: output_restart_from = ''
     integer(i32) :: history_stride = 1
     logical :: resume_output = .false.
 
@@ -178,6 +179,7 @@ contains
     cfg%write_mesh_potential = .false.
     cfg%write_potential_history = .false.
     cfg%output_dir = 'outputs/latest'
+    cfg%output_restart_from = ''
     cfg%history_stride = 1_i32
     cfg%resume_output = .false.
     cfg%sim = sim_config()

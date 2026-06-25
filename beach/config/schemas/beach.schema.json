@@ -2113,7 +2113,11 @@
         "resume": {
           "type": "boolean",
           "default": false,
-          "description": "Resume from existing checkpoint in output directory."
+          "description": "Resume from an existing checkpoint."
+        },
+        "restart_from": {
+          "type": "string",
+          "description": "Checkpoint input directory used when resume=true. New outputs are still written to output.dir."
         }
       },
       "allOf": [
@@ -2130,6 +2134,26 @@
           },
           "then": {
             "properties": {
+              "write_files": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "restart_from"
+            ]
+          },
+          "then": {
+            "required": [
+              "resume"
+            ],
+            "properties": {
+              "resume": {
+                "const": true
+              },
               "write_files": {
                 "const": true
               }

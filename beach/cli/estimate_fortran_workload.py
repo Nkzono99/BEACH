@@ -774,8 +774,11 @@ def completed_batches_from_resume_config(config: dict[str, Any]) -> int:
         return 0
     if not bool(output_raw.get("resume", False)):
         return 0
-    output_dir = Path(str(output_raw.get("dir", "outputs/latest")))
-    return read_summary_batches(output_dir / "summary.txt")
+    checkpoint_dir_raw = output_raw.get("restart_from") or output_raw.get(
+        "dir", "outputs/latest"
+    )
+    checkpoint_dir = Path(str(checkpoint_dir_raw))
+    return read_summary_batches(checkpoint_dir / "summary.txt")
 
 
 def estimate_workload(

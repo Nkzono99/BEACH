@@ -163,6 +163,7 @@ contains
     logical, intent(out) :: resumed
     type(mpi_context), intent(in) :: mpi
     character(len=256) :: cfg_path
+    character(len=256) :: restart_dir
     logical :: has_config
 
     call default_app_config(app)
@@ -178,14 +179,17 @@ contains
     resumed = .false.
     if (app%resume_output) then
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
+      restart_dir = app%output_dir
+      if (len_trim(app%output_restart_from) > 0) restart_dir = app%output_restart_from
       call load_restart_checkpoint( &
-        trim(app%output_dir), mesh, initial_stats, resumed, inject_state, &
+        trim(restart_dir), mesh, initial_stats, resumed, inject_state, &
         mpi=mpi, require_checkpoint=.true. &
         )
     end if
 
     if (resumed) then
       if (mpi_is_root(mpi)) then
+        print '(a,a)', 'resuming_from_dir=', trim(restart_dir)
         print '(a,i0)', 'resuming_from_batches=', initial_stats%batches
         print '(a,i0)', 'resuming_from_processed_particles=', initial_stats%processed_particles
       end if

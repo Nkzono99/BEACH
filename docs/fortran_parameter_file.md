@@ -361,6 +361,7 @@ CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`,
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 | `history_stride` | int | `1` | `charge_history.csv` / `potential_history.csv` の出力間隔（バッチ単位） |
 | `resume` | bool | `false` | 既存チェックポイントから再開 |
+| `restart_from` | string | なし | `resume = true` 時の checkpoint 読み込み元。新しい出力は `dir` に書く |
 
 出力ファイル:
 
@@ -392,8 +393,11 @@ MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイル
 `resume = true` の要件:
 
 - `write_files = true` 必須
-- `output.dir` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
+- `restart_from` 未指定時は `output.dir` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
+- `restart_from` 指定時は `restart_from` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
 - `macro_residuals.csv` は存在すれば読み込みます
+
+`restart_from` は checkpoint の読み込み元だけを変更します。`summary.txt`、`charges.csv`、履歴、`mesh_potential.csv`、`rng_state*.txt`、`macro_residuals*.csv` などの新しい出力は常に `output.dir` に書かれます。
 
 必須 checkpoint が存在しない場合、`resume = true` は新規実行にフォールバックせず停止します。
 読み込み時には `summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差が有限で基本範囲内にあることを検証します。

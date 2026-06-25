@@ -233,6 +233,17 @@ resume = true
 ```
 
 同じ `output.dir` で `beach` を再実行すると、`summary.txt` / `charges.csv` / RNG状態を読み込んで続きから計算します。  
+読み込み元 checkpoint と新しい出力先を分ける場合は、`restart_from` を使います。
+
+```toml
+[output]
+dir = "outputs/continuation"
+resume = true
+restart_from = "../parent_run/outputs/latest"
+```
+
+この場合、checkpoint は `restart_from` から読み、新しい `summary.txt` / `charges.csv` / 履歴 / RNG状態は `dir` に書きます。
+
 `sim.batch_count` は累積の到達バッチ数です。例えば既存 checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が既存の処理済みバッチ数より小さい場合は停止します。
 
 MPI再開時は `summary.txt` の `mpi_world_size` と現在の rank 数が一致している必要があります。
