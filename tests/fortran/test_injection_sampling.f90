@@ -28,9 +28,13 @@ program test_injection_sampling
   call test_begin('thermal_velocity_sampling')
   allocate (v(3, 8))
   call sample_shifted_maxwell_velocities( &
-    [10.0d0, -5.0d0, 2.0d0], 2.0d0, v, thermal_speed=3.0d0 &
+    [10.0d0, -5.0d0, 2.0d0], 2.0d0, v, thermal_speed=3.0d0, sigma_cutoff=0.5d0 &
     )
   call assert_true(all(abs(v) < 1.0d3), 'thermal_speed branch produced invalid velocities')
+  call assert_true( &
+    all(abs(v - spread([10.0d0, -5.0d0, 2.0d0], dim=2, ncopies=size(v, 2))) <= 1.5d0), &
+    'thermal_speed branch should honor sigma_cutoff' &
+    )
   call test_end()
 
   call test_begin('beam_particles')

@@ -19,7 +19,7 @@ program test_dynamics_basic
   real(dp) :: e(3), x_new(3), v_new(3), speed0, speed1
   real(dp) :: inv_r3, expected_ex
 
-  call test_init(10)
+  call test_init(11)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -90,6 +90,10 @@ program test_dynamics_basic
 
   call test_begin('periodic2_collision_multi_cell')
   call test_periodic2_collision_multi_cell()
+  call test_end()
+
+  call test_begin('periodic2_collision_runaway_segment_guard')
+  call test_periodic2_collision_runaway_segment_guard()
   call test_end()
 
   call test_begin('periodic2_collision_canonical_prepare')
@@ -249,6 +253,23 @@ contains
     call assert_equal_i32(hit_periodic%image_shift(1), 3_i32, 'periodic2 multi-cell x image shift mismatch')
     call assert_equal_i32(hit_periodic%image_shift(2), -1_i32, 'periodic2 multi-cell y image shift mismatch')
   end subroutine test_periodic2_collision_multi_cell
+
+  subroutine test_periodic2_collision_runaway_segment_guard()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    call find_first_hit(mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [5000.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim)
+    call assert_true(.not. hit_periodic%has_hit, 'periodic2 runaway segment should not enumerate unbounded images')
+  end subroutine test_periodic2_collision_runaway_segment_guard
 
   subroutine test_periodic2_collision_canonical_prepare()
     type(mesh_type) :: mesh_periodic

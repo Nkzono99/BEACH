@@ -1,9 +1,10 @@
 !> 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。
 module bem_collision
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type, hit_info, sim_config, bc_periodic
   use bem_string_utils, only: lower_ascii
   implicit none
+  integer(i64), parameter :: max_periodic2_collision_images = 4096_i64
 contains
 
   !> 線分 `[p0,p1]` に対して最初に衝突する三角形要素を探索し、命中情報を返す。
@@ -83,6 +84,7 @@ contains
     logical, intent(in), optional :: require_elem_inside
 
     integer(i32) :: periodic_axes(2), image_shift(2), nmin(2), nmax(2), iaxis, n1, n2
+    integer(i64) :: image_count(2), total_image_count
     real(dp) :: periodic_len(2), shift_vec(3), candidate_pos(3), candidate_wrapped(3)
     real(dp) :: box_min_local(3), box_max_local(3), box_tol
     real(dp) :: shifted_p0(3), shifted_p1(3)
@@ -108,6 +110,11 @@ contains
       call compute_periodic_shift_bounds(mesh, p0, p1, periodic_axes(iaxis), periodic_len(iaxis), nmin(iaxis), nmax(iaxis))
       if (nmin(iaxis) > nmax(iaxis)) return
     end do
+    image_count = int(nmax, kind=i64) - int(nmin, kind=i64) + 1_i64
+    if (any(image_count <= 0_i64)) return
+    if (any(image_count > max_periodic2_collision_images)) return
+    total_image_count = image_count(1)*image_count(2)
+    if (total_image_count > max_periodic2_collision_images) return
 
     do n1 = nmin(1), nmax(1)
       do n2 = nmin(2), nmax(2)

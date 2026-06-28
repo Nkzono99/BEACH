@@ -11,6 +11,7 @@ module bem_injection
   implicit none
 
   private
+  real(dp), parameter :: default_velocity_sigma_cutoff = 6.0_dp
   public :: seed_rng
   public :: sample_uniform_positions
   public :: sample_shifted_maxwell_velocities
@@ -72,14 +73,16 @@ contains
   !! @param[out] v サンプリングした速度配列 `v(3,n)` [m/s]。
   !! @param[in] temperature_k 熱運動の温度 [K]（`thermal_speed` 未指定時に使用）。
   !! @param[in] thermal_speed 熱速度の標準偏差 `sigma` [m/s]（指定時は温度より優先）。
-  subroutine sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k, thermal_speed)
+  !! @param[in] sigma_cutoff 標準正規変量を `[-sigma_cutoff, sigma_cutoff]` に切る上限（省略時 6）。
+  subroutine sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k, thermal_speed, sigma_cutoff)
     real(dp), intent(in) :: drift_velocity(3)
     real(dp), intent(in) :: m_particle
     real(dp), intent(out) :: v(:, :)
     real(dp), intent(in), optional :: temperature_k
     real(dp), intent(in), optional :: thermal_speed
+    real(dp), intent(in), optional :: sigma_cutoff
     integer :: n
-    real(dp) :: sigma
+    real(dp) :: sigma, cutoff
     real(dp), allocatable :: z(:, :)
 
     if (size(v, 1) /= 3) error stop "v first dimension must be 3"
@@ -96,10 +99,12 @@ contains
       if (temperature_k < 0.0_dp) error stop "temperature_k must be >= 0"
       sigma = sqrt(k_boltzmann*temperature_k/m_particle)
     end if
+    cutoff = default_velocity_sigma_cutoff
+    if (present(sigma_cutoff)) cutoff = sigma_cutoff
 
     n = size(v, 2)
     allocate (z(3, n))
-    call sample_standard_normal(z)
+    call sample_standard_normal(z, sigma_cutoff=cutoff)
 
     v = sigma*z + spread(drift_velocity, dim=2, ncopies=n)
   end subroutine sample_shifted_maxwell_velocities
@@ -702,14 +707,16 @@ contains
     real(dp) :: vn(1), z(2, 1), vt1, vt2
 
     if (present(vmin_normal)) then
-      call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn, vmin_normal=vmin_normal)
+      call sample_flux_weighted_normal_component( &
+        normal_drift_speed, sigma, vn, vmin_normal=vmin_normal, sigma_cutoff=default_velocity_sigma_cutoff &
+        )
     else
-      call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn)
+      call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn, sigma_cutoff=default_velocity_sigma_cutoff)
     end if
     vt1 = 0.0_dp
     vt2 = 0.0_dp
     if (sigma > 0.0_dp) then
-      call sample_standard_normal(z)
+      call sample_standard_normal(z, sigma_cutoff=default_velocity_sigma_cutoff)
       vt1 = sigma*z(1, 1)
       vt2 = sigma*z(2, 1)
     end if
@@ -728,28 +735,37 @@ contains
 
   !> Box–Muller法で標準正規乱数を生成し、任意形状配列へ詰める。
   !! @param[out] z 平均0・分散1の標準正規乱数で埋める出力配列。
-  subroutine sample_standard_normal(z)
+  subroutine sample_standard_normal(z, sigma_cutoff)
     real(dp), intent(out) :: z(:, :)
-    integer :: n_total, n_pair, i
-    real(dp), allocatable :: out(:), u1(:), u2(:)
-    real(dp) :: r, theta, pi
+    real(dp), intent(in), optional :: sigma_cutoff
+    integer :: n_total, i
+    real(dp), allocatable :: out(:)
+    real(dp) :: r, theta, pi, u1, u2, z1, z2, cutoff
 
     n_total = size(z)
-    n_pair = (n_total + 1)/2
     pi = acos(-1.0_dp)
+    cutoff = default_velocity_sigma_cutoff
+    if (present(sigma_cutoff)) cutoff = sigma_cutoff
+    if (cutoff <= 0.0_dp) error stop "sigma_cutoff must be > 0"
 
-    allocate (out(n_total), u1(n_pair), u2(n_pair))
-    call random_number(u1)
-    call random_number(u2)
-
+    allocate (out(n_total))
     i = 1
-    do n_pair = 1, size(u1)
-      if (u1(n_pair) <= tiny(1.0_dp)) u1(n_pair) = tiny(1.0_dp)
-      r = sqrt(-2.0_dp*log(u1(n_pair)))
-      theta = 2.0_dp*pi*u2(n_pair)
-      out(i) = r*cos(theta)
-      if (i + 1 <= n_total) out(i + 1) = r*sin(theta)
-      i = i + 2
+    do while (i <= n_total)
+      call random_number(u1)
+      call random_number(u2)
+      if (u1 <= tiny(1.0_dp)) u1 = tiny(1.0_dp)
+      r = sqrt(-2.0_dp*log(u1))
+      theta = 2.0_dp*pi*u2
+      z1 = r*cos(theta)
+      z2 = r*sin(theta)
+      if (abs(z1) <= cutoff) then
+        out(i) = z1
+        i = i + 1
+      end if
+      if (i <= n_total .and. abs(z2) <= cutoff) then
+        out(i) = z2
+        i = i + 1
+      end if
     end do
 
     z = reshape(out, shape(z))
@@ -1308,31 +1324,41 @@ contains
   !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[out] vn サンプリングした法線速度配列 [m/s]（常に非負）。
-  subroutine sample_flux_weighted_normal_component(mu, sigma, vn, vmin_normal)
+  subroutine sample_flux_weighted_normal_component(mu, sigma, vn, vmin_normal, sigma_cutoff)
     real(dp), intent(in) :: mu, sigma
     real(dp), intent(in), optional :: vmin_normal
+    real(dp), intent(in), optional :: sigma_cutoff
     real(dp), intent(out) :: vn(:)
     integer :: i
-    real(dp) :: target, low, high, mid, vmin
+    real(dp) :: target, low, high, mid, vmin, vmax, cutoff, tail_min, tail_max, denom, cdf_mid
 
     if (size(vn) == 0) return
     vmin = 0.0_dp
     if (present(vmin_normal)) vmin = max(0.0_dp, vmin_normal)
+    cutoff = default_velocity_sigma_cutoff
+    if (present(sigma_cutoff)) cutoff = sigma_cutoff
+    if (cutoff <= 0.0_dp) error stop "sigma_cutoff must be > 0"
     if (sigma <= 0.0_dp) then
       vn = max(mu, vmin)
+      return
+    end if
+    vmax = max(vmin, mu + cutoff*sigma)
+    tail_min = flux_weighted_normal_tail(vmin, mu, sigma)
+    tail_max = flux_weighted_normal_tail(vmax, mu, sigma)
+    denom = tail_min - tail_max
+    if (denom <= tiny(1.0_dp)) then
+      vn = vmin
       return
     end if
 
     do i = 1, size(vn)
       call random_number(target)
       low = vmin
-      high = max(vmin + 8.0_dp*sigma, mu + 8.0_dp*sigma)
-      do while (flux_weighted_normal_cdf(high, mu, sigma, vmin_normal=vmin) < target)
-        high = high*2.0_dp
-      end do
+      high = vmax
       do while ((high - low) > max(1.0d-12, 1.0d-10*(1.0d0 + high)))
         mid = 0.5_dp*(low + high)
-        if (flux_weighted_normal_cdf(mid, mu, sigma, vmin_normal=vmin) < target) then
+        cdf_mid = (tail_min - flux_weighted_normal_tail(mid, mu, sigma))/denom
+        if (cdf_mid < target) then
           low = mid
         else
           high = mid
