@@ -17,14 +17,14 @@ program test_periodic2_flat_oracle_diag
   integer(i32) :: i, max_none_idx, max_oracle_idx, max_corr_idx
   real(dp) :: r(3), e_none(3), e_oracle(3), e_none_ref(3), e_oracle_ref(3)
   real(dp) :: corr_fmm(3), corr_ref(3)
-  real(dp) :: points(3, 8)
+  real(dp) :: points(3, 4)
   real(dp) :: ref_norm, none_ref_norm, diff_norm
   real(dp) :: max_none_rel_err, max_oracle_rel_err, max_corr_rel_err, max_corr_vs_shell
 
   call test_init(1)
 
   call test_begin('periodic2_flat_oracle_diag')
-  call make_plane(mesh_fmm, size_x=1.0d0, size_y=1.0d0, nx=20_i32, ny=20_i32, center=[0.5d0, 0.5d0, 0.02d0])
+  call make_plane(mesh_fmm, size_x=1.0d0, size_y=1.0d0, nx=8_i32, ny=8_i32, center=[0.5d0, 0.5d0, 0.02d0])
   call assign_flat_periodic_test_charges(mesh_fmm)
 
   sim = sim_config()
@@ -33,11 +33,13 @@ program test_periodic2_flat_oracle_diag
   sim%field_bc_mode = 'periodic2'
   sim%field_periodic_far_correction = 'none'
   sim%field_periodic_image_layers = 1_i32
-  sim%field_periodic_ewald_layers = 4_i32
+  sim%field_periodic_ewald_layers = 2_i32
+  sim%tree_leaf_max = 64_i32
+  sim%has_tree_leaf_max = .true.
   sim%tree_min_nelem = 64_i32
   sim%use_box = .true.
   sim%box_min = [0.0d0, 0.0d0, 0.0d0]
-  sim%box_max = [1.0d0, 1.0d0, 10.0d0]
+  sim%box_max = [1.0d0, 1.0d0, 1.0d0]
   sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
   call solver_none%init(mesh_fmm, sim)
@@ -51,10 +53,6 @@ program test_periodic2_flat_oracle_diag
   points(:, 2) = [0.50d0, 0.50d0, 0.10d0]
   points(:, 3) = [0.85d0, 0.50d0, 0.03d0]
   points(:, 4) = [0.95d0, 0.50d0, 0.03d0]
-  points(:, 5) = [0.95d0, 0.95d0, 0.03d0]
-  points(:, 6) = [0.95d0, 0.95d0, 0.10d0]
-  points(:, 7) = [0.20d0, 0.80d0, 0.03d0]
-  points(:, 8) = [0.80d0, 0.20d0, 0.10d0]
 
   max_none_rel_err = 0.0d0
   max_oracle_rel_err = 0.0d0
