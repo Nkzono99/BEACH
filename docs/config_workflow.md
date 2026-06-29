@@ -41,7 +41,7 @@ beachx config init run.toml
 beachx config init --force
 ```
 
-初期値は、周期 2 軸 FMM、volume seed の電子・イオン、平面メッシュ、標準出力設定を含む小さな確認用設定です。
+初期値は、周期 2 軸 FMM、volume seed の電子・イオン、`photo_raycast` の電子放出、平面メッシュ、標準出力設定を含む小さな確認用設定です。
 
 ### 2.2 `lint`
 

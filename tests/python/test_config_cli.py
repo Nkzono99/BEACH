@@ -260,6 +260,18 @@ def test_config_cli_init_render_validate_and_diff(
     validate_streams = capsys.readouterr()
     assert "status=ok" in validate_streams.out
 
+    initialized = load_config_file(tmp_path / "beach.toml")
+    photo_species = initialized["particles"]["species"][2]
+    assert photo_species["source_mode"] == "photo_raycast"
+    assert photo_species["emit_current_density_a_m2"] == 2.0e-4
+    assert photo_species["rays_per_batch"] == 20
+    assert photo_species["deposit_opposite_charge_on_emit"] is True
+    assert photo_species["temperature_ev"] == 1.5
+    assert photo_species["inject_face"] == "z_high"
+    assert photo_species["pos_low"] == [0.0, 0.0, 10.0]
+    assert photo_species["pos_high"] == [1.0, 1.0, 10.0]
+    assert photo_species["ray_direction"] == [0.0, 0.0, -1.0]
+
     beachx_main(["config", "render", "--stdout"])
     render_streams = capsys.readouterr()
     assert "[sim]" in render_streams.out

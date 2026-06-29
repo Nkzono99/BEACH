@@ -72,6 +72,19 @@ def default_rendered_config() -> dict[str, Any]:
                     "m_particle": 1.672482821616e-27,
                     "npcls_per_step": 10,
                 },
+                {
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 2.0e-4,
+                    "rays_per_batch": 20,
+                    "deposit_opposite_charge_on_emit": True,
+                    "q_particle": -1.602176634e-19,
+                    "m_particle": 9.10938356e-31,
+                    "temperature_ev": 1.5,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 10.0],
+                    "pos_high": [1.0, 1.0, 10.0],
+                    "ray_direction": [0.0, 0.0, -1.0],
+                },
             ]
         },
         "mesh": {
