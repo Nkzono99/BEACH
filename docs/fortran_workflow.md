@@ -3,7 +3,7 @@ title: Fortran 中心ワークフロー（現行推奨）
 # Fortran 中心ワークフロー（現行推奨）
 
 このプロジェクトは **Fortran 実行系が主**、Python は後処理・可視化を担当します。  
-通常利用の推奨運用は、`pip install git+...` で導入した `beach` コマンドを使う方式です。
+通常利用の推奨運用は、`pip install beach-bem` で導入した `beach` コマンドを使う方式です。
 
 ## 1. 利用者向けセットアップ（推奨）
 
@@ -16,11 +16,11 @@ fpm --version
 python --version
 ```
 
-### 1.2 Git URL から一括インストール（推奨）
+### 1.2 PyPI から一括インストール（推奨）
 
 ```bash
 python -m pip install -U pip setuptools wheel
-python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
+python -m pip install beach-bem
 ```
 
 `pip install` 時に `make install` が実行され、Python CLI と Fortran 実行バイナリが同時導入されます。
@@ -29,6 +29,12 @@ pip 経由のビルドでは既定で `INSTALL_PROFILE=auto` を使い、失敗�
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
+```
+
+開発版を直接試す場合は Git URL から導入できます。
+
+```bash
+python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 ```
 
 ## 2. 開発に携わる場合
@@ -265,6 +271,12 @@ beachx inspect outputs/latest \
   --save-potential-mesh outputs/latest/potential_mesh_periodic.png \
   --apply-periodic2-mesh
 
+# 周期メッシュを n 周期分複製して描く（1 なら 3x3 = 9 コピー）
+beachx inspect outputs/latest \
+  --save-mesh outputs/latest/charges_mesh_tiled.png \
+  --periodic2-repeat 1 \
+  --apply-periodic2-mesh
+
 beachx animate outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif \
@@ -283,10 +295,16 @@ beachx mobility outputs/latest \
   --density-kg-m3 2500 \
   --mu-static 0.4 \
   --save-csv outputs/latest/mobility_summary.csv
+
+# Fortran FMM core と同じ field kernel で object ごとの総電荷・合力・合トルクを出す
+make build-kernel
+beachx kernel-forces outputs/latest \
+  --save-csv outputs/latest/object_forces_kernel.csv
 ```
 
 `beachx coulomb` は、近傍の `beach.toml` が見つかれば `mesh.templates` から object kind と順序を読み取り、既定では全 object を target 軸に並べて可視化します。特定 kind だけに絞る場合は `--target-kinds sphere` のように指定します。
 `beachx mobility` は、既定で `plane` を support とみなし、それ以外の object を対象に合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV 化します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
+`beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran FMM core を Python から呼び出し、`beach.toml` の `sim.softening` / `sim.field_bc_mode` / periodic2 / tree 設定を使って object ごとの net force を計算します。共有ライブラリは `make build-kernel` で `build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または `BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は `--config path/to/beach.toml` を指定します。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` / `beach-estimate-workload` / `beach-plot-performance-profile`

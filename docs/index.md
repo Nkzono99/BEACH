@@ -1,5 +1,6 @@
 title: BEACH ドキュメント一覧
 ordered_subpage: fortran_workflow.md
+ordered_subpage: agent-user-guide.md
 ordered_subpage: config_workflow.md
 ordered_subpage: fortran_parameter_file.md
 ordered_subpage: fortran_fmm_core.md
@@ -9,9 +10,10 @@ ordered_subpage: python_postprocess_api.md
 
 # BEACH ドキュメント一覧
 
-このセクションでは、BEACH の設定ワークフロー、Fortran 実行系の運用、設定仕様、依存関係マップ、Python 後処理 API をまとめます。
+このセクションでは、BEACH の利用者向け導線、設定ワークフロー、Fortran 実行系の運用、設定仕様、依存関係マップ、Python 後処理 API をまとめます。
 
 - [Fortran 中心ワークフロー](fortran_workflow.html)
+- [BEACH Agent User Guide](agent-user-guide.html)
 - [beachx config / 高水準記法ガイド](config_workflow.html)
 - [Fortran パラメータファイル仕様](fortran_parameter_file.html)
 - [Fortran Coulomb FMM コア仕様](fortran_fmm_core.html)
