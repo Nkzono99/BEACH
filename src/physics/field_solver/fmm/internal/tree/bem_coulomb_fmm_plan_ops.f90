@@ -53,8 +53,7 @@ contains
       end if
       select case (trim(plan%options%periodic_far_correction))
       case ('auto')
-        plan%options%periodic_far_correction = 'm2l_root_oracle'
-        plan%options%periodic_ewald_layers = max(1_i32, plan%options%periodic_ewald_layers)
+        plan%options%periodic_far_correction = 'none'
       case ('none')
         continue
       case ('m2l_root_oracle')

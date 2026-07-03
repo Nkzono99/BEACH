@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from beach.cli.main import main as beachx_main
-from beach.config import ConfigError, RenderValidationError, load_config_file
+from beach.config import (
+    ConfigError,
+    RenderValidationError,
+    default_rendered_config,
+    load_config_file,
+)
 
 
 def _write_base_config(path: Path, *, field_bc_mode: str = "periodic2") -> None:
@@ -68,6 +73,12 @@ def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
     assert result["sim"]["field_bc_mode"] == "periodic2"
     assert result["particles"]["species"][0]["npcls_per_step"] == 10
     assert result["mesh"]["templates"][0]["kind"] == "plane"
+
+
+def test_default_rendered_config_uses_no_periodic_far_correction() -> None:
+    config = default_rendered_config()
+
+    assert config["sim"]["field_periodic_far_correction"] == "none"
 
 
 def test_load_config_file_resolves_high_level_notation(tmp_path: Path) -> None:

@@ -39,7 +39,7 @@ program test_app_config_parser
   call assert_close_dp(cfg%mesh_epsilon_r, 1.0d0, 1.0d-15, 'default mesh epsilon_r mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field_bc_mode mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_image_layers, 1_i32, 'default field_periodic_image_layers mismatch')
-  call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'auto', 'default field_periodic_far_correction mismatch')
+  call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'none', 'default field_periodic_far_correction mismatch')
   call assert_close_dp(cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'default field_periodic_ewald_alpha mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_ewald_layers, 4_i32, 'default field_periodic_ewald_layers mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.5d0, 1.0d-15, 'default tree_theta mismatch')

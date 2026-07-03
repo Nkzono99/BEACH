@@ -350,8 +350,8 @@
             "none",
             "m2l_root_oracle"
           ],
-          "default": "auto",
-          "description": "Far-field correction mode for periodic2."
+          "default": "none",
+          "description": "Far-field correction mode for periodic2. auto is accepted as a compatibility alias for none; m2l_root_oracle is an explicit high-cost diagnostic mode."
         },
         "field_periodic_ewald_alpha": {
           "type": "number",
@@ -363,7 +363,7 @@
           "type": "integer",
           "minimum": 0,
           "default": 4,
-          "description": "Ewald real-space/reciprocal shell depth for m2l_root_oracle build-time oracle."
+          "description": "Ewald real-space/reciprocal shell depth for the explicit m2l_root_oracle build-time oracle."
         },
         "tree_theta": {
           "type": "number",

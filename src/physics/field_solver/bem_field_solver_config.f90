@@ -74,8 +74,7 @@ contains
     self%target_box_max = sim%box_max
     select case (trim(self%periodic_far_correction))
     case ('auto')
-      self%periodic_far_correction = 'm2l_root_oracle'
-      self%periodic_ewald_layers = max(1_i32, self%periodic_ewald_layers)
+      self%periodic_far_correction = 'none'
     case ('none')
       continue
     case ('m2l_root_oracle')

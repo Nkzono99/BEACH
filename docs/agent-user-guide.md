@@ -85,13 +85,14 @@ make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: heavy/release gate
 make test-heavy   # heavy Fortran targets only
+make test-fortran-far-correction  # explicit oracle far-correction diagnostics
 make test-full    # unfiltered fpm test
 make test-mpi     # MPI テスト
 pytest -q         # Python テストのみ
 ```
 
 `make test` は L1 の alias で、通常の AI/開発内側ループではここまでを基本にする。
-FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。
+FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。`m2l_root_oracle` far-correction 診断は `make test-fortran-far-correction` または `make test-full` で opt-in 実行する。
 個別 target は `FPM_ACTION=test ./build.sh --target <name>` で確認できる。
 
 ---
@@ -125,7 +126,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | 電場評価手法 |
 | `field_bc_mode` | string | "free" | free, periodic2 | 境界条件 (periodic2 は fmm 必須) |
 | `field_periodic_image_layers` | int | 1 | >= 0 | periodic2 のイメージシェル層数 |
-| `field_periodic_far_correction` | string | "auto" | auto, none, m2l_root_oracle | 遠方補正 |
+| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle | 遠方補正 (`auto` は互換用に `none` として扱う) |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald 分割パラメータ (0=自動) |
 | `field_periodic_ewald_layers` | int | 4 | >= 0 | Ewald シェル深度 |
 | `tree_theta` | float | 0.5 | (0, 1] | ツリー法 MAC パラメータ |

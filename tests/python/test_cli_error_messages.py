@@ -100,7 +100,7 @@ def test_plot_slices_rejects_nan_vmin(capsys: pytest.CaptureFixture[str]) -> Non
     assert "--vmin must be finite." in capsys.readouterr().err
 
 
-def test_plot_slices_load_sim_box_defaults_periodic2_far_correction_to_oracle(
+def test_plot_slices_load_sim_box_defaults_periodic2_far_correction_to_none(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "beach.toml"
@@ -127,5 +127,5 @@ def test_plot_slices_load_sim_box_defaults_periodic2_far_correction_to_oracle(
     _, _, _, periodic2 = _load_sim_box(config_path)
 
     assert periodic2 is not None
-    assert periodic2["far_correction"] == "m2l_root_oracle"
+    assert periodic2["far_correction"] == "none"
     assert periodic2["ewald_layers"] == 4

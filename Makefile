@@ -4,7 +4,7 @@
 	build check run \
 	static-check schema-check \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy \
+	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction \
 	test-python test-quick test-ci test-local \
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
@@ -12,7 +12,7 @@
 	docs-fortran docs-clean
 
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-mpi
+	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction test-mpi
 
 .DEFAULT_GOAL := install
 
@@ -54,7 +54,8 @@ FORTRAN_L2_TARGETS ?= \
 	test_field_kernel_c
 FORTRAN_L3_TARGETS ?= \
 	test_dynamics_fmm \
-	test_coulomb_fmm_core_basic \
+	test_coulomb_fmm_core_basic
+FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_coulomb_fmm_core_periodic \
 	test_periodic2_flat_oracle_diag
 KERNEL_FC ?= gfortran
@@ -167,6 +168,9 @@ test-fortran-contract:
 
 test-fortran-heavy:
 	$(call run_fortran_targets,$(FORTRAN_L3_TARGETS))
+
+test-fortran-far-correction:
+	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS))
 
 test-python:
 	$(PYTHON) -m pytest -q

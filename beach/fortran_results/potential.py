@@ -625,7 +625,7 @@ def _coerce_periodic2(
         raise ValueError("periodic2.ewald_layers must be >= 0.")
 
     far_correction, ewald_layers = _normalize_periodic2_far_correction(
-        periodic2.get("far_correction", "auto"),
+        periodic2.get("far_correction", "none"),
         ewald_layers=ewald_layers,
     )
 
@@ -888,7 +888,7 @@ def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
 
     ewald_layers = int(sim.get("field_periodic_ewald_layers", 4))
     far_correction, ewald_layers = _normalize_periodic2_far_correction(
-        sim.get("field_periodic_far_correction", "auto"),
+        sim.get("field_periodic_far_correction", "none"),
         ewald_layers=ewald_layers,
     )
 
@@ -914,7 +914,7 @@ def _normalize_periodic2_far_correction(
             'periodic2.far_correction must be "auto", "none", or "m2l_root_oracle".'
         )
     if far_correction == "auto":
-        return "m2l_root_oracle", max(1, ewald_layers)
+        return "none", ewald_layers
     return far_correction, ewald_layers
 
 

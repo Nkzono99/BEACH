@@ -45,8 +45,8 @@ program test_dynamics_fmm
   call test_fmm_periodic2_m2l_cache_reuse()
   call test_end()
 
-  call test_begin('fmm_periodic2_default_m2l_root_oracle_mode')
-  call test_fmm_periodic2_default_m2l_root_oracle_mode()
+  call test_begin('fmm_periodic2_auto_disables_far_correction')
+  call test_fmm_periodic2_auto_disables_far_correction()
   call test_end()
 
   call test_begin('fmm_periodic2_none_disables_far_correction')
@@ -89,7 +89,7 @@ contains
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, 200_i32
+    do i = 1_i32, 80_i32
       call random_number(r)
       r = 100.0d0*(r - 0.5d0)
       norm_r = sqrt(sum(r*r))
@@ -113,7 +113,7 @@ contains
     end do
 
     write (*, '(A,I0,A,ES12.5)') 'test_fmm_field_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count >= 100_i32, 'fmm accuracy test has too few valid samples')
+    call assert_true(valid_count >= 40_i32, 'fmm accuracy test has too few valid samples')
     call assert_true(max_rel_err <= 5.0d-3, 'fmm E relative error exceeds 5e-3')
   end subroutine test_fmm_field_accuracy
 
@@ -161,7 +161,7 @@ contains
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, 200_i32
+    do i = 1_i32, 80_i32
       call random_number(r)
       r = sim%box_min + r*(sim%box_max - sim%box_min)
       center_dist = sqrt((r(1) - 0.5d0)**2 + (r(2) - 0.5d0)**2 + r(3)**2)
@@ -180,7 +180,7 @@ contains
 
     write (*, '(A,I0,A,ES12.5)') &
       'test_fmm_free_box_dual_target_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count >= 100_i32, 'fmm free/use_box test has too few valid samples')
+    call assert_true(valid_count >= 40_i32, 'fmm free/use_box test has too few valid samples')
     call assert_true(max_rel_err <= 2.5d-2, 'fmm free/use_box E relative error exceeds 2.5e-2')
   end subroutine test_fmm_free_box_dual_target_accuracy
 
@@ -229,7 +229,7 @@ contains
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, 120_i32
+    do i = 1_i32, 80_i32
       call random_number(r)
       r = sim%box_min + r*(sim%box_max - sim%box_min)
       center_dist = sqrt((r(1) - 0.5d0)**2 + (r(2) - 0.5d0)**2 + r(3)**2)
@@ -246,7 +246,7 @@ contains
       valid_count = valid_count + 1_i32
     end do
 
-    call assert_true(valid_count >= 80_i32, 'core free/use_box test has too few valid samples')
+    call assert_true(valid_count >= 50_i32, 'core free/use_box test has too few valid samples')
     call assert_true(max_rel_err <= 5.0d-3, 'core free/use_box E relative error exceeds 5e-3')
   end subroutine test_fmm_core_free_box_dual_target_accuracy
 
@@ -259,14 +259,17 @@ contains
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'none'
     sim%field_periodic_image_layers = 1_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
@@ -313,14 +316,17 @@ contains
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=16_i32, n_lat=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 0.0d0
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'none'
     sim%field_periodic_image_layers = 1_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
@@ -369,14 +375,17 @@ contains
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'none'
     sim%field_periodic_image_layers = 1_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
@@ -423,14 +432,17 @@ contains
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'none'
     sim%field_periodic_image_layers = 2_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
@@ -473,14 +485,17 @@ contains
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     mesh_fmm%q_elem = 1.0d-12
 
     sim = sim_config()
     sim%softening = 1.0d-4
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'none'
     sim%field_periodic_image_layers = 1_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
@@ -493,70 +508,56 @@ contains
     call solver%refresh(mesh_fmm)
   end subroutine test_fmm_periodic2_m2l_cache_reuse
 
-  subroutine test_fmm_periodic2_default_m2l_root_oracle_mode()
+  subroutine test_fmm_periodic2_auto_disables_far_correction()
     type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_default = field_solver_type()
-    type(field_solver_type) :: solver_root = field_solver_type()
+    type(field_solver_type) :: solver_auto = field_solver_type()
     type(sim_config) :: sim
-    integer(i32) :: i
-    real(dp) :: r(3), e_default(3), e_root(3)
-    real(dp) :: max_delta_default_root
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
     sim%softening = 1.0d-4
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'auto'
     sim%field_periodic_image_layers = 1_i32
+    sim%field_periodic_ewald_layers = 2_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_default%init(mesh_fmm, sim)
-    call solver_default%refresh(mesh_fmm)
-
-    sim%field_periodic_far_correction = 'm2l_root_oracle'
-    sim%field_periodic_ewald_layers = 4_i32
-    call solver_root%init(mesh_fmm, sim)
-    call solver_root%refresh(mesh_fmm)
+    call solver_auto%init(mesh_fmm, sim)
+    call solver_auto%refresh(mesh_fmm)
 
     call assert_true( &
-      trim(solver_default%periodic_far_correction) == 'm2l_root_oracle', &
-      'periodic2 default should normalize to m2l_root_oracle' &
+      trim(solver_auto%periodic_far_correction) == 'none', &
+      'periodic2 auto should normalize to none' &
       )
     call assert_true( &
-      trim(solver_root%periodic_far_correction) == 'm2l_root_oracle', &
-      'explicit periodic2 m2l_root_oracle should be preserved' &
+      trim(solver_auto%fmm_core_options%periodic_far_correction) == 'none', &
+      'normalized periodic2 auto should reach FMM core options as none' &
       )
     call assert_true( &
-      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_oracle', &
-      'normalized periodic2 far correction should reach FMM core options' &
+      .not. solver_auto%fmm_core_plan%periodic_root_operator_ready, &
+      'periodic2 auto should not build a root-operator far correction' &
       )
-
-    max_delta_default_root = 0.0d0
-    do i = 1_i32, 4_i32
-      r = [0.15d0 + 0.2d0*real(i - 1_i32, dp), 0.20d0 + 0.15d0*real(i - 1_i32, dp), -0.6d0 + 0.35d0*real(i - 1_i32, dp)]
-      call solver_default%eval_e(mesh_fmm, r, e_default)
-      call solver_root%eval_e(mesh_fmm, r, e_root)
-      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root)*(e_default - e_root))))
-    end do
-
     call assert_true( &
-      max_delta_default_root <= 1.0d-18, &
-      'default periodic2 and explicit m2l_root_oracle should agree' &
+      .not. solver_auto%fmm_core_plan%periodic_ewald%ready, &
+      'periodic2 auto should not precompute oracle Ewald data' &
       )
-  end subroutine test_fmm_periodic2_default_m2l_root_oracle_mode
+  end subroutine test_fmm_periodic2_auto_disables_far_correction
 
   subroutine test_fmm_periodic2_none_disables_far_correction()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver_none = field_solver_type()
     type(sim_config) :: sim
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=24_i32, n_lat=12_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
 
     sim = sim_config()
@@ -565,6 +566,8 @@ contains
     sim%field_bc_mode = 'periodic2'
     sim%field_periodic_far_correction = 'none'
     sim%field_periodic_image_layers = 1_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]

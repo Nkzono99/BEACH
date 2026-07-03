@@ -56,7 +56,7 @@ def default_rendered_config() -> dict[str, Any]:
             "rng_seed": 12345,
             "field_solver": "fmm",
             "field_bc_mode": "periodic2",
-            "field_periodic_far_correction": "auto",
+            "field_periodic_far_correction": "none",
         },
         "particles": {
             "species": [

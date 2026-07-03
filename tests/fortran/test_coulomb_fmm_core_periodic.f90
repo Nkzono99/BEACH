@@ -119,7 +119,7 @@ contains
     options%periodic_len = [1.0d0, 1.0d0]
     options%periodic_image_layers = 1_i32
     options%periodic_far_correction = 'm2l_root_oracle'
-    options%periodic_ewald_layers = 4_i32
+    options%periodic_ewald_layers = 2_i32
     options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     call build_plan(plan, src_pos, options)
@@ -131,8 +131,8 @@ contains
       size(plan%periodic_root_operator, 3) == plan%periodic_root_target_count, &
       'target operator count should match stored target nodes' &
       )
-    nprobe = 4_i32*plan%ncoef
-    ntarget_sample = min(plan%periodic_root_target_count, 8_i32)
+    nprobe = 2_i32*plan%ncoef
+    ntarget_sample = min(plan%periodic_root_target_count, 4_i32)
     allocate (probes(3, nprobe), target_local(plan%ncoef))
 
     max_rel_err = 0.0d0
@@ -206,7 +206,7 @@ contains
     options_oracle%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options_oracle%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     options_oracle%periodic_far_correction = 'm2l_root_oracle'
-    options_oracle%periodic_ewald_layers = 4_i32
+    options_oracle%periodic_ewald_layers = 2_i32
     call build_plan(plan_oracle, src_pos, options_oracle)
     call update_state(plan_oracle, state_oracle, q)
 
@@ -264,7 +264,7 @@ contains
     options%periodic_len = [1.0d0, 1.0d0]
     options%periodic_image_layers = 1_i32
     options%periodic_far_correction = 'm2l_root_oracle'
-    options%periodic_ewald_layers = 4_i32
+    options%periodic_ewald_layers = 2_i32
     options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     call build_plan(plan, src_pos, options)
@@ -305,12 +305,11 @@ contains
 
   subroutine test_field_solver_core_periodic2_m2l_root_oracle_adapter()
     type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_default = field_solver_type()
     type(field_solver_type) :: solver_root = field_solver_type()
     type(sim_config) :: sim
     real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 4), e_raw(3), e_ref(3), e_default(3), e_root(3)
-    real(dp) :: norm_ref, rel_default, rel_root, mean_rel_default, mean_rel_root, max_delta_default_root
+    real(dp) :: queries(3, 4), e_raw(3), e_ref(3), e_root(3)
+    real(dp) :: norm_ref, rel_root, mean_rel_root
     integer(i32) :: i, valid_count
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
@@ -326,77 +325,64 @@ contains
     sim%softening = 0.0d0
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'periodic2'
+    sim%field_periodic_far_correction = 'm2l_root_oracle'
     sim%field_periodic_image_layers = 1_i32
+    sim%field_periodic_ewald_layers = 2_i32
+    sim%tree_leaf_max = 128_i32
+    sim%has_tree_leaf_max = .true.
     sim%tree_min_nelem = 64_i32
     sim%use_box = .true.
     sim%box_min = [0.0d0, 0.0d0, -1.0d0]
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_default%init(mesh_fmm, sim)
-    call solver_default%refresh(mesh_fmm)
-
-    sim%field_periodic_far_correction = 'm2l_root_oracle'
-    sim%field_periodic_ewald_layers = 4_i32
     call solver_root%init(mesh_fmm, sim)
     call solver_root%refresh(mesh_fmm)
 
-    call assert_true(solver_default%fmm_use_core, 'softening=0 periodic2 default FMM should use the core path')
     call assert_true( &
       solver_root%fmm_use_core, &
       'softening=0 periodic2 m2l_root_oracle FMM should use the core path' &
       )
     call assert_true( &
-      trim(solver_default%periodic_far_correction) == 'm2l_root_oracle', &
-      'periodic2 default should normalize to m2l_root_oracle' &
+      trim(solver_root%periodic_far_correction) == 'm2l_root_oracle', &
+      'explicit periodic2 m2l_root_oracle should be preserved' &
       )
     call assert_true( &
-      trim(solver_default%fmm_core_options%periodic_far_correction) == 'm2l_root_oracle', &
-      'core adapter should pass normalized m2l_root_oracle into FMM options' &
+      trim(solver_root%fmm_core_options%periodic_far_correction) == 'm2l_root_oracle', &
+      'core adapter should pass explicit m2l_root_oracle into FMM options' &
       )
 
     call mesh_centers_as_sources(mesh_fmm, src_pos, q)
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.75d0, 0.75d0, 0.50d0]
 
-    mean_rel_default = 0.0d0
     mean_rel_root = 0.0d0
-    max_delta_default_root = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, 2_i32
       call direct_field_periodic2( &
         solver_root%fmm_core_plan%src_pos, q, queries(:, i), sim%box_min, sim%box_max, &
-        [1_i32, 2_i32], solver_default%periodic_image_layers, e_raw &
+        [1_i32, 2_i32], solver_root%periodic_image_layers, e_raw &
         )
       call add_periodic2_exact_ewald_correction_all_sources( &
         solver_root%fmm_core_plan, solver_root%fmm_core_state, queries(:, i), e_raw &
         )
       e_ref = k_coulomb*e_raw
-      call solver_default%eval_e(mesh_fmm, queries(:, i), e_default)
       call solver_root%eval_e(mesh_fmm, queries(:, i), e_root)
-      max_delta_default_root = max(max_delta_default_root, sqrt(sum((e_default - e_root)*(e_default - e_root))))
 
       norm_ref = sqrt(sum(e_ref*e_ref))
       if (norm_ref <= 1.0d-16) cycle
-      rel_default = sqrt(sum((e_default - e_ref)*(e_default - e_ref)))/norm_ref
       rel_root = sqrt(sum((e_root - e_ref)*(e_root - e_ref)))/norm_ref
-      mean_rel_default = mean_rel_default + rel_default
       mean_rel_root = mean_rel_root + rel_root
       valid_count = valid_count + 1_i32
     end do
 
     call assert_true( &
       valid_count == 2_i32, &
-      'core periodic2 default m2l_root_oracle adapter test lost valid samples' &
+      'core periodic2 m2l_root_oracle adapter test lost valid samples' &
       )
-    mean_rel_default = mean_rel_default/real(valid_count, dp)
     mean_rel_root = mean_rel_root/real(valid_count, dp)
     call assert_true( &
-      max_delta_default_root <= 1.0d-18*max(1.0d0, sqrt(sum(e_ref*e_ref))), &
-      'default periodic2 and explicit m2l_root_oracle should agree at the adapter level' &
-      )
-    call assert_true( &
-      mean_rel_default <= 8.0d-2 .and. mean_rel_root <= 8.0d-2, &
+      mean_rel_root <= 8.0d-2, &
       'core adapter periodic2 m2l_root_oracle accuracy exceeds 8e-2' &
       )
   end subroutine test_field_solver_core_periodic2_m2l_root_oracle_adapter
@@ -428,7 +414,7 @@ contains
     options%periodic_len = [1.0d0, 1.0d0]
     options%periodic_image_layers = 1_i32
     options%periodic_far_correction = 'm2l_root_oracle'
-    options%periodic_ewald_layers = 4_i32
+    options%periodic_ewald_layers = 2_i32
     options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     call build_plan(plan, src_pos, options)

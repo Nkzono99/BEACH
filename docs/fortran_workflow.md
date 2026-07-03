@@ -89,6 +89,7 @@ make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: heavy/release gate
 make test-heavy   # heavy Fortran targets only
+make test-fortran-far-correction  # explicit oracle far-correction diagnostics
 make test-full    # unfiltered fpm test
 ```
 
@@ -97,12 +98,14 @@ BEACH のテストは開発ループ向けに階層化しています。
 - L0: `git diff --check`、JSON schema parse check、`make check`
 - L1: L0 + Python tests + 軽量 Fortran test targets（`make test` / `make test-l1`）
 - L2: L1 + contract/integration targets（C field-kernel contract など）
-- L3: L2 + heavy FMM targets / full fpm suite（release gate / nightly / main 統合前）
+- L3: L2 + heavy FMM targets（release gate / nightly / main 統合前）
 
 `make test-fortran` は軽量 Fortran target の alias です。重い FMM 系
-（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_periodic`,
-`test_periodic2_flat_oracle_diag`）は通常の `make test` から外し、`make test-l3` /
+（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`）は通常の `make test` から外し、`make test-l3` /
 `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行します。
+`m2l_root_oracle` far-correction 診断
+（`test_coulomb_fmm_core_periodic`, `test_periodic2_flat_oracle_diag`）はさらに重いため、
+`make test-fortran-far-correction` または unfiltered の `make test-full` で opt-in 実行します。
 
 個別 target だけ確認する場合は次を使います。
 

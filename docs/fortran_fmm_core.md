@@ -104,12 +104,12 @@ BEACH の field solver adapter は、メッシュ要素重心を `src_pos` と�
 - `use_periodic2`: 2 周期軸モードの有効化
 - `periodic_axes(2)`, `periodic_len(2)`: 周期軸と周期長
 - `periodic_image_layers`: 近傍画像和の層数 `N`
-- `periodic_far_correction`: core が受ける値は `auto`, `none`, `m2l_root_oracle`。`periodic2` 有効時の `auto` は `m2l_root_oracle` に正規化され、`none` は遠方補正なしとして残る
+- `periodic_far_correction`: core が受ける値は `auto`, `none`, `m2l_root_oracle`。`periodic2` 有効時の `auto` は互換用に `none` へ正規化され、`m2l_root_oracle` は明示指定時だけ有効になる
 - `periodic_ewald_alpha`, `periodic_ewald_layers`: `m2l_root_oracle` の build-time Ewald fit で使う分解パラメータと打切り深さ
 - `target_box_min/max`: dual-target tree を作るときの box
 
 BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可変次数を受けられます。
-`periodic2` の `auto` は `m2l_root_oracle` に正規化されます。`none` は遠方補正を無効化します。
+`periodic2` の `auto` は `none` に正規化されます。`m2l_root_oracle` は遠方補正を明示的に有効化します。
 
 ### 3.2 `fmm_plan_type`
 
@@ -388,9 +388,7 @@ eval_point(r):
   leaf = locate_target_leaf(r)
   if leaf not found or leaf is not mapped to a leaf slot:
     use direct sum over all sources
-    if periodic2 and far correction is trunc:
-      add truncated far-image correction
-    if periodic2 and far correction is oracle:
+    if periodic2 and far correction is m2l_root_oracle:
       add exact periodic Ewald correction
     return
 
@@ -410,13 +408,13 @@ eval_point(r):
 
 near list に入った source index については direct 和を取ります。
 `periodic2` では `[-N, N] x [-N, N]` の画像シフトを陽に回します。
-fallback でも同じ direct kernel を使いますが、`periodic2` で `m2l_root_oracle` が有効なときは oracle 補正を別途加算します。
+fallback でも同じ direct kernel を使いますが、`periodic2` で明示 `m2l_root_oracle` が有効なときは oracle 補正を別途加算します。
 
 ### 7.3 box 外 fallback
 
 dual-target tree を使う場合、評価点が target box の外に出ることがあります。
 そのときは target leaf を持たないので、全 source に対する direct 和へ fallback します。
-`m2l_root_oracle` では build-time Ewald fit の teacher と同じ exact periodic correction を direct fallback へ足します。
+明示 `m2l_root_oracle` では build-time Ewald fit の teacher と同じ exact periodic correction を direct fallback へ足します。
 
 ### 7.4 root 補正の位置
 
@@ -619,7 +617,7 @@ $$
 
 #### 8.2.7 `m2l_root_oracle`
 
-`m2l_root_oracle` は、この Ewald2P 補正を teacher にして root multipole から root local への演算子を proxy/check 点で fit するモードです。
+`m2l_root_oracle` は、この Ewald2P 補正を teacher にして root multipole から root local への演算子を proxy/check 点で fit する明示 opt-in の高コスト診断モードです。通常運用では `none` を使います。
 
 - `periodic_image_layers = N`: runtime で explicit に残す近傍画像殻
 - `periodic_ewald_layers = L`: build-time oracle の real-space outer shell `N < max(|i|,|j|) <= N+L` と reciprocal cutoff `|m|, |n| <= L`
@@ -656,7 +654,7 @@ $$
 - source 座標は `build_plan` 後に不変とみなす
 - 対応境界は `free` と `periodic2`
 - `periodic2` は正確に 2 周期軸が必要
-- far correction は `auto`（既定）, `none`, `m2l_root_oracle`（`periodic2` の default `auto` は oracle に正規化, `none` は補正なし）
+- far correction は `none`（既定）, `auto`, `m2l_root_oracle`（`periodic2` の `auto` は互換用に `none` へ正規化、`m2l_root_oracle` は明示 opt-in）
 - `eval_point(s)` の返り値には `k_coulomb` を含めない
 
 ## 11. 実装との対応

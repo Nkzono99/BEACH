@@ -1427,7 +1427,7 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
     np.testing.assert_allclose(potential, expected)
 
 
-def test_auto_periodic2_from_result_defaults_far_correction_to_oracle(
+def test_auto_periodic2_from_result_defaults_far_correction_to_none(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_periodic_default_far_correction"
@@ -1475,7 +1475,7 @@ def test_auto_periodic2_from_result_defaults_far_correction_to_oracle(
     periodic2 = _auto_periodic2_from_result(result)
 
     assert periodic2 is not None
-    assert periodic2[4] == "m2l_root_oracle"
+    assert periodic2[4] == "none"
     assert periodic2[6] == 4
 
 
@@ -1590,7 +1590,8 @@ def test_coerce_periodic2_accepts_auto_default() -> None:
     )
 
     assert periodic2 is not None
-    assert periodic2[4] == "m2l_root_oracle"
+    assert periodic2[4] == "none"
+    assert periodic2[6] == 4
 
 
 def test_coerce_periodic2_preserves_none() -> None:
