@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-29
+
+### Added
+- `output.restart_from` for reading resume checkpoints from a separate directory while writing new outputs to `output.dir`
+- `photo_raycast` example species in the default `beachx config init` template
+
+### Changed
+- README now focuses on quick start and links detailed usage to `docs/`
+- `periodic2` far correction now defaults to `none`; `auto` remains a compatibility alias for `none`, and `m2l_root_oracle` is an explicit opt-in diagnostic mode
+- Moved `m2l_root_oracle` far-correction diagnostics out of the default heavy Fortran target list and behind `make test-fortran-far-correction`
+
+### Fixed
+- Maxwellian velocity sampling now bounds extreme tails to avoid runaway particle steps
+- `periodic2` collision search now guards against runaway periodic image enumeration
+
 ## [1.3.0] - 2026-06-22
 
 ### Added
