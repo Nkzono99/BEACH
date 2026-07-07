@@ -1,6 +1,7 @@
 !> `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
+  use bem_constants, only: k_boltzmann, k_coulomb
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count
@@ -253,7 +254,8 @@ contains
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
                              effective_particle_flux_m2_s(:), &
                              effective_temperature_k(:), effective_drift_velocity(:, :), &
-                             photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:)
+                             photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:), &
+                             photo_escape_factor_cache(:)
     logical, allocatable :: apply_barrier_energy_shift(:)
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
@@ -432,6 +434,22 @@ contains
           emit_current_density_override=photo_emit_current_density(s), &
           normal_drift_speed_override=photo_normal_drift_speed(s), vmin_normal=photo_vmin_normal(s) &
           )
+        if (photo_escape_model_enabled(cfg%particle_species(s))) then
+          allocate (photo_escape_factor_cache(mesh%nelem))
+          photo_escape_factor_cache = -1.0d0
+          do i = 1, counts_actual(s)
+            if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > mesh%nelem) then
+              error stop 'photo_raycast emitted invalid elem_idx.'
+            end if
+            if (photo_escape_factor_cache(emit_elem_species(i, s)) < 0.0d0) then
+              photo_escape_factor_cache(emit_elem_species(i, s)) = photo_escape_weight_factor( &
+                                                                   mesh, cfg%sim, cfg%particle_species(s), emit_elem_species(i, s) &
+                                                                   )
+            end if
+            w_species(i, s) = w_species(i, s)*photo_escape_factor_cache(emit_elem_species(i, s))
+          end do
+          deallocate (photo_escape_factor_cache)
+        end if
         if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
           do i = 1, counts_actual(s)
             if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > size(photo_emission_dq)) then
@@ -791,6 +809,76 @@ contains
       error stop 'Unknown sim.reservoir_potential_model in runtime.'
     end select
   end subroutine reservoir_face_velocity_correction
+
+  !> photo_raycast のPE escape closureが有効かを返す。
+  pure logical function photo_escape_model_enabled(spec) result(enabled)
+    type(particle_species_spec), intent(in) :: spec
+
+    enabled = trim(lower_ascii(spec%photo_escape_model)) /= 'none'
+  end function photo_escape_model_enabled
+
+  !> 放出元要素の局所障壁からPE escape重み係数を返す。
+  real(dp) function photo_escape_weight_factor(mesh, sim, spec, elem_idx) result(factor)
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec
+    integer(i32), intent(in) :: elem_idx
+
+    real(dp) :: barrier_v, thermal_energy_j, arg
+
+    select case (trim(lower_ascii(spec%photo_escape_model)))
+    case ('none')
+      factor = 1.0d0
+      return
+    case ('boltzmann_cutoff')
+      barrier_v = max(element_potential_without_self(mesh, elem_idx, sim%softening) - sim%phi_infty, 0.0d0)
+      if (barrier_v <= 0.0d0) then
+        factor = 1.0d0
+        return
+      end if
+      thermal_energy_j = k_boltzmann*species_temperature_k(spec)
+      if (thermal_energy_j <= 0.0d0) then
+        factor = 0.0d0
+        return
+      end if
+      arg = abs(spec%q_particle)*barrier_v/thermal_energy_j
+      if (.not. ieee_is_finite(arg)) then
+        error stop 'photo_escape_model produced a non-finite Boltzmann argument.'
+      end if
+      if (arg >= 700.0d0) then
+        factor = 0.0d0
+      else
+        factor = exp(-arg)
+      end if
+    case default
+      error stop 'Unknown photo_escape_model in runtime.'
+    end select
+  end function photo_escape_weight_factor
+
+  !> 要素自身の点電荷寄与を除いた要素中心電位 [V] を返す。
+  real(dp) function element_potential_without_self(mesh, elem_idx, softening) result(phi)
+    type(mesh_type), intent(in) :: mesh
+    integer(i32), intent(in) :: elem_idx
+    real(dp), intent(in) :: softening
+
+    integer(i32) :: j
+    real(dp) :: dx, dy, dz, r2, soft2, phi_sum
+
+    if (elem_idx < 1_i32 .or. elem_idx > mesh%nelem) error stop 'photo_escape_model elem_idx is out of range.'
+
+    soft2 = softening*softening
+    phi_sum = 0.0d0
+    do j = 1_i32, mesh%nelem
+      if (j == elem_idx) cycle
+      dx = mesh%center_x(elem_idx) - mesh%center_x(j)
+      dy = mesh%center_y(elem_idx) - mesh%center_y(j)
+      dz = mesh%center_z(elem_idx) - mesh%center_z(j)
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= tiny(1.0d0)) cycle
+      phi_sum = phi_sum + mesh%q_elem(j)/sqrt(r2)
+    end do
+    phi = k_coulomb*phi_sum
+  end function element_potential_without_self
 
   !> reservoir_face 開口面の平均電位を `N x N` 格子平均で評価する。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ。

@@ -356,6 +356,7 @@ contains
       cfg%particle_species(i)%velocity_distribution = lower_ascii(trim(cfg%particle_species(i)%velocity_distribution))
       cfg%particle_species(i)%velocity_grid_pdf_kind = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
       cfg%particle_species(i)%velocity_grid_sampling = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_sampling))
+      cfg%particle_species(i)%photo_escape_model = lower_ascii(trim(cfg%particle_species(i)%photo_escape_model))
       if (.not. all(ieee_is_finite(cfg%particle_species(i)%pos_low)) .or. &
           .not. all(ieee_is_finite(cfg%particle_species(i)%pos_high))) then
         error stop 'particles.species.pos_low/pos_high must contain finite values.'
@@ -419,7 +420,8 @@ contains
         end if
         if (abs(cfg%particle_species(i)%emit_current_density_a_m2) > 0.0d0 .or. &
             cfg%particle_species(i)%rays_per_batch /= 0_i32 .or. cfg%particle_species(i)%has_ray_direction .or. &
-            cfg%particle_species(i)%has_deposit_opposite_charge_on_emit) then
+            cfg%particle_species(i)%has_deposit_opposite_charge_on_emit .or. &
+            cfg%particle_species(i)%has_photo_escape_model) then
           error stop 'photo_raycast keys are only valid for source_mode="photo_raycast".'
         end if
         per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
@@ -882,6 +884,10 @@ contains
           'particles.species.deposit_opposite_charge_on_emit' &
           )
         spec%has_deposit_opposite_charge_on_emit = .true.
+      case ('photo_escape_model')
+        call get_toml_string(table, keys(ikey), spec%photo_escape_model, 'particles.species.photo_escape_model')
+        spec%photo_escape_model = lower_ascii(trim(spec%photo_escape_model))
+        spec%has_photo_escape_model = .true.
       case ('normal_drift_speed')
         call get_toml_real(table, keys(ikey), spec%normal_drift_speed, 'particles.species.normal_drift_speed')
       case ('ray_direction')

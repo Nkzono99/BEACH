@@ -1,6 +1,7 @@
 !> テンプレート生成・OBJ取込・app_config実行時変換の連携を検証するテスト。
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
+  use bem_constants, only: k_boltzmann, k_coulomb, qe
   use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor, surface_model_dielectric
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
@@ -17,7 +18,8 @@ program test_templates_importers_runtime
   type(particles_soa) :: pcls
   type(injection_state) :: state
   real(dp), allocatable :: photo_emission_dq(:)
-  real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1), expected_photo_counter
+  real(dp) :: photo_v0(3, 2), photo_v1(3, 2), photo_v2(3, 2), expected_photo_counter
+  real(dp) :: center_distance, expected_weight, raw_photo_counter
   integer(i32) :: i
 
   character(len=*), parameter :: obj_path = 'test_templates_runtime_tmp.obj'
@@ -25,7 +27,7 @@ program test_templates_importers_runtime
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
 
-  call test_init(10)
+  call test_init(11)
 
   call test_begin('template_shapes')
   call make_plane(mesh, nx=2_i32, ny=3_i32)
@@ -284,6 +286,58 @@ program test_templates_importers_runtime
   call assert_close_dp(sum(photo_emission_dq), expected_photo_counter, 1.0d-12, 'photo counter charge mismatch')
   call assert_true(state%macro_residual(2) >= 0.0d0, 'reservoir residual should be non-negative')
   call assert_true(state%macro_residual(2) < 1.0d0, 'reservoir residual should be < 1')
+  call test_end()
+
+  call test_begin('photo_escape_boltzmann_cutoff')
+  photo_v0(:, 1) = [0.0d0, 0.0d0, 0.5d0]
+  photo_v1(:, 1) = [1.0d0, 0.0d0, 0.5d0]
+  photo_v2(:, 1) = [0.0d0, 1.0d0, 0.5d0]
+  photo_v0(:, 2) = [0.0d0, 0.0d0, 0.0d0]
+  photo_v1(:, 2) = [1.0d0, 0.0d0, 0.0d0]
+  photo_v2(:, 2) = [0.0d0, 1.0d0, 0.0d0]
+  call init_mesh(mesh, photo_v0, photo_v1, photo_v2)
+  center_distance = sqrt( &
+                    (mesh%center_x(1) - mesh%center_x(2))**2 + &
+                    (mesh%center_y(1) - mesh%center_y(2))**2 + &
+                    (mesh%center_z(1) - mesh%center_z(2))**2 &
+                    )
+  mesh%q_elem = 0.0d0
+  mesh%q_elem(2) = center_distance/k_coulomb
+
+  call default_app_config(cfg)
+  cfg%sim%rng_seed = 1001_i32
+  cfg%sim%batch_count = 1_i32
+  cfg%sim%batch_duration = 1.0d0
+  cfg%sim%use_box = .true.
+  cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
+  cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+  cfg%sim%softening = 0.0d0
+  cfg%sim%phi_infty = 0.0d0
+  cfg%n_particle_species = 1_i32
+  cfg%particle_species(1) = species_from_defaults()
+  cfg%particle_species(1)%source_mode = 'photo_raycast'
+  cfg%particle_species(1)%emit_current_density_a_m2 = 1.0d0
+  cfg%particle_species(1)%rays_per_batch = 1_i32
+  cfg%particle_species(1)%ray_direction = [0.0d0, 0.0d0, -1.0d0]
+  cfg%particle_species(1)%has_ray_direction = .true.
+  cfg%particle_species(1)%q_particle = -qe
+  cfg%particle_species(1)%m_particle = 1.0d0
+  cfg%particle_species(1)%temperature_k = qe/k_boltzmann
+  cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
+  cfg%particle_species(1)%photo_escape_model = 'boltzmann_cutoff'
+  cfg%particle_species(1)%inject_face = 'z_high'
+  cfg%particle_species(1)%pos_low = [0.24d0, 0.24d0, 1.0d0]
+  cfg%particle_species(1)%pos_high = [0.26d0, 0.26d0, 1.0d0]
+
+  if (allocated(photo_emission_dq)) deallocate (photo_emission_dq)
+  allocate (photo_emission_dq(mesh%nelem))
+  call seed_particles_from_config(cfg)
+  call init_particle_batch_from_config(cfg, 1_i32, pcls, mesh=mesh, photo_emission_dq=photo_emission_dq)
+  expected_weight = (0.02d0*0.02d0)/(qe)*exp(-1.0d0)
+  raw_photo_counter = 0.02d0*0.02d0
+  call assert_equal_i32(pcls%n, 1_i32, 'photo escape should keep one reweighted macro particle')
+  call assert_close_dp(pcls%w(1), expected_weight, expected_weight*1.0d-12, 'photo escape weight mismatch')
+  call assert_close_dp(sum(photo_emission_dq), raw_photo_counter*exp(-1.0d0), 1.0d-15, 'photo escape dq mismatch')
   call test_end()
 
   call delete_file_if_exists(obj_path)

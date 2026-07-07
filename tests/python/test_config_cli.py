@@ -255,6 +255,56 @@ def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> N
         load_config_file(config_path)
 
 
+def test_load_config_file_rejects_unknown_photo_escape_model(tmp_path: Path) -> None:
+    config_path = tmp_path / "beach.toml"
+    config_path.write_text(
+        """
+[sim]
+batch_count = 1
+batch_duration = 1.0e-6
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 1.0]
+
+[particles]
+[[particles.species]]
+source_mode = "photo_raycast"
+emit_current_density_a_m2 = 1.0e-3
+rays_per_batch = 10
+deposit_opposite_charge_on_emit = true
+photo_escape_model = "unknown"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+temperature_ev = 1.5
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 1.0]
+pos_high = [1.0, 1.0, 1.0]
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+size_x = 1.0
+size_y = 1.0
+nx = 1
+ny = 1
+center = [0.5, 0.5, 0.0]
+
+[output]
+write_files = true
+dir = "outputs/latest"
+history_stride = 1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RenderValidationError, match="photo_escape_model"):
+        load_config_file(config_path)
+
+
 def test_config_cli_init_render_validate_and_diff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

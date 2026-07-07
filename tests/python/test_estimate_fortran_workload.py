@@ -543,6 +543,7 @@ def test_estimate_workload_supports_photo_raycast_as_upper_bound() -> None:
                     "source_mode": "photo_raycast",
                     "emit_current_density_a_m2": 1.0e-3,
                     "rays_per_batch": 25,
+                    "photo_escape_model": "boltzmann_cutoff",
                     "q_particle": -1.0,
                     "m_particle": 1.0,
                     "temperature_k": 0.0,

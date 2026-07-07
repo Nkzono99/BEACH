@@ -83,6 +83,7 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 7. 統計と履歴を更新
 
 `photo_raycast` で `deposit_opposite_charge_on_emit=true` の場合は、放出元要素に `-q_particle * w_hit` も加算します。
+`photo_escape_model="boltzmann_cutoff"` では、PE escape 係数を掛けた実効重み `w_eff` を粒子重みと放出元要素の逆符号電荷の両方に使います。
 
 ## 5. 物理モデル
 
@@ -147,6 +148,11 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - 1ヒット重み:
   - `w_hit = J_perp * A_perp * batch_duration / (|q| * rays_per_batch)`
   - MPI 実行時は `rays_per_batch` の代わりに `global_rays_per_batch`（全 rank 合計）を使用
+- `photo_escape_model="boltzmann_cutoff"` の場合:
+  - 放出元要素の自己寄与を除いた中心電位から `barrier = max(phi_emit - phi_infty, 0)` を計算
+  - `escape_factor = exp(-|q_particle| * barrier / (k_B * T_PE))`
+  - `w_eff = w_hit * escape_factor` とし、PE粒子重みと `deposit_opposite_charge_on_emit` の放出元電荷 bookkeeping に同じ `w_eff` を使う
+  - これは戻りPEを即時中和として扱う reduced closure であり、個別PEの再吸収面は追跡しない
 - `sim.field_bc_mode="periodic2"` で periodic image に命中した場合も、放出位置は primary cell に wrap した hit 座標を使う
 - `sheath_injection_model` が Zhao 系のとき、最初の負電荷 `photo_raycast` species の `emit_current_density_a_m2` は Zhao の自由光電子電流へ上書きされ、法線速度 cutoff も分枝に応じて適用される
 

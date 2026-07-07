@@ -254,6 +254,7 @@ history_stride = 1
 | `emit_current_density_a_m2` | float | `0.0` | レイ垂直面基準の放出電流密度 [A/m^2] |
 | `rays_per_batch` | int | `0` | 1バッチの発射レイ数 |
 | `deposit_opposite_charge_on_emit` | bool | `false` | 放出元要素に逆符号電荷を堆積 |
+| `photo_escape_model` | string | `"none"` | PE escape closure。`none` / `boltzmann_cutoff` |
 | `normal_drift_speed` | float | `0.0` | 放出法線方向ドリフト [m/s] |
 | `ray_direction` | float[3] | 未指定時は注入面内向き法線 | レイ方向 |
 
@@ -272,6 +273,7 @@ history_stride = 1
 - `w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)`
 - 実際の放出数はレイの命中率で決まるため、バッチごとの生成粒子数は `rays_per_batch` 以下になります。
 - `field_bc_mode = "periodic2"` のとき、periodic image に命中しても放出位置は primary cell に wrap した hit 座標を使います。
+- `photo_escape_model = "boltzmann_cutoff"` のときは、放出元要素の自己寄与を除いた中心電位で `barrier = max(phi_emit - phi_infty, 0)` を評価し、`escape_factor = exp(-|q_particle| barrier / (k_B T_PE))` を `w_hit` に掛けます。`deposit_opposite_charge_on_emit = true` の場合、放出元要素へ残す逆符号電荷にも同じ実効重みを使い、抑制されたPE電流は即時returnとして扱います。
 
 ### `sim.sheath_injection_model`
 

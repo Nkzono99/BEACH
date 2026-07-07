@@ -949,6 +949,13 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                     f"BEACH constraint error: particles.species[{index}] uses "
                     'source_mode="photo_raycast" and requires rays_per_batch > 0.'
                 )
+            photo_escape_model = str(species_table.get("photo_escape_model", "none")).strip().lower()
+            if photo_escape_model not in {"none", "boltzmann_cutoff"}:
+                raise RenderValidationError(
+                    f"BEACH constraint error: particles.species[{index}] uses "
+                    'source_mode="photo_raycast" and requires photo_escape_model '
+                    'to be "none" or "boltzmann_cutoff".'
+                )
             forbidden = (
                 "npcls_per_step",
                 "number_density_cm3",

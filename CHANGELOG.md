@@ -5,11 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-06-29
+## [1.4.0] - 2026-07-07
 
 ### Added
 - `output.restart_from` for reading resume checkpoints from a separate directory while writing new outputs to `output.dir`
 - `photo_raycast` example species in the default `beachx config init` template
+- `photo_escape_model="boltzmann_cutoff"` for `photo_raycast` species to approximate photoelectron return/escape with a reduced Boltzmann closure
 
 ### Changed
 - README now focuses on quick start and links detailed usage to `docs/`

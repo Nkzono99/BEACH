@@ -113,6 +113,10 @@ program test_app_config_parser
     photo_cfg%particle_species(1)%deposit_opposite_charge_on_emit, &
     'photo deposit_opposite_charge_on_emit mismatch' &
     )
+  call assert_true( &
+    trim(photo_cfg%particle_species(1)%photo_escape_model) == 'boltzmann_cutoff', &
+    'photo_escape_model mismatch' &
+    )
   call assert_allclose_1d( &
     photo_cfg%particle_species(1)%ray_direction, [0.0d0, 0.0d0, -1.0d0], 1.0d-12, 'photo ray_direction mismatch' &
     )
@@ -333,6 +337,7 @@ contains
     write (u, '(a)') 'emit_current_density_a_m2 = 2.0e-3'
     write (u, '(a)') 'rays_per_batch = 40'
     write (u, '(a)') 'deposit_opposite_charge_on_emit = true'
+    write (u, '(a)') 'photo_escape_model = "boltzmann_cutoff"'
     write (u, '(a)') 'normal_drift_speed = 1.5e5'
     write (u, '(a)') 'q_particle = -1.0'
     write (u, '(a)') 'm_particle = 1.0'

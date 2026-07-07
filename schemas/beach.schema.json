@@ -1046,6 +1046,15 @@
           "default": false,
           "description": "Deposit opposite-sign charge on emitting element for photo_raycast."
         },
+        "photo_escape_model": {
+          "type": "string",
+          "enum": [
+            "none",
+            "boltzmann_cutoff"
+          ],
+          "default": "none",
+          "description": "Optional photoelectron escape closure for photo_raycast."
+        },
         "normal_drift_speed": {
           "type": "number",
           "default": 0.0,
@@ -1264,6 +1273,11 @@
                 },
                 {
                   "required": [
+                    "photo_escape_model"
+                  ]
+                },
+                {
+                  "required": [
                     "velocity_grid_path"
                   ]
                 },
@@ -1325,6 +1339,11 @@
                     {
                       "required": [
                         "deposit_opposite_charge_on_emit"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "photo_escape_model"
                       ]
                     }
                   ]

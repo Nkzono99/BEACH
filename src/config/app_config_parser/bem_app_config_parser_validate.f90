@@ -93,7 +93,7 @@ contains
     error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
   end if
   if (abs(spec%emit_current_density_a_m2) > 0.0d0 .or. spec%rays_per_batch /= 0_i32 .or. &
-      spec%has_ray_direction .or. spec%has_deposit_opposite_charge_on_emit) then
+      spec%has_ray_direction .or. spec%has_deposit_opposite_charge_on_emit .or. spec%has_photo_escape_model) then
     error stop 'photo_raycast keys are not allowed for reservoir_face.'
   end if
   if (spec%has_w_particle .and. spec%has_target_macro_particles_per_batch) then
@@ -302,6 +302,13 @@ contains
   if (spec%rays_per_batch <= 0_i32) then
     error stop 'photo_raycast requires rays_per_batch > 0.'
   end if
+  spec%photo_escape_model = lower_ascii(trim(spec%photo_escape_model))
+  select case (trim(spec%photo_escape_model))
+  case ('none', 'boltzmann_cutoff')
+    continue
+  case default
+    error stop 'photo_escape_model must be "none" or "boltzmann_cutoff".'
+  end select
   if (.not. ieee_is_finite(spec%normal_drift_speed)) then
     error stop 'normal_drift_speed must be finite.'
   end if

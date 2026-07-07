@@ -218,6 +218,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `emit_current_density_a_m2` | float | 必須 | 放出電流密度 [A/m^2] |
 | `rays_per_batch` | int | 必須 | バッチあたりレイ数 |
 | `deposit_opposite_charge_on_emit` | bool | false | 放出元要素に逆符号電荷を堆積 |
+| `photo_escape_model` | string | `"none"` | `none` / `boltzmann_cutoff`。後者は正電位障壁でPE escape電流をBoltzmann抑制 |
 | `normal_drift_speed` | float | 0.0 | 法線方向ドリフト速度 [m/s] |
 | `ray_direction` | float[3] | 内向き法線 | レイ方向ベクトル |
 
