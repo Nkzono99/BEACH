@@ -180,7 +180,7 @@ contains
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(warn_stride,batch_idx,mpi_rank) &
-  !$omp private(i,step,x0,v0,x1,v1,e,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary)
+  !$omp private(i,step,x0,v0,x1,v1,e,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary) &
   !$omp private(has_boundary_probe,boundary_high_side)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
