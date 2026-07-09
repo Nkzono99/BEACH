@@ -1,5 +1,7 @@
 title: BEACH 入力パラメータリファレンス
 
+Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
+
 # 入力パラメータリファレンス
 
 本文書は、Fortran 実行系が読む最終的な `beach.toml` のパラメータリファレンスです。

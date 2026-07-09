@@ -67,6 +67,7 @@ PRE_COMMIT ?= pre-commit
 DOCS_PROJECT_FILE ?= ford.md
 DOCS_OUTPUT_DIR ?= build/ford-docs
 FORTRAN_DEP_MAP_MD ?= docs/FortranDependencyMap.md
+FORTRAN_DEP_MAP_EN_MD ?= docs/FortranDependencyMap.en.md
 FORTRAN_DEP_MAP_DOT ?= build/fortran_module_dependencies.dot
 FORTRAN_DEP_MAP_SVG ?= docs/media/fortran_module_dependencies.svg
 
@@ -208,6 +209,7 @@ test-mpi:
 docs-fortran:
 	$(PYTHON) tools/generate_fortran_dependency_report.py \
 		--markdown $(FORTRAN_DEP_MAP_MD) \
+		--markdown-en $(FORTRAN_DEP_MAP_EN_MD) \
 		--dot $(FORTRAN_DEP_MAP_DOT) \
 		--svg $(FORTRAN_DEP_MAP_SVG)
 	$(FORD) $(DOCS_PROJECT_FILE) --output_dir $(DOCS_OUTPUT_DIR) --config '$(FORD_CONFIG)'

@@ -1,5 +1,7 @@
 title: beachx config / 高水準記法ガイド
 
+Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
+
 # `beachx config` / 高水準記法ガイド
 
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。

@@ -1,5 +1,7 @@
 title: Python 後処理 API リファレンス
 
+Lang: [日本語](PythonPostprocessAPI.md) | [English](PythonPostprocessAPI.en.md)
+
 # Python 後処理 API リファレンス
 
 BEACH の Python パッケージ (`beach`) は、Fortran シミュレーション結果の読み込み・解析・可視化を担う後処理レイヤです。

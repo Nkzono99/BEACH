@@ -1,5 +1,7 @@
 title: BEACH アルゴリズム解説
 
+Lang: [日本語](Algorithms.md) | [English](Algorithms.en.md)
+
 # BEACH アルゴリズム解説
 
 この文書は、BEACH の現行 Fortran 実装に基づいて、数値アルゴリズムと実行順序を説明します。

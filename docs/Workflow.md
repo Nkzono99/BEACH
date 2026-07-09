@@ -1,5 +1,7 @@
 title: Fortran 中心ワークフロー（現行推奨）
 
+Lang: [日本語](Workflow.md) | [English](Workflow.en.md)
+
 # Fortran 中心ワークフロー（現行推奨）
 
 このプロジェクトは **Fortran 実行系が主**、Python は後処理・可視化を担当します。  
