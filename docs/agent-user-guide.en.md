@@ -6,6 +6,7 @@ Lang: [English](agent-user-guide.en.md) | [日本語](agent-user-guide.md)
 
 > Reference guide for AI agents operating BEACH simulations.
 > Intended to be loaded from CLAUDE.md with `@import docs/agent-user-guide.en.md`.
+> Normal BEACH users do not need to read this page. Start from [BEACH Documentation](index.en.html) instead.
 
 ---
 
@@ -15,7 +16,7 @@ BEACH (BEM + Accumulated CHarge) is a hybrid boundary-element-method plus partic
 
 - **Fortran core**: particle dynamics, electric-field solver, collision detection, charge deposition
 - **Python layer**: configuration management, post-processing, visualization
-- **Version**: 1.2.0
+- **Version**: 1.4.0
 
 ---
 
@@ -31,10 +32,10 @@ pip install beach-bem
 beachx config init
 
 # 3. Render high-level notation to final runtime keys
-beachx config render
+beachx config render beach.toml --output beach.rendered.toml
 
 # 4. Run the simulation
-beach beach.toml
+beach beach.rendered.toml
 
 # 5. Inspect results
 beachx inspect outputs/latest
@@ -430,7 +431,7 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 - `mesh.templates` `placement_mode = "box_anchor"` -> `center`
 - `mesh.groups.*` `scale_from` / `placement_mode` -> actual size and coordinates for each template
 
-`schema_version`, `use_presets`, `override`, and `base_case` are not used in the current direct `beach.toml`.
+Runtime settings belong under `sim`, `particles`, `mesh`, and `output`.
 
 ---
 
@@ -498,7 +499,8 @@ npcls_per_step = 10
 ### Complete Post-processing Pipeline
 
 ```bash
-beach beach.toml
+beachx config render beach.toml --output beach.rendered.toml
+beach beach.rendered.toml
 beachx inspect outputs/latest --save-mesh charges.png
 beachx animate outputs/latest --quantity charge --save-gif charge.gif
 beachx slices outputs/latest --save slices.png
@@ -557,6 +559,8 @@ BEACH/
 | Document | Contents |
 |-------------|------|
 | `SPEC.md` | Fortran implementation specification, authoritative |
+| `docs/OutputGuide.en.md` | How to read output files |
+| `docs/ConfigurationRecipes.en.md` | Common configuration recipes |
 | `docs/Parameters.en.md` | Detailed parameter specification |
 | `docs/Workflow.en.md` | Execution workflow and I/O |
 | `docs/Algorithms.en.md` | Algorithm overview |
@@ -565,5 +569,6 @@ BEACH/
 | `docs/FMMCore.en.md` | FMM math and Ewald |
 | `docs/BatchDurationStability.en.md` | `batch_duration` stability |
 | `docs/Configuration.en.md` | `beachx config` and high-level notation |
+| `docs/PostprocessTutorial.en.md` | Post-processing tutorial |
 | `docs/PythonPostprocessAPI.en.md` | Python API reference |
 | `schemas/beach.schema.json` | JSON Schema for IDE validation |

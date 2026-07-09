@@ -1,8 +1,8 @@
-title: Fortran-Centered Workflow (Current Recommendation)
+title: Execution and Development Workflow
 
 Lang: [English](Workflow.en.md) | [日本語](Workflow.md)
 
-# Fortran-Centered Workflow (Current Recommendation)
+# Execution and Development Workflow
 
 The project is centered on the **Fortran runtime**. Python handles post-processing, visualization, and utility
 workflows. For normal users, the recommended path is to install `beach-bem` and run the `beach` command.
@@ -56,7 +56,7 @@ make run CONFIG=examples/beach.toml
 ```
 
 `make check` is the standard development build check. It uses `BEACH_VERSION_MODE=dev` to pass a stable
-version string such as `1.2.0-dev` to the Fortran side, so changes to the git hash do not invalidate fpm's
+version string such as `1.4.0-dev` to the Fortran side, so changes to the git hash do not invalidate fpm's
 compile-flag hash and incremental builds stay reusable.
 
 `make build` and `make install` embed a git-hash version by default. Override the version mode when needed.
@@ -119,12 +119,12 @@ Submit them to compute nodes with `tssrun` or `sbatch`.
 
 ## 3. Run Flow
 
-Usually, edit `beach.toml` directly and run the simulator. See
+Usually, edit `beach.toml`, render an execution-ready TOML file, and pass that file to `beach`. See
 [`beachx config` / High-Level Notation Guide](Configuration.en.html) for the high-level notation layer.
 
 1. Prepare `beach.toml`.
-2. If needed, run `beachx config render` to expand high-level notation to final keys.
-3. Run the simulation with `beach`.
+2. Run `beachx config render beach.toml --output beach.rendered.toml` to expand high-level notation to final keys.
+3. Run the simulation with `beach beach.rendered.toml`.
 4. Inspect files under `output.dir`.
 5. Visualize with Python CLI commands or the `Beach` API.
 
@@ -137,31 +137,33 @@ mkdir run_periodic2
 cd run_periodic2
 beachx config init
 beachx lint beach.toml
-beachx config render
-beach beach.toml
+beachx config render beach.toml --output beach.rendered.toml
+beach beach.rendered.toml
 ```
 
 ### 3.2 Direct `beach.toml` Use
 
 1. Prepare `beach.toml` (see [Input Parameters Reference](Parameters.en.html)).
-2. Run the simulation with `beach`.
-3. Inspect `output.dir`.
-4. Visualize with a Python CLI command or the `Beach` API.
+2. Confirm that it does not contain high-level notation.
+3. Run the simulation with `beach beach.toml`.
+4. Inspect `output.dir`.
+5. Visualize with a Python CLI command or the `Beach` API.
 
 ## 4. Run Commands
 
 ### 4.1 Recommended: `beach`
 
 ```bash
-beach examples/beach.toml
+beach beach.rendered.toml
 ```
 
+When using high-level notation, run `beachx config render beach.toml --output beach.rendered.toml` first.
 Without arguments, `beach` reads `beach.toml` from the current directory.
 
 ### 4.2 Thread Count
 
 ```bash
-OMP_NUM_THREADS=8 beach examples/beach.toml
+OMP_NUM_THREADS=8 beach beach.rendered.toml
 ```
 
 ### 4.3 MPI + OpenMP

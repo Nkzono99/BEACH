@@ -1,8 +1,8 @@
-title: Fortran 中心ワークフロー（現行推奨）
+title: 実行・開発ワークフロー
 
 Lang: [日本語](Workflow.md) | [English](Workflow.en.md)
 
-# Fortran 中心ワークフロー（現行推奨）
+# 実行・開発ワークフロー
 
 このプロジェクトは **Fortran 実行系が主**、Python は後処理・可視化を担当します。  
 通常利用の推奨運用は、`pip install beach-bem` で導入した `beach` コマンドを使う方式です。
@@ -56,7 +56,7 @@ make run CONFIG=examples/beach.toml
 ```
 
 開発中の標準確認は `make check` です。`BEACH_VERSION_MODE=dev` を使って
-Fortran 側へ渡す version 文字列を `1.2.0-dev` のように固定するため、git hash が変わっても
+Fortran 側へ渡す version 文字列を `1.4.0-dev` のように固定するため、git hash が変わっても
 fpm の compile-flag hash が変わらず、差分コンパイルを再利用できます。
 
 `make build` と `make install` は既定で git hash 付き version を埋め込みます。必要なら version mode を明示します。
@@ -120,12 +120,12 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 
 ## 3. 実行フロー
 
-通常は、`beach.toml` を直接編集して実行します。高水準記法の詳細は
+通常は、`beach.toml` を編集してから、実行用の展開済み TOML を生成して `beach` に渡します。高水準記法の詳細は
 [beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
 
 1. `beach.toml` を用意する
-2. 必要なら `beachx config render` で高水準記法を最終キーへ展開する
-3. `beach` でシミュレーション実行
+2. `beachx config render beach.toml --output beach.rendered.toml` で高水準記法を最終キーへ展開する
+3. `beach beach.rendered.toml` でシミュレーション実行
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化
 
@@ -138,31 +138,33 @@ mkdir run_periodic2
 cd run_periodic2
 beachx config init
 beachx lint beach.toml
-beachx config render
-beach beach.toml
+beachx config render beach.toml --output beach.rendered.toml
+beach beach.rendered.toml
 ```
 
 ### 3.2 `beach.toml` を直接使う場合
 
 1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](Parameters.html)）
-2. `beach` でシミュレーション実行
-3. `output.dir` の出力ファイルを確認
-4. Python CLI または `Beach` API で可視化
+2. 高水準記法を使っていないことを確認する
+3. `beach beach.toml` でシミュレーション実行
+4. `output.dir` の出力ファイルを確認
+5. Python CLI または `Beach` API で可視化
 
 ## 4. 実行コマンド
 
 ### 4.1 推奨: `beach`
 
 ```bash
-beach examples/beach.toml
+beach beach.rendered.toml
 ```
 
+高水準記法を使う場合は、先に `beachx config render beach.toml --output beach.rendered.toml` を実行します。
 引数なし実行では、カレントディレクトリの `beach.toml` を自動読込します。
 
 ### 4.2 スレッド数指定
 
 ```bash
-OMP_NUM_THREADS=8 beach examples/beach.toml
+OMP_NUM_THREADS=8 beach beach.rendered.toml
 ```
 
 ### 4.3 MPI + OpenMP

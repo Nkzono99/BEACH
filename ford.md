@@ -3,7 +3,7 @@ summary: BEM + Accumulated Charge simulator with a Fortran runtime and Python po
 author: beach contributors
 license: Apache-2.0
 doc_license:
-version: 0.7.3
+version: 1.4.0
 src_dir: src
 src_dir: app
 output_dir: build/ford-docs

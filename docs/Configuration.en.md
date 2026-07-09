@@ -6,9 +6,9 @@ Lang: [English](Configuration.en.md) | [日本語](Configuration.md)
 
 This document describes the directly edited `beach.toml` file and the `beachx config` helper commands.
 
-- The Fortran runtime `beach` reads only `beach.toml`.
+- The Fortran runtime `beach` reads a TOML file expanded to final runtime keys.
 - `beachx config init` creates a small runnable `beach.toml`.
-- `beachx config render` expands high-level notation in the same `beach.toml` into final runtime keys.
+- `beachx config render` expands high-level notation in `beach.toml` into final runtime keys.
 - See [Input Parameters Reference](Parameters.en.html) for the final keys read by the Fortran runtime.
 
 ## 1. Basic Flow
@@ -20,15 +20,17 @@ cd run_periodic2
 beachx config init
 $EDITOR beach.toml
 beachx lint beach.toml
-beachx config render
-beach beach.toml
+beachx config render beach.toml --output beach.rendered.toml
+beach beach.rendered.toml
 ```
 
-By default, `render` overwrites the input file. Use `--stdout` to inspect the rendered result first.
+When no output path is specified, `render` overwrites the input file. For first-time use and shared examples,
+prefer `--output` so the source config and rendered runtime config remain separate. Use `--stdout` to inspect
+the rendered result first.
 
 ```bash
 beachx config render --stdout
-beachx config render beach.toml --output rendered/beach.toml
+beachx config render beach.toml --output beach.rendered.toml
 ```
 
 ## 2. Commands
@@ -71,7 +73,7 @@ Expand high-level notation into final keys consumed by the Fortran runtime.
 
 ```bash
 beachx config render
-beachx config render run.toml --output rendered/beach.toml
+beachx config render run.toml --output run.rendered.toml
 ```
 
 ### 2.5 `diff`
@@ -182,10 +184,10 @@ comment directive rather than `"$schema" = "..."`.
 
 ## 5. Common Mistakes
 
-### 5.1 Reserved Top-Level Keys
+### 5.1 Top-Level Key Placement
 
-`schema_version`, `use_presets`, `override`, and `base_case` belong to an old configuration layer and are not used
-in current direct `beach.toml` files. Write settings directly under `sim`, `particles`, `mesh`, and `output`.
+Runtime settings belong under `sim`, `particles`, `mesh`, and `output`.
+Ordinary keys before the first section, or unknown top-level sections, fail validation or Fortran loading.
 
 ### 5.2 High-Level Keys Disappear After Rendering
 

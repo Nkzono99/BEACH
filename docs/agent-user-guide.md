@@ -6,6 +6,7 @@ Lang: [日本語](agent-user-guide.md) | [English](agent-user-guide.en.md)
 
 > AI Agent が BEACH シミュレーションを操作するためのリファレンスガイド。
 > CLAUDE.md から `@import docs/agent-user-guide.md` で読み込むことを想定。
+> 通常の利用者はこの文書を読む必要はありません。実行手順は [BEACH ドキュメント](index.html) から辿ってください。
 
 ---
 
@@ -15,7 +16,7 @@ BEACH (BEM + Accumulated CHarge) は、絶縁体表面への帯電蓄積をシ�
 
 - **Fortran コア**: 粒子力学・電場ソルバー・衝突判定・電荷堆積
 - **Python レイヤー**: 設定管理・後処理・可視化
-- **バージョン**: 1.2.0
+- **バージョン**: 1.4.0
 
 ---
 
@@ -31,10 +32,10 @@ pip install beach-bem
 beachx config init
 
 # 3. 高水準記法を最終キーへレンダリング
-beachx config render
+beachx config render beach.toml --output beach.rendered.toml
 
 # 4. シミュレーション実行
-beach beach.toml
+beach beach.rendered.toml
 
 # 5. 結果確認
 beachx inspect outputs/latest
@@ -433,7 +434,7 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 - `mesh.templates` の `placement_mode = "box_anchor"` -> `center`
 - `mesh.groups.*` の `scale_from` / `placement_mode` -> template ごとの実寸・実座標
 
-`schema_version`、`use_presets`、`override`、`base_case` は現行の direct `beach.toml` では使わない。
+実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書く。
 
 ---
 
@@ -501,7 +502,8 @@ npcls_per_step = 10
 ### 完全な後処理パイプライン
 
 ```bash
-beach beach.toml
+beachx config render beach.toml --output beach.rendered.toml
+beach beach.rendered.toml
 beachx inspect outputs/latest --save-mesh charges.png
 beachx animate outputs/latest --quantity charge --save-gif charge.gif
 beachx slices outputs/latest --save slices.png
@@ -560,6 +562,8 @@ BEACH/
 | ドキュメント | 内容 |
 |-------------|------|
 | `SPEC.md` | Fortran 実装仕様 (権威的) |
+| `docs/OutputGuide.md` | 出力ファイルの読み方 |
+| `docs/ConfigurationRecipes.md` | よくある設定レシピ |
 | `docs/Parameters.md` | パラメータ詳細仕様 |
 | `docs/Workflow.md` | 実行ワークフロー・I/O |
 | `docs/Algorithms.md` | アルゴリズム概要 |
@@ -568,5 +572,6 @@ BEACH/
 | `docs/FMMCore.md` | FMM 数学・Ewald |
 | `docs/BatchDurationStability.md` | `batch_duration` 安定性 |
 | `docs/Configuration.md` | `beachx config` と高水準記法 |
+| `docs/PostprocessTutorial.md` | 後処理チュートリアル |
 | `docs/PythonPostprocessAPI.md` | Python API リファレンス |
 | `schemas/beach.schema.json` | IDE バリデーション用 JSON Schema |

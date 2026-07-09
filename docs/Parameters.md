@@ -7,11 +7,14 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 本文書は、Fortran 実行系が読む最終的な `beach.toml` のパラメータリファレンスです。
 単位は、特に断りがない限り SI 単位です。
 
+初めて設定を組む場合は、先に [設定レシピ](ConfigurationRecipes.html) を読むと全体像を掴みやすいです。
+
 `beachx config render` で解決される高水準記法は [Configuration](Configuration.html) にまとめています。
 本書では、render 後にも残る実行時キーを中心に説明します。
 
 | 関連ドキュメント | 内容 |
 |---|---|
+| [設定レシピ](ConfigurationRecipes.html) | 目的別の設定手順と調整ポイント |
 | [Configuration](Configuration.html) | `beachx config`、高水準記法、schema/lint |
 | [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順への導線 |
 | [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |

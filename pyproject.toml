@@ -17,6 +17,12 @@ dependencies = [
     "tomli-w>=1.0.0",
 ]
 
+[project.urls]
+Homepage = "https://nkzono99.github.io/BEACH/"
+Documentation = "https://nkzono99.github.io/BEACH/"
+Repository = "https://github.com/Nkzono99/BEACH"
+Issues = "https://github.com/Nkzono99/BEACH/issues"
+
 [project.optional-dependencies]
 accel = [
     "numba>=0.59",

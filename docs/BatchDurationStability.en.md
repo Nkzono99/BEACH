@@ -14,6 +14,25 @@ Implementation entry points:
 - Injection usage: `src/particles/bem_injection.f90` (`reservoir_face` / `photo_raycast`)
 - Batch generation and weight resolution: `src/config/bem_app_config_runtime.f90`
 
+## Practical Guide
+
+For first runs, choose `batch_duration` empirically before relying on the theory below.
+
+1. Start with a conservative, small `sim.batch_duration_step`.
+2. Inspect `charge_history.csv`, `last_rel_change` in `summary.txt`, and absorbed / escaped counts.
+3. Run 2x and 1/2x `batch_duration_step` comparisons and compare final charge distributions and history shapes.
+4. If the final charge and history are nearly unchanged and no oscillation or divergence appears, keep that value.
+5. If fluctuations dominate, tune `target_macro_particles_per_batch`, `w_particle`, `batch_count`, and `history_stride` in addition to `batch_duration`.
+
+| Symptom | Check | Typical response |
+| --- | --- | --- |
+| Charge history oscillates strongly by batch | `charge_history.csv` | Lower `batch_duration_step` |
+| Final charge changes strongly with step size | 1/2x and 2x comparison | Recompute with smaller `batch_duration_step` |
+| History is too noisy to read | `target_macro_particles_per_batch`, `w_particle` | Adjust macro-particle count or weight |
+| Run stops before settling | `batches` in `summary.txt` | Increase `batch_count` |
+
+Treat `batch_duration` as the deterministic explicit-update time step, and particle count / weight as the Monte Carlo noise controls.
+
 ### 1. Reduction to a continuous-time model
 
 Let $q_j(t)$ be the accumulated charge of insulator wall element `j`, and let $J_j(\mathbf q)$ be the incident charge flux per unit wall area at that charge state.

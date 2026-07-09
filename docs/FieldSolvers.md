@@ -4,6 +4,17 @@ Lang: [日本語](FieldSolvers.md) | [English](FieldSolvers.en.md)
 
 # 場ソルバーと境界条件
 
+## まず選び方
+
+| やりたいこと | 推奨設定 | 注意 |
+| --- | --- | --- |
+| 小さいメッシュで動作確認 | `field_solver = "auto"` または `"direct"` | `direct` は厳密だが `O(nelem)` |
+| 要素数が多い通常計算 | `field_solver = "fmm"` | FMM の詳細は [Coulomb FMM コア詳細](FMMCore.html) |
+| 2軸周期境界を使う | `field_bc_mode = "periodic2"` と `field_solver = "fmm"` | ちょうど 2 軸を periodic にする |
+| 精度確認・デバッグ | 小ケースで `direct` と `fmm` を比較 | 同じ mesh / particle 条件で比較する |
+
+`periodic2` は現行実装では FMM 専用です。`auto` は `field_bc_mode="free"` の小・中規模ケース向けと考えてください。
+
 ## 4. 境界要素電荷による Coulomb 場
 
 **Source**:

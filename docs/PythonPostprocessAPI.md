@@ -7,6 +7,8 @@ Lang: [日本語](PythonPostprocessAPI.md) | [English](PythonPostprocessAPI.en.m
 BEACH の Python パッケージ (`beach`) は、Fortran シミュレーション結果の読み込み・解析・可視化を担う後処理レイヤです。
 Fortran 実行系が出力するファイル群（`summary.txt`, `charges.csv`, `mesh_triangles.csv` 等）を読み込み、電位再構成、Coulomb 力計算、電場計算、電気力線追跡、3D 可視化を Python 側で行います。
 
+最初の図を作るだけなら、先に [後処理チュートリアル](PostprocessTutorial.html) を参照してください。
+
 ## 1. パッケージ構成
 
 | モジュール | 役割 |

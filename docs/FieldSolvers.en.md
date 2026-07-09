@@ -4,6 +4,17 @@ Lang: [English](FieldSolvers.en.md) | [日本語](FieldSolvers.md)
 
 # Field Solvers and Boundary Conditions
 
+## Choosing a Solver First
+
+| Goal | Recommended setting | Notes |
+| --- | --- | --- |
+| Small mesh smoke test | `field_solver = "auto"` or `"direct"` | `direct` is exact but costs `O(nelem)` |
+| Larger production run | `field_solver = "fmm"` | See [Coulomb FMM Core Details](FMMCore.en.html) |
+| Two-periodic-axis boundary | `field_bc_mode = "periodic2"` and `field_solver = "fmm"` | Exactly two axes must be periodic |
+| Accuracy checks and debugging | Compare `direct` and `fmm` on a small case | Keep mesh and particle settings identical |
+
+In the current implementation, `periodic2` is FMM-only. Treat `auto` as the convenient choice for small and medium `field_bc_mode="free"` cases.
+
 ## 4. Coulomb field from boundary-element charge
 
 **Source**:

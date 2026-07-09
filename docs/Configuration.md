@@ -6,9 +6,9 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。
 
-- Fortran 実行系 `beach` が読むのは `beach.toml` だけです。
+- Fortran 実行系 `beach` が読むのは、最終キーに展開済みの TOML です。
 - `beachx config init` は小さく実行可能な `beach.toml` を作ります。
-- `beachx config render` は同じ `beach.toml` 内の高水準記法を最終キーへ展開します。
+- `beachx config render` は `beach.toml` 内の高水準記法を最終キーへ展開します。
 - 最終キーの仕様は [Fortran パラメータファイル仕様](Parameters.html) を参照してください。
 
 ## 1. 基本フロー
@@ -20,15 +20,16 @@ cd run_periodic2
 beachx config init
 $EDITOR beach.toml
 beachx lint beach.toml
-beachx config render
-beach beach.toml
+beachx config render beach.toml --output beach.rendered.toml
+beach beach.rendered.toml
 ```
 
-`render` は既定で入力ファイルを上書きします。内容を確認したい場合は `--stdout` を使います。
+`render` は、出力先を指定しない場合に入力ファイルを上書きします。入門・共有用の手順では `--output` で展開済みファイルを分けることを推奨します。
+内容を確認したい場合は `--stdout` を使います。
 
 ```bash
 beachx config render --stdout
-beachx config render beach.toml --output rendered/beach.toml
+beachx config render beach.toml --output beach.rendered.toml
 ```
 
 ## 2. コマンド
@@ -70,7 +71,7 @@ beachx config validate run.toml
 
 ```bash
 beachx config render
-beachx config render run.toml --output rendered/beach.toml
+beachx config render run.toml --output run.rendered.toml
 ```
 
 ### 2.5 `diff`
@@ -177,9 +178,10 @@ BEACH の Fortran パーサは「最初のセクションより前の `key = val
 
 ## 5. よくある失敗
 
-### 5.1 reserved top-level key
+### 5.1 top-level key の位置が違う
 
-`schema_version`、`use_presets`、`override`、`base_case` は旧設定レイヤのキーで、現行の direct `beach.toml` では使いません。`sim`、`particles`、`mesh`、`output` の下へ直接設定を書いてください。
+実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書きます。
+最初のセクションより前に通常キーを置いたり、未知の top-level セクションを追加したりすると validation または Fortran 読み込みで失敗します。
 
 ### 5.2 render 後に高水準キーが消える
 

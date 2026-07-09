@@ -7,12 +7,16 @@ Lang: [English](Parameters.en.md) | [日本語](Parameters.md)
 This document is the parameter reference for the final `beach.toml` read by the
 Fortran runtime. Unless otherwise noted, units are SI units.
 
+For first-time configuration work, start with
+[Configuration Recipes](ConfigurationRecipes.en.html).
+
 High-level notation resolved by `beachx config render` is summarized in
 [Configuration](Configuration.en.html). This document focuses on runtime keys
 that remain after rendering.
 
 | Related document | Contents |
 |---|---|
+| [Configuration Recipes](ConfigurationRecipes.en.html) | Task-oriented configuration steps and tuning points |
 | [Configuration](Configuration.en.html) | `beachx config`, high-level notation, schema/lint |
 | [Algorithms](Algorithms.en.html) | Entry point to BEM field calculation, particle push, collision, and accumulated-charge procedure |
 | [Workflow](Workflow.en.html) | Execution, development, testing, and KUDPC notes |

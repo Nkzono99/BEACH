@@ -14,6 +14,25 @@ Lang: [日本語](BatchDurationStability.md) | [English](BatchDurationStability.
 - 注入での使用: `src/particles/bem_injection.f90`（`reservoir_face` / `photo_raycast`）
 - バッチ生成・重み解決: `src/config/bem_app_config_runtime.f90`
 
+## 実用ガイド
+
+最初は、理論式よりも次の手順で決めるのが安全です。
+
+1. `sim.batch_duration_step` を小さめにして短い計算を走らせる。
+2. `charge_history.csv`、`summary.txt` の `last_rel_change`、吸収数・脱出数を見る。
+3. `batch_duration_step` を 2 倍と 1/2 倍に振り、最終電荷分布と履歴の形を比較する。
+4. 最終電荷と履歴が大きく変わらず、振動・発散傾向がなければ採用する。
+5. 揺らぎが大きい場合は、`batch_duration` だけでなく `target_macro_particles_per_batch`、`w_particle`、`batch_count`、`history_stride` も調整する。
+
+| 症状 | 主な確認先 | 典型的な対応 |
+| --- | --- | --- |
+| 電荷履歴が batch ごとに大きく振動する | `charge_history.csv` | `batch_duration_step` を下げる |
+| 最終電荷が step size で大きく変わる | 1/2 倍・2 倍比較 | より小さい `batch_duration_step` で再計算 |
+| 履歴がノイズで読みにくい | `target_macro_particles_per_batch`, `w_particle` | マクロ粒子数や重みを調整 |
+| 収束前に打ち切られる | `summary.txt` の `batches` | `batch_count` を増やす |
+
+`batch_duration` は deterministic な explicit 更新の時間刻み、粒子数・重みは Monte Carlo ノイズのつまみとして分けて考えてください。
+
 ### 1. 連続時間モデルへの還元
 
 絶縁体壁面の各要素 `j` の蓄積電荷を $q_j(t)$、そのときの入射電荷フラックス（壁単位面積あたり）を $J_j(\mathbf q)$ とすると、吸収のみを考える基本モデルは次の ODE になります。

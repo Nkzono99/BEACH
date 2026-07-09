@@ -7,6 +7,9 @@ Lang: [English](PythonPostprocessAPI.en.md) | [日本語](PythonPostprocessAPI.m
 The BEACH Python package (`beach`) is the post-processing layer for loading, analyzing, and visualizing Fortran simulation results.
 It reads files emitted by the Fortran runtime, such as `summary.txt`, `charges.csv`, and `mesh_triangles.csv`, and performs potential reconstruction, Coulomb force calculations, electric-field calculations, field-line tracing, and 3D visualization on the Python side.
 
+If you only need the first plots, start with
+[Post-processing Tutorial](PostprocessTutorial.en.html).
+
 ## 1. Package Structure
 
 | Module | Role |

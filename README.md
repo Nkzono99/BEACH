@@ -18,7 +18,7 @@ BEACH は、**境界要素法（BEM）による表面電場計算**と
 各 batch で電場計算、Boris pusher による粒子前進、メッシュ衝突判定、表面への電荷堆積を行い、表面電位の時間発展を出力します。
 
 <div align="center">
-  <img src="docs/images/potential_history.gif" alt="帯電シミュレーションの電位変化" width="80%">
+  <img src="https://nkzono99.github.io/BEACH/images/potential_history.gif" alt="帯電シミュレーションの電位変化" width="80%">
   <p><i>電子ビーム照射下での絶縁体メッシュ上の電位分布の時間発展</i></p>
   <sub>3D model: <a href="https://www.turbosquid.com/ja/3d-models/rubber-duck-pbr-game-ready-model-2001526">Rubber Duck PBR Game Ready</a> (TurboSquid)</sub>
 </div>
@@ -60,7 +60,8 @@ cd run_periodic2
 
 beachx config init
 beachx lint beach.toml
-beach beach.toml
+beachx config render beach.toml --output beach.rendered.toml
+beach beach.rendered.toml
 ```
 
 結果は既定で `outputs/latest/` に出力されます。
@@ -98,10 +99,10 @@ beachx config render beach.toml --output beach.rendered.toml
 
 | コマンド | 用途 |
 | --- | --- |
-| `beach beach.toml` | Fortran シミュレーションを実行 |
+| `beach beach.rendered.toml` | Fortran シミュレーションを実行 |
 | `beachx config init [path]` | 小さな実行可能設定を作成 |
 | `beachx lint beach.toml` | TOML / JSON Schema / BEACH 制約を検査 |
-| `beachx config render beach.toml` | 高水準記法を最終 `beach.toml` キーへ展開 |
+| `beachx config render beach.toml --output beach.rendered.toml` | 高水準記法を実行用 TOML へ展開 |
 | `beachx inspect outputs/latest` | 出力ディレクトリの概要表示 |
 | `beachx animate outputs/latest` | 電荷・電位履歴のアニメーション生成 |
 | `beachx workload beach.toml --threads 8` | 実行前のワークロード見積もり |
@@ -113,9 +114,10 @@ beachx config render beach.toml --output beach.rendered.toml
 
 利用者向け・開発者向けドキュメントは [GitHub Pages](https://nkzono99.github.io/BEACH/) に集約しています。
 
-- 日本語: [BEACH ドキュメント一覧](https://nkzono99.github.io/BEACH/)
-- English: [BEACH Documentation Index](https://nkzono99.github.io/BEACH/en.html)
+- 日本語: [BEACH ドキュメント](https://nkzono99.github.io/BEACH/)
+- English: [BEACH Documentation](https://nkzono99.github.io/BEACH/en.html)
 - Fortran API: [GitHub Pages / fortran](https://nkzono99.github.io/BEACH/fortran/)（FORD）
+- 入門: [出力の読み方](https://nkzono99.github.io/BEACH/output-guide.html) / [設定レシピ](https://nkzono99.github.io/BEACH/configuration-recipes.html) / [後処理チュートリアル](https://nkzono99.github.io/BEACH/postprocess-tutorial.html)
 - アルゴリズム: [概要](https://nkzono99.github.io/BEACH/algorithms.html) / [場ソルバー](https://nkzono99.github.io/BEACH/field-solvers.html) / [粒子追跡](https://nkzono99.github.io/BEACH/particle-charge-loop.html) / [FMM](https://nkzono99.github.io/BEACH/fmm-core.html) / [`batch_duration` 安定性](https://nkzono99.github.io/BEACH/batch-duration-stability.html)
 - Python 後処理 API / CLI: [Python 後処理 API リファレンス](https://nkzono99.github.io/BEACH/python-postprocess-api.html)
 
