@@ -46,12 +46,12 @@ $$
 F_{\Delta t_b}(\mathbf q) \;=\; \mathbf q \;+\; \Delta t_b\, \mathbf J(\mathbf q)\,\mathbf A
 $$
 
-と書くと、その不動点 $\mathbf q^\*$ は
+と書くと、その不動点 $\mathbf q^{\ast}$ は
 
 $$
-F_{\Delta t_b}(\mathbf q^\*) = \mathbf q^\*
+F_{\Delta t_b}(\mathbf q^{\ast}) = \mathbf q^{\ast}
 \quad\Longleftrightarrow\quad
-\mathbf J(\mathbf q^\*) = 0
+\mathbf J(\mathbf q^{\ast}) = 0
 $$
 
 で与えられます。したがって、**平均モデルの不動点自体は $\Delta t_b$ に依存しません**。
@@ -72,12 +72,12 @@ $$
 
 ### 3. 線形安定性
 
-不動点 $\mathbf q^\*$ 近傍で摂動 $\delta\mathbf q^n = \mathbf q^n - \mathbf q^\*$ を考えると、平均更新の線形化は
+不動点 $\mathbf q^{\ast}$ 近傍で摂動 $\delta\mathbf q^n = \mathbf q^n - \mathbf q^{\ast}$ を考えると、平均更新の線形化は
 
 $$
 \delta \mathbf q^{n+1} \;=\; \bigl(I + \Delta t_b\, M\bigr)\,\delta \mathbf q^n,
 \qquad
-M_{ij} \;\equiv\; \frac{\partial (J_i A_i)}{\partial q_j}\bigg|_{\mathbf q^\*}
+M_{ij} \;\equiv\; \frac{\partial (J_i A_i)}{\partial q_j}\bigg|_{\mathbf q^{\ast}}
 $$
 
 となります。一般の多自由度系での安定条件は、この更新行列のスペクトル半径に対する条件

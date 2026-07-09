@@ -48,12 +48,12 @@ $$
 F_{\Delta t_b}(\mathbf q) \;=\; \mathbf q \;+\; \Delta t_b\, \mathbf J(\mathbf q)\,\mathbf A
 $$
 
-Its fixed point $\mathbf q^\*$ satisfies:
+Its fixed point $\mathbf q^{\ast}$ satisfies:
 
 $$
-F_{\Delta t_b}(\mathbf q^\*) = \mathbf q^\*
+F_{\Delta t_b}(\mathbf q^{\ast}) = \mathbf q^{\ast}
 \quad\Longleftrightarrow\quad
-\mathbf J(\mathbf q^\*) = 0
+\mathbf J(\mathbf q^{\ast}) = 0
 $$
 
 Therefore, **the fixed point of the mean model itself does not depend on $\Delta t_b$**.
@@ -72,13 +72,13 @@ So the observed converged value can retain weak `batch_duration` dependence. The
 
 ### 3. Linear stability
 
-Near a fixed point $\mathbf q^\*$, define perturbations $\delta\mathbf q^n = \mathbf q^n - \mathbf q^\*$.
+Near a fixed point $\mathbf q^{\ast}$, define perturbations $\delta\mathbf q^n = \mathbf q^n - \mathbf q^{\ast}$.
 The linearized mean update is:
 
 $$
 \delta \mathbf q^{n+1} \;=\; \bigl(I + \Delta t_b\, M\bigr)\,\delta \mathbf q^n,
 \qquad
-M_{ij} \;\equiv\; \frac{\partial (J_i A_i)}{\partial q_j}\bigg|_{\mathbf q^\*}
+M_{ij} \;\equiv\; \frac{\partial (J_i A_i)}{\partial q_j}\bigg|_{\mathbf q^{\ast}}
 $$
 
 The stability condition for a general multi-degree-of-freedom system is the spectral-radius condition:
