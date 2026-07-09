@@ -114,7 +114,8 @@ beachx config render beach.toml --output beach.rendered.toml
 - 公開ドキュメント: [GitHub Pages](https://nkzono99.github.io/BEACH/)（Starlight）
 - Fortran API: [GitHub Pages / fortran](https://nkzono99.github.io/BEACH/fortran/)（FORD）
 - ドキュメント一覧: [`docs/index.md`](docs/index.md) / [`docs/index.en.md`](docs/index.en.md)
-- アルゴリズム解説: [`docs/Algorithms.md`](docs/Algorithms.md) / [`docs/Algorithms.en.md`](docs/Algorithms.en.md)
+- アルゴリズム概要: [`docs/Algorithms.md`](docs/Algorithms.md) / [`docs/Algorithms.en.md`](docs/Algorithms.en.md)
+- FMM / 安定性: [`docs/FMMCore.md`](docs/FMMCore.md) / [`docs/BatchDurationStability.md`](docs/BatchDurationStability.md)
 - Python 後処理 API / CLI: [`docs/PythonPostprocessAPI.md`](docs/PythonPostprocessAPI.md) / [`docs/PythonPostprocessAPI.en.md`](docs/PythonPostprocessAPI.en.md)
 - Fortran 実装仕様: [`SPEC.md`](SPEC.md)
 - 変更履歴: [`CHANGELOG.md`](CHANGELOG.md)

@@ -45,15 +45,14 @@ export default defineConfig({
           items: [
             { slug: 'index' },
             { slug: 'workflow' },
-            { slug: 'agent-user-guide' },
           ],
         },
         {
           label: 'ユーザーガイド',
           translations: { en: 'User Guide' },
           items: [
-            { slug: 'configuration' },
             { slug: 'parameters' },
+            { slug: 'configuration' },
             { slug: 'python-postprocess-api' },
           ],
         },
@@ -62,6 +61,10 @@ export default defineConfig({
           translations: { en: 'Numerics' },
           items: [
             { slug: 'algorithms' },
+            { slug: 'field-solvers' },
+            { slug: 'particle-charge-loop' },
+            { slug: 'fmm-core' },
+            { slug: 'batch-duration-stability' },
             { slug: 'fortran-dependency-map' },
           ],
         },
@@ -69,6 +72,7 @@ export default defineConfig({
           label: 'リファレンス',
           translations: { en: 'Reference' },
           items: [
+            { slug: 'agent-user-guide' },
             { label: 'Fortran API', link: 'https://nkzono99.github.io/BEACH/fortran/' },
             {
               label: 'GitHub Repository',

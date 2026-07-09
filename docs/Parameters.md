@@ -13,9 +13,9 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 | 関連ドキュメント | 内容 |
 |---|---|
 | [Configuration](Configuration.html) | `beachx config`、高水準記法、schema/lint |
-| [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順 |
+| [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順への導線 |
 | [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
-| [Algorithms §14](Algorithms.html#14-coulomb-fmm-コア詳細) | `field_solver="fmm"` の数値アルゴリズム |
+| [FMMCore](FMMCore.html) | `field_solver="fmm"` の数値アルゴリズム |
 
 ---
 
@@ -262,7 +262,7 @@ FMM のような local expansion は使わず、評価点ごとに木を走査�
 
 simulator 非依存の Coulomb FMM コアを使います。
 source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/L2L/L2P と近傍 direct 和で評価します。
-詳細は [Algorithms](Algorithms.html#14-coulomb-fmm-コア詳細) を参照してください。
+詳細は [Coulomb FMM コア詳細](FMMCore.html) を参照してください。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|

@@ -559,7 +559,11 @@ BEACH/
 | `SPEC.md` | Fortran implementation specification, authoritative |
 | `docs/Parameters.en.md` | Detailed parameter specification |
 | `docs/Workflow.en.md` | Execution workflow and I/O |
-| `docs/Algorithms.en.md` | Algorithms, FMM math and Ewald, batch stability |
+| `docs/Algorithms.en.md` | Algorithm overview |
+| `docs/FieldSolvers.en.md` | Field solvers and periodic2 field boundary |
+| `docs/ParticleChargeLoop.en.md` | Particle tracking, collision, and charge accumulation |
+| `docs/FMMCore.en.md` | FMM math and Ewald |
+| `docs/BatchDurationStability.en.md` | `batch_duration` stability |
 | `docs/Configuration.en.md` | `beachx config` and high-level notation |
 | `docs/PythonPostprocessAPI.en.md` | Python API reference |
 | `schemas/beach.schema.json` | JSON Schema for IDE validation |

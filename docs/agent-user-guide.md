@@ -562,7 +562,11 @@ BEACH/
 | `SPEC.md` | Fortran 実装仕様 (権威的) |
 | `docs/Parameters.md` | パラメータ詳細仕様 |
 | `docs/Workflow.md` | 実行ワークフロー・I/O |
-| `docs/Algorithms.md` | アルゴリズム、FMM 数学・Ewald、batch 安定性 |
+| `docs/Algorithms.md` | アルゴリズム概要 |
+| `docs/FieldSolvers.md` | 場ソルバーと periodic2 場境界 |
+| `docs/ParticleChargeLoop.md` | 粒子追跡、衝突、電荷蓄積 |
+| `docs/FMMCore.md` | FMM 数学・Ewald |
+| `docs/BatchDurationStability.md` | `batch_duration` 安定性 |
 | `docs/Configuration.md` | `beachx config` と高水準記法 |
 | `docs/PythonPostprocessAPI.md` | Python API リファレンス |
 | `schemas/beach.schema.json` | IDE バリデーション用 JSON Schema |
