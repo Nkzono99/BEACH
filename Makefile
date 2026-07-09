@@ -9,7 +9,7 @@
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
 	build-mpi run-mpi test-mpi \
-	docs-fortran docs-clean
+	docs-deps docs-starlight docs-fortran docs-pages docs-clean
 
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction test-mpi
@@ -66,6 +66,9 @@ FPRETTIFY ?= fprettify
 PRE_COMMIT ?= pre-commit
 DOCS_PROJECT_FILE ?= ford.md
 DOCS_OUTPUT_DIR ?= build/ford-docs
+DOCS_SITE_DIR ?= docs-site
+DOCS_SITE_OUTPUT_DIR ?= build/starlight-site
+DOCS_SITE_FORTRAN_DIR ?= $(DOCS_SITE_OUTPUT_DIR)/fortran
 FORTRAN_DEP_MAP_MD ?= docs/FortranDependencyMap.md
 FORTRAN_DEP_MAP_EN_MD ?= docs/FortranDependencyMap.en.md
 FORTRAN_DEP_MAP_DOT ?= build/fortran_module_dependencies.dot
@@ -206,6 +209,18 @@ test-mpi:
 		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)" \
 		$(BUILD_SH) --target test_mpi_hybrid --runner "$(MPI_RUNNER)"
 
+docs-deps:
+	npm --prefix $(DOCS_SITE_DIR) ci
+
+docs-starlight:
+	$(PYTHON) tools/generate_fortran_dependency_report.py \
+		--markdown $(FORTRAN_DEP_MAP_MD) \
+		--markdown-en $(FORTRAN_DEP_MAP_EN_MD) \
+		--dot $(FORTRAN_DEP_MAP_DOT) \
+		--svg $(FORTRAN_DEP_MAP_SVG)
+	$(PYTHON) tools/sync_starlight_docs.py
+	npm --prefix $(DOCS_SITE_DIR) run build
+
 docs-fortran:
 	$(PYTHON) tools/generate_fortran_dependency_report.py \
 		--markdown $(FORTRAN_DEP_MAP_MD) \
@@ -214,5 +229,15 @@ docs-fortran:
 		--svg $(FORTRAN_DEP_MAP_SVG)
 	$(FORD) $(DOCS_PROJECT_FILE) --output_dir $(DOCS_OUTPUT_DIR) --config '$(FORD_CONFIG)'
 
+docs-pages: docs-fortran
+	$(PYTHON) tools/sync_starlight_docs.py
+	npm --prefix $(DOCS_SITE_DIR) run build
+	rm -rf $(DOCS_SITE_FORTRAN_DIR)
+	mkdir -p $(DOCS_SITE_FORTRAN_DIR)
+	cp -a $(DOCS_OUTPUT_DIR)/. $(DOCS_SITE_FORTRAN_DIR)/
+
 docs-clean:
-	rm -rf $(DOCS_OUTPUT_DIR)
+	rm -rf $(DOCS_OUTPUT_DIR) $(DOCS_SITE_OUTPUT_DIR) \
+		$(DOCS_SITE_DIR)/src/content/docs \
+		$(DOCS_SITE_DIR)/public/images \
+		$(DOCS_SITE_DIR)/public/media

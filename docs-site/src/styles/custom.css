@@ -1,0 +1,22 @@
+@import 'katex/dist/katex.min.css';
+
+:root {
+  --sl-color-accent-low: #d7e8ff;
+  --sl-color-accent: #2563eb;
+  --sl-color-accent-high: #173569;
+}
+
+:root[data-theme='dark'] {
+  --sl-color-accent-low: #13284a;
+  --sl-color-accent: #7ab7ff;
+  --sl-color-accent-high: #d7e8ff;
+}
+
+.sl-markdown-content table {
+  font-size: 0.92rem;
+}
+
+.sl-markdown-content th,
+.sl-markdown-content td {
+  vertical-align: top;
+}

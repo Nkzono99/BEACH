@@ -1,3 +1,5 @@
+title: BEACH Agent User Guide
+
 Lang: [English](agent-user-guide.en.md) | [日本語](agent-user-guide.md)
 
 # BEACH Agent User Guide

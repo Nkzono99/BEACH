@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="BEACH">
+  <rect width="64" height="64" rx="12" fill="#173569"/>
+  <path d="M10 40c7-8 15-8 22 0s15 8 22 0" fill="none" stroke="#7ab7ff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M12 49h40" fill="none" stroke="#d7e8ff" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="45" cy="18" r="7" fill="#facc15"/>
+</svg>

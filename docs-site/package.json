@@ -1,0 +1,19 @@
+{
+  "name": "beach-docs-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/check": "0.9.9",
+    "@astrojs/starlight": "0.41.3",
+    "astro": "7.0.7",
+    "katex": "0.16.25",
+    "rehype-katex": "7.0.1",
+    "remark-math": "6.0.0",
+    "typescript": "6.0.3"
+  }
+}

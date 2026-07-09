@@ -111,17 +111,25 @@ beachx config render beach.toml --output beach.rendered.toml
 
 ## ドキュメント
 
-- 公開ドキュメント: [GitHub Pages](https://nkzono99.github.io/BEACH/)
+- 公開ドキュメント: [GitHub Pages](https://nkzono99.github.io/BEACH/)（Starlight）
+- Fortran API: [GitHub Pages / fortran](https://nkzono99.github.io/BEACH/fortran/)（FORD）
 - ドキュメント一覧: [`docs/index.md`](docs/index.md) / [`docs/index.en.md`](docs/index.en.md)
 - アルゴリズム解説: [`docs/Algorithms.md`](docs/Algorithms.md) / [`docs/Algorithms.en.md`](docs/Algorithms.en.md)
 - Python 後処理 API / CLI: [`docs/PythonPostprocessAPI.md`](docs/PythonPostprocessAPI.md) / [`docs/PythonPostprocessAPI.en.md`](docs/PythonPostprocessAPI.en.md)
 - Fortran 実装仕様: [`SPEC.md`](SPEC.md)
 - 変更履歴: [`CHANGELOG.md`](CHANGELOG.md)
 
+Pages ビルド:
+
+- `make docs-deps`: Starlight 依存を `npm ci` でインストール
+- `make docs-starlight`: Starlight 本体のみを生成
+- `make docs-pages`: Starlight 本体と FORD サブサイトを `build/starlight-site/` に生成
+
 ## リポジトリ構成
 
 - [`src/`](src/), [`app/`](app/): Fortran 本体
 - [`beach/`](beach/): Python 後処理ライブラリと `beachx`
+- [`docs-site/`](docs-site/): GitHub Pages 用 Starlight サイト
 - [`examples/`](examples/): 設定例・補助スクリプト
 - [`tests/fortran/`](tests/fortran/), [`tests/python/`](tests/python/): テスト
 - [`docs/`](docs/): 利用者・開発者向けドキュメント

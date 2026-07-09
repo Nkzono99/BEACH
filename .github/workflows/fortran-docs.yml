@@ -1,4 +1,4 @@
-name: Fortran Docs
+name: Docs
 
 on:
   pull_request:
@@ -9,12 +9,14 @@ on:
       - "app/**/*.F90"
       - "docs/**/*.md"
       - "docs/requirements.txt"
+      - "docs-site/**"
       - "schemas/**"
       - "examples/**"
       - "Makefile"
       - "README.md"
       - "ford.md"
       - "tools/generate_fortran_dependency_report.py"
+      - "tools/sync_starlight_docs.py"
       - ".github/workflows/fortran-docs.yml"
   push:
     branches:
@@ -26,12 +28,14 @@ on:
       - "app/**/*.F90"
       - "docs/**/*.md"
       - "docs/requirements.txt"
+      - "docs-site/**"
       - "schemas/**"
       - "examples/**"
       - "Makefile"
       - "README.md"
       - "ford.md"
       - "tools/generate_fortran_dependency_report.py"
+      - "tools/sync_starlight_docs.py"
       - ".github/workflows/fortran-docs.yml"
   workflow_dispatch:
 
@@ -46,7 +50,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Fortran Docs
+    name: Build Docs
     runs-on: ubuntu-latest
 
     steps:
@@ -58,6 +62,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: docs-site/package-lock.json
+
       - name: Install Graphviz
         run: |
           sudo apt-get update
@@ -68,14 +79,17 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r docs/requirements.txt
 
+      - name: Install site dependencies
+        run: make docs-deps
+
       - name: Build documentation
-        run: make docs-fortran
+        run: make docs-pages
 
       - name: Upload preview artifact
         uses: actions/upload-artifact@v7
         with:
-          name: fortran-docs-preview
-          path: build/ford-docs
+          name: docs-preview
+          path: build/starlight-site
 
       - name: Setup GitHub Pages
         if: github.event_name != 'pull_request'
@@ -85,7 +99,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build/ford-docs
+          path: build/starlight-site
 
   deploy:
     name: Deploy GitHub Pages
