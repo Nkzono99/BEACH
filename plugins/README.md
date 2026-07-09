@@ -9,6 +9,7 @@ Lang: [English](README.en.md) | [日本語](README.md)
 | Plugin | 内容 |
 | --- | --- |
 | [beach-context](beach-context/README.md) | 設定レビュー、実行診断、ケース設計、出力解析、手法説明、学習ガイド、issue 作成補助用の skill と同梱 reference |
+| [beach-context-claude](beach-context-claude/README.md) | Claude Code 向けの BEACH agent / slash command 風 prompt / 参照マップ |
 
 ## 導入
 
@@ -44,11 +45,20 @@ codex plugin marketplace add /path/to/BEACH
 
 この場合も、登録後に `/plugins` から `BEACH Context` を install します。
 
+## Claude Code 版
+
+[beach-context-claude](beach-context-claude/README.md) は Codex plugin ではなく、Claude Code の
+agent / command 定義として使うための context package です。BEACH repo 内で参照するか、必要な
+`agents/*.md` と `commands/*.md` だけを Claude Code の project-local 設定に配置してください。
+
 ## Skill の見え方
 
 repo root の `AGENTS.md` は BEACH 開発者向けの project-local 指示です。BEACH repo 配下で Codex を起動した場合だけ読み込まれます。
 
 一方、`plugins/beach-context/skills/` は利用者向け plugin skill です。`/plugins` で install して Codex を再起動すると、`~` など repo 外で Codex を起動しても利用できます。
+
+Claude Code では [beach-context-claude](beach-context-claude/README.md) の `agents/` と `commands/` を
+参照してください。必要なものだけを `.claude/agents/` または `.claude/commands/` に配置して使う想定です。
 
 ## 配置方針
 
