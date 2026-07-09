@@ -1,53 +1,95 @@
-title: Fortran パラメータファイル仕様（beach.toml）
+title: BEACH 入力パラメータリファレンス
 
-# Fortran パラメータファイル仕様（`beach.toml`）
+# 入力パラメータリファレンス
 
-この文書は、**現行実装（Fortran 実行系）で推奨する設定方法**をまとめたものです。  
-「以前の書き方との互換」は最後に短く載せ、本文は初見向けに現在の推奨仕様だけを先に説明します。
+本文書は、Fortran 実行系が読む最終的な `beach.toml` のパラメータリファレンスです。
+単位は、特に断りがない限り SI 単位です。
 
-`beach` 自体が読むのは最終的な `beach.toml` です。
-Python 側の `beachx config render` を使う場合は、同じ `beach.toml` 内の高水準記法を通常の数値キーへ解決できます。
-高水準記法には `box_origin` / `box_size`、`face_fraction`、`mesh.groups.*` などがあります。
+`beachx config render` で解決される高水準記法は [Configuration](Configuration.html) にまとめています。
+本書では、render 後にも残る実行時キーを中心に説明します。
 
-`beachx config` と高水準記法の全体像は
-[beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
-この文書では、render 後の **最終 `beach.toml` に残るキー** を中心に説明します。
+| 関連ドキュメント | 内容 |
+|---|---|
+| [Configuration](Configuration.html) | `beachx config`、高水準記法、schema/lint |
+| [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順 |
+| [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
+| [FMMCore](FMMCore.html) | `field_solver="fmm"` の数値アルゴリズム |
 
-## 1. 読み込みルール
+---
 
-- `beach .../config.toml` で明示指定できます。
-- 引数なし実行時は、カレントディレクトリの `beach.toml` を自動で読み込みます。
-- 開発時は `fpm run -- .../config.toml` でも同じ設定読込ルールです。
-- Fortran 実行系は `toml-f` で TOML を読み込みます。標準 TOML の複数行配列も利用できます。
-- 未知のセクション名やキー名はエラーになります。キーの打ち間違いを検出しやすい挙動です。
+## 目次
 
-### Editor schema
+- [入力パラメータリファレンス](#入力パラメータリファレンス)
+  - [目次](#目次)
+  - [読み込みルール](#読み込みルール)
+  - [単位と座標](#単位と座標)
+  - [最小例](#最小例)
+  - [セクション一覧](#セクション一覧)
+  - [パラメータ詳細リファレンス](#パラメータ詳細リファレンス)
+    - [`[sim]`: 実行制御と場計算](#sim-実行制御と場計算)
+    - [`[[particles.species]]`: 粒子種](#particlesspecies-粒子種)
+    - [`sim.sheath_injection_model`: シース流入補正](#simsheath_injection_model-シース流入補正)
+    - [`[mesh]`: メッシュ入力](#mesh-メッシュ入力)
+    - [`[[mesh.templates]]`: 組み込み形状](#meshtemplates-組み込み形状)
+    - [`[output]`: 出力と再開](#output-出力と再開)
+  - [高水準記法との関係](#高水準記法との関係)
+  - [検証ルール](#検証ルール)
 
-- JSON Schema は [`schemas/beach.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json) に同梱しています。
-- VS Code の Even Better TOML / Taplo では、各 `beach.toml` の先頭へ `#:schema ...` コメントを置くと補完・型検証・必須項目チェックが有効になります。
-- CLI では `beachx lint beach.toml` で TOML parse、JSON Schema、高水準記法、既知制約をまとめて確認できます。
-- `beachx config init` / `beachx config render` が生成するファイルにも、対応する `#:schema ...` コメントを自動で付与します。
-- BEACH の Fortran パーサは「最初のセクションより前の `key = value`」を受け付けないため、`"$schema" = "..."` は使わずコメント directive を使ってください。
+---
 
-ローカル相対パスの例:
+## 読み込みルール
+
+| 項目 | 仕様 |
+|---|---|
+| 明示指定 | `beach path/to/beach.toml` |
+| 既定入力 | 引数なしではカレントディレクトリの `beach.toml` |
+| 開発実行 | `fpm run -- path/to/beach.toml` でも同じ |
+| 形式 | TOML。複数行配列も利用可能 |
+| 未知キー | 未知のセクション名・キー名はエラー |
+| schema | `schemas/beach.schema.json` |
+| lint | `beachx lint beach.toml` |
+
+Editor schema を使う場合は、`beach.toml` の先頭にコメント directive を置きます。
+Fortran パーサは最初のセクションより前の通常キーを受け付けないため、`"$schema" = "..."` は使いません。
 
 ```toml
 #:schema ../schemas/beach.schema.json
 ```
 
-- GitHub Raw を使う例:
+GitHub Raw URL を指定することもできます。
 
 ```toml
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
 ```
 
-- 相対パスは、その `beach.toml` 自身から見た相対パスです。
-- `examples/beach.toml` は Raw URL 版を使っています。ローカル未公開の変更を即座に見たい場合は、相対パス版へ切り替えてください。
-- `outputs/.../beach.toml` のような深い場所で相対パスを使うなら、たとえば `../../schemas/beach.schema.json` のように調整してください。
+相対パスは、その `beach.toml` 自身から見た相対パスです。
+`outputs/.../beach.toml` など深い場所に置く場合は `../../schemas/beach.schema.json` のように調整してください。
 
-## 2. 初見向けの最小推奨例
+---
 
-まずは `reservoir_face`（物理流入ベース）を推奨します。
+## 単位と座標
+
+| 種類 | 代表キー | 単位・向き |
+|---|---|---|
+| 時間 | `dt`, `batch_duration` | 秒 |
+| 長さ | `box_min`, `box_max`, `pos_low`, `pos_high` | m |
+| 電荷 | `q_particle`, 要素電荷出力 | C |
+| 質量 | `m_particle` | kg |
+| 速度 | `drift_velocity`, `ray_direction` | m/s。ただし `ray_direction` は方向ベクトル |
+| 電場 | `e0`, `e0_abs` | V/m |
+| 磁場 | `b0` | T |
+| 密度 | `number_density_cm3`, `number_density_m3` | cm^-3 または m^-3 |
+| 温度 | `temperature_k`, `temperature_ev` | K または eV。両方の同時指定は不可 |
+| 角度 | `e0_phi_xy_deg`, `e0_phi_z_deg`, `sheath_alpha_deg` | degree |
+
+`*_low` / `*_high` は各軸の下限・上限です。
+`inject_face` は `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, `z_high` のいずれかを指定します。
+
+---
+
+## 最小例
+
+初見では、物理流入を直接指定できる `source_mode = "reservoir_face"` を推奨します。
 
 ```toml
 [sim]
@@ -113,79 +155,142 @@ dir = "outputs/latest"
 history_stride = 1
 ```
 
-## 3. セクションとキー
+---
 
-### 3.1 `[sim]`
+## セクション一覧
+
+| セクション | 必須 | 内容 |
+|---|---:|---|
+| `[sim]` | 条件付き | 時間刻み、バッチ数、場ソルバ、境界、外部場、シース補正 |
+| `[particles]` | yes | `[[particles.species]]` のコンテナ |
+| `[[particles.species]]` | yes | 粒子種、注入方式、速度分布、マクロ粒子重み |
+| `[mesh]` | no | OBJ または組み込み template の選択 |
+| `[[mesh.templates]]` | no | `mode="template"` で使う組み込み形状 |
+| `[output]` | no | 出力先、履歴、checkpoint 再開 |
+
+`reservoir_face` または `photo_raycast` を使う場合、`[sim]` は必須です。
+`[[particles.species]]` は 1 件以上必要です。
+
+---
+
+## パラメータ詳細リファレンス
+
+### `[sim]`: 実行制御と場計算
+
+#### 実行制御
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `dt` | float | `1.0e-9` | 時間刻み [s] |
 | `rng_seed` | int | `12345` | 乱数シード |
 | `batch_count` | int | `1` | 通常実行では処理するバッチ数。`output.resume=true` では累積の到達バッチ数 |
-| `batch_duration` | float | `0.0` | 1バッチの物理時間 [s] |
-| `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` |
-| `max_step` | int | `400` | 粒子あたり最大ステップ数 |
-| `tol_rel` | float | `1.0e-8` | 相対変化量の監視値（停止条件には未使用） |
+| `batch_duration` | float | `0.0` | 1 バッチの物理時間 [s] |
+| `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` として解決 |
+| `max_step` | int | `400` | 粒子 1 個あたりの最大 push 回数 |
+| `tol_rel` | float | `1.0e-8` | 相対変化量の監視値。停止条件には未使用 |
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
-| `softening` | float | `1.0e-6` | 電場計算の softening 長さ [m] |
-| `field_solver` | string | `"auto"` | 電場評価方式。`direct` / `treecode` / `fmm` / `auto`（`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があればその値で上書き） |
-| `field_normalization` | string | `"si"` | 場計算内部の長さ正規化。`si` / `box` / `mesh` / `length`。`box` は最大 box 幅、`mesh` は mesh bbox 最大幅、`length` は `field_length_scale` を `L0` とし、場計算内部で座標・softening・periodic cell を `L0` で割る。出力電場・電位は SI に戻す |
-| `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh が空の `mesh` 正規化で使う長さスケール [m] |
-| `field_bc_mode` | string | `"free"` | 場計算の境界モード。`free` / `periodic2`。`periodic2` は `field_solver="fmm"` のみ許可し、`sim.use_box=true` かつ `bc_low/high` がちょうど2軸で `periodic` の場合に有効（第三軸は開放）。場評価だけでなく collision / `photo_raycast` raycast でも periodic image を考慮し、mesh は primitive cell の base element のまま扱う |
-| `field_periodic_image_layers` | int | `1` | `field_bc_mode="periodic2"` の近傍画像層数。各周期軸で `[-N, N]` の有限画像和を計算（`N>=0`） |
-| `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正モード。`none` が既定値で遠方補正を無効化する。`auto` は互換用に受理され、現在は `none` に正規化する。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使って root operator へ fit する高コスト診断モード |
-| `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用の Ewald 分解パラメータ。`0.0` のときは box サイズと `field_periodic_image_layers` から自動決定する |
-| `field_periodic_ewald_layers` | int | `4` | 明示 `m2l_root_oracle` の build-time exact Ewald oracle における real-space outer shell / reciprocal cutoff 深さ（`>=0`、far correction 有効時は実質 `>=1`） |
-| `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ（`0 < theta <= 1`、`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
-| `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数（`field_solver` が `treecode`/`fmm`/`auto` で有効。未指定時は自動推定値を使用） |
-| `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切替える要素数しきい値 |
-| `e0` | float[3] | `[0,0,0]` | 一様外部電場 [V/m]（`e0_abs` 系と排他） |
-| `e0_abs` | float | 未指定 | 一様外部電場の大きさ [V/m]（`e0` と排他） |
+
+`batch_duration` と `batch_duration_step` の同時指定はエラーです。
+`reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
+
+#### 場ソルバ
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `softening` | float | `1.0e-6` | Coulomb 場計算の softening 長さ [m] |
+| `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
+| `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
+| `field_length_scale` | float | `1.0` | `field_normalization="length"` で使う長さスケール [m] |
+| `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ |
+| `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数 |
+| `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切り替える要素数しきい値 |
+
+`field_solver="auto"` では要素数に応じて direct / treecode を選びます。
+`tree_theta` と `tree_leaf_max` は、未指定なら次の値を使います。
+
+| 要素数 `nelem` | `tree_theta` | `tree_leaf_max` |
+|---:|---:|---:|
+| `< 1500` | `0.40` | `12` |
+| `1500 <= nelem < 10000` | `0.50` | `16` |
+| `10000 <= nelem < 50000` | `0.58` | `20` |
+| `50000 <= nelem` | `0.65` | `24` |
+
+`field_normalization` は場計算内部の座標・softening・周期 cell の正規化だけを変えます。
+出力される電場・電位は SI に戻されます。
+
+#### 場境界と periodic2
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
+| `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `m2l_root_oracle` |
+| `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用 Ewald 分解パラメータ |
+| `field_periodic_ewald_layers` | int | `4` | Ewald oracle の outer shell / reciprocal cutoff 深さ |
+
+`periodic2` は `field_solver="fmm"` のみで利用できます。
+`sim.use_box=true`、かつ 2 軸だけが `periodic`、残り 1 軸が開放のときに有効です。
+場評価だけでなく、collision と `photo_raycast` の raycast でも periodic image を考慮します。
+
+`field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
+`m2l_root_oracle` は build 時の診断用で、exact periodic Ewald residual を root operator に fit する高コストモードです。
+
+#### 外部場
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `e0` | float[3] | `[0,0,0]` | 一様外部電場 [V/m] |
+| `e0_abs` | float | 未指定 | 一様外部電場の大きさ [V/m] |
 | `e0_phi_xy_deg` | float | `0.0` | `e0_abs` 指定時の xy 面内方位角 [deg] |
 | `e0_phi_z_deg` | float | `0.0` | `e0_abs` 指定時の xy 面からの仰角 [deg] |
 | `b0` | float[3] | `[0,0,0]` | 一様磁場 [T] |
+
+一様外部電場は、`e0 = [Ex, Ey, Ez]` で直接指定するか、`e0_abs` と角度で指定します。
+両形式の混在はエラーです。
+
+#### 流入補助とシース補正
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
 | `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
-| `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の格子分割数 `N x N` |
-| `raycast_max_bounce` | int | `16` | `photo_raycast` レイ追跡の最大反射回数 |
+| `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の `N x N` 評価格子 |
+| `raycast_max_bounce` | int | `16` | `photo_raycast` の最大反射回数 |
 | `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
 | `sheath_alpha_deg` | float | `60.0` | Zhao シースの太陽高度角 [deg] |
 | `sheath_photoelectron_ref_density_cm3` | float | `64.0` | Zhao シースの基準光電子密度 [cm^-3] |
-| `sheath_reference_coordinate` | float | 未指定 | シース 1D 座標の基準平面位置 [m]（軸は共有 `inject_face` から決定） |
+| `sheath_reference_coordinate` | float | 未指定 | シース 1D 座標の基準平面位置 [m] |
 | `sheath_electron_drift_mode` | string | `"normal"` | `normal` / `full` |
 | `sheath_ion_drift_mode` | string | `"normal"` | `normal` / `full` |
+
+`sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
+詳細は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) を参照してください。
+
+#### 計算領域と粒子境界
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
 | `use_box` | bool | `false` | ボックス境界を有効化 |
 | `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限 [m] |
 | `box_max` | float[3] | `[1,1,1]` | ボックス上限 [m] |
-| `bc_x_low` ほか | string | `"open"` | `open` / `reflect` / `periodic`（`open` は `outflow`,`escape` も可） |
+| `bc_x_low`, `bc_x_high` | string | `"open"` | x 方向下限・上限の粒子境界 |
+| `bc_y_low`, `bc_y_high` | string | `"open"` | y 方向下限・上限の粒子境界 |
+| `bc_z_low`, `bc_z_high` | string | `"open"` | z 方向下限・上限の粒子境界 |
 
-`batch_duration` の解決ルール:
+粒子境界は `open`, `reflect`, `periodic` を指定します。
+`open` は `outflow`, `escape` も同義語として受理されます。
 
-- `batch_duration` と `batch_duration_step` の同時指定はエラーです。
-- `batch_duration_step` 指定時は `batch_duration = dt * batch_duration_step` に解決します。
-- `reservoir_face` / `photo_raycast` を使う場合、解決後の `batch_duration > 0` が必須です。
-- `sheath_injection_model != "none"` は現状 `reservoir_potential_model = "none"` と組み合わせてください。
-- 一様外部電場は `e0 = [Ex,Ey,Ez]` で直接指定するか、`e0_abs` と角度 `e0_phi_xy_deg` / `e0_phi_z_deg` で指定します。両形式の混在はエラーです。
+`periodic2` の mesh は、runtime で collision 用 canonical unwrapped 表現へ平行移動してから ray-triangle 判定します。
+raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangle を頂点ごとに mod 折り返すことはしません。
 
-重要な実行挙動:
+---
 
-- 通常実行は `batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `batch_count` に達するまで進みます。
-- `tol_rel` は出力監視値であり、現行実装では早期終了条件には使いません。
-
-`tree_theta` / `tree_leaf_max` の自動推定値:
-
-- `nelem < 1500`: `theta = 0.40`, `leaf_max = 12`
-- `1500 <= nelem < 10000`: `theta = 0.50`, `leaf_max = 16`
-- `10000 <= nelem < 50000`: `theta = 0.58`, `leaf_max = 20`
-- `50000 <= nelem`: `theta = 0.65`, `leaf_max = 24`
-- `field_bc_mode = "periodic2"` でも同じ表を使い、追加の periodic2 専用 clamp は行いません。
-- `field_bc_mode = "periodic2"` の mesh は runtime で collision 用 canonical unwrapped 表現へ平行移動してから ray-triangle 判定します。raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangle を頂点ごとに mod 折り返すことはしません。
-
-### 3.2 `[[particles.species]]`
+### `[[particles.species]]`: 粒子種
 
 `[[particles.species]]` は 1 件以上必須です。
+`source_mode` によって、使うキーと制約が変わります。
 
-### 共通キー
+#### 共通キー
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -197,221 +302,439 @@ history_stride = 1
 | `pos_high` | float[3] | `[0.4,0.4,0.5]` | 位置上限 [m] |
 | `drift_velocity` | float[3] | `[0,0,-8e5]` | ドリフト速度 [m/s] |
 | `temperature_k` | float | `2.0e4` | 温度 [K] |
-| `temperature_ev` | float | 未指定 | 温度 [eV]（`temperature_k` と排他） |
+| `temperature_ev` | float | 未指定 | 温度 [eV]。`temperature_k` と排他 |
 | `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
-| `inject_face` | string | 未指定 | `x_low/x_high/y_low/y_high/z_low/z_high` |
+| `inject_face` | string | 未指定 | 注入面。`reservoir_face` / `photo_raycast` で必須 |
 
-### `source_mode = "volume_seed"`
+#### `source_mode = "volume_seed"`
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `npcls_per_step` | int | `0` | 1バッチに生成するマクロ粒子数 |
+| `npcls_per_step` | int | `0` | 1 バッチに生成するマクロ粒子数 |
 | `w_particle` | float | `1.0` | マクロ粒子重み |
 
 制約:
 
-- 有効 species 全体で `npcls_per_step` 合計が 1 以上必要です（`reservoir_face` / `photo_raycast` を使わない場合）。
-- `target_macro_particles_per_batch` は使用できません。
+| 条件 | 内容 |
+|---|---|
+| 粒子数 | 有効 species 全体で `npcls_per_step` 合計が 1 以上必要 |
+| 重み自動解決 | `target_macro_particles_per_batch` は使用不可 |
 
-### `source_mode = "reservoir_face"`
+#### `source_mode = "reservoir_face"`
 
 | キー | 型 | 説明 |
 |---|---|---|
-| `number_density_cm3` / `number_density_m3` | float | 上流密度（どちらか片方必須） |
-| `w_particle` | float | マクロ粒子重み（正値） |
-| `target_macro_particles_per_batch` | int | `w_particle` 自動解決用（`>0` または `-1`） |
+| `number_density_cm3`, `number_density_m3` | float | 上流密度。どちらか片方を指定 |
+| `w_particle` | float | マクロ粒子重み。正値 |
+| `target_macro_particles_per_batch` | int | `w_particle` 自動解決用。`>0` または `-1` |
 | `velocity_grid_path` | string | `velocity_distribution="grid"` の CSV パス |
-| `velocity_grid_pdf_kind` | string | `"phase_space"` / `"flux_weighted"` |
-| `velocity_grid_sampling` | string | `"auto"` / `"rectilinear"` / `"discrete"` |
-| `particle_flux_m2_s` / `current_density_a_m2` | float | `velocity_distribution="grid"` の流入量（どちらか片方必須） |
+| `velocity_grid_pdf_kind` | string | `phase_space` / `flux_weighted` |
+| `velocity_grid_sampling` | string | `auto` / `rectilinear` / `discrete` |
+| `particle_flux_m2_s`, `current_density_a_m2` | float | `grid` 分布の流入量。どちらか片方を指定 |
 
-制約:
+基本制約:
 
-- `sim.use_box = true` 必須
-- `sim.batch_duration > 0` 必須
-- `inject_face` 必須
-- `pos_low` / `pos_high` は指定 face 上になければエラー
-- `w_particle` と `target_macro_particles_per_batch` は同時指定不可
-- `target_macro_particles_per_batch = -1` は species[2] 以降のみ可（species[1] の `w_particle` を共有）
-- `velocity_distribution="maxwellian"`（既定）では `number_density_*` と温度から drifting Maxwellian の片側流束を計算します。
-- `velocity_distribution="grid"` では `velocity_grid_path` の `vx_m_s,vy_m_s,vz_m_s,f` CSV を読み込み、`sum f = 1` へ内部規格化します。この場合 `number_density_*` / `temperature_*` は使わず、`particle_flux_m2_s` または `current_density_a_m2` のどちらか片方で流入量を決めます。`current_density_a_m2` は `abs(J / q_particle)` として粒子 flux に変換します。
-- `velocity_grid_path` の相対パスは実行時のカレントディレクトリ基準です。
-- `velocity_grid_sampling="auto"`（既定）では、CSV が完全な直交格子（各 `vx,vy,vz` 軸の直積がすべて埋まっている形）ならセル内で `f` を三線形補間して連続的な速度をサンプルし、不完全格子や散布点の場合は従来どおり CSV 行の離散サンプルにフォールバックします。
-- `velocity_grid_sampling="rectilinear"` は直交格子補間を強制し、完全な直交格子として解釈できない場合はエラーにします。直交格子入力を前提にする場合の推奨モードです。`"discrete"` は補間を使わず CSV 行を直接サンプルします。
-- `velocity_grid_pdf_kind="phase_space"` では流入面の内向き法線速度 `v_n` を掛けた `v_n f(v)` でサンプルします。`"flux_weighted"` では CSV の `f` をすでに流束重み済みの流入分布として扱います。どちらも `v_n > 0` の速度だけを使います。
-- 現状 `velocity_distribution="grid"` は `sim.sheath_injection_model="none"` のときのみ有効です。
+| 条件 | 内容 |
+|---|---|
+| 領域 | `sim.use_box=true` が必須 |
+| 時間 | `sim.batch_duration > 0` が必須 |
+| 注入面 | `inject_face` が必須 |
+| 注入範囲 | `pos_low` / `pos_high` は指定 face 上にある必要がある |
+| 重み | `w_particle` と `target_macro_particles_per_batch` は同時指定不可 |
+| 重み共有 | `target_macro_particles_per_batch=-1` は species 2 以降だけ可。species 1 の `w_particle` を共有 |
 
-粒子数決定（1種あたり）:
+Maxwellian 分布では、`number_density_*` と温度から drifting Maxwellian の片側流束を計算します。
 
-- 期待マクロ粒子数 `n_macro_expected = gamma_in * A * batch_duration / w_particle`
-- 実際の注入数は残差繰越つきで `floor(residual + n_macro_expected)`
-- `target_macro_particles_per_batch > 0` のときは、その値になるよう `w_particle` を自動計算
+Grid 分布では、`velocity_grid_path` の CSV を読み込みます。
+必要列は `vx_m_s, vy_m_s, vz_m_s, f` です。
+`f` は内部で `sum f = 1` に正規化されます。
+この場合、`number_density_*` / `temperature_*` は使わず、`particle_flux_m2_s` または `current_density_a_m2` で流入量を決めます。
+`current_density_a_m2` は `abs(J / q_particle)` として粒子 flux に変換します。
 
-### `source_mode = "photo_raycast"`
+| `velocity_grid_sampling` | 挙動 |
+|---|---|
+| `auto` | 完全な直交格子なら三線形補間。不完全格子や散布点なら離散サンプル |
+| `rectilinear` | 直交格子補間を強制。直交格子でなければエラー |
+| `discrete` | CSV 行を直接サンプル |
+
+| `velocity_grid_pdf_kind` | 挙動 |
+|---|---|
+| `phase_space` | 流入面の内向き法線速度 `v_n` を掛けた `v_n f(v)` でサンプル |
+| `flux_weighted` | CSV の `f` を流束重み済み分布として扱う |
+
+どちらの PDF でも、`v_n > 0` の速度だけを使います。
+`velocity_grid_path` の相対パスは実行時のカレントディレクトリ基準です。
+現状、`velocity_distribution="grid"` は `sim.sheath_injection_model="none"` のときのみ有効です。
+
+粒子数は次のように決まります。
+
+```text
+n_macro_expected = gamma_in * A * batch_duration / w_particle
+n_injected = floor(residual + n_macro_expected)
+```
+
+残差は次バッチへ繰り越されます。
+`target_macro_particles_per_batch > 0` のときは、その値に近づくよう `w_particle` を自動計算します。
+
+#### `source_mode = "photo_raycast"`
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `emit_current_density_a_m2` | float | `0.0` | レイ垂直面基準の放出電流密度 [A/m^2] |
-| `rays_per_batch` | int | `0` | 1バッチの発射レイ数 |
+| `rays_per_batch` | int | `0` | 1 バッチの発射レイ数 |
 | `deposit_opposite_charge_on_emit` | bool | `false` | 放出元要素に逆符号電荷を堆積 |
-| `photo_escape_model` | string | `"none"` | PE escape closure。`none` / `boltzmann_cutoff` |
+| `photo_escape_model` | string | `"none"` | `none` / `boltzmann_cutoff` |
 | `normal_drift_speed` | float | `0.0` | 放出法線方向ドリフト [m/s] |
-| `ray_direction` | float[3] | 未指定時は注入面内向き法線 | レイ方向 |
+| `ray_direction` | float[3] | 注入面内向き法線 | レイ方向 |
 
 制約:
 
-- `sim.use_box = true` 必須
-- `sim.batch_duration > 0` 必須
-- `emit_current_density_a_m2 > 0`, `rays_per_batch > 0` 必須
-- `inject_face` 必須
-- `q_particle` は非ゼロ、`m_particle > 0` 必須
-- `ray_direction` 指定時は正規化可能で、注入面内向き法線への内積が正であること
-- `npcls_per_step` / `number_density_*` / `w_particle` / `target_macro_particles_per_batch` は使用不可
+| 条件 | 内容 |
+|---|---|
+| 領域 | `sim.use_box=true` が必須 |
+| 時間 | `sim.batch_duration > 0` が必須 |
+| 放出量 | `emit_current_density_a_m2 > 0`, `rays_per_batch > 0` が必須 |
+| 注入面 | `inject_face` が必須 |
+| 粒子属性 | `q_particle` は非ゼロ、`m_particle > 0` |
+| レイ方向 | 正規化可能で、注入面内向き法線との内積が正 |
+| 使用不可 | `npcls_per_step`, `number_density_*`, `w_particle`, `target_macro_particles_per_batch` |
 
-`photo_raycast` の重み:
+レイ 1 本が命中したときの重みは次の式です。
 
-- `w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)`
-- 実際の放出数はレイの命中率で決まるため、バッチごとの生成粒子数は `rays_per_batch` 以下になります。
-- `field_bc_mode = "periodic2"` のとき、periodic image に命中しても放出位置は primary cell に wrap した hit 座標を使います。
-- `photo_escape_model = "boltzmann_cutoff"` のときは、放出元要素の自己寄与を除いた中心電位で `barrier = max(phi_emit - phi_infty, 0)` を評価し、`escape_factor = exp(-|q_particle| barrier / (k_B T_PE))` を `w_hit` に掛けます。`deposit_opposite_charge_on_emit = true` の場合、放出元要素へ残す逆符号電荷にも同じ実効重みを使い、抑制されたPE電流は即時returnとして扱います。
+```text
+w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
+```
 
-### `sim.sheath_injection_model`
+実際の生成粒子数はレイの命中率で決まるため、バッチごとの生成数は `rays_per_batch` 以下です。
+`field_bc_mode="periodic2"` では、periodic image に命中しても primary cell に wrap した hit 座標から放出します。
 
-`sim.sheath_injection_model` は既存の `reservoir_face` / `photo_raycast` species を束ねて、
-シースに対応する流束・法線速度 cutoff を上書きする共有設定です。
+`photo_escape_model="boltzmann_cutoff"` では、放出元要素の自己寄与を除いた中心電位で障壁を評価します。
 
-- `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c`
-  - Zhao の 1D 光電子シース条件を使います。
-  - 自動検出対象:
-    - 最初の負電荷 `reservoir_face` species を solar-wind electron
-    - 最初の正電荷 `reservoir_face` species を ion
-    - 最初の負電荷 `photo_raycast` species を photoelectron
-  - electron reservoir species は、流束計算に使う有効密度が Zhao 解の `n_swe_inf` へ置き換わります。
-  - electron reservoir species の法線速度分布は Zhao の障壁に応じた `vmin_normal` 付きになります。
-  - `sheath_reference_coordinate` を明示した場合は、指定平面から reservoir 境界までの Zhao 局所状態を再構成し、electron reservoir は局所 `phi(z)` に応じた有効密度と cutoff、ion reservoir は局所密度・局所法線速度・冷たいビーム近似へ更新されます。
-  - photoelectron `photo_raycast` species は、`emit_current_density_a_m2` が Zhao の自由光電子電流へ上書きされ、`normal_drift_speed` は 0 として扱います。
-- `floating_no_photo`
-  - 光電子を含まない簡易 floating sheath です。
-  - 最初の負電荷 / 正電荷 `reservoir_face` species の電流釣り合いから負の浮遊電位を解き、electron reservoir species へ cutoff を掛けます。
-  - `photo_raycast` species があっても放出電流は 0 とみなします。
+```text
+barrier = max(phi_emit - phi_infty, 0)
+escape_factor = exp(-|q_particle| * barrier / (k_B * T_PE))
+```
 
-注意:
+`deposit_opposite_charge_on_emit=true` の場合、放出元要素へ残す逆符号電荷にも同じ実効重みを使います。
+抑制された光電子電流は即時 return として扱います。
 
-- Zhao 系モデルは `temperature_ev`/`temperature_k`, `number_density_*`, `drift_velocity`, `m_particle`, `q_particle` といった既存 species パラメータを背景プラズマ条件として再利用します。
-- `sheath_reference_coordinate` を指定すると、共有 `inject_face` の法線軸に沿ってその座標を基準平面に使います。たとえば `inject_face = "z_high"` かつ `sheath_reference_coordinate = 0.02` なら、平面 `z = 0.02` を `z_sheath = 0` とみなします。未指定時は `inject_face` が指す box 境界面座標を使います。
-- `sheath_reference_coordinate` を未指定のまま Zhao を使う場合は、従来どおり共有 cutoff ベースの補正のみを適用します。局所 VDF の変形を反映したい場合は基準平面を明示してください。
-- 現在の Fortran 実装では、Type-A の局所プロファイルは 1 次積分から、Type-B/C の局所プロファイルは Zhao の単調分枝を 1 次積分で再構成して評価します。Python 実装の BVP 解と十分近い値を使いますが、完全に同一の離散化ではありません。
-- `zhao_auto` は `alpha < 20 deg` で `C -> A -> B`、それ以外では `A -> B -> C` の順に分枝解を試みます。
+---
 
-### 3.3 `[mesh]`
+### `sim.sheath_injection_model`: シース流入補正
+
+`sim.sheath_injection_model` は、既存の `reservoir_face` / `photo_raycast` species を束ね、シースに対応する流束や法線速度 cutoff を上書きする共有設定です。
+
+| 値 | 内容 |
+|---|---|
+| `none` | 補正なし |
+| `zhao_auto` | 太陽高度角に応じて Zhao の Type A/B/C 分枝を自動選択 |
+| `zhao_a`, `zhao_b`, `zhao_c` | Zhao の 1D 光電子シース条件を指定分枝で使用 |
+| `floating_no_photo` | 光電子を含まない簡易 floating sheath |
+
+Zhao 系モデルでは、次の species が自動検出されます。
+
+| 対象 | 検出条件 |
+|---|---|
+| solar-wind electron | 最初の負電荷 `reservoir_face` species |
+| ion | 最初の正電荷 `reservoir_face` species |
+| photoelectron | 最初の負電荷 `photo_raycast` species |
+
+Zhao 系モデルの効果:
+
+| 対象 | 上書き内容 |
+|---|---|
+| electron reservoir | 有効密度を Zhao 解の `n_swe_inf` に置換し、障壁に応じた `vmin_normal` を適用 |
+| ion reservoir | `sheath_reference_coordinate` 指定時に局所密度・局所法線速度・冷たいビーム近似へ更新 |
+| photoelectron | `emit_current_density_a_m2` を Zhao の自由光電子電流へ置換し、`normal_drift_speed=0` として扱う |
+
+`floating_no_photo` では、最初の負電荷 / 正電荷 `reservoir_face` species の電流釣り合いから負の浮遊電位を解きます。
+electron reservoir species には cutoff を掛け、`photo_raycast` species があっても放出電流は 0 とみなします。
+
+補足:
+
+- Zhao 系モデルは `temperature_*`, `number_density_*`, `drift_velocity`, `m_particle`, `q_particle` を背景プラズマ条件として再利用します。
+- `sheath_reference_coordinate` は、共有 `inject_face` の法線軸に沿った基準平面位置です。
+- 例: `inject_face="z_high"` かつ `sheath_reference_coordinate=0.02` なら、平面 `z=0.02` を `z_sheath=0` とみなします。
+- `sheath_reference_coordinate` 未指定時は、共有 cutoff ベースの補正だけを適用します。
+- Fortran 実装では、Type A は 1 次積分、Type B/C は単調分枝の 1 次積分で局所プロファイルを再構成します。
+- `zhao_auto` は `alpha < 20 deg` で `C -> A -> B`、それ以外で `A -> B -> C` の順に分枝解を試みます。
+
+---
+
+### `[mesh]`: メッシュ入力
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `mode` | string | `"auto"` | `auto` / `obj` / `template` |
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ ファイルパス |
-| `surface_model` | string | `"insulator"` | OBJ メッシュ全体に割り当てる表面モデル (`insulator` / `conductor` / `dielectric`) |
-| `epsilon_r` | float | `1.0` | OBJ メッシュ全体に割り当てる相対誘電率 (`>= 1`) |
-| `obj_scale` | float | `1.0` | OBJ 読み込み後に適用する一様スケーリング係数 |
-| `obj_rotation` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する回転角 [度]。x→y→z の順で外因性 (extrinsic) 回転（Rz·Ry·Rx）を適用 |
-| `obj_offset` | float[3] | `[0, 0, 0]` | OBJ 読み込み後に適用する平行移動 [m] |
+| `surface_model` | string | `"insulator"` | OBJ 全体の表面モデル |
+| `epsilon_r` | float | `1.0` | OBJ 全体の相対誘電率。`>= 1` |
+| `obj_scale` | float | `1.0` | OBJ 読み込み後の一様スケール |
+| `obj_rotation` | float[3] | `[0,0,0]` | OBJ 読み込み後の回転角 [deg] |
+| `obj_offset` | float[3] | `[0,0,0]` | OBJ 読み込み後の平行移動 [m] |
 
-`mode = "auto"` のときは `obj_path` が存在すれば OBJ、なければ template を使います。
-`surface_model` は OBJ 入力時の単一メッシュに適用されます。OBJ 入力はファイル全体を `mesh_id = 1` として読むため、1つの OBJ 内の離れた `conductor` 部品も同じ浮遊導体として扱われます。独立導体として扱いたい場合はテンプレート入力などで mesh_id を分けてください。テンプレート入力では `[[mesh.templates]]` ごとの `surface_model` を使います。
+`mode="auto"` では、`obj_path` が存在すれば OBJ、なければ template を使います。
+OBJ 変換順序は `scale -> rotate -> offset` です。
 
-OBJ メッシュの変換順序は **scale → rotate → offset** です: `v_new = R(rotation) * (v_old * scale) + offset`。
-CRLF 改行の OBJ ファイルもサポートしています。面行は `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` のいずれの形式にも対応し、四角形以上のポリゴンはファン三角形分割されます。
+```text
+v_new = R(rotation) * (v_old * obj_scale) + obj_offset
+```
 
-### 3.4 `[[mesh.templates]]`
+OBJ 入力では、ファイル全体を `mesh_id=1` として読みます。
+1 つの OBJ 内に離れた `conductor` 部品があっても同じ浮遊導体として扱われます。
+独立導体として扱う場合は、template 入力などで `mesh_id` を分けてください。
+
+OBJ の対応範囲:
+
+| 項目 | 対応 |
+|---|---|
+| 改行 | LF / CRLF |
+| 面行 | `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` |
+| 多角形 | 四角形以上はファン三角形分割 |
+
+---
+
+### `[[mesh.templates]]`: 組み込み形状
 
 共通キー:
 
-- `enabled` (bool)
-- `kind` (`plane` / `plate_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere`)
-- `surface_model` (`insulator` / `conductor` / `dielectric`, 既定 `insulator`)
-- `epsilon_r` (float, `>= 1`, 既定 `1.0`)
-- `center` (float[3])
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `enabled` | bool | `true` | template を有効化 |
+| `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
+| `surface_model` | string | `"insulator"` | `insulator` / `conductor` / `dielectric` |
+| `epsilon_r` | float | `1.0` | 相対誘電率。`>= 1` |
+| `center` | float[3] | `[0,0,0]` | 形状中心 [m] |
 
-`kind` ごとの主要キー:
+`[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は定義件数で決まります。
+無効化された template は mesh に追加されず、`mesh_id` も消費しません。
 
-- `plane`: `size_x`, `size_y`, `nx`, `ny`
-- `plate_hole`: `size_x`, `size_y`, `radius`, `n_theta`, `n_r`
-- `disk`: `radius`, `n_theta`, `n_r`
-- `annulus`: `radius`, `inner_radius`, `n_theta`, `n_r`
-- `box`: `size`, `nx`, `ny`, `nz`
-- `cylinder`: `radius`, `height`, `n_theta`, `n_z`, `cap`, `cap_top`, `cap_bottom`
-- `sphere`: `radius`, `n_lon`, `n_lat`
+`kind` の概要:
 
-注意:
+| `kind` | 生成形状 | 基準面・軸 |
+|---|---|
+| `plane` | 長方形平面 | XY 平面、`z=center[3]` |
+| `plate_hole`, `plane_hole` | 中央に円形穴を持つ長方形平面 | XY 平面、穴中心は `center` |
+| `disk` | 円板 | XY 平面、中心は `center` |
+| `annulus` | 同心リング | XY 平面、中心は `center` |
+| `box` | 閉じた直方体表面 | 各軸に平行な 6 面 |
+| `cylinder` | 円柱側面と任意の上下キャップ | z 軸方向 |
+| `sphere` | 球面 | 中心は `center` |
 
-- `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は「定義した件数」で解決されます。
-- `conductor` は mesh_id ごとの浮遊導体として、バッチごとに総電荷を保存しながら
-  等電位になるよう要素電荷を再配分します。
-  現時点では `field_bc_mode = "free"` の直接Coulomb係数で再配分します。
-  `field_bc_mode = "periodic2"` とは併用できません。
-  conductor 要素全体に対する dense solve のため、導体要素数が大きいケースでは
-  バッチごとの追加コストが増えます。
-- `dielectric` は object ごとの物性を保持するための設定・出力メタデータで、
-  `epsilon_r` を保存します。現行の電場計算・電荷蓄積では `epsilon_r` による誘電体分極や境界条件の分岐はまだ行いません。誘電体分極の物理分岐は今後の拡張点です。
+#### `kind = "plane"`
 
-### 3.5 `[output]`
+XY 平面上の長方形を `nx * ny` 個の矩形セルに分け、各セルを 2 三角形へ分割します。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `center` | float[3] | `[0,0,0]` | 平面中心 `[x, y, z]` [m] |
+| `size_x` | float | `1.0` | x 方向サイズ [m]。`> 0` |
+| `size_y` | float | `1.0` | y 方向サイズ [m]。`> 0` |
+| `nx` | int | `1` | x 方向分割数。`>= 1` |
+| `ny` | int | `1` | y 方向分割数。`>= 1` |
+
+要素数は `2 * nx * ny` です。
+
+#### `kind = "plate_hole"` / `"plane_hole"`
+
+XY 平面上の長方形プレートから、中心の円形穴を除いた形状です。
+`plane_hole` は `plate_hole` の別名です。
+穴境界は `n_theta` 分割の多角形で近似し、穴縁から外周までを `n_r` 層に分けます。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `center` | float[3] | `[0,0,0]` | プレート中心および穴中心 `[x, y, z]` [m] |
+| `size_x` | float | `1.0` | x 方向サイズ [m]。`> 0` |
+| `size_y` | float | `1.0` | y 方向サイズ [m]。`> 0` |
+| `radius` | float | `0.5` | 穴半径 [m]。実行時には `0 < radius < min(size_x, size_y) / 2` |
+| `n_theta` | int | `24` | 穴境界の周方向分割数。`>= 3` |
+| `n_r` | int | `4` | 穴縁から外周までの半径方向分割数。`>= 1` |
+
+外周は長方形境界に一致します。
+円形穴の半径が半幅または半高以上になる設定はエラーです。
+共通 default の `radius=0.5` は、既定の `size_x=size_y=1.0` ではこの制約に当たるため、`plate_hole` では `radius` を明示指定してください。
+
+#### `kind = "disk"`
+
+XY 平面上の円板です。
+内部は極座標で分割され、中心から外周へ向かって三角形化されます。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `center` | float[3] | `[0,0,0]` | 円板中心 `[x, y, z]` [m] |
+| `radius` | float | `0.5` | 円板半径 [m]。`> 0` |
+| `n_theta` | int | `24` | 周方向分割数。`>= 3` |
+| `n_r` | int | `4` | 半径方向分割数。`>= 1` |
+
+内部的には `inner_radius=0` の `annulus` と同じ生成経路を使います。
+
+#### `kind = "annulus"`
+
+XY 平面上の同心リングです。
+内半径から外半径までを `n_r` 層に分けます。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `center` | float[3] | `[0,0,0]` | リング中心 `[x, y, z]` [m] |
+| `radius` | float | `0.5` | 外半径 [m]。`> 0` |
+| `inner_radius` | float | `0.25` | 内半径 [m]。`0 <= inner_radius < radius` |
+| `n_theta` | int | `24` | 周方向分割数。`>= 3` |
+| `n_r` | int | `4` | 半径方向分割数。`>= 1` |
+
+`inner_radius=0` も受理されますが、円板を作る場合は `kind="disk"` の方が意図が明確です。
+
+#### `kind = "box"`
+
+閉じた直方体表面です。
+6 面すべてを三角形化し、法線は外向きになるように頂点順序を設定します。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `center` | float[3] | `[0,0,0]` | 直方体中心 `[x, y, z]` [m] |
+| `size` | float[3] | `[1,1,1]` | x, y, z 方向サイズ [m]。各成分 `> 0` |
+| `nx` | int | `1` | x 方向分割数。`>= 1` |
+| `ny` | int | `1` | y 方向分割数。`>= 1` |
+| `nz` | int | `1` | z 方向分割数。`>= 1` |
+
+要素数は `4 * (nx * ny + ny * nz + nx * nz)` です。
+これは、各面の矩形セルを 2 三角形へ分け、対向する 2 面分を数えたものです。
+
+#### `kind = "cylinder"`
+
+z 軸方向の円柱です。
+側面を `n_theta * n_z` の矩形セルに分け、必要に応じて上下キャップを追加します。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `center` | float[3] | `[0,0,0]` | 円柱中心 `[x, y, z]` [m] |
+| `radius` | float | `0.5` | 円柱半径 [m]。`> 0` |
+| `height` | float | `1.0` | z 方向高さ [m]。`> 0` |
+| `n_theta` | int | `24` | 周方向分割数。`>= 3` |
+| `n_z` | int | `1` | 軸方向分割数。`>= 1` |
+| `cap` | bool | `true` | 上下キャップをまとめて有効化 |
+| `cap_top` | bool | `cap` の値 | 上面キャップ。指定時は `cap` より優先 |
+| `cap_bottom` | bool | `cap` の値 | 下面キャップ。指定時は `cap` より優先 |
+
+円柱は `z = center[3] - height/2` から `z = center[3] + height/2` まで伸びます。
+側面の要素数は `2 * n_theta * n_z` です。
+各キャップを有効化すると、それぞれ `n_theta` 個の三角形が追加されます。
+
+#### `kind = "sphere"`
+
+経度・緯度分割に基づく球面です。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `center` | float[3] | `[0,0,0]` | 球中心 `[x, y, z]` [m] |
+| `radius` | float | `0.5` | 球半径 [m]。`> 0` |
+| `n_lon` | int | `24` | 経度方向分割数。`>= 3` |
+| `n_lat` | int | `12` | 緯度方向分割数。`>= 2` |
+
+要素数は `2 * n_lon * (n_lat - 1)` です。
+極付近は 1 三角形、その他の緯度帯は 2 三角形で構成されます。
+
+表面モデル:
+
+| `surface_model` | 挙動 |
+|---|---|
+| `insulator` | 衝突粒子の電荷を要素へ蓄積 |
+| `conductor` | `mesh_id` ごとの浮遊導体として、総電荷を保存しながら等電位になるよう要素電荷を再配分 |
+| `dielectric` | `epsilon_r` をメタデータとして保存。現行の場計算・電荷蓄積では誘電体分極をまだ分岐しない |
+
+`conductor` は現時点で `field_bc_mode="free"` の直接 Coulomb 係数を使って再配分します。
+`field_bc_mode="periodic2"` とは併用できません。
+導体要素数が大きいケースでは、dense solve によりバッチごとの追加コストが増えます。
+
+---
+
+### `[output]`: 出力と再開
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `write_files` | bool | `true` | ファイル出力の有効/無効 |
-| `write_mesh_potential` | bool | `false` | 要素重心で評価した電位を `mesh_potential.csv` として出力 |
-| `write_potential_history` | bool | `false` | バッチごとの電位履歴を `potential_history.csv` として出力（`history_stride` に従う） |
+| `write_mesh_potential` | bool | `false` | `mesh_potential.csv` を出力 |
+| `write_potential_history` | bool | `false` | `potential_history.csv` を出力 |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
-| `history_stride` | int | `1` | `charge_history.csv` / `potential_history.csv` の出力間隔（バッチ単位） |
-| `resume` | bool | `false` | 既存チェックポイントから再開 |
-| `restart_from` | string | なし | `resume = true` 時の checkpoint 読み込み元。新しい出力は `dir` に書く |
+| `history_stride` | int | `1` | 履歴 CSV の出力間隔 [batch] |
+| `resume` | bool | `false` | 既存 checkpoint から再開 |
+| `restart_from` | string | なし | `resume=true` 時の checkpoint 読み込み元 |
 
 出力ファイル:
 
-- `summary.txt`
-- `charges.csv`
-- `mesh_potential.csv`（`write_mesh_potential = true` のとき）
-- `mesh_triangles.csv`
-- `mesh_sources.csv`
-- `charge_history.csv`（`history_stride > 0` のとき）
-- `potential_history.csv`（`write_potential_history = true` かつ `history_stride > 0` のとき）
-- `rng_state.txt`
-- `macro_residuals.csv`
+| ファイル | 条件・内容 |
+|---|---|
+| `summary.txt` | 実行統計と設定概要 |
+| `charges.csv` | 最終要素電荷 |
+| `mesh_triangles.csv` | 要素 geometry。`mesh_id` 列を含む |
+| `mesh_sources.csv` | `mesh_id` ごとの元メッシュ種別、表面モデル、`epsilon_r`、要素数 |
+| `mesh_potential.csv` | `write_mesh_potential=true` のとき |
+| `charge_history.csv` | `history_stride > 0` のとき |
+| `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
+| `rng_state.txt` | 乱数状態 |
+| `macro_residuals.csv` | マクロ粒子数の残差繰越 |
 
-`mesh_triangles.csv` には `mesh_id` 列が追加され、`mesh_sources.csv` で `mesh_id` ごとの元メッシュ種別、`surface_model`、`epsilon_r`、要素数を確認できます。
-`dielectric` を含む場合、現行の時間発展では誘電体分極は未分岐なので、
-`summary.txt` に `surface_model_dielectric_elem_count` と `surface_model_note` を出力します。
+`mesh_potential.csv` は要素重心での電位 [V] を記録します。
+自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。
+`periodic2` では explicit image shell を加えます。
+`field_periodic_far_correction="m2l_root_oracle"` のときだけ exact Ewald residual も加えます。
 
-`mesh_potential.csv` は要素重心での電位 [V] を記録します。自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。`periodic2` では explicit image shell に加えて、`field_periodic_far_correction="m2l_root_oracle"` のときだけ exact Ewald residual も加えます。`none` と `auto` では residual を加えません。
+`potential_history.csv` は `charge_history.csv` と同じ `history_stride` で要素ごとの電位を記録します。
+形式は `batch, elem_idx, potential_V` です。
+履歴ごとに `field_solver%refresh` と `compute_mesh_potential` が走るため、有効化すると計算コストが増えます。
 
-`potential_history.csv` は `charge_history.csv` と同じ `history_stride` で要素ごとの電位を記録します。フォーマットは `batch,elem_idx,potential_V`。`history_stride` ごとに `field_solver%refresh` + `compute_mesh_potential` が実行されるため、有効化すると計算コストが増加します。
+`resume=true` の要件:
 
-MPI実行（`world_size > 1`）では乱数状態・残差はrank別ファイルになります。
+| 条件 | 内容 |
+|---|---|
+| 出力 | `write_files=true` が必須 |
+| 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
+| 必須ファイル | `summary.txt`, `charges.csv`, `rng_state.txt` |
+| 任意ファイル | `macro_residuals.csv` は存在すれば読み込む |
+| 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
-- `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+`restart_from` は checkpoint の読み込み元だけを変更します。
+新しい出力は常に `output.dir` に書かれます。
 
-また、`summary.txt` には `mpi_world_size` が記録されます。
+MPI 実行時:
 
-`resume = true` の要件:
+| ファイル | 内容 |
+|---|---|
+| `rng_state_rankNNNNN.txt` | rank 別乱数状態 |
+| `macro_residuals_rankNNNNN.csv` | rank 別残差 |
 
-- `write_files = true` 必須
-- `restart_from` 未指定時は `output.dir` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
-- `restart_from` 指定時は `restart_from` に `summary.txt` / `charges.csv` / `rng_state.txt` が必要
-- `macro_residuals.csv` は存在すれば読み込みます
+`summary.txt` の `mpi_world_size` は現在の rank 数と一致している必要があります。
 
-`restart_from` は checkpoint の読み込み元だけを変更します。`summary.txt`、`charges.csv`、履歴、`mesh_potential.csv`、`rng_state*.txt`、`macro_residuals*.csv` などの新しい出力は常に `output.dir` に書かれます。
+---
 
-必須 checkpoint が存在しない場合、`resume = true` は新規実行にフォールバックせず停止します。
-読み込み時には `summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差が有限で基本範囲内にあることを検証します。
+## 高水準記法との関係
 
-MPI実行での追加要件:
+次のキーは schema には含まれますが、`beachx config render` で実行時キーへ解決される高水準記法です。
+Fortran 実行系へ渡す最終 `beach.toml` では、右列のキーに変換されている想定です。
 
-- `summary.txt` の `mpi_world_size` が現在のrank数と一致している必要があります
-- 各rankに対応する `rng_state_rankNNNNN.txt` が必要です
-- `macro_residuals_rankNNNNN.csv` は存在すれば読み込みます
+| 高水準キー | 解決先・用途 |
+|---|---|
+| `sim.box_origin`, `sim.box_size` | `sim.box_min`, `sim.box_max` |
+| `inject_region_mode`, `uv_low`, `uv_high` | `inject_face` 上の `pos_low`, `pos_high` |
+| `mesh.groups`, template の `group`, `center_local` | template ごとの実座標 |
+| template の `placement_mode`, `anchor`, `offset`, `offset_frac` | `center` |
+| template の `size_mode`, `size_frac` | `size_x`, `size_y`, `size`, `radius` など |
 
-## 4. キー検証
+高水準記法の詳細、例、lint 時の扱いは [Configuration](Configuration.html) を参照してください。
 
-- 未知のセクション名・キー名はすべてエラーになります。
-- `v0.3.0` 以降は旧キー互換を持たず、旧名は「未知キー」として扱います。
-- `[particles]` は `[[particles.species]]` のコンテナとしてのみ使い、`[particles]` 直下に `key = value` は書かないでください。
+---
+
+## 検証ルール
+
+| 項目 | ルール |
+|---|---|
+| 未知キー | すべてエラー |
+| `[particles]` | `[[particles.species]]` のコンテナとしてのみ使用。直下に `key = value` は書かない |
+| 旧キー | 旧名は未知キーとして扱う |
+| 型 | schema と Fortran パーサの両方で検証 |
+| 値域 | `beachx lint` と実行時 parser が既知制約を検証 |
+
+実行前には次を推奨します。
+
+```bash
+beachx lint beach.toml
+```
