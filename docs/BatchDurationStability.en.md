@@ -9,7 +9,7 @@ In the current implementation, when `batch_duration_step` is used, `sim.batch_du
 
 Implementation entry points:
 
-- Batch procedure: [`SPEC.md` §4](https://github.com/Nkzono99/BEACH/blob/main/SPEC.md)
+- Batch procedure: [BEACH Algorithm Overview](Algorithms.en.html) and [Particle Tracking and Charge Accumulation](ParticleChargeLoop.en.html)
 - Parameter definitions: [Parameters](Parameters.en.html) for `sim.batch_duration` / `sim.batch_duration_step`
 - Injection usage: `src/particles/bem_injection.f90` (`reservoir_face` / `photo_raycast`)
 - Batch generation and weight resolution: `src/config/bem_app_config_runtime.f90`
@@ -244,4 +244,5 @@ The remaining uncertainty is the value of $\tau_{\min}$ itself, which must be na
 
 - [Fortran parameter file specification](Parameters.en.html) — how to set `sim.batch_duration` / `sim.batch_duration_step`
 - [Fortran-centered workflow](Workflow.en.html) — batch-loop execution control
-- `SPEC.md` — one-batch computation procedure and stop conditions
+- [BEACH Algorithm Overview](Algorithms.en.html) — one-batch computation procedure and stop conditions
+- [Particle Tracking and Charge Accumulation](ParticleChargeLoop.en.html) — particle generation, tracking, and charge commit details

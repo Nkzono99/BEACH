@@ -90,9 +90,9 @@ beachx config render beach.toml --output beach.rendered.toml
 
 詳細:
 
-- 設定作成・検証: [`docs/Configuration.md`](docs/Configuration.md) / [`docs/Configuration.en.md`](docs/Configuration.en.md)
-- `beach.toml` 仕様: [`docs/Parameters.md`](docs/Parameters.md) / [`docs/Parameters.en.md`](docs/Parameters.en.md)
-- 実行・開発・テスト: [`docs/Workflow.md`](docs/Workflow.md) / [`docs/Workflow.en.md`](docs/Workflow.en.md)
+- 設定作成・検証: [beachx config / 高水準記法ガイド](https://nkzono99.github.io/BEACH/configuration.html)
+- `beach.toml` 仕様: [Fortran パラメータファイル仕様](https://nkzono99.github.io/BEACH/parameters.html)
+- 実行・開発・テスト: [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html)
 
 ## よく使うコマンド
 
@@ -111,14 +111,13 @@ beachx config render beach.toml --output beach.rendered.toml
 
 ## ドキュメント
 
-- 公開ドキュメント: [GitHub Pages](https://nkzono99.github.io/BEACH/)（Starlight）
+利用者向け・開発者向けドキュメントは [GitHub Pages](https://nkzono99.github.io/BEACH/) に集約しています。
+
+- 日本語: [BEACH ドキュメント一覧](https://nkzono99.github.io/BEACH/)
+- English: [BEACH Documentation Index](https://nkzono99.github.io/BEACH/en.html)
 - Fortran API: [GitHub Pages / fortran](https://nkzono99.github.io/BEACH/fortran/)（FORD）
-- ドキュメント一覧: [`docs/index.md`](docs/index.md) / [`docs/index.en.md`](docs/index.en.md)
-- アルゴリズム概要: [`docs/Algorithms.md`](docs/Algorithms.md) / [`docs/Algorithms.en.md`](docs/Algorithms.en.md)
-- FMM / 安定性: [`docs/FMMCore.md`](docs/FMMCore.md) / [`docs/BatchDurationStability.md`](docs/BatchDurationStability.md)
-- Python 後処理 API / CLI: [`docs/PythonPostprocessAPI.md`](docs/PythonPostprocessAPI.md) / [`docs/PythonPostprocessAPI.en.md`](docs/PythonPostprocessAPI.en.md)
-- Fortran 実装仕様: [`SPEC.md`](SPEC.md)
-- 変更履歴: [`CHANGELOG.md`](CHANGELOG.md)
+- アルゴリズム: [概要](https://nkzono99.github.io/BEACH/algorithms.html) / [場ソルバー](https://nkzono99.github.io/BEACH/field-solvers.html) / [粒子追跡](https://nkzono99.github.io/BEACH/particle-charge-loop.html) / [FMM](https://nkzono99.github.io/BEACH/fmm-core.html) / [`batch_duration` 安定性](https://nkzono99.github.io/BEACH/batch-duration-stability.html)
+- Python 後処理 API / CLI: [Python 後処理 API リファレンス](https://nkzono99.github.io/BEACH/python-postprocess-api.html)
 
 Pages ビルド:
 
@@ -161,4 +160,4 @@ make test-l2
 make test-l3
 ```
 
-KUDPC のログインノードでは `make test*` / `fpm test` / 長時間の Fortran 実行を直接走らせず、計算ノードへ投入してください。詳細は [`docs/Workflow.md`](docs/Workflow.md) を参照してください。
+KUDPC のログインノードでは `make test*` / `fpm test` / 長時間の Fortran 実行を直接走らせず、計算ノードへ投入してください。詳細は [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html) を参照してください。

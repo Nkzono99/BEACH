@@ -9,7 +9,7 @@ Lang: [日本語](BatchDurationStability.md) | [English](BatchDurationStability.
 
 実装上の入口は次のとおりです。
 
-- バッチ計算手順: [`SPEC.md` §4](https://github.com/Nkzono99/BEACH/blob/main/SPEC.md)
+- バッチ計算手順: [BEACH アルゴリズム概要](Algorithms.html) と [粒子追跡と表面電荷蓄積](ParticleChargeLoop.html)
 - パラメータ定義: [Parameters](Parameters.html) の `sim.batch_duration` / `sim.batch_duration_step`
 - 注入での使用: `src/particles/bem_injection.f90`（`reservoir_face` / `photo_raycast`）
 - バッチ生成・重み解決: `src/config/bem_app_config_runtime.f90`
@@ -240,4 +240,5 @@ $$
 
 - [Fortran パラメータファイル仕様](Parameters.html) — `sim.batch_duration` / `sim.batch_duration_step` の指定方法
 - [Fortran 中心ワークフロー](Workflow.html) — バッチループの実行制御
-- `SPEC.md` — 1 バッチの計算手順と停止条件
+- [BEACH アルゴリズム概要](Algorithms.html) — 1 バッチの計算手順と停止条件
+- [粒子追跡と表面電荷蓄積](ParticleChargeLoop.html) — 粒子生成、追跡、電荷 commit の詳細
