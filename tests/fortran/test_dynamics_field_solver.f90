@@ -4,13 +4,13 @@ program test_dynamics_field_solver
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_templates, only: make_plane, make_sphere
-  use bem_field, only: electric_field_at
+  use bem_field, only: electric_field_at, electric_potential_at
   use bem_field_solver, only: field_solver_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -30,6 +30,10 @@ program test_dynamics_field_solver
 
   call test_begin('direct_field_length_normalization_accuracy')
   call test_direct_field_length_normalization_accuracy()
+  call test_end()
+
+  call test_begin('direct_potential_length_normalization_accuracy')
+  call test_direct_potential_length_normalization_accuracy()
   call test_end()
 
   call test_begin('treecode_field_length_normalization_accuracy')
@@ -254,6 +258,30 @@ contains
       'normalized direct E output scale mismatch' &
       )
   end subroutine test_direct_field_length_normalization_accuracy
+
+  subroutine test_direct_potential_length_normalization_accuracy()
+    type(mesh_type) :: mesh_direct
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp) :: r(3), phi_direct, phi_solver
+
+    call make_sphere(mesh_direct, radius=2.0d-5, n_lon=8_i32, n_lat=4_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    mesh_direct%q_elem = 1.0d-13
+
+    sim = sim_config()
+    sim%softening = 1.0d-7
+    sim%field_solver = 'direct'
+    sim%field_normalization = 'length'
+    sim%field_length_scale = 1.0d-4
+    call solver%init(mesh_direct, sim)
+    call solver%refresh(mesh_direct)
+
+    r = [8.0d-5, -6.0d-5, 7.0d-5]
+    call electric_potential_at(mesh_direct, r, sim%softening, phi_direct)
+    call solver%eval_potential(mesh_direct, sim, r, phi_solver)
+
+    call assert_close_dp(phi_solver, phi_direct, max(1.0d-12, abs(phi_direct)*1.0d-12), 'direct potential mismatch')
+  end subroutine test_direct_potential_length_normalization_accuracy
 
   subroutine test_treecode_field_length_normalization_accuracy()
     type(mesh_type) :: mesh_tree

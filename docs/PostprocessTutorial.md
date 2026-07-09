@@ -61,7 +61,7 @@ b.plot_potential()
 設定ファイルが出力ディレクトリ近傍にない場合は明示します。
 
 ```python
-b = Beach("outputs/latest", config_path="beach.rendered.toml")
+b = Beach("outputs/latest", config_path="beach.toml")
 ```
 
 ## 特定 mesh だけを見る
@@ -103,5 +103,5 @@ beachx mobility outputs/latest \
   --save-csv outputs/latest/mobility_summary.csv
 ```
 
-これらは近傍の `beach.toml` または `beach.rendered.toml` から geometry や periodic2 設定を自動解決します。
+これらは近傍の `beach.toml` から geometry や periodic2 設定を自動解決します。
 見つからない場合は、対応する CLI の `--config` を指定してください。

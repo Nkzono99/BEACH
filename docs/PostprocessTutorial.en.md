@@ -61,7 +61,7 @@ b.plot_potential()
 If the config file is not near the output directory, pass it explicitly.
 
 ```python
-b = Beach("outputs/latest", config_path="beach.rendered.toml")
+b = Beach("outputs/latest", config_path="beach.toml")
 ```
 
 ## Select a Mesh
@@ -103,5 +103,5 @@ beachx mobility outputs/latest \
   --save-csv outputs/latest/mobility_summary.csv
 ```
 
-These commands resolve geometry and periodic2 settings from nearby `beach.toml` or `beach.rendered.toml`.
+These commands resolve geometry and periodic2 settings from nearby `beach.toml`.
 If no config is found, pass the corresponding `--config` option.

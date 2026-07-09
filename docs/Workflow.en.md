@@ -119,12 +119,12 @@ Submit them to compute nodes with `tssrun` or `sbatch`.
 
 ## 3. Run Flow
 
-Usually, edit `beach.toml`, render an execution-ready TOML file, and pass that file to `beach`. See
+Usually, edit `beach.toml` and pass that file directly to `beach`. See
 [`beachx config` / High-Level Notation Guide](Configuration.en.html) for the high-level notation layer.
 
 1. Prepare `beach.toml`.
-2. Run `beachx config render beach.toml --output beach.rendered.toml` to expand high-level notation to final keys.
-3. Run the simulation with `beach beach.rendered.toml`.
+2. Check it with `beachx lint beach.toml`.
+3. Run the simulation with `beach beach.toml`.
 4. Inspect files under `output.dir`.
 5. Visualize with Python CLI commands or the `Beach` API.
 
@@ -137,14 +137,13 @@ mkdir run_periodic2
 cd run_periodic2
 beachx config init
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 ```
 
 ### 3.2 Direct `beach.toml` Use
 
 1. Prepare `beach.toml` (see [Input Parameters Reference](Parameters.en.html)).
-2. Confirm that it does not contain high-level notation.
+2. Use high-level notation if useful; the Fortran parser resolves it while loading.
 3. Run the simulation with `beach beach.toml`.
 4. Inspect `output.dir`.
 5. Visualize with a Python CLI command or the `Beach` API.
@@ -154,16 +153,15 @@ beach beach.rendered.toml
 ### 4.1 Recommended: `beach`
 
 ```bash
-beach beach.rendered.toml
+beach beach.toml
 ```
 
-When using high-level notation, run `beachx config render beach.toml --output beach.rendered.toml` first.
 Without arguments, `beach` reads `beach.toml` from the current directory.
 
 ### 4.2 Thread Count
 
 ```bash
-OMP_NUM_THREADS=8 beach beach.rendered.toml
+OMP_NUM_THREADS=8 beach beach.toml
 ```
 
 ### 4.3 MPI + OpenMP

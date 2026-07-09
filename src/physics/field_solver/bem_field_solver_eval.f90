@@ -48,6 +48,32 @@ contains
   e(3) = self%field_output_scale*ez
   end procedure eval_e_field_solver
 
+  !> 観測点の電位を direct / FMM で評価して返す。
+  module procedure eval_potential_field_solver
+  real(dp) :: r_scaled(3)
+  real(dp), allocatable :: targets(:, :), phi_values(:)
+
+  phi = 0.0d0
+  if (mesh%nelem <= 0_i32) return
+
+  if (trim(self%mode) == 'fmm') then
+    if (.not. self%fmm_core_ready) then
+      error stop 'FMM core is not ready. Call solver%init/refresh before eval_potential.'
+    end if
+    r_scaled = (r - self%field_origin)*self%field_inv_length_scale
+    allocate (targets(3, 1), phi_values(1))
+    targets(:, 1) = r_scaled
+    call eval_potential_points(self%fmm_core_plan, self%fmm_core_state, targets, phi_values)
+    phi = self%potential_output_scale*phi_values(1)
+    deallocate (targets, phi_values)
+    return
+  end if
+
+  call electric_potential_at_normalized( &
+    mesh, r, sim%softening, self%field_inv_length_scale, self%potential_output_scale, phi &
+    )
+  end procedure eval_potential_field_solver
+
   !> ノードを再帰走査し、葉は direct 総和・遠方は monopole 近似で加算する。
   module procedure traverse_node
   integer(i32) :: child_k, p, idx, p_end
@@ -500,5 +526,36 @@ contains
     e(2) = output_scale*ey
     e(3) = output_scale*ez
   end subroutine electric_field_at_normalized
+
+  !> 正規化長さで direct 電位を評価し、SI 電位へ戻す。
+  subroutine electric_potential_at_normalized(mesh, r, softening, inv_length_scale, output_scale, phi)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: r(3), softening, inv_length_scale, output_scale
+    real(dp), intent(out) :: phi
+
+    integer(i32) :: i
+    real(dp) :: soft2, r2, inv_r, phi_sum, min_dist2
+    real(dp) :: rx, ry, rz, dx, dy, dz
+
+    phi_sum = 0.0d0
+    soft2 = (softening*inv_length_scale)**2
+    min_dist2 = tiny(1.0d0)
+    rx = r(1)
+    ry = r(2)
+    rz = r(3)
+
+    !$omp simd reduction(+:phi_sum) private(dx,dy,dz,r2,inv_r)
+    do i = 1, mesh%nelem
+      dx = (rx - mesh%center_x(i))*inv_length_scale
+      dy = (ry - mesh%center_y(i))*inv_length_scale
+      dz = (rz - mesh%center_z(i))*inv_length_scale
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) cycle
+      inv_r = 1.0d0/sqrt(r2)
+      phi_sum = phi_sum + mesh%q_elem(i)*inv_r
+    end do
+
+    phi = output_scale*phi_sum
+  end subroutine electric_potential_at_normalized
 
 end submodule bem_field_solver_eval

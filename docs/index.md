@@ -46,14 +46,12 @@ cd run_periodic2
 
 beachx config init
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
 
-beach beach.rendered.toml
+beach beach.toml
 beachx inspect outputs/latest
 ```
 
-`beach` が読むのは最終キーに展開済みの TOML です。高水準記法を使う場合は、実行前に `beachx config render` を実行してください。
-出力先を指定しない `render` は入力ファイルを上書きするため、初回は `--output beach.rendered.toml` を推奨します。
+`beach` は `beach.toml` を直接読みます。`box_origin` / `box_size` や `mesh.groups` などの高水準記法も Fortran 側で解決されます。
 
 ## 成功確認
 
@@ -68,7 +66,7 @@ beachx inspect outputs/latest
 | まず動かした後に出力を確認したい | [出力の読み方](OutputGuide.html) |
 | 設定例から自分のケースを作りたい | [設定レシピ](ConfigurationRecipes.html) |
 | `beach.toml` の全キーを調べたい | [入力パラメータリファレンス](Parameters.html) |
-| `beachx config render` の挙動を知りたい | [beachx config / 高水準記法ガイド](Configuration.html) |
+| 高水準記法の書き方を知りたい | [beachx config / 高水準記法ガイド](Configuration.html) |
 | 図を作る最短手順を知りたい | [後処理チュートリアル](PostprocessTutorial.html) |
 | Python API を網羅的に確認したい | [Python 後処理 API リファレンス](PythonPostprocessAPI.html) |
 | 数値モデルを確認したい | [BEACH アルゴリズム概要](Algorithms.html) |

@@ -26,6 +26,7 @@ bc_z_high = "open"
 rng_seed = 12345
 reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
+# open_boundary_model = "potential_barrier"  # open 境界で局所電位障壁による return/escape 判定を行う
 injection_face_phi_grid_n = 3
 # sheath_injection_model = "zhao_auto"
 # sheath_alpha_deg = 60.0

@@ -84,6 +84,7 @@ module bem_field_solver
     procedure :: init => init_field_solver
     procedure :: refresh => refresh_field_solver
     procedure :: eval_e => eval_e_field_solver
+    procedure :: eval_potential => eval_potential_field_solver
     procedure :: compute_mesh_potential => compute_mesh_potential_field_solver
   end type field_solver_type
 
@@ -117,6 +118,15 @@ module bem_field_solver
       real(dp), intent(in) :: r(3)
       real(dp), intent(out) :: e(3)
     end subroutine eval_e_field_solver
+
+    !> 観測点 `r` の電位を設定されたソルバで評価する。
+    module subroutine eval_potential_field_solver(self, mesh, sim, r, phi)
+      class(field_solver_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      type(sim_config), intent(in) :: sim
+      real(dp), intent(in) :: r(3)
+      real(dp), intent(out) :: phi
+    end subroutine eval_potential_field_solver
 
     !> メッシュ重心を octree 分割して treecode トポロジを構築する。
     module subroutine build_tree_topology(self, mesh)

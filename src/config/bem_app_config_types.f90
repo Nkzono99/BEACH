@@ -216,6 +216,7 @@ contains
     cfg%sim%b0 = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%reservoir_potential_model = 'none'
     cfg%sim%phi_infty = 0.0d0
+    cfg%sim%open_boundary_model = 'escape'
     cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%sim%raycast_max_bounce = 16_i32
     cfg%sim%sheath_injection_model = 'none'

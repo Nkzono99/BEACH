@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "BEACH Parameter File",
-  "description": "Schema for BEACH beach.toml files, including direct Fortran runtime keys and beachx config render high-level authoring keys. Use with TOML-aware editors such as Even Better TOML / Taplo.",
+  "description": "Schema for BEACH beach.toml files, including direct Fortran runtime keys and Fortran-normalized high-level authoring keys. Use with TOML-aware editors such as Even Better TOML / Taplo.",
   "type": "object",
   "properties": {
     "sim": {
@@ -167,7 +167,7 @@
       ]
     },
     "placementMode": {
-      "description": "High-level placement mode resolved by beachx config render.",
+      "description": "High-level placement mode normalized by the Fortran config loader.",
       "type": "string",
       "enum": [
         "absolute",
@@ -350,8 +350,8 @@
             "none",
             "m2l_root_oracle"
           ],
-          "default": "auto",
-          "description": "Far-field correction mode for periodic2."
+          "default": "none",
+          "description": "Far-field correction mode for periodic2. auto is accepted as a compatibility alias for none; m2l_root_oracle is an explicit high-cost diagnostic mode."
         },
         "field_periodic_ewald_alpha": {
           "type": "number",
@@ -363,7 +363,7 @@
           "type": "integer",
           "minimum": 0,
           "default": 4,
-          "description": "Ewald real-space/reciprocal shell depth for m2l_root_oracle build-time oracle."
+          "description": "Ewald real-space/reciprocal shell depth for the explicit m2l_root_oracle build-time oracle."
         },
         "tree_theta": {
           "type": "number",
@@ -406,6 +406,15 @@
           "type": "number",
           "default": 0.0,
           "description": "Reference potential at infinity [V]."
+        },
+        "open_boundary_model": {
+          "type": "string",
+          "enum": [
+            "escape",
+            "potential_barrier"
+          ],
+          "default": "escape",
+          "description": "Return/escape model applied at open particle boundaries."
         },
         "injection_face_phi_grid_n": {
           "type": "integer",
@@ -1046,6 +1055,15 @@
           "default": false,
           "description": "Deposit opposite-sign charge on emitting element for photo_raycast."
         },
+        "photo_escape_model": {
+          "type": "string",
+          "enum": [
+            "none",
+            "boltzmann_cutoff"
+          ],
+          "default": "none",
+          "description": "Optional photoelectron escape closure for photo_raycast."
+        },
         "normal_drift_speed": {
           "type": "number",
           "default": 0.0,
@@ -1264,6 +1282,11 @@
                 },
                 {
                   "required": [
+                    "photo_escape_model"
+                  ]
+                },
+                {
+                  "required": [
                     "velocity_grid_path"
                   ]
                 },
@@ -1325,6 +1348,11 @@
                     {
                       "required": [
                         "deposit_opposite_charge_on_emit"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "photo_escape_model"
                       ]
                     }
                   ]
@@ -2113,7 +2141,11 @@
         "resume": {
           "type": "boolean",
           "default": false,
-          "description": "Resume from existing checkpoint in output directory."
+          "description": "Resume from an existing checkpoint."
+        },
+        "restart_from": {
+          "type": "string",
+          "description": "Checkpoint input directory used when resume=true. New outputs are still written to output.dir."
         }
       },
       "allOf": [
@@ -2130,6 +2162,26 @@
           },
           "then": {
             "properties": {
+              "write_files": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "restart_from"
+            ]
+          },
+          "then": {
+            "required": [
+              "resume"
+            ],
+            "properties": {
+              "resume": {
+                "const": true
+              },
               "write_files": {
                 "const": true
               }

@@ -167,9 +167,11 @@ contains
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth, warn_stride
+  integer(i32) :: boundary_axis
   real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
+  real(dp) :: boundary_probe(3), phi_boundary
   type(hit_info) :: hit
-  logical :: escaped_by_boundary, has_warn_stride
+  logical :: escaped_by_boundary, has_warn_stride, has_boundary_probe, boundary_high_side
 
   nth = size(dq_thread, 2)
   call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
@@ -178,7 +180,8 @@ contains
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(warn_stride,batch_idx,mpi_rank) &
-  !$omp private(i,step,x0,v0,x1,v1,e,hit,tid,qdep,escaped_by_boundary)
+  !$omp private(i,step,x0,v0,x1,v1,e,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary)
+  !$omp private(has_boundary_probe,boundary_high_side)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
@@ -202,7 +205,21 @@ contains
         exit
       end if
 
-      call apply_box_boundary(app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary)
+      if (trim(app%sim%open_boundary_model) == 'potential_barrier') then
+        call find_open_boundary_probe(app%sim, x0, x1, has_boundary_probe, boundary_probe, boundary_axis, boundary_high_side)
+        if (has_boundary_probe) then
+          call field_solver%eval_potential(mesh, app%sim, boundary_probe, phi_boundary)
+          call apply_box_boundary( &
+            app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary, &
+            q_particle=pcls_batch%q(i), m_particle=pcls_batch%m(i), phi_boundary=phi_boundary, &
+            potential_axis=boundary_axis, potential_high_side=boundary_high_side &
+            )
+        else
+          call apply_box_boundary(app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary)
+        end if
+      else
+        call apply_box_boundary(app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary)
+      end if
       if (escaped_by_boundary) escaped_boundary_flag(i) = .true.
       if (.not. pcls_batch%alive(i)) exit
 
@@ -233,6 +250,62 @@ contains
   !$omp end do
   !$omp end parallel
   end procedure process_particle_batch
+
+  !> x0->x1 が最初に越える open box 面上の評価点を返す。
+  subroutine find_open_boundary_probe(sim, x0, x1, found, probe, probe_axis, high_side)
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(in) :: x0(3), x1(3)
+    logical, intent(out) :: found
+    real(dp), intent(out) :: probe(3)
+    integer(i32), intent(out) :: probe_axis
+    logical, intent(out) :: high_side
+
+    integer(i32) :: axis
+    real(dp) :: denom, t, best_t
+
+    found = .false.
+    probe = min(sim%box_max, max(sim%box_min, x1))
+    probe_axis = 0_i32
+    high_side = .false.
+    if (.not. sim%use_box) return
+
+    best_t = huge(1.0d0)
+    do axis = 1_i32, 3_i32
+      denom = x1(axis) - x0(axis)
+      if (denom < 0.0d0 .and. sim%bc_low(axis) == bc_open .and. x1(axis) < sim%box_min(axis)) then
+        t = (sim%box_min(axis) - x0(axis))/denom
+        call maybe_update_boundary_probe(sim, x0, x1, axis, .false., sim%box_min(axis), t, best_t, found, probe, &
+                                         probe_axis, high_side)
+      else if (denom > 0.0d0 .and. sim%bc_high(axis) == bc_open .and. x1(axis) > sim%box_max(axis)) then
+        t = (sim%box_max(axis) - x0(axis))/denom
+        call maybe_update_boundary_probe(sim, x0, x1, axis, .true., sim%box_max(axis), t, best_t, found, probe, &
+                                         probe_axis, high_side)
+      end if
+    end do
+  end subroutine find_open_boundary_probe
+
+  !> 最小の有効 crossing parameter を持つ境界評価点へ更新する。
+  subroutine maybe_update_boundary_probe( &
+    sim, x0, x1, axis, candidate_high_side, boundary_value, t, best_t, found, probe, probe_axis, high_side &
+    )
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(in) :: x0(3), x1(3), boundary_value, t
+    integer(i32), intent(in) :: axis
+    logical, intent(in) :: candidate_high_side
+    real(dp), intent(inout) :: best_t
+    logical, intent(inout) :: found
+    real(dp), intent(inout) :: probe(3)
+    integer(i32), intent(inout) :: probe_axis
+    logical, intent(inout) :: high_side
+
+    if (t < 0.0d0 .or. t > 1.0d0 .or. t >= best_t) return
+    best_t = t
+    probe = x0 + t*(x1 - x0)
+    probe(axis) = boundary_value
+    probe_axis = axis
+    high_side = candidate_high_side
+    found = .true.
+  end subroutine maybe_update_boundary_probe
 
   !> 正の整数環境変数を読む。未設定、不正値、ゼロ以下の場合は found=.false.。
   subroutine read_env_i32_local(name, value, found)

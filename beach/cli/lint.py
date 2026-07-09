@@ -11,8 +11,8 @@ from typing import Any, Sequence
 from beach.config import (
     CONFIG_FILENAME,
     ConfigError,
-    render_config_document,
-    resolve_high_level_config,
+    normalize_config_document,
+    normalize_high_level_config,
 )
 from beach.config._toml import load_toml_file
 
@@ -96,21 +96,21 @@ def run_lint(args: argparse.Namespace) -> None:
         )
 
     try:
-        rendered_config = resolve_high_level_config(raw_config)
+        normalized_config = normalize_high_level_config(raw_config)
     except (ConfigError, TypeError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
 
-    schema_errors = _schema_errors(rendered_config, schema)
+    schema_errors = _schema_errors(normalized_config, schema)
     if schema_errors:
         _raise_schema_errors(
             path=args.config_path,
-            phase="rendered",
+            phase="normalized",
             errors=schema_errors,
             max_errors=args.max_errors,
         )
 
     try:
-        render_config_document(raw_config)
+        normalize_config_document(raw_config)
     except (ConfigError, TypeError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
 

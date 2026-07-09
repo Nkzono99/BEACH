@@ -522,7 +522,6 @@ Since v1.0.0, the unified `beachx` CLI is recommended.
 | `beachx mobility <output_dir>` | Run Coulomb mobility analysis |
 | `beachx kernel-forces <output_dir>` | Output per-object resultant-force CSV using the Fortran field kernel |
 | `beachx lint <config.toml>` | Check TOML / JSON Schema / BEACH constraints |
-| `beachx config render <config.toml>` | Expand high-level notation into final `beach.toml` keys |
 | `beachx config validate <config.toml>` | Validate a configuration file |
 | `beachx model close-pack` | Generate a close-packed model |
 

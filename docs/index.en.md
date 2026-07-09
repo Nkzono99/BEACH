@@ -32,14 +32,12 @@ cd run_periodic2
 
 beachx config init
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
 
-beach beach.rendered.toml
+beach beach.toml
 beachx inspect outputs/latest
 ```
 
-`beach` reads a TOML file expanded to final runtime keys. When using high-level notation, run `beachx config render` before simulation.
-Because `render` overwrites the input file when no output is specified, first-time users should prefer `--output beach.rendered.toml`.
+`beach` reads `beach.toml` directly. High-level notation such as `box_origin` / `box_size` and `mesh.groups` is normalized by the Fortran parser.
 
 ## Success Check
 
@@ -54,7 +52,7 @@ See [Reading Output Files](OutputGuide.en.html) for the meaning of each output f
 | Check outputs after the first run | [Reading Output Files](OutputGuide.en.html) |
 | Adapt a configuration from examples | [Configuration Recipes](ConfigurationRecipes.en.html) |
 | Look up every `beach.toml` key | [Input Parameters Reference](Parameters.en.html) |
-| Understand `beachx config render` | [`beachx config` / High-Level Notation Guide](Configuration.en.html) |
+| Write high-level notation | [`beachx config` / High-Level Notation Guide](Configuration.en.html) |
 | Make the first plots | [Post-processing Tutorial](PostprocessTutorial.en.html) |
 | Use the full Python API | [Python Post-processing API Reference](PythonPostprocessAPI.en.html) |
 | Understand the numerical model | [BEACH Algorithm Overview](Algorithms.en.html) |

@@ -31,11 +31,11 @@ pip install beach-bem
 # 2. Create a configuration file
 beachx config init
 
-# 3. Render high-level notation to final runtime keys
-beachx config render beach.toml --output beach.rendered.toml
+# 3. Validate the configuration
+beachx lint beach.toml
 
 # 4. Run the simulation
-beach beach.rendered.toml
+beach beach.toml
 
 # 5. Inspect results
 beachx inspect outputs/latest
@@ -105,7 +105,7 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 
 1. **beach.toml**: the normal file to edit, read directly by the Fortran executable
 2. **beachx lint**: validates TOML parsing, JSON Schema, high-level notation, and known constraints
-3. **beachx config render**: expands high-level notation into final keys such as `box_min` / `box_max` / `center`
+3. **Fortran parser**: normalizes high-level notation into final keys such as `box_min` / `box_max` / `center`
 
 ### [sim] Section - Simulation Basics
 
@@ -306,7 +306,6 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 ```bash
 beachx lint [beach.toml]                           # check schema and semantic constraints
 beachx config init [beach.toml]                    # create a new beach.toml
-beachx config render [beach.toml]                  # render high-level notation to final keys
 beachx config validate [beach.toml]                # validate high-level notation and constraints
 beachx config diff left.toml right.toml            # compare configurations
 ```
@@ -424,7 +423,7 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 
 ## High-level Notation for `beachx config`
 
-`beachx config render` expands helper keys in `beach.toml` into final keys read by the Fortran runtime.
+The Fortran parser normalizes helper keys in `beach.toml` into runtime keys while loading the file.
 
 - `sim.box_origin` + `sim.box_size` -> `sim.box_min` / `sim.box_max`
 - `inject_region_mode = "face_fraction"` + `uv_low` / `uv_high` -> `pos_low` / `pos_high`
@@ -499,8 +498,7 @@ npcls_per_step = 10
 ### Complete Post-processing Pipeline
 
 ```bash
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 beachx inspect outputs/latest --save-mesh charges.png
 beachx animate outputs/latest --quantity charge --save-gif charge.gif
 beachx slices outputs/latest --save slices.png
@@ -538,7 +536,7 @@ BEACH/
 │   └── runtime/              #   output and restart
 ├── beach/                    # Python package
 │   ├── cli/                  #   CLI subcommands
-│   ├── config/               #   configuration rendering and validation
+│   ├── config/               #   configuration validation
 │   └── fortran_results/      #   post-processing and visualization
 ├── schemas/                  # JSON Schema for validation
 │   └── beach.schema.json     #   beach.toml schema

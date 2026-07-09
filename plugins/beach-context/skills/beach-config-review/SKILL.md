@@ -29,7 +29,7 @@ For workload questions, use schema/TOML inspection and `beachx estimate-workload
 - Determine whether the input is a direct `beach.toml` or a snippet.
 - Check schema directive style. Use `#:schema ...`, not `"$schema"` before the first section.
 - Reject legacy composition keys such as `schema_version`, `use_presets`, `override`, and `base_case`.
-- Check required sections: `[sim]`, `[[particles.species]]`, `[mesh]`, and `[output]` for rendered configs.
+- Check required sections: `[sim]`, `[[particles.species]]`, `[mesh]`, and `[output]` for runtime configs.
 - Check batch controls: `dt`, `batch_count`, `batch_duration` vs `batch_duration_step`, `max_step`, and `tol_rel` expectations.
 - Check source modes:
   - `volume_seed`: total `npcls_per_step > 0`, no `target_macro_particles_per_batch`.
@@ -67,4 +67,4 @@ Return a concise report in the response language. Translate headings when approp
 - ...
 ```
 
-Suggest concrete commands only when they fit the environment, for example `beachx lint beach.toml`, `beachx config render`, `beachx estimate-workload beach.toml --threads 8`, or `beach examples/beach.toml`.
+Suggest concrete commands only when they fit the environment, for example `beachx lint beach.toml`, `Fortran parser`, `beachx estimate-workload beach.toml --threads 8`, or `beach examples/beach.toml`.

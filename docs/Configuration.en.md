@@ -6,9 +6,8 @@ Lang: [English](Configuration.en.md) | [日本語](Configuration.md)
 
 This document describes the directly edited `beach.toml` file and the `beachx config` helper commands.
 
-- The Fortran runtime `beach` reads a TOML file expanded to final runtime keys.
+- The Fortran runtime `beach` reads `beach.toml` directly and normalizes high-level notation while loading it.
 - `beachx config init` creates a small runnable `beach.toml`.
-- `beachx config render` expands high-level notation in `beach.toml` into final runtime keys.
 - See [Input Parameters Reference](Parameters.en.html) for the final keys read by the Fortran runtime.
 
 ## 1. Basic Flow
@@ -20,18 +19,11 @@ cd run_periodic2
 beachx config init
 $EDITOR beach.toml
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 ```
 
-When no output path is specified, `render` overwrites the input file. For first-time use and shared examples,
-prefer `--output` so the source config and rendered runtime config remain separate. Use `--stdout` to inspect
-the rendered result first.
-
-```bash
-beachx config render --stdout
-beachx config render beach.toml --output beach.rendered.toml
-```
+No separate expansion file is needed. The Fortran parser normalizes `box_origin` / `box_size`,
+`inject_region_mode`, `mesh.groups`, and related authoring keys before validation.
 
 ## 2. Commands
 
@@ -67,18 +59,9 @@ beachx config validate
 beachx config validate run.toml
 ```
 
-### 2.4 `render`
+### 2.4 `diff`
 
-Expand high-level notation into final keys consumed by the Fortran runtime.
-
-```bash
-beachx config render
-beachx config render run.toml --output run.rendered.toml
-```
-
-### 2.5 `diff`
-
-Semantically compare two configs. By default, high-level notation is rendered before comparison.
+Semantically compare two configs. By default, high-level notation is normalized before comparison.
 
 ```bash
 beachx config diff left.toml right.toml
@@ -88,7 +71,7 @@ beachx config diff --raw left.toml right.toml
 ## 3. High-Level Notation
 
 High-level notation is a convenience layer for writing coordinate intent directly in `beach.toml`.
-After `beachx config render`, it is converted to ordinary numerical keys.
+The Fortran parser converts it to ordinary numerical keys while loading the file.
 
 ### 3.1 Simulation Box
 
@@ -101,7 +84,7 @@ box_origin = [0.0, 0.0, -1.0]
 box_size = [1.0, 1.0, 2.0]
 ```
 
-After rendering:
+Resolved while loading:
 
 ```toml
 [sim]
@@ -123,7 +106,7 @@ uv_low = [0.25, 0.25]
 uv_high = [0.75, 0.75]
 ```
 
-Rendering expands these values into `pos_low` / `pos_high`.
+These values are resolved into `pos_low` / `pos_high` while loading.
 
 ### 3.3 Mesh Placement
 
@@ -141,7 +124,7 @@ nx = 20
 ny = 20
 ```
 
-Rendering expands this to `size_x` / `size_y` / `center` and other final template keys.
+The loader resolves this to `size_x` / `size_y` / `center` and other final template keys.
 
 ### 3.4 Group Placement
 
@@ -161,8 +144,8 @@ radius = 0.2
 center = [0.0, 0.0, 0.0]
 ```
 
-After rendering, `mesh.groups`, `group`, `scale_from`, and other high-level keys are removed and each
-template is written with physical coordinates and dimensions.
+While loading, `mesh.groups`, `group`, `scale_from`, and related keys determine each template's
+physical coordinates and dimensions.
 
 ## 4. Schema
 
@@ -189,16 +172,12 @@ comment directive rather than `"$schema" = "..."`.
 Runtime settings belong under `sim`, `particles`, `mesh`, and `output`.
 Ordinary keys before the first section, or unknown top-level sections, fail validation or Fortran loading.
 
-### 5.2 High-Level Keys Disappear After Rendering
+### 5.2 Mixing High-Level and Runtime Keys
 
-This is expected. Keys such as `box_origin`, `box_size`, `inject_region_mode`, and `mesh.groups` are not final
-runtime keys read by `beach`.
+Using high-level keys and their runtime equivalents for the same value, such as `box_origin` / `box_size`
+with `box_min` / `box_max`, fails validation. Use one style for a given quantity.
 
-### 5.3 Avoiding In-Place Overwrite
+### 5.3 Checking Before Running
 
-Pass `--stdout` or `--output` to `render`.
-
-```bash
-beachx config render --stdout
-beachx config render beach.toml --output beach.rendered.toml
-```
+Run `beachx lint beach.toml` to check TOML parsing, JSON Schema, high-level notation consistency,
+and known BEACH constraints together.

@@ -164,7 +164,6 @@ def test_beachx_config_help_lists_available_subcommands(
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
     assert "init" in captured.out
-    assert "render" in captured.out
     assert "validate" in captured.out
     assert "diff" in captured.out
 
@@ -181,7 +180,7 @@ def test_beachx_model_close_pack_subparser_matches_parser_shape() -> None:
     ) == _parser_signature(model_close_pack.build_parser())
 
 
-def test_beachx_config_render_subparser_matches_parser_shape() -> None:
+def test_beachx_config_validate_subparser_matches_parser_shape() -> None:
     config_parser = config.build_parser()
     config_subparsers = next(
         action
@@ -189,8 +188,8 @@ def test_beachx_config_render_subparser_matches_parser_shape() -> None:
         if isinstance(action, argparse._SubParsersAction)
     )
     assert _parser_signature(
-        _get_nested_subparser("config", "render")
-    ) == _parser_signature(config_subparsers.choices["render"])
+        _get_nested_subparser("config", "validate")
+    ) == _parser_signature(config_subparsers.choices["validate"])
 
 
 def test_beachx_lint_subparser_matches_parser_shape() -> None:

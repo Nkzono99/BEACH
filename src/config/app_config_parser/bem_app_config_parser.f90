@@ -5,6 +5,10 @@ module bem_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
+  use bem_app_config_authoring, only: &
+    app_config_authoring, sim_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
+    init_app_config_authoring, ensure_authoring_particle_capacity, ensure_authoring_template_capacity, &
+    ensure_authoring_group_capacity, normalize_high_level_config
   use bem_string_utils, only: lower_ascii
   use tomlf, only: toml_array, toml_error, toml_key, toml_parse, toml_stat, toml_table, get_value, toml_len => len
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -115,6 +119,7 @@ contains
     logical :: has_dynamic_source_species
     type(toml_table), allocatable :: document
     type(toml_error), allocatable :: parse_error
+    type(app_config_authoring) :: authoring
 
     if (.not. allocated(cfg%templates)) then
       allocate (cfg%templates(max_templates))
@@ -125,6 +130,7 @@ contains
       cfg%particle_species = particle_species_spec()
       cfg%n_particle_species = 0_i32
     end if
+    call init_app_config_authoring(authoring, size(cfg%templates), size(cfg%particle_species))
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Could not open TOML file.'
@@ -135,8 +141,9 @@ contains
     end if
     if (.not. allocated(document)) error stop 'Failed to parse TOML config.'
 
-    call apply_toml_document(cfg, document)
+    call apply_toml_document(cfg, document, authoring)
     call document%destroy
+    call normalize_high_level_config(cfg, authoring)
 
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
     if (.not. ieee_is_finite(cfg%sim%dt) .or. cfg%sim%dt <= 0.0d0) then
@@ -298,6 +305,13 @@ contains
     case default
       error stop 'sim.reservoir_potential_model must be "none" or "infinity_barrier".'
     end select
+    cfg%sim%open_boundary_model = lower_ascii(trim(cfg%sim%open_boundary_model))
+    select case (trim(cfg%sim%open_boundary_model))
+    case ('escape', 'potential_barrier')
+      continue
+    case default
+      error stop 'sim.open_boundary_model must be "escape" or "potential_barrier".'
+    end select
     if (cfg%sim%injection_face_phi_grid_n < 1_i32) then
       error stop 'sim.injection_face_phi_grid_n must be >= 1.'
     end if
@@ -443,9 +457,10 @@ contains
   end subroutine load_toml_config
 
   !> `toml-f` のルートテーブルから既知セクションを読み込む。
-  subroutine apply_toml_document(cfg, document)
+  subroutine apply_toml_document(cfg, document, authoring)
     type(app_config), intent(inout) :: cfg
     type(toml_table), intent(inout) :: document
+    type(app_config_authoring), intent(inout) :: authoring
     type(toml_key), allocatable :: keys(:)
     type(toml_table), pointer :: section
     integer :: ikey, stat
@@ -460,13 +475,13 @@ contains
       select case (trim(key_name))
       case ('sim')
         if (.not. associated(section)) error stop 'TOML section [sim] must be a table.'
-        call apply_sim_toml_table(cfg, section)
+        call apply_sim_toml_table(cfg, section, authoring%sim)
       case ('particles')
         if (.not. associated(section)) error stop 'TOML section [particles] must be a table.'
-        call apply_particles_toml_table(cfg, section)
+        call apply_particles_toml_table(cfg, section, authoring)
       case ('mesh')
         if (.not. associated(section)) error stop 'TOML section [mesh] must be a table.'
-        call apply_mesh_toml_table(cfg, section)
+        call apply_mesh_toml_table(cfg, section, authoring)
       case ('output')
         if (.not. associated(section)) error stop 'TOML section [output] must be a table.'
         call apply_output_toml_table(cfg, section)
@@ -561,6 +576,63 @@ contains
     end do
   end subroutine get_toml_real3
 
+  !> TOML の2成分数値配列キーを読み込む。
+  subroutine get_toml_real2(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    real(dp), intent(out) :: value(2)
+    character(len=*), intent(in) :: context
+    type(toml_array), pointer :: array
+    integer :: i, stat
+
+    nullify (array)
+    call get_value(table, key, array, stat=stat)
+    call require_toml_success(stat, context)
+    if (.not. associated(array)) error stop 'Invalid TOML value for '//trim(context)//'.'
+    if (toml_len(array) /= 2) then
+      error stop trim(context)//' must be an array of 2 numbers.'
+    end if
+    do i = 1, 2
+      call get_value(array, i, value(i), stat=stat)
+      call require_toml_success(stat, context)
+    end do
+  end subroutine get_toml_real2
+
+  !> TOML の scalar または最大3成分数値配列キーを読み込む。
+  subroutine get_toml_real_scalar_or_array3(table, key, value, value_len, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    real(dp), intent(out) :: value(3)
+    integer(i32), intent(out) :: value_len
+    character(len=*), intent(in) :: context
+    type(toml_array), pointer :: array
+    real(dp) :: scalar_value
+    integer :: i, n, stat
+
+    value = 0.0d0
+    value_len = 0_i32
+    call get_value(table, key, scalar_value, stat=stat)
+    if (stat == toml_stat%success) then
+      value(1) = scalar_value
+      value_len = 1_i32
+      return
+    end if
+
+    nullify (array)
+    call get_value(table, key, array, stat=stat)
+    call require_toml_success(stat, context)
+    if (.not. associated(array)) error stop 'Invalid TOML value for '//trim(context)//'.'
+    n = toml_len(array)
+    if (n < 1 .or. n > 3) then
+      error stop trim(context)//' must be a number or an array of 1 to 3 numbers.'
+    end if
+    do i = 1, n
+      call get_value(array, i, value(i), stat=stat)
+      call require_toml_success(stat, context)
+    end do
+    value_len = int(n, i32)
+  end subroutine get_toml_real_scalar_or_array3
+
   !> TOML の文字列キーを境界条件モードへ変換する。
   subroutine get_toml_boundary_mode(table, key, value, context)
     type(toml_table), intent(inout) :: table
@@ -630,9 +702,10 @@ contains
   end subroutine ensure_particle_species_capacity
 
   !> `[sim]` TOML テーブルを `sim_config` へ適用する。
-  subroutine apply_sim_toml_table(cfg, table)
+  subroutine apply_sim_toml_table(cfg, table, sim_auth)
     type(app_config), intent(inout) :: cfg
     type(toml_table), intent(inout) :: table
+    type(sim_authoring_spec), intent(inout) :: sim_auth
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
@@ -710,6 +783,9 @@ contains
         cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
       case ('phi_infty')
         call get_toml_real(table, keys(ikey), cfg%sim%phi_infty, 'sim.phi_infty')
+      case ('open_boundary_model')
+        call get_toml_string(table, keys(ikey), cfg%sim%open_boundary_model, 'sim.open_boundary_model')
+        cfg%sim%open_boundary_model = lower_ascii(trim(cfg%sim%open_boundary_model))
       case ('injection_face_phi_grid_n')
         call get_toml_int(table, keys(ikey), cfg%sim%injection_face_phi_grid_n, 'sim.injection_face_phi_grid_n')
       case ('raycast_max_bounce')
@@ -737,8 +813,16 @@ contains
         call get_toml_logical(table, keys(ikey), cfg%sim%use_box, 'sim.use_box')
       case ('box_min')
         call get_toml_real3(table, keys(ikey), cfg%sim%box_min, 'sim.box_min')
+        sim_auth%has_box_min = .true.
       case ('box_max')
         call get_toml_real3(table, keys(ikey), cfg%sim%box_max, 'sim.box_max')
+        sim_auth%has_box_max = .true.
+      case ('box_origin')
+        call get_toml_real3(table, keys(ikey), sim_auth%box_origin, 'sim.box_origin')
+        sim_auth%has_box_origin = .true.
+      case ('box_size')
+        call get_toml_real3(table, keys(ikey), sim_auth%box_size, 'sim.box_size')
+        sim_auth%has_box_size = .true.
       case ('bc_x_low')
         call get_toml_boundary_mode(table, keys(ikey), cfg%sim%bc_low(1), 'sim.bc_x_low')
       case ('bc_x_high')
@@ -758,9 +842,10 @@ contains
   end subroutine apply_sim_toml_table
 
   !> `[particles]` TOML テーブルを適用する。
-  subroutine apply_particles_toml_table(cfg, table)
+  subroutine apply_particles_toml_table(cfg, table, authoring)
     type(app_config), intent(inout) :: cfg
     type(toml_table), intent(inout) :: table
+    type(app_config_authoring), intent(inout) :: authoring
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
@@ -770,7 +855,7 @@ contains
       k = lower_ascii(trim(keys(ikey)%key))
       select case (trim(k))
       case ('species')
-        call read_particle_species_array(cfg, table, keys(ikey))
+        call read_particle_species_array(cfg, table, keys(ikey), authoring)
       case default
         error stop 'Unknown key in [particles]: '//trim(keys(ikey)%key)
       end select
@@ -778,10 +863,11 @@ contains
   end subroutine apply_particles_toml_table
 
   !> `[[particles.species]]` の配列テーブルを読み込む。
-  subroutine read_particle_species_array(cfg, table, key)
+  subroutine read_particle_species_array(cfg, table, key, authoring)
     type(app_config), intent(inout) :: cfg
     type(toml_table), intent(inout) :: table
     type(toml_key), intent(in) :: key
+    type(app_config_authoring), intent(inout) :: authoring
     type(toml_array), pointer :: array
     type(toml_table), pointer :: child
     integer :: ispec, n, stat
@@ -793,7 +879,9 @@ contains
 
     n = toml_len(array)
     call ensure_particle_species_capacity(cfg, n)
+    call ensure_authoring_particle_capacity(authoring, n)
     if (n > 0) cfg%particle_species(1:n) = particle_species_spec()
+    if (n > 0) authoring%particle_species(1:n) = particle_authoring_spec()
     do ispec = 1, n
       nullify (child)
       call get_value(array, ispec, child, stat=stat)
@@ -801,15 +889,16 @@ contains
       if (.not. associated(child)) error stop 'particles.species entries must be tables.'
       cfg%particle_species(ispec) = species_from_defaults()
       cfg%particle_species(ispec)%enabled = .true.
-      call apply_particles_species_toml_table(cfg%particle_species(ispec), child)
+      call apply_particles_species_toml_table(cfg%particle_species(ispec), child, authoring%particle_species(ispec))
     end do
     cfg%n_particle_species = int(n, i32)
   end subroutine read_particle_species_array
 
   !> `[[particles.species]]` の1要素を粒子種設定へ適用する。
-  subroutine apply_particles_species_toml_table(spec, table)
+  subroutine apply_particles_species_toml_table(spec, table, auth)
     type(particle_species_spec), intent(inout) :: spec
     type(toml_table), intent(inout) :: table
+    type(particle_authoring_spec), intent(inout) :: auth
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
@@ -847,8 +936,10 @@ contains
         spec%has_target_macro_particles_per_batch = .true.
       case ('pos_low')
         call get_toml_real3(table, keys(ikey), spec%pos_low, 'particles.species.pos_low')
+        auth%has_pos_low = .true.
       case ('pos_high')
         call get_toml_real3(table, keys(ikey), spec%pos_high, 'particles.species.pos_high')
+        auth%has_pos_high = .true.
       case ('velocity_distribution')
         call get_toml_string(table, keys(ikey), spec%velocity_distribution, 'particles.species.velocity_distribution')
         spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
@@ -896,6 +987,16 @@ contains
       case ('inject_face')
         call get_toml_string(table, keys(ikey), spec%inject_face, 'particles.species.inject_face')
         spec%inject_face = lower_ascii(trim(spec%inject_face))
+      case ('inject_region_mode')
+        call get_toml_string(table, keys(ikey), auth%inject_region_mode, 'particles.species.inject_region_mode')
+        auth%inject_region_mode = lower_ascii(trim(auth%inject_region_mode))
+        auth%has_inject_region_mode = .true.
+      case ('uv_low')
+        call get_toml_real2(table, keys(ikey), auth%uv_low, 'particles.species.uv_low')
+        auth%has_uv_low = .true.
+      case ('uv_high')
+        call get_toml_real2(table, keys(ikey), auth%uv_high, 'particles.species.uv_high')
+        auth%has_uv_high = .true.
       case default
         error stop 'Unknown key in [[particles.species]]: '//trim(keys(ikey)%key)
       end select
@@ -903,9 +1004,10 @@ contains
   end subroutine apply_particles_species_toml_table
 
   !> `[mesh]` TOML テーブルをメッシュ入力設定へ適用する。
-  subroutine apply_mesh_toml_table(cfg, table)
+  subroutine apply_mesh_toml_table(cfg, table, authoring)
     type(app_config), intent(inout) :: cfg
     type(toml_table), intent(inout) :: table
+    type(app_config_authoring), intent(inout) :: authoring
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
@@ -930,18 +1032,91 @@ contains
       case ('obj_offset')
         call get_toml_real3(table, keys(ikey), cfg%obj_offset, 'mesh.obj_offset')
       case ('templates')
-        call read_template_array(cfg, table, keys(ikey))
+        call read_template_array(cfg, table, keys(ikey), authoring)
+      case ('groups')
+        call read_mesh_groups_table(table, keys(ikey), authoring)
       case default
         error stop 'Unknown key in [mesh]: '//trim(keys(ikey)%key)
       end select
     end do
   end subroutine apply_mesh_toml_table
 
+  !> `[mesh.groups.*]` の table 群を読み込む。
+  subroutine read_mesh_groups_table(table, key, authoring)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    type(app_config_authoring), intent(inout) :: authoring
+    type(toml_table), pointer :: groups_table, group_table
+    type(toml_key), allocatable :: group_keys(:)
+    integer :: igroup, stat
+
+    nullify (groups_table)
+    call get_value(table, key, groups_table, stat=stat)
+    call require_toml_success(stat, 'mesh.groups')
+    if (.not. associated(groups_table)) error stop 'mesh.groups must be a table.'
+
+    call groups_table%get_keys(group_keys)
+    call ensure_authoring_group_capacity(authoring, size(group_keys))
+    authoring%n_groups = int(size(group_keys), i32)
+    if (size(group_keys) > 0) authoring%groups(1:size(group_keys)) = mesh_group_authoring_spec()
+    do igroup = 1, size(group_keys)
+      nullify (group_table)
+      call get_value(groups_table, group_keys(igroup), group_table, stat=stat)
+      call require_toml_success(stat, 'mesh.groups entry')
+      if (.not. associated(group_table)) error stop 'mesh.groups entries must be tables.'
+      authoring%groups(igroup)%name = trim(group_keys(igroup)%key)
+      call apply_mesh_group_toml_table(authoring%groups(igroup), group_table)
+    end do
+  end subroutine read_mesh_groups_table
+
+  !> 1つの `[mesh.groups.name]` table を読み込む。
+  subroutine apply_mesh_group_toml_table(group, table)
+    type(mesh_group_authoring_spec), intent(inout) :: group
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('placement_mode')
+        call get_toml_string(table, keys(ikey), group%placement_mode, 'mesh.groups.placement_mode')
+        group%placement_mode = lower_ascii(trim(group%placement_mode))
+        group%has_placement_mode = .true.
+      case ('anchor')
+        call get_toml_string(table, keys(ikey), group%anchor, 'mesh.groups.anchor')
+        group%anchor = lower_ascii(trim(group%anchor))
+        group%has_anchor = .true.
+      case ('offset')
+        call get_toml_real3(table, keys(ikey), group%offset, 'mesh.groups.offset')
+        group%has_offset = .true.
+      case ('offset_frac')
+        call get_toml_real3(table, keys(ikey), group%offset_frac, 'mesh.groups.offset_frac')
+        group%has_offset_frac = .true.
+      case ('scale')
+        call get_toml_real(table, keys(ikey), group%scale, 'mesh.groups.scale')
+        group%has_scale = .true.
+      case ('scale_from')
+        call get_toml_string(table, keys(ikey), group%scale_from, 'mesh.groups.scale_from')
+        group%scale_from = lower_ascii(trim(group%scale_from))
+        group%has_scale_from = .true.
+      case ('scale_factor')
+        call get_toml_real(table, keys(ikey), group%scale_factor, 'mesh.groups.scale_factor')
+        group%has_scale_factor = .true.
+      case default
+        error stop 'Unknown key in [mesh.groups.*]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_mesh_group_toml_table
+
   !> `[[mesh.templates]]` の配列テーブルを読み込む。
-  subroutine read_template_array(cfg, table, key)
+  subroutine read_template_array(cfg, table, key, authoring)
     type(app_config), intent(inout) :: cfg
     type(toml_table), intent(inout) :: table
     type(toml_key), intent(in) :: key
+    type(app_config_authoring), intent(inout) :: authoring
     type(toml_array), pointer :: array
     type(toml_table), pointer :: child
     integer :: itemplate, n, stat
@@ -953,22 +1128,25 @@ contains
 
     n = toml_len(array)
     call ensure_template_capacity(cfg, n)
+    call ensure_authoring_template_capacity(authoring, n)
     if (n > 0) cfg%templates(1:n) = template_spec()
+    if (n > 0) authoring%templates(1:n) = template_authoring_spec()
     do itemplate = 1, n
       nullify (child)
       call get_value(array, itemplate, child, stat=stat)
       call require_toml_success(stat, 'mesh.templates entry')
       if (.not. associated(child)) error stop 'mesh.templates entries must be tables.'
       cfg%templates(itemplate)%enabled = .true.
-      call apply_template_toml_table(cfg%templates(itemplate), child)
+      call apply_template_toml_table(cfg%templates(itemplate), child, authoring%templates(itemplate))
     end do
     cfg%n_templates = int(n, i32)
   end subroutine read_template_array
 
   !> `[[mesh.templates]]` の1要素をテンプレート設定へ適用する。
-  subroutine apply_template_toml_table(spec, table)
+  subroutine apply_template_toml_table(spec, table, auth)
     type(template_spec), intent(inout) :: spec
     type(toml_table), intent(inout) :: table
+    type(template_authoring_spec), intent(inout) :: auth
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
@@ -988,12 +1166,16 @@ contains
         call get_toml_real(table, keys(ikey), spec%epsilon_r, 'mesh.templates.epsilon_r')
       case ('center')
         call get_toml_real3(table, keys(ikey), spec%center, 'mesh.templates.center')
+        auth%has_center = .true.
       case ('size_x')
         call get_toml_real(table, keys(ikey), spec%size_x, 'mesh.templates.size_x')
+        auth%has_size_x = .true.
       case ('size_y')
         call get_toml_real(table, keys(ikey), spec%size_y, 'mesh.templates.size_y')
+        auth%has_size_y = .true.
       case ('size')
         call get_toml_real3(table, keys(ikey), spec%size, 'mesh.templates.size')
+        auth%has_size = .true.
       case ('nx')
         call get_toml_int(table, keys(ikey), spec%nx, 'mesh.templates.nx')
       case ('ny')
@@ -1002,10 +1184,13 @@ contains
         call get_toml_int(table, keys(ikey), spec%nz, 'mesh.templates.nz')
       case ('radius')
         call get_toml_real(table, keys(ikey), spec%radius, 'mesh.templates.radius')
+        auth%has_radius = .true.
       case ('inner_radius')
         call get_toml_real(table, keys(ikey), spec%inner_radius, 'mesh.templates.inner_radius')
+        auth%has_inner_radius = .true.
       case ('height')
         call get_toml_real(table, keys(ikey), spec%height, 'mesh.templates.height')
+        auth%has_height = .true.
       case ('n_theta')
         call get_toml_int(table, keys(ikey), spec%n_theta, 'mesh.templates.n_theta')
       case ('n_r')
@@ -1024,6 +1209,35 @@ contains
         call get_toml_int(table, keys(ikey), spec%n_lon, 'mesh.templates.n_lon')
       case ('n_lat')
         call get_toml_int(table, keys(ikey), spec%n_lat, 'mesh.templates.n_lat')
+      case ('group')
+        call get_toml_string(table, keys(ikey), auth%group, 'mesh.templates.group')
+        auth%has_group = .true.
+      case ('center_local')
+        call get_toml_real3(table, keys(ikey), auth%center_local, 'mesh.templates.center_local')
+        auth%has_center_local = .true.
+      case ('placement_mode')
+        call get_toml_string(table, keys(ikey), auth%placement_mode, 'mesh.templates.placement_mode')
+        auth%placement_mode = lower_ascii(trim(auth%placement_mode))
+        auth%has_placement_mode = .true.
+      case ('anchor')
+        call get_toml_string(table, keys(ikey), auth%anchor, 'mesh.templates.anchor')
+        auth%anchor = lower_ascii(trim(auth%anchor))
+        auth%has_anchor = .true.
+      case ('offset')
+        call get_toml_real3(table, keys(ikey), auth%offset, 'mesh.templates.offset')
+        auth%has_offset = .true.
+      case ('offset_frac')
+        call get_toml_real3(table, keys(ikey), auth%offset_frac, 'mesh.templates.offset_frac')
+        auth%has_offset_frac = .true.
+      case ('size_mode')
+        call get_toml_string(table, keys(ikey), auth%size_mode, 'mesh.templates.size_mode')
+        auth%size_mode = lower_ascii(trim(auth%size_mode))
+        auth%has_size_mode = .true.
+      case ('size_frac')
+        call get_toml_real_scalar_or_array3( &
+          table, keys(ikey), auth%size_frac, auth%size_frac_len, 'mesh.templates.size_frac' &
+          )
+        auth%has_size_frac = .true.
       case default
         error stop 'Unknown key in [[mesh.templates]]: '//trim(keys(ikey)%key)
       end select

@@ -51,11 +51,11 @@ export default defineConfig({
           label: 'ユーザーガイド',
           translations: { en: 'User Guide' },
           items: [
-            { slug: 'configuration-recipes' },
             { slug: 'parameters' },
             { slug: 'configuration' },
-            { slug: 'postprocess-tutorial' },
             { slug: 'python-postprocess-api' },
+            { slug: 'postprocess-tutorial' },
+            { slug: 'configuration-recipes' },
           ],
         },
         {

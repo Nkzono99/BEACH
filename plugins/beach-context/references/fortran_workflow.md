@@ -113,7 +113,7 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 [beachx config / 高水準記法ガイド](config_workflow.html) を参照してください。
 
 1. `beach.toml` を用意する
-2. 必要なら `beachx config render` で高水準記法を最終キーへ展開する
+2. 必要なら Fortran parser が高水準記法を読み込み時に正規化する
 3. `beach` でシミュレーション実行
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化
@@ -127,7 +127,6 @@ mkdir run_periodic2
 cd run_periodic2
 beachx config init
 beachx lint beach.toml
-beachx config render
 beach beach.toml
 ```
 

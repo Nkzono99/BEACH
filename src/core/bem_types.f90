@@ -48,6 +48,7 @@ module bem_types
     real(dp) :: b0(3) = 0.0d0
     character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0
+    character(len=32) :: open_boundary_model = 'escape'
     integer(i32) :: injection_face_phi_grid_n = 3_i32
     integer(i32) :: raycast_max_bounce = 16_i32
     character(len=32) :: sheath_injection_model = 'none'

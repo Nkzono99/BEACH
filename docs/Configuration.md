@@ -6,9 +6,8 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。
 
-- Fortran 実行系 `beach` が読むのは、最終キーに展開済みの TOML です。
+- Fortran 実行系 `beach` は `beach.toml` を直接読み、高水準記法を読み込み時に解決します。
 - `beachx config init` は小さく実行可能な `beach.toml` を作ります。
-- `beachx config render` は `beach.toml` 内の高水準記法を最終キーへ展開します。
 - 最終キーの仕様は [Fortran パラメータファイル仕様](Parameters.html) を参照してください。
 
 ## 1. 基本フロー
@@ -20,17 +19,10 @@ cd run_periodic2
 beachx config init
 $EDITOR beach.toml
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 ```
 
-`render` は、出力先を指定しない場合に入力ファイルを上書きします。入門・共有用の手順では `--output` で展開済みファイルを分けることを推奨します。
-内容を確認したい場合は `--stdout` を使います。
-
-```bash
-beachx config render --stdout
-beachx config render beach.toml --output beach.rendered.toml
-```
+高水準記法を使っても別ファイルへ展開する必要はありません。Fortran parser が `box_origin` / `box_size`、`inject_region_mode`、`mesh.groups` などを実行時キーへ正規化してから検証します。
 
 ## 2. コマンド
 
@@ -65,18 +57,9 @@ beachx config validate
 beachx config validate run.toml
 ```
 
-### 2.4 `render`
+### 2.4 `diff`
 
-高水準記法を Fortran 実行系が読む最終キーに展開します。
-
-```bash
-beachx config render
-beachx config render run.toml --output run.rendered.toml
-```
-
-### 2.5 `diff`
-
-2 つの設定を意味的に比較します。既定では高水準記法を展開してから比較します。
+2 つの設定を意味的に比較します。既定では高水準記法を正規化してから比較します。
 
 ```bash
 beachx config diff left.toml right.toml
@@ -85,7 +68,7 @@ beachx config diff --raw left.toml right.toml
 
 ## 3. 高水準記法
 
-高水準記法は、研究者が意図しやすい座標指定を `beach.toml` に直接書くための補助です。`beachx config render` 後は通常の数値キーに変換されます。
+高水準記法は、研究者が意図しやすい座標指定を `beach.toml` に直接書くための補助です。Fortran parser が読み込み時に通常の数値キーへ正規化します。
 
 ### 3.1 計算箱
 
@@ -98,7 +81,7 @@ box_origin = [0.0, 0.0, -1.0]
 box_size = [1.0, 1.0, 2.0]
 ```
 
-render 後:
+読み込み時の解決結果:
 
 ```toml
 [sim]
@@ -120,7 +103,7 @@ uv_low = [0.25, 0.25]
 uv_high = [0.75, 0.75]
 ```
 
-render 後は `pos_low` / `pos_high` に展開されます。
+読み込み時に `pos_low` / `pos_high` に解決されます。
 
 ### 3.3 メッシュ配置
 
@@ -138,7 +121,7 @@ nx = 20
 ny = 20
 ```
 
-render 後は `size_x` / `size_y` / `center` などへ展開されます。
+読み込み時に `size_x` / `size_y` / `center` などへ解決されます。
 
 ### 3.4 グループ配置
 
@@ -158,7 +141,7 @@ radius = 0.2
 center = [0.0, 0.0, 0.0]
 ```
 
-render 後、`mesh.groups`、`group`、`scale_from` などの高水準キーは消え、template ごとの実座標と実寸に変換されます。
+読み込み時に、`mesh.groups`、`group`、`scale_from` などから template ごとの実座標と実寸が決まります。
 
 ## 4. スキーマ
 
@@ -183,15 +166,10 @@ BEACH の Fortran パーサは「最初のセクションより前の `key = val
 実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書きます。
 最初のセクションより前に通常キーを置いたり、未知の top-level セクションを追加したりすると validation または Fortran 読み込みで失敗します。
 
-### 5.2 render 後に高水準キーが消える
+### 5.2 高水準キーと実行時キーを混ぜる
 
-正常です。`box_origin`、`box_size`、`inject_region_mode`、`mesh.groups` などは、`beach` が直接読む最終キーではありません。
+`box_origin` / `box_size` と `box_min` / `box_max` のように、同じ値を表す高水準キーと実行時キーを同時に書くと検証で失敗します。どちらか一方に揃えてください。
 
-### 5.3 既存ファイルを上書きしたくない
+### 5.3 実行前に確認したい
 
-`render` に `--stdout` または `--output` を指定してください。
-
-```bash
-beachx config render --stdout
-beachx config render beach.toml --output beach.rendered.toml
-```
+`beachx lint beach.toml` で TOML parse、schema、高水準記法の整合性、既知の BEACH 制約をまとめて確認できます。

@@ -60,8 +60,7 @@ cd run_periodic2
 
 beachx config init
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 ```
 
 結果は既定で `outputs/latest/` に出力されます。
@@ -79,15 +78,8 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 
 ## 設定ファイル
 
-実行時に `beach` が読むのは `beach.toml` です。まずは `beachx config init` が生成したファイルを編集し、実行前に `beachx lint beach.toml` で検査してください。
-
-`beachx config render` は、`box_origin` / `box_size`、`inject_region_mode = "face_fraction"`、`placement_mode`、`mesh.groups` などの高水準記法を、Fortran 実行系が読む最終キーへ展開します。
-出力先を指定しない場合は入力ファイルを上書きするため、内容確認には `--stdout` か `--output` を使ってください。
-
-```bash
-beachx config render --stdout
-beachx config render beach.toml --output beach.rendered.toml
-```
+実行時に `beach` が読むのは `beach.toml` です。`box_origin` / `box_size`、`inject_region_mode = "face_fraction"`、`placement_mode`、`mesh.groups` などの高水準記法も Fortran 側で直接解決されます。
+まずは `beachx config init` が生成したファイルを編集し、実行前に `beachx lint beach.toml` で検査してください。
 
 詳細:
 
@@ -99,10 +91,9 @@ beachx config render beach.toml --output beach.rendered.toml
 
 | コマンド | 用途 |
 | --- | --- |
-| `beach beach.rendered.toml` | Fortran シミュレーションを実行 |
+| `beach beach.toml` | Fortran シミュレーションを実行 |
 | `beachx config init [path]` | 小さな実行可能設定を作成 |
 | `beachx lint beach.toml` | TOML / JSON Schema / BEACH 制約を検査 |
-| `beachx config render beach.toml --output beach.rendered.toml` | 高水準記法を実行用 TOML へ展開 |
 | `beachx inspect outputs/latest` | 出力ディレクトリの概要表示 |
 | `beachx animate outputs/latest` | 電荷・電位履歴のアニメーション生成 |
 | `beachx workload beach.toml --threads 8` | 実行前のワークロード見積もり |

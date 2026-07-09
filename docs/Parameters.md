@@ -9,8 +9,8 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 
 初めて設定を組む場合は、先に [設定レシピ](ConfigurationRecipes.html) を読むと全体像を掴みやすいです。
 
-`beachx config render` で解決される高水準記法は [Configuration](Configuration.html) にまとめています。
-本書では、render 後にも残る実行時キーを中心に説明します。
+Fortran parser が解決する高水準記法は [Configuration](Configuration.html) にまとめています。
+本書では、正規化後に実行時設定として使われるキーを中心に説明します。
 
 | 関連ドキュメント | 内容 |
 |---|---|
@@ -345,6 +345,7 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 |---|---|---:|---|
 | `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
+| `open_boundary_model` | string | `"escape"` | `escape` / `potential_barrier` |
 | `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の `N x N` 評価格子 |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大反射回数 |
 | `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
@@ -370,6 +371,12 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 
 粒子境界は `open`, `reflect`, `periodic` を指定します。
 `open` は `outflow`, `escape` も同義語として受理されます。
+
+`open_boundary_model="potential_barrier"` では、`open` 面を越えた粒子について、
+境界通過点の BEM 電位 `phi_boundary` と `phi_infty` から電位障壁
+`q_particle * (phi_infty - phi_boundary)` を評価します。障壁が正で、開境界法線方向の運動エネルギー
+`0.5 * m_particle * v_normal^2` より大きい場合は法線速度を反転して反射し、それ以外は脱出として扱います。
+一様外部電場 `e0` は無限遠基準の電位を定義しないため、この障壁評価には含めません。
 
 `periodic2` の mesh は、runtime で collision 用 canonical unwrapped 表現へ平行移動してから ray-triangle 判定します。
 raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangle を頂点ごとに mod 折り返すことはしません。
@@ -799,8 +806,8 @@ MPI 実行時:
 
 ## 高水準記法との関係
 
-次のキーは schema には含まれますが、`beachx config render` で実行時キーへ解決される高水準記法です。
-Fortran 実行系へ渡す最終 `beach.toml` では、右列のキーに変換されている想定です。
+次のキーは schema には含まれますが、Fortran parser が実行時キーへ解決する高水準記法です。
+Fortran parser は読み込み時に右列のキーとして扱います。
 
 | 高水準キー | 解決先・用途 |
 |---|---|

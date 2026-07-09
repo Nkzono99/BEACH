@@ -26,8 +26,8 @@ pip install beach-bem
 # 2. 設定ファイルを作成
 beachx config init
 
-# 3. 高水準記法を最終キーへレンダリング
-beachx config render
+# 3. 設定を検査
+beachx lint beach.toml
 
 # 4. シミュレーション実行
 beach beach.toml
@@ -102,7 +102,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 
 1. **beach.toml**: 通常の編集対象で、Fortran 実行ファイルが直接読む設定
 2. **beachx lint**: TOML parse、JSON Schema、高水準記法、既知制約を検証
-3. **beachx config render**: 高水準記法を `box_min` / `box_max` / `center` などの最終キーへ展開
+3. **Fortran parser**: 高水準記法を `box_min` / `box_max` / `center` などの最終キーへ展開
 
 ### [sim] セクション — シミュレーション基本
 
@@ -301,7 +301,6 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 ```bash
 beachx lint [beach.toml]                           # schema と意味制約をまとめて検査
 beachx config init [beach.toml]                    # beach.toml を新規作成
-beachx config render [beach.toml]                  # 高水準記法を最終キーへレンダリング
 beachx config validate [beach.toml]                # 高水準記法と意味制約の検証
 beachx config diff left.toml right.toml            # 設定比較
 ```
@@ -419,7 +418,7 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 
 ## `beachx config` の高水準記法
 
-`beachx config render` は `beach.toml` 内の補助キーを、Fortran 実行系が読む最終キーへ展開する。
+`Fortran parser` は `beach.toml` 内の補助キーを、Fortran 実行系が読む最終キーへ展開する。
 
 - `sim.box_origin` + `sim.box_size` -> `sim.box_min` / `sim.box_max`
 - `inject_region_mode = "face_fraction"` + `uv_low` / `uv_high` -> `pos_low` / `pos_high`
@@ -532,7 +531,7 @@ BEACH/
 │   └── runtime/              #   出力・リスタート
 ├── beach/                    # Python パッケージ
 │   ├── cli/                  #   CLI サブコマンド
-│   ├── config/               #   設定レンダリング・検証
+│   ├── config/               #   設定正規化・検証
 │   └── fortran_results/      #   後処理・可視化
 ├── schemas/                  # JSON Schema (バリデーション用)
 │   └── beach.schema.json     #   beach.toml スキーマ

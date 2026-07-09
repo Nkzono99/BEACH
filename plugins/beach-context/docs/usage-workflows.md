@@ -7,13 +7,12 @@ mkdir run_periodic2
 cd run_periodic2
 beachx config init
 beachx lint beach.toml
-beachx config render
 beach beach.toml
 ```
 
-`beach.toml` は日常編集用であり、Fortran runtime が直接読む設定ファイルでもあります。高水準記法を使った場合は `beachx config render` で最終キーへ展開します。
+`beach.toml` は日常編集用であり、Fortran runtime が直接読む設定ファイルでもあります。高水準記法を使った場合は Fortran parser が読み込み時に正規化します。
 
-## rendered config の直接実行
+## runtime config の直接実行
 
 ```bash
 beach examples/beach.toml

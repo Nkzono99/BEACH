@@ -12,13 +12,11 @@ For the complete key reference, see [Input Parameters Reference](Parameters.en.h
 ```bash
 beachx config init
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 beachx inspect outputs/latest
 ```
 
-Treat `beach.toml` as the editable source config and `beach.rendered.toml` as the expanded runtime config passed to the Fortran executable.
-This makes diffs and sharing less error-prone.
+Pass `beach.toml` directly to the Fortran executable. The Fortran parser normalizes high-level notation while loading the file.
 
 ## Recipes
 

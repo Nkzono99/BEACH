@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `sim.open_boundary_model="potential_barrier"` for open-boundary return/escape decisions based on normal kinetic energy and the local potential barrier.
+
+### Removed
+- Removed the user-facing output-generation subcommand from `beachx config`; high-level BEACH authoring keys are now accepted directly by the Fortran config loader.
+
 ## [1.4.0] - 2026-07-07
 
 ### Added
@@ -24,15 +30,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [1.3.0] - 2026-06-22
 
 ### Added
-- `beachx lint <beach.toml>` for TOML parsing, packaged JSON Schema validation, high-level config rendering, and semantic BEACH config checks
+- `beachx lint <beach.toml>` for TOML parsing, packaged JSON Schema validation, high-level config normalization, and semantic BEACH config checks
 
 ### Removed
 - **BREAKING**: Removed the preset/case config layer, including `beachx preset`, `case.toml`, preset package data, and case/preset schemas
 
 ### Changed
 - Fortran config loading now uses `toml-f` for standard TOML syntax, including multiline arrays, dotted keys, inline tables, and literal `#` characters in strings
-- Python config rendering now uses `tomli-w` instead of maintaining duplicate in-project TOML writer code
-- `beachx config` now creates, validates, renders, and diffs direct `beach.toml` files
+- Python config normalization now uses `tomli-w` instead of maintaining duplicate in-project TOML writer code
+- `beachx config` now creates, validates, normalizes, and diffs direct `beach.toml` files
 - BEACH context plugin references now document the direct `beach.toml` workflow
 
 ### Fixed
@@ -78,7 +84,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - `beachx` unified CLI with subcommands: `inspect`, `animate`, `workload`, `slices`, `coulomb`, `mobility`, `profile`, `config`, `preset`, `model`
-- Preset-based config workflow (`beachx config render`, `beachx config validate`, `beachx preset list/show/save/edit`)
+- Preset-based config workflow with validation and preset management commands
 - JSON Schema for `beach.toml` config validation
 - OBJ mesh transform support (scale, rotation, offset) with CRLF line ending handling
 - `periodic2` support for Coulomb force calculation and 3D electric field line plotting
@@ -110,7 +116,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [0.8.0] - 2026-03-08
 
 ### Added
-- Preset-based `beachx config` workflow with high-level spatial config rendering
+- Preset-based `beachx config` workflow with high-level spatial config normalization
 - JSON Schema for case and preset TOML files
 - `beachx preset save` and `beachx preset edit` commands
 - High-level config validation

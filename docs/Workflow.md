@@ -120,12 +120,12 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 
 ## 3. 実行フロー
 
-通常は、`beach.toml` を編集してから、実行用の展開済み TOML を生成して `beach` に渡します。高水準記法の詳細は
+通常は、`beach.toml` を編集し、そのまま `beach` に渡します。高水準記法の詳細は
 [beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
 
 1. `beach.toml` を用意する
-2. `beachx config render beach.toml --output beach.rendered.toml` で高水準記法を最終キーへ展開する
-3. `beach beach.rendered.toml` でシミュレーション実行
+2. `beachx lint beach.toml` で設定を確認する
+3. `beach beach.toml` でシミュレーション実行
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化
 
@@ -138,14 +138,13 @@ mkdir run_periodic2
 cd run_periodic2
 beachx config init
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 ```
 
 ### 3.2 `beach.toml` を直接使う場合
 
 1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](Parameters.html)）
-2. 高水準記法を使っていないことを確認する
+2. 必要なら高水準記法を使う（Fortran parser が読み込み時に解決）
 3. `beach beach.toml` でシミュレーション実行
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化
@@ -155,16 +154,15 @@ beach beach.rendered.toml
 ### 4.1 推奨: `beach`
 
 ```bash
-beach beach.rendered.toml
+beach beach.toml
 ```
 
-高水準記法を使う場合は、先に `beachx config render beach.toml --output beach.rendered.toml` を実行します。
 引数なし実行では、カレントディレクトリの `beach.toml` を自動読込します。
 
 ### 4.2 スレッド数指定
 
 ```bash
-OMP_NUM_THREADS=8 beach beach.rendered.toml
+OMP_NUM_THREADS=8 beach beach.toml
 ```
 
 ### 4.3 MPI + OpenMP

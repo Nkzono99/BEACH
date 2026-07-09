@@ -7,13 +7,12 @@ mkdir run_periodic2
 cd run_periodic2
 beachx config init
 beachx lint beach.toml
-beachx config render
 beach beach.toml
 ```
 
-`beach.toml` is both the everyday editing entry point and the file read by the Fortran runtime. When high-level notation is used, `beachx config render` expands it to final runtime keys.
+`beach.toml` is both the everyday editing entry point and the file read by the Fortran runtime. When high-level notation is used, the Fortran parser normalizes it while loading.
 
-## Direct Rendered-Config Run
+## Direct beach.toml Run
 
 ```bash
 beach examples/beach.toml

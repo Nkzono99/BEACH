@@ -3,7 +3,7 @@ module bem_simulator
 !$ use omp_lib
   use, intrinsic :: iso_fortran_env, only: output_unit
   use bem_kinds, only: dp, i32, i64
-  use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state, sim_config
+  use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state, sim_config, bc_open
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_field_solver, only: field_solver_type
   use bem_pusher, only: boris_push

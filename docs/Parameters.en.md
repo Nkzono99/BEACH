@@ -10,9 +10,9 @@ Fortran runtime. Unless otherwise noted, units are SI units.
 For first-time configuration work, start with
 [Configuration Recipes](ConfigurationRecipes.en.html).
 
-High-level notation resolved by `beachx config render` is summarized in
+High-level notation normalized by the Fortran parser is summarized in
 [Configuration](Configuration.en.html). This document focuses on runtime keys
-that remain after rendering.
+used after normalization.
 
 | Related document | Contents |
 |---|---|
@@ -360,6 +360,7 @@ The uniform external electric field can be specified directly as
 |---|---|---:|---|
 | `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | Reference potential at infinity [V] |
+| `open_boundary_model` | string | `"escape"` | `escape` / `potential_barrier` |
 | `injection_face_phi_grid_n` | int | `3` | `N x N` evaluation grid for injection-face average potential |
 | `raycast_max_bounce` | int | `16` | Maximum number of reflections for `photo_raycast` |
 | `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
@@ -387,6 +388,15 @@ for details.
 
 Particle boundaries are `open`, `reflect`, or `periodic`. `open` also accepts
 `outflow` and `escape` as synonyms.
+
+With `open_boundary_model="potential_barrier"`, particles crossing an `open`
+face are tested against a local BEM potential barrier. The barrier is
+`q_particle * (phi_infty - phi_boundary)`, where `phi_boundary` is evaluated at
+the boundary crossing point. If the barrier is positive and exceeds the normal
+kinetic energy `0.5 * m_particle * v_normal^2`, the normal velocity is reflected;
+otherwise the particle escapes. The uniform external field `e0` is not included
+in this barrier because it does not define a finite potential relative to
+infinity.
 
 For `periodic2`, the mesh is translated at runtime to a canonical unwrapped
 representation for collision before ray-triangle tests. Raw vertices may lie
@@ -847,9 +857,8 @@ During MPI execution:
 ## Relationship to High-Level Notation
 
 The following keys are included in the schema, but they are high-level notation
-resolved to runtime keys by `beachx config render`. In the final `beach.toml`
-passed to the Fortran runtime, they are expected to have been converted to the
-keys in the right column.
+normalized to runtime keys by the Fortran parser. The parser treats them as the
+keys in the right column while loading the file.
 
 | High-level key | Resolution / use |
 |---|---|

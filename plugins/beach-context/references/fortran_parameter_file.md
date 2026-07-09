@@ -6,12 +6,12 @@ title: Fortran パラメータファイル仕様（beach.toml）
 「以前の書き方との互換」は最後に短く載せ、本文は初見向けに現在の推奨仕様だけを先に説明します。
 
 `beach` 自体が読むのは最終的な `beach.toml` です。
-Python 側の `beachx config render` を使う場合は、同じ `beach.toml` 内の高水準記法を通常の数値キーへ解決できます。
+Python 側の `Fortran parser` を使う場合は、同じ `beach.toml` 内の高水準記法を通常の数値キーへ解決できます。
 高水準記法には `box_origin` / `box_size`、`face_fraction`、`mesh.groups.*` などがあります。
 
 `beachx config` と高水準記法の全体像は
 [beachx config / 高水準記法ガイド](config_workflow.html) を参照してください。
-この文書では、render 後の **最終 `beach.toml` に残るキー** を中心に説明します。
+この文書では、正規化後に実行時設定として使われるキー を中心に説明します。
 
 ## 1. 読み込みルール
 
@@ -26,7 +26,7 @@ Python 側の `beachx config render` を使う場合は、同じ `beach.toml` �
 - JSON Schema は [`schemas/beach.schema.json`](https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json) に同梱しています。
 - VS Code の Even Better TOML / Taplo では、各 `beach.toml` の先頭へ `#:schema ...` コメントを置くと補完・型検証・必須項目チェックが有効になります。
 - CLI では `beachx lint beach.toml` で TOML parse、JSON Schema、高水準記法、既知制約をまとめて確認できます。
-- `beachx config init` / `beachx config render` が生成するファイルにも、対応する `#:schema ...` コメントを自動で付与します。
+- `beachx config init` / `Fortran parser` が生成するファイルにも、対応する `#:schema ...` コメントを自動で付与します。
 - BEACH の Fortran パーサは「最初のセクションより前の `key = value`」を受け付けないため、`"$schema" = "..."` は使わずコメント directive を使ってください。
 
 ローカル相対パスの例:

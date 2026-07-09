@@ -8,7 +8,7 @@ program test_app_config_parser
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
-  type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg
+  type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg, high_level_cfg
   type(app_config) :: multiline_cfg, toml_syntax_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
   character(len=*), parameter :: photo_cfg_path = 'test_app_config_parser_photo_tmp.toml'
@@ -16,6 +16,7 @@ program test_app_config_parser
   character(len=*), parameter :: periodic_cfg_path = 'test_app_config_parser_periodic_tmp.toml'
   character(len=*), parameter :: periodic_oracle_cfg_path = 'test_app_config_parser_periodic_oracle_tmp.toml'
   character(len=*), parameter :: sheath_cfg_path = 'test_app_config_parser_sheath_tmp.toml'
+  character(len=*), parameter :: high_level_cfg_path = 'test_app_config_parser_high_level_tmp.toml'
   character(len=*), parameter :: multiline_cfg_path = 'test_app_config_parser_multiline_tmp.toml'
   character(len=*), parameter :: toml_syntax_cfg_path = 'test_app_config_parser_toml_syntax_tmp.toml'
 
@@ -25,10 +26,11 @@ program test_app_config_parser
   call write_periodic_config_fixture(periodic_cfg_path)
   call write_periodic_oracle_config_fixture(periodic_oracle_cfg_path)
   call write_sheath_config_fixture(sheath_cfg_path)
+  call write_high_level_config_fixture(high_level_cfg_path)
   call write_multiline_config_fixture(multiline_cfg_path)
   call write_toml_syntax_config_fixture(toml_syntax_cfg_path)
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -80,6 +82,7 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%bc_low(3), bc_open, 'bc_z_low mismatch')
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'infinity_barrier', 'reservoir_potential_model mismatch')
   call assert_close_dp(cfg%sim%phi_infty, -2.0d0, 1.0d-12, 'phi_infty mismatch')
+  call assert_true(trim(cfg%sim%open_boundary_model) == 'potential_barrier', 'open_boundary_model mismatch')
   call assert_equal_i32(cfg%sim%injection_face_phi_grid_n, 5_i32, 'injection_face_phi_grid_n mismatch')
   call assert_equal_i32(cfg%history_stride, 2_i32, 'history_stride mismatch')
   call assert_true(cfg%write_mesh_potential, 'write_mesh_potential mismatch')
@@ -186,6 +189,32 @@ program test_app_config_parser
   call assert_true(trim(sheath_cfg%sim%sheath_ion_drift_mode) == 'normal', 'sheath ion drift mode mismatch')
   call test_end()
 
+  call test_begin('high_level_config_normalization')
+  call default_app_config(high_level_cfg)
+  call load_app_config(high_level_cfg_path, high_level_cfg)
+  call assert_allclose_1d(high_level_cfg%sim%box_min, [1.0d0, 2.0d0, 3.0d0], 1.0d-12, 'high-level box_min mismatch')
+  call assert_allclose_1d(high_level_cfg%sim%box_max, [3.0d0, 6.0d0, 9.0d0], 1.0d-12, 'high-level box_max mismatch')
+  call assert_allclose_1d( &
+    high_level_cfg%particle_species(1)%pos_low, [1.5d0, 4.0d0, 9.0d0], 1.0d-12, &
+    'face_fraction pos_low mismatch' &
+    )
+  call assert_allclose_1d( &
+    high_level_cfg%particle_species(1)%pos_high, [2.5d0, 6.0d0, 9.0d0], 1.0d-12, &
+    'face_fraction pos_high mismatch' &
+    )
+  call assert_allclose_1d( &
+    high_level_cfg%templates(1)%center, [3.2d0, 6.0d0, 9.0d0], 1.0d-12, &
+    'grouped template center mismatch' &
+    )
+  call assert_close_dp(high_level_cfg%templates(1)%size_x, 2.0d0, 1.0d-12, 'grouped template size_x mismatch')
+  call assert_close_dp(high_level_cfg%templates(1)%size_y, 4.0d0, 1.0d-12, 'grouped template size_y mismatch')
+  call assert_allclose_1d( &
+    high_level_cfg%templates(2)%center, [2.2d0, 4.0d0, 3.1d0], 1.0d-12, &
+    'box_anchor template center mismatch' &
+    )
+  call assert_close_dp(high_level_cfg%templates(2)%radius, 0.5d0, 1.0d-12, 'box_fraction sphere radius mismatch')
+  call test_end()
+
   call test_begin('multiline_array_config')
   call default_app_config(multiline_cfg)
   call load_app_config(multiline_cfg_path, multiline_cfg)
@@ -231,6 +260,7 @@ program test_app_config_parser
   call delete_file_if_exists(periodic_cfg_path)
   call delete_file_if_exists(periodic_oracle_cfg_path)
   call delete_file_if_exists(sheath_cfg_path)
+  call delete_file_if_exists(high_level_cfg_path)
   call delete_file_if_exists(multiline_cfg_path)
   call delete_file_if_exists(toml_syntax_cfg_path)
 
@@ -252,6 +282,7 @@ contains
     write (u, '(a)') 'batch_count = 3 # comment should be ignored'
     write (u, '(a)') 'reservoir_potential_model = "infinity_barrier"'
     write (u, '(a)') 'phi_infty = -2.0'
+    write (u, '(a)') 'open_boundary_model = "potential_barrier"'
     write (u, '(a)') 'injection_face_phi_grid_n = 5'
     write (u, '(a)') 'field_solver = "fmm"'
     write (u, '(a)') 'field_normalization = "length"'
@@ -484,6 +515,66 @@ contains
 
     close (u)
   end subroutine write_sheath_config_fixture
+
+  !> 高水準 authoring キーを Fortran 側で正規化することを確認する設定を書き出す。
+  subroutine write_high_level_config_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open high-level config fixture'
+
+    write (u, '(a)') '[sim]'
+    write (u, '(a)') 'batch_count = 1'
+    write (u, '(a)') 'batch_duration = 1.0'
+    write (u, '(a)') 'use_box = true'
+    write (u, '(a)') 'box_origin = [1.0, 2.0, 3.0]'
+    write (u, '(a)') 'box_size = [2.0, 4.0, 6.0]'
+    write (u, '(a)') ''
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'source_mode = "reservoir_face"'
+    write (u, '(a)') 'number_density_m3 = 1000.0'
+    write (u, '(a)') 'temperature_k = 0.0'
+    write (u, '(a)') 'q_particle = -1.0'
+    write (u, '(a)') 'm_particle = 1.0'
+    write (u, '(a)') 'w_particle = 100.0'
+    write (u, '(a)') 'inject_face = "z_high"'
+    write (u, '(a)') 'inject_region_mode = "face_fraction"'
+    write (u, '(a)') 'uv_low = [0.25, 0.5]'
+    write (u, '(a)') 'uv_high = [0.75, 1.0]'
+    write (u, '(a)') 'drift_velocity = [0.0, 0.0, -1.0]'
+    write (u, '(a)') ''
+    write (u, '(a)') '[mesh]'
+    write (u, '(a)') 'mode = "template"'
+    write (u, '(a)') ''
+    write (u, '(a)') '[mesh.groups.unit]'
+    write (u, '(a)') 'placement_mode = "box_anchor"'
+    write (u, '(a)') 'anchor = "box_center"'
+    write (u, '(a)') 'offset_frac = [0.1, 0.0, 0.0]'
+    write (u, '(a)') 'scale_from = "box_min_xy"'
+    write (u, '(a)') 'scale_factor = 0.5'
+    write (u, '(a)') ''
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "plane"'
+    write (u, '(a)') 'group = "unit"'
+    write (u, '(a)') 'center_local = [1.0, 2.0, 3.0]'
+    write (u, '(a)') 'size_x = 2.0'
+    write (u, '(a)') 'size_y = 4.0'
+    write (u, '(a)') 'nx = 4'
+    write (u, '(a)') 'ny = 5'
+    write (u, '(a)') ''
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "sphere"'
+    write (u, '(a)') 'placement_mode = "box_anchor"'
+    write (u, '(a)') 'anchor = "z_low_face_center"'
+    write (u, '(a)') 'offset = [0.2, 0.0, 0.1]'
+    write (u, '(a)') 'size_mode = "box_fraction"'
+    write (u, '(a)') 'size_frac = 0.25'
+    write (u, '(a)') 'n_lon = 8'
+    write (u, '(a)') 'n_lat = 6'
+
+    close (u)
+  end subroutine write_high_level_config_fixture
 
   !> 標準 TOML の複数行配列を含む設定を書き出す。
   subroutine write_multiline_config_fixture(path)

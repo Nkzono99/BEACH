@@ -18,7 +18,7 @@ Prefer bundled references because ordinary users may only have a pip install plu
 - `../../references/README.md`: quick start, commands, Python examples.
 - `../../references/SPEC.md`: source-of-truth behavior, batch loop, physical models, outputs, resume.
 - `../../references/agent-user-guide.md`: user-oriented workflow.
-- `../../references/config_workflow.md`: `beachx config`, high-level notation, render/validate.
+- `../../references/config_workflow.md`: `beachx config`, high-level notation, validate.
 - `../../references/fortran_parameter_file.md`: final `beach.toml` keys.
 - `../../references/python_postprocess_api.md`: `Beach` facade and analysis functions.
 - `../../references/fortran_workflow.md`: developer/build workflow.
@@ -43,7 +43,7 @@ Choose the mode that matches the user's goal:
 2. Give a short map before details: what to read first, what each document answers, and what to skip for now.
 3. Explain one layer at a time: usage, config, algorithms, outputs, analysis.
 4. Tie concepts back to concrete files, commands, or TOML keys.
-5. Offer a small next exercise, such as rendering a case, running one batch, or plotting charge history.
+5. Offer a small next exercise, such as running a case, running one batch, or plotting charge history.
 
 ## Output
 

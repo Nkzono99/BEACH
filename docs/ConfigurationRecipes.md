@@ -12,12 +12,11 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 ```bash
 beachx config init
 beachx lint beach.toml
-beachx config render beach.toml --output beach.rendered.toml
-beach beach.rendered.toml
+beach beach.toml
 beachx inspect outputs/latest
 ```
 
-`beach.toml` は編集元、`beach.rendered.toml` は Fortran 実行系に渡す展開済み設定として扱うと、差分確認や共有が楽になります。
+`beach.toml` はそのまま Fortran 実行系に渡せます。高水準記法も Fortran parser が読み込み時に正規化します。
 
 ## レシピ一覧
 

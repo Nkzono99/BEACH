@@ -1,4 +1,4 @@
-"""BEACH config rendering and validation."""
+"""BEACH config loading and validation."""
 
 from __future__ import annotations
 
@@ -10,11 +10,10 @@ from typing import Any
 
 from ._toml import load_toml_file, render_toml_document
 
-RENDERED_FILENAME = "beach.toml"
 CONFIG_FILENAME = "beach.toml"
 SCHEMA_BASE_URL = "https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas"
 BEACH_SCHEMA_URL = f"{SCHEMA_BASE_URL}/beach.schema.json"
-TOP_LEVEL_RENDER_ORDER = ("sim", "particles", "mesh", "output")
+TOP_LEVEL_CONFIG_ORDER = ("sim", "particles", "mesh", "output")
 SCHEMA_DIRECTIVE = (
     "#:schema "
     f"{BEACH_SCHEMA_URL}"
@@ -30,11 +29,11 @@ class ConfigError(ValueError):
     """Base error for BEACH config handling."""
 
 
-class RenderValidationError(ConfigError):
-    """Raised when the rendered ``beach.toml`` violates known constraints."""
+class ConfigValidationError(ConfigError):
+    """Raised when ``beach.toml`` violates known BEACH constraints."""
 
 
-def default_rendered_config() -> dict[str, Any]:
+def default_config() -> dict[str, Any]:
     """Return a small runnable ``beach.toml`` document."""
 
     return {
@@ -54,6 +53,7 @@ def default_rendered_config() -> dict[str, Any]:
             "bc_z_low": "open",
             "bc_z_high": "open",
             "rng_seed": 12345,
+            "open_boundary_model": "escape",
             "field_solver": "fmm",
             "field_bc_mode": "periodic2",
             "field_periodic_far_correction": "none",
@@ -110,20 +110,14 @@ def default_rendered_config() -> dict[str, Any]:
 
 
 def load_config_file(path: str | Path) -> dict[str, Any]:
-    """Load, resolve, and validate one direct ``beach.toml`` file."""
+    """Load, normalize, and validate one direct ``beach.toml`` file."""
 
     raw = load_toml_file(path)
-    return render_config_document(raw)
+    return normalize_config_document(raw)
 
 
-def render_config_file(path: str | Path) -> dict[str, Any]:
-    """Render high-level direct config notation into final ``beach.toml`` data."""
-
-    return load_config_file(path)
-
-
-def render_config_document(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Resolve high-level direct config notation and validate the final config."""
+def normalize_config_document(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolve high-level authoring notation and validate the runtime config."""
 
     _validate_fragment_structure(
         config,
@@ -131,9 +125,9 @@ def render_config_document(config: Mapping[str, Any]) -> dict[str, Any]:
         allow_meta_keys=False,
     )
     _validate_high_level_fragment(config, context="config")
-    rendered = resolve_high_level_config(config)
-    validate_rendered_config(rendered)
-    return rendered
+    normalized = normalize_high_level_config(config)
+    validate_runtime_config(normalized)
+    return normalized
 
 
 def _strip_id_fields(config: dict[str, Any]) -> None:
@@ -156,8 +150,8 @@ def _strip_id_fields(config: dict[str, Any]) -> None:
                         item.pop("id", None)
 
 
-def resolve_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Resolve high-level spatial notation into plain beach.toml values."""
+def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolve high-level spatial notation into runtime beach.toml values."""
 
     resolved = copy.deepcopy(dict(config))
     sim = resolved.get("sim")
@@ -735,35 +729,35 @@ def _coerce_numeric_scalar(value: object, *, name: str) -> float:
     return numeric
 
 
-def validate_rendered_config(config: Mapping[str, Any]) -> None:
+def validate_runtime_config(config: Mapping[str, Any]) -> None:
     """Validate the merged final config against known BEACH constraints."""
 
     final_config = copy.deepcopy(dict(config))
     _validate_fragment_structure(
         final_config,
-        context="rendered config",
+        context="runtime config",
         allow_meta_keys=False,
     )
 
-    for key in TOP_LEVEL_RENDER_ORDER:
+    for key in TOP_LEVEL_CONFIG_ORDER:
         if key not in final_config:
-            raise RenderValidationError(
-                f"BEACH constraint error: rendered config is missing top-level [{key}] table."
+            raise ConfigValidationError(
+                f"BEACH constraint error: runtime config is missing top-level [{key}] table."
             )
 
-    sim = _require_table(final_config, "sim", context="rendered config")
-    particles = _require_table(final_config, "particles", context="rendered config")
-    mesh = _require_table(final_config, "mesh", context="rendered config")
-    _require_table(final_config, "output", context="rendered config")
-    _validate_rendered_external_e_field(sim)
+    sim = _require_table(final_config, "sim", context="runtime config")
+    particles = _require_table(final_config, "particles", context="runtime config")
+    mesh = _require_table(final_config, "mesh", context="runtime config")
+    _require_table(final_config, "output", context="runtime config")
+    _validate_runtime_external_e_field(sim)
     _validate_nonnegative_finite_number(sim.get("softening", 1.0e-6), name="sim.softening")
-    _validate_rendered_mesh(mesh)
+    _validate_runtime_mesh(mesh)
 
     species = particles.get("species")
     if not isinstance(species, list) or len(species) == 0 or not all(
         isinstance(item, Mapping) for item in species
     ):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             "BEACH constraint error: particles.species must be a non-empty array of tables."
         )
 
@@ -772,32 +766,38 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
 
     field_bc_mode = sim.get("field_bc_mode", "free")
     field_solver = sim.get("field_solver", "auto")
+    open_boundary_model = sim.get("open_boundary_model", "escape")
     if field_solver not in {"direct", "treecode", "fmm", "auto"}:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             'BEACH constraint error: sim.field_solver must be "direct", "treecode", '
             '"fmm", or "auto".'
         )
+    if open_boundary_model not in {"escape", "potential_barrier"}:
+        raise ConfigValidationError(
+            'BEACH constraint error: sim.open_boundary_model must be "escape" '
+            'or "potential_barrier".'
+        )
     if field_bc_mode not in {"free", "periodic2"}:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             'BEACH constraint error: sim.field_bc_mode must be "free" or "periodic2".'
         )
     if field_bc_mode == "periodic2":
         if field_solver != "fmm":
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 'BEACH constraint error: field_bc_mode="periodic2" requires field_solver="fmm".'
             )
         if not use_box:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 'BEACH constraint error: field_bc_mode="periodic2" requires sim.use_box=true.'
             )
         periodic_axes = _periodic_axis_count(sim)
         if periodic_axes != 2:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 "BEACH constraint error: field_bc_mode=\"periodic2\" requires exactly "
                 "two periodic axes."
             )
     if field_bc_mode != "free" and _mesh_has_surface_model(mesh, "conductor"):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             'BEACH constraint error: surface_model="conductor" currently requires '
             'sim.field_bc_mode="free".'
         )
@@ -812,11 +812,11 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
         species_table = dict(item)
         source_mode = species_table.get("source_mode", "volume_seed")
         if not isinstance(source_mode, str):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] source_mode must be a string."
             )
         if "temperature_k" in species_table and "temperature_ev" in species_table:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] cannot define both "
                 "temperature_k and temperature_ev."
             )
@@ -830,17 +830,17 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
             species_table.get("velocity_grid_sampling", "auto")
         ).strip().lower()
         if velocity_distribution not in {"maxwellian", "grid"}:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] has unsupported "
                 f"velocity_distribution={velocity_distribution!r}."
             )
         if velocity_grid_pdf_kind not in {"phase_space", "flux_weighted"}:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] has unsupported "
                 f"velocity_grid_pdf_kind={velocity_grid_pdf_kind!r}."
             )
         if velocity_grid_sampling not in {"auto", "rectilinear", "discrete"}:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] has unsupported "
                 f"velocity_grid_sampling={velocity_grid_sampling!r}."
             )
@@ -854,13 +854,13 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
             )
             npcls_per_step = species_table.get("npcls_per_step", 0)
             if not isinstance(npcls_per_step, int):
-                raise RenderValidationError(
+                raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}].npcls_per_step "
                     "must be an integer."
                 )
             total_npcls_per_step += npcls_per_step
             if "target_macro_particles_per_batch" in species_table:
-                raise RenderValidationError(
+                raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] uses "
                     'source_mode="volume_seed" and cannot define '
                     "target_macro_particles_per_batch."
@@ -882,13 +882,13 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                 "w_particle" in species_table
                 and "target_macro_particles_per_batch" in species_table
             ):
-                raise RenderValidationError(
+                raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] cannot define both "
                     "w_particle and target_macro_particles_per_batch."
                 )
             if velocity_distribution == "grid":
                 if "velocity_grid_path" not in species_table:
-                    raise RenderValidationError(
+                    raise ConfigValidationError(
                         f"BEACH constraint error: particles.species[{index}] uses "
                         'velocity_distribution="grid" and requires velocity_grid_path.'
                     )
@@ -900,7 +900,7 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                     "temperature_ev",
                 ):
                     if key in species_table:
-                        raise RenderValidationError(
+                        raise ConfigValidationError(
                             f"BEACH constraint error: particles.species[{index}] uses "
                             f'velocity_distribution="grid" and cannot define {key}.'
                         )
@@ -914,7 +914,7 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
                     "number_density_cm3" not in species_table
                     and "number_density_m3" not in species_table
                 ):
-                    raise RenderValidationError(
+                    raise ConfigValidationError(
                         f"BEACH constraint error: particles.species[{index}] uses "
                         'source_mode="reservoir_face" and requires number_density_cm3 '
                         "or number_density_m3."
@@ -940,18 +940,18 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
             current_density = species_table.get("emit_current_density_a_m2", 0.0)
             rays_per_batch = species_table.get("rays_per_batch", 0)
             if not isinstance(current_density, (int, float)) or float(current_density) <= 0.0:
-                raise RenderValidationError(
+                raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] uses "
                     'source_mode="photo_raycast" and requires emit_current_density_a_m2 > 0.'
                 )
             if not isinstance(rays_per_batch, int) or rays_per_batch <= 0:
-                raise RenderValidationError(
+                raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] uses "
                     'source_mode="photo_raycast" and requires rays_per_batch > 0.'
                 )
             photo_escape_model = str(species_table.get("photo_escape_model", "none")).strip().lower()
             if photo_escape_model not in {"none", "boltzmann_cutoff"}:
-                raise RenderValidationError(
+                raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] uses "
                     'source_mode="photo_raycast" and requires photo_escape_model '
                     'to be "none" or "boltzmann_cutoff".'
@@ -965,37 +965,37 @@ def validate_rendered_config(config: Mapping[str, Any]) -> None:
             )
             for key in forbidden:
                 if key in species_table:
-                    raise RenderValidationError(
+                    raise ConfigValidationError(
                         f"BEACH constraint error: particles.species[{index}] uses "
                         f'source_mode="photo_raycast" and cannot define {key}.'
                     )
             continue
 
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] has unsupported "
             f"source_mode={source_mode!r}."
         )
 
     if has_volume_seed and not uses_face_sources and total_npcls_per_step < 1:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             "BEACH constraint error: volume_seed species require total npcls_per_step >= 1."
         )
 
 
-def render_beach_toml(
+def dump_beach_toml(
     config: Mapping[str, Any],
     *,
     source_config: str | Path | None = None,
 ) -> str:
-    """Render one validated final config to ``beach.toml`` text."""
+    """Dump one validated config to ``beach.toml`` text."""
 
-    header_comments = [SCHEMA_DIRECTIVE, "# Generated by beachx config render"]
+    header_comments = [SCHEMA_DIRECTIVE, "# Generated by beachx config init"]
     if source_config is not None:
         header_comments.append(f"# source_config={source_config}")
     return render_toml_document(
         config,
         header_comments=header_comments,
-        top_level_order=TOP_LEVEL_RENDER_ORDER,
+        top_level_order=TOP_LEVEL_CONFIG_ORDER,
     )
 
 
@@ -1110,7 +1110,7 @@ def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
     has_batch_duration = "batch_duration" in sim
     has_batch_duration_step = "batch_duration_step" in sim
     if has_batch_duration and has_batch_duration_step:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             "BEACH constraint error: sim.batch_duration and sim.batch_duration_step "
             "cannot be specified together."
         )
@@ -1119,13 +1119,13 @@ def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
     return float(sim.get("batch_duration", 0.0))
 
 
-def _validate_rendered_external_e_field(sim: Mapping[str, Any]) -> None:
+def _validate_runtime_external_e_field(sim: Mapping[str, Any]) -> None:
     has_vector = "e0" in sim
     has_abs = "e0_abs" in sim
     has_phi_xy = "e0_phi_xy_deg" in sim
     has_phi_z = "e0_phi_z_deg" in sim
     if has_vector and (has_abs or has_phi_xy or has_phi_z):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             "BEACH constraint error: sim.e0 cannot be combined with "
             "sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg."
         )
@@ -1137,24 +1137,24 @@ def _validate_rendered_external_e_field(sim: Mapping[str, Any]) -> None:
             or len(e0) != 3
             or not all(isinstance(v, (int, float)) and math.isfinite(float(v)) for v in e0)
         ):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 "BEACH constraint error: sim.e0 must contain 3 finite values."
             )
         return
     if (has_phi_xy or has_phi_z) and not has_abs:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             "BEACH constraint error: sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs."
         )
     if has_abs:
         e0_abs = sim.get("e0_abs")
         if not isinstance(e0_abs, (int, float)) or not math.isfinite(float(e0_abs)) or float(e0_abs) < 0.0:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 "BEACH constraint error: sim.e0_abs must be finite and >= 0."
             )
         for key in ("e0_phi_xy_deg", "e0_phi_z_deg"):
             value = sim.get(key, 0.0)
             if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
-                raise RenderValidationError(
+                raise ConfigValidationError(
                     f"BEACH constraint error: sim.{key} must be finite."
                 )
 
@@ -1163,12 +1163,12 @@ def _validate_grid_flux_keys(species_table: Mapping[str, Any], *, index: int) ->
     has_flux = "particle_flux_m2_s" in species_table
     has_current = "current_density_a_m2" in species_table
     if has_flux and has_current:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] cannot define both "
             "particle_flux_m2_s and current_density_a_m2."
         )
     if not has_flux and not has_current:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             'velocity_distribution="grid" and requires particle_flux_m2_s '
             "or current_density_a_m2."
@@ -1176,14 +1176,14 @@ def _validate_grid_flux_keys(species_table: Mapping[str, Any], *, index: int) ->
     if has_flux:
         value = species_table["particle_flux_m2_s"]
         if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0.0:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}].particle_flux_m2_s "
                 "must be finite and > 0."
             )
     if has_current:
         value = species_table["current_density_a_m2"]
         if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) == 0.0:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}].current_density_a_m2 "
                 "must be finite and non-zero."
             )
@@ -1193,7 +1193,7 @@ def _validate_grid_flux_keys(species_table: Mapping[str, Any], *, index: int) ->
             or not math.isfinite(float(q_particle))
             or float(q_particle) == 0.0
         ):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}].q_particle "
                 "must be finite and non-zero for current_density_a_m2."
             )
@@ -1206,18 +1206,18 @@ def _validate_velocity_grid_forbidden(
     source_mode: str,
 ) -> None:
     if str(species_table.get("velocity_distribution", "maxwellian")).strip().lower() != "maxwellian":
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and cannot define velocity_distribution="grid".'
         )
     if str(species_table.get("velocity_grid_sampling", "auto")).strip().lower() != "auto":
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and cannot define velocity_grid_sampling.'
         )
     for key in ("velocity_grid_path", "particle_flux_m2_s", "current_density_a_m2"):
         if key in species_table:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] uses "
                 f'source_mode="{source_mode}" and cannot define {key}.'
             )
@@ -1231,7 +1231,7 @@ def _periodic_axis_count(sim: Mapping[str, Any]) -> int:
         if low == "periodic" and high == "periodic":
             count += 1
         elif low == "periodic" or high == "periodic":
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: bc_{axis}_low/high must both be periodic or both non-periodic."
             )
     return count
@@ -1248,18 +1248,18 @@ def _validate_face_source_common(
     box_max: list[float] | None,
 ) -> None:
     if not use_box:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and requires sim.use_box=true.'
         )
     if batch_duration <= 0.0:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and requires batch_duration > 0.'
         )
     inject_face = species_table.get("inject_face")
     if not isinstance(inject_face, str) or inject_face == "":
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and requires inject_face.'
         )
@@ -1290,7 +1290,7 @@ def _validate_face_bounds(
         name=f"particles.species[{index}].pos_high",
     )
     if pos_low is None or pos_high is None:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] must define pos_low "
             "and pos_high on the inject_face."
         )
@@ -1304,12 +1304,12 @@ def _validate_face_bounds(
         "z_high": (2, float(box_max[2])),
     }
     if inject_face not in axis_by_face:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] has invalid inject_face={inject_face!r}."
         )
     axis, boundary = axis_by_face[inject_face]
     if pos_low[axis] != boundary or pos_high[axis] != boundary:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] pos_low/pos_high must "
             f"lie on inject_face={inject_face!r}."
         )
@@ -1317,18 +1317,18 @@ def _validate_face_bounds(
         if other_axis == axis:
             continue
         if pos_low[other_axis] > pos_high[other_axis]:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] pos_low must be <= "
                 "pos_high along the inject-face coordinates."
             )
         low_bound = float(box_min[other_axis])
         high_bound = float(box_max[other_axis])
         if not (low_bound <= pos_low[other_axis] <= high_bound):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] pos_low is outside the box."
             )
         if not (low_bound <= pos_high[other_axis] <= high_bound):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] pos_high is outside the box."
             )
 
@@ -1341,16 +1341,16 @@ def _require_table(
 ) -> dict[str, Any]:
     value = document.get(key)
     if not isinstance(value, Mapping):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: {context} requires [{key}] to be a table."
         )
     return dict(value)
 
 
-def _validate_rendered_mesh(mesh: Mapping[str, Any]) -> None:
+def _validate_runtime_mesh(mesh: Mapping[str, Any]) -> None:
     mode = mesh.get("mode", "auto")
     if not isinstance(mode, str) or mode not in {"auto", "obj", "template"}:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             'BEACH constraint error: mesh.mode must be "auto", "obj", or "template".'
         )
     _validate_surface_model(
@@ -1362,17 +1362,17 @@ def _validate_rendered_mesh(mesh: Mapping[str, Any]) -> None:
     if templates is None:
         return
     if not isinstance(templates, list) or not all(isinstance(item, Mapping) for item in templates):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             "BEACH constraint error: mesh.templates must be an array of tables."
         )
     for index, item in enumerate(templates, start=1):
-        _validate_rendered_template(dict(item), index=index)
+        _validate_runtime_template(dict(item), index=index)
 
 
-def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> None:
+def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> None:
     kind_value = template.get("kind", "plane")
     if not isinstance(kind_value, str):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: mesh.templates[{index}].kind must be a string."
         )
     kind = kind_value.strip().lower() or "plane"
@@ -1398,7 +1398,7 @@ def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> N
         size_y = _positive_template_scalar(template, index=index, key="size_y", default=1.0)
         radius = _positive_template_scalar(template, index=index, key="radius", default=0.2)
         if radius >= 0.5 * min(size_x, size_y):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: mesh.templates[{index}] radius must be smaller "
                 "than half of min(size_x, size_y)."
             )
@@ -1417,7 +1417,7 @@ def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> N
             default=0.25,
         )
         if inner_radius >= radius:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: mesh.templates[{index}].inner_radius must be "
                 "smaller than radius."
             )
@@ -1429,11 +1429,11 @@ def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> N
             name=f"mesh.templates[{index}].size",
         )
         if size is None:
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: mesh.templates[{index}].size must be a 3-element array."
             )
         if any(component <= 0.0 for component in size):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: mesh.templates[{index}].size must be positive on all axes."
             )
         return
@@ -1447,16 +1447,16 @@ def _validate_rendered_template(template: Mapping[str, Any], *, index: int) -> N
         _positive_template_scalar(template, index=index, key="radius", default=0.5)
         return
 
-    raise RenderValidationError(
+    raise ConfigValidationError(
         f"BEACH constraint error: mesh.templates[{index}] has unsupported kind={kind_value!r}."
     )
 
 
 def _validate_surface_model(value: object, *, name: str) -> None:
     if not isinstance(value, str):
-        raise RenderValidationError(f"BEACH constraint error: {name} must be a string.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be a string.")
     if value not in {"insulator", "conductor", "dielectric"}:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f'BEACH constraint error: {name} must be "insulator", "conductor", or "dielectric".'
         )
 
@@ -1482,21 +1482,21 @@ def _mesh_has_surface_model(mesh: Mapping[str, Any], target: str) -> bool:
 
 def _validate_nonnegative_finite_number(value: object, *, name: str) -> None:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise RenderValidationError(f"BEACH constraint error: {name} must be numeric.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be numeric.")
     numeric = float(value)
     if not math.isfinite(numeric):
-        raise RenderValidationError(f"BEACH constraint error: {name} must be finite.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be finite.")
     if numeric < 0.0:
-        raise RenderValidationError(f"BEACH constraint error: {name} must be >= 0.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be >= 0.")
 
 
 def _validate_epsilon_r(value: object, *, name: str) -> None:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise RenderValidationError(f"BEACH constraint error: {name} must be numeric.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be numeric.")
     if not math.isfinite(float(value)):
-        raise RenderValidationError(f"BEACH constraint error: {name} must be finite.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be finite.")
     if float(value) < 1.0:
-        raise RenderValidationError(f"BEACH constraint error: {name} must be >= 1.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be >= 1.")
 
 
 def _positive_template_scalar(
@@ -1508,7 +1508,7 @@ def _positive_template_scalar(
 ) -> float:
     value = _template_scalar(template, index=index, key=key, default=default)
     if value <= 0.0:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: mesh.templates[{index}].{key} must be > 0."
         )
     return value
@@ -1523,7 +1523,7 @@ def _nonnegative_template_scalar(
 ) -> float:
     value = _template_scalar(template, index=index, key=key, default=default)
     if value < 0.0:
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: mesh.templates[{index}].{key} must be >= 0."
         )
     return value
@@ -1538,12 +1538,12 @@ def _template_scalar(
 ) -> float:
     raw = template.get(key, default)
     if not isinstance(raw, (int, float)) or isinstance(raw, bool):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: mesh.templates[{index}].{key} must be numeric."
         )
     value = float(raw)
     if not math.isfinite(value):
-        raise RenderValidationError(
+        raise ConfigValidationError(
             f"BEACH constraint error: mesh.templates[{index}].{key} must be finite."
         )
     return value
@@ -1553,16 +1553,16 @@ def _maybe_vec3(value: object, *, name: str) -> list[float] | None:
     if value is None:
         return None
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 3:
-        raise RenderValidationError(f"BEACH constraint error: {name} must be a 3-element array.")
+        raise ConfigValidationError(f"BEACH constraint error: {name} must be a 3-element array.")
     out: list[float] = []
     for item in value:
         if not isinstance(item, (int, float)) or isinstance(item, bool):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: {name} must contain only numeric values."
             )
         numeric = float(item)
         if not math.isfinite(numeric):
-            raise RenderValidationError(
+            raise ConfigValidationError(
                 f"BEACH constraint error: {name} must contain only finite values."
             )
         out.append(numeric)

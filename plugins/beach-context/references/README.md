@@ -82,7 +82,6 @@ cd run_periodic2
 
 beachx config init
 beachx lint beach.toml
-beachx config render
 beach beach.toml
 ```
 
@@ -90,7 +89,7 @@ beach beach.toml
 サンプルは [`examples/periodic2_basic/beach.toml`](examples/periodic2_basic/beach.toml) にあります。
 生成される `beach.toml` には `schemas/beach.schema.json` への `#:schema ...` directive を付けています。
 
-空間座標系まわりは、高水準記法で指定して `beachx config render` で最終キーへ展開できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` は、具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ変換されます。
+空間座標系まわりは、高水準記法で指定して Fortran parser が読み込み時に正規化できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` は、具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ変換されます。
 
 ### 2.1 推奨: `beach` コマンド
 

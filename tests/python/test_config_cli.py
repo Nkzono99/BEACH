@@ -7,8 +7,8 @@ import pytest
 from beach.cli.main import main as beachx_main
 from beach.config import (
     ConfigError,
-    RenderValidationError,
-    default_rendered_config,
+    ConfigValidationError,
+    default_config,
     load_config_file,
 )
 
@@ -75,8 +75,8 @@ def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
     assert result["mesh"]["templates"][0]["kind"] == "plane"
 
 
-def test_default_rendered_config_uses_no_periodic_far_correction() -> None:
-    config = default_rendered_config()
+def test_default_config_uses_no_periodic_far_correction() -> None:
+    config = default_config()
 
     assert config["sim"]["field_periodic_far_correction"] == "none"
 
@@ -241,7 +241,7 @@ def test_load_config_file_rejects_conductor_with_periodic2(tmp_path: Path) -> No
     )
     config_path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(RenderValidationError, match='surface_model="conductor"'):
+    with pytest.raises(ConfigValidationError, match='surface_model="conductor"'):
         load_config_file(config_path)
 
 
@@ -251,7 +251,7 @@ def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> N
     text = config_path.read_text(encoding="utf-8").replace("size_x = 1.0", "size_x = inf")
     config_path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(RenderValidationError, match="mesh.templates\\[1\\].size_x"):
+    with pytest.raises(ConfigValidationError, match="mesh.templates\\[1\\].size_x"):
         load_config_file(config_path)
 
 
@@ -301,11 +301,11 @@ history_stride = 1
         encoding="utf-8",
     )
 
-    with pytest.raises(RenderValidationError, match="photo_escape_model"):
+    with pytest.raises(ConfigValidationError, match="photo_escape_model"):
         load_config_file(config_path)
 
 
-def test_config_cli_init_render_validate_and_diff(
+def test_config_cli_init_validate_and_diff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -332,11 +332,6 @@ def test_config_cli_init_render_validate_and_diff(
     assert photo_species["pos_low"] == [0.0, 0.0, 10.0]
     assert photo_species["pos_high"] == [1.0, 1.0, 10.0]
     assert photo_species["ray_direction"] == [0.0, 0.0, -1.0]
-
-    beachx_main(["config", "render", "--stdout"])
-    render_streams = capsys.readouterr()
-    assert "[sim]" in render_streams.out
-    assert "use_presets" not in render_streams.out
 
     modified = tmp_path / "modified.toml"
     modified.write_text(
