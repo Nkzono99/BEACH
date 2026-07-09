@@ -95,7 +95,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 ここで `c_j` は要素 `j` の重心です。
 `field_solver="treecode"` のときはこの核を遠方で monopole 近似し、近傍は direct 和を使います。  
-`field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/fortran_fmm_core.md` を参照してください。
+`field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/FMMCore.md` を参照してください。
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正は `auto` を既定とし、`m2l_root_oracle` をサポートします。`sim.field_periodic_far_correction="auto"` は `field_solver="fmm"` かつ `field_bc_mode="periodic2"` のとき内部的に `m2l_root_oracle` に正規化され、`none` は遠方補正を無効化する独立の値であり、`auto` の alias ではありません。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使い、proxy/check 点から root local 演算子へ fit します。runtime では `local(:,root) += T_root * multipole(:,root)` の形で root local へ注入され、tree 外 fallback では同じ exact Ewald correction を直接足します。非中性ケースでは、slab 外評価に対して `charged_walls` に対応する total-charge 補正を追加します。2 枚の補償壁の場は slab 内では相殺されるため、粒子前進に使う in-box field は従来どおり periodic pair field と一致します。`field_periodic_ewald_alpha` は `m2l_root_oracle` の Ewald 分解パラメータ、`field_periodic_ewald_layers` は real/reciprocal の打切り深さとして使います。
@@ -200,7 +200,7 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 
 - v1.0 の基本系は insulator accumulation とし、conductor は制限付き拡張として扱う
 - 拡張点は維持しつつ、現行利用者向けには実装済み挙動を優先して文書化する
-- 設定追加・削除時は `docs/fortran_parameter_file.md` を同時更新する
+- 設定追加・削除時は `docs/Parameters.md` を同時更新する
 
 ## 10. 実行運用（推奨）
 
@@ -213,7 +213,7 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 ## 11. Python 後処理レイヤ
 
 Python パッケージ `beach` は Fortran 出力を読み込み、後処理・可視化を行います。
-詳細な API リファレンスは `docs/python_postprocess_api.md` を参照してください。
+詳細な API リファレンスは `docs/PythonPostprocessAPI.md` を参照してください。
 
 ### 11.1 電位再構成・電場計算
 

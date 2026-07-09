@@ -10,7 +10,7 @@ Python 側の `beachx config render` を使う場合は、同じ `beach.toml` �
 高水準記法には `box_origin` / `box_size`、`face_fraction`、`mesh.groups.*` などがあります。
 
 `beachx config` と高水準記法の全体像は
-[beachx config / 高水準記法ガイド](config_workflow.html) を参照してください。
+[beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
 この文書では、render 後の **最終 `beach.toml` に残るキー** を中心に説明します。
 
 ## 1. 読み込みルール

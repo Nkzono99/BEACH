@@ -90,9 +90,9 @@ beachx config render beach.toml --output beach.rendered.toml
 
 詳細:
 
-- 設定作成・検証: [`docs/config_workflow.md`](docs/config_workflow.md)
-- `beach.toml` 仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
-- 実行・開発・テスト: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
+- 設定作成・検証: [`docs/Configuration.md`](docs/Configuration.md)
+- `beach.toml` 仕様: [`docs/Parameters.md`](docs/Parameters.md)
+- 実行・開発・テスト: [`docs/Workflow.md`](docs/Workflow.md)
 
 ## よく使うコマンド
 
@@ -113,7 +113,8 @@ beachx config render beach.toml --output beach.rendered.toml
 
 - 公開ドキュメント: [GitHub Pages](https://nkzono99.github.io/BEACH/)
 - ドキュメント一覧: [`docs/index.md`](docs/index.md)
-- Python 後処理 API / CLI: [`docs/python_postprocess_api.md`](docs/python_postprocess_api.md)
+- アルゴリズム解説: [`docs/Algorithms.md`](docs/Algorithms.md)
+- Python 後処理 API / CLI: [`docs/PythonPostprocessAPI.md`](docs/PythonPostprocessAPI.md)
 - Fortran 実装仕様: [`SPEC.md`](SPEC.md)
 - 変更履歴: [`CHANGELOG.md`](CHANGELOG.md)
 
@@ -151,4 +152,4 @@ make test-l2
 make test-l3
 ```
 
-KUDPC のログインノードでは `make test*` / `fpm test` / 長時間の Fortran 実行を直接走らせず、計算ノードへ投入してください。詳細は [`docs/fortran_workflow.md`](docs/fortran_workflow.md) を参照してください。
+KUDPC のログインノードでは `make test*` / `fpm test` / 長時間の Fortran 実行を直接走らせず、計算ノードへ投入してください。詳細は [`docs/Workflow.md`](docs/Workflow.md) を参照してください。

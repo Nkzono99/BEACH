@@ -159,6 +159,7 @@ env/*
 
 # mkdocs documentation
 /site
+docs/superpowers/
 
 # mypy
 .mypy_cache/

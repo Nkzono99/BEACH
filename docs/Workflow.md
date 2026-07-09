@@ -119,7 +119,7 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 ## 3. 実行フロー
 
 通常は、`beach.toml` を直接編集して実行します。高水準記法の詳細は
-[beachx config / 高水準記法ガイド](config_workflow.html) を参照してください。
+[beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
 
 1. `beach.toml` を用意する
 2. 必要なら `beachx config render` で高水準記法を最終キーへ展開する
@@ -127,7 +127,7 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化
 
-`beach.toml` の仕様は [Fortran パラメータファイル仕様](fortran_parameter_file.html) で確認してください。
+`beach.toml` の仕様は [Fortran パラメータファイル仕様](Parameters.html) で確認してください。
 
 ### 3.1 最短例
 
@@ -142,7 +142,7 @@ beach beach.toml
 
 ### 3.2 `beach.toml` を直接使う場合
 
-1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](fortran_parameter_file.html)）
+1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](Parameters.html)）
 2. `beach` でシミュレーション実行
 3. `output.dir` の出力ファイルを確認
 4. Python CLI または `Beach` API で可視化

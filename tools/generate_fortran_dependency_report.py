@@ -500,7 +500,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--markdown",
         type=Path,
-        default=REPO_ROOT / "docs" / "fortran_dependency_map.md",
+        default=REPO_ROOT / "docs" / "FortranDependencyMap.md",
         help="Path to the generated Markdown page.",
     )
     parser.add_argument(

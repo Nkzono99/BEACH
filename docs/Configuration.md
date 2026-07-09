@@ -7,7 +7,7 @@ title: beachx config / 高水準記法ガイド
 - Fortran 実行系 `beach` が読むのは `beach.toml` だけです。
 - `beachx config init` は小さく実行可能な `beach.toml` を作ります。
 - `beachx config render` は同じ `beach.toml` 内の高水準記法を最終キーへ展開します。
-- 最終キーの仕様は [Fortran パラメータファイル仕様](fortran_parameter_file.html) を参照してください。
+- 最終キーの仕様は [Fortran パラメータファイル仕様](Parameters.html) を参照してください。
 
 ## 1. 基本フロー
 
