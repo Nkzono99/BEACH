@@ -10,7 +10,7 @@ For BEACH-specific user support, choose skills as follows.
 | `beach-output-analysis` | Read `outputs/latest`, use `beachx`, use Python APIs, and analyze histories. |
 | `beach-simulator-guide` | Explain BEACH concepts, learning paths, docs, and user tutorials. |
 | `beach-method-summary` | Draft method descriptions for papers, presentations, README, and design notes. |
-| `beach-issue-report` | Turn bugs, improvements, features, and documentation gaps into GitHub Issue drafts. |
+| `feedback-beach` | Turn bug reports, improvements, features, and documentation feedback into GitHub Issue drafts. |
 
 In a development checkout where the full repository is available, prefer root docs and source files. Treat plugin `references/` as snapshots for users working outside the repository.
 

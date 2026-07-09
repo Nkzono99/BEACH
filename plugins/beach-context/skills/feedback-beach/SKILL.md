@@ -1,9 +1,9 @@
 ---
-name: beach-issue-report
-description: Help BEACH users prepare GitHub issues for bugs, improvement requests, feature requests, documentation gaps, reproducible simulation problems, and confusing analysis workflows.
+name: feedback-beach
+description: Collect BEACH feedback and prepare GitHub issues for bugs, improvement requests, feature requests, documentation gaps, reproducible simulation problems, and confusing analysis workflows.
 ---
 
-Use this skill when a user wants to report a bug, request an improvement or feature, turn a failed run into an issue, or prepare a GitHub issue for BEACH.
+Use this skill when a user wants to give BEACH feedback, report a bug, request an improvement or feature, turn a failed run into an issue, or prepare a GitHub issue for BEACH.
 
 ## Response Language
 

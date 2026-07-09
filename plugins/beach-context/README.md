@@ -2,7 +2,7 @@ Lang: [English](README.en.md) | [日本語](README.md)
 
 # BEACH Context Plugin
 
-BEACH の設定ファイル、実行手順、出力解析、既知の失敗モード、学習導線、issue 作成補助を Codex に渡すための repo-local plugin です。各 skill はユーザーの言語に合わせて、日本語・英語などで応答する前提です。
+BEACH の設定ファイル、実行手順、出力解析、既知の失敗モード、学習導線、feedback 整理を Codex に渡すための repo-local plugin です。各 skill はユーザーの言語に合わせて、日本語・英語などで応答する前提です。
 
 利用者が `pip install beach-bem` だけで BEACH を入れており、repo 全体を読めない状況を前提にしています。そのため、この plugin は `references/` に `SPEC.md`、設定 workflow、`beach.toml` 仕様、Python 後処理 API、schema、代表 example などのスナップショットを同梱しています。repo 全体を読める開発環境では、同名の最新 docs を優先して確認してください。
 
@@ -48,7 +48,7 @@ codex plugin marketplace add /path/to/BEACH
 - `beach-output-analysis`: `outputs/latest`、CSV、履歴、Python API、`beachx` による解析導線
 - `beach-simulator-guide`: 利用者向けの学習・運用ガイド
 - `beach-method-summary`: 論文・発表・README 用の手法説明
-- `beach-issue-report`: バグ報告、改善要望、追加機能要望の GitHub Issue 化
+- `feedback-beach`: バグ報告、改善要望、追加機能要望、ドキュメント要望の整理と GitHub Issue 化
 
 各 skill の詳しい使い分けは [docs/skills-guide.md](docs/skills-guide.md) を参照してください。
 

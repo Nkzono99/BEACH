@@ -10,7 +10,7 @@ BEACH 固有の利用者支援では、次の順で skill を選びます。
 | `beach-output-analysis` | `outputs/latest` の読み方、`beachx` 可視化、Python API、履歴解析 |
 | `beach-simulator-guide` | BEACH の全体像、学習順、ドキュメント案内、ユーザー向け tutorial |
 | `beach-method-summary` | 論文、発表、README、設計メモ向けの手法説明 |
-| `beach-issue-report` | バグ、改善要望、機能追加、ドキュメント不足を GitHub Issue 草案にする |
+| `feedback-beach` | バグ、改善要望、機能追加、ドキュメント不足の feedback を GitHub Issue 草案にする |
 
 repo 全体を読める開発 checkout では root docs と source を優先し、plugin の `references/` は repo 外利用者向け snapshot として扱います。
 

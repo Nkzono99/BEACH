@@ -8,7 +8,7 @@ Lang: [English](README.en.md) | [日本語](README.md)
 
 | Plugin | 内容 |
 | --- | --- |
-| [beach-context](beach-context/README.md) | 設定レビュー、実行診断、ケース設計、出力解析、手法説明、学習ガイド、issue 作成補助用の skill と同梱 reference |
+| [beach-context](beach-context/README.md) | 設定レビュー、実行診断、ケース設計、出力解析、手法説明、学習ガイド、feedback 整理用の skill と同梱 reference |
 | [beach-context-claude](beach-context-claude/README.md) | Claude Code 向けの BEACH agent / slash command 風 prompt / 参照マップ |
 
 ## 導入

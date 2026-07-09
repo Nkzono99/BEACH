@@ -29,7 +29,7 @@ Claude Code の project-local agent として常用する場合は、必要な a
 | `beach-run-diagnose` | install/build/run 失敗、異常終了、出力欠損、restart 問題の診断 |
 | `beach-output-analysis` | `outputs/latest`、CSV、history、Python API、`beachx` による解析支援 |
 | `beach-method-summary` | 論文・発表・README 向けの手法説明、アルゴリズム要約 |
-| `beach-issue-report` | バグ報告、改善要望、ドキュメント要望の GitHub Issue 草案作成 |
+| `feedback-beach` | バグ報告、改善要望、ドキュメント要望の feedback 整理と GitHub Issue 草案作成 |
 
 各 agent は日本語を既定とし、TOML key、command、file path、CSV column は翻訳しません。
 
@@ -44,7 +44,7 @@ Claude Code の project-local agent として常用する場合は、必要な a
 | `beach-run-diagnose.md` | 失敗ログや出力 directory から原因を切り分ける |
 | `beach-output-analysis.md` | 出力の読み方・解析手順を組む |
 | `beach-method-summary.md` | 手法説明文やアルゴリズム要約を作る |
-| `beach-issue-report.md` | Issue 草案を作る |
+| `feedback-beach.md` | feedback を Issue 草案に整理する |
 | `beach-simulator-guide.md` | 利用者向けの学習導線を作る |
 
 ## 参照 document

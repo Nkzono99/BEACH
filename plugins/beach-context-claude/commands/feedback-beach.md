@@ -1,9 +1,9 @@
 ---
-description: "BEACH の GitHub Issue 草案を作る"
+description: "BEACH への feedback を GitHub Issue 草案に整理する"
 argument-hint: "<problem description/log/config>"
 ---
 
-`beach-issue-report` agent を使い、問題内容を GitHub Issue draft に整理してください。
+`feedback-beach` agent を使い、問題内容や改善要望を GitHub Issue draft に整理してください。
 
 出力には次を含めてください:
 - title

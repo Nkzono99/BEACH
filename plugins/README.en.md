@@ -8,7 +8,7 @@ This directory contains Codex plugins that package the context needed to use, an
 
 | Plugin | Contents |
 | --- | --- |
-| [beach-context](beach-context/README.en.md) | Skills and bundled references for config review, run diagnosis, case design, output analysis, method summaries, simulator guidance, and issue reporting |
+| [beach-context](beach-context/README.en.md) | Skills and bundled references for config review, run diagnosis, case design, output analysis, method summaries, simulator guidance, and feedback reporting |
 
 ## Installation
 
