@@ -558,7 +558,7 @@ BEACH/
 | `SPEC.md` | Fortran 実装仕様 (権威的) |
 | `docs/Parameters.md` | パラメータ詳細仕様 |
 | `docs/Workflow.md` | 実行ワークフロー・I/O |
-| `docs/FMMCore.md` | FMM 数学・Ewald |
+| `docs/Algorithms.md` | アルゴリズム、FMM 数学・Ewald、batch 安定性 |
 | `docs/Configuration.md` | `beachx config` と高水準記法 |
 | `docs/PythonPostprocessAPI.md` | Python API リファレンス |
 | `schemas/beach.schema.json` | IDE バリデーション用 JSON Schema |

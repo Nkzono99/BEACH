@@ -13,7 +13,7 @@ title: BEACH 入力パラメータリファレンス
 | [Configuration](Configuration.html) | `beachx config`、高水準記法、schema/lint |
 | [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順 |
 | [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
-| [FMMCore](FMMCore.html) | `field_solver="fmm"` の数値アルゴリズム |
+| [Algorithms §14](Algorithms.html#14-coulomb-fmm-コア詳細) | `field_solver="fmm"` の数値アルゴリズム |
 
 ---
 
@@ -195,18 +195,107 @@ history_stride = 1
 
 #### 場ソルバ
 
+`field_solver` は、境界要素電荷から評価点の Coulomb 電場を計算する方式です。
+選択肢ごとの対応パラメータは下表のとおりです。
+
+| `field_solver` | 用途 | 対応する場境界 |
+|---|---|---|
+| `direct` | 要素数が小さい場合の厳密な全対全評価 | `field_bc_mode="free"` |
+| `treecode` | 中規模以上の近似評価 | `field_bc_mode="free"` |
+| `fmm` | 大規模評価、`periodic2`、FMM コア検証 | `field_bc_mode="free"` / `"periodic2"` |
+| `auto` | 要素数に応じて direct / treecode を自動選択 | `field_bc_mode="free"` |
+
+共通キー:
+
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `softening` | float | `1.0e-6` | Coulomb 場計算の softening 長さ [m] |
 | `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
 | `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` で使う長さスケール [m] |
-| `tree_theta` | float | `0.5` | treecode/FMM の MAC パラメータ |
-| `tree_leaf_max` | int | `16` | treecode/FMM の葉ノードあたり最大要素数 |
-| `tree_min_nelem` | int | `256` | `field_solver="auto"` で treecode へ切り替える要素数しきい値 |
 
-`field_solver="auto"` では要素数に応じて direct / treecode を選びます。
-`tree_theta` と `tree_leaf_max` は、未指定なら次の値を使います。
+`field_normalization` は場計算内部の座標・softening・周期 cell の正規化だけを変えます。
+出力される電場・電位は SI に戻されます。
+
+| `field_normalization` | 長さスケール |
+|---|---|
+| `si` | 入力 SI 座標をそのまま使う |
+| `box` | `sim.box_max - sim.box_min` の最大幅。`sim.use_box=true` が必須 |
+| `mesh` | mesh bounding box の最大幅。mesh が空なら `field_length_scale` |
+| `length` | `field_length_scale` |
+
+##### `field_solver = "direct"`
+
+全 source 要素を直接足し上げます。
+近似誤差はなく、計算量は評価点数を `M`、要素数を `N` として `O(MN)` です。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `field_solver` | string | `"auto"` | `"direct"` を指定 |
+| `softening` | float | `1.0e-6` | source と評価点が近いときの特異性を緩和 |
+| `field_normalization` | string | `"si"` | direct 評価前に座標を正規化 |
+| `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
+| `field_bc_mode` | string | `"free"` | `direct` では `"free"` のみ |
+
+`tree_theta`、`tree_leaf_max`、`tree_min_nelem` は `direct` では使いません。
+
+##### `field_solver = "treecode"`
+
+source octree を作り、遠方 node は multipole 近似、近傍 node は direct 和で評価します。
+FMM のような local expansion は使わず、評価点ごとに木を走査します。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `field_solver` | string | `"auto"` | `"treecode"` を指定 |
+| `softening` | float | `1.0e-6` | 近傍 direct 和と multipole 評価の softening |
+| `field_normalization` | string | `"si"` | tree 構築前に座標を正規化 |
+| `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
+| `tree_theta` | float | `0.5` | MAC パラメータ。`0 < theta <= 1`。大きいほど速く粗い |
+| `tree_leaf_max` | int | `16` | 葉 node あたり最大 source 数。`>= 1` |
+| `field_bc_mode` | string | `"free"` | `treecode` では `"free"` のみ |
+
+`tree_min_nelem` は `field_solver="auto"` 用のしきい値なので、明示 `treecode` では切替には使いません。
+
+##### `field_solver = "fmm"`
+
+simulator 非依存の Coulomb FMM コアを使います。
+source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/L2L/L2P と近傍 direct 和で評価します。
+詳細は [Algorithms](Algorithms.html#14-coulomb-fmm-コア詳細) を参照してください。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `field_solver` | string | `"auto"` | `"fmm"` を指定 |
+| `softening` | float | `1.0e-6` | 近傍 direct 和と FMM 評価の softening |
+| `field_normalization` | string | `"si"` | FMM plan 構築前に座標を正規化 |
+| `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
+| `tree_theta` | float | `0.5` | near/far 判定の MAC パラメータ。`0 < theta <= 1` |
+| `tree_leaf_max` | int | `16` | source tree の葉 node あたり最大 source 数。`>= 1` |
+| `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
+| `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
+| `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正。`none` / `auto` / `m2l_root_oracle` |
+| `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用 Ewald 分解パラメータ |
+| `field_periodic_ewald_layers` | int | `4` | Ewald oracle の real-space outer shell / reciprocal cutoff 深さ |
+
+`field_periodic_*` は `field_bc_mode="periodic2"` のときだけ意味を持ちます。
+`tree_min_nelem` は明示 `fmm` では使いません。
+
+##### `field_solver = "auto"`
+
+要素数が `tree_min_nelem` 未満なら direct、以上なら treecode を使います。
+`auto` は FMM へは切り替えません。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `field_solver` | string | `"auto"` | `"auto"` を指定 |
+| `softening` | float | `1.0e-6` | direct / treecode の softening |
+| `field_normalization` | string | `"si"` | 自動選択前に共通で使う正規化 |
+| `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
+| `tree_min_nelem` | int | `256` | treecode へ切り替える要素数しきい値。`>= 1` |
+| `tree_theta` | float | `0.5` | treecode 選択時の MAC パラメータ |
+| `tree_leaf_max` | int | `16` | treecode 選択時の葉 node あたり最大 source 数 |
+| `field_bc_mode` | string | `"free"` | `auto` では `"free"` のみ |
+
+`tree_theta` と `tree_leaf_max` は、明示指定がなければ要素数から次の値を使います。
 
 | 要素数 `nelem` | `tree_theta` | `tree_leaf_max` |
 |---:|---:|---:|
@@ -214,9 +303,6 @@ history_stride = 1
 | `1500 <= nelem < 10000` | `0.50` | `16` |
 | `10000 <= nelem < 50000` | `0.58` | `20` |
 | `50000 <= nelem` | `0.65` | `24` |
-
-`field_normalization` は場計算内部の座標・softening・周期 cell の正規化だけを変えます。
-出力される電場・電位は SI に戻されます。
 
 #### 場境界と periodic2
 
