@@ -69,7 +69,7 @@ BEACH の主状態は、三角形メッシュ要素の電荷 `q_elem(i)` と、b
 softening 付き Coulomb kernel:
 
 $$
-G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\|\mathbf{r}\|^2 + \epsilon^2}}
+G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\lVert\mathbf{r}\rVert^2 + \epsilon^2}}
 $$
 
 電位:
@@ -87,7 +87,7 @@ $$
 k_\mathrm{c}
 \sum_j q_j
 \frac{\mathbf{x} - \mathbf{c}_j}
-{\left(\|\mathbf{x} - \mathbf{c}_j\|^2 + \epsilon^2\right)^{3/2}}
+{\left(\lVert\mathbf{x} - \mathbf{c}_j\rVert^2 + \epsilon^2\right)^{3/2}}
 $$
 
 ここで `k_coulomb` は [`bem_constants`](../src/core/bem_constants.f90) の Coulomb 定数です。
@@ -239,7 +239,7 @@ for local_batch_idx = 1..batch_count_this_run:
 $$
 \Delta q_i =
 \sum_{\mathrm{thread}} \Delta q_{i,\mathrm{thread}}
-+ \Delta q_{i,\mathrm{photo}}
+{}+ \Delta q_{i,\mathrm{photo}}
 $$
 
 MPI 実行時は `mpi_allreduce_sum_real_dp_array` により rank 間で `dq` を和にします。
@@ -252,10 +252,9 @@ $$
 を適用し、表面モデル緩和を実行します。最後に実際に変化した電荷量で監視値を計算します。
 
 $$
-\mathrm{rel\_change}
-=
-\frac{\|\mathbf{q}^{new} - \mathbf{q}^{old}\|_2}
-{\max(\|\mathbf{q}^{new}\|_2, q_\mathrm{floor})}
+\operatorname{rel\_change} =
+\frac{\lVert\mathbf{q}^{\mathrm{new}} - \mathbf{q}^{\mathrm{old}}\rVert_2}
+{\max\left(\lVert\mathbf{q}^{\mathrm{new}}\rVert_2, q_\mathrm{floor}\right)}
 $$
 
 この値は `stats%last_rel_change` と履歴出力に使われます。
@@ -278,7 +277,7 @@ $$
 k_c \sum_{i=1}^{N}
 q_i
 \frac{\mathbf{r} - \mathbf{c}_i}
-{\left(\|\mathbf{r} - \mathbf{c}_i\|^2 + \epsilon^2\right)^{3/2}}
+{\left(\lVert\mathbf{r} - \mathbf{c}_i\rVert^2 + \epsilon^2\right)^{3/2}}
 $$
 
 計算量は 1 評価点あたり `O(nelem)` です。
@@ -345,11 +344,10 @@ Q_n = \sum_{i \in n} q_i
 $$
 
 $$
-\mathbf{c}_{Q,n}
-=
+\mathbf{c}_{Q,n} =
 \begin{cases}
-\frac{1}{Q_n}\sum_{i \in n} q_i \mathbf{c}_i & |Q_n| > 0 \\
-\mathbf{c}_{node} & Q_n \approx 0
+Q_n^{-1}\sum_{i \in n} q_i \mathbf{c}_i, & |Q_n| > 0, \\
+\mathbf{c}_{\mathrm{node}}, & Q_n \approx 0
 \end{cases}
 $$
 
@@ -498,8 +496,7 @@ MPI 実行時は `batch_duration_scale = 1 / nrank` を使い、各 rank が glo
 1 hit あたりの重みは:
 
 $$
-w_\mathrm{hit}
-=
+w_\mathrm{hit} =
 \frac{J_\perp A_\perp T_b}
 {|q| N_\mathrm{ray,global}}
 $$
@@ -562,7 +559,7 @@ $$
 $$
 \mathbf{v}^- =
 \mathbf{v}^n
-+ \frac{q}{m}\mathbf{E}\frac{\Delta t}{2}
+{}+ \frac{q}{m}\mathbf{E}\frac{\Delta t}{2}
 $$
 
 $$
@@ -570,7 +567,7 @@ $$
 \frac{q}{m}\mathbf{B}\frac{\Delta t}{2}
 ,\quad
 \mathbf{s} =
-\frac{2\mathbf{t}}{1 + \|\mathbf{t}\|^2}
+\frac{2\mathbf{t}}{1 + \lVert\mathbf{t}\rVert^2}
 $$
 
 $$
@@ -651,18 +648,16 @@ $$
 `find_first_hit_periodic2` は線分と mesh AABB から必要な image shift 範囲を計算します。
 
 $$
-n_\mathrm{min}
-=
+n_\mathrm{min} =
 \left\lceil
-\frac{\min(p_0, p_1) - \max(mesh) - tol}{L}
+\frac{\operatorname{min}(p_0, p_1) - \operatorname{max}(\mathrm{mesh}) - \mathrm{tol}}{L}
 \right\rceil
 $$
 
 $$
-n_\mathrm{max}
-=
+n_\mathrm{max} =
 \left\lfloor
-\frac{\max(p_0, p_1) - \min(mesh) + tol}{L}
+\frac{\operatorname{max}(p_0, p_1) - \operatorname{min}(\mathrm{mesh}) + \mathrm{tol}}{L}
 \right\rfloor
 $$
 
@@ -727,20 +722,18 @@ conductor 要素は `mesh_id` ごとに floating conductor group として扱わ
 要素 `i` が group `g(i)` に属するとき:
 
 $$
-\sum_j A_{ij} q_j - V_{g(i)}
-=
+\sum_j A_{ij} q_j - V_{g(i)} =
 -\phi_i^\mathrm{fixed}
 $$
 
 ここで
 
 $$
-A_{ij}
-=
+A_{ij} =
 \begin{cases}
-1/\epsilon & i=j,\ \epsilon>0 \\
-2\sqrt{\pi}/h_i & i=j,\ \epsilon=0 \\
-1/\sqrt{\|\mathbf{c}_i-\mathbf{c}_j\|^2+\epsilon^2} & i\ne j
+1/\epsilon, & i=j,\ \epsilon>0, \\
+2\sqrt{\pi}/h_i, & i=j,\ \epsilon=0, \\
+1/\sqrt{\lVert\mathbf{c}_i-\mathbf{c}_j\rVert^2+\epsilon^2}, & i\ne j
 \end{cases}
 $$
 
@@ -1023,7 +1016,7 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可�
 現行コアは softening 付き Coulomb kernel を使います。
 
 $$
-G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\|\mathbf{r}\|^2 + \epsilon^2}}
+G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\lVert\mathbf{r}\rVert^2 + \epsilon^2}}
 $$
 
 $$
@@ -1154,7 +1147,7 @@ near node と far node を作ります。
 well-separated 判定は
 
 $$
-(r_s + r_t)^2 < \theta_{\mathrm{eff}}^2 \, \|\mathbf{d}\|^2
+(r_s + r_t)^2 < \theta_{\mathrm{eff}}^2 \, \lVert\mathbf{d}\rVert^2
 $$
 
 です。
@@ -1323,8 +1316,8 @@ M2L でも同じ画像シフト集合を使い、各 pair の derivative を画�
 周期長、セル面積、画像集合、逆格子集合を次のように置きます。
 
 $$
-L_1 = \texttt{periodic\_len(1)},\qquad
-L_2 = \texttt{periodic\_len(2)},\qquad
+L_1 = \operatorname{periodic\_len}(1),\qquad
+L_2 = \operatorname{periodic\_len}(2),\qquad
 A = L_1 L_2
 $$
 
@@ -1344,7 +1337,7 @@ $$
 
 $$
 \mathbf R_{ij} = \mathbf r - \mathbf s - \mathbf L_{ij},\qquad
-R_{ij} = \|\mathbf R_{ij}\|,\qquad
+R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
@@ -1355,8 +1348,7 @@ $$
 `add_screened_point_charge` が実装している screened Coulomb field は
 
 $$
-\mathbf E_\alpha(\mathbf R)
-=
+\mathbf E_\alpha(\mathbf R) =
 q\left(
 \frac{\operatorname{erfc}(\alpha R)}{R^3}
 +\frac{2\alpha}{\sqrt{\pi}}\frac{e^{-\alpha^2 R^2}}{R^2}
@@ -1374,8 +1366,7 @@ $$
 `add_softened_point_charge` が使う direct kernel は
 
 $$
-\mathbf E_\epsilon(\mathbf R)
-=
+\mathbf E_\epsilon(\mathbf R) =
 q\,\frac{\mathbf R}{(R^2+\epsilon^2)^{3/2}}
 $$
 
@@ -1384,10 +1375,9 @@ $$
 実装上の real-space 補正は
 
 $$
-\mathbf E_{\mathrm{real}}
-=
+\mathbf E_{\mathrm{real}} =
 \sum_{(i,j)\in\mathcal I_{N+L}} \mathbf E_\alpha(\mathbf R_{ij})
-- \sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
+{}- \sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
 $$
 
 です。実装では `r2 <= tiny(1.0d0)` の項はスキップするため、self interaction は入らない扱いです。`add_periodic2_exact_ewald_correction_single_source` に direct fallback の \(\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon\) を足すと、inner image の softened 部分が打ち消され、outer shell 側は screened 形に置き換わります。
@@ -1398,20 +1388,18 @@ $$
 
 $$
 \theta_{mn} = \mathbf k_{mn}\cdot(\mathbf r-\mathbf s),\qquad
-k_{mn} = \|\mathbf k_{mn}\|
+k_{mn} = \lVert\mathbf k_{mn}\rVert
 $$
 
 $$
-G^\pm_{mn}(z)
-=
+G^\pm_{mn}(z) =
 e^{\pm k_{mn} z}\operatorname{erfc}\!\left(\frac{k_{mn}}{2\alpha}\pm \alpha z\right)
 $$
 
 を定義すると
 
 $$
-\mathbf E_{\mathrm{rec}}
-=
+\mathbf E_{\mathrm{rec}} =
 q \sum_{(m,n)\in\mathcal K_L}
 \frac{\pi}{A}
 \begin{pmatrix}
@@ -1429,8 +1417,7 @@ $$
 `add_exact_periodic2_k0_correction` が実装しているゼロモード補正は
 
 $$
-\mathbf E_0
-=
+\mathbf E_0 =
 q\,\frac{2\pi}{A}\operatorname{erf}(\alpha z)\,\mathbf e_f
 $$
 
@@ -1441,11 +1428,10 @@ $$
 以上をまとめると、`add_periodic2_exact_ewald_correction_single_source` が 1 粒子分に加える補正は
 
 $$
-\mathbf E_{\mathrm{corr}}
-=
+\mathbf E_{\mathrm{corr}} =
 \mathbf E_{\mathrm{real}}
-+ \mathbf E_{\mathrm{rec}}
-+ \mathbf E_0
+{}+ \mathbf E_{\mathrm{rec}}
+{}+ \mathbf E_0
 $$
 
 です。`add_periodic2_exact_ewald_correction_all_sources` はまずこれを全ソースに対して総和します。
@@ -1455,12 +1441,11 @@ $$
 非中性 slab の `charged_walls` closure に合わせて、`add_periodic2_exact_ewald_correction_all_sources` は全ソース和のあとに total-charge 補正
 
 $$
-\mathbf E_{\mathrm{walls}}(z)
-=
+\mathbf E_{\mathrm{walls}}(z) =
 \begin{cases}
-\ \ \frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f & (z < z_{\mathrm{low}}), \\\\
-\ \ 0 & (z_{\mathrm{low}} \le z \le z_{\mathrm{high}}), \\\\
--\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f & (z > z_{\mathrm{high}})
+\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f, & z < z_{\mathrm{low}}, \\
+0, & z_{\mathrm{low}} \le z \le z_{\mathrm{high}}, \\
+-\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f, & z > z_{\mathrm{high}}
 \end{cases}
 $$
 
@@ -1479,12 +1464,11 @@ $$
 実際の runtime direct fallback は
 
 $$
-\mathbf E_{\mathrm{fallback}}
-=
+\mathbf E_{\mathrm{fallback}} =
 \sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
-+
+{}+
 \mathbf E_{\mathrm{corr}}
-+
+{}+
 \mathbf E_{\mathrm{walls}}
 $$
 

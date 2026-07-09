@@ -598,7 +598,7 @@ OBJ の対応範囲:
 `kind` の概要:
 
 | `kind` | 生成形状 | 基準面・軸 |
-|---|---|
+|---|---|---|
 | `plane` | 長方形平面 | XY 平面、`z=center[3]` |
 | `plate_hole`, `plane_hole` | 中央に円形穴を持つ長方形平面 | XY 平面、穴中心は `center` |
 | `disk` | 円板 | XY 平面、中心は `center` |
