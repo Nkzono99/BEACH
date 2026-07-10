@@ -69,13 +69,15 @@ Mesh fingerprint は、primary physical mesh の element order、全頂点、mes
 2. Boris rotation で `v^{n+1}` を求める。
 3. `x^{n+1} = x^n + 0.5 * (v^n + v^{n+1}) * dt` とする。
 4. step trajectory に対し、最初の mesh hit と box face crossing を比較する。
-5. 最初の event 時刻まで state を進め、event 処理後に残り時間を同じ規約で再積分する。
+5. 最初の event 時刻まで state を進め、reflect/periodic の場合だけ残り時間を同じ規約で一度再積分する。
 
-`boundary_event_type` は event fraction、同時に交差した face mask、boundary mode を保持する。corner/edge crossing は face mask を一括処理し、軸順序に依存させない。反射は event 点で法線速度を反転し、periodic は対応する対向 face へ移し、open は energy closure を適用する。event loop 上限超過は明示的な numerical failure とする。
+`boundary_event_type` は event fraction、同時に交差した face mask、boundary mode を保持する。corner/edge crossing は face mask を一括処理し、軸順序に依存させない。反射は event 点で法線速度を反転し、periodic は対応する対向 face へ移す。既定の open は event 点で脱出とする。既存 `potential_barrier` は単一面の legacy/experimental closure としてのみ維持し、一般的な多面 energy closure は shared potential snapshot とともに Stage 6 で再設計する。
+
+HPC の通常経路では candidate endpoint が box 内かを約6比較で先に判定する。box 内なら場評価1回・衝突照会1回のままで、event geometry や追加の場評価を行わない。最初の reflect/periodic 後の remainder がもう一度 box face を越え、そこまでに mesh hit がなければ、粒子・step・`dt`・状態を含む明示的 failure とし、`dt` を小さくするよう要求する。任意回数の event loop は Stage 2 に入れない。
 
 Collision query は `complete`, `image_limit`, `index_range`, `invalid_geometry` の status を返す。status を扱わない既存 API 呼び出しでは incomplete を `error stop` とし、simulator の OpenMP region では thread-local status を集約して region 外で停止する。画像 index は変換前に `i64` 範囲を検証する。
 
-Trajectory はまず二次 chord dense output を使い、gyro angle、加速度変化、element representative length に基づく adaptive substep を追加する。解析的な曲線対三角形交差は要求しないが、`dt -> 0` の hit element/time 収束を acceptance condition とする。
+Trajectory は二次 chord dense output を使う。adaptive substep は実運用要件がなく検証負担も大きいため Stage 2 から削除する。代わりに、純磁場の位相・速度保存、smooth 場の `dt -> 0` 軌道収束、mesh/box event の順序、no-crossing 性能を acceptance condition とする。
 
 ### 3. Reservoir Counts And MPI Determinism
 
