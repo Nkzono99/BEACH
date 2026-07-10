@@ -4,7 +4,30 @@ module bem_pusher
   implicit none
 contains
 
-  !> 電場半ステップ加速と磁場回転を組み合わせ、1タイムステップ後の位置・速度を計算する。
+  !> 電場半ステップ加速と磁場回転を組み合わせ、1タイムステップ後の速度を計算する。
+  !! @param[in] v 現在時刻の粒子速度ベクトル `(vx,vy,vz)` [m/s]。
+  !! @param[in] q 粒子1個あたりの電荷 [C]。
+  !! @param[in] m 粒子1個あたりの質量 [kg]。
+  !! @param[in] dt 時間刻み幅 [s]。
+  !! @param[in] e 粒子位置での電場ベクトル [V/m]。
+  !! @param[in] b 粒子位置での磁束密度ベクトル [T]。
+  !! @param[out] v_new 1ステップ後の更新粒子速度 [m/s]。
+  pure subroutine boris_update_velocity(v, q, m, dt, e, b, v_new)
+    real(dp), intent(in) :: v(3), q, m, dt, e(3), b(3)
+    real(dp), intent(out) :: v_new(3)
+    real(dp) :: qm, v_minus(3), t(3), s(3), v_prime(3), v_plus(3), t2
+
+    qm = q/m
+    v_minus = v + qm*e*(0.5d0*dt)
+    t = qm*b*(0.5d0*dt)
+    t2 = sum(t*t)
+    s = 2.0d0*t/(1.0d0 + t2)
+    v_prime = v_minus + cross(v_minus, t)
+    v_plus = v_minus + cross(v_prime, s)
+    v_new = v_plus + qm*e*(0.5d0*dt)
+  end subroutine boris_update_velocity
+
+  !> Boris速度更新を使い、1タイムステップ後の位置・速度を計算する。
   !! @param[in] x 現在時刻の粒子位置ベクトル `(x,y,z)` [m]。
   !! @param[in] v 現在時刻の粒子速度ベクトル `(vx,vy,vz)` [m/s]。
   !! @param[in] q 粒子1個あたりの電荷 [C]。
@@ -17,16 +40,8 @@ contains
   subroutine boris_push(x, v, q, m, dt, e, b, x_new, v_new)
     real(dp), intent(in) :: x(3), v(3), q, m, dt, e(3), b(3)
     real(dp), intent(out) :: x_new(3), v_new(3)
-    real(dp) :: qm, v_minus(3), t(3), s(3), v_prime(3), v_plus(3), t2
 
-    qm = q/m
-    v_minus = v + qm*e*(0.5d0*dt)
-    t = qm*b*(0.5d0*dt)
-    t2 = sum(t*t)
-    s = 2.0d0*t/(1.0d0 + t2)
-    v_prime = v_minus + cross(v_minus, t)
-    v_plus = v_minus + cross(v_prime, s)
-    v_new = v_plus + qm*e*(0.5d0*dt)
+    call boris_update_velocity(v, q, m, dt, e, b, v_new)
     x_new = x + v_new*dt
   end subroutine boris_push
 

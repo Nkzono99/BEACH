@@ -1,12 +1,12 @@
 !> 基本物理テスト: 電場評価・Boris更新・衝突判定・periodic2衝突の基礎検証。
 program test_dynamics_basic
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, hit_info, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_templates, only: make_plane
   use bem_field, only: electric_field_at
-  use bem_pusher, only: boris_push
+  use bem_pusher, only: boris_push, boris_update_velocity
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, &
                            compute_periodic_shift_bounds, find_first_hit, segment_triangle_intersect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
@@ -28,7 +28,7 @@ program test_dynamics_basic
     error stop 'collision status omitted probe unexpectedly completed'
   end if
 
-  call test_init(16)
+  call test_init(20)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -64,6 +64,22 @@ program test_dynamics_basic
   speed0 = sqrt(1.0d0 + 4.0d0 + 0.25d0)
   speed1 = sqrt(sum(v_new*v_new))
   call assert_close_dp(speed1, speed0, 1.0d-12, 'boris should preserve speed when E=0')
+  call test_end()
+
+  call test_begin('boris_update_velocity_e_only')
+  call test_boris_update_velocity_e_only()
+  call test_end()
+
+  call test_begin('boris_update_velocity_pure_b_speed')
+  call test_boris_update_velocity_pure_b_speed()
+  call test_end()
+
+  call test_begin('boris_update_velocity_time_reversal')
+  call test_boris_update_velocity_time_reversal()
+  call test_end()
+
+  call test_begin('boris_push_velocity_helper_equivalence')
+  call test_boris_push_velocity_helper_equivalence()
   call test_end()
 
   call test_begin('find_first_hit')
@@ -136,6 +152,102 @@ program test_dynamics_basic
   call test_summary()
 
 contains
+
+  subroutine test_boris_update_velocity_e_only()
+    real(dp) :: velocity_new(3)
+
+    call boris_update_velocity( &
+      [0.0d0, 0.0d0, 0.0d0], 2.0d0, 1.0d0, 0.5d0, &
+      [1.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 0.0d0], velocity_new &
+      )
+
+    call assert_allclose_1d( &
+      velocity_new, [1.0d0, 0.0d0, 0.0d0], 0.0d0, &
+      'boris velocity update (E only) mismatch' &
+      )
+  end subroutine test_boris_update_velocity_e_only
+
+  subroutine test_boris_update_velocity_pure_b_speed()
+    real(dp) :: velocity(3), velocity_new(3)
+
+    velocity = [1.0d0, 0.0d0, 0.0d0]
+    call boris_update_velocity( &
+      velocity, 1.0d0, 1.0d0, 1.0d0, &
+      [0.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 2.0d0], velocity_new &
+      )
+
+    call assert_allclose_1d( &
+      velocity_new, [0.0d0, -1.0d0, 0.0d0], 0.0d0, &
+      'boris velocity update (pure B) mismatch' &
+      )
+    call assert_close_dp( &
+      sum(velocity_new*velocity_new), sum(velocity*velocity), 1.0d-12, &
+      'boris velocity update should preserve squared speed when E=0' &
+      )
+  end subroutine test_boris_update_velocity_pure_b_speed
+
+  subroutine test_boris_update_velocity_time_reversal()
+    real(dp) :: velocity(3), velocity_forward(3), velocity_backward(3)
+
+    velocity = [1.0d0, 0.0d0, 0.0d0]
+    call boris_update_velocity( &
+      velocity, 1.0d0, 1.0d0, 1.0d0, &
+      [0.5d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 2.0d0], velocity_forward &
+      )
+    call assert_allclose_1d( &
+      velocity_forward, [0.25d0, -1.25d0, 0.0d0], 0.0d0, &
+      'forward Boris velocity update mismatch' &
+      )
+
+    call boris_update_velocity( &
+      velocity_forward, 1.0d0, 1.0d0, -1.0d0, &
+      [0.5d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 2.0d0], velocity_backward &
+      )
+    call assert_allclose_1d( &
+      velocity_backward, velocity, 0.0d0, &
+      'backward Boris velocity update should recover the initial velocity' &
+      )
+  end subroutine test_boris_update_velocity_time_reversal
+
+  subroutine test_boris_push_velocity_helper_equivalence()
+    integer(i64) :: push_bits(3), update_bits(3), expected_bits(3)
+    real(dp) :: x(3), velocity(3), electric_field(3), magnetic_field(3)
+    real(dp) :: x_push(3), velocity_push(3), velocity_update(3)
+
+    x = [0.125_dp, -0.25_dp, 0.5_dp]
+    velocity = [0.75_dp, -1.25_dp, 0.375_dp]
+    electric_field = [0.5_dp, -0.25_dp, 0.75_dp]
+    magnetic_field = [-0.375_dp, 0.625_dp, 0.25_dp]
+
+    call boris_push( &
+      x, velocity, -1.5_dp, 2.0_dp, 0.125_dp, electric_field, magnetic_field, &
+      x_push, velocity_push &
+      )
+    call boris_update_velocity( &
+      velocity, -1.5_dp, 2.0_dp, 0.125_dp, electric_field, magnetic_field, &
+      velocity_update &
+      )
+    push_bits = transfer(velocity_push, push_bits)
+    update_bits = transfer(velocity_update, update_bits)
+    call assert_true(all(push_bits == update_bits), 'boris_push/helper velocity bits should match')
+
+    call boris_push( &
+      x, velocity, -1.5_dp, 2.0_dp, 0.0_dp, electric_field, magnetic_field, &
+      x_push, velocity_push &
+      )
+    call boris_update_velocity( &
+      velocity, -1.5_dp, 2.0_dp, 0.0_dp, electric_field, magnetic_field, &
+      velocity_update &
+      )
+    expected_bits = transfer(velocity, expected_bits)
+    push_bits = transfer(velocity_push, push_bits)
+    update_bits = transfer(velocity_update, update_bits)
+    call assert_true(all(push_bits == expected_bits), 'boris_push velocity should be identity when dt=0')
+    call assert_true(all(update_bits == expected_bits), 'boris velocity helper should be identity when dt=0')
+    expected_bits = transfer(x, expected_bits)
+    push_bits = transfer(x_push, push_bits)
+    call assert_true(all(push_bits == expected_bits), 'boris_push position should be identity when dt=0')
+  end subroutine test_boris_push_velocity_helper_equivalence
 
   subroutine test_segment_triangle_intersect_small_scale()
     logical :: ok

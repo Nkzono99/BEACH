@@ -218,6 +218,12 @@ for local_batch_idx = 1..batch_count_this_run:
 | 7 | hit がなければ `apply_box_boundary` で open / reflect / periodic を適用 |
 | 8 | 粒子が生存していれば `x` と `v` を更新して次 step へ進む |
 
+`boris_update_velocity(v, q, m, dt, e, b, v_new)` は、電場の half kick、磁場回転、電場の half kick からなる
+速度更新を提供する public pure procedure です。既存の public call
+`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は速度計算をこの procedure に委譲し、位置は従来どおり
+`x_new = x + v_new*dt` で更新します。この分離は粒子状態を half-step staggered にせず、production の位置更新が
+二次精度であることを主張するものではありません。
+
 `BEACH_WARN_LONG_PARTICLE_STEPS` を正整数で設定すると、長く生き残る粒子の診断出力を一定 step ごとに出します。
 
 collision status は `collision_query_ok=0`、`collision_query_image_limit=1`、

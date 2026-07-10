@@ -218,6 +218,12 @@ Incomplete particle arrays and `photo_emission_dq` from the failing rank are not
 | 7 | If there is no hit, apply open / reflect / periodic with `apply_box_boundary` |
 | 8 | If the particle remains alive, update `x` and `v` and continue to the next step |
 
+`boris_update_velocity(v, q, m, dt, e, b, v_new)` is a public pure procedure that performs the electric half kick,
+magnetic rotation, and electric half kick for the velocity update. The existing public call
+`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` delegates its velocity calculation to this procedure and retains
+`x_new = x + v_new*dt` for the position update. This separation does not make particle state half-step staggered and
+does not claim second-order production position updates.
+
 If `BEACH_WARN_LONG_PARTICLE_STEPS` is set to a positive integer, BEACH prints diagnostics for long-lived particles at that step interval.
 
 The collision statuses are `collision_query_ok=0`, `collision_query_image_limit=1`, and

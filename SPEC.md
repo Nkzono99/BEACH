@@ -107,6 +107,9 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 - Boris 法（`E`, `B`）
 - `B` は `sim.b0` の一様場
+- public pure procedure `boris_update_velocity(v, q, m, dt, e, b, v_new)` が電場 half kick、磁場回転、電場 half kick による速度更新を行う
+- 既存の public call `boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は速度計算を `boris_update_velocity` に委譲し、位置は従来どおり `x_new = x + v_new*dt` で更新する
+- 粒子状態は half-step staggered ではなく、この分離だけでは production の位置更新を二次精度とはみなさない
 
 ### 5.3 衝突判定
 
