@@ -223,6 +223,26 @@ class CoulombMobilityAnalysis:
 
 
 @dataclass(frozen=True)
+class ChargeLedgerEntry:
+    """One species row from ``charge_ledger.csv``."""
+
+    batch: int
+    species_idx: int
+    injected_from_remote_c: float
+    emitted_from_surface_c: float
+    absorbed_on_surface_c: float
+    escaped_to_infinity_c: float
+    discarded_unresolved_c: float
+    interface_outward_gross_c: float
+    interface_returned_gross_c: float
+    injected_count: int
+    emitted_count: int
+    absorbed_count: int
+    escaped_count: int
+    discarded_unresolved_count: int
+
+
+@dataclass(frozen=True)
 class FortranRunResult:
     """Container for one Fortran simulation output directory.
 
@@ -275,6 +295,12 @@ class FortranRunResult:
     mesh_sources: dict[int, MeshSource] | None = None
     mesh_potential_v: np.ndarray | None = None
     history: FortranChargeHistory | None = None
+    checkpoint_schema_version: int | None = None
+    model_fingerprint: str | None = None
+    mesh_fingerprint: str | None = None
+    species_fingerprint: str | None = None
+    charge_ledger_residual_c: float | None = None
+    charge_ledger: tuple[ChargeLedgerEntry, ...] | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

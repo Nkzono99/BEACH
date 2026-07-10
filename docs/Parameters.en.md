@@ -818,6 +818,7 @@ Output files:
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |
 | `rng_state.txt` | Random-number state |
 | `macro_residuals.csv` | Residual carry-over for macro-particle counts |
+| `charge_ledger.csv` | Per-species signed-charge flux, counts, and restartable cumulative values |
 
 `mesh_potential.csv` records the potential [V] at each element centroid. The
 self term uses `1/softening` when `softening > 0`; otherwise it uses an
@@ -837,7 +838,7 @@ Requirements for `resume=true`:
 | Output | `write_files=true` is required |
 | Source | If `restart_from` is unspecified, use `output.dir`; otherwise use `restart_from` |
 | Required files | `summary.txt`, `charges.csv`, `rng_state.txt` |
-| Optional files | `macro_residuals.csv` is read if present |
+| Optional files | `macro_residuals.csv`; `charge_ledger.csv` is required when schema-v2 ledger metadata is present |
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 
 `restart_from` changes only the checkpoint read source. New output is always
@@ -850,7 +851,9 @@ During MPI execution:
 | `rng_state_rankNNNNN.txt` | Random-number state per rank |
 | `macro_residuals_rankNNNNN.csv` | Residuals per rank |
 
-`mpi_world_size` in `summary.txt` must match the current number of ranks.
+`mpi_world_size` in `summary.txt` must match the current number of ranks. Schema v2 also requires matching model, ordered-mesh, and ordered-species fingerprints.
+
+`[[particles.species]].species_key` is a stable identifier for restart fingerprints. When omitted it becomes `species_<1-based index>`; explicit keys must be unique across species.
 
 ---
 

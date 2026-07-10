@@ -89,6 +89,7 @@ def test_estimate_workload_resume_counts_only_remaining_batches() -> None:
         "particles": {
             "species": [
                 {
+                    "species_key": "electron",
                     "source_mode": "volume_seed",
                     "npcls_per_step": 10,
                 },

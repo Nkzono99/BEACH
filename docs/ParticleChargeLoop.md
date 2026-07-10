@@ -430,8 +430,11 @@ $$
 - `mesh_potential.csv`（有効時）
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
+- `charge_ledger.csv`
 
 全 rank は checkpoint 用に rank 別 RNG state を保存し、root rank は共有 macro residual を単一ファイルへ保存します。
+
+`charge_ledger.csv` は species ごとの注入、表面放出、吸収、無限遠 escape、未解決 discard、interface 往復の signed charge と粒子数を保持します。`summary.txt` の transactional residual と、species 間で相殺しない unresolved discard 絶対値は別の妥当性指標です。
 
 ### 12.4 restart consistency
 
@@ -442,6 +445,8 @@ $$
 - `summary.txt` の統計値が有限・非負である。
 - `charges.csv` の要素数と電荷値が妥当である。
 - RNG state と macro residual が読み込める。
+- schema v2 の model / ordered mesh / ordered species fingerprint が一致する。
+- 台帳を含む schema v2 では stock と species 行が欠損していない。
 
 必須 checkpoint がない場合、`output.resume=true` では新規実行へフォールバックせず停止します。
 

@@ -2,6 +2,9 @@
 module bem_app_config_types
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_config
+  use bem_physics_config_types, only: &
+    field_physics_config, periodic2_physics_config, panel_kernel_config, outer_plasma_config, coupling_config, &
+    normalize_legacy_physics_config
   implicit none
 
   !> 設定配列の初期確保サイズ（上限ではない）。
@@ -10,6 +13,7 @@ module bem_app_config_types
 
   !> 1粒子種の注入設定を表す。
   type :: particle_species_spec
+    character(len=64) :: species_key = ''
     logical :: enabled = .false.
     integer(i32) :: npcls_per_step = 0_i32
     logical :: has_npcls_per_step = .false.
@@ -104,6 +108,11 @@ module bem_app_config_types
     logical :: resume_output = .false.
 
     type(sim_config) :: sim
+    type(field_physics_config) :: field
+    type(periodic2_physics_config) :: periodic2
+    type(panel_kernel_config) :: panel
+    type(outer_plasma_config) :: outer_plasma
+    type(coupling_config) :: coupling
   end type app_config
 
 contains
@@ -236,6 +245,9 @@ contains
     cfg%templates(1)%nx = 1
     cfg%templates(1)%ny = 1
     cfg%templates(1)%center = [0.0d0, 0.0d0, 0.0d0]
+    call normalize_legacy_physics_config( &
+      cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+      )
   end subroutine default_app_config
 
   !> `[[particles.species]]` の既定値を返す。

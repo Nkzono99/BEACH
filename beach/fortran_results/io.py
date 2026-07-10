@@ -9,7 +9,7 @@ from typing import Iterable
 import numpy as np
 
 from .history import FortranChargeHistory
-from .types import FortranRunResult, MeshSource
+from .types import ChargeLedgerEntry, FortranRunResult, MeshSource
 
 
 def load_fortran_result(directory: str | Path) -> FortranRunResult:
@@ -51,6 +51,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
 
     if history_path.exists():
         history = FortranChargeHistory(history_path, mesh_nelem=mesh_nelem)
+    charge_ledger = _load_charge_ledger_if_exists(out_dir / "charge_ledger.csv")
 
     return FortranRunResult(
         directory=out_dir,
@@ -80,6 +81,16 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         mesh_sources=mesh_sources,
         mesh_potential_v=mesh_potential_v,
         history=history,
+        checkpoint_schema_version=_parse_optional_nonnegative_int(
+            summary, "checkpoint_schema_version"
+        ),
+        model_fingerprint=summary.get("model_fingerprint"),
+        mesh_fingerprint=summary.get("mesh_fingerprint"),
+        species_fingerprint=summary.get("species_fingerprint"),
+        charge_ledger_residual_c=_parse_optional_finite_float(
+            summary, "charge_ledger_residual_C"
+        ),
+        charge_ledger=charge_ledger,
     )
 
 
@@ -141,6 +152,59 @@ def _parse_nonnegative_finite_float(value: str, *, key: str) -> float:
     if not np.isfinite(parsed) or parsed < 0.0:
         raise ValueError(f"summary.txt {key} must be finite and >= 0.")
     return parsed
+
+
+def _parse_optional_nonnegative_int(data: dict[str, str], key: str) -> int | None:
+    if key not in data:
+        return None
+    return _parse_nonnegative_int(data[key], key=key)
+
+
+def _parse_optional_finite_float(data: dict[str, str], key: str) -> float | None:
+    if key not in data:
+        return None
+    parsed = float(data[key])
+    if not np.isfinite(parsed):
+        raise ValueError(f"summary.txt {key} must be finite.")
+    return parsed
+
+
+def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] | None:
+    if not path.exists():
+        return None
+    charge_fields = (
+        "injected_from_remote_C",
+        "emitted_from_surface_C",
+        "absorbed_on_surface_C",
+        "escaped_to_infinity_C",
+        "discarded_unresolved_C",
+        "interface_outward_gross_C",
+        "interface_returned_gross_C",
+    )
+    count_fields = (
+        "injected_count",
+        "emitted_count",
+        "absorbed_count",
+        "escaped_count",
+        "discarded_unresolved_count",
+    )
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
+        required = {"batch", "species_idx", *charge_fields, *count_fields}
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise ValueError("charge_ledger.csv is missing required columns.")
+        rows: list[ChargeLedgerEntry] = []
+        for row in reader:
+            batch = int(row["batch"])
+            species_idx = int(row["species_idx"])
+            charges = [float(row[name]) for name in charge_fields]
+            counts = [int(row[name]) for name in count_fields]
+            if batch < 0 or species_idx < 1 or any(count < 0 for count in counts):
+                raise ValueError("charge_ledger.csv indices and counts are invalid.")
+            if not np.all(np.isfinite(charges)):
+                raise ValueError("charge_ledger.csv charge values must be finite.")
+            rows.append(ChargeLedgerEntry(batch, species_idx, *charges, *counts))
+    return tuple(rows)
 
 
 def _load_charges(path: Path, *, mesh_nelem: int) -> np.ndarray:

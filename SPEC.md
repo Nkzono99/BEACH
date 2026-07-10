@@ -196,6 +196,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - `mesh_potential.csv`（`output.write_mesh_potential = true` 時）
 - `rng_state.txt`
 - `macro_residuals.csv`
+- `charge_ledger.csv`（species 別の signed charge flux と粒子数）
 - `performance_profile.csv`（`BEACH_PROFILE=1` 環境変数設定時）
 
 `mesh_triangles.csv` は要素ごとの `mesh_id` を含み、`mesh_sources.csv` で `mesh_id` と元メッシュ設定を対応付けます。
@@ -209,9 +210,12 @@ MPI 実行時は RNG のみ `rng_state_rankNNNNN.txt` として rank 別に保�
 
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
 - 任意: `macro_residuals.csv`（MPI 時も単一の global ファイル）
+- schema v2 では台帳出力時の `charge_ledger.csv`
 
 `sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
+新規出力の `summary.txt` は `checkpoint_schema_version=2` と model / ordered mesh / ordered species fingerprint を持ちます。schema v2 の再開では3 fingerprint を現在の設定・メッシュと照合し、不一致を停止します。旧 schema は Phase 0 で実装済みの legacy point-source model に限って読み込めます。
+`charge_ledger_residual_C` は surface / flight / unresolved stock の差分と外部 flux から作る transactional 保存残差です。species 間相殺を避けた `discarded_unresolved_abs_C` は別診断であり、残差が 0 でも max-step discard が物理的に許容されることを意味しません。
 旧形式の `macro_residuals_rankNNNNN.csv` が残っている場合は、global 残差との対応が曖昧なため停止します。
 
 ## 9. 設計方針

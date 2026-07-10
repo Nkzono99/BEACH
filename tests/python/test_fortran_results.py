@@ -711,6 +711,43 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
 
     assert result.escaped_boundary == 0
     assert result.survived_max_step == 0
+    assert result.checkpoint_schema_version is None
+    assert result.charge_ledger is None
+
+
+def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) -> None:
+    out = tmp_path / "contract"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "checkpoint_schema_version=2",
+            "model_fingerprint=0123456789ABCDEF",
+            "mesh_fingerprint=1111111122222222",
+            "species_fingerprint=3333333344444444",
+            "charge_ledger_residual_C=1.0e-18",
+        ],
+    )
+    (out / "charge_ledger.csv").write_text(
+        "batch,species_idx,injected_from_remote_C,emitted_from_surface_C,"
+        "absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,"
+        "interface_outward_gross_C,interface_returned_gross_C,injected_count,"
+        "emitted_count,absorbed_count,escaped_count,discarded_unresolved_count\n"
+        "1,1,-3,0,-2,-1,0,0,0,3,0,2,1,0\n",
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.checkpoint_schema_version == 2
+    assert result.model_fingerprint == "0123456789ABCDEF"
+    assert result.mesh_fingerprint == "1111111122222222"
+    assert result.species_fingerprint == "3333333344444444"
+    assert result.charge_ledger_residual_c == pytest.approx(1.0e-18)
+    assert result.charge_ledger is not None
+    assert result.charge_ledger[0].species_idx == 1
+    assert result.charge_ledger[0].injected_from_remote_c == pytest.approx(-3.0)
+    assert result.charge_ledger[0].escaped_count == 1
 
 
 def test_beach_get_mesh_supports_step_selection(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ module bem_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
+  use bem_physics_config_types, only: normalize_legacy_physics_config
   use bem_app_config_authoring, only: &
     app_config_authoring, sim_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
     init_app_config_authoring, ensure_authoring_particle_capacity, ensure_authoring_template_capacity, &
@@ -113,10 +114,11 @@ contains
   subroutine load_toml_config(path, cfg)
     character(len=*), intent(in) :: path
     type(app_config), intent(inout) :: cfg
-    integer :: u, ios, i, axis
+    integer :: u, ios, i, j, axis
     integer(i32) :: per_batch_particles
     integer(i32) :: n_periodic_axes
     logical :: has_dynamic_source_species
+    character(len=64) :: generated_species_key
     type(toml_table), allocatable :: document
     type(toml_error), allocatable :: parse_error
     type(app_config_authoring) :: authoring
@@ -364,6 +366,15 @@ contains
     per_batch_particles = 0_i32
     has_dynamic_source_species = .false.
     do i = 1, cfg%n_particle_species
+      if (len_trim(cfg%particle_species(i)%species_key) == 0) then
+        write (generated_species_key, '(a,i0)') 'species_', i
+        cfg%particle_species(i)%species_key = trim(generated_species_key)
+      end if
+      do j = 1, i - 1
+        if (trim(cfg%particle_species(i)%species_key) == trim(cfg%particle_species(j)%species_key)) then
+          error stop 'particles.species.species_key values must be unique.'
+        end if
+      end do
       if (.not. cfg%particle_species(i)%enabled) cycle
 
       cfg%particle_species(i)%source_mode = lower_ascii(trim(cfg%particle_species(i)%source_mode))
@@ -454,6 +465,9 @@ contains
       error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
     end if
     cfg%n_particles = cfg%sim%batch_count*per_batch_particles
+    call normalize_legacy_physics_config( &
+      cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+      )
   end subroutine load_toml_config
 
   !> `toml-f` のルートテーブルから既知セクションを読み込む。
@@ -907,6 +921,8 @@ contains
     do ikey = 1, size(keys)
       k = lower_ascii(trim(keys(ikey)%key))
       select case (trim(k))
+      case ('species_key')
+        call get_toml_string(table, keys(ikey), spec%species_key, 'particles.species.species_key')
       case ('enabled')
         call get_toml_logical(table, keys(ikey), spec%enabled, 'particles.species.enabled')
       case ('npcls_per_step')

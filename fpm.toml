@@ -32,6 +32,21 @@ source-dir = "tests/fortran"
 main = "test_app_config_parser.f90"
 
 [[test]]
+name = "test_physics_config_types"
+source-dir = "tests/fortran"
+main = "test_physics_config_types.f90"
+
+[[test]]
+name = "test_charge_ledger"
+source-dir = "tests/fortran"
+main = "test_charge_ledger.f90"
+
+[[test]]
+name = "test_model_fingerprint"
+source-dir = "tests/fortran"
+main = "test_model_fingerprint.f90"
+
+[[test]]
 name = "test_boundary"
 source-dir = "tests/fortran"
 main = "test_boundary.f90"

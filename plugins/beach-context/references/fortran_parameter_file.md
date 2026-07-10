@@ -770,6 +770,7 @@ z 軸方向の円柱です。
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
 | `rng_state.txt` | 乱数状態 |
 | `macro_residuals.csv` | マクロ粒子数の残差繰越 |
+| `charge_ledger.csv` | species 別の signed charge flux、粒子数、再開用累積値 |
 
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。
 自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。
@@ -787,7 +788,7 @@ z 軸方向の円柱です。
 | 出力 | `write_files=true` が必須 |
 | 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
 | 必須ファイル | `summary.txt`, `charges.csv`, `rng_state.txt` |
-| 任意ファイル | `macro_residuals.csv` は存在すれば読み込む |
+| 任意ファイル | `macro_residuals.csv`。schema v2 で台帳 metadata がある場合は `charge_ledger.csv` も必須 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
 `restart_from` は checkpoint の読み込み元だけを変更します。
@@ -800,7 +801,9 @@ MPI 実行時:
 | `rng_state_rankNNNNN.txt` | rank 別乱数状態 |
 | `macro_residuals_rankNNNNN.csv` | rank 別残差 |
 
-`summary.txt` の `mpi_world_size` は現在の rank 数と一致している必要があります。
+`summary.txt` の `mpi_world_size` は現在の rank 数と一致している必要があります。schema v2 では model / ordered mesh / ordered species fingerprint も一致する必要があります。
+
+`[[particles.species]].species_key` は restart fingerprint 用の安定 ID です。省略時は `species_<1-based index>` を割り当てます。明示する場合は粒子種間で一意にしてください。
 
 ---
 

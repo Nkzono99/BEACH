@@ -42,6 +42,13 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field_bc_mode mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_image_layers, 1_i32, 'default field_periodic_image_layers mismatch')
   call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'none', 'default field_periodic_far_correction mismatch')
+  call assert_true(trim(cfg%field%backend) == 'auto', 'default typed field backend mismatch')
+  call assert_true(trim(cfg%panel%source_model) == 'point', 'default typed source model mismatch')
+  call assert_true( &
+    trim(cfg%periodic2%nonzero_mode_backend) == 'not_applicable', &
+    'default typed periodic backend mismatch' &
+    )
+  call assert_true(trim(cfg%outer_plasma%model) == 'none', 'default typed outer model mismatch')
   call assert_close_dp(cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'default field_periodic_ewald_alpha mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_ewald_layers, 4_i32, 'default field_periodic_ewald_layers mismatch')
   call assert_close_dp(cfg%sim%tree_theta, 0.5d0, 1.0d-15, 'default tree_theta mismatch')
@@ -74,6 +81,8 @@ program test_app_config_parser
   call assert_equal_i32(cfg%templates(5)%n_theta, 20_i32, 'plate_hole n_theta mismatch')
   call assert_equal_i32(cfg%templates(5)%n_r, 2_i32, 'plate_hole n_r mismatch')
   call assert_equal_i32(cfg%n_particle_species, 2_i32, 'n_particle_species mismatch')
+  call assert_true(trim(cfg%particle_species(1)%species_key) == 'electron', 'explicit species_key mismatch')
+  call assert_true(trim(cfg%particle_species(2)%species_key) == 'species_2', 'generated species_key mismatch')
   call assert_equal_i32(particles_per_batch_from_config(cfg), 5_i32, 'per-batch particle count mismatch')
   call assert_equal_i32(total_particles_from_config(cfg), 15_i32, 'total particle count mismatch')
   call assert_equal_i32(cfg%n_particles, 15_i32, 'cached n_particles mismatch')
@@ -153,6 +162,14 @@ program test_app_config_parser
   call assert_equal_i32(periodic_cfg%sim%bc_high(2), bc_periodic, 'periodic bc_y_high mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_image_layers, 2_i32, 'periodic field_periodic_image_layers mismatch')
   call assert_true(trim(periodic_cfg%sim%field_periodic_far_correction) == 'none', 'periodic far correction mismatch')
+  call assert_true( &
+    trim(periodic_cfg%periodic2%nonzero_mode_backend) == 'legacy_finite_images', &
+    'periodic typed backend mismatch' &
+    )
+  call assert_true( &
+    trim(periodic_cfg%periodic2%zero_mode_policy) == 'legacy_not_decomposed', &
+    'periodic typed zero policy mismatch' &
+    )
   call assert_close_dp(periodic_cfg%sim%field_periodic_ewald_alpha, 1.5d0, 1.0d-12, 'periodic ewald alpha mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_ewald_layers, 5_i32, 'periodic ewald layers mismatch')
   call test_end()
@@ -164,6 +181,14 @@ program test_app_config_parser
   call assert_true( &
     trim(periodic_oracle_cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle', &
     'periodic oracle far correction mismatch' &
+    )
+  call assert_true( &
+    trim(periodic_oracle_cfg%periodic2%nonzero_mode_backend) == 'legacy_root_oracle', &
+    'periodic oracle typed backend mismatch' &
+    )
+  call assert_true( &
+    trim(periodic_oracle_cfg%periodic2%zero_mode_policy) == 'legacy_charged_walls', &
+    'periodic oracle typed zero policy mismatch' &
     )
   call assert_equal_i32( &
     periodic_oracle_cfg%sim%field_periodic_ewald_layers, 3_i32, 'periodic oracle ewald layers mismatch' &
@@ -297,6 +322,7 @@ contains
     write (u, '(a)') ''
     write (u, '(a)') '[particles]'
     write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'species_key = "electron"'
     write (u, '(a)') 'npcls_per_step = 4'
     write (u, '(a)') 'temperature_k = 10000.0'
     write (u, '(a)') '[[particles.species]]'

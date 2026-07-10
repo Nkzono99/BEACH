@@ -430,8 +430,11 @@ When `output.write_files=true`, the root rank writes the main final outputs:
 - `mesh_potential.csv` when enabled
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
+- `charge_ledger.csv`
 
 Every rank saves its checkpoint RNG state, while the root rank saves the shared macro residual in one global file.
+
+`charge_ledger.csv` stores per-species signed charge and counts for injection, surface emission, absorption, infinity escape, unresolved discard, and interface transfer. The transactional residual and the non-cancelling unresolved-discard absolute value in `summary.txt` are separate validity diagnostics.
 
 ### 12.4 Restart consistency
 
@@ -442,6 +445,8 @@ On restart, BEACH validates:
 - statistics in `summary.txt` are finite and non-negative
 - `charges.csv` element count and charge values are valid
 - RNG state and macro residuals can be loaded
+- schema-v2 model, ordered-mesh, and ordered-species fingerprints match
+- schema-v2 ledger stocks and species rows are complete when a ledger is present
 
 If a required checkpoint is missing, `output.resume=true` stops instead of falling back to a new run.
 

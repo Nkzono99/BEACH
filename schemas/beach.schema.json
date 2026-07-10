@@ -903,6 +903,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "species_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Stable species identifier used by restart fingerprints; defaults to species_<1-based index>."
+        },
         "enabled": {
           "type": "boolean",
           "default": true,

@@ -35,6 +35,9 @@ SCHEMAS ?= schemas/beach.schema.json
 FORTRAN_L1_TARGETS ?= \
 	test_version \
 	test_app_config_parser \
+	test_physics_config_types \
+	test_charge_ledger \
+	test_model_fingerprint \
 	test_boundary \
 	test_restart \
 	test_reservoir_injection \

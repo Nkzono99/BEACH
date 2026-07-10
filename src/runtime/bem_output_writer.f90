@@ -3,6 +3,8 @@ module bem_output_writer
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_stats, surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_app_config_types, only: app_config
+  use bem_charge_ledger, only: charge_ledger_type
+  use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
                             filesystem_success
   use bem_string_utils, only: lower_ascii
@@ -120,16 +122,17 @@ contains
   !! @param[in] mesh 書き出し対象のメッシュ。
   !! @param[in] stats 書き出し対象の統計値。
   !! @param[in] cfg 出力設定を含むアプリ設定。
-  subroutine write_result_files(out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v)
+  subroutine write_result_files(out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v, charge_ledger)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in), optional :: mpi_world_size
     real(dp), intent(in), optional :: mesh_potential_v(:)
+    type(charge_ledger_type), intent(in), optional :: charge_ledger
 
     call ensure_output_dir(out_dir)
-    call write_summary_file(out_dir, mesh, stats, mpi_world_size=mpi_world_size)
+    call write_summary_file(out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger)
     call write_charges_file(out_dir, mesh)
     if (cfg%write_mesh_potential) then
       if (.not. present(mesh_potential_v)) then
@@ -139,6 +142,7 @@ contains
     end if
     call write_mesh_file(out_dir, mesh)
     call write_mesh_sources_file(out_dir, mesh, cfg)
+    if (present(charge_ledger)) call write_charge_ledger_file(out_dir, charge_ledger)
   end subroutine write_result_files
 
   !> 出力ディレクトリを作成する。
@@ -166,11 +170,13 @@ contains
   !! @param[in] out_dir 出力先ディレクトリ。
   !! @param[in] mesh メッシュ情報（要素数を書き出す）。
   !! @param[in] stats 実行統計。
-  subroutine write_summary_file(out_dir, mesh, stats, mpi_world_size)
+  subroutine write_summary_file(out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger)
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
+    type(app_config), intent(in) :: cfg
     integer(i32), intent(in), optional :: mpi_world_size
+    type(charge_ledger_type), intent(in), optional :: charge_ledger
     character(len=1024) :: summary_path
     integer :: u, ios
     integer(i32) :: world_size
@@ -180,6 +186,10 @@ contains
     if (ios /= 0) error stop 'Failed to open summary file.'
     world_size = 1_i32
     if (present(mpi_world_size)) world_size = max(1_i32, mpi_world_size)
+    write (u, '(a)') 'checkpoint_schema_version=2'
+    write (u, '(a,a)') 'model_fingerprint=', model_fingerprint(cfg)
+    write (u, '(a,a)') 'mesh_fingerprint=', mesh_fingerprint(mesh)
+    write (u, '(a,a)') 'species_fingerprint=', species_fingerprint(cfg)
     write (u, '(a,i0)') 'mesh_nelem=', mesh%nelem
     write (u, '(a,i0)') 'mesh_count=', max(1_i32, maxval(mesh%elem_mesh_id))
     write (u, '(a,i0)') 'mpi_world_size=', world_size
@@ -190,12 +200,80 @@ contains
     write (u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
     write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
     write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
+    write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
+    write (u, '(a,a)') 'field_backend=', trim(cfg%field%backend)
+    write (u, '(a,a)') 'field_normalization=', trim(cfg%field%normalization)
+    write (u, '(a,a)') 'field_source_model=', trim(cfg%panel%source_model)
+    write (u, '(a,a)') 'field_kernel_id=', trim(cfg%panel%kernel_id)
+    write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
+    write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)
+    write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cfg%periodic2%lower_boundary_model)
+    write (u, '(a,a)') 'outer_plasma_model=', trim(cfg%outer_plasma%model)
+    write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
+    write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
+    if (present(charge_ledger)) then
+      write (u, '(a,i0)') 'charge_ledger_nspecies=', charge_ledger%nspecies
+      write (u, '(a,i0)') 'charge_ledger_batch_count=', charge_ledger%batch_count
+      write (u, '(a,es24.16)') 'charge_ledger_surface_charge_before_C=', charge_ledger%surface_charge_before
+      write (u, '(a,es24.16)') 'charge_ledger_surface_charge_after_C=', charge_ledger%surface_charge_after
+      write (u, '(a,es24.16)') 'charge_ledger_local_flight_charge_before_C=', &
+        charge_ledger%local_flight_charge_before
+      write (u, '(a,es24.16)') 'charge_ledger_local_flight_charge_after_C=', &
+        charge_ledger%local_flight_charge_after
+      write (u, '(a,es24.16)') 'charge_ledger_outer_flight_charge_before_C=', &
+        charge_ledger%outer_flight_charge_before
+      write (u, '(a,es24.16)') 'charge_ledger_outer_flight_charge_after_C=', &
+        charge_ledger%outer_flight_charge_after
+      write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_before_C=', &
+        charge_ledger%unresolved_stock_before
+      write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_after_C=', &
+        charge_ledger%unresolved_stock_after
+      write (u, '(a,es24.16)') 'charge_ledger_residual_C=', charge_ledger%residual()
+      write (u, '(a,es24.16)') 'charge_ledger_discarded_unresolved_abs_C=', &
+        charge_ledger%discarded_unresolved_abs()
+    end if
     if (count_dielectric_surfaces(mesh) > 0_i32) then
       write (u, '(a,i0)') 'surface_model_dielectric_elem_count=', count_dielectric_surfaces(mesh)
       write (u, '(a)') 'surface_model_note=metadata_only_dielectric_present'
     end if
     close (u)
   end subroutine write_summary_file
+
+  !> species 別の signed charge flux と粒子数を `charge_ledger.csv` に保存する。
+  subroutine write_charge_ledger_file(out_dir, ledger)
+    character(len=*), intent(in) :: out_dir
+    type(charge_ledger_type), intent(in) :: ledger
+    character(len=1024) :: path
+    integer :: u, ios, species_idx
+
+    if (ledger%nspecies < 1_i32 .or. .not. allocated(ledger%injected_from_remote)) then
+      error stop 'write_charge_ledger_file requires an initialized ledger.'
+    end if
+    path = trim(out_dir)//'/charge_ledger.csv'
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open charge_ledger.csv.'
+    write (u, '(a)') &
+      'batch,species_idx,injected_from_remote_C,emitted_from_surface_C,absorbed_on_surface_C,'// &
+      'escaped_to_infinity_C,discarded_unresolved_C,interface_outward_gross_C,interface_returned_gross_C,'// &
+      'injected_count,emitted_count,absorbed_count,escaped_count,discarded_unresolved_count'
+    do species_idx = 1, ledger%nspecies
+      write (u, '(i0,a,i0,7(a,es24.16),5(a,i0))') &
+        ledger%batch_count, ',', species_idx, &
+        ',', ledger%injected_from_remote(species_idx), &
+        ',', ledger%emitted_from_surface(species_idx), &
+        ',', ledger%absorbed_on_surface(species_idx), &
+        ',', ledger%escaped_to_infinity(species_idx), &
+        ',', ledger%discarded_unresolved(species_idx), &
+        ',', ledger%interface_outward_gross(species_idx), &
+        ',', ledger%interface_returned_gross(species_idx), &
+        ',', ledger%injected_count(species_idx), &
+        ',', ledger%emitted_count(species_idx), &
+        ',', ledger%absorbed_count(species_idx), &
+        ',', ledger%escaped_count(species_idx), &
+        ',', ledger%discarded_unresolved_count(species_idx)
+    end do
+    close (u)
+  end subroutine write_charge_ledger_file
 
   !> 要素電荷を `charges.csv` に書き出す。
   !! @param[in] out_dir 出力先ディレクトリ。

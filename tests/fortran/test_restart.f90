@@ -3,7 +3,11 @@ program test_restart
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
-                         restart_rng_state_path, restart_macro_residual_path
+                         restart_rng_state_path, restart_macro_residual_path, validate_restart_contract, &
+                         restart_contract_ok, restart_contract_mismatch
+  use bem_output_writer, only: write_result_files
+  use bem_app_config, only: app_config, default_app_config, species_from_defaults
+  use bem_charge_ledger, only: charge_ledger_type
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, assert_allclose_1d, &
@@ -13,7 +17,11 @@ program test_restart
   type(mesh_type) :: mesh
   type(sim_stats) :: stats
   type(injection_state) :: state
+  type(app_config) :: cfg, cfg_changed
+  type(charge_ledger_type) :: ledger, restored_ledger
   logical :: has_restart, exists
+  integer(i32) :: contract_status
+  character(len=256) :: contract_message
   character(len=1024) :: rng_rank_path, residual_global_path
   character(len=*), parameter :: out_dir = 'test_restart_tmp'
 
@@ -25,13 +33,55 @@ program test_restart
   call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
   call remove_empty_directory(out_dir)
 
-  call test_init(4)
+  call test_init(5)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
   call load_restart_checkpoint('test_restart_missing', mesh, stats, has_restart)
   call assert_true(.not. has_restart, 'missing checkpoint should not be reported as restart')
   call assert_equal_i32(stats%batches, 0_i32, 'missing checkpoint should keep stats at defaults')
+  call test_end()
+
+  call test_begin('schema_v2_contract_and_ledger_restore')
+  call default_app_config(cfg)
+  cfg%n_particle_species = 2_i32
+  cfg%particle_species(1) = species_from_defaults()
+  cfg%particle_species(1)%species_key = 'electron'
+  cfg%particle_species(2) = species_from_defaults()
+  cfg%particle_species(2)%species_key = 'ion'
+  stats%processed_particles = 10_i64
+  stats%absorbed = 7_i64
+  stats%escaped = 3_i64
+  stats%batches = 2_i32
+  stats%last_rel_change = 1.0e-3_dp
+  call ledger%init(2_i32)
+  call ledger%reset(2_i32)
+  ledger%surface_charge_before = 1.0_dp
+  ledger%surface_charge_after = 2.0_dp
+  ledger%injected_from_remote = [-3.0_dp, 4.0_dp]
+  ledger%injected_count = [3_i64, 4_i64]
+  mesh%q_elem = [1.0e-12_dp, -2.0e-12_dp]
+  call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
+  call write_rng_state_file(out_dir)
+  call write_macro_residuals_file(out_dir, state)
+
+  call build_test_mesh(mesh)
+  call load_restart_checkpoint(out_dir, mesh, stats, has_restart, state, app=cfg, charge_ledger=restored_ledger)
+  call assert_true(has_restart, 'schema v2 checkpoint should load')
+  call assert_equal_i32(restored_ledger%batch_count, 2_i32, 'ledger batch count mismatch')
+  call assert_close_dp(restored_ledger%surface_charge_before, 1.0_dp, 1.0e-12_dp, 'ledger stock mismatch')
+  call assert_allclose_1d( &
+    restored_ledger%injected_from_remote, [-3.0_dp, 4.0_dp], 1.0e-12_dp, 'ledger flux restore mismatch' &
+    )
+
+  cfg_changed = cfg
+  cfg_changed%sim%dt = 2.0_dp*cfg%sim%dt
+  call validate_restart_contract( &
+    out_dir//'/summary.txt', mesh, cfg_changed, contract_status, contract_message &
+    )
+  call assert_equal_i32(contract_status, restart_contract_mismatch, 'model mismatch should be rejected')
+  call validate_restart_contract(out_dir//'/summary.txt', mesh, cfg, contract_status, contract_message)
+  call assert_equal_i32(contract_status, restart_contract_ok, 'matching contract should be accepted')
   call test_end()
 
   call test_begin('write_checkpoint')
@@ -88,6 +138,9 @@ program test_restart
   call delete_file_if_exists(out_dir//'/macro_residuals.csv')
   call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
   call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
+  call delete_file_if_exists(out_dir//'/mesh_triangles.csv')
+  call delete_file_if_exists(out_dir//'/mesh_sources.csv')
+  call delete_file_if_exists(out_dir//'/charge_ledger.csv')
   call remove_empty_directory(out_dir)
 
   call test_summary()

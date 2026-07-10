@@ -34,6 +34,7 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 | `performance_profile.csv` | `BEACH_PROFILE=1` | phase timing |
 | `rng_state*.txt` | Always | random-number state for resume |
 | `macro_residuals*.csv` | Reservoir-style injection | fractional macro-particle state for resume |
+| `charge_ledger.csv` | Always | per-species signed-charge flux and particle counts |
 
 ## Interpreting Success and Warnings
 
@@ -46,6 +47,8 @@ Start with these quantities in `summary.txt`.
 | `escaped` | Number of particles leaving through open boundaries; useful for checking injection and boundary conditions |
 | `survived_max_step` | Particles that remained alive until `sim.max_step`; if large, revisit `dt`, the box, or injection conditions |
 | `last_rel_change` | Monitoring value for the final batch charge change; it is not an early-stop condition in the current implementation |
+| `charge_ledger_residual_C` | Transactional charge-conservation residual; unresolved discard must still be checked separately |
+| `charge_ledger_discarded_unresolved_abs_C` | Non-cancelling absolute max-step discard charge across species |
 
 When meshes include `conductor` or `dielectric`, `summary.txt` may include notes.
 `dielectric` is metadata in the current implementation; it is not a solved dielectric boundary model.
@@ -88,5 +91,5 @@ b.plot_potential()
 
 ## Resume Outputs
 
-With `output.resume=true`, `summary.txt`, `charges.csv`, `rng_state*.txt`, and `macro_residuals*.csv` are used as checkpoint files.
+With `output.resume=true`, `summary.txt`, `charges.csv`, `rng_state*.txt`, `macro_residuals*.csv`, and the schema-v2 `charge_ledger.csv` are used as checkpoint files. Schema v2 rejects model, mesh, or species fingerprint mismatches.
 When `output.restart_from` is set, checkpoint files are read from `restart_from`, while new outputs are written under `output.dir`.

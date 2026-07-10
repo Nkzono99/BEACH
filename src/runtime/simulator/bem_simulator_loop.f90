@@ -31,11 +31,22 @@ contains
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(field_solver_type) :: field_solver = field_solver_type()
+  type(charge_ledger_type) :: batch_ledger
+  logical :: ledger_enabled
 
   stats = sim_stats()
   if (present(initial_stats)) stats = initial_stats
   mpi_ctx = mpi_context()
   if (present(mpi)) mpi_ctx = mpi
+  ledger_enabled = present(charge_ledger)
+  if (ledger_enabled) then
+    if (.not. allocated(charge_ledger%injected_from_remote)) then
+      call charge_ledger%init(app%n_particle_species)
+    else if (charge_ledger%nspecies /= app%n_particle_species) then
+      error stop 'charge ledger species count does not match app config.'
+    end if
+    call batch_ledger%init(app%n_particle_species)
+  end if
 
   nth = 1
 !$ nth = max(1, omp_get_max_threads())
@@ -74,6 +85,12 @@ contains
       photo_failure_ray, photo_failure_bounce &
       )
     call perf_region_end(perf_region_prepare_batch, t0)
+
+    if (ledger_enabled) then
+      call batch_ledger%reset(batch_idx)
+      batch_ledger%surface_charge_before = sum(mesh%q_elem)
+      call record_batch_initial_charge(app, pcls_batch, batch_ledger)
+    end if
 
     photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
     call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
@@ -120,12 +137,22 @@ contains
         )
     end if
 
+    if (ledger_enabled) then
+      call record_batch_outcome_charge(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_ledger)
+      call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx)
+    end if
+
     call perf_region_begin(perf_region_commit_charge, t0)
     call commit_batch_charge( &
       mesh, app%sim%q_floor, app%sim%softening, app%sim%e0, app%sim%field_bc_mode, &
       dq_thread, photo_emission_dq, dq, rel, mpi_ctx &
       )
     call perf_region_end(perf_region_commit_charge, t0)
+
+    if (ledger_enabled) then
+      batch_ledger%surface_charge_after = sum(mesh%q_elem)
+      call accumulate_charge_ledger(charge_ledger, batch_ledger)
+    end if
 
     call perf_region_begin(perf_region_count_outcomes, t0)
     call count_batch_outcomes(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_counts)
@@ -438,5 +465,97 @@ contains
   norm_q = sqrt(sum(mesh%q_elem*mesh%q_elem))
   rel = norm_dq/max(norm_q, q_floor)
   end procedure commit_batch_charge
+
+  !> batch 初期粒子を remote injection と surface emission に分類する。
+  subroutine record_batch_initial_charge(app, pcls_batch, ledger)
+    type(app_config), intent(in) :: app
+    type(particles_soa), intent(in) :: pcls_batch
+    type(charge_ledger_type), intent(inout) :: ledger
+    integer(i32) :: i, species_idx
+    real(dp) :: macro_charge
+    character(len=32) :: source_mode
+
+    do i = 1, pcls_batch%n
+      species_idx = pcls_batch%species_id(i)
+      if (species_idx < 1_i32 .or. species_idx > ledger%nspecies) then
+        error stop 'particle species index is invalid while recording charge ledger input.'
+      end if
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      source_mode = lower_ascii(trim(app%particle_species(species_idx)%source_mode))
+      if (trim(source_mode) == 'photo_raycast') then
+        ledger%emitted_from_surface(species_idx) = ledger%emitted_from_surface(species_idx) + macro_charge
+        ledger%emitted_count(species_idx) = ledger%emitted_count(species_idx) + 1_i64
+      else
+        ledger%injected_from_remote(species_idx) = ledger%injected_from_remote(species_idx) + macro_charge
+        ledger%injected_count(species_idx) = ledger%injected_count(species_idx) + 1_i64
+      end if
+    end do
+  end subroutine record_batch_initial_charge
+
+  !> batch 終了粒子を surface absorption、infinity escape、unresolved discard に分類する。
+  subroutine record_batch_outcome_charge(pcls_batch, escaped_boundary_flag, absorbed_flag, ledger)
+    type(particles_soa), intent(in) :: pcls_batch
+    logical, intent(in) :: escaped_boundary_flag(:), absorbed_flag(:)
+    type(charge_ledger_type), intent(inout) :: ledger
+    integer(i32) :: i, species_idx
+    real(dp) :: macro_charge
+
+    do i = 1, pcls_batch%n
+      species_idx = pcls_batch%species_id(i)
+      if (species_idx < 1_i32 .or. species_idx > ledger%nspecies) then
+        error stop 'particle species index is invalid while recording charge ledger output.'
+      end if
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      if (absorbed_flag(i)) then
+        ledger%absorbed_on_surface(species_idx) = ledger%absorbed_on_surface(species_idx) + macro_charge
+        ledger%absorbed_count(species_idx) = ledger%absorbed_count(species_idx) + 1_i64
+      else if (escaped_boundary_flag(i)) then
+        ledger%escaped_to_infinity(species_idx) = ledger%escaped_to_infinity(species_idx) + macro_charge
+        ledger%escaped_count(species_idx) = ledger%escaped_count(species_idx) + 1_i64
+      else if (pcls_batch%alive(i)) then
+        ledger%discarded_unresolved(species_idx) = ledger%discarded_unresolved(species_idx) + macro_charge
+        ledger%discarded_unresolved_count(species_idx) = ledger%discarded_unresolved_count(species_idx) + 1_i64
+      end if
+    end do
+  end subroutine record_batch_outcome_charge
+
+  !> species 別 flux/count だけを MPI-global 値へ集約する。stock は全 rank で同じ mesh state から得る。
+  subroutine reduce_charge_ledger_fluxes(ledger, mpi)
+    type(charge_ledger_type), intent(inout) :: ledger
+    type(mpi_context), intent(in) :: mpi
+    real(dp), allocatable :: charge_values(:)
+    integer(i64), allocatable :: count_values(:)
+    integer :: n
+
+    n = int(ledger%nspecies)
+    allocate (charge_values(7*n), count_values(5*n))
+    charge_values(1:n) = ledger%injected_from_remote
+    charge_values(n + 1:2*n) = ledger%emitted_from_surface
+    charge_values(2*n + 1:3*n) = ledger%absorbed_on_surface
+    charge_values(3*n + 1:4*n) = ledger%escaped_to_infinity
+    charge_values(4*n + 1:5*n) = ledger%discarded_unresolved
+    charge_values(5*n + 1:6*n) = ledger%interface_outward_gross
+    charge_values(6*n + 1:7*n) = ledger%interface_returned_gross
+    call mpi_allreduce_sum_real_dp_array(mpi, charge_values)
+    ledger%injected_from_remote = charge_values(1:n)
+    ledger%emitted_from_surface = charge_values(n + 1:2*n)
+    ledger%absorbed_on_surface = charge_values(2*n + 1:3*n)
+    ledger%escaped_to_infinity = charge_values(3*n + 1:4*n)
+    ledger%discarded_unresolved = charge_values(4*n + 1:5*n)
+    ledger%interface_outward_gross = charge_values(5*n + 1:6*n)
+    ledger%interface_returned_gross = charge_values(6*n + 1:7*n)
+
+    count_values(1:n) = ledger%injected_count
+    count_values(n + 1:2*n) = ledger%emitted_count
+    count_values(2*n + 1:3*n) = ledger%absorbed_count
+    count_values(3*n + 1:4*n) = ledger%escaped_count
+    count_values(4*n + 1:5*n) = ledger%discarded_unresolved_count
+    call mpi_allreduce_sum_i64_array(mpi, count_values)
+    ledger%injected_count = count_values(1:n)
+    ledger%emitted_count = count_values(n + 1:2*n)
+    ledger%absorbed_count = count_values(2*n + 1:3*n)
+    ledger%escaped_count = count_values(3*n + 1:4*n)
+    ledger%discarded_unresolved_count = count_values(4*n + 1:5*n)
+  end subroutine reduce_charge_ledger_fluxes
 
 end submodule bem_simulator_loop

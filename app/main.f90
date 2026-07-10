@@ -14,6 +14,7 @@ program main
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
+  use bem_charge_ledger, only: charge_ledger_type
   implicit none
 
   type(mesh_type) :: mesh
@@ -21,6 +22,7 @@ program main
   type(sim_stats) :: stats
   type(sim_stats) :: initial_stats
   type(injection_state) :: inject_state
+  type(charge_ledger_type) :: charge_ledger
   type(mpi_context) :: mpi
   integer :: history_unit
   integer :: potential_history_unit
@@ -34,7 +36,7 @@ program main
   call perf_region_begin(perf_region_program_total, perf_program_t0)
   call mpi_initialize(mpi)
   call perf_region_begin(perf_region_load_or_init, perf_t0)
-  call load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi)
+  call load_or_init_run_state(app, mesh, initial_stats, inject_state, charge_ledger, resumed, mpi)
   call perf_region_end(perf_region_load_or_init, perf_t0)
   call perf_set_output_context(trim(app%output_dir), app%write_output)
   if (mpi_is_root(mpi)) then
@@ -55,12 +57,12 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v &
+          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger &
           )
       end if
     else
@@ -68,12 +70,12 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi &
+          inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger &
           )
       end if
     end if
@@ -84,22 +86,24 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          mesh_potential_v=mesh_potential_v &
+          mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger &
           )
       end if
     else
       if (potential_history_opened) then
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
           )
       else
-        call run_absorption_insulator(mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi)
+        call run_absorption_insulator( &
+          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger &
+          )
       end if
     end if
   end if
@@ -113,10 +117,13 @@ program main
       call perf_region_begin(perf_region_write_results, perf_t0)
       if (allocated(mesh_potential_v)) then
         call write_result_files( &
-          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), mesh_potential_v=mesh_potential_v &
+          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), mesh_potential_v=mesh_potential_v, &
+          charge_ledger=charge_ledger &
           )
       else
-        call write_result_files(trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi))
+        call write_result_files( &
+          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger &
+          )
       end if
       call perf_region_end(perf_region_write_results, perf_t0)
     end if
@@ -155,11 +162,12 @@ contains
   !! @param[out] initial_stats 再開時に引き継ぐ初期統計（新規実行時はゼロ）。
   !! @param[out] inject_state 種別ごとの注入残差状態。
   !! @param[out] resumed チェックポイントから再開した場合に `.true.`。
-  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, resumed, mpi)
+  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, charge_ledger, resumed, mpi)
     type(app_config), intent(out) :: app
     type(mesh_type), intent(out) :: mesh
     type(sim_stats), intent(out) :: initial_stats
     type(injection_state), intent(out) :: inject_state
+    type(charge_ledger_type), intent(out) :: charge_ledger
     logical, intent(out) :: resumed
     type(mpi_context), intent(in) :: mpi
     character(len=256) :: cfg_path
@@ -183,7 +191,7 @@ contains
       if (len_trim(app%output_restart_from) > 0) restart_dir = app%output_restart_from
       call load_restart_checkpoint( &
         trim(restart_dir), mesh, initial_stats, resumed, inject_state, &
-        mpi=mpi, require_checkpoint=.true. &
+        mpi=mpi, require_checkpoint=.true., app=app, charge_ledger=charge_ledger &
         )
     end if
 

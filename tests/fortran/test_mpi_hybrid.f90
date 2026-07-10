@@ -10,6 +10,7 @@ program test_mpi_hybrid
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state
+  use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -22,6 +23,7 @@ program test_mpi_hybrid
   type(sim_stats) :: stats, stats_restart
   type(injection_state) :: state, state_restart, reservoir_state
   type(particles_soa) :: reservoir_particles
+  type(charge_ledger_type) :: ledger
   logical :: has_restart
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   integer :: u, ios
@@ -104,10 +106,12 @@ program test_mpi_hybrid
   if (mpi_is_root(mpi)) then
     open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open MPI hybrid history fixture'
-    call run_absorption_insulator(mesh, cfg, stats, history_unit=u, history_stride=1_i32, mpi=mpi)
+    call run_absorption_insulator( &
+      mesh, cfg, stats, history_unit=u, history_stride=1_i32, mpi=mpi, charge_ledger=ledger &
+      )
     close (u)
   else
-    call run_absorption_insulator(mesh, cfg, stats, mpi=mpi)
+    call run_absorption_insulator(mesh, cfg, stats, mpi=mpi, charge_ledger=ledger)
   end if
 
   call assert_equal_i64(stats%processed_particles, 4_i64, 'mpi processed_particles mismatch')
@@ -115,6 +119,10 @@ program test_mpi_hybrid
   call assert_equal_i64(stats%escaped, 0_i64, 'mpi escaped mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'mpi batches mismatch')
   call assert_close_dp(mesh%q_elem(1), 4.0d0, 1.0d-12, 'mpi deposited charge mismatch')
+  call assert_equal_i64(ledger%injected_count(1), 4_i64, 'mpi ledger injected count mismatch')
+  call assert_equal_i64(ledger%absorbed_count(1), 4_i64, 'mpi ledger absorbed count mismatch')
+  call assert_close_dp(ledger%injected_from_remote(1), 4.0_dp, 1.0e-12_dp, 'mpi ledger injected charge mismatch')
+  call assert_close_dp(ledger%residual(), 0.0_dp, 1.0e-12_dp, 'mpi ledger residual mismatch')
   call test_end()
 
   call test_begin('mpi_history')

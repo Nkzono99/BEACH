@@ -1,6 +1,6 @@
 !> MPIの初期化・集約を抽象化し、非MPIビルドでは単一ランク動作へフォールバックする。
 module bem_mpi
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   implicit none
   private
 
@@ -26,6 +26,7 @@ module bem_mpi
   public :: mpi_allreduce_min_real_dp_array
   public :: mpi_allreduce_max_real_dp_array
   public :: mpi_allreduce_sum_i32_array
+  public :: mpi_allreduce_sum_i64_array
   public :: mpi_allreduce_sum_i32_scalar
   public :: mpi_bcast_i32_array
   public :: mpi_bcast_real_dp_array
@@ -306,6 +307,22 @@ contains
     values = int(recvbuf, kind=i32)
 #endif
   end subroutine mpi_allreduce_sum_i32_array
+
+  !> 64bit整数配列の総和Allreduceをin-placeで実行する。
+  subroutine mpi_allreduce_sum_i64_array(ctx, values)
+    type(mpi_context), intent(in) :: ctx
+    integer(i64), intent(inout) :: values(:)
+#ifdef USE_MPI
+    include 'mpif.h'
+    integer(i64), allocatable :: recvbuf(:)
+    integer :: ierr
+
+    if (.not. ctx%enabled) return
+    allocate (recvbuf(size(values)))
+    call MPI_Allreduce(values, recvbuf, size(values), MPI_INTEGER8, MPI_SUM, MPI_COMM_WORLD, ierr)
+    values = recvbuf
+#endif
+  end subroutine mpi_allreduce_sum_i64_array
 
   !> 32bit整数スカラの総和Allreduceをin-placeで実行する。
   subroutine mpi_allreduce_sum_i32_scalar(ctx, value)

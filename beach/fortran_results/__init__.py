@@ -36,6 +36,7 @@ from .potential import (
 )
 from .scene import BeachScene, RigidTransform
 from .types import (
+    ChargeLedgerEntry,
     CoulombInteraction,
     CoulombMobilityAnalysis,
     CoulombMobilityRecord,
@@ -48,6 +49,7 @@ from .types import (
 __all__ = [
     "K_COULOMB",
     "FortranChargeHistory",
+    "ChargeLedgerEntry",
     "MeshSource",
     "MeshSelection",
     "CoulombInteraction",

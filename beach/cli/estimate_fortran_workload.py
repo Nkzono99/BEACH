@@ -40,6 +40,7 @@ DEFAULT_SIM: dict[str, Any] = {
 }
 
 DEFAULT_SPECIES: dict[str, Any] = {
+    "species_key": "",
     "enabled": True,
     "source_mode": "volume_seed",
     "npcls_per_step": 0,
@@ -117,6 +118,7 @@ ALLOWED_SIM_KEYS = frozenset(
 
 ALLOWED_SPECIES_KEYS = frozenset(
     {
+        "species_key",
         "enabled",
         "npcls_per_step",
         "source_mode",

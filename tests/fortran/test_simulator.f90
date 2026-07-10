@@ -5,6 +5,7 @@ program test_simulator
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
   use bem_types, only: mesh_type, sim_stats, bc_open, bc_reflect, bc_periodic
+  use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
   implicit none
@@ -15,6 +16,7 @@ program test_simulator
   type(mesh_type) :: mesh_resume
   type(app_config) :: cfg, cfg_tree, cfg_potential_history
   type(sim_stats) :: stats, stats_tree, stats_potential_history, stats_seed, stats_resume
+  type(charge_ledger_type) :: charge_ledger
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   real(dp) :: potential_value
   integer :: u, ios
@@ -110,7 +112,9 @@ program test_simulator
   call delete_file_if_exists(history_path)
   open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'failed to open simulator history fixture'
-  call run_absorption_insulator(mesh, cfg, stats, history_unit=u, history_stride=1_i32)
+  call run_absorption_insulator( &
+    mesh, cfg, stats, history_unit=u, history_stride=1_i32, charge_ledger=charge_ledger &
+    )
   close (u)
 
   call assert_equal_i64(stats%processed_particles, 4_i64, 'processed_particles mismatch')
@@ -121,6 +125,12 @@ program test_simulator
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
   call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
   call assert_true(stats%last_rel_change > 0.0d0, 'last_rel_change should be positive')
+  call assert_close_dp(charge_ledger%surface_charge_before, 0.0_dp, 1.0d-12, 'ledger surface before mismatch')
+  call assert_close_dp(charge_ledger%surface_charge_after, 5.0_dp, 1.0d-12, 'ledger surface after mismatch')
+  call assert_close_dp(sum(charge_ledger%injected_from_remote), 7.0_dp, 1.0d-12, 'ledger injected charge mismatch')
+  call assert_close_dp(sum(charge_ledger%absorbed_on_surface), 5.0_dp, 1.0d-12, 'ledger absorbed charge mismatch')
+  call assert_close_dp(sum(charge_ledger%escaped_to_infinity), 2.0_dp, 1.0d-12, 'ledger escaped charge mismatch')
+  call assert_close_dp(charge_ledger%residual(), 0.0_dp, 1.0d-12, 'simulation charge residual mismatch')
   call test_end()
 
   call test_begin('history_output')

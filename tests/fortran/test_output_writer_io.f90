@@ -6,6 +6,7 @@ program test_output_writer_io
   use bem_output_writer, only: ensure_output_dir, write_result_files
   use bem_app_config, only: app_config, default_app_config
   use bem_types, only: mesh_type, sim_stats
+  use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, delete_file_if_exists, remove_empty_directory
   implicit none
@@ -13,9 +14,13 @@ program test_output_writer_io
   type(mesh_type) :: mesh
   type(app_config) :: cfg
   type(sim_stats) :: stats
-  logical :: exists, literal_created, marker_created
+  type(charge_ledger_type) :: ledger
+  logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
+  logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock
   integer :: literal_unit, ios
+  character(len=512) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
+  character(len=*), parameter :: out_dir_ledger = 'test_output_writer_io_ledger_tmp'
   character(len=*), parameter :: literal_parent = 'test_output_writer_io_literal_tmp'
   character(len=*), parameter :: marker_path = 'test_output_writer_io_shell_marker_tmp'
   character(len=*), parameter :: literal_dir = &
@@ -29,11 +34,12 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(2)
+  call test_init(3)
 
   stats = sim_stats()
 
   call cleanup_output_dir(out_dir_disabled)
+  call cleanup_output_dir(out_dir_ledger)
 
   call delete_file_if_exists(marker_path)
   call remove_test_directory(literal_dir)
@@ -68,7 +74,55 @@ program test_output_writer_io
   call assert_true(.not. exists, 'mesh_potential.csv should not be written when output.write_mesh_potential=false')
   call test_end()
 
+  call test_begin('charge_ledger_and_model_metadata')
+  call ledger%init(2_i32)
+  call ledger%reset(1_i32)
+  ledger%surface_charge_after = -3.0_dp
+  ledger%local_flight_charge_before = -1.0_dp
+  ledger%local_flight_charge_after = -2.0_dp
+  ledger%injected_from_remote(1) = -3.0_dp
+  ledger%absorbed_on_surface(1) = -3.0_dp
+  ledger%injected_count(1) = 1
+  ledger%absorbed_count(1) = 1
+  cfg%output_dir = out_dir_ledger
+  call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
+
+  saw_integrator = .false.
+  saw_residual = .false.
+  saw_schema = .false.
+  saw_model_fp = .false.
+  saw_mesh_fp = .false.
+  saw_species_fp = .false.
+  saw_ledger_stock = .false.
+  open (newunit=literal_unit, file=out_dir_ledger//'/summary.txt', status='old', action='read', iostat=ios)
+  if (ios /= 0) error stop 'failed to open summary metadata fixture'
+  do
+    read (literal_unit, '(A)', iostat=ios) line
+    if (ios /= 0) exit
+    saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
+    saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=2') > 0
+    saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
+    saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
+    saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
+    saw_ledger_stock = saw_ledger_stock .or. index(line, 'charge_ledger_local_flight_charge_before_C=') > 0
+  end do
+  close (literal_unit)
+  open (newunit=literal_unit, file=out_dir_ledger//'/charge_ledger.csv', status='old', action='read', iostat=ios)
+  if (ios /= 0) error stop 'failed to open charge ledger fixture'
+  read (literal_unit, '(A)', iostat=ios) line
+  close (literal_unit)
+  saw_ledger_header = ios == 0 .and. index(line, 'species_idx') > 0 .and. index(line, 'discarded_unresolved_C') > 0
+  call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
+  call assert_true(saw_residual, 'summary should record the charge ledger residual')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v2')
+  call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
+  call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
+  call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
+  call test_end()
+
   call cleanup_output_dir(out_dir_disabled)
+  call cleanup_output_dir(out_dir_ledger)
 
   call test_summary()
 
@@ -97,6 +151,7 @@ contains
     call delete_file_if_exists(out_dir//'/mesh_potential.csv')
     call delete_file_if_exists(out_dir//'/mesh_triangles.csv')
     call delete_file_if_exists(out_dir//'/mesh_sources.csv')
+    call delete_file_if_exists(out_dir//'/charge_ledger.csv')
     call remove_empty_directory(out_dir)
   end subroutine cleanup_output_dir
 

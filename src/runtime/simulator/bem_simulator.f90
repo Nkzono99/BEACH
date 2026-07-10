@@ -11,8 +11,10 @@ module bem_simulator
                                   particle_step_multiple_box_events, particle_step_unsupported_barrier_corner
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
   use bem_surface_models, only: apply_surface_model_charge_relaxation
+  use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
+  use bem_string_utils, only: lower_ascii
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
-                     mpi_allreduce_sum_i32_scalar, mpi_select_lowest_rank_i32_values
+                     mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, mpi_select_lowest_rank_i32_values
   implicit none
   private
 
@@ -22,7 +24,7 @@ module bem_simulator
     !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
-      potential_history_unit &
+      potential_history_unit, charge_ledger &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -34,6 +36,7 @@ module bem_simulator
       type(mpi_context), intent(in), optional :: mpi
       real(dp), allocatable, intent(out), optional :: mesh_potential_v(:)
       integer, intent(in), optional :: potential_history_unit
+      type(charge_ledger_type), intent(inout), optional :: charge_ledger
     end subroutine run_absorption_insulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。
