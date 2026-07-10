@@ -3,6 +3,8 @@ module bem_output_writer
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_stats, surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_app_config_types, only: app_config
+  use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
+                            filesystem_success
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -143,12 +145,21 @@ contains
   !! @param[in] out_dir 作成対象ディレクトリのパス。
   subroutine ensure_output_dir(out_dir)
     character(len=*), intent(in) :: out_dir
-    character(len=1024) :: cmd
-    integer :: ios
+    integer :: status
 
-    cmd = 'mkdir -p "'//trim(out_dir)//'"'
-    call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
-    if (ios /= 0) error stop 'Failed to create output directory.'
+    call create_directories(out_dir, status)
+    select case (status)
+    case (filesystem_success)
+      return
+    case (filesystem_empty_path)
+      error stop 'Failed to create output directory: output path is empty.'
+    case (filesystem_not_directory)
+      error stop 'Failed to create output directory: a path component is not an accessible directory.'
+    case (filesystem_os_error)
+      error stop 'Failed to create output directory: operating-system directory creation failed.'
+    case default
+      error stop 'Failed to create output directory: unexpected filesystem status.'
+    end select
   end subroutine ensure_output_dir
 
   !> 実行統計を `summary.txt` に書き出す。
