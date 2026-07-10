@@ -546,6 +546,21 @@ Since v1.0.0, the unified `beachx` CLI is recommended.
 | `beachx config validate <config.toml>` | Validate a configuration file |
 | `beachx model close-pack` | Generate a close-packed model |
 
+The ordinary `beachx inspect` summary prints `potential_min` / `potential_max`
+only from a precomputed `mesh_potential.csv`. When that file is absent, inspect
+does not implicitly reconstruct potential in Python and omits those two lines.
+A corrupt, non-finite, or wrong-length `mesh_potential.csv` is an input error,
+not a condition for falling back to reconstruction.
+
+With `--recompute-potential`, the summary uses the existing
+`Beach.compute_potential` path regardless of whether a precomputed array is
+available. This explicit path can be $O(N^2)$ with mesh size.
+`--save-potential-mesh` and `--show` are also explicit potential-plot requests
+and retain their existing ability to calculate potential without the flag. If
+`--recompute-potential` and a potential plot are requested together, the current
+plot API cannot consume the summary's computed array, so the two paths evaluate
+independently and may duplicate the potential calculation.
+
 ### 12.2 Legacy CLI (Deprecated)
 
 The legacy entry points below are retained for backward compatibility, but they may be removed in a future version.
@@ -558,6 +573,9 @@ The legacy entry points below are retained for backward compatibility, but they 
 | `beach-plot-potential-slices <output_dir>` | Plot potential sections |
 | `beach-plot-performance-profile <output_dir>` | Plot a performance profile |
 | `beach-plot-coulomb-force-matrix <output_dir>` | Plot a Coulomb force matrix |
+
+`beach-inspect` follows the same precomputed-only ordinary-summary and explicit
+`--recompute-potential` rules as `beachx inspect`.
 
 ## 12. Physical Constants
 

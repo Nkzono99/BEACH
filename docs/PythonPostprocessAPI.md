@@ -543,6 +543,18 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
 | `beachx model close-pack` | 密充填モデルの生成 |
 
+`beachx inspect` の通常の要約は、`mesh_potential.csv` が存在する場合に限り、その事前計算済み配列から
+`potential_min` / `potential_max` を表示します。ファイルがない場合、Python で電位を暗黙に再構成せず、
+この2行を省略します。破損、非有限値、要素数不一致を含む `mesh_potential.csv` は入力エラーであり、
+再計算へのフォールバック条件にはなりません。
+
+`--recompute-potential` を指定すると、事前計算済み配列の有無にかかわらず、既存の
+`Beach.compute_potential` 経路の結果を要約に使います。この明示的な経路はメッシュ規模によって
+$O(N^2)$ になり得ます。`--save-potential-mesh` と `--show` も明示的な potential plot 要求であり、
+flag なしでも従来どおり電位を計算する場合があります。`--recompute-potential` と potential plot を
+同時指定した場合、現行 plot API は要約用の計算済み配列を受け取らないため、両経路が独立して評価し、
+電位計算が重複する可能性があります。
+
 ### 12.2 旧 CLI（非推奨）
 
 以下の旧エントリポイントは後方互換のため残されていますが、将来のバージョンで削除される可能性があります。
@@ -555,6 +567,9 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beach-plot-potential-slices <output_dir>` | 電位断面の描画 |
 | `beach-plot-performance-profile <output_dir>` | パフォーマンスプロファイルの描画 |
 | `beach-plot-coulomb-force-matrix <output_dir>` | Coulomb 力行列の描画 |
+
+`beach-inspect` にも `beachx inspect` と同じ precomputed-only の通常要約と
+`--recompute-potential` の明示的な再計算規則が適用されます。
 
 ## 12. 物理定数
 

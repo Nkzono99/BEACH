@@ -20,7 +20,11 @@ LEGACY_COMMAND_NAME = "beach-inspect"
 
 def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("output_dir", nargs="?", default="outputs/latest")
-    parser.add_argument("--show", action="store_true", help="display matplotlib window")
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="display all matplotlib plots, including potential plots",
+    )
     parser.add_argument(
         "--save-bar", type=Path, default=None, help="save bar-chart figure path"
     )
@@ -31,19 +35,30 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         "--save-potential-mesh",
         type=Path,
         default=None,
-        help="save 3D electric-potential mesh figure path",
+        help="save 3D electric-potential mesh figure path; may calculate potential",
+    )
+    parser.add_argument(
+        "--recompute-potential",
+        action="store_true",
+        help=(
+            "calculate potential min/max through Beach.compute_potential instead "
+            "of using only mesh_potential.csv; may be expensive"
+        ),
     )
     parser.add_argument(
         "--potential-softening",
         type=float,
         default=None,
-        help="smoothing length [m] for potential reconstruction; default uses sim.softening when available",
+        help=(
+            "smoothing length [m] for --recompute-potential and potential plots; "
+            "default uses sim.softening when available"
+        ),
     )
     parser.add_argument(
         "--potential-self-term",
         choices=("auto", "area-equivalent", "exclude", "softened-point"),
         default="auto",
-        help="self-term treatment for potential reconstruction",
+        help="self-term treatment for --recompute-potential and potential plots",
     )
     parser.add_argument(
         "--view-elev",
@@ -149,12 +164,17 @@ def run(args: argparse.Namespace) -> None:
                 f"template:{src.template_kind} surface:{src.surface_model} "
                 f"epsilon_r:{src.epsilon_r:g} elems:{src.elem_count}"
             )
-    if result.triangles is not None:
+    potential = None
+    if args.recompute_potential:
         potential = beach.compute_potential(
             softening=args.potential_softening,
             self_term=self_term,
             reference_point=reference_point,
         )
+    elif result.mesh_potential_v is not None:
+        potential = result.mesh_potential_v
+
+    if potential is not None and potential.size > 0:
         print(f"potential_min={potential.min():.6e}")
         print(f"potential_max={potential.max():.6e}")
     if result.history is not None and result.history.has_data:
