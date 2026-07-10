@@ -10,7 +10,8 @@ module bem_simulator
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
   use bem_boundary, only: apply_box_boundary
   use bem_surface_models, only: apply_surface_model_charge_relaxation
-  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array
+  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
+                     mpi_allreduce_sum_i32_scalar, mpi_select_lowest_rank_i32_values
   implicit none
   private
 
@@ -54,7 +55,8 @@ module bem_simulator
 
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
-      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank &
+      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank, &
+      collision_failure_status, collision_failure_particle, collision_failure_step &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -66,6 +68,7 @@ module bem_simulator
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx
       integer(i32), intent(in) :: mpi_rank
+      integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
     end subroutine process_particle_batch
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。

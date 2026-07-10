@@ -9,6 +9,7 @@ module bem_collision
   integer(i32), parameter, public :: collision_query_image_limit = 1_i32
   integer(i32), parameter, public :: collision_query_index_range = 2_i32
   integer(i64), parameter :: max_periodic2_collision_images = 4096_i64
+  private :: finalize_collision_query
 contains
 
   !> 線分 `[p0,p1]` に対して最初に衝突する三角形要素を探索し、命中情報を返す。
@@ -612,14 +613,15 @@ contains
     integer(i32), intent(in) :: axis
     real(dp), intent(in) :: period_len
     integer(i32), intent(out) :: nmin, nmax
-    integer(i32), intent(out) :: status
+    integer(i32), intent(out), optional :: status
 
+    integer(i32) :: query_status
     integer(i64) :: nmin_i64, nmax_i64, i32_min_i64, i32_max_i64
     real(dp) :: seg_min, seg_max, mesh_min, mesh_max, tol, lower_bound, upper_bound, i64_limit
 
     nmin = 0_i32
     nmax = -1_i32
-    status = collision_query_ok
+    query_status = collision_query_ok
     seg_min = min(p0(axis), p1(axis))
     seg_max = max(p0(axis), p1(axis))
     mesh_min = mesh%grid_bb_min(axis)
@@ -629,14 +631,14 @@ contains
     lower_bound = (seg_min - mesh_max - tol)/period_len
     upper_bound = (seg_max - mesh_min + tol)/period_len
     if (.not. ieee_is_finite(lower_bound) .or. .not. ieee_is_finite(upper_bound)) then
-      status = collision_query_index_range
+      call finalize_collision_query(collision_query_index_range, status)
       return
     end if
 
     i64_limit = real(huge(0_i64), dp)
     if (lower_bound <= -i64_limit .or. lower_bound >= i64_limit .or. &
         upper_bound <= -i64_limit .or. upper_bound >= i64_limit) then
-      status = collision_query_index_range
+      call finalize_collision_query(collision_query_index_range, status)
       return
     end if
 
@@ -646,12 +648,13 @@ contains
     i32_min_i64 = -i32_max_i64 - 1_i64
     if (nmin_i64 < i32_min_i64 .or. nmin_i64 > i32_max_i64 .or. &
         nmax_i64 < i32_min_i64 .or. nmax_i64 > i32_max_i64) then
-      status = collision_query_index_range
+      call finalize_collision_query(collision_query_index_range, status)
       return
     end if
 
     nmin = int(nmin_i64, i32)
     nmax = int(nmax_i64, i32)
+    call finalize_collision_query(query_status, status)
   end subroutine compute_periodic_shift_bounds
 
   !> 不完全な照会を status 要求元へ返し、未要求の既存 caller は fail closed で停止する。

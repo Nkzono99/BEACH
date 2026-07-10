@@ -20,6 +20,7 @@ module bem_mpi
   public :: mpi_world_size
   public :: mpi_get_rank_size
   public :: mpi_split_count
+  public :: mpi_select_lowest_rank_i32_values
   public :: mpi_allreduce_sum_real_dp_array
   public :: mpi_allreduce_sum_real_dp_scalar
   public :: mpi_allreduce_min_real_dp_array
@@ -183,6 +184,46 @@ contains
     local_count = base_count
     if (rank < n_remainder) local_count = local_count + 1_i32
   end function mpi_split_count
+
+  !> Select values supplied by the lowest MPI rank whose local flag is true.
+  subroutine mpi_select_lowest_rank_i32_values(ctx, local_present, local_values, selected_rank, selected_values)
+    type(mpi_context), intent(in) :: ctx
+    logical, intent(in) :: local_present
+    integer(i32), intent(in) :: local_values(:)
+    integer(i32), intent(out) :: selected_rank
+    integer(i32), intent(out) :: selected_values(:)
+
+    integer :: base, nvalues, stride
+    integer(i32) :: candidate_rank, local_rank, world_size
+    integer(i32), allocatable :: packed(:)
+
+    if (size(selected_values) /= size(local_values)) then
+      error stop 'mpi_select_lowest_rank_i32_values requires matching value array sizes.'
+    end if
+
+    call mpi_get_rank_size(local_rank, world_size, ctx)
+    nvalues = size(local_values)
+    stride = nvalues + 1
+    allocate (packed(int(world_size)*stride))
+    packed = 0_i32
+    if (local_present) then
+      base = int(local_rank)*stride
+      packed(base + 1) = 1_i32
+      if (nvalues > 0) packed(base + 2:base + 1 + nvalues) = local_values
+    end if
+
+    call mpi_allreduce_sum_i32_array(ctx, packed)
+
+    selected_rank = -1_i32
+    selected_values = 0_i32
+    do candidate_rank = 0_i32, world_size - 1_i32
+      base = int(candidate_rank)*stride
+      if (packed(base + 1) <= 0_i32) cycle
+      selected_rank = candidate_rank
+      if (nvalues > 0) selected_values = packed(base + 2:base + 1 + nvalues)
+      exit
+    end do
+  end subroutine mpi_select_lowest_rank_i32_values
 
   !> 倍精度配列の総和Allreduceをin-placeで実行する。
   subroutine mpi_allreduce_sum_real_dp_array(ctx, values)

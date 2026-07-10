@@ -205,11 +205,12 @@ contains
   subroutine test_collision_query_failure_context()
     character(len=1024) :: executable_path, command, child_line
     integer :: child_exit_status, child_cmd_status, child_unit, child_ios
-    logical :: saw_batch, saw_particle, saw_status
+    logical :: saw_batch, saw_particle, saw_status, saw_survivor_warning
 
     call get_command_argument(0, executable_path)
     call delete_file_if_exists(collision_failure_path)
-    command = '"'//trim(executable_path)//'" --collision-query-failure-probe > '//collision_failure_path//' 2>&1'
+    command = 'OMP_NUM_THREADS=2 BEACH_WARN_LONG_PARTICLE_STEPS=1 "'//trim(executable_path)// &
+              '" --collision-query-failure-probe > '//collision_failure_path//' 2>&1'
     call execute_command_line( &
       trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
       )
@@ -220,6 +221,7 @@ contains
     saw_batch = .false.
     saw_particle = .false.
     saw_status = .false.
+    saw_survivor_warning = .false.
     open (newunit=child_unit, file=collision_failure_path, status='old', action='read', iostat=child_ios)
     if (child_ios /= 0) error stop 'failed to read collision failure probe output'
     do
@@ -228,13 +230,15 @@ contains
       saw_batch = saw_batch .or. index(child_line, 'batch=1') > 0
       saw_particle = saw_particle .or. index(child_line, 'particle=1') > 0
       saw_status = saw_status .or. index(child_line, 'status=image_limit') > 0
+      saw_survivor_warning = saw_survivor_warning .or. index(child_line, 'max-step-survivor') > 0
     end do
     close (child_unit)
     call delete_file_if_exists(collision_failure_path)
 
     call assert_true(saw_batch, 'collision failure message should include the batch index')
-    call assert_true(saw_particle, 'collision failure message should include the particle index')
+    call assert_true(saw_particle, 'collision failure message should include the lowest failing particle index')
     call assert_true(saw_status, 'collision failure message should include the collision status')
+    call assert_true(.not. saw_survivor_warning, 'collision failure must not be reported as a max-step survivor')
   end subroutine test_collision_query_failure_context
 
   subroutine run_collision_query_failure_probe()
@@ -266,7 +270,7 @@ contains
     failure_cfg%n_particle_species = 1_i32
     failure_cfg%particle_species(1) = species_from_defaults()
     failure_cfg%particle_species(1)%source_mode = 'volume_seed'
-    failure_cfg%particle_species(1)%npcls_per_step = 1_i32
+    failure_cfg%particle_species(1)%npcls_per_step = 2_i32
     failure_cfg%particle_species(1)%q_particle = 1.0d0
     failure_cfg%particle_species(1)%m_particle = 1.0d0
     failure_cfg%particle_species(1)%w_particle = 1.0d0

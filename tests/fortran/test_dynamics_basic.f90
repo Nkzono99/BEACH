@@ -8,7 +8,7 @@ program test_dynamics_basic
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, &
-                           find_first_hit, segment_triangle_intersect
+                           compute_periodic_shift_bounds, find_first_hit, segment_triangle_intersect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
@@ -28,7 +28,7 @@ program test_dynamics_basic
     error stop 'collision status omitted probe unexpectedly completed'
   end if
 
-  call test_init(14)
+  call test_init(16)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -103,6 +103,14 @@ program test_dynamics_basic
 
   call test_begin('periodic2_collision_i32_upper_boundary')
   call test_periodic2_collision_i32_upper_boundary()
+  call test_end()
+
+  call test_begin('periodic2_collision_i32_lower_boundary')
+  call test_periodic2_collision_i32_lower_boundary()
+  call test_end()
+
+  call test_begin('periodic_shift_bounds_legacy_signature')
+  call test_periodic_shift_bounds_legacy_signature()
   call test_end()
 
   call test_begin('periodic2_collision_index_range_guard')
@@ -324,6 +332,49 @@ contains
       hit_periodic%image_shift(1), huge(0_i32), 'i32 upper-bound image shift mismatch' &
       )
   end subroutine test_periodic2_collision_i32_upper_boundary
+
+  subroutine test_periodic2_collision_i32_lower_boundary()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    integer(i32) :: query_status
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), boundary_x
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    boundary_x = -real(huge(0_i32), dp) - 1.0d0 + 0.2d0
+    call find_first_hit( &
+      mesh_periodic, [boundary_x, 0.25d0, 1.0d0], [boundary_x, 0.25d0, -1.0d0], &
+      hit_periodic, sim=sim, status=query_status &
+      )
+    call assert_equal_i32(query_status, collision_query_ok, 'i32 lower-bound collision status mismatch')
+    call assert_true(hit_periodic%has_hit, 'i32 lower-bound periodic image should remain hittable')
+    call assert_equal_i32( &
+      hit_periodic%image_shift(1), -huge(0_i32) - 1_i32, 'i32 lower-bound image shift mismatch' &
+      )
+  end subroutine test_periodic2_collision_i32_lower_boundary
+
+  subroutine test_periodic_shift_bounds_legacy_signature()
+    type(mesh_type) :: mesh_periodic
+    integer(i32) :: nmin, nmax
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+
+    call compute_periodic_shift_bounds( &
+      mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [0.2d0, 0.25d0, -1.0d0], 1_i32, 1.0d0, nmin, nmax &
+      )
+    call assert_equal_i32(nmin, 0_i32, 'legacy shift-bound nmin mismatch')
+    call assert_equal_i32(nmax, 0_i32, 'legacy shift-bound nmax mismatch')
+  end subroutine test_periodic_shift_bounds_legacy_signature
 
   subroutine test_periodic2_collision_index_range_guard()
     type(mesh_type) :: mesh_periodic

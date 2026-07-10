@@ -1,7 +1,8 @@
 !> MPI+OpenMPハイブリッド実行時の集約・rank別resumeファイルを検証する。
 program test_mpi_hybrid
   use bem_kinds, only: dp, i32, i64
-  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_barrier
+  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
+                     mpi_world_barrier
   use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
@@ -23,7 +24,8 @@ program test_mpi_hybrid
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   integer :: u, ios
   character(len=256) :: line
-  integer(i32) :: n_lines
+  integer(i32) :: n_lines, selected_rank, expected_rank
+  integer(i32) :: local_failure_values(3), selected_failure_values(3)
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
@@ -75,7 +77,25 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(3)
+  call test_init(4)
+
+  call test_begin('mpi_lowest_rank_metadata_selection')
+  expected_rank = mpi%size - 1_i32
+  local_failure_values = 0_i32
+  if (mpi%rank == expected_rank) local_failure_values = [2_i32, 17_i32, 3_i32]
+  call mpi_select_lowest_rank_i32_values( &
+    mpi, mpi%rank == expected_rank, local_failure_values, selected_rank, selected_failure_values &
+    )
+  call assert_equal_i32(selected_rank, expected_rank, 'single failure rank selection mismatch')
+  call assert_true(all(selected_failure_values == [2_i32, 17_i32, 3_i32]), 'single failure metadata mismatch')
+
+  local_failure_values = [1_i32, 20_i32 + mpi%rank, 4_i32]
+  call mpi_select_lowest_rank_i32_values( &
+    mpi, .true., local_failure_values, selected_rank, selected_failure_values &
+    )
+  call assert_equal_i32(selected_rank, 0_i32, 'lowest failure rank selection mismatch')
+  call assert_true(all(selected_failure_values == [1_i32, 20_i32, 4_i32]), 'lowest rank metadata mismatch')
+  call test_end()
 
   call test_begin('mpi_simulation')
   if (mpi_is_root(mpi)) then

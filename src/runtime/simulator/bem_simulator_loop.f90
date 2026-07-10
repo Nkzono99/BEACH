@@ -12,6 +12,9 @@ contains
   !> 吸着モデルのバッチループを実行し、電荷更新と統計集計を進める。
   module procedure run_absorption_insulator
   integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
+  integer(i32) :: collision_failure_count, collision_failure_rank, collision_failure_status
+  integer(i32) :: collision_failure_particle, collision_failure_step
+  integer(i32) :: local_failure_values(3), selected_failure_values(3)
   integer :: hist_unit
   logical :: history_enabled
   logical :: potential_history_enabled
@@ -73,9 +76,23 @@ contains
 
     call perf_region_begin(perf_region_particle_batch, t0)
     call process_particle_batch( &
-      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank &
+      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+      collision_failure_status, collision_failure_particle, collision_failure_step &
       )
     call perf_region_end(perf_region_particle_batch, t0)
+
+    collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+    call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
+    if (collision_failure_count > 0_i32) then
+      local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
+      call mpi_select_lowest_rank_i32_values( &
+        mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
+        collision_failure_rank, selected_failure_values &
+        )
+      call stop_for_collision_failure( &
+        batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), selected_failure_values(3) &
+        )
+    end if
 
     call perf_region_begin(perf_region_commit_charge, t0)
     call commit_batch_charge( &
@@ -168,13 +185,10 @@ contains
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth, warn_stride
   integer(i32) :: boundary_axis, collision_status
-  integer(i32) :: collision_failure_status, collision_failure_particle, collision_failure_step
   real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
   real(dp) :: boundary_probe(3), phi_boundary
   type(hit_info) :: hit
-  logical :: escaped_by_boundary, has_warn_stride, has_boundary_probe, boundary_high_side
-  character(len=16) :: collision_failure_name
-  character(len=256) :: collision_failure_message
+  logical :: escaped_by_boundary, has_warn_stride, has_boundary_probe, boundary_high_side, collision_failed
 
   nth = size(dq_thread, 2)
   call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
@@ -187,13 +201,14 @@ contains
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp private(i,step,x0,v0,x1,v1,e,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary) &
-  !$omp private(has_boundary_probe,boundary_high_side,collision_status)
+  !$omp private(has_boundary_probe,boundary_high_side,collision_status,collision_failed)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
   !$omp do schedule(dynamic, 1)
   do i = 1, pcls_batch%n
     if (.not. pcls_batch%alive(i)) cycle
+    collision_failed = .false.
     do step = 1, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
@@ -212,6 +227,7 @@ contains
           collision_failure_step = step
         end if
         !$omp end critical (beach_collision_query_failure)
+        collision_failed = .true.
         exit
       end if
       if (hit%has_hit) then
@@ -254,7 +270,7 @@ contains
         end if
       end if
     end do
-    if (warn_stride > 0_i32 .and. pcls_batch%alive(i)) then
+    if (warn_stride > 0_i32 .and. pcls_batch%alive(i) .and. .not. collision_failed) then
       !$omp critical (beach_long_particle_warn)
       write (output_unit, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a,3es13.5,a,3es13.5)') &
         'BEACH max-step-survivor batch=', batch_idx, ' rank=', mpi_rank, ' thread=', tid, &
@@ -266,23 +282,28 @@ contains
   end do
   !$omp end do
   !$omp end parallel
-
-  if (collision_failure_status /= collision_query_ok) then
-    select case (collision_failure_status)
-    case (collision_query_image_limit)
-      collision_failure_name = 'image_limit'
-    case (collision_query_index_range)
-      collision_failure_name = 'index_range'
-    case default
-      collision_failure_name = 'unknown'
-    end select
-    write (collision_failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
-      'collision query incomplete: batch=', batch_idx, ' particle=', collision_failure_particle, &
-      ' step=', collision_failure_step, ' rank=', mpi_rank, ' status=', trim(collision_failure_name), &
-      ' code=', collision_failure_status
-    error stop trim(collision_failure_message)
-  end if
   end procedure process_particle_batch
+
+  !> 全 rank で選択済みの collision failure context を報告して停止する。
+  subroutine stop_for_collision_failure(batch_idx, failure_rank, failure_status, failure_particle, failure_step)
+    integer(i32), intent(in) :: batch_idx, failure_rank, failure_status, failure_particle, failure_step
+    character(len=16) :: failure_name
+    character(len=256) :: failure_message
+
+    select case (failure_status)
+    case (collision_query_image_limit)
+      failure_name = 'image_limit'
+    case (collision_query_index_range)
+      failure_name = 'index_range'
+    case default
+      failure_name = 'unknown'
+    end select
+    write (failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
+      'collision query incomplete: batch=', batch_idx, ' particle=', failure_particle, &
+      ' step=', failure_step, ' rank=', failure_rank, ' status=', trim(failure_name), &
+      ' code=', failure_status
+    error stop trim(failure_message)
+  end subroutine stop_for_collision_failure
 
   !> x0->x1 が最初に越える open box 面上の評価点を返す。
   subroutine find_open_boundary_probe(sim, x0, x1, found, probe, probe_axis, high_side)
