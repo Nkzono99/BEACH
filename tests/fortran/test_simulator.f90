@@ -24,12 +24,16 @@ program test_simulator
   character(len=*), parameter :: history_path = 'test_simulator_history_tmp.csv'
   character(len=*), parameter :: potential_history_path = 'test_simulator_potential_history_tmp.csv'
   character(len=*), parameter :: collision_failure_path = 'test_simulator_collision_failure_tmp.log'
+  character(len=*), parameter :: photo_collision_failure_path = 'test_simulator_photo_collision_failure_tmp.log'
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
   if (trim(run_mode) == '--collision-query-failure-probe') then
     call run_collision_query_failure_probe()
     error stop 'collision query failure probe unexpectedly completed'
+  else if (trim(run_mode) == '--photo-collision-query-failure-probe') then
+    call run_photo_collision_query_failure_probe()
+    error stop 'photo collision query failure probe unexpectedly completed'
   end if
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -96,7 +100,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -198,6 +202,10 @@ program test_simulator
   call test_collision_query_failure_context()
   call test_end()
 
+  call test_begin('photo_collision_query_failure_context')
+  call test_photo_collision_query_failure_context()
+  call test_end()
+
   call test_summary()
 
 contains
@@ -283,4 +291,105 @@ contains
     call seed_particles_from_config(failure_cfg)
     call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
   end subroutine run_collision_query_failure_probe
+
+  subroutine test_photo_collision_query_failure_context()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_batch, saw_rank, saw_species, saw_ray, saw_bounce, saw_status
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(photo_collision_failure_path)
+    command = 'OMP_NUM_THREADS=2 "'//trim(executable_path)// &
+              '" --photo-collision-query-failure-probe > '//photo_collision_failure_path//' 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'photo collision failure command status mismatch')
+    call assert_true(child_exit_status /= 0, 'photo collision failure probe should terminate with a nonzero status')
+
+    saw_batch = .false.
+    saw_rank = .false.
+    saw_species = .false.
+    saw_ray = .false.
+    saw_bounce = .false.
+    saw_status = .false.
+    open (newunit=child_unit, file=photo_collision_failure_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read photo collision failure probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_batch = saw_batch .or. index(child_line, 'batch=1') > 0
+      saw_rank = saw_rank .or. index(child_line, 'rank=0') > 0
+      saw_species = saw_species .or. index(child_line, 'species=2') > 0
+      saw_ray = saw_ray .or. index(child_line, 'ray=1') > 0
+      saw_bounce = saw_bounce .or. index(child_line, 'bounce=0') > 0
+      saw_status = saw_status .or. index(child_line, 'status=image_limit') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(photo_collision_failure_path)
+
+    call assert_true(saw_batch, 'photo collision failure message should include the batch index')
+    call assert_true(saw_rank, 'photo collision failure message should include the selected rank')
+    call assert_true(saw_species, 'photo collision failure message should include the species index')
+    call assert_true(saw_ray, 'photo collision failure message should include the lowest failing ray')
+    call assert_true(saw_bounce, 'photo collision failure message should include the failing bounce')
+    call assert_true(saw_status, 'photo collision failure message should include the collision status')
+  end subroutine test_photo_collision_query_failure_context
+
+  subroutine run_photo_collision_query_failure_probe()
+    type(mesh_type) :: failure_mesh
+    type(app_config) :: failure_cfg
+    type(sim_stats) :: failure_stats
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [-2048.0d0, 0.0d0, 0.5d0]
+    tri_v1(:, 1) = [2049.0d0, 0.0d0, 0.5d0]
+    tri_v2(:, 1) = [0.5d0, 1.0d0, 0.5d0]
+    call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
+
+    call default_app_config(failure_cfg)
+    failure_cfg%sim%rng_seed = 992_i32
+    failure_cfg%sim%batch_count = 1_i32
+    failure_cfg%sim%batch_duration = 0.5d0
+    failure_cfg%sim%dt = 1.0d0
+    failure_cfg%sim%max_step = 1_i32
+    failure_cfg%sim%softening = 1.0d-6
+    failure_cfg%sim%field_solver = 'fmm'
+    failure_cfg%sim%field_bc_mode = 'periodic2'
+    failure_cfg%sim%field_periodic_far_correction = 'none'
+    failure_cfg%sim%use_box = .true.
+    failure_cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
+    failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+
+    failure_cfg%n_particle_species = 2_i32
+    failure_cfg%particle_species(1) = species_from_defaults()
+    failure_cfg%particle_species(1)%source_mode = 'volume_seed'
+    failure_cfg%particle_species(1)%npcls_per_step = 1_i32
+    failure_cfg%particle_species(1)%q_particle = 1.0d0
+    failure_cfg%particle_species(1)%m_particle = 1.0d0
+    failure_cfg%particle_species(1)%w_particle = 1.0d0
+    failure_cfg%particle_species(1)%temperature_k = 0.0d0
+    failure_cfg%particle_species(1)%pos_low = [0.5d0, 0.5d0, 0.75d0]
+    failure_cfg%particle_species(1)%pos_high = failure_cfg%particle_species(1)%pos_low
+    failure_cfg%particle_species(1)%drift_velocity = 0.0d0
+    failure_cfg%particle_species(2) = species_from_defaults()
+    failure_cfg%particle_species(2)%source_mode = 'photo_raycast'
+    failure_cfg%particle_species(2)%rays_per_batch = 4_i32
+    failure_cfg%particle_species(2)%emit_current_density_a_m2 = 1.0d0
+    failure_cfg%particle_species(2)%q_particle = -1.0d0
+    failure_cfg%particle_species(2)%m_particle = 1.0d0
+    failure_cfg%particle_species(2)%temperature_k = 0.0d0
+    failure_cfg%particle_species(2)%inject_face = 'z_high'
+    failure_cfg%particle_species(2)%pos_low = [0.0d0, 0.0d0, 1.0d0]
+    failure_cfg%particle_species(2)%pos_high = [1.0d0, 1.0d0, 1.0d0]
+    failure_cfg%particle_species(2)%ray_direction = [0.0d0, 0.0d0, -1.0d0]
+    failure_cfg%particle_species(2)%has_ray_direction = .true.
+
+    call prepare_periodic2_collision_mesh(failure_mesh, failure_cfg%sim)
+    call seed_particles_from_config(failure_cfg)
+    call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
+  end subroutine run_photo_collision_query_failure_probe
 end program test_simulator

@@ -5,7 +5,7 @@ module bem_injection
   use bem_particles, only: init_particles
   use bem_types, only: particles_soa, mesh_type, sim_config, hit_info
   use bem_boundary, only: apply_box_boundary
-  use bem_collision, only: find_first_hit
+  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
   use bem_string_utils, only: lower_ascii
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
@@ -468,10 +468,13 @@ contains
   !! @param[out] w 各マクロ粒子重み `w(rays_per_batch)`。
   !! @param[out] n_emit 実際に放出された粒子数（`<= rays_per_batch`）。
   !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(rays_per_batch)`（省略可）。
+  !! @param[out] collision_failure_status 不完全な衝突照会の status（省略時は OpenMP 終了後に停止）。
+  !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
+  !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
   subroutine sample_photo_raycast_particles( &
     mesh, sim, inject_face, pos_low, pos_high, ray_direction, m_particle, temperature_k, normal_drift_speed, &
     emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
-    vmin_normal &
+    vmin_normal, collision_failure_status, collision_failure_ray, collision_failure_bounce &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -488,10 +491,11 @@ contains
     integer(i32), intent(out), optional :: emit_elem_idx(:)
     integer(i32), intent(in), optional :: global_rays_per_batch
     real(dp), intent(in), optional :: vmin_normal
+    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_ray, collision_failure_bounce
 
     real(dp), parameter :: eps = 1.0d-12
-    integer(i32) :: i, total_rays
-    integer(i32) :: bounce_count
+    integer(i32) :: i, total_rays, bounce_count, collision_status
+    integer(i32) :: query_failure_status, query_failure_ray, query_failure_bounce
     integer :: axis_n, axis_t1, axis_t2
     real(dp) :: boundary_value, inward_normal(3), launch_dir(3), launch_dir_norm, inward_dot
     real(dp) :: launch_area, projected_area, w_hit, sigma
@@ -545,6 +549,12 @@ contains
     x = 0.0_dp
     v = 0.0_dp
     w = 0.0_dp
+    query_failure_status = collision_query_ok
+    query_failure_ray = huge(0_i32)
+    query_failure_bounce = 0_i32
+    if (present(collision_failure_status)) collision_failure_status = collision_query_ok
+    if (present(collision_failure_ray)) collision_failure_ray = query_failure_ray
+    if (present(collision_failure_bounce)) collision_failure_bounce = query_failure_bounce
 
     use_periodic2_mode = trim(lower_ascii(sim%field_bc_mode)) == 'periodic2'
 
@@ -558,9 +568,10 @@ contains
 
     !$omp parallel do default(none) schedule(static) &
     !$omp shared(rays_per_batch, axis_n, axis_t1, axis_t2, boundary_value, pos_low, pos_high, u, launch_dir, sim, mesh, &
-    !$omp        use_periodic2_mode, ray_emitted, hit_pos, hit_normal, hit_elem) &
+    !$omp        use_periodic2_mode, ray_emitted, hit_pos, hit_normal, hit_elem, query_failure_status, &
+    !$omp        query_failure_ray, query_failure_bounce) &
     !$omp private(i, ray_pos, ray_dir, seg_end, reached_boundary, alive, bounce_count, hit, surf_normal, boundary_probe, &
-    !$omp         boundary_dir, escaped_boundary)
+    !$omp         boundary_dir, escaped_boundary, collision_status)
     do i = 1_i32, rays_per_batch
       ray_pos = 0.0_dp
       ray_pos(axis_n) = boundary_value
@@ -576,8 +587,20 @@ contains
         if (.not. reached_boundary) exit
 
         call find_first_hit( &
-          mesh, ray_pos, seg_end, hit, sim=sim, box_min=sim%box_min, box_max=sim%box_max, require_elem_inside=.true. &
+          mesh, ray_pos, seg_end, hit, sim=sim, box_min=sim%box_min, box_max=sim%box_max, &
+          require_elem_inside=.true., status=collision_status &
           )
+        if (collision_status /= collision_query_ok) then
+          !$omp critical (beach_photo_collision_query_failure)
+          if (query_failure_status == collision_query_ok .or. i < query_failure_ray .or. &
+              (i == query_failure_ray .and. bounce_count < query_failure_bounce)) then
+            query_failure_status = collision_status
+            query_failure_ray = i
+            query_failure_bounce = bounce_count
+          end if
+          !$omp end critical (beach_photo_collision_query_failure)
+          exit
+        end if
         if (hit%has_hit) then
           surf_normal = mesh%normals(:, hit%elem_idx)
           if (dot_product(surf_normal, ray_dir) > 0.0_dp) surf_normal = -surf_normal
@@ -604,6 +627,14 @@ contains
     end do
     !$omp end parallel do
 
+    if (query_failure_status /= collision_query_ok) then
+      call finalize_photo_collision_query( &
+        query_failure_status, query_failure_ray, query_failure_bounce, &
+        collision_failure_status, collision_failure_ray, collision_failure_bounce &
+        )
+      return
+    end if
+
     do i = 1_i32, rays_per_batch
       if (.not. ray_emitted(i)) cycle
       if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
@@ -622,6 +653,34 @@ contains
       if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit_elem(i)
     end do
   end subroutine sample_photo_raycast_particles
+
+  !> photo ray の不完全な衝突照会を返し、status 未要求なら OpenMP 外で停止する。
+  subroutine finalize_photo_collision_query( &
+    query_status, query_ray, query_bounce, collision_failure_status, collision_failure_ray, collision_failure_bounce &
+    )
+    integer(i32), intent(in) :: query_status, query_ray, query_bounce
+    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_ray, collision_failure_bounce
+    character(len=16) :: status_name
+    character(len=256) :: failure_message
+
+    if (present(collision_failure_status)) collision_failure_status = query_status
+    if (present(collision_failure_ray)) collision_failure_ray = query_ray
+    if (present(collision_failure_bounce)) collision_failure_bounce = query_bounce
+    if (present(collision_failure_status)) return
+
+    select case (query_status)
+    case (collision_query_image_limit)
+      status_name = 'image_limit'
+    case (collision_query_index_range)
+      status_name = 'index_range'
+    case default
+      status_name = 'unknown'
+    end select
+    write (failure_message, '(a,i0,a,i0,a,a,a,i0)') &
+      'photo_raycast collision query incomplete: ray=', query_ray, ' bounce=', query_bounce, &
+      ' status=', trim(status_name), ' code=', query_status
+    error stop trim(failure_message)
+  end subroutine finalize_photo_collision_query
 
   !> レイを現在位置から最初のボックス境界まで進める。
   !! @param[in] box_min ボックス下限座標 `(x,y,z)` [m]。

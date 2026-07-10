@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - `sim.open_boundary_model="potential_barrier"` for open-boundary return/escape decisions based on normal kinetic energy and the local potential barrier.
 
+### Changed
+- `beach-inspect` now uses only precomputed mesh potential for its ordinary summary; `--recompute-potential` explicitly requests the quadratic reconstruction path.
+- Periodic far-correction documentation now consistently describes `none` as the default, `auto` as its compatibility alias, and `m2l_root_oracle` as an explicit diagnostic mode.
+
+### Fixed
+- Output-directory creation now uses the POSIX filesystem binding without shell evaluation, including paths with literal shell metacharacters.
+- Periodic collision queries now fail closed on image/range limits and propagate deterministic OpenMP/MPI failure context for both particle tracking and `photo_raycast` injection.
+- Treecode now descends mixed-sign charge nodes instead of accepting an unreliable near-cancelled monopole approximation.
+- Charge-history readers now reject incomplete dense batch snapshots before exposing the batch through indexed or per-step access.
+
 ### Removed
 - Removed the user-facing output-generation subcommand from `beachx config`; high-level BEACH authoring keys are now accepted directly by the Fortran config loader.
 

@@ -198,6 +198,10 @@ for local_batch_idx = 1..batch_count_this_run:
 - `escaped_boundary_flag(:)` and `absorbed_flag(:)`
 
 Splitting `dq_thread` by thread lets collision deposition be accumulated without atomics.
+When a `photo_raycast` collision query is incomplete, the sampler does not stop inside OpenMP. It returns the lowest
+ray / bounce and status through `init_particle_batch_from_config` to `prepare_batch_state`. Before field refresh or charge
+processing, the main loop selects the lowest-rank species / ray / bounce / status and every rank stops with the same diagnostic.
+Incomplete particle arrays and `photo_emission_dq` from the failing rank are not used by later processing.
 
 ### 3.3 Particle processing
 
@@ -209,12 +213,17 @@ Splitting `dq_thread` by thread lets collision deposition be accumulated without
 | 2 | Evaluate the electric field from boundary-element charge with `field_solver%eval_e(mesh, x0, e)` |
 | 3 | Add the uniform external electric field `sim.e0` |
 | 4 | Compute candidate position `x1` and velocity `v1` with `boris_push` |
-| 5 | Test segment collision with `find_first_hit(mesh, x0, x1, hit, sim=sim)` |
+| 5 | Test segment collision with `find_first_hit(mesh, x0, x1, hit, sim=sim, status=collision_status)` |
 | 6 | If there is a hit, add `q * w` to `dq_thread(elem, tid)` for the hit element and absorb the particle |
 | 7 | If there is no hit, apply open / reflect / periodic with `apply_box_boundary` |
 | 8 | If the particle remains alive, update `x` and `v` and continue to the next step |
 
 If `BEACH_WARN_LONG_PARTICLE_STEPS` is set to a positive integer, BEACH prints diagnostics for long-lived particles at that step interval.
+
+The collision statuses are `collision_query_ok=0`, `collision_query_image_limit=1`, and
+`collision_query_index_range=2`. A public call that omits `status` does not treat an incomplete query as a miss; it stops
+fail closed. The main particle loop aggregates the lowest particle / step in a named critical section, leaves the OpenMP
+region, and then selects the lowest failure rank through MPI so that every rank stops with the same message.
 
 ### 3.4 Charge commit
 

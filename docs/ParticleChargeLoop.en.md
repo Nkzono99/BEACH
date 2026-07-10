@@ -254,6 +254,24 @@ $$
 For each image, the segment is shifted by `-shift` and intersected against the base mesh.
 The hit record stores both the physical image-coordinate hit position `hit%pos` and the primary-cell wrapped position `hit%pos_wrapped`.
 
+`find_first_hit` reports query completion with these public constants.
+
+| Constant | Value | Meaning |
+| --- | ---: | --- |
+| `collision_query_ok` | 0 | All required candidates were examined |
+| `collision_query_image_limit` | 1 | The per-axis or Cartesian-product image count exceeded the safety limit of 4096 |
+| `collision_query_index_range` | 2 | A shift bound was non-finite or outside the representable i64 / i32 range |
+
+A caller that requests `status` receives the incomplete state. A public call that omits `status` does not continue by treating
+an incomplete query as a miss; it stops fail closed. Normal particle tracking always receives each query status inside OpenMP,
+selects the lowest particle / step in a named critical section, and leaves the parallel region. It then selects metadata from
+the lowest failure rank through MPI so every rank stops with the same batch / rank / particle / step / status message.
+
+`photo_raycast` also receives every ray-query status and selects the lowest ray / bounce in its own named critical section.
+The incomplete ray stops immediately, and after OpenMP the species / ray / bounce / status metadata is returned to batch
+preparation. Before field refresh or photo-charge processing, the main loop selects the lowest failure rank and every rank stops
+with the same message, so incomplete particle arrays and emission-charge deltas from the failing rank are not used.
+
 ---
 
 ## 10. Box boundary conditions

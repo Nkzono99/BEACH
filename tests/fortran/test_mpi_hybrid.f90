@@ -25,7 +25,7 @@ program test_mpi_hybrid
   integer :: u, ios
   character(len=256) :: line
   integer(i32) :: n_lines, selected_rank, expected_rank
-  integer(i32) :: local_failure_values(3), selected_failure_values(3)
+  integer(i32) :: local_failure_values(4), selected_failure_values(4)
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
@@ -81,20 +81,21 @@ program test_mpi_hybrid
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
+  ! photo collision failure payload: species, ray, bounce, status
   local_failure_values = 0_i32
-  if (mpi%rank == expected_rank) local_failure_values = [2_i32, 17_i32, 3_i32]
+  if (mpi%rank == expected_rank) local_failure_values = [2_i32, 17_i32, 3_i32, 1_i32]
   call mpi_select_lowest_rank_i32_values( &
     mpi, mpi%rank == expected_rank, local_failure_values, selected_rank, selected_failure_values &
     )
   call assert_equal_i32(selected_rank, expected_rank, 'single failure rank selection mismatch')
-  call assert_true(all(selected_failure_values == [2_i32, 17_i32, 3_i32]), 'single failure metadata mismatch')
+  call assert_true(all(selected_failure_values == [2_i32, 17_i32, 3_i32, 1_i32]), 'single failure metadata mismatch')
 
-  local_failure_values = [1_i32, 20_i32 + mpi%rank, 4_i32]
+  local_failure_values = [1_i32, 20_i32 + mpi%rank, 4_i32, 2_i32]
   call mpi_select_lowest_rank_i32_values( &
     mpi, .true., local_failure_values, selected_rank, selected_failure_values &
     )
   call assert_equal_i32(selected_rank, 0_i32, 'lowest failure rank selection mismatch')
-  call assert_true(all(selected_failure_values == [1_i32, 20_i32, 4_i32]), 'lowest rank metadata mismatch')
+  call assert_true(all(selected_failure_values == [1_i32, 20_i32, 4_i32, 2_i32]), 'lowest rank metadata mismatch')
   call test_end()
 
   call test_begin('mpi_simulation')

@@ -7,21 +7,30 @@ program test_injection_sampling
     seed_rng, sample_shifted_maxwell_velocities, init_random_beam_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
     sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
+  use bem_collision, only: collision_query_image_limit
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
 
   type(particles_soa) :: pcls
-  type(mesh_type) :: mesh
-  type(sim_config) :: sim
+  type(mesh_type) :: mesh, failure_mesh
+  type(sim_config) :: sim, failure_sim
   real(dp), allocatable :: v(:, :), x(:, :), w_photo(:)
   integer(i32), allocatable :: emit_elem(:)
   real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt, expected_w
   real(dp) :: ray_dir(3), tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
-  integer(i32) :: n_macro, n_emit
+  integer(i32) :: n_macro, n_emit, collision_status, failure_ray, failure_bounce
   integer :: i
+  character(len=64) :: run_mode
+  character(len=*), parameter :: photo_failure_path = 'test_injection_sampling_photo_failure_tmp.log'
 
-  call test_init(16)
+  call get_command_argument(1, run_mode)
+  if (trim(run_mode) == '--photo-query-failure-probe') then
+    call run_photo_query_failure_probe()
+    error stop 'photo query failure probe unexpectedly completed'
+  end if
+
+  call test_init(18)
 
   call seed_rng()
 
@@ -246,6 +255,25 @@ program test_injection_sampling
   call assert_equal_i32(n_emit, 0_i32, 'photo_raycast max bounce should terminate rays before emission')
   call test_end()
 
+  call test_begin('photo_raycast_collision_status')
+  call configure_photo_collision_failure_fixture(failure_mesh, failure_sim)
+  call sample_photo_raycast_particles( &
+    failure_mesh, failure_sim, 'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
+    [0.0d0, 0.0d0, -1.0d0], 1.0d0, 0.0d0, 0.0d0, 1.0d0, -1.0d0, 4_i32, &
+    x(:, 1:4), v(:, 1:4), w_photo(1:4), n_emit, &
+    collision_failure_status=collision_status, collision_failure_ray=failure_ray, &
+    collision_failure_bounce=failure_bounce &
+    )
+  call assert_equal_i32(collision_status, collision_query_image_limit, 'photo collision status mismatch')
+  call assert_equal_i32(failure_ray, 1_i32, 'photo collision failure should select the lowest ray')
+  call assert_equal_i32(failure_bounce, 0_i32, 'photo collision failure bounce mismatch')
+  call assert_equal_i32(n_emit, 0_i32, 'incomplete photo collision query must not emit particles')
+  call test_end()
+
+  call test_begin('photo_raycast_collision_status_omitted')
+  call test_photo_query_failure_without_status()
+  call test_end()
+
   call test_begin('macro_particles_clamp')
   residual = -0.2d0
   call compute_macro_particles_for_batch( &
@@ -259,4 +287,79 @@ program test_injection_sampling
   call test_end()
 
   call test_summary()
+
+contains
+
+  subroutine configure_photo_collision_failure_fixture(failure_mesh, failure_sim)
+    type(mesh_type), intent(out) :: failure_mesh
+    type(sim_config), intent(out) :: failure_sim
+    real(dp) :: failure_v0(3, 1), failure_v1(3, 1), failure_v2(3, 1)
+
+    failure_v0(:, 1) = [-2048.0d0, 0.0d0, 0.5d0]
+    failure_v1(:, 1) = [2049.0d0, 0.0d0, 0.5d0]
+    failure_v2(:, 1) = [0.5d0, 1.0d0, 0.5d0]
+    call init_mesh(failure_mesh, failure_v0, failure_v1, failure_v2)
+
+    failure_sim = sim_config()
+    failure_sim%use_box = .true.
+    failure_sim%batch_duration = 0.5d0
+    failure_sim%raycast_max_bounce = 4_i32
+    failure_sim%field_bc_mode = 'periodic2'
+    failure_sim%box_min = [0.0d0, 0.0d0, 0.0d0]
+    failure_sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    failure_sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    failure_sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    call prepare_periodic2_collision_mesh(failure_mesh, failure_sim)
+  end subroutine configure_photo_collision_failure_fixture
+
+  subroutine run_photo_query_failure_probe()
+    type(mesh_type) :: probe_mesh
+    type(sim_config) :: probe_sim
+    real(dp) :: probe_x(3, 4), probe_v(3, 4), probe_w(4)
+    integer(i32) :: probe_n_emit
+
+    call configure_photo_collision_failure_fixture(probe_mesh, probe_sim)
+    call sample_photo_raycast_particles( &
+      probe_mesh, probe_sim, 'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
+      [0.0d0, 0.0d0, -1.0d0], 1.0d0, 0.0d0, 0.0d0, 1.0d0, -1.0d0, 4_i32, &
+      probe_x, probe_v, probe_w, probe_n_emit &
+      )
+  end subroutine run_photo_query_failure_probe
+
+  subroutine test_photo_query_failure_without_status()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_context, saw_ray, saw_bounce, saw_status
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(photo_failure_path)
+    command = 'OMP_NUM_THREADS=2 "'//trim(executable_path)//'" --photo-query-failure-probe > '// &
+              photo_failure_path//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
+
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'photo failure probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'photo failure probe should terminate with a nonzero status')
+
+    saw_context = .false.
+    saw_ray = .false.
+    saw_bounce = .false.
+    saw_status = .false.
+    open (newunit=child_unit, file=photo_failure_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read photo failure probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_context = saw_context .or. index(child_line, 'photo_raycast collision query incomplete') > 0
+      saw_ray = saw_ray .or. index(child_line, 'ray=1') > 0
+      saw_bounce = saw_bounce .or. index(child_line, 'bounce=0') > 0
+      saw_status = saw_status .or. index(child_line, 'status=image_limit') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(photo_failure_path)
+
+    call assert_true(saw_context, 'photo failure message should identify the photo raycast context')
+    call assert_true(saw_ray, 'photo failure message should include the lowest failing ray')
+    call assert_true(saw_bounce, 'photo failure message should include the failing bounce')
+    call assert_true(saw_status, 'photo failure message should include the collision status')
+  end subroutine test_photo_query_failure_without_status
 end program test_injection_sampling

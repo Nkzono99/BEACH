@@ -38,7 +38,8 @@ module bem_simulator
     !> 1バッチ分の粒子群と作業配列を初期化する。
     module subroutine prepare_batch_state( &
       mesh, app, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      photo_emission_dq, mpi, inject_state &
+      photo_emission_dq, mpi, inject_state, collision_failure_status, collision_failure_species, &
+      collision_failure_ray, collision_failure_bounce &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -51,6 +52,8 @@ module bem_simulator
       real(dp), intent(out) :: photo_emission_dq(:)
       type(mpi_context), intent(in) :: mpi
       type(injection_state), intent(inout), optional :: inject_state
+      integer(i32), intent(out) :: collision_failure_status, collision_failure_species
+      integer(i32), intent(out) :: collision_failure_ray, collision_failure_bounce
     end subroutine prepare_batch_state
 
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。

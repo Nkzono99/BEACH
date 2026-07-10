@@ -255,6 +255,24 @@ $$
 各 image について、線分側を `-shift` して base mesh と交差判定します。
 命中位置は物理 image 座標 `hit%pos` と primary cell へ折り返した `hit%pos_wrapped` の両方を持ちます。
 
+`find_first_hit` の照会状態は次の public 定数で返されます。
+
+| 定数 | 値 | 意味 |
+| --- | ---: | --- |
+| `collision_query_ok` | 0 | 必要な候補をすべて調べた完了照会 |
+| `collision_query_image_limit` | 1 | 1軸または直積の image 数が安全上限 4096 を超えた |
+| `collision_query_index_range` | 2 | shift bound が非有限、または i64 / i32 の表現範囲外 |
+
+`status` を要求した caller には未完了状態を返します。`status` を省略した public call は未完了を「命中なし」として
+継続せず、fail closed で停止します。通常の粒子追跡は OpenMP 内で各 query の status を受け、最小 particle / step を
+named critical で集約して parallel region を抜けます。その後、全 rank から最小 rank の metadata を選択し、
+全 rank が同じ batch / rank / particle / step / status message で停止します。
+
+`photo_raycast` も各 ray query の status を必ず受け、最小 ray / bounce を専用 named critical で集約します。
+未完了 ray はそこで処理を止め、OpenMP 終了後に species / ray / bounce / status を batch preparation へ返します。
+main loop は field refresh と photo charge 処理の前に全 rank から最小 rank の metadata を選び、同一 message で停止するため、
+失敗 rank の未完成 particle 配列や放出電荷差分は使用されません。
+
 ---
 
 ## 10. box 境界条件

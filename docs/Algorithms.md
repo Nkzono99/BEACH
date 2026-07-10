@@ -198,6 +198,10 @@ for local_batch_idx = 1..batch_count_this_run:
 - `escaped_boundary_flag(:)` と `absorbed_flag(:)`
 
 `dq_thread` を thread 別に分けることで、衝突時の要素電荷加算を atomic なしで集計できます。
+`photo_raycast` の衝突照会が不完全な場合、sampler は OpenMP 内で停止せず、最小の ray / bounce と status を
+`init_particle_batch_from_config` から `prepare_batch_state` へ返します。main loop は field refresh や電荷処理の前に
+全 rank から最小 rank の species / ray / bounce / status を選び、全 rank が同じ診断で停止します。
+失敗 rank の未完成 particle 配列と `photo_emission_dq` は後続処理で使用しません。
 
 ### 3.3 particle processing
 
@@ -209,12 +213,17 @@ for local_batch_idx = 1..batch_count_this_run:
 | 2 | `field_solver%eval_e(mesh, x0, e)` で境界要素電荷による電場を評価 |
 | 3 | 一様外部電場 `sim.e0` を加える |
 | 4 | `boris_push` で候補位置 `x1` と候補速度 `v1` を計算 |
-| 5 | `find_first_hit(mesh, x0, x1, hit, sim=sim)` で線分衝突を調べる |
+| 5 | `find_first_hit(mesh, x0, x1, hit, sim=sim, status=collision_status)` で線分衝突を調べる |
 | 6 | hit があれば `q * w` を命中要素の `dq_thread(elem, tid)` へ加算し、粒子を吸収終了 |
 | 7 | hit がなければ `apply_box_boundary` で open / reflect / periodic を適用 |
 | 8 | 粒子が生存していれば `x` と `v` を更新して次 step へ進む |
 
 `BEACH_WARN_LONG_PARTICLE_STEPS` を正整数で設定すると、長く生き残る粒子の診断出力を一定 step ごとに出します。
+
+collision status は `collision_query_ok=0`、`collision_query_image_limit=1`、
+`collision_query_index_range=2` です。`status` を省略した public call は不完全な照会を miss として扱わず、
+fail closed で停止します。main particle loop は各 thread から最小 particle / step を集約して OpenMP region を抜け、
+その後 MPI 全 rank から最小 rank の failure metadata を選んで同一 message で停止します。
 
 ### 3.4 charge commit
 

@@ -15,6 +15,9 @@ contains
   integer(i32) :: collision_failure_count, collision_failure_rank, collision_failure_status
   integer(i32) :: collision_failure_particle, collision_failure_step
   integer(i32) :: local_failure_values(3), selected_failure_values(3)
+  integer(i32) :: photo_failure_count, photo_failure_rank, photo_failure_status, photo_failure_species
+  integer(i32) :: photo_failure_ray, photo_failure_bounce
+  integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
   integer :: hist_unit
   logical :: history_enabled
   logical :: potential_history_enabled
@@ -66,9 +69,24 @@ contains
     call perf_region_begin(perf_region_prepare_batch, t0)
     call prepare_batch_state( &
       mesh, app, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      photo_emission_dq, mpi_ctx, inject_state &
+      photo_emission_dq, mpi_ctx, inject_state, photo_failure_status, photo_failure_species, &
+      photo_failure_ray, photo_failure_bounce &
       )
     call perf_region_end(perf_region_prepare_batch, t0)
+
+    photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
+    call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
+    if (photo_failure_count > 0_i32) then
+      photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
+      call mpi_select_lowest_rank_i32_values( &
+        mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
+        photo_failure_rank, photo_selected_failure_values &
+        )
+      call stop_for_photo_collision_failure( &
+        batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
+        photo_selected_failure_values(3), photo_selected_failure_values(4) &
+        )
+    end if
 
     call perf_region_begin(perf_region_field_refresh, t0)
     call field_solver%refresh(mesh)
@@ -153,13 +171,18 @@ contains
   if (present(inject_state)) then
     call init_particle_batch_from_config( &
       app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
-      mpi=mpi &
+      mpi=mpi, collision_failure_status=collision_failure_status, &
+      collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
+      collision_failure_bounce=collision_failure_bounce &
       )
   else
     call init_particle_batch_from_config( &
-      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi &
+      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi, &
+      collision_failure_status=collision_failure_status, collision_failure_species=collision_failure_species, &
+      collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce &
       )
   end if
+  if (collision_failure_status /= collision_query_ok) return
   if (allocated(escaped_boundary_flag)) then
     if (size(escaped_boundary_flag) < pcls_batch%n) then
       deallocate (escaped_boundary_flag)
@@ -304,6 +327,29 @@ contains
       ' code=', failure_status
     error stop trim(failure_message)
   end subroutine stop_for_collision_failure
+
+  !> 全 rank で選択済みの photo collision failure context を報告して停止する。
+  subroutine stop_for_photo_collision_failure( &
+    batch_idx, failure_rank, failure_species, failure_ray, failure_bounce, failure_status &
+    )
+    integer(i32), intent(in) :: batch_idx, failure_rank, failure_species, failure_ray, failure_bounce, failure_status
+    character(len=16) :: failure_name
+    character(len=256) :: failure_message
+
+    select case (failure_status)
+    case (collision_query_image_limit)
+      failure_name = 'image_limit'
+    case (collision_query_index_range)
+      failure_name = 'index_range'
+    case default
+      failure_name = 'unknown'
+    end select
+    write (failure_message, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
+      'photo collision query incomplete: batch=', batch_idx, ' rank=', failure_rank, &
+      ' species=', failure_species, ' ray=', failure_ray, ' bounce=', failure_bounce, &
+      ' status=', trim(failure_name), ' code=', failure_status
+    error stop trim(failure_message)
+  end subroutine stop_for_photo_collision_failure
 
   !> x0->x1 が最初に越える open box 面上の評価点を返す。
   subroutine find_open_boundary_probe(sim, x0, x1, found, probe, probe_axis, high_side)

@@ -8,6 +8,7 @@ module bem_app_config_runtime
   use bem_field, only: electric_potential_at
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
+  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok
   use bem_importers, only: load_obj_mesh
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
@@ -23,6 +24,7 @@ module bem_app_config_runtime
   use bem_config_helpers, only: resolve_inward_normal
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
+  private :: finalize_particle_batch_collision_query
 
 contains
 
@@ -239,7 +241,14 @@ contains
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
-  subroutine init_particle_batch_from_config(cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi)
+  !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
+  !! @param[out] collision_failure_species 不完全な照会を返した最小 species index。
+  !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
+  !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
+  subroutine init_particle_batch_from_config( &
+    cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi, &
+    collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+    )
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
     type(particles_soa), intent(out) :: pcls
@@ -248,8 +257,11 @@ contains
     real(dp), intent(out), optional :: photo_emission_dq(:)
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
     type(mpi_context), intent(in), optional :: mpi
+    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_species
+    integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
+    integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
     integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
                              effective_particle_flux_m2_s(:), &
@@ -261,6 +273,10 @@ contains
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
     type(sheath_injection_context) :: sheath_ctx
 
+    if (present(collision_failure_status)) collision_failure_status = collision_query_ok
+    if (present(collision_failure_species)) collision_failure_species = huge(0_i32)
+    if (present(collision_failure_ray)) collision_failure_ray = huge(0_i32)
+    if (present(collision_failure_bounce)) collision_failure_bounce = 0_i32
     if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
     if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
       error stop 'Requested batch index is out of range.'
@@ -432,8 +448,17 @@ contains
           emit_elem_idx=emit_elem_species(1:counts_max(s), s), &
           global_rays_per_batch=cfg%particle_species(s)%rays_per_batch, &
           emit_current_density_override=photo_emit_current_density(s), &
-          normal_drift_speed_override=photo_normal_drift_speed(s), vmin_normal=photo_vmin_normal(s) &
+          normal_drift_speed_override=photo_normal_drift_speed(s), vmin_normal=photo_vmin_normal(s), &
+          collision_failure_status=photo_collision_status, collision_failure_ray=photo_collision_ray, &
+          collision_failure_bounce=photo_collision_bounce &
           )
+        if (photo_collision_status /= collision_query_ok) then
+          call finalize_particle_batch_collision_query( &
+            photo_collision_status, batch_idx, s, photo_collision_ray, photo_collision_bounce, &
+            collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+            )
+          return
+        end if
         if (photo_escape_model_enabled(cfg%particle_species(s))) then
           allocate (photo_escape_factor_cache(mesh%nelem))
           photo_escape_factor_cache = -1.0d0
@@ -490,6 +515,38 @@ contains
 
     call init_particles(pcls, x, v, q, m, w, species_id=species_id)
   end subroutine init_particle_batch_from_config
+
+  !> batch injection の不完全な photo collision query を返し、status 未要求なら serial に停止する。
+  subroutine finalize_particle_batch_collision_query( &
+    query_status, batch_idx, species_idx, query_ray, query_bounce, &
+    collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+    )
+    integer(i32), intent(in) :: query_status, batch_idx, species_idx, query_ray, query_bounce
+    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_species
+    integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
+    character(len=16) :: status_name
+    character(len=256) :: failure_message
+
+    if (present(collision_failure_status)) collision_failure_status = query_status
+    if (present(collision_failure_species)) collision_failure_species = species_idx
+    if (present(collision_failure_ray)) collision_failure_ray = query_ray
+    if (present(collision_failure_bounce)) collision_failure_bounce = query_bounce
+    if (present(collision_failure_status)) return
+
+    select case (query_status)
+    case (collision_query_image_limit)
+      status_name = 'image_limit'
+    case (collision_query_index_range)
+      status_name = 'index_range'
+    case default
+      status_name = 'unknown'
+    end select
+    write (failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
+      'photo_raycast collision query incomplete during batch preparation: batch=', batch_idx, &
+      ' species=', species_idx, ' ray=', query_ray, ' bounce=', query_bounce, &
+      ' status=', trim(status_name), ' code=', query_status
+    error stop trim(failure_message)
+  end subroutine finalize_particle_batch_collision_query
 
   !> 1粒子種ぶんの位置・速度サンプルをまとめて生成する。
   !! @param[in] sim ボックス境界・バッチ時間などのシミュレーション設定。
@@ -607,9 +664,13 @@ contains
   !! @param[in] emit_current_density_override 放出電流密度の上書き値 [A/m^2]。
   !! @param[in] normal_drift_speed_override 放出法線ドリフトの上書き値 [m/s]。
   !! @param[in] vmin_normal 放出法線速度の下限 [m/s]。
+  !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
+  !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
+  !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
   subroutine sample_photo_species_state( &
     sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
-    emit_current_density_override, normal_drift_speed_override, vmin_normal &
+    emit_current_density_override, normal_drift_speed_override, vmin_normal, &
+    collision_failure_status, collision_failure_ray, collision_failure_bounce &
     )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -624,8 +685,12 @@ contains
     real(dp), intent(in), optional :: emit_current_density_override
     real(dp), intent(in), optional :: normal_drift_speed_override
     real(dp), intent(in), optional :: vmin_normal
+    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_ray, collision_failure_bounce
     real(dp) :: emit_current_density, normal_drift_speed
 
+    if (present(collision_failure_status)) collision_failure_status = collision_query_ok
+    if (present(collision_failure_ray)) collision_failure_ray = huge(0_i32)
+    if (present(collision_failure_bounce)) collision_failure_bounce = 0_i32
     if (n_rays <= 0_i32) then
       if (present(emit_elem_idx)) emit_elem_idx = -1_i32
       n_emit = 0_i32
@@ -640,13 +705,17 @@ contains
         call sample_photo_raycast_particles( &
           mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
           species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
-          n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, vmin_normal=vmin_normal &
+          n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, vmin_normal=vmin_normal, &
+          collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
+          collision_failure_bounce=collision_failure_bounce &
           )
       else
         call sample_photo_raycast_particles( &
           mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
           species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
-          n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch &
+          n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, &
+          collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
+          collision_failure_bounce=collision_failure_bounce &
           )
       end if
     else
@@ -654,13 +723,17 @@ contains
         call sample_photo_raycast_particles( &
           mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
           species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
-          n_rays, x, v, w, n_emit, emit_elem_idx, vmin_normal=vmin_normal &
+          n_rays, x, v, w, n_emit, emit_elem_idx, vmin_normal=vmin_normal, &
+          collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
+          collision_failure_bounce=collision_failure_bounce &
           )
       else
         call sample_photo_raycast_particles( &
           mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
           species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
-          n_rays, x, v, w, n_emit, emit_elem_idx &
+          n_rays, x, v, w, n_emit, emit_elem_idx, &
+          collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
+          collision_failure_bounce=collision_failure_bounce &
           )
       end if
     end if
