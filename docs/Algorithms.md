@@ -214,10 +214,11 @@ for local_batch_idx = 1..batch_count_this_run:
 | 2 | `build_particle_step_candidate` で予測中点 `x_mid = x0 + 0.5*v0*dt` を作る |
 | 3 | `field_solver%eval_e(mesh, x_mid, e_mid)` で境界要素電荷による電場を評価し、一様外部電場 `sim.e0` を1回加える |
 | 4 | 中点場を使う `boris_push` で候補速度 `v1` と台形則による候補位置 `x1` を計算 |
-| 5 | `find_first_hit(mesh, x0, x1, hit, sim=sim, status=collision_status)` で線分衝突を調べる |
-| 6 | hit があれば `q * w` を命中要素の `dq_thread(elem, tid)` へ加算し、粒子を吸収終了 |
-| 7 | hit がなければ `apply_box_boundary` で open / reflect / periodic を適用 |
-| 8 | 粒子が生存していれば `x` と `v` を更新して次 step へ進む |
+| 5 | `x1` がbox内部なら `x0 -> x1` を1回collision queryする |
+| 6 | box crossingがあれば最初のfaceまでにqueryを制限し、mesh hitをtie含めて優先する |
+| 7 | openはevent点で終了し、reflect/periodicは残り時間を一度だけ再積分してmesh hitを調べる |
+| 8 | hitなら`q * w`を堆積して吸収し、2回目のbox eventならstateをcommitせずfail closedにする |
+| 9 | 生存していれば同時刻の`x`と`v`を更新して次stepへ進む |
 
 `build_particle_step_candidate` は場ソルバを変更せず、予測中点で空間電場を1回だけ評価します。
 `boris_update_velocity(v, q, m, dt, e, b, v_new)` は、電場の half kick、磁場回転、電場の half kick からなる
@@ -226,18 +227,20 @@ for local_batch_idx = 1..batch_count_this_run:
 `x_new = x + 0.5*(v + v_new)*dt` で位置を更新します。入出力の位置と速度は同一時刻の状態であり、
 予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度です。
 
-`bem_boundary` は production 接続前の additive primitive として、候補 chord の最初の box face fraction を返す
-`find_first_boundary_event` と、同時 corner/edge faceを一括適用する
-`apply_escape_reflect_periodic_event` を提供します。後者は既定の open、reflect、periodic のみを扱い、
-不正な幾何・event/config 不一致では粒子 state を変更しません。既存 `apply_box_boundary` は
-photo ray と移行前 caller のために維持されています。
+`advance_particle_step` は候補終点がstrictなbox内部なら、追加のevent geometryなしに場評価1回・collision query 1回で
+完了します。crossing時だけ `find_first_boundary_event` と `apply_escape_reflect_periodic_event` を使い、corner/edgeの
+同時faceを一括処理します。reflect/periodic remainderがさらにfaceへ達し、それ以前にmesh hitがなければ、
+任意回数のloopへ入らず `particle_step_multiple_box_events` を返します。既存 `apply_box_boundary` はphoto ray用に維持します。
+
+`potential_barrier` は単一open faceに限り旧scalar energy式をevent位置と補間速度で評価します。複数open faceは
+一般化せずfail closedであり、shared potential/gaugeに基づく物理モデルは後段の対象です。
 
 `BEACH_WARN_LONG_PARTICLE_STEPS` を正整数で設定すると、長く生き残る粒子の診断出力を一定 step ごとに出します。
 
 collision status は `collision_query_ok=0`、`collision_query_image_limit=1`、
 `collision_query_index_range=2` です。`status` を省略した public call は不完全な照会を miss として扱わず、
-fail closed で停止します。main particle loop は各 thread から最小 particle / step を集約して OpenMP region を抜け、
-その後 MPI 全 rank から最小 rank の failure metadata を選んで同一 message で停止します。
+fail closed で停止します。main particle loop はcollisionとboundary eventのfailureを同じenvelopeで集約し、OpenMP regionを抜けてから
+MPI全rankで最小rankのparticle/stepとその`dt/x/v`を共有し、同一messageで停止します。
 
 ### 3.4 charge commit
 

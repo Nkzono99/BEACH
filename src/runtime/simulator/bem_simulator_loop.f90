@@ -27,6 +27,7 @@ contains
   logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
   integer(i32) :: batch_counts(5)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0
+  real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(field_solver_type) :: field_solver = field_solver_type()
@@ -95,7 +96,7 @@ contains
     call perf_region_begin(perf_region_particle_batch, t0)
     call process_particle_batch( &
       mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-      collision_failure_status, collision_failure_particle, collision_failure_step &
+      collision_failure_status, collision_failure_particle, collision_failure_step, collision_failure_x, collision_failure_v &
       )
     call perf_region_end(perf_region_particle_batch, t0)
 
@@ -107,8 +108,15 @@ contains
         mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
         collision_failure_rank, selected_failure_values &
         )
+      selected_failure_state = 0.0_dp
+      if (mpi_ctx%rank == collision_failure_rank) then
+        selected_failure_state(1:3) = collision_failure_x
+        selected_failure_state(4:6) = collision_failure_v
+      end if
+      call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
       call stop_for_collision_failure( &
-        batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), selected_failure_values(3) &
+        batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
+        selected_failure_values(3), app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
         )
     end if
 
@@ -207,11 +215,9 @@ contains
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth, warn_stride
-  integer(i32) :: boundary_axis, collision_status
-  real(dp) :: x0(3), v0(3), x1(3), v1(3), qdep
-  real(dp) :: boundary_probe(3), phi_boundary
-  type(hit_info) :: hit
-  logical :: escaped_by_boundary, has_warn_stride, has_boundary_probe, boundary_high_side, collision_failed
+  real(dp) :: x0(3), v0(3), qdep
+  type(particle_step_result) :: step_result
+  logical :: has_warn_stride, collision_failed
 
   nth = size(dq_thread, 2)
   call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
@@ -219,12 +225,14 @@ contains
   collision_failure_status = collision_query_ok
   collision_failure_particle = huge(0_i32)
   collision_failure_step = 0_i32
+  collision_failure_x = 0.0_dp
+  collision_failure_v = 0.0_dp
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
-  !$omp private(i,step,x0,v0,x1,v1,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary) &
-  !$omp private(has_boundary_probe,boundary_high_side,collision_status,collision_failed)
+  !$omp shared(collision_failure_x,collision_failure_v) &
+  !$omp private(i,step,x0,v0,step_result,tid,qdep,collision_failed)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
@@ -235,51 +243,39 @@ contains
     do step = 1, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
-      call build_particle_step_candidate( &
+      call advance_particle_step( &
         mesh, app%sim, field_solver, bfield, x0, v0, &
-        pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1 &
+        pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, step_result &
         )
-      call find_first_hit(mesh, x0, x1, hit, sim=app%sim, status=collision_status)
-      if (collision_status /= collision_query_ok) then
+      if (step_result%status /= collision_query_ok) then
         !$omp critical (beach_collision_query_failure)
         if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
             (i == collision_failure_particle .and. step < collision_failure_step)) then
-          collision_failure_status = collision_status
+          collision_failure_status = step_result%status
           collision_failure_particle = i
           collision_failure_step = step
+          collision_failure_x = x0
+          collision_failure_v = v0
         end if
         !$omp end critical (beach_collision_query_failure)
         collision_failed = .true.
         exit
       end if
-      if (hit%has_hit) then
+      if (step_result%absorbed) then
         qdep = pcls_batch%q(i)*pcls_batch%w(i)
-        dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
+        dq_thread(step_result%elem_idx, tid) = dq_thread(step_result%elem_idx, tid) + qdep
         pcls_batch%alive(i) = .false.
         absorbed_flag(i) = .true.
         exit
       end if
-
-      if (trim(app%sim%open_boundary_model) == 'potential_barrier') then
-        call find_open_boundary_probe(app%sim, x0, x1, has_boundary_probe, boundary_probe, boundary_axis, boundary_high_side)
-        if (has_boundary_probe) then
-          call field_solver%eval_potential(mesh, app%sim, boundary_probe, phi_boundary)
-          call apply_box_boundary( &
-            app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary, &
-            q_particle=pcls_batch%q(i), m_particle=pcls_batch%m(i), phi_boundary=phi_boundary, &
-            potential_axis=boundary_axis, potential_high_side=boundary_high_side &
-            )
-        else
-          call apply_box_boundary(app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary)
-        end if
-      else
-        call apply_box_boundary(app%sim, x1, v1, pcls_batch%alive(i), escaped_by_boundary)
+      if (step_result%escaped_boundary) then
+        pcls_batch%alive(i) = .false.
+        escaped_boundary_flag(i) = .true.
+        exit
       end if
-      if (escaped_by_boundary) escaped_boundary_flag(i) = .true.
-      if (.not. pcls_batch%alive(i)) exit
 
-      pcls_batch%x(:, i) = x1
-      pcls_batch%v(:, i) = v1
+      pcls_batch%x(:, i) = step_result%x
+      pcls_batch%v(:, i) = step_result%v
       if (warn_stride > 0_i32) then
         if (modulo(step, warn_stride) == 0_i32) then
           !$omp critical (beach_long_particle_warn)
@@ -307,23 +303,32 @@ contains
   end procedure process_particle_batch
 
   !> 全 rank で選択済みの collision failure context を報告して停止する。
-  subroutine stop_for_collision_failure(batch_idx, failure_rank, failure_status, failure_particle, failure_step)
+  subroutine stop_for_collision_failure( &
+    batch_idx, failure_rank, failure_status, failure_particle, failure_step, dt, failure_x, failure_v &
+    )
     integer(i32), intent(in) :: batch_idx, failure_rank, failure_status, failure_particle, failure_step
-    character(len=16) :: failure_name
-    character(len=256) :: failure_message
+    real(dp), intent(in) :: dt, failure_x(3), failure_v(3)
+    character(len=32) :: failure_name
+    character(len=512) :: failure_message
 
     select case (failure_status)
     case (collision_query_image_limit)
       failure_name = 'image_limit'
     case (collision_query_index_range)
       failure_name = 'index_range'
+    case (particle_step_invalid_boundary)
+      failure_name = 'invalid_boundary'
+    case (particle_step_multiple_box_events)
+      failure_name = 'multiple_box_events'
+    case (particle_step_unsupported_barrier_corner)
+      failure_name = 'unsupported_barrier_corner'
     case default
       failure_name = 'unknown'
     end select
-    write (failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
-      'collision query incomplete: batch=', batch_idx, ' particle=', failure_particle, &
+    write (failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0,a,es13.5,a,3es13.5,a,3es13.5)') &
+      'particle step failed: batch=', batch_idx, ' particle=', failure_particle, &
       ' step=', failure_step, ' rank=', failure_rank, ' status=', trim(failure_name), &
-      ' code=', failure_status
+      ' code=', failure_status, ' dt=', dt, ' x=', failure_x, ' v=', failure_v
     error stop trim(failure_message)
   end subroutine stop_for_collision_failure
 
@@ -349,62 +354,6 @@ contains
       ' status=', trim(failure_name), ' code=', failure_status
     error stop trim(failure_message)
   end subroutine stop_for_photo_collision_failure
-
-  !> x0->x1 が最初に越える open box 面上の評価点を返す。
-  subroutine find_open_boundary_probe(sim, x0, x1, found, probe, probe_axis, high_side)
-    type(sim_config), intent(in) :: sim
-    real(dp), intent(in) :: x0(3), x1(3)
-    logical, intent(out) :: found
-    real(dp), intent(out) :: probe(3)
-    integer(i32), intent(out) :: probe_axis
-    logical, intent(out) :: high_side
-
-    integer(i32) :: axis
-    real(dp) :: denom, t, best_t
-
-    found = .false.
-    probe = min(sim%box_max, max(sim%box_min, x1))
-    probe_axis = 0_i32
-    high_side = .false.
-    if (.not. sim%use_box) return
-
-    best_t = huge(1.0d0)
-    do axis = 1_i32, 3_i32
-      denom = x1(axis) - x0(axis)
-      if (denom < 0.0d0 .and. sim%bc_low(axis) == bc_open .and. x1(axis) < sim%box_min(axis)) then
-        t = (sim%box_min(axis) - x0(axis))/denom
-        call maybe_update_boundary_probe(sim, x0, x1, axis, .false., sim%box_min(axis), t, best_t, found, probe, &
-                                         probe_axis, high_side)
-      else if (denom > 0.0d0 .and. sim%bc_high(axis) == bc_open .and. x1(axis) > sim%box_max(axis)) then
-        t = (sim%box_max(axis) - x0(axis))/denom
-        call maybe_update_boundary_probe(sim, x0, x1, axis, .true., sim%box_max(axis), t, best_t, found, probe, &
-                                         probe_axis, high_side)
-      end if
-    end do
-  end subroutine find_open_boundary_probe
-
-  !> 最小の有効 crossing parameter を持つ境界評価点へ更新する。
-  subroutine maybe_update_boundary_probe( &
-    sim, x0, x1, axis, candidate_high_side, boundary_value, t, best_t, found, probe, probe_axis, high_side &
-    )
-    type(sim_config), intent(in) :: sim
-    real(dp), intent(in) :: x0(3), x1(3), boundary_value, t
-    integer(i32), intent(in) :: axis
-    logical, intent(in) :: candidate_high_side
-    real(dp), intent(inout) :: best_t
-    logical, intent(inout) :: found
-    real(dp), intent(inout) :: probe(3)
-    integer(i32), intent(inout) :: probe_axis
-    logical, intent(inout) :: high_side
-
-    if (t < 0.0d0 .or. t > 1.0d0 .or. t >= best_t) return
-    best_t = t
-    probe = x0 + t*(x1 - x0)
-    probe(axis) = boundary_value
-    probe_axis = axis
-    high_side = candidate_high_side
-    found = .true.
-  end subroutine maybe_update_boundary_probe
 
   !> 正の整数環境変数を読む。未設定、不正値、ゼロ以下の場合は found=.false.。
   subroutine read_env_i32_local(name, value, found)

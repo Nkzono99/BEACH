@@ -76,9 +76,11 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
    - 同一時刻の状態 `x0, v0` から予測中点 `x_mid = x0 + 0.5*v0*dt` を計算
    - 境界要素電場 `E(x_mid)` を1回評価し、一様外部電場 `sim.e0` を1回加える
    - 中点場を使う Boris push と台形位置更新で `x1, v1` を計算
-   - `x0 -> x1` の最初の衝突要素を探索
+   - `x1` がbox内部なら `x0 -> x1` のmesh collisionを1回探索
+   - box faceへ到達する場合は、最初のface eventまでにcollision queryを制限し、mesh hitとの最早順序を決める
+   - reflect/periodic後は残り時間を同じBoris規約で一度だけ再積分し、そのchordのmesh hitを探索
    - 衝突時: 粒子を消滅し `q_particle * w_particle` をスレッド別バッファ `dq_thread(elem_idx, tid)` へ加算
-   - 非衝突時: ボックス境界を適用（open/reflect/periodic）
+   - 残り時間中に2回目のbox eventへ到達し、それ以前にmesh hitがなければ、状態をcommitせず `dt` 縮小を要求する明示的failureとする
 5. バッチ終了時に要素電荷差分をコミット: 全スレッドの `dq_thread` を合算し、`photo_emission_dq` を加算した後、MPI allreduce を行い `mesh%q_elem` に反映
 6. `rel_change = ||dq|| / max(||q||, q_floor)` を更新
 7. 統計と履歴を更新
@@ -130,7 +132,10 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - `periodic`: 反対側へラップ
 - additive な `find_first_boundary_event` は、box 内の始点から候補終点までの最初の交差 fraction と、corner/edge で同時に交差する全 face を bit mask で返す
 - additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置を境界から1 ULP内側へ置く。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
-- 上記 event API は既定の `open_boundary_model="escape"` だけを扱う。既存 `potential_barrier` と production particle loop の最早 mesh/box 統合は後続 Stage 2 taskで接続し、この時点の legacy `apply_box_boundary` は source/behavior compatible に残す
+- production particle loop は `advance_particle_step` を通じてmesh/box最早順序を使う。候補終点がstrictなbox内部なら追加event geometryを行わず、場評価1回・collision query 1回のfast pathとなる
+- reflect/periodic crossingだけ残り時間を一度再積分する。2回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとし、任意回数のevent loopやadaptive substepは行わない
+- `open_boundary_model="potential_barrier"` は既存の単一面scalar energy式をevent位置・補間速度で使うlegacy/experimental扱いとする。複数open faceへの一般化は行わずfail closedとし、物理モデルはshared potential snapshotとともに後段で再設計する
+- legacy `apply_box_boundary` はphoto rayとsource compatibilityのため残す
 
 ## 6. 注入モード
 

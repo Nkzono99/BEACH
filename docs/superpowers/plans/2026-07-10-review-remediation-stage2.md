@@ -154,11 +154,11 @@ end subroutine advance_particle_step
 7. If it is outside, find the second box event and query only up to it. Absorb an earlier/tied mesh hit; otherwise return `particle_step_multiple_box_events` with state uncommitted and advise reducing `sim.dt`.
 8. Propagate collision statuses unchanged and aggregate all particle-step failures outside the OpenMP region with batch/rank/particle/step context.
 
-- [ ] Add RED fixtures for mesh-before-box absorption, box-before-mesh open escape, reflected-remainder absorption, periodic remainder, simultaneous corner action, second-crossing failure, and the no-crossing `field_eval_count=1`/`collision_query_count=1` contract.
-- [ ] Run RED sequentially for `test_particle_stepper` and `test_simulator` through `tssrun -p eb`.
-- [ ] Implement `advance_particle_step` and migrate only the simulator particle loop; leave photo-ray boundary handling on the legacy API.
-- [ ] Run GREEN for `test_boundary`, `test_particle_stepper`, `test_simulator`, and `test_dynamics_basic` sequentially.
-- [ ] Update docs, format, run `git diff --check`, and commit as `fix: order mesh and box boundary events`.
+- [x] Add RED fixtures for mesh-before-box absorption, box-before-mesh open escape, reflected-remainder absorption, periodic remainder, simultaneous corner action, second-crossing failure, and the no-crossing `field_eval_count=1`/`collision_query_count=1` contract.
+- [x] Run RED sequentially for `test_particle_stepper` (job `22256730`) and `test_simulator` (job `22256739`) through `tssrun -p eb`.
+- [x] Implement `advance_particle_step` and migrate only the simulator particle loop; leave photo-ray boundary handling on the legacy API.
+- [x] Run GREEN for `test_boundary`, `test_particle_stepper`, `test_simulator`, and `test_dynamics_basic` sequentially (job `22256746`).
+- [x] Update docs, format, run `git diff --check`, and commit as `fix: order mesh and box boundary events`.
 
 ## Task M1: One Global Reservoir Count Per Species
 

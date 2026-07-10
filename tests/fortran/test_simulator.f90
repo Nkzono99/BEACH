@@ -4,7 +4,7 @@ program test_simulator
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
-  use bem_types, only: mesh_type, sim_stats, bc_open, bc_periodic
+  use bem_types, only: mesh_type, sim_stats, bc_open, bc_reflect, bc_periodic
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
   implicit none
@@ -25,6 +25,7 @@ program test_simulator
   character(len=*), parameter :: potential_history_path = 'test_simulator_potential_history_tmp.csv'
   character(len=*), parameter :: collision_failure_path = 'test_simulator_collision_failure_tmp.log'
   character(len=*), parameter :: photo_collision_failure_path = 'test_simulator_photo_collision_failure_tmp.log'
+  character(len=*), parameter :: box_event_failure_path = 'test_simulator_box_event_failure_tmp.log'
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
@@ -34,6 +35,9 @@ program test_simulator
   else if (trim(run_mode) == '--photo-collision-query-failure-probe') then
     call run_photo_collision_query_failure_probe()
     error stop 'photo collision query failure probe unexpectedly completed'
+  else if (trim(run_mode) == '--multiple-box-event-probe') then
+    call run_multiple_box_event_failure_probe()
+    error stop 'multiple box event failure probe unexpectedly completed'
   end if
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -100,7 +104,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(7)
+  call test_init(9)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -112,8 +116,8 @@ program test_simulator
   call assert_equal_i64(stats%processed_particles, 4_i64, 'processed_particles mismatch')
   call assert_equal_i64(stats%absorbed, 2_i64, 'absorbed mismatch')
   call assert_equal_i64(stats%escaped, 2_i64, 'escaped mismatch')
-  call assert_equal_i64(stats%escaped_boundary, 1_i64, 'escaped_boundary mismatch')
-  call assert_equal_i64(stats%survived_max_step, 1_i64, 'survived_max_step mismatch')
+  call assert_equal_i64(stats%escaped_boundary, 2_i64, 'escaped_boundary mismatch')
+  call assert_equal_i64(stats%survived_max_step, 0_i64, 'survived_max_step mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
   call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
   call assert_true(stats%last_rel_change > 0.0d0, 'last_rel_change should be positive')
@@ -191,8 +195,8 @@ program test_simulator
   call assert_equal_i64(stats_resume%processed_particles, 14_i64, 'resume processed_particles mismatch')
   call assert_equal_i64(stats_resume%absorbed, 6_i64, 'resume absorbed mismatch')
   call assert_equal_i64(stats_resume%escaped, 8_i64, 'resume escaped mismatch')
-  call assert_equal_i64(stats_resume%escaped_boundary, 4_i64, 'resume escaped_boundary mismatch')
-  call assert_equal_i64(stats_resume%survived_max_step, 4_i64, 'resume survived_max_step mismatch')
+  call assert_equal_i64(stats_resume%escaped_boundary, 5_i64, 'resume escaped_boundary mismatch')
+  call assert_equal_i64(stats_resume%survived_max_step, 3_i64, 'resume survived_max_step mismatch')
   call assert_equal_i32(stats_resume%batches, 8_i32, 'resume batches mismatch')
   call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')
   call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
@@ -204,6 +208,14 @@ program test_simulator
 
   call test_begin('photo_collision_query_failure_context')
   call test_photo_collision_query_failure_context()
+  call test_end()
+
+  call test_begin('reflected_remainder_deposits')
+  call test_reflected_remainder_deposits()
+  call test_end()
+
+  call test_begin('multiple_box_event_failure_context')
+  call test_multiple_box_event_failure_context()
   call test_end()
 
   call test_summary()
@@ -237,7 +249,7 @@ contains
       if (child_ios /= 0) exit
       saw_batch = saw_batch .or. index(child_line, 'batch=1') > 0
       saw_particle = saw_particle .or. index(child_line, 'particle=1') > 0
-      saw_status = saw_status .or. index(child_line, 'status=image_limit') > 0
+      saw_status = saw_status .or. index(child_line, 'status=multiple_box_events') > 0
       saw_survivor_warning = saw_survivor_warning .or. index(child_line, 'max-step-survivor') > 0
     end do
     close (child_unit)
@@ -245,7 +257,7 @@ contains
 
     call assert_true(saw_batch, 'collision failure message should include the batch index')
     call assert_true(saw_particle, 'collision failure message should include the lowest failing particle index')
-    call assert_true(saw_status, 'collision failure message should include the collision status')
+    call assert_true(saw_status, 'particle-step failure message should include the selected status')
     call assert_true(.not. saw_survivor_warning, 'collision failure must not be reported as a max-step survivor')
   end subroutine test_collision_query_failure_context
 
@@ -392,4 +404,117 @@ contains
     call seed_particles_from_config(failure_cfg)
     call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
   end subroutine run_photo_collision_query_failure_probe
+
+  subroutine test_reflected_remainder_deposits()
+    type(mesh_type) :: reflected_mesh
+    type(app_config) :: reflected_cfg
+    type(sim_stats) :: reflected_stats
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.5_dp, -1.0_dp, -1.0_dp]
+    tri_v1(:, 1) = [0.5_dp, 1.0_dp, -1.0_dp]
+    tri_v2(:, 1) = [0.5_dp, 0.0_dp, 1.0_dp]
+    call init_mesh(reflected_mesh, tri_v0, tri_v1, tri_v2)
+
+    call default_app_config(reflected_cfg)
+    reflected_cfg%sim%rng_seed = 993_i32
+    reflected_cfg%sim%batch_count = 1_i32
+    reflected_cfg%sim%dt = 1.0_dp
+    reflected_cfg%sim%max_step = 1_i32
+    reflected_cfg%sim%softening = 1.0e-6_dp
+    reflected_cfg%sim%use_box = .true.
+    reflected_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    reflected_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    reflected_cfg%sim%bc_high(1) = bc_reflect
+    reflected_cfg%n_particle_species = 1_i32
+    reflected_cfg%particle_species(1) = species_from_defaults()
+    reflected_cfg%particle_species(1)%source_mode = 'volume_seed'
+    reflected_cfg%particle_species(1)%npcls_per_step = 1_i32
+    reflected_cfg%particle_species(1)%q_particle = 1.0_dp
+    reflected_cfg%particle_species(1)%m_particle = 1.0_dp
+    reflected_cfg%particle_species(1)%w_particle = 2.0_dp
+    reflected_cfg%particle_species(1)%pos_low = [0.8_dp, 0.2_dp, 0.2_dp]
+    reflected_cfg%particle_species(1)%pos_high = reflected_cfg%particle_species(1)%pos_low
+    reflected_cfg%particle_species(1)%drift_velocity = [1.0_dp, 0.0_dp, 0.0_dp]
+    reflected_cfg%particle_species(1)%temperature_k = 0.0_dp
+
+    call seed_particles_from_config(reflected_cfg)
+    call run_absorption_insulator(reflected_mesh, reflected_cfg, reflected_stats)
+    call assert_equal_i64(reflected_stats%absorbed, 1_i64, 'reflected remainder should absorb one particle')
+    call assert_equal_i64(reflected_stats%escaped, 0_i64, 'reflected remainder should not escape')
+    call assert_close_dp(reflected_mesh%q_elem(1), 2.0_dp, 1.0e-12_dp, 'reflected remainder deposit mismatch')
+  end subroutine test_reflected_remainder_deposits
+
+  subroutine test_multiple_box_event_failure_context()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_particle, saw_step, saw_status, saw_dt, saw_x, saw_v
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(box_event_failure_path)
+    command = 'OMP_NUM_THREADS=2 "'//trim(executable_path)// &
+              '" --multiple-box-event-probe > '//box_event_failure_path//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'box event failure command status mismatch')
+    call assert_true(child_exit_status /= 0, 'multiple box event probe should terminate with nonzero status')
+
+    saw_particle = .false.
+    saw_step = .false.
+    saw_status = .false.
+    saw_dt = .false.
+    saw_x = .false.
+    saw_v = .false.
+    open (newunit=child_unit, file=box_event_failure_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read box event failure probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_particle = saw_particle .or. index(child_line, 'particle=1') > 0
+      saw_step = saw_step .or. index(child_line, 'step=1') > 0
+      saw_status = saw_status .or. index(child_line, 'status=multiple_box_events') > 0
+      saw_dt = saw_dt .or. index(child_line, 'dt=') > 0
+      saw_x = saw_x .or. index(child_line, 'x=') > 0
+      saw_v = saw_v .or. index(child_line, 'v=') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(box_event_failure_path)
+    call assert_true(saw_particle .and. saw_step, 'box event failure should include particle and step')
+    call assert_true(saw_status, 'box event failure should name multiple_box_events')
+    call assert_true(saw_dt .and. saw_x .and. saw_v, 'box event failure should include dt, x, and v')
+  end subroutine test_multiple_box_event_failure_context
+
+  subroutine run_multiple_box_event_failure_probe()
+    type(mesh_type) :: failure_mesh
+    type(app_config) :: failure_cfg
+    type(sim_stats) :: failure_stats
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [10.0_dp, -1.0_dp, -1.0_dp]
+    tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
+    tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
+    call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
+    call default_app_config(failure_cfg)
+    failure_cfg%sim%rng_seed = 994_i32
+    failure_cfg%sim%batch_count = 1_i32
+    failure_cfg%sim%dt = 1.0_dp
+    failure_cfg%sim%max_step = 1_i32
+    failure_cfg%sim%use_box = .true.
+    failure_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    failure_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    failure_cfg%sim%bc_low(1) = bc_reflect
+    failure_cfg%sim%bc_high(1) = bc_reflect
+    failure_cfg%n_particle_species = 1_i32
+    failure_cfg%particle_species(1) = species_from_defaults()
+    failure_cfg%particle_species(1)%source_mode = 'volume_seed'
+    failure_cfg%particle_species(1)%npcls_per_step = 1_i32
+    failure_cfg%particle_species(1)%q_particle = 0.0_dp
+    failure_cfg%particle_species(1)%m_particle = 1.0_dp
+    failure_cfg%particle_species(1)%w_particle = 1.0_dp
+    failure_cfg%particle_species(1)%pos_low = [0.9_dp, 0.2_dp, 0.2_dp]
+    failure_cfg%particle_species(1)%pos_high = failure_cfg%particle_species(1)%pos_low
+    failure_cfg%particle_species(1)%drift_velocity = [3.0_dp, 0.0_dp, 0.0_dp]
+    failure_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(failure_cfg)
+    call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
+  end subroutine run_multiple_box_event_failure_probe
 end program test_simulator

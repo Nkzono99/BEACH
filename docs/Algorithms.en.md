@@ -214,10 +214,11 @@ Incomplete particle arrays and `photo_emission_dq` from the failing rank are not
 | 2 | Form the predicted midpoint `x_mid = x0 + 0.5*v0*dt` in `build_particle_step_candidate` |
 | 3 | Evaluate the boundary-element field with `field_solver%eval_e(mesh, x_mid, e_mid)` and add the uniform external field `sim.e0` exactly once |
 | 4 | Use `boris_push` with the midpoint field to compute candidate velocity `v1` and trapezoidal candidate position `x1` |
-| 5 | Test segment collision with `find_first_hit(mesh, x0, x1, hit, sim=sim, status=collision_status)` |
-| 6 | If there is a hit, add `q * w` to `dq_thread(elem, tid)` for the hit element and absorb the particle |
-| 7 | If there is no hit, apply open / reflect / periodic with `apply_box_boundary` |
-| 8 | If the particle remains alive, update `x` and `v` and continue to the next step |
+| 5 | If `x1` is inside the box, issue one collision query on `x0 -> x1` |
+| 6 | For a box crossing, limit the query to the first face and give mesh hits priority, including ties |
+| 7 | Open ends at the event; reflect/periodic rebuilds the remainder once and checks that chord for mesh hits |
+| 8 | Deposit `q * w` on a hit; fail closed without committing state at a second box event |
+| 9 | If the particle survives, update same-time `x` and `v` and continue to the next step |
 
 `build_particle_step_candidate` evaluates the spatial field exactly once at the predicted midpoint without modifying
 the field solver. `boris_update_velocity(v, q, m, dt, e, b, v_new)` is a public pure procedure that performs the
@@ -227,18 +228,21 @@ procedure, and updates position with `x_new = x + 0.5*(v + v_new)*dt`. Input and
 same-time states. Predicted-midpoint spatial-field sampling and the trapezoidal position update make the candidate
 kinematics second-order accurate.
 
-As additive primitives before production integration, `bem_boundary` provides `find_first_boundary_event`, which
-returns the first box-face fraction on a candidate chord, and `apply_escape_reflect_periodic_event`, which applies all
-simultaneous corner/edge faces together. The latter handles default open, reflect, and periodic behavior only and does
-not mutate particle state when geometry or event/config data are invalid. The existing `apply_box_boundary` remains for
-photo rays and callers that have not yet migrated.
+When the candidate endpoint is strictly inside the box, `advance_particle_step` completes with one field evaluation and
+one collision query and does no additional event geometry. Crossing steps use `find_first_boundary_event` and
+`apply_escape_reflect_periodic_event` to apply simultaneous corner/edge faces together. If a reflected or periodic
+remainder reaches another face without an earlier mesh hit, it returns `particle_step_multiple_box_events` instead of
+entering an unbounded loop. The existing `apply_box_boundary` remains for photo rays.
+
+For a single open face, `potential_barrier` retains the legacy scalar-energy formula evaluated at the event position and
+interpolated velocity. Multiple open faces fail closed; a shared-potential/gauge physical model is deferred.
 
 If `BEACH_WARN_LONG_PARTICLE_STEPS` is set to a positive integer, BEACH prints diagnostics for long-lived particles at that step interval.
 
 The collision statuses are `collision_query_ok=0`, `collision_query_image_limit=1`, and
 `collision_query_index_range=2`. A public call that omits `status` does not treat an incomplete query as a miss; it stops
-fail closed. The main particle loop aggregates the lowest particle / step in a named critical section, leaves the OpenMP
-region, and then selects the lowest failure rank through MPI so that every rank stops with the same message.
+fail closed. The main loop aggregates collision and boundary-event failures in one envelope, leaves the OpenMP region,
+then shares the selected rank's particle/step and `dt/x/v` so every rank stops with the same diagnostic.
 
 ### 3.4 Charge commit
 
