@@ -119,6 +119,27 @@ Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, 
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Centroid potentials output by Fortran [V] |
 | `history` | `FortranChargeHistory \| None` | Charge history accessor |
 
+### 3.3 `FortranChargeHistory`
+
+Fortran `charge_history.csv` files contain dense snapshots. Every recorded batch
+must contain every `elem_idx=1..mesh_nelem` exactly once. Element rows may appear
+in any order, but batch groups must be strictly increasing, `processed_particles`
+and `rel_change` must be constant within a batch, and both `charge_C` and
+`rel_change` must be finite.
+
+`load_fortran_result(...)` and history-accessor construction remain lazy. The
+first access to a history property such as `batch_indices`, to `get_step(...)`,
+or to `as_array()` builds the byte-offset index and validates every batch in the
+entire CSV. Missing or duplicate elements, out-of-range indices, non-finite
+values, inconsistent metadata, or decreasing batches raise `ValueError` with
+the affected batch and defect. A missing element is corruption, not a physical
+charge of `0 C`.
+
+After validation, individual charge vectors are still loaded on demand, and the
+full history matrix is not materialized until `as_array()` is called.
+`FortranChargeHistory.from_arrays(...)` retains its existing behavior as a
+trusted in-memory path whose caller supplies the dense matrix.
+
 ## 4. Potential Reconstruction
 
 ### 4.1 `compute_potential_mesh(result, *, softening, self_term, periodic2, reference_point)`

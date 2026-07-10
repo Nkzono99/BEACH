@@ -71,6 +71,21 @@ def _make_history(
     )
 
 
+def _write_charge_history(
+    path: Path,
+    rows: list[str],
+    *,
+    mesh_nelem: int = 3,
+) -> FortranChargeHistory:
+    path.write_text(
+        "batch,processed_particles,rel_change,elem_idx,charge_C\n"
+        + "\n".join(rows)
+        + "\n",
+        encoding="utf-8",
+    )
+    return FortranChargeHistory(path, mesh_nelem=mesh_nelem)
+
+
 def _write_three_mesh_fixture(out: Path) -> None:
     (out / "summary.txt").write_text(
         "\n".join(
@@ -466,6 +481,131 @@ def test_resolve_object_specs_prefers_mesh_source_materials(tmp_path: Path) -> N
     assert [spec.kind for spec in specs] == ["plane", "sphere"]
     assert [spec.surface_model for spec in specs] == ["insulator", "conductor"]
     assert [spec.epsilon_r for spec in specs] == [1.0, 2.5]
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (
+            [
+                "1,2,1.0e-1,1,1.0e-9",
+                "1,2,1.0e-1,3,3.0e-9",
+            ],
+            r"batch=1.*missing elem_idx=2",
+        ),
+        (
+            [
+                "1,2,1.0e-1,1,1.0e-9",
+                "1,2,1.0e-1,2,2.0e-9",
+                "1,2,1.0e-1,2,9.0e-9",
+                "1,2,1.0e-1,3,3.0e-9",
+            ],
+            r"batch=1.*duplicate elem_idx=2",
+        ),
+        (
+            [
+                "1,2,1.0e-1,1,1.0e-9",
+                "1,2,1.0e-1,2,2.0e-9",
+                "1,2,1.0e-1,4,4.0e-9",
+            ],
+            r"batch=1.*out-of-range elem_idx=4",
+        ),
+        (
+            [
+                "1,2,1.0e-1,1,1.0e-9",
+                "1,2,1.0e-1,2,nan",
+                "1,2,1.0e-1,3,3.0e-9",
+            ],
+            r"batch=1.*elem_idx=2.*non-finite charge_C",
+        ),
+        (
+            [
+                "1,2,1.0e-1,1,1.0e-9",
+                "1,3,1.0e-1,2,2.0e-9",
+                "1,2,1.0e-1,3,3.0e-9",
+            ],
+            r"batch=1.*inconsistent processed_particles.*elem_idx=2",
+        ),
+        (
+            [
+                "1,2,1.0e-1,1,1.0e-9",
+                "1,2,2.0e-1,2,2.0e-9",
+                "1,2,1.0e-1,3,3.0e-9",
+            ],
+            r"batch=1.*inconsistent rel_change.*elem_idx=2",
+        ),
+        (
+            [
+                "2,2,1.0e-1,1,1.0e-9",
+                "2,2,1.0e-1,2,2.0e-9",
+                "2,2,1.0e-1,3,3.0e-9",
+                "1,3,5.0e-2,1,4.0e-9",
+                "1,3,5.0e-2,2,5.0e-9",
+                "1,3,5.0e-2,3,6.0e-9",
+            ],
+            r"batch=1.*previous batch=2",
+        ),
+        (
+            [
+                "1,2,1.0e-1,1,1.0e-9",
+                "1,2,nan,2,2.0e-9",
+                "1,2,1.0e-1,3,3.0e-9",
+            ],
+            r"batch=1.*elem_idx=2.*non-finite rel_change",
+        ),
+    ],
+    ids=[
+        "missing-element",
+        "duplicate-element",
+        "out-of-range-element",
+        "non-finite-charge",
+        "inconsistent-processed-particles",
+        "inconsistent-rel-change",
+        "decreasing-batch",
+        "non-finite-rel-change",
+    ],
+)
+def test_charge_history_rejects_corrupt_batch_when_indexed(
+    tmp_path: Path,
+    rows: list[str],
+    message: str,
+) -> None:
+    history = _write_charge_history(tmp_path / "charge_history.csv", rows)
+
+    for _ in range(2):
+        with pytest.raises(ValueError, match=message):
+            _ = history.batch_indices
+
+
+def test_load_fortran_result_defers_corrupt_history_validation(tmp_path: Path) -> None:
+    out = tmp_path / "run_corrupt_lazy_history"
+    out.mkdir()
+    _write_minimal_result_fixture(out)
+    (out / "charge_history.csv").write_text(
+        "batch,processed_particles,rel_change,elem_idx,charge_C\n"
+        "1,2,1.0e-1,1,1.0e-9\n",
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.history is not None
+    with pytest.raises(ValueError, match=r"batch=1.*missing elem_idx=2"):
+        _ = result.history.batch_indices
+
+
+def test_charge_history_accepts_permuted_dense_rows(tmp_path: Path) -> None:
+    history = _write_charge_history(
+        tmp_path / "charge_history.csv",
+        [
+            "1,2,1.0e-1,3,3.0e-9",
+            "1,2,1.0e-1,1,1.0e-9",
+            "1,2,1.0e-1,2,2.0e-9",
+        ],
+    )
+
+    np.testing.assert_array_equal(history.batch_indices, np.array([1]))
+    np.testing.assert_allclose(history.get_step(1), np.array([1.0e-9, 2.0e-9, 3.0e-9]))
 
 
 def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> None:

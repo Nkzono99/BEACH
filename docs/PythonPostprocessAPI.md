@@ -118,6 +118,25 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Fortran 出力の重心電位 [V] |
 | `history` | `FortranChargeHistory \| None` | 電荷履歴アクセサ |
 
+### 3.3 `FortranChargeHistory`
+
+Fortran の `charge_history.csv` は dense snapshot です。記録された各 batch は、
+`elem_idx=1..mesh_nelem` の全要素をそれぞれちょうど1回含む必要があります。
+要素行の順番は問いませんが、batch group は厳密な昇順で、各 batch 内の
+`processed_particles` と `rel_change` は全行で一致し、`charge_C` と
+`rel_change` は有限値でなければなりません。
+
+`load_fortran_result(...)` と履歴 accessor の構築は遅延処理です。最初に
+`batch_indices` などの履歴 property、`get_step(...)`、または `as_array()` を
+参照したときに、CSV 全体の byte-offset index を作りながら全 batch を検証します。
+欠損、重複、範囲外 index、非有限値、metadata 不一致、batch の逆行がある場合は、
+batch と破損内容を含む `ValueError` を送出します。欠損要素を物理電荷 `0 C`
+として補完することはありません。
+
+検証後も各 batch の電荷 vector は要求時に読み込み、`as_array()` を呼ぶまで
+全履歴 matrix は作りません。`FortranChargeHistory.from_arrays(...)` は、呼出元が
+dense matrix を提供する trusted in-memory 経路として従来どおり動作します。
+
 ## 4. 電位再構成
 
 ### 4.1 `compute_potential_mesh(result, *, softening, self_term, periodic2, reference_point)`

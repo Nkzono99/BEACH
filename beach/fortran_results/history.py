@@ -147,7 +147,7 @@ class FortranChargeHistory:
 
         self._ensure_index()
         n_snapshots = self._batch_indices.size
-        history = np.zeros((self.mesh_nelem, n_snapshots), dtype=float)
+        history = np.empty((self.mesh_nelem, n_snapshots), dtype=float)
         for col, batch in enumerate(self._batch_indices):
             history[:, col] = self._load_step_from_file(int(batch))
         self._history_matrix = history
@@ -215,72 +215,110 @@ class FortranChargeHistory:
         if self._indexed:
             return
 
-        self._indexed = True
-        self._step_offsets = {}
-        self._step_cache = {}
-        self._batch_indices = np.empty(0, dtype=np.int64)
-        self._processed_particles_by_batch = np.empty(0, dtype=np.int64)
-        self._rel_change_by_batch = np.empty(0, dtype=float)
-
-        if not self.path.exists():
-            return
-        if self.path.stat().st_size == 0:
-            return
-
+        step_offsets: dict[int, tuple[int, int]] = {}
         batches: list[int] = []
         processed: list[int] = []
         rel_change: list[float] = []
-        seen_batches: set[int] = set()
         current_batch: int | None = None
         current_start: int | None = None
+        current_processed: int | None = None
+        current_rel_change: float | None = None
 
-        with self.path.open("r", encoding="utf-8") as stream:
-            stream.readline()  # header
-            while True:
-                pos = stream.tell()
-                line = stream.readline()
-                if line == "":
-                    break
-                row = line.strip()
-                if not row:
-                    continue
-                batch, processed_count, rel_value, _, _ = self._parse_row(row)
+        if self.path.exists() and self.path.stat().st_size > 0:
+            seen_elem = np.zeros(self.mesh_nelem, dtype=bool)
+            with self.path.open("r", encoding="utf-8") as stream:
+                stream.readline()  # header
+                while True:
+                    pos = stream.tell()
+                    line = stream.readline()
+                    if line == "":
+                        break
+                    row = line.strip()
+                    if not row:
+                        continue
+                    batch, processed_count, rel_value, elem_idx, charge = self._parse_row(row)
 
-                if current_batch is None:
-                    current_batch = batch
-                    current_start = pos
-                    seen_batches.add(batch)
-                    batches.append(batch)
-                    processed.append(processed_count)
-                    rel_change.append(rel_value)
-                    continue
+                    if current_batch is None or batch != current_batch:
+                        if current_batch is not None:
+                            self._validate_complete_batch(current_batch, seen_elem)
+                            if current_start is None:
+                                raise RuntimeError("internal history index state is inconsistent.")
+                            step_offsets[current_batch] = (current_start, pos)
+                            if batch <= current_batch:
+                                raise ValueError(
+                                    f"charge_history.csv batch={batch} is not greater than "
+                                    f"previous batch={current_batch}."
+                                )
 
-                if batch == current_batch:
-                    continue
+                        current_batch = batch
+                        current_start = pos
+                        current_processed = processed_count
+                        current_rel_change = rel_value
+                        seen_elem.fill(False)
+                        batches.append(batch)
+                        processed.append(processed_count)
+                        rel_change.append(rel_value)
 
+                    elem_number = elem_idx + 1
+                    if elem_idx < 0 or elem_idx >= self.mesh_nelem:
+                        raise ValueError(
+                            f"charge_history.csv batch={batch} has out-of-range "
+                            f"elem_idx={elem_number}; expected 1..{self.mesh_nelem}."
+                        )
+                    if seen_elem[elem_idx]:
+                        raise ValueError(
+                            f"charge_history.csv batch={batch} has duplicate elem_idx={elem_number}."
+                        )
+                    if not np.isfinite(charge):
+                        raise ValueError(
+                            f"charge_history.csv batch={batch} elem_idx={elem_number} "
+                            "has non-finite charge_C."
+                        )
+                    if not np.isfinite(rel_value):
+                        raise ValueError(
+                            f"charge_history.csv batch={batch} elem_idx={elem_number} "
+                            "has non-finite rel_change."
+                        )
+                    if processed_count != current_processed:
+                        raise ValueError(
+                            f"charge_history.csv batch={batch} has inconsistent "
+                            f"processed_particles at elem_idx={elem_number}; "
+                            f"expected {current_processed}, got {processed_count}."
+                        )
+                    if rel_value != current_rel_change:
+                        raise ValueError(
+                            f"charge_history.csv batch={batch} has inconsistent "
+                            f"rel_change at elem_idx={elem_number}; "
+                            f"expected {current_rel_change}, got {rel_value}."
+                        )
+                    seen_elem[elem_idx] = True
+
+                end_pos = stream.tell()
+
+            if current_batch is not None:
+                self._validate_complete_batch(current_batch, seen_elem)
                 if current_start is None:
                     raise RuntimeError("internal history index state is inconsistent.")
-                self._step_offsets[current_batch] = (current_start, pos)
+                step_offsets[current_batch] = (current_start, end_pos)
 
-                if batch in seen_batches:
-                    raise ValueError(
-                        "charge_history.csv must group rows contiguously by batch."
-                    )
-                seen_batches.add(batch)
-                current_batch = batch
-                current_start = pos
-                batches.append(batch)
-                processed.append(processed_count)
-                rel_change.append(rel_value)
-
-            end_pos = stream.tell()
-
-        if current_batch is not None and current_start is not None:
-            self._step_offsets[current_batch] = (current_start, end_pos)
-
+        self._step_offsets = step_offsets
+        self._step_cache = {}
         self._batch_indices = np.asarray(batches, dtype=np.int64)
         self._processed_particles_by_batch = np.asarray(processed, dtype=np.int64)
         self._rel_change_by_batch = np.asarray(rel_change, dtype=float)
+        self._indexed = True
+
+    @staticmethod
+    def _validate_complete_batch(batch: int, seen_elem: np.ndarray) -> None:
+        missing = ~seen_elem
+        missing_count = int(np.count_nonzero(missing))
+        if missing_count == 0:
+            return
+        first_missing = int(np.argmax(missing)) + 1
+        raise ValueError(
+            f"charge_history.csv batch={batch} is incomplete: "
+            f"missing elem_idx={first_missing} ({missing_count} missing)."
+        )
 
     def _load_step_from_file(self, step: int) -> np.ndarray:
         if step in self._step_cache:
@@ -292,7 +330,7 @@ class FortranChargeHistory:
             raise RuntimeError("history step offset is unavailable after index lookup.")
 
         start, end = offsets
-        charges = np.zeros(self.mesh_nelem, dtype=float)
+        charges = np.empty(self.mesh_nelem, dtype=float)
         with self.path.open("r", encoding="utf-8") as stream:
             stream.seek(start)
             while stream.tell() < end:
