@@ -5,7 +5,35 @@ import pytest
 from beach.cli_estimate_fortran_workload import (
     completed_batches_from_resume_config,
     estimate_workload,
+    read_macro_residuals,
 )
+
+
+def _fractional_reservoir_config() -> dict[str, object]:
+    return {
+        "sim": {
+            "batch_count": 4,
+            "batch_duration": 1.0,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "reservoir_face",
+                    "number_density_m3": 1.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "w_particle": 4.0,
+                    "inject_face": "z_low",
+                    "pos_low": [0.0, 0.0, 0.0],
+                    "pos_high": [1.0, 1.0, 0.0],
+                    "drift_velocity": [0.0, 0.0, 1.0],
+                }
+            ]
+        },
+    }
 
 
 def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets() -> None:
@@ -678,7 +706,7 @@ def test_estimate_workload_splits_photo_raycast_by_mpi_rank() -> None:
     assert rank3["species_per_batch"] == [[2]]
 
 
-def test_estimate_workload_scales_reservoir_face_by_mpi_ranks() -> None:
+def test_estimate_workload_splits_global_reservoir_count_by_mpi_rank() -> None:
     config = {
         "sim": {
             "batch_count": 3,
@@ -706,8 +734,65 @@ def test_estimate_workload_scales_reservoir_face_by_mpi_ranks() -> None:
 
     result = estimate_workload(config=config, threads=2, mpi_ranks=4, mpi_rank=0)
 
-    assert result["species_per_batch"] == [[2], [3], [2]]
-    assert result["batch_totals"] == [2, 3, 2]
+    assert result["species_per_batch"] == [[3], [3], [3]]
+    assert result["global_species_per_batch"] == [[10], [10], [10]]
+    assert result["batch_totals"] == [3, 3, 3]
+    assert result["global_batch_totals"] == [10, 10, 10]
+    assert result["local_reservoir_particles"] == 9
+    assert result["global_reservoir_particles"] == 30
+
+
+@pytest.mark.parametrize("mpi_ranks", [1, 2, 4])
+def test_estimate_workload_global_fractional_sequence_is_mpi_size_independent(
+    mpi_ranks: int,
+) -> None:
+    results = [
+        estimate_workload(
+            config=_fractional_reservoir_config(),
+            threads=1,
+            mpi_ranks=mpi_ranks,
+            mpi_rank=rank,
+        )
+        for rank in range(mpi_ranks)
+    ]
+
+    expected_global = [[0], [0], [0], [1]]
+    assert all(result["global_species_per_batch"] == expected_global for result in results)
+    assert [
+        sum(result["species_per_batch"][batch_idx][0] for result in results)
+        for batch_idx in range(4)
+    ] == [0, 0, 0, 1]
+    assert all(result["global_reservoir_particles"] == 1 for result in results)
+    assert sum(result["local_reservoir_particles"] for result in results) == 1
+
+
+def test_estimate_workload_resumed_global_reservoir_sequence_matches_uninterrupted() -> None:
+    config = _fractional_reservoir_config()
+    uninterrupted = estimate_workload(
+        config=config, threads=1, mpi_ranks=4, mpi_rank=0
+    )
+    resumed = estimate_workload(
+        config=config,
+        threads=1,
+        initial_residuals=[0.5],
+        mpi_ranks=4,
+        mpi_rank=0,
+        completed_batches=2,
+    )
+
+    assert resumed["species_per_batch"] == uninterrupted["species_per_batch"][2:]
+    assert resumed["global_species_per_batch"] == uninterrupted[
+        "global_species_per_batch"
+    ][2:]
+    assert resumed["final_residuals"] == uninterrupted["final_residuals"]
+
+
+def test_read_macro_residuals_rejects_legacy_rank_path(tmp_path) -> None:
+    path = tmp_path / "macro_residuals_rank00000.csv"
+    path.write_text("species_idx,residual\n1,0.5\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="legacy rank-local"):
+        read_macro_residuals(path, 1)
 
 
 def test_estimate_workload_supports_velocity_grid_particle_flux() -> None:

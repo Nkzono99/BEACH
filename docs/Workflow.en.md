@@ -235,6 +235,9 @@ beachx workload examples/beach.toml \
   --macro-residuals outputs/latest/macro_residuals.csv
 ```
 
+`total_particles` is for the selected rank and `global_total_particles` is the all-rank total.
+For reservoir injection, compare `local_reservoir_particles` with `global_reservoir_particles`.
+
 ## 7. Resume Runs
 
 ```toml

@@ -236,6 +236,9 @@ beachx workload examples/beach.toml \
   --macro-residuals outputs/latest/macro_residuals.csv
 ```
 
+`total_particles`は選択rank、`global_total_particles`は全rank合計です。reservoirについては
+`local_reservoir_particles`と`global_reservoir_particles`で分配前後を確認できます。
+
 ## 7. 再開実行（resume）
 
 ```toml

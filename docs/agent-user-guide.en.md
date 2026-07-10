@@ -366,7 +366,14 @@ beachx mobility outputs/latest --save-csv mobility.csv
 ```bash
 beachx workload beach.toml
 beachx workload beach.toml --threads 8
+beachx workload beach.toml --mpi-ranks 4 --mpi-rank 0 \
+  --macro-residuals outputs/latest/macro_residuals.csv
 ```
+
+With MPI options, `total_particles` is the estimate for the selected rank.
+`global_total_particles` is the all-rank total, while `local_reservoir_particles` and
+`global_reservoir_particles` show reservoir injection after and before rank distribution.
+The reservoir residual is updated once from the global expectation, so the global sequence is independent of MPI size.
 
 ---
 

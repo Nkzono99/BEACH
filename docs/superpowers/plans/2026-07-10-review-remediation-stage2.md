@@ -210,14 +210,16 @@ Root computes each enabled `reservoir_face` count using the full `batch_duration
 **Files:**
 - Modify: `beach/cli/estimate_fortran_workload.py`
 - Modify: `tests/python/test_estimate_fortran_workload.py`
-- Modify: `docs/CLI.md`
-- Modify: `docs/CLI.en.md`
+- Modify: `docs/Workflow.md`
+- Modify: `docs/Workflow.en.md`
+- Modify: `docs/agent-user-guide.md`
+- Modify: `docs/agent-user-guide.en.md`
 
 For each reservoir species, compute the uninterrupted global integer/residual sequence once, then split each batch count with the same quotient/remainder rule as `mpi_split_count`. Report both global and selected-rank reservoir totals. Resume reads one `macro_residuals.csv`; rank-suffixed residuals are not accepted.
 
-- [ ] Replace the old MPI-scaled reservoir expectations with hard-coded global sequences for 1, 2, and 4 ranks, plus uninterrupted/resumed equality.
-- [ ] Run RED: `pytest -q tests/python/test_estimate_fortran_workload.py` on a compute node.
-- [ ] Implement the global algorithm without new dependencies and run GREEN plus `ruff check beach/cli/estimate_fortran_workload.py tests/python/test_estimate_fortran_workload.py`.
+- [x] Replace the old MPI-scaled reservoir expectations with hard-coded global sequences for 1, 2, and 4 ranks, plus uninterrupted/resumed equality.
+- [x] Run RED with Python 3.11 on a compute node (job `22256780`; the earlier job `22256777` exposed the unsupported system Python 3.6 environment).
+- [x] Implement the global algorithm without new dependencies and run GREEN plus ruff (job `22256781`; 35 tests passed).
 - [ ] Update docs and commit as `fix: estimate global reservoir counts before rank splitting`.
 
 ## Task PERF: No-Crossing Performance Gate

@@ -738,6 +738,11 @@ def read_macro_residuals(path: Path | None, n_species: int) -> list[float]:
     residuals = [0.0] * n_species
     if path is None:
         return residuals
+    if path.name.startswith("macro_residuals_rank") and path.suffix == ".csv":
+        raise SystemExit(
+            "legacy rank-local macro residual files are not supported; "
+            "use the global macro_residuals.csv"
+        )
     if not path.exists():
         raise SystemExit(f"macro residual file not found: {path}")
 
@@ -1005,12 +1010,18 @@ def estimate_workload(
     batch_thread_min: list[int] = []
     batch_thread_max: list[int] = []
     species_per_batch: list[list[int]] = []
+    global_batch_totals: list[int] = []
+    global_species_per_batch: list[list[int]] = []
+    local_reservoir_particles = 0
+    global_reservoir_particles = 0
 
     for _batch_idx in range(batch_count):
         species_counts: list[int] = []
+        global_species_counts: list[int] = []
         for s_idx, spec in enumerate(species_list):
             if not bool(spec.get("enabled", True)):
                 species_counts.append(0)
+                global_species_counts.append(0)
                 continue
 
             source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
@@ -1021,6 +1032,7 @@ def estimate_workload(
                 species_counts.append(
                     _split_count_for_rank(n_macro_global, mpi_rank, mpi_ranks)
                 )
+                global_species_counts.append(n_macro_global)
                 continue
 
             if source_mode == "reservoir_face":
@@ -1033,15 +1045,20 @@ def estimate_workload(
                     params["gamma_in"]
                     * params["area"]
                     * resolved_batch_duration
-                    / float(mpi_ranks)
                 )
                 n_macro_expected = n_phys_batch / params["w_particle"]
                 macro_budget = residuals[s_idx] + n_macro_expected
                 if macro_budget < 0.0:
                     macro_budget = 0.0
-                n_macro = math.floor(macro_budget)
-                residuals[s_idx] = macro_budget - n_macro
-                species_counts.append(int(n_macro))
+                n_macro_global = math.floor(macro_budget)
+                residuals[s_idx] = macro_budget - n_macro_global
+                n_macro_local = _split_count_for_rank(
+                    int(n_macro_global), mpi_rank, mpi_ranks
+                )
+                species_counts.append(n_macro_local)
+                global_species_counts.append(int(n_macro_global))
+                local_reservoir_particles += n_macro_local
+                global_reservoir_particles += int(n_macro_global)
                 continue
 
             if source_mode == "photo_raycast":
@@ -1050,11 +1067,11 @@ def estimate_workload(
                     raise SystemExit(
                         "internal error: photo_raycast species parameters were not initialized."
                     )
+                n_rays_global = int(params["rays_per_batch"])
                 species_counts.append(
-                    _split_count_for_rank(
-                        int(params["rays_per_batch"]), mpi_rank, mpi_ranks
-                    )
+                    _split_count_for_rank(n_rays_global, mpi_rank, mpi_ranks)
                 )
+                global_species_counts.append(n_rays_global)
                 continue
 
             raise SystemExit(f"Unknown particles.species.source_mode: {source_mode}")
@@ -1062,11 +1079,14 @@ def estimate_workload(
         batch_total = sum(species_counts)
         q, r = divmod(batch_total, threads)
         batch_totals.append(batch_total)
+        global_batch_totals.append(sum(global_species_counts))
         batch_thread_min.append(q)
         batch_thread_max.append(q + 1 if r > 0 else q)
         species_per_batch.append(species_counts)
+        global_species_per_batch.append(global_species_counts)
 
     total_particles = sum(batch_totals)
+    global_total_particles = sum(global_batch_totals)
 
     return {
         "batch_count": batch_count,
@@ -1079,8 +1099,13 @@ def estimate_workload(
         "batch_thread_min": batch_thread_min,
         "batch_thread_max": batch_thread_max,
         "species_per_batch": species_per_batch,
+        "global_batch_totals": global_batch_totals,
+        "global_species_per_batch": global_species_per_batch,
         "final_residuals": residuals,
         "total_particles": total_particles,
+        "global_total_particles": global_total_particles,
+        "local_reservoir_particles": local_reservoir_particles,
+        "global_reservoir_particles": global_reservoir_particles,
         "resolved_batch_duration": resolved_batch_duration,
     }
 
@@ -1212,6 +1237,7 @@ def run(args: argparse.Namespace) -> None:
     batch_thread_min = result["batch_thread_min"]
     batch_thread_max = result["batch_thread_max"]
     total_particles = result["total_particles"]
+    global_total_particles = result["global_total_particles"]
     batch_count = result["batch_count"]
     target_batch_count = result["target_batch_count"]
     completed_batches = result["completed_batches"]
@@ -1229,6 +1255,9 @@ def run(args: argparse.Namespace) -> None:
     print(f"remaining_batch_count={batch_count}")
     print(f"resolved_batch_duration={result['resolved_batch_duration']}")
     print(f"total_particles={total_particles}")
+    print(f"global_total_particles={global_total_particles}")
+    print(f"local_reservoir_particles={result['local_reservoir_particles']}")
+    print(f"global_reservoir_particles={result['global_reservoir_particles']}")
     if batch_count > 0:
         print(f"particles_per_batch_min={min(batch_totals)}")
         print(f"particles_per_batch_max={max(batch_totals)}")
@@ -1253,12 +1282,15 @@ def run(args: argparse.Namespace) -> None:
         print("batch_details=")
         for batch_idx in range(n_detail):
             species_counts = result["species_per_batch"][batch_idx]
+            global_species_counts = result["global_species_per_batch"][batch_idx]
             print(
                 "  "
                 f"batch={batch_idx + 1} "
                 f"total={batch_totals[batch_idx]} "
+                f"global_total={result['global_batch_totals'][batch_idx]} "
                 f"per_thread=[{batch_thread_min[batch_idx]},{batch_thread_max[batch_idx]}] "
-                f"species={species_counts}"
+                f"species={species_counts} "
+                f"global_species={global_species_counts}"
             )
 
 
