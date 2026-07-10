@@ -42,7 +42,7 @@ contains
     real(dp), intent(out) :: x_new(3), v_new(3)
 
     call boris_update_velocity(v, q, m, dt, e, b, v_new)
-    x_new = x + v_new*dt
+    x_new = x + 0.5d0*(v + v_new)*dt
   end subroutine boris_push
 
   !> 3次元ベクトルの外積を返す基本演算。

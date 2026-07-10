@@ -6,7 +6,7 @@ module bem_simulator
   use bem_types, only: sim_stats, mesh_type, particles_soa, hit_info, injection_state, sim_config, bc_open
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_field_solver, only: field_solver_type
-  use bem_pusher, only: boris_push
+  use bem_particle_stepper, only: build_particle_step_candidate
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
   use bem_boundary, only: apply_box_boundary
   use bem_surface_models, only: apply_surface_model_charge_relaxation

@@ -27,6 +27,7 @@ Implementation links point to the current file and the main symbol. If line numb
 **Source**:
 [`bem_simulator`](../src/runtime/simulator/bem_simulator.f90),
 [`bem_simulator_loop`](../src/runtime/simulator/bem_simulator_loop.f90),
+[`bem_particle_stepper`](../src/runtime/simulator/bem_particle_stepper.f90),
 [`bem_field_solver`](../src/physics/field_solver/bem_field_solver.f90),
 [`bem_injection`](../src/particles/bem_injection.f90)
 
@@ -209,20 +210,22 @@ Incomplete particle arrays and `photo_emission_dq` from the failing rank are not
 
 | Order | Processing |
 | --- | --- |
-| 1 | Read current position `x0` and velocity `v0` |
-| 2 | Evaluate the electric field from boundary-element charge with `field_solver%eval_e(mesh, x0, e)` |
-| 3 | Add the uniform external electric field `sim.e0` |
-| 4 | Compute candidate position `x1` and velocity `v1` with `boris_push` |
+| 1 | Read the same-time current position `x0` and velocity `v0` |
+| 2 | Form the predicted midpoint `x_mid = x0 + 0.5*v0*dt` in `build_particle_step_candidate` |
+| 3 | Evaluate the boundary-element field with `field_solver%eval_e(mesh, x_mid, e_mid)` and add the uniform external field `sim.e0` exactly once |
+| 4 | Use `boris_push` with the midpoint field to compute candidate velocity `v1` and trapezoidal candidate position `x1` |
 | 5 | Test segment collision with `find_first_hit(mesh, x0, x1, hit, sim=sim, status=collision_status)` |
 | 6 | If there is a hit, add `q * w` to `dq_thread(elem, tid)` for the hit element and absorb the particle |
 | 7 | If there is no hit, apply open / reflect / periodic with `apply_box_boundary` |
 | 8 | If the particle remains alive, update `x` and `v` and continue to the next step |
 
-`boris_update_velocity(v, q, m, dt, e, b, v_new)` is a public pure procedure that performs the electric half kick,
-magnetic rotation, and electric half kick for the velocity update. The existing public call
-`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` delegates its velocity calculation to this procedure and retains
-`x_new = x + v_new*dt` for the position update. This separation does not make particle state half-step staggered and
-does not claim second-order production position updates.
+`build_particle_step_candidate` evaluates the spatial field exactly once at the predicted midpoint without modifying
+the field solver. `boris_update_velocity(v, q, m, dt, e, b, v_new)` is a public pure procedure that performs the
+electric half kick, magnetic rotation, and electric half kick for the velocity update. The existing public call
+`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` keeps its signature, delegates its velocity calculation to this
+procedure, and updates position with `x_new = x + 0.5*(v + v_new)*dt`. Input and output positions and velocities are
+same-time states. Predicted-midpoint spatial-field sampling and the trapezoidal position update make the candidate
+kinematics second-order accurate.
 
 If `BEACH_WARN_LONG_PARTICLE_STEPS` is set to a positive integer, BEACH prints diagnostics for long-lived particles at that step interval.
 

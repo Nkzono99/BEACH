@@ -130,9 +130,12 @@ This is a reduced closure: returning photoelectrons are not tracked individually
 ## 8. Boris pusher
 
 **Source**:
-[`bem_pusher`](../src/physics/bem_pusher.f90)
+[`bem_pusher`](../src/physics/bem_pusher.f90),
+[`bem_particle_stepper`](../src/runtime/simulator/bem_particle_stepper.f90)
 
-Particle motion is advanced with the Boris method using the uniform magnetic field `sim.b0` and the electric field `E` evaluated at the particle position.
+Particle motion is advanced with the Boris method using the uniform magnetic field `sim.b0` and the boundary-element
+electric field evaluated at the predicted midpoint, with the uniform external field `sim.e0` added exactly once.
+Input and output positions and velocities are same-time states.
 
 Inputs:
 
@@ -145,6 +148,16 @@ Inputs:
 - magnetic flux density `B`
 
 Update equations:
+
+$$
+\mathbf{x}_\mathrm{mid} =
+\mathbf{x}^{n} + \frac{1}{2}\mathbf{v}^{n}\Delta t
+,\quad
+\mathbf{E}_\mathrm{mid} =
+\mathbf{E}_\mathrm{BEM}(\mathbf{x}_\mathrm{mid}) + \mathbf{E}_0
+$$
+
+The velocity update below uses $\mathbf{E}=\mathbf{E}_\mathrm{mid}$.
 
 $$
 \mathbf{v}^- =
@@ -177,9 +190,12 @@ $$
 
 $$
 \mathbf{x}^{n+1} =
-\mathbf{x}^{n} + \mathbf{v}^{n+1}\Delta t
+\mathbf{x}^{n} + \frac{1}{2}
+\left(\mathbf{v}^{n} + \mathbf{v}^{n+1}\right)\Delta t
 $$
 
+Predicted-midpoint spatial-field sampling and the trapezoidal position update give second-order candidate kinematics
+for smooth fields. Under constant electric acceleration, the displacement matches the analytic result up to roundoff.
 BEACH runs collision detection on the segment `x^n -> x^{n+1}`.
 If there is a collision, the particle is absorbed and `x^{n+1}` is not saved back into particle state.
 

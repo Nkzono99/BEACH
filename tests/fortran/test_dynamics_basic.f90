@@ -1,5 +1,6 @@
 !> 基本物理テスト: 電場評価・Boris更新・衝突判定・periodic2衝突の基礎検証。
 program test_dynamics_basic
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, hit_info, sim_config, bc_open, bc_periodic
@@ -28,7 +29,7 @@ program test_dynamics_basic
     error stop 'collision status omitted probe unexpectedly completed'
   end if
 
-  call test_init(20)
+  call test_init(21)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -52,7 +53,7 @@ program test_dynamics_basic
     x_new, v_new &
     )
   call assert_allclose_1d(v_new, [1.0d0, 0.0d0, 0.0d0], 1.0d-12, 'boris (E only) velocity mismatch')
-  call assert_allclose_1d(x_new, [0.5d0, 0.0d0, 0.0d0], 1.0d-12, 'boris (E only) position mismatch')
+  call assert_allclose_1d(x_new, [0.25d0, 0.0d0, 0.0d0], 1.0d-12, 'boris (E only) position mismatch')
   call test_end()
 
   call test_begin('boris_push_b_speed_preserve')
@@ -64,6 +65,10 @@ program test_dynamics_basic
   speed0 = sqrt(1.0d0 + 4.0d0 + 0.25d0)
   speed1 = sqrt(sum(v_new*v_new))
   call assert_close_dp(speed1, speed0, 1.0d-12, 'boris should preserve speed when E=0')
+  call test_end()
+
+  call test_begin('boris_push_pure_b_second_order')
+  call test_boris_push_pure_b_second_order()
   call test_end()
 
   call test_begin('boris_update_velocity_e_only')
@@ -152,6 +157,53 @@ program test_dynamics_basic
   call test_summary()
 
 contains
+
+  subroutine test_boris_push_pure_b_second_order()
+    integer(i32), parameter :: nstep_values(3) = [4_i32, 8_i32, 16_i32]
+    real(dp), parameter :: final_time = 1.0d0, omega = 1.0d0
+    integer(i32) :: refinement, step
+    real(dp) :: dt, position(3), velocity(3), position_new(3), velocity_new(3)
+    real(dp) :: position_exact(3), velocity_exact(3)
+    real(dp) :: position_error(3), velocity_error(3)
+    real(dp) :: position_ratio, velocity_ratio
+
+    position_exact = [sin(omega*final_time)/omega, (cos(omega*final_time) - 1.0d0)/omega, 0.0d0]
+    velocity_exact = [cos(omega*final_time), -sin(omega*final_time), 0.0d0]
+
+    do refinement = 1_i32, 3_i32
+      dt = final_time/real(nstep_values(refinement), dp)
+      position = 0.0d0
+      velocity = [1.0d0, 0.0d0, 0.0d0]
+      do step = 1_i32, nstep_values(refinement)
+        call boris_push( &
+          position, velocity, 1.0d0, 1.0d0, dt, &
+          [0.0d0, 0.0d0, 0.0d0], [0.0d0, 0.0d0, 1.0d0], &
+          position_new, velocity_new &
+          )
+        position = position_new
+        velocity = velocity_new
+      end do
+      position_error(refinement) = sqrt(sum((position - position_exact)**2))
+      velocity_error(refinement) = sqrt(sum((velocity - velocity_exact)**2))
+    end do
+
+    call assert_true(all(ieee_is_finite(position_error)), 'pure-B position errors must be finite')
+    call assert_true(all(ieee_is_finite(velocity_error)), 'pure-B velocity errors must be finite')
+    call assert_true(all(position_error > 0.0d0), 'pure-B position errors must be positive')
+    call assert_true(all(velocity_error > 0.0d0), 'pure-B velocity errors must be positive')
+    do refinement = 1_i32, 2_i32
+      position_ratio = position_error(refinement)/position_error(refinement + 1_i32)
+      velocity_ratio = velocity_error(refinement)/velocity_error(refinement + 1_i32)
+      call assert_true( &
+        position_ratio >= 3.2d0 .and. position_ratio <= 4.8d0, &
+        'pure-B position error ratio must show second-order convergence' &
+        )
+      call assert_true( &
+        velocity_ratio >= 3.2d0 .and. velocity_ratio <= 4.8d0, &
+        'pure-B velocity error ratio must show second-order convergence' &
+        )
+    end do
+  end subroutine test_boris_push_pure_b_second_order
 
   subroutine test_boris_update_velocity_e_only()
     real(dp) :: velocity_new(3)

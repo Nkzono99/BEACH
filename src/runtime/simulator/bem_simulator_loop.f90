@@ -208,7 +208,7 @@ contains
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth, warn_stride
   integer(i32) :: boundary_axis, collision_status
-  real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
+  real(dp) :: x0(3), v0(3), x1(3), v1(3), qdep
   real(dp) :: boundary_probe(3), phi_boundary
   type(hit_info) :: hit
   logical :: escaped_by_boundary, has_warn_stride, has_boundary_probe, boundary_high_side, collision_failed
@@ -223,7 +223,7 @@ contains
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
-  !$omp private(i,step,x0,v0,x1,v1,e,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary) &
+  !$omp private(i,step,x0,v0,x1,v1,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary) &
   !$omp private(has_boundary_probe,boundary_high_side,collision_status,collision_failed)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
@@ -235,10 +235,9 @@ contains
     do step = 1, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
-      call field_solver%eval_e(mesh, x0, e)
-      e = e + app%sim%e0
-      call boris_push( &
-        x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
+      call build_particle_step_candidate( &
+        mesh, app%sim, field_solver, bfield, x0, v0, &
+        pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1 &
         )
       call find_first_hit(mesh, x0, x1, hit, sim=app%sim, status=collision_status)
       if (collision_status /= collision_query_ok) then

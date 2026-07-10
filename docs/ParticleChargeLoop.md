@@ -131,9 +131,11 @@ $$
 ## 8. Boris pusher
 
 **Source**:
-[`bem_pusher`](../src/physics/bem_pusher.f90)
+[`bem_pusher`](../src/physics/bem_pusher.f90),
+[`bem_particle_stepper`](../src/runtime/simulator/bem_particle_stepper.f90)
 
-粒子運動は一様磁場 `sim.b0` と、粒子位置で評価した電場 `E` による Boris 法です。
+粒子運動は一様磁場 `sim.b0` と、予測中点で評価した境界要素電場に一様外部電場 `sim.e0` を1回加えた
+電場による Boris 法です。位置と速度の入力・出力は同一時刻の状態です。
 
 入力:
 
@@ -146,6 +148,16 @@ $$
 - 磁束密度 `B`
 
 更新式:
+
+$$
+\mathbf{x}_\mathrm{mid} =
+\mathbf{x}^{n} + \frac{1}{2}\mathbf{v}^{n}\Delta t
+,\quad
+\mathbf{E}_\mathrm{mid} =
+\mathbf{E}_\mathrm{BEM}(\mathbf{x}_\mathrm{mid}) + \mathbf{E}_0
+$$
+
+以下の速度更新では $\mathbf{E}=\mathbf{E}_\mathrm{mid}$ を使います。
 
 $$
 \mathbf{v}^- =
@@ -178,9 +190,12 @@ $$
 
 $$
 \mathbf{x}^{n+1} =
-\mathbf{x}^{n} + \mathbf{v}^{n+1}\Delta t
+\mathbf{x}^{n} + \frac{1}{2}
+\left(\mathbf{v}^{n} + \mathbf{v}^{n+1}\right)\Delta t
 $$
 
+予測中点の空間電場評価と台形位置更新により、smooth な場で candidate kinematics は二次精度になります。
+一様電場による一定加速度の変位は丸め誤差まで解析解と一致します。
 BEACH では、この `x^n -> x^{n+1}` の線分に対して衝突判定を行います。
 衝突があれば粒子は吸収され、`x^{n+1}` は粒子状態に保存されません。
 

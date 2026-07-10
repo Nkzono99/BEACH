@@ -73,8 +73,9 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 2. 現在の要素電荷に基づいて場ソルバをリフレッシュ (`field_solver%refresh(mesh)`)
 3. 各粒子を `max_step` まで前進（OpenMP スレッド並列）
 4. 各ステップで
-   - 電場 `E(x)` を評価
-   - Boris push で `x1, v1` を計算
+   - 同一時刻の状態 `x0, v0` から予測中点 `x_mid = x0 + 0.5*v0*dt` を計算
+   - 境界要素電場 `E(x_mid)` を1回評価し、一様外部電場 `sim.e0` を1回加える
+   - 中点場を使う Boris push と台形位置更新で `x1, v1` を計算
    - `x0 -> x1` の最初の衝突要素を探索
    - 衝突時: 粒子を消滅し `q_particle * w_particle` をスレッド別バッファ `dq_thread(elem_idx, tid)` へ加算
    - 非衝突時: ボックス境界を適用（open/reflect/periodic）
@@ -107,9 +108,11 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 - Boris 法（`E`, `B`）
 - `B` は `sim.b0` の一様場
+- public な粒子入力 `x, v` と出力 `x_new, v_new` は同一時刻の状態であり、half-step staggered 状態ではない
+- production の空間電場は予測中点 `x_mid = x + 0.5*v*dt` で1回評価し、`sim.e0` はその評価結果へ1回だけ加える
 - public pure procedure `boris_update_velocity(v, q, m, dt, e, b, v_new)` が電場 half kick、磁場回転、電場 half kick による速度更新を行う
-- 既存の public call `boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は速度計算を `boris_update_velocity` に委譲し、位置は従来どおり `x_new = x + v_new*dt` で更新する
-- 粒子状態は half-step staggered ではなく、この分離だけでは production の位置更新を二次精度とはみなさない
+- 既存の public call `boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は署名を変えず、速度計算を `boris_update_velocity` に委譲し、位置を `x_new = x + 0.5*(v + v_new)*dt` で更新する
+- 予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度であり、一様電場の一定加速度変位は丸め誤差まで解析解と一致する
 
 ### 5.3 衝突判定
 

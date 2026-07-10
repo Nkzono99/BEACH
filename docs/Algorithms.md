@@ -28,6 +28,7 @@ BEACH は格子 PIC ではなく、三角形境界要素上の電荷を source �
 **Source**:
 [`bem_simulator`](../src/runtime/simulator/bem_simulator.f90),
 [`bem_simulator_loop`](../src/runtime/simulator/bem_simulator_loop.f90),
+[`bem_particle_stepper`](../src/runtime/simulator/bem_particle_stepper.f90),
 [`bem_field_solver`](../src/physics/field_solver/bem_field_solver.f90),
 [`bem_injection`](../src/particles/bem_injection.f90)
 
@@ -209,20 +210,21 @@ for local_batch_idx = 1..batch_count_this_run:
 
 | 順序 | 処理 |
 | --- | --- |
-| 1 | 現在位置 `x0` と速度 `v0` を読む |
-| 2 | `field_solver%eval_e(mesh, x0, e)` で境界要素電荷による電場を評価 |
-| 3 | 一様外部電場 `sim.e0` を加える |
-| 4 | `boris_push` で候補位置 `x1` と候補速度 `v1` を計算 |
+| 1 | 同一時刻の現在位置 `x0` と速度 `v0` を読む |
+| 2 | `build_particle_step_candidate` で予測中点 `x_mid = x0 + 0.5*v0*dt` を作る |
+| 3 | `field_solver%eval_e(mesh, x_mid, e_mid)` で境界要素電荷による電場を評価し、一様外部電場 `sim.e0` を1回加える |
+| 4 | 中点場を使う `boris_push` で候補速度 `v1` と台形則による候補位置 `x1` を計算 |
 | 5 | `find_first_hit(mesh, x0, x1, hit, sim=sim, status=collision_status)` で線分衝突を調べる |
 | 6 | hit があれば `q * w` を命中要素の `dq_thread(elem, tid)` へ加算し、粒子を吸収終了 |
 | 7 | hit がなければ `apply_box_boundary` で open / reflect / periodic を適用 |
 | 8 | 粒子が生存していれば `x` と `v` を更新して次 step へ進む |
 
+`build_particle_step_candidate` は場ソルバを変更せず、予測中点で空間電場を1回だけ評価します。
 `boris_update_velocity(v, q, m, dt, e, b, v_new)` は、電場の half kick、磁場回転、電場の half kick からなる
 速度更新を提供する public pure procedure です。既存の public call
-`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は速度計算をこの procedure に委譲し、位置は従来どおり
-`x_new = x + v_new*dt` で更新します。この分離は粒子状態を half-step staggered にせず、production の位置更新が
-二次精度であることを主張するものではありません。
+`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は署名を変えず、速度計算をこの procedure に委譲して
+`x_new = x + 0.5*(v + v_new)*dt` で位置を更新します。入出力の位置と速度は同一時刻の状態であり、
+予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度です。
 
 `BEACH_WARN_LONG_PARTICLE_STEPS` を正整数で設定すると、長く生き残る粒子の診断出力を一定 step ごとに出します。
 

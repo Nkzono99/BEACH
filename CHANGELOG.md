@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Periodic far-correction documentation now consistently describes `none` as the default, `auto` as its compatibility alias, and `m2l_root_oracle` as an explicit diagnostic mode.
 
 ### Fixed
+- Boris particle candidates now use same-time trapezoidal position updates and sample the boundary-element electric field at the predicted midpoint. The existing `boris_push` signature is unchanged, but corrected trajectories differ from previous releases.
 - Output-directory creation now uses the POSIX filesystem binding without shell evaluation, including paths with literal shell metacharacters.
 - Periodic collision queries now fail closed on image/range limits and propagate deterministic OpenMP/MPI failure context for both particle tracking and `photo_raycast` injection.
 - Treecode now descends mixed-sign charge nodes instead of accepting an unreliable near-cancelled monopole approximation.

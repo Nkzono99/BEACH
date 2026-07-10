@@ -57,6 +57,11 @@ source-dir = "tests/fortran"
 main = "test_dynamics_basic.f90"
 
 [[test]]
+name = "test_particle_stepper"
+source-dir = "tests/fortran"
+main = "test_particle_stepper.f90"
+
+[[test]]
 name = "test_dynamics_field_solver"
 source-dir = "tests/fortran"
 main = "test_dynamics_field_solver.f90"
