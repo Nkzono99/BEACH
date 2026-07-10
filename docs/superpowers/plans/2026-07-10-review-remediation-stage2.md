@@ -90,17 +90,17 @@ Face bits are `x-low=1`, `x-high=2`, `y-low=4`, `y-high=8`, `z-low=16`, `z-high=
 
 `apply_escape_reflect_periodic_event` treats any open face as terminal escape. It rejects `open_boundary_model="potential_barrier"`; B2 owns the existing single-face legacy energy decision privately. `apply_box_boundary` remains unchanged for photo-ray and compatibility callers.
 
-- [ ] Add compile-time and behavioral tests for single-face, corner, mixed reflect/periodic, endpoint-on-face, inward/outward boundary start, disabled box, invalid geometry, and state non-mutation.
-- [ ] Run RED:
+- [x] Add compile-time and behavioral tests for single-face, corner, mixed reflect/periodic, endpoint-on-face, inward/outward boundary start, disabled box, invalid geometry, and state non-mutation.
+- [x] Run RED (job `22256702`, missing `boundary_event_type`):
 
 ```bash
 tssrun -p eb -t 0:10:00 --rsc p=1:t=2:c=2 bash -lc \
   'cd /LARGE0/gr20001/b36291/Github/BEACH && OMP_NUM_THREADS=2 BEACH_VERSION_MODE=dev FPM_ACTION=test ./build.sh --target test_boundary'
 ```
 
-- [ ] Implement the additive event geometry/action API without changing legacy callers.
-- [ ] Run GREEN with the same command, format the modified Fortran file, and run `git diff --check`.
-- [ ] Commit as `feat: add lightweight box boundary events`.
+- [x] Implement the additive event geometry/action API without changing legacy callers.
+- [x] Run GREEN with the same command (job `22256723`, 20 tests / 74 assertions), format the modified Fortran file, and run `git diff --check`.
+- [x] Commit as `feat: add lightweight box boundary events`.
 
 ## Task B2: Mesh/Box Earliest Ordering With One Remainder
 

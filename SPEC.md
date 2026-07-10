@@ -128,6 +128,9 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - `open`: 粒子を消滅（`escaped_boundary`）
 - `reflect`: 法線成分反転
 - `periodic`: 反対側へラップ
+- additive な `find_first_boundary_event` は、box 内の始点から候補終点までの最初の交差 fraction と、corner/edge で同時に交差する全 face を bit mask で返す
+- additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置を境界から1 ULP内側へ置く。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
+- 上記 event API は既定の `open_boundary_model="escape"` だけを扱う。既存 `potential_barrier` と production particle loop の最早 mesh/box 統合は後続 Stage 2 taskで接続し、この時点の legacy `apply_box_boundary` は source/behavior compatible に残す
 
 ## 6. 注入モード
 

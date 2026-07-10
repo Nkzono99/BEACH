@@ -226,6 +226,12 @@ for local_batch_idx = 1..batch_count_this_run:
 `x_new = x + 0.5*(v + v_new)*dt` で位置を更新します。入出力の位置と速度は同一時刻の状態であり、
 予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度です。
 
+`bem_boundary` は production 接続前の additive primitive として、候補 chord の最初の box face fraction を返す
+`find_first_boundary_event` と、同時 corner/edge faceを一括適用する
+`apply_escape_reflect_periodic_event` を提供します。後者は既定の open、reflect、periodic のみを扱い、
+不正な幾何・event/config 不一致では粒子 state を変更しません。既存 `apply_box_boundary` は
+photo ray と移行前 caller のために維持されています。
+
 `BEACH_WARN_LONG_PARTICLE_STEPS` を正整数で設定すると、長く生き残る粒子の診断出力を一定 step ごとに出します。
 
 collision status は `collision_query_ok=0`、`collision_query_image_limit=1`、

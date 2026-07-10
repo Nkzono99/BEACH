@@ -227,6 +227,12 @@ procedure, and updates position with `x_new = x + 0.5*(v + v_new)*dt`. Input and
 same-time states. Predicted-midpoint spatial-field sampling and the trapezoidal position update make the candidate
 kinematics second-order accurate.
 
+As additive primitives before production integration, `bem_boundary` provides `find_first_boundary_event`, which
+returns the first box-face fraction on a candidate chord, and `apply_escape_reflect_periodic_event`, which applies all
+simultaneous corner/edge faces together. The latter handles default open, reflect, and periodic behavior only and does
+not mutate particle state when geometry or event/config data are invalid. The existing `apply_box_boundary` remains for
+photo rays and callers that have not yet migrated.
+
 If `BEACH_WARN_LONG_PARTICLE_STEPS` is set to a positive integer, BEACH prints diagnostics for long-lived particles at that step interval.
 
 The collision statuses are `collision_query_ok=0`, `collision_query_image_limit=1`, and
