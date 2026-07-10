@@ -7,7 +7,7 @@ module bem_simulator
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_field_solver, only: field_solver_type
   use bem_pusher, only: boris_push
-  use bem_collision, only: find_first_hit
+  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
   use bem_boundary, only: apply_box_boundary
   use bem_surface_models, only: apply_surface_model_charge_relaxation
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array

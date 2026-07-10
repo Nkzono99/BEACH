@@ -1,9 +1,13 @@
 !> 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。
 module bem_collision
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type, hit_info, sim_config, bc_periodic
   use bem_string_utils, only: lower_ascii
   implicit none
+  integer(i32), parameter, public :: collision_query_ok = 0_i32
+  integer(i32), parameter, public :: collision_query_image_limit = 1_i32
+  integer(i32), parameter, public :: collision_query_index_range = 2_i32
   integer(i64), parameter :: max_periodic2_collision_images = 4096_i64
 contains
 
@@ -12,19 +16,22 @@ contains
   !! @param[in] p0 線分始点（粒子の移動前位置） [m]。
   !! @param[in] p1 線分終点（粒子の移動後候補位置） [m]。
   !! @param[out] hit 最初に命中した要素インデックス・命中位置・線分パラメータを格納。
-  subroutine find_first_hit(mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside)
+  !! @param[out] status 照会完了状態。未指定時に照会が不完全なら停止する。
+  subroutine find_first_hit(mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside, status)
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
     type(hit_info), intent(out) :: hit
     type(sim_config), intent(in), optional :: sim
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
+    integer(i32), intent(out), optional :: status
 
     logical :: use_periodic2
-    integer(i32) :: periodic_axes(2)
+    integer(i32) :: periodic_axes(2), query_status
     real(dp) :: periodic_len(2)
 
     use_periodic2 = .false.
+    query_status = collision_query_ok
     periodic_axes = 0_i32
     periodic_len = 0.0d0
     if (present(sim)) then
@@ -32,10 +39,13 @@ contains
     end if
 
     if (use_periodic2) then
-      call find_first_hit_periodic2(mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside)
+      call find_first_hit_periodic2( &
+        mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside, status=query_status &
+        )
     else
       call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside)
     end if
+    call finalize_collision_query(query_status, status)
   end subroutine find_first_hit
 
   !> 通常メッシュに対する最初の命中要素探索を行う。
@@ -75,16 +85,17 @@ contains
   end subroutine find_first_hit_base
 
   !> periodic2 用に image shift を列挙し、base collision の結果を統合する。
-  subroutine find_first_hit_periodic2(mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside)
+  subroutine find_first_hit_periodic2(mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside, status)
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
     type(hit_info), intent(out) :: hit
     type(sim_config), intent(in) :: sim
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
+    integer(i32), intent(out), optional :: status
 
-    integer(i32) :: periodic_axes(2), image_shift(2), nmin(2), nmax(2), iaxis, n1, n2
-    integer(i64) :: image_count(2), total_image_count
+    integer(i32) :: periodic_axes(2), image_shift(2), nmin(2), nmax(2), iaxis, bound_status
+    integer(i64) :: image_count(2), total_image_count, n1, n2
     real(dp) :: periodic_len(2), shift_vec(3), candidate_pos(3), candidate_wrapped(3)
     real(dp) :: box_min_local(3), box_max_local(3), box_tol
     real(dp) :: shifted_p0(3), shifted_p1(3)
@@ -92,6 +103,7 @@ contains
     logical :: use_periodic2, use_box_filter, require_inside_elem
 
     call initialize_hit(hit)
+    if (present(status)) status = collision_query_ok
     if (.not. mesh%periodic2_collision_ready) then
       error stop 'periodic2 collision requires prepare_periodic2_collision_mesh before ray queries.'
     end if
@@ -107,18 +119,30 @@ contains
       )
 
     do iaxis = 1, 2
-      call compute_periodic_shift_bounds(mesh, p0, p1, periodic_axes(iaxis), periodic_len(iaxis), nmin(iaxis), nmax(iaxis))
+      call compute_periodic_shift_bounds( &
+        mesh, p0, p1, periodic_axes(iaxis), periodic_len(iaxis), nmin(iaxis), nmax(iaxis), bound_status &
+        )
+      if (bound_status /= collision_query_ok) then
+        call finalize_collision_query(bound_status, status)
+        return
+      end if
       if (nmin(iaxis) > nmax(iaxis)) return
     end do
     image_count = int(nmax, kind=i64) - int(nmin, kind=i64) + 1_i64
     if (any(image_count <= 0_i64)) return
-    if (any(image_count > max_periodic2_collision_images)) return
+    if (any(image_count > max_periodic2_collision_images)) then
+      call finalize_collision_query(collision_query_image_limit, status)
+      return
+    end if
     total_image_count = image_count(1)*image_count(2)
-    if (total_image_count > max_periodic2_collision_images) return
+    if (total_image_count > max_periodic2_collision_images) then
+      call finalize_collision_query(collision_query_image_limit, status)
+      return
+    end if
 
-    do n1 = nmin(1), nmax(1)
-      do n2 = nmin(2), nmax(2)
-        image_shift = [n1, n2]
+    do n1 = int(nmin(1), i64), int(nmax(1), i64)
+      do n2 = int(nmin(2), i64), int(nmax(2), i64)
+        image_shift = [int(n1, i32), int(n2, i32)]
         shift_vec = 0.0d0
         shift_vec(periodic_axes(1)) = real(image_shift(1), dp)*periodic_len(1)
         shift_vec(periodic_axes(2)) = real(image_shift(2), dp)*periodic_len(2)
@@ -582,24 +606,75 @@ contains
   end subroutine resolve_periodic2_collision_config
 
   !> 線分 AABB と canonical mesh AABB の重なりから必要な image shift 範囲を決める。
-  subroutine compute_periodic_shift_bounds(mesh, p0, p1, axis, period_len, nmin, nmax)
+  subroutine compute_periodic_shift_bounds(mesh, p0, p1, axis, period_len, nmin, nmax, status)
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
     integer(i32), intent(in) :: axis
     real(dp), intent(in) :: period_len
     integer(i32), intent(out) :: nmin, nmax
+    integer(i32), intent(out) :: status
 
-    real(dp) :: seg_min, seg_max, mesh_min, mesh_max, tol
+    integer(i64) :: nmin_i64, nmax_i64, i32_min_i64, i32_max_i64
+    real(dp) :: seg_min, seg_max, mesh_min, mesh_max, tol, lower_bound, upper_bound, i64_limit
 
+    nmin = 0_i32
+    nmax = -1_i32
+    status = collision_query_ok
     seg_min = min(p0(axis), p1(axis))
     seg_max = max(p0(axis), p1(axis))
     mesh_min = mesh%grid_bb_min(axis)
     mesh_max = mesh%grid_bb_max(axis)
     tol = 1.0d-12*max(1.0d0, abs(seg_min), abs(seg_max), abs(mesh_min), abs(mesh_max), period_len)
 
-    nmin = int(ceiling((seg_min - mesh_max - tol)/period_len), kind=i32)
-    nmax = int(floor((seg_max - mesh_min + tol)/period_len), kind=i32)
+    lower_bound = (seg_min - mesh_max - tol)/period_len
+    upper_bound = (seg_max - mesh_min + tol)/period_len
+    if (.not. ieee_is_finite(lower_bound) .or. .not. ieee_is_finite(upper_bound)) then
+      status = collision_query_index_range
+      return
+    end if
+
+    i64_limit = real(huge(0_i64), dp)
+    if (lower_bound <= -i64_limit .or. lower_bound >= i64_limit .or. &
+        upper_bound <= -i64_limit .or. upper_bound >= i64_limit) then
+      status = collision_query_index_range
+      return
+    end if
+
+    nmin_i64 = ceiling(lower_bound, kind=i64)
+    nmax_i64 = floor(upper_bound, kind=i64)
+    i32_max_i64 = int(huge(0_i32), i64)
+    i32_min_i64 = -i32_max_i64 - 1_i64
+    if (nmin_i64 < i32_min_i64 .or. nmin_i64 > i32_max_i64 .or. &
+        nmax_i64 < i32_min_i64 .or. nmax_i64 > i32_max_i64) then
+      status = collision_query_index_range
+      return
+    end if
+
+    nmin = int(nmin_i64, i32)
+    nmax = int(nmax_i64, i32)
   end subroutine compute_periodic_shift_bounds
+
+  !> 不完全な照会を status 要求元へ返し、未要求の既存 caller は fail closed で停止する。
+  subroutine finalize_collision_query(query_status, status)
+    integer(i32), intent(in) :: query_status
+    integer(i32), intent(out), optional :: status
+
+    if (present(status)) then
+      status = query_status
+      return
+    end if
+
+    select case (query_status)
+    case (collision_query_ok)
+      continue
+    case (collision_query_image_limit)
+      error stop 'periodic2 collision query incomplete: image enumeration limit exceeded.'
+    case (collision_query_index_range)
+      error stop 'periodic2 collision query incomplete: image index is outside the supported i32 range.'
+    case default
+      error stop 'periodic2 collision query incomplete: unknown collision query status.'
+    end select
+  end subroutine finalize_collision_query
 
   !> point を primary cell へ折り返す。
   subroutine wrap_periodic2_point(point, box_min, periodic_axes, periodic_len)

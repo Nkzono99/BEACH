@@ -167,21 +167,27 @@ contains
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth, warn_stride
-  integer(i32) :: boundary_axis
+  integer(i32) :: boundary_axis, collision_status
+  integer(i32) :: collision_failure_status, collision_failure_particle, collision_failure_step
   real(dp) :: x0(3), v0(3), x1(3), v1(3), e(3), qdep
   real(dp) :: boundary_probe(3), phi_boundary
   type(hit_info) :: hit
   logical :: escaped_by_boundary, has_warn_stride, has_boundary_probe, boundary_high_side
+  character(len=16) :: collision_failure_name
+  character(len=256) :: collision_failure_message
 
   nth = size(dq_thread, 2)
   call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
   if (.not. has_warn_stride) warn_stride = 0_i32
+  collision_failure_status = collision_query_ok
+  collision_failure_particle = huge(0_i32)
+  collision_failure_step = 0_i32
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
-  !$omp shared(warn_stride,batch_idx,mpi_rank) &
+  !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp private(i,step,x0,v0,x1,v1,e,boundary_axis,boundary_probe,phi_boundary,hit,tid,qdep,escaped_by_boundary) &
-  !$omp private(has_boundary_probe,boundary_high_side)
+  !$omp private(has_boundary_probe,boundary_high_side,collision_status)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
@@ -196,7 +202,18 @@ contains
       call boris_push( &
         x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, e, bfield, x1, v1 &
         )
-      call find_first_hit(mesh, x0, x1, hit, sim=app%sim)
+      call find_first_hit(mesh, x0, x1, hit, sim=app%sim, status=collision_status)
+      if (collision_status /= collision_query_ok) then
+        !$omp critical (beach_collision_query_failure)
+        if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
+            (i == collision_failure_particle .and. step < collision_failure_step)) then
+          collision_failure_status = collision_status
+          collision_failure_particle = i
+          collision_failure_step = step
+        end if
+        !$omp end critical (beach_collision_query_failure)
+        exit
+      end if
       if (hit%has_hit) then
         qdep = pcls_batch%q(i)*pcls_batch%w(i)
         dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
@@ -249,6 +266,22 @@ contains
   end do
   !$omp end do
   !$omp end parallel
+
+  if (collision_failure_status /= collision_query_ok) then
+    select case (collision_failure_status)
+    case (collision_query_image_limit)
+      collision_failure_name = 'image_limit'
+    case (collision_query_index_range)
+      collision_failure_name = 'index_range'
+    case default
+      collision_failure_name = 'unknown'
+    end select
+    write (collision_failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
+      'collision query incomplete: batch=', batch_idx, ' particle=', collision_failure_particle, &
+      ' step=', collision_failure_step, ' rank=', mpi_rank, ' status=', trim(collision_failure_name), &
+      ' code=', collision_failure_status
+    error stop trim(collision_failure_message)
+  end if
   end procedure process_particle_batch
 
   !> x0->x1 が最初に越える open box 面上の評価点を返す。

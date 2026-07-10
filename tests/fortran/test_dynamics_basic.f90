@@ -7,9 +7,10 @@ program test_dynamics_basic
   use bem_templates, only: make_plane
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push
-  use bem_collision, only: find_first_hit, segment_triangle_intersect
+  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, &
+                           find_first_hit, segment_triangle_intersect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
   type(mesh_type) :: mesh_field, mesh_hit
@@ -18,8 +19,16 @@ program test_dynamics_basic
   real(dp) :: v0_hit(3, 2), v1_hit(3, 2), v2_hit(3, 2)
   real(dp) :: e(3), x_new(3), v_new(3), speed0, speed1
   real(dp) :: inv_r3, expected_ex
+  character(len=*), parameter :: collision_failure_path = 'test_dynamics_basic_collision_failure_tmp.log'
+  character(len=64) :: run_mode
 
-  call test_init(11)
+  call get_command_argument(1, run_mode)
+  if (trim(run_mode) == '--collision-status-omitted-probe') then
+    call run_collision_status_omitted_probe()
+    error stop 'collision status omitted probe unexpectedly completed'
+  end if
+
+  call test_init(14)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -92,8 +101,20 @@ program test_dynamics_basic
   call test_periodic2_collision_multi_cell()
   call test_end()
 
+  call test_begin('periodic2_collision_i32_upper_boundary')
+  call test_periodic2_collision_i32_upper_boundary()
+  call test_end()
+
+  call test_begin('periodic2_collision_index_range_guard')
+  call test_periodic2_collision_index_range_guard()
+  call test_end()
+
   call test_begin('periodic2_collision_runaway_segment_guard')
   call test_periodic2_collision_runaway_segment_guard()
+  call test_end()
+
+  call test_begin('periodic2_collision_status_omitted_fails_closed')
+  call test_periodic2_collision_status_omitted_fails_closed()
   call test_end()
 
   call test_begin('periodic2_collision_canonical_prepare')
@@ -258,6 +279,7 @@ contains
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
+    integer(i32) :: query_status
     real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
 
     tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
@@ -267,9 +289,114 @@ contains
     call init_periodic2_test_sim(sim)
     call prepare_periodic2_collision_mesh(mesh_periodic, sim)
 
-    call find_first_hit(mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [5000.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim)
-    call assert_true(.not. hit_periodic%has_hit, 'periodic2 runaway segment should not enumerate unbounded images')
+    call find_first_hit( &
+      mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [5000.2d0, 0.25d0, -1.0d0], hit_periodic, &
+      sim=sim, status=query_status &
+      )
+    call assert_equal_i32( &
+      query_status, collision_query_image_limit, &
+      'periodic2 runaway segment should report the image enumeration limit' &
+      )
   end subroutine test_periodic2_collision_runaway_segment_guard
+
+  subroutine test_periodic2_collision_i32_upper_boundary()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    integer(i32) :: query_status
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), boundary_x
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    boundary_x = real(huge(0_i32), dp) + 0.2d0
+    call find_first_hit( &
+      mesh_periodic, [boundary_x, 0.25d0, 1.0d0], [boundary_x, 0.25d0, -1.0d0], &
+      hit_periodic, sim=sim, status=query_status &
+      )
+    call assert_equal_i32(query_status, collision_query_ok, 'i32 upper-bound collision status mismatch')
+    call assert_true(hit_periodic%has_hit, 'i32 upper-bound periodic image should remain hittable')
+    call assert_equal_i32( &
+      hit_periodic%image_shift(1), huge(0_i32), 'i32 upper-bound image shift mismatch' &
+      )
+  end subroutine test_periodic2_collision_i32_upper_boundary
+
+  subroutine test_periodic2_collision_index_range_guard()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    integer(i32) :: query_status
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), out_of_range_x
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    out_of_range_x = real(huge(0_i32), dp) + 1024.0d0
+    call find_first_hit( &
+      mesh_periodic, [out_of_range_x, 0.25d0, 1.0d0], [out_of_range_x, 0.25d0, -1.0d0], &
+      hit_periodic, sim=sim, status=query_status &
+      )
+    call assert_equal_i32( &
+      query_status, collision_query_index_range, &
+      'periodic2 collision should reject image indices outside the i32 range' &
+      )
+  end subroutine test_periodic2_collision_index_range_guard
+
+  subroutine test_periodic2_collision_status_omitted_fails_closed()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_incomplete_message
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(collision_failure_path)
+    command = '"'//trim(executable_path)//'" --collision-status-omitted-probe > '//collision_failure_path//' 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'collision status omitted probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'collision status omitted probe should fail closed')
+
+    saw_incomplete_message = .false.
+    open (newunit=child_unit, file=collision_failure_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read collision status omitted probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_incomplete_message = saw_incomplete_message .or. &
+                               index(child_line, 'image enumeration limit exceeded') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(collision_failure_path)
+
+    call assert_true(saw_incomplete_message, 'status-omitted collision query should report incomplete work')
+  end subroutine test_periodic2_collision_status_omitted_fails_closed
+
+  subroutine run_collision_status_omitted_probe()
+    type(mesh_type) :: mesh_periodic
+    type(sim_config) :: sim
+    type(hit_info) :: hit_periodic
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+
+    call find_first_hit( &
+      mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [5000.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim &
+      )
+  end subroutine run_collision_status_omitted_probe
 
   subroutine test_periodic2_collision_canonical_prepare()
     type(mesh_type) :: mesh_periodic
