@@ -62,7 +62,9 @@ N_\mathrm{macro} = \lfloor B \rfloor,\quad
 r_\mathrm{new} = B - \lfloor B \rfloor
 $$
 
-MPI 実行時は `batch_duration_scale = 1 / nrank` を使い、各 rank が global flux の担当分だけ生成します。
+MPI 実行時は root rank が全 `batch_duration` に対する `N_macro` と残差を一度だけ更新し、その値を全 rank へ
+broadcast します。その後、確定した整数個数を `mpi_split_count` で分配します。このため、global count と残差履歴は
+MPI world size に依存しません。
 
 ### 7.3 reservoir sampling
 

@@ -27,6 +27,8 @@ module bem_mpi
   public :: mpi_allreduce_max_real_dp_array
   public :: mpi_allreduce_sum_i32_array
   public :: mpi_allreduce_sum_i32_scalar
+  public :: mpi_bcast_i32_array
+  public :: mpi_bcast_real_dp_array
   public :: mpi_world_barrier
 
 contains
@@ -319,6 +321,48 @@ contains
     value = int(recvval, kind=i32)
 #endif
   end subroutine mpi_allreduce_sum_i32_scalar
+
+  !> root rankの32bit整数配列を全rankへbroadcastする。
+  subroutine mpi_bcast_i32_array(ctx, values, root)
+    type(mpi_context), intent(in) :: ctx
+    integer(i32), intent(inout) :: values(:)
+    integer(i32), intent(in) :: root
+#ifdef USE_MPI
+    include 'mpif.h'
+    integer, allocatable :: buffer(:)
+    integer :: ierr
+#endif
+
+    if (root < 0_i32 .or. root >= max(1_i32, ctx%size)) then
+      error stop 'mpi_bcast_i32_array root out of range.'
+    end if
+#ifdef USE_MPI
+    if (.not. ctx%enabled) return
+    allocate (buffer(size(values)))
+    buffer = int(values, kind=kind(0))
+    call MPI_Bcast(buffer, size(buffer), MPI_INTEGER, int(root), MPI_COMM_WORLD, ierr)
+    values = int(buffer, kind=i32)
+#endif
+  end subroutine mpi_bcast_i32_array
+
+  !> root rankの倍精度配列を全rankへbroadcastする。
+  subroutine mpi_bcast_real_dp_array(ctx, values, root)
+    type(mpi_context), intent(in) :: ctx
+    real(dp), intent(inout) :: values(:)
+    integer(i32), intent(in) :: root
+#ifdef USE_MPI
+    include 'mpif.h'
+    integer :: ierr
+#endif
+
+    if (root < 0_i32 .or. root >= max(1_i32, ctx%size)) then
+      error stop 'mpi_bcast_real_dp_array root out of range.'
+    end if
+#ifdef USE_MPI
+    if (.not. ctx%enabled) return
+    call MPI_Bcast(values, size(values), MPI_DOUBLE_PRECISION, int(root), MPI_COMM_WORLD, ierr)
+#endif
+  end subroutine mpi_bcast_real_dp_array
 
   !> 全rankの同期ポイント。
   subroutine mpi_world_barrier(ctx)

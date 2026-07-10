@@ -2,13 +2,14 @@
 program test_mpi_hybrid
   use bem_kinds, only: dp, i32, i64
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
-                     mpi_world_barrier
+                     mpi_allreduce_sum_i32_scalar, mpi_world_barrier
   use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator
-  use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
+  use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
+                            init_particle_batch_from_config
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
-  use bem_types, only: mesh_type, sim_stats, injection_state
+  use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -17,14 +18,15 @@ program test_mpi_hybrid
 
   type(mpi_context) :: mpi
   type(mesh_type) :: mesh, mesh_restart
-  type(app_config) :: cfg
+  type(app_config) :: cfg, reservoir_cfg
   type(sim_stats) :: stats, stats_restart
-  type(injection_state) :: state, state_restart
+  type(injection_state) :: state, state_restart, reservoir_state
+  type(particles_soa) :: reservoir_particles
   logical :: has_restart
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   integer :: u, ios
   character(len=256) :: line
-  integer(i32) :: n_lines, selected_rank, expected_rank
+  integer(i32) :: n_lines, selected_rank, expected_rank, batch_idx, global_reservoir_count
   integer(i32) :: local_failure_values(4), selected_failure_values(4)
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
@@ -77,7 +79,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(4)
+  call test_init(5)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -130,6 +132,48 @@ program test_mpi_hybrid
     call delete_file_if_exists(history_path)
   end if
   call mpi_world_barrier(mpi)
+  call test_end()
+
+  call test_begin('mpi_global_reservoir_count')
+  call default_app_config(reservoir_cfg)
+  reservoir_cfg%sim%batch_count = 4_i32
+  reservoir_cfg%sim%batch_duration = 1.0_dp
+  reservoir_cfg%sim%has_batch_duration = .true.
+  reservoir_cfg%sim%use_box = .true.
+  reservoir_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+  reservoir_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+  reservoir_cfg%n_particle_species = 1_i32
+  reservoir_cfg%particle_species(1) = species_from_defaults()
+  reservoir_cfg%particle_species(1)%source_mode = 'reservoir_face'
+  reservoir_cfg%particle_species(1)%number_density_m3 = 1.0_dp
+  reservoir_cfg%particle_species(1)%has_number_density_m3 = .true.
+  reservoir_cfg%particle_species(1)%temperature_k = 0.0_dp
+  reservoir_cfg%particle_species(1)%has_temperature_k = .true.
+  reservoir_cfg%particle_species(1)%q_particle = 0.0_dp
+  reservoir_cfg%particle_species(1)%m_particle = 1.0_dp
+  reservoir_cfg%particle_species(1)%w_particle = 4.0_dp
+  reservoir_cfg%particle_species(1)%has_w_particle = .true.
+  reservoir_cfg%particle_species(1)%inject_face = 'z_low'
+  reservoir_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 0.0_dp]
+  reservoir_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 0.0_dp]
+  reservoir_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
+  allocate (reservoir_state%macro_residual(1))
+  reservoir_state%macro_residual = 0.0_dp
+  do batch_idx = 1_i32, 4_i32
+    call init_particle_batch_from_config( &
+      reservoir_cfg, batch_idx, reservoir_particles, state=reservoir_state, mpi=mpi &
+      )
+    global_reservoir_count = reservoir_particles%n
+    call mpi_allreduce_sum_i32_scalar(mpi, global_reservoir_count)
+    call assert_equal_i32( &
+      global_reservoir_count, merge(1_i32, 0_i32, batch_idx == 4_i32), &
+      'MPI global reservoir count sequence mismatch' &
+      )
+    call assert_close_dp( &
+      reservoir_state%macro_residual(1), modulo(0.25_dp*real(batch_idx, dp), 1.0_dp), 1.0e-15_dp, &
+      'MPI global reservoir residual mismatch' &
+      )
+  end do
   call test_end()
 
   call test_begin('mpi_restart')

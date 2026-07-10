@@ -4,7 +4,7 @@ module bem_app_config_runtime
   use bem_constants, only: k_boltzmann, k_coulomb
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
-  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count
+  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_field, only: electric_potential_at
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
@@ -262,13 +262,15 @@ contains
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
-    integer(i32), allocatable :: counts_max(:), counts_actual(:), species_cursor(:), species_id(:), emit_elem_species(:, :)
+    integer(i32), allocatable :: counts_max(:), counts_actual(:), global_counts(:), species_cursor(:), species_id(:), &
+                                 emit_elem_species(:, :)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
                              effective_particle_flux_m2_s(:), &
                              effective_temperature_k(:), effective_drift_velocity(:, :), &
                              photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:), &
                              photo_escape_factor_cache(:)
     logical, allocatable :: apply_barrier_energy_shift(:)
+    logical :: has_enabled_reservoir, use_collective_reservoir_count
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
     type(sheath_injection_context) :: sheath_ctx
@@ -282,6 +284,13 @@ contains
       error stop 'Requested batch index is out of range.'
     end if
     call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'init_particle_batch_from_config')
+    has_enabled_reservoir = .false.
+    do s = 1, cfg%n_particle_species
+      if (.not. cfg%particle_species(s)%enabled) cycle
+      has_enabled_reservoir = has_enabled_reservoir .or. &
+                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face'
+    end do
+    use_collective_reservoir_count = present(mpi) .and. has_enabled_reservoir
     if (present(state)) then
       if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
       if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
@@ -292,7 +301,7 @@ contains
       photo_emission_dq = 0.0d0
     end if
 
-    allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species))
+    allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species), global_counts(cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
     allocate (effective_density_m3(cfg%n_particle_species), w_effective(cfg%n_particle_species))
     allocate (effective_particle_flux_m2_s(cfg%n_particle_species))
@@ -301,6 +310,7 @@ contains
     allocate (photo_normal_drift_speed(cfg%n_particle_species), apply_barrier_energy_shift(cfg%n_particle_species))
     counts_max = 0_i32
     counts_actual = 0_i32
+    global_counts = 0_i32
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
     effective_density_m3 = 0.0d0
@@ -398,13 +408,17 @@ contains
         call reservoir_face_velocity_correction( &
           cfg%sim, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
           )
-        call compute_macro_particles_for_species( &
-          cfg%sim, cfg%particle_species(s), state%macro_residual(s), counts_max(s), vmin_normal=vmin_normal(s), &
-          batch_duration_scale=1.0d0/real(n_ranks, dp), number_density_override=effective_density_m3(s), &
-          particle_flux_override=effective_particle_flux_m2_s(s), &
-          temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
-          w_particle_override=w_effective(s) &
-          )
+        if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
+          call compute_macro_particles_for_species( &
+            cfg%sim, cfg%particle_species(s), state%macro_residual(s), global_counts(s), vmin_normal=vmin_normal(s), &
+            number_density_override=effective_density_m3(s), particle_flux_override=effective_particle_flux_m2_s(s), &
+            temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
+            w_particle_override=w_effective(s) &
+            )
+        end if
+        if (.not. use_collective_reservoir_count) then
+          counts_max(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
+        end if
       case ('photo_raycast')
         global_count = cfg%particle_species(s)%rays_per_batch
         counts_max(s) = mpi_split_count(global_count, local_rank, n_ranks)
@@ -412,6 +426,15 @@ contains
         error stop 'Unknown particles.species.source_mode.'
       end select
     end do
+    if (use_collective_reservoir_count) then
+      call mpi_bcast_i32_array(mpi, global_counts, 0_i32)
+      call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
+      do s = 1, cfg%n_particle_species
+        if (.not. cfg%particle_species(s)%enabled) cycle
+        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
+        counts_max(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
+      end do
+    end if
     max_rank = max(1_i32, maxval(counts_max))
     allocate (x_species(3, max_rank, cfg%n_particle_species))
     allocate (v_species(3, max_rank, cfg%n_particle_species))
@@ -751,7 +774,7 @@ contains
   !! @param[in] temperature_k_override 温度の上書き値 [K]。
   !! @param[in] drift_velocity_override ドリフト速度の上書き値 [m/s]。
   subroutine compute_macro_particles_for_species( &
-    sim, spec, residual, count, vmin_normal, batch_duration_scale, number_density_override, w_particle_override, &
+    sim, spec, residual, count, vmin_normal, number_density_override, w_particle_override, &
     temperature_k_override, drift_velocity_override, particle_flux_override &
     )
     type(sim_config), intent(in) :: sim
@@ -759,7 +782,6 @@ contains
     real(dp), intent(inout) :: residual
     integer(i32), intent(out) :: count
     real(dp), intent(in), optional :: vmin_normal
-    real(dp), intent(in), optional :: batch_duration_scale
     real(dp), intent(in), optional :: number_density_override
     real(dp), intent(in), optional :: w_particle_override
     real(dp), intent(in), optional :: temperature_k_override
@@ -778,7 +800,6 @@ contains
     drift_velocity_local = spec%drift_velocity
     if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     effective_batch_duration = sim%batch_duration
-    if (present(batch_duration_scale)) effective_batch_duration = sim%batch_duration*batch_duration_scale
     if (trim(lower_ascii(spec%velocity_distribution)) == 'grid') then
       particle_flux_m2_s = spec%particle_flux_m2_s
       if (present(particle_flux_override)) particle_flux_m2_s = particle_flux_override

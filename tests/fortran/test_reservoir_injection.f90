@@ -1,9 +1,11 @@
 !> reservoir_face 注入の設定解釈とマクロ粒子数計算を検証するテスト。
 program test_reservoir_injection
   use bem_kinds, only: dp, i32
-  use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config
+  use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config, &
+                            species_from_defaults, init_particle_batch_from_config
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
+  use bem_types, only: particles_soa, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
@@ -18,7 +20,7 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(5)
+  call test_init(6)
 
   call write_fixed_duration_fixture(cfg_fixed_path)
 
@@ -103,12 +105,75 @@ program test_reservoir_injection
   call assert_close_dp(ratio, 0.25d0, 1.0d-12, 'reservoir species ratio mismatch')
   call test_end()
 
+  call test_begin('global_count_independent_of_mpi_size')
+  call test_global_count_independent_of_mpi_size()
+  call test_end()
+
   call delete_file_if_exists(cfg_fixed_path)
   call delete_file_if_exists(cfg_auto_path)
 
   call test_summary()
 
 contains
+
+  subroutine test_global_count_independent_of_mpi_size()
+    integer(i32), parameter :: rank_sizes(3) = [1_i32, 2_i32, 4_i32]
+    integer(i32), parameter :: expected_counts(4) = [0_i32, 0_i32, 0_i32, 1_i32]
+    real(dp), parameter :: expected_residuals(4) = [0.25_dp, 0.5_dp, 0.75_dp, 0.0_dp]
+    type(app_config) :: count_cfg
+    type(particles_soa) :: particles
+    type(injection_state), allocatable :: states(:)
+    integer(i32) :: size_index, n_ranks, rank, batch_idx, global_count
+
+    call default_app_config(count_cfg)
+    count_cfg%sim%batch_count = 4_i32
+    count_cfg%sim%batch_duration = 1.0_dp
+    count_cfg%sim%has_batch_duration = .true.
+    count_cfg%sim%use_box = .true.
+    count_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    count_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    count_cfg%n_particle_species = 1_i32
+    count_cfg%particle_species(1) = species_from_defaults()
+    count_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    count_cfg%particle_species(1)%number_density_m3 = 1.0_dp
+    count_cfg%particle_species(1)%has_number_density_m3 = .true.
+    count_cfg%particle_species(1)%temperature_k = 0.0_dp
+    count_cfg%particle_species(1)%has_temperature_k = .true.
+    count_cfg%particle_species(1)%q_particle = 0.0_dp
+    count_cfg%particle_species(1)%m_particle = 1.0_dp
+    count_cfg%particle_species(1)%w_particle = 4.0_dp
+    count_cfg%particle_species(1)%has_w_particle = .true.
+    count_cfg%particle_species(1)%inject_face = 'z_low'
+    count_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 0.0_dp]
+    count_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 0.0_dp]
+    count_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
+
+    do size_index = 1_i32, size(rank_sizes)
+      n_ranks = rank_sizes(size_index)
+      allocate (states(n_ranks))
+      do rank = 1_i32, n_ranks
+        allocate (states(rank)%macro_residual(1))
+        states(rank)%macro_residual = 0.0_dp
+      end do
+      do batch_idx = 1_i32, 4_i32
+        global_count = 0_i32
+        do rank = 1_i32, n_ranks
+          call init_particle_batch_from_config( &
+            count_cfg, batch_idx, particles, state=states(rank), mpi_rank=rank - 1_i32, mpi_size=n_ranks &
+            )
+          global_count = global_count + particles%n
+          call assert_close_dp( &
+            states(rank)%macro_residual(1), expected_residuals(batch_idx), 1.0e-15_dp, &
+            'global reservoir residual must match on every synthetic rank' &
+            )
+        end do
+        call assert_equal_i32( &
+          global_count, expected_counts(batch_idx), 'global reservoir count must not depend on MPI size' &
+          )
+      end do
+      deallocate (states)
+    end do
+  end subroutine test_global_count_independent_of_mpi_size
 
   !> テスト専用の固定 `batch_duration` reservoir_face 設定ファイルを書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。

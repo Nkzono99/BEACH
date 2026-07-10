@@ -61,7 +61,9 @@ N_\mathrm{macro} = \lfloor B \rfloor,\quad
 r_\mathrm{new} = B - \lfloor B \rfloor
 $$
 
-In MPI runs, `batch_duration_scale = 1 / nrank`, so each rank generates its share of the global flux.
+In MPI runs, the root rank updates `N_macro` and the residual once for the full `batch_duration`, then broadcasts
+them to every rank. The resulting integer count is distributed with `mpi_split_count`, so the global count and
+residual sequence do not depend on the MPI world size.
 
 ### 7.3 Reservoir sampling
 

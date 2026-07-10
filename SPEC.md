@@ -149,6 +149,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - 上流ドリフト Maxwell 分布から流入フラックス `gamma_in` を計算
 - `n_macro_expected = gamma_in * A * batch_duration / w_particle`
 - 残差繰越つきで `floor` して今バッチのマクロ粒子数を決定
+- MPI 実行時も全 rank 合計の期待値と残差を一度だけ更新し、確定した整数個数を rank 間で分配する
 - `target_macro_particles_per_batch` 指定時は `w_particle` を自動解決
 - `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限を補正
 - `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる

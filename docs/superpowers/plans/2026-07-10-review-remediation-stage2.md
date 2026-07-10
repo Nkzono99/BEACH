@@ -180,10 +180,10 @@ subroutine mpi_bcast_real_dp_array(ctx, values, root)
 
 Root computes each enabled `reservoir_face` count using the full `batch_duration` and one global residual. It broadcasts `global_counts(:)` and the updated `macro_residual(:)`, after which every rank sets `counts_max(s)=mpi_split_count(global_counts(s), rank, size)`. Volume and photo sources retain their current global-count splitting. Synthetic `mpi_rank`/`mpi_size` calls without a real `mpi_context` deterministically recompute the same global count locally before splitting.
 
-- [ ] Add a fractional sequence whose expected global count is below one per batch and assert the same global sequence for 1, 2, and 4 ranks.
-- [ ] Extend `test_mpi_hybrid` to sum local reservoir counts and compare the global sequence.
-- [ ] Run RED on `test_reservoir_injection`, then implement the root/broadcast path and run GREEN.
-- [ ] Build the MPI target and run the two-rank executable directly through `tssrun --rsc p=2` without a nested MPI launcher.
+- [x] Add a fractional sequence whose expected global count is below one per batch and assert the same global sequence for 1, 2, and 4 ranks.
+- [x] Extend `test_mpi_hybrid` to sum local reservoir counts and compare the global sequence.
+- [x] Run RED on `test_reservoir_injection` (job `22256752`), then implement the root/broadcast path and run GREEN (job `22256757`).
+- [x] Build the MPI target (job `22256760`) and run the two-rank executable directly through `tssrun --rsc p=2` without a nested MPI launcher (job `22256761`).
 - [ ] Update docs and commit as `fix: distribute global reservoir counts across ranks`.
 
 ## Task M2: One Root-Owned Global Residual Checkpoint
