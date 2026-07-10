@@ -73,11 +73,15 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 2. 現在の要素電荷に基づいて場ソルバをリフレッシュ (`field_solver%refresh(mesh)`)
 3. 各粒子を `max_step` まで前進（OpenMP スレッド並列）
 4. 各ステップで
-   - 電場 `E(x)` を評価
-   - Boris push で `x1, v1` を計算
-   - `x0 -> x1` の最初の衝突要素を探索
+   - 同一時刻の状態 `x0, v0` から予測中点 `x_mid = x0 + 0.5*v0*dt` を計算
+   - 境界要素電場 `E(x_mid)` を1回評価し、一様外部電場 `sim.e0` を1回加える
+   - 中点場を使う Boris push と台形位置更新で `x1, v1` を計算
+   - `x1` がbox内部なら `x0 -> x1` のmesh collisionを1回探索
+   - box faceへ到達する場合は、full chordのmesh hit parameterと最初のface event parameterを比較して最早順序を決める
+   - periodic2のfull-chord queryがbox外区間でrange limitに達した場合は、最初のface eventまでに制限して再照会する
+   - reflect/periodic後は残り時間を同じBoris規約で一度だけ再積分し、そのchordのmesh hitを探索
    - 衝突時: 粒子を消滅し `q_particle * w_particle` をスレッド別バッファ `dq_thread(elem_idx, tid)` へ加算
-   - 非衝突時: ボックス境界を適用（open/reflect/periodic）
+   - 残り時間中に2回目のbox eventへ到達し、それ以前にmesh hitがなければ、状態をcommitせず `dt` 縮小を要求する明示的failureとする
 5. バッチ終了時に要素電荷差分をコミット: 全スレッドの `dq_thread` を合算し、`photo_emission_dq` を加算した後、MPI allreduce を行い `mesh%q_elem` に反映
 6. `rel_change = ||dq|| / max(||q||, q_floor)` を更新
 7. 統計と履歴を更新
@@ -107,6 +111,11 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 - Boris 法（`E`, `B`）
 - `B` は `sim.b0` の一様場
+- public な粒子入力 `x, v` と出力 `x_new, v_new` は同一時刻の状態であり、half-step staggered 状態ではない
+- production の空間電場は予測中点 `x_mid = x + 0.5*v*dt` で1回評価し、`sim.e0` はその評価結果へ1回だけ加える
+- public pure procedure `boris_update_velocity(v, q, m, dt, e, b, v_new)` が電場 half kick、磁場回転、電場 half kick による速度更新を行う
+- 既存の public call `boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は署名を変えず、速度計算を `boris_update_velocity` に委譲し、位置を `x_new = x + 0.5*(v + v_new)*dt` で更新する
+- 予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度であり、一様電場の一定加速度変位は丸め誤差まで解析解と一致する
 
 ### 5.3 衝突判定
 
@@ -122,6 +131,12 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - `open`: 粒子を消滅（`escaped_boundary`）
 - `reflect`: 法線成分反転
 - `periodic`: 反対側へラップ
+- additive な `find_first_boundary_event` は、box 内の始点から候補終点までの最初の交差 fraction と、corner/edge で同時に交差する全 face を bit mask で返す
+- additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置を境界から1 ULP内側へ置く。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
+- production particle loop はcandidate生成とmesh queryを先行し、box crossing時だけevent resolverへ進む。候補終点がstrictなbox内部なら追加event geometryを行わず、場評価1回・collision query 1回のfast pathとなる
+- reflect/periodic crossingだけ残り時間を一度再積分する。2回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとし、任意回数のevent loopやadaptive substepは行わない
+- `open_boundary_model="potential_barrier"` は既存の単一面scalar energy式をevent位置・補間速度で使うlegacy/experimental扱いとする。複数open faceへの一般化は行わずfail closedとし、物理モデルはshared potential snapshotとともに後段で再設計する
+- legacy `apply_box_boundary` はphoto rayとsource compatibilityのため残す
 
 ## 6. 注入モード
 
@@ -135,6 +150,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - 上流ドリフト Maxwell 分布から流入フラックス `gamma_in` を計算
 - `n_macro_expected = gamma_in * A * batch_duration / w_particle`
 - 残差繰越つきで `floor` して今バッチのマクロ粒子数を決定
+- MPI 実行時も全 rank 合計の期待値と残差を一度だけ更新し、確定した整数個数を rank 間で分配する
 - `target_macro_particles_per_batch` 指定時は `w_particle` を自動解決
 - `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限を補正
 - `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる
@@ -184,17 +200,19 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 `mesh_triangles.csv` は要素ごとの `mesh_id` を含み、`mesh_sources.csv` で `mesh_id` と元メッシュ設定を対応付けます。
 
-MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNNNNN.txt`, `macro_residuals_rankNNNNN.csv`。
+MPI 実行時は RNG のみ `rng_state_rankNNNNN.txt` として rank 別に保存します。マクロ粒子残差は
+全 rank で共有する状態なので、root が単一の `macro_residuals.csv` を保存します。
 
 ### 8.2 再開（`output.resume = true`）
 
 再開時は既定で `output.dir` から以下を読み込みます。`output.restart_from` を指定した場合は、そのディレクトリから checkpoint を読み込み、新しい出力は引き続き `output.dir` に書きます。
 
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
-- 任意: `macro_residuals.csv`（MPI 時は `macro_residuals_rankNNNNN.csv`）
+- 任意: `macro_residuals.csv`（MPI 時も単一の global ファイル）
 
 `sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
+旧形式の `macro_residuals_rankNNNNN.csv` が残っている場合は、global 残差との対応が曖昧なため停止します。
 
 ## 9. 設計方針
 

@@ -369,7 +369,13 @@ beachx mobility outputs/latest --save-csv mobility.csv
 ```bash
 beachx workload beach.toml
 beachx workload beach.toml --threads 8
+beachx workload beach.toml --mpi-ranks 4 --mpi-rank 0 \
+  --macro-residuals outputs/latest/macro_residuals.csv
 ```
+
+MPI指定時の`total_particles`は選択したrankの見積もりです。`global_total_particles`は全rank合計、
+`local_reservoir_particles`と`global_reservoir_particles`はreservoir注入の分配前後を示します。
+reservoirの端数更新はglobal期待値に対して一度だけ行うため、global列はMPI rank数に依存しません。
 
 ---
 

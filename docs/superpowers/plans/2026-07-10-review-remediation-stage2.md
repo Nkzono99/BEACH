@@ -235,11 +235,11 @@ For each reservoir species, compute the uninterrupted global integer/residual se
 
 ## Final Verification
 
-- [ ] Run `make fmt-check-fortran` and `git diff --check` locally only if they do not execute payload tests.
-- [ ] Run `make test-l1` through one `tssrun -p eb` controller allocation.
-- [ ] Run the focused two-rank MPI integration executable through direct `tssrun --rsc p=2`.
-- [ ] Confirm no new adaptive keys, no new public barrier API, and no general event loop exist.
-- [ ] Review the complete branch diff from `2e47428` and record remaining physical limitations.
+- [x] Run `make fmt-check-fortran` and `git diff --check` locally.
+- [x] Run `make test-l1` through one `tssrun -p eb` controller allocation (job `22256825`).
+- [x] Run the focused two-rank MPI integration executable through direct `tssrun --rsc p=2` (build `22256827`, run `22256828`).
+- [x] Confirm no new adaptive keys, no new public barrier API, and no general event loop exist.
+- [x] Review the complete branch diff from `2e47428`; remaining limits are the one-remainder rule, legacy single-face potential barrier, MPI-size-fixed RNG restart, and deferred far-field physical redesign.
 
 ## Explicitly Deferred
 
