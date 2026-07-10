@@ -184,7 +184,7 @@ Root computes each enabled `reservoir_face` count using the full `batch_duration
 - [x] Extend `test_mpi_hybrid` to sum local reservoir counts and compare the global sequence.
 - [x] Run RED on `test_reservoir_injection` (job `22256752`), then implement the root/broadcast path and run GREEN (job `22256757`).
 - [x] Build the MPI target (job `22256760`) and run the two-rank executable directly through `tssrun --rsc p=2` without a nested MPI launcher (job `22256761`).
-- [ ] Update docs and commit as `fix: distribute global reservoir counts across ranks`.
+- [x] Update docs and commit as `fix: distribute global reservoir counts across ranks`.
 
 ## Task M2: One Root-Owned Global Residual Checkpoint
 
@@ -203,7 +203,7 @@ Root computes each enabled `reservoir_face` count using the full `batch_duration
 - [x] Run RED on `test_restart` (job `22256768`).
 - [x] Implement root ownership and load broadcast while preserving existing public signatures.
 - [x] Run GREEN on `test_restart` (job `22256772`), then the real two-rank restart fixture (build `22256773`, run `22256775`).
-- [ ] Update docs and commit as `fix: checkpoint one global reservoir residual`.
+- [x] Update docs and commit as `fix: checkpoint one global reservoir residual`.
 
 ## Task M3: Python Workload Estimator Parity
 
@@ -220,7 +220,7 @@ For each reservoir species, compute the uninterrupted global integer/residual se
 - [x] Replace the old MPI-scaled reservoir expectations with hard-coded global sequences for 1, 2, and 4 ranks, plus uninterrupted/resumed equality.
 - [x] Run RED with Python 3.11 on a compute node (job `22256780`; the earlier job `22256777` exposed the unsupported system Python 3.6 environment).
 - [x] Implement the global algorithm without new dependencies and run GREEN plus ruff (job `22256781`; 35 tests passed).
-- [ ] Update docs and commit as `fix: estimate global reservoir counts before rank splitting`.
+- [x] Update docs and commit as `fix: estimate global reservoir counts before rank splitting`.
 
 ## Task PERF: No-Crossing Performance Gate
 
@@ -228,10 +228,10 @@ For each reservoir species, compute the uninterrupted global integer/residual se
 - Modify only if the gate fails: the B1/B2 files above.
 - Record results: `.superpowers/sdd/stage2-performance-report.md`.
 
-- [ ] Run a fixed direct-field, no-box-crossing scenario at `f8b36fd` and at Stage 2 HEAD with identical compiler, OpenMP threads, seed, particles, and steps.
-- [ ] Use at least five measured repetitions after one warmup and compare medians.
-- [ ] Require `field_eval_count=1`, `collision_query_count=1`, identical physical counters, and median slowdown `<=3%` unless the observed run-to-run noise interval overlaps the difference.
-- [ ] If the gate fails, profile before changing code; retain the endpoint-inside branch as the first boundary operation.
+- [x] Run a fixed direct-field, no-box-crossing scenario at `f8b36fd` and at Stage 2 HEAD with identical compiler, OpenMP threads, seed, particles, and steps (job `22256818`).
+- [x] Use six measured repetitions after one warmup and compare medians.
+- [x] Confirm `field_eval_count=1`, `collision_query_count=1`, identical physical counters, and representative median slowdown 1.13% (`<=3%`).
+- [x] Profile the initial failure before changing code (jobs `22256791`, `22256803`, `22256804`); retain the endpoint test as the first boundary-specific operation after the ordinary mesh query.
 
 ## Final Verification
 

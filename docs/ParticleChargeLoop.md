@@ -198,8 +198,9 @@ $$
 
 予測中点の空間電場評価と台形位置更新により、smooth な場で candidate kinematics は二次精度になります。
 一様電場による一定加速度の変位は丸め誤差まで解析解と一致します。
-BEACH は候補終点がbox内部なら、この `x^n -> x^{n+1}` を1回だけ衝突判定します。box crossing時は
-最初のfaceまでにchordを切ってmesh hitとの最早順序を決め、reflect/periodic後の残り時間を一度だけ再積分します。
+BEACH は `x^n -> x^{n+1}` を1回だけ衝突判定し、候補終点がbox内部ならその結果を確定します。box crossing時は
+mesh hitと最初のfaceのparameterを比較して最早順序を決め、reflect/periodic後の残り時間を一度だけ再積分します。
+periodic2のfull-chord照会がbox外区間でrange limitに達した場合だけ、最初のfaceまでに制限して再照会します。
 衝突があれば粒子は吸収され、候補状態は保存されません。残り時間中の2回目box eventは、そこまでにhitがなければ
 stateを変更せず明示failureとし、`sim.dt`の縮小を要求します。
 

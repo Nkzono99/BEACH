@@ -214,10 +214,11 @@ contains
 
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
   module procedure process_particle_batch
-  integer(i32) :: i, step, tid, nth, warn_stride
-  real(dp) :: x0(3), v0(3), qdep
+  integer(i32) :: i, step, tid, nth, warn_stride, collision_status
+  real(dp) :: x0(3), v0(3), x1(3), v1(3), qdep
+  type(hit_info) :: hit
   type(particle_step_result) :: step_result
-  logical :: has_warn_stride, collision_failed
+  logical :: has_warn_stride, collision_failed, candidate_inside, used_event_resolver
 
   nth = size(dq_thread, 2)
   call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
@@ -232,7 +233,8 @@ contains
   !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
-  !$omp private(i,step,x0,v0,step_result,tid,qdep,collision_failed)
+  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,tid,qdep,collision_status,collision_failed) &
+  !$omp private(candidate_inside,used_event_resolver)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
@@ -243,39 +245,82 @@ contains
     do step = 1, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
-      call advance_particle_step( &
+      call build_particle_step_candidate( &
         mesh, app%sim, field_solver, bfield, x0, v0, &
-        pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, step_result &
+        pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1 &
         )
-      if (step_result%status /= collision_query_ok) then
-        !$omp critical (beach_collision_query_failure)
-        if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
-            (i == collision_failure_particle .and. step < collision_failure_step)) then
-          collision_failure_status = step_result%status
-          collision_failure_particle = i
-          collision_failure_step = step
-          collision_failure_x = x0
-          collision_failure_v = v0
+      call find_first_hit(mesh, x0, x1, hit, sim=app%sim, status=collision_status)
+      candidate_inside = .not. app%sim%use_box .or. &
+                         (all(x1 > app%sim%box_min) .and. all(x1 < app%sim%box_max))
+      used_event_resolver = .false.
+      if (collision_status /= collision_query_ok) then
+        if (.not. candidate_inside) then
+          call resolve_particle_boundary_candidate( &
+            mesh, app%sim, field_solver, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
+            result=step_result &
+            )
+          used_event_resolver = .true.
+        else
+          !$omp critical (beach_collision_query_failure)
+          if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
+              (i == collision_failure_particle .and. step < collision_failure_step)) then
+            collision_failure_status = collision_status
+            collision_failure_particle = i
+            collision_failure_step = step
+            collision_failure_x = x0
+            collision_failure_v = v0
+          end if
+          !$omp end critical (beach_collision_query_failure)
+          collision_failed = .true.
+          exit
         end if
-        !$omp end critical (beach_collision_query_failure)
-        collision_failed = .true.
-        exit
+      else if (candidate_inside) then
+        if (hit%has_hit) then
+          qdep = pcls_batch%q(i)*pcls_batch%w(i)
+          dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
+          pcls_batch%alive(i) = .false.
+          absorbed_flag(i) = .true.
+          exit
+        end if
+        pcls_batch%x(:, i) = x1
+        pcls_batch%v(:, i) = v1
+      else
+        call resolve_particle_boundary_candidate( &
+          mesh, app%sim, field_solver, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, hit, step_result &
+          )
+        used_event_resolver = .true.
       end if
-      if (step_result%absorbed) then
-        qdep = pcls_batch%q(i)*pcls_batch%w(i)
-        dq_thread(step_result%elem_idx, tid) = dq_thread(step_result%elem_idx, tid) + qdep
-        pcls_batch%alive(i) = .false.
-        absorbed_flag(i) = .true.
-        exit
-      end if
-      if (step_result%escaped_boundary) then
-        pcls_batch%alive(i) = .false.
-        escaped_boundary_flag(i) = .true.
-        exit
-      end if
+      if (used_event_resolver) then
+        if (step_result%status /= collision_query_ok) then
+          !$omp critical (beach_collision_query_failure)
+          if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
+              (i == collision_failure_particle .and. step < collision_failure_step)) then
+            collision_failure_status = step_result%status
+            collision_failure_particle = i
+            collision_failure_step = step
+            collision_failure_x = x0
+            collision_failure_v = v0
+          end if
+          !$omp end critical (beach_collision_query_failure)
+          collision_failed = .true.
+          exit
+        end if
+        if (step_result%absorbed) then
+          qdep = pcls_batch%q(i)*pcls_batch%w(i)
+          dq_thread(step_result%elem_idx, tid) = dq_thread(step_result%elem_idx, tid) + qdep
+          pcls_batch%alive(i) = .false.
+          absorbed_flag(i) = .true.
+          exit
+        end if
+        if (step_result%escaped_boundary) then
+          pcls_batch%alive(i) = .false.
+          escaped_boundary_flag(i) = .true.
+          exit
+        end if
 
-      pcls_batch%x(:, i) = step_result%x
-      pcls_batch%v(:, i) = step_result%v
+        pcls_batch%x(:, i) = step_result%x
+        pcls_batch%v(:, i) = step_result%v
+      end if
       if (warn_stride > 0_i32) then
         if (modulo(step, warn_stride) == 0_i32) then
           !$omp critical (beach_long_particle_warn)

@@ -29,6 +29,7 @@ module bem_particle_stepper
 
   public :: build_particle_step_candidate
   public :: advance_particle_step
+  public :: resolve_particle_boundary_candidate
 
 contains
 
@@ -57,12 +58,9 @@ contains
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     type(particle_step_result), intent(out) :: result
 
-    type(boundary_event_type) :: event, second_event
     type(hit_info) :: hit
-    real(dp) :: x_candidate(3), v_candidate(3), x_event(3), v_event(3)
-    real(dp) :: x_remainder(3), v_remainder(3), x_second_event(3), dt_remaining
-    integer(i32) :: query_status, boundary_status
-    logical :: alive, escaped
+    real(dp) :: x_candidate(3), v_candidate(3)
+    integer(i32) :: query_status
 
     result = particle_step_result()
     result%x = x0
@@ -79,13 +77,76 @@ contains
       return
     end if
 
+    call find_first_hit(mesh, x0, x_candidate, hit, sim=sim, status=query_status)
+    result%collision_query_count = 1_i32
+    if (query_status /= collision_query_ok) then
+      if (sim%use_box .and. .not. point_strictly_inside_box(sim, x_candidate)) then
+        call advance_particle_boundary_crossing( &
+          mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, result=result &
+          )
+        return
+      end if
+      result%status = query_status
+      return
+    end if
     if (.not. sim%use_box .or. point_strictly_inside_box(sim, x_candidate)) then
-      call query_particle_chord(mesh, sim, x0, v0, x_candidate, v_candidate, result, hit, query_status)
-      if (query_status /= collision_query_ok .or. result%absorbed) return
+      if (hit%has_hit) then
+        call accept_particle_hit(v0, x_candidate, v_candidate, hit, result)
+        return
+      end if
       result%x = x_candidate
       result%v = v_candidate
       return
     end if
+
+    call advance_particle_boundary_crossing( &
+      mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+      )
+  end subroutine advance_particle_step
+
+  !> 構築済みcandidateがbox crossing候補のとき、fieldを再評価せずeventを解決する。
+  subroutine resolve_particle_boundary_candidate( &
+    mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+    )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(field_solver_type), intent(inout) :: field_solver
+    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
+    type(hit_info), intent(in), optional :: hit
+    type(particle_step_result), intent(out) :: result
+
+    result = particle_step_result()
+    result%x = x0
+    result%v = v0
+    result%field_eval_count = 1_i32
+    result%collision_query_count = merge(1_i32, 0_i32, present(hit))
+    if (.not. valid_particle_step_input(x0, v0, bfield, q, m, dt) .or. &
+        .not. all(ieee_is_finite(x_candidate)) .or. .not. all(ieee_is_finite(v_candidate))) then
+      result%status = particle_step_invalid_boundary
+      return
+    end if
+    call advance_particle_boundary_crossing( &
+      mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+      )
+  end subroutine resolve_particle_boundary_candidate
+
+  !> box crossing時だけevent用stateを確保し、最初のeventと最大一度のremainderを処理する。
+  subroutine advance_particle_boundary_crossing( &
+    mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+    )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(field_solver_type), intent(inout) :: field_solver
+    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
+    type(hit_info), intent(in), optional :: hit
+    type(particle_step_result), intent(inout) :: result
+
+    type(boundary_event_type) :: event, second_event
+    type(hit_info) :: remainder_hit
+    real(dp) :: x_event(3), v_event(3)
+    real(dp) :: x_remainder(3), v_remainder(3), x_second_event(3), v_second_event(3), dt_remaining
+    integer(i32) :: query_status, boundary_status
+    logical :: alive, escaped
 
     call find_first_boundary_event(sim, x0, x_candidate, event, boundary_status)
     if (boundary_status /= boundary_event_ok) then
@@ -93,16 +154,34 @@ contains
       return
     end if
     if (.not. event%has_event) then
-      call query_particle_chord(mesh, sim, x0, v0, x_candidate, v_candidate, result, hit, query_status)
-      if (query_status /= collision_query_ok .or. result%absorbed) return
+      if (present(hit)) then
+        if (hit%has_hit) then
+          call accept_particle_hit(v0, x_candidate, v_candidate, hit, result)
+          return
+        end if
+      else
+        call query_particle_chord(mesh, sim, x0, v0, x_candidate, v_candidate, result, remainder_hit, query_status)
+        if (query_status /= collision_query_ok .or. result%absorbed) return
+      end if
       result%x = x_candidate
       result%v = v_candidate
       return
     end if
 
+    if (present(hit)) then
+      if (hit%has_hit) then
+        if (hit%t <= event%fraction + 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(event%fraction))) then
+          call accept_particle_hit(v0, x_candidate, v_candidate, hit, result)
+          return
+        end if
+      end if
+    end if
+
     call interpolate_boundary_state(sim, event, x0, v0, x_candidate, v_candidate, x_event, v_event)
-    call query_particle_chord(mesh, sim, x0, v0, x_event, v_event, result, hit, query_status)
-    if (query_status /= collision_query_ok .or. result%absorbed) return
+    if (.not. present(hit)) then
+      call query_particle_chord(mesh, sim, x0, v0, x_event, v_event, result, remainder_hit, query_status)
+      if (query_status /= collision_query_ok .or. result%absorbed) return
+    end if
 
     alive = .true.
     escaped = .false.
@@ -144,7 +223,7 @@ contains
     end if
 
     if (point_strictly_inside_box(sim, x_remainder)) then
-      call query_particle_chord(mesh, sim, x_event, v_event, x_remainder, v_remainder, result, hit, query_status)
+      call query_particle_chord(mesh, sim, x_event, v_event, x_remainder, v_remainder, result, remainder_hit, query_status)
       if (query_status /= collision_query_ok .or. result%absorbed) return
       result%x = x_remainder
       result%v = v_remainder
@@ -157,7 +236,7 @@ contains
       return
     end if
     if (.not. second_event%has_event) then
-      call query_particle_chord(mesh, sim, x_event, v_event, x_remainder, v_remainder, result, hit, query_status)
+      call query_particle_chord(mesh, sim, x_event, v_event, x_remainder, v_remainder, result, remainder_hit, query_status)
       if (query_status /= collision_query_ok .or. result%absorbed) return
       result%x = x_remainder
       result%v = v_remainder
@@ -165,14 +244,26 @@ contains
     end if
 
     call interpolate_boundary_state( &
-      sim, second_event, x_event, v_event, x_remainder, v_remainder, x_second_event, v_candidate &
+      sim, second_event, x_event, v_event, x_remainder, v_remainder, x_second_event, v_second_event &
       )
     call query_particle_chord( &
-      mesh, sim, x_event, v_event, x_second_event, v_candidate, result, hit, query_status &
+      mesh, sim, x_event, v_event, x_second_event, v_second_event, result, remainder_hit, query_status &
       )
     if (query_status /= collision_query_ok .or. result%absorbed) return
     result%status = particle_step_multiple_box_events
-  end subroutine advance_particle_step
+  end subroutine advance_particle_boundary_crossing
+
+  !> 既に選択済みのmesh hitをresultへ反映する。
+  subroutine accept_particle_hit(va, xb, vb, hit, result)
+    real(dp), intent(in) :: va(3), xb(3), vb(3)
+    type(hit_info), intent(in) :: hit
+    type(particle_step_result), intent(inout) :: result
+
+    result%x = hit%pos
+    result%v = va + hit%t*(vb - va)
+    result%absorbed = .true.
+    result%elem_idx = hit%elem_idx
+  end subroutine accept_particle_hit
 
   !> 線分衝突を一度照会し、hit/statusを共通resultへ反映する。
   subroutine query_particle_chord(mesh, sim, xa, va, xb, vb, result, hit, query_status)

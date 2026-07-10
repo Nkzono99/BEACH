@@ -214,8 +214,8 @@ for local_batch_idx = 1..batch_count_this_run:
 | 2 | `build_particle_step_candidate` で予測中点 `x_mid = x0 + 0.5*v0*dt` を作る |
 | 3 | `field_solver%eval_e(mesh, x_mid, e_mid)` で境界要素電荷による電場を評価し、一様外部電場 `sim.e0` を1回加える |
 | 4 | 中点場を使う `boris_push` で候補速度 `v1` と台形則による候補位置 `x1` を計算 |
-| 5 | `x1` がbox内部なら `x0 -> x1` を1回collision queryする |
-| 6 | box crossingがあれば最初のfaceまでにqueryを制限し、mesh hitをtie含めて優先する |
+| 5 | `x0 -> x1` を1回collision queryし、`x1` がbox内部ならその結果を確定する |
+| 6 | box crossingがあればmesh hit parameterと最初のface parameterを比較し、tieではmeshを優先する |
 | 7 | openはevent点で終了し、reflect/periodicは残り時間を一度だけ再積分してmesh hitを調べる |
 | 8 | hitなら`q * w`を堆積して吸収し、2回目のbox eventならstateをcommitせずfail closedにする |
 | 9 | 生存していれば同時刻の`x`と`v`を更新して次stepへ進む |
@@ -227,10 +227,11 @@ for local_batch_idx = 1..batch_count_this_run:
 `x_new = x + 0.5*(v + v_new)*dt` で位置を更新します。入出力の位置と速度は同一時刻の状態であり、
 予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度です。
 
-`advance_particle_step` は候補終点がstrictなbox内部なら、追加のevent geometryなしに場評価1回・collision query 1回で
+production loopはcandidateとmesh queryを先に作り、候補終点がstrictなbox内部なら、追加のevent geometryなしに場評価1回・collision query 1回で
 完了します。crossing時だけ `find_first_boundary_event` と `apply_escape_reflect_periodic_event` を使い、corner/edgeの
 同時faceを一括処理します。reflect/periodic remainderがさらにfaceへ達し、それ以前にmesh hitがなければ、
 任意回数のloopへ入らず `particle_step_multiple_box_events` を返します。既存 `apply_box_boundary` はphoto ray用に維持します。
+periodic2のfull-chord queryがbox外区間でrange limitに達した場合は、最初のbox eventまでに制限したqueryへfallbackします。
 
 `potential_barrier` は単一open faceに限り旧scalar energy式をevent位置と補間速度で評価します。複数open faceは
 一般化せずfail closedであり、shared potential/gaugeに基づく物理モデルは後段の対象です。
