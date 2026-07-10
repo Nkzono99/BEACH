@@ -18,7 +18,7 @@ bc_z_high = "open"
 rng_seed = 12345
 field_solver = "fmm"
 field_bc_mode = "periodic2"
-field_periodic_far_correction = "auto"
+field_periodic_far_correction = "none"
 
 [particles]
 [[particles.species]]

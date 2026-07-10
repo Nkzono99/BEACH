@@ -26,6 +26,7 @@ bc_z_high = "open"
 rng_seed = 12345
 reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
+# open_boundary_model = "potential_barrier"  # open 境界で局所電位障壁による return/escape 判定を行う
 injection_face_phi_grid_n = 3
 # sheath_injection_model = "zhao_auto"
 # sheath_alpha_deg = 60.0
@@ -35,13 +36,13 @@ injection_face_phi_grid_n = 3
 # sheath_ion_drift_mode = "normal"
 # 注意: 現状は sheath_injection_model と reservoir_potential_model を同時に使えません。
 # periodic2 + fmm 有効時、field_periodic_far_correction の選択肢:
-#   "auto"            — periodic2 + fmm では内部的に m2l_root_oracle へ正規化
-#   "none"            — 遠方補正なし
-#   "m2l_root_oracle" — Ewald residual を build-time fit
+#   "none"            — 遠方補正なし（既定、通常運用向け）
+#   "auto"            — 互換用 alias。現在は "none" と同じ
+#   "m2l_root_oracle" — Ewald residual を build-time fit（高コスト診断用）
 # field_solver = "fmm"
 # field_bc_mode = "periodic2"
 # field_periodic_image_layers = 1
-# field_periodic_far_correction = "auto"
+# field_periodic_far_correction = "none"
 # field_periodic_ewald_alpha = 0.0
 # field_periodic_ewald_layers = 4
 
@@ -80,6 +81,7 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 # emit_current_density_a_m2 = 2.0e-4  # Zhao シース有効時は自動上書き
 # rays_per_batch = 500
 # deposit_opposite_charge_on_emit = true
+# photo_escape_model = "boltzmann_cutoff"
 # q_particle = -1.602176634e-19
 # m_particle = 9.10938356e-31
 # temperature_ev = 1.5
@@ -109,6 +111,7 @@ mode = "template"
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_model = "insulator"
 size_x = 1.0
 size_y = 1.0
 nx = 20
@@ -119,6 +122,7 @@ center = [0.50, 0.50, 0.02]
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_model = "conductor"
 size_x = 0.35
 size_y = 0.22
 nx = 6
@@ -126,9 +130,12 @@ ny = 4
 center = [0.32, 0.30, 0.30]
 
 # 3) 円柱（床に接地：center_z = z_floor + height/2）
+# dielectric は現行では epsilon_r を出力メタデータとして保持するのみ
 [[mesh.templates]]
 kind = "cylinder"
 enabled = true
+surface_model = "dielectric"
+epsilon_r = 3.9
 radius = 0.14
 height = 0.28
 center = [0.72, 0.58, 0.16]   # 0.02 + 0.14 = 0.16
@@ -140,6 +147,7 @@ n_z = 4
 [[mesh.templates]]
 kind = "sphere"
 enabled = true
+surface_model = "insulator"
 radius = 0.14
 center = [0.34, 0.74, 0.16]   # 0.02 + 0.14 = 0.16
 n_lon = 14

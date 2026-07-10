@@ -1,9 +1,13 @@
 title: Python 後処理 API リファレンス
 
+Lang: [日本語](PythonPostprocessAPI.md) | [English](PythonPostprocessAPI.en.md)
+
 # Python 後処理 API リファレンス
 
 BEACH の Python パッケージ (`beach`) は、Fortran シミュレーション結果の読み込み・解析・可視化を担う後処理レイヤです。
 Fortran 実行系が出力するファイル群（`summary.txt`, `charges.csv`, `mesh_triangles.csv` 等）を読み込み、電位再構成、Coulomb 力計算、電場計算、電気力線追跡、3D 可視化を Python 側で行います。
+
+最初の図を作るだけなら、先に [後処理チュートリアル](PostprocessTutorial.html) を参照してください。
 
 ## 1. パッケージ構成
 
@@ -113,6 +117,25 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 | `mesh_sources` | `dict[int, MeshSource] \| None` | mesh 種別・surface model・epsilon_r メタデータ |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Fortran 出力の重心電位 [V] |
 | `history` | `FortranChargeHistory \| None` | 電荷履歴アクセサ |
+
+### 3.3 `FortranChargeHistory`
+
+Fortran の `charge_history.csv` は dense snapshot です。記録された各 batch は、
+`elem_idx=1..mesh_nelem` の全要素をそれぞれちょうど1回含む必要があります。
+要素行の順番は問いませんが、batch group は厳密な昇順で、各 batch 内の
+`processed_particles` と `rel_change` は全行で一致し、`charge_C` と
+`rel_change` は有限値でなければなりません。
+
+`load_fortran_result(...)` と履歴 accessor の構築は遅延処理です。最初に
+`batch_indices` などの履歴 property、`get_step(...)`、または `as_array()` を
+参照したときに、CSV 全体の byte-offset index を作りながら全 batch を検証します。
+欠損、重複、範囲外 index、非有限値、metadata 不一致、batch の逆行がある場合は、
+batch と破損内容を含む `ValueError` を送出します。欠損要素を物理電荷 `0 C`
+として補完することはありません。
+
+検証後も各 batch の電荷 vector は要求時に読み込み、`as_array()` を呼ぶまで
+全履歴 matrix は作りません。`FortranChargeHistory.from_arrays(...)` は、呼出元が
+dense matrix を提供する trusted in-memory 経路として従来どおり動作します。
 
 ## 4. 電位再構成
 
@@ -386,7 +409,7 @@ fig.savefig("field_lines.png", dpi=150)
 | `origins` | `list[float]` (長さ 2) | - | `[0.0, 0.0]` | 各周期軸のボックス原点 [m] |
 | `box_min` | `list[float]` (長さ 3) | - | - | `origins` の代替。3D ボックス下限から周期軸の原点を抽出 |
 | `image_layers` | `int` | - | `1` | 画像シェルの層数。各周期軸で `[-N, N]` を評価 |
-| `far_correction` | `str` | - | `"auto"` | `"auto"` / `"none"` / `"m2l_root_oracle"`。Python 側は設定互換のために保持するが、oracle residual 自体は再現しない |
+| `far_correction` | `str` | - | `"none"` | `"auto"` / `"none"` / `"m2l_root_oracle"`。`auto` は互換用に `"none"` として扱う。Python 側は設定互換のために保持するが、oracle residual 自体は再現しない |
 | `ewald_alpha` | `float` | - | `0.0` | Ewald 分解パラメータ（予約） |
 | `ewald_layers` | `int` | - | `4` | Ewald 打切り深さ（予約） |
 
@@ -409,7 +432,7 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 ### 8.3 Python 側の periodic2 実装の制限
 
 - Python 側では explicit image shell による直接和のみで周期和を再構成します
-- Fortran 側 FMM の `m2l_root_oracle` による Ewald 遠方補正は Python 側では再現されません。`far_correction` は設定の互換性のために保持されますが、計算に影響しません
+- Fortran 側 FMM の明示 `m2l_root_oracle` による Ewald 遠方補正は Python 側では再現されません。`far_correction` は設定の互換性のために保持されますが、Python direct 和の計算には影響しません
 - 大きな `image_layers` を指定するほど精度は向上しますが、計算量は `(2*N+1)^2` 倍に増加します
 
 ## 9. Coulomb mobility 解析
@@ -438,7 +461,7 @@ with FieldKernel.from_result(run) as kernel:
 
 ### 10.2 `calc_object_forces_kernel(result, ...)`
 
-各 object について自身の source 電荷をゼロにしたうえで、`sum(q_i E_not_self(r_i))` とトルクを計算します。`periodic2 + m2l_root_oracle` を含む Fortran kernel 経路を使うため、Python direct 和の `calc_coulomb` よりシミュレーション側の場定義に近い診断です。
+各 object について自身の source 電荷をゼロにしたうえで、`sum(q_i E_not_self(r_i))` とトルクを計算します。Fortran kernel 経路を使い、`beach.toml` で明示された periodic2 設定（`m2l_root_oracle` を含む）を渡すため、Python direct 和の `calc_coulomb` よりシミュレーション側の場定義に近い診断です。
 
 ```python
 from beach import Beach
@@ -518,8 +541,19 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beachx kernel-forces <output_dir>` | Fortran field kernel による object 別合力 CSV 出力 |
 | `beachx lint <config.toml>` | TOML / JSON Schema / BEACH 制約の設定検査 |
 | `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
-| `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
 | `beachx model close-pack` | 密充填モデルの生成 |
+
+`beachx inspect` の通常の要約は、`mesh_potential.csv` が存在する場合に限り、その事前計算済み配列から
+`potential_min` / `potential_max` を表示します。ファイルがない場合、Python で電位を暗黙に再構成せず、
+この2行を省略します。破損、非有限値、要素数不一致を含む `mesh_potential.csv` は入力エラーであり、
+再計算へのフォールバック条件にはなりません。
+
+`--recompute-potential` を指定すると、事前計算済み配列の有無にかかわらず、既存の
+`Beach.compute_potential` 経路の結果を要約に使います。この明示的な経路はメッシュ規模によって
+$O(N^2)$ になり得ます。`--save-potential-mesh` と `--show` も明示的な potential plot 要求であり、
+flag なしでも従来どおり電位を計算する場合があります。`--recompute-potential` と potential plot を
+同時指定した場合、現行 plot API は要約用の計算済み配列を受け取らないため、両経路が独立して評価し、
+電位計算が重複する可能性があります。
 
 ### 12.2 旧 CLI（非推奨）
 
@@ -533,6 +567,9 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beach-plot-potential-slices <output_dir>` | 電位断面の描画 |
 | `beach-plot-performance-profile <output_dir>` | パフォーマンスプロファイルの描画 |
 | `beach-plot-coulomb-force-matrix <output_dir>` | Coulomb 力行列の描画 |
+
+`beach-inspect` にも `beachx inspect` と同じ precomputed-only の通常要約と
+`--recompute-potential` の明示的な再計算規則が適用されます。
 
 ## 12. 物理定数
 

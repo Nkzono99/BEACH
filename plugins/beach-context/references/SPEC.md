@@ -21,6 +21,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - Boris 法による粒子更新
 - 線分 vs 三角形の最初の交差判定
 - 衝突時の吸収 + 要素電荷加算（insulator accumulation）
+- `surface_model="conductor"` の mesh_id ごとの浮遊導体再配分（`field_bc_mode="free"` のみ）
 - ボックス境界条件（open / reflect / periodic）
 - 粒子注入モード
   - `volume_seed`
@@ -30,8 +31,9 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 
 ### 2.2 現行で未実装・予約
 
-- 導体再分配モデル
 - 表面導電/拡散モデル
+- periodic2 と conductor の併用
+- 誘電体分極・誘電境界条件（`surface_model="dielectric"` は現状 metadata）
 - 反射/二次電子放出を伴う一般化衝突モデル
 
 ## 3. データモデル
@@ -81,6 +83,7 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 7. 統計と履歴を更新
 
 `photo_raycast` で `deposit_opposite_charge_on_emit=true` の場合は、放出元要素に `-q_particle * w_hit` も加算します。
+`photo_escape_model="boltzmann_cutoff"` では、PE escape 係数を掛けた実効重み `w_eff` を粒子重みと放出元要素の逆符号電荷の両方に使います。
 
 ## 5. 物理モデル
 
@@ -92,10 +95,10 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 ここで `c_j` は要素 `j` の重心です。
 `field_solver="treecode"` のときはこの核を遠方で monopole 近似し、近傍は direct 和を使います。  
-`field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/fortran_fmm_core.md` を参照してください。
+`field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/Algorithms.md` の FMM コア詳細を参照してください。
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
-近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正は `auto` を既定とし、`m2l_root_oracle` をサポートします。`sim.field_periodic_far_correction="auto"` は `field_solver="fmm"` かつ `field_bc_mode="periodic2"` のとき内部的に `m2l_root_oracle` に正規化され、`none` は遠方補正を無効化する独立の値であり、`auto` の alias ではありません。`m2l_root_oracle` は build 時だけ exact periodic Ewald residual を oracle として使い、proxy/check 点から root local 演算子へ fit します。runtime では `local(:,root) += T_root * multipole(:,root)` の形で root local へ注入され、tree 外 fallback では同じ exact Ewald correction を直接足します。非中性ケースでは、slab 外評価に対して `charged_walls` に対応する total-charge 補正を追加します。2 枚の補償壁の場は slab 内では相殺されるため、粒子前進に使う in-box field は従来どおり periodic pair field と一致します。`field_periodic_ewald_alpha` は `m2l_root_oracle` の Ewald 分解パラメータ、`field_periodic_ewald_layers` は real/reciprocal の打切り深さとして使います。
+近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正の既定は `field_periodic_far_correction="none"`（`sim` table）です。`auto` は互換用に受理され、adapter と standalone FMM core の両方で `none` に正規化されます。`none` は explicit image shell だけを評価する有限画像近似であり、完全な周期遠方場を与えるものではありません。`m2l_root_oracle` は明示 opt-in の高コスト診断 backend です。build 時だけ exact periodic Ewald residual を oracle として使い、proxy/check 点から root local 演算子へ fit しますが、production exact periodic physics の保証ではありません。runtime では `local(:,root) += T_root * multipole(:,root)` の形で root local へ注入され、tree 外 fallback では同じ Ewald correction を直接足します。非中性ケースでは、slab 外評価に対して `charged_walls` に対応する total-charge 補正を追加します。2 枚の補償壁の場は slab 内では相殺されるため、粒子前進に使う in-box field は従来どおり periodic pair field と一致します。`field_periodic_ewald_alpha` は `m2l_root_oracle` の Ewald 分解パラメータ、`field_periodic_ewald_layers` は real/reciprocal の打切り深さとして使います。将来の解析的 M2L 遠方補正を既定化する場合は Stage 5 の versioned migration として導入し、現在の `auto` から暗黙に有効化しません。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
 `sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
@@ -145,6 +148,11 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 - 1ヒット重み:
   - `w_hit = J_perp * A_perp * batch_duration / (|q| * rays_per_batch)`
   - MPI 実行時は `rays_per_batch` の代わりに `global_rays_per_batch`（全 rank 合計）を使用
+- `photo_escape_model="boltzmann_cutoff"` の場合:
+  - 放出元要素の自己寄与を除いた中心電位から `barrier = max(phi_emit - phi_infty, 0)` を計算
+  - `escape_factor = exp(-|q_particle| * barrier / (k_B * T_PE))`
+  - `w_eff = w_hit * escape_factor` とし、PE粒子重みと `deposit_opposite_charge_on_emit` の放出元電荷 bookkeeping に同じ `w_eff` を使う
+  - これは戻りPEを即時中和として扱う reduced closure であり、個別PEの再吸収面は追跡しない
 - `sim.field_bc_mode="periodic2"` で periodic image に命中した場合も、放出位置は primary cell に wrap した hit 座標を使う
 - `sheath_injection_model` が Zhao 系のとき、最初の負電荷 `photo_raycast` species の `emit_current_density_a_m2` は Zhao の自由光電子電流へ上書きされ、法線速度 cutoff も分枝に応じて適用される
 
@@ -152,7 +160,7 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 現行実装の停止条件は次の通りです。
 
-- ループは常に `batch_count` バッチ実行
+- 通常実行では `batch_count` バッチ実行し、再開実行では処理済みバッチ数が `batch_count` に達するまで実行
 - 各粒子は `max_step` で打ち切り
 
 補足:
@@ -180,18 +188,19 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 
 ### 8.2 再開（`output.resume = true`）
 
-再開時は同一 `output.dir` から以下を読み込みます。
+再開時は既定で `output.dir` から以下を読み込みます。`output.restart_from` を指定した場合は、そのディレクトリから checkpoint を読み込み、新しい出力は引き続き `output.dir` に書きます。
 
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
 - 任意: `macro_residuals.csv`（MPI 時は `macro_residuals_rankNNNNN.csv`）
 
-`sim.batch_count` は「今回追加するバッチ数」です。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
+`sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
+`output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
 
 ## 9. 設計方針
 
-- v1.0 は insulator accumulation を正規仕様とする
+- v1.0 の基本系は insulator accumulation とし、conductor は制限付き拡張として扱う
 - 拡張点は維持しつつ、現行利用者向けには実装済み挙動を優先して文書化する
-- 設定追加・削除時は `docs/fortran_parameter_file.md` を同時更新する
+- 設定追加・削除時は `docs/Parameters.md` を同時更新する
 
 ## 10. 実行運用（推奨）
 
@@ -204,7 +213,7 @@ MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNN
 ## 11. Python 後処理レイヤ
 
 Python パッケージ `beach` は Fortran 出力を読み込み、後処理・可視化を行います。
-詳細な API リファレンスは `docs/python_postprocess_api.md` を参照してください。
+詳細な API リファレンスは `docs/PythonPostprocessAPI.md` を参照してください。
 
 ### 11.1 電位再構成・電場計算
 

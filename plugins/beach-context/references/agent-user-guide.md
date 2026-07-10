@@ -1,7 +1,12 @@
+title: BEACH Agent User Guide
+
+Lang: [日本語](agent-user-guide.md) | [English](agent-user-guide.en.md)
+
 # BEACH Agent User Guide
 
 > AI Agent が BEACH シミュレーションを操作するためのリファレンスガイド。
 > CLAUDE.md から `@import docs/agent-user-guide.md` で読み込むことを想定。
+> 通常の利用者はこの文書を読む必要はありません。実行手順は [BEACH ドキュメント](index.html) から辿ってください。
 
 ---
 
@@ -11,7 +16,7 @@ BEACH (BEM + Accumulated CHarge) は、絶縁体表面への帯電蓄積をシ�
 
 - **Fortran コア**: 粒子力学・電場ソルバー・衝突判定・電荷堆積
 - **Python レイヤー**: 設定管理・後処理・可視化
-- **バージョン**: 1.2.0
+- **バージョン**: 1.4.0
 
 ---
 
@@ -85,13 +90,14 @@ make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: heavy/release gate
 make test-heavy   # heavy Fortran targets only
+make test-fortran-far-correction  # explicit oracle far-correction diagnostics
 make test-full    # unfiltered fpm test
 make test-mpi     # MPI テスト
 pytest -q         # Python テストのみ
 ```
 
 `make test` は L1 の alias で、通常の AI/開発内側ループではここまでを基本にする。
-FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。
+FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。`m2l_root_oracle` far-correction 診断は `make test-fortran-far-correction` または `make test-full` で opt-in 実行する。
 個別 target は `FPM_ACTION=test ./build.sh --target <name>` で確認できる。
 
 ---
@@ -125,7 +131,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | 電場評価手法 |
 | `field_bc_mode` | string | "free" | free, periodic2 | 境界条件 (periodic2 は fmm 必須) |
 | `field_periodic_image_layers` | int | 1 | >= 0 | periodic2 のイメージシェル層数 |
-| `field_periodic_far_correction` | string | "auto" | auto, none, m2l_root_oracle | 遠方補正 |
+| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle | 遠方補正 (`auto` は互換用に `none` として扱う) |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald 分割パラメータ (0=自動) |
 | `field_periodic_ewald_layers` | int | 4 | >= 0 | Ewald シェル深度 |
 | `tree_theta` | float | 0.5 | (0, 1] | ツリー法 MAC パラメータ |
@@ -217,6 +223,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `emit_current_density_a_m2` | float | 必須 | 放出電流密度 [A/m^2] |
 | `rays_per_batch` | int | 必須 | バッチあたりレイ数 |
 | `deposit_opposite_charge_on_emit` | bool | false | 放出元要素に逆符号電荷を堆積 |
+| `photo_escape_model` | string | `"none"` | `none` / `boltzmann_cutoff`。後者は正電位障壁でPE escape電流をBoltzmann抑制 |
 | `normal_drift_speed` | float | 0.0 | 法線方向ドリフト速度 [m/s] |
 | `ray_direction` | float[3] | 内向き法線 | レイ方向ベクトル |
 
@@ -260,6 +267,7 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `dir` | string | "outputs/latest" | 出力ディレクトリ |
 | `history_stride` | int | 1 | 履歴出力間隔 [バッチ] (0 で無効化) |
 | `resume` | bool | false | チェックポイントから再開 |
+| `restart_from` | string | なし | `resume=true` 時の checkpoint 読み込み元。新しい出力は `dir` に保存 |
 
 ---
 
@@ -418,14 +426,14 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 
 ## `beachx config` の高水準記法
 
-`Fortran parser` は `beach.toml` 内の補助キーを、Fortran 実行系が読む最終キーへ展開する。
+Fortran parser は `beach.toml` 内の補助キーを読み込み時に実行時キーへ正規化する。
 
 - `sim.box_origin` + `sim.box_size` -> `sim.box_min` / `sim.box_max`
 - `inject_region_mode = "face_fraction"` + `uv_low` / `uv_high` -> `pos_low` / `pos_high`
 - `mesh.templates` の `placement_mode = "box_anchor"` -> `center`
 - `mesh.groups.*` の `scale_from` / `placement_mode` -> template ごとの実寸・実座標
 
-`schema_version`、`use_presets`、`override`、`base_case` は現行の direct `beach.toml` では使わない。
+実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書く。
 
 ---
 
@@ -511,7 +519,7 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
 | `periodic2` | `field_solver=fmm`, ちょうど 2 軸が periodic, `use_box=true` |
 | シースモデル | `reservoir_potential_model = "none"` と互換 |
-| リジューム | `write_files=true`, チェックポイントファイル存在, MPI サイズ一致 |
+| リジューム | `write_files=true`, checkpoint ファイル存在 (`restart_from` 指定時はそのディレクトリ), MPI サイズ一致 |
 | 性能プロファイル | 環境変数 `BEACH_PROFILE=1` |
 | MPI 実行 | `-DUSE_MPI` でコンパイル, MPI コンパイララッパー使用 |
 
@@ -552,9 +560,16 @@ BEACH/
 | ドキュメント | 内容 |
 |-------------|------|
 | `SPEC.md` | Fortran 実装仕様 (権威的) |
-| `docs/fortran_parameter_file.md` | パラメータ詳細仕様 |
-| `docs/fortran_workflow.md` | 実行ワークフロー・I/O |
-| `docs/fortran_fmm_core.md` | FMM 数学・Ewald |
-| `docs/config_workflow.md` | `beachx config` と高水準記法 |
-| `docs/python_postprocess_api.md` | Python API リファレンス |
+| `docs/OutputGuide.md` | 出力ファイルの読み方 |
+| `docs/ConfigurationRecipes.md` | よくある設定レシピ |
+| `docs/Parameters.md` | パラメータ詳細仕様 |
+| `docs/Workflow.md` | 実行ワークフロー・I/O |
+| `docs/Algorithms.md` | アルゴリズム概要 |
+| `docs/FieldSolvers.md` | 場ソルバーと periodic2 場境界 |
+| `docs/ParticleChargeLoop.md` | 粒子追跡、衝突、電荷蓄積 |
+| `docs/FMMCore.md` | FMM 数学・Ewald |
+| `docs/BatchDurationStability.md` | `batch_duration` 安定性 |
+| `docs/Configuration.md` | `beachx config` と高水準記法 |
+| `docs/PostprocessTutorial.md` | 後処理チュートリアル |
+| `docs/PythonPostprocessAPI.md` | Python API リファレンス |
 | `schemas/beach.schema.json` | IDE バリデーション用 JSON Schema |
