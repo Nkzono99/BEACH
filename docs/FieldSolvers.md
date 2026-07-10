@@ -107,7 +107,12 @@ $$
 
 評価時には node 半径 `R` と評価点までの距離 `d` から遠方採用を判定し、採用できる node は monopole として評価します。
 採用できない node は子へ降り、leaf では direct 和を行います。
-電荷打ち消しが大きい node は monopole 誤差が出やすいため、`abs(Q) < charge_cancellation_tol * sum(abs(q_i))` の場合は遠方採用を抑制します。
+Stage 1 では、$A_n = \sum_{i \in n}|q_i|$ としたとき、幾何条件を満たす内部 node でも
+`abs(A_n - abs(Q_n)) <= 64 * epsilon(1.0d0) * max(A_n, abs(Q_n))` を満たす場合だけ monopole として採用します。
+この machine-epsilon tolerance は電荷集計の丸め差だけを許容します。
+mixed-sign の内部 node は leaf まで子へ降りて direct interaction を行い、same-sign node は既存の monopole 経路と性能を維持します。
+
+将来は monopole+dipole の誤差判定を導入し、不安定な signed charge centroid 近似を再導入せずに mixed-sign node の性能を回復する予定です。
 
 ### 5.3 FMM
 

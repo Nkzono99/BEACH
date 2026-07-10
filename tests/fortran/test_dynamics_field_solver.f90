@@ -3,6 +3,7 @@ program test_dynamics_field_solver
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
+  use bem_mesh, only: init_mesh
   use bem_templates, only: make_plane, make_sphere
   use bem_field, only: electric_field_at, electric_potential_at
   use bem_field_solver, only: field_solver_type
@@ -10,7 +11,7 @@ program test_dynamics_field_solver
                           assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
-  call test_init(9)
+  call test_init(11)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -22,6 +23,14 @@ program test_dynamics_field_solver
 
   call test_begin('treecode_field_accuracy')
   call test_treecode_field_accuracy()
+  call test_end()
+
+  call test_begin('treecode_same_sign_root_monopole')
+  call test_treecode_same_sign_root_monopole()
+  call test_end()
+
+  call test_begin('treecode_mixed_sign_cancellation_sweep')
+  call test_treecode_mixed_sign_cancellation_sweep()
   call test_end()
 
   call test_begin('zero_softening_self_singularity_skip')
@@ -205,6 +214,95 @@ contains
     call assert_true(valid_count >= 100_i32, 'treecode accuracy test has too few valid samples')
     call assert_true(max_rel_err <= 1.0d-3, 'treecode E relative error exceeds 1e-3')
   end subroutine test_treecode_field_accuracy
+
+  subroutine test_treecode_same_sign_root_monopole()
+    type(mesh_type) :: mesh_tree
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp), parameter :: source_charge = 1.0d-12
+    real(dp) :: r(3), e_direct(3), e_tree(3), norm_direct, relative_error
+
+    call init_treecode_monopole_fixture(mesh_tree, solver, sim)
+    mesh_tree%q_elem = source_charge
+    call solver%refresh(mesh_tree)
+
+    r = [0.0d0, 100.0d0, 0.0d0]
+    call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+    call solver%eval_e(mesh_tree, r, e_tree)
+
+    norm_direct = sqrt(sum(e_direct*e_direct))
+    call assert_true(norm_direct > 0.0d0, 'same-sign direct field must be nonzero')
+    relative_error = sqrt(sum((e_tree - e_direct)*(e_tree - e_direct)))/norm_direct
+    call assert_true(relative_error > 1.0d-4, 'same-sign root should retain the monopole path')
+    call assert_true(relative_error < 2.0d-4, 'same-sign root monopole characterization changed')
+    call assert_true(relative_error <= 1.0d-3, 'same-sign root monopole exceeds the tree accuracy contract')
+  end subroutine test_treecode_same_sign_root_monopole
+
+  subroutine test_treecode_mixed_sign_cancellation_sweep()
+    type(mesh_type) :: mesh_tree
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    real(dp), parameter :: source_charge = 1.0d-12
+    real(dp), parameter :: old_cancellation_tol = 1.0d-10
+    real(dp), parameter :: target_ratio(2) = [0.5d0*old_cancellation_tol, 2.0d0*old_cancellation_tol]
+    character(len=16), parameter :: sample_name(2) = [character(len=16) :: 'below', 'above']
+    character(len=256) :: assertion_message
+    integer(i32) :: sample
+    real(dp) :: delta, actual_ratio, r(3), e_direct(3), e_tree(3), norm_direct, relative_error
+
+    call init_treecode_monopole_fixture(mesh_tree, solver, sim)
+    r = [0.0d0, 100.0d0, 0.0d0]
+
+    do sample = 1_i32, 2_i32
+      delta = 2.0d0*target_ratio(sample)/(1.0d0 + target_ratio(sample))
+      mesh_tree%q_elem = [source_charge, -source_charge*(1.0d0 - delta)]
+      actual_ratio = abs(sum(mesh_tree%q_elem))/sum(abs(mesh_tree%q_elem))
+      if (sample == 1_i32) then
+        call assert_true(actual_ratio < old_cancellation_tol, 'below-threshold cancellation sample crossed the old limit')
+      else
+        call assert_true(actual_ratio > old_cancellation_tol, 'above-threshold cancellation sample crossed the old limit')
+      end if
+
+      call solver%refresh(mesh_tree)
+      call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+      call solver%eval_e(mesh_tree, r, e_tree)
+
+      norm_direct = sqrt(sum(e_direct*e_direct))
+      call assert_true(norm_direct > 0.0d0, 'mixed-sign direct field must be nonzero')
+      relative_error = sqrt(sum((e_tree - e_direct)*(e_tree - e_direct)))/norm_direct
+      write (assertion_message, '(a,a,a,es12.4,a,es12.4)') &
+        'mixed-sign ', trim(sample_name(sample)), ' old-threshold sample: ratio=', actual_ratio, &
+        ', relative error=', relative_error
+      call assert_true(relative_error <= 1.0d-3, trim(assertion_message))
+    end do
+  end subroutine test_treecode_mixed_sign_cancellation_sweep
+
+  subroutine init_treecode_monopole_fixture(mesh_tree, solver, sim)
+    type(mesh_type), intent(out) :: mesh_tree
+    type(field_solver_type), intent(out) :: solver
+    type(sim_config), intent(out) :: sim
+    real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
+
+    v0(:, 1) = [-1.0d0, -0.01d0, -0.01d0]
+    v1(:, 1) = [-1.0d0, 0.02d0, -0.01d0]
+    v2(:, 1) = [-1.0d0, -0.01d0, 0.02d0]
+    v0(:, 2) = [1.0d0, -0.01d0, -0.01d0]
+    v1(:, 2) = [1.0d0, 0.02d0, -0.01d0]
+    v2(:, 2) = [1.0d0, -0.01d0, 0.02d0]
+    call init_mesh(mesh_tree, v0, v1, v2)
+
+    sim = sim_config()
+    sim%softening = 0.0d0
+    sim%field_solver = 'treecode'
+    sim%field_normalization = 'si'
+    sim%tree_theta = 0.5d0
+    sim%tree_leaf_max = 1_i32
+    sim%has_tree_theta = .true.
+    sim%has_tree_leaf_max = .true.
+    call solver%init(mesh_tree, sim)
+
+    call assert_true(solver%child_count(1) > 0_i32, 'treecode cancellation fixture root must be internal')
+  end subroutine init_treecode_monopole_fixture
 
   subroutine test_zero_softening_self_singularity_skip()
     type(mesh_type) :: mesh_direct

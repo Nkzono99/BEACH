@@ -9,8 +9,6 @@ module bem_field_solver
   implicit none
   private
 
-  real(dp), parameter :: charge_cancellation_tol = 1.0d-10
-
   type :: field_solver_type
     character(len=16) :: mode = 'direct'
     character(len=16) :: field_bc_mode = 'free'
@@ -157,7 +155,7 @@ module bem_field_solver
       real(dp), intent(inout) :: ex, ey, ez
     end subroutine traverse_node
 
-    !> ノード半径・距離と電荷打ち消し度合いで遠方近似を判定する。
+    !> ノード半径・距離と電荷符号の一貫性から遠方近似を判定する。
     module function accept_node(self, node_idx, rx, ry, rz) result(accept_it)
       class(field_solver_type), intent(in) :: self
       integer(i32), intent(in) :: node_idx

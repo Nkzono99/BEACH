@@ -119,9 +119,9 @@ contains
   end do
   end procedure traverse_node
 
-  !> ノードサイズ・距離・電荷打ち消し度合いから近似採用可否を判定する。
+  !> ノードサイズ・距離・電荷符号の一貫性から近似採用可否を判定する。
   module procedure accept_node
-  real(dp) :: dx, dy, dz, dist, dist2, radius
+  real(dp) :: dx, dy, dz, dist, dist2, radius, charge_scale, charge_gap
 
   dx = rx - self%node_center(1, node_idx)
   dy = ry - self%node_center(2, node_idx)
@@ -144,12 +144,9 @@ contains
     return
   end if
 
-  if (self%node_abs_q(node_idx) <= 0.0d0) then
-    accept_it = .true.
-    return
-  end if
-
-  accept_it = abs(self%node_q(node_idx)) >= charge_cancellation_tol*self%node_abs_q(node_idx)
+  charge_scale = max(self%node_abs_q(node_idx), abs(self%node_q(node_idx)))
+  charge_gap = abs(self%node_abs_q(node_idx) - abs(self%node_q(node_idx)))
+  accept_it = charge_gap <= 64.0d0*epsilon(1.0d0)*charge_scale
   end procedure accept_node
 
   !> メッシュ重心での電位を計算する。FMM/direct を自動切替する。

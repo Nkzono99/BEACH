@@ -107,7 +107,12 @@ $$
 
 During evaluation, a node is accepted as far field from its radius `R` and distance `d` to the target point.
 Accepted nodes are evaluated as monopoles. Rejected nodes are descended, and leaves use direct sum.
-For nodes with strong charge cancellation, monopole error can be large; if `abs(Q) < charge_cancellation_tol * sum(abs(q_i))`, far-field acceptance is suppressed.
+In Stage 1, let $A_n = \sum_{i \in n}|q_i|$. Even when an internal node passes the geometric criterion, its monopole is accepted only if
+`abs(A_n - abs(Q_n)) <= 64 * epsilon(1.0d0) * max(A_n, abs(Q_n))`.
+This machine-epsilon tolerance permits only rounding differences in charge aggregation.
+Mixed-sign internal nodes descend to leaves for direct interactions, while same-sign nodes retain the existing monopole path and performance.
+
+A future monopole-plus-dipole error criterion is expected to recover mixed-sign performance without restoring the unstable signed-charge-centroid approximation.
 
 ### 5.3 FMM
 
