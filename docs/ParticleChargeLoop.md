@@ -430,8 +430,7 @@ $$
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
 
-全 rank は checkpoint 用に RNG state と macro residual を保存します。
-MPI 実行時は rank 別ファイル名になります。
+全 rank は checkpoint 用に rank 別 RNG state を保存し、root rank は共有 macro residual を単一ファイルへ保存します。
 
 ### 12.4 restart consistency
 
@@ -472,8 +471,8 @@ mesh と `q_elem` は各 rank が保持し、batch commit 時に `dq` を allred
 - `dq(nelem)` の和
 - batch outcome counts の和
 
-root rank だけが human-readable な最終 CSV と history を書きます。
-RNG state と macro residual は rank ごとに保存されます。
+root rank だけが human-readable な最終 CSV、history、global macro residual を書きます。
+RNG state は rank ごとに保存されます。
 
 ### 13.3 performance profile
 

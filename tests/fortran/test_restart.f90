@@ -14,7 +14,7 @@ program test_restart
   type(sim_stats) :: stats
   type(injection_state) :: state
   logical :: has_restart, exists
-  character(len=1024) :: rng_rank_path, residual_rank_path
+  character(len=1024) :: rng_rank_path, residual_global_path
   character(len=*), parameter :: out_dir = 'test_restart_tmp'
 
   call delete_file_if_exists(out_dir//'/summary.txt')
@@ -50,18 +50,19 @@ program test_restart
 
   call test_begin('ranked_paths')
   rng_rank_path = restart_rng_state_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
-  residual_rank_path = restart_macro_residual_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
+  residual_global_path = restart_macro_residual_path(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   call assert_true(trim(rng_rank_path) == trim(out_dir)//'/rng_state_rank00001.txt', 'ranked rng path mismatch')
   call assert_true( &
-    trim(residual_rank_path) == trim(out_dir)//'/macro_residuals_rank00001.csv', 'ranked residual path mismatch' &
+    trim(residual_global_path) == trim(out_dir)//'/macro_residuals.csv', 'MPI residual path must remain global' &
     )
 
   call write_rng_state_file(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
+  state%macro_residual = [0.5d0, 0.5d0]
   call write_macro_residuals_file(out_dir, state, mpi_rank=1_i32, mpi_size=4_i32)
   inquire (file=trim(rng_rank_path), exist=exists)
   call assert_true(exists, 'rng_state_rank00001.txt should be created')
-  inquire (file=trim(residual_rank_path), exist=exists)
-  call assert_true(exists, 'macro_residuals_rank00001.csv should be created')
+  inquire (file=trim(out_dir)//'/macro_residuals_rank00001.csv', exist=exists)
+  call assert_true(.not. exists, 'non-root must not create a ranked macro residual file')
   call test_end()
 
   call test_begin('load_checkpoint')

@@ -210,10 +210,11 @@ only with `field_bc_mode = "free"`. `dielectric` is metadata-only in the current
 also prints a note when it appears. Enabling `mesh_potential.csv` stores centroid potential [V] with the same
 element ordering.
 
-MPI runs (`world_size > 1`) write rank-local RNG state and residual files.
+MPI runs (`world_size > 1`) write only the RNG state per rank. The reservoir residual is shared by all ranks,
+so the root rank writes one `macro_residuals.csv`.
 
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+- `macro_residuals.csv`
 
 ## 6. Workload Estimation
 
@@ -231,7 +232,7 @@ beachx workload examples/beach.toml \
   --threads 8 \
   --mpi-ranks 4 \
   --mpi-rank 0 \
-  --macro-residuals outputs/latest/macro_residuals_rank00000.csv
+  --macro-residuals outputs/latest/macro_residuals.csv
 ```
 
 ## 7. Resume Runs

@@ -212,10 +212,11 @@ beachx profile outputs/latest/performance_profile.csv \
 含まれる場合は `summary.txt` に注意書きも出力します。
 `mesh_potential.csv` を有効にすると、同じ要素順で centroid 電位 [V] も保存されます。
 
-MPI実行（`world_size > 1`）では乱数状態・残差は rank 別です。
+MPI実行（`world_size > 1`）では乱数状態だけが rank 別です。reservoir の端数は全 rank で共有するため、
+root rank が単一の `macro_residuals.csv` を保存します。
 
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+- `macro_residuals.csv`
 
 ## 6. 実行前の負荷見積もり（推奨）
 
@@ -232,7 +233,7 @@ beachx workload examples/beach.toml \
   --threads 8 \
   --mpi-ranks 4 \
   --mpi-rank 0 \
-  --macro-residuals outputs/latest/macro_residuals_rank00000.csv
+  --macro-residuals outputs/latest/macro_residuals.csv
 ```
 
 ## 7. 再開実行（resume）

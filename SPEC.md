@@ -199,17 +199,19 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 `mesh_triangles.csv` は要素ごとの `mesh_id` を含み、`mesh_sources.csv` で `mesh_id` と元メッシュ設定を対応付けます。
 
-MPI 実行時はランク別ファイルが生成されます: `rng_state_rankNNNNN.txt`, `macro_residuals_rankNNNNN.csv`。
+MPI 実行時は RNG のみ `rng_state_rankNNNNN.txt` として rank 別に保存します。マクロ粒子残差は
+全 rank で共有する状態なので、root が単一の `macro_residuals.csv` を保存します。
 
 ### 8.2 再開（`output.resume = true`）
 
 再開時は既定で `output.dir` から以下を読み込みます。`output.restart_from` を指定した場合は、そのディレクトリから checkpoint を読み込み、新しい出力は引き続き `output.dir` に書きます。
 
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
-- 任意: `macro_residuals.csv`（MPI 時は `macro_residuals_rankNNNNN.csv`）
+- 任意: `macro_residuals.csv`（MPI 時も単一の global ファイル）
 
 `sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
+旧形式の `macro_residuals_rankNNNNN.csv` が残っている場合は、global 残差との対応が曖昧なため停止します。
 
 ## 9. 設計方針
 

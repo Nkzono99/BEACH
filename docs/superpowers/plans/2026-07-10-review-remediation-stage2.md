@@ -199,10 +199,10 @@ Root computes each enabled `reservoir_face` count using the full `batch_duration
 
 `restart_macro_residual_path(...)` always returns `<out_dir>/macro_residuals.csv`. Only root writes it; each rank continues to write its own RNG checkpoint. On restart root reads the global residual and broadcasts it after validation. Rank-suffixed residual files are rejected as legacy ambiguous state rather than merged. Existing MPI-size equality remains mandatory.
 
-- [ ] Change restart tests first to require the global path for serial and MPI arguments, root-only writes, and broadcast-equivalent restoration.
-- [ ] Run RED on `test_restart`.
-- [ ] Implement root ownership and load broadcast while preserving existing public signatures.
-- [ ] Run GREEN on `test_restart`, then the real two-rank restart fixture.
+- [x] Change restart tests first to require the global path for serial and MPI arguments, root-only writes, and broadcast-equivalent restoration.
+- [x] Run RED on `test_restart` (job `22256768`).
+- [x] Implement root ownership and load broadcast while preserving existing public signatures.
+- [x] Run GREEN on `test_restart` (job `22256772`), then the real two-rank restart fixture (build `22256773`, run `22256775`).
 - [ ] Update docs and commit as `fix: checkpoint one global reservoir residual`.
 
 ## Task M3: Python Workload Estimator Parity

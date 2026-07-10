@@ -3,7 +3,7 @@ module bem_restart
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, injection_state
-  use bem_mpi, only: mpi_context, mpi_get_rank_size
+  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
 
   private
@@ -34,7 +34,7 @@ contains
     logical, intent(in), optional :: require_checkpoint
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path
-    logical :: has_summary, has_charges, has_rng, has_residual
+    logical :: has_summary, has_charges, has_rng, has_residual, has_legacy_residual
     logical :: must_have_checkpoint
     integer(i32) :: local_rank, world_size
 
@@ -53,6 +53,11 @@ contains
     inquire (file=trim(charges_path), exist=has_charges)
     inquire (file=trim(rng_path), exist=has_rng)
     inquire (file=trim(residual_path), exist=has_residual)
+    call detect_legacy_ranked_residuals(trim(out_dir), local_rank, world_size, has_legacy_residual, mpi)
+
+    if (has_legacy_residual) then
+      error stop 'Resume checkpoint contains legacy rank-local macro residual files; use one global macro_residuals.csv.'
+    end if
 
     if (.not. has_summary .and. .not. has_charges .and. .not. has_rng) then
       if (must_have_checkpoint) error stop 'Resume requested but checkpoint files are missing in checkpoint directory.'
@@ -68,7 +73,10 @@ contains
     call restore_rng_state(trim(rng_path))
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
-      if (has_residual) call load_macro_residual_file(trim(residual_path), state)
+      if (has_residual .and. allocated(state%macro_residual)) then
+        if (.not. present(mpi) .or. local_rank == 0_i32) call load_macro_residual_file(trim(residual_path), state)
+        if (present(mpi)) call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
+      end if
     end if
     has_restart = .true.
   end subroutine load_restart_checkpoint
@@ -117,6 +125,7 @@ contains
     if (.not. allocated(state%macro_residual)) return
 
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_macro_residuals_file')
+    if (local_rank /= 0_i32) return
 
     path = restart_macro_residual_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
@@ -362,7 +371,7 @@ contains
     end if
   end function restart_rng_state_path
 
-  !> マクロ残差ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
+  !> MPI rank数によらないglobalマクロ残差ファイルのパスを返す。
   function restart_macro_residual_path(out_dir, mpi_rank, mpi_size, mpi) result(path)
     character(len=*), intent(in) :: out_dir
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
@@ -371,12 +380,39 @@ contains
     integer(i32) :: local_rank, world_size
 
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'restart_macro_residual_path')
-    if (world_size <= 1_i32) then
-      path = trim(out_dir)//'/macro_residuals.csv'
-    else
-      write (path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', local_rank, '.csv'
-    end if
+    path = trim(out_dir)//'/macro_residuals.csv'
   end function restart_macro_residual_path
+
+  !> 旧rank別マクロ残差が1個でも存在するかrootで確認し、全rankへ共有する。
+  subroutine detect_legacy_ranked_residuals(out_dir, local_rank, world_size, found, mpi)
+    character(len=*), intent(in) :: out_dir
+    integer(i32), intent(in) :: local_rank, world_size
+    logical, intent(out) :: found
+    type(mpi_context), intent(in), optional :: mpi
+
+    character(len=1024) :: legacy_path
+    integer(i32) :: rank, found_value(1)
+    logical :: exists
+
+    found_value = 0_i32
+    if (world_size <= 1_i32) then
+      found = .false.
+      return
+    end if
+
+    if (.not. present(mpi) .or. local_rank == 0_i32) then
+      do rank = 0_i32, world_size - 1_i32
+        write (legacy_path, '(a,a,i5.5,a)') trim(out_dir), '/macro_residuals_rank', rank, '.csv'
+        inquire (file=trim(legacy_path), exist=exists)
+        if (exists) then
+          found_value(1) = 1_i32
+          exit
+        end if
+      end do
+    end if
+    if (present(mpi)) call mpi_bcast_i32_array(mpi, found_value, 0_i32)
+    found = found_value(1) /= 0_i32
+  end subroutine detect_legacy_ranked_residuals
 
   !> summary.txt から復元した統計値が壊れていないことを検証する。
   subroutine validate_summary_stats(stats)

@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Boris particle candidates now use same-time trapezoidal position updates and sample the boundary-element electric field at the predicted midpoint. The existing `boris_push` signature is unchanged, but corrected trajectories differ from previous releases.
 - Particle tracking now orders the first mesh hit against the first box-face event, advances one reflected/periodic remainder, and fails closed when one outer step would cross a second box face.
 - Reservoir injection now rounds one global expected macro-particle count before distributing particles across MPI ranks, making count and residual sequences independent of MPI world size.
+- MPI checkpoints now store one root-owned global reservoir residual while retaining rank-local RNG state; ambiguous legacy rank-local residual files are rejected on resume.
 - Output-directory creation now uses the POSIX filesystem binding without shell evaluation, including paths with literal shell metacharacters.
 - Periodic collision queries now fail closed on image/range limits and propagate deterministic OpenMP/MPI failure context for both particle tracking and `photo_raycast` injection.
 - Treecode now descends mixed-sign charge nodes instead of accepting an unreliable near-cancelled monopole approximation.

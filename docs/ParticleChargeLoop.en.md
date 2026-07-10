@@ -430,8 +430,7 @@ When `output.write_files=true`, the root rank writes the main final outputs:
 - `mesh_triangles.csv`
 - `mesh_sources.csv`
 
-All ranks save checkpoint RNG state and macro residuals.
-In MPI runs, file names are rank-local.
+Every rank saves its checkpoint RNG state, while the root rank saves the shared macro residual in one global file.
 
 ### 12.4 Restart consistency
 
@@ -472,8 +471,8 @@ Main allreduces:
 - sum of `dq(nelem)`
 - sum of batch outcome counts
 
-Only the root rank writes human-readable final CSV and history files.
-RNG state and macro residuals are saved per rank.
+Only the root rank writes human-readable final CSV, history, and the global macro residual file.
+RNG state is saved per rank.
 
 ### 13.3 Performance profile
 
