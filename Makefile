@@ -3,7 +3,7 @@
 	install-intel install-intel-local \
 	build check run \
 	static-check schema-check \
-	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full \
+	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction \
 	test-python test-quick test-ci test-local \
 	build-kernel \
@@ -33,6 +33,7 @@ BUILD_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),git)
 CHECK_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
 RUN_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
 SCHEMAS ?= schemas/beach.schema.json
+PHYSICS_RELEASE_MANIFEST ?= build/physics-release/manifest.txt
 FORTRAN_L1_TARGETS ?= \
 	test_version \
 	test_app_config_parser \
@@ -188,6 +189,9 @@ test-l2: test-l1 test-fortran-contract
 test-l3: test-l2 test-fortran-heavy
 
 test-heavy: test-fortran-heavy
+
+test-physics-release:
+	tools/run_physics_release_gate.sh --manifest "$(PHYSICS_RELEASE_MANIFEST)"
 
 test-full:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \

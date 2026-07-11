@@ -90,6 +90,7 @@ make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: heavy/release gate
+make test-physics-release  # HPC: L3 + far correction + MPI manifest
 make test-heavy   # heavy Fortran targets only
 make test-fortran-far-correction  # explicit oracle far-correction diagnostics
 make test-full    # unfiltered fpm test
@@ -382,3 +383,8 @@ fpm test --target test_mpi_hybrid \
 - Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。
+`test-physics-release` は L3、far-correction、MPI gate を逐次実行し、既定で
+`build/physics-release/manifest.txt` に commit、dirty state、host、compiler、各 gate の
+status と経過時間を保存します。KUDPC の login node では実行を拒否し、Slurm allocation 内では
+MPI payload の runner を `srun` に設定します。manifest path は
+`PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt` で変更できます。

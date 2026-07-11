@@ -90,6 +90,7 @@ make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: heavy/release gate
+make test-physics-release  # HPC: L3 + far correction + MPI manifest
 make test-heavy   # heavy Fortran targets only
 make test-fortran-far-correction  # explicit oracle far-correction diagnostics
 make test-full    # unfiltered fpm test
@@ -390,3 +391,8 @@ fpm test --target test_mpi_hybrid \
 - The Fortran electric field uses element-centroid point-charge approximation plus `sim.softening`.
 
 For a camphor MPI job example, see `examples/job_scripts/camphor_mpi_hybrid_job.sh`.
+`test-physics-release` runs the L3, far-correction, and MPI gates sequentially.
+It records the commit, dirty state, host, compilers, status, and elapsed time for
+each gate in `build/physics-release/manifest.txt` by default. It refuses KUDPC
+login nodes and selects `srun` for the MPI payload inside a Slurm allocation.
+Override the output with `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt`.
