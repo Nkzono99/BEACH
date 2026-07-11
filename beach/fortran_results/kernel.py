@@ -20,7 +20,13 @@ from .potential import (
     _periodic2_from_sim,
     _resolve_softening,
 )
-from .selection import _charges_for_step, _mesh_ids_or_default, _require_triangles, _resolve_result
+from .selection import (
+    _charges_for_step,
+    _mesh_ids_or_default,
+    _require_point_source_model,
+    _require_triangles,
+    _resolve_result,
+)
 from .types import FortranRunResult
 
 
@@ -124,6 +130,7 @@ class FieldKernel:
         """Build a kernel from one BEACH output directory."""
 
         resolved = _resolve_result(result)
+        _require_point_source_model(resolved)
         centers = _triangle_centers(_require_triangles(resolved))
         charges = _charges_for_step(resolved, step=step)
         options = _options_from_result(
@@ -357,6 +364,7 @@ def calc_object_forces_kernel(
     """
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     triangles = _require_triangles(resolved)
     centers = _triangle_centers(triangles)
     charges = _charges_for_step(resolved, step=step)
@@ -420,6 +428,7 @@ def field_kernel_options_from_result(
     """Resolve field-kernel options from a BEACH result and optional config."""
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     return _options_from_result(
         resolved,
         softening=softening,

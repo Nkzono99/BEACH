@@ -38,6 +38,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_physics_config_types \
 	test_charge_ledger \
 	test_model_fingerprint \
+	test_panel_moments \
+	test_panel_kernel \
 	test_boundary \
 	test_restart \
 	test_reservoir_injection \

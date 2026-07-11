@@ -10,7 +10,7 @@ import numpy as np
 
 from .constants import K_COULOMB
 from .mesh import _triangle_areas, _triangle_centers
-from .selection import _require_triangles, _resolve_result
+from .selection import _require_point_source_model, _require_triangles, _resolve_result
 from .types import FortranRunResult, PotentialSlice2D
 
 
@@ -64,6 +64,7 @@ def compute_potential_mesh(
     """
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     resolved_softening = _resolve_softening(resolved, softening)
     self_term_key = _resolve_self_term(self_term, resolved_softening)
 
@@ -168,6 +169,7 @@ def compute_potential_points(
     """
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     resolved_softening = _resolve_softening(resolved, softening)
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0.")
@@ -271,6 +273,7 @@ def compute_potential_slices(
         raise ValueError("grid_n must be >= 2.")
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     resolved_softening = _resolve_softening(resolved, softening)
     periodic_cfg = _coerce_periodic2(periodic2)
     if periodic_cfg is None:

@@ -47,6 +47,16 @@ source-dir = "tests/fortran"
 main = "test_model_fingerprint.f90"
 
 [[test]]
+name = "test_panel_moments"
+source-dir = "tests/fortran"
+main = "test_panel_moments.f90"
+
+[[test]]
+name = "test_panel_kernel"
+source-dir = "tests/fortran"
+main = "test_panel_kernel.f90"
+
+[[test]]
 name = "test_boundary"
 source-dir = "tests/fortran"
 main = "test_boundary.f90"

@@ -324,6 +324,8 @@ main loop は field refresh と photo charge 処理の前に全 rank から最�
 
 既定の `surface_model="insulator"` では、吸収された粒子の電荷がそのまま要素に蓄積されます。
 
+`field.element_kernel="triangle_p0"` でも蓄積量 `q_elem` は要素総電荷 [C] のままです。場評価時だけ `sigma=q_elem/area` へ変換します。衝突・吸収で使う ordered triangle と、電場の one-sided trace で使う `elem_vacuum_sign` は同じ mesh geometry から生成され、三角形 winding 自体は変更しません。
+
 粒子 `p` が要素 `i` に衝突した場合:
 
 $$

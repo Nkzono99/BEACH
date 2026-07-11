@@ -7,6 +7,8 @@ submodule(bem_field_solver) bem_field_solver_eval
   use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data, &
                                             add_periodic2_exact_ewald_potential_correction_all_sources
   use bem_string_utils, only: lower_ascii
+  use bem_panel_geometry, only: panel_geometry_type
+  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   implicit none
 contains
 
@@ -29,6 +31,10 @@ contains
   end if
 
   if (trim(self%mode) /= 'treecode' .or. .not. self%tree_ready) then
+    if (trim(self%source_model) == 'triangle_p0') then
+      call electric_field_at_panel_mesh(mesh, r, e)
+      return
+    end if
     call electric_field_at_normalized(mesh, r, self%softening, self%field_inv_length_scale, self%field_output_scale, e)
     return
   end if
@@ -69,6 +75,10 @@ contains
     return
   end if
 
+  if (trim(self%source_model) == 'triangle_p0') then
+    call electric_potential_at_panel_mesh(mesh, r, phi)
+    return
+  end if
   call electric_potential_at_normalized( &
     mesh, r, sim%softening, self%field_inv_length_scale, self%potential_output_scale, phi &
     )
@@ -297,6 +307,12 @@ contains
     soft2 = softening_scaled*softening_scaled
     min_dist2 = tiny(1.0d0)
     potential_v = 0.0d0
+    if (trim(self%source_model) == 'triangle_p0') then
+      do i = 1, mesh%nelem
+        call electric_potential_at_panel_mesh(mesh, mesh%centers(:, i), potential_v(i))
+      end do
+      return
+    end if
 
     ! Resolve periodic2 configuration
     use_periodic2 = .false.
@@ -554,5 +570,66 @@ contains
 
     phi = output_scale*phi_sum
   end subroutine electric_potential_at_normalized
+
+  subroutine electric_field_at_panel_mesh(mesh, target, field)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(out) :: field(3)
+    type(panel_geometry_type) :: geometry
+    real(dp) :: source_potential, source_field(3)
+    integer(i32) :: element
+
+    field = 0.0_dp
+    do element = 1, mesh%nelem
+      if (mesh%elem_vacuum_sign(element) /= 1_i32 .and. mesh%elem_vacuum_sign(element) /= -1_i32) then
+        error stop 'triangle_p0 field evaluation requires a resolved vacuum side for every element.'
+      end if
+      call geometry_from_mesh(mesh, element, geometry)
+      call panel_potential_field( &
+        geometry, mesh%q_elem(element), target, mesh%elem_vacuum_sign(element), source_potential, source_field &
+        )
+      field = field + source_field
+    end do
+  end subroutine electric_field_at_panel_mesh
+
+  subroutine electric_potential_at_panel_mesh(mesh, target, potential)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(out) :: potential
+    type(panel_geometry_type) :: geometry
+    real(dp) :: source_potential, source_field(3)
+    integer(i32) :: element
+
+    potential = 0.0_dp
+    do element = 1, mesh%nelem
+      if (mesh%elem_vacuum_sign(element) /= 1_i32 .and. mesh%elem_vacuum_sign(element) /= -1_i32) then
+        error stop 'triangle_p0 potential evaluation requires a resolved vacuum side for every element.'
+      end if
+      call geometry_from_mesh(mesh, element, geometry)
+      call panel_potential_field( &
+        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
+        )
+      potential = potential + source_potential
+    end do
+  end subroutine electric_potential_at_panel_mesh
+
+  pure subroutine geometry_from_mesh(mesh, element, geometry)
+    type(mesh_type), intent(in) :: mesh
+    integer(i32), intent(in) :: element
+    type(panel_geometry_type), intent(out) :: geometry
+
+    geometry = panel_geometry_type()
+    geometry%vertex(:, 1) = mesh%v0(:, element)
+    geometry%vertex(:, 2) = mesh%v1(:, element)
+    geometry%vertex(:, 3) = mesh%v2(:, element)
+    geometry%centroid = mesh%centers(:, element)
+    geometry%normal = mesh%normals(:, element)
+    geometry%area = mesh%panel_area(element)
+    geometry%moment0 = mesh%panel_area(element)
+    geometry%moment1 = mesh%panel_moment1(:, element)
+    geometry%moment2 = mesh%panel_moment2(:, :, element)
+    geometry%edge_length = mesh%panel_edge_length(:, element)
+    geometry%edge_outward = mesh%panel_edge_outward(:, :, element)
+  end subroutine geometry_from_mesh
 
 end submodule bem_field_solver_eval

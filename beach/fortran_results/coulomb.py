@@ -8,7 +8,7 @@ import numpy as np
 
 from .constants import K_COULOMB
 from .mesh import _triangle_centers
-from .selection import _coerce_group_selection, _resolve_result
+from .selection import _coerce_group_selection, _require_point_source_model, _resolve_result
 from .types import CoulombInteraction, FortranRunResult, MeshSelection
 
 
@@ -67,6 +67,7 @@ def calc_coulomb(
     from .potential import _auto_periodic2_from_result, _coerce_periodic2
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     softening = float(softening)
     if not np.isfinite(softening) or softening < 0.0:
         raise ValueError("softening must be finite and >= 0.")

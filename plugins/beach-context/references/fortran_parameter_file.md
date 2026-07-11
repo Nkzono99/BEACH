@@ -601,10 +601,15 @@ OBJ の対応範囲:
 | `enabled` | bool | `true` | template を有効化 |
 | `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
 | `surface_model` | string | `"insulator"` | `insulator` / `conductor` / `dielectric` |
+| `surface_side` | string | 未指定 | `triangle_p0` の真空側: `normal_plus` / `normal_minus` / `outward_closed` |
 | `epsilon_r` | float | `1.0` | 相対誘電率。`>= 1` |
 | `center` | float[3] | `[0,0,0]` | 形状中心 [m] |
 
 `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は定義件数で決まります。
+
+### `[field]`: 要素核
+
+`element_kernel="point"` が互換既定です。`element_kernel="triangle_p0"` は各要素の `q_elem` を三角形上の一定面密度として扱う厳密 direct 核です。Phase 1 の制約は `sim.field_solver="direct"`、`sim.field_bc_mode="free"`、`sim.softening=0`、全表面 `insulator` です。OBJ では `[mesh].surface_side`、template では各 `[[mesh.templates]].surface_side` を明示してください。`outward_closed` は閉じた向き整合 two-manifold にだけ使えます。
 無効化された template は mesh に追加されず、`mesh_id` も消費しません。
 
 `kind` の概要:

@@ -90,6 +90,7 @@ contains
       if (allocated(mesh%elem_mesh_id)) call feed_integer(hash, mesh%elem_mesh_id(elem))
       if (allocated(mesh%elem_surface_model)) call feed_integer(hash, mesh%elem_surface_model(elem))
       if (allocated(mesh%elem_epsilon_r)) call feed_real(hash, mesh%elem_epsilon_r(elem))
+      if (allocated(mesh%elem_vacuum_sign)) call feed_integer(hash, mesh%elem_vacuum_sign(elem))
     end do
     fingerprint = finish_hash(hash)
   end function mesh_fingerprint

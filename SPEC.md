@@ -16,7 +16,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 ### 2.1 実装済み（現行）
 
 - 三角形メッシュ（template / OBJ）
-- 静電場（要素重心の点電荷近似 + softening、`sim.field_solver` による direct/treecode/fmm 切替。`treecode`/`fmm`/`auto` では `tree_theta`/`tree_leaf_max` を要素数から自動推定し、明示指定があれば優先。場境界は `sim.field_bc_mode` で指定）
+- 静電場（既定は要素重心の点電荷近似 + softening。`field.element_kernel="triangle_p0"` では要素総電荷を三角形上の一定面密度として積分する厳密 free-space direct 核を使用）
 - 一様外部磁場 `b0`（任意）
 - Boris 法による粒子更新
 - 線分 vs 三角形の最初の交差判定
@@ -100,6 +100,8 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 ここで `c_j` は要素 `j` の重心です。
 `field_solver="treecode"` のときはこの核を遠方で monopole 近似し、近傍は direct 和を使います。  
 `field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/Algorithms.md` の FMM コア詳細を参照してください。
+
+`field.element_kernel="triangle_p0"` は Phase 1 では `field_solver="direct"`、`field_bc_mode="free"`、`softening=0`、`surface_model="insulator"` に限定します。各 OBJ または template に `surface_side="normal_plus" | "normal_minus" | "outward_closed"` が必要です。`q_elem` は要素総電荷 [C]、面密度は `q_elem/area` です。面上電位は連続、法線電場は `sigma/epsilon0` だけ跳び、重心電位と principal-value 電場を自己項として用います。非対応 solver へ点電荷 fallback はしません。
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正の既定は `field_periodic_far_correction="none"`（`sim` table）です。`auto` は互換用に受理され、adapter と standalone FMM core の両方で `none` に正規化されます。`none` は explicit image shell だけを評価する有限画像近似であり、完全な周期遠方場を与えるものではありません。`m2l_root_oracle` は明示 opt-in の高コスト診断 backend です。build 時だけ exact periodic Ewald residual を oracle として使い、proxy/check 点から root local 演算子へ fit しますが、production exact periodic physics の保証ではありません。runtime では `local(:,root) += T_root * multipole(:,root)` の形で root local へ注入され、tree 外 fallback では同じ Ewald correction を直接足します。非中性ケースでは、slab 外評価に対して `charged_walls` に対応する total-charge 補正を追加します。2 枚の補償壁の場は slab 内では相殺されるため、粒子前進に使う in-box field は従来どおり periodic pair field と一致します。`field_periodic_ewald_alpha` は `m2l_root_oracle` の Ewald 分解パラメータ、`field_periodic_ewald_layers` は real/reciprocal の打切り深さとして使います。将来の解析的 M2L 遠方補正を既定化する場合は Stage 5 の versioned migration として導入し、現在の `auto` から暗黙に有効化しません。

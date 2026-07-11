@@ -95,10 +95,19 @@ module bem_types
     real(dp), allocatable :: bb_min(:, :)
     real(dp), allocatable :: bb_max(:, :)
     real(dp), allocatable :: h_elem(:)
+    real(dp), allocatable :: panel_area(:)
+    real(dp), allocatable :: panel_moment1(:, :)
+    real(dp), allocatable :: panel_moment2(:, :, :)
+    real(dp), allocatable :: panel_edge_length(:, :)
+    real(dp), allocatable :: panel_edge_outward(:, :, :)
+    real(dp), allocatable :: panel_quad_position(:, :, :)
+    real(dp), allocatable :: panel_quad_weight(:, :)
     real(dp), allocatable :: q_elem(:)
     integer(i32), allocatable :: elem_mesh_id(:)
     integer(i32), allocatable :: elem_surface_model(:)
     real(dp), allocatable :: elem_epsilon_r(:)
+    integer(i32), allocatable :: elem_vacuum_sign(:)
+    real(dp), allocatable :: vacuum_normals(:, :)
     real(dp) :: grid_bb_min(3) = 0.0d0
     real(dp) :: grid_bb_max(3) = 0.0d0
     integer(i32) :: grid_ncell(3) = 1_i32

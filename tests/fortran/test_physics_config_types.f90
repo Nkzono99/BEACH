@@ -5,7 +5,7 @@ program test_physics_config_types
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, outer_plasma_config, coupling_config, &
     physics_config_ok, physics_config_invalid_combination, physics_config_unavailable, &
-    normalize_legacy_physics_config, validate_phase0_physics_config
+    normalize_legacy_physics_config, validate_phase0_physics_config, validate_phase1_panel_config
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
 
@@ -18,7 +18,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(5)
+  call test_init(7)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -33,6 +33,28 @@ program test_physics_config_types
   call assert_true(trim(periodic2%zero_mode_policy) == 'not_applicable', 'free zero mode mismatch')
   call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'free legacy config should be valid')
+  call test_end()
+
+  call test_begin('triangle_panel_direct_free_available')
+  sim = sim_config()
+  sim%field_solver = 'direct'
+  sim%field_bc_mode = 'free'
+  sim%softening = 0.0d0
+  panel = panel_kernel_config()
+  panel%source_model = 'triangle_p0'
+  panel%kernel_id = 'triangle_p0_exact_direct'
+  call validate_phase1_panel_config(sim, panel, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'direct free triangle panel should be available')
+  call test_end()
+
+  call test_begin('triangle_panel_unsupported_solver_rejected')
+  sim%field_solver = 'auto'
+  call validate_phase1_panel_config(sim, panel, status, message)
+  call assert_equal_i32(status, physics_config_unavailable, 'triangle panel auto solver must be rejected')
+  sim%field_solver = 'direct'
+  sim%softening = 1.0e-6
+  call validate_phase1_panel_config(sim, panel, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'triangle panel softening must be rejected')
   call test_end()
 
   call test_begin('finite_image_legacy_normalization')

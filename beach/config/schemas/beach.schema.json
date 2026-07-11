@@ -8,9 +8,25 @@
       "$ref": "#/$defs/sim",
       "description": "Simulation settings."
     },
+    "field": {
+      "$ref": "#/$defs/field",
+      "description": "Element field-kernel settings."
+    },
     "particles": {
       "$ref": "#/$defs/particles",
       "description": "Particle species definitions."
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "element_kernel": {
+          "type": "string",
+          "enum": ["point", "triangle_p0"],
+          "default": "point",
+          "description": "Element source model. triangle_p0 requires direct free-space solving, softening=0, insulator surfaces, and explicit surface_side settings."
+        }
+      }
     },
     "mesh": {
       "$ref": "#/$defs/mesh",
@@ -173,6 +189,11 @@
         "absolute",
         "box_anchor"
       ]
+    },
+    "surfaceSide": {
+      "description": "Physical vacuum side relative to ordered triangle winding.",
+      "type": "string",
+      "enum": ["normal_plus", "normal_minus", "outward_closed"]
     },
     "boxAnchor": {
       "description": "Anchor point inside sim.box_min/sim.box_max.",
@@ -1639,6 +1660,10 @@
           "default": "insulator",
           "description": "Surface response model assigned to OBJ mesh elements. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release. Template meshes use per-template surface_model instead."
         },
+        "surface_side": {
+          "$ref": "#/$defs/surfaceSide",
+          "description": "Vacuum side for OBJ panels when field.element_kernel=triangle_p0."
+        },
         "epsilon_r": {
           "type": "number",
           "minimum": 1.0,
@@ -1813,6 +1838,10 @@
           ],
           "default": "insulator",
           "description": "Surface response model assigned to elements generated from this template. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release."
+        },
+        "surface_side": {
+          "$ref": "#/$defs/surfaceSide",
+          "description": "Vacuum side for this template when field.element_kernel=triangle_p0."
         },
         "epsilon_r": {
           "type": "number",

@@ -16,6 +16,7 @@ from beach.fortran_results import (
     compute_potential_points,
     compute_potential_slices,
     compute_potential_mesh,
+    compute_electric_field_points,
     _surface_charge_density,
     list_fortran_runs,
     load_fortran_result,
@@ -362,6 +363,27 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     np.testing.assert_array_equal(result.history.processed_particles_by_batch, np.array([5, 10]))
     np.testing.assert_allclose(result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
+
+
+def test_python_point_estimators_reject_triangle_panel_output(tmp_path: Path) -> None:
+    out = tmp_path / "run_triangle_panel"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "field_source_model=triangle_p0",
+            "field_kernel_id=triangle_p0_exact_direct",
+        ],
+    )
+    result = load_fortran_result(out)
+
+    assert result.field_source_model == "triangle_p0"
+    with pytest.raises(ValueError, match="supports field_source_model=point only"):
+        compute_potential_mesh(result)
+    with pytest.raises(ValueError, match="supports field_source_model=point only"):
+        compute_electric_field_points(result, np.zeros((1, 3)))
+    with pytest.raises(ValueError, match="supports field_source_model=point only"):
+        calc_coulomb(result, 1, 2, step=None)
 
 
 def test_load_fortran_result_rejects_charges_row_count_mismatch(tmp_path: Path) -> None:

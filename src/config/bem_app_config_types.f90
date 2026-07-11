@@ -60,6 +60,7 @@ module bem_app_config_types
     logical :: enabled = .false.
     character(len=16) :: kind = 'plane'
     character(len=16) :: surface_model = 'insulator'
+    character(len=32) :: surface_side_policy = 'not_specified'
     real(dp) :: epsilon_r = 1.0d0
     real(dp) :: center(3) = 0.0d0
     real(dp) :: size_x = 1.0d0
@@ -88,6 +89,7 @@ module bem_app_config_types
     character(len=16) :: mesh_mode = 'auto'
     character(len=256) :: obj_path = 'examples/simple_plate.obj'
     character(len=16) :: mesh_surface_model = 'insulator'
+    character(len=32) :: mesh_surface_side_policy = 'not_specified'
     real(dp) :: mesh_epsilon_r = 1.0d0
     real(dp) :: obj_scale = 1.0d0
     real(dp) :: obj_rotation(3) = [0.0d0, 0.0d0, 0.0d0]

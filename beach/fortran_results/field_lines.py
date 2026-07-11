@@ -8,7 +8,7 @@ import numpy as np
 
 from .constants import K_COULOMB
 from .mesh import _triangle_centers
-from .selection import _require_triangles, _resolve_result
+from .selection import _require_point_source_model, _require_triangles, _resolve_result
 from .types import FortranRunResult
 
 
@@ -57,6 +57,7 @@ def compute_electric_field_points(
     )
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     resolved_softening = _resolve_softening(resolved, softening)
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0.")
@@ -212,6 +213,7 @@ def trace_field_lines(
     )
 
     resolved = _resolve_result(result)
+    _require_point_source_model(resolved)
     resolved_softening = _resolve_softening(resolved, softening)
 
     seeds = np.asarray(seed_points, dtype=float)

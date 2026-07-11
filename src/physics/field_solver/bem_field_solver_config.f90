@@ -1,6 +1,8 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
   use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type, fmm_state_type
+  use bem_types, only: surface_model_insulator
+  use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
   implicit none
 contains
 
@@ -10,6 +12,8 @@ contains
   integer(i32) :: axis, n_periodic
   real(dp) :: span, fmm_softening
   real(dp), allocatable :: src_pos(:, :)
+  integer(i32) :: panel_status
+  character(len=256) :: panel_message
 
   self%fmm_core_plan = fmm_plan_type()
   self%fmm_core_state = fmm_state_type()
@@ -40,6 +44,29 @@ contains
 
   requested_mode = lower_ascii(trim(sim%field_solver))
   field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
+  self%source_model = 'point'
+  if (present(periodic_config)) continue
+  if (present(panel_config)) then
+    call validate_phase1_panel_config(sim, panel_config, panel_status, panel_message)
+    if (panel_status /= physics_config_ok) error stop 'field solver panel config: '//trim(panel_message)
+    self%source_model = lower_ascii(trim(panel_config%source_model))
+    if (trim(self%source_model) == 'triangle_p0') then
+      if (.not. present(field_config)) error stop 'triangle_p0 requires typed field configuration.'
+      if (trim(lower_ascii(field_config%backend)) /= trim(requested_mode) .or. &
+          trim(lower_ascii(field_config%normalization)) /= trim(self%field_normalization)) then
+        error stop 'triangle_p0 typed field config does not match sim field config.'
+      end if
+      if (any(mesh%panel_area <= 0.0_dp)) then
+        error stop 'triangle_p0 requires finite, non-degenerate triangles.'
+      end if
+      if (any(mesh%elem_surface_model /= surface_model_insulator)) then
+        error stop 'triangle_p0 Phase 1 supports insulator surfaces only.'
+      end if
+      if (any(abs(mesh%elem_vacuum_sign) /= 1_i32)) then
+        error stop 'triangle_p0 requires resolved element vacuum sides.'
+      end if
+    end if
+  end if
   self%field_bc_mode = field_bc_mode
   select case (trim(field_bc_mode))
   case ('free')

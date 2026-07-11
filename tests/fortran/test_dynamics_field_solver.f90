@@ -7,11 +7,15 @@ program test_dynamics_field_solver
   use bem_templates, only: make_plane, make_sphere
   use bem_field, only: electric_field_at, electric_potential_at
   use bem_field_solver, only: field_solver_type
+  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry
+  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -55,6 +59,10 @@ program test_dynamics_field_solver
 
   call test_begin('fmm_field_box_normalization_origin')
   call test_fmm_field_box_normalization_origin()
+  call test_end()
+
+  call test_begin('direct_triangle_panel_contract')
+  call test_direct_triangle_panel_contract()
   call test_end()
 
   call test_summary()
@@ -477,5 +485,57 @@ contains
     call assert_close_dp(solver%fmm_core_options%target_box_min(2), 0.0d0, 1.0d-15, 'box-normalized ymin mismatch')
     call assert_close_dp(solver%fmm_core_options%target_box_min(3), 0.0d0, 1.0d-15, 'box-normalized zmin mismatch')
   end subroutine test_fmm_field_box_normalization_origin
+
+  subroutine test_direct_triangle_panel_contract()
+    type(mesh_type) :: mesh_panel
+    type(field_solver_type) :: solver = field_solver_type()
+    type(sim_config) :: sim
+    type(field_physics_config) :: field_config
+    type(periodic2_physics_config) :: periodic_config
+    type(panel_kernel_config) :: panel_config
+    type(panel_geometry_type) :: geometry
+    real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1), target(3)
+    real(dp) :: field(3), expected_field(3), potential, expected_potential, mesh_potential(1)
+    integer(i32) :: status
+    character(len=128) :: message
+
+    v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+    v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
+    v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
+    call init_mesh(mesh_panel, v0, v1, v2)
+    mesh_panel%q_elem(1) = 2.0e-12_dp
+    call resolve_panel_surface_sides(mesh_panel, 'normal_plus', status, message)
+    call assert_equal_i32(status, panel_surface_side_ok, 'panel side setup failed')
+
+    sim = sim_config()
+    sim%field_solver = 'direct'
+    sim%field_bc_mode = 'free'
+    sim%softening = 0.0_dp
+    field_config = field_physics_config(backend='direct', normalization='si')
+    periodic_config = periodic2_physics_config()
+    panel_config = panel_kernel_config( &
+                   source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', &
+                   surface_side_policy='per_element' &
+                   )
+    call solver%init(mesh_panel, sim, field_config, periodic_config, panel_config)
+
+    target = [0.2_dp, 0.3_dp, 0.4_dp]
+    call solver%eval_e(mesh_panel, target, field)
+    call solver%eval_potential(mesh_panel, sim, target, potential)
+    call init_panel_geometry(v0(:, 1), v1(:, 1), v2(:, 1), geometry, status)
+    call panel_potential_field( &
+      geometry, mesh_panel%q_elem(1), target, panel_side_principal_value, expected_potential, expected_field &
+      )
+    call assert_allclose_1d(field, expected_field, 1.0e-12_dp*max(1.0_dp, maxval(abs(expected_field))), &
+                            'panel solver field mismatch')
+    call assert_close_dp(potential, expected_potential, 1.0e-12_dp*max(1.0_dp, abs(expected_potential)), &
+                         'panel solver potential mismatch')
+    call solver%compute_mesh_potential(mesh_panel, sim, mesh_potential)
+    call panel_potential_field( &
+      geometry, mesh_panel%q_elem(1), geometry%centroid, panel_side_principal_value, expected_potential, expected_field &
+      )
+    call assert_close_dp(mesh_potential(1), expected_potential, 1.0e-12_dp*max(1.0_dp, abs(expected_potential)), &
+                         'panel mesh self potential mismatch')
+  end subroutine test_direct_triangle_panel_contract
 
 end program test_dynamics_field_solver

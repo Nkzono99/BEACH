@@ -18,6 +18,11 @@ module bem_app_config_authoring
     real(dp) :: box_size(3) = 0.0d0
   end type sim_authoring_spec
 
+  type :: field_authoring_spec
+    logical :: has_element_kernel = .false.
+    character(len=32) :: element_kernel = 'point'
+  end type field_authoring_spec
+
   type :: particle_authoring_spec
     logical :: has_inject_region_mode = .false.
     character(len=32) :: inject_region_mode = 'absolute'
@@ -76,6 +81,7 @@ module bem_app_config_authoring
 
   type :: app_config_authoring
     type(sim_authoring_spec) :: sim
+    type(field_authoring_spec) :: field
     integer(i32) :: n_groups = 0_i32
     type(mesh_group_authoring_spec), allocatable :: groups(:)
     type(particle_authoring_spec), allocatable :: particle_species(:)
@@ -84,6 +90,7 @@ module bem_app_config_authoring
 
   public :: app_config_authoring
   public :: sim_authoring_spec
+  public :: field_authoring_spec
   public :: particle_authoring_spec
   public :: mesh_group_authoring_spec
   public :: template_authoring_spec

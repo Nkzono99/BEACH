@@ -91,6 +91,8 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
             summary, "charge_ledger_residual_C"
         ),
         charge_ledger=charge_ledger,
+        field_source_model=summary.get("field_source_model", "point").strip().lower(),
+        field_kernel_id=summary.get("field_kernel_id"),
     )
 
 

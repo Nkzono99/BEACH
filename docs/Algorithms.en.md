@@ -129,6 +129,12 @@ The mesh is built from templates or an OBJ file according to `mesh.mode`. For te
 3. Dispatch by `kind` to `make_plane`, `make_box`, `make_cylinder`, `make_sphere`, and related builders.
 4. Assign a `mesh_id` per template.
 5. Expand `surface_model` and `epsilon_r` to element arrays.
+
+### Direct P0 triangle panels
+
+With `field.element_kernel="triangle_p0"`, `q_elem` is total element charge and `sigma=q_elem/area` is constant surface density. Potential and field use the analytic edge-log and signed-solid-angle expressions. `bem_panel_self_terms` owns on-surface evaluation: potential is continuous, the principal-value normal field is the average of the two traces, and `elem_vacuum_sign` selects the vacuum trace. Geometry, edge data, exact first/second moments, and a seven-point quadrature plan are cached when the mesh is built; batches update charge only.
+
+This Phase 1 path is a free-space direct correctness oracle. Treecode, FMM, and periodic2 combinations fail during initialization instead of falling back to point charges.
 6. Concatenate all template triangle arrays and pass them to `init_mesh`.
 
 `init_mesh` precomputes:

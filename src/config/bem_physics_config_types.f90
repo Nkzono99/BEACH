@@ -1,6 +1,6 @@
 !> 場・periodic2・panel・外部プラズマ・coupling の型付き設定と互換正規化を定義する。
 module bem_physics_config_types
-  use bem_kinds, only: i32
+  use bem_kinds, only: dp, i32
   use bem_types, only: sim_config
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -41,6 +41,7 @@ module bem_physics_config_types
 
   public :: normalize_legacy_physics_config
   public :: validate_phase0_physics_config
+  public :: validate_phase1_panel_config
 
 contains
 
@@ -157,6 +158,38 @@ contains
       call reject(physics_config_invalid_combination, 'Unknown periodic2 nonzero-mode backend.', status, message)
     end select
   end subroutine validate_phase0_physics_config
+
+  !> Phase 1 triangle_p0 direct kernel の solver/boundary/softening 契約を検証する。
+  subroutine validate_phase1_panel_config(sim, panel, status, message)
+    type(sim_config), intent(in) :: sim
+    type(panel_kernel_config), intent(in) :: panel
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    character(len=32) :: source_model, kernel_id, solver, boundary
+
+    status = physics_config_ok
+    message = ''
+    source_model = lower_ascii(trim(panel%source_model))
+    kernel_id = lower_ascii(trim(panel%kernel_id))
+    solver = lower_ascii(trim(sim%field_solver))
+    boundary = lower_ascii(trim(sim%field_bc_mode))
+    if (trim(source_model) == 'point') return
+    if (trim(source_model) /= 'triangle_p0') then
+      call reject(physics_config_invalid_combination, 'Unknown panel source model.', status, message)
+      return
+    end if
+    if (trim(kernel_id) /= 'triangle_p0_exact_direct') then
+      call reject(physics_config_invalid_combination, 'triangle_p0 requires its exact direct kernel.', status, message)
+      return
+    end if
+    if (trim(solver) /= 'direct' .or. trim(boundary) /= 'free') then
+      call reject(physics_config_unavailable, 'triangle_p0 Phase 1 requires direct free-space field solving.', status, message)
+      return
+    end if
+    if (sim%softening /= 0.0_dp) then
+      call reject(physics_config_invalid_combination, 'triangle_p0 Phase 1 requires softening=0.', status, message)
+    end if
+  end subroutine validate_phase1_panel_config
 
   pure subroutine reject(code, text, status, message)
     integer(i32), intent(in) :: code

@@ -3,14 +3,16 @@ module bem_field_solver
 !$ use omp_lib
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_types, only: mesh_type, sim_config, bc_periodic
+  use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   use bem_string_utils, only: lower_ascii
+  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   implicit none
   private
 
   type :: field_solver_type
     character(len=16) :: mode = 'direct'
+    character(len=32) :: source_model = 'point'
     character(len=16) :: field_bc_mode = 'free'
     real(dp) :: softening = 1.0d-6
     character(len=16) :: field_normalization = 'si'
@@ -90,10 +92,13 @@ module bem_field_solver
 
   interface
     !> 設定とメッシュから電場ソルバを初期化する。
-    module subroutine init_field_solver(self, mesh, sim)
+    module subroutine init_field_solver(self, mesh, sim, field_config, periodic_config, panel_config)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
       type(sim_config), intent(in) :: sim
+      type(field_physics_config), intent(in), optional :: field_config
+      type(periodic2_physics_config), intent(in), optional :: periodic_config
+      type(panel_kernel_config), intent(in), optional :: panel_config
     end subroutine init_field_solver
 
     !> 要素数に応じて treecode の代表パラメータを推定する。

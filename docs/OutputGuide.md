@@ -40,6 +40,8 @@ beachx inspect outputs/latest
 
 `summary.txt` で最初に確認する量は次のとおりです。
 
+`field_source_model` と `field_kernel_id` は出力を生成した要素核を示します。`triangle_p0` 出力に対し、現行 Python potential/field/force/field-line estimator と point-only C kernel は誤った点電荷再構成を避けるため停止します。panel 対応診断は simulator が書いた値を利用してください。
+
 | 項目 | 見方 |
 | --- | --- |
 | `batches` | 通常実行では `sim.batch_count` と一致していれば完了 |

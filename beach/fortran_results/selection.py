@@ -21,6 +21,14 @@ def _resolve_result(result: FortranRunResult | object) -> FortranRunResult:
     raise TypeError("result must be FortranRunResult or Beach.")
 
 
+def _require_point_source_model(result: FortranRunResult) -> None:
+    if result.field_source_model != "point":
+        raise ValueError(
+            "This Python estimator supports field_source_model=point only; "
+            f"the run uses {result.field_source_model!r}. Use simulator-written diagnostics."
+        )
+
+
 def _coerce_group_selection(
     result: FortranRunResult,
     group: int | MeshSelection | Iterable[int | MeshSelection],

@@ -275,3 +275,9 @@ $$
 この値は `stats%last_rel_change` と履歴出力に使われます。
 
 ---
+
+### Direct P0 triangle panel
+
+`field.element_kernel="triangle_p0"` では `q_elem` を要素総電荷、`sigma=q_elem/area` を一定面密度として、辺対数項と signed solid angle による解析式で電位・電場を評価します。面上評価は `bem_panel_self_terms` が所有し、電位は連続、principal-value 法線場は両側極限の平均、真空側極限は `elem_vacuum_sign` で選びます。幾何、辺量、厳密一次・二次 moment、7点求積 plan は mesh 初期化時に固定し、batch 更新では電荷だけを変更します。
+
+この経路は Phase 1 では free-space direct の correctness oracle です。treecode/FMM/periodic2 には黙って点電荷近似せず、初期化時に停止します。

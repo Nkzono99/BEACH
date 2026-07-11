@@ -301,6 +301,8 @@ class FortranRunResult:
     species_fingerprint: str | None = None
     charge_ledger_residual_c: float | None = None
     charge_ledger: tuple[ChargeLedgerEntry, ...] | None = None
+    field_source_model: str = "point"
+    field_kernel_id: str | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

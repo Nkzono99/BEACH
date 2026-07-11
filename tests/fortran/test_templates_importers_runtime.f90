@@ -27,7 +27,7 @@ program test_templates_importers_runtime
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('template_shapes')
   call make_plane(mesh, nx=2_i32, ny=3_i32)
@@ -123,6 +123,20 @@ program test_templates_importers_runtime
   cfg%templates(1)%center = [0.0d0, 0.0d0, 0.1d0]
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 2_i32, 'mesh_mode=auto should fallback to template mesh')
+  call test_end()
+
+  call test_begin('triangle_panel_surface_side_runtime')
+  call default_app_config(cfg)
+  cfg%mesh_mode = 'template'
+  cfg%panel%source_model = 'triangle_p0'
+  cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+  cfg%panel%surface_side_policy = 'per_element'
+  cfg%templates(1)%enabled = .true.
+  cfg%templates(1)%kind = 'plane'
+  cfg%templates(1)%surface_side_policy = 'normal_minus'
+  call build_mesh_from_config(cfg, mesh)
+  call assert_true(all(mesh%elem_vacuum_sign == -1_i32), 'template vacuum side mismatch')
+  call assert_true(all(abs(mesh%vacuum_normals + mesh%normals) < 1.0e-15_dp), 'template vacuum normal mismatch')
   call test_end()
 
   call test_begin('mesh_mode_template')

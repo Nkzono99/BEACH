@@ -34,13 +34,19 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
   fp_b = mesh_fingerprint(mesh)
   call assert_true(fp_a == fp_b, 'mesh fingerprint must be deterministic')
   call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'fingerprint length mismatch')
+  call test_end()
+
+  call test_begin('mesh_vacuum_side_change_detected')
+  mesh_changed = mesh
+  mesh_changed%elem_vacuum_sign(1) = 1_i32
+  call assert_true(mesh_fingerprint(mesh_changed) /= mesh_fingerprint(mesh), 'vacuum side must alter mesh fingerprint')
   call test_end()
 
   call test_begin('mesh_vertex_change_detected')

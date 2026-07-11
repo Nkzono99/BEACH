@@ -3,6 +3,8 @@ module bem_mesh
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
   use bem_string_utils, only: lower_ascii
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
+  use bem_panel_quadrature, only: panel_quadrature_plan_type, build_panel_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 contains
@@ -37,7 +39,11 @@ contains
     allocate (mesh%v0(3, n), mesh%v1(3, n), mesh%v2(3, n))
     allocate (mesh%centers(3, n), mesh%center_x(n), mesh%center_y(n), mesh%center_z(n), mesh%normals(3, n))
     allocate (mesh%bb_min(3, n), mesh%bb_max(3, n))
-    allocate (mesh%h_elem(n), mesh%q_elem(n), mesh%elem_mesh_id(n), mesh%elem_surface_model(n), mesh%elem_epsilon_r(n))
+    allocate (mesh%h_elem(n), mesh%panel_area(n), mesh%panel_moment1(3, n), mesh%panel_moment2(3, 3, n))
+    allocate (mesh%panel_edge_length(3, n), mesh%panel_edge_outward(3, 3, n))
+    allocate (mesh%panel_quad_position(3, 7, n), mesh%panel_quad_weight(7, n))
+    allocate (mesh%q_elem(n), mesh%elem_mesh_id(n), mesh%elem_surface_model(n), mesh%elem_epsilon_r(n))
+    allocate (mesh%elem_vacuum_sign(n), mesh%vacuum_normals(3, n))
 
     mesh%v0 = v0
     mesh%v1 = v1
@@ -71,6 +77,8 @@ contains
     else
       mesh%elem_epsilon_r = 1.0d0
     end if
+    mesh%elem_vacuum_sign = 0_i32
+    mesh%vacuum_normals = 0.0_dp
 
     mesh%periodic2_collision_ready = .false.
     call update_mesh_geometry(mesh)
@@ -118,6 +126,9 @@ contains
     integer(i32) :: i
     real(dp) :: e1(3), e2(3), nvec(3), nn
     real(dp) :: cx, cy, cz
+    type(panel_geometry_type) :: panel
+    type(panel_quadrature_plan_type) :: quadrature
+    integer(i32) :: panel_status
 
     do i = 1, mesh%nelem
       cx = (mesh%v0(1, i) + mesh%v1(1, i) + mesh%v2(1, i))/3.0d0
@@ -142,6 +153,30 @@ contains
         mesh%normals(:, i) = 0.0d0
       end if
       mesh%h_elem(i) = sqrt(0.5d0*nn)
+      call init_panel_geometry(mesh%v0(:, i), mesh%v1(:, i), mesh%v2(:, i), panel, panel_status)
+      if (panel_status == panel_geometry_ok) then
+        mesh%panel_area(i) = panel%area
+        mesh%panel_moment1(:, i) = panel%moment1
+        mesh%panel_moment2(:, :, i) = panel%moment2
+        mesh%panel_edge_length(:, i) = panel%edge_length
+        mesh%panel_edge_outward(:, :, i) = panel%edge_outward
+        call build_panel_quadrature(panel, quadrature)
+        mesh%panel_quad_position(:, :, i) = quadrature%position
+        mesh%panel_quad_weight(:, i) = quadrature%weight
+      else
+        mesh%panel_area(i) = 0.0_dp
+        mesh%panel_moment1(:, i) = 0.0_dp
+        mesh%panel_moment2(:, :, i) = 0.0_dp
+        mesh%panel_edge_length(:, i) = 0.0_dp
+        mesh%panel_edge_outward(:, :, i) = 0.0_dp
+        mesh%panel_quad_position(:, :, i) = 0.0_dp
+        mesh%panel_quad_weight(:, i) = 0.0_dp
+      end if
+      if (mesh%elem_vacuum_sign(i) == 1_i32 .or. mesh%elem_vacuum_sign(i) == -1_i32) then
+        mesh%vacuum_normals(:, i) = real(mesh%elem_vacuum_sign(i), dp)*mesh%normals(:, i)
+      else
+        mesh%vacuum_normals(:, i) = 0.0_dp
+      end if
     end do
 
     call build_collision_grid(mesh)

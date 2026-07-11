@@ -5,7 +5,7 @@ module bem_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
-  use bem_physics_config_types, only: normalize_legacy_physics_config
+  use bem_physics_config_types, only: normalize_legacy_physics_config, validate_phase1_panel_config, physics_config_ok
   use bem_app_config_authoring, only: &
     app_config_authoring, sim_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
     init_app_config_authoring, ensure_authoring_particle_capacity, ensure_authoring_template_capacity, &
@@ -468,6 +468,7 @@ contains
     call normalize_legacy_physics_config( &
       cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
       )
+    call apply_field_authoring(cfg, authoring)
   end subroutine load_toml_config
 
   !> `toml-f` のルートテーブルから既知セクションを読み込む。
@@ -493,6 +494,9 @@ contains
       case ('particles')
         if (.not. associated(section)) error stop 'TOML section [particles] must be a table.'
         call apply_particles_toml_table(cfg, section, authoring)
+      case ('field')
+        if (.not. associated(section)) error stop 'TOML section [field] must be a table.'
+        call apply_field_toml_table(section, authoring)
       case ('mesh')
         if (.not. associated(section)) error stop 'TOML section [mesh] must be a table.'
         call apply_mesh_toml_table(cfg, section, authoring)
@@ -504,6 +508,50 @@ contains
       end select
     end do
   end subroutine apply_toml_document
+
+  subroutine apply_field_toml_table(table, authoring)
+    type(toml_table), intent(inout) :: table
+    type(app_config_authoring), intent(inout) :: authoring
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('element_kernel')
+        call get_toml_string(table, keys(ikey), authoring%field%element_kernel, 'field.element_kernel')
+        authoring%field%element_kernel = lower_ascii(trim(authoring%field%element_kernel))
+        authoring%field%has_element_kernel = .true.
+      case default
+        error stop 'Unknown key in [field]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_field_toml_table
+
+  subroutine apply_field_authoring(cfg, authoring)
+    type(app_config), intent(inout) :: cfg
+    type(app_config_authoring), intent(in) :: authoring
+    integer(i32) :: status
+    character(len=256) :: message
+
+    if (.not. authoring%field%has_element_kernel) return
+    select case (trim(authoring%field%element_kernel))
+    case ('point')
+      cfg%panel%source_model = 'point'
+      cfg%panel%kernel_id = 'softened_point'
+      cfg%panel%surface_side_policy = 'not_applicable'
+    case ('triangle_p0')
+      cfg%panel%source_model = 'triangle_p0'
+      cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+      cfg%panel%surface_side_policy = 'per_element'
+    case default
+      error stop 'field.element_kernel must be "point" or "triangle_p0".'
+    end select
+    call validate_phase1_panel_config(cfg%sim, cfg%panel, status, message)
+    if (status /= physics_config_ok) error stop trim(message)
+  end subroutine apply_field_authoring
 
   !> `toml-f` の status を BEACH の停止メッセージへ変換する。
   subroutine require_toml_success(stat, context)
@@ -1039,6 +1087,9 @@ contains
       case ('surface_model')
         call get_toml_string(table, keys(ikey), cfg%mesh_surface_model, 'mesh.surface_model')
         cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
+      case ('surface_side')
+        call get_toml_string(table, keys(ikey), cfg%mesh_surface_side_policy, 'mesh.surface_side')
+        cfg%mesh_surface_side_policy = lower_ascii(trim(cfg%mesh_surface_side_policy))
       case ('epsilon_r')
         call get_toml_real(table, keys(ikey), cfg%mesh_epsilon_r, 'mesh.epsilon_r')
       case ('obj_scale')
@@ -1178,6 +1229,9 @@ contains
       case ('surface_model')
         call get_toml_string(table, keys(ikey), spec%surface_model, 'mesh.templates.surface_model')
         spec%surface_model = lower_ascii(trim(spec%surface_model))
+      case ('surface_side')
+        call get_toml_string(table, keys(ikey), spec%surface_side_policy, 'mesh.templates.surface_side')
+        spec%surface_side_policy = lower_ascii(trim(spec%surface_side_policy))
       case ('epsilon_r')
         call get_toml_real(table, keys(ikey), spec%epsilon_r, 'mesh.templates.epsilon_r')
       case ('center')

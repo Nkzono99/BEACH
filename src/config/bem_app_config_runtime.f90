@@ -8,6 +8,7 @@ module bem_app_config_runtime
   use bem_field, only: electric_potential_at
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok
   use bem_importers, only: load_obj_mesh
   use bem_injection, only: &
@@ -65,7 +66,41 @@ contains
         call apply_obj_transform(mesh, cfg%obj_scale, cfg%obj_rotation, cfg%obj_offset)
       end if
     end if
+    call apply_panel_surface_config(cfg, mesh, loaded_obj)
   end subroutine build_mesh_from_config
+
+  subroutine apply_panel_surface_config(cfg, mesh, loaded_obj)
+    type(app_config), intent(in) :: cfg
+    type(mesh_type), intent(inout) :: mesh
+    logical, intent(in) :: loaded_obj
+    integer(i32) :: i, mesh_id, status
+    character(len=256) :: message
+
+    if (trim(lower_ascii(cfg%panel%source_model)) /= 'triangle_p0') return
+    if (any(mesh%panel_area <= 0.0_dp)) then
+      error stop 'triangle_p0 requires finite, non-degenerate triangles.'
+    end if
+    if (any(mesh%elem_surface_model /= surface_model_insulator)) then
+      error stop 'triangle_p0 Phase 1 supports insulator surfaces only.'
+    end if
+    if (loaded_obj) then
+      call resolve_panel_surface_sides(mesh, cfg%mesh_surface_side_policy, status, message)
+      if (status /= panel_surface_side_ok) error stop 'mesh.surface_side: '//trim(message)
+    else
+      mesh_id = 0_i32
+      do i = 1, cfg%n_templates
+        if (.not. cfg%templates(i)%enabled) cycle
+        mesh_id = mesh_id + 1_i32
+        call resolve_panel_surface_sides( &
+          mesh, cfg%templates(i)%surface_side_policy, status, message, mesh_id=mesh_id &
+          )
+        if (status /= panel_surface_side_ok) error stop 'mesh.templates.surface_side: '//trim(message)
+      end do
+    end if
+    if (any(abs(mesh%elem_vacuum_sign) /= 1_i32)) then
+      error stop 'triangle_p0 requires a resolved vacuum side for every element.'
+    end if
+  end subroutine apply_panel_surface_config
 
   !> OBJ メッシュの全頂点にスケール→回転→平行移動を適用し再初期化する。
   !! 変換順序: v_new = R(rotation) * (v_old * scale) + offset

@@ -72,7 +72,7 @@ contains
   batch_count_this_run = final_batch_idx - stats%batches
   call perf_region_begin(perf_region_simulation_total, sim_t0)
   call perf_region_begin(perf_region_field_solver_init, t0)
-  call field_solver%init(mesh, app%sim)
+  call field_solver%init(mesh, app%sim, app%field, app%periodic2, app%panel)
   call perf_region_end(perf_region_field_solver_init, t0)
 
   do local_batch_idx = 1, batch_count_this_run

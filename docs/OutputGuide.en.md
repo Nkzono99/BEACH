@@ -40,6 +40,8 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 
 Start with these quantities in `summary.txt`.
 
+`field_source_model` and `field_kernel_id` identify the element kernel that produced the output. For `triangle_p0` runs, the current Python potential/field/force/field-line estimators and point-only C kernel fail closed instead of reconstructing an inconsistent point-charge field. Use simulator-written diagnostics until panel-aware post-processing is available.
+
 | Item | Meaning |
 | --- | --- |
 | `batches` | In a normal run, completion means this reaches `sim.batch_count` |

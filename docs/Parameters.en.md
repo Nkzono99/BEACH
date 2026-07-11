@@ -642,6 +642,7 @@ Common keys:
 | `enabled` | bool | `true` | Enable the template |
 | `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
 | `surface_model` | string | `"insulator"` | `insulator` / `conductor` / `dielectric` |
+| `surface_side` | string | unset | Vacuum side for `triangle_p0`: `normal_plus` / `normal_minus` / `outward_closed` |
 | `epsilon_r` | float | `1.0` | Relative permittivity. `>= 1` |
 | `center` | float[3] | `[0,0,0]` | Shape center [m] |
 
@@ -891,3 +892,6 @@ Before running, this is recommended.
 ```bash
 beachx lint beach.toml
 ```
+### `[field]`: element kernel
+
+`element_kernel="point"` is the compatibility default. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle. Phase 1 requires `sim.field_solver="direct"`, `sim.field_bc_mode="free"`, `sim.softening=0`, and insulator-only surfaces. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.

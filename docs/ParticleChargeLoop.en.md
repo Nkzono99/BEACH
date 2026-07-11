@@ -324,6 +324,8 @@ For `reflect` and `periodic`, the result is clamped slightly inside the box, aro
 
 With the default `surface_model="insulator"`, absorbed particle charge is accumulated directly on the hit element.
 
+The `triangle_p0` kernel keeps `q_elem` as total element charge [C] and converts it to `sigma=q_elem/area` only during field evaluation. Collision/absorption geometry and the one-sided field trace share the ordered triangle and `elem_vacuum_sign`; triangle winding is not rewritten.
+
 When particle `p` hits element `i`:
 
 $$
