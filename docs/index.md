@@ -1,101 +1,81 @@
 title: BEACH ドキュメント
+ordered_subpage: Installation.md
+ordered_subpage: Tutorial.md
 ordered_subpage: OutputGuide.md
-ordered_subpage: OutputGuide.en.md
+ordered_subpage: Troubleshooting.md
 ordered_subpage: ConfigurationRecipes.md
-ordered_subpage: ConfigurationRecipes.en.md
-ordered_subpage: Parameters.md
-ordered_subpage: Parameters.en.md
 ordered_subpage: Configuration.md
-ordered_subpage: Configuration.en.md
 ordered_subpage: PostprocessTutorial.md
-ordered_subpage: PostprocessTutorial.en.md
+ordered_subpage: ValidationGuide.md
+ordered_subpage: Parameters.md
 ordered_subpage: PythonPostprocessAPI.md
-ordered_subpage: PythonPostprocessAPI.en.md
 ordered_subpage: Algorithms.md
-ordered_subpage: Algorithms.en.md
 ordered_subpage: FieldSolvers.md
-ordered_subpage: FieldSolvers.en.md
 ordered_subpage: ParticleChargeLoop.md
-ordered_subpage: ParticleChargeLoop.en.md
 ordered_subpage: FMMCore.md
-ordered_subpage: FMMCore.en.md
 ordered_subpage: BatchDurationStability.md
-ordered_subpage: BatchDurationStability.en.md
+ordered_subpage: PhysicsReleaseVerification.md
 ordered_subpage: Workflow.md
-ordered_subpage: Workflow.en.md
 ordered_subpage: FortranDependencyMap.md
-ordered_subpage: FortranDependencyMap.en.md
 ordered_subpage: agent-user-guide.md
-ordered_subpage: agent-user-guide.en.md
 
 Lang: [日本語](index.md) | [English](index.en.md)
 
-# BEACH ドキュメント
+# BEACH
 
-BEACH (BEM + Accumulated CHarge) は、三角形境界要素上の表面電荷が作る Coulomb 場と、テスト粒子追跡を batch 単位で結合する表面帯電シミュレータです。
-現行版の主対象は、絶縁体表面への電荷蓄積です。Fortran 実行系 `beach` が計算を行い、Python CLI / API の `beachx` と `beach` パッケージが設定検査、後処理、可視化を担当します。
+BEACHは、絶縁体表面に蓄積する電荷と、その電荷が作る電場中のテスト粒子軌道をbatch単位で
+計算するシミュレータです。
 
-## 3分クイックスタート
+## 初めて使う方
+
+1. [動作環境を確認してインストールする](Installation.html)
+2. [公式入門ケースを実行する](Tutorial.html)
+3. [出力を確認する](OutputGuide.html)
+4. [物理・数値的な妥当性を確認する](ValidationGuide.html)
+
+環境構築済みなら、`beachx config init`から始められます。
 
 ```bash
-python -m pip install -U pip setuptools wheel
-python -m pip install beach-bem
-
-mkdir run_periodic2
-cd run_periodic2
-
-beachx config init
+beachx config init beach.toml
 beachx lint beach.toml
-
 beach beach.toml
 beachx inspect outputs/latest
 ```
 
-`beach` は `beach.toml` を直接読みます。`box_origin` / `box_size` や `mesh.groups` などの高水準記法も Fortran 側で解決されます。
+## コマンドとデータの流れ
 
-## 成功確認
+```text
+beach.toml
+    ├─ beachx lint ── 設定検査
+    ▼
+beach ────────────── Fortranシミュレーション
+    ▼
+outputs/<case>/
+    ├─ beachx inspect / animate ── 確認・可視化
+    └─ Python package beach ───── 独自解析
+```
 
-通常完了では、`outputs/latest/summary.txt` が生成され、`batches` が設定した `sim.batch_count` に到達します。
-次に `beachx inspect outputs/latest` で吸収数、脱出数、要素電荷、mesh 情報を確認してください。
-出力ファイルの意味は [出力の読み方](OutputGuide.html) にまとめています。
+## 対応範囲
 
-## 次に読むページ
+| 機能 | 状況 | 注記 |
+| --- | --- | --- |
+| 絶縁体表面への電荷蓄積 | 対応 | 現行版の主対象 |
+| 浮遊導体 | 条件付き | 利用可能な場境界とsurface modelの組合せを確認 |
+| 誘電分極 | 未対応 | `epsilon_r`は現行ではmetadataで、独立した分極境界条件ではない |
+| 2軸周期境界 | 対応 | finite image、cached infinite operator、zero-modeの意味を区別する |
+| outer plasma | 条件付き | model applicabilityとerror contractを満たす場合のみ |
+| 自動収束停止 | 未対応 | `tol_rel`はmonitoring metric |
+
+非対応の組合せは別modelへsilent fallbackせず停止します。
+
+## 目的別の入口
 
 | 目的 | ページ |
 | --- | --- |
-| まず動かした後に出力を確認したい | [出力の読み方](OutputGuide.html) |
-| 設定例から自分のケースを作りたい | [設定レシピ](ConfigurationRecipes.html) |
-| `beach.toml` の全キーを調べたい | [入力パラメータリファレンス](Parameters.html) |
-| 高水準記法の書き方を知りたい | [beachx config / 高水準記法ガイド](Configuration.html) |
-| 図を作る最短手順を知りたい | [後処理チュートリアル](PostprocessTutorial.html) |
-| Python API を網羅的に確認したい | [Python 後処理 API リファレンス](PythonPostprocessAPI.html) |
-| 数値モデルを確認したい | [BEACH アルゴリズム概要](Algorithms.html) |
+| 自分のcaseを作る | [設定レシピ](ConfigurationRecipes.html) |
+| 後処理と図を作る | [後処理チュートリアル](PostprocessTutorial.html) |
+| 全入力keyを調べる | [入力パラメータ](Parameters.html) |
+| 数値モデルを確認する | [アルゴリズム概要](Algorithms.html) |
+| 問題を解決する | [トラブルシューティング](Troubleshooting.html) |
 
-## ユースケース
-
-| やりたいこと | 入口 |
-| --- | --- |
-| 小さな template mesh で動作確認する | [設定レシピ](ConfigurationRecipes.html) の「平面メッシュで最小実行」 |
-| 粒子注入方式を選ぶ | [設定レシピ](ConfigurationRecipes.html) と [入力パラメータリファレンス](Parameters.html) の `particles` |
-| 2軸周期境界を使う | [設定レシピ](ConfigurationRecipes.html) の `periodic2` と [場ソルバーと境界条件](FieldSolvers.html) |
-| `batch_duration` を調整する | [`batch_duration` の安定性](BatchDurationStability.html) |
-| 実装 API を追う | [Fortran API](https://nkzono99.github.io/BEACH/fortran/) と [Fortran 依存関係マップ](FortranDependencyMap.html) |
-
-## ドキュメント一覧
-
-- [出力の読み方](OutputGuide.html)
-- [設定レシピ](ConfigurationRecipes.html)
-- [Fortran パラメータファイル仕様](Parameters.html)
-- [beachx config / 高水準記法ガイド](Configuration.html)
-- [後処理チュートリアル](PostprocessTutorial.html)
-- [Python 後処理 API リファレンス](PythonPostprocessAPI.html)
-- [BEACH アルゴリズム概要](Algorithms.html)
-- [場ソルバーと境界条件](FieldSolvers.html)
-- [粒子追跡と表面電荷蓄積](ParticleChargeLoop.html)
-- [Coulomb FMM コア詳細](FMMCore.html)
-- [`batch_duration` の安定性](BatchDurationStability.html)
-- [実行・開発ワークフロー](Workflow.html)
-- [Fortran 依存関係マップ](FortranDependencyMap.html)
-- [BEACH Agent User Guide](agent-user-guide.html)
-
-API 単位の詳細は、FORD が生成する [Fortran API](https://nkzono99.github.io/BEACH/fortran/) から辿れます。
+Fortran APIは[FORD API](https://nkzono99.github.io/BEACH/fortran/)から参照できます。

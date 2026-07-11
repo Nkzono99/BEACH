@@ -44,18 +44,29 @@ export default defineConfig({
           translations: { en: 'Start' },
           items: [
             { slug: 'index' },
+            { slug: 'installation' },
+            { slug: 'tutorial' },
             { slug: 'output-guide' },
+            { slug: 'troubleshooting' },
           ],
         },
         {
-          label: 'ユーザーガイド',
-          translations: { en: 'User Guide' },
+          label: '使い方',
+          translations: { en: 'Usage' },
+          items: [
+            { slug: 'configuration-recipes' },
+            { slug: 'configuration' },
+            { slug: 'postprocess-tutorial' },
+            { slug: 'validation-guide' },
+          ],
+        },
+        {
+          label: 'リファレンス',
+          translations: { en: 'Reference' },
           items: [
             { slug: 'parameters' },
-            { slug: 'configuration' },
             { slug: 'python-postprocess-api' },
-            { slug: 'postprocess-tutorial' },
-            { slug: 'configuration-recipes' },
+            { slug: 'physics-release-verification' },
           ],
         },
         {
@@ -75,13 +86,19 @@ export default defineConfig({
           items: [
             { slug: 'workflow' },
             { slug: 'fortran-dependency-map' },
-            { slug: 'agent-user-guide' },
             { label: 'Fortran API', link: 'https://nkzono99.github.io/BEACH/fortran/' },
             {
               label: 'GitHub Repository',
               link: 'https://github.com/Nkzono99/BEACH',
               attrs: { target: '_blank', rel: 'noreferrer' },
             },
+          ],
+        },
+        {
+          label: 'AIエージェント向け',
+          translations: { en: 'AI Agents' },
+          items: [
+            { slug: 'agent-user-guide' },
           ],
         },
       ],

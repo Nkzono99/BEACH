@@ -7,6 +7,9 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 このページは、`beach.toml` をどう変えれば典型ケースを作れるかをまとめます。
 全キーの定義は [入力パラメータリファレンス](Parameters.html)、高水準記法の詳細は [beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
 
+以下は[公式入門ケース](Tutorial.html)を基準に、記載したtableまたはsectionを置き換える差分例です。
+断片だけでは実行できない場合があります。
+
 ## 公式の実行手順
 
 ```bash
@@ -29,7 +32,7 @@ beachx inspect outputs/latest
 | 履歴出力 | `[output]` | 時間発展を可視化する |
 | 再開実行 | `[output]` | checkpoint から続ける |
 
-## 平面メッシュで最小実行
+## 平面メッシュの解像度を変える
 
 ```toml
 [mesh]

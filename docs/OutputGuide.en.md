@@ -9,6 +9,10 @@ For plotting commands, see [Post-processing Tutorial](PostprocessTutorial.en.htm
 
 ## First Checks
 
+These checks only confirm that the run reached the configured batch and wrote
+the required files. Evaluate the physical model and discretization separately
+using [Validating Simulation Results](ValidationGuide.en.html).
+
 1. `outputs/latest/summary.txt` exists.
 2. `batches` in `summary.txt` reaches the configured `sim.batch_count`.
 3. `charges.csv` exists and contains final element charges.

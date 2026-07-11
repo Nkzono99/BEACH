@@ -9,6 +9,9 @@ Lang: [日本語](OutputGuide.md) | [English](OutputGuide.en.md)
 
 ## まず確認すること
 
+このチェックは、計算が定義された batch まで実行され、必要な出力を書き出したことだけを確認します。
+物理モデルや離散化の妥当性は、別途 [計算結果の妥当性確認](ValidationGuide.html) に従って評価してください。
+
 1. `outputs/latest/summary.txt` がある。
 2. `summary.txt` の `batches` が `sim.batch_count` に到達している。
 3. `charges.csv` があり、要素ごとの最終電荷が出ている。

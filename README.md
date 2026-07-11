@@ -108,7 +108,8 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 - 日本語: [BEACH ドキュメント](https://nkzono99.github.io/BEACH/)
 - English: [BEACH Documentation](https://nkzono99.github.io/BEACH/en.html)
 - Fortran API: [GitHub Pages / fortran](https://nkzono99.github.io/BEACH/fortran/)（FORD）
-- 入門: [出力の読み方](https://nkzono99.github.io/BEACH/output-guide.html) / [設定レシピ](https://nkzono99.github.io/BEACH/configuration-recipes.html) / [後処理チュートリアル](https://nkzono99.github.io/BEACH/postprocess-tutorial.html)
+- 入門: [インストール](https://nkzono99.github.io/BEACH/installation.html) / [10分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) / [出力の読み方](https://nkzono99.github.io/BEACH/output-guide.html)
+- 運用: [設定レシピ](https://nkzono99.github.io/BEACH/configuration-recipes.html) / [計算結果の妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html) / [トラブルシューティング](https://nkzono99.github.io/BEACH/troubleshooting.html)
 - アルゴリズム: [概要](https://nkzono99.github.io/BEACH/algorithms.html) / [場ソルバー](https://nkzono99.github.io/BEACH/field-solvers.html) / [粒子追跡](https://nkzono99.github.io/BEACH/particle-charge-loop.html) / [FMM](https://nkzono99.github.io/BEACH/fmm-core.html) / [`batch_duration` 安定性](https://nkzono99.github.io/BEACH/batch-duration-stability.html)
 - Python 後処理 API / CLI: [Python 後処理 API リファレンス](https://nkzono99.github.io/BEACH/python-postprocess-api.html)
 

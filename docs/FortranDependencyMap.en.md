@@ -8,11 +8,11 @@ Lang: [English](FortranDependencyMap.en.md) | [日本語](FortranDependencyMap.m
 
 ## Overview
 
-- Source files: 51
-- Modules: 40
+- Source files: 81
+- Modules: 70
 - Submodules: 10
 - Programs: 1
-- Internal dependency edges: 168
+- Internal dependency edges: 321
 
 ## Overall Graph
 
@@ -24,48 +24,54 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 
 | Directory | Entities | Internal dependencies |
 | --- | ---: | ---: |
-| `app` | 1 | 10 |
-| `src/config` | 4 | 23 |
-| `src/config/app_config_parser` | 2 | 7 |
+| `app` | 1 | 13 |
+| `src/config` | 6 | 33 |
+| `src/config/app_config_parser` | 2 | 9 |
 | `src/core` | 6 | 3 |
-| `src/mesh` | 3 | 9 |
+| `src/mesh` | 3 | 11 |
 | `src/particles` | 3 | 10 |
-| `src/physics` | 5 | 13 |
-| `src/physics/field_solver` | 5 | 18 |
+| `src/physics` | 6 | 30 |
+| `src/physics/field_solver` | 5 | 23 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
-| `src/physics/field_solver/fmm/internal/common` | 2 | 3 |
-| `src/physics/field_solver/fmm/internal/periodic` | 3 | 11 |
-| `src/physics/field_solver/fmm/internal/runtime` | 2 | 9 |
-| `src/physics/field_solver/fmm/internal/tree` | 2 | 10 |
+| `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
+| `src/physics/field_solver/fmm/internal/periodic` | 6 | 27 |
+| `src/physics/field_solver/fmm/internal/runtime` | 2 | 15 |
+| `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
+| `src/physics/outer_plasma` | 9 | 24 |
+| `src/physics/panel` | 5 | 13 |
+| `src/physics/periodic_zero_mode` | 2 | 5 |
 | `src/physics/sheath` | 2 | 11 |
-| `src/runtime` | 3 | 10 |
-| `src/runtime/simulator` | 4 | 13 |
+| `src/runtime` | 6 | 31 |
+| `src/runtime/coupling` | 4 | 9 |
+| `src/runtime/simulator` | 5 | 29 |
 
 ## Most Depended-on Modules
 
 | Entity | kind | Incoming dependencies |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 36 |
-| `bem_types` | `module` | 18 |
-| `bem_string_utils` | `module` | 14 |
+| `bem_kinds` | `module` | 65 |
+| `bem_types` | `module` | 30 |
+| `bem_string_utils` | `module` | 22 |
+| `bem_constants` | `module` | 21 |
+| `bem_app_config_types` | `module` | 10 |
 | `bem_coulomb_fmm_types` | `module` | 10 |
-| `bem_constants` | `module` | 9 |
+| `bem_panel_geometry` | `module` | 10 |
+| `bem_physics_config_types` | `module` | 9 |
 | `bem_coulomb_fmm_core` | `module` | 8 |
-| `bem_app_config_types` | `module` | 6 |
-| `bem_coulomb_fmm_periodic` | `module` | 6 |
-| `bem_mpi` | `module` | 5 |
-| `bem_coulomb_fmm_periodic_ewald` | `module` | 4 |
+| `bem_outer_plasma_types` | `module` | 8 |
 
 ## Entity List
 
 | Entity | kind | Path | Internal dependencies | Source summary |
 | --- | --- | --- | --- | --- |
-| `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_output_writer`, `bem_app_config`, `bem_mesh` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
-| `bem_app_config` | `module` | `src/config/bem_app_config.f90` | `bem_app_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime` | 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。 |
-| `bem_app_config_runtime` | `module` | `src/config/bem_app_config_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_field`, `bem_templates`, `bem_mesh`, `bem_importers`, `bem_injection`, `bem_particles`, `bem_sheath_injection_model`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers` | `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。 |
-| `bem_app_config_types` | `module` | `src/config/bem_app_config_types.f90` | `bem_kinds`, `bem_types` | アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。 |
+| `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
+| `bem_app_config` | `module` | `src/config/bem_app_config.f90` | `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime` | 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。 |
+| `bem_app_config_authoring` | `module` | `src/config/bem_app_config_authoring.f90` | `bem_kinds`, `bem_app_config_types`, `bem_string_utils` | BEACH TOML の高水準 authoring キーを実行時設定へ正規化する補助モジュール。 |
+| `bem_app_config_runtime` | `module` | `src/config/bem_app_config_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_field`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_collision`, `bem_importers`, `bem_injection`, `bem_particles`, `bem_sheath_injection_model`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers` | `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。 |
+| `bem_app_config_types` | `module` | `src/config/bem_app_config_types.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types` | アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。 |
 | `bem_config_helpers` | `module` | `src/config/bem_config_helpers.f90` | `bem_kinds`, `bem_app_config_types`, `bem_string_utils` | 設定型のヘルパー関数。パーサに依存せず下位層から利用可能。 |
-| `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
+| `bem_physics_config_types` | `module` | `src/config/bem_physics_config_types.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 場・periodic2・panel・外部プラズマ・coupling の型付き設定と互換正規化を定義する。 |
+| `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
 | `bem_app_config_parser_validate` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_validate.f90` | `bem_app_config_parser`, `bem_config_helpers` | `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。 |
 | `bem_constants` | `module` | `src/core/bem_constants.f90` | `bem_kinds` | シミュレーションで使用する物理定数を定義する。 |
 | `bem_kinds` | `module` | `src/core/bem_kinds.f90` | - | 倍精度実数と32bit整数のkind定義を集約する基盤モジュール。 |
@@ -74,40 +80,68 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_types` | `module` | `src/core/bem_types.f90` | `bem_kinds` | シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。 |
 | `bem_version` | `module` | `src/core/bem_version.F90` | - | BEACH build metadata stamped by build.sh. |
 | `bem_importers` | `module` | `src/mesh/bem_importers.f90` | `bem_kinds`, `bem_types`, `bem_mesh` | OBJメッシュを走査・解析し、内部 `mesh_type` へ変換するインポートモジュール。 |
-| `bem_mesh` | `module` | `src/mesh/bem_mesh.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。 |
+| `bem_mesh` | `module` | `src/mesh/bem_mesh.f90` | `bem_kinds`, `bem_types`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_quadrature` | 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。 |
 | `bem_templates` | `module` | `src/mesh/bem_templates.f90` | `bem_kinds`, `bem_types`, `bem_mesh` | 平面/穴あき平面/円板/リング/箱/円柱/球テンプレートから三角形メッシュを生成するユーティリティ。 |
 | `bem_injection` | `module` | `src/particles/bem_injection.f90` | `bem_kinds`, `bem_constants`, `bem_particles`, `bem_types`, `bem_boundary`, `bem_collision`, `bem_string_utils` | 乱数シード設定と粒子位置/速度サンプリングを担う粒子注入モジュール。 |
 | `bem_particles` | `module` | `src/particles/bem_particles.f90` | `bem_kinds`, `bem_types` | 粒子SoAデータ構造の初期化を提供するモジュール。 |
 | `bem_sheath_injection_model` | `module` | `src/particles/bem_sheath_injection_model.f90` | `bem_sheath_runtime` | 互換性維持のためのシース注入ラッパモジュール。 |
 | `bem_boundary` | `module` | `src/physics/bem_boundary.f90` | `bem_kinds`, `bem_types` | シミュレーションボックス境界（流出/反射/周期）を適用するモジュール。 |
 | `bem_collision` | `module` | `src/physics/bem_collision.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。 |
+| `bem_electrostatic_snapshot` | `module` | `src/physics/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_linear`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_mpi` | - |
 | `bem_field` | `module` | `src/physics/bem_field.f90` | `bem_kinds`, `bem_constants`, `bem_types` | 境界要素に蓄積した電荷から観測点の電場を評価する場計算モジュール。 |
 | `bem_pusher` | `module` | `src/physics/bem_pusher.f90` | `bem_kinds` | 荷電粒子の時間発展にBoris法を適用する運動方程式ソルバ。 |
 | `bem_surface_models` | `module` | `src/physics/bem_surface_models.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_string_utils` | 表面モデルごとの電荷更新後処理を扱うモジュール。 |
 | `bem_field_kernel_c` | `module` | `src/physics/field_solver/bem_field_kernel_c.f90` | `bem_constants`, `bem_coulomb_fmm_core`, `bem_kinds` | C ABI wrapper for the simulator-independent Coulomb FMM field kernel. |
-| `bem_field_solver` | `module` | `src/physics/field_solver/bem_field_solver.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils` | 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。 |
-| `bem_field_solver_config` | `submodule` | `src/physics/field_solver/bem_field_solver_config.f90` | `bem_field_solver`, `bem_coulomb_fmm_core` | `bem_field_solver` の初期化・設定補助手続きを実装する submodule。 |
-| `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_string_utils` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
+| `bem_field_solver` | `module` | `src/physics/field_solver/bem_field_solver.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_physics_config_types` | 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。 |
+| `bem_field_solver_config` | `submodule` | `src/physics/field_solver/bem_field_solver_config.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_types`, `bem_physics_config_types` | `bem_field_solver` の初期化・設定補助手続きを実装する submodule。 |
+| `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
 | `bem_field_solver_tree` | `submodule` | `src/physics/field_solver/bem_field_solver_tree.f90` | `bem_field_solver`, `bem_coulomb_fmm_core` | `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。 |
 | `bem_coulomb_fmm_core` | `module` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | `mesh_type` や `sim_config` に依存しない Coulomb FMM コア API。 |
 | `bem_coulomb_fmm_core_build` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_build.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_plan_ops` | `bem_coulomb_fmm_core` の plan 構築 API ラッパ。 |
 | `bem_coulomb_fmm_core_eval` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_eval.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_eval_ops` | `bem_coulomb_fmm_core` の評価 API ラッパ。 |
 | `bem_coulomb_fmm_core_state` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_state.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_state_ops` | `bem_coulomb_fmm_core` の state 更新 API ラッパ。 |
 | `bem_coulomb_fmm_basis` | `module` | `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_basis.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | Coulomb FMM の multi-index と微分テーブル計算。 |
-| `bem_coulomb_fmm_types` | `module` | `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90` | `bem_kinds` | Coulomb FMM コアで共有する型定義。 |
+| `bem_coulomb_fmm_types` | `module` | `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90` | `bem_kinds`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan` | Coulomb FMM コアで共有する型定義。 |
 | `bem_coulomb_fmm_periodic` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | Coulomb FMM の periodic2 境界処理。 |
+| `bem_coulomb_fmm_periodic_cache` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90` | `bem_filesystem`, `bem_kinds` | Versioned stream codec for cached periodic root operators. |
 | `bem_coulomb_fmm_periodic_ewald` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | periodic2 build-only Ewald oracle と fallback exact correction。 |
-| `bem_coulomb_fmm_periodic_root_ops` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils` | periodic2 root operator の前計算。 |
-| `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM 電場評価。 |
-| `bem_coulomb_fmm_state_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM state 更新と upward/downward pass。 |
-| `bem_coulomb_fmm_plan_ops` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM plan 構築と tree トポロジ前計算。 |
+| `bem_coulomb_fmm_periodic_nonzero_reference` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature` | - |
+| `bem_coulomb_fmm_periodic_nonzero_tail` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_tail.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature` | - |
+| `bem_coulomb_fmm_periodic_root_ops` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90` | `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_cache`, `bem_coulomb_fmm_tree_utils` | periodic2 root operator の前計算。 |
+| `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval` | Coulomb FMM 電場評価。 |
+| `bem_coulomb_fmm_state_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90` | `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan` | Coulomb FMM state 更新と upward/downward pass。 |
+| `bem_coulomb_fmm_plan_ops` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM plan 構築と tree トポロジ前計算。 |
 | `bem_coulomb_fmm_tree_utils` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_tree_utils.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | Coulomb FMM tree 構造の共通ユーティリティ。 |
+| `bem_outer_plasma_grid` | `module` | `src/physics/outer_plasma/bem_outer_plasma_grid.f90` | `bem_kinds` | - |
+| `bem_outer_plasma_interface` | `module` | `src/physics/outer_plasma/bem_outer_plasma_interface.f90` | `bem_kinds`, `bem_outer_plasma_types`, `bem_interface_types` | - |
+| `bem_outer_plasma_kinetic` | `module` | `src/physics/outer_plasma/bem_outer_plasma_kinetic.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid` | - |
+| `bem_outer_plasma_linear` | `module` | `src/physics/outer_plasma/bem_outer_plasma_linear.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types` | - |
+| `bem_outer_plasma_local_mean` | `module` | `src/physics/outer_plasma/bem_outer_plasma_local_mean.f90` | `bem_kinds`, `bem_outer_plasma_types`, `bem_types` | - |
+| `bem_outer_plasma_orbit` | `module` | `src/physics/outer_plasma/bem_outer_plasma_orbit.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_interface_types` | 固定された静電場中で外部領域の粒子軌道を明示的に追跡する。 |
+| `bem_outer_plasma_photoelectron` | `module` | `src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90` | `bem_kinds` | - |
+| `bem_outer_plasma_types` | `module` | `src/physics/outer_plasma/bem_outer_plasma_types.f90` | `bem_kinds` | - |
+| `bem_outer_plasma_unified` | `module` | `src/physics/outer_plasma/bem_outer_plasma_unified.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types` | - |
+| `bem_panel_geometry` | `module` | `src/physics/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry and exact Cartesian surface moments. |
+| `bem_panel_kernel` | `module` | `src/physics/panel/bem_panel_kernel.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms` | Analytic free-space P0 triangle potential, field, principal value, and jump. |
+| `bem_panel_quadrature` | `module` | `src/physics/panel/bem_panel_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry` | Independent triangle cubature and Gauss-Duffy correctness oracles. |
+| `bem_panel_self_terms` | `module` | `src/physics/panel/bem_panel_self_terms.f90` | `bem_kinds`, `bem_panel_geometry` | On-surface P0 triangle potential and principal-value field integrals. |
+| `bem_panel_surface_sides` | `module` | `src/physics/panel/bem_panel_surface_sides.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | Resolve physical vacuum sides without changing ordered triangle winding. |
+| `bem_periodic_zero_mode_eval` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
+| `bem_periodic_zero_mode_plan` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_types` | - |
 | `bem_sheath_model_core` | `module` | `src/physics/sheath/bem_sheath_model_core.f90` | `bem_kinds`, `bem_constants`, `bem_injection`, `bem_string_utils` | Zhao 系シース数値モデルの core 実装。 |
 | `bem_sheath_runtime` | `module` | `src/physics/sheath/bem_sheath_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers`, `bem_sheath_model_core` | シース数値モデルと app_config / 注入ランタイムの橋渡しを行うモジュール。 |
-| `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
+| `bem_filesystem` | `module` | `src/runtime/bem_filesystem.f90` | - | Minimal POSIX filesystem operations used by the runtime. |
+| `bem_model_fingerprint` | `module` | `src/runtime/bem_model_fingerprint.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types` | Restart compatibility fingerprints for the ordered physical model contract. |
+| `bem_outer_plasma_kinetic_runtime` | `module` | `src/runtime/bem_outer_plasma_kinetic_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_string_utils` | - |
+| `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_filesystem`, `bem_string_utils` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
 | `bem_performance_profile` | `module` | `src/runtime/bem_performance_profile.f90` | `bem_kinds`, `bem_mpi`, `bem_string_utils` | 実行フェーズごとの壁時計計測と MPI 集約出力を担う軽量プロファイラ。 |
-| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
-| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_field_solver`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_surface_models`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。 |
+| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
+| `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux を集計する transactional ledger。 |
+| `bem_interface_particle_buffer` | `module` | `src/runtime/coupling/bem_interface_particle_buffer.f90` | `bem_kinds`, `bem_interface_types` | - |
+| `bem_interface_types` | `module` | `src/runtime/coupling/bem_interface_types.f90` | `bem_kinds` | - |
+| `bem_outer_coupler` | `module` | `src/runtime/coupling/bem_outer_coupler.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_string_utils` | - |
+| `bem_particle_stepper` | `module` | `src/runtime/simulator/bem_particle_stepper.f90` | `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_interface_types` | 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。 |
+| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_electrostatic_snapshot`, `bem_outer_coupler`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_interface_types`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit`, `bem_outer_plasma_photoelectron`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_kinetic_runtime`, `bem_outer_plasma_types`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。 |
 | `bem_simulator_io` | `submodule` | `src/runtime/simulator/bem_simulator_io.f90` | `bem_simulator` | `bem_simulator` の進捗表示と履歴出力を実装する submodule。 |
 | `bem_simulator_loop` | `submodule` | `src/runtime/simulator/bem_simulator_loop.f90` | `bem_simulator`, `bem_performance_profile` | `bem_simulator` の主ループと粒子処理計算を実装する submodule。 |
 | `bem_simulator_stats` | `submodule` | `src/runtime/simulator/bem_simulator_stats.f90` | `bem_simulator` | `bem_simulator` のバッチ集計・統計更新処理を実装する submodule。 |
@@ -119,7 +153,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `program`
 - path: `app/main.f90`
 - group: `app`
-- Internal dependencies: `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_output_writer`, `bem_app_config`, `bem_mesh`
+- Internal dependencies: `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`
 - external dependencies: none
 - Source summary: 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 
@@ -128,16 +162,25 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/config/bem_app_config.f90`
 - group: `src/config`
-- Internal dependencies: `bem_app_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime`
+- Internal dependencies: `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime`
 - external dependencies: none
 - Source summary: 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。
+
+### `bem_app_config_authoring`
+
+- kind: `module`
+- path: `src/config/bem_app_config_authoring.f90`
+- group: `src/config`
+- Internal dependencies: `bem_kinds`, `bem_app_config_types`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`
+- Source summary: BEACH TOML の高水準 authoring キーを実行時設定へ正規化する補助モジュール。
 
 ### `bem_app_config_runtime`
 
 - kind: `module`
 - path: `src/config/bem_app_config_runtime.f90`
 - group: `src/config`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_field`, `bem_templates`, `bem_mesh`, `bem_importers`, `bem_injection`, `bem_particles`, `bem_sheath_injection_model`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_field`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_collision`, `bem_importers`, `bem_injection`, `bem_particles`, `bem_sheath_injection_model`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers`
 - external dependencies: `ieee_arithmetic`
 - Source summary: `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。
 
@@ -146,7 +189,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/config/bem_app_config_types.f90`
 - group: `src/config`
-- Internal dependencies: `bem_kinds`, `bem_types`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_physics_config_types`
 - external dependencies: none
 - Source summary: アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。
 
@@ -159,12 +202,21 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: 設定型のヘルパー関数。パーサに依存せず下位層から利用可能。
 
+### `bem_physics_config_types`
+
+- kind: `module`
+- path: `src/config/bem_physics_config_types.f90`
+- group: `src/config`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_string_utils`
+- external dependencies: none
+- Source summary: 場・periodic2・panel・外部プラズマ・coupling の型付き設定と互換正規化を定義する。
+
 ### `bem_app_config_parser`
 
 - kind: `module`
 - path: `src/config/app_config_parser/bem_app_config_parser.f90`
 - group: `src/config/app_config_parser`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`
 - external dependencies: `tomlf`, `ieee_arithmetic`
 - Source summary: TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。
 
@@ -246,7 +298,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/mesh/bem_mesh.f90`
 - group: `src/mesh`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_quadrature`
 - external dependencies: `ieee_arithmetic`
 - Source summary: 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。
 
@@ -292,7 +344,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/physics/bem_boundary.f90`
 - group: `src/physics`
 - Internal dependencies: `bem_kinds`, `bem_types`
-- external dependencies: none
+- external dependencies: `ieee_arithmetic`
 - Source summary: シミュレーションボックス境界（流出/反射/周期）を適用するモジュール。
 
 ### `bem_collision`
@@ -301,8 +353,16 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/physics/bem_collision.f90`
 - group: `src/physics`
 - Internal dependencies: `bem_kinds`, `bem_types`, `bem_string_utils`
-- external dependencies: none
+- external dependencies: `ieee_arithmetic`
 - Source summary: 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。
+
+### `bem_electrostatic_snapshot`
+
+- kind: `module`
+- path: `src/physics/bem_electrostatic_snapshot.f90`
+- group: `src/physics`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_linear`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_mpi`
+- external dependencies: none
 
 ### `bem_field`
 
@@ -345,7 +405,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/field_solver/bem_field_solver.f90`
 - group: `src/physics/field_solver`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_physics_config_types`
 - external dependencies: none
 - Source summary: 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。
 
@@ -355,7 +415,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/physics/field_solver/bem_field_solver_config.f90`
 - group: `src/physics/field_solver`
 - parent: `bem_field_solver`
-- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`
+- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_types`, `bem_physics_config_types`
 - external dependencies: none
 - Source summary: `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 
@@ -365,7 +425,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/physics/field_solver/bem_field_solver_eval.f90`
 - group: `src/physics/field_solver`
 - parent: `bem_field_solver`
-- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_string_utils`
+- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel`
 - external dependencies: none
 - Source summary: `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 
@@ -432,7 +492,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90`
 - group: `src/physics/field_solver/fmm/internal/common`
-- Internal dependencies: `bem_kinds`
+- Internal dependencies: `bem_kinds`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`
 - external dependencies: none
 - Source summary: Coulomb FMM コアで共有する型定義。
 
@@ -445,6 +505,15 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: Coulomb FMM の periodic2 境界処理。
 
+### `bem_coulomb_fmm_periodic_cache`
+
+- kind: `module`
+- path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90`
+- group: `src/physics/field_solver/fmm/internal/periodic`
+- Internal dependencies: `bem_filesystem`, `bem_kinds`
+- external dependencies: `iso_fortran_env`
+- Source summary: Versioned stream codec for cached periodic root operators.
+
 ### `bem_coulomb_fmm_periodic_ewald`
 
 - kind: `module`
@@ -454,12 +523,28 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: periodic2 build-only Ewald oracle と fallback exact correction。
 
+### `bem_coulomb_fmm_periodic_nonzero_reference`
+
+- kind: `module`
+- path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90`
+- group: `src/physics/field_solver/fmm/internal/periodic`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_coulomb_fmm_periodic_nonzero_tail`
+
+- kind: `module`
+- path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_tail.f90`
+- group: `src/physics/field_solver/fmm/internal/periodic`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature`
+- external dependencies: `ieee_arithmetic`
+
 ### `bem_coulomb_fmm_periodic_root_ops`
 
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/periodic`
-- Internal dependencies: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils`
+- Internal dependencies: `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_cache`, `bem_coulomb_fmm_tree_utils`
 - external dependencies: none
 - Source summary: periodic2 root operator の前計算。
 
@@ -468,7 +553,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/runtime`
-- Internal dependencies: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval`
 - external dependencies: none
 - Source summary: Coulomb FMM 電場評価。
 
@@ -477,7 +562,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/runtime`
-- Internal dependencies: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan`
 - external dependencies: none
 - Source summary: Coulomb FMM state 更新と upward/downward pass。
 
@@ -486,7 +571,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/tree`
-- Internal dependencies: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_coulomb_fmm_tree_utils`
+- Internal dependencies: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_coulomb_fmm_tree_utils`
 - external dependencies: none
 - Source summary: Coulomb FMM plan 構築と tree トポロジ前計算。
 
@@ -498,6 +583,140 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`
 - external dependencies: none
 - Source summary: Coulomb FMM tree 構造の共通ユーティリティ。
+
+### `bem_outer_plasma_grid`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_grid.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_outer_plasma_interface`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_interface.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`, `bem_outer_plasma_types`, `bem_interface_types`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_outer_plasma_kinetic`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_kinetic.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_outer_plasma_linear`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_linear.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_outer_plasma_local_mean`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_local_mean.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`, `bem_outer_plasma_types`, `bem_types`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_outer_plasma_orbit`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_orbit.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_interface_types`
+- external dependencies: `ieee_arithmetic`
+- Source summary: 固定された静電場中で外部領域の粒子軌道を明示的に追跡する。
+
+### `bem_outer_plasma_photoelectron`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_outer_plasma_types`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_types.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`
+- external dependencies: none
+
+### `bem_outer_plasma_unified`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_unified.f90`
+- group: `src/physics/outer_plasma`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_panel_geometry`
+
+- kind: `module`
+- path: `src/physics/panel/bem_panel_geometry.f90`
+- group: `src/physics/panel`
+- Internal dependencies: `bem_kinds`
+- external dependencies: `ieee_arithmetic`
+- Source summary: Ordered triangle geometry and exact Cartesian surface moments.
+
+### `bem_panel_kernel`
+
+- kind: `module`
+- path: `src/physics/panel/bem_panel_kernel.f90`
+- group: `src/physics/panel`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms`
+- external dependencies: none
+- Source summary: Analytic free-space P0 triangle potential, field, principal value, and jump.
+
+### `bem_panel_quadrature`
+
+- kind: `module`
+- path: `src/physics/panel/bem_panel_quadrature.f90`
+- group: `src/physics/panel`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_panel_geometry`
+- external dependencies: none
+- Source summary: Independent triangle cubature and Gauss-Duffy correctness oracles.
+
+### `bem_panel_self_terms`
+
+- kind: `module`
+- path: `src/physics/panel/bem_panel_self_terms.f90`
+- group: `src/physics/panel`
+- Internal dependencies: `bem_kinds`, `bem_panel_geometry`
+- external dependencies: none
+- Source summary: On-surface P0 triangle potential and principal-value field integrals.
+
+### `bem_panel_surface_sides`
+
+- kind: `module`
+- path: `src/physics/panel/bem_panel_surface_sides.f90`
+- group: `src/physics/panel`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_string_utils`
+- external dependencies: none
+- Source summary: Resolve physical vacuum sides without changing ordered triangle winding.
+
+### `bem_periodic_zero_mode_eval`
+
+- kind: `module`
+- path: `src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90`
+- group: `src/physics/periodic_zero_mode`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan`
+- external dependencies: none
+
+### `bem_periodic_zero_mode_plan`
+
+- kind: `module`
+- path: `src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90`
+- group: `src/physics/periodic_zero_mode`
+- Internal dependencies: `bem_kinds`, `bem_types`
+- external dependencies: `ieee_arithmetic`
 
 ### `bem_sheath_model_core`
 
@@ -517,12 +736,38 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: シース数値モデルと app_config / 注入ランタイムの橋渡しを行うモジュール。
 
+### `bem_filesystem`
+
+- kind: `module`
+- path: `src/runtime/bem_filesystem.f90`
+- group: `src/runtime`
+- Internal dependencies: none
+- external dependencies: `iso_c_binding`
+- Source summary: Minimal POSIX filesystem operations used by the runtime.
+
+### `bem_model_fingerprint`
+
+- kind: `module`
+- path: `src/runtime/bem_model_fingerprint.f90`
+- group: `src/runtime`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`
+- external dependencies: none
+- Source summary: Restart compatibility fingerprints for the ordered physical model contract.
+
+### `bem_outer_plasma_kinetic_runtime`
+
+- kind: `module`
+- path: `src/runtime/bem_outer_plasma_kinetic_runtime.f90`
+- group: `src/runtime`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_string_utils`
+- external dependencies: none
+
 ### `bem_output_writer`
 
 - kind: `module`
 - path: `src/runtime/bem_output_writer.f90`
 - group: `src/runtime`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_filesystem`, `bem_string_utils`
 - external dependencies: none
 - Source summary: 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。
 
@@ -540,16 +785,58 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/runtime/bem_restart.f90`
 - group: `src/runtime`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_mpi`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi`
 - external dependencies: `ieee_arithmetic`
 - Source summary: チェックポイントファイルの保存/復元を扱う補助モジュール。
+
+### `bem_charge_ledger`
+
+- kind: `module`
+- path: `src/runtime/coupling/bem_charge_ledger.f90`
+- group: `src/runtime/coupling`
+- Internal dependencies: `bem_kinds`
+- external dependencies: none
+- Source summary: batch 間の signed charge stock と移送 flux を集計する transactional ledger。
+
+### `bem_interface_particle_buffer`
+
+- kind: `module`
+- path: `src/runtime/coupling/bem_interface_particle_buffer.f90`
+- group: `src/runtime/coupling`
+- Internal dependencies: `bem_kinds`, `bem_interface_types`
+- external dependencies: none
+
+### `bem_interface_types`
+
+- kind: `module`
+- path: `src/runtime/coupling/bem_interface_types.f90`
+- group: `src/runtime/coupling`
+- Internal dependencies: `bem_kinds`
+- external dependencies: none
+
+### `bem_outer_coupler`
+
+- kind: `module`
+- path: `src/runtime/coupling/bem_outer_coupler.f90`
+- group: `src/runtime/coupling`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_string_utils`
+- external dependencies: none
+
+### `bem_particle_stepper`
+
+- kind: `module`
+- path: `src/runtime/simulator/bem_particle_stepper.f90`
+- group: `src/runtime/simulator`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_interface_types`
+- external dependencies: `ieee_arithmetic`
+- Source summary: 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。
 
 ### `bem_simulator`
 
 - kind: `module`
 - path: `src/runtime/simulator/bem_simulator.f90`
 - group: `src/runtime/simulator`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_field_solver`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_surface_models`, `bem_mpi`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_electrostatic_snapshot`, `bem_outer_coupler`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_interface_types`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit`, `bem_outer_plasma_photoelectron`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_kinetic_runtime`, `bem_outer_plasma_types`, `bem_mpi`
 - external dependencies: `iso_fortran_env`
 - Source summary: 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。
 

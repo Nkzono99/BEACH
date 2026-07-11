@@ -1,87 +1,78 @@
 title: BEACH Documentation
+ordered_subpage: Installation.en.md
+ordered_subpage: Tutorial.en.md
 ordered_subpage: OutputGuide.en.md
+ordered_subpage: Troubleshooting.en.md
 ordered_subpage: ConfigurationRecipes.en.md
-ordered_subpage: Parameters.en.md
 ordered_subpage: Configuration.en.md
 ordered_subpage: PostprocessTutorial.en.md
+ordered_subpage: ValidationGuide.en.md
+ordered_subpage: Parameters.en.md
 ordered_subpage: PythonPostprocessAPI.en.md
 ordered_subpage: Algorithms.en.md
 ordered_subpage: FieldSolvers.en.md
 ordered_subpage: ParticleChargeLoop.en.md
 ordered_subpage: FMMCore.en.md
 ordered_subpage: BatchDurationStability.en.md
+ordered_subpage: PhysicsReleaseVerification.en.md
 ordered_subpage: Workflow.en.md
 ordered_subpage: FortranDependencyMap.en.md
 ordered_subpage: agent-user-guide.en.md
 
 Lang: [English](index.en.md) | [日本語](index.md)
 
-# BEACH Documentation
+# BEACH
 
-BEACH (BEM + Accumulated CHarge) is a surface-charging simulator that couples Coulomb fields from charges on triangular boundary elements with test-particle tracking in batches.
-The current release focuses on charge accumulation on insulator surfaces. The Fortran runtime `beach` performs the simulation, while the Python CLI/API (`beachx` and the `beach` package) handles configuration checks, post-processing, and visualization.
+BEACH simulates test-particle trajectories and charge accumulation on insulating surfaces in batches.
 
-## Three-Minute Quick Start
+## First use
+
+1. [Check requirements and install](Installation.en.html)
+2. [Run the official beginner case](Tutorial.en.html)
+3. [Read the output](OutputGuide.en.html)
+4. [Validate the physical and numerical result](ValidationGuide.en.html)
 
 ```bash
-python -m pip install -U pip setuptools wheel
-python -m pip install beach-bem
-
-mkdir run_periodic2
-cd run_periodic2
-
-beachx config init
+beachx config init beach.toml
 beachx lint beach.toml
-
 beach beach.toml
 beachx inspect outputs/latest
 ```
 
-`beach` reads `beach.toml` directly. High-level notation such as `box_origin` / `box_size` and `mesh.groups` is normalized by the Fortran parser.
+## Command and data flow
 
-## Success Check
+```text
+beach.toml
+    ├─ beachx lint ── configuration checks
+    ▼
+beach ────────────── Fortran simulation
+    ▼
+outputs/<case>/
+    ├─ beachx inspect / animate ── inspection and plots
+    └─ Python package beach ───── custom analysis
+```
 
-A normally completed run writes `outputs/latest/summary.txt`, and `batches` reaches the configured `sim.batch_count`.
-Then run `beachx inspect outputs/latest` to check absorbed and escaped particles, element charges, and mesh metadata.
-See [Reading Output Files](OutputGuide.en.html) for the meaning of each output file.
+## Supported scope
 
-## What to Read Next
+| Feature | Status | Note |
+| --- | --- | --- |
+| Insulator charge accumulation | Supported | Primary scope |
+| Floating conductors | Conditional | Check field-boundary and surface-model compatibility |
+| Dielectric polarization | Not implemented | `epsilon_r` is metadata, not an independent polarization boundary condition |
+| Two-axis periodic fields | Supported | Distinguish finite images, cached infinite operators, and zero modes |
+| Outer plasma | Conditional | Requires model applicability and numerical error contracts |
+| Automatic convergence stop | Not implemented | `tol_rel` is a monitoring metric |
+
+Unsupported combinations fail closed instead of silently selecting another model.
+
+## Entry points
 
 | Goal | Page |
 | --- | --- |
-| Check outputs after the first run | [Reading Output Files](OutputGuide.en.html) |
-| Adapt a configuration from examples | [Configuration Recipes](ConfigurationRecipes.en.html) |
-| Look up every `beach.toml` key | [Input Parameters Reference](Parameters.en.html) |
-| Write high-level notation | [`beachx config` / High-Level Notation Guide](Configuration.en.html) |
-| Make the first plots | [Post-processing Tutorial](PostprocessTutorial.en.html) |
-| Use the full Python API | [Python Post-processing API Reference](PythonPostprocessAPI.en.html) |
-| Understand the numerical model | [BEACH Algorithm Overview](Algorithms.en.html) |
+| Build a case | [Configuration Recipes](ConfigurationRecipes.en.html) |
+| Plot and analyze output | [Post-processing Tutorial](PostprocessTutorial.en.html) |
+| Look up input keys | [Input Parameters](Parameters.en.html) |
+| Inspect numerical methods | [Algorithm Overview](Algorithms.en.html) |
+| Resolve a problem | [Troubleshooting](Troubleshooting.en.html) |
 
-## Use Cases
-
-| Goal | Entry point |
-| --- | --- |
-| Run a small template mesh | [Configuration Recipes](ConfigurationRecipes.en.html), "Minimal plane-mesh run" |
-| Choose a particle source model | [Configuration Recipes](ConfigurationRecipes.en.html) and `particles` in [Input Parameters Reference](Parameters.en.html) |
-| Use two-periodic-axis boundaries | `periodic2` in [Configuration Recipes](ConfigurationRecipes.en.html) and [Field Solvers and Boundary Conditions](FieldSolvers.en.html) |
-| Tune `batch_duration` | [`batch_duration` Stability](BatchDurationStability.en.html) |
-| Inspect implementation APIs | [Fortran API](https://nkzono99.github.io/BEACH/fortran/) and [Fortran Dependency Map](FortranDependencyMap.en.html) |
-
-## Documentation Index
-
-- [Reading Output Files](OutputGuide.en.html)
-- [Configuration Recipes](ConfigurationRecipes.en.html)
-- [Input Parameters Reference](Parameters.en.html)
-- [`beachx config` / High-Level Notation Guide](Configuration.en.html)
-- [Post-processing Tutorial](PostprocessTutorial.en.html)
-- [Python Post-processing API Reference](PythonPostprocessAPI.en.html)
-- [BEACH Algorithm Overview](Algorithms.en.html)
-- [Field Solvers and Boundary Conditions](FieldSolvers.en.html)
-- [Particle Tracking and Charge Accumulation](ParticleChargeLoop.en.html)
-- [Coulomb FMM Core Details](FMMCore.en.html)
-- [`batch_duration` Stability](BatchDurationStability.en.html)
-- [Execution and Development Workflow](Workflow.en.html)
-- [Fortran Dependency Map](FortranDependencyMap.en.html)
-- [BEACH Agent User Guide](agent-user-guide.en.html)
-
-For API-level implementation details, use the FORD-generated [Fortran API](https://nkzono99.github.io/BEACH/fortran/).
+Use the generated [Fortran API](https://nkzono99.github.io/BEACH/fortran/) for procedure-level details.

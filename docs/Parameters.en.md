@@ -24,26 +24,6 @@ used after normalization.
 
 ---
 
-## Table of Contents
-
-- [Input Parameters Reference](#input-parameters-reference)
-  - [Table of Contents](#table-of-contents)
-  - [Loading Rules](#loading-rules)
-  - [Units and Coordinates](#units-and-coordinates)
-  - [Minimal Example](#minimal-example)
-  - [Section List](#section-list)
-  - [Detailed Parameter Reference](#detailed-parameter-reference)
-    - [`[sim]`: Run Control and Field Calculation](#sim-run-control-and-field-calculation)
-    - [`[[particles.species]]`: Particle Species](#particlesspecies-particle-species)
-    - [`sim.sheath_injection_model`: Sheath Injection Correction](#simsheath_injection_model-sheath-injection-correction)
-    - [`[mesh]`: Mesh Input](#mesh-mesh-input)
-    - [`[[mesh.templates]]`: Built-In Shapes](#meshtemplates-built-in-shapes)
-    - [`[output]`: Output and Resume](#output-output-and-resume)
-  - [Relationship to High-Level Notation](#relationship-to-high-level-notation)
-  - [Validation Rules](#validation-rules)
-
----
-
 ## Loading Rules
 
 | Item | Specification |
@@ -96,74 +76,15 @@ of `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, or `z_high`.
 
 ---
 
-## Minimal Example
+## Official Beginner Case
 
-For first-time use, `source_mode = "reservoir_face"` is recommended because it
-lets you specify physical inflow directly.
+For the first run, use the [Ten-Minute Tutorial](Tutorial.en.html) and
+`examples/tutorial_insulator.toml`. `beachx config init` generates the same
+configuration.
 
-```toml
-[sim]
-dt = 2.0e-8
-batch_duration_step = 60000.0
-batch_count = 100
-max_step = 10000
-softening = 1.0e-6
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 10.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
-rng_seed = 12345
-field_solver = "fmm"
-field_bc_mode = "periodic2"
-field_periodic_far_correction = "none"
-
-[[particles.species]]
-source_mode = "reservoir_face"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-target_macro_particles_per_batch = 5000
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 10.0]
-pos_high = [1.0, 1.0, 10.0]
-drift_velocity = [0.0, 0.0, -4.0e5]
-
-[[particles.species]]
-source_mode = "reservoir_face"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = 1.602176634e-19
-m_particle = 1.672482821616e-27
-target_macro_particles_per_batch = -1
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 10.0]
-pos_high = [1.0, 1.0, 10.0]
-drift_velocity = [0.0, 0.0, -4.0e5]
-
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-size_x = 1.0
-size_y = 1.0
-nx = 20
-ny = 20
-center = [0.5, 0.5, 0.02]
-
-[output]
-write_files = true
-write_mesh_potential = false
-dir = "outputs/latest"
-history_stride = 1
-```
+Add `reservoir_face`, FMM, and `periodic2` later from
+[Configuration Recipes](ConfigurationRecipes.en.html), after the beginner case
+runs successfully.
 
 ---
 

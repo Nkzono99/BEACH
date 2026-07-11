@@ -7,6 +7,9 @@ Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.m
 This page shows how to modify `beach.toml` for common cases.
 For the complete key reference, see [Input Parameters Reference](Parameters.en.html). For high-level notation, see [`beachx config` / High-Level Notation Guide](Configuration.en.html).
 
+Each snippet is a replacement or diff relative to the [official beginner case](Tutorial.en.html).
+Some snippets are not standalone configurations.
+
 ## Official Run Procedure
 
 ```bash
@@ -29,7 +32,7 @@ Pass `beach.toml` directly to the Fortran executable. The Fortran parser normali
 | History output | `[output]` | Visualize time evolution |
 | Resume run | `[output]` | Continue from checkpoint |
 
-## Minimal Plane-Mesh Run
+## Change Plane-Mesh Resolution
 
 ```toml
 [mesh]
