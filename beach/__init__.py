@@ -24,6 +24,8 @@ from .fortran_results import (
     FieldKernelDiagnostics,
     FieldKernelError,
     FieldKernelOptions,
+    FiniteShellConvergenceResult,
+    FiniteShellWrenchResult,
     KernelObjectForceRecord,
     ObjectForcePath,
     ObjectInteractionSnapshot,
@@ -45,6 +47,8 @@ from .fortran_results import (
     plot_potential_slices,
     trace_field_lines,
     WrenchComponent,
+    finite_shell_convergence,
+    finite_shell_wrench,
 )
 
 __all__ = [
@@ -71,6 +75,8 @@ __all__ = [
     "FieldKernelDiagnostics",
     "FieldKernelError",
     "FieldKernelOptions",
+    "FiniteShellConvergenceResult",
+    "FiniteShellWrenchResult",
     "KernelObjectForceRecord",
     "ObjectForcePath",
     "ObjectInteractionSnapshot",
@@ -92,4 +98,6 @@ __all__ = [
     "plot_potential_slices",
     "trace_field_lines",
     "WrenchComponent",
+    "finite_shell_convergence",
+    "finite_shell_wrench",
 ]

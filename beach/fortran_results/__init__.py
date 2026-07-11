@@ -44,6 +44,12 @@ from .potential import (
     compute_potential_slices,
 )
 from .periodic_zero_mode import PeriodicZeroMode
+from .periodic_force_oracle import (
+    finite_shell_convergence,
+    finite_shell_wrench,
+    FiniteShellConvergenceResult,
+    FiniteShellWrenchResult,
+)
 from .scene import BeachScene, RigidTransform
 from .types import (
     ChargeLedgerEntry,
@@ -74,6 +80,8 @@ __all__ = [
     "FieldKernelDiagnostics",
     "FieldKernelError",
     "FieldKernelOptions",
+    "FiniteShellConvergenceResult",
+    "FiniteShellWrenchResult",
     "KernelObjectForceRecord",
     "ObjectForcePath",
     "ObjectInteractionSnapshot",
@@ -88,6 +96,8 @@ __all__ = [
     "calc_coulomb",
     "calc_object_forces_kernel",
     "field_kernel_options_from_result",
+    "finite_shell_convergence",
+    "finite_shell_wrench",
     "analyze_coulomb_mobility",
     "compute_electric_field_points",
     "trace_field_lines",

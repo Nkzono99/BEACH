@@ -185,6 +185,7 @@ class ObjectForcePath:
     status: str = "converged"
     refinement_count: int = 0
     work_relative_mismatch: float | None = None
+    work_absolute_mismatch_J: float | None = None
 
     def __post_init__(self) -> None:
         h = _path_displacement(self.displacement_m)
@@ -213,6 +214,14 @@ class ObjectForcePath:
             mismatch = _finite_scalar(mismatch, "work_relative_mismatch")
             if mismatch < 0.0:
                 raise ValueError("work_relative_mismatch must be non-negative.")
+        absolute_mismatch = self.work_absolute_mismatch_J
+        if absolute_mismatch is not None:
+            absolute_mismatch = _finite_scalar(
+                absolute_mismatch,
+                "work_absolute_mismatch_J",
+            )
+            if absolute_mismatch < 0.0:
+                raise ValueError("work_absolute_mismatch_J must be non-negative.")
 
         object.__setattr__(self, "displacement_m", h)
         object.__setattr__(self, "force_N", force)
@@ -225,6 +234,7 @@ class ObjectForcePath:
         object.__setattr__(self, "numerical_metadata", _freeze_mapping(self.numerical_metadata))
         object.__setattr__(self, "refinement_count", int(self.refinement_count))
         object.__setattr__(self, "work_relative_mismatch", mismatch)
+        object.__setattr__(self, "work_absolute_mismatch_J", absolute_mismatch)
 
     @classmethod
     def from_samples(
@@ -241,11 +251,13 @@ class ObjectForcePath:
         potential = None
         potential_work = None
         mismatch = None
+        absolute_mismatch = None
         if potential_energy_J is not None:
             potential = _path_scalar(potential_energy_J, h.size, "potential_energy_J")
             potential_work = potential[0] - potential
             scale = max(float(np.max(np.abs(work))), float(np.max(np.abs(potential_work))), np.finfo(float).tiny)
             mismatch = float(np.max(np.abs(work - potential_work)) / scale)
+            absolute_mismatch = float(np.max(np.abs(work - potential_work)))
         return cls(
             displacement_m=h,
             force_N=force,
@@ -254,6 +266,7 @@ class ObjectForcePath:
             potential_energy_J=potential,
             potential_difference_work_J=potential_work,
             work_relative_mismatch=mismatch,
+            work_absolute_mismatch_J=absolute_mismatch,
         )
 
     def evaluate_release(
@@ -361,6 +374,8 @@ class ObjectForcePath:
             endpoint_speed_m_s=float(speed[-1]),
             maximum_reachable_speed_m_s=maximum_speed,
             instantaneous_force_margin_N=initial_margin,
+            source_path_status=self.status,
+            numerically_qualified=self.status == "converged",
         )
 
 
@@ -391,8 +406,19 @@ class DetachmentResult:
     endpoint_speed_m_s: float
     maximum_reachable_speed_m_s: float
     instantaneous_force_margin_N: float
+    source_path_status: str
+    numerically_qualified: bool
 
     def __post_init__(self) -> None:
+        if self.source_path_status not in {"converged", "not_converged"}:
+            raise ValueError(
+                'source_path_status must be "converged" or "not_converged".'
+            )
+        object.__setattr__(
+            self,
+            "numerically_qualified",
+            bool(self.numerically_qualified),
+        )
         for name in (
             "displacement_m",
             "electrostatic_work_J",

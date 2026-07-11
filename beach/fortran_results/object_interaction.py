@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+import operator
 from pathlib import Path
 from threading import RLock
 from typing import Iterable, Mapping
 
 import numpy as np
 
-from .detachment import ObjectWrench, WrenchComponent
+from .detachment import ObjectForcePath, ObjectWrench, WrenchComponent
 from .kernel import (
     FieldKernel,
     FieldKernelError,
@@ -36,6 +37,34 @@ _PHYSICAL_COMPONENTS = (
     "external_uniform",
     "total_external",
 )
+
+_PATH_TARGET_BATCH_LIMIT = 131_072
+
+
+@dataclass
+class _VerticalSamples:
+    displacement_m: np.ndarray
+    force_N: np.ndarray
+    torque_Nm: np.ndarray
+    potential_energy_J: np.ndarray
+    component_force_N: dict[str, np.ndarray]
+    component_torque_Nm: dict[str, np.ndarray]
+    peak_target_batch_size: int
+
+    def take(self, mask: np.ndarray) -> "_VerticalSamples":
+        return _VerticalSamples(
+            displacement_m=self.displacement_m[mask],
+            force_N=self.force_N[mask],
+            torque_Nm=self.torque_Nm[mask],
+            potential_energy_J=self.potential_energy_J[mask],
+            component_force_N={
+                name: values[mask] for name, values in self.component_force_N.items()
+            },
+            component_torque_Nm={
+                name: values[mask] for name, values in self.component_torque_Nm.items()
+            },
+            peak_target_batch_size=self.peak_target_batch_size,
+        )
 
 
 class ObjectInteractionSnapshot:
@@ -652,6 +681,261 @@ class ObjectProbe:
             numerical_metadata=metadata,
         )
 
+    def vertical_path(
+        self,
+        displacement_m: np.ndarray,
+        *,
+        adaptive: bool = True,
+        relative_tolerance: float = 5.0e-3,
+        force_absolute_tolerance_N: float = 1.0e-12,
+        work_absolute_tolerance_J: float = 1.0e-18,
+        max_refinement: int = 8,
+        torque_origin: str | Iterable[float] = "geometric_area_centroid",
+        components: bool = True,
+    ) -> ObjectForcePath:
+        """Evaluate a frozen-source vertical translation path."""
+
+        self._require_usable()
+        grid = _path_displacement(displacement_m)
+        relative = _nonnegative_scalar(relative_tolerance, "relative_tolerance")
+        force_absolute = _nonnegative_scalar(
+            force_absolute_tolerance_N,
+            "force_absolute_tolerance_N",
+        )
+        work_absolute = _nonnegative_scalar(
+            work_absolute_tolerance_J,
+            "work_absolute_tolerance_J",
+        )
+        refinement_limit = _nonnegative_integer(max_refinement, "max_refinement")
+        self._validate_vertical_geometry(grid)
+
+        samples = self._evaluate_vertical_samples(
+            grid,
+            torque_origin=torque_origin,
+            components=components,
+        )
+        inserted = 0
+        refinement_rounds = 0
+        peak_target_batch_size = samples.peak_target_batch_size
+        status = "converged"
+        status_reason = "fixed_grid"
+        max_force_error = 0.0
+        max_work_error = 0.0
+
+        if adaptive:
+            status = "not_converged"
+            status_reason = "max_refinement_reached"
+            for refinement_round in range(refinement_limit + 1):
+                middle = 0.5 * (grid[:-1] + grid[1:])
+                candidate_grid = np.empty(2 * grid.size - 1, dtype=np.float64)
+                candidate_grid[0::2] = grid
+                candidate_grid[1::2] = middle
+                self._validate_vertical_geometry(candidate_grid)
+                candidate = self._evaluate_vertical_samples(
+                    candidate_grid,
+                    torque_origin=torque_origin,
+                    components=components,
+                )
+                peak_target_batch_size = max(
+                    peak_target_batch_size,
+                    candidate.peak_target_batch_size,
+                )
+                force_left = candidate.force_N[0:-2:2]
+                force_middle = candidate.force_N[1::2]
+                force_right = candidate.force_N[2::2]
+                widths = grid[1:] - grid[:-1]
+                force_error = np.linalg.norm(
+                    force_middle - 0.5 * (force_left + force_right),
+                    axis=1,
+                )
+                force_scale = np.maximum.reduce(
+                    (
+                        np.linalg.norm(force_left, axis=1),
+                        np.linalg.norm(force_middle, axis=1),
+                        np.linalg.norm(force_right, axis=1),
+                    )
+                )
+                work_coarse = 0.5 * widths * (
+                    force_left[:, 2] + force_right[:, 2]
+                )
+                work_fine = 0.25 * widths * (
+                    force_left[:, 2]
+                    + 2.0 * force_middle[:, 2]
+                    + force_right[:, 2]
+                )
+                potential_work = (
+                    candidate.potential_energy_J[0:-2:2]
+                    - candidate.potential_energy_J[2::2]
+                )
+                work_error = np.maximum(
+                    np.abs(work_fine - work_coarse),
+                    np.abs(work_fine - potential_work),
+                )
+                work_scale = np.maximum.reduce(
+                    (np.abs(work_coarse), np.abs(work_fine), np.abs(potential_work))
+                )
+                failing = (force_error > force_absolute + relative * force_scale) | (
+                    work_error > work_absolute + relative * work_scale
+                )
+                max_force_error = float(np.max(force_error, initial=0.0))
+                max_work_error = float(np.max(work_error, initial=0.0))
+                if not np.any(failing):
+                    status = "converged"
+                    status_reason = "tolerances_satisfied"
+                    break
+                if refinement_round >= refinement_limit:
+                    break
+                keep = np.zeros(candidate_grid.size, dtype=bool)
+                keep[0::2] = True
+                keep[1::2] = failing
+                inserted_now = int(np.count_nonzero(failing))
+                inserted += inserted_now
+                refinement_rounds += 1
+                grid = candidate_grid[keep]
+                samples = candidate.take(keep)
+
+        work = _cumulative_trapezoid(grid, samples.force_N[:, 2])
+        potential_work = samples.potential_energy_J[0] - samples.potential_energy_J
+        absolute_mismatch = float(np.max(np.abs(work - potential_work), initial=0.0))
+        mismatch_scale = max(
+            float(np.max(np.abs(work), initial=0.0)),
+            float(np.max(np.abs(potential_work), initial=0.0)),
+            np.finfo(float).tiny,
+        )
+        relative_mismatch = absolute_mismatch / mismatch_scale
+        mismatch_threshold = work_absolute + relative * mismatch_scale
+        if absolute_mismatch > mismatch_threshold and status == "converged":
+            status = "not_converged"
+            status_reason = "work_potential_mismatch"
+
+        metadata: dict[str, object] = {
+            "periodic_model": self._snapshot.periodic_model,
+            "effective_far_correction": (
+                "free"
+                if self._snapshot._options.periodic2 is None
+                else self._snapshot._options.periodic2[4]
+            ),
+            "target_integration": self._integration_label,
+            "quadrature_order": self._integration_order,
+            "source_geometry_policy": "frozen",
+            "target_motion": "vertical_translation",
+            "adaptive": bool(adaptive),
+            "relative_tolerance": relative,
+            "force_absolute_tolerance_N": force_absolute,
+            "work_absolute_tolerance_J": work_absolute,
+            "max_refinement": refinement_limit,
+            "refinement_rounds": refinement_rounds,
+            "inserted_point_count": inserted,
+            "max_force_refinement_error_N": max_force_error,
+            "max_work_refinement_error_J": max_work_error,
+            "status_reason": status_reason,
+            "peak_target_batch_size": peak_target_batch_size,
+        }
+        return ObjectForcePath(
+            displacement_m=grid,
+            force_N=samples.force_N,
+            torque_Nm=samples.torque_Nm,
+            electrostatic_work_J=work,
+            potential_energy_J=samples.potential_energy_J,
+            potential_difference_work_J=potential_work,
+            component_force_N=samples.component_force_N,
+            component_torque_Nm=samples.component_torque_Nm,
+            numerical_metadata=metadata,
+            status=status,
+            refinement_count=inserted,
+            work_relative_mismatch=relative_mismatch,
+            work_absolute_mismatch_J=absolute_mismatch,
+        )
+
+    def _validate_vertical_geometry(self, displacement_m: np.ndarray) -> None:
+        translations = np.zeros((displacement_m.size, 3), dtype=np.float64)
+        translations[:, 2] = displacement_m
+        vertices = (
+            self._target_triangles_m[None, :, :, :]
+            + translations[:, None, None, :]
+        )
+        _validate_target_points(
+            vertices.reshape(-1, 3),
+            self._snapshot._options,
+        )
+
+    def _evaluate_vertical_samples(
+        self,
+        displacement_m: np.ndarray,
+        *,
+        torque_origin: str | Iterable[float],
+        components: bool,
+    ) -> _VerticalSamples:
+        nheight = displacement_m.size
+        npoint = self._target_points_m.shape[0]
+        height_batch = max(1, _PATH_TARGET_BATCH_LIMIT // max(1, npoint))
+        force = np.empty((nheight, 3), dtype=np.float64)
+        torque = np.empty((nheight, 3), dtype=np.float64)
+        potential = np.empty(nheight, dtype=np.float64)
+        component_force = {
+            name: np.empty((nheight, 3), dtype=np.float64)
+            for name in _PHYSICAL_COMPONENTS
+        }
+        component_torque = {
+            name: np.empty((nheight, 3), dtype=np.float64)
+            for name in _PHYSICAL_COMPONENTS
+        }
+        if isinstance(torque_origin, str) and torque_origin == "geometric_area_centroid":
+            origins = np.broadcast_to(
+                self._geometric_area_centroid_m,
+                (nheight, 3),
+            ).copy()
+            origins[:, 2] += displacement_m
+        else:
+            origin = _resolve_origin(
+                torque_origin,
+                geometric=self._geometric_area_centroid_m,
+                name="torque_origin",
+            )
+            origins = np.broadcast_to(origin, (nheight, 3)).copy()
+
+        peak_target_batch_size = 0
+        for start in range(0, nheight, height_batch):
+            stop = min(start + height_batch, nheight)
+            batch_h = displacement_m[start:stop]
+            points = np.broadcast_to(
+                self._target_points_m,
+                (batch_h.size, npoint, 3),
+            ).copy()
+            points[:, :, 2] += batch_h[:, None]
+            flat_points = points.reshape(-1, 3)
+            peak_target_batch_size = max(peak_target_batch_size, flat_points.shape[0])
+            fields = self._snapshot._evaluate_fields(
+                target_mask=self._target_mask,
+                target_points_m=flat_points,
+                primary=self._primary,
+            )
+            physical_fields = _physical_field_components(fields)
+            for name, (field_values, potential_values) in physical_fields.items():
+                aggregate = _aggregate_wrench_samples(
+                    points,
+                    self._target_charge_weights_C,
+                    field_values.reshape(batch_h.size, npoint, 3),
+                    potential_values.reshape(batch_h.size, npoint),
+                    origins[start:stop],
+                )
+                component_force[name][start:stop] = aggregate[0]
+                component_torque[name][start:stop] = aggregate[1]
+                if name == "total_external":
+                    force[start:stop] = aggregate[0]
+                    torque[start:stop] = aggregate[1]
+                    potential[start:stop] = aggregate[2]
+
+        return _VerticalSamples(
+            displacement_m=np.array(displacement_m, copy=True),
+            force_N=force,
+            torque_Nm=torque,
+            potential_energy_J=potential,
+            component_force_N=component_force if components else {},
+            component_torque_Nm=component_torque if components else {},
+            peak_target_batch_size=peak_target_batch_size,
+        )
+
     def close(self) -> None:
         with self._snapshot._lock:
             if self._closed:
@@ -690,6 +974,46 @@ def _aggregate_wrench(
     torque = np.sum(np.cross(points_m - origin_m[None, :], force_samples), axis=0)
     energy = float(np.dot(charges_C, potential_V))
     return WrenchComponent(force_N=force, torque_Nm=torque, potential_energy_J=energy)
+
+
+def _aggregate_wrench_samples(
+    points_m: np.ndarray,
+    charges_C: np.ndarray,
+    field_V_m: np.ndarray,
+    potential_V: np.ndarray,
+    origin_m: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    force_samples = charges_C[None, :, None] * field_V_m
+    force = np.sum(force_samples, axis=1)
+    torque = np.sum(
+        np.cross(points_m - origin_m[:, None, :], force_samples),
+        axis=1,
+    )
+    energy = potential_V @ charges_C
+    return force, torque, energy
+
+
+def _physical_field_components(
+    fields: Mapping[str, tuple[np.ndarray, np.ndarray]],
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    p_other = fields["p_other"]
+    z_other = fields["z_other"]
+    p_target = fields["p_target"]
+    z_target = fields["z_target"]
+    direct = fields["direct"]
+    uniform = fields["uniform"]
+    other = p_other[0] + z_other[0], p_other[1] + z_other[1]
+    images = (
+        p_target[0] + z_target[0] - direct[0],
+        p_target[1] + z_target[1] - direct[1],
+    )
+    total = other[0] + images[0] + uniform[0], other[1] + images[1] + uniform[1]
+    return {
+        "other_objects_all_images": other,
+        "target_periodic_images": images,
+        "external_uniform": uniform,
+        "total_external": total,
+    }
 
 
 def _add_field_component(
@@ -732,7 +1056,13 @@ def _validate_target_points(points_m: np.ndarray, options: FieldKernelOptions) -
         return
     lower = np.asarray(options.box_min, dtype=np.float64)
     upper = np.asarray(options.box_max, dtype=np.float64)
-    if np.any(points < lower[None, :]) or np.any(points > upper[None, :]):
+    bounded_axes = np.ones(3, dtype=bool)
+    if options.periodic2 is not None:
+        bounded_axes[np.asarray(options.periodic2[0], dtype=np.int64)] = False
+    bounded = points[:, bounded_axes]
+    if np.any(bounded < lower[bounded_axes][None, :]) or np.any(
+        bounded > upper[bounded_axes][None, :]
+    ):
         raise ValueError("transformed target points must remain inside the configured box.")
 
 
@@ -778,6 +1108,41 @@ def _validate_full_box_config(config: Mapping[str, object]) -> None:
         raise ValueError("sim.box_min and sim.box_max must contain finite values.")
     if np.any(upper <= lower):
         raise ValueError("sim.box_max must be greater than sim.box_min on every axis.")
+
+
+def _path_displacement(value: np.ndarray) -> np.ndarray:
+    result = np.asarray(value, dtype=np.float64)
+    if result.ndim != 1 or result.size < 2:
+        raise ValueError("displacement_m must be a 1D array with at least two points.")
+    if not np.all(np.isfinite(result)):
+        raise ValueError("displacement_m must contain finite values.")
+    if result[0] != 0.0:
+        raise ValueError("displacement_m must start at zero.")
+    if np.any(np.diff(result) <= 0.0):
+        raise ValueError("displacement_m must be strictly increasing.")
+    return np.array(result, copy=True)
+
+
+def _nonnegative_scalar(value: float, name: str) -> float:
+    result = float(value)
+    if not np.isfinite(result) or result < 0.0:
+        raise ValueError(f"{name} must be finite and non-negative.")
+    return result
+
+
+def _nonnegative_integer(value: int, name: str) -> int:
+    try:
+        result = operator.index(value)
+    except TypeError as exc:
+        raise ValueError(f"{name} must be a non-negative integer.") from exc
+    if isinstance(value, (bool, np.bool_)) or result < 0:
+        raise ValueError(f"{name} must be a non-negative integer.")
+    return result
+
+
+def _cumulative_trapezoid(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    increments = 0.5 * (y[:-1] + y[1:]) * np.diff(x)
+    return np.concatenate(([0.0], np.cumsum(increments)))
 
 
 def _readonly(value: np.ndarray) -> np.ndarray:
