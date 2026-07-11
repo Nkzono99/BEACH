@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - The Starlight documentation navigation now follows installation, first run, output inspection, and numerical-validation workflows.
 
 ### Fixed
+- Field-solver submodules no longer re-import host-associated FMM types, restoring editable builds with GFortran 13.
 - Boris particle candidates now use same-time trapezoidal position updates and sample the boundary-element electric field at the predicted midpoint. The existing `boris_push` signature is unchanged, but corrected trajectories differ from previous releases.
 - Particle tracking now orders the first mesh hit against the first box-face event, advances one reflected/periodic remainder, and fails closed when one outer step would cross a second box face.
 - Reservoir injection now rounds one global expected macro-particle count before distributing particles across MPI ranks, making count and residual sequences independent of MPI world size.
