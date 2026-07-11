@@ -58,3 +58,9 @@ def test_portable_physics_contract_workflow_runs_l2() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "test-physics-release:" in makefile
     assert "tools/run_physics_release_gate.sh" in makefile
+
+
+def test_release_gate_accepts_prefixed_convergence_markers() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "s/^.*BEACH_CONVERGENCE,//p" in script
+    assert "grep -h '^BEACH_CONVERGENCE,'" not in script

@@ -145,10 +145,9 @@ fi
 
 if ((!dry_run)); then
   printf 'category,configuration,metric_1,metric_2,metric_3,acceptance\n' >"$convergence_csv"
-  grep -h '^BEACH_CONVERGENCE,' \
+  sed -n 's/^.*BEACH_CONVERGENCE,//p' \
     "$artifact_dir/test_l3.log" "$artifact_dir/far_correction.log" \
-    "$artifact_dir/mpi.log" "$artifact_dir/mpi_cache.log" | \
-    sed 's/^BEACH_CONVERGENCE,//' >>"$convergence_csv" || true
+    "$artifact_dir/mpi.log" "$artifact_dir/mpi_cache.log" >>"$convergence_csv"
   for category in boris_dt panel_fmm_order rough_panel_mesh rough_outer_grid rough_accessibility outer_orbit_dt; do
     if ! grep -q "^${category}," "$convergence_csv"; then
       printf 'convergence.status=failed_missing_%s\nstatus=failed\n' "$category" >>"$manifest"
