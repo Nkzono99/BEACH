@@ -56,7 +56,7 @@ make run CONFIG=examples/beach.toml
 ```
 
 `make check` is the standard development build check. It uses `BEACH_VERSION_MODE=dev` to pass a stable
-version string such as `1.4.0-dev` to the Fortran side, so changes to the git hash do not invalidate fpm's
+version string such as `1.5.0-dev` to the Fortran side, so changes to the git hash do not invalidate fpm's
 compile-flag hash and incremental builds stay reusable.
 
 `make build` and `make install` embed a git-hash version by default. Override the version mode when needed.

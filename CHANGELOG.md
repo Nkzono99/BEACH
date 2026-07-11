@@ -5,12 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-11
+
 ### Added
 - `sim.open_boundary_model="potential_barrier"` for open-boundary return/escape decisions based on normal kinetic energy and the local potential barrier.
+- Direct continuous triangle-P0 panel potential/field kernels with explicit vacuum-side, self-potential, principal-value, and field-jump contracts.
+- Panel-aware FMM topology, near correction, exact triangle multipole moments, and a matching public C/Python kernel path.
+- Explicit periodic2 zero-mode projection and panel-spectral nonzero-mode reference evaluation for non-neutral surface charge.
+- Linear Debye, nonlinear 1D kinetic, and unified linear-response outer-plasma models with fail-closed applicability and branch diagnostics.
+- Conservative particle transfer across the outer interface, including infinity-to-interface reservoir mapping, individual photoelectron return accounting, and explicit 3D electrostatic outer orbits.
+- A versioned cached infinite-periodic nonzero-mode operator with checksum validation, corruption recovery, MPI root-only generation, and warm-cache reuse.
+- Checkpoint schema 3, which restores complete outer-plasma potential, electric-field, charge-density, residual, and current state while retaining schema-2 read-only migration.
+- Physics release gates covering L3, far-correction, two-rank MPI, cache concurrency, memory budgets, and six required convergence categories.
+- Bilingual installation, tutorial, validation, troubleshooting, and physical-redesign completion-audit documentation.
 
 ### Changed
 - `beach-inspect` now uses only precomputed mesh potential for its ordinary summary; `--recompute-potential` explicitly requests the quadratic reconstruction path.
 - Periodic far-correction documentation now consistently describes `none` as the default, `auto` as its compatibility alias, and `m2l_root_oracle` as an explicit diagnostic mode.
+- `outer_plasma.interface_z` is an ownership/handoff plane in the unified model rather than a truncation of the electrostatic field domain.
+- The Starlight documentation navigation now follows installation, first run, output inspection, and numerical-validation workflows.
 
 ### Fixed
 - Boris particle candidates now use same-time trapezoidal position updates and sample the boundary-element electric field at the predicted midpoint. The existing `boris_push` signature is unchanged, but corrected trajectories differ from previous releases.
