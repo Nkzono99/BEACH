@@ -8,6 +8,7 @@ module bem_field_kernel_c
                                   eval_direct_points, eval_potential_points, eval_direct_potential_points, &
                                   fmm_options_type, fmm_plan_type, fmm_state_type, update_state
   use bem_kinds, only: dp, i32, i64
+  use bem_version, only: beach_build_info
   implicit none
   private
 
@@ -29,6 +30,7 @@ module bem_field_kernel_c
   end type field_kernel_handle
 
   public :: beach_kernel_create
+  public :: beach_kernel_get_build_info
   public :: beach_kernel_destroy
   public :: beach_kernel_build
   public :: beach_kernel_build_panel
@@ -42,6 +44,29 @@ module bem_field_kernel_c
   public :: beach_kernel_force_on_charges
 
 contains
+
+  integer(c_int) function beach_kernel_get_build_info(buffer_ptr, buffer_capacity, length_ptr) &
+    bind(C, name='beach_kernel_get_build_info') result(status)
+    type(c_ptr), value :: buffer_ptr, length_ptr
+    integer(c_int), value :: buffer_capacity
+    integer(c_int), pointer :: text_length
+    integer :: required_length
+
+    if (.not. c_associated(length_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    call c_f_pointer(length_ptr, text_length)
+    required_length = len(beach_build_info)
+    text_length = int(required_length, c_int)
+    if (.not. c_associated(buffer_ptr) .or. buffer_capacity <= int(required_length, c_int)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+
+    call copy_text_to_c_buffer(beach_build_info, required_length, buffer_ptr, buffer_capacity)
+    status = beach_kernel_ok
+  end function beach_kernel_get_build_info
 
   integer(c_int) function beach_kernel_create(handle) bind(C, name='beach_kernel_create') result(status)
     type(c_ptr), intent(out) :: handle

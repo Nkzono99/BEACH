@@ -9,11 +9,13 @@ from beach.cli.kernel_forces import main as kernel_forces_main
 from beach import (
     BeachScene,
     FieldKernel,
+    FieldKernelBuildInfo,
     FieldKernelDiagnostics,
     FieldKernelError,
     FieldKernelOptions,
     FortranRunResult,
     calc_object_forces_kernel,
+    field_kernel_build_info,
     field_kernel_options_from_result,
 )
 from beach.fortran_results.constants import K_COULOMB
@@ -50,6 +52,7 @@ class _FakeKernelLibrary:
         cache_setter: bool,
         cache_getter: bool,
         diagnostics: tuple[int, int, bytes, bytes] = (0, 0, b"", b""),
+        build_info: bytes | None = None,
     ) -> None:
         self.events: list[str] = []
         self.cache_settings: list[tuple[bytes, float]] = []
@@ -100,6 +103,18 @@ class _FakeKernelLibrary:
             ctypes.memmove(path_ptr, path + b"\0", len(path) + 1)
             return 0
 
+        def get_build_info(
+            buffer_ptr: object,
+            buffer_capacity: object,
+            length_ptr: object,
+        ) -> int:
+            assert build_info is not None
+            ctypes.cast(length_ptr, ctypes.POINTER(ctypes.c_int))[0] = len(build_info)
+            if _int_value(buffer_capacity) <= len(build_info):
+                return 2
+            ctypes.memmove(buffer_ptr, build_info + b"\0", len(build_info) + 1)
+            return 0
+
         self.beach_kernel_create = _FakeFunction("create", create, self.events)
         self.beach_kernel_destroy = _FakeFunction("destroy", ok, self.events)
         self.beach_kernel_build = _FakeFunction("build", ok, self.events)
@@ -115,6 +130,10 @@ class _FakeKernelLibrary:
         if cache_getter:
             self.beach_kernel_get_periodic_cache_info = _FakeFunction(
                 "get_cache", get_cache, self.events
+            )
+        if build_info is not None:
+            self.beach_kernel_get_build_info = _FakeFunction(
+                "get_build_info", get_build_info, self.events
             )
 
 
@@ -137,6 +156,66 @@ def _kernel_lib() -> Path:
 
 def test_field_kernel_diagnostics_is_a_frozen_top_level_api() -> None:
     assert FieldKernelDiagnostics.__dataclass_params__.frozen
+
+
+def test_field_kernel_build_info_is_a_frozen_top_level_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = (
+        b"build_info_schema_version=1\n"
+        b"build_version=1.5.0-test\n"
+        b"build_version_mode=git\n"
+        b"build_source_commit=0123456789abcdef0123456789abcdef01234567\n"
+        b"build_id=0123456789abcdef0123456789abcdef01234567:clean"
+    )
+    lib = _FakeKernelLibrary(
+        cache_setter=False,
+        cache_getter=False,
+        build_info=payload,
+    )
+    _install_fake_kernel(monkeypatch, lib)
+
+    info = field_kernel_build_info("unused.so")
+
+    assert FieldKernelBuildInfo.__dataclass_params__.frozen
+    assert info == FieldKernelBuildInfo(
+        schema_version=1,
+        version="1.5.0-test",
+        version_mode="git",
+        source_commit="0123456789abcdef0123456789abcdef01234567",
+        build_id="0123456789abcdef0123456789abcdef01234567:clean",
+    )
+
+
+def test_field_kernel_build_info_rejects_reordered_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = (
+        b"build_version=1.5.0-test\n"
+        b"build_info_schema_version=1\n"
+        b"build_version_mode=git\n"
+        b"build_source_commit=0123456789abcdef0123456789abcdef01234567\n"
+        b"build_id=0123456789abcdef0123456789abcdef01234567:clean"
+    )
+    lib = _FakeKernelLibrary(
+        cache_setter=False,
+        cache_getter=False,
+        build_info=payload,
+    )
+    _install_fake_kernel(monkeypatch, lib)
+
+    with pytest.raises(FieldKernelError, match="unexpected fields"):
+        field_kernel_build_info("reordered.so")
+
+
+def test_field_kernel_build_info_requires_native_attestation_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
+    _install_fake_kernel(monkeypatch, lib)
+
+    with pytest.raises(FieldKernelError, match="build-info ABI"):
+        field_kernel_build_info("legacy.so")
 
 
 def test_field_kernel_cache_options_are_set_before_geometry_build(

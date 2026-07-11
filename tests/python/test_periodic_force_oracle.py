@@ -1,4 +1,6 @@
+import importlib.util
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +15,7 @@ from beach import (
     FortranRunResult,
     ObjectForcePath,
     ObjectInteractionSnapshot,
+    RigidTransform,
     finite_shell_convergence,
     finite_shell_wrench,
 )
@@ -21,6 +24,20 @@ import beach.fortran_results.periodic_force_oracle as oracle_module
 
 
 EPS0 = 1.0 / (4.0 * np.pi * K_COULOMB)
+ROOT = Path(__file__).resolve().parents[2]
+VALIDATION_TOOL_PATH = ROOT / "tools" / "periodic_object_validation.py"
+
+
+def _load_validation_tool():
+    spec = importlib.util.spec_from_file_location(
+        "beach_periodic_object_validation_native_oracle",
+        VALIDATION_TOOL_PATH,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _kernel_lib() -> Path:
@@ -115,6 +132,33 @@ field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 field_periodic_ewald_layers = 4
 field_periodic_generation_tolerance = 1.0e-8
+e0 = [0.0, 0.0, 0.0]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_free_interaction_config(
+    path: Path,
+    *,
+    source_model: str,
+    kernel_id: str,
+    softening: float,
+) -> None:
+    path.write_text(
+        f"""
+[sim]
+field_solver = "fmm"
+field_bc_mode = "free"
+field_source_model = "{source_model}"
+field_kernel_id = "{kernel_id}"
+softening = {softening:.17g}
+tree_theta = 0.2
+tree_leaf_max = 16
+tree_order = 4
+box_min = [-1.0, -1.0, -1.0]
+box_max = [3.0, 3.0, 1.0]
 e0 = [0.0, 0.0, 0.0]
 """.strip()
         + "\n",
@@ -231,6 +275,147 @@ def _canonical_periodic_sources(points: np.ndarray, length: float) -> np.ndarray
             origin = np.mod(ordered[-1] + 0.5 * wrap_gap, length)
         result[result[:, axis] < origin, axis] += length
     return result
+
+
+def test_identity_rigid_transform_preserves_point_bits_about_nonzero_origin() -> None:
+    points = np.mean(_plane_triangles(4), axis=1)
+    transformed = RigidTransform.identity().apply(
+        points,
+        origin=np.array([1.0, 1.0, 0.0]),
+    )
+
+    assert transformed.tobytes() == points.tobytes()
+
+
+def test_point_wrench_identity_transform_keeps_primary_residual_at_roundoff(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "softening = 0.05",
+            "softening = 2.0e-6",
+        ),
+        encoding="utf-8",
+    )
+    triangles = _plane_triangles(8)
+    coarse_triangles = _plane_triangles(4)
+    centers = np.mean(triangles, axis=1)
+    coarse_centers = np.mean(coarse_triangles, axis=1)
+    charges = np.zeros(triangles.shape[0])
+    for center in coarse_centers:
+        matches = np.flatnonzero(
+            np.all(np.isclose(centers, center, rtol=0.0, atol=1.0e-14), axis=1)
+        )
+        assert matches.size == 1
+        charges[int(matches[0])] = EPS0 * 4.0 / coarse_triangles.shape[0]
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=triangles.shape[0],
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charges,
+        triangles=triangles,
+        mesh_ids=np.ones(triangles.shape[0], dtype=np.int64),
+        field_source_model="point",
+    )
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+        periodic_model="configured",
+        library_path=_kernel_lib(),
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        transformed_points = RigidTransform.identity().apply(
+            probe._target_points_m,
+            origin=probe._geometric_area_centroid_m,
+        )
+        primary_field = probe._primary.eval_e_direct(transformed_points)
+
+    residual = np.sum(
+        probe._target_charge_weights_C[:, None] * primary_field,
+        axis=0,
+    )
+    separations = centers[:, None, :] - centers[None, :, :]
+    distance_squared = np.sum(separations**2, axis=2)
+    upper = np.triu_indices(len(charges), k=1)
+    pair_force_scale = float(
+        np.sum(
+            K_COULOMB
+            * np.abs(charges[upper[0]] * charges[upper[1]])
+            / distance_squared[upper]
+        )
+    )
+    tolerance = 512.0 * np.finfo(np.float64).eps * pair_force_scale
+    assert np.linalg.norm(residual) <= tolerance
+
+
+@pytest.mark.parametrize(
+    ("source_model", "kernel_id", "softening"),
+    [
+        ("point", "softened_point", 2.0e-6),
+        ("triangle_p0", "triangle_p0_exact_p2m_near", 0.0),
+    ],
+)
+def test_free_space_moved_single_source_has_no_primary_image_residual(
+    tmp_path: Path,
+    source_model: str,
+    kernel_id: str,
+    softening: float,
+) -> None:
+    config = tmp_path / f"{source_model}.toml"
+    _write_free_interaction_config(
+        config,
+        source_model=source_model,
+        kernel_id=kernel_id,
+        softening=softening,
+    )
+    triangles = _plane_triangles(1)[:1]
+    charge = 1.0e-12
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([charge]),
+        triangles=triangles,
+        mesh_ids=np.ones(1, dtype=np.int64),
+        field_source_model=source_model,
+        field_kernel_id=kernel_id,
+    )
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+        periodic_model="configured",
+        library_path=_kernel_lib(),
+    ) as snapshot:
+        wrench = snapshot.object_probe(1).wrench(
+            transform=RigidTransform.translation([0.0, 0.0, 0.25]),
+        )
+
+    residual = wrench.components["target_periodic_images"]
+    force_scale = K_COULOMB * charge**2 / 0.25**2
+    force_tolerance = 512.0 * np.finfo(np.float64).eps * force_scale
+    assert np.linalg.norm(residual.force_N) <= force_tolerance
+    assert residual.potential_energy_J is not None
+    energy_scale = K_COULOMB * charge**2 / 0.25
+    energy_tolerance = 512.0 * np.finfo(np.float64).eps * energy_scale
+    assert abs(residual.potential_energy_J) <= energy_tolerance
 
 
 def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) -> None:
@@ -661,6 +846,121 @@ def test_non_neutral_near_field_shell_converges_to_physical_infinite_reference(
 
 
 @pytest.mark.skipif(
+    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1"
+    or not os.environ.get("BEACH_FIELD_KERNEL_LIB"),
+    reason=(
+        "native validation-tool oracles require opt-in cache generation and "
+        "BEACH_FIELD_KERNEL_LIB"
+    ),
+)
+def test_validation_tool_native_plane_oracles_match_receipt_contract(
+    tmp_path: Path,
+) -> None:
+    tool = _load_validation_tool()
+    library_value = os.environ.get("BEACH_FIELD_KERNEL_LIB")
+    assert library_value is not None
+    library = Path(library_value).expanduser().resolve()
+    assert library.is_file(), f"native field-kernel library does not exist: {library}"
+
+    oracle_dir = tmp_path / "provenance" / "oracles"
+    oracle_dir.mkdir(parents=True)
+    triangle_config = oracle_dir / "periodic_plane.toml"
+    point_config = oracle_dir / "periodic_plane_point.toml"
+    tool._oracle_panel_config(triangle_config)
+    tool._oracle_point_config(point_config)
+    cache_dir = tmp_path / "cache" / "oracles"
+    cache_dir.mkdir(parents=True)
+
+    kernel_oracles = {
+        "triangle_p0": tool._run_periodic_plane_kernel_oracle(
+            root=tmp_path,
+            config_path=triangle_config,
+            cache_dir=cache_dir,
+            library_path=library,
+            field_source_model="triangle_p0",
+            field_kernel_id="triangle_p0_exact_p2m_near",
+        ),
+        "production_point": tool._run_periodic_plane_kernel_oracle(
+            root=tmp_path,
+            config_path=point_config,
+            cache_dir=cache_dir,
+            library_path=library,
+            field_source_model="point",
+            field_kernel_id="softened_point",
+        ),
+    }
+    for label, result in kernel_oracles.items():
+        tool._verify_periodic_oracle_metrics(result, label=label)
+        evaluations = result["cache_evaluations"]
+        assert tuple(row["label"] for row in evaluations) == (
+            tool.ORACLE_CACHE_EVALUATION_LABELS[label]
+        )
+        identities = result["cache_identities"]
+        assert result["cache_diagnostics"] == identities["4"]
+        assert identities["4"]["fingerprint"] != identities["8"]["fingerprint"]
+        assert identities["4"]["path"] != identities["8"]["path"]
+        assert all(row["hit"] is True for row in evaluations)
+        assert all(row["build_count"] == 0 for row in evaluations)
+        for group, group_labels in tool.ORACLE_CACHE_EVALUATION_GROUPS[label].items():
+            canonical = identities[group]
+            grouped = [row for row in evaluations if row["label"] in group_labels]
+            assert {row["label"] for row in grouped} == set(group_labels)
+            assert all(
+                (row["fingerprint"], row["path"], row["sha256"])
+                == (
+                    canonical["fingerprint"],
+                    canonical["path"],
+                    canonical["sha256"],
+                )
+                for row in grouped
+            )
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}\n", encoding="utf-8")
+    triangle = kernel_oracles["triangle_p0"]
+    receipt = {
+        "receipt_schema_version": 1,
+        "oracle_schema_version": 2,
+        "status": "qualified",
+        "manifest_sha256": tool._sha256(manifest),
+        "library": str(library),
+        "library_sha256": tool._sha256(library),
+        "config": str(triangle_config),
+        "config_sha256": tool._sha256(triangle_config),
+        "kernel_configs": {
+            "triangle_p0": {
+                "path": str(triangle_config),
+                "sha256": tool._sha256(triangle_config),
+            },
+            "production_point": {
+                "path": str(point_config),
+                "sha256": tool._sha256(point_config),
+            },
+        },
+        "cache_dir": str(cache_dir),
+        "cache_files": tool._output_inventory(cache_dir),
+        "execution_job_id": "pytest-native",
+        "kernel_oracles": kernel_oracles,
+        "uniform_plane": triangle["uniform_plane"],
+        "neutral_cosine_plane": triangle["neutral_cosine_plane"],
+        "verified_at": "pytest-native",
+    }
+    receipt_path = oracle_dir / "periodic_plane.json"
+    tool._publish_execution_receipt(receipt_path, receipt)
+    verified = tool._verify_periodic_oracle_receipt(
+        tmp_path,
+        library,
+        expected_job_id="pytest-native",
+    )
+
+    assert verified["status"] == "qualified"
+    assert set(verified["kernel_oracles"]) == {
+        "triangle_p0",
+        "production_point",
+    }
+
+
+@pytest.mark.skipif(
     os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
     reason="analytic periodic panel plane requires opt-in cache generation",
 )
@@ -697,11 +997,15 @@ def test_uniform_triangle_plane_matches_bottom_zero_jump_pv_and_object_wrench(
 
     fmm_panel_relative_tolerance = 1.2e-1
     expected_ez = np.array([0.0, 0.5, 1.0])
+    assert field[0, 2] == pytest.approx(
+        expected_ez[0],
+        abs=fmm_panel_relative_tolerance,
+    )
     np.testing.assert_allclose(
-        field[:, 2],
-        expected_ez,
+        field[1:, 2],
+        expected_ez[1:],
         rtol=fmm_panel_relative_tolerance,
-        atol=fmm_panel_relative_tolerance,
+        atol=0.0,
     )
     np.testing.assert_allclose(
         field[:, :2],

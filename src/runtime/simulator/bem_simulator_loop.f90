@@ -1,6 +1,6 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
-  use, intrinsic :: iso_fortran_env, only: output_unit
+  use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
                                      perf_region_field_solver_init, perf_region_history_write, perf_region_mpi_reduce, &
@@ -591,7 +591,9 @@ contains
       'particle step failed: batch=', batch_idx, ' particle=', failure_particle, &
       ' step=', failure_step, ' rank=', failure_rank, ' status=', trim(failure_name), &
       ' code=', failure_status, ' dt=', dt, ' x=', failure_x, ' v=', failure_v
-    error stop trim(failure_message)
+    write (error_unit, '(a)') trim(failure_message)
+    flush (error_unit)
+    error stop 1
   end subroutine stop_for_collision_failure
 
   !> 全 rank で選択済みの photo collision failure context を報告して停止する。
@@ -614,7 +616,9 @@ contains
       'photo collision query incomplete: batch=', batch_idx, ' rank=', failure_rank, &
       ' species=', failure_species, ' ray=', failure_ray, ' bounce=', failure_bounce, &
       ' status=', trim(failure_name), ' code=', failure_status
-    error stop trim(failure_message)
+    write (error_unit, '(a)') trim(failure_message)
+    flush (error_unit)
+    error stop 1
   end subroutine stop_for_photo_collision_failure
 
   !> 正の整数環境変数を読む。未設定、不正値、ゼロ以下の場合は found=.false.。

@@ -84,6 +84,17 @@ class FieldKernelDiagnostics:
 
 
 @dataclass(frozen=True)
+class FieldKernelBuildInfo:
+    """Source identity embedded in a BEACH field-kernel library."""
+
+    schema_version: int
+    version: str
+    version_mode: str
+    source_commit: str
+    build_id: str
+
+
+@dataclass(frozen=True)
 class KernelObjectForceRecord:
     """Object-level net force/torque computed by the Fortran field kernel."""
 
@@ -93,6 +104,77 @@ class KernelObjectForceRecord:
     center_m: np.ndarray
     force_N: np.ndarray
     torque_Nm: np.ndarray
+
+
+def field_kernel_build_info(
+    library_path: str | Path | None = None,
+) -> FieldKernelBuildInfo:
+    """Read and validate build-origin metadata from a field-kernel library."""
+
+    lib = _load_kernel_library(library_path)
+    _configure_library(lib)
+    getter = getattr(lib, "beach_kernel_get_build_info", None)
+    if getter is None:
+        raise FieldKernelError(
+            "field-kernel build-info ABI requires shared-library symbol "
+            "beach_kernel_get_build_info."
+        )
+
+    text_length = ctypes.c_int()
+
+    def read_info(buffer: ctypes.Array[ctypes.c_char]) -> int:
+        return int(
+            getter(
+                ctypes.cast(buffer, ctypes.c_void_p),
+                ctypes.c_int(len(buffer)),
+                ctypes.byref(text_length),
+            )
+        )
+
+    buffer = ctypes.create_string_buffer(1)
+    probe_status = read_info(buffer)
+    if probe_status not in (0, 2):
+        _check_status(probe_status, "beach_kernel_get_build_info")
+    if not 0 < text_length.value <= 65535:
+        raise FieldKernelError("field-kernel build-info returned an invalid text length.")
+
+    buffer = ctypes.create_string_buffer(text_length.value + 1)
+    status = read_info(buffer)
+    _check_status(status, "beach_kernel_get_build_info")
+    if not 0 < text_length.value < len(buffer):
+        raise FieldKernelError("field-kernel build-info returned an invalid text length.")
+    if buffer.raw[text_length.value] != 0:
+        raise FieldKernelError("field-kernel build-info is not NUL terminated.")
+    try:
+        payload = buffer.raw[: text_length.value].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise FieldKernelError("field-kernel build-info is not valid UTF-8.") from exc
+
+    fields: dict[str, str] = {}
+    for line in payload.split("\n"):
+        key, separator, value = line.partition("=")
+        if not separator or not key or not value or key in fields:
+            raise FieldKernelError("field-kernel build-info payload is malformed.")
+        fields[key] = value
+
+    expected_keys = (
+        "build_info_schema_version",
+        "build_version",
+        "build_version_mode",
+        "build_source_commit",
+        "build_id",
+    )
+    if tuple(fields) != expected_keys:
+        raise FieldKernelError("field-kernel build-info payload has unexpected fields.")
+    if fields["build_info_schema_version"] != "1":
+        raise FieldKernelError("field-kernel build-info schema is not supported.")
+    return FieldKernelBuildInfo(
+        schema_version=1,
+        version=fields["build_version"],
+        version_mode=fields["build_version_mode"],
+        source_commit=fields["build_source_commit"],
+        build_id=fields["build_id"],
+    )
 
 
 class FieldKernel:
@@ -963,6 +1045,10 @@ def _configure_library(lib: ctypes.CDLL) -> None:
             c_void_p,
         ]
         getter.restype = c_int
+    build_info_getter = getattr(lib, "beach_kernel_get_build_info", None)
+    if build_info_getter is not None:
+        build_info_getter.argtypes = [c_void_p, c_int, c_void_p]
+        build_info_getter.restype = c_int
     lib._beach_kernel_ctypes_configured = True
 
 

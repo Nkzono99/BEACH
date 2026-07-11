@@ -5,12 +5,14 @@ program test_field_kernel_c
   use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_build_panel, beach_kernel_create, &
                                 beach_kernel_destroy, beach_kernel_eval_e, beach_kernel_eval_e_direct, &
                                 beach_kernel_eval_phi, beach_kernel_eval_phi_direct, &
-                                beach_kernel_force_on_charges, beach_kernel_get_periodic_cache_info, &
+                                beach_kernel_force_on_charges, beach_kernel_get_build_info, &
+                                beach_kernel_get_periodic_cache_info, &
                                 beach_kernel_invalid_argument, beach_kernel_invalid_handle, beach_kernel_not_ready, &
                                 beach_kernel_ok, beach_kernel_set_periodic_cache, beach_kernel_update_charges
   use bem_kinds, only: dp, i32
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
+  use bem_version, only: beach_build_info
   use test_support, only: assert_allclose_1d, assert_equal_i32, assert_true, test_begin, test_summary
   implicit none
 
@@ -23,14 +25,30 @@ program test_field_kernel_c
   real(dp) :: expected_phi
   type(panel_geometry_type) :: geometry
   integer(i32) :: geometry_status
-  integer(c_int), target :: cache_hit, cache_build_count, fingerprint_length, path_length
+  integer(c_int), target :: build_info_length, cache_hit, cache_build_count, fingerprint_length, path_length
   character(kind=c_char), target :: cache_path(8), embedded_nul_path(3), invalid_utf8_path(2), long_path(257)
   character(kind=c_char), target :: valid_utf8_path(5), overlong_path(2), surrogate_path(3), out_of_range_path(4)
   character(kind=c_char), target :: truncated_utf8_path(2), blank_path(1), trailing_blank_path(2)
-  character(kind=c_char), target :: fingerprint_buffer(17), path_buffer(513)
+  character(kind=c_char), target :: build_info_buffer(512), fingerprint_buffer(17), path_buffer(513)
   integer(c_int), target :: cache_periodic_axes(2)
   real(c_double), target :: cache_periodic_len(2), cache_box_min(3), cache_box_max(3)
   integer(i32) :: panel_target_idx
+  integer :: i
+
+  call test_begin('field_kernel_c_build_info')
+  build_info_buffer = achar(88, kind=c_char)
+  build_info_length = -1_c_int
+  status = beach_kernel_get_build_info(c_null_ptr, 512_c_int, c_loc(build_info_length))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'build-info NULL buffer')
+  status = beach_kernel_get_build_info(c_loc(build_info_buffer), 1_c_int, c_loc(build_info_length))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'build-info undersized buffer')
+  call assert_equal_i32(build_info_length, int(len(beach_build_info), i32), 'build-info required length')
+  status = beach_kernel_get_build_info(c_loc(build_info_buffer), 512_c_int, c_loc(build_info_length))
+  call assert_equal_i32(status, beach_kernel_ok, 'build-info getter status')
+  do i = 1, len(beach_build_info)
+    call assert_true(transfer(build_info_buffer(i), ' ') == beach_build_info(i:i), 'build-info payload mismatch')
+  end do
+  call assert_true(build_info_buffer(len(beach_build_info) + 1) == c_null_char, 'build-info must be NUL terminated')
 
   call test_begin('field_kernel_c_cache_abi_validation')
   call set_c_bytes(cache_path, [99, 97, 99, 104, 101, 45, 195, 169])

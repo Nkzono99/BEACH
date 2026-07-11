@@ -108,6 +108,12 @@ The test suite is tiered for the development loop.
 `make test-l3`, `make test-heavy`, `make test-fortran-heavy`, or `make test-full`.
 The `m2l_root_oracle` far-correction diagnostics are even heavier and require
 `make test-fortran-far-correction` or unfiltered `make test-full`.
+Tiered tests under Intel `ifx` / `mpiifx` suppress only the
+`arg_temp_created` check by default because each expected array temporary can
+otherwise emit a full stack trace. Other debug checks, including bounds
+checks, remain enabled. To inspect array temporaries themselves, override the
+flags explicitly, for example with
+`FORTRAN_TEST_FLAGS="-qopenmp" make test-fortran-heavy FPM_FC=mpiifx`.
 
 Run a single target with:
 

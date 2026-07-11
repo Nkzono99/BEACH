@@ -23,6 +23,7 @@ module bem_app_config_runtime
     total_particles_from_config
   use bem_string_utils, only: lower_ascii
   use bem_config_helpers, only: resolve_inward_normal
+  use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private :: finalize_particle_batch_collision_query
@@ -603,7 +604,9 @@ contains
       'photo_raycast collision query incomplete during batch preparation: batch=', batch_idx, &
       ' species=', species_idx, ' ray=', query_ray, ' bounce=', query_bounce, &
       ' status=', trim(status_name), ' code=', query_status
-    error stop trim(failure_message)
+    write (error_unit, '(a)') trim(failure_message)
+    flush (error_unit)
+    error stop 1
   end subroutine finalize_particle_batch_collision_query
 
   !> 1粒子種ぶんの位置・速度サンプルをまとめて生成する。

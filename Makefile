@@ -30,6 +30,8 @@ FORD_CONFIG ?= preprocessor = "$(PYTHON) -W ignore::RuntimeWarning -m pcpp.pcmd 
 PROFILE ?= release
 CONFIG ?= beach.toml
 OPENMP_FLAG ?= -fopenmp
+INTEL_TEST_QUIET_FLAG = $(if $(filter ifort ifx mpiifort mpiifx,$(notdir $(FPM_FC))),-check noarg_temp_created)
+FORTRAN_TEST_FLAGS ?= $(strip $(OPENMP_FLAG) $(INTEL_TEST_QUIET_FLAG))
 VERSION_MODE ?=
 BUILD_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),git)
 CHECK_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
@@ -114,6 +116,8 @@ FORTRAN_DEP_MAP_SVG ?= docs/media/fortran_module_dependencies.svg
 MPI_FC ?= mpiifort
 MPI_OPENMP_FLAG ?= -qopenmp
 MPI_CPP_FLAG ?= -fpp -DUSE_MPI
+MPI_TEST_QUIET_FLAG = $(if $(filter ifort ifx mpiifort mpiifx,$(notdir $(MPI_FC))),-check noarg_temp_created)
+MPI_TEST_FLAGS ?= $(strip $(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG) $(MPI_TEST_QUIET_FLAG))
 MPI_NP ?= 2
 MPI_RUNNER ?= mpirun -n $(MPI_NP)
 
@@ -122,7 +126,7 @@ define run_fortran_targets
 	for target in $(1); do \
 		echo "==> fpm test --target $$target"; \
 		BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
-			FPM_PROFILE=debug FPM_FFLAGS="$(OPENMP_FLAG)" $(BUILD_SH) --target "$$target"; \
+			FPM_PROFILE=debug FPM_FFLAGS="$(FORTRAN_TEST_FLAGS)" $(BUILD_SH) --target "$$target"; \
 	done
 endef
 
@@ -160,7 +164,7 @@ check:
 
 build-kernel:
 	BEACH_VERSION_MODE=$(BUILD_VERSION_MODE) FPM=$(FPM) FPM_ACTION=build \
-		FPM_PROFILE=$(PROFILE) FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH)
+		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH)
 	@set -eu; \
 	lib=$$(find build -name libbeach_fortran.a -printf '%T@ %p\n' | sort -nr | awk 'NR==1 {print $$2}'); \
 	if [ -z "$$lib" ]; then echo "libbeach_fortran.a not found; run fpm build first." >&2; exit 1; fi; \
@@ -200,7 +204,7 @@ test-physics-release:
 
 test-full:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
-		FPM_PROFILE=debug FPM_FFLAGS="$(OPENMP_FLAG)" $(BUILD_SH)
+		FPM_PROFILE=debug FPM_FFLAGS="$(FORTRAN_TEST_FLAGS)" $(BUILD_SH)
 
 test-fortran: test-fortran-light
 
@@ -250,12 +254,12 @@ run-mpi:
 
 test-mpi:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
-		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)" \
+		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_TEST_FLAGS)" \
 		$(BUILD_SH) --target test_mpi_hybrid --runner "$(MPI_RUNNER)"
 
 test-mpi-periodic-cache:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
-		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)" \
+		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_TEST_FLAGS)" \
 		$(BUILD_SH) --target test_periodic2_operator_cache_mpi --runner "$(MPI_RUNNER)"
 
 docs-deps:

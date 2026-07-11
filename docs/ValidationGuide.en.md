@@ -78,20 +78,209 @@ criteria. Process completion, generated CSV files, or one
 7. A non-neutral x/y-periodic cell can retain a constant far field and linear
    potential. Do not report a finite-height work or speed as escape energy or
    escape speed at infinity.
-8. Also qualify the cached infinite-periodic implementation with opt-in
-   analytic oracles. For a uniform non-neutral triangle plane
-   (`sigma=Q/A`) under `E_bottom=0`, require `E_z=0` below,
-   `E_z=sigma/epsilon0` above, the surface PV
-   `E_z=sigma/(2 epsilon0)`, surface pressure
+8. Qualify the cached infinite-periodic implementation with analytic oracles.
+   The lightweight pytest oracle is opt-in through
+   `BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1`. In the production strict chain,
+   however, the analysis job must run `probe-periodic-oracles` before
+   `analyze --require-complete` and provide a write-once receipt bound to the
+   same staged library. The primary oracle uses the production `point` source
+   and `softened_point` kernel; a `triangle_p0` oracle is evaluated with the
+   same library as an auxiliary check.
+9. For a uniform non-neutral plane (`sigma=Q/A`) under the `E_bottom=0`
+   closure, require `E_z=0` below, the surface PV
+   `E_z=sigma/(2 epsilon0)`, `E_z=sigma/epsilon0` above, surface pressure
    `sigma^2/(2 epsilon0)`, and total object force
-   `Q^2/(2 epsilon0 A)`. For a neutral `sigma_0 cos(kx)` sheet, require the
-   `k != 0` field and potential amplitudes to decay as
-   `exp(-k |z-z0|)` and the analytic error to decrease under triangle-mesh
-   refinement.
+   `Q^2/(2 epsilon0 A)`. Fix the potential gauge at sheet height `z0` so that
+   `phi=0` on and below the sheet and
+   `phi=-sigma (z-z0)/epsilon0` above it. The surface PV applies to the field
+   trace; potential is continuous in this gauge. This force is
+   closure-dependent Maxwell traction, not a universal free-space self force.
+10. The production `point` oracle spatially averages a 24x24 x/y sample at
+   each of `z=-0.25, 0, +0.25` and evaluates 4x4 and 8x8 source grids.
+   Off-surface modulation RMS must decrease from 4 to 8 and be at most
+   `0.12 V/m` on the fine grid. Point-centroid wrenches on both grids must be
+   within 12% of the analytic result, and the inter-grid force difference must
+   be within 1%. Force, transverse-force, and torque errors must each decrease
+   from 4 to 8. The primary-free subtraction residual must also decrease and
+   be within 1% on the fine grid. The decomposition requires other force,
+   external force, and `total_external-target_periodic_images` to each be at
+   most `1e-12`, and confirms that the reported component residual equals the
+   maximum of those three terms and the primary-free residual. A
+   separate single-primary check verifies
+   removal of primary self force and subtraction of softened self potential
+   energy `-K q^2/a` to relative `1e-11`. This is the
+   `exclude_primary_keep_images` contract: exclude only the primary while
+   retaining periodic images. The auxiliary `triangle_p0` oracle requires the
+   Gauss-Duffy order-3/order-7 wrench difference to be within 1%.
+11. For a neutral `sigma_0 cos(kx)` sheet, field and potential errors must each
+   decrease from the 4x4 to the 8x8 grid, be within 8% on the fine grid, and
+   follow the `exp(-k |z-z0|)` amplitude decay. The production point source
+   requires a charge-neutrality ratio `<=1e-12` on both grids. At paired
+   `+z/-z` samples, tangential field is even, normal field is odd, and
+   potential is even; separate field and potential parity errors must each be
+   within 8%. A softened-point micro-oracle with `a/L=1e-6` compares analytic
+   softened field/potential with the direct evaluator and ordinary with direct
+   at four points `r/a=0,1,2,3`, all to relative `1e-11`; normalized self field
+   must be at most `32 epsilon_machine`. This is a local kernel-contract check,
+   not a substitute for the periodic closure. The 12% uniform-plane and 8%
+   cosine thresholds are smoke gates for the production ABI/cache path. They
+   neither replace the 0.5% object-path and 1% finite-shell convergence
+   criteria nor establish 8%/12% physical accuracy.
 
-A zero CLI exit code and four output artifacts establish Level 1. Path and
-shell convergence are only parts of Level 2. The model-selection and
-sensitivity checks above are needed before considering a Level-3 physical
-claim.
+## SysA Comparison of Archived, Finite, and Infinite Runs
+
+`tools/periodic_object_validation.py` is a fail-closed harness for comparing an
+existing archive with `finite_configured` and `infinite_physical` runs that
+retain the same physical inputs. Put the validation root outside the repository
+and require it to be empty before staging.
+
+```bash
+current_sys="$(module -t list 2>&1 | grep -E '^Sys(A|B|C|CL|G)/' | head -n 1 || true)"
+if [ -n "${current_sys}" ] && [ "${current_sys}" != "SysA/2022" ]; then
+  module switch "${current_sys}" SysA/2022
+elif [ -z "${current_sys}" ]; then
+  module load SysA/2022
+fi
+module load intel/2023.2 intelmpi/2023.2
+
+python3.11 tools/periodic_object_validation.py stage \
+  --archive-run /path/to/RUN \
+  --validation-root /LARGE1/.../beach-periodic-object-force-validation \
+  --binary /path/to/clean-build/beach \
+  --library /path/to/clean-build/libbeach_field_kernel.so \
+  --require-clean-source
+python3.11 tools/periodic_object_validation.py verify-inputs \
+  --validation-root /LARGE1/.../beach-periodic-object-force-validation
+bash /LARGE1/.../beach-periodic-object-force-validation/submit/submit_chain.sh
+```
+
+`stage` snapshots the executable, Python source, analysis tool, and native
+kernel library with hashes. Operationally, build the executable and library
+from the same clean commit under SysA/Intel before passing them to `stage`.
+`stage --require-clean-source` reads executable `--build-info` and the library
+C ABI build info. It accepts them only when version, mode, full source SHA, and
+`SHA:clean` agree with each other and with the staged source commit.
+`verify-inputs` rereads the staged artifacts, while each simulation
+`summary.txt` and the plane-oracle receipt are bound to the same build origin.
+`analyze --require-complete` requires this build origin unconditionally, so a
+production manifest staged without `--require-clean-source` cannot pass strict
+qualification.
+Compiler identity is not embedded in the artifacts; retain the SysA/Intel
+module and build logs as separate execution evidence.
+
+The generated DAG has six jobs: smoke (including cache prime), finite 140000,
+finite 280000, infinite 140000, infinite 280000, and analysis. Each model
+starts fresh through batch 140000 and restarts from the verified checkpoint
+into a separate 280000-segment directory. The final analysis job depends on
+both 280000 jobs with `afterok`, runs the mandatory production plane oracle,
+and then invokes `analyze --require-complete`. `submit_chain.sh` atomically
+updates a persistent `job_ids.json` journal after each submission and uses an
+exclusive lock. It refuses to submit the same DAG again even after a partial
+submission. Strict analysis rechecks six unique job IDs, SysA/Intel
+module/hash logs for every job, source commit, resources, and zero exit status
+for the five predecessors, and the ID of the running analysis job.
+
+`verify-run` checks the schema, geometry, charge and particle ledgers,
+`mesh_sources.csv`, `mesh_potential.csv`, every MPI-rank checkpoint, history,
+restart fingerprints, cache fingerprint, and cache-file hash. It writes an
+execution receipt once under `provenance/verified/`, including every regular
+file in the output tree. Later verification never replaces that receipt; it
+compares current files against it and also fixes the restart-parent and
+cache-prime receipt dependencies. Cached runs and post-processing evaluators
+are bound to the verified cache-prime receipt hash as well as the cache
+fingerprint, path, and file hash; they cannot silently reuse a different
+cache. Strict final analysis rechecks the staged
+archive input, manifest, source snapshot, case graph, binary, and library, and
+requires an existing execution receipt for all seven cases. Archive-only
+preflight may omit `--require-complete`, but its `missing` and `not_evaluated`
+rows cannot support a conclusion.
+
+The comparison semantics are fixed. `archive -> new finite` includes version,
+restart, and runtime drift and is not a boundary-only comparison. Only
+`new finite -> new infinite`, produced by the same new executable and inputs,
+isolates the boundary-model effect. The `vdw_work` speed bracket uses an
+equivalent finite-range constant force that preserves initial adhesion force
+and total adhesion work; it does not reproduce the original `1/s^2` barrier
+shape. The primary constrained-translation result uses `eta_translation=1`;
+the archived value `0.5` is retained separately as a sensitivity value.
+
+The harness separately audits the archived `Fz>0` estimators. It binds
+`force_timeseries.csv`, `moving_sphere_force_curves.csv`,
+`moving_sphere_release_summary.csv`, and `moving_sphere_model_summary.json` by
+hash and exact schema, then compares only the common batch/mesh keys
+`(149001,7)`, `(180001,6)`, `(279001,6)`, and `(279001,7)`. The archived
+center-charge direct estimate, local-pair proxy, and moving-sphere force/work at
+`z=0` and `z=2R` are recorded beside current native-finite other-object,
+target-periodic-image, and total components in
+`legacy_estimator_comparison.csv`. Batch 280000 is not interpolated because it
+is absent from the legacy tables. Numerical closeness is not a gate: the old
+estimator excludes the entire target from its self sources, while the current
+evaluator excludes only the primary and retains target periodic images. The
+strict gate covers input coverage, finite values, charge/radius/batch mapping,
+and internal endpoint consistency between the legacy curve and summary.
+
+The analysis compares per-object charge and element-charge L1/L2/Linf
+differences at every saved batch common to the runs. Expensive force/path
+evaluation is restricted to mesh 7 at batch 149001, mesh 6 at batch 180001,
+both at 279001, and final batch 280000. `snapshot_manifest.csv` distinguishes
+history from final charge and hashes both the charge vector and source file.
+`comparison_matrix.csv` assigns separate `comparison_kind` values to archived
+version drift, field-closure changes on the same charge, charging-history
+response under a common infinite evaluator, and the end-to-end difference.
+The strict comparison artifact contract allows exactly those four kinds and
+requires force, endpoint work, minimum available energy, from-rest barrier,
+and endpoint reachability for each. Every referenced snapshot must resolve;
+the frozen-field comparison must use one charge snapshot; effective
+far-correction pairs must match their declarations; and no structural
+`missing`, `invalid`, or `not_evaluated` row is allowed.
+
+Mesh IDs and ordering must match exactly across archived, new-finite, and
+new-infinite cases. Triangle coordinates use the declared tolerance
+`max(1e-18 m, 64 epsilon Lbox)`. In addition, the new-finite and new-infinite
+`field_source_model`, `field_kernel_id`, and the `mesh_sources.csv`
+source/template kind, surface model, `epsilon_r`, and element count must match
+the staged inputs and each other exactly. Missing equivalent metadata in the
+old archive does not weaken the new-run contract. For cached evaluators,
+`object_wrench.csv` also records cache hit, build count, fingerprint, path,
+file hash, and cache-prime receipt hash.
+
+`analyze --require-complete` performs strict input, receipt, oracle, and
+geometry checks and generates artifacts in a temporary directory. A failure
+before publication removes that directory; after correction, the same
+validation root can be retried while `analysis/` remains absent or empty.
+
+`numerical_qualification_for_local_frozen_model` covers the exact 30
+path/wrench keys, six shell groups, and path/work convergence. The
+finite-shell relative tolerance is 1%; the
+adaptive path tolerance is 0.5%, with a `1e-12 N` absolute force floor and a
+`1e-18 J` absolute work floor. It also requires the force floor to be no more
+than 0.5% of peak force, the instantaneous detachment-force margin to exceed
+`1e-12 N`, and the energy margin from the barrier decision boundary to exceed
+10% of the energy tolerance. A barrier or speed is not claimed when these
+resolution gates fail, even if integration itself converged. This remains a
+qualification of the local frozen-charge model only. If a path or shell is
+unconverged, barrier and speed are `not_claimed_unqualified`. In a non-neutral
+system with a remaining constant upper field, `0..2R` work and speed are local
+frozen-field diagnostics, not escape-to-infinity quantities.
+
+Strict analysis creates exactly 14 artifacts in a temporary directory:
+`run_summary.csv`, `charge_history_pair.csv`, `particle_ledger_pair.csv`,
+`mesh_potential_pair.csv`, `snapshot_manifest.csv`, `object_wrench.csv`,
+`object_path_curves.csv`, `object_path_summary.csv`,
+`finite_shell_convergence.csv`, `comparison_matrix.csv`,
+`legacy_estimator_comparison.csv`, `analysis_summary.json`, `review_ja.md`, and
+`artifacts.json`. It checks the
+exact file set, nonempty files, and size/hash manifest, fsyncs them, and then
+atomically publishes `analysis/`. Strict success then requires both
+`numerical_qualification_for_local_frozen_model.status="qualified"` and
+`comparison_artifact_contract.status="complete"`. If either gate fails, the
+CLI exits nonzero but never overwrites the published diagnostics. Rerunning
+strict analysis after publication requires a new validation root.
+
+An exactly complete and readable 14-artifact set is Level-1 execution
+evidence. A zero strict-CLI exit code also establishes the structural, oracle,
+comparison, and local numerical gates above, but it is still a Level-2
+qualification of a local model. Model-selection and sensitivity checks are
+needed before considering a Level-3 physical claim.
 
 See [Physics release verification](PhysicsReleaseVerification.en.html) for small reference contracts.

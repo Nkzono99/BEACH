@@ -109,6 +109,10 @@ BEACH のテストは開発ループ向けに階層化しています。
 `m2l_root_oracle` far-correction 診断
 （`test_coulomb_fmm_core_periodic`, `test_periodic2_flat_oracle_diag`）はさらに重いため、
 `make test-fortran-far-correction` または unfiltered の `make test-full` で opt-in 実行します。
+Intel `ifx` / `mpiifx` の tiered test は、既知の配列一時オブジェクトごとに巨大な stack trace を
+出す `arg_temp_created` check だけを既定で抑制します。bounds など他の debug check は維持されます。
+一時配列診断そのものを調べる場合は、例えば
+`FORTRAN_TEST_FLAGS="-qopenmp" make test-fortran-heavy FPM_FC=mpiifx` のように明示上書きします。
 
 個別 target だけ確認する場合は次を使います。
 
