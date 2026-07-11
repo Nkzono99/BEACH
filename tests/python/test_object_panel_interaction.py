@@ -98,6 +98,16 @@ def test_gauss_duffy_conserves_each_panel_charge(order: int) -> None:
         )
 
 
+@pytest.mark.parametrize("order", [3.9, "3", None])
+def test_gauss_duffy_rejects_non_integer_orders(order: object) -> None:
+    with pytest.raises(ValueError, match="order"):
+        panel_target_quadrature(
+            np.array([_unit_triangle(0.0)]),
+            np.array([1.0e-9]),
+            order,  # type: ignore[arg-type]
+        )
+
+
 def test_single_triangle_primary_exclusion_leaves_only_uniform_wrench(
     tmp_path: Path,
 ) -> None:
@@ -201,6 +211,9 @@ class _CovariantFieldKernel:
     def eval_e(self, points: np.ndarray) -> np.ndarray:
         if float(np.sum(self.current)) != 2.0:
             return np.zeros_like(points)
+        if type(self).mode == "nonlinear_radial":
+            radius2 = np.sum(points * points, axis=1)
+            return radius2[:, None] * points
         if type(self).mode == "radial":
             return np.array(points, copy=True)
         return np.broadcast_to(np.array([1.0, -2.0, 0.5]), points.shape).copy()
@@ -208,6 +221,9 @@ class _CovariantFieldKernel:
     def eval_phi(self, points: np.ndarray) -> np.ndarray:
         if float(np.sum(self.current)) != 2.0:
             return np.zeros(len(points))
+        if type(self).mode == "nonlinear_radial":
+            radius2 = np.sum(points * points, axis=1)
+            return -0.25 * radius2 * radius2
         if type(self).mode == "radial":
             return -0.5 * np.sum(points * points, axis=1)
         return -(points @ np.array([1.0, -2.0, 0.5]))
@@ -244,7 +260,7 @@ def test_triangle_wrench_obeys_rigid_rotation_and_torque_origin_covariance(
     )
     matrix = rotation.rotation
 
-    _CovariantFieldKernel.mode = "radial"
+    _CovariantFieldKernel.mode = "nonlinear_radial"
     with ObjectInteractionSnapshot.from_result(
         result,
         step=None,
@@ -261,6 +277,7 @@ def test_triangle_wrench_obeys_rigid_rotation_and_torque_origin_covariance(
         about_a = probe.wrench(torque_origin=origin_a)
         about_b = probe.wrench(torque_origin=origin_b)
 
+    assert np.linalg.norm(base.torque_Nm) > 1.0e-3
     np.testing.assert_allclose(rotated.force_N, matrix @ base.force_N, atol=1.0e-13)
     np.testing.assert_allclose(rotated.torque_Nm, matrix @ base.torque_Nm, atol=1.0e-13)
     np.testing.assert_allclose(

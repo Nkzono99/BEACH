@@ -18,7 +18,7 @@ from .kernel import (
     _options_from_result,
 )
 from .mesh import _triangle_centers
-from .panel_quadrature import panel_target_quadrature
+from .panel_quadrature import _quadrature_order, panel_target_quadrature
 from .periodic_zero_mode import PeriodicZeroMode
 from .scene import RigidTransform
 from .selection import (
@@ -243,9 +243,7 @@ class ObjectInteractionSnapshot:
                 raise ValueError(
                     "target_integration must be 'auto' or 'centroid_compatibility'."
                 )
-            order = int(quadrature_order)
-            if order not in {3, 7}:
-                raise ValueError("quadrature_order must be 3 or 7.")
+            order = _quadrature_order(quadrature_order)
             target_id = int(mesh_id)
             mask = self._mesh_ids == target_id
             if not np.any(mask):

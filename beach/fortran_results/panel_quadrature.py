@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import operator
+
 import numpy as np
 
 
@@ -12,9 +14,7 @@ def panel_target_quadrature(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return Gauss-Duffy points and charge weights for triangle P0 targets."""
 
-    quadrature_order = int(order)
-    if quadrature_order not in {3, 7}:
-        raise ValueError("panel target quadrature order must be 3 or 7.")
+    quadrature_order = _quadrature_order(order)
     triangles = np.asarray(triangles_m, dtype=np.float64)
     charges = np.asarray(element_charges_C, dtype=np.float64)
     if triangles.ndim != 3 or triangles.shape[1:] != (3, 3):
@@ -64,3 +64,12 @@ def panel_target_quadrature(
     element_index.setflags(write=False)
     return points_out, charges_out, element_index
 
+
+def _quadrature_order(order: int) -> int:
+    try:
+        value = operator.index(order)
+    except TypeError as exc:
+        raise ValueError("panel target quadrature order must be integer 3 or 7.") from exc
+    if value not in {3, 7}:
+        raise ValueError("panel target quadrature order must be 3 or 7.")
+    return value
