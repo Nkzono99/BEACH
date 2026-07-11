@@ -40,6 +40,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_model_fingerprint \
 	test_panel_moments \
 	test_panel_kernel \
+	test_periodic_zero_mode \
 	test_boundary \
 	test_restart \
 	test_reservoir_injection \
