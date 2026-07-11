@@ -82,6 +82,12 @@ def test_default_config_uses_no_periodic_far_correction() -> None:
     assert config["sim"]["field_periodic_far_correction"] == "none"
 
 
+def test_default_config_matches_official_tutorial_case() -> None:
+    assert normalize_config_document(default_config()) == load_config_file(
+        Path("examples/tutorial_insulator.toml")
+    )
+
+
 def test_load_config_file_accepts_individual_photoelectron_split() -> None:
     config = load_config_file(
         Path("examples/periodic2_photoelectron_individual_return.toml")
