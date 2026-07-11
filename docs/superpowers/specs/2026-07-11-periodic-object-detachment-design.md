@@ -449,6 +449,44 @@ and a Japanese Markdown review. The review labels each conclusion as one of:
 - conditional on adhesion/contact assumptions; or
 - not supported by the available output.
 
+### 7.3 Paired SysA simulations
+
+Post-processing the archived charge state is the primary boundary-model
+comparison, but it does not show how the boundary model changes charge
+accumulation. Run two new simulations from the same initial state with the
+feature-branch executable:
+
+- `finite_configured`: the archived input unchanged except for output/cache
+  paths; it keeps `field_periodic_far_correction="none"` and one image layer.
+- `infinite_physical`: identical input except for
+  `field_periodic_far_correction="cached_kneq0"`, an explicit cache directory,
+  and the physical `E_bottom=0` zero mode selected by the simulator.
+
+Both cases retain `rng_seed=12345`, six MPI ranks, 112 OpenMP threads per rank,
+the point-centroid source model, mesh, particle injection, time step, batch
+duration, and `batch_count=280000`. They use the same newly built executable so
+that `finite_configured - archived_v1.3` measures version/reproducibility effects
+and `infinite_physical - finite_configured` isolates the boundary-model effect.
+Bitwise identity is not required across compiler/runtime versions; charge,
+particle-ledger, field, force, work, and convergence differences are reported.
+
+The durable validation root is
+`/LARGE1/gr20001/b36291/codex-tmp/beach-periodic-object-force-validation/`.
+Before the full pair, run matched 100-batch smoke cases with `history_stride=10`.
+The smoke gate requires successful cache generation/reuse, finite diagnostics,
+matching mesh/particle counts, no model fallback, and valid restart/output
+metadata. Only after both smoke cases pass are the full cases submitted to the
+visible SysA group queue. Each batch script records the executable hash, git
+commit, Modules, input hash, Slurm resources, cache fingerprint, start/end time,
+and exit status.
+
+The paired comparison includes saved batches common to both cases and the final
+state. It compares total and per-object charge, element-charge spatial norms,
+absorbed/escaped ledgers, `rel_change`, `k!=0`/physical-`k=0` field components,
+instantaneous wrench, path work, barrier status, and speed brackets for meshes 6
+and 7. Conclusions distinguish archived-version drift, stochastic sampling,
+boundary-model response, and post-processing-only changes.
+
 ## 8. Success criteria
 
 The feature is complete when:
