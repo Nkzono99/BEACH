@@ -677,6 +677,15 @@ contains
         call get_toml_real(table, keys(ikey), authoring%outer_plasma%debye_length, 'outer_plasma.debye_length')
       case ('thermal_voltage')
         call get_toml_real(table, keys(ikey), authoring%outer_plasma%thermal_voltage, 'outer_plasma.thermal_voltage')
+      case ('unified_grid_points')
+        call get_toml_int( &
+          table, keys(ikey), authoring%outer_plasma%unified_grid_points, 'outer_plasma.unified_grid_points' &
+          )
+      case ('accessible_fraction_tolerance')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%accessible_fraction_tolerance, &
+          'outer_plasma.accessible_fraction_tolerance' &
+          )
       case ('max_linearity_ratio')
         call get_toml_real( &
           table, keys(ikey), authoring%outer_plasma%max_linearity_ratio, 'outer_plasma.max_linearity_ratio' &
@@ -779,6 +788,8 @@ contains
       cfg%outer_plasma%infinity_potential = authoring%outer_plasma%infinity_potential
       cfg%outer_plasma%debye_length = authoring%outer_plasma%debye_length
       cfg%outer_plasma%thermal_voltage = authoring%outer_plasma%thermal_voltage
+      cfg%outer_plasma%unified_grid_points = authoring%outer_plasma%unified_grid_points
+      cfg%outer_plasma%accessible_fraction_tolerance = authoring%outer_plasma%accessible_fraction_tolerance
       cfg%outer_plasma%max_linearity_ratio = authoring%outer_plasma%max_linearity_ratio
       cfg%outer_plasma%max_gap_ratio = authoring%outer_plasma%max_gap_ratio
       cfg%outer_plasma%max_local_charge_ratio = authoring%outer_plasma%max_local_charge_ratio

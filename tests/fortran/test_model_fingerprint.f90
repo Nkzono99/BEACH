@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -49,6 +49,16 @@ program test_model_fingerprint
   call assert_true( &
     model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
     'split periodic numeric contract must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('unified_accessibility_tolerance_change_detected')
+  cfg_changed = cfg
+  cfg_changed%outer_plasma%accessible_fraction_tolerance = &
+    0.5_dp*cfg%outer_plasma%accessible_fraction_tolerance
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'unified accessibility numeric contract must alter fingerprint' &
     )
   call test_end()
 

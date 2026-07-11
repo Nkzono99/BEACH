@@ -42,6 +42,7 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_total_current_density = 0.0_dp
     real(dp) :: accessible_fraction_min = 0.0_dp
     real(dp) :: accessible_fraction_max = 0.0_dp
+    real(dp) :: accessible_fraction_refinement_error = 0.0_dp
     real(dp) :: nonzero_tail_linearity = 0.0_dp
     real(dp) :: response_start_z = 0.0_dp
     character(len=64) :: status = 'legacy_or_not_applicable'
@@ -582,7 +583,7 @@ contains
     type(periodic2_physics_config), intent(in) :: periodic_config
     type(outer_plasma_config), intent(in) :: outer_config
     type(outer_plasma_grid_type) :: grid
-    real(dp), allocatable :: surface_height(:)
+    real(dp), allocatable :: surface_height(:), refined_surface_height(:), coarse_accessible_fraction(:)
     real(dp) :: grid_min, grid_max, response_z, response_offset
     integer(i32) :: status, multiple_intersection_count
 
@@ -593,18 +594,38 @@ contains
     if (status /= outer_plasma_ok) then
       error stop 'unified outer model requires a single-valued plasma-facing height field.'
     end if
+    call sample_plasma_facing_height_field( &
+      mesh, sim%box_min(1:2), sim%box_max(1:2), 2_i32*periodic_config%interface_sample_n, &
+      2_i32*periodic_config%interface_sample_n, refined_surface_height, multiple_intersection_count, status &
+      )
+    if (status /= outer_plasma_ok) then
+      error stop 'unified outer model requires a refined single-valued plasma-facing height field.'
+    end if
     grid_min = min(minval(mesh%v0(3, :)), min(minval(mesh%v1(3, :)), minval(mesh%v2(3, :)))) - &
                outer_config%debye_length
     grid_max = self%mesh_top_z + 10.0_dp*outer_config%debye_length
-    call init_outer_plasma_grid(129_i32, grid_max - grid_min, 0.0_dp, grid)
+    call init_outer_plasma_grid(outer_config%unified_grid_points, grid_max - grid_min, 0.0_dp, grid)
     grid%z = grid%z + grid_min
     self%unified_grid = grid
     self%unified_z = grid%z
-    allocate (self%unified_surface_field(grid%n), self%unified_accessible_fraction(grid%n))
+    allocate ( &
+      self%unified_surface_field(grid%n), self%unified_accessible_fraction(grid%n), &
+      coarse_accessible_fraction(grid%n) &
+      )
     call build_accessible_fraction_from_heights( &
-      self%unified_z, surface_height, self%unified_accessible_fraction, status &
+      self%unified_z, surface_height, coarse_accessible_fraction, status &
       )
     if (status /= outer_plasma_ok) error stop 'failed to build unified accessible-area profile.'
+    call build_accessible_fraction_from_heights( &
+      self%unified_z, refined_surface_height, self%unified_accessible_fraction, status &
+      )
+    if (status /= outer_plasma_ok) error stop 'failed to build refined unified accessible-area profile.'
+    self%diagnostics%accessible_fraction_refinement_error = &
+      maxval(abs(self%unified_accessible_fraction - coarse_accessible_fraction))
+    if (self%diagnostics%accessible_fraction_refinement_error > outer_config%accessible_fraction_tolerance) then
+      error stop 'unified accessible-area sampling exceeds accessible_fraction_tolerance.'
+    end if
+    self%diagnostics%interface_sample_n = periodic_config%interface_sample_n
     self%unified_options%kappa = 1.0_dp/outer_config%debye_length
     self%unified_options%tail_length = outer_config%debye_length
     self%unified_options%bottom_field = 0.0_dp

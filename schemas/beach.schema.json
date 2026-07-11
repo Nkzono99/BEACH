@@ -51,6 +51,8 @@
         "infinity_potential": {"type": "number", "default": 0},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
         "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
+        "unified_grid_points": {"type": "integer", "minimum": 17, "default": 129},
+        "accessible_fraction_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
         "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
         "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
         "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50},

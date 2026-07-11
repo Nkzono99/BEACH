@@ -40,6 +40,8 @@ module bem_physics_config_types
     real(dp) :: infinity_potential = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
+    integer(i32) :: unified_grid_points = 129_i32
+    real(dp) :: accessible_fraction_tolerance = 0.1_dp
     real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
@@ -400,6 +402,13 @@ contains
                   status, message)
       return
     end if
+    if (trim(lower_ascii(outer%model)) == 'unified_linear_response' .and. &
+        (outer%unified_grid_points < 17_i32 .or. outer%accessible_fraction_tolerance <= 0.0_dp)) then
+      call reject(physics_config_invalid_combination, &
+                  'unified_linear_response requires unified_grid_points >= 17 and a positive accessibility tolerance.', &
+                  status, message)
+      return
+    end if
     if (any(sim%e0 /= 0.0_dp)) then
       call reject( &
         physics_config_unavailable, 'Phase 2 linear outer model currently requires sim.e0=0.', status, message &
@@ -464,7 +473,8 @@ contains
       end if
     case ('unified_linear_response')
       if (outer%debye_length <= 0.0_dp .or. outer%thermal_voltage <= 0.0_dp .or. &
-          outer%max_linearity_ratio <= 0.0_dp .or. &
+          outer%max_linearity_ratio <= 0.0_dp .or. outer%unified_grid_points < 17_i32 .or. &
+          outer%accessible_fraction_tolerance <= 0.0_dp .or. &
           abs(outer%interface_z - sim%box_max(3)) > &
           64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(sim%box_max(3)))) then
         call reject(physics_config_invalid_combination, &

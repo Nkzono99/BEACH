@@ -358,6 +358,11 @@ The model requires single-valued topography, `triangle_p0`, no photoelectron mea
 closure, and no particle transfer. It fails closed outside the configured linearity
 bound. See `examples/periodic2_unified_linear_response.toml` and
 `docs/adr/0002-unified-periodic-outer-domain.md`.
+`outer_plasma.unified_grid_points` controls this Poisson grid and must be at least 17;
+the default is 129. Production studies should demonstrate refinement of reported observables.
+`outer_plasma.accessible_fraction_tolerance` bounds the maximum accessible-fraction
+change when the rough-surface height samples are doubled along both periodic axes.
+The refined samples are used by the solve, and a violation fails closed during initialization.
 `sim.use_box=true`, exactly two axes are `periodic`, and the remaining axis is
 open. Periodic images are considered not only for field evaluation, but also for
 collision and `photo_raycast` raycasting.

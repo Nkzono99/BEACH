@@ -44,6 +44,8 @@ module bem_app_config_authoring
     real(dp) :: infinity_potential = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
+    integer(i32) :: unified_grid_points = 129_i32
+    real(dp) :: accessible_fraction_tolerance = 0.1_dp
     real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp

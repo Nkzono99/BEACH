@@ -338,6 +338,8 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 | `outer_plasma.interface_z` | 必須 | z上側interface。初期モデルではbox上面 |
 | `outer_plasma.debye_length` | 必須 | 線形Debye長 |
 | `outer_plasma.thermal_voltage` | 必須 | 線形性・診断の電位scale |
+| `outer_plasma.unified_grid_points` | `129` | unified zero-mode Poisson grid点数（17以上） |
+| `outer_plasma.accessible_fraction_tolerance` | `0.1` | rough surface高さ標本を各軸2倍にしたときのaccessible fraction最大差 |
 | `outer_plasma.max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage`上限 |
 | `outer_plasma.max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda`上限 |
 | `outer_plasma.max_local_charge_ratio` | `50` | 局所平均plasma電荷推定比上限 |

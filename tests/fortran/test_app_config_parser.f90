@@ -138,6 +138,11 @@ program test_app_config_parser
   call assert_true(trim(split_cfg%outer_plasma%model) == 'linear_debye', 'split outer model mismatch')
   call assert_close_dp(split_cfg%outer_plasma%interface_z, 1.0_dp, 1.0e-15_dp, 'split interface mismatch')
   call assert_close_dp(split_cfg%outer_plasma%debye_length, 0.2_dp, 1.0e-15_dp, 'split Debye length mismatch')
+  call assert_equal_i32(split_cfg%outer_plasma%unified_grid_points, 65_i32, 'unified grid points mismatch')
+  call assert_close_dp( &
+    split_cfg%outer_plasma%accessible_fraction_tolerance, 0.04_dp, 1.0e-15_dp, &
+    'accessible-fraction tolerance mismatch' &
+    )
   call assert_close_dp(split_cfg%outer_plasma%max_gap_ratio, 4.0_dp, 1.0e-15_dp, 'split gap limit mismatch')
   call assert_close_dp( &
     split_cfg%outer_plasma%max_local_charge_ratio, 6.0_dp, 1.0e-15_dp, 'split local-charge limit mismatch' &
@@ -847,6 +852,8 @@ contains
     write (u, '(a)') 'infinity_potential = 0.0'
     write (u, '(a)') 'debye_length = 0.2'
     write (u, '(a)') 'thermal_voltage = 10.0'
+    write (u, '(a)') 'unified_grid_points = 65'
+    write (u, '(a)') 'accessible_fraction_tolerance = 0.04'
     write (u, '(a)') 'max_linearity_ratio = 0.5'
     write (u, '(a)') 'max_gap_ratio = 4.0'
     write (u, '(a)') 'max_local_charge_ratio = 6.0'

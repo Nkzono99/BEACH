@@ -308,6 +308,8 @@ contains
         electrostatic_diagnostics%accessible_fraction_min
       write (u, '(a,es24.16)') 'outer_accessible_fraction_max=', &
         electrostatic_diagnostics%accessible_fraction_max
+      write (u, '(a,es24.16)') 'outer_accessible_fraction_refinement_error=', &
+        electrostatic_diagnostics%accessible_fraction_refinement_error
       write (u, '(a,es24.16)') 'outer_nonzero_tail_linearity=', &
         electrostatic_diagnostics%nonzero_tail_linearity
       write (u, '(a,es24.16)') 'outer_response_start_z_m=', &

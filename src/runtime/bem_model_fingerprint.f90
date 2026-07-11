@@ -45,6 +45,8 @@ contains
     call feed_real(hash, cfg%outer_plasma%infinity_potential)
     call feed_real(hash, cfg%outer_plasma%debye_length)
     call feed_real(hash, cfg%outer_plasma%thermal_voltage)
+    call feed_integer(hash, cfg%outer_plasma%unified_grid_points)
+    call feed_real(hash, cfg%outer_plasma%accessible_fraction_tolerance)
     call feed_real(hash, cfg%outer_plasma%max_linearity_ratio)
     call feed_real(hash, cfg%outer_plasma%max_gap_ratio)
     call feed_real(hash, cfg%outer_plasma%max_local_charge_ratio)

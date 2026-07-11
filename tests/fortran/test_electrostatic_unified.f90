@@ -16,14 +16,14 @@ program test_electrostatic_unified
   type(periodic2_physics_config) :: periodic
   type(panel_kernel_config) :: panel
   type(outer_plasma_config) :: outer_low, outer_high
-  type(electrostatic_snapshot_type) :: snapshot_low, snapshot_high, restarted_snapshot
+  type(electrostatic_snapshot_type) :: snapshot_low, snapshot_high, restarted_snapshot, coarse_snapshot
   type(electrostatic_diagnostics_type) :: diagnostics
   type(electrostatic_restart_state_type) :: restart_state
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3)
   real(dp) :: field_low(3), field_high(3), potential_low, potential_high
 
   call configure_fixture()
-  call test_init(3)
+  call test_init(4)
 
   call snapshot_low%init(mesh, sim_low, field, periodic, panel, outer_low)
   call snapshot_high%init(mesh, sim_high, field, periodic, panel, outer_high)
@@ -49,12 +49,27 @@ program test_electrostatic_unified
     )
   call test_end()
 
+  call test_begin('rough_unified_grid_refinement_converges')
+  outer_high = outer_low
+  outer_high%unified_grid_points = 65_i32
+  call coarse_snapshot%init(mesh, sim_low, field, periodic, panel, outer_high)
+  call coarse_snapshot%refresh(mesh)
+  call coarse_snapshot%eval_local_e(mesh, target, field_high)
+  call coarse_snapshot%eval_local_phi(mesh, sim_low, target, potential_high)
+  call assert_allclose_1d(field_high, field_low, 5.0e-5_dp, 'rough unified field grid convergence mismatch')
+  call assert_close_dp(potential_high, potential_low, 5.0e-5_dp, 'rough unified potential grid convergence mismatch')
+  call test_end()
+
   call test_begin('unified_profile_closes_gauss_law')
   call snapshot_low%get_diagnostics(diagnostics)
   call assert_true(snapshot_low%use_unified_outer, 'unified outer flag must be active')
   call assert_true(diagnostics%applicable, 'unified linear response must be applicable')
   call assert_true(diagnostics%accessible_fraction_min < diagnostics%accessible_fraction_max, &
                    'rough fixture must exercise accessible-area variation')
+  call assert_true( &
+    diagnostics%accessible_fraction_refinement_error <= outer_low%accessible_fraction_tolerance, &
+    'rough fixture accessibility sampling must satisfy its refinement contract' &
+    )
   call assert_close_dp(diagnostics%response_start_z, snapshot_low%nonzero_tail%handoff_z, &
                        0.0_dp, 'response-plane diagnostic mismatch')
   call assert_close_dp(snapshot_low%gauss_residual, 0.0_dp, 2.0e-24_dp, 'unified Gauss residual mismatch')

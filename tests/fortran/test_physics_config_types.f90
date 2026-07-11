@@ -62,6 +62,16 @@ program test_physics_config_types
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'cached unified linear response config should be valid')
 
+  outer%unified_grid_points = 16_i32
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'unified grid must reject fewer than 17 points')
+  outer%unified_grid_points = 129_i32
+
+  outer%accessible_fraction_tolerance = 0.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'unified accessibility tolerance must be positive')
+  outer%accessible_fraction_tolerance = 0.1_dp
+
   sim%e0(3) = 1.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'unified linear response must reject a prescribed uniform field')
