@@ -66,13 +66,15 @@ make test-l2
 make test-physics-release
 ```
 
-The HPC gate sequentially runs L3, far-correction, two-rank MPI hybrid, and two-rank MPI cache-concurrency tests. A
+The HPC gate sequentially runs the L1 convergence subset, L3-heavy, far-correction correctness, two-rank MPI hybrid,
+and two-rank MPI cache-concurrency tests without repeating the portable L2 suite. A
 release requires final and per-gate `status=passed`, peak RSS below the default 8 GiB budget, and all six convergence
 categories: `boris_dt`, `panel_fmm_order`, `rough_panel_mesh`, `rough_outer_grid`, `rough_accessibility`, and
 `outer_orbit_dt`.
 
 Run metadata is written to `build/physics-release/manifest.txt`; numerical rows are written to
-`build/physics-release/convergence.csv`. These artifacts are regenerated for each release rather than committed as
+`build/physics-release/convergence.csv`, and per-target timings to the sibling `*-target-timings.csv` files.
+These artifacts are regenerated for each release rather than committed as
 fixed repository data.
 
 ## Superseded review stages

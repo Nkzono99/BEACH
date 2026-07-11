@@ -70,7 +70,8 @@ make test-l2
 make test-physics-release
 ```
 
-HPC gate は L3、far-correction、2-rank MPI hybrid、2-rank MPI cache concurrency を逐次実行します。
+HPC gateは収束出力に必要なL1 subset、L3 heavy、far-correction correctness、2-rank MPI hybrid、
+2-rank MPI cache concurrencyを逐次実行し、portable CI済みのL2全体は繰り返しません。
 manifest の最終 `status=passed`、各 gate の `status=passed`、既定 8 GiB 未満の最大 RSS、次の六つの
 convergence category をすべて要求します。
 
@@ -82,7 +83,8 @@ convergence category をすべて要求します。
 6. `outer_orbit_dt`
 
 実行日時、commit、compiler、Slurm job、elapsed time、RSS は `build/physics-release/manifest.txt` に、
-数値行は `build/physics-release/convergence.csv` に記録されます。生成物は release ごとに再作成し、
+数値行は`build/physics-release/convergence.csv`、target別時間は同directoryの
+`*-target-timings.csv`に記録されます。生成物はreleaseごとに再作成し、
 repository には固定値として commit しません。
 
 ## Superseded review stages

@@ -88,16 +88,18 @@ FPM_FC=mpiifort fpm run --profile release \
 make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy/release gate
+make test-l3      # L3: cumulative L0-L3 verification
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # explicit oracle far-correction diagnostics
+make test-fortran-far-correction  # oracle far-correction correctness
+make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-benchmark  # release-profile runtime benchmark
 make test-full    # unfiltered fpm test
 make test-mpi     # MPI テスト
 pytest -q         # Python テストのみ
 ```
 
 `make test` は L1 の alias で、通常の AI/開発内側ループではここまでを基本にする。
-FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。`m2l_root_oracle` far-correction 診断は `make test-fortran-far-correction` または `make test-full` で opt-in 実行する。
+FMM系の長時間targetは`make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`で明示実行する。`m2l_root_oracle` correctnessは`make test-fortran-far-correction`、表示専用診断は`make test-fortran-far-correction-diagnostics`、速度比較は`make test-fortran-benchmark`でopt-in実行する。
 個別 target は `FPM_ACTION=test ./build.sh --target <name>` で確認できる。
 
 ---

@@ -89,10 +89,12 @@ For normal development, prefer `make run` / `make check` through `build.sh`. The
 make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy/release gate
-make test-physics-release  # HPC: L3 + far correction + MPI manifest
+make test-l3      # L3: cumulative L0-L3 verification
+make test-physics-release  # HPC: minimal release correctness + MPI manifest
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # explicit oracle far-correction diagnostics
+make test-fortran-far-correction  # oracle far-correction correctness
+make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-benchmark  # release-profile runtime benchmark
 make test-full    # unfiltered fpm test
 ```
 
@@ -106,8 +108,10 @@ The test suite is tiered for the development loop.
 `make test-fortran` aliases the lightweight Fortran targets. Heavy FMM targets such as
 `test_dynamics_fmm` and `test_coulomb_fmm_core_basic` are excluded from normal `make test` and must be run with
 `make test-l3`, `make test-heavy`, `make test-fortran-heavy`, or `make test-full`.
-The `m2l_root_oracle` far-correction diagnostics are even heavier and require
-`make test-fortran-far-correction` or unfiltered `make test-full`.
+The `m2l_root_oracle` correctness tests are opt-in through `make test-fortran-far-correction`.
+The assertion-free `test_periodic2_flat_oracle_diag` is separated under
+`make test-fortran-far-correction-diagnostics`. Runtime comparison uses the release profile through
+`make test-fortran-benchmark` instead of running inside a debug correctness test.
 Tiered tests under Intel `ifx` / `mpiifx` suppress only the
 `arg_temp_created` check by default because each expected array temporary can
 otherwise emit a full stack trace. Other debug checks, including bounds
@@ -426,10 +430,13 @@ fpm test --target test_mpi_hybrid \
 - The Fortran electric field uses element-centroid point-charge approximation plus `sim.softening`.
 
 For a camphor MPI job example, see `examples/job_scripts/camphor_mpi_hybrid_job.sh`.
-`test-physics-release` runs the L3, far-correction, MPI ledger, and MPI periodic-cache gates sequentially.
+`test-physics-release` sequentially runs the L1 convergence subset, L3-heavy, far-correction correctness,
+MPI ledger, and MPI periodic-cache gates without repeating the full portable L2 suite.
 It records the commit, dirty state, host, compilers, status, elapsed time, and peak RSS for
 each gate in `build/physics-release/manifest.txt` by default. It refuses KUDPC
 login nodes and selects `srun` for the MPI payload inside a Slurm allocation.
 Override the output with `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt`.
 The same directory receives `convergence.csv`; see
 [Physics release verification](PhysicsReleaseVerification.en.md).
+It also receives `test_l3-target-timings.csv` and `far_correction-target-timings.csv`, containing profile,
+status, and elapsed seconds for each selected Fortran target.

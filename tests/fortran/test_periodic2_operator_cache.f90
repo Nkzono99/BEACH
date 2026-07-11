@@ -1,15 +1,16 @@
 program test_periodic2_operator_cache
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, build_plan, destroy_plan
-  use test_support, only: test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_allclose_1d
+  use test_support, only: test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_allclose_1d, &
+                          remove_empty_directory
   implicit none
 
   type(fmm_options_type) :: options
-  type(fmm_plan_type) :: probe_plan, cold_plan, warm_plan, rebuilt_plan
+  type(fmm_plan_type) :: cold_plan, warm_plan, rebuilt_plan
   real(dp) :: src_pos(3, 4)
   real(dp) :: cold_start, cold_end, warm_start, warm_end
-  character(len=512) :: cache_path
-  integer :: unit, ios
+  character(len=512) :: cache_path, cache_dir
+  integer :: unit, ios, clock_count
 
   src_pos(:, 1) = [0.15_dp, 0.20_dp, -0.10_dp]
   src_pos(:, 2) = [0.75_dp, 0.25_dp, 0.08_dp]
@@ -24,20 +25,18 @@ program test_periodic2_operator_cache
   options%periodic_image_layers = 1_i32
   options%periodic_far_correction = 'cached_kneq0'
   options%periodic_ewald_layers = 2_i32
-  options%periodic_cache_dir = '.'
+  call system_clock(count=clock_count)
+  write (cache_dir, '(a,i0)') 'test_periodic2_operator_cache_tmp_', clock_count
+  options%periodic_cache_dir = trim(cache_dir)
   options%periodic_generation_tolerance = 1.0e-8_dp
   options%target_box_min = [0.0_dp, 0.0_dp, -0.5_dp]
   options%target_box_max = [1.0_dp, 1.0_dp, 0.5_dp]
-
-  call build_plan(probe_plan, src_pos, options)
-  cache_path = probe_plan%periodic_cache_path
-  call destroy_plan(probe_plan)
-  call delete_cache(cache_path)
 
   call test_begin('cold_build_and_warm_hit')
   call cpu_time(cold_start)
   call build_plan(cold_plan, src_pos, options)
   call cpu_time(cold_end)
+  cache_path = cold_plan%periodic_cache_path
   call assert_true(cold_plan%periodic_root_operator_ready, 'cold cached operator must be ready')
   call assert_true(.not. cold_plan%periodic_cache_hit, 'cold operator must report a cache miss')
   call assert_equal_i32(cold_plan%periodic_operator_build_count, 1_i32, 'cold operator build count')
@@ -80,6 +79,7 @@ program test_periodic2_operator_cache
   call destroy_plan(warm_plan)
   call destroy_plan(rebuilt_plan)
   call delete_cache(cache_path)
+  call remove_empty_directory(cache_dir)
   call test_summary()
 
 contains

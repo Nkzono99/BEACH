@@ -8,11 +8,14 @@ make test-l2
 make test-physics-release
 ```
 
-HPC gate は L3、far-correction、MPI ledger、MPI periodic-cache concurrency を逐次実行します。
+HPC gate は必要な収束行を生成する3本のL1 test、L3 heavy、far-correction correctness、MPI ledger、
+MPI periodic-cache concurrencyを逐次実行します。portable CIが担当するL2全体は再実行しません。
 `manifest.txt` は各 gate の elapsed time と GNU time の最大RSSを記録し、既定の8 GiB予算を超えると
 失敗します。予算は `BEACH_RELEASE_MAX_RSS_KB` で明示変更できます。
 `convergence.csv` は test log の `BEACH_CONVERGENCE` 行から毎回生成され、必要な収束軸が一つでも
 欠けると release gate は失敗します。
+Fortran targetごとの時間は`test_l3-target-timings.csv`と
+`far_correction-target-timings.csv`へ記録されます。
 
 ## Reference convergence table
 
@@ -28,9 +31,10 @@ HPC gate は L3、far-correction、MPI ledger、MPI periodic-cache concurrency �
 | rough accessibility | 8x8 → 16x16 | 3.1250e-2 | tolerance 1.0e-1 | tolerance以下 |
 | outer orbit dt | 0.1 → 0.05 | energy error 1.2000e-3 | 3.8835e-4 | dt半減で減少 |
 
-flat surface は `test_periodic2_flat_oracle_diag`、無限周期 operator は
+flat surface の表示専用診断は`make test-fortran-far-correction-diagnostics`、無限周期operatorは
 `test_periodic2_infinite_operator`、cold/warm cache は `test_periodic2_operator_cache`、
 MPI同時生成は `test_periodic2_operator_cache_mpi` が担当します。
+速度比較はdebug correctnessから分離し、release profileの`make test-fortran-benchmark`で実行します。
 
 実運用caseでは少なくとも mesh、`sim.dt`、FMM order/tolerance、outer grid、height samplingを変え、
 表面電位、吸収/escape flux、電荷収支、主要な結論が収束することを別途確認します。

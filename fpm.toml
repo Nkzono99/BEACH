@@ -81,6 +81,11 @@ name = "test_periodic2_infinite_operator"
 source-dir = "tests/fortran"
 main = "test_periodic2_infinite_operator.f90"
 
+[[example]]
+name = "benchmark_periodic2_runtime"
+source-dir = "benchmarks/fortran"
+main = "benchmark_periodic2_runtime.f90"
+
 [[test]]
 name = "test_periodic2_cached_snapshot"
 source-dir = "tests/fortran"
