@@ -1,6 +1,6 @@
 !> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule(bem_field_solver) bem_field_solver_tree
-  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type
+  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state
   implicit none
 contains
 

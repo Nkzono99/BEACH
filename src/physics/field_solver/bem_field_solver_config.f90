@@ -1,7 +1,6 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
-  use bem_coulomb_fmm_core, only: build_plan, build_panel_plan, update_state, destroy_plan, destroy_state, &
-                                  fmm_options_type, fmm_state_type
+  use bem_coulomb_fmm_core, only: build_plan, build_panel_plan, update_state, destroy_plan, destroy_state
   use bem_types, only: surface_model_insulator
   use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
   implicit none
