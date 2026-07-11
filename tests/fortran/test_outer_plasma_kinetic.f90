@@ -1,0 +1,81 @@
+program test_outer_plasma_kinetic
+  use bem_kinds, only: dp, i32
+  use bem_constants, only: qe, eps0
+  use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_no_physical_solution
+  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
+  implicit none
+
+  real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
+  type(kinetic_outer_plasma_options_type) :: options
+  type(outer_plasma_state_type) :: state
+  integer(i32) :: status
+  character(len=256) :: message
+
+  call test_init(3)
+
+  call test_begin('vacuum Neumann Robin problem matches its analytic solution')
+  options = reference_options()
+  options%electron_density_infinity = 0.0_dp
+  options%ion_density_infinity = 0.0_dp
+  options%interface_field = -0.25_dp
+  options%domain_length = 3.0_dp
+  options%tail_length = 2.0_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'vacuum solve status mismatch')
+  call assert_true(state%ready, 'vacuum state must be ready')
+  call assert_close_dp(state%potential(1), -1.25_dp, 1.0e-10_dp, 'vacuum interface potential mismatch')
+  call assert_close_dp(state%potential(state%profile_n), -0.5_dp, 1.0e-10_dp, 'vacuum far potential mismatch')
+  call assert_true(state%nonlinear_residual < 1.0e-10_dp, 'vacuum residual is too large')
+  call assert_close_dp( &
+    state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
+    1.0e-20_dp, 'finite-domain Gauss closure mismatch' &
+    )
+  call test_end()
+
+  call test_begin('quasineutral zero field is an exact kinetic equilibrium')
+  options = reference_options()
+  options%interface_field = 0.0_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'quasineutral solve status mismatch')
+  call assert_true(maxval(abs(state%potential)) < 1.0e-10_dp, 'quasineutral potential must vanish')
+  call assert_true(maxval(abs(state%charge_density)) < 1.0e-12_dp, 'quasineutral charge must vanish')
+  call test_end()
+
+  call test_begin('sub-Bohm ion entry has no physical solution')
+  options = reference_options()
+  options%ion_drift_infinity = 0.5_dp*sqrt( &
+                               (options%electron_temperature_j + options%ion_temperature_j)/options%ion_mass &
+                               )
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_no_physical_solution, 'sub-Bohm entry must fail physically')
+  call assert_true(.not. state%ready, 'sub-Bohm state must not be ready')
+  call test_end()
+
+  call test_summary()
+
+contains
+
+  function reference_options() result(value)
+    type(kinetic_outer_plasma_options_type) :: value
+
+    value%grid_points = 33_i32
+    value%domain_length = 8.0_dp
+    value%grid_stretch = 1.5_dp
+    value%tail_length = 1.0_dp
+    value%interface_field = 0.0_dp
+    value%electron_charge = -qe
+    value%electron_mass = electron_mass
+    value%electron_density_infinity = 1.0e6_dp
+    value%electron_temperature_j = 2.0_dp*qe
+    value%ion_charge = qe
+    value%ion_mass = 1836.0_dp*electron_mass
+    value%ion_density_infinity = 1.0e6_dp
+    value%ion_temperature_j = 0.0_dp
+    value%ion_gamma = 1.0_dp
+    value%ion_drift_infinity = 2.0_dp*sqrt(value%electron_temperature_j/value%ion_mass)
+    value%max_iterations = 30_i32
+    value%residual_tolerance = 1.0e-10_dp
+  end function reference_options
+
+end program test_outer_plasma_kinetic

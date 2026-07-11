@@ -45,6 +45,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic2_cache_codec \
 	test_periodic_zero_mode \
 	test_outer_plasma_linear \
+	test_outer_plasma_kinetic_core \
+	test_outer_plasma_grid \
 	test_electrostatic_snapshot \
 	test_outer_coupler \
 	test_outer_plasma_interface \
@@ -73,7 +75,8 @@ FORTRAN_L3_TARGETS ?= \
 	test_coulomb_fmm_core_basic \
 	test_panel_near_correction \
 	test_coulomb_fmm_core_panel \
-	test_dynamics_panel_fmm
+	test_dynamics_panel_fmm \
+	test_outer_plasma_kinetic
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \

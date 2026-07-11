@@ -112,6 +112,21 @@ source-dir = "tests/fortran"
 main = "test_outer_plasma_linear.f90"
 
 [[test]]
+name = "test_outer_plasma_kinetic_core"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_kinetic_core.f90"
+
+[[test]]
+name = "test_outer_plasma_grid"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_grid.f90"
+
+[[test]]
+name = "test_outer_plasma_kinetic"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_kinetic.f90"
+
+[[test]]
 name = "test_periodic_nonzero_reference"
 source-dir = "tests/fortran"
 main = "test_periodic_nonzero_reference.f90"

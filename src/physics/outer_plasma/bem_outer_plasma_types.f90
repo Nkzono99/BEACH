@@ -20,6 +20,14 @@ module bem_outer_plasma_types
     real(dp) :: interface_field = 0.0_dp
     real(dp) :: linearity_ratio = 0.0_dp
     real(dp) :: max_linearity_ratio = 0.0_dp
+    integer(i32) :: profile_n = 0_i32
+    integer(i32) :: nonlinear_iterations = 0_i32
+    real(dp) :: nonlinear_residual = 0.0_dp
+    real(dp) :: integrated_charge_per_area = 0.0_dp
+    real(dp), allocatable :: z(:)
+    real(dp), allocatable :: potential(:)
+    real(dp), allocatable :: field(:)
+    real(dp), allocatable :: charge_density(:)
   end type outer_plasma_state_type
 
 end module bem_outer_plasma_types
