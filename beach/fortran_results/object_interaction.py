@@ -18,6 +18,7 @@ from .kernel import (
     _options_from_result,
 )
 from .mesh import _triangle_centers
+from .panel_quadrature import panel_target_quadrature
 from .periodic_zero_mode import PeriodicZeroMode
 from .scene import RigidTransform
 from .selection import (
@@ -238,8 +239,10 @@ class ObjectInteractionSnapshot:
                     "self_policy must be 'exclude_primary_keep_images'. The legacy "
                     "exclude_target_lattice policy remains on calc_object_forces_kernel."
                 )
-            if target_integration != "auto":
-                raise ValueError("target_integration must be 'auto' in this release phase.")
+            if target_integration not in {"auto", "centroid_compatibility"}:
+                raise ValueError(
+                    "target_integration must be 'auto' or 'centroid_compatibility'."
+                )
             order = int(quadrature_order)
             if order not in {3, 7}:
                 raise ValueError("quadrature_order must be 3 or 7.")
@@ -424,6 +427,36 @@ class ObjectProbe:
         self._geometric_area_centroid_m = _geometric_area_centroid(
             self._target_triangles_m
         )
+        if snapshot.source_model == "triangle_p0" and target_integration == "auto":
+            (
+                target_points,
+                target_charge_weights,
+                target_element_index,
+            ) = panel_target_quadrature(
+                self._target_triangles_m,
+                self._target_charges_C,
+                quadrature_order,
+            )
+            integration_label = "gauss_duffy"
+            integration_order: int | None = quadrature_order
+        else:
+            target_points = self._target_centers_m
+            target_charge_weights = self._target_charges_C
+            target_element_index = np.arange(
+                self._target_charges_C.size,
+                dtype=np.int64,
+            )
+            integration_label = (
+                "centroid_compatibility"
+                if snapshot.source_model == "triangle_p0"
+                else "point_centroid"
+            )
+            integration_order = None
+        self._target_points_m = _readonly(target_points)
+        self._target_charge_weights_C = _readonly(target_charge_weights)
+        self._target_element_index = _readonly_int(target_element_index)
+        self._integration_label = integration_label
+        self._integration_order = integration_order
         primary_options = FieldKernelOptions(
             softening=snapshot._options.softening,
             theta=snapshot._options.theta,
@@ -454,11 +487,6 @@ class ObjectProbe:
         """Evaluate force and torque with primary-only self exclusion."""
 
         self._require_usable()
-        if self._snapshot.source_model == "triangle_p0":
-            raise ValueError(
-                "triangle_p0 target integration requires Task 6 quadrature; "
-                "auto never falls back to centroid compatibility."
-            )
         rigid = RigidTransform.identity() if transform is None else transform
         if not isinstance(rigid, RigidTransform):
             raise TypeError("transform must be a RigidTransform or None.")
@@ -468,7 +496,7 @@ class ObjectProbe:
             name="transform_origin",
         )
         target_points = rigid.apply(
-            self._target_centers_m,
+            self._target_points_m,
             origin=transform_origin_m,
         )
         _validate_target_points(target_points, self._snapshot._options)
@@ -505,28 +533,28 @@ class ObjectProbe:
         physical = {
             "other_objects_all_images": _aggregate_wrench(
                 target_points,
-                self._target_charges_C,
+                self._target_charge_weights_C,
                 other_field,
                 other_phi,
                 torque_origin_m,
             ),
             "target_periodic_images": _aggregate_wrench(
                 target_points,
-                self._target_charges_C,
+                self._target_charge_weights_C,
                 images_field,
                 images_phi,
                 torque_origin_m,
             ),
             "external_uniform": _aggregate_wrench(
                 target_points,
-                self._target_charges_C,
+                self._target_charge_weights_C,
                 uniform[0],
                 uniform[1],
                 torque_origin_m,
             ),
             "total_external": _aggregate_wrench(
                 target_points,
-                self._target_charges_C,
+                self._target_charge_weights_C,
                 total_field,
                 total_phi,
                 torque_origin_m,
@@ -539,21 +567,21 @@ class ObjectProbe:
         )
         p_full = _aggregate_wrench(
             target_points,
-            self._target_charges_C,
+            self._target_charge_weights_C,
             p_other[0] + p_target[0],
             p_other[1] + p_target[1],
             torque_origin_m,
         )
         z_full = _aggregate_wrench(
             target_points,
-            self._target_charges_C,
+            self._target_charge_weights_C,
             z_other[0] + z_target[0],
             z_other[1] + z_target[1],
             torque_origin_m,
         )
         negative_direct = _aggregate_wrench(
             target_points,
-            self._target_charges_C,
+            self._target_charge_weights_C,
             -direct[0],
             -direct[1],
             torque_origin_m,
@@ -565,8 +593,8 @@ class ObjectProbe:
                 if self._snapshot._options.periodic2 is None
                 else self._snapshot._options.periodic2[4]
             ),
-            "target_integration": "point_centroid",
-            "quadrature_order": None,
+            "target_integration": self._integration_label,
+            "quadrature_order": self._integration_order,
             "periodic_kneq0": _wrench_metadata(p_full) if cached else None,
             "physical_k0": _wrench_metadata(z_full) if cached else None,
             "primary_free_subtraction": _wrench_metadata(negative_direct),
@@ -586,7 +614,7 @@ class ObjectProbe:
         return ObjectWrench(
             mesh_id=self.mesh_id,
             step=self._snapshot.step,
-            total_charge_C=float(np.sum(self._target_charges_C)),
+            total_charge_C=float(np.sum(self._target_charge_weights_C)),
             force_N=total.force_N,
             torque_Nm=total.torque_Nm,
             torque_origin_m=torque_origin_m,

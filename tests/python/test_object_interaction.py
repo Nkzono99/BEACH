@@ -780,8 +780,17 @@ def test_triangle_source_is_never_silently_downgraded_to_centroids(
         step=None,
         config_path=config,
     ) as snapshot:
-        with pytest.raises(ValueError, match="triangle_p0"):
-            snapshot.object_probe(1).wrench()
+        automatic = snapshot.object_probe(1).wrench()
+        compatibility = snapshot.object_probe(
+            1,
+            target_integration="centroid_compatibility",
+        ).wrench()
+
+    assert automatic.numerical_metadata["target_integration"] == "gauss_duffy"
+    assert automatic.numerical_metadata["quadrature_order"] == 7
+    assert compatibility.numerical_metadata["target_integration"] == (
+        "centroid_compatibility"
+    )
 
 
 def test_unknown_periodic_model_and_self_policy_fail_closed(tmp_path: Path) -> None:

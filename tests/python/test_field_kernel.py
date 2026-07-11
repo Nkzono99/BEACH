@@ -17,6 +17,7 @@ from beach import (
     field_kernel_options_from_result,
 )
 from beach.fortran_results.constants import K_COULOMB
+from beach.fortran_results.panel_quadrature import panel_target_quadrature
 from beach.fortran_results.potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
@@ -504,6 +505,30 @@ def test_field_kernel_from_panel_result_dispatches_triangle_geometry(tmp_path: P
         point_field = point_kernel.eval_e(target)
 
     assert np.linalg.norm(panel_field - point_field) > 1.0e-6 * np.linalg.norm(panel_field)
+
+
+def test_panel_direct_and_ordinary_use_same_principal_value_at_target_quadrature() -> None:
+    lib = _kernel_lib()
+    triangles = np.array(
+        [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
+        dtype=float,
+    )
+    charges = np.array([2.0e-9])
+    points, _, _ = panel_target_quadrature(triangles, charges, order=7)
+
+    with FieldKernel(
+        triangles.mean(axis=1),
+        charges,
+        source_triangles=triangles,
+        library_path=lib,
+    ) as kernel:
+        ordinary_e = kernel.eval_e(points)
+        direct_e = kernel.eval_e_direct(points)
+        ordinary_phi = kernel.eval_phi(points)
+        direct_phi = kernel.eval_phi_direct(points)
+
+    np.testing.assert_allclose(ordinary_e, direct_e, rtol=2.0e-14, atol=1.0e-14)
+    np.testing.assert_allclose(ordinary_phi, direct_phi, rtol=2.0e-14, atol=1.0e-14)
 
 
 def test_field_kernel_adds_uniform_external_e0() -> None:
