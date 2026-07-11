@@ -574,7 +574,19 @@ def _compute_potential_mesh_periodic2(
 
 
 def _coerce_periodic2(
-    periodic2: Mapping[str, object] | None,
+    periodic2: Mapping[str, object]
+    | tuple[
+        tuple[int, int],
+        tuple[float, float],
+        tuple[float, float],
+        int,
+        str,
+        float,
+        int,
+    ]
+    | None,
+    *,
+    allow_cached_kneq0: bool = False,
 ) -> tuple[
     tuple[int, int],
     tuple[float, float],
@@ -587,7 +599,24 @@ def _coerce_periodic2(
     if periodic2 is None:
         return None
     if isinstance(periodic2, tuple) and len(periodic2) == 7:
-        return periodic2
+        (
+            axes,
+            lengths,
+            origins,
+            image_layers,
+            far_correction,
+            ewald_alpha,
+            ewald_layers,
+        ) = periodic2
+        periodic2 = {
+            "axes": axes,
+            "lengths": lengths,
+            "origins": origins,
+            "image_layers": image_layers,
+            "far_correction": far_correction,
+            "ewald_alpha": ewald_alpha,
+            "ewald_layers": ewald_layers,
+        }
     if not isinstance(periodic2, Mapping):
         raise ValueError("periodic2 must be a mapping or None.")
 
@@ -605,8 +634,8 @@ def _coerce_periodic2(
         raise ValueError("periodic2.axes must contain two distinct axis indices in {0,1,2}.")
 
     lengths = (float(lengths_obj[0]), float(lengths_obj[1]))
-    if lengths[0] <= 0.0 or lengths[1] <= 0.0:
-        raise ValueError("periodic2.lengths must be positive.")
+    if any((not math.isfinite(length)) or length <= 0.0 for length in lengths):
+        raise ValueError("periodic2.lengths must be finite and positive.")
 
     if "origins" in periodic2:
         origins_obj = periodic2["origins"]
@@ -618,6 +647,8 @@ def _coerce_periodic2(
         origins = (box_min[axes[0]], box_min[axes[1]])
     else:
         origins = (0.0, 0.0)
+    if any(not math.isfinite(origin) for origin in origins):
+        raise ValueError("periodic2.origins must be finite.")
 
     nimg = int(periodic2.get("image_layers", 1))
     if nimg < 0:
@@ -630,6 +661,7 @@ def _coerce_periodic2(
     far_correction, ewald_layers = _normalize_periodic2_far_correction(
         periodic2.get("far_correction", "none"),
         ewald_layers=ewald_layers,
+        allow_cached_kneq0=allow_cached_kneq0,
     )
 
     alpha = float(periodic2.get("ewald_alpha", 0.0))
@@ -643,6 +675,8 @@ def _coerce_periodic2(
 
 def _auto_periodic2_from_result(
     resolved: FortranRunResult,
+    *,
+    allow_cached_kneq0: bool = False,
 ) -> tuple[
     tuple[int, int],
     tuple[float, float],
@@ -655,8 +689,8 @@ def _auto_periodic2_from_result(
     sim = _load_sim_near_output(resolved.directory)
     if sim is None:
         return None
-    periodic2 = _periodic2_from_sim(sim)
-    return _coerce_periodic2(periodic2)
+    periodic2 = _periodic2_from_sim(sim, allow_cached_kneq0=allow_cached_kneq0)
+    return _coerce_periodic2(periodic2, allow_cached_kneq0=allow_cached_kneq0)
 
 
 def _resolve_softening(resolved: FortranRunResult, softening: float | None) -> float:
@@ -863,7 +897,11 @@ def _load_toml(path: Path) -> dict[str, object]:
             ) from exc
 
 
-def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
+def _periodic2_from_sim(
+    sim: Mapping[str, object],
+    *,
+    allow_cached_kneq0: bool = False,
+) -> dict[str, object] | None:
     field_bc_mode = str(sim.get("field_bc_mode", "free")).strip().lower()
     if field_bc_mode != "periodic2":
         return None
@@ -893,6 +931,7 @@ def _periodic2_from_sim(sim: Mapping[str, object]) -> dict[str, object] | None:
     far_correction, ewald_layers = _normalize_periodic2_far_correction(
         sim.get("field_periodic_far_correction", "none"),
         ewald_layers=ewald_layers,
+        allow_cached_kneq0=allow_cached_kneq0,
     )
 
     return {
@@ -910,12 +949,17 @@ def _normalize_periodic2_far_correction(
     raw_far_correction: object,
     *,
     ewald_layers: int,
+    allow_cached_kneq0: bool = False,
 ) -> tuple[str, int]:
     far_correction = str(raw_far_correction).strip().lower()
-    if far_correction not in {"auto", "none", "m2l_root_oracle"}:
-        raise ValueError(
-            'periodic2.far_correction must be "auto", "none", or "m2l_root_oracle".'
-        )
+    allowed = {"auto", "none", "m2l_root_oracle"}
+    if allow_cached_kneq0:
+        allowed.add("cached_kneq0")
+    if far_correction not in allowed:
+        expected = '"auto", "none", or "m2l_root_oracle"'
+        if allow_cached_kneq0:
+            expected = '"auto", "none", "m2l_root_oracle", or "cached_kneq0"'
+        raise ValueError(f"periodic2.far_correction must be {expected}.")
     if far_correction == "auto":
         return "none", ewald_layers
     return far_correction, ewald_layers

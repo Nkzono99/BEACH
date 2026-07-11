@@ -125,3 +125,22 @@ def test_plugin_references_match_canonical_files_without_stale_contract() -> Non
             assert sentinel not in mirror, (
                 f"{mirror_path} contains stale far-correction text: {sentinel}"
             )
+
+
+def test_field_kernel_real_cache_tests_are_opt_in_only() -> None:
+    makefile = _read("Makefile")
+    cache_test = _read("tests/python/test_field_kernel_cache.py")
+
+    assert (
+        "test_field_kernel_cache_c"
+        in makefile.split("FORTRAN_FAR_CORRECTION_TARGETS ?=", 1)[1]
+    )
+    assert (
+        "test_field_kernel_cache_c"
+        not in makefile.split("FORTRAN_L2_TARGETS ?=", 1)[1].split(
+            "FORTRAN_L3_TARGETS ?=", 1
+        )[0]
+    )
+    assert 'os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1"' in cache_test
+    assert "allow_module_level=True" in cache_test
+    assert makefile.count("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1") == 1

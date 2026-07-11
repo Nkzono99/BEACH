@@ -5,6 +5,7 @@
 	static-check schema-check \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction \
+	test-field-kernel-cache \
 	test-python test-quick test-ci test-local \
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
@@ -13,6 +14,7 @@
 
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction \
+	test-field-kernel-cache \
 	test-mpi test-mpi-periodic-cache
 
 .DEFAULT_GOAL := install
@@ -86,6 +88,7 @@ FORTRAN_L3_TARGETS ?= \
 	test_dynamics_panel_fmm \
 	test_outer_plasma_kinetic
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
+	test_field_kernel_cache_c \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \
 	test_periodic2_cached_snapshot \
@@ -212,6 +215,10 @@ test-fortran-heavy:
 
 test-fortran-far-correction:
 	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS))
+
+test-field-kernel-cache: build-kernel
+	$(call run_fortran_targets,test_field_kernel_cache_c)
+	BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1 $(PYTHON) -m pytest -q tests/python/test_field_kernel_cache.py
 
 test-python:
 	$(PYTHON) -m pytest -q
