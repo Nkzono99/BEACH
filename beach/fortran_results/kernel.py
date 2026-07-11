@@ -381,6 +381,44 @@ class FieldKernel:
         _check_status(status, "beach_kernel_eval_phi")
         return phi
 
+    def eval_e_direct(self, points: np.ndarray) -> np.ndarray:
+        """Evaluate the exact non-periodic all-source electric field."""
+
+        self._require_open()
+        evaluator = self._direct_evaluator("beach_kernel_eval_e_direct")
+        target_pos = _points_to_fortran_3xn(points, name="points")
+        ntarget = target_pos.shape[1]
+        e = np.zeros((3, ntarget), dtype=np.float64, order="F")
+        if ntarget == 0:
+            return np.empty((0, 3), dtype=np.float64)
+        status = evaluator(
+            self._handle,
+            ctypes.c_int(ntarget),
+            target_pos.ctypes.data_as(ctypes.c_void_p),
+            e.ctypes.data_as(ctypes.c_void_p),
+        )
+        _check_status(status, "beach_kernel_eval_e_direct")
+        return np.ascontiguousarray(e.T)
+
+    def eval_phi_direct(self, points: np.ndarray) -> np.ndarray:
+        """Evaluate the exact non-periodic all-source electric potential."""
+
+        self._require_open()
+        evaluator = self._direct_evaluator("beach_kernel_eval_phi_direct")
+        target_pos = _points_to_fortran_3xn(points, name="points")
+        ntarget = target_pos.shape[1]
+        phi = np.zeros(ntarget, dtype=np.float64)
+        if ntarget == 0:
+            return phi
+        status = evaluator(
+            self._handle,
+            ctypes.c_int(ntarget),
+            target_pos.ctypes.data_as(ctypes.c_void_p),
+            phi.ctypes.data_as(ctypes.c_void_p),
+        )
+        _check_status(status, "beach_kernel_eval_phi_direct")
+        return phi
+
     def force_on_charges(
         self,
         positions: np.ndarray,
@@ -517,6 +555,18 @@ class FieldKernel:
     def _require_open(self) -> None:
         if self._closed or not self._handle.value:
             raise FieldKernelError("field kernel is closed.")
+
+    def _direct_evaluator(self, symbol: str):  # type: ignore[no-untyped-def]
+        if self._options.periodic2 is not None:
+            raise FieldKernelError(
+                "exact-direct evaluation requires a non-periodic field-kernel plan."
+            )
+        evaluator = getattr(self._lib, symbol, None)
+        if evaluator is None:
+            raise FieldKernelError(
+                f"exact-direct evaluation requires shared-library symbol {symbol}."
+            )
+        return evaluator
 
 
 def calc_object_forces_kernel(
@@ -867,6 +917,14 @@ def _configure_library(lib: ctypes.CDLL) -> None:
     lib.beach_kernel_eval_e.restype = c_int
     lib.beach_kernel_eval_phi.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
     lib.beach_kernel_eval_phi.restype = c_int
+    direct_e = getattr(lib, "beach_kernel_eval_e_direct", None)
+    if direct_e is not None:
+        direct_e.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
+        direct_e.restype = c_int
+    direct_phi = getattr(lib, "beach_kernel_eval_phi_direct", None)
+    if direct_phi is not None:
+        direct_phi.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
+        direct_phi.restype = c_int
     lib.beach_kernel_force_on_charges.argtypes = [
         c_void_p,
         c_int,

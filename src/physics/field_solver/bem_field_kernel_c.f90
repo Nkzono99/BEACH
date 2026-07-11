@@ -5,8 +5,9 @@ module bem_field_kernel_c
                                                                             c_ptr, c_null_ptr, c_signed_char
   use bem_constants, only: k_coulomb
   use bem_coulomb_fmm_core, only: build_plan, build_panel_plan, destroy_plan, destroy_state, eval_points, &
-                                  eval_potential_points, fmm_options_type, fmm_plan_type, fmm_state_type, update_state
-  use bem_kinds, only: dp, i32
+                                  eval_direct_points, eval_potential_points, eval_direct_potential_points, &
+                                  fmm_options_type, fmm_plan_type, fmm_state_type, update_state
+  use bem_kinds, only: dp, i32, i64
   implicit none
   private
 
@@ -35,7 +36,9 @@ module bem_field_kernel_c
   public :: beach_kernel_get_periodic_cache_info
   public :: beach_kernel_update_charges
   public :: beach_kernel_eval_e
+  public :: beach_kernel_eval_e_direct
   public :: beach_kernel_eval_phi
+  public :: beach_kernel_eval_phi_direct
   public :: beach_kernel_force_on_charges
 
 contains
@@ -426,6 +429,66 @@ contains
     status = beach_kernel_ok
   end function beach_kernel_eval_phi
 
+  integer(c_int) function beach_kernel_eval_e_direct(handle, ntarget, target_pos_ptr, e_ptr) &
+    bind(C, name='beach_kernel_eval_e_direct') result(status)
+    type(c_ptr), value :: handle
+    integer(c_int), value :: ntarget
+    type(c_ptr), value :: target_pos_ptr
+    type(c_ptr), value :: e_ptr
+    type(field_kernel_handle), pointer :: kernel
+    real(c_double), pointer :: target_pos(:, :)
+    real(c_double), pointer :: e(:, :)
+
+    status = require_direct_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. target_count_is_addressable(ntarget) .or. .not. c_associated(target_pos_ptr) .or. &
+        .not. c_associated(e_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    if (ntarget == 0_c_int) return
+
+    call c_f_pointer(target_pos_ptr, target_pos, [3, int(ntarget)])
+    if (any(.not. ieee_is_finite(target_pos))) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    call c_f_pointer(e_ptr, e, [3, int(ntarget)])
+    call eval_direct_points(kernel%plan, kernel%state, target_pos, e)
+    e = k_coulomb*e
+    status = beach_kernel_ok
+  end function beach_kernel_eval_e_direct
+
+  integer(c_int) function beach_kernel_eval_phi_direct(handle, ntarget, target_pos_ptr, phi_ptr) &
+    bind(C, name='beach_kernel_eval_phi_direct') result(status)
+    type(c_ptr), value :: handle
+    integer(c_int), value :: ntarget
+    type(c_ptr), value :: target_pos_ptr
+    type(c_ptr), value :: phi_ptr
+    type(field_kernel_handle), pointer :: kernel
+    real(c_double), pointer :: target_pos(:, :)
+    real(c_double), pointer :: phi(:)
+
+    status = require_direct_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. target_count_is_addressable(ntarget) .or. .not. c_associated(target_pos_ptr) .or. &
+        .not. c_associated(phi_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    if (ntarget == 0_c_int) return
+
+    call c_f_pointer(target_pos_ptr, target_pos, [3, int(ntarget)])
+    if (any(.not. ieee_is_finite(target_pos))) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    call c_f_pointer(phi_ptr, phi, [int(ntarget)])
+    call eval_direct_potential_points(kernel%plan, kernel%state, target_pos, phi)
+    phi = k_coulomb*phi
+    status = beach_kernel_ok
+  end function beach_kernel_eval_phi_direct
+
   integer(c_int) function beach_kernel_force_on_charges( &
     handle, ntarget, target_pos_ptr, target_q_ptr, origin_ptr, force_ptr, torque_ptr &
     ) bind(C, name='beach_kernel_force_on_charges') result(status)
@@ -501,6 +564,29 @@ contains
     if (status /= beach_kernel_ok) return
     if (.not. kernel%built .or. .not. kernel%charged) status = beach_kernel_not_ready
   end function require_charged_kernel
+
+  integer(c_int) function require_direct_kernel(handle, kernel) result(status)
+    type(c_ptr), intent(in) :: handle
+    type(field_kernel_handle), pointer, intent(out) :: kernel
+
+    status = get_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. kernel%built) then
+      status = beach_kernel_not_ready
+    else if (kernel%plan%options%use_periodic2) then
+      status = beach_kernel_invalid_argument
+    else if (.not. kernel%charged) then
+      status = beach_kernel_not_ready
+    end if
+  end function require_direct_kernel
+
+  pure logical function target_count_is_addressable(count) result(addressable)
+    integer(c_int), intent(in) :: count
+    integer(i64) :: shape_limit
+
+    shape_limit = min(int(huge(0), i64), int(huge(0_i32), i64))
+    addressable = count >= 0_c_int .and. int(count, i64) <= shape_limit/3_i64
+  end function target_count_is_addressable
 
   subroutine copy_text_to_c_buffer(text, text_length, buffer_ptr, buffer_capacity)
     character(len=*), intent(in) :: text

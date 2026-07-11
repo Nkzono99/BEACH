@@ -17,8 +17,10 @@ module bem_coulomb_fmm_eval_ops
   private
 
   public :: core_eval_points_impl
+  public :: core_eval_direct_points_impl
   public :: core_eval_point_impl
   public :: core_eval_potential_points_impl
+  public :: core_eval_direct_potential_points_impl
   public :: core_eval_potential_point_impl
 
 contains
@@ -50,6 +52,38 @@ contains
     end do
     !$omp end parallel do
   end subroutine core_eval_points_impl
+
+  !> 非周期計画の全ソース直接和で複数点の電場を計算する。
+  subroutine core_eval_direct_points_impl(plan, state, target_pos, e)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: target_pos(:, :)
+    real(dp), intent(out) :: e(:, :)
+    integer(i32) :: i, ntarget
+    real(dp) :: soft2
+
+    if (size(target_pos, 1) /= 3) error stop 'FMM core expects target_pos(3,m).'
+    if (size(e, 1) /= 3 .or. size(e, 2) /= size(target_pos, 2)) then
+      error stop 'FMM eval_direct_points expects e(3,m).'
+    end if
+    if (plan%options%use_periodic2) then
+      error stop 'FMM exact-direct evaluation requires a non-periodic plan.'
+    end if
+
+    e = 0.0_dp
+    if (.not. plan%built .or. .not. state%ready) return
+    ntarget = int(size(target_pos, 2), i32)
+    soft2 = plan%options%softening*plan%options%softening
+
+    !$omp parallel do default(none) schedule(static) &
+    !$omp   shared(plan, state, target_pos, e, ntarget, soft2) private(i)
+    do i = 1_i32, ntarget
+      call eval_direct_all_sources_scalar( &
+        plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), soft2, e(1, i), e(2, i), e(3, i) &
+        )
+    end do
+    !$omp end parallel do
+  end subroutine core_eval_direct_points_impl
 
   !> 1 点で電場を計算する。
   !! @param[in] plan 構築済みの FMM 計画。
@@ -92,6 +126,38 @@ contains
     end do
     !$omp end parallel do
   end subroutine core_eval_potential_points_impl
+
+  !> 非周期計画の全ソース直接和で複数点の電位を計算する。
+  subroutine core_eval_direct_potential_points_impl(plan, state, target_pos, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: target_pos(:, :)
+    real(dp), intent(out) :: phi(:)
+    integer(i32) :: i, ntarget
+    real(dp) :: soft2
+
+    if (size(target_pos, 1) /= 3) error stop 'FMM core expects target_pos(3,m).'
+    if (size(phi) /= size(target_pos, 2)) then
+      error stop 'FMM eval_direct_potential_points expects phi(m).'
+    end if
+    if (plan%options%use_periodic2) then
+      error stop 'FMM exact-direct evaluation requires a non-periodic plan.'
+    end if
+
+    phi = 0.0_dp
+    if (.not. plan%built .or. .not. state%ready) return
+    ntarget = int(size(target_pos, 2), i32)
+    soft2 = plan%options%softening*plan%options%softening
+
+    !$omp parallel do default(none) schedule(static) &
+    !$omp   shared(plan, state, target_pos, phi, ntarget, soft2) private(i)
+    do i = 1_i32, ntarget
+      call eval_direct_all_sources_potential_scalar( &
+        plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), soft2, phi(i) &
+        )
+    end do
+    !$omp end parallel do
+  end subroutine core_eval_direct_potential_points_impl
 
   !> 1 点で電位を計算する。
   !! @param[in] plan 構築済みの FMM 計画。

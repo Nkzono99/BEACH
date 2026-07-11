@@ -3,7 +3,8 @@ program test_field_kernel_c
   use, intrinsic :: iso_c_binding, only: c_char, c_double, c_int, c_loc, c_null_char, c_null_ptr, c_ptr
   use bem_constants, only: k_coulomb
   use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_build_panel, beach_kernel_create, &
-                                beach_kernel_destroy, beach_kernel_eval_e, beach_kernel_eval_phi, &
+                                beach_kernel_destroy, beach_kernel_eval_e, beach_kernel_eval_e_direct, &
+                                beach_kernel_eval_phi, beach_kernel_eval_phi_direct, &
                                 beach_kernel_force_on_charges, beach_kernel_get_periodic_cache_info, &
                                 beach_kernel_invalid_argument, beach_kernel_invalid_handle, beach_kernel_not_ready, &
                                 beach_kernel_ok, beach_kernel_set_periodic_cache, beach_kernel_update_charges
@@ -15,9 +16,9 @@ program test_field_kernel_c
 
   type(c_ptr) :: handle
   integer(c_int) :: status
-  real(c_double), target :: src_pos(3, 2), src_q(2), target_pos(3, 1), e(3, 1)
+  real(c_double), target :: src_pos(3, 2), src_q(2), target_pos(3, 2), e(3, 2), e_direct(3, 2)
   real(c_double), target :: target_q(1), origin(3), force(3), torque(3)
-  real(c_double), target :: v0(3, 1), v1(3, 1), v2(3, 1), panel_q(1), phi(1)
+  real(c_double), target :: v0(3, 1), v1(3, 1), v2(3, 1), panel_q(1), phi(2), phi_direct(2)
   real(c_double) :: expected_e(3), expected_force(3), expected_torque(3)
   real(dp) :: expected_phi
   type(panel_geometry_type) :: geometry
@@ -29,6 +30,7 @@ program test_field_kernel_c
   character(kind=c_char), target :: fingerprint_buffer(17), path_buffer(513)
   integer(c_int), target :: cache_periodic_axes(2)
   real(c_double), target :: cache_periodic_len(2), cache_box_min(3), cache_box_max(3)
+  integer(i32) :: panel_target_idx
 
   call test_begin('field_kernel_c_cache_abi_validation')
   call set_c_bytes(cache_path, [99, 97, 99, 104, 101, 45, 195, 169])
@@ -208,12 +210,59 @@ program test_field_kernel_c
   status = beach_kernel_update_charges(handle, 2_c_int, c_loc(src_q))
   call assert_equal_i32(status, beach_kernel_ok, 'update status')
 
+  status = beach_kernel_eval_e_direct(handle, -1_c_int, c_loc(target_pos), c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'eval_e_direct negative target count')
+  status = beach_kernel_eval_phi_direct(handle, huge(0_c_int), c_loc(target_pos), c_loc(phi_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'eval_phi_direct oversized target count')
+  status = beach_kernel_eval_e_direct(handle, 1_c_int, c_null_ptr, c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'eval_e_direct NULL target')
+  status = beach_kernel_eval_phi_direct(handle, 1_c_int, c_loc(target_pos), c_null_ptr)
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'eval_phi_direct NULL output')
+  target_pos(:, 1) = [ieee_value(0.0d0, ieee_quiet_nan), 1.0d0, 0.0d0]
+  status = beach_kernel_eval_e_direct(handle, 1_c_int, c_loc(target_pos), c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'eval_e_direct nonfinite target')
+  status = beach_kernel_eval_phi_direct(handle, 1_c_int, c_loc(target_pos), c_loc(phi_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'eval_phi_direct nonfinite target')
+  target_pos(:, 1) = [0.0d0, 1.0d0, 0.0d0]
+
   e = 0.0d0
   status = beach_kernel_eval_e(handle, 1_c_int, c_loc(target_pos), c_loc(e))
   call assert_equal_i32(status, beach_kernel_ok, 'eval_e status')
 
   expected_e = direct_e(src_pos, src_q, target_pos(:, 1))
   call assert_allclose_1d(e(:, 1), expected_e, 1.0d-15, 'eval_e value')
+  status = beach_kernel_eval_e_direct(handle, 1_c_int, c_loc(target_pos), c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_ok, 'eval_e_direct status')
+  status = beach_kernel_eval_phi_direct(handle, 1_c_int, c_loc(target_pos), c_loc(phi_direct))
+  call assert_equal_i32(status, beach_kernel_ok, 'eval_phi_direct status')
+  call assert_allclose_1d(e_direct(:, 1), expected_e, 1.0d-15, 'eval_e_direct value')
+  expected_phi = direct_phi(src_pos, src_q, target_pos(:, 1))
+  call assert_allclose_1d(phi_direct(:1), [expected_phi], 1.0d-15, 'eval_phi_direct value')
+
+  status = beach_kernel_build( &
+           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 4_c_int, 0.0d0, 1_c_int, &
+           c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 1_c_int, 0.0d0, 4_c_int, &
+           c_loc(cache_box_min), c_loc(cache_box_max) &
+           )
+  call assert_equal_i32(status, beach_kernel_ok, 'periodic direct rejection build status')
+  status = beach_kernel_eval_e_direct(handle, 1_c_int, c_loc(target_pos), c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'uncharged periodic eval_e_direct rejection')
+  status = beach_kernel_eval_phi_direct(handle, 1_c_int, c_loc(target_pos), c_loc(phi_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'uncharged periodic eval_phi_direct rejection')
+  status = beach_kernel_update_charges(handle, 2_c_int, c_loc(src_q))
+  call assert_equal_i32(status, beach_kernel_ok, 'periodic direct rejection update status')
+  status = beach_kernel_eval_e_direct(handle, 1_c_int, c_loc(target_pos), c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'periodic eval_e_direct rejection')
+  status = beach_kernel_eval_phi_direct(handle, 1_c_int, c_loc(target_pos), c_loc(phi_direct))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'periodic eval_phi_direct rejection')
+
+  status = beach_kernel_build( &
+           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 4_c_int, 0.0d0, 0_c_int, c_null_ptr, &
+           c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_ok, 'restore free build status')
+  status = beach_kernel_update_charges(handle, 2_c_int, c_loc(src_q))
+  call assert_equal_i32(status, beach_kernel_ok, 'restore free update status')
 
   force = 0.0d0
   torque = 0.0d0
@@ -235,6 +284,7 @@ program test_field_kernel_c
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   panel_q = [2.5d-9]
   target_pos(:, 1) = [0.25d0, 0.2d0, 0.4d0]
+  target_pos(:, 2) = [0.25d0, 0.2d0, 0.0d0]
   status = beach_kernel_create(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'panel create status')
   status = beach_kernel_build_panel( &
@@ -248,13 +298,29 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_ok, 'panel eval_e status')
   status = beach_kernel_eval_phi(handle, 1_c_int, c_loc(target_pos), c_loc(phi))
   call assert_equal_i32(status, beach_kernel_ok, 'panel eval_phi status')
-  call init_panel_geometry(v0(:, 1), v1(:, 1), v2(:, 1), geometry, geometry_status)
-  call assert_equal_i32(geometry_status, panel_geometry_ok, 'panel fixture geometry status')
-  call panel_potential_field( &
-    geometry, panel_q(1), target_pos(:, 1), panel_side_principal_value, expected_phi, expected_e &
-    )
-  call assert_allclose_1d(e(:, 1), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'panel eval_e value')
-  call assert_allclose_1d(phi, [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), 'panel eval_phi value')
+  status = beach_kernel_eval_e_direct(handle, 2_c_int, c_loc(target_pos), c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_ok, 'panel eval_e_direct status')
+  status = beach_kernel_eval_phi_direct(handle, 2_c_int, c_loc(target_pos), c_loc(phi_direct))
+  call assert_equal_i32(status, beach_kernel_ok, 'panel eval_phi_direct status')
+  do panel_target_idx = 1_i32, 2_i32
+    call init_panel_geometry(v0(:, 1), v1(:, 1), v2(:, 1), geometry, geometry_status)
+    call assert_equal_i32(geometry_status, panel_geometry_ok, 'panel fixture geometry status')
+    call panel_potential_field( &
+      geometry, panel_q(1), target_pos(:, panel_target_idx), panel_side_principal_value, expected_phi, expected_e &
+      )
+    call assert_allclose_1d( &
+      e_direct(:, panel_target_idx), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), &
+      'panel eval_e_direct value' &
+      )
+    call assert_allclose_1d( &
+      phi_direct(panel_target_idx:panel_target_idx), [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), &
+      'panel eval_phi_direct value' &
+      )
+    if (panel_target_idx == 1_i32) then
+      call assert_allclose_1d(e(:, 1), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'panel eval_e value')
+      call assert_allclose_1d(phi(:1), [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), 'panel eval_phi value')
+    end if
+  end do
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'panel destroy status')
 
@@ -286,6 +352,21 @@ contains
       e_out = e_out + k_coulomb*q(i)*inv_r3*d
     end do
   end function direct_e
+
+  function direct_phi(src, q, target) result(phi_out)
+    real(c_double), intent(in) :: src(:, :), q(:), target(3)
+    real(c_double) :: phi_out
+    integer :: i
+    real(c_double) :: d(3), r2
+
+    phi_out = 0.0d0
+    do i = 1, size(q)
+      d = target - src(:, i)
+      r2 = sum(d*d)
+      if (r2 <= tiny(1.0d0)) cycle
+      phi_out = phi_out + k_coulomb*q(i)/sqrt(r2)
+    end do
+  end function direct_phi
 
   pure function cross(a, b) result(c)
     real(c_double), intent(in) :: a(3), b(3)

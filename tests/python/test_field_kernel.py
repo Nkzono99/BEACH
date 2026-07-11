@@ -171,6 +171,40 @@ def test_field_kernel_legacy_library_keeps_default_free_build(
     assert "build" in lib.events
 
 
+def test_field_kernel_legacy_library_keeps_existing_eval_but_direct_is_optional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
+    _install_fake_kernel(monkeypatch, lib)
+    source_pos, source_q = _one_source()
+
+    with FieldKernel(source_pos, source_q) as kernel:
+        np.testing.assert_array_equal(kernel.eval_e(np.array([[1.0, 0.0, 0.0]])), 0.0)
+        with pytest.raises(FieldKernelError, match="exact-direct"):
+            kernel.eval_e_direct(np.array([[1.0, 0.0, 0.0]]))
+        with pytest.raises(FieldKernelError, match="exact-direct"):
+            kernel.eval_phi_direct(np.array([[1.0, 0.0, 0.0]]))
+
+
+def test_field_kernel_direct_methods_reject_periodic_plan_before_native_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
+    _install_fake_kernel(monkeypatch, lib)
+    source_pos, source_q = _one_source()
+    options = FieldKernelOptions(
+        periodic2=((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+        box_min=(0.0, 0.0, -1.0),
+        box_max=(2.0, 2.0, 1.0),
+    )
+
+    with FieldKernel(source_pos, source_q, options=options) as kernel:
+        with pytest.raises(FieldKernelError, match="non-periodic"):
+            kernel.eval_e_direct(np.array([[1.0, 0.0, 0.0]]))
+        with pytest.raises(FieldKernelError, match="non-periodic"):
+            kernel.eval_phi_direct(np.array([[1.0, 0.0, 0.0]]))
+
+
 def test_field_kernel_legacy_library_keeps_default_finite_periodic_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -396,6 +430,50 @@ def test_field_kernel_eval_e_matches_direct_sum() -> None:
     np.testing.assert_allclose(field[0], expected, rtol=1.0e-14, atol=1.0e-14)
 
 
+def test_field_kernel_exact_direct_matches_softened_sum_and_charge_refresh() -> None:
+    lib = _kernel_lib()
+    axis = (-0.6, 0.0, 0.6)
+    source_pos = np.array(
+        [[x, y, z] for x in axis for y in axis for z in axis], dtype=float
+    )
+    source_q = (
+        np.where(np.arange(source_pos.shape[0]) % 2 == 0, 1.0, -1.0)
+        * (1.0 + 0.07 * np.arange(source_pos.shape[0]))
+        * 1.0e-9
+    )
+    targets = np.array([[0.13, -0.08, 0.04], source_pos[0]], dtype=float)
+    softening = 0.15
+    options = FieldKernelOptions(
+        theta=20.0,
+        leaf_max=1,
+        order=0,
+        softening=softening,
+    )
+
+    delta = targets[:, None, :] - source_pos[None, :, :]
+    r2 = np.sum(delta * delta, axis=2) + softening**2
+    expected_e = K_COULOMB * np.sum(
+        source_q[None, :, None] * delta / (r2[:, :, None] ** 1.5), axis=1
+    )
+    expected_phi = K_COULOMB * np.sum(source_q[None, :] / np.sqrt(r2), axis=1)
+
+    with FieldKernel(source_pos, source_q, options=options, library_path=lib) as kernel:
+        ordinary_e = kernel.eval_e(targets)
+        direct_e = kernel.eval_e_direct(targets)
+        direct_phi = kernel.eval_phi_direct(targets)
+        kernel.update_charges(-0.25 * source_q)
+        refreshed_e = kernel.eval_e_direct(targets)
+        refreshed_phi = kernel.eval_phi_direct(targets)
+
+    np.testing.assert_allclose(direct_e, expected_e, rtol=2.0e-14, atol=1.0e-14)
+    np.testing.assert_allclose(direct_phi, expected_phi, rtol=2.0e-14, atol=1.0e-14)
+    np.testing.assert_allclose(refreshed_e, -0.25 * expected_e, rtol=2.0e-14, atol=1.0e-14)
+    np.testing.assert_allclose(refreshed_phi, -0.25 * expected_phi, rtol=2.0e-14, atol=1.0e-14)
+    assert np.linalg.norm(ordinary_e[0] - expected_e[0]) > 1.0e-6 * np.linalg.norm(
+        expected_e[0]
+    )
+
+
 def test_field_kernel_from_panel_result_dispatches_triangle_geometry(tmp_path: Path) -> None:
     lib = _kernel_lib()
     triangles = np.array(
@@ -442,9 +520,11 @@ def test_field_kernel_adds_uniform_external_e0() -> None:
         library_path=lib,
     ) as kernel:
         field = kernel.eval_e(target)
+        direct_field = kernel.eval_e_direct(target)
         force, torque = kernel.force_on_charges(target, target_q, origin=(0.0, 0.0, 0.0))
 
     np.testing.assert_allclose(field, np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]))
+    np.testing.assert_array_equal(direct_field, np.zeros((2, 3)))
     np.testing.assert_allclose(force, np.array([5.0, 0.0, 0.0]))
     np.testing.assert_allclose(torque, np.array([0.0, 0.0, -8.0]))
 

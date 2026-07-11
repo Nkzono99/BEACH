@@ -12,8 +12,10 @@ module bem_coulomb_fmm_core
   public :: build_panel_plan
   public :: update_state
   public :: eval_points
+  public :: eval_direct_points
   public :: eval_point
   public :: eval_potential_points
+  public :: eval_direct_potential_points
   public :: eval_potential_point
   public :: destroy_plan
   public :: destroy_state
@@ -57,6 +59,15 @@ module bem_coulomb_fmm_core
       real(dp), intent(out) :: e(:, :)
     end subroutine eval_points
 
+    !> 複数の評価点で全ソースの直接和による電場を計算する（非周期のみ）。
+    !! Coulomb 係数は含まない。
+    module subroutine eval_direct_points(plan, state, target_pos, e)
+      type(fmm_plan_type), intent(in) :: plan
+      type(fmm_state_type), intent(inout) :: state
+      real(dp), intent(in) :: target_pos(:, :)
+      real(dp), intent(out) :: e(:, :)
+    end subroutine eval_direct_points
+
     !> 1 点で電場を計算する。
     !! @param[in] plan 構築済みの FMM 計画。
     !! @param[inout] state 評価に使う FMM state。
@@ -80,6 +91,15 @@ module bem_coulomb_fmm_core
       real(dp), intent(in) :: target_pos(:, :)
       real(dp), intent(out) :: phi(:)
     end subroutine eval_potential_points
+
+    !> 複数の評価点で全ソースの直接和による電位を計算する（非周期のみ）。
+    !! Coulomb 係数は含まない。
+    module subroutine eval_direct_potential_points(plan, state, target_pos, phi)
+      type(fmm_plan_type), intent(in) :: plan
+      type(fmm_state_type), intent(inout) :: state
+      real(dp), intent(in) :: target_pos(:, :)
+      real(dp), intent(out) :: phi(:)
+    end subroutine eval_direct_potential_points
 
     !> 1 点で電位を計算する。
     !! @param[in] plan 構築済みの FMM 計画。
