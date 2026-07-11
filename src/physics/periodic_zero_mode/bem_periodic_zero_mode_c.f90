@@ -68,7 +68,7 @@ contains
 
     status = get_zero_mode(handle, zero)
     if (status /= beach_zero_mode_ok) return
-    if (.not. count_is_addressable(nsrc, 3_i64) .or. nsrc == 0_c_int .or. &
+    if (.not. count_is_addressable(nsrc, 3_i64, 2_i64) .or. nsrc == 0_c_int .or. &
         .not. c_associated(source_heights_ptr) .or. .not. ieee_is_finite(area_xy) .or. &
         area_xy <= 0.0_c_double) then
       status = beach_zero_mode_invalid_argument
@@ -112,7 +112,7 @@ contains
       status = beach_zero_mode_not_ready
       return
     end if
-    if (.not. count_is_addressable(nsrc, 1_i64) .or. &
+    if (.not. count_is_addressable(nsrc, 1_i64, 0_i64) .or. &
         int(nsrc, i64) /= int(zero%plan%nelem, i64) .or. .not. c_associated(charge_ptr) .or. &
         .not. ieee_is_finite(e_bottom) .or. .not. ieee_is_finite(z_gauge) .or. &
         .not. ieee_is_finite(phi_gauge)) then
@@ -147,7 +147,7 @@ contains
 
     status = require_charged_zero_mode(handle, zero)
     if (status /= beach_zero_mode_ok) return
-    if (.not. count_is_addressable(ntarget, 3_i64) .or. &
+    if (.not. count_is_addressable(ntarget, 3_i64, 0_i64) .or. &
         .not. c_associated(z_ptr) .or. .not. c_associated(phi_ptr) .or. .not. c_associated(ez_ptr) .or. &
         .not. trace_is_valid(trace)) then
       status = beach_zero_mode_invalid_argument
@@ -196,13 +196,16 @@ contains
     if (.not. zero%built .or. .not. zero%charged) status = beach_zero_mode_not_ready
   end function require_charged_zero_mode
 
-  pure logical function count_is_addressable(count, values_per_item) result(addressable)
+  pure logical function count_is_addressable(count, values_per_item, shape_margin) result(addressable)
     integer(c_int), intent(in) :: count
-    integer(i64), intent(in) :: values_per_item
+    integer(i64), intent(in) :: values_per_item, shape_margin
     integer(i64) :: shape_limit
 
     shape_limit = min(int(huge(0), i64), int(huge(0_i32), i64))
-    addressable = count >= 0_c_int .and. int(count, i64) <= shape_limit/values_per_item
+    addressable = .false.
+    if (count < 0_c_int .or. values_per_item <= 0_i64) return
+    if (shape_margin < 0_i64 .or. shape_margin > shape_limit) return
+    addressable = int(count, i64) <= (shape_limit - shape_margin)/values_per_item
   end function count_is_addressable
 
   pure logical function trace_is_valid(trace) result(valid)

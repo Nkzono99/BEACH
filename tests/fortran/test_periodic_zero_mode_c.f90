@@ -1,8 +1,8 @@
 program test_periodic_zero_mode_c
   use, intrinsic :: ieee_arithmetic, only: ieee_negative_inf, ieee_positive_inf, ieee_quiet_nan, ieee_value
-  use, intrinsic :: iso_c_binding, only: c_double, c_int, c_loc, c_null_ptr, c_ptr
-  use bem_kinds, only: dp, i32
-  use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus, &
+  use, intrinsic :: iso_c_binding, only: c_double, c_int, c_intptr_t, c_loc, c_null_ptr, c_ptr
+  use bem_kinds, only: dp, i32, i64
+  use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_minus, zero_mode_trace_plus, &
                                          zero_mode_trace_principal_value
   use bem_periodic_zero_mode_plan, only: build_periodic_zero_mode_height_plan, periodic_zero_mode_ok, &
                                          periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
@@ -143,6 +143,20 @@ contains
       real(ez, dp), expected_ez, scaled_tolerance(expected_ez), 'two-sheet field values' &
       )
 
+    status = beach_zero_mode_eval(handle, 5_c_int, c_loc(z), -1_c_int, c_loc(phi), c_loc(ez))
+    call assert_status(status, zero_ok, 'two-sheet minus-trace eval status')
+    do i = 1_i32, 5_i32
+      call eval_periodic_zero_mode( &
+        plan, state, real(z(i), dp), zero_mode_trace_minus, expected_phi(i), expected_ez(i) &
+        )
+    end do
+    call assert_allclose_1d( &
+      real(phi, dp), expected_phi, scaled_tolerance(expected_phi), 'two-sheet minus-trace potential values' &
+      )
+    call assert_allclose_1d( &
+      real(ez, dp), expected_ez, scaled_tolerance(expected_ez), 'two-sheet minus-trace field values' &
+      )
+
     status = beach_zero_mode_destroy(handle)
     call assert_status(status, zero_ok, 'two-sheet destroy status')
     call test_end()
@@ -195,10 +209,10 @@ contains
   end subroutine test_inclined_fixture
 
   subroutine test_build_validation()
-    type(c_ptr) :: handle
+    type(c_ptr) :: handle, non_dereferenceable_dummy
     real(c_double), target :: source_heights(3, 2), charge(2)
     real(c_double) :: invalid(3), area_values(5), saved
-    integer(c_int) :: status
+    integer(c_int) :: dangerous_count, status
     integer :: i
 
     call test_begin('build_rejects_invalid_inputs')
@@ -218,6 +232,10 @@ contains
     call assert_status(status, zero_invalid_argument, 'zero source count')
     status = beach_zero_mode_build(handle, -1_c_int, c_loc(source_heights), 1.0d0)
     call assert_status(status, zero_invalid_argument, 'negative source count')
+    dangerous_count = int(int(huge(0_i32), i64)/3_i64, c_int)
+    non_dereferenceable_dummy = transfer(1_c_intptr_t, c_null_ptr)
+    status = beach_zero_mode_build(handle, dangerous_count, non_dereferenceable_dummy, 1.0d0)
+    call assert_status(status, zero_invalid_argument, 'source count leaves no state-shape margin')
     status = beach_zero_mode_build(handle, huge(0_c_int), c_loc(source_heights), 1.0d0)
     call assert_status(status, zero_invalid_argument, 'overflowing source count')
     status = beach_zero_mode_build(handle, 2_c_int, c_null_ptr, 1.0d0)
