@@ -40,7 +40,7 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 
 Start with these quantities in `summary.txt`.
 
-`field_source_model` and `field_kernel_id` identify the element kernel that produced the output. For `triangle_p0` runs, the current Python potential/field/force/field-line estimators and point-only C kernel fail closed instead of reconstructing an inconsistent point-charge field. Use simulator-written diagnostics until panel-aware post-processing is available.
+`field_source_model` and `field_kernel_id` identify the element kernel that produced the output. `triangle_p0_exact_p2m_near` denotes the all-vertex topology, analytic panel-near, exact-panel-P2M FMM. `FieldKernel.from_result` dispatches `triangle_p0` output to the panel C ABI. The other Python potential/field/force/field-line estimators remain point-only and fail closed.
 
 For split periodic2 runs, `summary.txt` records interface potential and normal field, `eta_phi_kneq0`, `eta_field_kneq0`, `eta_gap`, `eta_local_charge`, the Gauss residual, integrated outer charge, and the last outer-update batch. These values are part of the applicability and restart contract; a split checkpoint missing its outer state is rejected.
 

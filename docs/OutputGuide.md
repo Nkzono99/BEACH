@@ -40,7 +40,7 @@ beachx inspect outputs/latest
 
 `summary.txt` で最初に確認する量は次のとおりです。
 
-`field_source_model` と `field_kernel_id` は出力を生成した要素核を示します。`triangle_p0` 出力に対し、現行 Python potential/field/force/field-line estimator と point-only C kernel は誤った点電荷再構成を避けるため停止します。panel 対応診断は simulator が書いた値を利用してください。
+`field_source_model` と `field_kernel_id` は出力を生成した要素核を示します。`triangle_p0_exact_p2m_near` は全頂点 topology、解析 panel near、厳密 panel P2M の FMM を表します。`FieldKernel.from_result` は `triangle_p0` を panel C ABI へ dispatch します。その他の Python potential/field/force/field-line estimator は point-only のため引き続き停止します。
 
 split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi_kneq0`、`eta_field_kneq0`、`eta_gap`、`eta_local_charge`、Gauss residual、outer積分電荷、最終outer更新batchを保存します。これらは物理適用性とrestart状態の一部であり、欠損したsplit checkpointは再開できません。
 

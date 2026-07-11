@@ -97,6 +97,7 @@ class FieldKernel:
         *,
         options: FieldKernelOptions | None = None,
         library_path: str | Path | None = None,
+        source_triangles: np.ndarray | None = None,
     ) -> None:
         self._lib = _load_kernel_library(library_path)
         _configure_library(self._lib)
@@ -107,7 +108,10 @@ class FieldKernel:
         status = self._lib.beach_kernel_create(ctypes.byref(self._handle))
         _check_status(status, "beach_kernel_create")
         try:
-            self.build(source_positions, options=options)
+            if source_triangles is None:
+                self.build(source_positions, options=options)
+            else:
+                self.build_panel(source_triangles, options=options)
             self.update_charges(source_charges)
         except Exception:
             self.close()
@@ -130,8 +134,8 @@ class FieldKernel:
         """Build a kernel from one BEACH output directory."""
 
         resolved = _resolve_result(result)
-        _require_point_source_model(resolved)
-        centers = _triangle_centers(_require_triangles(resolved))
+        triangles = _require_triangles(resolved)
+        centers = _triangle_centers(triangles)
         charges = _charges_for_step(resolved, step=step)
         options = _options_from_result(
             resolved,
@@ -142,7 +146,14 @@ class FieldKernel:
             order=order,
             config_path=config_path,
         )
-        return cls(centers, charges, options=options, library_path=library_path)
+        source_triangles = triangles if resolved.field_source_model == "triangle_p0" else None
+        return cls(
+            centers,
+            charges,
+            options=options,
+            library_path=library_path,
+            source_triangles=source_triangles,
+        )
 
     @staticmethod
     def is_available(library_path: str | Path | None = None) -> bool:
@@ -166,6 +177,30 @@ class FieldKernel:
         self._require_open()
         opts = options or FieldKernelOptions()
         src_pos = _points_to_fortran_3xn(source_positions, name="source_positions")
+        self._build_geometry(src_pos, None, opts)
+
+    def build_panel(
+        self,
+        source_triangles: np.ndarray,
+        *,
+        options: FieldKernelOptions | None = None,
+    ) -> None:
+        """Build or rebuild a constant-density triangle-panel plan."""
+
+        self._require_open()
+        opts = options or FieldKernelOptions()
+        if opts.softening != 0.0:
+            raise ValueError("triangle-panel field kernels require softening=0.")
+        vertices = _triangles_to_fortran_vertices(source_triangles)
+        src_pos = (vertices[0] + vertices[1] + vertices[2]) / 3.0
+        self._build_geometry(src_pos, vertices, opts)
+
+    def _build_geometry(
+        self,
+        src_pos: np.ndarray,
+        panel_vertices: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+        opts: FieldKernelOptions,
+    ) -> None:
         nsrc = src_pos.shape[1]
         if nsrc <= 0:
             raise ValueError("source_positions must contain at least one point.")
@@ -180,6 +215,8 @@ class FieldKernel:
         ewald_alpha = 0.0
         ewald_layers = 4
         keepalive: list[np.ndarray] = [src_pos]
+        if panel_vertices is not None:
+            keepalive.extend(panel_vertices)
 
         if opts.periodic2 is not None:
             axes, lengths, origins, image_layers, far_key, ewald_alpha, ewald_layers = opts.periodic2
@@ -203,10 +240,20 @@ class FieldKernel:
             use_periodic2 = 1
             far_correction = _far_correction_code(far_key)
 
-        status = self._lib.beach_kernel_build(
+        geometry_args: list[object]
+        if panel_vertices is None:
+            build_function = self._lib.beach_kernel_build
+            geometry_args = [src_pos.ctypes.data_as(ctypes.c_void_p)]
+            operation = "beach_kernel_build"
+        else:
+            build_function = self._lib.beach_kernel_build_panel
+            geometry_args = [vertex.ctypes.data_as(ctypes.c_void_p) for vertex in panel_vertices]
+            operation = "beach_kernel_build_panel"
+
+        status = build_function(
             self._handle,
             ctypes.c_int(nsrc),
-            src_pos.ctypes.data_as(ctypes.c_void_p),
+            *geometry_args,
             ctypes.c_double(opts.theta),
             ctypes.c_int(opts.leaf_max),
             ctypes.c_int(opts.order),
@@ -221,7 +268,7 @@ class FieldKernel:
             box_min,
             box_max,
         )
-        _check_status(status, "beach_kernel_build")
+        _check_status(status, operation)
         self._source_count = nsrc
         self._options = opts
         self._keepalive = keepalive
@@ -650,6 +697,27 @@ def _configure_library(lib: ctypes.CDLL) -> None:
         c_void_p,
     ]
     lib.beach_kernel_build.restype = c_int
+    lib.beach_kernel_build_panel.argtypes = [
+        c_void_p,
+        c_int,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_double,
+        c_int,
+        c_int,
+        c_double,
+        c_int,
+        c_void_p,
+        c_void_p,
+        c_int,
+        c_int,
+        c_double,
+        c_int,
+        c_void_p,
+        c_void_p,
+    ]
+    lib.beach_kernel_build_panel.restype = c_int
     lib.beach_kernel_update_charges.argtypes = [c_void_p, c_int, c_void_p]
     lib.beach_kernel_update_charges.restype = c_int
     lib.beach_kernel_eval_e.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
@@ -682,6 +750,19 @@ def _points_to_fortran_3xn(points: np.ndarray, *, name: str) -> np.ndarray:
     if not np.all(np.isfinite(arr)):
         raise ValueError(f"{name} must contain finite values.")
     return np.asfortranarray(arr.T)
+
+
+def _triangles_to_fortran_vertices(
+    triangles: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    arr = np.asarray(triangles, dtype=np.float64)
+    if arr.ndim != 3 or arr.shape[1:] != (3, 3):
+        raise ValueError("source_triangles must have shape (n_triangles, 3, 3).")
+    if arr.shape[0] <= 0:
+        raise ValueError("source_triangles must contain at least one triangle.")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("source_triangles must contain finite values.")
+    return tuple(np.asfortranarray(arr[:, vertex, :].T) for vertex in range(3))  # type: ignore[return-value]
 
 
 def _charges_1d(charges: np.ndarray, *, expected: int, name: str) -> np.ndarray:

@@ -57,6 +57,26 @@ source-dir = "tests/fortran"
 main = "test_panel_kernel.f90"
 
 [[test]]
+name = "test_panel_geometry_near"
+source-dir = "tests/fortran"
+main = "test_panel_geometry_near.f90"
+
+[[test]]
+name = "test_panel_near_correction"
+source-dir = "tests/fortran"
+main = "test_panel_near_correction.f90"
+
+[[test]]
+name = "test_coulomb_fmm_core_panel"
+source-dir = "tests/fortran"
+main = "test_coulomb_fmm_core_panel.f90"
+
+[[test]]
+name = "test_dynamics_panel_fmm"
+source-dir = "tests/fortran"
+main = "test_dynamics_panel_fmm.f90"
+
+[[test]]
 name = "test_periodic_zero_mode"
 source-dir = "tests/fortran"
 main = "test_periodic_zero_mode.f90"

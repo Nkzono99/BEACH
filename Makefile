@@ -40,6 +40,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_model_fingerprint \
 	test_panel_moments \
 	test_panel_kernel \
+	test_panel_geometry_near \
 	test_periodic_zero_mode \
 	test_outer_plasma_linear \
 	test_electrostatic_snapshot \
@@ -67,7 +68,10 @@ FORTRAN_L2_TARGETS ?= \
 	test_field_kernel_c
 FORTRAN_L3_TARGETS ?= \
 	test_dynamics_fmm \
-	test_coulomb_fmm_core_basic
+	test_coulomb_fmm_core_basic \
+	test_panel_near_correction \
+	test_coulomb_fmm_core_panel \
+	test_dynamics_panel_fmm
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_coulomb_fmm_core_periodic \
 	test_periodic2_flat_oracle_diag \

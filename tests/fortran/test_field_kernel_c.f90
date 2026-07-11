@@ -1,8 +1,12 @@
 program test_field_kernel_c
   use, intrinsic :: iso_c_binding, only: c_double, c_int, c_loc, c_null_ptr, c_ptr
   use bem_constants, only: k_coulomb
-  use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_create, beach_kernel_destroy, beach_kernel_eval_e, &
+  use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_build_panel, beach_kernel_create, &
+                                beach_kernel_destroy, beach_kernel_eval_e, beach_kernel_eval_phi, &
                                 beach_kernel_force_on_charges, beach_kernel_ok, beach_kernel_update_charges
+  use bem_kinds, only: dp, i32
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
+  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: assert_allclose_1d, assert_equal_i32, test_begin, test_summary
   implicit none
 
@@ -10,7 +14,11 @@ program test_field_kernel_c
   integer(c_int) :: status
   real(c_double), target :: src_pos(3, 2), src_q(2), target_pos(3, 1), e(3, 1)
   real(c_double), target :: target_q(1), origin(3), force(3), torque(3)
+  real(c_double), target :: v0(3, 1), v1(3, 1), v2(3, 1), panel_q(1), phi(1)
   real(c_double) :: expected_e(3), expected_force(3), expected_torque(3)
+  real(dp) :: expected_phi
+  type(panel_geometry_type) :: geometry
+  integer(i32) :: geometry_status
 
   call test_begin('field_kernel_c_free_eval_and_force')
 
@@ -53,6 +61,35 @@ program test_field_kernel_c
 
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'destroy status')
+
+  call test_begin('field_kernel_c_panel_eval')
+  v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
+  v1(:, 1) = [2.0d0, 0.0d0, 0.0d0]
+  v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
+  panel_q = [2.5d-9]
+  target_pos(:, 1) = [0.25d0, 0.2d0, 0.4d0]
+  status = beach_kernel_create(handle)
+  call assert_equal_i32(status, beach_kernel_ok, 'panel create status')
+  status = beach_kernel_build_panel( &
+           handle, 1_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0.0d0, &
+           0_c_int, c_null_ptr, c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_ok, 'panel build status')
+  status = beach_kernel_update_charges(handle, 1_c_int, c_loc(panel_q))
+  call assert_equal_i32(status, beach_kernel_ok, 'panel update status')
+  status = beach_kernel_eval_e(handle, 1_c_int, c_loc(target_pos), c_loc(e))
+  call assert_equal_i32(status, beach_kernel_ok, 'panel eval_e status')
+  status = beach_kernel_eval_phi(handle, 1_c_int, c_loc(target_pos), c_loc(phi))
+  call assert_equal_i32(status, beach_kernel_ok, 'panel eval_phi status')
+  call init_panel_geometry(v0(:, 1), v1(:, 1), v2(:, 1), geometry, geometry_status)
+  call assert_equal_i32(geometry_status, panel_geometry_ok, 'panel fixture geometry status')
+  call panel_potential_field( &
+    geometry, panel_q(1), target_pos(:, 1), panel_side_principal_value, expected_phi, expected_e &
+    )
+  call assert_allclose_1d(e(:, 1), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'panel eval_e value')
+  call assert_allclose_1d(phi, [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), 'panel eval_phi value')
+  status = beach_kernel_destroy(handle)
+  call assert_equal_i32(status, beach_kernel_ok, 'panel destroy status')
 
   call test_summary()
 

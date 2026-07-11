@@ -19,7 +19,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -102,11 +102,29 @@ program test_physics_config_types
   call assert_equal_i32(status, physics_config_ok, 'direct free triangle panel should be available')
   call test_end()
 
-  call test_begin('triangle_panel_unsupported_solver_rejected')
-  sim%field_solver = 'auto'
+  call test_begin('triangle_panel_fmm_available')
+  sim = sim_config()
+  sim%field_solver = 'fmm'
+  sim%field_bc_mode = 'free'
+  sim%softening = 0.0_dp
+  panel = panel_kernel_config(source_model='triangle_p0', kernel_id='triangle_p0_exact_p2m_near')
   call validate_phase1_panel_config(sim, panel, status, message)
-  call assert_equal_i32(status, physics_config_unavailable, 'triangle panel auto solver must be rejected')
+  call assert_equal_i32(status, physics_config_ok, 'triangle panel FMM should be available')
+  sim%field_periodic_far_correction = 'm2l_root_oracle'
+  call validate_phase1_panel_config(sim, panel, status, message)
+  call assert_equal_i32(status, physics_config_unavailable, 'point-source root oracle must be rejected for panels')
+  call test_end()
+
+  call test_begin('triangle_panel_auto_and_unsupported_solver')
+  sim%field_solver = 'auto'
+  panel%kernel_id = 'triangle_p0_exact_auto'
+  call validate_phase1_panel_config(sim, panel, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'triangle panel auto solver should be available')
+  sim%field_solver = 'treecode'
+  call validate_phase1_panel_config(sim, panel, status, message)
+  call assert_equal_i32(status, physics_config_unavailable, 'triangle panel treecode must be rejected')
   sim%field_solver = 'direct'
+  panel%kernel_id = 'triangle_p0_exact_direct'
   sim%softening = 1.0e-6
   call validate_phase1_panel_config(sim, panel, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'triangle panel softening must be rejected')

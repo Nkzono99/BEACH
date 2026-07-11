@@ -7,6 +7,7 @@ module bem_coulomb_fmm_plan_ops
                                       distance_to_source_bbox_periodic, wrap_src_pos_to_primary_cell
   use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data
   use bem_coulomb_fmm_periodic_root_ops, only: precompute_periodic_root_operator
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_node_center, active_tree_node_radius, append_i32_buffer, &
                                         nodes_well_separated
@@ -14,6 +15,7 @@ module bem_coulomb_fmm_plan_ops
   private
 
   public :: core_build_plan_impl
+  public :: core_build_panel_plan_impl
   public :: core_destroy_plan_impl
 
 contains
@@ -26,7 +28,32 @@ contains
     type(fmm_plan_type), intent(inout) :: plan
     real(dp), intent(in) :: src_pos(:, :)
     type(fmm_options_type), intent(in) :: options
-    integer(i32) :: nsrc
+    call core_build_plan_common(plan, src_pos, options)
+  end subroutine core_build_plan_impl
+
+  subroutine core_build_panel_plan_impl(plan, v0, v1, v2, options)
+    type(fmm_plan_type), intent(inout) :: plan
+    real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
+    type(fmm_options_type), intent(in) :: options
+    real(dp), allocatable :: src_pos(:, :)
+
+    if (size(v0, 1) /= 3 .or. size(v1, 1) /= 3 .or. size(v2, 1) /= 3 .or. &
+        size(v0, 2) /= size(v1, 2) .or. size(v0, 2) /= size(v2, 2)) then
+      error stop 'FMM panel core expects v0/v1/v2(3,n).'
+    end if
+    allocate (src_pos(3, size(v0, 2)))
+    src_pos = (v0 + v1 + v2)/3.0_dp
+    call core_build_plan_common(plan, src_pos, options, v0, v1, v2)
+  end subroutine core_build_panel_plan_impl
+
+  subroutine core_build_plan_common(plan, src_pos, options, v0, v1, v2)
+    type(fmm_plan_type), intent(inout) :: plan
+    real(dp), intent(in) :: src_pos(:, :)
+    type(fmm_options_type), intent(in) :: options
+    real(dp), intent(in), optional :: v0(:, :), v1(:, :), v2(:, :)
+    integer(i32) :: nsrc, idx, panel_status
+    real(dp), allocatable :: original_centroid(:, :)
+    real(dp) :: shift(3), shifted_vertex(3, 3)
 
     if (allocated(plan%alpha) .or. allocated(plan%src_pos) .or. allocated(plan%elem_order)) then
       call core_destroy_plan_impl(plan)
@@ -71,7 +98,29 @@ contains
     allocate (plan%src_pos(3, max(0_i32, nsrc)))
     if (nsrc > 0_i32) plan%src_pos = src_pos
 
+    plan%panel_source = present(v0)
+    if (plan%panel_source) then
+      if (options%softening /= 0.0_dp) error stop 'FMM panel source requires zero softening.'
+      allocate (plan%panel_geometry(nsrc), original_centroid(3, nsrc))
+      do idx = 1_i32, nsrc
+        call init_panel_geometry(v0(:, idx), v1(:, idx), v2(:, idx), plan%panel_geometry(idx), panel_status)
+        if (panel_status /= panel_geometry_ok) error stop 'FMM panel source contains an invalid triangle.'
+        original_centroid(:, idx) = plan%panel_geometry(idx)%centroid
+      end do
+    end if
+
     if (options%use_periodic2 .and. nsrc > 0_i32) call build_canonical_src_pos(plan)
+    if (plan%panel_source) then
+      do idx = 1_i32, nsrc
+        shift = plan%src_pos(:, idx) - original_centroid(:, idx)
+        shifted_vertex = plan%panel_geometry(idx)%vertex + spread(shift, 2, 3)
+        call init_panel_geometry( &
+          shifted_vertex(:, 1), shifted_vertex(:, 2), shifted_vertex(:, 3), plan%panel_geometry(idx), panel_status &
+          )
+        if (panel_status /= panel_geometry_ok) error stop 'Periodic wrapping produced an invalid FMM panel source.'
+      end do
+      deallocate (original_centroid)
+    end if
 
     call initialize_basis_tables(plan, options%order)
     call build_source_tree(plan)
@@ -83,7 +132,7 @@ contains
     call precompute_periodic_root_operator(plan)
     call precompute_m2l_derivatives(plan)
     plan%built = .true.
-  end subroutine core_build_plan_impl
+  end subroutine core_build_plan_common
 
   !> FMM 計画に確保した資源を解放する。
   !! @param[inout] plan 解放対象の FMM 計画。
@@ -130,12 +179,22 @@ contains
     plan%node_max_depth = max(plan%node_max_depth, depth)
 
     idx = plan%elem_order(start_idx)
-    bb_min = plan%src_pos(:, idx)
-    bb_max = bb_min
+    if (plan%panel_source) then
+      bb_min = minval(plan%panel_geometry(idx)%vertex, dim=2)
+      bb_max = maxval(plan%panel_geometry(idx)%vertex, dim=2)
+    else
+      bb_min = plan%src_pos(:, idx)
+      bb_max = bb_min
+    end if
     do p = start_idx + 1_i32, end_idx
       idx = plan%elem_order(p)
-      bb_min = min(bb_min, plan%src_pos(:, idx))
-      bb_max = max(bb_max, plan%src_pos(:, idx))
+      if (plan%panel_source) then
+        bb_min = min(bb_min, minval(plan%panel_geometry(idx)%vertex, dim=2))
+        bb_max = max(bb_max, maxval(plan%panel_geometry(idx)%vertex, dim=2))
+      else
+        bb_min = min(bb_min, plan%src_pos(:, idx))
+        bb_max = max(bb_max, plan%src_pos(:, idx))
+      end if
     end do
 
     span = bb_max - bb_min
@@ -290,16 +349,75 @@ contains
       p_end = plan%node_start(node_idx) + plan%node_count(node_idx) - 1_i32
       do p = plan%node_start(node_idx), p_end
         idx = plan%elem_order(p)
-        d = plan%src_pos(:, idx) - plan%node_center(:, node_idx)
-        call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
-        do alpha_idx = 1_i32, plan%ncoef
-          plan%source_p2m_basis(alpha_idx, p) = xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
-                                                *zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
-        end do
+        if (plan%panel_source) then
+          do alpha_idx = 1_i32, plan%ncoef
+            plan%source_p2m_basis(alpha_idx, p) = panel_monomial_average( &
+                                                 plan%panel_geometry(idx), plan%node_center(:, node_idx), plan%alpha(:, alpha_idx) &
+                                                  )/plan%alpha_factorial(alpha_idx)
+          end do
+        else
+          d = plan%src_pos(:, idx) - plan%node_center(:, node_idx)
+          call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
+          do alpha_idx = 1_i32, plan%ncoef
+            plan%source_p2m_basis(alpha_idx, p) = xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
+                                                  *zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
+          end do
+        end if
       end do
     end do
     !$omp end parallel do
   end subroutine precompute_source_p2m_basis
+
+  pure real(dp) function panel_monomial_average(geometry, center, alpha) result(moment)
+    type(panel_geometry_type), intent(in) :: geometry
+    real(dp), intent(in) :: center(3)
+    integer(i32), intent(in) :: alpha(3)
+    integer(i32) :: ix0, ix1, ix2, iy0, iy1, iy2, iz0, iz1, iz2
+    integer(i32) :: lambda_power(3), degree
+    real(dp) :: dv(3, 3), coefficient
+
+    dv = geometry%vertex - spread(center, 2, 3)
+    moment = 0.0_dp
+    degree = sum(alpha)
+    do ix0 = 0_i32, alpha(1)
+      do ix1 = 0_i32, alpha(1) - ix0
+        ix2 = alpha(1) - ix0 - ix1
+        do iy0 = 0_i32, alpha(2)
+          do iy1 = 0_i32, alpha(2) - iy0
+            iy2 = alpha(2) - iy0 - iy1
+            do iz0 = 0_i32, alpha(3)
+              do iz1 = 0_i32, alpha(3) - iz0
+                iz2 = alpha(3) - iz0 - iz1
+                lambda_power = [ix0 + iy0 + iz0, ix1 + iy1 + iz1, ix2 + iy2 + iz2]
+                coefficient = multinomial3(alpha(1), ix0, ix1, ix2)* &
+                              multinomial3(alpha(2), iy0, iy1, iy2)* &
+                              multinomial3(alpha(3), iz0, iz1, iz2)
+                coefficient = coefficient*dv(1, 1)**ix0*dv(1, 2)**ix1*dv(1, 3)**ix2
+                coefficient = coefficient*dv(2, 1)**iy0*dv(2, 2)**iy1*dv(2, 3)**iy2
+                coefficient = coefficient*dv(3, 1)**iz0*dv(3, 2)**iz1*dv(3, 3)**iz2
+                moment = moment + coefficient*2.0_dp*factorial_i(lambda_power(1))* &
+                         factorial_i(lambda_power(2))*factorial_i(lambda_power(3))/factorial_i(degree + 2_i32)
+              end do
+            end do
+          end do
+        end do
+      end do
+    end do
+  end function panel_monomial_average
+
+  pure real(dp) function multinomial3(n, a, b, c) result(value)
+    integer(i32), intent(in) :: n, a, b, c
+    value = factorial_i(n)/(factorial_i(a)*factorial_i(b)*factorial_i(c))
+  end function multinomial3
+
+  pure real(dp) function factorial_i(n) result(value)
+    integer(i32), intent(in) :: n
+    integer(i32) :: k
+    value = 1.0_dp
+    do k = 2_i32, n
+      value = value*real(k, dp)
+    end do
+  end function factorial_i
 
   subroutine build_target_topology(plan)
     type(fmm_plan_type), intent(inout) :: plan

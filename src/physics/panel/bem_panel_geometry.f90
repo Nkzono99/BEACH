@@ -22,6 +22,7 @@ module bem_panel_geometry
   end type panel_geometry_type
 
   public :: init_panel_geometry
+  public :: point_triangle_distance
 
 contains
 
@@ -68,6 +69,60 @@ contains
                        )
     status = panel_geometry_ok
   end subroutine init_panel_geometry
+
+  pure real(dp) function point_triangle_distance(geometry, point) result(distance)
+    type(panel_geometry_type), intent(in) :: geometry
+    real(dp), intent(in) :: point(3)
+    real(dp) :: ab(3), ac(3), ap(3), bp(3), cp(3), closest(3)
+    real(dp) :: d1, d2, d3, d4, d5, d6, va, vb, vc, denom, v, w
+
+    ab = geometry%vertex(:, 2) - geometry%vertex(:, 1)
+    ac = geometry%vertex(:, 3) - geometry%vertex(:, 1)
+    ap = point - geometry%vertex(:, 1)
+    d1 = dot_product(ab, ap)
+    d2 = dot_product(ac, ap)
+    if (d1 <= 0.0_dp .and. d2 <= 0.0_dp) then
+      closest = geometry%vertex(:, 1)
+    else
+      bp = point - geometry%vertex(:, 2)
+      d3 = dot_product(ab, bp)
+      d4 = dot_product(ac, bp)
+      if (d3 >= 0.0_dp .and. d4 <= d3) then
+        closest = geometry%vertex(:, 2)
+      else
+        vc = d1*d4 - d3*d2
+        if (vc <= 0.0_dp .and. d1 >= 0.0_dp .and. d3 <= 0.0_dp) then
+          v = d1/(d1 - d3)
+          closest = geometry%vertex(:, 1) + v*ab
+        else
+          cp = point - geometry%vertex(:, 3)
+          d5 = dot_product(ab, cp)
+          d6 = dot_product(ac, cp)
+          if (d6 >= 0.0_dp .and. d5 <= d6) then
+            closest = geometry%vertex(:, 3)
+          else
+            vb = d5*d2 - d1*d6
+            if (vb <= 0.0_dp .and. d2 >= 0.0_dp .and. d6 <= 0.0_dp) then
+              w = d2/(d2 - d6)
+              closest = geometry%vertex(:, 1) + w*ac
+            else
+              va = d3*d6 - d5*d4
+              if (va <= 0.0_dp .and. (d4 - d3) >= 0.0_dp .and. (d5 - d6) >= 0.0_dp) then
+                w = (d4 - d3)/((d4 - d3) + (d5 - d6))
+                closest = geometry%vertex(:, 2) + w*(geometry%vertex(:, 3) - geometry%vertex(:, 2))
+              else
+                denom = 1.0_dp/(va + vb + vc)
+                v = vb*denom
+                w = vc*denom
+                closest = geometry%vertex(:, 1) + v*ab + w*ac
+              end if
+            end if
+          end if
+        end if
+      end if
+    end if
+    distance = sqrt(sum((point - closest)**2))
+  end function point_triangle_distance
 
   pure function cross_product(a, b) result(c)
     real(dp), intent(in) :: a(3), b(3)

@@ -1,6 +1,7 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
-  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state, fmm_options_type, fmm_state_type
+  use bem_coulomb_fmm_core, only: build_plan, build_panel_plan, update_state, destroy_plan, destroy_state, &
+                                  fmm_options_type, fmm_state_type
   use bem_types, only: surface_model_insulator
   use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
   implicit none
@@ -11,11 +12,10 @@ contains
   character(len=16) :: requested_mode, field_bc_mode
   integer(i32) :: axis, n_periodic
   real(dp) :: span, fmm_softening
-  real(dp), allocatable :: src_pos(:, :)
+  real(dp), allocatable :: src_pos(:, :), panel_v0(:, :), panel_v1(:, :), panel_v2(:, :)
   integer(i32) :: panel_status
   character(len=256) :: panel_message
 
-  self%fmm_core_plan = fmm_plan_type()
   self%fmm_core_state = fmm_state_type()
   call destroy_plan(self%fmm_core_plan)
   call destroy_state(self%fmm_core_state)
@@ -123,7 +123,11 @@ contains
   case ('fmm')
     self%mode = 'fmm'
   case ('auto')
-    if (mesh%nelem >= self%min_nelem) then
+    if (trim(self%source_model) == 'triangle_p0' .and. mesh%nelem >= self%min_nelem) then
+      self%mode = 'fmm'
+    else if (trim(self%source_model) == 'triangle_p0') then
+      self%mode = 'direct'
+    else if (mesh%nelem >= self%min_nelem) then
       self%mode = 'treecode'
     else
       self%mode = 'direct'
@@ -154,7 +158,11 @@ contains
   self%fmm_core_options%theta = self%theta
   self%fmm_core_options%leaf_max = self%leaf_max
   self%fmm_core_options%order = 4_i32
-  self%fmm_core_options%softening = fmm_softening
+  if (trim(self%source_model) == 'triangle_p0') then
+    self%fmm_core_options%softening = 0.0_dp
+  else
+    self%fmm_core_options%softening = fmm_softening
+  end if
   self%fmm_core_options%use_periodic2 = self%use_periodic2
   self%fmm_core_options%periodic_far_correction = self%periodic_far_correction
   self%fmm_core_options%periodic_axes = self%periodic_axes
@@ -174,10 +182,19 @@ contains
     end select
     self%fmm_use_core = .true.
     if (mesh%nelem > 0_i32) then
-      call build_core_source_positions(mesh, src_pos, self%field_inv_length_scale, self%field_origin)
-      call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
+      if (trim(self%source_model) == 'triangle_p0') then
+        allocate (panel_v0(3, mesh%nelem), panel_v1(3, mesh%nelem), panel_v2(3, mesh%nelem))
+        panel_v0 = (mesh%v0 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+        panel_v1 = (mesh%v1 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+        panel_v2 = (mesh%v2 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+        call build_panel_plan(self%fmm_core_plan, panel_v0, panel_v1, panel_v2, self%fmm_core_options)
+        deallocate (panel_v0, panel_v1, panel_v2)
+      else
+        call build_core_source_positions(mesh, src_pos, self%field_inv_length_scale, self%field_origin)
+        call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
+        deallocate (src_pos)
+      end if
       call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
-      deallocate (src_pos)
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
       call sync_core_plan_view(self)
     end if

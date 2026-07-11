@@ -2,8 +2,8 @@
 module bem_field_kernel_c
   use, intrinsic :: iso_c_binding, only: c_associated, c_double, c_f_pointer, c_int, c_loc, c_ptr, c_null_ptr
   use bem_constants, only: k_coulomb
-  use bem_coulomb_fmm_core, only: build_plan, destroy_plan, destroy_state, eval_points, eval_potential_points, &
-                                  fmm_options_type, fmm_plan_type, fmm_state_type, update_state
+  use bem_coulomb_fmm_core, only: build_plan, build_panel_plan, destroy_plan, destroy_state, eval_points, &
+                                  eval_potential_points, fmm_options_type, fmm_plan_type, fmm_state_type, update_state
   use bem_kinds, only: dp, i32
   implicit none
   private
@@ -23,6 +23,7 @@ module bem_field_kernel_c
   public :: beach_kernel_create
   public :: beach_kernel_destroy
   public :: beach_kernel_build
+  public :: beach_kernel_build_panel
   public :: beach_kernel_update_charges
   public :: beach_kernel_eval_e
   public :: beach_kernel_eval_phi
@@ -151,6 +152,79 @@ contains
     kernel%charged = .false.
     status = beach_kernel_ok
   end function beach_kernel_build
+
+  integer(c_int) function beach_kernel_build_panel( &
+    handle, nsrc, v0_ptr, v1_ptr, v2_ptr, theta, leaf_max, order, softening, use_periodic2, periodic_axes_ptr, &
+    periodic_len_ptr, image_layers, far_correction, ewald_alpha, ewald_layers, box_min_ptr, box_max_ptr &
+    ) bind(C, name='beach_kernel_build_panel') result(status)
+    type(c_ptr), value :: handle, v0_ptr, v1_ptr, v2_ptr
+    integer(c_int), value :: nsrc, leaf_max, order, use_periodic2, image_layers, far_correction, ewald_layers
+    real(c_double), value :: theta, softening, ewald_alpha
+    type(c_ptr), value :: periodic_axes_ptr, periodic_len_ptr, box_min_ptr, box_max_ptr
+    type(field_kernel_handle), pointer :: kernel
+    real(c_double), pointer :: v0(:, :), v1(:, :), v2(:, :)
+    integer(c_int), pointer :: periodic_axes(:)
+    real(c_double), pointer :: periodic_len(:), box_min(:), box_max(:)
+    type(fmm_options_type) :: options
+
+    status = get_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (nsrc <= 0_c_int .or. .not. c_associated(v0_ptr) .or. .not. c_associated(v1_ptr) .or. &
+        .not. c_associated(v2_ptr) .or. theta <= 0.0_c_double .or. leaf_max <= 0_c_int .or. order < 0_c_int .or. &
+        softening /= 0.0_c_double .or. far_correction == 2_c_int) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+
+    call c_f_pointer(v0_ptr, v0, [3, int(nsrc)])
+    call c_f_pointer(v1_ptr, v1, [3, int(nsrc)])
+    call c_f_pointer(v2_ptr, v2, [3, int(nsrc)])
+    options%theta = real(theta, dp)
+    options%leaf_max = int(leaf_max, i32)
+    options%order = int(order, i32)
+    options%softening = 0.0_dp
+
+    if (use_periodic2 /= 0_c_int) then
+      if (.not. c_associated(periodic_axes_ptr) .or. .not. c_associated(periodic_len_ptr) .or. &
+          .not. c_associated(box_min_ptr) .or. .not. c_associated(box_max_ptr) .or. &
+          image_layers < 0_c_int .or. ewald_layers < 0_c_int .or. ewald_alpha < 0.0_c_double) then
+        status = beach_kernel_invalid_argument
+        return
+      end if
+      call c_f_pointer(periodic_axes_ptr, periodic_axes, [2])
+      call c_f_pointer(periodic_len_ptr, periodic_len, [2])
+      call c_f_pointer(box_min_ptr, box_min, [3])
+      call c_f_pointer(box_max_ptr, box_max, [3])
+      if (any(periodic_axes < 1_c_int) .or. any(periodic_axes > 3_c_int) .or. &
+          periodic_axes(1) == periodic_axes(2) .or. any(periodic_len <= 0.0_c_double) .or. &
+          any(box_max <= box_min)) then
+        status = beach_kernel_invalid_argument
+        return
+      end if
+      options%use_periodic2 = .true.
+      options%periodic_axes = int(periodic_axes, i32)
+      options%periodic_len = real(periodic_len, dp)
+      options%periodic_image_layers = int(image_layers, i32)
+      options%periodic_ewald_alpha = real(ewald_alpha, dp)
+      options%periodic_ewald_layers = int(ewald_layers, i32)
+      options%target_box_min = real(box_min, dp)
+      options%target_box_max = real(box_max, dp)
+      select case (far_correction)
+      case (0_c_int, 1_c_int)
+        options%periodic_far_correction = 'none'
+      case default
+        status = beach_kernel_invalid_argument
+        return
+      end select
+    end if
+
+    if (kernel%charged) call destroy_state(kernel%state)
+    if (kernel%built) call destroy_plan(kernel%plan)
+    call build_panel_plan(kernel%plan, real(v0, dp), real(v1, dp), real(v2, dp), options)
+    kernel%built = .true.
+    kernel%charged = .false.
+    status = beach_kernel_ok
+  end function beach_kernel_build_panel
 
   integer(c_int) function beach_kernel_update_charges(handle, nsrc, src_q_ptr) &
     bind(C, name='beach_kernel_update_charges') result(status)

@@ -1,0 +1,52 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+
+[sim]
+dt = 1.0e-10
+batch_count = 1
+max_step = 20
+softening = 0.0
+field_solver = "fmm"
+field_bc_mode = "free"
+use_box = true
+box_min = [-0.6, -0.6, -0.1]
+box_max = [0.6, 0.6, 0.4]
+bc_x_low = "open"
+bc_x_high = "open"
+bc_y_low = "open"
+bc_y_high = "open"
+bc_z_low = "open"
+bc_z_high = "open"
+tree_theta = 0.45
+tree_leaf_max = 8
+
+[field]
+element_kernel = "triangle_p0"
+
+[particles]
+[[particles.species]]
+enabled = true
+source_mode = "volume_seed"
+npcls_per_step = 4
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+pos_low = [-0.2, -0.2, 0.1]
+pos_high = [0.2, 0.2, 0.2]
+drift_velocity = [0.0, 0.0, -1.0e5]
+temperature_k = 0.0
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+enabled = true
+kind = "plane"
+surface_model = "insulator"
+surface_side = "normal_plus"
+center = [0.0, 0.0, 0.0]
+size_x = 1.0
+size_y = 1.0
+nx = 8
+ny = 8
+
+[output]
+write_files = false

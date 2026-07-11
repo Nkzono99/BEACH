@@ -1,6 +1,9 @@
 !> Coulomb FMM 電場評価。
 module bem_coulomb_fmm_eval_ops
   use bem_kinds, only: dp, i32
+  use bem_constants, only: k_coulomb
+  use bem_panel_geometry, only: panel_geometry_type
+  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_oracle
@@ -276,7 +279,7 @@ contains
     if (plan%options%use_periodic2) axes = plan%options%periodic_axes
   end function active_periodic_axes
 
-  pure subroutine accumulate_near_direct_field(plan, state, leaf_slot, rt, soft2, axes, ex, ey, ez)
+  subroutine accumulate_near_direct_field(plan, state, leaf_slot, rt, soft2, axes, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     integer(i32), intent(in) :: leaf_slot
@@ -292,6 +295,16 @@ contains
     near_source_begin = plan%near_source_start(leaf_slot)
     near_source_end = plan%near_source_start(leaf_slot + 1_i32) - 1_i32
     if (near_source_end < near_source_begin) return
+
+    if (plan%panel_source) then
+      do near_pos = near_source_begin, near_source_end
+        idx = plan%near_source_idx(near_pos)
+        shift1 = plan%near_source_shift1(near_pos)
+        shift2 = plan%near_source_shift2(near_pos)
+        call accumulate_panel_shifted_field(plan, state, idx, rt, axes, shift1, shift2, ex, ey, ez)
+      end do
+      return
+    end if
 
     if (plan%options%use_periodic2) then
       axis1 = axes(1)
@@ -316,7 +329,7 @@ contains
     end if
   end subroutine accumulate_near_direct_field
 
-  pure subroutine accumulate_near_direct_potential(plan, state, leaf_slot, rt, soft2, axes, phi)
+  subroutine accumulate_near_direct_potential(plan, state, leaf_slot, rt, soft2, axes, phi)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     integer(i32), intent(in) :: leaf_slot
@@ -332,6 +345,16 @@ contains
     near_source_begin = plan%near_source_start(leaf_slot)
     near_source_end = plan%near_source_start(leaf_slot + 1_i32) - 1_i32
     if (near_source_end < near_source_begin) return
+
+    if (plan%panel_source) then
+      do near_pos = near_source_begin, near_source_end
+        idx = plan%near_source_idx(near_pos)
+        shift1 = plan%near_source_shift1(near_pos)
+        shift2 = plan%near_source_shift2(near_pos)
+        call accumulate_panel_shifted_potential(plan, state, idx, rt, axes, shift1, shift2, phi)
+      end do
+      return
+    end if
 
     if (plan%options%use_periodic2) then
       axis1 = axes(1)
@@ -371,6 +394,19 @@ contains
     axes = active_periodic_axes(plan)
     axis1 = axes(1)
     axis2 = axes(2)
+    if (plan%panel_source) then
+      if (plan%options%use_periodic2) then
+        nshift = size(plan%shift_axis1)
+        do idx = 1_i32, plan%nsrc
+          call accumulate_panel_images_field(plan, state, idx, [tx, ty, tz], axes, nshift, ex, ey, ez)
+        end do
+      else
+        do idx = 1_i32, plan%nsrc
+          call accumulate_panel_shifted_field(plan, state, idx, [tx, ty, tz], axes, 0.0_dp, 0.0_dp, ex, ey, ez)
+        end do
+      end if
+      return
+    end if
     if (plan%options%use_periodic2) then
       nshift = size(plan%shift_axis1)
       do idx = 1_i32, plan%nsrc
@@ -402,6 +438,19 @@ contains
     axes = active_periodic_axes(plan)
     axis1 = axes(1)
     axis2 = axes(2)
+    if (plan%panel_source) then
+      if (plan%options%use_periodic2) then
+        nshift = size(plan%shift_axis1)
+        do idx = 1_i32, plan%nsrc
+          call accumulate_panel_images_potential(plan, state, idx, [tx, ty, tz], axes, nshift, phi)
+        end do
+      else
+        do idx = 1_i32, plan%nsrc
+          call accumulate_panel_shifted_potential(plan, state, idx, [tx, ty, tz], axes, 0.0_dp, 0.0_dp, phi)
+        end do
+      end if
+      return
+    end if
     if (plan%options%use_periodic2) then
       nshift = size(plan%shift_axis1)
       do idx = 1_i32, plan%nsrc
@@ -419,6 +468,87 @@ contains
       end do
     end if
   end subroutine eval_direct_all_sources_potential_scalar
+
+  subroutine accumulate_panel_images_field(plan, state, idx, target, axes, nshift, ex, ey, ez)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: idx, axes(2), nshift
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(inout) :: ex, ey, ez
+    integer(i32) :: image1, image2
+
+    do image1 = 1_i32, nshift
+      do image2 = 1_i32, nshift
+        call accumulate_panel_shifted_field( &
+          plan, state, idx, target, axes, plan%shift_axis1(image1), plan%shift_axis2(image2), ex, ey, ez &
+          )
+      end do
+    end do
+  end subroutine accumulate_panel_images_field
+
+  subroutine accumulate_panel_images_potential(plan, state, idx, target, axes, nshift, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: idx, axes(2), nshift
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: image1, image2
+
+    do image1 = 1_i32, nshift
+      do image2 = 1_i32, nshift
+        call accumulate_panel_shifted_potential( &
+          plan, state, idx, target, axes, plan%shift_axis1(image1), plan%shift_axis2(image2), phi &
+          )
+      end do
+    end do
+  end subroutine accumulate_panel_images_potential
+
+  subroutine accumulate_panel_shifted_field(plan, state, idx, target, axes, shift1, shift2, ex, ey, ez)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: idx, axes(2)
+    real(dp), intent(in) :: target(3), shift1, shift2
+    real(dp), intent(inout) :: ex, ey, ez
+    real(dp) :: potential, field(3)
+    type(panel_geometry_type) :: geometry
+
+    if (abs(state%src_q(idx)) <= tiny(1.0_dp)) return
+    call shifted_panel_geometry(plan, idx, axes, shift1, shift2, geometry)
+    call panel_potential_field(geometry, state%src_q(idx), target, panel_side_principal_value, potential, field)
+    ex = ex + field(1)/k_coulomb
+    ey = ey + field(2)/k_coulomb
+    ez = ez + field(3)/k_coulomb
+  end subroutine accumulate_panel_shifted_field
+
+  subroutine accumulate_panel_shifted_potential(plan, state, idx, target, axes, shift1, shift2, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    integer(i32), intent(in) :: idx, axes(2)
+    real(dp), intent(in) :: target(3), shift1, shift2
+    real(dp), intent(inout) :: phi
+    real(dp) :: potential, field(3)
+    type(panel_geometry_type) :: geometry
+
+    if (abs(state%src_q(idx)) <= tiny(1.0_dp)) return
+    call shifted_panel_geometry(plan, idx, axes, shift1, shift2, geometry)
+    call panel_potential_field(geometry, state%src_q(idx), target, panel_side_principal_value, potential, field)
+    phi = phi + potential/k_coulomb
+  end subroutine accumulate_panel_shifted_potential
+
+  subroutine shifted_panel_geometry(plan, idx, axes, shift1, shift2, geometry)
+    type(fmm_plan_type), intent(in) :: plan
+    integer(i32), intent(in) :: idx, axes(2)
+    real(dp), intent(in) :: shift1, shift2
+    type(panel_geometry_type), intent(out) :: geometry
+    real(dp) :: shift(3)
+
+    geometry = plan%panel_geometry(idx)
+    shift = 0.0_dp
+    if (axes(1) > 0_i32) shift(axes(1)) = shift(axes(1)) + shift1
+    if (axes(2) > 0_i32) shift(axes(2)) = shift(axes(2)) + shift2
+    geometry%vertex = geometry%vertex + spread(shift, 2, 3)
+    geometry%centroid = geometry%centroid + shift
+  end subroutine shifted_panel_geometry
 
   pure subroutine accumulate_point_charge_field(q, sx, sy, sz, tx, ty, tz, soft2, ex, ey, ez)
     real(dp), intent(in) :: q, sx, sy, sz, tx, ty, tz, soft2

@@ -9,6 +9,7 @@ module bem_coulomb_fmm_core
   public :: fmm_plan_type
   public :: fmm_state_type
   public :: build_plan
+  public :: build_panel_plan
   public :: update_state
   public :: eval_points
   public :: eval_point
@@ -27,6 +28,12 @@ module bem_coulomb_fmm_core
       real(dp), intent(in) :: src_pos(:, :)
       type(fmm_options_type), intent(in) :: options
     end subroutine build_plan
+
+    module subroutine build_panel_plan(plan, v0, v1, v2, options)
+      type(fmm_plan_type), intent(inout) :: plan
+      real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
+      type(fmm_options_type), intent(in) :: options
+    end subroutine build_panel_plan
 
     !> ソース電荷から FMM state を更新する。
     !! @param[in] plan 構築済みの FMM 計画。

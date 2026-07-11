@@ -280,7 +280,7 @@ $$
 
 `field.element_kernel="triangle_p0"` では `q_elem` を要素総電荷、`sigma=q_elem/area` を一定面密度として、辺対数項と signed solid angle による解析式で電位・電場を評価します。面上評価は `bem_panel_self_terms` が所有し、電位は連続、principal-value 法線場は両側極限の平均、真空側極限は `elem_vacuum_sign` で選びます。幾何、辺量、厳密一次・二次 moment、7点求積 plan は mesh 初期化時に固定し、batch 更新では電荷だけを変更します。
 
-この経路は Phase 1 では free-space direct の correctness oracle です。treecode/FMM/periodic2 には黙って点電荷近似せず、初期化時に停止します。
+direct 経路は free-space correctness oracle です。FMM 経路は source node の bbox/radius を全 panel 頂点から作り、near list を解析 panel 核で評価し、far 展開の P2M に三角形上 monomial の厳密面積平均を使います。kernel ID はそれぞれ `triangle_p0_exact_direct` と `triangle_p0_exact_p2m_near`、auto 選択は `triangle_p0_exact_auto` です。treecode と point-source `m2l_root_oracle` には fallback せず初期化時に停止します。
 
 ### 2.8 periodic2 split reference
 

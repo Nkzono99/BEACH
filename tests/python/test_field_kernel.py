@@ -44,6 +44,38 @@ def test_field_kernel_eval_e_matches_direct_sum() -> None:
     np.testing.assert_allclose(field[0], expected, rtol=1.0e-14, atol=1.0e-14)
 
 
+def test_field_kernel_from_panel_result_dispatches_triangle_geometry(tmp_path: Path) -> None:
+    lib = _kernel_lib()
+    triangles = np.array(
+        [[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
+        dtype=float,
+    )
+    charges = np.array([2.5e-9], dtype=float)
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=charges,
+        triangles=triangles,
+        field_source_model="triangle_p0",
+        field_kernel_id="triangle_p0_exact_p2m_near",
+    )
+    target = np.array([[0.25, 0.2, 0.4]], dtype=float)
+
+    with FieldKernel.from_result(result, step=None, library_path=lib) as panel_kernel:
+        panel_field = panel_kernel.eval_e(target)
+    with FieldKernel(triangles.mean(axis=1), charges, library_path=lib) as point_kernel:
+        point_field = point_kernel.eval_e(target)
+
+    assert np.linalg.norm(panel_field - point_field) > 1.0e-6 * np.linalg.norm(panel_field)
+
+
 def test_field_kernel_adds_uniform_external_e0() -> None:
     lib = _kernel_lib()
     source_pos = np.array([[0.0, 0.0, 0.0]], dtype=float)

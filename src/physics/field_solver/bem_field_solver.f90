@@ -78,7 +78,7 @@ module bem_field_solver
     logical :: fmm_use_core = .false.
     logical :: fmm_core_ready = .false.
     type(fmm_options_type) :: fmm_core_options = fmm_options_type()
-    type(fmm_plan_type) :: fmm_core_plan = fmm_plan_type()
+    type(fmm_plan_type) :: fmm_core_plan
     type(fmm_state_type) :: fmm_core_state = fmm_state_type()
   contains
     procedure :: init => init_field_solver

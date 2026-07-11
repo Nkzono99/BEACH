@@ -641,7 +641,7 @@ OBJ の対応範囲:
 
 ### `[field]`: 要素核
 
-`element_kernel="point"` が互換既定です。`element_kernel="triangle_p0"` は各要素の `q_elem` を三角形上の一定面密度として扱う厳密 direct 核です。Phase 1 の制約は `sim.field_solver="direct"`、`sim.field_bc_mode="free"`、`sim.softening=0`、全表面 `insulator` です。OBJ では `[mesh].surface_side`、template では各 `[[mesh.templates]].surface_side` を明示してください。`outward_closed` は閉じた向き整合 two-manifold にだけ使えます。
+`element_kernel="point"` が互換既定です。`element_kernel="triangle_p0"` は各要素の `q_elem` を三角形上の一定面密度として扱い、`sim.field_solver="direct" | "fmm" | "auto"` で利用できます。auto は `tree_min_nelem` で direct/FMM を選びます。`sim.softening=0` と全表面 `insulator` が必須です。FMM は厳密 panel near/P2M を使い、`m2l_root_oracle` は point-source 専用のため拒否します。OBJ では `[mesh].surface_side`、template では各 `[[mesh.templates]].surface_side` を明示してください。`outward_closed` は閉じた向き整合 two-manifold にだけ使えます。
 無効化された template は mesh に追加されず、`mesh_id` も消費しません。
 
 `kind` の概要:

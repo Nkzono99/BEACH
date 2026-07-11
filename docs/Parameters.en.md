@@ -898,4 +898,4 @@ beachx lint beach.toml
 ```
 ### `[field]`: element kernel
 
-`element_kernel="point"` is the compatibility default. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle. Phase 1 requires `sim.field_solver="direct"`, `sim.field_bc_mode="free"`, `sim.softening=0`, and insulator-only surfaces. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.
+`element_kernel="point"` is the compatibility default. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle and supports `sim.field_solver="direct" | "fmm" | "auto"`. Auto selects direct or FMM using `tree_min_nelem`. It requires `sim.softening=0` and insulator-only surfaces. FMM uses exact panel near interactions and exact triangle P2M moments; the point-source `m2l_root_oracle` is rejected. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.

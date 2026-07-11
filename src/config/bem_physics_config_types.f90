@@ -179,7 +179,7 @@ contains
     end select
   end subroutine validate_phase0_physics_config
 
-  !> Phase 1 triangle_p0 direct kernel の solver/boundary/softening 契約を検証する。
+  !> triangle_p0 direct/FMM kernel の solver/boundary/softening 契約を検証する。
   subroutine validate_phase1_panel_config(sim, panel, status, message)
     type(sim_config), intent(in) :: sim
     type(panel_kernel_config), intent(in) :: panel
@@ -198,17 +198,30 @@ contains
       call reject(physics_config_invalid_combination, 'Unknown panel source model.', status, message)
       return
     end if
-    if (trim(kernel_id) /= 'triangle_p0_exact_direct') then
-      call reject(physics_config_invalid_combination, 'triangle_p0 requires its exact direct kernel.', status, message)
-      return
-    end if
-    if (trim(solver) /= 'direct' .or. trim(boundary) /= 'free') then
-      call reject(physics_config_unavailable, 'triangle_p0 Phase 1 requires direct free-space field solving.', status, message)
-      return
-    end if
     if (sim%softening /= 0.0_dp) then
-      call reject(physics_config_invalid_combination, 'triangle_p0 Phase 1 requires softening=0.', status, message)
+      call reject(physics_config_invalid_combination, 'triangle_p0 requires softening=0.', status, message)
+      return
     end if
+    select case (trim(solver))
+    case ('direct')
+      if (trim(kernel_id) /= 'triangle_p0_exact_direct' .or. trim(boundary) /= 'free') then
+        call reject(physics_config_unavailable, 'triangle_p0 direct requires its exact free-space kernel.', status, message)
+      end if
+    case ('fmm')
+      if (trim(kernel_id) /= 'triangle_p0_exact_p2m_near') then
+        call reject(physics_config_invalid_combination, 'triangle_p0 FMM requires exact P2M/panel-near kernel.', status, message)
+      else if (trim(boundary) /= 'free' .and. trim(boundary) /= 'periodic2') then
+        call reject(physics_config_invalid_combination, 'triangle_p0 FMM supports free or periodic2 boundaries.', status, message)
+      else if (trim(lower_ascii(sim%field_periodic_far_correction)) == 'm2l_root_oracle') then
+        call reject(physics_config_unavailable, 'triangle_p0 FMM does not support the point-source root oracle.', status, message)
+      end if
+    case ('auto')
+      if (trim(kernel_id) /= 'triangle_p0_exact_auto' .or. trim(boundary) /= 'free') then
+        call reject(physics_config_invalid_combination, 'triangle_p0 auto requires its free-space auto kernel.', status, message)
+      end if
+    case default
+      call reject(physics_config_unavailable, 'triangle_p0 supports direct, FMM, or auto solving.', status, message)
+    end select
   end subroutine validate_phase1_panel_config
 
   subroutine validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)

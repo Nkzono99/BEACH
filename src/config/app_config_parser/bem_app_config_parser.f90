@@ -567,7 +567,13 @@ contains
       cfg%panel%surface_side_policy = 'not_applicable'
     case ('triangle_p0')
       cfg%panel%source_model = 'triangle_p0'
-      cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+      if (trim(lower_ascii(cfg%sim%field_solver)) == 'fmm') then
+        cfg%panel%kernel_id = 'triangle_p0_exact_p2m_near'
+      else if (trim(lower_ascii(cfg%sim%field_solver)) == 'auto') then
+        cfg%panel%kernel_id = 'triangle_p0_exact_auto'
+      else
+        cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+      end if
       cfg%panel%surface_side_policy = 'per_element'
     case default
       error stop 'field.element_kernel must be "point" or "triangle_p0".'

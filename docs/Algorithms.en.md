@@ -134,7 +134,7 @@ The mesh is built from templates or an OBJ file according to `mesh.mode`. For te
 
 With `field.element_kernel="triangle_p0"`, `q_elem` is total element charge and `sigma=q_elem/area` is constant surface density. Potential and field use the analytic edge-log and signed-solid-angle expressions. `bem_panel_self_terms` owns on-surface evaluation: potential is continuous, the principal-value normal field is the average of the two traces, and `elem_vacuum_sign` selects the vacuum trace. Geometry, edge data, exact first/second moments, and a seven-point quadrature plan are cached when the mesh is built; batches update charge only.
 
-This Phase 1 path is a free-space direct correctness oracle. Treecode, FMM, and periodic2 combinations fail during initialization instead of falling back to point charges.
+The direct path is the free-space correctness oracle. The FMM path builds source bounds from every panel vertex, evaluates near lists with the analytic panel kernel, and uses exact triangle-averaged monomials for far-field P2M. Their kernel IDs are `triangle_p0_exact_direct` and `triangle_p0_exact_p2m_near`; auto selection uses `triangle_p0_exact_auto`. Treecode and the point-source `m2l_root_oracle` fail during initialization instead of falling back to point charges.
 
 ### 2.8 periodic2 split reference
 

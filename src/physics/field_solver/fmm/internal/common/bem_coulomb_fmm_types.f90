@@ -1,6 +1,7 @@
 !> Coulomb FMM コアで共有する型定義。
 module bem_coulomb_fmm_types
   use bem_kinds, only: dp, i32
+  use bem_panel_geometry, only: panel_geometry_type
   implicit none
   private
 
@@ -73,6 +74,8 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: eval_deriv_idx(:, :)
     real(dp), allocatable :: eval_inv_factorial(:)
     real(dp), allocatable :: src_pos(:, :)
+    logical :: panel_source = .false.
+    type(panel_geometry_type), allocatable :: panel_geometry(:)
     integer(i32) :: max_node = 0_i32
     integer(i32) :: nnode = 0_i32
     integer(i32) :: node_max_depth = 0_i32
@@ -193,6 +196,7 @@ contains
     if (allocated(plan%eval_deriv_idx)) deallocate (plan%eval_deriv_idx)
     if (allocated(plan%eval_inv_factorial)) deallocate (plan%eval_inv_factorial)
     if (allocated(plan%src_pos)) deallocate (plan%src_pos)
+    if (allocated(plan%panel_geometry)) deallocate (plan%panel_geometry)
     if (allocated(plan%elem_order)) deallocate (plan%elem_order)
     if (allocated(plan%node_start)) deallocate (plan%node_start)
     if (allocated(plan%node_count)) deallocate (plan%node_count)
@@ -251,6 +255,7 @@ contains
     plan%options = fmm_options_type()
     plan%built = .false.
     plan%nsrc = 0_i32
+    plan%panel_source = .false.
     plan%ncoef = 0_i32
     plan%nderiv = 0_i32
     plan%eval_term_count = 0_i32
