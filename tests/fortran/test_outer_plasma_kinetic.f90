@@ -9,10 +9,12 @@ program test_outer_plasma_kinetic
   real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
   type(kinetic_outer_plasma_options_type) :: options
   type(outer_plasma_state_type) :: state
+  type(outer_plasma_state_type) :: ambient_state
+  type(outer_plasma_state_type) :: coarse_state
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(3)
+  call test_init(5)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -31,6 +33,44 @@ program test_outer_plasma_kinetic
     state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
     1.0e-20_dp, 'finite-domain Gauss closure mismatch' &
     )
+  call test_end()
+
+  call test_begin('nonlinear profile is stable under grid refinement')
+  options = reference_options()
+  options%interface_field = -0.02_dp
+  call solve_outer_plasma_kinetic(options, coarse_state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'coarse kinetic solve status mismatch')
+  options%grid_points = 65_i32
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'refined kinetic solve status mismatch')
+  call assert_close_dp( &
+    state%interface_potential, coarse_state%interface_potential, 2.0e-3_dp, &
+    'kinetic interface potential did not converge with grid refinement' &
+    )
+  call assert_close_dp( &
+    state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
+    5.0e-15_dp, 'refined nonlinear Gauss closure mismatch' &
+    )
+  call test_end()
+
+  call test_begin('strong photoelectron space charge changes the positive monotonic branch')
+  options = reference_options()
+  options%interface_field = 0.05_dp
+  options%ion_drift_infinity = 4.0_dp*sqrt(options%electron_temperature_j/options%ion_mass)
+  call solve_outer_plasma_kinetic(options, ambient_state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'ambient positive-branch solve status mismatch')
+  options%photoelectron_charge = -qe
+  options%photoelectron_mass = electron_mass
+  options%photoelectron_temperature_j = 1.5_dp*qe
+  options%photoelectron_emission_flux = 5.0e10_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'strong-photoelectron solve status mismatch: '//trim(message))
+  call assert_true(state%interface_potential > 0.0_dp, 'positive monotonic branch was not selected')
+  call assert_true( &
+    abs(state%interface_potential - ambient_state%interface_potential) > 1.0e-6_dp, &
+    'strong photoelectron density did not affect the sheath profile' &
+    )
+  call assert_true(state%nonlinear_residual < options%residual_tolerance, 'strong-photoelectron residual is too large')
   call test_end()
 
   call test_begin('quasineutral zero field is an exact kinetic equilibrium')

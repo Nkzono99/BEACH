@@ -105,6 +105,9 @@ contains
         if (trim(app%periodic2%zero_mode_policy) == 'exclude_k0' .and. .not. electrostatic_state%outer_ready) then
           error stop 'Resume checkpoint is missing the required split-periodic outer state.'
         end if
+        if (trim(lower_ascii(app%outer_plasma%model)) == 'kinetic_1d' .and. electrostatic_state%outer_ready) then
+          call load_kinetic_outer_profile(trim(out_dir), electrostatic_state, local_rank, mpi)
+        end if
       end if
     end if
     call load_charge_file(trim(charges_path), mesh)
@@ -141,6 +144,52 @@ contains
     end if
     has_restart = .true.
   end subroutine load_restart_checkpoint
+
+  subroutine load_kinetic_outer_profile(out_dir, state, local_rank, mpi)
+    character(len=*), intent(in) :: out_dir
+    type(electrostatic_restart_state_type), intent(inout) :: state
+    integer(i32), intent(in) :: local_rank
+    type(mpi_context), intent(in), optional :: mpi
+    character(len=1024) :: path
+    character(len=512) :: line
+    integer :: u, ios
+    integer(i32) :: point, file_point, count_values(1)
+    real(dp), allocatable :: z(:), potential(:)
+    logical :: read_here
+
+    read_here = .not. present(mpi) .or. local_rank == 0_i32
+    count_values = 0_i32
+    path = trim(out_dir)//'/outer_plasma_profile.csv'
+    if (read_here) then
+      open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+      if (ios /= 0) error stop 'Resume checkpoint is missing outer_plasma_profile.csv.'
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0 .or. trim(line) /= 'point,z_m,potential_V') error stop 'Malformed outer profile header.'
+      do
+        read (u, '(A)', iostat=ios) line
+        if (ios /= 0) exit
+        count_values(1) = count_values(1) + 1_i32
+      end do
+      rewind (u)
+      read (u, '(A)') line
+      allocate (z(count_values(1)), potential(count_values(1)))
+      do point = 1_i32, count_values(1)
+        read (u, *, iostat=ios) file_point, z(point), potential(point)
+        if (ios /= 0 .or. file_point /= point) error stop 'Malformed outer profile row.'
+      end do
+      close (u)
+      count_values(1) = size(z)
+    end if
+    if (present(mpi)) call mpi_bcast_i32_array(mpi, count_values, 0_i32)
+    if (count_values(1) < 3_i32) error stop 'Kinetic outer profile has too few points.'
+    if (.not. read_here) allocate (z(count_values(1)), potential(count_values(1)))
+    if (present(mpi)) then
+      call mpi_bcast_real_dp_array(mpi, z, 0_i32)
+      call mpi_bcast_real_dp_array(mpi, potential, 0_i32)
+    end if
+    state%outer_profile_z = z
+    state%outer_profile_potential = potential
+  end subroutine load_kinetic_outer_profile
 
   subroutine load_photoelectron_checkpoint(path, completed_batches, app, state)
     character(len=*), intent(in) :: path

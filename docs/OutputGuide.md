@@ -25,6 +25,7 @@ beachx inspect outputs/latest
 | ファイル | いつ出るか | まず見る内容 |
 | --- | --- | --- |
 | `summary.txt` | 常時 | batch 数、吸収数、脱出数、最後の相対変化、MPI rank 数 |
+| `outer_plasma_profile.csv` | `kinetic_1d` | 収束した outer grid の座標と電位。restart の前 batch 初期値にも使用 |
 | `charges.csv` | 常時 | 要素ごとの最終電荷 |
 | `mesh_triangles.csv` | 常時 | 三角形頂点、要素 ID、`mesh_id` |
 | `mesh_sources.csv` | template mesh 利用時 | `mesh_id` と template kind / surface model / 要素数の対応 |

@@ -25,6 +25,7 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 | File | When it appears | What to inspect first |
 | --- | --- | --- |
 | `summary.txt` | Always | batch count, absorbed and escaped counts, last relative charge change, MPI rank count |
+| `outer_plasma_profile.csv` | `kinetic_1d` | Converged outer-grid coordinates and potential; also used as the previous-batch restart guess |
 | `charges.csv` | Always | final charge per element |
 | `mesh_triangles.csv` | Always | triangle vertices, element IDs, `mesh_id` |
 | `mesh_sources.csv` | Template mesh runs | mapping from `mesh_id` to template kind / surface model / element count |

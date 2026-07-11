@@ -9,6 +9,7 @@ program test_restart
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_charge_ledger, only: charge_ledger_type
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type
+  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, assert_allclose_1d, &
@@ -22,6 +23,8 @@ program test_restart
   type(charge_ledger_type) :: ledger, restored_ledger
   type(photoelectron_histogram_type) :: photo_batch
   type(photoelectron_coupling_state_type) :: photo_state, restored_photo_state
+  type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
+  type(electrostatic_restart_state_type) :: electrostatic_state
   logical :: has_restart, exists
   integer(i32) :: contract_status
   character(len=256) :: contract_message
@@ -35,15 +38,44 @@ program test_restart
   call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
   call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
   call delete_file_if_exists(out_dir//'/photoelectron_histogram.csv')
+  call delete_file_if_exists(out_dir//'/outer_plasma_profile.csv')
   call remove_empty_directory(out_dir)
 
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
   call load_restart_checkpoint('test_restart_missing', mesh, stats, has_restart)
   call assert_true(.not. has_restart, 'missing checkpoint should not be reported as restart')
   call assert_equal_i32(stats%batches, 0_i32, 'missing checkpoint should keep stats at defaults')
+  call test_end()
+
+  call test_begin('kinetic_outer_profile_checkpoint')
+  call default_app_config(cfg)
+  cfg%outer_plasma%model = 'kinetic_1d'
+  cfg%outer_plasma%debye_length = 1.0_dp
+  cfg%outer_plasma%thermal_voltage = 2.0_dp
+  stats = sim_stats()
+  stats%batches = 2_i32
+  stats%last_rel_change = 0.0_dp
+  electrostatic_diagnostics%split_periodic_active = .true.
+  electrostatic_diagnostics%interface_potential = -0.25_dp
+  electrostatic_diagnostics%last_outer_update_batch = 2_i32
+  electrostatic_diagnostics%outer_profile_z = [1.0_dp, 1.5_dp, 2.0_dp]
+  electrostatic_diagnostics%outer_profile_potential = [-0.25_dp, -0.1_dp, -0.02_dp]
+  call write_result_files(out_dir, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics)
+  call write_rng_state_file(out_dir)
+  call load_restart_checkpoint(out_dir, mesh, stats, has_restart, app=cfg, electrostatic_state=electrostatic_state)
+  call assert_true(has_restart, 'kinetic profile checkpoint should load')
+  call assert_true(electrostatic_state%outer_ready, 'kinetic outer state should be ready')
+  call assert_allclose_1d( &
+    electrostatic_state%outer_profile_z, [1.0_dp, 1.5_dp, 2.0_dp], 1.0e-15_dp, &
+    'kinetic restart grid mismatch' &
+    )
+  call assert_allclose_1d( &
+    electrostatic_state%outer_profile_potential, [-0.25_dp, -0.1_dp, -0.02_dp], 1.0e-15_dp, &
+    'kinetic restart potential mismatch' &
+    )
   call test_end()
 
   call test_begin('schema_v2_contract_and_ledger_restore')
@@ -168,6 +200,7 @@ program test_restart
   call delete_file_if_exists(out_dir//'/mesh_sources.csv')
   call delete_file_if_exists(out_dir//'/charge_ledger.csv')
   call delete_file_if_exists(out_dir//'/photoelectron_histogram.csv')
+  call delete_file_if_exists(out_dir//'/outer_plasma_profile.csv')
   call remove_empty_directory(out_dir)
 
   call test_summary()

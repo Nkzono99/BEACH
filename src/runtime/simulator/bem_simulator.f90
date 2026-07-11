@@ -20,6 +20,9 @@ module bem_simulator
   use bem_outer_plasma_interface, only: map_outer_particle_linear_debye
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type, &
                                             validate_photoelectron_linear_applicability, photoelectron_closure_ok
+  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
+  use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
+  use bem_outer_plasma_types, only: outer_plasma_ok
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, mpi_select_lowest_rank_i32_values
   implicit none

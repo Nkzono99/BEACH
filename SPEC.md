@@ -115,6 +115,14 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 `outer_plasma.photoelectron_closure="individual_return"`では、`photo_raycast`粒子がz-high interfaceを外向き通過した時点で、法線運動エネルギーbinごとのsigned charge、全運動エネルギー、接線運動量、個数をMPI-globalに集計します。個別粒子は上記instant-return写像だけで帰還させ、統計量から別粒子を再注入しません。各batchの統計は`previous_batch`として次batchへ渡し、累積統計とともに`photoelectron_histogram.csv`へcheckpointします。charge-conserving modeでは全`photo_raycast` speciesに`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`との併用を拒否します。`statistical_return`は帰還位置・遅延・deposit則が未仕様なので使用不可です。放出signed chargeと`photoelectron_ambient_charge_scale`の比が`max_photoelectron_charge_ratio`を超えると、ambient-only線形closureを適用外として停止し、silent fallbackしません。
 
+`outer_plasma.model="kinetic_1d"`は、z-highの負・正`reservoir_face` speciesを無限遠の
+electron half-Maxwellian / cold drifting ion VDFとして用い、伸長1D格子上のPoisson方程式を
+interface Neumann条件と遠方Robin条件で解きます。初版は単調・無衝突・非磁化分枝に限定し、
+ionにはkinetic Bohm入口条件を課します。`photoelectron_closure="kinetic_mean"`は負電荷
+`photo_raycast` speciesの放出fluxからoutgoing/returning平均密度を構成します。解状態は
+`converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、線形モデルへ
+silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し、restart時のNewton初期値に使います。
+
 `sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
 
 ### 5.2 粒子前進

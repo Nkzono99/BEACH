@@ -13,6 +13,8 @@ module bem_electrostatic_snapshot
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok
   use bem_outer_plasma_linear, only: init_outer_plasma_linear, outer_plasma_integrated_charge_per_area
+  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic
+  use bem_mpi, only: mpi_context, mpi_is_root, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
   private
 
@@ -28,6 +30,9 @@ module bem_electrostatic_snapshot
     real(dp) :: eta_local_charge = 0.0_dp
     real(dp) :: gauss_residual = 0.0_dp
     real(dp) :: outer_integrated_charge = 0.0_dp
+    integer(i32) :: outer_nonlinear_iterations = 0_i32
+    real(dp) :: outer_nonlinear_residual = 0.0_dp
+    real(dp) :: outer_total_current_density = 0.0_dp
     character(len=64) :: status = 'legacy_or_not_applicable'
     integer(i32) :: last_outer_update_batch = -1_i32
     real(dp) :: max_outer_flight_time = 0.0_dp
@@ -36,12 +41,16 @@ module bem_electrostatic_snapshot
     integer(i32) :: periodic_operator_build_count = 0_i32
     character(len=128) :: periodic_cache_fingerprint = ''
     character(len=512) :: periodic_cache_path = ''
+    real(dp), allocatable :: outer_profile_z(:)
+    real(dp), allocatable :: outer_profile_potential(:)
   end type electrostatic_diagnostics_type
 
   type, public :: electrostatic_restart_state_type
     logical :: outer_ready = .false.
     real(dp) :: outer_interface_potential = 0.0_dp
     integer(i32) :: last_outer_update_batch = -1_i32
+    real(dp), allocatable :: outer_profile_z(:)
+    real(dp), allocatable :: outer_profile_potential(:)
   end type electrostatic_restart_state_type
 
   type, public :: electrostatic_snapshot_type
@@ -60,6 +69,8 @@ module bem_electrostatic_snapshot
     type(periodic_zero_mode_state_type) :: zero_state
     type(outer_plasma_state_type) :: outer
     type(outer_plasma_config) :: outer_options
+    type(kinetic_outer_plasma_options_type) :: kinetic_options
+    type(mpi_context) :: mpi
     type(periodic2_physics_config) :: periodic_options
     type(electrostatic_diagnostics_type) :: diagnostics
     real(dp) :: mesh_top_z = 0.0_dp
@@ -78,7 +89,7 @@ module bem_electrostatic_snapshot
 contains
 
   subroutine init_electrostatic_snapshot( &
-    self, mesh, sim, field_config, periodic_config, panel_config, outer_config &
+    self, mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options, mpi &
     )
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
@@ -87,6 +98,8 @@ contains
     type(periodic2_physics_config), intent(in), optional :: periodic_config
     type(panel_kernel_config), intent(in), optional :: panel_config
     type(outer_plasma_config), intent(in), optional :: outer_config
+    type(kinetic_outer_plasma_options_type), intent(in), optional :: kinetic_options
+    type(mpi_context), intent(in), optional :: mpi
 
     self%prescribed_e = sim%e0
     self%prescribed_phi_origin = 0.0_dp
@@ -96,13 +109,17 @@ contains
     self%use_cached_kneq0 = .false.
     self%gauss_residual = 0.0_dp
     self%diagnostics = electrostatic_diagnostics_type()
+    self%mpi = mpi_context()
+    if (present(mpi)) self%mpi = mpi
     if (present(periodic_config) .and. present(panel_config) .and. present(outer_config)) then
       if (trim(lower_ascii(periodic_config%nonzero_mode_backend)) == 'panel_spectral_reference') then
-        call init_split_periodic_snapshot(self, mesh, sim, periodic_config, panel_config, outer_config)
+        call init_split_periodic_snapshot(self, mesh, sim, periodic_config, panel_config, outer_config, kinetic_options)
         return
       else if (trim(lower_ascii(periodic_config%nonzero_mode_backend)) == 'cached_kneq0') then
         if (.not. present(field_config)) error stop 'cached_kneq0 requires typed field configuration.'
-        call init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config, outer_config)
+        call init_cached_periodic_snapshot( &
+          self, mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options &
+          )
         return
       end if
     end if
@@ -128,11 +145,14 @@ contains
     character(len=256) :: message
     logical :: refresh_outer
 
-    if (self%use_cached_kneq0) then
+    if (self%use_cached_kneq0 .and. .not. self%use_outer_plasma) then
       call self%nonzero_solver%refresh(mesh)
       call refresh_periodic_zero_mode_state( &
         self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
         )
+      return
+    else if (self%use_cached_kneq0) then
+      call refresh_cached_kinetic_outer(self, mesh, update_outer)
       return
     else if (.not. self%use_panel_spectral_reference) then
       call self%nonzero_solver%refresh(mesh)
@@ -148,7 +168,10 @@ contains
       self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
       raw_potential, interface_field &
       )
-    if (refresh_outer) then
+    if (refresh_outer .and. trim(lower_ascii(self%outer_options%model)) == 'kinetic_1d') then
+      call solve_kinetic_collective(self, interface_field)
+      interface_potential = self%outer%interface_potential
+    else if (refresh_outer) then
       interface_potential = self%outer_options%infinity_potential + self%outer_options%debye_length*interface_field
     else
       interface_potential = self%outer%interface_potential
@@ -157,7 +180,7 @@ contains
       self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), &
       interface_potential - raw_potential, self%zero_state &
       )
-    if (refresh_outer) then
+    if (refresh_outer .and. trim(lower_ascii(self%outer_options%model)) == 'linear_debye') then
       linearity_ratio = abs(interface_potential - self%outer_options%infinity_potential)/ &
                         self%outer_options%thermal_voltage
       call init_outer_plasma_linear( &
@@ -256,6 +279,13 @@ contains
     type(electrostatic_diagnostics_type), intent(out) :: diagnostics
 
     diagnostics = self%diagnostics
+    diagnostics%outer_nonlinear_iterations = self%outer%nonlinear_iterations
+    diagnostics%outer_nonlinear_residual = self%outer%nonlinear_residual
+    diagnostics%outer_total_current_density = self%outer%total_current_density
+    if (self%outer%ready .and. allocated(self%outer%z) .and. allocated(self%outer%potential)) then
+      diagnostics%outer_profile_z = self%outer%z
+      diagnostics%outer_profile_potential = self%outer%potential
+    end if
   end subroutine get_snapshot_diagnostics
 
   subroutine restore_snapshot_outer_state(self, state)
@@ -267,6 +297,23 @@ contains
 
     if (.not. state%outer_ready) return
     if (.not. self%use_outer_plasma) error stop 'checkpoint outer state is incompatible with the active model.'
+    if (trim(lower_ascii(self%outer_options%model)) == 'kinetic_1d') then
+      if (.not. allocated(state%outer_profile_z) .or. .not. allocated(state%outer_profile_potential) .or. &
+          size(state%outer_profile_z) /= self%kinetic_options%grid_points .or. &
+          size(state%outer_profile_potential) /= self%kinetic_options%grid_points) then
+        error stop 'checkpoint kinetic outer profile is missing or has an incompatible grid.'
+      end if
+      self%outer = outer_plasma_state_type()
+      self%outer%model = 'kinetic_1d'
+      self%outer%ready = .true.
+      self%outer%applicability_status = outer_plasma_ok
+      self%outer%profile_n = self%kinetic_options%grid_points
+      self%outer%interface_z = self%outer_options%interface_z
+      self%outer%interface_potential = state%outer_interface_potential
+      self%outer%z = state%outer_profile_z
+      self%outer%potential = state%outer_profile_potential
+      return
+    end if
     linearity_ratio = abs(state%outer_interface_potential - self%outer_options%infinity_potential)/ &
                       self%outer_options%thermal_voltage
     call init_outer_plasma_linear( &
@@ -284,6 +331,10 @@ contains
 
     state%outer_ready = self%outer%ready
     if (self%outer%ready) state%outer_interface_potential = self%outer%interface_potential
+    if (self%outer%ready .and. allocated(self%outer%z) .and. allocated(self%outer%potential)) then
+      state%outer_profile_z = self%outer%z
+      state%outer_profile_potential = self%outer%potential
+    end if
     state%last_outer_update_batch = last_outer_update_batch
   end subroutine export_snapshot_restart_state
 
@@ -342,7 +393,9 @@ contains
     self%diagnostics%status = 'applicable'
   end subroutine update_interface_diagnostics
 
-  subroutine init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config, outer_config)
+  subroutine init_cached_periodic_snapshot( &
+    self, mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options &
+    )
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -350,6 +403,7 @@ contains
     type(periodic2_physics_config), intent(in) :: periodic_config
     type(panel_kernel_config), intent(in) :: panel_config
     type(outer_plasma_config), intent(in) :: outer_config
+    type(kinetic_outer_plasma_options_type), intent(in), optional :: kinetic_options
     integer(i32) :: status
     character(len=256) :: message
 
@@ -357,8 +411,12 @@ contains
         trim(lower_ascii(periodic_config%lower_boundary_model)) /= 'e_bottom_zero') then
       error stop 'cached_kneq0 requires exclude_k0 and e_bottom_zero.'
     end if
-    if (trim(lower_ascii(outer_config%model)) /= 'none') then
-      error stop 'cached_kneq0 currently requires outer_plasma.model=none.'
+    if (trim(lower_ascii(outer_config%model)) /= 'none' .and. &
+        trim(lower_ascii(outer_config%model)) /= 'kinetic_1d') then
+      error stop 'cached_kneq0 supports outer_plasma.model=none or kinetic_1d.'
+    end if
+    if (trim(lower_ascii(outer_config%model)) == 'kinetic_1d' .and. .not. present(kinetic_options)) then
+      error stop 'cached kinetic_1d requires resolved kinetic options.'
     end if
     if (.not. sim%use_box .or. any(sim%bc_low(1:2) /= bc_periodic) .or. &
         any(sim%bc_high(1:2) /= bc_periodic) .or. sim%bc_low(3) == bc_periodic .or. &
@@ -374,6 +432,9 @@ contains
     self%use_cached_kneq0 = .true.
     self%use_zero_mode = .true.
     self%periodic_options = periodic_config
+    self%outer_options = outer_config
+    if (present(kinetic_options)) self%kinetic_options = kinetic_options
+    if (trim(lower_ascii(outer_config%model)) == 'kinetic_1d') self%use_outer_plasma = .true.
     self%diagnostics%split_periodic_active = .true.
     self%diagnostics%status = 'cached_kneq0'
     self%diagnostics%periodic_cache_hit = self%nonzero_solver%fmm_core_plan%periodic_cache_hit
@@ -384,13 +445,16 @@ contains
     self%diagnostics%periodic_cache_path = self%nonzero_solver%fmm_core_plan%periodic_cache_path
   end subroutine init_cached_periodic_snapshot
 
-  subroutine init_split_periodic_snapshot(self, mesh, sim, periodic_config, panel_config, outer_config)
+  subroutine init_split_periodic_snapshot( &
+    self, mesh, sim, periodic_config, panel_config, outer_config, kinetic_options &
+    )
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(periodic2_physics_config), intent(in) :: periodic_config
     type(panel_kernel_config), intent(in) :: panel_config
     type(outer_plasma_config), intent(in) :: outer_config
+    type(kinetic_outer_plasma_options_type), intent(in), optional :: kinetic_options
     integer(i32) :: status
     character(len=256) :: message
 
@@ -401,8 +465,12 @@ contains
     if (trim(lower_ascii(panel_config%source_model)) /= 'triangle_p0') then
       error stop 'panel spectral reference requires triangle_p0 sources.'
     end if
-    if (trim(lower_ascii(outer_config%model)) /= 'linear_debye') then
-      error stop 'split periodic snapshot requires outer_plasma.model=linear_debye.'
+    if (trim(lower_ascii(outer_config%model)) /= 'linear_debye' .and. &
+        trim(lower_ascii(outer_config%model)) /= 'kinetic_1d') then
+      error stop 'split periodic snapshot requires linear_debye or kinetic_1d.'
+    end if
+    if (trim(lower_ascii(outer_config%model)) == 'kinetic_1d' .and. .not. present(kinetic_options)) then
+      error stop 'split periodic kinetic_1d requires resolved kinetic options.'
     end if
     if (.not. sim%use_box .or. any(sim%bc_low(1:2) /= bc_periodic) .or. &
         any(sim%bc_high(1:2) /= bc_periodic) .or. sim%bc_low(3) == bc_periodic .or. &
@@ -432,10 +500,107 @@ contains
     self%panel_quadrature_order = periodic_config%panel_quadrature_order
     self%periodic_options = periodic_config
     self%outer_options = outer_config
+    if (present(kinetic_options)) self%kinetic_options = kinetic_options
     self%mesh_top_z = max(maxval(mesh%v0(3, :)), max(maxval(mesh%v1(3, :)), maxval(mesh%v2(3, :))))
     self%use_panel_spectral_reference = .true.
     self%use_zero_mode = .true.
     self%use_outer_plasma = .true.
   end subroutine init_split_periodic_snapshot
+
+  subroutine refresh_cached_kinetic_outer(self, mesh, update_outer)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+    logical, intent(in), optional :: update_outer
+    real(dp) :: raw_potential, interface_field
+    logical :: refresh_outer
+
+    refresh_outer = .true.
+    if (present(update_outer)) refresh_outer = update_outer
+    if (.not. self%outer%ready) refresh_outer = .true.
+    call self%nonzero_solver%refresh(mesh)
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      )
+    call eval_periodic_zero_mode( &
+      self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
+      raw_potential, interface_field &
+      )
+    if (refresh_outer) call solve_kinetic_collective(self, interface_field)
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), &
+      self%outer%interface_potential - raw_potential, self%zero_state &
+      )
+    self%gauss_residual = sum(mesh%q_elem) + &
+                          self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
+    self%diagnostics%interface_potential = self%outer%interface_potential
+    self%diagnostics%interface_field = self%outer%interface_field
+    self%diagnostics%gauss_residual = self%gauss_residual
+    self%diagnostics%outer_integrated_charge = &
+      self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
+    self%diagnostics%status = 'kinetic_converged'
+    self%diagnostics%applicable = .true.
+  end subroutine refresh_cached_kinetic_outer
+
+  subroutine solve_kinetic_collective(self, interface_field)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    real(dp), intent(in) :: interface_field
+    type(outer_plasma_state_type) :: solved
+    integer(i32) :: status_values(3), status
+    real(dp) :: scalar_values(11)
+    character(len=256) :: message
+
+    self%kinetic_options%interface_field = interface_field
+    status_values = 0_i32
+    if (mpi_is_root(self%mpi)) then
+      if (self%outer%ready .and. allocated(self%outer%potential) .and. &
+          size(self%outer%potential) == self%kinetic_options%grid_points) then
+        call solve_outer_plasma_kinetic( &
+          self%kinetic_options, solved, status, message, initial_potential=self%outer%potential &
+          )
+      else
+        call solve_outer_plasma_kinetic(self%kinetic_options, solved, status, message)
+      end if
+      status_values = [status, solved%profile_n, solved%nonlinear_iterations]
+    end if
+    call mpi_bcast_i32_array(self%mpi, status_values, 0_i32)
+    status = status_values(1)
+    if (status /= outer_plasma_ok) error stop 'kinetic outer-plasma solve failed without fallback.'
+    if (.not. mpi_is_root(self%mpi)) then
+      solved = outer_plasma_state_type()
+      solved%model = 'kinetic_1d'
+      solved%profile_n = status_values(2)
+      solved%nonlinear_iterations = status_values(3)
+      allocate (solved%z(solved%profile_n), solved%potential(solved%profile_n), &
+                solved%field(solved%profile_n), solved%charge_density(solved%profile_n))
+    end if
+    if (mpi_is_root(self%mpi)) then
+      scalar_values = [ &
+                      solved%interface_potential, solved%infinity_potential, solved%debye_length, &
+                      solved%interface_field, solved%nonlinear_residual, solved%integrated_charge_per_area, &
+                      merge(1.0_dp, 0.0_dp, solved%ready), solved%electron_current_density, &
+                      solved%ion_current_density, solved%photoelectron_current_density, solved%total_current_density &
+                      ]
+    end if
+    call mpi_bcast_real_dp_array(self%mpi, scalar_values, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, solved%z, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, solved%potential, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, solved%field, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, solved%charge_density, 0_i32)
+    solved%interface_z = self%outer_options%interface_z
+    solved%z = solved%z + solved%interface_z
+    solved%interface_potential = scalar_values(1)
+    solved%infinity_potential = scalar_values(2)
+    solved%debye_length = scalar_values(3)
+    solved%interface_field = scalar_values(4)
+    solved%nonlinear_residual = scalar_values(5)
+    solved%integrated_charge_per_area = scalar_values(6)
+    solved%ready = scalar_values(7) > 0.5_dp
+    solved%electron_current_density = scalar_values(8)
+    solved%ion_current_density = scalar_values(9)
+    solved%photoelectron_current_density = scalar_values(10)
+    solved%total_current_density = scalar_values(11)
+    solved%applicability_status = outer_plasma_ok
+    self%outer = solved
+  end subroutine solve_kinetic_collective
 
 end module bem_electrostatic_snapshot

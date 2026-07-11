@@ -156,7 +156,34 @@ contains
     if (present(photoelectron_state)) then
       if (photoelectron_state%ready) call write_photoelectron_histogram_file(out_dir, photoelectron_state)
     end if
+    if (present(electrostatic_diagnostics)) then
+      if (allocated(electrostatic_diagnostics%outer_profile_z)) then
+        call write_outer_plasma_profile_file(out_dir, electrostatic_diagnostics)
+      end if
+    end if
   end subroutine write_result_files
+
+  subroutine write_outer_plasma_profile_file(out_dir, diagnostics)
+    character(len=*), intent(in) :: out_dir
+    type(electrostatic_diagnostics_type), intent(in) :: diagnostics
+    character(len=1024) :: path
+    integer :: u, ios
+    integer(i32) :: point
+
+    if (.not. allocated(diagnostics%outer_profile_potential) .or. &
+        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_potential)) then
+      error stop 'Outer-plasma diagnostic profile is incomplete.'
+    end if
+    path = trim(out_dir)//'/outer_plasma_profile.csv'
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open outer_plasma_profile.csv.'
+    write (u, '(a)') 'point,z_m,potential_V'
+    do point = 1_i32, size(diagnostics%outer_profile_z)
+      write (u, '(i0,2(a,es24.16))') point, ',', diagnostics%outer_profile_z(point), ',', &
+        diagnostics%outer_profile_potential(point)
+    end do
+    close (u)
+  end subroutine write_outer_plasma_profile_file
 
   subroutine write_photoelectron_histogram_file(out_dir, state)
     character(len=*), intent(in) :: out_dir
@@ -273,6 +300,10 @@ contains
       write (u, '(a,es24.16)') 'interface_eta_local_charge=', electrostatic_diagnostics%eta_local_charge
       write (u, '(a,es24.16)') 'gauss_residual_C=', electrostatic_diagnostics%gauss_residual
       write (u, '(a,es24.16)') 'outer_integrated_charge_C=', electrostatic_diagnostics%outer_integrated_charge
+      write (u, '(a,i0)') 'outer_nonlinear_iterations=', electrostatic_diagnostics%outer_nonlinear_iterations
+      write (u, '(a,es24.16)') 'outer_nonlinear_residual=', electrostatic_diagnostics%outer_nonlinear_residual
+      write (u, '(a,es24.16)') 'outer_total_current_density_A_m2=', &
+        electrostatic_diagnostics%outer_total_current_density
       write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
       write (u, '(a,es24.16)') 'max_outer_flight_time_s=', electrostatic_diagnostics%max_outer_flight_time
       write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio

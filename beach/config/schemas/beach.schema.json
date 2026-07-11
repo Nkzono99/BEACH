@@ -44,8 +44,8 @@
       "additionalProperties": false,
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
-        "model": {"const": "linear_debye"},
-        "photoelectron_closure": {"enum": ["none", "individual_return"], "default": "none"},
+        "model": {"enum": ["linear_debye", "kinetic_1d"]},
+        "photoelectron_closure": {"enum": ["none", "individual_return", "kinetic_mean"], "default": "none"},
         "return_model": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
         "interface_z": {"type": "number"},
         "infinity_potential": {"type": "number", "default": 0},
@@ -74,6 +74,14 @@
           "properties": {
             "photoelectron_closure": {"const": "individual_return"},
             "return_model": {"const": "electrostatic_1d_instant_return"}
+          }
+        },
+        {
+          "required": ["photoelectron_closure"],
+          "properties": {
+            "model": {"const": "kinetic_1d"},
+            "photoelectron_closure": {"const": "kinetic_mean"},
+            "return_model": {"const": "none"}
           }
         }
       ]

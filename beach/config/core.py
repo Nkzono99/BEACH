@@ -839,7 +839,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "BEACH constraint error: outer_plasma.photoelectron_closure="
             '"statistical_return" is not specified and remains unavailable.'
         )
-    if photoelectron_closure not in {"none", "individual_return"}:
+    if photoelectron_closure not in {"none", "individual_return", "kinetic_mean"}:
         raise ConfigValidationError(
             "BEACH constraint error: unsupported outer_plasma.photoelectron_closure="
             f"{photoelectron_closure!r}."
@@ -872,6 +872,14 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         if not isinstance(bins, int) or isinstance(bins, bool) or bins < 1:
             raise ConfigValidationError(
                 "BEACH constraint error: outer_plasma.photoelectron_histogram_bins must be >= 1."
+            )
+    if photoelectron_closure == "kinetic_mean":
+        if outer_plasma.get("model") != "kinetic_1d" or (
+            isinstance(coupling, Mapping)
+            and coupling.get("particle_transfer_mode", "none") != "none"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: kinetic_mean requires kinetic_1d without individual return."
             )
 
     uses_face_sources = False

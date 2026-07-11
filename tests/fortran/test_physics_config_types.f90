@@ -19,7 +19,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(13)
+  call test_init(14)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -34,6 +34,29 @@ program test_physics_config_types
   call assert_true(trim(periodic2%zero_mode_policy) == 'not_applicable', 'free zero mode mismatch')
   call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'free legacy config should be valid')
+  call test_end()
+
+  call test_begin('cached_kinetic_outer_contract')
+  sim = sim_config()
+  sim%field_solver = 'fmm'
+  sim%field_bc_mode = 'periodic2'
+  sim%field_periodic_far_correction = 'cached_kneq0'
+  sim%use_box = .true.
+  sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+  sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+  sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+  sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  call normalize_legacy_physics_config(sim, field, periodic2, panel, outer, coupling)
+  outer%model = 'kinetic_1d'
+  outer%photoelectron_closure = 'kinetic_mean'
+  outer%interface_z = 1.0_dp
+  outer%debye_length = 0.2_dp
+  outer%thermal_voltage = 2.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'cached kinetic_1d config should be valid')
+  coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_unavailable, 'cached kinetic return must fail closed')
   call test_end()
 
   call test_begin('cached_kneq0_active_contract')

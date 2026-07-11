@@ -41,6 +41,9 @@ contains
   logical :: ledger_enabled
   logical :: photoelectron_histogram_enabled
   integer(i32) :: thread_index, photoelectron_status
+  integer(i32) :: kinetic_status
+  character(len=256) :: kinetic_message
+  type(kinetic_outer_plasma_options_type) :: kinetic_options
 
   stats = sim_stats()
   if (present(initial_stats)) stats = initial_stats
@@ -103,7 +106,16 @@ contains
   batch_count_this_run = final_batch_idx - stats%batches
   call perf_region_begin(perf_region_simulation_total, sim_t0)
   call perf_region_begin(perf_region_field_solver_init, t0)
-  call snapshot%init(mesh, app%sim, app%field, app%periodic2, app%panel, app%outer_plasma)
+  if (trim(lower_ascii(app%outer_plasma%model)) == 'kinetic_1d') then
+    call resolve_kinetic_outer_options(app, 0.0_dp, kinetic_options, kinetic_status, kinetic_message)
+    if (kinetic_status /= outer_plasma_ok) error stop 'kinetic outer options: '//trim(kinetic_message)
+    call snapshot%init( &
+      mesh, app%sim, app%field, app%periodic2, app%panel, app%outer_plasma, &
+      kinetic_options=kinetic_options, mpi=mpi_ctx &
+      )
+  else
+    call snapshot%init(mesh, app%sim, app%field, app%periodic2, app%panel, app%outer_plasma, mpi=mpi_ctx)
+  end if
   if (present(electrostatic_restart_state)) then
     call snapshot%restore_outer_state(electrostatic_restart_state)
     call outer_coupler%init(app%coupling, electrostatic_restart_state%last_outer_update_batch)

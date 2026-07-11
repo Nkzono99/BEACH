@@ -24,6 +24,10 @@ module bem_outer_plasma_types
     integer(i32) :: nonlinear_iterations = 0_i32
     real(dp) :: nonlinear_residual = 0.0_dp
     real(dp) :: integrated_charge_per_area = 0.0_dp
+    real(dp) :: electron_current_density = 0.0_dp
+    real(dp) :: ion_current_density = 0.0_dp
+    real(dp) :: photoelectron_current_density = 0.0_dp
+    real(dp) :: total_current_density = 0.0_dp
     real(dp), allocatable :: z(:)
     real(dp), allocatable :: potential(:)
     real(dp), allocatable :: field(:)

@@ -25,13 +25,19 @@ module bem_outer_plasma_kinetic
     real(dp) :: ion_temperature_j = 0.0_dp
     real(dp) :: ion_gamma = 1.0_dp
     real(dp) :: ion_drift_infinity = 0.0_dp
+    real(dp) :: photoelectron_charge = 0.0_dp
+    real(dp) :: photoelectron_mass = 0.0_dp
+    real(dp) :: photoelectron_temperature_j = 0.0_dp
+    real(dp) :: photoelectron_emission_flux = 0.0_dp
     real(dp) :: residual_tolerance = 1.0e-8_dp
+    real(dp) :: external_current_density = 0.0_dp
   end type kinetic_outer_plasma_options_type
 
   public :: eval_absorbing_maxwellian_density
   public :: eval_cold_drift_density
   public :: kinetic_bohm_speed
   public :: eval_photoelectron_escape_return
+  public :: eval_emitted_maxwellian_density
   public :: eval_kinetic_current_balance
   public :: solve_outer_plasma_kinetic
 
@@ -171,6 +177,13 @@ contains
       message = 'kinetic ambient species parameters are invalid'
       return
     end if
+    if (options%photoelectron_emission_flux < 0.0_dp .or. &
+        (options%photoelectron_emission_flux > 0.0_dp .and. &
+         (options%photoelectron_charge >= 0.0_dp .or. options%photoelectron_mass <= 0.0_dp .or. &
+          options%photoelectron_temperature_j <= 0.0_dp))) then
+      message = 'kinetic photoelectron source parameters are invalid'
+      return
+    end if
     charge_scale = max(abs(options%electron_charge*options%electron_density_infinity), &
                        abs(options%ion_charge*options%ion_density_infinity), tiny(1.0_dp))
     if (abs(options%electron_charge*options%electron_density_infinity + &
@@ -187,7 +200,7 @@ contains
     real(dp), intent(in) :: phi(:)
     real(dp), intent(out) :: residual(:)
     integer(i32), intent(out) :: status
-    real(dp) :: electron_density, ion_density, susceptibility, speed, left_h, right_h
+    real(dp) :: electron_density, ion_density, photoelectron_density, susceptibility, speed, left_h, right_h
     integer(i32) :: j, closure_status
 
     status = outer_plasma_no_physical_solution
@@ -205,11 +218,21 @@ contains
         options%ion_drift_infinity, ion_density, speed, susceptibility, closure_status &
         )
       if (closure_status /= outer_plasma_ok) return
+      photoelectron_density = 0.0_dp
+      if (options%photoelectron_emission_flux > 0.0_dp) then
+        call eval_emitted_maxwellian_density( &
+          phi(j), phi(1), 0.0_dp, options%photoelectron_charge, options%photoelectron_mass, &
+          options%photoelectron_temperature_j, options%photoelectron_emission_flux, &
+          photoelectron_density, closure_status &
+          )
+        if (closure_status /= outer_plasma_ok) return
+      end if
       left_h = grid%dz(j - 1_i32)
       right_h = grid%dz(j)
       residual(j) = 2.0_dp*((phi(j + 1_i32) - phi(j))/right_h - &
                             (phi(j) - phi(j - 1_i32))/left_h)/(left_h + right_h) + &
-                    (options%electron_charge*electron_density + options%ion_charge*ion_density)/eps0
+                    (options%electron_charge*electron_density + options%ion_charge*ion_density + &
+                     options%photoelectron_charge*photoelectron_density)/eps0
     end do
     residual(grid%n) = (phi(grid%n) - phi(grid%n - 1_i32))/grid%dz(grid%n - 1_i32) + &
                        phi(grid%n)/options%tail_length
@@ -226,8 +249,17 @@ contains
     real(dp) :: tolerance
 
     tolerance = 256.0_dp*epsilon(1.0_dp)*max(1.0_dp, maxval(abs(phi)))
-    valid = all(ieee_is_finite(phi)) .and. options%electron_charge*phi(1) >= -tolerance .and. &
-            all(phi(2:) >= phi(:size(phi) - 1) - tolerance)
+    valid = all(ieee_is_finite(phi))
+    if (.not. valid) return
+    if (options%interface_field < -tolerance) then
+      valid = options%electron_charge*phi(1) >= -tolerance .and. &
+              all(phi(2:) >= phi(:size(phi) - 1) - tolerance)
+    else if (options%interface_field > tolerance) then
+      valid = options%electron_charge*phi(1) <= tolerance .and. &
+              all(phi(2:) <= phi(:size(phi) - 1) + tolerance)
+    else
+      valid = maxval(abs(phi)) <= tolerance
+    end if
   end function monotonic_electron_repelling_branch
 
   subroutine numerical_kinetic_jacobian(options, grid, phi, residual, jacobian, status)
@@ -302,7 +334,8 @@ contains
     integer(i32), intent(in) :: iterations
     type(outer_plasma_state_type), intent(inout) :: state
     integer(i32), intent(out) :: status
-    real(dp) :: electron_density, ion_density, susceptibility, speed
+    real(dp) :: electron_density, ion_density, photoelectron_density, susceptibility, speed
+    real(dp) :: electron_flux, ion_flux, escape_fraction, return_fraction, barrier, normalization
     integer(i32) :: j, closure_status
 
     state%profile_n = grid%n
@@ -338,9 +371,50 @@ contains
         status = closure_status
         return
       end if
-      state%charge_density(j) = options%electron_charge*electron_density + options%ion_charge*ion_density
+      photoelectron_density = 0.0_dp
+      if (options%photoelectron_emission_flux > 0.0_dp) then
+        call eval_emitted_maxwellian_density( &
+          phi(j), phi(1), 0.0_dp, options%photoelectron_charge, options%photoelectron_mass, &
+          options%photoelectron_temperature_j, options%photoelectron_emission_flux, &
+          photoelectron_density, closure_status &
+          )
+        if (closure_status /= outer_plasma_ok) then
+          status = closure_status
+          return
+        end if
+      end if
+      state%charge_density(j) = options%electron_charge*electron_density + options%ion_charge*ion_density + &
+                                options%photoelectron_charge*photoelectron_density
     end do
     state%integrated_charge_per_area = trapz(grid%z, state%charge_density)
+    barrier = options%electron_charge*phi(1)/options%electron_temperature_j
+    if (barrier >= 0.0_dp) then
+      normalization = 1.0_dp + erf(sqrt(barrier))
+      electron_flux = 2.0_dp*options%electron_density_infinity* &
+                      sqrt(options%electron_temperature_j/(2.0_dp*pi*options%electron_mass))* &
+                      exp(-barrier)/normalization
+    else
+      electron_flux = 2.0_dp*options%electron_density_infinity* &
+                      sqrt(options%electron_temperature_j/(2.0_dp*pi*options%electron_mass))
+    end if
+    ion_flux = options%ion_density_infinity*options%ion_drift_infinity
+    escape_fraction = 1.0_dp
+    if (options%photoelectron_emission_flux > 0.0_dp) then
+      call eval_photoelectron_escape_return( &
+        phi(1), 0.0_dp, options%photoelectron_charge, options%photoelectron_temperature_j, &
+        escape_fraction, return_fraction, closure_status &
+        )
+      if (closure_status /= outer_plasma_ok) then
+        status = closure_status
+        return
+      end if
+    end if
+    call eval_kinetic_current_balance( &
+      electron_flux, ion_flux, options%photoelectron_emission_flux, escape_fraction, &
+      options%electron_charge, options%ion_charge, options%external_current_density, &
+      state%electron_current_density, state%ion_current_density, state%photoelectron_current_density, &
+      state%total_current_density &
+      )
     status = outer_plasma_ok
   end subroutine populate_kinetic_state
 
@@ -361,7 +435,7 @@ contains
     real(dp), intent(out) :: density, susceptibility
     integer(i32), intent(out) :: status
     real(dp) :: barrier_interface, barrier_local, denominator, reflected_factor
-    real(dp) :: boltzmann_factor, derivative_reflected
+    real(dp) :: boltzmann_factor, derivative_reflected, acceleration
 
     density = 0.0_dp
     susceptibility = 0.0_dp
@@ -371,7 +445,23 @@ contains
 
     barrier_interface = charge*phi_interface/temperature_j
     barrier_local = charge*(phi_interface - phi)/temperature_j
-    if (barrier_interface < 0.0_dp .or. barrier_local < -64.0_dp*epsilon(1.0_dp)) then
+    if (barrier_interface < 0.0_dp) then
+      acceleration = -charge*phi/temperature_j
+      if (acceleration < -64.0_dp*epsilon(1.0_dp)) then
+        status = outer_plasma_no_physical_solution
+        return
+      end if
+      acceleration = max(0.0_dp, acceleration)
+      density = density_infinity*exp(acceleration)*erfc(sqrt(acceleration))
+      if (acceleration > sqrt(epsilon(1.0_dp))) then
+        susceptibility = density_infinity*(-charge/temperature_j)*( &
+                         exp(acceleration)*erfc(sqrt(acceleration)) - &
+                         1.0_dp/sqrt(pi*acceleration) &
+                         )
+      end if
+      status = outer_plasma_ok
+      return
+    else if (barrier_local < -64.0_dp*epsilon(1.0_dp)) then
       status = outer_plasma_no_physical_solution
       return
     end if
@@ -451,6 +541,52 @@ contains
     return_fraction = 1.0_dp - escape_fraction
     status = outer_plasma_ok
   end subroutine eval_photoelectron_escape_return
+
+  subroutine eval_emitted_maxwellian_density( &
+    phi, phi_interface, phi_infinity, charge, mass, temperature_j, emission_flux, density, status &
+    )
+    real(dp), intent(in) :: phi, phi_interface, phi_infinity, charge, mass, temperature_j, emission_flux
+    real(dp), intent(out) :: density
+    integer(i32), intent(out) :: status
+    real(dp) :: barrier_total, barrier_local, acceleration, prefactor, return_barrier
+
+    density = 0.0_dp
+    status = outer_plasma_invalid
+    if (.not. all(ieee_is_finite([ &
+                                 phi, phi_interface, phi_infinity, charge, mass, temperature_j, emission_flux &
+                                 ])) .or. charge == 0.0_dp .or. mass <= 0.0_dp .or. &
+        temperature_j <= 0.0_dp .or. emission_flux < 0.0_dp) return
+    if (emission_flux == 0.0_dp) then
+      status = outer_plasma_ok
+      return
+    end if
+    barrier_total = charge*(phi_infinity - phi_interface)/temperature_j
+    barrier_local = charge*(phi - phi_interface)/temperature_j
+    prefactor = emission_flux*sqrt(pi*mass/(2.0_dp*temperature_j))
+    if (barrier_total >= 0.0_dp) then
+      if (barrier_local < -64.0_dp*epsilon(1.0_dp) .or. &
+          barrier_local > barrier_total + 64.0_dp*epsilon(1.0_dp)) then
+        status = outer_plasma_no_physical_solution
+        return
+      end if
+      barrier_local = max(0.0_dp, min(barrier_total, barrier_local))
+      return_barrier = max(0.0_dp, barrier_total - barrier_local)
+      density = prefactor*exp(-barrier_local)*(1.0_dp + erf(sqrt(return_barrier)))
+    else
+      acceleration = -barrier_local
+      if (acceleration < -64.0_dp*epsilon(1.0_dp)) then
+        status = outer_plasma_no_physical_solution
+        return
+      end if
+      acceleration = max(0.0_dp, acceleration)
+      density = prefactor*exp(acceleration)*erfc(sqrt(acceleration))
+    end if
+    if (.not. ieee_is_finite(density)) then
+      density = 0.0_dp
+      return
+    end if
+    status = outer_plasma_ok
+  end subroutine eval_emitted_maxwellian_density
 
   pure subroutine eval_kinetic_current_balance( &
     electron_absorption_flux, ion_absorption_flux, photoelectron_emission_flux, &

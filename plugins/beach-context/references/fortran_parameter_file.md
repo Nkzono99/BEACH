@@ -348,6 +348,18 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 | `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
 | `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
 | `outer_plasma.return_model` | `none` | `electrostatic_1d_instant_return`で個別粒子を返却 |
+
+`outer_plasma.model="kinetic_1d"` は `cached_kneq0` と組み合わせ、z-high の負・正
+`reservoir_face` species をそれぞれ ambient electron/ion の infinity inflow VDF として使う。
+`debye_length` は far Robin tail 長、`thermal_voltage` は設定整合性の電位 scale である。
+Phase 7 は単調・無衝突・非磁化分枝だけを扱い、ion drift に Bohm 条件を要求する。非単調
+virtual cathode、trapped population、particle return は silent fallback せず適用外として停止する。
+`photoelectron_closure="kinetic_mean"` は最初の負電荷 `photo_raycast` species の
+`emit_current_density_a_m2` と温度から half-Maxwellian flux を作り、outer 空間電荷の
+outgoing/returning population を軌道エネルギーで分離する。Layer A の tracked 粒子が表面電荷を
+更新し、mean closure は outer profile だけを供給するため、統計的 return current は再加算しない。
+実行例は `examples/periodic2_kinetic_outer.toml`、物理契約は
+`docs/adr/0001-kinetic-outer-plasma.md` を参照する。
 | `coupling.particle_transfer_mode` | `none` | return modelと同じIDを指定 |
 | `coupling.field_evolution_timescale` | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
 | `coupling.max_frozen_field_ratio` | `0.1` | `tau_outer/field_evolution_timescale`上限 |

@@ -127,6 +127,11 @@ source-dir = "tests/fortran"
 main = "test_outer_plasma_kinetic.f90"
 
 [[test]]
+name = "test_outer_plasma_kinetic_runtime"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_kinetic_runtime.f90"
+
+[[test]]
 name = "test_periodic_nonzero_reference"
 source-dir = "tests/fortran"
 main = "test_periodic_nonzero_reference.f90"

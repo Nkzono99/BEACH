@@ -4,7 +4,7 @@ program test_outer_plasma_kinetic_core
   use bem_outer_plasma_types, only: outer_plasma_ok, outer_plasma_no_physical_solution
   use bem_outer_plasma_kinetic, only: &
     eval_absorbing_maxwellian_density, eval_cold_drift_density, kinetic_bohm_speed, &
-    eval_photoelectron_escape_return, eval_kinetic_current_balance
+    eval_photoelectron_escape_return, eval_emitted_maxwellian_density, eval_kinetic_current_balance
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_equal_i32
   implicit none
 
@@ -14,7 +14,7 @@ program test_outer_plasma_kinetic_core
   real(dp) :: electron_current, ion_current, photo_current, total_current
   integer(i32) :: status
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('absorbing Maxwellian is normalized at infinity')
   call eval_absorbing_maxwellian_density( &
@@ -23,6 +23,26 @@ program test_outer_plasma_kinetic_core
     )
   call assert_equal_i32(status, outer_plasma_ok, 'electron closure status mismatch')
   call assert_close_dp(density, 3.0e6_dp, 1.0e-8_dp, 'infinity density normalization mismatch')
+  call test_end()
+
+  call test_begin('emitted Maxwellian counts outgoing and returning populations once')
+  call eval_emitted_maxwellian_density( &
+    phi=3.0_dp, phi_interface=3.0_dp, phi_infinity=0.0_dp, charge=-ev, mass=electron_mass, &
+    temperature_j=1.5_dp*ev, emission_flux=1.0e10_dp, density=density, status=status &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'emitted density status mismatch')
+  call assert_close_dp( &
+    density, 1.0e10_dp*sqrt(acos(-1.0_dp)*electron_mass/(3.0_dp*ev))* &
+    (1.0_dp + erf(sqrt(2.0_dp))), 1.0e-6_dp, 'interface emitted density mismatch' &
+    )
+  call eval_emitted_maxwellian_density( &
+    phi=0.0_dp, phi_interface=3.0_dp, phi_infinity=0.0_dp, charge=-ev, mass=electron_mass, &
+    temperature_j=1.5_dp*ev, emission_flux=1.0e10_dp, density=density, status=status &
+    )
+  call assert_close_dp( &
+    density, 1.0e10_dp*sqrt(acos(-1.0_dp)*electron_mass/(3.0_dp*ev))*exp(-2.0_dp), &
+    1.0e-6_dp, 'escaping emitted density mismatch' &
+    )
   call test_end()
 
   call test_begin('absorbing Maxwellian includes a finite loss cone')

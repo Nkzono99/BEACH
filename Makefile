@@ -47,6 +47,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_outer_plasma_linear \
 	test_outer_plasma_kinetic_core \
 	test_outer_plasma_grid \
+	test_outer_plasma_kinetic_runtime \
 	test_electrostatic_snapshot \
 	test_outer_coupler \
 	test_outer_plasma_interface \

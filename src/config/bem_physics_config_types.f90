@@ -311,10 +311,11 @@ contains
       call reject(physics_config_invalid_combination, 'Periodic interface tolerances must be positive.', status, message)
       return
     end if
-    if (trim(lower_ascii(outer%model)) /= 'linear_debye' .or. outer%debye_length <= 0.0_dp .or. &
+    if ((trim(lower_ascii(outer%model)) /= 'linear_debye' .and. &
+         trim(lower_ascii(outer%model)) /= 'kinetic_1d') .or. outer%debye_length <= 0.0_dp .or. &
         outer%thermal_voltage <= 0.0_dp .or. outer%max_linearity_ratio <= 0.0_dp .or. &
         outer%max_gap_ratio <= 0.0_dp .or. outer%max_local_charge_ratio <= 0.0_dp) then
-      call reject(physics_config_invalid_combination, 'Phase 2 requires valid linear_debye outer plasma.', status, message)
+      call reject(physics_config_invalid_combination, 'Split periodic mode requires a valid outer-plasma model.', status, message)
       return
     end if
     if (abs(outer%interface_z - sim%box_max(3)) > &
@@ -334,6 +335,11 @@ contains
     case ('none')
       if (trim(lower_ascii(outer%return_model)) /= 'none') then
         call reject(physics_config_invalid_combination, 'A return model requires particle transfer.', status, message)
+        return
+      end if
+      if (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
+          trim(lower_ascii(outer%return_model)) /= 'none') then
+        call reject(physics_config_invalid_combination, 'kinetic_1d particle return is not available.', status, message)
         return
       end if
     case ('electrostatic_1d_instant_return')
@@ -364,6 +370,14 @@ contains
         call reject(physics_config_invalid_combination, 'Invalid individual photoelectron closure.', status, message)
         return
       end if
+    case ('kinetic_mean')
+      if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
+          trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none' .or. &
+          trim(lower_ascii(outer%return_model)) /= 'none') then
+        call reject(physics_config_invalid_combination, &
+                    'kinetic_mean requires kinetic_1d without individual particle return.', status, message)
+        return
+      end if
     case ('statistical_return')
       call reject(physics_config_unavailable, 'Statistical photoelectron return is not specified.', status, message)
       return
@@ -371,6 +385,11 @@ contains
       call reject(physics_config_invalid_combination, 'Unknown photoelectron closure.', status, message)
       return
     end select
+    if (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
+        trim(lower_ascii(outer%photoelectron_closure)) == 'individual_return') then
+      call reject(physics_config_unavailable, 'kinetic_1d cannot combine mean density with individual return.', status, message)
+      return
+    end if
     if (any(sim%e0 /= 0.0_dp)) then
       call reject( &
         physics_config_unavailable, 'Phase 2 linear outer model currently requires sim.e0=0.', status, message &
@@ -411,12 +430,32 @@ contains
         )
       return
     end if
-    if (trim(lower_ascii(outer%model)) /= 'none' .or. &
-        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none') then
-      call reject(physics_config_unavailable, 'cached_kneq0 currently supports the local zero mode without outer coupling.', &
+    if (trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none') then
+      call reject(physics_config_unavailable, 'cached_kneq0 kinetic_1d does not yet support particle transfer.', &
                   status, message)
       return
     end if
+    select case (trim(lower_ascii(outer%model)))
+    case ('none')
+      continue
+    case ('kinetic_1d')
+      if (outer%debye_length <= 0.0_dp .or. outer%thermal_voltage <= 0.0_dp .or. &
+          abs(outer%interface_z - sim%box_max(3)) > &
+          64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(sim%box_max(3)))) then
+        call reject(physics_config_invalid_combination, &
+                    'kinetic_1d requires positive scales and interface_z at z-high.', status, message)
+        return
+      end if
+      if (trim(lower_ascii(outer%photoelectron_closure)) /= 'none' .and. &
+          trim(lower_ascii(outer%photoelectron_closure)) /= 'kinetic_mean') then
+        call reject(physics_config_unavailable, 'cached kinetic_1d supports none or kinetic_mean photoelectron closure.', &
+                    status, message)
+        return
+      end if
+    case default
+      call reject(physics_config_unavailable, 'cached_kneq0 received an unsupported outer-plasma model.', status, message)
+      return
+    end select
     if (trim(lower_ascii(panel%source_model)) == 'triangle_p0') then
       call validate_phase1_panel_config(sim, panel, status, message)
     else if (trim(lower_ascii(panel%source_model)) /= 'point') then

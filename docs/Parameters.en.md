@@ -340,6 +340,14 @@ Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference i
 Individual transfer uses `outer_plasma.return_model` and `coupling.particle_transfer_mode` set to `electrostatic_1d_instant_return`. A positive `field_evolution_timescale` and `max_frozen_field_ratio` bound the static-profile approximation. The mode supports only the open z-high interface, x/y periodic wrapping, and `b0=0`. Persistent queuing is not implemented, so `outer_queue_enabled=true` is rejected. See `examples/periodic2_outer_particle_transfer.toml`.
 
 Photoelectron transfer uses `outer_plasma.photoelectron_closure="individual_return"` together with the same instant-return model. Positive `photoelectron_histogram_bins`, `photoelectron_histogram_energy_max` [J], `photoelectron_ambient_charge_scale` [C], and `max_photoelectron_charge_ratio` are required. Every enabled `photo_raycast` species must set `deposit_opposite_charge_on_emit=true` and must not use a legacy `photo_escape_model`. The MPI-global outgoing normal-energy histogram stores signed charge, kinetic energy, tangential momentum, and count for the previous batch and cumulatively in `photoelectron_histogram.csv`. `statistical_return` remains unavailable, and an emission-to-ambient charge ratio above the configured limit fails closed. See `examples/periodic2_photoelectron_individual_return.toml`.
+
+`outer_plasma.model="kinetic_1d"` uses the negative and positive z-high `reservoir_face`
+species as the infinity electron and ion VDFs. It solves the monotonic collisionless
+Poisson problem on a stretched grid with a Robin tail; sub-Bohm ion inflow and unsupported
+non-monotonic/trapped branches fail closed. `photoelectron_closure="kinetic_mean"` obtains a
+half-Maxwellian emitted flux from the first negative `photo_raycast` species and separates its
+outgoing and returning densities without adding a second surface return current. See
+`examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
 `sim.use_box=true`, exactly two axes are `periodic`, and the remaining axis is
 open. Periodic images are considered not only for field evaluation, but also for
 collision and `photo_raycast` raycasting.
