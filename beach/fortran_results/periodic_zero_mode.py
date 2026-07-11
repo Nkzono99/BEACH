@@ -148,6 +148,12 @@ class PeriodicZeroMode:
     def __exit__(self, *_args: object) -> None:
         self.close()
 
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _require_open(self) -> None:
         if self._closed:
             raise FieldKernelError("periodic zero-mode handle is closed.")
@@ -214,4 +220,3 @@ def _readonly(value: np.ndarray) -> np.ndarray:
     result = np.array(value, dtype=np.float64, copy=True)
     result.setflags(write=False)
     return result
-

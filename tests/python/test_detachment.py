@@ -7,6 +7,7 @@ from beach import (
     AdhesionProfile,
     ObjectForcePath,
     ObjectWrench,
+    RigidTransform,
     WrenchComponent,
 )
 
@@ -167,3 +168,54 @@ def test_records_defensively_copy_and_freeze_arrays_and_mappings() -> None:
         result.available_energy_J[0] = 1.0
     with pytest.raises(FrozenInstanceError):
         component.potential_energy_J = 2.0
+
+
+def test_wrench_defensively_freezes_transform_and_nested_metadata() -> None:
+    transform = RigidTransform.translation([1.0, 2.0, 3.0])
+    nested_array = np.array([4.0, 5.0])
+    nested_list = [nested_array]
+    mutable_bytes = bytearray(b"abc")
+    wrench = ObjectWrench(
+        mesh_id=1,
+        step=None,
+        total_charge_C=0.0,
+        force_N=np.zeros(3),
+        torque_Nm=np.zeros(3),
+        torque_origin_m=np.zeros(3),
+        transform=transform,
+        numerical_metadata={
+            "nested": {"values": nested_list},
+            "labels": {"a", "b"},
+            "bytes": mutable_bytes,
+        },
+    )
+    transform.translation_m[:] = 9.0
+    nested_array[:] = 9.0
+    nested_list.append(np.array([6.0]))
+    mutable_bytes[:] = b"xyz"
+
+    assert isinstance(wrench.transform, RigidTransform)
+    np.testing.assert_array_equal(wrench.transform.translation_m, [1.0, 2.0, 3.0])
+    np.testing.assert_array_equal(
+        wrench.numerical_metadata["nested"]["values"][0],  # type: ignore[index]
+        [4.0, 5.0],
+    )
+    assert wrench.numerical_metadata["labels"] == frozenset({"a", "b"})
+    assert wrench.numerical_metadata["bytes"] == b"abc"
+    with pytest.raises(ValueError):
+        wrench.transform.translation_m[0] = 0.0
+    with pytest.raises(ValueError):
+        wrench.numerical_metadata["nested"]["values"][0][0] = 0.0  # type: ignore[index]
+
+
+def test_wrench_rejects_unfreezable_metadata_objects() -> None:
+    with pytest.raises(TypeError, match="metadata value"):
+        ObjectWrench(
+            mesh_id=1,
+            step=None,
+            total_charge_C=0.0,
+            force_N=np.zeros(3),
+            torque_Nm=np.zeros(3),
+            torque_origin_m=np.zeros(3),
+            numerical_metadata={"object": object()},
+        )

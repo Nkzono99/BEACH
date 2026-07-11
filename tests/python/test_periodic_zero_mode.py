@@ -1,12 +1,45 @@
+import ctypes
+import gc
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+import beach.fortran_results.periodic_zero_mode as zero_mode_module
 from beach import FieldKernelError, PeriodicZeroMode
 
 
 EPS0 = 8.8541878128e-12
+
+
+class _FakeFunction:
+    def __init__(self, callback) -> None:  # type: ignore[no-untyped-def]
+        self.callback = callback
+        self.calls: list[tuple[object, ...]] = []
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, *args: object) -> int:
+        self.calls.append(args)
+        return int(self.callback(*args))
+
+
+class _FakeZeroModeLibrary:
+    def __init__(self) -> None:
+        def ok(*_args: object) -> int:
+            return 0
+
+        def create(handle_out: object) -> int:
+            ctypes.cast(handle_out, ctypes.POINTER(ctypes.c_void_p))[0] = (
+                ctypes.c_void_p(1234)
+            )
+            return 0
+
+        self.beach_zero_mode_create = _FakeFunction(create)
+        self.beach_zero_mode_destroy = _FakeFunction(ok)
+        self.beach_zero_mode_build = _FakeFunction(ok)
+        self.beach_zero_mode_update = _FakeFunction(ok)
+        self.beach_zero_mode_eval = _FakeFunction(ok)
 
 
 def _kernel_lib() -> Path:
@@ -70,3 +103,15 @@ def test_periodic_zero_mode_rejects_invalid_shape_trace_and_closed_use() -> None
     with pytest.raises(FieldKernelError, match="closed"):
         zero.eval(np.array([0.0]))
 
+
+def test_periodic_zero_mode_finalizer_releases_unclosed_native_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeZeroModeLibrary()
+    monkeypatch.setattr(zero_mode_module, "_load_kernel_library", lambda _path: lib)
+
+    zero = PeriodicZeroMode(np.zeros((1, 3)), np.ones(1), 1.0)
+    del zero
+    gc.collect()
+
+    assert len(lib.beach_zero_mode_destroy.calls) == 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
@@ -55,6 +56,7 @@ class ObjectWrench:
                 "transform_origin_m",
                 _vec3(self.transform_origin_m, "transform_origin_m"),
             )
+        object.__setattr__(self, "transform", _freeze_transform(self.transform))
         component_copy: dict[str, WrenchComponent] = {}
         for name, component in self.components.items():
             if not isinstance(name, str) or not isinstance(component, WrenchComponent):
@@ -547,7 +549,12 @@ def _freeze_array_mapping(value: Mapping[str, np.ndarray], npoint: int) -> Mappi
 def _freeze_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise TypeError("metadata must be a mapping.")
-    return MappingProxyType({str(key): _freeze_value(item) for key, item in value.items()})
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError("metadata keys must be strings.")
+        result[key] = _freeze_value(item)
+    return MappingProxyType(result)
 
 
 def _freeze_value(value: object) -> object:
@@ -557,4 +564,28 @@ def _freeze_value(value: object) -> object:
         return _freeze_mapping(value)
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_value(item) for item in value)
-    return value
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_value(item) for item in value)
+    if isinstance(value, (bytearray, memoryview)):
+        return bytes(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    if value is None or isinstance(value, (str, bytes, bool, int, float, complex, Path)):
+        return value
+    raise TypeError(f"unsupported mutable metadata value: {type(value).__name__}.")
+
+
+def _freeze_transform(value: object | None) -> object | None:
+    if value is None:
+        return None
+    from .scene import RigidTransform
+
+    if not isinstance(value, RigidTransform):
+        raise TypeError("transform must be a RigidTransform or None.")
+    result = RigidTransform(
+        rotation=_readonly(value.rotation),
+        translation_m=_readonly(value.translation_m),
+    )
+    result.rotation.setflags(write=False)
+    result.translation_m.setflags(write=False)
+    return result
