@@ -96,7 +96,9 @@ height projection already implemented by the simulator.
 
 The force API must not silently call a `k!=0` result a total periodic field.
 It must either compose the physical zero mode or label the result as incomplete.
-For this feature, incomplete cached results are rejected.
+For this feature, incomplete cached results are rejected. This applies equally
+when `cached_kneq0` comes from `periodic_model="configured"` and when it is an
+`infinite_physical` override.
 
 The first release supports simulator snapshots with no active outer-plasma
 closure. A configured outer model is rejected with an actionable error until a
@@ -205,8 +207,10 @@ The result contains at least:
 - the endpoint and maximum reachable speed under the supplied model.
 
 Positive endpoint work alone is not called detachment from rest. A from-rest
-path requires nonnegative available kinetic energy over the whole sampled path,
-within numerical tolerance.
+path requires nonnegative available kinetic energy over the whole continuous
+piecewise model, within numerical tolerance. Barrier evaluation therefore adds
+adhesion/dissipation breakpoints and interior extrema to the caller's force
+samples; it cannot infer accessibility from endpoint samples alone.
 
 Adhesion is represented by an explicit finite-range force/work profile. The
 compatibility report may include the old constant `5.46875e-7 N` resistance
@@ -280,8 +284,10 @@ The concrete public records are immutable dataclasses:
   and convergence diagnostics.
 - `DetachmentResult`: mass and resistance assumptions, cumulative net energy,
   speeds, barrier status, instantaneous margin, and endpoint metadata.
-- `AdhesionProfile`: `none`, finite-range constant traction, or tabulated
-  traction. All models expose both force and cumulative work.
+- `AdhesionProfile`: `none`, finite-range constant object-level resistance
+  force, or tabulated object-level resistance force. All models expose both
+  force and cumulative work; pressure/traction is not accepted without an
+  explicit contact-area conversion.
 
 Arrays are SI-valued NumPy arrays with documented shapes and are read-only in
 returned records. Invalid mesh IDs, unsupported boundary closures, missing
@@ -291,10 +297,11 @@ whose diagnostic status is `not_converged`; it never returns an unlabeled last
 iterate. There is no fallback to a different physics model.
 
 `periodic_model="configured"` reproduces the run configuration, including its
-finite shell when far correction is `none`. `periodic_model="infinite_physical"`
-is an explicit analysis override to `cached_kneq0 + physical_k0`; output
-metadata records both the original configuration and the override. The old run
-comparison evaluates both modes.
+finite shell when far correction is `none`; if its effective far correction is
+already `cached_kneq0`, the API composes the corresponding physical `k=0` mode.
+`periodic_model="infinite_physical"` is an explicit analysis override to
+`cached_kneq0 + physical_k0`; output metadata records both the original
+configuration and the override. The old run comparison evaluates both modes.
 
 ## 5. Internal architecture
 
@@ -309,7 +316,10 @@ The implementation has four independent evaluators:
 3. A free-space primary-target evaluator built once from the original selected
    object. Point sources use the exact blocked direct kernel with the configured
    softening. Triangle sources use the exact direct panel kernel with the same
-   principal-value trace convention as the full field.
+   principal-value trace convention as the full field. This exact-direct entry
+   point is deliberately non-periodic; periodic plans are rejected because the
+   internal direct routine does not include cached far correction or target
+   wrapping.
 4. The existing uniform-field term.
 
 An object probe batches all quadrature points for one or more transforms,
@@ -323,9 +333,9 @@ potential gauge, and evaluates field/potential with an explicit trace policy.
 This keeps the existing `FieldKernel` ABI stable.
 
 `FieldKernelOptions` is extended to carry periodic cache directory and
-generation tolerance from the config. The C ABI gains versioned build entry
-points for those options; the existing entry points remain available for ABI
-compatibility.
+generation tolerance from the config. The C ABI gains a pre-build cache setter
+and a diagnostics getter; the existing build entry points and signatures remain
+unchanged for ABI compatibility.
 
 ### 5.2 Target integration
 
@@ -355,9 +365,11 @@ order, and tolerances. Performance changes never alter the physical policy.
 
 ## 6. Finite-shell oracle
 
-The independent oracle explicitly constructs the `(2M+1)^2` x/y source cells,
-removes only the central-cell target, and evaluates the transformed target
-probe. It reports separate contributions from other objects and target replicas.
+The independent oracle explicitly enumerates the `(2M+1)^2` x/y shifts, removes
+only the central-cell target, and evaluates the transformed target probe. Large
+fixtures use the native finite-image FMM shell implementing those same shifts;
+small fixtures also use an explicitly replicated exact-direct sum. It reports
+separate contributions from other objects and target replicas.
 
 For a non-neutral cell, a symmetric finite shell converges to the symmetric
 zero-mode closure, not automatically to `E_bottom=0`. Comparison with the
@@ -382,8 +394,10 @@ select the last shell silently.
 
 - One isolated point charge under free boundaries has zero external force and
   torque after primary exclusion.
-- One charge in a symmetric periodic lattice has zero whole-object `Fz` at
-  `h=0`; moving only the probe produces the expected image contribution.
+- A net-neutral object in a symmetric periodic lattice has zero whole-object
+  `Fz` at `h=0`; moving only the probe produces the expected image
+  contribution. A separate non-neutral fixture verifies the nonzero
+  `E_bottom=0` closure shift rather than asserting zero force.
 - Two-object free-space forces match direct Coulomb values and action-reaction
   symmetry.
 - `exclude_target_lattice` and `exclude_primary_keep_images` differ exactly by
@@ -460,7 +474,10 @@ feature-branch executable:
   paths; it keeps `field_periodic_far_correction="none"` and one image layer.
 - `infinite_physical`: identical input except for
   `field_periodic_far_correction="cached_kneq0"`, an explicit cache directory,
-  and the physical `E_bottom=0` zero mode selected by the simulator.
+  generation tolerance, an explicit simulator-default Ewald layer count of four,
+  and the physical `E_bottom=0` zero mode selected by the simulator. Input
+  verification normalizes an absent layer key to that same default, so this is
+  not treated as an additional physical difference.
 
 Both cases retain `rng_seed=12345`, six MPI ranks, 112 OpenMP threads per rank,
 the point-centroid source model, mesh, particle injection, time step, batch
