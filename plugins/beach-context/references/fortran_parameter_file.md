@@ -337,6 +337,11 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 | `outer_plasma.max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage`上限 |
 | `outer_plasma.max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda`上限 |
 | `outer_plasma.max_local_charge_ratio` | `50` | 局所平均plasma電荷推定比上限 |
+| `outer_plasma.photoelectron_closure` | `none` | `individual_return`でphotoelectron個別帰還とoutgoing histogramを有効化 |
+| `outer_plasma.photoelectron_histogram_bins` | `32` | 法線運動エネルギーhistogramのbin数 |
+| `outer_plasma.photoelectron_histogram_energy_max` | 必須 | histogram上端 [J]。`individual_return`で正値必須 |
+| `outer_plasma.photoelectron_ambient_charge_scale` | 必須 | 線形closure適用性を比較するambient signed-charge scale [C] |
+| `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
 | `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
 | `outer_plasma.return_model` | `none` | `electrostatic_1d_instant_return`で個別粒子を返却 |
 | `coupling.particle_transfer_mode` | `none` | return modelと同じIDを指定 |
@@ -346,6 +351,7 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 
 完全な例は`examples/periodic2_linear_outer_reference.toml`です。閾値違反時にlegacy modelへfallbackしません。
 粒子移送を含む例は`examples/periodic2_outer_particle_transfer.toml`です。instant returnはz-high、`b0=0`、x/y periodicだけに対応します。
+photoelectronを含む例は`examples/periodic2_photoelectron_individual_return.toml`です。`individual_return`は`electrostatic_1d_instant_return`、`deposit_opposite_charge_on_emit=true`、legacy escape補正なしを必須とします。outgoing histogramはMPI-globalに集計され、前batchと累積値がcheckpointされます。`statistical_return`は未仕様のため拒否され、強い放出条件ではambient-only線形closureを適用外として停止します。
 `sim.use_box=true`、かつ 2 軸だけが `periodic`、残り 1 軸が開放のときに有効です。
 場評価だけでなく、collision と `photo_raycast` の raycast でも periodic image を考慮します。
 

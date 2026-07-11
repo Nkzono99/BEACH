@@ -19,7 +19,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(9)
+  call test_init(11)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -61,6 +61,27 @@ program test_physics_config_types
              )
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'instant return config should be valid')
+  call test_end()
+
+  call test_begin('individual_photoelectron_closure_contract')
+  outer%photoelectron_closure = 'individual_return'
+  outer%photoelectron_histogram_bins = 8_i32
+  outer%photoelectron_histogram_energy_max = 12.0_dp
+  outer%photoelectron_ambient_charge_scale = 4.0_dp
+  outer%max_photoelectron_charge_ratio = 0.2_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'individual photoelectron closure should be valid')
+  outer%photoelectron_ambient_charge_scale = 0.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'missing photoelectron scale must be rejected')
+  outer%photoelectron_ambient_charge_scale = 4.0_dp
+  call test_end()
+
+  call test_begin('statistical_photoelectron_closure_unavailable')
+  outer%photoelectron_closure = 'statistical_return'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_unavailable, 'statistical photoelectron closure must fail closed')
+  outer%photoelectron_closure = 'none'
   call test_end()
 
   call test_begin('persistent_outer_queue_unavailable')

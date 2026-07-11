@@ -45,7 +45,7 @@
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
         "model": {"const": "linear_debye"},
-        "photoelectron_closure": {"const": "none", "default": "none"},
+        "photoelectron_closure": {"enum": ["none", "individual_return"], "default": "none"},
         "return_model": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
         "interface_z": {"type": "number"},
         "infinity_potential": {"type": "number", "default": 0},
@@ -53,8 +53,30 @@
         "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
         "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
         "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
-        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
-      }
+        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50},
+        "photoelectron_histogram_bins": {"type": "integer", "minimum": 1, "default": 32},
+        "photoelectron_histogram_energy_max": {"type": "number", "exclusiveMinimum": 0},
+        "photoelectron_ambient_charge_scale": {"type": "number", "exclusiveMinimum": 0},
+        "max_photoelectron_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "photoelectron_closure": {"const": "none"}
+          }
+        },
+        {
+          "required": [
+            "photoelectron_closure",
+            "photoelectron_histogram_energy_max",
+            "photoelectron_ambient_charge_scale"
+          ],
+          "properties": {
+            "photoelectron_closure": {"const": "individual_return"},
+            "return_model": {"const": "electrostatic_1d_instant_return"}
+          }
+        }
+      ]
     },
     "coupling": {
       "type": "object",
@@ -754,7 +776,7 @@
             ],
             "properties": {
               "field_solver": {
-                "const": "fmm"
+                "enum": ["direct", "fmm"]
               },
               "use_box": {
                 "const": true

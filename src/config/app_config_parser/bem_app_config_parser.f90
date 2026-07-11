@@ -473,6 +473,19 @@ contains
       )
     call apply_field_authoring(cfg, authoring)
     call apply_physics_authoring(cfg, authoring)
+    if (trim(lower_ascii(cfg%outer_plasma%photoelectron_closure)) == 'individual_return') then
+      do i = 1, cfg%n_particle_species
+        if (.not. cfg%particle_species(i)%enabled) cycle
+        if (trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'photo_raycast') cycle
+        if (.not. cfg%particle_species(i)%deposit_opposite_charge_on_emit) then
+          error stop 'individual photoelectron return requires deposit_opposite_charge_on_emit=true.'
+        end if
+        if (cfg%particle_species(i)%has_photo_escape_model .and. &
+            trim(lower_ascii(cfg%particle_species(i)%photo_escape_model)) /= 'none') then
+          error stop 'individual photoelectron return cannot use the legacy photo_escape_model.'
+        end if
+      end do
+    end if
   end subroutine load_toml_config
 
   !> `toml-f` のルートテーブルから既知セクションを読み込む。
@@ -654,6 +667,26 @@ contains
         call get_toml_real( &
           table, keys(ikey), authoring%outer_plasma%max_local_charge_ratio, 'outer_plasma.max_local_charge_ratio' &
           )
+      case ('photoelectron_histogram_bins')
+        call get_toml_int( &
+          table, keys(ikey), authoring%outer_plasma%photoelectron_histogram_bins, &
+          'outer_plasma.photoelectron_histogram_bins' &
+          )
+      case ('photoelectron_histogram_energy_max')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%photoelectron_histogram_energy_max, &
+          'outer_plasma.photoelectron_histogram_energy_max' &
+          )
+      case ('photoelectron_ambient_charge_scale')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%photoelectron_ambient_charge_scale, &
+          'outer_plasma.photoelectron_ambient_charge_scale' &
+          )
+      case ('max_photoelectron_charge_ratio')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%max_photoelectron_charge_ratio, &
+          'outer_plasma.max_photoelectron_charge_ratio' &
+          )
       case default
         error stop 'Unknown key in [outer_plasma]: '//trim(keys(ikey)%key)
       end select
@@ -729,6 +762,11 @@ contains
       cfg%outer_plasma%max_linearity_ratio = authoring%outer_plasma%max_linearity_ratio
       cfg%outer_plasma%max_gap_ratio = authoring%outer_plasma%max_gap_ratio
       cfg%outer_plasma%max_local_charge_ratio = authoring%outer_plasma%max_local_charge_ratio
+      cfg%outer_plasma%photoelectron_histogram_bins = authoring%outer_plasma%photoelectron_histogram_bins
+      cfg%outer_plasma%photoelectron_histogram_energy_max = &
+        authoring%outer_plasma%photoelectron_histogram_energy_max
+      cfg%outer_plasma%photoelectron_ambient_charge_scale = authoring%outer_plasma%photoelectron_ambient_charge_scale
+      cfg%outer_plasma%max_photoelectron_charge_ratio = authoring%outer_plasma%max_photoelectron_charge_ratio
     end if
     if (authoring%coupling%present) then
       cfg%coupling%update_mode = authoring%coupling%update_mode

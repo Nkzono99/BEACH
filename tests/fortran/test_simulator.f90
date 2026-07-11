@@ -106,7 +106,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(10)
+  call test_init(11)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -131,6 +131,10 @@ program test_simulator
   call assert_close_dp(sum(charge_ledger%absorbed_on_surface), 5.0_dp, 1.0d-12, 'ledger absorbed charge mismatch')
   call assert_close_dp(sum(charge_ledger%escaped_to_infinity), 2.0_dp, 1.0d-12, 'ledger escaped charge mismatch')
   call assert_close_dp(charge_ledger%residual(), 0.0_dp, 1.0d-12, 'simulation charge residual mismatch')
+  call test_end()
+
+  call test_begin('photoelectron_individual_return_histogram')
+  call test_photoelectron_individual_return_histogram()
   call test_end()
 
   call test_begin('split_outer_instant_return_ledger')
@@ -235,6 +239,96 @@ program test_simulator
   call test_summary()
 
 contains
+
+  subroutine test_photoelectron_individual_return_histogram()
+    use bem_constants, only: eps0
+    use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
+    type(mesh_type) :: photo_mesh
+    type(app_config) :: photo_cfg
+    type(sim_stats) :: photo_stats
+    type(charge_ledger_type) :: photo_ledger
+    type(photoelectron_coupling_state_type) :: photo_state
+    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), panel_charge
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.999_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.999_dp]
+    tri_v2(:, 1) = [1.0_dp, 1.0_dp, 0.999_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.999_dp]
+    tri_v1(:, 2) = [1.0_dp, 1.0_dp, 0.999_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.999_dp]
+    panel_charge = 2.5_dp*eps0
+    call init_mesh(photo_mesh, tri_v0, tri_v1, tri_v2, q0=[panel_charge, panel_charge])
+    photo_mesh%elem_vacuum_sign = 1_i32
+    photo_mesh%vacuum_normals = photo_mesh%normals
+
+    call default_app_config(photo_cfg)
+    photo_cfg%sim%rng_seed = 999_i32
+    photo_cfg%sim%batch_count = 1_i32
+    photo_cfg%sim%batch_duration = 1.0_dp
+    photo_cfg%sim%has_batch_duration = .true.
+    photo_cfg%sim%dt = 0.01_dp
+    photo_cfg%sim%max_step = 1_i32
+    photo_cfg%sim%softening = 0.0_dp
+    photo_cfg%sim%field_solver = 'direct'
+    photo_cfg%sim%field_bc_mode = 'periodic2'
+    photo_cfg%sim%use_box = .true.
+    photo_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    photo_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    photo_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    photo_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    photo_cfg%field%backend = 'direct'
+    photo_cfg%panel%source_model = 'triangle_p0'
+    photo_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    photo_cfg%panel%surface_side_policy = 'per_element'
+    photo_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
+    photo_cfg%periodic2%zero_mode_policy = 'exclude_k0'
+    photo_cfg%periodic2%lower_boundary_model = 'e_bottom_zero'
+    photo_cfg%periodic2%reference_mode_layers = 2_i32
+    photo_cfg%periodic2%panel_quadrature_order = 12_i32
+    photo_cfg%periodic2%interface_phi_tolerance = 1.0e6_dp
+    photo_cfg%periodic2%interface_field_tolerance = 1.0e6_dp
+    photo_cfg%outer_plasma%model = 'linear_debye'
+    photo_cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
+    photo_cfg%outer_plasma%photoelectron_closure = 'individual_return'
+    photo_cfg%outer_plasma%interface_z = 1.0_dp
+    photo_cfg%outer_plasma%debye_length = 0.2_dp
+    photo_cfg%outer_plasma%thermal_voltage = 10.0_dp
+    photo_cfg%outer_plasma%max_linearity_ratio = 1.0_dp
+    photo_cfg%outer_plasma%photoelectron_histogram_bins = 4_i32
+    photo_cfg%outer_plasma%photoelectron_histogram_energy_max = 10.0_dp
+    photo_cfg%outer_plasma%photoelectron_ambient_charge_scale = 100.0_dp
+    photo_cfg%outer_plasma%max_photoelectron_charge_ratio = 0.1_dp
+    photo_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+    photo_cfg%coupling%field_evolution_timescale = 10.0_dp
+    photo_cfg%coupling%max_frozen_field_ratio = 1.0_dp
+    photo_cfg%n_particle_species = 1_i32
+    photo_cfg%particle_species(1) = species_from_defaults()
+    photo_cfg%particle_species(1)%source_mode = 'photo_raycast'
+    photo_cfg%particle_species(1)%rays_per_batch = 1_i32
+    photo_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0_dp
+    photo_cfg%particle_species(1)%q_particle = -1.0_dp
+    photo_cfg%particle_species(1)%m_particle = 1.0_dp
+    photo_cfg%particle_species(1)%inject_face = 'z_high'
+    photo_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    photo_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    photo_cfg%particle_species(1)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
+    photo_cfg%particle_species(1)%has_ray_direction = .true.
+    photo_cfg%particle_species(1)%temperature_k = 0.0_dp
+    photo_cfg%particle_species(1)%normal_drift_speed = 0.2_dp
+    photo_cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
+    photo_cfg%particle_species(1)%has_deposit_opposite_charge_on_emit = .true.
+
+    call prepare_periodic2_collision_mesh(photo_mesh, photo_cfg%sim)
+    call seed_particles_from_config(photo_cfg)
+    call run_absorption_insulator( &
+      photo_mesh, photo_cfg, photo_stats, charge_ledger=photo_ledger, photoelectron_state=photo_state &
+      )
+    call assert_equal_i64(photo_state%cumulative%total_count(), 1_i64, 'photoelectron histogram count mismatch')
+    call assert_close_dp(photo_state%cumulative%total_signed_charge(), -1.0_dp, 1.0e-12_dp, 'histogram charge mismatch')
+    call assert_close_dp(sum(photo_ledger%emitted_from_surface), -1.0_dp, 1.0e-12_dp, 'emission ledger mismatch')
+    call assert_close_dp(sum(photo_ledger%interface_returned_gross), -1.0_dp, 1.0e-12_dp, 'return ledger mismatch')
+    call assert_close_dp(photo_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'photoelectron transaction mismatch')
+  end subroutine test_photoelectron_individual_return_histogram
 
   subroutine test_split_outer_instant_return_ledger()
     use bem_constants, only: eps0

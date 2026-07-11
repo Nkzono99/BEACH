@@ -26,6 +26,8 @@ contains
   real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
   real(dp), allocatable :: interface_outward_thread(:, :), interface_returned_thread(:, :)
   real(dp), allocatable :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
+  type(photoelectron_histogram_type), allocatable :: photoelectron_histogram_thread(:)
+  type(photoelectron_histogram_type) :: photoelectron_batch_histogram
   logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
   integer(i32) :: batch_counts(5)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0
@@ -37,6 +39,8 @@ contains
   type(outer_coupler_type) :: outer_coupler
   type(charge_ledger_type) :: batch_ledger
   logical :: ledger_enabled
+  logical :: photoelectron_histogram_enabled
+  integer(i32) :: thread_index, photoelectron_status
 
   stats = sim_stats()
   if (present(initial_stats)) stats = initial_stats
@@ -60,6 +64,24 @@ contains
   allocate (interface_tau_max_thread(nth), interface_frozen_ratio_max_thread(nth))
   max_outer_flight_time = 0.0_dp
   max_frozen_field_ratio = 0.0_dp
+  photoelectron_histogram_enabled = present(photoelectron_state) .and. &
+                                    trim(lower_ascii(app%outer_plasma%photoelectron_closure)) == 'individual_return'
+  if (photoelectron_histogram_enabled) then
+    allocate (photoelectron_histogram_thread(nth))
+    if (.not. photoelectron_state%ready) then
+      call photoelectron_state%init( &
+        app%outer_plasma%photoelectron_histogram_bins, app%outer_plasma%photoelectron_histogram_energy_max &
+        )
+    end if
+    if (photoelectron_state%last_completed_batch /= stats%batches) then
+      error stop 'Photoelectron coupling checkpoint batch does not match simulation stats.'
+    end if
+    do thread_index = 1_i32, nth
+      call photoelectron_histogram_thread(thread_index)%init( &
+        app%outer_plasma%photoelectron_histogram_bins, app%outer_plasma%photoelectron_histogram_energy_max &
+        )
+    end do
+  end if
 
   history_enabled = present(history_unit)
   hist_unit = 0
@@ -92,6 +114,11 @@ contains
 
   do local_batch_idx = 1, batch_count_this_run
     call perf_region_begin(perf_region_batch_total, batch_t0)
+    if (photoelectron_histogram_enabled) then
+      do thread_index = 1_i32, nth
+        call photoelectron_histogram_thread(thread_index)%reset()
+      end do
+    end if
 
     call perf_region_begin(perf_region_prepare_batch, t0)
     call prepare_batch_state( &
@@ -126,12 +153,21 @@ contains
     call perf_region_end(perf_region_field_refresh, t0)
 
     call perf_region_begin(perf_region_particle_batch, t0)
-    call process_particle_batch( &
-      mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-      interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
-      collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
-      interface_frozen_ratio_max_thread &
-      )
+    if (photoelectron_histogram_enabled) then
+      call process_particle_batch( &
+        mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+        interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
+        collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
+        interface_frozen_ratio_max_thread, photoelectron_histogram_thread &
+        )
+    else
+      call process_particle_batch( &
+        mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+        interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
+        collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
+        interface_frozen_ratio_max_thread &
+        )
+    end if
     max_outer_flight_time = max(max_outer_flight_time, maxval(interface_tau_max_thread))
     max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(interface_frozen_ratio_max_thread))
     call perf_region_end(perf_region_particle_batch, t0)
@@ -161,6 +197,22 @@ contains
       batch_ledger%interface_returned_gross = sum(interface_returned_thread, dim=2)
       call record_batch_outcome_charge(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_ledger)
       call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx)
+    end if
+    if (photoelectron_histogram_enabled) then
+      call photoelectron_state%begin_batch(photoelectron_batch_histogram)
+      do thread_index = 1_i32, nth
+        call photoelectron_batch_histogram%merge(photoelectron_histogram_thread(thread_index))
+      end do
+      call reduce_photoelectron_histogram(photoelectron_batch_histogram, mpi_ctx)
+      call validate_photoelectron_linear_applicability( &
+        photoelectron_batch_histogram%total_signed_charge(), &
+        app%outer_plasma%photoelectron_ambient_charge_scale, app%outer_plasma%max_photoelectron_charge_ratio, &
+        photoelectron_status &
+        )
+      if (photoelectron_status /= photoelectron_closure_ok) then
+        error stop 'Photoelectron emission exceeds the configured linear-closure applicability limit.'
+      end if
+      call photoelectron_state%commit_batch(batch_idx, photoelectron_batch_histogram)
     end if
 
     call perf_region_begin(perf_region_commit_charge, t0)
@@ -284,6 +336,7 @@ contains
   type(particle_step_result) :: remainder_result
   type(interface_particle_outcome_type) :: interface_outcome
   logical :: has_warn_stride, collision_failed, candidate_inside, used_event_resolver, interface_active
+  logical :: photoelectron_histogram_enabled
   integer(i32) :: species_idx
 
   nth = size(dq_thread, 2)
@@ -299,11 +352,13 @@ contains
   interface_tau_max_thread = 0.0_dp
   interface_frozen_ratio_max_thread = 0.0_dp
   interface_active = trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return'
+  photoelectron_histogram_enabled = present(photoelectron_histogram_thread)
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth,interface_active) &
   !$omp shared(interface_outward_thread,interface_returned_thread) &
   !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread) &
+  !$omp shared(photoelectron_histogram_thread,photoelectron_histogram_enabled) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
   !$omp private(i,step,x0,v0,x1,v1,hit,step_result,remainder_result,interface_outcome,tid,qdep,species_idx) &
@@ -368,6 +423,12 @@ contains
         if (step_result%interface_crossing%has_crossing) then
           species_idx = pcls_batch%species_id(i)
           qdep = pcls_batch%q(i)*pcls_batch%w(i)
+          if (photoelectron_histogram_enabled .and. &
+              trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast') then
+            call photoelectron_histogram_thread(tid)%add( &
+              pcls_batch%q(i), pcls_batch%m(i), pcls_batch%w(i), step_result%interface_crossing%velocity &
+              )
+          end if
           interface_outward_thread(species_idx, tid) = interface_outward_thread(species_idx, tid) + qdep
           call map_outer_particle_linear_debye( &
             snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
@@ -455,6 +516,17 @@ contains
   !$omp end do
   !$omp end parallel
   end procedure process_particle_batch
+
+  subroutine reduce_photoelectron_histogram(histogram, mpi)
+    type(photoelectron_histogram_type), intent(inout) :: histogram
+    type(mpi_context), intent(in) :: mpi
+
+    call mpi_allreduce_sum_real_dp_array(mpi, histogram%signed_charge)
+    call mpi_allreduce_sum_real_dp_array(mpi, histogram%kinetic_energy)
+    call mpi_allreduce_sum_real_dp_array(mpi, histogram%tangential_momentum_x)
+    call mpi_allreduce_sum_real_dp_array(mpi, histogram%tangential_momentum_y)
+    call mpi_allreduce_sum_i64_array(mpi, histogram%count)
+  end subroutine reduce_photoelectron_histogram
 
   !> 全 rank で選択済みの collision failure context を報告して停止する。
   subroutine stop_for_collision_failure( &

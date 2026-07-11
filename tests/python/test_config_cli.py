@@ -10,6 +10,7 @@ from beach.config import (
     ConfigValidationError,
     default_config,
     load_config_file,
+    normalize_config_document,
 )
 
 
@@ -79,6 +80,30 @@ def test_default_config_uses_no_periodic_far_correction() -> None:
     config = default_config()
 
     assert config["sim"]["field_periodic_far_correction"] == "none"
+
+
+def test_load_config_file_accepts_individual_photoelectron_split() -> None:
+    config = load_config_file(
+        Path("examples/periodic2_photoelectron_individual_return.toml")
+    )
+
+    assert config["periodic2"]["nonzero_mode_backend"] == "panel_spectral_reference"
+    assert config["outer_plasma"]["photoelectron_closure"] == "individual_return"
+    assert config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] is True
+
+
+def test_photoelectron_closure_rejects_statistical_and_nonconserving_modes() -> None:
+    config = load_config_file(
+        Path("examples/periodic2_photoelectron_individual_return.toml")
+    )
+    config["outer_plasma"]["photoelectron_closure"] = "statistical_return"
+    with pytest.raises(ConfigValidationError, match="statistical_return"):
+        normalize_config_document(config)
+
+    config["outer_plasma"]["photoelectron_closure"] = "individual_return"
+    config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] = False
+    with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
+        normalize_config_document(config)
 
 
 def test_load_config_file_resolves_high_level_notation(tmp_path: Path) -> None:

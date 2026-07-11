@@ -6,7 +6,9 @@ module bem_restart
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
+  use bem_string_utils, only: lower_ascii
   use bem_physics_config_types, only: validate_phase0_physics_config, physics_config_ok
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
@@ -33,7 +35,7 @@ contains
   !! @param[inout] state 種別ごとのマクロ粒子残差（指定時のみ復元）。
   subroutine load_restart_checkpoint( &
     out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi, require_checkpoint, app, charge_ledger, &
-    electrostatic_state &
+    electrostatic_state, photoelectron_state &
     )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
@@ -46,8 +48,9 @@ contains
     type(app_config), intent(in), optional :: app
     type(charge_ledger_type), intent(inout), optional :: charge_ledger
     type(electrostatic_restart_state_type), intent(out), optional :: electrostatic_state
+    type(photoelectron_coupling_state_type), intent(out), optional :: photoelectron_state
 
-    character(len=1024) :: summary_path, charges_path, rng_path, residual_path, ledger_path
+    character(len=1024) :: summary_path, charges_path, rng_path, residual_path, ledger_path, photoelectron_path
     character(len=256) :: contract_message
     logical :: has_summary, has_charges, has_rng, has_residual, has_legacy_residual, has_ledger
     logical :: must_have_checkpoint
@@ -55,6 +58,7 @@ contains
 
     stats = sim_stats()
     if (present(electrostatic_state)) electrostatic_state = electrostatic_restart_state_type()
+    if (present(photoelectron_state)) photoelectron_state = photoelectron_coupling_state_type()
     has_restart = .false.
     must_have_checkpoint = .false.
     if (present(require_checkpoint)) must_have_checkpoint = require_checkpoint
@@ -65,6 +69,7 @@ contains
     rng_path = restart_rng_state_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
     residual_path = restart_macro_residual_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
     ledger_path = trim(out_dir)//'/charge_ledger.csv'
+    photoelectron_path = trim(out_dir)//'/photoelectron_histogram.csv'
 
     inquire (file=trim(summary_path), exist=has_summary)
     inquire (file=trim(charges_path), exist=has_charges)
@@ -103,6 +108,11 @@ contains
       end if
     end if
     call load_charge_file(trim(charges_path), mesh)
+    if (present(photoelectron_state) .and. present(app)) then
+      if (trim(lower_ascii(app%outer_plasma%photoelectron_closure)) == 'individual_return') then
+        call load_photoelectron_checkpoint(trim(photoelectron_path), stats%batches, app, photoelectron_state)
+      end if
+    end if
     if (present(charge_ledger)) then
       if (has_ledger) then
         call load_charge_ledger_checkpoint(trim(summary_path), trim(ledger_path), charge_ledger)
@@ -131,6 +141,46 @@ contains
     end if
     has_restart = .true.
   end subroutine load_restart_checkpoint
+
+  subroutine load_photoelectron_checkpoint(path, completed_batches, app, state)
+    character(len=*), intent(in) :: path
+    integer(i32), intent(in) :: completed_batches
+    type(app_config), intent(in) :: app
+    type(photoelectron_coupling_state_type), intent(out) :: state
+    integer :: u, ios
+    integer(i32) :: bin, file_bin
+    integer(i64) :: cumulative_count, previous_count
+    real(dp) :: energy_low, energy_high, cumulative_values(4), previous_values(4)
+    character(len=1024) :: header
+    logical :: exists
+
+    inquire (file=trim(path), exist=exists)
+    if (.not. exists) error stop 'Resume checkpoint is missing photoelectron_histogram.csv.'
+    call state%init( &
+      app%outer_plasma%photoelectron_histogram_bins, app%outer_plasma%photoelectron_histogram_energy_max &
+      )
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open photoelectron_histogram.csv.'
+    read (u, '(A)', iostat=ios) header
+    if (ios /= 0) error stop 'Photoelectron histogram header is missing.'
+    do bin = 1_i32, state%cumulative%nbins
+      read (u, *, iostat=ios) &
+        file_bin, energy_low, energy_high, cumulative_values, cumulative_count, previous_values, previous_count
+      if (ios /= 0 .or. file_bin /= bin) error stop 'Malformed photoelectron histogram checkpoint.'
+      state%cumulative%signed_charge(bin) = cumulative_values(1)
+      state%cumulative%kinetic_energy(bin) = cumulative_values(2)
+      state%cumulative%tangential_momentum_x(bin) = cumulative_values(3)
+      state%cumulative%tangential_momentum_y(bin) = cumulative_values(4)
+      state%cumulative%count(bin) = cumulative_count
+      state%previous_batch%signed_charge(bin) = previous_values(1)
+      state%previous_batch%kinetic_energy(bin) = previous_values(2)
+      state%previous_batch%tangential_momentum_x(bin) = previous_values(3)
+      state%previous_batch%tangential_momentum_y(bin) = previous_values(4)
+      state%previous_batch%count(bin) = previous_count
+    end do
+    close (u)
+    state%last_completed_batch = completed_batches
+  end subroutine load_photoelectron_checkpoint
 
   subroutine load_electrostatic_state(path, state)
     character(len=*), intent(in) :: path

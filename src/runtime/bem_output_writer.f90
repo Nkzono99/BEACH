@@ -5,6 +5,7 @@ module bem_output_writer
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
                             filesystem_success
@@ -124,7 +125,8 @@ contains
   !! @param[in] stats 書き出し対象の統計値。
   !! @param[in] cfg 出力設定を含むアプリ設定。
   subroutine write_result_files( &
-    out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v, charge_ledger, electrostatic_diagnostics &
+    out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v, charge_ledger, electrostatic_diagnostics, &
+    photoelectron_state &
     )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
@@ -134,11 +136,12 @@ contains
     real(dp), intent(in), optional :: mesh_potential_v(:)
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
+    type(photoelectron_coupling_state_type), intent(in), optional :: photoelectron_state
 
     call ensure_output_dir(out_dir)
     call write_summary_file( &
       out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger, &
-      electrostatic_diagnostics=electrostatic_diagnostics &
+      electrostatic_diagnostics=electrostatic_diagnostics, photoelectron_state=photoelectron_state &
       )
     call write_charges_file(out_dir, mesh)
     if (cfg%write_mesh_potential) then
@@ -150,7 +153,39 @@ contains
     call write_mesh_file(out_dir, mesh)
     call write_mesh_sources_file(out_dir, mesh, cfg)
     if (present(charge_ledger)) call write_charge_ledger_file(out_dir, charge_ledger)
+    if (present(photoelectron_state)) then
+      if (photoelectron_state%ready) call write_photoelectron_histogram_file(out_dir, photoelectron_state)
+    end if
   end subroutine write_result_files
+
+  subroutine write_photoelectron_histogram_file(out_dir, state)
+    character(len=*), intent(in) :: out_dir
+    type(photoelectron_coupling_state_type), intent(in) :: state
+    character(len=1024) :: path
+    integer :: u, ios
+    integer(i32) :: bin
+    real(dp) :: energy_low, energy_high
+
+    path = trim(out_dir)//'/photoelectron_histogram.csv'
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open photoelectron_histogram.csv.'
+    write (u, '(a)') &
+      'bin,energy_low_J,energy_high_J,signed_charge_C,kinetic_energy_J,tangential_momentum_x_kg_m_s,'// &
+      'tangential_momentum_y_kg_m_s,count,previous_signed_charge_C,previous_kinetic_energy_J,'// &
+      'previous_tangential_momentum_x_kg_m_s,previous_tangential_momentum_y_kg_m_s,previous_count'
+    do bin = 1_i32, state%cumulative%nbins
+      energy_low = real(bin - 1_i32, dp)*state%cumulative%energy_max/real(state%cumulative%nbins, dp)
+      energy_high = real(bin, dp)*state%cumulative%energy_max/real(state%cumulative%nbins, dp)
+      write (u, '(i0,6(a,es24.16),a,i0,4(a,es24.16),a,i0)') &
+        bin, ',', energy_low, ',', energy_high, ',', state%cumulative%signed_charge(bin), ',', &
+        state%cumulative%kinetic_energy(bin), ',', state%cumulative%tangential_momentum_x(bin), ',', &
+        state%cumulative%tangential_momentum_y(bin), ',', state%cumulative%count(bin), ',', &
+        state%previous_batch%signed_charge(bin), ',', state%previous_batch%kinetic_energy(bin), ',', &
+        state%previous_batch%tangential_momentum_x(bin), ',', state%previous_batch%tangential_momentum_y(bin), ',', &
+        state%previous_batch%count(bin)
+    end do
+    close (u)
+  end subroutine write_photoelectron_histogram_file
 
   !> 出力ディレクトリを作成する。
   !! @param[in] out_dir 作成対象ディレクトリのパス。
@@ -178,7 +213,7 @@ contains
   !! @param[in] mesh メッシュ情報（要素数を書き出す）。
   !! @param[in] stats 実行統計。
   subroutine write_summary_file( &
-    out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger, electrostatic_diagnostics &
+    out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger, electrostatic_diagnostics, photoelectron_state &
     )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
@@ -187,6 +222,7 @@ contains
     integer(i32), intent(in), optional :: mpi_world_size
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
+    type(photoelectron_coupling_state_type), intent(in), optional :: photoelectron_state
     character(len=1024) :: summary_path
     integer :: u, ios
     integer(i32) :: world_size
@@ -237,6 +273,31 @@ contains
       write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
       write (u, '(a,es24.16)') 'max_outer_flight_time_s=', electrostatic_diagnostics%max_outer_flight_time
       write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio
+    end if
+    if (present(photoelectron_state)) then
+      if (photoelectron_state%ready) then
+        write (u, '(a,i0)') 'photoelectron_histogram_bins=', photoelectron_state%cumulative%nbins
+        write (u, '(a,es24.16)') 'photoelectron_histogram_energy_max_J=', &
+          photoelectron_state%cumulative%energy_max
+        write (u, '(a,i0)') 'photoelectron_last_completed_batch=', photoelectron_state%last_completed_batch
+        write (u, '(a,es24.16)') 'photoelectron_cumulative_signed_charge_C=', &
+          photoelectron_state%cumulative%total_signed_charge()
+        write (u, '(a,es24.16)') 'photoelectron_cumulative_kinetic_energy_J=', &
+          photoelectron_state%cumulative%total_kinetic_energy()
+        write (u, '(a,i0)') 'photoelectron_cumulative_count=', photoelectron_state%cumulative%total_count()
+        if (cfg%sim%batch_duration > 0.0_dp) then
+          write (u, '(a,es24.16)') 'photoelectron_previous_signed_current_A=', &
+            photoelectron_state%previous_batch%total_signed_charge()/cfg%sim%batch_duration
+        end if
+        if (cfg%outer_plasma%photoelectron_ambient_charge_scale > 0.0_dp) then
+          write (u, '(a,es24.16)') 'photoelectron_previous_charge_ratio=', &
+            abs(photoelectron_state%previous_batch%total_signed_charge())/ &
+            cfg%outer_plasma%photoelectron_ambient_charge_scale
+          write (u, '(a,es24.16)') 'photoelectron_max_charge_ratio=', &
+            cfg%outer_plasma%max_photoelectron_charge_ratio
+          write (u, '(a)') 'photoelectron_linear_closure_status=applicable'
+        end if
+      end if
     end if
     if (present(charge_ledger)) then
       write (u, '(a,i0)') 'charge_ledger_nspecies=', charge_ledger%nspecies

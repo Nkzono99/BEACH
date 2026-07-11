@@ -47,6 +47,10 @@ module bem_app_config_authoring
     real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
+    integer(i32) :: photoelectron_histogram_bins = 32_i32
+    real(dp) :: photoelectron_histogram_energy_max = 0.0_dp
+    real(dp) :: photoelectron_ambient_charge_scale = 0.0_dp
+    real(dp) :: max_photoelectron_charge_ratio = 0.1_dp
   end type outer_plasma_authoring_spec
 
   type :: coupling_authoring_spec

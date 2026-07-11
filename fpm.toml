@@ -87,6 +87,11 @@ source-dir = "tests/fortran"
 main = "test_outer_plasma_interface.f90"
 
 [[test]]
+name = "test_outer_plasma_photoelectron"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_photoelectron.f90"
+
+[[test]]
 name = "test_interface_particle_buffer"
 source-dir = "tests/fortran"
 main = "test_interface_particle_buffer.f90"

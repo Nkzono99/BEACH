@@ -13,12 +13,22 @@ from ._toml import load_toml_file, render_toml_document
 CONFIG_FILENAME = "beach.toml"
 SCHEMA_BASE_URL = "https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas"
 BEACH_SCHEMA_URL = f"{SCHEMA_BASE_URL}/beach.schema.json"
-TOP_LEVEL_CONFIG_ORDER = ("sim", "particles", "mesh", "output")
+TOP_LEVEL_CONFIG_ORDER = (
+    "sim",
+    "field",
+    "periodic2",
+    "outer_plasma",
+    "coupling",
+    "particles",
+    "mesh",
+    "output",
+)
+_REQUIRED_RUNTIME_TABLES = ("sim", "particles", "mesh", "output")
 SCHEMA_DIRECTIVE = (
     "#:schema "
     f"{BEACH_SCHEMA_URL}"
 )
-_FRAGMENT_TOP_LEVEL_KEYS = frozenset({"sim", "particles", "mesh", "output"})
+_FRAGMENT_TOP_LEVEL_KEYS = frozenset(TOP_LEVEL_CONFIG_ORDER)
 _RESERVED_TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "title", "use_presets", "override", "base_case"}
 )
@@ -739,7 +749,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         allow_meta_keys=False,
     )
 
-    for key in TOP_LEVEL_CONFIG_ORDER:
+    for key in _REQUIRED_RUNTIME_TABLES:
         if key not in final_config:
             raise ConfigValidationError(
                 f"BEACH constraint error: runtime config is missing top-level [{key}] table."
@@ -749,6 +759,10 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     particles = _require_table(final_config, "particles", context="runtime config")
     mesh = _require_table(final_config, "mesh", context="runtime config")
     _require_table(final_config, "output", context="runtime config")
+    field = final_config.get("field", {})
+    periodic2_config = final_config.get("periodic2", {})
+    outer_plasma = final_config.get("outer_plasma", {})
+    coupling = final_config.get("coupling", {})
     _validate_runtime_external_e_field(sim)
     _validate_nonnegative_finite_number(sim.get("softening", 1.0e-6), name="sim.softening")
     _validate_runtime_mesh(mesh)
@@ -782,9 +796,19 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             'BEACH constraint error: sim.field_bc_mode must be "free" or "periodic2".'
         )
     if field_bc_mode == "periodic2":
-        if field_solver != "fmm":
+        split_reference = (
+            field_solver == "direct"
+            and isinstance(field, Mapping)
+            and field.get("element_kernel") == "triangle_p0"
+            and isinstance(periodic2_config, Mapping)
+            and periodic2_config.get("nonzero_mode_backend") == "panel_spectral_reference"
+            and periodic2_config.get("zero_mode_policy") == "exclude_k0"
+            and periodic2_config.get("lower_boundary_model") == "e_bottom_zero"
+        )
+        if field_solver != "fmm" and not split_reference:
             raise ConfigValidationError(
-                'BEACH constraint error: field_bc_mode="periodic2" requires field_solver="fmm".'
+                'BEACH constraint error: field_bc_mode="periodic2" requires field_solver="fmm" '
+                "or the direct panel_spectral_reference split model."
             )
         if not use_box:
             raise ConfigValidationError(
@@ -805,6 +829,51 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     box_min = _maybe_vec3(sim.get("box_min"), name="sim.box_min")
     box_max = _maybe_vec3(sim.get("box_max"), name="sim.box_max")
 
+    photoelectron_closure = "none"
+    if isinstance(outer_plasma, Mapping):
+        photoelectron_closure = str(
+            outer_plasma.get("photoelectron_closure", "none")
+        ).strip().lower()
+    if photoelectron_closure == "statistical_return":
+        raise ConfigValidationError(
+            "BEACH constraint error: outer_plasma.photoelectron_closure="
+            '"statistical_return" is not specified and remains unavailable.'
+        )
+    if photoelectron_closure not in {"none", "individual_return"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: unsupported outer_plasma.photoelectron_closure="
+            f"{photoelectron_closure!r}."
+        )
+    if photoelectron_closure == "individual_return":
+        if not isinstance(coupling, Mapping) or (
+            outer_plasma.get("return_model") != "electrostatic_1d_instant_return"
+            or coupling.get("particle_transfer_mode") != "electrostatic_1d_instant_return"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: individual photoelectron return requires the "
+                "electrostatic_1d_instant_return transfer and return models."
+            )
+        for key in (
+            "photoelectron_histogram_energy_max",
+            "photoelectron_ambient_charge_scale",
+            "max_photoelectron_charge_ratio",
+        ):
+            value = outer_plasma.get(key)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: outer_plasma.{key} must be finite and > 0."
+                )
+        bins = outer_plasma.get("photoelectron_histogram_bins", 32)
+        if not isinstance(bins, int) or isinstance(bins, bool) or bins < 1:
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.photoelectron_histogram_bins must be >= 1."
+            )
+
     uses_face_sources = False
     has_volume_seed = False
     total_npcls_per_step = 0
@@ -815,6 +884,17 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] source_mode must be a string."
             )
+        if photoelectron_closure == "individual_return" and source_mode == "photo_raycast":
+            if species_table.get("deposit_opposite_charge_on_emit") is not True:
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particles.species[{index}] requires "
+                    "deposit_opposite_charge_on_emit=true for individual photoelectron return."
+                )
+            if str(species_table.get("photo_escape_model", "none")).strip().lower() != "none":
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particles.species[{index}] cannot combine a legacy "
+                    "photo_escape_model with individual photoelectron return."
+                )
         if "temperature_k" in species_table and "temperature_ev" in species_table:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] cannot define both "

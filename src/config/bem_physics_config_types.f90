@@ -43,6 +43,10 @@ module bem_physics_config_types
     real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
+    integer(i32) :: photoelectron_histogram_bins = 32_i32
+    real(dp) :: photoelectron_histogram_energy_max = 0.0_dp
+    real(dp) :: photoelectron_ambient_charge_scale = 0.0_dp
+    real(dp) :: max_photoelectron_charge_ratio = 0.1_dp
   end type outer_plasma_config
 
   type, public :: coupling_config
@@ -320,6 +324,23 @@ contains
       end if
     case default
       call reject(physics_config_invalid_combination, 'Unknown coupling particle-transfer mode.', status, message)
+      return
+    end select
+    select case (trim(lower_ascii(outer%photoelectron_closure)))
+    case ('none')
+      continue
+    case ('individual_return')
+      if (trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return' .or. &
+          outer%photoelectron_histogram_bins < 1_i32 .or. outer%photoelectron_histogram_energy_max <= 0.0_dp .or. &
+          outer%photoelectron_ambient_charge_scale <= 0.0_dp .or. outer%max_photoelectron_charge_ratio <= 0.0_dp) then
+        call reject(physics_config_invalid_combination, 'Invalid individual photoelectron closure.', status, message)
+        return
+      end if
+    case ('statistical_return')
+      call reject(physics_config_unavailable, 'Statistical photoelectron return is not specified.', status, message)
+      return
+    case default
+      call reject(physics_config_invalid_combination, 'Unknown photoelectron closure.', status, message)
       return
     end select
     if (any(sim%e0 /= 0.0_dp)) then

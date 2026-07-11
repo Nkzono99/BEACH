@@ -135,6 +135,25 @@ program test_app_config_parser
     split_cfg%outer_plasma%max_local_charge_ratio, 6.0_dp, 1.0e-15_dp, 'split local-charge limit mismatch' &
     )
   call assert_true( &
+    trim(split_cfg%outer_plasma%photoelectron_closure) == 'individual_return', &
+    'photoelectron closure mismatch' &
+    )
+  call assert_equal_i32( &
+    split_cfg%outer_plasma%photoelectron_histogram_bins, 8_i32, 'photoelectron histogram bins mismatch' &
+    )
+  call assert_close_dp( &
+    split_cfg%outer_plasma%photoelectron_histogram_energy_max, 12.0_dp, 1.0e-15_dp, &
+    'photoelectron histogram energy mismatch' &
+    )
+  call assert_close_dp( &
+    split_cfg%outer_plasma%photoelectron_ambient_charge_scale, 4.0_dp, 1.0e-15_dp, &
+    'photoelectron ambient charge scale mismatch' &
+    )
+  call assert_close_dp( &
+    split_cfg%outer_plasma%max_photoelectron_charge_ratio, 0.2_dp, 1.0e-15_dp, &
+    'photoelectron charge ratio mismatch' &
+    )
+  call assert_true( &
     trim(split_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
     'split transfer mode mismatch' &
     )
@@ -804,6 +823,7 @@ contains
     write (u, '(a)') 'interface_sample_n = 7'
     write (u, '(a)') '[outer_plasma]'
     write (u, '(a)') 'model = "linear_debye"'
+    write (u, '(a)') 'photoelectron_closure = "individual_return"'
     write (u, '(a)') 'return_model = "electrostatic_1d_instant_return"'
     write (u, '(a)') 'interface_z = 1.0'
     write (u, '(a)') 'infinity_potential = 0.0'
@@ -812,6 +832,10 @@ contains
     write (u, '(a)') 'max_linearity_ratio = 0.5'
     write (u, '(a)') 'max_gap_ratio = 4.0'
     write (u, '(a)') 'max_local_charge_ratio = 6.0'
+    write (u, '(a)') 'photoelectron_histogram_bins = 8'
+    write (u, '(a)') 'photoelectron_histogram_energy_max = 12.0'
+    write (u, '(a)') 'photoelectron_ambient_charge_scale = 4.0'
+    write (u, '(a)') 'max_photoelectron_charge_ratio = 0.2'
     write (u, '(a)') '[coupling]'
     write (u, '(a)') 'update_mode = "explicit"'
     write (u, '(a)') 'particle_transfer_mode = "electrostatic_1d_instant_return"'

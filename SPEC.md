@@ -111,6 +111,8 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 `coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。外向き粒子は同じ線形Debye profile上でinfinityへ到達可能ならescape、turning pointを持つ場合は法線速度を反転してlocalへ返します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapし、残り`dt`を既存stepperで再積分します。この写像はouter flightをglobal simulation timeへ加算せず、`tau_outer/field_evolution_timescale`が上限を超える場合は停止します。persistent outer queueは未対応で、`outer_queue_enabled=true`を拒否します。`b0=0`のみを許可し、磁化outer orbitを近似しません。
 
+`outer_plasma.photoelectron_closure="individual_return"`では、`photo_raycast`粒子がz-high interfaceを外向き通過した時点で、法線運動エネルギーbinごとのsigned charge、全運動エネルギー、接線運動量、個数をMPI-globalに集計します。個別粒子は上記instant-return写像だけで帰還させ、統計量から別粒子を再注入しません。各batchの統計は`previous_batch`として次batchへ渡し、累積統計とともに`photoelectron_histogram.csv`へcheckpointします。charge-conserving modeでは全`photo_raycast` speciesに`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`との併用を拒否します。`statistical_return`は帰還位置・遅延・deposit則が未仕様なので使用不可です。放出signed chargeと`photoelectron_ambient_charge_scale`の比が`max_photoelectron_charge_ratio`を超えると、ambient-only線形closureを適用外として停止し、silent fallbackしません。
+
 `sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
 
 ### 5.2 粒子前進
