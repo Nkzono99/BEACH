@@ -78,6 +78,7 @@ export default defineConfig({
             { slug: 'particle-charge-loop' },
             { slug: 'fmm-core' },
             { slug: 'batch-duration-stability' },
+            { slug: 'physics-redesign-completion-audit' },
           ],
         },
         {

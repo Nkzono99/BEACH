@@ -26,6 +26,7 @@ def test_onboarding_pages_are_bilingual_with_localized_descriptions() -> None:
         "validation-guide": {"root", "en"},
         "troubleshooting": {"root", "en"},
         "physics-release-verification": {"root", "en"},
+        "physics-redesign-completion-audit": {"root", "en"},
     }
 
     locales_by_slug: dict[str, set[str]] = {}
@@ -48,4 +49,5 @@ def test_sidebar_follows_user_workflow_and_separates_agents() -> None:
     assert "{ slug: 'tutorial' }" in config
     assert "{ slug: 'validation-guide' }" in config
     assert "{ slug: 'troubleshooting' }" in config
+    assert "{ slug: 'physics-redesign-completion-audit' }" in config
     assert config.index("{ slug: 'agent-user-guide' }") > config.index("label: 'AIエージェント向け'")

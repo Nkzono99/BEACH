@@ -34,3 +34,6 @@ MPI同時生成は `test_periodic2_operator_cache_mpi` が担当します。
 
 実運用caseでは少なくとも mesh、`sim.dt`、FMM order/tolerance、outer grid、height samplingを変え、
 表面電位、吸収/escape flux、電荷収支、主要な結論が収束することを別途確認します。
+
+Phaseごとのproduction owner、test、明示的なscope外は
+[物理再設計の完遂監査](PhysicsRedesignCompletionAudit.html)にまとめています。

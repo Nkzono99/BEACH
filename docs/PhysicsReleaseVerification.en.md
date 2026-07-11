@@ -15,3 +15,6 @@ and fails when a required convergence category is missing.
 The reference values and interpretation are maintained in `docs/PhysicsReleaseVerification.md`.
 They are small correctness fixtures and do not replace mesh, time-step, FMM, outer-grid, and sampling studies
 for a production simulation.
+
+The [physics redesign completion audit](PhysicsRedesignCompletionAudit.html) maps each phase to its production owner,
+tests, and explicit scope exclusions.
