@@ -56,6 +56,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_electrostatic_snapshot \
 	test_outer_coupler \
 	test_outer_plasma_interface \
+	test_outer_plasma_orbit \
 	test_outer_plasma_photoelectron \
 	test_interface_particle_buffer \
 	test_boundary \

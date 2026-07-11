@@ -81,6 +81,9 @@ program test_electrostatic_unified
   call coarse_snapshot%refresh(mesh)
   call coarse_snapshot%eval_local_e(mesh, target, field_high)
   call coarse_snapshot%eval_local_phi(mesh, sim_low, target, potential_high)
+  write (*, '(a,es16.8,a,es16.8,a)') &
+    'BEACH_CONVERGENCE,rough_outer_grid,65_to_129,', sqrt(sum((field_high - field_low)**2)), ',', &
+    abs(potential_high - potential_low), ',,abs_diff_lt_5.0e-5'
   call assert_allclose_1d(field_high, field_low, 5.0e-5_dp, 'rough unified field grid convergence mismatch')
   call assert_close_dp(potential_high, potential_low, 5.0e-5_dp, 'rough unified potential grid convergence mismatch')
   call test_end()
@@ -95,6 +98,9 @@ program test_electrostatic_unified
     diagnostics%accessible_fraction_refinement_error <= outer_low%accessible_fraction_tolerance, &
     'rough fixture accessibility sampling must satisfy its refinement contract' &
     )
+  write (*, '(a,es16.8,a)') &
+    'BEACH_CONVERGENCE,rough_accessibility,8_to_16,', &
+    diagnostics%accessible_fraction_refinement_error, ',,,error_le_0.1'
   call assert_close_dp(diagnostics%response_start_z, snapshot_low%nonzero_tail%handoff_z, &
                        0.0_dp, 'response-plane diagnostic mismatch')
   call assert_close_dp(snapshot_low%gauss_residual, 0.0_dp, 2.0e-24_dp, 'unified Gauss residual mismatch')

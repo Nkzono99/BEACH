@@ -39,11 +39,15 @@ def test_release_gate_dry_run_writes_reproducible_manifest(tmp_path: Path) -> No
     )
     assert result.returncode == 0, result.stderr
     text = manifest.read_text(encoding="utf-8")
-    assert "schema_version=1" in text
+    assert "schema_version=2" in text
     assert "status=planned" in text
     assert "test_l3.command=make test-l3" in text
     assert "far_correction.command=make test-fortran-far-correction" in text
     assert "mpi.command=make test-mpi" in text
+    assert "mpi_cache.command=make test-mpi-periodic-cache" in text
+    assert "budget.max_rss_kb=" in text
+    assert "convergence_csv=" in text
+    assert "test_l3.max_rss_kb=0" in text
     assert "git_commit=" in text
 
 

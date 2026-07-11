@@ -16,38 +16,51 @@ program test_coulomb_fmm_core_panel
   real(dp) :: v0(3, nsrc), v1(3, nsrc), v2(3, nsrc), q(nsrc)
   real(dp) :: targets(3, 5), field(3), field_ref(3), phi, phi_ref
   real(dp) :: field_error, potential_error, max_field_error, max_potential_error
+  real(dp) :: order_field_error(4), order_potential_error(4)
   real(dp) :: source_field(3), source_phi, image_shift(3)
-  integer(i32) :: target_idx, image_x, image_y, status
+  real(dp) :: mesh_field(3, 4), mesh_potential(4), mesh_field_error(3), mesh_potential_error(3)
+  integer(i32) :: target_idx, image_x, image_y, status, order_index
+  integer(i32), parameter :: order_values(4) = [2_i32, 3_i32, 4_i32, 5_i32]
 
   call test_begin('full_panel_fmm_matches_direct_panel_oracle')
   call make_panel_grid(v0, v1, v2, q)
   options%theta = 0.45_dp
   options%leaf_max = 4_i32
-  options%order = 5_i32
   options%target_box_min = [-1.2_dp, -1.2_dp, -0.5_dp]
   options%target_box_max = [1.2_dp, 1.2_dp, 2.5_dp]
-  call build_panel_plan(plan, v0, v1, v2, options)
-  call update_state(plan, state, q)
   targets(:, 1) = [0.03_dp, -0.07_dp, 0.18_dp]
   targets(:, 2) = [0.42_dp, 0.31_dp, 0.45_dp]
   targets(:, 3) = [-0.55_dp, 0.22_dp, 0.8_dp]
   targets(:, 4) = [0.15_dp, -0.63_dp, 1.4_dp]
   targets(:, 5) = [-0.2_dp, 0.1_dp, 2.1_dp]
-  max_field_error = 0.0_dp
-  max_potential_error = 0.0_dp
-  do target_idx = 1_i32, size(targets, 2)
-    call eval_point(plan, state, targets(:, target_idx), field)
-    call eval_potential_point(plan, state, targets(:, target_idx), phi)
-    call direct_panel_oracle(v0, v1, v2, q, targets(:, target_idx), field_ref, phi_ref)
-    field_error = sqrt(sum((field - field_ref)**2))/max(1.0e-14_dp, sqrt(sum(field_ref*field_ref)))
-    potential_error = abs(phi - phi_ref)/max(1.0e-14_dp, abs(phi_ref))
-    max_field_error = max(max_field_error, field_error)
-    max_potential_error = max(max_potential_error, potential_error)
+  do order_index = 1_i32, size(order_values)
+    options%order = order_values(order_index)
+    call build_panel_plan(plan, v0, v1, v2, options)
+    call update_state(plan, state, q)
+    max_field_error = 0.0_dp
+    max_potential_error = 0.0_dp
+    do target_idx = 1_i32, size(targets, 2)
+      call eval_point(plan, state, targets(:, target_idx), field)
+      call eval_potential_point(plan, state, targets(:, target_idx), phi)
+      call direct_panel_oracle(v0, v1, v2, q, targets(:, target_idx), field_ref, phi_ref)
+      field_error = sqrt(sum((field - field_ref)**2))/max(1.0e-14_dp, sqrt(sum(field_ref*field_ref)))
+      potential_error = abs(phi - phi_ref)/max(1.0e-14_dp, abs(phi_ref))
+      max_field_error = max(max_field_error, field_error)
+      max_potential_error = max(max_potential_error, potential_error)
+    end do
+    order_field_error(order_index) = max_field_error
+    order_potential_error(order_index) = max_potential_error
+    write (*, '(a,i0,a,es16.8,a,es16.8,a)') &
+      'BEACH_CONVERGENCE,panel_fmm_order,', order_values(order_index), ',', max_field_error, ',', &
+      max_potential_error, ',,field_and_potential_lt_2.0e-3'
+    call destroy_state(state)
+    call destroy_plan(plan)
   end do
-  call assert_true(max_field_error < 2.0e-3_dp, 'panel FMM field error exceeds 2e-3')
-  call assert_true(max_potential_error < 2.0e-3_dp, 'panel FMM potential error exceeds 2e-3')
-  call destroy_state(state)
-  call destroy_plan(plan)
+  call assert_true(order_field_error(4) < 2.0e-3_dp, 'panel FMM field error exceeds 2e-3')
+  call assert_true(order_potential_error(4) < 2.0e-3_dp, 'panel FMM potential error exceeds 2e-3')
+  call assert_true(order_field_error(4) < order_field_error(1), 'panel FMM field must improve from order 2 to 5')
+  call assert_true(order_potential_error(4) < order_potential_error(1), &
+                   'panel FMM potential must improve from order 2 to 5')
   call test_end()
 
   call test_begin('periodic_panel_near_images_match_finite_shell')
@@ -96,6 +109,28 @@ program test_coulomb_fmm_core_panel
   call assert_true(potential_error < 2.0e-3_dp, 'periodic panel potential error exceeds 2e-3')
   call destroy_state(state)
   call destroy_plan(plan)
+  call test_end()
+
+  call test_begin('rough_surface_mesh_refinement_converges')
+  do order_index = 1_i32, 4_i32
+    call rough_surface_direct_oracle( &
+      4_i32*2_i32**(order_index - 1_i32), [0.37_dp, 0.61_dp, 0.8_dp], &
+      mesh_field(:, order_index), mesh_potential(order_index) &
+      )
+  end do
+  do order_index = 1_i32, 3_i32
+    mesh_field_error(order_index) = &
+      sqrt(sum((mesh_field(:, order_index) - mesh_field(:, 4))**2))/sqrt(sum(mesh_field(:, 4)**2))
+    mesh_potential_error(order_index) = &
+      abs(mesh_potential(order_index) - mesh_potential(4))/abs(mesh_potential(4))
+    write (*, '(a,i0,a,es16.8,a,es16.8,a)') &
+      'BEACH_CONVERGENCE,rough_panel_mesh,', 4_i32*2_i32**(order_index - 1_i32), ',', &
+      mesh_field_error(order_index), ',', mesh_potential_error(order_index), ',,reference_n32_and_decreasing'
+  end do
+  call assert_true(mesh_field_error(3) < mesh_field_error(1), &
+                   'rough panel field must converge under mesh refinement')
+  call assert_true(mesh_potential_error(3) < mesh_potential_error(1), &
+                   'rough panel potential must converge under mesh refinement')
   call test_end()
   call test_summary()
 
@@ -146,4 +181,51 @@ contains
       phi_out = phi_out + source_phi/k_coulomb
     end do
   end subroutine direct_panel_oracle
+
+  subroutine rough_surface_direct_oracle(n, target, field_out, phi_out)
+    integer(i32), intent(in) :: n
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(out) :: field_out(3), phi_out
+    real(dp) :: a(3), b(3), c(3), d(3)
+    integer(i32) :: ix, iy
+
+    field_out = 0.0_dp
+    phi_out = 0.0_dp
+    do iy = 0_i32, n - 1_i32
+      do ix = 0_i32, n - 1_i32
+        call rough_vertex(ix, iy, n, a)
+        call rough_vertex(ix + 1_i32, iy, n, b)
+        call rough_vertex(ix + 1_i32, iy + 1_i32, n, c)
+        call rough_vertex(ix, iy + 1_i32, n, d)
+        call add_rough_panel(a, b, c, target, field_out, phi_out)
+        call add_rough_panel(a, c, d, target, field_out, phi_out)
+      end do
+    end do
+  end subroutine rough_surface_direct_oracle
+
+  subroutine add_rough_panel(p0, p1, p2, target, field_accumulator, potential_accumulator)
+    real(dp), intent(in) :: p0(3), p1(3), p2(3), target(3)
+    real(dp), intent(inout) :: field_accumulator(3), potential_accumulator
+    type(panel_geometry_type) :: geometry
+    real(dp) :: source_field_local(3), source_phi_local
+    integer(i32) :: geometry_status
+
+    call init_panel_geometry(p0, p1, p2, geometry, geometry_status)
+    if (geometry_status /= panel_geometry_ok) error stop 'rough mesh contains a degenerate panel'
+    call panel_potential_field( &
+      geometry, geometry%area, target, panel_side_principal_value, source_phi_local, source_field_local &
+      )
+    field_accumulator = field_accumulator + source_field_local/k_coulomb
+    potential_accumulator = potential_accumulator + source_phi_local/k_coulomb
+  end subroutine add_rough_panel
+
+  subroutine rough_vertex(ix, iy, n, vertex)
+    integer(i32), intent(in) :: ix, iy, n
+    real(dp), intent(out) :: vertex(3)
+    real(dp) :: x, y
+
+    x = real(ix, dp)/real(n, dp)
+    y = real(iy, dp)/real(n, dp)
+    vertex = [x, y, 0.08_dp*sin(2.0_dp*acos(-1.0_dp)*x)*sin(2.0_dp*acos(-1.0_dp)*y)]
+  end subroutine rough_vertex
 end program test_coulomb_fmm_core_panel

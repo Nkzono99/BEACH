@@ -383,8 +383,10 @@ fpm test --target test_mpi_hybrid \
 - Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。
-`test-physics-release` は L3、far-correction、MPI gate を逐次実行し、既定で
+`test-physics-release` は L3、far-correction、MPI ledger、MPI periodic-cache gate を逐次実行し、既定で
 `build/physics-release/manifest.txt` に commit、dirty state、host、compiler、各 gate の
-status と経過時間を保存します。KUDPC の login node では実行を拒否し、Slurm allocation 内では
+status、経過時間、最大RSSを保存します。同じdirectoryの`convergence.csv`にはmesh、dt、FMM order、
+outer gridなどの収束値を保存します。KUDPC の login node では実行を拒否し、Slurm allocation 内では
 MPI payload の runner を `srun` に設定します。manifest path は
 `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt` で変更できます。
+詳細は[Physics release verification](PhysicsReleaseVerification.md)を参照してください。

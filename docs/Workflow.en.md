@@ -391,8 +391,10 @@ fpm test --target test_mpi_hybrid \
 - The Fortran electric field uses element-centroid point-charge approximation plus `sim.softening`.
 
 For a camphor MPI job example, see `examples/job_scripts/camphor_mpi_hybrid_job.sh`.
-`test-physics-release` runs the L3, far-correction, and MPI gates sequentially.
-It records the commit, dirty state, host, compilers, status, and elapsed time for
+`test-physics-release` runs the L3, far-correction, MPI ledger, and MPI periodic-cache gates sequentially.
+It records the commit, dirty state, host, compilers, status, elapsed time, and peak RSS for
 each gate in `build/physics-release/manifest.txt` by default. It refuses KUDPC
 login nodes and selects `srun` for the MPI payload inside a Slurm allocation.
 Override the output with `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt`.
+The same directory receives `convergence.csv`; see
+[Physics release verification](PhysicsReleaseVerification.en.md).

@@ -57,6 +57,9 @@ program test_outer_plasma_orbit
   call trace_electrostatic_outer_orbit(harmonic_field, options, 1.0_dp, 1.0_dp, crossing, coarse_outcome)
   options%dt = 0.05_dp
   call trace_electrostatic_outer_orbit(harmonic_field, options, 1.0_dp, 1.0_dp, crossing, outcome)
+  write (*, '(a,es16.8,a,es16.8,a)') &
+    'BEACH_CONVERGENCE,outer_orbit_dt,0.1_to_0.05,', coarse_outcome%energy_relative_error, ',', &
+    outcome%energy_relative_error, ',,decreasing'
   call assert_equal_i32(outcome%kind, interface_outcome_returned_local, 'harmonic orbit must return')
   call assert_true( &
     outcome%energy_relative_error < coarse_outcome%energy_relative_error, &

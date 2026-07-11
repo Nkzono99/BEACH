@@ -203,6 +203,9 @@ contains
         'pure-B velocity error ratio must show second-order convergence' &
         )
     end do
+    write (*, '(a,3(es16.8,a))') &
+      'BEACH_CONVERGENCE,boris_dt,0.25_0.125_0.0625,', position_error(1), ',', position_error(2), ',', &
+      position_error(3), ',second_order'
   end subroutine test_boris_push_pure_b_second_order
 
   subroutine test_boris_update_velocity_e_only()
