@@ -26,6 +26,8 @@ class _FakeFunction:
 
 class _FakeZeroModeLibrary:
     def __init__(self) -> None:
+        self.fail_destroy_once = False
+
         def ok(*_args: object) -> int:
             return 0
 
@@ -35,8 +37,14 @@ class _FakeZeroModeLibrary:
             )
             return 0
 
+        def destroy(*_args: object) -> int:
+            if self.fail_destroy_once:
+                self.fail_destroy_once = False
+                return 2
+            return 0
+
         self.beach_zero_mode_create = _FakeFunction(create)
-        self.beach_zero_mode_destroy = _FakeFunction(ok)
+        self.beach_zero_mode_destroy = _FakeFunction(destroy)
         self.beach_zero_mode_build = _FakeFunction(ok)
         self.beach_zero_mode_update = _FakeFunction(ok)
         self.beach_zero_mode_eval = _FakeFunction(ok)
@@ -115,3 +123,18 @@ def test_periodic_zero_mode_finalizer_releases_unclosed_native_handle(
     gc.collect()
 
     assert len(lib.beach_zero_mode_destroy.calls) == 1
+
+
+def test_periodic_zero_mode_failed_destroy_can_be_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeZeroModeLibrary()
+    monkeypatch.setattr(zero_mode_module, "_load_kernel_library", lambda _path: lib)
+    zero = PeriodicZeroMode(np.zeros((1, 3)), np.ones(1), 1.0)
+    lib.fail_destroy_once = True
+
+    with pytest.raises(FieldKernelError, match="destroy"):
+        zero.close()
+    zero.close()
+
+    assert len(lib.beach_zero_mode_destroy.calls) == 2

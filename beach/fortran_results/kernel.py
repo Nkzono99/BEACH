@@ -720,6 +720,18 @@ def _load_sim_config(
     *,
     config_path: str | Path | None,
 ) -> Mapping[str, object] | None:
+    config = _load_full_config(output_dir, config_path=config_path)
+    if config is None:
+        return None
+    sim = config.get("sim")
+    return sim if isinstance(sim, Mapping) else None
+
+
+def _load_full_config(
+    output_dir: Path,
+    *,
+    config_path: str | Path | None,
+) -> Mapping[str, object] | None:
     if config_path is None:
         path = _find_config_path_near_output(output_dir)
     else:
@@ -728,9 +740,7 @@ def _load_sim_config(
             raise ValueError(f'config file is not found: "{path}".')
     if path is None:
         return None
-    config = _load_toml(path)
-    sim = config.get("sim")
-    return sim if isinstance(sim, Mapping) else None
+    return _load_toml(path)
 
 
 def _load_sim_config_near_output(output_dir: Path) -> Mapping[str, object] | None:

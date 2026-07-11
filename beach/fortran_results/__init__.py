@@ -29,6 +29,7 @@ from .kernel import (
 )
 from .mesh import _surface_charge_density
 from .mobility import analyze_coulomb_mobility
+from .object_interaction import ObjectInteractionSnapshot, ObjectProbe
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
@@ -75,6 +76,8 @@ __all__ = [
     "FieldKernelOptions",
     "KernelObjectForceRecord",
     "ObjectForcePath",
+    "ObjectInteractionSnapshot",
+    "ObjectProbe",
     "ObjectWrench",
     "PeriodicZeroMode",
     "RigidTransform",

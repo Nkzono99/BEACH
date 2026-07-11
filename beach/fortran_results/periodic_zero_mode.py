@@ -135,11 +135,11 @@ class PeriodicZeroMode:
 
         if self._closed:
             return
-        self._closed = True
         if self._handle.value is not None:
             status = self._lib.beach_zero_mode_destroy(self._handle)
-            self._handle = ctypes.c_void_p()
             _check_status(status, "beach_zero_mode_destroy")
+            self._handle = ctypes.c_void_p()
+        self._closed = True
 
     def __enter__(self) -> "PeriodicZeroMode":
         self._require_open()

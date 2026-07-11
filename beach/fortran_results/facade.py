@@ -17,6 +17,7 @@ from .field_lines import (
 from .io import load_fortran_result
 from .kernel import calc_object_forces_kernel, FieldKernel
 from .mobility import analyze_coulomb_mobility
+from .object_interaction import ObjectInteractionSnapshot
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
@@ -262,6 +263,28 @@ class Beach:
             leaf_max=leaf_max,
             order=order,
             config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
+        )
+
+    def object_interaction_snapshot(
+        self,
+        *,
+        step: int | None = -1,
+        config_path: str | Path | None = None,
+        periodic_model: str = "configured",
+        cache_dir: str | Path | None = None,
+        generation_tolerance: float | None = None,
+        library_path: str | Path | None = None,
+    ) -> ObjectInteractionSnapshot:
+        """Build a frozen-source periodic object interaction snapshot."""
+
+        return ObjectInteractionSnapshot.from_result(
+            self.result,
+            step=step,
+            config_path=self._resolve_config_path(config_path),
+            periodic_model=periodic_model,
+            cache_dir=cache_dir,
+            generation_tolerance=generation_tolerance,
             library_path=library_path,
         )
 
