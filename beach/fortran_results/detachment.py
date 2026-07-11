@@ -559,7 +559,7 @@ def _freeze_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
 
 def _freeze_value(value: object) -> object:
     if isinstance(value, np.ndarray):
-        return _readonly(value)
+        return _readonly_metadata_array(value)
     if isinstance(value, Mapping):
         return _freeze_mapping(value)
     if isinstance(value, (list, tuple)):
@@ -573,6 +573,14 @@ def _freeze_value(value: object) -> object:
     if value is None or isinstance(value, (str, bytes, bool, int, float, complex, Path)):
         return value
     raise TypeError(f"unsupported mutable metadata value: {type(value).__name__}.")
+
+
+def _readonly_metadata_array(value: np.ndarray) -> np.ndarray:
+    result = np.array(value, copy=True, subok=False)
+    if result.dtype.hasobject:
+        raise TypeError("metadata arrays with object dtype are not supported.")
+    result.setflags(write=False)
+    return result
 
 
 def _freeze_transform(value: object | None) -> object | None:

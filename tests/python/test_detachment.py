@@ -173,6 +173,8 @@ def test_records_defensively_copy_and_freeze_arrays_and_mappings() -> None:
 def test_wrench_defensively_freezes_transform_and_nested_metadata() -> None:
     transform = RigidTransform.translation([1.0, 2.0, 3.0])
     nested_array = np.array([4.0, 5.0])
+    large_integer = np.array([2**60 + 1], dtype=np.int64)
+    complex_value = np.array([1.0 + 2.0j], dtype=np.complex128)
     nested_list = [nested_array]
     mutable_bytes = bytearray(b"abc")
     wrench = ObjectWrench(
@@ -185,12 +187,16 @@ def test_wrench_defensively_freezes_transform_and_nested_metadata() -> None:
         transform=transform,
         numerical_metadata={
             "nested": {"values": nested_list},
+            "large_integer": large_integer,
+            "complex_value": complex_value,
             "labels": {"a", "b"},
             "bytes": mutable_bytes,
         },
     )
     transform.translation_m[:] = 9.0
     nested_array[:] = 9.0
+    large_integer[:] = 0
+    complex_value[:] = 0.0
     nested_list.append(np.array([6.0]))
     mutable_bytes[:] = b"xyz"
 
@@ -202,6 +208,11 @@ def test_wrench_defensively_freezes_transform_and_nested_metadata() -> None:
     )
     assert wrench.numerical_metadata["labels"] == frozenset({"a", "b"})
     assert wrench.numerical_metadata["bytes"] == b"abc"
+    assert wrench.numerical_metadata["large_integer"].dtype == np.dtype(  # type: ignore[union-attr]
+        np.int64
+    )
+    assert wrench.numerical_metadata["large_integer"][0] == 2**60 + 1  # type: ignore[index]
+    assert wrench.numerical_metadata["complex_value"][0] == 1.0 + 2.0j  # type: ignore[index]
     with pytest.raises(ValueError):
         wrench.transform.translation_m[0] = 0.0
     with pytest.raises(ValueError):
@@ -218,4 +229,14 @@ def test_wrench_rejects_unfreezable_metadata_objects() -> None:
             torque_Nm=np.zeros(3),
             torque_origin_m=np.zeros(3),
             numerical_metadata={"object": object()},
+        )
+    with pytest.raises(TypeError, match="object dtype"):
+        ObjectWrench(
+            mesh_id=1,
+            step=None,
+            total_charge_C=0.0,
+            force_N=np.zeros(3),
+            torque_Nm=np.zeros(3),
+            torque_origin_m=np.zeros(3),
+            numerical_metadata={"array": np.array([object()], dtype=object)},
         )
