@@ -102,6 +102,18 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         periodic2_generation_tolerance=_parse_optional_finite_float(
             summary, "periodic2_generation_tolerance"
         ),
+        outer_accessible_fraction_refinement_error=_parse_optional_nonnegative_finite_float(
+            summary, "outer_accessible_fraction_refinement_error"
+        ),
+        max_outer_flight_time_s=_parse_optional_nonnegative_finite_float(
+            summary, "max_outer_flight_time_s"
+        ),
+        max_outer_frozen_field_ratio=_parse_optional_nonnegative_finite_float(
+            summary, "max_outer_frozen_field_ratio"
+        ),
+        max_outer_energy_relative_error=_parse_optional_nonnegative_finite_float(
+            summary, "max_outer_energy_relative_error"
+        ),
     )
 
 
@@ -178,6 +190,14 @@ def _parse_optional_finite_float(data: dict[str, str], key: str) -> float | None
     if not np.isfinite(parsed):
         raise ValueError(f"summary.txt {key} must be finite.")
     return parsed
+
+
+def _parse_optional_nonnegative_finite_float(
+    data: dict[str, str], key: str
+) -> float | None:
+    if key not in data:
+        return None
+    return _parse_nonnegative_finite_float(data[key], key=key)
 
 
 def _parse_optional_bool(data: dict[str, str], key: str) -> bool | None:

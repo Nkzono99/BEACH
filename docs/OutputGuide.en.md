@@ -52,7 +52,7 @@ tolerance. A cold run builds once on the root rank; a warm run reports a cache
 hit and zero builds. The regenerable operator payload is not stored in the
 checkpoint itself.
 
-With particle transfer enabled, `interface_outward_gross_C` and `interface_returned_gross_C` in `charge_ledger.csv` record gross crossings and are not added twice to the conservation residual. `max_outer_flight_time_s` and `max_outer_frozen_field_ratio` in `summary.txt` are run maxima.
+With particle transfer enabled, `interface_outward_gross_C` and `interface_returned_gross_C` in `charge_ledger.csv` record gross crossings and are not added twice to the conservation residual. `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, and `max_outer_energy_relative_error` in `summary.txt` are MPI-global run maxima.
 
 | Item | Meaning |
 | --- | --- |

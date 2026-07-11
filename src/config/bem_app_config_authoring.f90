@@ -62,6 +62,9 @@ module bem_app_config_authoring
     integer(i32) :: outer_update_stride = 1_i32
     real(dp) :: field_evolution_timescale = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.1_dp
+    real(dp) :: outer_orbit_dt = 0.0_dp
+    integer(i32) :: outer_orbit_max_steps = 100000_i32
+    real(dp) :: outer_orbit_energy_tolerance = 1.0e-4_dp
     logical :: outer_queue_enabled = .false.
   end type coupling_authoring_spec
 

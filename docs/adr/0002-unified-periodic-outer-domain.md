@@ -1,6 +1,6 @@
 # ADR 0002: unified periodic outer domain と handoff-only interface
 
-- Status: accepted for Phase 8
+- Status: accepted for Phase 8 field domain and Phase 9 explicit orbit
 - Date: 2026-07-11
 
 ## Context
@@ -69,12 +69,17 @@ mode 間 nonlinear coupling が必要な場合は `not_applicable` とし、1D c
 
 ### Outer orbit
 
-個別 outer orbit を追跡する場合は、zero mode と継続した nonzero tail の全 3D electric field を
-使う。Phase-mixed statistical transfer を使う場合は、handoff 面で横位相を一様化し、mode ごとの
+`electrostatic_3d_explicit_orbit` は、zero mode と継続した nonzero tail の全 3D electric field を
+固定刻み velocity-Verlet で追跡する。ownership 面へ戻れば periodic x/y を wrap して local stepper
+へ返し、unified grid 上端の far plane を外向きに横切れば infinity escape とする。全エネルギーの
+相対誤差、outer flight time、frozen-field ratio を実測し、設定上限を超えた場合は停止する。
+`max_steps` 到達粒子は discard せず、persistent queue が必要な未解決状態として停止する。
+外部領域の `B0` を無視できる定量条件は未決のため、この mode は `B0=0` だけを受理する。
+
+Phase-mixed statistical transfer を使う場合は、handoff 面で横位相を一様化し、mode ごとの
 ponderomotive correction を無視できる linearity bound を要求する。両方式を同じ粒子へ重複適用
-しない。Phase 8 の field-domain 実装は粒子 transfer を `none` に限定する。flux、lateral return
-shift、MPI/OpenMP ensemble invariance の oracle がそろうまで、phase mixing を擬似乱数だけで
-代用せず fail-closed とする。
+しない。statistical return は着地点分布と遅延が未仕様なので、擬似乱数だけで代用せず
+fail-closed とする。
 
 ## Failure policy
 

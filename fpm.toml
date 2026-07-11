@@ -172,6 +172,11 @@ source-dir = "tests/fortran"
 main = "test_outer_plasma_interface.f90"
 
 [[test]]
+name = "test_outer_plasma_orbit"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_orbit.f90"
+
+[[test]]
 name = "test_outer_plasma_photoelectron"
 source-dir = "tests/fortran"
 main = "test_outer_plasma_photoelectron.f90"

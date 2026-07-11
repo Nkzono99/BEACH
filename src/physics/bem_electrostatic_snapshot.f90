@@ -49,6 +49,7 @@ module bem_electrostatic_snapshot
     integer(i32) :: last_outer_update_batch = -1_i32
     real(dp) :: max_outer_flight_time = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.0_dp
+    real(dp) :: max_outer_energy_relative_error = 0.0_dp
     logical :: periodic_cache_hit = .false.
     integer(i32) :: periodic_operator_build_count = 0_i32
     character(len=128) :: periodic_cache_fingerprint = ''

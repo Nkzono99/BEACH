@@ -26,13 +26,15 @@ contains
   real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
   real(dp), allocatable :: interface_outward_thread(:, :), interface_returned_thread(:, :)
   real(dp), allocatable :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
+  real(dp), allocatable :: interface_energy_error_max_thread(:)
   type(photoelectron_histogram_type), allocatable :: photoelectron_histogram_thread(:)
   type(photoelectron_histogram_type) :: photoelectron_batch_histogram
   logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
   integer(i32) :: batch_counts(5)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
-  real(dp) :: max_outer_flight_time, max_frozen_field_ratio
+  real(dp) :: max_outer_flight_time, max_frozen_field_ratio, max_outer_energy_relative_error
+  real(dp) :: outer_max_diagnostics(3)
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
@@ -64,9 +66,11 @@ contains
   allocate (dq_thread(mesh%nelem, nth), dq(mesh%nelem), photo_emission_dq(mesh%nelem))
   allocate (interface_outward_thread(app%n_particle_species, nth))
   allocate (interface_returned_thread(app%n_particle_species, nth))
-  allocate (interface_tau_max_thread(nth), interface_frozen_ratio_max_thread(nth))
+  allocate (interface_tau_max_thread(nth), interface_frozen_ratio_max_thread(nth), &
+            interface_energy_error_max_thread(nth))
   max_outer_flight_time = 0.0_dp
   max_frozen_field_ratio = 0.0_dp
+  max_outer_energy_relative_error = 0.0_dp
   photoelectron_histogram_enabled = present(photoelectron_state) .and. &
                                     trim(lower_ascii(app%outer_plasma%photoelectron_closure)) == 'individual_return'
   if (photoelectron_histogram_enabled) then
@@ -170,18 +174,20 @@ contains
         mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
         interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
         collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
-        interface_frozen_ratio_max_thread, photoelectron_histogram_thread &
+        interface_frozen_ratio_max_thread, interface_energy_error_max_thread, photoelectron_histogram_thread &
         )
     else
       call process_particle_batch( &
         mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
         interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
         collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
-        interface_frozen_ratio_max_thread &
+        interface_frozen_ratio_max_thread, interface_energy_error_max_thread &
         )
     end if
     max_outer_flight_time = max(max_outer_flight_time, maxval(interface_tau_max_thread))
     max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(interface_frozen_ratio_max_thread))
+    max_outer_energy_relative_error = &
+      max(max_outer_energy_relative_error, maxval(interface_energy_error_max_thread))
     call perf_region_end(perf_region_particle_batch, t0)
 
     collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
@@ -283,9 +289,12 @@ contains
       call snapshot%refresh(mesh, update_outer=.false.)
     end if
     call snapshot%get_diagnostics(electrostatic_diagnostics)
+    outer_max_diagnostics = [max_outer_flight_time, max_frozen_field_ratio, max_outer_energy_relative_error]
+    call mpi_allreduce_max_real_dp_array(mpi_ctx, outer_max_diagnostics)
     electrostatic_diagnostics%last_outer_update_batch = outer_coupler%last_outer_update_batch
-    electrostatic_diagnostics%max_outer_flight_time = max_outer_flight_time
-    electrostatic_diagnostics%max_frozen_field_ratio = max_frozen_field_ratio
+    electrostatic_diagnostics%max_outer_flight_time = outer_max_diagnostics(1)
+    electrostatic_diagnostics%max_frozen_field_ratio = outer_max_diagnostics(2)
+    electrostatic_diagnostics%max_outer_energy_relative_error = outer_max_diagnostics(3)
   end if
   if (present(electrostatic_restart_state)) then
     call snapshot%export_restart_state(outer_coupler%last_outer_update_batch, electrostatic_restart_state)
@@ -363,13 +372,17 @@ contains
   interface_returned_thread = 0.0_dp
   interface_tau_max_thread = 0.0_dp
   interface_frozen_ratio_max_thread = 0.0_dp
-  interface_active = trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return'
+  interface_energy_error_max_thread = 0.0_dp
+  interface_active = &
+    trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .or. &
+    trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_3d_explicit_orbit'
   photoelectron_histogram_enabled = present(photoelectron_histogram_thread)
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth,interface_active) &
   !$omp shared(interface_outward_thread,interface_returned_thread) &
   !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread) &
+  !$omp shared(interface_energy_error_max_thread) &
   !$omp shared(photoelectron_histogram_thread,photoelectron_histogram_enabled) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
@@ -442,13 +455,22 @@ contains
               )
           end if
           interface_outward_thread(species_idx, tid) = interface_outward_thread(species_idx, tid) + qdep
-          call map_outer_particle_linear_debye( &
-            snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
-            step_result%interface_crossing, app%coupling%field_evolution_timescale, &
-            app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
-            )
+          if (trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_3d_explicit_orbit') then
+            call trace_unified_outer_particle( &
+              snapshot, mesh, app%sim, app%outer_plasma, app%coupling, pcls_batch%q(i), pcls_batch%m(i), &
+              step_result%interface_crossing, interface_outcome &
+              )
+          else
+            call map_outer_particle_linear_debye( &
+              snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
+              step_result%interface_crossing, app%coupling%field_evolution_timescale, &
+              app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
+              )
+          end if
           select case (interface_outcome%kind)
           case (interface_outcome_returned_local)
+            interface_energy_error_max_thread(tid) = &
+              max(interface_energy_error_max_thread(tid), interface_outcome%energy_relative_error)
             interface_tau_max_thread(tid) = max(interface_tau_max_thread(tid), interface_outcome%outer_flight_time)
             interface_frozen_ratio_max_thread(tid) = &
               max(interface_frozen_ratio_max_thread(tid), interface_outcome%frozen_field_ratio)
@@ -465,6 +487,8 @@ contains
               step_result%interface_crossing%has_crossing = .false.
             end if
           case (interface_outcome_escaped_to_infinity)
+            interface_energy_error_max_thread(tid) = &
+              max(interface_energy_error_max_thread(tid), interface_outcome%energy_relative_error)
             step_result%x = interface_outcome%position
             step_result%v = interface_outcome%velocity
             step_result%escaped_boundary = .true.

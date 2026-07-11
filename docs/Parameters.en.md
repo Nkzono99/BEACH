@@ -354,8 +354,11 @@ the surface projection to the far boundary, including the rough-surface
 plasma-accessible fraction and linear mean-plasma charge. Nonzero modes join a
 `sqrt(k^2+kappa^2)` screened tail just above the highest surface point, so
 `interface_z` is only a particle ownership plane and does not truncate the field.
-The model requires single-valued topography, `triangle_p0`, no photoelectron mean
-closure, and no particle transfer. It fails closed outside the configured linearity
+The model requires single-valued topography, `triangle_p0`, and no photoelectron mean
+closure. Particle transfer may be disabled or use `electrostatic_3d_explicit_orbit`,
+which traces the continued 3D field with a fixed second-order electrostatic step.
+The explicit orbit requires `b0=0`, positive `outer_orbit_dt`, bounded step count,
+and energy/frozen-field error contracts. It fails closed outside the configured linearity
 bound. See `examples/periodic2_unified_linear_response.toml` and
 `docs/adr/0002-unified-periodic-outer-domain.md`.
 `outer_plasma.unified_grid_points` controls this Poisson grid and must be at least 17;
@@ -363,6 +366,7 @@ the default is 129. Production studies should demonstrate refinement of reported
 `outer_plasma.accessible_fraction_tolerance` bounds the maximum accessible-fraction
 change when the rough-surface height samples are doubled along both periodic axes.
 The refined samples are used by the solve, and a violation fails closed during initialization.
+See `examples/periodic2_unified_explicit_orbit.toml` for explicit particle transfer.
 `sim.use_box=true`, exactly two axes are `periodic`, and the remaining axis is
 open. Periodic images are considered not only for field evaluation, but also for
 collision and `photo_raycast` raycasting.

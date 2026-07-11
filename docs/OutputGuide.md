@@ -52,7 +52,7 @@ split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi
 
 `cached_kneq0` では `periodic2_cache_hit`、`periodic2_operator_build_count`、`periodic2_cache_fingerprint`、`periodic2_cache_path`、設定した cache directory と generation tolerance も保存します。cold run は root rank だけが build count 1、warm run は全 rank で cache hit、build count 0 になるのが正常です。operator 本体は再生成可能なので checkpoint には含めません。
 
-particle transfer有効時は`charge_ledger.csv`の`interface_outward_gross_C`と`interface_returned_gross_C`がinterfaceの往復量を表します。これは保存残差へ二重加算しません。`summary.txt`の`max_outer_flight_time_s`と`max_outer_frozen_field_ratio`はrun中の最大値です。
+particle transfer有効時は`charge_ledger.csv`の`interface_outward_gross_C`と`interface_returned_gross_C`がinterfaceの往復量を表します。これは保存残差へ二重加算しません。`summary.txt`の`max_outer_flight_time_s`、`max_outer_frozen_field_ratio`、`max_outer_energy_relative_error`はMPI-globalなrun中の最大値です。
 
 | 項目 | 見方 |
 | --- | --- |

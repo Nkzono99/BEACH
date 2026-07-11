@@ -349,7 +349,7 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 | `outer_plasma.photoelectron_ambient_charge_scale` | 必須 | 線形closure適用性を比較するambient signed-charge scale [C] |
 | `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
 | `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
-| `outer_plasma.return_model` | `none` | `electrostatic_1d_instant_return`で個別粒子を返却 |
+| `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
 
 `outer_plasma.model="kinetic_1d"` は `cached_kneq0` と組み合わせ、z-high の負・正
 `reservoir_face` species をそれぞれ ambient electron/ion の infinity inflow VDF として使う。
@@ -367,17 +367,23 @@ outgoing/returning population を軌道エネルギーで分離する。Layer A 
 Poisson grid を使い、rough surface の plasma-accessible area と線形 mean-plasma 電荷を含める。
 `k!=0` は表面最高点直上から `sqrt(k^2+kappa^2)` で減衰する tail に接続するため、
 `interface_z` は field-domain の切断面ではなく粒子 ownership 面だけになる。single-valued な
-height field、`triangle_p0`、`photoelectron_closure="none"`、particle transfer `none` が必須で、
+height field、`triangle_p0`、`photoelectron_closure="none"` が必須で、particle transfer は
+`none` または `electrostatic_3d_explicit_orbit` を選べる。3D軌道は継続した全電場を使い、
+`B0=0`、固定刻み、energy/frozen-field error contractを必須とする。
 線形性上限を超える場合は fallback せず停止する。検証例は
 `examples/periodic2_unified_linear_response.toml`、詳細は
 `docs/adr/0002-unified-periodic-outer-domain.md` を参照する。
 | `coupling.particle_transfer_mode` | `none` | return modelと同じIDを指定 |
 | `coupling.field_evolution_timescale` | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
 | `coupling.max_frozen_field_ratio` | `0.1` | `tau_outer/field_evolution_timescale`上限 |
+| `coupling.outer_orbit_dt` | `0` | 3D outer orbit固定刻み [s]。3D modeでは正値必須 |
+| `coupling.outer_orbit_max_steps` | `100000` | 3D outer orbit step上限。到達時はdiscardせず停止 |
+| `coupling.outer_orbit_energy_tolerance` | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
 | `coupling.outer_queue_enabled` | `false` | 現在は`true`を拒否 |
 
 完全な例は`examples/periodic2_linear_outer_reference.toml`です。閾値違反時にlegacy modelへfallbackしません。
 粒子移送を含む例は`examples/periodic2_outer_particle_transfer.toml`です。instant returnはz-high、`b0=0`、x/y periodicだけに対応します。
+unified全3D電場での粒子移送例は`examples/periodic2_unified_explicit_orbit.toml`です。
 photoelectronを含む例は`examples/periodic2_photoelectron_individual_return.toml`です。`individual_return`は`electrostatic_1d_instant_return`、`deposit_opposite_charge_on_emit=true`、legacy escape補正なしを必須とします。outgoing histogramはMPI-globalに集計され、前batchと累積値がcheckpointされます。`statistical_return`は未仕様のため拒否され、強い放出条件ではambient-only線形closureを適用外として停止します。
 `sim.use_box=true`、かつ 2 軸だけが `periodic`、残り 1 軸が開放のときに有効です。
 場評価だけでなく、collision と `photo_raycast` の raycast でも periodic image を考慮します。

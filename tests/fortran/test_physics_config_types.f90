@@ -81,6 +81,19 @@ program test_physics_config_types
   outer%return_model = 'electrostatic_1d_instant_return'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'unified linear response must reject scalar instant return')
+
+  coupling%particle_transfer_mode = 'electrostatic_3d_explicit_orbit'
+  coupling%field_evolution_timescale = 1.0_dp
+  coupling%outer_orbit_dt = 1.0e-3_dp
+  coupling%outer_orbit_max_steps = 1000_i32
+  coupling%outer_orbit_energy_tolerance = 1.0e-4_dp
+  outer%return_model = 'electrostatic_3d_explicit_orbit'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'unified explicit 3D outer orbit should be valid')
+  sim%b0(3) = 1.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_unavailable, 'explicit 3D outer orbit must reject nonzero b0')
+  sim%b0 = 0.0_dp
   coupling%particle_transfer_mode = 'none'
   outer%return_model = 'none'
   outer%model = 'kinetic_1d'

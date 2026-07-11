@@ -882,6 +882,61 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "BEACH constraint error: kinetic_mean requires kinetic_1d without individual return."
             )
 
+    return_model = (
+        str(outer_plasma.get("return_model", "none")).strip().lower()
+        if isinstance(outer_plasma, Mapping)
+        else "none"
+    )
+    transfer_mode = (
+        str(coupling.get("particle_transfer_mode", "none")).strip().lower()
+        if isinstance(coupling, Mapping)
+        else "none"
+    )
+    explicit_orbit = "electrostatic_3d_explicit_orbit"
+    if return_model == explicit_orbit or transfer_mode == explicit_orbit:
+        if (
+            not isinstance(outer_plasma, Mapping)
+            or not isinstance(coupling, Mapping)
+            or outer_plasma.get("model") != "unified_linear_response"
+            or return_model != explicit_orbit
+            or transfer_mode != explicit_orbit
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: electrostatic_3d_explicit_orbit requires matching "
+                "unified return and transfer models."
+            )
+        for key in (
+            "field_evolution_timescale",
+            "max_frozen_field_ratio",
+            "outer_orbit_dt",
+            "outer_orbit_energy_tolerance",
+        ):
+            value = coupling.get(key)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: coupling.{key} must be finite and > 0 "
+                    "for electrostatic_3d_explicit_orbit."
+                )
+        max_steps = coupling.get("outer_orbit_max_steps", 100000)
+        if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps < 1:
+            raise ConfigValidationError(
+                "BEACH constraint error: coupling.outer_orbit_max_steps must be >= 1."
+            )
+        b0 = _maybe_vec3(sim.get("b0"), name="sim.b0")
+        if b0 is not None and any(value != 0.0 for value in b0):
+            raise ConfigValidationError(
+                "BEACH constraint error: electrostatic_3d_explicit_orbit requires sim.b0=0."
+            )
+        if coupling.get("outer_queue_enabled", False) is not False:
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue is not available."
+            )
+
     uses_face_sources = False
     has_volume_seed = False
     total_npcls_per_step = 0

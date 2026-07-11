@@ -25,6 +25,7 @@ module bem_interface_types
     real(dp) :: outer_flight_time = 0.0_dp
     real(dp) :: frozen_field_ratio = 0.0_dp
     real(dp) :: normal_energy_residual = 0.0_dp
+    real(dp) :: energy_relative_error = 0.0_dp
     character(len=96) :: message = ''
   end type interface_particle_outcome_type
 

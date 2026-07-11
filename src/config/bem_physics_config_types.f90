@@ -57,6 +57,9 @@ module bem_physics_config_types
     integer(i32) :: outer_update_stride = 1_i32
     real(dp) :: field_evolution_timescale = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.1_dp
+    real(dp) :: outer_orbit_dt = 0.0_dp
+    integer(i32) :: outer_orbit_max_steps = 100000_i32
+    real(dp) :: outer_orbit_energy_tolerance = 1.0e-4_dp
     logical :: outer_queue_enabled = .false.
   end type coupling_config
 
@@ -359,6 +362,9 @@ contains
         call reject(physics_config_unavailable, 'Persistent outer queue is not available yet.', status, message)
         return
       end if
+    case ('electrostatic_3d_explicit_orbit')
+      call validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
+      if (status /= physics_config_ok) return
     case default
       call reject(physics_config_invalid_combination, 'Unknown coupling particle-transfer mode.', status, message)
       return
@@ -394,11 +400,9 @@ contains
       return
     end if
     if (trim(lower_ascii(outer%model)) == 'unified_linear_response' .and. &
-        (trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none' .or. &
-         trim(lower_ascii(outer%return_model)) /= 'none' .or. &
-         trim(lower_ascii(outer%photoelectron_closure)) /= 'none')) then
+        trim(lower_ascii(outer%photoelectron_closure)) /= 'none') then
       call reject(physics_config_unavailable, &
-                  'unified_linear_response currently requires mean-field coupling without particle return.', &
+                  'unified_linear_response does not support a photoelectron mean closure.', &
                   status, message)
       return
     end if
@@ -449,11 +453,17 @@ contains
         )
       return
     end if
-    if (trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none') then
-      call reject(physics_config_unavailable, 'cached_kneq0 outer models do not yet support particle transfer.', &
+    select case (trim(lower_ascii(coupling%particle_transfer_mode)))
+    case ('none')
+      continue
+    case ('electrostatic_3d_explicit_orbit')
+      call validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
+      if (status /= physics_config_ok) return
+    case default
+      call reject(physics_config_unavailable, 'cached_kneq0 does not support the requested particle transfer.', &
                   status, message)
       return
-    end if
+    end select
     select case (trim(lower_ascii(outer%model)))
     case ('none')
       continue
@@ -489,9 +499,10 @@ contains
       end if
       if (trim(lower_ascii(panel%source_model)) /= 'triangle_p0' .or. &
           trim(lower_ascii(outer%photoelectron_closure)) /= 'none' .or. &
-          trim(lower_ascii(outer%return_model)) /= 'none') then
+          (trim(lower_ascii(outer%return_model)) /= 'none' .and. &
+           trim(lower_ascii(outer%return_model)) /= 'electrostatic_3d_explicit_orbit')) then
         call reject(physics_config_unavailable, &
-                    'cached unified_linear_response requires triangle_p0 and mean-field-only coupling.', &
+                    'cached unified_linear_response received an unsupported source or closure.', &
                     status, message)
         return
       end if
@@ -505,6 +516,33 @@ contains
       call reject(physics_config_invalid_combination, 'cached_kneq0 received an unknown source model.', status, message)
     end if
   end subroutine validate_cached_periodic_config
+
+  subroutine validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
+    type(sim_config), intent(in) :: sim
+    type(outer_plasma_config), intent(in) :: outer
+    type(coupling_config), intent(in) :: coupling
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    status = physics_config_ok
+    message = ''
+    if (trim(lower_ascii(outer%model)) /= 'unified_linear_response' .or. &
+        trim(lower_ascii(outer%return_model)) /= 'electrostatic_3d_explicit_orbit' .or. &
+        coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp .or. &
+        coupling%outer_orbit_dt <= 0.0_dp .or. coupling%outer_orbit_max_steps < 1_i32 .or. &
+        coupling%outer_orbit_energy_tolerance <= 0.0_dp) then
+      call reject(physics_config_invalid_combination, 'Invalid electrostatic 3D explicit-orbit coupling.', status, message)
+      return
+    end if
+    if (sim%bc_high(3) /= bc_open .or. any(sim%b0 /= 0.0_dp)) then
+      call reject(physics_config_unavailable, 'Explicit 3D outer orbit requires an open z-high face and b0=0.', &
+                  status, message)
+      return
+    end if
+    if (coupling%outer_queue_enabled) then
+      call reject(physics_config_unavailable, 'Persistent outer queue is not available yet.', status, message)
+    end if
+  end subroutine validate_explicit_3d_orbit_config
 
   pure subroutine reject(code, text, status, message)
     integer(i32), intent(in) :: code

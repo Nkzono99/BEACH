@@ -317,6 +317,8 @@ contains
       write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
       write (u, '(a,es24.16)') 'max_outer_flight_time_s=', electrostatic_diagnostics%max_outer_flight_time
       write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio
+      write (u, '(a,es24.16)') 'max_outer_energy_relative_error=', &
+        electrostatic_diagnostics%max_outer_energy_relative_error
       write (u, '(a,l1)') 'periodic2_cache_hit=', electrostatic_diagnostics%periodic_cache_hit
       write (u, '(a,i0)') 'periodic2_operator_build_count=', &
         electrostatic_diagnostics%periodic_operator_build_count

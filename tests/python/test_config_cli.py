@@ -92,6 +92,18 @@ def test_load_config_file_accepts_individual_photoelectron_split() -> None:
     assert config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] is True
 
 
+def test_load_config_file_accepts_unified_explicit_outer_orbit() -> None:
+    config = load_config_file(Path("examples/periodic2_unified_explicit_orbit.toml"))
+
+    assert config["outer_plasma"]["model"] == "unified_linear_response"
+    assert config["outer_plasma"]["return_model"] == "electrostatic_3d_explicit_orbit"
+    assert config["coupling"]["particle_transfer_mode"] == "electrostatic_3d_explicit_orbit"
+
+    config["coupling"]["outer_orbit_dt"] = 0.0
+    with pytest.raises(ConfigValidationError, match="outer_orbit_dt"):
+        normalize_config_document(config)
+
+
 def test_photoelectron_closure_rejects_statistical_and_nonconserving_modes() -> None:
     config = load_config_file(
         Path("examples/periodic2_photoelectron_individual_return.toml")

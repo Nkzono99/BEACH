@@ -289,3 +289,9 @@ direct 経路は free-space correctness oracle です。FMM 経路は source nod
 ### 2.9 outer particle interface
 
 z-highのbox eventは、face、event fraction、同時刻の位置・速度、remaining `dt`をtyped payloadとしてsimulatorへ返します。linear-Debye instant-return mapは法線エネルギーからescape/turningを判定し、turning軌道の解析flight timeで接線位置を進めます。return後だけ通常stepperへ戻してremaining `dt`を再積分します。interfaceを使わない通常候補では追加探索も追加field評価もありません。
+
+`electrostatic_3d_explicit_orbit` は unified snapshot の全3D電位・電場を使い、外部領域だけを
+固定刻み velocity-Verlet で進めます。ownership面へのreturnとfar planeへのescapeはstep内で線形補間し、
+return後のx/yは周期wrapします。開始・終了の全エネルギー相対差、flight time、frozen-field ratioを
+契約値と比較します。step上限、energy上限、frozen-field上限を超えた軌道は破棄せずfail closedです。
+この経路は境界を横切った粒子だけが呼ぶため、feature disabledの通常粒子fast pathにfield評価を追加しません。

@@ -46,7 +46,7 @@
       "properties": {
         "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]},
         "photoelectron_closure": {"enum": ["none", "individual_return", "kinetic_mean"], "default": "none"},
-        "return_model": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
+        "return_model": {"enum": ["none", "electrostatic_1d_instant_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
         "interface_z": {"type": "number"},
         "infinity_potential": {"type": "number", "default": 0},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
@@ -93,10 +93,13 @@
       "additionalProperties": false,
       "properties": {
         "update_mode": {"const": "explicit", "default": "explicit"},
-        "particle_transfer_mode": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
+        "particle_transfer_mode": {"enum": ["none", "electrostatic_1d_instant_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
         "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
         "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
         "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
+        "outer_orbit_dt": {"type": "number", "minimum": 0, "default": 0},
+        "outer_orbit_max_steps": {"type": "integer", "minimum": 1, "default": 100000},
+        "outer_orbit_energy_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.0001},
         "outer_queue_enabled": {"const": false, "default": false}
       }
     },

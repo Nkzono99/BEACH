@@ -3,7 +3,10 @@ program test_electrostatic_unified
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, &
-                                      panel_kernel_config, outer_plasma_config
+                                      panel_kernel_config, outer_plasma_config, coupling_config
+  use bem_interface_types, only: interface_crossing_type, interface_particle_outcome_type, &
+                                 interface_outcome_escaped_to_infinity
+  use bem_outer_plasma_orbit, only: trace_unified_outer_particle
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type, &
                                         electrostatic_restart_state_type
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, &
@@ -19,11 +22,14 @@ program test_electrostatic_unified
   type(electrostatic_snapshot_type) :: snapshot_low, snapshot_high, restarted_snapshot, coarse_snapshot
   type(electrostatic_diagnostics_type) :: diagnostics
   type(electrostatic_restart_state_type) :: restart_state
+  type(coupling_config) :: coupling
+  type(interface_crossing_type) :: crossing
+  type(interface_particle_outcome_type) :: outcome
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3)
   real(dp) :: field_low(3), field_high(3), potential_low, potential_high
 
   call configure_fixture()
-  call test_init(4)
+  call test_init(5)
 
   call snapshot_low%init(mesh, sim_low, field, periodic, panel, outer_low)
   call snapshot_high%init(mesh, sim_high, field, periodic, panel, outer_high)
@@ -47,6 +53,25 @@ program test_electrostatic_unified
         snapshot_high%unified_options%tail_length), &
     1.0e-14_dp, 'far handoff potential must continue the Robin tail' &
     )
+  call test_end()
+
+  call test_begin('unified_snapshot_drives_explicit_3d_outer_escape')
+  coupling%particle_transfer_mode = 'electrostatic_3d_explicit_orbit'
+  coupling%field_evolution_timescale = 100.0_dp
+  coupling%max_frozen_field_ratio = 1.0_dp
+  coupling%outer_orbit_dt = 0.1_dp
+  coupling%outer_orbit_max_steps = 100_i32
+  coupling%outer_orbit_energy_tolerance = 1.0e-8_dp
+  crossing%has_crossing = .true.
+  crossing%face_index = 6_i32
+  crossing%position = [0.37_dp, 0.61_dp, sim_low%box_max(3)]
+  crossing%velocity = [0.2_dp, 0.1_dp, 1.0_dp]
+  call trace_unified_outer_particle( &
+    snapshot_low, mesh, sim_low, outer_low, coupling, 1.0e-30_dp, 1.0_dp, crossing, outcome &
+    )
+  call assert_true(outcome%kind == interface_outcome_escaped_to_infinity, &
+                   'unified snapshot explicit orbit must reach the far plane')
+  call assert_true(outcome%outer_flight_time > 0.0_dp, 'explicit outer flight time must be recorded')
   call test_end()
 
   call test_begin('rough_unified_grid_refinement_converges')

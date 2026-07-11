@@ -754,6 +754,17 @@ contains
         call get_toml_real( &
           table, keys(ikey), authoring%coupling%max_frozen_field_ratio, 'coupling.max_frozen_field_ratio' &
           )
+      case ('outer_orbit_dt')
+        call get_toml_real(table, keys(ikey), authoring%coupling%outer_orbit_dt, 'coupling.outer_orbit_dt')
+      case ('outer_orbit_max_steps')
+        call get_toml_int( &
+          table, keys(ikey), authoring%coupling%outer_orbit_max_steps, 'coupling.outer_orbit_max_steps' &
+          )
+      case ('outer_orbit_energy_tolerance')
+        call get_toml_real( &
+          table, keys(ikey), authoring%coupling%outer_orbit_energy_tolerance, &
+          'coupling.outer_orbit_energy_tolerance' &
+          )
       case ('outer_queue_enabled')
         call get_toml_logical( &
           table, keys(ikey), authoring%coupling%outer_queue_enabled, 'coupling.outer_queue_enabled' &
@@ -805,6 +816,9 @@ contains
       cfg%coupling%outer_update_stride = authoring%coupling%outer_update_stride
       cfg%coupling%field_evolution_timescale = authoring%coupling%field_evolution_timescale
       cfg%coupling%max_frozen_field_ratio = authoring%coupling%max_frozen_field_ratio
+      cfg%coupling%outer_orbit_dt = authoring%coupling%outer_orbit_dt
+      cfg%coupling%outer_orbit_max_steps = authoring%coupling%outer_orbit_max_steps
+      cfg%coupling%outer_orbit_energy_tolerance = authoring%coupling%outer_orbit_energy_tolerance
       cfg%coupling%outer_queue_enabled = authoring%coupling%outer_queue_enabled
     end if
     call validate_active_physics_config( &

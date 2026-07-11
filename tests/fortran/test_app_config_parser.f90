@@ -173,6 +173,12 @@ program test_app_config_parser
   call assert_close_dp( &
     split_cfg%coupling%field_evolution_timescale, 2.0_dp, 1.0e-15_dp, 'split field timescale mismatch' &
     )
+  call assert_close_dp(split_cfg%coupling%outer_orbit_dt, 0.01_dp, 1.0e-15_dp, 'outer orbit dt mismatch')
+  call assert_equal_i32(split_cfg%coupling%outer_orbit_max_steps, 400_i32, 'outer orbit max steps mismatch')
+  call assert_close_dp( &
+    split_cfg%coupling%outer_orbit_energy_tolerance, 2.0e-4_dp, 1.0e-15_dp, &
+    'outer orbit energy tolerance mismatch' &
+    )
   call test_end()
 
   call test_begin('triangle_panel_config')
@@ -867,6 +873,9 @@ contains
     write (u, '(a)') 'outer_update_stride = 1'
     write (u, '(a)') 'field_evolution_timescale = 2.0'
     write (u, '(a)') 'max_frozen_field_ratio = 0.1'
+    write (u, '(a)') 'outer_orbit_dt = 0.01'
+    write (u, '(a)') 'outer_orbit_max_steps = 400'
+    write (u, '(a)') 'outer_orbit_energy_tolerance = 2.0e-4'
     write (u, '(a)') 'outer_queue_enabled = false'
     write (u, '(a)') '[particles]'
     write (u, '(a)') '[[particles.species]]'
