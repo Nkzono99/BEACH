@@ -365,27 +365,26 @@ def test_config_cli_init_validate_and_diff(
     assert "status=ok" in validate_streams.out
 
     initialized = load_config_file(tmp_path / "beach.toml")
-    photo_species = initialized["particles"]["species"][2]
-    assert photo_species["source_mode"] == "photo_raycast"
-    assert photo_species["emit_current_density_a_m2"] == 2.0e-4
-    assert photo_species["rays_per_batch"] == 20
-    assert photo_species["deposit_opposite_charge_on_emit"] is True
-    assert photo_species["temperature_ev"] == 1.5
-    assert photo_species["inject_face"] == "z_high"
-    assert photo_species["pos_low"] == [0.0, 0.0, 10.0]
-    assert photo_species["pos_high"] == [1.0, 1.0, 10.0]
-    assert photo_species["ray_direction"] == [0.0, 0.0, -1.0]
+    assert initialized["sim"]["field_solver"] == "direct"
+    assert initialized["sim"]["field_bc_mode"] == "free"
+    assert len(initialized["particles"]["species"]) == 1
+    species = initialized["particles"]["species"][0]
+    assert species["source_mode"] == "volume_seed"
+    assert species["npcls_per_step"] == 1
+    assert species["pos_low"] == [0.5, 0.5, 0.8]
+    assert species["pos_high"] == [0.5, 0.5, 0.8]
+    assert species["drift_velocity"] == [0.0, 0.0, -1.0e6]
 
     modified = tmp_path / "modified.toml"
     modified.write_text(
         (tmp_path / "beach.toml").read_text(encoding="utf-8").replace(
-            "batch_count = 100", "batch_count = 101"
+            "batch_count = 1", "batch_count = 2"
         ),
         encoding="utf-8",
     )
     beachx_main(["config", "diff", "beach.toml", str(modified)])
     diff_streams = capsys.readouterr()
-    assert "sim.batch_count: 100 -> 101" in diff_streams.out
+    assert "sim.batch_count: 1 -> 2" in diff_streams.out
 
 
 def test_lint_cli_accepts_valid_config(

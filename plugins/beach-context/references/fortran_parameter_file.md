@@ -22,26 +22,6 @@ Fortran parser が解決する高水準記法は [Configuration](Configuration.h
 
 ---
 
-## 目次
-
-- [入力パラメータリファレンス](#入力パラメータリファレンス)
-  - [目次](#目次)
-  - [読み込みルール](#読み込みルール)
-  - [単位と座標](#単位と座標)
-  - [最小例](#最小例)
-  - [セクション一覧](#セクション一覧)
-  - [パラメータ詳細リファレンス](#パラメータ詳細リファレンス)
-    - [`[sim]`: 実行制御と場計算](#sim-実行制御と場計算)
-    - [`[[particles.species]]`: 粒子種](#particlesspecies-粒子種)
-    - [`sim.sheath_injection_model`: シース流入補正](#simsheath_injection_model-シース流入補正)
-    - [`[mesh]`: メッシュ入力](#mesh-メッシュ入力)
-    - [`[[mesh.templates]]`: 組み込み形状](#meshtemplates-組み込み形状)
-    - [`[output]`: 出力と再開](#output-出力と再開)
-  - [高水準記法との関係](#高水準記法との関係)
-  - [検証ルール](#検証ルール)
-
----
-
 ## 読み込みルール
 
 | 項目 | 仕様 |
@@ -92,73 +72,14 @@ GitHub Raw URL を指定することもできます。
 
 ---
 
-## 最小例
+## 公式入門ケース
 
-初見では、物理流入を直接指定できる `source_mode = "reservoir_face"` を推奨します。
+最初の実行には [10分チュートリアル](Tutorial.html) と
+`examples/tutorial_insulator.toml` を使ってください。`beachx config init`
+も同一の設定を生成します。
 
-```toml
-[sim]
-dt = 2.0e-8
-batch_duration_step = 60000.0
-batch_count = 100
-max_step = 10000
-softening = 1.0e-6
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 10.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
-rng_seed = 12345
-field_solver = "fmm"
-field_bc_mode = "periodic2"
-field_periodic_far_correction = "none"
-
-[[particles.species]]
-source_mode = "reservoir_face"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-target_macro_particles_per_batch = 5000
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 10.0]
-pos_high = [1.0, 1.0, 10.0]
-drift_velocity = [0.0, 0.0, -4.0e5]
-
-[[particles.species]]
-source_mode = "reservoir_face"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = 1.602176634e-19
-m_particle = 1.672482821616e-27
-target_macro_particles_per_batch = -1
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 10.0]
-pos_high = [1.0, 1.0, 10.0]
-drift_velocity = [0.0, 0.0, -4.0e5]
-
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-size_x = 1.0
-size_y = 1.0
-nx = 20
-ny = 20
-center = [0.5, 0.5, 0.02]
-
-[output]
-write_files = true
-write_mesh_potential = false
-dir = "outputs/latest"
-history_stride = 1
-```
+`reservoir_face`、FMM、`periodic2` は、そのケースが実行できた後に
+[設定レシピ](ConfigurationRecipes.html) から追加する応用設定です。
 
 ---
 
