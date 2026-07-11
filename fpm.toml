@@ -132,6 +132,16 @@ source-dir = "tests/fortran"
 main = "test_outer_plasma_kinetic_runtime.f90"
 
 [[test]]
+name = "test_outer_plasma_local_mean"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_local_mean.f90"
+
+[[test]]
+name = "test_periodic2_nonzero_tail"
+source-dir = "tests/fortran"
+main = "test_periodic2_nonzero_tail.f90"
+
+[[test]]
 name = "test_periodic_nonzero_reference"
 source-dir = "tests/fortran"
 main = "test_periodic_nonzero_reference.f90"
