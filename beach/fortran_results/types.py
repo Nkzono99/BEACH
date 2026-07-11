@@ -303,6 +303,11 @@ class FortranRunResult:
     charge_ledger: tuple[ChargeLedgerEntry, ...] | None = None
     field_source_model: str = "point"
     field_kernel_id: str | None = None
+    periodic2_cache_hit: bool | None = None
+    periodic2_operator_build_count: int | None = None
+    periodic2_cache_fingerprint: str | None = None
+    periodic2_cache_path: str | None = None
+    periodic2_generation_tolerance: float | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

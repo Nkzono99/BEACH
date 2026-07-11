@@ -36,15 +36,18 @@ injection_face_phi_grid_n = 3
 # sheath_ion_drift_mode = "normal"
 # 注意: 現状は sheath_injection_model と reservoir_potential_model を同時に使えません。
 # periodic2 + fmm 有効時、field_periodic_far_correction の選択肢:
-#   "none"            — 遠方補正なし（既定、通常運用向け）
+#   "none"            — 有限 image shell のみ（既定、無限周期解ではない）
 #   "auto"            — 互換用 alias。現在は "none" と同じ
 #   "m2l_root_oracle" — Ewald residual を build-time fit（高コスト診断用）
+#   "cached_kneq0"    — versioned 非零モード operator（production 無限周期用）
 # field_solver = "fmm"
 # field_bc_mode = "periodic2"
 # field_periodic_image_layers = 1
 # field_periodic_far_correction = "none"
 # field_periodic_ewald_alpha = 0.0
 # field_periodic_ewald_layers = 4
+# field_periodic_cache_dir = ".beach_cache/periodic2"
+# field_periodic_generation_tolerance = 1.0e-8
 
 [particles]
 [[particles.species]]

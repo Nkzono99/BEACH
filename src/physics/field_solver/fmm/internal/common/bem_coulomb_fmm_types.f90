@@ -2,6 +2,7 @@
 module bem_coulomb_fmm_types
   use bem_kinds, only: dp, i32
   use bem_panel_geometry, only: panel_geometry_type
+  use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type
   implicit none
   private
 
@@ -28,6 +29,8 @@ module bem_coulomb_fmm_types
     integer(i32) :: periodic_image_layers = 1_i32
     real(dp) :: periodic_ewald_alpha = 0.0d0
     integer(i32) :: periodic_ewald_layers = 4_i32
+    character(len=256) :: periodic_cache_dir = '.beach_cache/periodic2'
+    real(dp) :: periodic_generation_tolerance = 1.0d-8
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
   end type fmm_options_type
@@ -126,6 +129,13 @@ module bem_coulomb_fmm_types
     integer(i32) :: periodic_root_target_count = 0_i32
     integer(i32), allocatable :: periodic_root_target_nodes(:)
     real(dp), allocatable :: periodic_root_operator(:, :, :)
+    logical :: periodic_cache_hit = .false.
+    integer(i32) :: periodic_operator_build_count = 0_i32
+    character(len=16) :: periodic_cache_fingerprint = ''
+    character(len=512) :: periodic_cache_path = ''
+    logical :: periodic_k0_ready = .false.
+    integer(i32) :: periodic_k0_free_axis = 0_i32
+    type(periodic_zero_mode_plan_type) :: periodic_k0_plan
     real(dp), allocatable :: m2l_deriv(:, :)
     real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
@@ -140,6 +150,7 @@ module bem_coulomb_fmm_types
     real(dp), pointer :: local(:, :) => null()
     integer(i32), pointer :: multipole_active(:) => null()
     integer(i32), pointer :: local_active(:) => null()
+    type(periodic_zero_mode_state_type) :: periodic_k0_state
   end type fmm_state_type
 
 contains
@@ -273,6 +284,17 @@ contains
     plan%m2l_visit_count = 0_i32
     plan%periodic_root_operator_ready = .false.
     plan%periodic_root_target_count = 0_i32
+    plan%periodic_cache_hit = .false.
+    plan%periodic_operator_build_count = 0_i32
+    plan%periodic_cache_fingerprint = ''
+    plan%periodic_cache_path = ''
+    plan%periodic_k0_ready = .false.
+    plan%periodic_k0_free_axis = 0_i32
+    if (allocated(plan%periodic_k0_plan%break_z)) deallocate (plan%periodic_k0_plan%break_z)
+    if (allocated(plan%periodic_k0_plan%panel)) deallocate (plan%periodic_k0_plan%panel)
+    plan%periodic_k0_plan%nelem = 0_i32
+    plan%periodic_k0_plan%nbreak = 0_i32
+    plan%periodic_k0_plan%area_xy = 0.0_dp
   end subroutine reset_fmm_plan
 
   !> FMM state のポインタ成分を未関連状態へ初期化する。
@@ -287,6 +309,15 @@ contains
     nullify (state%local_active)
     state%ready = .false.
     state%update_count = 0_i32
+    if (allocated(state%periodic_k0_state%cumulative_charge_coeff)) then
+      deallocate (state%periodic_k0_state%cumulative_charge_coeff)
+    end if
+    if (allocated(state%periodic_k0_state%primitive_at_break)) deallocate (state%periodic_k0_state%primitive_at_break)
+    if (allocated(state%periodic_k0_state%sheet_charge)) deallocate (state%periodic_k0_state%sheet_charge)
+    state%periodic_k0_state%e_bottom = 0.0_dp
+    state%periodic_k0_state%z_gauge = 0.0_dp
+    state%periodic_k0_state%phi_gauge = 0.0_dp
+    state%periodic_k0_state%total_charge = 0.0_dp
   end subroutine initialize_fmm_state
 
   !> FMM state を初期状態へ戻す。

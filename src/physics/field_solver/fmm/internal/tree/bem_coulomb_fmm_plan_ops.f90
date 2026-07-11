@@ -4,10 +4,12 @@ module bem_coulomb_fmm_plan_ops
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
   use bem_coulomb_fmm_periodic, only: has_valid_target_box, build_periodic_shift_values, distance_to_source_bbox, &
-                                      distance_to_source_bbox_periodic, wrap_src_pos_to_primary_cell
+                                      distance_to_source_bbox_periodic, wrap_src_pos_to_primary_cell, &
+                                      use_periodic2_cached_kneq0
   use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data
   use bem_coulomb_fmm_periodic_root_ops, only: precompute_periodic_root_operator
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
+  use bem_periodic_zero_mode_plan, only: build_periodic_zero_mode_height_plan, periodic_zero_mode_ok
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_node_center, active_tree_node_radius, append_i32_buffer, &
                                         nodes_well_separated
@@ -51,9 +53,10 @@ contains
     real(dp), intent(in) :: src_pos(:, :)
     type(fmm_options_type), intent(in) :: options
     real(dp), intent(in), optional :: v0(:, :), v1(:, :), v2(:, :)
-    integer(i32) :: nsrc, idx, panel_status
-    real(dp), allocatable :: original_centroid(:, :)
+    integer(i32) :: nsrc, idx, panel_status, zero_status, free_axis
+    real(dp), allocatable :: original_centroid(:, :), source_heights(:, :)
     real(dp) :: shift(3), shifted_vertex(3, 3)
+    character(len=256) :: zero_message
 
     if (allocated(plan%alpha) .or. allocated(plan%src_pos) .or. allocated(plan%elem_order)) then
       call core_destroy_plan_impl(plan)
@@ -85,12 +88,22 @@ contains
         continue
       case ('m2l_root_oracle')
         continue
+      case ('cached_kneq0')
+        continue
       case default
         error stop 'Unsupported periodic far correction in FMM core.'
       end select
-      if (trim(plan%options%periodic_far_correction) == 'm2l_root_oracle') then
+      if (trim(plan%options%periodic_far_correction) == 'm2l_root_oracle' .or. &
+          trim(plan%options%periodic_far_correction) == 'cached_kneq0') then
         if (plan%options%periodic_ewald_layers < 1_i32) then
           error stop 'periodic2 root-operator far correction requires periodic_ewald_layers >= 1.'
+        end if
+      end if
+      if (trim(plan%options%periodic_far_correction) == 'cached_kneq0') then
+        if (plan%options%periodic_image_layers < 1_i32) error stop 'cached_kneq0 requires at least one image layer.'
+        if (len_trim(plan%options%periodic_cache_dir) == 0) error stop 'cached_kneq0 requires a cache directory.'
+        if (plan%options%periodic_generation_tolerance <= 0.0_dp) then
+          error stop 'cached_kneq0 requires a positive generation tolerance.'
         end if
       end if
     end if
@@ -120,6 +133,25 @@ contains
         if (panel_status /= panel_geometry_ok) error stop 'Periodic wrapping produced an invalid FMM panel source.'
       end do
       deallocate (original_centroid)
+    end if
+
+    if (use_periodic2_cached_kneq0(plan)) then
+      free_axis = 6_i32 - sum(plan%options%periodic_axes)
+      allocate (source_heights(3, nsrc))
+      do idx = 1_i32, nsrc
+        if (plan%panel_source) then
+          source_heights(:, idx) = plan%panel_geometry(idx)%vertex(free_axis, :)
+        else
+          source_heights(:, idx) = plan%src_pos(free_axis, idx)
+        end if
+      end do
+      call build_periodic_zero_mode_height_plan( &
+        source_heights, product(plan%options%periodic_len), plan%periodic_k0_plan, zero_status, zero_message &
+        )
+      if (zero_status /= periodic_zero_mode_ok) error stop 'cached periodic k0 plan: '//trim(zero_message)
+      plan%periodic_k0_free_axis = free_axis
+      plan%periodic_k0_ready = .true.
+      deallocate (source_heights)
     end if
 
     call initialize_basis_tables(plan, options%order)

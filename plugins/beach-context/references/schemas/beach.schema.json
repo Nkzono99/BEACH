@@ -431,10 +431,11 @@
           "enum": [
             "auto",
             "none",
-            "m2l_root_oracle"
+            "m2l_root_oracle",
+            "cached_kneq0"
           ],
           "default": "none",
-          "description": "Far-field correction mode for periodic2. auto is accepted as a compatibility alias for none; m2l_root_oracle is an explicit high-cost diagnostic mode."
+          "description": "Far-field correction mode for periodic2. cached_kneq0 reuses a versioned nonzero-mode operator; m2l_root_oracle is a high-cost diagnostic mode."
         },
         "field_periodic_ewald_alpha": {
           "type": "number",
@@ -447,6 +448,18 @@
           "minimum": 0,
           "default": 4,
           "description": "Ewald real-space/reciprocal shell depth for the explicit m2l_root_oracle build-time oracle."
+        },
+        "field_periodic_cache_dir": {
+          "type": "string",
+          "minLength": 1,
+          "default": ".beach_cache/periodic2",
+          "description": "Directory for versioned cached_kneq0 operators."
+        },
+        "field_periodic_generation_tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0e-8,
+          "description": "Generation tolerance included in the periodic operator cache identity."
         },
         "tree_theta": {
           "type": "number",
@@ -755,6 +768,30 @@
               "field_periodic_ewald_layers": {
                 "minimum": 1
               }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "field_periodic_far_correction": {
+                "const": "cached_kneq0"
+              }
+            },
+            "required": [
+              "field_periodic_far_correction"
+            ]
+          },
+          "then": {
+            "required": [
+              "field_solver",
+              "field_bc_mode"
+            ],
+            "properties": {
+              "field_solver": {"const": "fmm"},
+              "field_bc_mode": {"const": "periodic2"},
+              "field_periodic_image_layers": {"minimum": 1},
+              "field_periodic_ewald_layers": {"minimum": 1}
             }
           }
         },

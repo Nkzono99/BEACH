@@ -277,9 +277,11 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `tree_leaf_max` | int | `16` | source tree の葉 node あたり最大 source 数。`>= 1` |
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
-| `field_periodic_far_correction` | string | `"none"` | `periodic2` の遠方補正。`none` / `auto` / `m2l_root_oracle` |
-| `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用 Ewald 分解パラメータ |
-| `field_periodic_ewald_layers` | int | `4` | Ewald oracle の real-space outer shell / reciprocal cutoff 深さ |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / 診断用 `m2l_root_oracle` / production `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | operator generator / oracle の Ewald 分解パラメータ |
+| `field_periodic_ewald_layers` | int | `4` | Ewald generator の real-space / reciprocal cutoff 深さ |
+| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
+| `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
 
 `field_periodic_*` は `field_bc_mode="periodic2"` のときだけ意味を持ちます。
 `tree_min_nelem` は明示 `fmm` では使いません。
@@ -315,9 +317,11 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 |---|---|---:|---|
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `m2l_root_oracle` |
-| `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用 Ewald 分解パラメータ |
-| `field_periodic_ewald_layers` | int | `4` | Ewald oracle の outer shell / reciprocal cutoff 深さ |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `m2l_root_oracle` / `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | operator generator / oracle の Ewald 分解パラメータ |
+| `field_periodic_ewald_layers` | int | `4` | Ewald generator の outer shell / reciprocal cutoff 深さ |
+| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
+| `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
 
 legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用のsplit referenceだけは、`field_solver="direct"`と以下の3 tableを明示します。
 
@@ -357,6 +361,7 @@ photoelectronを含む例は`examples/periodic2_photoelectron_individual_return.
 
 `field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
 `m2l_root_oracle` は build 時の診断用で、exact periodic Ewald residual を root operator に fit する高コストモードです。
+`cached_kneq0` は production 非零モード backend です。初回の cache miss 時だけ Ewald reference から versioned operator を生成し、以後は検証済み cache を再利用します。物理的な `k=0` は `exclude_k0` / `e_bottom_zero` provider が別に一度だけ加えます。
 
 #### 外部場
 
@@ -812,7 +817,7 @@ z 軸方向の円柱です。
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。
 自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。
 `periodic2` では explicit image shell を加えます。
-`field_periodic_far_correction="m2l_root_oracle"` のときだけ exact Ewald residual も加えます。
+`m2l_root_oracle` では診断用 Ewald residual、`cached_kneq0` では cached 非零モードと境界条件付き `k=0` を同じ snapshot から加えます。
 
 `potential_history.csv` は `charge_history.csv` と同じ `history_stride` で要素ごとの電位を記録します。
 形式は `batch, elem_idx, potential_V` です。

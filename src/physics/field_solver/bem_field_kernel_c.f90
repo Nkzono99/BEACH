@@ -139,6 +139,8 @@ contains
         options%periodic_far_correction = 'none'
       case (2_c_int)
         options%periodic_far_correction = 'm2l_root_oracle'
+      case (3_c_int)
+        options%periodic_far_correction = 'cached_kneq0'
       case default
         status = beach_kernel_invalid_argument
         return
@@ -212,6 +214,8 @@ contains
       select case (far_correction)
       case (0_c_int, 1_c_int)
         options%periodic_far_correction = 'none'
+      case (3_c_int)
+        options%periodic_far_correction = 'cached_kneq0'
       case default
         status = beach_kernel_invalid_argument
         return

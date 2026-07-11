@@ -1,10 +1,18 @@
 !> periodic2 root operator の前計算。
 module bem_coulomb_fmm_periodic_root_ops
+  use bem_version, only: beach_version
   use bem_kinds, only: dp, i32
+  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_bcast_i32_array, &
+                     mpi_bcast_real_dp_array
+  use bem_filesystem, only: create_directories, filesystem_success, acquire_file_lock, release_file_lock
   use bem_coulomb_fmm_types, only: fmm_plan_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
-  use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle
-  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_single_source
+  use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle, use_periodic2_cached_kneq0, &
+                                      use_periodic2_root_operator
+  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_single_source, &
+                                            add_periodic2_exact_ewald_potential_correction_single_source
+  use bem_coulomb_fmm_periodic_cache, only: read_periodic_operator_cache, write_periodic_operator_cache, &
+                                            periodic_cache_fingerprint, periodic_cache_ok
   use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_child_count, &
                                         active_tree_child_idx, active_tree_node_center, active_tree_node_half_size
   implicit none
@@ -27,13 +35,51 @@ contains
   !! @param[inout] plan FMM 計画。
   subroutine precompute_periodic_root_operator(plan)
     type(fmm_plan_type), intent(inout) :: plan
+    type(mpi_context) :: mpi
+    integer(i32) :: header(4)
+    real(dp), allocatable :: flat_operator(:)
 
     if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
     plan%periodic_root_operator_ready = .false.
     plan%periodic_root_target_count = 0_i32
 
-    if (use_periodic2_m2l_root_oracle(plan)) then
+    plan%periodic_cache_hit = .false.
+    plan%periodic_cache_fingerprint = ''
+    plan%periodic_cache_path = ''
+    if (use_periodic2_cached_kneq0(plan)) then
+      call mpi_initialize(mpi)
+      if (mpi_is_root(mpi)) call precompute_periodic_root_oracle_operator(plan)
+      header = 0_i32
+      if (mpi_is_root(mpi)) then
+        header = [ &
+                 merge(1_i32, 0_i32, plan%periodic_root_operator_ready), plan%periodic_root_target_count, &
+                 merge(1_i32, 0_i32, plan%periodic_cache_hit), plan%periodic_operator_build_count &
+                 ]
+      end if
+      call mpi_bcast_i32_array(mpi, header, 0_i32)
+      if (header(1) /= 1_i32 .or. header(2) <= 0_i32) error stop 'MPI root failed to prepare cached periodic operator.'
+      if (.not. mpi_is_root(mpi)) then
+        plan%periodic_root_target_count = header(2)
+        allocate (plan%periodic_root_target_nodes(header(2)))
+        allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, header(2)))
+      end if
+      call mpi_bcast_i32_array(mpi, plan%periodic_root_target_nodes, 0_i32)
+      allocate (flat_operator(size(plan%periodic_root_operator)))
+      if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
+      call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
+      if (.not. mpi_is_root(mpi)) then
+        plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
+        plan%periodic_root_operator_ready = .true.
+        plan%periodic_cache_hit = header(3) == 1_i32
+        plan%periodic_operator_build_count = 0_i32
+        call set_cache_identity( &
+          plan, plan%target_tree_ready, plan%periodic_root_target_nodes, plan%periodic_root_target_count &
+          )
+      end if
+      deallocate (flat_operator)
+      call mpi_shutdown(mpi)
+    else if (use_periodic2_root_operator(plan)) then
       call precompute_periodic_root_oracle_operator(plan)
     end if
   end subroutine precompute_periodic_root_operator
@@ -46,9 +92,11 @@ contains
     real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :)
     real(dp), allocatable :: field_matrix(:, :), field_rhs(:)
     real(dp), allocatable :: coeff(:), proxy_pinv(:, :)
-    real(dp) :: e_res(3)
+    real(dp), allocatable :: potential_rhs(:)
+    real(dp) :: e_res(3), phi_res
     integer(i32), allocatable :: target_nodes(:)
-    logical :: use_target_tree
+    logical :: use_target_tree, cache_loaded
+    integer :: cache_lock_fd, lock_status, directory_status
 
     if (.not. plan%periodic_ewald%ready) return
     if (plan%ncoef <= 1_i32) return
@@ -71,12 +119,33 @@ contains
       return
     end if
 
+    cache_loaded = .false.
+    cache_lock_fd = -1
+    if (use_periodic2_cached_kneq0(plan)) then
+      call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
+      if (cache_loaded) then
+        deallocate (target_nodes)
+        return
+      end if
+      call create_directories(trim(plan%options%periodic_cache_dir), directory_status)
+      if (directory_status /= filesystem_success) error stop 'Failed to create periodic operator cache directory.'
+      call acquire_file_lock(trim(plan%periodic_cache_path)//'.lock', cache_lock_fd, lock_status)
+      if (lock_status /= filesystem_success) error stop 'Failed to lock periodic operator cache.'
+      call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
+      if (cache_loaded) then
+        call release_file_lock(cache_lock_fd, lock_status)
+        deallocate (target_nodes)
+        return
+      end if
+    end if
+
     allocate (proxy_points(3, nproxy), check_points(3, ncheck))
     call build_root_surface_points(source_center, proxy_half, nproxy, 0.13d0, root_oracle_proxy_shell_scale, proxy_points)
 
     allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
     allocate (field_matrix(3_i32*ncheck, plan%ncoef - 1_i32))
     allocate (field_rhs(3_i32*ncheck), coeff(plan%ncoef - 1_i32))
+    if (use_periodic2_cached_kneq0(plan)) allocate (potential_rhs(ncheck))
     allocate (proxy_pinv(nproxy, plan%ncoef))
 
     call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
@@ -99,23 +168,129 @@ contains
       proxy_to_local = 0.0d0
       do j = 1_i32, nproxy
         field_rhs = 0.0d0
+        if (use_periodic2_cached_kneq0(plan)) potential_rhs = 0.0_dp
         do i = 1_i32, ncheck
           e_res = 0.0d0
-          call add_periodic2_exact_ewald_correction_single_source(plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res)
+          if (use_periodic2_cached_kneq0(plan)) then
+            phi_res = 0.0_dp
+            call add_periodic2_exact_ewald_correction_single_source( &
+              plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res &
+              )
+            call add_periodic2_exact_ewald_potential_correction_single_source( &
+              plan, 1.0_dp, proxy_points(:, j), check_points(:, i), phi_res &
+              )
+            potential_rhs(i) = phi_res
+          else
+            call add_periodic2_exact_ewald_correction_single_source( &
+              plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res &
+              )
+          end if
           field_rhs(i) = e_res(1)
           field_rhs(ncheck + i) = e_res(2)
           field_rhs(2_i32*ncheck + i) = e_res(3)
         end do
         call solve_regularized_least_squares(field_matrix, field_rhs, coeff)
         proxy_to_local(2:plan%ncoef, j) = coeff
+        if (use_periodic2_cached_kneq0(plan)) then
+          call fit_local_potential_constant( &
+            plan, target_center, check_points, potential_rhs, proxy_to_local(:, j) &
+            )
+        end if
       end do
 
       plan%periodic_root_operator(:, :, target_idx) = matmul(proxy_to_local, proxy_pinv)
-      plan%periodic_root_operator(1_i32, :, target_idx) = 0.0d0
+      if (.not. use_periodic2_cached_kneq0(plan)) plan%periodic_root_operator(1_i32, :, target_idx) = 0.0d0
     end do
 
     plan%periodic_root_operator_ready = .true.
+    plan%periodic_operator_build_count = plan%periodic_operator_build_count + 1_i32
+    if (use_periodic2_cached_kneq0(plan)) then
+      call publish_cached_operator(plan)
+      call release_file_lock(cache_lock_fd, lock_status)
+      if (lock_status /= filesystem_success) error stop 'Failed to release periodic operator cache lock.'
+    end if
   end subroutine precompute_periodic_root_oracle_operator
+
+  subroutine try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, loaded)
+    type(fmm_plan_type), intent(inout) :: plan
+    logical, intent(in) :: use_target_tree
+    integer(i32), intent(in) :: target_nodes(:), target_count
+    logical, intent(out) :: loaded
+    integer(i32), allocatable :: cached_nodes(:)
+    real(dp), allocatable :: cached_operator(:, :, :)
+    integer(i32) :: cache_status
+
+    loaded = .false.
+    call set_cache_identity(plan, use_target_tree, target_nodes, target_count)
+    call read_periodic_operator_cache( &
+      trim(plan%periodic_cache_path), trim(plan%periodic_cache_fingerprint), cached_nodes, cached_operator, cache_status, &
+      expected_ncoef=plan%ncoef, expected_ntarget=target_count &
+      )
+    if (cache_status /= periodic_cache_ok) return
+    if (size(cached_nodes) /= target_count .or. any(cached_nodes /= target_nodes(1:target_count)) .or. &
+        size(cached_operator, 1) /= plan%ncoef .or. size(cached_operator, 2) /= plan%ncoef .or. &
+        size(cached_operator, 3) /= target_count) then
+      deallocate (cached_nodes, cached_operator)
+      return
+    end if
+    plan%periodic_root_target_count = target_count
+    call move_alloc(cached_nodes, plan%periodic_root_target_nodes)
+    call move_alloc(cached_operator, plan%periodic_root_operator)
+    plan%periodic_root_operator_ready = .true.
+    plan%periodic_cache_hit = .true.
+    loaded = .true.
+  end subroutine try_load_cached_operator
+
+  subroutine set_cache_identity(plan, use_target_tree, target_nodes, target_count)
+    type(fmm_plan_type), intent(inout) :: plan
+    logical, intent(in) :: use_target_tree
+    integer(i32), intent(in) :: target_nodes(:), target_count
+    integer(i32), allocatable :: integer_values(:)
+    real(dp), allocatable :: real_values(:)
+    integer(i32) :: target_idx, node_idx, real_pos
+    character(len=256) :: tag
+
+    allocate (integer_values(8 + target_count), real_values(11 + 6*target_count))
+    integer_values(1:8) = [ &
+      plan%options%order, plan%ncoef, plan%options%periodic_axes, plan%options%periodic_image_layers, &
+      plan%options%periodic_ewald_layers, merge(1_i32, 0_i32, plan%panel_source), target_count &
+      ]
+    integer_values(9:) = target_nodes(1:target_count)
+    real_values(1:11) = [ &
+      plan%options%periodic_len, plan%options%softening, plan%options%periodic_ewald_alpha, &
+      plan%options%periodic_generation_tolerance, plan%node_center(:, 1_i32), plan%node_half_size(:, 1_i32) &
+      ]
+    real_pos = 12_i32
+    do target_idx = 1_i32, target_count
+      node_idx = target_nodes(target_idx)
+      real_values(real_pos:real_pos + 2) = active_tree_node_center(plan, use_target_tree, node_idx)
+      real_values(real_pos + 3:real_pos + 5) = active_tree_node_half_size(plan, use_target_tree, node_idx)
+      real_pos = real_pos + 6_i32
+    end do
+    if (plan%panel_source) then
+      tag = 'periodic-kneq0-generator-v7|real64|kernel=triangle_p0|zero=state_subtracted|normalization=core|'
+    else
+      tag = 'periodic-kneq0-generator-v7|real64|kernel=point_softened|zero=state_subtracted|normalization=core|'
+    end if
+    tag = trim(tag)//trim(beach_version)
+    plan%periodic_cache_fingerprint = periodic_cache_fingerprint(tag, integer_values, real_values)
+    plan%periodic_cache_path = trim(plan%options%periodic_cache_dir)//'/operator-'// &
+                               trim(plan%periodic_cache_fingerprint)//'.bin'
+  end subroutine set_cache_identity
+
+  subroutine publish_cached_operator(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: cache_status
+    integer :: directory_status
+
+    call create_directories(trim(plan%options%periodic_cache_dir), directory_status)
+    if (directory_status /= filesystem_success) error stop 'Failed to create periodic operator cache directory.'
+    call write_periodic_operator_cache( &
+      trim(plan%periodic_cache_path), trim(plan%periodic_cache_fingerprint), &
+      plan%periodic_root_target_nodes, plan%periodic_root_operator, cache_status &
+      )
+    if (cache_status /= periodic_cache_ok) error stop 'Failed to publish periodic operator cache.'
+  end subroutine publish_cached_operator
 
   pure integer(i32) function periodic_root_anchor_depth(plan, use_target_tree)
     type(fmm_plan_type), intent(in) :: plan
@@ -127,7 +302,7 @@ contains
     periodic_span = max(minval(plan%options%periodic_len), tiny(1.0d0))
     target_span_ratio = maxval(2.0d0*target_half)/periodic_span
     if (target_span_ratio > root_oracle_tall_box_ratio) then
-      periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), root_oracle_target_depth + 1_i32)
+      periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), periodic_root_anchor_depth + 1_i32)
     end if
   end function periodic_root_anchor_depth
 
@@ -242,6 +417,32 @@ contains
       end do
     end do
   end subroutine build_local_field_matrix
+
+  subroutine fit_local_potential_constant(plan, target_center, check_points, potential, local_coeff)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: target_center(3), check_points(:, :)
+    real(dp), intent(in) :: potential(:)
+    real(dp), intent(inout) :: local_coeff(:)
+    integer(i32) :: check_idx, alpha_idx, ncheck
+    real(dp) :: d(3), monomial, predicted
+    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
+    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+
+    ncheck = int(size(check_points, 2), i32)
+    local_coeff(1) = 0.0_dp
+    do check_idx = 1_i32, ncheck
+      d = check_points(:, check_idx) - target_center
+      call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
+      predicted = 0.0_dp
+      do alpha_idx = 2_i32, plan%ncoef
+        monomial = xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx))* &
+                   zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
+        predicted = predicted + local_coeff(alpha_idx)*monomial
+      end do
+      local_coeff(1) = local_coeff(1) + potential(check_idx) - predicted
+    end do
+    local_coeff(1) = local_coeff(1)/real(ncheck, dp)
+  end subroutine fit_local_potential_constant
 
   subroutine solve_regularized_least_squares(matrix, rhs, solution)
     real(dp), intent(in) :: matrix(:, :)

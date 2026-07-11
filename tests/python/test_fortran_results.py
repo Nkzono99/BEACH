@@ -748,6 +748,11 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
             "mesh_fingerprint=1111111122222222",
             "species_fingerprint=3333333344444444",
             "charge_ledger_residual_C=1.0e-18",
+            "periodic2_cache_hit=T",
+            "periodic2_operator_build_count=0",
+            "periodic2_cache_fingerprint=ABCDEF0123456789",
+            "periodic2_cache_path=.beach_cache/periodic2/operator.bin",
+            "periodic2_generation_tolerance=1.0e-8",
         ],
     )
     (out / "charge_ledger.csv").write_text(
@@ -770,6 +775,11 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.charge_ledger[0].species_idx == 1
     assert result.charge_ledger[0].injected_from_remote_c == pytest.approx(-3.0)
     assert result.charge_ledger[0].escaped_count == 1
+    assert result.periodic2_cache_hit is True
+    assert result.periodic2_operator_build_count == 0
+    assert result.periodic2_cache_fingerprint == "ABCDEF0123456789"
+    assert result.periodic2_cache_path == ".beach_cache/periodic2/operator.bin"
+    assert result.periodic2_generation_tolerance == pytest.approx(1.0e-8)
 
 
 def test_beach_get_mesh_supports_step_selection(tmp_path: Path) -> None:

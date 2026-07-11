@@ -41,6 +41,7 @@ _FAR_CORRECTION_CODES = {
     "auto": 0,
     "none": 1,
     "m2l_root_oracle": 2,
+    "cached_kneq0": 3,
 }
 
 
@@ -786,7 +787,10 @@ def _vec3(value: Iterable[float], *, name: str) -> np.ndarray:
 def _far_correction_code(value: str) -> int:
     key = str(value).strip().lower()
     if key not in _FAR_CORRECTION_CODES:
-        raise ValueError('periodic far correction must be "auto", "none", or "m2l_root_oracle".')
+        raise ValueError(
+            'periodic far correction must be "auto", "none", '
+            '"m2l_root_oracle", or "cached_kneq0".'
+        )
     return _FAR_CORRECTION_CODES[key]
 
 

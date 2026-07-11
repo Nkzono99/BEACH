@@ -149,9 +149,11 @@ The third axis is the open direction.
 - `box_max - box_min > 0` for each periodic axis
 - `sim.field_solver = "fmm"`
 
-`field_periodic_far_correction` accepts `auto`, `none`, and `m2l_root_oracle`.
+`field_periodic_far_correction` accepts `auto`, `none`, `m2l_root_oracle`, and `cached_kneq0`.
 The current implementation normalizes `auto` to `none` for compatibility.
 `m2l_root_oracle` is a diagnostic far correction enabled only by explicit request.
+`cached_kneq0` is the production backend and requires x/y periodic, z open,
+`exclude_k0`, and `e_bottom_zero`.
 
 ### 6.2 Near images and far correction
 
@@ -163,6 +165,12 @@ $$
 
 The FMM core combines primary-cell sources and image sources for near contributions.
 With `m2l_root_oracle`, the build stage fits a root-local correction from the Ewald residual and injects it into the root local expansion at runtime.
+`cached_kneq0` stores the smooth full-periodic Ewald residual as a versioned
+operator and subtracts a symmetric `k=0` state built during charge refresh.
+On a cache miss only MPI rank 0 generates the operator under a filesystem lock, publishes
+it with an atomic rename, and broadcasts it. Warm field evaluation and charge
+refresh contain no all-source Ewald sum. The electrostatic snapshot then adds
+the boundary-condition-specific `k=0` exactly once.
 
 ### 6.3 Collision side
 

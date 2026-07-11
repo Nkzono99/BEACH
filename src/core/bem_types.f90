@@ -32,6 +32,8 @@ module bem_types
     character(len=16) :: field_periodic_far_correction = 'none'
     real(dp) :: field_periodic_ewald_alpha = 0.0d0
     integer(i32) :: field_periodic_ewald_layers = 4_i32
+    character(len=256) :: field_periodic_cache_dir = '.beach_cache/periodic2'
+    real(dp) :: field_periodic_generation_tolerance = 1.0d-8
     real(dp) :: tree_theta = 0.5d0
     logical :: has_tree_theta = .false.
     integer(i32) :: tree_leaf_max = 16_i32

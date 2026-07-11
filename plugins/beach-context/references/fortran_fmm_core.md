@@ -610,7 +610,7 @@ $$
 
 ##### 8.2.7 `m2l_root_oracle`
 
-`m2l_root_oracle` は、この Ewald2P 補正を teacher にして root multipole から root local への演算子を proxy/check 点で fit する明示 opt-in の高コスト診断モードです。通常運用では `none` を使います。
+`m2l_root_oracle` は、この Ewald2P 補正を teacher にして root multipole から root local への演算子を proxy/check 点で fit する明示 opt-in の高コスト診断モードです。無限周期の通常運用には `cached_kneq0` を使い、有限画像との互換性のため既定値だけは `none` に維持します。
 
 - `periodic_image_layers = N`: runtime で explicit に残す近傍画像殻
 - `periodic_ewald_layers = L`: build-time oracle の real-space outer shell `N < max(|i|,|j|) <= N+L` と reciprocal cutoff `|m|, |n| <= L`
@@ -647,8 +647,14 @@ $$
 - source 座標は `build_plan` 後に不変とみなす
 - 対応境界は `free` と `periodic2`
 - `periodic2` は正確に 2 周期軸が必要
-- far correction は `none`（既定）, `auto`, `m2l_root_oracle`（`periodic2` の `auto` は互換用に `none` へ正規化、`m2l_root_oracle` は明示 opt-in）
+- far correction は `none`（既定）, `auto`, `m2l_root_oracle`, `cached_kneq0`（`auto` は `none`、root oracle は診断、cached backend は production 非零モード）
 - `eval_point(s)` の返り値には `k_coulomb` を含めない
+
+### 10.1 cached periodic nonzero operator
+
+`cached_kneq0` は有限画像和 `K_shell(N)`、cached full-periodic Ewald residual、state 更新時に作る対称 `k=0` subtraction の和です。最後の subtraction は source 高さの piecewise polynomial 累積 state を二分探索して O(log n) で評価し、runtime total を `K_periodic,k!=0` にします。potential の定数係数は field fit と混ぜず、平均 residual から gauge を固定します。cache header は format version、fingerprint、shape、checksum を持ち、corruption や fingerprint mismatch は lock 下の再生成になります。fingerprint は source/target topology に依存するため、geometry、order、周期長、画像層、generator/build version が変われば再利用しません。
+
+MPI job 内では rank 0 だけが read/build/write を行い、target node ID と operator を broadcast します。共有 filesystem 上の別 job は同じ lock file で直列化されます。`.tmp` を close してから同一 directory 内で atomic rename するため、reader が部分書込みを cache hit として受理することはありません。
 
 ### 11. 実装との対応
 

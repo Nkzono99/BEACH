@@ -6,11 +6,13 @@ module bem_coulomb_fmm_eval_ops
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
-  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_oracle
+  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_oracle, &
+                                      use_periodic2_cached_kneq0
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources, &
                                             add_periodic2_exact_ewald_potential_correction_all_sources
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
+  use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   implicit none
   private
 
@@ -147,6 +149,7 @@ contains
     call accumulate_leaf_local_expansion(plan, state, leaf_node, rt, ex, ey, ez)
     axes = active_periodic_axes(plan)
     call accumulate_near_direct_field(plan, state, leaf_slot, rt, soft2, axes, ex, ey, ez)
+    call subtract_cached_periodic_k0_field(plan, state, rt, ex, ey, ez)
   end subroutine core_eval_point_xyz_impl
 
   !> 1 点評価の電位本体処理を行う。
@@ -179,7 +182,42 @@ contains
     call accumulate_leaf_local_potential_expansion(plan, state, leaf_node, rt, phi)
     axes = active_periodic_axes(plan)
     call accumulate_near_direct_potential(plan, state, leaf_slot, rt, soft2, axes, phi)
+    call subtract_cached_periodic_k0_potential(plan, state, rt, phi)
   end subroutine core_eval_potential_point_xyz_impl
+
+  subroutine subtract_cached_periodic_k0_field(plan, state, rt, ex, ey, ez)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: rt(3)
+    real(dp), intent(inout) :: ex, ey, ez
+    real(dp) :: potential_dummy, field_si, field_raw(3)
+
+    if (.not. plan%periodic_k0_ready) return
+    call eval_periodic_zero_mode( &
+      plan%periodic_k0_plan, state%periodic_k0_state, rt(plan%periodic_k0_free_axis), &
+      zero_mode_trace_plus, potential_dummy, field_si &
+      )
+    field_raw = [ex, ey, ez]
+    field_raw(plan%periodic_k0_free_axis) = field_raw(plan%periodic_k0_free_axis) - field_si/k_coulomb
+    ex = field_raw(1)
+    ey = field_raw(2)
+    ez = field_raw(3)
+  end subroutine subtract_cached_periodic_k0_field
+
+  subroutine subtract_cached_periodic_k0_potential(plan, state, rt, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: rt(3)
+    real(dp), intent(inout) :: phi
+    real(dp) :: potential_si, field_dummy
+
+    if (.not. plan%periodic_k0_ready) return
+    call eval_periodic_zero_mode( &
+      plan%periodic_k0_plan, state%periodic_k0_state, rt(plan%periodic_k0_free_axis), &
+      zero_mode_trace_plus, potential_si, field_dummy &
+      )
+    phi = phi - potential_si/k_coulomb
+  end subroutine subtract_cached_periodic_k0_potential
 
   subroutine apply_direct_fallback_field(plan, state, rt, soft2, use_periodic_root_oracle_fallback, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
@@ -190,6 +228,9 @@ contains
     real(dp), intent(inout) :: ex, ey, ez
     real(dp) :: evec(3)
 
+    if (use_periodic2_cached_kneq0(plan)) then
+      error stop 'cached_kneq0 evaluation requires targets inside the configured target box.'
+    end if
     call eval_direct_all_sources_scalar(plan, state, rt(1), rt(2), rt(3), soft2, ex, ey, ez)
     if (use_periodic_root_oracle_fallback) then
       evec = [ex, ey, ez]
@@ -208,6 +249,9 @@ contains
     logical, intent(in) :: use_periodic_root_oracle_fallback
     real(dp), intent(inout) :: phi
 
+    if (use_periodic2_cached_kneq0(plan)) then
+      error stop 'cached_kneq0 potential evaluation requires targets inside the configured target box.'
+    end if
     call eval_direct_all_sources_potential_scalar(plan, state, rt(1), rt(2), rt(3), soft2, phi)
     if (use_periodic_root_oracle_fallback) then
       call add_periodic2_exact_ewald_potential_correction_all_sources(plan, state, rt, phi)

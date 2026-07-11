@@ -44,6 +44,8 @@ beachx inspect outputs/latest
 
 split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi_kneq0`、`eta_field_kneq0`、`eta_gap`、`eta_local_charge`、Gauss residual、outer積分電荷、最終outer更新batchを保存します。これらは物理適用性とrestart状態の一部であり、欠損したsplit checkpointは再開できません。
 
+`cached_kneq0` では `periodic2_cache_hit`、`periodic2_operator_build_count`、`periodic2_cache_fingerprint`、`periodic2_cache_path`、設定した cache directory と generation tolerance も保存します。cold run は root rank だけが build count 1、warm run は全 rank で cache hit、build count 0 になるのが正常です。operator 本体は再生成可能なので checkpoint には含めません。
+
 particle transfer有効時は`charge_ledger.csv`の`interface_outward_gross_C`と`interface_returned_gross_C`がinterfaceの往復量を表します。これは保存残差へ二重加算しません。`summary.txt`の`max_outer_flight_time_s`と`max_outer_frozen_field_ratio`はrun中の最大値です。
 
 | 項目 | 見方 |

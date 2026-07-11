@@ -44,6 +44,13 @@ Start with these quantities in `summary.txt`.
 
 For split periodic2 runs, `summary.txt` records interface potential and normal field, `eta_phi_kneq0`, `eta_field_kneq0`, `eta_gap`, `eta_local_charge`, the Gauss residual, integrated outer charge, and the last outer-update batch. These values are part of the applicability and restart contract; a split checkpoint missing its outer state is rejected.
 
+For `cached_kneq0`, it also records `periodic2_cache_hit`,
+`periodic2_operator_build_count`, `periodic2_cache_fingerprint`,
+`periodic2_cache_path`, and the configured cache directory and generation
+tolerance. A cold run builds once on the root rank; a warm run reports a cache
+hit and zero builds. The regenerable operator payload is not stored in the
+checkpoint itself.
+
 With particle transfer enabled, `interface_outward_gross_C` and `interface_returned_gross_C` in `charge_ledger.csv` record gross crossings and are not added twice to the conservation residual. `max_outer_flight_time_s` and `max_outer_frozen_field_ratio` in `summary.txt` are run maxima.
 
 | Item | Meaning |

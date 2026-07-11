@@ -1,9 +1,11 @@
 !> Coulomb FMM state 更新と upward/downward pass。
 module bem_coulomb_fmm_state_ops
   use bem_kinds, only: dp, i32
+  use bem_constants, only: eps0
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, initialize_fmm_state, reset_fmm_state
   use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_level_bounds, &
                                         active_tree_level_node
+  use bem_periodic_zero_mode_plan, only: refresh_periodic_zero_mode_state
   implicit none
   private
 
@@ -20,13 +22,28 @@ contains
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
     real(dp), intent(in) :: src_q(:)
-    integer(i32) :: n_target_nodes
+    integer(i32) :: n_target_nodes, source_idx
+    real(dp) :: total_charge, e_bottom, phi_gauge, z_gauge
 
     if (.not. plan%built) error stop 'FMM plan is not built.'
     if (size(src_q) /= plan%nsrc) error stop 'src_q size does not match plan.'
 
     state%ready = .false.
     call ensure_state_capacity(plan, state)
+    if (plan%periodic_k0_ready) then
+      total_charge = sum(src_q)
+      z_gauge = plan%periodic_k0_plan%break_z(1)
+      e_bottom = -0.5_dp*total_charge/(eps0*plan%periodic_k0_plan%area_xy)
+      phi_gauge = 0.0_dp
+      do source_idx = 1_i32, plan%nsrc
+        phi_gauge = phi_gauge - 0.5_dp*src_q(source_idx)* &
+                    (sum(plan%periodic_k0_plan%panel(source_idx)%z)/3.0_dp - z_gauge)/ &
+                    (eps0*plan%periodic_k0_plan%area_xy)
+      end do
+      call refresh_periodic_zero_mode_state( &
+        plan%periodic_k0_plan, src_q, e_bottom, z_gauge, phi_gauge, state%periodic_k0_state &
+        )
+    end if
     n_target_nodes = merge(plan%target_nnode, plan%nnode, plan%target_tree_ready)
     !$omp parallel default(none) shared(plan, state, src_q, n_target_nodes)
     if (associated(state%multipole_active)) then

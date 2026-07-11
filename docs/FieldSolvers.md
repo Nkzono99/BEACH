@@ -149,9 +149,10 @@ FMM core の P2M / M2M / M2L / L2L / L2P の詳細は
 - 各周期軸の `box_max - box_min > 0`
 - `sim.field_solver = "fmm"`
 
-`field_periodic_far_correction` は `auto`, `none`, `m2l_root_oracle` を受けます。
+`field_periodic_far_correction` は `auto`, `none`, `m2l_root_oracle`, `cached_kneq0` を受けます。
 現行実装では `auto` は互換用に `none` へ正規化されます。
 `m2l_root_oracle` は明示指定時だけ有効になる診断的な遠方補正です。
+`cached_kneq0` は x/y periodic・z open、`exclude_k0`、`e_bottom_zero` を必須とする production backend です。
 
 ### 6.2 near images and far correction
 
@@ -163,6 +164,7 @@ $$
 
 で列挙します。FMM core は primary cell source と画像 source を組み合わせて近傍寄与を扱います。
 `m2l_root_oracle` を選ぶと、build 時に Ewald residual を使って root local 補正を fit し、runtime では root local へ注入します。
+`cached_kneq0` は滑らかな full-periodic Ewald residual を versioned operator として保存し、state 更新時に構築する対称 `k=0` state を eval で差し引いて非零モードにします。cache miss 時は MPI rank 0 だけが filesystem lock 下で生成し、atomic rename 後に全 rank へ broadcast します。warm run の field evaluation と refresh に Ewald all-source 和はありません。物理的な `k=0` は electrostatic snapshot の boundary-condition provider が一度だけ合成します。
 
 ### 6.3 collision side
 

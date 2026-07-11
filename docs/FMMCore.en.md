@@ -590,7 +590,8 @@ Because the `periodic_root_operator` does not use the constant potential mode, t
 ##### 8.2.7 `m2l_root_oracle`
 
 `m2l_root_oracle` is an explicit opt-in, high-cost diagnostic mode that uses this Ewald2P correction as the teacher and fits an operator from root multipole to root local at proxy/check points.
-Normal production runs use `none`.
+Infinite-periodic production runs use `cached_kneq0`; the default remains
+`none` only to preserve finite-image compatibility.
 
 - `periodic_image_layers = N`: near image shells left explicit at runtime
 - `periodic_ewald_layers = L`: build-time oracle real-space outer shell `N < max(|i|,|j|) <= N+L` and reciprocal cutoff `|m|, |n| <= L`
@@ -631,6 +632,25 @@ This FMM core is not a generic kernel FMM.
 - `eval_point(s)` return values do not include `k_coulomb`
 
 ### 11. Implementation mapping
+
+Main implementation locations:
+
+### Cached periodic nonzero operator
+
+For `cached_kneq0`, the runtime kernel combines the finite image shell, a cached
+full-periodic Ewald residual, and a symmetric `k=0` subtraction built at state
+refresh. The subtraction evaluates a piecewise-polynomial source-height prefix
+state in O(log n), making the total exactly the nonzero-mode contract. The
+potential constant is fitted from the mean residual separately from the field
+fit, which fixes its gauge without mixing units. The cache header contains a format version,
+fingerprint, shape, and checksum; corruption or an identity mismatch triggers
+regeneration under the lock. The topology-dependent fingerprint includes the
+geometry, expansion order, periods, image layers, and generator/build versions.
+
+Only MPI rank 0 reads, builds, and writes the operator, then broadcasts target
+node IDs and coefficients. Independent jobs serialize on the same lock file.
+The writer closes a same-directory temporary file before atomic rename, so a
+reader cannot accept a partially written operator.
 
 Main implementation locations:
 

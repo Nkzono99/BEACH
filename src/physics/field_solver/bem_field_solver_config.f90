@@ -39,6 +39,8 @@ contains
   self%periodic_far_correction = lower_ascii(trim(sim%field_periodic_far_correction))
   self%periodic_ewald_alpha = sim%field_periodic_ewald_alpha
   self%periodic_ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
+  self%periodic_cache_dir = trim(sim%field_periodic_cache_dir)
+  self%periodic_generation_tolerance = sim%field_periodic_generation_tolerance
   self%target_box_min = 0.0d0
   self%target_box_max = 0.0d0
 
@@ -106,9 +108,11 @@ contains
       continue
     case ('m2l_root_oracle')
       continue
+    case ('cached_kneq0')
+      continue
     case default
       error stop 'periodic2 far correction supports "auto", "none", '// &
-        'or "m2l_root_oracle" only.'
+        '"m2l_root_oracle", or "cached_kneq0" only.'
     end select
     self%use_periodic2 = .true.
   case default
@@ -170,15 +174,17 @@ contains
   self%fmm_core_options%periodic_image_layers = self%periodic_image_layers
   self%fmm_core_options%periodic_ewald_alpha = self%periodic_ewald_alpha*self%field_length_scale
   self%fmm_core_options%periodic_ewald_layers = self%periodic_ewald_layers
+  self%fmm_core_options%periodic_cache_dir = self%periodic_cache_dir
+  self%fmm_core_options%periodic_generation_tolerance = self%periodic_generation_tolerance
   self%fmm_core_options%target_box_min = (self%target_box_min - self%field_origin)*self%field_inv_length_scale
   self%fmm_core_options%target_box_max = (self%target_box_max - self%field_origin)*self%field_inv_length_scale
 
   if (trim(self%mode) == 'fmm') then
     select case (trim(self%periodic_far_correction))
-    case ('auto', 'none', 'm2l_root_oracle')
+    case ('auto', 'none', 'm2l_root_oracle', 'cached_kneq0')
       continue
     case default
-      error stop 'FMM core supports periodic far correction "auto", "none", or "m2l_root_oracle" only.'
+      error stop 'FMM core received an unsupported periodic far correction.'
     end select
     self%fmm_use_core = .true.
     if (mesh%nelem > 0_i32) then

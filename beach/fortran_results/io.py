@@ -93,6 +93,15 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         charge_ledger=charge_ledger,
         field_source_model=summary.get("field_source_model", "point").strip().lower(),
         field_kernel_id=summary.get("field_kernel_id"),
+        periodic2_cache_hit=_parse_optional_bool(summary, "periodic2_cache_hit"),
+        periodic2_operator_build_count=_parse_optional_nonnegative_int(
+            summary, "periodic2_operator_build_count"
+        ),
+        periodic2_cache_fingerprint=summary.get("periodic2_cache_fingerprint"),
+        periodic2_cache_path=summary.get("periodic2_cache_path"),
+        periodic2_generation_tolerance=_parse_optional_finite_float(
+            summary, "periodic2_generation_tolerance"
+        ),
     )
 
 
@@ -169,6 +178,17 @@ def _parse_optional_finite_float(data: dict[str, str], key: str) -> float | None
     if not np.isfinite(parsed):
         raise ValueError(f"summary.txt {key} must be finite.")
     return parsed
+
+
+def _parse_optional_bool(data: dict[str, str], key: str) -> bool | None:
+    if key not in data:
+        return None
+    value = data[key].strip().lower()
+    if value in {"t", "true"}:
+        return True
+    if value in {"f", "false"}:
+        return False
+    raise ValueError(f"summary.txt {key} must be true or false.")
 
 
 def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] | None:

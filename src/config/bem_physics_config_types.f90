@@ -94,11 +94,18 @@ contains
     case ('m2l_root_oracle')
       periodic2%nonzero_mode_backend = 'legacy_root_oracle'
       periodic2%zero_mode_policy = 'legacy_charged_walls'
+    case ('cached_kneq0')
+      periodic2%nonzero_mode_backend = 'cached_kneq0'
+      periodic2%zero_mode_policy = 'exclude_k0'
     case default
       periodic2%nonzero_mode_backend = 'invalid'
       periodic2%zero_mode_policy = 'invalid'
     end select
-    periodic2%lower_boundary_model = 'legacy_implicit'
+    if (trim(far_mode) == 'cached_kneq0') then
+      periodic2%lower_boundary_model = 'e_bottom_zero'
+    else
+      periodic2%lower_boundary_model = 'legacy_implicit'
+    end if
   end subroutine normalize_legacy_physics_config
 
   !> Phase 0 で実装済みの組合せだけを許可し、将来 mode は fail closed にする。
@@ -168,11 +175,15 @@ contains
           'legacy_root_oracle requires zero_mode_policy=legacy_charged_walls.', status, message &
           )
       end if
-    case ('reference_kneq0', 'cached_kneq0')
+    case ('reference_kneq0')
       if (trim(zero_policy) /= 'exclude_k0') then
         call reject(physics_config_invalid_combination, 'kneq0 backends require zero_mode_policy=exclude_k0.', status, message)
       else
         call reject(physics_config_unavailable, 'Separated k0/kneq0 physics is not available in Phase 0.', status, message)
+      end if
+    case ('cached_kneq0')
+      if (trim(zero_policy) /= 'exclude_k0') then
+        call reject(physics_config_invalid_combination, 'cached_kneq0 requires zero_mode_policy=exclude_k0.', status, message)
       end if
     case default
       call reject(physics_config_invalid_combination, 'Unknown periodic2 nonzero-mode backend.', status, message)
@@ -236,6 +247,10 @@ contains
     character(len=32) :: nonzero_backend
 
     nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
+    if (trim(nonzero_backend) == 'cached_kneq0') then
+      call validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
+      return
+    end if
     if (trim(nonzero_backend) /= 'panel_spectral_reference') then
       if (trim(lower_ascii(panel%source_model)) == 'triangle_p0') then
         call validate_phase1_panel_config(sim, panel, status, message)
@@ -362,6 +377,52 @@ contains
         )
     end if
   end subroutine validate_active_physics_config
+
+  subroutine validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
+    type(sim_config), intent(in) :: sim
+    type(field_physics_config), intent(in) :: field
+    type(periodic2_physics_config), intent(in) :: periodic2
+    type(panel_kernel_config), intent(in) :: panel
+    type(outer_plasma_config), intent(in) :: outer
+    type(coupling_config), intent(in) :: coupling
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    status = physics_config_ok
+    message = ''
+    if (trim(lower_ascii(field%backend)) /= 'fmm' .or. trim(lower_ascii(sim%field_solver)) /= 'fmm' .or. &
+        trim(lower_ascii(sim%field_bc_mode)) /= 'periodic2' .or. &
+        trim(lower_ascii(sim%field_periodic_far_correction)) /= 'cached_kneq0') then
+      call reject(physics_config_invalid_combination, 'cached_kneq0 requires the periodic2 FMM backend.', status, message)
+      return
+    end if
+    if (.not. sim%use_box .or. any(sim%bc_low(1:2) /= bc_periodic) .or. &
+        any(sim%bc_high(1:2) /= bc_periodic) .or. sim%bc_low(3) == bc_periodic .or. &
+        sim%bc_high(3) == bc_periodic) then
+      call reject(physics_config_unavailable, 'cached_kneq0 requires x/y periodic and z nonperiodic.', status, message)
+      return
+    end if
+    if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'exclude_k0' .or. &
+        trim(lower_ascii(periodic2%lower_boundary_model)) /= 'e_bottom_zero') then
+      call reject( &
+        physics_config_invalid_combination, &
+        'cached_kneq0 requires zero_mode_policy=exclude_k0 and lower_boundary_model=e_bottom_zero.', &
+        status, message &
+        )
+      return
+    end if
+    if (trim(lower_ascii(outer%model)) /= 'none' .or. &
+        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none') then
+      call reject(physics_config_unavailable, 'cached_kneq0 currently supports the local zero mode without outer coupling.', &
+                  status, message)
+      return
+    end if
+    if (trim(lower_ascii(panel%source_model)) == 'triangle_p0') then
+      call validate_phase1_panel_config(sim, panel, status, message)
+    else if (trim(lower_ascii(panel%source_model)) /= 'point') then
+      call reject(physics_config_invalid_combination, 'cached_kneq0 received an unknown source model.', status, message)
+    end if
+  end subroutine validate_cached_periodic_config
 
   pure subroutine reject(code, text, status, message)
     integer(i32), intent(in) :: code

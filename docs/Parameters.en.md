@@ -288,9 +288,11 @@ P2M/M2M/M2L/L2L/L2P plus near direct sums. See
 | `tree_leaf_max` | int | `16` | Maximum number of sources per source-tree leaf node. `>= 1` |
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | Number of near image layers for `periodic2` |
-| `field_periodic_far_correction` | string | `"none"` | Far correction for `periodic2`. `none` / `auto` / `m2l_root_oracle` |
-| `field_periodic_ewald_alpha` | float | `0.0` | Ewald decomposition parameter for `m2l_root_oracle` |
-| `field_periodic_ewald_layers` | int | `4` | Real-space outer shell / reciprocal cutoff depth for the Ewald oracle |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / diagnostic `m2l_root_oracle` / production `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation or diagnostics |
+| `field_periodic_ewald_layers` | int | `4` | Real-space / reciprocal cutoff depth for the Ewald generator |
+| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
+| `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
 
 `field_periodic_*` only has meaning when `field_bc_mode="periodic2"`.
 `tree_min_nelem` is not used when `fmm` is specified explicitly.
@@ -327,9 +329,11 @@ values are used based on the element count.
 |---|---|---:|---|
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | Number of near image layers for `periodic2` |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `m2l_root_oracle` |
-| `field_periodic_ewald_alpha` | float | `0.0` | Ewald decomposition parameter for `m2l_root_oracle` |
-| `field_periodic_ewald_layers` | int | `4` | Outer shell / reciprocal cutoff depth for the Ewald oracle |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `m2l_root_oracle` / `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation or diagnostics |
+| `field_periodic_ewald_layers` | int | `4` | Outer shell / reciprocal cutoff depth for the Ewald generator |
+| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
+| `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
 
 Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference instead explicitly selects `field_solver="direct"`, `[periodic2].nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and `lower_boundary_model="e_bottom_zero"`. `[outer_plasma]` supplies `interface_z`, positive `debye_length` and `thermal_voltage`, plus linearity, gap, and local-charge applicability limits. `[coupling].outer_update_stride` controls explicit profile refreshes. See `examples/periodic2_linear_outer_reference.toml`; applicability failures never fall back to a legacy model.
 
@@ -344,6 +348,9 @@ collision and `photo_raycast` raycasting.
 currently behaves the same as `none`. `m2l_root_oracle` is a diagnostic build-time
 mode that fits the exact periodic Ewald residual to the root operator, and is
 high cost.
+`cached_kneq0` is the production nonzero-mode backend. A cache miss generates a
+versioned operator from the Ewald reference; warm runs reuse the validated cache.
+The `exclude_k0` / `e_bottom_zero` provider adds the physical zero mode once.
 
 #### External Fields
 
@@ -828,8 +835,9 @@ Output files:
 `mesh_potential.csv` records the potential [V] at each element centroid. The
 self term uses `1/softening` when `softening > 0`; otherwise it uses an
 area-equivalent radius approximation. For `periodic2`, the explicit image shell
-is added. The exact Ewald residual is also added only when
-`field_periodic_far_correction="m2l_root_oracle"`.
+is added. `m2l_root_oracle` adds the diagnostic Ewald residual;
+`cached_kneq0` adds the cached nonzero mode and boundary-specific `k=0` from
+the same electrostatic snapshot.
 
 `potential_history.csv` records the potential for each element with the same
 `history_stride` as `charge_history.csv`. The format is

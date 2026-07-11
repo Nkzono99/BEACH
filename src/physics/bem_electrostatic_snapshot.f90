@@ -32,6 +32,10 @@ module bem_electrostatic_snapshot
     integer(i32) :: last_outer_update_batch = -1_i32
     real(dp) :: max_outer_flight_time = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.0_dp
+    logical :: periodic_cache_hit = .false.
+    integer(i32) :: periodic_operator_build_count = 0_i32
+    character(len=128) :: periodic_cache_fingerprint = ''
+    character(len=512) :: periodic_cache_path = ''
   end type electrostatic_diagnostics_type
 
   type, public :: electrostatic_restart_state_type
@@ -47,6 +51,7 @@ module bem_electrostatic_snapshot
     logical :: use_zero_mode = .false.
     logical :: use_outer_plasma = .false.
     logical :: use_panel_spectral_reference = .false.
+    logical :: use_cached_kneq0 = .false.
     real(dp) :: periodic_length(2) = [0.0_dp, 0.0_dp]
     real(dp) :: periodic_origin(2) = [0.0_dp, 0.0_dp]
     integer(i32) :: reference_mode_layers = 0_i32
@@ -88,11 +93,16 @@ contains
     self%use_zero_mode = .false.
     self%use_outer_plasma = .false.
     self%use_panel_spectral_reference = .false.
+    self%use_cached_kneq0 = .false.
     self%gauss_residual = 0.0_dp
     self%diagnostics = electrostatic_diagnostics_type()
     if (present(periodic_config) .and. present(panel_config) .and. present(outer_config)) then
       if (trim(lower_ascii(periodic_config%nonzero_mode_backend)) == 'panel_spectral_reference') then
         call init_split_periodic_snapshot(self, mesh, sim, periodic_config, panel_config, outer_config)
+        return
+      else if (trim(lower_ascii(periodic_config%nonzero_mode_backend)) == 'cached_kneq0') then
+        if (.not. present(field_config)) error stop 'cached_kneq0 requires typed field configuration.'
+        call init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config, outer_config)
         return
       end if
     end if
@@ -118,7 +128,13 @@ contains
     character(len=256) :: message
     logical :: refresh_outer
 
-    if (.not. self%use_panel_spectral_reference) then
+    if (self%use_cached_kneq0) then
+      call self%nonzero_solver%refresh(mesh)
+      call refresh_periodic_zero_mode_state( &
+        self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+        )
+      return
+    else if (.not. self%use_panel_spectral_reference) then
       call self%nonzero_solver%refresh(mesh)
       return
     end if
@@ -163,7 +179,13 @@ contains
 
     real(dp) :: zero_potential, zero_field
 
-    if (self%use_panel_spectral_reference) then
+    if (self%use_cached_kneq0) then
+      call self%nonzero_solver%eval_e(mesh, position, electric_field)
+      call eval_periodic_zero_mode( &
+        self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
+        )
+      electric_field(3) = electric_field(3) + zero_field
+    else if (self%use_panel_spectral_reference) then
       call eval_periodic_nonzero_panel_reference( &
         mesh, position, self%periodic_length(1), self%periodic_length(2), &
         self%reference_mode_layers, self%panel_quadrature_order, zero_potential, electric_field &
@@ -187,7 +209,13 @@ contains
 
     real(dp) :: zero_potential, zero_field, electric_field_dummy(3)
 
-    if (self%use_panel_spectral_reference) then
+    if (self%use_cached_kneq0) then
+      call self%nonzero_solver%eval_potential(mesh, sim, position, potential)
+      call eval_periodic_zero_mode( &
+        self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
+        )
+      potential = potential + zero_potential
+    else if (self%use_panel_spectral_reference) then
       call eval_periodic_nonzero_panel_reference( &
         mesh, position, self%periodic_length(1), self%periodic_length(2), &
         self%reference_mode_layers, self%panel_quadrature_order, potential, electric_field_dummy &
@@ -210,7 +238,7 @@ contains
     integer(i32) :: element
 
     if (size(potential) /= mesh%nelem) error stop 'snapshot mesh-potential size mismatch.'
-    if (self%use_panel_spectral_reference) then
+    if (self%use_panel_spectral_reference .or. self%use_cached_kneq0) then
       do element = 1, mesh%nelem
         call self%eval_local_phi(mesh, sim, mesh%centers(:, element), potential(element))
       end do
@@ -313,6 +341,48 @@ contains
     end if
     self%diagnostics%status = 'applicable'
   end subroutine update_interface_diagnostics
+
+  subroutine init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config, outer_config)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(field_physics_config), intent(in) :: field_config
+    type(periodic2_physics_config), intent(in) :: periodic_config
+    type(panel_kernel_config), intent(in) :: panel_config
+    type(outer_plasma_config), intent(in) :: outer_config
+    integer(i32) :: status
+    character(len=256) :: message
+
+    if (trim(lower_ascii(periodic_config%zero_mode_policy)) /= 'exclude_k0' .or. &
+        trim(lower_ascii(periodic_config%lower_boundary_model)) /= 'e_bottom_zero') then
+      error stop 'cached_kneq0 requires exclude_k0 and e_bottom_zero.'
+    end if
+    if (trim(lower_ascii(outer_config%model)) /= 'none') then
+      error stop 'cached_kneq0 currently requires outer_plasma.model=none.'
+    end if
+    if (.not. sim%use_box .or. any(sim%bc_low(1:2) /= bc_periodic) .or. &
+        any(sim%bc_high(1:2) /= bc_periodic) .or. sim%bc_low(3) == bc_periodic .or. &
+        sim%bc_high(3) == bc_periodic) then
+      error stop 'cached_kneq0 snapshot currently requires x/y periodic and z open.'
+    end if
+    call build_periodic_zero_mode_plan(mesh, product(sim%box_max(1:2) - sim%box_min(1:2)), self%zero_plan, status, message)
+    if (status /= periodic_zero_mode_ok) error stop 'cached_kneq0 zero-mode plan: '//trim(message)
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      )
+    call self%nonzero_solver%init(mesh, sim, field_config, periodic_config, panel_config)
+    self%use_cached_kneq0 = .true.
+    self%use_zero_mode = .true.
+    self%periodic_options = periodic_config
+    self%diagnostics%split_periodic_active = .true.
+    self%diagnostics%status = 'cached_kneq0'
+    self%diagnostics%periodic_cache_hit = self%nonzero_solver%fmm_core_plan%periodic_cache_hit
+    self%diagnostics%periodic_operator_build_count = &
+      self%nonzero_solver%fmm_core_plan%periodic_operator_build_count
+    self%diagnostics%periodic_cache_fingerprint = &
+      self%nonzero_solver%fmm_core_plan%periodic_cache_fingerprint
+    self%diagnostics%periodic_cache_path = self%nonzero_solver%fmm_core_plan%periodic_cache_path
+  end subroutine init_cached_periodic_snapshot
 
   subroutine init_split_periodic_snapshot(self, mesh, sim, periodic_config, panel_config, outer_config)
     class(electrostatic_snapshot_type), intent(inout) :: self

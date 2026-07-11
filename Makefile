@@ -8,11 +8,12 @@
 	test-python test-quick test-ci test-local \
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
-	build-mpi run-mpi test-mpi \
+	build-mpi run-mpi test-mpi test-mpi-periodic-cache \
 	docs-deps docs-starlight docs-fortran docs-pages docs-clean
 
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction test-mpi
+	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction \
+	test-mpi test-mpi-periodic-cache
 
 .DEFAULT_GOAL := install
 
@@ -41,6 +42,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_panel_moments \
 	test_panel_kernel \
 	test_panel_geometry_near \
+	test_periodic2_cache_codec \
 	test_periodic_zero_mode \
 	test_outer_plasma_linear \
 	test_electrostatic_snapshot \
@@ -73,6 +75,9 @@ FORTRAN_L3_TARGETS ?= \
 	test_coulomb_fmm_core_panel \
 	test_dynamics_panel_fmm
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
+	test_periodic2_operator_cache \
+	test_periodic2_infinite_operator \
+	test_periodic2_cached_snapshot \
 	test_coulomb_fmm_core_periodic \
 	test_periodic2_flat_oracle_diag \
 	test_periodic_nonzero_reference
@@ -226,6 +231,11 @@ test-mpi:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
 		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)" \
 		$(BUILD_SH) --target test_mpi_hybrid --runner "$(MPI_RUNNER)"
+
+test-mpi-periodic-cache:
+	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
+		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)" \
+		$(BUILD_SH) --target test_periodic2_operator_cache_mpi --runner "$(MPI_RUNNER)"
 
 docs-deps:
 	npm --prefix $(DOCS_SITE_DIR) ci

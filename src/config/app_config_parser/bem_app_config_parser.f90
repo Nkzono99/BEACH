@@ -239,11 +239,14 @@ contains
       continue
     case ('m2l_root_oracle')
       continue
+    case ('cached_kneq0')
+      continue
     case default
       error stop 'sim.field_periodic_far_correction must be "auto", "none", '// &
-        'or "m2l_root_oracle".'
+        '"m2l_root_oracle", or "cached_kneq0".'
     end select
-    if (trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle') then
+    if (trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle' .or. &
+        trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0') then
       if (trim(cfg%sim%field_solver) /= 'fmm' .or. trim(cfg%sim%field_bc_mode) /= 'periodic2') then
         error stop 'sim.field_periodic_far_correction requires sim.field_solver="fmm" and sim.field_bc_mode="periodic2".'
       end if
@@ -254,11 +257,22 @@ contains
     if (cfg%sim%field_periodic_image_layers < 0_i32) then
       error stop 'sim.field_periodic_image_layers must be >= 0.'
     end if
+    if (trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0' .and. &
+        cfg%sim%field_periodic_image_layers < 1_i32) then
+      error stop 'cached_kneq0 requires sim.field_periodic_image_layers >= 1.'
+    end if
     if (.not. ieee_is_finite(cfg%sim%field_periodic_ewald_alpha) .or. cfg%sim%field_periodic_ewald_alpha < 0.0d0) then
       error stop 'sim.field_periodic_ewald_alpha must be finite and >= 0.'
     end if
     if (cfg%sim%field_periodic_ewald_layers < 0_i32) then
       error stop 'sim.field_periodic_ewald_layers must be >= 0.'
+    end if
+    if (len_trim(cfg%sim%field_periodic_cache_dir) == 0) then
+      error stop 'sim.field_periodic_cache_dir must not be empty.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%field_periodic_generation_tolerance) .or. &
+        cfg%sim%field_periodic_generation_tolerance <= 0.0_dp) then
+      error stop 'sim.field_periodic_generation_tolerance must be finite and > 0.'
     end if
     select case (trim(cfg%sim%field_solver))
     case ('direct', 'treecode', 'auto')
@@ -1053,6 +1067,13 @@ contains
         call get_toml_real(table, keys(ikey), cfg%sim%field_periodic_ewald_alpha, 'sim.field_periodic_ewald_alpha')
       case ('field_periodic_ewald_layers')
         call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_ewald_layers, 'sim.field_periodic_ewald_layers')
+      case ('field_periodic_cache_dir')
+        call get_toml_string(table, keys(ikey), cfg%sim%field_periodic_cache_dir, 'sim.field_periodic_cache_dir')
+      case ('field_periodic_generation_tolerance')
+        call get_toml_real( &
+          table, keys(ikey), cfg%sim%field_periodic_generation_tolerance, &
+          'sim.field_periodic_generation_tolerance' &
+          )
       case ('tree_theta')
         call get_toml_real(table, keys(ikey), cfg%sim%tree_theta, 'sim.tree_theta')
         cfg%sim%has_tree_theta = .true.

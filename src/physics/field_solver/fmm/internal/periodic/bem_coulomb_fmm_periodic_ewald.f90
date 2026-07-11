@@ -2,7 +2,7 @@
 module bem_coulomb_fmm_periodic_ewald
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_types, only: inv_sqrt_pi, fmm_plan_type, fmm_state_type, reset_periodic2_ewald_data
-  use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle
+  use bem_coulomb_fmm_periodic, only: use_periodic2_root_operator
   implicit none
   private
 
@@ -12,8 +12,10 @@ module bem_coulomb_fmm_periodic_ewald
   public :: resolve_periodic2_ewald_alpha
   public :: precompute_periodic2_ewald_data
   public :: add_periodic2_exact_ewald_correction_single_source
+  public :: add_periodic2_exact_ewald_kneq0_correction_single_source
   public :: add_periodic2_exact_ewald_correction_all_sources
   public :: add_periodic2_exact_ewald_potential_correction_single_source
+  public :: add_periodic2_kneq0_potential_correction_single_source
   public :: add_periodic2_exact_ewald_potential_correction_all_sources
 
 contains
@@ -43,7 +45,7 @@ contains
     real(dp) :: alpha, k1, k2, kmag
 
     call reset_periodic2_ewald_data(plan%periodic_ewald)
-    if (.not. use_periodic2_m2l_root_oracle(plan)) return
+    if (.not. use_periodic2_root_operator(plan)) return
 
     alpha = resolve_periodic2_ewald_alpha(plan)
     if (alpha <= 0.0d0) return
@@ -187,6 +189,20 @@ contains
     call add_exact_periodic2_k0_correction(plan, q, src, target, e)
   end subroutine add_periodic2_exact_ewald_correction_single_source
 
+  subroutine add_periodic2_exact_ewald_kneq0_correction_single_source(plan, q, src, target, e)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: src(3), target(3)
+    real(dp), intent(inout) :: e(3)
+
+    if (.not. plan%periodic_ewald%ready) return
+    if (abs(q) <= tiny(1.0d0)) return
+    call add_exact_periodic2_real_space_correction(plan, q, src, target, e)
+    call add_exact_periodic2_reciprocal_space_correction(plan, q, src, target, e)
+    call add_exact_periodic2_k0_correction(plan, q, src, target, e)
+    call subtract_periodic2_physical_k0_field(plan, q, src, target, e)
+  end subroutine add_periodic2_exact_ewald_kneq0_correction_single_source
+
   !> 1 粒子分の periodic2 Ewald の電位補正を加算する。
   !! @param[in] plan FMM 計画。
   !! @param[in] q 電荷量。
@@ -206,6 +222,44 @@ contains
     call add_exact_periodic2_reciprocal_space_potential_correction(plan, q, src, target, phi)
     call add_exact_periodic2_k0_potential_correction(plan, q, src, target, phi)
   end subroutine add_periodic2_exact_ewald_potential_correction_single_source
+
+  subroutine add_periodic2_kneq0_potential_correction_single_source(plan, q, src, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: src(3), target(3)
+    real(dp), intent(inout) :: phi
+
+    if (.not. plan%periodic_ewald%ready) return
+    if (abs(q) <= tiny(1.0d0)) return
+    call add_exact_periodic2_real_space_potential_correction(plan, q, src, target, phi)
+    call add_exact_periodic2_reciprocal_space_potential_correction(plan, q, src, target, phi)
+    call add_exact_periodic2_k0_potential_correction(plan, q, src, target, phi)
+    call subtract_periodic2_physical_k0_potential(plan, q, src, target, phi)
+  end subroutine add_periodic2_kneq0_potential_correction_single_source
+
+  subroutine subtract_periodic2_physical_k0_field(plan, q, src, target, e)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q, src(3), target(3)
+    real(dp), intent(inout) :: e(3)
+    real(dp) :: dz
+
+    dz = target(plan%periodic_ewald%axis_free) - src(plan%periodic_ewald%axis_free)
+    if (dz > 0.0_dp) then
+      e(plan%periodic_ewald%axis_free) = e(plan%periodic_ewald%axis_free) - plan%periodic_ewald%k0_pref*q
+    else if (dz < 0.0_dp) then
+      e(plan%periodic_ewald%axis_free) = e(plan%periodic_ewald%axis_free) + plan%periodic_ewald%k0_pref*q
+    end if
+  end subroutine subtract_periodic2_physical_k0_field
+
+  subroutine subtract_periodic2_physical_k0_potential(plan, q, src, target, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q, src(3), target(3)
+    real(dp), intent(inout) :: phi
+    real(dp) :: dz
+
+    dz = target(plan%periodic_ewald%axis_free) - src(plan%periodic_ewald%axis_free)
+    phi = phi + plan%periodic_ewald%k0_pref*q*abs(dz)
+  end subroutine subtract_periodic2_physical_k0_potential
 
   subroutine add_exact_periodic2_real_space_correction(plan, q, src, target, e)
     type(fmm_plan_type), intent(in) :: plan

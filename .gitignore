@@ -224,6 +224,7 @@ __marimo__/
 **/*.obj
 
 outputs/
+.beach_cache/
 
 # Fortran coverage artifacts
 *.gcov

@@ -31,6 +31,8 @@ module bem_field_solver
     character(len=16) :: periodic_far_correction = 'none'
     real(dp) :: periodic_ewald_alpha = 0.0d0
     integer(i32) :: periodic_ewald_layers = 4_i32
+    character(len=256) :: periodic_cache_dir = '.beach_cache/periodic2'
+    real(dp) :: periodic_generation_tolerance = 1.0d-8
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
     logical :: tree_ready = .false.

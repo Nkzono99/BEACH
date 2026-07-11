@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -99,6 +99,16 @@ program test_model_fingerprint
     cfg_changed%outer_plasma, cfg_changed%coupling &
     )
   call assert_true(model_fingerprint(cfg_changed) /= model_fingerprint(cfg), 'model backend change must alter fingerprint')
+  call test_end()
+
+  call test_begin('periodic_generation_tolerance_change_detected')
+  cfg_changed = cfg
+  cfg_changed%sim%field_periodic_generation_tolerance = &
+    2.0_dp*cfg%sim%field_periodic_generation_tolerance
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'periodic generation tolerance must alter the model fingerprint' &
+    )
   call test_end()
 
   call test_summary()

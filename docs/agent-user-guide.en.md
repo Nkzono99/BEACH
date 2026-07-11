@@ -128,9 +128,11 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | Electric-field evaluation method |
 | `field_bc_mode` | string | "free" | free, periodic2 | Boundary condition; periodic2 requires fmm |
 | `field_periodic_image_layers` | int | 1 | >= 0 | Number of periodic2 image-shell layers |
-| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle | Far correction; `auto` is treated as `none` for compatibility |
+| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle, cached_kneq0 | `cached_kneq0` is the production infinite-periodic nonzero mode |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald splitting parameter, 0 means automatic |
 | `field_periodic_ewald_layers` | int | 4 | >= 0 | Ewald shell depth |
+| `field_periodic_cache_dir` | string | ".beach_cache/periodic2" | non-empty | Versioned operator cache |
+| `field_periodic_generation_tolerance` | float | 1e-8 | > 0 | Generation tolerance in the cache identity |
 | `tree_theta` | float | 0.5 | (0, 1] | Tree-method MAC parameter |
 | `tree_leaf_max` | int | 16 | >= 1 | Maximum number of elements per leaf node |
 | `tree_min_nelem` | int | 256 | >= 1 | Threshold for auto -> treecode switch |

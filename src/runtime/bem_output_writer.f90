@@ -254,6 +254,9 @@ contains
     write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
     write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)
     write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cfg%periodic2%lower_boundary_model)
+    write (u, '(a,a)') 'periodic2_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)
+    write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
+      cfg%sim%field_periodic_generation_tolerance
     write (u, '(a,a)') 'outer_plasma_model=', trim(cfg%outer_plasma%model)
     write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
     write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
@@ -273,6 +276,12 @@ contains
       write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
       write (u, '(a,es24.16)') 'max_outer_flight_time_s=', electrostatic_diagnostics%max_outer_flight_time
       write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio
+      write (u, '(a,l1)') 'periodic2_cache_hit=', electrostatic_diagnostics%periodic_cache_hit
+      write (u, '(a,i0)') 'periodic2_operator_build_count=', &
+        electrostatic_diagnostics%periodic_operator_build_count
+      write (u, '(a,a)') 'periodic2_cache_fingerprint=', &
+        trim(electrostatic_diagnostics%periodic_cache_fingerprint)
+      write (u, '(a,a)') 'periodic2_cache_path=', trim(electrostatic_diagnostics%periodic_cache_path)
     end if
     if (present(photoelectron_state)) then
       if (photoelectron_state%ready) then

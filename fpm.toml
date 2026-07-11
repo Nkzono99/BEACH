@@ -62,6 +62,31 @@ source-dir = "tests/fortran"
 main = "test_panel_geometry_near.f90"
 
 [[test]]
+name = "test_periodic2_cache_codec"
+source-dir = "tests/fortran"
+main = "test_periodic2_cache_codec.f90"
+
+[[test]]
+name = "test_periodic2_operator_cache"
+source-dir = "tests/fortran"
+main = "test_periodic2_operator_cache.f90"
+
+[[test]]
+name = "test_periodic2_operator_cache_mpi"
+source-dir = "tests/fortran"
+main = "test_periodic2_operator_cache_mpi.f90"
+
+[[test]]
+name = "test_periodic2_infinite_operator"
+source-dir = "tests/fortran"
+main = "test_periodic2_infinite_operator.f90"
+
+[[test]]
+name = "test_periodic2_cached_snapshot"
+source-dir = "tests/fortran"
+main = "test_periodic2_cached_snapshot.f90"
+
+[[test]]
 name = "test_panel_near_correction"
 source-dir = "tests/fortran"
 main = "test_panel_near_correction.f90"

@@ -55,6 +55,14 @@ program test_app_config_parser
   call assert_true(trim(cfg%outer_plasma%model) == 'none', 'default typed outer model mismatch')
   call assert_close_dp(cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'default field_periodic_ewald_alpha mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_ewald_layers, 4_i32, 'default field_periodic_ewald_layers mismatch')
+  call assert_true( &
+    trim(cfg%sim%field_periodic_cache_dir) == '.beach_cache/periodic2', &
+    'default field_periodic_cache_dir mismatch' &
+    )
+  call assert_close_dp( &
+    cfg%sim%field_periodic_generation_tolerance, 1.0e-8_dp, 1.0e-20_dp, &
+    'default field_periodic_generation_tolerance mismatch' &
+    )
   call assert_close_dp(cfg%sim%tree_theta, 0.5d0, 1.0d-15, 'default tree_theta mismatch')
   call assert_true(.not. cfg%sim%has_tree_theta, 'default has_tree_theta should be false')
   call assert_equal_i32(cfg%sim%tree_leaf_max, 16_i32, 'default tree_leaf_max mismatch')
@@ -219,14 +227,22 @@ program test_app_config_parser
   call assert_equal_i32(periodic_cfg%sim%bc_low(2), bc_periodic, 'periodic bc_y_low mismatch')
   call assert_equal_i32(periodic_cfg%sim%bc_high(2), bc_periodic, 'periodic bc_y_high mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_image_layers, 2_i32, 'periodic field_periodic_image_layers mismatch')
-  call assert_true(trim(periodic_cfg%sim%field_periodic_far_correction) == 'none', 'periodic far correction mismatch')
   call assert_true( &
-    trim(periodic_cfg%periodic2%nonzero_mode_backend) == 'legacy_finite_images', &
+    trim(periodic_cfg%sim%field_periodic_far_correction) == 'cached_kneq0', &
+    'periodic far correction mismatch' &
+    )
+  call assert_true( &
+    trim(periodic_cfg%periodic2%nonzero_mode_backend) == 'cached_kneq0', &
     'periodic typed backend mismatch' &
     )
   call assert_true( &
-    trim(periodic_cfg%periodic2%zero_mode_policy) == 'legacy_not_decomposed', &
+    trim(periodic_cfg%periodic2%zero_mode_policy) == 'exclude_k0', &
     'periodic typed zero policy mismatch' &
+    )
+  call assert_true(trim(periodic_cfg%sim%field_periodic_cache_dir) == 'test-cache', 'periodic cache dir mismatch')
+  call assert_close_dp( &
+    periodic_cfg%sim%field_periodic_generation_tolerance, 2.5e-7_dp, 1.0e-18_dp, &
+    'periodic generation tolerance mismatch' &
     )
   call assert_close_dp(periodic_cfg%sim%field_periodic_ewald_alpha, 1.5d0, 1.0d-12, 'periodic ewald alpha mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_ewald_layers, 5_i32, 'periodic ewald layers mismatch')
@@ -497,7 +513,7 @@ contains
     close (u)
   end subroutine write_large_config_fixture
 
-  !> `field_bc_mode="periodic2"` で `field_periodic_far_correction="none"` を確認する設定を書き出す。
+  !> `field_bc_mode="periodic2"` で cached nonzero-mode operator の設定を書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
   subroutine write_periodic_config_fixture(path)
     character(len=*), intent(in) :: path
@@ -520,9 +536,11 @@ contains
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
     write (u, '(a)') 'field_periodic_image_layers = 2'
-    write (u, '(a)') 'field_periodic_far_correction = "none"'
+    write (u, '(a)') 'field_periodic_far_correction = "cached_kneq0"'
     write (u, '(a)') 'field_periodic_ewald_alpha = 1.5'
     write (u, '(a)') 'field_periodic_ewald_layers = 5'
+    write (u, '(a)') 'field_periodic_cache_dir = "test-cache"'
+    write (u, '(a)') 'field_periodic_generation_tolerance = 2.5e-7'
     write (u, '(a)') ''
     write (u, '(a)') '[[particles.species]]'
     write (u, '(a)') 'npcls_per_step = 1'

@@ -70,6 +70,7 @@ contains
     call feed_integer(hash, cfg%sim%field_periodic_image_layers)
     call feed_real(hash, cfg%sim%field_periodic_ewald_alpha)
     call feed_integer(hash, cfg%sim%field_periodic_ewald_layers)
+    call feed_real(hash, cfg%sim%field_periodic_generation_tolerance)
     call feed_real(hash, cfg%sim%tree_theta)
     call feed_integer(hash, cfg%sim%tree_leaf_max)
     call feed_integer(hash, cfg%sim%tree_min_nelem)

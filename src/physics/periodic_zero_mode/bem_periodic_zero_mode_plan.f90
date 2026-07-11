@@ -33,6 +33,7 @@ module bem_periodic_zero_mode_plan
   end type periodic_zero_mode_state_type
 
   public :: build_periodic_zero_mode_plan
+  public :: build_periodic_zero_mode_height_plan
   public :: refresh_periodic_zero_mode_state
 
 contains
@@ -43,9 +44,32 @@ contains
     type(periodic_zero_mode_plan_type), intent(out) :: plan
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
+    real(dp), allocatable :: heights(:, :)
+    integer(i32) :: elem
+
+    status = periodic_zero_mode_invalid
+    message = ''
+    if (mesh%nelem <= 0_i32) then
+      message = 'periodic zero-mode mesh must contain at least one element'
+      return
+    end if
+
+    allocate (heights(3, mesh%nelem))
+    do elem = 1, mesh%nelem
+      heights(:, elem) = [mesh%v0(3, elem), mesh%v1(3, elem), mesh%v2(3, elem)]
+    end do
+    call build_periodic_zero_mode_height_plan(heights, area_xy, plan, status, message)
+  end subroutine build_periodic_zero_mode_plan
+
+  subroutine build_periodic_zero_mode_height_plan(source_heights, area_xy, plan, status, message)
+    real(dp), intent(in) :: source_heights(:, :)
+    real(dp), intent(in) :: area_xy
+    type(periodic_zero_mode_plan_type), intent(out) :: plan
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
     real(dp), allocatable :: heights(:), unique_heights(:)
     real(dp) :: scale, tolerance
-    integer(i32) :: elem, vertex, count
+    integer(i32) :: elem, vertex, count, nelem
 
     status = periodic_zero_mode_invalid
     message = ''
@@ -53,19 +77,19 @@ contains
       message = 'periodic zero-mode area_xy must be finite and positive'
       return
     end if
-    if (mesh%nelem <= 0_i32) then
-      message = 'periodic zero-mode mesh must contain at least one element'
+    if (size(source_heights, 1) /= 3 .or. size(source_heights, 2) <= 0) then
+      message = 'periodic zero-mode heights must have shape (3, nsource)'
       return
     end if
-
-    allocate (heights(3*mesh%nelem))
-    do elem = 1, mesh%nelem
-      heights(3*elem - 2:3*elem) = [mesh%v0(3, elem), mesh%v1(3, elem), mesh%v2(3, elem)]
-    end do
-    if (any(.not. ieee_is_finite(heights))) then
+    if (any(.not. ieee_is_finite(source_heights))) then
       message = 'periodic zero-mode panel heights must be finite'
       return
     end if
+    nelem = int(size(source_heights, 2), i32)
+    allocate (heights(3*nelem))
+    do elem = 1_i32, nelem
+      heights(3*elem - 2:3*elem) = source_heights(:, elem)
+    end do
     call sort_real(heights)
     scale = max(1.0_dp, maxval(abs(heights)))
     tolerance = 128.0_dp*epsilon(1.0_dp)*scale
@@ -79,13 +103,13 @@ contains
       end if
     end do
 
-    plan%nelem = mesh%nelem
+    plan%nelem = nelem
     plan%nbreak = count
     plan%area_xy = area_xy
-    allocate (plan%break_z(count), plan%panel(mesh%nelem))
+    allocate (plan%break_z(count), plan%panel(nelem))
     plan%break_z = unique_heights(1:count)
-    do elem = 1, mesh%nelem
-      plan%panel(elem)%z = [mesh%v0(3, elem), mesh%v1(3, elem), mesh%v2(3, elem)]
+    do elem = 1, nelem
+      plan%panel(elem)%z = source_heights(:, elem)
       call sort_three(plan%panel(elem)%z)
       plan%panel(elem)%horizontal = &
         abs(plan%panel(elem)%z(3) - plan%panel(elem)%z(1)) <= tolerance
@@ -94,7 +118,7 @@ contains
       end do
     end do
     status = periodic_zero_mode_ok
-  end subroutine build_periodic_zero_mode_plan
+  end subroutine build_periodic_zero_mode_height_plan
 
   subroutine refresh_periodic_zero_mode_state(plan, charge, e_bottom, z_gauge, phi_gauge, state)
     type(periodic_zero_mode_plan_type), intent(in) :: plan

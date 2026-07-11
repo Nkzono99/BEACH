@@ -131,9 +131,11 @@ FMM 系の長時間 target は `make test-l3` / `make test-heavy` / `make test-f
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | 電場評価手法 |
 | `field_bc_mode` | string | "free" | free, periodic2 | 境界条件 (periodic2 は fmm 必須) |
 | `field_periodic_image_layers` | int | 1 | >= 0 | periodic2 のイメージシェル層数 |
-| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle | 遠方補正 (`auto` は互換用に `none` として扱う) |
+| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle, cached_kneq0 | `cached_kneq0` が production 無限周期非零モード |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald 分割パラメータ (0=自動) |
 | `field_periodic_ewald_layers` | int | 4 | >= 0 | Ewald シェル深度 |
+| `field_periodic_cache_dir` | string | ".beach_cache/periodic2" | non-empty | versioned operator cache |
+| `field_periodic_generation_tolerance` | float | 1e-8 | > 0 | cache identity の generation tolerance |
 | `tree_theta` | float | 0.5 | (0, 1] | ツリー法 MAC パラメータ |
 | `tree_leaf_max` | int | 16 | >= 1 | リーフノードあたり最大要素数 |
 | `tree_min_nelem` | int | 256 | >= 1 | auto → treecode 切替閾値 |
