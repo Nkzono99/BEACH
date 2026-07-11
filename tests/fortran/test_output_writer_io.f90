@@ -131,7 +131,7 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=2') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=3') > 0
     saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
@@ -145,7 +145,7 @@ program test_output_writer_io
   saw_ledger_header = ios == 0 .and. index(line, 'species_idx') > 0 .and. index(line, 'discarded_unresolved_C') > 0
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
-  call assert_true(saw_schema, 'summary should record checkpoint schema v2')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v3')
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')

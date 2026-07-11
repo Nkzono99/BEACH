@@ -743,7 +743,7 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     _write_minimal_result_fixture(
         out,
         summary_extra=[
-            "checkpoint_schema_version=2",
+            "checkpoint_schema_version=3",
             "model_fingerprint=0123456789ABCDEF",
             "mesh_fingerprint=1111111122222222",
             "species_fingerprint=3333333344444444",
@@ -770,7 +770,7 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
 
     result = load_fortran_result(out)
 
-    assert result.checkpoint_schema_version == 2
+    assert result.checkpoint_schema_version == 3
     assert result.model_fingerprint == "0123456789ABCDEF"
     assert result.mesh_fingerprint == "1111111122222222"
     assert result.species_fingerprint == "3333333344444444"

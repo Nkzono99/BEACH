@@ -10,6 +10,7 @@ program test_restart
   use bem_charge_ledger, only: charge_ledger_type
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
+  use bem_filesystem, only: atomic_rename, filesystem_success
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, assert_allclose_1d, &
@@ -28,6 +29,8 @@ program test_restart
   logical :: has_restart, exists
   integer(i32) :: contract_status
   character(len=256) :: contract_message
+  character(len=512) :: profile_header
+  integer :: profile_unit, profile_ios
   character(len=1024) :: rng_rank_path, residual_global_path
   character(len=*), parameter :: out_dir = 'test_restart_tmp'
 
@@ -41,7 +44,7 @@ program test_restart
   call delete_file_if_exists(out_dir//'/outer_plasma_profile.csv')
   call remove_empty_directory(out_dir)
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
@@ -61,10 +64,28 @@ program test_restart
   electrostatic_diagnostics%split_periodic_active = .true.
   electrostatic_diagnostics%interface_potential = -0.25_dp
   electrostatic_diagnostics%last_outer_update_batch = 2_i32
+  electrostatic_diagnostics%outer_applicability_status = 0_i32
+  electrostatic_diagnostics%outer_nonlinear_iterations = 7_i32
+  electrostatic_diagnostics%outer_nonlinear_residual = 2.5e-11_dp
+  electrostatic_diagnostics%outer_integrated_charge_per_area = -4.0e-12_dp
+  electrostatic_diagnostics%outer_electron_current_density = -2.0e-6_dp
+  electrostatic_diagnostics%outer_ion_current_density = 1.5e-6_dp
+  electrostatic_diagnostics%outer_photoelectron_current_density = 0.25e-6_dp
+  electrostatic_diagnostics%outer_total_current_density = -0.25e-6_dp
   electrostatic_diagnostics%outer_profile_z = [1.0_dp, 1.5_dp, 2.0_dp]
   electrostatic_diagnostics%outer_profile_potential = [-0.25_dp, -0.1_dp, -0.02_dp]
+  electrostatic_diagnostics%outer_profile_field = [0.3_dp, 0.23_dp, 0.16_dp]
+  electrostatic_diagnostics%outer_profile_charge_density = [-1.0e-12_dp, -0.4e-12_dp, -0.08e-12_dp]
   call write_result_files(out_dir, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics)
   call write_rng_state_file(out_dir)
+  open (newunit=profile_unit, file=out_dir//'/outer_plasma_profile.csv', status='old', action='read', iostat=profile_ios)
+  call assert_equal_i32(int(profile_ios, i32), 0_i32, 'schema v3 outer profile should open')
+  read (profile_unit, '(A)', iostat=profile_ios) profile_header
+  close (profile_unit)
+  call assert_true( &
+    trim(profile_header) == 'point,z_m,potential_V,field_V_m,charge_density_C_m3', &
+    'schema v3 outer profile header mismatch' &
+    )
   call load_restart_checkpoint(out_dir, mesh, stats, has_restart, app=cfg, electrostatic_state=electrostatic_state)
   call assert_true(has_restart, 'kinetic profile checkpoint should load')
   call assert_true(electrostatic_state%outer_ready, 'kinetic outer state should be ready')
@@ -75,6 +96,43 @@ program test_restart
   call assert_allclose_1d( &
     electrostatic_state%outer_profile_potential, [-0.25_dp, -0.1_dp, -0.02_dp], 1.0e-15_dp, &
     'kinetic restart potential mismatch' &
+    )
+  call assert_allclose_1d( &
+    electrostatic_state%outer_profile_field, [0.3_dp, 0.23_dp, 0.16_dp], 1.0e-15_dp, &
+    'kinetic restart field mismatch' &
+    )
+  call assert_allclose_1d( &
+    electrostatic_state%outer_profile_charge_density, [-1.0e-12_dp, -0.4e-12_dp, -0.08e-12_dp], 1.0e-24_dp, &
+    'kinetic restart charge-density mismatch' &
+    )
+  call assert_equal_i32(electrostatic_state%outer_nonlinear_iterations, 7_i32, &
+                        'kinetic restart iteration mismatch')
+  call assert_close_dp(electrostatic_state%outer_nonlinear_residual, 2.5e-11_dp, 1.0e-24_dp, &
+                       'kinetic restart residual mismatch')
+  call assert_close_dp(electrostatic_state%outer_integrated_charge_per_area, -4.0e-12_dp, 1.0e-24_dp, &
+                       'kinetic restart integrated charge mismatch')
+  call assert_close_dp(electrostatic_state%outer_electron_current_density, -2.0e-6_dp, 1.0e-18_dp, &
+                       'kinetic restart electron current mismatch')
+  call assert_close_dp(electrostatic_state%outer_ion_current_density, 1.5e-6_dp, 1.0e-18_dp, &
+                       'kinetic restart ion current mismatch')
+  call assert_close_dp(electrostatic_state%outer_photoelectron_current_density, 0.25e-6_dp, 1.0e-18_dp, &
+                       'kinetic restart photoelectron current mismatch')
+  call assert_close_dp(electrostatic_state%outer_total_current_density, -0.25e-6_dp, 1.0e-18_dp, &
+                       'kinetic restart total current mismatch')
+  call test_end()
+
+  call test_begin('schema_v2_outer_profile_migrates_by_forcing_refresh')
+  call downgrade_outer_checkpoint_to_v2(out_dir)
+  call load_restart_checkpoint(out_dir, mesh, stats, has_restart, app=cfg, electrostatic_state=electrostatic_state)
+  call assert_true(has_restart, 'schema v2 kinetic profile checkpoint should load')
+  call assert_equal_i32(electrostatic_state%checkpoint_schema_version, 2_i32, &
+                        'schema v2 version should be preserved')
+  call assert_true(electrostatic_state%outer_ready, 'schema v2 outer state should remain available as an initial guess')
+  call assert_true(.not. electrostatic_state%outer_profile_complete, &
+                   'schema v2 profile must force a complete root refresh')
+  call assert_allclose_1d( &
+    electrostatic_state%outer_profile_potential, [-0.25_dp, -0.1_dp, -0.02_dp], 1.0e-15_dp, &
+    'schema v2 migration potential mismatch' &
     )
   call test_end()
 
@@ -206,6 +264,54 @@ program test_restart
   call test_summary()
 
 contains
+
+  subroutine downgrade_outer_checkpoint_to_v2(dir_path)
+    character(len=*), intent(in) :: dir_path
+    character(len=1024) :: summary_path, summary_tmp, profile_path, profile_tmp
+    character(len=1024) :: line
+    integer :: input_unit, output_unit, ios, rename_status
+    integer(i32) :: point
+    real(dp) :: z, potential, field, charge_density
+
+    summary_path = trim(dir_path)//'/summary.txt'
+    summary_tmp = trim(summary_path)//'.v2tmp'
+    open (newunit=input_unit, file=trim(summary_path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open schema v3 summary for migration fixture'
+    open (newunit=output_unit, file=trim(summary_tmp), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create schema v2 summary fixture'
+    do
+      read (input_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (index(line, 'checkpoint_schema_version=') == 1) then
+        write (output_unit, '(a)') 'checkpoint_schema_version=2'
+      else
+        write (output_unit, '(a)') trim(line)
+      end if
+    end do
+    close (input_unit)
+    close (output_unit)
+    call atomic_rename(summary_tmp, summary_path, rename_status)
+    if (rename_status /= filesystem_success) error stop 'failed to publish schema v2 summary fixture'
+
+    profile_path = trim(dir_path)//'/outer_plasma_profile.csv'
+    profile_tmp = trim(profile_path)//'.v2tmp'
+    open (newunit=input_unit, file=trim(profile_path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open schema v3 profile for migration fixture'
+    open (newunit=output_unit, file=trim(profile_tmp), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create schema v2 profile fixture'
+    read (input_unit, '(A)', iostat=ios) line
+    if (ios /= 0) error stop 'schema v3 profile header is missing'
+    write (output_unit, '(a)') 'point,z_m,potential_V'
+    do
+      read (input_unit, *, iostat=ios) point, z, potential, field, charge_density
+      if (ios /= 0) exit
+      write (output_unit, '(i0,2(a,es24.16))') point, ',', z, ',', potential
+    end do
+    close (input_unit)
+    close (output_unit)
+    call atomic_rename(profile_tmp, profile_path, rename_status)
+    if (rename_status /= filesystem_success) error stop 'failed to publish schema v2 profile fixture'
+  end subroutine downgrade_outer_checkpoint_to_v2
 
   !> 2要素メッシュを初期化する。
   !! @param[out] mesh 初期化済みテスト用メッシュ。

@@ -29,7 +29,7 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 | File | When it appears | What to inspect first |
 | --- | --- | --- |
 | `summary.txt` | Always | batch count, absorbed and escaped counts, last relative charge change, MPI rank count |
-| `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` | Converged outer-grid coordinates and potential; also used as the restart profile |
+| `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` | Converged outer-grid `z, phi, E, rho`; also used as the restart profile |
 | `charges.csv` | Always | final charge per element |
 | `mesh_triangles.csv` | Always | triangle vertices, element IDs, `mesh_id` |
 | `mesh_sources.csv` | Template mesh runs | mapping from `mesh_id` to template kind / surface model / element count |
@@ -109,5 +109,5 @@ b.plot_potential()
 
 ## Resume Outputs
 
-With `output.resume=true`, `summary.txt`, `charges.csv`, `rng_state*.txt`, `macro_residuals*.csv`, and the schema-v2 `charge_ledger.csv` are used as checkpoint files. Schema v2 rejects model, mesh, or species fingerprint mismatches.
+With `output.resume=true`, `summary.txt`, `charges.csv`, `rng_state*.txt`, `macro_residuals*.csv`, and `charge_ledger.csv` when enabled are used as checkpoint files. Schema v3 restores matching model, mesh, and species fingerprints plus the complete outer solver profile/state. A schema-v2 three-column outer profile remains readable, but it forces a new outer solve at the next refresh instead of being treated as a complete held state.
 When `output.restart_from` is set, checkpoint files are read from `restart_from`, while new outputs are written under `output.dir`.

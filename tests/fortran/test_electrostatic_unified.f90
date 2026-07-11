@@ -114,6 +114,14 @@ program test_electrostatic_unified
   call restarted_snapshot%restore_outer_state(restart_state)
   call assert_allclose_1d(restarted_snapshot%outer%potential, snapshot_low%outer%potential, &
                           0.0_dp, 'unified restart profile mismatch')
+  call assert_allclose_1d(restarted_snapshot%outer%field, snapshot_low%outer%field, &
+                          0.0_dp, 'unified restart field mismatch')
+  call assert_allclose_1d(restarted_snapshot%outer%charge_density, snapshot_low%outer%charge_density, &
+                          0.0_dp, 'unified restart charge-density mismatch')
+  call assert_close_dp( &
+    restarted_snapshot%outer%integrated_charge_per_area, snapshot_low%outer%integrated_charge_per_area, &
+    0.0_dp, 'unified restart integrated charge mismatch' &
+    )
   call restarted_snapshot%refresh(mesh)
   call assert_close_dp(restarted_snapshot%gauss_residual, 0.0_dp, 2.0e-24_dp, &
                        'restarted unified Gauss residual mismatch')

@@ -28,7 +28,7 @@ beachx inspect outputs/latest
 | ファイル | いつ出るか | まず見る内容 |
 | --- | --- | --- |
 | `summary.txt` | 常時 | batch 数、吸収数、脱出数、最後の相対変化、MPI rank 数 |
-| `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` | 収束した outer grid の座標と電位。restart profile としても使用 |
+| `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` | 収束した outer grid の `z, phi, E, rho`。restart profile としても使用 |
 | `charges.csv` | 常時 | 要素ごとの最終電荷 |
 | `mesh_triangles.csv` | 常時 | 三角形頂点、要素 ID、`mesh_id` |
 | `mesh_sources.csv` | template mesh 利用時 | `mesh_id` と template kind / surface model / 要素数の対応 |
@@ -108,5 +108,5 @@ b.plot_potential()
 
 ## 再開実行の出力
 
-`output.resume=true` の場合、`summary.txt`、`charges.csv`、`rng_state*.txt`、`macro_residuals*.csv`、schema v2 の `charge_ledger.csv` が checkpoint として使われます。schema v2 は model / mesh / species fingerprint の不一致を拒否します。
+`output.resume=true` の場合、`summary.txt`、`charges.csv`、`rng_state*.txt`、`macro_residuals*.csv`、台帳有効時の `charge_ledger.csv` が checkpoint として使われます。schema v3 は model / mesh / species fingerprint と outer solver の完全な profile/state を照合・復元します。schema v2 の3列 outer profile は読み込み可能ですが、held state としては使わず次回 refresh で再解法します。
 `output.restart_from` を指定すると、checkpoint は `restart_from` から読み、新しい出力は `output.dir` に書きます。

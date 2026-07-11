@@ -447,8 +447,9 @@ On restart, BEACH validates:
 - statistics in `summary.txt` are finite and non-negative
 - `charges.csv` element count and charge values are valid
 - RNG state and macro residuals can be loaded
-- schema-v2 model, ordered-mesh, and ordered-species fingerprints match
-- schema-v2 ledger stocks and species rows are complete when a ledger is present
+- schema-v2/v3 model, ordered-mesh, and ordered-species fingerprints match
+- schema-v2/v3 ledger stocks and species rows are complete when a ledger is present
+- schema-v3 outer profiles contain complete `z, phi, E, rho` and solver scalar state
 
 If a required checkpoint is missing, `output.resume=true` stops instead of falling back to a new run.
 

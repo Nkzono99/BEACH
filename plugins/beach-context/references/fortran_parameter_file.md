@@ -780,7 +780,7 @@ z 軸方向の円柱です。
 | 出力 | `write_files=true` が必須 |
 | 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
 | 必須ファイル | `summary.txt`, `charges.csv`, `rng_state.txt` |
-| 任意ファイル | `macro_residuals.csv`。schema v2 で台帳 metadata がある場合は `charge_ledger.csv` も必須 |
+| 任意ファイル | `macro_residuals.csv`。schema v2/v3 で台帳 metadata がある場合は `charge_ledger.csv` も必須 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
 `restart_from` は checkpoint の読み込み元だけを変更します。
@@ -793,7 +793,7 @@ MPI 実行時:
 | `rng_state_rankNNNNN.txt` | rank 別乱数状態 |
 | `macro_residuals_rankNNNNN.csv` | rank 別残差 |
 
-`summary.txt` の `mpi_world_size` は現在の rank 数と一致している必要があります。schema v2 では model / ordered mesh / ordered species fingerprint も一致する必要があります。
+`summary.txt` の `mpi_world_size` は現在の rank 数と一致している必要があります。schema v2/v3 では model / ordered mesh / ordered species fingerprint も一致する必要があります。schema v3 は outer profile の `field_V_m` と `charge_density_C_m3` も必須です。
 
 `[[particles.species]].species_key` は restart fingerprint 用の安定 ID です。省略時は `species_<1-based index>` を割り当てます。明示する場合は粒子種間で一意にしてください。
 

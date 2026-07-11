@@ -171,16 +171,21 @@ contains
     integer(i32) :: point
 
     if (.not. allocated(diagnostics%outer_profile_potential) .or. &
-        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_potential)) then
+        .not. allocated(diagnostics%outer_profile_field) .or. &
+        .not. allocated(diagnostics%outer_profile_charge_density) .or. &
+        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_potential) .or. &
+        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_field) .or. &
+        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_charge_density)) then
       error stop 'Outer-plasma diagnostic profile is incomplete.'
     end if
     path = trim(out_dir)//'/outer_plasma_profile.csv'
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open outer_plasma_profile.csv.'
-    write (u, '(a)') 'point,z_m,potential_V'
+    write (u, '(a)') 'point,z_m,potential_V,field_V_m,charge_density_C_m3'
     do point = 1_i32, size(diagnostics%outer_profile_z)
-      write (u, '(i0,2(a,es24.16))') point, ',', diagnostics%outer_profile_z(point), ',', &
-        diagnostics%outer_profile_potential(point)
+      write (u, '(i0,4(a,es24.16))') point, ',', diagnostics%outer_profile_z(point), ',', &
+        diagnostics%outer_profile_potential(point), ',', diagnostics%outer_profile_field(point), ',', &
+        diagnostics%outer_profile_charge_density(point)
     end do
     close (u)
   end subroutine write_outer_plasma_profile_file
@@ -259,7 +264,7 @@ contains
     if (ios /= 0) error stop 'Failed to open summary file.'
     world_size = 1_i32
     if (present(mpi_world_size)) world_size = max(1_i32, mpi_world_size)
-    write (u, '(a)') 'checkpoint_schema_version=2'
+    write (u, '(a)') 'checkpoint_schema_version=3'
     write (u, '(a,a)') 'model_fingerprint=', model_fingerprint(cfg)
     write (u, '(a,a)') 'mesh_fingerprint=', mesh_fingerprint(mesh)
     write (u, '(a,a)') 'species_fingerprint=', species_fingerprint(cfg)
@@ -302,6 +307,21 @@ contains
       write (u, '(a,es24.16)') 'outer_integrated_charge_C=', electrostatic_diagnostics%outer_integrated_charge
       write (u, '(a,i0)') 'outer_nonlinear_iterations=', electrostatic_diagnostics%outer_nonlinear_iterations
       write (u, '(a,es24.16)') 'outer_nonlinear_residual=', electrostatic_diagnostics%outer_nonlinear_residual
+      write (u, '(a,i0)') 'outer_applicability_status=', electrostatic_diagnostics%outer_applicability_status
+      write (u, '(a,es24.16)') 'outer_infinity_potential_V=', &
+        electrostatic_diagnostics%outer_infinity_potential
+      write (u, '(a,es24.16)') 'outer_debye_length_m=', electrostatic_diagnostics%outer_debye_length
+      write (u, '(a,es24.16)') 'outer_linearity_ratio=', electrostatic_diagnostics%outer_linearity_ratio
+      write (u, '(a,es24.16)') 'outer_max_linearity_ratio=', &
+        electrostatic_diagnostics%outer_max_linearity_ratio
+      write (u, '(a,es24.16)') 'outer_integrated_charge_per_area_C_m2=', &
+        electrostatic_diagnostics%outer_integrated_charge_per_area
+      write (u, '(a,es24.16)') 'outer_electron_current_density_A_m2=', &
+        electrostatic_diagnostics%outer_electron_current_density
+      write (u, '(a,es24.16)') 'outer_ion_current_density_A_m2=', &
+        electrostatic_diagnostics%outer_ion_current_density
+      write (u, '(a,es24.16)') 'outer_photoelectron_current_density_A_m2=', &
+        electrostatic_diagnostics%outer_photoelectron_current_density
       write (u, '(a,es24.16)') 'outer_total_current_density_A_m2=', &
         electrostatic_diagnostics%outer_total_current_density
       write (u, '(a,es24.16)') 'outer_accessible_fraction_min=', &

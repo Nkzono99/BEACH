@@ -154,10 +154,10 @@ BEACH は `sim.batch_count` まで batch を進めます。各 batch は次の�
 - `charges.csv`: 要素電荷
 - `rng_state.txt` または `rng_state_rankNNNNN.txt`: 乱数状態
 - `macro_residuals.csv` または rank 別 residual: reservoir の端数粒子数
-- `charge_ledger.csv`: schema v2 の累積 signed charge ledger
+- `charge_ledger.csv`: schema v2/v3 の累積 signed charge ledger
 
 `sim.batch_count` は累積到達 batch 数です。checkpoint が `batches=100` で `batch_count=150` なら、実行するのは 50 batch だけです。
-schema v2 は model、ordered mesh、ordered species の fingerprint を保存し、状態を変更する前に照合します。旧 schema は実装済み legacy point-source model に限って受理します。
+schema v3 は model、ordered mesh、ordered species の fingerprint に加え、outer solver の `z, phi, E, rho`、status、反復数、residual、電流を保存し、状態を変更する前に照合します。schema v2 は migration input として受理し、不完全な outer profile は再解法します。それより古い schema は実装済み legacy point-source model に限って受理します。
 
 粒子積分の contract は `particle_time_centering="same_time_midpoint_boris"` です。pure E / pure B、time reversal、smooth field の二次収束、batch restart continuity の回帰試験を、この contract の変更検出に使います。
 

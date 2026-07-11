@@ -155,42 +155,69 @@ contains
     character(len=1024) :: path
     character(len=512) :: line
     integer :: u, ios
-    integer(i32) :: point, file_point, count_values(1)
-    real(dp), allocatable :: z(:), potential(:)
+    integer(i32) :: point, file_point, profile_meta(2)
+    real(dp), allocatable :: z(:), potential(:), field(:), charge_density(:)
     logical :: read_here
 
     read_here = .not. present(mpi) .or. local_rank == 0_i32
-    count_values = 0_i32
+    profile_meta = 0_i32
     path = trim(out_dir)//'/outer_plasma_profile.csv'
     if (read_here) then
       open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
       if (ios /= 0) error stop 'Resume checkpoint is missing outer_plasma_profile.csv.'
       read (u, '(A)', iostat=ios) line
-      if (ios /= 0 .or. trim(line) /= 'point,z_m,potential_V') error stop 'Malformed outer profile header.'
+      if (ios /= 0) error stop 'Malformed outer profile header.'
+      select case (trim(line))
+      case ('point,z_m,potential_V')
+        profile_meta(2) = 0_i32
+      case ('point,z_m,potential_V,field_V_m,charge_density_C_m3')
+        profile_meta(2) = 1_i32
+      case default
+        error stop 'Malformed outer profile header.'
+      end select
       do
         read (u, '(A)', iostat=ios) line
         if (ios /= 0) exit
-        count_values(1) = count_values(1) + 1_i32
+        profile_meta(1) = profile_meta(1) + 1_i32
       end do
       rewind (u)
       read (u, '(A)') line
-      allocate (z(count_values(1)), potential(count_values(1)))
-      do point = 1_i32, count_values(1)
-        read (u, *, iostat=ios) file_point, z(point), potential(point)
+      allocate (z(profile_meta(1)), potential(profile_meta(1)))
+      if (profile_meta(2) == 1_i32) allocate (field(profile_meta(1)), charge_density(profile_meta(1)))
+      do point = 1_i32, profile_meta(1)
+        if (profile_meta(2) == 1_i32) then
+          read (u, *, iostat=ios) file_point, z(point), potential(point), field(point), charge_density(point)
+        else
+          read (u, *, iostat=ios) file_point, z(point), potential(point)
+        end if
         if (ios /= 0 .or. file_point /= point) error stop 'Malformed outer profile row.'
       end do
       close (u)
-      count_values(1) = size(z)
+      profile_meta(1) = size(z)
     end if
-    if (present(mpi)) call mpi_bcast_i32_array(mpi, count_values, 0_i32)
-    if (count_values(1) < 3_i32) error stop 'Kinetic outer profile has too few points.'
-    if (.not. read_here) allocate (z(count_values(1)), potential(count_values(1)))
+    if (present(mpi)) call mpi_bcast_i32_array(mpi, profile_meta, 0_i32)
+    if (profile_meta(1) < 3_i32) error stop 'Kinetic outer profile has too few points.'
+    if (.not. read_here) then
+      allocate (z(profile_meta(1)), potential(profile_meta(1)))
+      if (profile_meta(2) == 1_i32) allocate (field(profile_meta(1)), charge_density(profile_meta(1)))
+    end if
     if (present(mpi)) then
       call mpi_bcast_real_dp_array(mpi, z, 0_i32)
       call mpi_bcast_real_dp_array(mpi, potential, 0_i32)
+      if (profile_meta(2) == 1_i32) then
+        call mpi_bcast_real_dp_array(mpi, field, 0_i32)
+        call mpi_bcast_real_dp_array(mpi, charge_density, 0_i32)
+      end if
     end if
     state%outer_profile_z = z
     state%outer_profile_potential = potential
+    state%outer_profile_complete = profile_meta(2) == 1_i32
+    if (state%outer_profile_complete) then
+      state%outer_profile_field = field
+      state%outer_profile_charge_density = charge_density
+    else if (state%checkpoint_schema_version >= 3_i32) then
+      error stop 'Schema v3 checkpoint requires complete outer E/rho profile columns.'
+    end if
   end subroutine load_kinetic_outer_profile
 
   subroutine load_photoelectron_checkpoint(path, completed_batches, app, state)
@@ -240,11 +267,12 @@ contains
     character(len=512) :: line
     character(len=64) :: key
     character(len=256) :: value
-    logical :: found_potential, found_batch
+    logical :: found_potential, found_batch, found_v3_state(13)
 
     state = electrostatic_restart_state_type()
     found_potential = .false.
     found_batch = .false.
+    found_v3_state = .false.
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary.txt for electrostatic restart state.'
     do
@@ -255,6 +283,8 @@ contains
       key = trim(adjustl(line(:pos - 1)))
       value = trim(adjustl(line(pos + 1:)))
       select case (trim(key))
+      case ('checkpoint_schema_version')
+        read (value, *, iostat=ios) state%checkpoint_schema_version
       case ('electrostatic_split_periodic_active')
         read (value, *, iostat=ios) state%outer_ready
       case ('interface_potential_V')
@@ -263,12 +293,54 @@ contains
       case ('last_outer_update_batch')
         read (value, *, iostat=ios) state%last_outer_update_batch
         found_batch = ios == 0
+      case ('interface_normal_field_V_m')
+        read (value, *, iostat=ios) state%outer_interface_field
+        found_v3_state(1) = ios == 0
+      case ('outer_applicability_status')
+        read (value, *, iostat=ios) state%outer_applicability_status
+        found_v3_state(2) = ios == 0
+      case ('outer_nonlinear_iterations')
+        read (value, *, iostat=ios) state%outer_nonlinear_iterations
+        found_v3_state(3) = ios == 0
+      case ('outer_nonlinear_residual')
+        read (value, *, iostat=ios) state%outer_nonlinear_residual
+        found_v3_state(4) = ios == 0
+      case ('outer_infinity_potential_V')
+        read (value, *, iostat=ios) state%outer_infinity_potential
+        found_v3_state(5) = ios == 0
+      case ('outer_debye_length_m')
+        read (value, *, iostat=ios) state%outer_debye_length
+        found_v3_state(6) = ios == 0
+      case ('outer_linearity_ratio')
+        read (value, *, iostat=ios) state%outer_linearity_ratio
+        found_v3_state(7) = ios == 0
+      case ('outer_max_linearity_ratio')
+        read (value, *, iostat=ios) state%outer_max_linearity_ratio
+        found_v3_state(8) = ios == 0
+      case ('outer_integrated_charge_per_area_C_m2')
+        read (value, *, iostat=ios) state%outer_integrated_charge_per_area
+        found_v3_state(9) = ios == 0
+      case ('outer_electron_current_density_A_m2')
+        read (value, *, iostat=ios) state%outer_electron_current_density
+        found_v3_state(10) = ios == 0
+      case ('outer_ion_current_density_A_m2')
+        read (value, *, iostat=ios) state%outer_ion_current_density
+        found_v3_state(11) = ios == 0
+      case ('outer_photoelectron_current_density_A_m2')
+        read (value, *, iostat=ios) state%outer_photoelectron_current_density
+        found_v3_state(12) = ios == 0
+      case ('outer_total_current_density_A_m2')
+        read (value, *, iostat=ios) state%outer_total_current_density
+        found_v3_state(13) = ios == 0
       end select
       if (ios /= 0) error stop 'Malformed electrostatic restart state in summary.txt.'
     end do
     close (u)
     if (state%outer_ready .and. .not. (found_potential .and. found_batch)) then
       error stop 'Incomplete electrostatic restart state in summary.txt.'
+    end if
+    if (state%outer_ready .and. state%checkpoint_schema_version >= 3_i32 .and. .not. all(found_v3_state)) then
+      error stop 'Schema v3 electrostatic restart state is incomplete in summary.txt.'
     end if
   end subroutine load_electrostatic_state
 
@@ -347,14 +419,14 @@ contains
       end if
       return
     end if
-    if (schema_version /= 2_i32) then
+    if (schema_version /= 2_i32 .and. schema_version /= 3_i32) then
       status = restart_contract_unsupported_schema
       message = 'unsupported checkpoint schema version'
       return
     end if
     if (.not. (found_model .and. found_mesh .and. found_species)) then
       status = restart_contract_malformed
-      message = 'schema v2 summary is missing fingerprints'
+      message = 'versioned checkpoint summary is missing fingerprints'
       return
     end if
     if (saved_model /= model_fingerprint(app)) then

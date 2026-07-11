@@ -799,7 +799,7 @@ Requirements for `resume=true`:
 | Output | `write_files=true` is required |
 | Source | If `restart_from` is unspecified, use `output.dir`; otherwise use `restart_from` |
 | Required files | `summary.txt`, `charges.csv`, `rng_state.txt` |
-| Optional files | `macro_residuals.csv`; `charge_ledger.csv` is required when schema-v2 ledger metadata is present |
+| Optional files | `macro_residuals.csv`; `charge_ledger.csv` is required when schema-v2/v3 ledger metadata is present |
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 
 `restart_from` changes only the checkpoint read source. New output is always
@@ -812,7 +812,7 @@ During MPI execution:
 | `rng_state_rankNNNNN.txt` | Random-number state per rank |
 | `macro_residuals_rankNNNNN.csv` | Residuals per rank |
 
-`mpi_world_size` in `summary.txt` must match the current number of ranks. Schema v2 also requires matching model, ordered-mesh, and ordered-species fingerprints.
+`mpi_world_size` in `summary.txt` must match the current number of ranks. Schema v2/v3 also requires matching model, ordered-mesh, and ordered-species fingerprints. Schema v3 additionally requires `field_V_m` and `charge_density_C_m3` in the outer profile.
 
 `[[particles.species]].species_key` is a stable identifier for restart fingerprints. When omitted it becomes `species_<1-based index>`; explicit keys must be unique across species.
 

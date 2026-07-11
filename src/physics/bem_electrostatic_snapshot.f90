@@ -39,6 +39,15 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_integrated_charge = 0.0_dp
     integer(i32) :: outer_nonlinear_iterations = 0_i32
     real(dp) :: outer_nonlinear_residual = 0.0_dp
+    integer(i32) :: outer_applicability_status = 0_i32
+    real(dp) :: outer_infinity_potential = 0.0_dp
+    real(dp) :: outer_debye_length = 0.0_dp
+    real(dp) :: outer_linearity_ratio = 0.0_dp
+    real(dp) :: outer_max_linearity_ratio = 0.0_dp
+    real(dp) :: outer_integrated_charge_per_area = 0.0_dp
+    real(dp) :: outer_electron_current_density = 0.0_dp
+    real(dp) :: outer_ion_current_density = 0.0_dp
+    real(dp) :: outer_photoelectron_current_density = 0.0_dp
     real(dp) :: outer_total_current_density = 0.0_dp
     real(dp) :: accessible_fraction_min = 0.0_dp
     real(dp) :: accessible_fraction_max = 0.0_dp
@@ -56,14 +65,33 @@ module bem_electrostatic_snapshot
     character(len=512) :: periodic_cache_path = ''
     real(dp), allocatable :: outer_profile_z(:)
     real(dp), allocatable :: outer_profile_potential(:)
+    real(dp), allocatable :: outer_profile_field(:)
+    real(dp), allocatable :: outer_profile_charge_density(:)
   end type electrostatic_diagnostics_type
 
   type, public :: electrostatic_restart_state_type
+    integer(i32) :: checkpoint_schema_version = 0_i32
     logical :: outer_ready = .false.
+    logical :: outer_profile_complete = .false.
     real(dp) :: outer_interface_potential = 0.0_dp
+    real(dp) :: outer_interface_field = 0.0_dp
+    integer(i32) :: outer_applicability_status = 0_i32
+    integer(i32) :: outer_nonlinear_iterations = 0_i32
+    real(dp) :: outer_nonlinear_residual = 0.0_dp
+    real(dp) :: outer_infinity_potential = 0.0_dp
+    real(dp) :: outer_debye_length = 0.0_dp
+    real(dp) :: outer_linearity_ratio = 0.0_dp
+    real(dp) :: outer_max_linearity_ratio = 0.0_dp
+    real(dp) :: outer_integrated_charge_per_area = 0.0_dp
+    real(dp) :: outer_electron_current_density = 0.0_dp
+    real(dp) :: outer_ion_current_density = 0.0_dp
+    real(dp) :: outer_photoelectron_current_density = 0.0_dp
+    real(dp) :: outer_total_current_density = 0.0_dp
     integer(i32) :: last_outer_update_batch = -1_i32
     real(dp), allocatable :: outer_profile_z(:)
     real(dp), allocatable :: outer_profile_potential(:)
+    real(dp), allocatable :: outer_profile_field(:)
+    real(dp), allocatable :: outer_profile_charge_density(:)
   end type electrostatic_restart_state_type
 
   type, public :: electrostatic_snapshot_type
@@ -310,10 +338,23 @@ contains
     diagnostics = self%diagnostics
     diagnostics%outer_nonlinear_iterations = self%outer%nonlinear_iterations
     diagnostics%outer_nonlinear_residual = self%outer%nonlinear_residual
+    diagnostics%outer_applicability_status = self%outer%applicability_status
+    diagnostics%outer_infinity_potential = self%outer%infinity_potential
+    diagnostics%outer_debye_length = self%outer%debye_length
+    diagnostics%outer_linearity_ratio = self%outer%linearity_ratio
+    diagnostics%outer_max_linearity_ratio = self%outer%max_linearity_ratio
+    diagnostics%outer_integrated_charge_per_area = self%outer%integrated_charge_per_area
+    diagnostics%outer_electron_current_density = self%outer%electron_current_density
+    diagnostics%outer_ion_current_density = self%outer%ion_current_density
+    diagnostics%outer_photoelectron_current_density = self%outer%photoelectron_current_density
     diagnostics%outer_total_current_density = self%outer%total_current_density
-    if (self%outer%ready .and. allocated(self%outer%z) .and. allocated(self%outer%potential)) then
+    if (allocated(self%outer%z) .and. allocated(self%outer%potential)) then
       diagnostics%outer_profile_z = self%outer%z
       diagnostics%outer_profile_potential = self%outer%potential
+      if (allocated(self%outer%field)) diagnostics%outer_profile_field = self%outer%field
+      if (allocated(self%outer%charge_density)) then
+        diagnostics%outer_profile_charge_density = self%outer%charge_density
+      end if
     end if
   end subroutine get_snapshot_diagnostics
 
@@ -334,13 +375,35 @@ contains
       end if
       self%outer = outer_plasma_state_type()
       self%outer%model = 'kinetic_1d'
-      self%outer%ready = .true.
-      self%outer%applicability_status = outer_plasma_ok
+      self%outer%ready = state%outer_ready .and. state%outer_profile_complete
+      self%outer%applicability_status = state%outer_applicability_status
       self%outer%profile_n = self%kinetic_options%grid_points
       self%outer%interface_z = self%outer_options%interface_z
       self%outer%interface_potential = state%outer_interface_potential
+      self%outer%interface_field = state%outer_interface_field
+      self%outer%infinity_potential = state%outer_infinity_potential
+      self%outer%debye_length = state%outer_debye_length
+      self%outer%linearity_ratio = state%outer_linearity_ratio
+      self%outer%max_linearity_ratio = state%outer_max_linearity_ratio
+      self%outer%nonlinear_iterations = state%outer_nonlinear_iterations
+      self%outer%nonlinear_residual = state%outer_nonlinear_residual
+      self%outer%integrated_charge_per_area = state%outer_integrated_charge_per_area
+      self%outer%electron_current_density = state%outer_electron_current_density
+      self%outer%ion_current_density = state%outer_ion_current_density
+      self%outer%photoelectron_current_density = state%outer_photoelectron_current_density
+      self%outer%total_current_density = state%outer_total_current_density
       self%outer%z = state%outer_profile_z
       self%outer%potential = state%outer_profile_potential
+      if (state%outer_profile_complete) then
+        if (.not. allocated(state%outer_profile_field) .or. &
+            .not. allocated(state%outer_profile_charge_density) .or. &
+            size(state%outer_profile_field) /= self%kinetic_options%grid_points .or. &
+            size(state%outer_profile_charge_density) /= self%kinetic_options%grid_points) then
+          error stop 'checkpoint kinetic outer profile is marked complete but E/rho arrays are missing.'
+        end if
+        self%outer%field = state%outer_profile_field
+        self%outer%charge_density = state%outer_profile_charge_density
+      end if
       return
     end if
     if (trim(lower_ascii(self%outer_options%model)) == 'unified_linear_response') then
@@ -353,22 +416,35 @@ contains
       end if
       self%outer = outer_plasma_state_type()
       self%outer%model = 'unified_linear_response'
-      self%outer%ready = .true.
-      self%outer%applicability_status = outer_plasma_ok
+      self%outer%ready = state%outer_ready .and. state%outer_profile_complete
+      self%outer%applicability_status = state%outer_applicability_status
       self%outer%profile_n = self%unified_grid%n
       self%outer%interface_z = self%outer_options%interface_z
       self%outer%interface_potential = state%outer_interface_potential
+      self%outer%interface_field = state%outer_interface_field
+      self%outer%infinity_potential = state%outer_infinity_potential
+      self%outer%debye_length = state%outer_debye_length
+      self%outer%linearity_ratio = state%outer_linearity_ratio
+      self%outer%max_linearity_ratio = state%outer_max_linearity_ratio
+      self%outer%nonlinear_iterations = state%outer_nonlinear_iterations
+      self%outer%nonlinear_residual = state%outer_nonlinear_residual
+      self%outer%integrated_charge_per_area = state%outer_integrated_charge_per_area
+      self%outer%electron_current_density = state%outer_electron_current_density
+      self%outer%ion_current_density = state%outer_ion_current_density
+      self%outer%photoelectron_current_density = state%outer_photoelectron_current_density
+      self%outer%total_current_density = state%outer_total_current_density
       self%outer%z = state%outer_profile_z
       self%outer%potential = state%outer_profile_potential
-      allocate (self%outer%field(self%outer%profile_n), self%outer%charge_density(self%outer%profile_n))
-      self%outer%field(1) = -(self%outer%potential(2) - self%outer%potential(1))/self%unified_grid%dz(1)
-      self%outer%field(2:self%outer%profile_n - 1) = &
-        -(self%outer%potential(3:self%outer%profile_n) - self%outer%potential(1:self%outer%profile_n - 2))/ &
-        (self%outer%z(3:self%outer%profile_n) - self%outer%z(1:self%outer%profile_n - 2))
-      self%outer%field(self%outer%profile_n) = &
-        -(self%outer%potential(self%outer%profile_n) - self%outer%potential(self%outer%profile_n - 1))/ &
-        self%unified_grid%dz(self%outer%profile_n - 1)
-      self%outer%charge_density = 0.0_dp
+      if (state%outer_profile_complete) then
+        if (.not. allocated(state%outer_profile_field) .or. &
+            .not. allocated(state%outer_profile_charge_density) .or. &
+            size(state%outer_profile_field) /= self%unified_grid%n .or. &
+            size(state%outer_profile_charge_density) /= self%unified_grid%n) then
+          error stop 'checkpoint unified outer profile is marked complete but E/rho arrays are missing.'
+        end if
+        self%outer%field = state%outer_profile_field
+        self%outer%charge_density = state%outer_profile_charge_density
+      end if
       return
     end if
     linearity_ratio = abs(state%outer_interface_potential - self%outer_options%infinity_potential)/ &
@@ -387,10 +463,30 @@ contains
     type(electrostatic_restart_state_type), intent(out) :: state
 
     state%outer_ready = self%outer%ready
-    if (self%outer%ready) state%outer_interface_potential = self%outer%interface_potential
-    if (self%outer%ready .and. allocated(self%outer%z) .and. allocated(self%outer%potential)) then
+    state%outer_profile_complete = self%outer%ready .and. allocated(self%outer%z) .and. &
+                                   allocated(self%outer%potential) .and. allocated(self%outer%field) .and. &
+                                   allocated(self%outer%charge_density)
+    if (self%outer%ready) then
+      state%outer_interface_potential = self%outer%interface_potential
+      state%outer_interface_field = self%outer%interface_field
+      state%outer_applicability_status = self%outer%applicability_status
+      state%outer_nonlinear_iterations = self%outer%nonlinear_iterations
+      state%outer_nonlinear_residual = self%outer%nonlinear_residual
+      state%outer_infinity_potential = self%outer%infinity_potential
+      state%outer_debye_length = self%outer%debye_length
+      state%outer_linearity_ratio = self%outer%linearity_ratio
+      state%outer_max_linearity_ratio = self%outer%max_linearity_ratio
+      state%outer_integrated_charge_per_area = self%outer%integrated_charge_per_area
+      state%outer_electron_current_density = self%outer%electron_current_density
+      state%outer_ion_current_density = self%outer%ion_current_density
+      state%outer_photoelectron_current_density = self%outer%photoelectron_current_density
+      state%outer_total_current_density = self%outer%total_current_density
+    end if
+    if (state%outer_profile_complete) then
       state%outer_profile_z = self%outer%z
       state%outer_profile_potential = self%outer%potential
+      state%outer_profile_field = self%outer%field
+      state%outer_profile_charge_density = self%outer%charge_density
     end if
     state%last_outer_update_batch = last_outer_update_batch
   end subroutine export_snapshot_restart_state
@@ -804,7 +900,7 @@ contains
     self%kinetic_options%interface_field = interface_field
     status_values = 0_i32
     if (mpi_is_root(self%mpi)) then
-      if (self%outer%ready .and. allocated(self%outer%potential) .and. &
+      if (allocated(self%outer%potential) .and. &
           size(self%outer%potential) == self%kinetic_options%grid_points) then
         call solve_outer_plasma_kinetic( &
           self%kinetic_options, solved, status, message, initial_potential=self%outer%potential &

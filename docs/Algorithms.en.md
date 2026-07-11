@@ -168,10 +168,10 @@ When `output.resume=true`, `load_restart_checkpoint` reads:
 - `charges.csv`: element charge
 - `rng_state.txt` or `rng_state_rankNNNNN.txt`: RNG state
 - `macro_residuals.csv` or rank-local residual files: reservoir fractional particle counts
-- `charge_ledger.csv`: cumulative signed-charge ledger for schema v2
+- `charge_ledger.csv`: cumulative signed-charge ledger for schema v2/v3
 
 `sim.batch_count` is the cumulative target batch count. If the checkpoint has `batches=100` and `batch_count=150`, the resumed run executes only 50 batches.
-Schema v2 stores model, ordered-mesh, and ordered-species fingerprints and checks them before mutating runtime state. Legacy schemas are accepted only for implemented legacy point-source models.
+Schema v3 stores model, ordered-mesh, and ordered-species fingerprints plus the complete outer `z, phi, E, rho`, status, iteration, residual, and current state, and checks them before mutating runtime state. Schema v2 remains a migration input whose incomplete outer profile is re-solved. Older schemas are accepted only for implemented legacy point-source models.
 
 The particle-integration contract is `particle_time_centering="same_time_midpoint_boris"`. Pure-E, pure-B, time-reversal, smooth-field second-order convergence, and batch-restart-continuity regressions detect changes to this contract.
 

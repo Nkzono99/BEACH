@@ -447,8 +447,9 @@ $$
 - `summary.txt` の統計値が有限・非負である。
 - `charges.csv` の要素数と電荷値が妥当である。
 - RNG state と macro residual が読み込める。
-- schema v2 の model / ordered mesh / ordered species fingerprint が一致する。
-- 台帳を含む schema v2 では stock と species 行が欠損していない。
+- schema v2/v3 の model / ordered mesh / ordered species fingerprint が一致する。
+- 台帳を含む schema v2/v3 では stock と species 行が欠損していない。
+- schema v3 の outer profile では `z, phi, E, rho` と solver scalar state が完全である。
 
 必須 checkpoint がない場合、`output.resume=true` では新規実行へフォールバックせず停止します。
 
