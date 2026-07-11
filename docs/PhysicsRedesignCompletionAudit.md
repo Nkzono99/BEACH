@@ -95,10 +95,11 @@ repository には固定値として commit しません。
 - analytic periodic M2L を唯一の runtime backend にする案: versioned cached operator を production 採用
 - Zhao closure を全 outer model の終着点にする案: legacy injection model として分離
 
-一方、literal output path、checkpoint file の temp-write/atomic-rename、strict history、MPI global count、
-共通 field/potential snapshot、root-only cache 生成など非競合の要件は現行設計に継承されています。
-旧文書が提案した generation directory/current manifest 方式や Zhao prescribed profile を含む Stage 3–6
-全項目の完遂を、このページは主張しません。旧 Stage 群は physical Phase 0–9 とは別の roadmap です。
+一方、literal output path、strict history、MPI global count、共通 field/potential snapshot、root-only cache
+生成など非競合の要件は現行設計に継承されています。旧文書が提案した checkpoint 全体の
+temp-write/atomic publish、generation directory/current manifest 方式、Zhao prescribed profile を含む
+Stage 3–6 全項目の完遂を、このページは主張しません。旧 Stage 群は physical Phase 0–9 とは別の
+roadmap です。
 
 ## 明示的な scope 外
 

@@ -85,10 +85,11 @@ parts were superseded by the later physical-redesign plan:
 - analytic periodic M2L as the sole runtime backend was replaced by the versioned cached operator;
 - Zhao as the final outer closure was separated as a legacy injection model.
 
-Non-conflicting requirements such as literal output paths, temporary-write/atomic-rename checkpoint files, strict
-histories, MPI-global counts, the common field/potential snapshot, and root-only cache generation were retained.
-This page does not claim completion of every Stage 3–6 proposal, including generation-directory/current-manifest
-checkpoints or a Zhao prescribed profile. Those stages are a separate roadmap from physical Phases 0–9.
+Non-conflicting requirements such as literal output paths, strict histories, MPI-global counts, the common
+field/potential snapshot, and root-only cache generation were retained. This page does not claim completion of every
+Stage 3–6 proposal, including whole-checkpoint temporary-write/atomic publication,
+generation-directory/current-manifest checkpoints, or a Zhao prescribed profile. Those stages are a separate roadmap
+from physical Phases 0–9.
 
 ## Explicitly out of scope
 
