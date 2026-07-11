@@ -5,7 +5,9 @@ module bem_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
-  use bem_field_solver, only: field_solver_type
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type, &
+                                        electrostatic_restart_state_type
+  use bem_outer_coupler, only: outer_coupler_type
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, &
                                   particle_step_result, particle_step_invalid_boundary, &
                                   particle_step_multiple_box_events, particle_step_unsupported_barrier_corner
@@ -24,7 +26,7 @@ module bem_simulator
     !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
-      potential_history_unit, charge_ledger &
+      potential_history_unit, charge_ledger, electrostatic_diagnostics, electrostatic_restart_state &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -37,6 +39,8 @@ module bem_simulator
       real(dp), allocatable, intent(out), optional :: mesh_potential_v(:)
       integer, intent(in), optional :: potential_history_unit
       type(charge_ledger_type), intent(inout), optional :: charge_ledger
+      type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
+      type(electrostatic_restart_state_type), intent(inout), optional :: electrostatic_restart_state
     end subroutine run_absorption_insulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。
@@ -62,12 +66,12 @@ module bem_simulator
 
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
-      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank, &
+      mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank, &
       collision_failure_status, collision_failure_particle, collision_failure_step, collision_failure_x, collision_failure_v &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
-      type(field_solver_type), intent(inout) :: field_solver
+      type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(particles_soa), intent(inout) :: pcls_batch
       real(dp), intent(inout) :: dq_thread(:, :)
       logical, intent(inout) :: escaped_boundary_flag(:)
@@ -139,13 +143,13 @@ module bem_simulator
     !> 電位履歴出力条件を満たすバッチだけ電位スナップショットを書き出す。
     module subroutine maybe_write_potential_history_snapshot( &
       potential_history_enabled, pot_hist_unit, hist_stride, stats, &
-      field_solver, mesh, sim, potential_buf &
+      snapshot, mesh, sim, potential_buf &
       )
       logical, intent(in) :: potential_history_enabled
       integer, intent(in) :: pot_hist_unit
       integer(i32), intent(in) :: hist_stride
       type(sim_stats), intent(in) :: stats
-      type(field_solver_type), intent(inout) :: field_solver
+      type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(mesh_type), intent(inout) :: mesh
       type(sim_config), intent(in) :: sim
       real(dp), intent(inout) :: potential_buf(:)

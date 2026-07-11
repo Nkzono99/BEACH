@@ -8,10 +8,6 @@
       "$ref": "#/$defs/sim",
       "description": "Simulation settings."
     },
-    "field": {
-      "$ref": "#/$defs/field",
-      "description": "Element field-kernel settings."
-    },
     "particles": {
       "$ref": "#/$defs/particles",
       "description": "Particle species definitions."
@@ -26,6 +22,47 @@
           "default": "point",
           "description": "Element source model. triangle_p0 requires direct free-space solving, softening=0, insulator surfaces, and explicit surface_side settings."
         }
+      }
+    },
+    "periodic2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nonzero_mode_backend", "zero_mode_policy", "lower_boundary_model"],
+      "properties": {
+        "nonzero_mode_backend": {"const": "panel_spectral_reference"},
+        "zero_mode_policy": {"const": "exclude_k0"},
+        "lower_boundary_model": {"const": "e_bottom_zero"},
+        "reference_mode_layers": {"type": "integer", "minimum": 1, "default": 4},
+        "panel_quadrature_order": {"type": "integer", "minimum": 2, "default": 12},
+        "interface_sample_n": {"type": "integer", "minimum": 2, "default": 5},
+        "interface_phi_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001},
+        "interface_field_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001}
+      }
+    },
+    "outer_plasma": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
+      "properties": {
+        "model": {"const": "linear_debye"},
+        "photoelectron_closure": {"const": "none", "default": "none"},
+        "return_model": {"const": "none", "default": "none"},
+        "interface_z": {"type": "number"},
+        "infinity_potential": {"type": "number", "default": 0},
+        "debye_length": {"type": "number", "exclusiveMinimum": 0},
+        "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
+        "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
+        "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
+        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
+      }
+    },
+    "coupling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "update_mode": {"const": "explicit", "default": "explicit"},
+        "particle_transfer_mode": {"const": "none", "default": "none"},
+        "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1}
       }
     },
     "mesh": {
@@ -686,9 +723,7 @@
               "field_bc_mode"
             ],
             "properties": {
-              "field_solver": {
-                "const": "fmm"
-              },
+              "field_solver": {"enum": ["direct", "fmm"]},
               "field_bc_mode": {
                 "const": "periodic2"
               },

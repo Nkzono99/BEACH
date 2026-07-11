@@ -13,10 +13,37 @@ module bem_panel_quadrature
   end type panel_quadrature_plan_type
 
   public :: build_panel_quadrature
+  public :: build_panel_duffy_quadrature
   public :: panel_oracle_potential_field
   public :: panel_singular_potential_oracle
 
 contains
+
+  subroutine build_panel_duffy_quadrature(geometry, order, plan)
+    type(panel_geometry_type), intent(in) :: geometry
+    integer(i32), intent(in) :: order
+    type(panel_quadrature_plan_type), intent(out) :: plan
+    real(dp), allocatable :: node(:), weight(:)
+    real(dp) :: edge1(3), edge2(3), direction(3), u, v
+    integer :: iu, iv, point
+
+    call gauss_legendre_unit(order, node, weight)
+    plan%npoint = order*order
+    allocate (plan%position(3, plan%npoint), plan%weight(plan%npoint))
+    edge1 = geometry%vertex(:, 2) - geometry%vertex(:, 1)
+    edge2 = geometry%vertex(:, 3) - geometry%vertex(:, 1)
+    point = 0
+    do iu = 1, order
+      u = node(iu)
+      do iv = 1, order
+        v = node(iv)
+        point = point + 1
+        direction = (1.0_dp - v)*edge1 + v*edge2
+        plan%position(:, point) = geometry%vertex(:, 1) + u*direction
+        plan%weight(point) = 2.0_dp*geometry%area*u*weight(iu)*weight(iv)
+      end do
+    end do
+  end subroutine build_panel_duffy_quadrature
 
   subroutine build_panel_quadrature(geometry, plan)
     type(panel_geometry_type), intent(in) :: geometry

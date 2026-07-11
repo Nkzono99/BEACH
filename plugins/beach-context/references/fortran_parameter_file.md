@@ -319,7 +319,27 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `field_periodic_ewald_alpha` | float | `0.0` | `m2l_root_oracle` 用 Ewald 分解パラメータ |
 | `field_periodic_ewald_layers` | int | `4` | Ewald oracle の outer shell / reciprocal cutoff 深さ |
 
-`periodic2` は `field_solver="fmm"` のみで利用できます。
+legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用のsplit referenceだけは、`field_solver="direct"`と以下の3 tableを明示します。
+
+| table.key | 既定 | 意味 |
+|---|---:|---|
+| `periodic2.nonzero_mode_backend` | 必須 | `panel_spectral_reference` |
+| `periodic2.zero_mode_policy` | 必須 | `exclude_k0` |
+| `periodic2.lower_boundary_model` | 必須 | `e_bottom_zero` |
+| `periodic2.reference_mode_layers` | `4` | Fourier mode cutoff |
+| `periodic2.panel_quadrature_order` | `12` | panel面積積分次数 |
+| `periodic2.interface_sample_n` | `5` | interface各軸の診断点数 |
+| `periodic2.interface_phi_tolerance` | `1e-3` | 非零モード電位比上限 |
+| `periodic2.interface_field_tolerance` | `1e-3` | 非零モード電場比上限 |
+| `outer_plasma.interface_z` | 必須 | z上側interface。初期モデルではbox上面 |
+| `outer_plasma.debye_length` | 必須 | 線形Debye長 |
+| `outer_plasma.thermal_voltage` | 必須 | 線形性・診断の電位scale |
+| `outer_plasma.max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage`上限 |
+| `outer_plasma.max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda`上限 |
+| `outer_plasma.max_local_charge_ratio` | `50` | 局所平均plasma電荷推定比上限 |
+| `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
+
+完全な例は`examples/periodic2_linear_outer_reference.toml`です。閾値違反時にlegacy modelへfallbackしません。
 `sim.use_box=true`、かつ 2 軸だけが `periodic`、残り 1 軸が開放のときに有効です。
 場評価だけでなく、collision と `photo_raycast` の raycast でも periodic image を考慮します。
 

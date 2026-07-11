@@ -41,6 +41,9 @@ FORTRAN_L1_TARGETS ?= \
 	test_panel_moments \
 	test_panel_kernel \
 	test_periodic_zero_mode \
+	test_outer_plasma_linear \
+	test_electrostatic_snapshot \
+	test_outer_coupler \
 	test_boundary \
 	test_restart \
 	test_reservoir_injection \
@@ -64,7 +67,8 @@ FORTRAN_L3_TARGETS ?= \
 	test_coulomb_fmm_core_basic
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_coulomb_fmm_core_periodic \
-	test_periodic2_flat_oracle_diag
+	test_periodic2_flat_oracle_diag \
+	test_periodic_nonzero_reference
 KERNEL_FC ?= gfortran
 KERNEL_LIB ?= build/libbeach_field_kernel.so
 KERNEL_FPM_FLAG ?= $(OPENMP_FLAG) -fPIC

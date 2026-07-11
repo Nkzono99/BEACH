@@ -4,7 +4,7 @@ program test_particle_stepper
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
   use bem_mesh, only: init_mesh
-  use bem_field_solver, only: field_solver_type
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, particle_step_result, &
                                   particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events, &
                                   particle_step_unsupported_barrier_corner
@@ -64,7 +64,7 @@ contains
   subroutine test_uniform_e0_included_once()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver = field_solver_type()
+    type(electrostatic_snapshot_type) :: field_solver = electrostatic_snapshot_type()
     real(dp) :: position_new(3), velocity_new(3)
 
     call init_single_element_mesh(mesh, 0.0d0)
@@ -97,7 +97,7 @@ contains
     integer(i32), parameter :: reference_nstep = 256_i32
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver = field_solver_type()
+    type(electrostatic_snapshot_type) :: field_solver = electrostatic_snapshot_type()
     integer(i32) :: refinement
     real(dp) :: position(3), velocity(3), reference_position(3), reference_velocity(3)
     real(dp) :: position_error(3), error_ratio(2)
@@ -136,7 +136,7 @@ contains
   subroutine integrate_candidate(mesh, sim, field_solver, nstep, position, velocity)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(field_solver_type), intent(inout) :: field_solver
+    type(electrostatic_snapshot_type), intent(inout) :: field_solver
     integer(i32), intent(in) :: nstep
     real(dp), intent(out) :: position(3), velocity(3)
     integer(i32) :: step
@@ -182,7 +182,7 @@ contains
   subroutine init_box_stepper(mesh, sim, field_solver, mesh_x)
     type(mesh_type), intent(out) :: mesh
     type(sim_config), intent(out) :: sim
-    type(field_solver_type), intent(out) :: field_solver
+    type(electrostatic_snapshot_type), intent(out) :: field_solver
     real(dp), intent(in) :: mesh_x
 
     call init_x_plane_mesh(mesh, mesh_x)
@@ -200,7 +200,7 @@ contains
   subroutine test_advance_no_crossing_fast_path()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
@@ -220,7 +220,7 @@ contains
   subroutine test_advance_mesh_before_box_absorbs()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 0.8_dp)
@@ -238,7 +238,7 @@ contains
   subroutine test_advance_box_before_mesh_escapes()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 1.2_dp)
@@ -258,7 +258,7 @@ contains
   subroutine test_advance_reflected_remainder_absorbs()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 0.5_dp)
@@ -278,7 +278,7 @@ contains
   subroutine test_advance_periodic_remainder()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
@@ -298,7 +298,7 @@ contains
   subroutine test_advance_corner_reflection()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
@@ -316,7 +316,7 @@ contains
   subroutine test_advance_second_box_event_fails()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
     real(dp) :: x0(3), v0(3)
 
@@ -338,7 +338,7 @@ contains
   subroutine test_advance_legacy_barrier_single_face_only()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
@@ -366,7 +366,7 @@ contains
   subroutine test_advance_invalid_boundary_status_namespace()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
-    type(field_solver_type) :: field_solver
+    type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)

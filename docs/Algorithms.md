@@ -281,3 +281,7 @@ $$
 `field.element_kernel="triangle_p0"` では `q_elem` を要素総電荷、`sigma=q_elem/area` を一定面密度として、辺対数項と signed solid angle による解析式で電位・電場を評価します。面上評価は `bem_panel_self_terms` が所有し、電位は連続、principal-value 法線場は両側極限の平均、真空側極限は `elem_vacuum_sign` で選びます。幾何、辺量、厳密一次・二次 moment、7点求積 plan は mesh 初期化時に固定し、batch 更新では電荷だけを変更します。
 
 この経路は Phase 1 では free-space direct の correctness oracle です。treecode/FMM/periodic2 には黙って点電荷近似せず、初期化時に停止します。
+
+### 2.8 periodic2 split reference
+
+`panel_spectral_reference`は電位を`k!=0`のP0 panel Fourier和、厳密なtriangle-height zero mode、線形Debye outer profileへ分解します。zero modeは傾斜三角形の累積面積を区分二次式として前計算し、電場とその積分電位を`O(log N)`で評価します。interfaceでは面内格子上の非零モード電位・全電場を測り、1D outerへ切り替えられる減衰量かを検査します。これは小規模参照実装であり、production規模の周期演算子ではありません。

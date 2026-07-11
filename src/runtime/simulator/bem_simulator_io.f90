@@ -31,8 +31,8 @@ contains
   module procedure maybe_write_potential_history_snapshot
   if (.not. potential_history_enabled) return
   if (mod(stats%batches - 1_i32, hist_stride) /= 0_i32) return
-  call field_solver%refresh(mesh)
-  call field_solver%compute_mesh_potential(mesh, sim, potential_buf)
+  call snapshot%refresh(mesh, update_outer=.false.)
+  call snapshot%compute_mesh_potential(mesh, sim, potential_buf)
   call write_potential_history_snapshot(pot_hist_unit, stats%batches, potential_buf)
   end procedure maybe_write_potential_history_snapshot
 

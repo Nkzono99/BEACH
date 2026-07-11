@@ -42,6 +42,8 @@ Start with these quantities in `summary.txt`.
 
 `field_source_model` and `field_kernel_id` identify the element kernel that produced the output. For `triangle_p0` runs, the current Python potential/field/force/field-line estimators and point-only C kernel fail closed instead of reconstructing an inconsistent point-charge field. Use simulator-written diagnostics until panel-aware post-processing is available.
 
+For split periodic2 runs, `summary.txt` records interface potential and normal field, `eta_phi_kneq0`, `eta_field_kneq0`, `eta_gap`, `eta_local_charge`, the Gauss residual, integrated outer charge, and the last outer-update batch. These values are part of the applicability and restart contract; a split checkpoint missing its outer state is rejected.
+
 | Item | Meaning |
 | --- | --- |
 | `batches` | In a normal run, completion means this reaches `sim.batch_count` |

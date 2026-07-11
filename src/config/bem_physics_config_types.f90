@@ -1,7 +1,7 @@
 !> 場・periodic2・panel・外部プラズマ・coupling の型付き設定と互換正規化を定義する。
 module bem_physics_config_types
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_config
+  use bem_types, only: sim_config, bc_periodic
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -19,6 +19,11 @@ module bem_physics_config_types
     character(len=32) :: nonzero_mode_backend = 'not_applicable'
     character(len=32) :: zero_mode_policy = 'not_applicable'
     character(len=32) :: lower_boundary_model = 'not_applicable'
+    integer(i32) :: reference_mode_layers = 4_i32
+    integer(i32) :: panel_quadrature_order = 12_i32
+    integer(i32) :: interface_sample_n = 5_i32
+    real(dp) :: interface_phi_tolerance = 1.0e-3_dp
+    real(dp) :: interface_field_tolerance = 1.0e-3_dp
   end type periodic2_physics_config
 
   type, public :: panel_kernel_config
@@ -31,6 +36,13 @@ module bem_physics_config_types
     character(len=32) :: model = 'none'
     character(len=32) :: photoelectron_closure = 'none'
     character(len=32) :: return_model = 'none'
+    real(dp) :: interface_z = 0.0_dp
+    real(dp) :: infinity_potential = 0.0_dp
+    real(dp) :: debye_length = 0.0_dp
+    real(dp) :: thermal_voltage = 0.0_dp
+    real(dp) :: max_linearity_ratio = 0.25_dp
+    real(dp) :: max_gap_ratio = 5.0_dp
+    real(dp) :: max_local_charge_ratio = 50.0_dp
   end type outer_plasma_config
 
   type, public :: coupling_config
@@ -42,6 +54,7 @@ module bem_physics_config_types
   public :: normalize_legacy_physics_config
   public :: validate_phase0_physics_config
   public :: validate_phase1_panel_config
+  public :: validate_active_physics_config
 
 contains
 
@@ -190,6 +203,105 @@ contains
       call reject(physics_config_invalid_combination, 'triangle_p0 Phase 1 requires softening=0.', status, message)
     end if
   end subroutine validate_phase1_panel_config
+
+  subroutine validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+    type(sim_config), intent(in) :: sim
+    type(field_physics_config), intent(in) :: field
+    type(periodic2_physics_config), intent(in) :: periodic2
+    type(panel_kernel_config), intent(in) :: panel
+    type(outer_plasma_config), intent(in) :: outer
+    type(coupling_config), intent(in) :: coupling
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    character(len=32) :: nonzero_backend
+
+    nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
+    if (trim(nonzero_backend) /= 'panel_spectral_reference') then
+      if (trim(lower_ascii(panel%source_model)) == 'triangle_p0') then
+        call validate_phase1_panel_config(sim, panel, status, message)
+        if (status /= physics_config_ok) return
+        if (trim(lower_ascii(outer%model)) /= 'none') then
+          call reject(physics_config_unavailable, 'Free-space triangle_p0 does not support outer plasma.', status, message)
+        end if
+      else
+        call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
+      end if
+      return
+    end if
+
+    status = physics_config_ok
+    message = ''
+    if (trim(lower_ascii(field%backend)) /= 'direct' .or. trim(lower_ascii(sim%field_solver)) /= 'direct') then
+      call reject( &
+        physics_config_invalid_combination, 'panel_spectral_reference requires field backend direct.', status, message &
+        )
+      return
+    end if
+    if (trim(lower_ascii(sim%field_bc_mode)) /= 'periodic2' .or. .not. sim%use_box) then
+      call reject( &
+        physics_config_invalid_combination, 'panel_spectral_reference requires periodic2 box geometry.', status, message &
+        )
+      return
+    end if
+    if (any(sim%bc_low(1:2) /= bc_periodic) .or. any(sim%bc_high(1:2) /= bc_periodic) .or. &
+        sim%bc_low(3) == bc_periodic .or. sim%bc_high(3) == bc_periodic) then
+      call reject( &
+        physics_config_unavailable, 'Phase 2 split periodic model requires x/y periodic and z nonperiodic.', status, message &
+        )
+      return
+    end if
+    if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'exclude_k0' .or. &
+        trim(lower_ascii(periodic2%lower_boundary_model)) /= 'e_bottom_zero') then
+      call reject( &
+        physics_config_invalid_combination, &
+        'panel_spectral_reference requires zero_mode_policy=exclude_k0 and lower_boundary_model=e_bottom_zero.', &
+        status, message &
+        )
+      return
+    end if
+    if (trim(lower_ascii(panel%source_model)) /= 'triangle_p0' .or. &
+        trim(lower_ascii(panel%kernel_id)) /= 'triangle_p0_exact_direct' .or. sim%softening /= 0.0_dp) then
+      call reject( &
+        physics_config_invalid_combination, &
+        'panel_spectral_reference requires triangle_p0_exact_direct and softening=0.', status, message &
+        )
+      return
+    end if
+    if (periodic2%reference_mode_layers < 1_i32 .or. periodic2%panel_quadrature_order < 2_i32 .or. &
+        periodic2%interface_sample_n < 2_i32) then
+      call reject(physics_config_invalid_combination, 'Periodic reference orders are out of range.', status, message)
+      return
+    end if
+    if (periodic2%interface_phi_tolerance <= 0.0_dp .or. periodic2%interface_field_tolerance <= 0.0_dp) then
+      call reject(physics_config_invalid_combination, 'Periodic interface tolerances must be positive.', status, message)
+      return
+    end if
+    if (trim(lower_ascii(outer%model)) /= 'linear_debye' .or. outer%debye_length <= 0.0_dp .or. &
+        outer%thermal_voltage <= 0.0_dp .or. outer%max_linearity_ratio <= 0.0_dp .or. &
+        outer%max_gap_ratio <= 0.0_dp .or. outer%max_local_charge_ratio <= 0.0_dp) then
+      call reject(physics_config_invalid_combination, 'Phase 2 requires valid linear_debye outer plasma.', status, message)
+      return
+    end if
+    if (abs(outer%interface_z - sim%box_max(3)) > &
+        64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(sim%box_max(3)))) then
+      call reject( &
+        physics_config_invalid_combination, 'Phase 2 interface_z must equal the z-high box face.', status, message &
+        )
+      return
+    end if
+    if (trim(lower_ascii(coupling%update_mode)) /= 'explicit' .or. &
+        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none' .or. coupling%outer_update_stride < 1_i32) then
+      call reject( &
+        physics_config_unavailable, 'Phase 2 supports explicit field coupling without particle transfer.', status, message &
+        )
+      return
+    end if
+    if (any(sim%e0 /= 0.0_dp)) then
+      call reject( &
+        physics_config_unavailable, 'Phase 2 linear outer model currently requires sim.e0=0.', status, message &
+        )
+    end if
+  end subroutine validate_active_physics_config
 
   pure subroutine reject(code, text, status, message)
     integer(i32), intent(in) :: code

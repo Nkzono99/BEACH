@@ -30,7 +30,8 @@ contains
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
-  type(field_solver_type) :: field_solver = field_solver_type()
+  type(electrostatic_snapshot_type) :: snapshot
+  type(outer_coupler_type) :: outer_coupler
   type(charge_ledger_type) :: batch_ledger
   logical :: ledger_enabled
 
@@ -72,7 +73,13 @@ contains
   batch_count_this_run = final_batch_idx - stats%batches
   call perf_region_begin(perf_region_simulation_total, sim_t0)
   call perf_region_begin(perf_region_field_solver_init, t0)
-  call field_solver%init(mesh, app%sim, app%field, app%periodic2, app%panel)
+  call snapshot%init(mesh, app%sim, app%field, app%periodic2, app%panel, app%outer_plasma)
+  if (present(electrostatic_restart_state)) then
+    call snapshot%restore_outer_state(electrostatic_restart_state)
+    call outer_coupler%init(app%coupling, electrostatic_restart_state%last_outer_update_batch)
+  else
+    call outer_coupler%init(app%coupling)
+  end if
   call perf_region_end(perf_region_field_solver_init, t0)
 
   do local_batch_idx = 1, batch_count_this_run
@@ -107,12 +114,12 @@ contains
     end if
 
     call perf_region_begin(perf_region_field_refresh, t0)
-    call field_solver%refresh(mesh)
+    call outer_coupler%refresh(snapshot, mesh, batch_idx)
     call perf_region_end(perf_region_field_refresh, t0)
 
     call perf_region_begin(perf_region_particle_batch, t0)
     call process_particle_batch( &
-      mesh, app, field_solver, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+      mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
       collision_failure_status, collision_failure_particle, collision_failure_step, collision_failure_x, collision_failure_v &
       )
     call perf_region_end(perf_region_particle_batch, t0)
@@ -171,10 +178,10 @@ contains
       call print_batch_progress(batch_idx, final_batch_idx, rel)
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (potential_history_enabled) then
-        call field_solver%refresh(mesh)
+        call snapshot%refresh(mesh, update_outer=.false.)
         call maybe_write_potential_history_snapshot( &
           potential_history_enabled, pot_hist_unit, hist_stride, stats, &
-          field_solver, mesh, app%sim, potential_buf &
+          snapshot, mesh, app%sim, potential_buf &
           )
       end if
     end if
@@ -187,11 +194,21 @@ contains
   if (present(mesh_potential_v)) then
     if (mpi_is_root(mpi_ctx)) then
       call perf_region_begin(perf_region_field_refresh, t0)
-      call field_solver%refresh(mesh)
+      call snapshot%refresh(mesh, update_outer=.false.)
       call perf_region_end(perf_region_field_refresh, t0)
       allocate (mesh_potential_v(mesh%nelem))
-      call field_solver%compute_mesh_potential(mesh, app%sim, mesh_potential_v)
+      call snapshot%compute_mesh_potential(mesh, app%sim, mesh_potential_v)
     end if
+  end if
+  if (present(electrostatic_diagnostics)) then
+    if (.not. present(mesh_potential_v) .and. mpi_is_root(mpi_ctx)) then
+      call snapshot%refresh(mesh, update_outer=.false.)
+    end if
+    call snapshot%get_diagnostics(electrostatic_diagnostics)
+    electrostatic_diagnostics%last_outer_update_batch = outer_coupler%last_outer_update_batch
+  end if
+  if (present(electrostatic_restart_state)) then
+    call snapshot%export_restart_state(outer_coupler%last_outer_update_batch, electrostatic_restart_state)
   end if
 
   if (allocated(potential_buf)) deallocate (potential_buf)
@@ -257,7 +274,7 @@ contains
   collision_failure_v = 0.0_dp
 
   !$omp parallel default(none) &
-  !$omp shared(mesh,pcls_batch,app,field_solver,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
+  !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
   !$omp private(i,step,x0,v0,x1,v1,hit,step_result,tid,qdep,collision_status,collision_failed) &
@@ -273,7 +290,7 @@ contains
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
       call build_particle_step_candidate( &
-        mesh, app%sim, field_solver, bfield, x0, v0, &
+        mesh, app%sim, snapshot, bfield, x0, v0, &
         pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1 &
         )
       call find_first_hit(mesh, x0, x1, hit, sim=app%sim, status=collision_status)
@@ -283,7 +300,7 @@ contains
       if (collision_status /= collision_query_ok) then
         if (.not. candidate_inside) then
           call resolve_particle_boundary_candidate( &
-            mesh, app%sim, field_solver, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
+            mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
             result=step_result &
             )
           used_event_resolver = .true.
@@ -313,7 +330,7 @@ contains
         pcls_batch%v(:, i) = v1
       else
         call resolve_particle_boundary_candidate( &
-          mesh, app%sim, field_solver, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, hit, step_result &
+          mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, hit, step_result &
           )
         used_event_resolver = .true.
       end if

@@ -5,7 +5,7 @@ module bem_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
-  use bem_physics_config_types, only: normalize_legacy_physics_config, validate_phase1_panel_config, physics_config_ok
+  use bem_physics_config_types, only: normalize_legacy_physics_config, validate_active_physics_config, physics_config_ok
   use bem_app_config_authoring, only: &
     app_config_authoring, sim_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
     init_app_config_authoring, ensure_authoring_particle_capacity, ensure_authoring_template_capacity, &
@@ -263,7 +263,10 @@ contains
     select case (trim(cfg%sim%field_solver))
     case ('direct', 'treecode', 'auto')
       if (trim(cfg%sim%field_bc_mode) /= 'free') then
-        error stop 'sim.field_bc_mode must be "free" when sim.field_solver is "direct", "treecode", or "auto".'
+        if (.not. (trim(cfg%sim%field_solver) == 'direct' .and. authoring%periodic2%present .and. &
+                   trim(authoring%periodic2%nonzero_mode_backend) == 'panel_spectral_reference')) then
+          error stop 'sim.field_bc_mode must be "free" for this direct/treecode/auto configuration.'
+        end if
       end if
     case ('fmm')
       if (trim(cfg%sim%field_bc_mode) == 'periodic2') then
@@ -469,6 +472,7 @@ contains
       cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
       )
     call apply_field_authoring(cfg, authoring)
+    call apply_physics_authoring(cfg, authoring)
   end subroutine load_toml_config
 
   !> `toml-f` のルートテーブルから既知セクションを読み込む。
@@ -497,6 +501,15 @@ contains
       case ('field')
         if (.not. associated(section)) error stop 'TOML section [field] must be a table.'
         call apply_field_toml_table(section, authoring)
+      case ('periodic2')
+        if (.not. associated(section)) error stop 'TOML section [periodic2] must be a table.'
+        call apply_periodic2_toml_table(section, authoring)
+      case ('outer_plasma')
+        if (.not. associated(section)) error stop 'TOML section [outer_plasma] must be a table.'
+        call apply_outer_plasma_toml_table(section, authoring)
+      case ('coupling')
+        if (.not. associated(section)) error stop 'TOML section [coupling] must be a table.'
+        call apply_coupling_toml_table(section, authoring)
       case ('mesh')
         if (.not. associated(section)) error stop 'TOML section [mesh] must be a table.'
         call apply_mesh_toml_table(cfg, section, authoring)
@@ -533,9 +546,6 @@ contains
   subroutine apply_field_authoring(cfg, authoring)
     type(app_config), intent(inout) :: cfg
     type(app_config_authoring), intent(in) :: authoring
-    integer(i32) :: status
-    character(len=256) :: message
-
     if (.not. authoring%field%has_element_kernel) return
     select case (trim(authoring%field%element_kernel))
     case ('point')
@@ -549,9 +559,175 @@ contains
     case default
       error stop 'field.element_kernel must be "point" or "triangle_p0".'
     end select
-    call validate_phase1_panel_config(cfg%sim, cfg%panel, status, message)
-    if (status /= physics_config_ok) error stop trim(message)
   end subroutine apply_field_authoring
+
+  subroutine apply_periodic2_toml_table(table, authoring)
+    type(toml_table), intent(inout) :: table
+    type(app_config_authoring), intent(inout) :: authoring
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    authoring%periodic2%present = .true.
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('nonzero_mode_backend')
+        call get_toml_string( &
+          table, keys(ikey), authoring%periodic2%nonzero_mode_backend, 'periodic2.nonzero_mode_backend' &
+          )
+        authoring%periodic2%nonzero_mode_backend = lower_ascii(trim(authoring%periodic2%nonzero_mode_backend))
+      case ('zero_mode_policy')
+        call get_toml_string(table, keys(ikey), authoring%periodic2%zero_mode_policy, 'periodic2.zero_mode_policy')
+        authoring%periodic2%zero_mode_policy = lower_ascii(trim(authoring%periodic2%zero_mode_policy))
+      case ('lower_boundary_model')
+        call get_toml_string( &
+          table, keys(ikey), authoring%periodic2%lower_boundary_model, 'periodic2.lower_boundary_model' &
+          )
+        authoring%periodic2%lower_boundary_model = lower_ascii(trim(authoring%periodic2%lower_boundary_model))
+      case ('reference_mode_layers')
+        call get_toml_int( &
+          table, keys(ikey), authoring%periodic2%reference_mode_layers, 'periodic2.reference_mode_layers' &
+          )
+      case ('panel_quadrature_order')
+        call get_toml_int( &
+          table, keys(ikey), authoring%periodic2%panel_quadrature_order, 'periodic2.panel_quadrature_order' &
+          )
+      case ('interface_sample_n')
+        call get_toml_int(table, keys(ikey), authoring%periodic2%interface_sample_n, 'periodic2.interface_sample_n')
+      case ('interface_phi_tolerance')
+        call get_toml_real( &
+          table, keys(ikey), authoring%periodic2%interface_phi_tolerance, 'periodic2.interface_phi_tolerance' &
+          )
+      case ('interface_field_tolerance')
+        call get_toml_real( &
+          table, keys(ikey), authoring%periodic2%interface_field_tolerance, 'periodic2.interface_field_tolerance' &
+          )
+      case default
+        error stop 'Unknown key in [periodic2]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_periodic2_toml_table
+
+  subroutine apply_outer_plasma_toml_table(table, authoring)
+    type(toml_table), intent(inout) :: table
+    type(app_config_authoring), intent(inout) :: authoring
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    authoring%outer_plasma%present = .true.
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('model')
+        call get_toml_string(table, keys(ikey), authoring%outer_plasma%model, 'outer_plasma.model')
+        authoring%outer_plasma%model = lower_ascii(trim(authoring%outer_plasma%model))
+      case ('photoelectron_closure')
+        call get_toml_string( &
+          table, keys(ikey), authoring%outer_plasma%photoelectron_closure, 'outer_plasma.photoelectron_closure' &
+          )
+        authoring%outer_plasma%photoelectron_closure = &
+          lower_ascii(trim(authoring%outer_plasma%photoelectron_closure))
+      case ('return_model')
+        call get_toml_string(table, keys(ikey), authoring%outer_plasma%return_model, 'outer_plasma.return_model')
+        authoring%outer_plasma%return_model = lower_ascii(trim(authoring%outer_plasma%return_model))
+      case ('interface_z')
+        call get_toml_real(table, keys(ikey), authoring%outer_plasma%interface_z, 'outer_plasma.interface_z')
+      case ('infinity_potential')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%infinity_potential, 'outer_plasma.infinity_potential' &
+          )
+      case ('debye_length')
+        call get_toml_real(table, keys(ikey), authoring%outer_plasma%debye_length, 'outer_plasma.debye_length')
+      case ('thermal_voltage')
+        call get_toml_real(table, keys(ikey), authoring%outer_plasma%thermal_voltage, 'outer_plasma.thermal_voltage')
+      case ('max_linearity_ratio')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%max_linearity_ratio, 'outer_plasma.max_linearity_ratio' &
+          )
+      case ('max_gap_ratio')
+        call get_toml_real(table, keys(ikey), authoring%outer_plasma%max_gap_ratio, 'outer_plasma.max_gap_ratio')
+      case ('max_local_charge_ratio')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%max_local_charge_ratio, 'outer_plasma.max_local_charge_ratio' &
+          )
+      case default
+        error stop 'Unknown key in [outer_plasma]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_outer_plasma_toml_table
+
+  subroutine apply_coupling_toml_table(table, authoring)
+    type(toml_table), intent(inout) :: table
+    type(app_config_authoring), intent(inout) :: authoring
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    authoring%coupling%present = .true.
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('update_mode')
+        call get_toml_string(table, keys(ikey), authoring%coupling%update_mode, 'coupling.update_mode')
+        authoring%coupling%update_mode = lower_ascii(trim(authoring%coupling%update_mode))
+      case ('particle_transfer_mode')
+        call get_toml_string( &
+          table, keys(ikey), authoring%coupling%particle_transfer_mode, 'coupling.particle_transfer_mode' &
+          )
+        authoring%coupling%particle_transfer_mode = lower_ascii(trim(authoring%coupling%particle_transfer_mode))
+      case ('outer_update_stride')
+        call get_toml_int( &
+          table, keys(ikey), authoring%coupling%outer_update_stride, 'coupling.outer_update_stride' &
+          )
+      case default
+        error stop 'Unknown key in [coupling]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_coupling_toml_table
+
+  subroutine apply_physics_authoring(cfg, authoring)
+    type(app_config), intent(inout) :: cfg
+    type(app_config_authoring), intent(in) :: authoring
+    integer(i32) :: status
+    character(len=256) :: message
+
+    if (authoring%periodic2%present) then
+      cfg%periodic2%nonzero_mode_backend = authoring%periodic2%nonzero_mode_backend
+      cfg%periodic2%zero_mode_policy = authoring%periodic2%zero_mode_policy
+      cfg%periodic2%lower_boundary_model = authoring%periodic2%lower_boundary_model
+      cfg%periodic2%reference_mode_layers = authoring%periodic2%reference_mode_layers
+      cfg%periodic2%panel_quadrature_order = authoring%periodic2%panel_quadrature_order
+      cfg%periodic2%interface_sample_n = authoring%periodic2%interface_sample_n
+      cfg%periodic2%interface_phi_tolerance = authoring%periodic2%interface_phi_tolerance
+      cfg%periodic2%interface_field_tolerance = authoring%periodic2%interface_field_tolerance
+    end if
+    if (authoring%outer_plasma%present) then
+      cfg%outer_plasma%model = authoring%outer_plasma%model
+      cfg%outer_plasma%photoelectron_closure = authoring%outer_plasma%photoelectron_closure
+      cfg%outer_plasma%return_model = authoring%outer_plasma%return_model
+      cfg%outer_plasma%interface_z = authoring%outer_plasma%interface_z
+      cfg%outer_plasma%infinity_potential = authoring%outer_plasma%infinity_potential
+      cfg%outer_plasma%debye_length = authoring%outer_plasma%debye_length
+      cfg%outer_plasma%thermal_voltage = authoring%outer_plasma%thermal_voltage
+      cfg%outer_plasma%max_linearity_ratio = authoring%outer_plasma%max_linearity_ratio
+      cfg%outer_plasma%max_gap_ratio = authoring%outer_plasma%max_gap_ratio
+      cfg%outer_plasma%max_local_charge_ratio = authoring%outer_plasma%max_local_charge_ratio
+    end if
+    if (authoring%coupling%present) then
+      cfg%coupling%update_mode = authoring%coupling%update_mode
+      cfg%coupling%particle_transfer_mode = authoring%coupling%particle_transfer_mode
+      cfg%coupling%outer_update_stride = authoring%coupling%outer_update_stride
+    end if
+    call validate_active_physics_config( &
+      cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling, status, message &
+      )
+    if (status /= physics_config_ok) error stop trim(message)
+  end subroutine apply_physics_authoring
 
   !> `toml-f` の status を BEACH の停止メッセージへ変換する。
   subroutine require_toml_success(stat, context)

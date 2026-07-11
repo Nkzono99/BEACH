@@ -9,7 +9,7 @@ program test_app_config_parser
   implicit none
 
   type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg, high_level_cfg
-  type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg
+  type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg, split_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
   character(len=*), parameter :: photo_cfg_path = 'test_app_config_parser_photo_tmp.toml'
   character(len=*), parameter :: large_cfg_path = 'test_app_config_parser_large_tmp.toml'
@@ -20,6 +20,7 @@ program test_app_config_parser
   character(len=*), parameter :: multiline_cfg_path = 'test_app_config_parser_multiline_tmp.toml'
   character(len=*), parameter :: toml_syntax_cfg_path = 'test_app_config_parser_toml_syntax_tmp.toml'
   character(len=*), parameter :: panel_cfg_path = 'test_app_config_parser_panel_tmp.toml'
+  character(len=*), parameter :: split_cfg_path = 'test_app_config_parser_split_tmp.toml'
 
   call write_config_fixture(cfg_path)
   call write_photo_config_fixture(photo_cfg_path)
@@ -31,8 +32,9 @@ program test_app_config_parser
   call write_multiline_config_fixture(multiline_cfg_path)
   call write_toml_syntax_config_fixture(toml_syntax_cfg_path)
   call write_panel_config_fixture(panel_cfg_path)
+  call write_split_config_fixture(split_cfg_path)
 
-  call test_init(10)
+  call test_init(11)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -112,6 +114,26 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%tree_leaf_max, 12_i32, 'tree_leaf_max mismatch')
   call assert_true(cfg%sim%has_tree_leaf_max, 'has_tree_leaf_max mismatch')
   call assert_equal_i32(cfg%sim%tree_min_nelem, 1024_i32, 'tree_min_nelem mismatch')
+  call test_end()
+
+  call test_begin('split_periodic_outer_config')
+  call default_app_config(split_cfg)
+  call load_app_config(split_cfg_path, split_cfg)
+  call assert_true( &
+    trim(split_cfg%periodic2%nonzero_mode_backend) == 'panel_spectral_reference', &
+    'split nonzero backend mismatch' &
+    )
+  call assert_true(trim(split_cfg%periodic2%zero_mode_policy) == 'exclude_k0', 'split zero policy mismatch')
+  call assert_equal_i32(split_cfg%periodic2%reference_mode_layers, 5_i32, 'split mode layers mismatch')
+  call assert_equal_i32(split_cfg%periodic2%panel_quadrature_order, 16_i32, 'split quadrature order mismatch')
+  call assert_equal_i32(split_cfg%periodic2%interface_sample_n, 7_i32, 'split interface sample mismatch')
+  call assert_true(trim(split_cfg%outer_plasma%model) == 'linear_debye', 'split outer model mismatch')
+  call assert_close_dp(split_cfg%outer_plasma%interface_z, 1.0_dp, 1.0e-15_dp, 'split interface mismatch')
+  call assert_close_dp(split_cfg%outer_plasma%debye_length, 0.2_dp, 1.0e-15_dp, 'split Debye length mismatch')
+  call assert_close_dp(split_cfg%outer_plasma%max_gap_ratio, 4.0_dp, 1.0e-15_dp, 'split gap limit mismatch')
+  call assert_close_dp( &
+    split_cfg%outer_plasma%max_local_charge_ratio, 6.0_dp, 1.0e-15_dp, 'split local-charge limit mismatch' &
+    )
   call test_end()
 
   call test_begin('triangle_panel_config')
@@ -299,6 +321,7 @@ program test_app_config_parser
   call delete_file_if_exists(multiline_cfg_path)
   call delete_file_if_exists(toml_syntax_cfg_path)
   call delete_file_if_exists(panel_cfg_path)
+  call delete_file_if_exists(split_cfg_path)
 
   call test_summary()
 
@@ -740,5 +763,57 @@ contains
     write (u, '(a)') 'ny = 1'
     close (u)
   end subroutine write_panel_config_fixture
+
+  subroutine write_split_config_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=path, status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open split config fixture'
+    write (u, '(a)') '[sim]'
+    write (u, '(a)') 'batch_count = 1'
+    write (u, '(a)') 'dt = 1.0e-9'
+    write (u, '(a)') 'max_step = 2'
+    write (u, '(a)') 'field_solver = "direct"'
+    write (u, '(a)') 'field_bc_mode = "periodic2"'
+    write (u, '(a)') 'softening = 0.0'
+    write (u, '(a)') 'use_box = true'
+    write (u, '(a)') 'box_min = [0.0, 0.0, 0.0]'
+    write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
+    write (u, '(a)') 'bc_x_low = "periodic"'
+    write (u, '(a)') 'bc_x_high = "periodic"'
+    write (u, '(a)') 'bc_y_low = "periodic"'
+    write (u, '(a)') 'bc_y_high = "periodic"'
+    write (u, '(a)') 'bc_z_low = "open"'
+    write (u, '(a)') 'bc_z_high = "open"'
+    write (u, '(a)') '[field]'
+    write (u, '(a)') 'element_kernel = "triangle_p0"'
+    write (u, '(a)') '[periodic2]'
+    write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
+    write (u, '(a)') 'zero_mode_policy = "exclude_k0"'
+    write (u, '(a)') 'lower_boundary_model = "e_bottom_zero"'
+    write (u, '(a)') 'reference_mode_layers = 5'
+    write (u, '(a)') 'panel_quadrature_order = 16'
+    write (u, '(a)') 'interface_sample_n = 7'
+    write (u, '(a)') '[outer_plasma]'
+    write (u, '(a)') 'model = "linear_debye"'
+    write (u, '(a)') 'interface_z = 1.0'
+    write (u, '(a)') 'infinity_potential = 0.0'
+    write (u, '(a)') 'debye_length = 0.2'
+    write (u, '(a)') 'thermal_voltage = 10.0'
+    write (u, '(a)') 'max_linearity_ratio = 0.5'
+    write (u, '(a)') 'max_gap_ratio = 4.0'
+    write (u, '(a)') 'max_local_charge_ratio = 6.0'
+    write (u, '(a)') '[particles]'
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'npcls_per_step = 1'
+    write (u, '(a)') '[mesh]'
+    write (u, '(a)') 'mode = "template"'
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "plane"'
+    write (u, '(a)') 'surface_side = "normal_plus"'
+    write (u, '(a)') 'center = [0.5, 0.5, 0.25]'
+    close (u)
+  end subroutine write_split_config_fixture
 
 end program test_app_config_parser

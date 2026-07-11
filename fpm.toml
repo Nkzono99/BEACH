@@ -62,6 +62,26 @@ source-dir = "tests/fortran"
 main = "test_periodic_zero_mode.f90"
 
 [[test]]
+name = "test_outer_plasma_linear"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_linear.f90"
+
+[[test]]
+name = "test_periodic_nonzero_reference"
+source-dir = "tests/fortran"
+main = "test_periodic_nonzero_reference.f90"
+
+[[test]]
+name = "test_electrostatic_snapshot"
+source-dir = "tests/fortran"
+main = "test_electrostatic_snapshot.f90"
+
+[[test]]
+name = "test_outer_coupler"
+source-dir = "tests/fortran"
+main = "test_outer_coupler.f90"
+
+[[test]]
 name = "test_boundary"
 source-dir = "tests/fortran"
 main = "test_boundary.f90"

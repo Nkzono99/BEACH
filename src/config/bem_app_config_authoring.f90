@@ -23,6 +23,39 @@ module bem_app_config_authoring
     character(len=32) :: element_kernel = 'point'
   end type field_authoring_spec
 
+  type :: periodic2_authoring_spec
+    logical :: present = .false.
+    character(len=32) :: nonzero_mode_backend = 'panel_spectral_reference'
+    character(len=32) :: zero_mode_policy = 'exclude_k0'
+    character(len=32) :: lower_boundary_model = 'e_bottom_zero'
+    integer(i32) :: reference_mode_layers = 4_i32
+    integer(i32) :: panel_quadrature_order = 12_i32
+    integer(i32) :: interface_sample_n = 5_i32
+    real(dp) :: interface_phi_tolerance = 1.0e-3_dp
+    real(dp) :: interface_field_tolerance = 1.0e-3_dp
+  end type periodic2_authoring_spec
+
+  type :: outer_plasma_authoring_spec
+    logical :: present = .false.
+    character(len=32) :: model = 'linear_debye'
+    character(len=32) :: photoelectron_closure = 'none'
+    character(len=32) :: return_model = 'none'
+    real(dp) :: interface_z = 0.0_dp
+    real(dp) :: infinity_potential = 0.0_dp
+    real(dp) :: debye_length = 0.0_dp
+    real(dp) :: thermal_voltage = 0.0_dp
+    real(dp) :: max_linearity_ratio = 0.25_dp
+    real(dp) :: max_gap_ratio = 5.0_dp
+    real(dp) :: max_local_charge_ratio = 50.0_dp
+  end type outer_plasma_authoring_spec
+
+  type :: coupling_authoring_spec
+    logical :: present = .false.
+    character(len=32) :: update_mode = 'explicit'
+    character(len=32) :: particle_transfer_mode = 'none'
+    integer(i32) :: outer_update_stride = 1_i32
+  end type coupling_authoring_spec
+
   type :: particle_authoring_spec
     logical :: has_inject_region_mode = .false.
     character(len=32) :: inject_region_mode = 'absolute'
@@ -82,6 +115,9 @@ module bem_app_config_authoring
   type :: app_config_authoring
     type(sim_authoring_spec) :: sim
     type(field_authoring_spec) :: field
+    type(periodic2_authoring_spec) :: periodic2
+    type(outer_plasma_authoring_spec) :: outer_plasma
+    type(coupling_authoring_spec) :: coupling
     integer(i32) :: n_groups = 0_i32
     type(mesh_group_authoring_spec), allocatable :: groups(:)
     type(particle_authoring_spec), allocatable :: particle_species(:)
@@ -91,6 +127,9 @@ module bem_app_config_authoring
   public :: app_config_authoring
   public :: sim_authoring_spec
   public :: field_authoring_spec
+  public :: periodic2_authoring_spec
+  public :: outer_plasma_authoring_spec
+  public :: coupling_authoring_spec
   public :: particle_authoring_spec
   public :: mesh_group_authoring_spec
   public :: template_authoring_spec
@@ -342,7 +381,8 @@ contains
     case ('box_anchor')
       if (auth%has_center) error stop 'placement_mode="box_anchor" cannot be combined with center.'
       cfg%templates(template_idx)%center = resolve_anchor_position( &
-                           cfg, auth%has_anchor, auth%anchor, auth%has_offset, auth%offset, auth%has_offset_frac, auth%offset_frac &
+                                           cfg, auth%has_anchor, auth%anchor, auth%has_offset, auth%offset, &
+                                           auth%has_offset_frac, auth%offset_frac &
                                            )
     case default
       error stop 'Unsupported mesh template placement_mode.'

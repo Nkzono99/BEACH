@@ -5,6 +5,7 @@ module bem_restart
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_physics_config_types, only: validate_phase0_physics_config, physics_config_ok
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
@@ -31,7 +32,8 @@ contains
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
   !! @param[inout] state 種別ごとのマクロ粒子残差（指定時のみ復元）。
   subroutine load_restart_checkpoint( &
-    out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi, require_checkpoint, app, charge_ledger &
+    out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi, require_checkpoint, app, charge_ledger, &
+    electrostatic_state &
     )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
@@ -43,6 +45,7 @@ contains
     logical, intent(in), optional :: require_checkpoint
     type(app_config), intent(in), optional :: app
     type(charge_ledger_type), intent(inout), optional :: charge_ledger
+    type(electrostatic_restart_state_type), intent(out), optional :: electrostatic_state
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path, ledger_path
     character(len=256) :: contract_message
@@ -51,6 +54,7 @@ contains
     integer(i32) :: local_rank, world_size, contract_status
 
     stats = sim_stats()
+    if (present(electrostatic_state)) electrostatic_state = electrostatic_restart_state_type()
     has_restart = .false.
     must_have_checkpoint = .false.
     if (present(require_checkpoint)) must_have_checkpoint = require_checkpoint
@@ -90,6 +94,14 @@ contains
     end if
 
     call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)
+    if (present(electrostatic_state)) then
+      call load_electrostatic_state(trim(summary_path), electrostatic_state)
+      if (present(app)) then
+        if (trim(app%periodic2%zero_mode_policy) == 'exclude_k0' .and. .not. electrostatic_state%outer_ready) then
+          error stop 'Resume checkpoint is missing the required split-periodic outer state.'
+        end if
+      end if
+    end if
     call load_charge_file(trim(charges_path), mesh)
     if (present(charge_ledger)) then
       if (has_ledger) then
@@ -119,6 +131,45 @@ contains
     end if
     has_restart = .true.
   end subroutine load_restart_checkpoint
+
+  subroutine load_electrostatic_state(path, state)
+    character(len=*), intent(in) :: path
+    type(electrostatic_restart_state_type), intent(out) :: state
+    integer :: u, ios, pos
+    character(len=512) :: line
+    character(len=64) :: key
+    character(len=256) :: value
+    logical :: found_potential, found_batch
+
+    state = electrostatic_restart_state_type()
+    found_potential = .false.
+    found_batch = .false.
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open summary.txt for electrostatic restart state.'
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      pos = index(line, '=')
+      if (pos <= 0) cycle
+      key = trim(adjustl(line(:pos - 1)))
+      value = trim(adjustl(line(pos + 1:)))
+      select case (trim(key))
+      case ('electrostatic_split_periodic_active')
+        read (value, *, iostat=ios) state%outer_ready
+      case ('interface_potential_V')
+        read (value, *, iostat=ios) state%outer_interface_potential
+        found_potential = ios == 0
+      case ('last_outer_update_batch')
+        read (value, *, iostat=ios) state%last_outer_update_batch
+        found_batch = ios == 0
+      end select
+      if (ios /= 0) error stop 'Malformed electrostatic restart state in summary.txt.'
+    end do
+    close (u)
+    if (state%outer_ready .and. .not. (found_potential .and. found_batch)) then
+      error stop 'Incomplete electrostatic restart state in summary.txt.'
+    end if
+  end subroutine load_electrostatic_state
 
   !> schema v2 fingerprint を現在の ordered model/mesh/species contract と照合する。
   subroutine validate_restart_contract(path, mesh, app, status, message)

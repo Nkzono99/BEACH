@@ -4,6 +4,7 @@ module bem_output_writer
   use bem_types, only: mesh_type, sim_stats, surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
                             filesystem_success
@@ -122,7 +123,9 @@ contains
   !! @param[in] mesh 書き出し対象のメッシュ。
   !! @param[in] stats 書き出し対象の統計値。
   !! @param[in] cfg 出力設定を含むアプリ設定。
-  subroutine write_result_files(out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v, charge_ledger)
+  subroutine write_result_files( &
+    out_dir, mesh, stats, cfg, mpi_world_size, mesh_potential_v, charge_ledger, electrostatic_diagnostics &
+    )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
@@ -130,9 +133,13 @@ contains
     integer(i32), intent(in), optional :: mpi_world_size
     real(dp), intent(in), optional :: mesh_potential_v(:)
     type(charge_ledger_type), intent(in), optional :: charge_ledger
+    type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
 
     call ensure_output_dir(out_dir)
-    call write_summary_file(out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger)
+    call write_summary_file( &
+      out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger, &
+      electrostatic_diagnostics=electrostatic_diagnostics &
+      )
     call write_charges_file(out_dir, mesh)
     if (cfg%write_mesh_potential) then
       if (.not. present(mesh_potential_v)) then
@@ -170,13 +177,16 @@ contains
   !! @param[in] out_dir 出力先ディレクトリ。
   !! @param[in] mesh メッシュ情報（要素数を書き出す）。
   !! @param[in] stats 実行統計。
-  subroutine write_summary_file(out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger)
+  subroutine write_summary_file( &
+    out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger, electrostatic_diagnostics &
+    )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(in) :: stats
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in), optional :: mpi_world_size
     type(charge_ledger_type), intent(in), optional :: charge_ledger
+    type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
     character(len=1024) :: summary_path
     integer :: u, ios
     integer(i32) :: world_size
@@ -211,6 +221,21 @@ contains
     write (u, '(a,a)') 'outer_plasma_model=', trim(cfg%outer_plasma%model)
     write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
     write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
+    if (present(electrostatic_diagnostics)) then
+      write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active
+      write (u, '(a,l1)') 'electrostatic_applicable=', electrostatic_diagnostics%applicable
+      write (u, '(a,a)') 'electrostatic_status=', trim(electrostatic_diagnostics%status)
+      write (u, '(a,i0)') 'interface_sample_n=', electrostatic_diagnostics%interface_sample_n
+      write (u, '(a,es24.16)') 'interface_potential_V=', electrostatic_diagnostics%interface_potential
+      write (u, '(a,es24.16)') 'interface_normal_field_V_m=', electrostatic_diagnostics%interface_field
+      write (u, '(a,es24.16)') 'interface_eta_phi_kneq0=', electrostatic_diagnostics%eta_phi_kneq0
+      write (u, '(a,es24.16)') 'interface_eta_field_kneq0=', electrostatic_diagnostics%eta_field_kneq0
+      write (u, '(a,es24.16)') 'interface_eta_gap=', electrostatic_diagnostics%eta_gap
+      write (u, '(a,es24.16)') 'interface_eta_local_charge=', electrostatic_diagnostics%eta_local_charge
+      write (u, '(a,es24.16)') 'gauss_residual_C=', electrostatic_diagnostics%gauss_residual
+      write (u, '(a,es24.16)') 'outer_integrated_charge_C=', electrostatic_diagnostics%outer_integrated_charge
+      write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
+    end if
     if (present(charge_ledger)) then
       write (u, '(a,i0)') 'charge_ledger_nspecies=', charge_ledger%nspecies
       write (u, '(a,i0)') 'charge_ledger_batch_count=', charge_ledger%batch_count

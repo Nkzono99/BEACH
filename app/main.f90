@@ -15,6 +15,7 @@ program main
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
   implicit none
 
   type(mesh_type) :: mesh
@@ -23,6 +24,8 @@ program main
   type(sim_stats) :: initial_stats
   type(injection_state) :: inject_state
   type(charge_ledger_type) :: charge_ledger
+  type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
+  type(electrostatic_restart_state_type) :: electrostatic_restart_state
   type(mpi_context) :: mpi
   integer :: history_unit
   integer :: potential_history_unit
@@ -57,12 +60,14 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger &
+          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state &
           )
       end if
     else
@@ -70,12 +75,14 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger &
+          inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state &
           )
       end if
     end if
@@ -86,23 +93,28 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger &
+          mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state &
           )
       end if
     else
       if (potential_history_opened) then
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger &
+          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state &
           )
       else
         call run_absorption_insulator( &
-          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger &
+          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
+          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics, &
+          electrostatic_restart_state=electrostatic_restart_state &
           )
       end if
     end if
@@ -118,11 +130,12 @@ program main
       if (allocated(mesh_potential_v)) then
         call write_result_files( &
           trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), mesh_potential_v=mesh_potential_v, &
-          charge_ledger=charge_ledger &
+          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics &
           )
       else
         call write_result_files( &
-          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger &
+          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger, &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       end if
       call perf_region_end(perf_region_write_results, perf_t0)
@@ -191,7 +204,8 @@ contains
       if (len_trim(app%output_restart_from) > 0) restart_dir = app%output_restart_from
       call load_restart_checkpoint( &
         trim(restart_dir), mesh, initial_stats, resumed, inject_state, &
-        mpi=mpi, require_checkpoint=.true., app=app, charge_ledger=charge_ledger &
+        mpi=mpi, require_checkpoint=.true., app=app, charge_ledger=charge_ledger, &
+        electrostatic_state=electrostatic_restart_state &
         )
     end if
 

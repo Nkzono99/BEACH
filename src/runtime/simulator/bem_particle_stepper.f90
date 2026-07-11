@@ -3,7 +3,7 @@ module bem_particle_stepper
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect
-  use bem_field_solver, only: field_solver_type
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_pusher, only: boris_push
   use bem_collision, only: collision_query_ok, find_first_hit
   use bem_boundary, only: boundary_event_type, boundary_event_ok, boundary_event_invalid_geometry, find_first_boundary_event, &
@@ -35,26 +35,25 @@ contains
 
   !> 予測中点の電場と一様磁場を使い、次時刻の位置・速度候補を返す。
   subroutine build_particle_step_candidate( &
-    mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x1, v1 &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x1, v1 &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(field_solver_type), intent(inout) :: field_solver
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     real(dp), intent(out) :: x1(3), v1(3)
     real(dp) :: x_mid(3), e_mid(3)
 
     x_mid = x0 + 0.5d0*v0*dt
-    call field_solver%eval_e(mesh, x_mid, e_mid)
-    e_mid = e_mid + sim%e0
+    call snapshot%eval_local_e(mesh, x_mid, e_mid)
     call boris_push(x0, v0, q, m, dt, e_mid, bfield, x1, v1)
   end subroutine build_particle_step_candidate
 
   !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大一度だけremainderを再積分する。
-  subroutine advance_particle_step(mesh, sim, field_solver, bfield, x0, v0, q, m, dt, result)
+  subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(field_solver_type), intent(inout) :: field_solver
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     type(particle_step_result), intent(out) :: result
 
@@ -70,7 +69,7 @@ contains
       return
     end if
 
-    call build_particle_step_candidate(mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate)
+    call build_particle_step_candidate(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate)
     result%field_eval_count = 1_i32
     if (.not. all(ieee_is_finite(x_candidate)) .or. .not. all(ieee_is_finite(v_candidate))) then
       result%status = particle_step_invalid_boundary
@@ -82,7 +81,7 @@ contains
     if (query_status /= collision_query_ok) then
       if (sim%use_box .and. .not. point_strictly_inside_box(sim, x_candidate)) then
         call advance_particle_boundary_crossing( &
-          mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, result=result &
+          mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, result=result &
           )
         return
       end if
@@ -100,17 +99,17 @@ contains
     end if
 
     call advance_particle_boundary_crossing( &
-      mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
       )
   end subroutine advance_particle_step
 
   !> 構築済みcandidateがbox crossing候補のとき、fieldを再評価せずeventを解決する。
   subroutine resolve_particle_boundary_candidate( &
-    mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(field_solver_type), intent(inout) :: field_solver
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(out) :: result
@@ -126,17 +125,17 @@ contains
       return
     end if
     call advance_particle_boundary_crossing( &
-      mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
       )
   end subroutine resolve_particle_boundary_candidate
 
   !> box crossing時だけevent用stateを確保し、最初のeventと最大一度のremainderを処理する。
   subroutine advance_particle_boundary_crossing( &
-    mesh, sim, field_solver, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(field_solver_type), intent(inout) :: field_solver
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(inout) :: result
@@ -187,7 +186,7 @@ contains
     escaped = .false.
     if (trim(sim%open_boundary_model) == 'potential_barrier') then
       call apply_legacy_potential_barrier_event( &
-        mesh, sim, field_solver, event, q, m, x_event, v_event, alive, escaped, boundary_status &
+        mesh, sim, snapshot, event, q, m, x_event, v_event, alive, escaped, boundary_status &
         )
     else
       call apply_escape_reflect_periodic_event(sim, event, x_event, v_event, alive, escaped, boundary_status)
@@ -214,7 +213,7 @@ contains
       return
     end if
     call build_particle_step_candidate( &
-      mesh, sim, field_solver, bfield, x_event, v_event, q, m, dt_remaining, x_remainder, v_remainder &
+      mesh, sim, snapshot, bfield, x_event, v_event, q, m, dt_remaining, x_remainder, v_remainder &
       )
     result%field_eval_count = result%field_eval_count + 1_i32
     if (.not. all(ieee_is_finite(x_remainder)) .or. .not. all(ieee_is_finite(v_remainder))) then
@@ -306,11 +305,11 @@ contains
 
   !> 既存の単一面potential-barrier式をevent stateで評価し、一般化は行わない。
   subroutine apply_legacy_potential_barrier_event( &
-    mesh, sim, field_solver, event, q, m, x, v, alive, escaped, status &
+    mesh, sim, snapshot, event, q, m, x, v, alive, escaped, status &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(field_solver_type), intent(inout) :: field_solver
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(boundary_event_type), intent(in) :: event
     real(dp), intent(in) :: q, m
     real(dp), intent(inout) :: x(3), v(3)
@@ -359,7 +358,7 @@ contains
     end if
 
     axis = (face_index + 1_i32)/2_i32
-    call field_solver%eval_potential(mesh, sim, x, phi_boundary)
+    call snapshot%eval_local_phi(mesh, sim, x, phi_boundary)
     if (.not. ieee_is_finite(phi_boundary)) then
       status = particle_step_invalid_boundary
       return

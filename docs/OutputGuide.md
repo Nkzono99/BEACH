@@ -42,6 +42,8 @@ beachx inspect outputs/latest
 
 `field_source_model` と `field_kernel_id` は出力を生成した要素核を示します。`triangle_p0` 出力に対し、現行 Python potential/field/force/field-line estimator と point-only C kernel は誤った点電荷再構成を避けるため停止します。panel 対応診断は simulator が書いた値を利用してください。
 
+split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi_kneq0`、`eta_field_kneq0`、`eta_gap`、`eta_local_charge`、Gauss residual、outer積分電荷、最終outer更新batchを保存します。これらは物理適用性とrestart状態の一部であり、欠損したsplit checkpointは再開できません。
+
 | 項目 | 見方 |
 | --- | --- |
 | `batches` | 通常実行では `sim.batch_count` と一致していれば完了 |
