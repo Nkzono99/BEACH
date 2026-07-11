@@ -3,7 +3,7 @@ program test_mpi_hybrid
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
-                     mpi_allreduce_sum_i32_scalar, mpi_world_barrier
+                     mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_real_dp_array, mpi_world_barrier
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
@@ -13,6 +13,7 @@ program test_mpi_hybrid
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
   use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -83,7 +84,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -190,6 +191,10 @@ program test_mpi_hybrid
   end do
   call test_end()
 
+  call test_begin('mpi_unified_outer_root_broadcast')
+  call run_mpi_unified_outer_test(mpi)
+  call test_end()
+
   call test_begin('mpi_restart')
   call ensure_directory(out_dir)
   if (mpi_is_root(mpi)) then
@@ -231,6 +236,69 @@ program test_mpi_hybrid
   call mpi_shutdown(mpi)
 
 contains
+
+  subroutine run_mpi_unified_outer_test(mpi)
+    type(mpi_context), intent(in) :: mpi
+    type(mesh_type) :: unified_mesh
+    type(app_config) :: unified_cfg
+    type(electrostatic_snapshot_type) :: unified_snapshot
+    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), local_values(5), global_values(5)
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.18_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.24_dp]
+    tri_v2(:, 1) = [1.0_dp, 1.0_dp, 0.30_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.18_dp]
+    tri_v1(:, 2) = [1.0_dp, 1.0_dp, 0.30_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.22_dp]
+    call init_mesh(unified_mesh, tri_v0, tri_v1, tri_v2, q0=[2.0e-14_dp, -0.5e-14_dp])
+    unified_mesh%elem_vacuum_sign = 1_i32
+    unified_mesh%vacuum_normals = unified_mesh%normals
+
+    call default_app_config(unified_cfg)
+    unified_cfg%sim%field_solver = 'direct'
+    unified_cfg%sim%field_bc_mode = 'periodic2'
+    unified_cfg%sim%softening = 0.0_dp
+    unified_cfg%sim%use_box = .true.
+    unified_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    unified_cfg%sim%box_max = [1.0_dp, 1.0_dp, 0.8_dp]
+    unified_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    unified_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    unified_cfg%field%backend = 'direct'
+    unified_cfg%panel%source_model = 'triangle_p0'
+    unified_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    unified_cfg%panel%surface_side_policy = 'per_element'
+    unified_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
+    unified_cfg%periodic2%zero_mode_policy = 'exclude_k0'
+    unified_cfg%periodic2%lower_boundary_model = 'e_bottom_zero'
+    unified_cfg%periodic2%reference_mode_layers = 2_i32
+    unified_cfg%periodic2%panel_quadrature_order = 8_i32
+    unified_cfg%periodic2%interface_sample_n = 8_i32
+    unified_cfg%outer_plasma%model = 'unified_linear_response'
+    unified_cfg%outer_plasma%interface_z = unified_cfg%sim%box_max(3)
+    unified_cfg%outer_plasma%debye_length = 0.2_dp
+    unified_cfg%outer_plasma%thermal_voltage = 5.0_dp
+    unified_cfg%outer_plasma%max_linearity_ratio = 0.5_dp
+
+    call unified_snapshot%init( &
+      unified_mesh, unified_cfg%sim, unified_cfg%field, unified_cfg%periodic2, unified_cfg%panel, &
+      unified_cfg%outer_plasma, mpi=mpi &
+      )
+    call unified_snapshot%refresh(unified_mesh)
+    call unified_snapshot%eval_local_e(unified_mesh, [0.37_dp, 0.61_dp, 0.55_dp], local_values(2:4))
+    call unified_snapshot%eval_local_phi( &
+      unified_mesh, unified_cfg%sim, [0.37_dp, 0.61_dp, 0.55_dp], local_values(1) &
+      )
+    local_values(5) = unified_snapshot%gauss_residual
+    global_values = local_values
+    call mpi_allreduce_sum_real_dp_array(mpi, global_values)
+    call assert_true( &
+      all(abs(global_values - real(mpi%size, dp)*local_values) <= &
+          1.0e-12_dp*max(1.0_dp, abs(global_values))), &
+      'unified root solve/broadcast must be rank invariant' &
+      )
+    call assert_close_dp(unified_snapshot%gauss_residual, 0.0_dp, 2.0e-24_dp, &
+                         'MPI unified Gauss residual mismatch')
+  end subroutine run_mpi_unified_outer_test
 
   subroutine run_mpi_photoelectron_histogram_test(mpi)
     type(mpi_context), intent(in) :: mpi

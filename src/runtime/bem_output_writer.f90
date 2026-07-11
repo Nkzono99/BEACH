@@ -304,6 +304,14 @@ contains
       write (u, '(a,es24.16)') 'outer_nonlinear_residual=', electrostatic_diagnostics%outer_nonlinear_residual
       write (u, '(a,es24.16)') 'outer_total_current_density_A_m2=', &
         electrostatic_diagnostics%outer_total_current_density
+      write (u, '(a,es24.16)') 'outer_accessible_fraction_min=', &
+        electrostatic_diagnostics%accessible_fraction_min
+      write (u, '(a,es24.16)') 'outer_accessible_fraction_max=', &
+        electrostatic_diagnostics%accessible_fraction_max
+      write (u, '(a,es24.16)') 'outer_nonzero_tail_linearity=', &
+        electrostatic_diagnostics%nonzero_tail_linearity
+      write (u, '(a,es24.16)') 'outer_response_start_z_m=', &
+        electrostatic_diagnostics%response_start_z
       write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
       write (u, '(a,es24.16)') 'max_outer_flight_time_s=', electrostatic_diagnostics%max_outer_flight_time
       write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio

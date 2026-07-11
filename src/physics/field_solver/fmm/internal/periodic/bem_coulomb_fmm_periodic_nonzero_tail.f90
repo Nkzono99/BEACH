@@ -32,7 +32,11 @@ module bem_coulomb_fmm_periodic_nonzero_tail
     real(dp) :: handoff_z = 0.0_dp
     real(dp) :: kappa = 0.0_dp
     real(dp) :: max_linearity = 0.0_dp
+    real(dp) :: charge_abs = 0.0_dp
+    real(dp) :: temperature_j = 0.0_dp
     type(periodic_nonzero_tail_mode_type), allocatable :: mode(:)
+    real(dp), allocatable :: response_cos(:, :)
+    real(dp), allocatable :: response_sin(:, :)
   end type periodic_nonzero_tail_plan_type
 
   public :: init_periodic_nonzero_tail_mode
@@ -40,6 +44,7 @@ module bem_coulomb_fmm_periodic_nonzero_tail
   public :: periodic_nonzero_tail_linearity
   public :: build_periodic_nonzero_tail_plan
   public :: eval_periodic_nonzero_tail_plan
+  public :: refresh_periodic_nonzero_tail_plan
 
 contains
 
@@ -55,7 +60,6 @@ contains
     type(panel_geometry_type) :: geometry
     type(panel_quadrature_plan_type) :: quadrature
     real(dp) :: kx, ky, wave_number, area_xy, coefficient, phase, sample_charge
-    real(dp), allocatable :: incident_cos(:), incident_sin(:)
     integer(i32) :: nx, ny, index, element, point, geometry_status, mode_status
 
     status = periodic_nonzero_tail_invalid
@@ -70,9 +74,12 @@ contains
     plan%length_y = length_y
     plan%handoff_z = handoff_z
     plan%kappa = kappa
-    allocate (plan%mode(plan%nmodes), incident_cos(plan%nmodes), incident_sin(plan%nmodes))
-    incident_cos = 0.0_dp
-    incident_sin = 0.0_dp
+    plan%charge_abs = charge_abs
+    plan%temperature_j = temperature_j
+    allocate (plan%mode(plan%nmodes), plan%response_cos(plan%nmodes, mesh%nelem), &
+              plan%response_sin(plan%nmodes, mesh%nelem))
+    plan%response_cos = 0.0_dp
+    plan%response_sin = 0.0_dp
     index = 0_i32
     do nx = 0_i32, mode_layers
       do ny = -mode_layers, mode_layers
@@ -88,14 +95,13 @@ contains
     end do
     area_xy = length_x*length_y
     do element = 1_i32, mesh%nelem
-      if (mesh%q_elem(element) == 0.0_dp) cycle
       call init_panel_geometry( &
         mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, geometry_status &
         )
       if (geometry_status /= panel_geometry_ok) return
       call build_panel_duffy_quadrature(geometry, quadrature_order, quadrature)
       do point = 1_i32, quadrature%npoint
-        sample_charge = mesh%q_elem(element)*quadrature%weight(point)/geometry%area
+        sample_charge = quadrature%weight(point)/geometry%area
         do index = 1_i32, plan%nmodes
           wave_number = plan%mode(index)%wave_number
           coefficient = sample_charge*exp( &
@@ -103,20 +109,37 @@ contains
                         )/(eps0*area_xy*wave_number)
           phase = plan%mode(index)%kx*quadrature%position(1, point) + &
                   plan%mode(index)%ky*quadrature%position(2, point)
-          incident_cos(index) = incident_cos(index) + coefficient*cos(phase)
-          incident_sin(index) = incident_sin(index) + coefficient*sin(phase)
+          plan%response_cos(index, element) = plan%response_cos(index, element) + coefficient*cos(phase)
+          plan%response_sin(index, element) = plan%response_sin(index, element) + coefficient*sin(phase)
         end do
       end do
     end do
+    call refresh_periodic_nonzero_tail_plan(mesh%q_elem, plan, mode_status)
+    if (mode_status /= periodic_nonzero_tail_ok) return
+    status = periodic_nonzero_tail_ok
+  end subroutine build_periodic_nonzero_tail_plan
+
+  subroutine refresh_periodic_nonzero_tail_plan(charges, plan, status)
+    real(dp), intent(in) :: charges(:)
+    type(periodic_nonzero_tail_plan_type), intent(inout) :: plan
+    integer(i32), intent(out) :: status
+    integer(i32) :: index
+
+    status = periodic_nonzero_tail_invalid
+    if (plan%nmodes < 1_i32 .or. .not. allocated(plan%mode) .or. &
+        .not. allocated(plan%response_cos) .or. .not. allocated(plan%response_sin) .or. &
+        size(plan%response_cos, 2) /= size(charges) .or. .not. all(ieee_is_finite(charges))) return
+    plan%max_linearity = 0.0_dp
     do index = 1_i32, plan%nmodes
-      plan%mode(index)%incident_cos = incident_cos(index)
-      plan%mode(index)%incident_sin = incident_sin(index)
+      plan%mode(index)%incident_cos = dot_product(plan%response_cos(index, :), charges)
+      plan%mode(index)%incident_sin = dot_product(plan%response_sin(index, :), charges)
       plan%max_linearity = max( &
-                           plan%max_linearity, periodic_nonzero_tail_linearity(plan%mode(index), charge_abs, temperature_j) &
+                           plan%max_linearity, &
+                           periodic_nonzero_tail_linearity(plan%mode(index), plan%charge_abs, plan%temperature_j) &
                            )
     end do
     status = periodic_nonzero_tail_ok
-  end subroutine build_periodic_nonzero_tail_plan
+  end subroutine refresh_periodic_nonzero_tail_plan
 
   subroutine eval_periodic_nonzero_tail_plan(plan, position, potential, field)
     type(periodic_nonzero_tail_plan_type), intent(in) :: plan

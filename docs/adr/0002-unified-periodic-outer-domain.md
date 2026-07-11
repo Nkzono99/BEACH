@@ -48,18 +48,20 @@ condition を一つの Poisson solve に課し、interface Neumann condition は
 
 ### Nonzero-mode plasma tail
 
-handoff 面 `z_h` より下を vacuum、上を線形応答 plasma とする単一 mode を考える。
+表面最高点から幾何的に決める応答開始面 `z_r` より下を vacuum、上を線形応答 plasma とする
+単一 mode を考える。`z_r` は particle ownership/handoff 面から独立であり、全 source panel より
+厳密に上へ置く。
 `k=sqrt(kx^2+ky^2)`、`alpha=sqrt(k^2+kappa^2)` とする。surface source が vacuum 解として
-handoff 面へ運ぶ incident amplitude を `I_k` とすると、下側反射と上側透過は
+応答開始面へ運ぶ incident amplitude を `I_k` とすると、下側反射と上側透過は
 
 ```text
 R_k = (k - alpha) / (k + alpha) I_k
 T_k = 2 k / (k + alpha) I_k.
 ```
 
-`z<=z_h` では free-space periodic field に `R_k exp(k(z-z_h))` を加え、`z>=z_h` では
-free-space continuation を `T_k exp(-alpha(z-z_h))` へ置換する。この構成は potential、normal
-field、tangential field を handoff 面で連続にする。`kappa=0` では補正は厳密に 0 になる。
+`z<=z_r` では free-space periodic field に `R_k exp(k(z-z_r))` を加え、`z>=z_r` では
+free-space continuation を `T_k exp(-alpha(z-z_r))` へ置換する。この構成は potential、normal
+field、tangential field を応答開始面で連続にする。`kappa=0` では補正は厳密に 0 になる。
 
 finite mode truncation は configured `mode_layers` と neglected-amplitude bound を出力する。
 各応答 species について `max |q_s phi_k|/T_s` が linearity tolerance を超える場合、または
@@ -70,7 +72,9 @@ mode 間 nonlinear coupling が必要な場合は `not_applicable` とし、1D c
 個別 outer orbit を追跡する場合は、zero mode と継続した nonzero tail の全 3D electric field を
 使う。Phase-mixed statistical transfer を使う場合は、handoff 面で横位相を一様化し、mode ごとの
 ponderomotive correction を無視できる linearity bound を要求する。両方式を同じ粒子へ重複適用
-しない。Phase 8 の初期 production mode は phase-mixed transfer とし、明示 orbit は検証用とする。
+しない。Phase 8 の field-domain 実装は粒子 transfer を `none` に限定する。flux、lateral return
+shift、MPI/OpenMP ensemble invariance の oracle がそろうまで、phase mixing を擬似乱数だけで
+代用せず fail-closed とする。
 
 ## Failure policy
 

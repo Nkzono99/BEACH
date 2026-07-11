@@ -142,6 +142,16 @@ source-dir = "tests/fortran"
 main = "test_periodic2_nonzero_tail.f90"
 
 [[test]]
+name = "test_outer_plasma_unified"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_unified.f90"
+
+[[test]]
+name = "test_electrostatic_unified"
+source-dir = "tests/fortran"
+main = "test_electrostatic_unified.f90"
+
+[[test]]
 name = "test_periodic_nonzero_reference"
 source-dir = "tests/fortran"
 main = "test_periodic_nonzero_reference.f90"

@@ -54,6 +54,27 @@ program test_physics_config_types
   outer%thermal_voltage = 2.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'cached kinetic_1d config should be valid')
+
+  outer%model = 'unified_linear_response'
+  outer%photoelectron_closure = 'none'
+  sim%softening = 0.0_dp
+  panel = panel_kernel_config(source_model='triangle_p0', kernel_id='triangle_p0_exact_p2m_near')
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'cached unified linear response config should be valid')
+
+  sim%e0(3) = 1.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'unified linear response must reject a prescribed uniform field')
+  sim%e0 = 0.0_dp
+
+  coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+  outer%return_model = 'electrostatic_1d_instant_return'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'unified linear response must reject scalar instant return')
+  coupling%particle_transfer_mode = 'none'
+  outer%return_model = 'none'
+  outer%model = 'kinetic_1d'
+  outer%photoelectron_closure = 'kinetic_mean'
   coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_unavailable, 'cached kinetic return must fail closed')

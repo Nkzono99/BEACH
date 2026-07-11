@@ -1,0 +1,77 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+
+[sim]
+dt = 1.0e-9
+batch_count = 1
+max_step = 2
+softening = 0.0
+field_solver = "direct"
+field_bc_mode = "periodic2"
+use_box = true
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 1.0]
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+
+[field]
+element_kernel = "triangle_p0"
+
+[periodic2]
+nonzero_mode_backend = "panel_spectral_reference"
+zero_mode_policy = "exclude_k0"
+lower_boundary_model = "e_bottom_zero"
+reference_mode_layers = 4
+panel_quadrature_order = 12
+interface_sample_n = 8
+interface_phi_tolerance = 1.0e-3
+interface_field_tolerance = 1.0e-3
+
+[outer_plasma]
+model = "unified_linear_response"
+photoelectron_closure = "none"
+return_model = "none"
+interface_z = 1.0
+infinity_potential = 0.0
+debye_length = 0.2
+thermal_voltage = 10.0
+max_linearity_ratio = 0.25
+max_gap_ratio = 5.0
+max_local_charge_ratio = 50.0
+
+[coupling]
+update_mode = "explicit"
+particle_transfer_mode = "none"
+outer_update_stride = 1
+
+[particles]
+[[particles.species]]
+enabled = true
+source_mode = "volume_seed"
+npcls_per_step = 1
+q_particle = -1.602176634e-19
+m_particle = 9.1093837015e-31
+pos_low = [0.45, 0.45, 0.6]
+pos_high = [0.55, 0.55, 0.7]
+drift_velocity = [0.0, 0.0, -1.0e4]
+temperature_k = 0.0
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+enabled = true
+kind = "plane"
+surface_model = "insulator"
+surface_side = "normal_plus"
+center = [0.5, 0.5, 0.25]
+size_x = 1.0
+size_y = 1.0
+nx = 2
+ny = 2
+
+[output]
+write_files = false

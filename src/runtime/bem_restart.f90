@@ -105,7 +105,9 @@ contains
         if (trim(app%periodic2%zero_mode_policy) == 'exclude_k0' .and. .not. electrostatic_state%outer_ready) then
           error stop 'Resume checkpoint is missing the required split-periodic outer state.'
         end if
-        if (trim(lower_ascii(app%outer_plasma%model)) == 'kinetic_1d' .and. electrostatic_state%outer_ready) then
+        if ((trim(lower_ascii(app%outer_plasma%model)) == 'kinetic_1d' .or. &
+             trim(lower_ascii(app%outer_plasma%model)) == 'unified_linear_response') .and. &
+            electrostatic_state%outer_ready) then
           call load_kinetic_outer_profile(trim(out_dir), electrostatic_state, local_rank, mpi)
         end if
       end if

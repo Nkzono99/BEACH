@@ -44,7 +44,7 @@
       "additionalProperties": false,
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
-        "model": {"enum": ["linear_debye", "kinetic_1d"]},
+        "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]},
         "photoelectron_closure": {"enum": ["none", "individual_return", "kinetic_mean"], "default": "none"},
         "return_model": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
         "interface_z": {"type": "number"},

@@ -360,6 +360,15 @@ outgoing/returning population を軌道エネルギーで分離する。Layer A 
 更新し、mean closure は outer profile だけを供給するため、統計的 return current は再加算しない。
 実行例は `examples/periodic2_kinetic_outer.toml`、物理契約は
 `docs/adr/0001-kinetic-outer-plasma.md` を参照する。
+
+`outer_plasma.model="unified_linear_response"` は、表面投影から遠方まで一つの zero-mode
+Poisson grid を使い、rough surface の plasma-accessible area と線形 mean-plasma 電荷を含める。
+`k!=0` は表面最高点直上から `sqrt(k^2+kappa^2)` で減衰する tail に接続するため、
+`interface_z` は field-domain の切断面ではなく粒子 ownership 面だけになる。single-valued な
+height field、`triangle_p0`、`photoelectron_closure="none"`、particle transfer `none` が必須で、
+線形性上限を超える場合は fallback せず停止する。検証例は
+`examples/periodic2_unified_linear_response.toml`、詳細は
+`docs/adr/0002-unified-periodic-outer-domain.md` を参照する。
 | `coupling.particle_transfer_mode` | `none` | return modelと同じIDを指定 |
 | `coupling.field_evolution_timescale` | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
 | `coupling.max_frozen_field_ratio` | `0.1` | `tau_outer/field_evolution_timescale`上限 |

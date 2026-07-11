@@ -50,6 +50,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_outer_plasma_kinetic_runtime \
 	test_outer_plasma_local_mean \
 	test_periodic2_nonzero_tail \
+	test_outer_plasma_unified \
+	test_electrostatic_unified \
 	test_electrostatic_snapshot \
 	test_outer_coupler \
 	test_outer_plasma_interface \

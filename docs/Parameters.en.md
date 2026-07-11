@@ -348,6 +348,16 @@ non-monotonic/trapped branches fail closed. `photoelectron_closure="kinetic_mean
 half-Maxwellian emitted flux from the first negative `photo_raycast` species and separates its
 outgoing and returning densities without adding a second surface return current. See
 `examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
+
+`outer_plasma.model="unified_linear_response"` extends one zero-mode Poisson grid from
+the surface projection to the far boundary, including the rough-surface
+plasma-accessible fraction and linear mean-plasma charge. Nonzero modes join a
+`sqrt(k^2+kappa^2)` screened tail just above the highest surface point, so
+`interface_z` is only a particle ownership plane and does not truncate the field.
+The model requires single-valued topography, `triangle_p0`, no photoelectron mean
+closure, and no particle transfer. It fails closed outside the configured linearity
+bound. See `examples/periodic2_unified_linear_response.toml` and
+`docs/adr/0002-unified-periodic-outer-domain.md`.
 `sim.use_box=true`, exactly two axes are `periodic`, and the remaining axis is
 open. Periodic images are considered not only for field evaluation, but also for
 collision and `photo_raycast` raycasting.
