@@ -312,6 +312,17 @@ beachx mobility outputs/latest \
 make build-kernel
 beachx kernel-forces outputs/latest \
   --save-csv outputs/latest/object_forces_kernel.csv
+
+# Retain periodic images while excluding only the central-cell primary self field.
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --output-dir outputs/latest/object_detachment
 ```
 
 `beachx coulomb` reads object kind and order from nearby `beach.toml` `mesh.templates` when available, and by
@@ -322,6 +333,24 @@ from `beach.toml`. `beachx kernel-forces` calls the Fortran FMM core through `li
 `sim.softening`, `sim.field_bc_mode`, periodic2, and tree settings from `beach.toml`. Build the library with
 `make build-kernel`; if it is elsewhere, pass `--library` or set `BEACH_FIELD_KERNEL_LIB`. Use
 `--config path/to/beach.toml` when no config exists near the output directory.
+
+`kernel-forces` is the legacy `exclude_target_lattice` diagnostic, which also
+removes the target object's periodic images. `object-detachment` uses
+`exclude_primary_keep_images`. It writes the instantaneous wrench, frozen-source
+vertical path and work, and a from-rest barrier including gravity and optional
+finite-range adhesion to four artifacts. `configured` preserves the run's
+policy, while `infinite-physical` uses cached `k != 0` plus the x/y-periodic
+`E_bottom=0` zero mode. The CLI defaults to lunar gravity, `1.62 m/s^2`; the
+example above explicitly uses Earth gravity, `9.80665 m/s^2`. A cold cached
+operator or a long path can be expensive;
+on KUDPC submit this analysis to a compute node instead of running it on a login
+node.
+
+A successful CLI invocation establishes artifact generation only. It is not a
+physical qualification until path status, work/potential agreement,
+quadrature, shell/cache, and endpoint sensitivity have been checked. A
+finite-height speed in a non-neutral periodic cell is not escape speed at
+infinity.
 
 Legacy aliases such as `beach-inspect`, `beach-animate-history`, `beach-plot-coulomb-force-matrix`,
 `beach-plot-potential-slices`, `beach-estimate-workload`, and `beach-plot-performance-profile` remain available

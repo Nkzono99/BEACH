@@ -105,3 +105,58 @@ beachx mobility outputs/latest \
 
 これらは近傍の `beach.toml` から geometry や periodic2 設定を自動解決します。
 見つからない場合は、対応する CLI の `--config` を指定してください。
+
+## 周期画像を含む object の離脱力を見る
+
+保存された charge snapshot を固定し、mesh 6 だけを上向きに動かす例です。
+
+```bash
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --adhesion-force-n 1.0e-10 \
+  --adhesion-range-m 2.0e-6 \
+  --output-dir outputs/latest/object_detachment
+```
+
+`object-detachment` の CLI 既定重力は月面の `1.62 m/s^2` です。この例は地上重力を
+仮定して `9.80665 m/s^2` を明示しています。対象環境に合わせて変更してください。
+
+`configured` は run の finite/cached 設定をそのまま使い、`infinite-physical` は
+x/y periodic run の cached `k != 0` と物理的な `k = 0` mode を使います。
+target の central-cell primary 自己場だけを除外するため、target 自身の周期画像が作る力は
+残ります。`instantaneous_wrench.csv`, `path.csv`, `summary.json`, `report.md` が生成されます。
+
+同じ解析を Python から行う完全な例は
+[`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
+です。最小の API 呼び出しは次のとおりです。
+
+```python
+import numpy as np
+from beach import AdhesionProfile, Beach
+
+run = Beach("outputs/latest", config_path="beach.toml")
+with run.object_interaction_snapshot(
+    periodic_model="infinite_physical",
+) as snapshot:
+    probe = snapshot.object_probe(6)
+    wrench = probe.wrench()
+    path = probe.vertical_path(np.linspace(0.0, 2.0e-4, 65))
+
+release = path.evaluate_release(
+    mass_kg=2.0e-12,
+    gravity_m_s2=9.80665,
+    adhesion=AdhesionProfile.none(),
+)
+```
+
+正常終了と CSV/JSON の生成は実行成功の確認です。離脱が物理的に妥当という確認では
+ありません。少なくとも `path.status`、仕事と電位差の不一致、mesh/quadrature、
+finite shell または periodic cache、経路上端、charge snapshot、stochastic seed への依存を
+[計算結果の妥当性確認](ValidationGuide.html)に従って評価してください。非中性周期 cell の
+有限高さ speed を無限遠への escape speed と解釈してはいけません。

@@ -310,11 +310,35 @@ beachx mobility outputs/latest \
 make build-kernel
 beachx kernel-forces outputs/latest \
   --save-csv outputs/latest/object_forces_kernel.csv
+
+# central-cell primary 自己場だけを除き、周期画像を保持した離脱経路を出す
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --output-dir outputs/latest/object_detachment
 ```
 
 `beachx coulomb` は、近傍の `beach.toml` が見つかれば `mesh.templates` から object kind と順序を読み取り、既定では全 object を target 軸に並べて可視化します。特定 kind だけに絞る場合は `--target-kinds sphere` のように指定します。
 `beachx mobility` は、既定で `plane` を support とみなし、それ以外の object を対象に合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV 化します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
 `beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran FMM core を Python から呼び出し、`beach.toml` の `sim.softening` / `sim.field_bc_mode` / periodic2 / tree 設定を使って object ごとの net force を計算します。共有ライブラリは `make build-kernel` で `build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または `BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は `--config path/to/beach.toml` を指定します。
+
+`kernel-forces` は target object の周期画像も除く旧 `exclude_target_lattice` 診断です。
+`object-detachment` は central primary だけを除く `exclude_primary_keep_images` を使い、
+凍結 source に対する瞬時 wrench、鉛直経路、仕事、重力・有限 range 付着を含む from-rest
+barrier を4成果物へ出力します。`configured` は run の設定を保持し、
+`infinite-physical` は x/y periodic の cached `k != 0` と `E_bottom=0` zero mode を使います。
+CLI 既定重力は月面の `1.62 m/s^2` ですが、上例は地上の `9.80665 m/s^2` を明示しています。
+cached operator の初回生成や多数の path 点は重くなり得るため、KUDPC では login node で
+実行せず計算 node に投入してください。
+
+CLI の正常終了は成果物作成の成功です。`path.status`、仕事/電位差、quadrature、shell/cache、
+経路上端の感度を確認するまでは物理 qualification ではありません。非中性 periodic cell の
+有限高さ speed は無限遠への escape speed ではありません。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` / `beach-estimate-workload` / `beach-plot-performance-profile`
