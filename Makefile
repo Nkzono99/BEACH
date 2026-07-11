@@ -76,7 +76,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_output_writer_io \
 	test_output_writer_potential
 FORTRAN_L2_TARGETS ?= \
-	test_field_kernel_c
+	test_field_kernel_c \
+	test_periodic_zero_mode_c
 FORTRAN_L3_TARGETS ?= \
 	test_dynamics_fmm \
 	test_coulomb_fmm_core_basic \
