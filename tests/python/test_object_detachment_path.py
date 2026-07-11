@@ -87,6 +87,9 @@ class _AnalyticPathKernel:
         elif cls.mode == "sharp":
             field[:, 2] = 1.0 / (0.01 + z) ** 2
             potential = 1.0 / (0.01 + z)
+        elif cls.mode == "inconsistent_constant":
+            field[:, 2] = 1.0
+            potential = np.zeros_like(z)
         else:
             raise AssertionError("unknown analytic path mode")
         return field, potential
@@ -210,6 +213,30 @@ def test_vertical_path_zero_crossing_uses_absolute_tolerance(
     assert path.status == "converged"
     assert path.refinement_count == 0
     assert path.force_N[0, 2] < 0.0 < path.force_N[-1, 2]
+
+
+def test_vertical_path_reports_potential_defect_separately_from_quadrature_error(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    analytic_kernel.mode = "inconsistent_constant"
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        path = snapshot.object_probe(1).vertical_path(
+            np.array([0.0, 1.0]),
+            relative_tolerance=0.0,
+            force_absolute_tolerance_N=0.0,
+            work_absolute_tolerance_J=0.0,
+            max_refinement=0,
+        )
+
+    assert path.status == "not_converged"
+    assert path.numerical_metadata["status_reason"] == "work_potential_mismatch"
+    assert path.numerical_metadata["max_work_refinement_error_J"] == 0.0
+    assert path.numerical_metadata["max_work_potential_error_J"] > 0.0
 
 
 def test_vertical_path_checks_triangle_vertices_before_native_evaluation(

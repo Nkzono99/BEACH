@@ -54,7 +54,7 @@ class FiniteShellWrenchResult:
 
 @dataclass(frozen=True, kw_only=True)
 class FiniteShellConvergenceResult:
-    """Two-successive-increment convergence record for finite shells."""
+    """Two-successive combined-gate convergence record for finite shells."""
 
     image_layers: np.ndarray
     symmetric_paths: tuple[ObjectForcePath, ...]
@@ -65,8 +65,16 @@ class FiniteShellConvergenceResult:
     status: str
     selected_image_layers: int | None
     selected_path: ObjectForcePath | None
+    force_tail_proxy_N: np.ndarray | None = None
+    work_tail_proxy_J: np.ndarray | None = None
+    reference_force_error_N: np.ndarray | None = None
+    reference_work_error_J: np.ndarray | None = None
+    reference_converged: np.ndarray | None = None
+    reference_model: str | None = None
 
     def __post_init__(self) -> None:
+        symmetric_paths = tuple(self.symmetric_paths)
+        corrected_paths = tuple(self.corrected_paths)
         layers = np.asarray(self.image_layers)
         if layers.ndim != 1 or layers.size == 0:
             raise ValueError("image_layers must be a non-empty 1D array.")
@@ -75,7 +83,7 @@ class FiniteShellConvergenceResult:
         layers = np.array(layers, dtype=np.int64, copy=True)
         if np.any(np.diff(layers) != 1):
             raise ValueError("image_layers must be consecutive.")
-        if len(self.symmetric_paths) != layers.size or len(self.corrected_paths) != layers.size:
+        if len(symmetric_paths) != layers.size or len(corrected_paths) != layers.size:
             raise ValueError("path tuples must match image_layers.")
         force_error = _readonly_nonnegative(
             self.force_increment_error_N,
@@ -87,6 +95,21 @@ class FiniteShellConvergenceResult:
             layers.size - 1,
             "work_increment_error_J",
         )
+        tail_factor = np.maximum(1, layers[1:]).astype(np.float64)
+        force_tail = _readonly_nonnegative(
+            force_error * tail_factor
+            if self.force_tail_proxy_N is None
+            else self.force_tail_proxy_N,
+            layers.size - 1,
+            "force_tail_proxy_N",
+        )
+        work_tail = _readonly_nonnegative(
+            work_error * tail_factor
+            if self.work_tail_proxy_J is None
+            else self.work_tail_proxy_J,
+            layers.size - 1,
+            "work_tail_proxy_J",
+        )
         increment = np.asarray(self.increment_converged, dtype=bool)
         if increment.shape != (layers.size - 1,):
             raise ValueError("increment_converged has the wrong shape.")
@@ -96,18 +119,73 @@ class FiniteShellConvergenceResult:
         if self.status == "converged":
             if self.selected_image_layers is None or self.selected_path is None:
                 raise ValueError("converged shell results require a selected path.")
+            if increment.size < 2 or not np.all(increment[-2:]):
+                raise ValueError(
+                    "converged shell results require two successive combined gates."
+                )
             if self.selected_image_layers != int(layers[-1]):
                 raise ValueError("selected layer must be the final evaluated layer.")
-            if self.selected_path is not self.corrected_paths[-1]:
+            if self.selected_path is not corrected_paths[-1]:
                 raise ValueError("selected path must be the final corrected path.")
         elif self.selected_image_layers is not None or self.selected_path is not None:
             raise ValueError("non-converged shell results cannot select a path.")
+        reference_force: np.ndarray | None = None
+        reference_work: np.ndarray | None = None
+        reference_ok: np.ndarray | None = None
+        if self.reference_model is None:
+            if any(
+                value is not None
+                for value in (
+                    self.reference_force_error_N,
+                    self.reference_work_error_J,
+                    self.reference_converged,
+                )
+            ):
+                raise ValueError("reference arrays require reference_model.")
+        else:
+            if self.reference_model != "infinite_physical":
+                raise ValueError('reference_model must be "infinite_physical" or None.')
+            if any(
+                value is None
+                for value in (
+                    self.reference_force_error_N,
+                    self.reference_work_error_J,
+                    self.reference_converged,
+                )
+            ):
+                raise ValueError("reference_model requires all reference arrays.")
+            reference_force = _readonly_nonnegative(
+                self.reference_force_error_N,
+                layers.size,
+                "reference_force_error_N",
+            )
+            reference_work = _readonly_nonnegative(
+                self.reference_work_error_J,
+                layers.size,
+                "reference_work_error_J",
+            )
+            reference_ok_values = np.asarray(self.reference_converged, dtype=bool)
+            if reference_ok_values.shape != (layers.size,):
+                raise ValueError("reference_converged has the wrong shape.")
+            reference_ok = np.array(reference_ok_values, copy=True)
+            reference_ok.setflags(write=False)
+            if self.status == "converged" and not np.all(reference_ok[-2:]):
+                raise ValueError(
+                    "selected path requires two successive physical reference gates."
+                )
         layers.setflags(write=False)
         increment.setflags(write=False)
         object.__setattr__(self, "image_layers", layers)
+        object.__setattr__(self, "symmetric_paths", symmetric_paths)
+        object.__setattr__(self, "corrected_paths", corrected_paths)
         object.__setattr__(self, "force_increment_error_N", force_error)
         object.__setattr__(self, "work_increment_error_J", work_error)
+        object.__setattr__(self, "force_tail_proxy_N", force_tail)
+        object.__setattr__(self, "work_tail_proxy_J", work_tail)
         object.__setattr__(self, "increment_converged", increment)
+        object.__setattr__(self, "reference_force_error_N", reference_force)
+        object.__setattr__(self, "reference_work_error_J", reference_work)
+        object.__setattr__(self, "reference_converged", reference_ok)
 
 
 def finite_shell_wrench(
@@ -164,7 +242,7 @@ def finite_shell_convergence(
     force_floor_N: float = 1.0e-12,
     work_floor_J: float = 1.0e-18,
 ) -> FiniteShellConvergenceResult:
-    """Increase symmetric shells until two corrected increments converge."""
+    """Increase shells until two tail/reference combined gates converge."""
 
     maximum = _nonnegative_integer(max_layers, "max_layers")
     relative = _nonnegative_scalar(relative_tolerance, "relative_tolerance")
@@ -174,15 +252,33 @@ def finite_shell_convergence(
     corrected_paths: list[ObjectForcePath] = []
     force_errors: list[float] = []
     work_errors: list[float] = []
+    force_tail_proxies: list[float] = []
+    work_tail_proxies: list[float] = []
     increment_ok: list[bool] = []
+    reference_force_errors: list[float] = []
+    reference_work_errors: list[float] = []
+    reference_ok: list[bool] = []
     consecutive = 0
     selected_layer: int | None = None
     selected_path: ObjectForcePath | None = None
+    reference_path: ObjectForcePath | None = None
+    reference_model: str | None = None
+    path_grid = np.asarray(displacement_m, dtype=np.float64)
+    if snapshot.periodic_model == "infinite_physical":
+        reference_model = "infinite_physical"
+        reference_path = probe.vertical_path(
+            path_grid,
+            adaptive=False,
+            relative_tolerance=relative,
+            force_absolute_tolerance_N=force_floor,
+            work_absolute_tolerance_J=work_floor,
+            components=False,
+        )
 
     for layer in range(maximum + 1):
         with _finite_probe(snapshot, probe, layer) as finite_probe:
             symmetric = finite_probe.vertical_path(
-                np.asarray(displacement_m, dtype=np.float64),
+                path_grid,
                 adaptive=False,
                 relative_tolerance=relative,
                 force_absolute_tolerance_N=force_floor,
@@ -197,6 +293,53 @@ def finite_shell_convergence(
             corrected, _ = _correct_path(snapshot, finite_probe, symmetric)
         symmetric_paths.append(symmetric)
         corrected_paths.append(corrected)
+        if reference_path is not None:
+            reference_force_error = float(
+                np.max(
+                    np.linalg.norm(
+                        corrected.force_N - reference_path.force_N,
+                        axis=1,
+                    ),
+                    initial=0.0,
+                )
+            )
+            reference_work_error = float(
+                np.max(
+                    np.abs(
+                        corrected.electrostatic_work_J
+                        - reference_path.electrostatic_work_J
+                    ),
+                    initial=0.0,
+                )
+            )
+            reference_force_scale = max(
+                float(np.max(np.linalg.norm(corrected.force_N, axis=1), initial=0.0)),
+                float(
+                    np.max(
+                        np.linalg.norm(reference_path.force_N, axis=1),
+                        initial=0.0,
+                    )
+                ),
+            )
+            reference_work_scale = max(
+                float(np.max(np.abs(corrected.electrostatic_work_J), initial=0.0)),
+                float(
+                    np.max(
+                        np.abs(reference_path.electrostatic_work_J),
+                        initial=0.0,
+                    )
+                ),
+            )
+            reference_force_errors.append(reference_force_error)
+            reference_work_errors.append(reference_work_error)
+            reference_ok.append(
+                reference_force_error
+                <= force_floor + relative * reference_force_scale
+                and reference_work_error
+                <= work_floor + relative * reference_work_scale
+                and reference_path.status == "converged"
+                and corrected.status == "converged"
+            )
         if layer == 0:
             continue
         previous = corrected_paths[-2]
@@ -225,15 +368,22 @@ def finite_shell_convergence(
             float(np.max(np.abs(corrected.electrostatic_work_J), initial=0.0)),
             float(np.max(np.abs(previous.electrostatic_work_J), initial=0.0)),
         )
+        tail_factor = float(max(1, layer))
+        force_tail_proxy = tail_factor * force_error
+        work_tail_proxy = tail_factor * work_error
         converged = (
-            force_error <= force_floor + relative * force_scale
-            and work_error <= work_floor + relative * work_scale
+            force_tail_proxy <= force_floor + relative * force_scale
+            and work_tail_proxy <= work_floor + relative * work_scale
             and corrected.status == "converged"
         )
         force_errors.append(force_error)
         work_errors.append(work_error)
-        increment_ok.append(converged)
-        consecutive = consecutive + 1 if converged else 0
+        force_tail_proxies.append(force_tail_proxy)
+        work_tail_proxies.append(work_tail_proxy)
+        physical_reference_ok = reference_path is None or reference_ok[-1]
+        combined_converged = converged and physical_reference_ok
+        increment_ok.append(combined_converged)
+        consecutive = consecutive + 1 if combined_converged else 0
         if consecutive >= 2:
             selected_layer = layer
             selected_path = corrected
@@ -247,10 +397,22 @@ def finite_shell_convergence(
         corrected_paths=tuple(corrected_paths),
         force_increment_error_N=np.asarray(force_errors),
         work_increment_error_J=np.asarray(work_errors),
+        force_tail_proxy_N=np.asarray(force_tail_proxies),
+        work_tail_proxy_J=np.asarray(work_tail_proxies),
         increment_converged=np.asarray(increment_ok),
         status=status,
         selected_image_layers=selected_layer,
         selected_path=selected_path,
+        reference_force_error_N=(
+            None if reference_path is None else np.asarray(reference_force_errors)
+        ),
+        reference_work_error_J=(
+            None if reference_path is None else np.asarray(reference_work_errors)
+        ),
+        reference_converged=(
+            None if reference_path is None else np.asarray(reference_ok)
+        ),
+        reference_model=reference_model,
     )
 
 
@@ -472,6 +634,24 @@ def _correct_path(
             ),
         }
     )
+    status = symmetric.status
+    if {
+        "relative_tolerance",
+        "work_absolute_tolerance_J",
+    }.issubset(metadata):
+        relative_tolerance = float(metadata["relative_tolerance"])
+        work_absolute_tolerance = float(metadata["work_absolute_tolerance_J"])
+        mismatch_threshold = work_absolute_tolerance + relative_tolerance * scale
+        mismatch_converged = absolute_mismatch <= mismatch_threshold
+        source_reason = str(metadata.get("status_reason", ""))
+        if not mismatch_converged:
+            status = "not_converged"
+            metadata["status_reason"] = "work_potential_mismatch"
+        elif symmetric.status == "converged":
+            status = "converged"
+        elif source_reason == "work_potential_mismatch":
+            status = "converged"
+            metadata["status_reason"] = "tolerances_satisfied_after_closure"
     corrected = ObjectForcePath(
         displacement_m=h,
         force_N=total_force,
@@ -482,7 +662,7 @@ def _correct_path(
         component_force_N=component_force,
         component_torque_Nm=component_torque,
         numerical_metadata=metadata,
-        status=symmetric.status,
+        status=status,
         refinement_count=symmetric.refinement_count,
         work_relative_mismatch=absolute_mismatch / scale,
         work_absolute_mismatch_J=absolute_mismatch,

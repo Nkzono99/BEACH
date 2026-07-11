@@ -852,6 +852,47 @@ def test_triangle_source_is_never_silently_downgraded_to_centroids(
     )
 
 
+def test_wrench_checks_transformed_triangle_vertices_before_native_evaluation(
+    tmp_path: Path,
+    fake_native,
+) -> None:
+    fake_field, _ = fake_native
+    config = tmp_path / "beach.toml"
+    _write_free_config(config)
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 1.99], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]],
+            [[0.5, 0.0, 0.0], [0.7, 0.0, 0.0], [0.5, 0.2, 0.0]],
+        ]
+    )
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0, 2.0]),
+        triangles=triangles,
+        mesh_ids=np.array([1, 2]),
+        field_source_model="triangle_p0",
+    )
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        before = sum(instance.eval_calls for instance in fake_field.instances)
+        with pytest.raises(ValueError, match="box"):
+            probe.wrench(transform=RigidTransform.translation([0.0, 0.0, 0.02]))
+        assert sum(instance.eval_calls for instance in fake_field.instances) == before
+
+
 def test_unknown_periodic_model_and_self_policy_fail_closed(tmp_path: Path) -> None:
     config = tmp_path / "beach.toml"
     _write_free_config(config)

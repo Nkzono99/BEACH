@@ -544,6 +544,11 @@ class ObjectProbe:
             self._target_points_m,
             origin=transform_origin_m,
         )
+        target_vertices = rigid.apply(
+            self._target_triangles_m.reshape(-1, 3),
+            origin=transform_origin_m,
+        )
+        _validate_target_points(target_vertices, self._snapshot._options)
         _validate_target_points(target_points, self._snapshot._options)
         if isinstance(torque_origin, str) and torque_origin == "geometric_area_centroid":
             torque_origin_m = rigid.apply(
@@ -721,6 +726,7 @@ class ObjectProbe:
         status_reason = "fixed_grid"
         max_force_error = 0.0
         max_work_error = 0.0
+        max_work_potential_error = 0.0
 
         if adaptive:
             status = "not_converged"
@@ -767,23 +773,36 @@ class ObjectProbe:
                     candidate.potential_energy_J[0:-2:2]
                     - candidate.potential_energy_J[2::2]
                 )
-                work_error = np.maximum(
-                    np.abs(work_fine - work_coarse),
-                    np.abs(work_fine - potential_work),
+                work_error = np.abs(work_fine - work_coarse)
+                work_potential_error = np.abs(work_fine - potential_work)
+                work_scale = np.maximum(np.abs(work_coarse), np.abs(work_fine))
+                work_potential_scale = np.maximum(
+                    np.abs(work_fine),
+                    np.abs(potential_work),
                 )
-                work_scale = np.maximum.reduce(
-                    (np.abs(work_coarse), np.abs(work_fine), np.abs(potential_work))
-                )
-                failing = (force_error > force_absolute + relative * force_scale) | (
+                force_failing = force_error > force_absolute + relative * force_scale
+                work_failing = (
                     work_error > work_absolute + relative * work_scale
                 )
+                potential_failing = (
+                    work_potential_error
+                    > work_absolute + relative * work_potential_scale
+                )
+                failing = force_failing | work_failing | potential_failing
                 max_force_error = float(np.max(force_error, initial=0.0))
                 max_work_error = float(np.max(work_error, initial=0.0))
+                max_work_potential_error = float(
+                    np.max(work_potential_error, initial=0.0)
+                )
                 if not np.any(failing):
                     status = "converged"
                     status_reason = "tolerances_satisfied"
                     break
                 if refinement_round >= refinement_limit:
+                    if not np.any(force_failing | work_failing) and np.any(
+                        potential_failing
+                    ):
+                        status_reason = "work_potential_mismatch"
                     break
                 keep = np.zeros(candidate_grid.size, dtype=bool)
                 keep[0::2] = True
@@ -828,6 +847,7 @@ class ObjectProbe:
             "inserted_point_count": inserted,
             "max_force_refinement_error_N": max_force_error,
             "max_work_refinement_error_J": max_work_error,
+            "max_work_potential_error_J": max_work_potential_error,
             "status_reason": status_reason,
             "peak_target_batch_size": peak_target_batch_size,
         }

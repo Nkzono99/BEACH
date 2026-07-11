@@ -1,4 +1,7 @@
+import os
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -6,12 +9,15 @@ import pytest
 from beach import (
     FieldKernel,
     FieldKernelOptions,
+    FiniteShellConvergenceResult,
     FortranRunResult,
+    ObjectForcePath,
     ObjectInteractionSnapshot,
     finite_shell_convergence,
     finite_shell_wrench,
 )
 from beach.fortran_results.constants import K_COULOMB
+import beach.fortran_results.periodic_force_oracle as oracle_module
 
 
 EPS0 = 1.0 / (4.0 * np.pi * K_COULOMB)
@@ -31,8 +37,14 @@ def _triangles_at(positions: np.ndarray) -> np.ndarray:
     return np.asarray(positions, dtype=float)[:, None, :] + offsets[None, :, :]
 
 
-def _result(directory: Path, charges: np.ndarray) -> FortranRunResult:
-    positions = np.array([[0.5, 0.5, 0.0], [1.5, 0.5, 0.3]])
+def _result(
+    directory: Path,
+    charges: np.ndarray,
+    *,
+    positions: np.ndarray | None = None,
+) -> FortranRunResult:
+    if positions is None:
+        positions = np.array([[0.5, 0.5, 0.0], [1.5, 0.5, 0.3]])
     return FortranRunResult(
         directory=directory,
         mesh_nelem=2,
@@ -67,13 +79,142 @@ box_max = [2.0, 2.0, 1.0]
 softening = 0.05
 tree_theta = 0.1
 tree_leaf_max = 64
+tree_order = 2
 field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 field_periodic_ewald_layers = 4
+field_periodic_generation_tolerance = 1.0e-6
 e0 = [0.0, 0.0, 0.0]
 """.strip()
         + "\n",
         encoding="utf-8",
+    )
+
+
+def _write_panel_periodic_config(path: Path) -> None:
+    path.write_text(
+        """
+[sim]
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_source_model = "triangle_p0"
+field_kernel_id = "triangle_p0_exact_p2m_near"
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
+bc_z_low = "open"
+bc_z_high = "open"
+box_min = [0.0, 0.0, -1.0]
+box_max = [2.0, 2.0, 1.0]
+softening = 0.0
+tree_theta = 0.2
+tree_leaf_max = 16
+tree_order = 4
+field_periodic_image_layers = 1
+field_periodic_far_correction = "none"
+field_periodic_ewald_layers = 4
+field_periodic_generation_tolerance = 1.0e-8
+e0 = [0.0, 0.0, 0.0]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _plane_triangles(cells_per_axis: int, *, length: float = 2.0) -> np.ndarray:
+    triangles: list[np.ndarray] = []
+    spacing = length / cells_per_axis
+    for iy in range(cells_per_axis):
+        for ix in range(cells_per_axis):
+            x0 = ix * spacing
+            x1 = (ix + 1) * spacing
+            y0 = iy * spacing
+            y1 = (iy + 1) * spacing
+            p00 = np.array([x0, y0, 0.0])
+            p10 = np.array([x1, y0, 0.0])
+            p11 = np.array([x1, y1, 0.0])
+            p01 = np.array([x0, y1, 0.0])
+            triangles.extend((np.array([p00, p10, p11]), np.array([p00, p11, p01])))
+    return np.asarray(triangles)
+
+
+def _panel_result(
+    directory: Path,
+    triangles: np.ndarray,
+    charges: np.ndarray,
+) -> FortranRunResult:
+    return FortranRunResult(
+        directory=directory,
+        mesh_nelem=len(charges),
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.asarray(charges, dtype=float),
+        triangles=np.asarray(triangles, dtype=float),
+        mesh_ids=np.ones(len(charges), dtype=np.int64),
+        field_source_model="triangle_p0",
+        field_kernel_id="triangle_p0_exact_p2m_near",
+    )
+
+
+def _physical_field(
+    snapshot: ObjectInteractionSnapshot,
+    points: np.ndarray,
+) -> np.ndarray:
+    field = snapshot._periodic.eval_e(points)
+    assert snapshot._zero_mode is not None
+    _, zero_ez = snapshot._zero_mode.eval(points[:, 2], trace="plus")
+    field[:, 2] += zero_ez
+    return field
+
+
+def _constant_path(force_z: float) -> ObjectForcePath:
+    return ObjectForcePath(
+        displacement_m=np.array([0.0, 1.0]),
+        force_N=np.array([[0.0, 0.0, force_z], [0.0, 0.0, force_z]]),
+        torque_Nm=np.zeros((2, 3)),
+        electrostatic_work_J=np.array([0.0, force_z]),
+        potential_energy_J=np.array([0.0, -force_z]),
+        potential_difference_work_J=np.array([0.0, force_z]),
+        numerical_metadata={
+            "relative_tolerance": 1.0e-2,
+            "work_absolute_tolerance_J": 0.0,
+            "status_reason": "fixed_grid",
+        },
+        status="converged",
+        work_relative_mismatch=0.0,
+        work_absolute_mismatch_J=0.0,
+    )
+
+
+class _PathProbe:
+    def __init__(self, path: ObjectForcePath) -> None:
+        self.path = path
+        self.calls = 0
+
+    def vertical_path(self, *_args, **_kwargs) -> ObjectForcePath:
+        self.calls += 1
+        return self.path
+
+
+def _install_fake_shell_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    paths: list[ObjectForcePath],
+) -> None:
+    @contextmanager
+    def fake_finite_probe(_snapshot, _probe, layer):
+        yield _PathProbe(paths[layer])
+
+    monkeypatch.setattr(oracle_module, "_finite_probe", fake_finite_probe)
+    monkeypatch.setattr(
+        oracle_module,
+        "_correct_path",
+        lambda _snapshot, _probe, path: (path, np.zeros(3)),
     )
 
 
@@ -191,6 +332,467 @@ def test_finite_shell_convergence_requires_two_successive_increments(
     assert unresolved.status == "not_converged"
     assert unresolved.selected_image_layers is None
     assert unresolved.selected_path is None
+
+
+def test_finite_shell_convergence_record_freezes_path_sequences() -> None:
+    path = ObjectForcePath(
+        displacement_m=np.array([0.0, 1.0]),
+        force_N=np.zeros((2, 3)),
+        torque_Nm=np.zeros((2, 3)),
+        electrostatic_work_J=np.zeros(2),
+    )
+    symmetric = [path]
+    corrected = [path]
+
+    result = FiniteShellConvergenceResult(
+        image_layers=np.array([0]),
+        symmetric_paths=symmetric,  # type: ignore[arg-type]
+        corrected_paths=corrected,  # type: ignore[arg-type]
+        force_increment_error_N=np.empty(0),
+        work_increment_error_J=np.empty(0),
+        increment_converged=np.empty(0, dtype=bool),
+        status="not_converged",
+        selected_image_layers=None,
+        selected_path=None,
+    )
+    symmetric.clear()
+    corrected.clear()
+
+    assert result.symmetric_paths == (path,)
+    assert result.corrected_paths == (path,)
+
+
+def test_converged_shell_record_requires_two_successive_combined_gates() -> None:
+    paths = tuple(_constant_path(1.0) for _ in range(3))
+
+    with pytest.raises(ValueError, match="successive"):
+        FiniteShellConvergenceResult(
+            image_layers=np.array([0, 1, 2]),
+            symmetric_paths=paths,
+            corrected_paths=paths,
+            force_increment_error_N=np.zeros(2),
+            work_increment_error_J=np.zeros(2),
+            increment_converged=np.array([False, True]),
+            status="converged",
+            selected_image_layers=2,
+            selected_path=paths[-1],
+        )
+
+
+def test_converged_shell_record_requires_two_successive_reference_gates() -> None:
+    paths = tuple(_constant_path(1.0) for _ in range(3))
+
+    with pytest.raises(ValueError, match="reference"):
+        FiniteShellConvergenceResult(
+            image_layers=np.array([0, 1, 2]),
+            symmetric_paths=paths,
+            corrected_paths=paths,
+            force_increment_error_N=np.zeros(2),
+            work_increment_error_J=np.zeros(2),
+            increment_converged=np.ones(2, dtype=bool),
+            status="converged",
+            selected_image_layers=2,
+            selected_path=paths[-1],
+            reference_force_error_N=np.zeros(3),
+            reference_work_error_J=np.zeros(3),
+            reference_converged=np.array([False, False, True]),
+            reference_model="infinite_physical",
+        )
+
+
+def test_infinite_shell_selection_requires_physical_reference_agreement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reference = _constant_path(1.02)
+    probe = _PathProbe(reference)
+    _install_fake_shell_paths(
+        monkeypatch,
+        [_constant_path(1.0), _constant_path(1.005), _constant_path(1.01)],
+    )
+
+    result = finite_shell_convergence(
+        SimpleNamespace(periodic_model="infinite_physical"),
+        probe,  # type: ignore[arg-type]
+        np.array([0.0, 1.0]),
+        max_layers=2,
+        relative_tolerance=1.0e-2,
+        force_floor_N=0.0,
+        work_floor_J=0.0,
+    )
+
+    assert probe.calls == 1
+    np.testing.assert_array_equal(result.increment_converged, [False, True])
+    np.testing.assert_array_equal(result.reference_converged, [False, False, True])
+    assert np.all(result.reference_force_error_N > 0.0)
+    assert np.all(result.reference_work_error_J > 0.0)
+    assert result.status == "not_converged"
+    assert result.selected_image_layers is None
+    assert result.selected_path is None
+
+
+def test_configured_shell_selection_uses_layer_scaled_tail_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _PathProbe(_constant_path(99.0))
+    _install_fake_shell_paths(
+        monkeypatch,
+        [_constant_path(1.0), _constant_path(1.009), _constant_path(1.018)],
+    )
+
+    result = finite_shell_convergence(
+        SimpleNamespace(periodic_model="configured"),
+        probe,  # type: ignore[arg-type]
+        np.array([0.0, 1.0]),
+        max_layers=2,
+        relative_tolerance=1.0e-2,
+        force_floor_N=0.0,
+        work_floor_J=0.0,
+    )
+
+    assert probe.calls == 0
+    np.testing.assert_allclose(result.force_tail_proxy_N, [0.009, 0.018])
+    np.testing.assert_allclose(result.work_tail_proxy_J, [0.009, 0.018])
+    np.testing.assert_array_equal(result.increment_converged, [True, False])
+    assert result.status == "not_converged"
+    assert result.selected_path is None
+
+
+def test_bottom_zero_closure_rechecks_work_potential_status_with_corrected_scale() -> None:
+    relative_tolerance = 2.0e-2
+    symmetric = ObjectForcePath(
+        displacement_m=np.array([0.0, 1.0]),
+        force_N=np.array([[0.0, 0.0, 100.0], [0.0, 0.0, 100.0]]),
+        torque_Nm=np.zeros((2, 3)),
+        electrostatic_work_J=np.array([0.0, 100.0]),
+        potential_energy_J=np.array([0.0, -99.0]),
+        potential_difference_work_J=np.array([0.0, 99.0]),
+        numerical_metadata={
+            "relative_tolerance": relative_tolerance,
+            "work_absolute_tolerance_J": 0.0,
+            "status_reason": "fixed_grid",
+        },
+        status="converged",
+        work_relative_mismatch=1.0e-2,
+        work_absolute_mismatch_J=1.0,
+    )
+    total_charge = -199.0 * EPS0
+    snapshot = SimpleNamespace(
+        _options=SimpleNamespace(
+            periodic2=((0, 1), (1.0, 1.0), (0.0, 0.0), 0, "none", 0.0, 4)
+        ),
+        _charges_C=np.array([1.0, total_charge - 1.0]),
+        source_model="point",
+        _centers_m=np.zeros((2, 3)),
+    )
+    probe = SimpleNamespace(
+        _target_mask=np.array([True, False]),
+        _target_points_m=np.zeros((1, 3)),
+        _target_charge_weights_C=np.array([1.0]),
+        _geometric_area_centroid_m=np.zeros(3),
+    )
+
+    corrected, _ = oracle_module._correct_path(snapshot, probe, symmetric)
+
+    assert symmetric.status == "converged"
+    assert corrected.status == "not_converged"
+    assert corrected.numerical_metadata["status_reason"] == (
+        "work_potential_mismatch"
+    )
+    assert corrected.work_absolute_mismatch_J == pytest.approx(1.0)
+    assert corrected.work_relative_mismatch > relative_tolerance
+
+
+def test_bottom_zero_closure_does_not_hide_source_refinement_failure() -> None:
+    symmetric = ObjectForcePath(
+        displacement_m=np.array([0.0, 1.0]),
+        force_N=np.zeros((2, 3)),
+        torque_Nm=np.zeros((2, 3)),
+        electrostatic_work_J=np.zeros(2),
+        potential_energy_J=np.zeros(2),
+        potential_difference_work_J=np.zeros(2),
+        numerical_metadata={
+            "relative_tolerance": 1.0e-2,
+            "work_absolute_tolerance_J": 1.0e-18,
+            "status_reason": "max_refinement_reached",
+        },
+        status="not_converged",
+        work_relative_mismatch=0.0,
+        work_absolute_mismatch_J=0.0,
+    )
+    snapshot = SimpleNamespace(
+        _options=SimpleNamespace(
+            periodic2=((0, 1), (1.0, 1.0), (0.0, 0.0), 0, "none", 0.0, 4)
+        ),
+        _charges_C=np.array([1.0, -1.0]),
+        source_model="point",
+        _centers_m=np.zeros((2, 3)),
+    )
+    probe = SimpleNamespace(
+        _target_mask=np.array([True, False]),
+        _target_points_m=np.zeros((1, 3)),
+        _target_charge_weights_C=np.array([1.0]),
+        _geometric_area_centroid_m=np.zeros(3),
+    )
+
+    corrected, _ = oracle_module._correct_path(snapshot, probe, symmetric)
+
+    assert corrected.status == "not_converged"
+    assert corrected.numerical_metadata["status_reason"] == (
+        "max_refinement_reached"
+    )
+
+
+@pytest.mark.skipif(
+    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
+    reason="physical infinite comparison requires opt-in periodic cache generation",
+)
+def test_non_neutral_local_shell_convergence_is_rejected_by_physical_reference(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    charges = np.array([1.0e-9, 2.0e-9])
+    displacement = np.linspace(0.0, 0.1, 9)
+    relative_tolerance = 1.0e-2
+    force_floor = 1.0e-16
+    work_floor = 1.0e-18
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path, charges),
+        step=None,
+        config_path=config,
+        periodic_model="infinite_physical",
+        cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
+        library_path=_kernel_lib(),
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        infinite = probe.vertical_path(
+            displacement,
+            adaptive=False,
+            relative_tolerance=relative_tolerance,
+            force_absolute_tolerance_N=force_floor,
+            work_absolute_tolerance_J=work_floor,
+        )
+        shells = finite_shell_convergence(
+            snapshot,
+            probe,
+            displacement,
+            max_layers=2,
+            relative_tolerance=relative_tolerance,
+            force_floor_N=force_floor,
+            work_floor_J=work_floor,
+        )
+
+    assert infinite.status == "converged"
+    assert np.any(shells.force_increment_error_N > force_floor)
+    assert np.any(shells.work_increment_error_J > work_floor)
+    assert shells.reference_force_error_N is not None
+    assert shells.reference_work_error_J is not None
+    assert shells.reference_converged is not None
+    force_error = float(
+        np.max(
+            np.linalg.norm(shells.corrected_paths[-1].force_N - infinite.force_N, axis=1)
+        )
+    )
+    force_scale = max(
+        float(np.max(np.linalg.norm(shells.corrected_paths[-1].force_N, axis=1))),
+        float(np.max(np.linalg.norm(infinite.force_N, axis=1))),
+    )
+    work_error = float(
+        np.max(
+            np.abs(
+                shells.corrected_paths[-1].electrostatic_work_J
+                - infinite.electrostatic_work_J
+            )
+        )
+    )
+    work_scale = max(
+        float(np.max(np.abs(shells.corrected_paths[-1].electrostatic_work_J))),
+        float(np.max(np.abs(infinite.electrostatic_work_J))),
+    )
+    assert shells.reference_force_error_N[-1] == pytest.approx(force_error)
+    assert shells.reference_work_error_J[-1] == pytest.approx(work_error)
+    assert force_error > force_floor + relative_tolerance * force_scale
+    assert work_error > work_floor + relative_tolerance * work_scale
+    assert shells.reference_converged[-1] is np.False_
+    assert shells.status == "not_converged"
+    assert shells.selected_image_layers is None
+    assert shells.selected_path is None
+
+
+@pytest.mark.skipif(
+    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
+    reason="physical infinite comparison requires opt-in periodic cache generation",
+)
+def test_non_neutral_near_field_shell_converges_to_physical_infinite_reference(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    displacement = np.linspace(0.0, 0.1, 9)
+    with ObjectInteractionSnapshot.from_result(
+        _result(
+            tmp_path,
+            np.array([1.0e-9, 2.0e-9]),
+            positions=np.array([[0.5, 0.5, 0.0], [0.51, 0.5, -0.01]]),
+        ),
+        step=None,
+        config_path=config,
+        periodic_model="infinite_physical",
+        cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
+        library_path=_kernel_lib(),
+    ) as snapshot:
+        shells = finite_shell_convergence(
+            snapshot,
+            snapshot.object_probe(1),
+            displacement,
+            max_layers=4,
+            relative_tolerance=1.0e-2,
+            force_floor_N=1.0e-16,
+            work_floor_J=1.0e-18,
+        )
+
+    assert shells.status == "converged"
+    assert shells.selected_image_layers is not None
+    assert shells.selected_image_layers >= 2
+    assert shells.selected_path is not None
+    assert shells.reference_converged is not None
+    assert shells.reference_converged[-1]
+    np.testing.assert_array_equal(shells.increment_converged[-2:], [True, True])
+
+
+@pytest.mark.skipif(
+    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
+    reason="analytic periodic panel plane requires opt-in cache generation",
+)
+def test_uniform_triangle_plane_matches_bottom_zero_jump_pv_and_object_wrench(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_panel_periodic_config(config)
+    area_xy = 4.0
+    surface_charge_density = EPS0
+    triangles = _plane_triangles(4)
+    triangle_area = area_xy / triangles.shape[0]
+    charges = np.full(triangles.shape[0], surface_charge_density * triangle_area)
+    total_charge = float(np.sum(charges))
+    cache_dir = Path(".beach_cache/periodic2-task7-oracle")
+    points = np.array(
+        [
+            [0.37, 0.61, -0.25],
+            [0.37, 0.61, 0.0],
+            [0.37, 0.61, 0.25],
+        ]
+    )
+    with ObjectInteractionSnapshot.from_result(
+        _panel_result(tmp_path, triangles, charges),
+        step=None,
+        config_path=config,
+        periodic_model="infinite_physical",
+        cache_dir=cache_dir,
+        library_path=_kernel_lib(),
+    ) as snapshot:
+        field = _physical_field(snapshot, points)
+        order3 = snapshot.object_probe(1, quadrature_order=3).wrench()
+        order7 = snapshot.object_probe(1, quadrature_order=7).wrench()
+
+    fmm_panel_relative_tolerance = 1.2e-1
+    expected_ez = np.array([0.0, 0.5, 1.0])
+    np.testing.assert_allclose(
+        field[:, 2],
+        expected_ez,
+        rtol=fmm_panel_relative_tolerance,
+        atol=fmm_panel_relative_tolerance,
+    )
+    np.testing.assert_allclose(
+        field[:, :2],
+        0.0,
+        atol=fmm_panel_relative_tolerance,
+    )
+    expected_force = total_charge * surface_charge_density / (2.0 * EPS0)
+    for wrench in (order3, order7):
+        assert wrench.force_N[2] == pytest.approx(
+            expected_force,
+            rel=fmm_panel_relative_tolerance,
+        )
+        assert np.linalg.norm(wrench.force_N[:2]) <= (
+            fmm_panel_relative_tolerance * expected_force
+        )
+        assert np.linalg.norm(wrench.torque_Nm) <= (
+            fmm_panel_relative_tolerance * expected_force * 2.0
+        )
+    assert np.linalg.norm(order3.force_N - order7.force_N) <= (
+        1.0e-2 * abs(expected_force)
+    )
+
+
+@pytest.mark.skipif(
+    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
+    reason="analytic periodic cosine plane requires opt-in cache generation",
+)
+def test_neutral_cosine_triangle_plane_converges_to_nonzero_mode_solution(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_panel_periodic_config(config)
+    length = 2.0
+    wave_number = 2.0 * np.pi / length
+    sigma_amplitude = 2.0 * EPS0
+    points = np.array(
+        [
+            [0.20, 0.73, 0.25],
+            [0.55, 0.73, 0.25],
+            [1.10, 0.73, 0.25],
+            [1.65, 0.73, 0.25],
+        ]
+    )
+    decay = np.exp(-wave_number * points[:, 2])
+    phase = wave_number * points[:, 0]
+    expected_field = np.zeros_like(points)
+    expected_field[:, 0] = (
+        sigma_amplitude / (2.0 * EPS0) * np.sin(phase) * decay
+    )
+    expected_field[:, 2] = (
+        sigma_amplitude / (2.0 * EPS0) * np.cos(phase) * decay
+    )
+    expected_potential = (
+        sigma_amplitude
+        / (2.0 * EPS0 * wave_number)
+        * np.cos(phase)
+        * decay
+    )
+    errors: list[tuple[float, float]] = []
+    for cells_per_axis in (4, 8):
+        triangles = _plane_triangles(cells_per_axis, length=length)
+        centers = np.mean(triangles, axis=1)
+        triangle_area = length**2 / triangles.shape[0]
+        charges = (
+            sigma_amplitude
+            * np.cos(wave_number * centers[:, 0])
+            * triangle_area
+        )
+        with ObjectInteractionSnapshot.from_result(
+            _panel_result(tmp_path, triangles, charges),
+            step=None,
+            config_path=config,
+            periodic_model="infinite_physical",
+            cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
+            library_path=_kernel_lib(),
+        ) as snapshot:
+            field = snapshot._periodic.eval_e(points)
+            potential = snapshot._periodic.eval_phi(points)
+        field_error = float(
+            np.linalg.norm(field - expected_field) / np.linalg.norm(expected_field)
+        )
+        potential_error = float(
+            np.linalg.norm(potential - expected_potential)
+            / np.linalg.norm(expected_potential)
+        )
+        errors.append((field_error, potential_error))
+
+    assert errors[1][0] < errors[0][0]
+    assert errors[1][1] < errors[0][1]
+    assert errors[1][0] <= 8.0e-2
+    assert errors[1][1] <= 8.0e-2
 
 
 def test_finite_shell_closure_path_force_and_potential_work_agree(
