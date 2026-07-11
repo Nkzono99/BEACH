@@ -81,7 +81,7 @@ fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy/release gate
+make test-l3      # L3: cumulative L0-L3 verification
 make test-heavy   # heavy Fortran targets only
 make test-full    # unfiltered fpm test
 ```

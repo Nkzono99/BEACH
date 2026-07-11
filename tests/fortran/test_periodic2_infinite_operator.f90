@@ -8,15 +8,14 @@ program test_periodic2_infinite_operator
   implicit none
 
   type(fmm_options_type) :: options
-  type(fmm_plan_type) :: plan0, plan1, shell_plan
-  type(fmm_state_type) :: state0, state1, shell_state
+  type(fmm_plan_type) :: plan0, plan1
+  type(fmm_state_type) :: state0, state1
   real(dp) :: src_pos(3, 4), q(4), targets(3, 3)
   real(dp) :: field0(3), field1(3), field_ref(3), phi0, phi1, phi_ref
   real(dp) :: spectral_field(3), spectral_phi, teacher_field_error, teacher_potential_error
   real(dp) :: field_error, potential_error, max_field_error, max_potential_error
   real(dp) :: layer_field_delta, layer_potential_delta, translation_field(3), translation_phi
-  real(dp) :: cached_start, cached_end, shell_start, shell_end, timing_sum, timing_target(3)
-  integer(i32) :: target_idx, repeat_idx
+  integer(i32) :: target_idx
   character(len=512) :: cache_path0, cache_path1
 
   src_pos(:, 1) = [0.15_dp, 0.20_dp, -0.10_dp]
@@ -87,34 +86,6 @@ program test_periodic2_infinite_operator
   call assert_true(teacher_potential_error < 8.0e-2_dp, 'Ewald kneq0 potential teacher differs from spectral reference')
   call test_end()
 
-  call test_begin('cached_runtime_cost_vs_explicit_shell')
-  options%periodic_far_correction = 'none'
-  call build_plan(shell_plan, src_pos, options)
-  call update_state(shell_plan, shell_state, q)
-  timing_sum = 0.0_dp
-  call cpu_time(cached_start)
-  do repeat_idx = 1_i32, 2000_i32
-    timing_target = targets(:, 2)
-    timing_target(1) = modulo(timing_target(1) + 1.0e-4_dp*real(repeat_idx, dp), 1.0_dp)
-    call eval_point(plan1, state1, timing_target, field1)
-    timing_sum = timing_sum + field1(1)
-  end do
-  call cpu_time(cached_end)
-  call cpu_time(shell_start)
-  do repeat_idx = 1_i32, 2000_i32
-    timing_target = targets(:, 2)
-    timing_target(1) = modulo(timing_target(1) + 1.0e-4_dp*real(repeat_idx, dp), 1.0_dp)
-    call eval_point(shell_plan, shell_state, timing_target, field0)
-    timing_sum = timing_sum + field0(1)
-  end do
-  call cpu_time(shell_end)
-  write (*, '(a,3(es12.5,1x))') 'periodic eval timing(cached,shell,ratio)=', &
-    cached_end - cached_start, shell_end - shell_start, &
-    (cached_end - cached_start)/max(shell_end - shell_start, tiny(1.0_dp))
-  call assert_true(cached_end > cached_start .and. shell_end > shell_start, 'periodic runtime timing must be measurable')
-  call assert_true(abs(timing_sum) < huge(1.0_dp), 'periodic timing accumulator must remain finite')
-  call test_end()
-
   call test_begin('periodic_translation_invariance')
   call eval_point(plan1, state1, targets(:, 2) + [1.0_dp, -1.0_dp, 0.0_dp], translation_field)
   call eval_potential_point(plan1, state1, targets(:, 2) + [1.0_dp, -1.0_dp, 0.0_dp], translation_phi)
@@ -128,10 +99,8 @@ program test_periodic2_infinite_operator
 
   call destroy_state(state0)
   call destroy_state(state1)
-  call destroy_state(shell_state)
   call destroy_plan(plan0)
   call destroy_plan(plan1)
-  call destroy_plan(shell_plan)
   call delete_cache(cache_path0)
   call delete_cache(cache_path1)
   call test_summary()

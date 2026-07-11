@@ -4,7 +4,8 @@
 	build check run \
 	static-check schema-check \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction \
+	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
+	test-fortran-far-correction test-fortran-far-correction-diagnostics test-fortran-benchmark \
 	test-python test-quick test-ci test-local \
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
@@ -12,7 +13,8 @@
 	docs-deps docs-starlight docs-fortran docs-pages docs-clean
 
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-far-correction \
+	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
+	test-fortran-far-correction test-fortran-far-correction-diagnostics test-fortran-benchmark \
 	test-mpi test-mpi-periodic-cache
 
 .DEFAULT_GOAL := install
@@ -84,13 +86,20 @@ FORTRAN_L3_TARGETS ?= \
 	test_coulomb_fmm_core_panel \
 	test_dynamics_panel_fmm \
 	test_outer_plasma_kinetic
+FORTRAN_RELEASE_CONVERGENCE_TARGETS ?= \
+	test_dynamics_basic \
+	test_electrostatic_unified \
+	test_outer_plasma_orbit
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \
 	test_periodic2_cached_snapshot \
 	test_coulomb_fmm_core_periodic \
-	test_periodic2_flat_oracle_diag \
 	test_periodic_nonzero_reference
+FORTRAN_FAR_CORRECTION_DIAGNOSTIC_TARGETS ?= \
+	test_periodic2_flat_oracle_diag
+FORTRAN_BENCHMARK_TARGETS ?= \
+	benchmark_periodic2_runtime
 KERNEL_FC ?= gfortran
 KERNEL_LIB ?= build/libbeach_field_kernel.so
 KERNEL_FPM_FLAG ?= $(OPENMP_FLAG) -fPIC
@@ -114,12 +123,9 @@ MPI_NP ?= 2
 MPI_RUNNER ?= mpirun -n $(MPI_NP)
 
 define run_fortran_targets
-	@set -eu; \
-	for target in $(1); do \
-		echo "==> fpm test --target $$target"; \
-		BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
-			FPM_PROFILE=debug FPM_FFLAGS="$(OPENMP_FLAG)" $(BUILD_SH) --target "$$target"; \
-	done
+	@BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=$(3) FPM_TARGET_KIND=$(4) \
+		FPM_PROFILE=$(2) FPM_FFLAGS="$(OPENMP_FLAG)" BUILD_SH="$(BUILD_SH)" \
+		tools/run_fortran_targets.sh $(1)
 endef
 
 install:
@@ -201,16 +207,25 @@ test-full:
 test-fortran: test-fortran-light
 
 test-fortran-light:
-	$(call run_fortran_targets,$(FORTRAN_L1_TARGETS))
+	$(call run_fortran_targets,$(FORTRAN_L1_TARGETS),debug,test)
 
 test-fortran-contract:
-	$(call run_fortran_targets,$(FORTRAN_L2_TARGETS))
+	$(call run_fortran_targets,$(FORTRAN_L2_TARGETS),debug,test)
 
 test-fortran-heavy:
-	$(call run_fortran_targets,$(FORTRAN_L3_TARGETS))
+	$(call run_fortran_targets,$(FORTRAN_L3_TARGETS),debug,test)
+
+test-fortran-release-correctness:
+	$(call run_fortran_targets,$(FORTRAN_RELEASE_CONVERGENCE_TARGETS) $(FORTRAN_L3_TARGETS),debug,test)
 
 test-fortran-far-correction:
-	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS))
+	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS),debug,test)
+
+test-fortran-far-correction-diagnostics:
+	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_DIAGNOSTIC_TARGETS),debug,test)
+
+test-fortran-benchmark:
+	$(call run_fortran_targets,$(FORTRAN_BENCHMARK_TARGETS),release,run,example)
 
 test-python:
 	$(PYTHON) -m pytest -q

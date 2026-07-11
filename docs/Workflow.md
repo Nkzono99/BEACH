@@ -89,10 +89,12 @@ fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy/release gate
-make test-physics-release  # HPC: L3 + far correction + MPI manifest
+make test-l3      # L3: cumulative L0-L3 verification
+make test-physics-release  # HPC: minimal release correctness + MPI manifest
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # explicit oracle far-correction diagnostics
+make test-fortran-far-correction  # oracle far-correction correctness
+make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-benchmark  # release-profile runtime benchmark
 make test-full    # unfiltered fpm test
 ```
 
@@ -106,9 +108,10 @@ BEACH のテストは開発ループ向けに階層化しています。
 `make test-fortran` は軽量 Fortran target の alias です。重い FMM 系
 （`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`）は通常の `make test` から外し、`make test-l3` /
 `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行します。
-`m2l_root_oracle` far-correction 診断
-（`test_coulomb_fmm_core_periodic`, `test_periodic2_flat_oracle_diag`）はさらに重いため、
-`make test-fortran-far-correction` または unfiltered の `make test-full` で opt-in 実行します。
+`m2l_root_oracle` correctnessは重いため`make test-fortran-far-correction`でopt-in実行します。
+数値assertを持たない`test_periodic2_flat_oracle_diag`は
+`make test-fortran-far-correction-diagnostics`へ分離しています。速度比較はdebug testへ混在させず、
+`make test-fortran-benchmark`でrelease profileを使います。
 
 個別 target だけ確認する場合は次を使います。
 
@@ -383,10 +386,13 @@ fpm test --target test_mpi_hybrid \
 - Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。
-`test-physics-release` は L3、far-correction、MPI ledger、MPI periodic-cache gate を逐次実行し、既定で
+`test-physics-release`は収束出力に必要なL1 subset、L3 heavy、far-correction correctness、MPI ledger、
+MPI periodic-cache gateを逐次実行し、portable CI済みのL2全体は繰り返しません。既定で
 `build/physics-release/manifest.txt` に commit、dirty state、host、compiler、各 gate の
 status、経過時間、最大RSSを保存します。同じdirectoryの`convergence.csv`にはmesh、dt、FMM order、
 outer gridなどの収束値を保存します。KUDPC の login node では実行を拒否し、Slurm allocation 内では
 MPI payload の runner を `srun` に設定します。manifest path は
 `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt` で変更できます。
+同じdirectoryの`test_l3-target-timings.csv`と`far_correction-target-timings.csv`には
+Fortran targetごとのprofile、status、経過秒を保存します。
 詳細は[Physics release verification](PhysicsReleaseVerification.md)を参照してください。
