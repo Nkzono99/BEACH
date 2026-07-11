@@ -317,14 +317,16 @@ class ObjectInteractionSnapshot:
                 self._periodic.update_charges(q_other)
                 if self._zero_mode is not None:
                     self._zero_mode.update_charges(q_other)
-                p_other = self._eval_periodic(target_points_m)
-                z_other = self._eval_zero(target_points_m)
+                p_other_native = self._eval_periodic(target_points_m)
+                z_other, trace_other = self._eval_zero_mechanical(target_points_m)
+                p_other = _add_field_component(p_other_native, trace_other)
 
                 self._periodic.update_charges(q_target)
                 if self._zero_mode is not None:
                     self._zero_mode.update_charges(q_target)
-                p_target = self._eval_periodic(target_points_m)
-                z_target = self._eval_zero(target_points_m)
+                p_target_native = self._eval_periodic(target_points_m)
+                z_target, trace_target = self._eval_zero_mechanical(target_points_m)
+                p_target = _add_field_component(p_target_native, trace_target)
 
                 direct = (
                     primary.eval_e_direct(target_points_m),
@@ -343,6 +345,8 @@ class ObjectInteractionSnapshot:
                     "z_other": z_other,
                     "p_target": p_target,
                     "z_target": z_target,
+                    "trace_other": trace_other,
+                    "trace_target": trace_target,
                     "direct": direct,
                     "uniform": (uniform_e, uniform_phi),
                 }
@@ -368,16 +372,30 @@ class ObjectInteractionSnapshot:
             target_points_m
         )
 
-    def _eval_zero(self, target_points_m: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _eval_zero_mechanical(
+        self,
+        target_points_m: np.ndarray,
+    ) -> tuple[
+        tuple[np.ndarray, np.ndarray],
+        tuple[np.ndarray, np.ndarray],
+    ]:
         if self._zero_mode is None:
-            return np.zeros_like(target_points_m), np.zeros(target_points_m.shape[0])
-        phi, ez = self._zero_mode.eval(
+            zeros_e = np.zeros_like(target_points_m)
+            zeros_phi = np.zeros(target_points_m.shape[0])
+            return (zeros_e, zeros_phi), (zeros_e.copy(), zeros_phi.copy())
+        phi, ez_principal = self._zero_mode.eval(
             target_points_m[:, 2],
             trace="principal_value",
         )
+        _, ez_plus = self._zero_mode.eval(
+            target_points_m[:, 2],
+            trace="plus",
+        )
         field = np.zeros_like(target_points_m)
-        field[:, 2] = ez
-        return field, phi
+        field[:, 2] = ez_principal
+        trace_correction = np.zeros_like(target_points_m)
+        trace_correction[:, 2] = ez_plus - ez_principal
+        return (field, phi), (trace_correction, np.zeros(target_points_m.shape[0]))
 
     def _restore_full_state(self) -> list[Exception]:
         errors: list[Exception] = []
@@ -519,6 +537,8 @@ class ObjectProbe:
         z_other = fields["z_other"]
         p_target = fields["p_target"]
         z_target = fields["z_target"]
+        trace_other = fields["trace_other"]
+        trace_target = fields["trace_target"]
         direct = fields["direct"]
         uniform = fields["uniform"]
 
@@ -584,6 +604,13 @@ class ObjectProbe:
             -direct[1],
             torque_origin_m,
         )
+        trace_full = _aggregate_wrench(
+            target_points,
+            self._target_charge_weights_C,
+            trace_other[0] + trace_target[0],
+            trace_other[1] + trace_target[1],
+            torque_origin_m,
+        )
         metadata: dict[str, object] = {
             "periodic_model": self._snapshot.periodic_model,
             "effective_far_correction": (
@@ -595,6 +622,9 @@ class ObjectProbe:
             "quadrature_order": self._integration_order,
             "periodic_kneq0": _wrench_metadata(p_full) if cached else None,
             "physical_k0": _wrench_metadata(z_full) if cached else None,
+            "cached_kneq0_trace_correction": (
+                _wrench_metadata(trace_full) if cached else None
+            ),
             "primary_free_subtraction": _wrench_metadata(negative_direct),
             "uniform_potential_gauge_m": np.zeros(3),
         }
@@ -660,6 +690,13 @@ def _aggregate_wrench(
     torque = np.sum(np.cross(points_m - origin_m[None, :], force_samples), axis=0)
     energy = float(np.dot(charges_C, potential_V))
     return WrenchComponent(force_N=force, torque_Nm=torque, potential_energy_J=energy)
+
+
+def _add_field_component(
+    base: tuple[np.ndarray, np.ndarray],
+    correction: tuple[np.ndarray, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    return base[0] + correction[0], base[1] + correction[1]
 
 
 def _wrench_metadata(component: WrenchComponent) -> Mapping[str, object]:

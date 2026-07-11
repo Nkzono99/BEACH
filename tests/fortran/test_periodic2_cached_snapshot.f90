@@ -141,7 +141,7 @@ contains
   end subroutine evaluate_components
 
   subroutine test_public_c_abi_acceptance()
-    integer, parameter :: ntarget = 4
+    integer, parameter :: ntarget = 6
     type(c_ptr) :: kernel_handle, zero_handle
     integer(c_int) :: status
     integer(c_int), target :: periodic_axes(2), cache_hit, cache_build_count
@@ -158,7 +158,7 @@ contains
     character(len=160) :: message
     integer :: point
 
-    call test_begin('cached_snapshot_matches_public_c_abis_off_surface')
+    call test_begin('cached_snapshot_matches_public_c_abis_at_and_off_surface')
 
     panel_v0 = real(mesh%v0, c_double)
     panel_v1 = real(mesh%v1, c_double)
@@ -231,6 +231,8 @@ contains
     target_points(:, 2) = [0.15_c_double, 0.85_c_double, 0.65_c_double]
     target_points(:, 3) = [0.37_c_double, 0.61_c_double, 0.42_c_double]
     target_points(:, 4) = [0.19_c_double, 0.73_c_double, 0.88_c_double]
+    target_points(:, 5) = [0.25_c_double, 0.25_c_double, 0.25_c_double]
+    target_points(:, 6) = [0.75_c_double, 0.60_c_double, 0.65_c_double]
     target_z = target_points(3, :)
     status = beach_kernel_eval_e( &
              kernel_handle, int(ntarget, c_int), c_loc(target_points), c_loc(nonzero_e) &

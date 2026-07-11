@@ -232,6 +232,7 @@ class _FakeFieldKernel:
 class _FakeZeroMode:
     instances: list["_FakeZeroMode"] = []
     forbidden = False
+    plus_delta = 0.0
 
     def __init__(
         self,
@@ -247,6 +248,7 @@ class _FakeZeroMode:
         self.area_xy_m2 = area_xy_m2
         self.closed = False
         self.update_history = [self.current.copy()]
+        self.trace_history: list[str] = []
         type(self).instances.append(self)
 
     def update_charges(self, charges: np.ndarray) -> None:
@@ -254,9 +256,14 @@ class _FakeZeroMode:
         self.update_history.append(self.current.copy())
 
     def eval(self, z_m: np.ndarray, trace: str = "principal_value"):
-        assert trace == "principal_value"
+        assert trace in {"principal_value", "plus"}
+        self.trace_history.append(trace)
         total = float(np.sum(self.current))
-        return np.full(len(z_m), 5.0 * total), np.full(len(z_m), 6.0 * total)
+        trace_delta = type(self).plus_delta * total if trace == "plus" else 0.0
+        return (
+            np.full(len(z_m), 5.0 * total),
+            np.full(len(z_m), 6.0 * total + trace_delta),
+        )
 
     def close(self) -> None:
         self.closed = True
@@ -268,6 +275,7 @@ def fake_native(monkeypatch: pytest.MonkeyPatch):
     _FakeFieldKernel.fail_charge_sum = None
     _FakeZeroMode.instances.clear()
     _FakeZeroMode.forbidden = False
+    _FakeZeroMode.plus_delta = 0.0
     monkeypatch.setattr(interaction_module, "FieldKernel", _FakeFieldKernel)
     monkeypatch.setattr(interaction_module, "PeriodicZeroMode", _FakeZeroMode)
     return _FakeFieldKernel, _FakeZeroMode
@@ -349,6 +357,57 @@ def test_cached_configured_and_override_compose_p_plus_z_minus_primary(
         instance for instance in _FakeFieldKernel.instances if instance.is_periodic
     ]
     assert all(instance.options.external_e0 == (0.0, 0.0, 0.0) for instance in periodic_instances)
+
+
+def test_cached_mechanical_trace_restores_native_plus_subtraction(
+    tmp_path: Path,
+    fake_native,
+) -> None:
+    _, fake_zero = fake_native
+    fake_zero.plus_delta = 2.0
+    config = tmp_path / "beach.toml"
+    _write_periodic_config(config, far_correction="cached_kneq0")
+    result = _result(
+        tmp_path,
+        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
+        np.array([1.0, 2.0]),
+        np.array([1, 2]),
+    )
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+    ) as snapshot:
+        wrench = snapshot.object_probe(1).wrench()
+
+    np.testing.assert_allclose(
+        wrench.components["other_objects_all_images"].force_N,
+        [2.0, 4.0, 22.0],
+    )
+    np.testing.assert_allclose(
+        wrench.components["target_periodic_images"].force_N,
+        [-3.0, 2.0, 11.0],
+    )
+    np.testing.assert_allclose(wrench.force_N, [6.0, 14.0, 42.0])
+    np.testing.assert_allclose(
+        wrench.numerical_metadata["periodic_kneq0"]["force_N"],  # type: ignore[index]
+        [3.0, 6.0, 15.0],
+    )
+    np.testing.assert_allclose(
+        wrench.numerical_metadata["physical_k0"]["force_N"],  # type: ignore[index]
+        [0.0, 0.0, 18.0],
+    )
+    np.testing.assert_allclose(
+        wrench.numerical_metadata["cached_kneq0_trace_correction"][  # type: ignore[index]
+            "force_N"
+        ],
+        [0.0, 0.0, 6.0],
+    )
+    assert set(_FakeZeroMode.instances[0].trace_history) == {
+        "plus",
+        "principal_value",
+    }
 
 
 def test_configured_finite_shell_does_not_construct_or_add_zero_mode(
