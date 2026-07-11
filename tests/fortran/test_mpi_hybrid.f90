@@ -1,7 +1,7 @@
 !> MPI+OpenMPハイブリッド実行時の集約・rank別resumeファイルを検証する。
 program test_mpi_hybrid
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: eps0
+  use bem_constants, only: eps0, qe
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_real_dp_array, mpi_world_barrier
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
@@ -14,6 +14,9 @@ program test_mpi_hybrid
   use bem_charge_ledger, only: charge_ledger_type
   use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
+  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
+  use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
+  use bem_outer_plasma_types, only: outer_plasma_ok
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -84,7 +87,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -195,6 +198,10 @@ program test_mpi_hybrid
   call run_mpi_unified_outer_test(mpi)
   call test_end()
 
+  call test_begin('mpi_kinetic_outer_root_broadcast_and_hold')
+  call run_mpi_kinetic_outer_test(mpi)
+  call test_end()
+
   call test_begin('mpi_restart')
   call ensure_directory(out_dir)
   if (mpi_is_root(mpi)) then
@@ -236,6 +243,114 @@ program test_mpi_hybrid
   call mpi_shutdown(mpi)
 
 contains
+
+  subroutine run_mpi_kinetic_outer_test(mpi)
+    type(mpi_context), intent(in) :: mpi
+    type(mesh_type) :: kinetic_mesh
+    type(app_config) :: kinetic_cfg
+    type(electrostatic_snapshot_type) :: kinetic_snapshot
+    type(kinetic_outer_plasma_options_type) :: kinetic_options
+    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
+    real(dp) :: local_values(11), global_values(11), held_potential(128)
+    integer(i32) :: kinetic_status
+    character(len=256) :: kinetic_message
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
+    tri_v2(:, 1) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 2) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.25_dp]
+    call init_mesh( &
+      kinetic_mesh, tri_v0, tri_v1, tri_v2, q0=[0.01_dp*eps0, 0.01_dp*eps0] &
+      )
+    kinetic_mesh%elem_vacuum_sign = 1_i32
+    kinetic_mesh%vacuum_normals = kinetic_mesh%normals
+
+    call default_app_config(kinetic_cfg)
+    kinetic_cfg%sim%field_solver = 'direct'
+    kinetic_cfg%sim%field_bc_mode = 'periodic2'
+    kinetic_cfg%sim%softening = 0.0_dp
+    kinetic_cfg%sim%use_box = .true.
+    kinetic_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    kinetic_cfg%sim%box_max = [1.0_dp, 1.0_dp, 0.8_dp]
+    kinetic_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    kinetic_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    kinetic_cfg%field%backend = 'direct'
+    kinetic_cfg%panel%source_model = 'triangle_p0'
+    kinetic_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    kinetic_cfg%panel%surface_side_policy = 'per_element'
+    kinetic_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
+    kinetic_cfg%periodic2%zero_mode_policy = 'exclude_k0'
+    kinetic_cfg%periodic2%lower_boundary_model = 'e_bottom_zero'
+    kinetic_cfg%periodic2%reference_mode_layers = 2_i32
+    kinetic_cfg%periodic2%panel_quadrature_order = 8_i32
+    kinetic_cfg%outer_plasma%model = 'kinetic_1d'
+    kinetic_cfg%outer_plasma%interface_z = kinetic_cfg%sim%box_max(3)
+    kinetic_cfg%outer_plasma%debye_length = 0.8_dp
+    kinetic_cfg%outer_plasma%thermal_voltage = 2.0_dp
+    kinetic_cfg%n_particle_species = 2_i32
+    kinetic_cfg%particle_species(1) = species_from_defaults()
+    kinetic_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    kinetic_cfg%particle_species(1)%inject_face = 'z_high'
+    kinetic_cfg%particle_species(1)%q_particle = -qe
+    kinetic_cfg%particle_species(1)%m_particle = 9.1093837139e-31_dp
+    kinetic_cfg%particle_species(1)%number_density_m3 = 1.0e6_dp
+    kinetic_cfg%particle_species(1)%has_number_density_m3 = .true.
+    kinetic_cfg%particle_species(1)%temperature_ev = 2.0_dp
+    kinetic_cfg%particle_species(1)%has_temperature_ev = .true.
+    kinetic_cfg%particle_species(2) = species_from_defaults()
+    kinetic_cfg%particle_species(2)%source_mode = 'reservoir_face'
+    kinetic_cfg%particle_species(2)%inject_face = 'z_high'
+    kinetic_cfg%particle_species(2)%q_particle = qe
+    kinetic_cfg%particle_species(2)%m_particle = 1.67262192595e-27_dp
+    kinetic_cfg%particle_species(2)%number_density_m3 = 1.0e6_dp
+    kinetic_cfg%particle_species(2)%has_number_density_m3 = .true.
+    kinetic_cfg%particle_species(2)%temperature_ev = 0.0_dp
+    kinetic_cfg%particle_species(2)%has_temperature_ev = .true.
+    kinetic_cfg%particle_species(2)%drift_velocity = [ &
+                                                     0.0_dp, 0.0_dp, &
+                                                     -4.0_dp*sqrt( &
+                                                     2.0_dp*qe/kinetic_cfg%particle_species(2)%m_particle &
+                                                     ) &
+                                                     ]
+
+    call resolve_kinetic_outer_options( &
+      kinetic_cfg, 0.0_dp, kinetic_options, kinetic_status, kinetic_message &
+      )
+    call assert_equal_i32(kinetic_status, outer_plasma_ok, &
+                          'MPI kinetic options must resolve: '//trim(kinetic_message))
+    call kinetic_snapshot%init( &
+      kinetic_mesh, kinetic_cfg%sim, kinetic_cfg%field, kinetic_cfg%periodic2, kinetic_cfg%panel, &
+      kinetic_cfg%outer_plasma, kinetic_options=kinetic_options, mpi=mpi &
+      )
+    call kinetic_snapshot%refresh(kinetic_mesh)
+    local_values = [ &
+                   kinetic_snapshot%outer%interface_potential, kinetic_snapshot%outer%interface_field, &
+                   kinetic_snapshot%outer%nonlinear_residual, &
+                   kinetic_snapshot%outer%integrated_charge_per_area, &
+                   kinetic_snapshot%outer%electron_current_density, &
+                   kinetic_snapshot%outer%ion_current_density, &
+                   kinetic_snapshot%outer%photoelectron_current_density, &
+                   kinetic_snapshot%outer%total_current_density, &
+                   real(kinetic_snapshot%outer%nonlinear_iterations, dp), &
+                   sum(kinetic_snapshot%outer%potential), sum(kinetic_snapshot%outer%charge_density) &
+                   ]
+    global_values = local_values
+    call mpi_allreduce_sum_real_dp_array(mpi, global_values)
+    call assert_true( &
+      all(abs(global_values - real(mpi%size, dp)*local_values) <= &
+          1.0e-12_dp*max(1.0_dp, abs(global_values))), &
+      'kinetic root solve/broadcast must be rank invariant' &
+      )
+    call assert_true(maxval(abs(kinetic_snapshot%outer%potential)) > 0.0_dp, &
+                     'kinetic MPI fixture must exercise a nonzero profile')
+
+    held_potential = kinetic_snapshot%outer%potential
+    call kinetic_snapshot%refresh(kinetic_mesh, update_outer=.false.)
+    call assert_true(all(kinetic_snapshot%outer%potential == held_potential), &
+                     'held kinetic profile must remain bitwise unchanged')
+  end subroutine run_mpi_kinetic_outer_test
 
   subroutine run_mpi_unified_outer_test(mpi)
     type(mpi_context), intent(in) :: mpi
