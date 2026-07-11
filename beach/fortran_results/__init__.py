@@ -3,6 +3,13 @@
 from .animation import _select_frame_columns, animate_history_mesh
 from .constants import K_COULOMB
 from .coulomb import calc_coulomb
+from .detachment import (
+    AdhesionProfile,
+    DetachmentResult,
+    ObjectForcePath,
+    ObjectWrench,
+    WrenchComponent,
+)
 from .facade import Beach
 from .field_lines import (
     compute_electric_field_points,
@@ -35,6 +42,7 @@ from .potential import (
     compute_potential_points,
     compute_potential_slices,
 )
+from .periodic_zero_mode import PeriodicZeroMode
 from .scene import BeachScene, RigidTransform
 from .types import (
     ChargeLedgerEntry,
@@ -56,6 +64,8 @@ __all__ = [
     "CoulombInteraction",
     "CoulombMobilityRecord",
     "CoulombMobilityAnalysis",
+    "AdhesionProfile",
+    "DetachmentResult",
     "FortranRunResult",
     "PotentialSlice2D",
     "BeachScene",
@@ -64,7 +74,11 @@ __all__ = [
     "FieldKernelError",
     "FieldKernelOptions",
     "KernelObjectForceRecord",
+    "ObjectForcePath",
+    "ObjectWrench",
+    "PeriodicZeroMode",
     "RigidTransform",
+    "WrenchComponent",
     "load_fortran_result",
     "list_fortran_runs",
     "Beach",

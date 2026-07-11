@@ -1,6 +1,7 @@
 """BEACH (BEM + Accumulated CHarge) Python package."""
 
 from .fortran_results import (
+    AdhesionProfile,
     analyze_coulomb_mobility,
     animate_history_mesh,
     Beach,
@@ -12,6 +13,7 @@ from .fortran_results import (
     CoulombInteraction,
     CoulombMobilityAnalysis,
     CoulombMobilityRecord,
+    DetachmentResult,
     compute_potential_mesh,
     compute_potential_points,
     compute_potential_slices,
@@ -23,6 +25,9 @@ from .fortran_results import (
     FieldKernelError,
     FieldKernelOptions,
     KernelObjectForceRecord,
+    ObjectForcePath,
+    ObjectWrench,
+    PeriodicZeroMode,
     MeshSelection,
     MeshSource,
     PotentialSlice2D,
@@ -37,11 +42,13 @@ from .fortran_results import (
     plot_potential_mesh,
     plot_potential_slices,
     trace_field_lines,
+    WrenchComponent,
 )
 
 __all__ = [
     "animate_history_mesh",
     "analyze_coulomb_mobility",
+    "AdhesionProfile",
     "Beach",
     "BeachScene",
     "calc_coulomb",
@@ -51,6 +58,7 @@ __all__ = [
     "CoulombInteraction",
     "CoulombMobilityAnalysis",
     "CoulombMobilityRecord",
+    "DetachmentResult",
     "compute_potential_mesh",
     "compute_potential_points",
     "compute_potential_slices",
@@ -62,6 +70,9 @@ __all__ = [
     "FieldKernelError",
     "FieldKernelOptions",
     "KernelObjectForceRecord",
+    "ObjectForcePath",
+    "ObjectWrench",
+    "PeriodicZeroMode",
     "MeshSelection",
     "MeshSource",
     "PotentialSlice2D",
@@ -76,4 +87,5 @@ __all__ = [
     "plot_potential_mesh",
     "plot_potential_slices",
     "trace_field_lines",
+    "WrenchComponent",
 ]
