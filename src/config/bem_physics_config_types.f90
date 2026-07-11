@@ -1,7 +1,7 @@
 !> 場・periodic2・panel・外部プラズマ・coupling の型付き設定と互換正規化を定義する。
 module bem_physics_config_types
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_config, bc_periodic
+  use bem_types, only: sim_config, bc_periodic, bc_open
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -49,6 +49,9 @@ module bem_physics_config_types
     character(len=32) :: update_mode = 'explicit'
     character(len=32) :: particle_transfer_mode = 'none'
     integer(i32) :: outer_update_stride = 1_i32
+    real(dp) :: field_evolution_timescale = 0.0_dp
+    real(dp) :: max_frozen_field_ratio = 0.1_dp
+    logical :: outer_queue_enabled = .false.
   end type coupling_config
 
   public :: normalize_legacy_physics_config
@@ -289,13 +292,36 @@ contains
         )
       return
     end if
-    if (trim(lower_ascii(coupling%update_mode)) /= 'explicit' .or. &
-        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none' .or. coupling%outer_update_stride < 1_i32) then
+    if (trim(lower_ascii(coupling%update_mode)) /= 'explicit' .or. coupling%outer_update_stride < 1_i32) then
       call reject( &
-        physics_config_unavailable, 'Phase 2 supports explicit field coupling without particle transfer.', status, message &
+        physics_config_unavailable, 'Split periodic coupling requires explicit updates.', status, message &
         )
       return
     end if
+    select case (trim(lower_ascii(coupling%particle_transfer_mode)))
+    case ('none')
+      if (trim(lower_ascii(outer%return_model)) /= 'none') then
+        call reject(physics_config_invalid_combination, 'A return model requires particle transfer.', status, message)
+        return
+      end if
+    case ('electrostatic_1d_instant_return')
+      if (trim(lower_ascii(outer%return_model)) /= 'electrostatic_1d_instant_return' .or. &
+          coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
+        call reject(physics_config_invalid_combination, 'Invalid electrostatic 1D instant-return coupling.', status, message)
+        return
+      end if
+      if (sim%bc_high(3) /= bc_open .or. any(sim%b0 /= 0.0_dp)) then
+        call reject(physics_config_unavailable, 'Instant return requires an open z-high face and b0=0.', status, message)
+        return
+      end if
+      if (coupling%outer_queue_enabled) then
+        call reject(physics_config_unavailable, 'Persistent outer queue is not available yet.', status, message)
+        return
+      end if
+    case default
+      call reject(physics_config_invalid_combination, 'Unknown coupling particle-transfer mode.', status, message)
+      return
+    end select
     if (any(sim%e0 /= 0.0_dp)) then
       call reject( &
         physics_config_unavailable, 'Phase 2 linear outer model currently requires sim.e0=0.', status, message &

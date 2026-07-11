@@ -30,6 +30,8 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_integrated_charge = 0.0_dp
     character(len=64) :: status = 'legacy_or_not_applicable'
     integer(i32) :: last_outer_update_batch = -1_i32
+    real(dp) :: max_outer_flight_time = 0.0_dp
+    real(dp) :: max_frozen_field_ratio = 0.0_dp
   end type electrostatic_diagnostics_type
 
   type, public :: electrostatic_restart_state_type

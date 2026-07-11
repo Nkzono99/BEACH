@@ -8,13 +8,16 @@ module bem_simulator
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type, &
                                         electrostatic_restart_state_type
   use bem_outer_coupler, only: outer_coupler_type
-  use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, &
+  use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, advance_particle_step, &
                                   particle_step_result, particle_step_invalid_boundary, &
                                   particle_step_multiple_box_events, particle_step_unsupported_barrier_corner
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
   use bem_surface_models, only: apply_surface_model_charge_relaxation
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
   use bem_string_utils, only: lower_ascii
+  use bem_interface_types, only: interface_particle_outcome_type, interface_outcome_returned_local, &
+                                 interface_outcome_escaped_to_infinity
+  use bem_outer_plasma_interface, only: map_outer_particle_linear_debye
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, mpi_select_lowest_rank_i32_values
   implicit none
@@ -67,7 +70,9 @@ module bem_simulator
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
       mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank, &
-      collision_failure_status, collision_failure_particle, collision_failure_step, collision_failure_x, collision_failure_v &
+      interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
+      collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
+      interface_frozen_ratio_max_thread &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -79,8 +84,10 @@ module bem_simulator
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx
       integer(i32), intent(in) :: mpi_rank
+      real(dp), intent(out) :: interface_outward_thread(:, :), interface_returned_thread(:, :)
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
+      real(dp), intent(out) :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
     end subroutine process_particle_batch
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。

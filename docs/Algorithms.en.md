@@ -139,6 +139,10 @@ This Phase 1 path is a free-space direct correctness oracle. Treecode, FMM, and 
 ### 2.8 periodic2 split reference
 
 `panel_spectral_reference` decomposes potential into a P0-panel Fourier sum for `k!=0`, an exact triangle-height zero mode, and a linear-Debye outer profile. The zero-mode plan represents each inclined triangle's cumulative area as piecewise quadratics and evaluates field and integrated potential in `O(log N)`. A plane grid at the interface measures nonzero-mode potential and total-field decay before the solver permits a scalar 1D handoff. This is a small-system correctness reference, not a production-scale periodic operator.
+
+### 2.9 outer particle interface
+
+A z-high box event returns a typed payload containing the face, event fraction, same-time position and velocity, and remaining `dt` to the simulator. The linear-Debye instant-return map classifies escape versus turning from normal energy and advances tangential position over the analytic outer flight time. Only a returned particle re-enters the ordinary stepper for the remaining `dt`. Disabled interface modes add no boundary search or field evaluation to the normal candidate path.
 6. Concatenate all template triangle arrays and pass them to `init_mesh`.
 
 `init_mesh` precomputes:

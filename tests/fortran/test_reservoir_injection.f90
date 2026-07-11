@@ -6,6 +6,9 @@ program test_reservoir_injection
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_types, only: particles_soa, injection_state
+  use bem_types, only: mesh_type
+  use bem_mesh, only: init_mesh
+  use bem_constants, only: eps0
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
@@ -20,7 +23,11 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(6)
+  call test_init(7)
+
+  call test_begin('split_outer_infinity_vdf_map')
+  call test_split_outer_infinity_vdf_map()
+  call test_end()
 
   call write_fixed_duration_fixture(cfg_fixed_path)
 
@@ -115,6 +122,51 @@ program test_reservoir_injection
   call test_summary()
 
 contains
+
+  subroutine test_split_outer_infinity_vdf_map()
+    type(app_config) :: split_cfg
+    type(mesh_type) :: split_mesh
+    type(particles_soa) :: particles
+    type(injection_state) :: state
+    real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
+
+    v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
+    v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
+    v2(:, 1) = [1.0_dp, 1.0_dp, 0.25_dp]
+    v0(:, 2) = [0.0_dp, 0.0_dp, 0.25_dp]
+    v1(:, 2) = [1.0_dp, 1.0_dp, 0.25_dp]
+    v2(:, 2) = [0.0_dp, 1.0_dp, 0.25_dp]
+    call init_mesh(split_mesh, v0, v1, v2, q0=[-2.5_dp*eps0, -2.5_dp*eps0])
+    call default_app_config(split_cfg)
+    split_cfg%sim%batch_duration = 1.0_dp
+    split_cfg%sim%has_batch_duration = .true.
+    split_cfg%sim%dt = 0.0_dp
+    split_cfg%sim%use_box = .true.
+    split_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    split_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    split_cfg%outer_plasma%debye_length = 0.2_dp
+    split_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+    split_cfg%n_particle_species = 1_i32
+    split_cfg%particle_species(1) = species_from_defaults()
+    split_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    split_cfg%particle_species(1)%number_density_m3 = 1.0_dp
+    split_cfg%particle_species(1)%has_number_density_m3 = .true.
+    split_cfg%particle_species(1)%temperature_k = 0.0_dp
+    split_cfg%particle_species(1)%has_temperature_k = .true.
+    split_cfg%particle_species(1)%q_particle = 1.0_dp
+    split_cfg%particle_species(1)%m_particle = 1.0_dp
+    split_cfg%particle_species(1)%w_particle = 0.1_dp
+    split_cfg%particle_species(1)%has_w_particle = .true.
+    split_cfg%particle_species(1)%inject_face = 'z_high'
+    split_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    split_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    split_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    allocate (state%macro_residual(1))
+    state%macro_residual = 0.0_dp
+    call init_particle_batch_from_config(split_cfg, 1_i32, particles, state=state, mesh=split_mesh)
+    call assert_equal_i32(particles%n, 10_i32, 'mapped ambient macro count mismatch')
+    call assert_close_dp(particles%v(3, 1), -sqrt(3.0_dp), 1.0e-14_dp, 'mapped interface velocity mismatch')
+  end subroutine test_split_outer_infinity_vdf_map
 
   subroutine test_global_count_independent_of_mpi_size()
     integer(i32), parameter :: rank_sizes(3) = [1_i32, 2_i32, 4_i32]

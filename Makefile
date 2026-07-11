@@ -44,6 +44,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_outer_plasma_linear \
 	test_electrostatic_snapshot \
 	test_outer_coupler \
+	test_outer_plasma_interface \
+	test_interface_particle_buffer \
 	test_boundary \
 	test_restart \
 	test_reservoir_injection \

@@ -82,6 +82,16 @@ source-dir = "tests/fortran"
 main = "test_outer_coupler.f90"
 
 [[test]]
+name = "test_outer_plasma_interface"
+source-dir = "tests/fortran"
+main = "test_outer_plasma_interface.f90"
+
+[[test]]
+name = "test_interface_particle_buffer"
+source-dir = "tests/fortran"
+main = "test_interface_particle_buffer.f90"
+
+[[test]]
 name = "test_boundary"
 source-dir = "tests/fortran"
 main = "test_boundary.f90"

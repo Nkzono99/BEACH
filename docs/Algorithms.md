@@ -285,3 +285,7 @@ $$
 ### 2.8 periodic2 split reference
 
 `panel_spectral_reference`は電位を`k!=0`のP0 panel Fourier和、厳密なtriangle-height zero mode、線形Debye outer profileへ分解します。zero modeは傾斜三角形の累積面積を区分二次式として前計算し、電場とその積分電位を`O(log N)`で評価します。interfaceでは面内格子上の非零モード電位・全電場を測り、1D outerへ切り替えられる減衰量かを検査します。これは小規模参照実装であり、production規模の周期演算子ではありません。
+
+### 2.9 outer particle interface
+
+z-highのbox eventは、face、event fraction、同時刻の位置・速度、remaining `dt`をtyped payloadとしてsimulatorへ返します。linear-Debye instant-return mapは法線エネルギーからescape/turningを判定し、turning軌道の解析flight timeで接線位置を進めます。return後だけ通常stepperへ戻してremaining `dt`を再積分します。interfaceを使わない通常候補では追加探索も追加field評価もありません。

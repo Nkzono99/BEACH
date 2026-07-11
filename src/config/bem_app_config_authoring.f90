@@ -54,6 +54,9 @@ module bem_app_config_authoring
     character(len=32) :: update_mode = 'explicit'
     character(len=32) :: particle_transfer_mode = 'none'
     integer(i32) :: outer_update_stride = 1_i32
+    real(dp) :: field_evolution_timescale = 0.0_dp
+    real(dp) :: max_frozen_field_ratio = 0.1_dp
+    logical :: outer_queue_enabled = .false.
   end type coupling_authoring_spec
 
   type :: particle_authoring_spec

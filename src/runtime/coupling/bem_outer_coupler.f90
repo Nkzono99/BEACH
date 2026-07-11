@@ -25,8 +25,9 @@ contains
     if (trim(lower_ascii(config%update_mode)) /= 'explicit') then
       error stop 'outer coupler currently requires update_mode=explicit.'
     end if
-    if (trim(lower_ascii(config%particle_transfer_mode)) /= 'none') then
-      error stop 'Phase 2 outer coupler does not transfer particles.'
+    if (trim(lower_ascii(config%particle_transfer_mode)) /= 'none' .and. &
+        trim(lower_ascii(config%particle_transfer_mode)) /= 'electrostatic_1d_instant_return') then
+      error stop 'Unknown outer-coupler particle transfer mode.'
     end if
     if (config%outer_update_stride < 1_i32) error stop 'outer_update_stride must be >= 1.'
     self%update_stride = config%outer_update_stride

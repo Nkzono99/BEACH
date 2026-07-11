@@ -5,16 +5,21 @@ program test_particle_stepper
   use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
   use bem_mesh, only: init_mesh
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
-  use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, particle_step_result, &
+  use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
+                                  resolve_particle_boundary_candidate, particle_step_result, &
                                   particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events, &
                                   particle_step_unsupported_barrier_corner
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
+  call test_end()
+
+  call test_begin('z_high_interface_event_payload')
+  call test_z_high_interface_event_payload()
   call test_end()
 
   call test_begin('charged_mesh_second_order_convergence')
@@ -60,6 +65,24 @@ program test_particle_stepper
   call test_summary()
 
 contains
+
+  subroutine test_z_high_interface_event_payload()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.5_dp], 0.0_dp, 1.0_dp, 1.0_dp, &
+      [0.2_dp, 0.2_dp, 1.3_dp], [0.0_dp, 0.0_dp, 0.5_dp], result=result, defer_z_high_interface=.true. &
+      )
+    call assert_true(result%interface_crossing%has_crossing, 'z-high crossing payload is missing')
+    call assert_close_dp(result%interface_crossing%fraction, 0.4_dp, 1.0e-14_dp, 'interface fraction mismatch')
+    call assert_close_dp(result%interface_crossing%position(3), 1.0_dp, 0.0_dp, 'interface position mismatch')
+    call assert_close_dp(result%interface_crossing%dt_remaining, 0.6_dp, 1.0e-14_dp, 'remaining dt mismatch')
+  end subroutine test_z_high_interface_event_payload
 
   subroutine test_uniform_e0_included_once()
     type(mesh_type) :: mesh

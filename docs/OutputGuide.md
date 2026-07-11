@@ -44,6 +44,8 @@ beachx inspect outputs/latest
 
 split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi_kneq0`、`eta_field_kneq0`、`eta_gap`、`eta_local_charge`、Gauss residual、outer積分電荷、最終outer更新batchを保存します。これらは物理適用性とrestart状態の一部であり、欠損したsplit checkpointは再開できません。
 
+particle transfer有効時は`charge_ledger.csv`の`interface_outward_gross_C`と`interface_returned_gross_C`がinterfaceの往復量を表します。これは保存残差へ二重加算しません。`summary.txt`の`max_outer_flight_time_s`と`max_outer_frozen_field_ratio`はrun中の最大値です。
+
 | 項目 | 見方 |
 | --- | --- |
 | `batches` | 通常実行では `sim.batch_count` と一致していれば完了 |

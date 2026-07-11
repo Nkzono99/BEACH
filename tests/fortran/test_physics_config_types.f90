@@ -1,11 +1,12 @@
 !> 物理モデル設定の legacy normalization と fail-closed 契約を検証する。
 program test_physics_config_types
-  use bem_kinds, only: i32
-  use bem_types, only: sim_config
+  use bem_kinds, only: dp, i32
+  use bem_types, only: sim_config, bc_open, bc_periodic
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, outer_plasma_config, coupling_config, &
     physics_config_ok, physics_config_invalid_combination, physics_config_unavailable, &
-    normalize_legacy_physics_config, validate_phase0_physics_config, validate_phase1_panel_config
+    normalize_legacy_physics_config, validate_phase0_physics_config, validate_phase1_panel_config, &
+    validate_active_physics_config
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
 
@@ -18,7 +19,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(7)
+  call test_init(9)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -33,6 +34,39 @@ program test_physics_config_types
   call assert_true(trim(periodic2%zero_mode_policy) == 'not_applicable', 'free zero mode mismatch')
   call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'free legacy config should be valid')
+  call test_end()
+
+  call test_begin('instant_return_active_config')
+  sim = sim_config()
+  sim%field_solver = 'direct'
+  sim%field_bc_mode = 'periodic2'
+  sim%softening = 0.0_dp
+  sim%use_box = .true.
+  sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+  sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+  sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+  sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  field = field_physics_config(backend='direct')
+  periodic2 = periodic2_physics_config( &
+              nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
+              lower_boundary_model='e_bottom_zero' &
+              )
+  panel = panel_kernel_config(source_model='triangle_p0', kernel_id='triangle_p0_exact_direct')
+  outer = outer_plasma_config( &
+          model='linear_debye', return_model='electrostatic_1d_instant_return', interface_z=1.0_dp, &
+          debye_length=0.2_dp, thermal_voltage=10.0_dp &
+          )
+  coupling = coupling_config( &
+             particle_transfer_mode='electrostatic_1d_instant_return', field_evolution_timescale=1.0_dp &
+             )
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'instant return config should be valid')
+  call test_end()
+
+  call test_begin('persistent_outer_queue_unavailable')
+  coupling%outer_queue_enabled = .true.
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_unavailable, 'persistent outer queue must fail closed')
   call test_end()
 
   call test_begin('triangle_panel_direct_free_available')

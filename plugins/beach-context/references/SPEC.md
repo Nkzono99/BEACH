@@ -109,6 +109,8 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 
 `periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0` 成分、triangle-heightの厳密`k=0`成分、線形Debye outer plasmaを合成する小規模 correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、`lower_boundary_model="e_bottom_zero"`、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`減衰、gap、局所平均plasma電荷推定、線形性を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
 
+`coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。外向き粒子は同じ線形Debye profile上でinfinityへ到達可能ならescape、turning pointを持つ場合は法線速度を反転してlocalへ返します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapし、残り`dt`を既存stepperで再積分します。この写像はouter flightをglobal simulation timeへ加算せず、`tau_outer/field_evolution_timescale`が上限を超える場合は停止します。persistent outer queueは未対応で、`outer_queue_enabled=true`を拒否します。`b0=0`のみを許可し、磁化outer orbitを近似しません。
+
 `sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
 
 ### 5.2 粒子前進

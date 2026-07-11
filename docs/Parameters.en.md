@@ -332,6 +332,8 @@ values are used based on the element count.
 | `field_periodic_ewald_layers` | int | `4` | Outer shell / reciprocal cutoff depth for the Ewald oracle |
 
 Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference instead explicitly selects `field_solver="direct"`, `[periodic2].nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and `lower_boundary_model="e_bottom_zero"`. `[outer_plasma]` supplies `interface_z`, positive `debye_length` and `thermal_voltage`, plus linearity, gap, and local-charge applicability limits. `[coupling].outer_update_stride` controls explicit profile refreshes. See `examples/periodic2_linear_outer_reference.toml`; applicability failures never fall back to a legacy model.
+
+Individual transfer uses `outer_plasma.return_model` and `coupling.particle_transfer_mode` set to `electrostatic_1d_instant_return`. A positive `field_evolution_timescale` and `max_frozen_field_ratio` bound the static-profile approximation. The mode supports only the open z-high interface, x/y periodic wrapping, and `b0=0`. Persistent queuing is not implemented, so `outer_queue_enabled=true` is rejected. See `examples/periodic2_outer_particle_transfer.toml`.
 `sim.use_box=true`, exactly two axes are `periodic`, and the remaining axis is
 open. Periodic images are considered not only for field evaluation, but also for
 collision and `photo_raycast` raycasting.

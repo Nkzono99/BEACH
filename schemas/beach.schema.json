@@ -46,7 +46,7 @@
       "properties": {
         "model": {"const": "linear_debye"},
         "photoelectron_closure": {"const": "none", "default": "none"},
-        "return_model": {"const": "none", "default": "none"},
+        "return_model": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
         "interface_z": {"type": "number"},
         "infinity_potential": {"type": "number", "default": 0},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
@@ -61,8 +61,11 @@
       "additionalProperties": false,
       "properties": {
         "update_mode": {"const": "explicit", "default": "explicit"},
-        "particle_transfer_mode": {"const": "none", "default": "none"},
-        "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1}
+        "particle_transfer_mode": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
+        "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
+        "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
+        "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
+        "outer_queue_enabled": {"const": false, "default": false}
       }
     },
     "mesh": {

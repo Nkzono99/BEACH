@@ -106,7 +106,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -131,6 +131,10 @@ program test_simulator
   call assert_close_dp(sum(charge_ledger%absorbed_on_surface), 5.0_dp, 1.0d-12, 'ledger absorbed charge mismatch')
   call assert_close_dp(sum(charge_ledger%escaped_to_infinity), 2.0_dp, 1.0d-12, 'ledger escaped charge mismatch')
   call assert_close_dp(charge_ledger%residual(), 0.0_dp, 1.0d-12, 'simulation charge residual mismatch')
+  call test_end()
+
+  call test_begin('split_outer_instant_return_ledger')
+  call test_split_outer_instant_return_ledger()
   call test_end()
 
   call test_begin('history_output')
@@ -231,6 +235,86 @@ program test_simulator
   call test_summary()
 
 contains
+
+  subroutine test_split_outer_instant_return_ledger()
+    use bem_constants, only: eps0
+    use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
+    type(mesh_type) :: split_mesh
+    type(app_config) :: split_cfg
+    type(sim_stats) :: split_stats
+    type(charge_ledger_type) :: split_ledger
+    type(electrostatic_diagnostics_type) :: split_diagnostics
+    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), panel_charge
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
+    tri_v2(:, 1) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 2) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.25_dp]
+    panel_charge = -2.5_dp*eps0
+    call init_mesh(split_mesh, tri_v0, tri_v1, tri_v2, q0=[panel_charge, panel_charge])
+    split_mesh%elem_vacuum_sign = 1_i32
+    split_mesh%vacuum_normals = split_mesh%normals
+
+    call default_app_config(split_cfg)
+    split_cfg%sim%rng_seed = 998_i32
+    split_cfg%sim%batch_count = 1_i32
+    split_cfg%sim%dt = 0.01_dp
+    split_cfg%sim%max_step = 1_i32
+    split_cfg%sim%softening = 0.0_dp
+    split_cfg%sim%field_solver = 'direct'
+    split_cfg%sim%field_bc_mode = 'periodic2'
+    split_cfg%sim%use_box = .true.
+    split_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    split_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    split_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    split_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    split_cfg%field%backend = 'direct'
+    split_cfg%panel%source_model = 'triangle_p0'
+    split_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    split_cfg%panel%surface_side_policy = 'per_element'
+    split_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
+    split_cfg%periodic2%zero_mode_policy = 'exclude_k0'
+    split_cfg%periodic2%lower_boundary_model = 'e_bottom_zero'
+    split_cfg%periodic2%reference_mode_layers = 2_i32
+    split_cfg%periodic2%panel_quadrature_order = 12_i32
+    split_cfg%periodic2%interface_phi_tolerance = 1.0e6_dp
+    split_cfg%periodic2%interface_field_tolerance = 1.0e6_dp
+    split_cfg%outer_plasma%model = 'linear_debye'
+    split_cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
+    split_cfg%outer_plasma%interface_z = 1.0_dp
+    split_cfg%outer_plasma%debye_length = 0.2_dp
+    split_cfg%outer_plasma%thermal_voltage = 10.0_dp
+    split_cfg%outer_plasma%max_linearity_ratio = 1.0_dp
+    split_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+    split_cfg%coupling%field_evolution_timescale = 10.0_dp
+    split_cfg%coupling%max_frozen_field_ratio = 1.0_dp
+    split_cfg%n_particle_species = 1_i32
+    split_cfg%particle_species(1) = species_from_defaults()
+    split_cfg%particle_species(1)%source_mode = 'volume_seed'
+    split_cfg%particle_species(1)%npcls_per_step = 1_i32
+    split_cfg%particle_species(1)%q_particle = 1.0_dp
+    split_cfg%particle_species(1)%m_particle = 1.0_dp
+    split_cfg%particle_species(1)%w_particle = 1.0_dp
+    split_cfg%particle_species(1)%pos_low = [0.5_dp, 0.5_dp, 0.999_dp]
+    split_cfg%particle_species(1)%pos_high = split_cfg%particle_species(1)%pos_low
+    split_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, 0.2_dp]
+    split_cfg%particle_species(1)%temperature_k = 0.0_dp
+
+    call prepare_periodic2_collision_mesh(split_mesh, split_cfg%sim)
+    call seed_particles_from_config(split_cfg)
+    call run_absorption_insulator( &
+      split_mesh, split_cfg, split_stats, charge_ledger=split_ledger, &
+      electrostatic_diagnostics=split_diagnostics &
+      )
+    call assert_equal_i64(split_stats%escaped_boundary, 0_i64, 'returned particle must not escape')
+    call assert_equal_i64(split_stats%survived_max_step, 1_i64, 'returned particle should remain local after one step')
+    call assert_close_dp(split_ledger%interface_outward_gross(1), 1.0_dp, 1.0e-12_dp, 'outward gross mismatch')
+    call assert_close_dp(split_ledger%interface_returned_gross(1), 1.0_dp, 1.0e-12_dp, 'returned gross mismatch')
+    call assert_true(split_diagnostics%max_outer_flight_time > 0.0_dp, 'outer flight-time diagnostic is missing')
+    call assert_true(split_diagnostics%max_frozen_field_ratio > 0.0_dp, 'frozen-field diagnostic is missing')
+  end subroutine test_split_outer_instant_return_ledger
 
   subroutine test_collision_query_failure_context()
     character(len=1024) :: executable_path, command, child_line

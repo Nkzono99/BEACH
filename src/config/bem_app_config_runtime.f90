@@ -1,7 +1,7 @@
 !> `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
-  use bem_constants, only: k_boltzmann, k_coulomb
+  use bem_constants, only: k_boltzmann, k_coulomb, eps0
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
@@ -441,7 +441,7 @@ contains
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
         end if
         call reservoir_face_velocity_correction( &
-          cfg%sim, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
+          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
           )
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
@@ -905,26 +905,38 @@ contains
   !! @param[out] vmin_normal 無限遠法線速度の下限 [m/s]。
   !! @param[out] barrier_normal 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（補正時に必要）。
-  subroutine reservoir_face_velocity_correction(sim, spec, vmin_normal, barrier_normal, mesh)
-    type(sim_config), intent(in) :: sim
+  subroutine reservoir_face_velocity_correction(cfg, spec, vmin_normal, barrier_normal, mesh)
+    type(app_config), intent(in) :: cfg
     type(particle_species_spec), intent(in) :: spec
     real(dp), intent(out) :: vmin_normal
     real(dp), intent(out) :: barrier_normal
     type(mesh_type), intent(in), optional :: mesh
 
-    real(dp) :: phi_face, delta_phi
+    real(dp) :: phi_face, delta_phi, area_xy
 
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
-    select case (trim(lower_ascii(sim%reservoir_potential_model)))
+    if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return') then
+      if (trim(lower_ascii(spec%inject_face)) /= 'z_high') then
+        error stop 'Split outer-plasma ambient inflow must use inject_face="z_high".'
+      end if
+      if (.not. present(mesh)) error stop 'Split outer-plasma ambient inflow requires the charged mesh.'
+      area_xy = (cfg%sim%box_max(1) - cfg%sim%box_min(1))*(cfg%sim%box_max(2) - cfg%sim%box_min(2))
+      delta_phi = cfg%outer_plasma%debye_length*sum(mesh%q_elem)/(eps0*area_xy)
+      barrier_normal = 2.0_dp*spec%q_particle*delta_phi/spec%m_particle
+      if (.not. ieee_is_finite(barrier_normal)) error stop 'Outer-plasma inflow map produced a non-finite barrier.'
+      if (barrier_normal > 0.0_dp) vmin_normal = sqrt(barrier_normal)
+      return
+    end if
+    select case (trim(lower_ascii(cfg%sim%reservoir_potential_model)))
     case ('none')
       return
     case ('infinity_barrier')
       if (.not. present(mesh)) then
         error stop 'sim.reservoir_potential_model="infinity_barrier" requires mesh in init_particle_batch_from_config.'
       end if
-      call compute_face_average_potential(mesh, sim, spec, phi_face)
-      delta_phi = phi_face - sim%phi_infty
+      call compute_face_average_potential(mesh, cfg%sim, spec, phi_face)
+      delta_phi = phi_face - cfg%sim%phi_infty
       barrier_normal = 2.0d0*spec%q_particle*delta_phi/spec%m_particle
       if (.not. ieee_is_finite(barrier_normal)) then
         error stop 'reservoir potential correction produced non-finite barrier.'

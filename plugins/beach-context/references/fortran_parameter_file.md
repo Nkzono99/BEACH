@@ -338,8 +338,14 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 | `outer_plasma.max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda`上限 |
 | `outer_plasma.max_local_charge_ratio` | `50` | 局所平均plasma電荷推定比上限 |
 | `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
+| `outer_plasma.return_model` | `none` | `electrostatic_1d_instant_return`で個別粒子を返却 |
+| `coupling.particle_transfer_mode` | `none` | return modelと同じIDを指定 |
+| `coupling.field_evolution_timescale` | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
+| `coupling.max_frozen_field_ratio` | `0.1` | `tau_outer/field_evolution_timescale`上限 |
+| `coupling.outer_queue_enabled` | `false` | 現在は`true`を拒否 |
 
 完全な例は`examples/periodic2_linear_outer_reference.toml`です。閾値違反時にlegacy modelへfallbackしません。
+粒子移送を含む例は`examples/periodic2_outer_particle_transfer.toml`です。instant returnはz-high、`b0=0`、x/y periodicだけに対応します。
 `sim.use_box=true`、かつ 2 軸だけが `periodic`、残り 1 軸が開放のときに有効です。
 場評価だけでなく、collision と `photo_raycast` の raycast でも periodic image を考慮します。
 

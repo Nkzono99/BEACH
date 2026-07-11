@@ -1,0 +1,77 @@
+program test_outer_plasma_interface
+  use bem_kinds, only: dp, i32
+  use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok
+  use bem_outer_plasma_linear, only: init_outer_plasma_linear
+  use bem_interface_types, only: interface_crossing_type, interface_particle_outcome_type, &
+                                 interface_outcome_returned_local, interface_outcome_escaped_to_infinity, &
+                                 interface_outcome_queued_outer
+  use bem_outer_plasma_interface, only: map_infinity_normal_velocity_to_interface, map_outer_particle_linear_debye
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
+  implicit none
+
+  type(outer_plasma_state_type) :: state
+  type(interface_crossing_type) :: crossing
+  type(interface_particle_outcome_type) :: outcome
+  integer(i32) :: status
+  character(len=128) :: message
+  logical :: accessible
+  real(dp) :: mapped_speed
+
+  call test_init(4)
+  call init_outer_plasma_linear( &
+    interface_z=1.0_dp, interface_potential=-1.0_dp, infinity_potential=0.0_dp, &
+    debye_length=0.5_dp, linearity_ratio=0.1_dp, max_linearity_ratio=1.0_dp, &
+    state=state, status=status, message=message &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'outer state initialization failed')
+
+  call test_begin('infinity_to_interface_energy_map')
+  call map_infinity_normal_velocity_to_interface(state, 1.0_dp, 1.0_dp, 1.0_dp, accessible, mapped_speed)
+  call assert_true(accessible, 'attracted inflow should reach the interface')
+  call assert_close_dp(mapped_speed, sqrt(3.0_dp), 1.0e-14_dp, 'inflow energy map mismatch')
+  call map_infinity_normal_velocity_to_interface(state, -1.0_dp, 1.0_dp, 1.0_dp, accessible, mapped_speed)
+  call assert_true(.not. accessible, 'sub-threshold repelled inflow must be rejected')
+  call test_end()
+
+  crossing%has_crossing = .true.
+  crossing%face_index = 6_i32
+  crossing%fraction = 0.25_dp
+  crossing%position = [0.9_dp, 0.8_dp, 1.0_dp]
+  crossing%velocity = [0.5_dp, 0.25_dp, 1.0_dp]
+  crossing%dt_remaining = 0.75_dp
+
+  call test_begin('instant_return_energy_time_and_shift')
+  call map_outer_particle_linear_debye( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_returned_local, 'barrier must return the particle')
+  call assert_close_dp(outcome%outer_flight_time, 0.5_dp*acos(-1.0_dp), 1.0e-14_dp, 'outer flight time mismatch')
+  call assert_close_dp(outcome%position(1), modulo(0.9_dp + 0.25_dp*acos(-1.0_dp), 1.0_dp), &
+                       1.0e-14_dp, 'lateral x shift mismatch')
+  call assert_close_dp(outcome%position(2), modulo(0.8_dp + 0.125_dp*acos(-1.0_dp), 1.0_dp), &
+                       1.0e-14_dp, 'lateral y shift mismatch')
+  call assert_close_dp(outcome%velocity(3), -1.0_dp, 1.0e-14_dp, 'normal velocity reversal mismatch')
+  call assert_close_dp(outcome%normal_energy_residual, 0.0_dp, 1.0e-14_dp, 'return energy residual mismatch')
+  call test_end()
+
+  call test_begin('escape_to_infinity')
+  crossing%velocity(3) = 2.0_dp
+  call map_outer_particle_linear_debye( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_escaped_to_infinity, 'super-threshold particle must escape')
+  call test_end()
+
+  call test_begin('frozen_field_violation_is_queued')
+  crossing%velocity(3) = 1.0_dp
+  call map_outer_particle_linear_debye( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=1.0_dp, max_frozen_field_ratio=0.1_dp, queue_enabled=.true., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_queued_outer, 'slow return must enter the outer queue')
+  call test_end()
+
+  call test_summary()
+end program test_outer_plasma_interface

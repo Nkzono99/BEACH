@@ -24,10 +24,13 @@ contains
   integer :: pot_hist_unit
   real(dp), allocatable :: potential_buf(:)
   real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
+  real(dp), allocatable :: interface_outward_thread(:, :), interface_returned_thread(:, :)
+  real(dp), allocatable :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
   logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
   integer(i32) :: batch_counts(5)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
+  real(dp) :: max_outer_flight_time, max_frozen_field_ratio
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
@@ -52,6 +55,11 @@ contains
   nth = 1
 !$ nth = max(1, omp_get_max_threads())
   allocate (dq_thread(mesh%nelem, nth), dq(mesh%nelem), photo_emission_dq(mesh%nelem))
+  allocate (interface_outward_thread(app%n_particle_species, nth))
+  allocate (interface_returned_thread(app%n_particle_species, nth))
+  allocate (interface_tau_max_thread(nth), interface_frozen_ratio_max_thread(nth))
+  max_outer_flight_time = 0.0_dp
+  max_frozen_field_ratio = 0.0_dp
 
   history_enabled = present(history_unit)
   hist_unit = 0
@@ -120,8 +128,12 @@ contains
     call perf_region_begin(perf_region_particle_batch, t0)
     call process_particle_batch( &
       mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-      collision_failure_status, collision_failure_particle, collision_failure_step, collision_failure_x, collision_failure_v &
+      interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
+      collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
+      interface_frozen_ratio_max_thread &
       )
+    max_outer_flight_time = max(max_outer_flight_time, maxval(interface_tau_max_thread))
+    max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(interface_frozen_ratio_max_thread))
     call perf_region_end(perf_region_particle_batch, t0)
 
     collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
@@ -145,6 +157,8 @@ contains
     end if
 
     if (ledger_enabled) then
+      batch_ledger%interface_outward_gross = sum(interface_outward_thread, dim=2)
+      batch_ledger%interface_returned_gross = sum(interface_returned_thread, dim=2)
       call record_batch_outcome_charge(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_ledger)
       call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx)
     end if
@@ -206,6 +220,8 @@ contains
     end if
     call snapshot%get_diagnostics(electrostatic_diagnostics)
     electrostatic_diagnostics%last_outer_update_batch = outer_coupler%last_outer_update_batch
+    electrostatic_diagnostics%max_outer_flight_time = max_outer_flight_time
+    electrostatic_diagnostics%max_frozen_field_ratio = max_frozen_field_ratio
   end if
   if (present(electrostatic_restart_state)) then
     call snapshot%export_restart_state(outer_coupler%last_outer_update_batch, electrostatic_restart_state)
@@ -214,7 +230,10 @@ contains
   if (allocated(potential_buf)) deallocate (potential_buf)
   if (allocated(escaped_boundary_flag)) deallocate (escaped_boundary_flag)
   if (allocated(absorbed_flag)) deallocate (absorbed_flag)
-  deallocate (dq_thread, dq, photo_emission_dq)
+  deallocate ( &
+    dq_thread, dq, photo_emission_dq, interface_outward_thread, interface_returned_thread, &
+    interface_tau_max_thread, interface_frozen_ratio_max_thread &
+    )
   end procedure run_absorption_insulator
 
   !> 1バッチ分の粒子群と作業バッファを初期化する。
@@ -262,7 +281,10 @@ contains
   real(dp) :: x0(3), v0(3), x1(3), v1(3), qdep
   type(hit_info) :: hit
   type(particle_step_result) :: step_result
-  logical :: has_warn_stride, collision_failed, candidate_inside, used_event_resolver
+  type(particle_step_result) :: remainder_result
+  type(interface_particle_outcome_type) :: interface_outcome
+  logical :: has_warn_stride, collision_failed, candidate_inside, used_event_resolver, interface_active
+  integer(i32) :: species_idx
 
   nth = size(dq_thread, 2)
   call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
@@ -272,13 +294,20 @@ contains
   collision_failure_step = 0_i32
   collision_failure_x = 0.0_dp
   collision_failure_v = 0.0_dp
+  interface_outward_thread = 0.0_dp
+  interface_returned_thread = 0.0_dp
+  interface_tau_max_thread = 0.0_dp
+  interface_frozen_ratio_max_thread = 0.0_dp
+  interface_active = trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return'
 
   !$omp parallel default(none) &
-  !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
+  !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth,interface_active) &
+  !$omp shared(interface_outward_thread,interface_returned_thread) &
+  !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
-  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,tid,qdep,collision_status,collision_failed) &
-  !$omp private(candidate_inside,used_event_resolver)
+  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,remainder_result,interface_outcome,tid,qdep,species_idx) &
+  !$omp private(collision_status,collision_failed,candidate_inside,used_event_resolver)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
@@ -301,7 +330,7 @@ contains
         if (.not. candidate_inside) then
           call resolve_particle_boundary_candidate( &
             mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
-            result=step_result &
+            result=step_result, defer_z_high_interface=interface_active &
             )
           used_event_resolver = .true.
         else
@@ -330,11 +359,47 @@ contains
         pcls_batch%v(:, i) = v1
       else
         call resolve_particle_boundary_candidate( &
-          mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, hit, step_result &
+          mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
+          hit=hit, result=step_result, defer_z_high_interface=interface_active &
           )
         used_event_resolver = .true.
       end if
       if (used_event_resolver) then
+        if (step_result%interface_crossing%has_crossing) then
+          species_idx = pcls_batch%species_id(i)
+          qdep = pcls_batch%q(i)*pcls_batch%w(i)
+          interface_outward_thread(species_idx, tid) = interface_outward_thread(species_idx, tid) + qdep
+          call map_outer_particle_linear_debye( &
+            snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
+            step_result%interface_crossing, app%coupling%field_evolution_timescale, &
+            app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
+            )
+          select case (interface_outcome%kind)
+          case (interface_outcome_returned_local)
+            interface_tau_max_thread(tid) = max(interface_tau_max_thread(tid), interface_outcome%outer_flight_time)
+            interface_frozen_ratio_max_thread(tid) = &
+              max(interface_frozen_ratio_max_thread(tid), interface_outcome%frozen_field_ratio)
+            interface_returned_thread(species_idx, tid) = interface_returned_thread(species_idx, tid) + qdep
+            if (step_result%interface_crossing%dt_remaining > 0.0_dp) then
+              call advance_particle_step( &
+                mesh, app%sim, snapshot, bfield, interface_outcome%position, interface_outcome%velocity, &
+                pcls_batch%q(i), pcls_batch%m(i), step_result%interface_crossing%dt_remaining, remainder_result &
+                )
+              step_result = remainder_result
+            else
+              step_result%x = interface_outcome%position
+              step_result%v = interface_outcome%velocity
+              step_result%interface_crossing%has_crossing = .false.
+            end if
+          case (interface_outcome_escaped_to_infinity)
+            step_result%x = interface_outcome%position
+            step_result%v = interface_outcome%velocity
+            step_result%escaped_boundary = .true.
+            step_result%interface_crossing%has_crossing = .false.
+          case default
+            step_result%status = particle_step_invalid_boundary
+          end select
+        end if
         if (step_result%status /= collision_query_ok) then
           !$omp critical (beach_collision_query_failure)
           if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &

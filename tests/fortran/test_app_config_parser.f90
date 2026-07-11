@@ -134,6 +134,13 @@ program test_app_config_parser
   call assert_close_dp( &
     split_cfg%outer_plasma%max_local_charge_ratio, 6.0_dp, 1.0e-15_dp, 'split local-charge limit mismatch' &
     )
+  call assert_true( &
+    trim(split_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
+    'split transfer mode mismatch' &
+    )
+  call assert_close_dp( &
+    split_cfg%coupling%field_evolution_timescale, 2.0_dp, 1.0e-15_dp, 'split field timescale mismatch' &
+    )
   call test_end()
 
   call test_begin('triangle_panel_config')
@@ -797,6 +804,7 @@ contains
     write (u, '(a)') 'interface_sample_n = 7'
     write (u, '(a)') '[outer_plasma]'
     write (u, '(a)') 'model = "linear_debye"'
+    write (u, '(a)') 'return_model = "electrostatic_1d_instant_return"'
     write (u, '(a)') 'interface_z = 1.0'
     write (u, '(a)') 'infinity_potential = 0.0'
     write (u, '(a)') 'debye_length = 0.2'
@@ -804,6 +812,13 @@ contains
     write (u, '(a)') 'max_linearity_ratio = 0.5'
     write (u, '(a)') 'max_gap_ratio = 4.0'
     write (u, '(a)') 'max_local_charge_ratio = 6.0'
+    write (u, '(a)') '[coupling]'
+    write (u, '(a)') 'update_mode = "explicit"'
+    write (u, '(a)') 'particle_transfer_mode = "electrostatic_1d_instant_return"'
+    write (u, '(a)') 'outer_update_stride = 1'
+    write (u, '(a)') 'field_evolution_timescale = 2.0'
+    write (u, '(a)') 'max_frozen_field_ratio = 0.1'
+    write (u, '(a)') 'outer_queue_enabled = false'
     write (u, '(a)') '[particles]'
     write (u, '(a)') '[[particles.species]]'
     write (u, '(a)') 'npcls_per_step = 1'

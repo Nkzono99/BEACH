@@ -684,6 +684,18 @@ contains
         call get_toml_int( &
           table, keys(ikey), authoring%coupling%outer_update_stride, 'coupling.outer_update_stride' &
           )
+      case ('field_evolution_timescale')
+        call get_toml_real( &
+          table, keys(ikey), authoring%coupling%field_evolution_timescale, 'coupling.field_evolution_timescale' &
+          )
+      case ('max_frozen_field_ratio')
+        call get_toml_real( &
+          table, keys(ikey), authoring%coupling%max_frozen_field_ratio, 'coupling.max_frozen_field_ratio' &
+          )
+      case ('outer_queue_enabled')
+        call get_toml_logical( &
+          table, keys(ikey), authoring%coupling%outer_queue_enabled, 'coupling.outer_queue_enabled' &
+          )
       case default
         error stop 'Unknown key in [coupling]: '//trim(keys(ikey)%key)
       end select
@@ -722,6 +734,9 @@ contains
       cfg%coupling%update_mode = authoring%coupling%update_mode
       cfg%coupling%particle_transfer_mode = authoring%coupling%particle_transfer_mode
       cfg%coupling%outer_update_stride = authoring%coupling%outer_update_stride
+      cfg%coupling%field_evolution_timescale = authoring%coupling%field_evolution_timescale
+      cfg%coupling%max_frozen_field_ratio = authoring%coupling%max_frozen_field_ratio
+      cfg%coupling%outer_queue_enabled = authoring%coupling%outer_queue_enabled
     end if
     call validate_active_physics_config( &
       cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling, status, message &

@@ -8,6 +8,7 @@ module bem_particle_stepper
   use bem_collision, only: collision_query_ok, find_first_hit
   use bem_boundary, only: boundary_event_type, boundary_event_ok, boundary_event_invalid_geometry, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
+  use bem_interface_types, only: interface_crossing_type
   implicit none
   private
 
@@ -25,6 +26,7 @@ module bem_particle_stepper
     integer(i32) :: status = particle_step_ok
     integer(i32) :: field_eval_count = 0_i32
     integer(i32) :: collision_query_count = 0_i32
+    type(interface_crossing_type) :: interface_crossing
   end type particle_step_result
 
   public :: build_particle_step_candidate
@@ -105,7 +107,7 @@ contains
 
   !> 構築済みcandidateがbox crossing候補のとき、fieldを再評価せずeventを解決する。
   subroutine resolve_particle_boundary_candidate( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -113,6 +115,7 @@ contains
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(out) :: result
+    logical, intent(in), optional :: defer_z_high_interface
 
     result = particle_step_result()
     result%x = x0
@@ -125,13 +128,13 @@ contains
       return
     end if
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
       )
   end subroutine resolve_particle_boundary_candidate
 
   !> box crossing時だけevent用stateを確保し、最初のeventと最大一度のremainderを処理する。
   subroutine advance_particle_boundary_crossing( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -139,6 +142,7 @@ contains
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(inout) :: result
+    logical, intent(in), optional :: defer_z_high_interface
 
     type(boundary_event_type) :: event, second_event
     type(hit_info) :: remainder_hit
@@ -146,6 +150,7 @@ contains
     real(dp) :: x_remainder(3), v_remainder(3), x_second_event(3), v_second_event(3), dt_remaining
     integer(i32) :: query_status, boundary_status
     logical :: alive, escaped
+    logical :: defer_interface
 
     call find_first_boundary_event(sim, x0, x_candidate, event, boundary_status)
     if (boundary_status /= boundary_event_ok) then
@@ -180,6 +185,20 @@ contains
     if (.not. present(hit)) then
       call query_particle_chord(mesh, sim, x0, v0, x_event, v_event, result, remainder_hit, query_status)
       if (query_status /= collision_query_ok .or. result%absorbed) return
+    end if
+
+    defer_interface = .false.
+    if (present(defer_z_high_interface)) defer_interface = defer_z_high_interface
+    if (defer_interface .and. event%face_mask == shiftl(1_i32, 5_i32) .and. event%face_bc(6) == bc_open) then
+      result%x = x_event
+      result%v = v_event
+      result%interface_crossing%has_crossing = .true.
+      result%interface_crossing%face_index = 6_i32
+      result%interface_crossing%fraction = event%fraction
+      result%interface_crossing%position = x_event
+      result%interface_crossing%velocity = v_event
+      result%interface_crossing%dt_remaining = (1.0_dp - event%fraction)*dt
+      return
     end if
 
     alive = .true.
