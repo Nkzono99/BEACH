@@ -285,6 +285,11 @@ def test_triangle_wrench_obeys_rigid_rotation_and_torque_origin_covariance(
         about_a.torque_Nm - np.cross(origin_b - origin_a, about_a.force_N),
         atol=1.0e-13,
     )
+    assert about_a.numerical_metadata["torque_origin_policy"] == "fixed_explicit"
+    np.testing.assert_allclose(
+        about_a.numerical_metadata["torque_origin_m"],
+        origin_a,
+    )
 
 
 def test_triangle_wrench_translation_moves_geometric_torque_origin(
@@ -319,4 +324,19 @@ def test_triangle_wrench_translation_moves_geometric_torque_origin(
         moved.torque_origin_m,
         base.torque_origin_m + translation,
         atol=1.0e-13,
+    )
+
+    assert base.numerical_metadata["torque_origin_policy"] == (
+        "moving_geometric_area_centroid"
+    )
+    np.testing.assert_allclose(
+        base.numerical_metadata["torque_origin_m"],
+        base.torque_origin_m,
+    )
+    assert moved.numerical_metadata["torque_origin_policy"] == (
+        "moving_geometric_area_centroid"
+    )
+    np.testing.assert_allclose(
+        moved.numerical_metadata["torque_origin_m"],
+        moved.torque_origin_m,
     )

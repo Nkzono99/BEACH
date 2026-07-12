@@ -54,6 +54,21 @@ ANALYSIS_JOB_TEMPLATE = (
 DEFAULT_PARTITION = "gr20001a"
 DEFAULT_EWALD_LAYERS = 4
 DEFAULT_GENERATION_TOLERANCE = 1.0e-8
+TARGET_GEOMETRY_RADIUS_RELATIVE_TOLERANCE = 5.0e-3
+TARGET_GEOMETRY_REPRESENTATION = "periodic2_mesh_connected"
+PHYSICAL_OBJECT_COMPONENTS = (
+    "other_objects_all_images",
+    "target_periodic_images",
+    "external_uniform",
+    "total_external",
+)
+ADDITIVE_OBJECT_COMPONENTS = PHYSICAL_OBJECT_COMPONENTS[:-1]
+CACHED_NUMERICAL_COMPONENTS = (
+    "periodic_kneq0",
+    "physical_k0",
+    "primary_free_subtraction",
+    "cached_kneq0_trace_correction",
+)
 ORACLE_UNIFORM_RELATIVE_TOLERANCE = 1.2e-1
 ORACLE_COSINE_FINE_RELATIVE_TOLERANCE = 8.0e-2
 ORACLE_QUADRATURE_RELATIVE_TOLERANCE = 1.0e-2
@@ -405,6 +420,12 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "step_selector",
         "resolved_batch",
         "mesh_id",
+        "model_radius_m",
+        "radius_source",
+        "geometry_radius_m",
+        "radius_relative_mismatch",
+        "radius_relative_tolerance",
+        "target_geometry_representation",
         "component",
         "component_kind",
         "force_x_N",
@@ -413,6 +434,10 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "torque_x_Nm",
         "torque_y_Nm",
         "torque_z_Nm",
+        "torque_origin_policy",
+        "torque_origin_x_m",
+        "torque_origin_y_m",
+        "torque_origin_z_m",
         "potential_energy_J",
         "total_charge_C",
         "status",
@@ -427,6 +452,12 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "step_selector",
         "resolved_batch",
         "mesh_id",
+        "model_radius_m",
+        "radius_source",
+        "geometry_radius_m",
+        "radius_relative_mismatch",
+        "radius_relative_tolerance",
+        "target_geometry_representation",
         "component",
         "displacement_m",
         "force_x_N",
@@ -435,6 +466,10 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "torque_x_Nm",
         "torque_y_Nm",
         "torque_z_Nm",
+        "torque_origin_policy",
+        "torque_origin_x_m",
+        "torque_origin_y_m",
+        "torque_origin_z_m",
         "electrostatic_work_J",
         "potential_difference_work_J",
         "gravity_work_J",
@@ -456,6 +491,15 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "resolved_batch",
         "mesh_id",
         "radius_m",
+        "radius_source",
+        "geometry_radius_m",
+        "radius_relative_mismatch",
+        "radius_relative_tolerance",
+        "target_geometry_representation",
+        "torque_origin_policy",
+        "initial_torque_origin_x_m",
+        "initial_torque_origin_y_m",
+        "initial_torque_origin_z_m",
         "mass_kg",
         "gravity_m_s2",
         "adhesion_model",
@@ -507,6 +551,14 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "step_selector",
         "resolved_batch",
         "mesh_id",
+        "model_radius_m",
+        "radius_source",
+        "geometry_radius_m",
+        "radius_relative_mismatch",
+        "radius_relative_tolerance",
+        "target_geometry_representation",
+        "path_start_m",
+        "path_end_m",
         "image_layers",
         "force_increment_error_N",
         "work_increment_error_J",
@@ -4876,21 +4928,59 @@ def _legacy_estimator_audit(
         }
 
 
-def _release_parameters(archive_run: Path, radius_m: float) -> dict[str, Any]:
+def _release_parameters(
+    archive_run: Path,
+    geometry_radius_m: float,
+    *,
+    allow_geometry_radius_fallback: bool = True,
+    radius_relative_tolerance: float = TARGET_GEOMETRY_RADIUS_RELATIVE_TOLERANCE,
+) -> dict[str, Any]:
     release_summary = _load_json_object_if_exists(
         archive_run / "analysis/local_release/release_model_summary.json",
         label="release model summary",
     )
-    assumptions = release_summary.get("assumptions", {})
-    if not isinstance(assumptions, dict):
-        assumptions = {}
+    assumptions_value = release_summary.get("assumptions", {})
+    if not isinstance(assumptions_value, dict):
+        raise ValidationError("release model summary assumptions must be an object")
+    assumptions = assumptions_value
+    if not math.isfinite(geometry_radius_m) or geometry_radius_m <= 0.0:
+        raise ValidationError("target geometry radius must be finite and positive")
+    if not math.isfinite(radius_relative_tolerance) or radius_relative_tolerance < 0.0:
+        raise ValidationError("radius relative tolerance must be finite and nonnegative")
+    if "radius_m" not in assumptions:
+        if not allow_geometry_radius_fallback:
+            raise ValidationError(
+                "declared dust radius is missing from "
+                "release_model_summary.json assumptions.radius_m"
+            )
+        radius_m = float(geometry_radius_m)
+        radius_source = "probe.vertex_bounding_radius_m_fallback"
+    else:
+        declared_radius = assumptions["radius_m"]
+        if isinstance(declared_radius, bool):
+            raise ValidationError("declared dust radius must be finite and positive")
+        try:
+            radius_m = float(declared_radius)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                "declared dust radius must be finite and positive"
+            ) from exc
+        if not math.isfinite(radius_m) or radius_m <= 0.0:
+            raise ValidationError("declared dust radius must be finite and positive")
+        radius_source = "release_model_summary.assumptions.radius_m"
+    radius_relative_mismatch = abs(geometry_radius_m - radius_m) / radius_m
+    if radius_relative_mismatch > radius_relative_tolerance:
+        raise ValidationError(
+            "declared/geometry radius mismatch exceeds tolerance: "
+            f"declared={radius_m:.17g} m, geometry={geometry_radius_m:.17g} m, "
+            f"relative_mismatch={radius_relative_mismatch:.17g}, "
+            f"tolerance={radius_relative_tolerance:.17g}"
+        )
     density = float(assumptions.get("dust_density_kg_m3", 3000.0))
     gravity = float(assumptions.get("moon_gravity_m_s2", 1.62))
     eta_translation_sensitivity = float(assumptions.get("energy_partition", 0.5))
     eta_translation = 1.0
     energy_tolerance = 1.0e-18
-    if not math.isfinite(radius_m) or radius_m <= 0.0:
-        raise ValidationError("dust radius must be finite and positive")
     if not math.isfinite(density) or density <= 0.0:
         raise ValidationError("dust density must be finite and positive")
     if not math.isfinite(gravity) or gravity < 0.0:
@@ -4974,6 +5064,10 @@ def _release_parameters(archive_run: Path, radius_m: float) -> dict[str, Any]:
         raise ValidationError(f"invalid vdw adhesion configuration: {exc}") from exc
     return {
         "radius_m": radius_m,
+        "radius_source": radius_source,
+        "geometry_radius_m": float(geometry_radius_m),
+        "radius_relative_mismatch": radius_relative_mismatch,
+        "radius_relative_tolerance": float(radius_relative_tolerance),
         "density_kg_m3": density,
         "mass_kg": mass,
         "gravity_m_s2": gravity,
@@ -4988,20 +5082,369 @@ def _release_parameters(archive_run: Path, radius_m: float) -> dict[str, Any]:
     }
 
 
-def _target_radius(result: Any, mesh_id: int) -> float:
-    if result.triangles is None or result.mesh_ids is None:
-        raise ValidationError("target radius requires triangles and mesh_ids")
-    triangles = np.asarray(result.triangles, dtype=np.float64)
-    mesh_ids = np.asarray(result.mesh_ids, dtype=np.int64)
-    selected = triangles[mesh_ids == int(mesh_id)]
-    if selected.size == 0:
-        raise ValidationError(f"target mesh {mesh_id} has no triangles")
-    points = selected.reshape(-1, 3)
-    center = 0.5 * (np.min(points, axis=0) + np.max(points, axis=0))
-    radius = float(np.max(np.linalg.norm(points - center, axis=1)))
+def _probe_geometry_contract(probe: Any) -> tuple[float, str]:
+    representation = str(getattr(probe, "target_geometry_representation", ""))
+    if representation != TARGET_GEOMETRY_REPRESENTATION:
+        raise ValidationError(
+            "target geometry representation mismatch: expected "
+            f"{TARGET_GEOMETRY_REPRESENTATION!r}, got {representation!r}"
+        )
+    raw_radius = getattr(probe, "vertex_bounding_radius_m", None)
+    if isinstance(raw_radius, (bool, np.bool_)) or np.asarray(raw_radius).ndim != 0:
+        raise ValidationError("probe vertex bounding radius must be a scalar")
+    try:
+        radius = float(raw_radius)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValidationError("probe vertex bounding radius is unavailable") from exc
     if not math.isfinite(radius) or radius <= 0.0:
-        raise ValidationError(f"target mesh {mesh_id} radius is invalid")
-    return radius
+        raise ValidationError("probe vertex bounding radius must be finite and positive")
+    return radius, representation
+
+
+def _validate_geometry_metadata(
+    metadata: Mapping[str, Any],
+    *,
+    probe_radius_m: float,
+) -> None:
+    representation = str(metadata.get("target_geometry_representation", ""))
+    if representation != TARGET_GEOMETRY_REPRESENTATION:
+        raise ValidationError(
+            "wrench/path target geometry representation mismatch: expected "
+            f"{TARGET_GEOMETRY_REPRESENTATION!r}, got {representation!r}"
+        )
+    raw_radius = metadata.get("vertex_bounding_radius_m")
+    if isinstance(raw_radius, bool):
+        raise ValidationError("wrench/path metadata radius is invalid")
+    try:
+        metadata_radius = float(raw_radius)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("wrench/path metadata radius is invalid") from exc
+    if not math.isfinite(metadata_radius) or not math.isclose(
+        metadata_radius,
+        probe_radius_m,
+        rel_tol=1.0e-12,
+        abs_tol=0.0,
+    ):
+        raise ValidationError(
+            "wrench/path metadata radius does not match probe vertex bounding radius"
+        )
+
+
+def _torque_origin_provenance(
+    metadata: Mapping[str, Any],
+    *,
+    point_count: int | None = None,
+) -> tuple[str, np.ndarray]:
+    policy = str(metadata.get("torque_origin_policy", ""))
+    if policy not in {
+        "moving_geometric_area_centroid",
+        "fixed_origin",
+        "fixed_explicit",
+    }:
+        raise ValidationError(f"invalid torque origin policy: {policy!r}")
+    try:
+        origin = np.asarray(metadata.get("torque_origin_m"), dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("torque origin metadata is not numeric") from exc
+    expected_shape = (3,) if point_count is None else (point_count, 3)
+    if origin.shape != expected_shape or not np.all(np.isfinite(origin)):
+        raise ValidationError(
+            f"torque origin metadata must have shape {expected_shape} and be finite"
+        )
+    return policy, origin
+
+
+def _validate_wrench_torque_origin(wrench: Any, metadata_origin_m: np.ndarray) -> None:
+    try:
+        actual_origin = np.asarray(wrench.torque_origin_m, dtype=np.float64)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValidationError("wrench torque origin is unavailable") from exc
+    if actual_origin.shape != (3,) or not np.all(np.isfinite(actual_origin)):
+        raise ValidationError("wrench torque origin must have shape (3,) and be finite")
+    if not np.allclose(actual_origin, metadata_origin_m, rtol=1.0e-12, atol=0.0):
+        raise ValidationError(
+            "wrench metadata torque origin does not match wrench.torque_origin_m"
+        )
+
+
+def _validate_production_torque_origin_contract(
+    *,
+    probe: Any,
+    wrench_policy: str,
+    wrench_origin_m: Any,
+    path_policy: str,
+    path_origin_m: Any,
+    displacement_m: Any,
+) -> None:
+    if (
+        wrench_policy != "moving_geometric_area_centroid"
+        or path_policy != "moving_geometric_area_centroid"
+    ):
+        raise ValidationError(
+            "production torque origin policy must be moving_geometric_area_centroid"
+        )
+    try:
+        centroid = np.asarray(probe.geometric_area_centroid_m, dtype=np.float64)
+        wrench_origin = np.asarray(wrench_origin_m, dtype=np.float64)
+        path_origins = np.asarray(path_origin_m, dtype=np.float64)
+        displacement = np.asarray(displacement_m, dtype=np.float64)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValidationError("production torque origin contract is unavailable") from exc
+    if centroid.shape != (3,) or wrench_origin.shape != (3,):
+        raise ValidationError("production wrench/centroid origins must have shape (3,)")
+    if displacement.ndim != 1 or path_origins.shape != (displacement.size, 3):
+        raise ValidationError("production path torque origins have the wrong shape")
+    if not all(
+        np.all(np.isfinite(value))
+        for value in (centroid, wrench_origin, path_origins, displacement)
+    ):
+        raise ValidationError("production torque origin contract must be finite")
+    expected = np.broadcast_to(centroid, path_origins.shape).copy()
+    expected[:, 2] += displacement
+    if not np.allclose(wrench_origin, centroid, rtol=1.0e-12, atol=1.0e-15):
+        raise ValidationError("production wrench torque origin is not the target centroid")
+    if not np.allclose(path_origins, expected, rtol=1.0e-12, atol=1.0e-15):
+        raise ValidationError(
+            "production moving torque origins do not track the displacement grid"
+        )
+    if not np.allclose(
+        path_origins[0], wrench_origin, rtol=1.0e-12, atol=1.0e-15
+    ):
+        raise ValidationError("wrench/path initial torque origins do not match")
+
+
+def _component_array(value: Any, *, shape: tuple[int, ...], label: str) -> np.ndarray:
+    try:
+        result = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{label} is not numeric") from exc
+    if result.shape != shape or not np.all(np.isfinite(result)):
+        raise ValidationError(f"{label} must have shape {shape} and be finite")
+    return result
+
+
+def _require_additive_identity(
+    total: np.ndarray,
+    additive: Sequence[np.ndarray],
+    *,
+    label: str,
+) -> None:
+    stacked = np.stack(additive, axis=0)
+    expected = np.sum(stacked, axis=0)
+    scale = np.maximum.reduce(
+        (
+            np.abs(total),
+            np.abs(expected),
+            np.sum(np.abs(stacked), axis=0),
+            np.full_like(total, np.finfo(float).tiny),
+        )
+    )
+    if np.any(np.abs(total - expected) > 1.0e-12 * scale):
+        raise ValidationError(f"{label} total is not the sum of additive components")
+
+
+def _validate_strict_wrench_component_contract(
+    components: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    *,
+    effective_far_correction: str,
+) -> None:
+    if set(components) != set(PHYSICAL_OBJECT_COMPONENTS):
+        raise ValidationError(
+            "strict physical wrench component set must be exactly "
+            + ", ".join(PHYSICAL_OBJECT_COMPONENTS)
+        )
+    force: dict[str, np.ndarray] = {}
+    torque: dict[str, np.ndarray] = {}
+    energy: dict[str, float] = {}
+    for name in PHYSICAL_OBJECT_COMPONENTS:
+        component = components[name]
+        force[name] = _component_array(
+            component.force_N, shape=(3,), label=f"{name} force"
+        )
+        torque[name] = _component_array(
+            component.torque_Nm, shape=(3,), label=f"{name} torque"
+        )
+        try:
+            energy[name] = float(component.potential_energy_J)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValidationError(f"{name} potential energy is invalid") from exc
+        if not math.isfinite(energy[name]):
+            raise ValidationError(f"{name} potential energy is invalid")
+    _require_additive_identity(
+        force["total_external"],
+        [force[name] for name in ADDITIVE_OBJECT_COMPONENTS],
+        label="additive physical wrench force",
+    )
+    _require_additive_identity(
+        torque["total_external"],
+        [torque[name] for name in ADDITIVE_OBJECT_COMPONENTS],
+        label="additive physical wrench torque",
+    )
+    _require_additive_identity(
+        np.asarray([energy["total_external"]]),
+        [np.asarray([energy[name]]) for name in ADDITIVE_OBJECT_COMPONENTS],
+        label="additive physical wrench potential energy",
+    )
+    available_numerical = {
+        name for name in CACHED_NUMERICAL_COMPONENTS if isinstance(metadata.get(name), Mapping)
+    }
+    if effective_far_correction == "cached_kneq0":
+        if available_numerical != set(CACHED_NUMERICAL_COMPONENTS):
+            raise ValidationError(
+                "strict cached numerical wrench component set must be exactly "
+                + ", ".join(CACHED_NUMERICAL_COMPONENTS)
+            )
+        required_numerical = CACHED_NUMERICAL_COMPONENTS
+    else:
+        if available_numerical != {"primary_free_subtraction"}:
+            raise ValidationError(
+                "strict finite numerical wrench component set must be exactly "
+                "primary_free_subtraction"
+            )
+        required_numerical = ("primary_free_subtraction",)
+    for name in required_numerical:
+        component = metadata[name]
+        _component_array(
+            component.get("force_N"),
+            shape=(3,),
+            label=f"numerical {name} force",
+        )
+        _component_array(
+            component.get("torque_Nm"),
+            shape=(3,),
+            label=f"numerical {name} torque",
+        )
+        try:
+            potential = float(component.get("potential_energy_J"))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                f"numerical {name} potential energy is invalid"
+            ) from exc
+        if not math.isfinite(potential):
+            raise ValidationError(f"numerical {name} potential energy is invalid")
+
+
+def _validate_strict_path_component_contract(path: Any) -> None:
+    force_mapping = path.component_force_N
+    torque_mapping = path.component_torque_Nm
+    if set(force_mapping) != set(PHYSICAL_OBJECT_COMPONENTS):
+        raise ValidationError(
+            "strict path force component set must be exactly "
+            + ", ".join(PHYSICAL_OBJECT_COMPONENTS)
+        )
+    if set(torque_mapping) != set(PHYSICAL_OBJECT_COMPONENTS):
+        raise ValidationError(
+            "strict path torque component set must be exactly "
+            + ", ".join(PHYSICAL_OBJECT_COMPONENTS)
+        )
+    npoint = len(path.displacement_m)
+    shape = (npoint, 3)
+    force = {
+        name: _component_array(force_mapping[name], shape=shape, label=f"{name} path force")
+        for name in PHYSICAL_OBJECT_COMPONENTS
+    }
+    torque = {
+        name: _component_array(
+            torque_mapping[name], shape=shape, label=f"{name} path torque"
+        )
+        for name in PHYSICAL_OBJECT_COMPONENTS
+    }
+    _require_additive_identity(
+        force["total_external"],
+        [force[name] for name in ADDITIVE_OBJECT_COMPONENTS],
+        label="additive physical path force",
+    )
+    _require_additive_identity(
+        torque["total_external"],
+        [torque[name] for name in ADDITIVE_OBJECT_COMPONENTS],
+        label="additive physical path torque",
+    )
+    if not np.array_equal(
+        _component_array(path.force_N, shape=shape, label="path total force"),
+        force["total_external"],
+    ) or not np.array_equal(
+        _component_array(path.torque_Nm, shape=shape, label="path total torque"),
+        torque["total_external"],
+    ):
+        raise ValidationError("path total arrays do not match total_external components")
+
+
+def _validate_shell_reference_contract(shell: Any) -> None:
+    try:
+        layers = np.asarray(shell.image_layers)
+        increment = np.asarray(shell.increment_converged, dtype=bool)
+        reference = np.asarray(shell.reference_converged, dtype=bool)
+        reference_force = np.asarray(shell.reference_force_error_N, dtype=np.float64)
+        reference_work = np.asarray(shell.reference_work_error_J, dtype=np.float64)
+        force_increment = np.asarray(shell.force_increment_error_N, dtype=np.float64)
+        work_increment = np.asarray(shell.work_increment_error_J, dtype=np.float64)
+        force_tail = np.asarray(shell.force_tail_proxy_N, dtype=np.float64)
+        work_tail = np.asarray(shell.work_tail_proxy_J, dtype=np.float64)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValidationError("finite shell reference contract is unavailable") from exc
+    if layers.ndim != 1 or layers.size == 0 or not np.issubdtype(
+        layers.dtype, np.integer
+    ):
+        raise ValidationError("finite shell image_layers must be consecutive and unique")
+    if int(layers[0]) != 0:
+        raise ValidationError("finite shell image_layers must start at zero")
+    if np.any(np.diff(layers) != 1):
+        raise ValidationError("finite shell image_layers must be consecutive and unique")
+    if increment.shape != (layers.size - 1,):
+        raise ValidationError("finite shell increment_converged has the wrong shape")
+    increment_shape = (layers.size - 1,)
+    increment_errors = (force_increment, work_increment, force_tail, work_tail)
+    if any(value.shape != increment_shape for value in increment_errors) or any(
+        not np.all(np.isfinite(value)) or np.any(value < 0.0)
+        for value in increment_errors
+    ):
+        raise ValidationError(
+            "finite shell increment/tail errors must have the right shape and be nonnegative finite"
+        )
+    if str(getattr(shell, "reference_model", "")) != "infinite_physical":
+        raise ValidationError("finite shell reference_model must be infinite_physical")
+    if (
+        reference.shape != layers.shape
+        or reference_force.shape != layers.shape
+        or reference_work.shape != layers.shape
+        or not np.all(np.isfinite(reference_force))
+        or not np.all(np.isfinite(reference_work))
+    ):
+        raise ValidationError("finite shell physical reference arrays have the wrong shape")
+    if np.any(reference_force < 0.0) or np.any(reference_work < 0.0):
+        raise ValidationError("finite shell physical reference errors must be nonnegative")
+    selected = getattr(shell, "selected_image_layers", None)
+    status = str(getattr(shell, "status", ""))
+    if status not in {"converged", "not_converged"}:
+        raise ValidationError("finite shell status is invalid")
+    if status == "converged":
+        if selected is None or int(selected) != int(layers[-1]) or layers.size < 3:
+            raise ValidationError("finite shell selected_image_layers is inconsistent")
+        if not np.all(increment[-2:]):
+            raise ValidationError(
+                "finite shell selected layer requires two successive increment gates"
+            )
+        if not np.all(reference[-2:]):
+            raise ValidationError(
+                "finite shell selected layer requires two successive physical reference gates"
+            )
+    elif selected is not None:
+        raise ValidationError("non-converged finite shell cannot select an image layer")
+
+
+def _radius_provenance_fields(
+    mechanics: Mapping[str, Any],
+    target_geometry_representation: str,
+) -> dict[str, Any]:
+    return {
+        "model_radius_m": mechanics["radius_m"],
+        "radius_source": mechanics["radius_source"],
+        "geometry_radius_m": mechanics["geometry_radius_m"],
+        "radius_relative_mismatch": mechanics["radius_relative_mismatch"],
+        "radius_relative_tolerance": mechanics["radius_relative_tolerance"],
+        "target_geometry_representation": target_geometry_representation,
+    }
 
 
 def _wrench_row(
@@ -5015,19 +5458,37 @@ def _wrench_row(
     step_selector: int | str,
     resolved_batch: int,
     mesh_id: int,
+    mechanics: Mapping[str, Any],
+    target_geometry_representation: str,
     component: str,
     component_kind: str,
     force: Any,
     torque: Any,
+    torque_origin_policy: str,
+    torque_origin_m: Any,
     total_charge: float,
     potential_energy: Any,
 ) -> dict[str, Any]:
     force_value = np.asarray(force, dtype=np.float64)
     torque_value = np.asarray(torque, dtype=np.float64)
+    origin_value = np.asarray(torque_origin_m, dtype=np.float64)
     if force_value.shape != (3,) or torque_value.shape != (3,):
         raise ValidationError("wrench component vectors must have shape (3,)")
     if not np.all(np.isfinite(force_value)) or not np.all(np.isfinite(torque_value)):
         raise ValidationError("wrench component vectors must be finite")
+    if origin_value.shape != (3,) or not np.all(np.isfinite(origin_value)):
+        raise ValidationError("wrench torque origin must have shape (3,) and be finite")
+    try:
+        charge_value = float(total_charge)
+        potential_value = (
+            None if potential_energy is None else float(potential_energy)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("wrench scalar fields must be finite") from exc
+    if not math.isfinite(charge_value) or (
+        potential_value is not None and not math.isfinite(potential_value)
+    ):
+        raise ValidationError("wrench scalar fields must be finite")
     return {
         "case": case,
         "periodic_model": periodic_model,
@@ -5057,6 +5518,7 @@ def _wrench_row(
         "step_selector": step_selector,
         "resolved_batch": resolved_batch,
         "mesh_id": mesh_id,
+        **_radius_provenance_fields(mechanics, target_geometry_representation),
         "component": component,
         "component_kind": component_kind,
         "force_x_N": force_value[0],
@@ -5065,8 +5527,12 @@ def _wrench_row(
         "torque_x_Nm": torque_value[0],
         "torque_y_Nm": torque_value[1],
         "torque_z_Nm": torque_value[2],
-        "potential_energy_J": "" if potential_energy is None else potential_energy,
-        "total_charge_C": total_charge,
+        "torque_origin_policy": torque_origin_policy,
+        "torque_origin_x_m": origin_value[0],
+        "torque_origin_y_m": origin_value[1],
+        "torque_origin_z_m": origin_value[2],
+        "potential_energy_J": "" if potential_value is None else potential_value,
+        "total_charge_C": charge_value,
         "status": "available",
         "message": "",
     }
@@ -5083,7 +5549,21 @@ def _finite_shell_rows(
     resolved_batch: int,
     mesh_id: int,
     shell: Any,
+    mechanics: Mapping[str, Any],
+    target_geometry_representation: str,
+    displacement_m: Any,
 ) -> list[dict[str, Any]]:
+    _validate_shell_reference_contract(shell)
+    path_grid = np.asarray(displacement_m, dtype=np.float64)
+    if path_grid.ndim != 1 or path_grid.size < 2 or not np.all(np.isfinite(path_grid)):
+        raise ValidationError("finite shell displacement grid is invalid")
+    if not math.isclose(float(path_grid[0]), 0.0, rel_tol=0.0, abs_tol=0.0) or not math.isclose(
+        float(path_grid[-1]),
+        2.0 * float(mechanics["radius_m"]),
+        rel_tol=1.0e-12,
+        abs_tol=0.0,
+    ):
+        raise ValidationError("finite shell displacement grid must span 0..2R")
     rows: list[dict[str, Any]] = []
     for index, layer in enumerate(shell.image_layers):
         rows.append(
@@ -5096,6 +5576,11 @@ def _finite_shell_rows(
                 "step_selector": step_selector,
                 "resolved_batch": resolved_batch,
                 "mesh_id": mesh_id,
+                **_radius_provenance_fields(
+                    mechanics, target_geometry_representation
+                ),
+                "path_start_m": path_grid[0],
+                "path_end_m": path_grid[-1],
                 "image_layers": int(layer),
                 "force_increment_error_N": (
                     "" if index == 0 else shell.force_increment_error_N[index - 1]
@@ -5247,6 +5732,8 @@ def _evaluate_object_physics_at_step(
     step: int | None,
     evaluation_target_ids: Sequence[int],
     run_shell: bool,
+    allow_geometry_radius_fallback: bool = True,
+    require_complete_contract: bool = False,
     verified_cache_prime: Mapping[str, Any] | None = None,
     cache_file_hashes: dict[Path, str] | None = None,
 ) -> tuple[
@@ -5343,7 +5830,17 @@ def _evaluate_object_physics_at_step(
                     for mesh_id in selected_ids:
                         try:
                             probe = snapshot.object_probe(mesh_id)
-                            radius = _target_radius(result, mesh_id)
+                            geometry_radius, geometry_representation = (
+                                _probe_geometry_contract(probe)
+                            )
+                            mechanics = _release_parameters(
+                                archive_run,
+                                geometry_radius,
+                                allow_geometry_radius_fallback=(
+                                    allow_geometry_radius_fallback
+                                ),
+                            )
+                            radius = mechanics["radius_m"]
                             initial_grid = np.linspace(0.0, 2.0 * radius, 17)
                             wrench = probe.wrench(components=True)
                             metadata = wrench.numerical_metadata
@@ -5351,6 +5848,14 @@ def _evaluate_object_physics_at_step(
                                 raise ValidationError(
                                     "wrench numerical metadata is unavailable"
                                 )
+                            _validate_geometry_metadata(
+                                metadata,
+                                probe_radius_m=geometry_radius,
+                            )
+                            torque_origin_policy, torque_origin_m = (
+                                _torque_origin_provenance(metadata)
+                            )
+                            _validate_wrench_torque_origin(wrench, torque_origin_m)
                             effective = str(
                                 metadata.get("effective_far_correction", "unknown")
                             )
@@ -5382,7 +5887,13 @@ def _evaluate_object_physics_at_step(
                                 file_hashes=cache_file_hashes,
                             )
                             physical_components = dict(wrench.components)
-                            if "total_external" not in physical_components:
+                            if require_complete_contract:
+                                _validate_strict_wrench_component_contract(
+                                    physical_components,
+                                    metadata,
+                                    effective_far_correction=effective,
+                                )
+                            elif "total_external" not in physical_components:
                                 physical_components["total_external"] = SimpleNamespace(
                                     force_N=wrench.force_N,
                                     torque_Nm=wrench.torque_Nm,
@@ -5402,6 +5913,10 @@ def _evaluate_object_physics_at_step(
                                             int(result.batches) if step is None else step
                                         ),
                                         mesh_id=mesh_id,
+                                        mechanics=mechanics,
+                                        target_geometry_representation=(
+                                            geometry_representation
+                                        ),
                                         component=component_name,
                                         component_kind=(
                                             "physical_total"
@@ -5410,6 +5925,8 @@ def _evaluate_object_physics_at_step(
                                         ),
                                         force=component.force_N,
                                         torque=component.torque_Nm,
+                                        torque_origin_policy=torque_origin_policy,
+                                        torque_origin_m=torque_origin_m,
                                         total_charge=float(wrench.total_charge_C),
                                         potential_energy=getattr(
                                             component, "potential_energy_J", None
@@ -5438,6 +5955,10 @@ def _evaluate_object_physics_at_step(
                                             int(result.batches) if step is None else step
                                         ),
                                         mesh_id=mesh_id,
+                                        mechanics=mechanics,
+                                        target_geometry_representation=(
+                                            geometry_representation
+                                        ),
                                         component=f"numerical:{component_name}",
                                         component_kind=(
                                             "numerical_diagnostic_included"
@@ -5447,6 +5968,8 @@ def _evaluate_object_physics_at_step(
                                         ),
                                         force=component["force_N"],
                                         torque=component["torque_Nm"],
+                                        torque_origin_policy=torque_origin_policy,
+                                        torque_origin_m=torque_origin_m,
                                         total_charge=float(wrench.total_charge_C),
                                         potential_energy=component.get(
                                             "potential_energy_J"
@@ -5463,7 +5986,31 @@ def _evaluate_object_physics_at_step(
                                 max_refinement=8,
                                 components=True,
                             )
-                            mechanics = _release_parameters(archive_run, radius)
+                            path_metadata = path.numerical_metadata
+                            if not isinstance(path_metadata, Mapping):
+                                raise ValidationError(
+                                    "path numerical metadata is unavailable"
+                                )
+                            _validate_geometry_metadata(
+                                path_metadata,
+                                probe_radius_m=geometry_radius,
+                            )
+                            path_torque_policy, path_torque_origins = (
+                                _torque_origin_provenance(
+                                    path_metadata,
+                                    point_count=len(path.displacement_m),
+                                )
+                            )
+                            _validate_production_torque_origin_contract(
+                                probe=probe,
+                                wrench_policy=torque_origin_policy,
+                                wrench_origin_m=torque_origin_m,
+                                path_policy=path_torque_policy,
+                                path_origin_m=path_torque_origins,
+                                displacement_m=path.displacement_m,
+                            )
+                            if require_complete_contract:
+                                _validate_strict_path_component_contract(path)
                             release = path.evaluate_release(
                                 mass_kg=mechanics["mass_kg"],
                                 gravity_m_s2=mechanics["gravity_m_s2"],
@@ -5522,6 +6069,9 @@ def _evaluate_object_physics_at_step(
                                         "case": case,
                                         "periodic_model": periodic_model,
                                         "mesh_id": mesh_id,
+                                        **_radius_provenance_fields(
+                                            mechanics, geometry_representation
+                                        ),
                                         "component": "total_external",
                                         "displacement_m": displacement,
                                         "force_x_N": path.force_N[index, 0],
@@ -5530,6 +6080,16 @@ def _evaluate_object_physics_at_step(
                                         "torque_x_Nm": path.torque_Nm[index, 0],
                                         "torque_y_Nm": path.torque_Nm[index, 1],
                                         "torque_z_Nm": path.torque_Nm[index, 2],
+                                        "torque_origin_policy": path_torque_policy,
+                                        "torque_origin_x_m": path_torque_origins[
+                                            index, 0
+                                        ],
+                                        "torque_origin_y_m": path_torque_origins[
+                                            index, 1
+                                        ],
+                                        "torque_origin_z_m": path_torque_origins[
+                                            index, 2
+                                        ],
                                         "electrostatic_work_J": path.electrostatic_work_J[index],
                                         "potential_difference_work_J": (
                                             ""
@@ -5557,6 +6117,9 @@ def _evaluate_object_physics_at_step(
                                             "case": case,
                                             "periodic_model": periodic_model,
                                             "mesh_id": mesh_id,
+                                            **_radius_provenance_fields(
+                                                mechanics, geometry_representation
+                                            ),
                                             "component": component_name,
                                             "displacement_m": displacement,
                                             "force_x_N": values[index, 0],
@@ -5565,6 +6128,18 @@ def _evaluate_object_physics_at_step(
                                             "torque_x_Nm": torques[index, 0],
                                             "torque_y_Nm": torques[index, 1],
                                             "torque_z_Nm": torques[index, 2],
+                                            "torque_origin_policy": (
+                                                path_torque_policy
+                                            ),
+                                            "torque_origin_x_m": (
+                                                path_torque_origins[index, 0]
+                                            ),
+                                            "torque_origin_y_m": (
+                                                path_torque_origins[index, 1]
+                                            ),
+                                            "torque_origin_z_m": (
+                                                path_torque_origins[index, 2]
+                                            ),
                                             "status": path.status,
                                         }
                                     )
@@ -5574,6 +6149,29 @@ def _evaluate_object_physics_at_step(
                                     "periodic_model": periodic_model,
                                     "mesh_id": mesh_id,
                                     "radius_m": radius,
+                                    "radius_source": mechanics["radius_source"],
+                                    "geometry_radius_m": mechanics[
+                                        "geometry_radius_m"
+                                    ],
+                                    "radius_relative_mismatch": mechanics[
+                                        "radius_relative_mismatch"
+                                    ],
+                                    "radius_relative_tolerance": mechanics[
+                                        "radius_relative_tolerance"
+                                    ],
+                                    "target_geometry_representation": (
+                                        geometry_representation
+                                    ),
+                                    "torque_origin_policy": path_torque_policy,
+                                    "initial_torque_origin_x_m": (
+                                        path_torque_origins[0, 0]
+                                    ),
+                                    "initial_torque_origin_y_m": (
+                                        path_torque_origins[0, 1]
+                                    ),
+                                    "initial_torque_origin_z_m": (
+                                        path_torque_origins[0, 2]
+                                    ),
                                     "mass_kg": mechanics["mass_kg"],
                                     "gravity_m_s2": mechanics["gravity_m_s2"],
                                     "adhesion_model": mechanics["adhesion_model"],
@@ -5684,6 +6282,11 @@ def _evaluate_object_physics_at_step(
                                         ),
                                         mesh_id=mesh_id,
                                         shell=shell,
+                                        mechanics=mechanics,
+                                        target_geometry_representation=(
+                                            geometry_representation
+                                        ),
+                                        displacement_m=initial_grid,
                                     )
                                 )
                             successes += 1
@@ -5795,9 +6398,11 @@ def _evaluate_object_physics_at_step(
 
 def _evaluate_new_infinite_shell_reference(
     *,
+    archive_run: Path,
     validation_root: Path,
     library: Path,
     run: Beach,
+    allow_geometry_radius_fallback: bool = True,
     verified_cache_prime: Mapping[str, Any] | None = None,
     cache_file_hashes: dict[Path, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
@@ -5837,6 +6442,16 @@ def _evaluate_new_infinite_shell_reference(
             for mesh_id in target_ids:
                 try:
                     probe = snapshot.object_probe(mesh_id)
+                    geometry_radius, _geometry_representation = (
+                        _probe_geometry_contract(probe)
+                    )
+                    mechanics = _release_parameters(
+                        archive_run,
+                        geometry_radius,
+                        allow_geometry_radius_fallback=(
+                            allow_geometry_radius_fallback
+                        ),
+                    )
                     if verified_cache_prime is not None:
                         wrench = probe.wrench(components=False)
                         metadata = wrench.numerical_metadata
@@ -5844,6 +6459,10 @@ def _evaluate_new_infinite_shell_reference(
                             raise ValidationError(
                                 "shell reference cache metadata is unavailable"
                             )
+                        _validate_geometry_metadata(
+                            metadata,
+                            probe_radius_m=geometry_radius,
+                        )
                         effective = str(
                             metadata.get("effective_far_correction", "unknown")
                         )
@@ -5858,7 +6477,7 @@ def _evaluate_new_infinite_shell_reference(
                             verified_prime=verified_cache_prime,
                             file_hashes=cache_file_hashes,
                         )
-                    radius = _target_radius(result, mesh_id)
+                    radius = mechanics["radius_m"]
                     initial_grid = np.linspace(0.0, 2.0 * radius, 17)
                     shell = finite_shell_convergence(
                         snapshot,
@@ -5880,6 +6499,11 @@ def _evaluate_new_infinite_shell_reference(
                             resolved_batch=int(result.batches),
                             mesh_id=mesh_id,
                             shell=shell,
+                            mechanics=mechanics,
+                            target_geometry_representation=(
+                                _geometry_representation
+                            ),
+                            displacement_m=initial_grid,
                         )
                     )
                 except Exception as exc:
@@ -5984,6 +6608,8 @@ def _evaluate_object_physics(
             step=step,
             evaluation_target_ids=target_ids,
             run_shell=step is None,
+            allow_geometry_radius_fallback=not require_history,
+            require_complete_contract=require_history,
             verified_cache_prime=verified_cache_prime,
             cache_file_hashes=cache_file_hashes,
         )
@@ -6010,9 +6636,11 @@ def _evaluate_object_physics(
     new_infinite_run = runs.get("new_infinite_physical")
     if new_infinite_run is not None:
         reference_rows, reference_failures = _evaluate_new_infinite_shell_reference(
+            archive_run=archive_run,
             validation_root=validation_root,
             library=library,
             run=new_infinite_run,
+            allow_geometry_radius_fallback=not require_history,
             verified_cache_prime=verified_cache_prime,
             cache_file_hashes=cache_file_hashes,
         )

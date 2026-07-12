@@ -160,6 +160,53 @@ def test_vertical_path_keeps_sources_frozen_and_matches_potential_work(
     assert len(analytic_kernel.instances) == 2
 
 
+def test_vertical_path_records_moving_and_fixed_torque_origins(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    displacement = np.array([0.0, 0.25, 0.5])
+    explicit_origin = np.array([0.3, -0.2, 0.1])
+
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        centroid = np.array(probe.geometric_area_centroid_m, copy=True)
+        moving = probe.vertical_path(displacement, adaptive=False)
+        fixed_origin = probe.vertical_path(
+            displacement,
+            adaptive=False,
+            torque_origin="origin",
+        )
+        fixed_explicit = probe.vertical_path(
+            displacement,
+            adaptive=False,
+            torque_origin=explicit_origin,
+        )
+
+    moving_origins = np.asarray(moving.numerical_metadata["torque_origin_m"])
+    expected_moving = np.broadcast_to(centroid, (displacement.size, 3)).copy()
+    expected_moving[:, 2] += displacement
+    assert moving.numerical_metadata["torque_origin_policy"] == (
+        "moving_geometric_area_centroid"
+    )
+    np.testing.assert_allclose(moving_origins, expected_moving)
+    assert fixed_origin.numerical_metadata["torque_origin_policy"] == "fixed_origin"
+    np.testing.assert_allclose(
+        fixed_origin.numerical_metadata["torque_origin_m"],
+        np.zeros((displacement.size, 3)),
+    )
+    assert fixed_explicit.numerical_metadata["torque_origin_policy"] == (
+        "fixed_explicit"
+    )
+    np.testing.assert_allclose(
+        fixed_explicit.numerical_metadata["torque_origin_m"],
+        np.broadcast_to(explicit_origin, (displacement.size, 3)),
+    )
+
+
 def test_vertical_path_refines_sharp_curve_and_reports_max_refinement(
     tmp_path: Path,
     analytic_kernel,
@@ -171,6 +218,7 @@ def test_vertical_path_refines_sharp_curve_and_reports_max_refinement(
         _result(tmp_path), step=None, config_path=config
     ) as snapshot:
         probe = snapshot.object_probe(1)
+        centroid = np.array(probe.geometric_area_centroid_m, copy=True)
         refined = probe.vertical_path(
             np.array([0.0, 1.0]),
             relative_tolerance=1.0e-3,
@@ -188,6 +236,17 @@ def test_vertical_path_refines_sharp_curve_and_reports_max_refinement(
 
     assert refined.displacement_m.size > 2
     assert refined.refinement_count > 0
+    expected_origins = np.broadcast_to(
+        centroid, (refined.displacement_m.size, 3)
+    ).copy()
+    expected_origins[:, 2] += refined.displacement_m
+    assert refined.numerical_metadata["torque_origin_policy"] == (
+        "moving_geometric_area_centroid"
+    )
+    np.testing.assert_allclose(
+        refined.numerical_metadata["torque_origin_m"],
+        expected_origins,
+    )
     assert failed.status == "not_converged"
     assert failed.numerical_metadata["status_reason"] == "max_refinement_reached"
 

@@ -3850,6 +3850,7 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         "models": [],
         "steps": [],
         "shell_meshes": [],
+        "path_grids": [],
     }
 
     class FakeRelease:
@@ -3878,15 +3879,29 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
             self.electrostatic_work_J = grid * 3.0
             self.potential_difference_work_J = grid * 3.0 if qualified else None
             self.component_force_N = {
-                "target_periodic_images": self.force_N * 0.25,
+                "other_objects_all_images": self.force_N * 0.25,
+                "target_periodic_images": self.force_N * 0.5,
+                "external_uniform": self.force_N * 0.25,
                 "total_external": self.force_N,
             }
             self.component_torque_Nm = {
-                "target_periodic_images": self.torque_Nm * 0.25,
+                "other_objects_all_images": self.torque_Nm * 0.25,
+                "target_periodic_images": self.torque_Nm * 0.5,
+                "external_uniform": self.torque_Nm * 0.25,
                 "total_external": self.torque_Nm,
             }
             self.status = "converged" if qualified else "not_converged"
             self.work_relative_mismatch = 0.0
+            torque_origins = np.broadcast_to(
+                np.array([1.0, 2.0, 3.0]), (grid.size, 3)
+            ).copy()
+            torque_origins[:, 2] += grid
+            self.numerical_metadata = {
+                "target_geometry_representation": "periodic2_mesh_connected",
+                "vertex_bounding_radius_m": 3.5e-5,
+                "torque_origin_policy": "moving_geometric_area_centroid",
+                "torque_origin_m": torque_origins,
+            }
 
         def evaluate_release(self, **_kwargs):
             return FakeRelease(self.displacement_m)
@@ -3895,6 +3910,9 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         def __init__(self, mesh_id: int, periodic_model: str):
             self.mesh_id = mesh_id
             self.periodic_model = periodic_model
+            self.vertex_bounding_radius_m = 3.5e-5
+            self.target_geometry_representation = "periodic2_mesh_connected"
+            self.geometric_area_centroid_m = np.array([1.0, 2.0, 3.0])
 
         def wrench(self, **_kwargs):
             total = SimpleNamespace(
@@ -3902,14 +3920,30 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
                 torque_Nm=np.array([4.0, 5.0, 6.0]),
                 potential_energy_J=7.0,
             )
+            other = _wrench_component(
+                total.force_N * 0.25,
+                total.torque_Nm * 0.25,
+                total.potential_energy_J * 0.25,
+            )
+            images = _wrench_component(
+                total.force_N * 0.5,
+                total.torque_Nm * 0.5,
+                total.potential_energy_J * 0.5,
+            )
+            uniform = _wrench_component(
+                total.force_N * 0.25,
+                total.torque_Nm * 0.25,
+                total.potential_energy_J * 0.25,
+            )
             return SimpleNamespace(
                 total_charge_C=8.0e-15,
                 force_N=total.force_N,
                 torque_Nm=total.torque_Nm,
+                torque_origin_m=np.array([1.0, 2.0, 3.0]),
                 components={
-                    "other_objects_all_images": total,
-                    "target_periodic_images": total,
-                    "external_uniform": total,
+                    "other_objects_all_images": other,
+                    "target_periodic_images": images,
+                    "external_uniform": uniform,
                     "total_external": total,
                 },
                 numerical_metadata={
@@ -3918,6 +3952,12 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
                         if self.periodic_model == "configured"
                         else "cached_kneq0"
                     ),
+                    "target_geometry_representation": (
+                        "periodic2_mesh_connected"
+                    ),
+                    "vertex_bounding_radius_m": self.vertex_bounding_radius_m,
+                    "torque_origin_policy": "moving_geometric_area_centroid",
+                    "torque_origin_m": np.array([1.0, 2.0, 3.0]),
                     "periodic_cache": (
                         None
                         if self.periodic_model == "configured"
@@ -3928,25 +3968,43 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
                             "path": cache_path,
                         }
                     ),
-                    "periodic_kneq0": {
-                        "force_N": np.array([0.1, 0.2, 0.3]),
-                        "torque_Nm": np.array([0.4, 0.5, 0.6]),
-                        "potential_energy_J": 0.7,
-                    },
-                    "physical_k0": {
-                        "force_N": np.array([0.0, 0.0, 0.8]),
-                        "torque_Nm": np.zeros(3),
-                        "potential_energy_J": 0.9,
-                    },
-                    "cached_kneq0_trace_correction": {
-                        "force_N": np.array([9.0, 8.0, 7.0]),
-                        "torque_Nm": np.array([6.0, 5.0, 4.0]),
-                        "potential_energy_J": 3.0,
+                    "periodic_kneq0": (
+                        None
+                        if self.periodic_model == "configured"
+                        else {
+                            "force_N": np.array([0.1, 0.2, 0.3]),
+                            "torque_Nm": np.array([0.4, 0.5, 0.6]),
+                            "potential_energy_J": 0.7,
+                        }
+                    ),
+                    "physical_k0": (
+                        None
+                        if self.periodic_model == "configured"
+                        else {
+                            "force_N": np.array([0.0, 0.0, 0.8]),
+                            "torque_Nm": np.zeros(3),
+                            "potential_energy_J": 0.9,
+                        }
+                    ),
+                    "cached_kneq0_trace_correction": (
+                        None
+                        if self.periodic_model == "configured"
+                        else {
+                            "force_N": np.array([9.0, 8.0, 7.0]),
+                            "torque_Nm": np.array([6.0, 5.0, 4.0]),
+                            "potential_energy_J": 3.0,
+                        }
+                    ),
+                    "primary_free_subtraction": {
+                        "force_N": np.array([-0.1, -0.2, -0.3]),
+                        "torque_Nm": np.array([-0.4, -0.5, -0.6]),
+                        "potential_energy_J": -0.7,
                     },
                 },
             )
 
         def vertical_path(self, displacement_m, **_kwargs):
+            calls["path_grids"].append(np.asarray(displacement_m, dtype=float))
             return FakePath(
                 np.asarray(displacement_m, dtype=float),
                 qualified=self.periodic_model == "configured",
@@ -4009,18 +4067,18 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         calls["shell_meshes"].append(probe.mesh_id)
         assert np.asarray(displacement_m)[0] == 0.0
         return SimpleNamespace(
-            image_layers=np.array([0, 1, 2]),
-            force_increment_error_N=np.array([1.0, 0.1]),
-            work_increment_error_J=np.array([2.0, 0.2]),
-            force_tail_proxy_N=np.array([10.0, 1.0]),
-            work_tail_proxy_J=np.array([20.0, 2.0]),
-            increment_converged=np.array([False, True]),
+            image_layers=np.array([0, 1, 2, 3]),
+            force_increment_error_N=np.array([1.0, 0.1, 0.01]),
+            work_increment_error_J=np.array([2.0, 0.2, 0.02]),
+            force_tail_proxy_N=np.array([10.0, 1.0, 0.1]),
+            work_tail_proxy_J=np.array([20.0, 2.0, 0.2]),
+            increment_converged=np.array([False, True, True]),
             reference_model="infinite_physical",
-            reference_force_error_N=np.array([3.0, 2.0, 1.0]),
-            reference_work_error_J=np.array([6.0, 4.0, 2.0]),
-            reference_converged=np.array([False, False, True]),
+            reference_force_error_N=np.array([3.0, 2.0, 1.0, 0.1]),
+            reference_work_error_J=np.array([6.0, 4.0, 2.0, 0.2]),
+            reference_converged=np.array([False, False, True, True]),
             status="converged",
-            selected_image_layers=2,
+            selected_image_layers=3,
         )
 
     monkeypatch.setattr(tool, "Beach", FakeBeach)
@@ -4052,6 +4110,9 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         None,
     ]
     assert calls["shell_meshes"] == [6, 7]
+    assert calls["path_grids"]
+    assert all(grid[0] == 0.0 for grid in calls["path_grids"])
+    assert all(grid[-1] == pytest.approx(7.0e-5) for grid in calls["path_grids"])
     with (validation_root / "analysis/object_wrench.csv").open(
         "r", encoding="utf-8", newline=""
     ) as stream:
@@ -4074,6 +4135,26 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         and row["status"] == "available"
         for row in wrench_rows
     )
+    assert all(
+        row["torque_origin_policy"] == "moving_geometric_area_centroid"
+        and float(row["torque_origin_x_m"]) == pytest.approx(1.0)
+        and float(row["torque_origin_y_m"]) == pytest.approx(2.0)
+        and float(row["torque_origin_z_m"]) == pytest.approx(3.0)
+        for row in wrench_rows
+        if row["status"] == "available"
+    )
+    assert all(
+        float(row["model_radius_m"]) == pytest.approx(3.5e-5)
+        and row["radius_source"]
+        == "release_model_summary.assumptions.radius_m"
+        and float(row["geometry_radius_m"]) == pytest.approx(3.5e-5)
+        and float(row["radius_relative_mismatch"]) == pytest.approx(0.0)
+        and float(row["radius_relative_tolerance"]) == pytest.approx(5.0e-3)
+        and row["target_geometry_representation"]
+        == "periodic2_mesh_connected"
+        for row in wrench_rows
+        if row["status"] == "available"
+    )
     assert any(
         row["component"] == "total_external"
         and row["component_kind"] == "physical_total"
@@ -4089,6 +4170,35 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         and row["component_kind"] == "numerical_diagnostic_included"
         for row in wrench_rows
     )
+    wrench_groups: dict[tuple[str, ...], list[dict[str, str]]] = {}
+    for row in wrench_rows:
+        if row["status"] != "available":
+            continue
+        key = (
+            row["case"],
+            row["periodic_model"],
+            row["resolved_batch"],
+            row["mesh_id"],
+        )
+        wrench_groups.setdefault(key, []).append(row)
+    for rows in wrench_groups.values():
+        physical = {
+            row["component"]
+            for row in rows
+            if row["component_kind"].startswith("physical_")
+        }
+        assert physical == set(tool.PHYSICAL_OBJECT_COMPONENTS)
+        numerical = {
+            row["component"].removeprefix("numerical:")
+            for row in rows
+            if row["component"].startswith("numerical:")
+        }
+        expected_numerical = (
+            set(tool.CACHED_NUMERICAL_COMPONENTS)
+            if rows[0]["effective_far_correction"] == "cached_kneq0"
+            else {"primary_free_subtraction"}
+        )
+        assert numerical == expected_numerical
     with (validation_root / "analysis/object_path_curves.csv").open(
         "r", encoding="utf-8", newline=""
     ) as stream:
@@ -4105,6 +4215,47 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         for row in curve_rows
     ]
     assert len(curve_keys) == len(set(curve_keys))
+    assert all(
+        row["torque_origin_policy"] == "moving_geometric_area_centroid"
+        and float(row["torque_origin_x_m"]) == pytest.approx(1.0)
+        and float(row["torque_origin_y_m"]) == pytest.approx(2.0)
+        and float(row["torque_origin_z_m"])
+        == pytest.approx(3.0 + float(row["displacement_m"]))
+        for row in curve_rows
+    )
+    curve_groups: dict[tuple[str, ...], dict[str, list[tuple[str, ...]]]] = {}
+    for row in curve_rows:
+        key = (
+            row["case"],
+            row["periodic_model"],
+            row["resolved_batch"],
+            row["mesh_id"],
+        )
+        signature = (
+            row["displacement_m"],
+            row["torque_origin_policy"],
+            row["torque_origin_x_m"],
+            row["torque_origin_y_m"],
+            row["torque_origin_z_m"],
+        )
+        curve_groups.setdefault(key, {}).setdefault(row["component"], []).append(
+            signature
+        )
+    for components in curve_groups.values():
+        assert set(components) == set(tool.PHYSICAL_OBJECT_COMPONENTS)
+        reference_signature = components["total_external"]
+        assert all(values == reference_signature for values in components.values())
+    assert all(
+        float(row["model_radius_m"]) == pytest.approx(3.5e-5)
+        and row["radius_source"]
+        == "release_model_summary.assumptions.radius_m"
+        and float(row["geometry_radius_m"]) == pytest.approx(3.5e-5)
+        and float(row["radius_relative_mismatch"]) == pytest.approx(0.0)
+        and float(row["radius_relative_tolerance"]) == pytest.approx(5.0e-3)
+        and row["target_geometry_representation"]
+        == "periodic2_mesh_connected"
+        for row in curve_rows
+    )
     with (validation_root / "analysis/object_path_summary.csv").open(
         "r", encoding="utf-8", newline=""
     ) as stream:
@@ -4121,6 +4272,23 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
             and row["endpoint_available_energy_J"] == "6e-18"
         for row in path_rows
     )
+    declared_rows = [row for row in path_rows if row["status"] == "available"]
+    assert declared_rows
+    expected_mass = 4.0 * np.pi * 3000.0 * (3.5e-5) ** 3 / 3.0
+    assert all(float(row["radius_m"]) == pytest.approx(3.5e-5) for row in declared_rows)
+    assert all(float(row["mass_kg"]) == pytest.approx(expected_mass) for row in declared_rows)
+    assert all(
+        row["radius_source"] == "release_model_summary.assumptions.radius_m"
+        and float(row["geometry_radius_m"]) == pytest.approx(3.5e-5)
+        and float(row["radius_relative_mismatch"]) == pytest.approx(0.0)
+        and float(row["radius_relative_tolerance"]) == pytest.approx(5.0e-3)
+        and row["target_geometry_representation"] == "periodic2_mesh_connected"
+        and row["torque_origin_policy"] == "moving_geometric_area_centroid"
+        and float(row["initial_torque_origin_x_m"]) == pytest.approx(1.0)
+        and float(row["initial_torque_origin_y_m"]) == pytest.approx(2.0)
+        and float(row["initial_torque_origin_z_m"]) == pytest.approx(3.0)
+        for row in declared_rows
+    )
     assert any(
         row["mesh_id"] == "7"
         and row["periodic_model"] == "infinite_physical"
@@ -4135,13 +4303,20 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         "r", encoding="utf-8", newline=""
     ) as stream:
         shell_rows = list(csv.DictReader(stream))
-    assert shell_rows[-1]["selected_image_layers"] == "2"
-    assert shell_rows[-1]["force_tail_proxy_N"] == "1.0"
-    assert shell_rows[-1]["work_tail_proxy_J"] == "2.0"
+    assert shell_rows[-1]["selected_image_layers"] == "3"
+    assert shell_rows[-1]["force_tail_proxy_N"] == "0.1"
+    assert shell_rows[-1]["work_tail_proxy_J"] == "0.2"
     assert shell_rows[-1]["reference_model"] == "infinite_physical"
-    assert shell_rows[-1]["reference_force_error_N"] == "1.0"
-    assert shell_rows[-1]["reference_work_error_J"] == "2.0"
+    assert shell_rows[-1]["reference_force_error_N"] == "0.1"
+    assert shell_rows[-1]["reference_work_error_J"] == "0.2"
     assert shell_rows[-1]["reference_converged"] == "True"
+    assert all(
+        float(row["model_radius_m"]) == pytest.approx(3.5e-5)
+        and float(row["geometry_radius_m"]) == pytest.approx(3.5e-5)
+        and float(row["path_start_m"]) == pytest.approx(0.0)
+        and float(row["path_end_m"]) == pytest.approx(7.0e-5)
+        for row in shell_rows
+    )
     assert report["physics_evaluation"]["status"] == "available"
     review = (validation_root / "analysis/review_ja.md").read_text(encoding="utf-8")
     assert "mesh 6" in review
@@ -4172,6 +4347,28 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         for row in comparison_rows
     )
 
+    strict_run = FakeBeach(
+        archive_run / "work/latest",
+        config_path=archive_run / "input/beach.toml",
+    )
+    _wrench, _curves, _paths, _shells, strict_physics = (
+        tool._evaluate_object_physics_at_step(
+            archive_run=archive_run,
+            validation_root=validation_root,
+            library=binary,
+            run_rows=[{"case": "archived_v1_3", "status": "available"}],
+            runs={"archived_v1_3": strict_run},
+            step=None,
+            evaluation_target_ids=(6,),
+            run_shell=False,
+            allow_geometry_radius_fallback=False,
+            require_complete_contract=True,
+        )
+    )
+    assert strict_physics["status"] == "available"
+    assert strict_physics["successful_target_models"] == 2
+    assert strict_physics["failures"] == []
+
 
 def test_release_parameters_reject_invalid_vdw_config(tmp_path: Path) -> None:
     tool = _load_tool()
@@ -4184,6 +4381,368 @@ def test_release_parameters_reject_invalid_vdw_config(tmp_path: Path) -> None:
 
     with pytest.raises(tool.ValidationError, match="invalid vdw adhesion"):
         tool._release_parameters(archive, 3.5e-5)
+
+
+def test_release_parameters_rejects_declared_geometry_radius_mismatch(
+    tmp_path: Path,
+) -> None:
+    tool = _load_tool()
+    archive = tmp_path / "archive"
+    (archive / "input").mkdir(parents=True)
+    _write_release_mechanics_fixture(archive)
+
+    within_tolerance = tool._release_parameters(
+        archive,
+        3.51e-5,
+        allow_geometry_radius_fallback=False,
+    )
+    assert within_tolerance["radius_m"] == pytest.approx(3.5e-5)
+    assert within_tolerance["geometry_radius_m"] == pytest.approx(3.51e-5)
+    assert within_tolerance["mass_kg"] == pytest.approx(
+        4.0 * np.pi * 3000.0 * (3.5e-5) ** 3 / 3.0
+    )
+    declared_coefficient = 3.0 * 0.1 * 1.0e-19 * (3.5e-5 / 2.0) / 6.0
+    assert within_tolerance["adhesion_force_N"] == pytest.approx(
+        declared_coefficient / (0.4e-9) ** 2
+    )
+    assert within_tolerance["adhesion_work_J"] == pytest.approx(
+        0.5 * declared_coefficient * (1.0 / 0.4e-9 - 1.0 / 10.0e-9)
+    )
+
+    with pytest.raises(tool.ValidationError, match="radius.*mismatch"):
+        tool._release_parameters(
+            archive,
+            3.6e-5,
+            allow_geometry_radius_fallback=False,
+        )
+
+
+def test_release_parameters_geometry_fallback_is_nonstrict_and_missing_only(
+    tmp_path: Path,
+) -> None:
+    tool = _load_tool()
+    archive = tmp_path / "archive"
+    (archive / "input").mkdir(parents=True)
+    (archive / "input/release_kernel_base.toml").write_text(
+        '[adhesion]\nmodel = "none"\n',
+        encoding="utf-8",
+    )
+
+    mechanics = tool._release_parameters(
+        archive,
+        3.5e-5,
+        allow_geometry_radius_fallback=True,
+    )
+
+    assert mechanics["radius_m"] == pytest.approx(3.5e-5)
+    assert mechanics["geometry_radius_m"] == pytest.approx(3.5e-5)
+    assert mechanics["radius_source"] == "probe.vertex_bounding_radius_m_fallback"
+    with pytest.raises(tool.ValidationError, match="declared dust radius is missing"):
+        tool._release_parameters(
+            archive,
+            3.5e-5,
+            allow_geometry_radius_fallback=False,
+        )
+
+    summary = archive / "analysis/local_release/release_model_summary.json"
+    summary.parent.mkdir(parents=True)
+    summary.write_text(
+        json.dumps({"assumptions": {"radius_m": None}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(tool.ValidationError, match="declared dust radius"):
+        tool._release_parameters(
+            archive,
+            3.5e-5,
+            allow_geometry_radius_fallback=True,
+        )
+
+
+@pytest.mark.parametrize("invalid_radius", [True, np.array([3.5e-5])])
+def test_probe_geometry_contract_rejects_non_scalar_radius(invalid_radius: object) -> None:
+    tool = _load_tool()
+    probe = SimpleNamespace(
+        target_geometry_representation="periodic2_mesh_connected",
+        vertex_bounding_radius_m=invalid_radius,
+    )
+
+    with pytest.raises(tool.ValidationError, match="bounding radius"):
+        tool._probe_geometry_contract(probe)
+
+
+def test_torque_origin_provenance_wraps_array_conversion_errors() -> None:
+    tool = _load_tool()
+
+    with pytest.raises(tool.ValidationError, match="torque origin metadata"):
+        tool._torque_origin_provenance(
+            {
+                "torque_origin_policy": "moving_geometric_area_centroid",
+                "torque_origin_m": object(),
+            }
+        )
+
+
+def test_production_torque_origin_contract_tracks_final_displacement_grid() -> None:
+    tool = _load_tool()
+    probe = SimpleNamespace(geometric_area_centroid_m=np.array([1.0, 2.0, 3.0]))
+    displacement = np.array([0.0, 0.1, 0.25])
+    origins = np.broadcast_to(np.array([1.0, 2.0, 3.0]), (3, 3)).copy()
+    origins[:, 2] += displacement
+
+    tool._validate_production_torque_origin_contract(
+        probe=probe,
+        wrench_policy="moving_geometric_area_centroid",
+        wrench_origin_m=origins[0],
+        path_policy="moving_geometric_area_centroid",
+        path_origin_m=origins,
+        displacement_m=displacement,
+    )
+    origins[1, 0] += 1.0e-3
+    with pytest.raises(tool.ValidationError, match="moving torque origins"):
+        tool._validate_production_torque_origin_contract(
+            probe=probe,
+            wrench_policy="moving_geometric_area_centroid",
+            wrench_origin_m=np.array([1.0, 2.0, 3.0]),
+            path_policy="moving_geometric_area_centroid",
+            path_origin_m=origins,
+            displacement_m=displacement,
+        )
+
+
+def _wrench_component(
+    force: np.ndarray,
+    torque: np.ndarray,
+    energy: float,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        force_N=np.asarray(force, dtype=float),
+        torque_Nm=np.asarray(torque, dtype=float),
+        potential_energy_J=energy,
+    )
+
+
+def test_strict_wrench_component_contract_requires_complete_additive_sets() -> None:
+    tool = _load_tool()
+    first = _wrench_component(np.array([1.0, 0.0, 0.0]), np.zeros(3), 1.0)
+    second = _wrench_component(np.array([0.0, 2.0, 0.0]), np.zeros(3), 2.0)
+    third = _wrench_component(np.array([0.0, 0.0, 3.0]), np.zeros(3), 3.0)
+    total = _wrench_component(np.array([1.0, 2.0, 3.0]), np.zeros(3), 6.0)
+    components = {
+        "other_objects_all_images": first,
+        "target_periodic_images": second,
+        "external_uniform": third,
+        "total_external": total,
+    }
+    diagnostic = {
+        "force_N": np.zeros(3),
+        "torque_Nm": np.zeros(3),
+        "potential_energy_J": 0.0,
+    }
+    cached_metadata = {
+        name: diagnostic
+        for name in (
+            "periodic_kneq0",
+            "physical_k0",
+            "primary_free_subtraction",
+            "cached_kneq0_trace_correction",
+        )
+    }
+
+    tool._validate_strict_wrench_component_contract(
+        components,
+        cached_metadata,
+        effective_far_correction="cached_kneq0",
+    )
+    with pytest.raises(tool.ValidationError, match="physical wrench component set"):
+        tool._validate_strict_wrench_component_contract(
+            {name: value for name, value in components.items() if name != "external_uniform"},
+            cached_metadata,
+            effective_far_correction="cached_kneq0",
+        )
+    with pytest.raises(tool.ValidationError, match="cached numerical wrench component set"):
+        tool._validate_strict_wrench_component_contract(
+            components,
+            {
+                name: value
+                for name, value in cached_metadata.items()
+                if name != "physical_k0"
+            },
+            effective_far_correction="cached_kneq0",
+        )
+    nonfinite_metadata = dict(cached_metadata)
+    nonfinite_metadata["physical_k0"] = {
+        "force_N": np.zeros(3),
+        "torque_Nm": np.zeros(3),
+        "potential_energy_J": np.nan,
+    }
+    with pytest.raises(tool.ValidationError, match="numerical.*potential energy"):
+        tool._validate_strict_wrench_component_contract(
+            components,
+            nonfinite_metadata,
+            effective_far_correction="cached_kneq0",
+        )
+    with pytest.raises(tool.ValidationError, match="additive physical wrench"):
+        inconsistent = dict(components)
+        inconsistent["total_external"] = _wrench_component(
+            np.array([1.0, 2.0, 4.0]), np.zeros(3), 6.0
+        )
+        tool._validate_strict_wrench_component_contract(
+            inconsistent,
+            cached_metadata,
+            effective_far_correction="cached_kneq0",
+        )
+    with pytest.raises(tool.ValidationError, match="finite numerical wrench component set"):
+        tool._validate_strict_wrench_component_contract(
+            components,
+            cached_metadata,
+            effective_far_correction="none",
+        )
+    tool._validate_strict_wrench_component_contract(
+        components,
+        {"primary_free_subtraction": diagnostic},
+        effective_far_correction="none",
+    )
+    with pytest.raises(tool.ValidationError, match="primary_free_subtraction"):
+        tool._validate_strict_wrench_component_contract(
+            components,
+            {},
+            effective_far_correction="none",
+        )
+
+
+def test_additive_identity_tolerance_scales_with_cancelling_components() -> None:
+    tool = _load_tool()
+
+    tool._require_additive_identity(
+        np.array([1.0]),
+        [np.array([1.0e16]), np.array([1.0]), np.array([-1.0e16])],
+        label="cancelling test",
+    )
+
+
+@pytest.mark.parametrize(
+    ("total_charge", "potential_energy"),
+    [(np.nan, 1.0), (1.0, np.inf)],
+)
+def test_wrench_row_rejects_nonfinite_scalar_fields(
+    total_charge: float,
+    potential_energy: float,
+) -> None:
+    tool = _load_tool()
+    mechanics = {
+        "radius_m": 3.5e-5,
+        "radius_source": "release_model_summary.assumptions.radius_m",
+        "geometry_radius_m": 3.5e-5,
+        "radius_relative_mismatch": 0.0,
+        "radius_relative_tolerance": 5.0e-3,
+    }
+
+    with pytest.raises(tool.ValidationError, match="finite"):
+        tool._wrench_row(
+            case="case",
+            periodic_model="configured",
+            effective_far_correction="none",
+            zero_mode_policy="legacy_not_decomposed",
+            lower_boundary_model="legacy_implicit",
+            periodic_cache=None,
+            step_selector="final",
+            resolved_batch=1,
+            mesh_id=6,
+            mechanics=mechanics,
+            target_geometry_representation="periodic2_mesh_connected",
+            component="total_external",
+            component_kind="physical_total",
+            force=np.zeros(3),
+            torque=np.zeros(3),
+            torque_origin_policy="moving_geometric_area_centroid",
+            torque_origin_m=np.zeros(3),
+            total_charge=total_charge,
+            potential_energy=potential_energy,
+        )
+
+
+def test_strict_path_component_contract_requires_additive_components() -> None:
+    tool = _load_tool()
+    first = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    second = np.array([[0.0, 2.0, 0.0], [0.0, 3.0, 0.0]])
+    third = np.array([[0.0, 0.0, 3.0], [0.0, 0.0, 4.0]])
+    total = first + second + third
+    zeros = np.zeros_like(total)
+    path = SimpleNamespace(
+        displacement_m=np.array([0.0, 1.0]),
+        force_N=total,
+        torque_Nm=zeros,
+        component_force_N={
+            "other_objects_all_images": first,
+            "target_periodic_images": second,
+            "external_uniform": third,
+            "total_external": total,
+        },
+        component_torque_Nm={
+            "other_objects_all_images": zeros,
+            "target_periodic_images": zeros,
+            "external_uniform": zeros,
+            "total_external": zeros,
+        },
+    )
+
+    tool._validate_strict_path_component_contract(path)
+    path.component_force_N = dict(path.component_force_N)
+    path.component_force_N.pop("external_uniform")
+    with pytest.raises(tool.ValidationError, match="path force component set"):
+        tool._validate_strict_path_component_contract(path)
+
+
+def test_shell_reference_contract_requires_selected_physical_reference() -> None:
+    tool = _load_tool()
+    shell = SimpleNamespace(
+        image_layers=np.array([0, 1, 2, 3]),
+        increment_converged=np.array([False, True, True]),
+        status="converged",
+        selected_image_layers=3,
+        reference_model="infinite_physical",
+        reference_converged=np.array([False, False, True, True]),
+        reference_force_error_N=np.array([3.0, 2.0, 1.0, 0.1]),
+        reference_work_error_J=np.array([6.0, 4.0, 2.0, 0.2]),
+        force_increment_error_N=np.array([1.0, 0.1, 0.01]),
+        work_increment_error_J=np.array([2.0, 0.2, 0.02]),
+        force_tail_proxy_N=np.array([10.0, 1.0, 0.1]),
+        work_tail_proxy_J=np.array([20.0, 2.0, 0.2]),
+    )
+
+    tool._validate_shell_reference_contract(shell)
+    shell.image_layers = np.array([1, 2, 3, 4])
+    with pytest.raises(tool.ValidationError, match="start at zero"):
+        tool._validate_shell_reference_contract(shell)
+    shell.image_layers = np.array([0, 1, 3, 3])
+    with pytest.raises(tool.ValidationError, match="consecutive"):
+        tool._validate_shell_reference_contract(shell)
+    shell.image_layers = np.array([0, 1, 2, 3])
+    shell.status = "invalid"
+    with pytest.raises(tool.ValidationError, match="status"):
+        tool._validate_shell_reference_contract(shell)
+    shell.status = "converged"
+    shell.increment_converged = np.array([False, False, True])
+    with pytest.raises(tool.ValidationError, match="successive"):
+        tool._validate_shell_reference_contract(shell)
+    shell.increment_converged = np.array([False, True, True])
+    shell.reference_converged = np.array([False, False, False, True])
+    with pytest.raises(tool.ValidationError, match="successive"):
+        tool._validate_shell_reference_contract(shell)
+    shell.reference_converged = np.array([False, False, True, False])
+    with pytest.raises(tool.ValidationError, match="physical reference"):
+        tool._validate_shell_reference_contract(shell)
+    shell.reference_converged = np.array([False, False, True, True])
+    shell.reference_force_error_N = np.array([3.0, 2.0, -1.0, 0.1])
+    with pytest.raises(tool.ValidationError, match="nonnegative"):
+        tool._validate_shell_reference_contract(shell)
+    shell.reference_force_error_N = np.array([3.0, 2.0, 1.0, 0.1])
+    shell.force_tail_proxy_N = np.array([10.0, -1.0, 0.1])
+    with pytest.raises(tool.ValidationError, match="increment/tail"):
+        tool._validate_shell_reference_contract(shell)
+    shell.force_tail_proxy_N = np.array([10.0, 1.0])
+    with pytest.raises(tool.ValidationError, match="increment/tail"):
+        tool._validate_shell_reference_contract(shell)
 
 
 def test_release_parameters_rejects_malformed_assumption_files(
@@ -4230,8 +4789,25 @@ def test_object_physics_requires_both_target_meshes(tmp_path: Path) -> None:
     assert "required target mesh ids" in physics["failures"][0]["message"]
 
 
-def test_object_physics_rejects_effective_far_correction_fallback(
+@pytest.mark.parametrize(
+    ("metadata_override", "expected_message"),
+    [
+        ({"effective_far_correction": "free"}, "effective far correction mismatch"),
+        (
+            {"target_geometry_representation": "raw_saved"},
+            "target geometry representation mismatch",
+        ),
+        ({"vertex_bounding_radius_m": 4.0e-5}, "metadata radius"),
+        (
+            {"torque_origin_m": np.array([1.0, 0.0, 0.0])},
+            "metadata torque origin does not match",
+        ),
+    ],
+)
+def test_object_physics_rejects_invalid_wrench_contract_metadata(
     tmp_path: Path,
+    metadata_override: dict[str, object],
+    expected_message: str,
 ) -> None:
     tool = _load_tool()
     triangles = np.array(
@@ -4242,19 +4818,40 @@ def test_object_physics_rejects_effective_far_correction_fallback(
     )
 
     class FakeProbe:
+        def __init__(self, periodic_model: str):
+            self.periodic_model = periodic_model
+            self.vertex_bounding_radius_m = 3.5e-5
+            self.target_geometry_representation = "periodic2_mesh_connected"
+
         def wrench(self, **_kwargs):
+            metadata = {
+                "effective_far_correction": (
+                    "none"
+                    if self.periodic_model == "configured"
+                    else "cached_kneq0"
+                ),
+                "target_geometry_representation": "periodic2_mesh_connected",
+                "vertex_bounding_radius_m": 3.5e-5,
+                "torque_origin_policy": "moving_geometric_area_centroid",
+                "torque_origin_m": np.zeros(3),
+            }
+            metadata.update(metadata_override)
             return SimpleNamespace(
                 total_charge_C=1.0e-15,
                 force_N=np.zeros(3),
                 torque_Nm=np.zeros(3),
+                torque_origin_m=np.zeros(3),
                 components={},
-                numerical_metadata={"effective_far_correction": "free"},
+                numerical_metadata=metadata,
             )
 
         def vertical_path(self, *_args, **_kwargs):
             raise AssertionError("mismatched effective model must stop before path")
 
     class FakeSnapshot:
+        def __init__(self, periodic_model: str):
+            self.periodic_model = periodic_model
+
         def __enter__(self):
             return self
 
@@ -4262,7 +4859,7 @@ def test_object_physics_rejects_effective_far_correction_fallback(
             return None
 
         def object_probe(self, _mesh_id: int):
-            return FakeProbe()
+            return FakeProbe(self.periodic_model)
 
     class FakeRun:
         result = SimpleNamespace(
@@ -4271,8 +4868,8 @@ def test_object_physics_rejects_effective_far_correction_fallback(
             triangles=triangles,
         )
 
-        def object_interaction_snapshot(self, **_kwargs):
-            return FakeSnapshot()
+        def object_interaction_snapshot(self, **kwargs):
+            return FakeSnapshot(kwargs["periodic_model"])
 
     _wrench, _curves, _paths, _shells, physics = (
         tool._evaluate_object_physics_at_step(
@@ -4290,7 +4887,7 @@ def test_object_physics_rejects_effective_far_correction_fallback(
     assert physics["status"] == "not_evaluated"
     assert physics["successful_target_models"] == 0
     assert all(
-        "effective far correction mismatch" in failure["message"]
+        expected_message in failure["message"]
         for failure in physics["failures"]
     )
 
@@ -4300,6 +4897,9 @@ def test_new_infinite_final_charge_gets_infinite_shell_reference(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tool = _load_tool()
+    archive_run = tmp_path / "archive"
+    (archive_run / "input").mkdir(parents=True)
+    _write_release_mechanics_fixture(archive_run)
     calls: list[tuple[object, str, int]] = []
     triangles = np.array(
         [
@@ -4316,7 +4916,12 @@ def test_new_infinite_final_charge_gets_infinite_shell_reference(
             return None
 
         def object_probe(self, mesh_id: int):
-            return SimpleNamespace(mesh_id=mesh_id)
+            return SimpleNamespace(
+                mesh_id=mesh_id,
+                vertex_bounding_radius_m=3.5e-5,
+                target_geometry_representation="periodic2_mesh_connected",
+                geometric_area_centroid_m=np.array([1.0, 2.0, 3.0]),
+            )
 
     class FakeRun:
         result = SimpleNamespace(
@@ -4332,23 +4937,25 @@ def test_new_infinite_final_charge_gets_infinite_shell_reference(
     def fake_shell(_snapshot, probe, displacement_m, **_kwargs):
         calls.append((None, "shell", probe.mesh_id))
         assert len(displacement_m) == 17
+        assert displacement_m[-1] == pytest.approx(7.0e-5)
         return SimpleNamespace(
-            image_layers=np.array([0, 1, 2]),
-            force_increment_error_N=np.array([1.0, 0.1]),
-            work_increment_error_J=np.array([2.0, 0.2]),
-            force_tail_proxy_N=np.array([10.0, 1.0]),
-            work_tail_proxy_J=np.array([20.0, 2.0]),
-            increment_converged=np.array([False, True]),
+            image_layers=np.array([0, 1, 2, 3]),
+            force_increment_error_N=np.array([1.0, 0.1, 0.01]),
+            work_increment_error_J=np.array([2.0, 0.2, 0.02]),
+            force_tail_proxy_N=np.array([10.0, 1.0, 0.1]),
+            work_tail_proxy_J=np.array([20.0, 2.0, 0.2]),
+            increment_converged=np.array([False, True, True]),
             reference_model="infinite_physical",
-            reference_force_error_N=np.array([3.0, 2.0, 1.0]),
-            reference_work_error_J=np.array([6.0, 4.0, 2.0]),
-            reference_converged=np.array([False, False, True]),
+            reference_force_error_N=np.array([3.0, 2.0, 1.0, 0.1]),
+            reference_work_error_J=np.array([6.0, 4.0, 2.0, 0.2]),
+            reference_converged=np.array([False, False, True, True]),
             status="converged",
-            selected_image_layers=2,
+            selected_image_layers=3,
         )
 
     monkeypatch.setattr(tool, "finite_shell_convergence", fake_shell)
     rows, failures = tool._evaluate_new_infinite_shell_reference(
+        archive_run=archive_run,
         validation_root=tmp_path / "validation",
         library=tmp_path / "kernel.so",
         run=FakeRun(),
@@ -4360,7 +4967,7 @@ def test_new_infinite_final_charge_gets_infinite_shell_reference(
         (None, "shell", 7),
     ]
     assert failures == []
-    assert len(rows) == 6
+    assert len(rows) == 8
     assert {(row["mesh_id"], row["resolved_batch"]) for row in rows} == {
         (6, 280000),
         (7, 280000),
@@ -4369,6 +4976,27 @@ def test_new_infinite_final_charge_gets_infinite_shell_reference(
     assert all(row["effective_far_correction"] == "cached_kneq0" for row in rows)
     assert all(row["zero_mode_policy"] == "exclude_k0" for row in rows)
     assert all(row["lower_boundary_model"] == "e_bottom_zero" for row in rows)
+    assert all(float(row["model_radius_m"]) == pytest.approx(3.5e-5) for row in rows)
+    assert all(float(row["geometry_radius_m"]) == pytest.approx(3.5e-5) for row in rows)
+    assert all(float(row["path_start_m"]) == pytest.approx(0.0) for row in rows)
+    assert all(float(row["path_end_m"]) == pytest.approx(7.0e-5) for row in rows)
+
+    def fake_shell_without_reference(*args, **kwargs):
+        shell = fake_shell(*args, **kwargs)
+        shell.reference_model = None
+        return shell
+
+    calls.clear()
+    monkeypatch.setattr(tool, "finite_shell_convergence", fake_shell_without_reference)
+    invalid_rows, invalid_failures = tool._evaluate_new_infinite_shell_reference(
+        archive_run=archive_run,
+        validation_root=tmp_path / "validation",
+        library=tmp_path / "kernel.so",
+        run=FakeRun(),
+    )
+    assert invalid_rows == []
+    assert len(invalid_failures) == 2
+    assert all("reference_model" in failure["message"] for failure in invalid_failures)
 
 
 def test_charge_vector_comparison_preserves_spatial_difference() -> None:

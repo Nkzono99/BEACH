@@ -46,6 +46,7 @@ class _VerticalSamples:
     displacement_m: np.ndarray
     force_N: np.ndarray
     torque_Nm: np.ndarray
+    torque_origin_m: np.ndarray
     potential_energy_J: np.ndarray
     component_force_N: dict[str, np.ndarray]
     component_torque_Nm: dict[str, np.ndarray]
@@ -56,6 +57,7 @@ class _VerticalSamples:
             displacement_m=self.displacement_m[mask],
             force_N=self.force_N[mask],
             torque_Nm=self.torque_Nm[mask],
+            torque_origin_m=self.torque_origin_m[mask],
             potential_energy_J=self.potential_energy_J[mask],
             component_force_N={
                 name: values[mask] for name, values in self.component_force_N.items()
@@ -718,6 +720,8 @@ class ObjectProbe:
             "target_geometry_representation": self.target_geometry_representation,
             "vertex_bounding_center_m": self._vertex_bounding_center_m,
             "vertex_bounding_radius_m": self._vertex_bounding_radius_m,
+            "torque_origin_policy": _torque_origin_policy(torque_origin),
+            "torque_origin_m": torque_origin_m,
             "periodic_kneq0": _wrench_metadata(p_full) if cached else None,
             "physical_k0": _wrench_metadata(z_full) if cached else None,
             "cached_kneq0_trace_correction": (
@@ -904,6 +908,8 @@ class ObjectProbe:
             "target_geometry_representation": self.target_geometry_representation,
             "vertex_bounding_center_m": self._vertex_bounding_center_m,
             "vertex_bounding_radius_m": self._vertex_bounding_radius_m,
+            "torque_origin_policy": _torque_origin_policy(torque_origin),
+            "torque_origin_m": samples.torque_origin_m,
             "target_motion": "vertical_translation",
             "adaptive": bool(adaptive),
             "relative_tolerance": relative,
@@ -1017,6 +1023,7 @@ class ObjectProbe:
             displacement_m=np.array(displacement_m, copy=True),
             force_N=force,
             torque_Nm=torque,
+            torque_origin_m=origins,
             potential_energy_J=potential,
             component_force_N=component_force if components else {},
             component_torque_Nm=component_torque if components else {},
@@ -1133,6 +1140,15 @@ def _resolve_origin(
             f"{name} must be 'geometric_area_centroid', 'origin', or a 3-vector."
         )
     return _vec3(value, name)
+
+
+def _torque_origin_policy(value: str | Iterable[float]) -> str:
+    if isinstance(value, str):
+        if value == "geometric_area_centroid":
+            return "moving_geometric_area_centroid"
+        if value == "origin":
+            return "fixed_origin"
+    return "fixed_explicit"
 
 
 def _validate_target_points(points_m: np.ndarray, options: FieldKernelOptions) -> None:
