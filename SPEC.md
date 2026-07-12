@@ -127,7 +127,8 @@ outer flight time、frozen-field ratioを検査し、step上限到達をdiscard�
 `outer_plasma.model="kinetic_1d"`は、z-highの負・正`reservoir_face` speciesを無限遠の
 electron half-Maxwellian / cold drifting ion VDFとして用い、伸長1D格子上のPoisson方程式を
 interface Neumann条件と遠方Robin条件で解きます。初版は単調・無衝突・非磁化分枝に限定し、
-ionにはkinetic Bohm入口条件を課します。`photoelectron_closure="kinetic_mean"`は負電荷
+ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infinity)=0`をゲージとして固定し、
+非ゼロの`outer_plasma.infinity_potential`を拒否します。`photoelectron_closure="kinetic_mean"`は負電荷
 `photo_raycast` speciesの放出fluxからoutgoing/returning平均密度を構成します。解状態は
 `converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、線形モデルへ
 silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し、restart時のNewton初期値に使います。

@@ -55,6 +55,11 @@ program test_physics_config_types
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'cached kinetic_1d config should be valid')
 
+  outer%infinity_potential = 1.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'kinetic_1d must reject a nonzero infinity-potential gauge')
+  outer%infinity_potential = 0.0_dp
+
   outer%model = 'unified_linear_response'
   outer%photoelectron_closure = 'none'
   sim%softening = 0.0_dp

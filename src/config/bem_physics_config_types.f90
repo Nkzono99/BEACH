@@ -515,6 +515,11 @@ contains
                     'kinetic_1d requires positive scales and interface_z at z-high.', status, message)
         return
       end if
+      if (abs(outer%infinity_potential) > 64.0_dp*epsilon(1.0_dp)) then
+        call reject(physics_config_invalid_combination, &
+                    'kinetic_1d fixes the infinity-potential gauge to zero.', status, message)
+        return
+      end if
       if (trim(lower_ascii(outer%photoelectron_closure)) /= 'none' .and. &
           trim(lower_ascii(outer%photoelectron_closure)) /= 'kinetic_mean') then
         call reject(physics_config_unavailable, 'cached kinetic_1d supports none or kinetic_mean photoelectron closure.', &

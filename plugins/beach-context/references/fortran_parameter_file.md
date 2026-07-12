@@ -275,6 +275,8 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 `outer_plasma.model="kinetic_1d"` は `cached_kneq0` と組み合わせ、z-high の負・正
 `reservoir_face` species をそれぞれ ambient electron/ion の infinity inflow VDF として使う。
 `debye_length` は far Robin tail 長、`thermal_voltage` は設定整合性の電位 scale である。
+無限遠電位はゲージ条件`phi(infinity)=0`に固定されるため、
+`outer_plasma.infinity_potential`には`0`を指定する。非ゼロ値は設定エラーになる。
 Phase 7 は単調・無衝突・非磁化分枝だけを扱い、ion drift に Bohm 条件を要求する。非単調
 virtual cathodeとtrapped populationは silent fallback せず適用外として停止する。
 `return_model="kinetic_1d_profile_return"` と
