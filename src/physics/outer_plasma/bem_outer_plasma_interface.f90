@@ -111,11 +111,24 @@ contains
     integer :: point
 
     outcome = interface_particle_outcome_type()
-    if (.not. valid_kinetic_profile_state(state) .or. .not. crossing%has_crossing .or. &
-        crossing%face_index /= 6 .or. mass <= 0.0_dp .or. crossing%velocity(3) <= 0.0_dp .or. &
-        field_timescale <= 0.0_dp .or. max_frozen_field_ratio <= 0.0_dp) then
+    if (.not. valid_kinetic_profile_state(state)) then
       outcome%kind = interface_outcome_invalid_model
-      outcome%message = 'invalid kinetic z-high outer-interface crossing'
+      outcome%message = 'invalid kinetic profile state at z-high interface'
+      return
+    end if
+    if (.not. crossing%has_crossing .or. crossing%face_index /= 6) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'invalid kinetic z-high crossing metadata'
+      return
+    end if
+    if (mass <= 0.0_dp .or. crossing%velocity(3) <= 0.0_dp) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'invalid kinetic z-high particle state'
+      return
+    end if
+    if (field_timescale <= 0.0_dp .or. max_frozen_field_ratio <= 0.0_dp) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'invalid kinetic outer-interface timescale limits'
       return
     end if
 

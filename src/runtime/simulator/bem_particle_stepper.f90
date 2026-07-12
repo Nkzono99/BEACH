@@ -169,7 +169,7 @@ contains
     type(boundary_event_type) :: event
     type(hit_info) :: remainder_hit
     real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3)
-    real(dp) :: dt_segment, dt_remaining, elapsed_dt, global_fraction
+    real(dp) :: dt_segment, dt_remaining, elapsed_dt, global_fraction, refined_fraction
     integer(i32) :: query_status, boundary_status, event_count
     logical :: alive, escaped
     logical :: defer_interface, first_segment
@@ -219,6 +219,17 @@ contains
         result%x = x_trial
         result%v = v_trial
         return
+      end if
+
+      if (defer_interface .and. event%face_mask == shiftl(1_i32, 5_i32) .and. event%face_bc(6) == bc_open) then
+        call refine_z_high_crossing_fraction( &
+          sim, x_start, v_start, x_trial, v_trial, dt_segment, refined_fraction, boundary_status &
+          )
+        if (boundary_status /= boundary_event_ok) then
+          result%status = particle_step_invalid_boundary
+          return
+        end if
+        event%fraction = refined_fraction
       end if
 
       if (first_segment .and. present(hit)) then
@@ -300,6 +311,46 @@ contains
       first_segment = .false.
     end do
   end subroutine advance_particle_boundary_crossing
+
+  !> Boris端点と整合する二次軌道から、外向きz-high交差の時刻率を求める。
+  subroutine refine_z_high_crossing_fraction(sim, x0, v0, x1, v1, dt, fraction, status)
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), dt
+    real(dp), intent(out) :: fraction
+    integer(i32), intent(out) :: status
+    real(dp) :: a, b, c, discriminant, q_root, roots(2), velocity, coefficient_tolerance, root_tolerance
+    integer(i32) :: root
+
+    fraction = 0.0_dp
+    status = boundary_event_invalid_geometry
+    if (.not. ieee_is_finite(dt) .or. dt <= 0.0_dp .or. x0(3) >= sim%box_max(3) .or. &
+        x1(3) < sim%box_max(3)) return
+
+    a = 0.5_dp*dt*(v1(3) - v0(3))
+    b = dt*v0(3)
+    c = x0(3) - sim%box_max(3)
+    coefficient_tolerance = 256.0_dp*epsilon(1.0_dp)*max(tiny(1.0_dp), abs(a), abs(b), abs(c))
+    root_tolerance = 256.0_dp*epsilon(1.0_dp)
+    roots = huge(1.0_dp)
+    if (abs(a) <= coefficient_tolerance) then
+      if (b <= 0.0_dp) return
+      roots(1) = -c/b
+    else
+      discriminant = b*b - 4.0_dp*a*c
+      if (.not. ieee_is_finite(discriminant) .or. discriminant < 0.0_dp) return
+      q_root = -0.5_dp*(b + sign(sqrt(discriminant), b))
+      if (q_root == 0.0_dp) return
+      roots = [q_root/a, c/q_root]
+    end if
+    do root = 1_i32, 2_i32
+      velocity = v0(3) + roots(root)*(v1(3) - v0(3))
+      if (roots(root) >= -root_tolerance .and. roots(root) <= 1.0_dp + root_tolerance .and. velocity > 0.0_dp) then
+        fraction = min(max(roots(root), 0.0_dp), 1.0_dp)
+        status = boundary_event_ok
+        return
+      end if
+    end do
+  end subroutine refine_z_high_crossing_fraction
 
   !> 既に選択済みのmesh hitをresultへ反映する。
   subroutine accept_particle_hit(va, xb, vb, hit, result)

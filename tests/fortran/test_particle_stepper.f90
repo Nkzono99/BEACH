@@ -13,7 +13,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(17)
+  call test_init(18)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -25,6 +25,10 @@ program test_particle_stepper
 
   call test_begin('z_high_interface_after_periodic_event')
   call test_z_high_interface_after_periodic_event()
+  call test_end()
+
+  call test_begin('z_high_interface_acceleration_reversal')
+  call test_z_high_interface_acceleration_reversal()
   call test_end()
 
   call test_begin('charged_mesh_second_order_convergence')
@@ -128,6 +132,28 @@ contains
     call assert_close_dp(result%interface_crossing%dt_remaining, 0.1_dp, 1.0e-14_dp, 'remaining dt mismatch')
     call assert_true(result%field_eval_count == 2_i32, 'periodic interface path should evaluate one remainder')
   end subroutine test_z_high_interface_after_periodic_event
+
+  subroutine test_z_high_interface_acceleration_reversal()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.99_dp], [0.0_dp, 0.0_dp, -1.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, &
+      [0.2_dp, 0.2_dp, 1.99_dp], [0.0_dp, 0.0_dp, 3.0_dp], result=result, defer_z_high_interface=.true. &
+      )
+
+    call assert_true(result%interface_crossing%has_crossing, 'accelerated z-high crossing payload is missing')
+    call assert_close_dp(result%interface_crossing%fraction, (1.0_dp + sqrt(1.08_dp))/4.0_dp, 1.0e-14_dp, &
+                         'accelerated z-high crossing fraction mismatch')
+    call assert_true(result%interface_crossing%velocity(3) > 0.0_dp, &
+                     'accelerated z-high crossing must carry outward normal velocity')
+    call assert_close_dp(result%interface_crossing%velocity(3), sqrt(1.08_dp), 1.0e-14_dp, &
+                         'accelerated z-high crossing velocity mismatch')
+  end subroutine test_z_high_interface_acceleration_reversal
 
   subroutine test_uniform_e0_included_once()
     type(mesh_type) :: mesh
