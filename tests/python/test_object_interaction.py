@@ -852,6 +852,125 @@ def test_triangle_source_is_never_silently_downgraded_to_centroids(
     )
 
 
+def test_periodic_snapshot_connects_one_mesh_across_the_cell_seam(
+    tmp_path: Path,
+    fake_native,
+) -> None:
+    fake_field, _ = fake_native
+    config = tmp_path / "beach.toml"
+    _write_periodic_config(config, far_correction="none")
+    result = _result(
+        tmp_path,
+        np.array([[3.8, 1.0, 1.0], [0.2, 1.0, 1.0]]),
+        np.array([1.0, 2.0]),
+        np.array([1, 1]),
+    )
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+    ) as snapshot:
+        probe = snapshot.object_probe(1)
+        periodic = next(instance for instance in fake_field.instances if instance.is_periodic)
+        primary = next(instance for instance in fake_field.instances if not instance.is_periodic)
+
+        assert not snapshot.source_triangles_m.flags.writeable
+        assert snapshot.source_triangles_m.tobytes() == np.asarray(result.triangles).tobytes()
+        assert np.ptp(snapshot.source_positions_m[:, 0]) == pytest.approx(3.6)
+        assert np.ptp(periodic.source_positions[:, 0]) == pytest.approx(3.6)
+        assert np.ptp(primary.source_positions[:, 0]) == pytest.approx(0.4)
+        assert probe.target_geometry_representation == "periodic2_mesh_connected"
+        with pytest.raises(AttributeError):
+            probe.target_geometry_representation = "saved"
+        assert np.ptp(probe.target_triangles_m.mean(axis=1)[:, 0]) == pytest.approx(0.4)
+        assert probe.vertex_bounding_radius_m < 0.25
+        np.testing.assert_allclose(
+            probe.vertex_bounding_center_m,
+            [0.01, 1.01, 1.0],
+            atol=1.0e-14,
+        )
+        np.testing.assert_allclose(
+            probe.geometric_area_centroid_m,
+            [0.0, 1.0, 1.0],
+            atol=1.0e-14,
+        )
+
+
+def test_free_snapshot_keeps_saved_geometry_bitwise(
+    tmp_path: Path,
+    fake_native,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_free_config(config)
+    result = _result(
+        tmp_path,
+        np.array([[0.25, 0.5, 0.75], [1.25, 0.5, 0.75]]),
+        np.array([1.0, 2.0]),
+        np.array([1, 1]),
+    )
+    saved = np.asarray(result.triangles)
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+    ) as snapshot:
+        assert snapshot.source_triangles_m.tobytes() == saved.tobytes()
+        assert snapshot.source_positions_m.tobytes() == saved.mean(axis=1).tobytes()
+        probe = snapshot.object_probe(1)
+        assert probe.target_geometry_representation == "saved"
+        assert probe.target_triangles_m.tobytes() == saved.tobytes()
+
+
+def test_periodic_full_cell_plane_uses_concentration_fallback(
+    tmp_path: Path,
+    fake_native,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_periodic_config(config, far_correction="none")
+    triangles = []
+    for y0 in (0.0, 2.0):
+        for x0 in (0.0, 2.0):
+            x1 = x0 + 2.0
+            y1 = y0 + 2.0
+            p00 = np.array([x0, y0, 1.0])
+            p10 = np.array([x1, y0, 1.0])
+            p11 = np.array([x1, y1, 1.0])
+            p01 = np.array([x0, y1, 1.0])
+            triangles.extend((np.array([p00, p10, p11]), np.array([p00, p11, p01])))
+    saved = np.asarray(triangles)
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=saved.shape[0],
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.ones(saved.shape[0]),
+        triangles=saved,
+        mesh_ids=np.ones(saved.shape[0], dtype=np.int64),
+        field_source_model="point",
+    )
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+    ) as snapshot:
+        assert snapshot.source_triangles_m.tobytes() == saved.tobytes()
+        probe = snapshot.object_probe(1)
+        assert probe.target_geometry_representation == "periodic2_mesh_connected"
+        assert probe.target_triangles_m.tobytes() == saved.tobytes()
+        np.testing.assert_array_equal(
+            probe.target_triangles_m[:, 1:] - probe.target_triangles_m[:, :1],
+            saved[:, 1:] - saved[:, :1],
+        )
+
+
 def test_wrench_checks_transformed_triangle_vertices_before_native_evaluation(
     tmp_path: Path,
     fake_native,

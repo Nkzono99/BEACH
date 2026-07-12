@@ -18,7 +18,7 @@ from .kernel import (
     _load_full_config,
     _options_from_result,
 )
-from .mesh import _triangle_centers
+from .mesh import _triangle_centers, _wrap_periodic2_triangles_by_mesh_centroid
 from .panel_quadrature import _quadrature_order, panel_target_quadrature
 from .periodic_zero_mode import PeriodicZeroMode
 from .scene import RigidTransform
@@ -140,7 +140,6 @@ class ObjectInteractionSnapshot:
         _reject_active_outer_plasma(full_config)
         _validate_full_box_config(full_config)
         triangles = np.asarray(_require_triangles(resolved), dtype=np.float64)
-        centers = _triangle_centers(triangles)
         charges = np.asarray(_charges_for_step(resolved, step=step), dtype=np.float64)
         mesh_ids = np.asarray(_mesh_ids_or_default(resolved), dtype=np.int64)
         if charges.shape != (triangles.shape[0],) or not np.all(np.isfinite(charges)):
@@ -180,6 +179,8 @@ class ObjectInteractionSnapshot:
             )
         if periodic2 is not None and tuple(periodic2[0]) != (0, 1):
             raise ValueError("Physical periodic object interaction requires x/y axes (0, 1).")
+
+        centers = _triangle_centers(triangles)
 
         cache_path = options.periodic_cache_dir if cache_dir is None else str(cache_dir)
         tolerance = (
@@ -246,6 +247,12 @@ class ObjectInteractionSnapshot:
     @property
     def source_positions_m(self) -> np.ndarray:
         return self._centers_m
+
+    @property
+    def source_triangles_m(self) -> np.ndarray:
+        """Return the immutable source panels in the active geometry representation."""
+
+        return self._triangles_m
 
     @property
     def source_charges_C(self) -> np.ndarray:
@@ -466,11 +473,35 @@ class ObjectProbe:
         self.quadrature_order = quadrature_order
         self._target_mask = np.array(target_mask, dtype=bool, copy=True)
         self._target_mask.setflags(write=False)
-        self._target_centers_m = _readonly(snapshot._centers_m[self._target_mask])
-        self._target_triangles_m = _readonly(snapshot._triangles_m[self._target_mask])
+        target_triangles = snapshot._triangles_m[self._target_mask]
+        self._target_geometry_representation = "saved"
+        if snapshot._options.periodic2 is not None:
+            periodic2 = snapshot._options.periodic2
+            target_triangles = _wrap_periodic2_triangles_by_mesh_centroid(
+                target_triangles,
+                np.full(np.count_nonzero(self._target_mask), self.mesh_id),
+                axes=periodic2[0],
+                lengths=periodic2[1],
+                origins=periodic2[2],
+            )
+            self._target_geometry_representation = "periodic2_mesh_connected"
+        self._target_triangles_m = _readonly(target_triangles)
+        self._target_centers_m = _readonly(_triangle_centers(target_triangles))
         self._target_charges_C = _readonly(snapshot._charges_C[self._target_mask])
         self._geometric_area_centroid_m = _geometric_area_centroid(
             self._target_triangles_m
+        )
+        target_vertices = self._target_triangles_m.reshape(-1, 3)
+        self._vertex_bounding_center_m = _readonly(
+            0.5 * (np.min(target_vertices, axis=0) + np.max(target_vertices, axis=0))
+        )
+        self._vertex_bounding_radius_m = float(
+            np.max(
+                np.linalg.norm(
+                    target_vertices - self._vertex_bounding_center_m[None, :],
+                    axis=1,
+                )
+            )
         )
         if snapshot.source_model == "triangle_p0" and target_integration == "auto":
             (
@@ -521,6 +552,36 @@ class ObjectProbe:
             source_triangles=source_triangles,
         )
         self._closed = False
+
+    @property
+    def geometric_area_centroid_m(self) -> np.ndarray:
+        """Return the immutable area-weighted centroid used by named origins."""
+
+        return self._geometric_area_centroid_m
+
+    @property
+    def target_geometry_representation(self) -> str:
+        """Return how the selected target mesh is represented for mechanics."""
+
+        return self._target_geometry_representation
+
+    @property
+    def target_triangles_m(self) -> np.ndarray:
+        """Return the immutable target panels in their connected geometry branch."""
+
+        return self._target_triangles_m
+
+    @property
+    def vertex_bounding_center_m(self) -> np.ndarray:
+        """Return the immutable center of the target vertex axis-aligned bounds."""
+
+        return self._vertex_bounding_center_m
+
+    @property
+    def vertex_bounding_radius_m(self) -> float:
+        """Return the largest target-vertex distance from ``vertex_bounding_center_m``."""
+
+        return self._vertex_bounding_radius_m
 
     def wrench(
         self,
@@ -654,6 +715,9 @@ class ObjectProbe:
             ),
             "target_integration": self._integration_label,
             "quadrature_order": self._integration_order,
+            "target_geometry_representation": self.target_geometry_representation,
+            "vertex_bounding_center_m": self._vertex_bounding_center_m,
+            "vertex_bounding_radius_m": self._vertex_bounding_radius_m,
             "periodic_kneq0": _wrench_metadata(p_full) if cached else None,
             "physical_k0": _wrench_metadata(z_full) if cached else None,
             "cached_kneq0_trace_correction": (
@@ -837,6 +901,9 @@ class ObjectProbe:
             "target_integration": self._integration_label,
             "quadrature_order": self._integration_order,
             "source_geometry_policy": "frozen",
+            "target_geometry_representation": self.target_geometry_representation,
+            "vertex_bounding_center_m": self._vertex_bounding_center_m,
+            "vertex_bounding_radius_m": self._vertex_bounding_radius_m,
             "target_motion": "vertical_translation",
             "adaptive": bool(adaptive),
             "relative_tolerance": relative,

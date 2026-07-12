@@ -2,6 +2,7 @@ import importlib.util
 import os
 import sys
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -416,6 +417,59 @@ def test_free_space_moved_single_source_has_no_primary_image_residual(
     energy_scale = K_COULOMB * charge**2 / 0.25
     energy_tolerance = 512.0 * np.finfo(np.float64).eps * energy_scale
     assert abs(residual.potential_energy_J) <= energy_tolerance
+
+
+def test_periodic_seam_split_and_unwrapped_lattice_representations_match(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    charges = np.array([1.0e-9, -0.4e-9])
+    split = np.array([[0.1, 0.7, 0.0], [1.9, 0.7, 0.0]])
+    unwrapped = np.array([[2.1, 0.7, 0.0], [1.9, 0.7, 0.0]])
+
+    def result(positions: np.ndarray) -> FortranRunResult:
+        value = _result(tmp_path, charges, positions=positions)
+        return replace(value, mesh_ids=np.ones(2, dtype=np.int64))
+
+    wrenches = []
+    for positions in (split, unwrapped):
+        with ObjectInteractionSnapshot.from_result(
+            result(positions),
+            step=None,
+            config_path=config,
+            periodic_model="configured",
+            library_path=_kernel_lib(),
+        ) as snapshot:
+            wrenches.append(
+                snapshot.object_probe(1).wrench(
+                    transform=RigidTransform.translation([0.0, 0.0, 0.25]),
+                )
+            )
+
+    left, right = wrenches
+    np.testing.assert_allclose(left.force_N, right.force_N, rtol=2.0e-13, atol=1.0e-20)
+    np.testing.assert_allclose(left.torque_Nm, right.torque_Nm, rtol=2.0e-13, atol=1.0e-20)
+    for name in ("target_periodic_images", "total_external"):
+        left_component = left.components[name]
+        right_component = right.components[name]
+        np.testing.assert_allclose(
+            left_component.force_N,
+            right_component.force_N,
+            rtol=2.0e-13,
+            atol=1.0e-20,
+        )
+        np.testing.assert_allclose(
+            left_component.torque_Nm,
+            right_component.torque_Nm,
+            rtol=2.0e-13,
+            atol=1.0e-20,
+        )
+        assert left_component.potential_energy_J == pytest.approx(
+            right_component.potential_energy_J,
+            rel=2.0e-13,
+            abs=1.0e-20,
+        )
 
 
 def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) -> None:
