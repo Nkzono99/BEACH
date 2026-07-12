@@ -110,10 +110,11 @@ class FiniteShellConvergenceResult:
             layers.size - 1,
             "work_tail_proxy_J",
         )
-        increment = np.asarray(self.increment_converged, dtype=bool)
-        if increment.shape != (layers.size - 1,):
-            raise ValueError("increment_converged has the wrong shape.")
-        increment = np.array(increment, copy=True)
+        increment = _readonly_boolean(
+            self.increment_converged,
+            layers.size - 1,
+            "increment_converged",
+        )
         if self.status not in {"converged", "not_converged"}:
             raise ValueError('status must be "converged" or "not_converged".')
         if self.status == "converged":
@@ -164,17 +165,16 @@ class FiniteShellConvergenceResult:
                 layers.size,
                 "reference_work_error_J",
             )
-            reference_ok_values = np.asarray(self.reference_converged, dtype=bool)
-            if reference_ok_values.shape != (layers.size,):
-                raise ValueError("reference_converged has the wrong shape.")
-            reference_ok = np.array(reference_ok_values, copy=True)
-            reference_ok.setflags(write=False)
+            reference_ok = _readonly_boolean(
+                self.reference_converged,
+                layers.size,
+                "reference_converged",
+            )
             if self.status == "converged" and not np.all(reference_ok[-2:]):
                 raise ValueError(
                     "selected path requires two successive physical reference gates."
                 )
         layers.setflags(write=False)
-        increment.setflags(write=False)
         object.__setattr__(self, "image_layers", layers)
         object.__setattr__(self, "symmetric_paths", symmetric_paths)
         object.__setattr__(self, "corrected_paths", corrected_paths)
@@ -399,7 +399,7 @@ def finite_shell_convergence(
         work_increment_error_J=np.asarray(work_errors),
         force_tail_proxy_N=np.asarray(force_tail_proxies),
         work_tail_proxy_J=np.asarray(work_tail_proxies),
-        increment_converged=np.asarray(increment_ok),
+        increment_converged=np.asarray(increment_ok, dtype=bool),
         status=status,
         selected_image_layers=selected_layer,
         selected_path=selected_path,
@@ -410,7 +410,7 @@ def finite_shell_convergence(
             None if reference_path is None else np.asarray(reference_work_errors)
         ),
         reference_converged=(
-            None if reference_path is None else np.asarray(reference_ok)
+            None if reference_path is None else np.asarray(reference_ok, dtype=bool)
         ),
         reference_model=reference_model,
     )
@@ -838,6 +838,15 @@ def _readonly_nonnegative(value: np.ndarray, size: int, name: str) -> np.ndarray
     result = np.asarray(value, dtype=np.float64)
     if result.shape != (size,) or not np.all(np.isfinite(result)) or np.any(result < 0.0):
         raise ValueError(f"{name} must contain {size} finite non-negative values.")
+    result = np.array(result, copy=True)
+    result.setflags(write=False)
+    return result
+
+
+def _readonly_boolean(value: np.ndarray, size: int, name: str) -> np.ndarray:
+    result = np.asarray(value)
+    if result.shape != (size,) or result.dtype != np.dtype(bool):
+        raise ValueError(f"{name} must contain {size} boolean values.")
     result = np.array(result, copy=True)
     result.setflags(write=False)
     return result

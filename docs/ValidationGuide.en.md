@@ -319,6 +319,9 @@ resolution gates fail, even if integration itself converged. If a path or shell
 is unconverged, barrier and speed are `not_claimed_unqualified`. In a non-neutral
 system with a remaining constant upper field, `0..2R` work and speed are local
 frozen-field diagnostics, not escape energy or speed at infinity.
+In `object_path_summary.csv`, `path_start_m` and `path_end_m` record the
+validated final grid after adaptive refinement, rather than the initial grid,
+and prove that it retained the `0..2R` interval.
 
 Strict analysis creates exactly 14 artifacts in a temporary directory:
 `run_summary.csv`, `charge_history_pair.csv`, `particle_ledger_pair.csv`,

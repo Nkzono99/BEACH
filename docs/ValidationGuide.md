@@ -258,6 +258,8 @@ error bar として補いません。これらの resolution gate を満たさ�
 収束していても主張しません。path または shell が未収束なら barrier/speed は
 `not_claimed_unqualified` です。また、上方一定場が残る非中性系の `0..2R` work/speed は局所
 frozen-field 指標であり、無限遠への escape energy/speed ではありません。
+`object_path_summary.csv` の `path_start_m` / `path_end_m` は、初期gridではなく
+adaptive refinement後に検証済みのfinal gridが `0..2R` を保持した証跡です。
 
 strict 解析は次の exact 14 artifact を一時 directory に作ります: `run_summary.csv`、
 `charge_history_pair.csv`、`particle_ledger_pair.csv`、`mesh_potential_pair.csv`、

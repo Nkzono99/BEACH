@@ -512,6 +512,8 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "eta_translation",
         "eta_translation_sensitivity",
         "energy_tolerance_J",
+        "path_start_m",
+        "path_end_m",
         "path_status",
         "potential_work_available",
         "numerically_qualified",
@@ -5232,17 +5234,39 @@ def _require_additive_identity(
     *,
     label: str,
 ) -> None:
-    stacked = np.stack(additive, axis=0)
-    expected = np.sum(stacked, axis=0)
+    try:
+        total_values = np.asarray(total, dtype=np.float64)
+        stacked = np.stack(additive, axis=0).astype(np.float64, copy=False)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{label} additive components are invalid") from exc
+    if (
+        stacked.shape[1:] != total_values.shape
+        or not np.all(np.isfinite(total_values))
+        or not np.all(np.isfinite(stacked))
+    ):
+        raise ValidationError(f"{label} additive components are invalid")
+
+    expected = np.empty_like(total_values)
+    for index in np.ndindex(total_values.shape):
+        values = [float(stacked[(component, *index)]) for component in range(stacked.shape[0])]
+        magnitude = max((abs(value) for value in values), default=0.0)
+        if magnitude == 0.0:
+            summed = 0.0
+        else:
+            summed = magnitude * math.fsum(value / magnitude for value in values)
+        if not math.isfinite(summed):
+            raise ValidationError(f"{label} additive components have a non-finite sum")
+        expected[index] = summed
+
     scale = np.maximum.reduce(
         (
-            np.abs(total),
+            np.abs(total_values),
             np.abs(expected),
-            np.sum(np.abs(stacked), axis=0),
-            np.full_like(total, np.finfo(float).tiny),
+            np.full_like(total_values, np.finfo(float).tiny),
         )
     )
-    if np.any(np.abs(total - expected) > 1.0e-12 * scale):
+    normalized_delta = np.abs(total_values / scale - expected / scale)
+    if np.any(normalized_delta > 1.0e-12):
         raise ValidationError(f"{label} total is not the sum of additive components")
 
 
@@ -5251,6 +5275,8 @@ def _validate_strict_wrench_component_contract(
     metadata: Mapping[str, Any],
     *,
     effective_far_correction: str,
+    wrench_force_N: Any,
+    wrench_torque_Nm: Any,
 ) -> None:
     if set(components) != set(PHYSICAL_OBJECT_COMPONENTS):
         raise ValidationError(
@@ -5289,6 +5315,16 @@ def _validate_strict_wrench_component_contract(
         [np.asarray([energy[name]]) for name in ADDITIVE_OBJECT_COMPONENTS],
         label="additive physical wrench potential energy",
     )
+    if not np.array_equal(
+        _component_array(wrench_force_N, shape=(3,), label="wrench total force"),
+        force["total_external"],
+    ) or not np.array_equal(
+        _component_array(wrench_torque_Nm, shape=(3,), label="wrench total torque"),
+        torque["total_external"],
+    ):
+        raise ValidationError(
+            "wrench total arrays do not match total_external components"
+        )
     available_numerical = {
         name for name in CACHED_NUMERICAL_COMPONENTS if isinstance(metadata.get(name), Mapping)
     }
@@ -5328,7 +5364,42 @@ def _validate_strict_wrench_component_contract(
             raise ValidationError(f"numerical {name} potential energy is invalid")
 
 
-def _validate_strict_path_component_contract(path: Any) -> None:
+def _validate_strict_path_component_contract(
+    path: Any,
+    *,
+    expected_start_m: float,
+    expected_end_m: float,
+) -> None:
+    try:
+        displacement = np.asarray(path.displacement_m, dtype=np.float64)
+        expected_start = float(expected_start_m)
+        expected_end = float(expected_end_m)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValidationError("path displacement contract is unavailable") from exc
+    if (
+        displacement.ndim != 1
+        or displacement.size < 2
+        or not np.all(np.isfinite(displacement))
+        or not math.isfinite(expected_start)
+        or not math.isfinite(expected_end)
+        or expected_end <= expected_start
+        or np.any(np.diff(displacement) <= 0.0)
+        or not math.isclose(
+            float(displacement[0]),
+            expected_start,
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-15,
+        )
+        or not math.isclose(
+            float(displacement[-1]),
+            expected_end,
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-15,
+        )
+    ):
+        raise ValidationError(
+            "path displacement must be finite, strictly increasing, and preserve the required endpoints"
+        )
     force_mapping = path.component_force_N
     torque_mapping = path.component_torque_Nm
     if set(force_mapping) != set(PHYSICAL_OBJECT_COMPONENTS):
@@ -5341,7 +5412,7 @@ def _validate_strict_path_component_contract(path: Any) -> None:
             "strict path torque component set must be exactly "
             + ", ".join(PHYSICAL_OBJECT_COMPONENTS)
         )
-    npoint = len(path.displacement_m)
+    npoint = displacement.size
     shape = (npoint, 3)
     force = {
         name: _component_array(force_mapping[name], shape=shape, label=f"{name} path force")
@@ -5376,8 +5447,8 @@ def _validate_strict_path_component_contract(path: Any) -> None:
 def _validate_shell_reference_contract(shell: Any) -> None:
     try:
         layers = np.asarray(shell.image_layers)
-        increment = np.asarray(shell.increment_converged, dtype=bool)
-        reference = np.asarray(shell.reference_converged, dtype=bool)
+        increment = np.asarray(shell.increment_converged)
+        reference = np.asarray(shell.reference_converged)
         reference_force = np.asarray(shell.reference_force_error_N, dtype=np.float64)
         reference_work = np.asarray(shell.reference_work_error_J, dtype=np.float64)
         force_increment = np.asarray(shell.force_increment_error_N, dtype=np.float64)
@@ -5394,6 +5465,10 @@ def _validate_shell_reference_contract(shell: Any) -> None:
         raise ValidationError("finite shell image_layers must start at zero")
     if np.any(np.diff(layers) != 1):
         raise ValidationError("finite shell image_layers must be consecutive and unique")
+    if increment.dtype != np.dtype(bool) or reference.dtype != np.dtype(bool):
+        raise ValidationError(
+            "finite shell convergence gate arrays must have boolean dtype"
+        )
     if increment.shape != (layers.size - 1,):
         raise ValidationError("finite shell increment_converged has the wrong shape")
     increment_shape = (layers.size - 1,)
@@ -5895,6 +5970,8 @@ def _evaluate_object_physics_at_step(
                                     physical_components,
                                     metadata,
                                     effective_far_correction=effective,
+                                    wrench_force_N=wrench.force_N,
+                                    wrench_torque_Nm=wrench.torque_Nm,
                                 )
                             elif "total_external" not in physical_components:
                                 physical_components["total_external"] = SimpleNamespace(
@@ -6013,7 +6090,11 @@ def _evaluate_object_physics_at_step(
                                 displacement_m=path.displacement_m,
                             )
                             if require_complete_contract:
-                                _validate_strict_path_component_contract(path)
+                                _validate_strict_path_component_contract(
+                                    path,
+                                    expected_start_m=0.0,
+                                    expected_end_m=2.0 * radius,
+                                )
                             release = path.evaluate_release(
                                 mass_kg=mechanics["mass_kg"],
                                 gravity_m_s2=mechanics["gravity_m_s2"],
@@ -6190,6 +6271,8 @@ def _evaluate_object_physics_at_step(
                                     "energy_tolerance_J": mechanics[
                                         "energy_tolerance_J"
                                     ],
+                                    "path_start_m": path.displacement_m[0],
+                                    "path_end_m": path.displacement_m[-1],
                                     "path_status": path.status,
                                     "potential_work_available": potential_work_available,
                                     "numerically_qualified": numerically_qualified,

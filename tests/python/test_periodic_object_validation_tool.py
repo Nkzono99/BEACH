@@ -4358,6 +4358,8 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         and float(row["initial_torque_origin_x_m"]) == pytest.approx(1.0)
         and float(row["initial_torque_origin_y_m"]) == pytest.approx(2.0)
         and float(row["initial_torque_origin_z_m"]) == pytest.approx(3.0)
+        and float(row["path_start_m"]) == pytest.approx(0.0)
+        and float(row["path_end_m"]) == pytest.approx(7.0e-5)
         for row in declared_rows
     )
     assert any(
@@ -4619,19 +4621,35 @@ def test_strict_wrench_component_contract_requires_complete_additive_sets() -> N
         )
     }
 
-    tool._validate_strict_wrench_component_contract(
+    def validate(
+        component_values: dict[str, SimpleNamespace],
+        metadata_values: dict[str, object],
+        *,
+        effective_far_correction: str,
+        wrench_force_N: np.ndarray = total.force_N,
+        wrench_torque_Nm: np.ndarray = total.torque_Nm,
+    ) -> None:
+        tool._validate_strict_wrench_component_contract(
+            component_values,
+            metadata_values,
+            effective_far_correction=effective_far_correction,
+            wrench_force_N=wrench_force_N,
+            wrench_torque_Nm=wrench_torque_Nm,
+        )
+
+    validate(
         components,
         cached_metadata,
         effective_far_correction="cached_kneq0",
     )
     with pytest.raises(tool.ValidationError, match="physical wrench component set"):
-        tool._validate_strict_wrench_component_contract(
+        validate(
             {name: value for name, value in components.items() if name != "external_uniform"},
             cached_metadata,
             effective_far_correction="cached_kneq0",
         )
     with pytest.raises(tool.ValidationError, match="cached numerical wrench component set"):
-        tool._validate_strict_wrench_component_contract(
+        validate(
             components,
             {
                 name: value
@@ -4647,7 +4665,7 @@ def test_strict_wrench_component_contract_requires_complete_additive_sets() -> N
         "potential_energy_J": np.nan,
     }
     with pytest.raises(tool.ValidationError, match="numerical.*potential energy"):
-        tool._validate_strict_wrench_component_contract(
+        validate(
             components,
             nonfinite_metadata,
             effective_far_correction="cached_kneq0",
@@ -4657,27 +4675,41 @@ def test_strict_wrench_component_contract_requires_complete_additive_sets() -> N
         inconsistent["total_external"] = _wrench_component(
             np.array([1.0, 2.0, 4.0]), np.zeros(3), 6.0
         )
-        tool._validate_strict_wrench_component_contract(
+        validate(
             inconsistent,
             cached_metadata,
             effective_far_correction="cached_kneq0",
         )
     with pytest.raises(tool.ValidationError, match="finite numerical wrench component set"):
-        tool._validate_strict_wrench_component_contract(
+        validate(
             components,
             cached_metadata,
             effective_far_correction="none",
         )
-    tool._validate_strict_wrench_component_contract(
+    validate(
         components,
         {"primary_free_subtraction": diagnostic},
         effective_far_correction="none",
     )
     with pytest.raises(tool.ValidationError, match="primary_free_subtraction"):
-        tool._validate_strict_wrench_component_contract(
+        validate(
             components,
             {},
             effective_far_correction="none",
+        )
+    with pytest.raises(tool.ValidationError, match="wrench total"):
+        validate(
+            components,
+            cached_metadata,
+            effective_far_correction="cached_kneq0",
+            wrench_force_N=np.array([1.0, 2.0, 4.0]),
+        )
+    with pytest.raises(tool.ValidationError, match="wrench total"):
+        validate(
+            components,
+            cached_metadata,
+            effective_far_correction="cached_kneq0",
+            wrench_torque_Nm=np.array([0.0, 0.0, 1.0]),
         )
 
 
@@ -4689,6 +4721,31 @@ def test_additive_identity_tolerance_scales_with_cancelling_components() -> None
         [np.array([1.0e16]), np.array([1.0]), np.array([-1.0e16])],
         label="cancelling test",
     )
+    tool._require_additive_identity(
+        np.array([2.0]),
+        [np.array([1.0e308]), np.array([-1.0e308]), np.array([2.0])],
+        label="large cancelling test",
+    )
+
+
+@pytest.mark.parametrize(
+    "components",
+    [
+        [np.array([1.0e16]), np.array([1.0]), np.array([-1.0e16])],
+        [np.array([1.0e308]), np.array([-1.0e308]), np.array([2.0])],
+    ],
+)
+def test_additive_identity_rejects_false_total_under_cancellation(
+    components: list[np.ndarray],
+) -> None:
+    tool = _load_tool()
+
+    with pytest.raises(tool.ValidationError, match="additive components"):
+        tool._require_additive_identity(
+            np.array([0.0]),
+            components,
+            label="cancelling test",
+        )
 
 
 @pytest.mark.parametrize(
@@ -4757,11 +4814,48 @@ def test_strict_path_component_contract_requires_additive_components() -> None:
         },
     )
 
-    tool._validate_strict_path_component_contract(path)
+    tool._validate_strict_path_component_contract(
+        path,
+        expected_start_m=0.0,
+        expected_end_m=1.0,
+    )
     path.component_force_N = dict(path.component_force_N)
     path.component_force_N.pop("external_uniform")
     with pytest.raises(tool.ValidationError, match="path force component set"):
-        tool._validate_strict_path_component_contract(path)
+        tool._validate_strict_path_component_contract(
+            path,
+            expected_start_m=0.0,
+            expected_end_m=1.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "displacement",
+    [
+        np.array([1.0e-6, 1.0]),
+        np.array([0.0, 0.9]),
+        np.array([0.0, 0.75, 0.5, 1.0]),
+    ],
+)
+def test_strict_path_component_contract_rejects_invalid_final_grid(
+    displacement: np.ndarray,
+) -> None:
+    tool = _load_tool()
+    zeros = np.zeros((displacement.size, 3))
+    path = SimpleNamespace(
+        displacement_m=displacement,
+        force_N=zeros,
+        torque_Nm=zeros,
+        component_force_N={name: zeros for name in tool.PHYSICAL_OBJECT_COMPONENTS},
+        component_torque_Nm={name: zeros for name in tool.PHYSICAL_OBJECT_COMPONENTS},
+    )
+
+    with pytest.raises(tool.ValidationError, match="path displacement"):
+        tool._validate_strict_path_component_contract(
+            path,
+            expected_start_m=0.0,
+            expected_end_m=1.0,
+        )
 
 
 def test_shell_reference_contract_requires_selected_physical_reference() -> None:
@@ -4813,6 +4907,40 @@ def test_shell_reference_contract_requires_selected_physical_reference() -> None
         tool._validate_shell_reference_contract(shell)
     shell.force_tail_proxy_N = np.array([10.0, 1.0])
     with pytest.raises(tool.ValidationError, match="increment/tail"):
+        tool._validate_shell_reference_contract(shell)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("increment_converged", np.array([0, 1, 1])),
+        ("increment_converged", np.array([False, np.nan, True])),
+        ("reference_converged", np.array([0, 0, 1, 1])),
+        ("reference_converged", np.array([False, False, np.inf, True])),
+    ],
+)
+def test_shell_reference_contract_rejects_nonboolean_gate_arrays(
+    field: str,
+    value: np.ndarray,
+) -> None:
+    tool = _load_tool()
+    shell = SimpleNamespace(
+        image_layers=np.array([0, 1, 2, 3]),
+        increment_converged=np.array([False, True, True]),
+        status="converged",
+        selected_image_layers=3,
+        reference_model="infinite_physical",
+        reference_converged=np.array([False, False, True, True]),
+        reference_force_error_N=np.array([3.0, 2.0, 1.0, 0.1]),
+        reference_work_error_J=np.array([6.0, 4.0, 2.0, 0.2]),
+        force_increment_error_N=np.array([1.0, 0.1, 0.01]),
+        work_increment_error_J=np.array([2.0, 0.2, 0.02]),
+        force_tail_proxy_N=np.array([10.0, 1.0, 0.1]),
+        work_tail_proxy_J=np.array([20.0, 2.0, 0.2]),
+    )
+    setattr(shell, field, value)
+
+    with pytest.raises(tool.ValidationError, match="boolean"):
         tool._validate_shell_reference_contract(shell)
 
 

@@ -641,6 +641,39 @@ def test_converged_shell_record_requires_two_successive_reference_gates() -> Non
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("increment_converged", np.array([False, np.nan])),
+        ("reference_converged", np.array([False, np.inf, True])),
+    ],
+)
+def test_shell_record_rejects_nonboolean_gate_arrays(
+    field: str,
+    value: np.ndarray,
+) -> None:
+    paths = tuple(_constant_path(1.0) for _ in range(3))
+    kwargs = {
+        "image_layers": np.array([0, 1, 2]),
+        "symmetric_paths": paths,
+        "corrected_paths": paths,
+        "force_increment_error_N": np.zeros(2),
+        "work_increment_error_J": np.zeros(2),
+        "increment_converged": np.array([False, True]),
+        "status": "not_converged",
+        "selected_image_layers": None,
+        "selected_path": None,
+        "reference_force_error_N": np.zeros(3),
+        "reference_work_error_J": np.zeros(3),
+        "reference_converged": np.array([False, False, True]),
+        "reference_model": "infinite_physical",
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match="boolean"):
+        FiniteShellConvergenceResult(**kwargs)
+
+
 def test_infinite_shell_selection_requires_physical_reference_agreement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
