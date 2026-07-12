@@ -71,6 +71,9 @@ CACHED_NUMERICAL_COMPONENTS = (
 )
 ORACLE_UNIFORM_RELATIVE_TOLERANCE = 1.2e-1
 ORACLE_COSINE_FINE_RELATIVE_TOLERANCE = 8.0e-2
+ORACLE_COSINE_SAMPLE_ABS_Z_M = (0.25, 0.50)
+ORACLE_COSINE_EXPECTED_DECAY_RATIO = math.exp(-math.pi * 0.25)
+ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE = 1.8e-1
 ORACLE_QUADRATURE_RELATIVE_TOLERANCE = 1.0e-2
 ORACLE_EFFECTIVE_FIELD_CONTRACT = {
     "requested_periodic_model": "infinite_physical",
@@ -7983,15 +7986,39 @@ def _verify_periodic_oracle_metrics(
         cosine.get("fine_relative_tolerance"),
         label=f"{label} cosine tolerance",
     )
+    sample_abs_z = cosine.get("sample_abs_z_m")
+    if not isinstance(sample_abs_z, list) or len(sample_abs_z) != 2:
+        raise ValidationError("periodic cosine-plane sample heights are invalid")
+    parsed_sample_abs_z = [
+        _oracle_nonnegative_number(value, label="cosine sample height")
+        for value in sample_abs_z
+    ]
+    expected_decay_ratio = _oracle_nonnegative_number(
+        cosine.get("expected_decay_ratio"),
+        label="cosine expected decay ratio",
+    )
+    decay_ratio_tolerance = _oracle_nonnegative_number(
+        cosine.get("decay_ratio_relative_tolerance"),
+        label="cosine decay ratio tolerance",
+    )
     if (
         cosine.get("expected_decay") != "exp(-k*abs(z-z0))"
         or cosine_tolerance != ORACLE_COSINE_FINE_RELATIVE_TOLERANCE
+        or parsed_sample_abs_z != list(ORACLE_COSINE_SAMPLE_ABS_Z_M)
+        or not math.isclose(
+            expected_decay_ratio,
+            ORACLE_COSINE_EXPECTED_DECAY_RATIO,
+            rel_tol=0.0,
+            abs_tol=1.0e-15,
+        )
+        or decay_ratio_tolerance
+        != ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE
     ):
         raise ValidationError("periodic cosine-plane oracle contract is invalid")
     errors = cosine.get("errors")
     if not isinstance(errors, list) or len(errors) != 2:
         raise ValidationError("periodic cosine-plane errors are invalid")
-    parsed: list[tuple[int, float, float]] = []
+    parsed: list[tuple[int, float, float, float, float, float, float]] = []
     for value in errors:
         if not isinstance(value, Mapping):
             raise ValidationError("periodic cosine-plane error row is invalid")
@@ -8009,14 +8036,56 @@ def _verify_periodic_oracle_metrics(
                     value.get("potential_relative_error"),
                     label="cosine potential error",
                 ),
+                _oracle_nonnegative_number(
+                    value.get("field_decay_ratio"),
+                    label="cosine field decay ratio",
+                ),
+                _oracle_nonnegative_number(
+                    value.get("potential_decay_ratio"),
+                    label="cosine potential decay ratio",
+                ),
+                _oracle_nonnegative_number(
+                    value.get("field_decay_ratio_relative_error"),
+                    label="cosine field decay ratio error",
+                ),
+                _oracle_nonnegative_number(
+                    value.get("potential_decay_ratio_relative_error"),
+                    label="cosine potential decay ratio error",
+                ),
             )
         )
+    ratio_records_are_consistent = all(
+        math.isclose(
+            field_ratio_error,
+            abs(field_ratio - expected_decay_ratio) / expected_decay_ratio,
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-15,
+        )
+        and math.isclose(
+            potential_ratio_error,
+            abs(potential_ratio - expected_decay_ratio) / expected_decay_ratio,
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-15,
+        )
+        for (
+            _cells,
+            _field_error,
+            _potential_error,
+            field_ratio,
+            potential_ratio,
+            field_ratio_error,
+            potential_ratio_error,
+        ) in parsed
+    )
     if (
         [value[0] for value in parsed] != [4, 8]
         or parsed[1][1] >= parsed[0][1]
         or parsed[1][2] >= parsed[0][2]
         or parsed[1][1] > ORACLE_COSINE_FINE_RELATIVE_TOLERANCE
         or parsed[1][2] > ORACLE_COSINE_FINE_RELATIVE_TOLERANCE
+        or not ratio_records_are_consistent
+        or max(parsed[1][5], parsed[1][6])
+        > ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE
     ):
         raise ValidationError(
             f"periodic cosine-plane oracle {label} exceeds its thresholds"
@@ -9097,12 +9166,24 @@ def _run_periodic_plane_kernel_oracle(
     length = 2.0
     wave_number = 2.0 * math.pi / length
     sigma_amplitude = 2.0 * eps0
-    positive_cosine_points = np.array(
+    cosine_xy = np.array(
         [
-            [0.20, 0.73, 0.25],
-            [0.55, 0.73, 0.25],
-            [1.10, 0.73, 0.25],
-            [1.65, 0.73, 0.25],
+            [0.20, 0.73],
+            [0.55, 0.73],
+            [1.10, 0.73],
+            [1.65, 0.73],
+        ]
+    )
+    sample_abs_z = np.asarray(ORACLE_COSINE_SAMPLE_ABS_Z_M, dtype=float)
+    positive_cosine_points = np.concatenate(
+        [
+            np.column_stack(
+                (
+                    cosine_xy,
+                    np.full(cosine_xy.shape[0], height),
+                )
+            )
+            for height in sample_abs_z
         ]
     )
     cosine_points = (
@@ -9185,6 +9266,20 @@ def _run_periodic_plane_kernel_oracle(
                 np.linalg.norm(positive_potential - negative_potential)
                 / np.linalg.norm(expected_cosine_potential[:count])
             )
+        positive_field = field[: positive_cosine_points.shape[0]]
+        positive_potential = potential[: positive_cosine_points.shape[0]]
+        field_amplitudes = np.linalg.norm(
+            positive_field.reshape(sample_abs_z.size, -1),
+            axis=1,
+        )
+        potential_amplitudes = np.linalg.norm(
+            positive_potential.reshape(sample_abs_z.size, -1),
+            axis=1,
+        )
+        field_decay_ratio = float(field_amplitudes[1] / field_amplitudes[0])
+        potential_decay_ratio = float(
+            potential_amplitudes[1] / potential_amplitudes[0]
+        )
         cosine_errors.append(
             {
                 "cells_per_axis": cells_per_axis,
@@ -9195,6 +9290,22 @@ def _run_periodic_plane_kernel_oracle(
                 "potential_relative_error": float(
                     np.linalg.norm(potential - expected_cosine_potential)
                     / np.linalg.norm(expected_cosine_potential)
+                ),
+                "field_decay_ratio": field_decay_ratio,
+                "potential_decay_ratio": potential_decay_ratio,
+                "field_decay_ratio_relative_error": float(
+                    abs(
+                        field_decay_ratio
+                        - ORACLE_COSINE_EXPECTED_DECAY_RATIO
+                    )
+                    / ORACLE_COSINE_EXPECTED_DECAY_RATIO
+                ),
+                "potential_decay_ratio_relative_error": float(
+                    abs(
+                        potential_decay_ratio
+                        - ORACLE_COSINE_EXPECTED_DECAY_RATIO
+                    )
+                    / ORACLE_COSINE_EXPECTED_DECAY_RATIO
                 ),
                 "charge_neutrality_ratio": float(
                     abs(np.sum(charges)) / np.sum(np.abs(charges))
@@ -9285,6 +9396,11 @@ def _run_periodic_plane_kernel_oracle(
         },
         "neutral_cosine_plane": {
             "errors": cosine_errors,
+            "sample_abs_z_m": list(ORACLE_COSINE_SAMPLE_ABS_Z_M),
+            "expected_decay_ratio": ORACLE_COSINE_EXPECTED_DECAY_RATIO,
+            "decay_ratio_relative_tolerance": (
+                ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE
+            ),
             "fine_relative_tolerance": ORACLE_COSINE_FINE_RELATIVE_TOLERANCE,
             "expected_decay": "exp(-k*abs(z-z0))",
         },

@@ -95,6 +95,7 @@ make test-heavy   # heavy Fortran targets only
 make test-fortran-far-correction  # oracle far-correction correctness
 make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
 make test-fortran-benchmark  # release-profile runtime benchmark
+make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
 ```
 
@@ -112,6 +113,9 @@ The `m2l_root_oracle` correctness tests are opt-in through `make test-fortran-fa
 The assertion-free `test_periodic2_flat_oracle_diag` is separated under
 `make test-fortran-far-correction-diagnostics`. Runtime comparison uses the release profile through
 `make test-fortran-benchmark` instead of running inside a debug correctness test.
+`make test-field-kernel-cache` builds the shared kernel and passes its absolute
+path to the long-running native periodic plane-oracle receipt test. It remains
+opt-in and is not part of L1/L2/L3 or `make test-physics-release`.
 Tiered tests under Intel `ifx` / `mpiifx` suppress only the
 `arg_temp_created` check by default because each expected array temporary can
 otherwise emit a full stack trace. Other debug checks, including bounds

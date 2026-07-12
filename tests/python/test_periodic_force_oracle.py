@@ -1,5 +1,7 @@
 import importlib.util
+import json
 import os
+import shutil
 import sys
 from contextlib import contextmanager
 from dataclasses import replace
@@ -913,8 +915,33 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
     tool = _load_validation_tool()
     library_value = os.environ.get("BEACH_FIELD_KERNEL_LIB")
     assert library_value is not None
-    library = Path(library_value).expanduser().resolve()
-    assert library.is_file(), f"native field-kernel library does not exist: {library}"
+    provided_library = Path(library_value).expanduser().resolve()
+    assert provided_library.is_file(), (
+        f"native field-kernel library does not exist: {provided_library}"
+    )
+    library = tmp_path / "lib" / provided_library.name
+    library.parent.mkdir(parents=True)
+    shutil.copy2(provided_library, library)
+    library.chmod(0o555)
+    build_origin = tool._library_build_info(library)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "validation_root": str(tmp_path.resolve()),
+                "analysis_library": {
+                    "provided_path": str(provided_library),
+                    "staged_path": str(library),
+                    "sha256": tool._sha256(library),
+                },
+                "build_origin": build_origin,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     oracle_dir = tmp_path / "provenance" / "oracles"
     oracle_dir.mkdir(parents=True)
@@ -955,6 +982,30 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
         assert identities["4"]["path"] != identities["8"]["path"]
         assert all(row["hit"] is True for row in evaluations)
         assert all(row["build_count"] == 0 for row in evaluations)
+        cosine = result["neutral_cosine_plane"]
+        assert cosine["sample_abs_z_m"] == [0.25, 0.5]
+        assert cosine["expected_decay_ratio"] == pytest.approx(
+            np.exp(-np.pi * 0.25)
+        )
+        assert cosine["decay_ratio_relative_tolerance"] == 0.18
+        for row in cosine["errors"]:
+            assert row["field_decay_ratio_relative_error"] == pytest.approx(
+                abs(
+                    row["field_decay_ratio"]
+                    - cosine["expected_decay_ratio"]
+                )
+                / cosine["expected_decay_ratio"]
+            )
+            assert row["potential_decay_ratio_relative_error"] == pytest.approx(
+                abs(
+                    row["potential_decay_ratio"]
+                    - cosine["expected_decay_ratio"]
+                )
+                / cosine["expected_decay_ratio"]
+            )
+        fine_cosine = cosine["errors"][1]
+        assert fine_cosine["field_decay_ratio_relative_error"] <= 0.18
+        assert fine_cosine["potential_decay_ratio_relative_error"] <= 0.18
         for group, group_labels in tool.ORACLE_CACHE_EVALUATION_GROUPS[label].items():
             canonical = identities[group]
             grouped = [row for row in evaluations if row["label"] in group_labels]
@@ -969,8 +1020,6 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
                 for row in grouped
             )
 
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("{}\n", encoding="utf-8")
     triangle = kernel_oracles["triangle_p0"]
     receipt = {
         "receipt_schema_version": 1,
@@ -997,6 +1046,7 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
         "kernel_oracles": kernel_oracles,
         "uniform_plane": triangle["uniform_plane"],
         "neutral_cosine_plane": triangle["neutral_cosine_plane"],
+        "library_build_origin": build_origin,
         "verified_at": "pytest-native",
     }
     receipt_path = oracle_dir / "periodic_plane.json"

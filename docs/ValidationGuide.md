@@ -105,16 +105,22 @@ process の終了、CSV の生成、または一つの `status="converged"` だ�
    energy `-K q^2/a` の減算を相対 `1e-11` で検証します。これは
    `exclude_primary_keep_images`、すなわち primary だけを除いて周期像を保持する契約です。補助
    `triangle_p0` oracle は Gauss-Duffy order 3/7 の wrench 差を1%以内にします。
-11. 中性な `sigma_0 cos(kx)` sheet では、4x4から8x8へ field と potential の解析解誤差が
-   それぞれ減少し、fine grid で各8%以内、振幅が `exp(-k |z-z0|)` で減衰することを確認します。
-   production point source は両 grid で charge-neutrality ratio `<=1e-12` を要求し、対になった
-   `+z/-z` sample で tangential field は even、normal field は odd、potential は even として、
+11. 中性な `sigma_0 cos(kx)` sheet では、同じ4x4/8x8 snapshotとoperator cacheを用いて
+   `|z-z0|=0.25 m, 0.50 m` の解析解 `Ex`、`Ez`、`phi` を評価します。field と potential の
+   解析解誤差は4x4から8x8へそれぞれ減少し、fine gridで各8%以内でなければなりません。
+   0.25 mから0.50 mへのfield-vector L2振幅比とpotential L2振幅比を
+   `exp(-k*0.25 m)` と比較し、比と相対誤差を両gridについてreceiptへ保存し、fine gridの比誤差を
+   各18%以内にします。この2高さの評価は同じsnapshot内で一括実行するためoperator cache buildを
+   増やしません。production point source は両gridでcharge-neutrality ratio `<=1e-12` を要求し、
+   両方の高さで対になった`+z/-z` sampleを使います。tangential fieldはeven、normal fieldはodd、
+   potentialはevenとして、
    field/potential の parity 誤差を別々に8%以内にします。さらに `a/L=1e-6` の softened-point
    micro-oracle は `r/a=0,1,2,3` の4点で analytic softened field/potential と direct evaluator、
    および ordinary/direct の一致を相対 `1e-11` で確認し、normalized self-field は
    `32 epsilon_machine` 以下とします。これは局所 kernel 契約の検査であり、periodic closure の
-   代替ではありません。一様面の12%と cosine の8%は production ABI/cache 経路の smoke gate
-   であり、object path の0.5%や finite-shell の1%という収束基準の代わりではなく、8%/12%を
+   代替ではありません。一様面の12%、cosine解析解の8%、decay ratioの18%はproduction
+   ABI/cache経路のsmoke gateであり、object pathの0.5%やfinite-shellの1%という収束基準の
+   代わりではなく、8%/12%/18%を
    物理精度として主張しません。平面 oracle の誤差を、保存済み sphere mesh やその source
    discretization の force/torque error bar に流用しません。sphere/source refinement は別途
    実施するまで `not_evaluated` です。
@@ -229,12 +235,13 @@ model、`epsilon_r`、element count を staged input および相互で厳密一
 cache-prime receipt hash も `object_wrench.csv` に保存します。
 
 `analyze --require-complete` は strict input、receipt、oracle、geometry の検証と artifact 生成を
-一時 directory で行います。完了済み oracle receipt などの write-once state が健全なまま、
-analysis の一時 directory 内だけで生成・検証に失敗した場合はその一時 directory を除去します。
-この場合に限り、`analysis/` が未作成または空なら、修正後に同じ validation root で retry
-できます。これは oracle 生成中の partial failure には適用しません。oracle config または cache
-だけが残り receipt がない状態は同じ root での再利用を拒否するため、新しい validation root が
-必要です。`analysis/` の atomic publish 後も、再実行には新しい validation root が必要です。
+一時 directory で行います。qualified oracle receiptを含むwrite-once stateが全て完成・健全で、
+`analysis/` が未publish（未作成または空）のまま、失敗がanalysisの一時directory内だけに限定された
+場合は、その一時directoryを除去します。同じvalidation rootでretryできるのは、元analysis job IDを
+保つ同一allocation内での再実行、またはsiteが許可するsame-ID requeueだけです。通常の新規`sbatch`、
+source/tool/library/inputの変更、あるいはsame-ID再実行が利用できない場合は、新しいvalidation rootが
+必要です。これはoracle生成中のpartial failureには適用しません。oracle configまたはcacheだけが残り
+receiptがない状態と、`analysis/` のatomic publish後も、必ず新しいvalidation rootを使います。
 
 `numerical_qualification_for_local_frozen_model` は、保存済み sphere mesh と source discretization
 を固定したまま、exact 30 path/wrench key、6 shell group、path/work 収束を確認する subset gate
@@ -246,7 +253,7 @@ tolerance の10%を超えることを要求します。
 この gate の `status="qualified"` は、固定した保存済み離散化上で path integration、
 work/potential consistency、判定 resolution、finite-shell 収束を満たしたことだけを表します。
 保存済み sphere mesh の refinement、source discretization refinement、sphere force/torque の
-絶対誤差幅は評価しておらず、これらは `not_evaluated` です。平面 oracle の8%/12%を sphere の
+絶対誤差幅は評価しておらず、これらは `not_evaluated` です。平面 oracle の8%/12%/18%を sphere の
 error bar として補いません。これらの resolution gate を満たさない barrier/speed は、積分自体が
 収束していても主張しません。path または shell が未収束なら barrier/speed は
 `not_claimed_unqualified` です。また、上方一定場が残る非中性系の `0..2R` work/speed は局所

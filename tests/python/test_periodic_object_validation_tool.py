@@ -2119,6 +2119,7 @@ def _fake_periodic_kernel_oracle(
     field_source_model: str,
     field_kernel_id: str,
 ) -> dict[str, object]:
+    expected_decay_ratio = float(np.exp(-np.pi * 0.25))
     cache_labels = (
         ["uniform_4", "uniform_8", "point_primary", "cosine_4", "cosine_8"]
         if field_source_model == "point"
@@ -2202,6 +2203,10 @@ def _fake_periodic_kernel_oracle(
                     "cells_per_axis": 4,
                     "field_relative_error": 0.12,
                     "potential_relative_error": 0.11,
+                    "field_decay_ratio": expected_decay_ratio * 1.10,
+                    "potential_decay_ratio": expected_decay_ratio * 0.92,
+                    "field_decay_ratio_relative_error": 0.10,
+                    "potential_decay_ratio_relative_error": 0.08,
                     "field_parity_relative_error": 1.0e-12,
                     "potential_parity_relative_error": 1.0e-12,
                 },
@@ -2209,10 +2214,17 @@ def _fake_periodic_kernel_oracle(
                     "cells_per_axis": 8,
                     "field_relative_error": 0.04,
                     "potential_relative_error": 0.03,
+                    "field_decay_ratio": expected_decay_ratio * 1.03,
+                    "potential_decay_ratio": expected_decay_ratio * 0.98,
+                    "field_decay_ratio_relative_error": 0.03,
+                    "potential_decay_ratio_relative_error": 0.02,
                     "field_parity_relative_error": 1.0e-12,
                     "potential_parity_relative_error": 1.0e-12,
                 },
             ],
+            "sample_abs_z_m": [0.25, 0.5],
+            "expected_decay_ratio": expected_decay_ratio,
+            "decay_ratio_relative_tolerance": 0.18,
             "fine_relative_tolerance": 0.08,
             "expected_decay": "exp(-k*abs(z-z0))",
         },
@@ -2543,6 +2555,65 @@ def test_periodic_oracle_receipt_is_bound_to_library_and_cache_inventory(
         assert oracle["cache_diagnostics"] == identities["4"]
         assert identities["4"]["fingerprint"] != identities["8"]["fingerprint"]
         assert identities["4"]["path"] != identities["8"]["path"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_sample_abs_z",
+        "tampered_sample_abs_z",
+        "missing_ratio_error",
+        "tampered_ratio",
+        "ratio_threshold",
+        "missing_ratio_tolerance",
+        "tampered_ratio_tolerance",
+    ],
+)
+def test_periodic_oracle_receipt_rejects_invalid_multiheight_decay_contract(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = tool.stage_validation(
+        archive_run,
+        validation_root,
+        binary,
+        library=binary,
+    )
+    library = Path(manifest["analysis_library"]["staged_path"])
+    kernel_oracles = _fake_periodic_kernel_oracles()
+    cosine = kernel_oracles["production_point"]["neutral_cosine_plane"]
+    fine = cosine["errors"][1]
+    if mutation == "missing_sample_abs_z":
+        del cosine["sample_abs_z_m"]
+    elif mutation == "tampered_sample_abs_z":
+        cosine["sample_abs_z_m"] = [0.25, 0.55]
+    elif mutation == "missing_ratio_error":
+        del fine["field_decay_ratio_relative_error"]
+    elif mutation == "tampered_ratio":
+        fine["field_decay_ratio"] *= 1.01
+    elif mutation == "ratio_threshold":
+        fine["field_decay_ratio"] = cosine["expected_decay_ratio"] * 1.19
+        fine["field_decay_ratio_relative_error"] = 0.19
+    elif mutation == "missing_ratio_tolerance":
+        del cosine["decay_ratio_relative_tolerance"]
+    else:
+        cosine["decay_ratio_relative_tolerance"] = 0.19
+    _write_periodic_oracle_receipt(
+        tool,
+        validation_root,
+        library,
+        kernel_oracles=kernel_oracles,
+    )
+
+    with pytest.raises(
+        tool.ValidationError,
+        match="cosine|decay|sample|threshold|contract",
+    ):
+        tool._verify_periodic_oracle_receipt(validation_root, library)
 
 
 def test_periodic_oracle_receipt_rechecks_library_build_origin(

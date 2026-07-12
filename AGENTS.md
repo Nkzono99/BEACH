@@ -56,6 +56,7 @@ Python CLI examples:
   - L1 development loop: `make test` or `make test-l1` (Python tests + quick Fortran targets, excluding heavy FMM)
   - L2 contract/integration: `make test-l2` (L1 + C/kernel contract target)
   - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)
+- Opt-in native cache/oracle gate: `make test-field-kernel-cache` (builds the shared kernel, passes its absolute path to the periodic plane-oracle receipt test, and is excluded from L1/L2/L3 and `test-physics-release`)
 - Per-target Fortran test: `FPM_ACTION=test ./build.sh --target <name>`
 - Fortran format: `fprettify -i 2` for `*.f90` / `*.F90` (`*.i90` is excluded). Prefer `make fmt-fortran`, `make fmt-check-fortran`, and `pre-commit install`.
 - KUDPC のログインノード（`camphor*`, `laurel*`, `cinnamon*`, `gardenia*`）、アプリケーションサーバ、ファイル転送サーバでは、`make test*` / `fpm test` / 長時間の Fortran テストターゲットを直接実行しない。KUDPC plugin のホスト判定または `hostname` でノード種別を確認し、Slurm 割当内でない場合は計算ノードに投入する。

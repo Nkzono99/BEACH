@@ -95,6 +95,7 @@ make test-heavy   # heavy Fortran targets only
 make test-fortran-far-correction  # oracle far-correction correctness
 make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
 make test-fortran-benchmark  # release-profile runtime benchmark
+make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
 ```
 
@@ -112,6 +113,8 @@ BEACH のテストは開発ループ向けに階層化しています。
 数値 assert を持たない `test_periodic2_flat_oracle_diag` は
 `make test-fortran-far-correction-diagnostics` へ分離しています。速度比較は debug test へ混在させず、
 `make test-fortran-benchmark` で release profile を使います。
+`make test-field-kernel-cache` はshared kernelをbuildし、その絶対pathをnative periodic plane-oracle
+receipt testへ渡す長時間opt-in gateです。L1/L2/L3と`make test-physics-release`には含めません。
 Intel `ifx` / `mpiifx` の tiered test は、既知の配列一時オブジェクトごとに巨大な stack trace を
 出す `arg_temp_created` check だけを既定で抑制します。bounds など他の debug check は維持されます。
 一時配列診断そのものを調べる場合は、例えば

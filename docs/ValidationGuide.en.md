@@ -127,20 +127,27 @@ refinement has not been performed.
    `exclude_primary_keep_images` contract: exclude only the primary while
    retaining periodic images. The auxiliary `triangle_p0` oracle requires the
    Gauss-Duffy order-3/order-7 wrench difference to be within 1%.
-11. For a neutral `sigma_0 cos(kx)` sheet, field and potential errors must each
-   decrease from the 4x4 to the 8x8 grid, be within 8% on the fine grid, and
-   follow the `exp(-k |z-z0|)` amplitude decay. The production point source
-   requires a charge-neutrality ratio `<=1e-12` on both grids. At paired
-   `+z/-z` samples, tangential field is even, normal field is odd, and
+11. For a neutral `sigma_0 cos(kx)` sheet, the same 4x4/8x8 snapshots and
+   operator caches evaluate analytic `Ex`, `Ez`, and `phi` at
+   `|z-z0|=0.25 m, 0.50 m`. Field and potential errors must each decrease from
+   the 4x4 to the 8x8 grid and be within 8% on the fine grid. The field-vector
+   L2 amplitude ratio and potential L2 amplitude ratio from 0.25 m to 0.50 m
+   are compared with `exp(-k*0.25 m)`. Both-grid ratios and relative errors are
+   stored in the receipt, and each fine-grid ratio error must be within 18%.
+   Both heights are evaluated together in each snapshot, so this adds no
+   operator-cache build. The production point source requires a
+   charge-neutrality ratio `<=1e-12` on both grids and paired `+z/-z` samples at
+   both heights. Tangential field is even, normal field is odd, and
    potential is even; separate field and potential parity errors must each be
    within 8%. A softened-point micro-oracle with `a/L=1e-6` compares analytic
    softened field/potential with the direct evaluator and ordinary with direct
    at four points `r/a=0,1,2,3`, all to relative `1e-11`; normalized self field
    must be at most `32 epsilon_machine`. This is a local kernel-contract check,
-   not a substitute for the periodic closure. The 12% uniform-plane and 8%
-   cosine thresholds are smoke gates for the production ABI/cache path. They
+   not a substitute for the periodic closure. The 12% uniform-plane, 8%
+   cosine analytic, and 18% decay-ratio thresholds are smoke gates for the
+   production ABI/cache path. They
    neither replace the 0.5% object-path and 1% finite-shell convergence
-   criteria nor establish 8%/12% physical accuracy. Do not reuse plane-oracle
+   criteria nor establish 8%/12%/18% physical accuracy. Do not reuse plane-oracle
    errors as force or torque error bars for the saved sphere mesh or its source
    discretization. Sphere and source refinement remain `not_evaluated` until
    they are performed separately.
@@ -281,15 +288,17 @@ old archive does not weaken the new-run contract. For cached evaluators,
 file hash, and cache-prime receipt hash.
 
 `analyze --require-complete` performs strict input, receipt, oracle, and
-geometry checks and generates artifacts in a temporary directory. When the
-completed oracle receipt and other write-once state remain valid, a failure
-confined to generation or verification inside the analysis temporary directory
-removes that directory. Only in this case may the same validation root be
-retried after correction while `analysis/` remains absent or empty. This does
-not apply to a partial failure during oracle generation. If oracle configuration
-or cache files remain without a receipt, reuse of that root is rejected and a
-new validation root is required. A new validation root is also required after
-`analysis/` has been atomically published.
+geometry checks and generates artifacts in a temporary directory. A failure
+confined to that analysis temporary directory removes it only when all
+write-once state, including the qualified oracle receipt, is complete and
+valid, and `analysis/` remains unpublished (absent or empty). The same
+validation root may then be retried only inside the original allocation while
+preserving the original analysis job ID, or through a site-permitted same-ID
+requeue. An ordinary new `sbatch`, any source/tool/library/input change, or the
+absence of a same-ID retry path requires a new validation root. A partial
+oracle-generation failure, oracle configuration or cache files without a
+receipt, and any retry after atomic publication of `analysis/` also require a
+new validation root.
 
 `numerical_qualification_for_local_frozen_model` is a subset gate evaluated
 with the saved sphere mesh and source discretization held fixed. It covers the
@@ -304,7 +313,7 @@ For this gate, `status="qualified"` means only that path integration,
 work/potential consistency, decision resolution, and finite-shell convergence
 passed on the fixed saved discretization. It does not evaluate saved-sphere mesh
 refinement, source-discretization refinement, or an absolute sphere force/torque
-error bound; those remain `not_evaluated`. The 8%/12% plane-oracle thresholds do
+error bound; those remain `not_evaluated`. The 8%/12%/18% plane-oracle thresholds do
 not fill in a sphere error bar. A barrier or speed is not claimed when these
 resolution gates fail, even if integration itself converged. If a path or shell
 is unconverged, barrier and speed are `not_claimed_unqualified`. In a non-neutral
