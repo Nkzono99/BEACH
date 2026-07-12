@@ -31,15 +31,25 @@ model is used as a fallback.
 | `8113041` | continuation RED | expected compile failure on missing continuation diagnostic |
 | `8113047` | continuation GREEN | 10 core and 11 solver tests passed, 41 solver assertions |
 | `8113048` | `make check` | debug OpenMP build passed on SysA |
+| `8113052` | documentation mirror regression | passed after canonical/plugin synchronization |
+| `8113053` | L1 | passed: Python 555 passed / 36 skipped and all light Fortran targets passed |
+| `8113065` | L2 | passed: L1 plus C field-kernel and periodic zero-mode contracts |
+| `8113081` | release MPI build | passed with Intel 2023.2 MPI/OpenMP |
 
 The difficult-field regression first solves the lunar ambient state at zero
 field, reaches `-0.70 V/m` through multiple continuation steps, then reaches
 the former runtime failure field `-0.72898324579369622 V/m`. The final state is
 monotonic and its original residual is at most `1e-8`.
 
-## Pending Tiered and Runtime Evidence
+## Runtime Chain
 
-- L1 result: pending
-- L2 result: pending
+- Validation root: `/LARGE1/gr20001/b36291/codex-tmp/beach-robust-kinetic-validation-20260713`
+- Binary SHA-256: `054736111fb133b6d84175d8ff7c5fac405a332887a2b3f3953e0671b85e1439`
+- 3,000-batch smoke: job `8113082`, `gr20001a`, `p=6:t=112:c=112`, one-hour limit
+- 100,000-batch full: job `8113083`, `gr20001a`, `p=12:t=112:c=112`, ten-hour limit
+- Dependency: `afterok:8113082`; a failed smoke prevents the full run from starting
+
+## Pending Runtime Evidence
+
 - 3,000-batch smoke result: pending
 - 100,000-batch lunar-regolith result: pending

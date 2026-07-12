@@ -215,7 +215,7 @@
   controller allocation when required by the active KUDPC execution guard.
   Expected result: both succeed.
 
-- [ ] **Step 3: Submit L1 then L2 on SysA**
+- [x] **Step 3: Submit L1 then L2 on SysA**
 
   Use one `sbatch` controller job at a time with `p=1`, running `make test-l1`
   and then `make test-l2`.  Expected result: both exit zero.
