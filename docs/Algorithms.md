@@ -220,8 +220,8 @@ for local_batch_idx = 1..batch_count_this_run:
 | 4 | 中点場を使う `boris_push` で候補速度 `v1` と台形則による候補位置 `x1` を計算 |
 | 5 | `x0 -> x1` を1回collision queryし、`x1` がbox内部ならその結果を確定する |
 | 6 | box crossingがあればmesh hit parameterと最初のface parameterを比較し、tieではmeshを優先する |
-| 7 | openはevent点で終了し、reflect/periodicは残り時間を最大3回再積分して各chordのmesh hitを調べる |
-| 8 | hitなら`q * w`を堆積して吸収し、4回目のbox eventならstateをcommitせずfail closedにする |
+| 7 | openはevent点で終了し、reflect/periodicは残り時間を最大8回再積分して各chordのmesh hitを調べる |
+| 8 | hitなら`q * w`を堆積して吸収し、9回目のbox eventならstateをcommitせずfail closedにする |
 | 9 | 生存していれば同時刻の`x`と`v`を更新して次stepへ進む |
 
 `build_particle_step_candidate` は場ソルバを変更せず、予測中点で空間電場を1回だけ評価します。box crossing候補では
@@ -235,7 +235,7 @@ for local_batch_idx = 1..batch_count_this_run:
 production loopはcandidateとmesh queryを先に作り、候補終点がstrictなbox内部なら、追加のevent geometryなしに場評価1回・collision query 1回で
 完了します。crossing時だけ `find_first_boundary_event` と `apply_escape_reflect_periodic_event` を使い、corner/edgeの
 同時faceを一括処理します。異なる時刻に次のfaceへ達した場合もmeshとの最早順序を保って処理し、
-4つ目のfaceまでにmesh hitがなければ、上限なしのloopへ入らず `particle_step_multiple_box_events` を返します。
+9つ目のfaceまでにmesh hitがなければ、上限なしのloopへ入らず `particle_step_multiple_box_events` を返します。
 既存 `apply_box_boundary` はphoto ray用に維持します。
 periodic2のfull-chord queryがbox外区間でrange limitに達した場合は、最初のbox eventまでに制限したqueryへfallbackします。
 

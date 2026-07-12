@@ -72,7 +72,7 @@ contains
     end do
   end subroutine project_field_sample_to_box
 
-  !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大三度だけremainderを再積分する。
+  !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大八度だけremainderを再積分する。
   subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -153,7 +153,7 @@ contains
       )
   end subroutine resolve_particle_boundary_candidate
 
-  !> box crossing時だけevent用stateを確保し、最大三つのeventとremainderを処理する。
+  !> box crossing時だけevent用stateを確保し、最大八つのeventとremainderを処理する。
   subroutine advance_particle_boundary_crossing( &
     mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
     )
@@ -165,7 +165,7 @@ contains
     type(particle_step_result), intent(inout) :: result
     logical, intent(in), optional :: defer_z_high_interface
 
-    integer(i32), parameter :: max_boundary_events = 3_i32
+    integer(i32), parameter :: max_boundary_events = 8_i32
     type(boundary_event_type) :: event
     type(hit_info) :: remainder_hit
     real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3)

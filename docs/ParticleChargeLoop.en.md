@@ -203,9 +203,9 @@ For a box-crossing candidate, only the midpoint field sample is wrapped on perio
 axes; the trajectory candidate remains unwrapped. BEACH runs one collision query on `x^n -> x^{n+1}` and commits it
 directly when the candidate endpoint is inside the box.
 For a box crossing, it compares the mesh-hit and first-face parameters and rebuilds reflected/periodic remainders for
-at most three box events.
+at most eight box events.
 Only when a periodic2 full-chord query reaches a range limit beyond the box does it retry with the chord truncated at the
-first face. A collision absorbs the particle without saving the candidate state. A fourth box event in the remainder fails
+first face. A collision absorbs the particle without saving the candidate state. A ninth box event in the remainder fails
 without changing state and asks for a smaller `sim.dt` when no earlier mesh hit exists.
 
 ---

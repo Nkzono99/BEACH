@@ -904,7 +904,7 @@ contains
     failure_cfg%particle_species(1)%w_particle = 1.0_dp
     failure_cfg%particle_species(1)%pos_low = [0.9_dp, 0.2_dp, 0.2_dp]
     failure_cfg%particle_species(1)%pos_high = failure_cfg%particle_species(1)%pos_low
-    failure_cfg%particle_species(1)%drift_velocity = [4.0_dp, 0.0_dp, 0.0_dp]
+    failure_cfg%particle_species(1)%drift_velocity = [9.0_dp, 0.0_dp, 0.0_dp]
     failure_cfg%particle_species(1)%temperature_k = 0.0_dp
     call seed_particles_from_config(failure_cfg)
     call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)

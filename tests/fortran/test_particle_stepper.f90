@@ -13,7 +13,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(16)
+  call test_init(17)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -67,8 +67,12 @@ program test_particle_stepper
   call test_advance_three_reflect_events()
   call test_end()
 
-  call test_begin('advance_fourth_box_event_fails')
-  call test_advance_fourth_box_event_fails()
+  call test_begin('advance_eight_reflect_events')
+  call test_advance_eight_reflect_events()
+  call test_end()
+
+  call test_begin('advance_ninth_box_event_fails')
+  call test_advance_ninth_box_event_fails()
   call test_end()
 
   call test_begin('advance_legacy_barrier_single_face_only')
@@ -452,7 +456,7 @@ contains
     call assert_true(result%collision_query_count == 4_i32, 'three events should query each physical chord')
   end subroutine test_advance_three_reflect_events
 
-  subroutine test_advance_fourth_box_event_fails()
+  subroutine test_advance_eight_reflect_events()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
@@ -463,17 +467,40 @@ contains
     sim%bc_low(1) = bc_reflect
     sim%bc_high(1) = bc_reflect
     x0 = [0.9_dp, 0.2_dp, 0.2_dp]
-    v0 = [4.0_dp, 0.0_dp, 0.0_dp]
+    v0 = [8.0_dp, 0.0_dp, 0.0_dp]
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
       )
 
-    call assert_true(result%status == particle_step_multiple_box_events, 'fourth box event must fail closed')
+    call assert_true(result%status == particle_step_ok, 'eight box events should complete')
+    call assert_allclose_1d(result%x, x0, 1.0e-12_dp, 'eight-event position mismatch')
+    call assert_allclose_1d(result%v, v0, 0.0_dp, 'eight-event velocity mismatch')
+    call assert_true(result%field_eval_count == 9_i32, 'eight events should build each remainder')
+    call assert_true(result%collision_query_count == 9_i32, 'eight events should query each physical chord')
+  end subroutine test_advance_eight_reflect_events
+
+  subroutine test_advance_ninth_box_event_fails()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    real(dp) :: x0(3), v0(3)
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_reflect
+    sim%bc_high(1) = bc_reflect
+    x0 = [0.9_dp, 0.2_dp, 0.2_dp]
+    v0 = [9.0_dp, 0.0_dp, 0.0_dp]
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_multiple_box_events, 'ninth box event must fail closed')
     call assert_allclose_1d(result%x, x0, 0.0_dp, 'failed step must preserve initial position')
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'failed step must preserve initial velocity')
-    call assert_true(result%field_eval_count == 4_i32, 'fourth event path should build three remainders')
-    call assert_true(result%collision_query_count == 4_i32, 'fourth event path should query mesh before failing')
-  end subroutine test_advance_fourth_box_event_fails
+    call assert_true(result%field_eval_count == 9_i32, 'ninth event path should build eight remainders')
+    call assert_true(result%collision_query_count == 9_i32, 'ninth event path should query mesh before failing')
+  end subroutine test_advance_ninth_box_event_fails
 
   subroutine test_advance_legacy_barrier_single_face_only()
     type(mesh_type) :: mesh
