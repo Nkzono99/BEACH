@@ -160,19 +160,19 @@
 - Consumes: robust single-field nonlinear solve from Task 3.
 - Produces: adaptive continuation from a supplied profile's reconstructed field to the requested field.
 
-- [ ] **Step 1: Add large field-change and branch-crossing regressions**
+- [x] **Step 1: Add large field-change and branch-crossing regressions**
 
   Seed the lunar solve from a known lower-magnitude field, request a change
   that requires at least one continuation subdivision, and assert final-field
   equality, monotonicity, residual tolerance, and nonzero continuation count.
   Retain the existing sign-crossing regression.
 
-- [ ] **Step 2: Run the kinetic target on SysA and verify RED**
+- [x] **Step 2: Run the kinetic target on SysA and verify RED**
 
   Expected result: the continuation diagnostic is missing or the direct jump
   fails before reaching the target field.
 
-- [ ] **Step 3: Implement adaptive field stepping**
+- [x] **Step 3: Implement adaptive field stepping**
 
   Factor the fixed-field nonlinear solve into a private routine.  Starting from
   the reconstructed previous field, attempt an intermediate target; double a
@@ -180,12 +180,12 @@
   failed increment.  Retry from the last converged profile and bound the number
   of halvings.
 
-- [ ] **Step 4: Re-run kinetic tests and verify GREEN**
+- [x] **Step 4: Re-run kinetic tests and verify GREEN**
 
   Expected result: the requested target, not an intermediate state, is returned
   and all old/new kinetic tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit as `fix: adapt kinetic sheath field continuation`.
 

@@ -15,6 +15,7 @@ program test_outer_plasma_kinetic
   real(dp), allocatable :: direction(:), residual(:), jacobian_action(:), residual_plus(:), residual_minus(:)
   real(dp), parameter :: jacobian_step = 1.0e-5_dp
   integer(i32) :: status
+  integer(i32) :: continuation_steps
   character(len=256) :: message
 
   call test_init(11)
@@ -98,9 +99,17 @@ program test_outer_plasma_kinetic
   options%ion_drift_infinity = 4.0e5_dp
   options%max_iterations = 40_i32
   options%residual_tolerance = 1.0e-8_dp
-  options%interface_field = -0.70_dp
+  options%interface_field = 0.0_dp
   call solve_outer_plasma_kinetic(options, ambient_state, status, message)
   call assert_equal_i32(status, outer_plasma_ok, 'lunar continuation source solve failed: '//trim(message))
+  options%interface_field = -0.70_dp
+  call solve_outer_plasma_kinetic( &
+    options, state, status, message, initial_potential=ambient_state%potential, &
+    continuation_steps=continuation_steps &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'large lunar field change failed: '//trim(message))
+  call assert_true(continuation_steps > 1_i32, 'large lunar field change did not use continuation')
+  ambient_state = state
   options%interface_field = -0.72898324579369622_dp
   call solve_outer_plasma_kinetic(options, state, status, message, initial_potential=ambient_state%potential)
   call assert_equal_i32(status, outer_plasma_ok, 'former runtime failure field did not converge: '//trim(message))

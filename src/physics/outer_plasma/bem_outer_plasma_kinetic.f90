@@ -44,7 +44,101 @@ module bem_outer_plasma_kinetic
 
 contains
 
-  subroutine solve_outer_plasma_kinetic(options, state, status, message, initial_potential)
+  subroutine solve_outer_plasma_kinetic( &
+    options, state, status, message, initial_potential, continuation_steps &
+    )
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(outer_plasma_state_type), intent(out) :: state
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    real(dp), intent(in), optional :: initial_potential(:)
+    integer(i32), intent(out), optional :: continuation_steps
+    type(kinetic_outer_plasma_options_type) :: step_options
+    type(outer_plasma_state_type) :: step_state
+    type(outer_plasma_grid_type) :: grid
+    real(dp), allocatable :: current_profile(:)
+    real(dp) :: current_field, target_field, remaining, increment, next_field
+    real(dp) :: field_tolerance, minimum_increment, maximum_increment
+    integer(i32) :: successful_steps, attempts
+
+    if (present(continuation_steps)) continuation_steps = 0_i32
+    if (.not. present(initial_potential)) then
+      call solve_outer_plasma_kinetic_fixed(options, state, status, message)
+      return
+    end if
+    if (options%grid_points < 3_i32 .or. size(initial_potential) /= options%grid_points .or. &
+        options%domain_length <= 0.0_dp .or. options%grid_stretch < 0.0_dp) then
+      call solve_outer_plasma_kinetic_fixed( &
+        options, state, status, message, initial_potential=initial_potential &
+        )
+      return
+    end if
+
+    call init_outer_plasma_grid(options%grid_points, options%domain_length, options%grid_stretch, grid)
+    allocate (current_profile(grid%n))
+    current_profile = initial_potential
+    current_field = -(current_profile(2) - current_profile(1))/grid%dz(1)
+    target_field = options%interface_field
+    field_tolerance = 256.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(current_field), abs(target_field))
+    remaining = target_field - current_field
+    if (abs(remaining) <= field_tolerance) then
+      call solve_outer_plasma_kinetic_fixed( &
+        options, state, status, message, initial_potential=current_profile &
+        )
+      if (status == outer_plasma_ok .and. present(continuation_steps)) continuation_steps = 1_i32
+      return
+    end if
+
+    maximum_increment = 0.25_dp*max(1.0_dp, abs(current_field), abs(target_field))
+    minimum_increment = sqrt(epsilon(1.0_dp))*max(1.0_dp, abs(current_field), abs(target_field))
+    increment = sign(min(abs(remaining), maximum_increment), remaining)
+    if (current_field*target_field < 0.0_dp) increment = remaining
+    successful_steps = 0_i32
+    attempts = 0_i32
+    do while (attempts < 128_i32)
+      attempts = attempts + 1_i32
+      remaining = target_field - current_field
+      if (abs(increment) >= abs(remaining)) then
+        next_field = target_field
+      else
+        next_field = current_field + increment
+      end if
+      step_options = options
+      step_options%interface_field = next_field
+      call solve_outer_plasma_kinetic_fixed( &
+        step_options, step_state, status, message, initial_potential=current_profile &
+        )
+      if (status == outer_plasma_ok) then
+        current_profile = step_state%potential
+        current_field = next_field
+        successful_steps = successful_steps + 1_i32
+        if (abs(target_field - current_field) <= field_tolerance) then
+          state = step_state
+          if (present(continuation_steps)) continuation_steps = successful_steps
+          return
+        end if
+        remaining = target_field - current_field
+        increment = sign(min(2.0_dp*abs(increment), abs(remaining), maximum_increment), remaining)
+      else if (status == outer_plasma_numerical_failure) then
+        increment = 0.5_dp*increment
+        if (abs(increment) < minimum_increment) then
+          state = step_state
+          message = 'kinetic interface-field continuation exhausted its minimum increment: '//trim(message)
+          return
+        end if
+      else
+        state = step_state
+        return
+      end if
+    end do
+
+    state = step_state
+    status = outer_plasma_numerical_failure
+    state%applicability_status = status
+    message = 'kinetic interface-field continuation reached its attempt limit'
+  end subroutine solve_outer_plasma_kinetic
+
+  subroutine solve_outer_plasma_kinetic_fixed(options, state, status, message, initial_potential)
     type(kinetic_outer_plasma_options_type), intent(in) :: options
     type(outer_plasma_state_type), intent(out) :: state
     integer(i32), intent(out) :: status
@@ -173,7 +267,7 @@ contains
     status = outer_plasma_ok
     state%applicability_status = status
     state%ready = .true.
-  end subroutine solve_outer_plasma_kinetic
+  end subroutine solve_outer_plasma_kinetic_fixed
 
   subroutine accept_kinetic_step( &
     options, grid, phi, residual_norm, delta, trial, trial_residual, trial_norm, accepted &
