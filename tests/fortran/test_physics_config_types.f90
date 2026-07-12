@@ -99,8 +99,17 @@ program test_physics_config_types
   outer%model = 'kinetic_1d'
   outer%photoelectron_closure = 'kinetic_mean'
   coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+  coupling%field_evolution_timescale = 1.0_dp
+  outer%return_model = 'kinetic_1d_profile_return'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_unavailable, 'cached kinetic return must fail closed')
+  call assert_equal_i32(status, physics_config_ok, 'cached kinetic profile return should be valid')
+  sim%sheath_injection_model = 'zhao_a'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'kinetic profile return must reject a second sheath injection model')
+  sim%sheath_injection_model = 'none'
+  outer%return_model = 'electrostatic_1d_instant_return'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'kinetic outer model must reject the linear Debye return identifier')
   call test_end()
 
   call test_begin('cached_kneq0_active_contract')

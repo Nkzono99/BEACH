@@ -17,7 +17,7 @@ module bem_simulator
   use bem_string_utils, only: lower_ascii
   use bem_interface_types, only: interface_particle_outcome_type, interface_outcome_returned_local, &
                                  interface_outcome_escaped_to_infinity
-  use bem_outer_plasma_interface, only: map_outer_particle_linear_debye
+  use bem_outer_plasma_interface, only: map_outer_particle_linear_debye, map_outer_particle_kinetic_profile
   use bem_outer_plasma_orbit, only: trace_unified_outer_particle
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type, &
                                             validate_photoelectron_linear_applicability, photoelectron_closure_ok

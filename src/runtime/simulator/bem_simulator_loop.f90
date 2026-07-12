@@ -462,6 +462,12 @@ contains
               snapshot, mesh, app%sim, app%outer_plasma, app%coupling, pcls_batch%q(i), pcls_batch%m(i), &
               step_result%interface_crossing, interface_outcome &
               )
+          else if (trim(lower_ascii(app%outer_plasma%return_model)) == 'kinetic_1d_profile_return') then
+            call map_outer_particle_kinetic_profile( &
+              snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
+              step_result%interface_crossing, app%coupling%field_evolution_timescale, &
+              app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
+              )
           else
             call map_outer_particle_linear_debye( &
               snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &

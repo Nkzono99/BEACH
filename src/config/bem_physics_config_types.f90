@@ -349,13 +349,29 @@ contains
         return
       end if
     case ('electrostatic_1d_instant_return')
-      if (trim(lower_ascii(outer%return_model)) /= 'electrostatic_1d_instant_return' .or. &
-          coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
+      if (coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
         call reject(physics_config_invalid_combination, 'Invalid electrostatic 1D instant-return coupling.', status, message)
+        return
+      end if
+      if ((trim(lower_ascii(outer%model)) == 'linear_debye' .and. &
+           trim(lower_ascii(outer%return_model)) /= 'electrostatic_1d_instant_return') .or. &
+          (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
+           trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return') .or. &
+          (trim(lower_ascii(outer%model)) /= 'linear_debye' .and. &
+           trim(lower_ascii(outer%model)) /= 'kinetic_1d')) then
+        call reject(physics_config_invalid_combination, &
+                    'The 1D return model identifier must match the outer-plasma model.', status, message)
         return
       end if
       if (sim%bc_high(3) /= bc_open .or. any(sim%b0 /= 0.0_dp)) then
         call reject(physics_config_unavailable, 'Instant return requires an open z-high face and b0=0.', status, message)
+        return
+      end if
+      if (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
+          (trim(lower_ascii(sim%reservoir_potential_model)) /= 'none' .or. &
+           trim(lower_ascii(sim%sheath_injection_model)) /= 'none')) then
+        call reject(physics_config_invalid_combination, &
+                    'Kinetic profile return cannot mix with legacy or Zhao injection corrections.', status, message)
         return
       end if
       if (coupling%outer_queue_enabled) then
@@ -381,10 +397,14 @@ contains
       end if
     case ('kinetic_mean')
       if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
-          trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none' .or. &
-          trim(lower_ascii(outer%return_model)) /= 'none') then
+          ((trim(lower_ascii(coupling%particle_transfer_mode)) == 'none' .and. &
+            trim(lower_ascii(outer%return_model)) /= 'none') .or. &
+           (trim(lower_ascii(coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .and. &
+            trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return') .or. &
+           (trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none' .and. &
+            trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return'))) then
         call reject(physics_config_invalid_combination, &
-                    'kinetic_mean requires kinetic_1d without individual particle return.', status, message)
+                    'kinetic_mean requires kinetic_1d with no transfer or kinetic profile return.', status, message)
         return
       end if
     case ('statistical_return')
@@ -455,7 +475,32 @@ contains
     end if
     select case (trim(lower_ascii(coupling%particle_transfer_mode)))
     case ('none')
-      continue
+      if (trim(lower_ascii(outer%return_model)) /= 'none') then
+        call reject(physics_config_invalid_combination, 'A cached return model requires particle transfer.', status, message)
+        return
+      end if
+    case ('electrostatic_1d_instant_return')
+      if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
+          trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return' .or. &
+          coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
+        call reject(physics_config_invalid_combination, 'Invalid cached kinetic 1D profile return.', status, message)
+        return
+      end if
+      if (sim%bc_high(3) /= bc_open .or. any(sim%b0 /= 0.0_dp)) then
+        call reject(physics_config_unavailable, 'Kinetic profile return requires an open z-high face and b0=0.', &
+                    status, message)
+        return
+      end if
+      if (trim(lower_ascii(sim%reservoir_potential_model)) /= 'none' .or. &
+          trim(lower_ascii(sim%sheath_injection_model)) /= 'none') then
+        call reject(physics_config_invalid_combination, &
+                    'Kinetic profile return cannot mix with legacy or Zhao injection corrections.', status, message)
+        return
+      end if
+      if (coupling%outer_queue_enabled) then
+        call reject(physics_config_unavailable, 'Persistent outer queue is not available yet.', status, message)
+        return
+      end if
     case ('electrostatic_3d_explicit_orbit')
       call validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
       if (status /= physics_config_ok) return
