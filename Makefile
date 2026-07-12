@@ -237,11 +237,11 @@ test-fortran-far-correction-diagnostics:
 test-fortran-benchmark:
 	$(call run_fortran_targets,$(FORTRAN_BENCHMARK_TARGETS),release,run,example)
 
+test-field-kernel-cache: export BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1
 test-field-kernel-cache: build-kernel
 	$(call run_fortran_targets,test_field_kernel_cache_c,debug,test)
-	BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1 $(PYTHON) -m pytest -q tests/python/test_field_kernel_cache.py
-	BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1 \
-		BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
+	$(PYTHON) -m pytest -q tests/python/test_field_kernel_cache.py
+	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
 		$(PYTHON) -m pytest -q \
 		tests/python/test_periodic_force_oracle.py::test_validation_tool_native_plane_oracles_match_receipt_contract
 

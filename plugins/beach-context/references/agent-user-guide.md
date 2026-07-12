@@ -93,6 +93,7 @@ make test-heavy   # heavy Fortran targets only
 make test-fortran-far-correction  # oracle far-correction correctness
 make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
 make test-fortran-benchmark  # release-profile runtime benchmark
+make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
 make test-mpi     # MPI テスト
 pytest -q         # Python テストのみ
@@ -100,6 +101,7 @@ pytest -q         # Python テストのみ
 
 `make test` は L1 の alias で、通常の AI/開発内側ループではここまでを基本にする。
 FMM系の長時間targetは`make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`で明示実行する。`m2l_root_oracle` correctnessは`make test-fortran-far-correction`、表示専用診断は`make test-fortran-far-correction-diagnostics`、速度比較は`make test-fortran-benchmark`でopt-in実行する。
+shared kernelのcache契約とnative periodic plane-oracle receiptは`make test-field-kernel-cache`でopt-in実行する。このtargetはbuild済みlibraryの絶対pathをtestへ渡し、L1/L2/L3と`make test-physics-release`には含めない。
 個別 target は `FPM_ACTION=test ./build.sh --target <name>` で確認できる。
 
 ---

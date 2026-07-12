@@ -554,6 +554,13 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 完全な `beach.toml` と `sim.box_min` / `sim.box_max` が必要です。現行 release は
 `outer_plasma.model="none"` だけを扱い、active outer field を無視せず明示的に拒否します。
 
+x/y periodic mesh が cell seam を跨ぐ場合、snapshot の all-source geometry は simulation と
+cache identity に一致する saved 表現を保持します。一方、`object_probe()` は選択した mesh だけを
+周期的に連結な branch へ unwrap し、その同じ target geometry を quadrature、central primary
+の除外、剛体変換、面積重心、bounding radius に使います。`probe.target_geometry_representation`、
+`target_triangles_m`、`geometric_area_centroid_m`、`vertex_bounding_center_m`、
+`vertex_bounding_radius_m` でこの幾何を監査できます。
+
 `ObjectWrench.components` は次の物理成分を保持します。
 
 | key | 内容 |
@@ -564,7 +571,9 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | `total_external` | 上の3成分の和で、`ObjectWrench.force_N` / `torque_Nm` に一致 |
 
 `numerical_metadata` の kernel/zero-mode 内訳は同じ total の数値分解であり、追加の
-物理力ではありません。
+物理力ではありません。torque は基準点に依存するため、`ObjectWrench.torque_origin_m` と
+`numerical_metadata["torque_origin_policy"]` を force と一緒に保存してください。
+`vertical_path()` は各高さの基準点を `numerical_metadata["torque_origin_m"]` に保存します。
 
 target integration は、point source では要素重心、`triangle_p0` では既定で
 order 7 の Gauss-Duffy 面積積分です。`target_integration="centroid_compatibility"` は
