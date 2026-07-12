@@ -3804,13 +3804,21 @@ def test_analyze_archive_only_writes_stable_explicit_missing_artifacts(
     assert report["cases"]["archived_v1_3"]["status"] == "available"
     assert report["cases"]["new_finite_configured"]["status"] == "missing"
     assert report["cases"]["new_infinite_physical"]["status"] == "missing"
-    assert (
-        report["numerical_qualification_for_local_frozen_model"]["status"]
-        == "not_qualified"
+    assert report["schema_version"] == 2
+    qualification = report["numerical_qualification_for_local_frozen_model"]
+    assert qualification["status"] == "not_qualified"
+    assert qualification["status_semantics"] == (
+        "path_work_shell_on_fixed_saved_discretization"
     )
+    assert qualification["saved_sphere_mesh_refinement_status"] == "not_evaluated"
+    assert qualification["source_discretization_refinement_status"] == "not_evaluated"
+    assert qualification["plane_oracle_used_as_sphere_error_bar"] is False
     review = (analysis / "review_ja.md").read_text(encoding="utf-8")
     assert "旧結果は二つの実行バイナリ" in review
     assert "新 finite: 未実行" in review
+    assert "fixed-discretization path/work/shell gate" in review
+    assert "保存済み sphere mesh/source refinement: not_evaluated" in review
+    assert "平面 oracle の誤差を sphere error bar に流用しません" in review
     with (analysis / "comparison_matrix.csv").open(
         "r", encoding="utf-8", newline=""
     ) as stream:
@@ -4138,7 +4146,9 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
     review = (validation_root / "analysis/review_ja.md").read_text(encoding="utf-8")
     assert "mesh 6" in review
     assert "batch 280000" in review
-    assert "barrier_free_from_rest=True" in review
+    assert "fixed-discretization path/work/shell gate: path_work=True" in review
+    assert "barrier on fixed saved discretization=True" in review
+    assert "平面 oracle の誤差を sphere error bar に流用しません" in review
     assert "physical_k0 Fz" in review
     with (validation_root / "analysis/comparison_matrix.csv").open(
         "r", encoding="utf-8", newline=""
@@ -4418,41 +4428,21 @@ def test_geometry_comparison_allows_declared_roundoff_not_order_change() -> None
     assert reordered["status"] == "mesh_id_order_mismatch"
 
 
-def test_local_qualification_rejects_duplicate_keys_masking_missing_state() -> None:
-    tool = _load_tool()
-    states = (
-        (149001, 7),
-        (180001, 6),
-        (279001, 6),
-        (279001, 7),
-        (280000, 6),
-        (280000, 7),
-    )
+def _complete_local_qualification_fixture(tool):
     paths: list[dict[str, object]] = []
     wrenches: list[dict[str, object]] = []
-    for case in (
-        "archived_v1_3",
-        "new_finite_configured",
-        "new_infinite_physical",
+    for case, model, batch, mesh_id in sorted(
+        tool._expected_object_evaluation_keys()
     ):
-        models = (
-            ("configured",)
-            if case == "new_infinite_physical"
-            else ("configured", "infinite_physical")
-        )
-        for model in models:
-            for batch, mesh_id in states:
-                common = {
-                    "case": case,
-                    "periodic_model": model,
-                    "resolved_batch": batch,
-                    "mesh_id": mesh_id,
-                    "status": "available",
-                }
-                paths.append({**common, "numerically_qualified": True})
-                wrenches.append({**common, "component": "total_external"})
-    paths[-1] = dict(paths[0])
-    wrenches[-1] = dict(wrenches[0])
+        common = {
+            "case": case,
+            "periodic_model": model,
+            "resolved_batch": batch,
+            "mesh_id": mesh_id,
+            "status": "available",
+        }
+        paths.append({**common, "numerically_qualified": True})
+        wrenches.append({**common, "component": "total_external"})
     shell_rows = [
         {
             "case": case,
@@ -4476,6 +4466,55 @@ def test_local_qualification_rejects_duplicate_keys_masking_missing_state() -> N
             "new_infinite_physical",
         )
     }
+    return paths, wrenches, shell_rows, cases
+
+
+def test_local_qualification_reports_fixed_discretization_scope_when_qualified() -> None:
+    tool = _load_tool()
+    paths, wrenches, shell_rows, cases = _complete_local_qualification_fixture(tool)
+
+    qualification = tool._local_model_numerical_qualification(
+        {"status": "available"},
+        wrenches,
+        paths,
+        shell_rows,
+        cases,
+    )
+
+    assert qualification["status"] == "qualified"
+    assert qualification["status_semantics"] == (
+        "path_work_shell_on_fixed_saved_discretization"
+    )
+    assert qualification["verified_numerical_axes"] == [
+        "fixed_saved_discretization_coverage",
+        "path_integration",
+        "work_potential_consistency",
+        "force_and_barrier_decision_resolution",
+        "finite_shell_to_infinite_reference",
+    ]
+    assert qualification["unverified_numerical_axes"] == [
+        "saved_sphere_mesh_refinement",
+        "source_discretization_refinement",
+        "sphere_absolute_force_error",
+        "sphere_absolute_torque_error",
+    ]
+    assert qualification["saved_sphere_mesh_refinement_status"] == "not_evaluated"
+    assert qualification["source_discretization_refinement_status"] == "not_evaluated"
+    assert qualification["sphere_absolute_force_error_status"] == "not_evaluated"
+    assert qualification["sphere_absolute_torque_error_status"] == "not_evaluated"
+    assert qualification["plane_oracle_used_as_sphere_error_bar"] is False
+    assert qualification["claim_scope"] == (
+        "fixed_saved_mesh_and_source_discretization; "
+        "local_frozen_field_0_to_2R_path_work_shell_only; "
+        "not full_discretization_or_escape_to_infinity"
+    )
+
+
+def test_local_qualification_rejects_duplicate_keys_masking_missing_state() -> None:
+    tool = _load_tool()
+    paths, wrenches, shell_rows, cases = _complete_local_qualification_fixture(tool)
+    paths[-1] = dict(paths[0])
+    wrenches[-1] = dict(wrenches[0])
 
     qualification = tool._local_model_numerical_qualification(
         {"status": "available"},

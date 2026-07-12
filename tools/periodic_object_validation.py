@@ -6055,7 +6055,10 @@ def _physics_review_lines(
 ) -> str:
     available_paths = [row for row in path_rows if row.get("status") == "available"]
     if not available_paths:
-        return "- object force/path/shell の実評価結果はまだありません。"
+        return (
+            "- fixed-discretization path/work/shell gate: "
+            "object force/path/shell の実評価結果はまだありません。"
+        )
     wrench_index = {
         (
             str(row.get("case")),
@@ -6099,8 +6102,9 @@ def _physics_review_lines(
             f"physical_k0 Fz={zero_mode.get('force_z_N', 'unavailable')} N; "
             f"endpoint work={path.get('endpoint_work_J')} J; "
             f"potential work available={path.get('potential_work_available')}; "
-            f"numerically qualified={path.get('numerically_qualified')}; "
-            "barrier_free_from_rest="
+            "fixed-discretization path/work/shell gate: path_work="
+            f"{path.get('numerically_qualified')}; "
+            "barrier on fixed saved discretization="
             f"{path.get('barrier_free_from_rest') if path.get('numerically_qualified') else 'not_claimed_unqualified'}; "
             f"instantaneous margin={path.get('instantaneous_force_margin_N')} N; "
             "shell="
@@ -6247,6 +6251,25 @@ def _local_model_numerical_qualification(
     )
     return {
         "status": "qualified" if qualified else "not_qualified",
+        "status_semantics": "path_work_shell_on_fixed_saved_discretization",
+        "verified_numerical_axes": [
+            "fixed_saved_discretization_coverage",
+            "path_integration",
+            "work_potential_consistency",
+            "force_and_barrier_decision_resolution",
+            "finite_shell_to_infinite_reference",
+        ],
+        "unverified_numerical_axes": [
+            "saved_sphere_mesh_refinement",
+            "source_discretization_refinement",
+            "sphere_absolute_force_error",
+            "sphere_absolute_torque_error",
+        ],
+        "saved_sphere_mesh_refinement_status": "not_evaluated",
+        "source_discretization_refinement_status": "not_evaluated",
+        "sphere_absolute_force_error_status": "not_evaluated",
+        "sphere_absolute_torque_error_status": "not_evaluated",
+        "plane_oracle_used_as_sphere_error_bar": False,
         "structurally_complete": physics_evaluation.get("status") == "available",
         "expected_path_count": expected_path_count,
         "evaluated_path_count": len(evaluated_paths),
@@ -6263,7 +6286,9 @@ def _local_model_numerical_qualification(
         "missing_shell_groups": [list(value) for value in missing_shell_groups],
         "shell_failures": shell_failures,
         "claim_scope": (
-            "local_frozen_field_0_to_2R_only; not escape to infinity"
+            "fixed_saved_mesh_and_source_discretization; "
+            "local_frozen_field_0_to_2R_path_work_shell_only; "
+            "not full_discretization_or_escape_to_infinity"
         ),
         "remaining_physical_conditions": [
             "frozen charge during motion",
@@ -6963,7 +6988,7 @@ def _analyze_validation_impl(
     )
 
     report: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": _utc_now(),
         "archive_run": str(archive_path),
         "validation_root": str(root),
@@ -6996,6 +7021,8 @@ def _analyze_validation_impl(
             "vdw_work release uses an equivalent constant-force profile that preserves initial force and total work, not the original 1/s^2 barrier shape",
             "E_bottom=0 plane and infinite_physical results are closure-dependent and are not universal free-space self forces",
             "0..2R frozen-field work and speed are local detachment diagnostics, not escape-to-infinity energy or speed",
+            "saved sphere mesh and source discretization refinement remain not_evaluated",
+            "plane-oracle errors are not used as sphere force or torque error bars",
         ],
     }
     _write_json(analysis / "analysis_summary.json", report)
@@ -7015,7 +7042,11 @@ def _analyze_validation_impl(
 {physics_review}
 
 - structural physics evaluation: {physics_evaluation.get('status')}
-- local frozen-model numerical qualification: {local_qualification.get('status')}
+- fixed-discretization path/work/shell gate: {local_qualification.get('status')}
+- 保存済み sphere mesh/source refinement: {local_qualification.get('saved_sphere_mesh_refinement_status')}
+- sphere absolute force error: {local_qualification.get('sphere_absolute_force_error_status')}
+- sphere absolute torque error: {local_qualification.get('sphere_absolute_torque_error_status')}
+- 平面 oracle の誤差を sphere error bar に流用しません。
 - claim scope: {local_qualification.get('claim_scope')}
 
 ## Legacy estimator audit
@@ -7043,6 +7074,8 @@ energy/speed ではありません。
 
 `not_evaluated` / `invalid` の項目は結論に使いません。実評価済みでも frozen charge、
 接触・接着 bracket、一つの乱数 seed という制約を残します。
+保存済み sphere mesh/source discretization の refinement と sphere force/torque の絶対誤差は
+`not_evaluated` です。平面 oracle の誤差を sphere error bar に流用しません。
 `vdw_work` は初期力と全仕事を保存する等価な定数力 profile であり、元の `1/s^2`
 障壁形状そのものではありません。
 """
