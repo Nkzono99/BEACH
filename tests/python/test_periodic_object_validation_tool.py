@@ -208,6 +208,37 @@ def _load_tool():
     return module
 
 
+def test_tool_import_does_not_require_tomli_w_at_runtime() -> None:
+    script = f"""
+import importlib.abc
+import importlib.util
+import sys
+
+class BlockTomliWriter(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "tomli_w":
+            raise ModuleNotFoundError("blocked runtime-only import test")
+        return None
+
+sys.modules.pop("tomli_w", None)
+sys.meta_path.insert(0, BlockTomliWriter())
+spec = importlib.util.spec_from_file_location(
+    "beach_periodic_object_validation_without_tomli_w", {str(TOOL_PATH)!r}
+)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 @pytest.fixture
 def archive_run(tmp_path: Path) -> Path:
     run = tmp_path / "archive" / "R20260625-0002"

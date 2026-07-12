@@ -26,7 +26,6 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib
 
-import tomli_w
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -768,6 +767,8 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 
 def _write_toml(path: Path, data: Mapping[str, Any]) -> None:
+    import tomli_w
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(tomli_w.dumps(dict(data)), encoding="utf-8")
 
