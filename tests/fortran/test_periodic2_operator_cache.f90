@@ -40,11 +40,18 @@ program test_periodic2_operator_cache
   call assert_true(cold_plan%periodic_root_operator_ready, 'cold cached operator must be ready')
   call assert_true(.not. cold_plan%periodic_cache_hit, 'cold operator must report a cache miss')
   call assert_equal_i32(cold_plan%periodic_operator_build_count, 1_i32, 'cold operator build count')
+  call assert_equal_i32( &
+    cold_plan%periodic_qr_preparation_count, cold_plan%periodic_root_target_count, &
+    'cold operator must prepare one QR factorization per target' &
+    )
+  call assert_true(cold_plan%periodic_operator_thread_count > 1_i32, 'cold operator must use multiple OpenMP threads')
   call cpu_time(warm_start)
   call build_plan(warm_plan, src_pos, options)
   call cpu_time(warm_end)
   call assert_true(warm_plan%periodic_cache_hit, 'second identical plan must hit the cache')
   call assert_equal_i32(warm_plan%periodic_operator_build_count, 0_i32, 'warm operator build count')
+  call assert_equal_i32(warm_plan%periodic_qr_preparation_count, 0_i32, 'warm operator QR preparation count')
+  call assert_equal_i32(warm_plan%periodic_operator_thread_count, 0_i32, 'warm operator thread count')
   call assert_true( &
     trim(warm_plan%periodic_cache_fingerprint) == trim(cold_plan%periodic_cache_fingerprint), &
     'warm fingerprint mismatch' &

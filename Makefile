@@ -50,6 +50,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_panel_kernel \
 	test_panel_geometry_near \
 	test_periodic2_cache_codec \
+	test_regularized_qr \
 	test_periodic_zero_mode \
 	test_outer_plasma_linear \
 	test_outer_plasma_kinetic_core \

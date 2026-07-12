@@ -67,6 +67,11 @@ source-dir = "tests/fortran"
 main = "test_periodic2_cache_codec.f90"
 
 [[test]]
+name = "test_regularized_qr"
+source-dir = "tests/fortran"
+main = "test_regularized_qr.f90"
+
+[[test]]
 name = "test_periodic2_operator_cache"
 source-dir = "tests/fortran"
 main = "test_periodic2_operator_cache.f90"
