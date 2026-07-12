@@ -28,6 +28,8 @@ Pass `beach.toml` directly to the Fortran executable. The Fortran parser normali
 | Minimal plane-mesh run | `[mesh]`, `[[mesh.templates]]` | First smoke test |
 | Choose particle injection | `[[particles.species]]` | Switch inflow, initial particles, or photoemission |
 | Two-periodic-axis boundary | `[sim]` | Periodic cell simulations |
+| Infinite periodic + external kinetic sheath | `[sim]`, `[periodic2]`, `[outer_plasma]`, `[coupling]` | Production lunar-regolith setup |
+| Add UV photoelectrons to the outer sheath | `[outer_plasma]`, `[[particles.species]]` | Consistent emission, return, and outer space charge |
 | OBJ mesh | `[mesh]` | External geometry |
 | History output | `[output]` | Visualize time evolution |
 | Resume run | `[output]` | Continue from checkpoint |
@@ -80,7 +82,9 @@ Use `w_particle` when you want to specify the weight directly.
 
 ## Two-Periodic-Axis Boundary
 
-`periodic2` treats exactly two axes as periodic field boundaries. In the current implementation it requires `field_solver = "fmm"`.
+`periodic2` treats exactly two axes as periodic field boundaries. The production infinite-periodic operator uses
+`field_solver = "fmm"` with `cached_kneq0`. Small correctness fixtures may instead use
+`field_solver = "direct"` with `panel_spectral_reference`.
 
 ```toml
 [sim]
@@ -98,7 +102,13 @@ bc_z_high = "open"
 field_solver = "fmm"
 field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
-field_periodic_far_correction = "none"
+field_periodic_far_correction = "cached_kneq0"
+field_periodic_cache_dir = ".beach_cache/periodic2"
+
+[periodic2]
+nonzero_mode_backend = "cached_kneq0"
+zero_mode_policy = "exclude_k0"
+lower_boundary_model = "e_bottom_zero"
 ```
 
 Requirements:
@@ -106,7 +116,101 @@ Requirements:
 - `sim.use_box = true`
 - exactly two periodic axes
 - each periodic axis has `box_max - box_min > 0`
-- `sim.field_solver = "fmm"`
+- `sim.field_solver = "fmm"` for the production cache
+
+On a cache miss BEACH generates the infinite-periodic operator, then validates and reuses its fingerprint.
+Reuse the cache directory for identical physics and mesh settings. Except when deliberately reproducing the legacy
+finite-image model, production runs should not set `field_periodic_far_correction = "none"`.
+
+## Infinite Periodic + External Kinetic Sheath
+
+The production lunar-regolith setup solves the `k != 0` surface-charge component with the infinite-periodic cache and
+connects the area-mean `k = 0` component to an external 1D kinetic sheath. Add these main sections to an existing box,
+mesh, and ambient electron/ion configuration:
+
+```toml
+[sim]
+b0 = [0.0, 0.0, 0.0]
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_far_correction = "cached_kneq0"
+field_periodic_cache_dir = ".beach_cache/periodic2"
+reservoir_potential_model = "none"
+sheath_injection_model = "none"
+
+[periodic2]
+nonzero_mode_backend = "cached_kneq0"
+zero_mode_policy = "exclude_k0"
+lower_boundary_model = "e_bottom_zero"
+
+[outer_plasma]
+model = "kinetic_1d"
+photoelectron_closure = "none"
+return_model = "kinetic_1d_profile_return"
+interface_z = 9.899494936611664e-4
+infinity_potential = 0.0
+debye_length = 10.5132
+thermal_voltage = 10.0
+
+[coupling]
+update_mode = "explicit"
+particle_transfer_mode = "electrostatic_1d_instant_return"
+outer_update_stride = 1
+field_evolution_timescale = 6.060915267313266e-8
+max_frozen_field_ratio = 0.1
+outer_queue_enabled = false
+```
+
+Set `interface_z` to the z-high box face. Negative and positive `reservoir_face` species provide the infinity ambient
+electron and ion VDFs, so define both at z-high and satisfy quasineutrality and the ion Bohm-entry condition.
+`infinity_potential = 0` fixes the infinity-potential gauge. Inflow acceleration and outgoing-particle escape/return
+use the same kinetic-profile difference `phi_interface - phi_infinity`.
+
+Do not copy the example values for `debye_length`, `thermal_voltage`, or `field_evolution_timescale`; derive them for
+the target plasma and timescale. Validate first with `outer_update_stride = 1`. Before increasing it to a production
+value such as `100`, confirm that surface potential, absorbed/escaped flux, charge balance, and detachment force are
+unchanged. Unsupported non-monotonic branches, sub-Bohm ions, and frozen-field-limit violations stop without falling
+back to another model. See `examples/periodic2_kinetic_outer.toml` for the complete small fixture and
+[Input Parameters Reference](Parameters.en.html) for the full contract.
+
+## Add UV Photoelectrons to the Outer Sheath
+
+For UV emission, solve the mean photoelectron density in the external region with `kinetic_mean`, while tracked
+`photo_raycast` particles update surface charge. Change and add the following entries:
+
+```toml
+[outer_plasma]
+model = "kinetic_1d"
+photoelectron_closure = "kinetic_mean"
+return_model = "kinetic_1d_profile_return"
+interface_z = 9.899494936611664e-4
+infinity_potential = 0.0
+debye_length = 10.5132
+thermal_voltage = 10.0
+
+[[particles.species]]
+enabled = true
+source_mode = "photo_raycast"
+emit_current_density_a_m2 = 4.5e-6
+rays_per_batch = 5000
+deposit_opposite_charge_on_emit = true
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+temperature_ev = 2.2
+normal_drift_speed = 0.0
+inject_face = "z_high"
+ray_direction = [0.0, 0.0, -1.0]
+```
+
+The first negative `photo_raycast` species supplies the emission flux and temperature for the mean closure.
+`deposit_opposite_charge_on_emit = true` is required, and the legacy `photo_escape_model` must remain disabled.
+`kinetic_mean` supplies only the outer profile and does not add the return current to the surface a second time.
+Compare UV-off and UV-on runs with the same mesh, batch duration, and ambient inflow. Inspect
+`outer_plasma_profile.csv`, solver residual and species currents in `summary.txt`, and the charge ledger.
+
+`sim.sheath_injection_model = "zhao_*"` is the older inflow-distribution correction, not the external
+`kinetic_1d` Poisson profile. BEACH rejects combining them or combining the kinetic model with
+`reservoir_potential_model`, so both remain `"none"` in this recipe.
 
 ## OBJ Mesh
 
