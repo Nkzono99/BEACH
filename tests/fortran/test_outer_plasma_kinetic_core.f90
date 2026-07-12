@@ -5,16 +5,18 @@ program test_outer_plasma_kinetic_core
   use bem_outer_plasma_kinetic, only: &
     eval_absorbing_maxwellian_density, eval_cold_drift_density, kinetic_bohm_speed, &
     eval_photoelectron_escape_return, eval_emitted_maxwellian_density, eval_kinetic_current_balance
-  use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_equal_i32
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
   implicit none
 
   real(dp), parameter :: ev = qe
   real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
   real(dp) :: density, susceptibility, speed, escape_fraction, return_fraction
+  real(dp) :: density_plus, density_minus, derivative_local, derivative_interface, derivative_fd
   real(dp) :: electron_current, ion_current, photo_current, total_current
+  real(dp), parameter :: derivative_step = 1.0e-5_dp
   integer(i32) :: status
 
-  call test_init(7)
+  call test_init(10)
 
   call test_begin('absorbing Maxwellian is normalized at infinity')
   call eval_absorbing_maxwellian_density( &
@@ -23,6 +25,41 @@ program test_outer_plasma_kinetic_core
     )
   call assert_equal_i32(status, outer_plasma_ok, 'electron closure status mismatch')
   call assert_close_dp(density, 3.0e6_dp, 1.0e-8_dp, 'infinity density normalization mismatch')
+  call test_end()
+
+  call test_begin('absorbing Maxwellian analytic derivatives match finite differences')
+  call eval_absorbing_maxwellian_density( &
+    phi=-2.0_dp, phi_interface=-4.0_dp, charge=-ev, temperature_j=2.0_dp*ev, &
+    density_infinity=3.0e6_dp, density=density, susceptibility=susceptibility, status=status, &
+    derivative_interface=derivative_interface &
+    )
+  derivative_local = susceptibility
+  call eval_absorbing_maxwellian_density( &
+    phi=-2.0_dp + derivative_step, phi_interface=-4.0_dp, charge=-ev, temperature_j=2.0_dp*ev, &
+    density_infinity=3.0e6_dp, density=density_plus, susceptibility=susceptibility, status=status &
+    )
+  call eval_absorbing_maxwellian_density( &
+    phi=-2.0_dp - derivative_step, phi_interface=-4.0_dp, charge=-ev, temperature_j=2.0_dp*ev, &
+    density_infinity=3.0e6_dp, density=density_minus, susceptibility=susceptibility, status=status &
+    )
+  derivative_fd = (density_plus - density_minus)/(2.0_dp*derivative_step)
+  call assert_true( &
+    abs(derivative_local - derivative_fd) <= 1.0e-8_dp*max(1.0_dp, abs(derivative_fd)), &
+    'absorbing local derivative mismatch' &
+    )
+  call eval_absorbing_maxwellian_density( &
+    phi=-2.0_dp, phi_interface=-4.0_dp + derivative_step, charge=-ev, temperature_j=2.0_dp*ev, &
+    density_infinity=3.0e6_dp, density=density_plus, susceptibility=susceptibility, status=status &
+    )
+  call eval_absorbing_maxwellian_density( &
+    phi=-2.0_dp, phi_interface=-4.0_dp - derivative_step, charge=-ev, temperature_j=2.0_dp*ev, &
+    density_infinity=3.0e6_dp, density=density_minus, susceptibility=susceptibility, status=status &
+    )
+  derivative_fd = (density_plus - density_minus)/(2.0_dp*derivative_step)
+  call assert_true( &
+    abs(derivative_interface - derivative_fd) <= 1.0e-8_dp*max(1.0_dp, abs(derivative_fd)), &
+    'absorbing interface derivative mismatch' &
+    )
   call test_end()
 
   call test_begin('emitted Maxwellian counts outgoing and returning populations once')
@@ -45,6 +82,40 @@ program test_outer_plasma_kinetic_core
     )
   call test_end()
 
+  call test_begin('emitted Maxwellian analytic derivatives match finite differences')
+  call eval_emitted_maxwellian_density( &
+    phi=1.5_dp, phi_interface=3.0_dp, phi_infinity=0.0_dp, charge=-ev, mass=electron_mass, &
+    temperature_j=1.5_dp*ev, emission_flux=1.0e10_dp, density=density, status=status, &
+    derivative_local=derivative_local, derivative_interface=derivative_interface &
+    )
+  call eval_emitted_maxwellian_density( &
+    phi=1.5_dp + derivative_step, phi_interface=3.0_dp, phi_infinity=0.0_dp, charge=-ev, mass=electron_mass, &
+    temperature_j=1.5_dp*ev, emission_flux=1.0e10_dp, density=density_plus, status=status &
+    )
+  call eval_emitted_maxwellian_density( &
+    phi=1.5_dp - derivative_step, phi_interface=3.0_dp, phi_infinity=0.0_dp, charge=-ev, mass=electron_mass, &
+    temperature_j=1.5_dp*ev, emission_flux=1.0e10_dp, density=density_minus, status=status &
+    )
+  derivative_fd = (density_plus - density_minus)/(2.0_dp*derivative_step)
+  call assert_true( &
+    abs(derivative_local - derivative_fd) <= 1.0e-8_dp*max(1.0_dp, abs(derivative_fd)), &
+    'emitted local derivative mismatch' &
+    )
+  call eval_emitted_maxwellian_density( &
+    phi=1.5_dp, phi_interface=3.0_dp + derivative_step, phi_infinity=0.0_dp, charge=-ev, mass=electron_mass, &
+    temperature_j=1.5_dp*ev, emission_flux=1.0e10_dp, density=density_plus, status=status &
+    )
+  call eval_emitted_maxwellian_density( &
+    phi=1.5_dp, phi_interface=3.0_dp - derivative_step, phi_infinity=0.0_dp, charge=-ev, mass=electron_mass, &
+    temperature_j=1.5_dp*ev, emission_flux=1.0e10_dp, density=density_minus, status=status &
+    )
+  derivative_fd = (density_plus - density_minus)/(2.0_dp*derivative_step)
+  call assert_true( &
+    abs(derivative_interface - derivative_fd) <= 1.0e-8_dp*max(1.0_dp, abs(derivative_fd)), &
+    'emitted interface derivative mismatch' &
+    )
+  call test_end()
+
   call test_begin('absorbing Maxwellian includes a finite loss cone')
   call eval_absorbing_maxwellian_density( &
     phi=-4.0_dp, phi_interface=-4.0_dp, charge=-ev, temperature_j=2.0_dp*ev, &
@@ -54,6 +125,26 @@ program test_outer_plasma_kinetic_core
   call assert_close_dp( &
     density, 3.0e6_dp*exp(-2.0_dp)/(1.0_dp + erf(sqrt(2.0_dp))), 1.0e-8_dp, &
     'absorbing-interface density mismatch' &
+    )
+  call test_end()
+
+  call test_begin('cold drifting ion analytic derivative matches finite differences')
+  call eval_cold_drift_density( &
+    phi=-3.0_dp, charge=ev, mass=1836.0_dp*electron_mass, density_infinity=1.0e6_dp, &
+    drift_infinity=2.0e4_dp, density=density, speed=speed, susceptibility=derivative_local, status=status &
+    )
+  call eval_cold_drift_density( &
+    phi=-3.0_dp + derivative_step, charge=ev, mass=1836.0_dp*electron_mass, density_infinity=1.0e6_dp, &
+    drift_infinity=2.0e4_dp, density=density_plus, speed=speed, susceptibility=susceptibility, status=status &
+    )
+  call eval_cold_drift_density( &
+    phi=-3.0_dp - derivative_step, charge=ev, mass=1836.0_dp*electron_mass, density_infinity=1.0e6_dp, &
+    drift_infinity=2.0e4_dp, density=density_minus, speed=speed, susceptibility=susceptibility, status=status &
+    )
+  derivative_fd = (density_plus - density_minus)/(2.0_dp*derivative_step)
+  call assert_true( &
+    abs(derivative_local - derivative_fd) <= 1.0e-8_dp*max(1.0_dp, abs(derivative_fd)), &
+    'ion local derivative mismatch' &
     )
   call test_end()
 

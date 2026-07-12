@@ -28,32 +28,32 @@
 - Produces: closure evaluation routines that expose `d_density_d_phi` and, where applicable, `d_density_d_phi_interface`.
 - Preserves: existing public density values and status classifications.
 
-- [ ] **Step 1: Add finite-difference derivative assertions**
+- [x] **Step 1: Add finite-difference derivative assertions**
 
   Add central-difference checks for absorbing electrons, cold drifting ions,
   and both emitted-photoelectron branches at regular interior points.  Use a
   perturbation `h = sqrt(epsilon(1.0_dp))*max(1.0_dp, abs(phi))` and compare
   against the analytic outputs with a scale-aware tolerance.
 
-- [ ] **Step 2: Run the core target on SysA and verify RED**
+- [x] **Step 2: Run the core target on SysA and verify RED**
 
   Submit one controller process that runs
   `FPM_ACTION=test ./build.sh --target test_outer_plasma_kinetic_core`.
   Expected result: compilation fails because the new derivative arguments do
   not yet exist.
 
-- [ ] **Step 3: Implement analytic local and interface derivatives**
+- [x] **Step 3: Implement analytic local and interface derivatives**
 
   Differentiate the exact piecewise formulas in
   `eval_absorbing_maxwellian_density`, `eval_cold_drift_density`, and
   `eval_emitted_maxwellian_density`.  Keep density/status results identical and
   expose interface derivatives only for closures that depend on `phi(1)`.
 
-- [ ] **Step 4: Re-run the core target and verify GREEN**
+- [x] **Step 4: Re-run the core target and verify GREEN**
 
   Expected result: all closure density and derivative assertions pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit the test and closure contract together as
   `feat: add analytic kinetic closure derivatives`.

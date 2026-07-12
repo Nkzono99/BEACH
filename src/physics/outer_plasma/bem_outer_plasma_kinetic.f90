@@ -446,16 +446,19 @@ contains
   end function trapz
 
   subroutine eval_absorbing_maxwellian_density( &
-    phi, phi_interface, charge, temperature_j, density_infinity, density, susceptibility, status &
+    phi, phi_interface, charge, temperature_j, density_infinity, density, susceptibility, status, &
+    derivative_interface &
     )
     real(dp), intent(in) :: phi, phi_interface, charge, temperature_j, density_infinity
     real(dp), intent(out) :: density, susceptibility
     integer(i32), intent(out) :: status
+    real(dp), intent(out), optional :: derivative_interface
     real(dp) :: barrier_interface, barrier_local, denominator, reflected_factor
-    real(dp) :: boltzmann_factor, derivative_reflected, acceleration
+    real(dp) :: boltzmann_factor, derivative_reflected, derivative_denominator, acceleration
 
     density = 0.0_dp
     susceptibility = 0.0_dp
+    if (present(derivative_interface)) derivative_interface = 0.0_dp
     status = outer_plasma_invalid
     if (.not. all(ieee_is_finite([phi, phi_interface, charge, temperature_j, density_infinity])) .or. &
         charge == 0.0_dp .or. temperature_j <= 0.0_dp .or. density_infinity < 0.0_dp) return
@@ -495,6 +498,20 @@ contains
     susceptibility = density_infinity*boltzmann_factor/denominator*( &
                      (-charge/temperature_j)*reflected_factor + derivative_reflected &
                      )
+    if (present(derivative_interface)) then
+      derivative_reflected = 0.0_dp
+      if (barrier_local > sqrt(epsilon(1.0_dp))) then
+        derivative_reflected = (charge/temperature_j)*exp(-barrier_local)/sqrt(pi*barrier_local)
+      end if
+      derivative_denominator = 0.0_dp
+      if (barrier_interface > sqrt(epsilon(1.0_dp))) then
+        derivative_denominator = (charge/temperature_j)*exp(-barrier_interface)/sqrt(pi*barrier_interface)
+      end if
+      derivative_interface = density_infinity*boltzmann_factor*( &
+                             derivative_reflected/denominator - &
+                             reflected_factor*derivative_denominator/(denominator*denominator) &
+                             )
+    end if
     if (.not. all(ieee_is_finite([density, susceptibility]))) then
       density = 0.0_dp
       susceptibility = 0.0_dp
@@ -560,14 +577,20 @@ contains
   end subroutine eval_photoelectron_escape_return
 
   subroutine eval_emitted_maxwellian_density( &
-    phi, phi_interface, phi_infinity, charge, mass, temperature_j, emission_flux, density, status &
+    phi, phi_interface, phi_infinity, charge, mass, temperature_j, emission_flux, density, status, &
+    derivative_local, derivative_interface &
     )
     real(dp), intent(in) :: phi, phi_interface, phi_infinity, charge, mass, temperature_j, emission_flux
     real(dp), intent(out) :: density
     integer(i32), intent(out) :: status
+    real(dp), intent(out), optional :: derivative_local, derivative_interface
     real(dp) :: barrier_total, barrier_local, acceleration, prefactor, return_barrier
+    real(dp) :: derivative_kernel, returned_factor
+    logical :: derivatives_finite
 
     density = 0.0_dp
+    if (present(derivative_local)) derivative_local = 0.0_dp
+    if (present(derivative_interface)) derivative_interface = 0.0_dp
     status = outer_plasma_invalid
     if (.not. all(ieee_is_finite([ &
                                  phi, phi_interface, phi_infinity, charge, mass, temperature_j, emission_flux &
@@ -588,7 +611,18 @@ contains
       end if
       barrier_local = max(0.0_dp, min(barrier_total, barrier_local))
       return_barrier = max(0.0_dp, barrier_total - barrier_local)
-      density = prefactor*exp(-barrier_local)*(1.0_dp + erf(sqrt(return_barrier)))
+      returned_factor = 1.0_dp + erf(sqrt(return_barrier))
+      density = prefactor*exp(-barrier_local)*returned_factor
+      if (present(derivative_local)) then
+        derivative_kernel = 0.0_dp
+        if (return_barrier > sqrt(epsilon(1.0_dp))) then
+          derivative_kernel = exp(-return_barrier)/sqrt(pi*return_barrier)
+        end if
+        derivative_local = prefactor*exp(-barrier_local)*(-charge/temperature_j)*( &
+                           returned_factor + derivative_kernel &
+                           )
+      end if
+      if (present(derivative_interface)) derivative_interface = density*charge/temperature_j
     else
       acceleration = -barrier_local
       if (acceleration < -64.0_dp*epsilon(1.0_dp)) then
@@ -597,9 +631,25 @@ contains
       end if
       acceleration = max(0.0_dp, acceleration)
       density = prefactor*exp(acceleration)*erfc(sqrt(acceleration))
+      derivative_kernel = 0.0_dp
+      if (acceleration > sqrt(epsilon(1.0_dp))) then
+        derivative_kernel = prefactor*(-charge/temperature_j)*( &
+                            exp(acceleration)*erfc(sqrt(acceleration)) - &
+                            1.0_dp/sqrt(pi*acceleration) &
+                            )
+      end if
+      if (present(derivative_local)) derivative_local = derivative_kernel
+      if (present(derivative_interface)) derivative_interface = -derivative_kernel
     end if
-    if (.not. ieee_is_finite(density)) then
+    derivatives_finite = .true.
+    if (present(derivative_local)) derivatives_finite = derivatives_finite .and. ieee_is_finite(derivative_local)
+    if (present(derivative_interface)) then
+      derivatives_finite = derivatives_finite .and. ieee_is_finite(derivative_interface)
+    end if
+    if (.not. ieee_is_finite(density) .or. .not. derivatives_finite) then
       density = 0.0_dp
+      if (present(derivative_local)) derivative_local = 0.0_dp
+      if (present(derivative_interface)) derivative_interface = 0.0_dp
       return
     end if
     status = outer_plasma_ok
