@@ -45,9 +45,12 @@ monotonic and its original residual is at most `1e-8`.
 
 - Validation root: `/LARGE1/gr20001/b36291/codex-tmp/beach-robust-kinetic-validation-20260713`
 - Binary SHA-256: `054736111fb133b6d84175d8ff7c5fac405a332887a2b3f3953e0671b85e1439`
-- 3,000-batch smoke: job `8113082`, `gr20001a`, `p=6:t=112:c=112`, one-hour limit
-- 100,000-batch full: job `8113083`, `gr20001a`, `p=12:t=112:c=112`, ten-hour limit
-- Dependency: `afterok:8113082`; a failed smoke prevents the full run from starting
+- Profiling diagnostic: jobs `8113082` / `8113083` were cancelled because
+  `BEACH_PROFILE=1` changed the runtime comparison condition; the partial smoke
+  output is retained as `output/smoke.profiled-cancelled-8113082`.
+- 3,000-batch smoke: job `8113092`, `gr20001a`, `p=6:t=112:c=112`, one-hour limit
+- 100,000-batch full: job `8113093`, `gr20001a`, `p=12:t=112:c=112`, ten-hour limit
+- Dependency: `afterok:8113092`; a failed smoke prevents the full run from starting
 
 ## Pending Runtime Evidence
 
