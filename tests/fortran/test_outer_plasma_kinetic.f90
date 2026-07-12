@@ -14,7 +14,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(6)
+  call test_init(8)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -96,6 +96,29 @@ program test_outer_plasma_kinetic
   call assert_equal_i32(status, outer_plasma_ok, 'quasineutral solve status mismatch')
   call assert_true(maxval(abs(state%potential)) < 1.0e-10_dp, 'quasineutral potential must vanish')
   call assert_true(maxval(abs(state%charge_density)) < 1.0e-12_dp, 'quasineutral charge must vanish')
+  call test_end()
+
+  call test_begin('warm start follows a changed interface field')
+  options = reference_options()
+  options%interface_field = 0.0_dp
+  call solve_outer_plasma_kinetic(options, ambient_state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'zero-field warm-start source solve failed')
+  options%interface_field = -0.02_dp
+  call solve_outer_plasma_kinetic(options, state, status, message, initial_potential=ambient_state%potential)
+  call assert_equal_i32(status, outer_plasma_ok, 'changed-field warm start failed: '//trim(message))
+  call assert_true(state%ready, 'changed-field warm start must produce a ready state')
+  call test_end()
+
+  call test_begin('warm start crosses the monotonic branch sign')
+  options = reference_options()
+  options%interface_field = 0.05_dp
+  options%ion_drift_infinity = 4.0_dp*sqrt(options%electron_temperature_j/options%ion_mass)
+  call solve_outer_plasma_kinetic(options, ambient_state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'positive-branch warm-start source solve failed')
+  options%interface_field = -0.02_dp
+  call solve_outer_plasma_kinetic(options, state, status, message, initial_potential=ambient_state%potential)
+  call assert_equal_i32(status, outer_plasma_ok, 'branch-crossing warm start failed: '//trim(message))
+  call assert_true(state%ready, 'branch-crossing warm start must produce a ready state')
   call test_end()
 
   call test_begin('sub-Bohm ion entry has no physical solution')

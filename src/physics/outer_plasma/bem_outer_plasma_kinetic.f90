@@ -52,6 +52,7 @@ contains
     type(outer_plasma_grid_type) :: grid
     real(dp), allocatable :: phi(:), residual(:), trial_residual(:), jacobian(:, :), delta(:), trial(:)
     real(dp) :: residual_norm, trial_norm, step, bohm_speed, seed_scale
+    real(dp) :: previous_interface_field, field_correction
     integer(i32) :: iteration, solve_status
     logical :: accepted
 
@@ -83,6 +84,12 @@ contains
         return
       end if
       phi = initial_potential
+      previous_interface_field = -(phi(2) - phi(1))/grid%dz(1)
+      field_correction = options%interface_field - previous_interface_field
+      phi = phi + field_correction*(options%tail_length + options%domain_length - grid%z)
+      if (.not. monotonic_electron_repelling_branch(options, phi)) then
+        phi = options%interface_field*(options%tail_length + options%domain_length - grid%z)
+      end if
     else
       phi = options%interface_field*(options%tail_length + options%domain_length - grid%z)
       if (abs(options%interface_field) <= 256.0_dp*epsilon(1.0_dp) .and. &

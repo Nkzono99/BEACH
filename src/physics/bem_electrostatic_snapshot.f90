@@ -1,4 +1,5 @@
 module bem_electrostatic_snapshot
+  use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, qe
   use bem_types, only: mesh_type, sim_config, bc_periodic
@@ -912,7 +913,13 @@ contains
     end if
     call mpi_bcast_i32_array(self%mpi, status_values, 0_i32)
     status = status_values(1)
-    if (status /= outer_plasma_ok) error stop 'kinetic outer-plasma solve failed without fallback.'
+    if (status /= outer_plasma_ok) then
+      if (mpi_is_root(self%mpi)) then
+        write (error_unit, '(a,i0,a,es24.16,2a)') 'kinetic outer-plasma solve failed without fallback: status=', status, &
+          ' interface_field_V_m=', interface_field, ' message=', trim(message)
+      end if
+      error stop 'kinetic outer-plasma solve failed without fallback.'
+    end if
     if (.not. mpi_is_root(self%mpi)) then
       solved = outer_plasma_state_type()
       solved%model = 'kinetic_1d'
