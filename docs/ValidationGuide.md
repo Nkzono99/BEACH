@@ -192,6 +192,14 @@ write-once execution receipt を `provenance/verified/` に作り、以後は上
 その receipt と比較します。restart parent と cache prime の receipt も依存関係として
 固定します。cached run と後処理 evaluator は、cache fingerprint、path、file hash に加えて
 検証済み cache-prime receipt の hash に結び付け、別 cache の黙示的な再利用を認めません。
+clean productionの初回receiptは、生成jobが渡すproducer roleを固定case-role表と照合し、
+`job_ids.json`のrole別job ID、現在の`SLURM_JOB_ID`、そのjobのhash logにある
+`<config absolute path>: OK`完全一致行へ結び付けます。submit途中のpartial journalは、該当roleの
+IDが既に記録済みの場合に初回receiptだけ許可します。既存receiptの再検証とstrict解析ではcomplete
+journalを要求し、保存済みrole/job/config bindingを再検証します。restart childやanalysis jobから
+role指定なしで親receiptを確認するときは、現在job IDとの一致だけを要求せず、保存済みproducer
+binding自体は緩めません。hash logのsource、binary/library、role別configもsubstringではなく
+完全一致行で検証します。
 最終解析では stage 時の archive input、manifest、source snapshot、case graph、
 binary/library を再検証し、7 case 全てに既存 execution receipt があることを要求します。
 新 run がない archive-only preflight では `--require-complete` を付けず、`missing` /

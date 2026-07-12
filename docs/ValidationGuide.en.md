@@ -232,9 +232,20 @@ compares current files against it and also fixes the restart-parent and
 cache-prime receipt dependencies. Cached runs and post-processing evaluators
 are bound to the verified cache-prime receipt hash as well as the cache
 fingerprint, path, and file hash; they cannot silently reuse a different
-cache. Strict final analysis rechecks the staged
-archive input, manifest, source snapshot, case graph, binary, and library, and
-requires an existing execution receipt for all seven cases. Archive-only
+cache. For the first clean-production receipt, the generated job supplies a
+producer role that must match the fixed case-role map. Verification binds that
+role to its ID in `job_ids.json`, the current `SLURM_JOB_ID`, and an exact
+`<absolute config path>: OK` line in that job's hash log. An in-progress partial
+journal is allowed only for first receipt creation after the relevant role ID
+has been recorded. Rechecking an existing receipt and strict analysis require a
+complete journal and revalidate the stored role/job/config binding. A restart
+child or analysis job may recheck a parent receipt without supplying a role, so
+only the current-job-ID comparison is omitted; the stored producer binding is
+not weakened. Source, binary/library, and role-specific config entries in final
+hash logs are checked as exact lines rather than substrings. Strict final
+analysis rechecks the staged archive input, manifest, source snapshot, case
+graph, binary, and library, and requires an existing execution receipt for all
+seven cases. Archive-only
 preflight may omit `--require-complete`, but its `missing` and `not_evaluated`
 rows cannot support a conclusion.
 

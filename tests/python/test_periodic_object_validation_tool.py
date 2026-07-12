@@ -5,6 +5,7 @@ import csv
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -371,6 +372,26 @@ def _write_toml(path: Path, data: dict[str, object]) -> None:
     path.write_text(tomli_w.dumps(data), encoding="utf-8")
 
 
+_TEST_CASE_PRODUCER_ROLES = {
+    "cache_prime": "smoke",
+    "smoke_finite_configured": "smoke",
+    "smoke_infinite_physical": "smoke",
+    "full_finite_configured_140000": "finite_140000",
+    "full_finite_configured_280000": "finite_280000",
+    "full_infinite_physical_140000": "infinite_140000",
+    "full_infinite_physical_280000": "infinite_280000",
+}
+
+_TEST_SUBMITTED_JOBS = {
+    "smoke": ("9001", "beach-periodic-smoke", "p=6:t=112:c=112"),
+    "finite_140000": ("9002", "beach-finite-140k", "p=6:t=112:c=112"),
+    "finite_280000": ("9003", "beach-finite-280k", "p=6:t=112:c=112"),
+    "infinite_140000": ("9004", "beach-infinite-140k", "p=6:t=112:c=112"),
+    "infinite_280000": ("9005", "beach-infinite-280k", "p=6:t=112:c=112"),
+    "analysis": ("9006", "beach-periodic-analysis", "p=1:t=28:c=28"),
+}
+
+
 def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     archive_run: Path,
     binary: Path,
@@ -476,6 +497,7 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     assert "trap record_status EXIT" in smoke
     assert "exit_code=" in smoke
     assert "p=6:t=112:c=112" in smoke
+    assert '--producer-job-role "smoke"' in smoke
     assert "--dependency=afterok:" in submit_chain
     assert "job_ids.json" in submit_chain
     assert "verify-inputs" in submit_chain
@@ -487,6 +509,11 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     assert "full/finite_configured/140000" in finite_restart
     assert '--expected-batches "${restart_batches}"' in finite_restart
     assert '"140000"' in finite_restart
+    assert '--producer-job-role "finite_280000"' in finite_restart
+    parent_verify = next(
+        line for line in finite_restart.splitlines() if "--require-existing-receipt" in line
+    )
+    assert "--producer-job-role" not in parent_verify
 
     report = tool.verify_inputs(validation_root)
     assert report["status"] == "ok"
@@ -1132,6 +1159,60 @@ def test_probe_periodic_oracles_cli_dispatches_validation_root_and_library(
 
     assert status == 0
     assert calls == [(validation_root, library)]
+
+
+def test_verify_run_cli_accepts_producer_job_role() -> None:
+    tool = _load_tool()
+
+    args = tool._parser().parse_args(
+        [
+            "verify-run",
+            "--case-dir",
+            "/validation/run/smoke/finite_configured",
+            "--expected-batches",
+            "100",
+            "--producer-job-role",
+            "smoke",
+        ]
+    )
+
+    assert args.producer_job_role == "smoke"
+
+
+def test_verify_inputs_rejects_wrong_generated_producer_role(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    tool.stage_validation(archive_run, validation_root, binary)
+    script = validation_root / "submit/smoke_sysa.sh"
+    text = script.read_text(encoding="utf-8")
+    self_verify = next(
+        line
+        for line in text.splitlines()
+        if "verify-run" in line and '--expected-batches "${batches}"' in line
+    )
+    if "--producer-job-role" in self_verify:
+        invalid_verify = re.sub(
+            r'--producer-job-role "[^"]+"',
+            '--producer-job-role "finite_140000"',
+            self_verify,
+        )
+    else:
+        invalid_verify = self_verify + ' --producer-job-role "finite_140000"'
+    script.write_text(text.replace(self_verify, invalid_verify), encoding="utf-8")
+    manifest_path = validation_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["scripts"]["smoke_sysa.sh"]["sha256"] = tool._sha256(script)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(tool.ValidationError, match="producer job role"):
+        tool.verify_inputs(validation_root)
 
 
 def test_stage_can_require_clean_source(
@@ -1983,15 +2064,8 @@ def test_verify_run_rejects_archive_mesh_source_semantic_mismatch(
 def _write_submission_provenance(
     validation_root: Path,
     manifest: dict[str, object],
-) -> None:
-    jobs = {
-        "smoke": ("9001", "beach-periodic-smoke", "p=6:t=112:c=112"),
-        "finite_140000": ("9002", "beach-finite-140k", "p=6:t=112:c=112"),
-        "finite_280000": ("9003", "beach-finite-280k", "p=6:t=112:c=112"),
-        "infinite_140000": ("9004", "beach-infinite-140k", "p=6:t=112:c=112"),
-        "infinite_280000": ("9005", "beach-infinite-280k", "p=6:t=112:c=112"),
-        "analysis": ("9006", "beach-periodic-analysis", "p=1:t=28:c=28"),
-    }
+) -> dict[str, str]:
+    jobs = _TEST_SUBMITTED_JOBS
     job_ids = {
         "submission_complete": True,
         **{name: job_id for name, (job_id, _job, _resources) in jobs.items()},
@@ -2007,6 +2081,8 @@ def _write_submission_provenance(
     assert isinstance(source_snapshot, dict)
     assert isinstance(binary, dict)
     assert isinstance(library, dict)
+    cases = manifest["cases"]
+    assert isinstance(cases, dict)
     for name, (job_id, job_name, resources) in jobs.items():
         token = f"{job_id}.{job_name}"
         module_path = validation_root / "provenance/modules" / f"{token}.txt"
@@ -2020,8 +2096,20 @@ def _write_submission_provenance(
         artifact = (
             library["staged_path"] if name == "analysis" else binary["staged_path"]
         )
+        config_lines = [
+            f"{cases[case_name]['config_path']}: OK"
+            for case_name, role in _TEST_CASE_PRODUCER_ROLES.items()
+            if role == name
+        ]
         hash_path.write_text(
-            f"{source_snapshot['hash_file']}: OK\n{artifact}: OK\n",
+            "\n".join(
+                (
+                    f"{source_snapshot['hash_file']}: OK",
+                    f"{artifact}: OK",
+                    *config_lines,
+                )
+            )
+            + "\n",
             encoding="utf-8",
         )
         if name == "analysis":
@@ -2041,6 +2129,331 @@ def _write_submission_provenance(
             + "\n",
             encoding="utf-8",
         )
+    return {name: job_id for name, (job_id, _job, _resources) in jobs.items()}
+
+
+def _write_partial_producer_provenance(
+    validation_root: Path,
+    manifest: dict[str, object],
+    case_name: str,
+    *,
+    job_id: str | None = None,
+    config_line: str | None = None,
+) -> tuple[str, str, Path]:
+    role = _TEST_CASE_PRODUCER_ROLES[case_name]
+    expected_job_id, job_name, _resources = _TEST_SUBMITTED_JOBS[role]
+    selected_job_id = expected_job_id if job_id is None else job_id
+    journal = {
+        "submission_complete": False,
+        **{name: "" for name in _TEST_SUBMITTED_JOBS},
+    }
+    journal[role] = selected_job_id
+    (validation_root / "submit/job_ids.json").write_text(
+        json.dumps(journal), encoding="utf-8"
+    )
+    cases = manifest["cases"]
+    assert isinstance(cases, dict)
+    config_path = str(cases[case_name]["config_path"])
+    line = f"{config_path}: OK" if config_line is None else config_line
+    hash_path = (
+        validation_root
+        / "provenance/hashes"
+        / f"{selected_job_id}.{job_name}.sha256"
+    )
+    hash_path.parent.mkdir(parents=True, exist_ok=True)
+    hash_path.write_text(line + "\n", encoding="utf-8")
+    return role, selected_job_id, hash_path
+
+
+def test_clean_first_receipt_accepts_bound_partial_producer_journal(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = _stage_clean_validation(
+        tool, archive_run, validation_root, binary, monkeypatch
+    )
+    output = _write_run_output(
+        validation_root,
+        "smoke_finite_configured",
+        batches=100,
+        cache_hit=None,
+        build_count=None,
+    )
+    role, job_id, _hash_path = _write_partial_producer_provenance(
+        validation_root, manifest, "smoke_finite_configured"
+    )
+    monkeypatch.setenv("SLURM_JOB_ID", job_id)
+
+    report = tool.verify_run(
+        output,
+        100,
+        producer_job_role=role,
+    )
+
+    assert report["execution_producer"] == {
+        "job_role": "smoke",
+        "job_id": "9001",
+        "config_sha256": manifest["cases"]["smoke_finite_configured"][
+            "config_sha256"
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("producer_role", "current_job", "hash_suffix", "message"),
+    [
+        (None, "9001", "", "producer job role"),
+        ("finite_140000", "9001", "", "producer job role"),
+        ("smoke", None, "", "SLURM_JOB_ID"),
+        ("smoke", "9999", "", "SLURM_JOB_ID"),
+        ("smoke", "9001", ".backup", "config hash log"),
+    ],
+)
+def test_clean_first_receipt_rejects_unbound_producer(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    producer_role: str | None,
+    current_job: str | None,
+    hash_suffix: str,
+    message: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = _stage_clean_validation(
+        tool, archive_run, validation_root, binary, monkeypatch
+    )
+    output = _write_run_output(
+        validation_root,
+        "smoke_finite_configured",
+        batches=100,
+        cache_hit=None,
+        build_count=None,
+    )
+    config_path = manifest["cases"]["smoke_finite_configured"]["config_path"]
+    _write_partial_producer_provenance(
+        validation_root,
+        manifest,
+        "smoke_finite_configured",
+        config_line=f"{config_path}{hash_suffix}: OK",
+    )
+    if current_job is None:
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    else:
+        monkeypatch.setenv("SLURM_JOB_ID", current_job)
+
+    with pytest.raises(tool.ValidationError, match=message):
+        tool.verify_run(
+            output,
+            100,
+            producer_job_role=producer_role,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "nonboolean_complete",
+        "extra_key",
+        "missing_role_id",
+        "numeric_job_id",
+        "duplicate_job_id",
+    ],
+)
+def test_clean_first_receipt_rejects_invalid_partial_journal_schema(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = _stage_clean_validation(
+        tool, archive_run, validation_root, binary, monkeypatch
+    )
+    output = _write_run_output(
+        validation_root,
+        "smoke_finite_configured",
+        batches=100,
+        cache_hit=None,
+        build_count=None,
+    )
+    role, job_id, _hash_path = _write_partial_producer_provenance(
+        validation_root, manifest, "smoke_finite_configured"
+    )
+    journal_path = validation_root / "submit/job_ids.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    if mutation == "nonboolean_complete":
+        journal["submission_complete"] = 0
+    elif mutation == "extra_key":
+        journal["unexpected"] = ""
+    elif mutation == "missing_role_id":
+        journal[role] = ""
+    elif mutation == "numeric_job_id":
+        journal[role] = int(job_id)
+    else:
+        journal["finite_140000"] = job_id
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    monkeypatch.setenv("SLURM_JOB_ID", job_id)
+
+    with pytest.raises(tool.ValidationError, match="journal|job ID"):
+        tool.verify_run(output, 100, producer_job_role=role)
+
+
+def test_clean_existing_receipt_requires_complete_journal_but_ignores_child_job_id(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = _stage_clean_validation(
+        tool, archive_run, validation_root, binary, monkeypatch
+    )
+    output = _write_run_output(
+        validation_root,
+        "smoke_finite_configured",
+        batches=100,
+        cache_hit=None,
+        build_count=None,
+    )
+    role, job_id, _hash_path = _write_partial_producer_provenance(
+        validation_root, manifest, "smoke_finite_configured"
+    )
+    monkeypatch.setenv("SLURM_JOB_ID", job_id)
+    tool.verify_run(output, 100, producer_job_role=role)
+    receipt = validation_root / "provenance/verified/smoke_finite_configured.json"
+    original = receipt.read_bytes()
+
+    monkeypatch.setenv("SLURM_JOB_ID", "9006")
+    with pytest.raises(tool.ValidationError, match="journal is incomplete"):
+        tool.verify_run(output, 100, require_existing_receipt=True)
+
+    _write_submission_provenance(validation_root, manifest)
+    report = tool.verify_run(output, 100, require_existing_receipt=True)
+    assert report["execution_producer"]["job_id"] == job_id
+    assert receipt.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["journal_job_id", "config_hash_line", "receipt_binding"],
+)
+def test_clean_existing_receipt_rechecks_immutable_producer_binding(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = _stage_clean_validation(
+        tool, archive_run, validation_root, binary, monkeypatch
+    )
+    output = _write_run_output(
+        validation_root,
+        "smoke_finite_configured",
+        batches=100,
+        cache_hit=None,
+        build_count=None,
+    )
+    job_ids = _write_submission_provenance(validation_root, manifest)
+    monkeypatch.setenv("SLURM_JOB_ID", job_ids["smoke"])
+    tool.verify_run(output, 100, producer_job_role="smoke")
+    monkeypatch.setenv("SLURM_JOB_ID", job_ids["analysis"])
+
+    if mutation == "journal_job_id":
+        journal_path = validation_root / "submit/job_ids.json"
+        journal = json.loads(journal_path.read_text(encoding="utf-8"))
+        journal["smoke"] = "9011"
+        journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    elif mutation == "config_hash_line":
+        hash_path = (
+            validation_root
+            / "provenance/hashes/9001.beach-periodic-smoke.sha256"
+        )
+        config_path = manifest["cases"]["smoke_finite_configured"]["config_path"]
+        hash_path.write_text(
+            hash_path.read_text(encoding="utf-8").replace(
+                f"{config_path}: OK", f"{config_path}.backup: OK"
+            ),
+            encoding="utf-8",
+        )
+    else:
+        receipt_path = (
+            validation_root
+            / "provenance/verified/smoke_finite_configured.json"
+        )
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        del receipt["execution_producer"]
+        receipt["receipt_payload_sha256"] = tool._receipt_payload_sha256(receipt)
+        receipt_path.chmod(0o644)
+        receipt_path.write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        receipt_path.chmod(0o444)
+
+    with pytest.raises(tool.ValidationError, match="producer|config hash log"):
+        tool.verify_run(output, 100, require_existing_receipt=True)
+
+
+def test_clean_canonical_case_cannot_publish_production_receipt(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = _stage_clean_validation(
+        tool, archive_run, validation_root, binary, monkeypatch
+    )
+    output = _write_run_output(
+        validation_root,
+        "full_finite_configured",
+        batches=280000,
+        cache_hit=None,
+        build_count=None,
+    )
+    job_ids = _write_submission_provenance(validation_root, manifest)
+    monkeypatch.setenv("SLURM_JOB_ID", job_ids["finite_280000"])
+
+    with pytest.raises(tool.ValidationError, match="production job graph"):
+        tool.verify_run(
+            output,
+            280000,
+            producer_job_role="finite_280000",
+        )
+
+
+def test_nonstrict_receipt_remains_backward_compatible_with_generated_role(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    tool.stage_validation(archive_run, validation_root, binary)
+    output = _write_run_output(
+        validation_root,
+        "smoke_finite_configured",
+        batches=100,
+        cache_hit=None,
+        build_count=None,
+    )
+
+    report = tool.verify_run(output, 100, producer_job_role="smoke")
+
+    assert "execution_producer" not in report
 
 
 @pytest.mark.parametrize(
@@ -2112,6 +2525,62 @@ def test_submission_provenance_requires_exact_intel_modules(
         tool.ValidationError,
         match="intel/2023.2 and intelmpi/2023.2",
     ):
+        tool._verify_submission_provenance(validation_root, manifest)
+
+
+def test_submission_provenance_requires_exact_role_config_hash_lines(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = tool.stage_validation(
+        archive_run,
+        validation_root,
+        binary,
+        library=binary,
+    )
+    job_ids = _write_submission_provenance(validation_root, manifest)
+    hash_path = (
+        validation_root / "provenance/hashes/9001.beach-periodic-smoke.sha256"
+    )
+    config_path = manifest["cases"]["smoke_finite_configured"]["config_path"]
+    hash_path.write_text(
+        hash_path.read_text(encoding="utf-8").replace(
+            f"{config_path}: OK", f"{config_path}.backup: OK"
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SLURM_JOB_ID", job_ids["analysis"])
+
+    with pytest.raises(tool.ValidationError, match="hash log is incomplete"):
+        tool._verify_submission_provenance(validation_root, manifest)
+
+
+def test_submission_provenance_rejects_numeric_job_id_value(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = tool.stage_validation(
+        archive_run,
+        validation_root,
+        binary,
+        library=binary,
+    )
+    job_ids = _write_submission_provenance(validation_root, manifest)
+    journal_path = validation_root / "submit/job_ids.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal["smoke"] = 9001
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    monkeypatch.setenv("SLURM_JOB_ID", job_ids["analysis"])
+
+    with pytest.raises(tool.ValidationError, match="job IDs"):
         tool._verify_submission_provenance(validation_root, manifest)
 
 
@@ -5704,6 +6173,7 @@ def test_analyze_require_complete_verifies_all_cases_and_physics(
         binary,
         monkeypatch,
     )
+    job_ids = _write_submission_provenance(validation_root, manifest)
     definitions = (
         ("cache_prime", 1, False, 1),
         ("smoke_finite_configured", 100, None, None),
@@ -5721,11 +6191,16 @@ def test_analyze_require_complete_verifies_all_cases_and_physics(
             cache_hit=hit,
             build_count=count,
         )
-        tool.verify_run(output, batches)
-    _write_submission_provenance(validation_root, manifest)
+        producer_role = _TEST_CASE_PRODUCER_ROLES[name]
+        monkeypatch.setenv("SLURM_JOB_ID", job_ids[producer_role])
+        tool.verify_run(
+            output,
+            batches,
+            producer_job_role=producer_role,
+        )
     staged_library = Path(manifest["analysis_library"]["staged_path"])
     _write_periodic_oracle_receipt(tool, validation_root, staged_library)
-    monkeypatch.setenv("SLURM_JOB_ID", "9006")
+    monkeypatch.setenv("SLURM_JOB_ID", job_ids["analysis"])
 
     class FakeBeach:
         def __init__(self, _output_dir, *, config_path=None):

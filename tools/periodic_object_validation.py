@@ -151,6 +151,24 @@ EXPECTED_SUBMITTED_JOBS = {
     "infinite_280000": ("beach-infinite-280k", "p=6:t=112:c=112"),
     "analysis": ("beach-periodic-analysis", "p=1:t=28:c=28"),
 }
+CASE_PRODUCER_JOB_ROLES = {
+    "cache_prime": "smoke",
+    "smoke_finite_configured": "smoke",
+    "smoke_infinite_physical": "smoke",
+    "full_finite_configured_140000": "finite_140000",
+    "full_finite_configured_280000": "finite_280000",
+    "full_infinite_physical_140000": "infinite_140000",
+    "full_infinite_physical_280000": "infinite_280000",
+}
+PRODUCER_ROLE_CASES = {
+    role: tuple(
+        case_name
+        for case_name, producer_role in CASE_PRODUCER_JOB_ROLES.items()
+        if producer_role == role
+    )
+    for role in EXPECTED_SUBMITTED_JOBS
+    if role != "analysis"
+}
 EXPECTED_CASE_GRAPH: dict[str, dict[str, Any]] = {
     "cache_prime": {
         "role": "cache_prime",
@@ -1356,7 +1374,19 @@ def _render_job(
     return template
 
 
-def _run_case_commands(case_names: Sequence[str], cases: Mapping[str, Any]) -> str:
+def _run_case_commands(
+    case_names: Sequence[str],
+    cases: Mapping[str, Any],
+    *,
+    producer_job_role: str,
+) -> str:
+    if any(
+        CASE_PRODUCER_JOB_ROLES.get(case_name) != producer_job_role
+        for case_name in case_names
+    ):
+        raise ValidationError(
+            f"producer job role {producer_job_role!r} does not cover {tuple(case_names)!r}"
+        )
     lines = [
         "run_case() {",
         "  local name=\"$1\" config=\"$2\" output=\"$3\" batches=\"$4\" config_sha=\"$5\" restart_dir=\"$6\" restart_batches=\"$7\"",
@@ -1373,7 +1403,9 @@ def _run_case_commands(case_names: Sequence[str], cases: Mapping[str, Any]) -> s
         "    return 2",
         "  fi",
         "  /usr/bin/time -v -o \"${VALIDATION_ROOT}/provenance/time/${name}.txt\" srun \"${BINARY}\" \"${config}\"",
-        "  python3.11 \"${TOOL}\" verify-run --case-dir \"${output}\" --expected-batches \"${batches}\"",
+        "  python3.11 \"${TOOL}\" verify-run --case-dir \"${output}\" "
+        ' --expected-batches "${batches}"'
+        f' --producer-job-role "{producer_job_role}"',
         "}",
     ]
     for case_name in case_names:
@@ -1416,11 +1448,12 @@ def _write_jobs(
     analysis_library: Mapping[str, Any] | None,
 ) -> list[Path]:
     submit = root / "submit"
-    jobs: list[tuple[str, str, str, Sequence[str]]] = [
+    jobs: list[tuple[str, str, str, str, Sequence[str]]] = [
         (
             "smoke_sysa.sh",
             "beach-periodic-smoke",
             "1:00:00",
+            "smoke",
             (
                 "cache_prime",
                 "smoke_finite_configured",
@@ -1431,30 +1464,38 @@ def _write_jobs(
             "full_finite_140000_sysa.sh",
             "beach-finite-140k",
             "12:00:00",
+            "finite_140000",
             ("full_finite_configured_140000",),
         ),
         (
             "full_finite_280000_sysa.sh",
             "beach-finite-280k",
             "12:00:00",
+            "finite_280000",
             ("full_finite_configured_280000",),
         ),
         (
             "full_infinite_140000_sysa.sh",
             "beach-infinite-140k",
             "14:00:00",
+            "infinite_140000",
             ("full_infinite_physical_140000",),
         ),
         (
             "full_infinite_280000_sysa.sh",
             "beach-infinite-280k",
             "14:00:00",
+            "infinite_280000",
             ("full_infinite_physical_280000",),
         ),
     ]
     paths: list[Path] = []
-    for filename, job_name, walltime, case_names in jobs:
-        commands = _run_case_commands(case_names, cases)
+    for filename, job_name, walltime, producer_job_role, case_names in jobs:
+        commands = _run_case_commands(
+            case_names,
+            cases,
+            producer_job_role=producer_job_role,
+        )
         if filename == "smoke_sysa.sh" and analysis_library is not None:
             commands = (
                 f'python3.11 "{source_snapshot["tool"]}" probe-library '
@@ -2335,6 +2376,13 @@ def verify_inputs(
         "full_infinite_140000_sysa.sh": ("full_infinite_physical_140000",),
         "full_infinite_280000_sysa.sh": ("full_infinite_physical_280000",),
     }
+    script_producer_roles = {
+        "smoke_sysa.sh": "smoke",
+        "full_finite_140000_sysa.sh": "finite_140000",
+        "full_finite_280000_sysa.sh": "finite_280000",
+        "full_infinite_140000_sysa.sh": "infinite_140000",
+        "full_infinite_280000_sysa.sh": "infinite_280000",
+    }
     for name, script in scripts.items():
         if not isinstance(script, Mapping):
             raise ValidationError(f"job script metadata is invalid: {name}")
@@ -2392,6 +2440,28 @@ def verify_inputs(
                     raise ValidationError(
                         f"job script {name} omits staged case {case_name}"
                     )
+            producer_role = script_producer_roles[name]
+            self_verify = [
+                line
+                for line in text.splitlines()
+                if "verify-run" in line
+                and '--expected-batches "${batches}"' in line
+            ]
+            if len(self_verify) != 1 or (
+                f'--producer-job-role "{producer_role}"' not in self_verify[0]
+            ):
+                raise ValidationError(
+                    f"job script {name} has an invalid producer job role"
+                )
+            parent_verify = [
+                line
+                for line in text.splitlines()
+                if "verify-run" in line and "--require-existing-receipt" in line
+            ]
+            if any("--producer-job-role" in line for line in parent_verify):
+                raise ValidationError(
+                    f"job script {name} binds a parent receipt to the child producer job role"
+                )
         elif name == "submit_chain.sh":
             required_edges = (
                 'finite_140=$(sbatch --parsable --dependency=afterok:${smoke}',
@@ -2955,6 +3025,124 @@ def _receipt_comparable(receipt: Mapping[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _load_submission_journal(
+    root: Path,
+    *,
+    require_complete: bool,
+) -> tuple[Path, bool, dict[str, str]]:
+    path = _require_expected_path(
+        root,
+        root / "submit/job_ids.json",
+        "submit/job_ids.json",
+        label="job submission journal",
+    )
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValidationError(f"job submission journal is missing or invalid: {exc}") from exc
+    expected_keys = {"submission_complete", *EXPECTED_SUBMITTED_JOBS}
+    if not isinstance(value, Mapping) or set(value) != expected_keys:
+        raise ValidationError("job submission journal has an unexpected key set")
+    complete = value.get("submission_complete")
+    if type(complete) is not bool:
+        raise ValidationError("job submission journal completion flag must be boolean")
+    identifiers: dict[str, str] = {}
+    for name in EXPECTED_SUBMITTED_JOBS:
+        identifier = value.get(name)
+        if not isinstance(identifier, str) or (
+            identifier != "" and not identifier.isdigit()
+        ):
+            raise ValidationError("job submission journal has invalid job IDs")
+        identifiers[name] = identifier
+    assigned = [value for value in identifiers.values() if value]
+    if len(set(assigned)) != len(assigned):
+        raise ValidationError("job submission journal has duplicate job IDs")
+    if complete and len(assigned) != len(EXPECTED_SUBMITTED_JOBS):
+        raise ValidationError("completed job submission journal has missing job IDs")
+    if require_complete and not complete:
+        raise ValidationError("job submission journal is incomplete")
+    if require_complete and len(assigned) != len(EXPECTED_SUBMITTED_JOBS):
+        raise ValidationError("job submission journal is incomplete")
+    return path, complete, identifiers
+
+
+def _execution_producer_binding(
+    *,
+    root: Path,
+    manifest: Mapping[str, Any],
+    case_name: str,
+    case: Mapping[str, Any],
+    config_path: Path,
+    producer_job_role: str | None,
+    existing_receipt: Mapping[str, Any] | None,
+) -> dict[str, str] | None:
+    if manifest.get("build_origin") is None:
+        return None
+    expected_role = CASE_PRODUCER_JOB_ROLES.get(case_name)
+    if expected_role is None:
+        raise ValidationError(
+            f"case {case_name} is not executable in the production job graph"
+        )
+    if producer_job_role is not None and producer_job_role != expected_role:
+        raise ValidationError(
+            f"producer job role mismatch for {case_name}: "
+            f"{producer_job_role!r} != {expected_role!r}"
+        )
+    if existing_receipt is None and producer_job_role is None:
+        raise ValidationError(
+            f"clean production receipt requires a producer job role for {case_name}"
+        )
+
+    _journal_path, _complete, identifiers = _load_submission_journal(
+        root,
+        require_complete=existing_receipt is not None,
+    )
+    job_id = identifiers[expected_role]
+    if not job_id:
+        raise ValidationError(f"producer job ID is missing for role {expected_role}")
+    expected = {
+        "job_role": expected_role,
+        "job_id": job_id,
+        "config_sha256": str(case.get("config_sha256", "")),
+    }
+    if existing_receipt is not None:
+        recorded = existing_receipt.get("execution_producer")
+        if not isinstance(recorded, Mapping) or dict(recorded) != expected:
+            raise ValidationError(
+                f"execution producer binding differs from immutable receipt for {case_name}"
+            )
+    if producer_job_role is not None:
+        current_job = os.environ.get("SLURM_JOB_ID")
+        if current_job is None or current_job != job_id:
+            raise ValidationError(
+                f"SLURM_JOB_ID differs from producer job {job_id} for {case_name}"
+            )
+
+    job_name = EXPECTED_SUBMITTED_JOBS[expected_role][0]
+    token = f"{job_id}.{job_name}"
+    hash_path = _require_expected_path(
+        root,
+        root / "provenance/hashes" / f"{token}.sha256",
+        f"provenance/hashes/{token}.sha256",
+        label=f"producer {expected_role} config hash log",
+    )
+    if not hash_path.is_file():
+        raise ValidationError(
+            f"producer config hash log is missing for {case_name}: {hash_path}"
+        )
+    try:
+        hash_lines = set(hash_path.read_text(encoding="utf-8").splitlines())
+    except OSError as exc:
+        raise ValidationError(
+            f"failed to read producer config hash log for {case_name}: {exc}"
+        ) from exc
+    if f"{config_path}: OK" not in hash_lines:
+        raise ValidationError(
+            f"producer config hash log does not contain the exact case path for {case_name}"
+        )
+    return expected
+
+
 def _publish_execution_receipt(path: Path, report: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(report)
     value["receipt_payload_sha256"] = _receipt_payload_sha256(value)
@@ -2998,6 +3186,7 @@ def verify_run(
     expected_batches: int,
     *,
     require_existing_receipt: bool = False,
+    producer_job_role: str | None = None,
 ) -> dict[str, Any]:
     """Verify one completed output against its staged case and diagnostics."""
 
@@ -3149,6 +3338,15 @@ def verify_run(
 
     if _sha256(config_path) != case.get("config_sha256"):
         raise ValidationError(f"input hash mismatch for {name}")
+    execution_producer = _execution_producer_binding(
+        root=root,
+        manifest=manifest,
+        case_name=name,
+        case=case,
+        config_path=config_path,
+        producer_job_role=producer_job_role,
+        existing_receipt=existing_receipt,
+    )
     binary = Path(str(manifest["binary"]["staged_path"]))
     if _sha256(binary) != manifest["binary"]["sha256"]:
         raise ValidationError("binary hash mismatch")
@@ -3341,6 +3539,8 @@ def verify_run(
         "outputs": output_hashes,
         "verified_at": _utc_now(),
     }
+    if execution_producer is not None:
+        report["execution_producer"] = execution_producer
     if existing_receipt is not None:
         if _receipt_comparable(existing_receipt) != _receipt_comparable(report):
             raise ValidationError(
@@ -7093,26 +7293,10 @@ def _verify_submission_provenance(
     root: Path,
     manifest: Mapping[str, Any],
 ) -> dict[str, Any]:
-    job_ids_path = _require_expected_path(
+    job_ids_path, _complete, identifiers = _load_submission_journal(
         root,
-        root / "submit/job_ids.json",
-        "submit/job_ids.json",
-        label="job submission journal",
+        require_complete=True,
     )
-    try:
-        job_ids = json.loads(job_ids_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValidationError(f"job_ids.json is missing or invalid: {exc}") from exc
-    if not isinstance(job_ids, Mapping) or job_ids.get("submission_complete") is not True:
-        raise ValidationError("job submission journal is incomplete")
-    expected_keys = {"submission_complete", *EXPECTED_SUBMITTED_JOBS}
-    if set(job_ids) != expected_keys:
-        raise ValidationError("job submission journal has an unexpected key set")
-    identifiers = {name: str(job_ids[name]) for name in EXPECTED_SUBMITTED_JOBS}
-    if any(not value.isdigit() for value in identifiers.values()) or len(
-        set(identifiers.values())
-    ) != len(identifiers):
-        raise ValidationError("job submission journal has invalid or duplicate job IDs")
     current_job = os.environ.get("SLURM_JOB_ID")
     if current_job and current_job != identifiers["analysis"]:
         raise ValidationError(
@@ -7162,15 +7346,22 @@ def _verify_submission_provenance(
                 f"submitted {name} job module log must contain exact "
                 "intel/2023.2 and intelmpi/2023.2 modules"
             )
-        hash_text = hash_path.read_text(encoding="utf-8", errors="replace")
+        hash_lines = set(
+            hash_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        )
         required_hash_paths = [str(source_snapshot["hash_file"])]
         if name == "analysis":
             required_hash_paths.append(str(library["staged_path"]))
         else:
             required_hash_paths.append(str(binary["staged_path"]))
-        if "OK" not in hash_text or any(
-            path not in hash_text for path in required_hash_paths
-        ):
+            required_hash_paths.extend(
+                str(manifest["cases"][case_name]["config_path"])
+                for case_name in PRODUCER_ROLE_CASES[name]
+            )
+        required_hash_lines = {
+            f"{required_path}: OK" for required_path in required_hash_paths
+        }
+        if not required_hash_lines.issubset(hash_lines):
             raise ValidationError(f"submitted {name} job hash log is incomplete")
         log_hashes[name] = {
             "module_log_sha256": _sha256(module_path),
@@ -9722,6 +9913,10 @@ def _parser() -> argparse.ArgumentParser:
     verify_run_parser.add_argument("--case-dir", required=True, type=Path)
     verify_run_parser.add_argument("--expected-batches", required=True, type=int)
     verify_run_parser.add_argument("--require-existing-receipt", action="store_true")
+    verify_run_parser.add_argument(
+        "--producer-job-role",
+        choices=tuple(PRODUCER_ROLE_CASES),
+    )
     analyze = subcommands.add_parser("analyze", help="write comparison artifacts")
     analyze.add_argument("--archive-run", required=True, type=Path)
     analyze.add_argument("--validation-root", required=True, type=Path)
@@ -9758,6 +9953,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.case_dir,
                 args.expected_batches,
                 require_existing_receipt=args.require_existing_receipt,
+                producer_job_role=args.producer_job_role,
             )
         elif args.command == "analyze":
             result = analyze_validation(
