@@ -436,8 +436,8 @@ On the KUDPC Intel environment, release MPI builds default to `mpiifx`.
 but it is not recommended for production because the same 3,000-batch fixture
 showed a substantial runtime slowdown.
 
-Production runs using many OpenMP threads per rank on SysA must also specify
-thread placement explicitly:
+For reproducible thread placement, production runs using many OpenMP threads
+per rank on SysA should also specify:
 
 ```bash
 export OMP_NUM_THREADS=112
@@ -446,8 +446,8 @@ export OMP_PLACES=cores
 srun beach beach.toml
 ```
 
-Setting only `OMP_NUM_THREADS` can be substantially slower for the same binary
-and input because the runtime is free to choose a different thread placement.
+These variables fix the placement conditions for performance comparisons.  On
+the measured 300-batch fixture, binding changed elapsed time by less than 0.4%.
 
 ## 10. Easy-to-Misread Implementation Behaviors
 

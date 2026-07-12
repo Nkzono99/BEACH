@@ -340,7 +340,8 @@ KUDPCのIntel環境ではrelease MPI buildの既定を`mpiifx`とする。`MPI_F
 classic compilerの明示利用は可能だが、同一の3000 batch fixtureで大幅な速度低下が観測されたため、
 互換性確認以外のproduction runには使わない。
 
-SysAで1 rankあたり多数のOpenMP threadを使うproduction runでは、thread配置も明示する。
+SysAで1 rankあたり多数のOpenMP threadを使うproduction runでは、再現可能なthread配置のため
+次の指定を推奨する。
 
 ```bash
 export OMP_NUM_THREADS=112
@@ -349,7 +350,8 @@ export OMP_PLACES=cores
 srun beach beach.toml
 ```
 
-`OMP_NUM_THREADS`だけを指定すると、同じbinaryと入力でもthread配置の違いで大幅に遅くなることがある。
+この指定は性能比較時の配置条件を固定するためのものであり、実測した300 batch fixtureでは
+bind有無の差は0.4%未満だった。
 
 ## 10. 実装挙動で誤解しやすい点
 

@@ -84,9 +84,17 @@ profile attributes the largest compiler difference to `particle_batch`
 `field_refresh`.  The two summaries differ only in build/cache provenance.
 Job `8113816` is the matched `mpiifx` no-affinity measurement.
 
+Job `8113816` completed in `132.34 s`, versus `131.84 s` with
+`OMP_PROC_BIND=spread` and `OMP_PLACES=cores`.  The difference is below `0.4%`,
+so thread affinity was not a material cause of this incident.  Affinity remains
+documented to make performance runs reproducible.  The matched compiler ratio,
+and especially the `particle_batch` profile, identify classic `mpiifort` code
+generation as the practical root cause of the slowdown.
+
 The build default and release-gate fallback now select `mpiifx 2023.2.4`;
-`mpiifort` remains an explicit override.  Production documentation now requires
-`OMP_PROC_BIND=spread` and `OMP_PLACES=cores` for the 112-thread SysA layout.
+`mpiifort` remains an explicit override.  Production documentation recommends
+`OMP_PROC_BIND=spread` and `OMP_PLACES=cores` for reproducible 112-thread SysA
+measurements.
 Interface-field continuation was also corrected to try the requested field
 first and halve only after a numerical failure, avoiding unconditional
 intermediate solves.
