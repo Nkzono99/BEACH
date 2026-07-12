@@ -1,9 +1,10 @@
 !> periodic2 root operator の前計算。
 module bem_coulomb_fmm_periodic_root_ops
+!$ use omp_lib, only: omp_get_num_threads
   use bem_version, only: beach_version
   use bem_kinds, only: dp, i32
-  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_bcast_i32_array, &
-                     mpi_bcast_real_dp_array
+  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_get_rank_size, &
+                     mpi_allreduce_sum_real_dp_array, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_filesystem, only: create_directories, filesystem_success, acquire_file_lock, release_file_lock
   use bem_coulomb_fmm_types, only: fmm_plan_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
@@ -13,6 +14,7 @@ module bem_coulomb_fmm_periodic_root_ops
                                             add_periodic2_exact_ewald_potential_correction_single_source
   use bem_coulomb_fmm_periodic_cache, only: read_periodic_operator_cache, write_periodic_operator_cache, &
                                             periodic_cache_fingerprint, periodic_cache_ok
+  use bem_regularized_qr, only: regularized_qr_type, prepare_regularized_qr, solve_regularized_qr
   use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_child_count, &
                                         active_tree_child_idx, active_tree_node_center, active_tree_node_half_size
   implicit none
@@ -36,8 +38,6 @@ contains
   subroutine precompute_periodic_root_operator(plan)
     type(fmm_plan_type), intent(inout) :: plan
     type(mpi_context) :: mpi
-    integer(i32) :: header(4)
-    real(dp), allocatable :: flat_operator(:)
 
     if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
@@ -49,35 +49,7 @@ contains
     plan%periodic_cache_path = ''
     if (use_periodic2_cached_kneq0(plan)) then
       call mpi_initialize(mpi)
-      if (mpi_is_root(mpi)) call precompute_periodic_root_oracle_operator(plan)
-      header = 0_i32
-      if (mpi_is_root(mpi)) then
-        header = [ &
-                 merge(1_i32, 0_i32, plan%periodic_root_operator_ready), plan%periodic_root_target_count, &
-                 merge(1_i32, 0_i32, plan%periodic_cache_hit), plan%periodic_operator_build_count &
-                 ]
-      end if
-      call mpi_bcast_i32_array(mpi, header, 0_i32)
-      if (header(1) /= 1_i32 .or. header(2) <= 0_i32) error stop 'MPI root failed to prepare cached periodic operator.'
-      if (.not. mpi_is_root(mpi)) then
-        plan%periodic_root_target_count = header(2)
-        allocate (plan%periodic_root_target_nodes(header(2)))
-        allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, header(2)))
-      end if
-      call mpi_bcast_i32_array(mpi, plan%periodic_root_target_nodes, 0_i32)
-      allocate (flat_operator(size(plan%periodic_root_operator)))
-      if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
-      call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
-      if (.not. mpi_is_root(mpi)) then
-        plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
-        plan%periodic_root_operator_ready = .true.
-        plan%periodic_cache_hit = header(3) == 1_i32
-        plan%periodic_operator_build_count = 0_i32
-        call set_cache_identity( &
-          plan, plan%target_tree_ready, plan%periodic_root_target_nodes, plan%periodic_root_target_count &
-          )
-      end if
-      deallocate (flat_operator)
+      call precompute_periodic_cached_operator_collective(plan, mpi)
       call mpi_shutdown(mpi)
     else if (use_periodic2_root_operator(plan)) then
       call precompute_periodic_root_oracle_operator(plan)
@@ -95,6 +67,7 @@ contains
     real(dp), allocatable :: potential_rhs(:)
     real(dp) :: e_res(3), phi_res
     integer(i32), allocatable :: target_nodes(:)
+    type(regularized_qr_type) :: field_factorization
     logical :: use_target_tree, cache_loaded
     integer :: cache_lock_fd, lock_status, directory_status
 
@@ -164,6 +137,10 @@ contains
       target_half = active_tree_node_half_size(plan, use_target_tree, node_idx)
       call build_root_surface_points(target_center, target_half, ncheck, 0.37d0, root_oracle_check_shell_scale, check_points)
       call build_local_field_matrix(plan, target_center, check_points, field_matrix)
+      call prepare_regularized_qr( &
+        field_factorization, field_matrix, root_oracle_lstsq_ridge, root_oracle_qr_tol &
+        )
+      plan%periodic_qr_preparation_count = plan%periodic_qr_preparation_count + 1_i32
 
       proxy_to_local = 0.0d0
       do j = 1_i32, nproxy
@@ -189,7 +166,7 @@ contains
           field_rhs(ncheck + i) = e_res(2)
           field_rhs(2_i32*ncheck + i) = e_res(3)
         end do
-        call solve_regularized_least_squares(field_matrix, field_rhs, coeff)
+        call solve_regularized_qr(field_factorization, field_rhs, coeff)
         proxy_to_local(2:plan%ncoef, j) = coeff
         if (use_periodic2_cached_kneq0(plan)) then
           call fit_local_potential_constant( &
@@ -203,6 +180,7 @@ contains
     end do
 
     plan%periodic_root_operator_ready = .true.
+    plan%periodic_operator_local_target_count = plan%periodic_root_target_count
     plan%periodic_operator_build_count = plan%periodic_operator_build_count + 1_i32
     if (use_periodic2_cached_kneq0(plan)) then
       call publish_cached_operator(plan)
@@ -210,6 +188,182 @@ contains
       if (lock_status /= filesystem_success) error stop 'Failed to release periodic operator cache lock.'
     end if
   end subroutine precompute_periodic_root_oracle_operator
+
+  subroutine precompute_periodic_cached_operator_collective(plan, mpi)
+    type(fmm_plan_type), intent(inout) :: plan
+    type(mpi_context), intent(in) :: mpi
+    integer(i32) :: nproxy, ncheck, j, i, target_idx, node_idx, n_target_nodes, anchor_depth, target_count
+    integer(i32) :: rank, rank_count
+    real(dp) :: source_center(3), source_half(3), proxy_half(3), target_center(3), target_half(3)
+    real(dp), allocatable :: proxy_points(:, :), check_points(:, :)
+    real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :), proxy_pinv(:, :)
+    real(dp), allocatable :: field_matrix(:, :), field_rhs(:), coeff(:), potential_rhs(:), flat_operator(:)
+    real(dp) :: e_res(3), phi_res
+    integer(i32), allocatable :: target_nodes(:)
+    type(regularized_qr_type) :: field_factorization
+    logical :: use_target_tree, cache_loaded
+    integer :: cache_lock_fd, lock_status, directory_status
+
+    if (.not. plan%periodic_ewald%ready) return
+    if (plan%ncoef <= 1_i32) return
+    call mpi_get_rank_size(rank, rank_count, mpi)
+    use_target_tree = plan%target_tree_ready
+    n_target_nodes = active_tree_nnode(plan, use_target_tree)
+    if (n_target_nodes <= 0_i32) return
+
+    nproxy = max(4_i32*plan%ncoef, int(root_oracle_proxy_multiplier*real(plan%ncoef, dp), i32))
+    ncheck = max(8_i32*plan%ncoef, int(root_oracle_check_multiplier*real(plan%ncoef, dp), i32))
+    source_center = plan%node_center(:, 1_i32)
+    source_half = plan%node_half_size(:, 1_i32)
+    proxy_half = source_half
+    proxy_half = max(proxy_half, 0.25_dp*min(plan%options%periodic_len(1), plan%options%periodic_len(2)))
+    anchor_depth = periodic_root_anchor_depth(plan, use_target_tree)
+    allocate (target_nodes(max(1_i32, n_target_nodes)))
+    target_count = 0_i32
+    call collect_periodic_root_targets(plan, use_target_tree, 1_i32, anchor_depth, target_nodes, target_count)
+    if (target_count <= 0_i32) then
+      deallocate (target_nodes)
+      return
+    end if
+
+    call set_cache_identity(plan, use_target_tree, target_nodes, target_count)
+    cache_loaded = .false.
+    cache_lock_fd = -1
+    if (mpi_is_root(mpi)) call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
+    call share_cached_operator(plan, mpi, cache_loaded)
+    if (cache_loaded) then
+      deallocate (target_nodes)
+      return
+    end if
+
+    if (mpi_is_root(mpi)) then
+      call create_directories(trim(plan%options%periodic_cache_dir), directory_status)
+      if (directory_status /= filesystem_success) error stop 'Failed to create periodic operator cache directory.'
+      call acquire_file_lock(trim(plan%periodic_cache_path)//'.lock', cache_lock_fd, lock_status)
+      if (lock_status /= filesystem_success) error stop 'Failed to lock periodic operator cache.'
+      call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
+      if (cache_loaded) then
+        call release_file_lock(cache_lock_fd, lock_status)
+        if (lock_status /= filesystem_success) error stop 'Failed to release periodic operator cache lock.'
+      end if
+    end if
+    call share_cached_operator(plan, mpi, cache_loaded)
+    if (cache_loaded) then
+      deallocate (target_nodes)
+      return
+    end if
+
+    allocate (proxy_points(3, nproxy), check_points(3, ncheck))
+    call build_root_surface_points(source_center, proxy_half, nproxy, 0.13_dp, root_oracle_proxy_shell_scale, proxy_points)
+    allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
+    allocate (field_matrix(3_i32*ncheck, plan%ncoef - 1_i32), proxy_pinv(nproxy, plan%ncoef))
+    call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
+    call build_minimum_norm_pseudoinverse(proxy_to_multipole, proxy_pinv)
+
+    plan%periodic_root_target_count = target_count
+    allocate (plan%periodic_root_target_nodes(target_count))
+    plan%periodic_root_target_nodes = target_nodes(1:target_count)
+    deallocate (target_nodes)
+    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, target_count))
+    plan%periodic_root_operator = 0.0_dp
+
+    do target_idx = rank + 1_i32, plan%periodic_root_target_count, rank_count
+      node_idx = plan%periodic_root_target_nodes(target_idx)
+      target_center = active_tree_node_center(plan, use_target_tree, node_idx)
+      target_half = active_tree_node_half_size(plan, use_target_tree, node_idx)
+      call build_root_surface_points(target_center, target_half, ncheck, 0.37_dp, root_oracle_check_shell_scale, check_points)
+      call build_local_field_matrix(plan, target_center, check_points, field_matrix)
+      call prepare_regularized_qr( &
+        field_factorization, field_matrix, root_oracle_lstsq_ridge, root_oracle_qr_tol &
+        )
+      plan%periodic_qr_preparation_count = plan%periodic_qr_preparation_count + 1_i32
+      plan%periodic_operator_local_target_count = plan%periodic_operator_local_target_count + 1_i32
+
+      proxy_to_local = 0.0_dp
+      plan%periodic_operator_thread_count = max(plan%periodic_operator_thread_count, 1_i32)
+!$omp parallel default(shared) private(j, i, field_rhs, potential_rhs, coeff, e_res, phi_res)
+      allocate (field_rhs(3_i32*ncheck), potential_rhs(ncheck), coeff(plan%ncoef - 1_i32))
+!$omp single
+!$    plan%periodic_operator_thread_count = max( &
+!$                                          plan%periodic_operator_thread_count, int(omp_get_num_threads(), i32) &
+!$                                          )
+!$omp end single
+!$omp do schedule(static)
+      do j = 1_i32, nproxy
+        field_rhs = 0.0_dp
+        potential_rhs = 0.0_dp
+        do i = 1_i32, ncheck
+          e_res = 0.0_dp
+          phi_res = 0.0_dp
+          call add_periodic2_exact_ewald_correction_single_source( &
+            plan, 1.0_dp, proxy_points(:, j), check_points(:, i), e_res &
+            )
+          call add_periodic2_exact_ewald_potential_correction_single_source( &
+            plan, 1.0_dp, proxy_points(:, j), check_points(:, i), phi_res &
+            )
+          potential_rhs(i) = phi_res
+          field_rhs(i) = e_res(1)
+          field_rhs(ncheck + i) = e_res(2)
+          field_rhs(2_i32*ncheck + i) = e_res(3)
+        end do
+        call solve_regularized_qr(field_factorization, field_rhs, coeff)
+        proxy_to_local(2:plan%ncoef, j) = coeff
+        call fit_local_potential_constant( &
+          plan, target_center, check_points, potential_rhs, proxy_to_local(:, j) &
+          )
+      end do
+!$omp end do
+      deallocate (field_rhs, potential_rhs, coeff)
+!$omp end parallel
+      plan%periodic_root_operator(:, :, target_idx) = matmul(proxy_to_local, proxy_pinv)
+    end do
+
+    allocate (flat_operator(size(plan%periodic_root_operator)))
+    flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
+    call mpi_allreduce_sum_real_dp_array(mpi, flat_operator)
+    plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
+    deallocate (flat_operator)
+    plan%periodic_root_operator_ready = .true.
+    if (mpi_is_root(mpi)) then
+      plan%periodic_operator_build_count = plan%periodic_operator_build_count + 1_i32
+      call publish_cached_operator(plan)
+      call release_file_lock(cache_lock_fd, lock_status)
+      if (lock_status /= filesystem_success) error stop 'Failed to release periodic operator cache lock.'
+    end if
+  end subroutine precompute_periodic_cached_operator_collective
+
+  subroutine share_cached_operator(plan, mpi, loaded)
+    type(fmm_plan_type), intent(inout) :: plan
+    type(mpi_context), intent(in) :: mpi
+    logical, intent(inout) :: loaded
+    integer(i32) :: header(2)
+    real(dp), allocatable :: flat_operator(:)
+
+    header = 0_i32
+    if (mpi_is_root(mpi)) then
+      header = [merge(1_i32, 0_i32, loaded), plan%periodic_root_target_count]
+    end if
+    call mpi_bcast_i32_array(mpi, header, 0_i32)
+    loaded = header(1) == 1_i32
+    if (.not. loaded) return
+    if (header(2) <= 0_i32) error stop 'Cached periodic operator has no target nodes.'
+
+    if (.not. mpi_is_root(mpi)) then
+      plan%periodic_root_target_count = header(2)
+      allocate (plan%periodic_root_target_nodes(header(2)))
+      allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, header(2)))
+    end if
+    call mpi_bcast_i32_array(mpi, plan%periodic_root_target_nodes, 0_i32)
+    allocate (flat_operator(size(plan%periodic_root_operator)))
+    if (mpi_is_root(mpi)) flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
+    call mpi_bcast_real_dp_array(mpi, flat_operator, 0_i32)
+    if (.not. mpi_is_root(mpi)) then
+      plan%periodic_root_operator = reshape(flat_operator, shape(plan%periodic_root_operator))
+      plan%periodic_root_operator_ready = .true.
+      plan%periodic_cache_hit = .true.
+    end if
+    deallocate (flat_operator)
+  end subroutine share_cached_operator
 
   subroutine try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, loaded)
     type(fmm_plan_type), intent(inout) :: plan
@@ -444,42 +598,6 @@ contains
     local_coeff(1) = local_coeff(1)/real(ncheck, dp)
   end subroutine fit_local_potential_constant
 
-  subroutine solve_regularized_least_squares(matrix, rhs, solution)
-    real(dp), intent(in) :: matrix(:, :)
-    real(dp), intent(in) :: rhs(:)
-    real(dp), intent(out) :: solution(:)
-    integer(i32) :: mrow, ncol, col_idx
-    real(dp), allocatable :: aug_matrix(:, :), aug_rhs(:), q(:, :), r(:, :), qtb(:), scaled_solution(:), col_scale(:)
-    real(dp) :: ridge_sqrt
-
-    mrow = int(size(matrix, 1), i32)
-    ncol = int(size(matrix, 2), i32)
-    if (size(rhs) /= mrow .or. size(solution) /= ncol) error stop 'solve_regularized_least_squares dimension mismatch.'
-
-    allocate (aug_matrix(mrow + ncol, ncol), aug_rhs(mrow + ncol), q(mrow + ncol, ncol), r(ncol, ncol))
-    allocate (qtb(ncol), scaled_solution(ncol), col_scale(ncol))
-    aug_matrix = 0.0d0
-    aug_rhs = 0.0d0
-    q = 0.0d0
-    r = 0.0d0
-    ridge_sqrt = sqrt(root_oracle_lstsq_ridge)
-
-    do col_idx = 1_i32, ncol
-      col_scale(col_idx) = sqrt(sum(matrix(:, col_idx)*matrix(:, col_idx)))
-      if (col_scale(col_idx) <= tiny(1.0d0)) col_scale(col_idx) = 1.0d0
-      aug_matrix(1:mrow, col_idx) = matrix(:, col_idx)/col_scale(col_idx)
-      aug_matrix(mrow + col_idx, col_idx) = ridge_sqrt
-    end do
-    aug_rhs(1:mrow) = rhs
-
-    call factor_tall_matrix_qr(aug_matrix, q, r)
-    qtb = matmul(transpose(q), aug_rhs)
-    call solve_upper_triangular_system(r, qtb, scaled_solution)
-    do col_idx = 1_i32, ncol
-      solution(col_idx) = scaled_solution(col_idx)/col_scale(col_idx)
-    end do
-  end subroutine solve_regularized_least_squares
-
   subroutine build_minimum_norm_pseudoinverse(matrix, pinv)
     real(dp), intent(in) :: matrix(:, :)
     real(dp), intent(out) :: pinv(:, :)
@@ -540,29 +658,6 @@ contains
       end if
     end do
   end subroutine factor_tall_matrix_qr
-
-  subroutine solve_upper_triangular_system(matrix, rhs, solution)
-    real(dp), intent(in) :: matrix(:, :)
-    real(dp), intent(in) :: rhs(:)
-    real(dp), intent(out) :: solution(:)
-    integer(i32) :: ncol, row_idx, col_idx
-    real(dp) :: diag_val
-
-    ncol = int(size(matrix, 1), i32)
-    if (size(matrix, 2) /= ncol .or. size(rhs) /= ncol .or. size(solution) /= ncol) then
-      error stop 'solve_upper_triangular_system dimension mismatch.'
-    end if
-
-    solution = rhs
-    do row_idx = ncol, 1_i32, -1_i32
-      do col_idx = row_idx + 1_i32, ncol
-        solution(row_idx) = solution(row_idx) - matrix(row_idx, col_idx)*solution(col_idx)
-      end do
-      diag_val = matrix(row_idx, row_idx)
-      if (abs(diag_val) <= tiny(1.0d0)) diag_val = sign(root_oracle_qr_tol, diag_val + root_oracle_qr_tol)
-      solution(row_idx) = solution(row_idx)/diag_val
-    end do
-  end subroutine solve_upper_triangular_system
 
   subroutine solve_lower_triangular_transpose_system(matrix, rhs, solution)
     real(dp), intent(in) :: matrix(:, :)

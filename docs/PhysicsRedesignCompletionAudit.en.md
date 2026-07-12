@@ -26,7 +26,7 @@ operational conclusions are preserved here.
 | 3 ambient/interface transaction | Complete | earliest mesh/box event, typed crossings and outcomes, reservoir flux map, outer coupler | `test_outer_plasma_interface`, `test_interface_particle_buffer`, `test_particle_stepper`, `test_simulator`, MPI global reservoir count |
 | 4 photoelectron transfer | Complete | individual-return histogram, previous-batch ownership, signed charge ledger | `test_outer_plasma_photoelectron`, simulator emission/return transaction, MPI global histogram |
 | 5 full panel FMM | Complete | panel-aware topology, near subtract/add, exact panel P2M, public C kernel contract | `test_panel_geometry_near`, `test_panel_near_correction`, `test_coulomb_fmm_core_panel`, `test_dynamics_panel_fmm`, L2 C/kernel contract |
-| 6 production infinite-periodic operator | Complete | versioned `K_periodic,k!=0 - K_shell` cache, checksums/fingerprints, root build and broadcast | `test_periodic2_operator_cache`, `test_periodic2_infinite_operator`, `test_periodic2_cached_snapshot`, two-rank cache MPI test |
+| 6 production infinite-periodic operator | Complete | versioned `K_periodic,k!=0 - K_shell` cache, checksums/fingerprints, MPI target distribution, rank-local OpenMP, collective assembly | `test_periodic2_operator_cache`, `test_periodic2_infinite_operator`, `test_periodic2_cached_snapshot`, two-rank cache MPI test |
 | 7 nonlinear kinetic outer sheath | Complete | stretched-grid Poisson/Robin solver, branch/applicability status, root-only collective solve, restartable profile | kinetic core/coupled/runtime tests, `test_restart`, two-rank kinetic snapshot broadcast |
 | 8 unified outer domain | Complete | local mean/accessibility, screened nonzero tail, unified zero mode, explicit electrostatic 3D outer orbit | local-mean, nonzero-tail, unified-snapshot, outer-orbit, and simulator interface-height surface-charge tests |
 | 9 production promotion | Complete | portable L2 plus HPC L3/far/MPI gates, RSS budget, convergence artifact, bilingual docs/schema/example sync | `make test-physics-release` manifest and `convergence.csv`, Starlight build, docs sync check |
@@ -66,13 +66,15 @@ make test-l2
 make test-physics-release
 ```
 
-The HPC gate sequentially runs L3, far-correction, two-rank MPI hybrid, and two-rank MPI cache-concurrency tests. A
+The HPC gate sequentially runs the L1 convergence subset, L3-heavy, far-correction correctness, two-rank MPI hybrid,
+and two-rank MPI cache-concurrency tests without repeating the portable L2 suite. A
 release requires final and per-gate `status=passed`, peak RSS below the default 8 GiB budget, and all six convergence
 categories: `boris_dt`, `panel_fmm_order`, `rough_panel_mesh`, `rough_outer_grid`, `rough_accessibility`, and
 `outer_orbit_dt`.
 
 Run metadata is written to `build/physics-release/manifest.txt`; numerical rows are written to
-`build/physics-release/convergence.csv`. These artifacts are regenerated for each release rather than committed as
+`build/physics-release/convergence.csv`, and per-target timings to the sibling `*-target-timings.csv` files.
+These artifacts are regenerated for each release rather than committed as
 fixed repository data.
 
 ## Superseded review stages
@@ -86,7 +88,7 @@ parts were superseded by the later physical-redesign plan:
 - Zhao as the final outer closure was separated as a legacy injection model.
 
 Non-conflicting requirements such as literal output paths, strict histories, MPI-global counts, the common
-field/potential snapshot, and root-only cache generation were retained. This page does not claim completion of every
+field/potential snapshot, and root-only cache I/O were retained. This page does not claim completion of every
 Stage 3–6 proposal, including whole-checkpoint temporary-write/atomic publication,
 generation-directory/current-manifest checkpoints, or a Zhao prescribed profile. Those stages are a separate roadmap
 from physical Phases 0–9.

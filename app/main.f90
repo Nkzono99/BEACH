@@ -1,7 +1,7 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
   use bem_kinds, only: dp, i32
-  use bem_version, only: beach_version
+  use bem_version, only: beach_build_info, beach_version
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size
   use bem_performance_profile, only: perf_configure_from_env, perf_set_output_context, perf_region_begin, &
@@ -172,9 +172,13 @@ contains
     case ('--version', '-V')
       print '(a)', trim(beach_version)
       stop
+    case ('--build-info')
+      print '(a)', beach_build_info
+      stop
     case ('--help', '-h')
       print '(a)', 'usage: beach [beach.toml]'
       print '(a)', '       beach --version'
+      print '(a)', '       beach --build-info'
       stop
     end select
   end subroutine handle_early_cli

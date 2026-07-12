@@ -85,16 +85,23 @@ FPM_FC=mpiifort fpm run --profile release \
 make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy/release gate
+make test-l3      # L3: cumulative L0-L3 verification
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # explicit oracle far-correction diagnostics
+make test-fortran-far-correction  # oracle far-correction correctness
+make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-benchmark  # release-profile runtime benchmark
+make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
 make test-mpi     # MPI テスト
 pytest -q         # Python テストのみ
 ```
 
 `make test` is the L1 alias and is the normal default for the inner AI/development loop.
-Long-running FMM targets are run explicitly with `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`. `m2l_root_oracle` far-correction diagnostics are opt-in through `make test-fortran-far-correction` or `make test-full`.
+Long-running FMM targets are run explicitly with `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`. Use `make test-fortran-far-correction` for `m2l_root_oracle` correctness, `make test-fortran-far-correction-diagnostics` for assertion-free output, and `make test-fortran-benchmark` for release-profile timing.
+Run the shared-kernel cache contract and native periodic plane-oracle receipt
+with the opt-in `make test-field-kernel-cache` target. It passes the built
+library's absolute path to the test and is not included in L1/L2/L3 or
+`make test-physics-release`.
 Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <name>`.
 
 ---

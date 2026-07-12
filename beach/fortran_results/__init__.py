@@ -3,6 +3,13 @@
 from .animation import _select_frame_columns, animate_history_mesh
 from .constants import K_COULOMB
 from .coulomb import calc_coulomb
+from .detachment import (
+    AdhesionProfile,
+    DetachmentResult,
+    ObjectForcePath,
+    ObjectWrench,
+    WrenchComponent,
+)
 from .facade import Beach
 from .field_lines import (
     compute_electric_field_points,
@@ -14,13 +21,17 @@ from .io import list_fortran_runs, load_fortran_result
 from .kernel import (
     calc_object_forces_kernel,
     field_kernel_options_from_result,
+    field_kernel_build_info,
     FieldKernel,
+    FieldKernelBuildInfo,
+    FieldKernelDiagnostics,
     FieldKernelError,
     FieldKernelOptions,
     KernelObjectForceRecord,
 )
 from .mesh import _surface_charge_density
 from .mobility import analyze_coulomb_mobility
+from .object_interaction import ObjectInteractionSnapshot, ObjectProbe
 from .plotting import (
     plot_charge_mesh,
     plot_charges,
@@ -33,6 +44,13 @@ from .potential import (
     compute_potential_mesh,
     compute_potential_points,
     compute_potential_slices,
+)
+from .periodic_zero_mode import PeriodicZeroMode
+from .periodic_force_oracle import (
+    finite_shell_convergence,
+    finite_shell_wrench,
+    FiniteShellConvergenceResult,
+    FiniteShellWrenchResult,
 )
 from .scene import BeachScene, RigidTransform
 from .types import (
@@ -55,20 +73,35 @@ __all__ = [
     "CoulombInteraction",
     "CoulombMobilityRecord",
     "CoulombMobilityAnalysis",
+    "AdhesionProfile",
+    "DetachmentResult",
     "FortranRunResult",
     "PotentialSlice2D",
     "BeachScene",
     "FieldKernel",
+    "FieldKernelBuildInfo",
+    "FieldKernelDiagnostics",
     "FieldKernelError",
     "FieldKernelOptions",
+    "FiniteShellConvergenceResult",
+    "FiniteShellWrenchResult",
     "KernelObjectForceRecord",
+    "ObjectForcePath",
+    "ObjectInteractionSnapshot",
+    "ObjectProbe",
+    "ObjectWrench",
+    "PeriodicZeroMode",
     "RigidTransform",
+    "WrenchComponent",
     "load_fortran_result",
     "list_fortran_runs",
     "Beach",
     "calc_coulomb",
     "calc_object_forces_kernel",
     "field_kernel_options_from_result",
+    "field_kernel_build_info",
+    "finite_shell_convergence",
+    "finite_shell_wrench",
     "analyze_coulomb_mobility",
     "compute_electric_field_points",
     "trace_field_lines",

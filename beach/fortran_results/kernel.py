@@ -69,6 +69,29 @@ class FieldKernelOptions:
     box_min: tuple[float, float, float] | None = None
     box_max: tuple[float, float, float] | None = None
     external_e0: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    periodic_cache_dir: str = ".beach_cache/periodic2"
+    periodic_generation_tolerance: float = 1.0e-8
+
+
+@dataclass(frozen=True)
+class FieldKernelDiagnostics:
+    """Periodic operator-cache diagnostics for a built field kernel."""
+
+    periodic_cache_hit: bool | None
+    periodic_operator_build_count: int
+    periodic_cache_fingerprint: str | None
+    periodic_cache_path: Path | None
+
+
+@dataclass(frozen=True)
+class FieldKernelBuildInfo:
+    """Source identity embedded in a BEACH field-kernel library."""
+
+    schema_version: int
+    version: str
+    version_mode: str
+    source_commit: str
+    build_id: str
 
 
 @dataclass(frozen=True)
@@ -81,6 +104,77 @@ class KernelObjectForceRecord:
     center_m: np.ndarray
     force_N: np.ndarray
     torque_Nm: np.ndarray
+
+
+def field_kernel_build_info(
+    library_path: str | Path | None = None,
+) -> FieldKernelBuildInfo:
+    """Read and validate build-origin metadata from a field-kernel library."""
+
+    lib = _load_kernel_library(library_path)
+    _configure_library(lib)
+    getter = getattr(lib, "beach_kernel_get_build_info", None)
+    if getter is None:
+        raise FieldKernelError(
+            "field-kernel build-info ABI requires shared-library symbol "
+            "beach_kernel_get_build_info."
+        )
+
+    text_length = ctypes.c_int()
+
+    def read_info(buffer: ctypes.Array[ctypes.c_char]) -> int:
+        return int(
+            getter(
+                ctypes.cast(buffer, ctypes.c_void_p),
+                ctypes.c_int(len(buffer)),
+                ctypes.byref(text_length),
+            )
+        )
+
+    buffer = ctypes.create_string_buffer(1)
+    probe_status = read_info(buffer)
+    if probe_status not in (0, 2):
+        _check_status(probe_status, "beach_kernel_get_build_info")
+    if not 0 < text_length.value <= 65535:
+        raise FieldKernelError("field-kernel build-info returned an invalid text length.")
+
+    buffer = ctypes.create_string_buffer(text_length.value + 1)
+    status = read_info(buffer)
+    _check_status(status, "beach_kernel_get_build_info")
+    if not 0 < text_length.value < len(buffer):
+        raise FieldKernelError("field-kernel build-info returned an invalid text length.")
+    if buffer.raw[text_length.value] != 0:
+        raise FieldKernelError("field-kernel build-info is not NUL terminated.")
+    try:
+        payload = buffer.raw[: text_length.value].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise FieldKernelError("field-kernel build-info is not valid UTF-8.") from exc
+
+    fields: dict[str, str] = {}
+    for line in payload.split("\n"):
+        key, separator, value = line.partition("=")
+        if not separator or not key or not value or key in fields:
+            raise FieldKernelError("field-kernel build-info payload is malformed.")
+        fields[key] = value
+
+    expected_keys = (
+        "build_info_schema_version",
+        "build_version",
+        "build_version_mode",
+        "build_source_commit",
+        "build_id",
+    )
+    if tuple(fields) != expected_keys:
+        raise FieldKernelError("field-kernel build-info payload has unexpected fields.")
+    if fields["build_info_schema_version"] != "1":
+        raise FieldKernelError("field-kernel build-info schema is not supported.")
+    return FieldKernelBuildInfo(
+        schema_version=1,
+        version=fields["build_version"],
+        version_mode=fields["build_version_mode"],
+        source_commit=fields["build_source_commit"],
+        build_id=fields["build_id"],
+    )
 
 
 class FieldKernel:
@@ -206,6 +300,7 @@ class FieldKernel:
         if nsrc <= 0:
             raise ValueError("source_positions must contain at least one point.")
 
+        periodic_cfg = _coerce_periodic2(opts.periodic2, allow_cached_kneq0=True)
         periodic_axes = _null_ptr()
         periodic_len = _null_ptr()
         box_min = _null_ptr()
@@ -219,8 +314,11 @@ class FieldKernel:
         if panel_vertices is not None:
             keepalive.extend(panel_vertices)
 
-        if opts.periodic2 is not None:
-            axes, lengths, origins, image_layers, far_key, ewald_alpha, ewald_layers = opts.periodic2
+        far_key = "none"
+        if periodic_cfg is not None:
+            axes, lengths, origins, image_layers, far_key, ewald_alpha, ewald_layers = (
+                periodic_cfg
+            )
             box_min_vec, box_max_vec = _periodic_box_vectors(
                 axes=axes,
                 lengths=lengths,
@@ -240,6 +338,8 @@ class FieldKernel:
             box_max = box_max_arr.ctypes.data_as(ctypes.c_void_p)
             use_periodic2 = 1
             far_correction = _far_correction_code(far_key)
+
+        self._set_periodic_cache_options(opts, far_key=far_key)
 
         geometry_args: list[object]
         if panel_vertices is None:
@@ -273,6 +373,42 @@ class FieldKernel:
         self._source_count = nsrc
         self._options = opts
         self._keepalive = keepalive
+
+    def _set_periodic_cache_options(
+        self, opts: FieldKernelOptions, *, far_key: str
+    ) -> None:
+        setter = getattr(self._lib, "beach_kernel_set_periodic_cache", None)
+        requires_cached_model = far_key == "cached_kneq0"
+        requires_nondefault_options = (
+            opts.periodic_cache_dir != FieldKernelOptions.periodic_cache_dir
+            or opts.periodic_generation_tolerance
+            != FieldKernelOptions.periodic_generation_tolerance
+        )
+        if setter is None:
+            if requires_cached_model:
+                raise FieldKernelError(
+                    "cached_kneq0 field kernels require shared-library symbol "
+                    "beach_kernel_set_periodic_cache."
+                )
+            if requires_nondefault_options:
+                raise FieldKernelError(
+                    "non-default periodic cache configuration requires shared-library symbol "
+                    "beach_kernel_set_periodic_cache."
+                )
+            return
+
+        try:
+            path_bytes = str(opts.periodic_cache_dir).encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("periodic_cache_dir must be valid UTF-8.") from exc
+        path_buffer = ctypes.create_string_buffer(path_bytes)
+        status = setter(
+            self._handle,
+            ctypes.cast(path_buffer, ctypes.c_void_p),
+            ctypes.c_int(len(path_bytes)),
+            ctypes.c_double(opts.periodic_generation_tolerance),
+        )
+        _check_status(status, "beach_kernel_set_periodic_cache")
 
     def update_charges(self, source_charges: np.ndarray) -> None:
         """Refresh source charges without rebuilding source geometry."""
@@ -327,6 +463,44 @@ class FieldKernel:
         _check_status(status, "beach_kernel_eval_phi")
         return phi
 
+    def eval_e_direct(self, points: np.ndarray) -> np.ndarray:
+        """Evaluate the exact non-periodic all-source electric field."""
+
+        self._require_open()
+        evaluator = self._direct_evaluator("beach_kernel_eval_e_direct")
+        target_pos = _points_to_fortran_3xn(points, name="points")
+        ntarget = target_pos.shape[1]
+        e = np.zeros((3, ntarget), dtype=np.float64, order="F")
+        if ntarget == 0:
+            return np.empty((0, 3), dtype=np.float64)
+        status = evaluator(
+            self._handle,
+            ctypes.c_int(ntarget),
+            target_pos.ctypes.data_as(ctypes.c_void_p),
+            e.ctypes.data_as(ctypes.c_void_p),
+        )
+        _check_status(status, "beach_kernel_eval_e_direct")
+        return np.ascontiguousarray(e.T)
+
+    def eval_phi_direct(self, points: np.ndarray) -> np.ndarray:
+        """Evaluate the exact non-periodic all-source electric potential."""
+
+        self._require_open()
+        evaluator = self._direct_evaluator("beach_kernel_eval_phi_direct")
+        target_pos = _points_to_fortran_3xn(points, name="points")
+        ntarget = target_pos.shape[1]
+        phi = np.zeros(ntarget, dtype=np.float64)
+        if ntarget == 0:
+            return phi
+        status = evaluator(
+            self._handle,
+            ctypes.c_int(ntarget),
+            target_pos.ctypes.data_as(ctypes.c_void_p),
+            phi.ctypes.data_as(ctypes.c_void_p),
+        )
+        _check_status(status, "beach_kernel_eval_phi_direct")
+        return phi
+
     def force_on_charges(
         self,
         positions: np.ndarray,
@@ -361,6 +535,81 @@ class FieldKernel:
             torque += np.sum(np.cross(rel_pos, force_i), axis=0)
         return force, torque
 
+    def diagnostics(self) -> FieldKernelDiagnostics:
+        """Return periodic operator-cache diagnostics for this built plan."""
+
+        self._require_open()
+        getter = getattr(self._lib, "beach_kernel_get_periodic_cache_info", None)
+        if getter is None:
+            raise FieldKernelError(
+                "field-kernel diagnostics require shared-library symbol "
+                "beach_kernel_get_periodic_cache_info."
+            )
+
+        hit = ctypes.c_int()
+        build_count = ctypes.c_int()
+        fingerprint_length = ctypes.c_int()
+        path_length = ctypes.c_int()
+        def read_info(
+            fingerprint_buffer: ctypes.Array[ctypes.c_char],
+            path_buffer: ctypes.Array[ctypes.c_char],
+        ) -> int:
+            return int(
+                getter(
+                    self._handle,
+                    ctypes.byref(hit),
+                    ctypes.byref(build_count),
+                    ctypes.cast(fingerprint_buffer, ctypes.c_void_p),
+                    ctypes.c_int(len(fingerprint_buffer)),
+                    ctypes.byref(fingerprint_length),
+                    ctypes.cast(path_buffer, ctypes.c_void_p),
+                    ctypes.c_int(len(path_buffer)),
+                    ctypes.byref(path_length),
+                )
+            )
+
+        fingerprint_buffer = ctypes.create_string_buffer(1)
+        path_buffer = ctypes.create_string_buffer(1)
+        probe_status = read_info(fingerprint_buffer, path_buffer)
+        if probe_status not in (0, 2):
+            _check_status(probe_status, "beach_kernel_get_periodic_cache_info")
+        if fingerprint_length.value < 0 or path_length.value < 0:
+            raise FieldKernelError("field-kernel diagnostics returned a negative text length.")
+
+        fingerprint_buffer = ctypes.create_string_buffer(fingerprint_length.value + 1)
+        path_buffer = ctypes.create_string_buffer(path_length.value + 1)
+        status = read_info(fingerprint_buffer, path_buffer)
+        _check_status(status, "beach_kernel_get_periodic_cache_info")
+        if not 0 <= fingerprint_length.value < len(fingerprint_buffer):
+            raise FieldKernelError(
+                "field-kernel diagnostics returned an invalid fingerprint length."
+            )
+        if not 0 <= path_length.value < len(path_buffer):
+            raise FieldKernelError(
+                "field-kernel diagnostics returned an invalid path length."
+            )
+        if hit.value not in (0, 1) or build_count.value < 0:
+            raise FieldKernelError(
+                "field-kernel diagnostics returned invalid numeric metadata."
+            )
+
+        try:
+            fingerprint_text = fingerprint_buffer.raw[
+                : fingerprint_length.value
+            ].decode("utf-8")
+            path_text = path_buffer.raw[: path_length.value].decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise FieldKernelError(
+                "field-kernel diagnostics returned invalid UTF-8 text."
+            ) from exc
+        has_cache_identity = bool(fingerprint_text or path_text)
+        return FieldKernelDiagnostics(
+            periodic_cache_hit=bool(hit.value) if has_cache_identity else None,
+            periodic_operator_build_count=build_count.value,
+            periodic_cache_fingerprint=fingerprint_text or None,
+            periodic_cache_path=Path(path_text) if path_text else None,
+        )
+
     def close(self) -> None:
         """Release the Fortran kernel handle."""
 
@@ -388,6 +637,18 @@ class FieldKernel:
     def _require_open(self) -> None:
         if self._closed or not self._handle.value:
             raise FieldKernelError("field kernel is closed.")
+
+    def _direct_evaluator(self, symbol: str):  # type: ignore[no-untyped-def]
+        if self._options.periodic2 is not None:
+            raise FieldKernelError(
+                "exact-direct evaluation requires a non-periodic field-kernel plan."
+            )
+        evaluator = getattr(self._lib, symbol, None)
+        if evaluator is None:
+            raise FieldKernelError(
+                f"exact-direct evaluation requires shared-library symbol {symbol}."
+            )
+        return evaluator
 
 
 def calc_object_forces_kernel(
@@ -500,12 +761,17 @@ def _options_from_result(
 ) -> FieldKernelOptions:
     sim = _load_sim_config(resolved.directory, config_path=config_path)
     resolved_softening = _resolve_kernel_softening(resolved, sim=sim, softening=softening)
-    periodic_cfg = _coerce_periodic2(periodic2)
+    periodic_cfg = _coerce_periodic2(periodic2, allow_cached_kneq0=True)
     if periodic_cfg is None:
         if sim is None and config_path is None:
-            periodic_cfg = _auto_periodic2_from_result(resolved)
+            periodic_cfg = _auto_periodic2_from_result(
+                resolved, allow_cached_kneq0=True
+            )
         elif sim is not None:
-            periodic_cfg = _coerce_periodic2(_periodic2_from_sim(sim))
+            periodic_cfg = _coerce_periodic2(
+                _periodic2_from_sim(sim, allow_cached_kneq0=True),
+                allow_cached_kneq0=True,
+            )
     resolved_theta = float(theta if theta is not None else (sim or {}).get("tree_theta", 0.5))
     resolved_leaf_max = int(leaf_max if leaf_max is not None else (sim or {}).get("tree_leaf_max", 16))
     box_min: tuple[float, float, float] | None = None
@@ -522,10 +788,28 @@ def _options_from_result(
         periodic2=periodic_cfg,
         box_min=box_min,
         box_max=box_max,
+        periodic_cache_dir=str(
+            (sim or {}).get("field_periodic_cache_dir", ".beach_cache/periodic2")
+        ),
+        periodic_generation_tolerance=float(
+            (sim or {}).get("field_periodic_generation_tolerance", 1.0e-8)
+        ),
     )
 
 
 def _load_sim_config(
+    output_dir: Path,
+    *,
+    config_path: str | Path | None,
+) -> Mapping[str, object] | None:
+    config = _load_full_config(output_dir, config_path=config_path)
+    if config is None:
+        return None
+    sim = config.get("sim")
+    return sim if isinstance(sim, Mapping) else None
+
+
+def _load_full_config(
     output_dir: Path,
     *,
     config_path: str | Path | None,
@@ -538,9 +822,7 @@ def _load_sim_config(
             raise ValueError(f'config file is not found: "{path}".')
     if path is None:
         return None
-    config = _load_toml(path)
-    sim = config.get("sim")
-    return sim if isinstance(sim, Mapping) else None
+    return _load_toml(path)
 
 
 def _load_sim_config_near_output(output_dir: Path) -> Mapping[str, object] | None:
@@ -671,6 +953,8 @@ def _library_names() -> tuple[str, ...]:
 
 
 def _configure_library(lib: ctypes.CDLL) -> None:
+    if getattr(lib, "_beach_kernel_ctypes_configured", False):
+        return
     c_void_p = ctypes.c_void_p
     c_int = ctypes.c_int
     c_double = ctypes.c_double
@@ -725,6 +1009,14 @@ def _configure_library(lib: ctypes.CDLL) -> None:
     lib.beach_kernel_eval_e.restype = c_int
     lib.beach_kernel_eval_phi.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
     lib.beach_kernel_eval_phi.restype = c_int
+    direct_e = getattr(lib, "beach_kernel_eval_e_direct", None)
+    if direct_e is not None:
+        direct_e.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
+        direct_e.restype = c_int
+    direct_phi = getattr(lib, "beach_kernel_eval_phi_direct", None)
+    if direct_phi is not None:
+        direct_phi.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
+        direct_phi.restype = c_int
     lib.beach_kernel_force_on_charges.argtypes = [
         c_void_p,
         c_int,
@@ -735,6 +1027,29 @@ def _configure_library(lib: ctypes.CDLL) -> None:
         c_void_p,
     ]
     lib.beach_kernel_force_on_charges.restype = c_int
+    setter = getattr(lib, "beach_kernel_set_periodic_cache", None)
+    if setter is not None:
+        setter.argtypes = [c_void_p, c_void_p, c_int, c_double]
+        setter.restype = c_int
+    getter = getattr(lib, "beach_kernel_get_periodic_cache_info", None)
+    if getter is not None:
+        getter.argtypes = [
+            c_void_p,
+            c_void_p,
+            c_void_p,
+            c_void_p,
+            c_int,
+            c_void_p,
+            c_void_p,
+            c_int,
+            c_void_p,
+        ]
+        getter.restype = c_int
+    build_info_getter = getattr(lib, "beach_kernel_get_build_info", None)
+    if build_info_getter is not None:
+        build_info_getter.argtypes = [c_void_p, c_int, c_void_p]
+        build_info_getter.restype = c_int
+    lib._beach_kernel_ctypes_configured = True
 
 
 def _check_status(status: int, operation: str) -> None:

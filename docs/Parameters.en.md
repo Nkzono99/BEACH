@@ -265,9 +265,18 @@ Photoelectron transfer uses `outer_plasma.photoelectron_closure="individual_retu
 `outer_plasma.model="kinetic_1d"` uses the negative and positive z-high `reservoir_face`
 species as the infinity electron and ion VDFs. It solves the monotonic collisionless
 Poisson problem on a stretched grid with a Robin tail; sub-Bohm ion inflow and unsupported
-non-monotonic/trapped branches fail closed. `photoelectron_closure="kinetic_mean"` obtains a
+non-monotonic/trapped branches fail closed. The gauge is fixed by `phi(infinity)=0`, so
+`outer_plasma.infinity_potential` must be zero and nonzero values are rejected.
+`photoelectron_closure="kinetic_mean"` obtains a
 half-Maxwellian emitted flux from the first negative `photo_raycast` species and separates its
-outgoing and returning densities without adding a second surface return current. See
+outgoing and returning densities without adding a second surface return current.
+With `return_model="kinetic_1d_profile_return"` and
+`particle_transfer_mode="electrostatic_1d_instant_return"`, the refreshed kinetic state maps
+the infinity VDF to the interface by energy conservation. Outgoing particles use the same
+piecewise-linear profile and far Robin tail for escape, turning-point, and return-time
+calculations. The mode rejects legacy reservoir barriers, Zhao injection correction, and
+nonzero `b0`. Tracked photoelectrons require `deposit_opposite_charge_on_emit=true` and no
+legacy `photo_escape_model`. See
 `examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
 
 `outer_plasma.model="unified_linear_response"` extends one zero-mode Poisson grid from

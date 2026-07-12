@@ -19,6 +19,9 @@ If you only need the first plots, start with
 | `beach.fortran_results.potential` | Potential reconstruction (`compute_potential_mesh`, `compute_potential_points`, `compute_potential_slices`) |
 | `beach.fortran_results.coulomb` | Coulomb force/torque calculation (`calc_coulomb`) |
 | `beach.fortran_results.kernel` | Shared-library calls to the Fortran FMM field kernel (`FieldKernel`, `calc_object_forces_kernel`) |
+| `beach.fortran_results.object_interaction` | Object force, torque, and vertical paths against frozen source charges (`ObjectInteractionSnapshot`, `ObjectProbe`) |
+| `beach.fortran_results.detachment` | Immutable results for path work, adhesion, gravity, speed, and the from-rest barrier |
+| `beach.fortran_results.periodic_force_oracle` | Finite periodic-image shells and `E_bottom=0` closure convergence diagnostics |
 | `beach.fortran_results.scene` | Temporary object translation/rotation and field-kernel evaluation of edited scenes |
 | `beach.fortran_results.field_lines` | Electric-field calculation, field-line tracing, and 3D plotting (`compute_electric_field_points`, `trace_field_lines`, `plot_field_lines_3d`) |
 | `beach.fortran_results.mobility` | Coulomb mobility analysis (`analyze_coulomb_mobility`) |
@@ -66,6 +69,7 @@ You can explicitly specify the configuration file as in `Beach("outputs/latest",
 | `get_mesh_charge(*mesh_ids, step)` | Internal | Get an element charge array by mesh ID |
 | `calc_coulomb(target, source, ...)` | `calc_coulomb` | Coulomb force/torque calculation |
 | `calc_object_forces_kernel(...)` | `calc_object_forces_kernel` | Per-object resultant-force calculation using the Fortran field kernel |
+| `object_interaction_snapshot(...)` | `ObjectInteractionSnapshot.from_result` | Primary-only self exclusion and detachment paths against frozen sources |
 | `scene(step, ...)` | `BeachScene.from_result` | What-if scene with temporary object translation/rotation |
 | `analyze_coulomb_mobility(...)` | `analyze_coulomb_mobility` | Per-object mobility analysis |
 | `compute_potential(...)` | `compute_potential_mesh` | Potential reconstruction at centroids |
@@ -458,13 +462,31 @@ from beach import Beach, FieldKernel
 run = Beach("outputs/latest")
 with FieldKernel.from_result(run) as kernel:
     e = kernel.eval_e([[0.0, 0.0, 0.01]])
+    phi = kernel.eval_phi([[0.0, 0.0, 0.01]])
 ```
 
 If the shared library is located elsewhere, specify `library_path=` or the environment variable `BEACH_FIELD_KERNEL_LIB`.
 
+`eval_e()` and `eval_phi()` use the free, finite-periodic, or cached-periodic
+configuration with which the plan was built. `eval_e_direct()` and
+`eval_phi_direct()` are **non-periodic exact-direct** diagnostics over the same
+source geometry and charges. The direct methods reject periodic plans and do
+not add uniform `sim.e0`. They are intended for small FMM accuracy or primary
+free-space subtraction oracles, not as an infinite-periodic replacement.
+
 ### 10.2 `calc_object_forces_kernel(result, ...)`
 
-For each object, zeros its own source charges and calculates `sum(q_i E_not_self(r_i))` and torque. This path uses the Fortran kernel and passes the periodic2 settings explicitly defined in `beach.toml`, including `m2l_root_oracle`, so it is a diagnostic closer to the simulation-side field definition than the Python direct-sum `calc_coulomb`.
+For each object, this API zeros its own source charges and calculates
+`sum(q_i E_not_self(r_i))` and torque. Its existing self policy is
+`exclude_target_lattice`: in a periodic calculation it removes both the target's
+primary source and that object's periodic images. It is also point-source only.
+
+To retain an object's own periodic images when evaluating detachment, use
+`ObjectInteractionSnapshot.object_probe(...)` as described below. Its self
+policy is fixed to `exclude_primary_keep_images`.
+`compute_potential_mesh(..., self_term="area_equivalent")` is a separate
+centroid self-potential approximation and is not equivalent to either
+object-force self policy.
 
 ```python
 from beach import Beach
@@ -495,6 +517,155 @@ print(records[0].force_N, records[0].torque_Nm)
 ```
 
 By default, rigid transformations on the Python side are processed with NumPy. To use Numba, install the optional dependency with `pip install ".[accel]"` and specify `run.scene(transform_backend="numba")`. The main calculation that defines the meaning of FMM, periodic2, and far correction is still performed by the Fortran kernel.
+
+### 10.4 `ObjectInteractionSnapshot` and Frozen-Source Paths
+
+This API freezes all saved source geometry and charge once, then moves only the
+selected central-cell object as an independent target probe. The fixed
+`exclude_primary_keep_images` policy subtracts only the target's
+central-cell free-space primary contribution. It retains that target's periodic
+images, all images of other objects, and the uniform field.
+
+```python
+import numpy as np
+from beach import AdhesionProfile, Beach
+
+run = Beach("outputs/latest", config_path="beach.toml")
+with run.object_interaction_snapshot(
+    periodic_model="infinite_physical",
+    cache_dir=".beach_cache/periodic2",
+) as snapshot:
+    probe = snapshot.object_probe(6)
+    wrench = probe.wrench()
+    path = probe.vertical_path(np.linspace(0.0, 2.0e-4, 65))
+
+release = path.evaluate_release(
+    mass_kg=2.0e-12,
+    gravity_m_s2=9.80665,
+    adhesion=AdhesionProfile.finite_range_constant(
+        force_N=1.0e-10,
+        range_m=2.0e-6,
+    ),
+)
+print(wrench.force_N, wrench.torque_Nm)
+print(path.status, path.work_relative_mismatch)
+print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
+```
+
+`periodic_model` has the following meanings.
+
+| Value | Field definition |
+|---|---|
+| `"configured"` | Uses the run's `beach.toml` unchanged. The result can therefore be free space, a finite shell with `far_correction="none"`, or cached periodic |
+| `"infinite_physical"` | For an x/y-periodic run, combines cached `k != 0` with the physical `k = 0` mode (`E_bottom=0`). Cache generation or reuse must succeed |
+
+A complete `beach.toml` with `sim.box_min` and `sim.box_max` is required. The
+current release supports only `outer_plasma.model="none"`; it rejects an active
+outer field explicitly instead of silently omitting it.
+
+When an x/y-periodic mesh crosses a cell seam, the snapshot keeps all-source
+geometry in the saved representation so it remains identical to the simulation
+and cache identity. `object_probe()` unwraps only the selected mesh into one
+periodically connected branch. It uses that same target geometry for quadrature,
+central-primary removal, rigid transforms, the area centroid, and the bounding
+radius. Inspect it through `probe.target_geometry_representation`,
+`target_triangles_m`, `geometric_area_centroid_m`, `vertex_bounding_center_m`,
+and `vertex_bounding_radius_m`.
+
+`ObjectWrench.components` preserves these physical contributions:
+
+| Key | Meaning |
+|---|---|
+| `other_objects_all_images` | Other objects and all of their periodic images |
+| `target_periodic_images` | The target's own periodic images, with its central primary removed |
+| `external_uniform` | Configured uniform external field |
+| `total_external` | Sum of the three rows above; equals `ObjectWrench.force_N` / `torque_Nm` |
+
+Kernel and zero-mode entries in `numerical_metadata` are a numerical
+decomposition of the same total, not additional physical forces. Torque depends
+on its reference point, so retain `ObjectWrench.torque_origin_m` and
+`numerical_metadata["torque_origin_policy"]` with every force record.
+`vertical_path()` records the reference point at every height in
+`numerical_metadata["torque_origin_m"]`.
+
+Point sources use element centroids for target integration. `triangle_p0` uses
+order-7 Gauss-Duffy area integration by default.
+`target_integration="centroid_compatibility"` is an explicitly labelled legacy
+comparison and is never selected by triangle `auto`.
+
+Mechanical force on a surface uses the principal-value (PV) zero-mode trace.
+The simulator particle pusher uses the one-sided `zero_mode_trace_plus` value at
+the surface, so the two traces serve different purposes. For cached results,
+`numerical_metadata["cached_kneq0_trace_correction"]` is a diagnostic that has
+**already been folded into `periodic_kneq0`** to form the PV decomposition. Do
+not add it again to `force_N` or `periodic_kneq0`.
+
+`vertical_path()` holds source geometry and charges at their initial positions
+and translates only target quadrature in `+z`. Every target triangle vertex
+must remain inside the non-periodic box/interface. Because the environment is
+frozen, its potential energy is `U_env = sum_i(q_i phi_env(r_i))`, with no factor
+of `1/2`. Always inspect the agreement between
+`electrostatic_work_J = integral(F_z dh)` and
+`potential_difference_work_J = U_env(0)-U_env(h)`, adaptive-refinement
+diagnostics, and `status`.
+
+`AdhesionProfile.finite_range_constant(F, d)` supplies a resisting force for
+`0 <= h < d` and adhesion work that saturates at `F*d`. `evaluate_release()`
+checks the full continuous piecewise path after gravity, adhesion, and optional
+dissipation. `endpoint_positive=True` does not prove that an intermediate
+negative barrier is accessible from rest; use `barrier_free_from_rest` and
+`first_inaccessible_displacement_m`. Speed arrays clamp negative available
+energy to zero.
+
+For a non-neutral infinite x/y-periodic cell, the `E_bottom=0` zero mode can
+leave a constant far field and a linear potential. A finite-box endpoint work
+or speed remains well defined, but must not be presented as an escape energy or
+terminal speed at infinity.
+
+### 10.5 Finite-Image Shell Oracle
+
+`finite_shell_wrench()` uses the native Fortran finite-image kernel with
+`far_correction="none"`. It preserves both the raw symmetric shell and the
+`E_bottom=0` result corrected by `Q_cell/(2 epsilon0 A_xy) e_z`; `selected`
+points to the requested closure. The source representation is native,
+canonical, and unwrapped. Do not replicate images again in Python or wrap the
+moved target into the primary cell.
+
+```python
+from beach import finite_shell_convergence, finite_shell_wrench
+
+row = finite_shell_wrench(
+    snapshot, probe, transform=None, image_layers=1, closure="e_bottom_zero"
+)
+shells = finite_shell_convergence(
+    snapshot, probe, path.displacement_m, max_layers=12
+)
+```
+
+`finite_shell_convergence()` does not select from adjacent-shell increments
+alone: two consecutive small increments previously produced false convergence.
+The current API uses `force_tail_proxy_N` / `work_tail_proxy_J`; for an
+`infinite_physical` snapshot it also sets
+`reference_model="infinite_physical"` and requires
+`reference_force_error_N`, `reference_work_error_J`, and
+`reference_converged`. `increment_converged` is the combined tail-proxy and
+physical-reference gate. Only two consecutive true values select the corrected
+path. With `status="not_converged"`, both `selected_image_layers` and
+`selected_path` are `None`.
+
+Opt-in cached infinite-periodic oracles include (1) the `E_bottom=0` analytic
+uniform non-neutral triangle plane: zero field below, `sigma/epsilon0` above,
+surface PV `sigma/(2 epsilon0)`, and total object force
+`Q^2/(2 epsilon0 A)`; and (2) the neutral `sigma_0 cos(kx)` `k != 0` sheet,
+whose field and potential decay as `exp(-k |z-z0|)`, together with triangle-mesh
+refinement. These cache-generating checks are not part of the lightweight test
+path.
+
+`ObjectForcePath.status="converged"` and
+`DetachmentResult.numerically_qualified=True` only establish the requested path
+integration tolerance. They do not establish physical qualification until
+mesh, quadrature, FMM/cache, shell, path endpoint, charge snapshot, and seed
+sensitivity have been checked.
 
 ## 11. Visualization Functions
 
@@ -542,6 +713,7 @@ Since v1.0.0, the unified `beachx` CLI is recommended.
 | `beachx coulomb <output_dir>` | Plot a Coulomb force matrix |
 | `beachx mobility <output_dir>` | Run Coulomb mobility analysis |
 | `beachx kernel-forces <output_dir>` | Output per-object resultant-force CSV using the Fortran field kernel |
+| `beachx object-detachment <output_dir>` | Analyze a frozen-source wrench, detachment path, work, and speed while retaining periodic images |
 | `beachx lint <config.toml>` | Check TOML / JSON Schema / BEACH constraints |
 | `beachx config validate <config.toml>` | Validate a configuration file |
 | `beachx model close-pack` | Generate a close-packed model |
@@ -577,7 +749,7 @@ The legacy entry points below are retained for backward compatibility, but they 
 `beach-inspect` follows the same precomputed-only ordinary-summary and explicit
 `--recompute-potential` rules as `beachx inspect`.
 
-## 12. Physical Constants
+## 13. Physical Constants
 
 | Symbol | Value | Unit | Description |
 |---|---|---|---|

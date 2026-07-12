@@ -55,7 +55,24 @@ else
   esac
 fi
 
+SOURCE_COMMIT="unknown"
+BUILD_ID="${RESOLVED_VERSION_MODE}"
+if [[ "${RESOLVED_VERSION_MODE}" == "git" || "${RESOLVED_VERSION_MODE}" == "override" ]]; then
+  if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    SOURCE_COMMIT="$(git rev-parse --verify HEAD)"
+    if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+      SOURCE_STATE="dirty"
+    else
+      SOURCE_STATE="clean"
+    fi
+    BUILD_ID="${SOURCE_COMMIT}:${SOURCE_STATE}"
+  else
+    BUILD_ID="nogit"
+  fi
+fi
+
 VERSION_FLAGS="-D__BEACH_VERSION__=\\'${FULL_VERSION}\\' -D__BEACH_VERSION_MODE__=\\'${RESOLVED_VERSION_MODE}\\'"
+VERSION_FLAGS+=" -D__BEACH_SOURCE_COMMIT__=\\'${SOURCE_COMMIT}\\' -D__BEACH_BUILD_ID__=\\'${BUILD_ID}\\'"
 BASE_FFLAGS="${FPM_FFLAGS:-${FFLAGS:-}}"
 if [[ -n "${BASE_FFLAGS}" ]]; then
   EFFECTIVE_FFLAGS="${BASE_FFLAGS} ${VERSION_FLAGS}"
@@ -66,6 +83,8 @@ fi
 echo "[build.sh] FPM_ACTION=${FPM_ACTION}"
 echo "[build.sh] BEACH_VERSION=${FULL_VERSION}"
 echo "[build.sh] BEACH_VERSION_MODE=${RESOLVED_VERSION_MODE}"
+echo "[build.sh] BEACH_SOURCE_COMMIT=${SOURCE_COMMIT}"
+echo "[build.sh] BEACH_BUILD_ID=${BUILD_ID}"
 echo "[build.sh] FPM_FFLAGS=${EFFECTIVE_FFLAGS}"
 
 case "${FPM_ACTION}" in

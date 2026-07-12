@@ -89,10 +89,13 @@ fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy/release gate
-make test-physics-release  # HPC: L3 + far correction + MPI manifest
+make test-l3      # L3: cumulative L0-L3 verification
+make test-physics-release  # HPC: minimal release correctness + MPI manifest
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # explicit oracle far-correction diagnostics
+make test-fortran-far-correction  # oracle far-correction correctness
+make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-benchmark  # release-profile runtime benchmark
+make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
 ```
 
@@ -106,9 +109,16 @@ BEACH のテストは開発ループ向けに階層化しています。
 `make test-fortran` は軽量 Fortran target の alias です。重い FMM 系
 （`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`）は通常の `make test` から外し、`make test-l3` /
 `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行します。
-`m2l_root_oracle` far-correction 診断
-（`test_coulomb_fmm_core_periodic`, `test_periodic2_flat_oracle_diag`）はさらに重いため、
-`make test-fortran-far-correction` または unfiltered の `make test-full` で opt-in 実行します。
+`m2l_root_oracle` correctness は重いため `make test-fortran-far-correction` で opt-in 実行します。
+数値 assert を持たない `test_periodic2_flat_oracle_diag` は
+`make test-fortran-far-correction-diagnostics` へ分離しています。速度比較は debug test へ混在させず、
+`make test-fortran-benchmark` で release profile を使います。
+`make test-field-kernel-cache` はshared kernelをbuildし、その絶対pathをnative periodic plane-oracle
+receipt testへ渡す長時間opt-in gateです。L1/L2/L3と`make test-physics-release`には含めません。
+Intel `ifx` / `mpiifx` の tiered test は、既知の配列一時オブジェクトごとに巨大な stack trace を
+出す `arg_temp_created` check だけを既定で抑制します。bounds など他の debug check は維持されます。
+一時配列診断そのものを調べる場合は、例えば
+`FORTRAN_TEST_FLAGS="-qopenmp" make test-fortran-heavy FPM_FC=mpiifx` のように明示上書きします。
 
 個別 target だけ確認する場合は次を使います。
 
@@ -310,11 +320,39 @@ beachx mobility outputs/latest \
 make build-kernel
 beachx kernel-forces outputs/latest \
   --save-csv outputs/latest/object_forces_kernel.csv
+
+# central-cell primary 自己場だけを除き、周期画像を保持した離脱経路を出す
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --output-dir outputs/latest/object_detachment
 ```
 
 `beachx coulomb` は、近傍の `beach.toml` が見つかれば `mesh.templates` から object kind と順序を読み取り、既定では全 object を target 軸に並べて可視化します。特定 kind だけに絞る場合は `--target-kinds sphere` のように指定します。
 `beachx mobility` は、既定で `plane` を support とみなし、それ以外の object を対象に合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV 化します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
 `beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran FMM core を Python から呼び出し、`beach.toml` の `sim.softening` / `sim.field_bc_mode` / periodic2 / tree 設定を使って object ごとの net force を計算します。共有ライブラリは `make build-kernel` で `build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または `BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は `--config path/to/beach.toml` を指定します。
+
+`kernel-forces` は target object の周期画像も除く旧 `exclude_target_lattice` 診断です。
+`object-detachment` は central primary だけを除く `exclude_primary_keep_images` を使い、
+凍結 source に対する瞬時 wrench、鉛直経路、仕事、重力・有限 range 付着を含む from-rest
+barrier を4成果物へ出力します。`configured` は run の設定を保持し、
+`infinite-physical` は x/y periodic の cached `k != 0` と `E_bottom=0` zero mode を使います。
+CLI 既定重力は月面の `1.62 m/s^2` ですが、上例は地上の `9.80665 m/s^2` を明示しています。
+cached operator の初回生成や多数の path 点は重くなり得るため、KUDPC では login node で
+実行せず計算 node に投入してください。cold cache 専用生成は SysA の
+`p=1:t=112:c=112` を基準にします。既存 simulation allocation の rank は生成にも使われますが、
+2026-07-12 の旧レゴリス入力では `1x112=47.0 s` に対して `2x112=36.7 s`,
+`4x112=31.5 s`, `6x112=30.3 s` であり、cold build だけのために 4--6 rank へ増やす
+core 効率は低いです。同じ fingerprint の warm run は cache を再生成しません。
+
+CLI の正常終了は成果物作成の成功です。`path.status`、仕事/電位差、quadrature、shell/cache、
+経路上端の感度を確認するまでは物理 qualification ではありません。非中性 periodic cell の
+有限高さ speed は無限遠への escape speed ではありません。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` / `beach-estimate-workload` / `beach-plot-performance-profile`
@@ -383,10 +421,13 @@ fpm test --target test_mpi_hybrid \
 - Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。
-`test-physics-release` は L3、far-correction、MPI ledger、MPI periodic-cache gate を逐次実行し、既定で
+`test-physics-release`は収束出力に必要なL1 subset、L3 heavy、far-correction correctness、MPI ledger、
+MPI periodic-cache gateを逐次実行し、portable CI済みのL2全体は繰り返しません。既定で
 `build/physics-release/manifest.txt` に commit、dirty state、host、compiler、各 gate の
 status、経過時間、最大RSSを保存します。同じdirectoryの`convergence.csv`にはmesh、dt、FMM order、
 outer gridなどの収束値を保存します。KUDPC の login node では実行を拒否し、Slurm allocation 内では
 MPI payload の runner を `srun` に設定します。manifest path は
 `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt` で変更できます。
+同じdirectoryの`test_l3-target-timings.csv`と`far_correction-target-timings.csv`には
+Fortran targetごとのprofile、status、経過秒を保存します。
 詳細は[Physics release verification](PhysicsReleaseVerification.md)を参照してください。

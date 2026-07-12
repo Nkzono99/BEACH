@@ -74,14 +74,15 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 3. 各粒子を `max_step` まで前進（OpenMP スレッド並列）
 4. 各ステップで
    - 同一時刻の状態 `x0, v0` から予測中点 `x_mid = x0 + 0.5*v0*dt` を計算
+   - 場評価点だけをsolverのprimitive target boxへ写像する（周期軸はwrap、非周期軸はbox面へclamp）。軌道候補座標は写像しない
    - 境界要素電場 `E(x_mid)` を1回評価し、一様外部電場 `sim.e0` を1回加える
    - 中点場を使う Boris push と台形位置更新で `x1, v1` を計算
    - `x1` がbox内部なら `x0 -> x1` のmesh collisionを1回探索
    - box faceへ到達する場合は、full chordのmesh hit parameterと最初のface event parameterを比較して最早順序を決める
    - periodic2のfull-chord queryがbox外区間でrange limitに達した場合は、最初のface eventまでに制限して再照会する
-   - reflect/periodic後は残り時間を同じBoris規約で一度だけ再積分し、そのchordのmesh hitを探索
+   - reflect/periodic後は残り時間を同じBoris規約で再積分し、そのchordのmesh hitを探索（1 outer stepにつき最大8 box event）
    - 衝突時: 粒子を消滅し `q_particle * w_particle` をスレッド別バッファ `dq_thread(elem_idx, tid)` へ加算
-   - 残り時間中に2回目のbox eventへ到達し、それ以前にmesh hitがなければ、状態をcommitせず `dt` 縮小を要求する明示的failureとする
+   - 残り時間中に9回目のbox eventへ到達し、それ以前にmesh hitがなければ、状態をcommitせず `dt` 縮小を要求する明示的failureとする
 5. バッチ終了時に要素電荷差分をコミット: 全スレッドの `dq_thread` を合算し、`photo_emission_dq` を加算した後、MPI allreduce を行い `mesh%q_elem` に反映
 6. `rel_change = ||dq|| / max(||q||, q_floor)` を更新
 7. 統計と履歴を更新
@@ -106,12 +107,12 @@ Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正の既定は `field_periodic_far_correction="none"`（`sim` table）です。`auto` は互換用に受理され、`none` に正規化されます。`none` は explicit image shell だけを評価する有限画像近似であり、完全な周期遠方場を与えるものではありません。`m2l_root_oracle` は `k=0` と charged-wall closure を含む明示 opt-in の高コスト診断 backend で、production physics には使いません。
 
-`field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` / `e_bottom_zero` の zero-mode provider が snapshot 内で一度だけ加えます。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的な zero-mode boundary condition で閉じます。cache fingerprint は周期長、FMM order、画像/Ewald 層、source/target topology、softening、generator version、tolerance、real kind、build version を含みます。MPI では rank 0 だけが lock 下で検証・生成・atomic publish し、operator を全 rank へ broadcast します。
+`field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` / `e_bottom_zero` の zero-mode provider が snapshot 内で一度だけ加えます。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的な zero-mode boundary condition で閉じます。cache fingerprint は周期長、FMM order、画像/Ewald 層、source/target topology、softening、generator version、tolerance、real kind、build version を含みます。MPI では rank 0 だけが lock、検証、cache I/O、atomic publish を担当します。cache miss の operator 生成は target slice を全 rank に分配し、各 rank 内で proxy RHS を OpenMP 並列評価した後、`MPI_Allreduce(SUM)` で全 rank に組み立てます。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
 `periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0` 成分、triangle-heightの厳密`k=0`成分、線形Debye outer plasmaを合成する小規模 correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、`lower_boundary_model="e_bottom_zero"`、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`減衰、gap、局所平均plasma電荷推定、線形性を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
 
-`coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。外向き粒子は同じ線形Debye profile上でinfinityへ到達可能ならescape、turning pointを持つ場合は法線速度を反転してlocalへ返します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapし、残り`dt`を既存stepperで再積分します。この写像はouter flightをglobal simulation timeへ加算せず、`tau_outer/field_evolution_timescale`が上限を超える場合は停止します。persistent outer queueは未対応で、`outer_queue_enabled=true`を拒否します。`b0=0`のみを許可し、磁化outer orbitを近似しません。
+`coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。`linear_debye`は`return_model="electrostatic_1d_instant_return"`、`kinetic_1d`は`return_model="kinetic_1d_profile_return"`を使います。後者の流入障壁は各batchで先に更新したouter stateの`phi_interface-phi_infinity`から計算し、総表面電荷の線形Debye近似へfallbackしません。外向き粒子は同じ離散kinetic profileとfar Robin tail上でescape/turning pointを判定し、区分線形電位と指数tailを解析積分した往復時間でlocalへ返します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapし、残り`dt`を既存stepperで再積分します。この写像はouter flightをglobal simulation timeへ加算せず、`tau_outer/field_evolution_timescale`が上限を超える場合は停止します。persistent outer queueは未対応で、`outer_queue_enabled=true`を拒否します。`b0=0`のみを許し、legacy reservoir barrierおよびZhao injection correctionとの併用を拒否します。
 
 `outer_plasma.model="unified_linear_response"` と
 `coupling.particle_transfer_mode="electrostatic_3d_explicit_orbit"` の組合せでは、z-high ownership面を
@@ -126,10 +127,14 @@ outer flight time、frozen-field ratioを検査し、step上限到達をdiscard�
 `outer_plasma.model="kinetic_1d"`は、z-highの負・正`reservoir_face` speciesを無限遠の
 electron half-Maxwellian / cold drifting ion VDFとして用い、伸長1D格子上のPoisson方程式を
 interface Neumann条件と遠方Robin条件で解きます。初版は単調・無衝突・非磁化分枝に限定し、
-ionにはkinetic Bohm入口条件を課します。`photoelectron_closure="kinetic_mean"`は負電荷
+ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infinity)=0`をゲージとして固定し、
+非ゼロの`outer_plasma.infinity_potential`を拒否します。`photoelectron_closure="kinetic_mean"`は負電荷
 `photo_raycast` speciesの放出fluxからoutgoing/returning平均密度を構成します。解状態は
 `converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、線形モデルへ
 silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し、restart時のNewton初期値に使います。
+`kinetic_mean`とtracked `kinetic_1d_profile_return`を併用しても、mean closureはouter空間電荷と
+current診断だけを供給し、表面へreturn chargeを再加算しません。表面ledgerはtracked粒子の放出と
+再吸収だけで更新します。
 
 `sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
 
@@ -138,7 +143,7 @@ silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し�
 - Boris 法（`E`, `B`）
 - `B` は `sim.b0` の一様場
 - public な粒子入力 `x, v` と出力 `x_new, v_new` は同一時刻の状態であり、half-step staggered 状態ではない
-- production の空間電場は予測中点 `x_mid = x + 0.5*v*dt` で1回評価し、`sim.e0` はその評価結果へ1回だけ加える
+- production の空間電場は予測中点 `x_mid = x + 0.5*v*dt` で1回評価する。box crossing候補では評価点だけを周期軸でwrap・非周期軸でbox面へclampし、`sim.e0` はその評価結果へ1回だけ加える
 - public pure procedure `boris_update_velocity(v, q, m, dt, e, b, v_new)` が電場 half kick、磁場回転、電場 half kick による速度更新を行う
 - 既存の public call `boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は署名を変えず、速度計算を `boris_update_velocity` に委譲し、位置を `x_new = x + 0.5*(v + v_new)*dt` で更新する
 - 予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度であり、一様電場の一定加速度変位は丸め誤差まで解析解と一致する
@@ -160,7 +165,7 @@ silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し�
 - additive な `find_first_boundary_event` は、box 内の始点から候補終点までの最初の交差 fraction と、corner/edge で同時に交差する全 face を bit mask で返す
 - additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置を境界から1 ULP内側へ置く。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
 - production particle loop はcandidate生成とmesh queryを先行し、box crossing時だけevent resolverへ進む。候補終点がstrictなbox内部なら追加event geometryを行わず、場評価1回・collision query 1回のfast pathとなる
-- reflect/periodic crossingだけ残り時間を一度再積分する。2回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとし、任意回数のevent loopやadaptive substepは行わない
+- reflect/periodic crossingだけ残り時間を最大8回再積分する。各eventはmeshとの最早順序を保って処理し、9回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとする。上限なしのevent loopやadaptive substepは行わない
 - `open_boundary_model="potential_barrier"` は既存の単一面scalar energy式をevent位置・補間速度で使うlegacy/experimental扱いとする。複数open faceへの一般化は行わずfail closedとし、物理モデルはshared potential snapshotとともに後段で再設計する
 - legacy `apply_box_boundary` はphoto rayとsource compatibilityのため残す
 
@@ -178,6 +183,7 @@ silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し�
 - 残差繰越つきで `floor` して今バッチのマクロ粒子数を決定
 - MPI 実行時も全 rank 合計の期待値と残差を一度だけ更新し、確定した整数個数を rank 間で分配する
 - `target_macro_particles_per_batch` 指定時は `w_particle` を自動解決
+- `position_jitter_dt=sim.dt` の速度方向ジッタ後、周期軸はprimitive cellへwrapし、非周期軸はbox面へclampして全粒子を有効box内から開始する
 - `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限を補正
 - `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる
 - シース 1D 座標の基準平面は共有 `inject_face` の法線方向で定義し、`sim.sheath_reference_coordinate` があればその座標を、未指定なら対応 box face の座標を使う

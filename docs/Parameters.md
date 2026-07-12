@@ -275,12 +275,22 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 `outer_plasma.model="kinetic_1d"` は `cached_kneq0` と組み合わせ、z-high の負・正
 `reservoir_face` species をそれぞれ ambient electron/ion の infinity inflow VDF として使う。
 `debye_length` は far Robin tail 長、`thermal_voltage` は設定整合性の電位 scale である。
+無限遠電位はゲージ条件`phi(infinity)=0`に固定されるため、
+`outer_plasma.infinity_potential`には`0`を指定する。非ゼロ値は設定エラーになる。
 Phase 7 は単調・無衝突・非磁化分枝だけを扱い、ion drift に Bohm 条件を要求する。非単調
-virtual cathode、trapped population、particle return は silent fallback せず適用外として停止する。
+virtual cathodeとtrapped populationは silent fallback せず適用外として停止する。
+`return_model="kinetic_1d_profile_return"` と
+`particle_transfer_mode="electrostatic_1d_instant_return"` を指定すると、各batchで先に更新した
+kinetic profileの `phi_interface-phi_infinity` を使って無限遠VDFをinterfaceへエネルギー写像する。
+外向き粒子は同じ離散profileとfar Robin tail上でescapeまたはturning pointを判定し、解析積分した
+往復時間でinterfaceへ戻す。`reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`
+との併用は拒否する。
 `photoelectron_closure="kinetic_mean"` は最初の負電荷 `photo_raycast` species の
 `emit_current_density_a_m2` と温度から half-Maxwellian flux を作り、outer 空間電荷の
 outgoing/returning population を軌道エネルギーで分離する。Layer A の tracked 粒子が表面電荷を
 更新し、mean closure は outer profile だけを供給するため、統計的 return current は再加算しない。
+tracked returnを併用する全`photo_raycast` speciesは`deposit_opposite_charge_on_emit=true`を指定し、
+legacy `photo_escape_model`を無効にする。
 実行例は `examples/periodic2_kinetic_outer.toml`、物理契約は
 `docs/adr/0001-kinetic-outer-plasma.md` を参照する。
 

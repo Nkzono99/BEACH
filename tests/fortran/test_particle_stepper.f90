@@ -5,6 +5,7 @@ program test_particle_stepper
   use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
   use bem_mesh, only: init_mesh
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
+  use bem_pusher, only: boris_push
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
                                   resolve_particle_boundary_candidate, particle_step_result, &
                                   particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events, &
@@ -12,7 +13,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(12)
+  call test_init(17)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -22,8 +23,16 @@ program test_particle_stepper
   call test_z_high_interface_event_payload()
   call test_end()
 
+  call test_begin('z_high_interface_after_periodic_event')
+  call test_z_high_interface_after_periodic_event()
+  call test_end()
+
   call test_begin('charged_mesh_second_order_convergence')
   call test_charged_mesh_second_order_convergence()
+  call test_end()
+
+  call test_begin('midpoint_field_sample_clamped_to_box')
+  call test_midpoint_field_sample_clamped_to_box()
   call test_end()
 
   call test_begin('advance_no_crossing_fast_path')
@@ -50,8 +59,20 @@ program test_particle_stepper
   call test_advance_corner_reflection()
   call test_end()
 
-  call test_begin('advance_second_box_event_fails')
-  call test_advance_second_box_event_fails()
+  call test_begin('advance_two_periodic_events')
+  call test_advance_two_periodic_events()
+  call test_end()
+
+  call test_begin('advance_three_reflect_events')
+  call test_advance_three_reflect_events()
+  call test_end()
+
+  call test_begin('advance_eight_reflect_events')
+  call test_advance_eight_reflect_events()
+  call test_end()
+
+  call test_begin('advance_ninth_box_event_fails')
+  call test_advance_ninth_box_event_fails()
   call test_end()
 
   call test_begin('advance_legacy_barrier_single_face_only')
@@ -83,6 +104,30 @@ contains
     call assert_close_dp(result%interface_crossing%position(3), 1.0_dp, 0.0_dp, 'interface position mismatch')
     call assert_close_dp(result%interface_crossing%dt_remaining, 0.6_dp, 1.0e-14_dp, 'remaining dt mismatch')
   end subroutine test_z_high_interface_event_payload
+
+  subroutine test_z_high_interface_after_periodic_event()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.9_dp, 0.2_dp, 0.8_dp], [1.0_dp, 0.0_dp, 1.0_dp], 0.0_dp, 1.0_dp, 0.3_dp, &
+      [1.2_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, 1.0_dp], result=result, defer_z_high_interface=.true. &
+      )
+
+    call assert_true(result%interface_crossing%has_crossing, 'interface crossing after periodic event is missing')
+    call assert_close_dp(result%interface_crossing%fraction, 2.0_dp/3.0_dp, 1.0e-14_dp, 'global fraction mismatch')
+    call assert_allclose_1d( &
+      result%interface_crossing%position, [0.1_dp, 0.2_dp, 1.0_dp], 1.0e-14_dp, 'interface position mismatch' &
+      )
+    call assert_close_dp(result%interface_crossing%dt_remaining, 0.1_dp, 1.0e-14_dp, 'remaining dt mismatch')
+    call assert_true(result%field_eval_count == 2_i32, 'periodic interface path should evaluate one remainder')
+  end subroutine test_z_high_interface_after_periodic_event
 
   subroutine test_uniform_e0_included_once()
     type(mesh_type) :: mesh
@@ -155,6 +200,36 @@ contains
     call assert_true(error_ratio(1) >= 3.2d0, 'dt to dt/2 charged-mesh position error ratio must be at least 3.2')
     call assert_true(error_ratio(2) >= 3.2d0, 'dt/2 to dt/4 charged-mesh position error ratio must be at least 3.2')
   end subroutine test_charged_mesh_second_order_convergence
+
+  subroutine test_midpoint_field_sample_clamped_to_box()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver = electrostatic_snapshot_type()
+    real(dp) :: electric_field(3), expected_position(3), expected_velocity(3)
+    real(dp) :: actual_position(3), actual_velocity(3)
+    real(dp), parameter :: x0(3) = [0.2_dp, 0.2_dp, 0.9_dp]
+    real(dp), parameter :: v0(3) = [0.0_dp, 0.0_dp, 0.4_dp]
+
+    call init_single_element_mesh(mesh, 1.0d-10)
+    sim = sim_config()
+    sim%field_solver = 'direct'
+    sim%field_normalization = 'si'
+    sim%softening = 0.5_dp
+    sim%use_box = .true.
+    sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    call field_solver%init(mesh, sim)
+    call field_solver%refresh(mesh)
+
+    call field_solver%eval_local_e(mesh, [0.2_dp, 0.2_dp, 1.0_dp], electric_field)
+    call boris_push(x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, electric_field, 0.0_dp*v0, expected_position, expected_velocity)
+    call build_particle_step_candidate( &
+      mesh, sim, field_solver, 0.0_dp*v0, x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, actual_position, actual_velocity &
+      )
+
+    call assert_allclose_1d(actual_position, expected_position, 1.0e-14_dp, 'clamped midpoint position mismatch')
+    call assert_allclose_1d(actual_velocity, expected_velocity, 1.0e-14_dp, 'clamped midpoint velocity mismatch')
+  end subroutine test_midpoint_field_sample_clamped_to_box
 
   subroutine integrate_candidate(mesh, sim, field_solver, nstep, position, velocity)
     type(mesh_type), intent(in) :: mesh
@@ -336,7 +411,29 @@ contains
     call assert_allclose_1d(result%v, [-1.0_dp, -1.0_dp, 0.0_dp], 0.0_dp, 'corner reflection velocity mismatch')
   end subroutine test_advance_corner_reflection
 
-  subroutine test_advance_second_box_event_fails()
+  subroutine test_advance_two_periodic_events()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1:2) = bc_periodic
+    sim%bc_high(1:2) = bc_periodic
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.95_dp, 0.8_dp, 0.2_dp], [1.0_dp, 3.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 0.1_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'two periodic events should complete')
+    call assert_true(.not. result%absorbed .and. .not. result%escaped_boundary, 'periodic particle should survive')
+    call assert_allclose_1d(result%x, [0.05_dp, 0.1_dp, 0.2_dp], 1.0e-12_dp, 'two-event position mismatch')
+    call assert_allclose_1d(result%v, [1.0_dp, 3.0_dp, 0.0_dp], 0.0_dp, 'two-event velocity mismatch')
+    call assert_true(result%field_eval_count == 3_i32, 'two events should evaluate each remainder field')
+    call assert_true(result%collision_query_count == 3_i32, 'two events should query each physical chord')
+  end subroutine test_advance_two_periodic_events
+
+  subroutine test_advance_three_reflect_events()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
@@ -352,11 +449,58 @@ contains
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
       )
 
-    call assert_true(result%status == particle_step_multiple_box_events, 'second box event must fail closed')
+    call assert_true(result%status == particle_step_ok, 'three box events should complete')
+    call assert_allclose_1d(result%x, [0.1_dp, 0.2_dp, 0.2_dp], 1.0e-12_dp, 'three-event position mismatch')
+    call assert_allclose_1d(result%v, [-3.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 'three-event velocity mismatch')
+    call assert_true(result%field_eval_count == 4_i32, 'three events should evaluate each remainder field')
+    call assert_true(result%collision_query_count == 4_i32, 'three events should query each physical chord')
+  end subroutine test_advance_three_reflect_events
+
+  subroutine test_advance_eight_reflect_events()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    real(dp) :: x0(3), v0(3)
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_reflect
+    sim%bc_high(1) = bc_reflect
+    x0 = [0.9_dp, 0.2_dp, 0.2_dp]
+    v0 = [8.0_dp, 0.0_dp, 0.0_dp]
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'eight box events should complete')
+    call assert_allclose_1d(result%x, x0, 1.0e-12_dp, 'eight-event position mismatch')
+    call assert_allclose_1d(result%v, v0, 0.0_dp, 'eight-event velocity mismatch')
+    call assert_true(result%field_eval_count == 9_i32, 'eight events should build each remainder')
+    call assert_true(result%collision_query_count == 9_i32, 'eight events should query each physical chord')
+  end subroutine test_advance_eight_reflect_events
+
+  subroutine test_advance_ninth_box_event_fails()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    real(dp) :: x0(3), v0(3)
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_reflect
+    sim%bc_high(1) = bc_reflect
+    x0 = [0.9_dp, 0.2_dp, 0.2_dp]
+    v0 = [9.0_dp, 0.0_dp, 0.0_dp]
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_multiple_box_events, 'ninth box event must fail closed')
     call assert_allclose_1d(result%x, x0, 0.0_dp, 'failed step must preserve initial position')
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'failed step must preserve initial velocity')
-    call assert_true(result%collision_query_count == 2_i32, 'second event path should query mesh before failing')
-  end subroutine test_advance_second_box_event_fails
+    call assert_true(result%field_eval_count == 9_i32, 'ninth event path should build eight remainders')
+    call assert_true(result%collision_query_count == 9_i32, 'ninth event path should query mesh before failing')
+  end subroutine test_advance_ninth_box_event_fails
 
   subroutine test_advance_legacy_barrier_single_face_only()
     type(mesh_type) :: mesh

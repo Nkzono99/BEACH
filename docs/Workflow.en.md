@@ -89,10 +89,13 @@ For normal development, prefer `make run` / `make check` through `build.sh`. The
 make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy/release gate
-make test-physics-release  # HPC: L3 + far correction + MPI manifest
+make test-l3      # L3: cumulative L0-L3 verification
+make test-physics-release  # HPC: minimal release correctness + MPI manifest
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # explicit oracle far-correction diagnostics
+make test-fortran-far-correction  # oracle far-correction correctness
+make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-benchmark  # release-profile runtime benchmark
+make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
 ```
 
@@ -106,8 +109,19 @@ The test suite is tiered for the development loop.
 `make test-fortran` aliases the lightweight Fortran targets. Heavy FMM targets such as
 `test_dynamics_fmm` and `test_coulomb_fmm_core_basic` are excluded from normal `make test` and must be run with
 `make test-l3`, `make test-heavy`, `make test-fortran-heavy`, or `make test-full`.
-The `m2l_root_oracle` far-correction diagnostics are even heavier and require
-`make test-fortran-far-correction` or unfiltered `make test-full`.
+The `m2l_root_oracle` correctness tests are opt-in through `make test-fortran-far-correction`.
+The assertion-free `test_periodic2_flat_oracle_diag` is separated under
+`make test-fortran-far-correction-diagnostics`. Runtime comparison uses the release profile through
+`make test-fortran-benchmark` instead of running inside a debug correctness test.
+`make test-field-kernel-cache` builds the shared kernel and passes its absolute
+path to the long-running native periodic plane-oracle receipt test. It remains
+opt-in and is not part of L1/L2/L3 or `make test-physics-release`.
+Tiered tests under Intel `ifx` / `mpiifx` suppress only the
+`arg_temp_created` check by default because each expected array temporary can
+otherwise emit a full stack trace. Other debug checks, including bounds
+checks, remain enabled. To inspect array temporaries themselves, override the
+flags explicitly, for example with
+`FORTRAN_TEST_FLAGS="-qopenmp" make test-fortran-heavy FPM_FC=mpiifx`.
 
 Run a single target with:
 
@@ -312,6 +326,17 @@ beachx mobility outputs/latest \
 make build-kernel
 beachx kernel-forces outputs/latest \
   --save-csv outputs/latest/object_forces_kernel.csv
+
+# Retain periodic images while excluding only the central-cell primary self field.
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --output-dir outputs/latest/object_detachment
 ```
 
 `beachx coulomb` reads object kind and order from nearby `beach.toml` `mesh.templates` when available, and by
@@ -322,6 +347,29 @@ from `beach.toml`. `beachx kernel-forces` calls the Fortran FMM core through `li
 `sim.softening`, `sim.field_bc_mode`, periodic2, and tree settings from `beach.toml`. Build the library with
 `make build-kernel`; if it is elsewhere, pass `--library` or set `BEACH_FIELD_KERNEL_LIB`. Use
 `--config path/to/beach.toml` when no config exists near the output directory.
+
+`kernel-forces` is the legacy `exclude_target_lattice` diagnostic, which also
+removes the target object's periodic images. `object-detachment` uses
+`exclude_primary_keep_images`. It writes the instantaneous wrench, frozen-source
+vertical path and work, and a from-rest barrier including gravity and optional
+finite-range adhesion to four artifacts. `configured` preserves the run's
+policy, while `infinite-physical` uses cached `k != 0` plus the x/y-periodic
+`E_bottom=0` zero mode. The CLI defaults to lunar gravity, `1.62 m/s^2`; the
+example above explicitly uses Earth gravity, `9.80665 m/s^2`. A cold cached
+operator or a long path can be expensive;
+on KUDPC submit this analysis to a compute node instead of running it on a login
+node. Use SysA `p=1:t=112:c=112` as the dedicated cold cache-prime baseline.
+Existing simulation ranks participate in generation, but the archived regolith
+case measured 47.0 s at 1x112, 36.7 s at 2x112, 31.5 s at 4x112, and 30.3 s at
+6x112 on 2026-07-12. Requesting 4--6 ranks only for a cold build therefore has
+poor core efficiency. A warm run with the same fingerprint does not regenerate
+the operator.
+
+A successful CLI invocation establishes artifact generation only. It is not a
+physical qualification until path status, work/potential agreement,
+quadrature, shell/cache, and endpoint sensitivity have been checked. A
+finite-height speed in a non-neutral periodic cell is not escape speed at
+infinity.
 
 Legacy aliases such as `beach-inspect`, `beach-animate-history`, `beach-plot-coulomb-force-matrix`,
 `beach-plot-potential-slices`, `beach-estimate-workload`, and `beach-plot-performance-profile` remain available
@@ -391,10 +439,13 @@ fpm test --target test_mpi_hybrid \
 - The Fortran electric field uses element-centroid point-charge approximation plus `sim.softening`.
 
 For a camphor MPI job example, see `examples/job_scripts/camphor_mpi_hybrid_job.sh`.
-`test-physics-release` runs the L3, far-correction, MPI ledger, and MPI periodic-cache gates sequentially.
+`test-physics-release` sequentially runs the L1 convergence subset, L3-heavy, far-correction correctness,
+MPI ledger, and MPI periodic-cache gates without repeating the full portable L2 suite.
 It records the commit, dirty state, host, compilers, status, elapsed time, and peak RSS for
 each gate in `build/physics-release/manifest.txt` by default. It refuses KUDPC
 login nodes and selects `srun` for the MPI payload inside a Slurm allocation.
 Override the output with `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt`.
 The same directory receives `convergence.csv`; see
 [Physics release verification](PhysicsReleaseVerification.en.md).
+It also receives `test_l3-target-timings.csv` and `far_correction-target-timings.csv`, containing profile,
+status, and elapsed seconds for each selected Fortran target.

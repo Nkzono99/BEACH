@@ -48,6 +48,8 @@ esac
 mkdir -p "$(dirname "$manifest")"
 artifact_dir="$(dirname "$manifest")"
 convergence_csv="$artifact_dir/convergence.csv"
+test_l3_timings_csv="$artifact_dir/test_l3-target-timings.csv"
+far_correction_timings_csv="$artifact_dir/far_correction-target-timings.csv"
 max_rss_kb="${BEACH_RELEASE_MAX_RSS_KB:-8388608}"
 time_command="${BEACH_RELEASE_TIME_COMMAND:-/usr/bin/time}"
 if [[ ! "$max_rss_kb" =~ ^[1-9][0-9]*$ ]]; then
@@ -59,7 +61,8 @@ started_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 commit="$(git rev-parse HEAD)"
 dirty=false
 [[ -n "$(git status --porcelain)" ]] && dirty=true
-fc_command="${FC:-gfortran}"
+fc_command="${FPM_FC:-${FC:-gfortran}}"
+export FPM_FC="$fc_command"
 if [[ -n "${MPI_FC:-}" ]]; then
   mpi_fc_command="$MPI_FC"
 elif command -v mpiifx >/dev/null 2>&1; then
@@ -85,13 +88,15 @@ git_commit=$commit
 git_dirty=$dirty
 fortran_compiler=$fc_version
 mpi_fortran_compiler=$mpi_fc_version
-test_l3.command=make test-l3
+test_l3.command=make test-fortran-release-correctness
 far_correction.command=make test-fortran-far-correction
 mpi.command=make test-mpi$(if [[ -n "$mpi_runner" ]]; then printf ' MPI_RUNNER=%s' "$mpi_runner"; fi)
 mpi_cache.command=make test-mpi-periodic-cache$(if [[ -n "$mpi_runner" ]]; then printf ' MPI_RUNNER=%s' "$mpi_runner"; fi)
 budget.max_rss_kb=$max_rss_kb
 cache.warm_max_cold_ratio=0.5
 convergence_csv=$convergence_csv
+test_l3.target_timings_csv=$test_l3_timings_csv
+far_correction.target_timings_csv=$far_correction_timings_csv
 convergence.required_categories=boris_dt,panel_fmm_order,rough_panel_mesh,rough_outer_grid,rough_accessibility,outer_orbit_dt
 EOF
 
@@ -133,8 +138,11 @@ run_gate() {
   fi
 }
 
-run_gate test_l3 make test-l3
-run_gate far_correction make test-fortran-far-correction
+if ((!dry_run)); then
+  rm -f "$convergence_csv" "$test_l3_timings_csv" "$far_correction_timings_csv"
+fi
+run_gate test_l3 env BEACH_FORTRAN_TIMING_CSV="$test_l3_timings_csv" make test-fortran-release-correctness
+run_gate far_correction env BEACH_FORTRAN_TIMING_CSV="$far_correction_timings_csv" make test-fortran-far-correction
 if [[ -n "$mpi_runner" ]]; then
   run_gate mpi make test-mpi "MPI_RUNNER=$mpi_runner"
   run_gate mpi_cache make test-mpi-periodic-cache "MPI_RUNNER=$mpi_runner"

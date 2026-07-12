@@ -1,10 +1,14 @@
 !> C ABI wrapper for the simulator-independent Coulomb FMM field kernel.
 module bem_field_kernel_c
-  use, intrinsic :: iso_c_binding, only: c_associated, c_double, c_f_pointer, c_int, c_loc, c_ptr, c_null_ptr
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use, intrinsic :: iso_c_binding, only: c_associated, c_char, c_double, c_f_pointer, c_int, c_loc, c_null_char, &
+                                                                            c_ptr, c_null_ptr, c_signed_char
   use bem_constants, only: k_coulomb
   use bem_coulomb_fmm_core, only: build_plan, build_panel_plan, destroy_plan, destroy_state, eval_points, &
-                                  eval_potential_points, fmm_options_type, fmm_plan_type, fmm_state_type, update_state
-  use bem_kinds, only: dp, i32
+                                  eval_direct_points, eval_potential_points, eval_direct_potential_points, &
+                                  fmm_options_type, fmm_plan_type, fmm_state_type, update_state
+  use bem_kinds, only: dp, i32, i64
+  use bem_version, only: beach_build_info
   implicit none
   private
 
@@ -12,24 +16,57 @@ module bem_field_kernel_c
   integer(c_int), parameter, public :: beach_kernel_invalid_handle = 1_c_int
   integer(c_int), parameter, public :: beach_kernel_invalid_argument = 2_c_int
   integer(c_int), parameter, public :: beach_kernel_not_ready = 3_c_int
+  integer, parameter :: periodic_cache_path_max_bytes = 256
+  character(len=*), parameter :: default_periodic_cache_dir = '.beach_cache/periodic2'
+  real(dp), parameter :: default_periodic_generation_tolerance = 1.0d-8
 
   type :: field_kernel_handle
     type(fmm_plan_type) :: plan
     type(fmm_state_type) :: state
     logical :: built = .false.
     logical :: charged = .false.
+    character(len=periodic_cache_path_max_bytes) :: periodic_cache_dir = default_periodic_cache_dir
+    real(dp) :: periodic_generation_tolerance = default_periodic_generation_tolerance
   end type field_kernel_handle
 
   public :: beach_kernel_create
+  public :: beach_kernel_get_build_info
   public :: beach_kernel_destroy
   public :: beach_kernel_build
   public :: beach_kernel_build_panel
+  public :: beach_kernel_set_periodic_cache
+  public :: beach_kernel_get_periodic_cache_info
   public :: beach_kernel_update_charges
   public :: beach_kernel_eval_e
+  public :: beach_kernel_eval_e_direct
   public :: beach_kernel_eval_phi
+  public :: beach_kernel_eval_phi_direct
   public :: beach_kernel_force_on_charges
 
 contains
+
+  integer(c_int) function beach_kernel_get_build_info(buffer_ptr, buffer_capacity, length_ptr) &
+    bind(C, name='beach_kernel_get_build_info') result(status)
+    type(c_ptr), value :: buffer_ptr, length_ptr
+    integer(c_int), value :: buffer_capacity
+    integer(c_int), pointer :: text_length
+    integer :: required_length
+
+    if (.not. c_associated(length_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    call c_f_pointer(length_ptr, text_length)
+    required_length = len(beach_build_info)
+    text_length = int(required_length, c_int)
+    if (.not. c_associated(buffer_ptr) .or. buffer_capacity <= int(required_length, c_int)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+
+    call copy_text_to_c_buffer(beach_build_info, required_length, buffer_ptr, buffer_capacity)
+    status = beach_kernel_ok
+  end function beach_kernel_get_build_info
 
   integer(c_int) function beach_kernel_create(handle) bind(C, name='beach_kernel_create') result(status)
     type(c_ptr), intent(out) :: handle
@@ -38,6 +75,8 @@ contains
     allocate (kernel)
     kernel%built = .false.
     kernel%charged = .false.
+    kernel%periodic_cache_dir = default_periodic_cache_dir
+    kernel%periodic_generation_tolerance = default_periodic_generation_tolerance
     handle = c_loc(kernel)
     status = beach_kernel_ok
   end function beach_kernel_create
@@ -57,6 +96,104 @@ contains
     deallocate (kernel)
     status = beach_kernel_ok
   end function beach_kernel_destroy
+
+  integer(c_int) function beach_kernel_set_periodic_cache(handle, path_ptr, path_len, tolerance) &
+    bind(C, name='beach_kernel_set_periodic_cache') result(status)
+    type(c_ptr), value :: handle
+    type(c_ptr), value :: path_ptr
+    integer(c_int), value :: path_len
+    real(c_double), value :: tolerance
+    type(field_kernel_handle), pointer :: kernel
+    character(kind=c_char), pointer :: path_bytes(:)
+    character(len=periodic_cache_path_max_bytes) :: validated_path
+    integer :: i
+
+    status = get_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. c_associated(path_ptr) .or. path_len <= 0_c_int .or. &
+        path_len > int(periodic_cache_path_max_bytes, c_int) .or. &
+        .not. ieee_is_finite(tolerance) .or. tolerance <= 0.0_c_double) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+
+    call c_f_pointer(path_ptr, path_bytes, [int(path_len)])
+    if (.not. valid_utf8_bytes(path_bytes) .or. c_byte_value(path_bytes(int(path_len))) == 32) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+
+    validated_path = ''
+    do i = 1, int(path_len)
+      validated_path(i:i) = transfer(path_bytes(i), ' ')
+    end do
+    kernel%periodic_cache_dir = validated_path
+    kernel%periodic_generation_tolerance = real(tolerance, dp)
+    status = beach_kernel_ok
+  end function beach_kernel_set_periodic_cache
+
+  integer(c_int) function beach_kernel_get_periodic_cache_info( &
+    handle, hit_ptr, build_count_ptr, fingerprint_ptr, fingerprint_capacity, fingerprint_length_ptr, &
+    path_ptr, path_capacity, path_length_ptr &
+    ) bind(C, name='beach_kernel_get_periodic_cache_info') result(status)
+    type(c_ptr), value :: handle
+    type(c_ptr), value :: hit_ptr, build_count_ptr, fingerprint_ptr, fingerprint_length_ptr
+    type(c_ptr), value :: path_ptr, path_length_ptr
+    integer(c_int), value :: fingerprint_capacity, path_capacity
+    type(field_kernel_handle), pointer :: kernel
+    integer(c_int), pointer :: hit, build_count, fingerprint_length, path_length
+    integer :: required_fingerprint_length, required_path_length
+    logical :: cached_plan
+
+    status = get_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. kernel%built) then
+      status = beach_kernel_not_ready
+      return
+    end if
+    if (.not. c_associated(hit_ptr) .or. .not. c_associated(build_count_ptr) .or. &
+        .not. c_associated(fingerprint_length_ptr) .or. .not. c_associated(path_length_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+
+    call c_f_pointer(hit_ptr, hit)
+    call c_f_pointer(build_count_ptr, build_count)
+    call c_f_pointer(fingerprint_length_ptr, fingerprint_length)
+    call c_f_pointer(path_length_ptr, path_length)
+    cached_plan = trim(kernel%plan%options%periodic_far_correction) == 'cached_kneq0'
+    if (cached_plan) then
+      required_fingerprint_length = len_trim(kernel%plan%periodic_cache_fingerprint)
+      required_path_length = len_trim(kernel%plan%periodic_cache_path)
+      hit = merge(1_c_int, 0_c_int, kernel%plan%periodic_cache_hit)
+      build_count = int(kernel%plan%periodic_operator_build_count, c_int)
+    else
+      required_fingerprint_length = 0
+      required_path_length = 0
+      hit = 0_c_int
+      build_count = 0_c_int
+    end if
+    fingerprint_length = int(required_fingerprint_length, c_int)
+    path_length = int(required_path_length, c_int)
+
+    if (.not. c_associated(fingerprint_ptr) .or. .not. c_associated(path_ptr) .or. &
+        fingerprint_capacity <= int(required_fingerprint_length, c_int) .or. &
+        path_capacity <= int(required_path_length, c_int)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+
+    if (cached_plan) then
+      call copy_text_to_c_buffer( &
+        kernel%plan%periodic_cache_fingerprint, required_fingerprint_length, fingerprint_ptr, fingerprint_capacity &
+        )
+      call copy_text_to_c_buffer(kernel%plan%periodic_cache_path, required_path_length, path_ptr, path_capacity)
+    else
+      call copy_text_to_c_buffer('', 0, fingerprint_ptr, fingerprint_capacity)
+      call copy_text_to_c_buffer('', 0, path_ptr, path_capacity)
+    end if
+    status = beach_kernel_ok
+  end function beach_kernel_get_periodic_cache_info
 
   integer(c_int) function beach_kernel_build( &
     handle, nsrc, src_pos_ptr, theta, leaf_max, order, softening, use_periodic2, periodic_axes_ptr, &
@@ -103,6 +240,8 @@ contains
     options%leaf_max = int(leaf_max, i32)
     options%order = int(order, i32)
     options%softening = real(softening, dp)
+    options%periodic_cache_dir = kernel%periodic_cache_dir
+    options%periodic_generation_tolerance = kernel%periodic_generation_tolerance
 
     if (use_periodic2 /= 0_c_int) then
       if (.not. c_associated(periodic_axes_ptr) .or. .not. c_associated(periodic_len_ptr) .or. &
@@ -140,6 +279,10 @@ contains
       case (2_c_int)
         options%periodic_far_correction = 'm2l_root_oracle'
       case (3_c_int)
+        if (order < 1_c_int .or. image_layers < 1_c_int .or. ewald_layers < 1_c_int) then
+          status = beach_kernel_invalid_argument
+          return
+        end if
         options%periodic_far_correction = 'cached_kneq0'
       case default
         status = beach_kernel_invalid_argument
@@ -185,6 +328,8 @@ contains
     options%leaf_max = int(leaf_max, i32)
     options%order = int(order, i32)
     options%softening = 0.0_dp
+    options%periodic_cache_dir = kernel%periodic_cache_dir
+    options%periodic_generation_tolerance = kernel%periodic_generation_tolerance
 
     if (use_periodic2 /= 0_c_int) then
       if (.not. c_associated(periodic_axes_ptr) .or. .not. c_associated(periodic_len_ptr) .or. &
@@ -215,6 +360,10 @@ contains
       case (0_c_int, 1_c_int)
         options%periodic_far_correction = 'none'
       case (3_c_int)
+        if (order < 1_c_int .or. image_layers < 1_c_int .or. ewald_layers < 1_c_int) then
+          status = beach_kernel_invalid_argument
+          return
+        end if
         options%periodic_far_correction = 'cached_kneq0'
       case default
         status = beach_kernel_invalid_argument
@@ -305,6 +454,66 @@ contains
     status = beach_kernel_ok
   end function beach_kernel_eval_phi
 
+  integer(c_int) function beach_kernel_eval_e_direct(handle, ntarget, target_pos_ptr, e_ptr) &
+    bind(C, name='beach_kernel_eval_e_direct') result(status)
+    type(c_ptr), value :: handle
+    integer(c_int), value :: ntarget
+    type(c_ptr), value :: target_pos_ptr
+    type(c_ptr), value :: e_ptr
+    type(field_kernel_handle), pointer :: kernel
+    real(c_double), pointer :: target_pos(:, :)
+    real(c_double), pointer :: e(:, :)
+
+    status = require_direct_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. target_count_is_addressable(ntarget) .or. .not. c_associated(target_pos_ptr) .or. &
+        .not. c_associated(e_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    if (ntarget == 0_c_int) return
+
+    call c_f_pointer(target_pos_ptr, target_pos, [3, int(ntarget)])
+    if (any(.not. ieee_is_finite(target_pos))) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    call c_f_pointer(e_ptr, e, [3, int(ntarget)])
+    call eval_direct_points(kernel%plan, kernel%state, target_pos, e)
+    e = k_coulomb*e
+    status = beach_kernel_ok
+  end function beach_kernel_eval_e_direct
+
+  integer(c_int) function beach_kernel_eval_phi_direct(handle, ntarget, target_pos_ptr, phi_ptr) &
+    bind(C, name='beach_kernel_eval_phi_direct') result(status)
+    type(c_ptr), value :: handle
+    integer(c_int), value :: ntarget
+    type(c_ptr), value :: target_pos_ptr
+    type(c_ptr), value :: phi_ptr
+    type(field_kernel_handle), pointer :: kernel
+    real(c_double), pointer :: target_pos(:, :)
+    real(c_double), pointer :: phi(:)
+
+    status = require_direct_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. target_count_is_addressable(ntarget) .or. .not. c_associated(target_pos_ptr) .or. &
+        .not. c_associated(phi_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    if (ntarget == 0_c_int) return
+
+    call c_f_pointer(target_pos_ptr, target_pos, [3, int(ntarget)])
+    if (any(.not. ieee_is_finite(target_pos))) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    call c_f_pointer(phi_ptr, phi, [int(ntarget)])
+    call eval_direct_potential_points(kernel%plan, kernel%state, target_pos, phi)
+    phi = k_coulomb*phi
+    status = beach_kernel_ok
+  end function beach_kernel_eval_phi_direct
+
   integer(c_int) function beach_kernel_force_on_charges( &
     handle, ntarget, target_pos_ptr, target_q_ptr, origin_ptr, force_ptr, torque_ptr &
     ) bind(C, name='beach_kernel_force_on_charges') result(status)
@@ -380,5 +589,113 @@ contains
     if (status /= beach_kernel_ok) return
     if (.not. kernel%built .or. .not. kernel%charged) status = beach_kernel_not_ready
   end function require_charged_kernel
+
+  integer(c_int) function require_direct_kernel(handle, kernel) result(status)
+    type(c_ptr), intent(in) :: handle
+    type(field_kernel_handle), pointer, intent(out) :: kernel
+
+    status = get_kernel(handle, kernel)
+    if (status /= beach_kernel_ok) return
+    if (.not. kernel%built) then
+      status = beach_kernel_not_ready
+    else if (kernel%plan%options%use_periodic2) then
+      status = beach_kernel_invalid_argument
+    else if (.not. kernel%charged) then
+      status = beach_kernel_not_ready
+    end if
+  end function require_direct_kernel
+
+  pure logical function target_count_is_addressable(count) result(addressable)
+    integer(c_int), intent(in) :: count
+    integer(i64) :: shape_limit
+
+    shape_limit = min(int(huge(0), i64), int(huge(0_i32), i64))
+    addressable = count >= 0_c_int .and. int(count, i64) <= shape_limit/3_i64
+  end function target_count_is_addressable
+
+  subroutine copy_text_to_c_buffer(text, text_length, buffer_ptr, buffer_capacity)
+    character(len=*), intent(in) :: text
+    integer, intent(in) :: text_length
+    type(c_ptr), intent(in) :: buffer_ptr
+    integer(c_int), intent(in) :: buffer_capacity
+    character(kind=c_char), pointer :: buffer(:)
+    integer :: i
+
+    call c_f_pointer(buffer_ptr, buffer, [int(buffer_capacity)])
+    do i = 1, text_length
+      buffer(i) = transfer(text(i:i), c_null_char)
+    end do
+    buffer(text_length + 1) = c_null_char
+  end subroutine copy_text_to_c_buffer
+
+  pure logical function valid_utf8_bytes(bytes) result(valid)
+    character(kind=c_char), intent(in) :: bytes(:)
+    integer :: i, b1, b2
+
+    valid = .false.
+    i = 1
+    do while (i <= size(bytes))
+      b1 = c_byte_value(bytes(i))
+      select case (b1)
+      case (1:127)
+        i = i + 1
+      case (194:223)
+        if (i + 1 > size(bytes)) return
+        if (.not. utf8_continuation(bytes(i + 1))) return
+        i = i + 2
+      case (224)
+        if (i + 2 > size(bytes)) return
+        b2 = c_byte_value(bytes(i + 1))
+        if (b2 < 160 .or. b2 > 191 .or. .not. utf8_continuation(bytes(i + 2))) return
+        i = i + 3
+      case (225:236, 238:239)
+        if (i + 2 > size(bytes)) return
+        if (.not. utf8_continuation(bytes(i + 1)) .or. .not. utf8_continuation(bytes(i + 2))) return
+        i = i + 3
+      case (237)
+        if (i + 2 > size(bytes)) return
+        b2 = c_byte_value(bytes(i + 1))
+        if (b2 < 128 .or. b2 > 159 .or. .not. utf8_continuation(bytes(i + 2))) return
+        i = i + 3
+      case (240)
+        if (i + 3 > size(bytes)) return
+        b2 = c_byte_value(bytes(i + 1))
+        if (b2 < 144 .or. b2 > 191 .or. .not. utf8_continuation(bytes(i + 2)) .or. &
+            .not. utf8_continuation(bytes(i + 3))) return
+        i = i + 4
+      case (241:243)
+        if (i + 3 > size(bytes)) return
+        if (.not. utf8_continuation(bytes(i + 1)) .or. .not. utf8_continuation(bytes(i + 2)) .or. &
+            .not. utf8_continuation(bytes(i + 3))) return
+        i = i + 4
+      case (244)
+        if (i + 3 > size(bytes)) return
+        b2 = c_byte_value(bytes(i + 1))
+        if (b2 < 128 .or. b2 > 143 .or. .not. utf8_continuation(bytes(i + 2)) .or. &
+            .not. utf8_continuation(bytes(i + 3))) return
+        i = i + 4
+      case default
+        return
+      end select
+    end do
+    valid = .true.
+  end function valid_utf8_bytes
+
+  pure logical function utf8_continuation(byte) result(valid)
+    character(kind=c_char), intent(in) :: byte
+    integer :: value
+
+    value = c_byte_value(byte)
+    valid = value >= 128 .and. value <= 191
+  end function utf8_continuation
+
+  pure integer function c_byte_value(byte) result(value)
+    character(kind=c_char), intent(in) :: byte
+    integer(c_signed_char) :: signed_value
+
+    signed_value = transfer(byte, signed_value)
+    value = int(signed_value)
+    if (value < 0) value = value + 256
+  end function c_byte_value
 
 end module bem_field_kernel_c

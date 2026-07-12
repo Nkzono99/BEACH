@@ -105,3 +105,61 @@ beachx mobility outputs/latest \
 
 These commands resolve geometry and periodic2 settings from nearby `beach.toml`.
 If no config is found, pass the corresponding `--config` option.
+
+## Evaluate Detachment Force While Retaining Periodic Images
+
+The following freezes the saved charge snapshot and moves only mesh 6 upward.
+
+```bash
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --adhesion-force-n 1.0e-10 \
+  --adhesion-range-m 2.0e-6 \
+  --output-dir outputs/latest/object_detachment
+```
+
+The `object-detachment` CLI defaults to lunar gravity, `1.62 m/s^2`. This
+example explicitly assumes Earth gravity, `9.80665 m/s^2`; change it for the
+target environment.
+
+`configured` preserves the run's finite or cached field configuration.
+`infinite-physical` combines cached `k != 0` with the physical `k = 0` mode for
+an x/y-periodic run. Only the target's central-cell primary self field is
+excluded, so force from the target's own periodic images remains. The command
+writes `instantaneous_wrench.csv`, `path.csv`, `summary.json`, and `report.md`.
+
+A complete Python example is available in
+[`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py).
+The minimal API flow is:
+
+```python
+import numpy as np
+from beach import AdhesionProfile, Beach
+
+run = Beach("outputs/latest", config_path="beach.toml")
+with run.object_interaction_snapshot(
+    periodic_model="infinite_physical",
+) as snapshot:
+    probe = snapshot.object_probe(6)
+    wrench = probe.wrench()
+    path = probe.vertical_path(np.linspace(0.0, 2.0e-4, 65))
+
+release = path.evaluate_release(
+    mass_kg=2.0e-12,
+    gravity_m_s2=9.80665,
+    adhesion=AdhesionProfile.none(),
+)
+```
+
+A zero exit status and generated CSV/JSON files establish execution success,
+not physical qualification. Check `path.status`, work versus potential
+difference, mesh/quadrature, finite shells or periodic cache, path endpoint,
+charge snapshot, and stochastic-seed sensitivity using
+[Validating Simulation Results](ValidationGuide.en.html). Do not interpret a
+finite-height speed in a non-neutral periodic cell as escape speed at infinity.

@@ -46,7 +46,7 @@
       "properties": {
         "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]},
         "photoelectron_closure": {"enum": ["none", "individual_return", "kinetic_mean"], "default": "none"},
-        "return_model": {"enum": ["none", "electrostatic_1d_instant_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
+        "return_model": {"enum": ["none", "electrostatic_1d_instant_return", "kinetic_1d_profile_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
         "interface_z": {"type": "number"},
         "infinity_potential": {"type": "number", "default": 0},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
@@ -83,7 +83,7 @@
           "properties": {
             "model": {"const": "kinetic_1d"},
             "photoelectron_closure": {"const": "kinetic_mean"},
-            "return_model": {"const": "none"}
+            "return_model": {"enum": ["none", "kinetic_1d_profile_return"]}
           }
         }
       ]

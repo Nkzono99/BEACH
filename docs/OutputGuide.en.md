@@ -52,9 +52,11 @@ For split periodic2 runs, `summary.txt` records interface potential and normal f
 For `cached_kneq0`, it also records `periodic2_cache_hit`,
 `periodic2_operator_build_count`, `periodic2_cache_fingerprint`,
 `periodic2_cache_path`, and the configured cache directory and generation
-tolerance. A cold run builds once on the root rank; a warm run reports a cache
-hit and zero builds. The regenerable operator payload is not stored in the
-checkpoint itself.
+tolerance. On a cold cache miss, target slices are distributed across all MPI
+ranks and each rank processes proxy right-hand sides with OpenMP. Only the root
+rank performs cache I/O and reports one build. A warm run reports a cache hit
+and zero builds on every rank. The regenerable operator payload is not stored
+in the checkpoint itself.
 
 With particle transfer enabled, `interface_outward_gross_C` and `interface_returned_gross_C` in `charge_ledger.csv` record gross crossings and are not added twice to the conservation residual. `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, and `max_outer_energy_relative_error` in `summary.txt` are MPI-global run maxima.
 

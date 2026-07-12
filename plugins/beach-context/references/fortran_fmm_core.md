@@ -654,7 +654,22 @@ $$
 
 `cached_kneq0` は有限画像和 `K_shell(N)`、cached full-periodic Ewald residual、state 更新時に作る対称 `k=0` subtraction の和です。最後の subtraction は source 高さの piecewise polynomial 累積 state を二分探索して O(log n) で評価し、runtime total を `K_periodic,k!=0` にします。potential の定数係数は field fit と混ぜず、平均 residual から gauge を固定します。cache header は format version、fingerprint、shape、checksum を持ち、corruption や fingerprint mismatch は lock 下の再生成になります。fingerprint は source/target topology に依存するため、geometry、order、周期長、画像層、generator/build version が変われば再利用しません。
 
-MPI job 内では rank 0 だけが read/build/write を行い、target node ID と operator を broadcast します。共有 filesystem 上の別 job は同じ lock file で直列化されます。`.tmp` を close してから同一 directory 内で atomic rename するため、reader が部分書込みを cache hit として受理することはありません。
+MPI job 内では rank 0 だけが cache の read/lock/write を行います。cache miss 時は target
+operator slice を MPI rank 間で最大 1 target 差になるよう分配し、各 target 内の proxy 列を
+OpenMP で並列評価して、最後に `MPI_Allreduce(SUM)` で完全な operator を全 rank に構築します。
+least-squares の正則化 QR は target ごとに一度だけ作り、全 proxy RHS で再利用します。
+共有 filesystem 上の別 job は同じ lock file で直列化されます。`.tmp` を close してから同一
+directory 内で atomic rename するため、reader が部分書込みを cache hit として受理することは
+ありません。
+
+2026-07-12 の旧レゴリス入力（order 4、64 target、280 proxy、840 check）による SysA
+計測では、旧 root-only cold run の 31 分 24 秒に対し、同じ 1 rank x 1 thread の operator
+公開は約 25 分 45 秒でした。1 rank x 112 threads は batch 1 を含めて 47.0 秒、2 x 112 は
+36.7 秒、4 x 112 は 31.5 秒、6 x 112 は 30.3 秒です。全並列構成の cache checksum は一致し、
+旧 operator との差も Frobenius 相対値 `1.73e-15` でした。専用 cache-prime は
+1 rank x 112 threads が core 効率と queue 待ちの基準です。既存の 6 x 112 production
+allocation で生成する場合は約 30 秒ですが、cold build だけのために 4--6 rank へ増やす利得は
+小さいです。1 core job は operator 公開後の粒子 batch でメモリ不足になったため運用対象外です。
 
 ### 11. 実装との対応
 

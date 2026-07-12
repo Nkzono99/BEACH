@@ -131,6 +131,9 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: periodic_root_operator(:, :, :)
     logical :: periodic_cache_hit = .false.
     integer(i32) :: periodic_operator_build_count = 0_i32
+    integer(i32) :: periodic_qr_preparation_count = 0_i32
+    integer(i32) :: periodic_operator_local_target_count = 0_i32
+    integer(i32) :: periodic_operator_thread_count = 0_i32
     character(len=16) :: periodic_cache_fingerprint = ''
     character(len=512) :: periodic_cache_path = ''
     logical :: periodic_k0_ready = .false.
@@ -286,6 +289,9 @@ contains
     plan%periodic_root_target_count = 0_i32
     plan%periodic_cache_hit = .false.
     plan%periodic_operator_build_count = 0_i32
+    plan%periodic_qr_preparation_count = 0_i32
+    plan%periodic_operator_local_target_count = 0_i32
+    plan%periodic_operator_thread_count = 0_i32
     plan%periodic_cache_fingerprint = ''
     plan%periodic_cache_path = ''
     plan%periodic_k0_ready = .false.

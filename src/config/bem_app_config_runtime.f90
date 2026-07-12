@@ -2,7 +2,7 @@
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann, k_coulomb, eps0
-  use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
+  use bem_types, only: mesh_type, particles_soa, sim_config, injection_state, bc_periodic
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_field, only: electric_potential_at
@@ -18,11 +18,13 @@ module bem_app_config_runtime
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_particles, only: init_particles
   use bem_sheath_injection_model, only: sheath_injection_context, resolve_sheath_injection_context
+  use bem_outer_plasma_types, only: outer_plasma_state_type
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, particles_per_batch_from_config, &
     total_particles_from_config
   use bem_string_utils, only: lower_ascii
   use bem_config_helpers, only: resolve_inward_normal
+  use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private :: finalize_particle_batch_collision_query
@@ -275,13 +277,14 @@ contains
   !! @param[out] pcls 生成したバッチ粒子群。
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
+  !! @param[in] outer_state 現在バッチの外部プラズマ状態（kinetic 1D流入写像時に必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
   !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
   !! @param[out] collision_failure_species 不完全な照会を返した最小 species index。
   !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
   !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
   subroutine init_particle_batch_from_config( &
-    cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi, &
+    cfg, batch_idx, pcls, state, mesh, outer_state, photo_emission_dq, mpi_rank, mpi_size, mpi, &
     collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
     )
     type(app_config), intent(in) :: cfg
@@ -289,6 +292,7 @@ contains
     type(particles_soa), intent(out) :: pcls
     type(injection_state), intent(inout), optional :: state
     type(mesh_type), intent(in), optional :: mesh
+    type(outer_plasma_state_type), intent(in), optional :: outer_state
     real(dp), intent(out), optional :: photo_emission_dq(:)
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
     type(mpi_context), intent(in), optional :: mpi
@@ -441,7 +445,7 @@ contains
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
         end if
         call reservoir_face_velocity_correction( &
-          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh &
+          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh, outer_state &
           )
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
@@ -603,7 +607,9 @@ contains
       'photo_raycast collision query incomplete during batch preparation: batch=', batch_idx, &
       ' species=', species_idx, ' ray=', query_ray, ' bounce=', query_bounce, &
       ' status=', trim(status_name), ' code=', query_status
-    error stop trim(failure_message)
+    write (error_unit, '(a)') trim(failure_message)
+    flush (error_unit)
+    error stop 1
   end subroutine finalize_particle_batch_collision_query
 
   !> 1粒子種ぶんの位置・速度サンプルをまとめて生成する。
@@ -707,7 +713,28 @@ contains
     case default
       error stop 'Unknown particles.species.source_mode.'
     end select
+    if (trim(lower_ascii(spec%source_mode)) == 'reservoir_face') call normalize_reservoir_positions(sim, x)
   end subroutine sample_species_state
+
+  !> reservoirの時間ジッタ後の位置を、設定されたbox境界条件に従って有効領域へ戻す。
+  pure subroutine normalize_reservoir_positions(sim, x)
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(inout) :: x(:, :)
+    integer(i32) :: axis
+    real(dp) :: span
+
+    if (.not. sim%use_box) return
+    do axis = 1_i32, 3_i32
+      if (.not. ieee_is_finite(sim%box_min(axis)) .or. .not. ieee_is_finite(sim%box_max(axis))) cycle
+      span = sim%box_max(axis) - sim%box_min(axis)
+      if (.not. ieee_is_finite(span) .or. span <= 0.0_dp) cycle
+      if (sim%bc_low(axis) == bc_periodic .and. sim%bc_high(axis) == bc_periodic) then
+        x(axis, :) = sim%box_min(axis) + modulo(x(axis, :) - sim%box_min(axis), span)
+      else
+        x(axis, :) = min(max(x(axis, :), sim%box_min(axis)), sim%box_max(axis))
+      end if
+    end do
+  end subroutine normalize_reservoir_positions
 
   !> photo_raycast 粒子種のレイキャスト放出を実行する。
   !! @param[in] sim シミュレーション設定。
@@ -905,12 +932,13 @@ contains
   !! @param[out] vmin_normal 無限遠法線速度の下限 [m/s]。
   !! @param[out] barrier_normal 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（補正時に必要）。
-  subroutine reservoir_face_velocity_correction(cfg, spec, vmin_normal, barrier_normal, mesh)
+  subroutine reservoir_face_velocity_correction(cfg, spec, vmin_normal, barrier_normal, mesh, outer_state)
     type(app_config), intent(in) :: cfg
     type(particle_species_spec), intent(in) :: spec
     real(dp), intent(out) :: vmin_normal
     real(dp), intent(out) :: barrier_normal
     type(mesh_type), intent(in), optional :: mesh
+    type(outer_plasma_state_type), intent(in), optional :: outer_state
 
     real(dp) :: phi_face, delta_phi, area_xy
 
@@ -919,6 +947,18 @@ contains
     if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return') then
       if (trim(lower_ascii(spec%inject_face)) /= 'z_high') then
         error stop 'Split outer-plasma ambient inflow must use inject_face="z_high".'
+      end if
+      if (trim(lower_ascii(cfg%outer_plasma%model)) == 'kinetic_1d') then
+        if (.not. present(outer_state)) error stop 'kinetic_1d ambient inflow requires the refreshed outer state.'
+        if (.not. outer_state%ready .or. trim(lower_ascii(outer_state%model)) /= 'kinetic_1d') then
+          error stop 'kinetic_1d ambient inflow requires a ready kinetic outer state.'
+        end if
+        delta_phi = outer_state%interface_potential - outer_state%infinity_potential
+        if (.not. ieee_is_finite(delta_phi)) error stop 'kinetic_1d ambient inflow barrier is non-finite.'
+        barrier_normal = 2.0_dp*spec%q_particle*delta_phi/spec%m_particle
+        if (.not. ieee_is_finite(barrier_normal)) error stop 'kinetic_1d ambient inflow map is non-finite.'
+        if (barrier_normal > 0.0_dp) vmin_normal = sqrt(barrier_normal)
+        return
       end if
       if (.not. present(mesh)) error stop 'Split outer-plasma ambient inflow requires the charged mesh.'
       area_xy = (cfg%sim%box_max(1) - cfg%sim%box_min(1))*(cfg%sim%box_max(2) - cfg%sim%box_min(2))

@@ -67,6 +67,11 @@ source-dir = "tests/fortran"
 main = "test_periodic2_cache_codec.f90"
 
 [[test]]
+name = "test_regularized_qr"
+source-dir = "tests/fortran"
+main = "test_regularized_qr.f90"
+
+[[test]]
 name = "test_periodic2_operator_cache"
 source-dir = "tests/fortran"
 main = "test_periodic2_operator_cache.f90"
@@ -80,6 +85,11 @@ main = "test_periodic2_operator_cache_mpi.f90"
 name = "test_periodic2_infinite_operator"
 source-dir = "tests/fortran"
 main = "test_periodic2_infinite_operator.f90"
+
+[[example]]
+name = "benchmark_periodic2_runtime"
+source-dir = "benchmarks/fortran"
+main = "benchmark_periodic2_runtime.f90"
 
 [[test]]
 name = "test_periodic2_cached_snapshot"
@@ -105,6 +115,11 @@ main = "test_dynamics_panel_fmm.f90"
 name = "test_periodic_zero_mode"
 source-dir = "tests/fortran"
 main = "test_periodic_zero_mode.f90"
+
+[[test]]
+name = "test_periodic_zero_mode_c"
+source-dir = "tests/fortran"
+main = "test_periodic_zero_mode_c.f90"
 
 [[test]]
 name = "test_outer_plasma_linear"
@@ -295,6 +310,11 @@ main = "test_periodic2_flat_oracle_diag.f90"
 name = "test_field_kernel_c"
 source-dir = "tests/fortran"
 main = "test_field_kernel_c.f90"
+
+[[test]]
+name = "test_field_kernel_cache_c"
+source-dir = "tests/fortran"
+main = "test_field_kernel_cache_c.f90"
 
 [[test]]
 name = "test_version"

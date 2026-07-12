@@ -14,6 +14,7 @@ from . import (
     kernel_forces,
     lint,
     model,
+    object_detachment,
     plot_coulomb_force_matrix,
     plot_fortran_potential_slices,
     plot_performance_profile,
@@ -37,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     plot_coulomb_force_matrix.add_subparser(subparsers)
     analyze_coulomb_mobility.add_subparser(subparsers)
     kernel_forces.add_subparser(subparsers)
+    object_detachment.add_subparser(subparsers)
     plot_fortran_potential_slices.add_subparser(subparsers)
     estimate_fortran_workload.add_subparser(subparsers)
     plot_performance_profile.add_subparser(subparsers)

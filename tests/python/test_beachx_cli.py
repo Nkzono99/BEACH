@@ -136,6 +136,7 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     assert "animate" in captured.out
     assert "coulomb" in captured.out
     assert "mobility" in captured.out
+    assert "object-detachment" in captured.out
     assert "slices" in captured.out
     assert "workload" in captured.out
     assert "profile" in captured.out

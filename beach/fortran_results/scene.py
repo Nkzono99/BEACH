@@ -443,6 +443,10 @@ def _apply_transform_points(
     original_shape = arr.shape
     flat = np.ascontiguousarray(arr.reshape(-1, 3))
     backend = _normalize_transform_backend(backend)
+    if np.array_equal(rotation, np.eye(3, dtype=np.float64)) and not np.any(
+        translation
+    ):
+        return flat.copy().reshape(original_shape)
     if backend == "numba" or (backend == "auto" and flat.shape[0] >= 8192):
         kernel = _get_numba_transform_kernel()
         if kernel is not None:

@@ -7,6 +7,7 @@ module bem_injection
   use bem_boundary, only: apply_box_boundary
   use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
   use bem_string_utils, only: lower_ascii
+  use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -679,7 +680,9 @@ contains
     write (failure_message, '(a,i0,a,i0,a,a,a,i0)') &
       'photo_raycast collision query incomplete: ray=', query_ray, ' bounce=', query_bounce, &
       ' status=', trim(status_name), ' code=', query_status
-    error stop trim(failure_message)
+    write (error_unit, '(a)') trim(failure_message)
+    flush (error_unit)
+    error stop 1
   end subroutine finalize_photo_collision_query
 
   !> レイを現在位置から最初のボックス境界まで進める。

@@ -1,6 +1,6 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
-  use, intrinsic :: iso_fortran_env, only: output_unit
+  use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
                                      perf_region_field_solver_init, perf_region_history_write, perf_region_mpi_reduce, &
@@ -136,10 +136,15 @@ contains
       end do
     end if
 
+    batch_idx = stats%batches + 1_i32
+    call perf_region_begin(perf_region_field_refresh, t0)
+    call outer_coupler%refresh(snapshot, mesh, batch_idx)
+    call perf_region_end(perf_region_field_refresh, t0)
+
     call perf_region_begin(perf_region_prepare_batch, t0)
     call prepare_batch_state( &
       mesh, app, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      photo_emission_dq, mpi_ctx, inject_state, photo_failure_status, photo_failure_species, &
+      photo_emission_dq, mpi_ctx, snapshot%outer, inject_state, photo_failure_status, photo_failure_species, &
       photo_failure_ray, photo_failure_bounce &
       )
     call perf_region_end(perf_region_prepare_batch, t0)
@@ -163,10 +168,6 @@ contains
         photo_selected_failure_values(3), photo_selected_failure_values(4) &
         )
     end if
-
-    call perf_region_begin(perf_region_field_refresh, t0)
-    call outer_coupler%refresh(snapshot, mesh, batch_idx)
-    call perf_region_end(perf_region_field_refresh, t0)
 
     call perf_region_begin(perf_region_particle_batch, t0)
     if (photoelectron_histogram_enabled) then
@@ -315,14 +316,15 @@ contains
   if (present(inject_state)) then
     call init_particle_batch_from_config( &
       app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
-      mpi=mpi, collision_failure_status=collision_failure_status, &
+      outer_state=outer_state, mpi=mpi, collision_failure_status=collision_failure_status, &
       collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
       collision_failure_bounce=collision_failure_bounce &
       )
   else
     call init_particle_batch_from_config( &
       app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi, &
-      collision_failure_status=collision_failure_status, collision_failure_species=collision_failure_species, &
+      outer_state=outer_state, collision_failure_status=collision_failure_status, &
+      collision_failure_species=collision_failure_species, &
       collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce &
       )
   end if
@@ -460,6 +462,12 @@ contains
               snapshot, mesh, app%sim, app%outer_plasma, app%coupling, pcls_batch%q(i), pcls_batch%m(i), &
               step_result%interface_crossing, interface_outcome &
               )
+          else if (trim(lower_ascii(app%outer_plasma%return_model)) == 'kinetic_1d_profile_return') then
+            call map_outer_particle_kinetic_profile( &
+              snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
+              step_result%interface_crossing, app%coupling%field_evolution_timescale, &
+              app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
+              )
           else
             call map_outer_particle_linear_debye( &
               snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
@@ -591,7 +599,9 @@ contains
       'particle step failed: batch=', batch_idx, ' particle=', failure_particle, &
       ' step=', failure_step, ' rank=', failure_rank, ' status=', trim(failure_name), &
       ' code=', failure_status, ' dt=', dt, ' x=', failure_x, ' v=', failure_v
-    error stop trim(failure_message)
+    write (error_unit, '(a)') trim(failure_message)
+    flush (error_unit)
+    error stop 1
   end subroutine stop_for_collision_failure
 
   !> 全 rank で選択済みの photo collision failure context を報告して停止する。
@@ -614,7 +624,9 @@ contains
       'photo collision query incomplete: batch=', batch_idx, ' rank=', failure_rank, &
       ' species=', failure_species, ' ray=', failure_ray, ' bounce=', failure_bounce, &
       ' status=', trim(failure_name), ' code=', failure_status
-    error stop trim(failure_message)
+    write (error_unit, '(a)') trim(failure_message)
+    flush (error_unit)
+    error stop 1
   end subroutine stop_for_photo_collision_failure
 
   !> 正の整数環境変数を読む。未設定、不正値、ゼロ以下の場合は found=.false.。

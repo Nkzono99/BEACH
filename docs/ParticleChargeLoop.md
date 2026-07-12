@@ -69,6 +69,7 @@ MPI world size に依存しません。
 ### 7.3 reservoir sampling
 
 `reservoir_face` の位置は注入面上の矩形から一様乱数で選び、必要なら `position_jitter_dt=sim.dt` により面から少し進んだ位置へずらします。
+ジッタ後の位置は、周期軸ではprimitive cellへwrapし、非周期軸ではbox面へclampして有効box内に保ちます。
 速度は次のいずれかです。
 
 - shifted Maxwellian を生成し、法線成分だけ flux-weighted distribution から再サンプルする。
@@ -137,7 +138,8 @@ $$
 [`bem_particle_stepper`](../src/runtime/simulator/bem_particle_stepper.f90)
 
 粒子運動は一様磁場 `sim.b0` と、予測中点で評価した境界要素電場に一様外部電場 `sim.e0` を1回加えた
-電場による Boris 法です。位置と速度の入力・出力は同一時刻の状態です。
+電場による Boris 法です。box crossing候補では場評価点だけを周期軸でwrap・非周期軸でbox面へclampし、
+軌道候補座標は写像しません。位置と速度の入力・出力は同一時刻の状態です。
 
 入力:
 
@@ -199,9 +201,9 @@ $$
 予測中点の空間電場評価と台形位置更新により、smooth な場で candidate kinematics は二次精度になります。
 一様電場による一定加速度の変位は丸め誤差まで解析解と一致します。
 BEACH は `x^n -> x^{n+1}` を1回だけ衝突判定し、候補終点がbox内部ならその結果を確定します。box crossing時は
-mesh hitと最初のfaceのparameterを比較して最早順序を決め、reflect/periodic後の残り時間を一度だけ再積分します。
+mesh hitと最初のfaceのparameterを比較して最早順序を決め、reflect/periodic後の残り時間を最大8 eventまで再積分します。
 periodic2のfull-chord照会がbox外区間でrange limitに達した場合だけ、最初のfaceまでに制限して再照会します。
-衝突があれば粒子は吸収され、候補状態は保存されません。残り時間中の2回目box eventは、そこまでにhitがなければ
+衝突があれば粒子は吸収され、候補状態は保存されません。残り時間中の9回目box eventは、そこまでにhitがなければ
 stateを変更せず明示failureとし、`sim.dt`の縮小を要求します。
 
 ---
