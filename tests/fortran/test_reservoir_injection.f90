@@ -9,6 +9,7 @@ program test_reservoir_injection
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   use bem_constants, only: eps0
+  use bem_outer_plasma_types, only: outer_plasma_state_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
@@ -128,6 +129,7 @@ contains
     type(mesh_type) :: split_mesh
     type(particles_soa) :: particles
     type(injection_state) :: state
+    type(outer_plasma_state_type) :: outer_state
     real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
 
     v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
@@ -144,6 +146,7 @@ contains
     split_cfg%sim%use_box = .true.
     split_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     split_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    split_cfg%outer_plasma%model = 'kinetic_1d'
     split_cfg%outer_plasma%debye_length = 0.2_dp
     split_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
     split_cfg%n_particle_species = 1_i32
@@ -161,11 +164,17 @@ contains
     split_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
     split_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
     split_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    outer_state%model = 'kinetic_1d'
+    outer_state%ready = .true.
+    outer_state%interface_potential = -2.0_dp
+    outer_state%infinity_potential = 0.0_dp
     allocate (state%macro_residual(1))
     state%macro_residual = 0.0_dp
-    call init_particle_batch_from_config(split_cfg, 1_i32, particles, state=state, mesh=split_mesh)
+    call init_particle_batch_from_config( &
+      split_cfg, 1_i32, particles, state=state, mesh=split_mesh, outer_state=outer_state &
+      )
     call assert_equal_i32(particles%n, 10_i32, 'mapped ambient macro count mismatch')
-    call assert_close_dp(particles%v(3, 1), -sqrt(3.0_dp), 1.0e-14_dp, 'mapped interface velocity mismatch')
+    call assert_close_dp(particles%v(3, 1), -sqrt(5.0_dp), 1.0e-14_dp, 'kinetic interface velocity mismatch')
   end subroutine test_split_outer_infinity_vdf_map
 
   subroutine test_global_count_independent_of_mpi_size()

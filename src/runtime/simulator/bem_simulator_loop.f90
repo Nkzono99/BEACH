@@ -136,10 +136,15 @@ contains
       end do
     end if
 
+    batch_idx = stats%batches + 1_i32
+    call perf_region_begin(perf_region_field_refresh, t0)
+    call outer_coupler%refresh(snapshot, mesh, batch_idx)
+    call perf_region_end(perf_region_field_refresh, t0)
+
     call perf_region_begin(perf_region_prepare_batch, t0)
     call prepare_batch_state( &
       mesh, app, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      photo_emission_dq, mpi_ctx, inject_state, photo_failure_status, photo_failure_species, &
+      photo_emission_dq, mpi_ctx, snapshot%outer, inject_state, photo_failure_status, photo_failure_species, &
       photo_failure_ray, photo_failure_bounce &
       )
     call perf_region_end(perf_region_prepare_batch, t0)
@@ -163,10 +168,6 @@ contains
         photo_selected_failure_values(3), photo_selected_failure_values(4) &
         )
     end if
-
-    call perf_region_begin(perf_region_field_refresh, t0)
-    call outer_coupler%refresh(snapshot, mesh, batch_idx)
-    call perf_region_end(perf_region_field_refresh, t0)
 
     call perf_region_begin(perf_region_particle_batch, t0)
     if (photoelectron_histogram_enabled) then
@@ -315,14 +316,15 @@ contains
   if (present(inject_state)) then
     call init_particle_batch_from_config( &
       app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
-      mpi=mpi, collision_failure_status=collision_failure_status, &
+      outer_state=outer_state, mpi=mpi, collision_failure_status=collision_failure_status, &
       collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
       collision_failure_bounce=collision_failure_bounce &
       )
   else
     call init_particle_batch_from_config( &
       app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi, &
-      collision_failure_status=collision_failure_status, collision_failure_species=collision_failure_species, &
+      outer_state=outer_state, collision_failure_status=collision_failure_status, &
+      collision_failure_species=collision_failure_species, &
       collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce &
       )
   end if
