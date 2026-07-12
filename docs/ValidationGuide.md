@@ -54,7 +54,13 @@ process の終了、CSV の生成、または一つの `status="converged"` だ�
    `k != 0` と `E_bottom=0` の物理 zero mode を組み合わせます。
 2. self policy が `exclude_primary_keep_images` であることを確認します。旧
    `kernel-forces` の `exclude_target_lattice` や、電位再構成の `area_equivalent` と
-   混同しません。
+   混同しません。周期 seam を跨ぐ object では、all-source/cache 入力は saved 表現のまま
+   保持し、target probe だけを mesh 単位の connected branch へ unwrap します。
+   `target_geometry_representation="periodic2_mesh_connected"` を要求し、primary subtraction、
+   target integration、torque origin、geometry radius が同じ branch を使うことを確認します。
+   production の質量・接着・`0..2R` は明示した model radius を使い、connected geometry の
+   bounding radius との差を宣言 tolerance 内で検査します。3D torque は origin policy と
+   各評価点の origin 座標を併記します。
 3. triangle の target integration は Gauss-Duffy order 3/7 で依存性を確認します。これは
    target 側の面積積分の確認であり、source mesh refinement ではありません。source
    discretization は、別解像度の source mesh を使って独立に refinement を確認します。

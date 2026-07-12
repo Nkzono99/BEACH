@@ -563,6 +563,15 @@ A complete `beach.toml` with `sim.box_min` and `sim.box_max` is required. The
 current release supports only `outer_plasma.model="none"`; it rejects an active
 outer field explicitly instead of silently omitting it.
 
+When an x/y-periodic mesh crosses a cell seam, the snapshot keeps all-source
+geometry in the saved representation so it remains identical to the simulation
+and cache identity. `object_probe()` unwraps only the selected mesh into one
+periodically connected branch. It uses that same target geometry for quadrature,
+central-primary removal, rigid transforms, the area centroid, and the bounding
+radius. Inspect it through `probe.target_geometry_representation`,
+`target_triangles_m`, `geometric_area_centroid_m`, `vertex_bounding_center_m`,
+and `vertex_bounding_radius_m`.
+
 `ObjectWrench.components` preserves these physical contributions:
 
 | Key | Meaning |
@@ -573,7 +582,11 @@ outer field explicitly instead of silently omitting it.
 | `total_external` | Sum of the three rows above; equals `ObjectWrench.force_N` / `torque_Nm` |
 
 Kernel and zero-mode entries in `numerical_metadata` are a numerical
-decomposition of the same total, not additional physical forces.
+decomposition of the same total, not additional physical forces. Torque depends
+on its reference point, so retain `ObjectWrench.torque_origin_m` and
+`numerical_metadata["torque_origin_policy"]` with every force record.
+`vertical_path()` records the reference point at every height in
+`numerical_metadata["torque_origin_m"]`.
 
 Point sources use element centroids for target integration. `triangle_p0` uses
 order-7 Gauss-Duffy area integration by default.

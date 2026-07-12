@@ -250,7 +250,7 @@ class ObjectInteractionSnapshot:
 
     @property
     def source_triangles_m(self) -> np.ndarray:
-        """Return the immutable source panels in the active geometry representation."""
+        """Return immutable saved panels used by the all-source field kernel."""
 
         return self._triangles_m
 

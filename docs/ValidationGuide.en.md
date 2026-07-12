@@ -60,7 +60,15 @@ refinement has not been performed.
    `E_bottom=0` zero mode.
 2. Confirm `exclude_primary_keep_images`. Do not confuse it with the legacy
    `kernel-forces` policy `exclude_target_lattice` or the potential
-   reconstruction self term `area_equivalent`.
+   reconstruction self term `area_equivalent`. For an object crossing a
+   periodic seam, keep the all-source/cache input in its saved representation
+   and unwrap only the target probe into a mesh-connected branch. Require
+   `target_geometry_representation="periodic2_mesh_connected"` and confirm that
+   primary subtraction, target integration, torque origin, and geometry radius
+   use that same branch. Production mass, adhesion, and the `0..2R` path use the
+   explicitly declared model radius; compare the connected-geometry bounding
+   radius against it within a declared tolerance. Record both the origin policy
+   and origin coordinates for every 3D torque.
 3. For triangle target integration, compare Gauss-Duffy order 3 and order 7.
    This checks target-side area integration; it is not source-mesh refinement.
    Check source discretization independently with source meshes at different
