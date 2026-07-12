@@ -69,6 +69,7 @@ MPI world size に依存しません。
 ### 7.3 reservoir sampling
 
 `reservoir_face` の位置は注入面上の矩形から一様乱数で選び、必要なら `position_jitter_dt=sim.dt` により面から少し進んだ位置へずらします。
+ジッタ後の位置は、周期軸ではprimitive cellへwrapし、非周期軸ではbox面へclampして有効box内に保ちます。
 速度は次のいずれかです。
 
 - shifted Maxwellian を生成し、法線成分だけ flux-weighted distribution から再サンプルする。

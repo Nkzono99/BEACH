@@ -2,7 +2,7 @@
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann, k_coulomb, eps0
-  use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
+  use bem_types, only: mesh_type, particles_soa, sim_config, injection_state, bc_periodic
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_field, only: electric_potential_at
@@ -710,7 +710,28 @@ contains
     case default
       error stop 'Unknown particles.species.source_mode.'
     end select
+    if (trim(lower_ascii(spec%source_mode)) == 'reservoir_face') call normalize_reservoir_positions(sim, x)
   end subroutine sample_species_state
+
+  !> reservoirの時間ジッタ後の位置を、設定されたbox境界条件に従って有効領域へ戻す。
+  pure subroutine normalize_reservoir_positions(sim, x)
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(inout) :: x(:, :)
+    integer(i32) :: axis
+    real(dp) :: span
+
+    if (.not. sim%use_box) return
+    do axis = 1_i32, 3_i32
+      if (.not. ieee_is_finite(sim%box_min(axis)) .or. .not. ieee_is_finite(sim%box_max(axis))) cycle
+      span = sim%box_max(axis) - sim%box_min(axis)
+      if (.not. ieee_is_finite(span) .or. span <= 0.0_dp) cycle
+      if (sim%bc_low(axis) == bc_periodic .and. sim%bc_high(axis) == bc_periodic) then
+        x(axis, :) = sim%box_min(axis) + modulo(x(axis, :) - sim%box_min(axis), span)
+      else
+        x(axis, :) = min(max(x(axis, :), sim%box_min(axis)), sim%box_max(axis))
+      end if
+    end do
+  end subroutine normalize_reservoir_positions
 
   !> photo_raycast 粒子種のレイキャスト放出を実行する。
   !! @param[in] sim シミュレーション設定。

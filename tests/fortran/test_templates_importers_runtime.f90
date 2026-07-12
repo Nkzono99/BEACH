@@ -2,13 +2,15 @@
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann, k_coulomb, qe
-  use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor, surface_model_dielectric
+  use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor, surface_model_dielectric, &
+                       bc_open, bc_periodic
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
   use bem_app_config, only: &
     app_config, default_app_config, species_from_defaults, &
-    build_mesh_from_config, init_particles_from_config, seed_particles_from_config, init_particle_batch_from_config
+    build_mesh_from_config, init_particles_from_config, seed_particles_from_config, init_particle_batch_from_config, &
+    sample_species_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
@@ -18,6 +20,7 @@ program test_templates_importers_runtime
   type(particles_soa) :: pcls
   type(injection_state) :: state
   real(dp), allocatable :: photo_emission_dq(:)
+  real(dp) :: reservoir_x(3, 128), reservoir_v(3, 128)
   real(dp) :: photo_v0(3, 2), photo_v1(3, 2), photo_v2(3, 2), expected_photo_counter
   real(dp) :: center_distance, expected_weight, raw_photo_counter
   integer(i32) :: i
@@ -27,7 +30,7 @@ program test_templates_importers_runtime
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
 
-  call test_init(12)
+  call test_init(13)
 
   call test_begin('template_shapes')
   call make_plane(mesh, nx=2_i32, ny=3_i32)
@@ -59,6 +62,37 @@ program test_templates_importers_runtime
 
   call make_sphere(mesh, n_lon=8_i32, n_lat=4_i32)
   call assert_equal_i32(mesh%nelem, 48_i32, 'sphere element count mismatch')
+  call test_end()
+
+  call test_begin('reservoir_jitter_wraps_periodic_axes')
+  call default_app_config(cfg)
+  cfg%sim%dt = 0.5_dp
+  cfg%sim%use_box = .true.
+  cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+  cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+  cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+  cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  cfg%particle_species(1) = species_from_defaults()
+  cfg%particle_species(1)%source_mode = 'reservoir_face'
+  cfg%particle_species(1)%inject_face = 'z_high'
+  cfg%particle_species(1)%pos_low = [0.99_dp, 0.5_dp, 1.0_dp]
+  cfg%particle_species(1)%pos_high = cfg%particle_species(1)%pos_low
+  cfg%particle_species(1)%drift_velocity = [4.0_dp, 0.0_dp, -1.0_dp]
+  cfg%particle_species(1)%temperature_k = 0.0_dp
+  cfg%particle_species(1)%m_particle = 1.0_dp
+  call sample_species_state(cfg%sim, cfg%particle_species(1), 128_i32, reservoir_x, reservoir_v)
+  call assert_true( &
+    all(reservoir_x(1, :) >= cfg%sim%box_min(1) .and. reservoir_x(1, :) < cfg%sim%box_max(1)), &
+    'reservoir jitter must wrap x into the periodic cell' &
+    )
+  call assert_true( &
+    all(reservoir_x(2, :) >= cfg%sim%box_min(2) .and. reservoir_x(2, :) < cfg%sim%box_max(2)), &
+    'reservoir jitter must keep y in the periodic cell' &
+    )
+  call assert_true( &
+    all(reservoir_x(3, :) >= cfg%sim%box_min(3) .and. reservoir_x(3, :) <= cfg%sim%box_max(3)), &
+    'reservoir jitter must keep the normal coordinate in the box' &
+    )
   call test_end()
 
   call test_begin('obj_import')
