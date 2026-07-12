@@ -33,6 +33,7 @@ interface_field_tolerance = 1.0e-3
 
 [outer_plasma]
 model = "kinetic_1d"
+return_model = "kinetic_1d_profile_return"
 interface_z = 1.0
 infinity_potential = 0.0
 debye_length = 0.2
@@ -40,8 +41,10 @@ thermal_voltage = 2.0
 
 [coupling]
 update_mode = "explicit"
-particle_transfer_mode = "none"
+particle_transfer_mode = "electrostatic_1d_instant_return"
 outer_update_stride = 1
+field_evolution_timescale = 1.0
+max_frozen_field_ratio = 0.1
 
 [particles]
 [[particles.species]]

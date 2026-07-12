@@ -343,11 +343,6 @@ contains
         call reject(physics_config_invalid_combination, 'A return model requires particle transfer.', status, message)
         return
       end if
-      if (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
-          trim(lower_ascii(outer%return_model)) /= 'none') then
-        call reject(physics_config_invalid_combination, 'kinetic_1d particle return is not available.', status, message)
-        return
-      end if
     case ('electrostatic_1d_instant_return')
       if (coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
         call reject(physics_config_invalid_combination, 'Invalid electrostatic 1D instant-return coupling.', status, message)

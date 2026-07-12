@@ -182,8 +182,8 @@ batch_count_this_run = final_batch_idx - stats.batches
 field_solver.init(mesh, sim)
 
 for local_batch_idx = 1..batch_count_this_run:
+    outer_coupler.refresh(snapshot, mesh, batch_idx)
     prepare_batch_state(...)
-    field_solver.refresh(mesh)
     process_particle_batch(...)
     commit_batch_charge(...)
     count_batch_outcomes(...)
@@ -201,6 +201,10 @@ for local_batch_idx = 1..batch_count_this_run:
 - `dq_thread(nelem, nth)`: OpenMP thread ごとの電荷差分
 - `photo_emission_dq(nelem)`: `photo_raycast` の放出元逆符号電荷
 - `escaped_boundary_flag(:)` と `absorbed_flag(:)`
+
+`kinetic_1d_profile_return`では、直前にMPI-global更新された`snapshot.outer`を
+`init_particle_batch_from_config`へ渡します。これにより無限遠reservoirのaccessible fluxと
+interface速度が、そのbatchのfieldと同一の`phi_interface-phi_infinity`から決まります。
 
 `dq_thread` を thread 別に分けることで、衝突時の要素電荷加算を atomic なしで集計できます。
 `photo_raycast` の衝突照会が不完全な場合、sampler は OpenMP 内で停止せず、最小の ray / bounce と status を

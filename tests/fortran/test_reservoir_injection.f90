@@ -184,6 +184,7 @@ contains
     type(app_config) :: count_cfg
     type(particles_soa) :: particles
     type(injection_state), allocatable :: states(:)
+    type(outer_plasma_state_type) :: outer_state
     integer(i32) :: size_index, n_ranks, rank, batch_idx, global_count
 
     call default_app_config(count_cfg)
@@ -193,6 +194,8 @@ contains
     count_cfg%sim%use_box = .true.
     count_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     count_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    count_cfg%outer_plasma%model = 'kinetic_1d'
+    count_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
     count_cfg%n_particle_species = 1_i32
     count_cfg%particle_species(1) = species_from_defaults()
     count_cfg%particle_species(1)%source_mode = 'reservoir_face'
@@ -200,14 +203,18 @@ contains
     count_cfg%particle_species(1)%has_number_density_m3 = .true.
     count_cfg%particle_species(1)%temperature_k = 0.0_dp
     count_cfg%particle_species(1)%has_temperature_k = .true.
-    count_cfg%particle_species(1)%q_particle = 0.0_dp
+    count_cfg%particle_species(1)%q_particle = 1.0_dp
     count_cfg%particle_species(1)%m_particle = 1.0_dp
     count_cfg%particle_species(1)%w_particle = 4.0_dp
     count_cfg%particle_species(1)%has_w_particle = .true.
-    count_cfg%particle_species(1)%inject_face = 'z_low'
-    count_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 0.0_dp]
-    count_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 0.0_dp]
-    count_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
+    count_cfg%particle_species(1)%inject_face = 'z_high'
+    count_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    count_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    count_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    outer_state%model = 'kinetic_1d'
+    outer_state%ready = .true.
+    outer_state%interface_potential = 0.125_dp
+    outer_state%infinity_potential = 0.0_dp
 
     do size_index = 1_i32, size(rank_sizes)
       n_ranks = rank_sizes(size_index)
@@ -220,7 +227,8 @@ contains
         global_count = 0_i32
         do rank = 1_i32, n_ranks
           call init_particle_batch_from_config( &
-            count_cfg, batch_idx, particles, state=states(rank), mpi_rank=rank - 1_i32, mpi_size=n_ranks &
+            count_cfg, batch_idx, particles, state=states(rank), outer_state=outer_state, &
+            mpi_rank=rank - 1_i32, mpi_size=n_ranks &
             )
           global_count = global_count + particles%n
           call assert_close_dp( &
@@ -231,6 +239,10 @@ contains
         call assert_equal_i32( &
           global_count, expected_counts(batch_idx), 'global reservoir count must not depend on MPI size' &
           )
+        if (batch_idx == 4_i32 .and. n_ranks == 1_i32) then
+          call assert_close_dp(particles%v(3, 1), -sqrt(0.75_dp), 1.0e-14_dp, &
+                               'kinetic barrier velocity must not depend on MPI layout')
+        end if
       end do
       deallocate (states)
     end do

@@ -73,7 +73,9 @@ If `K_normal(infinity) >= 0`, the particle escapes. Otherwise the first root of
 is twice the outward integral of `dz / v_normal(z)`. The implementation treats
 the stored potential as piecewise linear and integrates each segment
 analytically, including the integrable square-root endpoint at the turning
-point. It rejects non-monotonic, non-finite, or sign-inconsistent profiles.
+point. If the turning point lies above the stored grid, it analytically
+integrates the configured far Robin exponential tail. It rejects non-monotonic,
+non-finite, or sign-inconsistent profiles.
 
 The returned particle keeps its tangential velocity, advances tangentially by
 `v_t * tau_outer`, wraps x/y periodically, reverses its normal velocity at the
