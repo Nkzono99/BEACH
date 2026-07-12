@@ -14,7 +14,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -71,6 +71,22 @@ program test_outer_plasma_kinetic
     'strong photoelectron density did not affect the sheath profile' &
     )
   call assert_true(state%nonlinear_residual < options%residual_tolerance, 'strong-photoelectron residual is too large')
+  call test_end()
+
+  call test_begin('photoelectron space charge starts from a neutral surface field')
+  options = reference_options()
+  options%interface_field = 0.0_dp
+  options%photoelectron_charge = -qe
+  options%photoelectron_mass = electron_mass
+  options%photoelectron_temperature_j = 1.5_dp*qe
+  options%photoelectron_emission_flux = 5.0e10_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'zero-field photoelectron solve status mismatch: '//trim(message))
+  call assert_true(state%interface_potential < 0.0_dp, 'photoelectron space charge must lower the interface potential')
+  call assert_true( &
+    all(state%potential(2:) >= state%potential(:state%profile_n - 1_i32)), &
+    'zero-field photoelectron profile must remain monotonic' &
+    )
   call test_end()
 
   call test_begin('quasineutral zero field is an exact kinetic equilibrium')
