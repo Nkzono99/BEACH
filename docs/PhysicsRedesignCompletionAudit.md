@@ -26,7 +26,7 @@ handoff 領域で公開サイトには同期しないため、運用上必要な
 | 3 ambient/interface transaction | 完了 | earliest mesh/box event、typed crossing/outcome、reservoir flux mapping、outer coupler | `test_outer_plasma_interface`、`test_interface_particle_buffer`、`test_particle_stepper`、`test_simulator`、`test_mpi_hybrid` の global reservoir count |
 | 4 photoelectron transfer | 完了 | individual-return histogram、previous-batch ownership、signed charge ledger | `test_outer_plasma_photoelectron`、`test_simulator` の emission/return transaction、MPI global histogram |
 | 5 full panel FMM | 完了 | panel-aware topology、near subtract/add、exact panel P2M、public C kernel contract | `test_panel_geometry_near`、`test_panel_near_correction`、`test_coulomb_fmm_core_panel`、`test_dynamics_panel_fmm`、L2 C/kernel contract |
-| 6 production infinite-periodic operator | 完了 | versioned `K_periodic,k!=0 - K_shell` cache、checksum/fingerprint、root build と broadcast | `test_periodic2_operator_cache`、`test_periodic2_infinite_operator`、`test_periodic2_cached_snapshot`、2-rank `test_periodic2_operator_cache_mpi` |
+| 6 production infinite-periodic operator | 完了 | versioned `K_periodic,k!=0 - K_shell` cache、checksum/fingerprint、MPI target 分配、rank 内 OpenMP、collective assembly | `test_periodic2_operator_cache`、`test_periodic2_infinite_operator`、`test_periodic2_cached_snapshot`、2-rank `test_periodic2_operator_cache_mpi` |
 | 7 nonlinear kinetic outer sheath | 完了 | stretched-grid Poisson/Robin kinetic solver、branch/applicability status、root-only collective solve、restartable profile | `test_outer_plasma_kinetic_core`、`test_outer_plasma_kinetic`、`test_outer_plasma_kinetic_runtime`、`test_restart`、2-rank kinetic snapshot broadcast |
 | 8 unified outer domain | 完了 | local mean/accessibility、screened nonzero tail、unified zero mode、explicit 3D electrostatic outer orbit | `test_outer_plasma_local_mean`、`test_periodic2_nonzero_tail`、`test_electrostatic_unified`、`test_outer_plasma_orbit`、simulator interface-height surface-charge invariance |
 | 9 production promotion | 完了 | portable L2、HPC L3/far/MPI gates、RSS budget、convergence artifact、日英 docs/schema/example 同期 | `make test-physics-release` の manifest と `convergence.csv`、Starlight build、docs sync check |
@@ -97,8 +97,8 @@ repository には固定値として commit しません。
 - analytic periodic M2L を唯一の runtime backend にする案: versioned cached operator を production 採用
 - Zhao closure を全 outer model の終着点にする案: legacy injection model として分離
 
-一方、literal output path、strict history、MPI global count、共通 field/potential snapshot、root-only cache
-生成など非競合の要件は現行設計に継承されています。旧文書が提案した checkpoint 全体の
+一方、literal output path、strict history、MPI global count、共通 field/potential snapshot、root-only cache I/O
+など非競合の要件は現行設計に継承されています。旧文書が提案した checkpoint 全体の
 temp-write/atomic publish、generation directory/current manifest 方式、Zhao prescribed profile を含む
 Stage 3–6 全項目の完遂を、このページは主張しません。旧 Stage 群は physical Phase 0–9 とは別の
 roadmap です。
