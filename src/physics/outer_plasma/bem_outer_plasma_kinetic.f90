@@ -279,22 +279,28 @@ contains
     real(dp), intent(in) :: phi(:), residual(:)
     real(dp), intent(out) :: jacobian(:, :)
     integer(i32), intent(out) :: status
-    real(dp) :: perturbed(size(phi)), shifted_residual(size(phi)), increment
-    integer(i32) :: column, closure_status
+    real(dp) :: perturbed(size(phi)), shifted_residual(size(phi)), increment, base_increment
+    integer(i32) :: column, closure_status, attempt
 
     status = outer_plasma_ok
     do column = 1_i32, size(phi)
-      increment = sqrt(epsilon(1.0_dp))*max(1.0_dp, abs(phi(column)))
-      perturbed = phi
-      if (column == 1_i32 .and. abs(phi(column)) < increment) increment = -increment
-      perturbed(column) = perturbed(column) + increment
-      call kinetic_residual(options, grid, perturbed, shifted_residual, closure_status)
-      if (closure_status /= outer_plasma_ok) then
+      base_increment = sqrt(epsilon(1.0_dp))*max(1.0_dp, abs(phi(column)))
+      closure_status = outer_plasma_invalid
+      do attempt = 0_i32, 24_i32
+        increment = scale(base_increment, -attempt)
+        if (column == 1_i32 .and. abs(phi(column)) < increment) increment = -increment
+        perturbed = phi
+        perturbed(column) = perturbed(column) + increment
+        if (perturbed(column) == phi(column)) cycle
+        call kinetic_residual(options, grid, perturbed, shifted_residual, closure_status)
+        if (closure_status == outer_plasma_ok) exit
         increment = -increment
         perturbed = phi
         perturbed(column) = perturbed(column) + increment
+        if (perturbed(column) == phi(column)) cycle
         call kinetic_residual(options, grid, perturbed, shifted_residual, closure_status)
-      end if
+        if (closure_status == outer_plasma_ok) exit
+      end do
       if (closure_status /= outer_plasma_ok) then
         status = closure_status
         return

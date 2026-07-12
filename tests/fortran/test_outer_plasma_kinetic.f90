@@ -14,7 +14,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -103,7 +103,7 @@ program test_outer_plasma_kinetic
   options%interface_field = 0.0_dp
   call solve_outer_plasma_kinetic(options, ambient_state, status, message)
   call assert_equal_i32(status, outer_plasma_ok, 'zero-field warm-start source solve failed')
-  options%interface_field = -0.02_dp
+  options%interface_field = -0.002_dp
   call solve_outer_plasma_kinetic(options, state, status, message, initial_potential=ambient_state%potential)
   call assert_equal_i32(status, outer_plasma_ok, 'changed-field warm start failed: '//trim(message))
   call assert_true(state%ready, 'changed-field warm start must produce a ready state')
@@ -119,6 +119,28 @@ program test_outer_plasma_kinetic
   call solve_outer_plasma_kinetic(options, state, status, message, initial_potential=ambient_state%potential)
   call assert_equal_i32(status, outer_plasma_ok, 'branch-crossing warm start failed: '//trim(message))
   call assert_true(state%ready, 'branch-crossing warm start must produce a ready state')
+  call test_end()
+
+  call test_begin('weak lunar-field warm start keeps a valid Jacobian')
+  options = reference_options()
+  options%grid_points = 128_i32
+  options%domain_length = 105.132_dp
+  options%tail_length = 10.5132_dp
+  options%electron_density_infinity = 5.0e6_dp
+  options%electron_temperature_j = 10.0_dp*qe
+  options%ion_density_infinity = 5.0e6_dp
+  options%ion_temperature_j = 10.0_dp*qe
+  options%ion_mass = 1.672482821616e-27_dp
+  options%ion_drift_infinity = 4.0e5_dp
+  options%max_iterations = 40_i32
+  options%residual_tolerance = 1.0e-8_dp
+  options%interface_field = 0.0_dp
+  call solve_outer_plasma_kinetic(options, ambient_state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'lunar zero-field source solve failed')
+  options%interface_field = -1.9340193196540115e-3_dp
+  call solve_outer_plasma_kinetic(options, state, status, message, initial_potential=ambient_state%potential)
+  call assert_equal_i32(status, outer_plasma_ok, 'weak lunar-field warm start failed: '//trim(message))
+  call assert_true(state%ready, 'weak lunar-field warm start must produce a ready state')
   call test_end()
 
   call test_begin('sub-Bohm ion entry has no physical solution')
