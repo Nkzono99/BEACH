@@ -502,6 +502,8 @@ contains
             step_result%escaped_boundary = .true.
             step_result%interface_crossing%has_crossing = .false.
           case default
+            write (error_unit, '(a,i0,a,a)') 'outer interface mapping failed: kind=', interface_outcome%kind, &
+              ' message=', trim(interface_outcome%message)
             step_result%status = particle_step_invalid_boundary
           end select
         end if
