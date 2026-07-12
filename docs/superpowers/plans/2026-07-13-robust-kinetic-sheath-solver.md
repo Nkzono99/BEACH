@@ -69,7 +69,7 @@
 - Produces: `kinetic_residual_jacobian` and a private bordered-tridiagonal linear solver.
 - Removes: production use of `numerical_kinetic_jacobian` and `solve_dense_system`.
 
-- [ ] **Step 1: Add Jacobian and difficult-field regression tests**
+- [x] **Step 1: Add Jacobian and difficult-field regression tests**
 
   Expose a test-only/public Jacobian action routine, compare `J*v` with a
   centered residual difference for a feasible nonlinear profile, and add a
@@ -77,31 +77,31 @@
   nearby converged field.  Assert `outer_plasma_ok`, monotonicity, and residual
   at or below `1e-8`.
 
-- [ ] **Step 2: Run the kinetic target on SysA and verify RED**
+- [x] **Step 2: Run the kinetic target on SysA and verify RED**
 
   Run `FPM_ACTION=test ./build.sh --target test_outer_plasma_kinetic`.
   Expected result: the Jacobian action API is missing or the difficult-field
   solve reproduces the line-search failure.
 
-- [ ] **Step 3: Assemble the analytic structured Jacobian**
+- [x] **Step 3: Assemble the analytic structured Jacobian**
 
   Fill lower, diagonal, upper, and first-column arrays in the same loop that
   evaluates the residual.  Include derivative contributions from every charge
   density and exact derivatives of both boundary rows.
 
-- [ ] **Step 4: Implement the bordered solve**
+- [x] **Step 4: Implement the bordered solve**
 
   Solve the tridiagonal base for both `rhs` and the first-column border, then
   apply the scalar rank-one correction.  Reject non-finite pivots and a
   scale-aware near-zero correction denominator.
 
-- [ ] **Step 5: Replace the dense Newton path and verify GREEN**
+- [x] **Step 5: Replace the dense Newton path and verify GREEN**
 
   Remove dense Jacobian allocation and call the structured assembly/solve from
   `solve_outer_plasma_kinetic`.  Re-run the core and kinetic targets; expected
   result is PASS, including the Jacobian action check.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   Commit as `perf: use analytic bordered kinetic Jacobian`.
 
@@ -115,19 +115,19 @@
 - Consumes: structured residual/Jacobian and bordered solver from Task 2.
 - Produces: branch-preserving pseudo-transient recovery inside the nonlinear solve.
 
-- [ ] **Step 1: Add a recovery-path regression**
+- [x] **Step 1: Add a recovery-path regression**
 
-  Add private solver controls to the options type for test forcing, set a small
-  initial pseudo-time in the regression, and assert that a deliberately poor
-  but feasible seed converges to the original residual tolerance.  Assert that
-  the returned state reports at least one recovery iteration.
+  Use the observed lunar failure path: the analytic-Newton-only implementation
+  fails while constructing the `-0.70 V/m` source profile, then the recovery
+  implementation converges through `-0.7289832458 V/m`.  Assert the original
+  residual tolerance and monotonic branch without adding test-only controls.
 
-- [ ] **Step 2: Run the kinetic target on SysA and verify RED**
+- [x] **Step 2: Run the kinetic target on SysA and verify RED**
 
   Expected result: compilation fails because recovery diagnostics and controls
   do not yet exist, or the poor seed ends in numerical failure.
 
-- [ ] **Step 3: Add adaptive diagonal regularization**
+- [x] **Step 3: Add adaptive diagonal regularization**
 
   When branch-preserving Newton backtracking is exhausted, solve the same
   Jacobian with the pseudo-time diagonal shift.  Increase pseudo-time after an
@@ -135,18 +135,18 @@
   unshifted Newton when possible.  Check convergence only with the original
   residual.
 
-- [ ] **Step 4: Preserve failure classification**
+- [x] **Step 4: Preserve failure classification**
 
   Propagate closure accessibility failures as physical failures.  Report
   `outer_plasma_numerical_failure` only after the recovery iteration and
   pseudo-time limits are exhausted, with a message naming the exhausted path.
 
-- [ ] **Step 5: Re-run kinetic tests and verify GREEN**
+- [x] **Step 5: Re-run kinetic tests and verify GREEN**
 
   Expected result: existing behavior remains green and the forced recovery
   case converges within tolerance.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   Commit as `fix: recover stalled kinetic sheath solves`.
 

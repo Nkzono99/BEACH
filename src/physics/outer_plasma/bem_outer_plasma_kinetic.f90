@@ -39,6 +39,7 @@ module bem_outer_plasma_kinetic
   public :: eval_photoelectron_escape_return
   public :: eval_emitted_maxwellian_density
   public :: eval_kinetic_current_balance
+  public :: eval_kinetic_residual_jacobian_action
   public :: solve_outer_plasma_kinetic
 
 contains
@@ -50,10 +51,11 @@ contains
     character(len=*), intent(out) :: message
     real(dp), intent(in), optional :: initial_potential(:)
     type(outer_plasma_grid_type) :: grid
-    real(dp), allocatable :: phi(:), residual(:), trial_residual(:), jacobian(:, :), delta(:), trial(:)
-    real(dp) :: residual_norm, trial_norm, step, bohm_speed, seed_scale
+    real(dp), allocatable :: phi(:), residual(:), trial_residual(:), delta(:), trial(:)
+    real(dp), allocatable :: lower(:), diagonal(:), regularized_diagonal(:), upper(:), border(:)
+    real(dp) :: residual_norm, trial_norm, bohm_speed, seed_scale, pseudo_time
     real(dp) :: previous_interface_field, field_correction
-    integer(i32) :: iteration, solve_status
+    integer(i32) :: iteration, solve_status, recovery_attempt
     logical :: accepted
 
     state = outer_plasma_state_type()
@@ -75,8 +77,8 @@ contains
     end if
 
     call init_outer_plasma_grid(options%grid_points, options%domain_length, options%grid_stretch, grid)
-    allocate (phi(grid%n), residual(grid%n), trial_residual(grid%n), jacobian(grid%n, grid%n), &
-              delta(grid%n), trial(grid%n))
+    allocate (phi(grid%n), residual(grid%n), trial_residual(grid%n), delta(grid%n), trial(grid%n), &
+              lower(grid%n), diagonal(grid%n), regularized_diagonal(grid%n), upper(grid%n), border(grid%n))
     if (present(initial_potential)) then
       if (size(initial_potential) /= grid%n) then
         message = 'kinetic initial profile size does not match the grid'
@@ -107,6 +109,7 @@ contains
       return
     end if
     residual_norm = maxval(abs(residual))
+    pseudo_time = max(minval(grid%dz)**2, tiny(1.0_dp))
 
     do iteration = 0_i32, options%max_iterations
       if (residual_norm <= options%residual_tolerance) exit
@@ -116,41 +119,44 @@ contains
         message = 'kinetic Newton solve reached max_iterations'
         return
       end if
-      call numerical_kinetic_jacobian(options, grid, phi, residual, jacobian, solve_status)
+      call kinetic_residual_jacobian(options, grid, phi, residual, lower, diagonal, upper, border, solve_status)
       if (solve_status /= outer_plasma_ok) then
-        status = outer_plasma_numerical_failure
+        status = solve_status
         state%applicability_status = status
         message = 'kinetic Jacobian evaluation failed'
         return
       end if
-      call solve_dense_system(jacobian, -residual, delta, accepted)
-      if (.not. accepted) then
-        status = outer_plasma_numerical_failure
-        state%applicability_status = status
-        message = 'kinetic Newton Jacobian is singular'
-        return
+      call solve_bordered_tridiagonal(lower, diagonal, upper, border, -residual, delta, accepted)
+      if (accepted) then
+        call accept_kinetic_step( &
+          options, grid, phi, residual_norm, delta, trial, trial_residual, trial_norm, accepted &
+          )
       end if
-      step = 1.0_dp
-      accepted = .false.
-      do while (step >= 2.0_dp**(-20))
-        trial = phi + step*delta
-        if (monotonic_electron_repelling_branch(options, trial)) then
-          call kinetic_residual(options, grid, trial, trial_residual, solve_status)
-          if (solve_status == outer_plasma_ok) then
-            trial_norm = maxval(abs(trial_residual))
-            if (trial_norm < residual_norm) then
-              accepted = .true.
-              exit
-            end if
-          end if
-        end if
-        step = 0.5_dp*step
-      end do
       if (.not. accepted) then
-        status = outer_plasma_numerical_failure
-        state%applicability_status = status
-        message = 'kinetic Newton line search failed on the monotonic branch'
-        return
+        do recovery_attempt = 0_i32, 16_i32
+          regularized_diagonal = diagonal
+          regularized_diagonal(2:grid%n - 1_i32) = &
+            regularized_diagonal(2:grid%n - 1_i32) - 1.0_dp/pseudo_time
+          call solve_bordered_tridiagonal( &
+            lower, regularized_diagonal, upper, border, -residual, delta, accepted &
+            )
+          if (accepted) then
+            call accept_kinetic_step( &
+              options, grid, phi, residual_norm, delta, trial, trial_residual, trial_norm, accepted &
+              )
+          end if
+          if (accepted) then
+            pseudo_time = 4.0_dp*pseudo_time
+            exit
+          end if
+          pseudo_time = 0.25_dp*pseudo_time
+        end do
+        if (.not. accepted) then
+          status = outer_plasma_numerical_failure
+          state%applicability_status = status
+          message = 'kinetic Newton and pseudo-transient recovery failed on the monotonic branch'
+          return
+        end if
       end if
       phi = trial
       residual = trial_residual
@@ -168,6 +174,36 @@ contains
     state%applicability_status = status
     state%ready = .true.
   end subroutine solve_outer_plasma_kinetic
+
+  subroutine accept_kinetic_step( &
+    options, grid, phi, residual_norm, delta, trial, trial_residual, trial_norm, accepted &
+    )
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(outer_plasma_grid_type), intent(in) :: grid
+    real(dp), intent(in) :: phi(:), residual_norm, delta(:)
+    real(dp), intent(out) :: trial(:), trial_residual(:), trial_norm
+    logical, intent(out) :: accepted
+    real(dp) :: step
+    integer(i32) :: solve_status
+
+    step = 1.0_dp
+    accepted = .false.
+    trial_norm = huge(1.0_dp)
+    do while (step >= 2.0_dp**(-20))
+      trial = phi + step*delta
+      if (monotonic_electron_repelling_branch(options, trial)) then
+        call kinetic_residual(options, grid, trial, trial_residual, solve_status)
+        if (solve_status == outer_plasma_ok) then
+          trial_norm = maxval(abs(trial_residual))
+          if (trial_norm < residual_norm) then
+            accepted = .true.
+            return
+          end if
+        end if
+      end if
+      step = 0.5_dp*step
+    end do
+  end subroutine accept_kinetic_step
 
   logical function valid_kinetic_options(options, message) result(valid)
     type(kinetic_outer_plasma_options_type), intent(in) :: options
@@ -256,6 +292,105 @@ contains
     status = outer_plasma_ok
   end subroutine kinetic_residual
 
+  subroutine kinetic_residual_jacobian(options, grid, phi, residual, lower, diagonal, upper, border, status)
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(outer_plasma_grid_type), intent(in) :: grid
+    real(dp), intent(in) :: phi(:)
+    real(dp), intent(out) :: residual(:), lower(:), diagonal(:), upper(:), border(:)
+    integer(i32), intent(out) :: status
+    real(dp) :: electron_density, ion_density, photoelectron_density, electron_local, electron_interface
+    real(dp) :: ion_local, photoelectron_local, photoelectron_interface, speed, left_h, right_h, stencil_scale
+    integer(i32) :: j, closure_status
+
+    status = outer_plasma_no_physical_solution
+    residual = 0.0_dp
+    lower = 0.0_dp
+    diagonal = 0.0_dp
+    upper = 0.0_dp
+    border = 0.0_dp
+    if (.not. monotonic_electron_repelling_branch(options, phi)) return
+
+    residual(1) = (phi(2) - phi(1))/grid%dz(1) + options%interface_field
+    diagonal(1) = -1.0_dp/grid%dz(1)
+    upper(1) = 1.0_dp/grid%dz(1)
+    do j = 2_i32, grid%n - 1_i32
+      call eval_absorbing_maxwellian_density( &
+        phi(j), phi(1), options%electron_charge, options%electron_temperature_j, &
+        options%electron_density_infinity, electron_density, electron_local, closure_status, electron_interface &
+        )
+      if (closure_status /= outer_plasma_ok) return
+      call eval_cold_drift_density( &
+        phi(j), options%ion_charge, options%ion_mass, options%ion_density_infinity, &
+        options%ion_drift_infinity, ion_density, speed, ion_local, closure_status &
+        )
+      if (closure_status /= outer_plasma_ok) return
+      photoelectron_density = 0.0_dp
+      photoelectron_local = 0.0_dp
+      photoelectron_interface = 0.0_dp
+      if (options%photoelectron_emission_flux > 0.0_dp) then
+        call eval_emitted_maxwellian_density( &
+          phi(j), phi(1), 0.0_dp, options%photoelectron_charge, options%photoelectron_mass, &
+          options%photoelectron_temperature_j, options%photoelectron_emission_flux, &
+          photoelectron_density, closure_status, photoelectron_local, photoelectron_interface &
+          )
+        if (closure_status /= outer_plasma_ok) return
+      end if
+      left_h = grid%dz(j - 1_i32)
+      right_h = grid%dz(j)
+      stencil_scale = 2.0_dp/(left_h + right_h)
+      residual(j) = stencil_scale*((phi(j + 1_i32) - phi(j))/right_h - &
+                                   (phi(j) - phi(j - 1_i32))/left_h) + &
+                    (options%electron_charge*electron_density + options%ion_charge*ion_density + &
+                     options%photoelectron_charge*photoelectron_density)/eps0
+      lower(j) = stencil_scale/left_h
+      diagonal(j) = -stencil_scale*(1.0_dp/left_h + 1.0_dp/right_h) + &
+                    (options%electron_charge*electron_local + options%ion_charge*ion_local + &
+                     options%photoelectron_charge*photoelectron_local)/eps0
+      upper(j) = stencil_scale/right_h
+      border(j) = (options%electron_charge*electron_interface + &
+                   options%photoelectron_charge*photoelectron_interface)/eps0
+    end do
+    residual(grid%n) = (phi(grid%n) - phi(grid%n - 1_i32))/grid%dz(grid%n - 1_i32) + &
+                       phi(grid%n)/options%tail_length
+    lower(grid%n) = -1.0_dp/grid%dz(grid%n - 1_i32)
+    diagonal(grid%n) = 1.0_dp/grid%dz(grid%n - 1_i32) + 1.0_dp/options%tail_length
+    if (.not. all(ieee_is_finite(residual)) .or. .not. all(ieee_is_finite(lower)) .or. &
+        .not. all(ieee_is_finite(diagonal)) .or. .not. all(ieee_is_finite(upper)) .or. &
+        .not. all(ieee_is_finite(border))) then
+      status = outer_plasma_numerical_failure
+      return
+    end if
+    status = outer_plasma_ok
+  end subroutine kinetic_residual_jacobian
+
+  subroutine eval_kinetic_residual_jacobian_action(options, phi, direction, residual, action, status)
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    real(dp), intent(in) :: phi(:), direction(:)
+    real(dp), intent(out) :: residual(:), action(:)
+    integer(i32), intent(out) :: status
+    type(outer_plasma_grid_type) :: grid
+    real(dp), allocatable :: lower(:), diagonal(:), upper(:), border(:)
+    integer(i32) :: j
+
+    status = outer_plasma_invalid
+    residual = 0.0_dp
+    action = 0.0_dp
+    if (size(phi) /= options%grid_points .or. size(direction) /= size(phi) .or. &
+        size(residual) /= size(phi) .or. size(action) /= size(phi)) return
+    call init_outer_plasma_grid(options%grid_points, options%domain_length, options%grid_stretch, grid)
+    allocate (lower(grid%n), diagonal(grid%n), upper(grid%n), border(grid%n))
+    call kinetic_residual_jacobian(options, grid, phi, residual, lower, diagonal, upper, border, status)
+    if (status /= outer_plasma_ok) return
+    action(1) = diagonal(1)*direction(1) + upper(1)*direction(2) + border(1)*direction(1)
+    do j = 2_i32, grid%n - 1_i32
+      action(j) = lower(j)*direction(j - 1_i32) + diagonal(j)*direction(j) + &
+                  upper(j)*direction(j + 1_i32) + border(j)*direction(1)
+    end do
+    action(grid%n) = lower(grid%n)*direction(grid%n - 1_i32) + diagonal(grid%n)*direction(grid%n) + &
+                     border(grid%n)*direction(1)
+    if (.not. all(ieee_is_finite(action))) status = outer_plasma_numerical_failure
+  end subroutine eval_kinetic_residual_jacobian_action
+
   logical function monotonic_electron_repelling_branch(options, phi) result(valid)
     type(kinetic_outer_plasma_options_type), intent(in) :: options
     real(dp), intent(in) :: phi(:)
@@ -273,76 +408,55 @@ contains
     end if
   end function monotonic_electron_repelling_branch
 
-  subroutine numerical_kinetic_jacobian(options, grid, phi, residual, jacobian, status)
-    type(kinetic_outer_plasma_options_type), intent(in) :: options
-    type(outer_plasma_grid_type), intent(in) :: grid
-    real(dp), intent(in) :: phi(:), residual(:)
-    real(dp), intent(out) :: jacobian(:, :)
-    integer(i32), intent(out) :: status
-    real(dp) :: perturbed(size(phi)), shifted_residual(size(phi)), increment, base_increment
-    integer(i32) :: column, closure_status, attempt
-
-    status = outer_plasma_ok
-    do column = 1_i32, size(phi)
-      base_increment = sqrt(epsilon(1.0_dp))*max(1.0_dp, abs(phi(column)))
-      closure_status = outer_plasma_invalid
-      do attempt = 0_i32, 24_i32
-        increment = scale(base_increment, -attempt)
-        if (column == 1_i32 .and. abs(phi(column)) < increment) increment = -increment
-        perturbed = phi
-        perturbed(column) = perturbed(column) + increment
-        if (perturbed(column) == phi(column)) cycle
-        call kinetic_residual(options, grid, perturbed, shifted_residual, closure_status)
-        if (closure_status == outer_plasma_ok) exit
-        increment = -increment
-        perturbed = phi
-        perturbed(column) = perturbed(column) + increment
-        if (perturbed(column) == phi(column)) cycle
-        call kinetic_residual(options, grid, perturbed, shifted_residual, closure_status)
-        if (closure_status == outer_plasma_ok) exit
-      end do
-      if (closure_status /= outer_plasma_ok) then
-        status = closure_status
-        return
-      end if
-      jacobian(:, column) = (shifted_residual - residual)/increment
-    end do
-  end subroutine numerical_kinetic_jacobian
-
-  subroutine solve_dense_system(matrix, rhs, solution, success)
-    real(dp), intent(in) :: matrix(:, :), rhs(:)
+  subroutine solve_bordered_tridiagonal(lower, diagonal, upper, border, rhs, solution, success)
+    real(dp), intent(in) :: lower(:), diagonal(:), upper(:), border(:), rhs(:)
     real(dp), intent(out) :: solution(:)
     logical, intent(out) :: success
-    real(dp) :: work(size(rhs), size(rhs)), b(size(rhs)), factor, row_buffer(size(rhs)), pivot_value
-    integer(i32) :: n, column, row, pivot
+    real(dp) :: base_solution(size(rhs)), border_solution(size(rhs)), denominator
+    logical :: rhs_success, border_success
+
+    call solve_tridiagonal(lower, diagonal, upper, rhs, base_solution, rhs_success)
+    call solve_tridiagonal(lower, diagonal, upper, border, border_solution, border_success)
+    success = rhs_success .and. border_success
+    if (.not. success) return
+    denominator = 1.0_dp + border_solution(1)
+    if (.not. ieee_is_finite(denominator) .or. &
+        abs(denominator) <= sqrt(epsilon(1.0_dp))*max(1.0_dp, abs(border_solution(1)))) then
+      success = .false.
+      return
+    end if
+    solution = base_solution - border_solution*base_solution(1)/denominator
+    success = all(ieee_is_finite(solution))
+  end subroutine solve_bordered_tridiagonal
+
+  subroutine solve_tridiagonal(lower, diagonal, upper, rhs, solution, success)
+    real(dp), intent(in) :: lower(:), diagonal(:), upper(:), rhs(:)
+    real(dp), intent(out) :: solution(:)
+    logical, intent(out) :: success
+    real(dp) :: modified_upper(size(rhs)), modified_rhs(size(rhs)), pivot
+    integer(i32) :: j, n
 
     n = size(rhs)
-    work = matrix
-    b = rhs
+    solution = 0.0_dp
+    modified_upper = 0.0_dp
+    modified_rhs = 0.0_dp
     success = .false.
-    do column = 1_i32, n
-      pivot = column - 1_i32 + maxloc(abs(work(column:n, column)), dim=1)
-      pivot_value = work(pivot, column)
-      if (.not. ieee_is_finite(pivot_value) .or. abs(pivot_value) <= tiny(1.0_dp)) return
-      if (pivot /= column) then
-        row_buffer = work(column, :)
-        work(column, :) = work(pivot, :)
-        work(pivot, :) = row_buffer
-        factor = b(column)
-        b(column) = b(pivot)
-        b(pivot) = factor
-      end if
-      do row = column + 1_i32, n
-        factor = work(row, column)/work(column, column)
-        work(row, column:n) = work(row, column:n) - factor*work(column, column:n)
-        b(row) = b(row) - factor*b(column)
-      end do
+    pivot = diagonal(1)
+    if (.not. ieee_is_finite(pivot) .or. abs(pivot) <= tiny(1.0_dp)) return
+    modified_upper(1) = upper(1)/pivot
+    modified_rhs(1) = rhs(1)/pivot
+    do j = 2_i32, n
+      pivot = diagonal(j) - lower(j)*modified_upper(j - 1_i32)
+      if (.not. ieee_is_finite(pivot) .or. abs(pivot) <= tiny(1.0_dp)) return
+      if (j < n) modified_upper(j) = upper(j)/pivot
+      modified_rhs(j) = (rhs(j) - lower(j)*modified_rhs(j - 1_i32))/pivot
     end do
-    do row = n, 1_i32, -1_i32
-      solution(row) = (b(row) - dot_product(work(row, row + 1_i32:n), solution(row + 1_i32:n)))/work(row, row)
+    solution(n) = modified_rhs(n)
+    do j = n - 1_i32, 1_i32, -1_i32
+      solution(j) = modified_rhs(j) - modified_upper(j)*solution(j + 1_i32)
     end do
     success = all(ieee_is_finite(solution))
-  end subroutine solve_dense_system
+  end subroutine solve_tridiagonal
 
   subroutine populate_kinetic_state(options, grid, phi, iterations, residual_norm, state, status)
     type(kinetic_outer_plasma_options_type), intent(in) :: options
