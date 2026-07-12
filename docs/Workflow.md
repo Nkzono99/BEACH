@@ -344,7 +344,11 @@ barrier を4成果物へ出力します。`configured` は run の設定を保�
 `infinite-physical` は x/y periodic の cached `k != 0` と `E_bottom=0` zero mode を使います。
 CLI 既定重力は月面の `1.62 m/s^2` ですが、上例は地上の `9.80665 m/s^2` を明示しています。
 cached operator の初回生成や多数の path 点は重くなり得るため、KUDPC では login node で
-実行せず計算 node に投入してください。
+実行せず計算 node に投入してください。cold cache 専用生成は SysA の
+`p=1:t=112:c=112` を基準にします。既存 simulation allocation の rank は生成にも使われますが、
+2026-07-12 の旧レゴリス入力では `1x112=47.0 s` に対して `2x112=36.7 s`,
+`4x112=31.5 s`, `6x112=30.3 s` であり、cold build だけのために 4--6 rank へ増やす
+core 効率は低いです。同じ fingerprint の warm run は cache を再生成しません。
 
 CLI の正常終了は成果物作成の成功です。`path.status`、仕事/電位差、quadrature、shell/cache、
 経路上端の感度を確認するまでは物理 qualification ではありません。非中性 periodic cell の

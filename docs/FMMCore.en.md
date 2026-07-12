@@ -647,10 +647,27 @@ fingerprint, shape, and checksum; corruption or an identity mismatch triggers
 regeneration under the lock. The topology-dependent fingerprint includes the
 geometry, expansion order, periods, image layers, and generator/build versions.
 
-Only MPI rank 0 reads, builds, and writes the operator, then broadcasts target
-node IDs and coefficients. Independent jobs serialize on the same lock file.
-The writer closes a same-directory temporary file before atomic rename, so a
-reader cannot accept a partially written operator.
+Only MPI rank 0 reads, locks, and writes the cache. On a cache miss, target
+operator slices are balanced across MPI ranks to within one target. Proxy
+columns within each target are evaluated with OpenMP, and an
+`MPI_Allreduce(SUM)` assembles the complete operator on every rank. The
+regularized least-squares QR factorization is prepared once per target and
+reused for all proxy right-hand sides. Independent jobs serialize on the same
+lock file. The writer closes a same-directory temporary file before atomic
+rename, so a reader cannot accept a partially written operator.
+
+In a 2026-07-12 SysA measurement of the archived regolith input (order 4,
+64 targets, 280 proxy points, and 840 check points), the former root-only cold
+run took 31 min 24 s. With reusable QR, a 1-rank x 1-thread operator was
+published after about 25 min 45 s. End-to-end cache-prime times including batch
+1 were 47.0 s for 1 x 112, 36.7 s for 2 x 112, 31.5 s for 4 x 112, and 30.3 s
+for 6 x 112. Every parallel layout produced the same cache checksum, and the
+Frobenius relative difference from the former operator was `1.73e-15`.
+Use 1 x 112 as the dedicated cache-prime baseline because it has the best core
+efficiency and queue footprint. An existing 6 x 112 production allocation can
+generate the cache in about 30 s, but requesting 4--6 ranks only for the cold
+build has little marginal benefit. The 1-core job ran out of memory in the
+particle batch after publishing the operator and is not an operational layout.
 
 Main implementation locations:
 

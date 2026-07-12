@@ -358,7 +358,12 @@ policy, while `infinite-physical` uses cached `k != 0` plus the x/y-periodic
 example above explicitly uses Earth gravity, `9.80665 m/s^2`. A cold cached
 operator or a long path can be expensive;
 on KUDPC submit this analysis to a compute node instead of running it on a login
-node.
+node. Use SysA `p=1:t=112:c=112` as the dedicated cold cache-prime baseline.
+Existing simulation ranks participate in generation, but the archived regolith
+case measured 47.0 s at 1x112, 36.7 s at 2x112, 31.5 s at 4x112, and 30.3 s at
+6x112 on 2026-07-12. Requesting 4--6 ranks only for a cold build therefore has
+poor core efficiency. A warm run with the same fingerprint does not regenerate
+the operator.
 
 A successful CLI invocation establishes artifact generation only. It is not a
 physical qualification until path status, work/potential agreement,
