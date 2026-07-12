@@ -36,19 +36,28 @@ column scaling, and triangular solve are retained. This deliberately avoids a
 LAPACK migration in the first optimization stage so numerical drift is limited
 to roundoff from unchanged operations.
 
-### OpenMP target parallelism
+### Hybrid MPI and OpenMP parallelism
 
 Each target produces a disjoint `periodic_root_operator(:,:,target_idx)`.
-Parallelize the outer target loop with OpenMP. All scratch arrays used inside a
-target iteration are private or allocated inside a target-local helper. The
-plan and Ewald tables are read-only during generation. Cache publication and
-MPI broadcast remain serial after the parallel region.
+Distribute target indices cyclically across MPI ranks. Each rank initializes
+only its assigned operator slices and leaves the other slices zero. An
+`MPI_Allreduce(SUM)` assembles the complete operator on every rank before rank
+zero publishes it.
 
-MPI distribution is not included in this stage. Rank zero remains the sole
-cache producer under the existing filesystem lock, which preserves the
-single-writer and MPI-concurrency contracts. OpenMP consumes the cores already
-assigned to rank zero; production jobs need not increase MPI ranks for cold
-generation.
+Within each assigned target, prepare the immutable QR factorization once and
+parallelize the 280 independent proxy-source columns with OpenMP static
+scheduling. Every thread owns its field/potential RHS, coefficients, and local
+operator column. The plan, Ewald tables, check points, field matrix, and QR
+factorization are read-only in the parallel region. This decomposition has
+enough work for 112 threads even when six MPI ranks divide 64 target nodes;
+target-only OpenMP parallelism would expose only about 10 or 11 tasks per rank.
+
+Rank zero alone acquires and holds the existing filesystem lock. It first
+rechecks the cache after acquiring the lock and broadcasts whether generation
+is required. On a miss all ranks generate their assigned slices collectively;
+rank zero then publishes and releases the lock. On a hit rank zero broadcasts
+the loaded operator without entering generation. This preserves the
+single-writer contract across concurrent jobs.
 
 ## Numerical contract
 
@@ -58,6 +67,9 @@ generation.
 - Serial and multi-thread cold builds must produce operators equal within a
   tight floating-point tolerance and must agree at field/potential probes.
 - Cold build count remains one on the root rank; warm load remains a cache hit.
+- On a cold build, the sum of per-rank local target counts equals the global
+  target count and work is balanced to within one target. A warm load reports
+  zero locally generated targets on every rank.
 - A failed allocation or invalid factorization continues to fail closed.
 
 Byte-for-byte cache identity is desirable but is not required for OpenMP
@@ -72,15 +84,15 @@ multiple solves and compares them with the legacy one-shot solver. Extend the
 periodic cache test to compare cold and warm fields and cache metadata.
 
 Run focused Fortran targets and L1 on a SysA compute node. Then benchmark an
-isolated cold build of the archived reference configuration with 1, 8, 28,
-56, and 112 OpenMP threads on one MPI rank where the queue permits. Report wall
-time, speedup, and core efficiency. Finally repeat the normal six-rank launch
-to verify MPI broadcast and production compatibility.
+isolated cold build of the archived reference configuration across a bounded
+hybrid matrix such as `1x1`, `1x112`, `2x112`, `4x112`, and `6x112`, subject to
+partition availability. Report wall time, speedup, and core efficiency. Include
+a fixed-core comparison where practical to distinguish MPI scaling from total
+core-count scaling.
 
 ## Deferred optimization
 
-Fusing field and potential Ewald evaluation, replacing the QR implementation
-with LAPACK, and distributing targets across MPI ranks are deferred until this
-stage is measured. They change more arithmetic or communication behavior and
-should only be added if QR reuse plus OpenMP does not reduce the cold build to
-an operationally acceptable duration.
+Fusing field and potential Ewald evaluation and replacing the QR implementation
+with LAPACK are deferred until this stage is measured. They change more
+arithmetic behavior and should only be added if QR reuse plus hybrid MPI/OpenMP
+does not reduce the cold build to an operationally acceptable duration.

@@ -4,9 +4,9 @@
 preserving the cached periodic operator contract.
 
 **Architecture:** Introduce an internal reusable least-squares factorization,
-move one target's construction into a target-local routine, and parallelize
-independent targets. Cache locking, publication, fingerprinting, and MPI
-broadcast remain unchanged.
+distribute target slices across MPI ranks, parallelize proxy columns within
+each target using OpenMP, and assemble the operator with an allreduce. Cache
+locking, publication, and fingerprinting remain single-writer operations.
 
 **Tech Stack:** Fortran 2008, OpenMP, fpm, Intel MPI on KUDPC SysA.
 
@@ -34,20 +34,25 @@ broadcast remain unchanged.
 4. Change target construction to prepare once and solve all proxy RHS values.
 5. Run focused periodic operator, infinite operator, and cache tests on SysA.
 
-### Task 2: OpenMP target parallelism
+### Task 2: Hybrid MPI/OpenMP generation
 
 **Files:**
 - Modify: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`
 - Modify: `tests/fortran/test_periodic2_operator_cache.f90`
 
-1. Add a test that builds the same cold operator with one and multiple OpenMP
-   threads in separate cache directories and compares operator behavior,
+1. Extend the MPI cache test to require that cold local target counts sum to the
+   global target count, differ by at most one, and are nonzero when ranks do not
+   outnumber targets. Require every warm local target count to be zero.
+2. Run it with two ranks on SysA and confirm it fails because only rank zero
+   currently generates the complete operator.
+3. Make cache-hit/miss selection collective while retaining the rank-zero
+   filesystem lock and recheck. Distribute targets cyclically, allreduce the
+   zero-filled partial operator, and let rank zero publish it.
+4. Extract a per-target builder and add an OpenMP parallel-do over proxy columns
+   with static scheduling. Make all RHS and coefficient buffers thread-private.
+5. Add a serial-versus-multithread cache comparison for operator behavior,
    checksums, build counts, and warm reloads.
-2. Run it on SysA and confirm the multi-thread generation diagnostic fails.
-3. Extract a target-local builder whose scratch state is not shared, then add an
-   OpenMP parallel-do over target indices with static scheduling.
-4. Keep cache I/O and MPI operations outside the parallel region.
-5. Run the focused test with thread checking enabled, then run L1.
+6. Run focused serial and MPI tests with thread checking enabled, then run L1.
 
 ### Task 3: Cold/warm scaling benchmark
 
@@ -56,7 +61,8 @@ broadcast remain unchanged.
   cold-build-only benchmark entry point is missing.
 - Create benchmark artifacts below the validation root, not in the repository.
 
-1. Stage unique cache directories for thread counts 1, 8, 28, 56, and 112.
+1. Stage unique cache directories for `1x1`, `1x112`, `2x112`, `4x112`, and
+   `6x112` rank/thread layouts, plus a fixed-core comparison where practical.
 2. Submit short SysA benchmark jobs to an authorized, available partition.
 3. Record cold wall time, cache checksum/fingerprint, warm wall time, speedup,
    core efficiency, and maximum RSS.
