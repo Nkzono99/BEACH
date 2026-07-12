@@ -15,7 +15,6 @@ ordered_subpage: ParticleChargeLoop.md
 ordered_subpage: FMMCore.md
 ordered_subpage: BatchDurationStability.md
 ordered_subpage: PhysicsReleaseVerification.md
-ordered_subpage: PhysicsRedesignCompletionAudit.md
 ordered_subpage: Workflow.md
 ordered_subpage: FortranDependencyMap.md
 ordered_subpage: agent-user-guide.md
