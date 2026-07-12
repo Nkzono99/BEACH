@@ -4,8 +4,9 @@ program test_outer_plasma_interface
   use bem_outer_plasma_linear, only: init_outer_plasma_linear
   use bem_interface_types, only: interface_crossing_type, interface_particle_outcome_type, &
                                  interface_outcome_returned_local, interface_outcome_escaped_to_infinity, &
-                                 interface_outcome_queued_outer
-  use bem_outer_plasma_interface, only: map_infinity_normal_velocity_to_interface, map_outer_particle_linear_debye
+                                 interface_outcome_queued_outer, interface_outcome_invalid_model
+  use bem_outer_plasma_interface, only: map_infinity_normal_velocity_to_interface, map_outer_particle_linear_debye, &
+                                        map_outer_particle_kinetic_profile
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
   implicit none
 
@@ -17,7 +18,7 @@ program test_outer_plasma_interface
   logical :: accessible
   real(dp) :: mapped_speed
 
-  call test_init(4)
+  call test_init(8)
   call init_outer_plasma_linear( &
     interface_z=1.0_dp, interface_potential=-1.0_dp, infinity_potential=0.0_dp, &
     debye_length=0.5_dp, linearity_ratio=0.1_dp, max_linearity_ratio=1.0_dp, &
@@ -39,6 +40,69 @@ program test_outer_plasma_interface
   crossing%position = [0.9_dp, 0.8_dp, 1.0_dp]
   crossing%velocity = [0.5_dp, 0.25_dp, 1.0_dp]
   crossing%dt_remaining = 0.75_dp
+
+  call test_begin('kinetic_profile_constant_field_return')
+  call set_kinetic_profile(state, [-1.0_dp, 0.0_dp], [1.0_dp, 2.0_dp])
+  crossing%velocity = [0.5_dp, 0.25_dp, 1.0_dp]
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_returned_local, 'kinetic barrier must return the particle')
+  call assert_close_dp(outcome%outer_flight_time, 2.0_dp, 1.0e-14_dp, 'kinetic flight time mismatch')
+  call assert_close_dp(outcome%position(1), modulo(0.9_dp + 1.0_dp, 1.0_dp), &
+                       1.0e-14_dp, 'kinetic lateral x shift mismatch')
+  call assert_close_dp(outcome%position(2), modulo(0.8_dp + 0.5_dp, 1.0_dp), &
+                       1.0e-14_dp, 'kinetic lateral y shift mismatch')
+  call assert_close_dp(outcome%normal_energy_residual, 0.0_dp, 1.0e-14_dp, 'kinetic return energy mismatch')
+  call test_end()
+
+  call test_begin('kinetic_profile_robin_tail_return')
+  call set_kinetic_profile(state, [-1.0_dp, -0.5_dp], [1.0_dp, 2.0_dp])
+  state%infinity_potential = 0.0_dp
+  state%debye_length = 1.0_dp
+  crossing%velocity = [0.0_dp, 0.0_dp, 1.2_dp]
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=100.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_returned_local, &
+                        'Robin-tail barrier must return the particle')
+  call assert_close_dp( &
+    outcome%outer_flight_time, &
+    2.0_dp*(2.0_dp/(1.2_dp + sqrt(0.44_dp)) + &
+            2.0_dp/sqrt(0.56_dp)*atan(sqrt(0.44_dp/0.56_dp))), &
+    1.0e-13_dp, 'Robin-tail flight time mismatch' &
+    )
+  call test_end()
+
+  call test_begin('kinetic_profile_escape')
+  crossing%velocity(3) = 2.0_dp
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_escaped_to_infinity, &
+                        'kinetic super-threshold particle must escape')
+  call test_end()
+
+  call test_begin('kinetic_profile_rejects_nonmonotonic_state')
+  call set_kinetic_profile(state, [-1.0_dp, -0.25_dp, -0.5_dp, 0.0_dp], [1.0_dp, 1.5_dp, 2.0_dp, 3.0_dp])
+  crossing%velocity(3) = 1.0_dp
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_invalid_model, &
+                        'nonmonotonic kinetic profile must fail closed')
+  call test_end()
+
+  call init_outer_plasma_linear( &
+    interface_z=1.0_dp, interface_potential=-1.0_dp, infinity_potential=0.0_dp, &
+    debye_length=0.5_dp, linearity_ratio=0.1_dp, max_linearity_ratio=1.0_dp, &
+    state=state, status=status, message=message &
+    )
+  crossing%velocity = [0.5_dp, 0.25_dp, 1.0_dp]
 
   call test_begin('instant_return_energy_time_and_shift')
   call map_outer_particle_linear_debye( &
@@ -74,4 +138,21 @@ program test_outer_plasma_interface
   call test_end()
 
   call test_summary()
+
+contains
+
+  subroutine set_kinetic_profile(value, potential, z)
+    type(outer_plasma_state_type), intent(out) :: value
+    real(dp), intent(in) :: potential(:), z(:)
+
+    value%model = 'kinetic_1d'
+    value%ready = .true.
+    value%interface_z = z(1)
+    value%interface_potential = potential(1)
+    value%infinity_potential = potential(size(potential))
+    value%profile_n = int(size(potential), i32)
+    allocate (value%potential(size(potential)), value%z(size(z)))
+    value%potential = potential
+    value%z = z
+  end subroutine set_kinetic_profile
 end program test_outer_plasma_interface
