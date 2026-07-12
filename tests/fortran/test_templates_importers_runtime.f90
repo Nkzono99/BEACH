@@ -30,7 +30,7 @@ program test_templates_importers_runtime
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
 
-  call test_init(13)
+  call test_init(14)
 
   call test_begin('template_shapes')
   call make_plane(mesh, nx=2_i32, ny=3_i32)
@@ -171,6 +171,27 @@ program test_templates_importers_runtime
   call build_mesh_from_config(cfg, mesh)
   call assert_true(all(mesh%elem_vacuum_sign == -1_i32), 'template vacuum side mismatch')
   call assert_true(all(abs(mesh%vacuum_normals + mesh%normals) < 1.0e-15_dp), 'template vacuum normal mismatch')
+  call test_end()
+
+  call test_begin('triangle_panel_surface_side_preserves_prior_templates')
+  call default_app_config(cfg)
+  cfg%mesh_mode = 'template'
+  cfg%panel%source_model = 'triangle_p0'
+  cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+  cfg%panel%surface_side_policy = 'per_element'
+  cfg%n_templates = 2_i32
+  cfg%templates(1)%enabled = .true.
+  cfg%templates(1)%kind = 'plane'
+  cfg%templates(1)%surface_side_policy = 'normal_plus'
+  cfg%templates(2)%enabled = .true.
+  cfg%templates(2)%kind = 'sphere'
+  cfg%templates(2)%surface_side_policy = 'outward_closed'
+  cfg%templates(2)%radius = 0.2_dp
+  cfg%templates(2)%center = [0.0_dp, 0.0_dp, 1.0_dp]
+  cfg%templates(2)%n_lon = 8_i32
+  cfg%templates(2)%n_lat = 4_i32
+  call build_mesh_from_config(cfg, mesh)
+  call assert_true(all(abs(mesh%elem_vacuum_sign) == 1_i32), 'later template must preserve prior vacuum sides')
   call test_end()
 
   call test_begin('mesh_mode_template')
