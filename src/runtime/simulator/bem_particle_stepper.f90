@@ -2,7 +2,7 @@
 module bem_particle_stepper
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect
+  use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect, bc_periodic
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_pusher, only: boris_push
   use bem_collision, only: collision_query_ok, find_first_hit
@@ -47,9 +47,30 @@ contains
     real(dp) :: x_mid(3), e_mid(3)
 
     x_mid = x0 + 0.5d0*v0*dt
+    call project_field_sample_to_box(sim, x_mid)
     call snapshot%eval_local_e(mesh, x_mid, e_mid)
     call boris_push(x0, v0, q, m, dt, e_mid, bfield, x1, v1)
   end subroutine build_particle_step_candidate
+
+  !> 境界を越えるcandidateでも、場評価点はsolverのprimitive target box内に保つ。
+  pure subroutine project_field_sample_to_box(sim, position)
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(inout) :: position(3)
+    integer(i32) :: axis
+    real(dp) :: span
+
+    if (.not. sim%use_box) return
+    do axis = 1_i32, 3_i32
+      if (.not. ieee_is_finite(sim%box_min(axis)) .or. .not. ieee_is_finite(sim%box_max(axis))) cycle
+      span = sim%box_max(axis) - sim%box_min(axis)
+      if (.not. ieee_is_finite(span) .or. span <= 0.0_dp) cycle
+      if (sim%bc_low(axis) == bc_periodic .and. sim%bc_high(axis) == bc_periodic) then
+        position(axis) = sim%box_min(axis) + modulo(position(axis) - sim%box_min(axis), span)
+      else
+        position(axis) = min(max(position(axis), sim%box_min(axis)), sim%box_max(axis))
+      end if
+    end do
+  end subroutine project_field_sample_to_box
 
   !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大二度だけremainderを再積分する。
   subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result)

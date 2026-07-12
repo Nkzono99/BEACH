@@ -215,7 +215,7 @@ for local_batch_idx = 1..batch_count_this_run:
 | 順序 | 処理 |
 | --- | --- |
 | 1 | 同一時刻の現在位置 `x0` と速度 `v0` を読む |
-| 2 | `build_particle_step_candidate` で予測中点 `x_mid = x0 + 0.5*v0*dt` を作る |
+| 2 | `build_particle_step_candidate` で予測中点 `x_mid = x0 + 0.5*v0*dt` を作り、場評価点だけをprimitive target boxへ写像する |
 | 3 | `field_solver%eval_e(mesh, x_mid, e_mid)` で境界要素電荷による電場を評価し、一様外部電場 `sim.e0` を1回加える |
 | 4 | 中点場を使う `boris_push` で候補速度 `v1` と台形則による候補位置 `x1` を計算 |
 | 5 | `x0 -> x1` を1回collision queryし、`x1` がbox内部ならその結果を確定する |
@@ -224,7 +224,8 @@ for local_batch_idx = 1..batch_count_this_run:
 | 8 | hitなら`q * w`を堆積して吸収し、3回目のbox eventならstateをcommitせずfail closedにする |
 | 9 | 生存していれば同時刻の`x`と`v`を更新して次stepへ進む |
 
-`build_particle_step_candidate` は場ソルバを変更せず、予測中点で空間電場を1回だけ評価します。
+`build_particle_step_candidate` は場ソルバを変更せず、予測中点で空間電場を1回だけ評価します。box crossing候補では
+評価点だけを周期軸でwrapし、非周期軸でbox面へclampします。軌道候補座標は写像せず、後段のevent順序付けに使います。
 `boris_update_velocity(v, q, m, dt, e, b, v_new)` は、電場の half kick、磁場回転、電場の half kick からなる
 速度更新を提供する public pure procedure です。既存の public call
 `boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は署名を変えず、速度計算をこの procedure に委譲して

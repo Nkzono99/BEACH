@@ -229,7 +229,7 @@ Incomplete particle arrays and `photo_emission_dq` from the failing rank are not
 | Order | Processing |
 | --- | --- |
 | 1 | Read the same-time current position `x0` and velocity `v0` |
-| 2 | Form the predicted midpoint `x_mid = x0 + 0.5*v0*dt` in `build_particle_step_candidate` |
+| 2 | Form the predicted midpoint `x_mid = x0 + 0.5*v0*dt` and map only the field sample into the primitive target box |
 | 3 | Evaluate the boundary-element field with `field_solver%eval_e(mesh, x_mid, e_mid)` and add the uniform external field `sim.e0` exactly once |
 | 4 | Use `boris_push` with the midpoint field to compute candidate velocity `v1` and trapezoidal candidate position `x1` |
 | 5 | Issue one collision query on `x0 -> x1`; if `x1` is inside the box, commit that result |
@@ -239,7 +239,9 @@ Incomplete particle arrays and `photo_emission_dq` from the failing rank are not
 | 9 | If the particle survives, update same-time `x` and `v` and continue to the next step |
 
 `build_particle_step_candidate` evaluates the spatial field exactly once at the predicted midpoint without modifying
-the field solver. `boris_update_velocity(v, q, m, dt, e, b, v_new)` is a public pure procedure that performs the
+the field solver. For a box-crossing candidate, only the field sample is wrapped on periodic axes and clamped on
+non-periodic axes; the trajectory candidate remains unwrapped for event ordering.
+`boris_update_velocity(v, q, m, dt, e, b, v_new)` is a public pure procedure that performs the
 electric half kick, magnetic rotation, and electric half kick for the velocity update. The existing public call
 `boris_push(x, v, q, m, dt, e, b, x_new, v_new)` keeps its signature, delegates its velocity calculation to this
 procedure, and updates position with `x_new = x + 0.5*(v + v_new)*dt`. Input and output positions and velocities are

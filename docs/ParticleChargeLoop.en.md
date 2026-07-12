@@ -198,7 +198,9 @@ $$
 
 Predicted-midpoint spatial-field sampling and the trapezoidal position update give second-order candidate kinematics
 for smooth fields. Under constant electric acceleration, the displacement matches the analytic result up to roundoff.
-BEACH runs one collision query on `x^n -> x^{n+1}` and commits it directly when the candidate endpoint is inside the box.
+For a box-crossing candidate, only the midpoint field sample is wrapped on periodic axes and clamped on non-periodic
+axes; the trajectory candidate remains unwrapped. BEACH runs one collision query on `x^n -> x^{n+1}` and commits it
+directly when the candidate endpoint is inside the box.
 For a box crossing, it compares the mesh-hit and first-face parameters and rebuilds reflected/periodic remainders for
 at most two box events.
 Only when a periodic2 full-chord query reaches a range limit beyond the box does it retry with the chord truncated at the
