@@ -267,6 +267,11 @@ species as the infinity electron and ion VDFs. It solves the monotonic collision
 Poisson problem on a stretched grid with a Robin tail; sub-Bohm ion inflow and unsupported
 non-monotonic/trapped branches fail closed. The gauge is fixed by `phi(infinity)=0`, so
 `outer_plasma.infinity_potential` must be zero and nonzero values are rejected.
+The nonlinear solver uses an analytic bordered-tridiagonal Jacobian, branch-preserving
+Newton steps, pseudo-transient recovery, and adaptive interface-field continuation. A
+recovery path is accepted only after the original unregularized Poisson residual at the
+requested field meets its tolerance; it never returns another sheath model or a held
+previous profile as a converged kinetic solution.
 `photoelectron_closure="kinetic_mean"` obtains a
 half-Maxwellian emitted flux from the first negative `photo_raycast` species and separates its
 outgoing and returning densities without adding a second surface return current.

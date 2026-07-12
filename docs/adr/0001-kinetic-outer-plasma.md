@@ -100,8 +100,11 @@ population、衝突 presheath、磁化 orbit は将来の別 ADR と solver を�
 
 - 伸長格子 `z_j=L[(exp(a*j/(N-1))-1)/(exp(a)-1)]`、`a=0` は一様格子
 - conservative finite-volume Poisson residual
-- damped Newton と Armijo backtracking
-- density derivative は解析式を優先し、solver Jacobian は検証可能な有限差分でもよい
+- density closureの解析微分から組み立てるtridiagonal + interface-potential border Jacobian
+- bordered-tridiagonal solveによる格子点数`N`に対して`O(N)`のNewton step
+- 単調分枝を維持するbacktrackingと、Newton停滞時のpseudo-transient continuation
+- 前batch fieldとの差が大きい場合の適応interface-field continuation
+- pseudo-transient項は反復経路だけを変え、収束判定には元の未正則化Poisson residualを使う
 - UV放出が有効で初回のinterface fieldがゼロの場合は、far Robin条件を満たす微小な単調負電位profileをNewton初期値に使う。これは境界電位を固定せず、収束解は同じPoisson residualで決める
 - 前 batch profile は同一 grid/config fingerprint の場合だけ初期値に使う
 - MPI は root solve 後に status、scalar diagnostics、grid/profile を broadcast する

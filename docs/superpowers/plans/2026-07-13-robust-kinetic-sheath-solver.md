@@ -193,7 +193,9 @@
 
 **Files:**
 - Modify: `SPEC.md`
-- Modify: `docs/USER_GUIDE.md`
+- Modify: `docs/Parameters.md`
+- Modify: `docs/Parameters.en.md`
+- Modify: `docs/adr/0001-kinetic-outer-plasma.md`
 - Modify: `docs/superpowers/plans/2026-07-13-robust-kinetic-sheath-solver.md`
 - Create: `_handoff/kinetic_sheath_robust_solver_validation.md`
 
@@ -201,16 +203,17 @@
 - Consumes: completed solver and tests.
 - Produces: user-facing solver semantics and reproducible validation evidence.
 
-- [ ] **Step 1: Document solver and failure semantics**
+- [x] **Step 1: Document solver and failure semantics**
 
   State that `kinetic_1d` uses analytic structured Newton with
   pseudo-transient and field continuation, always validates the original
   residual, and never falls back to another physical model.
 
-- [ ] **Step 2: Run static/build checks on the login node**
+- [x] **Step 2: Run static/build checks**
 
-  Run `git diff --check` and `make check`.  Expected result: both succeed; no
-  simulation or Fortran test executable is launched locally.
+  Run `git diff --check` locally and route `make check` through a SysA
+  controller allocation when required by the active KUDPC execution guard.
+  Expected result: both succeed.
 
 - [ ] **Step 3: Submit L1 then L2 on SysA**
 
