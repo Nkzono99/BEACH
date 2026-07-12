@@ -56,3 +56,37 @@ monotonic and its original residual is at most `1e-8`.
 
 - 3,000-batch smoke result: pending
 - 100,000-batch lunar-regolith result: pending
+
+## Runtime Performance Incident
+
+The first release binary for this branch was built through the Makefile default
+`MPI_FC=mpiifort`, and its launch specified `OMP_NUM_THREADS=112` without the
+thread-placement variables used by the prior production job.  It completed the
+3,000-batch smoke in `00:50:26`, compared with `00:17:37` for the previous
+`mpiifx` binary with `OMP_PROC_BIND=spread` and `OMP_PLACES=cores`, despite
+producing identical particle counts, charge history, and sheath state to
+numerical precision.  The dependent 100,000-batch job `8113093` reached only
+about 3,700 batches in 4.6 hours and was cancelled with its partial output
+retained as `output/full.mpiifort-cancelled-8113093`.
+
+The old production binary is byte-for-byte identical to the retained `mpiifx`
+build, while the slow binary was built with classic `ifort 2021.10`.  Because
+compiler and affinity differed together, follow-up jobs isolate both effects:
+job `8113792` repeats the 3,000-batch current-source `mpiifx` smoke with the old
+affinity, and job `8113793` compares current-source `mpiifort` and `mpiifx`
+binaries under identical affinity on a 300-batch fixture.
+
+Job `8113793` completed successfully.  With six MPI ranks, 112 OpenMP threads
+per rank, `OMP_PROC_BIND=spread`, and `OMP_PLACES=cores`, elapsed times were
+`364.28 s` for `mpiifort` and `131.84 s` for `mpiifx`, a `2.76x` speedup.  The
+profile attributes the largest compiler difference to `particle_batch`
+(`301.60 s` versus `77.57 s` rank maximum), not to the kinetic solve in
+`field_refresh`.  The two summaries differ only in build/cache provenance.
+Job `8113816` is the matched `mpiifx` no-affinity measurement.
+
+The build default and release-gate fallback now select `mpiifx 2023.2.4`;
+`mpiifort` remains an explicit override.  Production documentation now requires
+`OMP_PROC_BIND=spread` and `OMP_PLACES=cores` for the 112-thread SysA layout.
+Interface-field continuation was also corrected to try the requested field
+first and halve only after a numerical failure, avoiding unconditional
+intermediate solves.

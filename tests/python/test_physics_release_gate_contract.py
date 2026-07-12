@@ -124,6 +124,16 @@ def test_portable_physics_contract_workflow_runs_l2() -> None:
     assert "tools/run_physics_release_gate.sh" in makefile
 
 
+def test_release_mpi_build_defaults_to_ifx() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    release_gate = SCRIPT.read_text(encoding="utf-8")
+    camphor_profile = (ROOT / "env" / "camphor.env").read_text(encoding="utf-8")
+
+    assert re.search(r"^MPI_FC \?= mpiifx$", makefile, flags=re.MULTILINE)
+    assert 'mpi_fc_command="${MPI_FC:-mpiifx}"' in release_gate
+    assert ': "${FC:=mpiifx}"' in camphor_profile
+
+
 def test_release_gate_uses_minimal_correctness_subset() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")

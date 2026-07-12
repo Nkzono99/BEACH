@@ -123,7 +123,7 @@ FORTRAN_DEP_MAP_EN_MD ?= docs/FortranDependencyMap.en.md
 FORTRAN_DEP_MAP_DOT ?= build/fortran_module_dependencies.dot
 FORTRAN_DEP_MAP_SVG ?= docs/media/fortran_module_dependencies.svg
 
-MPI_FC ?= mpiifort
+MPI_FC ?= mpiifx
 MPI_OPENMP_FLAG ?= -qopenmp
 MPI_CPP_FLAG ?= -fpp -DUSE_MPI
 MPI_TEST_QUIET_FLAG = $(if $(filter ifort ifx mpiifort mpiifx,$(notdir $(MPI_FC))),-check noarg_temp_created)

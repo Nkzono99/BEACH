@@ -74,7 +74,7 @@ fpm run --profile release --flag "-fopenmp" -- beach.toml
 ### MPI Parallel Run
 
 ```bash
-FPM_FC=mpiifort fpm run --profile release \
+FPM_FC=mpiifx fpm run --profile release \
   --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 4" -- beach.toml
 ```

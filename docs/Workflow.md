@@ -408,11 +408,26 @@ for record in mobility.records:
 ## 9. MPI経路テスト（開発向け）
 
 ```bash
-FPM_FC=mpiifort \
+FPM_FC=mpiifx \
 fpm test --target test_mpi_hybrid \
   --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 2"
 ```
+
+KUDPCのIntel環境ではrelease MPI buildの既定を`mpiifx`とする。`MPI_FC=mpiifort`による
+classic compilerの明示利用は可能だが、同一の3000 batch fixtureで大幅な速度低下が観測されたため、
+互換性確認以外のproduction runには使わない。
+
+SysAで1 rankあたり多数のOpenMP threadを使うproduction runでは、thread配置も明示する。
+
+```bash
+export OMP_NUM_THREADS=112
+export OMP_PROC_BIND=spread
+export OMP_PLACES=cores
+srun beach beach.toml
+```
+
+`OMP_NUM_THREADS`だけを指定すると、同じbinaryと入力でもthread配置の違いで大幅に遅くなることがある。
 
 ## 10. 実装挙動で誤解しやすい点
 

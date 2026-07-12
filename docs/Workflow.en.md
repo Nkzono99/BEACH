@@ -425,11 +425,29 @@ for record in mobility.records:
 ## 9. MPI Path Test (Developers)
 
 ```bash
-FPM_FC=mpiifort \
+FPM_FC=mpiifx \
 fpm test --target test_mpi_hybrid \
   --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 2"
 ```
+
+On the KUDPC Intel environment, release MPI builds default to `mpiifx`.
+`MPI_FC=mpiifort` remains available as an explicit classic-compiler override,
+but it is not recommended for production because the same 3,000-batch fixture
+showed a substantial runtime slowdown.
+
+Production runs using many OpenMP threads per rank on SysA must also specify
+thread placement explicitly:
+
+```bash
+export OMP_NUM_THREADS=112
+export OMP_PROC_BIND=spread
+export OMP_PLACES=cores
+srun beach beach.toml
+```
+
+Setting only `OMP_NUM_THREADS` can be substantially slower for the same binary
+and input because the runtime is free to choose a different thread placement.
 
 ## 10. Easy-to-Misread Implementation Behaviors
 

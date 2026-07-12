@@ -63,12 +63,10 @@ dirty=false
 [[ -n "$(git status --porcelain)" ]] && dirty=true
 fc_command="${FPM_FC:-${FC:-gfortran}}"
 export FPM_FC="$fc_command"
-if [[ -n "${MPI_FC:-}" ]]; then
-  mpi_fc_command="$MPI_FC"
-elif command -v mpiifx >/dev/null 2>&1; then
-  mpi_fc_command="mpiifx"
-else
-  mpi_fc_command="mpiifort"
+mpi_fc_command="${MPI_FC:-mpiifx}"
+if ! command -v "$mpi_fc_command" >/dev/null 2>&1; then
+  echo "MPI compiler not found: $mpi_fc_command (set MPI_FC to an available wrapper)" >&2
+  exit 2
 fi
 export MPI_FC="$mpi_fc_command"
 mpi_runner="${BEACH_RELEASE_MPI_RUNNER:-}"

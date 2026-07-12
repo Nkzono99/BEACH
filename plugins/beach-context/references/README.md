@@ -293,7 +293,7 @@ fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 MPI + OpenMP（`USE_MPI` 有効化）:
 
 ```bash
-FPM_FC=mpiifort \
+FPM_FC=mpiifx \
 fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 4" -- examples/beach.toml
 ```
