@@ -58,7 +58,7 @@ contains
     type(outer_plasma_grid_type) :: grid
     real(dp), allocatable :: current_profile(:)
     real(dp) :: current_field, target_field, remaining, increment, next_field
-    real(dp) :: field_tolerance, minimum_increment, maximum_increment
+    real(dp) :: field_tolerance, minimum_increment
     integer(i32) :: successful_steps, attempts
 
     if (present(continuation_steps)) continuation_steps = 0_i32
@@ -89,10 +89,8 @@ contains
       return
     end if
 
-    maximum_increment = 0.25_dp*max(1.0_dp, abs(current_field), abs(target_field))
     minimum_increment = sqrt(epsilon(1.0_dp))*max(1.0_dp, abs(current_field), abs(target_field))
-    increment = sign(min(abs(remaining), maximum_increment), remaining)
-    if (current_field*target_field < 0.0_dp) increment = remaining
+    increment = remaining
     successful_steps = 0_i32
     attempts = 0_i32
     do while (attempts < 128_i32)
@@ -118,7 +116,7 @@ contains
           return
         end if
         remaining = target_field - current_field
-        increment = sign(min(2.0_dp*abs(increment), abs(remaining), maximum_increment), remaining)
+        increment = sign(min(2.0_dp*abs(increment), abs(remaining)), remaining)
       else if (status == outer_plasma_numerical_failure) then
         increment = 0.5_dp*increment
         if (abs(increment) < minimum_increment) then

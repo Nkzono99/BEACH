@@ -162,10 +162,10 @@
 
 - [x] **Step 1: Add large field-change and branch-crossing regressions**
 
-  Seed the lunar solve from a known lower-magnitude field, request a change
-  that requires at least one continuation subdivision, and assert final-field
-  equality, monotonicity, residual tolerance, and nonzero continuation count.
-  Retain the existing sign-crossing regression.
+  Seed the lunar solve from a known lower-magnitude field and assert that a
+  feasible target is attempted directly.  Retain the existing sign-crossing
+  regression; numerical failure, rather than field magnitude alone, triggers
+  continuation subdivision.
 
 - [x] **Step 2: Run the kinetic target on SysA and verify RED**
 

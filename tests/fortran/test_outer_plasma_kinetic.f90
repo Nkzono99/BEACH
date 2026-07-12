@@ -108,7 +108,7 @@ program test_outer_plasma_kinetic
     continuation_steps=continuation_steps &
     )
   call assert_equal_i32(status, outer_plasma_ok, 'large lunar field change failed: '//trim(message))
-  call assert_true(continuation_steps > 1_i32, 'large lunar field change did not use continuation')
+  call assert_equal_i32(continuation_steps, 1_i32, 'feasible lunar field change should try the target directly')
   ambient_state = state
   options%interface_field = -0.72898324579369622_dp
   call solve_outer_plasma_kinetic(options, state, status, message, initial_potential=ambient_state%potential)
