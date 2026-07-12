@@ -51,7 +51,7 @@ contains
     real(dp), intent(in), optional :: initial_potential(:)
     type(outer_plasma_grid_type) :: grid
     real(dp), allocatable :: phi(:), residual(:), trial_residual(:), jacobian(:, :), delta(:), trial(:)
-    real(dp) :: residual_norm, trial_norm, step, bohm_speed
+    real(dp) :: residual_norm, trial_norm, step, bohm_speed, seed_scale
     integer(i32) :: iteration, solve_status
     logical :: accepted
 
@@ -85,6 +85,12 @@ contains
       phi = initial_potential
     else
       phi = options%interface_field*(options%tail_length + options%domain_length - grid%z)
+      if (abs(options%interface_field) <= 256.0_dp*epsilon(1.0_dp) .and. &
+          options%photoelectron_emission_flux > 0.0_dp) then
+        seed_scale = 1.0e-3_dp*options%photoelectron_temperature_j/abs(options%photoelectron_charge)
+        phi = -seed_scale*(options%tail_length + options%domain_length - grid%z)/ &
+              (options%tail_length + options%domain_length)
+      end if
     end if
     call kinetic_residual(options, grid, phi, residual, solve_status)
     if (solve_status /= outer_plasma_ok) then
@@ -251,14 +257,12 @@ contains
     tolerance = 256.0_dp*epsilon(1.0_dp)*max(1.0_dp, maxval(abs(phi)))
     valid = all(ieee_is_finite(phi))
     if (.not. valid) return
-    if (options%interface_field < -tolerance) then
+    if (options%interface_field <= tolerance) then
       valid = options%electron_charge*phi(1) >= -tolerance .and. &
               all(phi(2:) >= phi(:size(phi) - 1) - tolerance)
-    else if (options%interface_field > tolerance) then
+    else
       valid = options%electron_charge*phi(1) <= tolerance .and. &
               all(phi(2:) <= phi(:size(phi) - 1) + tolerance)
-    else
-      valid = maxval(abs(phi)) <= tolerance
     end if
   end function monotonic_electron_repelling_branch
 

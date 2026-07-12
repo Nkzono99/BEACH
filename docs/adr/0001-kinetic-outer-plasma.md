@@ -102,6 +102,7 @@ population、衝突 presheath、磁化 orbit は将来の別 ADR と solver を�
 - conservative finite-volume Poisson residual
 - damped Newton と Armijo backtracking
 - density derivative は解析式を優先し、solver Jacobian は検証可能な有限差分でもよい
+- UV放出が有効で初回のinterface fieldがゼロの場合は、far Robin条件を満たす微小な単調負電位profileをNewton初期値に使う。これは境界電位を固定せず、収束解は同じPoisson residualで決める
 - 前 batch profile は同一 grid/config fingerprint の場合だけ初期値に使う
 - MPI は root solve 後に status、scalar diagnostics、grid/profile を broadcast する
 - restart は grid/profile、status、反復数、前 batch identity を保存する
