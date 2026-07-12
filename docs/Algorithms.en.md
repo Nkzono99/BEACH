@@ -234,8 +234,8 @@ Incomplete particle arrays and `photo_emission_dq` from the failing rank are not
 | 4 | Use `boris_push` with the midpoint field to compute candidate velocity `v1` and trapezoidal candidate position `x1` |
 | 5 | Issue one collision query on `x0 -> x1`; if `x1` is inside the box, commit that result |
 | 6 | For a box crossing, compare the mesh-hit and first-face parameters, giving mesh hits priority on ties |
-| 7 | Open ends at the event; reflect/periodic rebuilds the remainder once and checks that chord for mesh hits |
-| 8 | Deposit `q * w` on a hit; fail closed without committing state at a second box event |
+| 7 | Open ends at the event; reflect/periodic rebuilds remainders for at most two events and checks each chord for mesh hits |
+| 8 | Deposit `q * w` on a hit; fail closed without committing state at a third box event |
 | 9 | If the particle survives, update same-time `x` and `v` and continue to the next step |
 
 `build_particle_step_candidate` evaluates the spatial field exactly once at the predicted midpoint without modifying
@@ -248,9 +248,10 @@ kinematics second-order accurate.
 
 When the candidate endpoint is strictly inside the box, `advance_particle_step` completes with one field evaluation and
 one collision query and does no additional event geometry. Crossing steps use `find_first_boundary_event` and
-`apply_escape_reflect_periodic_event` to apply simultaneous corner/edge faces together. If a reflected or periodic
-remainder reaches another face without an earlier mesh hit, it returns `particle_step_multiple_box_events` instead of
-entering an unbounded loop. The existing `apply_box_boundary` remains for photo rays.
+`apply_escape_reflect_periodic_event` to apply simultaneous corner/edge faces together. A second face reached at a
+different time is processed while preserving mesh/box event ordering. If the next remainder reaches a third face
+without an earlier mesh hit, it returns `particle_step_multiple_box_events` instead of entering an unbounded loop.
+The existing `apply_box_boundary` remains for photo rays.
 If a periodic2 full-chord query reaches a range limit beyond the box, the production loop falls back to a query truncated
 at the first box event.
 

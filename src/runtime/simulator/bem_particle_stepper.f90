@@ -51,7 +51,7 @@ contains
     call boris_push(x0, v0, q, m, dt, e_mid, bfield, x1, v1)
   end subroutine build_particle_step_candidate
 
-  !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大一度だけremainderを再積分する。
+  !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大二度だけremainderを再積分する。
   subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -132,7 +132,7 @@ contains
       )
   end subroutine resolve_particle_boundary_candidate
 
-  !> box crossing時だけevent用stateを確保し、最初のeventと最大一度のremainderを処理する。
+  !> box crossing時だけevent用stateを確保し、最大二つのeventとremainderを処理する。
   subroutine advance_particle_boundary_crossing( &
     mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
     )
@@ -144,10 +144,11 @@ contains
     type(particle_step_result), intent(inout) :: result
     logical, intent(in), optional :: defer_z_high_interface
 
-    type(boundary_event_type) :: event, second_event
+    type(boundary_event_type) :: event, second_event, third_event
     type(hit_info) :: remainder_hit
     real(dp) :: x_event(3), v_event(3)
     real(dp) :: x_remainder(3), v_remainder(3), x_second_event(3), v_second_event(3), dt_remaining
+    real(dp) :: x_final(3), v_final(3), x_third_event(3), v_third_event(3), dt_after_second
     integer(i32) :: query_status, boundary_status
     logical :: alive, escaped
     logical :: defer_interface
@@ -266,6 +267,92 @@ contains
       )
     call query_particle_chord( &
       mesh, sim, x_event, v_event, x_second_event, v_second_event, result, remainder_hit, query_status &
+      )
+    if (query_status /= collision_query_ok .or. result%absorbed) return
+
+    if (defer_interface .and. second_event%face_mask == shiftl(1_i32, 5_i32) .and. second_event%face_bc(6) == bc_open) then
+      result%x = x_second_event
+      result%v = v_second_event
+      result%interface_crossing%has_crossing = .true.
+      result%interface_crossing%face_index = 6_i32
+      result%interface_crossing%fraction = event%fraction + (1.0_dp - event%fraction)*second_event%fraction
+      result%interface_crossing%position = x_second_event
+      result%interface_crossing%velocity = v_second_event
+      result%interface_crossing%dt_remaining = (1.0_dp - second_event%fraction)*dt_remaining
+      return
+    end if
+
+    alive = .true.
+    escaped = .false.
+    if (trim(sim%open_boundary_model) == 'potential_barrier') then
+      call apply_legacy_potential_barrier_event( &
+        mesh, sim, snapshot, second_event, q, m, x_second_event, v_second_event, alive, escaped, boundary_status &
+        )
+    else
+      call apply_escape_reflect_periodic_event( &
+        sim, second_event, x_second_event, v_second_event, alive, escaped, boundary_status &
+        )
+    end if
+    if (boundary_status /= boundary_event_ok) then
+      if (boundary_status == boundary_event_invalid_geometry) then
+        result%status = particle_step_invalid_boundary
+      else
+        result%status = boundary_status
+      end if
+      return
+    end if
+    if (.not. alive) then
+      result%x = x_second_event
+      result%v = v_second_event
+      result%escaped_boundary = escaped
+      return
+    end if
+
+    dt_after_second = (1.0_dp - second_event%fraction)*dt_remaining
+    if (dt_after_second <= 0.0_dp) then
+      result%x = x_second_event
+      result%v = v_second_event
+      return
+    end if
+    call build_particle_step_candidate( &
+      mesh, sim, snapshot, bfield, x_second_event, v_second_event, q, m, dt_after_second, x_final, v_final &
+      )
+    result%field_eval_count = result%field_eval_count + 1_i32
+    if (.not. all(ieee_is_finite(x_final)) .or. .not. all(ieee_is_finite(v_final))) then
+      result%status = particle_step_invalid_boundary
+      return
+    end if
+
+    if (point_strictly_inside_box(sim, x_final)) then
+      call query_particle_chord( &
+        mesh, sim, x_second_event, v_second_event, x_final, v_final, result, remainder_hit, query_status &
+        )
+      if (query_status /= collision_query_ok .or. result%absorbed) return
+      result%x = x_final
+      result%v = v_final
+      return
+    end if
+
+    call find_first_boundary_event(sim, x_second_event, x_final, third_event, boundary_status)
+    if (boundary_status /= boundary_event_ok) then
+      result%status = particle_step_invalid_boundary
+      return
+    end if
+    if (.not. third_event%has_event) then
+      call query_particle_chord( &
+        mesh, sim, x_second_event, v_second_event, x_final, v_final, result, remainder_hit, query_status &
+        )
+      if (query_status /= collision_query_ok .or. result%absorbed) return
+      result%x = x_final
+      result%v = v_final
+      return
+    end if
+
+    call interpolate_boundary_state( &
+      sim, third_event, x_second_event, v_second_event, x_final, v_final, x_third_event, v_third_event &
+      )
+    call query_particle_chord( &
+      mesh, sim, x_second_event, v_second_event, x_third_event, v_third_event, result, remainder_hit, query_status &
       )
     if (query_status /= collision_query_ok .or. result%absorbed) return
     result%status = particle_step_multiple_box_events
