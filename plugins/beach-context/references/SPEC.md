@@ -132,6 +132,11 @@ ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infini
 `photo_raycast` speciesの放出fluxからoutgoing/returning平均密度を構成します。解状態は
 `converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、線形モデルへ
 silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し、restart時のNewton初期値に使います。
+非線形solveは密度closureの解析微分から構成したbordered-tridiagonal Jacobianを使い、1反復を
+格子点数に対して線形時間で解きます。Newton backtrackingが停滞した場合は同じPoisson残差に対する
+pseudo-transient stepへ切り替え、前回profileとのinterface field差が大きい場合は適応continuationで
+目標fieldへ進みます。pseudo-transient項や中間fieldを収束解として受理せず、最終目標fieldにおける
+元の未正則化残差が設定許容値以下の場合だけ`converged`とします。
 `kinetic_mean`とtracked `kinetic_1d_profile_return`を併用しても、mean closureはouter空間電荷と
 current診断だけを供給し、表面へreturn chargeを再加算しません。表面ledgerはtracked粒子の放出と
 再吸収だけで更新します。

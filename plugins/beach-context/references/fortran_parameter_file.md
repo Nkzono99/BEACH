@@ -279,6 +279,9 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 `outer_plasma.infinity_potential`には`0`を指定する。非ゼロ値は設定エラーになる。
 Phase 7 は単調・無衝突・非磁化分枝だけを扱い、ion drift に Bohm 条件を要求する。非単調
 virtual cathodeとtrapped populationは silent fallback せず適用外として停止する。
+solverは解析bordered-tridiagonal Jacobian、branch-preserving Newton、pseudo-transient回復、
+適応interface-field continuationを内部で使う。回復経路を使った場合も、指定fieldにおける元の
+Poisson residualが許容値以下になるまで解を受理しない。別のsheath modelや前回解へのfallbackは行わない。
 `return_model="kinetic_1d_profile_return"` と
 `particle_transfer_mode="electrostatic_1d_instant_return"` を指定すると、各batchで先に更新した
 kinetic profileの `phi_interface-phi_infinity` を使って無限遠VDFをinterfaceへエネルギー写像する。
