@@ -49,7 +49,7 @@ contains
       allocate (neighbor(3, mesh%nelem), queue(mesh%nelem), visited(mesh%nelem))
       call build_closed_neighbors(mesh, active, neighbor, status, message)
       if (status /= panel_surface_side_ok) return
-      signs = 0_i32
+      where (active) signs = 0_i32
       visited = .false.
       do i = 1, mesh%nelem
         if (.not. active(i)) cycle
