@@ -96,6 +96,7 @@ SYS_MODULE_PATTERN = re.compile(r"(?<![A-Za-z0-9_])Sys(?:CL|A|B|C|G)/[^\s()]+")
 INTEL_MODULE_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_])intel(?:mpi)?/[^\s()]+"
 )
+SAFE_STAGE_PATH_PATTERN = re.compile(r"[A-Za-z0-9_./:+-]+\Z")
 PRODUCTION_FIELD_EXECUTION_CONTRACT = {
     "field_backend": "fmm",
     "field_normalization": "si",
@@ -240,6 +241,10 @@ ARCHIVE_REQUIRED_ANALYSIS_OUTPUTS = (
     "work/latest/mesh_sources.csv",
     "work/latest/mesh_potential.csv",
     "work/latest/charge_history.csv",
+)
+PRODUCTION_MECHANICS_INPUTS = (
+    "input/release_kernel_base.toml",
+    "analysis/local_release/release_model_summary.json",
 )
 LEGACY_ESTIMATOR_INPUTS = (
     "analysis/local_release/moving_sphere_model_summary.json",
@@ -560,6 +565,118 @@ class ValidationError(RuntimeError):
     """Raised when a staged input or output violates the validation contract."""
 
 
+def _lexical_absolute(path: str | Path) -> Path:
+    raw = os.fspath(path)
+    value = Path(raw)
+    if value.is_absolute() and raw != str(value):
+        raise ValidationError(f"path is not lexically canonical: {raw!r}")
+    return value if value.is_absolute() else Path.cwd() / value
+
+
+def _safe_stage_path(path: str | Path, *, label: str) -> Path:
+    raw = os.fspath(path)
+    if not raw or SAFE_STAGE_PATH_PATTERN.fullmatch(raw) is None:
+        raise ValidationError(
+            f"unsafe {label} path; allowed characters are [A-Za-z0-9_./:+-]: {raw!r}"
+        )
+    return Path(raw)
+
+
+def _canonical_relative_path(relative: str | Path, *, label: str) -> Path:
+    raw = os.fspath(relative)
+    value = Path(raw)
+    if (
+        not raw
+        or value.is_absolute()
+        or "\\" in raw
+        or value.as_posix() != raw
+        or any(part in {".", ".."} for part in value.parts)
+    ):
+        raise ValidationError(f"{label} is not a canonical relative path: {raw!r}")
+    return value
+
+
+def _reject_existing_symlink_chain(root: Path, leaf: Path, *, label: str) -> None:
+    try:
+        relative = leaf.relative_to(root)
+    except ValueError as exc:
+        raise ValidationError(f"{label} is outside its declared root: {leaf}") from exc
+    for depth in range(len(relative.parts) + 1):
+        candidate = root.joinpath(*relative.parts[:depth])
+        if candidate.is_symlink():
+            raise ValidationError(
+                f"{label} has a symlink in its root-to-leaf path: {candidate}"
+            )
+
+
+def _reject_existing_symlink_ancestors(path: Path, *, label: str) -> None:
+    absolute = _lexical_absolute(path)
+    anchor = Path(absolute.anchor)
+    relative = absolute.relative_to(anchor)
+    for depth in range(len(relative.parts) + 1):
+        candidate = anchor.joinpath(*relative.parts[:depth])
+        if candidate.is_symlink():
+            raise ValidationError(
+                f"{label} has an existing symlink ancestor: {candidate}"
+            )
+
+
+def _require_expected_path(
+    root: Path,
+    declared: str | Path,
+    relative: str | Path | None,
+    *,
+    label: str,
+) -> Path:
+    root = Path(root)
+    if not root.is_absolute() or ".." in root.parts:
+        raise ValidationError(f"{label} root is not a canonical absolute path: {root}")
+    if relative is None:
+        expected = root
+    else:
+        expected = root / _canonical_relative_path(relative, label=f"{label} key")
+    declared_raw = os.fspath(declared)
+    actual = Path(declared_raw)
+    if declared_raw != str(expected) or actual != expected:
+        raise ValidationError(
+            f"{label} path is not the canonical expected path: {actual} != {expected}"
+        )
+    _reject_existing_symlink_chain(root, expected, label=label)
+    return expected
+
+
+def _require_descendant_path(
+    root: Path,
+    declared: str | Path,
+    *,
+    prefix: str | Path | None = None,
+    label: str,
+) -> Path:
+    declared_raw = os.fspath(declared)
+    actual = Path(declared_raw)
+    try:
+        relative = actual.relative_to(root)
+    except ValueError as exc:
+        raise ValidationError(f"{label} is outside the validation root: {actual}") from exc
+    if not relative.parts or any(part in {".", ".."} for part in relative.parts):
+        raise ValidationError(f"{label} is not a canonical descendant path: {actual}")
+    if prefix is not None:
+        expected_prefix = _canonical_relative_path(prefix, label=f"{label} prefix")
+        if relative.parts[: len(expected_prefix.parts)] != expected_prefix.parts:
+            raise ValidationError(
+                f"{label} is outside the expected {expected_prefix} subtree: {actual}"
+            )
+    return _require_expected_path(root, declared_raw, relative, label=label)
+
+
+def _is_same_or_descendant(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -877,14 +994,122 @@ def _archive_output_expectations(archive_run: Path) -> dict[str, int | None]:
     return {"mesh_nelem": mesh_nelem, "mesh_count": mesh_count}
 
 
+def _production_mechanics_number(
+    values: Mapping[str, Any],
+    key: str,
+    *,
+    positive: bool = False,
+    nonnegative: bool = False,
+) -> float:
+    raw = values.get(key)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ValidationError(f"production mechanics {key} must be numeric")
+    number = float(raw)
+    if not math.isfinite(number):
+        raise ValidationError(f"production mechanics {key} must be finite")
+    if positive and number <= 0.0:
+        raise ValidationError(f"production mechanics {key} must be positive")
+    if nonnegative and number < 0.0:
+        raise ValidationError(f"production mechanics {key} must be nonnegative")
+    return number
+
+
+def _validate_production_release_mechanics(archive_run: Path) -> None:
+    paths = {
+        relative: _require_expected_path(
+            archive_run,
+            archive_run / relative,
+            relative,
+            label=f"production mechanics {relative}",
+        )
+        for relative in PRODUCTION_MECHANICS_INPUTS
+    }
+    missing = [relative for relative, path in paths.items() if not path.is_file()]
+    if missing:
+        raise ValidationError(
+            "production mechanics file is missing: " + ", ".join(missing)
+        )
+
+    summary_path = paths["analysis/local_release/release_model_summary.json"]
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValidationError(
+            f"production mechanics release model summary is invalid: {exc}"
+        ) from exc
+    if not isinstance(summary, dict) or not isinstance(
+        summary.get("assumptions"), dict
+    ):
+        raise ValidationError(
+            "production mechanics release model summary requires assumptions"
+        )
+    assumptions = summary["assumptions"]
+    _production_mechanics_number(assumptions, "radius_m", positive=True)
+    _production_mechanics_number(
+        assumptions, "dust_density_kg_m3", positive=True
+    )
+    _production_mechanics_number(
+        assumptions, "moon_gravity_m_s2", nonnegative=True
+    )
+    energy_partition = _production_mechanics_number(
+        assumptions, "energy_partition"
+    )
+    if not 0.0 <= energy_partition <= 1.0:
+        raise ValidationError(
+            "production mechanics energy_partition must lie in [0, 1]"
+        )
+
+    adhesion_path = paths["input/release_kernel_base.toml"]
+    try:
+        parsed = _load_toml(adhesion_path)
+    except ValidationError as exc:
+        raise ValidationError(f"production mechanics adhesion TOML is invalid: {exc}") from exc
+    adhesion = parsed.get("adhesion")
+    if not isinstance(adhesion, dict) or not isinstance(adhesion.get("model"), str):
+        raise ValidationError(
+            "production mechanics adhesion TOML requires [adhesion].model"
+        )
+    model = str(adhesion["model"]).strip().lower()
+    if model not in {"none", "vdw_work"}:
+        raise ValidationError(
+            f"production mechanics adhesion model is unsupported: {model!r}"
+        )
+    if model == "none":
+        return
+    values = {
+        key: _production_mechanics_number(adhesion, key, positive=True)
+        for key in (
+            "hamaker_constant",
+            "contact_distance",
+            "cutoff_distance",
+            "roughness_factor",
+            "contact_count",
+            "peel_factor",
+        )
+    }
+    geometry = adhesion.get("contact_geometry")
+    if geometry not in {"sphere_sphere", "sphere_plane"}:
+        raise ValidationError(
+            "production mechanics contact_geometry must be sphere_sphere or sphere_plane"
+        )
+    if values["cutoff_distance"] <= values["contact_distance"]:
+        raise ValidationError(
+            "production mechanics cutoff_distance must exceed contact_distance"
+        )
+
+
 def _archive_analysis_inputs(archive_run: Path) -> dict[str, dict[str, str]]:
     inputs: dict[str, dict[str, str]] = {}
     for relative in (
-        "input/release_kernel_base.toml",
-        "analysis/local_release/release_model_summary.json",
+        *PRODUCTION_MECHANICS_INPUTS,
         *LEGACY_ESTIMATOR_INPUTS,
     ):
-        path = archive_run / relative
+        path = _require_expected_path(
+            archive_run,
+            archive_run / relative,
+            relative,
+            label=f"archive analysis input {relative}",
+        )
         if path.is_file():
             inputs[relative] = {"path": str(path), "sha256": _sha256(path)}
     return inputs
@@ -906,6 +1131,12 @@ def _archive_analysis_outputs(archive_run: Path) -> dict[str, dict[str, str]]:
     for path in candidates:
         if path.is_file():
             relative = path.relative_to(archive_run).as_posix()
+            path = _require_expected_path(
+                archive_run,
+                path,
+                relative,
+                label=f"archive analysis output {relative}",
+            )
             files[relative] = {"path": str(path), "sha256": _sha256(path)}
     return files
 
@@ -913,12 +1144,18 @@ def _archive_analysis_outputs(archive_run: Path) -> dict[str, dict[str, str]]:
 def _verify_declared_files(
     files: Mapping[str, Any],
     *,
+    root: Path,
     label: str,
 ) -> None:
     for name, value in files.items():
         if not isinstance(value, Mapping):
             raise ValidationError(f"{label} metadata is invalid: {name}")
-        path = Path(str(value.get("path", "")))
+        path = _require_expected_path(
+            root,
+            str(value.get("path", "")),
+            str(name),
+            label=f"{label} {name}",
+        )
         if not path.is_file() or _sha256(path) != value.get("sha256"):
             raise ValidationError(f"{label} hash mismatch: {name}")
 
@@ -1233,6 +1470,10 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALIDATION_ROOT="@VALIDATION_ROOT@"
 TOOL="@TOOL@"
+SOURCE_ROOT="@REPO_ROOT@"
+unset PYTHONHOME
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${SOURCE_ROOT}"
 export PYTHONDONTWRITEBYTECODE=1
 JOB_IDS="${HERE}/job_ids.json"
 SUBMIT_LOCK="${HERE}/.submit_chain.lock"
@@ -1295,7 +1536,7 @@ printf 'smoke=%s finite_140=%s finite_280=%s infinite_140=%s infinite_280=%s ana
     chain.write_text(
         chain_text.replace("@VALIDATION_ROOT@", str(root)).replace(
             "@TOOL@", str(source_snapshot["tool"])
-        ),
+        ).replace("@REPO_ROOT@", str(source_snapshot["root"])),
         encoding="utf-8",
     )
     chain.chmod(0o755)
@@ -1312,11 +1553,29 @@ def stage_validation(
 ) -> dict[str, Any]:
     """Create deterministic configs, provenance, and SysA job scripts."""
 
-    archive_path = Path(archive_run).resolve()
-    root = Path(validation_root).resolve()
-    binary_path = Path(binary).resolve()
-    library_path = None if library is None else Path(library).resolve()
-    archive_input = archive_path / "input/beach.toml"
+    archive_path = _safe_stage_path(archive_run, label="archive run").resolve()
+    raw_root = _safe_stage_path(validation_root, label="validation root")
+    _reject_existing_symlink_ancestors(raw_root, label="validation root")
+    root = raw_root.resolve()
+    binary_path = _safe_stage_path(binary, label="binary").resolve()
+    library_path = (
+        None
+        if library is None
+        else _safe_stage_path(library, label="analysis library").resolve()
+    )
+    if _is_same_or_descendant(root, REPO_ROOT.resolve()) or _is_same_or_descendant(
+        root, archive_path
+    ):
+        raise ValidationError(
+            "validation root must be outside the repository and archive: "
+            f"{root}"
+        )
+    archive_input = _require_expected_path(
+        archive_path,
+        archive_path / "input/beach.toml",
+        "input/beach.toml",
+        label="archived input",
+    )
     if not archive_input.is_file():
         raise ValidationError(f"archived input does not exist: {archive_input}")
     if not binary_path.is_file():
@@ -1346,6 +1605,8 @@ def stage_validation(
         )
     archive_config = _load_toml(archive_input)
     _require_archive_contract(archive_config, archive_path)
+    if require_clean_source:
+        _validate_production_release_mechanics(archive_path)
     archive_resources = _archive_job_resources(archive_path)
     archive_output = _archive_output_expectations(archive_path)
     archive_analysis_inputs = _archive_analysis_inputs(archive_path)
@@ -1658,7 +1919,12 @@ def _first_difference(left: Any, right: Any, path: str = "") -> str | None:
 
 
 def _load_manifest(root: Path) -> dict[str, Any]:
-    path = root / "manifest.json"
+    path = _require_expected_path(
+        root,
+        root / "manifest.json",
+        "manifest.json",
+        label="validation manifest",
+    )
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -1679,24 +1945,45 @@ def _validate_case_graph(root: Path, cases: Mapping[str, Any]) -> None:
         value = cases.get(name)
         if not isinstance(value, Mapping):
             raise ValidationError(f"staged case graph mismatch for {name}")
-        expected_config = (root / str(expected["config_relative"])).resolve()
-        expected_output = (root / str(expected["output_relative"])).resolve()
+        expected_config = root / str(expected["config_relative"])
+        expected_output = root / str(expected["output_relative"])
         restart_case = expected["restart_case"]
         expected_restart = (
             None
             if restart_case is None
-            else (
-                root
-                / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
-            ).resolve()
+            else root
+            / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
         )
         try:
-            actual_config = Path(str(value["config_path"])).resolve()
-            actual_output = Path(str(value["output_dir"])).resolve()
+            actual_config = _require_expected_path(
+                root,
+                str(value["config_path"]),
+                str(expected["config_relative"]),
+                label=f"case {name} config",
+            )
+            actual_output = _require_expected_path(
+                root,
+                str(value["output_dir"]),
+                str(expected["output_relative"]),
+                label=f"case {name} output",
+            )
             actual_restart = (
                 None
                 if value.get("restart_from") is None
-                else Path(str(value["restart_from"])).resolve()
+                else _require_expected_path(
+                    root,
+                    str(value["restart_from"]),
+                    str(
+                        EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"]
+                    ),
+                    label=f"case {name} restart",
+                )
+            )
+            _require_expected_path(
+                root,
+                str(value.get("validation_root", "")),
+                None,
+                label=f"case {name} validation root",
             )
             matches = (
                 value.get("name") == name
@@ -1712,9 +1999,8 @@ def _validate_case_graph(root: Path, cases: Mapping[str, Any]) -> None:
                 and actual_config == expected_config
                 and actual_output == expected_output
                 and actual_restart == expected_restart
-                and Path(str(value.get("validation_root", ""))).resolve() == root
             )
-        except (KeyError, TypeError, ValueError, OSError) as exc:
+        except (KeyError, TypeError, ValueError, OSError, ValidationError) as exc:
             raise ValidationError(
                 f"staged case graph mismatch for {name}: {exc}"
             ) from exc
@@ -1733,8 +2019,30 @@ def verify_inputs(
 ) -> dict[str, Any]:
     """Fail closed unless every staged input matches its declared transformation."""
 
-    root = Path(validation_root).resolve()
+    root = _lexical_absolute(validation_root)
     manifest = _load_manifest(root)
+    _require_expected_path(
+        root,
+        str(manifest.get("validation_root", "")),
+        None,
+        label="validation root",
+    )
+    for relative in (
+        "cache/periodic2",
+        "cache/oracles",
+        "run",
+        "submit",
+        "provenance",
+        "provenance/time",
+        "provenance/oracles",
+        "analysis",
+    ):
+        _require_expected_path(
+            root,
+            root / relative,
+            relative,
+            label=f"validation {relative}",
+        )
     if manifest.get("resources") != EXPECTED_RESOURCES:
         raise ValidationError(
             f"MPI resource metadata mismatch: {manifest.get('resources')!r}"
@@ -1746,12 +2054,18 @@ def verify_inputs(
         raise ValidationError("source snapshot metadata is missing")
     snapshot_root = Path(str(source_snapshot.get("root", "")))
     source_commit = str(manifest.get("source", {}).get("commit", ""))
-    expected_snapshot_root = (root / "source" / source_commit).resolve()
-    if (
-        snapshot_root.is_symlink()
-        or snapshot_root.resolve() != expected_snapshot_root
-    ):
-        raise ValidationError("source snapshot root differs from the staged contract")
+    snapshot_root = _require_expected_path(
+        root,
+        snapshot_root,
+        f"source/{source_commit}",
+        label="source snapshot root",
+    )
+    _require_expected_path(
+        root,
+        str(source_snapshot.get("tool", "")),
+        f"source/{source_commit}/tools/periodic_object_validation.py",
+        label="source snapshot tool",
+    )
     source_files = source_snapshot.get("files")
     if not isinstance(source_files, dict) or not source_files:
         raise ValidationError("source snapshot file hashes are missing")
@@ -1771,19 +2085,47 @@ def verify_inputs(
         path = snapshot_root / str(relative)
         if not path.is_file() or _sha256(path) != expected_hash:
             raise ValidationError(f"source snapshot hash mismatch: {relative}")
-    hash_file = Path(str(source_snapshot.get("hash_file", "")))
+    hash_file = _require_expected_path(
+        root,
+        str(source_snapshot.get("hash_file", "")),
+        f"source/{source_commit}/source_files.sha256",
+        label="source snapshot hash manifest",
+    )
     if (
-        hash_file.is_symlink()
-        or hash_file.resolve() != (snapshot_root / "source_files.sha256").resolve()
-        or not hash_file.is_file()
+        not hash_file.is_file()
         or _sha256(hash_file) != source_snapshot.get("hash_file_sha256")
     ):
         raise ValidationError("source snapshot hash manifest is missing")
     archive = manifest.get("archive", {})
-    archive_input = Path(str(archive.get("input", "")))
+    if not isinstance(archive, Mapping):
+        raise ValidationError("archive metadata is invalid")
+    archive_root = Path(str(archive.get("run", "")))
+    _require_expected_path(
+        archive_root,
+        archive_root,
+        None,
+        label="archive run",
+    )
+    archive_input = _require_expected_path(
+        archive_root,
+        str(archive.get("input", "")),
+        "input/beach.toml",
+        label="archived input",
+    )
     if not archive_input.is_file() or _sha256(archive_input) != archive.get("input_sha256"):
         raise ValidationError("archived input hash mismatch")
-    archive_manifest = Path(str(archive.get("run", ""))) / "manifest.toml"
+    _require_expected_path(
+        root,
+        str(archive.get("source_copy", "")),
+        "input/source/archive_beach.toml",
+        label="archived input source copy",
+    )
+    archive_manifest = _require_expected_path(
+        archive_root,
+        archive_root / "manifest.toml",
+        "manifest.toml",
+        label="archive manifest",
+    )
     if (
         not archive_manifest.is_file()
         or _sha256(archive_manifest) != archive.get("manifest_sha256")
@@ -1794,26 +2136,31 @@ def verify_inputs(
     analysis_inputs = archive.get("analysis_inputs", {})
     if not isinstance(analysis_inputs, dict):
         raise ValidationError("archive analysis input metadata is invalid")
-    _verify_declared_files(analysis_inputs, label="archive analysis input")
+    _verify_declared_files(
+        analysis_inputs,
+        root=archive_root,
+        label="archive analysis input",
+    )
     analysis_outputs = archive.get("analysis_outputs", {})
     if not isinstance(analysis_outputs, dict):
         raise ValidationError("archive analysis output metadata is invalid")
-    _verify_declared_files(analysis_outputs, label="archive analysis output")
+    _verify_declared_files(
+        analysis_outputs,
+        root=archive_root,
+        label="archive analysis output",
+    )
     mesh_source_contract = archive.get("mesh_source_contract")
     if not isinstance(mesh_source_contract, Mapping):
         raise ValidationError("archive mesh source contract is missing")
-    expected_mesh_source_path = (
-        Path(str(archive.get("run", ""))) / "work/latest/mesh_sources.csv"
-    ).resolve()
-    declared_mesh_source_path = Path(str(mesh_source_contract.get("path", "")))
+    declared_mesh_source_path = _require_expected_path(
+        archive_root,
+        str(mesh_source_contract.get("path", "")),
+        "work/latest/mesh_sources.csv",
+        label="archive mesh source contract",
+    )
     expected_output = archive.get("expected_output", {})
     if not isinstance(expected_output, Mapping):
         raise ValidationError("archive output contract is invalid")
-    if (
-        declared_mesh_source_path.is_symlink()
-        or declared_mesh_source_path.resolve() != expected_mesh_source_path
-    ):
-        raise ValidationError("archive mesh source contract path is invalid")
     current_mesh_source_contract = _mesh_source_contract(
         declared_mesh_source_path,
         expected_meshes=expected_output.get("mesh_count"),
@@ -1821,7 +2168,12 @@ def verify_inputs(
     )
     if current_mesh_source_contract != dict(mesh_source_contract):
         raise ValidationError("archive mesh source contract no longer matches staging")
-    staged_binary = Path(str(manifest.get("binary", {}).get("staged_path", "")))
+    staged_binary = _require_expected_path(
+        root,
+        str(manifest.get("binary", {}).get("staged_path", "")),
+        f"bin/{source_commit}/beach",
+        label="staged binary",
+    )
     if not staged_binary.is_file() or _sha256(staged_binary) != manifest.get("binary", {}).get("sha256"):
         raise ValidationError("staged binary hash mismatch")
     analysis_library = manifest.get("analysis_library")
@@ -1829,7 +2181,12 @@ def verify_inputs(
     if analysis_library is not None:
         if not isinstance(analysis_library, dict):
             raise ValidationError("analysis library metadata is invalid")
-        staged_library = Path(str(analysis_library.get("staged_path", "")))
+        staged_library = _require_descendant_path(
+            root,
+            str(analysis_library.get("staged_path", "")),
+            prefix=f"lib/{source_commit}",
+            label="staged analysis library",
+        )
         if (
             not staged_library.is_file()
             or _sha256(staged_library) != analysis_library.get("sha256")
@@ -1848,6 +2205,16 @@ def verify_inputs(
             binary=staged_binary,
             library=staged_library,
         )
+    if requires_clean_source:
+        missing_mechanics = sorted(
+            set(PRODUCTION_MECHANICS_INPUTS) - set(analysis_inputs)
+        )
+        if missing_mechanics:
+            raise ValidationError(
+                "production mechanics metadata is missing: "
+                + ", ".join(missing_mechanics)
+            )
+        _validate_production_release_mechanics(archive_root)
     archive_config = _load_toml(archive_input)
     cache_dir = root / "cache/periodic2"
     cases = manifest.get("cases")
@@ -1914,16 +2281,29 @@ def verify_inputs(
     for name, script in scripts.items():
         if not isinstance(script, Mapping):
             raise ValidationError(f"job script metadata is invalid: {name}")
-        path = Path(str(script["path"]))
-        expected_path = (root / "submit" / name).resolve()
+        path = _require_expected_path(
+            root,
+            str(script["path"]),
+            f"submit/{name}",
+            label=f"job script {name}",
+        )
         if (
-            path.is_symlink()
-            or path.resolve() != expected_path
-            or not path.is_file()
+            not path.is_file()
             or _sha256(path) != script.get("sha256")
         ):
             raise ValidationError(f"job script hash mismatch: {name}")
         text = path.read_text(encoding="utf-8")
+        required_python_environment = (
+            "unset PYTHONHOME",
+            "export PYTHONNOUSERSITE=1",
+            'export PYTHONPATH="${SOURCE_ROOT}"',
+        )
+        if any(token not in text for token in required_python_environment) or (
+            "${PYTHONPATH:+" in text
+        ):
+            raise ValidationError(
+                f"job script {name} lacks the isolated Python environment contract"
+            )
         if name == "analysis_sysa.sh":
             bad = [token for token in forbidden if token in text]
             if bad:
@@ -2411,7 +2791,7 @@ def _validate_history(
 
 def _matching_case(manifest: Mapping[str, Any], case_dir: Path) -> tuple[str, dict[str, Any]]:
     for name, value in manifest.get("cases", {}).items():
-        if Path(str(value["output_dir"])).resolve() == case_dir.resolve():
+        if Path(str(value["output_dir"])) == case_dir:
             return str(name), dict(value)
     raise ValidationError(f"case directory is not declared in manifest: {case_dir}")
 
@@ -2479,10 +2859,18 @@ def _load_execution_receipt(path: Path) -> dict[str, Any]:
 def _assert_dependency_receipt_current(
     path: Path,
     *,
+    validation_root: Path,
     expected_case: str,
+    expected_case_dir: Path,
     current_manifest_sha256: str,
     label: str,
 ) -> dict[str, Any]:
+    path = _require_expected_path(
+        validation_root,
+        path,
+        f"provenance/verified/{expected_case}.json",
+        label=f"{label} receipt",
+    )
     if not path.is_file():
         raise ValidationError(f"{label} receipt is missing: {path}")
     receipt = _load_execution_receipt(path)
@@ -2490,7 +2878,14 @@ def _assert_dependency_receipt_current(
         raise ValidationError(f"{label} receipt case mismatch")
     if receipt.get("manifest_sha256") != current_manifest_sha256:
         raise ValidationError(f"{label} receipt manifest mismatch")
-    case_dir = Path(str(receipt.get("case_dir", ""))).resolve()
+    case_dir = _require_descendant_path(
+        validation_root,
+        str(receipt.get("case_dir", "")),
+        prefix="run",
+        label=f"{label} receipt case directory",
+    )
+    if case_dir != expected_case_dir:
+        raise ValidationError(f"{label} receipt case directory mismatch")
     if _output_inventory(case_dir) != receipt.get("outputs"):
         raise ValidationError(f"{label} outputs differ from immutable receipt")
     return receipt
@@ -2549,21 +2944,32 @@ def verify_run(
 ) -> dict[str, Any]:
     """Verify one completed output against its staged case and diagnostics."""
 
-    requested_output = Path(case_dir).absolute()
-    if requested_output.is_symlink():
-        raise ValidationError(f"case output must not be a symlink: {requested_output}")
-    output = requested_output.resolve()
-    root = _find_validation_root(output)
-    for candidate in requested_output.parents:
-        if candidate == root.parent:
-            break
-        if candidate.is_symlink():
-            raise ValidationError(f"case output parent must not be a symlink: {candidate}")
-        if candidate.resolve() == root:
-            break
+    requested_output = _lexical_absolute(case_dir)
+    root = _find_validation_root(requested_output)
     manifest = _load_manifest(root)
-    name, case = _matching_case(manifest, output)
-    receipt_path = root / "provenance/verified" / f"{name}.json"
+    _require_expected_path(
+        root,
+        str(manifest.get("validation_root", "")),
+        None,
+        label="validation root",
+    )
+    cases = manifest.get("cases")
+    if not isinstance(cases, Mapping):
+        raise ValidationError("manifest cases must be an object")
+    _validate_case_graph(root, cases)
+    name, case = _matching_case(manifest, requested_output)
+    output = _require_expected_path(
+        root,
+        requested_output,
+        str(EXPECTED_CASE_GRAPH[name]["output_relative"]),
+        label=f"case {name} output",
+    )
+    receipt_path = _require_expected_path(
+        root,
+        root / "provenance/verified" / f"{name}.json",
+        f"provenance/verified/{name}.json",
+        label=f"case {name} execution receipt",
+    )
     existing_receipt = (
         _load_execution_receipt(receipt_path) if receipt_path.is_file() else None
     )
@@ -2735,11 +3141,12 @@ def verify_run(
         fingerprint = summary.get("periodic2_cache_fingerprint", "")
         if not fingerprint:
             raise ValidationError("cached case has an empty cache fingerprint")
-        cache_path = Path(summary.get("periodic2_cache_path", ""))
-        try:
-            cache_path.resolve().relative_to((root / "cache/periodic2").resolve())
-        except (ValueError, OSError) as exc:
-            raise ValidationError("cached operator path is outside the staged cache") from exc
+        cache_path = _require_descendant_path(
+            root,
+            summary.get("periodic2_cache_path", ""),
+            prefix="cache/periodic2",
+            label="cached operator path",
+        )
         if not cache_path.is_file() or cache_path.stat().st_size == 0:
             raise ValidationError(
                 f"cached operator is missing or empty: {cache_path}"
@@ -2749,7 +3156,7 @@ def verify_run(
             hit=hit,
             build_count=build_count,
             fingerprint=fingerprint,
-            path=str(cache_path.resolve()),
+            path=str(cache_path),
             path_sha256=cache_hash,
         )
         if expectation == "miss" and (hit or build_count != 1):
@@ -2768,7 +3175,9 @@ def verify_run(
             prime_receipt_path = root / "provenance/verified/cache_prime.json"
             prime_receipt = _assert_dependency_receipt_current(
                 prime_receipt_path,
+                validation_root=root,
                 expected_case="cache_prime",
+                expected_case_dir=prime_dir,
                 current_manifest_sha256=manifest_sha256,
                 label="cache prime",
             )
@@ -2786,12 +3195,14 @@ def verify_run(
 
     restart_from = case.get("restart_from")
     if restart_from is not None:
-        restart_output = Path(str(restart_from)).resolve()
+        restart_output = Path(str(restart_from))
         parent_name, _parent_case = _matching_case(manifest, restart_output)
         parent_receipt_path = root / "provenance/verified" / f"{parent_name}.json"
         _assert_dependency_receipt_current(
             parent_receipt_path,
+            validation_root=root,
             expected_case=parent_name,
+            expected_case_dir=restart_output,
             current_manifest_sha256=manifest_sha256,
             label="restart parent",
         )
@@ -4757,19 +5168,18 @@ def _periodic_cache_provenance(
     except (TypeError, ValueError) as exc:
         raise ValidationError("periodic cache build count is invalid") from exc
     fingerprint = str(raw.get("fingerprint") or "")
-    cache_path = Path(str(raw.get("path") or "")).resolve()
+    cache_path = _require_descendant_path(
+        validation_root,
+        str(raw.get("path") or ""),
+        prefix="cache/periodic2",
+        label="analysis periodic cache path",
+    )
     if not bool(hit) or build_count != 0:
         raise ValidationError(
             "cached analysis evaluator must reuse the staged operator"
         )
     if not fingerprint:
         raise ValidationError("cached analysis evaluator has no cache fingerprint")
-    try:
-        cache_path.relative_to((validation_root / "cache/periodic2").resolve())
-    except (ValueError, OSError) as exc:
-        raise ValidationError(
-            "analysis periodic cache path is outside the staged cache"
-        ) from exc
     if not cache_path.is_file() or cache_path.stat().st_size == 0:
         raise ValidationError(f"analysis periodic cache is missing: {cache_path}")
     path_sha256 = file_hashes.get(cache_path)
@@ -4798,7 +5208,12 @@ def _periodic_cache_provenance(
 
 
 def _verified_cache_prime_contract(validation_root: Path) -> dict[str, Any]:
-    receipt_path = validation_root / "provenance/verified/cache_prime.json"
+    receipt_path = _require_expected_path(
+        validation_root,
+        validation_root / "provenance/verified/cache_prime.json",
+        "provenance/verified/cache_prime.json",
+        label="verified cache-prime receipt",
+    )
     receipt = _load_execution_receipt(receipt_path)
     cache = receipt.get("cache")
     if not isinstance(cache, Mapping):
@@ -4808,9 +5223,15 @@ def _verified_cache_prime_contract(validation_root: Path) -> dict[str, Any]:
     path_sha256 = str(cache.get("path_sha256") or "")
     if not fingerprint or not path or len(path_sha256) != 64:
         raise ValidationError("verified cache-prime identity is incomplete")
+    cache_path = _require_descendant_path(
+        validation_root,
+        path,
+        prefix="cache/periodic2",
+        label="verified cache-prime path",
+    )
     return {
         "fingerprint": fingerprint,
-        "path": str(Path(path).resolve()),
+        "path": str(cache_path),
         "path_sha256": path_sha256,
         "receipt_sha256": _sha256(receipt_path),
     }
@@ -5933,9 +6354,12 @@ def _verify_submission_provenance(
     root: Path,
     manifest: Mapping[str, Any],
 ) -> dict[str, Any]:
-    job_ids_path = root / "submit/job_ids.json"
-    if job_ids_path.is_symlink():
-        raise ValidationError("job_ids.json must not be a symlink")
+    job_ids_path = _require_expected_path(
+        root,
+        root / "submit/job_ids.json",
+        "submit/job_ids.json",
+        label="job submission journal",
+    )
     try:
         job_ids = json.loads(job_ids_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -5970,10 +6394,20 @@ def _verify_submission_provenance(
     for name, (job_name, resources) in EXPECTED_SUBMITTED_JOBS.items():
         job_id = identifiers[name]
         token = f"{job_id}.{job_name}"
-        module_path = root / "provenance/modules" / f"{token}.txt"
-        hash_path = root / "provenance/hashes" / f"{token}.sha256"
+        module_path = _require_expected_path(
+            root,
+            root / "provenance/modules" / f"{token}.txt",
+            f"provenance/modules/{token}.txt",
+            label=f"submitted {name} module log",
+        )
+        hash_path = _require_expected_path(
+            root,
+            root / "provenance/hashes" / f"{token}.sha256",
+            f"provenance/hashes/{token}.sha256",
+            label=f"submitted {name} hash log",
+        )
         for label, path in (("module", module_path), ("hash", hash_path)):
-            if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
+            if not path.is_file() or path.stat().st_size == 0:
                 raise ValidationError(
                     f"submitted {name} job is missing its {label} log: {path}"
                 )
@@ -6005,8 +6439,13 @@ def _verify_submission_provenance(
         }
         if name == "analysis":
             continue
-        status_path = root / "provenance/jobs" / f"{token}.status"
-        if status_path.is_symlink() or not status_path.is_file():
+        status_path = _require_expected_path(
+            root,
+            root / "provenance/jobs" / f"{token}.status",
+            f"provenance/jobs/{token}.status",
+            label=f"submitted {name} status",
+        )
+        if not status_path.is_file():
             raise ValidationError(f"submitted {name} job status is missing")
         status = _summary(status_path)
         if (
@@ -6043,10 +6482,13 @@ def analyze_validation(
             library=library,
             require_complete=False,
         )
-    root = Path(validation_root).resolve()
-    final_analysis = root / "analysis"
-    if final_analysis.is_symlink():
-        raise ValidationError("strict analysis output must not be a symlink")
+    root = _lexical_absolute(validation_root)
+    final_analysis = _require_expected_path(
+        root,
+        root / "analysis",
+        "analysis",
+        label="strict analysis output",
+    )
     if final_analysis.exists() and any(final_analysis.iterdir()):
         raise ValidationError(
             f"strict analysis output is already published: {final_analysis}"
@@ -6158,11 +6600,23 @@ def _analyze_validation_impl(
 ) -> dict[str, Any]:
     """Write stable comparison artifacts, including explicit missing-run states."""
 
-    archive_path = Path(archive_run).resolve()
-    root = Path(validation_root).resolve()
-    library_path = Path(library).resolve()
+    archive_path = _lexical_absolute(archive_run)
+    root = _lexical_absolute(validation_root)
+    library_path = _lexical_absolute(library)
     manifest = _load_manifest(root)
-    declared_archive = Path(str(manifest.get("archive", {}).get("run", ""))).resolve()
+    _require_expected_path(
+        root,
+        str(manifest.get("validation_root", "")),
+        None,
+        label="validation root",
+    )
+    _require_expected_path(
+        archive_path,
+        archive_path,
+        None,
+        label="archive run",
+    )
+    declared_archive = Path(str(manifest.get("archive", {}).get("run", "")))
     if archive_path != declared_archive:
         raise ValidationError(
             f"archive run differs from staged manifest: {archive_path} != {declared_archive}"
@@ -6181,7 +6635,12 @@ def _analyze_validation_impl(
             raise ValidationError(
                 "complete analysis requires a staged analysis library"
             )
-        staged_path = Path(str(staged_library.get("staged_path", ""))).resolve()
+        staged_path = _require_descendant_path(
+            root,
+            str(staged_library.get("staged_path", "")),
+            prefix=f"lib/{manifest.get('source', {}).get('commit', '')}",
+            label="staged analysis library",
+        )
         if library_path != staged_path:
             raise ValidationError(
                 "complete analysis must use the staged analysis library"
@@ -6206,7 +6665,11 @@ def _analyze_validation_impl(
     analysis_inputs = manifest.get("archive", {}).get("analysis_inputs", {})
     if not isinstance(analysis_inputs, dict):
         raise ValidationError("archive analysis input metadata is invalid")
-    _verify_declared_files(analysis_inputs, label="archive analysis input")
+    _verify_declared_files(
+        analysis_inputs,
+        root=archive_path,
+        label="archive analysis input",
+    )
     declared_legacy_inputs = {
         relative for relative in analysis_inputs if relative in LEGACY_ESTIMATOR_INPUTS
     }
@@ -6214,10 +6677,24 @@ def _analyze_validation_impl(
         raise ValidationError(
             "complete analysis requires the exact legacy estimator input set"
         )
+    if require_complete:
+        missing_mechanics = sorted(
+            set(PRODUCTION_MECHANICS_INPUTS) - set(analysis_inputs)
+        )
+        if missing_mechanics:
+            raise ValidationError(
+                "production mechanics metadata is missing: "
+                + ", ".join(missing_mechanics)
+            )
+        _validate_production_release_mechanics(archive_path)
     analysis_outputs = manifest.get("archive", {}).get("analysis_outputs", {})
     if not isinstance(analysis_outputs, dict):
         raise ValidationError("archive analysis output metadata is invalid")
-    _verify_declared_files(analysis_outputs, label="archive analysis output")
+    _verify_declared_files(
+        analysis_outputs,
+        root=archive_path,
+        label="archive analysis output",
+    )
     if require_complete:
         missing_archive_outputs = [
             relative
@@ -6229,7 +6706,20 @@ def _analyze_validation_impl(
                 "complete analysis requires fixed archive outputs: "
                 + ", ".join(missing_archive_outputs)
             )
-    analysis = root / "analysis" if analysis_directory is None else analysis_directory
+    analysis = (
+        _require_expected_path(
+            root,
+            root / "analysis",
+            "analysis",
+            label="analysis output",
+        )
+        if analysis_directory is None
+        else _require_descendant_path(
+            root,
+            analysis_directory,
+            label="temporary analysis output",
+        )
+    )
     analysis.mkdir(parents=True, exist_ok=True)
     cases = [
         (
@@ -6879,29 +7369,60 @@ def _verify_periodic_oracle_receipt(
     expected_job_id: str | None = None,
     _candidate_receipt: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    receipt_path = validation_root / "provenance/oracles/periodic_plane.json"
+    receipt_path = _require_expected_path(
+        validation_root,
+        validation_root / "provenance/oracles/periodic_plane.json",
+        "provenance/oracles/periodic_plane.json",
+        label="periodic plane-oracle receipt",
+    )
     if _candidate_receipt is None:
         if not receipt_path.is_file():
             raise ValidationError("periodic plane-oracle receipt is missing")
         receipt = _load_execution_receipt(receipt_path)
     else:
         receipt = dict(_candidate_receipt)
-    manifest_path = validation_root / "manifest.json"
+    manifest_path = _require_expected_path(
+        validation_root,
+        validation_root / "manifest.json",
+        "manifest.json",
+        label="validation manifest",
+    )
     manifest = _load_manifest(validation_root)
-    cache_dir = validation_root / "cache/oracles"
-    config_path = validation_root / "provenance/oracles/periodic_plane.toml"
+    _require_expected_path(
+        validation_root,
+        str(manifest.get("validation_root", "")),
+        None,
+        label="validation root",
+    )
+    library = _require_descendant_path(
+        validation_root,
+        library,
+        prefix="lib",
+        label="periodic plane-oracle library",
+    )
+    cache_dir = _require_expected_path(
+        validation_root,
+        validation_root / "cache/oracles",
+        "cache/oracles",
+        label="periodic plane-oracle cache directory",
+    )
+    config_path = _require_expected_path(
+        validation_root,
+        validation_root / "provenance/oracles/periodic_plane.toml",
+        "provenance/oracles/periodic_plane.toml",
+        label="periodic plane-oracle config",
+    )
     if (
         receipt.get("oracle_schema_version") != 2
         or
         receipt.get("status") != "qualified"
         or receipt.get("manifest_sha256") != _sha256(manifest_path)
         or receipt.get("library_sha256") != _sha256(library)
-        or Path(str(receipt.get("library", ""))).resolve() != library.resolve()
-        or config_path.is_symlink()
+        or Path(str(receipt.get("library", ""))) != library
         or not config_path.is_file()
-        or Path(str(receipt.get("config", ""))).resolve() != config_path.resolve()
+        or Path(str(receipt.get("config", ""))) != config_path
         or receipt.get("config_sha256") != _sha256(config_path)
-        or Path(str(receipt.get("cache_dir", ""))).resolve() != cache_dir.resolve()
+        or Path(str(receipt.get("cache_dir", ""))) != cache_dir
         or receipt.get("cache_files") != _output_inventory(cache_dir)
         or (
             expected_job_id is not None
@@ -6945,11 +7466,14 @@ def _verify_periodic_oracle_receipt(
             raise ValidationError(
                 f"periodic plane-oracle {label} config metadata is invalid"
             )
+        expected_path = _require_expected_path(
+            validation_root,
+            str(metadata.get("path", "")),
+            expected_path.relative_to(validation_root).as_posix(),
+            label=f"periodic plane-oracle {label} config",
+        )
         if (
-            expected_path.is_symlink()
-            or not expected_path.is_file()
-            or Path(str(metadata.get("path", ""))).resolve()
-            != expected_path.resolve()
+            not expected_path.is_file()
             or metadata.get("sha256") != _sha256(expected_path)
         ):
             raise ValidationError(
@@ -7022,19 +7546,19 @@ def _verify_periodic_oracle_receipt(
                 raise ValidationError(
                     f"periodic plane-oracle {label} cache group {group} schema is invalid"
                 )
-            cache_path = Path(str(identity.get("path", "")))
-            try:
-                cache_path.resolve().relative_to(cache_dir.resolve())
-            except (OSError, ValueError) as exc:
-                raise ValidationError(
-                    f"periodic plane-oracle {label} cache group {group} path is invalid"
-                ) from exc
+            cache_path = _require_descendant_path(
+                validation_root,
+                str(identity.get("path", "")),
+                prefix="cache/oracles",
+                label=(
+                    f"periodic plane-oracle {label} cache group {group} path"
+                ),
+            )
             if (
                 identity.get("hit") is not True
                 or type(identity.get("build_count")) is not int
                 or identity.get("build_count") != 0
                 or not str(identity.get("fingerprint", ""))
-                or cache_path.is_symlink()
                 or not cache_path.is_file()
                 or identity.get("sha256") != _sha256(cache_path)
             ):
@@ -7043,7 +7567,7 @@ def _verify_periodic_oracle_receipt(
                 )
             canonical_by_group[str(group)] = (
                 str(identity["fingerprint"]),
-                cache_path.resolve(),
+                cache_path,
                 str(identity["sha256"]),
             )
         if (
@@ -7083,10 +7607,15 @@ def _verify_periodic_oracle_receipt(
                 raise ValidationError(
                     f"periodic plane-oracle {label} cache evaluation schema is invalid"
                 )
-            evaluation_path = Path(str(evaluation.get("path", "")))
+            evaluation_path = _require_descendant_path(
+                validation_root,
+                str(evaluation.get("path", "")),
+                prefix="cache/oracles",
+                label=f"periodic plane-oracle {label} cache evaluation path",
+            )
             evaluation_identity = (
                 str(evaluation.get("fingerprint", "")),
-                evaluation_path.resolve(),
+                evaluation_path,
                 str(evaluation.get("sha256", "")),
             )
             group = cache_group_for_label.get(str(evaluation.get("label", "")))
@@ -7097,7 +7626,6 @@ def _verify_periodic_oracle_receipt(
                 or type(evaluation.get("build_count")) is not int
                 or evaluation.get("build_count") != 0
                 or evaluation_identity != canonical_by_group[group]
-                or evaluation_path.is_symlink()
                 or not evaluation_path.is_file()
                 or evaluation.get("sha256") != _sha256(evaluation_path)
             ):
@@ -7476,8 +8004,8 @@ def _verify_periodic_oracle_receipt(
         for point_group, point_cache in point_caches.items():
             if (
                 triangle_cache["fingerprint"] == point_cache["fingerprint"]
-                or Path(str(triangle_cache["path"])).resolve()
-                == Path(str(point_cache["path"])).resolve()
+                or Path(str(triangle_cache["path"]))
+                == Path(str(point_cache["path"]))
             ):
                 raise ValidationError(
                     "periodic plane-oracle cross-model cache identity collision: "
@@ -8194,14 +8722,26 @@ def probe_periodic_oracles(
 ) -> dict[str, Any]:
     """Run analytic infinite-periodic plane oracles with the staged library."""
 
-    root = Path(validation_root).resolve()
-    library_path = Path(library).resolve()
+    root = _lexical_absolute(validation_root)
+    library_path = _lexical_absolute(library)
     manifest = _load_manifest(root)
+    _require_expected_path(
+        root,
+        str(manifest.get("validation_root", "")),
+        None,
+        label="validation root",
+    )
     staged_library = manifest.get("analysis_library")
     if not isinstance(staged_library, Mapping):
         raise ValidationError("periodic oracles require a staged analysis library")
+    staged_library_path = _require_descendant_path(
+        root,
+        str(staged_library.get("staged_path", "")),
+        prefix="lib",
+        label="staged analysis library",
+    )
     if (
-        library_path != Path(str(staged_library.get("staged_path", ""))).resolve()
+        library_path != staged_library_path
         or not library_path.is_file()
         or _sha256(library_path) != staged_library.get("sha256")
     ):
@@ -8213,15 +8753,35 @@ def probe_periodic_oracles(
         raise ValidationError(
             "periodic oracle library build origin differs from the staged source"
         )
-    receipt_path = root / "provenance/oracles/periodic_plane.json"
+    receipt_path = _require_expected_path(
+        root,
+        root / "provenance/oracles/periodic_plane.json",
+        "provenance/oracles/periodic_plane.json",
+        label="periodic plane-oracle receipt",
+    )
     if receipt_path.exists() or receipt_path.is_symlink():
         return _verify_periodic_oracle_receipt(root, library_path)
-    cache_dir = root / "cache/oracles"
-    if cache_dir.is_symlink() or (cache_dir.exists() and any(cache_dir.iterdir())):
+    cache_dir = _require_expected_path(
+        root,
+        root / "cache/oracles",
+        "cache/oracles",
+        label="periodic plane-oracle cache directory",
+    )
+    if cache_dir.exists() and any(cache_dir.iterdir()):
         raise ValidationError("periodic oracle cache must be empty before first execution")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    config_path = root / "provenance/oracles/periodic_plane.toml"
-    point_config_path = root / "provenance/oracles/periodic_plane_point.toml"
+    config_path = _require_expected_path(
+        root,
+        root / "provenance/oracles/periodic_plane.toml",
+        "provenance/oracles/periodic_plane.toml",
+        label="periodic plane-oracle config",
+    )
+    point_config_path = _require_expected_path(
+        root,
+        root / "provenance/oracles/periodic_plane_point.toml",
+        "provenance/oracles/periodic_plane_point.toml",
+        label="periodic point-plane oracle config",
+    )
     if (
         config_path.exists()
         or config_path.is_symlink()

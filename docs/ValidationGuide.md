@@ -26,6 +26,9 @@ Lang: [日本語](ValidationGuide.md) | [English](ValidationGuide.en.md)
 
 ここでいう qualification は、宣言した離散化・収束基準を満たすという意味です。
 process の終了、CSV の生成、または一つの `status="converged"` だけでは成立しません。
+保存済みの mesh/source 離散化を固定した path/work/shell の収束確認は、この Level 2
+全体のうち一部の数値軸だけを確認するものです。mesh/source refinement を実施していない場合、
+その subset が収束しても Level 2 全体を満たしたとは扱いません。
 
 ## レベル3: 物理的な結論を支持できる
 
@@ -52,7 +55,9 @@ process の終了、CSV の生成、または一つの `status="converged"` だ�
 2. self policy が `exclude_primary_keep_images` であることを確認します。旧
    `kernel-forces` の `exclude_target_lattice` や、電位再構成の `area_equivalent` と
    混同しません。
-3. triangle source では order 3/7 または mesh refinement で面積積分の依存性を確認します。
+3. triangle の target integration は Gauss-Duffy order 3/7 で依存性を確認します。これは
+   target 側の面積積分の確認であり、source mesh refinement ではありません。source
+   discretization は、別解像度の source mesh を使って独立に refinement を確認します。
    object mechanics は PV trace、粒子 pusher は片側 plus trace です。cached metadata の
    `cached_kneq0_trace_correction` は `periodic_kneq0` に適用済みなので再加算しません。
 4. 凍結 source path で `integral(F_z dh)` と `U_env(0)-U_env(h)` が宣言 tolerance 内で
@@ -104,13 +109,22 @@ process の終了、CSV の生成、または一つの `status="converged"` だ�
    `32 epsilon_machine` 以下とします。これは局所 kernel 契約の検査であり、periodic closure の
    代替ではありません。一様面の12%と cosine の8%は production ABI/cache 経路の smoke gate
    であり、object path の0.5%や finite-shell の1%という収束基準の代わりではなく、8%/12%を
-   物理精度として主張しません。
+   物理精度として主張しません。平面 oracle の誤差を、保存済み sphere mesh やその source
+   discretization の force/torque error bar に流用しません。sphere/source refinement は別途
+   実施するまで `not_evaluated` です。
 
 ## 旧 run・finite・infinite の SysA 比較手順
 
 `tools/periodic_object_validation.py` は、既存 archive を基準に、同じ物理入力の
 `finite_configured` と `infinite_physical` を比較するための fail-closed harness です。
 検証 root は repository の外に置き、既存内容のない directory を指定します。
+`stage` の4つの path 引数（archive、validation root、binary、library）は
+`[A-Za-z0-9_./:+-]+` だけを受理し、空白、`@`、`$`、quote、改行などを拒否します。
+validation root は repository と archive の外でなければならず、書込み先 path に既存の
+symlink ancestor がある場合も拒否します。archive、binary、library はread-only入力として
+安全文字検査後に実体pathへ正規化します。stage後のverify/strict経路では、validation root以下と
+archive analysis metadataのpathを文字列単位でcanonical pathへ固定し、rootからleafまでの
+既存symlinkを拒否します。
 
 ```bash
 current_sys="$(module -t list 2>&1 | grep -E '^Sys(A|B|C|CL|G)/' | head -n 1 || true)"
@@ -140,8 +154,15 @@ commit と一致する場合だけ受理します。`verify-inputs` は staged a
 各 simulation の `summary.txt` と plane-oracle receipt も同じ build origin に固定されます。
 `analyze --require-complete` はこの build origin を無条件に要求するため、production stage で
 `--require-clean-source` を省略した manifest は strict qualification を通りません。
+production stageとstrict解析は`input/release_kernel_base.toml`と
+`analysis/local_release/release_model_summary.json`を必須とし、canonical path、hash、schema、
+使用する全数値の有限性と物理範囲を再検証します。したがってwork/速度換算が黙示defaultへ
+落ちることはありません。non-strict archive-only解析では従来のdefault互換性を維持します。
 compiler identity 自体は binary に埋め込まず、SysA/Intel の module log と build log を別の実行証拠として
 保持します。
+
+生成jobは`PYTHONHOME`をunsetし、`PYTHONNOUSERSITE=1`と
+`PYTHONPATH="${SOURCE_ROOT}"`を設定します。submit時のuser siteや呼出元`PYTHONPATH`は継承しません。
 
 生成される DAG は smoke（cache prime を含む）、finite 140000、finite 280000、infinite
 140000、infinite 280000、analysis の6 jobです。各 model は140000 batch まで新規実行し、
@@ -202,18 +223,28 @@ model、`epsilon_r`、element count を staged input および相互で厳密一
 cache-prime receipt hash も `object_wrench.csv` に保存します。
 
 `analyze --require-complete` は strict input、receipt、oracle、geometry の検証と artifact 生成を
-一時 directory で行います。publish 前に失敗した場合は一時 directory を除去し、`analysis/` が
-未作成または空のままなら修正後に同じ validation root で retry できます。
+一時 directory で行います。完了済み oracle receipt などの write-once state が健全なまま、
+analysis の一時 directory 内だけで生成・検証に失敗した場合はその一時 directory を除去します。
+この場合に限り、`analysis/` が未作成または空なら、修正後に同じ validation root で retry
+できます。これは oracle 生成中の partial failure には適用しません。oracle config または cache
+だけが残り receipt がない状態は同じ root での再利用を拒否するため、新しい validation root が
+必要です。`analysis/` の atomic publish 後も、再実行には新しい validation root が必要です。
 
-`numerical_qualification_for_local_frozen_model` は exact 30 path/wrench key、6 shell group、path/work
-収束を含みます。finite-shell の相対 tolerance は1%、adaptive path は0.5%（force absolute
-floor `1e-12 N`、work absolute floor `1e-18 J`）です。さらに force floor が peak force の
-0.5%以下、瞬時離脱力 margin が `1e-12 N` を超え、barrier 判定境界からの energy margin が
-energy tolerance の10%を超えることを要求します。これらの resolution gate を満たさない
-barrier/speed は、積分自体が収束していても主張しません。この資格は局所 frozen-charge model
-に限られます。path または shell が未収束なら barrier/speed は
-`not_claimed_unqualified` であり、上方一定場が残る非中性系の `0..2R` work/speed は局所
-frozen-field 指標であって無限遠 escape 量ではありません。
+`numerical_qualification_for_local_frozen_model` は、保存済み sphere mesh と source discretization
+を固定したまま、exact 30 path/wrench key、6 shell group、path/work 収束を確認する subset gate
+です。finite-shell の相対 tolerance は1%、adaptive path は0.5%（force absolute floor
+`1e-12 N`、work absolute floor `1e-18 J`）です。さらに force floor が peak force の0.5%以下、
+瞬時離脱力 margin が `1e-12 N` を超え、barrier 判定境界からの energy margin が energy
+tolerance の10%を超えることを要求します。
+
+この gate の `status="qualified"` は、固定した保存済み離散化上で path integration、
+work/potential consistency、判定 resolution、finite-shell 収束を満たしたことだけを表します。
+保存済み sphere mesh の refinement、source discretization refinement、sphere force/torque の
+絶対誤差幅は評価しておらず、これらは `not_evaluated` です。平面 oracle の8%/12%を sphere の
+error bar として補いません。これらの resolution gate を満たさない barrier/speed は、積分自体が
+収束していても主張しません。path または shell が未収束なら barrier/speed は
+`not_claimed_unqualified` です。また、上方一定場が残る非中性系の `0..2R` work/speed は局所
+frozen-field 指標であり、無限遠への escape energy/speed ではありません。
 
 strict 解析は次の exact 14 artifact を一時 directory に作ります: `run_summary.csv`、
 `charge_history_pair.csv`、`particle_ledger_pair.csv`、`mesh_potential_pair.csv`、
@@ -228,9 +259,10 @@ file set、非空、size/hash manifest を
 新しい validation root を使います。
 
 exact 14 artifact が完全に読めることはレベル1の実行証拠です。strict CLI の exit code 0 は
-上記の構造・oracle・comparison・局所数値 gate を全て通過したことを示しますが、それでも
-レベル2の局所 model qualification です。model 選択と感度解析まで完了して初めてレベル3の
-主張を検討できます。
+上記の構造・oracle・comparison と、固定した保存済み離散化上の path/work/shell subset gate を
+全て通過したことを示します。これは Level 2 全体の qualification ではありません。保存済み
+sphere mesh/source refinement が `not_evaluated` の間は、Level 2 全体も未達です。これらの
+refinement、model 選択、感度解析まで完了して初めて Level 3 の主張を検討できます。
 
 release用の小規模基準は[Physics release verification](PhysicsReleaseVerification.html)にあります。
 本番caseでは同じ収束軸を自分の観測量に対して評価してください。

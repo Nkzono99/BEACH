@@ -22,6 +22,42 @@ TOOL_PATH = ROOT / "tools" / "periodic_object_validation.py"
 LEGACY_NATIVE_KEYS = ((149001, 7), (180001, 6), (279001, 6), (279001, 7))
 
 
+def _write_release_mechanics_fixture(run: Path) -> None:
+    (run / "input/release_kernel_base.toml").write_text(
+        """
+[adhesion]
+model = "vdw_work"
+hamaker_constant = 1.0e-19
+contact_distance = 0.4e-9
+cutoff_distance = 10.0e-9
+roughness_factor = 0.1
+contact_geometry = "sphere_sphere"
+contact_count = 3.0
+peel_factor = 0.5
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    analysis = run / "analysis/local_release"
+    analysis.mkdir(parents=True, exist_ok=True)
+    (analysis / "release_model_summary.json").write_text(
+        json.dumps(
+            {
+                "assumptions": {
+                    "radius_m": 3.5e-5,
+                    "dust_density_kg_m3": 3000.0,
+                    "moon_gravity_m_s2": 1.62,
+                    "energy_partition": 0.5,
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _write_legacy_estimator_fixture(run: Path) -> None:
     analysis = run / "analysis/local_release"
     analysis.mkdir(parents=True, exist_ok=True)
@@ -255,6 +291,7 @@ cores = 112
         "1,template,sphere,insulator,1.0,1\n",
         encoding="utf-8",
     )
+    _write_release_mechanics_fixture(run)
     _write_legacy_estimator_fixture(run)
     return run
 
@@ -397,6 +434,7 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
         for relative in manifest["archive"]["analysis_inputs"]
         if relative.startswith("analysis/local_release/")
     } == {
+        "analysis/local_release/release_model_summary.json",
         "analysis/local_release/moving_sphere_model_summary.json",
         "analysis/local_release/moving_sphere_force_curves.csv",
         "analysis/local_release/moving_sphere_release_summary.csv",
@@ -736,6 +774,139 @@ def test_stage_rejects_nonempty_validation_root(
         tool.stage_validation(archive_run, validation_root, binary)
 
 
+@pytest.mark.parametrize("location", ["repository", "archive"])
+def test_stage_rejects_validation_root_inside_source_or_archive(
+    archive_run: Path,
+    binary: Path,
+    location: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = ROOT if location == "repository" else archive_run
+
+    with pytest.raises(tool.ValidationError, match="outside the repository and archive"):
+        tool.stage_validation(archive_run, validation_root, binary)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "root_metadata",
+        "config_dotdot",
+        "config_double_slash",
+        "output_trailing_slash",
+        "provenance_ancestor_symlink",
+    ],
+)
+def test_verify_inputs_rejects_noncanonical_or_symlinked_validation_paths(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    tool.stage_validation(archive_run, validation_root, binary)
+    manifest_path = validation_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if mutation == "root_metadata":
+        manifest["validation_root"] = str(validation_root / ".." / "validation")
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    elif mutation == "config_dotdot":
+        manifest["cases"]["smoke_finite_configured"]["config_path"] = str(
+            validation_root
+            / "input/smoke"
+            / ".."
+            / "smoke/finite_configured.toml"
+        )
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    elif mutation == "config_double_slash":
+        case = manifest["cases"]["smoke_finite_configured"]
+        case["config_path"] = str(case["config_path"]).replace(
+            "/input/", "//input/", 1
+        )
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    elif mutation == "output_trailing_slash":
+        case = manifest["cases"]["smoke_finite_configured"]
+        case["output_dir"] = str(case["output_dir"]) + "/"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        provenance = validation_root / "provenance"
+        real_provenance = validation_root / "provenance-real"
+        provenance.rename(real_provenance)
+        provenance.symlink_to(real_provenance, target_is_directory=True)
+
+    with pytest.raises(tool.ValidationError, match="validation root|canonical|symlink"):
+        tool.verify_inputs(validation_root)
+
+
+def test_stage_rejects_validation_root_symlink_before_writing(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+) -> None:
+    tool = _load_tool()
+    real_root = tmp_path / "real-validation"
+    real_root.mkdir()
+    validation_root = tmp_path / "validation-link"
+    validation_root.symlink_to(real_root, target_is_directory=True)
+
+    with pytest.raises(tool.ValidationError, match="validation root.*symlink"):
+        tool.stage_validation(archive_run, validation_root, binary)
+
+    assert not any(real_root.iterdir())
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["input_path", "output_path", "input_ancestor_symlink"],
+)
+def test_verify_inputs_rejects_archive_metadata_path_substitution_and_symlinks(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    tool.stage_validation(archive_run, validation_root, binary)
+    manifest_path = validation_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if mutation == "input_path":
+        relative = "input/release_kernel_base.toml"
+        replacement = tmp_path / "replacement.toml"
+        replacement.write_bytes((archive_run / relative).read_bytes())
+        manifest["archive"]["analysis_inputs"][relative]["path"] = str(replacement)
+    elif mutation == "output_path":
+        relative = "work/latest/mesh_sources.csv"
+        replacement = tmp_path / "replacement.csv"
+        replacement.write_bytes((archive_run / relative).read_bytes())
+        manifest["archive"]["analysis_outputs"][relative]["path"] = str(replacement)
+    else:
+        local_release = archive_run / "analysis/local_release"
+        replacement = archive_run / "analysis/local_release-real"
+        local_release.rename(replacement)
+        local_release.symlink_to(replacement, target_is_directory=True)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(tool.ValidationError, match="archive analysis.*canonical|symlink"):
+        tool.verify_inputs(validation_root)
+
+
 def test_stage_with_library_snapshots_kernel_and_adds_dependent_analysis_job(
     archive_run: Path,
     binary: Path,
@@ -781,7 +952,34 @@ def test_stage_with_library_snapshots_kernel_and_adds_dependent_analysis_job(
     )
     assert "afterok:${finite_280}:${infinite_280}" in chain
     assert '"analysis": "%s"' in chain
+    for script_name in manifest["scripts"]:
+        script_text = (validation_root / "submit" / script_name).read_text(
+            encoding="utf-8"
+        )
+        assert script_text.count("unset PYTHONHOME") == 1
+        assert script_text.count("export PYTHONNOUSERSITE=1") == 1
+        assert script_text.count('export PYTHONPATH="${SOURCE_ROOT}"') == 1
+        assert "${PYTHONPATH:+" not in script_text
     assert tool.verify_inputs(validation_root)["status"] == "ok"
+
+
+@pytest.mark.parametrize(
+    "unsafe_name",
+    ["validation root", "validation@root", "validation$root", "validation'root", "validation\nroot"],
+)
+def test_stage_rejects_unsafe_path_characters_before_filesystem_use(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    unsafe_name: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / unsafe_name
+    validation_root.mkdir()
+    (validation_root / "sentinel").write_text("do not stage\n", encoding="utf-8")
+
+    with pytest.raises(tool.ValidationError, match="unsafe validation root path"):
+        tool.stage_validation(archive_run, validation_root, binary)
 
 
 def test_verify_inputs_rejects_analysis_script_with_oracle_after_analysis(
@@ -987,6 +1185,78 @@ def test_clean_production_stage_requires_analysis_library(
             tmp_path / "validation",
             binary,
             require_clean_source=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "input/release_kernel_base.toml",
+        "analysis/local_release/release_model_summary.json",
+    ],
+)
+def test_clean_production_stage_requires_explicit_release_mechanics(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative: str,
+) -> None:
+    tool = _load_tool()
+    (archive_run / relative).unlink()
+
+    with pytest.raises(tool.ValidationError, match="production mechanics.*missing"):
+        _stage_clean_validation(
+            tool,
+            archive_run,
+            tmp_path / "validation",
+            binary,
+            monkeypatch,
+        )
+
+
+@pytest.mark.parametrize("mutation", ["summary_nonfinite", "adhesion_schema"])
+def test_strict_analysis_revalidates_release_mechanics_schema_and_finiteness(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = _stage_clean_validation(
+        tool,
+        archive_run,
+        validation_root,
+        binary,
+        monkeypatch,
+    )
+    if mutation == "summary_nonfinite":
+        relative = "analysis/local_release/release_model_summary.json"
+        path = archive_run / relative
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value["assumptions"]["dust_density_kg_m3"] = float("nan")
+        path.write_text(json.dumps(value), encoding="utf-8")
+    else:
+        relative = "input/release_kernel_base.toml"
+        path = archive_run / relative
+        path.write_text(
+            '[adhesion]\nmodel = "vdw_work"\nhamaker_constant = 1.0e-19\n',
+            encoding="utf-8",
+        )
+    manifest["archive"]["analysis_inputs"][relative]["sha256"] = tool._sha256(path)
+    (validation_root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(tool.ValidationError, match="production mechanics"):
+        tool.analyze_validation(
+            archive_run,
+            validation_root,
+            library=Path(manifest["analysis_library"]["staged_path"]),
+            require_complete=True,
         )
 
 

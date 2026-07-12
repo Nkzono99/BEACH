@@ -27,6 +27,10 @@ A zero exit status does not establish physical or numerical validity.
 Qualification here means satisfying declared discretization and convergence
 criteria. Process completion, generated CSV files, or one
 `status="converged"` value is not sufficient by itself.
+A path/work/shell convergence check on a fixed saved mesh and source
+discretization covers only a subset of the numerical axes required for Level 2.
+Passing that subset does not establish Level 2 as a whole when mesh or source
+refinement has not been performed.
 
 ## Level 3: a physical conclusion is supported
 
@@ -57,7 +61,10 @@ criteria. Process completion, generated CSV files, or one
 2. Confirm `exclude_primary_keep_images`. Do not confuse it with the legacy
    `kernel-forces` policy `exclude_target_lattice` or the potential
    reconstruction self term `area_equivalent`.
-3. For triangle sources, check order-3/order-7 quadrature or mesh refinement.
+3. For triangle target integration, compare Gauss-Duffy order 3 and order 7.
+   This checks target-side area integration; it is not source-mesh refinement.
+   Check source discretization independently with source meshes at different
+   resolutions.
    Object mechanics uses the PV trace, while the particle pusher uses the
    one-sided plus trace. Cached `cached_kneq0_trace_correction` metadata has
    already been applied to `periodic_kneq0`; never add it again.
@@ -125,7 +132,10 @@ criteria. Process completion, generated CSV files, or one
    not a substitute for the periodic closure. The 12% uniform-plane and 8%
    cosine thresholds are smoke gates for the production ABI/cache path. They
    neither replace the 0.5% object-path and 1% finite-shell convergence
-   criteria nor establish 8%/12% physical accuracy.
+   criteria nor establish 8%/12% physical accuracy. Do not reuse plane-oracle
+   errors as force or torque error bars for the saved sphere mesh or its source
+   discretization. Sphere and source refinement remain `not_evaluated` until
+   they are performed separately.
 
 ## SysA Comparison of Archived, Finite, and Infinite Runs
 
@@ -133,6 +143,14 @@ criteria. Process completion, generated CSV files, or one
 existing archive with `finite_configured` and `infinite_physical` runs that
 retain the same physical inputs. Put the validation root outside the repository
 and require it to be empty before staging.
+The four `stage` path arguments (archive, validation root, binary, and library)
+accept only `[A-Za-z0-9_./:+-]+`; whitespace, `@`, `$`, quotes, and newlines are
+rejected. The validation root must be outside both the repository and archive,
+and staging rejects any existing symlink ancestor in that write destination.
+Archive, binary, and library are read-only inputs and are resolved to their
+canonical targets after the safe-character check. After staging, verify and
+strict paths bind validation-root descendants and archive-analysis metadata to
+their exact canonical strings and reject existing symlinks from root to leaf.
 
 ```bash
 current_sys="$(module -t list 2>&1 | grep -E '^Sys(A|B|C|CL|G)/' | head -n 1 || true)"
@@ -165,8 +183,18 @@ C ABI build info. It accepts them only when version, mode, full source SHA, and
 `analyze --require-complete` requires this build origin unconditionally, so a
 production manifest staged without `--require-clean-source` cannot pass strict
 qualification.
+Production staging and strict analysis require both
+`input/release_kernel_base.toml` and
+`analysis/local_release/release_model_summary.json`. Their canonical paths,
+hashes, schemas, finite numeric values, and physical ranges are rechecked, so
+work and speed calculations cannot silently fall back to defaults. Non-strict
+archive-only analysis retains the prior default-compatible behavior.
 Compiler identity is not embedded in the artifacts; retain the SysA/Intel
 module and build logs as separate execution evidence.
+
+Generated jobs unset `PYTHONHOME`, set `PYTHONNOUSERSITE=1`, and set
+`PYTHONPATH="${SOURCE_ROOT}"` exactly. They do not inherit the submitting
+environment's user site or `PYTHONPATH`.
 
 The generated DAG has six jobs: smoke (including cache prime), finite 140000,
 finite 280000, infinite 140000, infinite 280000, and analysis. Each model
@@ -245,23 +273,35 @@ old archive does not weaken the new-run contract. For cached evaluators,
 file hash, and cache-prime receipt hash.
 
 `analyze --require-complete` performs strict input, receipt, oracle, and
-geometry checks and generates artifacts in a temporary directory. A failure
-before publication removes that directory; after correction, the same
-validation root can be retried while `analysis/` remains absent or empty.
+geometry checks and generates artifacts in a temporary directory. When the
+completed oracle receipt and other write-once state remain valid, a failure
+confined to generation or verification inside the analysis temporary directory
+removes that directory. Only in this case may the same validation root be
+retried after correction while `analysis/` remains absent or empty. This does
+not apply to a partial failure during oracle generation. If oracle configuration
+or cache files remain without a receipt, reuse of that root is rejected and a
+new validation root is required. A new validation root is also required after
+`analysis/` has been atomically published.
 
-`numerical_qualification_for_local_frozen_model` covers the exact 30
-path/wrench keys, six shell groups, and path/work convergence. The
-finite-shell relative tolerance is 1%; the
-adaptive path tolerance is 0.5%, with a `1e-12 N` absolute force floor and a
-`1e-18 J` absolute work floor. It also requires the force floor to be no more
-than 0.5% of peak force, the instantaneous detachment-force margin to exceed
-`1e-12 N`, and the energy margin from the barrier decision boundary to exceed
-10% of the energy tolerance. A barrier or speed is not claimed when these
-resolution gates fail, even if integration itself converged. This remains a
-qualification of the local frozen-charge model only. If a path or shell is
-unconverged, barrier and speed are `not_claimed_unqualified`. In a non-neutral
+`numerical_qualification_for_local_frozen_model` is a subset gate evaluated
+with the saved sphere mesh and source discretization held fixed. It covers the
+exact 30 path/wrench keys, six shell groups, and path/work convergence. The
+finite-shell relative tolerance is 1%; the adaptive path tolerance is 0.5%,
+with a `1e-12 N` absolute force floor and a `1e-18 J` absolute work floor. It
+also requires the force floor to be no more than 0.5% of peak force, the
+instantaneous detachment-force margin to exceed `1e-12 N`, and the energy margin
+from the barrier decision boundary to exceed 10% of the energy tolerance.
+
+For this gate, `status="qualified"` means only that path integration,
+work/potential consistency, decision resolution, and finite-shell convergence
+passed on the fixed saved discretization. It does not evaluate saved-sphere mesh
+refinement, source-discretization refinement, or an absolute sphere force/torque
+error bound; those remain `not_evaluated`. The 8%/12% plane-oracle thresholds do
+not fill in a sphere error bar. A barrier or speed is not claimed when these
+resolution gates fail, even if integration itself converged. If a path or shell
+is unconverged, barrier and speed are `not_claimed_unqualified`. In a non-neutral
 system with a remaining constant upper field, `0..2R` work and speed are local
-frozen-field diagnostics, not escape-to-infinity quantities.
+frozen-field diagnostics, not escape energy or speed at infinity.
 
 Strict analysis creates exactly 14 artifacts in a temporary directory:
 `run_summary.csv`, `charge_history_pair.csv`, `particle_ledger_pair.csv`,
@@ -279,8 +319,10 @@ strict analysis after publication requires a new validation root.
 
 An exactly complete and readable 14-artifact set is Level-1 execution
 evidence. A zero strict-CLI exit code also establishes the structural, oracle,
-comparison, and local numerical gates above, but it is still a Level-2
-qualification of a local model. Model-selection and sensitivity checks are
-needed before considering a Level-3 physical claim.
+comparison, and fixed-saved-discretization path/work/shell subset gates above.
+It does not establish Level 2 as a whole. While saved-sphere mesh and source
+refinement remain `not_evaluated`, Level 2 as a whole remains incomplete. Those
+refinements, model-selection checks, and sensitivity checks are required before
+considering a Level-3 physical claim.
 
 See [Physics release verification](PhysicsReleaseVerification.en.html) for small reference contracts.
