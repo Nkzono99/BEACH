@@ -228,27 +228,145 @@ The model is rejected when $|\Delta\phi|/V_T$ exceeds its linearity limit.
 
 ### 4.4 `kinetic_1d`
 
-The solver receives interface field from the surface zero mode. It constructs
-$\rho(\phi)$ from an ambient-electron half-Maxwellian, cold drifting ions, and
-optional photoelectron flux, then solves
+#### 4.4.1 Domain and unknown
+
+`kinetic_1d` represents the plane-averaged region from the rough-surface
+interface $z=z_I$ to the infinity reservoir as a one-dimensional electrostatic,
+collisionless, unmagnetized plasma. Its unknown is the mean outer potential
+$\phi(z)$. The surface zero mode supplies interface field $E_I$ through
+
+$$
+-\phi'(z_I)=E_I,
+$$
+
+and the solver constructs $\rho(\phi)$ from ambient electrons, cold drifting
+ions, and optional photoelectron flux before solving
 
 $$
 \frac{d^2\phi}{dz^2}=-\frac{\rho(\phi)}{\epsilon_0}.
 $$
 
-It uses a stretchable 1D grid, conservative finite-volume interior residuals,
-and the far condition
+The infinity gauge is $\phi_\infty=0$. Interface potential $\phi_I$ is not an
+input: it is the value $\phi(z_I)$ that satisfies the interface field, VDF
+closures, and far condition together.
+
+This solve does not impose floating balance $J_\mathrm{total}=0$ as a root
+equation. Batch updates of surface charge change $E_I$, which changes $\phi_I$
+and the species currents. Electron, ion, photoelectron, and external-circuit
+current densities are diagnostics evaluated after the profile has converged.
+
+#### 4.4.2 Density closures from VDFs
+
+The first negative and positive z-high `reservoir_face` species define the
+infinity ambient electrons and ions. With
+`photoelectron_closure="kinetic_mean"`, the first negative `photo_raycast`
+species supplies temperature and emitted current density for a plane-averaged
+photoelectron source.
+
+| Population | Infinity/surface inputs | Outer density construction |
+| --- | --- | --- |
+| ambient electron | $n_{e,\infty},T_e,q_e,m_e$ | map a half-Maxwellian by total-energy conservation, including absorbed and potential-reflected trajectories |
+| ion | $n_{i,\infty},T_i,q_i,m_i,u_{i,\infty}$ | cold beam with speed and density from energy and flux conservation |
+| photoelectron | $T_{pe},q_{pe},m_{pe},\Gamma_{pe,0}$ | surface half-Maxwellian with mean outgoing and post-turning return populations |
+
+The cold-ion closure is
+
+$$
+u_i(z)=\sqrt{u_{i,\infty}^2-\frac{2q_i\phi(z)}{m_i}},\qquad
+n_i(z)=n_{i,\infty}\frac{u_{i,\infty}}{u_i(z)}.
+$$
+
+A profile for which the square root ceases to be real is rejected because ions
+cannot access the interface. The photoelectron escape fraction is
+
+$$
+f_{pe,\mathrm{esc}}=
+\exp\left[-\frac{\max\{0,q_{pe}(\phi_\infty-\phi_I)\}}{T_{pe}}\right],
+$$
+
+and the remainder is the return population. The Poisson source is
+
+$$
+\rho(\phi)=q_en_e(\phi)+q_in_i(\phi)+q_{pe}n_{pe}(\phi).
+$$
+
+Temperatures are represented internally in joules. Each analytic closure also
+returns $\partial n_s/\partial\phi$ and, where required,
+$\partial n_s/\partial\phi_I$ for the Newton Jacobian.
+
+The outgoing/returning density in `kinetic_mean` is a stationary closure for
+outer space charge. It does not replace surface deposition by tracked particles
+or add a second statistical return current. Individual escape and return are
+handled by `kinetic_1d_profile_return` using the same converged profile; see
+[Outer Sheath and Reservoir Particle Boundaries](SheathReservoirBoundary.en.md).
+
+#### 4.4.3 Grid and boundary conditions
+
+The interior uses conservative finite-volume residuals on a stretchable
+nonuniform 1D grid. Current runtime values are listed below; only `debye_length`
+is currently exposed as an individual input parameter.
+
+| Item | Current value |
+| --- | ---: |
+| grid points | 128 |
+| domain length | $10\lambda_D$ |
+| grid stretch | 2 |
+| maximum Newton iterations | 40 |
+| residual tolerance | $10^{-8}$ |
+
+Beyond the finite upper endpoint $L$, the model assumes an exponential tail
+with $\lambda_\mathrm{tail}=\lambda_D$ and imposes
 
 $$
 \phi'(L)+\frac{\phi(L)}{\lambda_{\mathrm{tail}}}=0.
 $$
 
+This Robin condition represents exponential relaxation toward the infinity
+gauge without forcing potential abruptly to zero at $L$. The remaining tail is
+also used in particle flight-time integration.
+
+#### 4.4.4 Nonlinear solve and acceptance
+
 Analytic density derivatives form a bordered-tridiagonal Jacobian, so one Newton
-step is $O(N_z)$. Backtracking, pseudo-transient recovery, and interface-field
-continuation change only the convergence path. Acceptance still requires the
-original Poisson residual, the monotone branch, ion accessibility, and the Bohm
-condition. The MPI root solves and broadcasts status and profile. There is no
-fallback to another sheath model or an unvalidated previous-batch solution.
+step is $O(N_z)$. Dependence of interior densities on
+$\phi_I=\phi_1$ produces the border column in addition to the ordinary
+tridiagonal stencil. Backtracking keeps trial steps on the monotone branch.
+Pseudo-transient regularization is used when ordinary Newton steps stall. When
+a previous-batch profile is available, interface-field continuation advances
+from its old field to the current value and halves a failed increment.
+
+These methods alter only the convergence path. Final acceptance requires all of
+the following:
+
+| Condition | Meaning |
+| --- | --- |
+| original Poisson residual | the unregularized discrete Poisson residual is below tolerance |
+| monotone branch | remain on the supported electron-repelling profile |
+| ion accessibility | $u_i^2(z)>0$ at every grid point |
+| kinetic Bohm entry | $u_{i,\infty}\ge\sqrt{(T_e+\gamma_iT_i)/m_i}$ |
+| infinity quasineutrality | $q_en_{e,\infty}+q_in_{i,\infty}\simeq0$ |
+
+Nonmonotone virtual-cathode profiles, trapped populations, and sub-Bohm ion
+inflow are outside this model. A numerical iterate is not accepted when a
+physical condition fails. Status distinguishes `not_applicable`,
+`no_physical_solution`, and `numerical_failure`; the solver does not fall back
+to another sheath or an unvalidated previous-batch solution.
+
+#### 4.4.5 Batch update, MPI, and output
+
+On batches selected by `outer_update_stride`, the profile is refreshed using
+interface field reconstructed from committed surface charge. A previous profile
+is a Newton initial guess only for the same model identity and grid. The MPI root
+performs the 1D solve and broadcasts status, profile, and current diagnostics.
+All particles in a batch share the updated immutable snapshot, so the profile is
+not solved again after each impact.
+
+Converged $z,\phi,E,\rho$ are written to `outer_plasma_profile.csv` and can seed
+restart. Inspect `interface_potential`, `interface_field`,
+`outer_integrated_charge`, species and total current densities, Newton iteration
+count, and the original nonlinear residual. The quasistatic scope of immediate
+return is documented under
+[Why return is immediate and where the approximation applies](SheathReservoirBoundary.en.md#why-return-is-immediate-and-where-the-approximation-applies).
 
 ### 4.5 `unified_linear_response`
 

@@ -282,7 +282,16 @@ Particle transfer requires `return_model="kinetic_1d_profile_return"` and
 
 1. Map the infinity VDF to the interface using the refreshed `phi_interface-phi_infinity`.
 2. Use the same discrete profile and Robin tail to classify escape or a turning point.
-3. Return turning particles after the analytically integrated round-trip time.
+3. Construct the state corresponding to the analytically integrated round trip
+   and return the particle at the same simulation time and in the same batch.
+
+This is an intentional instant-return closure for stationary and quasistationary
+sheaths. It supports mean current and detachment force after equilibration, but
+does not represent delayed return current during UV turn-on or other transients.
+Quasistatic validity is bounded by `tau_outer/field_evolution_timescale`. When
+`tau_outer/batch_duration >= 1`, do not interpret the batch history as a physical
+return-current time history. See
+[Outer Sheath and Reservoir Particle Boundaries](SheathReservoirBoundary.en.md).
 
 Legacy reservoir barriers, Zhao injection correction, and nonzero `b0` are rejected.
 

@@ -291,7 +291,13 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 
 1. 更新済みprofileの`phi_interface-phi_infinity`で無限遠VDFをinterfaceへ写像する。
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
-3. turning粒子を解析往復時間後にinterfaceへ戻す。
+3. turning粒子について解析往復時間後に相当する復帰状態を作り、同じsimulation時刻・batchでinterfaceへ戻す。
+
+これは定常・準定常sheath用の意図的なinstant-return closureです。定常化後の平均電流と離脱力には使えますが、
+UV照射開始などの遅延return currentを含む過渡応答は表しません。準定常性は
+`tau_outer/field_evolution_timescale`で制限し、`tau_outer/batch_duration >= 1`の場合はbatch履歴を
+物理的なreturn-current時間履歴として解釈しません。詳細は
+[外部シースとreservoir粒子境界](SheathReservoirBoundary.md)を参照してください。
 
 `reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
 

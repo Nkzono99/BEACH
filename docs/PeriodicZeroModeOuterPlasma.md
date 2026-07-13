@@ -213,23 +213,127 @@ $$
 
 ### 4.4 `kinetic_1d`
 
-interface fieldをsurface zero modeから受け取り、ambient electron half-Maxwellian、cold drifting ion、
-任意のphotoelectron fluxから$\rho(\phi)$を構成し、
+#### 4.4.1 解く領域と未知量
+
+`kinetic_1d`は、rough surface全体をx/y平均したinterface $z=z_I$から無限遠reservoirまでを
+1次元の静電・無衝突・非磁化plasmaとして表します。未知量はouter領域の平面平均電位$\phi(z)$です。
+surface zero modeが与えるinterface電場$E_I$をNeumann条件
+
+$$
+-\phi'(z_I)=E_I
+$$
+
+として受け取り、ambient electron、cold drifting ion、任意のphotoelectron fluxから
+$\rho(\phi)$を構成して
 
 $$
 \frac{d^2\phi}{dz^2}=-\frac{\rho(\phi)}{\epsilon_0}
 $$
 
-を解きます。格子は伸長可能な1D grid、内部点はconservative finite-volume residual、遠方は
+を解きます。無限遠電位はgaugeとして$\phi_\infty=0$です。interface電位$\phi_I$は入力値ではなく、
+interface電場、VDF closure、遠方条件を同時に満たす解の$\phi(z_I)$として決まります。
+
+このsolveは浮遊条件$J_\mathrm{total}=0$をroot equationとして解くものではありません。表面電荷のbatch更新が
+$E_I$を変え、その結果として$\phi_I$と各species電流が変わります。electron、ion、photoelectron、外部回路の
+電流密度は収束profileから後で計算する診断量です。
+
+#### 4.4.2 VDFから作る密度closure
+
+z-highの最初の負・正`reservoir_face` speciesを、それぞれ無限遠ambient electronとionとして使います。
+`photoelectron_closure="kinetic_mean"`の場合は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を
+平面平均photoelectron sourceとして加えます。
+
+| population | 無限遠・表面で与える量 | outer密度の構成 |
+| --- | --- | --- |
+| ambient electron | $n_{e,\infty},T_e,q_e,m_e$ | half-Maxwellianを全エネルギー保存で局所へ写像。吸収軌道と電位で反射される軌道を含む |
+| ion | $n_{i,\infty},T_i,q_i,m_i,u_{i,\infty}$ | cold beam。エネルギー保存とflux保存で速度・密度を決める |
+| photoelectron | $T_{pe},q_{pe},m_{pe},\Gamma_{pe,0}$ | 表面half-Maxwellianのoutgoingとturning後のreturning populationを平均密度として含む |
+
+cold ion closureは具体的に
+
+$$
+u_i(z)=\sqrt{u_{i,\infty}^2-\frac{2q_i\phi(z)}{m_i}},\qquad
+n_i(z)=n_{i,\infty}\frac{u_{i,\infty}}{u_i(z)}
+$$
+
+です。平方根が実数でなくなるprofileはionがinterfaceへ到達できないため物理解として拒否します。
+photoelectronの無限遠escape率は
+
+$$
+f_{pe,\mathrm{esc}}=
+\exp\left[-\frac{\max\{0,q_{pe}(\phi_\infty-\phi_I)\}}{T_{pe}}\right]
+$$
+
+で、残りがreturn populationです。Poisson sourceは
+
+$$
+\rho(\phi)=q_en_e(\phi)+q_in_i(\phi)+q_{pe}n_{pe}(\phi)
+$$
+
+です。ここで$T$は実装内部ではJ単位です。解析式は密度だけでなく
+$\partial n_s/\partial\phi$と必要な$\partial n_s/\partial\phi_I$も返し、Newton Jacobianへ使います。
+
+`kinetic_mean`が持つoutgoing/returning densityは定常outer空間電荷のclosureです。個別tracked粒子の
+表面depositを置き換えず、統計的return currentを別途表面へ加算しません。個別粒子のescape/return判定は
+[外部シースとreservoir粒子境界](SheathReservoirBoundary.md)の
+`kinetic_1d_profile_return`が同じ収束profileを使って担当します。
+
+#### 4.4.3 格子と境界条件
+
+格子は伸長可能な1D grid、内部点はnonuniform spacingに対するconservative finite-volume residualです。
+現行runtimeの格子設定は次のとおりで、`debye_length`以外はまだ個別の入力parameterではありません。
+
+| 項目 | 現行値 |
+| --- | ---: |
+| grid点数 | 128 |
+| 計算領域長 | $10\lambda_D$ |
+| grid stretch | 2 |
+| Newton最大反復 | 40 |
+| residual tolerance | $10^{-8}$ |
+
+有限計算領域の上端$L$より先をDebye長$\lambda_\mathrm{tail}=\lambda_D$の指数tailとみなし、
 
 $$
 \phi'(L)+\frac{\phi(L)}{\lambda_{\mathrm{tail}}}=0
 $$
 
-です。解析density derivativeからbordered-tridiagonal Jacobianを組み、1 Newton stepは$O(N_z)$です。
-backtracking、pseudo-transient、interface-field continuationは収束経路だけを改善し、最終受理には
-元のPoisson residual、単調分枝、ion accessibility、Bohm条件をすべて要求します。MPIではrootが解き、
-statusとprofileをbroadcastします。失敗時に別sheathや前batch解へfallbackしません。
+を課します。このRobin条件は無限遠への指数緩和を有限領域で表す近似であり、$L$で電位を強制的に0へ
+切るDirichlet条件ではありません。$\phi_\infty=0$基準への残りのtailは粒子flight-time積分にも使います。
+
+#### 4.4.4 非線形solveと受理条件
+
+解析density derivativeからbordered-tridiagonal Jacobianを組み、1 Newton stepは$O(N_z)$です。
+$\phi_I=\phi_1$への全内部密度の依存が通常のtridiagonal部分へborder列を加える理由です。
+backtrackingで単調分枝内にstepを制限し、通常Newtonが進まない場合はpseudo-transient regularizationを使います。
+前batch profileを初期値に使う場合は、以前のinterface fieldから現在値までcontinuationし、刻みが失敗すると
+半分に縮めます。
+
+これらは収束経路だけを改善します。最終受理には次をすべて要求します。
+
+| 条件 | 意味 |
+| --- | --- |
+| original Poisson residual | regularized方程式ではなく元の離散Poisson式が`tolerance`以下 |
+| monotonic branch | 対応するelectron-repelling単調profileから外れない |
+| ion accessibility | $u_i^2(z)>0$が全grid点で成立 |
+| kinetic Bohm entry | $u_{i,\infty}\ge\sqrt{(T_e+\gamma_iT_i)/m_i}$ |
+| infinity quasineutrality | $q_en_{e,\infty}+q_in_{i,\infty}\simeq0$ |
+
+virtual cathodeを含む非単調profile、trapped population、sub-Bohm ion inflowは現行modelの適用外です。
+数値反復が値を返しても、これらの条件を満たさなければ受理しません。失敗statusは
+`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、別sheathや未検証の前batch解へ
+fallbackしません。
+
+#### 4.4.5 batch更新、MPI、出力
+
+outer profileは`outer_update_stride`で指定したbatchに、commit済みsurface chargeから再構築した
+interface fieldを使って更新します。同一model identity・同一gridの前profileだけをNewton初期値に利用します。
+MPIではroot rankが1D solveを行い、status、profile、電流診断を全rankへbroadcastします。同じbatch中の
+粒子は更新済みimmutable snapshotを共有するため、粒子1個の命中ごとには解き直しません。
+
+収束した$z,\phi,E,\rho$は`outer_plasma_profile.csv`へ保存され、restart時の初期値にも使われます。
+`interface_potential`、`interface_field`、`outer_integrated_charge`、species別およびtotal current density、
+Newton反復数、元のnonlinear residualを確認してください。即時帰還を使う場合の準定常性と過渡応答の制約は
+[即時帰還を選ぶ理由と適用範囲](SheathReservoirBoundary.md#即時帰還を選ぶ理由と適用範囲)にまとめています。
 
 ### 4.5 `unified_linear_response`
 

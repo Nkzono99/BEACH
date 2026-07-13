@@ -97,6 +97,7 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
     sheath_en = (ROOT / "docs" / "SheathReservoirBoundary.en.md").read_text(
         encoding="utf-8"
     )
+    sheath_en_compact = " ".join(sheath_en.split())
 
     assert "Boris速度更新を組み込んだ同時刻状態の積分器" in particle_ja
     assert "完全な1ステップを単に「leapfrog」と呼ぶのは不正確" in particle_ja
@@ -181,6 +182,12 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "triangle-height累積多項式",
         "`exclude_k0`は「平均場を無視する」という意味ではなく",
         "`kinetic_1d`",
+        "#### 4.4.1 解く領域と未知量",
+        "浮遊条件$J_\\mathrm{total}=0$をroot equationとして解くものではありません",
+        "#### 4.4.2 VDFから作る密度closure",
+        "#### 4.4.3 格子と境界条件",
+        "#### 4.4.4 非線形solveと受理条件",
+        "#### 4.4.5 batch更新、MPI、出力",
         "`unified_linear_response`",
     ):
         assert phrase in zero_ja
@@ -191,6 +198,12 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "triangle-height cumulative polynomials",
         "does not mean that the physical mean field is discarded",
         "`kinetic_1d`",
+        "#### 4.4.1 Domain and unknown",
+        "does not impose floating balance $J_\\mathrm{total}=0$ as a root",
+        "#### 4.4.2 Density closures from VDFs",
+        "#### 4.4.3 Grid and boundary conditions",
+        "#### 4.4.4 Nonlinear solve and acceptance",
+        "#### 4.4.5 Batch update, MPI, and output",
         "`unified_linear_response`",
     ):
         assert phrase in zero_en
@@ -202,6 +215,10 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "kinetic-profile return",
         "trajectory integratorではありません",
         "outer flightをglobal simulation timeへ加算しません",
+        "同じsimulation時刻に戻り",
+        "定常化後の離脱力を主目的とする計算では即時帰還を標準",
+        "UV照射開始",
+        "過渡電流や立ち上がり時間の評価には使わず",
         "Zhao profileの$E(z)$はparticle pusherのfield snapshotへ加算されません",
     ):
         assert phrase in sheath_ja
@@ -213,6 +230,10 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "Kinetic-profile return",
         "not a trajectory integrator",
         "Outer flight is not added to global simulation time",
+        "returns at the same simulation time",
+        "detachment force after equilibration",
+        "After UV turn-on",
+        "Do not use it to infer transient current or rise time",
         "reconstructed Zhao $E(z)$ is not added to the particle-pusher field snapshot",
     ):
-        assert phrase in sheath_en
+        assert phrase in sheath_en_compact

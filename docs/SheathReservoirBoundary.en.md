@@ -135,7 +135,7 @@ a finite infinity reference potential.
 For an outward interface crossing,
 
 $$
-v_{n,\infty}^2=v_{n,I}^2+rac{2q(\phi_I-\phi_\infty)}{m}.
+v_{n,\infty}^2=v_{n,I}^2+\frac{2q(\phi_I-\phi_\infty)}{m}.
 $$
 
 A nonnegative value means escape. A negative value implies a turning point in the
@@ -147,7 +147,7 @@ position by $\mathbf v_t\tau_\mathrm{outer}$, wraps x/y, and reverses normal spe
 `kinetic_1d_profile_return` uses the converged discrete profile:
 
 $$
-v_n^2(z)=v_{n,I}^2+rac{2q[\phi_I-\phi(z)]}{m}.
+v_n^2(z)=v_{n,I}^2+\frac{2q[\phi_I-\phi(z)]}{m}.
 $$
 
 The first segment where this changes sign brackets the turning point. The far
@@ -167,7 +167,7 @@ small time steps. It performs the following reduced mapping:
    \Delta t=\frac{2\Delta z}{\sqrt{v_{n,a}^2}+\sqrt{v_{n,b}^2}},
    $$
    then add the analytic Robin-tail contribution when needed.
-6. Construct the returned interface state directly after round-trip time
+6. Construct the interface return state corresponding to round-trip time
    $\tau_\mathrm{outer}$.
 
 On return, only normal velocity is reversed. Tangential velocity is retained,
@@ -179,6 +179,45 @@ The model is therefore more detailed than an immediate specular reflection
 based only on interface speed and a scalar barrier, but it is not explicit
 time-stepped outer-orbit tracking. Use
 `unified_linear_response + electrostatic_3d_explicit_orbit` for the latter.
+
+#### Why return is immediate and where the approximation applies
+
+In `instant_return`, the outer flight time affects the mapped particle state but
+does not advance global simulation time. A turning particle returns at the same
+simulation time at which it crossed outward, and outward and returned charge are
+recorded in the same batch. The implementation does not wait for either `dt` or
+`batch_duration` before returning it.
+
+This is a reduced closure that eliminates a stationary or quasistationary sheath
+from the particle domain. In a stationary collisionless electrostatic profile,
+total energy determines whether a particle escapes or returns. Once the system
+is stationary, mean return current at the surface does not depend on individual
+round-trip times. The `kinetic_1d` outgoing/returning density closure includes
+the residence-time contribution to outer space charge in the Poisson solve.
+Immediate return is therefore the standard choice for stationary potential,
+long-time mean current balance, and detachment force after equilibration.
+
+It is not a transient sheath model. After UV turn-on, an abrupt plasma change,
+or a short pulse, the physical return current depends on earlier outward current.
+The current model does not retain that delay, the net charge temporarily stored
+in the outer domain, or delay-driven overshoot and oscillation. Do not use it to
+infer transient current or rise time; evaluate quasistationary results after the
+initial transient instead.
+
+The quasistatic criterion is
+
+$$
+\epsilon_\mathrm{ad}=\frac{\tau_\mathrm{outer}}{\tau_\mathrm{field}},
+$$
+
+where `field_evolution_timescale` supplies $\tau_\mathrm{field}$ and
+`max_frozen_field_ratio` bounds $\epsilon_\mathrm{ad}$. This compares flight time
+with a physical field-evolution time, not with the numerical `dt`. If
+$\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$, batch-resolved return
+current is not temporally faithful. Long-time means after equilibration may
+still be useful when $\epsilon_\mathrm{ad}\ll1$, but the batch history must not
+be interpreted as a physical transient. Persistent delayed-return queues are
+not implemented, and `outer_queue_enabled=true` is rejected.
 
 ### 6.4 Unified 3D orbit
 

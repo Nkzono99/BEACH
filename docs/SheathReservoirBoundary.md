@@ -158,7 +158,7 @@ far Robin exponential tailを解析積分します。往復時間が
    \Delta t=\frac{2\Delta z}{\sqrt{v_{n,a}^2}+\sqrt{v_{n,b}^2}}
    $$
    で積算し、必要ならRobin tailの時間を解析的に加える。
-6. 往復時間$\tau_\mathrm{outer}$後のinterface復帰状態を直接構成する。
+6. 往復時間$\tau_\mathrm{outer}$後に相当するinterface復帰状態を直接構成する。
 
 復帰時は法線速度だけを反転し、接線速度は維持します。接線位置を
 $\mathbf v_t\tau_\mathrm{outer}$だけ進めてx/yをperiodic wrapし、interface crossingを検出したlocal stepの
@@ -167,6 +167,37 @@ remaining `dt`だけを通常stepperで再積分します。outer flightをgloba
 したがってこのmodelは「interfaceで速度とscalar障壁だけを比較する即時鏡面反射」より詳細ですが、
 「外部軌道を時間刻みで明示追跡する」ものではありません。後者が必要な場合は
 `unified_linear_response + electrostatic_3d_explicit_orbit`を使います。
+
+#### 即時帰還を選ぶ理由と適用範囲
+
+`instant_return`の「即時」は、outer flightを粒子状態の写像には使う一方、global simulation timeを
+進めないという意味です。turning粒子はinterfaceを出た時刻と同じsimulation時刻に戻り、
+outward/returned chargeも同じbatchに計上されます。`dt`や`batch_duration`だけ待ってから戻す処理ではありません。
+
+これは定常または準定常sheathを粒子領域から消去したreduced closureです。静電・無衝突の定常profileでは、
+粒子がescapeするか戻るかは全エネルギーで決まり、十分に定常化した表面の平均return currentは
+個々の往復時間に依存しません。往復時間によるouter粒子の滞在密度は`kinetic_1d`の
+outgoing/returning density closureがPoisson solveへ含めます。このため、定常電位、長時間平均の電流収支、
+定常化後の離脱力を主目的とする計算では即時帰還を標準とします。
+
+一方、UV照射開始、plasma条件の急変、短時間pulseなど、往復時間と同程度以下で場や放出電流が変わる過渡では、
+実際のreturn currentは過去のoutgoing currentに依存します。現行modelはその遅延、outer領域に一時滞在する
+正味電荷、遅延に伴うovershootや振動を再現しません。したがって過渡電流や立ち上がり時間の評価には使わず、
+初期過渡を除いた準定常結果を評価してください。
+
+準定常性は
+
+$$
+\epsilon_\mathrm{ad}=\frac{\tau_\mathrm{outer}}{\tau_\mathrm{field}}
+$$
+
+で判定します。`field_evolution_timescale`が$\tau_\mathrm{field}$、
+`max_frozen_field_ratio`が許容する$\epsilon_\mathrm{ad}$の上限です。これは数値刻み`dt`ではなく、
+表面電位やouter profileが変化する物理時間との比較です。また
+$\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$ならbatch単位のreturn currentは時間的に正しくありません。
+その場合でも$\epsilon_\mathrm{ad}\ll1$で十分に定常化した後の長時間平均は利用できますが、batch履歴を
+物理的な過渡応答として解釈してはいけません。persistent delayed-return queueは未実装であり、
+`outer_queue_enabled=true`は拒否します。
 
 ### 6.4 unified 3D orbit
 
