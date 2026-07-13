@@ -75,7 +75,7 @@ $$
 
 Ewald2P is therefore a teacher for building the operator. It is absent from warm
 particle evaluation. The implemented real-space, reciprocal-space, and zero-mode
-formulas are given in [FMMCore 8.2](FMMCore.en.md#82-periodic2-ewaldewald2p-correction).
+formulas are given in [FMMCore 8.2](FMMCore.en.md#82-periodic2-ewald-ewald2p-correction).
 
 ### 2.3 Turn the far correction into a linear operator
 

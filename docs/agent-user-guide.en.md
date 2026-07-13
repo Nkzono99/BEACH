@@ -579,9 +579,15 @@ BEACH/
 | `docs/Execution.en.md` | Normal runs, workload estimation, and resume |
 | `docs/Workflow.en.md` | Development, testing, and HPC operation |
 | `docs/Algorithms.en.md` | Algorithm overview |
-| `docs/FieldSolvers.en.md` | Field solvers and periodic2 field boundary |
-| `docs/ParticleChargeLoop.en.md` | Particle tracking, collision, and charge accumulation |
-| `docs/FMMCore.en.md` | FMM math and Ewald |
+| `docs/BatchAlgorithm.en.md` | Batch coupling and charge-commit order |
+| `docs/SurfaceModels.en.md` | Surface absorption and charge accumulation |
+| `docs/ParticleSourcesBoundaries.en.md` | Particle sources and box boundaries |
+| `docs/ParticleTrackingCollision.en.md` | Boris tracking and collision |
+| `docs/FieldSolvers.en.md` | Field solver selection |
+| `docs/PeriodicElectrostatics.en.md` | periodic2 field and zero mode |
+| `docs/OuterPlasmaModels.en.md` | Outer plasma and return closures |
+| `docs/FMM.en.md` | FMM selection and verification |
+| `docs/FMMCore.en.md` | FMM internals and Ewald |
 | `docs/BatchDurationStability.en.md` | `batch_duration` stability |
 | `docs/Configuration.en.md` | `beachx config` and high-level notation |
 | `docs/PostprocessTutorial.en.md` | Post-processing tutorial |

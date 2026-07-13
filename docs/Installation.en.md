@@ -4,7 +4,8 @@ Lang: [English](Installation.en.md) | [日本語](Installation.md)
 
 # Installation
 
-Installing the BEACH Python package also builds the Fortran `beach` executable.
+Installing the BEACH Python package also builds the Fortran `beach` executable. A normal `pip install`
+automatically installs the Fortran Package Manager (`fpm`) into the isolated build environment.
 
 ## Requirements
 
@@ -14,13 +15,11 @@ Installing the BEACH Python package also builds the Fortran `beach` executable.
 | Python | 3.10 or newer |
 | Build tool | `make` |
 | Fortran | `gfortran`, Intel Fortran, or another fpm-compatible compiler |
-| Fortran package manager | `fpm` |
 
 ```bash
 python --version
 make --version
 gfortran --version
-fpm --version
 ```
 
 ## Install from PyPI
@@ -44,6 +43,14 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 python -m pip install -e . --no-build-isolation  # from a checkout
+```
+
+`--no-build-isolation` disables automatic installation of the build dependencies declared in
+`pyproject.toml`. Install `fpm` on `PATH` before using this mode or invoking `make` directly.
+
+```bash
+python -m pip install fpm
+fpm --version
 ```
 
 ## Upgrade or remove

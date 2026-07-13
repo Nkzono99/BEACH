@@ -4,7 +4,10 @@ Lang: [日本語](Installation.md) | [English](Installation.en.md)
 
 # インストール
 
-BEACH の Python package と Fortran 実行バイナリは同時にインストールされます。初回は次の前提を確認してください。
+BEACH の Python package と Fortran 実行バイナリは同時にインストールされます。通常の
+`pip install`では、Fortran Package Manager (`fpm`)も隔離build環境へ自動的に導入されます。
+
+初回は次の前提を確認してください。
 
 ## 動作要件
 
@@ -14,13 +17,11 @@ BEACH の Python package と Fortran 実行バイナリは同時にインスト�
 | Python | 3.10以上 |
 | build tool | `make` |
 | Fortran | `gfortran`、Intel Fortranなど |
-| Fortran package manager | `fpm` |
 
 ```bash
 python --version
 make --version
 gfortran --version
-fpm --version
 ```
 
 ## PyPIからインストール
@@ -58,6 +59,14 @@ checkoutを編集する場合:
 python -m pip install -e . --no-build-isolation
 ```
 
+`--no-build-isolation`は`pyproject.toml`に定義されたbuild dependencyの自動導入を無効にします。
+この方法や`make`を直接使う開発では、先に`fpm`をPATH上へ用意してください。
+
+```bash
+python -m pip install fpm
+fpm --version
+```
+
 ## 更新と削除
 
 ```bash
@@ -65,7 +74,7 @@ python -m pip install -U beach-bem
 python -m pip uninstall beach-bem
 ```
 
-compilerまたはfpmが見つからない場合は、先にOS/HPCのpackage/moduleを設定してください。
+compilerまたは開発時のfpmが見つからない場合は、先にOS/HPCのpackage/moduleを設定してください。
 失敗例は[トラブルシューティング](Troubleshooting.html)にまとめています。
 
 次は[10分チュートリアル](Tutorial.html)へ進みます。

@@ -12,12 +12,19 @@
     { "source": { "root": "Troubleshooting.md", "en": "Troubleshooting.en.md" }, "slug": "troubleshooting", "order": 100, "description": { "root": "インストールと実行時の問題解決。", "en": "Resolve installation and runtime problems." } },
     { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 110, "description": { "root": "BEACH入力パラメータのリファレンス。", "en": "BEACH input parameter reference." } },
     { "source": { "root": "PythonPostprocessAPI.md", "en": "PythonPostprocessAPI.en.md" }, "slug": "python-postprocess-api", "order": 120, "description": { "root": "Python後処理APIのリファレンス。", "en": "Python post-processing API reference." } },
-    { "source": { "root": "Algorithms.md", "en": "Algorithms.en.md" }, "slug": "algorithms", "order": 130, "description": { "root": "BEACH数値アルゴリズムの概要。", "en": "BEACH numerical algorithm overview." } },
-    { "source": { "root": "ParticleChargeLoop.md", "en": "ParticleChargeLoop.en.md" }, "slug": "particle-charge-loop", "order": 140, "description": { "root": "粒子追跡と表面電荷蓄積loop。", "en": "Particle tracking and charge accumulation loop." } },
+    { "source": { "root": "Algorithms.md", "en": "Algorithms.en.md" }, "slug": "algorithms", "order": 130, "description": { "root": "BEACHの状態、物理モデル、数値手法の全体像。", "en": "Overview of BEACH state, physical models, and numerical methods." } },
+    { "source": { "root": "BatchAlgorithm.md", "en": "BatchAlgorithm.en.md" }, "slug": "batch-algorithm", "order": 135, "description": { "root": "場計算、粒子追跡、電荷commitを結ぶbatch更新順序。", "en": "Batch update order coupling field evaluation, particle tracking, and charge commit." } },
+    { "source": { "root": "SurfaceModels.md", "en": "SurfaceModels.en.md" }, "slug": "surface-models", "order": 140, "description": { "root": "表面吸収、絶縁体帯電、浮遊導体、誘電体metadata。", "en": "Surface absorption, insulator charging, floating conductors, and dielectric metadata." } },
+    { "source": { "root": "ParticleSourcesBoundaries.md", "en": "ParticleSourcesBoundaries.en.md" }, "slug": "particle-sources-boundaries", "order": 145, "description": { "root": "粒子源、reservoir注入、box境界、escapeとreturn。", "en": "Particle sources, reservoir injection, box boundaries, escape, and return." } },
+    { "source": { "root": "ParticleTrackingCollision.md", "en": "ParticleTrackingCollision.en.md" }, "slug": "particle-tracking-collision", "order": 150, "description": { "root": "Boris粒子追跡、box event、三角形衝突。", "en": "Boris particle tracking, box events, and triangle collision." } },
+    { "source": { "root": "OuterPlasmaModels.md", "en": "OuterPlasmaModels.en.md" }, "slug": "outer-plasma-models", "order": 155, "description": { "root": "外部プラズマ、シース、粒子return closureの選択。", "en": "Selection of outer-plasma, sheath, and particle-return closures." } },
+    { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 160, "description": { "root": "periodic2の近傍画像、nonzero operator、zero mode。", "en": "periodic2 near images, nonzero operator, and zero mode." } },
+    { "source": { "root": "ParticleChargeLoop.md", "en": "ParticleChargeLoop.en.md" }, "slug": "particle-charge-loop", "order": 165, "sidebar": false, "description": { "root": "粒子追跡と表面電荷蓄積の旧統合詳細。", "en": "Legacy combined details for particle tracking and charge accumulation." } },
     { "source": { "root": "FieldSolvers.md", "en": "FieldSolvers.en.md" }, "slug": "field-solvers", "order": 150, "description": { "root": "場ソルバーと電場境界条件。", "en": "BEACH field solvers and field boundary conditions." } },
-    { "source": { "root": "PeriodicZeroModeOuterPlasma.md", "en": "PeriodicZeroModeOuterPlasma.en.md" }, "slug": "periodic-zero-mode-outer-plasma", "order": 160, "description": { "root": "periodic2 zero mode、境界closure、外部プラズマの数値アルゴリズム。", "en": "Numerical algorithms for the periodic2 zero mode, boundary closure, and outer plasma." } },
-    { "source": { "root": "SheathReservoirBoundary.md", "en": "SheathReservoirBoundary.en.md" }, "slug": "sheath-reservoir-boundary", "order": 170, "description": { "root": "外部シース、reservoir流入、加減速、反射・returnの数値モデル。", "en": "Outer-sheath, reservoir inflow, acceleration, reflection, and return models." } },
-    { "source": { "root": "FMMCore.md", "en": "FMMCore.en.md" }, "slug": "fmm-core", "order": 180, "description": { "root": "Coulomb FMM coreの詳細。", "en": "Coulomb FMM core details." } },
+    { "source": { "root": "PeriodicZeroModeOuterPlasma.md", "en": "PeriodicZeroModeOuterPlasma.en.md" }, "slug": "periodic-zero-mode-outer-plasma", "order": 166, "sidebar": false, "description": { "root": "periodic2 zero modeと外部プラズマの旧統合詳細。", "en": "Legacy combined details for the periodic2 zero mode and outer plasma." } },
+    { "source": { "root": "SheathReservoirBoundary.md", "en": "SheathReservoirBoundary.en.md" }, "slug": "sheath-reservoir-boundary", "order": 167, "sidebar": false, "description": { "root": "外部シースとreservoir粒子境界の旧統合詳細。", "en": "Legacy combined details for outer-sheath and reservoir boundaries." } },
+    { "source": { "root": "FMM.md", "en": "FMM.en.md" }, "slug": "fmm", "order": 175, "description": { "root": "FMMの選択、計算構成、精度確認。", "en": "FMM selection, computation structure, and accuracy checks." } },
+    { "source": { "root": "FMMCore.md", "en": "FMMCore.en.md" }, "slug": "fmm-core", "order": 180, "description": { "root": "Coulomb FMM coreの内部APIと実装。", "en": "Internal APIs and implementation of the Coulomb FMM core." } },
     { "source": { "root": "BatchDurationStability.md", "en": "BatchDurationStability.en.md" }, "slug": "batch-duration-stability", "order": 190, "description": { "root": "batch_durationの安定性と定常値。", "en": "batch_duration stability and steady value." } },
     { "source": { "root": "Workflow.md", "en": "Workflow.en.md" }, "slug": "workflow", "order": 200, "description": { "root": "BEACHの開発、テスト、HPC運用workflow。", "en": "BEACH development, testing, and HPC workflow." } },
     { "source": { "root": "PhysicsReleaseVerification.md", "en": "PhysicsReleaseVerification.en.md" }, "slug": "physics-release-verification", "order": 210, "description": { "root": "物理release gateと収束基準。", "en": "Physics release gate and convergence criteria." } },
@@ -56,12 +63,33 @@
       "label": { "root": "モデルと数値手法", "en": "Models and numerics" },
       "items": [
         { "type": "page", "slug": "algorithms", "label": { "root": "計算モデルの全体像", "en": "Model overview" } },
-        { "type": "page", "slug": "particle-charge-loop" },
-        { "type": "page", "slug": "field-solvers" },
-        { "type": "page", "slug": "periodic-zero-mode-outer-plasma" },
-        { "type": "page", "slug": "sheath-reservoir-boundary" },
-        { "type": "page", "slug": "fmm-core" },
-        { "type": "page", "slug": "batch-duration-stability" }
+        { "type": "page", "slug": "batch-algorithm" },
+        {
+          "type": "group",
+          "label": { "root": "物理モデル", "en": "Physical models" },
+          "items": [
+            { "type": "page", "slug": "surface-models" },
+            { "type": "page", "slug": "particle-sources-boundaries" },
+            { "type": "page", "slug": "outer-plasma-models" }
+          ]
+        },
+        {
+          "type": "group",
+          "label": { "root": "数値手法", "en": "Numerical methods" },
+          "items": [
+            { "type": "page", "slug": "particle-tracking-collision" },
+            { "type": "page", "slug": "field-solvers" },
+            { "type": "page", "slug": "periodic-electrostatics" },
+            { "type": "page", "slug": "fmm" }
+          ]
+        },
+        {
+          "type": "group",
+          "label": { "root": "数値特性", "en": "Numerical behavior" },
+          "items": [
+            { "type": "page", "slug": "batch-duration-stability" }
+          ]
+        }
       ]
     },
     {
@@ -69,6 +97,7 @@
       "items": [
         { "type": "page", "slug": "workflow", "label": { "root": "開発環境とテスト", "en": "Development and testing" } },
         { "type": "page", "slug": "physics-release-verification", "label": { "root": "物理リリース検証", "en": "Physics release verification" } },
+        { "type": "page", "slug": "fmm-core", "label": { "root": "FMM内部実装", "en": "FMM internals" } },
         { "type": "page", "slug": "fortran-dependency-map" },
         { "type": "external", "label": { "root": "Fortran API", "en": "Fortran API" }, "link": "https://nkzono99.github.io/BEACH/fortran/" },
         { "type": "page", "slug": "agent-user-guide", "label": { "root": "AIエージェント向けガイド", "en": "AI agent guide" } },

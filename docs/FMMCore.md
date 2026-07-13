@@ -17,7 +17,7 @@ Lang: [日本語](FMMCore.md) | [English](FMMCore.en.md)
 対象は simulator 非依存の内部 API で、`mesh_type` や `sim_config` を直接 `use` しません。
 BEACH 側では field solver adapter がこのコアを呼び出します。
 
-### 1. 目的
+## 1. 目的
 
 この FMM コアの目的は、固定された source 点群 `src_pos(3,n)` と可変電荷 `src_q(n)` に対して、
 多数の評価点で Coulomb 電場を高速に返すことです。
@@ -30,7 +30,7 @@ BEACH 側では field solver adapter がこのコアを呼び出します。
 - 近傍 direct 和もコア内部に含める
 - simulator からは配列 API だけが見えるようにする
 
-### 2. 公開 API
+## 2. 公開 API
 
 コアが提供する主な手続きは次の 4 つです。
 
@@ -98,7 +98,7 @@ BEACH の field solver adapter は、source model に応じて異なる幾何を
 - その後の refresh では、メッシュ幾何が変わらない通常運用を前提に既存 `plan` を再利用し、`src_q` 更新として `update_state` だけを呼びます。
 - `build_plan` と legacy tree metadata の同期をやり直すのは、plan 未構築時・source 数変更時・要素数 0 件で plan/state を破棄したときだけです。
 
-### 3. データ構造
+## 3. データ構造
 
 #### 3.1 `fmm_options_type`
 
@@ -148,7 +148,7 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可�
 `multipole` は source tree ノードごとの多重極係数、`local` は target tree ノードごとの局所展開係数です。
 `*_active` は zero-node を早く飛ばすための 0/1 フラグです。
 
-### 4. 数学的定義
+## 4. 数学的定義
 
 #### 4.1 source kernel
 
@@ -287,7 +287,7 @@ $$
 で電場を評価します。
 ここで $e_k$ は軸 $k$ の単位 multi-index です。
 
-### 5. `build_plan` のアルゴリズム
+## 5. `build_plan` のアルゴリズム
 
 `build_plan` は幾何依存処理だけを行います。
 
@@ -366,7 +366,7 @@ build_plan(src_pos, options):
   precompute_m2l_derivatives()
 ```
 
-### 6. `update_state` のアルゴリズム
+## 6. `update_state` のアルゴリズム
 
 `update_state` は legacy 実装の refresh に相当する処理です。
 source 座標は変わらず、`src_q` だけが変わる前提です。
@@ -412,7 +412,7 @@ update_state(plan, state, src_q):
 - `M2L` で target node 列へ細かく何度も書かず、thread-local な `local_acc` にためてから戻す
 - `P2M` で target leaf ではなく source leaf 専用 index を使う
 
-### 7. `eval_point(s)` のアルゴリズム
+## 7. `eval_point(s)` のアルゴリズム
 
 評価時の処理は次の通りです。
 
@@ -460,7 +460,7 @@ dual-target tree を使う場合、評価点が target box の外に出ること
 `m2l_root_oracle` の root 補正は `update_state` 側で `state%local(:, root)` に注入されます。
 したがって通常の leaf 評価では、`eval_point(s)` は root 補正を再計算せず、`state` に載っている local 展開をそのまま使います。
 
-### 8. `periodic2` と遠方補正
+## 8. `periodic2` と遠方補正
 
 #### 8.1 `periodic2`
 
@@ -666,7 +666,7 @@ $$
 - tree 外 fallback では direct sum に exact periodic correction を直接足して、target box 外でも periodic residual を落とさない
 - fit は potential ではなく field を使い、local の定数 potential mode は 0 に固定する
 
-### 9. 計算量の見方
+## 9. 計算量の見方
 
 固定次数 $p$、bounded interaction list を仮定すると、実用上は次のように見てよいです。
 
@@ -684,7 +684,7 @@ $$
 - `periodic_ewald_layers`
 - target tree の有無
 
-### 10. 現行実装の制約
+## 10. 現行実装の制約
 
 この FMM コアは汎用 kernel FMM ではありません。
 
@@ -819,7 +819,7 @@ warm runのfield evaluationとcharge refreshには、all-source Ewald和もopera
 | 1 core | operator公開後の粒子batchでメモリ不足となった測定例があり、運用対象外 |
 | warm cache | fingerprintとchecksumを確認し、そのまま再利用 |
 
-### 11. 実装との対応
+## 11. 実装との対応
 
 主な対応箇所:
 

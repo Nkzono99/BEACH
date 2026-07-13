@@ -578,9 +578,15 @@ BEACH/
 | `docs/Execution.md` | 通常の実行、負荷見積もり、再開 |
 | `docs/Workflow.md` | 開発・テスト・HPC運用 |
 | `docs/Algorithms.md` | アルゴリズム概要 |
-| `docs/FieldSolvers.md` | 場ソルバーと periodic2 場境界 |
-| `docs/ParticleChargeLoop.md` | 粒子追跡、衝突、電荷蓄積 |
-| `docs/FMMCore.md` | FMM 数学・Ewald |
+| `docs/BatchAlgorithm.md` | batch結合と電荷commitの更新順序 |
+| `docs/SurfaceModels.md` | 表面吸収と電荷蓄積 |
+| `docs/ParticleSourcesBoundaries.md` | 粒子源とbox境界 |
+| `docs/ParticleTrackingCollision.md` | Boris粒子追跡と衝突 |
+| `docs/FieldSolvers.md` | 場ソルバーの選択 |
+| `docs/PeriodicElectrostatics.md` | periodic2場とzero mode |
+| `docs/OuterPlasmaModels.md` | 外部プラズマとreturn closure |
+| `docs/FMM.md` | FMMの選択と精度確認 |
+| `docs/FMMCore.md` | FMM内部実装・Ewald |
 | `docs/BatchDurationStability.md` | `batch_duration` 安定性 |
 | `docs/Configuration.md` | `beachx config` と高水準記法 |
 | `docs/PostprocessTutorial.md` | 後処理チュートリアル |

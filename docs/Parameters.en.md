@@ -20,7 +20,7 @@ used after normalization.
 | [Configuration](Configuration.en.html) | `beachx config`, high-level notation, schema/lint |
 | [Algorithms](Algorithms.en.html) | Entry point to BEM field calculation, particle push, collision, and accumulated-charge procedure |
 | [Workflow](Workflow.en.html) | Execution, development, testing, and KUDPC notes |
-| [FMMCore](FMMCore.en.html) | Numerical algorithm for `field_solver="fmm"` |
+| [FMM](FMM.en.html) | Selection and accuracy checks for `field_solver="fmm"` |
 
 ---
 
@@ -197,7 +197,8 @@ anything when `treecode` is specified explicitly.
 Uses the simulator-independent Coulomb FMM core. It separates the source
 geometry plan from the state updated for each charge update, and evaluates with
 P2M/M2M/M2L/L2L/L2P plus near direct sums. See
-[Coulomb FMM Core Details](FMMCore.en.html) for details.
+See [Field evaluation with FMM](FMM.en.html) for selection and verification, and
+[Coulomb FMM core details](FMMCore.en.html) for implementation internals.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|

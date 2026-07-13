@@ -9,20 +9,20 @@ Lang: [日本語](FieldSolvers.md) | [English](FieldSolvers.en.md)
 | やりたいこと | 推奨設定 | 注意 |
 | --- | --- | --- |
 | 小さいメッシュで動作確認 | `field_solver = "auto"` または `"direct"` | `direct` は厳密だが `O(nelem)` |
-| 要素数が多い通常計算 | `field_solver = "fmm"` | FMM の詳細は [Coulomb FMM コア詳細](FMMCore.html) |
+| 要素数が多い通常計算 | `field_solver = "fmm"` | 選択と検証は [FMMによる場計算](FMM.html) |
 | 2軸周期境界を使う | `field_bc_mode = "periodic2"` と `field_solver = "fmm"` | ちょうど 2 軸を periodic にする |
 | 精度確認・デバッグ | 小ケースで `direct` と `fmm` を比較 | 同じ mesh / particle 条件で比較する |
 
 `periodic2` は現行実装では FMM 専用です。`auto` は `field_bc_mode="free"` の小・中規模ケース向けと考えてください。
 
-## 4. 境界要素電荷による Coulomb 場
+## 1. 境界要素電荷による Coulomb 場
 
 **Source**:
 [`bem_field_solver`](../src/physics/field_solver/bem_field_solver.f90),
 [`bem_field_solver_config`](../src/physics/field_solver/bem_field_solver_config.f90),
 [`bem_field_solver_eval`](../src/physics/field_solver/bem_field_solver_eval.f90)
 
-### 4.1 direct evaluation
+### 1.1 direct evaluation
 
 direct mode では、評価点 `r` に対して全要素を直接足し込みます。
 
@@ -37,7 +37,7 @@ $$
 計算量は 1 評価点あたり `O(nelem)` です。
 粒子 step 数と粒子数が増えると支配的になるため、要素数が大きいケースでは treecode または FMM を使います。
 
-### 4.2 length normalization
+### 1.2 length normalization
 
 `sim.field_normalization` により、内部計算の長さスケール `L0` を選べます。
 
@@ -61,15 +61,15 @@ $$
 
 ---
 
-## 5. direct / treecode / FMM の切替
+## 2. direct / treecode / FMM の切替
 
 **Source**:
 [`init_field_solver`](../src/physics/field_solver/bem_field_solver_config.f90),
 [`refresh_field_solver`](../src/physics/field_solver/bem_field_solver_tree.f90),
 [`eval_e_field_solver`](../src/physics/field_solver/bem_field_solver_eval.f90),
-[Coulomb FMM コア詳細](FMMCore.html)
+[FMMによる場計算](FMM.html)
 
-### 5.1 mode selection
+### 2.1 mode selection
 
 `sim.field_solver` は次を受けます。
 
@@ -82,7 +82,7 @@ $$
 
 `periodic2` は現行実装では `field_solver="fmm"` が必要です。
 
-### 5.2 treecode
+### 2.2 treecode
 
 treecode は要素重心を octree に分割します。
 
@@ -114,7 +114,7 @@ mixed-sign の内部 node は leaf まで子へ降りて direct interaction を�
 
 将来は monopole+dipole の誤差判定を導入し、不安定な signed charge centroid 近似を再導入せずに mixed-sign node の性能を回復する予定です。
 
-### 5.3 FMM
+### 2.3 FMM
 
 FMM mode は simulator 非依存の Coulomb FMM core を呼びます。
 field solver adapter は次を担当します。
@@ -124,12 +124,12 @@ field solver adapter は次を担当します。
 3. `update_state(plan, state, q_elem)` で電荷依存 state を更新する。
 4. 粒子位置ごとに `eval_point(plan, state, r, e)` を呼ぶ。
 
-FMM core の P2M / M2M / M2L / L2L / L2P の詳細は
-[Coulomb FMM コア詳細](FMMCore.html) を参照してください。
+FMMの選択と精度確認は[FMMによる場計算](FMM.html)、P2M / M2M / M2L / L2L / L2Pの内部実装は
+[Coulomb FMMコア詳細](FMMCore.html)を参照してください。
 
 ---
 
-## 6. periodic2 場境界
+## 3. periodic2 場境界
 
 **Source**:
 [`bem_field_solver_config`](../src/physics/field_solver/bem_field_solver_config.f90),
@@ -140,7 +140,7 @@ FMM core の P2M / M2M / M2L / L2L / L2P の詳細は
 周期軸は `bc_low(axis) == bc_high(axis) == periodic` で判定されます。
 第三軸は開放方向です。
 
-### 6.1 validation
+### 3.1 validation
 
 `periodic2` では次が必須です。
 
@@ -165,7 +165,7 @@ FMM core の P2M / M2M / M2L / L2L / L2P の詳細は
 | `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 対称な真空半空間 |
 | `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 旧計算の再現 |
 
-### 6.2 near images and far correction
+### 3.2 near images and far correction
 
 `field_periodic_image_layers = N` は、周期 2 軸の近傍画像を
 
@@ -186,9 +186,10 @@ cache missではrank 0がfilesystem lockとatomic renameを担当し、operator�
 warm field evaluationとcharge refreshにはall-source Ewald和がありません。生成手順と測定値は
 [cached periodic nonzero operator](FMMCore.html#101-cached-periodic-nonzero-operator)を参照してください。
 物理的な`k=0`、lower boundary closure、外部シースとの合成は
-[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md)に分離して説明しています。
+[periodic2場計算](PeriodicElectrostatics.md)と[外部プラズマモデル](OuterPlasmaModels.md)に
+分離して説明しています。
 
-### 6.3 collision side
+### 3.3 collision side
 
 衝突判定側の periodic2 は、場計算の FMM とは別に処理されます。
 `find_first_hit_periodic2` は粒子線分と canonical mesh AABB から必要な image shift 範囲を計算し、shift した線分で base mesh との交差を調べます。

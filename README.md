@@ -25,13 +25,13 @@ BEACH は、**境界要素法（BEM）による表面電場計算**と
 
 ## 必要なもの
 
-Python パッケージのインストール時に Fortran 実行バイナリもビルドします。
-事前に次のコマンドが使える状態にしてください。
+Python パッケージのインストール時に Fortran 実行バイナリもビルドします。通常の
+`pip install`では`fpm`も隔離build環境へ自動導入されるため、事前に必要なのは`make`と
+Fortran compilerです。
 
 ```bash
 make --version
 gfortran --version
-fpm --version
 python --version
 ```
 
@@ -134,9 +134,12 @@ Pages ビルド:
 ローカル checkout を編集する場合:
 
 ```bash
+python -m pip install fpm
 python -m pip install -e . --no-build-isolation
 make check
 ```
+
+`--no-build-isolation`や`make`を直接使う開発では、`fpm`をPATH上へ用意してください。
 
 Python 側の確認:
 

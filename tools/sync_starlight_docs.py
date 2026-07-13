@@ -47,20 +47,30 @@ def load_navigation() -> tuple[tuple[Page, ...], dict[str, str]]:
             links[Path(source).stem.removesuffix(".en")] = slug
 
     page_slugs = {page.slug for page in pages}
-    nav_slugs = {
-        item["slug"]
-        for section in navigation["sections"]
-        for item in section["items"]
-        if item["type"] == "page"
+    sidebar_page_slugs = {
+        entry["slug"] for entry in navigation["pages"] if entry.get("sidebar", True)
     }
-    if page_slugs != nav_slugs:
-        missing = sorted(page_slugs - nav_slugs)
+    nav_slugs = set(iter_page_slugs(navigation["sections"]))
+    if sidebar_page_slugs != nav_slugs or not nav_slugs <= page_slugs:
+        missing = sorted(sidebar_page_slugs - nav_slugs)
         unknown = sorted(nav_slugs - page_slugs)
+        hidden = sorted(nav_slugs - sidebar_page_slugs)
         raise ValueError(
-            f"navigation page mismatch: missing={missing}, unknown={unknown}"
+            "navigation page mismatch: "
+            f"missing={missing}, unknown={unknown}, hidden_in_sidebar={hidden}"
         )
 
     return tuple(pages), links
+
+
+def iter_page_slugs(groups: list[dict[str, object]]):
+    """Yield page slugs from arbitrarily nested sidebar groups."""
+    for group in groups:
+        for item in group["items"]:
+            if item["type"] == "page":
+                yield item["slug"]
+            elif item["type"] == "group":
+                yield from iter_page_slugs([item])
 
 
 PAGES, DOC_LINKS = load_navigation()

@@ -5,16 +5,22 @@ import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
 import navigation from './navigation.json' with { type: 'json' };
 
-const sidebar = navigation.sections.map((section) => ({
-  label: section.label.root,
-  translations: { en: section.label.en },
-  items: section.items.map((item) => {
+function mapSidebarItems(items) {
+  return items.map((item) => {
     if (item.type === 'page') {
       return {
         slug: item.slug,
         ...(item.label
           ? { label: item.label.root, translations: { en: item.label.en } }
           : {}),
+      };
+    }
+
+    if (item.type === 'group') {
+      return {
+        label: item.label.root,
+        translations: { en: item.label.en },
+        items: mapSidebarItems(item.items),
       };
     }
 
@@ -26,7 +32,13 @@ const sidebar = navigation.sections.map((section) => ({
         ? { attrs: { target: '_blank', rel: 'noreferrer' } }
         : {}),
     };
-  }),
+  });
+}
+
+const sidebar = navigation.sections.map((section) => ({
+  label: section.label.root,
+  translations: { en: section.label.en },
+  items: mapSidebarItems(section.items),
 }));
 
 export default defineConfig({

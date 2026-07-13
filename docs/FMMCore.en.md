@@ -17,7 +17,7 @@ and its split implementation files.
 The target is a simulator-independent internal API. It does not directly `use` `mesh_type` or `sim_config`.
 On the BEACH side, the field-solver adapter calls this core.
 
-### 1. Purpose
+## 1. Purpose
 
 The FMM core returns Coulomb electric fields quickly at many evaluation points for a fixed source point set `src_pos(3,n)` and variable charges `src_q(n)`.
 
@@ -29,7 +29,7 @@ Current design goals:
 - near direct sum is also handled inside the core
 - simulator code sees only array APIs
 
-### 2. Public API
+## 2. Public API
 
 The core provides four main procedures:
 
@@ -89,7 +89,7 @@ to the source model.
 - During later refreshes, normal operation assumes mesh geometry is unchanged, so the existing `plan` is reused and only `update_state` is called with updated `src_q`.
 - `build_plan` and legacy tree metadata are synchronized again only when the plan is missing, the source count changes, or zero elements caused plan/state disposal.
 
-### 3. Data structures
+## 3. Data structures
 
 #### 3.1 `fmm_options_type`
 
@@ -139,7 +139,7 @@ This is charge-dependent data updated on each refresh:
 `multipole` stores multipole coefficients per source-tree node, and `local` stores local expansion coefficients per target-tree node.
 `*_active` flags are 0/1 flags used to skip zero nodes quickly.
 
-### 4. Mathematical definitions
+## 4. Mathematical definitions
 
 #### 4.1 Source kernels
 
@@ -274,7 +274,7 @@ $$
 
 Here $e_k$ is the unit multi-index for axis $k$.
 
-### 5. `build_plan` algorithm
+## 5. `build_plan` algorithm
 
 `build_plan` performs only geometry-dependent work.
 
@@ -351,7 +351,7 @@ build_plan(src_pos, options):
   precompute_m2l_derivatives()
 ```
 
-### 6. `update_state` algorithm
+## 6. `update_state` algorithm
 
 `update_state` corresponds to refresh in the legacy implementation.
 Source coordinates are fixed; only `src_q` changes.
@@ -396,7 +396,7 @@ The loops are written to map roughly one node to one thread, and shared-array up
 - accumulating `M2L` contributions in thread-local `local_acc` before writing back to target-node columns
 - using source-leaf-specific indices in `P2M`, not target-leaf indices
 
-### 7. `eval_point(s)` algorithm
+## 7. `eval_point(s)` algorithm
 
 Evaluation proceeds as:
 
@@ -444,7 +444,7 @@ With explicit `m2l_root_oracle`, the same exact periodic correction used as the 
 The `m2l_root_oracle` root correction is injected into `state%local(:, root)` during `update_state`.
 Therefore normal leaf evaluation in `eval_point(s)` does not recompute the root correction; it just uses the local expansion carried by `state`.
 
-### 8. `periodic2` and far correction
+## 8. `periodic2` and far correction
 
 #### 8.1 `periodic2`
 
@@ -652,7 +652,7 @@ Infinite-periodic production runs use `cached_kneq0`; the default remains
 - outside-tree fallback directly adds exact periodic correction to direct sum, reducing periodic residual outside the target box
 - the fit uses field, not potential, and fixes the constant potential mode of the local expansion to zero
 
-### 9. Interpreting computational cost
+## 9. Interpreting computational cost
 
 With fixed order $p$ and bounded interaction lists, practical costs are approximately:
 
@@ -670,7 +670,7 @@ The constant factors depend strongly on:
 - `periodic_ewald_layers`
 - whether a target tree exists
 
-### 10. Current implementation limits
+## 10. Current implementation limits
 
 This FMM core is not a generic kernel FMM.
 
@@ -808,7 +808,7 @@ These are measurements for this fixture, not timing guarantees for arbitrary geo
 | 1 core | not operational; the measured job ran out of memory in the particle batch after publication |
 | Warm cache | validate fingerprint and checksum, then reuse it |
 
-### 11. Implementation mapping
+## 11. Implementation mapping
 
 Main implementation locations:
 

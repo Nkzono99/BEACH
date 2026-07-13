@@ -18,7 +18,7 @@ Fortran parser が解決する高水準記法は [Configuration](Configuration.h
 | [Configuration](Configuration.html) | `beachx config`、高水準記法、schema/lint |
 | [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順への導線 |
 | [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
-| [FMMCore](FMMCore.html) | `field_solver="fmm"` の数値アルゴリズム |
+| [FMM](FMM.html) | `field_solver="fmm"`の選択と精度確認 |
 
 ---
 
@@ -186,7 +186,8 @@ FMM のような local expansion は使わず、評価点ごとに木を走査�
 
 simulator 非依存の Coulomb FMM コアを使います。
 source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/L2L/L2P と近傍 direct 和で評価します。
-詳細は [Coulomb FMM コア詳細](FMMCore.html) を参照してください。
+選択と精度確認は[FMMによる場計算](FMM.html)、内部実装は
+[Coulomb FMMコア詳細](FMMCore.html)を参照してください。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|

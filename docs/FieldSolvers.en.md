@@ -9,20 +9,20 @@ Lang: [English](FieldSolvers.en.md) | [日本語](FieldSolvers.md)
 | Goal | Recommended setting | Notes |
 | --- | --- | --- |
 | Small mesh smoke test | `field_solver = "auto"` or `"direct"` | `direct` is exact but costs `O(nelem)` |
-| Larger production run | `field_solver = "fmm"` | See [Coulomb FMM Core Details](FMMCore.en.html) |
+| Larger production run | `field_solver = "fmm"` | See [Field evaluation with FMM](FMM.en.html) |
 | Two-periodic-axis boundary | `field_bc_mode = "periodic2"` and `field_solver = "fmm"` | Exactly two axes must be periodic |
 | Accuracy checks and debugging | Compare `direct` and `fmm` on a small case | Keep mesh and particle settings identical |
 
 In the current implementation, `periodic2` is FMM-only. Treat `auto` as the convenient choice for small and medium `field_bc_mode="free"` cases.
 
-## 4. Coulomb field from boundary-element charge
+## 1. Coulomb field from boundary-element charge
 
 **Source**:
 [`bem_field_solver`](../src/physics/field_solver/bem_field_solver.f90),
 [`bem_field_solver_config`](../src/physics/field_solver/bem_field_solver_config.f90),
 [`bem_field_solver_eval`](../src/physics/field_solver/bem_field_solver_eval.f90)
 
-### 4.1 Direct evaluation
+### 1.1 Direct evaluation
 
 In direct mode, every element contributes directly to the field at evaluation point `r`.
 
@@ -37,7 +37,7 @@ $$
 The cost is `O(nelem)` per evaluation point.
 As the particle step count and particle count grow, this dominates, so large-element cases use treecode or FMM.
 
-### 4.2 Length normalization
+### 1.2 Length normalization
 
 `sim.field_normalization` selects the internal length scale `L0`.
 
@@ -61,15 +61,15 @@ Input settings and output CSV files remain in SI units.
 
 ---
 
-## 5. Switching between direct / treecode / FMM
+## 2. Switching between direct / treecode / FMM
 
 **Source**:
 [`init_field_solver`](../src/physics/field_solver/bem_field_solver_config.f90),
 [`refresh_field_solver`](../src/physics/field_solver/bem_field_solver_tree.f90),
 [`eval_e_field_solver`](../src/physics/field_solver/bem_field_solver_eval.f90),
-[Coulomb FMM core details](FMMCore.en.html)
+[Field evaluation with FMM](FMM.en.html)
 
-### 5.1 Mode selection
+### 2.1 Mode selection
 
 `sim.field_solver` accepts:
 
@@ -82,7 +82,7 @@ Input settings and output CSV files remain in SI units.
 
 In the current implementation, `periodic2` requires `field_solver="fmm"`.
 
-### 5.2 Treecode
+### 2.2 Treecode
 
 The treecode partitions element centroids into an octree.
 
@@ -114,7 +114,7 @@ Mixed-sign internal nodes descend to leaves for direct interactions, while same-
 
 A future monopole-plus-dipole error criterion is expected to recover mixed-sign performance without restoring the unstable signed-charge-centroid approximation.
 
-### 5.3 FMM
+### 2.3 FMM
 
 FMM mode calls a simulator-independent Coulomb FMM core.
 The field-solver adapter handles:
@@ -125,11 +125,12 @@ The field-solver adapter handles:
 4. Call `eval_point(plan, state, r, e)` for each particle position.
 
 For P2M / M2M / M2L / L2L / L2P details, see
-[Coulomb FMM core details](FMMCore.en.html).
+[Field evaluation with FMM](FMM.en.html) covers selection and verification. See
+[Coulomb FMM core details](FMMCore.en.html) for P2M/M2M/M2L/L2L/L2P internals.
 
 ---
 
-## 6. periodic2 field boundary
+## 3. periodic2 field boundary
 
 **Source**:
 [`bem_field_solver_config`](../src/physics/field_solver/bem_field_solver_config.f90),
@@ -140,7 +141,7 @@ For P2M / M2M / M2L / L2L / L2P details, see
 An axis is periodic when `bc_low(axis) == bc_high(axis) == periodic`.
 The third axis is the open direction.
 
-### 6.1 Validation
+### 3.1 Validation
 
 `periodic2` requires:
 
@@ -165,7 +166,7 @@ The mean-field closures used with `cached_kneq0` are:
 | `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | symmetric vacuum half spaces |
 | `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | reproduction of earlier runs |
 
-### 6.2 Near images and far correction
+### 3.2 Near images and far correction
 
 `field_periodic_image_layers = N` enumerates near images along the two periodic axes as:
 
@@ -187,9 +188,10 @@ Warm field evaluation and charge refresh contain no all-source Ewald sum. See
 [Cached periodic nonzero operator](FMMCore.en.html#101-cached-periodic-nonzero-operator) for construction and measurements.
 The physical `k=0` mode, lower-boundary closure, and outer-sheath composition are
 described separately in
-[periodic2 Zero Mode and Outer Plasma](PeriodicZeroModeOuterPlasma.en.md).
+[periodic2 field evaluation](PeriodicElectrostatics.en.md) and
+[Outer plasma models](OuterPlasmaModels.en.md).
 
-### 6.3 Collision side
+### 3.3 Collision side
 
 The collision-side `periodic2` logic is separate from the field-calculation FMM.
 `find_first_hit_periodic2` computes the needed image-shift range from the particle segment and the canonical mesh AABB, then tests the shifted segment against the base mesh.
