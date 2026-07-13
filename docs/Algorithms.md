@@ -168,13 +168,53 @@ BEACH は `sim.batch_count` まで batch を進めます。各 batch は次の�
 - 初期電荷 `q_elem(i)`
 - collision grid
 
-### 2.3 periodic2 collision mesh
+### 2.3 P0 triangle panel field kernel
+
+`field.element_kernel="triangle_p0"`では、`q_elem`は要素総電荷、`sigma=q_elem/area`は一定面密度です。
+
+| 経路 | kernel | 実装contract |
+| --- | --- | --- |
+| direct | `triangle_p0_exact_direct` | edge-logとsigned solid angleによるfree-space correctness oracle |
+| FMM | `triangle_p0_exact_p2m_near` | 解析panel near + 三角形monomialの厳密面積平均P2M |
+| auto | `triangle_p0_exact_auto` | 対応solverから上記を選択 |
+
+面上電位は連続です。principal-value法線場は両側traceの平均で、`elem_vacuum_sign`が真空側traceを選びます。
+geometry、edge量、一次・二次moment、7点求積planはmesh構築時に固定し、batchでは電荷だけを更新します。
+treecodeとpoint-source `m2l_root_oracle`へはfallbackせず、非対応設定として初期化時に停止します。
+
+### 2.4 periodic2 split reference
+
+`panel_spectral_reference`は小規模correctness用です。
+
+| 成分 | 評価 |
+| --- | --- |
+| $k\ne0$ | P0 panel Fourier和 |
+| $k=0$ | triangle-heightの区分二次累積面積を前計算し、$O(\log N)$で評価 |
+| outer profile | 線形Debye 1D profile |
+| interface gate | 面内格子で非零モード電位と全電場の減衰を測定 |
+
+production規模の周期演算子ではありません。
+
+### 2.5 outer particle interface
+
+z-high eventはface、event fraction、同時刻位置・速度、remaining `dt`をtyped payloadで返します。
+
+| return model | 外部領域の扱い |
+| --- | --- |
+| linear-Debye instant return | 法線エネルギーでescape/turningを分類し、解析flight timeで接線位置を進める |
+| `electrostatic_3d_explicit_orbit` | unified 3D電位・電場を使い、固定刻みvelocity-Verletで追跡 |
+
+return後だけremaining `dt`を通常stepperで再積分します。3D orbitはreturn/far-plane crossingをstep内補間し、
+energy error、flight time、frozen-field ratioを検査します。上限違反はdiscardせずfail closedです。
+interface無効時は通常fast pathに探索やfield評価を追加しません。
+
+### 2.6 periodic2 collision mesh
 
 `sim.field_bc_mode="periodic2"` のとき、`prepare_periodic2_collision_mesh` は周期 2 軸に沿って各三角形を canonical な位置へ平行移動します。
 これは場計算の周期画像和とは別で、衝突判定用の primitive cell メッシュを安定化するための処理です。
 要素 index は base element のまま維持されるため、periodic image に命中しても電荷は base element に集約されます。
 
-### 2.4 restart
+### 2.7 restart
 
 `output.resume=true` のとき、`load_restart_checkpoint` は以下を読みます。
 
@@ -256,20 +296,31 @@ interface速度が、そのbatchのfieldと同一の`phi_interface-phi_infinity`
 | 8 | hitなら`q * w`を堆積して吸収し、9回目のbox eventならstateをcommitせずfail closedにする |
 | 9 | 生存していれば同時刻の`x`と`v`を更新して次stepへ進む |
 
-`build_particle_step_candidate` は場ソルバを変更せず、予測中点で空間電場を1回だけ評価します。box crossing候補では
-評価点だけを周期軸でwrapし、非周期軸でbox面へclampします。軌道候補座標は写像せず、後段のevent順序付けに使います。
-`boris_update_velocity(v, q, m, dt, e, b, v_new)` は、電場の half kick、磁場回転、電場の half kick からなる
-速度更新を提供する public pure procedure です。既存の public call
-`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` は署名を変えず、速度計算をこの procedure に委譲して
-`x_new = x + 0.5*(v + v_new)*dt` で位置を更新します。入出力の位置と速度は同一時刻の状態であり、
-予測中点の空間電場評価と台形位置更新により candidate kinematics は二次精度です。
+粒子積分の要点は次の通りです。
 
-production loopはcandidateとmesh queryを先に作り、候補終点がstrictなbox内部なら、追加のevent geometryなしに場評価1回・collision query 1回で
-完了します。crossing時だけ `find_first_boundary_event` と `apply_escape_reflect_periodic_event` を使い、corner/edgeの
-同時faceを一括処理します。異なる時刻に次のfaceへ達した場合もmeshとの最早順序を保って処理し、
-9つ目のfaceまでにmesh hitがなければ、上限なしのloopへ入らず `particle_step_multiple_box_events` を返します。
-既存 `apply_box_boundary` はphoto ray用に維持します。
-periodic2のfull-chord queryがbox外区間でrange limitに達した場合は、最初のbox eventまでに制限したqueryへfallbackします。
+| 層 | contract |
+| --- | --- |
+| state | 入出力は $\mathbf{x}^n,\mathbf{v}^n$ と $\mathbf{x}^{n+1},\mathbf{v}^{n+1}$ の同時刻対 |
+| field sample | 予測中点で空間電場を1回評価し、`sim.e0`を1回加える |
+| velocity | `boris_update_velocity` が electric half kick、magnetic rotation、electric half kickを行う |
+| position | `boris_push` が $\mathbf{x}^{n+1}=\mathbf{x}^n+(\mathbf{v}^n+\mathbf{v}^{n+1})\Delta t/2$ を適用 |
+| accuracy | smoothな規定場で位置・速度とも二次精度 |
+
+これはhalf-step速度を保持するleapfrog stateではありません。pure BのBoris回転は速度ノルムを保存しますが、
+衝突、open境界、batchごとの自己無撞着場更新を含む全系の厳密な長時間エネルギー保存は保証しません。
+式、event処理、保存性の範囲は[粒子時間積分](ParticleChargeLoop.html#8-粒子時間積分-boris速度更新と同時刻状態)を参照してください。
+
+event処理は通常経路とcrossing経路を分けます。
+
+| 経路 | 追加処理 |
+| --- | --- |
+| strictなbox内部 | なし。場評価1回、collision query 1回 |
+| box crossing | mesh/faceの最早eventを比較し、corner/edgeの同時faceを一括処理 |
+| reflect/periodic remainder | 最大8 eventまで再積分 |
+| 9回目が必要 | `particle_step_multiple_box_events` でfail closed |
+
+`apply_box_boundary` はphoto ray互換用です。periodic2 full-chordがbox外区間のrange limitへ達した場合だけ、
+最初のbox eventまでに制限したqueryへ切り替えます。
 
 `potential_barrier` は単一open faceに限り旧scalar energy式をevent位置と補間速度で評価します。複数open faceは
 一般化せずfail closedであり、shared potential/gaugeに基づく物理モデルは後段の対象です。
@@ -308,25 +359,3 @@ $$
 $$
 
 この値は `stats%last_rel_change` と履歴出力に使われます。
-
----
-
-### P0 triangle panel kernels
-
-`field.element_kernel="triangle_p0"` では `q_elem` を要素総電荷、`sigma=q_elem/area` を一定面密度として、辺対数項と signed solid angle による解析式で電位・電場を評価します。面上評価は `bem_panel_self_terms` が所有し、電位は連続、principal-value 法線場は両側極限の平均、真空側極限は `elem_vacuum_sign` で選びます。幾何、辺量、厳密一次・二次 moment、7点求積 plan は mesh 初期化時に固定し、batch 更新では電荷だけを変更します。
-
-direct 経路は free-space correctness oracle です。FMM 経路は source node の bbox/radius を全 panel 頂点から作り、near list を解析 panel 核で評価し、far 展開の P2M に三角形上 monomial の厳密面積平均を使います。kernel ID はそれぞれ `triangle_p0_exact_direct` と `triangle_p0_exact_p2m_near`、auto 選択は `triangle_p0_exact_auto` です。treecode と point-source `m2l_root_oracle` には fallback せず初期化時に停止します。
-
-### 2.8 periodic2 split reference
-
-`panel_spectral_reference`は電位を`k!=0`のP0 panel Fourier和、厳密なtriangle-height zero mode、線形Debye outer profileへ分解します。zero modeは傾斜三角形の累積面積を区分二次式として前計算し、電場とその積分電位を`O(log N)`で評価します。interfaceでは面内格子上の非零モード電位・全電場を測り、1D outerへ切り替えられる減衰量かを検査します。これは小規模参照実装であり、production規模の周期演算子ではありません。
-
-### 2.9 outer particle interface
-
-z-highのbox eventは、face、event fraction、同時刻の位置・速度、remaining `dt`をtyped payloadとしてsimulatorへ返します。linear-Debye instant-return mapは法線エネルギーからescape/turningを判定し、turning軌道の解析flight timeで接線位置を進めます。return後だけ通常stepperへ戻してremaining `dt`を再積分します。interfaceを使わない通常候補では追加探索も追加field評価もありません。
-
-`electrostatic_3d_explicit_orbit` は unified snapshot の全3D電位・電場を使い、外部領域だけを
-固定刻み velocity-Verlet で進めます。ownership面へのreturnとfar planeへのescapeはstep内で線形補間し、
-return後のx/yは周期wrapします。開始・終了の全エネルギー相対差、flight time、frozen-field ratioを
-契約値と比較します。step上限、energy上限、frozen-field上限を超えた軌道は破棄せずfail closedです。
-この経路は境界を横切った粒子だけが呼ぶため、feature disabledの通常粒子fast pathにfield評価を追加しません。

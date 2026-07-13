@@ -263,59 +263,67 @@ Individual transfer uses `outer_plasma.return_model` and `coupling.particle_tran
 
 Photoelectron transfer uses `outer_plasma.photoelectron_closure="individual_return"` together with the same instant-return model. Positive `photoelectron_histogram_bins`, `photoelectron_histogram_energy_max` [J], `photoelectron_ambient_charge_scale` [C], and `max_photoelectron_charge_ratio` are required. Every enabled `photo_raycast` species must set `deposit_opposite_charge_on_emit=true` and must not use a legacy `photo_escape_model`. The MPI-global outgoing normal-energy histogram stores signed charge, kinetic energy, tangential momentum, and count for the previous batch and cumulatively in `photoelectron_histogram.csv`. `statistical_return` remains unavailable, and an emission-to-ambient charge ratio above the configured limit fails closed. See `examples/periodic2_photoelectron_individual_return.toml`.
 
-`outer_plasma.model="kinetic_1d"` uses the negative and positive z-high `reservoir_face`
-species as the infinity electron and ion VDFs. It solves the monotonic collisionless
-Poisson problem on a stretched grid with a Robin tail; sub-Bohm ion inflow and unsupported
-non-monotonic/trapped branches fail closed. The gauge is fixed by `phi(infinity)=0`, so
-`outer_plasma.infinity_potential` must be zero and nonzero values are rejected.
-The nonlinear solver uses an analytic bordered-tridiagonal Jacobian, branch-preserving
-Newton steps, pseudo-transient recovery, and adaptive interface-field continuation. A
-recovery path is accepted only after the original unregularized Poisson residual at the
-requested field meets its tolerance; it never returns another sheath model or a held
-previous profile as a converged kinetic solution.
-`photoelectron_closure="kinetic_mean"` obtains a
-half-Maxwellian emitted flux from the first negative `photo_raycast` species and separates its
-outgoing and returning densities without adding a second surface return current.
-With `return_model="kinetic_1d_profile_return"` and
-`particle_transfer_mode="electrostatic_1d_instant_return"`, the refreshed kinetic state maps
-the infinity VDF to the interface by energy conservation. Outgoing particles use the same
-piecewise-linear profile and far Robin tail for escape, turning-point, and return-time
-calculations. The mode rejects legacy reservoir barriers, Zhao injection correction, and
-nonzero `b0`. Tracked photoelectrons require `deposit_opposite_charge_on_emit=true` and no
-legacy `photo_escape_model`. See
-`examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
+#### `kinetic_1d` contract
 
-`outer_plasma.model="unified_linear_response"` extends one zero-mode Poisson grid from
-the surface projection to the far boundary, including the rough-surface
-plasma-accessible fraction and linear mean-plasma charge. Nonzero modes join a
-`sqrt(k^2+kappa^2)` screened tail just above the highest surface point, so
-`interface_z` is only a particle ownership plane and does not truncate the field.
-The model requires single-valued topography, `triangle_p0`, and no photoelectron mean
-closure. Particle transfer may be disabled or use `electrostatic_3d_explicit_orbit`,
-which traces the continued 3D field with a fixed second-order electrostatic step.
-The explicit orbit requires `b0=0`, positive `outer_orbit_dt`, bounded step count,
-and energy/frozen-field error contracts. It fails closed outside the configured linearity
-bound. See `examples/periodic2_unified_linear_response.toml` and
-`docs/adr/0002-unified-periodic-outer-domain.md`.
+`kinetic_1d` is used with `cached_kneq0`. Negative and positive z-high `reservoir_face` species define the infinity electron and ion VDFs.
+
+| Item | Contract |
+| --- | --- |
+| Gauge | `phi(infinity)=0`; reject nonzero `infinity_potential` |
+| Far boundary | Robin tail with length `debye_length` |
+| Supported branch | monotonic, collisionless, unmagnetized, with Bohm-compliant ion inflow |
+| Unsupported | virtual cathode, trapped population, and sub-Bohm inflow |
+| Nonlinear solve | analytic bordered-tridiagonal Jacobian plus branch-preserving Newton |
+| Recovery | pseudo-transient and interface-field continuation; accept only after the original Poisson residual passes |
+| Fallback | never return another sheath model or a held previous profile as a converged solution |
+
+Particle transfer requires `return_model="kinetic_1d_profile_return"` and
+`particle_transfer_mode="electrostatic_1d_instant_return"`.
+
+1. Map the infinity VDF to the interface using the refreshed `phi_interface-phi_infinity`.
+2. Use the same discrete profile and Robin tail to classify escape or a turning point.
+3. Return turning particles after the analytically integrated round-trip time.
+
+Legacy reservoir barriers, Zhao injection correction, and nonzero `b0` are rejected.
+
+With `photoelectron_closure="kinetic_mean"`, the first negative `photo_raycast` species supplies a half-Maxwellian flux.
+The mean closure supplies only the outer profile; tracked particles update surface charge, so statistical return current is not added again.
+Every tracked-return species requires `deposit_opposite_charge_on_emit=true` and no legacy `photo_escape_model`.
+
+See `examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
+
+#### `unified_linear_response` contract
+
+| Item | Contract |
+| --- | --- |
+| Zero mode | one Poisson grid from surface projection to the far boundary |
+| Rough surface | include plasma-accessible area and linear mean-plasma charge |
+| Nonzero mode | join a $\sqrt{k^2+\kappa^2}$ tail above the highest surface point |
+| `interface_z` | particle ownership plane, not a field truncation plane |
+| Geometry/kernel | require single-valued topography and `triangle_p0` |
+| Photoelectron mean | require `photoelectron_closure="none"` |
+| Particle transfer | `none` or `electrostatic_3d_explicit_orbit` |
+| 3D orbit | require `b0=0`, fixed step, and energy/frozen-field error contracts |
+| Applicability | fail closed beyond the configured linearity bound |
+
+See `examples/periodic2_unified_linear_response.toml` and `docs/adr/0002-unified-periodic-outer-domain.md`.
 `outer_plasma.unified_grid_points` controls this Poisson grid and must be at least 17;
 the default is 129. Production studies should demonstrate refinement of reported observables.
 `outer_plasma.accessible_fraction_tolerance` bounds the maximum accessible-fraction
 change when the rough-surface height samples are doubled along both periodic axes.
 The refined samples are used by the solve, and a violation fails closed during initialization.
 See `examples/periodic2_unified_explicit_orbit.toml` for explicit particle transfer.
-`sim.use_box=true`, exactly two axes are `periodic`, and the remaining axis is
-open. Periodic images are considered not only for field evaluation, but also for
-collision and `photo_raycast` raycasting.
+Periodic2 requires `sim.use_box=true`, two periodic axes, and one open axis. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
 
-`field_periodic_far_correction="auto"` is accepted for compatibility and
-currently behaves the same as `none`. `m2l_root_oracle` is a diagnostic build-time
-mode that fits the exact periodic Ewald residual to the root operator, and is
-high cost.
-`cached_kneq0` is the production nonzero-mode backend. A cache miss generates a
-versioned operator from the Ewald reference; warm runs reuse the validated cache.
-The `exclude_k0` provider adds the physical zero mode once. `symmetric_vacuum`
-uses `E_z=+/- Q/(2 epsilon0 A)` above and below the sources without an interface
-position or permittivity. `e_bottom_zero` is the legacy closure with zero lower field.
+| Far correction | Meaning |
+| --- | --- |
+| `none` | finite-image approximation |
+| `auto` | compatibility input; currently `none` |
+| `m2l_root_oracle` | expensive diagnostic fit of the exact periodic Ewald residual |
+| `cached_kneq0` | production nonzero mode using a reusable versioned operator |
+
+With `cached_kneq0`, the `exclude_k0` provider adds the physical zero mode exactly once.
+`symmetric_vacuum` uses $\pm Q/(2\epsilon_0A)$ above and below; `e_bottom_zero` uses zero below and $Q/(\epsilon_0A)$ above.
 
 #### External Fields
 

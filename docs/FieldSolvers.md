@@ -149,12 +149,21 @@ FMM core の P2M / M2M / M2L / L2L / L2P の詳細は
 - 各周期軸の `box_max - box_min > 0`
 - `sim.field_solver = "fmm"`
 
-`field_periodic_far_correction` は `auto`, `none`, `m2l_root_oracle`, `cached_kneq0` を受けます。
-現行実装では `auto` は互換用に `none` へ正規化されます。
-`m2l_root_oracle` は明示指定時だけ有効になる診断的な遠方補正です。
-`cached_kneq0` は x/y periodic・z open、`exclude_k0`、および明示的なlower boundary modelを必須とする
-production backendです。`symmetric_vacuum` は `E_bottom=-Q/(2 epsilon0 A)` を選び、上側も
-`+Q/(2 epsilon0 A)` とします。`e_bottom_zero` は旧計算再現用で、上側場はその2倍です。
+`field_periodic_far_correction` の選択肢は次の通りです。
+
+| 値 | 用途 | 備考 |
+| --- | --- | --- |
+| `none` | 有限画像近似 | 既定値 |
+| `auto` | 互換入力 | 現在は`none`へ正規化 |
+| `m2l_root_oracle` | correctness診断 | 明示opt-inの高コストfit |
+| `cached_kneq0` | production無限周期非零モード | x/y periodic、z open、`exclude_k0`、lower boundary modelが必須 |
+
+`cached_kneq0` と組み合わせる平均場closureは次の2種類です。
+
+| lower boundary model | 下側平均場 | 上側平均場 | 用途 |
+| --- | ---: | ---: | --- |
+| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 対称な真空半空間 |
+| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 旧計算の再現 |
 
 ### 6.2 near images and far correction
 
@@ -164,9 +173,18 @@ $$
 (i, j) \in [-N, N]^2
 $$
 
-で列挙します。FMM core は primary cell source と画像 source を組み合わせて近傍寄与を扱います。
-`m2l_root_oracle` を選ぶと、build 時に Ewald residual を使って root local 補正を fit し、runtime では root local へ注入します。
-`cached_kneq0` は滑らかな full-periodic Ewald residual を versioned operator として保存し、state 更新時に構築する対称 `k=0` state を eval で差し引いて非零モードにします。cache miss 時は MPI rank 0 だけが filesystem lock 下で生成し、atomic rename 後に全 rank へ broadcast します。warm run の field evaluation と refresh に Ewald all-source 和はありません。物理的な `k=0` は electrostatic snapshot の boundary-condition provider が一度だけ合成します。
+で列挙します。runtime場は選択したbackendに応じて次のように構成されます。
+
+| 成分 | `none` | `m2l_root_oracle` | `cached_kneq0` |
+| --- | --- | --- | --- |
+| primary + near images | FMM | FMM | FMM |
+| 遠方非零モード | なし | build時にEwald residualをroot localへfit | versioned cached operator |
+| 対称$k=0$除去 | なし | oracle内 | state更新時に構築しevalで減算 |
+| 物理的$k=0$ | legacy field contract | oracle contract | snapshotのboundary providerが1回合成 |
+
+cache missではrank 0がfilesystem lockとatomic renameを担当し、operator計算はMPI/OpenMPへ分配します。
+warm field evaluationとcharge refreshにはall-source Ewald和がありません。生成手順と測定値は
+[cached periodic nonzero operator](FMMCore.html#101-cached-periodic-nonzero-operator)を参照してください。
 
 ### 6.3 collision side
 

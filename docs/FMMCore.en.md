@@ -631,43 +631,83 @@ This FMM core is not a generic kernel FMM.
 - far correction modes are `none` by default, `auto`, and `m2l_root_oracle`; `periodic2` `auto` normalizes to `none`, and `m2l_root_oracle` is explicit opt-in
 - `eval_point(s)` return values do not include `k_coulomb`
 
+### 10.1 Cached periodic nonzero operator
+
+#### Operator composition
+
+The runtime nonzero-mode kernel is:
+
+$$
+K_{k\ne0}
+= K_\mathrm{shell}(N)
++ R_\mathrm{Ewald}^{\mathrm{full}}
+- K_0^\mathrm{sym}
+$$
+
+| Term | Built when | Role |
+| --- | --- | --- |
+| $K_\mathrm{shell}(N)$ | ordinary FMM plan/runtime | primary cell and finite near images |
+| $R_\mathrm{Ewald}^{\mathrm{full}}$ | cold cache build | smooth difference between full-periodic Ewald and the finite image shell |
+| $K_0^\mathrm{sym}$ | charge-state refresh | remove the symmetric $k=0$ part from the cached full-periodic kernel |
+
+$K_0^\mathrm{sym}$ evaluates a piecewise-polynomial source-height prefix state by binary search in $O(\log n)$ per target.
+The physical $k=0$ mode is not part of this operator; the electrostatic snapshot boundary provider adds it exactly once.
+
+Field-fit columns and the constant potential mode have different units and are not mixed in one least-squares system.
+The potential gauge is fixed separately from the mean residual.
+
+#### Cache lifecycle
+
+| Stage | Action |
+| --- | --- |
+| Build identity | fingerprint geometry, target topology, order, periods, image layers, and generator/build versions |
+| Warm read | accept only matching version, fingerprint, shape, and checksum |
+| Miss or corruption | acquire the filesystem lock and regenerate the operator |
+| Publish | close a same-directory `.tmp` file, then atomically rename it |
+| Checkpoint | omit the regenerable operator payload |
+
+Independent jobs therefore serialize on one lock file, and a reader cannot accept a partially written operator.
+
+#### MPI/OpenMP cold build
+
+| Unit of work | Owner |
+| --- | --- |
+| Cache I/O and lock | MPI rank 0 only |
+| Target operator slices | distributed across MPI ranks with at most one-target imbalance |
+| Proxy columns within one target | evaluated with OpenMP |
+| Regularized QR | built once per target and reused for every proxy RHS |
+| Complete operator | assembled on every rank with `MPI_Allreduce(SUM)` |
+
+Warm field evaluation and charge refresh contain neither an all-source Ewald sum nor an operator refit.
+
+#### SysA measurements
+
+The fixture was the archived 2026-07-12 regolith input with order 4, 64 targets, 280 proxy points, and 840 check points.
+The timing scope is stated explicitly because the rows do not all measure the same interval.
+
+| Layout | Measured time | Scope |
+| --- | ---: | --- |
+| Former root-only, 1 rank x 1 thread | 31 min 24 s | cold operator build |
+| Reusable QR, 1 rank x 1 thread | about 25 min 45 s | through operator publication |
+| 1 rank x 112 threads | 47.0 s | cache prime plus batch 1 |
+| 2 ranks x 112 threads | 36.7 s | cache prime plus batch 1 |
+| 4 ranks x 112 threads | 31.5 s | cache prime plus batch 1 |
+| 6 ranks x 112 threads | 30.3 s | cache prime plus batch 1 |
+
+All parallel layouts produced the same cache checksum. Their Frobenius relative difference from the former operator was `1.73e-15`.
+These are measurements for this fixture, not timing guarantees for arbitrary geometry.
+
+#### Operating guidance
+
+| Situation | Recommendation |
+| --- | --- |
+| Dedicated cache prime | use 1 rank x 112 threads as the core-efficiency and queue-footprint baseline |
+| Production allocation already exists | generate within that allocation; 6 x 112 took about 30 s for this fixture |
+| Add ranks only for cold build | marginal benefit from 4--6 ranks is small |
+| 1 core | not operational; the measured job ran out of memory in the particle batch after publication |
+| Warm cache | validate fingerprint and checksum, then reuse it |
+
 ### 11. Implementation mapping
-
-Main implementation locations:
-
-### Cached periodic nonzero operator
-
-For `cached_kneq0`, the runtime kernel combines the finite image shell, a cached
-full-periodic Ewald residual, and a symmetric `k=0` subtraction built at state
-refresh. The subtraction evaluates a piecewise-polynomial source-height prefix
-state in O(log n), making the total exactly the nonzero-mode contract. The
-potential constant is fitted from the mean residual separately from the field
-fit, which fixes its gauge without mixing units. The cache header contains a format version,
-fingerprint, shape, and checksum; corruption or an identity mismatch triggers
-regeneration under the lock. The topology-dependent fingerprint includes the
-geometry, expansion order, periods, image layers, and generator/build versions.
-
-Only MPI rank 0 reads, locks, and writes the cache. On a cache miss, target
-operator slices are balanced across MPI ranks to within one target. Proxy
-columns within each target are evaluated with OpenMP, and an
-`MPI_Allreduce(SUM)` assembles the complete operator on every rank. The
-regularized least-squares QR factorization is prepared once per target and
-reused for all proxy right-hand sides. Independent jobs serialize on the same
-lock file. The writer closes a same-directory temporary file before atomic
-rename, so a reader cannot accept a partially written operator.
-
-In a 2026-07-12 SysA measurement of the archived regolith input (order 4,
-64 targets, 280 proxy points, and 840 check points), the former root-only cold
-run took 31 min 24 s. With reusable QR, a 1-rank x 1-thread operator was
-published after about 25 min 45 s. End-to-end cache-prime times including batch
-1 were 47.0 s for 1 x 112, 36.7 s for 2 x 112, 31.5 s for 4 x 112, and 30.3 s
-for 6 x 112. Every parallel layout produced the same cache checksum, and the
-Frobenius relative difference from the former operator was `1.73e-15`.
-Use 1 x 112 as the dedicated cache-prime baseline because it has the best core
-efficiency and queue footprint. An existing 6 x 112 production allocation can
-generate the cache in about 30 s, but requesting 4--6 ranks only for the cold
-build has little marginal benefit. The 1-core job ran out of memory in the
-particle batch after publishing the operator and is not an operational layout.
 
 Main implementation locations:
 

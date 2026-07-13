@@ -53,7 +53,17 @@ split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi
 各周期軸で2倍にしたときの accessible fraction 最大差で、設定した
 `outer_plasma.accessible_fraction_tolerance` 以下でなければ初期化時に停止します。
 
-`cached_kneq0` では `periodic2_cache_hit`、`periodic2_operator_build_count`、`periodic2_cache_fingerprint`、`periodic2_cache_path`、設定した cache directory と generation tolerance も保存します。cold run の cache miss では target slice を全 MPI rank へ分配し、各 rank 内では OpenMP で proxy 右辺を処理します。cache I/O と build count 1 の報告は root rank だけが担当します。warm run は全 rank で cache hit、build count 0 になるのが正常です。operator 本体は再生成可能なので checkpoint には含めません。
+`cached_kneq0` では次のcache診断を確認します。
+
+| summary key | cold miss | warm reuse |
+| --- | --- | --- |
+| `periodic2_cache_hit` | `F` | `T` |
+| `periodic2_operator_build_count` | root rankで`1` | `0` |
+| `periodic2_cache_fingerprint` | 生成identity | 再利用identityと一致 |
+| `periodic2_cache_path` | 公開先 | 読み込み元 |
+
+cold buildはtarget sliceをMPI rankへ、proxy RHSをrank内OpenMPへ分配します。cache I/Oはroot rankだけが担当します。
+operator本体は再生成可能なのでcheckpointへ含めません。cache directoryとgeneration toleranceもsummaryに保存されます。
 
 particle transfer有効時は`charge_ledger.csv`の`interface_outward_gross_C`と`interface_returned_gross_C`がinterfaceの往復量を表します。これは保存残差へ二重加算しません。`summary.txt`の`max_outer_flight_time_s`、`max_outer_frozen_field_ratio`、`max_outer_energy_relative_error`はMPI-globalなrun中の最大値です。
 

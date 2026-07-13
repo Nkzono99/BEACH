@@ -24,7 +24,7 @@ Fortran targetごとの時間は`test_l3-target-timings.csv`と
 
 | 軸 | 設定 | metric 1 | metric 2 | 判定 |
 | --- | --- | ---: | ---: | --- |
-| Boris dt | 0.25 / 0.125 / 0.0625 | 5.1600e-3 / 1.2990e-3 | 3.2533e-4 | 二次収束 |
+| same-time Boris dt | 0.25 / 0.125 / 0.0625 | 5.1600e-3 / 1.2990e-3 | 3.2533e-4 | 予測中点場 + 台形位置の二次収束 |
 | panel FMM order | 2 / 3 / 4 / 5 | field: 2.3566e-2 / 2.0761e-3 / 2.3681e-4 / 2.8845e-5 | potential(order 5): 4.7828e-6 | order 5で2e-3未満 |
 | rough panel mesh | n=4 / 8 / 16、n=32基準 | field: 1.0645e-2 / 3.0336e-3 / 6.3047e-4 | potential: 1.0805e-2 / 2.9001e-3 / 5.9489e-4 | refinementで減少 |
 | rough outer grid | 65 → 129 | field差 3.2521e-6 | potential差 4.3034e-7 | 5e-5未満 |

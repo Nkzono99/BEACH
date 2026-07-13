@@ -159,38 +159,56 @@ The mesh is built from templates or an OBJ file according to `mesh.mode`. For te
 3. Dispatch by `kind` to `make_plane`, `make_box`, `make_cylinder`, `make_sphere`, and related builders.
 4. Assign a `mesh_id` per template.
 5. Expand `surface_model` and `epsilon_r` to element arrays.
-
-### P0 triangle panel kernels
-
-With `field.element_kernel="triangle_p0"`, `q_elem` is total element charge and `sigma=q_elem/area` is constant surface density. Potential and field use the analytic edge-log and signed-solid-angle expressions. `bem_panel_self_terms` owns on-surface evaluation: potential is continuous, the principal-value normal field is the average of the two traces, and `elem_vacuum_sign` selects the vacuum trace. Geometry, edge data, exact first/second moments, and a seven-point quadrature plan are cached when the mesh is built; batches update charge only.
-
-The direct path is the free-space correctness oracle. The FMM path builds source bounds from every panel vertex, evaluates near lists with the analytic panel kernel, and uses exact triangle-averaged monomials for far-field P2M. Their kernel IDs are `triangle_p0_exact_direct` and `triangle_p0_exact_p2m_near`; auto selection uses `triangle_p0_exact_auto`. Treecode and the point-source `m2l_root_oracle` fail during initialization instead of falling back to point charges.
-
-### 2.8 periodic2 split reference
-
-`panel_spectral_reference` decomposes potential into a P0-panel Fourier sum for `k!=0`, an exact triangle-height zero mode, and a linear-Debye outer profile. The zero-mode plan represents each inclined triangle's cumulative area as piecewise quadratics and evaluates field and integrated potential in `O(log N)`. A plane grid at the interface measures nonzero-mode potential and total-field decay before the solver permits a scalar 1D handoff. This is a small-system correctness reference, not a production-scale periodic operator.
-
-### 2.9 outer particle interface
-
-A z-high box event returns a typed payload containing the face, event fraction, same-time position and velocity, and remaining `dt` to the simulator. The linear-Debye instant-return map classifies escape versus turning from normal energy and advances tangential position over the analytic outer flight time. Only a returned particle re-enters the ordinary stepper for the remaining `dt`. Disabled interface modes add no boundary search or field evaluation to the normal candidate path.
 6. Concatenate all template triangle arrays and pass them to `init_mesh`.
 
-`init_mesh` precomputes:
+`init_mesh` precomputes element centroids, normals, AABBs, representative lengths, initial charge, and the collision grid.
 
-- element centroids `centers(:, i)`
-- element normals `normals(:, i)`
-- element AABBs `bb_min/max(:, i)`
-- representative length `h_elem(i) = sqrt(area_i)`
-- initial charge `q_elem(i)`
-- collision grid
+### 2.3 P0 triangle panel field kernel
 
-### 2.3 periodic2 collision mesh
+With `field.element_kernel="triangle_p0"`, `q_elem` is total element charge and `sigma=q_elem/area` is constant surface density.
+
+| Path | Kernel | Contract |
+| --- | --- | --- |
+| direct | `triangle_p0_exact_direct` | free-space correctness oracle using analytic edge-log and signed-solid-angle expressions |
+| FMM | `triangle_p0_exact_p2m_near` | analytic panel near field plus exact triangle-averaged monomial P2M |
+| auto | `triangle_p0_exact_auto` | select one of the supported paths |
+
+On-surface potential is continuous. The principal-value normal field is the mean of both traces, and `elem_vacuum_sign` selects the vacuum trace.
+Geometry, edge data, first/second moments, and a seven-point quadrature plan are fixed at mesh construction; batches update charge only.
+Treecode and point-source `m2l_root_oracle` fail during initialization instead of falling back to point charges.
+
+### 2.4 periodic2 split reference
+
+`panel_spectral_reference` is a small-system correctness path.
+
+| Component | Evaluation |
+| --- | --- |
+| $k\ne0$ | P0-panel Fourier sum |
+| $k=0$ | precompute piecewise-quadratic triangle-height cumulative area; evaluate in $O(\log N)$ |
+| Outer profile | linear-Debye 1D profile |
+| Interface gate | measure nonzero-mode potential and total-field decay on an in-plane grid |
+
+It is not a production-scale periodic operator.
+
+### 2.5 Outer particle interface
+
+A z-high event returns the face, event fraction, same-time position/velocity, and remaining `dt` as a typed payload.
+
+| Return model | Outer-domain treatment |
+| --- | --- |
+| Linear-Debye instant return | classify escape/turning from normal energy and advance tangential position over analytic flight time |
+| `electrostatic_3d_explicit_orbit` | trace the unified 3D potential/field with fixed-step velocity-Verlet |
+
+Only returned particles re-enter the ordinary stepper for the remaining `dt`. The 3D orbit interpolates return/far-plane crossings within a step and checks energy error, flight time, and frozen-field ratio. Limit violations fail closed instead of discarding the particle.
+Disabled interface modes add no search or field evaluation to the normal fast path.
+
+### 2.6 periodic2 collision mesh
 
 When `sim.field_bc_mode="periodic2"`, `prepare_periodic2_collision_mesh` translates each triangle to a canonical position along the two periodic axes.
 This is separate from the periodic image sum used in the field calculation. It stabilizes the primitive-cell mesh for collision tests.
 Element indices remain those of the base element, so a hit on a periodic image is still deposited on the base element.
 
-### 2.4 Restart
+### 2.7 Restart
 
 When `output.resume=true`, `load_restart_checkpoint` reads:
 
@@ -268,24 +286,31 @@ Incomplete particle arrays and `photo_emission_dq` from the failing rank are not
 | 8 | Deposit `q * w` on a hit; fail closed without committing state at a ninth box event |
 | 9 | If the particle survives, update same-time `x` and `v` and continue to the next step |
 
-`build_particle_step_candidate` evaluates the spatial field exactly once at the predicted midpoint without modifying
-the field solver. For a box-crossing candidate, only the field sample is wrapped on periodic axes and clamped on
-non-periodic axes; the trajectory candidate remains unwrapped for event ordering.
-`boris_update_velocity(v, q, m, dt, e, b, v_new)` is a public pure procedure that performs the
-electric half kick, magnetic rotation, and electric half kick for the velocity update. The existing public call
-`boris_push(x, v, q, m, dt, e, b, x_new, v_new)` keeps its signature, delegates its velocity calculation to this
-procedure, and updates position with `x_new = x + 0.5*(v + v_new)*dt`. Input and output positions and velocities are
-same-time states. Predicted-midpoint spatial-field sampling and the trapezoidal position update make the candidate
-kinematics second-order accurate.
+The particle-integration contract is summarized below.
 
-When the candidate endpoint is strictly inside the box, `advance_particle_step` completes with one field evaluation and
-one collision query and does no additional event geometry. Crossing steps use `find_first_boundary_event` and
-`apply_escape_reflect_periodic_event` to apply simultaneous corner/edge faces together. Later faces are processed while
-preserving mesh/box event ordering. If the next remainder reaches a ninth face without an earlier mesh hit, it returns
-`particle_step_multiple_box_events` instead of entering an unbounded loop.
-The existing `apply_box_boundary` remains for photo rays.
-If a periodic2 full-chord query reaches a range limit beyond the box, the production loop falls back to a query truncated
-at the first box event.
+| Layer | Contract |
+| --- | --- |
+| State | Input and output are same-time pairs $\mathbf{x}^n,\mathbf{v}^n$ and $\mathbf{x}^{n+1},\mathbf{v}^{n+1}$ |
+| Field sample | Evaluate the spatial electric field once at the predicted midpoint and add `sim.e0` once |
+| Velocity | `boris_update_velocity` applies electric half kick, magnetic rotation, and electric half kick |
+| Position | `boris_push` applies $\mathbf{x}^{n+1}=\mathbf{x}^n+(\mathbf{v}^n+\mathbf{v}^{n+1})\Delta t/2$ |
+| Accuracy | Second order in position and velocity for smooth prescribed fields |
+
+This is not a leapfrog state that stores half-step velocity. The pure-B Boris rotation preserves velocity norm, but
+exact long-time energy conservation is not claimed for the full system with collisions, open boundaries, and batchwise self-consistent field updates.
+See [Particle time integration](ParticleChargeLoop.en.html#8-particle-time-integration-boris-velocity-update-and-same-time-state) for equations, event handling, and the scope of conservation properties.
+
+Event handling separates the common and crossing paths.
+
+| Path | Additional work |
+| --- | --- |
+| Strictly inside the box | None: one field evaluation and one collision query |
+| Box crossing | Compare earliest mesh/face event and apply simultaneous corner/edge faces together |
+| Reflecting/periodic remainder | Reintegrate for at most eight events |
+| Ninth event required | Fail closed with `particle_step_multiple_box_events` |
+
+`apply_box_boundary` remains for photo-ray compatibility. Only when a periodic2 full-chord query reaches a range limit
+beyond the box does the production path switch to a query truncated at the first box event.
 
 For a single open face, `potential_barrier` retains the legacy scalar-energy formula evaluated at the event position and
 interpolated velocity. Multiple open faces fail closed; a shared-potential/gauge physical model is deferred.

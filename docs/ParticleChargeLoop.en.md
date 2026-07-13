@@ -130,27 +130,25 @@ This is a reduced closure: returning photoelectrons are not tracked individually
 
 ---
 
-## 8. Boris pusher
+## 8. Particle time integration: Boris velocity update and same-time state
 
 **Source**:
 [`bem_pusher`](../src/physics/bem_pusher.f90),
 [`bem_particle_stepper`](../src/runtime/simulator/bem_particle_stepper.f90)
 
-Particle motion is advanced with the Boris method using the uniform magnetic field `sim.b0` and the boundary-element
-electric field evaluated at the predicted midpoint, with the uniform external field `sim.e0` added exactly once.
-Input and output positions and velocities are same-time states.
+One BEACH step is a **same-time state integrator containing a Boris velocity update**.
+The classical Boris method can also be written as a leapfrog with half-time velocity storage, but BEACH does not expose or checkpoint a staggered state.
 
-Inputs:
+| State | Time stored by BEACH |
+| --- | --- |
+| Input | $\mathbf{x}^n,\mathbf{v}^n$ |
+| Output | $\mathbf{x}^{n+1},\mathbf{v}^{n+1}$ |
+| Electric-field sample | predicted position $\mathbf{x}_\mathrm{mid}$ |
+| Magnetic field | uniform `sim.b0` |
 
-- position `x`
-- velocity `v`
-- charge `q`
-- mass `m`
-- time step `dt`
-- electric field `E`
-- magnetic flux density `B`
+The implementation has four stages.
 
-Update equations:
+### 8.1 Sample the spatial electric field once at a predicted midpoint
 
 $$
 \mathbf{x}_\mathrm{mid} =
@@ -160,7 +158,19 @@ $$
 \mathbf{E}_\mathrm{BEM}(\mathbf{x}_\mathrm{mid}) + \mathbf{E}_0
 $$
 
-The velocity update below uses $\mathbf{E}=\mathbf{E}_\mathrm{mid}$.
+`sim.e0` is added exactly once here. Even when the candidate crosses the box, only
+$\mathbf{x}_\mathrm{mid}$ passed to the solver is mapped.
+
+| Axis boundary | Field-sample mapping |
+| --- | --- |
+| periodic | wrap into the primitive cell |
+| non-periodic | clamp to the box face |
+
+The trajectory endpoint remains unwrapped for later mesh/box event ordering.
+
+### 8.2 Update same-time velocity with the Boris rotation
+
+The equations below use $\mathbf{E}=\mathbf{E}_\mathrm{mid}$.
 
 $$
 \mathbf{v}^- =
@@ -191,22 +201,47 @@ $$
 \mathbf{v}^+ + \frac{q}{m}\mathbf{E}\frac{\Delta t}{2}
 $$
 
+These equations are implemented by `boris_update_velocity`. With $\mathbf{E}=0$,
+the magnetic rotation preserves $\lVert\mathbf{v}\rVert$ to roundoff and is reversible for a prescribed field.
+
+### 8.3 Update position with the trapezoidal rule
+
 $$
 \mathbf{x}^{n+1} =
 \mathbf{x}^{n} + \frac{1}{2}
 \left(\mathbf{v}^{n} + \mathbf{v}^{n+1}\right)\Delta t
 $$
 
-Predicted-midpoint spatial-field sampling and the trapezoidal position update give second-order candidate kinematics
-for smooth fields. Under constant electric acceleration, the displacement matches the analytic result up to roundoff.
-For a box-crossing candidate, only the midpoint field sample is wrapped on periodic axes and clamped on non-periodic
-axes; the trajectory candidate remains unwrapped. BEACH runs one collision query on `x^n -> x^{n+1}` and commits it
-directly when the candidate endpoint is inside the box.
-For a box crossing, it compares the mesh-hit and first-face parameters and rebuilds reflected/periodic remainders for
-at most eight box events.
-Only when a periodic2 full-chord query reaches a range limit beyond the box does it retry with the chord truncated at the
-first face. A collision absorbs the particle without saving the candidate state. A ninth box event in the remainder fails
-without changing state and asks for a smaller `sim.dt` when no earlier mesh hit exists.
+The public `boris_push` wrapper includes this position update. Combined with the predicted-midpoint spatial-field sample,
+it gives second-order candidate kinematics for a smooth electrostatic field. Constant electric acceleration reproduces the analytic displacement.
+
+### 8.4 Commit the earliest mesh or box event
+
+| Condition | Action |
+| --- | --- |
+| Candidate endpoint is inside the box | commit the mesh query on $\mathbf{x}^n\rightarrow\mathbf{x}^{n+1}$ |
+| Mesh hit precedes a box face | absorb at the surface; do not save the candidate endpoint |
+| Open face precedes a mesh hit | escape or transfer at the event position |
+| Reflecting/periodic face precedes a mesh hit | reintegrate the remaining time with the same convention |
+| A ninth box event would be required | do not commit state; return `particle_step_multiple_box_events` |
+
+Reflecting/periodic remainders are limited to eight events. A z-high external-interface crossing is refined from the quadratic trajectory consistent with the Boris endpoints. Other faces and mesh hits are ordered by their chord parameters.
+
+### 8.5 Numerical properties and non-guarantees
+
+| Property | Current contract |
+| --- | --- |
+| Time centering | Input and output are same-time states; no half-step velocity is checkpointed |
+| Convergence order | Second order in position and velocity for smooth prescribed fields |
+| Pure B | Preserves velocity norm to roundoff |
+| Time reversal | Regression-tested for the pure-B velocity update |
+| Collision/open boundary | Irreversible and outside the conservation claim |
+| Spatially varying self-consistent field | No exact long-time total-energy conservation guarantee |
+| Charge commit | The field changes at batch boundaries and has a separate conservation contract |
+
+It is therefore inaccurate to describe the complete BEACH step only as a leapfrog.
+It retains the geometric Boris rotation, but also includes predicted-midpoint sampling, a trapezoidal position update,
+event handling, and batchwise charge evolution.
 
 ---
 

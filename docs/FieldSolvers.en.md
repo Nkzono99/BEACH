@@ -149,13 +149,21 @@ The third axis is the open direction.
 - `box_max - box_min > 0` for each periodic axis
 - `sim.field_solver = "fmm"`
 
-`field_periodic_far_correction` accepts `auto`, `none`, `m2l_root_oracle`, and `cached_kneq0`.
-The current implementation normalizes `auto` to `none` for compatibility.
-`m2l_root_oracle` is a diagnostic far correction enabled only by explicit request.
-`cached_kneq0` is the production backend and requires x/y periodic, z open,
-`exclude_k0`, and an explicit lower boundary model. `symmetric_vacuum` selects
-`E_bottom=-Q/(2 epsilon0 A)` and the same positive magnitude above the sources.
-`e_bottom_zero` remains available to reproduce earlier runs and doubles the upper mean field.
+`field_periodic_far_correction` has the following choices.
+
+| Value | Use | Notes |
+| --- | --- | --- |
+| `none` | finite-image approximation | default |
+| `auto` | compatibility input | currently normalizes to `none` |
+| `m2l_root_oracle` | correctness diagnostics | expensive explicit opt-in fit |
+| `cached_kneq0` | production infinite-periodic nonzero mode | requires x/y periodic, z open, `exclude_k0`, and a lower boundary model |
+
+The mean-field closures used with `cached_kneq0` are:
+
+| Lower boundary model | Lower mean field | Upper mean field | Use |
+| --- | ---: | ---: | --- |
+| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | symmetric vacuum half spaces |
+| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | reproduction of earlier runs |
 
 ### 6.2 Near images and far correction
 
@@ -165,14 +173,18 @@ $$
 (i, j) \in [-N, N]^2
 $$
 
-The FMM core combines primary-cell sources and image sources for near contributions.
-With `m2l_root_oracle`, the build stage fits a root-local correction from the Ewald residual and injects it into the root local expansion at runtime.
-`cached_kneq0` stores the smooth full-periodic Ewald residual as a versioned
-operator and subtracts a symmetric `k=0` state built during charge refresh.
-On a cache miss only MPI rank 0 generates the operator under a filesystem lock, publishes
-it with an atomic rename, and broadcasts it. Warm field evaluation and charge
-refresh contain no all-source Ewald sum. The electrostatic snapshot then adds
-the boundary-condition-specific `k=0` exactly once.
+The runtime field is composed according to the selected backend.
+
+| Component | `none` | `m2l_root_oracle` | `cached_kneq0` |
+| --- | --- | --- | --- |
+| Primary + near images | FMM | FMM | FMM |
+| Far nonzero mode | absent | fit Ewald residual to root local at build time | versioned cached operator |
+| Symmetric $k=0$ removal | absent | included in oracle contract | build during state refresh and subtract during evaluation |
+| Physical $k=0$ | legacy field contract | oracle contract | add once through the snapshot boundary provider |
+
+On a cache miss, rank 0 owns the filesystem lock and atomic publication while MPI/OpenMP distribute operator construction.
+Warm field evaluation and charge refresh contain no all-source Ewald sum. See
+[Cached periodic nonzero operator](FMMCore.en.html#101-cached-periodic-nonzero-operator) for construction and measurements.
 
 ### 6.3 Collision side
 

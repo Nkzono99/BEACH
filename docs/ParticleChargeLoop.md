@@ -131,27 +131,25 @@ $$
 
 ---
 
-## 8. Boris pusher
+## 8. 粒子時間積分: Boris速度更新と同時刻状態
 
 **Source**:
 [`bem_pusher`](../src/physics/bem_pusher.f90),
 [`bem_particle_stepper`](../src/runtime/simulator/bem_particle_stepper.f90)
 
-粒子運動は一様磁場 `sim.b0` と、予測中点で評価した境界要素電場に一様外部電場 `sim.e0` を1回加えた
-電場による Boris 法です。box crossing候補では場評価点だけを周期軸でwrap・非周期軸でbox面へclampし、
-軌道候補座標は写像しません。位置と速度の入力・出力は同一時刻の状態です。
+BEACH の1ステップは、**Boris速度更新を組み込んだ同時刻状態の積分器**です。
+古典的なBoris法は速度を半時刻に保持するleapfrog表現でも書けますが、BEACHのpublic stateはstaggerしません。
 
-入力:
+| 状態 | BEACHでの保持時刻 |
+| --- | --- |
+| 入力 | $\mathbf{x}^n,\mathbf{v}^n$ |
+| 出力 | $\mathbf{x}^{n+1},\mathbf{v}^{n+1}$ |
+| 電場標本 | 予測位置 $\mathbf{x}_\mathrm{mid}$ |
+| 磁場 | 一様な `sim.b0` |
 
-- 位置 `x`
-- 速度 `v`
-- 電荷 `q`
-- 質量 `m`
-- 時間刻み `dt`
-- 電場 `E`
-- 磁束密度 `B`
+実装上は次の4段階に分かれます。
 
-更新式:
+### 8.1 空間電場を予測中点で1回評価する
 
 $$
 \mathbf{x}_\mathrm{mid} =
@@ -161,7 +159,19 @@ $$
 \mathbf{E}_\mathrm{BEM}(\mathbf{x}_\mathrm{mid}) + \mathbf{E}_0
 $$
 
-以下の速度更新では $\mathbf{E}=\mathbf{E}_\mathrm{mid}$ を使います。
+`sim.e0` はここで1回だけ加えます。候補がboxを横切る場合も、solverへ渡す
+$\mathbf{x}_\mathrm{mid}$ だけを次のように写像します。
+
+| 軸の境界 | 場評価点の処理 |
+| --- | --- |
+| periodic | primitive cellへwrap |
+| 非periodic | box面へclamp |
+
+軌道端点は写像せず、後段のmesh/box event順序付けに使います。
+
+### 8.2 Boris回転で同時刻の速度を更新する
+
+以下では $\mathbf{E}=\mathbf{E}_\mathrm{mid}$ です。
 
 $$
 \mathbf{v}^- =
@@ -192,19 +202,47 @@ $$
 \mathbf{v}^+ + \frac{q}{m}\mathbf{E}\frac{\Delta t}{2}
 $$
 
+この部分が `boris_update_velocity` です。$\mathbf{E}=0$ では磁場回転が
+$\lVert\mathbf{v}\rVert$ を丸め誤差まで保存し、規定場に対して時間反転可能です。
+
+### 8.3 台形則で位置を更新する
+
 $$
 \mathbf{x}^{n+1} =
 \mathbf{x}^{n} + \frac{1}{2}
 \left(\mathbf{v}^{n} + \mathbf{v}^{n+1}\right)\Delta t
 $$
 
-予測中点の空間電場評価と台形位置更新により、smooth な場で candidate kinematics は二次精度になります。
-一様電場による一定加速度の変位は丸め誤差まで解析解と一致します。
-BEACH は `x^n -> x^{n+1}` を1回だけ衝突判定し、候補終点がbox内部ならその結果を確定します。box crossing時は
-mesh hitと最初のfaceのparameterを比較して最早順序を決め、reflect/periodic後の残り時間を最大8 eventまで再積分します。
-periodic2のfull-chord照会がbox外区間でrange limitに達した場合だけ、最初のfaceまでに制限して再照会します。
-衝突があれば粒子は吸収され、候補状態は保存されません。残り時間中の9回目box eventは、そこまでにhitがなければ
-stateを変更せず明示failureとし、`sim.dt`の縮小を要求します。
+この位置更新までを含むpublic wrapperが `boris_push` です。予測中点の空間電場評価と組み合わせることで、
+smoothな静電場に対するcandidate kinematicsは二次精度になります。一様電場の一定加速度変位は解析解と一致します。
+
+### 8.4 meshとboxの最初のeventを確定する
+
+| 条件 | 処理 |
+| --- | --- |
+| 候補終点がbox内部 | chord $\mathbf{x}^n\rightarrow\mathbf{x}^{n+1}$ のmesh hitを確定 |
+| mesh hitがbox面より先 | 表面で吸収し、候補端点は保存しない |
+| open面が先 | event位置でescapeまたは外部領域へ移送 |
+| reflect/periodic面が先 | event後の残り時間を同じ積分規約で再積分 |
+| 9回目のbox eventが必要 | stateをcommitせず `particle_step_multiple_box_events` |
+
+reflect/periodic remainderは最大8 eventです。z-high外部interfaceの交差時刻は、Boris端点と整合する
+二次軌道から再評価します。その他のfaceとmesh hitは各chordのparameterで最早順序を決めます。
+
+### 8.5 数値的性質と非保証
+
+| 性質 | 現行contract |
+| --- | --- |
+| 時間中心 | 入出力とも同時刻。half-step速度をcheckpointしない |
+| 収束次数 | smoothな規定場で位置・速度とも二次精度 |
+| pure B | 速度ノルムを丸め誤差まで保存 |
+| 時間反転 | pure Bの速度更新で回帰検証 |
+| 衝突・open境界 | 非可逆。保存性の対象外 |
+| 空間変動する自己無撞着場 | 長時間の全エネルギー厳密保存は保証しない |
+| charge commit | batch境界で場が変わるため、単粒子の規定場保存則とは別contract |
+
+したがって、BEACHの完全な1ステップを単に「leapfrog」と呼ぶのは不正確です。
+Boris回転の幾何学的性質は保持しますが、予測中点場、台形位置、event処理、batchごとの電荷更新まで含む積分器です。
 
 ---
 
