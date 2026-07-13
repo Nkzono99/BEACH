@@ -4,10 +4,10 @@ Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.m
 
 # Configuration Recipes
 
-This page shows how to modify `beach.toml` for common cases.
+Build common cases by replacing the required tables or sections in the official beginner `beach.toml`.
 For the complete key reference, see [Input Parameters Reference](Parameters.en.html). For high-level notation, see [`beachx config` / High-Level Notation Guide](Configuration.en.html).
 
-Each snippet is a replacement or diff relative to the [official beginner case](Tutorial.en.html).
+Each snippet below is a replacement or diff relative to the [official beginner case](Tutorial.en.html).
 Some snippets are not standalone configurations.
 
 ## Official Run Procedure

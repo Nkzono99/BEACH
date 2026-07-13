@@ -471,7 +471,7 @@ triangle-averaged P2M in the far source representation.
 
 $\alpha$ is a numerical parameter balancing real- and reciprocal-space
 convergence; it is not Debye screening. See
-[periodic2 Zero Mode and Outer Plasma](PeriodicZeroModeOuterPlasma.en.md#22-what-the-ewald2p-reference-means)
+[the Ewald2P teacher in periodic2 electrostatics](PeriodicElectrostatics.en.md#ewald2p-teacher)
 for the intuitive split and its relation to runtime evaluation.
 
 ##### 8.2.1 Notation
@@ -740,7 +740,8 @@ $$
 
 The triangle-height integral, lower-boundary closure, and outer-plasma coupling
 for $K_0^\mathrm{physical}$ are described in
-[periodic2 Zero Mode and Outer Plasma](PeriodicZeroModeOuterPlasma.en.md).
+[periodic2 electrostatics](PeriodicElectrostatics.en.md) and
+[Outer plasma models](OuterPlasmaModels.en.md).
 
 Field-fit columns and the constant potential mode have different units and are not mixed in one least-squares system.
 The potential gauge is fixed separately from the mean residual.

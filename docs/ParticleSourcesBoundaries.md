@@ -1,76 +1,93 @@
-title: 粒子源と粒子境界
+title: 粒子源
 
 Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBoundaries.en.md)
 
-# 粒子源と粒子境界
+# 粒子源
 
-このページでは、粒子を計算領域へ生成する方法と、粒子がbox境界へ到達したときの処理を整理します。
-外部プラズマのPoisson modelそのものは[外部プラズマモデル](OuterPlasmaModels.html)を参照してください。
+各batchの粒子追跡は、`[[particles.species]]`ごとに新しい粒子群を作るところから始まります。
+生成後はsourceの種類にかかわらず同じ粒子状態へ入り、[Boris粒子更新](BorisPusher.html)と
+[粒子の衝突・境界イベント](ParticleEvents.html)で追跡されます。
 
-## 粒子源
+| `source_mode` | 粒子数を決める量 | 生成位置 | 主な用途 |
+| --- | --- | --- | --- |
+| `volume_seed` | `npcls_per_step` | `pos_low`〜`pos_high` | 初期粒子、軌道試験 |
+| `reservoir_face` | 流入flux、面積、`batch_duration` | 指定したbox面 | 外部reservoirからの連続流入 |
+| `photo_raycast` | 電流密度、投影面積、`batch_duration`、ray数 | rayが最初に命中した表面 | 光照射による表面放出 |
 
-| `source_mode` | 用途 | 生成位置 |
-| --- | --- | --- |
-| `volume_seed` | 初期粒子、簡単な軌道試験 | `pos_low`〜`pos_high` |
-| `reservoir_face` | box外のreservoirからの流入 | 指定したbox面 |
-| `photo_raycast` | 光照射された表面からの放出 | rayが最初に命中した要素 |
+## snapshot更新後にそのbatchの粒子を作る
 
-### volume seed
+粒子源は、batch開始時に場と外部プラズマのsnapshotを更新した後で評価されます。この順序により、
+reservoirの速度補正と光電子のreduced escape率は、前batchまでにcommitされた表面電荷を見ることができます。
+生成された粒子は同じsnapshot中を進み、吸収、escape、`max_step`到達のいずれかまで追跡されます。
 
-`npcls_per_step`個を指定領域へ生成し、drift付きMaxwell分布から速度を与えます。物理fluxから個数を
-計算するsourceではないため、定量的な連続流入には`reservoir_face`を使います。
+粒子が生成された瞬間に表面電荷を変えるのは、`photo_raycast`で放出元へ逆符号電荷を置く場合だけです。
+その差分も追跡中の吸収電荷と同様にbatch末尾でcommitされ、同じbatchの場は変えません。全体の順序は
+[計算モデルの全体像](Algorithms.html)を参照してください。
 
-### reservoir face
+## `volume_seed`で指定個数の初期粒子を作る
 
-面積$A$、流入flux$\Gamma_\mathrm{in}$、`batch_duration`、macro粒子重み$w$から期待粒子数を求めます。
+`volume_seed`は各batchに`npcls_per_step`個を生成します。位置は直方体
+`[pos_low, pos_high]`内の一様分布、速度は
 
 $$
-N_\mathrm{macro,expected}=\frac{\Gamma_\mathrm{in}A\,\mathrm{batch\_duration}}{w}
+\mathbf v=\mathbf u+\sigma\mathbf Z,
+\qquad
+\sigma=\sqrt{\frac{k_\mathrm{B}T}{m}}
 $$
 
-端数はspeciesごとの`macro_residual`として次batchへ持ち越します。MPIでもglobal個数と残差を一度だけ決めてから
-rankへ分配するため、world sizeで期待流入量が変わらない契約です。
+というdrift付きMaxwell分布です。`thermal_speed`を指定した場合は温度から求めた$\sigma$より優先します。
+標準正規変量は各成分で$6\sigma$に切られます。
 
-速度はflux-weighted Maxwell分布またはvelocity gridからsampleします。上流から注入面までに電位障壁がある場合、
-到達可能な法線速度を選別し、エネルギー保存で面上速度へ写像します。
+このsourceの注入量は`npcls_per_step`で直接決まります。物理fluxに基づく連続流入には`reservoir_face`を使います。
 
-### photo raycast
+## `reservoir_face`で連続流入fluxを作る
 
-注入面からrayを飛ばし、最初に命中した表面要素から粒子を放出します。ray数、投影面積、電流密度、
-`batch_duration`からmacro粒子重みを決めます。放出元への逆符号電荷は
-[表面帯電モデル](SurfaceModels.html#光電子放出の電荷ledger)を参照してください。
+`reservoir_face`はbox外に与えた密度・温度・driftまたは速度gridから、指定面を内向きに横切るfluxを求めます。
+生成する粒子数は物理fluxから計算し、法線速度はflux-weighted分布からsampleします。上流とfaceの間に電位差がある構成では、
+到達可能な上流粒子の選別とface速度へのエネルギー写像を同じ電位差で行います。
 
-## box境界
+式、速度grid、macro粒子端数、`infinity_barrier`、outer profileとの接続は
+[reservoir注入](ReservoirInjection.html)で説明します。
 
-| 境界 | 粒子処理 |
+## `photo_raycast`で照射面から粒子を放出する
+
+`photo_raycast`はbox面上の照射開口からrayを発射し、box境界条件に従ってrayを進め、最初に命中した
+in-box要素から粒子を放出します。放出速度は要素法線に対するflux-weighted Maxwell分布です。
+
+放出後の光電子は共通の粒子状態へ入り、ほかの粒子と同じ場、Boris更新、mesh衝突、box境界を使います。
+放出元電荷、reduced escape closure、outer sheathでのreturnまでを
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
+
+## 生成後は共通の粒子状態と電荷ledgerへ入る
+
+生成後に保持する主な量は位置$\mathbf x$、速度$\mathbf v$、実粒子1個の電荷$q$と質量$m$、macro粒子重み$w$、
+species IDです。tracked macro粒子1個の電荷は$q w$です。表面へ吸収された場合も、charge ledgerへの計上にはこの値を使います。
+
+| batch結果 | 処理 |
 | --- | --- |
-| `open` | 外部モデルへ渡すか、escapeとして除去 |
-| `reflect` | 面法線速度を反転して残り時間を追跡 |
-| `periodic` | 反対側へwrapして残り時間を追跡 |
+| meshへ吸収 | 命中要素へ$q w$を堆積 |
+| open面から無限遠へescape | 粒子を除去し、species別escapeへ計上 |
+| outer領域からreturn | 同じ粒子をinterfaceへ戻し、残りstepを再積分 |
+| `max_step`まで生存 | unresolvedとしてbatch末尾で破棄・計上 |
 
-mesh衝突とbox面が同じstepに現れる場合は、軌道上で早いeventを採用します。数値的なevent処理は
-[粒子追跡と衝突](ParticleTrackingCollision.html)を参照してください。
+mesh衝突とbox境界の順序は[粒子の衝突・境界イベント](ParticleEvents.html)、外部領域のfield modelは
+[外部プラズマモデル](OuterPlasmaModels.html)、粒子のescape/return写像は
+[粒子のescapeとreturn](ParticleEscapeReturn.html)、表面への電荷commitは[表面電荷更新](SurfaceModels.html)を参照してください。
 
-## open境界の処理
+## global生成量をMPIとrestartで保つ
 
-open面を通過した粒子の処理は、単純なescapeと外部領域へのtransferを区別します。
+`reservoir_face`のglobal生成数とmacro粒子端数はrootで一度だけ決めてrankへ分配します。そのためMPI world sizeを
+変えても期待流入量は変わりません。端数はspeciesごとの`macro_residual`として
+`macro_residuals.csv`へ保存され、再開時に復元されます。
 
-- `open_boundary_model="escape"`: その場でescapeとして集計
-- legacy potential barrier: 通過点と無限遠の電位差からescape/reflectを判定
-- 1D instant return: outer profileの保存エネルギーからescape/returnを判定
-- 3D explicit orbit: outer領域の3D場で軌道を追跡
+`photo_raycast`の`rays_per_batch`も全rank合計です。各rayのmacro重みはglobal ray数で割り、放出・吸収・escapeの
+charge ledgerはMPI all-reduce後のglobal値として出力します。期待流入量はworld sizeに依存しませんが、乱数列と
+個々の粒子軌道はworld sizeによって変わり得ます。
 
-return modelは粒子sourceと独立ではありません。同じ電位差やcutoffをreservoir側とreturn側で二重適用しないよう、
-非対応の組み合わせはvalidationで停止します。
+## Code reference
 
-## 使い分け
-
-- 小さな決定論的試験: `volume_seed`
-- 定常plasma流入: `reservoir_face`
-- 表面光電子放出: `photo_raycast`
-- 単純な有限box: `open_boundary_model="escape"`
-- 自己整合outer sheath: 対応するouter modelとreturn modelを組み合わせる
-
-モデル選択は[外部プラズマモデル](OuterPlasmaModels.html)、全入力keyは
-[設定パラメータ](Parameters.html)を参照してください。詳細式は旧統合文書
-[外部シースとreservoir粒子境界](SheathReservoirBoundary.html)に残しています。
+- 粒子分布とraycast: [`bem_injection.f90`](../src/particles/bem_injection.f90)
+- sourceごとのbatch生成とmacro残差: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- source入力の検証: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
+- charge ledgerとbatch追跡: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
+- macro残差のcheckpoint: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

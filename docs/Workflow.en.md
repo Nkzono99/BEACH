@@ -7,8 +7,8 @@ Lang: [English](Workflow.en.md) | [日本語](Workflow.md)
 The project is centered on the **Fortran runtime**. Python handles post-processing, visualization, and utility
 workflows. For normal users, the recommended path is to install `beach-bem` and run the `beach` command.
 
-See [Run a simulation](Execution.en.html) for the normal case workflow. This page covers the detailed
-source-development, testing, MPI/OpenMP, and HPC workflow.
+The normal case workflow is covered in [Run a simulation](Execution.en.html). Source development follows the setup, testing,
+MPI/OpenMP, and HPC operations below.
 
 ## 1. User Setup (Recommended)
 
@@ -452,7 +452,7 @@ srun beach beach.toml
 These variables fix the placement conditions for performance comparisons.  On
 the measured 300-batch fixture, binding changed elapsed time by less than 0.4%.
 
-## 10. Easy-to-Misread Implementation Behaviors
+## 10. Implementation behavior checklist
 
 - A normal run advances exactly `sim.batch_count` batches. A resume run advances from the checkpoint batch count
   until `sim.batch_count` is reached.

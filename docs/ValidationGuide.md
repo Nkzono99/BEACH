@@ -4,17 +4,17 @@ Lang: [日本語](ValidationGuide.md) | [English](ValidationGuide.en.md)
 
 # 計算結果の妥当性確認
 
-正常終了は、物理的・数値的に妥当であることを意味しません。確認を3段階に分けます。
+計算結果は、実行の完了、数値的な収束、物理的な解釈の3段階で確認します。
 
-## レベル1: 実行が完了した
+## レベル1: 実行の完了を確認する
 
-- processの終了codeが0
+- processの終了codeが0である
 - `summary.txt`、`charges.csv`、必要な履歴が存在する
 - `batches == sim.batch_count`
-- `beachx inspect`が読める
+- `beachx inspect`が結果をerrorなく読み込める
 - restart時はmodel/mesh/species fingerprintが一致する
 
-## レベル2: 数値的に qualification できる
+## レベル2: 数値的な妥当性を確認する
 
 - `absorbed`、`escaped_boundary`、`survived_max_step`の内訳を物理条件から説明できる
 - `charge_ledger_residual_C`が丸め誤差範囲で、`discarded_unresolved`を別に確認した
@@ -24,20 +24,20 @@ Lang: [日本語](ValidationGuide.md) | [English](ValidationGuide.en.md)
 - `batch_duration`を0.5倍/2倍にして結論が安定する
 - stochastic caseはseedまたはensemble依存を確認する
 
-ここでいう qualification は、宣言した離散化・収束基準を満たすという意味です。
-process の終了、CSV の生成、または一つの `status="converged"` だけでは成立しません。
-保存済みの mesh/source 離散化を固定した path/work/shell の収束確認は、この Level 2
-全体のうち一部の数値軸だけを確認するものです。mesh/source refinement を実施していない場合、
-その subset が収束しても Level 2 全体を満たしたとは扱いません。
+ここで確認するのは、事前に定めた離散化と収束の基準を満たしているかどうかです。
+processの終了、CSVの生成、1つの`status="converged"`だけでは、この基準を満たしたことになりません。
 
-## レベル3: 物理的な結論を支持できる
+保存済みのmesh/source離散化を固定してpath/work/shellの収束を確認した場合、検証できるのはLevel 2の一部のみです。
+mesh/source refinementを行っていなければ、そのsubsetが収束していてもLevel 2全体は満たしません。
 
-- 比較する case 間で、意図した物理 model 以外の入力差を列挙した
+## レベル3: 物理的な結論を検証する
+
+- 比較するcase間で、意図した物理model以外の入力差を列挙できる
 - 境界条件、self interaction、surface trace、source/target の移動規則を説明できる
 - 有限 box、有限時間、有限 image shell から無限遠・定常・無限周期の結論へ外挿していない
 - 数値誤差、stochastic uncertainty、model uncertainty を結論の精度に反映した
 
-## model固有の確認
+## modelごとの確認
 
 | model | 必須診断 |
 | --- | --- |
@@ -47,14 +47,14 @@ process の終了、CSV の生成、または一つの `status="converged"` だ�
 | photoelectron | emission/return ledger、ambient charge ratio、histogram範囲 |
 | object detachment | primary-only self exclusion、PV trace、work/potential一致、quadrature、finite-shell/cache、from-rest barrier |
 
-## 周期 object 離脱解析の追加 gate
+## 周期objectの離脱解析で追加する確認
 
 1. `configured` と `infinite_physical` を区別し、どちらを結論に使ったか記録します。
    `configured` は run の finite/cached 設定を再現し、`infinite_physical` は cached
    `k != 0` と `E_bottom=0` の物理 zero mode を組み合わせます。
 2. self policy が `exclude_primary_keep_images` であることを確認します。旧
-   `kernel-forces` の `exclude_target_lattice` や、電位再構成の `area_equivalent` と
-   混同しません。周期 seam を跨ぐ object では、all-source/cache 入力は saved 表現のまま
+   `kernel-forces` の `exclude_target_lattice` と、電位再構成の `area_equivalent` は、
+   それぞれ別の計算を表します。周期 seam を跨ぐ object では、all-source/cache 入力は saved 表現のまま
    保持し、target probe だけを mesh 単位の connected branch へ unwrap します。
    `target_geometry_representation="periodic2_mesh_connected"` を要求し、primary subtraction、
    target integration、torque origin、geometry radius が同じ branch を使うことを確認します。
@@ -103,7 +103,7 @@ process の終了、CSV の生成、または一つの `status="converged"` だ�
    一致することも確認します。
    別の単一 primary check は primary self-force の除去と softened self potential
    energy `-K q^2/a` の減算を相対 `1e-11` で検証します。これは
-   `exclude_primary_keep_images`、すなわち primary だけを除いて周期像を保持する契約です。補助
+   `exclude_primary_keep_images`、すなわち primary だけを除いて周期像を保持する仕様です。補助
    `triangle_p0` oracle は Gauss-Duffy order 3/7 の wrench 差を1%以内にします。
 11. 中性な `sigma_0 cos(kx)` sheet では、同じ4x4/8x8 snapshotとoperator cacheを用いて
    `|z-z0|=0.25 m, 0.50 m` の解析解 `Ex`、`Ez`、`phi` を評価します。field と potential の
@@ -117,7 +117,7 @@ process の終了、CSV の生成、または一つの `status="converged"` だ�
    field/potential の parity 誤差を別々に8%以内にします。さらに `a/L=1e-6` の softened-point
    micro-oracle は `r/a=0,1,2,3` の4点で analytic softened field/potential と direct evaluator、
    および ordinary/direct の一致を相対 `1e-11` で確認し、normalized self-field は
-   `32 epsilon_machine` 以下とします。これは局所 kernel 契約の検査であり、periodic closure の
+   `32 epsilon_machine` 以下とします。これは局所kernelの仕様を検査するもので、periodic closure の
    代替ではありません。一様面の12%、cosine解析解の8%、decay ratioの18%はproduction
    ABI/cache経路のsmoke gateであり、object pathの0.5%やfinite-shellの1%という収束基準の
    代わりではなく、8%/12%/18%を
@@ -165,7 +165,7 @@ C ABI build-info を読み、version/mode/full source SHA/`SHA:clean` が相互�
 commit と一致する場合だけ受理します。`verify-inputs` は staged artifact から同じ情報を再取得し、
 各 simulation の `summary.txt` と plane-oracle receipt も同じ build origin に固定されます。
 `analyze --require-complete` はこの build origin を無条件に要求するため、production stage で
-`--require-clean-source` を省略した manifest は strict qualification を通りません。
+`--require-clean-source` を省略した manifest はstrict検証を通りません。
 production stageとstrict解析は`input/release_kernel_base.toml`と
 `analysis/local_release/release_model_summary.json`を必須とし、canonical path、hash、schema、
 使用する全数値の有限性と物理範囲を再検証します。したがってwork/速度換算が黙示defaultへ
@@ -229,7 +229,7 @@ final 280000 に限定します。`snapshot_manifest.csv` は history と final 
 vector と source file の hash を持ちます。`comparison_matrix.csv` は archive version drift、
 同一 charge に対する field closure 差、共通 infinite evaluator での charging-history 差、
 end-to-end 差を別の `comparison_kind` として保存します。
-strict comparison artifact contract はこの4種類だけを許し、各種類に force、endpoint work、
+strict解析で許可するcomparison artifactはこの4種類だけです。各種類にforce、endpoint work、
 minimum available energy、from-rest barrier、endpoint reachability を要求します。参照 snapshot
 は全て解決可能で、frozen-field 比較は同一 charge snapshot、実効 far-correction の組は宣言どおりで、
 構造的な `missing` / `invalid` / `not_evaluated` 行がないことを確認します。
@@ -238,12 +238,12 @@ archive/new finite/new infinite の mesh ID と順序は厳密一致を要求し
 `max(1e-18 m, 64 epsilon Lbox)` の明示許容差で比較します。さらに new finite/new infinite の
 `field_source_model`、`field_kernel_id` と、`mesh_sources.csv` の source/template kind、surface
 model、`epsilon_r`、element count を staged input および相互で厳密一致させます。旧 archive に
-同じ metadata がない場合は、その欠落を new run の契約を弱める理由にしません。cached evaluator
+同じmetadataがない場合も、new runに対する要件は緩めません。cached evaluator
 については実効 model に加えて cache hit、build count、fingerprint、path、file hash と
 cache-prime receipt hash も `object_wrench.csv` に保存します。
 
 `analyze --require-complete` は strict input、receipt、oracle、geometry の検証と artifact 生成を
-一時 directory で行います。qualified oracle receiptを含むwrite-once stateが全て完成・健全で、
+一時 directory で行います。`qualified`状態のoracle receiptを含むwrite-once stateが全て完成・健全で、
 `analysis/` が未publish（未作成または空）のまま、失敗がanalysisの一時directory内だけに限定された
 場合は、その一時directoryを除去します。同じvalidation rootでretryできるのは、元analysis job IDを
 保つ同一allocation内での再実行、またはsiteが許可するsame-ID requeueだけです。通常の新規`sbatch`、
@@ -283,7 +283,7 @@ file set、非空、size/hash manifest を
 
 exact 14 artifact が完全に読めることはレベル1の実行証拠です。strict CLI の exit code 0 は
 上記の構造・oracle・comparison と、固定した保存済み離散化上の path/work/shell subset gate を
-全て通過したことを示します。これは Level 2 全体の qualification ではありません。保存済み
+全て通過したことを示します。ただし、Level 2 全体を満たしたことにはなりません。保存済み
 sphere mesh/source refinement が `not_evaluated` の間は、Level 2 全体も未達です。これらの
 refinement、model 選択、感度解析まで完了して初めて Level 3 の主張を検討できます。
 

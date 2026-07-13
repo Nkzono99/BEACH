@@ -1,26 +1,27 @@
-# Physics release verification
+# 物理リリースの検証
 
-新しい periodic2 / outer-plasma model を定量利用する前に、portable CI と HPC release gate の
-両方を通します。
+新しいperiodic2・outer plasma modelを定量的な議論に使う前に、portable CIとHPC用のリリース検証を
+両方実行します。
 
 ```bash
 make test-l2
 make test-physics-release
 ```
 
-HPC gate は必要な収束行を生成する3本のL1 test、L3 heavy、far-correction correctness、MPI ledger、
-MPI periodic-cache concurrencyを逐次実行します。portable CIが担当するL2全体は再実行しません。
-`manifest.txt` は各 gate の elapsed time と GNU time の最大RSSを記録し、既定の8 GiB予算を超えると
-失敗します。予算は `BEACH_RELEASE_MAX_RSS_KB` で明示変更できます。
-`convergence.csv` は test log の `BEACH_CONVERGENCE` 行から毎回生成され、必要な収束軸が一つでも
-欠けると release gate は失敗します。
-Fortran targetごとの時間は`test_l3-target-timings.csv`と
-`far_correction-target-timings.csv`へ記録されます。
+HPC側では、収束データを生成する3本のL1 testに続けて、L3 heavy test、far correctionの正しさ、
+MPI ledger、MPIによるperiodic cacheの同時生成を検証します。portable CIで実行済みのL2全体は重ねて実行しません。
 
-## Reference convergence table
+`manifest.txt`には、各検証工程の経過時間とGNU timeが報告した最大RSSを記録します。最大RSSが既定の8 GiBを超えると、
+リリース検証は失敗します。上限は`BEACH_RELEASE_MAX_RSS_KB`で変更できます。
 
-2026-07-11、Intel 2023.2、System B compute nodeで取得した小規模 correctness fixture の値です。
-これは実運用caseの収束確認を置き換えません。
+`convergence.csv`は、test logの`BEACH_CONVERGENCE`行から毎回生成します。必要な収束軸が1つでも欠けると、
+リリース検証は失敗します。Fortran targetごとの実行時間は、`test_l3-target-timings.csv`と
+`far_correction-target-timings.csv`に記録します。
+
+## 基準となる収束表
+
+次の表は、2026-07-11にIntel 2023.2とSystem Bのcompute nodeで取得した、正しさを確認する小規模fixtureの値です。
+実運用caseでは、この表とは別にcase固有の収束確認を行います。
 
 | 軸 | 設定 | metric 1 | metric 2 | 判定 |
 | --- | --- | ---: | ---: | --- |
@@ -31,10 +32,10 @@ Fortran targetごとの時間は`test_l3-target-timings.csv`と
 | rough accessibility | 8x8 → 16x16 | 3.1250e-2 | tolerance 1.0e-1 | tolerance以下 |
 | outer orbit dt | 0.1 → 0.05 | energy error 1.2000e-3 | 3.8835e-4 | dt半減で減少 |
 
-flat surface の表示専用診断は`make test-fortran-far-correction-diagnostics`、無限周期operatorは
-`test_periodic2_infinite_operator`、cold/warm cache は `test_periodic2_operator_cache`、
-MPI同時生成は `test_periodic2_operator_cache_mpi` が担当します。
-速度比較はdebug correctnessから分離し、release profileの`make test-fortran-benchmark`で実行します。
+flat surfaceの表示専用診断は`make test-fortran-far-correction-diagnostics`で実行します。
+無限周期operatorは`test_periodic2_infinite_operator`、cold/warm cacheは`test_periodic2_operator_cache`、
+MPIによる同時生成は`test_periodic2_operator_cache_mpi`で検証します。速度比較はdebug buildで行う正しさの検証とは分け、
+release profileの`make test-fortran-benchmark`で実行します。
 
-実運用caseでは少なくとも mesh、`sim.dt`、FMM order/tolerance、outer grid、height samplingを変え、
-表面電位、吸収/escape flux、電荷収支、主要な結論が収束することを別途確認します。
+実運用caseでは、少なくともmesh、`sim.dt`、FMM order/tolerance、outer grid、height samplingを変えてください。
+そのうえで、表面電位、吸収/escape flux、電荷収支、主要な結論が収束することを確認します。

@@ -4,8 +4,9 @@ Lang: [日本語](PythonPostprocessAPI.md) | [English](PythonPostprocessAPI.en.m
 
 # Python 後処理 API リファレンス
 
-BEACH の Python パッケージ (`beach`) は、Fortran シミュレーション結果の読み込み・解析・可視化を担う後処理レイヤです。
-Fortran 実行系が出力するファイル群（`summary.txt`, `charges.csv`, `mesh_triangles.csv` 等）を読み込み、電位再構成、Coulomb 力計算、電場計算、電気力線追跡、3D 可視化を Python 側で行います。
+BEACHのPython package (`beach`) は、Fortranシミュレーションの結果を読み込み、解析・可視化するための後処理レイヤです。
+`summary.txt`、`charges.csv`、`mesh_triangles.csv`などを読み込み、電位の再構成、Coulomb力と電場の計算、
+電気力線の追跡、3D可視化を行います。
 
 最初の図を作るだけなら、先に [後処理チュートリアル](PostprocessTutorial.html) を参照してください。
 
@@ -44,7 +45,9 @@ from beach import Beach, calc_coulomb, compute_electric_field_points, trace_fiel
 b = Beach("outputs/latest")
 ```
 
-`Beach("outputs/latest", config_path="path/to/beach.toml")` のように設定ファイルを明示できます。`config_path=None` の場合は `output_dir/beach.toml`, 親ディレクトリ, 祖父ディレクトリの順に自動探索します。config-aware な object / kernel 解析では、この `beach.toml` から object kind/order、`sim.softening`、periodic2、tree パラメータを解決します。
+`Beach("outputs/latest", config_path="path/to/beach.toml")`のように、設定ファイルを明示できます。
+`config_path=None`の場合は、`output_dir/beach.toml`、親ディレクトリ、祖父ディレクトリの順に自動探索します。
+objectやkernelの設定を参照する解析では、この`beach.toml`からobject kind/order、`sim.softening`、periodic2、treeパラメータを取得します。
 
 ### 2.1 コンストラクタ
 
@@ -124,22 +127,21 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 
 ### 3.3 `FortranChargeHistory`
 
-Fortran の `charge_history.csv` は dense snapshot です。記録された各 batch は、
-`elem_idx=1..mesh_nelem` の全要素をそれぞれちょうど1回含む必要があります。
-要素行の順番は問いませんが、batch group は厳密な昇順で、各 batch 内の
-`processed_particles` と `rel_change` は全行で一致し、`charge_C` と
-`rel_change` は有限値でなければなりません。
+Fortranの`charge_history.csv`は、batchごとに全要素を記録するdense snapshotです。
+各batchには、`elem_idx=1..mesh_nelem`の要素が1回ずつ含まれている必要があります。
+要素の行順は問いませんが、batch groupは厳密な昇順でなければなりません。また、各batch内の
+`processed_particles`と`rel_change`は全行で一致し、`charge_C`と`rel_change`は有限値である必要があります。
 
-`load_fortran_result(...)` と履歴 accessor の構築は遅延処理です。最初に
-`batch_indices` などの履歴 property、`get_step(...)`、または `as_array()` を
-参照したときに、CSV 全体の byte-offset index を作りながら全 batch を検証します。
+`load_fortran_result(...)`と履歴accessorの構築時には、履歴全体をすぐに読み込みません。
+`batch_indices`などの履歴property、`get_step(...)`、`as_array()`のいずれかを最初に参照したときに、
+CSV全体のbyte-offset indexを作りながら全batchを検証します。
 欠損、重複、範囲外 index、非有限値、metadata 不一致、batch の逆行がある場合は、
 batch と破損内容を含む `ValueError` を送出します。欠損要素を物理電荷 `0 C`
 として補完することはありません。
 
-検証後も各 batch の電荷 vector は要求時に読み込み、`as_array()` を呼ぶまで
-全履歴 matrix は作りません。`FortranChargeHistory.from_arrays(...)` は、呼出元が
-dense matrix を提供する trusted in-memory 経路として従来どおり動作します。
+検証後も、各batchの電荷vectorは要求されたときに読み込みます。`as_array()`を呼ぶまで、
+履歴全体のmatrixは作りません。`FortranChargeHistory.from_arrays(...)`は、呼び出し元がdense matrixを渡す
+trusted in-memory経路として動作します。
 
 ## 4. 電位再構成
 
@@ -464,22 +466,23 @@ with FieldKernel.from_result(run) as kernel:
 
 共有ライブラリを別パスに置く場合は `library_path=` または環境変数 `BEACH_FIELD_KERNEL_LIB` を指定します。
 
-`eval_e()` / `eval_phi()` は構築時の free / finite periodic / cached periodic 設定を使います。
-`eval_e_direct()` / `eval_phi_direct()` は同じ source geometry と charge に対する
-**非周期の exact direct** 診断です。direct API は periodic plan では使用できず、
-uniform `sim.e0` も足しません。FMM の精度確認や primary free-space subtraction の
-小規模 oracle 用であり、無限周期場の代替ではありません。
+`eval_e()` / `eval_phi()`は、構築時に選んだfree / finite periodic / cached periodic設定を使います。
+`eval_e_direct()` / `eval_phi_direct()`は、同じsource geometryとchargeを非周期のexact direct法で評価する診断APIです。
+periodic planでは使用できず、uniform `sim.e0`も加算しません。FMMの精度確認とprimary free-space subtractionの
+小規模oracleに使います。
 
 ### 10.2 `calc_object_forces_kernel(result, ...)`
 
-各 object について自身の source 電荷をゼロにしたうえで、`sum(q_i E_not_self(r_i))` とトルクを計算します。この既存 API の self policy は `exclude_target_lattice` です。周期計算では target の primary source だけでなく、その object の周期画像も除外します。また point source 専用です。
+各objectについて、自身のsource電荷を0にしたうえで、`sum(q_i E_not_self(r_i))`とトルクを計算します。
+self policyは`exclude_target_lattice`です。周期計算では、targetのprimary sourceと、target object自身の周期画像を除外します。
+このAPIはpoint source専用です。
 
-object 自身の周期画像を保持して離脱力を評価する場合は、後述の
-`ObjectInteractionSnapshot.object_probe(...)` を使ってください。この API の self policy は
-`exclude_primary_keep_images` に固定されています。`compute_potential_mesh(...,
-self_term="area_equivalent")` は重心での
-自己電位を近似する別の電位再構成規則であり、どちらの object-force self policy とも
-同じ意味ではありません。
+object自身の周期画像を保持したまま離脱力を評価する場合は、後述の
+`ObjectInteractionSnapshot.object_probe(...)`を使います。このAPIでは、self policyが
+`exclude_primary_keep_images`に固定されています。
+
+`compute_potential_mesh(..., self_term="area_equivalent")`は、重心の自己電位を近似する電位再構成の規則です。
+object-force APIのself policyとは用途が異なります。
 
 ```python
 from beach import Beach
@@ -492,8 +495,10 @@ for record in records:
 
 ### 10.3 `BeachScene`
 
-`Beach.scene()` は、出力済みの帯電 mesh を Python 側で一時編集する what-if view です。
-`move` / `rotate` は新しい scene を返し、各要素の電荷は同じ要素に付いたまま重心・頂点だけを剛体変換します。その後 `calc_object_forces_kernel` を呼ぶと、編集後の geometry を source/target として Fortran field kernel に渡します。
+`Beach.scene()`は、出力済みの帯電meshをPython側で一時的に編集するwhat-if viewです。
+`move` / `rotate`は、元のsceneを変更せずに新しいsceneを返します。各要素の電荷はその要素に保持したまま、
+重心と頂点だけを剛体変換します。編集後に`calc_object_forces_kernel`を呼ぶと、変換後のgeometryを
+source/targetとしてFortran field kernelに渡します。
 
 ```python
 from beach import Beach
@@ -509,14 +514,14 @@ records = moved.calc_object_forces_kernel(target_mesh_ids=[2])
 print(records[0].force_N, records[0].torque_Nm)
 ```
 
-Python 側の剛体変換は既定では NumPy で処理します。Numba を使いたい場合は任意依存として `pip install ".[accel]"` を入れ、`run.scene(transform_backend="numba")` を指定できます。FMM・periodic2・遠方補正の意味を決める主計算は引き続き Fortran kernel 側で行います。
+Python側の剛体変換は、既定でNumPyを使います。Numbaを使う場合は、任意依存の`pip install ".[accel]"`を導入し、
+`run.scene(transform_backend="numba")`を指定します。FMM、periodic2、遠方補正を含むfield評価はFortran kernel側で実行します。
 
 ### 10.4 `ObjectInteractionSnapshot` と凍結 source 経路
 
-この API は保存済みの全 source geometry と charge を一度だけ凍結し、選択した
-central-cell object だけを独立した target probe として動かします。固定 policy の
-`exclude_primary_keep_images` は central-cell target の primary free-space
-寄与だけを引き、target 自身の周期画像、他 object の全画像、uniform field を保持します。
+このAPIは、保存済みの全source geometryとchargeを一度凍結します。その凍結したsourceに対して、
+選択したcentral-cell objectだけを独立したtarget probeとして動かします。self policyは`exclude_primary_keep_images`に固定され、
+central-cell targetのprimary free-space寄与だけを差し引きます。target自身の周期画像、他objectの全画像、uniform fieldは残します。
 
 ```python
 import numpy as np
@@ -551,13 +556,13 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | `"configured"` | run の `beach.toml` をそのまま使用する。free、`far_correction="none"` の有限画像、または cached periodic のいずれにもなり得る |
 | `"infinite_physical"` | x/y periodic run に対して cached `k != 0` と物理的な `k = 0` mode (`E_bottom=0`) を組み合わせる。cache の生成・再利用条件を満たす必要がある |
 
-完全な `beach.toml` と `sim.box_min` / `sim.box_max` が必要です。現行 release は
-`outer_plasma.model="none"` だけを扱い、active outer field を無視せず明示的に拒否します。
+完全な`beach.toml`と`sim.box_min` / `sim.box_max`が必要です。現行releaseで扱えるのは
+`outer_plasma.model="none"`だけです。active outer fieldがある場合は、fieldを無視せずに処理を停止します。
 
-x/y periodic mesh が cell seam を跨ぐ場合、snapshot の all-source geometry は simulation と
-cache identity に一致する saved 表現を保持します。一方、`object_probe()` は選択した mesh だけを
-周期的に連結な branch へ unwrap し、その同じ target geometry を quadrature、central primary
-の除外、剛体変換、面積重心、bounding radius に使います。`probe.target_geometry_representation`、
+x/y periodic meshがcell seamをまたぐ場合、snapshot全体のsource geometryは、simulationとcache identityに一致する
+saved表現のまま保持します。一方、`object_probe()`は選択したmeshだけを周期的に連結したbranchにunwrapします。
+このtarget geometryをquadrature、central primaryの除外、剛体変換、面積重心、bounding radiusの計算で共通に使います。
+`probe.target_geometry_representation`、
 `target_triangles_m`、`geometric_area_centroid_m`、`vertex_bounding_center_m`、
 `vertex_bounding_radius_m` でこの幾何を監査できます。
 
@@ -570,10 +575,10 @@ cache identity に一致する saved 表現を保持します。一方、`object
 | `external_uniform` | 設定された一様外部電場 |
 | `total_external` | 上の3成分の和で、`ObjectWrench.force_N` / `torque_Nm` に一致 |
 
-`numerical_metadata` の kernel/zero-mode 内訳は同じ total の数値分解であり、追加の
-物理力ではありません。torque は基準点に依存するため、`ObjectWrench.torque_origin_m` と
-`numerical_metadata["torque_origin_policy"]` を force と一緒に保存してください。
-`vertical_path()` は各高さの基準点を `numerical_metadata["torque_origin_m"]` に保存します。
+`numerical_metadata`のkernel/zero-mode内訳は、同じtotalを数値的に分解したものです。
+torqueは基準点に依存するため、`ObjectWrench.torque_origin_m`と
+`numerical_metadata["torque_origin_policy"]`をforceと一緒に保存してください。
+`vertical_path()`では、各高さで使った基準点を`numerical_metadata["torque_origin_m"]`に保存します。
 
 target integration は、point source では要素重心、`triangle_p0` では既定で
 order 7 の Gauss-Duffy 面積積分です。`target_integration="centroid_compatibility"` は
@@ -585,20 +590,20 @@ simulator の粒子 pusher は表面の片側値 `zero_mode_trace_plus` を使�
 native trace を PV 分解へ写すために **すでに `periodic_kneq0` へ含めた診断値** です。
 この値を `force_N` や `periodic_kneq0` に再加算してはいけません。
 
-`vertical_path()` では source geometry/charge を初期位置のまま固定し、target quadrature
-だけを `+z` 方向へ平行移動します。全 triangle 頂点が非周期方向の box/interface 内に
-ある経路だけを評価します。環境が凍結されているため、potential energy は
-`U_env = sum_i(q_i phi_env(r_i))` であり係数 `1/2` を付けません。返される
+`vertical_path()`では、source geometry/chargeを初期位置に固定し、target quadratureだけを`+z`方向に平行移動します。
+全triangle頂点が非周期方向のbox/interface内にある経路だけを評価します。凍結した外部場に対するpotential energyは
+`U_env = sum_i(q_i phi_env(r_i))`であり、係数`1/2`は付けません。
+
+返り値では、
 `electrostatic_work_J = integral(F_z dh)` と
 `potential_difference_work_J = U_env(0)-U_env(h)` の不一致、適応細分化、
-`status` を必ず確認してください。
+`status`を必ず確認してください。
 
-`AdhesionProfile.finite_range_constant(F, d)` は `0 <= h < d` の抵抗力と、`F*d` で
-飽和する付着仕事を表します。`evaluate_release()` は重力・付着・任意の散逸を引いた
-連続区分経路全体を調べます。`endpoint_positive=True` だけでは途中の負の barrier を
-越えられるとは限らず、静止開始の判定には `barrier_free_from_rest` と
-`first_inaccessible_displacement_m` を使います。速度配列は利用可能エネルギーが負の
-区間を 0 に clamp します。
+`AdhesionProfile.finite_range_constant(F, d)`は、`0 <= h < d`で働く抵抗力と、`F*d`で飽和する付着仕事を表します。
+`evaluate_release()`は、静電力の仕事から重力、付着、任意の散逸を差し引き、連続する区分経路全体を調べます。
+`endpoint_positive=True`は終点での利用可能エネルギーのみを示し、途中のbarrierを通過できるかどうかは示しません。
+静止状態から開始する場合は、`barrier_free_from_rest`と`first_inaccessible_displacement_m`で判定します。
+速度配列は、利用可能エネルギーが負になる区間を0にclampします。
 
 非中性の x/y 無限周期 cell では `E_bottom=0` zero mode により遠方の一定場と線形電位が
 残り得ます。その場合、有限 box 内の endpoint work/speed は計算できますが、有限高さの
@@ -606,12 +611,13 @@ native trace を PV 分解へ写すために **すでに `periodic_kneq0` へ含
 
 ### 10.5 有限画像 shell oracle
 
-`finite_shell_wrench()` は Fortran native finite-image kernel (`far_correction="none"`) で
-raw symmetric shell と、解析的な `Q_cell/(2 epsilon0 A_xy) e_z` を加えた
-`E_bottom=0` closure の両方を返します。`selected` は要求した closure を指しますが、
-`symmetric` と `e_bottom_zero` も結果 record に残るため closure 差を監査できます。
-source は native canonical-unwrapped 表現を使い、Python 側で画像を二重生成したり、
-移動 target を primary cell に wrap したりしません。
+`finite_shell_wrench()`は、Fortran native finite-image kernel (`far_correction="none"`) で次の2つを評価します。
+
+- raw symmetric shell
+- 解析的な`Q_cell/(2 epsilon0 A_xy) e_z`を加えた`E_bottom=0` closure
+
+返り値の`selected`は、要求したclosureです。`symmetric`と`e_bottom_zero`も結果recordに残るため、closure間の差を確認できます。
+sourceにはnative canonical-unwrapped表現を使います。Python側で周期画像を追加生成したり、移動後のtargetをprimary cellにwrapしたりしません。
 
 ```python
 from beach import finite_shell_convergence, finite_shell_wrench
@@ -624,14 +630,12 @@ shells = finite_shell_convergence(
 )
 ```
 
-`finite_shell_convergence()` は単純な隣接 shell 増分を選択条件にしません。これは2回連続の
-小増分でも false convergence したためです。現行 API は
-`force_tail_proxy_N` / `work_tail_proxy_J` を使い、snapshot が
-`infinite_physical` なら `reference_model="infinite_physical"` と
-`reference_force_error_N` / `reference_work_error_J` /
-`reference_converged` も要求します。`increment_converged` は tail proxy と物理 reference の
-combined gate で、**2 回連続**で真になった場合だけ corrected path を選択します。
-`status="not_converged"` のとき `selected_image_layers` と `selected_path` は `None` です。
+`finite_shell_convergence()`は、`force_tail_proxy_N`と`work_tail_proxy_J`を使ってshell収束を判定します。
+隣接shell間の増分が2回連続で小さい場合でもfalse convergenceが確認されたため、この増分だけでは判定しません。
+snapshotが`infinite_physical`の場合は、`reference_model="infinite_physical"`に対する
+`reference_force_error_N`、`reference_work_error_J`、`reference_converged`も判定に使います。
+`increment_converged`は、tail proxyと物理referenceの両方を組み合わせたgateです。2回連続で真になったときに、
+corrected pathを選択します。`status="not_converged"`の場合、`selected_image_layers`と`selected_path`は`None`です。
 
 cached 無限周期場の opt-in oracle には、(1) 一様非中性 triangle plane の
 `E_bottom=0` 解析解 (below `0`、above `sigma/epsilon0`、surface PV
@@ -639,10 +643,8 @@ cached 無限周期場の opt-in oracle には、(1) 一様非中性 triangle pl
 `sigma_0 cos(kx)` sheet の `k != 0` 解 (`exp(-k |z-z0|)` 減衰) および triangle mesh
 refinement を使います。これらは cache 生成を伴う opt-in 検証で、通常の軽量 test ではありません。
 
-`ObjectForcePath.status="converged"` と
-`DetachmentResult.numerically_qualified=True` は、指定した経路積分 tolerance を満たしたこと
-だけを表します。mesh、quadrature、FMM/cache、shell、経路上端、charge snapshot、seed への
-依存性を確認するまでは、物理的に妥当な離脱結論を保証しません。
+`ObjectForcePath.status="converged"`と`DetachmentResult.numerically_qualified=True`は、指定した経路積分toleranceを満たしたことを示します。
+離脱について物理的な結論を得るには、mesh、quadrature、FMM/cache、shell、経路上端、charge snapshot、seedへの依存性も確認します。
 
 ## 11. 可視化関数
 
@@ -695,17 +697,15 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
 | `beachx model close-pack` | 密充填モデルの生成 |
 
-`beachx inspect` の通常の要約は、`mesh_potential.csv` が存在する場合に限り、その事前計算済み配列から
-`potential_min` / `potential_max` を表示します。ファイルがない場合、Python で電位を暗黙に再構成せず、
-この2行を省略します。破損、非有限値、要素数不一致を含む `mesh_potential.csv` は入力エラーであり、
-再計算へのフォールバック条件にはなりません。
+`beachx inspect`は、`mesh_potential.csv`がある場合に、その事前計算済み配列から
+`potential_min` / `potential_max`を表示します。ファイルがなければ電位は再構成せず、この2行を省略します。
+破損、非有限値、要素数の不一致がある`mesh_potential.csv`は、入力errorとして扱います。
 
-`--recompute-potential` を指定すると、事前計算済み配列の有無にかかわらず、既存の
-`Beach.compute_potential` 経路の結果を要約に使います。この明示的な経路はメッシュ規模によって
-$O(N^2)$ になり得ます。`--save-potential-mesh` と `--show` も明示的な potential plot 要求であり、
-flag なしでも従来どおり電位を計算する場合があります。`--recompute-potential` と potential plot を
-同時指定した場合、現行 plot API は要約用の計算済み配列を受け取らないため、両経路が独立して評価し、
-電位計算が重複する可能性があります。
+`--recompute-potential`を指定すると、`mesh_potential.csv`の有無にかかわらず、
+`Beach.compute_potential`で電位を再計算して要約に使います。この計算はmesh規模によって$O(N^2)$になり得ます。
+
+`--save-potential-mesh`と`--show`もpotential plotを明示的に要求するため、`--recompute-potential`なしでも電位を計算する場合があります。
+`--recompute-potential`とpotential plotを同時に指定すると、要約用とplot用の計算が別々に実行され、電位評価が重複する場合があります。
 
 ### 12.2 旧 CLI（非推奨）
 

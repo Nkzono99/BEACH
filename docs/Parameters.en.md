@@ -197,7 +197,7 @@ anything when `treecode` is specified explicitly.
 Uses the simulator-independent Coulomb FMM core. It separates the source
 geometry plan from the state updated for each charge update, and evaluates with
 P2M/M2M/M2L/L2L/L2P plus near direct sums. See
-See [Field evaluation with FMM](FMM.en.html) for selection and verification, and
+See [FMM](FMM.en.html) for selection and verification, and
 [Coulomb FMM core details](FMMCore.en.html) for implementation internals.
 
 | Key | Type | Default | Description |
@@ -292,7 +292,7 @@ does not represent delayed return current during UV turn-on or other transients.
 Quasistatic validity is bounded by `tau_outer/field_evolution_timescale`. When
 `tau_outer/batch_duration >= 1`, do not interpret the batch history as a physical
 return-current time history. See
-[Outer Sheath and Reservoir Particle Boundaries](SheathReservoirBoundary.en.md).
+[Particle escape and return](ParticleEscapeReturn.en.md).
 
 Legacy reservoir barriers, Zhao injection correction, and nonzero `b0` are rejected.
 
@@ -368,8 +368,10 @@ Currently, `sheath_injection_model != "none"` is used together with
 `reservoir_potential_model="none"`. See
 [`sim.sheath_injection_model`](#simsheath_injection_model-sheath-injection-correction)
 for details.
-See [Outer Sheath and Reservoir Particle Boundaries](SheathReservoirBoundary.en.md)
-for each model's physical role, velocity energy mapping, reflection, and return.
+See [Reservoir injection](ReservoirInjection.en.md),
+[Sheath injection closures](SheathInjectionClosures.en.md), and
+[Particle escape and return](ParticleEscapeReturn.en.md) for each model's physical role,
+velocity energy mapping, reflection, and return.
 
 With `reservoir_potential_model="infinity_barrier"`, the injection-face average
 potential comes from the electrostatic snapshot refreshed at the start of the

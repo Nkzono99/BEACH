@@ -1,0 +1,96 @@
+---
+import Default from '@astrojs/starlight/components/Head.astro';
+---
+
+<Default />
+
+<script>
+  let renderSerial = 0;
+
+  function mermaidThemeVariables() {
+    const dark = document.documentElement.dataset.theme === 'dark';
+    return dark
+      ? {
+          background: '#111827',
+          primaryColor: '#172554',
+          primaryTextColor: '#e5eefc',
+          primaryBorderColor: '#7ab7ff',
+          secondaryColor: '#1f2937',
+          secondaryTextColor: '#e5eefc',
+          secondaryBorderColor: '#94a3b8',
+          tertiaryColor: '#111827',
+          tertiaryTextColor: '#e5eefc',
+          tertiaryBorderColor: '#64748b',
+          lineColor: '#94a3b8',
+          textColor: '#e5eefc',
+        }
+      : {
+          background: '#ffffff',
+          primaryColor: '#eff6ff',
+          primaryTextColor: '#172033',
+          primaryBorderColor: '#2563eb',
+          secondaryColor: '#f8fafc',
+          secondaryTextColor: '#172033',
+          secondaryBorderColor: '#64748b',
+          tertiaryColor: '#ffffff',
+          tertiaryTextColor: '#172033',
+          tertiaryBorderColor: '#94a3b8',
+          lineColor: '#64748b',
+          textColor: '#172033',
+        };
+  }
+
+  async function renderMermaidDiagrams() {
+    const codeBlocks = document.querySelectorAll<HTMLElement>('pre[data-language="mermaid"] > code');
+    for (const code of codeBlocks) {
+      const frame = code.closest<HTMLElement>('figure');
+      const encodedSource = frame?.querySelector<HTMLElement>('[data-code]')?.dataset.code;
+      const container = document.createElement('div');
+      container.className = 'mermaid-diagram';
+      container.dataset.mermaidSource = (encodedSource?.replaceAll('\u007f', '\n') ?? code.innerText).trimEnd();
+      (frame ?? code.parentElement)?.replaceWith(container);
+    }
+
+    const containers = document.querySelectorAll<HTMLElement>('.mermaid-diagram[data-mermaid-source]');
+    if (containers.length === 0) return;
+
+    const { default: mermaid } = await import('mermaid');
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: 'base',
+      themeVariables: mermaidThemeVariables(),
+      flowchart: { htmlLabels: false, curve: 'linear', nodeSpacing: 24, rankSpacing: 32 },
+    });
+
+    for (const container of containers) {
+      const source = container.dataset.mermaidSource ?? '';
+      try {
+        const id = `beach-mermaid-${Date.now()}-${renderSerial++}`;
+        const { svg, bindFunctions } = await mermaid.render(id, source);
+        container.innerHTML = svg;
+        container.classList.remove('mermaid-diagram--error');
+        bindFunctions?.(container);
+      } catch (error) {
+        container.textContent = source;
+        container.classList.add('mermaid-diagram--error');
+        console.error('Failed to render Mermaid diagram.', error);
+      }
+    }
+  }
+
+  function scheduleMermaidRender() {
+    window.requestAnimationFrame(() => void renderMermaidDiagrams());
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scheduleMermaidRender, { once: true });
+  } else {
+    scheduleMermaidRender();
+  }
+
+  new MutationObserver(scheduleMermaidRender).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+</script>

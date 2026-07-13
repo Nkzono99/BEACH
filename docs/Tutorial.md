@@ -79,8 +79,8 @@ beach beach.toml
 beachx inspect outputs/latest
 ```
 
-正常終了すると`outputs/latest/summary.txt`と`charges.csv`が生成されます。この決定論的ケースでは
-`batches=1`、`processed_particles=1`となり、粒子は平面へ吸収されることを期待します。
+正常終了すると、`outputs/latest/summary.txt`と`charges.csv`が生成されます。この決定論的なケースでは、
+`batches=1`、`processed_particles=1`となり、粒子は平面に吸収されます。
 
 ```text
 processed_particles=1

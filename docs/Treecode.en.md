@@ -1,0 +1,141 @@
+title: Treecode
+
+Lang: [日本語](Treecode.md) | [English](Treecode.en.md)
+
+# Treecode
+
+Treecode groups point sources in an octree and evaluates a distant group as one monopole. Near nodes and nodes with cancelling
+positive and negative charge are expanded to a Direct sum, so the fraction of accepted far nodes determines both accuracy and
+speed. It targets fewer source evaluations than Direct for medium free-boundary problems.
+
+| Property | Description |
+| --- | --- |
+| Kernel | point only |
+| Field boundary | free only |
+| Far approximation | Node total charge at its center of charge |
+| Near evaluation | Direct sum of softened point charges in leaves |
+| Potential | The current adapter evaluates it with Direct, not Treecode |
+
+```toml
+[sim]
+field_solver = "treecode"
+field_bc_mode = "free"
+softening = 1.0e-6
+```
+
+## Build the octree once from fixed geometry
+
+At initialization, triangle centroids are used as source positions and an octree is built as follows:
+
+1. Find the axis-aligned bounding box of the source centroids in a node.
+2. Split at the box center into eight octants.
+3. Recurse until a node contains at most `tree_leaf_max` sources.
+
+If the centroids are numerically coincident, or splitting leaves every source in one octant, the node remains a leaf even when
+it exceeds the nominal limit. Tree topology is reused while the mesh geometry remains fixed.
+
+## Refresh node charge moments for each batch
+
+Changing surface charge does not rebuild the tree. Instead, node charge moments are accumulated from leaves to the root. For
+node $n$, BEACH updates
+
+$$
+Q_n=\sum_{i\in n}q_i,
+\qquad
+A_n=\sum_{i\in n}|q_i|,
+$$
+
+$$
+\mathbf{c}_{Q,n}=
+\begin{cases}
+Q_n^{-1}\sum_{i\in n}q_i\mathbf{c}_i, & |Q_n|>\mathrm{tiny},\\
+\mathbf{c}_{n}, & \text{otherwise},
+\end{cases}
+$$
+
+where $\mathbf{c}_n$ is the geometric node center. This refresh forms the field snapshot at the start of a batch. Element
+charge committed at the end of a batch is used by the next refresh.
+
+## Group nodes according to distance
+
+All sources in a leaf are evaluated directly. For an internal node, the node radius $R$, distance $d$ from its center to the
+target, and `tree_theta` define the far candidate condition
+
+$$
+R < \theta(d-R).
+$$
+
+A target inside the node's bounding sphere always causes traversal into the children. A smaller $\theta$ opens more nodes and
+is slower and more accurate; a larger $\theta$ groups more interactions and is faster and coarser.
+
+An accepted far node is evaluated as a softened point charge $Q_n$ at $\mathbf{c}_{Q,n}$. Treecode traverses the source tree
+for every target; unlike FMM, it does not construct target-side local expansions.
+
+## Expand cancelling nodes to a Direct sum
+
+In a node containing positive and negative charge, cancellation can make $Q_n$ small and move $\mathbf{c}_{Q,n}$ far outside
+the node. A single-monopole approximation is then unstable. In addition to the geometric condition, BEACH accepts a node only if
+
+$$
+|A_n-|Q_n||
+\le 64\,\epsilon_{\mathrm{mach}}\max(A_n,|Q_n|).
+$$
+
+This tolerance permits only accumulation roundoff for same-sign charge. An effectively mixed-sign node is opened even when it
+is geometrically distant, eventually reaching leaf Direct sums.
+
+The guard preserves accuracy under cancellation but can reduce acceleration when signs are mixed at fine scales. For such a
+distribution, measure runtime as well as error against Direct, and compare FMM when appropriate.
+
+## Settings that control accuracy and speed
+
+| Key | Role | Constraint |
+| --- | --- | --- |
+| `tree_theta` | Geometric acceptance of a far node | $0 < \theta \le 1$ |
+| `tree_leaf_max` | Nominal number of sources in a leaf | at least 1 |
+| `tree_min_nelem` | Switching threshold for `field_solver="auto"` | at least 1 |
+| `softening` | Softening for leaf Direct sums and monopoles [m] | non-negative |
+
+When `tree_theta` and `tree_leaf_max` are not explicitly present in the input, element-count values are selected even for an
+explicit `treecode` mode.
+
+| `nelem` | `tree_theta` | `tree_leaf_max` |
+| ---: | ---: | ---: |
+| `< 1500` | 0.40 | 12 |
+| `1500`–`9999` | 0.50 | 16 |
+| `10000`–`49999` | 0.58 | 20 |
+| `>= 50000` | 0.65 | 24 |
+
+These are starting values for speed and accuracy, not case-specific error bounds. If only one of the two keys is explicitly
+set, that value overrides the table while the other still comes from the table.
+
+## The current implementation accelerates field evaluation
+
+The current Treecode path accelerates electric fields at particle positions. `eval_potential` uses a Direct point-source sum,
+and `potential_history.csv` at all element centers also costs $O(N^2)$. Include this separate cost when estimating a run with
+potential history enabled.
+
+The tree is built during initialization, node moments are refreshed after charge changes, and the tree is traversed for every
+target. Well-behaved distributions require far fewer interactions per target than Direct, but the exact cost depends on tree
+imbalance, $\theta$, leaf size, and the fraction of mixed-sign nodes.
+
+## Measure approximation error against Direct
+
+Compare against Direct with the same point kernel, softening, normalization, and mesh.
+
+1. Sample strong-field regions, near-surface points, far points, and charge-cancellation regions.
+2. Reduce `tree_theta` and verify convergence toward Direct.
+3. Vary `tree_leaf_max` and measure both result and runtime sensitivity.
+4. Compare particle impact elements and post-batch `q_elem`, not only fields at isolated points.
+5. Measure performance in a release build with representative particle and step counts.
+
+Regression tests separately verify that same-sign nodes retain the monopole path, strongly cancelling mixed-sign nodes preserve
+Direct accuracy, and length normalization returns the same SI field as Direct.
+
+## Code reference
+
+- Octree construction and moment refresh: [`bem_field_solver_tree.f90`](../src/physics/field_solver/bem_field_solver_tree.f90)
+- MAC, mixed-sign guard, and traversal: [`bem_field_solver_eval.f90`](../src/physics/field_solver/bem_field_solver_eval.f90)
+- Parameter selection: [`bem_field_solver_config.f90`](../src/physics/field_solver/bem_field_solver_config.f90)
+- Accuracy, cancellation, and normalization tests: [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90)
+- Direct-equivalence test for batch results: [`test_simulator.f90`](../tests/fortran/test_simulator.f90)

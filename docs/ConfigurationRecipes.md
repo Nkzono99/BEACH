@@ -4,10 +4,10 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 
 # 設定レシピ
 
-このページは、`beach.toml` をどう変えれば典型ケースを作れるかをまとめます。
+典型的なケースは、公式入門ケースの`beach.toml`を基に、必要なtableやsectionを置き換えて作ります。
 全キーの定義は [入力パラメータリファレンス](Parameters.html)、高水準記法の詳細は [beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
 
-以下は[公式入門ケース](Tutorial.html)を基準に、記載したtableまたはsectionを置き換える差分例です。
+以下は[公式入門ケース](Tutorial.html)を基準にした差分例です。
 断片だけでは実行できない場合があります。
 
 ## 公式の実行手順
@@ -82,9 +82,9 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 
 ## 2軸周期境界
 
-`periodic2` は 3 軸のうち 2 軸を周期軸にする場境界です。productionの無限周期operatorは
-`field_solver = "fmm"`と`cached_kneq0`を使います。小規模correctness fixtureだけは
-`field_solver = "direct"`と`panel_spectral_reference`を選べます。
+`periodic2`は、3軸のうち2軸を周期軸とする場の境界条件です。productionの無限周期operatorには、
+`field_solver = "fmm"`と`cached_kneq0`を使います。小規模なcorrectness fixtureに限り、
+`field_solver = "direct"`と`panel_spectral_reference`も選択できます。
 
 ```toml
 [sim]
@@ -118,9 +118,9 @@ lower_boundary_model = "symmetric_vacuum"
 - 各周期軸の `box_max - box_min > 0`
 - production cacheでは `sim.field_solver = "fmm"`
 
-cache miss時は無限周期operatorを生成し、以後はfingerprintを検証して再利用します。同じ物理・mesh設定で
-cache directoryを使い回してください。有限個の周期像だけを使う旧設定へ戻す場合を除き、productionでは
-`field_periodic_far_correction = "none"`を使いません。
+cache miss時に無限周期operatorを生成し、次回以降はfingerprintを検証して再利用します。
+物理設定とmesh設定が同じcaseでは、cache directoryを共用できます。productionで
+`field_periodic_far_correction = "none"`を使うのは、有限個の周期像だけを使う旧設定を再現する場合に限ります。
 
 `symmetric_vacuum` は追加パラメータを必要とせず、非中性セルの面平均電場を上下へ等分します。
 総表面電荷を `Q`、周期面積を `A` とすると、上下遠方場はそれぞれ
@@ -129,9 +129,9 @@ cache directoryを使い回してください。有限個の周期像だけを�
 
 ## 無限周期 + 外部kinetic sheath
 
-月面レゴリスのproduction設定では、表面電荷の`k != 0`成分を無限周期cacheで解き、面平均の`k = 0`
-成分を外部1D kinetic sheathへ接続します。次は既存のbox、mesh、ambient electron/ion speciesへ追加する
-主要sectionです。
+月面レゴリスのproduction設定では、表面電荷の`k != 0`成分を無限周期cacheで解きます。
+一方、面平均の`k = 0`成分は外部の1D kinetic sheathに接続します。次は、設定済みのbox、mesh、
+ambient electron/ion speciesに追加する主要なsectionです。
 
 ```toml
 [sim]
@@ -166,22 +166,25 @@ max_frozen_field_ratio = 0.1
 outer_queue_enabled = false
 ```
 
-`interface_z`はz-high box面と一致させます。負・正の`reservoir_face` speciesをそれぞれ無限遠のambient
-electron/ion VDFとして使うため、両者をz-highへ定義し、準中性とion Bohm流入条件を満たす必要があります。
-`infinity_potential = 0`は任意の物理仮定ではなく無限遠電位のゲージ固定です。流入の加減速と外向き粒子の
-escape/returnは、同じkinetic profileの`phi_interface - phi_infinity`から計算されます。
+`interface_z`はz-high box面と一致させます。負電荷と正電荷の`reservoir_face` speciesを、それぞれ無限遠の
+ambient electron VDFとion VDFとして使います。両speciesをz-highに定義し、準中性条件とion Bohm流入条件を
+満たすように設定してください。
 
-`debye_length`、`thermal_voltage`、`field_evolution_timescale`は例の数値をコピーせず、対象plasmaと時間scale
-から決めてください。最初は`outer_update_stride = 1`で検証し、実運用で`100`などへ増やす場合は、表面電位、
-吸収・escape flux、電荷収支、離脱力が変わらないことを確認します。非単調分枝、sub-Bohm ion、frozen-field
-上限超過では別モデルへfallbackせず停止します。完全な小規模例は
-`examples/periodic2_kinetic_outer.toml`、全パラメータ契約は[入力パラメータリファレンス](Parameters.html)を
-参照してください。
+`infinity_potential = 0`は、無限遠電位のゲージを固定する設定です。流入粒子の加減速と、外向き粒子の
+escape/returnは、共通のkinetic profileから得られる`phi_interface - phi_infinity`を使って計算します。
+
+`debye_length`、`thermal_voltage`、`field_evolution_timescale`は、例の数値をそのままコピーせず、
+対象とするplasmaと時間scaleから決めてください。まず`outer_update_stride = 1`で検証します。実運用で
+`100`などに増やす場合は、表面電位、吸収・escape flux、電荷収支、離脱力に主要な変化がないことを確認してください。
+
+非単調分枝、sub-Bohm ion、frozen-field上限超過を検出した場合は、別のmodelにfallbackせず停止します。
+完全な小規模例は`examples/periodic2_kinetic_outer.toml`、全パラメータの定義は
+[入力パラメータリファレンス](Parameters.html)を参照してください。
 
 ## UV光電子を外部sheathへ含める
 
-UVを有効にする場合は、外部空間の平均光電子密度を`kinetic_mean`で解き、表面電荷はtracked
-`photo_raycast`粒子で更新します。上の設定から次を変更・追加します。
+UVを有効にする場合、外部空間の平均光電子密度は`kinetic_mean`で解きます。
+表面電荷の更新には、明示的に追跡する`photo_raycast`粒子を使います。上の設定に次の変更を加えてください。
 
 ```toml
 [outer_plasma]
@@ -207,11 +210,12 @@ inject_face = "z_high"
 ray_direction = [0.0, 0.0, -1.0]
 ```
 
-最初の負電荷`photo_raycast` speciesの放出電流と温度がmean closureを定めます。
-`deposit_opposite_charge_on_emit = true`が必須で、legacy `photo_escape_model`は併用しません。
-`kinetic_mean`はouter profileだけを供給し、帰還電流を表面へ二重加算しません。まずUVなしとUVありを同じ
-mesh、batch duration、ambient流入で比較し、`outer_plasma_profile.csv`、`summary.txt`のsolver residualと
-species別電流、charge ledgerを確認してください。
+先頭の負電荷`photo_raycast` speciesに設定した放出電流と温度から、mean closureが決まります。
+`deposit_opposite_charge_on_emit = true`は必須です。legacy `photo_escape_model`とは併用できません。
+`kinetic_mean`はouter profileだけを供給し、帰還電流を表面電荷に二重加算しません。
+
+まず、mesh、batch duration、ambient流入を同じにしたUVなしとUVありのcaseを比較します。
+`outer_plasma_profile.csv`、`summary.txt`のsolver residual、species別電流、charge ledgerを確認してください。
 
 `sim.sheath_injection_model = "zhao_*"`は流入分布だけを補正する旧モデルで、ここで使う外部
 `kinetic_1d` Poisson profileとは別物です。両者、および`reservoir_potential_model`との同時利用は拒否されるため、

@@ -4,7 +4,7 @@ Lang: [English](PostprocessTutorial.en.md) | [日本語](PostprocessTutorial.md)
 
 # Post-processing Tutorial
 
-This short tutorial shows how to inspect the first run with the CLI and Python.
+Inspect a first run with the CLI, then use Python to read distributions and history.
 For file meanings, see [Reading Output Files](OutputGuide.en.html). For the full API, see [Python Post-processing API Reference](PythonPostprocessAPI.en.html).
 
 ## Inspect a Run with the CLI

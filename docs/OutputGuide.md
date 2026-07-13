@@ -4,13 +4,13 @@ Lang: [日本語](OutputGuide.md) | [English](OutputGuide.en.md)
 
 # 出力の読み方
 
-このページは、初回実行後に `outputs/latest/` で何を見ればよいかをまとめます。
+初回実行後は、`outputs/latest/`の完了状態、電荷収支、要素電荷、履歴の順に確認します。
 詳細な後処理コマンドは [後処理チュートリアル](PostprocessTutorial.html)、全パラメータは [入力パラメータリファレンス](Parameters.html) を参照してください。
 
 ## まず確認すること
 
-このチェックは、計算が定義された batch まで実行され、必要な出力を書き出したことだけを確認します。
-物理モデルや離散化の妥当性は、別途 [計算結果の妥当性確認](ValidationGuide.html) に従って評価してください。
+最初に、計算が定義されたbatchまで実行され、必要な出力を書き出したことを確認します。完了を確認した後、
+[計算結果の妥当性確認](ValidationGuide.html)に従って物理モデルと離散化を評価します。
 
 1. `outputs/latest/summary.txt` がある。
 2. `summary.txt` の `batches` が `sim.batch_count` に到達している。
@@ -44,14 +44,20 @@ beachx inspect outputs/latest
 
 `summary.txt` で最初に確認する量は次のとおりです。
 
-`field_source_model` と `field_kernel_id` は出力を生成した要素核を示します。`triangle_p0_exact_p2m_near` は全頂点 topology、解析 panel near、厳密 panel P2M の FMM を表します。`FieldKernel.from_result` は `triangle_p0` を panel C ABI へ dispatch します。その他の Python potential/field/force/field-line estimator は point-only のため引き続き停止します。
+`field_source_model`と`field_kernel_id`は、出力の計算に使ったfield kernelを示します。
+`triangle_p0_exact_p2m_near`は、全頂点のtopology、解析的なpanel near評価、厳密なpanel P2Mを使うFMMです。
+`FieldKernel.from_result`は`triangle_p0`をpanel C ABIにdispatchします。その他のPython側のpotential/field/force/field-line estimatorは
+point sourceのみに対応するため、`triangle_p0`の結果では停止します。
 
-split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi_kneq0`、`eta_field_kneq0`、`eta_gap`、`eta_local_charge`、Gauss residual、outer積分電荷、最終outer更新batchを保存します。これらは物理適用性とrestart状態の一部であり、欠損したsplit checkpointは再開できません。
+split periodic2では、`summary.txt`にinterface potential/normal field、`eta_phi_kneq0`、`eta_field_kneq0`、
+`eta_gap`、`eta_local_charge`、Gauss residual、outer積分電荷、最後にouterを更新したbatchを保存します。
+これらは物理modelの適用性を判定する診断値であると同時に、restart状態の一部でもあります。
+そのため、これらの値が欠けたsplit checkpointからは再開できません。
 
-`unified_linear_response` では `outer_accessible_fraction_min/max` と
-`outer_accessible_fraction_refinement_error` も確認します。後者は rough surface の高さ標本を
-各周期軸で2倍にしたときの accessible fraction 最大差で、設定した
-`outer_plasma.accessible_fraction_tolerance` 以下でなければ初期化時に停止します。
+`unified_linear_response`では、`outer_accessible_fraction_min/max`と
+`outer_accessible_fraction_refinement_error`も確認します。後者は、rough surfaceの高さ標本数を
+各周期軸で2倍に増やしたときの、accessible fractionの最大差です。この値が
+`outer_plasma.accessible_fraction_tolerance`を超えると、初期化時に停止します。
 
 `cached_kneq0` では次のcache診断を確認します。
 
@@ -62,10 +68,14 @@ split periodic2では`summary.txt`にinterface potential/normal field、`eta_phi
 | `periodic2_cache_fingerprint` | 生成identity | 再利用identityと一致 |
 | `periodic2_cache_path` | 公開先 | 読み込み元 |
 
-cold buildはtarget sliceをMPI rankへ、proxy RHSをrank内OpenMPへ分配します。cache I/Oはroot rankだけが担当します。
-operator本体は再生成可能なのでcheckpointへ含めません。cache directoryとgeneration toleranceもsummaryに保存されます。
+cold buildでは、target sliceをMPI rank間に分配し、proxy RHSを各rankのOpenMP thread間に分配します。
+cache I/Oはroot rankだけが担当します。operator本体は再生成できるため、checkpointには含めません。
+cache directoryとgeneration toleranceは`summary.txt`に保存します。
 
-particle transfer有効時は`charge_ledger.csv`の`interface_outward_gross_C`と`interface_returned_gross_C`がinterfaceの往復量を表します。これは保存残差へ二重加算しません。`summary.txt`の`max_outer_flight_time_s`、`max_outer_frozen_field_ratio`、`max_outer_energy_relative_error`はMPI-globalなrun中の最大値です。
+particle transferを有効にすると、`charge_ledger.csv`の`interface_outward_gross_C`と
+`interface_returned_gross_C`にinterfaceを通過する往路・復路の電荷量を記録します。これらを保存残差に二重加算することはありません。
+`summary.txt`の`max_outer_flight_time_s`、`max_outer_frozen_field_ratio`、
+`max_outer_energy_relative_error`は、run全体からMPI集約した最大値です。
 
 | 項目 | 見方 |
 | --- | --- |
@@ -118,5 +128,9 @@ b.plot_potential()
 
 ## 再開実行の出力
 
-`output.resume=true` の場合、`summary.txt`、`charges.csv`、`rng_state*.txt`、`macro_residuals*.csv`、台帳有効時の `charge_ledger.csv` が checkpoint として使われます。schema v3 は model / mesh / species fingerprint と outer solver の完全な profile/state を照合・復元します。schema v2 の3列 outer profile は読み込み可能ですが、held state としては使わず次回 refresh で再解法します。
-`output.restart_from` を指定すると、checkpoint は `restart_from` から読み、新しい出力は `output.dir` に書きます。
+`output.resume=true`の場合、`summary.txt`、`charges.csv`、`rng_state*.txt`、`macro_residuals*.csv`、
+台帳有効時の`charge_ledger.csv`をcheckpointとして使います。schema v3では、model / mesh / species fingerprintを照合し、
+outer solverのprofile/stateを完全に復元します。
+
+schema v2の3列outer profileも読み込めます。ただし、held stateとしては使わず、次のrefreshでouter profileを解き直します。
+`output.restart_from`を指定すると、checkpointは`restart_from`から読み込み、新しい出力は`output.dir`に書き出します。

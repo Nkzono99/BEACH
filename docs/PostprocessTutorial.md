@@ -4,7 +4,7 @@ Lang: [日本語](PostprocessTutorial.md) | [English](PostprocessTutorial.en.md)
 
 # 後処理チュートリアル
 
-このページは、最初の実行結果を CLI と Python で確認するための短い手順です。
+最初にCLIで実行結果の全体を確認し、次にPythonで分布と履歴を読み込みます。
 出力ファイルの意味は [出力の読み方](OutputGuide.html)、API の詳細は [Python 後処理 API リファレンス](PythonPostprocessAPI.html) を参照してください。
 
 ## CLI で概要を確認する
@@ -58,7 +58,7 @@ b.plot_mesh()
 b.plot_potential()
 ```
 
-設定ファイルが出力ディレクトリ近傍にない場合は明示します。
+設定ファイルが出力directoryの近傍にない場合は、`config_path`で指定します。
 
 ```python
 b = Beach("outputs/latest", config_path="beach.toml")
@@ -127,10 +127,11 @@ beachx object-detachment outputs/latest \
 `object-detachment` の CLI 既定重力は月面の `1.62 m/s^2` です。この例は地上重力を
 仮定して `9.80665 m/s^2` を明示しています。対象環境に合わせて変更してください。
 
-`configured` は run の finite/cached 設定をそのまま使い、`infinite-physical` は
-x/y periodic run の cached `k != 0` と物理的な `k = 0` mode を使います。
-target の central-cell primary 自己場だけを除外するため、target 自身の周期画像が作る力は
-残ります。`instantaneous_wrench.csv`, `path.csv`, `summary.json`, `report.md` が生成されます。
+`configured`はrunのfinite/cached設定をそのまま使います。`infinite-physical`は、
+x/y periodic runのcached `k != 0`と物理的な`k = 0` modeを使います。
+
+targetのcentral-cell primary自己場だけを除外し、target自身の周期画像が作る力は残します。
+`instantaneous_wrench.csv`、`path.csv`、`summary.json`、`report.md`が生成されます。
 
 同じ解析を Python から行う完全な例は
 [`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
@@ -155,8 +156,7 @@ release = path.evaluate_release(
 )
 ```
 
-正常終了と CSV/JSON の生成は実行成功の確認です。離脱が物理的に妥当という確認では
-ありません。少なくとも `path.status`、仕事と電位差の不一致、mesh/quadrature、
-finite shell または periodic cache、経路上端、charge snapshot、stochastic seed への依存を
-[計算結果の妥当性確認](ValidationGuide.html)に従って評価してください。非中性周期 cell の
-有限高さ speed を無限遠への escape speed と解釈してはいけません。
+正常終了し、CSV/JSONが生成されれば、解析処理自体は完了しています。離脱の物理的な妥当性は、
+`path.status`、仕事と電位差の不一致、mesh/quadrature、finite shellまたはperiodic cache、経路上端、
+charge snapshot、stochastic seedへの依存性から評価します。詳細は[計算結果の妥当性確認](ValidationGuide.html)を参照してください。
+非中性周期cellで得た有限高さのspeedは、無限遠へのescape speedではありません。

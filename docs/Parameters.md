@@ -186,7 +186,7 @@ FMM のような local expansion は使わず、評価点ごとに木を走査�
 
 simulator 非依存の Coulomb FMM コアを使います。
 source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/L2L/L2P と近傍 direct 和で評価します。
-選択と精度確認は[FMMによる場計算](FMM.html)、内部実装は
+選択と精度確認は[FMM](FMM.html)、内部実装は
 [Coulomb FMMコア詳細](FMMCore.html)を参照してください。
 
 | キー | 型 | 既定値 | 説明 |
@@ -245,7 +245,8 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
 
-legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用のsplit referenceだけは、`field_solver="direct"`と以下の3 tableを明示します。
+legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用のsplit referenceに限り、
+`field_solver="direct"`と以下の3つのtableを明示します。
 
 | table.key | 既定 | 意味 |
 |---|---:|---|
@@ -273,11 +274,12 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 | `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
 | `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
 
-#### `kinetic_1d` contract
+#### `kinetic_1d`の仕様
 
-`kinetic_1d`は`cached_kneq0`と組み合わせ、z-highの負・正`reservoir_face` speciesを無限遠electron/ion VDFとして使います。
+`kinetic_1d`は`cached_kneq0`と組み合わせます。z-highに定義した負電荷と正電荷の`reservoir_face` speciesを、
+それぞれ無限遠のelectron VDFとion VDFとして使います。
 
-| 項目 | contract |
+| 項目 | 仕様 |
 | --- | --- |
 | gauge | `phi(infinity)=0`。`infinity_potential`の非ゼロ値を拒否 |
 | far boundary | `debye_length`を長さとするRobin tail |
@@ -294,23 +296,24 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
 3. turning粒子について解析往復時間後に相当する復帰状態を作り、同じsimulation時刻・batchでinterfaceへ戻す。
 
-これは定常・準定常sheath用の意図的なinstant-return closureです。定常化後の平均電流と離脱力には使えますが、
-UV照射開始などの遅延return currentを含む過渡応答は表しません。準定常性は
-`tau_outer/field_evolution_timescale`で制限し、`tau_outer/batch_duration >= 1`の場合はbatch履歴を
-物理的なreturn-current時間履歴として解釈しません。詳細は
-[外部シースとreservoir粒子境界](SheathReservoirBoundary.md)を参照してください。
+これは、定常・準定常sheathを対象としたinstant-return closureです。定常化後の平均電流と離脱力の計算に使えます。
+UV照射の開始時など、遅延したreturn currentが影響する過渡応答は表しません。準定常条件は
+`tau_outer/field_evolution_timescale`で制限します。`tau_outer/batch_duration >= 1`の場合はbatch履歴を
+return currentの物理的な時間履歴として解釈できません。詳細は
+[粒子のescapeとreturn](ParticleEscapeReturn.md)を参照してください。
 
 `reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
 
-`photoelectron_closure="kinetic_mean"`では、最初の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
-mean closureはouter profileだけを供給し、tracked粒子が表面電荷を更新するため、統計的return currentを再加算しません。
-tracked returnを使う全speciesは`deposit_opposite_charge_on_emit=true`とし、legacy `photo_escape_model`を無効にします。
+`photoelectron_closure="kinetic_mean"`では、先頭の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
+mean closureが供給するのはouter profileだけです。表面電荷は明示的に追跡する粒子が更新するため、
+統計的なreturn currentを追加で加算しません。tracked returnを使う全speciesで
+`deposit_opposite_charge_on_emit=true`を指定し、legacy `photo_escape_model`は無効にします。
 
-実行例は`examples/periodic2_kinetic_outer.toml`、物理契約は`docs/adr/0001-kinetic-outer-plasma.md`です。
+実行例は`examples/periodic2_kinetic_outer.toml`、物理モデルの前提は`docs/adr/0001-kinetic-outer-plasma.md`です。
 
-#### `unified_linear_response` contract
+#### `unified_linear_response`の仕様
 
-| 項目 | contract |
+| 項目 | 仕様 |
 | --- | --- |
 | zero mode | 表面投影から遠方まで一つのPoisson grid |
 | rough surface | plasma-accessible areaと線形mean-plasma電荷を含む |
@@ -319,7 +322,7 @@ tracked returnを使う全speciesは`deposit_opposite_charge_on_emit=true`とし
 | geometry/kernel | single-valued height fieldと`triangle_p0`が必須 |
 | photoelectron mean | `photoelectron_closure="none"`のみ |
 | particle transfer | `none`または`electrostatic_3d_explicit_orbit` |
-| 3D orbit | `b0=0`、固定刻み、energy/frozen-field error contract |
+| 3D orbit | `b0=0`、固定刻み、energy/frozen-field errorの上限 |
 | applicability | 線形性上限を超えたらfallbackせず停止 |
 
 検証例は`examples/periodic2_unified_linear_response.toml`、詳細は`docs/adr/0002-unified-periodic-outer-domain.md`です。
@@ -340,10 +343,11 @@ tracked returnを使う全speciesは`deposit_opposite_charge_on_emit=true`とし
 | unified 3D orbit | `periodic2_unified_explicit_orbit.toml` | 全3D field、固定刻みouter orbit |
 | individual photoelectron return | `periodic2_photoelectron_individual_return.toml` | instant return、放出元逆符号電荷、legacy escape補正なし |
 
-`individual_return`のoutgoing histogramはMPI-globalに集計し、前batchと累積値をcheckpointします。
-未仕様の`statistical_return`は拒否します。強い放出条件ではambient-only線形closureを適用外として停止します。
+`individual_return`のoutgoing histogramは全MPI rankから集計し、前batchの値と累積値をcheckpointに保存します。
+`statistical_return`は未仕様のため使用できません。放出が強く、ambient-onlyの線形closureの適用範囲を外れる場合は停止します。
 
-periodic2は`sim.use_box=true`、2軸periodic、1軸openを必須とし、field、collision、`photo_raycast`へ同じ周期を適用します。
+periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必要です。
+同じ周期条件をfield、collision、`photo_raycast`に適用します。
 
 | far correction | 意味 |
 | --- | --- |
@@ -390,7 +394,8 @@ periodic2は`sim.use_box=true`、2軸periodic、1軸openを必須とし、field�
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
 詳細は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) を参照してください。
 各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
-[外部シースとreservoir粒子境界](SheathReservoirBoundary.md)を参照してください。
+[reservoir注入](ReservoirInjection.md)、[シース注入closure](SheathInjectionClosures.md)、
+[粒子のescapeとreturn](ParticleEscapeReturn.md)を参照してください。
 
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で refresh 済みの
 electrostatic snapshot から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、
@@ -649,7 +654,15 @@ OBJ の対応範囲:
 
 ### `[field]`: 要素核
 
-`element_kernel="point"` が互換既定で、`sim.softening` はこの point kernel に適用されます。`element_kernel="triangle_p0"` は各要素の `q_elem` を三角形上の一定面密度として扱い、`sim.field_solver="direct" | "fmm" | "auto"` で利用できます。auto は `tree_min_nelem` で direct/FMM を選びます。`sim.softening=0` と全表面 `insulator` が必須です。FMM は厳密 panel near/P2M を使い、`m2l_root_oracle` は point-source 専用のため拒否します。OBJ では `[mesh].surface_side`、template では各 `[[mesh.templates]].surface_side` を明示してください。`outward_closed` は閉じた向き整合 two-manifold にだけ使えます。
+`element_kernel="point"`が互換既定値です。`sim.softening`はこのpoint kernelに適用します。
+
+`element_kernel="triangle_p0"`は、各要素の`q_elem`を三角形上の一様な面電荷密度として扱います。
+`sim.field_solver="direct" | "fmm" | "auto"`で利用でき、`auto`は`tree_min_nelem`に従ってdirectとFMMを選びます。
+`sim.softening=0`かつ、すべての表面が`insulator`であることが必要です。FMMは厳密なpanel near/P2Mを使います。
+`m2l_root_oracle`はpoint source専用のため、`triangle_p0`では使用できません。
+
+OBJでは`[mesh].surface_side`、templateでは各`[[mesh.templates]].surface_side`を明示してください。
+`outward_closed`を使えるのは、法線の向きが整合した閉じたtwo-manifoldだけです。
 無効化された template は mesh に追加されず、`mesh_id` も消費しません。
 
 `kind` の概要:

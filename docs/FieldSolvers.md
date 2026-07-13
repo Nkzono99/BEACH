@@ -1,198 +1,91 @@
-title: 場ソルバーと境界条件
+title: 場の評価
 
 Lang: [日本語](FieldSolvers.md) | [English](FieldSolvers.en.md)
 
-# 場ソルバーと境界条件
+# 場の評価
 
-## まず選び方
+BEACHは各batchの開始時点の要素電荷`q_elem`から電場を作り、そのbatchで追跡する粒子に同じ場を使います。
+粒子が表面へ運んだ電荷はbatch末尾でまとめて反映されるため、場が変わるのは次のbatchです。
 
-| やりたいこと | 推奨設定 | 注意 |
+場の評価では、まず要素電荷をどう表すかを選び、次にその相互作用を計算する方式を選びます。
+
+| 選択 | 役割 | 値 |
 | --- | --- | --- |
-| 小さいメッシュで動作確認 | `field_solver = "auto"` または `"direct"` | `direct` は厳密だが `O(nelem)` |
-| 要素数が多い通常計算 | `field_solver = "fmm"` | 選択と検証は [FMMによる場計算](FMM.html) |
-| 2軸周期境界を使う | `field_bc_mode = "periodic2"` と `field_solver = "fmm"` | ちょうど 2 軸を periodic にする |
-| 精度確認・デバッグ | 小ケースで `direct` と `fmm` を比較 | 同じ mesh / particle 条件で比較する |
+| source kernel | 1要素の電荷分布 | `point` / `triangle_p0` |
+| solver | 多数のsourceをどう足すか | `direct` / `treecode` / `fmm` / `auto` |
+| field boundary | 周期画像や遠方場をどう含めるか | `free` / `periodic2` |
 
-`periodic2` は現行実装では FMM 専用です。`auto` は `field_bc_mode="free"` の小・中規模ケース向けと考えてください。
+## 問題規模とkernelからsolverを選ぶ
 
-## 1. 境界要素電荷による Coulomb 場
+| solver | 主な用途 | source kernel | 場境界 | 近似 |
+| --- | --- | --- | --- | --- |
+| [Direct](DirectSolver.html) | 小規模計算、基準解 | point、triangle P0 | free | 選んだkernelを全要素について直接評価 |
+| [Treecode](Treecode.html) | 中規模のpoint source | point | free | 遠方nodeをmonopoleで近似 |
+| [FMM](FMM.html) | 大規模計算、多数の評価点 | point、triangle P0 | free、periodic2 | 遠方相互作用を多重極・局所展開で近似 |
+| `auto` | free境界で要素数に応じて選択 | point、triangle P0 | free | pointはDirect/Treecode、triangle P0はDirect/FMM |
 
-**Source**:
-[`bem_field_solver`](../src/physics/field_solver/bem_field_solver.f90),
-[`bem_field_solver_config`](../src/physics/field_solver/bem_field_solver_config.f90),
-[`bem_field_solver_eval`](../src/physics/field_solver/bem_field_solver_eval.f90)
+`auto`は`nelem < tree_min_nelem`ならDirectを使います。それ以上では、point sourceにTreecode、
+triangle P0にFMMを選びます。既定のしきい値は`256`です。solver間の速度差は要素数だけでなく、
+粒子数、step数、評価点の分布にも依存します。実際の計算条件に近い小規模ケースで測定してください。
 
-### 1.1 direct evaluation
+## source kernelで要素電荷の離散化を決める
 
-direct mode では、評価点 `r` に対して全要素を直接足し込みます。
+### Point
 
-$$
-\mathbf{E}(\mathbf{r}) =
-k_c \sum_{i=1}^{N}
-q_i
-\frac{\mathbf{r} - \mathbf{c}_i}
-{\left(\lVert\mathbf{r} - \mathbf{c}_i\rVert^2 + \epsilon^2\right)^{3/2}}
-$$
+`field.element_kernel="point"`は、要素の総電荷を三角形重心の点電荷として扱います。
+`sim.softening`で重心近傍の特異性を緩和できます。既存ケースとの互換既定です。
 
-計算量は 1 評価点あたり `O(nelem)` です。
-粒子 step 数と粒子数が増えると支配的になるため、要素数が大きいケースでは treecode または FMM を使います。
+### Triangle P0
 
-### 1.2 length normalization
+`field.element_kernel="triangle_p0"`は、要素の総電荷を三角形上の一定面密度として扱います。
+近傍場と自己電位を三角形の解析kernelで扱えるため、重心点電荷とは異なる離散化です。
 
-`sim.field_normalization` により、内部計算の長さスケール `L0` を選べます。
+triangle P0では`sim.softening=0`、有限で非退化な三角形、各要素のvacuum sideが必要です。
+現行Phase 1はinsulator表面だけに対応し、Treecodeには対応しません。詳細は
+[Direct](DirectSolver.html#triangle-p0)と[FMM](FMM.html#source-kernel)を参照してください。
 
-| 値 | `L0` |
-| --- | --- |
-| `si` | `1 m` |
-| `length` | `sim.field_length_scale` |
-| `box` | `max(box_max - box_min)` |
-| `mesh` | mesh bounding box の最大幅 |
+## 長さを正規化して数値スケールを整える
+
+`sim.field_normalization`は内部座標の代表長さ$L_0$を決めます。入力と出力の単位は変わりません。
+
+| 値 | $L_0$ | 原点$\mathbf{x}_0$ |
+| --- | --- | --- |
+| `si` | 1 m | 0 |
+| `length` | `field_length_scale` | 0 |
+| `box` | boxの3辺の最大値 | `box_min` |
+| `mesh` | mesh bounding boxの最大幅 | mesh bounding boxの最小点 |
 
 内部では
 
 $$
-\mathbf{x}' = \frac{\mathbf{x} - \mathbf{x}_0}{L_0},
-\quad
-\epsilon' = \frac{\epsilon}{L_0}
+\mathbf{x}'=\frac{\mathbf{x}-\mathbf{x}_0}{L_0},
+\qquad
+\epsilon'=\frac{\epsilon}{L_0}
 $$
 
-として評価し、電場は `k_c / L0^2`、電位は `k_c / L0` を掛けて SI 単位へ戻します。
-入力設定と出力 CSV は SI 単位のままです。
+として評価し、電場には$k_c/L_0^2$、電位には$k_c/L_0$を掛けてSIへ戻します。
+`box`には`use_box=true`と正のbox幅が必要です。空meshで`mesh`を選んだ場合だけ
+`field_length_scale`を使います。
 
----
+## periodic2ではsolverと境界成分を組み合わせる
 
-## 2. direct / treecode / FMM の切替
+`periodic2`はsolverを1つ選ぶだけでは決まりません。有限画像和または無限画像和、非zero mode、zero mode、
+外部シース、reservoir粒子の加減速、photoelectronのescape/returnを組み合わせる計算構成です。
 
-**Source**:
-[`init_field_solver`](../src/physics/field_solver/bem_field_solver_config.f90),
-[`refresh_field_solver`](../src/physics/field_solver/bem_field_solver_tree.f90),
-[`eval_e_field_solver`](../src/physics/field_solver/bem_field_solver_eval.f90),
-[FMMによる場計算](FMM.html)
+legacyの`sim.field_bc_mode="periodic2"`経路はFMMを使います。小規模検証用のsplit referenceは、Directの
+panel spectral backendを使います。それぞれの成分構成は、
+[periodic2場計算](PeriodicElectrostatics.html)と[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
-### 2.1 mode selection
+## solver誤差とsource離散化誤差を分けて測る
 
-`sim.field_solver` は次を受けます。
+新しいmeshやkernelでは、まず小さな同一ケースでDirectとの差を調べます。その後、source meshを細分化して
+離散化誤差を、solver設定を変えて近似誤差を分けて確認します。場の一点比較だけでなく、吸収位置、蓄積電荷、
+保存量など最終的に使う観測量も比較してください。詳しい手順は
+[計算結果の妥当性確認](ValidationGuide.html)を参照してください。
 
-| 値 | 挙動 |
-| --- | --- |
-| `direct` | 常に direct 和 |
-| `treecode` | octree + monopole 近似 |
-| `fmm` | Coulomb FMM core |
-| `auto` | `nelem >= tree_min_nelem` なら treecode、それ以外は direct |
+## Code reference
 
-`periodic2` は現行実装では `field_solver="fmm"` が必要です。
-
-### 2.2 treecode
-
-treecode は要素重心を octree に分割します。
-
-1. `elem_order` に全要素 index を並べる。
-2. node 内の要素重心 AABB を求める。
-3. 要素数が `leaf_max` 以下、または分割不能なら leaf とする。
-4. そうでなければ中心で 8 octant に分類し、子 node を再帰構築する。
-
-`refresh_field_solver` は bottom-up に各 node の monopole を再集計します。
-
-$$
-Q_n = \sum_{i \in n} q_i
-$$
-
-$$
-\mathbf{c}_{Q,n} =
-\begin{cases}
-Q_n^{-1}\sum_{i \in n} q_i \mathbf{c}_i, & |Q_n| > 0, \\
-\mathbf{c}_{\mathrm{node}}, & Q_n \approx 0
-\end{cases}
-$$
-
-評価時には node 半径 `R` と評価点までの距離 `d` から遠方採用を判定し、採用できる node は monopole として評価します。
-採用できない node は子へ降り、leaf では direct 和を行います。
-Stage 1 では、$A_n = \sum_{i \in n}|q_i|$ としたとき、幾何条件を満たす内部 node でも
-`abs(A_n - abs(Q_n)) <= 64 * epsilon(1.0d0) * max(A_n, abs(Q_n))` を満たす場合だけ monopole として採用します。
-この machine-epsilon tolerance は電荷集計の丸め差だけを許容します。
-mixed-sign の内部 node は leaf まで子へ降りて direct interaction を行い、same-sign node は既存の monopole 経路と性能を維持します。
-
-将来は monopole+dipole の誤差判定を導入し、不安定な signed charge centroid 近似を再導入せずに mixed-sign node の性能を回復する予定です。
-
-### 2.3 FMM
-
-FMM mode は simulator 非依存の Coulomb FMM core を呼びます。
-field solver adapter は次を担当します。
-
-1. メッシュ重心を source 座標 `src_pos(3, nelem)` に変換する。
-2. `build_plan(plan, src_pos, options)` で幾何依存 plan を作る。
-3. `update_state(plan, state, q_elem)` で電荷依存 state を更新する。
-4. 粒子位置ごとに `eval_point(plan, state, r, e)` を呼ぶ。
-
-FMMの選択と精度確認は[FMMによる場計算](FMM.html)、P2M / M2M / M2L / L2L / L2Pの内部実装は
-[Coulomb FMMコア詳細](FMMCore.html)を参照してください。
-
----
-
-## 3. periodic2 場境界
-
-**Source**:
-[`bem_field_solver_config`](../src/physics/field_solver/bem_field_solver_config.f90),
-[`bem_coulomb_fmm_periodic`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90),
-[`bem_collision`](../src/physics/bem_collision.f90)
-
-`sim.field_bc_mode="periodic2"` は、3 軸のうちちょうど 2 軸を周期軸として扱います。
-周期軸は `bc_low(axis) == bc_high(axis) == periodic` で判定されます。
-第三軸は開放方向です。
-
-### 3.1 validation
-
-`periodic2` では次が必須です。
-
-- `sim.use_box = true`
-- ちょうど 2 軸が periodic
-- 各周期軸の `box_max - box_min > 0`
-- `sim.field_solver = "fmm"`
-
-`field_periodic_far_correction` の選択肢は次の通りです。
-
-| 値 | 用途 | 備考 |
-| --- | --- | --- |
-| `none` | 有限画像近似 | 既定値 |
-| `auto` | 互換入力 | 現在は`none`へ正規化 |
-| `m2l_root_oracle` | correctness診断 | 明示opt-inの高コストfit |
-| `cached_kneq0` | production無限周期非零モード | x/y periodic、z open、`exclude_k0`、lower boundary modelが必須 |
-
-`cached_kneq0` と組み合わせる平均場closureは次の2種類です。
-
-| lower boundary model | 下側平均場 | 上側平均場 | 用途 |
-| --- | ---: | ---: | --- |
-| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 対称な真空半空間 |
-| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 旧計算の再現 |
-
-### 3.2 near images and far correction
-
-`field_periodic_image_layers = N` は、周期 2 軸の近傍画像を
-
-$$
-(i, j) \in [-N, N]^2
-$$
-
-で列挙します。runtime場は選択したbackendに応じて次のように構成されます。
-
-| 成分 | `none` | `m2l_root_oracle` | `cached_kneq0` |
-| --- | --- | --- | --- |
-| primary + near images | FMM | FMM | FMM |
-| 遠方非零モード | なし | build時にEwald residualをroot localへfit | versioned cached operator |
-| 対称$k=0$除去 | なし | oracle内 | state更新時に構築しevalで減算 |
-| 物理的$k=0$ | legacy field contract | oracle contract | snapshotのboundary providerが1回合成 |
-
-cache missではrank 0がfilesystem lockとatomic renameを担当し、operator計算はMPI/OpenMPへ分配します。
-warm field evaluationとcharge refreshにはall-source Ewald和がありません。生成手順と測定値は
-[cached periodic nonzero operator](FMMCore.html#101-cached-periodic-nonzero-operator)を参照してください。
-物理的な`k=0`、lower boundary closure、外部シースとの合成は
-[periodic2場計算](PeriodicElectrostatics.md)と[外部プラズマモデル](OuterPlasmaModels.md)に
-分離して説明しています。
-
-### 3.3 collision side
-
-衝突判定側の periodic2 は、場計算の FMM とは別に処理されます。
-`find_first_hit_periodic2` は粒子線分と canonical mesh AABB から必要な image shift 範囲を計算し、shift した線分で base mesh との交差を調べます。
-同じ `t` に複数候補がある場合は、要素 index と image shift で deterministic に tie-break します。
-
----
+- solverの初期化と自動選択: [`bem_field_solver_config.f90`](../src/physics/field_solver/bem_field_solver_config.f90)
+- 電場・電位の評価: [`bem_field_solver_eval.f90`](../src/physics/field_solver/bem_field_solver_eval.f90)
+- Treecode/FMMの電荷更新: [`bem_field_solver_tree.f90`](../src/physics/field_solver/bem_field_solver_tree.f90)
+- 設定値: [設定パラメータ](Parameters.html#場ソルバ)

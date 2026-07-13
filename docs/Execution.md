@@ -4,9 +4,10 @@ Lang: [日本語](Execution.md) | [English](Execution.en.md)
 
 # 実行する
 
-このページでは、設定済みの`beach.toml`を検査して実行し、必要に応じて負荷見積もりや
-再開を行うまでの流れを説明します。インストール前の場合は[インストール](Installation.html)、
-最初のケースを作る場合は[10分チュートリアル](Tutorial.html)から始めてください。
+設定済みの`beach.toml`は、入力検査、実行、出力確認の順に扱います。計算規模に応じて、
+実行前に負荷も見積もってください。既存のcheckpointからは、同じ設定を使って計算を再開できます。
+未インストールの場合は[インストール](Installation.html)、最初のケースを作る場合は
+[10分チュートリアル](Tutorial.html)から始めてください。
 
 ## 基本フロー
 
@@ -39,6 +40,13 @@ mpirun -n 4 beach beach.toml
 MPIとOpenMPの組み合わせ、コンパイラ設定、KUDPCでの実行方法は
 [開発環境とテスト](Workflow.html)を参照してください。
 
+OpenMPでは、粒子indexを`dynamic, 1`で分配します。これにより、粒子ごとの追跡step数の違いから生じる
+負荷の偏りを抑えます。衝突による電荷変化は`dq_thread(nelem, nth)`にthread-localで集計し、最後に結合します。
+
+MPIでは粒子の生成と追跡をrank間で分担し、各rankが同じmeshと`q_elem`を保持します。batch末尾に
+`dq(nelem)`と終了状態別の粒子数をallreduceするため、commit後の表面電荷と統計は全rankで一致します。
+通常の結果、履歴、全rankで共有するmacro residualはroot rankが書き出し、RNG stateはrankごとに保存します。
+
 ## 実行前に負荷を見積もる
 
 `reservoir_face`や`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
@@ -68,6 +76,10 @@ beachx profile outputs/latest/performance_profile.csv \
 ```
 
 スケーリング比較には`performance_profile.csv`の`simulation_total`行にある`rank_max_s`を使います。
+初期化、batch準備、場のrefresh、粒子追跡、電荷commit、MPI集約、統計・履歴更新、
+結果・checkpoint出力を計測します。CSV上では`load_or_init`、`field_solver_init`、`prepare_batch`、
+`field_refresh`、`particle_batch`、`commit_charge`、`mpi_reduce`、`stats_update`、`history_write`、
+`write_results`、`write_checkpoint`として区別されます。
 
 ## 再開実行
 

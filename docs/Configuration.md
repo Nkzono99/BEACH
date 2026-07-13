@@ -7,7 +7,7 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。
 
 - Fortran 実行系 `beach` は `beach.toml` を直接読み、高水準記法を読み込み時に解決します。
-- `beachx config init` は小さく実行可能な `beach.toml` を作ります。
+- `beachx config init` は、最小限の実行可能な `beach.toml` を作ります。
 - 最終キーの仕様は [Fortran パラメータファイル仕様](Parameters.html) を参照してください。
 
 ## 1. 基本フロー
@@ -22,7 +22,7 @@ beachx lint beach.toml
 beach beach.toml
 ```
 
-高水準記法を使っても別ファイルへ展開する必要はありません。Fortran parser が `box_origin` / `box_size`、`inject_region_mode`、`mesh.groups` などを実行時キーへ正規化してから検証します。
+高水準記法を使っても、別ファイルへ展開する必要はありません。Fortran parserは、`box_origin` / `box_size`、`inject_region_mode`、`mesh.groups`などを実行時キーへ正規化し、その後に検証します。
 
 ## 2. コマンド
 
@@ -36,7 +36,7 @@ beachx config init run.toml
 beachx config init --force
 ```
 
-初期値は、周期 2 軸 FMM、volume seed の電子・イオン、`photo_raycast` の電子放出、平面メッシュ、標準出力設定を含む小さな確認用設定です。
+初期値として、周期2軸FMM、volume seedの電子・イオン、`photo_raycast`による電子放出、平面mesh、標準出力を含む小規模な確認用設定を生成します。
 
 ### 2.2 `lint`
 
@@ -125,7 +125,7 @@ ny = 20
 
 ### 3.4 グループ配置
 
-`mesh.groups` は、複数 template に共通の原点やスケールを与えるための table です。
+`mesh.groups`は、複数のtemplateに共通の原点やスケールを与えるtableです。
 
 ```toml
 [mesh.groups.cavity_unit]
@@ -141,7 +141,7 @@ radius = 0.2
 center = [0.0, 0.0, 0.0]
 ```
 
-読み込み時に、`mesh.groups`、`group`、`scale_from` などから template ごとの実座標と実寸が決まります。
+読み込み時に、`mesh.groups`、`group`、`scale_from`などを使って、templateごとの実座標と実寸を決定します。
 
 ## 4. スキーマ
 
@@ -161,7 +161,7 @@ BEACH の Fortran パーサは「最初のセクションより前の `key = val
 
 ## 5. よくある失敗
 
-### 5.1 top-level key の位置が違う
+### 5.1 top-level keyを置く位置が正しくない
 
 実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書きます。
 最初のセクションより前に通常キーを置いたり、未知の top-level セクションを追加したりすると validation または Fortran 読み込みで失敗します。
@@ -170,6 +170,6 @@ BEACH の Fortran パーサは「最初のセクションより前の `key = val
 
 `box_origin` / `box_size` と `box_min` / `box_max` のように、同じ値を表す高水準キーと実行時キーを同時に書くと検証で失敗します。どちらか一方に揃えてください。
 
-### 5.3 実行前に確認したい
+### 5.3 実行前に設定を検査する
 
 `beachx lint beach.toml` で TOML parse、schema、高水準記法の整合性、既知の BEACH 制約をまとめて確認できます。

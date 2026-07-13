@@ -1,75 +1,60 @@
-title: Particle tracking and collision
+title: Particle update
 
-Lang: [English](ParticleTrackingCollision.en.md) | [日本語](ParticleTrackingCollision.md)
+Lang: [日本語](ParticleTrackingCollision.md) | [English](ParticleTrackingCollision.en.md)
 
-# Particle tracking and collision
+# Particle update
 
-BEACH stores position and velocity at the same time and treats the Boris velocity update, trapezoidal position
-update, and box/mesh event selection as one step.
+BEACH stores particle position and velocity at the same time level. Each step first constructs a next-time candidate, then
+commits the trajectory only as far as the earliest mesh or box event.
 
-## Same-time Boris update
+```text
+(xⁿ, vⁿ)
+    │ sample the field once at a predicted midpoint
+    ▼
+Boris velocity update + trapezoidal position update
+    │
+    ▼
+candidate (xⁿ⁺¹, vⁿ⁺¹)
+    │ compare mesh hit and box-face crossing
+    ├─ mesh first ─────── absorb
+    ├─ open face first ── escape or pass to the outer interface
+    └─ reflect/periodic ─ re-integrate the remaining time
+```
 
-For input $(\mathbf{x}^n,\mathbf{v}^n)$, the electric field is evaluated once at a predicted midpoint.
-
-$$
-\mathbf{x}_\mathrm{mid}=\mathbf{x}^n+\frac12\mathbf{v}^n\Delta t,
-\qquad
-\mathbf{E}_\mathrm{mid}=\mathbf{E}(\mathbf{x}_\mathrm{mid})+\mathbf{E}_0
-$$
-
-A Boris rotation with this field and uniform `sim.b0` gives $\mathbf{v}^{n+1}$. Position uses a trapezoidal
-update.
-
-$$
-\mathbf{x}^{n+1}=\mathbf{x}^n+
-\frac12(\mathbf{v}^n+\mathbf{v}^{n+1})\Delta t
-$$
-
-Public state does not store half-step velocity. The contract is second-order position and velocity in a smooth
-prescribed field, and speed-norm preservation to roundoff in a pure magnetic field.
-
-## Event ordering
-
-The earliest triangle collision or box crossing is selected along the candidate motion.
-
-| First event | Behavior |
+| Stage | Details |
 | --- | --- |
-| Mesh hit | Absorb at the surface; discard the candidate endpoint |
-| Open face | Escape or transfer to an outer model |
-| Reflecting face | Reverse normal velocity and reintegrate remaining time |
-| Periodic face | Wrap and reintegrate remaining time |
+| Field sample, Boris rotation, and position update | [Boris particle update](BorisPusher.en.html) |
+| Triangle collision, box faces, periodic images, and event ordering | [Particle collision and boundary events](ParticleEvents.en.html) |
+| Absorption and element charge delta after an event | [Surface charge update](SurfaceModels.en.html) |
+| Escape, return, and outer transfer at an open face | [Particle sources and boundaries](ParticleSourcesBoundaries.en.html), [outer-plasma models](OuterPlasmaModels.en.html) |
 
-A safety limit bounds box events in one step. Event processing that cannot make finite progress fails closed.
+## State committed by one step
 
-## Triangle collision
+A step ends in an ordinary next-time state, surface absorption, box escape, an outer-interface crossing, or an incomplete status.
+Reflect and periodic events keep the particle alive and advance the remaining time with the same update method.
 
-Small meshes use a linear element scan. Larger meshes use a uniform AABB grid and 3D-DDA traversal to select
-candidates. Möller–Trumbore intersection is applied to candidate triangles, and the smallest segment parameter
-defines the first hit.
+For a mesh hit, the hit position and element index are committed and the candidate endpoint is discarded. The absorbed charge
+does not immediately change the field. It is accumulated in a thread-local element delta and committed at the end of the batch.
 
-Degenerate triangles, nonfinite coordinates, stalled DDA state, and excessive periodic-image ranges do not
-continue as “no hit”; they return status and stop coherently.
+## Step limit
 
-## periodic2 collision
+A particle advances at most `sim.max_step` times while waiting for absorption or escape. A particle still unclassified at the
+limit is counted as `survived_max_step`, not silently reassigned to absorption or escape.
 
-The mesh stores primary-cell elements only. BEACH computes the periodic images that can intersect a particle
-segment and shifts the segment back to the base mesh for each test. Both physical-image and wrapped hit positions
-are retained.
+`sim.dt` is one particle-step interval, and `sim.max_step * sim.dt` is the maximum tracked time for one particle.
+`batch_duration`, in contrast, connects particle supply to surface-charge updates and is not the particle-step interval.
 
-Field images and collision images serve different purposes. See
-[periodic2 field evaluation](PeriodicElectrostatics.en.html) for the field treatment.
+## First checks
 
-## Unresolved particles
+- halve `sim.dt` and check stability of trajectories, hit elements, and absorbed counts
+- verify that `survived_max_step` is too small to affect the conclusion
+- exercise trajectories crossing a periodic seam, corner, or post-reflection remainder
+- reconcile absorbed, escaped, and unresolved particle counts with the charge ledger
 
-A particle that reaches `sim.max_step` without absorption or escape is counted as `survived_max_step`. It is not
-silently reclassified as absorbed or escaped.
+See [Configuration parameters](Parameters.en.html) for settings and [Output guide](OutputGuide.en.html) for result categories.
 
-## Numerical checks
+## Code reference
 
-- Halve `sim.dt` and compare trajectory, hit position, and outcomes.
-- Refine the mesh and check first-hit stability.
-- Verify that `survived_max_step` does not affect the conclusion.
-- Test trajectories crossing periodic seams.
-
-Full equations and status tables remain in the legacy combined
-[Particle tracking and surface charge accumulation](ParticleChargeLoop.en.html#8-particle-time-integration-boris-velocity-update-and-same-time-state).
+- Step candidates and event ordering: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
+- Batch loop tracking particles: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
+- Step regression tests: [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90)

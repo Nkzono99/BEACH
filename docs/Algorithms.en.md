@@ -5,107 +5,111 @@ Lang: [English](Algorithms.en.md) | [日本語](Algorithms.md)
 # Computational model overview
 
 BEACH couples the electric field produced by charge on triangular surfaces with charged-particle motion in
-batches. It is not a grid PIC code: boundary-element charges act as the sources for electric-field and
-potential evaluation.
+batches. Boundary-element charge acts as the source for electric-field and potential evaluation, and particle collision charge
+accumulates on the same elements.
 
-This page describes only the overall computation. Equations, discretizations, and implementation details are
-kept in the linked pages.
+## The n-batch computation flow
 
-## Persistent state
+Here, `n = sim.batch_count`. A resumed run starts after the batches completed in the checkpoint and repeats the
+same flow until the cumulative count reaches `n`.
 
-The main state carried between batches is:
+```mermaid
+flowchart TD
+    start(["Initialize / load checkpoint"])
+    more{"batch i < n?"}
 
-| State | Contents |
-| --- | --- |
-| Surface mesh | Triangle vertices, centroids, normals, areas, and surface models |
-| Element charge | Total accumulated charge `q_elem` on each triangle |
-| Injection state | Values carried to the next batch, such as fractional reservoir macro-particle counts |
-| Statistics | Absorption, escape, unresolved particles, and completed batches |
-| Restart data | RNG state and model/mesh/species fingerprints |
+    subgraph batch["batch i"]
+        direction TB
+        subgraph prepare["snapshot / source"]
+            direction LR
+            p1["1. Refresh snapshot"] --> p2["2. Generate particles"]
+        end
 
-Particles are normally created and tracked within one batch. Charge from particles absorbed by the surface is
-added to the element charge and contributes to the field in the next batch.
+        subgraph particle_loop["particle step loop"]
+            direction LR
+            p3["3. Advance one step"] --> p4["4. Process event"] --> tracking{"Continue?"}
+            tracking -- "Next step" --> p3
+        end
 
-## One-batch flow
+        subgraph batch_end["batch-end update"]
+            direction LR
+            p5["5. Aggregate"] --> p6["6. Commit charge"] --> p7["7. Statistics / history"]
+        end
 
-```text
-Current surface charge
-        ↓
-Evaluate field and potential
-        ↓
-Generate particles
-        ↓
-Advance particles ── select the first box or triangle event
-        ↓
-Accumulate charge deltas from absorbed particles
-        ↓
-Commit element charge
-        ↓
-Update statistics, history, and restart state
+        prepare --> particle_loop --> batch_end
+    end
+
+    finish(["Final output / checkpoint"])
+    start --> prepare
+    more -- "Yes" --> prepare
+    batch_end --> more
+    more -- "No" --> finish
 ```
 
-Charge deltas are committed at the end of the batch rather than immediately for each particle. Particles in
-one batch therefore share a field produced by the surface charge at the start of that batch. See the
-[batch coupling algorithm](BatchAlgorithm.en.html) for the detailed ordering.
+Particles in one batch share the field snapshot fixed in step 1. Surface charge committed in step 6 first
+contributes to the field when step 1 runs for the next batch.
 
-## Physical models
+### 1. Refresh the field and outer-model snapshot
 
-### Surface interaction
+The field and potential held fixed during particle tracking are built from `q_elem` committed through the
+previous batch. See [Field evaluation](FieldSolvers.en.html) for direct, treecode, and FMM selection,
+[periodic2 electrostatics](PeriodicElectrostatics.en.html) for periodic sums, and
+[Outer plasma models](OuterPlasmaModels.en.html) for coupling to the exterior.
 
-The primary model absorbs particles at the surface and accumulates their charge on the hit insulating element.
-Floating-conductor equipotential relaxation is available, while `epsilon_r` on a `dielectric` is currently
-metadata rather than an independent polarization boundary condition.
+### 2. Generate the batch particles
 
-See [Surface charging models](SurfaceModels.en.html) for post-collision deposition and surface models.
+BEACH creates the particles to track in this batch from `volume_seed`, `reservoir_face`, and `photo_raycast`
+sources. Reservoir counts follow inflow flux and `batch_duration`; photoelectrons originate at the first surface
+hit by a ray. See [Particle sources](ParticleSourcesBoundaries.en.html),
+[Reservoir injection](ReservoirInjection.en.html), and
+[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html).
 
-### Particle sources and outer boundaries
+### 3. Advance a particle by one step
 
-Particles can be generated from volume seeds, reservoir faces, and photo ray casts. A particle moving through
-an open boundary can escape, reflect, or return according to the selected boundary model.
+In the fixed snapshot and optional uniform magnetic field, BEACH updates velocity with the Boris method and
+position with a same-time trapezoidal rule. This produces a candidate trajectory; event processing determines
+the final state within the step. See [Boris particle update](BorisPusher.en.html).
 
-See [Particle sources and boundaries](ParticleSourcesBoundaries.en.html) for generation and box boundaries, and
-[Outer plasma models](OuterPlasmaModels.en.html) for sheath and return closures.
+### 4. Select and process the first event
 
-### Periodic domains and outer plasma
+BEACH selects the earliest triangle hit or box-face crossing along the candidate trajectory, then applies
+absorption, reflection, periodic wrapping, escape, or outer return. A surviving particle with steps remaining
+returns to step 3. See [Particle collision and boundary events](ParticleEvents.en.html) and
+[Particle escape and return](ParticleEscapeReturn.en.html).
 
-`periodic2` is a two-axis-periodic field boundary. It distinguishes near images, the infinite-periodic nonzero
-mode, the surface-average zero mode, and an optional outer-plasma response.
+### 5. Aggregate batch results
 
-See [periodic2 field evaluation](PeriodicElectrostatics.en.html) and
-[Outer plasma models](OuterPlasmaModels.en.html).
+Surface-hit charge deltas, photoemission reaction charge, particle outcomes, and outer-interface diagnostics are
+aggregated. OpenMP keeps collision charge thread-local, and quantities that must be global are reduced across MPI
+ranks. See [Run a simulation](Execution.en.html) for the parallel execution structure.
 
-## Numerical methods
+### 6. Commit surface charge
 
-### Particle tracking
+The global charge delta is added to `q_elem` once. Floating conductors are then relaxed toward equipotential while
+preserving object charge when requested. See [Surface charge update](SurfaceModels.en.html) for insulator charging,
+photoemission signs, conductor processing, and the charge ledger.
 
-Velocity is updated with the Boris method and position with a trapezoidal update using same-time states. Each
-step checks the motion segment against box boundaries and mesh triangles and accepts only the earliest event.
+### 7. Update statistics and history state
 
-### Field and potential
+BEACH updates absorption, escape, `max_step` survivor counts, and `tol_rel`, then writes charge and potential
+history at the configured stride. `tol_rel` is a monitoring metric, not an early-stop condition. See
+[Output files](OutputGuide.en.html) and [Run a simulation](Execution.en.html). Final results and the checkpoint are
+written after all `n` batches complete.
 
-Triangle charge is evaluated either as a point charge at the centroid or as a constant density over the
-triangle. Direct, treecode, and FMM evaluation are available according to problem size and boundary conditions.
-See [Field solvers and boundary conditions](FieldSolvers.en.html).
+## State carried between batches
 
-### Time scales
-
-`sim.dt` is the particle integration step. `batch_duration` instead connects particle supply with surface-charge
-updates. See [`batch_duration` stability and steady value](BatchDurationStability.en.html) for stability and
-convergence checks.
-
-## Documentation map
-
-| Question | Page |
+| State | Role in the next batch |
 | --- | --- |
-| What is the update order within one batch? | [Batch coupling algorithm](BatchAlgorithm.en.html) |
-| How is absorbed charge stored on surfaces? | [Surface charging models](SurfaceModels.en.html) |
-| How are particles generated and handled at box boundaries? | [Particle sources and boundaries](ParticleSourcesBoundaries.en.html) |
-| How are particles advanced and collided with triangles? | [Particle tracking and collision](ParticleTrackingCollision.en.html) |
-| How should direct, treecode, or FMM be selected? | [Field solvers and boundary conditions](FieldSolvers.en.html) |
-| How are periodic images and the zero mode combined? | [periodic2 field evaluation](PeriodicElectrostatics.en.html) |
-| How do sheath, outer plasma, escape, and return work? | [Outer plasma models](OuterPlasmaModels.en.html) |
-| How should FMM be selected and verified? | [Field evaluation with FMM](FMM.en.html) |
-| How is the FMM core implemented? | [Coulomb FMM core details](FMMCore.en.html) |
-| How should discretization convergence be checked? | [Validate simulation results](ValidationGuide.en.html) |
+| Element charge `q_elem` | Becomes the field source in step 1 |
+| Reservoir residuals, RNG, and outer state | Continue particle generation and outer refresh |
+| Statistics and history | Preserve cumulative results and the restart position |
+| Model, mesh, and species fingerprints | Validate checkpoint compatibility |
 
-Use the [Configuration parameters](Parameters.en.html) when looking for input keys.
+`sim.dt` is the particle step size in step 3. `batch_duration` instead connects particle supply in step 2 with
+the charge update in step 6. Check its sensitivity using
+[`batch_duration` stability and steady value](BatchDurationStability.en.html).
+
+See the [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) and
+[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html) for complete periodic
+setups. Input keys are listed in [Configuration parameters](Parameters.en.html), and discretization and result
+convergence are covered in [Validate simulation results](ValidationGuide.en.html).

@@ -4,14 +4,13 @@ Lang: [English](OutputGuide.en.md) | [日本語](OutputGuide.md)
 
 # Reading Output Files
 
-This page explains what to inspect under `outputs/latest/` after a first run.
+After a first run, inspect completion, charge balance, element charge, and history under `outputs/latest/` in that order.
 For plotting commands, see [Post-processing Tutorial](PostprocessTutorial.en.html). For all configuration keys, see [Input Parameters Reference](Parameters.en.html).
 
 ## First Checks
 
-These checks only confirm that the run reached the configured batch and wrote
-the required files. Evaluate the physical model and discretization separately
-using [Validating Simulation Results](ValidationGuide.en.html).
+First confirm that the run reached the configured batch and wrote the required files. After completion is established, evaluate
+the physical model and discretization with [Validating Simulation Results](ValidationGuide.en.html).
 
 1. `outputs/latest/summary.txt` exists.
 2. `batches` in `summary.txt` reaches the configured `sim.batch_count`.

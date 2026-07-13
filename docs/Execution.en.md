@@ -4,7 +4,8 @@ Lang: [English](Execution.en.md) | [日本語](Execution.md)
 
 # Run a simulation
 
-This page covers checking and running an existing `beach.toml`, estimating its workload, and resuming a run.
+Handle an existing `beach.toml` in the order of input validation, execution, and output inspection. Estimate workload before
+large runs, and resume from an existing checkpoint with the same configuration.
 Start with [Installation](Installation.en.html) if BEACH is not installed, or the
 [10-minute tutorial](Tutorial.en.html) if you do not have a case yet.
 
@@ -39,6 +40,12 @@ mpirun -n 4 beach beach.toml
 See [Development and testing](Workflow.en.html) for combined MPI/OpenMP execution, compiler settings, and
 KUDPC-specific operation.
 
+Internally, OpenMP distributes particle indices with `dynamic, 1` to reduce imbalance from different particle
+lifetimes. Collision charge is accumulated thread-locally in `dq_thread(nelem, nth)` before being combined.
+MPI splits particle generation and tracking across ranks while each rank retains the same mesh and `q_elem`.
+The batch-end allreduces of `dq(nelem)` and outcome counts keep committed surface charge and statistics identical
+on every rank. The root writes normal results, history, and the global macro residual, while RNG state is saved per rank.
+
 ## Estimate the workload
 
 For `reservoir_face` and `photo_raycast`, particle counts per batch are dynamic, so estimate the workload first.
@@ -67,6 +74,10 @@ beachx profile outputs/latest/performance_profile.csv \
 ```
 
 For scaling comparisons, use `rank_max_s` on the `simulation_total` row of `performance_profile.csv`.
+The measured regions cover initialization, batch preparation, field refresh, particle tracking, charge commit,
+MPI reduction, statistics and history updates, and result and checkpoint output. They appear as `load_or_init`,
+`field_solver_init`, `prepare_batch`, `field_refresh`, `particle_batch`, `commit_charge`, `mpi_reduce`,
+`stats_update`, `history_write`, `write_results`, and `write_checkpoint`.
 
 ## Resume a run
 

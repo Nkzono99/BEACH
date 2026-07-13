@@ -1,73 +1,60 @@
-title: 粒子追跡と衝突
+title: 粒子更新
 
 Lang: [日本語](ParticleTrackingCollision.md) | [English](ParticleTrackingCollision.en.md)
 
-# 粒子追跡と衝突
+# 粒子更新
 
-BEACHは粒子の位置と速度を同じ時刻で保持し、Boris速度更新、台形位置更新、box／mesh event判定を
-1 stepとして実行します。
+BEACHは粒子の位置と速度を同じ時刻で保持します。1 stepごとに次時刻の候補を作り、
+meshとの衝突とbox境界の通過のうち、軌道上で最初に起こるものまでを確定します。
 
-## 同時刻Boris更新
+```text
+(xⁿ, vⁿ)
+    │ 予測中点で電場を1回評価
+    ▼
+Boris速度更新 + 台形位置更新
+    │
+    ▼
+(xⁿ⁺¹, vⁿ⁺¹) の候補
+    │ mesh hitとbox面通過を比較
+    ├─ meshが先 ────── 吸収
+    ├─ open面が先 ──── escapeまたはouter interfaceへ渡す
+    └─ reflect/periodic ─ 残り時間を再積分
+```
 
-入力を$(\mathbf{x}^n,\mathbf{v}^n)$とし、予測中点で電場を1回評価します。
-
-$$
-\mathbf{x}_\mathrm{mid}=\mathbf{x}^n+\frac12\mathbf{v}^n\Delta t,
-\qquad
-\mathbf{E}_\mathrm{mid}=\mathbf{E}(\mathbf{x}_\mathrm{mid})+\mathbf{E}_0
-$$
-
-この場と一様磁場`sim.b0`でBoris回転を行い、$\mathbf{v}^{n+1}$を得ます。位置は台形則で更新します。
-
-$$
-\mathbf{x}^{n+1}=\mathbf{x}^n+
-\frac12(\mathbf{v}^n+\mathbf{v}^{n+1})\Delta t
-$$
-
-public stateはhalf-step速度を保持しません。smoothな規定場では位置・速度とも二次精度、pure Bでは
-速度normを丸め誤差まで保存するcontractです。
-
-## eventの順序
-
-更新候補の線分／二次軌道について、三角形衝突とbox面通過の最初のeventを比較します。
-
-| 最初のevent | 処理 |
+| 工程 | 詳細 |
 | --- | --- |
-| mesh hit | 表面で吸収し、候補終点は採用しない |
-| open face | escapeまたはouter modelへtransfer |
-| reflect face | 法線速度を反転し、残り時間を再積分 |
-| periodic face | 反対側へwrapし、残り時間を再積分 |
+| 電場標本、Boris回転、位置更新 | [Boris粒子更新](BorisPusher.html) |
+| 三角形衝突、box面、periodic image、発生順序 | [粒子の衝突・境界イベント](ParticleEvents.html) |
+| 衝突・境界処理後の吸収と要素電荷差分 | [表面電荷更新](SurfaceModels.html) |
+| open面のescape、return、outer transfer | [粒子源](ParticleSourcesBoundaries.html)、[外部プラズマモデル](OuterPlasmaModels.html) |
 
-1 step中のbox event数には安全上限があり、有限回でevent処理が進まない場合はfail closedで停止します。
+## 1 stepで確定する状態
 
-## 三角形衝突
+stepの結果は、通常の次時刻状態、表面吸収、box escape、outer interface crossing、または未完了statusの
+いずれかです。reflectとperiodicは粒子を生存させ、境界処理後の残り時間を同じ更新法で進めます。
 
-要素数が小さいmeshでは全要素を調べ、大きいmeshではAABB一様gridと3D-DDAで候補を絞ります。
-候補三角形との交差はMöller–Trumbore法で判定し、線分parameterが最小の要素を最初の命中として採用します。
+mesh hitではhit位置と要素indexを確定し、候補終点を採用しません。吸収粒子の電荷はその場でfieldへ入れず、
+thread-localな要素電荷差分へ加え、batch末尾にcommitします。
 
-退化三角形、非有限座標、停止したDDA、過大なperiodic image範囲は「命中なし」として続行せず、statusを
-集約して停止します。
+## step数上限
 
-## periodic2 collision
+粒子は吸収またはescapeするまで最大`sim.max_step`回進めます。上限に達しても分類されなかった粒子は
+`survived_max_step`として記録し、暗黙に吸収やescapeへ数えません。
 
-meshはprimary cellの要素だけを保持します。粒子線分が交差し得る周期image範囲を計算し、線分を各imageの
-逆shiftでbase meshへ写して衝突を調べます。命中位置は物理image座標とprimary cellへwrapした座標の両方を
-保持します。
+`sim.dt`は1回の粒子更新幅、`sim.max_step * sim.dt`は1粒子を追跡できる最大時間です。
+一方、`batch_duration`は粒子供給量と表面電荷更新を結ぶ時間幅で、粒子step幅とは別です。
 
-場の周期画像と衝突の周期画像は目的が異なります。場の計算方法は
-[periodic2場計算](PeriodicElectrostatics.html)を参照してください。
+## 最初に確認するもの
 
-## 未解決粒子
+- `sim.dt`を半分にして軌道、命中要素、吸収数が安定するか
+- `survived_max_step`が結論に影響する割合になっていないか
+- periodic seam、corner、reflect後の残り時間を跨ぐ軌道が意図どおりか
+- 粒子の吸収・escape・未解決数と電荷ledgerが一致するか
 
-粒子が`sim.max_step`へ達しても吸収やescapeへ分類されなかった場合、`survived_max_step`として記録します。
-この粒子を暗黙に吸収・escape扱いしないことが電荷ledgerのcontractです。
+設定値は[設定パラメータ](Parameters.html)、出力での分類は[出力の読み方](OutputGuide.html)を参照してください。
 
-## 数値確認
+## Code reference
 
-- `sim.dt`を半分にして軌道・吸収位置・統計を比較する
-- mesh refinementで最初の衝突が安定することを確認する
-- `survived_max_step`が結論へ影響していないことを確認する
-- periodic seamを跨ぐ軌道を別途確認する
-
-完全な式とstatus一覧は旧統合文書
-[粒子追跡と表面電荷蓄積](ParticleChargeLoop.html#8-粒子時間積分-boris速度更新と同時刻状態)に残しています。
+- step候補と衝突・境界イベントの順序: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
+- 粒子を追跡するbatch loop: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
+- step回帰テスト: [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90)

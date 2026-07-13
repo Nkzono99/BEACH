@@ -6,7 +6,7 @@ Lang: [English](agent-user-guide.en.md) | [日本語](agent-user-guide.md)
 
 > Reference guide for AI agents operating BEACH simulations.
 > Intended to be loaded from CLAUDE.md with `@import docs/agent-user-guide.en.md`.
-> Normal BEACH users do not need to read this page. Start from [BEACH Documentation](index.en.html) instead.
+> [BEACH Documentation](index.en.html) is the entry point for normal use and execution instructions.
 
 ---
 
@@ -578,14 +578,25 @@ BEACH/
 | `docs/Parameters.en.md` | Detailed parameter specification |
 | `docs/Execution.en.md` | Normal runs, workload estimation, and resume |
 | `docs/Workflow.en.md` | Development, testing, and HPC operation |
-| `docs/Algorithms.en.md` | Algorithm overview |
-| `docs/BatchAlgorithm.en.md` | Batch coupling and charge-commit order |
-| `docs/SurfaceModels.en.md` | Surface absorption and charge accumulation |
-| `docs/ParticleSourcesBoundaries.en.md` | Particle sources and box boundaries |
-| `docs/ParticleTrackingCollision.en.md` | Boris tracking and collision |
-| `docs/FieldSolvers.en.md` | Field solver selection |
+| `docs/Algorithms.en.md` | Computational model and batch-loop overview |
+| `docs/SurfaceModels.en.md` | Batch charge commit and surface models |
+| `docs/ParticleSourcesBoundaries.en.md` | Particle-source overview |
+| `docs/ReservoirInjection.en.md` | Reservoir flux, velocity distributions, and potential mapping |
+| `docs/PhotoelectronEmission.en.md` | Photoelectron emission and lifecycle |
+| `docs/SheathInjectionClosures.en.md` | Zhao and floating source-VDF corrections |
+| `docs/ParticleTrackingCollision.en.md` | Particle-update flow |
+| `docs/BorisPusher.en.md` | Boris velocity and position update |
+| `docs/ParticleEvents.en.md` | Triangle collisions and box-boundary events |
+| `docs/FieldSolvers.en.md` | Field-evaluation selection and common settings |
+| `docs/DirectSolver.en.md` | Direct field and potential evaluation |
+| `docs/Treecode.en.md` | Treecode construction, accuracy, and constraints |
 | `docs/PeriodicElectrostatics.en.md` | periodic2 field and zero mode |
+| `docs/FinitePeriodicConfiguration.en.md` | Integrated finite-image and scalar-boundary configuration |
+| `docs/InfinitePeriodicOuterConfiguration.en.md` | Integrated infinite-periodic and outer-plasma configuration |
 | `docs/OuterPlasmaModels.en.md` | Outer plasma and return closures |
+| `docs/KineticOuterPlasma.en.md` | Kinetic 1-D outer Poisson solve |
+| `docs/UnifiedLinearResponse.en.md` | Unified linear response with rough surfaces |
+| `docs/ParticleEscapeReturn.en.md` | Open boundaries, 1-D return, and 3-D outer orbits |
 | `docs/FMM.en.md` | FMM selection and verification |
 | `docs/FMMCore.en.md` | FMM internals and Ewald |
 | `docs/BatchDurationStability.en.md` | `batch_duration` stability |
