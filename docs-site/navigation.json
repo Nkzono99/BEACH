@@ -67,6 +67,7 @@
         {
           "type": "group",
           "label": { "root": "物理モデル", "en": "Physical models" },
+          "collapsed": true,
           "items": [
             { "type": "page", "slug": "surface-models" },
             { "type": "page", "slug": "particle-sources-boundaries" },
@@ -76,6 +77,7 @@
         {
           "type": "group",
           "label": { "root": "数値手法", "en": "Numerical methods" },
+          "collapsed": true,
           "items": [
             { "type": "page", "slug": "particle-tracking-collision" },
             { "type": "page", "slug": "field-solvers" },
@@ -86,6 +88,7 @@
         {
           "type": "group",
           "label": { "root": "数値特性", "en": "Numerical behavior" },
+          "collapsed": true,
           "items": [
             { "type": "page", "slug": "batch-duration-stability" }
           ]

@@ -20,6 +20,7 @@ function mapSidebarItems(items) {
       return {
         label: item.label.root,
         translations: { en: item.label.en },
+        ...(item.collapsed === true ? { collapsed: true } : {}),
         items: mapSidebarItems(item.items),
       };
     }
