@@ -129,13 +129,13 @@ GitHub Raw URL を指定することもできます。
 | `direct` | 要素数が小さい場合の厳密な全対全評価 | `field_bc_mode="free"` |
 | `treecode` | 中規模以上の近似評価 | `field_bc_mode="free"` |
 | `fmm` | 大規模評価、`periodic2`、FMM コア検証 | `field_bc_mode="free"` / `"periodic2"` |
-| `auto` | 要素数に応じて direct / treecode を自動選択 | `field_bc_mode="free"` |
+| `auto` | point は direct / treecode、triangle P0 は direct / FMM を要素数で自動選択 | `field_bc_mode="free"` |
 
 共通キー:
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `softening` | float | `1.0e-6` | Coulomb 場計算の softening 長さ [m] |
+| `softening` | float | `1.0e-6` | point kernel の softening 長さ [m]。`triangle_p0` では `0` が必須 |
 | `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
 | `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` で使う長さスケール [m] |
@@ -158,7 +158,7 @@ GitHub Raw URL を指定することもできます。
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"direct"` を指定 |
-| `softening` | float | `1.0e-6` | source と評価点が近いときの特異性を緩和 |
+| `softening` | float | `1.0e-6` | point source の特異性を緩和。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | direct 評価前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `field_bc_mode` | string | `"free"` | `direct` では `"free"` のみ |
@@ -191,7 +191,7 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"fmm"` を指定 |
-| `softening` | float | `1.0e-6` | 近傍 direct 和と FMM 評価の softening |
+| `softening` | float | `1.0e-6` | point source の近傍 direct 和と FMM 評価に使用。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | FMM plan 構築前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `tree_theta` | float | `0.5` | near/far 判定の MAC パラメータ。`0 < theta <= 1` |
@@ -209,13 +209,13 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 
 ##### `field_solver = "auto"`
 
-要素数が `tree_min_nelem` 未満なら direct、以上なら treecode を使います。
-`auto` は FMM へは切り替えません。
+`element_kernel="point"` は要素数が `tree_min_nelem` 未満なら direct、以上なら treecode を使います。
+`element_kernel="triangle_p0"` は同じしきい値で direct / FMM を選びます。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"auto"` を指定 |
-| `softening` | float | `1.0e-6` | direct / treecode の softening |
+| `softening` | float | `1.0e-6` | point の direct / treecode に使用。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | 自動選択前に共通で使う正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `tree_min_nelem` | int | `256` | treecode へ切り替える要素数しきい値。`>= 1` |
@@ -357,6 +357,10 @@ photoelectronを含む例は`examples/periodic2_photoelectron_individual_return.
 
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
 詳細は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) を参照してください。
+
+`reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で refresh 済みの
+electrostatic snapshot から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、
+outer profile、一様外部場 `e0` は粒子運動時と同じ規約で含まれます。
 
 #### 計算領域と粒子境界
 
@@ -506,7 +510,9 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 実際の生成粒子数はレイの命中率で決まるため、バッチごとの生成数は `rays_per_batch` 以下です。
 `field_bc_mode="periodic2"` では、periodic image に命中しても primary cell に wrap した hit 座標から放出します。
 
-`photo_escape_model="boltzmann_cutoff"` では、放出元要素の自己寄与を除いた中心電位で障壁を評価します。
+`photo_escape_model="boltzmann_cutoff"` では、refresh 済み electrostatic snapshot による放出元要素の
+中心電位で障壁を評価します。primary cell の放出元要素自身だけを除き、周期画像、zero mode、outer profile、
+一様外部場 `e0` は残します。`triangle_p0` の自己項には解析 panel 電位を使います。
 
 ```text
 barrier = max(phi_emit - phi_infty, 0)
@@ -609,7 +615,7 @@ OBJ の対応範囲:
 
 ### `[field]`: 要素核
 
-`element_kernel="point"` が互換既定です。`element_kernel="triangle_p0"` は各要素の `q_elem` を三角形上の一定面密度として扱い、`sim.field_solver="direct" | "fmm" | "auto"` で利用できます。auto は `tree_min_nelem` で direct/FMM を選びます。`sim.softening=0` と全表面 `insulator` が必須です。FMM は厳密 panel near/P2M を使い、`m2l_root_oracle` は point-source 専用のため拒否します。OBJ では `[mesh].surface_side`、template では各 `[[mesh.templates]].surface_side` を明示してください。`outward_closed` は閉じた向き整合 two-manifold にだけ使えます。
+`element_kernel="point"` が互換既定で、`sim.softening` はこの point kernel に適用されます。`element_kernel="triangle_p0"` は各要素の `q_elem` を三角形上の一定面密度として扱い、`sim.field_solver="direct" | "fmm" | "auto"` で利用できます。auto は `tree_min_nelem` で direct/FMM を選びます。`sim.softening=0` と全表面 `insulator` が必須です。FMM は厳密 panel near/P2M を使い、`m2l_root_oracle` は point-source 専用のため拒否します。OBJ では `[mesh].surface_side`、template では各 `[[mesh.templates]].surface_side` を明示してください。`outward_closed` は閉じた向き整合 two-manifold にだけ使えます。
 無効化された template は mesh に追加されず、`mesh_id` も消費しません。
 
 `kind` の概要:

@@ -278,6 +278,7 @@ contains
   !! @param[out] pcls 生成したバッチ粒子群。
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
+  !! @param[inout] snapshot refresh 済み静電 snapshot（電位障壁 closure 使用時に必要）。
   !! @param[in] outer_state 現在バッチの外部プラズマ状態（kinetic 1D流入写像時に必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
   !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
@@ -896,7 +897,7 @@ contains
   end subroutine compute_macro_particles_for_species
 
   !> reservoir_face の target 個数からシース補正込み重みを解決する。
-  !! @param[in] sim シミュレーション設定。
+  !! @param[in] cfg シミュレーション・結合設定を含むアプリ設定。
   !! @param[in] spec reservoir_face 粒子種設定。
   !! @param[in] number_density_m3 実効数密度 [1/m^3]。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]。
@@ -938,11 +939,12 @@ contains
   end subroutine apply_normal_speed_override
 
   !> reservoir_face 注入に対する法線速度補正パラメータを計算する。
-  !! @param[in] sim シミュレーション設定。
+  !! @param[in] cfg シミュレーション・結合設定を含むアプリ設定。
   !! @param[in] spec reservoir_face 粒子種設定。
   !! @param[out] vmin_normal 無限遠法線速度の下限 [m/s]。
   !! @param[out] barrier_normal 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（補正時に必要）。
+  !! @param[inout] snapshot refresh 済み静電 snapshot（legacy infinity barrier 使用時に必要）。
   subroutine reservoir_face_velocity_correction(cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, outer_state)
     type(app_config), intent(in) :: cfg
     type(particle_species_spec), intent(in) :: spec
@@ -1057,6 +1059,7 @@ contains
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ。
   !! @param[in] sim シミュレーション設定。
   !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[inout] snapshot refresh 済み静電 snapshot。
   !! @param[out] phi_face 注入開口面の平均電位 [V]。
   subroutine compute_face_average_potential(mesh, sim, spec, snapshot, phi_face)
     type(mesh_type), intent(in) :: mesh

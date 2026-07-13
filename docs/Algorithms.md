@@ -49,7 +49,12 @@ BEACH の主状態は、三角形メッシュ要素の電荷 `q_elem(i)` と、b
 
 ### 1.2 物理近似
 
-各三角形要素は、重心 `c_i` にある点電荷 `q_i` として場に寄与します。要素面積上の連続電荷分布を積分する厳密 BEM ではなく、現行実装は重心点電荷近似です。
+境界要素の source model は `field.element_kernel` で選びます。互換既定の `"point"` と、
+三角形上の一定面密度を積分する `"triangle_p0"` の2系統があります。
+
+#### Point source
+
+`element_kernel="point"` では、各三角形要素は重心 `c_i` にある点電荷 `q_i` として場に寄与します。
 
 softening 付き Coulomb kernel:
 
@@ -76,6 +81,29 @@ k_\mathrm{c}
 $$
 
 ここで `k_coulomb` は [`bem_constants`](../src/core/bem_constants.f90) の Coulomb 定数です。
+
+#### P0 triangle source
+
+`element_kernel="triangle_p0"` では `q_j` を要素総電荷、`A_j` を要素面積、
+`sigma_j=q_j/A_j` を三角形 `T_j` 上の一定面密度として扱います。
+
+$$
+\phi(\mathbf{x}) =
+k_\mathrm{c}\sum_j \frac{q_j}{A_j}
+\int_{T_j}\frac{1}{\lVert\mathbf{x}-\mathbf{y}\rVert}\,dA_{\mathbf{y}}
+$$
+
+$$
+\mathbf{E}(\mathbf{x}) =
+k_\mathrm{c}\sum_j \frac{q_j}{A_j}
+\int_{T_j}\frac{\mathbf{x}-\mathbf{y}}
+{\lVert\mathbf{x}-\mathbf{y}\rVert^3}\,dA_{\mathbf{y}}
+$$
+
+direct はこの panel 積分を解析式で評価します。FMM は近傍を同じ解析 panel kernel、遠方 P2M を
+三角形上の monomial の厳密面積平均で評価します。`triangle_p0` は `sim.softening=0` を必須とし、
+softened point source へ fallback しません。
+
 粒子が実際に受ける電場は、境界要素電荷による場に一様外部電場 `sim.e0` を加えたものです。
 
 ### 1.3 実行単位
@@ -283,7 +311,7 @@ $$
 
 ---
 
-### Direct P0 triangle panel
+### P0 triangle panel kernels
 
 `field.element_kernel="triangle_p0"` では `q_elem` を要素総電荷、`sigma=q_elem/area` を一定面密度として、辺対数項と signed solid angle による解析式で電位・電場を評価します。面上評価は `bem_panel_self_terms` が所有し、電位は連続、principal-value 法線場は両側極限の平均、真空側極限は `elem_vacuum_sign` で選びます。幾何、辺量、厳密一次・二次 moment、7点求積 plan は mesh 初期化時に固定し、batch 更新では電荷だけを変更します。
 

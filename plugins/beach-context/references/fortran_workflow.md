@@ -357,6 +357,7 @@ bind有無の差は0.4%未満だった。
 
 - 通常実行は `sim.batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `sim.batch_count` に達するまで進みます。
 - `sim.tol_rel` は監視値で、現行実装では早期終了条件に使いません。
-- Fortran 本体の電場は要素重心点電荷近似 + `sim.softening` です。
+- Fortran 本体の要素核は `field.element_kernel` で選びます。互換既定の `point` は要素重心点電荷 +
+  `sim.softening`、`triangle_p0` は要素総電荷を三角形上の一定面密度として積分し、`softening=0` を必須とします。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。

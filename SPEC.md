@@ -16,7 +16,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 ### 2.1 実装済み（現行）
 
 - 三角形メッシュ（template / OBJ）
-- 静電場（既定は要素重心の点電荷近似 + softening。`field.element_kernel="triangle_p0"` では要素総電荷を三角形上の一定面密度として積分する厳密 free-space direct 核を使用）
+- 静電場（既定は要素重心の point kernel + softening。`field.element_kernel="triangle_p0"` では要素総電荷を三角形上の一定面密度として扱い、direct/FMM の panel kernel で評価）
 - 一様外部磁場 `b0`（任意）
 - Boris 法による粒子更新
 - 線分 vs 三角形の最初の交差判定
@@ -94,7 +94,7 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 
 ### 5.1 電場
 
-Fortran 本体の電場計算は次式です（要素重心点電荷近似）:
+互換既定の `field.element_kernel="point"` は、要素重心点電荷と softening による次式を使います:
 
 - `E(r) = k * Σ_j q_j * (r - c_j) / (|r - c_j|^2 + softening^2)^(3/2)`
 

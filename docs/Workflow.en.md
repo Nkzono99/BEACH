@@ -454,7 +454,9 @@ the measured 300-batch fixture, binding changed elapsed time by less than 0.4%.
 - A normal run advances exactly `sim.batch_count` batches. A resume run advances from the checkpoint batch count
   until `sim.batch_count` is reached.
 - `sim.tol_rel` is a monitoring value. It is not used as an early-stop condition in the current implementation.
-- The Fortran electric field uses element-centroid point-charge approximation plus `sim.softening`.
+- `field.element_kernel` selects the Fortran element kernel. The compatibility-default
+  `point` model uses element-centroid point charges plus `sim.softening`; `triangle_p0`
+  integrates each total element charge as a constant triangle density and requires zero softening.
 
 For a camphor MPI job example, see `examples/job_scripts/camphor_mpi_hybrid_job.sh`.
 `test-physics-release` sequentially runs the L1 convergence subset, L3-heavy, far-correction correctness,

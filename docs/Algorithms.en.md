@@ -48,8 +48,14 @@ The main data types are defined in [`bem_types`](../src/core/bem_types.f90).
 
 ### 1.2 Physical approximation
 
-Each triangular element contributes to the field as a point charge `q_i` at its centroid `c_i`.
-The current implementation uses a centroid point-charge approximation, not an exact BEM integration over a continuous surface charge distribution.
+`field.element_kernel` selects the boundary-element source model. BEACH provides
+the compatibility-default `"point"` model and the `"triangle_p0"` model, which
+integrates a constant surface density over each triangle.
+
+#### Point sources
+
+With `element_kernel="point"`, each triangular element contributes as a point
+charge `q_i` at its centroid `c_i`.
 
 Softened Coulomb kernel:
 
@@ -76,6 +82,30 @@ k_\mathrm{c}
 $$
 
 Here `k_coulomb` is the Coulomb constant from [`bem_constants`](../src/core/bem_constants.f90).
+
+#### P0 triangle sources
+
+With `element_kernel="triangle_p0"`, `q_j` is the total element charge, `A_j` is
+the element area, and `sigma_j=q_j/A_j` is a constant density over triangle `T_j`.
+
+$$
+\phi(\mathbf{x}) =
+k_\mathrm{c}\sum_j \frac{q_j}{A_j}
+\int_{T_j}\frac{1}{\lVert\mathbf{x}-\mathbf{y}\rVert}\,dA_{\mathbf{y}}
+$$
+
+$$
+\mathbf{E}(\mathbf{x}) =
+k_\mathrm{c}\sum_j \frac{q_j}{A_j}
+\int_{T_j}\frac{\mathbf{x}-\mathbf{y}}
+{\lVert\mathbf{x}-\mathbf{y}\rVert^3}\,dA_{\mathbf{y}}
+$$
+
+The direct backend evaluates these panel integrals analytically. FMM uses the
+same analytic panel kernel for near interactions and exact triangle-averaged
+monomials for far-field P2M. `triangle_p0` requires `sim.softening=0` and never
+falls back to softened point sources.
+
 The field applied to particles is the boundary-element field plus the uniform external field `sim.e0`.
 
 ### 1.3 Execution unit
@@ -130,7 +160,7 @@ The mesh is built from templates or an OBJ file according to `mesh.mode`. For te
 4. Assign a `mesh_id` per template.
 5. Expand `surface_model` and `epsilon_r` to element arrays.
 
-### Direct P0 triangle panels
+### P0 triangle panel kernels
 
 With `field.element_kernel="triangle_p0"`, `q_elem` is total element charge and `sigma=q_elem/area` is constant surface density. Potential and field use the analytic edge-log and signed-solid-angle expressions. `bem_panel_self_terms` owns on-surface evaluation: potential is continuous, the principal-value normal field is the average of the two traces, and `elem_vacuum_sign` selects the vacuum trace. Geometry, edge data, exact first/second moments, and a seven-point quadrature plan are cached when the mesh is built; batches update charge only.
 

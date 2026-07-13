@@ -135,13 +135,13 @@ corresponding parameters for each option.
 | `direct` | Exact all-to-all evaluation for small element counts | `field_bc_mode="free"` |
 | `treecode` | Approximate evaluation for medium and larger cases | `field_bc_mode="free"` |
 | `fmm` | Large-scale evaluation, `periodic2`, FMM core validation | `field_bc_mode="free"` / `"periodic2"` |
-| `auto` | Automatically choose direct / treecode based on element count | `field_bc_mode="free"` |
+| `auto` | Select direct / treecode for point sources or direct / FMM for triangle P0 sources based on element count | `field_bc_mode="free"` |
 
 Common keys:
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `softening` | float | `1.0e-6` | Softening length for Coulomb field calculation [m] |
+| `softening` | float | `1.0e-6` | Softening length for the point kernel [m]. Must be `0` for `triangle_p0` |
 | `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
 | `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `field_length_scale` | float | `1.0` | Length scale used with `field_normalization="length"` [m] |
@@ -166,7 +166,7 @@ and `N` is the number of elements.
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"direct"` |
-| `softening` | float | `1.0e-6` | Relaxes singularity when a source and evaluation point are close |
+| `softening` | float | `1.0e-6` | Relaxes point-source singularities; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before direct evaluation |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `field_bc_mode` | string | `"free"` | Only `"free"` is supported for `direct` |
@@ -202,7 +202,7 @@ P2M/M2M/M2L/L2L/L2P plus near direct sums. See
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"fmm"` |
-| `softening` | float | `1.0e-6` | Softening for near direct sums and FMM evaluation |
+| `softening` | float | `1.0e-6` | Used by point-source near sums and FMM evaluation; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before FMM plan construction |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `tree_theta` | float | `0.5` | MAC parameter for near/far classification. `0 < theta <= 1` |
@@ -220,13 +220,14 @@ P2M/M2M/M2L/L2L/L2P plus near direct sums. See
 
 ##### `field_solver = "auto"`
 
-Uses direct evaluation when the element count is less than `tree_min_nelem`, and
-treecode otherwise. `auto` does not switch to FMM.
+For `element_kernel="point"`, auto uses direct evaluation below `tree_min_nelem`
+and treecode otherwise. For `element_kernel="triangle_p0"`, the same threshold
+selects direct or FMM.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"auto"` |
-| `softening` | float | `1.0e-6` | Softening for direct / treecode |
+| `softening` | float | `1.0e-6` | Used by point direct / treecode; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Common normalization used before automatic selection |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `tree_min_nelem` | int | `256` | Element-count threshold for switching to treecode. `>= 1` |
@@ -349,6 +350,11 @@ Currently, `sheath_injection_model != "none"` is used together with
 `reservoir_potential_model="none"`. See
 [`sim.sheath_injection_model`](#simsheath_injection_model-sheath-injection-correction)
 for details.
+
+With `reservoir_potential_model="infinity_barrier"`, the injection-face average
+potential comes from the electrostatic snapshot refreshed at the start of the
+batch. The selected point or `triangle_p0` kernel, periodic2 terms, zero mode,
+outer profile, and uniform field `e0` follow the same convention as particle motion.
 
 #### Computational Domain and Particle Boundaries
 
@@ -508,8 +514,10 @@ generated per batch is at most `rays_per_batch`. With `field_bc_mode="periodic2"
 emission starts from the hit coordinate wrapped to the primary cell even when a
 periodic image is hit.
 
-With `photo_escape_model="boltzmann_cutoff"`, the barrier is evaluated using the
-center potential of the emitting element excluding its self contribution.
+With `photo_escape_model="boltzmann_cutoff"`, the barrier uses the emitting-element
+center potential from the refreshed electrostatic snapshot. Only the emitting
+element in the primary cell is removed; periodic images, zero mode, outer profile,
+and uniform field `e0` remain. `triangle_p0` uses the analytic panel self potential.
 
 ```text
 barrier = max(phi_emit - phi_infty, 0)
@@ -870,4 +878,4 @@ beachx lint beach.toml
 ```
 ### `[field]`: element kernel
 
-`element_kernel="point"` is the compatibility default. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle and supports `sim.field_solver="direct" | "fmm" | "auto"`. Auto selects direct or FMM using `tree_min_nelem`. It requires `sim.softening=0` and insulator-only surfaces. FMM uses exact panel near interactions and exact triangle P2M moments; the point-source `m2l_root_oracle` is rejected. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.
+`element_kernel="point"` is the compatibility default, and `sim.softening` applies to this point kernel. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle and supports `sim.field_solver="direct" | "fmm" | "auto"`. Auto selects direct or FMM using `tree_min_nelem`. It requires `sim.softening=0` and insulator-only surfaces. FMM uses exact panel near interactions and exact triangle P2M moments; the point-source `m2l_root_oracle` is rejected. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.
