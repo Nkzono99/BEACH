@@ -278,29 +278,29 @@ contains
   !! @param[out] pcls 生成したバッチ粒子群。
   !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
-  !! @param[inout] snapshot refresh 済み静電 snapshot（電位障壁 closure 使用時に必要）。
   !! @param[in] outer_state 現在バッチの外部プラズマ状態（kinetic 1D流入写像時に必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
   !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
   !! @param[out] collision_failure_species 不完全な照会を返した最小 species index。
   !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
   !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
+  !! @param[inout] snapshot refresh 済み静電 snapshot（電位障壁 closure 使用時に必要）。
   subroutine init_particle_batch_from_config( &
-    cfg, batch_idx, pcls, state, mesh, snapshot, outer_state, photo_emission_dq, mpi_rank, mpi_size, mpi, &
-    collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+    cfg, batch_idx, pcls, state, mesh, outer_state, photo_emission_dq, mpi_rank, mpi_size, mpi, &
+    collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot &
     )
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
     type(particles_soa), intent(out) :: pcls
     type(injection_state), intent(inout), optional :: state
     type(mesh_type), intent(in), optional :: mesh
-    type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
     type(outer_plasma_state_type), intent(in), optional :: outer_state
     real(dp), intent(out), optional :: photo_emission_dq(:)
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
     type(mpi_context), intent(in), optional :: mpi
     integer(i32), intent(out), optional :: collision_failure_status, collision_failure_species
     integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
+    type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
