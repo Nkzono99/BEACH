@@ -63,9 +63,11 @@ T_k = 2 k / (k + alpha) I_k.
 free-space continuation を `T_k exp(-alpha(z-z_r))` へ置換する。この構成は potential、normal
 field、tangential field を応答開始面で連続にする。`kappa=0` では補正は厳密に 0 になる。
 
-finite mode truncation は configured `mode_layers` と neglected-amplitude bound を出力する。
-各応答 species について `max |q_s phi_k|/T_s` が linearity tolerance を超える場合、または
-mode 間 nonlinear coupling が必要な場合は `not_applicable` とし、1D closure で代用しない。
+finite mode truncation は configured `mode_layers` で制御する。neglected-amplitude bound は
+将来追加する診断であり、現行実装は出力しない。このため現状は`mode_layers`とpanel quadratureを増やした
+目的量の収束確認をproduction受理条件とする。各retained modeについて`max |q_s phi_k|/T_s`が
+linearity toleranceを超える場合、またはmode間 nonlinear couplingが必要な場合は
+`not_applicable`とし、1D closureで代用しない。
 
 ### Outer orbit
 

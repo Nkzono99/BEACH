@@ -370,19 +370,194 @@ return is documented under
 
 ### 4.5 `unified_linear_response`
 
-For plasma-accessible fraction $f_{\mathrm{access}}(z)$ and
-$\kappa=1/\lambda_D$, the same nonuniform 1D grid receives the plane-averaged
-surface source and
+#### 4.5.1 Difference from split models
+
+`linear_debye` and `kinetic_1d` join a surface field below an ownership
+interface to a 1D outer profile above it. `unified_linear_response` instead puts
+the rough-surface height range, plane-averaged surface charge, and local plasma
+response on one 1D Poisson grid. It does not require a height window in which
+the region above the mesh can be treated as vacuum, so it can represent
+roughness that is not negligible relative to the Debye length.
+
+`outer_plasma.interface_z` is the particle ownership plane at the z-high box
+face. It is neither a field boundary nor the start of plasma response. Moving
+that plane must not change the local field profile when mesh geometry and Debye
+length are unchanged.
+
+This is not a nonlinear VDF sheath solver. It uses the Debye-Hueckel response
 
 $$
-\rho_{\mathrm{plasma}}(z)=-\epsilon_0f_{\mathrm{access}}(z)\kappa^2\phi(z).
+\rho_\mathrm{closure}(z)=-\epsilon_0\kappa^2\phi(z),\qquad
+\kappa=\lambda_D^{-1}.
 $$
 
-A tridiagonal Poisson system includes the bottom field and far Robin condition.
-Above the response start, each nonzero mode continues with
-$\alpha=\sqrt{k^2+\kappa^2}$ while preserving potential, normal field, and
-tangential field. Violations of linearity, height-field geometry, accessible-area
-convergence, or mode truncation fail closed.
+It does not solve species VDFs, the Bohm condition, floating-current balance, or
+a photoelectron mean density.
+
+#### 4.5.2 Rough surface and accessible fraction
+
+Let $h(x,y)$ be the highest surface first visible from the plasma at each
+periodic $(x,y)$. The area fraction available to plasma at height $z$ is
+
+$$
+f_\mathrm{access}(z)=\frac{1}{A_{xy}}
+\int_{A_{xy}} I[z>h(x,y)]\,dx\,dy.
+$$
+
+The full-cell mean plasma charge is
+
+$$
+\rho_\mathrm{plasma}(z)
+=f_\mathrm{access}(z)\rho_\mathrm{closure}(z)
+=-\epsilon_0f_\mathrm{access}(z)\kappa^2\phi(z).
+$$
+
+Thus $f_\mathrm{access}=0$ below the surface, becomes one above all surface
+heights, and lies between zero and one through the roughness range. This avoids
+placing plasma charge in horizontal area occupied by solid.
+
+The code samples $h(x,y)$ with `interface_sample_n` cell-centered vertical rays
+per axis and repeats the calculation with twice as many samples along each axis.
+It stops when $\max_z|\Delta f_\mathrm{access}|$ exceeds
+`accessible_fraction_tolerance`. Overhangs, closed cavities, multiple
+plasma-facing intersections on one ray, and pores connected to the reservoir
+only by lateral paths are outside this single-valued height model.
+
+#### 4.5.3 Unified zero-mode Poisson solve
+
+The zero-mode grid spans
+
+$$
+z_\min=z_\mathrm{mesh,min}-\lambda_D,\qquad
+z_\max=z_\mathrm{mesh,max}+10\lambda_D
+$$
+
+with `unified_grid_points` uniform points. The default is 129 and the minimum is
+17. The exact triangle-height projection gives surface zero-mode field $E_s(z)$
+on the same grid. Its discrete derivative supplies
+
+$$
+\rho_s(z)=\epsilon_0\frac{dE_s}{dz}
+$$
+
+to
+
+$$
+\frac{d^2\phi}{dz^2}
+-f_\mathrm{access}(z)\kappa^2\phi(z)
+=-\frac{\rho_s(z)}{\epsilon_0}.
+$$
+
+The lower boundary uses $E_\mathrm{bottom}$ selected by
+`lower_boundary_model`. The upper boundary is
+
+$$
+\phi'(z_\max)+\frac{\phi(z_\max)}{\lambda_D}=0.
+$$
+
+A tridiagonal discretization supports nonuniform spacing and solves in
+$O(N_z)$. The same Debye length exponentially extrapolates beyond the upper
+grid point. Consequently the zero-mode field remains continuous to an
+ownership plane above the grid instead of being truncated there.
+
+For a flat surface with $f_\mathrm{access}=1$ and no surface source, the solution
+reduces to $\phi\propto\exp(-z/\lambda_D)$. Tests use this analytic limit, grid
+refinement, and Gauss closure of surface plus plasma charge.
+
+#### 4.5.4 Nonzero-mode plasma tail
+
+The vacuum nonzero modes supplied by `cached_kneq0` or the panel spectral
+reference are not continued as $e^{-kz}$ to infinity. They join linear plasma
+response immediately above the highest surface at
+
+$$
+z_r=z_\mathrm{mesh,max}+
+\max(\epsilon_\mathrm{roundoff},10^{-6}\lambda_D).
+$$
+
+This response start is also independent of the ownership interface. For each
+Fourier mode,
+
+$$
+k=\sqrt{k_x^2+k_y^2},\qquad
+\alpha=\sqrt{k^2+\kappa^2},
+$$
+
+and the reflection and transmission factors for incident amplitude $I_k$ are
+
+$$
+R_k=\frac{k-\alpha}{k+\alpha},\qquad
+T_k=\frac{2k}{k+\alpha}.
+$$
+
+For $z\le z_r$, $R_kI_ke^{k(z-z_r)}$ is added to the base vacuum field. Above
+$z_r$, the base continuation $I_ke^{-k(z-z_r)}$ is removed and replaced by
+$T_kI_ke^{-\alpha(z-z_r)}$. Potential, normal field, and tangential field are
+continuous at $z_r$. As $\kappa\to0$, $R_k\to0$, $T_k\to1$, and the correction
+vanishes.
+
+Mode amplitudes integrate `triangle_p0` panels with Duffy quadrature and retain
+modes through `periodic2.reference_mode_layers`. The current implementation
+does not report an automatic error bound for omitted modes. Production studies
+must therefore increase `reference_mode_layers` and `panel_quadrature_order` and
+demonstrate convergence of potential, field, force, or the relevant observable.
+
+#### 4.5.5 Linearity and applicability
+
+The zero-mode measure is
+
+$$
+\eta_0=\frac{\max_z|\phi_0(z)|}{V_T},
+$$
+
+and each retained nonzero mode uses transmitted amplitude to estimate
+$\eta_k=|q\phi_{k,\mathrm{transmitted}}|/T$.
+If $\max(\eta_0,\max_k\eta_k)$ exceeds `max_linearity_ratio`, the model stops
+because nonlinear lateral coupling is required. This operational gate is a
+small-perturbation condition, not a direct error estimate.
+
+| Item | Contract |
+| --- | --- |
+| geometry | x/y periodic, z open, and a single-valued plasma-facing height field |
+| source kernel | `triangle_p0` |
+| prescribed field | `sim.e0=0` |
+| mean plasma | scalar linear Debye response only; no species VDF or photoelectron mean closure |
+| particle transfer | `none` or `electrostatic_3d_explicit_orbit` |
+| magnetic field | explicit outer orbit requires `b0=0` |
+| failure | stop without fallback to a nonlinear or legacy sheath model |
+
+`max_gap_ratio` and `max_local_charge_ratio` are diagnostics for split
+scalar-interface models. Current unified acceptance centers on accessible-area
+convergence and zero/nonzero linearity; it does not use those two values as
+unified-specific error estimators.
+
+#### 4.5.6 Field evaluation, batch, MPI, and particle orbit
+
+Each field evaluation composes without duplication:
+
+1. the production FMM or spectral-reference periodic $k\ne0$ base field;
+2. the unified Poisson $k=0$ profile;
+3. reflection/transmission corrections for retained $k\ne0$ modes.
+
+Every snapshot refresh after committed surface charge updates the surface zero
+mode, unified linear solve, and nonzero-tail amplitudes. The current unified path
+does not skip solves according to `outer_update_stride`. The MPI root performs
+the tridiagonal solve and broadcasts status and $z,\phi,E,\rho$.
+
+With `particle_transfer_mode="none"`, particles leaving z-high follow ordinary
+open-boundary handling. With `electrostatic_3d_explicit_orbit`, a particle beyond
+the ownership plane is advanced by velocity-Verlet in the same combined 3D
+electrostatic field. It returns to the local domain at the ownership plane and
+escapes at an outward crossing of the far plane at the unified grid top. This is
+an explicit individual orbit, not kinetic VDF return. Outer flight still does
+not advance global simulation time and there is no persistent queue, so the
+stationary frozen-field restriction remains.
+
+`outer_plasma_profile.csv` stores zero-mode $z,\phi,E,\rho_\mathrm{plasma}$.
+In `summary.txt`, inspect `outer_linearity_ratio`,
+`outer_nonzero_tail_linearity`, `outer_accessible_fraction_min/max`,
+`outer_accessible_fraction_refinement_error`, `outer_response_start_z_m`, and
+the Gauss residual.
 
 ## 5. Per-batch order
 

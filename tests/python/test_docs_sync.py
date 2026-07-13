@@ -189,6 +189,14 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "#### 4.4.4 非線形solveと受理条件",
         "#### 4.4.5 batch更新、MPI、出力",
         "`unified_linear_response`",
+        "#### 4.5.1 split modelとの違い",
+        "field solveの境界や",
+        "#### 4.5.2 rough surfaceとaccessible fraction",
+        "#### 4.5.3 unified zero-mode Poisson solve",
+        "#### 4.5.4 nonzero-mode plasma tail",
+        "現行実装は省略modeの自動誤差上限を出力しません",
+        "#### 4.5.5 線形性と適用条件",
+        "#### 4.5.6 field評価、batch、MPI、粒子軌道",
     ):
         assert phrase in zero_ja
     for phrase in (
@@ -205,6 +213,14 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "#### 4.4.4 Nonlinear solve and acceptance",
         "#### 4.4.5 Batch update, MPI, and output",
         "`unified_linear_response`",
+        "#### 4.5.1 Difference from split models",
+        "neither a field boundary nor the start of plasma response",
+        "#### 4.5.2 Rough surface and accessible fraction",
+        "#### 4.5.3 Unified zero-mode Poisson solve",
+        "#### 4.5.4 Nonzero-mode plasma tail",
+        "does not report an automatic error bound for omitted modes",
+        "#### 4.5.5 Linearity and applicability",
+        "#### 4.5.6 Field evaluation, batch, MPI, and particle orbit",
     ):
         assert phrase in zero_en
     for phrase in (

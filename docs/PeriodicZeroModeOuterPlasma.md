@@ -337,17 +337,176 @@ Newton反復数、元のnonlinear residualを確認してください。即時�
 
 ### 4.5 `unified_linear_response`
 
-高さごとのplasma accessible fractionを$f_{\mathrm{access}}(z)$、
-$\kappa=1/\lambda_D$とすると、surfaceの平面平均sourceと
+#### 4.5.1 split modelとの違い
+
+`linear_debye`と`kinetic_1d`は、meshからownership interfaceまでのsurface fieldと、interfaceより上の
+1D outer profileを接続するsplit modelです。これに対して`unified_linear_response`は、rough surfaceの
+高さ範囲、surface chargeの平面平均source、局所plasma responseを同じ1D Poisson gridへ入れます。
+surfaceとinterfaceの間をvacuumとみなせる高さwindowを仮定しないため、roughnessがDebye長に対して
+無視できない場合を対象にできます。
+
+`outer_plasma.interface_z`はz-high box faceに置くparticle ownership面ですが、field solveの境界や
+plasma response開始面ではありません。interfaceの高さを変えても、mesh geometryとDebye長が同じなら
+local field profileは変わらないのがmodel contractです。
+
+このmodelは非線形VDF sheath solverではありません。plasma responseをDebye-Hueckel型の線形関係
 
 $$
-\rho_{\mathrm{plasma}}(z)=-\epsilon_0f_{\mathrm{access}}(z)\kappa^2\phi(z)
+\rho_{\mathrm{closure}}(z)=-\epsilon_0\kappa^2\phi(z),\qquad
+\kappa=\lambda_D^{-1}
 $$
 
-を同じ非一様1D gridへ入れます。bottom fieldとfar Robin条件を含むtridiagonal Poisson系を解きます。
-非零モードはresponse startより上で$\alpha=\sqrt{k^2+\kappa^2}$のtailへ接続し、電位、法線場、
-接線場を連続にします。linearity、height-field geometry、accessible-area収束、mode truncationの
-いずれかがcontract外なら停止します。
+で近似します。ambient species別のVDF、Bohm条件、浮遊電流balance、photoelectron mean densityは解きません。
+
+#### 4.5.2 rough surfaceとaccessible fraction
+
+各periodic $(x,y)$位置でplasma側から最初に見える最上面高さを$h(x,y)$とし、grid高さ$z$でplasmaが
+占められる面積率を
+
+$$
+f_{\mathrm{access}}(z)=\frac{1}{A_{xy}}
+\int_{A_{xy}} I[z>h(x,y)]\,dx\,dy
+$$
+
+と定義します。full-cellで平均したplasma chargeは
+
+$$
+\rho_{\mathrm{plasma}}(z)
+=f_{\mathrm{access}}(z)\rho_{\mathrm{closure}}(z)
+=-\epsilon_0f_{\mathrm{access}}(z)\kappa^2\phi(z)
+$$
+
+です。surfaceより下では$f_{\mathrm{access}}=0$、全surfaceより上では1となり、roughness高さ範囲では
+0と1の間を取ります。これによりsolidが占める水平面積へplasma chargeを誤って置くことを避けます。
+
+$h(x,y)$は`interface_sample_n`四方のcell-centered vertical rayで求め、各軸2倍のsampleでも再計算します。
+両者の$\max_z|\Delta f_{\mathrm{access}}|$が`accessible_fraction_tolerance`を超えると停止します。
+overhang、closed cavity、同じray上に複数のplasma-facing交点を持つ形状など、単一値height fieldで
+表せないgeometryは適用外です。横方向へ迂回すればreservoirへ接続する細孔もこの1D定義では表せません。
+
+#### 4.5.3 unified zero-mode Poisson solve
+
+zero-mode gridは
+
+$$
+z_{\min}=z_{\mathrm{mesh,min}}-\lambda_D,\qquad
+z_{\max}=z_{\mathrm{mesh,max}}+10\lambda_D
+$$
+
+を`unified_grid_points`点で一様分割します。既定は129点、最小は17点です。surface chargeの厳密な
+triangle-height projectionから得たzero-mode field $E_s(z)$を同じgridで評価し、その差分
+
+$$
+\rho_s(z)=\epsilon_0\frac{dE_s}{dz}
+$$
+
+をsurface sourceとしてPoisson方程式
+
+$$
+\frac{d^2\phi}{dz^2}
+-f_{\mathrm{access}}(z)\kappa^2\phi(z)
+=-\frac{\rho_s(z)}{\epsilon_0}
+$$
+
+へ入れます。下端は`lower_boundary_model`が選んだ$E_{\mathrm{bottom}}$、上端は
+
+$$
+\phi'(z_{\max})+\frac{\phi(z_{\max})}{\lambda_D}=0
+$$
+
+というfar Robin条件です。nonuniform-gridに対応したtridiagonal離散式を使い、線形solveは$O(N_z)$です。
+上端より先は同じ$\lambda_D$で指数外挿します。したがってz-high ownership面がgrid上端より高くても、
+zero-mode fieldはownership面まで連続して評価され、そこで切断されません。
+
+flat surface、$f_{\mathrm{access}}=1$、surface sourceなしなら、解は
+$\phi\propto\exp(-z/\lambda_D)$へ戻ります。数値検証ではこの解析解、grid refinement、surface chargeと
+plasma chargeを合わせたGauss closureを使用しています。
+
+#### 4.5.4 nonzero-mode plasma tail
+
+`cached_kneq0`またはpanel spectral referenceが与える真空の非零モードを、そのまま無限遠まで
+$e^{-kz}$で延長せず、surface最高点の直上
+
+$$
+z_r=z_{\mathrm{mesh,max}}+
+\max(\epsilon_{\mathrm{roundoff}},10^{-6}\lambda_D)
+$$
+
+で線形plasma responseへ接続します。このresponse start $z_r$もownership interfaceとは独立です。
+
+各Fourier modeについて
+
+$$
+k=\sqrt{k_x^2+k_y^2},\qquad
+\alpha=\sqrt{k^2+\kappa^2}
+$$
+
+とし、真空側incident amplitude $I_k$に対して
+
+$$
+R_k=\frac{k-\alpha}{k+\alpha},\qquad
+T_k=\frac{2k}{k+\alpha}
+$$
+
+を使います。$z\le z_r$ではbaseの真空場へ$R_kI_ke^{k(z-z_r)}$を加え、$z>z_r$ではbaseに含まれる
+$I_ke^{-k(z-z_r)}$を差し引いて$T_kI_ke^{-\alpha(z-z_r)}$へ置き換えます。この構成により$z_r$で
+電位、法線電場、接線電場が連続します。$\kappa\to0$では$R_k\to0$、$T_k\to1$となり、補正は0です。
+
+mode amplitudeは`triangle_p0` panelをDuffy quadratureで面積積分し、
+`periodic2.reference_mode_layers`まで保持します。現行実装は省略modeの自動誤差上限を出力しません。
+したがってproductionでは`reference_mode_layers`と`panel_quadrature_order`を増やし、電位、電場、力などの
+目的量が収束することを別途確認してください。
+
+#### 4.5.5 線形性と適用条件
+
+zero modeには
+
+$$
+\eta_0=\frac{\max_z|\phi_0(z)|}{V_T}
+$$
+
+を、各retained nonzero modeには透過振幅に基づく
+$\eta_k=|q\phi_{k,\mathrm{transmitted}}|/T$を評価します。
+$\max(\eta_0,\max_k\eta_k)$が`max_linearity_ratio`を超えれば、非線形横結合が必要として停止します。
+これは小さい摂動の十分条件として使う運用上のgateであり、誤差そのものを保証する値ではありません。
+
+現行contractは次のとおりです。
+
+| 項目 | contract |
+| --- | --- |
+| geometry | x/y periodic、z open、single-valued plasma-facing height field |
+| source kernel | `triangle_p0` |
+| prescribed field | `sim.e0=0` |
+| mean plasma | scalar linear Debye responseのみ。species別VDFやphotoelectron mean closureなし |
+| particle transfer | `none`または`electrostatic_3d_explicit_orbit` |
+| magnetic field | explicit outer orbitでは`b0=0` |
+| failure | nonlinear modelやlegacy sheathへfallbackせず停止 |
+
+`max_gap_ratio`と`max_local_charge_ratio`はsplit scalar-interface modelの診断parameterです。
+現行`unified_linear_response`の受理判定はaccessible-area収束とzero/nonzero linearityを中心に行い、
+この2つをunified固有の誤差推定としては使いません。
+
+#### 4.5.6 field評価、batch、MPI、粒子軌道
+
+1回のfield評価は次を重複なく合成します。
+
+1. production FMMまたはspectral referenceのperiodic $k\ne0$ base field。
+2. unified Poisson profileの$k=0$ field。
+3. retained $k\ne0$ modeのreflection/transmission correction。
+
+surface chargeがcommitされてsnapshotをrefreshするたびに、surface zero mode、unified linear solve、
+nonzero-tail amplitudeを更新します。現行unified経路は`outer_update_stride`によるsolve skipを行いません。
+MPIではroot rankがtridiagonal solveを実行し、status、$z,\phi,E,\rho$を全rankへbroadcastします。
+
+`particle_transfer_mode="none"`ならz-highを出た粒子は通常のopen-boundary処理に従います。
+`electrostatic_3d_explicit_orbit`なら、ownership面を出た粒子をzero modeとscreened nonzero modeを合成した
+同じ3D静電場中でvelocity-Verlet追跡します。ownership面へ戻ればlocalへ返し、unified grid上端のfar planeを
+外向きに通過すればinfinity escapeです。これはkinetic VDF returnではなく、個別粒子の明示軌道modelです。
+outer flightはglobal simulation timeへ加算されずpersistent queueもないため、定常・frozen-field近似の制約は残ります。
+
+`outer_plasma_profile.csv`にはzero-modeの$z,\phi,E,\rho_{\mathrm{plasma}}$を保存します。
+`summary.txt`では`outer_linearity_ratio`、`outer_nonzero_tail_linearity`、
+`outer_accessible_fraction_min/max/refinement_error`、`outer_response_start_z_m`、Gauss residualを確認してください。
 
 ## 5. batchごとの処理順
 
