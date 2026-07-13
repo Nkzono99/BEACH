@@ -1,7 +1,7 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32
-  use bem_constants, only: eps0, qe
+  use bem_constants, only: eps0, qe, k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
@@ -22,6 +22,8 @@ module bem_electrostatic_snapshot
   use bem_coulomb_fmm_periodic_nonzero_tail, only: &
     periodic_nonzero_tail_plan_type, build_periodic_nonzero_tail_plan, &
     refresh_periodic_nonzero_tail_plan, eval_periodic_nonzero_tail_plan, periodic_nonzero_tail_ok
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
+  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
   private
@@ -129,6 +131,7 @@ module bem_electrostatic_snapshot
     procedure :: refresh => refresh_electrostatic_snapshot
     procedure :: eval_local_e => eval_snapshot_local_e
     procedure :: eval_local_phi => eval_snapshot_local_phi
+    procedure :: eval_local_phi_without_primary_self => eval_snapshot_local_phi_without_primary_self
     procedure :: compute_mesh_potential => compute_snapshot_mesh_potential
     procedure :: get_diagnostics => get_snapshot_diagnostics
     procedure :: restore_outer_state => restore_snapshot_outer_state
@@ -313,6 +316,47 @@ contains
     end if
     potential = potential - dot_product(self%prescribed_e, position - self%prescribed_phi_origin)
   end subroutine eval_snapshot_local_phi
+
+  subroutine eval_snapshot_local_phi_without_primary_self(self, mesh, sim, element, potential)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    integer(i32), intent(in) :: element
+    real(dp), intent(out) :: potential
+
+    type(panel_geometry_type) :: geometry
+    real(dp) :: self_potential, self_field(3)
+    integer(i32) :: geometry_status
+
+    if (element < 1_i32 .or. element > mesh%nelem) then
+      error stop 'snapshot self exclusion element index is out of range.'
+    end if
+    if (sim%softening < 0.0_dp) error stop 'snapshot self exclusion requires non-negative softening.'
+
+    call self%eval_local_phi(mesh, sim, mesh%centers(:, element), potential)
+    select case (trim(self%nonzero_solver%source_model))
+    case ('triangle_p0')
+      call init_panel_geometry( &
+        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, geometry_status &
+        )
+      if (geometry_status /= panel_geometry_ok) then
+        error stop 'snapshot self exclusion received invalid panel geometry.'
+      end if
+      call panel_potential_field( &
+        geometry, mesh%q_elem(element), mesh%centers(:, element), panel_side_principal_value, &
+        self_potential, self_field &
+        )
+    case ('point')
+      if (sim%softening > 0.0_dp) then
+        self_potential = k_coulomb*mesh%q_elem(element)/sim%softening
+      else
+        self_potential = 0.0_dp
+      end if
+    case default
+      error stop 'snapshot self exclusion received an unknown source model.'
+    end select
+    potential = potential - self_potential
+  end subroutine eval_snapshot_local_phi_without_primary_self
 
   subroutine compute_snapshot_mesh_potential(self, mesh, sim, potential)
     class(electrostatic_snapshot_type), intent(inout) :: self
