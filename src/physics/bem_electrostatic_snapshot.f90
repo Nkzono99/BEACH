@@ -99,6 +99,7 @@ module bem_electrostatic_snapshot
 
   type, public :: electrostatic_snapshot_type
     type(field_solver_type) :: nonzero_solver
+    character(len=32) :: source_model = 'point'
     real(dp) :: prescribed_e(3) = [0.0_dp, 0.0_dp, 0.0_dp]
     real(dp) :: prescribed_phi_origin(3) = [0.0_dp, 0.0_dp, 0.0_dp]
     logical :: use_zero_mode = .false.
@@ -155,6 +156,8 @@ contains
 
     self%prescribed_e = sim%e0
     self%prescribed_phi_origin = 0.0_dp
+    self%source_model = 'point'
+    if (present(panel_config)) self%source_model = lower_ascii(trim(panel_config%source_model))
     self%use_zero_mode = .false.
     self%use_outer_plasma = .false.
     self%use_panel_spectral_reference = .false.
@@ -334,7 +337,7 @@ contains
     if (sim%softening < 0.0_dp) error stop 'snapshot self exclusion requires non-negative softening.'
 
     call self%eval_local_phi(mesh, sim, mesh%centers(:, element), potential)
-    select case (trim(self%nonzero_solver%source_model))
+    select case (trim(self%source_model))
     case ('triangle_p0')
       call init_panel_geometry( &
         mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, geometry_status &

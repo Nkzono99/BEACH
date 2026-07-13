@@ -90,6 +90,17 @@ program test_electrostatic_snapshot
     diagnostics%interface_potential, snapshot%outer%interface_potential, 1.0e-24_dp, &
     'diagnostic interface potential mismatch' &
     )
+  call snapshot%eval_local_phi(mesh, sim, mesh%centers(:, 1), potential)
+  call snapshot%eval_local_phi_without_primary_self(mesh, sim, 1_i32, potential_without_self)
+  call init_panel_geometry(mesh%v0(:, 1), mesh%v1(:, 1), mesh%v2(:, 1), geometry, panel_status)
+  if (panel_status /= panel_geometry_ok) error stop 'periodic test panel geometry initialization failed.'
+  call panel_potential_field( &
+    geometry, mesh%q_elem(1), mesh%centers(:, 1), panel_side_principal_value, self_potential, self_field &
+    )
+  call assert_close_dp( &
+    potential_without_self, potential - self_potential, 1.0e-12_dp*max(1.0_dp, abs(potential)), &
+    'panel spectral primary self exclusion mismatch' &
+    )
   call test_end()
 
   call test_begin('mesh_potential_uses_same_snapshot')
