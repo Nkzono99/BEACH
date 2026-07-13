@@ -272,41 +272,50 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 | `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
 | `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
 
-`outer_plasma.model="kinetic_1d"` は `cached_kneq0` と組み合わせ、z-high の負・正
-`reservoir_face` species をそれぞれ ambient electron/ion の infinity inflow VDF として使う。
-`debye_length` は far Robin tail 長、`thermal_voltage` は設定整合性の電位 scale である。
-無限遠電位はゲージ条件`phi(infinity)=0`に固定されるため、
-`outer_plasma.infinity_potential`には`0`を指定する。非ゼロ値は設定エラーになる。
-Phase 7 は単調・無衝突・非磁化分枝だけを扱い、ion drift に Bohm 条件を要求する。非単調
-virtual cathodeとtrapped populationは silent fallback せず適用外として停止する。
-solverは解析bordered-tridiagonal Jacobian、branch-preserving Newton、pseudo-transient回復、
-適応interface-field continuationを内部で使う。回復経路を使った場合も、指定fieldにおける元の
-Poisson residualが許容値以下になるまで解を受理しない。別のsheath modelや前回解へのfallbackは行わない。
-`return_model="kinetic_1d_profile_return"` と
-`particle_transfer_mode="electrostatic_1d_instant_return"` を指定すると、各batchで先に更新した
-kinetic profileの `phi_interface-phi_infinity` を使って無限遠VDFをinterfaceへエネルギー写像する。
-外向き粒子は同じ離散profileとfar Robin tail上でescapeまたはturning pointを判定し、解析積分した
-往復時間でinterfaceへ戻す。`reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`
-との併用は拒否する。
-`photoelectron_closure="kinetic_mean"` は最初の負電荷 `photo_raycast` species の
-`emit_current_density_a_m2` と温度から half-Maxwellian flux を作り、outer 空間電荷の
-outgoing/returning population を軌道エネルギーで分離する。Layer A の tracked 粒子が表面電荷を
-更新し、mean closure は outer profile だけを供給するため、統計的 return current は再加算しない。
-tracked returnを併用する全`photo_raycast` speciesは`deposit_opposite_charge_on_emit=true`を指定し、
-legacy `photo_escape_model`を無効にする。
-実行例は `examples/periodic2_kinetic_outer.toml`、物理契約は
-`docs/adr/0001-kinetic-outer-plasma.md` を参照する。
+#### `kinetic_1d` contract
 
-`outer_plasma.model="unified_linear_response"` は、表面投影から遠方まで一つの zero-mode
-Poisson grid を使い、rough surface の plasma-accessible area と線形 mean-plasma 電荷を含める。
-`k!=0` は表面最高点直上から `sqrt(k^2+kappa^2)` で減衰する tail に接続するため、
-`interface_z` は field-domain の切断面ではなく粒子 ownership 面だけになる。single-valued な
-height field、`triangle_p0`、`photoelectron_closure="none"` が必須で、particle transfer は
-`none` または `electrostatic_3d_explicit_orbit` を選べる。3D軌道は継続した全電場を使い、
-`B0=0`、固定刻み、energy/frozen-field error contractを必須とする。
-線形性上限を超える場合は fallback せず停止する。検証例は
-`examples/periodic2_unified_linear_response.toml`、詳細は
-`docs/adr/0002-unified-periodic-outer-domain.md` を参照する。
+`kinetic_1d`は`cached_kneq0`と組み合わせ、z-highの負・正`reservoir_face` speciesを無限遠electron/ion VDFとして使います。
+
+| 項目 | contract |
+| --- | --- |
+| gauge | `phi(infinity)=0`。`infinity_potential`の非ゼロ値を拒否 |
+| far boundary | `debye_length`を長さとするRobin tail |
+| supported branch | 単調・無衝突・非磁化、Bohm条件を満たすion inflow |
+| unsupported | virtual cathode、trapped population、sub-Bohm inflow |
+| nonlinear solve | 解析bordered-tridiagonal Jacobian + branch-preserving Newton |
+| recovery | pseudo-transientとinterface-field continuation。元のPoisson residual合格後だけ受理 |
+| fallback | 別sheath modelや前回解へfallbackしない |
+
+粒子移送を使う場合は`return_model="kinetic_1d_profile_return"`と
+`particle_transfer_mode="electrostatic_1d_instant_return"`を指定します。
+
+1. 更新済みprofileの`phi_interface-phi_infinity`で無限遠VDFをinterfaceへ写像する。
+2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
+3. turning粒子を解析往復時間後にinterfaceへ戻す。
+
+`reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
+
+`photoelectron_closure="kinetic_mean"`では、最初の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
+mean closureはouter profileだけを供給し、tracked粒子が表面電荷を更新するため、統計的return currentを再加算しません。
+tracked returnを使う全speciesは`deposit_opposite_charge_on_emit=true`とし、legacy `photo_escape_model`を無効にします。
+
+実行例は`examples/periodic2_kinetic_outer.toml`、物理契約は`docs/adr/0001-kinetic-outer-plasma.md`です。
+
+#### `unified_linear_response` contract
+
+| 項目 | contract |
+| --- | --- |
+| zero mode | 表面投影から遠方まで一つのPoisson grid |
+| rough surface | plasma-accessible areaと線形mean-plasma電荷を含む |
+| nonzero mode | 表面最高点直上から$\sqrt{k^2+\kappa^2}$ tailへ接続 |
+| `interface_z` | field切断面ではなく粒子ownership面 |
+| geometry/kernel | single-valued height fieldと`triangle_p0`が必須 |
+| photoelectron mean | `photoelectron_closure="none"`のみ |
+| particle transfer | `none`または`electrostatic_3d_explicit_orbit` |
+| 3D orbit | `b0=0`、固定刻み、energy/frozen-field error contract |
+| applicability | 線形性上限を超えたらfallbackせず停止 |
+
+検証例は`examples/periodic2_unified_linear_response.toml`、詳細は`docs/adr/0002-unified-periodic-outer-domain.md`です。
 | `coupling.particle_transfer_mode` | `none` | return modelと同じIDを指定 |
 | `coupling.field_evolution_timescale` | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
 | `coupling.max_frozen_field_ratio` | `0.1` | `tau_outer/field_evolution_timescale`上限 |
@@ -315,16 +324,32 @@ height field、`triangle_p0`、`photoelectron_closure="none"` が必須で、par
 | `coupling.outer_orbit_energy_tolerance` | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
 | `coupling.outer_queue_enabled` | `false` | 現在は`true`を拒否 |
 
-完全な例は`examples/periodic2_linear_outer_reference.toml`です。閾値違反時にlegacy modelへfallbackしません。
-粒子移送を含む例は`examples/periodic2_outer_particle_transfer.toml`です。instant returnはz-high、`b0=0`、x/y periodicだけに対応します。
-unified全3D電場での粒子移送例は`examples/periodic2_unified_explicit_orbit.toml`です。
-photoelectronを含む例は`examples/periodic2_photoelectron_individual_return.toml`です。`individual_return`は`electrostatic_1d_instant_return`、`deposit_opposite_charge_on_emit=true`、legacy escape補正なしを必須とします。outgoing histogramはMPI-globalに集計され、前batchと累積値がcheckpointされます。`statistical_return`は未仕様のため拒否され、強い放出条件ではambient-only線形closureを適用外として停止します。
-`sim.use_box=true`、かつ 2 軸だけが `periodic`、残り 1 軸が開放のときに有効です。
-場評価だけでなく、collision と `photo_raycast` の raycast でも periodic image を考慮します。
+関連exampleは目的別に選びます。
+
+| 目的 | example | 主要制約 |
+| --- | --- | --- |
+| split linear reference | `periodic2_linear_outer_reference.toml` | 閾値違反時にfallbackしない |
+| 1D instant return | `periodic2_outer_particle_transfer.toml` | z-high、`b0=0`、x/y periodic |
+| unified 3D orbit | `periodic2_unified_explicit_orbit.toml` | 全3D field、固定刻みouter orbit |
+| individual photoelectron return | `periodic2_photoelectron_individual_return.toml` | instant return、放出元逆符号電荷、legacy escape補正なし |
+
+`individual_return`のoutgoing histogramはMPI-globalに集計し、前batchと累積値をcheckpointします。
+未仕様の`statistical_return`は拒否します。強い放出条件ではambient-only線形closureを適用外として停止します。
+
+periodic2は`sim.use_box=true`、2軸periodic、1軸openを必須とし、field、collision、`photo_raycast`へ同じ周期を適用します。
+
+| far correction | 意味 |
+| --- | --- |
+| `none` | 有限画像近似 |
+| `auto` | 互換用。現在は`none` |
+| `m2l_root_oracle` | exact periodic Ewald residualをfitする高コスト診断 |
+| `cached_kneq0` | versioned operatorを再利用するproduction非零モード |
 
 `field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
-`m2l_root_oracle` は build 時の診断用で、exact periodic Ewald residual を root operator に fit する高コストモードです。
-`cached_kneq0` は production 非零モード backend です。初回の cache miss 時だけ Ewald reference から versioned operator を生成し、以後は検証済み cache を再利用します。物理的な `k=0` は `exclude_k0` provider が別に一度だけ加えます。`symmetric_vacuum` はinterface位置や誘電率を追加せず、上下遠方場を `+/- Q/(2 epsilon0 A)` とします。`e_bottom_zero` は下側場を0、上側場を `Q/(epsilon0 A)` とする旧closureです。
+無限周期のproduction計算では、`cached_kneq0`を明示的に選択してください。
+
+`cached_kneq0`では`exclude_k0` providerが物理的$k=0$を1回加えます。
+`symmetric_vacuum`は上下を$\pm Q/(2\epsilon_0A)$、`e_bottom_zero`は下側0・上側$Q/(\epsilon_0A)$とします。
 
 #### 外部場
 

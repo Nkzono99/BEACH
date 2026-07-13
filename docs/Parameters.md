@@ -345,6 +345,9 @@ periodic2は`sim.use_box=true`、2軸periodic、1軸openを必須とし、field�
 | `m2l_root_oracle` | exact periodic Ewald residualをfitする高コスト診断 |
 | `cached_kneq0` | versioned operatorを再利用するproduction非零モード |
 
+`field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
+無限周期のproduction計算では、`cached_kneq0`を明示的に選択してください。
+
 `cached_kneq0`では`exclude_k0` providerが物理的$k=0$を1回加えます。
 `symmetric_vacuum`は上下を$\pm Q/(2\epsilon_0A)$、`e_bottom_zero`は下側0・上側$Q/(\epsilon_0A)$とします。
 
