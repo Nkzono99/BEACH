@@ -87,9 +87,14 @@ kernel が担当します。
 
 #### 2.3 BEACH adapter での使い方
 
-BEACH の field solver adapter は、メッシュ要素重心を `src_pos` としてこのコアへ渡します。
+BEACH の field solver adapter は、source model に応じて異なる幾何をコアへ渡します。
 
-- 初期化時は `build_plan` の直後に `update_state` を実行します。
+| source model | plan 構築 | `src_q(i)` の意味 |
+|---|---|---|
+| `point` | 要素重心を `src_pos` として `build_plan` に渡す | 重心に置く点電荷 |
+| `triangle_p0` | 3 頂点を `build_panel_plan` に渡す | 三角形全体の総電荷。面密度は `src_q(i)/area(i)` |
+
+- 初期化時は `build_plan` または `build_panel_plan` の直後に `update_state` を実行します。
 - その後の refresh では、メッシュ幾何が変わらない通常運用を前提に既存 `plan` を再利用し、`src_q` 更新として `update_state` だけを呼びます。
 - `build_plan` と legacy tree metadata の同期をやり直すのは、plan 未構築時・source 数変更時・要素数 0 件で plan/state を破棄したときだけです。
 
@@ -102,7 +107,7 @@ BEACH の field solver adapter は、メッシュ要素重心を `src_pos` と�
 - `theta`: well-separated 判定用パラメータ
 - `leaf_max`: source octree の葉に許す最大 source 数
 - `order`: Cartesian 展開次数
-- `softening`: softened Coulomb kernel の `epsilon`
+- `softening`: `point` source の softened Coulomb kernel に使う `epsilon`。`triangle_p0` では 0 が必須
 - `use_periodic2`: 2 周期軸モードの有効化
 - `periodic_axes(2)`, `periodic_len(2)`: 周期軸と周期長
 - `periodic_image_layers`: 近傍画像和の層数 `N`
@@ -145,9 +150,13 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可�
 
 ### 4. 数学的定義
 
-#### 4.1 kernel
+#### 4.1 source kernel
 
-現行コアは softening 付き Coulomb kernel を使います。
+コアには `point` と `triangle_p0` の 2 つの source kernel があります。
+
+##### point source
+
+`point` は要素重心に置いた点電荷を、softening 付き Coulomb kernel で評価します。
 
 $$
 G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\lVert\mathbf{r}\rVert^2 + \epsilon^2}}
@@ -161,7 +170,35 @@ $$
 \mathbf{E}(\mathbf{x}) = - \nabla \phi(\mathbf{x})
 $$
 
-近傍 direct 和でも遠方展開でも、同じ $G_\epsilon$ を使います。
+近傍 direct 和と遠方展開は、同じ $G_\epsilon$ に基づきます。
+
+##### P0 triangle source
+
+`triangle_p0` は、`q_i` を三角形 $T_i$ の総電荷、$A_i$ をその面積とし、
+$\sigma_i=q_i/A_i$ を三角形上の一定面密度として扱います。
+
+$$
+\phi_i(\mathbf{x}) =
+\frac{q_i}{A_i}\int_{T_i}
+\frac{1}{\lVert\mathbf{x}-\mathbf{y}\rVert}\,dA_{\mathbf{y}}
+$$
+
+近傍 direct 評価は、辺の対数項と立体角を使う解析的 P0 panel kernel です。
+遠方 P2M には、tree node の中心 $\mathbf{c}$ に対する三角形上の monomial の
+厳密面積平均を使います。
+
+$$
+M_{i,\alpha} =
+q_i\left\langle(\mathbf{y}-\mathbf{c})^\alpha\right\rangle_{T_i}
+= \frac{q_i}{A_i}\int_{T_i}
+(\mathbf{y}-\mathbf{c})^\alpha\,dA_{\mathbf{y}}
+$$
+
+したがって area weighting は panel 積分と P2M 基底に含まれています。
+`q_i` はすでに要素総電荷なので、`q_i` に $A_i$ をもう一度掛けません。
+以後の M2M/M2L/L2L は、この panel moment に対する非 softening の
+Coulomb/Laplace 展開です。`triangle_p0` では `softening=0` を強制し、
+softened point source へ fallback しません。
 
 #### 4.2 多重指数
 
@@ -652,24 +689,79 @@ $$
 
 ### 10.1 cached periodic nonzero operator
 
-`cached_kneq0` は有限画像和 `K_shell(N)`、cached full-periodic Ewald residual、state 更新時に作る対称 `k=0` subtraction の和です。最後の subtraction は source 高さの piecewise polynomial 累積 state を二分探索して O(log n) で評価し、runtime total を `K_periodic,k!=0` にします。potential の定数係数は field fit と混ぜず、平均 residual から gauge を固定します。cache header は format version、fingerprint、shape、checksum を持ち、corruption や fingerprint mismatch は lock 下の再生成になります。fingerprint は source/target topology に依存するため、geometry、order、周期長、画像層、generator/build version が変われば再利用しません。
+#### 演算子の構成
 
-MPI job 内では rank 0 だけが cache の read/lock/write を行います。cache miss 時は target
-operator slice を MPI rank 間で最大 1 target 差になるよう分配し、各 target 内の proxy 列を
-OpenMP で並列評価して、最後に `MPI_Allreduce(SUM)` で完全な operator を全 rank に構築します。
-least-squares の正則化 QR は target ごとに一度だけ作り、全 proxy RHS で再利用します。
-共有 filesystem 上の別 job は同じ lock file で直列化されます。`.tmp` を close してから同一
-directory 内で atomic rename するため、reader が部分書込みを cache hit として受理することは
-ありません。
+runtimeで使う非零モードkernelは次の和です。
 
-2026-07-12 の旧レゴリス入力（order 4、64 target、280 proxy、840 check）による SysA
-計測では、旧 root-only cold run の 31 分 24 秒に対し、同じ 1 rank x 1 thread の operator
-公開は約 25 分 45 秒でした。1 rank x 112 threads は batch 1 を含めて 47.0 秒、2 x 112 は
-36.7 秒、4 x 112 は 31.5 秒、6 x 112 は 30.3 秒です。全並列構成の cache checksum は一致し、
-旧 operator との差も Frobenius 相対値 `1.73e-15` でした。専用 cache-prime は
-1 rank x 112 threads が core 効率と queue 待ちの基準です。既存の 6 x 112 production
-allocation で生成する場合は約 30 秒ですが、cold build だけのために 4--6 rank へ増やす利得は
-小さいです。1 core job は operator 公開後の粒子 batch でメモリ不足になったため運用対象外です。
+$$
+K_{k\ne0}
+= K_\mathrm{shell}(N)
++ R_\mathrm{Ewald}^{\mathrm{full}}
+- K_0^\mathrm{sym}
+$$
+
+| 項 | 作成時期 | 役割 |
+| --- | --- | --- |
+| $K_\mathrm{shell}(N)$ | 通常のFMM plan/runtime | primary cellと有限近傍画像 |
+| $R_\mathrm{Ewald}^{\mathrm{full}}$ | cache cold build | full-periodic Ewald解と有限画像和の滑らかな差 |
+| $K_0^\mathrm{sym}$ | charge state更新時 | cached full-periodic kernelから対称$k=0$を除く |
+
+$K_0^\mathrm{sym}$ はsource高さの区分多項式累積stateを二分探索し、1評価あたり $O(\log n)$ です。
+物理的な$k=0$はここへ含めず、electrostatic snapshotのboundary providerが1回だけ加えます。
+
+field fitとpotentialの定数modeは単位が異なるため、同じleast-squares列へ混ぜません。
+potential gaugeは平均residualから別に固定します。
+
+#### cache lifecycle
+
+| 段階 | 動作 |
+| --- | --- |
+| identity作成 | geometry、target topology、order、周期長、画像層、generator/build versionからfingerprintを作る |
+| warm read | version、fingerprint、shape、checksumが一致したoperatorだけを受理する |
+| miss/corruption | filesystem lockを取得し、operatorを再生成する |
+| publish | 同じdirectoryの`.tmp`をcloseしてからatomic renameする |
+| checkpoint | operator本体は保存しない。再生成可能なcacheとして扱う |
+
+この手順により、別jobは同じlock fileで直列化され、readerは部分書込みをcache hitとして受理しません。
+
+#### MPI/OpenMPによるcold build
+
+| 単位 | 担当 |
+| --- | --- |
+| cache I/Oとlock | MPI rank 0のみ |
+| target operator slice | MPI rankへ均等分配。rank間差は最大1 target |
+| target内のproxy列 | OpenMPで並列評価 |
+| 正則化QR | targetごとに1回作り、全proxy RHSで再利用 |
+| operator集約 | `MPI_Allreduce(SUM)`で全rankへ構築 |
+
+warm runのfield evaluationとcharge refreshには、all-source Ewald和もoperator再fitもありません。
+
+#### SysA測定値
+
+測定条件は2026-07-12の旧レゴリス入力、order 4、64 target、280 proxy、840 checkです。
+時間はcache公開までではなく、表に明記した範囲の実測値です。
+
+| 構成 | 実測時間 | 範囲 |
+| --- | ---: | --- |
+| 旧root-only、1 rank x 1 thread | 31分24秒 | cold operator build |
+| QR再利用後、1 rank x 1 thread | 約25分45秒 | operator公開まで |
+| 1 rank x 112 threads | 47.0秒 | cache prime + batch 1 |
+| 2 ranks x 112 threads | 36.7秒 | cache prime + batch 1 |
+| 4 ranks x 112 threads | 31.5秒 | cache prime + batch 1 |
+| 6 ranks x 112 threads | 30.3秒 | cache prime + batch 1 |
+
+全並列構成のchecksumは一致し、旧operatorとの差はFrobenius相対値 `1.73e-15` でした。
+これは上記fixtureの測定結果であり、任意のgeometryに対する時間保証ではありません。
+
+#### 運用指針
+
+| 状況 | 推奨 |
+| --- | --- |
+| 専用cache prime | 1 rank x 112 threadsをcore効率とqueue footprintの基準にする |
+| production allocationが既にある | 既存rankで生成してよい。6 x 112なら同fixtureで約30秒 |
+| cold buildだけのために増員 | 4--6 rankの追加利得は小さい |
+| 1 core | operator公開後の粒子batchでメモリ不足となった測定例があり、運用対象外 |
+| warm cache | fingerprintとchecksumを確認し、そのまま再利用 |
 
 ### 11. 実装との対応
 

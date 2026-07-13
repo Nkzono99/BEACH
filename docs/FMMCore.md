@@ -87,9 +87,14 @@ kernel が担当します。
 
 #### 2.3 BEACH adapter での使い方
 
-BEACH の field solver adapter は、メッシュ要素重心を `src_pos` としてこのコアへ渡します。
+BEACH の field solver adapter は、source model に応じて異なる幾何をコアへ渡します。
 
-- 初期化時は `build_plan` の直後に `update_state` を実行します。
+| source model | plan 構築 | `src_q(i)` の意味 |
+|---|---|---|
+| `point` | 要素重心を `src_pos` として `build_plan` に渡す | 重心に置く点電荷 |
+| `triangle_p0` | 3 頂点を `build_panel_plan` に渡す | 三角形全体の総電荷。面密度は `src_q(i)/area(i)` |
+
+- 初期化時は `build_plan` または `build_panel_plan` の直後に `update_state` を実行します。
 - その後の refresh では、メッシュ幾何が変わらない通常運用を前提に既存 `plan` を再利用し、`src_q` 更新として `update_state` だけを呼びます。
 - `build_plan` と legacy tree metadata の同期をやり直すのは、plan 未構築時・source 数変更時・要素数 0 件で plan/state を破棄したときだけです。
 
@@ -102,7 +107,7 @@ BEACH の field solver adapter は、メッシュ要素重心を `src_pos` と�
 - `theta`: well-separated 判定用パラメータ
 - `leaf_max`: source octree の葉に許す最大 source 数
 - `order`: Cartesian 展開次数
-- `softening`: softened Coulomb kernel の `epsilon`
+- `softening`: `point` source の softened Coulomb kernel に使う `epsilon`。`triangle_p0` では 0 が必須
 - `use_periodic2`: 2 周期軸モードの有効化
 - `periodic_axes(2)`, `periodic_len(2)`: 周期軸と周期長
 - `periodic_image_layers`: 近傍画像和の層数 `N`
@@ -145,9 +150,13 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可�
 
 ### 4. 数学的定義
 
-#### 4.1 kernel
+#### 4.1 source kernel
 
-現行コアは softening 付き Coulomb kernel を使います。
+コアには `point` と `triangle_p0` の 2 つの source kernel があります。
+
+##### point source
+
+`point` は要素重心に置いた点電荷を、softening 付き Coulomb kernel で評価します。
 
 $$
 G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\lVert\mathbf{r}\rVert^2 + \epsilon^2}}
@@ -161,7 +170,35 @@ $$
 \mathbf{E}(\mathbf{x}) = - \nabla \phi(\mathbf{x})
 $$
 
-近傍 direct 和でも遠方展開でも、同じ $G_\epsilon$ を使います。
+近傍 direct 和と遠方展開は、同じ $G_\epsilon$ に基づきます。
+
+##### P0 triangle source
+
+`triangle_p0` は、`q_i` を三角形 $T_i$ の総電荷、$A_i$ をその面積とし、
+$\sigma_i=q_i/A_i$ を三角形上の一定面密度として扱います。
+
+$$
+\phi_i(\mathbf{x}) =
+\frac{q_i}{A_i}\int_{T_i}
+\frac{1}{\lVert\mathbf{x}-\mathbf{y}\rVert}\,dA_{\mathbf{y}}
+$$
+
+近傍 direct 評価は、辺の対数項と立体角を使う解析的 P0 panel kernel です。
+遠方 P2M には、tree node の中心 $\mathbf{c}$ に対する三角形上の monomial の
+厳密面積平均を使います。
+
+$$
+M_{i,\alpha} =
+q_i\left\langle(\mathbf{y}-\mathbf{c})^\alpha\right\rangle_{T_i}
+= \frac{q_i}{A_i}\int_{T_i}
+(\mathbf{y}-\mathbf{c})^\alpha\,dA_{\mathbf{y}}
+$$
+
+したがって area weighting は panel 積分と P2M 基底に含まれています。
+`q_i` はすでに要素総電荷なので、`q_i` に $A_i$ をもう一度掛けません。
+以後の M2M/M2L/L2L は、この panel moment に対する非 softening の
+Coulomb/Laplace 展開です。`triangle_p0` では `softening=0` を強制し、
+softened point source へ fallback しません。
 
 #### 4.2 多重指数
 

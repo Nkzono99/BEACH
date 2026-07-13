@@ -121,6 +121,20 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
     assert fmm_en.index("### 10.1 Cached periodic nonzero operator") < fmm_en.index(
         "### 11. Implementation mapping"
     )
+    for phrase in (
+        "##### point source",
+        "##### P0 triangle source",
+        "q_i` はすでに要素総電荷",
+        "`triangle_p0` では `softening=0` を強制",
+    ):
+        assert phrase in fmm_ja
+    for phrase in (
+        "##### Point sources",
+        "##### P0 triangle sources",
+        "`q_i` is already the total element charge",
+        "`triangle_p0` enforces `softening=0`",
+    ):
+        assert phrase in fmm_en
 
     expected_ja = [
         "### 2.3 P0 triangle panel field kernel",

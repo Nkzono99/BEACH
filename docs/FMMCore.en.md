@@ -77,9 +77,15 @@ The rigid-transform helper path uses NumPy by default and can use an optional Nu
 
 #### 2.3 BEACH adapter usage
 
-The BEACH field-solver adapter passes mesh element centroids to this core as `src_pos`.
+The BEACH field-solver adapter passes different geometry to the core according
+to the source model.
 
-- During initialization, it calls `update_state` immediately after `build_plan`.
+| source model | plan construction | meaning of `src_q(i)` |
+|---|---|---|
+| `point` | pass element centroids as `src_pos` to `build_plan` | point charge located at the centroid |
+| `triangle_p0` | pass all three vertices to `build_panel_plan` | total charge on the triangle; surface density is `src_q(i)/area(i)` |
+
+- During initialization, it calls `update_state` immediately after `build_plan` or `build_panel_plan`.
 - During later refreshes, normal operation assumes mesh geometry is unchanged, so the existing `plan` is reused and only `update_state` is called with updated `src_q`.
 - `build_plan` and legacy tree metadata are synchronized again only when the plan is missing, the source count changes, or zero elements caused plan/state disposal.
 
@@ -92,7 +98,7 @@ Main internal options:
 - `theta`: parameter for well-separated tests
 - `leaf_max`: maximum source count in a source-octree leaf
 - `order`: Cartesian expansion order
-- `softening`: `epsilon` of the softened Coulomb kernel
+- `softening`: `epsilon` of the softened Coulomb kernel for `point` sources; it must be zero for `triangle_p0`
 - `use_periodic2`: enable two-periodic-axis mode
 - `periodic_axes(2)`, `periodic_len(2)`: periodic axes and lengths
 - `periodic_image_layers`: near image-sum layer count `N`
@@ -135,9 +141,14 @@ This is charge-dependent data updated on each refresh:
 
 ### 4. Mathematical definitions
 
-#### 4.1 Kernel
+#### 4.1 Source kernels
 
-The current core uses the softened Coulomb kernel:
+The core supports two source kernels: `point` and `triangle_p0`.
+
+##### Point sources
+
+`point` evaluates charges located at element centroids with the softened
+Coulomb kernel:
 
 $$
 G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\lVert\mathbf{r}\rVert^2 + \epsilon^2}}
@@ -151,7 +162,36 @@ $$
 \mathbf{E}(\mathbf{x}) = - \nabla \phi(\mathbf{x})
 $$
 
-Both the near direct sum and far-field expansions use the same $G_\epsilon$.
+The near direct sum and far-field expansion are both based on this
+$G_\epsilon$.
+
+##### P0 triangle sources
+
+`triangle_p0` treats `q_i` as the total charge on triangle $T_i$ of area $A_i$,
+with constant surface density $\sigma_i=q_i/A_i$:
+
+$$
+\phi_i(\mathbf{x}) =
+\frac{q_i}{A_i}\int_{T_i}
+\frac{1}{\lVert\mathbf{x}-\mathbf{y}\rVert}\,dA_{\mathbf{y}}
+$$
+
+Near direct evaluation uses the analytic P0 panel kernel based on logarithmic
+edge terms and the solid angle. Far-field P2M uses exact area-averaged
+monomials over the triangle relative to tree-node center $\mathbf{c}$:
+
+$$
+M_{i,\alpha} =
+q_i\left\langle(\mathbf{y}-\mathbf{c})^\alpha\right\rangle_{T_i}
+= \frac{q_i}{A_i}\int_{T_i}
+(\mathbf{y}-\mathbf{c})^\alpha\,dA_{\mathbf{y}}
+$$
+
+Area weighting is therefore contained in the panel integral and the P2M basis.
+Because `q_i` is already the total element charge, it is not multiplied by
+$A_i$ again. M2M/M2L/L2L then use the unsoftened Coulomb/Laplace expansion for
+these panel moments. `triangle_p0` enforces `softening=0` and never falls back
+to softened point sources.
 
 #### 4.2 Multi-index
 
