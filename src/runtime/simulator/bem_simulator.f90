@@ -58,12 +58,13 @@ module bem_simulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。
     module subroutine prepare_batch_state( &
-      mesh, app, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
+      mesh, app, snapshot, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
       photo_emission_dq, mpi, outer_state, inject_state, collision_failure_status, collision_failure_species, &
       collision_failure_ray, collision_failure_bounce &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
+      type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(sim_stats), intent(in) :: stats
       integer(i32), intent(out) :: batch_idx
       real(dp), intent(inout) :: dq_thread(:, :)

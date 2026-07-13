@@ -143,7 +143,7 @@ contains
 
     call perf_region_begin(perf_region_prepare_batch, t0)
     call prepare_batch_state( &
-      mesh, app, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
+      mesh, app, snapshot, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
       photo_emission_dq, mpi_ctx, snapshot%outer, inject_state, photo_failure_status, photo_failure_species, &
       photo_failure_ray, photo_failure_bounce &
       )
@@ -316,14 +316,14 @@ contains
   if (present(inject_state)) then
     call init_particle_batch_from_config( &
       app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
-      outer_state=outer_state, mpi=mpi, collision_failure_status=collision_failure_status, &
+      snapshot=snapshot, outer_state=outer_state, mpi=mpi, collision_failure_status=collision_failure_status, &
       collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
       collision_failure_bounce=collision_failure_bounce &
       )
   else
     call init_particle_batch_from_config( &
       app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi, &
-      outer_state=outer_state, collision_failure_status=collision_failure_status, &
+      snapshot=snapshot, outer_state=outer_state, collision_failure_status=collision_failure_status, &
       collision_failure_species=collision_failure_species, &
       collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce &
       )

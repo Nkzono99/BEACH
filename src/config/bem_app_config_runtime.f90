@@ -1,11 +1,11 @@
 !> `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
-  use bem_constants, only: k_boltzmann, k_coulomb, eps0
+  use bem_constants, only: k_boltzmann, eps0
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state, bc_periodic
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
-  use bem_field, only: electric_potential_at
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
@@ -285,7 +285,7 @@ contains
   !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
   !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
   subroutine init_particle_batch_from_config( &
-    cfg, batch_idx, pcls, state, mesh, outer_state, photo_emission_dq, mpi_rank, mpi_size, mpi, &
+    cfg, batch_idx, pcls, state, mesh, snapshot, outer_state, photo_emission_dq, mpi_rank, mpi_size, mpi, &
     collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
     )
     type(app_config), intent(in) :: cfg
@@ -293,6 +293,7 @@ contains
     type(particles_soa), intent(out) :: pcls
     type(injection_state), intent(inout), optional :: state
     type(mesh_type), intent(in), optional :: mesh
+    type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
     type(outer_plasma_state_type), intent(in), optional :: outer_state
     real(dp), intent(out), optional :: photo_emission_dq(:)
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
@@ -446,7 +447,7 @@ contains
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
         end if
         call reservoir_face_velocity_correction( &
-          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh, outer_state &
+          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh, snapshot, outer_state &
           )
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
@@ -523,6 +524,9 @@ contains
           return
         end if
         if (photo_escape_model_enabled(cfg%particle_species(s))) then
+          if (.not. present(snapshot)) then
+            error stop 'photo_escape_model requires a refreshed electrostatic snapshot.'
+          end if
           allocate (photo_escape_factor_cache(mesh%nelem))
           photo_escape_factor_cache = -1.0d0
           do i = 1, counts_actual(s)
@@ -531,7 +535,9 @@ contains
             end if
             if (photo_escape_factor_cache(emit_elem_species(i, s)) < 0.0d0) then
               photo_escape_factor_cache(emit_elem_species(i, s)) = photo_escape_weight_factor( &
-                                                                   mesh, cfg%sim, cfg%particle_species(s), emit_elem_species(i, s) &
+                                                                   mesh, cfg%sim, cfg%particle_species(s), &
+                                                                   emit_elem_species(i, s), &
+                                                                   snapshot &
                                                                    )
             end if
             w_species(i, s) = w_species(i, s)*photo_escape_factor_cache(emit_elem_species(i, s))
@@ -937,12 +943,13 @@ contains
   !! @param[out] vmin_normal 無限遠法線速度の下限 [m/s]。
   !! @param[out] barrier_normal 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（補正時に必要）。
-  subroutine reservoir_face_velocity_correction(cfg, spec, vmin_normal, barrier_normal, mesh, outer_state)
+  subroutine reservoir_face_velocity_correction(cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, outer_state)
     type(app_config), intent(in) :: cfg
     type(particle_species_spec), intent(in) :: spec
     real(dp), intent(out) :: vmin_normal
     real(dp), intent(out) :: barrier_normal
     type(mesh_type), intent(in), optional :: mesh
+    type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
     type(outer_plasma_state_type), intent(in), optional :: outer_state
 
     real(dp) :: phi_face, delta_phi, area_xy
@@ -980,7 +987,10 @@ contains
       if (.not. present(mesh)) then
         error stop 'sim.reservoir_potential_model="infinity_barrier" requires mesh in init_particle_batch_from_config.'
       end if
-      call compute_face_average_potential(mesh, cfg%sim, spec, phi_face)
+      if (.not. present(snapshot)) then
+        error stop 'sim.reservoir_potential_model="infinity_barrier" requires a refreshed electrostatic snapshot.'
+      end if
+      call compute_face_average_potential(mesh, cfg%sim, spec, snapshot, phi_face)
       delta_phi = phi_face - cfg%sim%phi_infty
       barrier_normal = 2.0d0*spec%q_particle*delta_phi/spec%m_particle
       if (.not. ieee_is_finite(barrier_normal)) then
@@ -1004,20 +1014,22 @@ contains
   end function photo_escape_model_enabled
 
   !> 放出元要素の局所障壁からPE escape重み係数を返す。
-  real(dp) function photo_escape_weight_factor(mesh, sim, spec, elem_idx) result(factor)
+  real(dp) function photo_escape_weight_factor(mesh, sim, spec, elem_idx, snapshot) result(factor)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     integer(i32), intent(in) :: elem_idx
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
 
-    real(dp) :: barrier_v, thermal_energy_j, arg
+    real(dp) :: element_potential, barrier_v, thermal_energy_j, arg
 
     select case (trim(lower_ascii(spec%photo_escape_model)))
     case ('none')
       factor = 1.0d0
       return
     case ('boltzmann_cutoff')
-      barrier_v = max(element_potential_without_self(mesh, elem_idx, sim%softening) - sim%phi_infty, 0.0d0)
+      call snapshot%eval_local_phi_without_primary_self(mesh, sim, elem_idx, element_potential)
+      barrier_v = max(element_potential - sim%phi_infty, 0.0d0)
       if (barrier_v <= 0.0d0) then
         factor = 1.0d0
         return
@@ -1041,40 +1053,16 @@ contains
     end select
   end function photo_escape_weight_factor
 
-  !> 要素自身の点電荷寄与を除いた要素中心電位 [V] を返す。
-  real(dp) function element_potential_without_self(mesh, elem_idx, softening) result(phi)
-    type(mesh_type), intent(in) :: mesh
-    integer(i32), intent(in) :: elem_idx
-    real(dp), intent(in) :: softening
-
-    integer(i32) :: j
-    real(dp) :: dx, dy, dz, r2, soft2, phi_sum
-
-    if (elem_idx < 1_i32 .or. elem_idx > mesh%nelem) error stop 'photo_escape_model elem_idx is out of range.'
-
-    soft2 = softening*softening
-    phi_sum = 0.0d0
-    do j = 1_i32, mesh%nelem
-      if (j == elem_idx) cycle
-      dx = mesh%center_x(elem_idx) - mesh%center_x(j)
-      dy = mesh%center_y(elem_idx) - mesh%center_y(j)
-      dz = mesh%center_z(elem_idx) - mesh%center_z(j)
-      r2 = dx*dx + dy*dy + dz*dz + soft2
-      if (r2 <= tiny(1.0d0)) cycle
-      phi_sum = phi_sum + mesh%q_elem(j)/sqrt(r2)
-    end do
-    phi = k_coulomb*phi_sum
-  end function element_potential_without_self
-
   !> reservoir_face 開口面の平均電位を `N x N` 格子平均で評価する。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ。
   !! @param[in] sim シミュレーション設定。
   !! @param[in] spec reservoir_face 粒子種設定。
   !! @param[out] phi_face 注入開口面の平均電位 [V]。
-  subroutine compute_face_average_potential(mesh, sim, spec, phi_face)
+  subroutine compute_face_average_potential(mesh, sim, spec, snapshot, phi_face)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(out) :: phi_face
 
     integer(i32) :: ngrid, i, j
@@ -1097,7 +1085,7 @@ contains
         pos(axis_t1) = spec%pos_low(axis_t1) + (spec%pos_high(axis_t1) - spec%pos_low(axis_t1))*t1
         pos(axis_t2) = spec%pos_low(axis_t2) + (spec%pos_high(axis_t2) - spec%pos_low(axis_t2))*t2
         pos = pos + inward_normal*1.0d-12
-        call electric_potential_at(mesh, pos, sim%softening, phi)
+        call snapshot%eval_local_phi(mesh, sim, pos, phi)
         phi_sum = phi_sum + phi
       end do
     end do

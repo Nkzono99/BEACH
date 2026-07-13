@@ -7,6 +7,7 @@ program test_templates_importers_runtime
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_app_config, only: &
     app_config, default_app_config, species_from_defaults, &
     build_mesh_from_config, init_particles_from_config, seed_particles_from_config, init_particle_batch_from_config, &
@@ -19,10 +20,11 @@ program test_templates_importers_runtime
   type(app_config) :: cfg
   type(particles_soa) :: pcls
   type(injection_state) :: state
+  type(electrostatic_snapshot_type) :: snapshot
   real(dp), allocatable :: photo_emission_dq(:)
   real(dp) :: reservoir_x(3, 128), reservoir_v(3, 128)
   real(dp) :: photo_v0(3, 2), photo_v1(3, 2), photo_v2(3, 2), expected_photo_counter
-  real(dp) :: center_distance, expected_weight, raw_photo_counter
+  real(dp) :: center_distance, expected_weight, raw_photo_counter, barrier_potential
   integer(i32) :: i
 
   character(len=*), parameter :: obj_path = 'test_templates_runtime_tmp.obj'
@@ -340,8 +342,12 @@ program test_templates_importers_runtime
   allocate (state%macro_residual(3))
   state%macro_residual = 0.0d0
   allocate (photo_emission_dq(mesh%nelem))
+  call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma)
+  call snapshot%refresh(mesh)
   call seed_particles_from_config(cfg)
-  call init_particle_batch_from_config(cfg, 1_i32, pcls, state, mesh=mesh, photo_emission_dq=photo_emission_dq)
+  call init_particle_batch_from_config( &
+    cfg, 1_i32, pcls, state, mesh=mesh, snapshot=snapshot, photo_emission_dq=photo_emission_dq &
+    )
   call assert_true(pcls%n >= 1_i32, 'batch particle count mismatch')
   call assert_close_dp(pcls%q(1), 1.0d0, 1.0d-12, 'mixed batch species-1 charge mismatch')
   expected_photo_counter = 0.0d0
@@ -382,6 +388,14 @@ program test_templates_importers_runtime
   cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
   cfg%sim%softening = 0.0d0
   cfg%sim%phi_infty = 0.0d0
+  cfg%sim%e0 = [0.0d0, 0.0d0, -2.0d0]
+  cfg%sim%field_solver = 'direct'
+  cfg%field%backend = 'direct'
+  cfg%panel%source_model = 'triangle_p0'
+  cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+  cfg%panel%surface_side_policy = 'per_element'
+  mesh%elem_vacuum_sign = 1_i32
+  mesh%vacuum_normals = mesh%normals
   cfg%n_particle_species = 1_i32
   cfg%particle_species(1) = species_from_defaults()
   cfg%particle_species(1)%source_mode = 'photo_raycast'
@@ -400,13 +414,20 @@ program test_templates_importers_runtime
 
   if (allocated(photo_emission_dq)) deallocate (photo_emission_dq)
   allocate (photo_emission_dq(mesh%nelem))
+  call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma)
+  call snapshot%refresh(mesh)
+  call snapshot%eval_local_phi_without_primary_self(mesh, cfg%sim, 1_i32, barrier_potential)
   call seed_particles_from_config(cfg)
-  call init_particle_batch_from_config(cfg, 1_i32, pcls, mesh=mesh, photo_emission_dq=photo_emission_dq)
-  expected_weight = (0.02d0*0.02d0)/(qe)*exp(-1.0d0)
+  call init_particle_batch_from_config( &
+    cfg, 1_i32, pcls, mesh=mesh, snapshot=snapshot, photo_emission_dq=photo_emission_dq &
+    )
+  expected_weight = (0.02d0*0.02d0)/(qe)*exp(-barrier_potential)
   raw_photo_counter = 0.02d0*0.02d0
   call assert_equal_i32(pcls%n, 1_i32, 'photo escape should keep one reweighted macro particle')
   call assert_close_dp(pcls%w(1), expected_weight, expected_weight*1.0d-12, 'photo escape weight mismatch')
-  call assert_close_dp(sum(photo_emission_dq), raw_photo_counter*exp(-1.0d0), 1.0d-15, 'photo escape dq mismatch')
+  call assert_close_dp( &
+    sum(photo_emission_dq), raw_photo_counter*exp(-barrier_potential), 1.0d-15, 'photo escape dq mismatch' &
+    )
   call test_end()
 
   call delete_file_if_exists(obj_path)

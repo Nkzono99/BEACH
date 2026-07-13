@@ -10,6 +10,7 @@ program test_reservoir_injection
   use bem_mesh, only: init_mesh
   use bem_constants, only: eps0
   use bem_outer_plasma_types, only: outer_plasma_state_type
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
@@ -24,10 +25,14 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('split_outer_infinity_vdf_map')
   call test_split_outer_infinity_vdf_map()
+  call test_end()
+
+  call test_begin('snapshot_infinity_barrier')
+  call test_snapshot_infinity_barrier()
   call test_end()
 
   call write_fixed_duration_fixture(cfg_fixed_path)
@@ -123,6 +128,60 @@ program test_reservoir_injection
   call test_summary()
 
 contains
+
+  subroutine test_snapshot_infinity_barrier()
+    type(app_config) :: barrier_cfg
+    type(mesh_type) :: barrier_mesh
+    type(particles_soa) :: particles
+    type(injection_state) :: state
+    type(electrostatic_snapshot_type) :: snapshot
+    real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
+
+    v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
+    v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
+    v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
+    call init_mesh(barrier_mesh, v0, v1, v2, q0=[0.0_dp])
+
+    call default_app_config(barrier_cfg)
+    barrier_cfg%sim%batch_count = 1_i32
+    barrier_cfg%sim%batch_duration = 1.0_dp
+    barrier_cfg%sim%has_batch_duration = .true.
+    barrier_cfg%sim%dt = 0.0_dp
+    barrier_cfg%sim%use_box = .true.
+    barrier_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    barrier_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    barrier_cfg%sim%e0 = [0.0_dp, 0.0_dp, -1.0_dp]
+    barrier_cfg%sim%reservoir_potential_model = 'infinity_barrier'
+    barrier_cfg%sim%phi_infty = 0.0_dp
+    barrier_cfg%sim%injection_face_phi_grid_n = 2_i32
+    barrier_cfg%n_particle_species = 1_i32
+    barrier_cfg%particle_species(1) = species_from_defaults()
+    barrier_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    barrier_cfg%particle_species(1)%number_density_m3 = 10.0_dp
+    barrier_cfg%particle_species(1)%has_number_density_m3 = .true.
+    barrier_cfg%particle_species(1)%temperature_k = 0.0_dp
+    barrier_cfg%particle_species(1)%has_temperature_k = .true.
+    barrier_cfg%particle_species(1)%q_particle = 1.0_dp
+    barrier_cfg%particle_species(1)%m_particle = 1.0_dp
+    barrier_cfg%particle_species(1)%w_particle = 1.0_dp
+    barrier_cfg%particle_species(1)%has_w_particle = .true.
+    barrier_cfg%particle_species(1)%inject_face = 'z_high'
+    barrier_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    barrier_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    barrier_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    allocate (state%macro_residual(1))
+    state%macro_residual = 0.0_dp
+
+    call snapshot%init( &
+      barrier_mesh, barrier_cfg%sim, barrier_cfg%field, barrier_cfg%periodic2, barrier_cfg%panel, &
+      barrier_cfg%outer_plasma &
+      )
+    call snapshot%refresh(barrier_mesh)
+    call init_particle_batch_from_config( &
+      barrier_cfg, 1_i32, particles, state=state, mesh=barrier_mesh, snapshot=snapshot &
+      )
+    call assert_equal_i32(particles%n, 0_i32, 'snapshot infinity barrier should block deterministic inflow')
+  end subroutine test_snapshot_infinity_barrier
 
   subroutine test_split_outer_infinity_vdf_map()
     type(app_config) :: split_cfg
