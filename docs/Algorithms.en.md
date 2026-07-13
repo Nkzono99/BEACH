@@ -262,8 +262,9 @@ interpolated velocity. Multiple open faces fail closed; a shared-potential/gauge
 
 If `BEACH_WARN_LONG_PARTICLE_STEPS` is set to a positive integer, BEACH prints diagnostics for long-lived particles at that step interval.
 
-The collision statuses are `collision_query_ok=0`, `collision_query_image_limit=1`, and
-`collision_query_index_range=2`. A public call that omits `status` does not treat an incomplete query as a miss; it stops
+The collision statuses are `collision_query_ok=0`, `collision_query_image_limit=1`,
+`collision_query_index_range=2`, `collision_query_invalid_segment=3`, and `collision_query_grid_stalled=4`.
+A non-finite candidate stops as `particle_step_invalid_boundary` before collision traversal. A public call that omits `status` does not treat an incomplete query as a miss; it stops
 fail closed. The main loop aggregates collision and boundary-event failures in one envelope, leaves the OpenMP region,
 then shares the selected rank's particle/step and `dt/x/v` so every rank stops with the same diagnostic.
 

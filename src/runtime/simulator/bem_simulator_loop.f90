@@ -404,6 +404,20 @@ contains
         mesh, app%sim, snapshot, bfield, x0, v0, &
         pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1 &
         )
+      if (.not. all(ieee_is_finite(x1)) .or. .not. all(ieee_is_finite(v1))) then
+        !$omp critical (beach_collision_query_failure)
+        if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
+            (i == collision_failure_particle .and. step < collision_failure_step)) then
+          collision_failure_status = particle_step_invalid_boundary
+          collision_failure_particle = i
+          collision_failure_step = step
+          collision_failure_x = x0
+          collision_failure_v = v0
+        end if
+        !$omp end critical (beach_collision_query_failure)
+        collision_failed = .true.
+        exit
+      end if
       call find_first_hit(mesh, x0, x1, hit, sim=app%sim, status=collision_status)
       candidate_inside = .not. app%sim%use_box .or. &
                          (all(x1 > app%sim%box_min) .and. all(x1 < app%sim%box_max))
@@ -588,6 +602,10 @@ contains
       failure_name = 'image_limit'
     case (collision_query_index_range)
       failure_name = 'index_range'
+    case (collision_query_invalid_segment)
+      failure_name = 'invalid_segment'
+    case (collision_query_grid_stalled)
+      failure_name = 'grid_stalled'
     case (particle_step_invalid_boundary)
       failure_name = 'invalid_boundary'
     case (particle_step_multiple_box_events)
@@ -619,6 +637,10 @@ contains
       failure_name = 'image_limit'
     case (collision_query_index_range)
       failure_name = 'index_range'
+    case (collision_query_invalid_segment)
+      failure_name = 'invalid_segment'
+    case (collision_query_grid_stalled)
+      failure_name = 'grid_stalled'
     case default
       failure_name = 'unknown'
     end select

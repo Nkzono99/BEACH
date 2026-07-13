@@ -229,6 +229,9 @@ Collision grid:
 
 The particle segment `p0 -> p1` is first intersected with the grid AABB, and only traversed cells are enumerated by 3D-DDA.
 Only elements registered in those cells are passed to the narrow phase.
+Traversal does not start or continue when segment endpoints, grid geometry, or DDA increments are non-finite or invalid.
+Cell visits are bounded by `nx+ny+nz+3`; failure to advance the cell or segment parameter returns
+`collision_query_grid_stalled` and fails closed.
 
 ### 9.2 Narrow phase: Moller-Trumbore
 
@@ -286,6 +289,8 @@ The hit record stores both the physical image-coordinate hit position `hit%pos` 
 | `collision_query_ok` | 0 | All required candidates were examined |
 | `collision_query_image_limit` | 1 | The per-axis or Cartesian-product image count exceeded the safety limit of 4096 |
 | `collision_query_index_range` | 2 | A shift bound was non-finite or outside the representable i64 / i32 range |
+| `collision_query_invalid_segment` | 3 | A segment start or end coordinate was non-finite |
+| `collision_query_grid_stalled` | 4 | Collision-grid state was invalid or DDA could not make bounded progress |
 
 A caller that requests `status` receives the incomplete state. A public call that omits `status` does not continue by treating
 an incomplete query as a miss; it stops fail closed. Normal particle tracking always receives each query status inside OpenMP,

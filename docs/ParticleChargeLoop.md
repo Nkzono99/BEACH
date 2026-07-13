@@ -227,6 +227,9 @@ collision grid:
 
 粒子線分 `p0 -> p1` はまず grid AABB と交差判定され、通過セルだけを 3D-DDA で列挙します。
 各セルに登録された要素だけを narrow phase へ渡します。
+線分端点、grid geometry、DDA 増分が非有限または不正な場合は探索を開始・継続しません。
+DDA のセル訪問回数は `nx+ny+nz+3` 以下に制限され、セルまたは線分パラメータが進行しない場合は
+`collision_query_grid_stalled` を返して fail closed とします。
 
 ### 9.2 narrow phase: Möller-Trumbore
 
@@ -284,6 +287,8 @@ $$
 | `collision_query_ok` | 0 | 必要な候補をすべて調べた完了照会 |
 | `collision_query_image_limit` | 1 | 1軸または直積の image 数が安全上限 4096 を超えた |
 | `collision_query_index_range` | 2 | shift bound が非有限、または i64 / i32 の表現範囲外 |
+| `collision_query_invalid_segment` | 3 | 線分始点または終点に非有限値がある |
+| `collision_query_grid_stalled` | 4 | collision grid の状態が不正、または DDA が有限回で進行できない |
 
 `status` を要求した caller には未完了状態を返します。`status` を省略した public call は未完了を「命中なし」として
 継続せず、fail closed で停止します。通常の粒子追跡は OpenMP 内で各 query の status を受け、最小 particle / step を

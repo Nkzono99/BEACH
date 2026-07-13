@@ -9,7 +9,8 @@ module bem_app_config_runtime
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
-  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok
+  use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
+                           collision_query_index_range, collision_query_invalid_segment, collision_query_ok
   use bem_importers, only: load_obj_mesh
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
@@ -600,6 +601,10 @@ contains
       status_name = 'image_limit'
     case (collision_query_index_range)
       status_name = 'index_range'
+    case (collision_query_invalid_segment)
+      status_name = 'invalid_segment'
+    case (collision_query_grid_stalled)
+      status_name = 'grid_stalled'
     case default
       status_name = 'unknown'
     end select

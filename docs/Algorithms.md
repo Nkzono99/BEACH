@@ -249,7 +249,8 @@ periodic2のfull-chord queryがbox外区間でrange limitに達した場合は�
 `BEACH_WARN_LONG_PARTICLE_STEPS` を正整数で設定すると、長く生き残る粒子の診断出力を一定 step ごとに出します。
 
 collision status は `collision_query_ok=0`、`collision_query_image_limit=1`、
-`collision_query_index_range=2` です。`status` を省略した public call は不完全な照会を miss として扱わず、
+`collision_query_index_range=2`、`collision_query_invalid_segment=3`、`collision_query_grid_stalled=4` です。
+非有限 candidate はcollision前に `particle_step_invalid_boundary` として停止します。`status` を省略した public call は不完全な照会を miss として扱わず、
 fail closed で停止します。main particle loop はcollisionとboundary eventのfailureを同じenvelopeで集約し、OpenMP regionを抜けてから
 MPI全rankで最小rankのparticle/stepとその`dt/x/v`を共有し、同一messageで停止します。
 

@@ -2,6 +2,7 @@
 module bem_simulator
 !$ use omp_lib
   use, intrinsic :: iso_fortran_env, only: output_unit
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
@@ -11,7 +12,8 @@ module bem_simulator
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, advance_particle_step, &
                                   particle_step_result, particle_step_invalid_boundary, &
                                   particle_step_multiple_box_events, particle_step_unsupported_barrier_corner
-  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
+  use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
+                           collision_query_index_range, collision_query_invalid_segment, collision_query_ok, find_first_hit
   use bem_surface_models, only: apply_surface_model_charge_relaxation
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
   use bem_string_utils, only: lower_ascii

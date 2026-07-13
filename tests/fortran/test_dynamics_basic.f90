@@ -1,6 +1,6 @@
 !> 基本物理テスト: 電場評価・Boris更新・衝突判定・periodic2衝突の基礎検証。
 program test_dynamics_basic
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_quiet_nan, ieee_value
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, hit_info, sim_config, bc_open, bc_periodic
@@ -8,7 +8,8 @@ program test_dynamics_basic
   use bem_templates, only: make_plane
   use bem_field, only: electric_field_at
   use bem_pusher, only: boris_push, boris_update_velocity
-  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, &
+  use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
+                           collision_query_index_range, collision_query_invalid_segment, collision_query_ok, &
                            compute_periodic_shift_bounds, find_first_hit, segment_triangle_intersect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
@@ -28,8 +29,12 @@ program test_dynamics_basic
     call run_collision_status_omitted_probe()
     error stop 'collision status omitted probe unexpectedly completed'
   end if
+  if (trim(run_mode) == '--collision-grid-stall-probe') then
+    call run_collision_grid_stall_probe()
+    stop
+  end if
 
-  call test_init(21)
+  call test_init(23)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -140,6 +145,14 @@ program test_dynamics_basic
 
   call test_begin('periodic2_collision_runaway_segment_guard')
   call test_periodic2_collision_runaway_segment_guard()
+  call test_end()
+
+  call test_begin('collision_nonfinite_segment_guard')
+  call test_collision_nonfinite_segment_guard()
+  call test_end()
+
+  call test_begin('collision_grid_stall_guard')
+  call test_collision_grid_stall_guard()
   call test_end()
 
   call test_begin('periodic2_collision_status_omitted_fails_closed')
@@ -473,6 +486,58 @@ contains
       'periodic2 runaway segment should report the image enumeration limit' &
       )
   end subroutine test_periodic2_collision_runaway_segment_guard
+
+  subroutine test_collision_nonfinite_segment_guard()
+    type(mesh_type) :: mesh_grid
+    type(hit_info) :: hit_grid
+    integer(i32) :: query_status
+    real(dp) :: p1(3)
+
+    call make_plane(mesh_grid, size_x=1.0d0, size_y=1.0d0, nx=8_i32, ny=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call assert_true(mesh_grid%use_collision_grid, 'dense mesh should use collision grid')
+    p1 = [0.5d0, 0.5d0, -1.0d0]
+    p1(3) = ieee_value(p1(3), ieee_quiet_nan)
+
+    call find_first_hit(mesh_grid, [0.5d0, 0.5d0, 1.0d0], p1, hit_grid, status=query_status)
+
+    call assert_equal_i32( &
+      query_status, collision_query_invalid_segment, &
+      'nonfinite collision segment should fail before grid traversal' &
+      )
+    call assert_true(.not. hit_grid%has_hit, 'invalid collision segment must not report a hit')
+  end subroutine test_collision_nonfinite_segment_guard
+
+  subroutine test_collision_grid_stall_guard()
+    character(len=1024) :: executable_path, command
+    integer :: child_exit_status, child_cmd_status
+
+    call get_command_argument(0, executable_path)
+    command = 'timeout 5 "'//trim(executable_path)//'" --collision-grid-stall-probe'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'collision grid stall probe command status mismatch')
+    call assert_equal_i32( &
+      int(child_exit_status, i32), 0_i32, &
+      'collision grid stall probe should terminate with a guarded status' &
+      )
+  end subroutine test_collision_grid_stall_guard
+
+  subroutine run_collision_grid_stall_probe()
+    type(mesh_type) :: mesh_grid
+    type(hit_info) :: hit_grid
+    integer(i32) :: query_status
+
+    call make_plane(mesh_grid, size_x=1.0d0, size_y=1.0d0, nx=8_i32, ny=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    if (.not. mesh_grid%use_collision_grid) error stop 'collision grid stall probe requires collision grid'
+    mesh_grid%grid_inv_cell = 0.0d0
+
+    call find_first_hit(mesh_grid, [2.0d0, 2.0d0, 1.0d0], [-1.0d0, -1.0d0, -1.0d0], hit_grid, status=query_status)
+    if (query_status /= collision_query_grid_stalled) then
+      error stop 'collision grid stall probe did not return the guarded status'
+    end if
+  end subroutine run_collision_grid_stall_probe
 
   subroutine test_periodic2_collision_i32_upper_boundary()
     type(mesh_type) :: mesh_periodic

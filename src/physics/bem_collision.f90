@@ -8,6 +8,8 @@ module bem_collision
   integer(i32), parameter, public :: collision_query_ok = 0_i32
   integer(i32), parameter, public :: collision_query_image_limit = 1_i32
   integer(i32), parameter, public :: collision_query_index_range = 2_i32
+  integer(i32), parameter, public :: collision_query_invalid_segment = 3_i32
+  integer(i32), parameter, public :: collision_query_grid_stalled = 4_i32
   integer(i64), parameter :: max_periodic2_collision_images = 4096_i64
   private :: finalize_collision_query
 contains
@@ -35,6 +37,11 @@ contains
     query_status = collision_query_ok
     periodic_axes = 0_i32
     periodic_len = 0.0d0
+    if (any(.not. ieee_is_finite(p0)) .or. any(.not. ieee_is_finite(p1))) then
+      call initialize_hit(hit)
+      call finalize_collision_query(collision_query_invalid_segment, status)
+      return
+    end if
     if (present(sim)) then
       call resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
     end if
@@ -44,24 +51,27 @@ contains
         mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside, status=query_status &
         )
     else
-      call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside)
+      call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside, status=query_status)
     end if
     call finalize_collision_query(query_status, status)
   end subroutine find_first_hit
 
   !> 通常メッシュに対する最初の命中要素探索を行う。
-  subroutine find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside)
+  subroutine find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside, status)
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
     type(hit_info), intent(out) :: hit
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
+    integer(i32), intent(out), optional :: status
 
     real(dp) :: d(3), seg_min(3), seg_max(3), best_t
     real(dp) :: box_min_local(3), box_max_local(3), box_tol
     logical :: use_box_filter, require_inside_elem
+    integer(i32) :: query_status
 
     call initialize_hit(hit)
+    query_status = collision_query_ok
 
     d = p1 - p0
     seg_min = min(p0, p1)
@@ -75,7 +85,7 @@ contains
     if (mesh%use_collision_grid) then
       call find_first_hit_base_grid( &
         mesh, p0, p1, d, seg_min, seg_max, hit, best_t, &
-        use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
+        use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem, query_status &
         )
     else
       call find_first_hit_base_linear( &
@@ -83,6 +93,7 @@ contains
         use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
         )
     end if
+    call finalize_collision_query(query_status, status)
   end subroutine find_first_hit_base
 
   !> periodic2 用に image shift を列挙し、base collision の結果を統合する。
@@ -95,7 +106,7 @@ contains
     logical, intent(in), optional :: require_elem_inside
     integer(i32), intent(out), optional :: status
 
-    integer(i32) :: periodic_axes(2), image_shift(2), nmin(2), nmax(2), iaxis, bound_status
+    integer(i32) :: periodic_axes(2), image_shift(2), nmin(2), nmax(2), iaxis, bound_status, base_status
     integer(i64) :: image_count(2), total_image_count, n1, n2
     real(dp) :: periodic_len(2), shift_vec(3), candidate_pos(3), candidate_wrapped(3)
     real(dp) :: box_min_local(3), box_max_local(3), box_tol
@@ -111,7 +122,8 @@ contains
 
     call resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
     if (.not. use_periodic2) then
-      call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside)
+      call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside, status=base_status)
+      call finalize_collision_query(base_status, status)
       return
     end if
 
@@ -150,7 +162,11 @@ contains
         shifted_p0 = p0 - shift_vec
         shifted_p1 = p1 - shift_vec
 
-        call find_first_hit_base(mesh, shifted_p0, shifted_p1, candidate)
+        call find_first_hit_base(mesh, shifted_p0, shifted_p1, candidate, status=base_status)
+        if (base_status /= collision_query_ok) then
+          call finalize_collision_query(base_status, status)
+          return
+        end if
         if (.not. candidate%has_hit) cycle
 
         candidate_pos = candidate%pos + shift_vec
@@ -236,7 +252,7 @@ contains
 
   !> 一様グリッド + 3D-DDA で候補セルのみ探索し、最初の命中要素を返す。
   subroutine find_first_hit_base_grid( &
-    mesh, p0, p1, d, seg_min, seg_max, hit, best_t, use_box_filter, box_min, box_max, box_tol, require_elem_inside &
+    mesh, p0, p1, d, seg_min, seg_max, hit, best_t, use_box_filter, box_min, box_max, box_tol, require_elem_inside, status &
     )
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3), d(3), seg_min(3), seg_max(3)
@@ -245,6 +261,7 @@ contains
     logical, intent(in) :: use_box_filter
     real(dp), intent(in) :: box_min(3), box_max(3), box_tol
     logical, intent(in) :: require_elem_inside
+    integer(i32), intent(out) :: status
 
     real(dp), parameter :: t_eps = 1.0d-12
     real(dp), parameter :: axis_rel_eps = 64.0d0*epsilon(1.0d0)
@@ -255,10 +272,23 @@ contains
     integer(i32) :: axis, nx, ny, cid
     integer(i32) :: cell(3), step(3)
     integer(i32) :: k, start_idx, end_idx, elem_idx
-    logical :: ok, hit_grid
+    integer(i64) :: align_iterations, traversal_iterations, max_traversal_iterations
+    logical :: ok, hit_grid, advanced_cell
+
+    status = collision_query_ok
+    if (any(mesh%grid_ncell <= 0_i32) .or. &
+        any(.not. ieee_is_finite(mesh%grid_inv_cell)) .or. any(mesh%grid_inv_cell <= 0.0d0) .or. &
+        any(.not. ieee_is_finite(mesh%grid_bb_min)) .or. any(.not. ieee_is_finite(mesh%grid_bb_max))) then
+      status = collision_query_grid_stalled
+      return
+    end if
 
     call segment_aabb_intersection_t(p0, d, mesh%grid_bb_min, mesh%grid_bb_max, hit_grid, t_entry, t_exit)
     if (.not. hit_grid) return
+    if (.not. ieee_is_finite(t_entry) .or. .not. ieee_is_finite(t_exit)) then
+      status = collision_query_grid_stalled
+      return
+    end if
     if (t_exit < 0.0d0 .or. t_entry > 1.0d0) return
 
     t_cur = max(0.0d0, t_entry)
@@ -274,6 +304,10 @@ contains
         t_delta(axis) = huge(1.0d0)
       else
         cell_size = 1.0d0/mesh%grid_inv_cell(axis)
+        if (.not. ieee_is_finite(cell_size) .or. cell_size <= 0.0d0) then
+          status = collision_query_grid_stalled
+          return
+        end if
         if (d(axis) > 0.0d0) then
           step(axis) = 1_i32
           t_max(axis) = (mesh%grid_bb_min(axis) + real(cell(axis), dp)*cell_size - p0(axis))/d(axis)
@@ -283,18 +317,49 @@ contains
           t_max(axis) = (mesh%grid_bb_min(axis) + real(cell(axis) - 1_i32, dp)*cell_size - p0(axis))/d(axis)
           t_delta(axis) = -cell_size/d(axis)
         end if
+        if (.not. ieee_is_finite(t_max(axis)) .or. .not. ieee_is_finite(t_delta(axis)) .or. &
+            t_delta(axis) <= 0.0d0) then
+          status = collision_query_grid_stalled
+          return
+        end if
+        align_iterations = 0_i64
         do while (t_max(axis) < t_cur - t_eps)
+          align_iterations = align_iterations + 1_i64
+          if (align_iterations > int(mesh%grid_ncell(axis), i64) + 1_i64) then
+            status = collision_query_grid_stalled
+            return
+          end if
           t_max(axis) = t_max(axis) + t_delta(axis)
+          if (.not. ieee_is_finite(t_max(axis))) then
+            status = collision_query_grid_stalled
+            return
+          end if
         end do
       end if
     end do
 
     nx = mesh%grid_ncell(1)
     ny = mesh%grid_ncell(2)
+    traversal_iterations = 0_i64
+    max_traversal_iterations = sum(int(mesh%grid_ncell, i64)) + 3_i64
 
     do
+      traversal_iterations = traversal_iterations + 1_i64
+      if (traversal_iterations > max_traversal_iterations) then
+        status = collision_query_grid_stalled
+        return
+      end if
+      if (.not. ieee_is_finite(t_cur)) then
+        status = collision_query_grid_stalled
+        return
+      end if
       if (t_cur > t_exit + t_eps) exit
       if (t_cur > best_t + t_eps) exit
+
+      if (any(cell < 1_i32) .or. any(cell > mesh%grid_ncell)) then
+        status = collision_query_grid_stalled
+        return
+      end if
 
       cid = cell_id(cell(1), cell(2), cell(3), nx, ny)
       start_idx = mesh%grid_cell_start(cid)
@@ -330,18 +395,28 @@ contains
       end do
 
       t_next = min(t_max(1), min(t_max(2), t_max(3)))
+      if (.not. ieee_is_finite(t_next) .or. t_next < t_cur - t_eps) then
+        status = collision_query_grid_stalled
+        return
+      end if
       if (t_next > t_exit + t_eps) exit
       if (t_next > best_t + t_eps) exit
 
+      advanced_cell = .false.
       do axis = 1, 3
         if (t_max(axis) <= t_next + t_eps) then
           if (step(axis) /= 0_i32) then
+            advanced_cell = .true.
             cell(axis) = cell(axis) + step(axis)
             if (cell(axis) < 1_i32 .or. cell(axis) > mesh%grid_ncell(axis)) return
             t_max(axis) = t_max(axis) + t_delta(axis)
           end if
         end if
       end do
+      if (.not. advanced_cell) then
+        status = collision_query_grid_stalled
+        return
+      end if
       t_cur = t_next
     end do
   end subroutine find_first_hit_base_grid
@@ -674,6 +749,10 @@ contains
       error stop 'periodic2 collision query incomplete: image enumeration limit exceeded.'
     case (collision_query_index_range)
       error stop 'periodic2 collision query incomplete: image index is outside the supported i32 range.'
+    case (collision_query_invalid_segment)
+      error stop 'collision query incomplete: segment coordinates must be finite.'
+    case (collision_query_grid_stalled)
+      error stop 'collision query incomplete: collision-grid traversal failed to make bounded progress.'
     case default
       error stop 'periodic2 collision query incomplete: unknown collision query status.'
     end select

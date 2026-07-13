@@ -28,6 +28,7 @@ program test_simulator
   character(len=*), parameter :: collision_failure_path = 'test_simulator_collision_failure_tmp.log'
   character(len=*), parameter :: photo_collision_failure_path = 'test_simulator_photo_collision_failure_tmp.log'
   character(len=*), parameter :: box_event_failure_path = 'test_simulator_box_event_failure_tmp.log'
+  character(len=*), parameter :: invalid_candidate_failure_path = 'test_simulator_invalid_candidate_failure_tmp.log'
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
@@ -40,6 +41,9 @@ program test_simulator
   else if (trim(run_mode) == '--multiple-box-event-probe') then
     call run_multiple_box_event_failure_probe()
     error stop 'multiple box event failure probe unexpectedly completed'
+  else if (trim(run_mode) == '--invalid-candidate-probe') then
+    call run_invalid_candidate_failure_probe()
+    error stop 'invalid candidate failure probe unexpectedly completed'
   end if
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -106,7 +110,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(13)
+  call test_init(14)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -242,6 +246,10 @@ program test_simulator
 
   call test_begin('multiple_box_event_failure_context')
   call test_multiple_box_event_failure_context()
+  call test_end()
+
+  call test_begin('invalid_candidate_failure_context')
+  call test_invalid_candidate_failure_context()
   call test_end()
 
   call test_summary()
@@ -909,4 +917,64 @@ contains
     call seed_particles_from_config(failure_cfg)
     call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
   end subroutine run_multiple_box_event_failure_probe
+
+  subroutine test_invalid_candidate_failure_context()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_status, saw_survivor_warning
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(invalid_candidate_failure_path)
+    command = 'OMP_NUM_THREADS=2 "'//trim(executable_path)// &
+              '" --invalid-candidate-probe > '//invalid_candidate_failure_path//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'invalid candidate probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'invalid candidate probe should terminate with nonzero status')
+
+    saw_status = .false.
+    saw_survivor_warning = .false.
+    open (newunit=child_unit, file=invalid_candidate_failure_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read invalid candidate probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_status = saw_status .or. index(child_line, 'status=invalid_boundary') > 0
+      saw_survivor_warning = saw_survivor_warning .or. index(child_line, 'max-step-survivor') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(invalid_candidate_failure_path)
+    call assert_true(saw_status, 'nonfinite candidate should be rejected as invalid_boundary')
+    call assert_true(.not. saw_survivor_warning, 'invalid candidate must not be reported as a max-step survivor')
+  end subroutine test_invalid_candidate_failure_context
+
+  subroutine run_invalid_candidate_failure_probe()
+    type(mesh_type) :: failure_mesh
+    type(app_config) :: failure_cfg
+    type(sim_stats) :: failure_stats
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [10.0_dp, -1.0_dp, -1.0_dp]
+    tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
+    tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
+    call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
+    call default_app_config(failure_cfg)
+    failure_cfg%sim%rng_seed = 995_i32
+    failure_cfg%sim%batch_count = 1_i32
+    failure_cfg%sim%dt = 2.0_dp
+    failure_cfg%sim%max_step = 1_i32
+    failure_cfg%sim%use_box = .false.
+    failure_cfg%n_particle_species = 1_i32
+    failure_cfg%particle_species(1) = species_from_defaults()
+    failure_cfg%particle_species(1)%source_mode = 'volume_seed'
+    failure_cfg%particle_species(1)%npcls_per_step = 1_i32
+    failure_cfg%particle_species(1)%q_particle = 0.0_dp
+    failure_cfg%particle_species(1)%m_particle = 1.0_dp
+    failure_cfg%particle_species(1)%w_particle = 1.0_dp
+    failure_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 0.0_dp]
+    failure_cfg%particle_species(1)%pos_high = failure_cfg%particle_species(1)%pos_low
+    failure_cfg%particle_species(1)%drift_velocity = [huge(1.0_dp), 0.0_dp, 0.0_dp]
+    failure_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(failure_cfg)
+    call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
+  end subroutine run_invalid_candidate_failure_probe
 end program test_simulator

@@ -157,6 +157,7 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 
 - 線分 `x0 -> x1` と三角形群の交差（Möller–Trumbore 法）
 - AABB によるブロードフェーズ枝刈り。`use_collision_grid=true`（デフォルト）では一様グリッド + 3D-DDA による高速化
+- collision query は非有限な線分端点を探索前に拒否する。3D-DDA は grid geometry と各増分の有限性を検証し、反復数を `nx+ny+nz+3` 以下に制限する。進行不能時は命中なしへfallbackせず明示 status でfail closedとする
 - 複数候補がある場合は最小 `t`（最初の衝突）を採用
 - `sim.field_bc_mode="periodic2"` では、mesh は primitive cell の base element のみ保持しつつ、衝突判定だけ periodic image を implicit に探索する
 - periodic2 collision 用 mesh は runtime で canonical unwrapped 形へ平行移動して collision grid を再構築する。raw 頂点は periodic 軸で box 外を含んでよい
@@ -170,6 +171,7 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 - additive な `find_first_boundary_event` は、box 内の始点から候補終点までの最初の交差 fraction と、corner/edge で同時に交差する全 face を bit mask で返す
 - additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置を境界から1 ULP内側へ置く。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
 - production particle loop はcandidate生成とmesh queryを先行し、box crossing時だけevent resolverへ進む。候補終点がstrictなbox内部なら追加event geometryを行わず、場評価1回・collision query 1回のfast pathとなる
+- production particle loop は candidate の位置または速度が非有限なら collision query を呼ばず `particle_step_invalid_boundary` としてfail closedとする
 - reflect/periodic crossingだけ残り時間を最大8回再積分する。各eventはmeshとの最早順序を保って処理し、9回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとする。上限なしのevent loopやadaptive substepは行わない
 - `open_boundary_model="potential_barrier"` は既存の単一面scalar energy式をevent位置・補間速度で使うlegacy/experimental扱いとする。複数open faceへの一般化は行わずfail closedとし、物理モデルはshared potential snapshotとともに後段で再設計する
 - legacy `apply_box_boundary` はphoto rayとsource compatibilityのため残す

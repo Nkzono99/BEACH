@@ -5,7 +5,8 @@ module bem_injection
   use bem_particles, only: init_particles
   use bem_types, only: particles_soa, mesh_type, sim_config, hit_info
   use bem_boundary, only: apply_box_boundary
-  use bem_collision, only: collision_query_image_limit, collision_query_index_range, collision_query_ok, find_first_hit
+  use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
+                           collision_query_index_range, collision_query_invalid_segment, collision_query_ok, find_first_hit
   use bem_string_utils, only: lower_ascii
   use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -674,6 +675,10 @@ contains
       status_name = 'image_limit'
     case (collision_query_index_range)
       status_name = 'index_range'
+    case (collision_query_invalid_segment)
+      status_name = 'invalid_segment'
+    case (collision_query_grid_stalled)
+      status_name = 'grid_stalled'
     case default
       status_name = 'unknown'
     end select
