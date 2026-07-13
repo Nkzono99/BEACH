@@ -576,7 +576,8 @@ BEACH/
 | `docs/OutputGuide.en.md` | How to read output files |
 | `docs/ConfigurationRecipes.en.md` | Common configuration recipes |
 | `docs/Parameters.en.md` | Detailed parameter specification |
-| `docs/Workflow.en.md` | Execution workflow and I/O |
+| `docs/Execution.en.md` | Normal runs, workload estimation, and resume |
+| `docs/Workflow.en.md` | Development, testing, and HPC operation |
 | `docs/Algorithms.en.md` | Algorithm overview |
 | `docs/FieldSolvers.en.md` | Field solvers and periodic2 field boundary |
 | `docs/ParticleChargeLoop.en.md` | Particle tracking, collision, and charge accumulation |

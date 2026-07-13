@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_ROOT = REPO_ROOT / "docs"
 SITE_ROOT = REPO_ROOT / "docs-site"
+NAVIGATION_FILE = SITE_ROOT / "navigation.json"
 CONTENT_ROOT = SITE_ROOT / "src" / "content" / "docs"
 PUBLIC_ROOT = SITE_ROOT / "public"
 GITHUB_BLOB_ROOT = "https://github.com/Nkzono99/BEACH/blob/main"
@@ -28,78 +30,40 @@ class Page:
     description: str
 
 
-PAGES = (
-    Page("index.md", "root", "index", 10, "BEACHの概要、対応範囲、初回利用の入口。"),
-    Page("index.en.md", "en", "index", 10, "BEACH documentation landing page."),
-    Page("Installation.md", "root", "installation", 20, "BEACHの動作要件とインストール手順。"),
-    Page("Installation.en.md", "en", "installation", 20, "BEACH requirements and installation."),
-    Page("Tutorial.md", "root", "tutorial", 30, "公式入門ケースを実行する手順。"),
-    Page("Tutorial.en.md", "en", "tutorial", 30, "Run the official beginner case."),
-    Page("OutputGuide.md", "root", "output-guide", 40, "BEACH出力ファイルの読み方。"),
-    Page("OutputGuide.en.md", "en", "output-guide", 20, "Guide to BEACH output files."),
-    Page("Troubleshooting.md", "root", "troubleshooting", 50, "インストールと実行時の問題解決。"),
-    Page("Troubleshooting.en.md", "en", "troubleshooting", 50, "Resolve installation and runtime problems."),
-    Page("ConfigurationRecipes.md", "root", "configuration-recipes", 60, "典型的なBEACH設定の変更例。"),
-    Page("ConfigurationRecipes.en.md", "en", "configuration-recipes", 30, "Configuration recipes for common BEACH runs."),
-    Page("Parameters.md", "root", "parameters", 100, "BEACH入力パラメータのリファレンス。"),
-    Page("Parameters.en.md", "en", "parameters", 40, "BEACH input parameter reference."),
-    Page("Configuration.md", "root", "configuration", 70, "beachx configと高水準記法のガイド。"),
-    Page("Configuration.en.md", "en", "configuration", 50, "beachx config and high-level notation guide."),
-    Page("PostprocessTutorial.md", "root", "postprocess-tutorial", 80, "BEACH出力を可視化する最初の手順。"),
-    Page("PostprocessTutorial.en.md", "en", "postprocess-tutorial", 60, "First post-processing steps for BEACH outputs."),
-    Page("ValidationGuide.md", "root", "validation-guide", 90, "計算結果の物理・数値妥当性を確認する手順。"),
-    Page("ValidationGuide.en.md", "en", "validation-guide", 90, "Validate physical and numerical simulation results."),
-    Page("PythonPostprocessAPI.md", "root", "python-postprocess-api", 110, "Python後処理APIのリファレンス。"),
-    Page("PythonPostprocessAPI.en.md", "en", "python-postprocess-api", 70, "Python post-processing API reference."),
-    Page("PhysicsReleaseVerification.md", "root", "physics-release-verification", 120, "物理release gateと収束基準。"),
-    Page("PhysicsReleaseVerification.en.md", "en", "physics-release-verification", 120, "Physics release gate and convergence criteria."),
-    Page("Algorithms.md", "root", "algorithms", 130, "BEACH数値アルゴリズムの概要。"),
-    Page("Algorithms.en.md", "en", "algorithms", 80, "BEACH numerical algorithm overview."),
-    Page("FieldSolvers.md", "root", "field-solvers", 140, "場ソルバーと電場境界条件。"),
-    Page("FieldSolvers.en.md", "en", "field-solvers", 90, "BEACH field solvers and field boundary conditions."),
-    Page("ParticleChargeLoop.md", "root", "particle-charge-loop", 150, "粒子追跡と表面電荷蓄積loop。"),
-    Page("ParticleChargeLoop.en.md", "en", "particle-charge-loop", 100, "Particle tracking and charge accumulation loop."),
-    Page("FMMCore.md", "root", "fmm-core", 160, "Coulomb FMM coreの詳細。"),
-    Page("FMMCore.en.md", "en", "fmm-core", 110, "Coulomb FMM core details."),
-    Page("PeriodicZeroModeOuterPlasma.md", "root", "periodic-zero-mode-outer-plasma", 165, "periodic2 zero mode、境界closure、外部プラズマの数値アルゴリズム。"),
-    Page("PeriodicZeroModeOuterPlasma.en.md", "en", "periodic-zero-mode-outer-plasma", 115, "Numerical algorithms for the periodic2 zero mode, boundary closure, and outer plasma."),
-    Page("SheathReservoirBoundary.md", "root", "sheath-reservoir-boundary", 167, "外部シース、reservoir流入、加減速、反射・returnの数値モデル。"),
-    Page("SheathReservoirBoundary.en.md", "en", "sheath-reservoir-boundary", 117, "Outer-sheath, reservoir inflow, acceleration, reflection, and return models."),
-    Page("BatchDurationStability.md", "root", "batch-duration-stability", 170, "batch_durationの安定性と定常値。"),
-    Page("BatchDurationStability.en.md", "en", "batch-duration-stability", 120, "batch_duration stability and steady value."),
-    Page("Workflow.md", "root", "workflow", 180, "BEACHの実行・開発workflow。"),
-    Page("Workflow.en.md", "en", "workflow", 130, "BEACH execution and development workflow."),
-    Page("FortranDependencyMap.md", "root", "fortran-dependency-map", 190, "Fortran module依存関係の生成済みmap。"),
-    Page("FortranDependencyMap.en.md", "en", "fortran-dependency-map", 140, "Generated Fortran dependency map."),
-    Page("agent-user-guide.md", "root", "agent-user-guide", 200, "AIエージェントがBEACHを操作するためのガイド。"),
-    Page("agent-user-guide.en.md", "en", "agent-user-guide", 150, "Guide for AI agents operating BEACH simulations."),
-)
+def load_navigation() -> tuple[tuple[Page, ...], dict[str, str]]:
+    """Load the canonical page inventory shared with the Starlight sidebar."""
+    navigation = json.loads(NAVIGATION_FILE.read_text(encoding="utf-8"))
+    pages: list[Page] = []
+    links: dict[str, str] = {}
+
+    for entry in navigation["pages"]:
+        slug = entry["slug"]
+        order = entry["order"]
+        for locale in ("root", "en"):
+            source = entry["source"][locale]
+            pages.append(
+                Page(source, locale, slug, order, entry["description"][locale])
+            )
+            links[Path(source).stem.removesuffix(".en")] = slug
+
+    page_slugs = {page.slug for page in pages}
+    nav_slugs = {
+        item["slug"]
+        for section in navigation["sections"]
+        for item in section["items"]
+        if item["type"] == "page"
+    }
+    if page_slugs != nav_slugs:
+        missing = sorted(page_slugs - nav_slugs)
+        unknown = sorted(nav_slugs - page_slugs)
+        raise ValueError(
+            f"navigation page mismatch: missing={missing}, unknown={unknown}"
+        )
+
+    return tuple(pages), links
 
 
-DOC_LINKS = {
-    "index": "index",
-    "Installation": "installation",
-    "Tutorial": "tutorial",
-    "ValidationGuide": "validation-guide",
-    "Troubleshooting": "troubleshooting",
-    "PhysicsReleaseVerification": "physics-release-verification",
-    "Workflow": "workflow",
-    "OutputGuide": "output-guide",
-    "ConfigurationRecipes": "configuration-recipes",
-    "PostprocessTutorial": "postprocess-tutorial",
-    "agent-user-guide": "agent-user-guide",
-    "Algorithms": "algorithms",
-    "FieldSolvers": "field-solvers",
-    "ParticleChargeLoop": "particle-charge-loop",
-    "FMMCore": "fmm-core",
-    "PeriodicZeroModeOuterPlasma": "periodic-zero-mode-outer-plasma",
-    "SheathReservoirBoundary": "sheath-reservoir-boundary",
-    "BatchDurationStability": "batch-duration-stability",
-    "Configuration": "configuration",
-    "Parameters": "parameters",
-    "FortranDependencyMap": "fortran-dependency-map",
-    "PythonPostprocessAPI": "python-postprocess-api",
-}
+PAGES, DOC_LINKS = load_navigation()
 
 
 def parse_args() -> argparse.Namespace:
@@ -149,27 +113,20 @@ def strip_first_h1(text: str) -> str:
 
 
 def replace_doc_links(text: str, locale: str) -> str:
-    replacements: list[tuple[str, str]] = []
     for source_stem, slug in DOC_LINKS.items():
         current = doc_href(locale, slug)
         other = doc_href("root" if locale == "en" else "en", slug)
-
-        replacements.extend(
-            [
-                (f"{source_stem}.en.html", current if locale == "en" else other),
-                (f"{source_stem}.html", current if locale != "en" else other),
-                (f"{source_stem}.en.md", current if locale == "en" else other),
-                (f"{source_stem}.md", current if locale != "en" else other),
-            ]
+        replacements = (
+            (f"{source_stem}.en.html", current if locale == "en" else other),
+            (f"{source_stem}.html", current if locale != "en" else other),
+            (f"{source_stem}.en.md", current if locale == "en" else other),
+            (f"{source_stem}.md", current if locale != "en" else other),
         )
-
-    placeholders: list[tuple[str, str]] = []
-    for index, (source, target) in enumerate(replacements):
-        placeholder = f"@@BEACH_DOC_LINK_{index}@@"
-        text = text.replace(source, placeholder)
-        placeholders.append((placeholder, target))
-    for placeholder, target in placeholders:
-        text = text.replace(placeholder, target)
+        for source, target in replacements:
+            # Rewrite Markdown destinations only. Plain-text repository paths such as
+            # `docs/OutputGuide.md` must remain intact.
+            pattern = rf"(?<=\()\.?/?{re.escape(source)}(?=(?:[?#][^)]*)?\))"
+            text = re.sub(pattern, target, text)
     return text
 
 

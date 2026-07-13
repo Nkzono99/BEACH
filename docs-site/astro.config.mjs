@@ -3,6 +3,31 @@ import { unified } from '@astrojs/markdown-remark';
 import starlight from '@astrojs/starlight';
 import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
+import navigation from './navigation.json' with { type: 'json' };
+
+const sidebar = navigation.sections.map((section) => ({
+  label: section.label.root,
+  translations: { en: section.label.en },
+  items: section.items.map((item) => {
+    if (item.type === 'page') {
+      return {
+        slug: item.slug,
+        ...(item.label
+          ? { label: item.label.root, translations: { en: item.label.en } }
+          : {}),
+      };
+    }
+
+    return {
+      label: item.label.root,
+      translations: { en: item.label.en },
+      link: item.link,
+      ...(item.newTab
+        ? { attrs: { target: '_blank', rel: 'noreferrer' } }
+        : {}),
+    };
+  }),
+}));
 
 export default defineConfig({
   site: 'https://nkzono99.github.io',
@@ -38,72 +63,7 @@ export default defineConfig({
           href: 'https://github.com/Nkzono99/BEACH',
         },
       ],
-      sidebar: [
-        {
-          label: 'はじめに',
-          translations: { en: 'Start' },
-          items: [
-            { slug: 'index' },
-            { slug: 'installation' },
-            { slug: 'tutorial' },
-            { slug: 'output-guide' },
-            { slug: 'troubleshooting' },
-          ],
-        },
-        {
-          label: '使い方',
-          translations: { en: 'Usage' },
-          items: [
-            { slug: 'configuration-recipes' },
-            { slug: 'configuration' },
-            { slug: 'postprocess-tutorial' },
-            { slug: 'validation-guide' },
-          ],
-        },
-        {
-          label: 'リファレンス',
-          translations: { en: 'Reference' },
-          items: [
-            { slug: 'parameters' },
-            { slug: 'python-postprocess-api' },
-            { slug: 'physics-release-verification' },
-          ],
-        },
-        {
-          label: '数値アルゴリズム',
-          translations: { en: 'Numerics' },
-          items: [
-            { slug: 'algorithms' },
-            { slug: 'field-solvers' },
-            { slug: 'particle-charge-loop' },
-            { slug: 'fmm-core' },
-            { slug: 'periodic-zero-mode-outer-plasma' },
-            { slug: 'sheath-reservoir-boundary' },
-            { slug: 'batch-duration-stability' },
-          ],
-        },
-        {
-          label: '開発者向け',
-          translations: { en: 'Developers' },
-          items: [
-            { slug: 'workflow' },
-            { slug: 'fortran-dependency-map' },
-            { label: 'Fortran API', link: 'https://nkzono99.github.io/BEACH/fortran/' },
-            {
-              label: 'GitHub Repository',
-              link: 'https://github.com/Nkzono99/BEACH',
-              attrs: { target: '_blank', rel: 'noreferrer' },
-            },
-          ],
-        },
-        {
-          label: 'AIエージェント向け',
-          translations: { en: 'AI Agents' },
-          items: [
-            { slug: 'agent-user-guide' },
-          ],
-        },
-      ],
+      sidebar,
     }),
   ],
 });

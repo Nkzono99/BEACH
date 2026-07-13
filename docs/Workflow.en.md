@@ -1,11 +1,14 @@
-title: Execution and Development Workflow
+title: Development and Operations Workflow
 
 Lang: [English](Workflow.en.md) | [日本語](Workflow.md)
 
-# Execution and Development Workflow
+# Development and Operations Workflow
 
 The project is centered on the **Fortran runtime**. Python handles post-processing, visualization, and utility
 workflows. For normal users, the recommended path is to install `beach-bem` and run the `beach` command.
+
+See [Run a simulation](Execution.en.html) for the normal case workflow. This page covers the detailed
+source-development, testing, MPI/OpenMP, and HPC workflow.
 
 ## 1. User Setup (Recommended)
 

@@ -1,36 +1,18 @@
 title: BEACH Documentation
-ordered_subpage: Installation.en.md
-ordered_subpage: Tutorial.en.md
-ordered_subpage: OutputGuide.en.md
-ordered_subpage: Troubleshooting.en.md
-ordered_subpage: ConfigurationRecipes.en.md
-ordered_subpage: Configuration.en.md
-ordered_subpage: PostprocessTutorial.en.md
-ordered_subpage: ValidationGuide.en.md
-ordered_subpage: Parameters.en.md
-ordered_subpage: PythonPostprocessAPI.en.md
-ordered_subpage: Algorithms.en.md
-ordered_subpage: FieldSolvers.en.md
-ordered_subpage: ParticleChargeLoop.en.md
-ordered_subpage: FMMCore.en.md
-ordered_subpage: BatchDurationStability.en.md
-ordered_subpage: PhysicsReleaseVerification.en.md
-ordered_subpage: Workflow.en.md
-ordered_subpage: FortranDependencyMap.en.md
-ordered_subpage: agent-user-guide.en.md
 
 Lang: [English](index.en.md) | [日本語](index.md)
 
 # BEACH
 
-BEACH simulates test-particle trajectories and charge accumulation on insulating surfaces in batches.
+BEACH simulates charge accumulation on insulating surfaces and charged-particle trajectories in the electric
+field produced by that accumulated charge.
 
-## First use
+It evaluates surface charging, potential evolution, particle absorption, and escape on triangular
+boundary-element meshes.
 
-1. [Check requirements and install](Installation.en.html)
-2. [Run the official beginner case](Tutorial.en.html)
-3. [Read the output](OutputGuide.en.html)
-4. [Validate the physical and numerical result](ValidationGuide.en.html)
+**[Start the 10-minute tutorial](Tutorial.en.html)** · [Installation](Installation.en.html)
+
+## Run the shortest example
 
 ```bash
 beachx config init beach.toml
@@ -39,40 +21,25 @@ beach beach.toml
 beachx inspect outputs/latest
 ```
 
-## Command and data flow
+Create and check a configuration, run the simulation, and inspect the results written to `outputs/latest`.
+
+## From input to output
 
 ```text
-beach.toml
-    ├─ beachx lint ── configuration checks
-    ▼
-beach ────────────── Fortran simulation
-    ▼
-outputs/<case>/
-    ├─ beachx inspect / animate ── inspection and plots
-    └─ Python package beach ───── custom analysis
+Particles, surface mesh, and boundary conditions
+                         ↓
+                       BEACH
+                         ↓
+Surface charge, potential, particle statistics, and batch history
 ```
 
-## Supported scope
+In each batch, BEACH computes the electric field, advances particles, and deposits the charge of absorbed
+particles onto triangular surface elements. The accumulated charge contributes to the field in the next batch.
 
-| Feature | Status | Note |
-| --- | --- | --- |
-| Insulator charge accumulation | Supported | Primary scope |
-| Floating conductors | Conditional | Check field-boundary and surface-model compatibility |
-| Dielectric polarization | Not implemented | `epsilon_r` is metadata, not an independent polarization boundary condition |
-| Two-axis periodic fields | Supported | Distinguish finite images, cached infinite operators, and zero modes |
-| Outer plasma | Conditional | Requires model applicability and numerical error contracts |
-| Automatic convergence stop | Not implemented | `tol_rel` is a monitoring metric |
+<div align="center">
+  <img src="images/potential_history.gif" alt="Evolution of the potential distribution on an insulating mesh under electron-beam irradiation" width="80%">
+  <p><i>Potential evolution on an insulating mesh under electron-beam irradiation</i></p>
+  <sub>3D model: <a href="https://www.turbosquid.com/ja/3d-models/rubber-duck-pbr-game-ready-model-2001526">Rubber Duck PBR Game Ready</a> (TurboSquid)</sub>
+</div>
 
-Unsupported combinations fail closed instead of silently selecting another model.
-
-## Entry points
-
-| Goal | Page |
-| --- | --- |
-| Build a case | [Configuration Recipes](ConfigurationRecipes.en.html) |
-| Plot and analyze output | [Post-processing Tutorial](PostprocessTutorial.en.html) |
-| Look up input keys | [Input Parameters](Parameters.en.html) |
-| Inspect numerical methods | [Algorithm Overview](Algorithms.en.html) |
-| Resolve a problem | [Troubleshooting](Troubleshooting.en.html) |
-
-Use the generated [Fortran API](https://nkzono99.github.io/BEACH/fortran/) for procedure-level details.
+Use the navigation sidebar for detailed usage and numerical-model documentation.

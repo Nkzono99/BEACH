@@ -1,11 +1,14 @@
-title: 実行・開発ワークフロー
+title: 開発・運用ワークフロー
 
 Lang: [日本語](Workflow.md) | [English](Workflow.en.md)
 
-# 実行・開発ワークフロー
+# 開発・運用ワークフロー
 
 このプロジェクトは **Fortran 実行系が主**、Python は後処理・可視化を担当します。  
 通常利用の推奨運用は、`pip install beach-bem` で導入した `beach` コマンドを使う方式です。
+
+通常のcase実行だけを知りたい場合は[実行する](Execution.html)を参照してください。このページでは、
+ソースからの開発、テスト、MPI/OpenMP、HPC運用を含む詳細なworkflowを扱います。
 
 ## 1. 利用者向けセットアップ（推奨）
 

@@ -1,39 +1,17 @@
 title: BEACH ドキュメント
-ordered_subpage: Installation.md
-ordered_subpage: Tutorial.md
-ordered_subpage: OutputGuide.md
-ordered_subpage: Troubleshooting.md
-ordered_subpage: ConfigurationRecipes.md
-ordered_subpage: Configuration.md
-ordered_subpage: PostprocessTutorial.md
-ordered_subpage: ValidationGuide.md
-ordered_subpage: Parameters.md
-ordered_subpage: PythonPostprocessAPI.md
-ordered_subpage: Algorithms.md
-ordered_subpage: FieldSolvers.md
-ordered_subpage: ParticleChargeLoop.md
-ordered_subpage: FMMCore.md
-ordered_subpage: BatchDurationStability.md
-ordered_subpage: PhysicsReleaseVerification.md
-ordered_subpage: Workflow.md
-ordered_subpage: FortranDependencyMap.md
-ordered_subpage: agent-user-guide.md
 
 Lang: [日本語](index.md) | [English](index.en.md)
 
 # BEACH
 
-BEACHは、絶縁体表面に蓄積する電荷と、その電荷が作る電場中のテスト粒子軌道をbatch単位で
-計算するシミュレータです。
+BEACHは、絶縁体表面への電荷蓄積と、その電荷が作る電場中の荷電粒子軌道を計算する
+シミュレータです。
 
-## 初めて使う方
+粒子照射による表面帯電、電位変化、粒子の吸収・脱出を、三角形境界要素メッシュ上で評価できます。
 
-1. [動作環境を確認してインストールする](Installation.html)
-2. [公式入門ケースを実行する](Tutorial.html)
-3. [出力を確認する](OutputGuide.html)
-4. [物理・数値的な妥当性を確認する](ValidationGuide.html)
+**[10分チュートリアルを始める](Tutorial.html)** · [インストール](Installation.html)
 
-環境構築済みなら、`beachx config init`から始められます。
+## 最短で動かす
 
 ```bash
 beachx config init beach.toml
@@ -42,40 +20,25 @@ beach beach.toml
 beachx inspect outputs/latest
 ```
 
-## コマンドとデータの流れ
+設定を作成し、検査してからシミュレーションを実行します。結果は`outputs/latest`に保存されます。
+
+## 入力から出力まで
 
 ```text
-beach.toml
-    ├─ beachx lint ── 設定検査
-    ▼
-beach ────────────── Fortranシミュレーション
-    ▼
-outputs/<case>/
-    ├─ beachx inspect / animate ── 確認・可視化
-    └─ Python package beach ───── 独自解析
+粒子条件・表面メッシュ・境界条件
+                ↓
+              BEACH
+                ↓
+表面電荷・表面電位・粒子統計・batch履歴
 ```
 
-## 対応範囲
+BEACHは各batchで電場を計算して粒子を追跡し、表面に吸収された粒子の電荷を三角形要素へ
+蓄積します。蓄積した電荷は次のbatchの電場計算に反映されます。
 
-| 機能 | 状況 | 注記 |
-| --- | --- | --- |
-| 絶縁体表面への電荷蓄積 | 対応 | 現行版の主対象 |
-| 浮遊導体 | 条件付き | 利用可能な場境界とsurface modelの組合せを確認 |
-| 誘電分極 | 未対応 | `epsilon_r`は現行ではmetadataで、独立した分極境界条件ではない |
-| 2軸周期境界 | 対応 | finite image、cached infinite operator、zero-modeの意味を区別する |
-| outer plasma | 条件付き | model applicabilityとerror contractを満たす場合のみ |
-| 自動収束停止 | 未対応 | `tol_rel`はmonitoring metric |
+<div align="center">
+  <img src="images/potential_history.gif" alt="電子ビーム照射下での絶縁体メッシュ上の電位分布の時間発展" width="80%">
+  <p><i>電子ビーム照射下での絶縁体メッシュ上の電位分布の時間発展</i></p>
+  <sub>3D model: <a href="https://www.turbosquid.com/ja/3d-models/rubber-duck-pbr-game-ready-model-2001526">Rubber Duck PBR Game Ready</a> (TurboSquid)</sub>
+</div>
 
-非対応の組合せは別modelへsilent fallbackせず停止します。
-
-## 目的別の入口
-
-| 目的 | ページ |
-| --- | --- |
-| 自分のcaseを作る | [設定レシピ](ConfigurationRecipes.html) |
-| 後処理と図を作る | [後処理チュートリアル](PostprocessTutorial.html) |
-| 全入力keyを調べる | [入力パラメータ](Parameters.html) |
-| 数値モデルを確認する | [アルゴリズム概要](Algorithms.html) |
-| 問題を解決する | [トラブルシューティング](Troubleshooting.html) |
-
-Fortran APIは[FORD API](https://nkzono99.github.io/BEACH/fortran/)から参照できます。
+詳しい使い方と数値モデルは、左側のナビゲーションから参照してください。

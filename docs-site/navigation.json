@@ -1,0 +1,79 @@
+{
+  "pages": [
+    { "source": { "root": "index.md", "en": "index.en.md" }, "slug": "index", "order": 10, "description": { "root": "BEACHの概要、最短実行例、入力から出力までの流れ。", "en": "BEACH overview, shortest runnable example, and input-to-output flow." } },
+    { "source": { "root": "Installation.md", "en": "Installation.en.md" }, "slug": "installation", "order": 20, "description": { "root": "BEACHの動作要件とインストール手順。", "en": "BEACH requirements and installation." } },
+    { "source": { "root": "Tutorial.md", "en": "Tutorial.en.md" }, "slug": "tutorial", "order": 30, "description": { "root": "公式入門ケースを実行する手順。", "en": "Run the official beginner case." } },
+    { "source": { "root": "ConfigurationRecipes.md", "en": "ConfigurationRecipes.en.md" }, "slug": "configuration-recipes", "order": 40, "description": { "root": "典型的なBEACH設定の変更例。", "en": "Configuration recipes for common BEACH runs." } },
+    { "source": { "root": "Configuration.md", "en": "Configuration.en.md" }, "slug": "configuration", "order": 50, "description": { "root": "beachx configと高水準記法のガイド。", "en": "beachx config and high-level notation guide." } },
+    { "source": { "root": "Execution.md", "en": "Execution.en.md" }, "slug": "execution", "order": 60, "description": { "root": "BEACHの実行、負荷見積もり、再開方法。", "en": "Run BEACH, estimate workloads, and resume simulations." } },
+    { "source": { "root": "OutputGuide.md", "en": "OutputGuide.en.md" }, "slug": "output-guide", "order": 70, "description": { "root": "BEACH出力ファイルの読み方。", "en": "Guide to BEACH output files." } },
+    { "source": { "root": "PostprocessTutorial.md", "en": "PostprocessTutorial.en.md" }, "slug": "postprocess-tutorial", "order": 80, "description": { "root": "BEACH出力を可視化する最初の手順。", "en": "First post-processing steps for BEACH outputs." } },
+    { "source": { "root": "ValidationGuide.md", "en": "ValidationGuide.en.md" }, "slug": "validation-guide", "order": 90, "description": { "root": "計算結果の物理・数値妥当性を確認する手順。", "en": "Validate physical and numerical simulation results." } },
+    { "source": { "root": "Troubleshooting.md", "en": "Troubleshooting.en.md" }, "slug": "troubleshooting", "order": 100, "description": { "root": "インストールと実行時の問題解決。", "en": "Resolve installation and runtime problems." } },
+    { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 110, "description": { "root": "BEACH入力パラメータのリファレンス。", "en": "BEACH input parameter reference." } },
+    { "source": { "root": "PythonPostprocessAPI.md", "en": "PythonPostprocessAPI.en.md" }, "slug": "python-postprocess-api", "order": 120, "description": { "root": "Python後処理APIのリファレンス。", "en": "Python post-processing API reference." } },
+    { "source": { "root": "Algorithms.md", "en": "Algorithms.en.md" }, "slug": "algorithms", "order": 130, "description": { "root": "BEACH数値アルゴリズムの概要。", "en": "BEACH numerical algorithm overview." } },
+    { "source": { "root": "ParticleChargeLoop.md", "en": "ParticleChargeLoop.en.md" }, "slug": "particle-charge-loop", "order": 140, "description": { "root": "粒子追跡と表面電荷蓄積loop。", "en": "Particle tracking and charge accumulation loop." } },
+    { "source": { "root": "FieldSolvers.md", "en": "FieldSolvers.en.md" }, "slug": "field-solvers", "order": 150, "description": { "root": "場ソルバーと電場境界条件。", "en": "BEACH field solvers and field boundary conditions." } },
+    { "source": { "root": "PeriodicZeroModeOuterPlasma.md", "en": "PeriodicZeroModeOuterPlasma.en.md" }, "slug": "periodic-zero-mode-outer-plasma", "order": 160, "description": { "root": "periodic2 zero mode、境界closure、外部プラズマの数値アルゴリズム。", "en": "Numerical algorithms for the periodic2 zero mode, boundary closure, and outer plasma." } },
+    { "source": { "root": "SheathReservoirBoundary.md", "en": "SheathReservoirBoundary.en.md" }, "slug": "sheath-reservoir-boundary", "order": 170, "description": { "root": "外部シース、reservoir流入、加減速、反射・returnの数値モデル。", "en": "Outer-sheath, reservoir inflow, acceleration, reflection, and return models." } },
+    { "source": { "root": "FMMCore.md", "en": "FMMCore.en.md" }, "slug": "fmm-core", "order": 180, "description": { "root": "Coulomb FMM coreの詳細。", "en": "Coulomb FMM core details." } },
+    { "source": { "root": "BatchDurationStability.md", "en": "BatchDurationStability.en.md" }, "slug": "batch-duration-stability", "order": 190, "description": { "root": "batch_durationの安定性と定常値。", "en": "batch_duration stability and steady value." } },
+    { "source": { "root": "Workflow.md", "en": "Workflow.en.md" }, "slug": "workflow", "order": 200, "description": { "root": "BEACHの開発、テスト、HPC運用workflow。", "en": "BEACH development, testing, and HPC workflow." } },
+    { "source": { "root": "PhysicsReleaseVerification.md", "en": "PhysicsReleaseVerification.en.md" }, "slug": "physics-release-verification", "order": 210, "description": { "root": "物理release gateと収束基準。", "en": "Physics release gate and convergence criteria." } },
+    { "source": { "root": "FortranDependencyMap.md", "en": "FortranDependencyMap.en.md" }, "slug": "fortran-dependency-map", "order": 220, "description": { "root": "Fortran module依存関係の生成済みmap。", "en": "Generated Fortran dependency map." } },
+    { "source": { "root": "agent-user-guide.md", "en": "agent-user-guide.en.md" }, "slug": "agent-user-guide", "order": 230, "description": { "root": "AIエージェントがBEACHを操作するためのガイド。", "en": "Guide for AI agents operating BEACH simulations." } }
+  ],
+  "sections": [
+    {
+      "label": { "root": "はじめる", "en": "Get started" },
+      "items": [
+        { "type": "page", "slug": "index", "label": { "root": "BEACHとは", "en": "What is BEACH?" } },
+        { "type": "page", "slug": "installation" },
+        { "type": "page", "slug": "tutorial" }
+      ]
+    },
+    {
+      "label": { "root": "シミュレーションする", "en": "Run simulations" },
+      "items": [
+        { "type": "page", "slug": "configuration-recipes", "label": { "root": "ケースを作る", "en": "Create a case" } },
+        { "type": "page", "slug": "configuration", "label": { "root": "設定を編集する", "en": "Edit configuration" } },
+        { "type": "page", "slug": "execution" },
+        { "type": "page", "slug": "output-guide" },
+        { "type": "page", "slug": "postprocess-tutorial" },
+        { "type": "page", "slug": "validation-guide" },
+        { "type": "page", "slug": "troubleshooting" }
+      ]
+    },
+    {
+      "label": { "root": "リファレンス", "en": "Reference" },
+      "items": [
+        { "type": "page", "slug": "parameters", "label": { "root": "設定パラメータ", "en": "Configuration parameters" } },
+        { "type": "page", "slug": "python-postprocess-api" }
+      ]
+    },
+    {
+      "label": { "root": "モデルと数値手法", "en": "Models and numerics" },
+      "items": [
+        { "type": "page", "slug": "algorithms", "label": { "root": "計算モデルの全体像", "en": "Model overview" } },
+        { "type": "page", "slug": "particle-charge-loop" },
+        { "type": "page", "slug": "field-solvers" },
+        { "type": "page", "slug": "periodic-zero-mode-outer-plasma" },
+        { "type": "page", "slug": "sheath-reservoir-boundary" },
+        { "type": "page", "slug": "fmm-core" },
+        { "type": "page", "slug": "batch-duration-stability" }
+      ]
+    },
+    {
+      "label": { "root": "開発・検証", "en": "Development and verification" },
+      "items": [
+        { "type": "page", "slug": "workflow", "label": { "root": "開発環境とテスト", "en": "Development and testing" } },
+        { "type": "page", "slug": "physics-release-verification", "label": { "root": "物理リリース検証", "en": "Physics release verification" } },
+        { "type": "page", "slug": "fortran-dependency-map" },
+        { "type": "external", "label": { "root": "Fortran API", "en": "Fortran API" }, "link": "https://nkzono99.github.io/BEACH/fortran/" },
+        { "type": "page", "slug": "agent-user-guide", "label": { "root": "AIエージェント向けガイド", "en": "AI agent guide" } },
+        { "type": "external", "label": { "root": "GitHub Repository", "en": "GitHub Repository" }, "link": "https://github.com/Nkzono99/BEACH", "newTab": true }
+      ]
+    }
+  ]
+}
