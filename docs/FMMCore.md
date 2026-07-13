@@ -481,6 +481,15 @@ M2L でも同じ画像シフト集合を使い、各 pair の derivative を画�
 `bem_coulomb_fmm_periodic_ewald.f90` は、2 周期・1 開放の Coulomb field に対する Ewald 形の補正を実装します。
 ここでいう `exact` は「コードが実際に評価する有限和」を指します。理論上の無限和そのものではなく、`field_periodic_image_layers = N` と `field_periodic_ewald_layers = L` で real-space / reciprocal-space の打切り深さを決める build-time oracle です。
 
+Ewald2Pはruntime particle kernelではなく、`m2l_root_oracle`または`cached_kneq0`を作る
+build-time teacherです。`triangle_p0`のcached経路でもteacherはproxy point chargeへ適用され、
+結果をroot multipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価は引き続き
+解析panel kernel、遠方source表現はtriangle-averaged P2Mです。
+
+$\alpha$はreal-spaceとreciprocal-spaceの収束を配分する数値パラメータで、Debye遮蔽を表しません。
+直感的な分割とruntimeまでの流れは
+[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md#22-ewald2p-referenceとは)を参照してください。
+
 ##### 8.2.1 記法
 
 周期軸を `a_1, a_2`、開放軸を `f` とします。
@@ -689,9 +698,38 @@ $$
 
 ### 10.1 cached periodic nonzero operator
 
-#### 演算子の構成
+#### 何を高速化するoperatorか
 
-runtimeで使う非零モードkernelは次の和です。
+`periodic2`では、primary cellの外に同じ電荷分布がx/y方向へ無限に続きます。
+通常のFMMは近傍画像`[-N,N]^2`までを高速に評価できますが、その外側にある無限個の画像が作る
+滑らかな遠方場は残ります。全particle評価でEwald和を実行する代わりに、`cached_kneq0`は
+この**遠方の差分だけ**をFMM local展開へ変換する線形operatorとして事前計算します。
+
+| 入力 | cached operator | 出力 |
+| --- | --- | --- |
+| 現在電荷から作ったroot multipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
+
+cacheが保存するのは電場値、粒子位置、電荷履歴ではありません。固定geometryに対する
+「source multipoleを遠方local展開へ写す行列」なので、batchごとに電荷が変わっても再利用できます。
+
+#### 1回のfield評価で何を足すか
+
+処理を順番に書くと次のようになります。
+
+| 順序 | 成分 | 目的 |
+| ---: | --- | --- |
+| 1 | primary cell + 有限近傍画像 | singular/near fieldを通常のFMMとdirectで評価 |
+| 2 | cached Ewald residual | 有限画像の外側にある滑らかな無限周期遠方場を補う |
+| 3 | cached teacherに含まれた対称`k=0`を減算 | 非零モードbackendを`k!=0`だけにする |
+| 4 | snapshotが物理的`k=0`を加算 | `symmetric_vacuum`、`e_bottom_zero`、outer plasmaを反映 |
+
+したがって、`cached_kneq0`単体は全電場ではありません。3までが非零モードbackendの責任、
+4は`electrostatic_snapshot`の責任です。`exclude_k0`は平均場を捨てる設定ではなく、
+平均場を別のboundary providerが1回だけ加えるための重複防止規則です。
+
+#### 数式との対応
+
+上の1--3をまとめたruntime非零モードkernelは
 
 $$
 K_{k\ne0}
@@ -707,7 +745,14 @@ $$
 | $K_0^\mathrm{sym}$ | charge state更新時 | cached full-periodic kernelから対称$k=0$を除く |
 
 $K_0^\mathrm{sym}$ はsource高さの区分多項式累積stateを二分探索し、1評価あたり $O(\log n)$ です。
-物理的な$k=0$はここへ含めず、electrostatic snapshotのboundary providerが1回だけ加えます。
+最終的なsurface fieldは
+
+$$
+K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
+$$
+
+です。$K_0^\mathrm{physical}$のtriangle-height積分、lower boundary closure、outer-plasma接続は
+[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md)で説明します。
 
 field fitとpotentialの定数modeは単位が異なるため、同じleast-squares列へ混ぜません。
 potential gaugeは平均residualから別に固定します。
@@ -735,6 +780,17 @@ potential gaugeは平均residualから別に固定します。
 | operator集約 | `MPI_Allreduce(SUM)`で全rankへ構築 |
 
 warm runのfield evaluationとcharge refreshには、all-source Ewald和もoperator再fitもありません。
+
+#### cold buildとwarm runの違い
+
+| 経路 | Ewald teacher | QR fit | particle evaluation |
+| --- | --- | --- | --- |
+| 初回cache miss | 実行 | 実行してoperatorをpublish | build完了後に開始 |
+| cache hit | 実行しない | 実行しない | 読み込んだoperatorを使用 |
+| batch charge refresh | 実行しない | 実行しない | 新しいmultipoleへ同じoperatorを適用 |
+
+「cold buildが重い」のは無限周期場を毎batch計算しているからではなく、再利用可能な行列を
+初回だけ生成しているためです。warm runのhot pathには全source Ewald和は入りません。
 
 #### SysA測定値
 

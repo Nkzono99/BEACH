@@ -179,16 +179,31 @@ Treecode and point-source `m2l_root_oracle` fail during initialization instead o
 
 ### 2.4 periodic2 split reference
 
-`panel_spectral_reference` is a small-system correctness path.
+The two-periodic, one-open field assigns ownership by lateral Fourier mode.
 
-| Component | Evaluation |
-| --- | --- |
-| $k\ne0$ | P0-panel Fourier sum |
-| $k=0$ | precompute piecewise-quadratic triangle-height cumulative area; evaluate in $O(\log N)$ |
-| Outer profile | linear-Debye 1D profile |
-| Interface gate | measure nonzero-mode potential and total-field decay on an in-plane grid |
+| Component | Production evaluation | Owner |
+| --- | --- | --- |
+| $k\ne0$ | finite-image FMM plus the `cached_kneq0` far operator | nonzero backend |
+| surface $k=0$ | precomputed piecewise-quadratic triangle-height cumulative charge, evaluated in $O(\log N)$ | snapshot boundary provider |
+| outer profile | `kinetic_1d` or `unified_linear_response` | outer-plasma solver |
 
-It is not a production-scale periodic operator.
+Inside `cached_kneq0`, the symmetric $k=0$ carried by the Ewald teacher is
+subtracted. The snapshot adds the physical $k=0$ selected by the lower-boundary
+closure exactly once. `exclude_k0` is this ownership rule, not an instruction to
+discard the mean field.
+
+In a split model, `k!=0 + surface k=0` covers the mesh-to-interface region and a
+1D outer profile continues above the interface. In `unified_linear_response`, a
+single zero-mode Poisson grid spans the surface projection to the far boundary,
+and nonzero modes continue into plasma tails.
+
+`panel_spectral_reference` checks the same decomposition on small systems using
+a P0-panel Fourier sum and linear-Debye profile. It is not a production-scale
+periodic operator.
+
+The zero-mode cumulative polynomial, `symmetric_vacuum` / `e_bottom_zero`,
+kinetic Newton solve, and Gauss residual are described in
+[periodic2 Zero Mode and Outer Plasma](PeriodicZeroModeOuterPlasma.en.md).
 
 ### 2.5 Outer particle interface
 

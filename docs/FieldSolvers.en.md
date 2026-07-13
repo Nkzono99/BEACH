@@ -185,6 +185,9 @@ The runtime field is composed according to the selected backend.
 On a cache miss, rank 0 owns the filesystem lock and atomic publication while MPI/OpenMP distribute operator construction.
 Warm field evaluation and charge refresh contain no all-source Ewald sum. See
 [Cached periodic nonzero operator](FMMCore.en.html#101-cached-periodic-nonzero-operator) for construction and measurements.
+The physical `k=0` mode, lower-boundary closure, and outer-sheath composition are
+described separately in
+[periodic2 Zero Mode and Outer Plasma](PeriodicZeroModeOuterPlasma.en.md).
 
 ### 6.3 Collision side
 

@@ -76,6 +76,8 @@ MPI world size に依存しません。
 - `velocity_distribution="grid"` の場合、CSV velocity grid を読み、`phase_space` なら `max(v_n,0) f(v)`、`flux_weighted` なら入力値を流入分布として扱う。
 
 `reservoir_potential_model="infinity_barrier"` では、注入面平均電位と `phi_infty` の差から法線速度下限を補正します。
+上流VDFからface速度への加減速、到達不能cutoff、外向き粒子のreturn/escape、Zhao系との違いは
+[外部シースとreservoir粒子境界](SheathReservoirBoundary.md)を参照してください。
 
 ### 7.4 photo_raycast
 

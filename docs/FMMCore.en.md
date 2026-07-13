@@ -463,6 +463,17 @@ M2L uses the same image-shift set and precomputes each pair derivative as an ima
 `bem_coulomb_fmm_periodic_ewald.f90` implements an Ewald-form correction for the two-periodic, one-open Coulomb field.
 Here `exact` means the finite sum actually evaluated by the code. It is not the theoretical infinite sum; it is a build-time oracle whose real-space and reciprocal-space cutoffs are controlled by `field_periodic_image_layers = N` and `field_periodic_ewald_layers = L`.
 
+Ewald2P is a build-time teacher for `m2l_root_oracle` or `cached_kneq0`, not the
+runtime particle kernel. In the cached `triangle_p0` path, the teacher is applied
+to proxy point charges and fitted as a root-multipole-to-local operator. Real
+triangles still use the analytic panel kernel in the near field and
+triangle-averaged P2M in the far source representation.
+
+$\alpha$ is a numerical parameter balancing real- and reciprocal-space
+convergence; it is not Debye screening. See
+[periodic2 Zero Mode and Outer Plasma](PeriodicZeroModeOuterPlasma.en.md#22-what-the-ewald2p-reference-means)
+for the intuitive split and its relation to runtime evaluation.
+
 ##### 8.2.1 Notation
 
 Let the periodic axes be `a_1, a_2` and the open axis be `f`.
@@ -673,9 +684,39 @@ This FMM core is not a generic kernel FMM.
 
 ### 10.1 Cached periodic nonzero operator
 
-#### Operator composition
+#### What the operator accelerates
 
-The runtime nonzero-mode kernel is:
+In `periodic2`, copies of the primary-cell charge distribution extend infinitely
+along x/y. The ordinary FMM efficiently evaluates the near image shell
+`[-N,N]^2`, but a smooth contribution from all images outside that shell remains.
+Instead of running an Ewald sum for every particle evaluation, `cached_kneq0`
+precomputes only this far difference as a linear map into FMM local expansions.
+
+| Input | Cached operator | Output |
+| --- | --- | --- |
+| root multipole built from current charges | apply a geometry-fixed matrix | far local expansion for each target anchor |
+
+The cache does not contain field samples, particle positions, or charge history.
+It contains a geometry-specific matrix mapping source multipoles to far local
+expansions, so it remains reusable when charges change between batches.
+
+#### What one field evaluation adds
+
+| Order | Component | Purpose |
+| ---: | --- | --- |
+| 1 | primary cell plus finite near images | evaluate singular/near interactions with ordinary FMM and direct kernels |
+| 2 | cached Ewald residual | restore the smooth infinite-periodic field outside the finite shell |
+| 3 | subtract the symmetric `k=0` carried by the cached teacher | leave only `k!=0` in the nonzero backend |
+| 4 | snapshot adds the physical `k=0` | apply `symmetric_vacuum`, `e_bottom_zero`, or outer-plasma physics |
+
+`cached_kneq0` alone is therefore not the complete field. Steps 1--3 belong to
+the nonzero backend; step 4 belongs to `electrostatic_snapshot`. `exclude_k0`
+does not discard the mean field. It prevents double counting because a separate
+boundary provider adds that field exactly once.
+
+#### Relation to the formula
+
+Steps 1--3 give the runtime nonzero-mode kernel:
 
 $$
 K_{k\ne0}
@@ -691,7 +732,15 @@ $$
 | $K_0^\mathrm{sym}$ | charge-state refresh | remove the symmetric $k=0$ part from the cached full-periodic kernel |
 
 $K_0^\mathrm{sym}$ evaluates a piecewise-polynomial source-height prefix state by binary search in $O(\log n)$ per target.
-The physical $k=0$ mode is not part of this operator; the electrostatic snapshot boundary provider adds it exactly once.
+The final surface field is
+
+$$
+K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}.
+$$
+
+The triangle-height integral, lower-boundary closure, and outer-plasma coupling
+for $K_0^\mathrm{physical}$ are described in
+[periodic2 Zero Mode and Outer Plasma](PeriodicZeroModeOuterPlasma.en.md).
 
 Field-fit columns and the constant potential mode have different units and are not mixed in one least-squares system.
 The potential gauge is fixed separately from the mean residual.
@@ -719,6 +768,18 @@ Independent jobs therefore serialize on one lock file, and a reader cannot accep
 | Complete operator | assembled on every rank with `MPI_Allreduce(SUM)` |
 
 Warm field evaluation and charge refresh contain neither an all-source Ewald sum nor an operator refit.
+
+#### Cold versus warm execution
+
+| Path | Ewald teacher | QR fit | Particle evaluation |
+| --- | --- | --- | --- |
+| first cache miss | run | fit and publish the operator | starts after the build |
+| cache hit | skipped | skipped | uses the loaded operator |
+| batch charge refresh | skipped | skipped | applies the same operator to new multipoles |
+
+A cold build is expensive because it generates a reusable matrix once, not
+because the infinite-periodic field is recomputed every batch. The warm hot path
+contains no all-source Ewald sum.
 
 #### SysA measurements
 

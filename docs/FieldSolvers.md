@@ -185,6 +185,8 @@ $$
 cache missではrank 0がfilesystem lockとatomic renameを担当し、operator計算はMPI/OpenMPへ分配します。
 warm field evaluationとcharge refreshにはall-source Ewald和がありません。生成手順と測定値は
 [cached periodic nonzero operator](FMMCore.html#101-cached-periodic-nonzero-operator)を参照してください。
+物理的な`k=0`、lower boundary closure、外部シースとの合成は
+[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md)に分離して説明しています。
 
 ### 6.3 collision side
 

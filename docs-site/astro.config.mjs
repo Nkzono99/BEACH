@@ -77,6 +77,8 @@ export default defineConfig({
             { slug: 'field-solvers' },
             { slug: 'particle-charge-loop' },
             { slug: 'fmm-core' },
+            { slug: 'periodic-zero-mode-outer-plasma' },
+            { slug: 'sheath-reservoir-boundary' },
             { slug: 'batch-duration-stability' },
           ],
         },

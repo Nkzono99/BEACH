@@ -95,6 +95,12 @@ def test_plugin_references_match_canonical_files_without_stale_contract() -> Non
             "docs/Parameters.md"
         ),
         "plugins/beach-context/references/fortran_fmm_core.md": "docs/FMMCore.md",
+        "plugins/beach-context/references/periodic_zero_mode_outer_plasma.md": (
+            "docs/PeriodicZeroModeOuterPlasma.md"
+        ),
+        "plugins/beach-context/references/sheath_reservoir_boundary.md": (
+            "docs/SheathReservoirBoundary.md"
+        ),
         "plugins/beach-context/references/examples/beach.toml": (
             "examples/beach.toml"
         ),

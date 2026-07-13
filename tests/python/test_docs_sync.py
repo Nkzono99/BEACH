@@ -85,6 +85,18 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
     fmm_en = (ROOT / "docs" / "FMMCore.en.md").read_text(encoding="utf-8")
     algorithms_ja = (ROOT / "docs" / "Algorithms.md").read_text(encoding="utf-8")
     algorithms_en = (ROOT / "docs" / "Algorithms.en.md").read_text(encoding="utf-8")
+    zero_ja = (ROOT / "docs" / "PeriodicZeroModeOuterPlasma.md").read_text(
+        encoding="utf-8"
+    )
+    zero_en = (
+        ROOT / "docs" / "PeriodicZeroModeOuterPlasma.en.md"
+    ).read_text(encoding="utf-8")
+    sheath_ja = (ROOT / "docs" / "SheathReservoirBoundary.md").read_text(
+        encoding="utf-8"
+    )
+    sheath_en = (ROOT / "docs" / "SheathReservoirBoundary.en.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "Boris速度更新を組み込んだ同時刻状態の積分器" in particle_ja
     assert "完全な1ステップを単に「leapfrog」と呼ぶのは不正確" in particle_ja
@@ -100,17 +112,23 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         assert f"### {section}" in particle_en
 
     for heading in (
-        "演算子の構成",
+        "何を高速化するoperatorか",
+        "1回のfield評価で何を足すか",
+        "数式との対応",
         "cache lifecycle",
         "MPI/OpenMPによるcold build",
+        "cold buildとwarm runの違い",
         "SysA測定値",
         "運用指針",
     ):
         assert f"#### {heading}" in fmm_ja
     for heading in (
-        "Operator composition",
+        "What the operator accelerates",
+        "What one field evaluation adds",
+        "Relation to the formula",
         "Cache lifecycle",
         "MPI/OpenMP cold build",
+        "Cold versus warm execution",
         "SysA measurements",
         "Operating guidance",
     ):
@@ -156,3 +174,41 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
     assert [algorithms_en.index(heading) for heading in expected_en] == sorted(
         algorithms_en.index(heading) for heading in expected_en
     )
+    for phrase in (
+        "Ewald2P referenceとは",
+        "数値分割パラメータ",
+        "Debye長や物理的な",
+        "triangle-height累積多項式",
+        "`exclude_k0`は「平均場を無視する」という意味ではなく",
+        "`kinetic_1d`",
+        "`unified_linear_response`",
+    ):
+        assert phrase in zero_ja
+    for phrase in (
+        "What the Ewald2P reference means",
+        "numerical work-splitting parameter",
+        "not a Debye length",
+        "triangle-height cumulative polynomials",
+        "does not mean that the physical mean field is discarded",
+        "`kinetic_1d`",
+        "`unified_linear_response`",
+    ):
+        assert phrase in zero_en
+    for phrase in (
+        'reservoir_potential_model="infinity_barrier"',
+        'sheath_injection_model="zhao_*"',
+        "faceへ向かう途中で加速",
+        "到達不能な無限遠粒子はsimulation particleとして生成されません",
+        "kinetic-profile return",
+        "Zhao profileの$E(z)$はparticle pusherのfield snapshotへ加算されません",
+    ):
+        assert phrase in sheath_ja
+    for phrase in (
+        'reservoir_potential_model="infinity_barrier"',
+        'sheath_injection_model="zhao_*"',
+        "acceleration toward the face",
+        "inaccessible infinity particle is never instantiated",
+        "Kinetic-profile return",
+        "reconstructed Zhao $E(z)$ is not added to the particle-pusher field snapshot",
+    ):
+        assert phrase in sheath_en

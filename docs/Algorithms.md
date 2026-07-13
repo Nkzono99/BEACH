@@ -184,16 +184,27 @@ treecodeとpoint-source `m2l_root_oracle`へはfallbackせず、非対応設定�
 
 ### 2.4 periodic2 split reference
 
-`panel_spectral_reference`は小規模correctness用です。
+2軸周期・1軸開放の場は、横方向Fourier modeのownershipを分けます。
 
-| 成分 | 評価 |
-| --- | --- |
-| $k\ne0$ | P0 panel Fourier和 |
-| $k=0$ | triangle-heightの区分二次累積面積を前計算し、$O(\log N)$で評価 |
-| outer profile | 線形Debye 1D profile |
-| interface gate | 面内格子で非零モード電位と全電場の減衰を測定 |
+| 成分 | production評価 | ownership |
+| --- | --- | --- |
+| $k\ne0$ | FMM有限画像和 + `cached_kneq0`遠方operator | nonzero backend |
+| surface $k=0$ | triangle-heightの区分二次累積電荷を前計算し、$O(\log N)$で評価 | snapshot boundary provider |
+| outer profile | `kinetic_1d`または`unified_linear_response` | outer-plasma solver |
 
-production規模の周期演算子ではありません。
+`cached_kneq0`内ではEwald teacherに含まれる対称$k=0$を減算し、snapshotが選択した
+lower boundary closureの物理的$k=0$を1回だけ加えます。`exclude_k0`は平均場を無視する指定ではなく、
+この重複を防ぐownership規則です。
+
+split modelではmeshからinterfaceまでを`k!=0 + surface k=0`で評価し、interfaceより外を
+1D outer profileへ接続します。`unified_linear_response`ではsurface projectionからfar boundaryまで
+一つのzero-mode Poisson gridを解き、nonzero modeもplasma tailへ連続接続します。
+
+`panel_spectral_reference`は、同じ分離を小規模correctness用のP0 panel Fourier和と
+線形Debye profileで検証する経路です。production規模の周期演算子ではありません。
+
+zero-mode累積多項式、`symmetric_vacuum` / `e_bottom_zero`、kinetic Newton solve、Gauss残差は
+[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md)で説明します。
 
 ### 2.5 outer particle interface
 

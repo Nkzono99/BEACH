@@ -382,6 +382,8 @@ periodic2は`sim.use_box=true`、2軸periodic、1軸openを必須とし、field�
 
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
 詳細は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) を参照してください。
+各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
+[外部シースとreservoir粒子境界](SheathReservoirBoundary.md)を参照してください。
 
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で refresh 済みの
 electrostatic snapshot から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、

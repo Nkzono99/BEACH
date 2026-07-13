@@ -18,6 +18,8 @@ Prefer bundled references because ordinary users may not have the full repo:
 - `../../references/SPEC.md`
 - `../../references/README.md`
 - `../../references/fortran_fmm_core.md`
+- `../../references/periodic_zero_mode_outer_plasma.md`
+- `../../references/sheath_reservoir_boundary.md`
 - `../../references/fortran_workflow.md`
 - `../../references/python_postprocess_api.md`
 - `../../docs/simulator-context.md`

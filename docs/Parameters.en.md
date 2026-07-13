@@ -358,6 +358,8 @@ Currently, `sheath_injection_model != "none"` is used together with
 `reservoir_potential_model="none"`. See
 [`sim.sheath_injection_model`](#simsheath_injection_model-sheath-injection-correction)
 for details.
+See [Outer Sheath and Reservoir Particle Boundaries](SheathReservoirBoundary.en.md)
+for each model's physical role, velocity energy mapping, reflection, and return.
 
 With `reservoir_potential_model="infinity_barrier"`, the injection-face average
 potential comes from the electrostatic snapshot refreshed at the start of the

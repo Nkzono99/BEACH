@@ -23,6 +23,8 @@ Prefer bundled references because ordinary users may only have a pip install plu
 - `../../references/python_postprocess_api.md`: `Beach` facade and analysis functions.
 - `../../references/fortran_workflow.md`: developer/build workflow.
 - `../../references/fortran_fmm_core.md`: FMM core details.
+- `../../references/periodic_zero_mode_outer_plasma.md`: periodic2 zero mode and outer-plasma algorithms.
+- `../../references/sheath_reservoir_boundary.md`: reservoir inflow, Zhao corrections, acceleration, reflection, and return.
 
 Use `../../docs/simulator-context.md`, `../../docs/usage-workflows.md`, and `../../docs/skills-guide.md` as compact guides. Use repo root docs only when the full checkout is available and may be newer.
 
