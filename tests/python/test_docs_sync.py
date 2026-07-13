@@ -18,6 +18,15 @@ def _load_sync_module():
     return module
 
 
+def test_pages_sources_use_remark_math_inline_delimiters() -> None:
+    module = _load_sync_module()
+
+    for page in module.PAGES:
+        text = (ROOT / "docs" / page.source).read_text(encoding="utf-8")
+        assert r"\(" not in text, page.source
+        assert r"\)" not in text, page.source
+
+
 def test_onboarding_pages_are_bilingual_with_localized_descriptions() -> None:
     module = _load_sync_module()
     expected = {

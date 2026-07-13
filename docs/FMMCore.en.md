@@ -497,7 +497,7 @@ $$
 \mathbf k_{mn} = 2\pi\left(\frac{m}{L_1}\mathbf e_{a_1} + \frac{n}{L_2}\mathbf e_{a_2}\right)
 $$
 
-For source position \(\mathbf s\) and evaluation point \(\mathbf r\), define:
+For source position $\mathbf s$ and evaluation point $\mathbf r$, define:
 
 $$
 \mathbf R_{ij} = \mathbf r - \mathbf s - \mathbf L_{ij},\qquad
@@ -505,7 +505,7 @@ R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
-Below, \(\alpha =\) `field_periodic_ewald_alpha` and \(\epsilon =\) `softening`.
+Below, $\alpha =$ `field_periodic_ewald_alpha` and $\epsilon =$ `softening`.
 
 ##### 8.2.2 Real-space term
 
@@ -543,11 +543,11 @@ $$
 $$
 
 Terms with `r2 <= tiny(1.0d0)` are skipped, so self-interaction is excluded.
-If the direct fallback contribution \(\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon\) is added to `add_periodic2_exact_ewald_correction_single_source`, the softened inner-image part cancels and the outer shell is replaced by the screened form.
+If the direct fallback contribution $\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$ is added to `add_periodic2_exact_ewald_correction_single_source`, the softened inner-image part cancels and the outer shell is replaced by the screened form.
 
 ##### 8.2.3 Reciprocal-space term
 
-For \((m,n)\neq(0,0)\), `add_exact_periodic2_reciprocal_space_correction` defines:
+For $(m,n)\neq(0,0)$, `add_exact_periodic2_reciprocal_space_correction` defines:
 
 $$
 \theta_{mn} = \mathbf k_{mn}\cdot(\mathbf r-\mathbf s),\qquad

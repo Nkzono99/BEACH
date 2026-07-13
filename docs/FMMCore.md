@@ -513,7 +513,7 @@ $$
 \mathbf k_{mn} = 2\pi\left(\frac{m}{L_1}\mathbf e_{a_1} + \frac{n}{L_2}\mathbf e_{a_2}\right)
 $$
 
-と書けます。ソース位置を \(\mathbf s\)、評価点を \(\mathbf r\) とし、
+と書けます。ソース位置を $\mathbf s$、評価点を $\mathbf r$ とし、
 
 $$
 \mathbf R_{ij} = \mathbf r - \mathbf s - \mathbf L_{ij},\qquad
@@ -521,7 +521,7 @@ R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
-を導入します。以下では \(\alpha =\) `field_periodic_ewald_alpha`、\(\epsilon =\) `softening` とします。
+を導入します。以下では $\alpha =$ `field_periodic_ewald_alpha`、$\epsilon =$ `softening` とします。
 
 ##### 8.2.2 実空間項
 
@@ -560,11 +560,11 @@ $$
 {}- \sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
 $$
 
-です。実装では `r2 <= tiny(1.0d0)` の項はスキップするため、self interaction は入らない扱いです。`add_periodic2_exact_ewald_correction_single_source` に direct fallback の \(\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon\) を足すと、inner image の softened 部分が打ち消され、outer shell 側は screened 形に置き換わります。
+です。実装では `r2 <= tiny(1.0d0)` の項はスキップするため、self interaction は入らない扱いです。`add_periodic2_exact_ewald_correction_single_source` に direct fallback の $\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$ を足すと、inner image の softened 部分が打ち消され、outer shell 側は screened 形に置き換わります。
 
 ##### 8.2.3 逆空間項
 
-`add_exact_periodic2_reciprocal_space_correction` が使う逆空間項は、\((m,n)\neq(0,0)\) に対して
+`add_exact_periodic2_reciprocal_space_correction` が使う逆空間項は、$(m,n)\neq(0,0)$ に対して
 
 $$
 \theta_{mn} = \mathbf k_{mn}\cdot(\mathbf r-\mathbf s),\qquad
