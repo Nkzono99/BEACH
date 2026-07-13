@@ -155,6 +155,31 @@ Robin exponential tail is integrated analytically after the grid end. A round
 trip that is too long relative to `field_evolution_timescale` violates the
 frozen-field contract and stops instead of being accepted.
 
+This is not a trajectory integrator that advances through the outer domain with
+small time steps. It performs the following reduced mapping:
+
+1. Receive the same-time position and velocity at the interface crossing.
+2. If $v_{n,\infty}^2$ is nonnegative, classify the particle as escaping to infinity.
+3. Otherwise scan $v_n^2(z)$ over the discrete profile using conserved energy.
+4. Interpolate the turning point in the first segment with $v_n^2\le0$.
+5. Accumulate one-way time over each piecewise-linear potential segment using
+   $$
+   \Delta t=\frac{2\Delta z}{\sqrt{v_{n,a}^2}+\sqrt{v_{n,b}^2}},
+   $$
+   then add the analytic Robin-tail contribution when needed.
+6. Construct the returned interface state directly after round-trip time
+   $\tau_\mathrm{outer}$.
+
+On return, only normal velocity is reversed. Tangential velocity is retained,
+the tangential position advances by $\mathbf v_t\tau_\mathrm{outer}$ and is
+wrapped in x/y, and only the remaining `dt` of the intercepted local step is
+reintegrated by the ordinary stepper. Outer flight is not added to global simulation time.
+
+The model is therefore more detailed than an immediate specular reflection
+based only on interface speed and a scalar barrier, but it is not explicit
+time-stepped outer-orbit tracking. Use
+`unified_linear_response + electrostatic_3d_explicit_orbit` for the latter.
+
 ### 6.4 Unified 3D orbit
 
 `electrostatic_3d_explicit_orbit` advances particles with fixed-step

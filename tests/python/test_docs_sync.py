@@ -200,6 +200,8 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "faceへ向かう途中で加速",
         "到達不能な無限遠粒子はsimulation particleとして生成されません",
         "kinetic-profile return",
+        "trajectory integratorではありません",
+        "outer flightをglobal simulation timeへ加算しません",
         "Zhao profileの$E(z)$はparticle pusherのfield snapshotへ加算されません",
     ):
         assert phrase in sheath_ja
@@ -209,6 +211,8 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "acceleration toward the face",
         "inaccessible infinity particle is never instantiated",
         "Kinetic-profile return",
+        "not a trajectory integrator",
+        "Outer flight is not added to global simulation time",
         "reconstructed Zhao $E(z)$ is not added to the particle-pusher field snapshot",
     ):
         assert phrase in sheath_en

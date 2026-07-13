@@ -127,7 +127,7 @@ cornerで複数open faceを同時に横切る一般化はせず、legacy/experim
 interfaceを外向きに通過した粒子について
 
 $$
-v_{n,\infty}^2=v_{n,I}^2+rac{2q(\phi_I-\phi_\infty)}{m}
+v_{n,\infty}^2=v_{n,I}^2+\frac{2q(\phi_I-\phi_\infty)}{m}
 $$
 
 を評価します。非負ならescape、負なら指数Debye profile内にturning pointがあります。
@@ -140,12 +140,33 @@ $$
 各区分で
 
 $$
-v_n^2(z)=v_{n,I}^2+rac{2q[\phi_I-\phi(z)]}{m}
+v_n^2(z)=v_{n,I}^2+\frac{2q[\phi_I-\phi(z)]}{m}
 $$
 
 を評価し、符号が変わる最初の区分でturning pointを補間します。grid上端まで到達した後は
 far Robin exponential tailを解析積分します。往復時間が
 `field_evolution_timescale`に対して長すぎる場合、frozen-field近似を受理せず停止します。
+
+これはouter領域を小さい時間刻みで順次進めるtrajectory integratorではありません。処理は次の順です。
+
+1. interface通過時の同時刻位置・速度を受け取る。
+2. $v_{n,\infty}^2$が非負なら、その時点でinfinity escapeに分類する。
+3. 負なら、保存エネルギーから離散profile各点の$v_n^2(z)$を走査する。
+4. 最初に$v_n^2\le0$となる区間でturning pointを補間する。
+5. 区分線形電位上の片道時間を
+   $$
+   \Delta t=\frac{2\Delta z}{\sqrt{v_{n,a}^2}+\sqrt{v_{n,b}^2}}
+   $$
+   で積算し、必要ならRobin tailの時間を解析的に加える。
+6. 往復時間$\tau_\mathrm{outer}$後のinterface復帰状態を直接構成する。
+
+復帰時は法線速度だけを反転し、接線速度は維持します。接線位置を
+$\mathbf v_t\tau_\mathrm{outer}$だけ進めてx/yをperiodic wrapし、interface crossingを検出したlocal stepの
+remaining `dt`だけを通常stepperで再積分します。outer flightをglobal simulation timeへ加算しません。
+
+したがってこのmodelは「interfaceで速度とscalar障壁だけを比較する即時鏡面反射」より詳細ですが、
+「外部軌道を時間刻みで明示追跡する」ものではありません。後者が必要な場合は
+`unified_linear_response + electrostatic_3d_explicit_orbit`を使います。
 
 ### 6.4 unified 3D orbit
 
@@ -233,4 +254,3 @@ $$
 | 1D outer return | `src/physics/outer_plasma/bem_outer_plasma_interface.f90` |
 | unified 3D orbit | `src/physics/outer_plasma/bem_outer_plasma_orbit.f90` |
 | legacy open-face reflection | `src/runtime/simulator/bem_particle_stepper.f90` |
-
