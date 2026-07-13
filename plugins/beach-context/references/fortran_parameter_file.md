@@ -250,7 +250,7 @@ legacy `periodic2` は `field_solver="fmm"` を使います。小規模検証用
 |---|---:|---|
 | `periodic2.nonzero_mode_backend` | 必須 | `panel_spectral_reference` |
 | `periodic2.zero_mode_policy` | 必須 | `exclude_k0` |
-| `periodic2.lower_boundary_model` | 必須 | `e_bottom_zero` |
+| `periodic2.lower_boundary_model` | 必須 | `symmetric_vacuum` / `e_bottom_zero` |
 | `periodic2.reference_mode_layers` | `4` | Fourier mode cutoff |
 | `periodic2.panel_quadrature_order` | `12` | panel面積積分次数 |
 | `periodic2.interface_sample_n` | `5` | interface各軸の診断点数 |
@@ -324,7 +324,7 @@ photoelectronを含む例は`examples/periodic2_photoelectron_individual_return.
 
 `field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
 `m2l_root_oracle` は build 時の診断用で、exact periodic Ewald residual を root operator に fit する高コストモードです。
-`cached_kneq0` は production 非零モード backend です。初回の cache miss 時だけ Ewald reference から versioned operator を生成し、以後は検証済み cache を再利用します。物理的な `k=0` は `exclude_k0` / `e_bottom_zero` provider が別に一度だけ加えます。
+`cached_kneq0` は production 非零モード backend です。初回の cache miss 時だけ Ewald reference から versioned operator を生成し、以後は検証済み cache を再利用します。物理的な `k=0` は `exclude_k0` provider が別に一度だけ加えます。`symmetric_vacuum` はinterface位置や誘電率を追加せず、上下遠方場を `+/- Q/(2 epsilon0 A)` とします。`e_bottom_zero` は下側場を0、上側場を `Q/(epsilon0 A)` とする旧closureです。
 
 #### 外部場
 

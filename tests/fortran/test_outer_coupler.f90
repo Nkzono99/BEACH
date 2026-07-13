@@ -47,7 +47,7 @@ program test_outer_coupler
                  )
   periodic_config = periodic2_physics_config( &
                     nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
-                    lower_boundary_model='e_bottom_zero', reference_mode_layers=2, panel_quadrature_order=8, &
+                    lower_boundary_model='symmetric_vacuum', reference_mode_layers=2, panel_quadrature_order=8, &
                     interface_phi_tolerance=1.0e12_dp, interface_field_tolerance=1.0e12_dp &
                     )
   outer_config = outer_plasma_config( &
@@ -65,7 +65,7 @@ program test_outer_coupler
   mesh%q_elem = 2.0e-12_dp
   call coupler%refresh(snapshot, mesh, 2_i32, updated)
   call assert_true(.not. updated, 'stride=2 must hold outer state on batch 2')
-  call assert_close_dp(snapshot%gauss_residual, 1.0e-12_dp, 1.0e-24_dp, 'held-state residual mismatch')
+  call assert_close_dp(snapshot%gauss_residual, 0.5e-12_dp, 1.0e-24_dp, 'held-state residual mismatch')
   call test_end()
 
   call test_begin('restart_preserves_stride_phase')

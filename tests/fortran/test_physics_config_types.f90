@@ -133,6 +133,13 @@ program test_physics_config_types
   call assert_true(trim(periodic2%lower_boundary_model) == 'e_bottom_zero', 'cached lower boundary mismatch')
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'cached_kneq0 active config should be valid')
+  periodic2%lower_boundary_model = 'symmetric_vacuum'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'cached_kneq0 symmetric vacuum should be valid')
+  periodic2%lower_boundary_model = 'unknown'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'cached_kneq0 must reject an unknown lower model')
+  periodic2%lower_boundary_model = 'e_bottom_zero'
   periodic2%zero_mode_policy = 'legacy_not_decomposed'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'cached_kneq0 must reject an unsplit zero mode')

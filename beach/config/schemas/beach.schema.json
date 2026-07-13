@@ -29,9 +29,9 @@
       "additionalProperties": false,
       "required": ["nonzero_mode_backend", "zero_mode_policy", "lower_boundary_model"],
       "properties": {
-        "nonzero_mode_backend": {"const": "panel_spectral_reference"},
+        "nonzero_mode_backend": {"enum": ["panel_spectral_reference", "cached_kneq0"]},
         "zero_mode_policy": {"const": "exclude_k0"},
-        "lower_boundary_model": {"const": "e_bottom_zero"},
+        "lower_boundary_model": {"enum": ["e_bottom_zero", "symmetric_vacuum"]},
         "reference_mode_layers": {"type": "integer", "minimum": 1, "default": 4},
         "panel_quadrature_order": {"type": "integer", "minimum": 2, "default": 12},
         "interface_sample_n": {"type": "integer", "minimum": 2, "default": 5},

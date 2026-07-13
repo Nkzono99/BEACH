@@ -110,6 +110,18 @@ def test_load_config_file_accepts_unified_explicit_outer_orbit() -> None:
         normalize_config_document(config)
 
 
+def test_periodic2_accepts_symmetric_vacuum_and_rejects_unknown_lower_model() -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config["periodic2"]["lower_boundary_model"] = "symmetric_vacuum"
+
+    normalized = normalize_config_document(config)
+
+    assert normalized["periodic2"]["lower_boundary_model"] == "symmetric_vacuum"
+    config["periodic2"]["lower_boundary_model"] = "unknown"
+    with pytest.raises(ConfigValidationError, match="lower_boundary_model"):
+        normalize_config_document(config)
+
+
 def test_photoelectron_closure_rejects_statistical_and_nonconserving_modes() -> None:
     config = load_config_file(
         Path("examples/periodic2_photoelectron_individual_return.toml")

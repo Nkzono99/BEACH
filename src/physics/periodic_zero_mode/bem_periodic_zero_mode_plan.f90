@@ -1,5 +1,6 @@
 module bem_periodic_zero_mode_plan
   use bem_kinds, only: dp, i32
+  use bem_constants, only: eps0
   use bem_types, only: mesh_type
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
@@ -35,8 +36,16 @@ module bem_periodic_zero_mode_plan
   public :: build_periodic_zero_mode_plan
   public :: build_periodic_zero_mode_height_plan
   public :: refresh_periodic_zero_mode_state
+  public :: symmetric_vacuum_bottom_field
 
 contains
+
+  pure real(dp) function symmetric_vacuum_bottom_field(plan, charge) result(field)
+    type(periodic_zero_mode_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: charge(:)
+
+    field = -sum(charge)/(2.0_dp*eps0*plan%area_xy)
+  end function symmetric_vacuum_bottom_field
 
   subroutine build_periodic_zero_mode_plan(mesh, area_xy, plan, status, message)
     type(mesh_type), intent(in) :: mesh

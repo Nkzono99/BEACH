@@ -108,7 +108,7 @@ field_periodic_cache_dir = ".beach_cache/periodic2"
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"
 zero_mode_policy = "exclude_k0"
-lower_boundary_model = "e_bottom_zero"
+lower_boundary_model = "symmetric_vacuum"
 ```
 
 要件:
@@ -121,6 +121,11 @@ lower_boundary_model = "e_bottom_zero"
 cache miss時は無限周期operatorを生成し、以後はfingerprintを検証して再利用します。同じ物理・mesh設定で
 cache directoryを使い回してください。有限個の周期像だけを使う旧設定へ戻す場合を除き、productionでは
 `field_periodic_far_correction = "none"`を使いません。
+
+`symmetric_vacuum` は追加パラメータを必要とせず、非中性セルの面平均電場を上下へ等分します。
+総表面電荷を `Q`、周期面積を `A` とすると、上下遠方場はそれぞれ
+`E_z = +/- Q/(2 epsilon0 A)` です。旧計算の再現には `e_bottom_zero` を指定できますが、これは
+下側電場を0に固定し、上側場を `Q/(epsilon0 A)` とする強い遮蔽近似です。
 
 ## 無限周期 + 外部kinetic sheath
 
@@ -141,7 +146,7 @@ sheath_injection_model = "none"
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"
 zero_mode_policy = "exclude_k0"
-lower_boundary_model = "e_bottom_zero"
+lower_boundary_model = "symmetric_vacuum"
 
 [outer_plasma]
 model = "kinetic_1d"

@@ -23,7 +23,7 @@ element_kernel = "triangle_p0"
 [periodic2]
 nonzero_mode_backend = "panel_spectral_reference"
 zero_mode_policy = "exclude_k0"
-lower_boundary_model = "e_bottom_zero"
+lower_boundary_model = "symmetric_vacuum"
 reference_mode_layers = 4
 panel_quadrature_order = 12
 interface_sample_n = 8

@@ -221,7 +221,7 @@ contains
              )
     call assert_c_ok(status, 'zero-mode build status')
     status = beach_zero_mode_update( &
-             zero_handle, int(mesh%nelem, c_int), c_loc(charge), 0.0_c_double, &
+             zero_handle, int(mesh%nelem, c_int), c_loc(charge), real(snapshot%zero_state%e_bottom, c_double), &
              minval(source_heights), 0.0_c_double &
              )
     call assert_c_ok(status, 'zero-mode charge update status')
@@ -339,7 +339,7 @@ contains
     field_out = field_physics_config(backend='fmm', normalization='si')
     periodic_out = periodic2_physics_config( &
                    nonzero_mode_backend='cached_kneq0', zero_mode_policy='exclude_k0', &
-                   lower_boundary_model='e_bottom_zero' &
+                   lower_boundary_model='symmetric_vacuum' &
                    )
     panel_out = panel_kernel_config( &
                 source_model='triangle_p0', kernel_id='triangle_p0_exact_p2m_near', &

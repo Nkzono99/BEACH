@@ -152,7 +152,9 @@ FMM core の P2M / M2M / M2L / L2L / L2P の詳細は
 `field_periodic_far_correction` は `auto`, `none`, `m2l_root_oracle`, `cached_kneq0` を受けます。
 現行実装では `auto` は互換用に `none` へ正規化されます。
 `m2l_root_oracle` は明示指定時だけ有効になる診断的な遠方補正です。
-`cached_kneq0` は x/y periodic・z open、`exclude_k0`、`e_bottom_zero` を必須とする production backend です。
+`cached_kneq0` は x/y periodic・z open、`exclude_k0`、および明示的なlower boundary modelを必須とする
+production backendです。`symmetric_vacuum` は `E_bottom=-Q/(2 epsilon0 A)` を選び、上側も
+`+Q/(2 epsilon0 A)` とします。`e_bottom_zero` は旧計算再現用で、上側場はその2倍です。
 
 ### 6.2 near images and far correction
 

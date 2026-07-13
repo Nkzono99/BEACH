@@ -158,7 +158,7 @@ contains
                                 surface_side_policy='per_element')
     periodic = periodic2_physics_config( &
                nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
-               lower_boundary_model='e_bottom_zero', reference_mode_layers=3_i32, &
+               lower_boundary_model='symmetric_vacuum', reference_mode_layers=3_i32, &
                panel_quadrature_order=8_i32, interface_sample_n=8_i32)
     outer_low = outer_plasma_config(model='unified_linear_response', interface_z=sim_low%box_max(3), &
                                     debye_length=0.20_dp, thermal_voltage=5.0_dp, &

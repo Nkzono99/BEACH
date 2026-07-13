@@ -782,6 +782,17 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             'BEACH constraint error: sim.field_bc_mode must be "free" or "periodic2".'
         )
     if field_bc_mode == "periodic2":
+        supported_lower_boundaries = {"e_bottom_zero", "symmetric_vacuum"}
+        if isinstance(periodic2_config, Mapping):
+            lower_boundary_model = periodic2_config.get("lower_boundary_model")
+            if (
+                lower_boundary_model is not None
+                and lower_boundary_model not in supported_lower_boundaries
+            ):
+                raise ConfigValidationError(
+                    "BEACH constraint error: periodic2.lower_boundary_model must be "
+                    '"e_bottom_zero" or "symmetric_vacuum".'
+                )
         split_reference = (
             field_solver == "direct"
             and isinstance(field, Mapping)
@@ -789,7 +800,8 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             and isinstance(periodic2_config, Mapping)
             and periodic2_config.get("nonzero_mode_backend") == "panel_spectral_reference"
             and periodic2_config.get("zero_mode_policy") == "exclude_k0"
-            and periodic2_config.get("lower_boundary_model") == "e_bottom_zero"
+            and periodic2_config.get("lower_boundary_model")
+            in supported_lower_boundaries
         )
         if field_solver != "fmm" and not split_reference:
             raise ConfigValidationError(

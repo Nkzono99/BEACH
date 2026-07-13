@@ -4,7 +4,8 @@ program test_periodic_zero_mode
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
-                                         build_periodic_zero_mode_plan, refresh_periodic_zero_mode_state
+                                         build_periodic_zero_mode_plan, refresh_periodic_zero_mode_state, &
+                                         symmetric_vacuum_bottom_field
   use bem_periodic_zero_mode_eval, only: zero_mode_trace_minus, zero_mode_trace_principal_value, &
                                          zero_mode_trace_plus, eval_periodic_zero_mode
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_equal_i32
@@ -18,7 +19,7 @@ program test_periodic_zero_mode
   integer(i32) :: status
   character(len=128) :: message
 
-  call test_init(3)
+  call test_init(4)
 
   call test_begin('horizontal_sheet_jump_and_gauge')
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.5_dp]
@@ -56,6 +57,16 @@ program test_periodic_zero_mode
   call assert_close_dp(potential, -charge/(48.0_dp*eps0), 2.0e-12_dp, 'lower potential integral mismatch')
   call eval_periodic_zero_mode(plan, state, 2.5_dp, zero_mode_trace_plus, potential, field)
   call assert_close_dp(potential, -1.5_dp*charge/eps0, 2.0e-12_dp, 'upper potential integral mismatch')
+  call test_end()
+
+  call test_begin('symmetric_vacuum_splits_far_field_equally')
+  call refresh_periodic_zero_mode_state( &
+    plan, mesh%q_elem, symmetric_vacuum_bottom_field(plan, mesh%q_elem), 0.0_dp, 0.0_dp, state &
+    )
+  call eval_periodic_zero_mode(plan, state, -1.0_dp, zero_mode_trace_plus, potential, field)
+  call assert_close_dp(field, -charge/(2.0_dp*eps0), 2.0e-12_dp, 'symmetric lower far field mismatch')
+  call eval_periodic_zero_mode(plan, state, 3.0_dp, zero_mode_trace_plus, potential, field)
+  call assert_close_dp(field, charge/(2.0_dp*eps0), 2.0e-12_dp, 'symmetric upper far field mismatch')
   call test_end()
 
   call test_summary()

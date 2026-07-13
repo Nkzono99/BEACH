@@ -108,7 +108,7 @@ field_periodic_cache_dir = ".beach_cache/periodic2"
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"
 zero_mode_policy = "exclude_k0"
-lower_boundary_model = "e_bottom_zero"
+lower_boundary_model = "symmetric_vacuum"
 ```
 
 Requirements:
@@ -121,6 +121,12 @@ Requirements:
 On a cache miss BEACH generates the infinite-periodic operator, then validates and reuses its fingerprint.
 Reuse the cache directory for identical physics and mesh settings. Except when deliberately reproducing the legacy
 finite-image model, production runs should not set `field_periodic_far_correction = "none"`.
+
+`symmetric_vacuum` needs no additional parameter and splits the area-mean field of a
+non-neutral cell equally between the two open half-spaces. For total surface charge `Q`
+and periodic area `A`, the far fields are `E_z = +/- Q/(2 epsilon0 A)`. Use
+`e_bottom_zero` only to reproduce earlier runs; it fixes the lower field to zero and gives
+`E_z = Q/(epsilon0 A)` above the surface.
 
 ## Infinite Periodic + External Kinetic Sheath
 
@@ -141,7 +147,7 @@ sheath_injection_model = "none"
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"
 zero_mode_policy = "exclude_k0"
-lower_boundary_model = "e_bottom_zero"
+lower_boundary_model = "symmetric_vacuum"
 
 [outer_plasma]
 model = "kinetic_1d"

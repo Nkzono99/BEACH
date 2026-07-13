@@ -25,6 +25,11 @@ bc_z_high = "open"
 [field]
 element_kernel = "triangle_p0"
 
+[periodic2]
+nonzero_mode_backend = "cached_kneq0"
+zero_mode_policy = "exclude_k0"
+lower_boundary_model = "symmetric_vacuum"
+
 [particles]
 [[particles.species]]
 enabled = true

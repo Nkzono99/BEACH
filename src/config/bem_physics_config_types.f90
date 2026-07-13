@@ -291,10 +291,10 @@ contains
       return
     end if
     if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'exclude_k0' .or. &
-        trim(lower_ascii(periodic2%lower_boundary_model)) /= 'e_bottom_zero') then
+        .not. supported_lower_boundary(periodic2%lower_boundary_model)) then
       call reject( &
         physics_config_invalid_combination, &
-        'panel_spectral_reference requires zero_mode_policy=exclude_k0 and lower_boundary_model=e_bottom_zero.', &
+        'panel_spectral_reference requires exclude_k0 and a supported lower boundary model.', &
         status, message &
         )
       return
@@ -460,10 +460,10 @@ contains
       return
     end if
     if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'exclude_k0' .or. &
-        trim(lower_ascii(periodic2%lower_boundary_model)) /= 'e_bottom_zero') then
+        .not. supported_lower_boundary(periodic2%lower_boundary_model)) then
       call reject( &
         physics_config_invalid_combination, &
-        'cached_kneq0 requires zero_mode_policy=exclude_k0 and lower_boundary_model=e_bottom_zero.', &
+        'cached_kneq0 requires exclude_k0 and a supported lower boundary model.', &
         status, message &
         )
       return
@@ -561,6 +561,17 @@ contains
       call reject(physics_config_invalid_combination, 'cached_kneq0 received an unknown source model.', status, message)
     end if
   end subroutine validate_cached_periodic_config
+
+  pure logical function supported_lower_boundary(model) result(supported)
+    character(len=*), intent(in) :: model
+
+    select case (trim(lower_ascii(model)))
+    case ('e_bottom_zero', 'symmetric_vacuum')
+      supported = .true.
+    case default
+      supported = .false.
+    end select
+  end function supported_lower_boundary
 
   subroutine validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
     type(sim_config), intent(in) :: sim

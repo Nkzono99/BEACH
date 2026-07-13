@@ -153,7 +153,9 @@ The third axis is the open direction.
 The current implementation normalizes `auto` to `none` for compatibility.
 `m2l_root_oracle` is a diagnostic far correction enabled only by explicit request.
 `cached_kneq0` is the production backend and requires x/y periodic, z open,
-`exclude_k0`, and `e_bottom_zero`.
+`exclude_k0`, and an explicit lower boundary model. `symmetric_vacuum` selects
+`E_bottom=-Q/(2 epsilon0 A)` and the same positive magnitude above the sources.
+`e_bottom_zero` remains available to reproduce earlier runs and doubles the upper mean field.
 
 ### 6.2 Near images and far correction
 

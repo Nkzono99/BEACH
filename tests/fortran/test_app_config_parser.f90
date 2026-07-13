@@ -132,6 +132,10 @@ program test_app_config_parser
     'split nonzero backend mismatch' &
     )
   call assert_true(trim(split_cfg%periodic2%zero_mode_policy) == 'exclude_k0', 'split zero policy mismatch')
+  call assert_true( &
+    trim(split_cfg%periodic2%lower_boundary_model) == 'symmetric_vacuum', &
+    'split lower boundary mismatch' &
+    )
   call assert_equal_i32(split_cfg%periodic2%reference_mode_layers, 5_i32, 'split mode layers mismatch')
   call assert_equal_i32(split_cfg%periodic2%panel_quadrature_order, 16_i32, 'split quadrature order mismatch')
   call assert_equal_i32(split_cfg%periodic2%interface_sample_n, 7_i32, 'split interface sample mismatch')
@@ -846,7 +850,7 @@ contains
     write (u, '(a)') '[periodic2]'
     write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
     write (u, '(a)') 'zero_mode_policy = "exclude_k0"'
-    write (u, '(a)') 'lower_boundary_model = "e_bottom_zero"'
+    write (u, '(a)') 'lower_boundary_model = "symmetric_vacuum"'
     write (u, '(a)') 'reference_mode_layers = 5'
     write (u, '(a)') 'panel_quadrature_order = 16'
     write (u, '(a)') 'interface_sample_n = 7'

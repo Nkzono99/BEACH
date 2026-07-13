@@ -9,7 +9,7 @@ module bem_electrostatic_snapshot
   use bem_string_utils, only: lower_ascii
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
                                          build_periodic_zero_mode_plan, refresh_periodic_zero_mode_state, &
-                                         periodic_zero_mode_ok
+                                         symmetric_vacuum_bottom_field, periodic_zero_mode_ok
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok
@@ -201,7 +201,8 @@ contains
     else if (self%use_cached_kneq0 .and. .not. self%use_outer_plasma) then
       call self%nonzero_solver%refresh(mesh)
       call refresh_periodic_zero_mode_state( &
-        self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+        self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+        self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
         )
       return
     else if (self%use_cached_kneq0) then
@@ -215,7 +216,8 @@ contains
     if (present(update_outer)) refresh_outer = update_outer
     if (.not. self%outer%ready) refresh_outer = .true.
     call refresh_periodic_zero_mode_state( &
-      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
       )
     call eval_periodic_zero_mode( &
       self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
@@ -230,7 +232,7 @@ contains
       interface_potential = self%outer%interface_potential
     end if
     call refresh_periodic_zero_mode_state( &
-      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), &
+      self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), self%zero_plan%break_z(1), &
       interface_potential - raw_potential, self%zero_state &
       )
     if (refresh_outer .and. trim(lower_ascii(self%outer_options%model)) == 'linear_debye') then
@@ -243,7 +245,8 @@ contains
         )
       if (status /= outer_plasma_ok) error stop 'outer plasma refresh: '//trim(message)
     end if
-    self%gauss_residual = sum(mesh%q_elem) + self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
+    self%gauss_residual = upper_flux_charge(self) + &
+                          self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
     call update_interface_diagnostics(self, mesh)
   end subroutine refresh_electrostatic_snapshot
 
@@ -562,8 +565,8 @@ contains
     character(len=256) :: message
 
     if (trim(lower_ascii(periodic_config%zero_mode_policy)) /= 'exclude_k0' .or. &
-        trim(lower_ascii(periodic_config%lower_boundary_model)) /= 'e_bottom_zero') then
-      error stop 'cached_kneq0 requires exclude_k0 and e_bottom_zero.'
+        .not. supported_lower_boundary(periodic_config%lower_boundary_model)) then
+      error stop 'cached_kneq0 requires exclude_k0 and a supported lower boundary model.'
     end if
     if (trim(lower_ascii(outer_config%model)) /= 'none' .and. &
         trim(lower_ascii(outer_config%model)) /= 'kinetic_1d' .and. &
@@ -580,13 +583,14 @@ contains
     end if
     call build_periodic_zero_mode_plan(mesh, product(sim%box_max(1:2) - sim%box_min(1:2)), self%zero_plan, status, message)
     if (status /= periodic_zero_mode_ok) error stop 'cached_kneq0 zero-mode plan: '//trim(message)
+    self%periodic_options = periodic_config
     call refresh_periodic_zero_mode_state( &
-      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
       )
     call self%nonzero_solver%init(mesh, sim, field_config, periodic_config, panel_config)
     self%use_cached_kneq0 = .true.
     self%use_zero_mode = .true.
-    self%periodic_options = periodic_config
     self%outer_options = outer_config
     self%periodic_length = sim%box_max(1:2) - sim%box_min(1:2)
     self%periodic_origin = sim%box_min(1:2)
@@ -622,8 +626,8 @@ contains
     character(len=256) :: message
 
     if (trim(lower_ascii(periodic_config%zero_mode_policy)) /= 'exclude_k0' .or. &
-        trim(lower_ascii(periodic_config%lower_boundary_model)) /= 'e_bottom_zero') then
-      error stop 'panel spectral reference requires exclude_k0 and e_bottom_zero.'
+        .not. supported_lower_boundary(periodic_config%lower_boundary_model)) then
+      error stop 'panel spectral reference requires exclude_k0 and a supported lower boundary model.'
     end if
     if (trim(lower_ascii(panel_config%source_model)) /= 'triangle_p0') then
       error stop 'panel spectral reference requires triangle_p0 sources.'
@@ -726,7 +730,7 @@ contains
     self%diagnostics%interface_sample_n = periodic_config%interface_sample_n
     self%unified_options%kappa = 1.0_dp/outer_config%debye_length
     self%unified_options%tail_length = outer_config%debye_length
-    self%unified_options%bottom_field = 0.0_dp
+    self%unified_options%bottom_field = zero_mode_bottom_field(self, mesh%q_elem)
     self%unified_options%thermal_voltage = outer_config%thermal_voltage
     self%unified_options%max_linearity_ratio = outer_config%max_linearity_ratio
     response_offset = max( &
@@ -753,8 +757,10 @@ contains
     integer(i32) :: point, status
 
     if (self%use_cached_kneq0) call self%nonzero_solver%refresh(mesh)
+    self%unified_options%bottom_field = zero_mode_bottom_field(self, mesh%q_elem)
     call refresh_periodic_zero_mode_state( &
-      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      self%zero_plan, mesh%q_elem, self%unified_options%bottom_field, &
+      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
       )
     do point = 1_i32, self%unified_grid%n
       call eval_periodic_zero_mode( &
@@ -773,7 +779,7 @@ contains
     self%outer%interface_z = self%outer_options%interface_z
     self%outer%interface_potential = interface_potential
     self%outer%interface_field = interface_field
-    self%gauss_residual = sum(mesh%q_elem) + &
+    self%gauss_residual = upper_flux_charge(self) + &
                           self%zero_plan%area_xy*self%outer%integrated_charge_per_area
     self%diagnostics%split_periodic_active = .true.
     self%diagnostics%applicable = .true.
@@ -868,7 +874,8 @@ contains
     if (.not. self%outer%ready) refresh_outer = .true.
     call self%nonzero_solver%refresh(mesh)
     call refresh_periodic_zero_mode_state( &
-      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
       )
     call eval_periodic_zero_mode( &
       self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
@@ -876,10 +883,10 @@ contains
       )
     if (refresh_outer) call solve_kinetic_collective(self, interface_field)
     call refresh_periodic_zero_mode_state( &
-      self%zero_plan, mesh%q_elem, 0.0_dp, self%zero_plan%break_z(1), &
+      self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), self%zero_plan%break_z(1), &
       self%outer%interface_potential - raw_potential, self%zero_state &
       )
-    self%gauss_residual = sum(mesh%q_elem) + &
+    self%gauss_residual = upper_flux_charge(self) + &
                           self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
     self%diagnostics%interface_potential = self%outer%interface_potential
     self%diagnostics%interface_field = self%outer%interface_field
@@ -889,6 +896,37 @@ contains
     self%diagnostics%status = 'kinetic_converged'
     self%diagnostics%applicable = .true.
   end subroutine refresh_cached_kinetic_outer
+
+  pure real(dp) function zero_mode_bottom_field(self, charge) result(field)
+    class(electrostatic_snapshot_type), intent(in) :: self
+    real(dp), intent(in) :: charge(:)
+
+    select case (trim(lower_ascii(self%periodic_options%lower_boundary_model)))
+    case ('e_bottom_zero')
+      field = 0.0_dp
+    case ('symmetric_vacuum')
+      field = symmetric_vacuum_bottom_field(self%zero_plan, charge)
+    case default
+      error stop 'unsupported periodic2 lower boundary model.'
+    end select
+  end function zero_mode_bottom_field
+
+  pure real(dp) function upper_flux_charge(self) result(charge)
+    class(electrostatic_snapshot_type), intent(in) :: self
+
+    charge = self%zero_state%total_charge + eps0*self%zero_plan%area_xy*self%zero_state%e_bottom
+  end function upper_flux_charge
+
+  pure logical function supported_lower_boundary(model) result(supported)
+    character(len=*), intent(in) :: model
+
+    select case (trim(lower_ascii(model)))
+    case ('e_bottom_zero', 'symmetric_vacuum')
+      supported = .true.
+    case default
+      supported = .false.
+    end select
+  end function supported_lower_boundary
 
   subroutine solve_kinetic_collective(self, interface_field)
     class(electrostatic_snapshot_type), intent(inout) :: self
