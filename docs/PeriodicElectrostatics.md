@@ -183,14 +183,13 @@ boundary closureを満たす物理成分です。
 
 outer modelを接続すると、surface zero modeのfield/interface条件を使ってplasma profileを作ります。split kinetic modelは
 [kinetic 1D外部プラズマ](KineticOuterPlasma.html)、surfaceから統合する線形modelは
-[unified linear response](UnifiedLinearResponse.html)を参照してください。
+[unified linear response](UnifiedLinearResponse.html)でそれぞれ説明します。
 
 ## 粒子衝突では軌道が届く周期画像を調べる
 
 field targetはprimary periodic cellへwrapして評価しますが、軌道上の衝突・境界位置は物理座標のまま保持します。
 mesh collisionでは、軌道線分が到達し得るperiodic imageを幾何的に探索します。fieldのnear-image layerと
-collisionのimage boundは、それぞれ独立に決まります。詳細は
-[粒子の衝突・境界イベント](ParticleEvents.html)を参照してください。
+collisionのimage boundは、それぞれ独立に決まります。[<sup>1</sup>](ParticleEvents.html)
 
 ## 成分ごとに収束を確認する
 
@@ -201,7 +200,7 @@ collisionのimage boundは、それぞれ独立に決まります。詳細は
 - Gauss residualとlower/upper boundary closureを確認する。
 - 非中性cellの有限高さpotential差を、そのまま無限遠escape energyと解釈しない。
 
-FMM内部のEwald式とoperator APIは[FMM内部実装](FMMCore.html)を参照してください。
+FMM内部のEwald式とoperator APIは[FMM内部実装](FMMCore.html)にまとめています。
 
 ## Code reference
 

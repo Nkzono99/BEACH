@@ -41,8 +41,8 @@ triangle P0にFMMを選びます。既定のしきい値は`256`です。solver�
 近傍場と自己電位を三角形の解析kernelで扱えるため、重心点電荷とは異なる離散化です。
 
 triangle P0では`sim.softening=0`、有限で非退化な三角形、各要素のvacuum sideが必要です。
-現行Phase 1はinsulator表面だけに対応し、Treecodeには対応しません。詳細は
-[Direct](DirectSolver.html#triangle-p0)と[FMM](FMM.html#source-kernel)を参照してください。
+現行Phase 1はinsulator表面だけに対応し、Treecodeには対応しません。[Direct](DirectSolver.html#triangle-p0)と
+[FMM](FMM.html#source-kernel)で、それぞれのtriangle P0評価を説明します。
 
 ## 長さを正規化して数値スケールを整える
 
@@ -80,8 +80,8 @@ panel spectral backendを使います。それぞれの成分構成は、
 
 新しいmeshやkernelでは、まず小さな同一ケースでDirectとの差を調べます。その後、source meshを細分化して
 離散化誤差を、solver設定を変えて近似誤差を分けて確認します。場の一点比較だけでなく、吸収位置、蓄積電荷、
-保存量など最終的に使う観測量も比較してください。詳しい手順は
-[計算結果の妥当性確認](ValidationGuide.html)を参照してください。
+保存量など最終的に使う観測量も比較してください。[計算結果の妥当性確認](ValidationGuide.html)に
+収束確認の手順をまとめています。
 
 ## Code reference
 

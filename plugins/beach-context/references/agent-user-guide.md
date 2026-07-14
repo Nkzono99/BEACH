@@ -4,15 +4,16 @@ Lang: [日本語](agent-user-guide.md) | [English](agent-user-guide.en.md)
 
 # BEACH Agent User Guide
 
-> AI Agent が BEACH シミュレーションを操作するためのリファレンスガイド。
-> CLAUDE.md から `@import docs/agent-user-guide.md` で読み込むことを想定。
-> 通常の利用者はこの文書を読む必要はありません。実行手順は [BEACH ドキュメント](index.html) から辿ってください。
+> AI AgentがBEACHシミュレーションを操作するためのリファレンスガイド。
+> `CLAUDE.md`から`@import docs/agent-user-guide.md`で読み込むことを想定している。
+> 通常利用の入口と実行手順は [BEACH ドキュメント](index.html) にまとめています。
 
 ---
 
 ## 概要
 
-BEACH (BEM + Accumulated CHarge) は、絶縁体表面への帯電蓄積をシミュレーションする境界要素法+粒子追跡ハイブリッドシミュレータである。
+BEACH (BEM + Accumulated CHarge) は、境界要素法と粒子追跡を組み合わせたシミュレータである。
+絶縁体表面に蓄積する電荷と、その電荷が作る電場中の粒子軌道を計算する。
 
 - **Fortran コア**: 粒子力学・電場ソルバー・衝突判定・電荷堆積
 - **Python レイヤー**: 設定管理・後処理・可視化
@@ -63,10 +64,9 @@ make install-camphor           # Intel コンパイラ最適化
 make test                      # L1: Python + quick Fortran tests
 ```
 
-`make check` / `make test` / `make run` は `BEACH_VERSION_MODE=dev` を使い、Fortran に渡す
-version macro を安定させる。git hash が変わっても fpm の compile-flag hash が変わらないため、
-開発中の差分コンパイルを再利用しやすい。git hash 付きの実行ファイルが必要な場合は
-`make build VERSION_MODE=git` または `make install` を使う。
+`make check` / `make test` / `make run`は`BEACH_VERSION_MODE=dev`を使い、Fortranに渡すversion macroを固定する。
+そのためgit hashが変わっても、fpmが使うcompile-flag hashは変わらず、差分コンパイルを再利用しやすい。
+git hash付きの実行ファイルが必要な場合は、`make build VERSION_MODE=git`または`make install`を使う。
 
 ### 低レベル fpm 直接実行
 
@@ -99,9 +99,14 @@ make test-mpi     # MPI テスト
 pytest -q         # Python テストのみ
 ```
 
-`make test` は L1 の alias で、通常の AI/開発内側ループではここまでを基本にする。
-FMM系の長時間targetは`make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`で明示実行する。`m2l_root_oracle` correctnessは`make test-fortran-far-correction`、表示専用診断は`make test-fortran-far-correction-diagnostics`、速度比較は`make test-fortran-benchmark`でopt-in実行する。
-shared kernelのcache契約とnative periodic plane-oracle receiptは`make test-field-kernel-cache`でopt-in実行する。このtargetはbuild済みlibraryの絶対pathをtestへ渡し、L1/L2/L3と`make test-physics-release`には含めない。
+`make test`はL1のaliasであり、通常のAI作業や開発の短いループではL1までを実行する。
+FMM系の長時間targetは、`make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`で明示的に実行する。
+
+`m2l_root_oracle`のcorrectnessは`make test-fortran-far-correction`、表示専用診断は
+`make test-fortran-far-correction-diagnostics`で確認する。速度比較には`make test-fortran-benchmark`を使う。
+
+shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make test-field-kernel-cache`で確認する。
+このtargetはbuild済みlibraryの絶対pathをtestに渡す。L1/L2/L3と`make test-physics-release`には含まれない。
 個別 target は `FPM_ACTION=test ./build.sh --target <name>` で確認できる。
 
 ---
@@ -251,7 +256,13 @@ shared kernelのcache契約とnative periodic plane-oracle receiptは`make test-
 
 共通: `enabled` (bool), `kind` (enum), `surface_model` (enum), `epsilon_r` (float), `center` (float[3])
 
-`conductor` は mesh_id ごとの浮遊導体として等電位再配分されます。現行実装では `sim.field_bc_mode = "free"` のみ対応します。OBJ 入力はファイル全体を `mesh_id = 1` として読むため、1つの OBJ 内の離れた conductor 部品も同じ浮遊導体として扱われます。独立導体として扱う場合はテンプレート入力などで mesh_id を分けてください。`dielectric` は現行では object ごとの `epsilon_r` を保持するメタデータで、誘電体分極の物理分岐は今後の拡張点です。
+`conductor`は、mesh_idごとに1つの浮遊導体として扱われ、等電位になるように電荷が再配分されます。
+現行実装は`sim.field_bc_mode = "free"`のみに対応します。OBJ入力ではファイル全体が`mesh_id = 1`になるため、
+1つのOBJ内で離れているconductor部品も同じ浮遊導体になります。独立した導体として扱う場合は、
+template入力などを使ってmesh_idを分けてください。
+
+`dielectric`は、現行実装ではobjectごとの`epsilon_r`を保持するメタデータです。
+誘電体分極の物理modelは実装していません。
 
 | kind | 主要パラメータ |
 |------|---------------|
@@ -379,9 +390,9 @@ beachx workload beach.toml --mpi-ranks 4 --mpi-rank 0 \
   --macro-residuals outputs/latest/macro_residuals.csv
 ```
 
-MPI指定時の`total_particles`は選択したrankの見積もりです。`global_total_particles`は全rank合計、
-`local_reservoir_particles`と`global_reservoir_particles`はreservoir注入の分配前後を示します。
-reservoirの端数更新はglobal期待値に対して一度だけ行うため、global列はMPI rank数に依存しません。
+MPIを指定した場合、`total_particles`は選択したrankの見積もりを示します。`global_total_particles`は全rankの合計です。
+reservoir注入については、`local_reservoir_particles`と`global_reservoir_particles`から、rankに分配した後と前の粒子数をそれぞれ確認できます。
+reservoirの端数はglobal期待値に対して1度だけ更新するため、global列はMPI rank数に依存しません。
 
 ---
 
@@ -575,11 +586,29 @@ BEACH/
 | `docs/OutputGuide.md` | 出力ファイルの読み方 |
 | `docs/ConfigurationRecipes.md` | よくある設定レシピ |
 | `docs/Parameters.md` | パラメータ詳細仕様 |
-| `docs/Workflow.md` | 実行ワークフロー・I/O |
-| `docs/Algorithms.md` | アルゴリズム概要 |
-| `docs/FieldSolvers.md` | 場ソルバーと periodic2 場境界 |
-| `docs/ParticleChargeLoop.md` | 粒子追跡、衝突、電荷蓄積 |
-| `docs/FMMCore.md` | FMM 数学・Ewald |
+| `docs/Execution.md` | 通常の実行、負荷見積もり、再開 |
+| `docs/Workflow.md` | 開発・テスト・HPC運用 |
+| `docs/Algorithms.md` | 計算モデルとbatch loopの全体像 |
+| `docs/SurfaceModels.md` | batch電荷commitと表面model |
+| `docs/ParticleSourcesBoundaries.md` | 粒子源の全体像 |
+| `docs/ReservoirInjection.md` | reservoir flux、速度分布、電位写像 |
+| `docs/PhotoelectronEmission.md` | 光電子の放出とライフサイクル |
+| `docs/SheathInjectionClosures.md` | Zhao/floating source VDF補正 |
+| `docs/ParticleTrackingCollision.md` | 粒子更新の流れ |
+| `docs/BorisPusher.md` | Boris速度・位置更新 |
+| `docs/ParticleEvents.md` | 三角形衝突とbox境界イベント |
+| `docs/FieldSolvers.md` | 場評価の選び方と共通設定 |
+| `docs/DirectSolver.md` | Direct場・電位評価 |
+| `docs/Treecode.md` | Treecodeの構築・精度・制約 |
+| `docs/PeriodicElectrostatics.md` | periodic2場とzero mode |
+| `docs/FinitePeriodicConfiguration.md` | 有限画像とscalar boundary closureの統合構成 |
+| `docs/InfinitePeriodicOuterConfiguration.md` | 無限周期場とouter plasmaの統合構成 |
+| `docs/OuterPlasmaModels.md` | 外部プラズマとreturn closure |
+| `docs/KineticOuterPlasma.md` | kinetic 1D outer Poisson solve |
+| `docs/UnifiedLinearResponse.md` | rough surfaceを含む統合線形応答 |
+| `docs/ParticleEscapeReturn.md` | open境界、1D return、3D outer軌道 |
+| `docs/FMM.md` | FMMの選択と精度確認 |
+| `docs/FMMCore.md` | FMM内部実装・Ewald |
 | `docs/BatchDurationStability.md` | `batch_duration` 安定性 |
 | `docs/Configuration.md` | `beachx config` と高水準記法 |
 | `docs/PostprocessTutorial.md` | 後処理チュートリアル |

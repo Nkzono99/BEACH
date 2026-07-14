@@ -5,7 +5,7 @@ Lang: [日本語](PostprocessTutorial.md) | [English](PostprocessTutorial.en.md)
 # 後処理チュートリアル
 
 最初にCLIで実行結果の全体を確認し、次にPythonで分布と履歴を読み込みます。
-出力ファイルの意味は [出力の読み方](OutputGuide.html)、API の詳細は [Python 後処理 API リファレンス](PythonPostprocessAPI.html) を参照してください。
+出力ファイルの意味は [出力の読み方](OutputGuide.html)、API の詳細は [Python 後処理 API リファレンス](PythonPostprocessAPI.html) から確認できます。
 
 ## CLI で概要を確認する
 
@@ -158,5 +158,5 @@ release = path.evaluate_release(
 
 正常終了し、CSV/JSONが生成されれば、解析処理自体は完了しています。離脱の物理的な妥当性は、
 `path.status`、仕事と電位差の不一致、mesh/quadrature、finite shellまたはperiodic cache、経路上端、
-charge snapshot、stochastic seedへの依存性から評価します。詳細は[計算結果の妥当性確認](ValidationGuide.html)を参照してください。
+charge snapshot、stochastic seedへの依存性から評価します。[<sup>1</sup>](ValidationGuide.html)
 非中性周期cellで得た有限高さのspeedは、無限遠へのescape speedではありません。

@@ -83,7 +83,8 @@ def test_spec_and_canonical_docs_state_the_staged_contract() -> None:
         in parameters_ja
     )
     assert "現在は `none` と同じ扱い" in parameters_ja
-    assert "明示 opt-in の高コスト診断モード" in fmm_core_ja
+    assert "高コストな診断mode" in fmm_core_ja
+    assert "明示的にopt-inした場合だけ有効" in fmm_core_ja
     assert "production" in fmm_core_ja and "`cached_kneq0`" in fmm_core_ja
     assert "Infinite-periodic production runs use `cached_kneq0`" in fmm_core_en
 
@@ -95,12 +96,6 @@ def test_plugin_references_match_canonical_files_without_stale_contract() -> Non
             "docs/Parameters.md"
         ),
         "plugins/beach-context/references/fortran_fmm_core.md": "docs/FMMCore.md",
-        "plugins/beach-context/references/periodic_zero_mode_outer_plasma.md": (
-            "docs/PeriodicZeroModeOuterPlasma.md"
-        ),
-        "plugins/beach-context/references/sheath_reservoir_boundary.md": (
-            "docs/SheathReservoirBoundary.md"
-        ),
         "plugins/beach-context/references/examples/beach.toml": (
             "examples/beach.toml"
         ),

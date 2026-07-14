@@ -41,4 +41,4 @@ BEACHは各batchで電場を計算して粒子を追跡し、表面に吸収さ�
   <sub>3D model: <a href="https://www.turbosquid.com/ja/3d-models/rubber-duck-pbr-game-ready-model-2001526">Rubber Duck PBR Game Ready</a> (TurboSquid)</sub>
 </div>
 
-詳しい使い方と数値モデルは、左側のナビゲーションから参照してください。
+詳しい使い方と数値モデルは、左側のナビゲーションから選べます。

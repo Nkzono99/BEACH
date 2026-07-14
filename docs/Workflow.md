@@ -7,7 +7,7 @@ Lang: [日本語](Workflow.md) | [English](Workflow.en.md)
 このプロジェクトでは、Fortranがシミュレーションを実行し、Pythonが後処理と可視化を担当します。
 通常は、`pip install beach-bem`で導入した`beach`コマンドを使って実行します。
 
-通常のcaseの実行方法は[実行する](Execution.html)を参照してください。ソースから開発する場合のsetup、test、
+通常のcaseの実行方法は[実行する](Execution.html)にまとめています。ソースから開発する場合のsetup、test、
 MPI/OpenMP、HPC運用は以下で説明します。
 
 ## 1. 利用者向けセットアップ（推奨）
@@ -136,7 +136,7 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 ## 3. 実行フロー
 
 通常は、`beach.toml` を編集し、そのまま `beach` に渡します。高水準記法の詳細は
-[beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
+[beachx config / 高水準記法ガイド](Configuration.html) にまとめています。
 
 1. `beach.toml` を用意する
 2. `beachx lint beach.toml` で設定を確認する
@@ -446,7 +446,7 @@ srun beach beach.toml
 - Fortran 本体の要素核は `field.element_kernel` で選びます。互換既定の `point` は要素重心点電荷 +
   `sim.softening`、`triangle_p0` は要素総電荷を三角形上の一定面密度として積分し、`softening=0` を必須とします。
 
-camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。
+camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` にあります。
 `test-physics-release`は、収束出力に必要なL1 subset、L3 heavy、far-correction correctness、MPI ledger、
 MPI periodic-cache gateを順に実行します。portable CIで実行済みのL2全体は繰り返しません。
 
@@ -456,4 +456,4 @@ MPI periodic-cache gateを順に実行します。portable CIで実行済みのL
 
 KUDPCのlogin nodeではこのtestを実行できません。Slurm allocation内では、MPI payloadのrunnerに`srun`を使います。
 manifestの出力先は`PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt`で変更できます。
-詳細は[Physics release verification](PhysicsReleaseVerification.md)を参照してください。
+各検証targetと収束基準は[Physics release verification](PhysicsReleaseVerification.md)にまとめています。

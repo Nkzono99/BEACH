@@ -67,7 +67,7 @@ $$
 
 放出粒子が要素$j$へ戻ると、通常の吸収として$+q_pw_p$を$j$へ加えます。同じ要素へのreturnは放出電荷を相殺し、
 別要素へのreturnは表面間の電荷移送になります。ray weight、reduced escape、tracked outer returnの関係は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)で説明します。
 
 ## floating conductor
 

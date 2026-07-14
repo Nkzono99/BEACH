@@ -1,7 +1,5 @@
 title: periodic2 zero modeと外部プラズマ
 
-Lang: [日本語](PeriodicZeroModeOuterPlasma.md) | [English](PeriodicZeroModeOuterPlasma.en.md)
-
 # periodic2 zero modeと外部プラズマ
 
 この文書は、2軸周期・1軸開放の静電場を、横方向に変化する`k!=0`成分、
@@ -186,7 +184,7 @@ Poisson gridを解き、nonzero modeもplasma tailへ連続接続します。par
 ownership面だけです。
 
 流入粒子の加減速、外向き粒子のturning/return、Zhao系注入補正との違いは
-[外部シースとreservoir粒子境界](SheathReservoirBoundary.md)で説明します。
+[外部シースとreservoir粒子境界](sheath_reservoir_boundary.md)で説明します。
 
 ### 4.2 model別の数値処理
 

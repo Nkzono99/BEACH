@@ -32,8 +32,7 @@ $$
 $$
 
 snapshotは、要素電荷が作る場、`sim.e0`、選択したperiodic zero mode、outer profileを一度ずつ合成したものです。
-同じbatchの粒子は、batch開始時の要素電荷から作った同じsnapshotを使います。場の構成は
-[場の評価](FieldSolvers.html)を参照してください。
+同じbatchの粒子は、batch開始時の要素電荷から作った同じsnapshotを使います。[<sup>1</sup>](FieldSolvers.html)
 
 `use_box=true`では、場の評価位置だけをsolverの有効領域へ写します。
 
@@ -101,7 +100,7 @@ $$
 予測中点場とBoris候補を計算します。
 
 z-high outer interfaceでは、Boris更新の両端と整合する二次軌道をcoupling経路で構成し、交差時刻を
-再評価します。詳細は[粒子の衝突・境界イベント](ParticleEvents.html)を参照してください。
+再評価します。[<sup>2</sup>](ParticleEvents.html)
 
 ## Boris更新が保つ性質
 

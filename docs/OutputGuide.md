@@ -5,7 +5,7 @@ Lang: [日本語](OutputGuide.md) | [English](OutputGuide.en.md)
 # 出力の読み方
 
 初回実行後は、`outputs/latest/`の完了状態、電荷収支、要素電荷、履歴の順に確認します。
-詳細な後処理コマンドは [後処理チュートリアル](PostprocessTutorial.html)、全パラメータは [入力パラメータリファレンス](Parameters.html) を参照してください。
+詳細な後処理コマンドは [後処理チュートリアル](PostprocessTutorial.html)、全パラメータは [入力パラメータリファレンス](Parameters.html) から確認できます。
 
 ## まず確認すること
 

@@ -1,12 +1,10 @@
 title: 外部シースとreservoir粒子境界
 
-Lang: [日本語](SheathReservoirBoundary.md) | [English](SheathReservoirBoundary.en.md)
-
 # 外部シースとreservoir粒子境界
 
 この文書は、`reservoir_face`からの流入、電位差による加減速、流入不能粒子、外向き粒子の
 反射・return・escape、およびZhao系シース注入補正を説明します。zero modeとouter Poisson solverは
-[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md)を参照してください。
+[periodic2 zero modeと外部プラズマ](periodic_zero_mode_outer_plasma.md)を参照してください。
 
 ## 1. 「シース」と呼ばれる機能の区別
 

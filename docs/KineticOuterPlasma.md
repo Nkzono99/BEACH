@@ -86,8 +86,8 @@ $$
 $\partial n_s/\partial\phi_I$を返します。
 
 `kinetic_mean`のoutgoing/returning densityは定常outer空間電荷のclosureです。tracked粒子の表面depositを置き換えず、
-統計的return currentを別途表面へ加えません。source電荷とtracked再吸収との関係は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+統計的return currentを別途表面へ加えません。[光電子の放出とライフサイクル](PhotoelectronEmission.html)で、
+source電荷とtracked再吸収の収支を説明します。
 
 ## 有限gridをRobin tailで無限遠へ接続する
 

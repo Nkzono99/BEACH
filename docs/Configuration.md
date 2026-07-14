@@ -8,7 +8,7 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 
 - Fortran 実行系 `beach` は `beach.toml` を直接読み、高水準記法を読み込み時に解決します。
 - `beachx config init` は、最小限の実行可能な `beach.toml` を作ります。
-- 最終キーの仕様は [Fortran パラメータファイル仕様](Parameters.html) を参照してください。
+- 最終キーの仕様は [Fortran パラメータファイル仕様](Parameters.html) にまとめています。
 
 ## 1. 基本フロー
 

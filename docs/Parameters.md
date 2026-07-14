@@ -187,7 +187,7 @@ FMM のような local expansion は使わず、評価点ごとに木を走査�
 simulator 非依存の Coulomb FMM コアを使います。
 source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/L2L/L2P と近傍 direct 和で評価します。
 選択と精度確認は[FMM](FMM.html)、内部実装は
-[Coulomb FMMコア詳細](FMMCore.html)を参照してください。
+[Coulomb FMMコア詳細](FMMCore.html)にまとめています。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -299,8 +299,7 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 これは、定常・準定常sheathを対象としたinstant-return closureです。定常化後の平均電流と離脱力の計算に使えます。
 UV照射の開始時など、遅延したreturn currentが影響する過渡応答は表しません。準定常条件は
 `tau_outer/field_evolution_timescale`で制限します。`tau_outer/batch_duration >= 1`の場合はbatch履歴を
-return currentの物理的な時間履歴として解釈できません。詳細は
-[粒子のescapeとreturn](ParticleEscapeReturn.md)を参照してください。
+return currentの物理的な時間履歴として解釈できません。[<sup>1</sup>](ParticleEscapeReturn.md)
 
 `reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
 
@@ -392,10 +391,10 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 | `sheath_ion_drift_mode` | string | `"normal"` | `normal` / `full` |
 
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
-詳細は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) を参照してください。
+設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) で説明します。
 各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
 [reservoir注入](ReservoirInjection.md)、[シース注入closure](SheathInjectionClosures.md)、
-[粒子のescapeとreturn](ParticleEscapeReturn.md)を参照してください。
+[粒子のescapeとreturn](ParticleEscapeReturn.md)で、modelごとの処理を分けて説明します。
 
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で refresh 済みの
 electrostatic snapshot から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、
@@ -878,7 +877,7 @@ Fortran parser は読み込み時に右列のキーとして扱います。
 | template の `placement_mode`, `anchor`, `offset`, `offset_frac` | `center` |
 | template の `size_mode`, `size_frac` | `size_x`, `size_y`, `size`, `radius` など |
 
-高水準記法の詳細、例、lint 時の扱いは [Configuration](Configuration.html) を参照してください。
+高水準記法の詳細、例、lint 時の扱いは [Configuration](Configuration.html) にまとめています。
 
 ---
 

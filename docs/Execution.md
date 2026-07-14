@@ -38,7 +38,7 @@ mpirun -n 4 beach beach.toml
 ```
 
 MPIとOpenMPの組み合わせ、コンパイラ設定、KUDPCでの実行方法は
-[開発環境とテスト](Workflow.html)を参照してください。
+[開発環境とテスト](Workflow.html)にまとめています。
 
 OpenMPでは、粒子indexを`dynamic, 1`で分配します。これにより、粒子ごとの追跡step数の違いから生じる
 負荷の偏りを抑えます。衝突による電荷変化は`dq_thread(nelem, nth)`にthread-localで集計し、最後に結合します。

@@ -20,7 +20,7 @@ reservoir inflowとparticle returnに使います。
 | reservoir velocity map | outer interface potential差 |
 | outward escape/return | 同じouter profileまたは同じunified 3D field |
 
-periodic operatorと`k=0`の式は[periodic2静電場](PeriodicElectrostatics.html)を参照してください。
+periodic operatorと`k=0`の式は[periodic2静電場](PeriodicElectrostatics.html)で説明します。
 
 ## nonlinear splitとlinear unifiedを選ぶ
 
@@ -30,10 +30,11 @@ periodic operatorと`k=0`の式は[periodic2静電場](PeriodicElectrostatics.ht
 | unified linear | accessible fraction付き線形Poisson | response startでscreened modeへ接続 | なし、または3D explicit orbit |
 
 split kineticはspecies別VDF、Bohm entry、photoelectron mean densityを扱えます。一方で、surfaceとinterfaceの間には、
-local surface fieldだけを扱うsplit windowを仮定します。詳細は[kinetic 1D外部プラズマ](KineticOuterPlasma.html)を参照してください。
+local surface fieldだけを扱うsplit windowを仮定します。[kinetic 1D外部プラズマ](KineticOuterPlasma.html)に
+この分割と非線形solveをまとめています。
 
 unified linearはroughness範囲からplasma responseを入れられますが、linear Debye closureでありspecies VDFやBohm条件を
-解きません。詳細は[unified linear response](UnifiedLinearResponse.html)を参照してください。
+解きません。[unified linear response](UnifiedLinearResponse.html)で適用範囲とfield solveを説明します。
 
 ## 一つのbatch-start snapshotを流入とreturnで共有する
 
@@ -59,7 +60,8 @@ $\phi_I-\phi_\infty$により
 - outflowでは$v_{n,I}$から$v_{n,\infty}^2$を計算し、escape/turning returnを判定する。
 
 同じenergy equationを逆向きに使うため、`reservoir_potential_model`やZhao cutoffを重ねません。
-[reservoir注入](ReservoirInjection.html)と[粒子のescapeとreturn](ParticleEscapeReturn.html)を参照してください。
+[reservoir注入](ReservoirInjection.html)が流入側、[粒子のescapeとreturn](ParticleEscapeReturn.html)が
+流出側の写像を説明します。
 
 ## 平均outer密度とtracked光電子を別々に選ぶ
 
@@ -73,8 +75,8 @@ photoelectronの扱いはouter field modelとparticle returnを分けて選び�
 | unified + explicit orbit | mean photoelectron closureなし | 個々の3D外部軌道 |
 
 tracked returnでは`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`を併用しません。mean closureは
-tracked surface depositを置き換えず、統計的return chargeを追加depositしません。詳細は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+tracked surface depositを置き換えず、統計的return chargeを追加depositしません。
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)に、放出から再吸収までの電荷収支をまとめています。
 
 ## productionではcached nonzero operatorを使う
 
@@ -122,7 +124,7 @@ lower_boundary_model = "symmetric_vacuum"
 
 1D instant returnと3D explicit orbitはouter flight timeを計算しますが、global simulation timeには加えません。
 flight timeと`field_evolution_timescale`の比は、`max_frozen_field_ratio`以下に保ちます。persistent delayed-return queueは未実装です。
-steady/quasisteadyでないreturn currentに適用する際の制約は、[粒子のescapeとreturn](ParticleEscapeReturn.html)を参照してください。
+steady/quasisteadyでないreturn currentには、[粒子のescapeとreturn](ParticleEscapeReturn.html)で示す制約が加わります。
 
 ## componentごとに収束と収支を確認する
 

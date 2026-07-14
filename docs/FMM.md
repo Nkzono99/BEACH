@@ -131,7 +131,7 @@ source離散化の収束は、これとは別にmesh細分化で確認します�
 
 通常のtargetでは、電場も電位もlocal expansionとnear Direct和から評価します。要素中心の
 `potential_history.csv`では同じFMM評価後にpoint kernelの有限自己項を補います。triangle P0は解析panel自己積分を
-near kernelに含めます。自己項の定義は[Direct solver](DirectSolver.html#要素中心の電位出力)を参照してください。
+near kernelに含めます。[<sup>1</sup>](DirectSolver.html#要素中心の電位出力)
 
 `potential_history`を書き出す時点では、最新の要素電荷でstateをrefreshします。そのため履歴を有効にすると、
 通常のbatch field更新に加えて、stateのrefreshと全要素targetの評価が発生する場合があります。
@@ -150,8 +150,8 @@ $[-N,N]^2$の近傍画像を明示的に扱います。遠方補正は次のい�
 
 `cached_kneq0`ではFMM coreが非zero modeを計算し、field snapshotが物理的なzero modeとouter responseを
 一度だけ合成します。panel sourceではpoint専用の`m2l_root_oracle`は使えません。periodic2の選択はFMMの
-精度だけでなく、粒子境界や外部プラズマも含む計算構成を決めます。詳細は
-[periodic2場計算](PeriodicElectrostatics.html)と[外部プラズマモデル](OuterPlasmaModels.html)を参照してください。
+精度だけでなく、粒子境界や外部プラズマも含む計算構成を決めます。[periodic2場計算](PeriodicElectrostatics.html)で
+場の成分を、[外部プラズマモデル](OuterPlasmaModels.html)で外部領域との結合を説明します。
 
 小規模のsplit referenceは、`field_solver="direct"`とpanel spectral backendを組み合わせる別経路です。
 対応する構成は[periodic2無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)にまとめています。

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -18,13 +19,33 @@ def _load_sync_module():
     return module
 
 
+def _read_doc(name: str) -> str:
+    return (ROOT / "docs" / name).read_text(encoding="utf-8")
+
+
 def test_pages_sources_use_remark_math_inline_delimiters() -> None:
     module = _load_sync_module()
 
     for page in module.PAGES:
-        text = (ROOT / "docs" / page.source).read_text(encoding="utf-8")
+        text = _read_doc(page.source)
         assert r"\(" not in text, page.source
         assert r"\)" not in text, page.source
+
+
+def test_japanese_pages_avoid_repetitive_reference_phrasing() -> None:
+    module = _load_sync_module()
+    japanese_pages = [page for page in module.PAGES if page.locale == "root"]
+
+    for page in japanese_pages:
+        assert "参照してください" not in _read_doc(page.source), page.source
+
+    for name in (
+        "BorisPusher.md",
+        "FinitePeriodicConfiguration.md",
+        "FMM.md",
+        "PeriodicElectrostatics.md",
+    ):
+        assert "[<sup>1</sup>](" in _read_doc(name)
 
 
 def test_onboarding_pages_are_bilingual_with_localized_descriptions() -> None:
@@ -50,31 +71,37 @@ def test_onboarding_pages_are_bilingual_with_localized_descriptions() -> None:
 
 
 def test_sidebar_follows_user_workflow_and_separates_agents() -> None:
-    config = (ROOT / "docs-site" / "astro.config.mjs").read_text(encoding="utf-8")
-    labels = [
-        "はじめに",
-        "使い方",
-        "リファレンス",
-        "数値アルゴリズム",
-        "開発者向け",
-        "AIエージェント向け",
-    ]
-    positions = [config.index(f"label: '{label}'") for label in labels]
+    navigation = json.loads(
+        (ROOT / "docs-site" / "navigation.json").read_text(encoding="utf-8")
+    )
+    labels = [section["label"]["root"] for section in navigation["sections"]]
 
-    assert positions == sorted(positions)
-    assert "{ slug: 'installation' }" in config
-    assert "{ slug: 'tutorial' }" in config
-    assert "{ slug: 'validation-guide' }" in config
-    assert "{ slug: 'troubleshooting' }" in config
-    assert "{ slug: 'physics-redesign-completion-audit' }" not in config
-    assert config.index("{ slug: 'agent-user-guide' }") > config.index(
-        "label: 'AIエージェント向け'"
+    assert labels == [
+        "はじめる",
+        "シミュレーションする",
+        "リファレンス",
+        "モデルと数値手法",
+        "開発・検証",
+    ]
+
+    slugs = {page["slug"] for page in navigation["pages"]}
+    assert {
+        "installation",
+        "tutorial",
+        "validation-guide",
+        "troubleshooting",
+        "agent-user-guide",
+    } <= slugs
+    assert "physics-redesign-completion-audit" not in slugs
+    assert any(
+        item.get("slug") == "agent-user-guide"
+        for item in navigation["sections"][-1]["items"]
     )
 
 
 def test_configuration_recipes_cover_production_kinetic_outer_sheath() -> None:
     for name in ("ConfigurationRecipes.md", "ConfigurationRecipes.en.md"):
-        text = (ROOT / "docs" / name).read_text(encoding="utf-8")
+        text = _read_doc(name)
 
         assert 'field_periodic_far_correction = "cached_kneq0"' in text
         assert 'nonzero_mode_backend = "cached_kneq0"' in text
@@ -85,41 +112,65 @@ def test_configuration_recipes_cover_production_kinetic_outer_sheath() -> None:
         assert "examples/periodic2_kinetic_outer.toml" in text
 
 
-def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() -> None:
-    particle_ja = (ROOT / "docs" / "ParticleChargeLoop.md").read_text(encoding="utf-8")
-    particle_en = (ROOT / "docs" / "ParticleChargeLoop.en.md").read_text(
-        encoding="utf-8"
+def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
+    legacy_pages = (
+        "ParticleChargeLoop.md",
+        "ParticleChargeLoop.en.md",
+        "PeriodicZeroModeOuterPlasma.md",
+        "PeriodicZeroModeOuterPlasma.en.md",
+        "SheathReservoirBoundary.md",
+        "SheathReservoirBoundary.en.md",
     )
-    fmm_ja = (ROOT / "docs" / "FMMCore.md").read_text(encoding="utf-8")
-    fmm_en = (ROOT / "docs" / "FMMCore.en.md").read_text(encoding="utf-8")
-    algorithms_ja = (ROOT / "docs" / "Algorithms.md").read_text(encoding="utf-8")
-    algorithms_en = (ROOT / "docs" / "Algorithms.en.md").read_text(encoding="utf-8")
-    zero_ja = (ROOT / "docs" / "PeriodicZeroModeOuterPlasma.md").read_text(
-        encoding="utf-8"
-    )
-    zero_en = (
-        ROOT / "docs" / "PeriodicZeroModeOuterPlasma.en.md"
-    ).read_text(encoding="utf-8")
-    sheath_ja = (ROOT / "docs" / "SheathReservoirBoundary.md").read_text(
-        encoding="utf-8"
-    )
-    sheath_en = (ROOT / "docs" / "SheathReservoirBoundary.en.md").read_text(
-        encoding="utf-8"
-    )
-    sheath_en_compact = " ".join(sheath_en.split())
+    for name in legacy_pages:
+        assert not (ROOT / "docs" / name).exists()
 
-    assert "Boris速度更新を組み込んだ同時刻状態の積分器" in particle_ja
-    assert "完全な1ステップを単に「leapfrog」と呼ぶのは不正確" in particle_ja
-    assert (
-        "same-time state integrator containing a Boris velocity update" in particle_en
-    )
-    assert (
-        "inaccurate to describe the complete BEACH step only as a leapfrog"
-        in particle_en
-    )
-    for section in ("8.1", "8.2", "8.3", "8.4", "8.5"):
-        assert f"### {section}" in particle_ja
-        assert f"### {section}" in particle_en
+    pages = {
+        name: _read_doc(name)
+        for name in (
+            "Algorithms.md",
+            "Algorithms.en.md",
+            "BorisPusher.md",
+            "BorisPusher.en.md",
+            "FMMCore.md",
+            "FMMCore.en.md",
+            "PeriodicElectrostatics.md",
+            "PeriodicElectrostatics.en.md",
+            "KineticOuterPlasma.md",
+            "KineticOuterPlasma.en.md",
+            "UnifiedLinearResponse.md",
+            "UnifiedLinearResponse.en.md",
+            "ReservoirInjection.md",
+            "ReservoirInjection.en.md",
+            "ParticleEscapeReturn.md",
+            "ParticleEscapeReturn.en.md",
+            "SheathInjectionClosures.md",
+            "SheathInjectionClosures.en.md",
+            "PhotoelectronEmission.md",
+            "PhotoelectronEmission.en.md",
+        )
+    }
+
+    for phrase in (
+        "## n batchの計算フロー",
+        "[Boris粒子更新](BorisPusher.html)",
+        "[粒子の衝突・境界イベント](ParticleEvents.html)",
+        "[表面電荷更新](SurfaceModels.html)",
+    ):
+        assert phrase in pages["Algorithms.md"]
+    for phrase in (
+        "## The n-batch computation flow",
+        "[Boris particle update](BorisPusher.en.html)",
+        "[Particle collision and boundary events](ParticleEvents.en.html)",
+        "[Surface charge update](SurfaceModels.en.html)",
+    ):
+        assert phrase in pages["Algorithms.en.md"]
+
+    assert "## 予測中点で電場を評価する" in pages["BorisPusher.md"]
+    assert "## 台形則で候補位置を作る" in pages["BorisPusher.md"]
+    assert "## Sample the field at a predicted midpoint" in pages["BorisPusher.en.md"]
+    assert "## Form the candidate position with the trapezoidal rule" in pages[
+        "BorisPusher.en.md"
+    ]
 
     for heading in (
         "何を高速化するoperatorか",
@@ -131,7 +182,7 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "SysA測定値",
         "運用指針",
     ):
-        assert f"#### {heading}" in fmm_ja
+        assert f"#### {heading}" in pages["FMMCore.md"]
     for heading in (
         "What the operator accelerates",
         "What one field evaluation adds",
@@ -142,123 +193,74 @@ def test_numerics_pages_explain_same_time_boris_and_structure_cached_operator() 
         "SysA measurements",
         "Operating guidance",
     ):
-        assert f"#### {heading}" in fmm_en
-    assert fmm_ja.index("### 10.1 cached periodic nonzero operator") < fmm_ja.index(
-        "### 11. 実装との対応"
-    )
-    assert fmm_en.index("### 10.1 Cached periodic nonzero operator") < fmm_en.index(
-        "### 11. Implementation mapping"
-    )
-    for phrase in (
-        "##### point source",
-        "##### P0 triangle source",
-        "q_i` はすでに要素総電荷",
-        "`triangle_p0` では `softening=0` を強制",
-    ):
-        assert phrase in fmm_ja
-    for phrase in (
-        "##### Point sources",
-        "##### P0 triangle sources",
-        "`q_i` is already the total element charge",
-        "`triangle_p0` enforces `softening=0`",
-    ):
-        assert phrase in fmm_en
+        assert f"#### {heading}" in pages["FMMCore.en.md"]
 
-    expected_ja = [
-        "### 2.3 P0 triangle panel field kernel",
-        "### 2.4 periodic2 split reference",
-        "### 2.5 outer particle interface",
-        "### 2.6 periodic2 collision mesh",
-        "### 2.7 restart",
-    ]
-    expected_en = [
-        "### 2.3 P0 triangle panel field kernel",
-        "### 2.4 periodic2 split reference",
-        "### 2.5 Outer particle interface",
-        "### 2.6 periodic2 collision mesh",
-        "### 2.7 Restart",
-    ]
-    assert [algorithms_ja.index(heading) for heading in expected_ja] == sorted(
-        algorithms_ja.index(heading) for heading in expected_ja
-    )
-    assert [algorithms_en.index(heading) for heading in expected_en] == sorted(
-        algorithms_en.index(heading) for heading in expected_en
-    )
-    for phrase in (
-        "Ewald2P referenceとは",
-        "数値分割パラメータ",
-        "Debye長や物理的な",
-        "triangle-height累積多項式",
-        "`exclude_k0`は「平均場を無視する」という意味ではなく",
-        "`kinetic_1d`",
-        "#### 4.4.1 解く領域と未知量",
-        "浮遊条件$J_\\mathrm{total}=0$をroot equationとして解くものではありません",
-        "#### 4.4.2 VDFから作る密度closure",
-        "#### 4.4.3 格子と境界条件",
-        "#### 4.4.4 非線形solveと受理条件",
-        "#### 4.4.5 batch更新、MPI、出力",
-        "`unified_linear_response`",
-        "#### 4.5.1 split modelとの違い",
-        "field solveの境界や",
-        "#### 4.5.2 rough surfaceとaccessible fraction",
-        "#### 4.5.3 unified zero-mode Poisson solve",
-        "#### 4.5.4 nonzero-mode plasma tail",
-        "現行実装は省略modeの自動誤差上限を出力しません",
-        "#### 4.5.5 線形性と適用条件",
-        "#### 4.5.6 field評価、batch、MPI、粒子軌道",
-    ):
-        assert phrase in zero_ja
-    for phrase in (
-        "What the Ewald2P reference means",
-        "numerical work-splitting parameter",
-        "not a Debye length",
-        "triangle-height cumulative polynomials",
-        "does not mean that the physical mean field is discarded",
-        "`kinetic_1d`",
-        "#### 4.4.1 Domain and unknown",
-        "does not impose floating balance $J_\\mathrm{total}=0$ as a root",
-        "#### 4.4.2 Density closures from VDFs",
-        "#### 4.4.3 Grid and boundary conditions",
-        "#### 4.4.4 Nonlinear solve and acceptance",
-        "#### 4.4.5 Batch update, MPI, and output",
-        "`unified_linear_response`",
-        "#### 4.5.1 Difference from split models",
-        "neither a field boundary nor the start of plasma response",
-        "#### 4.5.2 Rough surface and accessible fraction",
-        "#### 4.5.3 Unified zero-mode Poisson solve",
-        "#### 4.5.4 Nonzero-mode plasma tail",
-        "does not report an automatic error bound for omitted modes",
-        "#### 4.5.5 Linearity and applicability",
-        "#### 4.5.6 Field evaluation, batch, MPI, and particle orbit",
-    ):
-        assert phrase in zero_en
-    for phrase in (
-        'reservoir_potential_model="infinity_barrier"',
-        'sheath_injection_model="zhao_*"',
-        "faceへ向かう途中で加速",
-        "到達不能な無限遠粒子はsimulation particleとして生成されません",
-        "kinetic-profile return",
-        "trajectory integratorではありません",
-        "outer flightをglobal simulation timeへ加算しません",
-        "同じsimulation時刻に戻り",
-        "定常化後の離脱力を主目的とする計算では即時帰還を標準",
-        "UV照射開始",
-        "過渡電流や立ち上がり時間の評価には使わず",
-        "Zhao profileの$E(z)$はparticle pusherのfield snapshotへ加算されません",
-    ):
-        assert phrase in sheath_ja
-    for phrase in (
-        'reservoir_potential_model="infinity_barrier"',
-        'sheath_injection_model="zhao_*"',
-        "acceleration toward the face",
-        "inaccessible infinity particle is never instantiated",
-        "Kinetic-profile return",
-        "not a trajectory integrator",
-        "Outer flight is not added to global simulation time",
-        "returns at the same simulation time",
-        "detachment force after equilibration",
-        "After UV turn-on",
-        "Do not use it to infer transient current or rise time",
-        "reconstructed Zhao $E(z)$ is not added to the particle-pusher field snapshot",
-    ):
-        assert phrase in sheath_en_compact
+    migrated_headings = {
+        "PeriodicElectrostatics.md": (
+            "## 場を4つの成分に分ける",
+            "## Ewald2Pで無限周期の遠方場を分離する",
+            "## 物理`k=0`を一度だけ加える",
+        ),
+        "KineticOuterPlasma.md": (
+            "## VDFを電位依存の電荷密度へ写す",
+            "## continuation付きNewton法で物理解を追う",
+        ),
+        "UnifiedLinearResponse.md": (
+            "## 表面電荷とplasma応答からzero modeを解く",
+            "## 真空nonzero modeをscreened tailへ接続する",
+        ),
+        "ReservoirInjection.md": (
+            "## Maxwell分布を流入fluxで重み付けする",
+            "## 一つの電位差で到達条件とface速度を決める",
+        ),
+        "ParticleEscapeReturn.md": (
+            "## linear Debye profileからreturn時間を求める",
+            "## outer flightをglobal timeへ加えない近似",
+        ),
+        "SheathInjectionClosures.md": (
+            "## `floating_no_photo`でelectron/ion流入を釣り合わせる",
+            "## Zhao closureの無次元量を作る",
+        ),
+        "PhotoelectronEmission.md": (
+            "## 放出から再吸収までを同じbatchで追う",
+            "## charge ledgerで放出・再吸収・escapeを閉じる",
+        ),
+    }
+    for name, headings in migrated_headings.items():
+        for heading in headings:
+            assert heading in pages[name]
+
+    migrated_headings_en = {
+        "PeriodicElectrostatics.en.md": (
+            "## Decompose the field into four components",
+            "## Separate the infinite-periodic far field with Ewald2P",
+            "## Add the physical `k=0` component exactly once",
+        ),
+        "KineticOuterPlasma.en.md": (
+            "## Map VDFs to potential-dependent charge density",
+            "## Follow the physical branch with continued Newton solves",
+        ),
+        "UnifiedLinearResponse.en.md": (
+            "## Solve the zero mode from surface charge and plasma response",
+            "## Connect vacuum nonzero modes to a screened tail",
+        ),
+        "ReservoirInjection.en.md": (
+            "## Weight a Maxwell distribution by inflow flux",
+            "## Use one potential drop for accessibility and face velocity",
+        ),
+        "ParticleEscapeReturn.en.md": (
+            "## Derive return time from a linear-Debye profile",
+            "## Keep outer flight outside global simulation time",
+        ),
+        "SheathInjectionClosures.en.md": (
+            "## Balance electron and ion inflow with `floating_no_photo`",
+            "## Form the dimensionless Zhao variables",
+        ),
+        "PhotoelectronEmission.en.md": (
+            "## Track emission through reabsorption in the same batch",
+            "## Close emission, reabsorption, and escape in the charge ledger",
+        ),
+    }
+    for name, headings in migrated_headings_en.items():
+        for heading in headings:
+            assert heading in pages[name]

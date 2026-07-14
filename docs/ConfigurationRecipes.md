@@ -5,7 +5,7 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 # 設定レシピ
 
 典型的なケースは、公式入門ケースの`beach.toml`を基に、必要なtableやsectionを置き換えて作ります。
-全キーの定義は [入力パラメータリファレンス](Parameters.html)、高水準記法の詳細は [beachx config / 高水準記法ガイド](Configuration.html) を参照してください。
+全キーの定義は [入力パラメータリファレンス](Parameters.html)、高水準記法の詳細は [beachx config / 高水準記法ガイド](Configuration.html) にまとめています。
 
 以下は[公式入門ケース](Tutorial.html)を基準にした差分例です。
 断片だけでは実行できない場合があります。
@@ -178,8 +178,8 @@ escape/returnは、共通のkinetic profileから得られる`phi_interface - ph
 `100`などに増やす場合は、表面電位、吸収・escape flux、電荷収支、離脱力に主要な変化がないことを確認してください。
 
 非単調分枝、sub-Bohm ion、frozen-field上限超過を検出した場合は、別のmodelにfallbackせず停止します。
-完全な小規模例は`examples/periodic2_kinetic_outer.toml`、全パラメータの定義は
-[入力パラメータリファレンス](Parameters.html)を参照してください。
+完全な小規模例は`examples/periodic2_kinetic_outer.toml`にあります。全パラメータの定義は
+[入力パラメータリファレンス](Parameters.html)から確認できます。
 
 ## UV光電子を外部sheathへ含める
 

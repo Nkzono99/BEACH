@@ -173,7 +173,7 @@ surface chargeをcommitしてsnapshotをrefreshするたび、surface zero mode�
 statusと$z,\phi,E,\rho$を全rankへbroadcastします。
 
 `particle_transfer_mode="none"`ならz-high粒子は通常のopen境界に従います。`electrostatic_3d_explicit_orbit`なら
-同じzero/nonzero field中で外部軌道を追跡します。詳細は[粒子のescapeとreturn](ParticleEscapeReturn.html)を参照してください。
+同じzero/nonzero field中で外部軌道を追跡します。[<sup>1</sup>](ParticleEscapeReturn.html)
 
 ## geometry・grid・modeを独立に収束させる
 

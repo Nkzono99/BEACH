@@ -109,7 +109,7 @@ $$
 `collision_query_image_limit`で停止します。
 
 ここで列挙するimage範囲は粒子の軌道線分がmeshへ当たり得る範囲です。電場の`field_periodic_image_layers`とは
-目的も決め方も異なります。場の画像和は[periodic2場計算](PeriodicElectrostatics.html)を参照してください。
+目的も決め方も異なります。[periodic2場計算](PeriodicElectrostatics.html)では、場の画像和を独立に定義します。
 
 ## box面ごとの作用を適用する
 
@@ -145,7 +145,7 @@ $$
 `particle_step_unsupported_barrier_corner`で停止します。
 
 reservoir粒子の加減速、outer sheath、photoelectron returnは、衝突位置を決めた後に適用する物理モデルです。
-詳細は[粒子源](ParticleSourcesBoundaries.html)と[外部プラズマモデル](OuterPlasmaModels.html)を参照してください。
+[粒子源](ParticleSourcesBoundaries.html)が生成側、[外部プラズマモデル](OuterPlasmaModels.html)が外部領域での処理を説明します。
 
 ## 境界通過後の残り時間を進める
 
@@ -171,7 +171,7 @@ payloadには、face、step全体に対するfraction、位置、速度、残り
 
 outer modelがlocal returnを返した場合は、戻り位置・速度から残り時間を再び通常のparticle stepで進めます。
 infinityへescapeした場合は粒子を消滅させます。outer側の加減速やreturn条件は
-[外部プラズマモデル](OuterPlasmaModels.html)を参照してください。
+[外部プラズマモデル](OuterPlasmaModels.html)で決まります。
 
 ## 判定を完了できなければ停止する
 

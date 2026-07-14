@@ -8,7 +8,7 @@ BEACHのPython package (`beach`) は、Fortranシミュレーションの結果�
 `summary.txt`、`charges.csv`、`mesh_triangles.csv`などを読み込み、電位の再構成、Coulomb力と電場の計算、
 電気力線の追跡、3D可視化を行います。
 
-最初の図を作るだけなら、先に [後処理チュートリアル](PostprocessTutorial.html) を参照してください。
+最初の図を作る手順は [後処理チュートリアル](PostprocessTutorial.html) にまとめています。
 
 ## 1. パッケージ構成
 

@@ -29,7 +29,7 @@ outer modelがreturnと判定した場合、粒子をinterfaceの直内側へ戻
 macro電荷$q w$をspecies別`escaped_to_infinity`へ計上し、表面電荷`q_elem`は変更しません。
 
 複数面を同時に横切るcornerでも、openを含む通常の境界規則が決定論的に適用されます。reflect/periodic面との
-組合せと残りstepの再積分は[粒子の衝突・境界イベント](ParticleEvents.html)を参照してください。
+組合せと残りstepの再積分は[粒子の衝突・境界イベント](ParticleEvents.html)で説明します。
 
 ## scalar barrierでは通過点の法線energyだけを比較する
 

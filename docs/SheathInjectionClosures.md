@@ -14,8 +14,8 @@ cutoffを決めます。補正結果はsource samplingへ適用し、生成後�
 | `zhao_a/b/c` | 指定したZhao branchの解析closure | electron/ion/photoelectronの密度、drift、cutoff、放出電流 |
 | `zhao_auto` | 太陽高度に応じてZhao branchを探索 | 収束したbranchと同じ補正 |
 
-自己整合なouter Poisson profileについては[kinetic 1D外部プラズマ](KineticOuterPlasma.html)、rough surfaceを含む
-線形fieldについては[unified linear response](UnifiedLinearResponse.html)を参照してください。
+自己整合なouter Poisson profileは[kinetic 1D外部プラズマ](KineticOuterPlasma.html)、rough surfaceを含む
+線形fieldは[unified linear response](UnifiedLinearResponse.html)で説明します。
 
 ## sourceの役割からspeciesを選ぶ
 
@@ -138,7 +138,7 @@ J_{pe}=\frac{|q_{pe}|n_{\mathrm{phe},0}v_{\mathrm{phe,th}}}{2\sqrt\pi}
 $$
 
 へ置き換えます。$T$と$\phi$はこの指数ではeV/Vの対応する規約です。この電流密度からrayのmacro重みを決める方法は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)で説明します。
 
 ### ionとlocal reference plane
 
@@ -166,7 +166,7 @@ sourceと外向き粒子が同じ自己整合potential profileを共有する計
 - `floating_no_photo`は負electronと正ionだけを使い、photoelectron sourceを補正しません。
 
 `photo_escape_model="boltzmann_cutoff"`はZhaoとは別の局所reduced closureです。式とtracked returnとの排他関係は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
 
 ## Code reference
 

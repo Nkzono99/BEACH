@@ -128,7 +128,7 @@ outer領域の空間電荷に寄与します。この平均closureは、個々�
 保存エネルギーでescape/returnへ分類します。interfaceのoutward/returned chargeと放出速度histogramはdiagnosticです。
 外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は
-[外部プラズマモデル](OuterPlasmaModels.html)を参照してください。
+[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
 Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入closureです。tracked粒子は
 Zhao profileの$E(z)$ではなく、通常のfield snapshot中を進みます。

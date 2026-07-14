@@ -21,8 +21,8 @@ reservoirの速度補正と光電子のreduced escape率は、前batchまでにc
 生成された粒子は同じsnapshot中を進み、吸収、escape、`max_step`到達のいずれかまで追跡されます。
 
 粒子が生成された瞬間に表面電荷を変えるのは、`photo_raycast`で放出元へ逆符号電荷を置く場合だけです。
-その差分も追跡中の吸収電荷と同様にbatch末尾でcommitされ、同じbatchの場は変えません。全体の順序は
-[計算モデルの全体像](Algorithms.html)を参照してください。
+その差分も追跡中の吸収電荷と同様にbatch末尾でcommitされ、同じbatchの場は変えません。
+[計算モデルの全体像](Algorithms.html)に、snapshot更新からcommitまでの順序を示しています。
 
 ## `volume_seed`で指定個数の初期粒子を作る
 
@@ -72,7 +72,7 @@ species IDです。tracked macro粒子1個の電荷は$q w$です。表面へ吸
 
 mesh衝突とbox境界の順序は[粒子の衝突・境界イベント](ParticleEvents.html)、外部領域のfield modelは
 [外部プラズマモデル](OuterPlasmaModels.html)、粒子のescape/return写像は
-[粒子のescapeとreturn](ParticleEscapeReturn.html)、表面への電荷commitは[表面電荷更新](SurfaceModels.html)を参照してください。
+[粒子のescapeとreturn](ParticleEscapeReturn.html)、表面への電荷commitは[表面電荷更新](SurfaceModels.html)で説明します。
 
 ## global生成量をMPIとrestartで保つ
 

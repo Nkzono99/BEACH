@@ -117,11 +117,11 @@ point/triangle kernel、periodic場、zero mode、outer state、`sim.e0`を含�
 faceまでの途中の$E(z)$、turning位置、flight time、空間電荷は解きません。
 
 split outer modelではz-highの`reservoir_face`を無限遠VDFとして解釈します。`kinetic_1d`ではinterface電場を
-Poisson境界条件に使いますが、粒子速度を変える量は解から得た$\phi_I-\phi_\infty$です。外部modelの選択と
-return側の同じprofileの使い方は[外部プラズマモデル](OuterPlasmaModels.html)を参照してください。
+Poisson境界条件に使いますが、粒子速度を変える量は解から得た$\phi_I-\phi_\infty$です。[外部プラズマモデル](OuterPlasmaModels.html)で、
+modelの選択とreturn側への同じprofileの適用を説明します。
 
 Zhao branchと`floating_no_photo`がsource密度・cutoff・driftを上書きする規則は
-[シース注入closure](SheathInjectionClosures.html)を参照してください。
+[シース注入closure](SheathInjectionClosures.html)にまとめています。
 
 ## 生成位置の位相をjitterで散らす
 
@@ -139,8 +139,8 @@ MPIではglobal個数と端数をrootで決めてから、各rankへ分配しま
 restart時に全rankへbroadcastします。確認するのはspecies別の注入個数と注入電荷、解決後のmacro重み、端数、
 適用した$v_{\min}$と電位差、batch平均の吸収電流とescape電流です。
 
-`batch_duration`を変えると1 batchの期待粒子数と場の更新間隔が同時に変わります。物理的な定常値の確認方法は
-[batch幅と安定性](BatchDurationStability.html)を参照してください。
+`batch_duration`を変えると1 batchの期待粒子数と場の更新間隔が同時に変わります。
+[batch幅と安定性](BatchDurationStability.html)に、物理的な定常値の確認方法を示しています。
 
 ## Code reference
 

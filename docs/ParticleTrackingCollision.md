@@ -51,7 +51,7 @@ thread-localな要素電荷差分へ加え、batch末尾にcommitします。
 - periodic seam、corner、reflect後の残り時間を跨ぐ軌道が意図どおりか
 - 粒子の吸収・escape・未解決数と電荷ledgerが一致するか
 
-設定値は[設定パラメータ](Parameters.html)、出力での分類は[出力の読み方](OutputGuide.html)を参照してください。
+設定値は[設定パラメータ](Parameters.html)、出力での分類は[出力の読み方](OutputGuide.html)から確認できます。
 
 ## Code reference
 

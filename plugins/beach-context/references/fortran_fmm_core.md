@@ -1,12 +1,14 @@
-title: Coulomb FMM コア詳細
+title: Coulomb FMMコア詳細
 
 Lang: [日本語](FMMCore.md) | [English](FMMCore.en.md)
 
-# Coulomb FMM コア詳細
+# Coulomb FMMコア詳細
 
-この節は、現行 Fortran 実装の Coulomb FMM コア
-[`bem_coulomb_fmm_core` module page](../module/bem_coulomb_fmm_core.html)
-と、その実装を分割した関連ファイル群の仕様とアルゴリズムをまとめたものです。
+Coulomb FMMコアは、source geometryから作る`plan`と、電荷から作る`state`を分離し、
+多重極展開と近傍Direct和から電場を評価します。ここでは、現行Fortran実装の公開API、データ構造、
+展開式、periodic2補正を、処理順に沿って説明します。
+
+APIの詳細は[`bem_coulomb_fmm_core` module page](../module/bem_coulomb_fmm_core.html)でも確認できます。
 
 - 公開 API / 境界: `src/physics/field_solver/fmm/api/`
 - 内部共通実装: `src/physics/field_solver/fmm/internal/common/`
@@ -14,15 +16,15 @@ Lang: [日本語](FMMCore.md) | [English](FMMCore.en.md)
 - state / eval 実装: `src/physics/field_solver/fmm/internal/runtime/`
 - periodic2 実装: `src/physics/field_solver/fmm/internal/periodic/`
 
-対象は simulator 非依存の内部 API で、`mesh_type` や `sim_config` を直接 `use` しません。
-BEACH 側では field solver adapter がこのコアを呼び出します。
+コアの内部APIはsimulatorに依存せず、`mesh_type`や`sim_config`を直接`use`しません。
+BEACHのfield solver adapterが、simulator側のデータを変換してこのコアを呼び出します。
 
-### 1. 目的
+## 1. 目的
 
-この FMM コアの目的は、固定された source 点群 `src_pos(3,n)` と可変電荷 `src_q(n)` に対して、
-多数の評価点で Coulomb 電場を高速に返すことです。
+このFMMコアは、固定されたsource点群`src_pos(3,n)`と可変電荷`src_q(n)`から、
+多数の評価点におけるCoulomb電場を計算します。
 
-現行実装の設計目標は次の通りです。
+計算の前提と責務は次のとおりです。
 
 - kernel は 3D Coulomb のみ
 - source 幾何と電荷更新を分離する
@@ -30,7 +32,9 @@ BEACH 側では field solver adapter がこのコアを呼び出します。
 - 近傍 direct 和もコア内部に含める
 - simulator からは配列 API だけが見えるようにする
 
-### 2. 公開 API
+## 2. 公開 API
+
+### 2.1 Fortran API
 
 コアが提供する主な手続きは次の 4 つです。
 
@@ -52,17 +56,17 @@ call eval_point(plan, state, r, e)
 - `e(3,m)` または `e(3)`:
   電場ベクトル。
 
-注意点:
+呼び出し側では、次の点に注意が必要です。
 
-- コアが返す電場には `k_coulomb` を掛けていません。BEACH の adapter 側で最後に掛けます。
+- コアが返す電場には`k_coulomb`を掛けていません。BEACHのadapterが最後に掛けます。
 - `build_plan` は幾何依存処理、`update_state` は電荷依存処理です。
 - `eval_point(s)` は `plan` と `state` が ready な前提です。
 
-#### 2.2 C ABI / Python 連携
+### 2.2 C ABI / Python 連携
 
-`src/physics/field_solver/bem_field_kernel_c.f90` は、この Fortran API を
-`iso_c_binding` の opaque handle API として公開します。共有ライブラリは
-`make build-kernel` で `build/libbeach_field_kernel.so` に生成します。
+`src/physics/field_solver/bem_field_kernel_c.f90`は、Fortran APIを`iso_c_binding`の
+opaque handle APIとして公開します。`make build-kernel`を実行すると、共有ライブラリ
+`build/libbeach_field_kernel.so`が生成されます。
 
 主な C ABI:
 
@@ -76,16 +80,16 @@ beach_kernel_eval_phi(handle, target_pos, phi)
 beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torque)
 ```
 
-Python 側は `beach.fortran_results.kernel.FieldKernel` がこの ABI を `ctypes`
-で呼びます。`calc_object_forces_kernel` は object 自身の source 電荷をゼロにして
-`sum(q_i E_not_self(r_i))` を評価するため、自己力の混入を避けながら
-`periodic2 + m2l_root_oracle` を含む同じ field kernel を使えます。
-`Beach.scene()` / `BeachScene` は Python 側で object の剛体移動・回転を一時的に
-適用し、編集後の重心配列を同じ ABI に渡します。剛体変換の補助処理は NumPy
-既定で、任意依存の Numba backend も選べますが、場評価そのものは Fortran
-kernel が担当します。
+Pythonでは、`beach.fortran_results.kernel.FieldKernel`がこのABIを`ctypes`で呼び出します。
+`calc_object_forces_kernel`は、対象object自身のsource電荷をゼロにして
+`sum(q_i E_not_self(r_i))`を評価します。これにより、自己力を除外しながら、
+`periodic2 + m2l_root_oracle`を含むfield kernelをそのまま利用できます。
 
-#### 2.3 BEACH adapter での使い方
+`Beach.scene()` / `BeachScene`は、Python側でobjectの剛体移動や回転を一時的に適用し、
+変換後の重心配列を同じABIへ渡します。剛体変換の補助処理には既定でNumPyを使い、
+任意依存のNumba backendも選べます。電場の評価は、どちらの場合もFortran kernelが担当します。
+
+### 2.3 BEACH adapterでの使い方
 
 BEACH の field solver adapter は、source model に応じて異なる幾何をコアへ渡します。
 
@@ -95,12 +99,14 @@ BEACH の field solver adapter は、source model に応じて異なる幾何を
 | `triangle_p0` | 3 頂点を `build_panel_plan` に渡す | 三角形全体の総電荷。面密度は `src_q(i)/area(i)` |
 
 - 初期化時は `build_plan` または `build_panel_plan` の直後に `update_state` を実行します。
-- その後の refresh では、メッシュ幾何が変わらない通常運用を前提に既存 `plan` を再利用し、`src_q` 更新として `update_state` だけを呼びます。
-- `build_plan` と legacy tree metadata の同期をやり直すのは、plan 未構築時・source 数変更時・要素数 0 件で plan/state を破棄したときだけです。
+- その後のrefreshでは、mesh geometryが変わらない限り既存の`plan`を再利用し、`src_q`を渡して
+  `update_state`だけを呼びます。
+- `build_plan`とlegacy tree metadataを再同期するのは、planが未構築の場合、source数が変わった場合、
+  または要素数0としてplan/stateを破棄した場合だけです。
 
-### 3. データ構造
+## 3. データ構造
 
-#### 3.1 `fmm_options_type`
+### 3.1 `fmm_options_type`
 
 主な内部オプション:
 
@@ -111,14 +117,16 @@ BEACH の field solver adapter は、source model に応じて異なる幾何を
 - `use_periodic2`: 2 周期軸モードの有効化
 - `periodic_axes(2)`, `periodic_len(2)`: 周期軸と周期長
 - `periodic_image_layers`: 近傍画像和の層数 `N`
-- `periodic_far_correction`: core が受ける値は `auto`, `none`, `m2l_root_oracle`。`periodic2` 有効時の `auto` は互換用に `none` へ正規化され、`m2l_root_oracle` は明示指定時だけ有効になる
-- `periodic_ewald_alpha`, `periodic_ewald_layers`: `m2l_root_oracle` の build-time Ewald fit で使う分解パラメータと打切り深さ
+- `periodic_far_correction`: coreが受ける値は`auto`, `none`, `m2l_root_oracle`。`periodic2`有効時の
+  `auto`は互換性のため`none`へ正規化され、`m2l_root_oracle`は明示指定した場合だけ有効になる
+- `periodic_ewald_alpha`, `periodic_ewald_layers`: `m2l_root_oracle`のbuild-time Ewald fitで使う
+  分解パラメータと打切り深さ
 - `target_box_min/max`: dual-target tree を作るときの box
 
 BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可変次数を受けられます。
 `periodic2` の `auto` は `none` に正規化されます。`m2l_root_oracle` は遠方補正を明示的に有効化します。
 
-#### 3.2 `fmm_plan_type`
+### 3.2 `fmm_plan_type`
 
 幾何にだけ依存する不変データです。
 
@@ -135,7 +143,7 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可�
 - P2M 基底表 `source_p2m_basis`
 - M2M/L2L の平行移動用圧縮テーブル
 
-#### 3.3 `fmm_state_type`
+### 3.3 `fmm_state_type`
 
 電荷に依存して毎回更新されるデータです。
 
@@ -145,16 +153,16 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可�
 - `multipole_active(nnode)`
 - `local_active(n_target_nodes)`
 
-`multipole` は source tree ノードごとの多重極係数、`local` は target tree ノードごとの局所展開係数です。
-`*_active` は zero-node を早く飛ばすための 0/1 フラグです。
+`multipole`はsource tree nodeごとの多重極係数、`local`はtarget tree nodeごとの局所展開係数です。
+`*_active`はzero-nodeの計算を省略するための0/1 flagです。
 
-### 4. 数学的定義
+## 4. 数学的定義
 
-#### 4.1 source kernel
+### 4.1 source kernel
 
 コアには `point` と `triangle_p0` の 2 つの source kernel があります。
 
-##### point source
+#### point source
 
 `point` は要素重心に置いた点電荷を、softening 付き Coulomb kernel で評価します。
 
@@ -170,9 +178,9 @@ $$
 \mathbf{E}(\mathbf{x}) = - \nabla \phi(\mathbf{x})
 $$
 
-近傍 direct 和と遠方展開は、同じ $G_\epsilon$ に基づきます。
+近傍Direct和と遠方展開は、どちらも同じ$G_\epsilon$に基づきます。
 
-##### P0 triangle source
+#### P0 triangle source
 
 `triangle_p0` は、`q_i` を三角形 $T_i$ の総電荷、$A_i$ をその面積とし、
 $\sigma_i=q_i/A_i$ を三角形上の一定面密度として扱います。
@@ -183,9 +191,8 @@ $$
 \frac{1}{\lVert\mathbf{x}-\mathbf{y}\rVert}\,dA_{\mathbf{y}}
 $$
 
-近傍 direct 評価は、辺の対数項と立体角を使う解析的 P0 panel kernel です。
-遠方 P2M には、tree node の中心 $\mathbf{c}$ に対する三角形上の monomial の
-厳密面積平均を使います。
+近傍Direct評価には、辺の対数項と立体角を使う解析的P0 panel kernelを使います。
+遠方P2Mには、tree nodeの中心$\mathbf{c}$に対する三角形上のmonomialの厳密な面積平均を使います。
 
 $$
 M_{i,\alpha} =
@@ -194,13 +201,12 @@ q_i\left\langle(\mathbf{y}-\mathbf{c})^\alpha\right\rangle_{T_i}
 (\mathbf{y}-\mathbf{c})^\alpha\,dA_{\mathbf{y}}
 $$
 
-したがって area weighting は panel 積分と P2M 基底に含まれています。
-`q_i` はすでに要素総電荷なので、`q_i` に $A_i$ をもう一度掛けません。
-以後の M2M/M2L/L2L は、この panel moment に対する非 softening の
-Coulomb/Laplace 展開です。`triangle_p0` では `softening=0` を強制し、
-softened point source へ fallback しません。
+area weightingはpanel積分とP2M基底に含まれています。`q_i`は要素の総電荷なので、
+$A_i$を重ねて掛ける必要はありません。以後のM2M/M2L/L2Lには、このpanel momentに対する
+softeningなしのCoulomb/Laplace展開を使います。`triangle_p0`では`softening=0`を強制し、
+softened point sourceへfallbackしません。
 
-#### 4.2 多重指数
+### 4.2 多重指数
 
 多重指数 $\alpha = (\alpha_x, \alpha_y, \alpha_z)$ を使います。
 
@@ -216,9 +222,9 @@ $$
 \mathbf{r}^\alpha = r_x^{\alpha_x} r_y^{\alpha_y} r_z^{\alpha_z}
 $$
 
-#### 4.3 P2M
+### 4.3 P2M
 
-node center を $c$ とすると、葉ノードの multipole 係数は
+node centerを$c$とすると、leaf nodeのmultipole係数は
 
 $$
 M_\alpha(c) = \sum_{j \in \text{leaf}} q_j
@@ -227,7 +233,7 @@ $$
 
 で定義します。
 
-#### 4.4 M2M
+### 4.4 M2M
 
 子ノード中心 $c_{\mathrm{child}}$ の係数を親中心 $c_{\mathrm{parent}}$ に平行移動して集約します。
 $\mathbf{d} = c_{\mathrm{child}} - c_{\mathrm{parent}}$ とすると
@@ -242,7 +248,7 @@ $$
 現行実装では $\beta - \alpha$ に対応する index と
 $\mathbf{d}^{\beta-\alpha} / (\beta-\alpha)!$ を `build_plan` 時に前計算します。
 
-#### 4.5 M2L
+### 4.5 M2L
 
 source node 中心 $c_s$、target node 中心 $c_t$ に対して
 $R = c_t - c_s$ とします。
@@ -259,9 +265,10 @@ $$
 で更新します。
 
 ここで $D^\gamma$ は multi-index 微分です。
-現行実装は $D^{\alpha+\beta} G_\epsilon(R)$ を `m2l_deriv(:, pair)` として pair ごとに前計算します。
+現行実装では、$D^{\alpha+\beta} G_\epsilon(R)$をpairごとに前計算し、
+`m2l_deriv(:, pair)`へ保存します。
 
-#### 4.6 L2L
+### 4.6 L2L
 
 親中心 $c_{\mathrm{parent}}$ の局所展開を子中心 $c_{\mathrm{child}}$ へ平行移動します。
 $\mathbf{d} = c_{\mathrm{child}} - c_{\mathrm{parent}}$ とすると
@@ -275,7 +282,7 @@ $$
 
 これも `build_plan` 時に shift monomial を前計算します。
 
-#### 4.7 L2P
+### 4.7 L2P
 
 評価点 $x$ が属する target leaf の中心を $c_{\mathrm{leaf}}$ とし、
 $\mathbf{dr} = x - c_{\mathrm{leaf}}$ とすると
@@ -287,11 +294,11 @@ $$
 で電場を評価します。
 ここで $e_k$ は軸 $k$ の単位 multi-index です。
 
-### 5. `build_plan` のアルゴリズム
+## 5. `build_plan` のアルゴリズム
 
 `build_plan` は幾何依存処理だけを行います。
 
-#### 5.1 source tree
+### 5.1 source tree
 
 source 座標の bounding box を再帰的に 8 分割して octree を作ります。
 停止条件は次のどちらかです。
@@ -299,7 +306,7 @@ source 座標の bounding box を再帰的に 8 分割して octree を作りま
 - source 数 `<= leaf_max`
 - bbox が十分に小さく、これ以上分割しても意味がない
 
-#### 5.2 target topology
+### 5.2 target topology
 
 target 側は 2 通りあります。
 
@@ -310,10 +317,9 @@ target 側は 2 通りあります。
 
 `periodic2` では target point を box 内に wrap してから target leaf を探します。
 
-#### 5.3 near/far と M2L pair cache
+### 5.3 near/farとM2L pair cache
 
-各 target leaf について source tree を再帰走査し、
-near node と far node を作ります。
+各target leafについてsource treeを再帰的に走査し、near nodeとfar nodeへ分類します。
 
 well-separated 判定は
 
@@ -330,10 +336,9 @@ $$
 
 `periodic2` では $\mathbf{d}$ に minimum-image 補正を入れます。
 
-その後、dual-tree 再帰で M2L pair cache を作り、
-target node ごとの索引配列も準備します。
+その後、dual-tree再帰によってM2L pair cacheを作り、target nodeごとの索引配列を準備します。
 
-#### 5.4 build 時の前計算
+### 5.4 build時の前計算
 
 `build_plan` の最後で、refresh ごとに変わらない量を前計算します。
 
@@ -349,9 +354,9 @@ target node ごとの索引配列も準備します。
 - `periodic_root_operator`
 - `m2l_deriv`
 
-この前計算により `update_state` は charge-dependent な加算だけに近づきます。
+この前計算により、`update_state`では主に電荷に依存する加算だけを実行します。
 
-#### 5.5 擬似コード
+### 5.5 擬似コード
 
 ```text
 build_plan(src_pos, options):
@@ -366,12 +371,12 @@ build_plan(src_pos, options):
   precompute_m2l_derivatives()
 ```
 
-### 6. `update_state` のアルゴリズム
+## 6. `update_state` のアルゴリズム
 
-`update_state` は legacy 実装の refresh に相当する処理です。
-source 座標は変わらず、`src_q` だけが変わる前提です。
+`update_state`はlegacy実装のrefreshに相当します。source座標は固定され、`src_q`だけが変わることを
+前提とします。
 
-#### 6.1 処理順
+### 6.1 処理順
 
 ```text
 update_state(plan, state, src_q):
@@ -386,21 +391,20 @@ update_state(plan, state, src_q):
   mark state ready
 ```
 
-#### 6.2 OpenMP 並列化
+### 6.2 OpenMP並列化
 
-現行実装では、次の箇所に OpenMP を入れています。
+現行実装では、次の処理をOpenMPで並列化しています。
 
-- `update_state` 全体を 1 つの parallel region で囲み、その内側で `src_q` コピーと active flag 初期化
+- `update_state`全体を1つのparallel regionで囲み、その内側で`src_q`のコピーとactive flagの初期化を行う
 - `P2M`: source leaf ごとのループ
 - `M2M`: 同一 depth の node ループ
 - `M2L`: target node ごとのループ
 - `L2L`: 同一 depth の node ループ
 - `build_plan` 時の translation / M2L 微分前計算
 
-各ループは「1 node 1 thread」になりやすいように書いてあり、
-共有配列への更新は node 単位で独立させています。
+各ループは1 nodeを1 threadが担当しやすい構造とし、共有配列の更新をnode単位で独立させています。
 
-#### 6.3 実装上の最適化
+### 6.3 実装上の最適化
 
 `update_state` では次の無駄を避けています。
 
@@ -408,11 +412,11 @@ update_state(plan, state, src_q):
 - 親子 center 差分のべき乗を毎回作り直さない
 - `P2M` の monomial 基底を source ごとに build 時に前計算する
 - `M2M/L2L` の有効な `(alpha, delta)` 項だけを圧縮して持ち、無効項を走査しない
-- `M2L` では source node の active flag を見て zero-node を pair 単位で早期 skip する
-- `M2L` で target node 列へ細かく何度も書かず、thread-local な `local_acc` にためてから戻す
+- `M2L`ではsource nodeのactive flagを調べ、zero-nodeのpairを早期にskipする
+- `M2L`ではtarget node列を繰り返し更新せず、thread-localな`local_acc`へ蓄積してから書き戻す
 - `P2M` で target leaf ではなく source leaf 専用 index を使う
 
-### 7. `eval_point(s)` のアルゴリズム
+## 7. `eval_point(s)` のアルゴリズム
 
 評価時の処理は次の通りです。
 
@@ -436,35 +440,35 @@ eval_point(r):
   root local already carries periodic root correction when enabled
 ```
 
-#### 7.1 葉の特定
+### 7.1 leafの特定
 
 - `periodic2` では評価点を target box 内へ wrap してから探索する
 - target tree があるときは target tree の葉を使う
 - target tree が無いときは source tree の葉を使う
-- leaf lookup に失敗した場合、あるいは leaf が tree の葉 slot に写像できない場合は direct fallback に入る
+- leaf lookupに失敗した場合、またはleafをtreeのleaf slotへ写像できない場合はDirect fallbackに入る
 
-#### 7.2 近傍 direct
+### 7.2 近傍Direct和
 
-near list に入った source index については direct 和を取ります。
-`periodic2` では `[-N, N] x [-N, N]` の画像シフトを陽に回します。
-fallback でも同じ direct kernel を使いますが、`periodic2` で明示 `m2l_root_oracle` が有効なときは oracle 補正を別途加算します。
+near listに入ったsource indexについてDirect和を計算します。`periodic2`では、
+`[-N, N] x [-N, N]`の画像シフトも陽に加算します。fallbackでも同じDirect kernelを使います。
+ただし、`periodic2`で`m2l_root_oracle`が明示的に有効な場合は、oracle補正を別途加算します。
 
-#### 7.3 box 外 fallback
+### 7.3 box外fallback
 
-dual-target tree を使う場合、評価点が target box の外に出ることがあります。
-そのときは target leaf を持たないので、全 source に対する direct 和へ fallback します。
-明示 `m2l_root_oracle` では build-time Ewald fit の teacher と同じ exact periodic correction を direct fallback へ足します。
+dual-target treeを使う場合、target boxの外にある評価点にはtarget leafがありません。この場合は、
+全sourceのDirect和へfallbackします。`m2l_root_oracle`を明示している場合は、build-time Ewald fitの
+teacherと同じexact periodic correctionをDirect fallbackへ加えます。
 
-#### 7.4 root 補正の位置
+### 7.4 root補正の位置
 
-`m2l_root_oracle` の root 補正は `update_state` 側で `state%local(:, root)` に注入されます。
-したがって通常の leaf 評価では、`eval_point(s)` は root 補正を再計算せず、`state` に載っている local 展開をそのまま使います。
+`m2l_root_oracle`のroot補正は、`update_state`が`state%local(:, root)`へ注入します。
+通常のleaf評価ではroot補正を再計算せず、`state`に保存されたlocal展開をそのまま使います。
 
-### 8. `periodic2` と遠方補正
+## 8. `periodic2` と遠方補正
 
-#### 8.1 `periodic2`
+### 8.1 `periodic2`
 
-`periodic2` は「ちょうど 2 軸だけ周期、残り 1 軸は開放」です。
+`periodic2`では、2軸を周期境界、残りの1軸を開放境界とします。
 
 近傍画像和は
 
@@ -476,21 +480,22 @@ $$
 
 M2L でも同じ画像シフト集合を使い、各 pair の derivative を画像和で前計算します。
 
-#### 8.2 `periodic2` Ewald（Ewald2P）補正
+### 8.2 `periodic2` Ewald（Ewald2P）補正
 
-`bem_coulomb_fmm_periodic_ewald.f90` は、2 周期・1 開放の Coulomb field に対する Ewald 形の補正を実装します。
-ここでいう `exact` は「コードが実際に評価する有限和」を指します。理論上の無限和そのものではなく、`field_periodic_image_layers = N` と `field_periodic_ewald_layers = L` で real-space / reciprocal-space の打切り深さを決める build-time oracle です。
+`bem_coulomb_fmm_periodic_ewald.f90`は、2周期・1開放のCoulomb fieldに対するEwald型の補正を
+実装します。ここでいう`exact`は、コードが実際に評価する有限和を指し、理論上の無限和そのものではありません。
+real-spaceとreciprocal-spaceの打切り深さは、`field_periodic_image_layers = N`と
+`field_periodic_ewald_layers = L`で決まります。この有限和をbuild-time oracleとして使います。
 
-Ewald2Pはruntime particle kernelではなく、`m2l_root_oracle`または`cached_kneq0`を作る
-build-time teacherです。`triangle_p0`のcached経路でもteacherはproxy point chargeへ適用され、
-結果をroot multipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価は引き続き
-解析panel kernel、遠方source表現はtriangle-averaged P2Mです。
+Ewald2Pはruntime particle kernelではなく、`m2l_root_oracle`または`cached_kneq0`を作るための
+build-time teacherです。`triangle_p0`のcached経路でも、teacherはproxy point chargeに適用されます。
+その結果を、root multipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価には解析panel kernel、
+遠方source表現にはtriangle-averaged P2Mを引き続き使います。
 
 $\alpha$はreal-spaceとreciprocal-spaceの収束を配分する数値パラメータで、Debye遮蔽を表しません。
-直感的な分割とruntimeまでの流れは
-[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md#22-ewald2p-referenceとは)を参照してください。
+この分割をruntimeの場評価へ組み込む流れは、periodic2静電場の説明にまとめています。[<sup>1</sup>](PeriodicElectrostatics.md#ewald2p-teacher)
 
-##### 8.2.1 記法
+#### 8.2.1 記法
 
 周期軸を `a_1, a_2`、開放軸を `f` とします。
 周期長、セル面積、画像集合、逆格子集合を次のように置きます。
@@ -513,7 +518,7 @@ $$
 \mathbf k_{mn} = 2\pi\left(\frac{m}{L_1}\mathbf e_{a_1} + \frac{n}{L_2}\mathbf e_{a_2}\right)
 $$
 
-と書けます。ソース位置を \(\mathbf s\)、評価点を \(\mathbf r\) とし、
+と書けます。ソース位置を $\mathbf s$、評価点を $\mathbf r$ とし、
 
 $$
 \mathbf R_{ij} = \mathbf r - \mathbf s - \mathbf L_{ij},\qquad
@@ -521,9 +526,9 @@ R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
-を導入します。以下では \(\alpha =\) `field_periodic_ewald_alpha`、\(\epsilon =\) `softening` とします。
+を導入します。以下では $\alpha =$ `field_periodic_ewald_alpha`、$\epsilon =$ `softening` とします。
 
-##### 8.2.2 実空間項
+#### 8.2.2 実空間項
 
 `add_screened_point_charge` が実装している screened Coulomb field は
 
@@ -560,11 +565,14 @@ $$
 {}- \sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
 $$
 
-です。実装では `r2 <= tiny(1.0d0)` の項はスキップするため、self interaction は入らない扱いです。`add_periodic2_exact_ewald_correction_single_source` に direct fallback の \(\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon\) を足すと、inner image の softened 部分が打ち消され、outer shell 側は screened 形に置き換わります。
+です。実装では`r2 <= tiny(1.0d0)`の項をskipするため、self interactionは含まれません。
+`add_periodic2_exact_ewald_correction_single_source`にDirect fallbackの
+$\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$を加えると、inner imageのsoftened部分が打ち消され、
+outer shell側がscreened形式に置き換わります。
 
-##### 8.2.3 逆空間項
+#### 8.2.3 逆空間項
 
-`add_exact_periodic2_reciprocal_space_correction` が使う逆空間項は、\((m,n)\neq(0,0)\) に対して
+`add_exact_periodic2_reciprocal_space_correction` が使う逆空間項は、$(m,n)\neq(0,0)$ に対して
 
 $$
 \theta_{mn} = \mathbf k_{mn}\cdot(\mathbf r-\mathbf s),\qquad
@@ -592,7 +600,7 @@ $$
 です。コードでは `term_p`, `term_m`, `pair_sum` に対応します。
 この式は、逆格子の `k=0` を除いた高周波成分に対応します。
 
-##### 8.2.4 `k=0` 項
+#### 8.2.4 `k=0`項
 
 `add_exact_periodic2_k0_correction` が実装しているゼロモード補正は
 
@@ -603,7 +611,7 @@ $$
 
 です。single-source の oracle では `k=0` の電場寄与としてこの形を保持します。
 
-##### 8.2.5 実装される補正
+#### 8.2.5 実装される補正
 
 以上をまとめると、`add_periodic2_exact_ewald_correction_single_source` が 1 粒子分に加える補正は
 
@@ -616,9 +624,10 @@ $$
 
 です。`add_periodic2_exact_ewald_correction_all_sources` はまずこれを全ソースに対して総和します。
 
-##### 8.2.6 `charged_walls` total-charge 補正
+#### 8.2.6 `charged_walls` total-charge補正
 
-非中性 slab の `charged_walls` closure に合わせて、`add_periodic2_exact_ewald_correction_all_sources` は全ソース和のあとに total-charge 補正
+非中性slabの`charged_walls` closureでは、`add_periodic2_exact_ewald_correction_all_sources`が
+全sourceの和を計算した後に、次のtotal-charge補正を加えます。
 
 $$
 \mathbf E_{\mathrm{walls}}(z) =
@@ -629,8 +638,10 @@ $$
 \end{cases}
 $$
 
-を加えます。ここで `A = L_1 L_2` は周期セル面積、`Q_tot = \sum_j q_j`、`z_low/high` は `target_box_min/max` の非周期軸境界です。
-この項は 2 枚の補償壁の場に対応し、slab 内では厳密に打ち消し合うため、target box 内で build する root oracle や通常の粒子前進には影響しません。影響するのは target box 外へ落ちた direct fallback 評価だけです。
+ここで`A = L_1 L_2`は周期cellの面積、`Q_tot = \sum_j q_j`、`z_low/high`は
+`target_box_min/max`の非周期軸境界です。この項は2枚の補償壁が作る場に対応し、slab内では厳密に
+打ち消し合います。そのため、target box内でbuildするroot oracleと通常の粒子前進には影響しません。
+適用されるのは、target box外のDirect fallback評価だけです。
 
 `field_periodic_ewald_alpha` が `<= 0` の場合、`resolve_periodic2_ewald_alpha` は
 
@@ -652,30 +663,38 @@ $$
 \mathbf E_{\mathrm{walls}}
 $$
 
-です。`m2l_root_oracle` の build-time fit では check points が target box 内にあるため `\mathbf E_{\mathrm{walls}} = 0` となり、teacher には single-source の `\mathbf E_{\mathrm{corr}}` だけが使われます。`periodic_root_operator` 側では定数 potential mode を使わないため、monopole column は 0 に固定されます。
+です。`m2l_root_oracle`のbuild-time fitでは、check pointsがtarget box内にあるため
+`\mathbf E_{\mathrm{walls}} = 0`となります。したがってteacherに使うのはsingle-sourceの
+`\mathbf E_{\mathrm{corr}}`だけです。`periodic_root_operator`は定数potential modeを使わないため、
+monopole columnを0に固定します。
 
-##### 8.2.7 `m2l_root_oracle`
+#### 8.2.7 `m2l_root_oracle`
 
-`m2l_root_oracle` は、この Ewald2P 補正を teacher にして root multipole から root local への演算子を proxy/check 点で fit する明示 opt-in の高コスト診断モードです。無限周期の通常運用には `cached_kneq0` を使い、有限画像との互換性のため既定値だけは `none` に維持します。
+`m2l_root_oracle`は、Ewald2P補正をteacherとして、root multipoleからroot localへのoperatorを
+proxy/check点でfitする高コストな診断modeです。明示的にopt-inした場合だけ有効になります。
+無限周期の通常運用には`cached_kneq0`を使い、有限画像との互換性のため既定値は`none`に維持します。
 
-- `periodic_image_layers = N`: runtime で explicit に残す近傍画像殻
-- `periodic_ewald_layers = L`: build-time oracle の real-space outer shell `N < max(|i|,|j|) <= N+L` と reciprocal cutoff `|m|, |n| <= L`
-- `periodic_ewald_alpha = alpha`: Ewald 分解パラメータ。`<= 0` なら自動決定
-- build では exact periodic Ewald correction を check points で評価し、field residual を least-squares fit して root local 演算子を作る
-- runtime では `local(:, root) += T_root_oracle * multipole(:, root)` を加えるだけなので eval path に Ewald 本体は入らない
-- tree 外 fallback では direct sum に exact periodic correction を直接足して、target box 外でも periodic residual を落とさない
-- fit は potential ではなく field を使い、local の定数 potential mode は 0 に固定する
+- `periodic_image_layers = N`: runtimeで陽に加算する近傍画像殻
+- `periodic_ewald_layers = L`: build-time oracleのreal-space outer shell
+  `N < max(|i|,|j|) <= N+L`とreciprocal cutoff `|m|, |n| <= L`
+- `periodic_ewald_alpha = alpha`: Ewald分解パラメータ。`<= 0`なら自動決定
+- build時はexact periodic Ewald correctionをcheck pointsで評価し、field residualをleast-squares fitして
+  root local operatorを作る
+- runtimeでは`local(:, root) += T_root_oracle * multipole(:, root)`を加えるだけで、eval pathでEwald和を
+  計算しない
+- tree外fallbackでは、Direct和へexact periodic correctionを加え、target box外でもperiodic residualを含める
+- fitにはpotentialではなくfieldを使い、localの定数potential modeは0に固定する
 
-### 9. 計算量の見方
+## 9. 計算量の見方
 
-固定次数 $p$、bounded interaction list を仮定すると、実用上は次のように見てよいです。
+展開次数$p$を固定し、interaction listの長さに上限があると仮定すると、計算量の目安は次のとおりです。
 
 - `build_plan`: $O(n \log n)$ に近い
 - `update_state`: $O(n)$ に近い
 - `eval_point`: $O(\log n + n_{\mathrm{near}} \, n_{\mathrm{img}}^2)$ に近い
 - `eval_points`: 上記の点評価を target ごとに並列実行
 
-厳密な定数因子は次に強く依存します。
+実際の定数係数は、次の設定に強く依存します。
 
 - `order`
 - `theta`
@@ -684,16 +703,17 @@ $$
 - `periodic_ewald_layers`
 - target tree の有無
 
-### 10. 現行実装の制約
+## 10. 現行実装の制約
 
-この FMM コアは汎用 kernel FMM ではありません。
+このFMMコアは、次の条件に特化した実装です。
 
 - kernel は Coulomb 固定
 - simulator adapter の既定次数は `order = 4`
 - source 座標は `build_plan` 後に不変とみなす
 - 対応境界は `free` と `periodic2`
 - `periodic2` は正確に 2 周期軸が必要
-- far correction は `none`（既定）, `auto`, `m2l_root_oracle`, `cached_kneq0`（`auto` は `none`、root oracle は診断、cached backend は production 非零モード）
+- far correctionは`none`（既定）、`auto`、`m2l_root_oracle`、`cached_kneq0`。
+  `auto`は`none`として動作し、root oracleは診断、cached backendはproductionの非零modeに使う
 - `eval_point(s)` の返り値には `k_coulomb` を含めない
 
 ### 10.1 cached periodic nonzero operator
@@ -701,20 +721,20 @@ $$
 #### 何を高速化するoperatorか
 
 `periodic2`では、primary cellの外に同じ電荷分布がx/y方向へ無限に続きます。
-通常のFMMは近傍画像`[-N,N]^2`までを高速に評価できますが、その外側にある無限個の画像が作る
-滑らかな遠方場は残ります。全particle評価でEwald和を実行する代わりに、`cached_kneq0`は
-この**遠方の差分だけ**をFMM local展開へ変換する線形operatorとして事前計算します。
+通常のFMMは近傍画像`[-N,N]^2`を高速に評価できますが、その外側にある無限個の画像が作る
+滑らかな遠方場は含みません。`cached_kneq0`は、この**遠方の差分だけ**をFMM local展開へ変換する
+線形operatorとして事前計算します。これにより、particleを評価するたびにEwald和を計算する必要がなくなります。
 
 | 入力 | cached operator | 出力 |
 | --- | --- | --- |
-| 現在電荷から作ったroot multipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
+| 現在の電荷から作ったroot multipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
 
-cacheが保存するのは電場値、粒子位置、電荷履歴ではありません。固定geometryに対する
-「source multipoleを遠方local展開へ写す行列」なので、batchごとに電荷が変わっても再利用できます。
+cacheが保存するのは、固定geometryに対してsource multipoleを遠方local展開へ写す行列です。
+電場値、粒子位置、電荷履歴は保存しません。このため、batchごとに電荷が変わっても同じ行列を再利用できます。
 
 #### 1回のfield評価で何を足すか
 
-処理を順番に書くと次のようになります。
+1回のfield評価では、次の順に各成分を加算します。
 
 | 順序 | 成分 | 目的 |
 | ---: | --- | --- |
@@ -723,9 +743,9 @@ cacheが保存するのは電場値、粒子位置、電荷履歴ではありま
 | 3 | cached teacherに含まれた対称`k=0`を減算 | 非零モードbackendを`k!=0`だけにする |
 | 4 | snapshotが物理的`k=0`を加算 | `symmetric_vacuum`、`e_bottom_zero`、outer plasmaを反映 |
 
-したがって、`cached_kneq0`単体は全電場ではありません。3までが非零モードbackendの責任、
-4は`electrostatic_snapshot`の責任です。`exclude_k0`は平均場を捨てる設定ではなく、
-平均場を別のboundary providerが1回だけ加えるための重複防止規則です。
+`cached_kneq0`単体では全電場を構成しません。手順3までを非零mode backendが担当し、手順4を
+`electrostatic_snapshot`が担当します。`exclude_k0`は平均場を除外する設定ではありません。
+別のboundary providerが平均場を1回だけ加えるための重複防止規則です。
 
 #### 数式との対応
 
@@ -744,7 +764,8 @@ $$
 | $R_\mathrm{Ewald}^{\mathrm{full}}$ | cache cold build | full-periodic Ewald解と有限画像和の滑らかな差 |
 | $K_0^\mathrm{sym}$ | charge state更新時 | cached full-periodic kernelから対称$k=0$を除く |
 
-$K_0^\mathrm{sym}$ はsource高さの区分多項式累積stateを二分探索し、1評価あたり $O(\log n)$ です。
+$K_0^\mathrm{sym}$は、source高さから作った区分多項式の累積stateを二分探索して評価します。
+1評価あたりの計算量は$O(\log n)$です。
 最終的なsurface fieldは
 
 $$
@@ -752,10 +773,10 @@ K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
 $$
 
 です。$K_0^\mathrm{physical}$のtriangle-height積分、lower boundary closure、outer-plasma接続は
-[periodic2 zero modeと外部プラズマ](PeriodicZeroModeOuterPlasma.md)で説明します。
+[periodic2静電場](PeriodicElectrostatics.md)と[外部プラズマモデル](OuterPlasmaModels.md)で説明します。
 
-field fitとpotentialの定数modeは単位が異なるため、同じleast-squares列へ混ぜません。
-potential gaugeは平均residualから別に固定します。
+field fitとpotentialの定数modeは単位が異なるため、同じleast-squaresの列には含めません。
+potential gaugeは、平均residualから別途固定します。
 
 #### cache lifecycle
 
@@ -767,7 +788,8 @@ potential gaugeは平均residualから別に固定します。
 | publish | 同じdirectoryの`.tmp`をcloseしてからatomic renameする |
 | checkpoint | operator本体は保存しない。再生成可能なcacheとして扱う |
 
-この手順により、別jobは同じlock fileで直列化され、readerは部分書込みをcache hitとして受理しません。
+同時に起動したjobは、同じlock fileによってcache生成を直列化します。readerは、書込み途中のfileを
+cache hitとして受理しません。
 
 #### MPI/OpenMPによるcold build
 
@@ -789,8 +811,8 @@ warm runのfield evaluationとcharge refreshには、all-source Ewald和もopera
 | cache hit | 実行しない | 実行しない | 読み込んだoperatorを使用 |
 | batch charge refresh | 実行しない | 実行しない | 新しいmultipoleへ同じoperatorを適用 |
 
-「cold buildが重い」のは無限周期場を毎batch計算しているからではなく、再利用可能な行列を
-初回だけ生成しているためです。warm runのhot pathには全source Ewald和は入りません。
+cold buildでは、再利用可能なoperator行列を初回だけ生成します。batchごとに無限周期場を再構築するわけでは
+ありません。warm runのhot pathでは、全sourceのEwald和を計算しません。
 
 #### SysA測定値
 
@@ -806,8 +828,8 @@ warm runのfield evaluationとcharge refreshには、all-source Ewald和もopera
 | 4 ranks x 112 threads | 31.5秒 | cache prime + batch 1 |
 | 6 ranks x 112 threads | 30.3秒 | cache prime + batch 1 |
 
-全並列構成のchecksumは一致し、旧operatorとの差はFrobenius相対値 `1.73e-15` でした。
-これは上記fixtureの測定結果であり、任意のgeometryに対する時間保証ではありません。
+全並列構成でchecksumが一致し、旧operatorとの差はFrobenius相対値`1.73e-15`でした。
+実測時間は上記fixtureに対する値であり、geometryによって変わります。
 
 #### 運用指針
 
@@ -819,7 +841,7 @@ warm runのfield evaluationとcharge refreshには、all-source Ewald和もopera
 | 1 core | operator公開後の粒子batchでメモリ不足となった測定例があり、運用対象外 |
 | warm cache | fingerprintとchecksumを確認し、そのまま再利用 |
 
-### 11. 実装との対応
+## 11. 実装との対応
 
 主な対応箇所:
 
@@ -858,11 +880,11 @@ warm runのfield evaluationとcharge refreshには、all-source Ewald和もopera
   `src/physics/field_solver/bem_field_solver_tree.f90`,
   `src/physics/field_solver/bem_field_solver_eval.f90`
 
-設計上の責務分担は次の通りです。
+コアとBEACH adapterの責務は次のように分かれます。
 
 - コア:
   幾何前処理、展開係数更新、近傍 direct、点評価
 - BEACH adapter:
-  `mesh_type` から `src_pos` を作る、`q_elem` を `src_q` へ流す、`k_coulomb` を最後に掛ける
+  `mesh_type`から`src_pos`を作り、`q_elem`を`src_q`へ渡し、最後に`k_coulomb`を掛ける
 
 ---

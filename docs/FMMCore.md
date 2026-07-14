@@ -493,8 +493,7 @@ build-time teacherです。`triangle_p0`のcached経路でも、teacherはproxy 
 遠方source表現にはtriangle-averaged P2Mを引き続き使います。
 
 $\alpha$はreal-spaceとreciprocal-spaceの収束を配分する数値パラメータで、Debye遮蔽を表しません。
-直感的な分割とruntimeまでの流れは
-[periodic2静電場のEwald2P teacher](PeriodicElectrostatics.md#ewald2p-teacher)を参照してください。
+この分割をruntimeの場評価へ組み込む流れは、periodic2静電場の説明にまとめています。[<sup>1</sup>](PeriodicElectrostatics.md#ewald2p-teacher)
 
 #### 8.2.1 記法
 

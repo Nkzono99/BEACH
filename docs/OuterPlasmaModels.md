@@ -19,8 +19,8 @@ reservoir流入と外向き粒子に与えられる情報がそれぞれ異な�
 | `kinetic_1d` | 無限遠VDFとPoisson方程式の1D profile | outer領域で使用 |
 | `unified_linear_response` | rough surfaceを含む線形1D response | localからfarまで合成 |
 
-`floating_no_photo`と`zhao_*`が返す量はsource VDFの補正です。branch、cutoff、適用範囲は
-[シース注入closure](SheathInjectionClosures.html)を参照してください。
+`floating_no_photo`と`zhao_*`が返す量はsource VDFの補正です。[シース注入closure](SheathInjectionClosures.html)で、
+branch、cutoff、適用範囲を説明します。
 
 ## split modelはinterfaceでlocal場と1D profileを接続する
 
@@ -32,7 +32,7 @@ reservoir流入と外向き粒子に与えられる情報がそれぞれ異な�
 満たした解だけを受理します。失敗時に別モデルへsilent fallbackしません。
 
 Poisson問題、VDF density closure、Newton solve、受理条件は
-[kinetic 1D外部プラズマ](KineticOuterPlasma.html)を参照してください。
+[kinetic 1D外部プラズマ](KineticOuterPlasma.html)にまとめています。
 
 ## unified modelは表面から遠方まで一つの場を解く
 
@@ -41,7 +41,7 @@ Poisson問題、VDF density closure、Newton solve、受理条件は
 線形検証に使います。species VDF、Bohm条件、浮遊電流balanceまで解くのは`kinetic_1d`です。
 
 accessible fraction、zero-mode Poisson solve、nonzero-modeのreflection/transmission、線形性gateは
-[unified linear response](UnifiedLinearResponse.html)を参照してください。
+[unified linear response](UnifiedLinearResponse.html)で説明します。
 
 ## 同じouter stateでescapeとreturnを決める
 
@@ -69,8 +69,8 @@ interfaceでのenergy判定、linear/kinetic profileのflight time、3D軌道、
 ## 選んだモデルの受理条件を確認する
 
 profile statusだけでなく、Poisson residual、境界条件、電荷積分、current balance、grid refinement、
-frozen-field ratioを確認します。物理的な適用範囲はADR 0001/0002と
-[計算結果の妥当性確認](ValidationGuide.html)を参照してください。
+frozen-field ratioを確認します。物理的な適用範囲はADR 0001/0002に、数値的な確認手順は
+[計算結果の妥当性確認](ValidationGuide.html)にまとめています。
 
 粒子の流入側は[reservoir注入](ReservoirInjection.html)、光電子sourceとの関係は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)で説明します。
