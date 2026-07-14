@@ -27,7 +27,7 @@ Pass `beach.toml` directly to the Fortran executable. The Fortran parser normali
 | --- | --- | --- |
 | Minimal plane-mesh run | `[mesh]`, `[[mesh.templates]]` | First smoke test |
 | Choose particle injection | `[[particles.species]]` | Switch inflow, initial particles, or photoemission |
-| Two-periodic-axis boundary | `[sim]` | Periodic cell simulations |
+| Two-periodic-axis boundary (finite image sum) | `[sim]` | Include a selected range of periodic images |
 | Infinite periodic + external kinetic sheath | `[sim]`, `[periodic2]`, `[outer_plasma]`, `[coupling]` | Production lunar-regolith setup |
 | Add UV photoelectrons to the outer sheath | `[outer_plasma]`, `[[particles.species]]` | Consistent emission, return, and outer space charge |
 | OBJ mesh | `[mesh]` | External geometry |
@@ -80,11 +80,10 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 `target_macro_particles_per_batch` fixes the computational particle count per batch and solves the particle weight from the physical inflow.
 Use `w_particle` when you want to specify the weight directly.
 
-## Two-Periodic-Axis Boundary
+## Use a Finite Image Sum on Two Periodic Axes
 
-`periodic2` treats exactly two axes as periodic field boundaries. The production infinite-periodic operator uses
-`field_solver = "fmm"` with `cached_kneq0`. Small correctness fixtures may instead use
-`field_solver = "direct"` with `panel_spectral_reference`.
+`periodic2` treats exactly two axes as periodic field boundaries. This recipe sums only the primary cell and the periodic images
+selected by `field_periodic_image_layers`.
 
 ```toml
 [sim]
@@ -102,13 +101,7 @@ bc_z_high = "open"
 field_solver = "fmm"
 field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
-field_periodic_far_correction = "cached_kneq0"
-field_periodic_cache_dir = ".beach_cache/periodic2"
-
-[periodic2]
-nonzero_mode_backend = "cached_kneq0"
-zero_mode_policy = "exclude_k0"
-lower_boundary_model = "symmetric_vacuum"
+field_periodic_far_correction = "none"
 ```
 
 Requirements:
@@ -116,17 +109,17 @@ Requirements:
 - `sim.use_box = true`
 - exactly two periodic axes
 - each periodic axis has `box_max - box_min > 0`
-- `sim.field_solver = "fmm"` for the production cache
+- `sim.field_solver = "fmm"`
+- `field_periodic_image_layers >= 0`
 
-On a cache miss BEACH generates the infinite-periodic operator, then validates and reuses its fingerprint.
-Reuse the cache directory for identical physics and mesh settings. Except when deliberately reproducing the legacy
-finite-image model, production runs should not set `field_periodic_far_correction = "none"`.
+With `field_periodic_image_layers = 1`, the field source contains the primary cell and its surrounding images, for a total of
+$3\times3$ cells. `field_periodic_far_correction = "none"` does not replace more distant periodic images with an Ewald sum or a
+cached operator. Increase the image layer until target quantities such as field, particle flux, and charging distribution stop
+changing.
 
-`symmetric_vacuum` needs no additional parameter and splits the area-mean field of a
-non-neutral cell equally between the two open half-spaces. For total surface charge `Q`
-and periodic area `A`, the far fields are `E_z = +/- Q/(2 epsilon0 A)`. Use
-`e_bottom_zero` only to reproduce earlier runs; it fixes the lower field to zero and gives
-`E_z = Q/(epsilon0 A)` above the surface.
+This is not the infinite-periodic solution obtained by summing the complete lattice. See
+[Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for image-layer meaning, scalar potential barriers,
+and convergence checks. Use the next recipe when the case needs an infinite-periodic operator and an external sheath.
 
 ## Infinite Periodic + External Kinetic Sheath
 

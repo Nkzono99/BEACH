@@ -27,7 +27,7 @@ beachx inspect outputs/latest
 | --- | --- | --- |
 | 平面メッシュで最小実行 | `[mesh]`, `[[mesh.templates]]` | まず動作確認する |
 | 粒子注入を選ぶ | `[[particles.species]]` | 流入、初期粒子、光電子放出を切り替える |
-| 2軸周期境界 | `[sim]` | 周期セルを使う |
+| 2軸周期境界（有限画像和） | `[sim]` | 指定した範囲の周期画像を使う |
 | 無限周期 + 外部kinetic sheath | `[sim]`, `[periodic2]`, `[outer_plasma]`, `[coupling]` | 月面レゴリスのproduction設定 |
 | UV光電子を外部sheathへ含める | `[outer_plasma]`, `[[particles.species]]` | 放出・帰還とouter空間電荷を整合させる |
 | OBJ メッシュ | `[mesh]` | 外部形状を使う |
@@ -80,11 +80,10 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 `target_macro_particles_per_batch` は 1 batch あたりの計算粒子数を固定し、粒子重みを流入量から解きます。
 物理粒子数を重みで直接指定したい場合は `w_particle` を使います。
 
-## 2軸周期境界
+## 2軸周期境界を有限画像和で使う
 
-`periodic2`は、3軸のうち2軸を周期軸とする場の境界条件です。productionの無限周期operatorには、
-`field_solver = "fmm"`と`cached_kneq0`を使います。小規模なcorrectness fixtureに限り、
-`field_solver = "direct"`と`panel_spectral_reference`も選択できます。
+`periodic2`は、3軸のうち2軸を周期軸とする場の境界条件です。このレシピでは、primary cellと
+`field_periodic_image_layers`で指定した範囲の周期画像だけを足す有限画像和を使います。
 
 ```toml
 [sim]
@@ -102,13 +101,7 @@ bc_z_high = "open"
 field_solver = "fmm"
 field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
-field_periodic_far_correction = "cached_kneq0"
-field_periodic_cache_dir = ".beach_cache/periodic2"
-
-[periodic2]
-nonzero_mode_backend = "cached_kneq0"
-zero_mode_policy = "exclude_k0"
-lower_boundary_model = "symmetric_vacuum"
+field_periodic_far_correction = "none"
 ```
 
 要件:
@@ -116,16 +109,16 @@ lower_boundary_model = "symmetric_vacuum"
 - `sim.use_box = true`
 - ちょうど 2 軸が periodic
 - 各周期軸の `box_max - box_min > 0`
-- production cacheでは `sim.field_solver = "fmm"`
+- `sim.field_solver = "fmm"`
+- `field_periodic_image_layers >= 0`
 
-cache miss時に無限周期operatorを生成し、次回以降はfingerprintを検証して再利用します。
-物理設定とmesh設定が同じcaseでは、cache directoryを共用できます。productionで
-`field_periodic_far_correction = "none"`を使うのは、有限個の周期像だけを使う旧設定を再現する場合に限ります。
+`field_periodic_image_layers = 1`なら、primary cellを含む$3\times3$ cellsをfield sourceとして足します。
+`field_periodic_far_correction = "none"`なので、その外側の周期画像をEwald和やcached operatorで補いません。
+画像層を増やし、電場、粒子flux、帯電分布などの目的量が変わらなくなることを確認してください。
 
-`symmetric_vacuum` は追加パラメータを必要とせず、非中性セルの面平均電場を上下へ等分します。
-総表面電荷を `Q`、周期面積を `A` とすると、上下遠方場はそれぞれ
-`E_z = +/- Q/(2 epsilon0 A)` です。旧計算の再現には `e_bottom_zero` を指定できますが、これは
-下側電場を0に固定し、上側場を `Q/(epsilon0 A)` とする強い遮蔽近似です。
+これは無限個の周期画像を足した無限周期解ではありません。画像層の意味、scalar potential barrierとの組合せ、
+収束確認は[periodic2有限画像構成](FinitePeriodicConfiguration.html)にまとめています。無限周期operatorと外部sheathを
+使う場合は、次のレシピを選びます。
 
 ## 無限周期 + 外部kinetic sheath
 
