@@ -125,7 +125,7 @@ source density, cutoff, and drift.
 
 Position is sampled uniformly in the aperture and moved $10^{-12}$ m inward along the face normal. If
 `position_jitter_dt>0`, each particle receives a uniform virtual interval
-$\tau\in[0,\texttt{position_jitter_dt})$ and $\mathbf x\leftarrow\mathbf x+\mathbf v\tau$. Axes periodic on both faces are
+$\tau\in[0,\texttt{position\_jitter\_dt})$ and $\mathbf x\leftarrow\mathbf x+\mathbf v\tau$. Axes periodic on both faces are
 then wrapped into the primary box; other axes are clamped inside the box.
 
 The jitter spreads the artificial phase in which all particles in a batch start exactly on one face. It changes only creation

@@ -54,7 +54,7 @@ $h(x,y)$は`interface_sample_n`四方のcell-centered vertical rayでsampleし�
 
 $$
 \max_z|\Delta f_\mathrm{access}(z)|
-\le\texttt{accessible_fraction_tolerance}
+\le\texttt{accessible\_fraction\_tolerance}
 $$
 
 を満たさなければ停止します。overhang、closed cavity、同じvertical rayに複数のplasma-facing交点があるgeometry、

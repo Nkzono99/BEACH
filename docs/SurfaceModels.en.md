@@ -165,7 +165,7 @@ $\sum_s|Q_{s,\mathrm{discard}}|$. A small residual does not validate a run with 
 With `history_stride>0`, `charge_history.csv` is written when
 
 $$
-(\texttt{stats.batches}-1)\bmod\texttt{history_stride}=0,
+(\texttt{stats.batches}-1)\bmod\texttt{history\_stride}=0,
 $$
 
 so batch 1 is always included. With `write_potential_history=true`, the current `q_elem` refreshes the field snapshot at the same

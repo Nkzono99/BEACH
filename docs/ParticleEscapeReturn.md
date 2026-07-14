@@ -168,7 +168,7 @@ outer flight中に場を固定できるかを
 
 $$
 \epsilon_\mathrm{ad}
-=\frac{\tau_\mathrm{outer}}{\texttt{field_evolution_timescale}}
+=\frac{\tau_\mathrm{outer}}{\texttt{field\_evolution\_timescale}}
 $$
 
 で評価し、`max_frozen_field_ratio`以下を要求します。分母の`field_evolution_timescale`には、表面電位やouter profileが

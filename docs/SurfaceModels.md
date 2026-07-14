@@ -164,7 +164,7 @@ $\sum_s|Q_{s,\mathrm{discard}}|$を確認します。residualが小さくても�
 `history_stride>0`なら
 
 $$
-(\texttt{stats.batches}-1)\bmod\texttt{history_stride}=0
+(\texttt{stats.batches}-1)\bmod\texttt{history\_stride}=0
 $$
 
 のbatchで`charge_history.csv`を書きます。batch 1は常に対象です。`write_potential_history=true`なら同じstrideで現在の

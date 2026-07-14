@@ -83,15 +83,15 @@ $\mathbf{h}=\mathbf{x}_0+t(\mathbf{x}_1-\mathbf{x}_0)$です。
 
 periodic2でも、meshが保持するのはprimary cellのbase要素だけです。軌道線分のAABBとcanonical mesh AABBを
 重ねるために必要なimage shiftを、2つの周期軸について列挙します。周期長を$L$、対象軸の軌道線分の範囲を
-$[p_\min,p_\max]$、mesh範囲を$[m_\min,m_\max]$とすると、
+$[p_{\min},p_{\max}]$、mesh範囲を$[m_{\min},m_{\max}]$とすると、
 
 $$
-n_\min=\left\lceil
-\frac{p_\min-m_\max-\mathrm{tol}}{L}
+n_{\min}=\left\lceil
+\frac{p_{\min}-m_{\max}-\mathrm{tol}}{L}
 \right\rceil,
 \qquad
-n_\max=\left\lfloor
-\frac{p_\max-m_\min+\mathrm{tol}}{L}
+n_{\max}=\left\lfloor
+\frac{p_{\max}-m_{\min}+\mathrm{tol}}{L}
 \right\rfloor.
 $$
 
