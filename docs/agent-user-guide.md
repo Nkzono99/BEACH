@@ -17,7 +17,7 @@ BEACH (BEM + Accumulated CHarge) は、境界要素法と粒子追跡を組み�
 
 - **Fortran コア**: 粒子力学・電場ソルバー・衝突判定・電荷堆積
 - **Python レイヤー**: 設定管理・後処理・可視化
-- **バージョン**: 1.5.0
+- **バージョン**: 1.6.0
 
 ---
 
@@ -138,7 +138,7 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 | パラメータ | 型 | デフォルト | 選択肢 | 説明 |
 |------------|------|-----------|--------|------|
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | 電場評価手法 |
-| `field_bc_mode` | string | "free" | free, periodic2 | 境界条件 (periodic2 は fmm 必須) |
+| `field_bc_mode` | string | "free" | free, periodic2 | 通常のperiodic2はFMM。Direct split referenceだけ例外 |
 | `field_periodic_image_layers` | int | 1 | >= 0 | periodic2 のイメージシェル層数 |
 | `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle, cached_kneq0 | `cached_kneq0` が production 無限周期非零モード |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald 分割パラメータ (0=自動) |
@@ -301,6 +301,7 @@ template入力などを使ってmesh_idを分けてください。
 | `mesh_triangles.csv` | CSV: `elem_idx, v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z, charge_C, mesh_id` | 三角形頂点・電荷・mesh_id |
 | `mesh_sources.csv` | CSV: `mesh_id, source_kind, template_kind, surface_model, epsilon_r, elem_count` | メッシュソースメタデータ |
 | `rng_state.txt` | テキスト | 乱数状態 (リジューム用) |
+| `charge_ledger.csv` | CSV | 粒子種別の電荷収支と再開用累積値 |
 
 ### オプション出力ファイル
 
@@ -310,12 +311,16 @@ template入力などを使ってmesh_idを分けてください。
 | `potential_history.csv` | `write_potential_history = true` かつ `history_stride > 0` | CSV: `batch, elem_idx, potential_V` |
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | reservoir_face 使用時 | CSV: 注入残差状態 |
+| `outer_plasma_profile.csv` | readyな`kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile、条件付きcheckpoint |
+| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"` | CSV: 前batch・累積histogram、条件付きcheckpoint |
 | `performance_profile.csv` | `BEACH_PROFILE=1` 環境変数設定時 | CSV: 各領域の計測時間 |
 
 ### MPI 実行時の追加ファイル
 
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+- `macro_residuals.csv` はrank別にせず、rootがglobal stateを1個だけ書く
+
+完全な条件と再開要件は[出力ガイド](OutputGuide.html#再開実行の出力)を正本とします。
 
 ---
 
@@ -450,7 +455,7 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 ## 座標・配置の補助パラメータ
 
 `box_origin` / `box_size`、面内割合、templateのbox基準配置、group scaleは通常の設定parameterです。
-計算先、併用エラー、明示寸法を上書きする条件は[入力パラメータリファレンス](Parameters.html#座標配置の補助パラメータ)を参照してください。
+[入力パラメータの座標・配置規則](Parameters.html#座標配置の補助パラメータ)に、計算先、併用エラー、明示寸法を上書きする条件をまとめています。
 
 ---
 
@@ -534,11 +539,13 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 |------|---------|
 | `reservoir_face` | `use_box=true`, `batch_duration>0`, `inject_face` 指定 |
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
-| `periodic2` | `field_solver=fmm`, ちょうど 2 軸が periodic, `use_box=true` |
+| `periodic2` | 通常は`field_solver=fmm`。Direct split referenceだけ例外。ちょうど2軸がperiodic、`use_box=true` |
 | シースモデル | `reservoir_potential_model = "none"` と互換 |
 | リジューム | `write_files=true`, checkpoint ファイル存在 (`restart_from` 指定時はそのディレクトリ), MPI サイズ一致 |
 | 性能プロファイル | 環境変数 `BEACH_PROFILE=1` |
 | MPI 実行 | `-DUSE_MPI` でコンパイル, MPI コンパイララッパー使用 |
+
+solver、kernel、境界条件の正本は[場の評価](FieldSolvers.html#solverと場境界の互換表)です。
 
 ---
 

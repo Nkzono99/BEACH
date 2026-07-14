@@ -69,6 +69,7 @@ export default defineConfig({
         },
       },
       customCss: ['./src/styles/custom.css'],
+      lastUpdated: true,
       components: {
         Head: './src/components/Head.astro',
       },

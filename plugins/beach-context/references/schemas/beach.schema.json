@@ -431,7 +431,7 @@
             "periodic2"
           ],
           "default": "free",
-          "description": "Field boundary condition mode. periodic2 requires field_solver=fmm."
+          "description": "Field boundary condition mode. periodic2 normally requires field_solver=fmm; the direct triangle_p0 panel_spectral_reference split model is the validation-only exception."
         },
         "field_periodic_image_layers": {
           "type": "integer",

@@ -16,7 +16,7 @@ BEACH (BEM + Accumulated CHarge) is a hybrid boundary-element-method plus partic
 
 - **Fortran core**: particle dynamics, electric-field solver, collision detection, charge deposition
 - **Python layer**: configuration management, post-processing, visualization
-- **Version**: 1.5.0
+- **Version**: 1.6.0
 
 ---
 
@@ -133,7 +133,7 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 | Parameter | Type | Default | Choices | Description |
 |------------|------|-----------|--------|------|
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | Electric-field evaluation method |
-| `field_bc_mode` | string | "free" | free, periodic2 | Boundary condition; periodic2 requires fmm |
+| `field_bc_mode` | string | "free" | free, periodic2 | Normal periodic2 uses FMM; the Direct split reference is the exception |
 | `field_periodic_image_layers` | int | 1 | >= 0 | Number of periodic2 image-shell layers |
 | `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle, cached_kneq0 | `cached_kneq0` is the production infinite-periodic nonzero mode |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald splitting parameter, 0 means automatic |
@@ -290,6 +290,7 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 | `mesh_triangles.csv` | CSV: `elem_idx, v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z, charge_C, mesh_id` | Triangle vertices, charge, and mesh_id |
 | `mesh_sources.csv` | CSV: `mesh_id, source_kind, template_kind, surface_model, epsilon_r, elem_count` | Mesh source metadata |
 | `rng_state.txt` | Text | Random state, for resume |
+| `charge_ledger.csv` | CSV | Per-species charge balance and restartable cumulative state |
 
 ### Optional Output Files
 
@@ -299,12 +300,16 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 | `potential_history.csv` | `write_potential_history = true` and `history_stride > 0` | CSV: `batch, elem_idx, potential_V` |
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | When reservoir_face is used | CSV: injection residual state |
+| `outer_plasma_profile.csv` | A ready `kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile and conditional checkpoint |
+| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"` | CSV: previous-batch and cumulative histogram; a conditional checkpoint |
 | `performance_profile.csv` | When the `BEACH_PROFILE=1` environment variable is set | CSV: measured times for each region |
 
 ### Additional Files During MPI Runs
 
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+- `macro_residuals.csv` remains global; the root writes one file rather than one per rank
+
+The canonical conditions and resume requirements are in the [Output Guide](OutputGuide.en.html#resume-outputs).
 
 ---
 
@@ -525,11 +530,13 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 |------|---------|
 | `reservoir_face` | `use_box=true`, `batch_duration>0`, `inject_face` specified |
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
-| `periodic2` | `field_solver=fmm`, exactly two periodic axes, `use_box=true` |
+| `periodic2` | Normally `field_solver=fmm`; the Direct split reference is the exception. Exactly two periodic axes and `use_box=true` |
 | Sheath model | Compatible with `reservoir_potential_model = "none"` |
 | Resume | `write_files=true`, checkpoint file exists, in the `restart_from` directory when specified, MPI size matches |
 | Performance profiling | Environment variable `BEACH_PROFILE=1` |
 | MPI run | Compiled with `-DUSE_MPI`, MPI compiler wrapper used |
+
+The canonical solver, kernel, and boundary table is [Field evaluation](FieldSolvers.en.html#solver-and-field-boundary-compatibility).
 
 ---
 

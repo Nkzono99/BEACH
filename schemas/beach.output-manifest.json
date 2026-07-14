@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "name": "summary.txt",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_files=true",
+      "restart_role": "required",
+      "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "charges.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_files=true",
+      "restart_role": "required",
+      "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "mesh_triangles.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_files=true",
+      "restart_role": "none"
+    },
+    {
+      "name": "mesh_sources.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_files=true for OBJ and template meshes",
+      "restart_role": "none"
+    },
+    {
+      "name": "mesh_potential.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_mesh_potential=true",
+      "restart_role": "none"
+    },
+    {
+      "name": "charge_history.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.history_stride>0",
+      "restart_role": "none"
+    },
+    {
+      "name": "potential_history.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_potential_history=true and output.history_stride>0",
+      "restart_role": "none"
+    },
+    {
+      "name": "charge_ledger.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "charge ledger state is present",
+      "restart_role": "conditional: required when summary contains ledger checkpoint metadata",
+      "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "outer_plasma_profile.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "a kinetic_1d or unified_linear_response outer state is ready",
+      "restart_role": "conditional: required when resuming that ready outer state",
+      "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "photoelectron_histogram.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "outer_plasma.photoelectron_closure=individual_return and histogram state is ready",
+      "restart_role": "conditional: required for individual_return resume",
+      "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "rng_state.txt",
+      "mpi_name": "rng_state_rankNNNNN.txt",
+      "producer": "src/runtime/bem_restart.f90",
+      "condition": "output.write_files=true; serial name or one file per MPI rank",
+      "restart_role": "required",
+      "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "macro_residuals.csv",
+      "producer": "src/runtime/bem_restart.f90",
+      "condition": "macro-particle residual state is allocated; one global file in serial and MPI",
+      "restart_role": "optional: restore when present",
+      "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "performance_profile.csv",
+      "producer": "src/runtime/bem_performance_profile.f90",
+      "condition": "BEACH_PROFILE=1 and output.write_files=true",
+      "restart_role": "none"
+    }
+  ]
+}

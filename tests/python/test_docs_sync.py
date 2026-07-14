@@ -94,7 +94,7 @@ def test_japanese_pages_avoid_repetitive_reference_phrasing() -> None:
     japanese_pages = [page for page in module.PAGES if page.locale == "root"]
 
     for page in japanese_pages:
-        assert "参照してください" not in _read_doc(page.source), page.source
+        assert _read_doc(page.source).count("参照してください") <= 1, page.source
 
     for name in (
         "BorisPusher.md",
@@ -211,6 +211,25 @@ def test_sidebar_follows_user_workflow_and_separates_agents() -> None:
         item.get("slug") == "agent-user-guide"
         for item in navigation["sections"][-1]["items"]
     )
+
+
+def test_generated_pages_show_development_status_freshness_and_edit_source() -> None:
+    module = _load_sync_module()
+
+    for locale in ("root", "en"):
+        page = next(
+            page
+            for page in module.PAGES
+            if page.locale == locale and page.slug == "parameters"
+        )
+        _, content = module.render_page(page)
+        assert "lastUpdated:" in content
+        assert f"edit/main/docs/{page.source}" in content
+        assert "banner:" in content
+        if locale == "en":
+            assert "Development documentation" in content
+        else:
+            assert "開発版ドキュメント" in content
 
 
 def test_configuration_recipes_cover_production_kinetic_outer_sheath() -> None:

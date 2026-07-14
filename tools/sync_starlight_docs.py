@@ -7,7 +7,9 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 
@@ -18,6 +20,8 @@ NAVIGATION_FILE = SITE_ROOT / "navigation.json"
 CONTENT_ROOT = SITE_ROOT / "src" / "content" / "docs"
 PUBLIC_ROOT = SITE_ROOT / "public"
 GITHUB_BLOB_ROOT = "https://github.com/Nkzono99/BEACH/blob/main"
+GITHUB_EDIT_ROOT = "https://github.com/Nkzono99/BEACH/edit/main"
+CHANGELOG_URL = "https://github.com/Nkzono99/BEACH/blob/main/CHANGELOG.md"
 SITE_BASE = "/BEACH"
 
 
@@ -173,18 +177,55 @@ def normalize_code_fences(text: str) -> str:
     return text.replace("```fortran\n", "```fortran-free-form\n")
 
 
-def render_frontmatter(title: str, description: str, order: int) -> str:
-    return "\n".join(
+@cache
+def source_last_updated(source: str) -> str | None:
+    """Return the last committed YYYY-MM-DD date for a canonical source file."""
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%cs", "--", f"docs/{source}"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    value = result.stdout.strip()
+    return value if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) else None
+
+
+def development_banner(locale: str) -> str:
+    if locale == "en":
+        return (
+            "<strong>Development documentation</strong> — This site follows the "
+            f"<code>main</code> branch and may differ from an installed release. "
+            f'<a href="{CHANGELOG_URL}">View the changelog.</a>'
+        )
+    return (
+        "<strong>開発版ドキュメント</strong> — このサイトは<code>main</code>ブランチ向けで、"
+        "インストール済みリリースと異なる場合があります。"
+        f'<a href="{CHANGELOG_URL}">変更履歴を確認してください。</a>'
+    )
+
+
+def render_frontmatter(page: Page, title: str) -> str:
+    lines = [
+        "---",
+        f"title: {json.dumps(title, ensure_ascii=False)}",
+        f"description: {json.dumps(page.description, ensure_ascii=False)}",
+        f"editUrl: {GITHUB_EDIT_ROOT}/docs/{page.source}",
+    ]
+    last_updated = source_last_updated(page.source)
+    if last_updated:
+        lines.append(f"lastUpdated: {last_updated}")
+    lines.extend(
         [
-            "---",
-            f"title: {json.dumps(title, ensure_ascii=False)}",
-            f"description: {json.dumps(description, ensure_ascii=False)}",
+            "banner:",
+            f"  content: {json.dumps(development_banner(page.locale), ensure_ascii=False)}",
             "sidebar:",
-            f"  order: {order}",
+            f"  order: {page.order}",
             "---",
             "",
         ]
     )
+    return "\n".join(lines)
 
 
 def render_page(page: Page) -> tuple[Path, str]:
@@ -196,7 +237,7 @@ def render_page(page: Page) -> tuple[Path, str]:
     body = replace_doc_links(body, page.locale)
     body = replace_repo_links(body, page.locale)
     body = normalize_code_fences(body)
-    content = render_frontmatter(title, page.description, page.order) + body
+    content = render_frontmatter(page, title) + body
 
     if page.locale == "en":
         target = CONTENT_ROOT / "en" / f"{page.slug}.md"

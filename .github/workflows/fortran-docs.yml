@@ -56,6 +56,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -81,6 +83,11 @@ jobs:
 
       - name: Install site dependencies
         run: make docs-deps
+
+      - name: Check site content and types
+        run: |
+          python tools/sync_starlight_docs.py
+          npm --prefix docs-site run check
 
       - name: Build documentation
         run: make docs-pages

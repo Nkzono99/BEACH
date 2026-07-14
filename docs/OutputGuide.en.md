@@ -28,17 +28,20 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 | File | When it appears | What to inspect first |
 | --- | --- | --- |
 | `summary.txt` | Always | batch count, absorbed and escaped counts, last relative charge change, MPI rank count |
-| `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` | Converged outer-grid `z, phi, E, rho`; also used as the restart profile |
+| `outer_plasma_profile.csv` | An outer state is ready for `kinetic_1d` / `unified_linear_response` | Converged outer-grid `z, phi, E, rho`; a conditional checkpoint |
+| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"` | Previous-batch and cumulative photoelectron histogram; a conditional checkpoint |
 | `charges.csv` | Always | final charge per element |
 | `mesh_triangles.csv` | Always | triangle vertices, element IDs, `mesh_id` |
-| `mesh_sources.csv` | Template mesh runs | mapping from `mesh_id` to template kind / surface model / element count |
+| `mesh_sources.csv` | Always | OBJ or template `mesh_id`, source kind, surface model, and element count |
 | `mesh_potential.csv` | `output.write_mesh_potential=true` | final centroid potential |
 | `charge_history.csv` | `output.history_stride > 0` | element charge history by batch |
 | `potential_history.csv` | `write_potential_history=true` and `history_stride > 0` | centroid potential history by batch |
 | `performance_profile.csv` | `BEACH_PROFILE=1` | phase timing |
-| `rng_state*.txt` | Always | random-number state for resume |
-| `macro_residuals*.csv` | Reservoir-style injection | fractional macro-particle state for resume |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | Always | Serial or MPI rank-local random-number state for resume |
+| `macro_residuals.csv` | Macro-particle residual state is allocated | One MPI-global fractional macro-particle state file |
 | `charge_ledger.csv` | Always | per-species signed-charge flux and particle counts |
+
+The machine-readable [`beach.output-manifest.json`](../schemas/beach.output-manifest.json) is canonical for production conditions and restart roles.
 
 ## Species-resolved charge balance
 
@@ -65,6 +68,18 @@ validate a run with large unresolved discard.
 
 Start with these quantities in `summary.txt`.
 
+| Item | Meaning |
+| --- | --- |
+| `batches` | In a normal run, completion means this reaches `sim.batch_count` |
+| `absorbed` | Number of particles absorbed by surfaces; the main indicator for charge accumulation |
+| `escaped` | Number of particles leaving through open boundaries; useful for checking injection and boundary conditions |
+| `survived_max_step` | Particles that remained alive until `sim.max_step`; if large, revisit `dt`, the box, or injection conditions |
+| `last_rel_change` | Monitoring value for the final batch charge change; it is not an early-stop condition in the current implementation |
+| `charge_ledger_residual_C` | Transactional charge-conservation residual; unresolved discard must still be checked separately |
+| `charge_ledger_discarded_unresolved_abs_C` | Non-cancelling absolute max-step discard charge across species |
+
+### Model-Specific Diagnostics
+
 `field_source_model` and `field_kernel_id` identify the element kernel that produced the output. `triangle_p0_exact_tree_near` denotes Treecode with all-vertex node radii, analytic panel-near evaluation, and monopole far evaluation. `triangle_p0_exact_p2m_near` denotes the all-vertex topology, analytic panel-near, exact-panel-P2M FMM. `FieldKernel.from_result` dispatches `triangle_p0` output to the panel C ABI. The other Python potential/field/force/field-line estimators remain point-only and fail closed.
 
 For split periodic2 runs, `summary.txt` records interface potential and normal field, `eta_phi_kneq0`, `eta_field_kneq0`, `eta_gap`, `eta_local_charge`, the Gauss residual, integrated outer charge, and the last outer-update batch. These values are part of the applicability and restart contract; a split checkpoint missing its outer state is rejected.
@@ -83,16 +98,6 @@ Only the root rank performs cache I/O. The regenerable operator payload is not s
 The configured cache directory and generation tolerance are also recorded in the summary.
 
 With particle transfer enabled, `interface_outward_gross_C` and `interface_returned_gross_C` in `charge_ledger.csv` record gross crossings and are not added twice to the conservation residual. `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, and `max_outer_energy_relative_error` in `summary.txt` are MPI-global run maxima.
-
-| Item | Meaning |
-| --- | --- |
-| `batches` | In a normal run, completion means this reaches `sim.batch_count` |
-| `absorbed` | Number of particles absorbed by surfaces; the main indicator for charge accumulation |
-| `escaped` | Number of particles leaving through open boundaries; useful for checking injection and boundary conditions |
-| `survived_max_step` | Particles that remained alive until `sim.max_step`; if large, revisit `dt`, the box, or injection conditions |
-| `last_rel_change` | Monitoring value for the final batch charge change; it is not an early-stop condition in the current implementation |
-| `charge_ledger_residual_C` | Transactional charge-conservation residual; unresolved discard must still be checked separately |
-| `charge_ledger_discarded_unresolved_abs_C` | Non-cancelling absolute max-step discard charge across species |
 
 When meshes include `conductor` or `dielectric`, `summary.txt` may include notes.
 `dielectric` is metadata in the current implementation; it is not a solved dielectric boundary model.
@@ -144,5 +149,16 @@ b.plot_potential()
 
 ## Resume Outputs
 
-With `output.resume=true`, `summary.txt`, `charges.csv`, `rng_state*.txt`, `macro_residuals*.csv`, and `charge_ledger.csv` when enabled are used as checkpoint files. Schema v3 restores matching model, mesh, and species fingerprints plus the complete outer solver profile/state. A schema-v2 three-column outer profile remains readable, but it forces a new outer solve at the next refresh instead of being treated as a complete held state.
+With `output.resume=true`, files are loaded according to the configuration and saved state:
+
+| Checkpoint file | Resume behavior |
+| --- | --- |
+| `summary.txt`, `charges.csv` | Always required |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | The former is required for serial runs; every rank file is required for MPI |
+| `macro_residuals.csv` | Restores the global residual when present. MPI still uses one file; legacy rank-local files are rejected |
+| `charge_ledger.csv` | Required when the summary contains ledger checkpoint metadata |
+| `outer_plasma_profile.csv` | Required when resuming a ready outer state for `kinetic_1d` / `unified_linear_response` |
+| `photoelectron_histogram.csv` | Required when resuming `photoelectron_closure="individual_return"` |
+
+Schema v3 restores matching model, mesh, and species fingerprints plus the complete outer solver profile/state. A schema-v2 three-column outer profile remains readable, but it forces a new outer solve at the next refresh instead of being treated as a complete held state.
 When `output.restart_from` is set, checkpoint files are read from `restart_from`, while new outputs are written under `output.dir`.

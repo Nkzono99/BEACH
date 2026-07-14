@@ -51,7 +51,7 @@ $$
 得た$\phi_0$は最初のelectron reservoirの$v_{\min}$へ変換されます。ion VDFは変えず、光電子も扱いません。
 空間的な$\phi(z)$、$E(z)$、turning point、flight timeは作らない簡易的な電流釣り合いモデルです。
 
-## Zhaoモデルの無次元量を作る
+## Zhao closureの無次元量を作る
 
 solar elevationを$\alpha$、reference photoelectron densityを$n_{\mathrm{phe,ref}}$とすると、surface source densityは
 

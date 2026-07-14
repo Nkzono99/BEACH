@@ -97,6 +97,10 @@ runs successfully.
 | `[[particles.species]]` | yes | Species, injection mode, velocity distribution, macro-particle weight |
 | `[mesh]` | no | Selection of OBJ or built-in template input |
 | `[[mesh.templates]]` | no | Built-in shapes used with `mode="template"` |
+| `[field]` | no | Element-charge discretization kernel and backend |
+| `[periodic2]` | conditional | Nonzero mode, zero mode, and lower-boundary model for split periodic2 |
+| `[outer_plasma]` | conditional | Outer-plasma profile, applicability limits, and return model |
+| `[coupling]` | conditional | Outer-profile refresh and particle transfer |
 | `[output]` | no | Output directory, history, checkpoint resume |
 
 `[sim]` is required when using `reservoir_face` or `photo_raycast`.
@@ -132,10 +136,12 @@ corresponding parameters for each option.
 
 | `field_solver` | Use case | Supported field boundary |
 |---|---|---|
-| `direct` | Exact all-to-all evaluation for small element counts | `field_bc_mode="free"` |
+| `direct` | Exact all-to-all evaluation for small element counts and split references | `free`, or a constrained `periodic2` split reference |
 | `treecode` | Approximate evaluation for medium and larger cases | `field_bc_mode="free"` |
 | `fmm` | Large-scale evaluation, `periodic2`, FMM core validation | `field_bc_mode="free"` / `"periodic2"` |
 | `auto` | Select direct / treecode for point sources or direct / FMM for triangle P0 sources based on element count | `field_bc_mode="free"` |
+
+Use the canonical [solver and field-boundary compatibility table](FieldSolvers.en.html#solver-and-field-boundary-compatibility) to choose the combination.
 
 Common keys:
 
@@ -169,7 +175,7 @@ and `N` is the number of elements.
 | `softening` | float | `1.0e-6` | Relaxes point-source singularities; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before direct evaluation |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
-| `field_bc_mode` | string | `"free"` | Only `"free"` is supported for `direct` |
+| `field_bc_mode` | string | `"free"` | Normally `free`; only the `triangle_p0` split reference may use `periodic2` |
 
 `tree_theta`, `tree_leaf_max`, and `tree_min_nelem` are not used for `direct`.
 
@@ -246,7 +252,7 @@ values are used based on the element count.
 | `10000 <= nelem < 50000` | `0.58` | `20` |
 | `50000 <= nelem` | `0.65` | `24` |
 
-#### Field Boundary and periodic2
+#### Field Boundary and `[periodic2]` / `[outer_plasma]`
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
@@ -323,6 +329,23 @@ the default is 129. Production studies should demonstrate refinement of reported
 change when the rough-surface height samples are doubled along both periodic axes.
 The refined samples are used by the solve, and a violation fails closed during initialization.
 See `examples/periodic2_unified_explicit_orbit.toml` for explicit particle transfer.
+
+#### `[coupling]`: Outer Refresh and Particle Transfer
+
+| Key | Type | Default | Description |
+| --- | --- | ---: | --- |
+| `update_mode` | string | `"explicit"` | Only `explicit` is supported; refresh the outer profile at explicit update points |
+| `particle_transfer_mode` | string | `"none"` | Use the transfer ID matching the selected return model |
+| `outer_update_stride` | int | `1` | Batch interval between outer-profile refreshes |
+| `field_evolution_timescale` | float | `0` | Frozen-field comparison time [s]; positive for instant return |
+| `max_frozen_field_ratio` | float | `0.1` | Upper bound on `tau_outer/field_evolution_timescale` |
+| `outer_orbit_dt` | float | `0` | Fixed 3-D outer-orbit step [s]; positive in 3-D mode |
+| `outer_orbit_max_steps` | int | `100000` | 3-D outer-orbit step limit; reaching it stops instead of discarding |
+| `outer_orbit_energy_tolerance` | float | `1e-4` | Relative total-energy error limit for a 3-D outer orbit |
+| `outer_queue_enabled` | bool | `false` | `true` is currently rejected |
+
+#### Common periodic2 Constraints
+
 Periodic2 requires `sim.use_box=true`, two periodic axes, and one open axis. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
 
 | Far correction | Meaning |
@@ -824,12 +847,17 @@ Output files:
 | `charges.csv` | Final element charges |
 | `mesh_triangles.csv` | Element geometry. Includes the `mesh_id` column |
 | `mesh_sources.csv` | Original mesh kind, surface model, `epsilon_r`, and element count for each `mesh_id` |
+| `outer_plasma_profile.csv` | Profile for a ready `kinetic_1d` / `unified_linear_response` outer state; a conditional checkpoint |
+| `photoelectron_histogram.csv` | Previous-batch and cumulative histogram for `photoelectron_closure="individual_return"`; a conditional checkpoint |
 | `mesh_potential.csv` | When `write_mesh_potential=true` |
 | `charge_history.csv` | When `history_stride > 0` |
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |
-| `rng_state.txt` | Random-number state |
-| `macro_residuals.csv` | Residual carry-over for macro-particle counts |
+| `performance_profile.csv` | When `BEACH_PROFILE=1` |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | Serial or MPI rank-local random-number state |
+| `macro_residuals.csv` | One MPI-global macro-particle residual file |
 | `charge_ledger.csv` | Per-species signed-charge flux, counts, and restartable cumulative values |
+
+The [Output Guide's resume section](OutputGuide.en.html#resume-outputs) consolidates column definitions and conditional checkpoint requirements.
 
 `mesh_potential.csv` records the potential [V] at each element centroid. The
 self term uses `1/softening` when `softening > 0`; otherwise it uses an
@@ -849,8 +877,9 @@ Requirements for `resume=true`:
 |---|---|
 | Output | `write_files=true` is required |
 | Source | If `restart_from` is unspecified, use `output.dir`; otherwise use `restart_from` |
-| Required files | `summary.txt`, `charges.csv`, `rng_state.txt` |
-| Optional files | `macro_residuals.csv`; `charge_ledger.csv` is required when schema-v2/v3 ledger metadata is present |
+| Required files | `summary.txt`, `charges.csv`, and either serial `rng_state.txt` or every MPI `rng_state_rankNNNNN.txt` |
+| Conditional files | `charge_ledger.csv` with ledger metadata, `outer_plasma_profile.csv` for a ready outer state, and `photoelectron_histogram.csv` for `individual_return` |
+| Optional state | Restore the global residual when `macro_residuals.csv` exists |
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 
 `restart_from` changes only the checkpoint read source. New output is always
@@ -861,7 +890,9 @@ During MPI execution:
 | File | Contents |
 |---|---|
 | `rng_state_rankNNNNN.txt` | Random-number state per rank |
-| `macro_residuals_rankNNNNN.csv` | Residuals per rank |
+| `macro_residuals.csv` | One global residual shared by all ranks and written by the root |
+
+Checkpoints containing legacy `macro_residuals_rankNNNNN.csv` files are rejected instead of being converted implicitly.
 
 `mpi_world_size` in `summary.txt` must match the current number of ranks. Schema v2/v3 also requires matching model, ordered-mesh, and ordered-species fingerprints. Schema v3 additionally requires `field_V_m` and `charge_density_C_m3` in the outer profile.
 

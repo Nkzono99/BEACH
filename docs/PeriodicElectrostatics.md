@@ -55,7 +55,7 @@ $$
 FMMのnear image層はfar operatorを作るときに差し引くshellと一致する必要があります。cache fingerprintが画像層を
 identityに含むのはこのためです。
 
-## nonzero遠方場と物理`k=0`を分担する
+## Ewald2Pで無限周期の遠方場を分離する
 
 `cached_kneq0`はEwald2P teacherと有限画像shellの差を、root multipoleからtarget localへのoperatorとして
 適用します。cached結果からteacher由来の対称`k=0`を除き、場の合成処理が選択した物理`k=0`を一度だけ加えます。
@@ -70,7 +70,7 @@ $$
 二重加算を防ぐownership規則です。Ewald分割、operator fit、FMMへの注入位置、cache lifecycleは
 [periodic2遠方補正](PeriodicFarCorrection.html)に分離しています。
 
-## 表面電荷から`k=0`を構築する
+## 物理`k=0`を一度だけ加える
 
 triangle $i$の総電荷を$q_i$、面積のうち高さ$z$以下にある割合を$F_i(z)$とすると、平面平均された累積電荷は
 

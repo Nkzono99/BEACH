@@ -21,7 +21,7 @@ evaluated.
 
 | Solver | Main use | Source kernel | Field boundary | Approximation |
 | --- | --- | --- | --- | --- |
-| [Direct](DirectSolver.en.html) | Small problems and reference results | point, triangle P0 | free | Evaluates the selected kernel for every element |
+| [Direct](DirectSolver.en.html) | Small problems, reference results, and split references | point, triangle P0 | free, constrained periodic2 | Evaluates the selected kernel for every element |
 | [Treecode](Treecode.en.html) | Medium free-space problems | point, triangle P0 | free | Uses monopoles for far nodes and the selected kernel in near leaves |
 | [FMM](FMM.en.html) | Large problems and many targets | point, triangle P0 | free, periodic2 | Approximates far interactions with multipole and local expansions |
 | `auto` | Select by element count for a free boundary | point, triangle P0 | free | Direct/Treecode for point; Direct/FMM for triangle P0 |
@@ -29,6 +29,21 @@ evaluated.
 With `auto`, Direct is used when `nelem < tree_min_nelem`. At and above the threshold, point sources use Treecode and
 triangle P0 sources use FMM. The default threshold is `256`. Runtime depends not only on the element count, but also on the
 number of particles, number of steps, and target distribution, so measure a reduced case representative of the production run.
+
+## Solver and Field-Boundary Compatibility
+
+This table is the canonical compatibility reference for solvers, source kernels, and field boundaries.
+
+| Solver | `free` | `periodic2` |
+| --- | --- | --- |
+| `direct` | `point` / `triangle_p0` | Split reference only. Requires `triangle_p0`, `periodic2.nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and a supported lower-boundary model |
+| `treecode` | `point` / `triangle_p0` | Unsupported |
+| `fmm` | `point` / `triangle_p0` | Supported. Infinite-periodic production runs use `cached_kneq0` |
+| `auto` | `point` / `triangle_p0` | Unsupported |
+
+`periodic2` additionally requires `sim.use_box=true`, exactly two periodic axes, and one open axis.
+The Direct split reference is intended for reduced reference and validation cases; the normal periodic2 production path uses FMM.
+The [official Direct split-reference configuration](../examples/periodic2_linear_outer_reference.toml) provides a complete example.
 
 ## Choose element-charge discretization with the source kernel
 

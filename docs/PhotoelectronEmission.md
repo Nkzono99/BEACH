@@ -77,7 +77,7 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$で速度をsampleします。
 法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後に戻るかescapeするかは、tracked orbitまたは
 選択した簡略化モデルが決めます。
 
-## 放出と再吸収を表面電荷へ記録する
+## 放出・再吸収・escapeの電荷収支を確認する
 
 `deposit_opposite_charge_on_emit=true`なら、放出元要素$i$へ
 

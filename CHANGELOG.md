@@ -5,11 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-14
+
 ### Added
 - Free-space `triangle_p0` Treecode evaluation with exact analytic panel near interactions, all-vertex MAC radii, and monopole far interactions for both electric field and potential.
+- A machine-readable output manifest and documentation-contract tests for configuration, output, and restart guidance.
 
 ### Changed
 - Treecode now accelerates arbitrary-point and mesh-centroid potential evaluation in addition to electric-field evaluation.
+- Field-solver documentation now provides a canonical compatibility matrix for solver, kernel, boundary condition, and periodic far-correction combinations.
+- Parameter, schema, and agent guidance now document the supported Direct `periodic2` split-reference exception without repeating cross-reference prose.
+- Output and restart documentation now describes conditional outer-plasma and photoelectron checkpoints, MPI-global residuals, and OBJ mesh-source paths consistently.
+- Starlight development pages now identify main-branch documentation, expose last-updated and edit links, and receive content/type checks in CI.
+
+### Fixed
+- Repaired the malformed `[coupling]` parameter table and documented every top-level configuration table, including `coupling.update_mode`.
 
 ## [1.5.0] - 2026-07-11
 

@@ -4,18 +4,18 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 
 # 入力パラメータリファレンス
 
-本文書は、Fortran 実行系が読む最終的な `beach.toml` のパラメータリファレンスです。
+本文書は、Fortran実行系が読む`beach.toml`のパラメータリファレンスです。
 単位は、特に断りがない限り SI 単位です。
 
 初めて設定を組む場合は、先に [設定レシピ](ConfigurationRecipes.html) を読むと全体像を掴みやすいです。
 
-Fortran parser が解決する高水準記法は [Configuration](Configuration.html) にまとめています。
-本書では、正規化後に実行時設定として使われるキーを中心に説明します。
+box基準の座標・配置を指定する補助パラメータも通常のinput keyとして掲載し、どの値を計算または上書きするかを
+[座標・配置の補助パラメータ](#座標配置の補助パラメータ)に明記しています。
 
 | 関連ドキュメント | 内容 |
 |---|---|
 | [設定レシピ](ConfigurationRecipes.html) | 目的別の設定手順と調整ポイント |
-| [Configuration](Configuration.html) | `beachx config`、高水準記法、schema/lint |
+| [設定を編集する](Configuration.html) | `beachx config`、schema、lint |
 | [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順への導線 |
 | [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
 | [FMM](FMM.html) | `field_solver="fmm"`の選択と精度確認 |
@@ -92,6 +92,10 @@ GitHub Raw URL を指定することもできます。
 | `[[particles.species]]` | yes | 粒子種、注入方式、速度分布、マクロ粒子重み |
 | `[mesh]` | no | OBJ または組み込み template の選択 |
 | `[[mesh.templates]]` | no | `mode="template"` で使う組み込み形状 |
+| `[field]` | no | 要素電荷の離散化 kernel と backend |
+| `[periodic2]` | 条件付き | split periodic2 の非零モード・零モード・下側境界モデル |
+| `[outer_plasma]` | 条件付き | 外部プラズマ profile、適用範囲、return model |
+| `[coupling]` | 条件付き | outer profile の更新と粒子移送 |
 | `[output]` | no | 出力先、履歴、checkpoint 再開 |
 
 `reservoir_face` または `photo_raycast` を使う場合、`[sim]` は必須です。
@@ -126,10 +130,12 @@ GitHub Raw URL を指定することもできます。
 
 | `field_solver` | 用途 | 対応する場境界 |
 |---|---|---|
-| `direct` | 要素数が小さい場合の厳密な全対全評価 | `field_bc_mode="free"` |
+| `direct` | 要素数が小さい場合の厳密な全対全評価、split reference | `free`、または条件を満たす`periodic2` split reference |
 | `treecode` | 中規模以上の近似評価 | `field_bc_mode="free"` |
 | `fmm` | 大規模評価、`periodic2`、FMM コア検証 | `field_bc_mode="free"` / `"periodic2"` |
 | `auto` | point は direct / treecode、triangle P0 は direct / FMM を要素数で自動選択 | `field_bc_mode="free"` |
+
+solver、kernel、場境界の組合せは[場の評価の互換表](FieldSolvers.html#solverと場境界の互換表)で確認できます。
 
 共通キー:
 
@@ -161,7 +167,7 @@ GitHub Raw URL を指定することもできます。
 | `softening` | float | `1.0e-6` | point source の特異性を緩和。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | direct 評価前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
-| `field_bc_mode` | string | `"free"` | `direct` では `"free"` のみ |
+| `field_bc_mode` | string | `"free"` | 通常は`free`。`triangle_p0`のsplit referenceだけ`periodic2`を使用可能 |
 
 `tree_theta`、`tree_leaf_max`、`tree_min_nelem` は `direct` では使いません。
 
@@ -233,7 +239,7 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `10000 <= nelem < 50000` | `0.58` | `20` |
 | `50000 <= nelem` | `0.65` | `24` |
 
-#### 場境界と periodic2
+#### 場境界と `[periodic2]` / `[outer_plasma]`
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -269,9 +275,8 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 | `outer_plasma.photoelectron_closure` | `none` | `individual_return`でphotoelectron個別帰還とoutgoing histogramを有効化 |
 | `outer_plasma.photoelectron_histogram_bins` | `32` | 法線運動エネルギーhistogramのbin数 |
 | `outer_plasma.photoelectron_histogram_energy_max` | 必須 | histogram上端 [J]。`individual_return`で正値必須 |
-| `outer_plasma.photoelectron_ambient_charge_scale` | 必須 | 線形closure適用性を比較するambient signed-charge scale [C] |
+| `outer_plasma.photoelectron_ambient_charge_scale` | 必須 | 線形モデルの適用性を比較するambient signed-charge scale [C] |
 | `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
-| `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
 | `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
 
 #### `kinetic_1d`の仕様
@@ -296,7 +301,7 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
 3. turning粒子について解析往復時間後に相当する復帰状態を作り、同じsimulation時刻・batchでinterfaceへ戻す。
 
-これは、定常・準定常sheathを対象としたinstant-return closureです。定常化後の平均電流と離脱力の計算に使えます。
+これは、定常・準定常sheathを対象としたinstant-return簡略化モデルです。定常化後の平均電流と離脱力の計算に使えます。
 UV照射の開始時など、遅延したreturn currentが影響する過渡応答は表しません。準定常条件は
 `tau_outer/field_evolution_timescale`で制限します。`tau_outer/batch_duration >= 1`の場合はbatch履歴を
 return currentの物理的な時間履歴として解釈できません。[<sup>1</sup>](ParticleEscapeReturn.md)
@@ -304,7 +309,7 @@ return currentの物理的な時間履歴として解釈できません。[<sup>
 `reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
 
 `photoelectron_closure="kinetic_mean"`では、先頭の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
-mean closureが供給するのはouter profileだけです。表面電荷は明示的に追跡する粒子が更新するため、
+平均密度モデルが供給するのはouter profileだけです。表面電荷は明示的に追跡する粒子が更新するため、
 統計的なreturn currentを追加で加算しません。tracked returnを使う全speciesで
 `deposit_opposite_charge_on_emit=true`を指定し、legacy `photo_escape_model`は無効にします。
 
@@ -325,13 +330,22 @@ mean closureが供給するのはouter profileだけです。表面電荷は明�
 | applicability | 線形性上限を超えたらfallbackせず停止 |
 
 検証例は`examples/periodic2_unified_linear_response.toml`、詳細は`docs/adr/0002-unified-periodic-outer-domain.md`です。
-| `coupling.particle_transfer_mode` | `none` | return modelと同じIDを指定 |
-| `coupling.field_evolution_timescale` | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
-| `coupling.max_frozen_field_ratio` | `0.1` | `tau_outer/field_evolution_timescale`上限 |
-| `coupling.outer_orbit_dt` | `0` | 3D outer orbit固定刻み [s]。3D modeでは正値必須 |
-| `coupling.outer_orbit_max_steps` | `100000` | 3D outer orbit step上限。到達時はdiscardせず停止 |
-| `coupling.outer_orbit_energy_tolerance` | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
-| `coupling.outer_queue_enabled` | `false` | 現在は`true`を拒否 |
+
+#### `[coupling]`: outer更新と粒子移送
+
+| キー | 型 | 既定値 | 説明 |
+| --- | --- | ---: | --- |
+| `update_mode` | string | `"explicit"` | 現在は`explicit`のみ。outer profileを明示的な更新点で再計算 |
+| `particle_transfer_mode` | string | `"none"` | return modelと同じIDを指定 |
+| `outer_update_stride` | int | `1` | outer profile更新batch間隔 |
+| `field_evolution_timescale` | float | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
+| `max_frozen_field_ratio` | float | `0.1` | `tau_outer/field_evolution_timescale`上限 |
+| `outer_orbit_dt` | float | `0` | 3D outer orbit固定刻み [s]。3D modeでは正値必須 |
+| `outer_orbit_max_steps` | int | `100000` | 3D outer orbit step上限。到達時はdiscardせず停止 |
+| `outer_orbit_energy_tolerance` | float | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
+| `outer_queue_enabled` | bool | `false` | 現在は`true`を拒否 |
+
+#### periodic2共通制約
 
 関連exampleは目的別に選びます。
 
@@ -343,7 +357,7 @@ mean closureが供給するのはouter profileだけです。表面電荷は明�
 | individual photoelectron return | `periodic2_photoelectron_individual_return.toml` | instant return、放出元逆符号電荷、legacy escape補正なし |
 
 `individual_return`のoutgoing histogramは全MPI rankから集計し、前batchの値と累積値をcheckpointに保存します。
-`statistical_return`は未仕様のため使用できません。放出が強く、ambient-onlyの線形closureの適用範囲を外れる場合は停止します。
+`statistical_return`は未仕様のため使用できません。放出が強く、ambient-onlyの線形モデルの適用範囲を外れる場合は停止します。
 
 periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必要です。
 同じ周期条件をfield、collision、`photo_raycast`に適用します。
@@ -393,7 +407,7 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
 設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) で説明します。
 各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
-[reservoir注入](ReservoirInjection.md)、[シース注入closure](SheathInjectionClosures.md)、
+[reservoir注入](ReservoirInjection.md)、[シース流入補正](SheathInjectionClosures.md)、
 [粒子のescapeとreturn](ParticleEscapeReturn.md)で、modelごとの処理を分けて説明します。
 
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で更新した
@@ -827,12 +841,17 @@ z 軸方向の円柱です。
 | `charges.csv` | 最終要素電荷 |
 | `mesh_triangles.csv` | 要素 geometry。`mesh_id` 列を含む |
 | `mesh_sources.csv` | `mesh_id` ごとの元メッシュ種別、表面モデル、`epsilon_r`、要素数 |
+| `outer_plasma_profile.csv` | outer stateが有効な`kinetic_1d` / `unified_linear_response`のprofile。条件付きcheckpoint |
+| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"`の前batch・累積histogram。条件付きcheckpoint |
 | `mesh_potential.csv` | `write_mesh_potential=true` のとき |
 | `charge_history.csv` | `history_stride > 0` のとき |
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
-| `rng_state.txt` | 乱数状態 |
-| `macro_residuals.csv` | マクロ粒子数の残差繰越 |
+| `performance_profile.csv` | `BEACH_PROFILE=1`のとき |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialまたはMPI rank別の乱数状態 |
+| `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差 |
 | `charge_ledger.csv` | 粒子種別の電荷収支、粒子数、再開用累積値 |
+
+[出力ガイドの再開実行](OutputGuide.html#再開実行の出力)に、列定義と条件別checkpoint要件を集約しています。
 
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。
 自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。
@@ -849,8 +868,9 @@ z 軸方向の円柱です。
 |---|---|
 | 出力 | `write_files=true` が必須 |
 | 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
-| 必須ファイル | `summary.txt`, `charges.csv`, `rng_state.txt` |
-| 任意ファイル | `macro_residuals.csv`。schema v2/v3 で電荷収支 metadata がある場合は `charge_ledger.csv` も必須 |
+| 必須ファイル | `summary.txt`, `charges.csv`, serialの`rng_state.txt`またはMPI全rankの`rng_state_rankNNNNN.txt` |
+| 条件付きファイル | ledger metadataがある場合の`charge_ledger.csv`、readyなouter stateの`outer_plasma_profile.csv`、`individual_return`の`photoelectron_histogram.csv` |
+| 任意state | `macro_residuals.csv`が存在すればglobal残差を復元 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
 `restart_from` は checkpoint の読み込み元だけを変更します。
@@ -861,7 +881,9 @@ MPI 実行時:
 | ファイル | 内容 |
 |---|---|
 | `rng_state_rankNNNNN.txt` | rank 別乱数状態 |
-| `macro_residuals_rankNNNNN.csv` | rank 別残差 |
+| `macro_residuals.csv` | 全rankで共有するglobal残差。rootが1個だけ書く |
+
+旧形式の`macro_residuals_rankNNNNN.csv`が存在するcheckpointは、暗黙変換せず拒否します。
 
 `summary.txt` の `mpi_world_size` は現在の rank 数と一致している必要があります。schema v2/v3 では model / ordered mesh / ordered species fingerprint も一致する必要があります。schema v3 は outer profile の `field_V_m` と `charge_density_C_m3` も必須です。
 
@@ -869,20 +891,35 @@ MPI 実行時:
 
 ---
 
-## 高水準記法との関係
+## 座標・配置の補助パラメータ
 
-次のキーは schema には含まれますが、Fortran parser が実行時キーへ解決する高水準記法です。
-Fortran parser は読み込み時に右列のキーとして扱います。
+次のkeyも通常のTOML parameterです。ただし、読み込み時に右列の実座標・実寸を計算します。
+同じ値を直接指定したときにエラーになるものと、計算値で上書きするものがあるため区別してください。
 
-| 高水準キー | 解決先・用途 |
-|---|---|
-| `sim.box_origin`, `sim.box_size` | `sim.box_min`, `sim.box_max` |
-| `inject_region_mode`, `uv_low`, `uv_high` | `inject_face` 上の `pos_low`, `pos_high` |
-| `mesh.groups`, template の `group`, `center_local` | template ごとの実座標 |
-| template の `placement_mode`, `anchor`, `offset`, `offset_frac` | `center` |
-| template の `size_mode`, `size_frac` | `size_x`, `size_y`, `size`, `radius` など |
+| key・指定値 | 型・条件 | 計算する値 | 直接指定したkeyとの関係 |
+|---|---|---|---|
+| `sim.box_origin`, `sim.box_size` | float[3]。2つを同時指定し、`box_size > 0` | `box_min = box_origin`、`box_max = box_origin + box_size` | `box_min`または`box_max`との併用はエラー |
+| `inject_region_mode="face_fraction"`, `uv_low`, `uv_high` | `uv_*`はfloat[2]かつ`[0,1]`内。`reservoir_face` / `photo_raycast`のみ | `inject_face`上の`pos_low`, `pos_high` | `pos_low`または`pos_high`との併用はエラー |
+| templateの`placement_mode="box_anchor"`, `anchor`, `offset`または`offset_frac` | `anchor`はbox centerまたは各face center。`offset`は[m]、`offset_frac`はbox幅に対する割合 | templateの`center` | `center`との併用はエラー。`offset`と`offset_frac`の併用もエラー |
+| templateの`size_mode="box_fraction"`, `size_frac` | 対応kindは`plane` / `plane_hole` / `plate_hole` / `box` / `sphere` / `cylinder` | 下表の寸法key | 対応する寸法keyを明示していてもエラーにせず、計算値で上書き |
+| `[mesh.groups.<name>]`の`placement_mode`, `anchor`, `offset`または`offset_frac` | `absolute`または`box_anchor` | grouped templateが共有する`group_origin` | `offset`と`offset_frac`の併用はエラー。`absolute`で`anchor`を指定するのもエラー |
+| templateの`group`, `center_local` | `[mesh.groups.<name>]`の定義が必要 | `center = group_origin + group_scale * center_local` | `center`, `placement_mode`, `anchor`, `offset`, `offset_frac`, `size_mode`, `size_frac`との併用はエラー |
+| `[mesh.groups.<name>]`の`scale`または`scale_from` + `scale_factor` | `scale > 0`。`scale_from`はbox幅の参照名 | grouped templateで明示した長さkeyをscale倍 | 下表の明示寸法を`scale * input`で上書き。未指定でdefaultになった寸法はscaleしない |
 
-高水準記法の詳細、例、lint 時の扱いは [Configuration](Configuration.html) にまとめています。
+`size_mode="box_fraction"`が上書きする寸法は形状ごとに異なります。
+
+| `kind` | `size_frac` | 上書きするkey |
+|---|---|---|
+| `plane`, `plane_hole`, `plate_hole` | float[2] | `size_x`, `size_y` |
+| `box` | float[3] | `size` |
+| `sphere` | float | `radius`。box 3辺の最小値を基準にする |
+| `cylinder` | float[2] | `radius`, `height`。radiusはx/y幅の最小値、heightはz幅を基準にする |
+
+group scaleが倍率を掛けるのは、templateで明示した`size_x`, `size_y`, `size`, `radius`, `inner_radius`, `height`です。
+`anchor`は`box_center`と各軸の`*_low_face_center` / `*_high_face_center`、`scale_from`は`box_x`, `box_y`,
+`box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, `box_max_xyz`から選びます。
+`placement_mode="absolute"`、`size_mode="absolute"`、`inject_region_mode="absolute"`では、対応する直接指定値をそのまま使います。
+入力前の組合せ確認には[設定を編集する](Configuration.html)の`beachx lint`を使います。
 
 ---
 

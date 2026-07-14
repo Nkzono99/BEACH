@@ -55,7 +55,7 @@ solution without convergence as $N$ increases.
 The near-image layer in FMM must match the shell subtracted when fitting the far operator. The cache fingerprint includes image
 layer for this reason.
 
-## Divide responsibility between the nonzero far field and physical `k=0`
+## Separate the infinite-periodic far field with Ewald2P
 
 `cached_kneq0` applies the difference between an Ewald2P teacher and finite image shell as a root-multipole-to-target-local
 operator. The symmetric `k=0` inherited from the teacher is removed, and field composition adds the selected physical `k=0`
@@ -71,7 +71,7 @@ The expression in parentheses belongs to the nonzero backend. `zero_mode_policy=
 double counting, not an instruction to discard the mean field. Ewald splitting, operator fitting, the FMM insertion point, and
 cache lifecycle are separated into [periodic2 Far Correction](PeriodicFarCorrection.en.html).
 
-## Build `k=0` from surface charge
+## Add the physical `k=0` component exactly once
 
 For triangle total charge $q_i$, let $F_i(z)$ be the fraction of its area at or below height $z$. Plane-average cumulative charge is
 

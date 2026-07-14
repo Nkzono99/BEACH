@@ -79,7 +79,7 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$:
 Normal velocity is positive, so a new particle leaves the surface toward the illumination side. A tracked orbit or selected
 reduced closure then decides whether it returns or escapes.
 
-## Record emission and reabsorption in surface charge
+## Check charge balance across emission, reabsorption, and escape
 
 With `deposit_opposite_charge_on_emit=true`, source element $i$ receives
 

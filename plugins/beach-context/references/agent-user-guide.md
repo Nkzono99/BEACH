@@ -17,7 +17,7 @@ BEACH (BEM + Accumulated CHarge) は、境界要素法と粒子追跡を組み�
 
 - **Fortran コア**: 粒子力学・電場ソルバー・衝突判定・電荷堆積
 - **Python レイヤー**: 設定管理・後処理・可視化
-- **バージョン**: 1.5.0
+- **バージョン**: 1.6.0
 
 ---
 
@@ -116,8 +116,8 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 ### 設定ワークフロー
 
 1. **beach.toml**: 通常の編集対象で、Fortran 実行ファイルが直接読む設定
-2. **beachx lint**: TOML parse、JSON Schema、高水準記法、既知制約を検証
-3. **Fortran parser**: 高水準記法を `box_min` / `box_max` / `center` などの最終キーへ展開
+2. **beachx lint**: TOML parse、JSON Schema、座標・配置パラメータ、既知制約を検証
+3. **Fortran parser**: box基準の指定を`box_min` / `box_max` / `center`などの実座標へ変換
 
 ### [sim] セクション — シミュレーション基本
 
@@ -138,7 +138,7 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 | パラメータ | 型 | デフォルト | 選択肢 | 説明 |
 |------------|------|-----------|--------|------|
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | 電場評価手法 |
-| `field_bc_mode` | string | "free" | free, periodic2 | 境界条件 (periodic2 は fmm 必須) |
+| `field_bc_mode` | string | "free" | free, periodic2 | 通常のperiodic2はFMM。Direct split referenceだけ例外 |
 | `field_periodic_image_layers` | int | 1 | >= 0 | periodic2 のイメージシェル層数 |
 | `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle, cached_kneq0 | `cached_kneq0` が production 無限周期非零モード |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald 分割パラメータ (0=自動) |
@@ -301,6 +301,7 @@ template入力などを使ってmesh_idを分けてください。
 | `mesh_triangles.csv` | CSV: `elem_idx, v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z, charge_C, mesh_id` | 三角形頂点・電荷・mesh_id |
 | `mesh_sources.csv` | CSV: `mesh_id, source_kind, template_kind, surface_model, epsilon_r, elem_count` | メッシュソースメタデータ |
 | `rng_state.txt` | テキスト | 乱数状態 (リジューム用) |
+| `charge_ledger.csv` | CSV | 粒子種別の電荷収支と再開用累積値 |
 
 ### オプション出力ファイル
 
@@ -310,12 +311,16 @@ template入力などを使ってmesh_idを分けてください。
 | `potential_history.csv` | `write_potential_history = true` かつ `history_stride > 0` | CSV: `batch, elem_idx, potential_V` |
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | reservoir_face 使用時 | CSV: 注入残差状態 |
+| `outer_plasma_profile.csv` | readyな`kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile、条件付きcheckpoint |
+| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"` | CSV: 前batch・累積histogram、条件付きcheckpoint |
 | `performance_profile.csv` | `BEACH_PROFILE=1` 環境変数設定時 | CSV: 各領域の計測時間 |
 
 ### MPI 実行時の追加ファイル
 
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+- `macro_residuals.csv` はrank別にせず、rootがglobal stateを1個だけ書く
+
+完全な条件と再開要件は[出力ガイド](OutputGuide.html#再開実行の出力)を正本とします。
 
 ---
 
@@ -326,7 +331,7 @@ template入力などを使ってmesh_idを分けてください。
 ```bash
 beachx lint [beach.toml]                           # schema と意味制約をまとめて検査
 beachx config init [beach.toml]                    # beach.toml を新規作成
-beachx config validate [beach.toml]                # 高水準記法と意味制約の検証
+beachx config validate [beach.toml]                # 座標・配置パラメータと意味制約の検証
 beachx config diff left.toml right.toml            # 設定比較
 ```
 
@@ -447,16 +452,10 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 
 ---
 
-## `beachx config` の高水準記法
+## 座標・配置の補助パラメータ
 
-Fortran parser は `beach.toml` 内の補助キーを読み込み時に実行時キーへ正規化する。
-
-- `sim.box_origin` + `sim.box_size` -> `sim.box_min` / `sim.box_max`
-- `inject_region_mode = "face_fraction"` + `uv_low` / `uv_high` -> `pos_low` / `pos_high`
-- `mesh.templates` の `placement_mode = "box_anchor"` -> `center`
-- `mesh.groups.*` の `scale_from` / `placement_mode` -> template ごとの実寸・実座標
-
-実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書く。
+`box_origin` / `box_size`、面内割合、templateのbox基準配置、group scaleは通常の設定parameterです。
+[入力パラメータの座標・配置規則](Parameters.html#座標配置の補助パラメータ)に、計算先、併用エラー、明示寸法を上書きする条件をまとめています。
 
 ---
 
@@ -540,11 +539,13 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 |------|---------|
 | `reservoir_face` | `use_box=true`, `batch_duration>0`, `inject_face` 指定 |
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
-| `periodic2` | `field_solver=fmm`, ちょうど 2 軸が periodic, `use_box=true` |
+| `periodic2` | 通常は`field_solver=fmm`。Direct split referenceだけ例外。ちょうど2軸がperiodic、`use_box=true` |
 | シースモデル | `reservoir_potential_model = "none"` と互換 |
 | リジューム | `write_files=true`, checkpoint ファイル存在 (`restart_from` 指定時はそのディレクトリ), MPI サイズ一致 |
 | 性能プロファイル | 環境変数 `BEACH_PROFILE=1` |
 | MPI 実行 | `-DUSE_MPI` でコンパイル, MPI コンパイララッパー使用 |
+
+solver、kernel、境界条件の正本は[場の評価](FieldSolvers.html#solverと場境界の互換表)です。
 
 ---
 
@@ -601,16 +602,16 @@ BEACH/
 | `docs/DirectSolver.md` | Direct場・電位評価 |
 | `docs/Treecode.md` | Treecodeの構築・精度・制約 |
 | `docs/PeriodicElectrostatics.md` | periodic2場とzero mode |
-| `docs/FinitePeriodicConfiguration.md` | 有限画像とscalar boundary closureの統合構成 |
+| `docs/FinitePeriodicConfiguration.md` | 有限画像とscalar境界補正の統合構成 |
 | `docs/InfinitePeriodicOuterConfiguration.md` | 無限周期場とouter plasmaの統合構成 |
-| `docs/OuterPlasmaModels.md` | 外部プラズマとreturn closure |
+| `docs/OuterPlasmaModels.md` | 外部プラズマとreturnモデル |
 | `docs/KineticOuterPlasma.md` | kinetic 1D outer Poisson solve |
 | `docs/UnifiedLinearResponse.md` | rough surfaceを含む統合線形応答 |
 | `docs/ParticleEscapeReturn.md` | open境界、1D return、3D outer軌道 |
 | `docs/FMM.md` | FMMの選択と精度確認 |
 | `docs/FMMCore.md` | FMM内部実装・Ewald |
 | `docs/BatchDurationStability.md` | `batch_duration` 安定性 |
-| `docs/Configuration.md` | `beachx config` と高水準記法 |
+| `docs/Configuration.md` | 設定の作成、lint、schema |
 | `docs/PostprocessTutorial.md` | 後処理チュートリアル |
 | `docs/PythonPostprocessAPI.md` | Python API リファレンス |
 | `schemas/beach.schema.json` | IDE バリデーション用 JSON Schema |

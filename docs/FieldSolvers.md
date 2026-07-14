@@ -19,7 +19,7 @@ BEACHは各batchの開始時点の要素電荷`q_elem`から電場を作り、�
 
 | solver | 主な用途 | source kernel | 場境界 | 近似 |
 | --- | --- | --- | --- | --- |
-| [Direct](DirectSolver.html) | 小規模計算、基準解 | point、triangle P0 | free | 選んだkernelを全要素について直接評価 |
+| [Direct](DirectSolver.html) | 小規模計算、基準解、split reference | point、triangle P0 | free、条件付きperiodic2 | 選んだkernelを全要素について直接評価 |
 | [Treecode](Treecode.html) | 中規模のfree-space計算 | point、triangle P0 | free | 遠方nodeをmonopole、近傍leafを選択kernelで評価 |
 | [FMM](FMM.html) | 大規模計算、多数の評価点 | point、triangle P0 | free、periodic2 | 遠方相互作用を多重極・局所展開で近似 |
 | `auto` | free境界で要素数に応じて選択 | point、triangle P0 | free | pointはDirect/Treecode、triangle P0はDirect/FMM |
@@ -27,6 +27,21 @@ BEACHは各batchの開始時点の要素電荷`q_elem`から電場を作り、�
 `auto`は`nelem < tree_min_nelem`ならDirectを使います。それ以上では、point sourceにTreecode、
 triangle P0にFMMを選びます。既定のしきい値は`256`です。solver間の速度差は要素数だけでなく、
 粒子数、step数、評価点の分布にも依存します。実際の計算条件に近い小規模ケースで測定してください。
+
+## solverと場境界の互換表
+
+この表をsolver、source kernel、場境界の互換性に関する正本とします。
+
+| solver | `free` | `periodic2` |
+| --- | --- | --- |
+| `direct` | `point` / `triangle_p0` | split referenceのみ。`triangle_p0`、`periodic2.nonzero_mode_backend="panel_spectral_reference"`、`zero_mode_policy="exclude_k0"`、対応するlower-boundary modelが必須 |
+| `treecode` | `point` / `triangle_p0` | 非対応 |
+| `fmm` | `point` / `triangle_p0` | 対応。無限周期productionでは`cached_kneq0`を使用 |
+| `auto` | `point` / `triangle_p0` | 非対応 |
+
+`periodic2`ではさらに`sim.use_box=true`、ちょうど2つのperiodic軸、1つのopen軸が必要です。
+Direct split referenceは小規模な基準解・検証用であり、通常のperiodic2 production経路はFMMです。
+完全な構成は[Direct split referenceの公式設定例](../examples/periodic2_linear_outer_reference.toml)にあります。
 
 ## source kernelで要素電荷の離散化を決める
 

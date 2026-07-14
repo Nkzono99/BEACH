@@ -28,17 +28,20 @@ beachx inspect outputs/latest
 | ファイル | いつ出るか | まず見る内容 |
 | --- | --- | --- |
 | `summary.txt` | 常時 | batch 数、吸収数、脱出数、最後の相対変化、MPI rank 数 |
-| `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` | 収束した outer grid の `z, phi, E, rho`。restart profile としても使用 |
+| `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response`でouter stateが有効 | 収束した outer grid の `z, phi, E, rho`。条件付きcheckpoint |
+| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"` | 前batchと累積のphotoelectron histogram。条件付きcheckpoint |
 | `charges.csv` | 常時 | 要素ごとの最終電荷 |
 | `mesh_triangles.csv` | 常時 | 三角形頂点、要素 ID、`mesh_id` |
-| `mesh_sources.csv` | template mesh 利用時 | `mesh_id` と template kind / surface model / 要素数の対応 |
+| `mesh_sources.csv` | 常時 | OBJまたはtemplateの`mesh_id`、source kind、surface model、要素数 |
 | `mesh_potential.csv` | `output.write_mesh_potential=true` | 最終時刻の要素重心電位 |
 | `charge_history.csv` | `output.history_stride > 0` | batch ごとの要素電荷履歴 |
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` | batch ごとの要素重心電位履歴 |
 | `performance_profile.csv` | `BEACH_PROFILE=1` | phase 別実行時間 |
-| `rng_state*.txt` | 常時 | 再開用乱数状態 |
-| `macro_residuals*.csv` | reservoir 系注入時 | 端数マクロ粒子数の再開用状態 |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | 常時 | serialまたはMPI rank別の再開用乱数状態 |
+| `macro_residuals.csv` | マクロ粒子残差stateが有効 | MPIでも1個だけ書くglobalな端数マクロ粒子数 |
 | `charge_ledger.csv` | 常時 | 粒子種別の電荷収支と粒子数 |
+
+生成条件と再開時の役割は、機械可読な[`beach.output-manifest.json`](../schemas/beach.output-manifest.json)を正本とします。
 
 ## 粒子種別の電荷収支
 
@@ -65,6 +68,18 @@ discardを合わせて計算します。表面放出と表面吸収はsurface/fl
 ## 成功と注意の読み分け
 
 `summary.txt` で最初に確認する量は次のとおりです。
+
+| 項目 | 見方 |
+| --- | --- |
+| `batches` | 通常実行では `sim.batch_count` と一致していれば完了 |
+| `absorbed` | 表面に吸収された粒子数。帯電が進んでいるかを見る主指標 |
+| `escaped` | open boundary から出た粒子数。注入・境界条件の確認に使う |
+| `survived_max_step` | `sim.max_step` まで生存した粒子数。多い場合は `dt`、箱、注入条件を見直す |
+| `last_rel_change` | 最終 batch の電荷変化監視値。現行実装では早期停止条件ではない |
+| `charge_ledger_residual_C` | 電荷保存残差。0 でも unresolved discard は別途確認する |
+| `charge_ledger_discarded_unresolved_abs_C` | species 間で相殺しない max-step discard 電荷の絶対値和 |
+
+### モデル固有の診断
 
 `field_source_model`と`field_kernel_id`は、出力の計算に使ったfield kernelを示します。
 `triangle_p0_exact_tree_near`は、全頂点を含むnode半径、解析的なpanel near評価、monopole far評価を使うTreecodeです。
@@ -99,16 +114,6 @@ particle transferを有効にすると、`charge_ledger.csv`の`interface_outwar
 `interface_returned_gross_C`にinterfaceを通過する往路・復路の電荷量を記録します。これらを保存残差に二重加算することはありません。
 `summary.txt`の`max_outer_flight_time_s`、`max_outer_frozen_field_ratio`、
 `max_outer_energy_relative_error`は、run全体からMPI集約した最大値です。
-
-| 項目 | 見方 |
-| --- | --- |
-| `batches` | 通常実行では `sim.batch_count` と一致していれば完了 |
-| `absorbed` | 表面に吸収された粒子数。帯電が進んでいるかを見る主指標 |
-| `escaped` | open boundary から出た粒子数。注入・境界条件の確認に使う |
-| `survived_max_step` | `sim.max_step` まで生存した粒子数。多い場合は `dt`、箱、注入条件を見直す |
-| `last_rel_change` | 最終 batch の電荷変化監視値。現行実装では早期停止条件ではない |
-| `charge_ledger_residual_C` | 電荷保存残差。0 でも unresolved discard は別途確認する |
-| `charge_ledger_discarded_unresolved_abs_C` | species 間で相殺しない max-step discard 電荷の絶対値和 |
 
 `conductor` や `dielectric` を含む mesh では、`summary.txt` に注意書きが出る場合があります。
 `dielectric` は現行実装ではメタデータであり、誘電体境界条件を解くモデルではありません。
@@ -160,9 +165,18 @@ b.plot_potential()
 
 ## 再開実行の出力
 
-`output.resume=true`の場合、`summary.txt`、`charges.csv`、`rng_state*.txt`、`macro_residuals*.csv`、
-電荷収支を記録している場合の`charge_ledger.csv`をcheckpointとして使います。schema v3では、model / mesh / species fingerprintを照合し、
-outer solverのprofile/stateを完全に復元します。
+`output.resume=true`では、設定と保存済みstateに応じて次のファイルを読み込みます。
+
+| checkpointファイル | 再開時の扱い |
+| --- | --- |
+| `summary.txt`, `charges.csv` | 常に必須 |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialでは前者、MPIでは全rank分が必須 |
+| `macro_residuals.csv` | 存在する場合にglobal残差を復元。MPIでも単一ファイル。旧rank別ファイルは拒否 |
+| `charge_ledger.csv` | summaryにledger checkpoint metadataがある場合に必要 |
+| `outer_plasma_profile.csv` | 保存済みouter stateがreadyで、`kinetic_1d` / `unified_linear_response`を再開するときに必須 |
+| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"`を再開するときに必須 |
+
+schema v3ではmodel / mesh / species fingerprintを照合し、outer solverのprofile/stateを完全に復元します。
 
 schema v2の3列outer profileも読み込めます。ただし、held stateとしては使わず、次のrefreshでouter profileを解き直します。
 `output.restart_from`を指定すると、checkpointは`restart_from`から読み込み、新しい出力は`output.dir`に書き出します。
