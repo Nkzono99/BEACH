@@ -203,7 +203,7 @@ inject_face = "z_high"
 ray_direction = [0.0, 0.0, -1.0]
 ```
 
-先頭の負電荷`photo_raycast` speciesに設定した放出電流と温度から、mean closureが決まります。
+先頭の負電荷`photo_raycast` speciesに設定した放出電流と温度から、平均密度モデルが決まります。
 `deposit_opposite_charge_on_emit = true`は必須です。legacy `photo_escape_model`とは併用できません。
 `kinetic_mean`はouter profileだけを供給し、帰還電流を表面電荷に二重加算しません。
 

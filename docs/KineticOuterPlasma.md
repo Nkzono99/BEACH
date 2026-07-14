@@ -41,7 +41,7 @@ $$
 $$
 
 を解きます。無限遠電位はgaugeとして$\phi_\infty=0$です。interface電位$\phi_I=\phi(z_I)$は入力ではなく、
-interface電場、VDF closure、far条件を同時に満たす解から決まります。
+interface電場、VDFに基づく密度モデル、far条件を同時に満たす解から決まります。
 
 Newton法は、Poisson方程式と境界条件からなる非線形方程式を解きます。batch間の表面電荷更新によって$E_I$が変わると、
 $\phi_I$と各speciesの電流も変わります。electron、ion、photoelectron、外部回路のcurrent densityは、収束profileから得られる
@@ -59,7 +59,7 @@ z-highの最初の負・正`reservoir_face` speciesを、それぞれ無限遠am
 | ion | $n_{i,\infty},T_i,q_i,m_i,u_{i,\infty}$ | cold beamをエネルギー保存とflux保存で写像 |
 | photoelectron | $T_{pe},q_{pe},m_{pe},\Gamma_{pe,0}$ | surface half-Maxwellianのoutgoingとturning後のreturning平均population |
 
-cold ion closureは
+cold ion密度モデルは
 
 $$
 u_i(z)=\sqrt{u_{i,\infty}^2-\frac{2q_i\phi(z)}{m_i}},
@@ -82,10 +82,10 @@ $$
 \rho(\phi)=q_en_e(\phi)+q_in_i(\phi)+q_{pe}n_{pe}(\phi)
 $$
 
-です。各解析closureは密度に加え、Newton Jacobian用の$\partial n_s/\partial\phi$と必要な
+です。各解析密度モデルは密度に加え、Newton Jacobian用の$\partial n_s/\partial\phi$と必要な
 $\partial n_s/\partial\phi_I$を返します。
 
-`kinetic_mean`のoutgoing/returning densityは定常outer空間電荷のclosureです。tracked粒子の表面depositを置き換えず、
+`kinetic_mean`のoutgoing/returning densityは定常outer空間電荷の平均密度モデルです。tracked粒子の表面depositを置き換えず、
 統計的return currentを別途表面へ加えません。[光電子の放出とライフサイクル](PhotoelectronEmission.html)で、
 source電荷とtracked再吸収の収支を説明します。
 
@@ -156,7 +156,7 @@ frozen-field ratio、準定常性も検査します。
 
 ## Code reference
 
-- VDF closureとnonlinear Poisson solve: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
+- VDFに基づく密度モデルとnonlinear Poisson solve: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
 - runtime speciesからsolver optionを構成: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
 - surface fieldとの接続とMPI collective solve: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
 - profile output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)

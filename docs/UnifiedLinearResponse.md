@@ -21,7 +21,7 @@ plasma tailへ連続接続します。
 plasma responseにはDebye–Hückel型の線形関係
 
 $$
-\rho_\mathrm{closure}(z)=-\epsilon_0\kappa^2\phi(z),
+\rho_\mathrm{DH}(z)=-\epsilon_0\kappa^2\phi(z),
 \qquad
 \kappa=\lambda_D^{-1}
 $$
@@ -43,7 +43,7 @@ $$
 
 $$
 \rho_\mathrm{plasma}(z)
-=f_\mathrm{access}(z)\rho_\mathrm{closure}(z)
+=f_\mathrm{access}(z)\rho_\mathrm{DH}(z)
 =-\epsilon_0f_\mathrm{access}(z)\kappa^2\phi(z)
 $$
 
@@ -95,7 +95,7 @@ $$
 同じDebye長で指数外挿するため、ownership面がgrid上端より高くてもzero-mode fieldを連続に評価できます。
 
 flat surface、$f_\mathrm{access}=1$、surface sourceなしなら$\phi\propto e^{-z/\lambda_D}$へ戻ります。
-回帰検証はこの解析limit、grid refinement、surfaceとplasma chargeを合わせたGauss closureを使います。
+回帰検証はこの解析limit、grid refinement、surfaceとplasma chargeを合わせたGauss則の整合性を使います。
 
 ## 真空nonzero modeをscreened tailへ接続する
 
@@ -152,7 +152,7 @@ $\max(\eta_0,\max_k\eta_k)$が`max_linearity_ratio`を越えた場合は、非�
 | source kernel | `triangle_p0` |
 | prescribed field | `sim.e0=0` |
 | mean plasma | scalar linear Debye responseのみ |
-| species model | species別VDF、Bohm条件、photoelectron mean closureなし |
+| species model | species別VDF、Bohm条件、光電子の平均密度モデルなし |
 | particle transfer | `none`または`electrostatic_3d_explicit_orbit` |
 | magnetic field | explicit outer orbitは`sim.b0=0` |
 | failure | nonlinear modelやlegacy sheathへfallbackせず停止 |

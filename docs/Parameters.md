@@ -269,7 +269,7 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 | `outer_plasma.photoelectron_closure` | `none` | `individual_return`でphotoelectron個別帰還とoutgoing histogramを有効化 |
 | `outer_plasma.photoelectron_histogram_bins` | `32` | 法線運動エネルギーhistogramのbin数 |
 | `outer_plasma.photoelectron_histogram_energy_max` | 必須 | histogram上端 [J]。`individual_return`で正値必須 |
-| `outer_plasma.photoelectron_ambient_charge_scale` | 必須 | 線形closure適用性を比較するambient signed-charge scale [C] |
+| `outer_plasma.photoelectron_ambient_charge_scale` | 必須 | 線形モデルの適用性を比較するambient signed-charge scale [C] |
 | `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
 | `coupling.outer_update_stride` | `1` | outer profile更新batch間隔 |
 | `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
@@ -296,7 +296,7 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
 3. turning粒子について解析往復時間後に相当する復帰状態を作り、同じsimulation時刻・batchでinterfaceへ戻す。
 
-これは、定常・準定常sheathを対象としたinstant-return closureです。定常化後の平均電流と離脱力の計算に使えます。
+これは、定常・準定常sheathを対象としたinstant-return簡略化モデルです。定常化後の平均電流と離脱力の計算に使えます。
 UV照射の開始時など、遅延したreturn currentが影響する過渡応答は表しません。準定常条件は
 `tau_outer/field_evolution_timescale`で制限します。`tau_outer/batch_duration >= 1`の場合はbatch履歴を
 return currentの物理的な時間履歴として解釈できません。[<sup>1</sup>](ParticleEscapeReturn.md)
@@ -304,7 +304,7 @@ return currentの物理的な時間履歴として解釈できません。[<sup>
 `reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
 
 `photoelectron_closure="kinetic_mean"`では、先頭の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
-mean closureが供給するのはouter profileだけです。表面電荷は明示的に追跡する粒子が更新するため、
+平均密度モデルが供給するのはouter profileだけです。表面電荷は明示的に追跡する粒子が更新するため、
 統計的なreturn currentを追加で加算しません。tracked returnを使う全speciesで
 `deposit_opposite_charge_on_emit=true`を指定し、legacy `photo_escape_model`は無効にします。
 
@@ -343,7 +343,7 @@ mean closureが供給するのはouter profileだけです。表面電荷は明�
 | individual photoelectron return | `periodic2_photoelectron_individual_return.toml` | instant return、放出元逆符号電荷、legacy escape補正なし |
 
 `individual_return`のoutgoing histogramは全MPI rankから集計し、前batchの値と累積値をcheckpointに保存します。
-`statistical_return`は未仕様のため使用できません。放出が強く、ambient-onlyの線形closureの適用範囲を外れる場合は停止します。
+`statistical_return`は未仕様のため使用できません。放出が強く、ambient-onlyの線形モデルの適用範囲を外れる場合は停止します。
 
 periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必要です。
 同じ周期条件をfield、collision、`photo_raycast`に適用します。
@@ -393,7 +393,7 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
 設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) で説明します。
 各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
-[reservoir注入](ReservoirInjection.md)、[シース注入closure](SheathInjectionClosures.md)、
+[reservoir注入](ReservoirInjection.md)、[シース流入補正](SheathInjectionClosures.md)、
 [粒子のescapeとreturn](ParticleEscapeReturn.md)で、modelごとの処理を分けて説明します。
 
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で更新した

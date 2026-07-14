@@ -71,11 +71,11 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$で速度をsampleします。
 
 - 法線速度は、drift `normal_drift_speed`を持つflux-weighted half-range Maxwell分布。
 - 接線2成分は平均0、標準偏差$\sigma$のGaussian。
-- Zhao closureなどが$v_{\min}$を与える場合、法線速度は$v_n\ge v_{\min}$。
+- Zhaoモデルなどが$v_{\min}$を与える場合、法線速度は$v_n\ge v_{\min}$。
 - Gaussian samplingは$6\sigma$で切る。
 
 法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後に戻るかescapeするかは、tracked orbitまたは
-選択したreduced closureが決めます。
+選択した簡略化モデルが決めます。
 
 ## 放出と再吸収を表面電荷へ記録する
 
@@ -98,7 +98,7 @@ MPI all-reduce後に同じbatch commitへ加えます。
 | `photo_escape_model` | 生成するtracked重み | 意味 |
 | --- | --- | --- |
 | `none` | $w_\mathrm{hit}$ | 放出重みを減らさず、生成後は通常粒子として追跡 |
-| `boltzmann_cutoff` | $f_\mathrm{esc}w_\mathrm{hit}$ | 非escape成分を生成しない即時reduced closure |
+| `boltzmann_cutoff` | $f_\mathrm{esc}w_\mathrm{hit}$ | 非escape成分を生成しない即時簡略化モデル |
 
 legacy Boltzmann cutoffは、放出元のprimary self項を除いた局所電位$\phi_\mathrm{emit}$から
 
@@ -122,15 +122,15 @@ reservoir粒子や`volume_seed`粒子と同じ`open_boundary_model`またはoute
 ## 光電子をouter plasmaの平均密度へ含める
 
 `outer_plasma.photoelectron_closure="kinetic_mean"`は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を、
-平面平均sourceとして1D Poisson密度closureへ加えます。outgoing populationと、turning後のreturning populationが、
-outer領域の空間電荷に寄与します。この平均closureは、個々のtracked粒子の表面吸収を置き換えません。
+平面平均sourceとして1D Poisson密度モデルへ加えます。outgoing populationと、turning後のreturning populationが、
+outer領域の空間電荷に寄与します。この平均密度モデルは、個々のtracked粒子の表面吸収を置き換えません。
 統計的なreturn電荷を、別途表面へdepositすることもありません。
 
 生成後のtracked光電子をz-high interfaceからouter領域へ渡す場合も、粒子sourceに依存しない共通の
 escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
-Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入closureです。tracked粒子は
+Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入補正モデルです。tracked粒子は
 Zhao profileの$E(z)$ではなく、通常の粒子追跡で使う、batch内で固定された電場中を進みます。
 
 ## 光電子放出の収束を確認する
@@ -144,4 +144,4 @@ outer return固有の診断値は[出力の読み方](OutputGuide.html)で確認
 - ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - reduced escape係数と放出電荷差分: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - tracked-return互換性検証: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
-- kinetic mean photoelectron closure: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)
+- kinetic mean光電子密度モデル: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

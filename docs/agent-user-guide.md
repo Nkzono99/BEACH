@@ -595,9 +595,9 @@ BEACH/
 | `docs/DirectSolver.md` | Direct場・電位評価 |
 | `docs/Treecode.md` | Treecodeの構築・精度・制約 |
 | `docs/PeriodicElectrostatics.md` | periodic2場とzero mode |
-| `docs/FinitePeriodicConfiguration.md` | 有限画像とscalar boundary closureの統合構成 |
+| `docs/FinitePeriodicConfiguration.md` | 有限画像とscalar境界補正の統合構成 |
 | `docs/InfinitePeriodicOuterConfiguration.md` | 無限周期場とouter plasmaの統合構成 |
-| `docs/OuterPlasmaModels.md` | 外部プラズマとreturn closure |
+| `docs/OuterPlasmaModels.md` | 外部プラズマとreturnモデル |
 | `docs/KineticOuterPlasma.md` | kinetic 1D outer Poisson solve |
 | `docs/UnifiedLinearResponse.md` | rough surfaceを含む統合線形応答 |
 | `docs/ParticleEscapeReturn.md` | open境界、1D return、3D outer軌道 |

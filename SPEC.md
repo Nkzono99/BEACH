@@ -105,14 +105,14 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 `field.element_kernel="triangle_p0"` は `field_solver="direct" | "fmm" | "auto"`、`softening=0`、`surface_model="insulator"` に限定します。direct は厳密 free-space panel 和、FMM は全頂点を含む topology、近傍の厳密 panel 核、三角形 monomial の厳密 P2M を使います。auto は `tree_min_nelem` 未満で direct、以上で FMM を選びます。treecode と point-source `m2l_root_oracle` は拒否します。各 OBJ または template に `surface_side="normal_plus" | "normal_minus" | "outward_closed"` が必要です。`q_elem` は要素総電荷 [C]、面密度は `q_elem/area` です。面上電位は連続、法線電場は `sigma/epsilon0` だけ跳び、重心電位と principal-value 電場を自己項として用います。非対応 solver へ点電荷 fallback はしません。
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
-近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正の既定は `field_periodic_far_correction="none"`（`sim` table）です。`auto` は互換用に受理され、`none` に正規化されます。`none` は explicit image shell だけを評価する有限画像近似であり、完全な周期遠方場を与えるものではありません。`m2l_root_oracle` は `k=0` と charged-wall closure を含む明示 opt-in の高コスト診断 backend で、production physics には使いません。
+近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正の既定は `field_periodic_far_correction="none"`（`sim` table）です。`auto` は互換用に受理され、`none` に正規化されます。`none` は explicit image shell だけを評価する有限画像近似であり、完全な周期遠方場を与えるものではありません。`m2l_root_oracle` は `k=0` と charged-wall境界条件を含む明示 opt-in の高コスト診断 backend で、production physics には使いません。
 
-`field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` provider が場の合成時に一度だけ加えます。`lower_boundary_model="symmetric_vacuum"` は均質真空の無外場closureとして `E_bottom=-Q/(2 epsilon0 A)`、`E_top=+Q/(2 epsilon0 A)` を選び、interface位置や誘電率を必要としません。`e_bottom_zero` は下側場を0に固定する旧計算再現用closureです。外部シースのGauss残差は上側へ入る電束 `Q + epsilon0 A E_bottom` とouter chargeの和で評価します。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的なzero-mode boundary conditionで閉じます。cache fingerprintは周期長、FMM order、画像/Ewald層、source/target topology、softening、generator version、tolerance、real kind、build versionを含みます。MPIではrank 0だけがlock、検証、cache I/O、atomic publishを担当します。cache missのoperator生成はtarget sliceを全rankに分配し、各rank内でproxy RHSをOpenMP並列評価した後、`MPI_Allreduce(SUM)`で全rankに組み立てます。
+`field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` provider が場の合成時に一度だけ加えます。`lower_boundary_model="symmetric_vacuum"` は均質真空の無外場境界条件として `E_bottom=-Q/(2 epsilon0 A)`、`E_top=+Q/(2 epsilon0 A)` を選び、interface位置や誘電率を必要としません。`e_bottom_zero` は下側場を0に固定する旧計算再現用境界条件です。外部シースのGauss残差は上側へ入る電束 `Q + epsilon0 A E_bottom` とouter chargeの和で評価します。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的なzero-mode boundary conditionで閉じます。cache fingerprintは周期長、FMM order、画像/Ewald層、source/target topology、softening、generator version、tolerance、real kind、build versionを含みます。MPIではrank 0だけがlock、検証、cache I/O、atomic publishを担当します。cache missのoperator生成はtarget sliceを全rankに分配し、各rank内でproxy RHSをOpenMP並列評価した後、`MPI_Allreduce(SUM)`で全rankに組み立てます。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
 `periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、線形Debye outer plasmaを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`減衰、gap、局所平均plasma電荷推定、線形性を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
 
-`coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。`linear_debye`は`return_model="electrostatic_1d_instant_return"`、`kinetic_1d`は`return_model="kinetic_1d_profile_return"`を使います。後者の流入障壁は各batchで先に更新したouter stateの`phi_interface-phi_infinity`から計算し、総表面電荷の線形Debye近似へfallbackしません。外向き粒子は同じ離散kinetic profileとfar Robin tail上でescape/turning pointを判定し、区分線形電位と指数tailを解析積分して往復時間後に相当するlocal復帰状態を構成します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapし、残り`dt`を既存stepperで再積分します。ただしouter flightはglobal simulation timeへ加算せず、turning粒子のoutward/returned chargeは同じbatchに計上します。これは定常・準定常sheathを消去したreduced closureで、定常化後の平均電流と離脱力には適用できますが、UV照射開始などの遅延return currentを含む過渡応答は表しません。`tau_outer/field_evolution_timescale`が上限を超える場合は停止し、`tau_outer/batch_duration >= 1`ではbatch履歴を物理的なreturn-current時間履歴として解釈しません。persistent outer queueは未対応で、`outer_queue_enabled=true`を拒否します。`b0=0`のみを許し、`reservoir_potential_model`およびZhao injection correctionとの併用を拒否します。
+`coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。`linear_debye`は`return_model="electrostatic_1d_instant_return"`、`kinetic_1d`は`return_model="kinetic_1d_profile_return"`を使います。後者の流入障壁は各batchで先に更新したouter stateの`phi_interface-phi_infinity`から計算し、総表面電荷の線形Debye近似へfallbackしません。外向き粒子は同じ離散kinetic profileとfar Robin tail上でescape/turning pointを判定し、区分線形電位と指数tailを解析積分して往復時間後に相当するlocal復帰状態を構成します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapし、残り`dt`を既存stepperで再積分します。ただしouter flightはglobal simulation timeへ加算せず、turning粒子のoutward/returned chargeは同じbatchに計上します。これは定常・準定常sheathを消去した簡略化モデルで、定常化後の平均電流と離脱力には適用できますが、UV照射開始などの遅延return currentを含む過渡応答は表しません。`tau_outer/field_evolution_timescale`が上限を超える場合は停止し、`tau_outer/batch_duration >= 1`ではbatch履歴を物理的なreturn-current時間履歴として解釈しません。persistent outer queueは未対応で、`outer_queue_enabled=true`を拒否します。`b0=0`のみを許し、`reservoir_potential_model`およびZhao injection correctionとの併用を拒否します。
 
 `outer_plasma.model="unified_linear_response"` と
 `coupling.particle_transfer_mode="electrostatic_3d_explicit_orbit"` の組合せでは、z-high ownership面を
@@ -122,7 +122,7 @@ unified grid上端のfar planeを外向きに通過する粒子はinfinity escap
 outer flight time、frozen-field ratioを検査し、step上限到達をdiscardしません。persistent queueが未実装の
 ため該当軌道は停止します。外部磁場を無視する条件は未決なので`b0=0`のみを許可します。
 
-`outer_plasma.photoelectron_closure="individual_return"`では、`photo_raycast`粒子がz-high interfaceを外向き通過した時点で、法線運動エネルギーbinごとのsigned charge、全運動エネルギー、接線運動量、個数をMPI-globalに集計します。個別粒子は上記instant-return写像だけで帰還させ、統計量から別粒子を再注入しません。各batchの統計は`previous_batch`として次batchへ渡し、累積統計とともに`photoelectron_histogram.csv`へcheckpointします。charge-conserving modeでは全`photo_raycast` speciesに`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`との併用を拒否します。`statistical_return`は帰還位置・遅延・deposit則が未仕様なので使用不可です。放出signed chargeと`photoelectron_ambient_charge_scale`の比が`max_photoelectron_charge_ratio`を超えると、ambient-only線形closureを適用外として停止し、silent fallbackしません。
+`outer_plasma.photoelectron_closure="individual_return"`では、`photo_raycast`粒子がz-high interfaceを外向き通過した時点で、法線運動エネルギーbinごとのsigned charge、全運動エネルギー、接線運動量、個数をMPI-globalに集計します。個別粒子は上記instant-return写像だけで帰還させ、統計量から別粒子を再注入しません。各batchの統計は`previous_batch`として次batchへ渡し、累積統計とともに`photoelectron_histogram.csv`へcheckpointします。charge-conserving modeでは全`photo_raycast` speciesに`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`との併用を拒否します。`statistical_return`は帰還位置・遅延・deposit則が未仕様なので使用不可です。放出signed chargeと`photoelectron_ambient_charge_scale`の比が`max_photoelectron_charge_ratio`を超えると、ambient-only線形モデルを適用外として停止し、silent fallbackしません。
 
 `outer_plasma.model="kinetic_1d"`は、z-highの負・正`reservoir_face` speciesを無限遠の
 electron half-Maxwellian / cold drifting ion VDFとして用い、伸長1D格子上のPoisson方程式を
@@ -132,12 +132,12 @@ ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infini
 `photo_raycast` speciesの放出fluxからoutgoing/returning平均密度を構成します。解状態は
 `converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、線形モデルへ
 silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し、restart時のNewton初期値に使います。
-非線形solveは密度closureの解析微分から構成したbordered-tridiagonal Jacobianを使い、1反復を
+非線形solveは密度モデルの解析微分から構成したbordered-tridiagonal Jacobianを使い、1反復を
 格子点数に対して線形時間で解きます。Newton backtrackingが停滞した場合は同じPoisson残差に対する
 pseudo-transient stepへ切り替え、前回profileとのinterface field差が大きい場合は適応continuationで
 目標fieldへ進みます。pseudo-transient項や中間fieldを収束解として受理せず、最終目標fieldにおける
 元の未正則化残差が設定許容値以下の場合だけ`converged`とします。
-`kinetic_mean`とtracked `kinetic_1d_profile_return`を併用しても、mean closureはouter空間電荷と
+`kinetic_mean`とtracked `kinetic_1d_profile_return`を併用しても、平均密度モデルはouter空間電荷と
 current診断だけを供給し、表面へreturn chargeを再加算しません。表面の電荷収支はtracked粒子の放出と
 再吸収だけで更新します。
 
@@ -208,7 +208,7 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
   - 放出元要素の自己寄与を除いた中心電位から `barrier = max(phi_emit - phi_infty, 0)` を計算
   - `escape_factor = exp(-|q_particle| * barrier / (k_B * T_PE))`
   - `w_eff = w_hit * escape_factor` とし、PE粒子重みと `deposit_opposite_charge_on_emit` の放出元電荷 bookkeeping に同じ `w_eff` を使う
-  - これは戻りPEを即時中和として扱う reduced closure であり、個別PEの再吸収面は追跡しない
+  - これは戻りPEを即時中和として扱う簡略化モデルであり、個別PEの再吸収面は追跡しない
 - `sim.field_bc_mode="periodic2"` で periodic image に命中した場合も、放出位置は primary cell に wrap した hit 座標を使う
 - `sheath_injection_model` が Zhao 系のとき、最初の負電荷 `photo_raycast` species の `emit_current_density_a_m2` は Zhao の自由光電子電流へ上書きされ、法線速度 cutoff も分枝に応じて適用される
 

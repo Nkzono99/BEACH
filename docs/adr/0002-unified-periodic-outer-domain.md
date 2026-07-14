@@ -17,7 +17,7 @@ interface は field の境界ではなく ownership/handoff 面だけとする�
 
 ### Accessible area
 
-Phase 8 の 1D mean closure は single-valued topography に限定する。周期セル内の各 `(x,y)` に
+Phase 8 の 1D 平均応答モデルは single-valued topography に限定する。周期セル内の各 `(x,y)` に
 対し、plasma-facing surface の最上交点を `h(x,y)` とし、
 
 ```text
@@ -28,21 +28,21 @@ A_access(z) / A_xy = mean_xy[ I(z > h(x,y)) ]
 使い、sample 数を倍増しても結果が収束することを要求する。複数の上向き交点、closed cavity、overhang、横方向
 迂回だけで reservoir へ接続する領域はこの定義では表せないため `not_applicable` とする。
 
-plasma density closure `n_closure(z)` は accessible volume 内の条件付き密度であり、full-cell
+plasma 密度モデル $n_\mathrm{plasma}(z)$ は accessible volume 内の条件付き密度であり、full-cell
 zero-mode source は
 
 ```text
-rho_mean(z) = f_access(z) rho_closure(z)
+rho_mean(z) = f_access(z) rho_plasma(z)
 ```
 
 とする。tracked-particle residence histogram は
-`n_hist = sum(weight)/(A_access dz observation_time)` という独立診断であり、closure source には加算しない。
+`n_hist = sum(weight)/(A_access dz observation_time)` という独立診断であり、応答 source には加算しない。
 不一致が configured tolerance を超える場合は、production 計算として受理しない。
 
 ### Unified zero mode
 
 surface panel source は既存の exact height projection `F_i(z)` を用いる。plasma source は、同じ
-1D grid の finite volume へ `f_access rho_closure` として入れる。一つの Poisson solve に bottom field と far Robin
+1D grid の finite volume へ `f_access rho_plasma` として入れる。一つの Poisson solve に bottom field と far Robin
 condition を課し、interface Neumann condition は廃止する。Gauss residual は surface、local mean plasma、far tail を含む domain 全体で評価する。
 
 ### Nonzero-mode plasma tail
@@ -65,7 +65,7 @@ field、tangential field を応答開始面で連続にする。`kappa=0` では
 finite mode truncation は configured `mode_layers` で制御する。neglected-amplitude bound は将来追加する診断であり、
 現行実装は出力しない。そのため、`mode_layers` と panel quadrature を増やしたときの目的量の収束を、
 production 計算の受理条件とする。各 retained mode の `max |q_s phi_k|/T_s` が linearity tolerance を超える場合や、
-mode 間の nonlinear coupling が必要な場合は `not_applicable` とする。1D closure では代用しない。
+mode 間の nonlinear coupling が必要な場合は `not_applicable` とする。1D 平均応答モデルでは代用しない。
 
 ### Outer orbit
 

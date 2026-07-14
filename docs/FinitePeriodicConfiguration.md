@@ -5,7 +5,7 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 # periodic2有限画像構成
 
 この構成では、x/y周期boxのsurface fieldをprimary cellと指定した画像層の和として定義します。外部plasmaの
-空間profileは状態に持たず、流入・流出・光電子には必要に応じてscalar potentialによるreduced closureを組み合わせます。
+空間profileは状態に持たず、流入・流出・光電子には必要に応じてscalar potentialによる簡略化モデルを組み合わせます。
 
 ## このページで採用する典型構成
 
@@ -96,7 +96,7 @@ primary cellから指定した層までのcopyだけをfield sourceに含めま�
 
 `field_periodic_far_correction="none"`と互換aliasの`"auto"`は、範囲外のcellをEwald和やcached operatorで補いません。
 また、cellの正味電荷が0でない場合は、画像層を増やすだけでは無限周期系のpotential基準やz方向の遠方境界は決まりません。
-そのような物理的な遠方closureが必要なら、有限画像層を増やし続けるのではなく無限周期＋outer plasma構成を使います。
+そのような物理的な遠方境界モデルが必要なら、有限画像層を増やし続けるのではなく無限周期＋outer plasma構成を使います。
 
 ## reservoir流入をface平均potentialで補正する
 

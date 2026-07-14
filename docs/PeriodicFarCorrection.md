@@ -152,7 +152,7 @@ $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
 $$
 
-`zero_mode_policy="exclude_k0"`は平均場を捨てる指定ではなく、FMM backendと物理closureの二重加算を防ぐ
+`zero_mode_policy="exclude_k0"`は平均場を捨てる指定ではなく、FMM backendと物理的なzero-mode境界モデルの二重加算を防ぐ
 ownership規則です。
 
 ## cacheと並列化の境界を理解する

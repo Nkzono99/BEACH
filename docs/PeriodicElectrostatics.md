@@ -108,7 +108,7 @@ $$
 です。breakpoint区間を二分探索し、区間内の二次式と三次primitiveを使うため、1点評価は$O(\log N_z)$です。
 
 非中性cellではz遠方に一定fieldと線形potentialが残り得ます。zero modeは数値的に消してよい成分ではなく、Gauss則と
-boundary closureを満たす物理成分です。
+境界条件を満たす物理成分です。
 
 ## z方向の境界条件で平均場を閉じる
 
@@ -116,11 +116,11 @@ boundary closureを満たす物理成分です。
 
 | `lower_boundary_model` | $E_\mathrm{bottom}$ | $E_\mathrm{top}$ | 意味 |
 | --- | ---: | ---: | --- |
-| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 上下に同じvacuum半空間がある無外場closure |
-| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 下側電束を0に固定するlegacy closure |
+| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 上下に同じvacuum半空間がある無外場境界条件 |
+| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 下側電束を0に固定するlegacy境界条件 |
 
 どちらのmodelも、誘電体内部のscreeningやpolarizationは解きません。`symmetric_vacuum`は、追加のinterfaceや
-誘電率を持たない最小の対称closureです。`e_bottom_zero`は過去の計算を再現するための設定であり、一般的な
+誘電率を持たない最小の対称境界条件です。`e_bottom_zero`は過去の計算を再現するための設定であり、一般的な
 物理defaultではありません。
 
 outer modelを接続すると、surface zero modeのfield/interface条件を使ってplasma profileを作ります。split kinetic modelは
@@ -139,7 +139,7 @@ collisionのimage boundは、それぞれ独立に決まります。[<sup>1</sup
 - cached modelではcache miss/hit、thread/MPI構成で同じoperator結果を確認する。
 - Ewald $\alpha$、real/reciprocal layer、proxy/check設定に対するteacher/operator誤差を確認する。
 - primary、near、far、symmetric `k=0` subtraction、physical `k=0`の二重加算がないことをoracleと比較する。
-- Gauss residualとlower/upper boundary closureを確認する。
+- Gauss residualと上下の境界条件を確認する。
 - 非中性cellの有限高さpotential差を、そのまま無限遠escape energyと解釈しない。
 
 FMM内部のEwald式とoperator APIは[FMM内部実装](FMMCore.html)にまとめています。

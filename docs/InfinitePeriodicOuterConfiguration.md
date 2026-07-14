@@ -4,7 +4,7 @@ Lang: [日本語](InfinitePeriodicOuterConfiguration.md) | [English](InfinitePer
 
 # periodic2無限周期＋outer plasma構成
 
-この構成は、x/y無限周期のsurface fieldとz方向の外部plasma closureを一つの電場・電位として組み立てます。
+この構成は、x/y無限周期のsurface fieldとz方向の外部plasmaモデルを一つの電場・電位として組み立てます。
 near image、Ewaldから生成したfar `k\ne0` operator、物理`k=0`、outer responseを重複なく合成し、同じouter potentialを
 reservoir inflowとparticle returnに使います。
 
@@ -26,14 +26,14 @@ periodic operatorと`k=0`の式は[periodic2静電場](PeriodicElectrostatics.ht
 
 | 構成 | mean plasma | nonzero mode | particle transfer |
 | --- | --- | --- | --- |
-| split kinetic | VDF closureの非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `kinetic_1d_profile_return` |
+| split kinetic | VDFに基づく密度モデルを使う非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `kinetic_1d_profile_return` |
 | unified linear | accessible fraction付き線形Poisson | response startでscreened modeへ接続 | なし、または3D explicit orbit |
 
 split kineticはspecies別VDF、Bohm entry、photoelectron mean densityを扱えます。一方で、surfaceとinterfaceの間には、
 local surface fieldだけを扱うsplit windowを仮定します。[kinetic 1D外部プラズマ](KineticOuterPlasma.html)に
 この分割と非線形solveをまとめています。
 
-unified linearはroughness範囲からplasma responseを入れられますが、linear Debye closureでありspecies VDFやBohm条件を
+unified linearはroughness範囲からplasma responseを入れられますが、線形Debye応答モデルでありspecies VDFやBohm条件を
 解きません。[unified linear response](UnifiedLinearResponse.html)で適用範囲とfield solveを説明します。
 
 ## batch開始時に確定した場を流入とreturnで共有する
@@ -72,9 +72,9 @@ photoelectronの扱いはouter field modelとparticle returnを分けて選び�
 | `photoelectron_closure="none"` | photoelectron mean densityなし | 通常のsource/軌道だけ |
 | `kinetic_mean` + transferなし | 定常outgoing/returning mean density | z-highでは通常open処理 |
 | `kinetic_mean` + profile return | 同じmean density | 個々のinterface crossingもprofileでreturn/escape |
-| unified + explicit orbit | mean photoelectron closureなし | 個々の3D外部軌道 |
+| unified + explicit orbit | 光電子の平均密度モデルなし | 個々の3D外部軌道 |
 
-tracked returnでは`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`を併用しません。mean closureは
+tracked returnでは`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`を併用しません。平均密度モデルは
 tracked surface depositを置き換えず、統計的return chargeを追加depositしません。
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)に、放出から再吸収までの電荷収支をまとめています。
 
@@ -131,7 +131,7 @@ steady/quasisteadyでないreturn currentには、[粒子のescapeとreturn](Par
 | 対象 | 変えるparameter | 比較量 |
 | --- | --- | --- |
 | near/far periodic | image layer、Ewald layer、cache cold/warm | $\phi,\mathbf E$、force、operator residual |
-| physical `k=0` | lower closure、height/grid refinement | Gauss residual、interface field |
+| physical `k=0` | 下側境界条件、height/grid refinement | Gauss residual、interface field |
 | kinetic profile | Debye長、source sampling、outer stride | $\phi_I$、current、nonlinear residual |
 | unified profile | `unified_grid_points`、height sampling、mode layer | linearity、accessible fraction、Gauss residual |
 | reservoir | macro target、batch duration | inflow current、macro residual |

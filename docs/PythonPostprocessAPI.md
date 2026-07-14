@@ -21,7 +21,7 @@ BEACHのPython package (`beach`) は、Fortranシミュレーションの結果�
 | `beach.fortran_results.kernel` | Fortran FMM field kernel の共有ライブラリ呼び出し (`FieldKernel`, `calc_object_forces_kernel`) |
 | `beach.fortran_results.object_interaction` | 凍結した source 電荷に対する object の力・トルク・鉛直経路 (`ObjectInteractionSnapshot`, `ObjectProbe`) |
 | `beach.fortran_results.detachment` | 経路仕事、付着、重力、速度、from-rest barrier の immutable 結果型 |
-| `beach.fortran_results.periodic_force_oracle` | 有限周期画像 shell と `E_bottom=0` closure の収束診断 |
+| `beach.fortran_results.periodic_force_oracle` | 有限周期画像 shell と `E_bottom=0` 境界条件の収束診断 |
 | `beach.fortran_results.scene` | object の一時移動・回転と編集後 scene の field-kernel 評価 |
 | `beach.fortran_results.field_lines` | 電場計算・電気力線追跡・3D 描画 (`compute_electric_field_points`, `trace_field_lines`, `plot_field_lines_3d`) |
 | `beach.fortran_results.mobility` | Coulomb mobility 解析 (`analyze_coulomb_mobility`) |
@@ -614,9 +614,9 @@ native trace を PV 分解へ写すために **すでに `periodic_kneq0` へ含
 `finite_shell_wrench()`は、Fortran native finite-image kernel (`far_correction="none"`) で次の2つを評価します。
 
 - raw symmetric shell
-- 解析的な`Q_cell/(2 epsilon0 A_xy) e_z`を加えた`E_bottom=0` closure
+- 解析的な`Q_cell/(2 epsilon0 A_xy) e_z`を加えた`E_bottom=0`境界条件
 
-返り値の`selected`は、要求したclosureです。`symmetric`と`e_bottom_zero`も結果recordに残るため、closure間の差を確認できます。
+返り値の`selected`は、要求した境界条件です。`symmetric`と`e_bottom_zero`も結果recordに残るため、境界条件間の差を確認できます。
 sourceにはnative canonical-unwrapped表現を使います。Python側で周期画像を追加生成したり、移動後のtargetをprimary cellにwrapしたりしません。
 
 ```python

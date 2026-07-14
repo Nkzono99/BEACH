@@ -1,17 +1,17 @@
-title: シース注入closure
+title: シース流入補正
 
 Lang: [日本語](SheathInjectionClosures.md) | [English](SheathInjectionClosures.en.md)
 
-# シース注入closure
+# シース流入補正
 
-`sim.sheath_injection_model`は、解析的なsheath closureから`reservoir_face`と`photo_raycast`の密度、drift、
+`sim.sheath_injection_model`は、解析的なシースモデルから`reservoir_face`と`photo_raycast`の密度、drift、
 cutoffを決めます。補正結果はsource samplingへ適用し、生成後の粒子は、別に構成されてbatch内で固定された電場中を進みます。
 
 | model | 解く量 | particle sourceへ反映する量 |
 | --- | --- | --- |
 | `none` | なし | 設定したVDFをそのまま使用 |
 | `floating_no_photo` | 光電子なしの負の浮遊電位 | electronの法線cutoff |
-| `zhao_a/b/c` | 指定したZhao branchの解析closure | electron/ion/photoelectronの密度、drift、cutoff、放出電流 |
+| `zhao_a/b/c` | 指定したZhao branchの解析モデル | electron/ion/photoelectronの密度、drift、cutoff、放出電流 |
 | `zhao_auto` | 太陽高度に応じてZhao branchを探索 | 収束したbranchと同じ補正 |
 
 自己整合なouter Poisson profileは[kinetic 1D外部プラズマ](KineticOuterPlasma.html)、rough surfaceを含む
@@ -49,9 +49,9 @@ $$
 広げます。反復回数の上限は80回です。正のion fluxがない場合や、負の解を挟み込めない場合は停止します。
 
 得た$\phi_0$は最初のelectron reservoirの$v_{\min}$へ変換されます。ion VDFは変えず、光電子も扱いません。
-空間的な$\phi(z)$、$E(z)$、turning point、flight timeは作らない簡易current-balance closureです。
+空間的な$\phi(z)$、$E(z)$、turning point、flight timeは作らない簡易的な電流釣り合いモデルです。
 
-## Zhao closureの無次元量を作る
+## Zhaoモデルの無次元量を作る
 
 solar elevationを$\alpha$、reference photoelectron densityを$n_{\mathrm{phe,ref}}$とすると、surface source densityは
 
@@ -92,7 +92,7 @@ potential minimum $\phi_m$、有効solar-wind electron密度$n_{\mathrm{swe},\in
 Zhao family内でbranchを選ぶためのものです。すべて失敗すれば停止し、`floating_no_photo`やouter Poisson modelへ切り替えません。
 `zhao_a/b/c`を明示した場合は指定branchだけを解き、失敗時に別branchへ移りません。
 
-## closureの解を各sourceへ反映する
+## モデルの解を各sourceへ反映する
 
 ### ambient electron
 
@@ -149,9 +149,9 @@ $$
 この経路はすでにlocal VDFを構成しているため、汎用の`reservoir_potential_model`によるbarrier energy shiftを
 重ねません。
 
-## Zhao closureを使う範囲
+## Zhaoモデルを使う範囲
 
-Zhao profileから得る量は、文献closureに基づくsource VDFの事前補正です。Zhao rootはBoris pusherで用いる電場とは独立しており、
+Zhao profileから得る量は、文献モデルに基づくsource VDFの事前補正です。Zhao rootはBoris pusherで用いる電場とは独立しており、
 batchごとの`q_elem`からは更新されません。したがって、任意の3D surface geometryと自己整合な外部場を必要とする構成には対応しません。
 
 sourceと外向き粒子が同じ自己整合potential profileを共有する計算には、
@@ -165,7 +165,7 @@ sourceと外向き粒子が同じ自己整合potential profileを共有する計
 - Zhaoは負electron、正ion、負photoelectronの3 speciesを要求します。
 - `floating_no_photo`は負electronと正ionだけを使い、photoelectron sourceを補正しません。
 
-`photo_escape_model="boltzmann_cutoff"`はZhaoとは別の局所reduced closureです。式とtracked returnとの排他関係は
+`photo_escape_model="boltzmann_cutoff"`はZhaoとは別の局所的な簡略化モデルです。式とtracked returnとの排他関係は
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
 
 ## Code reference

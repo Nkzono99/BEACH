@@ -17,7 +17,7 @@ Lang: [日本語](OuterPlasmaModels.md) | [English](OuterPlasmaModels.en.md)
 | 外部場 | `outer_plasma.model` | box外の1D profileまたはsurfaceからfarまでの応答場を構成する |
 | box外粒子 | `coupling.particle_transfer_mode` | interfaceから出た粒子を1D写像または3D軌道へ渡す |
 
-`reservoir_face`は粒子源です。`infinity_barrier`やシース注入closureは、その粒子源へ渡すVDFを補正します。
+`reservoir_face`は粒子源です。`infinity_barrier`やシース流入補正は、その粒子源へ渡すVDFを補正します。
 `potential_barrier`は逆向きにopen面へ出た粒子を処理します。`kinetic_1d`と`unified_linear_response`は、
 scalar補正より多くの空間情報を持つ外部場です。
 
@@ -28,7 +28,7 @@ scalar補正より多くの空間情報を持つ外部場です。
    │
    ├─ 補正なし
    ├─ infinity_barrier         face平均電位でenergy map
-   ├─ sheath_injection_model  解析closureで密度・drift・cutoffを補正
+   ├─ sheath_injection_model  解析モデルで密度・drift・cutoffを補正
    └─ kinetic_1d profile      解いた外部電位でenergy map
              ↓
        reservoir_face
@@ -36,7 +36,7 @@ scalar補正より多くの空間情報を持つ外部場です。
 ```
 
 `source_mode="reservoir_face"`は、与えられた上流VDFをflux-weighted分布へ変換し、box面上に粒子を生成します。
-このsampling自体はシースを解きません。上図はreservoir流入の経路です。Zhao系closureはこれに加えて、
+このsampling自体はシースを解きません。上図はreservoir流入の経路です。Zhao系モデルはこれに加えて、
 対応する`photo_raycast` sourceの密度、cutoff、放出電流も補正します。
 
 | 流入モデル | 入力から決めるもの | 空間profile |
@@ -44,12 +44,12 @@ scalar補正より多くの空間情報を持つ外部場です。
 | 補正なし | 設定したVDFをface上の分布として使用 | なし |
 | `infinity_barrier` | face平均電位と`phi_infty`から到達cutoff・face速度を計算 | なし |
 | `floating_no_photo` | electron/ion流入が釣り合うelectron cutoff | なし |
-| `zhao_*` | 解析branchからelectron/ion/photoelectronのVDFを補正 | 解析closureだけ |
+| `zhao_*` | 解析branchからelectron/ion/photoelectronのVDFを補正 | 解析モデルだけ |
 | `kinetic_1d` | 収束した外部Poisson profileからinterfaceへの流入を写像 | 離散1D profile |
 
 `floating_no_photo`と`zhao_*`は`sim.sheath_injection_model`で選びます。これらはsource VDFの事前補正であり、
 生成後の粒子を進める空間電場ではありません。詳しいsamplingは[reservoir注入](ReservoirInjection.html)、
-解析closureは[流入VDFのシースclosure](SheathInjectionClosures.html)にあります。
+解析モデルは[流入VDFのシース補正](SheathInjectionClosures.html)にあります。
 
 ## 流出側はopen境界とouter transferを分ける
 
@@ -72,9 +72,9 @@ escape/returnは`open_boundary_model`ではなく対応するouter modelが担�
 
 | `outer_plasma.model` | 解くもの | 適した用途 |
 | --- | --- | --- |
-| `none` | 外部場なし | 単純open境界、scalar barrier、解析注入closure |
+| `none` | 外部場なし | 単純open境界、scalar barrier、解析的な注入補正 |
 | `linear_debye` | interfaceからの指数zero-mode応答 | 簡易1D instant return |
-| `kinetic_1d` | VDF closureを含む非線形1D Poisson profile | 自己整合な流入・電流・escape/return |
+| `kinetic_1d` | VDFに基づく密度モデルを含む非線形1D Poisson profile | 自己整合な流入・電流・escape/return |
 | `unified_linear_response` | rough surfaceからfarまでの線形zero/nonzero応答 | 真空split windowを置けないrough surface |
 
 `kinetic_1d`はambient electron/ionの無限遠VDF、Bohm条件、Poisson residual、無限遠準中性を満たす単調分枝を
@@ -90,7 +90,7 @@ plasma応答が同じ領域に重なるが線形近似でよい場合は[外部�
 | --- | --- | --- | --- |
 | 単純な有限box | `reservoir_face`、補正なし | `escape` | なし |
 | 有限画像＋scalar barrier | `infinity_barrier` | `potential_barrier` | なし |
-| Zhao文献closure | `sheath_injection_model="zhao_*"` | 通常のopen境界 | なし |
+| Zhao文献モデル | `sheath_injection_model="zhao_*"` | 通常のopen境界 | なし |
 | 自己整合1D sheath | kinetic profileから流入写像 | kinetic profile return | `kinetic_1d` + 1D transfer |
 | rough surface線形応答 | faceで指定したsource | openまたは3D outer orbit | `unified_linear_response` |
 
@@ -103,7 +103,7 @@ plasma応答が同じ領域に重なるが線形近似でよい場合は[外部�
 - `kinetic_1d`のprofile returnでは、流入にも同じprofileを使い、Zhaoや`infinity_barrier`を重ねない。
 - `unified_linear_response`はsource VDFや浮遊電流を決めない。reservoirを使う場合はface上の分布を別に定義する。
 - outer transfer対象のz-high面と、通常の`potential_barrier`によるscalar反射を同じ処理として解釈しない。
-- modelが失敗したときに、別の簡易closureへsilent fallbackしない。
+- modelが失敗したときに、別の簡略化モデルへsilent fallbackしない。
 
 profile statusだけでなく、Poisson residual、境界条件、電荷積分、current balance、grid refinement、
 frozen-field ratioを、使用したmodelに応じて確認します。共通の手順は

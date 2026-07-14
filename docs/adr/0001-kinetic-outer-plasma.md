@@ -1,4 +1,4 @@
-# ADR 0001: 単調 1D kinetic outer-plasma closure
+# ADR 0001: 単調 1D kinetic outer-plasmaモデル
 
 - Status: accepted for Phase 7
 - Date: 2026-07-11
@@ -65,13 +65,13 @@ f_return = 1 - f_escape
 ```
 
 とする。空間密度は同じ flux VDF の Liouville 写像から評価し、returning branch を一度だけ
-加える。`individual_return` と併用する場合、平均 closure は空間電荷だけを供給し、return
+加える。`individual_return` と併用する場合、平均密度モデルは空間電荷だけを供給し、return
 current を表面の電荷収支へ再加算しない。
 
-### Charge and current closure
+### 電荷と電流の整合条件
 
 Poisson source は `rho=sum(q_s n_s)` とする。解は離散 Poisson residual、far Robin residual、
-および Gauss closure
+および Gauss則の整合条件
 
 ```text
 integral_0^L rho dz - epsilon_0 [E(L)-E(0)] = 0
@@ -99,7 +99,7 @@ population、衝突 presheath、磁化 orbit は将来の別 ADR と solver を�
 
 - 伸長格子 `z_j=L[(exp(a*j/(N-1))-1)/(exp(a)-1)]`、`a=0` は一様格子
 - conservative finite-volume Poisson residual
-- density closureの解析微分から組み立てるtridiagonal + interface-potential border Jacobian
+- 密度モデルの解析微分から組み立てるtridiagonal + interface-potential border Jacobian
 - bordered-tridiagonal solveによる格子点数`N`に対して`O(N)`のNewton step
 - 単調分枝を維持するbacktrackingと、Newton停滞時のpseudo-transient continuation
 - 前batch fieldとの差が大きい場合の適応interface-field continuation

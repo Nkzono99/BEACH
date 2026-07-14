@@ -109,7 +109,7 @@ $$
 | `reservoir_potential_model="infinity_barrier"` | 注入開口の平均電位と`sim.phi_infty` | 解かない |
 | split `linear_debye` | surface zero modeから作るinterface電位差 | return時は解析profile |
 | split `kinetic_1d` | 収束したouter profileのinterface電位 | return時は離散profile |
-| Zhao系注入closure | branchから局所VDFとcutoffを構成 | pusherへ$E(z)$を加えない |
+| Zhao系注入補正 | branchから局所VDFとcutoffを構成 | pusherへ$E(z)$を加えない |
 
 `infinity_barrier`は、batch開始時に構成した電場・電位を開口内の
 `injection_face_phi_grid_n`四方のcell-centered点で評価し、scalar平均$\bar\phi_f$を使います。
@@ -123,7 +123,7 @@ Poisson境界条件に使いますが、粒子速度を変える量は解から�
 modelの選択とreturn側への同じprofileの適用を説明します。
 
 Zhao branchと`floating_no_photo`がsource密度・cutoff・driftを上書きする規則は
-[シース注入closure](SheathInjectionClosures.html)にまとめています。
+[シース流入補正](SheathInjectionClosures.html)にまとめています。
 
 ## 生成位置の位相をjitterで散らす
 
