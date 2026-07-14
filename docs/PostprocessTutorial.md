@@ -4,46 +4,13 @@ Lang: [日本語](PostprocessTutorial.md) | [English](PostprocessTutorial.en.md)
 
 # 後処理チュートリアル
 
-最初にCLIで実行結果の全体を確認し、次にPythonで分布と履歴を読み込みます。
-出力ファイルの意味は [出力の読み方](OutputGuide.html)、API の詳細は [Python 後処理 API リファレンス](PythonPostprocessAPI.html) から確認できます。
+BEACHの後処理は、Python package `beach`を直接使う方法と、そのpackageで定型処理を行う`beachx`があります。
+このページではPython APIを先に示し、その後に用意済みの可視化・解析commandを紹介します。全class・関数は
+[Python後処理APIリファレンス](PythonPostprocessAPI.html)、出力fileの意味は[出力の読み方](OutputGuide.html)から確認できます。
 
-## CLI で概要を確認する
+## Python APIで後処理する
 
-```bash
-beachx inspect outputs/latest
-```
-
-画像を保存する場合:
-
-```bash
-beachx inspect outputs/latest \
-  --save-bar outputs/latest/charges_bar.png \
-  --save-mesh outputs/latest/charges_mesh.png \
-  --save-potential-mesh outputs/latest/potential_mesh.png
-```
-
-`sim.field_bc_mode="periodic2"` の mesh を周期セルに寄せて描く場合:
-
-```bash
-beachx inspect outputs/latest \
-  --save-mesh outputs/latest/charges_mesh_periodic.png \
-  --apply-periodic2-mesh
-```
-
-## 履歴アニメーションを作る
-
-`charge_history.csv` がある場合:
-
-```bash
-beachx animate outputs/latest \
-  --quantity charge \
-  --save-gif outputs/latest/charge_history.gif \
-  --total-frames 200
-```
-
-`potential_history.csv` を出している場合は `--quantity potential` も使えます。
-
-## Python API で読む
+### 結果を読み、基本図を作る
 
 ```python
 from beach import Beach
@@ -64,7 +31,7 @@ b.plot_potential()
 b = Beach("outputs/latest", config_path="beach.toml")
 ```
 
-## 特定 mesh だけを見る
+### 特定meshだけを見る
 
 `mesh_sources.csv` で `mesh_id` を確認してから、対象 mesh を選べます。
 
@@ -84,58 +51,9 @@ mesh1_step10 = b.get_mesh(1, step=10)
 charge1_step10 = b.get_mesh_charge(1, step=10)
 ```
 
-## 断面・力・移動しやすさ
+### 周期画像を含むobjectの離脱力を調べる
 
-少し進んだ解析では次の CLI を使います。
-
-```bash
-beachx slices outputs/latest \
-  --grid-n 200 \
-  --save outputs/latest/potential_slices.png
-
-beachx coulomb outputs/latest \
-  --component z \
-  --save outputs/latest/coulomb_force_z.png
-
-beachx mobility outputs/latest \
-  --density-kg-m3 2500 \
-  --mu-static 0.4 \
-  --save-csv outputs/latest/mobility_summary.csv
-```
-
-これらは近傍の `beach.toml` から geometry や periodic2 設定を自動解決します。
-見つからない場合は、対応する CLI の `--config` を指定してください。
-
-## 周期画像を含む object の離脱力を見る
-
-保存された charge snapshot を固定し、mesh 6 だけを上向きに動かす例です。
-
-```bash
-beachx object-detachment outputs/latest \
-  --config beach.toml \
-  --target-mesh-id 6 \
-  --periodic-model infinite-physical \
-  --z-max-m 2.0e-4 \
-  --z-points 65 \
-  --mass-kg 2.0e-12 \
-  --gravity-m-s2 9.80665 \
-  --adhesion-force-n 1.0e-10 \
-  --adhesion-range-m 2.0e-6 \
-  --output-dir outputs/latest/object_detachment
-```
-
-`object-detachment` の CLI 既定重力は月面の `1.62 m/s^2` です。この例は地上重力を
-仮定して `9.80665 m/s^2` を明示しています。対象環境に合わせて変更してください。
-
-`configured`はrunのfinite/cached設定をそのまま使います。`infinite-physical`は、
-x/y periodic runのcached `k != 0`と物理的な`k = 0` modeを使います。
-
-targetのcentral-cell primary自己場だけを除外し、target自身の周期画像が作る力は残します。
-`instantaneous_wrench.csv`、`path.csv`、`summary.json`、`report.md`が生成されます。
-
-同じ解析を Python から行う完全な例は
-[`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
-です。最小の API 呼び出しは次のとおりです。
+保存されたcharge snapshotを固定し、mesh 6だけを上向きに動かす最小例です。
 
 ```python
 import numpy as np
@@ -155,6 +73,99 @@ release = path.evaluate_release(
     adhesion=AdhesionProfile.none(),
 )
 ```
+
+完全な例は
+[`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
+にあります。
+
+## `beachx`で用意済みの可視化・解析を使う
+
+`beachx`は、Python APIの代表的な後処理をcommandとしてまとめた入口です。定型図やCSVをすぐ作る場合はこちらを使います。
+
+### 実行結果の概要と基本図
+
+```bash
+beachx inspect outputs/latest
+```
+
+画像を保存する場合:
+
+```bash
+beachx inspect outputs/latest \
+  --save-bar outputs/latest/charges_bar.png \
+  --save-mesh outputs/latest/charges_mesh.png \
+  --save-potential-mesh outputs/latest/potential_mesh.png
+```
+
+`sim.field_bc_mode="periodic2"`のmeshを周期cellに寄せて描く場合:
+
+```bash
+beachx inspect outputs/latest \
+  --save-mesh outputs/latest/charges_mesh_periodic.png \
+  --apply-periodic2-mesh
+```
+
+### 履歴アニメーション
+
+`charge_history.csv`がある場合:
+
+```bash
+beachx animate outputs/latest \
+  --quantity charge \
+  --save-gif outputs/latest/charge_history.gif \
+  --total-frames 200
+```
+
+`potential_history.csv`を出している場合は`--quantity potential`も使えます。
+
+### 断面・力・移動しやすさ
+
+少し進んだ解析では次のcommandを使います。
+
+```bash
+beachx slices outputs/latest \
+  --grid-n 200 \
+  --save outputs/latest/potential_slices.png
+
+beachx coulomb outputs/latest \
+  --component z \
+  --save outputs/latest/coulomb_force_z.png
+
+beachx mobility outputs/latest \
+  --density-kg-m3 2500 \
+  --mu-static 0.4 \
+  --save-csv outputs/latest/mobility_summary.csv
+```
+
+これらは近傍の`beach.toml`からgeometryやperiodic2設定を自動解決します。
+見つからない場合は、対応するcommandの`--config`を指定してください。
+
+### 周期画像を含むobjectの離脱力
+
+上のPython API例と同じ流れを、CSV/JSON/report出力までまとめて実行します。
+
+```bash
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --adhesion-force-n 1.0e-10 \
+  --adhesion-range-m 2.0e-6 \
+  --output-dir outputs/latest/object_detachment
+```
+
+`object-detachment`の既定重力は月面の`1.62 m/s^2`です。この例は地上重力を仮定して
+`9.80665 m/s^2`を明示しています。対象環境に合わせて変更してください。
+
+`configured`はrunのfinite/cached設定をそのまま使います。`infinite-physical`は、
+x/y periodic runのcached `k != 0`と物理的な`k = 0` modeを使います。
+
+targetのcentral-cell primary自己場だけを除外し、target自身の周期画像が作る力は残します。
+`instantaneous_wrench.csv`、`path.csv`、`summary.json`、`report.md`が生成されます。
 
 正常終了し、CSV/JSONが生成されれば、解析処理自体は完了しています。離脱の物理的な妥当性は、
 `path.status`、仕事と電位差の不一致、mesh/quadrature、finite shellまたはperiodic cache、経路上端、
