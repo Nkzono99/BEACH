@@ -135,8 +135,8 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 
 ## 3. 実行フロー
 
-通常は、`beach.toml` を編集し、そのまま `beach` に渡します。高水準記法の詳細は
-[beachx config / 高水準記法ガイド](Configuration.html) にまとめています。
+通常は、`beach.toml`を編集し、そのまま`beach`に渡します。作成・検査方法は
+[設定を編集する](Configuration.html)にまとめています。
 
 1. `beach.toml` を用意する
 2. `beachx lint beach.toml` で設定を確認する
@@ -159,7 +159,7 @@ beach beach.toml
 ### 3.2 `beach.toml` を直接使う場合
 
 1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](Parameters.html)）
-2. 必要なら高水準記法を使う（Fortran parser が読み込み時に解決）
+2. 必要ならbox基準の座標・配置パラメータを使う（Fortran parserが実座標へ変換）
 3. `beach beach.toml` でシミュレーション実行
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化

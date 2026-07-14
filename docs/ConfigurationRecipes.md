@@ -5,7 +5,7 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 # 設定レシピ
 
 典型的なケースは、公式入門ケースの`beach.toml`を基に、必要なtableやsectionを置き換えて作ります。
-全キーの定義は [入力パラメータリファレンス](Parameters.html)、高水準記法の詳細は [beachx config / 高水準記法ガイド](Configuration.html) にまとめています。
+全キーの定義は[入力パラメータリファレンス](Parameters.html)、設定の作成・検査方法は[設定を編集する](Configuration.html)にまとめています。
 
 以下は[公式入門ケース](Tutorial.html)を基準にした差分例です。
 断片だけでは実行できない場合があります。
@@ -19,7 +19,7 @@ beach beach.toml
 beachx inspect outputs/latest
 ```
 
-`beach.toml` はそのまま Fortran 実行系に渡せます。高水準記法も Fortran parser が読み込み時に正規化します。
+`beach.toml`はそのままFortran実行系に渡せます。box基準の座標・配置パラメータも読み込み時に実座標へ変換されます。
 
 ## レシピ一覧
 

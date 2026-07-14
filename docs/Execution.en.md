@@ -17,7 +17,7 @@ beach beach.toml
 beachx inspect outputs/latest
 ```
 
-1. `beachx lint` checks TOML, JSON Schema, high-level notation, and known constraints.
+1. `beachx lint` checks TOML, JSON Schema, coordinate and placement combinations, and known constraints.
 2. `beach` runs the simulation from the configuration file.
 3. `beachx inspect` reads the results under `output.dir`.
 

@@ -17,7 +17,7 @@ beach beach.toml
 beachx inspect outputs/latest
 ```
 
-1. `beachx lint`でTOML、JSON Schema、高水準記法、既知の制約を検査します。
+1. `beachx lint`でTOML、JSON Schema、座標・配置パラメータの組合せ、既知の制約を検査します。
 2. `beach`に設定ファイルを渡してシミュレーションを実行します。
 3. `output.dir`に作成された結果を`beachx inspect`で確認します。
 

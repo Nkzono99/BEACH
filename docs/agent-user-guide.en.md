@@ -111,8 +111,8 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 ### Configuration Workflow
 
 1. **beach.toml**: the normal file to edit, read directly by the Fortran executable
-2. **beachx lint**: validates TOML parsing, JSON Schema, high-level notation, and known constraints
-3. **Fortran parser**: normalizes high-level notation into final keys such as `box_min` / `box_max` / `center`
+2. **beachx lint**: validates TOML parsing, JSON Schema, coordinate and placement parameters, and known constraints
+3. **Fortran parser**: converts box-relative settings into physical coordinates such as `box_min` / `box_max` / `center`
 
 ### [sim] Section - Simulation Basics
 
@@ -315,7 +315,7 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 ```bash
 beachx lint [beach.toml]                           # check schema and semantic constraints
 beachx config init [beach.toml]                    # create a new beach.toml
-beachx config validate [beach.toml]                # validate high-level notation and constraints
+beachx config validate [beach.toml]                # validate coordinate/placement parameters and constraints
 beachx config diff left.toml right.toml            # compare configurations
 ```
 
@@ -437,16 +437,11 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 
 ---
 
-## High-level Notation for `beachx config`
+## Coordinate and placement helper parameters
 
-The Fortran parser normalizes helper keys in `beach.toml` into runtime keys while loading the file.
-
-- `sim.box_origin` + `sim.box_size` -> `sim.box_min` / `sim.box_max`
-- `inject_region_mode = "face_fraction"` + `uv_low` / `uv_high` -> `pos_low` / `pos_high`
-- `mesh.templates` `placement_mode = "box_anchor"` -> `center`
-- `mesh.groups.*` `scale_from` / `placement_mode` -> actual size and coordinates for each template
-
-Runtime settings belong under `sim`, `particles`, `mesh`, and `output`.
+`box_origin` / `box_size`, face fractions, box-relative template placement, and group scaling are ordinary configuration
+parameters. See [Input Parameters Reference](Parameters.en.html#coordinate-and-placement-helper-parameters) for calculated
+targets, invalid combinations, and the conditions that replace explicit dimensions.
 
 ---
 
@@ -600,7 +595,7 @@ BEACH/
 | `docs/FMM.en.md` | FMM selection and verification |
 | `docs/FMMCore.en.md` | FMM internals and Ewald |
 | `docs/BatchDurationStability.en.md` | `batch_duration` stability |
-| `docs/Configuration.en.md` | `beachx config` and high-level notation |
+| `docs/Configuration.en.md` | Configuration creation, lint, and schema |
 | `docs/PostprocessTutorial.en.md` | Post-processing tutorial |
 | `docs/PythonPostprocessAPI.en.md` | Python API reference |
 | `schemas/beach.schema.json` | JSON Schema for IDE validation |

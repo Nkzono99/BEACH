@@ -5,7 +5,8 @@ Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.m
 # Configuration Recipes
 
 Build common cases by replacing the required tables or sections in the official beginner `beach.toml`.
-For the complete key reference, see [Input Parameters Reference](Parameters.en.html). For high-level notation, see [`beachx config` / High-Level Notation Guide](Configuration.en.html).
+For the complete key reference, see [Input Parameters Reference](Parameters.en.html). See [Edit configuration](Configuration.en.html)
+for creating and checking the file.
 
 Each snippet below is a replacement or diff relative to the [official beginner case](Tutorial.en.html).
 Some snippets are not standalone configurations.
@@ -19,7 +20,8 @@ beach beach.toml
 beachx inspect outputs/latest
 ```
 
-Pass `beach.toml` directly to the Fortran executable. The Fortran parser normalizes high-level notation while loading the file.
+Pass `beach.toml` directly to the Fortran executable. Box-relative coordinate and placement parameters are converted to physical
+coordinates while loading.
 
 ## Recipes
 

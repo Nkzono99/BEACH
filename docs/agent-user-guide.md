@@ -116,8 +116,8 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 ### 設定ワークフロー
 
 1. **beach.toml**: 通常の編集対象で、Fortran 実行ファイルが直接読む設定
-2. **beachx lint**: TOML parse、JSON Schema、高水準記法、既知制約を検証
-3. **Fortran parser**: 高水準記法を `box_min` / `box_max` / `center` などの最終キーへ展開
+2. **beachx lint**: TOML parse、JSON Schema、座標・配置パラメータ、既知制約を検証
+3. **Fortran parser**: box基準の指定を`box_min` / `box_max` / `center`などの実座標へ変換
 
 ### [sim] セクション — シミュレーション基本
 
@@ -326,7 +326,7 @@ template入力などを使ってmesh_idを分けてください。
 ```bash
 beachx lint [beach.toml]                           # schema と意味制約をまとめて検査
 beachx config init [beach.toml]                    # beach.toml を新規作成
-beachx config validate [beach.toml]                # 高水準記法と意味制約の検証
+beachx config validate [beach.toml]                # 座標・配置パラメータと意味制約の検証
 beachx config diff left.toml right.toml            # 設定比較
 ```
 
@@ -447,16 +447,10 @@ run.animate_mesh(quantity="charge", save_path="charge.gif")
 
 ---
 
-## `beachx config` の高水準記法
+## 座標・配置の補助パラメータ
 
-Fortran parser は `beach.toml` 内の補助キーを読み込み時に実行時キーへ正規化する。
-
-- `sim.box_origin` + `sim.box_size` -> `sim.box_min` / `sim.box_max`
-- `inject_region_mode = "face_fraction"` + `uv_low` / `uv_high` -> `pos_low` / `pos_high`
-- `mesh.templates` の `placement_mode = "box_anchor"` -> `center`
-- `mesh.groups.*` の `scale_from` / `placement_mode` -> template ごとの実寸・実座標
-
-実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書く。
+`box_origin` / `box_size`、面内割合、templateのbox基準配置、group scaleは通常の設定parameterです。
+計算先、併用エラー、明示寸法を上書きする条件は[入力パラメータリファレンス](Parameters.html#座標配置の補助パラメータ)を参照してください。
 
 ---
 
@@ -610,7 +604,7 @@ BEACH/
 | `docs/FMM.md` | FMMの選択と精度確認 |
 | `docs/FMMCore.md` | FMM内部実装・Ewald |
 | `docs/BatchDurationStability.md` | `batch_duration` 安定性 |
-| `docs/Configuration.md` | `beachx config` と高水準記法 |
+| `docs/Configuration.md` | 設定の作成、lint、schema |
 | `docs/PostprocessTutorial.md` | 後処理チュートリアル |
 | `docs/PythonPostprocessAPI.md` | Python API リファレンス |
 | `schemas/beach.schema.json` | IDE バリデーション用 JSON Schema |

@@ -4,18 +4,18 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 
 # 入力パラメータリファレンス
 
-本文書は、Fortran 実行系が読む最終的な `beach.toml` のパラメータリファレンスです。
+本文書は、Fortran実行系が読む`beach.toml`のパラメータリファレンスです。
 単位は、特に断りがない限り SI 単位です。
 
 初めて設定を組む場合は、先に [設定レシピ](ConfigurationRecipes.html) を読むと全体像を掴みやすいです。
 
-Fortran parser が解決する高水準記法は [Configuration](Configuration.html) にまとめています。
-本書では、正規化後に実行時設定として使われるキーを中心に説明します。
+box基準の座標・配置を指定する補助パラメータも通常のinput keyとして掲載し、どの値を計算または上書きするかを
+[座標・配置の補助パラメータ](#座標配置の補助パラメータ)に明記しています。
 
 | 関連ドキュメント | 内容 |
 |---|---|
 | [設定レシピ](ConfigurationRecipes.html) | 目的別の設定手順と調整ポイント |
-| [Configuration](Configuration.html) | `beachx config`、高水準記法、schema/lint |
+| [設定を編集する](Configuration.html) | `beachx config`、schema、lint |
 | [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順への導線 |
 | [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
 | [FMM](FMM.html) | `field_solver="fmm"`の選択と精度確認 |
@@ -868,20 +868,35 @@ MPI 実行時:
 
 ---
 
-## 高水準記法との関係
+## 座標・配置の補助パラメータ
 
-次のキーは schema には含まれますが、Fortran parser が実行時キーへ解決する高水準記法です。
-Fortran parser は読み込み時に右列のキーとして扱います。
+次のkeyも通常のTOML parameterです。ただし、読み込み時に右列の実座標・実寸を計算します。
+同じ値を直接指定したときにエラーになるものと、計算値で上書きするものがあるため区別してください。
 
-| 高水準キー | 解決先・用途 |
-|---|---|
-| `sim.box_origin`, `sim.box_size` | `sim.box_min`, `sim.box_max` |
-| `inject_region_mode`, `uv_low`, `uv_high` | `inject_face` 上の `pos_low`, `pos_high` |
-| `mesh.groups`, template の `group`, `center_local` | template ごとの実座標 |
-| template の `placement_mode`, `anchor`, `offset`, `offset_frac` | `center` |
-| template の `size_mode`, `size_frac` | `size_x`, `size_y`, `size`, `radius` など |
+| key・指定値 | 型・条件 | 計算する値 | 直接指定したkeyとの関係 |
+|---|---|---|---|
+| `sim.box_origin`, `sim.box_size` | float[3]。2つを同時指定し、`box_size > 0` | `box_min = box_origin`、`box_max = box_origin + box_size` | `box_min`または`box_max`との併用はエラー |
+| `inject_region_mode="face_fraction"`, `uv_low`, `uv_high` | `uv_*`はfloat[2]かつ`[0,1]`内。`reservoir_face` / `photo_raycast`のみ | `inject_face`上の`pos_low`, `pos_high` | `pos_low`または`pos_high`との併用はエラー |
+| templateの`placement_mode="box_anchor"`, `anchor`, `offset`または`offset_frac` | `anchor`はbox centerまたは各face center。`offset`は[m]、`offset_frac`はbox幅に対する割合 | templateの`center` | `center`との併用はエラー。`offset`と`offset_frac`の併用もエラー |
+| templateの`size_mode="box_fraction"`, `size_frac` | 対応kindは`plane` / `plane_hole` / `plate_hole` / `box` / `sphere` / `cylinder` | 下表の寸法key | 対応する寸法keyを明示していてもエラーにせず、計算値で上書き |
+| `[mesh.groups.<name>]`の`placement_mode`, `anchor`, `offset`または`offset_frac` | `absolute`または`box_anchor` | grouped templateが共有する`group_origin` | `offset`と`offset_frac`の併用はエラー。`absolute`で`anchor`を指定するのもエラー |
+| templateの`group`, `center_local` | `[mesh.groups.<name>]`の定義が必要 | `center = group_origin + group_scale * center_local` | `center`, `placement_mode`, `anchor`, `offset`, `offset_frac`, `size_mode`, `size_frac`との併用はエラー |
+| `[mesh.groups.<name>]`の`scale`または`scale_from` + `scale_factor` | `scale > 0`。`scale_from`はbox幅の参照名 | grouped templateで明示した長さkeyをscale倍 | 下表の明示寸法を`scale * input`で上書き。未指定でdefaultになった寸法はscaleしない |
 
-高水準記法の詳細、例、lint 時の扱いは [Configuration](Configuration.html) にまとめています。
+`size_mode="box_fraction"`が上書きする寸法は形状ごとに異なります。
+
+| `kind` | `size_frac` | 上書きするkey |
+|---|---|---|
+| `plane`, `plane_hole`, `plate_hole` | float[2] | `size_x`, `size_y` |
+| `box` | float[3] | `size` |
+| `sphere` | float | `radius`。box 3辺の最小値を基準にする |
+| `cylinder` | float[2] | `radius`, `height`。radiusはx/y幅の最小値、heightはz幅を基準にする |
+
+group scaleが倍率を掛けるのは、templateで明示した`size_x`, `size_y`, `size`, `radius`, `inner_radius`, `height`です。
+`anchor`は`box_center`と各軸の`*_low_face_center` / `*_high_face_center`、`scale_from`は`box_x`, `box_y`,
+`box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, `box_max_xyz`から選びます。
+`placement_mode="absolute"`、`size_mode="absolute"`、`inject_region_mode="absolute"`では、対応する直接指定値をそのまま使います。
+入力前の組合せ確認には[設定を編集する](Configuration.html)の`beachx lint`を使います。
 
 ---
 

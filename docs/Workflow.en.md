@@ -138,7 +138,7 @@ Submit them to compute nodes with `tssrun` or `sbatch`.
 ## 3. Run Flow
 
 Usually, edit `beach.toml` and pass that file directly to `beach`. See
-[`beachx config` / High-Level Notation Guide](Configuration.en.html) for the high-level notation layer.
+[Edit configuration](Configuration.en.html) for creation and validation.
 
 1. Prepare `beach.toml`.
 2. Check it with `beachx lint beach.toml`.
@@ -161,7 +161,7 @@ beach beach.toml
 ### 3.2 Direct `beach.toml` Use
 
 1. Prepare `beach.toml` (see [Input Parameters Reference](Parameters.en.html)).
-2. Use high-level notation if useful; the Fortran parser resolves it while loading.
+2. Use box-relative coordinate and placement parameters if useful; the Fortran parser resolves them while loading.
 3. Run the simulation with `beach beach.toml`.
 4. Inspect `output.dir`.
 5. Visualize with a Python CLI command or the `Beach` API.

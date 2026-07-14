@@ -78,12 +78,13 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 
 ## 設定ファイル
 
-実行時に `beach` が読むのは `beach.toml` です。`box_origin` / `box_size`、`inject_region_mode = "face_fraction"`、`placement_mode`、`mesh.groups` などの高水準記法も Fortran 側で直接解決されます。
+実行時に`beach`が読むのは`beach.toml`です。`box_origin` / `box_size`、`inject_region_mode = "face_fraction"`、
+`placement_mode`、`mesh.groups`などの座標・配置パラメータもFortran側で直接解決されます。
 まずは `beachx config init` が生成したファイルを編集し、実行前に `beachx lint beach.toml` で検査してください。
 
 詳細:
 
-- 設定作成・検証: [beachx config / 高水準記法ガイド](https://nkzono99.github.io/BEACH/configuration.html)
+- 設定作成・検証: [設定を編集する](https://nkzono99.github.io/BEACH/configuration.html)
 - `beach.toml` 仕様: [Fortran パラメータファイル仕様](https://nkzono99.github.io/BEACH/parameters.html)
 - 実行・開発・テスト: [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html)
 

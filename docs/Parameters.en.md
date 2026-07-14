@@ -4,20 +4,20 @@ Lang: [English](Parameters.en.md) | [日本語](Parameters.md)
 
 # Input Parameters Reference
 
-This document is the parameter reference for the final `beach.toml` read by the
-Fortran runtime. Unless otherwise noted, units are SI units.
+This document is the parameter reference for `beach.toml` read by the Fortran runtime.
+Unless otherwise noted, units are SI units.
 
 For first-time configuration work, start with
 [Configuration Recipes](ConfigurationRecipes.en.html).
 
-High-level notation normalized by the Fortran parser is summarized in
-[Configuration](Configuration.en.html). This document focuses on runtime keys
-used after normalization.
+Coordinate and placement helpers are listed as ordinary input keys. See
+[Coordinate and placement helper parameters](#coordinate-and-placement-helper-parameters) for the values each helper calculates
+or replaces.
 
 | Related document | Contents |
 |---|---|
 | [Configuration Recipes](ConfigurationRecipes.en.html) | Task-oriented configuration steps and tuning points |
-| [Configuration](Configuration.en.html) | `beachx config`, high-level notation, schema/lint |
+| [Edit configuration](Configuration.en.html) | `beachx config`, schema, and lint |
 | [Algorithms](Algorithms.en.html) | Entry point to BEM field calculation, particle push, collision, and accumulated-charge procedure |
 | [Workflow](Workflow.en.html) | Execution, development, testing, and KUDPC notes |
 | [FMM](FMM.en.html) | Selection and accuracy checks for `field_solver="fmm"` |
@@ -869,22 +869,35 @@ During MPI execution:
 
 ---
 
-## Relationship to High-Level Notation
+## Coordinate and Placement Helper Parameters
 
-The following keys are included in the schema, but they are high-level notation
-normalized to runtime keys by the Fortran parser. The parser treats them as the
-keys in the right column while loading the file.
+These are ordinary TOML parameters, but the loader uses them to calculate the physical coordinates or dimensions in the third
+column. Distinguish combinations that fail validation from those that intentionally replace an explicit value.
 
-| High-level key | Resolution / use |
-|---|---|
-| `sim.box_origin`, `sim.box_size` | `sim.box_min`, `sim.box_max` |
-| `inject_region_mode`, `uv_low`, `uv_high` | `pos_low`, `pos_high` on `inject_face` |
-| `mesh.groups`, template `group`, `center_local` | Real coordinates for each template |
-| template `placement_mode`, `anchor`, `offset`, `offset_frac` | `center` |
-| template `size_mode`, `size_frac` | `size_x`, `size_y`, `size`, `radius`, etc. |
+| Key and value | Type / condition | Calculated value | Relationship to a directly specified key |
+|---|---|---|---|
+| `sim.box_origin`, `sim.box_size` | float[3]. Specify both, with `box_size > 0` | `box_min = box_origin`; `box_max = box_origin + box_size` | Combining either with `box_min` or `box_max` is an error |
+| `inject_region_mode="face_fraction"`, `uv_low`, `uv_high` | `uv_*` are float[2] in `[0,1]`; only for `reservoir_face` / `photo_raycast` | `pos_low`, `pos_high` on `inject_face` | Combining with either `pos_low` or `pos_high` is an error |
+| Template `placement_mode="box_anchor"`, `anchor`, and either `offset` or `offset_frac` | Anchor is the box center or a face center; `offset` is in meters and `offset_frac` is relative to box size | Template `center` | Combining with `center` is an error; combining `offset` and `offset_frac` is also an error |
+| Template `size_mode="box_fraction"`, `size_frac` | Supported for `plane` / `plane_hole` / `plate_hole` / `box` / `sphere` / `cylinder` | Shape-specific dimensions listed below | Calculated dimensions replace corresponding explicitly specified dimension keys without an error |
+| Group `placement_mode`, `anchor`, and either `offset` or `offset_frac` | `absolute` or `box_anchor` | Shared `group_origin` for grouped templates | Combining `offset` with `offset_frac` is an error; specifying `anchor` in `absolute` mode is also an error |
+| Template `group`, `center_local` | Requires `[mesh.groups.<name>]` | `center = group_origin + group_scale * center_local` | Combining with `center`, `placement_mode`, `anchor`, `offset`, `offset_frac`, `size_mode`, or `size_frac` is an error |
+| Group `scale` or `scale_from` + `scale_factor` | `scale > 0`; `scale_from` names a box-size reference | Scale explicitly specified template length keys | Replaces the explicit dimensions with `scale * input`; dimensions left at defaults are not scaled |
 
-For details, examples, and lint behavior for high-level notation, see
-[Configuration](Configuration.en.html).
+The dimensions replaced by `size_mode="box_fraction"` depend on `kind`.
+
+| `kind` | `size_frac` | Replaced keys |
+|---|---|---|
+| `plane`, `plane_hole`, `plate_hole` | float[2] | `size_x`, `size_y` |
+| `box` | float[3] | `size` |
+| `sphere` | float | `radius`, referenced to the minimum of the three box dimensions |
+| `cylinder` | float[2] | `radius`, `height`; radius uses the minimum x/y box size and height uses z size |
+
+Group scaling applies to explicitly specified `size_x`, `size_y`, `size`, `radius`, `inner_radius`, and `height`.
+`anchor` accepts `box_center` and each axis's `*_low_face_center` / `*_high_face_center`; `scale_from` accepts `box_x`, `box_y`,
+`box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, or `box_max_xyz`.
+With `placement_mode="absolute"`, `size_mode="absolute"`, or `inject_region_mode="absolute"`, the corresponding direct values
+are used unchanged. Use `beachx lint` from [Edit configuration](Configuration.en.html) to check combinations before a run.
 
 ---
 
