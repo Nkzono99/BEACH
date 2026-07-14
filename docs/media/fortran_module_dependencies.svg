@@ -286,7 +286,7 @@
 <!-- bem_charge_ledger -->
 <g id="node73" class="node">
 <title>bem_charge_ledger</title>
-<g id="a_node73"><a xlink:title="batch 間の signed charge stock と移送 flux を集計する transactional ledger。">
+<g id="a_node73"><a xlink:title="batch 間の signed charge stock と移送 flux から電荷収支を集計する。">
 <path fill="#f8fafc" stroke="#334155" d="M1097.5,-6216.3144C1097.5,-6216.3144 1008.5,-6216.3144 1008.5,-6216.3144 1002.5,-6216.3144 996.5,-6210.3144 996.5,-6204.3144 996.5,-6204.3144 996.5,-6192.3144 996.5,-6192.3144 996.5,-6186.3144 1002.5,-6180.3144 1008.5,-6180.3144 1008.5,-6180.3144 1097.5,-6180.3144 1097.5,-6180.3144 1103.5,-6180.3144 1109.5,-6186.3144 1109.5,-6192.3144 1109.5,-6192.3144 1109.5,-6204.3144 1109.5,-6204.3144 1109.5,-6210.3144 1103.5,-6216.3144 1097.5,-6216.3144"/>
 <text text-anchor="middle" x="1053" y="-6195.8144" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#000000">bem_charge_ledger</text>
 </a>

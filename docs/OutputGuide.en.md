@@ -40,6 +40,27 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 | `macro_residuals*.csv` | Reservoir-style injection | fractional macro-particle state for resume |
 | `charge_ledger.csv` | Always | per-species signed-charge flux and particle counts |
 
+## Species-resolved charge balance
+
+`charge_ledger.csv` records charge and particle-count inflow, internal transfer, and outflow for each species.
+
+| Item | Meaning |
+| --- | --- |
+| `injected_from_remote` | Quantity entering from `volume_seed` or `reservoir_face` |
+| `emitted_from_surface` | Tracked quantity leaving a surface through `photo_raycast` |
+| `absorbed_on_surface` | Quantity absorbed by the mesh |
+| `escaped_to_infinity` | Quantity escaping through open or outer models |
+| `discarded_unresolved` | Quantity discarded alive at `max_step` |
+| `interface_outward_gross` / `returned_gross` | Gross outward and return transfer across the outer ownership interface |
+
+The charge-conservation residual combines before/after changes of surface, local-flight, outer-flight, and unresolved stocks with
+remote injection, escape, and discard. Surface emission and absorption are internal transfers between surface and flight stocks,
+so they are not counted twice as independent external sources.
+
+Separately from `charge_ledger_residual_C`, where opposite species can cancel,
+`charge_ledger_discarded_unresolved_abs_C` reports $\sum_s|Q_{s,\mathrm{discard}}|$. A small conservation residual does not
+validate a run with large unresolved discard.
+
 ## Interpreting Success and Warnings
 
 Start with these quantities in `summary.txt`.
@@ -85,6 +106,15 @@ Set `output.history_stride` to a positive value to inspect time evolution.
 history_stride = 1
 write_potential_history = true
 ```
+
+`charge_history.csv` is written when
+
+$$
+(\texttt{stats.batches}-1)\bmod\texttt{history\_stride}=0,
+$$
+
+so batch 1 is always included. With `write_potential_history=true`, the current `q_elem` refreshes the field at the same stride
+and writes element-centroid `potential_history.csv`.
 
 Potential history requires additional field evaluations, so it can increase runtime for large meshes or frequent history output.
 Start with `history_stride = 1` on a small case, then thin the history for larger runs.

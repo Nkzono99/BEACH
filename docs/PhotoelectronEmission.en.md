@@ -135,7 +135,7 @@ global time and the 3-D explicit orbit, and [Outer plasma models](OuterPlasmaMod
 Zhao models supply emission current density, normal cutoff, and drift according to the selected branch. Tracked particles
 advance in the ordinary field snapshot rather than the Zhao profile $E(z)$.
 
-## Close emission, reabsorption, and escape in the charge ledger
+## Check charge balance across emission, reabsorption, and escape
 
 The species-resolved ledger separates emission from the surface, surface absorption, infinity escape, unresolved discard, and
 gross outward and returned charge at the outer interface. At minimum, compare:
@@ -150,5 +150,5 @@ gross outward and returned charge at the outer interface. At minimum, compare:
 - Ray propagation, hit, emission velocity, and weight: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - Reduced escape factor and source charge difference: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - Tracked-return compatibility validation: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
-- Ordinary tracking, outer transfer, and charge ledger: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
+- Ordinary tracking, outer transfer, and charge-balance accounting: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - Kinetic mean photoelectron closure: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

@@ -9,7 +9,7 @@ make test-physics-release
 ```
 
 HPC側では、収束データを生成する3本のL1 testに続けて、L3 heavy test、far correctionの正しさ、
-MPI ledger、MPIによるperiodic cacheの同時生成を検証します。portable CIで実行済みのL2全体は重ねて実行しません。
+MPI電荷収支、MPIによるperiodic cacheの同時生成を検証します。portable CIで実行済みのL2全体は重ねて実行しません。
 
 `manifest.txt`には、各検証工程の経過時間とGNU timeが報告した最大RSSを記録します。最大RSSが既定の8 GiBを超えると、
 リリース検証は失敗します。上限は`BEACH_RELEASE_MAX_RSS_KB`で変更できます。

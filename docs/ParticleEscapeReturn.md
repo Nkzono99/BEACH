@@ -185,7 +185,7 @@ batchごとのreturn currentは正しい時間変化を表しません。
 
 species別に`interface_outward_gross`、`interface_returned_gross`、`escaped_to_infinity`を区別します。さらに、最大
 `outer_flight_time`、frozen-field ratio、3D orbitのenergy errorを出力します。gross outwardとreturnedは、どちらもinterfaceの通過量です。
-その差が正味escapeと一致するのは、そspeciesのtransfer対象とledger期間が一致する場合に限ります。
+その差が正味escapeと一致するのは、そのspeciesのtransfer対象と電荷収支の集計期間が一致する場合に限ります。
 
 ## Code reference
 

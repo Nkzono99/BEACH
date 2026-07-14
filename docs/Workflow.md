@@ -447,7 +447,7 @@ srun beach beach.toml
   `sim.softening`、`triangle_p0` は要素総電荷を三角形上の一定面密度として積分し、`softening=0` を必須とします。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` にあります。
-`test-physics-release`は、収束出力に必要なL1 subset、L3 heavy、far-correction correctness、MPI ledger、
+`test-physics-release`は、収束出力に必要なL1 subset、L3 heavy、far-correction correctness、MPI電荷収支、
 MPI periodic-cache gateを順に実行します。portable CIで実行済みのL2全体は繰り返しません。
 
 既定の`build/physics-release/manifest.txt`には、commit、dirty state、host、compiler、各gateのstatus、経過時間、最大RSSを保存します。

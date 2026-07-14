@@ -1,4 +1,4 @@
-!> transactional charge ledger の符号規約、stock 差分、累積を検証する。
+!> 電荷収支の符号規約、stock 差分、累積を検証する。
 program test_charge_ledger
   use bem_kinds, only: dp, i32, i64
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger

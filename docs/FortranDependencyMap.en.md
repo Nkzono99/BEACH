@@ -136,7 +136,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_filesystem`, `bem_string_utils` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
 | `bem_performance_profile` | `module` | `src/runtime/bem_performance_profile.f90` | `bem_kinds`, `bem_mpi`, `bem_string_utils` | 実行フェーズごとの壁時計計測と MPI 集約出力を担う軽量プロファイラ。 |
 | `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
-| `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux を集計する transactional ledger。 |
+| `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
 | `bem_interface_particle_buffer` | `module` | `src/runtime/coupling/bem_interface_particle_buffer.f90` | `bem_kinds`, `bem_interface_types` | - |
 | `bem_interface_types` | `module` | `src/runtime/coupling/bem_interface_types.f90` | `bem_kinds` | - |
 | `bem_outer_coupler` | `module` | `src/runtime/coupling/bem_outer_coupler.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_string_utils` | - |
@@ -796,7 +796,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - group: `src/runtime/coupling`
 - Internal dependencies: `bem_kinds`
 - external dependencies: none
-- Source summary: batch 間の signed charge stock と移送 flux を集計する transactional ledger。
+- Source summary: batch 間の signed charge stock と移送 flux から電荷収支を集計する。
 
 ### `bem_interface_particle_buffer`
 
@@ -869,4 +869,3 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_simulator`
 - external dependencies: none
 - Source summary: `bem_simulator` のバッチ集計・統計更新処理を実装する submodule。
-

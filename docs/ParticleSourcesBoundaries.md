@@ -58,10 +58,10 @@ in-box要素から粒子を放出します。放出速度は要素法線に対�
 放出元電荷、reduced escape closure、outer sheathでのreturnまでを
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
 
-## 生成後は共通の粒子状態と電荷ledgerへ入る
+## 生成後は共通の粒子状態と電荷収支へ入る
 
 生成後に保持する主な量は位置$\mathbf x$、速度$\mathbf v$、実粒子1個の電荷$q$と質量$m$、macro粒子重み$w$、
-species IDです。tracked macro粒子1個の電荷は$q w$です。表面へ吸収された場合も、charge ledgerへの計上にはこの値を使います。
+species IDです。tracked macro粒子1個の電荷は$q w$です。表面へ吸収された場合も、電荷収支への計上にはこの値を使います。
 
 | batch結果 | 処理 |
 | --- | --- |
@@ -81,7 +81,7 @@ mesh衝突とbox境界の順序は[粒子の衝突・境界イベント](Particl
 `macro_residuals.csv`へ保存され、再開時に復元されます。
 
 `photo_raycast`の`rays_per_batch`も全rank合計です。各rayのmacro重みはglobal ray数で割り、放出・吸収・escapeの
-charge ledgerはMPI all-reduce後のglobal値として出力します。期待流入量はworld sizeに依存しませんが、乱数列と
+電荷収支はMPI all-reduce後のglobal値として出力します。期待流入量はworld sizeに依存しませんが、乱数列と
 個々の粒子軌道はworld sizeによって変わり得ます。
 
 ## Code reference
@@ -89,5 +89,5 @@ charge ledgerはMPI all-reduce後のglobal値として出力します。期待�
 - 粒子分布とraycast: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - sourceごとのbatch生成とmacro残差: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - source入力の検証: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
-- charge ledgerとbatch追跡: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
+- 電荷収支とbatch追跡: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - macro残差のcheckpoint: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

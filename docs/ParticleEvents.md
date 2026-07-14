@@ -188,7 +188,7 @@ collision queryは、必要な候補をすべて調べた場合だけ`ok`です�
 | `particle_step_multiple_box_events` | 1002 | 1 stepで9回目のbox境界イベントが必要 |
 | `particle_step_unsupported_barrier_corner` | 1003 | potential barrierで複数open faceが同時に発生 |
 
-これらの異常を「命中なし」とみなすと、粒子が表面を通り抜けて電荷ledgerを壊します。そのため、通常の
+これらの異常を「命中なし」とみなすと、粒子が表面を通り抜けて電荷収支を壊します。そのため、通常の
 追跡はfail closedです。OpenMP内では、particle/step番号が最小の失敗情報を選びます。MPI実行では失敗rankと
 位置・速度を全rankで共有し、同じbatch/rank/particle/step/statusを報告して停止します。photo raycastも、
 species/ray/bounceについて同じ方針を使います。

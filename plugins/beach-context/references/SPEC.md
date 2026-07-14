@@ -138,7 +138,7 @@ pseudo-transient stepへ切り替え、前回profileとのinterface field差が�
 目標fieldへ進みます。pseudo-transient項や中間fieldを収束解として受理せず、最終目標fieldにおける
 元の未正則化残差が設定許容値以下の場合だけ`converged`とします。
 `kinetic_mean`とtracked `kinetic_1d_profile_return`を併用しても、mean closureはouter空間電荷と
-current診断だけを供給し、表面へreturn chargeを再加算しません。表面ledgerはtracked粒子の放出と
+current診断だけを供給し、表面へreturn chargeを再加算しません。表面の電荷収支はtracked粒子の放出と
 再吸収だけで更新します。
 
 `sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
@@ -236,7 +236,7 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 - `mesh_potential.csv`（`output.write_mesh_potential = true` 時）
 - `rng_state.txt`
 - `macro_residuals.csv`
-- `charge_ledger.csv`（species 別の signed charge flux と粒子数）
+- `charge_ledger.csv`（粒子種別の電荷収支と粒子数）
 - `performance_profile.csv`（`BEACH_PROFILE=1` 環境変数設定時）
 
 `mesh_triangles.csv` は要素ごとの `mesh_id` を含み、`mesh_sources.csv` で `mesh_id` と元メッシュ設定を対応付けます。
@@ -250,12 +250,12 @@ MPI 実行時は RNG のみ `rng_state_rankNNNNN.txt` として rank 別に保�
 
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
 - 任意: `macro_residuals.csv`（MPI 時も単一の global ファイル）
-- schema v2/v3 では台帳出力時の `charge_ledger.csv`
+- schema v2/v3 では電荷収支出力時の `charge_ledger.csv`
 
 `sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
 新規出力の `summary.txt` は `checkpoint_schema_version=3` と model / ordered mesh / ordered species fingerprint を持ちます。schema v3 は `outer_plasma_profile.csv` に `z, phi, E, rho` を保存し、outer solver の status、反復数、residual、積分電荷、species 別電流とともに held state を完全復元します。schema v2 は3 fingerprint を照合した上で read-only migration として受理しますが、旧3列 outer profile は初期値にだけ使い、次の outer refresh で root solve を強制します。それより古い schema は Phase 0 で実装済みの legacy point-source model に限って読み込めます。
-`charge_ledger_residual_C` は surface / flight / unresolved stock の差分と外部 flux から作る transactional 保存残差です。species 間相殺を避けた `discarded_unresolved_abs_C` は別診断であり、残差が 0 でも max-step discard が物理的に許容されることを意味しません。
+`charge_ledger_residual_C` は surface / flight / unresolved stock の差分と外部 flux から作る電荷保存残差です。species 間相殺を避けた `discarded_unresolved_abs_C` は別診断であり、残差が 0 でも max-step discard が物理的に許容されることを意味しません。
 旧形式の `macro_residuals_rankNNNNN.csv` が残っている場合は、global 残差との対応が曖昧なため停止します。
 
 ## 9. 設計方針

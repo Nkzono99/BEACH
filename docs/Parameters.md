@@ -831,7 +831,7 @@ z 軸方向の円柱です。
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
 | `rng_state.txt` | 乱数状態 |
 | `macro_residuals.csv` | マクロ粒子数の残差繰越 |
-| `charge_ledger.csv` | species 別の signed charge flux、粒子数、再開用累積値 |
+| `charge_ledger.csv` | 粒子種別の電荷収支、粒子数、再開用累積値 |
 
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。
 自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。
@@ -849,7 +849,7 @@ z 軸方向の円柱です。
 | 出力 | `write_files=true` が必須 |
 | 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
 | 必須ファイル | `summary.txt`, `charges.csv`, `rng_state.txt` |
-| 任意ファイル | `macro_residuals.csv`。schema v2/v3 で台帳 metadata がある場合は `charge_ledger.csv` も必須 |
+| 任意ファイル | `macro_residuals.csv`。schema v2/v3 で電荷収支 metadata がある場合は `charge_ledger.csv` も必須 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
 `restart_from` は checkpoint の読み込み元だけを変更します。

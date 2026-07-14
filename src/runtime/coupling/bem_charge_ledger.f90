@@ -1,4 +1,4 @@
-!> batch 間の signed charge stock と移送 flux を集計する transactional ledger。
+!> batch 間の signed charge stock と移送 flux から電荷収支を集計する。
 module bem_charge_ledger
   use bem_kinds, only: dp, i32, i64
   implicit none

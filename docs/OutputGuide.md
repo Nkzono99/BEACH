@@ -38,7 +38,29 @@ beachx inspect outputs/latest
 | `performance_profile.csv` | `BEACH_PROFILE=1` | phase 別実行時間 |
 | `rng_state*.txt` | 常時 | 再開用乱数状態 |
 | `macro_residuals*.csv` | reservoir 系注入時 | 端数マクロ粒子数の再開用状態 |
-| `charge_ledger.csv` | 常時 | species 別の signed charge flux と粒子数 |
+| `charge_ledger.csv` | 常時 | 粒子種別の電荷収支と粒子数 |
+
+## 粒子種別の電荷収支
+
+`charge_ledger.csv`は、粒子種別ごとの電荷と個数の流入・移送・流出をまとめた電荷収支fileです。
+主な項目は次のとおりです。
+
+| 項目 | 意味 |
+| --- | --- |
+| `injected_from_remote` | `volume_seed`または`reservoir_face`から入った量 |
+| `emitted_from_surface` | `photo_raycast`で表面から出たtracked量 |
+| `absorbed_on_surface` | meshへ吸収された量 |
+| `escaped_to_infinity` | open/outer modelで無限遠へ脱出した量 |
+| `discarded_unresolved` | `max_step`で未解決のまま破棄した量 |
+| `interface_outward_gross` / `returned_gross` | outer ownership面を横切った往路・復路の総量 |
+
+電荷保存残差は、surface、local flight、outer flight、unresolved stockのbatch前後差に、remote injection、escape、
+discardを合わせて計算します。表面放出と表面吸収はsurface/flight stock間の内部移送なので、独立した外部sourceとして
+二重には数えません。
+
+粒子種別間で正負が相殺し得る`charge_ledger_residual_C`とは別に、
+`charge_ledger_discarded_unresolved_abs_C`は$\sum_s|Q_{s,\mathrm{discard}}|$を示します。
+保存残差が小さくても、未解決のまま破棄した電荷が大きい計算は受理しません。
 
 ## 成功と注意の読み分け
 
@@ -84,7 +106,7 @@ particle transferを有効にすると、`charge_ledger.csv`の`interface_outwar
 | `escaped` | open boundary から出た粒子数。注入・境界条件の確認に使う |
 | `survived_max_step` | `sim.max_step` まで生存した粒子数。多い場合は `dt`、箱、注入条件を見直す |
 | `last_rel_change` | 最終 batch の電荷変化監視値。現行実装では早期停止条件ではない |
-| `charge_ledger_residual_C` | transactional 電荷保存残差。0 でも unresolved discard は別途確認する |
+| `charge_ledger_residual_C` | 電荷保存残差。0 でも unresolved discard は別途確認する |
 | `charge_ledger_discarded_unresolved_abs_C` | species 間で相殺しない max-step discard 電荷の絶対値和 |
 
 `conductor` や `dielectric` を含む mesh では、`summary.txt` に注意書きが出る場合があります。
@@ -99,6 +121,15 @@ particle transferを有効にすると、`charge_ledger.csv`の`interface_outwar
 history_stride = 1
 write_potential_history = true
 ```
+
+`charge_history.csv`は
+
+$$
+(\texttt{stats.batches}-1)\bmod\texttt{history\_stride}=0
+$$
+
+となるbatchで書かれ、batch 1は常に含まれます。`write_potential_history=true`なら、同じstrideで現在の
+`q_elem`から電場・電位を更新し、要素重心の`potential_history.csv`も書きます。
 
 電位履歴は追加の場評価を行うため、要素数や履歴頻度が大きい場合は計算コストが増えます。
 最初は `history_stride = 1` で小ケースを確認し、大きい計算では間引いてください。
@@ -129,7 +160,7 @@ b.plot_potential()
 ## 再開実行の出力
 
 `output.resume=true`の場合、`summary.txt`、`charges.csv`、`rng_state*.txt`、`macro_residuals*.csv`、
-台帳有効時の`charge_ledger.csv`をcheckpointとして使います。schema v3では、model / mesh / species fingerprintを照合し、
+電荷収支を記録している場合の`charge_ledger.csv`をcheckpointとして使います。schema v3では、model / mesh / species fingerprintを照合し、
 outer solverのprofile/stateを完全に復元します。
 
 schema v2の3列outer profileも読み込めます。ただし、held stateとしては使わず、次のrefreshでouter profileを解き直します。

@@ -4,14 +4,15 @@ Lang: [日本語](SurfaceModels.md) | [English](SurfaceModels.en.md)
 
 # 表面電荷更新
 
-表面に吸収された粒子の電荷と、粒子放出に伴う表面側の反作用電荷は、batch中は差分として保持します。
-batch末尾にこれらを`q_elem`へまとめてcommitします。commit後のsurface model処理を反映した電荷が、次のbatchのfield sourceになります。
+表面に吸収された粒子の電荷は、batch中は差分として保持します。表面から粒子を放出するsourceを使う場合は、
+放出に伴う表面側の反作用電荷も同じ差分へ加えます。batch末尾にこれらを`q_elem`へまとめてcommitし、
+commit後のsurface model処理を反映した電荷を次のbatchのfield sourceにします。
 
 ## batch内の更新順
 
 1. batch開始時の`q_elem`から、batch中に固定する電場・電位を構成する。
 2. 各粒子の最初のmesh hitへ$q_pw_p$をthread-localに加える。
-3. 光電子放出元の反作用電荷を`photo_emission_dq`へ加える。
+3. 表面放出sourceの反作用電荷を`photo_emission_dq`へ加える。
 4. OpenMP threadの差分を足し、MPI all-reduceでglobal `dq`を作る。
 5. `q_elem <- q_elem + dq`を実行する。
 6. conductorがあれば、object総電荷を保って等電位化する。
@@ -54,20 +55,6 @@ collisionに使うordered triangleと、fieldのone-sided traceに使う`elem_va
 
 現行modelは、表面内の横方向伝導、bulkへの漏洩、有限抵抗によるrelaxation、二次電子放出、specular/diffuse反射を扱いません。
 v1.0のinteractionはabsorptionが基本であり、これらの効果は結果に含まれません。
-
-## 光電子放出
-
-`photo_raycast`で`deposit_opposite_charge_on_emit=true`なら、放出元$i$へ
-
-$$
-\Delta q_{i,\mathrm{emit}}=-q_pw_p
-$$
-
-を加えます。これは後続collisionとは別の`photo_emission_dq`へ集計し、同じbatch commitに統合します。
-
-放出粒子が要素$j$へ戻ると、通常の吸収として$+q_pw_p$を$j$へ加えます。同じ要素へのreturnは放出電荷を相殺し、
-別要素へのreturnは表面間の電荷移送になります。ray weight、reduced escape、tracked outer returnの関係は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)で説明します。
 
 ## floating conductor
 
@@ -140,46 +127,12 @@ $$
 
 を計算します。現行仕様では、`tol_rel`はmonitor/output metricであり、early-stop条件ではありません。
 
-## charge ledger
-
-`charge_ledger.csv`はspeciesごとにsigned chargeとcountを区別します。
-
-| flux | 意味 |
-| --- | --- |
-| `injected_from_remote` | `volume_seed`/`reservoir_face`から入った電荷 |
-| `emitted_from_surface` | `photo_raycast`でsurfaceから出たtracked電荷 |
-| `absorbed_on_surface` | meshへ吸収された電荷 |
-| `escaped_to_infinity` | open/outer modelでescapeした電荷 |
-| `discarded_unresolved` | `max_step`で未解決のまま破棄した電荷 |
-| `interface_outward_gross` / `returned_gross` | outer ownership面の往復量 |
-
-transactional residualは、surface、local flight、outer flight、unresolved stockの前後差と、remote injection、escape、discardを合わせて計算します。
-surface emissionとabsorptionはsurface/flight stock間の内部移送です。そのため、residual式で独立したexternal sourceとしては数えません。
-
-species間で正負が相殺し得るresidualとは別に、`discarded_unresolved_abs`は
-$\sum_s|Q_{s,\mathrm{discard}}|$を確認します。residualが小さくても未解決discardが大きい計算は受理しません。
-
-## history、final output、restart
-
-`history_stride>0`なら
-
-$$
-(\texttt{stats.batches}-1)\bmod\texttt{history\_stride}=0
-$$
-
-のbatchで`charge_history.csv`を書きます。batch 1は常に対象です。`write_potential_history=true`なら同じstrideで現在の
-`q_elem`から電場・電位を更新し、要素重心の`potential_history.csv`も書きます。
-
-主な確認fileは`charges.csv`、`charge_history.csv`、`charge_ledger.csv`、`summary.txt`、`mesh_sources.csv`です。
-restart時には、mesh要素数、MPI world size、stats/chargeが有限値であること、ordered mesh/species/model fingerprint、ledger stockを検証します。
-必要なouter profileも検証対象です。`output.resume=true`で必須checkpointが欠けている場合は、新規runへfallbackせず停止します。
+光電子放出に伴う反作用電荷の符号と放出粒子の追跡は
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)、粒子種別の電荷収支、履歴、最終出力、再開用fileは
+[出力の読み方](OutputGuide.html)で説明します。
 
 ## Code reference
 
 - particle absorptionとbatch commit: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - conductor relaxation: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
-- transactional charge ledger: [`bem_charge_ledger.f90`](../src/runtime/coupling/bem_charge_ledger.f90)
 - batch statistics: [`bem_simulator_stats.f90`](../src/runtime/simulator/bem_simulator_stats.f90)
-- history output: [`bem_simulator_io.f90`](../src/runtime/simulator/bem_simulator_io.f90)
-- final output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)
-- restart validation: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

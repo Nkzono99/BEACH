@@ -215,7 +215,7 @@ ray_direction = [0.0, 0.0, -1.0]
 `kinetic_mean`はouter profileだけを供給し、帰還電流を表面電荷に二重加算しません。
 
 まず、mesh、batch duration、ambient流入を同じにしたUVなしとUVありのcaseを比較します。
-`outer_plasma_profile.csv`、`summary.txt`のsolver residual、species別電流、charge ledgerを確認してください。
+`outer_plasma_profile.csv`、`summary.txt`のsolver residual、species別電流、電荷収支を確認してください。
 
 `sim.sheath_injection_model = "zhao_*"`は流入分布だけを補正する旧モデルで、ここで使う外部
 `kinetic_1d` Poisson profileとは別物です。両者、および`reservoir_potential_model`との同時利用は拒否されるため、

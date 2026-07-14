@@ -86,8 +86,9 @@ ranks. See [Run a simulation](Execution.en.html) for the parallel execution stru
 ### 6. Commit surface charge
 
 The global charge delta is added to `q_elem` once. Floating conductors are then relaxed toward equipotential while
-preserving object charge when requested. See [Surface charge update](SurfaceModels.en.html) for insulator charging,
-photoemission signs, conductor processing, and the charge ledger.
+preserving object charge when requested. See [Surface charge update](SurfaceModels.en.html) for insulator charging and conductor
+processing, [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for reaction-charge signs, and
+[Reading output files](OutputGuide.en.html) for species-resolved charge balance.
 
 ### 7. Update statistics and history state
 

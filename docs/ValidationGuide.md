@@ -44,7 +44,7 @@ mesh/source refinementを行っていなければ、そのsubsetが収束して�
 | periodic2 cached | cache fingerprint、cold/warm一致、zero-mode/Gauss residual |
 | unified outer | accessibility refinement、linearity、outer energy/frozen-field error |
 | kinetic outer | solver status、Poisson residual、Bohm/branch applicability |
-| photoelectron | emission/return ledger、ambient charge ratio、histogram範囲 |
+| photoelectron | 放出・returnの電荷収支、ambient charge ratio、histogram範囲 |
 | object detachment | primary-only self exclusion、PV trace、work/potential一致、quadrature、finite-shell/cache、from-rest barrier |
 
 ## 周期objectの離脱解析で追加する確認
@@ -185,7 +185,7 @@ job は有限・無限の両 280000 job に `afterok` で依存し、必須の p
 strict 解析は6個の一意な job ID、全 job の SysA/Intel module/hash log、先行5 job の
 source commit・resource・exit code 0 の status、および実行中 analysis job の ID を再検証します。
 
-`verify-run` は schema、geometry、charge/particle ledger、全 MPI rank checkpoint、履歴、
+`verify-run` は schema、geometry、電荷・粒子収支、全 MPI rank checkpoint、履歴、
 `mesh_sources.csv` / `mesh_potential.csv`、restart fingerprint、cache fingerprint と
 cache file hash を再検証します。初回成功時に output tree の全 regular file を含む
 write-once execution receipt を `provenance/verified/` に作り、以後は上書きせず現在値を

@@ -296,7 +296,7 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
         ),
         "PhotoelectronEmission.md": (
             "## 放出から再吸収までを同じbatchで追う",
-            "## charge ledgerで放出・再吸収・escapeを閉じる",
+            "## 放出・再吸収・escapeの電荷収支を確認する",
         ),
     }
     for name, headings in migrated_headings.items():
@@ -331,7 +331,7 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
         ),
         "PhotoelectronEmission.en.md": (
             "## Track emission through reabsorption in the same batch",
-            "## Close emission, reabsorption, and escape in the charge ledger",
+            "## Check charge balance across emission, reabsorption, and escape",
         ),
     }
     for name, headings in migrated_headings_en.items():

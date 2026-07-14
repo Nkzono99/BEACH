@@ -4,14 +4,15 @@ Lang: [日本語](SurfaceModels.md) | [English](SurfaceModels.en.md)
 
 # Surface charge update
 
-Charge absorbed by the surface and reaction charge from surface emission are held as differences during a batch and committed to
-`q_elem` together at batch end. Surface-model processing after commit produces the source charge for the next batch field.
+Charge absorbed by the surface is held as a difference during a batch. When a surface particle source is active, its reaction
+charge joins the same difference. The differences are committed to `q_elem` at batch end, and surface-model processing after
+commit produces the source charge for the next batch field.
 
 ## Update order within a batch
 
 1. Build an immutable field snapshot from batch-start `q_elem`.
 2. Add $q_pw_p$ from each particle's first mesh hit to thread-local differences.
-3. Add photoelectron source reaction charge to `photo_emission_dq`.
+3. Add surface-source reaction charge to `photo_emission_dq`.
 4. Sum OpenMP-thread differences and MPI all-reduce global `dq`.
 5. Apply `q_elem <- q_elem + dq`.
 6. If conductors are present, equalize potential while conserving object charge.
@@ -54,20 +55,6 @@ models do not rewrite triangle winding.
 
 The model does not include lateral surface conduction, bulk leakage, finite-resistivity relaxation, secondary-electron emission,
 or specular/diffuse reflection. v1.0 interaction is primarily absorption and must not be interpreted as containing these effects.
-
-## Photoelectron emission
-
-With `photo_raycast` and `deposit_opposite_charge_on_emit=true`, source element $i$ receives
-
-$$
-\Delta q_{i,\mathrm{emit}}=-q_pw_p.
-$$
-
-This is accumulated separately in `photo_emission_dq` and merged into the same commit as later collision deposition.
-
-If the emitted particle returns to element $j$, ordinary absorption adds $+q_pw_p$ there. Return to the same element cancels source
-charge; return elsewhere transfers net charge between surface elements. See
-[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for ray weight, reduced escape, and tracked outer return.
 
 ## Floating conductor
 
@@ -140,47 +127,11 @@ $$
 
 Under the current contract, `tol_rel` is a monitoring and output metric, not an early-stop condition.
 
-## Charge ledger
-
-`charge_ledger.csv` separates species-resolved signed charge and counts.
-
-| Flux | Meaning |
-| --- | --- |
-| `injected_from_remote` | Charge entering from `volume_seed` or `reservoir_face` |
-| `emitted_from_surface` | Tracked charge leaving through `photo_raycast` |
-| `absorbed_on_surface` | Charge absorbed by the mesh |
-| `escaped_to_infinity` | Charge escaping through open or outer models |
-| `discarded_unresolved` | Charge discarded alive at `max_step` |
-| `interface_outward_gross` / `returned_gross` | Gross transfer across the outer ownership interface |
-
-The transactional residual combines before/after changes of surface, local-flight, outer-flight, and unresolved stocks with remote
-injection, escape, and discard. Surface emission and absorption are internal transfers between surface and flight stocks and are
-not counted twice as independent external sources.
-
-Separately from a residual where opposite species can cancel, `discarded_unresolved_abs` checks
-$\sum_s|Q_{s,\mathrm{discard}}|$. A small residual does not validate a run with large unresolved discard.
-
-## History, final output, and restart
-
-With `history_stride>0`, `charge_history.csv` is written when
-
-$$
-(\texttt{stats.batches}-1)\bmod\texttt{history\_stride}=0,
-$$
-
-so batch 1 is always included. With `write_potential_history=true`, the current `q_elem` refreshes the field snapshot at the same
-stride and writes element-centroid `potential_history.csv`.
-
-Main files are `charges.csv`, `charge_history.csv`, `charge_ledger.csv`, `summary.txt`, and `mesh_sources.csv`. Restart validates
-mesh element count, MPI world size, finite statistics and charge, ordered mesh/species/model fingerprints, ledger stocks, and any
-required outer profile. Missing required checkpoints with `output.resume=true` stop rather than start a new run.
+See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for reaction-charge signs and emitted-particle tracking.
+See [Reading output files](OutputGuide.en.html) for species-resolved charge balance, history, final output, and restart files.
 
 ## Code reference
 
 - Particle absorption and batch commit: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - Conductor relaxation: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
-- Transactional charge ledger: [`bem_charge_ledger.f90`](../src/runtime/coupling/bem_charge_ledger.f90)
 - Batch statistics: [`bem_simulator_stats.f90`](../src/runtime/simulator/bem_simulator_stats.f90)
-- History output: [`bem_simulator_io.f90`](../src/runtime/simulator/bem_simulator_io.f90)
-- Final output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)
-- Restart validation: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

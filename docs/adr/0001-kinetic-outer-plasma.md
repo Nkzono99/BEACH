@@ -66,7 +66,7 @@ f_return = 1 - f_escape
 
 とする。空間密度は同じ flux VDF の Liouville 写像から評価し、returning branch を一度だけ
 加える。`individual_return` と併用する場合、平均 closure は空間電荷だけを供給し、return
-current を surface ledger に再加算しない。
+current を表面の電荷収支へ再加算しない。
 
 ### Charge and current closure
 

@@ -133,9 +133,9 @@ outer領域の空間電荷に寄与します。この平均closureは、個々�
 Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入closureです。tracked粒子は
 Zhao profileの$E(z)$ではなく、通常の粒子追跡で使う、batch内で固定された電場中を進みます。
 
-## charge ledgerで放出・再吸収・escapeを閉じる
+## 放出・再吸収・escapeの電荷収支を確認する
 
-species別ledgerは、surfaceからの放出、surfaceへの吸収、無限遠escape、未解決破棄を区別します。
+粒子種別の電荷収支では、surfaceからの放出、surfaceへの吸収、無限遠escape、未解決破棄を区別します。
 outer interfaceのoutward/returned gross chargeも、それぞれ記録します。少なくとも次の量を比較します。
 
 - `rays_per_batch`を増やしたときのhit率、放出電流、帯電分布。
@@ -148,5 +148,5 @@ outer interfaceのoutward/returned gross chargeも、それぞれ記録します
 - ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - reduced escape係数と放出電荷差分: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - tracked-return互換性検証: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
-- 通常追跡、outer transfer、charge ledger: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
+- 通常追跡、outer transfer、電荷収支集計: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - kinetic mean photoelectron closure: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

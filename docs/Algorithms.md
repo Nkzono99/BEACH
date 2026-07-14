@@ -83,8 +83,9 @@ MPI/OpenMPの実行構成は[実行する](Execution.html)にまとめていま�
 
 ### 6. 表面電荷をcommit
 
-全粒子の電荷差分を`q_elem`へ一度だけ加え、必要なら浮遊導体を総電荷一定のまま等電位化します。絶縁体帯電、
-光電子放出の符号、conductor処理、charge ledgerは[表面電荷更新](SurfaceModels.html)で説明します。
+全粒子の電荷差分を`q_elem`へ一度だけ加え、必要なら浮遊導体を総電荷一定のまま等電位化します。絶縁体帯電と
+conductor処理は[表面電荷更新](SurfaceModels.html)、光電子放出の符号は
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)、粒子種別の電荷収支は[出力の読み方](OutputGuide.html)で説明します。
 
 ### 7. 統計と履歴状態を更新
 

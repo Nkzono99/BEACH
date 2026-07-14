@@ -49,7 +49,7 @@ thread-localな要素電荷差分へ加え、batch末尾にcommitします。
 - `sim.dt`を半分にして軌道、命中要素、吸収数が安定するか
 - `survived_max_step`が結論に影響する割合になっていないか
 - periodic seam、corner、reflect後の残り時間を跨ぐ軌道が意図どおりか
-- 粒子の吸収・escape・未解決数と電荷ledgerが一致するか
+- 粒子の吸収・escape・未解決数と電荷収支が一致するか
 
 設定値は[設定パラメータ](Parameters.html)、出力での分類は[出力の読み方](OutputGuide.html)から確認できます。
 
