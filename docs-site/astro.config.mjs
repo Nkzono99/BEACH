@@ -52,7 +52,7 @@ export default defineConfig({
   markdown: {
     processor: unified({
       remarkPlugins: [remarkMath],
-      rehypePlugins: [[rehypeKatex, { strict: false, throwOnError: false }]],
+      rehypePlugins: [[rehypeKatex, { strict: false, throwOnError: true }]],
     }),
   },
   integrations: [

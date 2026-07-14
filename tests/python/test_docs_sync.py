@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SYNC_PATH = ROOT / "tools" / "sync_starlight_docs.py"
+FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+INLINE_MATH_RE = re.compile(r"(?<!\\)\$(?!\$)(?:\\.|[^$\n])*?(?<!\\)\$")
+UNESCAPED_DOLLAR_RE = re.compile(r"(?<!\\)\$")
+TEX_COMMAND_RE = re.compile(r"\\[A-Za-z]+")
 
 
 def _load_sync_module():
@@ -23,6 +28,29 @@ def _read_doc(name: str) -> str:
     return (ROOT / "docs" / name).read_text(encoding="utf-8")
 
 
+def _strip_inline_code(line: str) -> str:
+    result: list[str] = []
+    index = 0
+    while index < len(line):
+        if line[index] != "`":
+            result.append(line[index])
+            index += 1
+            continue
+
+        marker_end = index
+        while marker_end < len(line) and line[marker_end] == "`":
+            marker_end += 1
+        marker = line[index:marker_end]
+        closing = line.find(marker, marker_end)
+        if closing < 0:
+            result.append(marker)
+            index = marker_end
+            continue
+        index = closing + len(marker)
+
+    return "".join(result)
+
+
 def test_pages_sources_use_remark_math_inline_delimiters() -> None:
     module = _load_sync_module()
 
@@ -30,6 +58,35 @@ def test_pages_sources_use_remark_math_inline_delimiters() -> None:
         text = _read_doc(page.source)
         assert r"\(" not in text, page.source
         assert r"\)" not in text, page.source
+
+        fence_marker: str | None = None
+        in_display_math = False
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            fence_match = FENCE_RE.match(line)
+            if fence_match:
+                marker = fence_match.group(1)[0]
+                if fence_marker is None:
+                    fence_marker = marker
+                elif fence_marker == marker:
+                    fence_marker = None
+                continue
+            if fence_marker is not None:
+                continue
+
+            if line.strip() == "$$":
+                in_display_math = not in_display_math
+                continue
+            if in_display_math:
+                continue
+
+            prose = _strip_inline_code(line)
+            prose = INLINE_MATH_RE.sub("", prose)
+            location = f"{page.source}:{line_number}"
+            assert UNESCAPED_DOLLAR_RE.search(prose) is None, location
+            assert TEX_COMMAND_RE.search(prose) is None, location
+
+        assert fence_marker is None, f"{page.source}: unclosed code fence"
+        assert not in_display_math, f"{page.source}: unclosed display math"
 
 
 def test_japanese_pages_avoid_repetitive_reference_phrasing() -> None:

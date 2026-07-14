@@ -170,7 +170,7 @@ Snapshot validity over a flight is measured by
 
 $$
 \epsilon_\mathrm{ad}
-=\frac{\tau_\mathrm{outer}}{\texttt{field_evolution_timescale}}
+=\frac{\tau_\mathrm{outer}}{\texttt{field\_evolution\_timescale}}
 $$
 
 and must not exceed `max_frozen_field_ratio`. Set the denominator `field_evolution_timescale` to the physical evolution timescale

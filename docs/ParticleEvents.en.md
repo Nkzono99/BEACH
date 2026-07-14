@@ -82,16 +82,16 @@ $\mathbf{h}=\mathbf{x}_0+t(\mathbf{x}_1-\mathbf{x}_0)$.
 ## Map periodic-image collisions to the primary cell
 
 With periodic2, the mesh still stores only base elements in the primary cell. BEACH enumerates only image shifts whose canonical
-mesh AABB can overlap the trajectory-segment AABB on the two periodic axes. For period $L$, segment range $[p_\min,p_\max]$, and mesh range
-$[m_\min,m_\max]$ on one axis,
+mesh AABB can overlap the trajectory-segment AABB on the two periodic axes. For period $L$, segment range $[p_{\min},p_{\max}]$, and mesh range
+$[m_{\min},m_{\max}]$ on one axis,
 
 $$
-n_\min=\left\lceil
-\frac{p_\min-m_\max-\mathrm{tol}}{L}
+n_{\min}=\left\lceil
+\frac{p_{\min}-m_{\max}-\mathrm{tol}}{L}
 \right\rceil,
 \qquad
-n_\max=\left\lfloor
-\frac{p_\max-m_\min+\mathrm{tol}}{L}
+n_{\max}=\left\lfloor
+\frac{p_{\max}-m_{\min}+\mathrm{tol}}{L}
 \right\rfloor.
 $$
 

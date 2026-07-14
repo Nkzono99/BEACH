@@ -37,7 +37,7 @@ Without correction, the configured upstream VDF is sampled as a flux-weighted di
 acceleration.
 
 With `reservoir_potential_model="infinity_barrier"`, the batch-start finite-image snapshot gives mean aperture potential
-$\bar\phi_f`. Relative to `phi_infty`, it:
+$\bar\phi_f$. Relative to `phi_infty`, it:
 
 - selects accessible normal speeds from the upstream VDF;
 - maps accepted normal velocity to the face by the same potential difference.

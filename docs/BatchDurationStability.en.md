@@ -221,7 +221,7 @@ $$
 This is the microscopic fast timescale of an electron plasma and is useful as a reference for how sharply the system can respond.
 
 However, treating $\omega_{pe}^{-1}$ directly as an upper bound on $\tau_{\min}$ is too strong.
-It is better viewed as a **fast-side physical reference**. The effective time constant that limits `batch_duration` often comes from $\tau_\text{charge}`, including geometry and incoming-flux limits.
+It is better viewed as a **fast-side physical reference**. The effective time constant that limits `batch_duration` often comes from $\tau_\text{charge}$, including geometry and incoming-flux limits.
 
 #### 5.3 Practical choice
 

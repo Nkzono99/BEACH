@@ -126,7 +126,7 @@ Zhao branchと`floating_no_photo`がsource密度・cutoff・driftを上書きす
 ## 生成位置の位相をjitterで散らす
 
 位置は開口矩形内で一様sampleし、法線方向へ$10^{-12}$ mだけbox内部へ移します。
-`position_jitter_dt>0`なら各粒子に$[0,\texttt{position_jitter_dt})$の一様な仮想時間を与え、
+`position_jitter_dt>0`なら各粒子に$[0,\texttt{position\_jitter\_dt})$の一様な仮想時間を与え、
 $\mathbf x\leftarrow\mathbf x+\mathbf v\tau$とします。その後、両面periodicな軸はprimary boxへwrapし、
 その他の軸はbox内へclampします。
 

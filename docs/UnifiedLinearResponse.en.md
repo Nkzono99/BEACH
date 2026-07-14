@@ -55,7 +55,7 @@ model requires
 
 $$
 \max_z|\Delta f_\mathrm{access}(z)|
-\le\texttt{accessible_fraction_tolerance}.
+\le\texttt{accessible\_fraction\_tolerance}.
 $$
 
 Overhangs, closed cavities, multiple plasma-facing intersections on one vertical ray, and pores connected to the reservoir only by
