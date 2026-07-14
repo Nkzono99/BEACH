@@ -14,7 +14,7 @@ Boris更新、衝突判定、box境界を使います。
 2. box境界条件を適用しながら最初のmesh hitを探す。
 3. 命中要素のplasma側法線から光電子を生成する。
 4. 必要なら放出元要素へ$-qw$を記録する。
-5. 通常粒子として追跡し、再吸収、無限遠escape、outer returnを処理する。
+5. 通常粒子として追跡し、box境界へ達した後は共通のescape/return処理へ渡す。
 6. 放出電荷と吸収電荷をbatch末尾に表面へcommitする。
 
 放出と再吸収は同じbatchで起こり得ますが、途中で電場・電位を更新しません。したがって、放出が作る
@@ -91,17 +91,14 @@ MPI all-reduce後に同じbatch commitへ加えます。
 放出粒子が要素$j$へ再吸収されると、通常の吸収として$+qw$を$j$へ堆積します。同じ要素へ戻れば放出と吸収が相殺し、
 別の要素へ戻れば表面内の正味電荷移送になります。現行のinsulator modelはその後の表面伝導を行いません。
 
-## box外の挙動を一つのモデルで表す
+## `photo_escape_model`で放出時のreduced escapeを選ぶ
 
-box外へ向かう光電子には、次のいずれか一つの近似を適用します。選択した構成によって、生成するtracked重みと、
-return位置やflight timeを表現する範囲が決まります。
+`photo_escape_model`は、ray hitから生成する光電子の重みにだけ作用する光電子固有の近似です。
 
-| 構成 | 生成するtracked重み | returnの表現 |
+| `photo_escape_model` | 生成するtracked重み | 意味 |
 | --- | --- | --- |
-| `photo_escape_model="none"`、outer transferなし | $w_\mathrm{hit}$ | box内を追跡し、open面では通常のescape |
-| `photo_escape_model="boltzmann_cutoff"` | $f_\mathrm{esc}w_\mathrm{hit}$ | 非escape成分を生成しない即時reduced closure |
-| 1D outer profile return | $w_\mathrm{hit}$ | interfaceを出た個々の粒子を保存エネルギーでreturn/escape判定 |
-| unified 3D explicit orbit | $w_\mathrm{hit}$ | zero/nonzero modeを含む3D outer場で個別軌道を追跡 |
+| `none` | $w_\mathrm{hit}$ | 放出重みを減らさず、生成後は通常粒子として追跡 |
+| `boltzmann_cutoff` | $f_\mathrm{esc}w_\mathrm{hit}$ | 非escape成分を生成しない即時reduced closure |
 
 legacy Boltzmann cutoffは、放出元のprimary self項を除いた局所電位$\phi_\mathrm{emit}$から
 
@@ -114,39 +111,37 @@ $$
 returning粒子の軌道、再吸収位置、flight timeは扱いません。非escape成分を戻す要素も求めません。
 放出元へ置く逆符号電荷には、減衰後の粒子と同じ重みを使います。
 
-個別returnを使う構成は`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`とは併用しません。
-escape cutoffとtracked returnは、どちらか一方だけを適用します。
+`photo_escape_model="none"`は、open面で必ずescapeさせる指定ではありません。生成後にopen面へ達した粒子には、
+reservoir粒子や`volume_seed`粒子と同じ`open_boundary_model`またはouter transferを適用します。scalar barrier、
+1D outer profile return、unified 3D explicit orbitを含む共通の境界処理は
+[粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
 
-## outer plasmaの平均密度と個別軌道を結び付ける
+個別returnを使う構成は`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`とは併用しません。
+放出時のescape cutoffと、生成後のtracked returnはどちらか一方だけを適用します。
+
+## 光電子をouter plasmaの平均密度へ含める
 
 `outer_plasma.photoelectron_closure="kinetic_mean"`は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を、
 平面平均sourceとして1D Poisson密度closureへ加えます。outgoing populationと、turning後のreturning populationが、
 outer領域の空間電荷に寄与します。この平均closureは、個々のtracked粒子の表面吸収を置き換えません。
 統計的なreturn電荷を、別途表面へdepositすることもありません。
 
-`individual_return`または`kinetic_mean + kinetic_1d_profile_return`では、z-high interfaceを横切るtracked光電子を
-保存エネルギーでescape/returnへ分類します。interfaceのoutward/returned chargeと放出速度histogramはdiagnosticです。
-外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
-[粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は
-[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
+生成後のtracked光電子をz-high interfaceからouter領域へ渡す場合も、粒子sourceに依存しない共通の
+escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
+[粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
 Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入closureです。tracked粒子は
 Zhao profileの$E(z)$ではなく、通常の粒子追跡で使う、batch内で固定された電場中を進みます。
 
-## 放出・再吸収・escapeの電荷収支を確認する
+## 光電子放出の収束を確認する
 
-粒子種別の電荷収支では、surfaceからの放出、surfaceへの吸収、無限遠escape、未解決破棄を区別します。
-outer interfaceのoutward/returned gross chargeも、それぞれ記録します。少なくとも次の量を比較します。
-
-- `rays_per_batch`を増やしたときのhit率、放出電流、帯電分布。
-- `dt`を小さくしたときの再吸収位置とescape/return率。
-- 表面の放出$-qw$、tracked粒子の吸収/escape、batch間surface stockを合わせた電荷収支。
-- outer return使用時の最大flight time、frozen-field ratio、energy error。
+`rays_per_batch`を増やし、hit率、放出電流、帯電分布が収束することを確認します。再吸収位置も評価する場合は、
+`dt`を小さくして結果が変わらないことを確認します。放出、吸収、escapeを含む粒子種別の電荷収支と、
+outer return固有の診断値は[出力の読み方](OutputGuide.html)で確認します。
 
 ## Code reference
 
 - ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - reduced escape係数と放出電荷差分: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - tracked-return互換性検証: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
-- 通常追跡、outer transfer、電荷収支集計: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - kinetic mean photoelectron closure: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

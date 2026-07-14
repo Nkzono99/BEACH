@@ -58,14 +58,15 @@ emits from the first in-box element hit. Emission velocity follows a flux-weight
 normal.
 
 After emission, a photoelectron enters the common particle state and uses the same field, Boris update, mesh collisions, and box
-boundaries as every other particle. Source charge, reduced escape closure, and outer-sheath return are documented together in
-[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html).
+boundaries as every other particle. Source charge and the photoelectron-specific reduced escape closure are documented in
+[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html); source-independent behavior outside the box is documented
+in [Particle escape and return](ParticleEscapeReturn.en.html).
 
-## Enter the common particle state and charge ledger after creation
+## Enter the common particle state and charge balance after creation
 
 After creation, the main stored quantities are position $\mathbf x$, velocity $\mathbf v$, physical-particle charge $q$ and mass
-$m$, macro-particle weight $w$, and species ID. The charge of a tracked macro particle is $q w$; surface absorption and the charge
-ledger use that value.
+$m$, macro-particle weight $w$, and species ID. The charge of a tracked macro particle is $q w$; surface absorption and
+species-resolved charge balance use that value.
 
 | Batch outcome | Treatment |
 | --- | --- |
@@ -86,7 +87,7 @@ expected inflow does not change with MPI world size. A per-species `macro_residu
 on resume.
 
 `photo_raycast` `rays_per_batch` is also a global total. Each ray weight is divided by the global ray count, and emitted,
-absorbed, and escaped charge-ledger values are global after MPI all-reduce. Expected inflow is world-size independent, while
+absorbed, and escaped charge-balance values are global after MPI all-reduce. Expected inflow is world-size independent, while
 random sequences and individual trajectories can change with world size.
 
 ## Code reference
@@ -94,5 +95,5 @@ random sequences and individual trajectories can change with world size.
 - Particle distributions and ray casting: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - Per-source batch creation and macro residuals: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - Source input validation: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
-- Charge ledger and batch tracking: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
+- Charge-balance accounting and batch tracking: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - Macro-residual checkpoint: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

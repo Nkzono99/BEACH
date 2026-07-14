@@ -55,8 +55,9 @@ $$
 in-box要素から粒子を放出します。放出速度は要素法線に対するflux-weighted Maxwell分布です。
 
 放出後の光電子は共通の粒子状態へ入り、ほかの粒子と同じ場、Boris更新、mesh衝突、box境界を使います。
-放出元電荷、reduced escape closure、outer sheathでのreturnまでを
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
+放出元電荷と光電子固有のreduced escape closureは
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)、sourceに依存しないbox外の挙動は
+[粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
 
 ## 生成後は共通の粒子状態と電荷収支へ入る
 

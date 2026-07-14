@@ -185,7 +185,8 @@ A persistent delayed-return queue for particles violating the gate is not implem
 
 Species-resolved output separates `interface_outward_gross`, `interface_returned_gross`, and `escaped_to_infinity`. It also reports
 maximum `outer_flight_time`, frozen-field ratio, and 3-D orbit energy error. Gross outward minus returned equals net escape only
-when transfer coverage and the ledger interval match for that species.
+when transfer coverage and the charge-balance interval match for that species. See
+[Reading output files](OutputGuide.en.html) for these fields and the `charge_ledger.csv` file format.
 
 ## Code reference
 
