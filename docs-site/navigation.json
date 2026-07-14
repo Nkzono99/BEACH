@@ -13,15 +13,15 @@
     { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 110, "description": { "root": "BEACH入力パラメータのリファレンス。", "en": "BEACH input parameter reference." } },
     { "source": { "root": "PythonPostprocessAPI.md", "en": "PythonPostprocessAPI.en.md" }, "slug": "python-postprocess-api", "order": 120, "description": { "root": "Python後処理APIのリファレンス。", "en": "Python post-processing API reference." } },
     { "source": { "root": "Algorithms.md", "en": "Algorithms.en.md" }, "slug": "algorithms", "order": 130, "description": { "root": "BEACHの状態、物理モデル、数値手法の全体像。", "en": "Overview of BEACH state, physical models, and numerical methods." } },
-    { "source": { "root": "SurfaceModels.md", "en": "SurfaceModels.en.md" }, "slug": "surface-models", "order": 140, "description": { "root": "batch末尾の電荷commit、絶縁体帯電、浮遊導体、charge ledger。", "en": "Batch charge commit, insulator charging, floating conductors, and charge ledger." } },
+    { "source": { "root": "SurfaceModels.md", "en": "SurfaceModels.en.md" }, "slug": "surface-models", "order": 140, "description": { "root": "batch末尾の電荷commit、絶縁体帯電、浮遊導体、電荷収支。", "en": "Batch charge commit, insulator charging, floating conductors, and charge accounting." } },
     { "source": { "root": "ParticleSourcesBoundaries.md", "en": "ParticleSourcesBoundaries.en.md" }, "slug": "particle-sources-boundaries", "order": 145, "description": { "root": "volume、reservoir、photo raycastという粒子生成方式の全体像。", "en": "Overview of volume, reservoir, and photo-raycast particle generation." } },
     { "source": { "root": "ReservoirInjection.md", "en": "ReservoirInjection.en.md" }, "slug": "reservoir-injection", "order": 146, "description": { "root": "流入flux、速度分布、電位障壁を含むreservoir面注入。", "en": "Reservoir-face injection with inflow flux, velocity distributions, and potential barriers." } },
-    { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 147, "description": { "root": "光線追跡、表面電荷、escapeとreturnを含む光電子のライフサイクル。", "en": "Photoelectron lifecycle across ray casting, surface charge, escape, and return." } },
+    { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 147, "description": { "root": "光線追跡による放出、表面電荷、放出時のreduced escape。", "en": "Ray-cast emission, surface charge, and reduced escape at emission." } },
     { "source": { "root": "SheathInjectionClosures.md", "en": "SheathInjectionClosures.en.md" }, "slug": "sheath-injection-closures", "order": 148, "description": { "root": "floatingおよびZhao系による粒子source VDFの補正。", "en": "Particle-source VDF corrections from floating and Zhao-family closures." } },
     { "source": { "root": "ParticleTrackingCollision.md", "en": "ParticleTrackingCollision.en.md" }, "slug": "particle-tracking-collision", "order": 150, "description": { "root": "同じ時刻の位置・速度から候補軌道を作り、最初の衝突・境界まで確定する流れ。", "en": "Overview of same-time particle updates and earliest-event processing." } },
     { "source": { "root": "BorisPusher.md", "en": "BorisPusher.en.md" }, "slug": "boris-pusher", "order": 151, "description": { "root": "予測中点場、Boris速度回転、台形位置更新。", "en": "Predicted-midpoint field, Boris velocity rotation, and trapezoidal position update." } },
     { "source": { "root": "ParticleEvents.md", "en": "ParticleEvents.en.md" }, "slug": "particle-events", "order": 152, "description": { "root": "mesh衝突とbox境界をperiodic imageまで含めて比較し、最初に起きる処理を選ぶ方法。", "en": "Mesh collision, box boundaries, periodic images, and earliest-event selection." } },
-    { "source": { "root": "OuterPlasmaModels.md", "en": "OuterPlasmaModels.en.md" }, "slug": "outer-plasma-models", "order": 155, "description": { "root": "外部プラズマ、シース、粒子のreturn closureの選択。", "en": "Selection of outer-plasma, sheath, and particle-return closures." } },
+    { "source": { "root": "OuterPlasmaModels.md", "en": "OuterPlasmaModels.en.md" }, "slug": "outer-plasma-models", "order": 155, "description": { "root": "粒子流入、open境界、外部場、particle transferの組み合わせ。", "en": "Combine particle inflow, open boundaries, outer fields, and particle transfer." } },
     { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 156, "description": { "root": "open境界、scalar障壁、1D return、3D outer軌道。", "en": "Open boundaries, scalar barriers, 1-D return, and 3-D outer orbits." } },
     { "source": { "root": "KineticOuterPlasma.md", "en": "KineticOuterPlasma.en.md" }, "slug": "kinetic-outer-plasma", "order": 157, "description": { "root": "VDF closureを使う非線形1D Poisson外部プラズマ。", "en": "Nonlinear 1-D Poisson outer plasma with VDF closures." } },
     { "source": { "root": "UnifiedLinearResponse.md", "en": "UnifiedLinearResponse.en.md" }, "slug": "unified-linear-response", "order": 158, "description": { "root": "rough surfaceとzero/nonzero modeの統合線形plasma応答。", "en": "Unified linear plasma response for rough surfaces and zero/nonzero modes." } },
@@ -77,15 +77,36 @@
           "label": { "root": "物理モデル", "en": "Physical models" },
           "collapsed": true,
           "items": [
-            { "type": "page", "slug": "surface-models" },
-            { "type": "page", "slug": "particle-sources-boundaries", "label": { "root": "粒子源", "en": "Particle sources" } },
-            { "type": "page", "slug": "reservoir-injection" },
-            { "type": "page", "slug": "photoelectron-emission" },
-            { "type": "page", "slug": "sheath-injection-closures" },
-            { "type": "page", "slug": "outer-plasma-models" },
-            { "type": "page", "slug": "kinetic-outer-plasma" },
-            { "type": "page", "slug": "unified-linear-response" },
-            { "type": "page", "slug": "particle-escape-return" }
+            {
+              "type": "group",
+              "label": { "root": "表面", "en": "Surfaces" },
+              "collapsed": true,
+              "items": [
+                { "type": "page", "slug": "surface-models" }
+              ]
+            },
+            {
+              "type": "group",
+              "label": { "root": "粒子源", "en": "Particle sources" },
+              "collapsed": true,
+              "items": [
+                { "type": "page", "slug": "particle-sources-boundaries", "label": { "root": "粒子源の全体像", "en": "Particle-source overview" } },
+                { "type": "page", "slug": "reservoir-injection" },
+                { "type": "page", "slug": "photoelectron-emission" }
+              ]
+            },
+            {
+              "type": "group",
+              "label": { "root": "境界・シース・外部領域", "en": "Boundaries, sheaths, and outer domain" },
+              "collapsed": true,
+              "items": [
+                { "type": "page", "slug": "outer-plasma-models", "label": { "root": "構成の選び方", "en": "Selection guide" } },
+                { "type": "page", "slug": "sheath-injection-closures", "label": { "root": "流入VDFのシースclosure", "en": "Inflow-VDF sheath closures" } },
+                { "type": "page", "slug": "particle-escape-return", "label": { "root": "open境界・escape・return", "en": "Open boundaries, escape, and return" } },
+                { "type": "page", "slug": "kinetic-outer-plasma", "label": { "root": "外部場: kinetic 1D", "en": "Outer field: kinetic 1D" } },
+                { "type": "page", "slug": "unified-linear-response", "label": { "root": "外部場: unified linear response", "en": "Outer field: unified linear response" } }
+              ]
+            }
           ]
         },
         {

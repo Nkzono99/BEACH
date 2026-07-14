@@ -1,77 +1,112 @@
-title: Outer plasma models
+title: Choosing Boundary and Outer-Domain Models
 
 Lang: [English](OuterPlasmaModels.en.md) | [日本語](OuterPlasmaModels.md)
 
-# Outer plasma models
+# Choosing Boundary and Outer-Domain Models
 
-An outer-plasma model defines which state closes the region outside the finite particle domain. A closure that modifies only
-the inflow VDF, a one-dimensional profile connected at an interface, and a three-dimensional outer field provide different
-information to reservoir inflow and outward particles. A simple open boundary carries no outer state and removes particles at
-the crossing.
+Connecting a finite particle box to an external reservoir involves five stages: particle creation, inflow correction, outflow
+boundary handling, outer-field construction, and particle motion outside the box. These are not alternatives under one `model`
+key; they are separate stages that must be combined consistently.
 
-## Classify models by the state carried outside the box
+## Distinguish five configuration stages
 
-| Model | What it solves | Spatial field for the particle pusher? |
+| Stage | Main configuration | Role |
 | --- | --- | --- |
-| `infinity_barrier` | Inflow cutoff from face-average potential | No |
-| `floating_no_photo` | Reduced electron/ion inflow balance | No |
-| `zhao_*` | Injection-VDF correction from an analytic sheath closure | No |
-| `linear_debye` | Exponential zero-mode response | Used for outer return |
-| `kinetic_1d` | A 1D profile from infinity VDFs and Poisson's equation | In the outer region |
-| `unified_linear_response` | Linear 1D response including rough surfaces | Combined from local to far field |
+| Particle creation | `particles.species[].source_mode` | Create macro particles from `reservoir_face`, `photo_raycast`, or another source |
+| Inflow correction | `sim.reservoir_potential_model` or `sim.sheath_injection_model` | Set accessibility, density, drift, and cutoff of the upstream VDF |
+| Outflow boundary | `sim.open_boundary_model` | Select unconditional escape or reflection by a scalar barrier |
+| Outer field | `outer_plasma.model` | Construct a 1-D exterior profile or a response field from the surface to the far region |
+| Outside particle | `coupling.particle_transfer_mode` | Map an interface crossing through 1-D return or a 3-D outer orbit |
 
-`floating_no_photo` and `zhao_*` return source-VDF corrections. See
-[Sheath injection closures](SheathInjectionClosures.en.html) for branches, cutoffs, and applicability.
+`reservoir_face` is a particle source. `infinity_barrier` and sheath-injection closures modify the VDF supplied to that source.
+`potential_barrier` acts in the opposite direction on particles leaving through an open face. `kinetic_1d` and
+`unified_linear_response` retain more spatial information than a scalar correction.
 
-## Split models connect the local field to a 1D profile
+## Separate particle creation from inflow-VDF correction
 
-`linear_debye` and `kinetic_1d` connect the local mesh domain to a one-dimensional profile beyond an ownership
-interface. The surface zero-mode field supplies the interface condition, and the outer potential difference
-controls inflow acceleration and outward-particle escape or return.
+```text
+upstream VDF
+   |
+   +-- no correction
+   +-- infinity_barrier         energy map from mean face potential
+   +-- sheath_injection_model  analytic density, drift, and cutoff closure
+   +-- kinetic_1d profile      energy map through solved outer potential
+             |
+       reservoir_face
+       integrate flux and create particles
+```
 
-`kinetic_1d` accepts only solutions satisfying the original Poisson residual, monotonic branch, ion
-accessibility, Bohm entry, and infinity quasineutrality. Failure does not silently select another model.
+`source_mode="reservoir_face"` converts an upstream VDF into a flux-weighted distribution and creates particles on a box face.
+The sampler does not solve a sheath by itself. The diagram shows the reservoir-inflow path. Zhao-family closures additionally
+correct the density, cutoff, and emitted current of the matching `photo_raycast` source.
 
-See [Kinetic 1-D outer plasma](KineticOuterPlasma.en.html) for the Poisson problem, VDF density closures, Newton
-solve, and physical acceptance conditions.
+| Inflow model | Resolved source information | Spatial profile |
+| --- | --- | --- |
+| No correction | Treat configured VDF as the face distribution | None |
+| `infinity_barrier` | Accessibility cutoff and face speed from mean face potential and `phi_infty` | None |
+| `floating_no_photo` | Electron cutoff balancing electron and ion inflow | None |
+| `zhao_*` | Electron, ion, and photoelectron VDF corrections from an analytic branch | Analytic closure only |
+| `kinetic_1d` | Map inflow to the interface through a converged outer Poisson profile | Discrete 1-D profile |
 
-## The unified model solves one field from surface to far region
+`floating_no_photo` and `zhao_*` are selected with `sim.sheath_injection_model`. They preprocess source VDFs; they do not provide
+the spatial field used to push generated particles. See [Reservoir Injection](ReservoirInjection.en.html) for sampling and
+[Inflow-VDF Sheath Closures](SheathInjectionClosures.en.html) for analytic closures.
 
-`unified_linear_response` places the rough-surface height range, plane-averaged surface source, accessible area,
-and linear Debye response on one 1D grid. It is useful when no vacuum split window exists between the surface and
-interface. The configuration that also solves species VDFs, a Bohm condition, and current balance is `kinetic_1d`.
+## Separate open-boundary handling from outer transfer
 
-See [Unified linear response](UnifiedLinearResponse.en.html) for accessible fraction, the zero-mode Poisson solve,
-nonzero-mode reflection and transmission, and the linearity gate.
+A particle reaching an open face follows either an ordinary open-boundary rule or transfer into an outer region.
 
-## Use the same outer state to determine escape and return
+| Outflow model | Action after crossing | State outside the box |
+| --- | --- | --- |
+| `open_boundary_model="escape"` | Remove the particle immediately | None |
+| `open_boundary_model="potential_barrier"` | Reflect or escape from crossing potential and normal kinetic energy | Scalar potential only |
+| `electrostatic_1d_instant_return` | Compute escape, turning point, and round-trip time from a 1-D profile | Analytic or discrete 1-D profile |
+| `electrostatic_3d_explicit_orbit` | Integrate an orbit in the batch-fixed external 3-D field | Zero/nonzero 3-D field |
 
-| Transfer | Behavior |
-| --- | --- |
-| Instant return | Derive turning point and flight time from energy and map back at the same simulation time |
-| Kinetic-profile return | Integrate turning point and flight time over the converged discrete $\phi(z)$ |
-| Explicit 3D orbit | Advance through the combined zero/nonzero outer field |
+`potential_barrier` is independent of particle source. Reservoir particles, photoelectrons, and volume-seeded particles receive
+the same decision when they cross the same face in the same state. When z-high is an outer ownership interface, escape and return
+on that face are owned by the corresponding outer model rather than `open_boundary_model`.
 
-Instant return is a reduced steady or quasisteady closure. Because outer-flight delay does not advance global
-simulation time, it is not suitable for startup, pulses, or transient currents varying on the flight-time scale.
+See [Open Boundaries, Escape, and Return](ParticleEscapeReturn.en.html) for decision equations, return time, 3-D orbits, and the
+quasi-steady approximation.
 
-See [Particle escape and return](ParticleEscapeReturn.en.html) for the interface energy criterion, flight time in
-linear and kinetic profiles, the 3-D orbit, and frozen-field gate.
+## Choose an outer model by required field complexity
 
-## Select a configuration from the required outer physics
+| `outer_plasma.model` | Solved state | Appropriate use |
+| --- | --- | --- |
+| `none` | No outer field | Simple open boundaries, scalar barriers, and analytic injection closures |
+| `linear_debye` | Exponential zero-mode response from an interface | Reduced 1-D instant return |
+| `kinetic_1d` | Nonlinear 1-D Poisson profile with VDF closures | Self-consistent inflow, current, and escape/return |
+| `unified_linear_response` | Linear zero/nonzero response from a rough surface to the far region | Rough surfaces without a clean vacuum split window |
 
-- Simple finite box: no outer model and `open_boundary_model="escape"`
-- Finite-image scalar reservoir barrier: `infinity_barrier`
-- Compare an analytic injection closure: `zhao_*`
-- Infinite-periodic surface with self-consistent 1D sheath: `kinetic_1d`
-- Linear response including roughness: `unified_linear_response`
-- Important lateral variation of outer trajectories: explicit 3D orbit
+`kinetic_1d` solves a monotone branch satisfying ambient electron/ion far VDFs, the Bohm condition, Poisson residual, and far
+quasineutrality. `unified_linear_response` does not solve species VDFs or current balance; it adds a linear Debye-Hueckel response
+and plasma-accessible area to the field.
 
-## Check the acceptance conditions of the selected model
+Use [Outer Field: kinetic 1D](KineticOuterPlasma.en.html) when a self-consistent mean sheath is required. Use
+[Outer Field: unified linear response](UnifiedLinearResponse.en.html) when roughness and plasma response occupy the same region
+but a linear approximation is acceptable.
 
-Inspect Poisson residuals, boundary conditions, integrated charge, current balance, grid refinement, and
-frozen-field ratio in addition to solver status. See ADR 0001/0002 and
-[Validate simulation results](ValidationGuide.en.html).
+## Select a typical composition
 
-See [Reservoir injection](ReservoirInjection.en.html) for inflow and
-[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for its source coupling.
+| Goal | Inflow | Outflow | Outer field and transfer |
+| --- | --- | --- | --- |
+| Simple finite box | `reservoir_face`, no correction | `escape` | None |
+| Finite images with scalar barriers | `infinity_barrier` | `potential_barrier` | None |
+| Zhao literature closure | `sheath_injection_model="zhao_*"` | Ordinary open boundary | None |
+| Self-consistent 1-D sheath | Inflow mapped through kinetic profile | Kinetic profile return | `kinetic_1d` with 1-D transfer |
+| Linear response over a rough surface | Source prescribed at the face | Open or 3-D outer orbit | `unified_linear_response` |
+
+Complete examples are provided in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html) and
+[Infinite-Periodic Configuration with Outer Plasma](InfinitePeriodicOuterConfiguration.en.html).
+
+## Do not stack corrections with the same responsibility
+
+- Do not combine `sheath_injection_model` with `reservoir_potential_model`.
+- Kinetic profile return uses the same profile for inflow; do not add Zhao or `infinity_barrier`.
+- `unified_linear_response` does not determine source VDFs or floating-current balance. Define any reservoir distribution at the face.
+- Do not interpret z-high outer transfer and scalar reflection by `potential_barrier` as the same operation.
+- A failed model does not silently fall back to a simpler closure.
+
+Inspect the Poisson residual, boundary conditions, integrated charge, current balance, grid refinement, and frozen-field ratio as
+applicable to the selected model. See [Validating Simulation Results](ValidationGuide.en.html) for the common workflow.
