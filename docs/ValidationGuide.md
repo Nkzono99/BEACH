@@ -4,288 +4,132 @@ Lang: [日本語](ValidationGuide.md) | [English](ValidationGuide.en.md)
 
 # 計算結果の妥当性確認
 
-計算結果は、実行の完了、数値的な収束、物理的な解釈の3段階で確認します。
+正常終了しただけでは、計算結果が数値的・物理的に妥当とは限りません。次の3つを順番に確認します。
 
-## レベル1: 実行の完了を確認する
+1. 設定した計算が最後まで実行され、粒子と電荷の収支を説明できる。
+2. 時間刻みやmesh解像度を変えても、注目する量が十分に安定している。
+3. 採用した物理モデルの前提を満たし、結果から述べる結論がその適用範囲を超えていない。
 
-- processの終了codeが0である
-- `summary.txt`、`charges.csv`、必要な履歴が存在する
-- `batches == sim.batch_count`
-- `beachx inspect`が結果をerrorなく読み込める
-- restart時はmodel/mesh/species fingerprintが一致する
+最初に[出力の読み方](OutputGuide.html)で各ファイルの役割を確認してから、このページの順に進めてください。
 
-## レベル2: 数値的な妥当性を確認する
+## 先に判定基準を決める
 
-- `absorbed`、`escaped_boundary`、`survived_max_step`の内訳を物理条件から説明できる
-- `charge_ledger_residual_C`が丸め誤差範囲で、`discarded_unresolved`を別に確認した
-- `tol_rel`を収束停止条件と誤解せず、履歴が十分な長さを持つ
-- `sim.dt`を半分にして主要量が変わらない
-- mesh解像度、FMM order/tolerance、outer gridを上げて主要量が収束する
-- `batch_duration`を0.5倍/2倍にして結論が安定する
-- stochastic caseはseedまたはensemble依存を確認する
+収束確認を始める前に、何をもって「結果が変わらない」とするかを決めます。
 
-ここで確認するのは、事前に定めた離散化と収束の基準を満たしているかどうかです。
-processの終了、CSVの生成、1つの`status="converged"`だけでは、この基準を満たしたことになりません。
+- 比較する主要量: 表面の総電荷・電位分布、吸収・流出flux、または研究上の結論に直接使う量
+- 許容差: 主要量に許容する絶対差または相対差
+- 評価区間: 最終値、定常化後の時間平均、最大値など
+- 統計誤差の扱い: 乱数seedを変えた計算、または同じ条件のensembleから求めるばらつき
 
-保存済みのmesh/source離散化を固定してpath/work/shellの収束を確認した場合、検証できるのはLevel 2の一部のみです。
-mesh/source refinementを行っていなければ、そのsubsetが収束していてもLevel 2全体は満たしません。
+判定基準を結果を見た後で都合よく変えないことが重要です。BEACHに全ケース共通の収束許容差はないため、
+計算の目的に応じて基準を明示します。
 
-## レベル3: 物理的な結論を検証する
-
-- 比較するcase間で、意図した物理model以外の入力差を列挙できる
-- 境界条件、self interaction、surface trace、source/target の移動規則を説明できる
-- 有限 box、有限時間、有限 image shell から無限遠・定常・無限周期の結論へ外挿していない
-- 数値誤差、stochastic uncertainty、model uncertainty を結論の精度に反映した
-
-## modelごとの確認
-
-| model | 必須診断 |
-| --- | --- |
-| periodic2 cached | cache fingerprint、cold/warm一致、zero-mode/Gauss residual |
-| unified outer | accessibility refinement、linearity、outer energy/frozen-field error |
-| kinetic outer | solver status、Poisson residual、Bohm/branch applicability |
-| photoelectron | 放出・returnの電荷収支、ambient charge ratio、histogram範囲 |
-| object detachment | primary-only self exclusion、PV trace、work/potential一致、quadrature、finite-shell/cache、from-rest barrier |
-
-## 周期objectの離脱解析で追加する確認
-
-1. `configured` と `infinite_physical` を区別し、どちらを結論に使ったか記録します。
-   `configured` は run の finite/cached 設定を再現し、`infinite_physical` は cached
-   `k != 0` と `E_bottom=0` の物理 zero mode を組み合わせます。
-2. self policy が `exclude_primary_keep_images` であることを確認します。旧
-   `kernel-forces` の `exclude_target_lattice` と、電位再構成の `area_equivalent` は、
-   それぞれ別の計算を表します。周期 seam を跨ぐ object では、all-source/cache 入力は saved 表現のまま
-   保持し、target probe だけを mesh 単位の connected branch へ unwrap します。
-   `target_geometry_representation="periodic2_mesh_connected"` を要求し、primary subtraction、
-   target integration、torque origin、geometry radius が同じ branch を使うことを確認します。
-   production の質量・接着・`0..2R` は明示した model radius を使い、connected geometry の
-   bounding radius との差を宣言 tolerance 内で検査します。3D torque は origin policy と
-   各評価点の origin 座標を併記します。
-3. triangle の target integration は Gauss-Duffy order 3/7 で依存性を確認します。これは
-   target 側の面積積分の確認であり、source mesh refinement ではありません。source
-   discretization は、別解像度の source mesh を使って独立に refinement を確認します。
-   object mechanics は PV trace、粒子 pusher は片側 plus trace です。cached metadata の
-   `cached_kneq0_trace_correction` は `periodic_kneq0` に適用済みなので再加算しません。
-4. 凍結 source path で `integral(F_z dh)` と `U_env(0)-U_env(h)` が宣言 tolerance 内で
-   一致し、`path.status="converged"` であることを確認します。外部の凍結場に対する
-   `U_env=sum(q phi_env)` には係数 `1/2` を付けません。
-5. finite shell は native canonical-unwrapped source 表現を使い、raw symmetric と
-   `E_bottom=0` corrected の両方を保存します。隣接 shell の raw 増分だけでは false
-   convergence が生じたため、`force_tail_proxy_N` / `work_tail_proxy_J` と、
-   `infinite_physical` 時の `reference_force_error_N` /
-   `reference_work_error_J` を組み合わせます。`increment_converged` はこの combined gate
-   であり、2回連続で真になるまで採用しません。`status="not_converged"` では
-   `selected_image_layers=None`, `selected_path=None` が正しい結果です。
-6. `evaluate_release()` では endpoint energy だけでなく、有限 range adhesion と重力を
-   含む全経路の `barrier_free_from_rest` を確認します。
-7. 非中性 x/y 周期 cell では遠方の一定場・線形電位が残り得ます。有限高さの work/speed
-   を無限遠への escape energy/speed として報告しません。
-8. cached 無限周期実装は解析解 oracle でも確認します。軽量な pytest oracle は
-   `BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1` の opt-in ですが、本番 strict chain では解析 job が
-   `probe-periodic-oracles` を `analyze --require-complete` より先に必ず実行し、同じ staged
-   library に結び付いた write-once receipt を要求します。本番入力と同じ
-   `point` source / `softened_point` kernel を主 oracle とし、`triangle_p0` は補助 oracle として
-   同じ library で評価します。
-9. 一様な非中性 plane (`sigma=Q/A`) では、`E_bottom=0` closure に対して below
-   `E_z=0`、surface PV `E_z=sigma/(2 epsilon0)`、above `E_z=sigma/epsilon0`、面圧
-   `sigma^2/(2 epsilon0)` と全 object 力 `Q^2/(2 epsilon0 A)` を確認します。potential は sheet
-   高さ `z0` で gauge を固定し、`phi=0` on/below、
-   `phi=-sigma (z-z0)/epsilon0` above とします。surface PV は field trace であり、potential は
-   この gauge で連続です。この力は closure 依存の Maxwell traction であり、自由空間の普遍的な
-   self-force ではありません。
-10. production `point` oracle は各 `z=-0.25, 0, +0.25` で24x24の x/y sampleを空間平均し、
-   source grid 4x4 と8x8を評価します。off-surface modulation RMS は4から8で減少し、fine grid
-   で `0.12 V/m` 以下、point-centroid wrench は両 grid で解析値から12%以内、grid間 force 差は
-   1%以内を要求します。force・transverse force・torque の誤差はそれぞれ4から8で減少します。
-   primary-free subtraction residual も減少して fine grid で1%以内でなければなりません。
-   decomposition は other force、external force、`total_external-target_periodic_images` をそれぞれ
-   `1e-12` 以下とし、報告する component residual がこの3成分と primary-free residual の最大値に
-   一致することも確認します。
-   別の単一 primary check は primary self-force の除去と softened self potential
-   energy `-K q^2/a` の減算を相対 `1e-11` で検証します。これは
-   `exclude_primary_keep_images`、すなわち primary だけを除いて周期像を保持する仕様です。補助
-   `triangle_p0` oracle は Gauss-Duffy order 3/7 の wrench 差を1%以内にします。
-11. 中性な `sigma_0 cos(kx)` sheet では、同じ4x4/8x8 snapshotとoperator cacheを用いて
-   `|z-z0|=0.25 m, 0.50 m` の解析解 `Ex`、`Ez`、`phi` を評価します。field と potential の
-   解析解誤差は4x4から8x8へそれぞれ減少し、fine gridで各8%以内でなければなりません。
-   0.25 mから0.50 mへのfield-vector L2振幅比とpotential L2振幅比を
-   `exp(-k*0.25 m)` と比較し、比と相対誤差を両gridについてreceiptへ保存し、fine gridの比誤差を
-   各18%以内にします。この2高さの評価は同じsnapshot内で一括実行するためoperator cache buildを
-   増やしません。production point source は両gridでcharge-neutrality ratio `<=1e-12` を要求し、
-   両方の高さで対になった`+z/-z` sampleを使います。tangential fieldはeven、normal fieldはodd、
-   potentialはevenとして、
-   field/potential の parity 誤差を別々に8%以内にします。さらに `a/L=1e-6` の softened-point
-   micro-oracle は `r/a=0,1,2,3` の4点で analytic softened field/potential と direct evaluator、
-   および ordinary/direct の一致を相対 `1e-11` で確認し、normalized self-field は
-   `32 epsilon_machine` 以下とします。これは局所kernelの仕様を検査するもので、periodic closure の
-   代替ではありません。一様面の12%、cosine解析解の8%、decay ratioの18%はproduction
-   ABI/cache経路のsmoke gateであり、object pathの0.5%やfinite-shellの1%という収束基準の
-   代わりではなく、8%/12%/18%を
-   物理精度として主張しません。平面 oracle の誤差を、保存済み sphere mesh やその source
-   discretization の force/torque error bar に流用しません。sphere/source refinement は別途
-   実施するまで `not_evaluated` です。
-
-## 旧 run・finite・infinite の SysA 比較手順
-
-`tools/periodic_object_validation.py` は、既存 archive を基準に、同じ物理入力の
-`finite_configured` と `infinite_physical` を比較するための fail-closed harness です。
-検証 root は repository の外に置き、既存内容のない directory を指定します。
-`stage` の4つの path 引数（archive、validation root、binary、library）は
-`[A-Za-z0-9_./:+-]+` だけを受理し、空白、`@`、`$`、quote、改行などを拒否します。
-validation root は repository と archive の外でなければならず、書込み先 path に既存の
-symlink ancestor がある場合も拒否します。archive、binary、library はread-only入力として
-安全文字検査後に実体pathへ正規化します。stage後のverify/strict経路では、validation root以下と
-archive analysis metadataのpathを文字列単位でcanonical pathへ固定し、rootからleafまでの
-既存symlinkを拒否します。
+## 1. 実行が完了したことを確認する
 
 ```bash
-current_sys="$(module -t list 2>&1 | grep -E '^Sys(A|B|C|CL|G)/' | head -n 1 || true)"
-if [ -n "${current_sys}" ] && [ "${current_sys}" != "SysA/2022" ]; then
-  module switch "${current_sys}" SysA/2022
-elif [ -z "${current_sys}" ]; then
-  module load SysA/2022
-fi
-module load intel/2023.2 intelmpi/2023.2
-
-python3.11 tools/periodic_object_validation.py stage \
-  --archive-run /path/to/RUN \
-  --validation-root /LARGE1/.../beach-periodic-object-force-validation \
-  --binary /path/to/clean-build/beach \
-  --library /path/to/clean-build/libbeach_field_kernel.so \
-  --require-clean-source
-python3.11 tools/periodic_object_validation.py verify-inputs \
-  --validation-root /LARGE1/.../beach-periodic-object-force-validation
-bash /LARGE1/.../beach-periodic-object-force-validation/submit/submit_chain.sh
+beachx inspect outputs/latest
 ```
 
-`stage` は executable、Python source、解析 tool、native kernel library を hash 付きで snapshot
-します。運用上は、同じ clean commit から SysA/Intel 環境で executable と library を build して
-から `stage` に渡します。`stage --require-clean-source` は executable の `--build-info` と library の
-C ABI build-info を読み、version/mode/full source SHA/`SHA:clean` が相互に一致し、staged source
-commit と一致する場合だけ受理します。`verify-inputs` は staged artifact から同じ情報を再取得し、
-各 simulation の `summary.txt` と plane-oracle receipt も同じ build origin に固定されます。
-`analyze --require-complete` はこの build origin を無条件に要求するため、production stage で
-`--require-clean-source` を省略した manifest はstrict検証を通りません。
-production stageとstrict解析は`input/release_kernel_base.toml`と
-`analysis/local_release/release_model_summary.json`を必須とし、canonical path、hash、schema、
-使用する全数値の有限性と物理範囲を再検証します。したがってwork/速度換算が黙示defaultへ
-落ちることはありません。non-strict archive-only解析では従来のdefault互換性を維持します。
-compiler identity 自体は binary に埋め込まず、SysA/Intel の module log と build log を別の実行証拠として
-保持します。
+少なくとも次を確認します。
 
-生成jobは`PYTHONHOME`をunsetし、`PYTHONNOUSERSITE=1`と
-`PYTHONPATH="${SOURCE_ROOT}"`を設定します。submit時のuser siteや呼出元`PYTHONPATH`は継承しません。
+| 確認先 | 判定 |
+| --- | --- |
+| processの終了code | `0` |
+| `summary.txt` | `batches == sim.batch_count` |
+| `charges.csv` | 最終的な要素電荷が保存されている |
+| 必要な履歴 | 設定したstrideで欠落なく保存されている |
+| restartした計算 | model・mesh・species fingerprintが一致している |
 
-生成される DAG は smoke（cache prime を含む）、finite 140000、finite 280000、infinite
-140000、infinite 280000、analysis の6 jobです。各 model は140000 batch まで新規実行し、
-検証済み checkpoint から別 directory の 280000 batch segment へ restartします。最後の解析
-job は有限・無限の両 280000 job に `afterok` で依存し、必須の production plane oracle の後に
-`analyze --require-complete` を実行します。`submit_chain.sh` は各投入直後に atomic 更新する永続
-`job_ids.json` journal と排他的 lock を使い、部分投入後を含む同一 chain の再投入を拒否します。
-strict 解析は6個の一意な job ID、全 job の SysA/Intel module/hash log、先行5 job の
-source commit・resource・exit code 0 の status、および実行中 analysis job の ID を再検証します。
+ここで確認できるのは、指定した計算が完了したことだけです。物理量の収束は以降で確認します。
 
-`verify-run` は schema、geometry、電荷・粒子収支、全 MPI rank checkpoint、履歴、
-`mesh_sources.csv` / `mesh_potential.csv`、restart fingerprint、cache fingerprint と
-cache file hash を再検証します。初回成功時に output tree の全 regular file を含む
-write-once execution receipt を `provenance/verified/` に作り、以後は上書きせず現在値を
-その receipt と比較します。restart parent と cache prime の receipt も依存関係として
-固定します。cached run と後処理 evaluator は、cache fingerprint、path、file hash に加えて
-検証済み cache-prime receipt の hash に結び付け、別 cache の黙示的な再利用を認めません。
-clean productionの初回receiptは、生成jobが渡すproducer roleを固定case-role表と照合し、
-`job_ids.json`のrole別job ID、現在の`SLURM_JOB_ID`、そのjobのhash logにある
-`<config absolute path>: OK`完全一致行へ結び付けます。submit途中のpartial journalは、該当roleの
-IDが既に記録済みの場合に初回receiptだけ許可します。既存receiptの再検証とstrict解析ではcomplete
-journalを要求し、保存済みrole/job/config bindingを再検証します。restart childやanalysis jobから
-role指定なしで親receiptを確認するときは、現在job IDとの一致だけを要求せず、保存済みproducer
-binding自体は緩めません。hash logのsource、binary/library、role別configもsubstringではなく
-完全一致行で検証します。
-最終解析では stage 時の archive input、manifest、source snapshot、case graph、
-binary/library を再検証し、7 case 全てに既存 execution receipt があることを要求します。
-新 run がない archive-only preflight では `--require-complete` を付けず、`missing` /
-`not_evaluated` を結論に使いません。
+## 2. 粒子数と電荷の収支を確認する
 
-比較の意味は固定されています。`archive -> new finite` は version、restart、runtime の
-drift を含む再現性比較であり、境界条件だけの差ではありません。境界 model の効果として
-解釈できるのは、同じ新 executable と入力で実行した `new finite -> new infinite` です。
-`vdw_work` の速度換算は初期接着力と全接着仕事を保存する等価な有限 range 定数力を使い、
-元の `1/s^2` 障壁形状を再現するものではありません。主結果は constrained translation の
-`eta_translation=1`、旧解析の `0.5` は感度値として別に保存します。
+`summary.txt`の粒子数を、設定したsourceと境界条件から説明できるか確認します。
 
-旧解析が出した `Fz>0` 自体も別に監査します。archive の
-`force_timeseries.csv`、`moving_sphere_force_curves.csv`、
-`moving_sphere_release_summary.csv`、`moving_sphere_model_summary.json` を hash と exact schema で固定し、
-共通の batch/mesh `(149001,7)`, `(180001,6)`, `(279001,6)`, `(279001,7)` だけを比較します。
-旧重心間 direct、local-pair proxy、moving-sphere の `z=0` / `z=2R` の力と仕事を、同じ archived
-charge を current native finite evaluator で再評価した other objects、自身の周期像、total に分解して
-`legacy_estimator_comparison.csv` へ保存します。280000 は旧表にないため補間しません。旧 estimator は
-target 全体を self source から除き、current evaluator は primary のみを除いて target periodic images を
-保持するので、数値の近さは合否条件にしません。strict gate は coverage、有限値、charge/radius/batch 対応、
-および旧 curve と summary の endpoint 内部整合です。
+| 項目 | 見方 |
+| --- | --- |
+| `absorbed` | 表面に到達して吸収された粒子 |
+| `escaped_boundary` | box境界またはouter modelから流出した粒子 |
+| `survived_max_step` | `sim.max_step`までに吸収・流出が確定しなかった粒子 |
 
-解析は全 case の共通保存 batch で per-object charge と element charge の L1/L2/Linf 差を
-計算します。高価な force/path は mesh 7 の 149001、mesh 6 の 180001、両者の 279001 と
-final 280000 に限定します。`snapshot_manifest.csv` は history と final を分離し、charge
-vector と source file の hash を持ちます。`comparison_matrix.csv` は archive version drift、
-同一 charge に対する field closure 差、共通 infinite evaluator での charging-history 差、
-end-to-end 差を別の `comparison_kind` として保存します。
-strict解析で許可するcomparison artifactはこの4種類だけです。各種類にforce、endpoint work、
-minimum available energy、from-rest barrier、endpoint reachability を要求します。参照 snapshot
-は全て解決可能で、frozen-field 比較は同一 charge snapshot、実効 far-correction の組は宣言どおりで、
-構造的な `missing` / `invalid` / `not_evaluated` 行がないことを確認します。
+`survived_max_step`は吸収にも流出にも数えられない未解決粒子です。結論に影響する量なら、
+`sim.max_step`、`sim.dt`、boxの大きさを見直し、十分に小さくなることを確認します。
 
-archive/new finite/new infinite の mesh ID と順序は厳密一致を要求し、triangle 座標は
-`max(1e-18 m, 64 epsilon Lbox)` の明示許容差で比較します。さらに new finite/new infinite の
-`field_source_model`、`field_kernel_id` と、`mesh_sources.csv` の source/template kind、surface
-model、`epsilon_r`、element count を staged input および相互で厳密一致させます。旧 archive に
-同じmetadataがない場合も、new runに対する要件は緩めません。cached evaluator
-については実効 model に加えて cache hit、build count、fingerprint、path、file hash と
-cache-prime receipt hash も `object_wrench.csv` に保存します。
+次に`charge_ledger.csv`と`summary.txt`の電荷収支を確認します。
 
-`analyze --require-complete` は strict input、receipt、oracle、geometry の検証と artifact 生成を
-一時 directory で行います。`qualified`状態のoracle receiptを含むwrite-once stateが全て完成・健全で、
-`analysis/` が未publish（未作成または空）のまま、失敗がanalysisの一時directory内だけに限定された
-場合は、その一時directoryを除去します。同じvalidation rootでretryできるのは、元analysis job IDを
-保つ同一allocation内での再実行、またはsiteが許可するsame-ID requeueだけです。通常の新規`sbatch`、
-source/tool/library/inputの変更、あるいはsame-ID再実行が利用できない場合は、新しいvalidation rootが
-必要です。これはoracle生成中のpartial failureには適用しません。oracle configまたはcacheだけが残り
-receiptがない状態と、`analysis/` のatomic publish後も、必ず新しいvalidation rootを使います。
+- `charge_ledger_residual_C`: 注入、放出、表面吸収、無限遠への流出を含む保存残差
+- `charge_ledger_discarded_unresolved_abs_C`: 粒子種別間で相殺しない未解決電荷の絶対値和
 
-`numerical_qualification_for_local_frozen_model` は、保存済み sphere mesh と source discretization
-を固定したまま、exact 30 path/wrench key、6 shell group、path/work 収束を確認する subset gate
-です。finite-shell の相対 tolerance は1%、adaptive path は0.5%（force absolute floor
-`1e-12 N`、work absolute floor `1e-18 J`）です。さらに force floor が peak force の0.5%以下、
-瞬時離脱力 margin が `1e-12 N` を超え、barrier 判定境界からの energy margin が energy
-tolerance の10%を超えることを要求します。
+保存残差が小さくても、未解決電荷が大きければ計算を受理できません。残差と未解決量は必ず別々に評価します。
 
-この gate の `status="qualified"` は、固定した保存済み離散化上で path integration、
-work/potential consistency、判定 resolution、finite-shell 収束を満たしたことだけを表します。
-保存済み sphere mesh の refinement、source discretization refinement、sphere force/torque の
-絶対誤差幅は評価しておらず、これらは `not_evaluated` です。平面 oracle の8%/12%/18%を sphere の
-error bar として補いません。これらの resolution gate を満たさない barrier/speed は、積分自体が
-収束していても主張しません。path または shell が未収束なら barrier/speed は
-`not_claimed_unqualified` です。また、上方一定場が残る非中性系の `0..2R` work/speed は局所
-frozen-field 指標であり、無限遠への escape energy/speed ではありません。
-`object_path_summary.csv` の `path_start_m` / `path_end_m` は、初期gridではなく
-adaptive refinement後に検証済みのfinal gridが `0..2R` を保持した証跡です。
+## 3. 時間発展と統計的なばらつきを確認する
 
-strict 解析は次の exact 14 artifact を一時 directory に作ります: `run_summary.csv`、
-`charge_history_pair.csv`、`particle_ledger_pair.csv`、`mesh_potential_pair.csv`、
-`snapshot_manifest.csv`、`object_wrench.csv`、`object_path_curves.csv`、
-`object_path_summary.csv`、`finite_shell_convergence.csv`、`comparison_matrix.csv`、
-`legacy_estimator_comparison.csv`、`analysis_summary.json`、`review_ja.md`、`artifacts.json`。
-file set、非空、size/hash manifest を
-検証して fsync してから `analysis/` へ atomic publish します。strict success には publish 後に
-`numerical_qualification_for_local_frozen_model.status="qualified"` と
-`comparison_artifact_contract.status="complete"` の両方を要求します。どちらかが失敗すれば CLI は
-非ゼロですが、publish 済み診断は上書きしません。publish 後に strict 解析を再実行するには
-新しい validation root を使います。
+`charge_history.csv`と、必要なら`potential_history.csv`を使い、定常化したように見えるかを確認します。
+最終点だけでなく、評価区間について次を見ます。
 
-exact 14 artifact が完全に読めることはレベル1の実行証拠です。strict CLI の exit code 0 は
-上記の構造・oracle・comparison と、固定した保存済み離散化上の path/work/shell subset gate を
-全て通過したことを示します。ただし、Level 2 全体を満たしたことにはなりません。保存済み
-sphere mesh/source refinement が `not_evaluated` の間は、Level 2 全体も未達です。これらの
-refinement、model 選択、感度解析まで完了して初めて Level 3 の主張を検討できます。
+- 系統的な増加・減少が残っていないか
+- batchごとの振動や突発的な変化がないか
+- 時間平均に対するばらつきが、先に決めた許容差より小さいか
+- `sim.batch_count`を増やしても平均値や結論が変わらないか
 
-release用の小規模基準は[Physics release verification](PhysicsReleaseVerification.html)にあります。
-本番caseでは同じ収束軸を自分の観測量に対して評価してください。
+`last_rel_change`と`sim.tol_rel`は監視用です。現行実装では早期停止条件ではなく、
+`last_rel_change < tol_rel`だけで定常状態とは判定しません。
+
+Monte Carloノイズと時間離散化の影響は分けて確認します。
+
+| 変更するもの | 主に確認できる影響 |
+| --- | --- |
+| `sim.rng_seed` | 乱数に起因するばらつき |
+| マクロ粒子数または粒子重み | Monte Carloノイズ |
+| `sim.batch_count` | 計算時間が十分か |
+| `sim.batch_duration`または`sim.batch_duration_step` | batch末尾の表面電荷更新の安定性 |
+
+`batch_duration`は基準値の0.5倍と2倍を目安に比較します。詳しい考え方は
+[`batch_duration`の安定性と定常値](BatchDurationStability.html)にまとめています。
+
+## 4. 数値解像度への依存性を確認する
+
+基準ケースを複製し、原則として一度に1つの設定だけを変えます。各ケースで同じ主要量を比較し、
+変更による差が先に決めた許容差より小さくなることを確認します。
+
+| 収束軸 | 比較例 | 確認する誤差 |
+| --- | --- | --- |
+| 粒子時間刻み | `sim.dt`を1/2にする | 軌道、衝突位置、吸収・流出量 |
+| 粒子追跡長 | `sim.max_step`を増やす | 未解決粒子による打切り |
+| 表面mesh | 三角形を細分化する | 電荷・電位の空間離散化 |
+| 場ソルバ | 小規模ケースでDirectと比較する | Treecode/FMM近似 |
+| 有限周期画像 | `field_periodic_image_layers`を増やす | 画像和の打切り |
+| outer model | grid点数や表面samplingを増やす | 外部profileとgeometry sampling |
+
+meshを固定したまま経路積分や画像層だけを収束させても、mesh離散化誤差まで評価したことにはなりません。
+どの収束軸を確認し、どれを未評価のまま残したかを区別します。
+
+## 5. 選んだ物理モデルの診断を確認する
+
+共通の収束確認に加え、使用したモデルに対応する診断を確認します。
+
+| 構成 | 追加で確認するもの |
+| --- | --- |
+| 有限画像の`periodic2` | `field_periodic_image_layers`依存性。有限画像の結果を無限周期へ外挿しない |
+| `cached_kneq0` | cache fingerprint、cold/warm結果の一致、zero mode、Gauss residual |
+| `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
+| `potential_barrier` | open面の通過点電位と`sim.phi_infty`、法線運動エネルギーによる反射・流出判定 |
+| `kinetic_1d` | solver status、Poisson residual、単調分枝、Bohm条件 |
+| `unified_linear_response` | accessibility refinement、線形性、Gauss closure、outer軌道のenergy/frozen-field error |
+| 光電子 | 放出・帰還・流出の電荷収支、ambient charge ratio、energy histogramの範囲 |
+
+各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)、
+[外部プラズマモデル](OuterPlasmaModels.html)、[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。
+
+## 6. 物理的な結論の範囲を確認する
+
+最後に、数値的に安定した結果が目的の物理的主張を支えているかを確認します。
+
+- 比較するケース間で、意図したモデル以外に変更した入力を列挙する。
+- 境界条件、粒子source、表面モデル、場の評価方法を明記する。
+- 有限boxの結果を無限遠、有限時間の結果を定常状態、有限画像和を無限周期として扱わない。
+- 数値誤差、Monte Carloのばらつき、モデルの適用限界を結論の有効桁や誤差幅に反映する。
+
+最低限、使用した設定ファイル、出力directory、主要量と判定基準、各収束ケースとの差を残します。
+コード自体のリリース判定に使う小規模fixtureとHPC検証は、ユーザーケースの妥当性確認とは別に
+[物理リリースの検証](PhysicsReleaseVerification.html)で扱います。
