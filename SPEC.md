@@ -16,7 +16,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 ### 2.1 実装済み（現行）
 
 - 三角形メッシュ（template / OBJ）
-- 静電場（既定は要素重心の point kernel + softening。`field.element_kernel="triangle_p0"` では要素総電荷を三角形上の一定面密度として扱い、direct/FMM の panel kernel で評価）
+- 静電場（既定は要素重心の point kernel + softening。`field.element_kernel="triangle_p0"` では要素総電荷を三角形上の一定面密度として扱い、direct/treecode/FMM の panel kernel で評価）
 - 一様外部磁場 `b0`（任意）
 - Boris 法による粒子更新
 - 線分 vs 三角形の最初の交差判定
@@ -102,7 +102,7 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 `field_solver="treecode"` のときはこの核を遠方で monopole 近似し、近傍は direct 和を使います。  
 `field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/Algorithms.md` の FMM コア詳細を参照してください。
 
-`field.element_kernel="triangle_p0"` は `field_solver="direct" | "fmm" | "auto"`、`softening=0`、`surface_model="insulator"` に限定します。direct は厳密 free-space panel 和、FMM は全頂点を含む topology、近傍の厳密 panel 核、三角形 monomial の厳密 P2M を使います。auto は `tree_min_nelem` 未満で direct、以上で FMM を選びます。treecode と point-source `m2l_root_oracle` は拒否します。各 OBJ または template に `surface_side="normal_plus" | "normal_minus" | "outward_closed"` が必要です。`q_elem` は要素総電荷 [C]、面密度は `q_elem/area` です。面上電位は連続、法線電場は `sigma/epsilon0` だけ跳び、重心電位と principal-value 電場を自己項として用います。非対応 solver へ点電荷 fallback はしません。
+`field.element_kernel="triangle_p0"` は `field_solver="direct" | "treecode" | "fmm" | "auto"`、`softening=0`、`surface_model="insulator"` に限定します。direct は厳密 free-space panel 和、treecode は全頂点を含む node 半径で near/far を判定して近傍を厳密 panel 核、遠方を monopole で電場・電位とも評価します。FMM は全頂点を含む topology、近傍の厳密 panel 核、三角形 monomial の厳密 P2M を使います。auto は `tree_min_nelem` 未満で direct、以上で FMM を選びます。point-source `m2l_root_oracle` は拒否します。各 OBJ または template に `surface_side="normal_plus" | "normal_minus" | "outward_closed"` が必要です。`q_elem` は要素総電荷 [C]、面密度は `q_elem/area` です。面上電位は連続、法線電場は `sigma/epsilon0` だけ跳び、重心電位と principal-value 電場を自己項として用います。非対応 solver へ点電荷 fallback はしません。
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正の既定は `field_periodic_far_correction="none"`（`sim` table）です。`auto` は互換用に受理され、`none` に正規化されます。`none` は explicit image shell だけを評価する有限画像近似であり、完全な周期遠方場を与えるものではありません。`m2l_root_oracle` は `k=0` と charged-wall境界条件を含む明示 opt-in の高コスト診断 backend で、production physics には使いません。

@@ -4,23 +4,30 @@ Lang: [日本語](Treecode.md) | [English](Treecode.en.md)
 
 # Treecode
 
-Treecodeはpoint sourceをoctreeへまとめ、遠方のsource群を1つのmonopoleとして評価します。近傍nodeと、
+Treecodeはsourceをoctreeへまとめ、遠方のsource群を1つのmonopoleとして評価します。近傍nodeと、
 正負電荷が相殺するnodeはDirect和へ戻します。そのため、遠方nodeをまとめられる割合が精度と速度を左右します。
 中規模のfree境界計算で、Directよりsource評価数を減らすためのsolverです。
 
 | 特性 | 内容 |
 | --- | --- |
-| 対応kernel | pointのみ |
+| 対応kernel | point、triangle P0 |
 | 場境界 | freeのみ |
 | 遠方近似 | nodeの総電荷と電荷中心によるmonopole |
-| 近傍評価 | leaf内のsoftened point chargeをDirect和 |
-| 電位 | 現行adapterではTreecode化せずDirect評価 |
+| 近傍評価 | pointはsoftened point charge、triangle P0は解析panel kernelをleaf内でDirect和 |
+| 電位 | 電場と同じtree走査、near/far判定で評価 |
 
 ```toml
 [sim]
 field_solver = "treecode"
 field_bc_mode = "free"
 softening = 1.0e-6
+```
+
+triangle P0を使う場合は次を追加し、`softening=0`にします。
+
+```toml
+[field]
+element_kernel = "triangle_p0"
 ```
 
 ## 固定geometryからoctreeを一度作る
@@ -34,6 +41,9 @@ softening = 1.0e-6
 重心が数値的に同じ位置へ集中している場合や、分割後も全sourceが同じoctantへ残る場合は、それ以上
 分割できません。この場合は`tree_leaf_max`を超えていても、そのnodeをleafにします。mesh geometryが
 固定されている間は、木のtopologyを再利用します。
+
+triangle P0では分割位置には重心を使いますが、MACのnode半径はnode内の全三角形頂点を覆うように広げます。
+これにより、重心は遠く見えてもpanel自体が評価点へ近い相互作用をfar monopoleへ誤分類しません。
 
 ## batchごとにnodeの電荷momentを更新する
 
@@ -70,7 +80,9 @@ $$
 $\theta$を小さくすると多くのnodeを展開するため、計算は遅くなりますが精度は上がります。
 $\theta$を大きくすると多くのnodeをまとめるため、速くなりますが評価は粗くなります。
 
-遠方nodeは、$Q_n$を$\mathbf{c}_{Q,n}$に置いたsoftened point chargeとして加算します。
+遠方nodeは、$Q_n$を$\mathbf{c}_{Q,n}$に置いたmonopoleとして電場と電位へ加算します。pointでは設定した
+softeningを使い、triangle P0ではsofteningなしです。leafではpointをsoftened point和、triangle P0を解析panel和で
+評価するため、triangle P0の近傍場、面上jump、principal-value自己電位を重心点電荷へfallbackしません。
 Treecodeは評価点ごとにsource treeを走査し、FMMのようなtarget側のlocal expansionは作りません。
 
 ## 相殺するnodeはDirect和まで展開する
@@ -96,7 +108,7 @@ $$
 | `tree_theta` | 遠方nodeを受理する幾何条件 | $0 < \theta \le 1$ |
 | `tree_leaf_max` | leafに保持するsource数の目安 | 1以上 |
 | `tree_min_nelem` | `field_solver="auto"`の切替しきい値 | 1以上 |
-| `softening` | leaf Direct和とmonopoleのsoftening [m] | 0以上 |
+| `softening` | pointのleaf Direct和とmonopoleのsoftening [m] | 0以上。triangle P0は0 |
 
 `tree_theta`と`tree_leaf_max`を入力に明示しない場合、明示`treecode`を含めて要素数から次の値を選びます。
 
@@ -110,11 +122,12 @@ $$
 これは速度と精度の初期値であり、ケース固有の誤差保証ではありません。入力にどちらか一方だけを明示した場合は、
 その値だけを上書きし、もう一方には上表の値を使います。
 
-## 現行実装は電場評価を高速化する
+## 電場と電位を同じtreeで高速化する
 
-現行のTreecode経路が高速化するのは粒子位置での電場です。`eval_potential`はpoint sourceのDirect和を使い、
-全要素中心の`potential_history.csv`も$O(N^2)$のDirect評価です。電位履歴を有効にした性能を見積もるときは、
-このコストを別に含めてください。
+Treecode経路は粒子位置の電場、任意点の`eval_potential`、全要素中心の`potential_history.csv`を同じsource treeで
+評価します。メッシュ電位は各要素重心をtargetとして木を走査するため、受理できるfar nodeが十分にある場合は
+$O(N^2)$のDirect和よりsource評価数を減らせます。pointのゼロsoftening時にメッシュ電位へ入れる面積等価自己項と、
+triangle P0の解析的な重心自己電位は維持します。
 
 木の構築は初期化時、node momentのrefreshは電荷更新後、木走査は各評価点で行われます。理想的な分布では
 1点あたりの評価がDirectより大幅に少なくなりますが、厳密な計算量は木の偏り、$\theta$、leaf size、
@@ -122,7 +135,7 @@ mixed-sign nodeの割合に依存します。
 
 ## Direct比較で近似誤差を測る
 
-まず同じpoint kernel、softening、正規化、meshを使うDirect結果と比較します。
+まず同じsource kernel、softening、正規化、meshを使うDirect結果と比較します。
 
 1. 場が強い領域、表面近傍、遠方、電荷相殺領域に評価点を置く。
 2. `tree_theta`を小さくして結果がDirectへ近づくことを確認する。
@@ -130,8 +143,9 @@ mixed-sign nodeの割合に依存します。
 4. 一点の場だけでなく、粒子の命中要素とbatch後の`q_elem`も比較する。
 5. release buildで本計算に近い粒子数とstep数を使って速度を測る。
 
-回帰テストは同符号nodeがmonopole経路を使うこと、強く相殺するmixed-sign nodeがDirect精度を保つこと、
-長さ正規化後もSIのDirect場と一致することを個別に確認しています。
+回帰テストは同符号nodeが電場・電位のmonopole経路を使うこと、強く相殺するmixed-sign nodeがDirect精度を
+保つこと、triangle P0のnear/self項が解析panel和と一致すること、長さ正規化後もSI値が一致することを個別に
+確認しています。
 
 ## Code reference
 

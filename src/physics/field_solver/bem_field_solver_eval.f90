@@ -54,9 +54,9 @@ contains
   e(3) = self%field_output_scale*ez
   end procedure eval_e_field_solver
 
-  !> 観測点の電位を direct / FMM で評価して返す。
+  !> 観測点の電位を direct / treecode / FMM で評価して返す。
   module procedure eval_potential_field_solver
-  real(dp) :: r_scaled(3)
+  real(dp) :: r_scaled(3), soft2, phi_sum
   real(dp), allocatable :: targets(:, :), phi_values(:)
 
   phi = 0.0d0
@@ -75,6 +75,14 @@ contains
     return
   end if
 
+  if (trim(self%mode) == 'treecode' .and. self%tree_ready) then
+    soft2 = (self%softening*self%field_inv_length_scale)**2
+    phi_sum = 0.0_dp
+    call traverse_potential_node(self, mesh, 1_i32, r(1), r(2), r(3), soft2, phi_sum)
+    phi = self%potential_output_scale*phi_sum
+    return
+  end if
+
   if (trim(self%source_model) == 'triangle_p0') then
     call electric_potential_at_panel_mesh(mesh, r, phi)
     return
@@ -88,10 +96,29 @@ contains
   module procedure traverse_node
   integer(i32) :: child_k, p, idx, p_end
   real(dp) :: dx, dy, dz, r2, inv_r3, qi, min_dist2
+  real(dp) :: target(3), source_potential, source_field(3)
+  type(panel_geometry_type) :: geometry
 
   min_dist2 = tiny(1.0d0)
   if (self%child_count(node_idx) <= 0_i32) then
     p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
+    if (trim(self%source_model) == 'triangle_p0') then
+      target = [rx, ry, rz]
+      do p = self%node_start(node_idx), p_end
+        idx = self%elem_order(p)
+        if (mesh%elem_vacuum_sign(idx) /= 1_i32 .and. mesh%elem_vacuum_sign(idx) /= -1_i32) then
+          error stop 'triangle_p0 tree field evaluation requires a resolved vacuum side for every element.'
+        end if
+        call geometry_from_mesh(mesh, idx, geometry)
+        call panel_potential_field( &
+          geometry, mesh%q_elem(idx), target, mesh%elem_vacuum_sign(idx), source_potential, source_field &
+          )
+        ex = ex + source_field(1)/self%field_output_scale
+        ey = ey + source_field(2)/self%field_output_scale
+        ez = ez + source_field(3)/self%field_output_scale
+      end do
+      return
+    end if
     do p = self%node_start(node_idx), p_end
       idx = self%elem_order(p)
       dx = (rx - mesh%center_x(idx))*self%field_inv_length_scale
@@ -129,6 +156,61 @@ contains
   end do
   end procedure traverse_node
 
+  !> ノードを再帰走査し、葉は選択 source kernel の direct 和、遠方は monopole 電位を加算する。
+  module procedure traverse_potential_node
+  integer(i32) :: child_k, p, idx, p_end
+  real(dp) :: dx, dy, dz, r2, inv_r, qi, min_dist2
+  real(dp) :: target(3), source_potential, source_field(3)
+  type(panel_geometry_type) :: geometry
+
+  min_dist2 = tiny(1.0_dp)
+  if (self%child_count(node_idx) <= 0_i32) then
+    p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
+    if (trim(self%source_model) == 'triangle_p0') then
+      target = [rx, ry, rz]
+      do p = self%node_start(node_idx), p_end
+        idx = self%elem_order(p)
+        call geometry_from_mesh(mesh, idx, geometry)
+        call panel_potential_field( &
+          geometry, mesh%q_elem(idx), target, panel_side_principal_value, source_potential, source_field &
+          )
+        phi_sum = phi_sum + source_potential/self%potential_output_scale
+      end do
+      return
+    end if
+    do p = self%node_start(node_idx), p_end
+      idx = self%elem_order(p)
+      dx = (rx - mesh%center_x(idx))*self%field_inv_length_scale
+      dy = (ry - mesh%center_y(idx))*self%field_inv_length_scale
+      dz = (rz - mesh%center_z(idx))*self%field_inv_length_scale
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) cycle
+      inv_r = 1.0_dp/sqrt(r2)
+      phi_sum = phi_sum + mesh%q_elem(idx)*inv_r
+    end do
+    return
+  end if
+
+  if (accept_node(self, node_idx, rx, ry, rz)) then
+    qi = self%node_q(node_idx)
+    if (abs(qi) > 0.0_dp) then
+      dx = (rx - self%node_charge_center(1, node_idx))*self%field_inv_length_scale
+      dy = (ry - self%node_charge_center(2, node_idx))*self%field_inv_length_scale
+      dz = (rz - self%node_charge_center(3, node_idx))*self%field_inv_length_scale
+      r2 = dx*dx + dy*dy + dz*dz + soft2
+      if (r2 <= min_dist2) return
+      phi_sum = phi_sum + qi/sqrt(r2)
+    end if
+    return
+  end if
+
+  do child_k = 1_i32, self%child_count(node_idx)
+    call traverse_potential_node( &
+      self, mesh, self%child_idx(child_k, node_idx), rx, ry, rz, soft2, phi_sum &
+      )
+  end do
+  end procedure traverse_potential_node
+
   !> ノードサイズ・距離・電荷符号の一貫性から近似採用可否を判定する。
   module procedure accept_node
   real(dp) :: dx, dy, dz, dist, dist2, radius, charge_scale, charge_gap
@@ -159,7 +241,7 @@ contains
   accept_it = charge_gap <= 64.0d0*epsilon(1.0d0)*charge_scale
   end procedure accept_node
 
-  !> メッシュ重心での電位を計算する。FMM/direct を自動切替する。
+  !> メッシュ重心での電位を計算する。FMM/treecode/direct を自動切替する。
   module procedure compute_mesh_potential_field_solver
   if (size(potential_v) /= mesh%nelem) error stop 'mesh potential output array size mismatch.'
   potential_v = 0.0d0
@@ -167,10 +249,40 @@ contains
 
   if (self%fmm_use_core .and. self%fmm_core_ready) then
     call compute_mesh_potential_fmm(self, mesh, potential_v)
+  else if (trim(self%mode) == 'treecode' .and. self%tree_ready) then
+    call compute_mesh_potential_tree(self, mesh, potential_v)
   else
     call compute_mesh_potential_direct(self, mesh, sim, potential_v)
   end if
   end procedure compute_mesh_potential_field_solver
+
+  !> 構築済み source tree を各要素重心から走査してメッシュ電位を計算する。
+  subroutine compute_mesh_potential_tree(self, mesh, potential_v)
+    class(field_solver_type), intent(in) :: self
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(out) :: potential_v(:)
+
+    real(dp), parameter :: pi_dp = acos(-1.0_dp)
+    integer(i32) :: i
+    real(dp) :: soft2, phi_sum, h_elem_scaled, self_coeff
+
+    soft2 = (self%softening*self%field_inv_length_scale)**2
+    !$omp parallel do default(none) schedule(static) &
+    !$omp   shared(self,mesh,potential_v,soft2) private(i,phi_sum,h_elem_scaled,self_coeff)
+    do i = 1_i32, mesh%nelem
+      phi_sum = 0.0_dp
+      call traverse_potential_node( &
+        self, mesh, 1_i32, mesh%center_x(i), mesh%center_y(i), mesh%center_z(i), soft2, phi_sum &
+        )
+      if (trim(self%source_model) == 'point' .and. self%softening <= 0.0_dp) then
+        h_elem_scaled = mesh%h_elem(i)*self%field_inv_length_scale
+        self_coeff = 2.0_dp*sqrt(pi_dp)/max(h_elem_scaled, sqrt(tiny(1.0_dp)))
+        phi_sum = phi_sum + self_coeff*mesh%q_elem(i)
+      end if
+      potential_v(i) = self%potential_output_scale*phi_sum
+    end do
+    !$omp end parallel do
+  end subroutine compute_mesh_potential_tree
 
   !> 構築済み Coulomb FMM core を使って要素重心電位を計算する。
   subroutine compute_mesh_potential_fmm(self, mesh, potential_v)

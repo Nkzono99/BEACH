@@ -15,7 +15,7 @@ program test_dynamics_field_solver
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(12)
+  call test_init(13)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -63,6 +63,10 @@ program test_dynamics_field_solver
 
   call test_begin('direct_triangle_panel_contract')
   call test_direct_triangle_panel_contract()
+  call test_end()
+
+  call test_begin('treecode_triangle_panel_field_and_potential')
+  call test_treecode_triangle_panel_field_and_potential()
   call test_end()
 
   call test_summary()
@@ -229,6 +233,7 @@ contains
     type(sim_config) :: sim
     real(dp), parameter :: source_charge = 1.0d-12
     real(dp) :: r(3), e_direct(3), e_tree(3), norm_direct, relative_error
+    real(dp) :: phi_direct, phi_tree, potential_relative_error
 
     call init_treecode_monopole_fixture(mesh_tree, solver, sim)
     mesh_tree%q_elem = source_charge
@@ -244,6 +249,12 @@ contains
     call assert_true(relative_error > 1.0d-4, 'same-sign root should retain the monopole path')
     call assert_true(relative_error < 2.0d-4, 'same-sign root monopole characterization changed')
     call assert_true(relative_error <= 1.0d-3, 'same-sign root monopole exceeds the tree accuracy contract')
+
+    call electric_potential_at(mesh_tree, r, sim%softening, phi_direct)
+    call solver%eval_potential(mesh_tree, sim, r, phi_tree)
+    potential_relative_error = abs(phi_tree - phi_direct)/abs(phi_direct)
+    call assert_true(potential_relative_error > 4.0d-5, 'same-sign potential should retain the monopole path')
+    call assert_true(potential_relative_error < 6.0d-5, 'same-sign potential monopole characterization changed')
   end subroutine test_treecode_same_sign_root_monopole
 
   subroutine test_treecode_mixed_sign_cancellation_sweep()
@@ -537,5 +548,108 @@ contains
     call assert_close_dp(mesh_potential(1), expected_potential, 1.0e-12_dp*max(1.0_dp, abs(expected_potential)), &
                          'panel mesh self potential mismatch')
   end subroutine test_direct_triangle_panel_contract
+
+  subroutine test_treecode_triangle_panel_field_and_potential()
+    type(mesh_type) :: mesh_panel
+    type(field_solver_type) :: direct_solver = field_solver_type()
+    type(field_solver_type) :: tree_solver = field_solver_type()
+    type(sim_config) :: direct_sim, tree_sim
+    type(field_physics_config) :: direct_field_config, tree_field_config
+    type(periodic2_physics_config) :: periodic_config
+    type(panel_kernel_config) :: direct_panel_config, tree_panel_config
+    real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
+    real(dp) :: near_target(3), far_target(3), charge_center(3), displacement(3)
+    real(dp) :: direct_field(3), tree_field(3), expected_field(3)
+    real(dp) :: direct_potential, tree_potential, expected_potential, distance, total_charge
+    real(dp) :: direct_mesh_potential(2), tree_mesh_potential(2), centroid_radius
+    integer(i32) :: status
+    character(len=128) :: message
+
+    v0(:, 1) = [-1.4_dp, -0.4_dp, 0.0_dp]
+    v1(:, 1) = [-0.6_dp, -0.4_dp, 0.0_dp]
+    v2(:, 1) = [-1.0_dp, 0.4_dp, 0.0_dp]
+    v0(:, 2) = [0.6_dp, -0.4_dp, 0.0_dp]
+    v1(:, 2) = [1.4_dp, -0.4_dp, 0.0_dp]
+    v2(:, 2) = [1.0_dp, 0.4_dp, 0.0_dp]
+    call init_mesh(mesh_panel, v0, v1, v2)
+    mesh_panel%q_elem = [2.0e-12_dp, 1.0e-12_dp]
+    call resolve_panel_surface_sides(mesh_panel, 'normal_plus', status, message)
+    call assert_equal_i32(status, panel_surface_side_ok, 'tree panel side setup failed')
+
+    direct_sim = sim_config()
+    direct_sim%field_solver = 'direct'
+    direct_sim%field_bc_mode = 'free'
+    direct_sim%softening = 0.0_dp
+    direct_sim%field_normalization = 'length'
+    direct_sim%field_length_scale = 3.5_dp
+    direct_field_config = field_physics_config(backend='direct', normalization='length')
+    direct_panel_config = panel_kernel_config( &
+                          source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', &
+                          surface_side_policy='per_element' &
+                          )
+    periodic_config = periodic2_physics_config()
+    call direct_solver%init(mesh_panel, direct_sim, direct_field_config, periodic_config, direct_panel_config)
+
+    tree_sim = direct_sim
+    tree_sim%field_solver = 'treecode'
+    tree_sim%tree_theta = 1.0_dp
+    tree_sim%tree_leaf_max = 1_i32
+    tree_sim%has_tree_theta = .true.
+    tree_sim%has_tree_leaf_max = .true.
+    tree_field_config = field_physics_config(backend='treecode', normalization='length')
+    tree_panel_config = panel_kernel_config( &
+                        source_model='triangle_p0', kernel_id='triangle_p0_exact_tree_near', &
+                        surface_side_policy='per_element' &
+                        )
+    call tree_solver%init(mesh_panel, tree_sim, tree_field_config, periodic_config, tree_panel_config)
+
+    call assert_true(trim(tree_solver%mode) == 'treecode', 'triangle panel treecode mode mismatch')
+    call assert_true(tree_solver%child_count(1) > 0_i32, 'triangle panel tree root must be internal')
+    centroid_radius = sqrt(sum(tree_solver%node_half_size(:, 1)**2))
+    call assert_true( &
+      tree_solver%node_radius(1) > centroid_radius, &
+      'triangle panel tree MAC radius must include full panel vertices' &
+      )
+
+    near_target = mesh_panel%centers(:, 1)
+    call direct_solver%eval_e(mesh_panel, near_target, direct_field)
+    call tree_solver%eval_e(mesh_panel, near_target, tree_field)
+    call assert_allclose_1d( &
+      tree_field, direct_field, 1.0e-12_dp*max(1.0_dp, maxval(abs(direct_field))), &
+      'triangle panel tree near field must use the exact panel kernel' &
+      )
+    call direct_solver%eval_potential(mesh_panel, direct_sim, near_target, direct_potential)
+    call tree_solver%eval_potential(mesh_panel, tree_sim, near_target, tree_potential)
+    call assert_close_dp( &
+      tree_potential, direct_potential, 1.0e-12_dp*max(1.0_dp, abs(direct_potential)), &
+      'triangle panel tree near potential must use the exact panel kernel' &
+      )
+
+    far_target = [0.0_dp, 10.0_dp, 5.0_dp]
+    total_charge = sum(mesh_panel%q_elem)
+    charge_center = matmul(mesh_panel%centers, mesh_panel%q_elem)/total_charge
+    displacement = far_target - charge_center
+    distance = sqrt(sum(displacement*displacement))
+    expected_field = k_coulomb*total_charge*displacement/(distance**3)
+    expected_potential = k_coulomb*total_charge/distance
+    call tree_solver%eval_e(mesh_panel, far_target, tree_field)
+    call tree_solver%eval_potential(mesh_panel, tree_sim, far_target, tree_potential)
+    call assert_allclose_1d( &
+      tree_field, expected_field, 1.0e-12_dp*max(1.0_dp, maxval(abs(expected_field))), &
+      'triangle panel tree far field must use the node monopole' &
+      )
+    call assert_close_dp( &
+      tree_potential, expected_potential, 1.0e-12_dp*max(1.0_dp, abs(expected_potential)), &
+      'triangle panel tree far potential must use the node monopole' &
+      )
+
+    call direct_solver%compute_mesh_potential(mesh_panel, direct_sim, direct_mesh_potential)
+    call tree_solver%compute_mesh_potential(mesh_panel, tree_sim, tree_mesh_potential)
+    call assert_allclose_1d( &
+      tree_mesh_potential, direct_mesh_potential, &
+      1.0e-12_dp*max(1.0_dp, maxval(abs(direct_mesh_potential))), &
+      'triangle panel tree mesh potential must preserve exact near and self terms' &
+      )
+  end subroutine test_treecode_triangle_panel_field_and_potential
 
 end program test_dynamics_field_solver

@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Free-space `triangle_p0` Treecode evaluation with exact analytic panel near interactions, all-vertex MAC radii, and monopole far interactions for both electric field and potential.
+
+### Changed
+- Treecode now accelerates arbitrary-point and mesh-centroid potential evaluation in addition to electric-field evaluation.
+
 ## [1.5.0] - 2026-07-11
 
 ### Added

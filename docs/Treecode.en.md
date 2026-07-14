@@ -4,23 +4,30 @@ Lang: [日本語](Treecode.md) | [English](Treecode.en.md)
 
 # Treecode
 
-Treecode groups point sources in an octree and evaluates a distant group as one monopole. Near nodes and nodes with cancelling
+Treecode groups sources in an octree and evaluates a distant group as one monopole. Near nodes and nodes with cancelling
 positive and negative charge are expanded to a Direct sum, so the fraction of accepted far nodes determines both accuracy and
 speed. It targets fewer source evaluations than Direct for medium free-boundary problems.
 
 | Property | Description |
 | --- | --- |
-| Kernel | point only |
+| Kernel | point, triangle P0 |
 | Field boundary | free only |
 | Far approximation | Node total charge at its center of charge |
-| Near evaluation | Direct sum of softened point charges in leaves |
-| Potential | The current adapter evaluates it with Direct, not Treecode |
+| Near evaluation | Direct leaf sum of softened point charges or the analytic triangle-P0 panel kernel |
+| Potential | Uses the same tree traversal and near/far classification as the field |
 
 ```toml
 [sim]
 field_solver = "treecode"
 field_bc_mode = "free"
 softening = 1.0e-6
+```
+
+For triangle P0, also select the element kernel and set `softening=0`.
+
+```toml
+[field]
+element_kernel = "triangle_p0"
 ```
 
 ## Build the octree once from fixed geometry
@@ -33,6 +40,10 @@ At initialization, triangle centroids are used as source positions and an octree
 
 If the centroids are numerically coincident, or splitting leaves every source in one octant, the node remains a leaf even when
 it exceeds the nominal limit. Tree topology is reused while the mesh geometry remains fixed.
+
+Triangle P0 still uses centroids for partitioning, but expands each MAC node radius to contain every triangle vertex in the
+node. This prevents a panel that reaches near a target from being misclassified as a far monopole merely because its centroid
+is distant.
 
 ## Refresh node charge moments for each batch
 
@@ -68,8 +79,10 @@ $$
 A target inside the node's bounding sphere always causes traversal into the children. A smaller $\theta$ opens more nodes and
 is slower and more accurate; a larger $\theta$ groups more interactions and is faster and coarser.
 
-An accepted far node is evaluated as a softened point charge $Q_n$ at $\mathbf{c}_{Q,n}$. Treecode traverses the source tree
-for every target; unlike FMM, it does not construct target-side local expansions.
+An accepted far node is evaluated as a monopole $Q_n$ at $\mathbf{c}_{Q,n}$ for both field and potential. Point sources use
+the configured softening; triangle P0 is unsoftened. Leaves use softened point sums or analytic panel sums, so triangle-P0
+near fields, on-surface jumps, and principal-value self potentials never fall back to centroid point charges. Treecode
+traverses the source tree for every target; unlike FMM, it does not construct target-side local expansions.
 
 ## Expand cancelling nodes to a Direct sum
 
@@ -94,7 +107,7 @@ distribution, measure runtime as well as error against Direct, and compare FMM w
 | `tree_theta` | Geometric acceptance of a far node | $0 < \theta \le 1$ |
 | `tree_leaf_max` | Nominal number of sources in a leaf | at least 1 |
 | `tree_min_nelem` | Switching threshold for `field_solver="auto"` | at least 1 |
-| `softening` | Softening for leaf Direct sums and monopoles [m] | non-negative |
+| `softening` | Softening for point leaf sums and monopoles [m] | non-negative; zero for triangle P0 |
 
 When `tree_theta` and `tree_leaf_max` are not explicitly present in the input, element-count values are selected even for an
 explicit `treecode` mode.
@@ -109,11 +122,12 @@ explicit `treecode` mode.
 These are starting values for speed and accuracy, not case-specific error bounds. If only one of the two keys is explicitly
 set, that value overrides the table while the other still comes from the table.
 
-## The current implementation accelerates field evaluation
+## Accelerate field and potential with the same tree
 
-The current Treecode path accelerates electric fields at particle positions. `eval_potential` uses a Direct point-source sum,
-and `potential_history.csv` at all element centers also costs $O(N^2)$. Include this separate cost when estimating a run with
-potential history enabled.
+The Treecode path evaluates electric fields at particle positions, `eval_potential` at arbitrary points, and
+`potential_history.csv` at all element centers with the same source tree. Mesh potential traverses the tree once per element
+center and reduces source evaluations relative to the $O(N^2)$ Direct sum when enough far nodes are accepted. It preserves the
+area-equivalent point self term for zero softening and the analytic triangle-P0 centroid self potential.
 
 The tree is built during initialization, node moments are refreshed after charge changes, and the tree is traversed for every
 target. Well-behaved distributions require far fewer interactions per target than Direct, but the exact cost depends on tree
@@ -121,7 +135,7 @@ imbalance, $\theta$, leaf size, and the fraction of mixed-sign nodes.
 
 ## Measure approximation error against Direct
 
-Compare against Direct with the same point kernel, softening, normalization, and mesh.
+Compare against Direct with the same source kernel, softening, normalization, and mesh.
 
 1. Sample strong-field regions, near-surface points, far points, and charge-cancellation regions.
 2. Reduce `tree_theta` and verify convergence toward Direct.
@@ -129,8 +143,9 @@ Compare against Direct with the same point kernel, softening, normalization, and
 4. Compare particle impact elements and post-batch `q_elem`, not only fields at isolated points.
 5. Measure performance in a release build with representative particle and step counts.
 
-Regression tests separately verify that same-sign nodes retain the monopole path, strongly cancelling mixed-sign nodes preserve
-Direct accuracy, and length normalization returns the same SI field as Direct.
+Regression tests separately verify that same-sign nodes retain the field and potential monopole paths, strongly cancelling
+mixed-sign nodes preserve Direct accuracy, triangle-P0 near and self terms match analytic panel sums, and length normalization
+returns consistent SI values.
 
 ## Code reference
 

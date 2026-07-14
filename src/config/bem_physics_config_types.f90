@@ -195,7 +195,7 @@ contains
     end select
   end subroutine validate_phase0_physics_config
 
-  !> triangle_p0 direct/FMM kernel の solver/boundary/softening 契約を検証する。
+  !> triangle_p0 direct/treecode/FMM kernel の solver/boundary/softening 契約を検証する。
   subroutine validate_phase1_panel_config(sim, panel, status, message)
     type(sim_config), intent(in) :: sim
     type(panel_kernel_config), intent(in) :: panel
@@ -223,6 +223,13 @@ contains
       if (trim(kernel_id) /= 'triangle_p0_exact_direct' .or. trim(boundary) /= 'free') then
         call reject(physics_config_unavailable, 'triangle_p0 direct requires its exact free-space kernel.', status, message)
       end if
+    case ('treecode')
+      if (trim(kernel_id) /= 'triangle_p0_exact_tree_near' .or. trim(boundary) /= 'free') then
+        call reject( &
+          physics_config_invalid_combination, &
+          'triangle_p0 treecode requires exact panel-near/monopole-far free-space kernel.', status, message &
+          )
+      end if
     case ('fmm')
       if (trim(kernel_id) /= 'triangle_p0_exact_p2m_near') then
         call reject(physics_config_invalid_combination, 'triangle_p0 FMM requires exact P2M/panel-near kernel.', status, message)
@@ -236,7 +243,7 @@ contains
         call reject(physics_config_invalid_combination, 'triangle_p0 auto requires its free-space auto kernel.', status, message)
       end if
     case default
-      call reject(physics_config_unavailable, 'triangle_p0 supports direct, FMM, or auto solving.', status, message)
+      call reject(physics_config_unavailable, 'triangle_p0 supports direct, treecode, FMM, or auto solving.', status, message)
     end select
   end subroutine validate_phase1_panel_config
 

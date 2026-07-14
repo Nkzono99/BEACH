@@ -20,7 +20,7 @@ BEACHは各batchの開始時点の要素電荷`q_elem`から電場を作り、�
 | solver | 主な用途 | source kernel | 場境界 | 近似 |
 | --- | --- | --- | --- | --- |
 | [Direct](DirectSolver.html) | 小規模計算、基準解 | point、triangle P0 | free | 選んだkernelを全要素について直接評価 |
-| [Treecode](Treecode.html) | 中規模のpoint source | point | free | 遠方nodeをmonopoleで近似 |
+| [Treecode](Treecode.html) | 中規模のfree-space計算 | point、triangle P0 | free | 遠方nodeをmonopole、近傍leafを選択kernelで評価 |
 | [FMM](FMM.html) | 大規模計算、多数の評価点 | point、triangle P0 | free、periodic2 | 遠方相互作用を多重極・局所展開で近似 |
 | `auto` | free境界で要素数に応じて選択 | point、triangle P0 | free | pointはDirect/Treecode、triangle P0はDirect/FMM |
 
@@ -41,7 +41,8 @@ triangle P0にFMMを選びます。既定のしきい値は`256`です。solver�
 近傍場と自己電位を三角形の解析kernelで扱えるため、重心点電荷とは異なる離散化です。
 
 triangle P0では`sim.softening=0`、有限で非退化な三角形、各要素のvacuum sideが必要です。
-現行Phase 1はinsulator表面だけに対応し、Treecodeには対応しません。[Direct](DirectSolver.html#triangle-p0)と
+現行Phase 1はinsulator表面だけに対応します。Treecodeは近傍leafを解析panel核、遠方nodeをmonopoleで
+電場・電位とも評価します。[Direct](DirectSolver.html#triangle-p0)、[Treecode](Treecode.html)、
 [FMM](FMM.html#source-kernel)で、それぞれのtriangle P0評価を説明します。
 
 ## 長さを正規化して数値スケールを整える

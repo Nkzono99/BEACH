@@ -224,14 +224,15 @@ program test_physics_config_types
   call assert_equal_i32(status, physics_config_unavailable, 'point-source root oracle must be rejected for panels')
   call test_end()
 
-  call test_begin('triangle_panel_auto_and_unsupported_solver')
+  call test_begin('triangle_panel_auto_and_treecode')
   sim%field_solver = 'auto'
   panel%kernel_id = 'triangle_p0_exact_auto'
   call validate_phase1_panel_config(sim, panel, status, message)
   call assert_equal_i32(status, physics_config_ok, 'triangle panel auto solver should be available')
   sim%field_solver = 'treecode'
+  panel%kernel_id = 'triangle_p0_exact_tree_near'
   call validate_phase1_panel_config(sim, panel, status, message)
-  call assert_equal_i32(status, physics_config_unavailable, 'triangle panel treecode must be rejected')
+  call assert_equal_i32(status, physics_config_ok, 'triangle panel treecode should be available')
   sim%field_solver = 'direct'
   panel%kernel_id = 'triangle_p0_exact_direct'
   sim%softening = 1.0e-6

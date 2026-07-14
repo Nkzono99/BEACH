@@ -167,13 +167,13 @@ GitHub Raw URL を指定することもできます。
 
 ##### `field_solver = "treecode"`
 
-source octree を作り、遠方 node は multipole 近似、近傍 node は direct 和で評価します。
+source octree を作り、遠方 node は monopole 近似、近傍 node は選択した source kernel の direct 和で評価します。
 FMM のような local expansion は使わず、評価点ごとに木を走査します。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"treecode"` を指定 |
-| `softening` | float | `1.0e-6` | 近傍 direct 和と multipole 評価の softening |
+| `softening` | float | `1.0e-6` | point の近傍 direct 和と monopole 評価の softening。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | tree 構築前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `tree_theta` | float | `0.5` | MAC パラメータ。`0 < theta <= 1`。大きいほど速く粗い |
@@ -660,8 +660,9 @@ OBJ の対応範囲:
 `element_kernel="point"`が互換既定値です。`sim.softening`はこのpoint kernelに適用します。
 
 `element_kernel="triangle_p0"`は、各要素の`q_elem`を三角形上の一様な面電荷密度として扱います。
-`sim.field_solver="direct" | "fmm" | "auto"`で利用でき、`auto`は`tree_min_nelem`に従ってdirectとFMMを選びます。
-`sim.softening=0`かつ、すべての表面が`insulator`であることが必要です。FMMは厳密なpanel near/P2Mを使います。
+`sim.field_solver="direct" | "treecode" | "fmm" | "auto"`で利用でき、`auto`は`tree_min_nelem`に従ってdirectとFMMを選びます。
+`sim.softening=0`かつ、すべての表面が`insulator`であることが必要です。Treecodeは厳密なpanel nearと
+monopole farを電場・電位に使い、FMMは厳密なpanel near/P2Mを使います。
 `m2l_root_oracle`はpoint source専用のため、`triangle_p0`では使用できません。
 
 OBJでは`[mesh].surface_side`、templateでは各`[[mesh.templates]].surface_side`を明示してください。

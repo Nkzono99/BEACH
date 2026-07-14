@@ -20,7 +20,7 @@
           "type": "string",
           "enum": ["point", "triangle_p0"],
           "default": "point",
-          "description": "Element source model. triangle_p0 supports direct, FMM, or auto solving and requires softening=0, insulator surfaces, and explicit surface_side settings."
+          "description": "Element source model. triangle_p0 supports direct, treecode, FMM, or auto solving and requires softening=0, insulator surfaces, and explicit surface_side settings."
         }
       }
     },

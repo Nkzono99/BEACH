@@ -67,6 +67,7 @@ discardを合わせて計算します。表面放出と表面吸収はsurface/fl
 `summary.txt` で最初に確認する量は次のとおりです。
 
 `field_source_model`と`field_kernel_id`は、出力の計算に使ったfield kernelを示します。
+`triangle_p0_exact_tree_near`は、全頂点を含むnode半径、解析的なpanel near評価、monopole far評価を使うTreecodeです。
 `triangle_p0_exact_p2m_near`は、全頂点のtopology、解析的なpanel near評価、厳密なpanel P2Mを使うFMMです。
 `FieldKernel.from_result`は`triangle_p0`をpanel C ABIにdispatchします。その他のPython側のpotential/field/force/field-line estimatorは
 point sourceのみに対応するため、`triangle_p0`の結果では停止します。

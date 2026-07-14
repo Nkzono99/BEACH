@@ -22,7 +22,7 @@ evaluated.
 | Solver | Main use | Source kernel | Field boundary | Approximation |
 | --- | --- | --- | --- | --- |
 | [Direct](DirectSolver.en.html) | Small problems and reference results | point, triangle P0 | free | Evaluates the selected kernel for every element |
-| [Treecode](Treecode.en.html) | Medium point-source problems | point | free | Replaces distant nodes by monopoles |
+| [Treecode](Treecode.en.html) | Medium free-space problems | point, triangle P0 | free | Uses monopoles for far nodes and the selected kernel in near leaves |
 | [FMM](FMM.en.html) | Large problems and many targets | point, triangle P0 | free, periodic2 | Approximates far interactions with multipole and local expansions |
 | `auto` | Select by element count for a free boundary | point, triangle P0 | free | Direct/Treecode for point; Direct/FMM for triangle P0 |
 
@@ -44,8 +44,9 @@ Its analytic triangle kernel handles the near field and self potential, making i
 point charge.
 
 Triangle P0 requires `sim.softening=0`, finite non-degenerate triangles, and a resolved vacuum side for every element.
-Current Phase 1 supports insulator surfaces only and does not support Treecode. See [Direct](DirectSolver.en.html#triangle-p0)
-and [FMM](FMM.en.html#source-kernel) for details.
+Current Phase 1 supports insulator surfaces only. Treecode evaluates near leaves with the analytic panel kernel and distant
+nodes as monopoles for both field and potential. See [Direct](DirectSolver.en.html#triangle-p0),
+[Treecode](Treecode.en.html), and [FMM](FMM.en.html#source-kernel) for details.
 
 ## Normalize length to control numerical scale
 

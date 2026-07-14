@@ -585,6 +585,8 @@ contains
       cfg%panel%source_model = 'triangle_p0'
       if (trim(lower_ascii(cfg%sim%field_solver)) == 'fmm') then
         cfg%panel%kernel_id = 'triangle_p0_exact_p2m_near'
+      else if (trim(lower_ascii(cfg%sim%field_solver)) == 'treecode') then
+        cfg%panel%kernel_id = 'triangle_p0_exact_tree_near'
       else if (trim(lower_ascii(cfg%sim%field_solver)) == 'auto') then
         cfg%panel%kernel_id = 'triangle_p0_exact_auto'
       else

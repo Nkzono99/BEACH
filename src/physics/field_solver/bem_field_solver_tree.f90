@@ -159,7 +159,7 @@ contains
   integer(i32) :: count, p, idx, oct
   integer(i32) :: child_k, child_node, child_start, child_end
   integer(i32), allocatable :: counts(:), offsets(:), cursor(:), work(:)
-  real(dp) :: bb_min(3), bb_max(3), span(3), center(3)
+  real(dp) :: bb_min(3), bb_max(3), span(3), center(3), vertex_radius
   real(dp) :: split_eps
 
   count = end_idx - start_idx + 1_i32
@@ -189,6 +189,17 @@ contains
   self%node_center(:, node_idx) = center
   self%node_half_size(:, node_idx) = 0.5d0*span
   self%node_radius(node_idx) = sqrt(sum(self%node_half_size(:, node_idx)*self%node_half_size(:, node_idx)))
+  if (trim(self%source_model) == 'triangle_p0') then
+    do p = start_idx, end_idx
+      idx = self%elem_order(p)
+      vertex_radius = sqrt(sum((mesh%v0(:, idx) - center)**2))
+      self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
+      vertex_radius = sqrt(sum((mesh%v1(:, idx) - center)**2))
+      self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
+      vertex_radius = sqrt(sum((mesh%v2(:, idx) - center)**2))
+      self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
+    end do
+  end if
 
   if (count <= self%leaf_max) return
 

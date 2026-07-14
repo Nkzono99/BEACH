@@ -9,7 +9,7 @@ program test_app_config_parser
   implicit none
 
   type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg, high_level_cfg
-  type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg, split_cfg
+  type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg, panel_tree_cfg, split_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
   character(len=*), parameter :: photo_cfg_path = 'test_app_config_parser_photo_tmp.toml'
   character(len=*), parameter :: large_cfg_path = 'test_app_config_parser_large_tmp.toml'
@@ -20,6 +20,7 @@ program test_app_config_parser
   character(len=*), parameter :: multiline_cfg_path = 'test_app_config_parser_multiline_tmp.toml'
   character(len=*), parameter :: toml_syntax_cfg_path = 'test_app_config_parser_toml_syntax_tmp.toml'
   character(len=*), parameter :: panel_cfg_path = 'test_app_config_parser_panel_tmp.toml'
+  character(len=*), parameter :: panel_tree_cfg_path = 'test_app_config_parser_panel_tree_tmp.toml'
   character(len=*), parameter :: split_cfg_path = 'test_app_config_parser_split_tmp.toml'
 
   call write_config_fixture(cfg_path)
@@ -31,10 +32,11 @@ program test_app_config_parser
   call write_high_level_config_fixture(high_level_cfg_path)
   call write_multiline_config_fixture(multiline_cfg_path)
   call write_toml_syntax_config_fixture(toml_syntax_cfg_path)
-  call write_panel_config_fixture(panel_cfg_path)
+  call write_panel_config_fixture(panel_cfg_path, 'direct')
+  call write_panel_config_fixture(panel_tree_cfg_path, 'treecode')
   call write_split_config_fixture(split_cfg_path)
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -191,6 +193,17 @@ program test_app_config_parser
   call assert_true(trim(panel_cfg%panel%source_model) == 'triangle_p0', 'panel source model mismatch')
   call assert_true(trim(panel_cfg%panel%kernel_id) == 'triangle_p0_exact_direct', 'panel kernel id mismatch')
   call assert_true(trim(panel_cfg%templates(1)%surface_side_policy) == 'normal_plus', 'template side policy mismatch')
+  call test_end()
+
+  call test_begin('triangle_panel_treecode_config')
+  call default_app_config(panel_tree_cfg)
+  call load_app_config(panel_tree_cfg_path, panel_tree_cfg)
+  call assert_true(trim(panel_tree_cfg%sim%field_solver) == 'treecode', 'panel tree solver mismatch')
+  call assert_true(trim(panel_tree_cfg%panel%source_model) == 'triangle_p0', 'panel tree source model mismatch')
+  call assert_true( &
+    trim(panel_tree_cfg%panel%kernel_id) == 'triangle_p0_exact_tree_near', &
+    'panel tree kernel id mismatch' &
+    )
   call test_end()
 
   call test_begin('photo_raycast_config')
@@ -378,6 +391,7 @@ program test_app_config_parser
   call delete_file_if_exists(multiline_cfg_path)
   call delete_file_if_exists(toml_syntax_cfg_path)
   call delete_file_if_exists(panel_cfg_path)
+  call delete_file_if_exists(panel_tree_cfg_path)
   call delete_file_if_exists(split_cfg_path)
 
   call test_summary()
@@ -795,8 +809,8 @@ contains
     close (u)
   end subroutine write_toml_syntax_config_fixture
 
-  subroutine write_panel_config_fixture(path)
-    character(len=*), intent(in) :: path
+  subroutine write_panel_config_fixture(path, solver)
+    character(len=*), intent(in) :: path, solver
     integer :: u, ios
 
     open (newunit=u, file=path, status='replace', action='write', iostat=ios)
@@ -805,7 +819,7 @@ contains
     write (u, '(a)') 'batch_count = 1'
     write (u, '(a)') 'dt = 1.0e-9'
     write (u, '(a)') 'max_step = 2'
-    write (u, '(a)') 'field_solver = "direct"'
+    write (u, '(a)') 'field_solver = "'//trim(solver)//'"'
     write (u, '(a)') 'field_bc_mode = "free"'
     write (u, '(a)') 'softening = 0.0'
     write (u, '(a)') '[field]'

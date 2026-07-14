@@ -162,6 +162,15 @@ module bem_field_solver
       real(dp), intent(inout) :: ex, ey, ez
     end subroutine traverse_node
 
+    !> ノードを再帰走査し、葉では direct 総和、遠方は monopole 近似で電位を加算する。
+    recursive module subroutine traverse_potential_node(self, mesh, node_idx, rx, ry, rz, soft2, phi_sum)
+      class(field_solver_type), intent(in) :: self
+      type(mesh_type), intent(in) :: mesh
+      integer(i32), intent(in) :: node_idx
+      real(dp), intent(in) :: rx, ry, rz, soft2
+      real(dp), intent(inout) :: phi_sum
+    end subroutine traverse_potential_node
+
     !> ノード半径・距離と電荷符号の一貫性から遠方近似を判定する。
     module function accept_node(self, node_idx, rx, ry, rz) result(accept_it)
       class(field_solver_type), intent(in) :: self

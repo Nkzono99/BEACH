@@ -175,14 +175,14 @@ and `N` is the number of elements.
 
 ##### `field_solver = "treecode"`
 
-Builds a source octree. Distant nodes are evaluated with a multipole
-approximation, and near nodes are evaluated with a direct sum. Unlike FMM, it
+Builds a source octree. Distant nodes are evaluated with a monopole
+approximation, and near nodes are evaluated directly with the selected source kernel. Unlike FMM, it
 does not use local expansion and traverses the tree for each evaluation point.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"treecode"` |
-| `softening` | float | `1.0e-6` | Softening for near direct sums and multipole evaluation |
+| `softening` | float | `1.0e-6` | Softening for point near sums and monopoles; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before tree construction |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `tree_theta` | float | `0.5` | MAC parameter. `0 < theta <= 1`. Larger values are faster and coarser |
@@ -918,4 +918,4 @@ beachx lint beach.toml
 ```
 ### `[field]`: element kernel
 
-`element_kernel="point"` is the compatibility default, and `sim.softening` applies to this point kernel. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle and supports `sim.field_solver="direct" | "fmm" | "auto"`. Auto selects direct or FMM using `tree_min_nelem`. It requires `sim.softening=0` and insulator-only surfaces. FMM uses exact panel near interactions and exact triangle P2M moments; the point-source `m2l_root_oracle` is rejected. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.
+`element_kernel="point"` is the compatibility default, and `sim.softening` applies to this point kernel. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle and supports `sim.field_solver="direct" | "treecode" | "fmm" | "auto"`. Auto selects direct or FMM using `tree_min_nelem`. It requires `sim.softening=0` and insulator-only surfaces. Treecode uses exact panel near interactions and monopole far interactions for both field and potential; FMM uses exact panel near interactions and exact triangle P2M moments. The point-source `m2l_root_oracle` is rejected. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.
