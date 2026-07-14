@@ -12,7 +12,7 @@ Lang: [日本語](PeriodicFarCorrection.md) | [English](PeriodicFarCorrection.en
 target nodeのlocal展開係数を出力するため、FMMの`plan`と`state`へ組み込まれています。一方、通常のtree M2Lとは
 別のoperator・cache・検証対象なので、概念と運用はこのページに分離します。
 
-## 設定によって有限画像と無限周期を選ぶ
+## 有限画像モデルと無限周期近似を選ぶ
 
 ```toml
 [sim]

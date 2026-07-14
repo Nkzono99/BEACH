@@ -12,7 +12,7 @@ Far correction is not a solver fully independent from FMM. The current implement
 produces local-expansion coefficients at target nodes, so it is embedded in the FMM `plan` and `state`. It nevertheless uses a
 separate operator, cache, and verification path from ordinary tree M2L, which is why its concepts and operation are documented here.
 
-## Select finite images or infinite periodicity
+## Select a finite-image model or an infinite-periodic approximation
 
 ```toml
 [sim]
