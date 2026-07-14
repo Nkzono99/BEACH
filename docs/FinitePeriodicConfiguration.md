@@ -77,14 +77,26 @@ normal_drift_speed = 1.0e5
 実行例[`examples/periodic2_basic/beach.toml`](../examples/periodic2_basic/beach.toml)はfield経路だけを確認する最小構成です。
 reservoirと光電子には上のparameter fragmentを追加します。本計算の画像層とsampling数は、後述の収束確認から決めます。
 
-## 画像層が場の物理範囲を決める
+## 何セル先の周期画像まで場に含めるか
 
-画像層$N$なら$(2N+1)^2$ cellのsourceを加えます。これは「無限周期和を近似する計算」に使えますが、設定した$N$の
-結果そのものは有限画像modelです。非中性cellでは画像層を増やしてもpotential gaugeやz方向far boundaryが自動的に決まる
-わけではありません。
+x/y周期では、primary cellの左右・前後に同じcellが繰り返されます。この構成は、その無限個のcopyをすべて足すのではなく、
+primary cellから指定した層までのcopyだけをfield sourceに含めます。
 
-`field_periodic_far_correction="none"`または互換`auto`は、Ewald/cached far operatorを追加しません。この設定を使うには、
-場の目的量、粒子軌道、吸収位置、帯電分布についてimage-layer refinementを行い、必要な精度への収束を確認します。
+| `field_periodic_image_layers` | 場に含めるcell |
+| --- | --- |
+| `0` | primary cellだけ（$1\times1$） |
+| `1` | 周囲1層まで（$3\times3=9$ cells） |
+| `2` | 周囲2層まで（$5\times5=25$ cells） |
+
+したがって画像層$N$は、mesh分割の細かさではなく「何cell先の電荷まで相互作用に含めるか」を決めます。
+指定範囲より外側の周期画像は、この構成の場には寄与しません。
+
+画像層を増やしても電場、粒子の吸収・escape率、最終的な帯電分布がほとんど変わらなくなれば、目的量に対して
+十分な範囲を含めたと判断できます。まだ変化するなら、その画像層では遠方cellの影響を切り捨てすぎています。
+
+`field_periodic_far_correction="none"`と互換aliasの`"auto"`は、範囲外のcellをEwald和やcached operatorで補いません。
+また、cellの正味電荷が0でない場合は、画像層を増やすだけでは無限周期系のpotential基準やz方向の遠方境界は決まりません。
+そのような物理的な遠方closureが必要なら、有限画像層を増やし続けるのではなく無限周期＋outer plasma構成を使います。
 
 ## reservoir流入をface平均potentialで補正する
 

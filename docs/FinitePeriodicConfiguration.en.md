@@ -79,14 +79,26 @@ The runnable [`examples/periodic2_basic/beach.toml`](../examples/periodic2_basic
 Add the reservoir and photoelectron fragments above for this typical configuration, then choose image layers and sampling counts
 from the convergence checks below.
 
-## Let the image shell define the physical field range
+## Choose how many neighboring periodic cells contribute to the field
 
-For image layer $N$, sources from $(2N+1)^2$ cells are added. This can approximate an infinite-periodic sum, but the result at a
-configured $N$ is a finite-image model. For a nonneutral cell, increasing image layer does not automatically choose potential gauge
-or the far boundary along z.
+An x/y-periodic system repeats the primary cell to its left, right, front, and back. This configuration does not sum every copy in
+the infinite lattice. It includes only copies through the selected image layer.
 
-`field_periodic_far_correction="none"` and compatibility `auto` add no Ewald or cached far operator. Use this path only when field
-observables, trajectories, absorption locations, and charging distributions converge under image-layer refinement.
+| `field_periodic_image_layers` | Cells included in the field |
+| --- | --- |
+| `0` | Primary cell only ($1\times1$) |
+| `1` | One surrounding layer ($3\times3=9$ cells) |
+| `2` | Two surrounding layers ($5\times5=25$ cells) |
+
+Image layer $N$ therefore does not refine the mesh. It sets how many cells away charge remains part of the interaction. Periodic
+copies outside that range do not contribute to this finite-image field.
+
+Increase the layer until the quantities of interest—field, particle absorption and escape rates, and final charging
+distribution—change negligibly. Continued changes mean that the current layer cuts off too much of the distant-cell influence.
+
+`field_periodic_far_correction="none"` and compatibility alias `"auto"` do not replace omitted cells with an Ewald sum or cached
+operator. For a cell with nonzero net charge, increasing the layer alone also does not define the infinite-periodic potential gauge
+or the far boundary along z. Use the infinite-periodic plus outer-plasma configuration when that physical far closure is required.
 
 ## Correct reservoir inflow with face-average potential
 
