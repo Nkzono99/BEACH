@@ -161,7 +161,7 @@ sourceと外向き粒子が同じ自己整合potential profileを共有する計
 
 - `sheath_injection_model`は`reservoir_potential_model`との併用を拒否します。
 - `velocity_distribution="grid"`のreservoirは現行Zhao/floating補正と併用できません。
-- `kinetic_1d_profile_return`はZhao系とlegacy reservoir barrierを拒否します。
+- `kinetic_1d_profile_return`はZhao系と`reservoir_potential_model`を拒否します。
 - Zhaoは負electron、正ion、負photoelectronの3 speciesを要求します。
 - `floating_no_photo`は負electronと正ionだけを使い、photoelectron sourceを補正しません。
 

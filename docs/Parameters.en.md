@@ -294,7 +294,7 @@ Quasistatic validity is bounded by `tau_outer/field_evolution_timescale`. When
 return-current time history. See
 [Particle escape and return](ParticleEscapeReturn.en.md).
 
-Legacy reservoir barriers, Zhao injection correction, and nonzero `b0` are rejected.
+`reservoir_potential_model`, Zhao injection correction, and nonzero `b0` are rejected.
 
 With `photoelectron_closure="kinetic_mean"`, the first negative `photo_raycast` species supplies a half-Maxwellian flux.
 The mean closure supplies only the outer profile; tracked particles update surface charge, so statistical return current is not added again.

@@ -60,7 +60,7 @@ interfaceでのenergy判定、linear/kinetic profileのflight time、3D軌道、
 ## 必要な外部物理から構成を選ぶ
 
 - 単純な有限box: outer modelなし、`open_boundary_model="escape"`
-- 過去のscalar barrier再現: `infinity_barrier`
+- 有限画像のscalar reservoir barrier: `infinity_barrier`
 - 文献の注入closure比較: `zhao_*`
 - 無限周期表面と自己整合1D sheath: `kinetic_1d`
 - roughnessを含む線形応答: `unified_linear_response`

@@ -126,7 +126,7 @@ $$
 cornerでreflectとperiodicが組み合わさっても、face maskへまとめてから各軸へ作用するため、軸の走査順序に
 依存しない結果になります。
 
-### legacy potential barrier
+### potential barrier
 
 `open_boundary_model="potential_barrier"`は、単一open faceから外向きに出る粒子について法線運動エネルギー
 
@@ -141,7 +141,7 @@ $$
 $$
 
 を比較します。$v_\mathrm{out}>0$、$\Delta U>0$かつ$K_n<\Delta U$ならreflectし、それ以外はescapeします。
-これはlegacyの単一face reduced modelです。複数open faceが同時に関係するcornerは一般化せず、
+これは単一faceのreduced modelです。複数open faceが同時に関係するcornerは一般化せず、
 `particle_step_unsupported_barrier_corner`で停止します。
 
 reservoir粒子の加減速、outer sheath、photoelectron returnは、衝突位置を決めた後に適用する物理モデルです。

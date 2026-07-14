@@ -254,4 +254,4 @@ $$
 | Zhao core/root/profile | `src/physics/sheath/bem_sheath_model_core.f90` |
 | 1D outer return | `src/physics/outer_plasma/bem_outer_plasma_interface.f90` |
 | unified 3D orbit | `src/physics/outer_plasma/bem_outer_plasma_orbit.f90` |
-| legacy open-face reflection | `src/runtime/simulator/bem_particle_stepper.f90` |
+| open-face scalar reflection | `src/runtime/simulator/bem_particle_stepper.f90` |

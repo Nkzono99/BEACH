@@ -159,7 +159,7 @@ self-consistent potential profile.
 
 - `sheath_injection_model` is rejected with `reservoir_potential_model`.
 - A `velocity_distribution="grid"` reservoir cannot currently use Zhao or floating correction.
-- `kinetic_1d_profile_return` rejects Zhao and the legacy reservoir barrier.
+- `kinetic_1d_profile_return` rejects Zhao and `reservoir_potential_model`.
 - Zhao requires negative electron, positive ion, and negative photoelectron species.
 - `floating_no_photo` uses only negative electron and positive ion species and does not modify photoemission.
 

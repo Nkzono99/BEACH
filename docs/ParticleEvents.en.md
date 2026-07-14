@@ -127,7 +127,7 @@ not exactly on the face.
 
 Reflect and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
 
-### Legacy potential barrier
+### Potential barrier
 
 `open_boundary_model="potential_barrier"` compares outward normal kinetic energy at a single open face,
 
@@ -141,7 +141,7 @@ $$
 \Delta U=q\left(\phi_\infty-\phi_\mathrm{boundary}\right).
 $$
 
-The particle reflects when $v_\mathrm{out}>0$, $\Delta U>0$, and $K_n<\Delta U$; otherwise it escapes. This is a reduced legacy
+The particle reflects when $v_\mathrm{out}>0$, $\Delta U>0$, and $K_n<\Delta U$; otherwise it escapes. This is a reduced
 single-face model. A corner involving multiple simultaneous open faces is not generalized and returns
 `particle_step_unsupported_barrier_corner`.
 
