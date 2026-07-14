@@ -13,7 +13,7 @@ Direct.
 | --- | --- |
 | Many elements and many particle steps per batch | Difference from Direct and release-build runtime |
 | Large triangle P0 mesh | Difference from panel Direct and mesh refinement |
-| Legacy `periodic2` field | Image sum, nonzero/zero modes, and outer-model composition |
+| `periodic2` field | Image sum, nonzero/zero modes, and outer-model composition |
 
 ```toml
 [sim]
@@ -49,6 +49,94 @@ L2P at target + near Direct interactions
 
 Far interactions use Cartesian multipole and local expansions. Sources in the near list use the selected point or panel kernel
 directly. The current simulator adapter fixes the expansion order at `order = 4`; it is not a user configuration value.
+
+### Cartesian-expansion notation
+
+For multi-index $\alpha=(\alpha_x,\alpha_y,\alpha_z)$, define
+
+$$
+|\alpha|=\alpha_x+\alpha_y+\alpha_z,qquad
+\alpha!=\alpha_x!\alpha_y!\alpha_z!,qquad
+\mathbf r^\alpha=r_x^{\alpha_x}r_y^{\alpha_y}r_z^{\alpha_z}.
+$$
+
+The point-source kernel is
+
+$$
+G_\epsilon(\mathbf r)=\frac{1}{\sqrt{\lVert\mathbf r\rVert^2+\epsilon^2}},qquad
+\phi(\mathbf x)=\sum_j q_jG_\epsilon(\mathbf x-\mathbf x_j),qquad
+\mathbf E=-\nabla\phi.
+$$
+
+The following coefficients omit the Coulomb constant. The BEACH adapter applies it together with unit scaling after evaluation.
+
+### Aggregate sources with P2M and M2M
+
+For leaf center $\mathbf c$, point-source multipoles are
+
+$$
+M_\alpha(\mathbf c)=
+\sum_{j\in\mathrm{leaf}}q_j
+\frac{(\mathbf x_j-\mathbf c)^\alpha}{\alpha!}.
+$$
+
+Triangle P0 replaces the point monomial with its exact surface average:
+
+$$
+M_{i,\alpha}=\frac{q_i}{A_i}\int_{T_i}
+\frac{(\mathbf y-\mathbf c)^\alpha}{\alpha!}\,dA_{\mathbf y}.
+$$
+
+To translate child center $\mathbf c_c$ to parent center $\mathbf c_p$, let $\mathbf d=\mathbf c_c-\mathbf c_p$ and sum
+
+$$
+M_\beta(\mathbf c_p)=
+\sum_{\alpha\le\beta}M_\alpha(\mathbf c_c)
+\frac{\mathbf d^{\beta-\alpha}}{(\beta-\alpha)!}
+$$
+
+over every child. P2M bases and M2M shift monomials depend only on geometry and are precomputed with the plan.
+
+### Convert multipoles into target locals with M2L
+
+For source center $\mathbf c_s$, target center $\mathbf c_t$, and $\mathbf R=\mathbf c_t-\mathbf c_s$, a
+well-separated node pair contributes
+
+$$
+L_\alpha(\mathbf c_t)\mathrel{+}=
+\sum_\beta(-1)^{|\beta|}M_\beta(\mathbf c_s)
+D^{\alpha+\beta}G_\epsilon(\mathbf R).
+$$
+
+$D^\gamma$ is a multi-index derivative. The plan stores source/target combinations in the M2L pair cache and stores
+$D^{\alpha+\beta}G_\epsilon(\mathbf R)$ in `m2l_deriv`. A batch `update_state` therefore performs mainly products and sums
+with current multipole coefficients.
+
+### Propagate and evaluate with L2L and L2P
+
+For parent-to-child displacement $\mathbf d=\mathbf c_c-\mathbf c_p$,
+
+$$
+L_\alpha(\mathbf c_c)\mathrel{+}=
+\sum_{\gamma\ge\alpha}L_\gamma(\mathbf c_p)
+\frac{\mathbf d^{\gamma-\alpha}}{(\gamma-\alpha)!}.
+$$
+
+For a target $\mathbf x$ in a leaf centered at $\mathbf c_l$, let $\mathbf r=\mathbf x-\mathbf c_l$. Then
+
+$$
+\phi_\mathrm{far}(\mathbf x)=
+\sum_\alpha L_\alpha(\mathbf c_l)\frac{\mathbf r^\alpha}{\alpha!},
+$$
+
+$$
+E_{\mathrm{far},k}(\mathbf x)=
+-\sum_\alpha L_{\alpha+\mathbf e_k}(\mathbf c_l)
+\frac{\mathbf r^\alpha}{\alpha!}.
+$$
+
+The original point or panel kernel then evaluates the leaf near list directly. M2L does not represent every interaction by
+itself: an FMM result is always the sum of the far local expansion and near Direct interactions.
 
 ## Reuse geometry separately from charge updates
 
@@ -138,23 +226,15 @@ self integral in its near kernel. See [Direct](DirectSolver.en.html#potential-at
 When potential history is written, state is refreshed using the latest element charge. Enabling it can therefore add a separate
 refresh and evaluation over every element target beyond the normal batch field update.
 
-## Own the nonzero modes in periodic2
+## Connect periodic2 far correction to local expansions
 
-In the legacy `sim.field_bc_mode="periodic2"` path, targets are wrapped into the primary box and
-`field_periodic_image_layers=N` explicitly covers the $[-N,N]^2$ near images. Far correction is one of:
+The ordinary P2M-to-L2P sequence is unchanged for `periodic2`. Only the smooth periodic field beyond the finite image range is
+inserted as an additional root-multipole-to-target-local operator after tree M2L and before L2L. The implementation therefore
+shares the FMM `plan`, `state`, and local coefficients, while remaining a distinct stage from ordinary tree M2L.
 
-| `field_periodic_far_correction` | Role |
-| --- | --- |
-| `none` | Finite image sum; default |
-| `auto` | Currently normalized to `none` |
-| `m2l_root_oracle` | High-cost diagnostic fitting an Ewald residual into root locals |
-| `cached_kneq0` | Production path adding the infinite-periodic nonzero mode with a versioned operator |
-
-With `cached_kneq0`, the FMM core computes the nonzero mode; the physical zero mode and outer response are composed once by the
-field snapshot. The point-only `m2l_root_oracle` is unavailable for panel sources. These are not merely FMM accuracy controls:
-they form a coupled configuration with particle boundaries and the outer plasma. See
-[periodic2 electrostatics](PeriodicElectrostatics.en.html) and
-[outer-plasma models](OuterPlasmaModels.en.html).
+[periodic2 Far Correction](PeriodicFarCorrection.en.html) now covers `none`, diagnostic `m2l_root_oracle`, production
+`cached_kneq0`, the Ewald2P teacher, cache behavior, and `k=0` ownership. See [periodic2 electrostatics](PeriodicElectrostatics.en.html)
+for the complete field decomposition and [outer-plasma models](OuterPlasmaModels.en.html) for outer-domain coupling.
 
 Small split-reference cases combine `field_solver="direct"` with a panel spectral backend. Their configuration is described in
 [Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html).
@@ -199,8 +279,9 @@ step.
 - Direct fallback for targets outside the tree
 - periodic zero mode and outer response are not completed by the FMM core alone
 
-Expansion equations, multi-indices, translations, parallel loops, and periodic-cache generation are documented separately in
-[Coulomb FMM internals](FMMCore.en.html).
+Coefficient arrays, interaction caches, translation precomputation, and parallel loops are documented in
+[Coulomb FMM internals](FMMCore.en.html). Follow [periodic2 Far Correction](PeriodicFarCorrection.en.html) for periodic-operator
+internals.
 
 ## Code reference
 

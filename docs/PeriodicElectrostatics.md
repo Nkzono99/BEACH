@@ -28,7 +28,7 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 
 | 非零modeの構成 | 用途 | 制約 |
 | --- | --- | --- |
-| legacy finite images | 小規模比較、有限画像model | 画像範囲外は含まない |
+| finite images | 小規模比較、有限画像model | 画像範囲外は含まない |
 | `panel_spectral_reference` | triangle P0の小規模reference | Direct、softening 0、mode/quadrature収束が必要 |
 | `cached_kneq0` | FMM productionの無限周期nonzero mode | x/y periodic、z nonperiodic、`exclude_k0` |
 | `m2l_root_oracle` | far correctionの診断 | production hot pathには使わない |
@@ -36,6 +36,9 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 `field_periodic_far_correction="auto"`は、現在は互換性のため`none`として動作します。無限周期のproduction計算では
 `cached_kneq0`を明示します。起動時には、高水準設定とtyped `[periodic2]`の整合性を検証します。
 zero-mode ownershipが矛盾している場合や、未対応のouter modelが選ばれている場合は停止します。
+
+Ewald2P teacher、root multipoleからlocal展開へのoperator、cacheとFMM stateの接続は
+[periodic2遠方補正](PeriodicFarCorrection.html)に分けています。このページでは、それを場全体のnonzero成分として扱います。
 
 ## 有限画像和が含む範囲を定める
 
@@ -52,81 +55,20 @@ $$
 FMMのnear image層はfar operatorを作るときに差し引くshellと一致する必要があります。cache fingerprintが画像層を
 identityに含むのはこのためです。
 
-## Ewald2Pで無限周期の遠方場を分離する
+## nonzero遠方場と物理`k=0`を分担する
 
-Coulomb kernelの周期画像和は収束が遅く、非中性slabの平均場はz方向のboundary closureを決めなければ
-一意になりません。Ewald法は数値parameter $\alpha$を使って
-
-$$
-\frac1r=
-\frac{\operatorname{erfc}(\alpha r)}r
-+\frac{\operatorname{erf}(\alpha r)}r
-$$
-
-へ分けます。第1項はreal spaceで急速に減衰し、第2項は滑らかなreciprocal-space modeへ展開できます。
-Ewald2Pはx/yだけを逆格子へ変換し、zを開放座標として残します。
-
-| Ewald部分 | 評価 |
-| --- | --- |
-| real space | screened Coulombの有限画像和 |
-| reciprocal `k\ne0` | x/y Fourier modeの有限層和 |
-| `k=0` | 開放z方向の平均場として別項 |
-
-$\alpha$は、計算量をreal spaceとreciprocal spaceへ配分するためのparameterです。Debye長や物理的なscreening率を
-表すものではありません。cutoffを十分に収束させれば、結果は$\alpha$に依存しません。実装上のEwald referenceは、
-設定したreal/reciprocal cutoffで評価する高精度teacherであり、無限和の解析的な厳密値ではありません。
-
-## 遠方補正を再利用可能なoperatorにする
-
-cold buildはEwald2P teacherから有限画像shellを引いたresidual
+`cached_kneq0`はEwald2P teacherと有限画像shellの差を、root multipoleからtarget localへのoperatorとして
+適用します。cached結果からteacher由来の対称`k=0`を除き、場の合成処理が選択した物理`k=0`を一度だけ加えます。
 
 $$
-R_\mathrm{Ewald}^{\mathrm{full}}
-=K_\mathrm{Ewald2P}^{\mathrm{truncated}}-K_\mathrm{shell}(N)
+K_\mathrm{surface}
+=\left(K_\mathrm{shell}+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}\right)
++K_0^\mathrm{physical}
 $$
 
-をproxy sourceとcheck pointでsampleします。geometry、periodic length、FMM order、target topologyが固定されていれば、
-root source multipoleからfar local expansionへの写像は線形になります。
-
-$$
-\mathbf L_t^\mathrm{far}=\mathbf A_t\mathbf M_\mathrm{root}
-$$
-
-$\mathbf A_t$を一度QR fitし、cacheへ保存します。電荷が変わったときはoperatorを再fitせず、現在の
-$\mathbf M_\mathrm{root}$へ保存済みの行列を適用します。Ewald sumを実行するのはteacherを作るcold pathだけです。
-warm particle evaluationでは、全sourceのEwald和を計算しません。
-
-## 物理`k=0`を一度だけ加える
-
-Ewald teacherのfull residualには、operatorを構成するための対称vacuum `k=0`が含まれます。一方、物理的な
-zero modeは`lower_boundary_model`やouter modelによって決まります。FMM coreは同じsource stateから
-symmetric `k=0`を再構成し、cached結果から差し引きます。
-
-$$
-K_{k\ne0}=K_\mathrm{shell}+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}
-$$
-
-その後、場の合成処理が選択したboundary closureの$K_0^\mathrm{physical}$を加えます。
-
-$$
-K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
-$$
-
-`zero_mode_policy="exclude_k0"`は平均場を除外する指定ではありません。nonzero backendによる二重加算を防ぐ
-ownership規則です。
-
-## cold buildしたoperatorをbatch間で再利用する
-
-| 時期 | 実行する処理 | 実行しない処理 |
-| --- | --- | --- |
-| cache miss | proxy/check配置、Ewald teacher評価、QR fit、checksum付きpublish | particle追跡 |
-| cache hit | fingerprint、shape、checksum検証とoperator読込 | Ewald再評価、再fit |
-| charge refresh | P2M/M2M、cached行列適用、zero-mode state更新 | operator再生成 |
-| particle evaluation | near、local expansion、cached symmetric `k=0`減算、physical `k=0`加算 | all-source Ewald和 |
-
-fingerprintにはgeometry、periodic length、FMM order、image/Ewald層、source kernel、target topology、
-generator/build versionなどを含みます。fingerprintが一致しないcacheは再利用しません。cold/warmの結果は、
-丸め誤差の範囲で一致する必要があります。
+この式の括弧内がnonzero backendの責務です。`zero_mode_policy="exclude_k0"`は平均場を捨てる指定ではなく、
+二重加算を防ぐownership規則です。Ewald分割、operator fit、FMMへの注入位置、cache lifecycleは
+[periodic2遠方補正](PeriodicFarCorrection.html)に分離しています。
 
 ## 表面電荷から`k=0`を構築する
 

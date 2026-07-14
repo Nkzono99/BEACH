@@ -8,6 +8,10 @@ Coulomb FMMコアは、source geometryから作る`plan`と、電荷から作る
 多重極展開と近傍Direct和から電場を評価します。ここでは、現行Fortran実装の公開API、データ構造、
 展開式、periodic2補正を、処理順に沿って説明します。
 
+通常のFMMを利用するための数式と計算フローは[FMM](FMM.html)、periodic root operatorの構成と運用は
+[periodic2遠方補正](PeriodicFarCorrection.html)にまとめています。このページはFortran内部配列と実装手順の
+詳細を扱います。
+
 APIの詳細は[`bem_coulomb_fmm_core` module page](../module/bem_coulomb_fmm_core.html)でも確認できます。
 
 - 公開 API / 境界: `src/physics/field_solver/fmm/api/`
@@ -465,6 +469,9 @@ teacherと同じexact periodic correctionをDirect fallbackへ加えます。
 通常のleaf評価ではroot補正を再計算せず、`state`に保存されたlocal展開をそのまま使います。
 
 ## 8. `periodic2` と遠方補正
+
+この節はFMM core内部から見た数式とfallbackを記録します。設定の選び方、operator fit、cache lifecycle、
+`k=0` ownershipを通した説明は[periodic2遠方補正](PeriodicFarCorrection.html)に分離しています。
 
 ### 8.1 `periodic2`
 

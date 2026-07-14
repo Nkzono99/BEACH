@@ -27,7 +27,7 @@ See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) 
 
 | Nonzero-mode construction | Use | Constraint |
 | --- | --- | --- |
-| Legacy finite images | Small comparison and finite-image model | Contains nothing outside the image range |
+| Finite images | Small comparison and finite-image model | Contains nothing outside the image range |
 | `panel_spectral_reference` | Small triangle-P0 reference | Direct, zero softening, and mode/quadrature convergence |
 | `cached_kneq0` | Infinite-periodic nonzero modes for FMM production | x/y periodic, z nonperiodic, and `exclude_k0` |
 | `m2l_root_oracle` | Far-correction diagnostics | Not a production particle hot path |
@@ -35,6 +35,10 @@ See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) 
 `field_periodic_far_correction="auto"` currently has compatibility behavior equivalent to `none`. Infinite-periodic production
 must select `cached_kneq0` explicitly. Startup validation checks consistency between high-level settings and typed `[periodic2]`
 configuration and rejects contradictory zero-mode ownership or unsupported outer models.
+
+The Ewald2P teacher, root-multipole-to-local operator, cache, and FMM-state connection are documented separately in
+[periodic2 Far Correction](PeriodicFarCorrection.en.html). This page treats that implementation as the nonzero component of the
+complete field.
 
 ## Define the range included by a finite-image sum
 
@@ -51,80 +55,21 @@ solution without convergence as $N$ increases.
 The near-image layer in FMM must match the shell subtracted when fitting the far operator. The cache fingerprint includes image
 layer for this reason.
 
-## Separate the infinite-periodic far field with Ewald2P
+## Divide responsibility between the nonzero far field and physical `k=0`
 
-The direct periodic Coulomb sum converges slowly, and a nonneutral slab has no unique plane-average field without a z-boundary
-closure. Ewald splitting uses numerical parameter $\alpha$:
-
-$$
-\frac1r=
-\frac{\operatorname{erfc}(\alpha r)}r
-+\frac{\operatorname{erf}(\alpha r)}r.
-$$
-
-The first term decays rapidly in real space; the smooth second term is expanded in reciprocal modes. Ewald2P transforms only x/y
-to the reciprocal lattice and leaves z open.
-
-| Ewald part | Evaluation |
-| --- | --- |
-| Real space | Finite-image sum of screened Coulomb terms |
-| Reciprocal `k\ne0` | Finite layers of x/y Fourier modes |
-| `k=0` | Separate plane-average term along open z |
-
-$\alpha$ distributes numerical work between real and reciprocal space; it is neither a Debye length nor physical screening rate.
-A sufficiently converged result should not depend on it. The implemented Ewald reference is a high-accuracy teacher at configured
-real and reciprocal cutoffs, not an analytically exact infinite sum.
-
-## Turn the far correction into a reusable operator
-
-The cold build samples the residual between Ewald2P teacher and finite image shell,
+`cached_kneq0` applies the difference between an Ewald2P teacher and finite image shell as a root-multipole-to-target-local
+operator. The symmetric `k=0` inherited from the teacher is removed, and field composition adds the selected physical `k=0`
+exactly once:
 
 $$
-R_\mathrm{Ewald}^{\mathrm{full}}
-=K_\mathrm{Ewald2P}^{\mathrm{truncated}}-K_\mathrm{shell}(N),
+K_\mathrm{surface}
+=\left(K_\mathrm{shell}+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}\right)
++K_0^\mathrm{physical}.
 $$
 
-using proxy sources and check points. With fixed geometry, periodic length, FMM order, and target topology, the map from root source
-multipole to far local expansion is linear:
-
-$$
-\mathbf L_t^\mathrm{far}=\mathbf A_t\mathbf M_\mathrm{root}.
-$$
-
-$\mathbf A_t$ is fit once by QR and cached. When charge changes, the operator is not refit; it is applied to current
-$\mathbf M_\mathrm{root}$. Ewald sums occur only on the cold teacher path, never as an all-source sum during warm particle
-evaluation.
-
-## Add the physical `k=0` component exactly once
-
-The full Ewald residual used for fitting contains a symmetric-vacuum `k=0` required by the operator construction. Physical zero
-mode, however, is selected by `lower_boundary_model` or an outer model. The FMM core reconstructs symmetric `k=0` from the same
-source state and subtracts it from the cached result:
-
-$$
-K_{k\ne0}=K_\mathrm{shell}+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}.
-$$
-
-The snapshot then adds selected $K_0^\mathrm{physical}$:
-
-$$
-K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}.
-$$
-
-`zero_mode_policy="exclude_k0"` does not discard the mean field; it assigns ownership so the nonzero backend does not add it
-twice.
-
-## Reuse a cold-built operator across batches
-
-| Phase | Performed | Not performed |
-| --- | --- | --- |
-| Cache miss | Place proxy/check points, evaluate Ewald teacher, QR fit, publish with checksum | Particle tracking |
-| Cache hit | Validate fingerprint, shape, and checksum; load operator | Ewald reevaluation and refit |
-| Charge refresh | P2M/M2M, apply cached matrix, refresh zero-mode state | Rebuild operator |
-| Particle evaluation | Near terms, local expansion, subtract cached symmetric `k=0`, add physical `k=0` | All-source Ewald sum |
-
-The fingerprint includes geometry, periodic length, FMM order, image/Ewald layers, source kernel, target topology, and generator and
-build versions. A mismatched cache is never reused approximately. Cold and warm results must agree to roundoff.
+The expression in parentheses belongs to the nonzero backend. `zero_mode_policy="exclude_k0"` is an ownership rule preventing
+double counting, not an instruction to discard the mean field. Ewald splitting, operator fitting, the FMM insertion point, and
+cache lifecycle are separated into [periodic2 Far Correction](PeriodicFarCorrection.en.html).
 
 ## Build `k=0` from surface charge
 

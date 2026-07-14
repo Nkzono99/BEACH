@@ -8,6 +8,10 @@ This section summarizes the specification and algorithms of the current Fortran 
 [`bem_coulomb_fmm_core` module page](../module/bem_coulomb_fmm_core.html),
 and its split implementation files.
 
+See [FMM](FMM.en.html) for the user-facing equations and computation flow, and
+[periodic2 Far Correction](PeriodicFarCorrection.en.html) for root-operator construction and operation. This page focuses on
+Fortran internal arrays and implementation steps.
+
 - Public API / boundary: `src/physics/field_solver/fmm/api/`
 - Internal shared implementation: `src/physics/field_solver/fmm/internal/common/`
 - Tree / plan implementation: `src/physics/field_solver/fmm/internal/tree/`
@@ -445,6 +449,9 @@ The `m2l_root_oracle` root correction is injected into `state%local(:, root)` du
 Therefore normal leaf evaluation in `eval_point(s)` does not recompute the root correction; it just uses the local expansion carried by `state`.
 
 ## 8. `periodic2` and far correction
+
+This section retains formulas and fallback details from the FMM-core viewpoint. Configuration selection, operator fitting,
+cache lifecycle, and `k=0` ownership are separated into [periodic2 Far Correction](PeriodicFarCorrection.en.html).
 
 #### 8.1 `periodic2`
 

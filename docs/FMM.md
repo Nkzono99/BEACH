@@ -12,7 +12,7 @@ Fast Multipole Method（FMM）は、遠方にある多数のsourceの寄与を�
 | --- | --- |
 | 要素数が多く、1 batchで多数の粒子stepを評価する | Directとの差、release buildでの実測時間 |
 | triangle P0を大規模meshで使う | panel Directとの差とmesh細分化 |
-| legacy `periodic2`場を使う | image和、nonzero/zero mode、outer modelの構成 |
+| `periodic2`場を使う | image和、nonzero/zero mode、outer modelの構成 |
 
 ```toml
 [sim]
@@ -48,6 +48,95 @@ L2P at target + near Direct interactions
 
 遠方相互作用はCartesian多重極・局所展開で近似し、near listのsourceは選択したpointまたはpanel kernelで
 直接評価します。現行simulator adapterの展開次数は`order = 4`固定で、入力からは変更できません。
+
+### Cartesian展開の記法
+
+多重指数を$\alpha=(\alpha_x,\alpha_y,\alpha_z)$とし、次を使います。
+
+$$
+|\alpha|=\alpha_x+\alpha_y+\alpha_z,qquad
+\alpha!=\alpha_x!\alpha_y!\alpha_z!,qquad
+\mathbf r^\alpha=r_x^{\alpha_x}r_y^{\alpha_y}r_z^{\alpha_z}.
+$$
+
+point sourceのkernelは
+
+$$
+G_\epsilon(\mathbf r)=\frac{1}{\sqrt{\lVert\mathbf r\rVert^2+\epsilon^2}},qquad
+\phi(\mathbf x)=\sum_j q_jG_\epsilon(\mathbf x-\mathbf x_j),qquad
+\mathbf E=-\nabla\phi
+$$
+
+です。以下の係数にはCoulomb定数を含めず、BEACH adapterが評価後に単位系とともに掛けます。
+
+### P2MとM2Mでsourceを集約する
+
+leaf中心を$\mathbf c$とすると、point sourceのmultipole係数は
+
+$$
+M_\alpha(\mathbf c)=
+\sum_{j\in\mathrm{leaf}}q_j
+\frac{(\mathbf x_j-\mathbf c)^\alpha}{\alpha!}
+$$
+
+です。triangle P0では点位置のmonomialの代わりに、三角形上の厳密な面積平均を使います。
+
+$$
+M_{i,\alpha}=\frac{q_i}{A_i}\int_{T_i}
+\frac{(\mathbf y-\mathbf c)^\alpha}{\alpha!}\,dA_{\mathbf y}
+$$
+
+子中心$\mathbf c_c$から親中心$\mathbf c_p$へは、$\mathbf d=\mathbf c_c-\mathbf c_p$として
+
+$$
+M_\beta(\mathbf c_p)=
+\sum_{\alpha\le\beta}M_\alpha(\mathbf c_c)
+\frac{\mathbf d^{\beta-\alpha}}{(\beta-\alpha)!}
+$$
+
+を全childについて足します。P2M basisとM2Mのshift monomialはgeometryだけで決まるため、plan構築時に
+前計算します。
+
+### M2Lでmultipoleをtarget localへ変換する
+
+source node中心$\mathbf c_s$、target node中心$\mathbf c_t$、$\mathbf R=\mathbf c_t-\mathbf c_s$に対して、
+well-separatedなnode pairの寄与は
+
+$$
+L_\alpha(\mathbf c_t)\mathrel{+}=
+\sum_\beta(-1)^{|\beta|}M_\beta(\mathbf c_s)
+D^{\alpha+\beta}G_\epsilon(\mathbf R)
+$$
+
+です。$D^\gamma$はmulti-index微分です。どのsource/target nodeを組み合わせるかはplanのM2L pair cacheに、
+kernel微分$D^{\alpha+\beta}G_\epsilon(\mathbf R)$は`m2l_deriv`に保存されます。したがってbatchごとの
+`update_state`では、現在のmultipole係数との積和が主な処理になります。
+
+### L2LとL2Pで評価点まで伝える
+
+親localを子中心へ移すときは、$\mathbf d=\mathbf c_c-\mathbf c_p$として
+
+$$
+L_\alpha(\mathbf c_c)\mathrel{+}=
+\sum_{\gamma\ge\alpha}L_\gamma(\mathbf c_p)
+\frac{\mathbf d^{\gamma-\alpha}}{(\gamma-\alpha)!}
+$$
+
+を使います。評価点$\mathbf x$が属するleaf中心を$\mathbf c_l$、$\mathbf r=\mathbf x-\mathbf c_l$とすると、
+
+$$
+\phi_\mathrm{far}(\mathbf x)=
+\sum_\alpha L_\alpha(\mathbf c_l)\frac{\mathbf r^\alpha}{\alpha!},
+$$
+
+$$
+E_{\mathrm{far},k}(\mathbf x)=
+-\sum_\alpha L_{\alpha+\mathbf e_k}(\mathbf c_l)
+\frac{\mathbf r^\alpha}{\alpha!}.
+$$
+
+最後に同じleafのnear listを元のpoint/panel kernelでDirect評価して加えます。M2Lだけで全相互作用を
+評価しているわけではなく、FMMの結果は常に「far local展開 + near Direct和」です。
 
 ## geometryと電荷更新を分けて再利用する
 
@@ -136,22 +225,16 @@ near kernelに含めます。[<sup>1</sup>](DirectSolver.html#要素中心の電
 `potential_history`を書き出す時点では、最新の要素電荷でstateをrefreshします。そのため履歴を有効にすると、
 通常のbatch field更新に加えて、stateのrefreshと全要素targetの評価が発生する場合があります。
 
-## periodic2では非zero modeを受け持つ
+## periodic2の遠方補正はlocal展開へ接続する
 
-legacy `sim.field_bc_mode="periodic2"`では、評価点をprimary boxへwrapし、`field_periodic_image_layers=N`で
-$[-N,N]^2$の近傍画像を明示的に扱います。遠方補正は次のいずれかです。
+`periodic2`でも通常のP2MからL2Pまでは変わりません。有限画像の外側にある滑らかな周期遠方場だけを、
+root multipoleからtarget localへの追加operatorとして`M2L`後・`L2L`前に注入します。そのため実装はFMMの
+`plan`、`state`、local展開を共有しますが、通常のtree M2Lとは異なる計算段階として分離されています。
 
-| `field_periodic_far_correction` | 役割 |
-| --- | --- |
-| `none` | 有限画像和。既定 |
-| `auto` | 現行では`none`へ正規化 |
-| `m2l_root_oracle` | Ewald residualをroot localへfitする高コスト診断 |
-| `cached_kneq0` | 無限周期の非zero modeをversioned operatorで加えるproduction経路 |
-
-`cached_kneq0`ではFMM coreが非zero modeを計算し、場の合成処理が物理的なzero modeとouter responseを
-一度だけ合成します。panel sourceではpoint専用の`m2l_root_oracle`は使えません。periodic2の選択はFMMの
-精度だけでなく、粒子境界や外部プラズマも含む計算構成を決めます。[periodic2場計算](PeriodicElectrostatics.html)で
-場の成分を、[外部プラズマモデル](OuterPlasmaModels.html)で外部領域との結合を説明します。
+`none`、診断用`m2l_root_oracle`、production用`cached_kneq0`の違い、Ewald2P teacher、cache、`k=0`の
+ownershipは[periodic2遠方補正](PeriodicFarCorrection.html)に分けました。場全体の成分構成は
+[periodic2静電場](PeriodicElectrostatics.html)、外部領域との結合は[外部プラズマモデル](OuterPlasmaModels.html)で
+説明します。
 
 小規模のsplit referenceは、`field_solver="direct"`とpanel spectral backendを組み合わせる別経路です。
 対応する構成は[periodic2無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)にまとめています。
@@ -195,8 +278,9 @@ FMMの一点誤差が小さくても、粗いpanel meshや大きい粒子時間�
 - tree外targetはDirect fallback
 - periodic zero modeとouter responseはFMM core単独では完結しない
 
-展開式、multi-index、各translation、parallel loop、periodic cache生成の内部仕様は
-[Coulomb FMMコア内部実装](FMMCore.html)に分けています。
+係数配列、interaction cache、translation前計算、parallel loopなどの内部仕様は
+[Coulomb FMMコア内部実装](FMMCore.html)に分けています。periodic operatorの内部仕様は
+[periodic2遠方補正](PeriodicFarCorrection.html)から辿れます。
 
 ## Code reference
 
