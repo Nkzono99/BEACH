@@ -13,10 +13,10 @@ This document describes the directly edited `beach.toml` file and the `beachx co
 ## 1. Basic Flow
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
+mkdir beach-tutorial
+cd beach-tutorial
 
-beachx config init
+beachx config init beach.toml
 $EDITOR beach.toml
 beachx lint beach.toml
 beach beach.toml
@@ -38,8 +38,11 @@ beachx config init run.toml
 beachx config init --force
 ```
 
-The initial file is a small validation case with two-periodic-axis FMM, electron/ion volume seeds,
-`photo_raycast` electron emission, a plane mesh, and standard output settings.
+The generated file is identical to
+[`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml).
+It is the nonperiodic official beginner case that launches one `volume_seed` electron toward an insulating plane with
+`field_solver="direct"` and `field_bc_mode="free"`. It does not include FMM, periodic boundaries, an ion species, or
+`photo_raycast`.
 
 ### 2.2 `lint`
 

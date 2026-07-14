@@ -121,6 +121,47 @@ def test_japanese_pages_name_the_batch_fixed_field_concretely() -> None:
             assert phrase not in text, f"{page.source}: {phrase}"
 
 
+def test_particle_escape_return_is_grouped_by_model() -> None:
+    expected_headings = {
+        "ParticleEscapeReturn.md": (
+            "## 1. `escape`: open面で粒子を除去する",
+            "## 2. `potential_barrier`: scalar障壁で反射を判定する",
+            "## 3. `linear_debye`: 解析的な1D profileでreturnを写像する",
+            "## 4. `kinetic_1d`: 離散sheath profileでreturnを求める",
+            "## 5. `unified_linear_response`: 外部3D軌道を積分する",
+        ),
+        "ParticleEscapeReturn.en.md": (
+            "## 1. `escape`: remove a particle at an open face",
+            "## 2. `potential_barrier`: decide reflection at a scalar barrier",
+            "## 3. `linear_debye`: map return through an analytic 1-D profile",
+            "## 4. `kinetic_1d`: obtain return from a discrete sheath profile",
+            "## 5. `unified_linear_response`: integrate an external 3-D orbit",
+        ),
+    }
+
+    for name, headings in expected_headings.items():
+        text = _read_doc(name)
+        positions = [text.index(heading) for heading in headings]
+        assert positions == sorted(positions)
+        assert "sim.open_boundary_model" in text
+        assert "outer_plasma.model" in text
+        assert "particle_transfer_mode" in text
+
+
+def test_config_init_docs_match_official_tutorial_case() -> None:
+    for name in ("Configuration.md", "Configuration.en.md"):
+        text = _read_doc(name)
+        assert "examples/tutorial_insulator.toml" in text
+        assert 'field_solver="direct"' in text
+        assert 'field_bc_mode="free"' in text
+        assert "run_periodic2" not in text
+
+    for name in ("Workflow.md", "Workflow.en.md"):
+        text = _read_doc(name)
+        assert "mkdir beach-tutorial" in text
+        assert "run_periodic2" not in text
+
+
 def test_onboarding_pages_are_bilingual_with_localized_descriptions() -> None:
     module = _load_sync_module()
     expected = {

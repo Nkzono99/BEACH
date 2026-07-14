@@ -149,9 +149,9 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 ### 3.1 最短例
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
-beachx config init
+mkdir beach-tutorial
+cd beach-tutorial
+beachx config init beach.toml
 beachx lint beach.toml
 beach beach.toml
 ```

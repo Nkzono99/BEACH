@@ -151,9 +151,9 @@ See [Input Parameters Reference](Parameters.en.html) for the `beach.toml` specif
 ### 3.1 Shortest Example
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
-beachx config init
+mkdir beach-tutorial
+cd beach-tutorial
+beachx config init beach.toml
 beachx lint beach.toml
 beach beach.toml
 ```
