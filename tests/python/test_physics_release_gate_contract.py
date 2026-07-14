@@ -118,6 +118,8 @@ def test_release_manifest_reports_fpm_fortran_compiler(tmp_path: Path) -> None:
 def test_portable_physics_contract_workflow_runs_l2() -> None:
     workflow = (ROOT / ".github" / "workflows" / "physics-contracts.yml").read_text(encoding="utf-8")
     assert "fortran-lang/setup-fpm@v10" in workflow
+    assert "MPI_FC: mpifort" in workflow
+    assert "libopenmpi-dev openmpi-bin" in workflow
     assert "make test-l2" in workflow
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "test-physics-release:" in makefile

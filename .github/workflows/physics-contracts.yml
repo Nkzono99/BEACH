@@ -27,6 +27,8 @@ concurrency:
 jobs:
   portable-l2:
     runs-on: ubuntu-latest
+    env:
+      MPI_FC: mpifort
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -42,7 +44,7 @@ jobs:
       - name: Install compiler and Python dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gfortran
+          sudo apt-get install -y gfortran libopenmpi-dev openmpi-bin
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -e . --no-build-isolation
           python -m pip install pytest
