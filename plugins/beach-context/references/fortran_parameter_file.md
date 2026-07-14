@@ -399,6 +399,9 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で更新した
 電場・電位から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、
 outer profile、一様外部場 `e0` は粒子運動時と同じ規約で含まれます。
+同じ `N x N` 評価で母標準偏差・最小・最大も集計します。Maxwellian reservoirで
+`abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)` の場合、MPI rootは初回と最終batchに
+面平均近似の警告を出します。この診断で電位評価回数は増えません。
 
 #### 計算領域と粒子境界
 
@@ -418,7 +421,8 @@ outer profile、一様外部場 `e0` は粒子運動時と同じ規約で含ま�
 境界通過点の BEM 電位 `phi_boundary` と `phi_infty` から電位障壁
 `q_particle * (phi_infty - phi_boundary)` を評価します。障壁が正で、開境界法線方向の運動エネルギー
 `0.5 * m_particle * v_normal^2` より大きい場合は法線速度を反転して反射し、それ以外は脱出として扱います。
-一様外部電場 `e0` は無限遠基準の電位を定義しないため、この障壁評価には含めません。
+通過点電位は粒子運動と同じsnapshot規約で、一様外部電場 `e0` の局所電位も含みます。一様電場には
+有限な無限遠電位がないため、併用時の `phi_infty` は有効なreservoir基準として整合させてください。
 
 `periodic2` の mesh は、runtime で collision 用 canonical unwrapped 表現へ平行移動してから ray-triangle 判定します。
 raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangle を頂点ごとに mod 折り返すことはしません。

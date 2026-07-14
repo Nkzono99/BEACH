@@ -173,7 +173,7 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 - production particle loop はcandidate生成とmesh queryを先行し、box crossing時だけevent resolverへ進む。候補終点がstrictなbox内部なら追加event geometryを行わず、場評価1回・collision query 1回のfast pathとなる
 - production particle loop は candidate の位置または速度が非有限なら collision query を呼ばず `particle_step_invalid_boundary` としてfail closedとする
 - reflect/periodic crossingだけ残り時間を最大8回再積分する。各eventはmeshとの最早順序を保って処理し、9回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとする。上限なしのevent loopやadaptive substepは行わない
-- `open_boundary_model="potential_barrier"` は既存の単一面scalar energy式をevent位置・補間速度で使うlegacy/experimental扱いとする。複数open faceへの一般化は行わずfail closedとし、物理モデルは共通の電位評価とともに後段で再設計する
+- `open_boundary_model="potential_barrier"` は単一open面のevent位置で局所電位を評価し、補間法線速度の運動エネルギーと `q_particle * (phi_infty - phi_boundary)` を比較する。エネルギー不足では法線速度を反転して残りstepを再積分し、それ以外はescapeとする。複数open faceの同時crossingはfail closedとする
 - legacy `apply_box_boundary` はphoto rayとsource compatibilityのため残す
 
 ## 6. 注入モード
@@ -191,7 +191,8 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 - MPI 実行時も全 rank 合計の期待値と残差を一度だけ更新し、確定した整数個数を rank 間で分配する
 - `target_macro_particles_per_batch` 指定時は `w_particle` を自動解決
 - `position_jitter_dt=sim.dt` の速度方向ジッタ後、周期軸はprimitive cellへwrapし、非周期軸はbox面へclampして全粒子を有効box内から開始する
-- `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限を補正
+- `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限とface到達速度を同じenergy mapで補正する
+- 注入面平均の `N x N` 電位評価では、追加の電位評価を行わずに母標準偏差・最小・最大も集計する。Maxwellian reservoirで `abs(q_particle) * phi_std` が `k_B*T + 0.5*m*u_n^2` の10%を超える場合、MPI rootは初回と最終batchに面平均近似の警告を出す
 - `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる
 - シース 1D 座標の基準平面は共有 `inject_face` の法線方向で定義し、`sim.sheath_reference_coordinate` があればその座標を、未指定なら対応 box face の座標を使う
 - `sim.sheath_reference_coordinate` を明示した Zhao モデルでは、基準平面から reservoir 境界までの局所 `phi(z)` を使って electron reservoir の有効密度・cutoff と ion reservoir の局所密度・法線ドリフトを更新し、シースによる VDF 変形を近似する

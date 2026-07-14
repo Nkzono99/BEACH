@@ -73,7 +73,7 @@ $$
 この順序は、単にface Maxwellianをcutoffするだけではありません。`infinity_barrier`とouter-profile
 inflowでは、上流fluxの選別と法線速度の加減速を両方行います。
 
-## 4. face平均電位によるlegacy `infinity_barrier`
+## 4. face平均電位による `infinity_barrier`
 
 ### 4.1 face電位
 
@@ -86,12 +86,15 @@ $$
 
 point/`triangle_p0` kernel、periodic2、physical `k=0`、outer state、`e0`はその場と同じ規約です。
 この**面平均scalar電位**から$B=2q(\bar\phi_f-\phi_\infty)/m$を作ります。
+同じ格子評価から母標準偏差・最小・最大も集計し、Maxwellian reservoirで
+$|q|\sigma_\phi>0.1(k_BT+m u_n^2/2)$の場合はMPI rootが初回と最終batchに警告します。
+この診断で電位評価回数は増えません。
 
 ### 4.2 何を表していないか
 
 このmodelはfaceまでの電位差だけを使い、途中の$E(z)$、turning位置、flight time、空間電荷を解きません。
 横方向にface電位が大きく変化していても平均値一つへ縮約します。したがって小さな注入口または
-ほぼ一様なfaceのlegacy/reduced modelであり、rough-surface sheathのproduction既定にはしません。
+ほぼ一様なfaceのreduced modelであり、rough-surface sheathのproduction既定にはしません。
 
 ## 5. outer profileによる流入
 
@@ -108,7 +111,7 @@ point/`triangle_p0` kernel、periodic2、physical `k=0`、outer state、`e0`は�
 
 ## 6. 外向き粒子のescapeとreturn
 
-### 6.1 legacy `open_boundary_model="potential_barrier"`
+### 6.1 `open_boundary_model="potential_barrier"`
 
 open face通過点の電位を$\phi_b$、外向き法線速度を$v_n$とすると、無限遠へ必要な障壁は
 
@@ -117,8 +120,8 @@ U_b=q(\phi_\infty-\phi_b)
 $$
 
 です。$U_b>\tfrac12mv_n^2$なら法線速度だけを反転し、それ以外はescapeとします。
-cornerで複数open faceを同時に横切る一般化はせず、legacy/experimental modelとしてfail closedです。
-一様`e0`は無限遠電位を定義できないため、このlegacy outflow barrierには含めません。
+cornerで複数open faceを同時に横切る一般化はせずfail closedです。通過点電位は粒子運動と同じsnapshot規約で
+局所`e0`電位も含みます。一様電場には有限な無限遠電位がないため、併用時の`phi_infty`は有効なreservoir基準として整合させます。
 
 ### 6.2 linear-Debye instant return
 
@@ -234,7 +237,7 @@ $$
 | --- | --- |
 | 無限周期レゴリス + 自己整合1D sheath | `cached_kneq0` + `kinetic_1d` + `kinetic_1d_profile_return` |
 | rough surfaceでsplit windowがない線形検証 | `unified_linear_response` + explicit 3D orbit |
-| 過去のface scalar障壁を再現 | `infinity_barrier` |
+| 有限画像のface scalar障壁 | `infinity_barrier` |
 | Zhao文献closureとの比較 | `zhao_*`を単独で使用 |
 | 光電子なしの簡易電流釣合い | `floating_no_photo` |
 

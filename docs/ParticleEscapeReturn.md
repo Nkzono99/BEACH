@@ -52,8 +52,9 @@ $$
 open面の外側にある$E(\mathbf x)$、turning位置、flight time、空間電荷は扱いません。
 
 複数のopen面を同時に横切るcornerには対応しておらず、`unsupported_barrier_corner`で停止します。
-また、このlegacy/experimental構成が使う外部状態は$\phi_b$と`sim.phi_infty`です。有限な無限遠電位を持たない
-一様`sim.e0`は、外部profileに含めません。
+通過点電位は粒子運動と同じsnapshot規約で評価するため`sim.e0`の局所電位も含みます。一様電場には有限な
+無限遠電位がないため、`sim.e0` と併用する場合の `phi_infty` は有効なreservoir基準電位としてユーザが
+整合させる必要があります。
 
 ## z-highを粒子ownershipのinterfaceにする
 
@@ -188,7 +189,7 @@ species別に`interface_outward_gross`、`interface_returned_gross`、`escaped_t
 
 ## Code reference
 
-- box境界処理とlegacy barrier: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
+- box境界処理とscalar barrier: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
 - linear/kinetic 1D return: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
 - unified 3D orbit: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)
 - interface transferとdiagnostic集計: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)

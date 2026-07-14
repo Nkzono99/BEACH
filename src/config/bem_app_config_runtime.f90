@@ -448,7 +448,9 @@ contains
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
         end if
         call reservoir_face_velocity_correction( &
-          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh, snapshot, outer_state &
+          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh, snapshot, outer_state, &
+          warn_face_variation=local_rank == 0_i32 .and. &
+          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
           )
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
@@ -944,8 +946,11 @@ contains
   !! @param[out] vmin_normal 無限遠法線速度の下限 [m/s]。
   !! @param[out] barrier_normal 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（補正時に必要）。
-  !! @param[inout] snapshot refresh 済み静電 snapshot（legacy infinity barrier 使用時に必要）。
-  subroutine reservoir_face_velocity_correction(cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, outer_state)
+  !! @param[inout] snapshot refresh 済み静電 snapshot（infinity barrier 使用時に必要）。
+  !! @param[in] warn_face_variation 面平均近似の電位ばらつき警告を出すか。
+  subroutine reservoir_face_velocity_correction( &
+    cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, outer_state, warn_face_variation &
+    )
     type(app_config), intent(in) :: cfg
     type(particle_species_spec), intent(in) :: spec
     real(dp), intent(out) :: vmin_normal
@@ -953,11 +958,15 @@ contains
     type(mesh_type), intent(in), optional :: mesh
     type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
     type(outer_plasma_state_type), intent(in), optional :: outer_state
+    logical, intent(in), optional :: warn_face_variation
 
-    real(dp) :: phi_face, delta_phi, area_xy
+    real(dp) :: phi_face, phi_std, phi_min, phi_max, delta_phi, area_xy
+    logical :: emit_warning
 
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
+    emit_warning = .false.
+    if (present(warn_face_variation)) emit_warning = warn_face_variation
     if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return') then
       if (trim(lower_ascii(spec%inject_face)) /= 'z_high') then
         error stop 'Split outer-plasma ambient inflow must use inject_face="z_high".'
@@ -992,7 +1001,10 @@ contains
       if (.not. present(snapshot)) then
         error stop 'sim.reservoir_potential_model="infinity_barrier" requires a refreshed electrostatic snapshot.'
       end if
-      call compute_face_average_potential(mesh, cfg%sim, spec, snapshot, phi_face)
+      call compute_face_average_potential(mesh, cfg%sim, spec, snapshot, phi_face, phi_std, phi_min, phi_max)
+      if (emit_warning) then
+        call warn_face_average_potential_variation(cfg%sim, spec, phi_face, phi_std, phi_min, phi_max)
+      end if
       delta_phi = phi_face - cfg%sim%phi_infty
       barrier_normal = 2.0d0*spec%q_particle*delta_phi/spec%m_particle
       if (.not. ieee_is_finite(barrier_normal)) then
@@ -1061,24 +1073,32 @@ contains
   !! @param[in] spec reservoir_face 粒子種設定。
   !! @param[inout] snapshot refresh 済み静電 snapshot。
   !! @param[out] phi_face 注入開口面の平均電位 [V]。
-  subroutine compute_face_average_potential(mesh, sim, spec, snapshot, phi_face)
+  !! @param[out] phi_std 評価格子上の電位の母標準偏差 [V]（省略可）。
+  !! @param[out] phi_min 評価格子上の最小電位 [V]（省略可）。
+  !! @param[out] phi_max 評価格子上の最大電位 [V]（省略可）。
+  subroutine compute_face_average_potential(mesh, sim, spec, snapshot, phi_face, phi_std, phi_min, phi_max)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(out) :: phi_face
+    real(dp), intent(out), optional :: phi_std, phi_min, phi_max
 
-    integer(i32) :: ngrid, i, j
+    integer(i32) :: ngrid, i, j, sample_count
     integer :: axis_n, axis_t1, axis_t2
     real(dp) :: boundary_value, inward_normal(3), pos(3), t1, t2, phi
-    real(dp) :: phi_sum
+    real(dp) :: phi_mean, phi_m2, delta
 
     call resolve_face_sampling_geometry( &
       sim%box_min, sim%box_max, spec%inject_face, axis_n, axis_t1, axis_t2, boundary_value, inward_normal &
       )
 
     ngrid = sim%injection_face_phi_grid_n
-    phi_sum = 0.0d0
+    sample_count = 0_i32
+    phi_mean = 0.0_dp
+    phi_m2 = 0.0_dp
+    if (present(phi_min)) phi_min = huge(1.0_dp)
+    if (present(phi_max)) phi_max = -huge(1.0_dp)
     do i = 1_i32, ngrid
       t1 = (real(i, dp) - 0.5d0)/real(ngrid, dp)
       do j = 1_i32, ngrid
@@ -1089,12 +1109,52 @@ contains
         pos(axis_t2) = spec%pos_low(axis_t2) + (spec%pos_high(axis_t2) - spec%pos_low(axis_t2))*t2
         pos = pos + inward_normal*1.0d-12
         call snapshot%eval_local_phi(mesh, sim, pos, phi)
-        phi_sum = phi_sum + phi
+        if (.not. ieee_is_finite(phi)) error stop 'reservoir face potential sample is non-finite.'
+        sample_count = sample_count + 1_i32
+        delta = phi - phi_mean
+        phi_mean = phi_mean + delta/real(sample_count, dp)
+        phi_m2 = phi_m2 + delta*(phi - phi_mean)
+        if (present(phi_min)) phi_min = min(phi_min, phi)
+        if (present(phi_max)) phi_max = max(phi_max, phi)
       end do
     end do
 
-    phi_face = phi_sum/real(ngrid*ngrid, dp)
+    phi_face = phi_mean
+    if (present(phi_std)) phi_std = sqrt(max(phi_m2/real(sample_count, dp), 0.0_dp))
   end subroutine compute_face_average_potential
+
+  !> 注入面の局所電位差が面平均 reservoir 近似の特徴エネルギーに対して大きい場合に警告する。
+  subroutine warn_face_average_potential_variation(sim, spec, phi_mean, phi_std, phi_min, phi_max)
+    real(dp), parameter :: variation_warn_ratio = 0.1_dp
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: spec
+    real(dp), intent(in) :: phi_mean, phi_std, phi_min, phi_max
+
+    real(dp) :: inward_normal(3), normal_drift, characteristic_energy, variation_energy, ratio, phi_scale
+
+    if (trim(lower_ascii(spec%velocity_distribution)) /= 'maxwellian') return
+    phi_scale = max(1.0_dp, abs(phi_mean), abs(phi_min), abs(phi_max))
+    if (phi_std <= 256.0_dp*epsilon(1.0_dp)*phi_scale) return
+
+    call resolve_inward_normal(spec%inject_face, inward_normal)
+    normal_drift = dot_product(spec%drift_velocity, inward_normal)
+    characteristic_energy = k_boltzmann*species_temperature_k(spec) + &
+      0.5_dp*spec%m_particle*normal_drift*normal_drift
+    variation_energy = abs(spec%q_particle)*phi_std
+    if (characteristic_energy > 0.0_dp) then
+      ratio = variation_energy/characteristic_energy
+      if (ratio <= variation_warn_ratio) return
+    else
+      ratio = huge(1.0_dp)
+    end if
+
+    write (error_unit, '(a,a,a,a,a,i0,a,es12.4,a,es12.4,a,es12.4,a,es12.4,a,es12.4)') &
+      'WARNING: reservoir face-average potential may be inaccurate: species=', trim(spec%species_key), &
+      ' face=', trim(spec%inject_face), ' samples=', sim%injection_face_phi_grid_n**2, &
+      ' mean_V=', phi_mean, ' std_V=', phi_std, ' min_V=', phi_min, ' max_V=', phi_max, &
+      ' energy_ratio=', ratio
+    flush (error_unit)
+  end subroutine warn_face_average_potential_variation
 
   !> 注入面名から法線軸・接線軸・境界値・内向き法線を返す。
   !! @param[in] box_min シミュレーションボックス下限座標 `(x,y,z)` [m]。

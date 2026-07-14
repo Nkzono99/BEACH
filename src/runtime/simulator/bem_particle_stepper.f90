@@ -270,7 +270,7 @@ contains
       alive = .true.
       escaped = .false.
       if (trim(sim%open_boundary_model) == 'potential_barrier') then
-        call apply_legacy_potential_barrier_event( &
+        call apply_potential_barrier_event( &
           mesh, sim, snapshot, event, q, m, x_event, v_event, alive, escaped, boundary_status &
           )
       else
@@ -403,8 +403,8 @@ contains
     end do
   end subroutine interpolate_boundary_state
 
-  !> 既存の単一面potential-barrier式をevent stateで評価し、一般化は行わない。
-  subroutine apply_legacy_potential_barrier_event( &
+  !> 単一open面のpotential-barrier式をevent位置と補間速度で評価する。
+  subroutine apply_potential_barrier_event( &
     mesh, sim, snapshot, event, q, m, x, v, alive, escaped, status &
     )
     type(mesh_type), intent(in) :: mesh
@@ -488,7 +488,7 @@ contains
       action_sim%bc_low(axis) = bc_reflect
     end if
     call apply_escape_reflect_periodic_event(action_sim, action_event, x, v, alive, escaped, status)
-  end subroutine apply_legacy_potential_barrier_event
+  end subroutine apply_potential_barrier_event
 
   !> Candidate endpointがboxの全faceからstrictly interiorかを返すfast-path判定。
   pure logical function point_strictly_inside_box(sim, x) result(inside)

@@ -51,8 +51,9 @@ unchanged.
 
 The external state of this model consists only of the scalar potential at the crossing. Its result is reflect or escape; it has
 no external $E(\mathbf x)$, turning position, flight time, or space charge. It is not generalized to a corner crossing multiple open faces; that case fails with
-`unsupported_barrier_corner`. This legacy or experimental configuration carries only $\phi_b$ and `sim.phi_infty` as its outer
-state; uniform `sim.e0`, which has no finite potential at infinity, is excluded from the outer profile.
+`unsupported_barrier_corner`. The crossing potential follows the same snapshot convention as particle motion and therefore
+includes the local potential of `sim.e0`. Because a uniform field has no finite potential at infinity, a configuration combining
+`sim.e0` with this model must supply `phi_infty` as a consistent effective reservoir reference.
 
 ## Make z-high the particle-ownership interface
 
@@ -188,7 +189,7 @@ when transfer coverage and the ledger interval match for that species.
 
 ## Code reference
 
-- Box events and legacy barrier: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
+- Box events and scalar barrier: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
 - Linear and kinetic 1-D return: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
 - Unified 3-D orbit: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)
 - Interface transfer and diagnostic aggregation: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)

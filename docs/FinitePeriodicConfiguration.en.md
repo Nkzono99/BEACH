@@ -14,8 +14,8 @@ potential.
 | --- | --- |
 | Surface field | `field_bc_mode="periodic2"`, finite image sum, no far correction |
 | Source | `volume_seed`, `reservoir_face`, or `photo_raycast` |
-| Reservoir correction | None or legacy `infinity_barrier` |
-| Open outflow | Unconditional `escape` or legacy `potential_barrier` |
+| Reservoir correction | None or `infinity_barrier` |
+| Open outflow | Unconditional `escape` or `potential_barrier` |
 | Photoelectron | Ordinary tracking or reduced `boltzmann_cutoff` escape |
 | Outer Poisson/profile | None |
 
@@ -46,6 +46,11 @@ See [Reservoir injection](ReservoirInjection.en.html) for equations and `injecti
 
 This uses one face-average scalar and has no intermediate $E(z)$, turning position, flight time, or space charge. Because
 $\bar\phi_f$ can change with image layer, converge face potential as well as particle flux.
+
+The same `N x N` samples used by the mean also accumulate the potential population standard deviation, minimum, and maximum, so
+this diagnostic adds no potential evaluations. For a Maxwellian reservoir, the MPI root warns on the first and final batch when
+the energy represented by the local-potential standard deviation exceeds 10% of the characteristic thermal plus normal-drift
+energy.
 
 ## Select escape or scalar reflection at open faces
 
@@ -83,8 +88,10 @@ bc_y_low = "periodic"
 bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
-open_boundary_model = "escape"
-reservoir_potential_model = "none"
+open_boundary_model = "potential_barrier"
+reservoir_potential_model = "infinity_barrier"
+phi_infty = 0.0
+injection_face_phi_grid_n = 5
 ```
 
 For `infinity_barrier`, specify `phi_infty` and `injection_face_phi_grid_n`. A reduced photoelectron cutoff needs the same
@@ -99,7 +106,7 @@ Suitable for:
 
 - small comparisons with explicit image layer;
 - regression tests of free/periodic boundaries;
-- reproduction of legacy scalar-barrier results;
+- finite-image reservoir comparisons using scalar barriers;
 - a near-image reference for Ewald/cached configurations.
 
 Not suitable for:

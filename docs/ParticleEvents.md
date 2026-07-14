@@ -186,7 +186,7 @@ collision queryは、必要な候補をすべて調べた場合だけ`ok`です�
 | `collision_query_grid_stalled` | 4 | grid geometry不正またはDDAが進行しない |
 | `particle_step_invalid_boundary` | 1001 | particle、box、衝突・境界geometryが不正 |
 | `particle_step_multiple_box_events` | 1002 | 1 stepで9回目のbox境界イベントが必要 |
-| `particle_step_unsupported_barrier_corner` | 1003 | legacy barrierで複数open faceが同時に発生 |
+| `particle_step_unsupported_barrier_corner` | 1003 | potential barrierで複数open faceが同時に発生 |
 
 これらの異常を「命中なし」とみなすと、粒子が表面を通り抜けて電荷ledgerを壊します。そのため、通常の
 追跡はfail closedです。OpenMP内では、particle/step番号が最小の失敗情報を選びます。MPI実行では失敗rankと

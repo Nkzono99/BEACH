@@ -13,8 +13,8 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 | --- | --- |
 | surface field | `field_bc_mode="periodic2"`、finite image sum、far correctionなし |
 | source | `volume_seed`、`reservoir_face`、`photo_raycast` |
-| reservoir補正 | なし、またはlegacy `infinity_barrier` |
-| open outflow | 無条件`escape`、またはlegacy `potential_barrier` |
+| reservoir補正 | なし、または `infinity_barrier` |
+| open outflow | 無条件`escape`、または `potential_barrier` |
 | photoelectron | 通常追跡、または`boltzmann_cutoff` reduced escape |
 | outer Poisson/profile | なし |
 
@@ -44,6 +44,10 @@ $\bar\phi_f$を求め、`phi_infty`との差で
 
 これはface平均scalarだけを使うため、途中の$E(z)$、turning position、flight time、space chargeを持ちません。画像層を変えると
 $\bar\phi_f$も変わり得るので、粒子fluxだけでなくface potentialのimage convergenceも確認します。
+
+平均に使う同じ `N x N` sampleから電位の母標準偏差・最小・最大も集計するため、診断のための追加の
+電位評価はありません。Maxwellian reservoirで局所電位の母標準偏差に対応するenergyが熱・法線driftの
+特徴energyの10%を超えると、MPI rootは初回と最終batchに面平均近似の警告を出します。
 
 ## open面でescapeまたはscalar反射を選ぶ
 
@@ -79,8 +83,10 @@ bc_y_low = "periodic"
 bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
-open_boundary_model = "escape"
-reservoir_potential_model = "none"
+open_boundary_model = "potential_barrier"
+reservoir_potential_model = "infinity_barrier"
+phi_infty = 0.0
+injection_face_phi_grid_n = 5
 ```
 
 `infinity_barrier`を使う場合は`phi_infty`と`injection_face_phi_grid_n`を明示します。光電子のreduced cutoffにも同じ
@@ -95,7 +101,7 @@ reservoir_potential_model = "none"
 
 - image layerを明示して行う小規模比較。
 - free/periodic境界の回帰試験。
-- legacy scalar barrier結果の再現。
+- scalar barrierを使った有限画像reservoir比較。
 - Ewald/cached構成に対するnear-image reference。
 
 適していない用途:
@@ -110,7 +116,7 @@ reservoir_potential_model = "none"
 2. surface/particle位置の$\phi,\mathbf E$だけでなく、reservoir flux、absorption/escape率、帯電分布を比較する。
 3. `infinity_barrier`使用時は`injection_face_phi_grid_n`も増やす。
 4. `photo_raycast`使用時は`rays_per_batch`、粒子追跡は`dt`も独立に収束させる。
-5. charge ledgerと`discarded_unresolved`を確認する。
+5. 電荷収支と`discarded_unresolved`を確認する。
 
 収束が遅い、または非中性cellのfar fieldを物理的に閉じる必要がある場合は
 [periodic2無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)へ移ります。

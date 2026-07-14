@@ -377,6 +377,9 @@ With `reservoir_potential_model="infinity_barrier"`, the injection-face average
 potential comes from the electrostatic snapshot refreshed at the start of the
 batch. The selected point or `triangle_p0` kernel, periodic2 terms, zero mode,
 outer profile, and uniform field `e0` follow the same convention as particle motion.
+The same `N x N` pass accumulates the population standard deviation, minimum, and maximum. For a Maxwellian reservoir, the MPI
+root warns on the first and final batch when
+`abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)`. This diagnostic adds no potential evaluations.
 
 #### Computational Domain and Particle Boundaries
 
@@ -397,9 +400,11 @@ face are tested against a local BEM potential barrier. The barrier is
 `q_particle * (phi_infty - phi_boundary)`, where `phi_boundary` is evaluated at
 the boundary crossing point. If the barrier is positive and exceeds the normal
 kinetic energy `0.5 * m_particle * v_normal^2`, the normal velocity is reflected;
-otherwise the particle escapes. The uniform external field `e0` is not included
-in this barrier because it does not define a finite potential relative to
-infinity.
+otherwise the particle escapes. The crossing-point potential follows the same
+snapshot convention as particle motion and includes the local potential of the
+uniform external field `e0`. Because a uniform field has no finite potential at
+infinity, `phi_infty` must be supplied as a consistent effective reservoir
+reference when these settings are combined.
 
 For `periodic2`, the mesh is translated at runtime to a canonical unwrapped
 representation for collision before ray-triangle tests. Raw vertices may lie

@@ -13,7 +13,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(18)
+  call test_init(19)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -79,8 +79,12 @@ program test_particle_stepper
   call test_advance_ninth_box_event_fails()
   call test_end()
 
-  call test_begin('advance_legacy_barrier_single_face_only')
-  call test_advance_legacy_barrier_single_face_only()
+  call test_begin('potential_barrier_uses_crossing_potential')
+  call test_potential_barrier_uses_crossing_potential()
+  call test_end()
+
+  call test_begin('advance_potential_barrier_single_face_only')
+  call test_advance_potential_barrier_single_face_only()
   call test_end()
 
   call test_begin('advance_invalid_boundary_status_namespace')
@@ -528,7 +532,42 @@ contains
     call assert_true(result%collision_query_count == 9_i32, 'ninth event path should query mesh before failing')
   end subroutine test_advance_ninth_box_event_fails
 
-  subroutine test_advance_legacy_barrier_single_face_only()
+  subroutine test_potential_barrier_uses_crossing_potential()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_x_plane_mesh(mesh, 10.0_dp)
+    sim = sim_config()
+    sim%field_solver = 'direct'
+    sim%field_normalization = 'si'
+    sim%softening = 0.5_dp
+    sim%use_box = .true.
+    sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    sim%e0 = [4.0_dp, 0.0_dp, 0.0_dp]
+    sim%open_boundary_model = 'potential_barrier'
+    sim%phi_infty = -2.0_dp
+    call field_solver%init(mesh, sim)
+    call field_solver%refresh(mesh)
+
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.25_dp, 0.2_dp, 0.9_dp], [0.0_dp, 0.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, 0.2_dp, &
+      [0.25_dp, 0.2_dp, 1.1_dp], [0.0_dp, 0.0_dp, 1.0_dp], result=result &
+      )
+    call assert_true(result%escaped_boundary, 'x=0.25 crossing potential should allow escape')
+
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.75_dp, 0.2_dp, 0.9_dp], [0.0_dp, 0.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, 0.2_dp, &
+      [0.75_dp, 0.2_dp, 1.1_dp], [0.0_dp, 0.0_dp, 1.0_dp], result=result &
+      )
+    call assert_true(.not. result%escaped_boundary, 'x=0.75 crossing potential should cause return')
+  end subroutine test_potential_barrier_uses_crossing_potential
+
+  subroutine test_advance_potential_barrier_single_face_only()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
@@ -541,9 +580,9 @@ contains
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
       )
-    call assert_true(result%status == particle_step_ok, 'single-face legacy barrier status mismatch')
+    call assert_true(result%status == particle_step_ok, 'single-face potential barrier status mismatch')
     call assert_true(.not. result%escaped_boundary, 'large single-face barrier should reflect')
-    call assert_close_dp(result%x(1), 0.2_dp, 1.0e-12_dp, 'legacy barrier reflected remainder mismatch')
+    call assert_close_dp(result%x(1), 0.2_dp, 1.0e-12_dp, 'potential barrier reflected remainder mismatch')
 
     sim%bc_high(2) = bc_open
     call advance_particle_step( &
@@ -552,9 +591,9 @@ contains
       )
     call assert_true( &
       result%status == particle_step_unsupported_barrier_corner, &
-      'simultaneous multi-open legacy barrier should fail closed' &
+      'simultaneous multi-open potential barrier should fail closed' &
       )
-  end subroutine test_advance_legacy_barrier_single_face_only
+  end subroutine test_advance_potential_barrier_single_face_only
 
   subroutine test_advance_invalid_boundary_status_namespace()
     type(mesh_type) :: mesh

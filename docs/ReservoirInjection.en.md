@@ -108,10 +108,13 @@ to the face with the same $B$. Particle count and velocity at face arrival are t
 | Split `kinetic_1d` | Interface potential of the converged outer profile | Discrete profile for return |
 | Zhao injection closure | Branch-specific local VDF and cutoff | Does not add $E(z)$ to the pusher |
 
-Legacy `infinity_barrier` evaluates the batch-start field snapshot on an
+`infinity_barrier` evaluates the batch-start field snapshot on an
 `injection_face_phi_grid_n` by `injection_face_phi_grid_n` cell-centered grid in the aperture and uses the scalar mean
 $\bar\phi_f$. It follows the same potential convention as the snapshot, including the point or triangle kernel, periodic field,
 zero mode, outer state, and `sim.e0`, but it does not solve intermediate $E(z)$, turning position, flight time, or space charge.
+The same grid pass also accumulates the population standard deviation, minimum, and maximum. For a Maxwellian reservoir, a large
+face variation relative to its characteristic energy produces a warning on the first and final batch without any additional
+potential evaluations.
 
 In a split outer model, z-high `reservoir_face` species are interpreted as distributions at infinity. For `kinetic_1d`, the
 interface field is a Poisson boundary condition, while the particle velocity changes through the solved

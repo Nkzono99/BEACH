@@ -3,6 +3,7 @@ program test_reservoir_injection
   use bem_kinds, only: dp, i32
   use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config, &
                             species_from_defaults, init_particle_batch_from_config
+  use bem_app_config_runtime, only: compute_face_average_potential, reservoir_face_velocity_correction
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_types, only: particles_soa, injection_state
@@ -25,7 +26,7 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('split_outer_infinity_vdf_map')
   call test_split_outer_infinity_vdf_map()
@@ -33,6 +34,10 @@ program test_reservoir_injection
 
   call test_begin('snapshot_infinity_barrier')
   call test_snapshot_infinity_barrier()
+  call test_end()
+
+  call test_begin('face_potential_statistics_share_sampling_pass')
+  call test_face_potential_statistics_share_sampling_pass()
   call test_end()
 
   call write_fixed_duration_fixture(cfg_fixed_path)
@@ -128,6 +133,59 @@ program test_reservoir_injection
   call test_summary()
 
 contains
+
+  subroutine test_face_potential_statistics_share_sampling_pass()
+    type(app_config) :: stats_cfg
+    type(mesh_type) :: stats_mesh
+    type(electrostatic_snapshot_type) :: snapshot
+    real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
+    real(dp) :: phi_mean, phi_std, phi_min, phi_max, vmin_normal, barrier_normal
+
+    v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
+    v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
+    v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
+    call init_mesh(stats_mesh, v0, v1, v2, q0=[0.0_dp])
+
+    call default_app_config(stats_cfg)
+    stats_cfg%sim%use_box = .true.
+    stats_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    stats_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    stats_cfg%sim%e0 = [1.0_dp, 0.0_dp, 0.0_dp]
+    stats_cfg%sim%injection_face_phi_grid_n = 2_i32
+    stats_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    stats_cfg%particle_species(1)%species_key = 'face_variation_warning_test'
+    stats_cfg%particle_species(1)%q_particle = 1.0_dp
+    stats_cfg%particle_species(1)%m_particle = 1.0_dp
+    stats_cfg%particle_species(1)%temperature_k = 0.0_dp
+    stats_cfg%particle_species(1)%has_temperature_k = .true.
+    stats_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    stats_cfg%particle_species(1)%inject_face = 'z_high'
+    stats_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    stats_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+
+    call snapshot%init( &
+      stats_mesh, stats_cfg%sim, stats_cfg%field, stats_cfg%periodic2, stats_cfg%panel, stats_cfg%outer_plasma &
+      )
+    call snapshot%refresh(stats_mesh)
+    call compute_face_average_potential( &
+      stats_mesh, stats_cfg%sim, stats_cfg%particle_species(1), snapshot, &
+      phi_mean, phi_std, phi_min, phi_max &
+      )
+
+    call assert_close_dp(phi_mean, -0.5_dp, 1.0e-14_dp, 'face potential mean mismatch')
+    call assert_close_dp(phi_std, 0.25_dp, 1.0e-14_dp, 'face potential standard deviation mismatch')
+    call assert_close_dp(phi_min, -0.75_dp, 1.0e-14_dp, 'face potential minimum mismatch')
+    call assert_close_dp(phi_max, -0.25_dp, 1.0e-14_dp, 'face potential maximum mismatch')
+
+    stats_cfg%sim%reservoir_potential_model = 'infinity_barrier'
+    stats_cfg%sim%phi_infty = -1.0_dp
+    call reservoir_face_velocity_correction( &
+      stats_cfg, stats_cfg%particle_species(1), vmin_normal, barrier_normal, &
+      mesh=stats_mesh, snapshot=snapshot, warn_face_variation=.true. &
+      )
+    call assert_close_dp(barrier_normal, 1.0_dp, 1.0e-14_dp, 'face-average barrier mismatch')
+    call assert_close_dp(vmin_normal, 1.0_dp, 1.0e-14_dp, 'face-average cutoff mismatch')
+  end subroutine test_face_potential_statistics_share_sampling_pass
 
   subroutine test_snapshot_infinity_barrier()
     type(app_config) :: barrier_cfg

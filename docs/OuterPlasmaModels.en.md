@@ -61,7 +61,7 @@ linear and kinetic profiles, the 3-D orbit, and frozen-field gate.
 ## Select a configuration from the required outer physics
 
 - Simple finite box: no outer model and `open_boundary_model="escape"`
-- Reproduce a legacy scalar barrier: `infinity_barrier`
+- Finite-image scalar reservoir barrier: `infinity_barrier`
 - Compare an analytic injection closure: `zhao_*`
 - Infinite-periodic surface with self-consistent 1D sheath: `kinetic_1d`
 - Linear response including roughness: `unified_linear_response`

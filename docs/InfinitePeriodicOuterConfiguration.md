@@ -112,8 +112,8 @@ lower_boundary_model = "symmetric_vacuum"
 次の組合せは、同じ成分や粒子処理を重複させます。一つの構成内では併用しません。
 
 - `cached_kneq0`内部のsymmetric `k=0`と、最終的な場へ加えるphysical `k=0`。
-- `kinetic_1d`のinterface potential mapと、legacy `infinity_barrier`。
-- profile returnと、legacy open `potential_barrier`のz-high処理。
+- `kinetic_1d`のinterface potential mapと、有限画像 `infinity_barrier`。
+- profile returnと、有限画像open `potential_barrier`のz-high処理。
 - tracked photoelectron returnと`boltzmann_cutoff`。
 - `kinetic_mean` outer densityと、surfaceへの架空の統計return deposit。
 - unified base nonzero fieldと、reflection/transmission後のincident mode。

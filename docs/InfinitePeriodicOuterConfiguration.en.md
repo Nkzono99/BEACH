@@ -108,8 +108,8 @@ they do not by themselves select a large production backend.
 ## Apply each closure exactly once
 
 - Symmetric `k=0` inside `cached_kneq0` versus physical `k=0` in the snapshot.
-- Kinetic interface-potential map versus legacy `infinity_barrier`.
-- Profile return versus legacy open `potential_barrier` at z-high.
+- Kinetic interface-potential map versus finite-image `infinity_barrier`.
+- Profile return versus finite-image open `potential_barrier` at z-high.
 - Tracked photoelectron return versus `boltzmann_cutoff`.
 - `kinetic_mean` outer density versus a fictitious statistical return deposit on the surface.
 - Unified base nonzero field versus the incident mode after reflection/transmission replacement.

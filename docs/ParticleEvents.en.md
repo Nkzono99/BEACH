@@ -189,7 +189,7 @@ A collision query is `ok` only when all required candidates were examined.
 | `collision_query_grid_stalled` | 4 | Invalid grid geometry or DDA failed to progress |
 | `particle_step_invalid_boundary` | 1001 | Invalid particle, box, or event geometry |
 | `particle_step_multiple_box_events` | 1002 | A ninth box event was needed in one step |
-| `particle_step_unsupported_barrier_corner` | 1003 | Multiple open faces occurred with the legacy barrier |
+| `particle_step_unsupported_barrier_corner` | 1003 | Multiple open faces occurred with the potential barrier |
 
 Treating these states as "no hit" could let particles pass through a surface and corrupt the charge ledger, so normal tracking
 fails closed. Within OpenMP, the earliest particle and step failure is selected. In MPI, failure rank and particle state are
