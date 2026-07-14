@@ -24,15 +24,15 @@ $$
 \mathbf{x}^n+\frac{1}{2}\mathbf{v}^n\Delta t.
 $$
 
-この位置でfield snapshotを1回評価します。
+この位置の電場を1回評価します。
 
 $$
 \mathbf{E}_\mathrm{mid}=
-\mathbf{E}_\mathrm{snapshot}(\mathbf{x}_\mathrm{mid}).
+\mathbf{E}(\mathbf{x}_\mathrm{mid}).
 $$
 
-snapshotは、要素電荷が作る場、`sim.e0`、選択したperiodic zero mode、outer profileを一度ずつ合成したものです。
-同じbatchの粒子は、batch開始時の要素電荷から作った同じsnapshotを使います。[<sup>1</sup>](FieldSolvers.html)
+電場評価では、要素電荷が作る場、`sim.e0`、選択したperiodic zero mode、outer profileを一度ずつ合成します。
+同じbatchの粒子は、batch開始時の要素電荷から構成した同じ電場・電位の空間分布を使います。[<sup>1</sup>](FieldSolvers.html)
 
 `use_box=true`では、場の評価位置だけをsolverの有効領域へ写します。
 
@@ -110,7 +110,7 @@ z-high outer interfaceでは、Boris更新の両端と整合する二次軌道�
 | 一定の外部E/B | 速度更新は$\Delta t$の符号反転で時間反転可能 |
 | 滑らかな外部場 | 現行の同時刻更新は位置・速度とも二次精度 |
 | 三角形メッシュへの衝突、開放境界からの離脱 | 衝突・境界位置で追跡を終える非可逆過程 |
-| batch間で変わる自己無撞着場 | batch内ではsnapshotを固定し、commit後に次の場へ更新 |
+| batch間で変わる自己無撞着場 | batch内では場の構成を固定し、commit後に次の場へ更新 |
 
 ## 軌道と帯電結果から`dt`を決める
 

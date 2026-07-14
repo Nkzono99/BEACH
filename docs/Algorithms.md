@@ -20,9 +20,9 @@ flowchart TD
 
     subgraph batch["batch i"]
         direction TB
-        subgraph prepare["snapshot / source"]
+        subgraph prepare["場の更新 / 粒子生成"]
             direction LR
-            p1["1. snapshot更新"] --> p2["2. 粒子生成"]
+            p1["1. 電場・電位を更新"] --> p2["2. 粒子生成"]
         end
 
         subgraph particle_loop["粒子step loop"]
@@ -46,10 +46,10 @@ flowchart TD
     more -- "いいえ" --> finish
 ```
 
-同じbatchの粒子は、手順1で確定した同じfield snapshotを共有します。手順6で更新した表面電荷が
+同じbatchの粒子は、手順1で確定した電場と電位を共有します。手順6で更新した表面電荷が
 場へ反映されるのは、次batchの手順1です。
 
-### 1. 場とouter modelのsnapshotを更新
+### 1. 電場・電位とouter modelを更新
 
 前batchまでにcommitされた`q_elem`から、粒子追跡中に固定する電場と電位を作ります。direct、treecode、
 FMMの選択は[場の評価](FieldSolvers.html)、周期和は[periodic2静電場](PeriodicElectrostatics.html)、
@@ -64,7 +64,7 @@ FMMの選択は[場の評価](FieldSolvers.html)、周期和は[periodic2静電�
 
 ### 3. 粒子を1 step前進
 
-固定snapshot中の電場と任意の一様磁場を使い、速度をBoris法、位置を同時刻状態の台形則で更新します。この時点では
+batch内で固定された電場と任意の一様磁場を使い、速度をBoris法、位置を同時刻状態の台形則で更新します。この時点では
 候補軌道を作るだけで、step内の最終状態は衝突・境界処理後に確定します。
 [Boris粒子更新](BorisPusher.html)に式と更新順をまとめています。
 

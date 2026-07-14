@@ -63,7 +63,7 @@ open面の外側にある$E(\mathbf x)$、turning位置、flight time、空間�
 | --- | --- | --- |
 | `none` | outer transferなし | 通常のopen境界 |
 | `electrostatic_1d_instant_return` | `linear_debye`または`kinetic_1d` | 保存エネルギーからescape/returnを直接写像 |
-| `electrostatic_3d_explicit_orbit` | `unified_linear_response` | 固定snapshotの3D場で外部軌道を時間積分 |
+| `electrostatic_3d_explicit_orbit` | `unified_linear_response` | batch内で固定された3D電場で外部軌道を時間積分 |
 
 1D/3D transferはいずれも、z-highがopenであることと`sim.b0=0`を要求します。現行のouter particle modelは
 外部領域での磁場軌道を扱いません。return位置のx/yはprimary periodic cellへwrapされます。
@@ -127,7 +127,7 @@ profileは有限値、単調、interface点との整合を検査します。非�
 ## unified 3D field中で外部軌道を進める
 
 `unified_linear_response + electrostatic_3d_explicit_orbit`は、zero modeとscreened nonzero modeを合成した
-同じelectrostatic snapshot中で外部粒子を追跡します。固定刻み`outer_orbit_dt`のvelocity-Verlet更新は
+batch内で固定された電場で外部粒子を追跡します。固定刻み`outer_orbit_dt`のvelocity-Verlet更新は
 
 $$
 \mathbf v^{n+1/2}=\mathbf v^n+\frac{q\mathbf E(\mathbf x^n)}{2m}\Delta t_o,
@@ -164,7 +164,7 @@ energy errorに対して収束確認します。
 
 ## outer flight中にfieldを固定できる範囲を判定する
 
-outer flight中にsnapshotを固定できるかを
+outer flight中に場を固定できるかを
 
 $$
 \epsilon_\mathrm{ad}

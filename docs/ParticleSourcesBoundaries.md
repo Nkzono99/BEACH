@@ -14,15 +14,15 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 | `reservoir_face` | 流入flux、面積、`batch_duration` | 指定したbox面 | 外部reservoirからの連続流入 |
 | `photo_raycast` | 電流密度、投影面積、`batch_duration`、ray数 | rayが最初に命中した表面 | 光照射による表面放出 |
 
-## snapshot更新後にそのbatchの粒子を作る
+## 場の更新後にそのbatchの粒子を作る
 
-粒子源は、batch開始時に場と外部プラズマのsnapshotを更新した後で評価されます。この順序により、
+粒子源は、batch開始時に電場・電位と外部プラズマ状態を更新した後で評価されます。この順序により、
 reservoirの速度補正と光電子のreduced escape率は、前batchまでにcommitされた表面電荷を見ることができます。
-生成された粒子は同じsnapshot中を進み、吸収、escape、`max_step`到達のいずれかまで追跡されます。
+生成された粒子はbatch内で固定された場の中を進み、吸収、escape、`max_step`到達のいずれかまで追跡されます。
 
 粒子が生成された瞬間に表面電荷を変えるのは、`photo_raycast`で放出元へ逆符号電荷を置く場合だけです。
 その差分も追跡中の吸収電荷と同様にbatch末尾でcommitされ、同じbatchの場は変えません。
-[計算モデルの全体像](Algorithms.html)に、snapshot更新からcommitまでの順序を示しています。
+[計算モデルの全体像](Algorithms.html)に、場の更新からcommitまでの順序を示しています。
 
 ## `volume_seed`で指定個数の初期粒子を作る
 

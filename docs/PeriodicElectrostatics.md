@@ -6,7 +6,7 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 
 `field_bc_mode="periodic2"`の静電場は、近傍の有限画像、無限周期の横方向mode、平面平均`k=0`、
 外部plasma responseという4つの成分から構成されます。x/y周期・z開放のslabでは、各成分を担当する
-計算経路を分け、electrostatic snapshotへ一度ずつ加算します。
+計算経路を分け、最終的な電場・電位へ一度ずつ加算します。
 
 ## 場を4つの成分に分ける
 
@@ -18,7 +18,7 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 | plasma response | 外部plasmaによるzero/nonzero応答 | 選択したouter model |
 
 `cached_kneq0`はsurface `k=0`を除いたnonzero modeを返します。境界条件を反映した物理的な`k=0`は、
-snapshotが1回だけ加えます。この分担により、横方向の無限周期補正とz方向のboundary/sheath modelを
+場の合成処理が1回だけ加えます。この分担により、横方向の無限周期補正とz方向のboundary/sheath modelを
 独立に選べます。
 
 実際の組合せは、[periodic2有限画像構成](FinitePeriodicConfiguration.html)と
@@ -106,7 +106,7 @@ $$
 K_{k\ne0}=K_\mathrm{shell}+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}
 $$
 
-その後、snapshotが選択したboundary closureの$K_0^\mathrm{physical}$を加えます。
+その後、場の合成処理が選択したboundary closureの$K_0^\mathrm{physical}$を加えます。
 
 $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
@@ -209,4 +209,4 @@ FMM内部のEwald式とoperator APIは[FMM内部実装](FMMCore.html)にまと�
 - cached symmetric `k=0` subtraction: [`bem_coulomb_fmm_eval_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90)
 - surface zero-mode plan/state: [`bem_periodic_zero_mode_plan.f90`](../src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90)
 - zero-mode evaluation: [`bem_periodic_zero_mode_eval.f90`](../src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90)
-- component ownershipとsnapshot合成: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
+- component ownershipと場の合成: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)

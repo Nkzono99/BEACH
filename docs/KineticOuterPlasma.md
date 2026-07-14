@@ -139,10 +139,10 @@ virtual cathodeを持つ非単調profile、trapped population、sub-Bohm ion inf
 
 `outer_update_stride`で選ばれたbatchに、commit済みsurface chargeからinterface fieldを再構築してprofileを更新します。
 同一model identity・同一gridの前profileだけをNewton初期値にできます。skipするbatchでは以前のouter stateを使いますが、
-surface側field snapshotは現在のcommit済み電荷から更新されます。
+surface側の電場・電位は現在のcommit済み電荷から更新されます。
 
 MPIではroot rankが1D solveを行い、status、profile、current diagnosticsを全rankへbroadcastします。同じbatchの粒子は
-更新済みimmutable snapshotを共有し、粒子1個のhitごとにはouter solveを実行しません。
+更新後の電場・電位を共有します。これらはbatch中に固定され、粒子1個のhitごとにはouter solveを実行しません。
 
 ## residual・電流・帯電を一緒に収束させる
 

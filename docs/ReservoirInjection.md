@@ -111,9 +111,9 @@ $$
 | split `kinetic_1d` | 収束したouter profileのinterface電位 | return時は離散profile |
 | Zhao系注入closure | branchから局所VDFとcutoffを構成 | pusherへ$E(z)$を加えない |
 
-legacy `infinity_barrier`は、batch開始時のfield snapshotを開口内の
+legacy `infinity_barrier`は、batch開始時に構成した電場・電位を開口内の
 `injection_face_phi_grid_n`四方のcell-centered点で評価し、scalar平均$\bar\phi_f$を使います。
-point/triangle kernel、periodic場、zero mode、outer state、`sim.e0`を含むsnapshotと同じ電位規約ですが、
+point/triangle kernel、periodic場、zero mode、outer state、`sim.e0`を含む場と同じ電位規約ですが、
 faceまでの途中の$E(z)$、turning位置、flight time、空間電荷は解きません。
 
 split outer modelではz-highの`reservoir_face`を無限遠VDFとして解釈します。`kinetic_1d`ではinterface電場を

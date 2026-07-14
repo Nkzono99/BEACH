@@ -113,7 +113,7 @@ $$
 内部座標は`field_normalization`で正規化され、電場と電位はSIへ戻されます。[<sup>1</sup>](FieldSolvers.html#長さの正規化)
 
 Directは固定geometryのtreeや展開係数を持たず、各評価で現在の`mesh%q_elem`を直接読みます。batch中は
-snapshotを固定し、batch末尾にcommitした電荷を次batchの場へ反映する更新順序は他のsolverと同じです。
+参照する要素電荷を固定し、batch末尾にcommitした電荷を次batchの場へ反映する更新順序は他のsolverと同じです。
 
 ## Directを基準に誤差を切り分ける
 

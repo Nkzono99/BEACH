@@ -34,7 +34,7 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 
 補正なしでは、設定した上流VDFをface上のflux-weighted分布としてsampleし、potentialによるcutoffや加減速は行いません。
 
-`reservoir_potential_model="infinity_barrier"`を選ぶと、batch開始時の有限画像field snapshotから注入開口の平均potential
+`reservoir_potential_model="infinity_barrier"`を選ぶと、batch開始時に有限画像和で構成した場から注入開口の平均potential
 $\bar\phi_f$を求め、`phi_infty`との差で
 
 - 上流VDFの到達可能な法線速度を選ぶ。

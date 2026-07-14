@@ -741,7 +741,7 @@ cacheが保存するのは、固定geometryに対してsource multipoleを遠方
 | 1 | primary cell + 有限近傍画像 | singular/near fieldを通常のFMMとdirectで評価 |
 | 2 | cached Ewald residual | 有限画像の外側にある滑らかな無限周期遠方場を補う |
 | 3 | cached teacherに含まれた対称`k=0`を減算 | 非零モードbackendを`k!=0`だけにする |
-| 4 | snapshotが物理的`k=0`を加算 | `symmetric_vacuum`、`e_bottom_zero`、outer plasmaを反映 |
+| 4 | 場の合成時に物理的`k=0`を加算 | `symmetric_vacuum`、`e_bottom_zero`、outer plasmaを反映 |
 
 `cached_kneq0`単体では全電場を構成しません。手順3までを非零mode backendが担当し、手順4を
 `electrostatic_snapshot`が担当します。`exclude_k0`は平均場を除外する設定ではありません。

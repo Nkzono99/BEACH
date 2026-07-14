@@ -160,7 +160,7 @@ $\max(\eta_0,\max_k\eta_k)$が`max_linearity_ratio`を越えた場合は、非�
 `max_gap_ratio`と`max_local_charge_ratio`はsplit scalar-interface model向けdiagnosticです。unified固有の受理判定は
 accessible-area収束とzero/nonzero linearityを中心に行います。
 
-## zero/nonzero responseをsnapshotへ一度ずつ加える
+## zero/nonzero responseを場へ一度ずつ加える
 
 1回のfield評価は次を一度ずつ合成します。
 
@@ -168,7 +168,7 @@ accessible-area収束とzero/nonzero linearityを中心に行います。
 2. unified Poisson profileの$k=0$ field。
 3. retained $k\ne0$ modeのreflection/transmission correction。
 
-surface chargeをcommitしてsnapshotをrefreshするたび、surface zero mode、unified linear solve、nonzero-tail amplitudeを更新します。
+surface chargeをcommitして場を更新するたび、surface zero mode、unified linear solve、nonzero-tail amplitudeを更新します。
 現行のunified経路は、`outer_update_stride`によるsolve skipを行いません。MPI rootがtridiagonal solveを実行し、
 statusと$z,\phi,E,\rho$を全rankへbroadcastします。
 
@@ -192,6 +192,6 @@ productionでは少なくとも次を変えます。
 
 - accessible fractionとunified Poisson solve: [`bem_outer_plasma_unified.f90`](../src/physics/outer_plasma/bem_outer_plasma_unified.f90)
 - 1D grid演算: [`bem_outer_plasma_grid.f90`](../src/physics/outer_plasma/bem_outer_plasma_grid.f90)
-- zero/nonzero fieldのsnapshot合成: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
+- zero/nonzero fieldの合成: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
 - explicit outer orbit: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)
 - periodic nonzero operator: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)

@@ -4,7 +4,7 @@ Lang: [日本語](InfinitePeriodicOuterConfiguration.md) | [English](InfinitePer
 
 # periodic2無限周期＋outer plasma構成
 
-この構成は、x/y無限周期のsurface fieldとz方向の外部plasma closureを一つのelectrostatic snapshotへ組み立てます。
+この構成は、x/y無限周期のsurface fieldとz方向の外部plasma closureを一つの電場・電位として組み立てます。
 near image、Ewaldから生成したfar `k\ne0` operator、物理`k=0`、outer responseを重複なく合成し、同じouter potentialを
 reservoir inflowとparticle returnに使います。
 
@@ -36,15 +36,15 @@ local surface fieldだけを扱うsplit windowを仮定します。[kinetic 1D�
 unified linearはroughness範囲からplasma responseを入れられますが、linear Debye closureでありspecies VDFやBohm条件を
 解きません。[unified linear response](UnifiedLinearResponse.html)で適用範囲とfield solveを説明します。
 
-## 一つのbatch-start snapshotを流入とreturnで共有する
+## batch開始時に確定した場を流入とreturnで共有する
 
 1. commit済み`q_elem`からFMM/source multipoleとsurface zero modeをrefreshする。
 2. cached far operatorをcurrent root multipoleへ適用する。
-3. split構成では必要なstrideでinterface fieldからouter profileを解く。unified構成ではsnapshot refreshごとに解く。
+3. split構成では必要なstrideでinterface fieldからouter profileを解く。unified構成では場を更新するたびに解く。
 4. potential gauge、Gauss residual、interface/linearity diagnosticsを更新する。
 5. outer stateを使ってz-high reservoirのglobal粒子数とinterface速度を決める。
 6. photo raycastを行い、source reaction chargeをbatch差分へ記録する。
-7. 全粒子をimmutable snapshot中で追跡する。
+7. 全粒子をbatch内で固定された場の中で追跡する。
 8. z-high outward crossingを同じouter stateでescape/returnへ写像する。
 9. surface absorptionとemission差分をMPI all-reduceし、batch末尾にcommitする。
 
@@ -111,7 +111,7 @@ lower_boundary_model = "symmetric_vacuum"
 
 次の組合せは、同じ成分や粒子処理を重複させます。一つの構成内では併用しません。
 
-- `cached_kneq0`内部のsymmetric `k=0`と、snapshotのphysical `k=0`。
+- `cached_kneq0`内部のsymmetric `k=0`と、最終的な場へ加えるphysical `k=0`。
 - `kinetic_1d`のinterface potential mapと、legacy `infinity_barrier`。
 - profile returnと、legacy open `potential_barrier`のz-high処理。
 - tracked photoelectron returnと`boltzmann_cutoff`。

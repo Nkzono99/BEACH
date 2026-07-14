@@ -48,6 +48,22 @@ def test_japanese_pages_avoid_repetitive_reference_phrasing() -> None:
         assert "[<sup>1</sup>](" in _read_doc(name)
 
 
+def test_japanese_pages_name_the_batch_fixed_field_concretely() -> None:
+    module = _load_sync_module()
+    ambiguous_phrases = (
+        "field snapshot",
+        "electrostatic snapshot",
+        "immutable snapshot",
+        "固定snapshot",
+        "snapshot更新",
+    )
+
+    for page in (page for page in module.PAGES if page.locale == "root"):
+        text = _read_doc(page.source)
+        for phrase in ambiguous_phrases:
+            assert phrase not in text, f"{page.source}: {phrase}"
+
+
 def test_onboarding_pages_are_bilingual_with_localized_descriptions() -> None:
     module = _load_sync_module()
     expected = {

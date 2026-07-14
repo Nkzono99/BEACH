@@ -5,7 +5,7 @@ Lang: [日本語](SheathInjectionClosures.md) | [English](SheathInjectionClosure
 # シース注入closure
 
 `sim.sheath_injection_model`は、解析的なsheath closureから`reservoir_face`と`photo_raycast`の密度、drift、
-cutoffを決めます。補正結果はsource samplingへ適用し、生成後の粒子は別に構成されたfield snapshot中を進みます。
+cutoffを決めます。補正結果はsource samplingへ適用し、生成後の粒子は、別に構成されてbatch内で固定された電場中を進みます。
 
 | model | 解く量 | particle sourceへ反映する量 |
 | --- | --- | --- |
@@ -151,7 +151,7 @@ $$
 
 ## Zhao closureを使う範囲
 
-Zhao profileから得る量は、文献closureに基づくsource VDFの事前補正です。Zhao rootはBoris pusherのfield snapshotとは独立しており、
+Zhao profileから得る量は、文献closureに基づくsource VDFの事前補正です。Zhao rootはBoris pusherで用いる電場とは独立しており、
 batchごとの`q_elem`からは更新されません。したがって、任意の3D surface geometryと自己整合な外部場を必要とする構成には対応しません。
 
 sourceと外向き粒子が同じ自己整合potential profileを共有する計算には、

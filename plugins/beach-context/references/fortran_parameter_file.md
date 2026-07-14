@@ -396,8 +396,8 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 [reservoir注入](ReservoirInjection.md)、[シース注入closure](SheathInjectionClosures.md)、
 [粒子のescapeとreturn](ParticleEscapeReturn.md)で、modelごとの処理を分けて説明します。
 
-`reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で refresh 済みの
-electrostatic snapshot から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、
+`reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で更新した
+電場・電位から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、
 outer profile、一様外部場 `e0` は粒子運動時と同じ規約で含まれます。
 
 #### 計算領域と粒子境界
@@ -548,7 +548,7 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 実際の生成粒子数はレイの命中率で決まるため、バッチごとの生成数は `rays_per_batch` 以下です。
 `field_bc_mode="periodic2"` では、periodic image に命中しても primary cell に wrap した hit 座標から放出します。
 
-`photo_escape_model="boltzmann_cutoff"` では、refresh 済み electrostatic snapshot による放出元要素の
+`photo_escape_model="boltzmann_cutoff"` では、更新済みの電場・電位による放出元要素の
 中心電位で障壁を評価します。primary cell の放出元要素自身だけを除き、周期画像、zero mode、outer profile、
 一様外部場 `e0` は残します。`triangle_p0` の自己項には解析 panel 電位を使います。
 
@@ -832,7 +832,7 @@ z 軸方向の円柱です。
 `mesh_potential.csv` は要素重心での電位 [V] を記録します。
 自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。
 `periodic2` では explicit image shell を加えます。
-`m2l_root_oracle` では診断用 Ewald residual、`cached_kneq0` では cached 非零モードと境界条件付き `k=0` を同じ snapshot から加えます。
+`m2l_root_oracle` では診断用 Ewald residual、`cached_kneq0` では cached 非零モードと境界条件付き `k=0` を同じ場の評価処理で加えます。
 
 `potential_history.csv` は `charge_history.csv` と同じ `history_stride` で要素ごとの電位を記録します。
 形式は `batch, elem_idx, potential_V` です。

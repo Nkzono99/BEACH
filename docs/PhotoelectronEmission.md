@@ -5,7 +5,7 @@ Lang: [日本語](PhotoelectronEmission.md) | [English](PhotoelectronEmission.en
 # 光電子の放出とライフサイクル
 
 `source_mode="photo_raycast"`は、照射rayが最初に命中した表面から粒子を放出します。放出位置はmeshとraycastで決め、
-放出に伴う表面電荷はsurface stateで保存します。生成後の光電子は通常の粒子と同じであり、同じfield snapshot、
+放出に伴う表面電荷はsurface stateで保存します。生成後の光電子は通常の粒子と同じであり、batch内で固定された電場、
 Boris更新、衝突判定、box境界を使います。
 
 ## 放出から再吸収までを同じbatchで追う
@@ -17,7 +17,7 @@ Boris更新、衝突判定、box境界を使います。
 5. 通常粒子として追跡し、再吸収、無限遠escape、outer returnを処理する。
 6. 放出電荷と吸収電荷をbatch末尾に表面へcommitする。
 
-放出と再吸収は同じbatchで起こり得ますが、途中でfield snapshotを更新しません。したがって、放出が作る
+放出と再吸収は同じbatchで起こり得ますが、途中で電場・電位を更新しません。したがって、放出が作る
 正味表面電荷は次batchから場へ反映されます。
 
 ## 照射rayで放出面を決める
@@ -131,7 +131,7 @@ outer領域の空間電荷に寄与します。この平均closureは、個々�
 [外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
 Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入closureです。tracked粒子は
-Zhao profileの$E(z)$ではなく、通常のfield snapshot中を進みます。
+Zhao profileの$E(z)$ではなく、通常の粒子追跡で使う、batch内で固定された電場中を進みます。
 
 ## charge ledgerで放出・再吸収・escapeを閉じる
 

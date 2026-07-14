@@ -54,8 +54,8 @@ Q_n^{-1}\sum_{i\in n}q_i\mathbf{c}_i, & |Q_n|>\mathrm{tiny},\\
 \end{cases}
 $$
 
-を更新します。$\mathbf{c}_n$はnodeの幾何中心です。このrefreshによって、batch開始時のfield snapshotを
-作ります。batch末尾でcommitされた要素電荷は、次のrefreshから使われます。
+を更新します。$\mathbf{c}_n$はnodeの幾何中心です。このrefreshによって、batch中に固定する電場・電位を
+構成します。batch末尾でcommitされた要素電荷は、次のrefreshから使われます。
 
 ## 距離に応じてnodeをまとめる
 

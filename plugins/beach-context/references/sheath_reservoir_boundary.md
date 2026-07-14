@@ -77,14 +77,14 @@ inflowでは、上流fluxの選別と法線速度の加減速を両方行いま�
 
 ### 4.1 face電位
 
-各batch冒頭のrefresh済みelectrostatic snapshotを使い、注入口矩形を
+各batch冒頭で更新した電場・電位を使い、注入口矩形を
 `injection_face_phi_grid_n x injection_face_phi_grid_n`のcell-centered点で評価します。
 
 $$
 \bar\phi_f=\frac{1}{N^2}\sum_{a,b}\phi(\mathbf x_{ab})
 $$
 
-point/`triangle_p0` kernel、periodic2、physical `k=0`、outer state、`e0`はsnapshotと同じ規約です。
+point/`triangle_p0` kernel、periodic2、physical `k=0`、outer state、`e0`はその場と同じ規約です。
 この**面平均scalar電位**から$B=2q(\bar\phi_f-\phi_\infty)/m$を作ります。
 
 ### 4.2 何を表していないか
@@ -210,7 +210,7 @@ photoelectron free/captured population、ion速度を再構成します。この
 
 ### 7.3 重要な非保証
 
-Zhao profileの$E(z)$はparticle pusherのfield snapshotへ加算されません。任意のsurface geometryや
+Zhao profileの$E(z)$はparticle pusherで用いる電場へ加算されません。任意のsurface geometryや
 時間変化する`q_elem`に自己整合させる外部場でもありません。Zhao系は文献モデルに基づく
 injection/photoemission closureであり、軌道と同じ外部電位profileを必要とするproduction計算では
 `kinetic_1d`または`unified_linear_response`を使います。

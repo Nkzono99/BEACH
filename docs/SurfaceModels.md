@@ -9,7 +9,7 @@ batch末尾にこれらを`q_elem`へまとめてcommitします。commit後のs
 
 ## batch内の更新順
 
-1. batch開始時の`q_elem`からimmutable field snapshotを作る。
+1. batch開始時の`q_elem`から、batch中に固定する電場・電位を構成する。
 2. 各粒子の最初のmesh hitへ$q_pw_p$をthread-localに加える。
 3. 光電子放出元の反作用電荷を`photo_emission_dq`へ加える。
 4. OpenMP threadの差分を足し、MPI all-reduceでglobal `dq`を作る。
@@ -17,8 +17,8 @@ batch末尾にこれらを`q_elem`へまとめてcommitします。commit後のs
 6. conductorがあれば、object総電荷を保って等電位化する。
 7. commit前後の正味差分と`tol_rel` metricを計算する。
 
-同じbatch内の後続粒子は、手順2や3で生じた電荷を場として見ません。電荷更新がfieldへ現れるのは次batchの
-snapshot refreshです。このlagが`batch_duration`依存性を作るため、[batch幅と安定性](BatchDurationStability.html)で
+同じbatch内の後続粒子は、手順2や3で生じた電荷を場として見ません。電荷更新がfieldへ現れるのは次batch開始時の
+場の更新です。このlagが`batch_duration`依存性を作るため、[batch幅と安定性](BatchDurationStability.html)で
 収束確認します。
 
 ## 保存量と符号
@@ -168,7 +168,7 @@ $$
 $$
 
 のbatchで`charge_history.csv`を書きます。batch 1は常に対象です。`write_potential_history=true`なら同じstrideで現在の
-`q_elem`からfield snapshotをrefreshし、要素重心の`potential_history.csv`も書きます。
+`q_elem`から電場・電位を更新し、要素重心の`potential_history.csv`も書きます。
 
 主な確認fileは`charges.csv`、`charge_history.csv`、`charge_ledger.csv`、`summary.txt`、`mesh_sources.csv`です。
 restart時には、mesh要素数、MPI world size、stats/chargeが有限値であること、ordered mesh/species/model fingerprint、ledger stockを検証します。

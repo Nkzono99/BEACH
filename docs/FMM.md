@@ -56,14 +56,14 @@ L2P at target + near Direct interactions
 | データ | 主な内容 | 更新時期 |
 | --- | --- | --- |
 | plan | source tree、target tree、near/far list、P2M basis、translation operator | 初期化時。geometry、要素数、主要optionsが変われば再構築 |
-| state | 現在の`q_elem`、multipole係数、local係数 | field snapshotを更新するとき |
+| state | 現在の`q_elem`、multipole係数、local係数 | batch開始時に場を更新するとき |
 
 `build_plan`はsource treeとinteraction listを作り、geometryだけで決まる量を前計算します。
 `update_state`は現在の要素電荷からP2M、M2M、M2L、L2Lを実行します。各粒子位置では、属するtarget leafの
 local expansionとnear Direct和だけを評価します。
 
 同じbatchの途中で粒子ごとにstateを更新することはありません。表面への堆積電荷はbatch末尾でcommitされ、
-次のfield snapshotでstateへ反映されます。
+次batchの場を更新するときにstateへ反映されます。
 
 ## 粒子が動く領域をtarget treeで覆う
 
@@ -148,7 +148,7 @@ $[-N,N]^2$の近傍画像を明示的に扱います。遠方補正は次のい�
 | `m2l_root_oracle` | Ewald residualをroot localへfitする高コスト診断 |
 | `cached_kneq0` | 無限周期の非zero modeをversioned operatorで加えるproduction経路 |
 
-`cached_kneq0`ではFMM coreが非zero modeを計算し、field snapshotが物理的なzero modeとouter responseを
+`cached_kneq0`ではFMM coreが非zero modeを計算し、場の合成処理が物理的なzero modeとouter responseを
 一度だけ合成します。panel sourceではpoint専用の`m2l_root_oracle`は使えません。periodic2の選択はFMMの
 精度だけでなく、粒子境界や外部プラズマも含む計算構成を決めます。[periodic2場計算](PeriodicElectrostatics.html)で
 場の成分を、[外部プラズマモデル](OuterPlasmaModels.html)で外部領域との結合を説明します。

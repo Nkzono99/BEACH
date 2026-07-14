@@ -94,7 +94,7 @@ $$
 K_{k\ne0}=K_{\mathrm{shell}}+R_{\mathrm{Ewald}}^{\mathrm{full}}-K_0^{\mathrm{sym}}
 $$
 
-その後、snapshotが選択された境界条件の$K_0^{\mathrm{physical}}$を加えます。
+その後、場の合成処理が選択された境界条件の$K_0^{\mathrm{physical}}$を加えます。
 
 $$
 K_{\mathrm{surface}}=K_{k\ne0}+K_0^{\mathrm{physical}}
@@ -253,7 +253,7 @@ $$
 | 4 | Gauss residualとinterface診断を更新 |
 | 5 | 粒子評価ではnonzero、zero、prescribed fieldをownership規則どおり1回ずつ合成 |
 
-field evaluationは同じbatch中のimmutable snapshotを使います。個々の粒子命中のたびにoperatorや
+field evaluationは同じbatch中に固定された場を使います。個々の粒子命中のたびにoperatorや
 outer profileを更新せず、batch commit後にまとめて更新します。
 
 ## 6. 診断と停止条件
