@@ -300,7 +300,11 @@ contains
     if (t_cur > t_exit) return
 
     p_entry = p0 + t_cur*d
-    axis_eps = axis_rel_eps*maxval(abs(d))
+    axis_eps = axis_rel_eps*max( &
+               maxval(abs(d)), &
+               maxval(abs(mesh%grid_bb_max - mesh%grid_bb_min)), &
+               tiny(1.0d0) &
+               )
     cell = 0_i32
     step = 0_i32
     t_max = huge(1.0d0)
