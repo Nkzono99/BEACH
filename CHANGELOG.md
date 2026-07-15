@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-15
+
+### Changed
+- Package metadata now uses an SPDX license expression and declares the license file through the current `pyproject.toml` fields.
+
+### Fixed
+- PyPI source installations now include Fortran benchmark sources referenced by `fpm.toml`.
+- Pull-request and release workflows now validate every explicit fpm target in the built source distribution and build a wheel from that artifact before publication.
+
 ## [1.6.0] - 2026-07-14
 
 ### Added

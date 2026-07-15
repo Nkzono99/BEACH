@@ -8,9 +8,12 @@ on:
       - "tests/**"
       - "schemas/**"
       - "examples/**"
+      - "MANIFEST.in"
       - "fpm.toml"
       - "pyproject.toml"
       - "Makefile"
+      - "tools/verify_sdist.py"
+      - ".github/workflows/publish-pypi.yml"
       - ".github/workflows/physics-contracts.yml"
   push:
     branches:
@@ -25,6 +28,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  package-sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran
+          python -m pip install --upgrade pip build
+
+      - name: Validate source distribution installation
+        run: |
+          python -m build --sdist
+          python tools/verify_sdist.py dist/*.tar.gz
+          python -m pip wheel --no-deps dist/*.tar.gz --wheel-dir build/wheelhouse
+
   portable-l2:
     runs-on: ubuntu-latest
     env:

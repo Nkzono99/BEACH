@@ -8,8 +8,10 @@ include Makefile
 include build.sh
 include install.sh
 include fpm.toml
+include tools/verify_sdist.py
 
 recursive-include app *.f90
+recursive-include benchmarks *.f90
 recursive-include src *.f90 *.F90
 recursive-include beach *.py *.toml *.json
 recursive-include docs *.md
