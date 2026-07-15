@@ -1,6 +1,7 @@
 !> 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。
 module bem_collision
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type, hit_info, sim_config, bc_periodic
   use bem_string_utils, only: lower_ascii
@@ -11,7 +12,7 @@ module bem_collision
   integer(i32), parameter, public :: collision_query_invalid_segment = 3_i32
   integer(i32), parameter, public :: collision_query_grid_stalled = 4_i32
   integer(i64), parameter :: max_periodic2_collision_images = 4096_i64
-  private :: finalize_collision_query
+  private :: finalize_collision_query, report_collision_grid_stall
 contains
 
   !> 線分 `[p0,p1]` に対して最初に衝突する三角形要素を探索し、命中情報を返す。
@@ -279,6 +280,7 @@ contains
     if (any(mesh%grid_ncell <= 0_i32) .or. &
         any(.not. ieee_is_finite(mesh%grid_inv_cell)) .or. any(mesh%grid_inv_cell <= 0.0d0) .or. &
         any(.not. ieee_is_finite(mesh%grid_bb_min)) .or. any(.not. ieee_is_finite(mesh%grid_bb_max))) then
+      call report_collision_grid_stall('invalid_grid_geometry', mesh, p0, p1)
       status = collision_query_grid_stalled
       return
     end if
@@ -286,6 +288,9 @@ contains
     call segment_aabb_intersection_t(p0, d, mesh%grid_bb_min, mesh%grid_bb_max, hit_grid, t_entry, t_exit)
     if (.not. hit_grid) return
     if (.not. ieee_is_finite(t_entry) .or. .not. ieee_is_finite(t_exit)) then
+      call report_collision_grid_stall( &
+        'nonfinite_aabb_interval', mesh, p0, p1, t_entry=t_entry, t_exit=t_exit &
+        )
       status = collision_query_grid_stalled
       return
     end if
@@ -296,6 +301,10 @@ contains
 
     p_entry = p0 + t_cur*d
     axis_eps = axis_rel_eps*maxval(abs(d))
+    cell = 0_i32
+    step = 0_i32
+    t_max = huge(1.0d0)
+    t_delta = huge(1.0d0)
     do axis = 1, 3
       cell(axis) = coord_to_cell(mesh, p_entry(axis), int(axis, kind=i32))
       if (abs(d(axis)) <= axis_eps) then
@@ -305,6 +314,10 @@ contains
       else
         cell_size = 1.0d0/mesh%grid_inv_cell(axis)
         if (.not. ieee_is_finite(cell_size) .or. cell_size <= 0.0d0) then
+          call report_collision_grid_stall( &
+            'invalid_cell_size', mesh, p0, p1, cell=cell, step=step, axis=axis, &
+            t_entry=t_entry, t_exit=t_exit, t_cur=t_cur &
+            )
           status = collision_query_grid_stalled
           return
         end if
@@ -319,6 +332,10 @@ contains
         end if
         if (.not. ieee_is_finite(t_max(axis)) .or. .not. ieee_is_finite(t_delta(axis)) .or. &
             t_delta(axis) <= 0.0d0) then
+          call report_collision_grid_stall( &
+            'invalid_axis_progress', mesh, p0, p1, cell=cell, step=step, axis=axis, &
+            t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, t_max=t_max, t_delta=t_delta &
+            )
           status = collision_query_grid_stalled
           return
         end if
@@ -326,11 +343,21 @@ contains
         do while (t_max(axis) < t_cur - t_eps)
           align_iterations = align_iterations + 1_i64
           if (align_iterations > int(mesh%grid_ncell(axis), i64) + 1_i64) then
+            call report_collision_grid_stall( &
+              'align_iteration_limit', mesh, p0, p1, cell=cell, step=step, axis=axis, &
+              iterations=align_iterations, max_iterations=int(mesh%grid_ncell(axis), i64) + 1_i64, &
+              t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, t_max=t_max, t_delta=t_delta &
+              )
             status = collision_query_grid_stalled
             return
           end if
           t_max(axis) = t_max(axis) + t_delta(axis)
           if (.not. ieee_is_finite(t_max(axis))) then
+            call report_collision_grid_stall( &
+              'nonfinite_t_max_after_align', mesh, p0, p1, cell=cell, step=step, axis=axis, &
+              iterations=align_iterations, t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, &
+              t_max=t_max, t_delta=t_delta &
+              )
             status = collision_query_grid_stalled
             return
           end if
@@ -346,10 +373,20 @@ contains
     do
       traversal_iterations = traversal_iterations + 1_i64
       if (traversal_iterations > max_traversal_iterations) then
+        call report_collision_grid_stall( &
+          'traversal_iteration_limit', mesh, p0, p1, cell=cell, step=step, &
+          iterations=traversal_iterations, max_iterations=max_traversal_iterations, &
+          t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, t_max=t_max, t_delta=t_delta &
+          )
         status = collision_query_grid_stalled
         return
       end if
       if (.not. ieee_is_finite(t_cur)) then
+        call report_collision_grid_stall( &
+          'nonfinite_t_cur', mesh, p0, p1, cell=cell, step=step, &
+          iterations=traversal_iterations, t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, &
+          t_max=t_max, t_delta=t_delta &
+          )
         status = collision_query_grid_stalled
         return
       end if
@@ -357,6 +394,11 @@ contains
       if (t_cur > best_t + t_eps) exit
 
       if (any(cell < 1_i32) .or. any(cell > mesh%grid_ncell)) then
+        call report_collision_grid_stall( &
+          'cell_out_of_range', mesh, p0, p1, cell=cell, step=step, &
+          iterations=traversal_iterations, t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, &
+          t_max=t_max, t_delta=t_delta &
+          )
         status = collision_query_grid_stalled
         return
       end if
@@ -396,6 +438,11 @@ contains
 
       t_next = min(t_max(1), min(t_max(2), t_max(3)))
       if (.not. ieee_is_finite(t_next) .or. t_next < t_cur - t_eps) then
+        call report_collision_grid_stall( &
+          'invalid_t_next', mesh, p0, p1, cell=cell, step=step, &
+          iterations=traversal_iterations, t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, t_next=t_next, &
+          t_max=t_max, t_delta=t_delta &
+          )
         status = collision_query_grid_stalled
         return
       end if
@@ -414,12 +461,68 @@ contains
         end if
       end do
       if (.not. advanced_cell) then
+        call report_collision_grid_stall( &
+          'no_cell_advanced', mesh, p0, p1, cell=cell, step=step, &
+          iterations=traversal_iterations, t_entry=t_entry, t_exit=t_exit, t_cur=t_cur, t_next=t_next, &
+          t_max=t_max, t_delta=t_delta &
+          )
         status = collision_query_grid_stalled
         return
       end if
       t_cur = t_next
     end do
   end subroutine find_first_hit_base_grid
+
+  !> `BEACH_COLLISION_DIAGNOSTICS=1` のときだけ、grid DDA停止位置の内部状態を出力する。
+  subroutine report_collision_grid_stall( &
+    reason, mesh, p0, p1, cell, step, axis, iterations, max_iterations, &
+    t_entry, t_exit, t_cur, t_next, t_max, t_delta &
+    )
+    character(len=*), intent(in) :: reason
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: p0(3), p1(3)
+    integer(i32), intent(in), optional :: cell(3), step(3), axis
+    integer(i64), intent(in), optional :: iterations, max_iterations
+    real(dp), intent(in), optional :: t_entry, t_exit, t_cur, t_next
+    real(dp), intent(in), optional :: t_max(3), t_delta(3)
+
+    character(len=32) :: env_value
+    integer :: env_length, env_status
+
+    env_value = ''
+    call get_environment_variable( &
+      'BEACH_COLLISION_DIAGNOSTICS', env_value, length=env_length, status=env_status &
+      )
+    if (env_status /= 0 .or. env_length <= 0) return
+    select case (trim(lower_ascii(env_value)))
+    case ('1', 'true', 'yes', 'on')
+      continue
+    case default
+      return
+    end select
+
+    !$omp critical (beach_collision_grid_diagnostic)
+    write (error_unit, '(a,a)') 'collision grid diagnostic: reason=', trim(reason)
+    write (error_unit, '(a,3(1x,es24.16))') '  p0=', p0
+    write (error_unit, '(a,3(1x,es24.16))') '  p1=', p1
+    write (error_unit, '(a,3(1x,i0))') '  grid_ncell=', mesh%grid_ncell
+    write (error_unit, '(a,3(1x,es24.16))') '  grid_bb_min=', mesh%grid_bb_min
+    write (error_unit, '(a,3(1x,es24.16))') '  grid_bb_max=', mesh%grid_bb_max
+    write (error_unit, '(a,3(1x,es24.16))') '  grid_inv_cell=', mesh%grid_inv_cell
+    if (present(cell)) write (error_unit, '(a,3(1x,i0))') '  cell=', cell
+    if (present(step)) write (error_unit, '(a,3(1x,i0))') '  step=', step
+    if (present(axis)) write (error_unit, '(a,i0)') '  axis=', axis
+    if (present(iterations)) write (error_unit, '(a,i0)') '  iterations=', iterations
+    if (present(max_iterations)) write (error_unit, '(a,i0)') '  max_iterations=', max_iterations
+    if (present(t_entry)) write (error_unit, '(a,es24.16)') '  t_entry=', t_entry
+    if (present(t_exit)) write (error_unit, '(a,es24.16)') '  t_exit=', t_exit
+    if (present(t_cur)) write (error_unit, '(a,es24.16)') '  t_cur=', t_cur
+    if (present(t_next)) write (error_unit, '(a,es24.16)') '  t_next=', t_next
+    if (present(t_max)) write (error_unit, '(a,3(1x,es24.16))') '  t_max=', t_max
+    if (present(t_delta)) write (error_unit, '(a,3(1x,es24.16))') '  t_delta=', t_delta
+    flush (error_unit)
+    !$omp end critical (beach_collision_grid_diagnostic)
+  end subroutine report_collision_grid_stall
 
   !> 線分 `p(t)=p0+t*d` (`0<=t<=1`) とAABBの交差区間 `[t_entry,t_exit]` を返す。
   pure subroutine segment_aabb_intersection_t(p0, d, bb_min, bb_max, ok, t_entry, t_exit)
