@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _write_fixture_sdist(tmp_path: Path, *, include_benchmark: bool) -> Path:
-    package_root = tmp_path / "beach_bem-1.6.1"
+    package_root = tmp_path / "beach_bem-1.6.2"
     (package_root / "app").mkdir(parents=True)
     (package_root / "benchmarks" / "fortran").mkdir(parents=True)
     (package_root / "app" / "main.f90").write_text("program main\nend program\n")
@@ -34,7 +34,7 @@ main = "benchmark.f90"
 """.lstrip()
     )
 
-    archive_path = tmp_path / "beach_bem-1.6.1.tar.gz"
+    archive_path = tmp_path / "beach_bem-1.6.2.tar.gz"
     with tarfile.open(archive_path, mode="w:gz") as archive:
         archive.add(package_root, arcname=package_root.name)
     return archive_path

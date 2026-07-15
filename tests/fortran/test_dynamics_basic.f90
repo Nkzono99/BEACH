@@ -1,6 +1,6 @@
 !> 基本物理テスト: 電場評価・Boris更新・衝突判定・periodic2衝突の基礎検証。
 program test_dynamics_basic
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_quiet_nan, ieee_value
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_next_after, ieee_quiet_nan, ieee_value
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, hit_info, sim_config, bc_open, bc_periodic
@@ -34,7 +34,7 @@ program test_dynamics_basic
     stop
   end if
 
-  call test_init(23)
+  call test_init(24)
 
   call test_begin('electric_field_at')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -149,6 +149,10 @@ program test_dynamics_basic
 
   call test_begin('collision_nonfinite_segment_guard')
   call test_collision_nonfinite_segment_guard()
+  call test_end()
+
+  call test_begin('collision_subnormal_segment_guard')
+  call test_collision_subnormal_segment_guard()
   call test_end()
 
   call test_begin('collision_grid_stall_guard')
@@ -506,6 +510,26 @@ contains
       )
     call assert_true(.not. hit_grid%has_hit, 'invalid collision segment must not report a hit')
   end subroutine test_collision_nonfinite_segment_guard
+
+  subroutine test_collision_subnormal_segment_guard()
+    type(mesh_type) :: mesh_grid
+    type(hit_info) :: hit_grid
+    integer(i32) :: query_status
+    real(dp) :: p0(3), p1(3)
+
+    call make_plane(mesh_grid, size_x=1.0d0, size_y=1.0d0, nx=8_i32, ny=8_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    call assert_true(mesh_grid%use_collision_grid, 'dense mesh should use collision grid')
+    p0 = [ieee_next_after(0.0d0, 1.0d0), 0.5d0, 0.0d0]
+    p1 = [0.0d0, 0.5d0, 0.0d0]
+
+    call find_first_hit(mesh_grid, p0, p1, hit_grid, status=query_status)
+
+    call assert_equal_i32( &
+      query_status, collision_query_ok, &
+      'subnormal collision-grid displacement should be treated as stationary' &
+      )
+    call assert_true(.not. hit_grid%has_hit, 'subnormal in-plane segment should not report a hit')
+  end subroutine test_collision_subnormal_segment_guard
 
   subroutine test_collision_grid_stall_guard()
     character(len=1024) :: executable_path, command
