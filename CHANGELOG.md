@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-07-15
+
+### Added
+- Opt-in `BEACH_COLLISION_DIAGNOSTICS=1` output for collision-grid traversal failures.
+
+### Fixed
+- Collision-grid DDA now classifies subnormal periodic-seam displacements as stationary using a mesh-scale tolerance, preventing false `grid_stalled` failures caused by an infinite axis increment.
+
 ## [1.6.1] - 2026-07-15
 
 ### Changed

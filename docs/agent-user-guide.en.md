@@ -16,7 +16,7 @@ BEACH (BEM + Accumulated CHarge) is a hybrid boundary-element-method plus partic
 
 - **Fortran core**: particle dynamics, electric-field solver, collision detection, charge deposition
 - **Python layer**: configuration management, post-processing, visualization
-- **Version**: 1.6.1
+- **Version**: 1.6.2
 
 ---
 
