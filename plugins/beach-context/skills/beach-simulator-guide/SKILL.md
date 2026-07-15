@@ -20,6 +20,7 @@ Prefer bundled references because ordinary users may only have a pip install plu
 - `../../references/agent-user-guide.md`: user-oriented workflow.
 - `../../references/config_workflow.md`: `beachx config`, high-level notation, validate.
 - `../../references/fortran_parameter_file.md`: final `beach.toml` keys.
+- `../../references/examples/tutorial_insulator.toml`: current `beachx config init` baseline.
 - `../../references/python_postprocess_api.md`: `Beach` facade and analysis functions.
 - `../../references/fortran_workflow.md`: developer/build workflow.
 - `../../references/fortran_fmm_core.md`: FMM core details.

@@ -1,6 +1,6 @@
 {
   "name": "beach-context",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260715013252",
   "description": "Context, skills, issue workflows, and bundled references for BEACH simulation users and maintainers.",
   "author": {
     "name": "beach contributors",

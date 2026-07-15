@@ -152,8 +152,9 @@ def test_config_init_docs_match_official_tutorial_case() -> None:
     for name in ("Configuration.md", "Configuration.en.md"):
         text = _read_doc(name)
         assert "examples/tutorial_insulator.toml" in text
-        assert 'field_solver="direct"' in text
-        assert 'field_bc_mode="free"' in text
+        assert 'field_solver="fmm"' in text
+        assert 'field_bc_mode="periodic2"' in text
+        assert "field_periodic_image_layers=1" in text
         assert "run_periodic2" not in text
 
     for name in ("Workflow.md", "Workflow.en.md"):

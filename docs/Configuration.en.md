@@ -40,9 +40,9 @@ beachx config init --force
 
 The generated file is identical to
 [`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml).
-It is the nonperiodic official beginner case that launches one `volume_seed` electron toward an insulating plane with
-`field_solver="direct"` and `field_bc_mode="free"`. It does not include FMM, periodic boundaries, an ion species, or
-`photo_raycast`.
+It is the official beginner case that launches one `volume_seed` electron toward an insulating plane with
+`field_solver="fmm"`, `field_bc_mode="periodic2"`, and `field_periodic_image_layers=1`, summing $3\times3$ cells in x/y.
+Its far correction is `none`; it does not include an infinite-periodic operator, an ion species, or `photo_raycast`.
 
 ### 2.2 `lint`
 

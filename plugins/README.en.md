@@ -1,55 +1,66 @@
 Lang: [日本語](README.md) | [English](README.en.md)
 
-# BEACH Codex Plugins
+# BEACH Plugins for Codex and Claude Code
 
-This directory contains Codex plugins that package the context needed to use, analyze, and maintain BEACH.
+This directory contains plugins that package the context needed to use, analyze, and maintain BEACH in Codex and Claude Code.
 
 ## Available Plugins
 
 | Plugin | Contents |
 | --- | --- |
-| [beach-context](beach-context/README.en.md) | Skills and bundled references for config review, run diagnosis, case design, output analysis, method summaries, simulator guidance, and feedback reporting |
+| [beach-context](beach-context/README.en.md) | The shared Codex/Claude Code plugin with skills, agents, and bundled references for config review, run diagnosis, case design, output analysis, method summaries, simulator guidance, and feedback reporting |
+| [beach-context-claude](beach-context-claude/README.md) | Compatibility package for manually copied legacy Claude Code project agents and commands |
 
-## Installation
+## Install in Codex
 
-To sparse-install only the marketplace metadata and plugin from GitHub:
+Sparse-install the marketplace metadata and plugin from GitHub:
 
 ```bash
 codex plugin marketplace add Nkzono99/BEACH \
   --ref main \
   --sparse .agents/plugins \
   --sparse plugins/beach-context
+codex plugin add beach-context@beach
 ```
 
-At this point the marketplace is registered, but the `BEACH Context` plugin is not enabled yet. Start Codex, open `/plugins`, and install `BEACH Context`.
+Start a new Codex thread after installation. The skills are available outside the BEACH repository too.
 
-```bash
-codex
-# Open /plugins inside Codex
-```
-
-After installing the plugin, restart Codex. The `beach-context` skills will then be available even when Codex is started outside the repository.
-
-To update an already registered marketplace:
+Update an existing installation:
 
 ```bash
 codex plugin marketplace upgrade beach
+codex plugin add beach-context@beach
 ```
 
-To use a local checkout as the marketplace:
+Use a local checkout as the marketplace:
 
 ```bash
 codex plugin marketplace add /path/to/BEACH
+codex plugin add beach-context@beach
 ```
 
-In this case too, install `BEACH Context` from `/plugins` after registering the marketplace.
+## Install in Claude Code
 
-## Skill Visibility
+The formal Claude Code distribution uses the same [beach-context](beach-context/README.en.md) plugin:
 
-The repository root `AGENTS.md` contains project-local instructions for BEACH developers. It is loaded only when Codex is started inside the BEACH repository.
+```bash
+claude plugin marketplace add Nkzono99/BEACH
+claude plugin install beach-context@beach-claude
+```
 
-The `plugins/beach-context/skills/` directory contains user-facing plugin skills. After installing the plugin from `/plugins` and restarting Codex, these skills are available from other working directories such as `~`.
+Test the checkout directly with:
+
+```bash
+claude --plugin-dir ./plugins/beach-context
+```
+
+The [beach-context-claude](beach-context-claude/README.md) directory remains for workflows that manually copy legacy project-local agents and commands.
+
+## Instruction and Skill Visibility
+
+The repository-root `AGENTS.md` and `CLAUDE.md` contain project-local instructions for BEACH developers.
+The formal plugin shares `skills/` and `references/` across both products, while Claude Code also discovers `agents/`.
 
 ## Placement Policy
 
-BEACH-specific physics, configuration specifications, output specifications, known failure modes, and learning paths live in this simulator repo plugin. Cross-cutting Fortran, fpm, Slurm, and Codex operation workflows should live in repo-root `AGENTS.md` or shared plugins.
+BEACH-specific physics, configuration specifications, output specifications, known failure modes, and learning paths live in this simulator plugin. Cross-cutting Fortran, fpm, and Slurm workflows belong in repository-root guidance or shared plugins.

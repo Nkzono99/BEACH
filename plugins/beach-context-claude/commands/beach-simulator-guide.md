@@ -9,8 +9,10 @@ argument-hint: "<user goal>"
 
 参照:
 - `README.md`
+- `docs/Tutorial.md`
 - `docs/agent-user-guide.md`
 - `docs/Parameters.md`
 - `docs/Algorithms.md`
+- `docs/Execution.md`, `docs/OutputGuide.md`
 - `docs/PythonPostprocessAPI.md`
 - `SPEC.md`

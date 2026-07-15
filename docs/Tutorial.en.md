@@ -5,7 +5,8 @@ Lang: [English](Tutorial.en.md) | [日本語](Tutorial.md)
 # Ten-Minute Tutorial
 
 The official beginner case tracks one electron into an insulating plane and verifies absorption and charge deposition.
-It intentionally excludes FMM, periodic boundaries, photoelectrons, conductors, and dielectric models.
+It uses an FMM finite image sum over $3\times3$ cells in x/y. It intentionally excludes infinite-periodic correction,
+photoelectrons, conductors, and dielectric models.
 
 ## 1. Create the configuration
 
@@ -29,16 +30,17 @@ softening = 1.0e-6
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 1.0]
-bc_x_low = "reflect"
-bc_x_high = "reflect"
-bc_y_low = "reflect"
-bc_y_high = "reflect"
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
 rng_seed = 12345
 open_boundary_model = "escape"
-field_solver = "direct"
-field_bc_mode = "free"
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 
 [particles]
@@ -110,5 +112,5 @@ Only the hit element receives negative charge. This verifies the execution path;
 | Longer run | `batch_count`, `max_step` |
 | Thinner history | `history_stride` |
 
-Continue with [Configuration Recipes](ConfigurationRecipes.en.html), then complete
+Continue with [Configuration Recipes](ConfigurationRecipes.en.html) for inflow, image-layer convergence, and OBJ meshes, then complete
 [Validating Simulation Results](ValidationGuide.en.html) before quantitative use.

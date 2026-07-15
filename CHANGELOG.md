@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- A formal Claude Code marketplace and plugin manifest for the shared `beach-context` package, including bundled agents and installation/update guidance.
+
+### Changed
+- `beachx config init` and the tutorial now default to periodic x/y boundaries with the finite `periodic2` image sum (`field_periodic_image_layers=1`, a 3 x 3 image layout) and no periodic far correction.
+- Codex and Claude Code plugin content now shares one self-contained, current documentation snapshot; the older Claude prompt package remains as a compatibility mirror.
+
 ## [1.6.0] - 2026-07-14
 
 ### Added

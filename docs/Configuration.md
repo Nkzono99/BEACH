@@ -38,8 +38,9 @@ beachx config init --force
 ```
 
 生成内容は[`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml)と
-同一です。`volume_seed`から1個の電子を絶縁体平面へ向けて追跡する、`field_solver="direct"`、
-`field_bc_mode="free"`の非周期な公式入門ケースです。FMM、周期境界、ion species、`photo_raycast`は含みません。
+同一です。`volume_seed`から1個の電子を絶縁体平面へ向けて追跡し、`field_solver="fmm"`、
+`field_bc_mode="periodic2"`、`field_periodic_image_layers=1`でx/y方向の$3\times3$ cellsを足す公式入門ケースです。
+遠方補正は`none`で、無限周期operator、ion species、`photo_raycast`は含みません。
 
 ### 2.2 `lint`
 

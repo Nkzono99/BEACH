@@ -1,0 +1,24 @@
+{
+  "name": "beach-claude",
+  "owner": {
+    "name": "BEACH contributors"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for the BEACH surface-charging simulator."
+  },
+  "plugins": [
+    {
+      "name": "beach-context",
+      "source": "./plugins/beach-context",
+      "description": "BEACH configuration, case design, run diagnosis, output analysis, simulator guidance, and method-summary workflows.",
+      "category": "Scientific Computing",
+      "tags": [
+        "beach",
+        "bem",
+        "fortran",
+        "simulation",
+        "surface-charging"
+      ]
+    }
+  ]
+}

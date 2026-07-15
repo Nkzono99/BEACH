@@ -14,13 +14,14 @@
 - `reservoir_face` and `photo_raycast` require resolved `batch_duration > 0`.
 - `temperature_k` and `temperature_ev` are mutually exclusive.
 - `e0` and `e0_abs` angle form are mutually exclusive.
-- `field_bc_mode = "periodic2"` requires consistent 2-axis periodic box boundary setup and is designed for FMM mode.
+- `field_bc_mode = "periodic2"` requires exactly two periodic axes and `use_box=true`. It normally requires FMM;
+  only the constrained direct `triangle_p0` split reference is exempt.
 
 ## runtime/output
 
 - No early stop occurs from `tol_rel`; it is only reported.
 - High `history_stride` frequency, `write_potential_history`, large mesh, and many batches can create large CSV outputs.
-- `output.resume = true` needs compatible `summary.txt`, `charges.csv`, and RNG state files in the same output directory.
+- `output.resume = true` needs a compatible checkpoint in `restart_from` or, when omitted, `output.dir`.
 - MPI resume requires the same world size as the previous run.
 - Missing `charge_history.csv` usually means `history_stride <= 0`.
 - Missing `mesh_potential.csv` usually means `output.write_mesh_potential = false`.

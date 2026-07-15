@@ -3,14 +3,17 @@
 ## 新規 case
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
+mkdir beach-tutorial
+cd beach-tutorial
 beachx config init
 beachx lint beach.toml
 beach beach.toml
 ```
 
 `beach.toml` は日常編集用であり、Fortran runtime が直接読む設定ファイルでもあります。高水準記法を使った場合は Fortran parser が読み込み時に正規化します。
+生成内容は`references/examples/tutorial_insulator.toml`と同じで、x/y periodic、
+`field_solver="fmm"`、`field_periodic_image_layers=1`、
+`field_periodic_far_correction="none"`の$3\times3$有限画像和です。
 
 ## runtime config の直接実行
 

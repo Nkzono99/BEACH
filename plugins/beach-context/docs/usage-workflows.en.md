@@ -3,14 +3,17 @@
 ## New Case
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
+mkdir beach-tutorial
+cd beach-tutorial
 beachx config init
 beachx lint beach.toml
 beach beach.toml
 ```
 
 `beach.toml` is both the everyday editing entry point and the file read by the Fortran runtime. When high-level notation is used, the Fortran parser normalizes it while loading.
+The generated content matches `references/examples/tutorial_insulator.toml`: x/y periodic boundaries,
+`field_solver="fmm"`, `field_periodic_image_layers=1`, `field_periodic_far_correction="none"`,
+and a finite $3\times3$ image sum.
 
 ## Direct beach.toml Run
 

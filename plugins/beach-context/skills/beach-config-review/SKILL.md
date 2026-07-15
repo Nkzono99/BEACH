@@ -16,7 +16,7 @@ Use this skill when a user asks to review, validate, sanity-check, or explain a 
 Prefer sources in this order:
 
 1. User-provided `beach.toml` or generated snippet.
-2. Bundled references: `../../references/fortran_parameter_file.md`, `../../references/config_workflow.md`, `../../references/SPEC.md`, `../../references/schemas/beach.schema.json`, `../../references/examples/beach.toml`, `../../references/examples/periodic2_basic/beach.toml`.
+2. Bundled references: `../../references/fortran_parameter_file.md`, `../../references/config_workflow.md`, `../../references/SPEC.md`, `../../references/schemas/beach.schema.json`, `../../references/examples/tutorial_insulator.toml`, `../../references/examples/beach.toml`, `../../references/examples/periodic2_basic/beach.toml`.
 3. Bundled docs: `../../docs/simulator-context.md`, `../../docs/known-failure-modes.md`, `../../docs/usage-workflows.md`, `../../docs/skills-guide.md`.
 4. Repo primary docs/source only when the full checkout is available and may be newer.
 
@@ -37,6 +37,8 @@ For workload questions, use schema/TOML inspection and `beachx estimate-workload
   - `photo_raycast`: rays/current settings, source face, hit expectations, and opposite-charge deposition setting.
 - Check mutually exclusive forms: `temperature_k` vs `temperature_ev`, `e0` vs `e0_abs` angle form.
 - Check box and boundary consistency, especially `field_bc_mode = "periodic2"` with exactly two periodic axes.
+- If the config came from `beachx config init`, expect x/y periodic FMM with one image layer and
+  `field_periodic_far_correction="none"`; do not report that finite $3\times3$ baseline as accidental.
 - Check mesh placement relative to box, injection faces, and periodic primitive cell assumptions.
 - Check solver controls: `field_solver`, `softening`, tree/FMM parameters, periodic far correction, and field normalization.
 - Check output size risk: `history_stride`, `write_potential_history`, `write_mesh_potential`, mesh size, batch count.

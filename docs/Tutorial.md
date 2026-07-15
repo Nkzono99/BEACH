@@ -5,7 +5,7 @@ Lang: [日本語](Tutorial.md) | [English](Tutorial.en.md)
 # 10分チュートリアル
 
 この公式入門ケースは、1個の電子を絶縁体平面へ向けて追跡し、吸収と表面電荷堆積までを確認します。
-FMM、周期境界、光電子、導体・誘電体モデルは使いません。
+x/y方向にはFMMによる$3\times3$ cellsの有限画像和を使います。無限周期補正、光電子、導体・誘電体モデルは使いません。
 
 ## 1. 設定を作る
 
@@ -29,16 +29,17 @@ softening = 1.0e-6
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 1.0]
-bc_x_low = "reflect"
-bc_x_high = "reflect"
-bc_y_low = "reflect"
-bc_y_high = "reflect"
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
 rng_seed = 12345
 open_boundary_model = "escape"
-field_solver = "direct"
-field_bc_mode = "free"
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 
 [particles]
@@ -110,5 +111,5 @@ beachx inspect outputs/latest --save-mesh outputs/latest/charge.png
 | 長く計算する | `batch_count`, `max_step` |
 | 履歴を間引く | `history_stride` |
 
-次に[設定レシピ](ConfigurationRecipes.html)で流入・周期境界・OBJへ進めます。研究結果へ使う前に
+次に[設定レシピ](ConfigurationRecipes.html)で流入・画像層の収束確認・OBJへ進めます。研究結果へ使う前に
 [計算結果の妥当性確認](ValidationGuide.html)を実施してください。

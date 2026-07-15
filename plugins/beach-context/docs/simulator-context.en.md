@@ -40,8 +40,9 @@ Analysis entry points:
 
 Operational notes:
 
-- `sim.batch_count` is the number of batches to run now.
+- `sim.batch_count` is the number of batches for a normal run; with `output.resume=true`, it is the cumulative target batch count.
 - `sim.max_step` is the per-particle step limit.
 - `sim.tol_rel` is a monitoring metric, not an early-stop condition.
-- `output.resume = true` reads `summary.txt`, `charges.csv`, and `rng_state.txt` from the same `output.dir`. MPI resume requires the same world size.
-- `field_bc_mode = "periodic2"` handles two periodic axes and requires care with FMM and box boundary settings.
+- With `output.resume = true`, the checkpoint is read from `output.dir` unless `restart_from` is set. MPI resume requires the same world size.
+- `field_bc_mode = "periodic2"` handles two periodic axes. It normally uses FMM; the constrained direct `triangle_p0` split reference is the exception.
+- `beachx config init` generates x/y periodic boundaries, FMM, one image layer, and a finite $3\times3$ image sum with no far correction.

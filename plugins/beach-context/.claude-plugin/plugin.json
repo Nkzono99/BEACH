@@ -1,0 +1,18 @@
+{
+  "name": "beach-context",
+  "description": "Self-contained BEACH skills, agents, references, and workflows for configuration, simulation, and analysis.",
+  "author": {
+    "name": "BEACH contributors",
+    "url": "https://github.com/Nkzono99/BEACH"
+  },
+  "homepage": "https://github.com/Nkzono99/BEACH/tree/main/plugins/beach-context",
+  "repository": "https://github.com/Nkzono99/BEACH",
+  "license": "Apache-2.0",
+  "keywords": [
+    "beach",
+    "bem",
+    "fortran",
+    "simulation",
+    "surface-charging"
+  ]
+}

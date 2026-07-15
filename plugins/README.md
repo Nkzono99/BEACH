@@ -1,65 +1,68 @@
 Lang: [English](README.en.md) | [日本語](README.md)
 
-# BEACH Codex Plugins
+# BEACH Plugins for Codex and Claude Code
 
-このディレクトリには、BEACH の利用・解析・保守に必要な文脈を Codex に配布するための plugin を置きます。
+このdirectoryには、BEACHの利用・解析・保守に必要な文脈をCodexとClaude Codeへ配布するpluginを置きます。
 
-## 利用できる plugin
+## 利用できるplugin
 
 | Plugin | 内容 |
 | --- | --- |
-| [beach-context](beach-context/README.md) | 設定レビュー、実行診断、ケース設計、出力解析、手法説明、学習ガイド、feedback 整理用の skill と同梱 reference |
-| [beach-context-claude](beach-context-claude/README.md) | Claude Code 向けの BEACH agent / slash command 風 prompt / 参照マップ |
+| [beach-context](beach-context/README.md) | Codex / Claude Code共通の正式plugin。設定レビュー、実行診断、case設計、出力解析、手法説明、学習ガイド、feedback整理用skill・agent・reference |
+| [beach-context-claude](beach-context-claude/README.md) | 旧来のClaude Code project-local agent / commandを手動配置するための互換package |
 
-## 導入
+## Codexへの導入
 
-GitHub から marketplace と plugin だけを sparse install する場合:
+GitHubからmarketplaceとpluginだけをsparse installする場合:
 
 ```bash
 codex plugin marketplace add Nkzono99/BEACH \
   --ref main \
   --sparse .agents/plugins \
   --sparse plugins/beach-context
+codex plugin add beach-context@beach
 ```
 
-この時点では marketplace が登録されるだけで、`BEACH Context` plugin はまだ有効化されていません。Codex を起動し、`/plugins` から `BEACH Context` を install してください。
+install後は新しいCodex threadで利用してください。repo外の作業directoryでもskillが利用できます。
 
-```bash
-codex
-# Codex 内で /plugins を開く
-```
-
-install 後に Codex を再起動すると、repo 外の作業ディレクトリでも `beach-context` の skill が利用できます。
-
-登録済み marketplace を更新する場合:
+登録済みmarketplaceを更新する場合:
 
 ```bash
 codex plugin marketplace upgrade beach
+codex plugin add beach-context@beach
 ```
 
-ローカル checkout を marketplace として使う場合:
+ローカルcheckoutをmarketplaceとして使う場合:
 
 ```bash
 codex plugin marketplace add /path/to/BEACH
+codex plugin add beach-context@beach
 ```
 
-この場合も、登録後に `/plugins` から `BEACH Context` を install します。
+## Claude Codeへの導入
 
-## Claude Code 版
+正式Claude Code pluginも同じ[beach-context](beach-context/README.md)を使います。
 
-[beach-context-claude](beach-context-claude/README.md) は Codex plugin ではなく、Claude Code の
-agent / command 定義として使うための context package です。BEACH repo 内で参照するか、必要な
-`agents/*.md` と `commands/*.md` だけを Claude Code の project-local 設定に配置してください。
+```bash
+claude plugin marketplace add Nkzono99/BEACH
+claude plugin install beach-context@beach-claude
+```
 
-## Skill の見え方
+checkoutを直接試す場合:
 
-repo root の `AGENTS.md` は BEACH 開発者向けの project-local 指示です。BEACH repo 配下で Codex を起動した場合だけ読み込まれます。
+```bash
+claude --plugin-dir ./plugins/beach-context
+```
 
-一方、`plugins/beach-context/skills/` は利用者向け plugin skill です。`/plugins` で install して Codex を再起動すると、`~` など repo 外で Codex を起動しても利用できます。
+[beach-context-claude](beach-context-claude/README.md)は、既存のproject-local agent / commandを
+手動配置するworkflow向けに残した互換packageです。
 
-Claude Code では [beach-context-claude](beach-context-claude/README.md) の `agents/` と `commands/` を
-参照してください。必要なものだけを `.claude/agents/` または `.claude/commands/` に配置して使う想定です。
+## 指示とskillの見え方
+
+repo rootの`AGENTS.md`と`CLAUDE.md`はBEACH開発者向けのproject-local指示です。
+正式pluginの`skills/`と`references/`は両製品で共有し、Claude Codeは`agents/`も読み込みます。
 
 ## 配置方針
 
-BEACH 固有の物理、設定仕様、出力仕様、既知の失敗モード、学習導線は simulator repo 内の plugin に置きます。Fortran/fpm/Slurm/Codex 運用の横断的な手順は、repo root の `AGENTS.md` や共通 plugin に寄せます。
+BEACH固有の物理、設定仕様、出力仕様、既知の失敗mode、学習導線はsimulator repo内のpluginに置きます。
+Fortran/fpm/Slurm運用の横断的な手順はrepo rootの`AGENTS.md`や共通pluginに寄せます。

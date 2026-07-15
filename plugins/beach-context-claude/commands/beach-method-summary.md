@@ -7,9 +7,12 @@ argument-hint: "<audience/topic>"
 
 優先参照:
 - `docs/Algorithms.md`
+- `docs/FieldSolvers.md`, `docs/FMM.md`, `docs/FMMCore.md`
+- `docs/PeriodicElectrostatics.md`, `docs/ParticleEvents.md`, `docs/SurfaceModels.md`
 - `SPEC.md`
 - `README.md`
 - 必要なら `src/` と `app/`
 
-absorption-only interaction、insulator accumulation、direct/treecode/FMM、periodic2、batch loop の範囲を
+`docs/Algorithms.md`は索引として使い、absorption-only interaction、insulator accumulation、
+direct/treecode/FMM、periodic2、batch loopの範囲を
 正確に区別してください。実装確認なしに未実装 model を有効機能として書かないでください。

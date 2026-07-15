@@ -78,8 +78,8 @@ GitHub Raw URL を指定することもできます。
 `examples/tutorial_insulator.toml` を使ってください。`beachx config init`
 も同一の設定を生成します。
 
-`reservoir_face`、FMM、`periodic2` は、そのケースが実行できた後に
-[設定レシピ](ConfigurationRecipes.html) から追加する応用設定です。
+この設定はFMMによるx/y方向の$3\times3$ cells有限画像和を使います。`reservoir_face`、画像層の収束確認、
+無限周期operatorは、そのケースが実行できた後に[設定レシピ](ConfigurationRecipes.html)から追加・調整します。
 
 ---
 

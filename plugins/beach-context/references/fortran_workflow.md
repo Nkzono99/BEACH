@@ -1,9 +1,14 @@
-title: Fortran 中心ワークフロー（現行推奨）
+title: 開発・運用ワークフロー
 
-# Fortran 中心ワークフロー（現行推奨）
+Lang: [日本語](Workflow.md) | [English](Workflow.en.md)
 
-このプロジェクトは **Fortran 実行系が主**、Python は後処理・可視化を担当します。  
-通常利用の推奨運用は、`pip install git+...` で導入した `beach` コマンドを使う方式です。
+# 開発・運用ワークフロー
+
+このプロジェクトでは、Fortranがシミュレーションを実行し、Pythonが後処理と可視化を担当します。
+通常は、`pip install beach-bem`で導入した`beach`コマンドを使って実行します。
+
+通常のcaseの実行方法は[実行する](Execution.html)にまとめています。ソースから開発する場合のsetup、test、
+MPI/OpenMP、HPC運用は以下で説明します。
 
 ## 1. 利用者向けセットアップ（推奨）
 
@@ -16,19 +21,25 @@ fpm --version
 python --version
 ```
 
-### 1.2 Git URL から一括インストール（推奨）
+### 1.2 PyPI から一括インストール（推奨）
 
 ```bash
 python -m pip install -U pip setuptools wheel
-python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
+python -m pip install beach-bem
 ```
 
-`pip install` 時に `make install` が実行され、Python CLI と Fortran 実行バイナリが同時導入されます。
-pip 経由のビルドでは既定で `INSTALL_PROFILE=auto` を使い、失敗時は既定で `generic` にフォールバックします。
+`pip install`は`make install`を実行し、Python CLIとFortran実行バイナリを同時に導入します。
+pip経由のbuildは既定で`INSTALL_PROFILE=auto`を使い、失敗した場合は`generic`にfallbackします。
 フォールバックを無効化する場合は `BEACH_PIP_FALLBACK_GENERIC=0` を指定します。
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
+```
+
+開発版を直接試す場合は Git URL から導入できます。
+
+```bash
+python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 ```
 
 ## 2. 開発に携わる場合
@@ -47,9 +58,9 @@ make check
 make run CONFIG=examples/beach.toml
 ```
 
-開発中の標準確認は `make check` です。`BEACH_VERSION_MODE=dev` を使って
-Fortran 側へ渡す version 文字列を `1.2.0-dev` のように固定するため、git hash が変わっても
-fpm の compile-flag hash が変わらず、差分コンパイルを再利用できます。
+開発中の標準的な確認には`make check`を使います。`BEACH_VERSION_MODE=dev`により、
+Fortranに渡すversion文字列は`1.5.0-dev`のように固定されます。git hashが変わってもfpmのcompile-flag hashは変わらず、
+差分コンパイルを再利用できます。
 
 `make build` と `make install` は既定で git hash 付き version を埋め込みます。必要なら version mode を明示します。
 
@@ -82,7 +93,12 @@ make test-l0      # L0: static/schema/build check
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: cumulative L0-L3 verification
+make test-physics-release  # HPC: minimal release correctness + MPI manifest
 make test-heavy   # heavy Fortran targets only
+make test-fortran-far-correction  # oracle far-correction correctness
+make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-benchmark  # release-profile runtime benchmark
+make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
 ```
 
@@ -91,12 +107,22 @@ BEACH のテストは開発ループ向けに階層化しています。
 - L0: `git diff --check`、JSON schema parse check、`make check`
 - L1: L0 + Python tests + 軽量 Fortran test targets（`make test` / `make test-l1`）
 - L2: L1 + contract/integration targets（C field-kernel contract など）
-- L3: L2 + heavy FMM targets / full fpm suite（release gate / nightly / main 統合前）
+- L3: L2 + heavy FMM targets（release gate / nightly / main 統合前）
 
-`make test-fortran` は軽量 Fortran target の alias です。重い FMM 系
-（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_periodic`,
-`test_periodic2_flat_oracle_diag`）は通常の `make test` から外し、`make test-l3` /
-`make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行します。
+`make test-fortran`は、軽量なFortran targetを実行するaliasです。重いFMM系の
+`test_dynamics_fmm`と`test_coulomb_fmm_core_basic`は通常の`make test`には含まれません。
+`make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`で明示的に実行します。
+
+`m2l_root_oracle`のcorrectnessは計算量が大きいため、`make test-fortran-far-correction`で実行します。
+数値assertを持たない`test_periodic2_flat_oracle_diag`は、`make test-fortran-far-correction-diagnostics`で実行します。
+速度比較には、release profileの`make test-fortran-benchmark`を使います。
+
+`make test-field-kernel-cache`はshared kernelをbuildし、その絶対pathをnative periodic plane-oracle receipt testに渡します。
+長時間実行するopt-in gateであり、L1/L2/L3と`make test-physics-release`には含まれません。
+Intel `ifx` / `mpiifx` の tiered test は、既知の配列一時オブジェクトごとに巨大な stack trace を
+出す `arg_temp_created` check だけを既定で抑制します。bounds など他の debug check は維持されます。
+一時配列診断そのものを調べる場合は、例えば
+`FORTRAN_TEST_FLAGS="-qopenmp" make test-fortran-heavy FPM_FC=mpiifx` のように明示上書きします。
 
 個別 target だけ確認する場合は次を使います。
 
@@ -109,40 +135,41 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 
 ## 3. 実行フロー
 
-通常は、`beach.toml` を直接編集して実行します。高水準記法の詳細は
-[beachx config / 高水準記法ガイド](config_workflow.html) を参照してください。
+通常は、`beach.toml`を編集し、そのまま`beach`に渡します。作成・検査方法は
+[設定を編集する](Configuration.html)にまとめています。
 
 1. `beach.toml` を用意する
-2. 必要なら Fortran parser が高水準記法を読み込み時に正規化する
-3. `beach` でシミュレーション実行
+2. `beachx lint beach.toml` で設定を確認する
+3. `beach beach.toml` でシミュレーション実行
 4. `output.dir` の出力ファイルを確認
 5. Python CLI または `Beach` API で可視化
 
-`beach.toml` の仕様は [Fortran パラメータファイル仕様](fortran_parameter_file.html) で確認してください。
+`beach.toml` の仕様は [Fortran パラメータファイル仕様](Parameters.html) で確認してください。
 
 ### 3.1 最短例
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
-beachx config init
+mkdir beach-tutorial
+cd beach-tutorial
+beachx config init beach.toml
 beachx lint beach.toml
 beach beach.toml
 ```
 
 ### 3.2 `beach.toml` を直接使う場合
 
-1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](fortran_parameter_file.html)）
-2. `beach` でシミュレーション実行
-3. `output.dir` の出力ファイルを確認
-4. Python CLI または `Beach` API で可視化
+1. `beach.toml` を用意（仕様は [Fortran パラメータファイル仕様](Parameters.html)）
+2. 必要ならbox基準の座標・配置パラメータを使う（Fortran parserが実座標へ変換）
+3. `beach beach.toml` でシミュレーション実行
+4. `output.dir` の出力ファイルを確認
+5. Python CLI または `Beach` API で可視化
 
 ## 4. 実行コマンド
 
 ### 4.1 推奨: `beach`
 
 ```bash
-beach examples/beach.toml
+beach beach.toml
 ```
 
 引数なし実行では、カレントディレクトリの `beach.toml` を自動読込します。
@@ -150,7 +177,7 @@ beach examples/beach.toml
 ### 4.2 スレッド数指定
 
 ```bash
-OMP_NUM_THREADS=8 beach examples/beach.toml
+OMP_NUM_THREADS=8 beach beach.toml
 ```
 
 ### 4.3 MPI + OpenMP
@@ -193,17 +220,17 @@ beachx profile outputs/latest/performance_profile.csv \
 - `rng_state.txt`
 - `macro_residuals.csv`
 
-`mesh_triangles.csv` には要素ごとの `mesh_id` 列が含まれ、`mesh_sources.csv` で `mesh_id` と
-元メッシュ設定（template kind / surface model / epsilon_r / 要素数）を対応付けます。
-`conductor` は `field_bc_mode = "free"` の浮遊導体として等電位再配分され、
-`dielectric` は現行ではメタデータのみなので、
-含まれる場合は `summary.txt` に注意書きも出力します。
+`mesh_triangles.csv`には、要素ごとの`mesh_id`列があります。`mesh_sources.csv`は、各`mesh_id`を
+元のmesh設定（template kind / surface model / epsilon_r / 要素数）に対応付けます。
+`conductor`は`field_bc_mode = "free"`の浮遊導体として扱われ、等電位になるように電荷が再配分されます。
+`dielectric`は現行実装ではメタデータのみであり、含まれている場合は`summary.txt`に注意書きを出力します。
 `mesh_potential.csv` を有効にすると、同じ要素順で centroid 電位 [V] も保存されます。
 
-MPI実行（`world_size > 1`）では乱数状態・残差は rank 別です。
+MPI実行（`world_size > 1`）では乱数状態だけが rank 別です。reservoir の端数は全 rank で共有するため、
+root rank が単一の `macro_residuals.csv` を保存します。
 
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals_rank00000.csv`, `macro_residuals_rank00001.csv`, ...
+- `macro_residuals.csv`
 
 ## 6. 実行前の負荷見積もり（推奨）
 
@@ -220,8 +247,11 @@ beachx workload examples/beach.toml \
   --threads 8 \
   --mpi-ranks 4 \
   --mpi-rank 0 \
-  --macro-residuals outputs/latest/macro_residuals_rank00000.csv
+  --macro-residuals outputs/latest/macro_residuals.csv
 ```
+
+`total_particles`は選択したrankの見積もり、`global_total_particles`は全rankの合計です。reservoirについては、
+`local_reservoir_particles`がrankへの分配後、`global_reservoir_particles`が分配前の粒子数を示します。
 
 ## 7. 再開実行（resume）
 
@@ -231,8 +261,20 @@ dir = "outputs/latest"
 resume = true
 ```
 
-同じ `output.dir` で `beach` を再実行すると、`summary.txt` / `charges.csv` / RNG状態を読み込んで続きから計算します。  
-`sim.batch_count` は累積の到達バッチ数です。例えば既存 checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が既存の処理済みバッチ数より小さい場合は停止します。
+同じ`output.dir`で`beach`を再実行すると、`summary.txt` / `charges.csv` / RNG状態を読み込み、続きから計算します。
+読み込み元 checkpoint と新しい出力先を分ける場合は、`restart_from` を使います。
+
+```toml
+[output]
+dir = "outputs/continuation"
+resume = true
+restart_from = "../parent_run/outputs/latest"
+```
+
+この場合、checkpointは`restart_from`から読み込みます。新しい`summary.txt`、`charges.csv`、履歴、RNG状態は`dir`に書き出します。
+
+`sim.batch_count`は、累積の到達batch数です。例えば、既存のcheckpointが`batches=100`のときに
+`batch_count=150`で再開すると、追加で50 batchを実行します。`batch_count`が既存の処理済みbatch数より小さい場合は停止します。
 
 MPI再開時は `summary.txt` の `mpi_world_size` と現在の rank 数が一致している必要があります。
 
@@ -253,6 +295,12 @@ beachx inspect outputs/latest \
   --save-potential-mesh outputs/latest/potential_mesh_periodic.png \
   --apply-periodic2-mesh
 
+# 周期メッシュを n 周期分複製して描く（1 なら 3x3 = 9 コピー）
+beachx inspect outputs/latest \
+  --save-mesh outputs/latest/charges_mesh_tiled.png \
+  --periodic2-repeat 1 \
+  --apply-periodic2-mesh
+
 beachx animate outputs/latest \
   --quantity charge \
   --save-gif outputs/latest/charge_history.gif \
@@ -271,10 +319,50 @@ beachx mobility outputs/latest \
   --density-kg-m3 2500 \
   --mu-static 0.4 \
   --save-csv outputs/latest/mobility_summary.csv
+
+# Fortran FMM core と同じ field kernel で object ごとの総電荷・合力・合トルクを出す
+make build-kernel
+beachx kernel-forces outputs/latest \
+  --save-csv outputs/latest/object_forces_kernel.csv
+
+# central-cell primary 自己場だけを除き、周期画像を保持した離脱経路を出す
+beachx object-detachment outputs/latest \
+  --config beach.toml \
+  --target-mesh-id 6 \
+  --periodic-model infinite-physical \
+  --z-max-m 2.0e-4 \
+  --z-points 65 \
+  --mass-kg 2.0e-12 \
+  --gravity-m-s2 9.80665 \
+  --output-dir outputs/latest/object_detachment
 ```
 
-`beachx coulomb` は、近傍の `beach.toml` が見つかれば `mesh.templates` から object kind と順序を読み取り、既定では全 object を target 軸に並べて可視化します。特定 kind だけに絞る場合は `--target-kinds sphere` のように指定します。
-`beachx mobility` は、既定で `plane` を support とみなし、それ以外の object を対象に合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV 化します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
+`beachx coulomb`は、近傍の`beach.toml`が見つかると、`mesh.templates`からobject kindと順序を読み取ります。
+既定では全objectをtarget軸に並べて可視化します。特定のkindに絞る場合は、`--target-kinds sphere`のように指定します。
+
+`beachx mobility`は、既定で`plane`をsupportとみなし、それ以外のobjectを解析対象にします。
+合力、合トルク、`lift_ratio` / `slide_ratio` / `roll_ratio`をCSVに出力します。質量由来の指標には、
+`--density-kg-m3`と`beach.toml`の幾何情報が必要です。
+
+`beachx kernel-forces`は、`libbeach_field_kernel`を介してFortran FMM coreをPythonから呼び出します。
+`beach.toml`の`sim.softening` / `sim.field_bc_mode` / periodic2 / tree設定を使い、objectごとのnet forceを計算します。
+共有libraryは`make build-kernel`で`build/libbeach_field_kernel.so`に生成できます。別の場所に置く場合は`--library`または
+`BEACH_FIELD_KERNEL_LIB`を指定します。設定ファイルが出力directoryの近傍にない場合は、`--config path/to/beach.toml`を指定します。
+
+`kernel-forces`は、target objectの周期画像も除外する旧`exclude_target_lattice`診断です。
+`object-detachment`は、central primaryだけを除外する`exclude_primary_keep_images`を使います。
+凍結sourceに対する瞬時wrench、鉛直経路、仕事、重力と有限range付着を含むfrom-rest barrierを4つの成果物に出力します。
+`configured`はrunの設定をそのまま使い、`infinite-physical`はx/y periodicのcached `k != 0`と`E_bottom=0` zero modeを使います。
+CLI 既定重力は月面の `1.62 m/s^2` ですが、上例は地上の `9.80665 m/s^2` を明示しています。
+cached operatorの初回生成や、多数のpath点の評価には時間がかかる場合があります。KUDPCではlogin nodeで実行せず、
+計算nodeに投入してください。cold cacheの生成専用ジョブは、SysAの`p=1:t=112:c=112`を基準とします。
+
+既存のsimulation allocationがrankを持つ場合、そのrankはcache生成にも使われます。2026-07-12の旧レゴリス入力では、
+`1x112=47.0 s`、`2x112=36.7 s`、`4x112=31.5 s`、`6x112=30.3 s`でした。cold buildのために4--6 rankまで増やしても、
+coreの利用効率は低い結果です。同じfingerprintのwarm runではcacheを再生成しません。
+
+CLIが正常終了すれば、成果物の作成は完了しています。物理的な妥当性は、`path.status`、仕事/電位差、quadrature、shell/cache、
+経路上端への感度を使って別途確認します。非中性periodic cellで得た有限高さのspeedは、無限遠へのescape speedではありません。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` / `beach-estimate-workload` / `beach-plot-performance-profile`
@@ -336,12 +424,11 @@ fpm test --target test_mpi_hybrid \
   --runner "mpirun -n 2"
 ```
 
-KUDPCのIntel環境ではrelease MPI buildの既定を`mpiifx`とする。`MPI_FC=mpiifort`による
-classic compilerの明示利用は可能だが、同一の3000 batch fixtureで大幅な速度低下が観測されたため、
-互換性確認以外のproduction runには使わない。
+KUDPCのIntel環境では、release MPI buildの既定compilerとして`mpiifx`を使います。
+`MPI_FC=mpiifort`を指定すればclassic compilerも使えますが、同一の3000 batch fixtureで大幅な速度低下が観測されています。
+そのため、互換性の確認以外のproduction runでは`mpiifx`を使います。
 
-SysAで1 rankあたり多数のOpenMP threadを使うproduction runでは、再現可能なthread配置のため
-次の指定を推奨する。
+SysAで1 rankあたり多数のOpenMP threadを使うproduction runでは、thread配置を再現できるように次の値を指定します。
 
 ```bash
 export OMP_NUM_THREADS=112
@@ -350,14 +437,23 @@ export OMP_PLACES=cores
 srun beach beach.toml
 ```
 
-この指定は性能比較時の配置条件を固定するためのものであり、実測した300 batch fixtureでは
-bind有無の差は0.4%未満だった。
+この指定は、性能比較時のthread配置を固定するためのものです。実測した300 batch fixtureでは、bindの有無による差は0.4%未満でした。
 
-## 10. 実装挙動で誤解しやすい点
+## 10. 実装挙動の確認項目
 
 - 通常実行は `sim.batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `sim.batch_count` に達するまで進みます。
 - `sim.tol_rel` は監視値で、現行実装では早期終了条件に使いません。
 - Fortran 本体の要素核は `field.element_kernel` で選びます。互換既定の `point` は要素重心点電荷 +
   `sim.softening`、`triangle_p0` は要素総電荷を三角形上の一定面密度として積分し、`softening=0` を必須とします。
 
-camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` を参照してください。
+camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` にあります。
+`test-physics-release`は、収束出力に必要なL1 subset、L3 heavy、far-correction correctness、MPI電荷収支、
+MPI periodic-cache gateを順に実行します。portable CIで実行済みのL2全体は繰り返しません。
+
+既定の`build/physics-release/manifest.txt`には、commit、dirty state、host、compiler、各gateのstatus、経過時間、最大RSSを保存します。
+同じdirectoryの`convergence.csv`には、mesh、dt、FMM order、outer gridなどの収束値を保存します。
+`test_l3-target-timings.csv`と`far_correction-target-timings.csv`には、Fortran targetごとのprofile、status、経過秒を保存します。
+
+KUDPCのlogin nodeではこのtestを実行できません。Slurm allocation内では、MPI payloadのrunnerに`srun`を使います。
+manifestの出力先は`PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt`で変更できます。
+各検証targetと収束基準は[Physics release verification](PhysicsReleaseVerification.md)にまとめています。

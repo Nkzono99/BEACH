@@ -6,6 +6,8 @@ argument-hint: "<output dir or analysis goal>"
 `beach-output-analysis` agent を使い、指定 output directory または解析目的に対して見るべき file、
 読み取り順、Python/CLI 例を整理してください。
 
+出力契約は`docs/OutputGuide.md`と`SPEC.md`、Python APIは`docs/PythonPostprocessAPI.md`を優先します。
+
 対応 file:
 - `summary.txt`
 - `charges.csv`

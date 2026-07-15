@@ -12,5 +12,7 @@ argument-hint: "<beach.toml path or snippet>"
 - `field_solver` ごとの有効 parameter
 - output size と workload risk
 
-参照は `docs/Parameters.md`, `schemas/beach.schema.json`, `SPEC.md`, `docs/Algorithms.md` を優先してください。
+参照は`docs/Parameters.md`, `schemas/beach.schema.json`, `SPEC.md`, `docs/Configuration.md`,
+`docs/FieldSolvers.md`, `docs/PeriodicElectrostatics.md`を優先してください。
+`config init`の現行既定はx/y periodic、`field_periodic_image_layers=1`の$3\times3$有限画像和です。
 KUDPC login node では simulation や重い test は直接実行しないでください。

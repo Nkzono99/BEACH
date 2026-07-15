@@ -40,8 +40,10 @@ BEACH は BEM による表面帯電とテスト粒子追跡を組み合わせた
 
 実行上の注意:
 
-- `sim.batch_count` は今回実行する batch 数。
+- `sim.batch_count` は通常実行では処理するbatch数。`output.resume=true`では累積の到達batch数。
 - `sim.max_step` は粒子ごとの上限 step。
 - `sim.tol_rel` は監視値であり停止条件ではない。
-- `output.resume = true` では同じ `output.dir` の `summary.txt`, `charges.csv`, `rng_state.txt` を使う。MPI では前回と同じ world size が必要。
-- `field_bc_mode = "periodic2"` は 2 軸周期境界を扱い、FMM と box boundary 設定の組み合わせに注意する。
+- `output.resume = true` は`restart_from`未指定時に同じ`output.dir`からcheckpointを読む。MPIでは前回と同じworld sizeが必要。
+- `field_bc_mode = "periodic2"` は2軸周期境界を扱う。通常はFMMを使い、directは制約付きの
+  `triangle_p0` split referenceだけが例外。
+- `beachx config init` はx/y periodic、FMM、画像層1、far correctionなしの$3\times3$有限画像和を生成する。

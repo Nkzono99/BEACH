@@ -91,11 +91,24 @@ def test_spec_and_canonical_docs_state_the_staged_contract() -> None:
 
 def test_plugin_references_match_canonical_files_without_stale_contract() -> None:
     mirrors = {
+        "plugins/beach-context/references/README.md": "README.md",
         "plugins/beach-context/references/SPEC.md": "SPEC.md",
+        "plugins/beach-context/references/config_workflow.md": (
+            "docs/Configuration.md"
+        ),
         "plugins/beach-context/references/fortran_parameter_file.md": (
             "docs/Parameters.md"
         ),
+        "plugins/beach-context/references/fortran_workflow.md": (
+            "docs/Workflow.md"
+        ),
         "plugins/beach-context/references/fortran_fmm_core.md": "docs/FMMCore.md",
+        "plugins/beach-context/references/schemas/beach.schema.json": (
+            "schemas/beach.schema.json"
+        ),
+        "plugins/beach-context/references/examples/tutorial_insulator.toml": (
+            "examples/tutorial_insulator.toml"
+        ),
         "plugins/beach-context/references/examples/beach.toml": (
             "examples/beach.toml"
         ),

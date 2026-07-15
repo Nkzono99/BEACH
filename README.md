@@ -55,8 +55,8 @@ export PATH="$HOME/.local/bin:$PATH"
 小さな設定を作って実行します。
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
+mkdir beach-tutorial
+cd beach-tutorial
 
 beachx config init
 beachx lint beach.toml

@@ -82,9 +82,9 @@ For the first run, use the [Ten-Minute Tutorial](Tutorial.en.html) and
 `examples/tutorial_insulator.toml`. `beachx config init` generates the same
 configuration.
 
-Add `reservoir_face`, FMM, and `periodic2` later from
-[Configuration Recipes](ConfigurationRecipes.en.html), after the beginner case
-runs successfully.
+This configuration uses an FMM finite image sum over $3\times3$ cells in x/y.
+After it runs successfully, use [Configuration Recipes](ConfigurationRecipes.en.html)
+to add `reservoir_face`, check image-layer convergence, or select an infinite-periodic operator.
 
 ---
 
