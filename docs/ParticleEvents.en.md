@@ -196,6 +196,10 @@ fails closed. Within OpenMP, the earliest particle and step failure is selected.
 shared so every rank reports the same batch, rank, particle, step, and status before stopping. Photo raycasts apply the same rule
 to species, ray, and bounce.
 
+To inspect the internal cause of `grid_stalled`, set `BEACH_COLLISION_DIAGNOSTICS=1`. On the failing path, BEACH then writes
+the DDA branch name, `p0` / `p1`, collision-grid bounds, cell indices, and values such as `t_cur`, `t_next`, and `t_delta` to
+standard error. This environment variable enables diagnostics only and does not change collision physics.
+
 ## Converge collision positions and charging results
 
 1. Halve `dt` and verify stability of the segment-hit element and position.

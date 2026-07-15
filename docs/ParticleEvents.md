@@ -193,6 +193,10 @@ collision queryは、必要な候補をすべて調べた場合だけ`ok`です�
 位置・速度を全rankで共有し、同じbatch/rank/particle/step/statusを報告して停止します。photo raycastも、
 species/ray/bounceについて同じ方針を使います。
 
+`grid_stalled` の内部原因を調べる場合は、`BEACH_COLLISION_DIAGNOSTICS=1` を設定すると、停止を返した
+DDA分岐名に加えて `p0` / `p1`、collision grid範囲、cell index、`t_cur` / `t_next` / `t_delta` などを
+標準エラーへ出力します。この環境変数は失敗時の診断出力だけを有効にし、衝突判定の物理挙動は変更しません。
+
 ## 衝突位置と帯電結果を収束させる
 
 1. `dt`を半分にして軌道線分が衝突する要素と位置が安定するか確認する。
