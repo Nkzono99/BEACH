@@ -16,7 +16,7 @@ potential.
 | Source | `reservoir_face` and `photo_raycast`, plus `volume_seed` when an initial population is needed |
 | Reservoir correction | Map the upstream VDF to the face with `infinity_barrier` |
 | Open outflow | Classify reflection or escape at each crossing with `potential_barrier` |
-| Photoelectron | Track inside the box with `photo_escape_model="none"` |
+| Photoelectron | Track as an ordinary particle inside the box |
 | Outer Poisson/profile | None |
 
 See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for the finite-image kernel, difference from Ewald far correction,
@@ -63,15 +63,14 @@ source_mode = "photo_raycast"
 emit_current_density_a_m2 = 2.0e-4
 rays_per_batch = 500
 deposit_opposite_charge_on_emit = true
-photo_escape_model = "none"
 q_particle = -1.602176634e-19
 m_particle = 9.1093837139e-31
 temperature_ev = 1.5
 normal_drift_speed = 1.0e5
 ```
 
-`photo_escape_model="none"` leaves the emitted macro-particle weight unchanged and tracks the photoelectron as an ordinary
-particle inside the box. Surface return is absorbed, while an open-face crossing is classified by `potential_barrier`.
+The emitted photoelectron is tracked as an ordinary particle inside the box. Surface return is absorbed, while an open-face
+crossing is classified by `potential_barrier`.
 `deposit_opposite_charge_on_emit=true` adds the opposite reaction charge to the emitting element. See
 [Configuration parameters](Parameters.en.html) for individual constraints.
 
@@ -130,12 +129,11 @@ limitations.
 
 ## Track photoelectrons normally inside the box
 
-With `photo_escape_model="none"`, a photoelectron created at a ray hit is tracked as an ordinary particle until reabsorption or
-an open-face crossing. This page does not combine that tracking with `boltzmann_cutoff`. The same `potential_barrier` used for other
-particles classifies a photoelectron reaching an open face. Return after escape from the box is not represented.
+A photoelectron created at a ray hit is tracked as an ordinary particle until reabsorption or an open-face crossing. The same
+`potential_barrier` used for other particles classifies a photoelectron reaching an open face. Return after escape from the box
+is not represented.
 
-See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for ray visibility, surface charge, and tracked versus
-reduced escape.
+See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for ray visibility, surface charge, and tracked escape.
 
 ## Choose the finite-image model for its valid range
 

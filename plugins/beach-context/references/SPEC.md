@@ -88,7 +88,8 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 7. 統計と履歴を更新
 
 `photo_raycast` で `deposit_opposite_charge_on_emit=true` の場合は、放出元要素に `-q_particle * w_hit` も加算します。
-`photo_escape_model="boltzmann_cutoff"` では、PE escape 係数を掛けた実効重み `w_eff` を粒子重みと放出元要素の逆符号電荷の両方に使います。
+生成する光電子の重みは常に `w_hit` です。生成後は通常粒子として追跡し、box 内の再吸収、open 面の
+`potential_barrier`、または outer particle transfer によって return / escape を決めます。
 
 ## 5. 物理モデル
 
@@ -122,13 +123,22 @@ unified grid上端のfar planeを外向きに通過する粒子はinfinity escap
 outer flight time、frozen-field ratioを検査し、step上限到達をdiscardしません。persistent queueが未実装の
 ため該当軌道は停止します。外部磁場を無視する条件は未決なので`b0=0`のみを許可します。
 
-`outer_plasma.photoelectron_closure="individual_return"`では、`photo_raycast`粒子がz-high interfaceを外向き通過した時点で、法線運動エネルギーbinごとのsigned charge、全運動エネルギー、接線運動量、個数をMPI-globalに集計します。個別粒子は上記instant-return写像だけで帰還させ、統計量から別粒子を再注入しません。各batchの統計は`previous_batch`として次batchへ渡し、累積統計とともに`photoelectron_histogram.csv`へcheckpointします。charge-conserving modeでは全`photo_raycast` speciesに`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`との併用を拒否します。`statistical_return`は帰還位置・遅延・deposit則が未仕様なので使用不可です。放出signed chargeと`photoelectron_ambient_charge_scale`の比が`max_photoelectron_charge_ratio`を超えると、ambient-only線形モデルを適用外として停止し、silent fallbackしません。
+`outer_plasma.photoelectron_histogram_enabled=true`では、`photo_raycast`粒子がz-high interfaceを外向き通過した時点で、法線運動エネルギーbinごとのsigned charge、全運動エネルギー、接線運動量、個数をMPI-globalに集計します。粒子のreturn / escapeは`outer_plasma.return_model`と`coupling.particle_transfer_mode`だけが決め、統計量から別粒子を再注入しません。各batchの統計は`previous_batch`として次batchへ渡し、累積統計とともに`photoelectron_histogram.csv`へcheckpointします。tracked outer transferを使う全`photo_raycast` speciesには、histogramの有無によらず`deposit_opposite_charge_on_emit=true`を要求します。z-high outward interface crossingのsigned chargeと`photoelectron_ambient_charge_scale`の比が`max_photoelectron_charge_ratio`を超えると、ambient-only線形モデルを適用外として停止し、silent fallbackしません。
+現行histogram経路では、`return_model`と`particle_transfer_mode`の両方に`electrostatic_1d_instant_return`を要求します。
+`photoelectron_density_model`とhistogramは責務を分離していますが、現行のreturn制約では`kinetic_mean`とhistogramを同時に有効化できません。
+
+histogram stateがreadyな場合、`summary.txt`へ`photoelectron_histogram_bins`、
+`photoelectron_histogram_energy_max_J`、`photoelectron_last_completed_batch`、
+`photoelectron_cumulative_signed_charge_C`、`photoelectron_cumulative_kinetic_energy_J`、
+`photoelectron_cumulative_count`、`photoelectron_previous_signed_current_A`、
+`photoelectron_previous_charge_ratio`、`photoelectron_max_charge_ratio`、
+`photoelectron_linear_applicability_status`を出力します。正常に完了したbatchのstatusは`applicable`です。
 
 `outer_plasma.model="kinetic_1d"`は、z-highの負・正`reservoir_face` speciesを無限遠の
 electron half-Maxwellian / cold drifting ion VDFとして用い、伸長1D格子上のPoisson方程式を
 interface Neumann条件と遠方Robin条件で解きます。初版は単調・無衝突・非磁化分枝に限定し、
 ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infinity)=0`をゲージとして固定し、
-非ゼロの`outer_plasma.infinity_potential`を拒否します。`photoelectron_closure="kinetic_mean"`は負電荷
+非ゼロの`outer_plasma.infinity_potential`を拒否します。`photoelectron_density_model="kinetic_mean"`は負電荷
 `photo_raycast` speciesの放出fluxからoutgoing/returning平均密度を構成します。解状態は
 `converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、線形モデルへ
 silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し、restart時のNewton初期値に使います。
@@ -137,7 +147,7 @@ silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し�
 pseudo-transient stepへ切り替え、前回profileとのinterface field差が大きい場合は適応continuationで
 目標fieldへ進みます。pseudo-transient項や中間fieldを収束解として受理せず、最終目標fieldにおける
 元の未正則化残差が設定許容値以下の場合だけ`converged`とします。
-`kinetic_mean`とtracked `kinetic_1d_profile_return`を併用しても、平均密度モデルはouter空間電荷と
+`photoelectron_density_model="kinetic_mean"`とtracked `kinetic_1d_profile_return`を併用しても、平均密度モデルはouter空間電荷と
 current診断だけを供給し、表面へreturn chargeを再加算しません。表面の電荷収支はtracked粒子の放出と
 再吸収だけで更新します。
 
@@ -204,11 +214,8 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 - 1ヒット重み:
   - `w_hit = J_perp * A_perp * batch_duration / (|q| * rays_per_batch)`
   - MPI 実行時は `rays_per_batch` の代わりに `global_rays_per_batch`（全 rank 合計）を使用
-- `photo_escape_model="boltzmann_cutoff"` の場合:
-  - 放出元要素の自己寄与を除いた中心電位から `barrier = max(phi_emit - phi_infty, 0)` を計算
-  - `escape_factor = exp(-|q_particle| * barrier / (k_B * T_PE))`
-  - `w_eff = w_hit * escape_factor` とし、PE粒子重みと `deposit_opposite_charge_on_emit` の放出元電荷 bookkeeping に同じ `w_eff` を使う
-  - これは戻りPEを即時中和として扱う簡略化モデルであり、個別PEの再吸収面は追跡しない
+- 生成粒子の重みには常に `w_hit` を使う
+- box内では通常粒子として追跡し、open面では共通の`open_boundary_model`またはouter particle transferを適用する
 - `sim.field_bc_mode="periodic2"` で periodic image に命中した場合も、放出位置は primary cell に wrap した hit 座標を使う
 - `sheath_injection_model` が Zhao 系のとき、最初の負電荷 `photo_raycast` species の `emit_current_density_a_m2` は Zhao の自由光電子電流へ上書きされ、法線速度 cutoff も分枝に応じて適用される
 

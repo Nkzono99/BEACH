@@ -146,7 +146,7 @@ lower_boundary_model = "symmetric_vacuum"
 
 [outer_plasma]
 model = "kinetic_1d"
-photoelectron_closure = "none"
+photoelectron_density_model = "none"
 return_model = "kinetic_1d_profile_return"
 interface_z = 9.899494936611664e-4
 infinity_potential = 0.0
@@ -182,7 +182,7 @@ For UV emission, solve the mean photoelectron density in the external region wit
 ```toml
 [outer_plasma]
 model = "kinetic_1d"
-photoelectron_closure = "kinetic_mean"
+photoelectron_density_model = "kinetic_mean"
 return_model = "kinetic_1d_profile_return"
 interface_z = 9.899494936611664e-4
 infinity_potential = 0.0
@@ -204,7 +204,7 @@ ray_direction = [0.0, 0.0, -1.0]
 ```
 
 The first negative `photo_raycast` species supplies the emission flux and temperature for the mean closure.
-`deposit_opposite_charge_on_emit = true` is required, and the legacy `photo_escape_model` must remain disabled.
+`deposit_opposite_charge_on_emit = true` is required.
 `kinetic_mean` supplies only the outer profile and does not add the return current to the surface a second time.
 Compare UV-off and UV-on runs with the same mesh, batch duration, and ambient inflow. Inspect
 `outer_plasma_profile.csv`, solver residual and species currents in `summary.txt`, and the charge ledger.

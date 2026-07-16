@@ -22,6 +22,17 @@ program test_app_config_parser
   character(len=*), parameter :: panel_cfg_path = 'test_app_config_parser_panel_tmp.toml'
   character(len=*), parameter :: panel_tree_cfg_path = 'test_app_config_parser_panel_tree_tmp.toml'
   character(len=*), parameter :: split_cfg_path = 'test_app_config_parser_split_tmp.toml'
+  character(len=*), parameter :: missing_deposit_cfg_path = 'test_app_config_parser_missing_deposit_tmp.toml'
+  character(len=*), parameter :: missing_deposit_output_path = 'test_app_config_parser_missing_deposit_tmp.out'
+  character(len=64) :: run_mode
+
+  call get_command_argument(1, run_mode)
+  if (trim(run_mode) == 'probe_missing_3d_photo_deposit') then
+    call write_missing_3d_photo_deposit_fixture(missing_deposit_cfg_path)
+    call default_app_config(cfg)
+    call load_app_config(missing_deposit_cfg_path, cfg)
+    error stop 'missing 3D photoelectron countercharge probe unexpectedly completed'
+  end if
 
   call write_config_fixture(cfg_path)
   call write_photo_config_fixture(photo_cfg_path)
@@ -36,7 +47,7 @@ program test_app_config_parser
   call write_panel_config_fixture(panel_tree_cfg_path, 'treecode')
   call write_split_config_fixture(split_cfg_path)
 
-  call test_init(12)
+  call test_init(13)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -154,9 +165,10 @@ program test_app_config_parser
     split_cfg%outer_plasma%max_local_charge_ratio, 6.0_dp, 1.0e-15_dp, 'split local-charge limit mismatch' &
     )
   call assert_true( &
-    trim(split_cfg%outer_plasma%photoelectron_closure) == 'individual_return', &
-    'photoelectron closure mismatch' &
+    trim(split_cfg%outer_plasma%photoelectron_density_model) == 'none', &
+    'photoelectron density model mismatch' &
     )
+  call assert_true(split_cfg%outer_plasma%photoelectron_histogram_enabled, 'photoelectron histogram flag mismatch')
   call assert_equal_i32( &
     split_cfg%outer_plasma%photoelectron_histogram_bins, 8_i32, 'photoelectron histogram bins mismatch' &
     )
@@ -218,10 +230,6 @@ program test_app_config_parser
   call assert_true( &
     photo_cfg%particle_species(1)%deposit_opposite_charge_on_emit, &
     'photo deposit_opposite_charge_on_emit mismatch' &
-    )
-  call assert_true( &
-    trim(photo_cfg%particle_species(1)%photo_escape_model) == 'boltzmann_cutoff', &
-    'photo_escape_model mismatch' &
     )
   call assert_allclose_1d( &
     photo_cfg%particle_species(1)%ray_direction, [0.0d0, 0.0d0, -1.0d0], 1.0d-12, 'photo ray_direction mismatch' &
@@ -381,6 +389,10 @@ program test_app_config_parser
   call assert_true(trim(toml_syntax_cfg%output_dir) == 'outputs/#literal', 'literal hash in string mismatch')
   call test_end()
 
+  call test_begin('tracked_3d_photo_requires_countercharge')
+  call assert_missing_3d_photo_deposit_rejected()
+  call test_end()
+
   call delete_file_if_exists(cfg_path)
   call delete_file_if_exists(photo_cfg_path)
   call delete_file_if_exists(large_cfg_path)
@@ -393,10 +405,106 @@ program test_app_config_parser
   call delete_file_if_exists(panel_cfg_path)
   call delete_file_if_exists(panel_tree_cfg_path)
   call delete_file_if_exists(split_cfg_path)
+  call delete_file_if_exists(missing_deposit_cfg_path)
+  call delete_file_if_exists(missing_deposit_output_path)
 
   call test_summary()
 
 contains
+
+  subroutine assert_missing_3d_photo_deposit_rejected()
+    character(len=1024) :: executable_path, line
+    character(len=4096) :: command
+    integer :: child_exit_status, child_cmd_status, u, ios
+    logical :: saw_requirement
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" probe_missing_3d_photo_deposit > "'// &
+              missing_deposit_output_path//'" 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'missing deposit probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'tracked 3D photoelectron transfer without countercharge must fail')
+    saw_requirement = .false.
+    open (newunit=u, file=missing_deposit_output_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to read missing deposit probe output'
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      saw_requirement = saw_requirement .or. &
+                        index(line, 'tracked outer transfer requires photo_raycast '// &
+                              'deposit_opposite_charge_on_emit=true') > 0
+    end do
+    close (u)
+    call assert_true(saw_requirement, 'missing deposit probe must report the tracked outer transfer requirement')
+    call delete_file_if_exists(missing_deposit_cfg_path)
+    call delete_file_if_exists(missing_deposit_output_path)
+  end subroutine assert_missing_3d_photo_deposit_rejected
+
+  subroutine write_missing_3d_photo_deposit_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open missing deposit fixture'
+    write (u, '(a)') '[sim]'
+    write (u, '(a)') 'dt = 1.0e-9'
+    write (u, '(a)') 'batch_count = 1'
+    write (u, '(a)') 'batch_duration = 1.0e-7'
+    write (u, '(a)') 'max_step = 2'
+    write (u, '(a)') 'softening = 0.0'
+    write (u, '(a)') 'field_solver = "direct"'
+    write (u, '(a)') 'field_bc_mode = "periodic2"'
+    write (u, '(a)') 'use_box = true'
+    write (u, '(a)') 'box_min = [0.0, 0.0, 0.0]'
+    write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
+    write (u, '(a)') 'bc_x_low = "periodic"'
+    write (u, '(a)') 'bc_x_high = "periodic"'
+    write (u, '(a)') 'bc_y_low = "periodic"'
+    write (u, '(a)') 'bc_y_high = "periodic"'
+    write (u, '(a)') 'bc_z_low = "open"'
+    write (u, '(a)') 'bc_z_high = "open"'
+    write (u, '(a)') '[field]'
+    write (u, '(a)') 'element_kernel = "triangle_p0"'
+    write (u, '(a)') '[periodic2]'
+    write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
+    write (u, '(a)') 'zero_mode_policy = "exclude_k0"'
+    write (u, '(a)') 'lower_boundary_model = "symmetric_vacuum"'
+    write (u, '(a)') '[outer_plasma]'
+    write (u, '(a)') 'model = "unified_linear_response"'
+    write (u, '(a)') 'return_model = "electrostatic_3d_explicit_orbit"'
+    write (u, '(a)') 'interface_z = 1.0'
+    write (u, '(a)') 'debye_length = 0.2'
+    write (u, '(a)') 'thermal_voltage = 10.0'
+    write (u, '(a)') '[coupling]'
+    write (u, '(a)') 'particle_transfer_mode = "electrostatic_3d_explicit_orbit"'
+    write (u, '(a)') 'field_evolution_timescale = 1.0e-4'
+    write (u, '(a)') 'max_frozen_field_ratio = 0.1'
+    write (u, '(a)') 'outer_orbit_dt = 1.0e-9'
+    write (u, '(a)') 'outer_orbit_max_steps = 10000'
+    write (u, '(a)') 'outer_orbit_energy_tolerance = 1.0e-3'
+    write (u, '(a)') '[particles]'
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'source_mode = "photo_raycast"'
+    write (u, '(a)') 'emit_current_density_a_m2 = 1.0e-3'
+    write (u, '(a)') 'rays_per_batch = 4'
+    write (u, '(a)') 'q_particle = -1.0'
+    write (u, '(a)') 'm_particle = 1.0'
+    write (u, '(a)') 'temperature_k = 0.0'
+    write (u, '(a)') 'inject_face = "z_high"'
+    write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
+    write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
+    write (u, '(a)') 'ray_direction = [0.0, 0.0, -1.0]'
+    write (u, '(a)') '[mesh]'
+    write (u, '(a)') 'mode = "template"'
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "plane"'
+    write (u, '(a)') 'surface_side = "normal_plus"'
+    write (u, '(a)') 'center = [0.5, 0.5, 0.25]'
+    close (u)
+  end subroutine write_missing_3d_photo_deposit_fixture
 
   !> テスト専用の一時設定ファイルを書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
@@ -499,7 +607,6 @@ contains
     write (u, '(a)') 'emit_current_density_a_m2 = 2.0e-3'
     write (u, '(a)') 'rays_per_batch = 40'
     write (u, '(a)') 'deposit_opposite_charge_on_emit = true'
-    write (u, '(a)') 'photo_escape_model = "boltzmann_cutoff"'
     write (u, '(a)') 'normal_drift_speed = 1.5e5'
     write (u, '(a)') 'q_particle = -1.0'
     write (u, '(a)') 'm_particle = 1.0'
@@ -870,7 +977,8 @@ contains
     write (u, '(a)') 'interface_sample_n = 7'
     write (u, '(a)') '[outer_plasma]'
     write (u, '(a)') 'model = "linear_debye"'
-    write (u, '(a)') 'photoelectron_closure = "individual_return"'
+    write (u, '(a)') 'photoelectron_density_model = "none"'
+    write (u, '(a)') 'photoelectron_histogram_enabled = true'
     write (u, '(a)') 'return_model = "electrostatic_1d_instant_return"'
     write (u, '(a)') 'interface_z = 1.0'
     write (u, '(a)') 'infinity_potential = 0.0'

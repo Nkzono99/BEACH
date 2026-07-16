@@ -7,7 +7,7 @@ program test_output_writer_io
   use bem_app_config, only: app_config, default_app_config
   use bem_types, only: mesh_type, sim_stats
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, delete_file_if_exists, remove_empty_directory
   implicit none
@@ -17,7 +17,7 @@ program test_output_writer_io
   type(sim_stats) :: stats
   type(charge_ledger_type) :: ledger
   type(photoelectron_histogram_type) :: photo_batch
-  type(photoelectron_coupling_state_type) :: photo_state
+  type(photoelectron_histogram_state_type) :: photo_state
   logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_photo_batch, saw_photo_flux
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
@@ -87,6 +87,21 @@ program test_output_writer_io
   call photo_batch%add(-1.0_dp, 2.0_dp, 3.0_dp, [1.0_dp, -2.0_dp, 1.0_dp])
   call photo_state%commit_batch(1_i32, photo_batch)
   stats%batches = 1_i32
+  cfg%outer_plasma%photoelectron_histogram_enabled = .false.
+  call write_result_files(out_dir_photo, mesh, stats, cfg, photoelectron_state=photo_state)
+  inquire (file=out_dir_photo//'/photoelectron_histogram.csv', exist=exists)
+  call assert_true(.not. exists, 'disabled photoelectron histogram must ignore a supplied ready state')
+  saw_photo_batch = .false.
+  open (newunit=literal_unit, file=out_dir_photo//'/summary.txt', status='old', action='read', iostat=ios)
+  if (ios /= 0) error stop 'failed to open disabled photoelectron summary fixture'
+  do
+    read (literal_unit, '(A)', iostat=ios) line
+    if (ios /= 0) exit
+    saw_photo_batch = saw_photo_batch .or. index(line, 'photoelectron_last_completed_batch=') > 0
+  end do
+  close (literal_unit)
+  call assert_true(.not. saw_photo_batch, 'disabled histogram must not add photoelectron summary fields')
+  cfg%outer_plasma%photoelectron_histogram_enabled = .true.
   call write_result_files(out_dir_photo, mesh, stats, cfg, photoelectron_state=photo_state)
   inquire (file=out_dir_photo//'/photoelectron_histogram.csv', exist=exists)
   call assert_true(exists, 'photoelectron histogram checkpoint should be written')
@@ -101,8 +116,9 @@ program test_output_writer_io
     saw_photo_flux = saw_photo_flux .or. index(line, 'photoelectron_previous_signed_current_A=') > 0
   end do
   close (literal_unit)
-  call assert_true(saw_photo_batch, 'summary should record photoelectron coupling batch ownership')
+  call assert_true(saw_photo_batch, 'summary should record photoelectron histogram batch ownership')
   call assert_true(saw_photo_flux, 'summary should record the outgoing photoelectron signed current')
+  cfg%outer_plasma%photoelectron_histogram_enabled = .false.
   call test_end()
 
   call test_begin('charge_ledger_and_model_metadata')

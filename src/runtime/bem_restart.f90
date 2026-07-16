@@ -6,7 +6,7 @@ module bem_restart
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_string_utils, only: lower_ascii
   use bem_physics_config_types, only: validate_phase0_physics_config, physics_config_ok
@@ -48,7 +48,7 @@ contains
     type(app_config), intent(in), optional :: app
     type(charge_ledger_type), intent(inout), optional :: charge_ledger
     type(electrostatic_restart_state_type), intent(out), optional :: electrostatic_state
-    type(photoelectron_coupling_state_type), intent(out), optional :: photoelectron_state
+    type(photoelectron_histogram_state_type), intent(out), optional :: photoelectron_state
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path, ledger_path, photoelectron_path
     character(len=256) :: contract_message
@@ -58,7 +58,12 @@ contains
 
     stats = sim_stats()
     if (present(electrostatic_state)) electrostatic_state = electrostatic_restart_state_type()
-    if (present(photoelectron_state)) photoelectron_state = photoelectron_coupling_state_type()
+    if (present(photoelectron_state)) photoelectron_state = photoelectron_histogram_state_type()
+    if (present(app)) then
+      if (app%outer_plasma%photoelectron_histogram_enabled .and. .not. present(photoelectron_state)) then
+        error stop 'photoelectron_histogram_enabled=true requires histogram state for restart.'
+      end if
+    end if
     has_restart = .false.
     must_have_checkpoint = .false.
     if (present(require_checkpoint)) must_have_checkpoint = require_checkpoint
@@ -113,9 +118,15 @@ contains
       end if
     end if
     call load_charge_file(trim(charges_path), mesh)
-    if (present(photoelectron_state) .and. present(app)) then
-      if (trim(lower_ascii(app%outer_plasma%photoelectron_closure)) == 'individual_return') then
+    if (present(app)) then
+      if (app%outer_plasma%photoelectron_histogram_enabled) then
+        if (.not. present(photoelectron_state)) then
+          error stop 'photoelectron_histogram_enabled=true requires histogram state for restart.'
+        end if
         call load_photoelectron_checkpoint(trim(photoelectron_path), stats%batches, app, photoelectron_state)
+        if (.not. photoelectron_state%ready) then
+          error stop 'Photoelectron histogram restart did not produce a ready state.'
+        end if
       end if
     end if
     if (present(charge_ledger)) then
@@ -224,7 +235,7 @@ contains
     character(len=*), intent(in) :: path
     integer(i32), intent(in) :: completed_batches
     type(app_config), intent(in) :: app
-    type(photoelectron_coupling_state_type), intent(out) :: state
+    type(photoelectron_histogram_state_type), intent(out) :: state
     integer :: u, ios
     integer(i32) :: bin, file_bin
     integer(i64) :: cumulative_count, previous_count

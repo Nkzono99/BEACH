@@ -62,8 +62,8 @@
     {
       "name": "photoelectron_histogram.csv",
       "producer": "src/runtime/bem_output_writer.f90",
-      "condition": "output.write_files=true and outer_plasma.photoelectron_closure=individual_return and histogram state is ready",
-      "restart_role": "conditional: required for individual_return resume",
+      "condition": "output.write_files=true and outer_plasma.photoelectron_histogram_enabled=true and histogram state is ready",
+      "restart_role": "conditional: required when resuming with photoelectron_histogram_enabled=true",
       "consumer": "src/runtime/bem_restart.f90"
     },
     {

@@ -4152,7 +4152,7 @@ def test_verify_run_requires_conditional_outer_checkpoint_files(
     config = _load_toml(archive_input)
     config["outer_plasma"] = {
         "model": "kinetic_1d",
-        "photoelectron_closure": "individual_return",
+        "photoelectron_histogram_enabled": True,
     }
     _write_toml(archive_input, config)
     validation_root = tmp_path / "validation"

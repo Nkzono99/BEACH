@@ -33,7 +33,8 @@ interface_field_tolerance = 1.0
 
 [outer_plasma]
 model = "linear_debye"
-photoelectron_closure = "individual_return"
+photoelectron_density_model = "none"
+photoelectron_histogram_enabled = true
 return_model = "electrostatic_1d_instant_return"
 interface_z = 1.0
 infinity_potential = 0.0
@@ -87,4 +88,4 @@ ny = 1
 
 [output]
 write_files = true
-dir = "outputs/periodic2_photoelectron_individual_return"
+dir = "outputs/periodic2_photoelectron_return"

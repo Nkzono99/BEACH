@@ -15,7 +15,7 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 | source | `reservoir_face`と`photo_raycast`。必要なら初期粒子に`volume_seed` |
 | reservoir補正 | `infinity_barrier`で上流VDFをfaceへenergy map |
 | open outflow | `potential_barrier`で通過点ごとにreflect/escape判定 |
-| photoelectron | `photo_escape_model="none"`でbox内を通常追跡 |
+| photoelectron | box内を通常粒子として追跡 |
 | outer Poisson/profile | なし |
 
 有限画像和で使うkernel、Ewald far correctionとの違い、衝突判定での周期画像探索は、各成分の説明に
@@ -62,15 +62,14 @@ source_mode = "photo_raycast"
 emit_current_density_a_m2 = 2.0e-4
 rays_per_batch = 500
 deposit_opposite_charge_on_emit = true
-photo_escape_model = "none"
 q_particle = -1.602176634e-19
 m_particle = 9.1093837139e-31
 temperature_ev = 1.5
 normal_drift_speed = 1.0e5
 ```
 
-`photo_escape_model="none"`は放出重みをreduced cutoffで減らさず、生成した光電子をbox内で通常粒子として追跡する指定です。
-表面へ戻れば吸収され、open面へ達すれば`potential_barrier`でreflectまたはescapeします。
+生成した光電子はbox内で通常粒子として追跡します。表面へ戻れば吸収され、open面へ達すれば
+`potential_barrier`でreflectまたはescapeします。
 `deposit_opposite_charge_on_emit=true`は放出元へ逆符号の反作用電荷を加えます。各parameterの制約は
 [入力パラメータリファレンス](Parameters.html)にまとめています。
 
@@ -126,11 +125,11 @@ reservoir側の`infinity_barrier`とoutflow側の`potential_barrier`は、同じ
 
 ## 光電子をbox内で通常追跡する
 
-`photo_escape_model="none"`では、ray hitから生成した光電子を通常粒子として追跡し、再吸収またはopen面まで進めます。
-このページの構成では`boltzmann_cutoff`を重ねません。open面に達した光電子にも他の粒子と同じ`potential_barrier`を適用します。
+ray hitから生成した光電子は通常粒子として追跡し、再吸収またはopen面まで進めます。open面に達した光電子にも
+他の粒子と同じ`potential_barrier`を適用します。
 box外へescapeした後のreturn軌道は表現しません。
 
-ray visibility、surface charge、tracked/reduced escapeは一つのライフサイクルとして扱います。[<sup>4</sup>](PhotoelectronEmission.html)
+ray visibility、surface charge、tracked escapeは一つのライフサイクルとして扱います。[<sup>4</sup>](PhotoelectronEmission.html)
 
 ## 有限画像モデルを選ぶ範囲
 

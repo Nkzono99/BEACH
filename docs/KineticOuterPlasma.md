@@ -50,7 +50,7 @@ $\phi_I$と各speciesの電流も変わります。electron、ion、photoelectro
 ## VDFを電位依存の電荷密度へ写す
 
 z-highの最初の負・正`reservoir_face` speciesを、それぞれ無限遠ambient electronとionとして使います。
-`photoelectron_closure="kinetic_mean"`では、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を
+`photoelectron_density_model="kinetic_mean"`では、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を
 平面平均photoelectron sourceとして加えます。
 
 | population | 与える量 | outer密度の構成 |

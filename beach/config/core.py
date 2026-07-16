@@ -827,34 +827,53 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     box_min = _maybe_vec3(sim.get("box_min"), name="sim.box_min")
     box_max = _maybe_vec3(sim.get("box_max"), name="sim.box_max")
 
-    photoelectron_closure = "none"
+    photoelectron_density_model = "none"
+    photoelectron_histogram_enabled = False
     if isinstance(outer_plasma, Mapping):
-        photoelectron_closure = str(
-            outer_plasma.get("photoelectron_closure", "none")
+        if "photoelectron_closure" in outer_plasma:
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.photoelectron_closure was removed; "
+                "use photoelectron_density_model and photoelectron_histogram_enabled."
+            )
+        photoelectron_density_model = str(
+            outer_plasma.get("photoelectron_density_model", "none")
         ).strip().lower()
-    if photoelectron_closure == "statistical_return":
-        raise ConfigValidationError(
-            "BEACH constraint error: outer_plasma.photoelectron_closure="
-            '"statistical_return" is not specified and remains unavailable.'
+        photoelectron_histogram_enabled = outer_plasma.get(
+            "photoelectron_histogram_enabled", False
         )
-    if photoelectron_closure not in {"none", "individual_return", "kinetic_mean"}:
+    if photoelectron_density_model not in {"none", "kinetic_mean"}:
         raise ConfigValidationError(
-            "BEACH constraint error: unsupported outer_plasma.photoelectron_closure="
-            f"{photoelectron_closure!r}."
+            "BEACH constraint error: unsupported outer_plasma.photoelectron_density_model="
+            f"{photoelectron_density_model!r}."
         )
-    if photoelectron_closure == "individual_return":
+    if not isinstance(photoelectron_histogram_enabled, bool):
+        raise ConfigValidationError(
+            "BEACH constraint error: outer_plasma.photoelectron_histogram_enabled "
+            "must be a boolean."
+        )
+    return_model = (
+        str(outer_plasma.get("return_model", "none")).strip().lower()
+        if isinstance(outer_plasma, Mapping)
+        else "none"
+    )
+    transfer_mode = (
+        str(coupling.get("particle_transfer_mode", "none")).strip().lower()
+        if isinstance(coupling, Mapping)
+        else "none"
+    )
+    if photoelectron_histogram_enabled:
         if not isinstance(coupling, Mapping) or (
-            outer_plasma.get("return_model") != "electrostatic_1d_instant_return"
-            or coupling.get("particle_transfer_mode") != "electrostatic_1d_instant_return"
+            return_model != "electrostatic_1d_instant_return"
+            or transfer_mode != "electrostatic_1d_instant_return"
         ):
             raise ConfigValidationError(
-                "BEACH constraint error: individual photoelectron return requires the "
-                "electrostatic_1d_instant_return transfer and return models."
+                "BEACH constraint error: photoelectron_histogram_enabled=true requires "
+                "outer_plasma.return_model and coupling.particle_transfer_mode to both be "
+                "electrostatic_1d_instant_return."
             )
         for key in (
             "photoelectron_histogram_energy_max",
             "photoelectron_ambient_charge_scale",
-            "max_photoelectron_charge_ratio",
         ):
             value = outer_plasma.get(key)
             if (
@@ -866,30 +885,39 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 raise ConfigValidationError(
                     f"BEACH constraint error: outer_plasma.{key} must be finite and > 0."
                 )
+        max_charge_ratio = outer_plasma.get("max_photoelectron_charge_ratio", 0.1)
+        if (
+            not isinstance(max_charge_ratio, (int, float))
+            or isinstance(max_charge_ratio, bool)
+            or not math.isfinite(max_charge_ratio)
+            or max_charge_ratio <= 0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.max_photoelectron_charge_ratio "
+                "must be finite and > 0."
+            )
         bins = outer_plasma.get("photoelectron_histogram_bins", 32)
         if not isinstance(bins, int) or isinstance(bins, bool) or bins < 1:
             raise ConfigValidationError(
                 "BEACH constraint error: outer_plasma.photoelectron_histogram_bins must be >= 1."
             )
-    if photoelectron_closure == "kinetic_mean":
-        if outer_plasma.get("model") != "kinetic_1d" or (
-            isinstance(coupling, Mapping)
-            and coupling.get("particle_transfer_mode", "none") != "none"
+    if photoelectron_density_model == "kinetic_mean":
+        if (
+            outer_plasma.get("model") != "kinetic_1d"
+            or not (
+                (return_model == "none" and transfer_mode == "none")
+                or (
+                    return_model == "kinetic_1d_profile_return"
+                    and transfer_mode == "electrostatic_1d_instant_return"
+                )
+            )
         ):
             raise ConfigValidationError(
-                "BEACH constraint error: kinetic_mean requires kinetic_1d without individual return."
+                "BEACH constraint error: photoelectron_density_model=kinetic_mean requires "
+                "kinetic_1d with either return_model=none and particle_transfer_mode=none, "
+                "or kinetic_1d_profile_return with electrostatic_1d_instant_return transfer."
             )
 
-    return_model = (
-        str(outer_plasma.get("return_model", "none")).strip().lower()
-        if isinstance(outer_plasma, Mapping)
-        else "none"
-    )
-    transfer_mode = (
-        str(coupling.get("particle_transfer_mode", "none")).strip().lower()
-        if isinstance(coupling, Mapping)
-        else "none"
-    )
     explicit_orbit = "electrostatic_3d_explicit_orbit"
     if return_model == explicit_orbit or transfer_mode == explicit_orbit:
         if (
@@ -945,16 +973,21 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] source_mode must be a string."
             )
-        if photoelectron_closure == "individual_return" and source_mode == "photo_raycast":
+        if "photo_escape_model" in species_table:
+            raise ConfigValidationError(
+                f"BEACH constraint error: particles.species[{index}].photo_escape_model "
+                "was removed; track emitted photoelectrons and configure the open-boundary "
+                "or outer-plasma return model instead."
+            )
+        tracked_outer_transfer = transfer_mode in {
+            "electrostatic_1d_instant_return",
+            "electrostatic_3d_explicit_orbit",
+        }
+        if tracked_outer_transfer and source_mode == "photo_raycast":
             if species_table.get("deposit_opposite_charge_on_emit") is not True:
                 raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] requires "
-                    "deposit_opposite_charge_on_emit=true for individual photoelectron return."
-                )
-            if str(species_table.get("photo_escape_model", "none")).strip().lower() != "none":
-                raise ConfigValidationError(
-                    f"BEACH constraint error: particles.species[{index}] cannot combine a legacy "
-                    "photo_escape_model with individual photoelectron return."
+                    "deposit_opposite_charge_on_emit=true for tracked outer transfer."
                 )
         if "temperature_k" in species_table and "temperature_ev" in species_table:
             raise ConfigValidationError(
@@ -1089,13 +1122,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] uses "
                     'source_mode="photo_raycast" and requires rays_per_batch > 0.'
-                )
-            photo_escape_model = str(species_table.get("photo_escape_model", "none")).strip().lower()
-            if photo_escape_model not in {"none", "boltzmann_cutoff"}:
-                raise ConfigValidationError(
-                    f"BEACH constraint error: particles.species[{index}] uses "
-                    'source_mode="photo_raycast" and requires photo_escape_model '
-                    'to be "none" or "boltzmann_cutoff".'
                 )
             forbidden = (
                 "npcls_per_step",

@@ -74,7 +74,7 @@ GitHub Raw URL を指定することもできます。
 
 ## 公式入門ケース
 
-最初の実行には [10分チュートリアル](Tutorial.html) と
+最初の実行には [10 分チュートリアル](Tutorial.html) と
 `examples/tutorial_insulator.toml` を使ってください。`beachx config init`
 も同一の設定を生成します。
 
@@ -272,10 +272,11 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 | `outer_plasma.max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage`上限 |
 | `outer_plasma.max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda`上限 |
 | `outer_plasma.max_local_charge_ratio` | `50` | 局所平均plasma電荷推定比上限 |
-| `outer_plasma.photoelectron_closure` | `none` | `individual_return`でphotoelectron個別帰還とoutgoing histogramを有効化 |
+| `outer_plasma.photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は`kinetic_1d`へ平均光電子密度を追加 |
+| `outer_plasma.photoelectron_histogram_enabled` | `false` | z-highを外向き通過する光電子のhistogramと適用性検査を有効化 |
 | `outer_plasma.photoelectron_histogram_bins` | `32` | 法線運動エネルギーhistogramのbin数 |
-| `outer_plasma.photoelectron_histogram_energy_max` | 必須 | histogram上端 [J]。`individual_return`で正値必須 |
-| `outer_plasma.photoelectron_ambient_charge_scale` | 必須 | 線形モデルの適用性を比較するambient signed-charge scale [C] |
+| `outer_plasma.photoelectron_histogram_energy_max` | histogram有効時に必須 | histogram上端 [J]。正値必須 |
+| `outer_plasma.photoelectron_ambient_charge_scale` | histogram有効時に必須 | 線形モデルの適用性を比較するambient signed-charge scale [C] |
 | `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
 | `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
 
@@ -308,10 +309,10 @@ return currentの物理的な時間履歴として解釈できません。[<sup>
 
 `reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
 
-`photoelectron_closure="kinetic_mean"`では、先頭の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
+`photoelectron_density_model="kinetic_mean"`では、先頭の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
 平均密度モデルが供給するのはouter profileだけです。表面電荷は明示的に追跡する粒子が更新するため、
 統計的なreturn currentを追加で加算しません。tracked returnを使う全speciesで
-`deposit_opposite_charge_on_emit=true`を指定し、legacy `photo_escape_model`は無効にします。
+`deposit_opposite_charge_on_emit=true`を指定します。
 
 実行例は`examples/periodic2_kinetic_outer.toml`、物理モデルの前提は`docs/adr/0001-kinetic-outer-plasma.md`です。
 
@@ -324,7 +325,7 @@ return currentの物理的な時間履歴として解釈できません。[<sup>
 | nonzero mode | 表面最高点直上から$\sqrt{k^2+\kappa^2}$ tailへ接続 |
 | `interface_z` | field切断面ではなく粒子ownership面 |
 | geometry/kernel | single-valued height fieldと`triangle_p0`が必須 |
-| photoelectron mean | `photoelectron_closure="none"`のみ |
+| photoelectron mean | `photoelectron_density_model="none"`のみ |
 | particle transfer | `none`または`electrostatic_3d_explicit_orbit` |
 | 3D orbit | `b0=0`、固定刻み、energy/frozen-field errorの上限 |
 | applicability | 線形性上限を超えたらfallbackせず停止 |
@@ -354,10 +355,16 @@ return currentの物理的な時間履歴として解釈できません。[<sup>
 | split linear reference | `periodic2_linear_outer_reference.toml` | 閾値違反時にfallbackしない |
 | 1D instant return | `periodic2_outer_particle_transfer.toml` | z-high、`b0=0`、x/y periodic |
 | unified 3D orbit | `periodic2_unified_explicit_orbit.toml` | 全3D field、固定刻みouter orbit |
-| individual photoelectron return | `periodic2_photoelectron_individual_return.toml` | instant return、放出元逆符号電荷、legacy escape補正なし |
+| tracked photoelectron return | `periodic2_photoelectron_return.toml` | instant return、放出元逆符号電荷、outgoing histogram |
 
-`individual_return`のoutgoing histogramは全MPI rankから集計し、前batchの値と累積値をcheckpointに保存します。
-`statistical_return`は未仕様のため使用できません。放出が強く、ambient-onlyの線形モデルの適用範囲を外れる場合は停止します。
+`photoelectron_histogram_enabled=true`のoutgoing histogramは全MPI rankから集計し、前batchの値と累積値をcheckpointに保存します。
+histogramは診断と適用性検査だけを担当し、粒子のreturn / escapeは`return_model`と`particle_transfer_mode`が決めます。
+現行実装では両方のIDが`electrostatic_1d_instant_return`のときだけhistogramを有効化できます。
+`photoelectron_density_model`とは責務を分離していますが、`kinetic_mean`が要求するreturn modelとは両立しないため、
+現行実装では平均密度モデルとhistogramを同時に有効化できません。
+z-high outward interface crossingのsigned chargeが強く、ambient-onlyの線形モデルの適用範囲を外れる場合は停止します。
+tracked outer transferを使う全`photo_raycast` speciesでは、histogramの有無によらず
+`deposit_opposite_charge_on_emit=true`を指定します。
 
 periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必要です。
 同じ周期条件をfield、collision、`photo_raycast`に適用します。
@@ -407,7 +414,7 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
 設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) で説明します。
 各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
-[reservoir注入](ReservoirInjection.md)、[シース流入補正](SheathInjectionClosures.md)、
+[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.md)、[シース流入補正](SheathInjectionClosures.md)、
 [粒子のescapeとreturn](ParticleEscapeReturn.md)で、modelごとの処理を分けて説明します。
 
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で更新した
@@ -541,7 +548,6 @@ n_injected = floor(residual + n_macro_expected)
 | `emit_current_density_a_m2` | float | `0.0` | レイ垂直面基準の放出電流密度 [A/m^2] |
 | `rays_per_batch` | int | `0` | 1 バッチの発射レイ数 |
 | `deposit_opposite_charge_on_emit` | bool | `false` | 放出元要素に逆符号電荷を堆積 |
-| `photo_escape_model` | string | `"none"` | `none` / `boltzmann_cutoff` |
 | `normal_drift_speed` | float | `0.0` | 放出法線方向ドリフト [m/s] |
 | `ray_direction` | float[3] | 注入面内向き法線 | レイ方向 |
 
@@ -566,17 +572,8 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 実際の生成粒子数はレイの命中率で決まるため、バッチごとの生成数は `rays_per_batch` 以下です。
 `field_bc_mode="periodic2"` では、periodic image に命中しても primary cell に wrap した hit 座標から放出します。
 
-`photo_escape_model="boltzmann_cutoff"` では、更新済みの電場・電位による放出元要素の
-中心電位で障壁を評価します。primary cell の放出元要素自身だけを除き、周期画像、zero mode、outer profile、
-一様外部場 `e0` は残します。`triangle_p0` の自己項には解析 panel 電位を使います。
-
-```text
-barrier = max(phi_emit - phi_infty, 0)
-escape_factor = exp(-|q_particle| * barrier / (k_B * T_PE))
-```
-
-`deposit_opposite_charge_on_emit=true` の場合、放出元要素へ残す逆符号電荷にも同じ実効重みを使います。
-抑制された光電子電流は即時 return として扱います。
+生成した光電子は常に`w_hit`を重みに使い、通常粒子として追跡します。表面へ戻れば通常の衝突として吸収し、
+open面では`open_boundary_model`またはouter particle transferがreturn / escapeを決めます。
 
 ---
 
@@ -842,7 +839,7 @@ z 軸方向の円柱です。
 | `mesh_triangles.csv` | 要素 geometry。`mesh_id` 列を含む |
 | `mesh_sources.csv` | `mesh_id` ごとの元メッシュ種別、表面モデル、`epsilon_r`、要素数 |
 | `outer_plasma_profile.csv` | outer stateが有効な`kinetic_1d` / `unified_linear_response`のprofile。条件付きcheckpoint |
-| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"`の前batch・累積histogram。条件付きcheckpoint |
+| `photoelectron_histogram.csv` | `photoelectron_histogram_enabled=true`の前batch・累積histogram。条件付きcheckpoint |
 | `mesh_potential.csv` | `write_mesh_potential=true` のとき |
 | `charge_history.csv` | `history_stride > 0` のとき |
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
@@ -850,6 +847,13 @@ z 軸方向の円柱です。
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialまたはMPI rank別の乱数状態 |
 | `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差 |
 | `charge_ledger.csv` | 粒子種別の電荷収支、粒子数、再開用累積値 |
+
+histogram stateがreadyな場合、`summary.txt`には`photoelectron_histogram_bins`、
+`photoelectron_histogram_energy_max_J`、`photoelectron_last_completed_batch`、
+`photoelectron_cumulative_signed_charge_C`、`photoelectron_cumulative_kinetic_energy_J`、
+`photoelectron_cumulative_count`、`photoelectron_previous_signed_current_A`、
+`photoelectron_previous_charge_ratio`、`photoelectron_max_charge_ratio`、
+`photoelectron_linear_applicability_status`も出力します。各値の読み方は[出力ガイド](OutputGuide.html#モデル固有の診断)を参照してください。
 
 [出力ガイドの再開実行](OutputGuide.html#再開実行の出力)に、列定義と条件別checkpoint要件を集約しています。
 
@@ -869,7 +873,7 @@ z 軸方向の円柱です。
 | 出力 | `write_files=true` が必須 |
 | 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
 | 必須ファイル | `summary.txt`, `charges.csv`, serialの`rng_state.txt`またはMPI全rankの`rng_state_rankNNNNN.txt` |
-| 条件付きファイル | ledger metadataがある場合の`charge_ledger.csv`、readyなouter stateの`outer_plasma_profile.csv`、`individual_return`の`photoelectron_histogram.csv` |
+| 条件付きファイル | ledger metadataがある場合の`charge_ledger.csv`、readyなouter stateの`outer_plasma_profile.csv`、histogram有効時の`photoelectron_histogram.csv` |
 | 任意state | `macro_residuals.csv`が存在すればglobal残差を復元 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 

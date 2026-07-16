@@ -165,8 +165,9 @@ sourceと外向き粒子が同じ自己整合potential profileを共有する計
 - Zhaoは負electron、正ion、負photoelectronの3 speciesを要求します。
 - `floating_no_photo`は負electronと正ionだけを使い、photoelectron sourceを補正しません。
 
-`photo_escape_model="boltzmann_cutoff"`はZhaoとは別の局所的な簡略化モデルです。式とtracked returnとの排他関係は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
+光電子は放出後に通常粒子として追跡します。有限boxでは`open_boundary_model="potential_barrier"`、外部sheathでは
+`outer_plasma.return_model`と`coupling.particle_transfer_mode`がreturn / escapeを決めます。
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)に電荷収支をまとめています。
 
 ## Code reference
 

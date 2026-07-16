@@ -63,7 +63,6 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "emit_current_density_a_m2": 0.0,
     "rays_per_batch": 0,
     "deposit_opposite_charge_on_emit": False,
-    "photo_escape_model": "none",
     "normal_drift_speed": 0.0,
     "ray_direction": [0.0, 0.0, 0.0],
     "inject_face": "",
@@ -146,7 +145,6 @@ ALLOWED_SPECIES_KEYS = frozenset(
         "emit_current_density_a_m2",
         "rays_per_batch",
         "deposit_opposite_charge_on_emit",
-        "photo_escape_model",
         "normal_drift_speed",
         "ray_direction",
         "inject_face",
@@ -404,8 +402,6 @@ def _validate_reservoir_species(
         spec.get("rays_per_batch", 0)
     ) != 0 or bool(spec.get("_has_ray_direction", False)) or bool(
         spec.get("_has_deposit_opposite_charge_on_emit", False)
-    ) or bool(
-        spec.get("_has_photo_escape_model", False)
     ):
         raise SystemExit("photo_raycast keys are not allowed for reservoir_face.")
 
@@ -612,9 +608,6 @@ def _validate_photo_raycast_species(
     rays_per_batch = int(spec.get("rays_per_batch", 0))
     if rays_per_batch <= 0:
         raise SystemExit("photo_raycast requires rays_per_batch > 0.")
-    photo_escape_model = str(spec.get("photo_escape_model", "none")).strip().lower()
-    if photo_escape_model not in {"none", "boltzmann_cutoff"}:
-        raise SystemExit('photo_escape_model must be "none" or "boltzmann_cutoff".')
     if int(spec.get("npcls_per_step", 0)) != 0:
         raise SystemExit("npcls_per_step is not allowed for photo_raycast.")
 
@@ -909,7 +902,6 @@ def estimate_workload(
         spec["_has_deposit_opposite_charge_on_emit"] = (
             "deposit_opposite_charge_on_emit" in raw
         )
-        spec["_has_photo_escape_model"] = "photo_escape_model" in raw
         species_list.append(spec)
 
     target_batch_count = int(sim_cfg["batch_count"])
@@ -956,8 +948,6 @@ def estimate_workload(
                 spec.get("rays_per_batch", 0)
             ) != 0 or bool(spec.get("_has_ray_direction", False)) or bool(
                 spec.get("_has_deposit_opposite_charge_on_emit", False)
-            ) or bool(
-                spec.get("_has_photo_escape_model", False)
             ):
                 raise SystemExit(
                     'photo_raycast keys are only valid for source_mode="photo_raycast".'

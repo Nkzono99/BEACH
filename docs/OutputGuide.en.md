@@ -33,7 +33,7 @@ If `output.dir` is changed, replace `outputs/latest` with that output directory.
 | --- | --- | --- |
 | `summary.txt` | Always | batch count, absorbed and escaped counts, last relative charge change, MPI rank count |
 | `outer_plasma_profile.csv` | An outer state is ready for `kinetic_1d` / `unified_linear_response` | Converged outer-grid `z, phi, E, rho`; a conditional checkpoint |
-| `photoelectron_histogram.csv` | `outer_plasma.photoelectron_closure="individual_return"` and the histogram state is ready | Previous-batch and cumulative photoelectron histogram; a conditional checkpoint |
+| `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` and the histogram state is ready | Previous-batch and cumulative photoelectron histogram; a conditional checkpoint |
 | `charges.csv` | Always | final charge per element |
 | `mesh_triangles.csv` | Always | triangle vertices, element IDs, `mesh_id` |
 | `mesh_sources.csv` | OBJ or template mesh | `mesh_id`, `source_kind`, `surface_model`, and element count |
@@ -96,6 +96,24 @@ For split periodic2 runs, `summary.txt` records `interface_potential_V`, `interf
 `gauss_residual_C`, `outer_integrated_charge_C`, and `last_outer_update_batch`. These values cover the interface
 potential and normal field, the Gauss residual, integrated outer charge, and update point. They diagnose physical-model
 applicability and are part of the restart contract; a split checkpoint missing its outer state is rejected.
+
+When the photoelectron histogram state is ready, inspect these additional `summary.txt` keys.
+
+| Key | Meaning |
+| --- | --- |
+| `photoelectron_histogram_bins` | Number of normal-kinetic-energy bins |
+| `photoelectron_histogram_energy_max_J` | Histogram upper edge [J] |
+| `photoelectron_last_completed_batch` | Last batch committed to the histogram |
+| `photoelectron_cumulative_signed_charge_C` | Cumulative signed charge crossing z-high outward [C] |
+| `photoelectron_cumulative_kinetic_energy_J` | Cumulative total kinetic energy [J] |
+| `photoelectron_cumulative_count` | Cumulative crossing count |
+| `photoelectron_previous_signed_current_A` | Previous-batch signed charge divided by `batch_duration` [A] |
+| `photoelectron_previous_charge_ratio` | Previous-batch outward-crossing charge relative to the ambient charge scale |
+| `photoelectron_max_charge_ratio` | Configured applicability limit |
+| `photoelectron_linear_applicability_status` | `applicable` for a batch that completes normally |
+
+A batch whose `photoelectron_previous_charge_ratio` exceeds the limit stops, so an inapplicable state is not continued as a
+normal output.
 
 For `unified_linear_response`, also inspect `outer_accessible_fraction_min`, `outer_accessible_fraction_max`, and
 `outer_accessible_fraction_refinement_error`. The latter is the maximum change in accessible fraction when the
@@ -191,7 +209,7 @@ With `output.resume=true`, files are loaded according to the configuration and s
 | `macro_residuals.csv` | Restores the global residual when present. MPI still uses one file; legacy rank-local files are rejected |
 | `charge_ledger.csv` | Required when the summary contains ledger checkpoint metadata |
 | `outer_plasma_profile.csv` | Required when resuming a ready outer state for `kinetic_1d` / `unified_linear_response` |
-| `photoelectron_histogram.csv` | Required when resuming `outer_plasma.photoelectron_closure="individual_return"` |
+| `photoelectron_histogram.csv` | Required when resuming with `outer_plasma.photoelectron_histogram_enabled=true` |
 
 Schema v3 restores matching model, mesh, and species fingerprints plus the complete outer solver profile/state. A schema-v2 three-column outer profile remains readable, but it forces a new outer solve at the next refresh instead of being treated as a complete held state.
 When `output.restart_from` is set, checkpoint files are read from `restart_from`, while new outputs are written under `output.dir`.

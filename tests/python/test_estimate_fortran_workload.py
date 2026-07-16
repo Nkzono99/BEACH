@@ -574,7 +574,6 @@ def test_estimate_workload_supports_photo_raycast_as_upper_bound() -> None:
                     "source_mode": "photo_raycast",
                     "emit_current_density_a_m2": 1.0e-3,
                     "rays_per_batch": 25,
-                    "photo_escape_model": "boltzmann_cutoff",
                     "q_particle": -1.0,
                     "m_particle": 1.0,
                     "temperature_k": 0.0,
@@ -590,6 +589,37 @@ def test_estimate_workload_supports_photo_raycast_as_upper_bound() -> None:
 
     assert result["resolved_batch_duration"] == pytest.approx(1.0e-6)
     assert result["species_per_batch"] == [[25], [25]]
+
+
+def test_estimate_workload_rejects_removed_photo_escape_model() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "batch_duration": 1.0e-6,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 1.0e-3,
+                    "rays_per_batch": 25,
+                    "photo_escape_model": "boltzmann_cutoff",
+                    "q_particle": -1.0,
+                    "m_particle": 1.0,
+                    "temperature_k": 0.0,
+                    "inject_face": "z_high",
+                    "pos_low": [0.0, 0.0, 1.0],
+                    "pos_high": [1.0, 1.0, 1.0],
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="photo_escape_model"):
+        estimate_workload(config=config, threads=1)
 
 
 def test_estimate_workload_rejects_photo_raycast_with_outward_direction() -> None:

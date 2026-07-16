@@ -218,18 +218,14 @@ Zhao profileの$E(z)$はparticle pusherで用いる電場へ加算されませ�
 injection/photoemission closureであり、軌道と同じ外部電位profileを必要とするproduction計算では
 `kinetic_1d`または`unified_linear_response`を使います。
 
-## 8. `floating_no_photo`とphotoelectron reduced closure
+## 8. `floating_no_photo`とtracked photoelectron
 
 `floating_no_photo`はelectron Maxwellianのcutoff後fluxとion inflow fluxが一致する負の浮遊電位を
 二分法で解き、electron reservoirへcutoffを適用します。空間的なsheath profileは作りません。
 
-`photo_escape_model="boltzmann_cutoff"`は放出元自己項を除いた局所電位からescape fraction
-
-$$
-f_\mathrm{escape}=\exp\left[-\frac{|q|\max(\phi_\mathrm{emit}-\phi_\infty,0)}{k_BT_\mathrm{PE}}\right]
-$$
-
-だけを求めます。returning particleの軌道・再吸収位置・遅延は追跡しない即時reduced closureです。
+光電子は放出時の重みを保ったまま通常粒子として追跡します。有限boxでは
+`open_boundary_model="potential_barrier"`、外部sheathでは`outer_plasma.return_model`と
+`coupling.particle_transfer_mode`がreturn / escapeを決めます。
 
 ## 9. 互換性と推奨用途
 

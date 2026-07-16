@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(11)
+  call test_init(13)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -68,6 +68,24 @@ program test_model_fingerprint
   call assert_true( &
     model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
     'explicit outer orbit numeric contract must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('photoelectron_density_model_change_detected')
+  cfg_changed = cfg
+  cfg_changed%outer_plasma%photoelectron_density_model = 'kinetic_mean'
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'photoelectron density model must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('photoelectron_histogram_flag_change_detected')
+  cfg_changed = cfg
+  cfg_changed%outer_plasma%photoelectron_histogram_enabled = .true.
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'photoelectron histogram flag must alter fingerprint' &
     )
   call test_end()
 

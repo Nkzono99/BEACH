@@ -143,7 +143,7 @@ lower_boundary_model = "symmetric_vacuum"
 
 [outer_plasma]
 model = "kinetic_1d"
-photoelectron_closure = "none"
+photoelectron_density_model = "none"
 return_model = "kinetic_1d_profile_return"
 interface_z = 9.899494936611664e-4
 infinity_potential = 0.0
@@ -182,7 +182,7 @@ UVを有効にする場合、外部空間の平均光電子密度は`kinetic_mea
 ```toml
 [outer_plasma]
 model = "kinetic_1d"
-photoelectron_closure = "kinetic_mean"
+photoelectron_density_model = "kinetic_mean"
 return_model = "kinetic_1d_profile_return"
 interface_z = 9.899494936611664e-4
 infinity_potential = 0.0
@@ -204,7 +204,7 @@ ray_direction = [0.0, 0.0, -1.0]
 ```
 
 先頭の負電荷`photo_raycast` speciesに設定した放出電流と温度から、平均密度モデルが決まります。
-`deposit_opposite_charge_on_emit = true`は必須です。legacy `photo_escape_model`とは併用できません。
+`deposit_opposite_charge_on_emit = true`は必須です。
 `kinetic_mean`はouter profileだけを供給し、帰還電流を表面電荷に二重加算しません。
 
 まず、mesh、batch duration、ambient流入を同じにしたUVなしとUVありのcaseを比較します。

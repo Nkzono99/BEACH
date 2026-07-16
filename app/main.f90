@@ -16,7 +16,7 @@ program main
   use bem_mesh, only: prepare_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   implicit none
 
   type(mesh_type) :: mesh
@@ -27,7 +27,7 @@ program main
   type(charge_ledger_type) :: charge_ledger
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   type(electrostatic_restart_state_type) :: electrostatic_restart_state
-  type(photoelectron_coupling_state_type) :: photoelectron_state
+  type(photoelectron_histogram_state_type) :: photoelectron_state
   type(mpi_context) :: mpi
   integer :: history_unit
   integer :: potential_history_unit

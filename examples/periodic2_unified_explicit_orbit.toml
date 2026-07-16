@@ -32,7 +32,7 @@ interface_field_tolerance = 1.0e-3
 
 [outer_plasma]
 model = "unified_linear_response"
-photoelectron_closure = "none"
+photoelectron_density_model = "none"
 return_model = "electrostatic_3d_explicit_orbit"
 interface_z = 1.0
 infinity_potential = 0.0

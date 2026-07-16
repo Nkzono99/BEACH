@@ -137,8 +137,8 @@ program test_simulator
   call assert_close_dp(charge_ledger%residual(), 0.0_dp, 1.0d-12, 'simulation charge residual mismatch')
   call test_end()
 
-  call test_begin('photoelectron_individual_return_histogram')
-  call test_photoelectron_individual_return_histogram()
+  call test_begin('photoelectron_return_histogram')
+  call test_photoelectron_return_histogram()
   call test_end()
 
   call test_begin('split_outer_instant_return_ledger')
@@ -256,14 +256,14 @@ program test_simulator
 
 contains
 
-  subroutine test_photoelectron_individual_return_histogram()
+  subroutine test_photoelectron_return_histogram()
     use bem_constants, only: eps0
-    use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
+    use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
     type(mesh_type) :: photo_mesh
     type(app_config) :: photo_cfg
     type(sim_stats) :: photo_stats
     type(charge_ledger_type) :: photo_ledger
-    type(photoelectron_coupling_state_type) :: photo_state
+    type(photoelectron_histogram_state_type) :: photo_state
     real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), panel_charge
 
     tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.999_dp]
@@ -305,7 +305,7 @@ contains
     photo_cfg%periodic2%interface_field_tolerance = 1.0e6_dp
     photo_cfg%outer_plasma%model = 'linear_debye'
     photo_cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
-    photo_cfg%outer_plasma%photoelectron_closure = 'individual_return'
+    photo_cfg%outer_plasma%photoelectron_histogram_enabled = .true.
     photo_cfg%outer_plasma%interface_z = 1.0_dp
     photo_cfg%outer_plasma%debye_length = 0.2_dp
     photo_cfg%outer_plasma%thermal_voltage = 10.0_dp
@@ -344,7 +344,7 @@ contains
     call assert_close_dp(sum(photo_ledger%emitted_from_surface), -1.0_dp, 1.0e-12_dp, 'emission ledger mismatch')
     call assert_close_dp(sum(photo_ledger%interface_returned_gross), -1.0_dp, 1.0e-12_dp, 'return ledger mismatch')
     call assert_close_dp(photo_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'photoelectron transaction mismatch')
-  end subroutine test_photoelectron_individual_return_histogram
+  end subroutine test_photoelectron_return_histogram
 
   subroutine test_split_outer_instant_return_ledger()
     use bem_constants, only: eps0

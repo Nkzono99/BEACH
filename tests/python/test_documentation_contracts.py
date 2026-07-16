@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -69,6 +70,50 @@ def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> N
 
     assert "periodic2 は fmm 必須" not in _read("docs/agent-user-guide.md")
     assert "periodic2 requires fmm" not in _read("docs/agent-user-guide.en.md")
+
+
+def test_photoelectron_histogram_schema_requires_explicit_return_model() -> None:
+    validator = Draft202012Validator(_schema())
+    document = tomllib.loads(_read("examples/periodic2_photoelectron_return.toml"))
+
+    errors = list(validator.iter_errors(document))
+    assert not errors, [error.message for error in errors]
+
+    del document["outer_plasma"]["return_model"]
+    errors = list(validator.iter_errors(document))
+    assert any(
+        error.message == "'return_model' is a required property" for error in errors
+    )
+
+
+def test_photoelectron_schema_matches_density_transfer_and_deposit_contracts() -> None:
+    validator = Draft202012Validator(_schema())
+    kinetic = tomllib.loads(_read("examples/periodic2_kinetic_outer.toml"))
+    kinetic["outer_plasma"]["photoelectron_density_model"] = "kinetic_mean"
+
+    assert not list(validator.iter_errors(kinetic))
+
+    mismatched = copy.deepcopy(kinetic)
+    mismatched["coupling"]["particle_transfer_mode"] = "none"
+    assert list(validator.iter_errors(mismatched))
+
+    mismatched = copy.deepcopy(kinetic)
+    mismatched["outer_plasma"]["return_model"] = "none"
+    assert list(validator.iter_errors(mismatched))
+
+    untracked = copy.deepcopy(kinetic)
+    untracked["outer_plasma"]["return_model"] = "none"
+    untracked["coupling"]["particle_transfer_mode"] = "none"
+    assert not list(validator.iter_errors(untracked))
+
+    tracked_photoelectron = tomllib.loads(
+        _read("examples/periodic2_photoelectron_return.toml")
+    )
+    tracked_photoelectron["outer_plasma"]["photoelectron_histogram_enabled"] = False
+    tracked_photoelectron["particles"]["species"][0][
+        "deposit_opposite_charge_on_emit"
+    ] = False
+    assert list(validator.iter_errors(tracked_photoelectron))
 
 
 def test_coupling_reference_covers_every_schema_key() -> None:

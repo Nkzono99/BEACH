@@ -34,7 +34,7 @@ beachx inspect outputs/latest
 | --- | --- | --- |
 | `summary.txt` | 常時 | バッチ数、吸収数、脱出数、最後の相対変化、MPI ランク数 |
 | `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` で外部状態が有効 | 収束した外部グリッドの `z, phi, E, rho`。条件付きチェックポイント |
-| `photoelectron_histogram.csv` | `outer_plasma.photoelectron_closure="individual_return"` でヒストグラム状態が準備済み | 前バッチと累積の光電子ヒストグラム。条件付きチェックポイント |
+| `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` でヒストグラム状態が準備済み | 前バッチと累積の光電子ヒストグラム。条件付きチェックポイント |
 | `charges.csv` | 常時 | 要素ごとの最終電荷 |
 | `mesh_triangles.csv` | 常時 | 三角形頂点、要素 ID、`mesh_id` |
 | `mesh_sources.csv` | OBJ またはテンプレートメッシュ | `mesh_id`、`source_kind`、`surface_model`、要素数 |
@@ -102,6 +102,23 @@ split periodic2 構成では、`summary.txt` に `interface_potential_V`、`inte
 これらは、界面の電位・法線電場、ガウス則の残差、外部領域の積分電荷、更新時点を記録し、
 物理モデルの適用性を判定する診断値であると同時に、再開状態の一部でもあります。
 そのため、これらの値が欠けた split チェックポイントからは再開できません。
+
+光電子histogram stateがreadyな場合は、次の`summary.txt`キーも確認します。
+
+| キー | 内容 |
+| --- | --- |
+| `photoelectron_histogram_bins` | 法線運動エネルギーbin数 |
+| `photoelectron_histogram_energy_max_J` | histogram上端 [J] |
+| `photoelectron_last_completed_batch` | histogramへcommit済みの最終batch |
+| `photoelectron_cumulative_signed_charge_C` | z-high outward interface crossingの累積signed charge [C] |
+| `photoelectron_cumulative_kinetic_energy_J` | 累積全運動エネルギー [J] |
+| `photoelectron_cumulative_count` | 累積crossing数 |
+| `photoelectron_previous_signed_current_A` | 前batchのsigned chargeを`batch_duration`で割った電流 [A] |
+| `photoelectron_previous_charge_ratio` | 前batchのoutward crossing chargeとambient charge scaleの比 |
+| `photoelectron_max_charge_ratio` | 設定した適用性上限 |
+| `photoelectron_linear_applicability_status` | 正常完了したbatchでは`applicable` |
+
+`photoelectron_previous_charge_ratio`が上限を超えたbatchは停止するため、適用外の状態を正常な出力として継続しません。
 
 `unified_linear_response` では、`outer_accessible_fraction_min`、`outer_accessible_fraction_max`、
 `outer_accessible_fraction_refinement_error` も確認します。後者は、粗い表面の高さ標本数を
@@ -200,7 +217,7 @@ if b.result.field_source_model == "point":
 | `macro_residuals.csv` | 存在する場合に全体の残差を復元。MPI でも単一ファイル。旧ランク別ファイルは拒否 |
 | `charge_ledger.csv` | `summary.txt` に台帳のチェックポイントメタデータがある場合に必要 |
 | `outer_plasma_profile.csv` | 保存済み外部状態が準備済みで、`kinetic_1d` / `unified_linear_response` を再開するときに必須 |
-| `photoelectron_histogram.csv` | `outer_plasma.photoelectron_closure="individual_return"` を再開するときに必須 |
+| `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` の状態を再開するときに必須 |
 
 スキーマ v3 ではモデル、メッシュ、粒子種のフィンガープリントを照合し、外部ソルバーのプロファイルと状態を完全に復元します。
 

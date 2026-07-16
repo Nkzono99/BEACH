@@ -71,8 +71,10 @@ contains
   max_outer_flight_time = 0.0_dp
   max_frozen_field_ratio = 0.0_dp
   max_outer_energy_relative_error = 0.0_dp
-  photoelectron_histogram_enabled = present(photoelectron_state) .and. &
-                                    trim(lower_ascii(app%outer_plasma%photoelectron_closure)) == 'individual_return'
+  photoelectron_histogram_enabled = app%outer_plasma%photoelectron_histogram_enabled
+  if (photoelectron_histogram_enabled .and. .not. present(photoelectron_state)) then
+    error stop 'photoelectron_histogram_enabled=true requires a photoelectron histogram state.'
+  end if
   if (photoelectron_histogram_enabled) then
     allocate (photoelectron_histogram_thread(nth))
     if (.not. photoelectron_state%ready) then
@@ -81,7 +83,7 @@ contains
         )
     end if
     if (photoelectron_state%last_completed_batch /= stats%batches) then
-      error stop 'Photoelectron coupling checkpoint batch does not match simulation stats.'
+      error stop 'Photoelectron histogram checkpoint batch does not match simulation stats.'
     end if
     do thread_index = 1_i32, nth
       call photoelectron_histogram_thread(thread_index)%init( &
@@ -228,8 +230,8 @@ contains
         app%outer_plasma%photoelectron_ambient_charge_scale, app%outer_plasma%max_photoelectron_charge_ratio, &
         photoelectron_status &
         )
-      if (photoelectron_status /= photoelectron_closure_ok) then
-        error stop 'Photoelectron emission exceeds the configured linear-closure applicability limit.'
+      if (photoelectron_status /= photoelectron_applicability_ok) then
+        error stop 'Photoelectron emission exceeds the configured linear-applicability limit.'
       end if
       call photoelectron_state%commit_batch(batch_idx, photoelectron_batch_histogram)
     end if

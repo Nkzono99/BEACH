@@ -4,9 +4,9 @@ module bem_outer_plasma_photoelectron
   implicit none
   private
 
-  integer(i32), parameter, public :: photoelectron_closure_ok = 0_i32
-  integer(i32), parameter, public :: photoelectron_closure_not_applicable = 1_i32
-  integer(i32), parameter, public :: photoelectron_closure_invalid = 2_i32
+  integer(i32), parameter, public :: photoelectron_applicability_ok = 0_i32
+  integer(i32), parameter, public :: photoelectron_applicability_not_applicable = 1_i32
+  integer(i32), parameter, public :: photoelectron_applicability_invalid = 2_i32
 
   type, public :: photoelectron_histogram_type
     integer(i32) :: nbins = 0_i32
@@ -26,16 +26,16 @@ module bem_outer_plasma_photoelectron
     procedure :: total_count => total_photoelectron_count
   end type photoelectron_histogram_type
 
-  type, public :: photoelectron_coupling_state_type
+  type, public :: photoelectron_histogram_state_type
     logical :: ready = .false.
     integer(i32) :: last_completed_batch = 0_i32
     type(photoelectron_histogram_type) :: previous_batch
     type(photoelectron_histogram_type) :: cumulative
   contains
-    procedure :: init => init_photoelectron_coupling_state
+    procedure :: init => init_photoelectron_histogram_state
     procedure :: begin_batch => begin_photoelectron_batch
     procedure :: commit_batch => commit_photoelectron_batch
-  end type photoelectron_coupling_state_type
+  end type photoelectron_histogram_state_type
 
   public :: validate_photoelectron_linear_applicability
 
@@ -122,8 +122,8 @@ contains
     total = sum(self%count)
   end function total_photoelectron_count
 
-  subroutine init_photoelectron_coupling_state(self, nbins, energy_max)
-    class(photoelectron_coupling_state_type), intent(out) :: self
+  subroutine init_photoelectron_histogram_state(self, nbins, energy_max)
+    class(photoelectron_histogram_state_type), intent(out) :: self
     integer(i32), intent(in) :: nbins
     real(dp), intent(in) :: energy_max
 
@@ -131,18 +131,18 @@ contains
     call self%cumulative%init(nbins, energy_max)
     self%last_completed_batch = 0_i32
     self%ready = .true.
-  end subroutine init_photoelectron_coupling_state
+  end subroutine init_photoelectron_histogram_state
 
   subroutine begin_photoelectron_batch(self, batch_histogram)
-    class(photoelectron_coupling_state_type), intent(in) :: self
+    class(photoelectron_histogram_state_type), intent(in) :: self
     type(photoelectron_histogram_type), intent(out) :: batch_histogram
 
-    if (.not. self%ready) error stop 'Photoelectron coupling state is not initialized.'
+    if (.not. self%ready) error stop 'Photoelectron histogram state is not initialized.'
     call batch_histogram%init(self%previous_batch%nbins, self%previous_batch%energy_max)
   end subroutine begin_photoelectron_batch
 
   subroutine commit_photoelectron_batch(self, batch_index, batch_histogram)
-    class(photoelectron_coupling_state_type), intent(inout) :: self
+    class(photoelectron_histogram_state_type), intent(inout) :: self
     integer(i32), intent(in) :: batch_index
     type(photoelectron_histogram_type), intent(in) :: batch_histogram
 
@@ -158,13 +158,13 @@ contains
     real(dp), intent(in) :: photoelectron_charge, ambient_charge_scale, max_ratio
     integer(i32), intent(out) :: status
 
-    status = photoelectron_closure_invalid
+    status = photoelectron_applicability_invalid
     if (.not. all(ieee_is_finite([photoelectron_charge, ambient_charge_scale, max_ratio])) .or. &
         ambient_charge_scale <= 0.0_dp .or. max_ratio <= 0.0_dp) return
     if (abs(photoelectron_charge)/ambient_charge_scale > max_ratio) then
-      status = photoelectron_closure_not_applicable
+      status = photoelectron_applicability_not_applicable
     else
-      status = photoelectron_closure_ok
+      status = photoelectron_applicability_ok
     end if
   end subroutine validate_photoelectron_linear_applicability
 

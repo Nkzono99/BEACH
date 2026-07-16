@@ -1,5 +1,6 @@
 !> 物理モデル設定の legacy normalization と fail-closed 契約を検証する。
 program test_physics_config_types
+  use, intrinsic :: ieee_arithmetic, only: ieee_quiet_nan, ieee_value
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config, bc_open, bc_periodic
   use bem_physics_config_types, only: &
@@ -34,6 +35,10 @@ program test_physics_config_types
   call assert_true(trim(periodic2%zero_mode_policy) == 'not_applicable', 'free zero mode mismatch')
   call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'free legacy config should be valid')
+  outer%photoelectron_density_model = 'kinetic_mean'
+  call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'phase0 must reject kinetic_mean without kinetic_1d')
+  outer%photoelectron_density_model = 'none'
   call test_end()
 
   call test_begin('cached_kinetic_outer_contract')
@@ -48,7 +53,7 @@ program test_physics_config_types
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
   call normalize_legacy_physics_config(sim, field, periodic2, panel, outer, coupling)
   outer%model = 'kinetic_1d'
-  outer%photoelectron_closure = 'kinetic_mean'
+  outer%photoelectron_density_model = 'kinetic_mean'
   outer%interface_z = 1.0_dp
   outer%debye_length = 0.2_dp
   outer%thermal_voltage = 2.0_dp
@@ -61,7 +66,7 @@ program test_physics_config_types
   outer%infinity_potential = 0.0_dp
 
   outer%model = 'unified_linear_response'
-  outer%photoelectron_closure = 'none'
+  outer%photoelectron_density_model = 'none'
   sim%softening = 0.0_dp
   panel = panel_kernel_config(source_model='triangle_p0', kernel_id='triangle_p0_exact_p2m_near')
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
@@ -102,7 +107,7 @@ program test_physics_config_types
   coupling%particle_transfer_mode = 'none'
   outer%return_model = 'none'
   outer%model = 'kinetic_1d'
-  outer%photoelectron_closure = 'kinetic_mean'
+  outer%photoelectron_density_model = 'kinetic_mean'
   coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
   coupling%field_evolution_timescale = 1.0_dp
   outer%return_model = 'kinetic_1d_profile_return'
@@ -172,25 +177,41 @@ program test_physics_config_types
   call assert_equal_i32(status, physics_config_ok, 'instant return config should be valid')
   call test_end()
 
-  call test_begin('individual_photoelectron_closure_contract')
-  outer%photoelectron_closure = 'individual_return'
+  call test_begin('photoelectron_histogram_contract')
+  outer%photoelectron_histogram_enabled = .true.
   outer%photoelectron_histogram_bins = 8_i32
   outer%photoelectron_histogram_energy_max = 12.0_dp
   outer%photoelectron_ambient_charge_scale = 4.0_dp
   outer%max_photoelectron_charge_ratio = 0.2_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_ok, 'individual photoelectron closure should be valid')
+  call assert_equal_i32(status, physics_config_ok, 'photoelectron histogram should be valid')
+  outer%return_model = 'none'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'histogram requires instant-return model')
+  outer%return_model = 'electrostatic_1d_instant_return'
   outer%photoelectron_ambient_charge_scale = 0.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'missing photoelectron scale must be rejected')
   outer%photoelectron_ambient_charge_scale = 4.0_dp
+  outer%photoelectron_histogram_energy_max = ieee_value(0.0_dp, ieee_quiet_nan)
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'non-finite histogram energy must be rejected')
+  outer%photoelectron_histogram_energy_max = 12.0_dp
+  outer%photoelectron_ambient_charge_scale = ieee_value(0.0_dp, ieee_quiet_nan)
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'non-finite ambient charge scale must be rejected')
+  outer%photoelectron_ambient_charge_scale = 4.0_dp
+  outer%max_photoelectron_charge_ratio = ieee_value(0.0_dp, ieee_quiet_nan)
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'non-finite maximum charge ratio must be rejected')
+  outer%max_photoelectron_charge_ratio = 0.2_dp
   call test_end()
 
-  call test_begin('statistical_photoelectron_closure_unavailable')
-  outer%photoelectron_closure = 'statistical_return'
+  call test_begin('unknown_photoelectron_density_model')
+  outer%photoelectron_density_model = 'statistical_return'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_unavailable, 'statistical photoelectron closure must fail closed')
-  outer%photoelectron_closure = 'none'
+  call assert_equal_i32(status, physics_config_invalid_combination, 'unknown photoelectron density model must fail closed')
+  outer%photoelectron_density_model = 'none'
   call test_end()
 
   call test_begin('persistent_outer_queue_unavailable')

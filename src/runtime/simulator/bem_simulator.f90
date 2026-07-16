@@ -21,8 +21,8 @@ module bem_simulator
                                  interface_outcome_escaped_to_infinity
   use bem_outer_plasma_interface, only: map_outer_particle_linear_debye, map_outer_particle_kinetic_profile
   use bem_outer_plasma_orbit, only: trace_unified_outer_particle
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type, &
-                                            validate_photoelectron_linear_applicability, photoelectron_closure_ok
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type, &
+                                            validate_photoelectron_linear_applicability, photoelectron_applicability_ok
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
   use bem_outer_plasma_types, only: outer_plasma_ok, outer_plasma_state_type
@@ -53,7 +53,7 @@ module bem_simulator
       type(charge_ledger_type), intent(inout), optional :: charge_ledger
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
       type(electrostatic_restart_state_type), intent(inout), optional :: electrostatic_restart_state
-      type(photoelectron_coupling_state_type), intent(inout), optional :: photoelectron_state
+      type(photoelectron_histogram_state_type), intent(inout), optional :: photoelectron_state
     end subroutine run_absorption_insulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。

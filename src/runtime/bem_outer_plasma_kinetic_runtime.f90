@@ -35,7 +35,7 @@ contains
     photoelectron_index = 0_i32
     do species = 1_i32, app%n_particle_species
       if (.not. app%particle_species(species)%enabled) cycle
-      if (trim(lower_ascii(app%outer_plasma%photoelectron_closure)) == 'kinetic_mean' .and. &
+      if (trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .and. &
           trim(lower_ascii(app%particle_species(species)%source_mode)) == 'photo_raycast' .and. &
           app%particle_species(species)%q_particle < 0.0_dp .and. photoelectron_index == 0_i32) then
         photoelectron_index = species
@@ -51,7 +51,7 @@ contains
       message = 'kinetic_1d requires negative and positive z_high reservoir_face species'
       return
     end if
-    if (trim(lower_ascii(app%outer_plasma%photoelectron_closure)) == 'kinetic_mean' .and. &
+    if (trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .and. &
         photoelectron_index == 0_i32) then
       status = outer_plasma_not_applicable
       message = 'kinetic_mean requires a negative photo_raycast species'

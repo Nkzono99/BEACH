@@ -45,7 +45,8 @@
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
         "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]},
-        "photoelectron_closure": {"enum": ["none", "individual_return", "kinetic_mean"], "default": "none"},
+        "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
+        "photoelectron_histogram_enabled": {"type": "boolean", "default": false},
         "return_model": {"enum": ["none", "electrostatic_1d_instant_return", "kinetic_1d_profile_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
         "interface_z": {"type": "number"},
         "infinity_potential": {"type": "number", "default": 0},
@@ -61,29 +62,37 @@
         "photoelectron_ambient_charge_scale": {"type": "number", "exclusiveMinimum": 0},
         "max_photoelectron_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1}
       },
-      "oneOf": [
+      "allOf": [
         {
-          "properties": {
-            "photoelectron_closure": {"const": "none"}
+          "if": {
+            "required": ["photoelectron_histogram_enabled"],
+            "properties": {
+              "photoelectron_histogram_enabled": {"const": true}
+            }
+          },
+          "then": {
+            "required": [
+              "return_model",
+              "photoelectron_histogram_energy_max",
+              "photoelectron_ambient_charge_scale"
+            ],
+            "properties": {
+              "return_model": {"const": "electrostatic_1d_instant_return"}
+            }
           }
         },
         {
-          "required": [
-            "photoelectron_closure",
-            "photoelectron_histogram_energy_max",
-            "photoelectron_ambient_charge_scale"
-          ],
-          "properties": {
-            "photoelectron_closure": {"const": "individual_return"},
-            "return_model": {"const": "electrostatic_1d_instant_return"}
-          }
-        },
-        {
-          "required": ["photoelectron_closure"],
-          "properties": {
-            "model": {"const": "kinetic_1d"},
-            "photoelectron_closure": {"const": "kinetic_mean"},
-            "return_model": {"enum": ["none", "kinetic_1d_profile_return"]}
+          "if": {
+            "required": ["photoelectron_density_model"],
+            "properties": {
+              "photoelectron_density_model": {"const": "kinetic_mean"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "return_model": {"enum": ["none", "kinetic_1d_profile_return"]}
+            }
           }
         }
       ]
@@ -117,6 +126,117 @@
   ],
   "additionalProperties": false,
   "allOf": [
+    {
+      "if": {
+        "required": ["outer_plasma"],
+        "properties": {
+          "outer_plasma": {
+            "required": ["photoelectron_histogram_enabled"],
+            "properties": {
+              "photoelectron_histogram_enabled": {"const": true}
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["coupling"],
+        "properties": {
+          "coupling": {
+            "required": ["particle_transfer_mode"],
+            "properties": {
+              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["outer_plasma"],
+        "properties": {
+          "outer_plasma": {
+            "required": ["photoelectron_density_model"],
+            "properties": {
+              "photoelectron_density_model": {"const": "kinetic_mean"}
+            }
+          }
+        }
+      },
+      "then": {
+        "oneOf": [
+          {
+            "properties": {
+              "outer_plasma": {
+                "properties": {
+                  "return_model": {"const": "none"}
+                }
+              },
+              "coupling": {
+                "properties": {
+                  "particle_transfer_mode": {"const": "none"}
+                }
+              }
+            }
+          },
+          {
+            "required": ["coupling"],
+            "properties": {
+              "outer_plasma": {
+                "required": ["return_model"],
+                "properties": {
+                  "return_model": {"const": "kinetic_1d_profile_return"}
+                }
+              },
+              "coupling": {
+                "required": ["particle_transfer_mode"],
+                "properties": {
+                  "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"}
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": ["coupling"],
+        "properties": {
+          "coupling": {
+            "required": ["particle_transfer_mode"],
+            "properties": {
+              "particle_transfer_mode": {
+                "enum": ["electrostatic_1d_instant_return", "electrostatic_3d_explicit_orbit"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "particles": {
+            "properties": {
+              "species": {
+                "items": {
+                  "if": {
+                    "required": ["source_mode"],
+                    "properties": {
+                      "source_mode": {"const": "photo_raycast"}
+                    }
+                  },
+                  "then": {
+                    "required": ["deposit_opposite_charge_on_emit"],
+                    "properties": {
+                      "deposit_opposite_charge_on_emit": {"const": true}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
@@ -1192,15 +1312,6 @@
           "default": false,
           "description": "Deposit opposite-sign charge on emitting element for photo_raycast."
         },
-        "photo_escape_model": {
-          "type": "string",
-          "enum": [
-            "none",
-            "boltzmann_cutoff"
-          ],
-          "default": "none",
-          "description": "Optional photoelectron escape closure for photo_raycast."
-        },
         "normal_drift_speed": {
           "type": "number",
           "default": 0.0,
@@ -1419,11 +1530,6 @@
                 },
                 {
                   "required": [
-                    "photo_escape_model"
-                  ]
-                },
-                {
-                  "required": [
                     "velocity_grid_path"
                   ]
                 },
@@ -1485,11 +1591,6 @@
                     {
                       "required": [
                         "deposit_opposite_charge_on_emit"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "photo_escape_model"
                       ]
                     }
                   ]

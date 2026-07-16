@@ -284,7 +284,7 @@ contains
   !! @param[out] collision_failure_species 不完全な照会を返した最小 species index。
   !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
   !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
-  !! @param[inout] snapshot refresh 済み静電 snapshot（電位障壁 closure 使用時に必要）。
+  !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
   subroutine init_particle_batch_from_config( &
     cfg, batch_idx, pcls, state, mesh, outer_state, photo_emission_dq, mpi_rank, mpi_size, mpi, &
     collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot &
@@ -309,8 +309,7 @@ contains
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
                              effective_particle_flux_m2_s(:), &
                              effective_temperature_k(:), effective_drift_velocity(:, :), &
-                             photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:), &
-                             photo_escape_factor_cache(:)
+                             photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:)
     logical, allocatable :: apply_barrier_energy_shift(:)
     logical :: has_enabled_reservoir, use_collective_reservoir_count
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
@@ -525,27 +524,6 @@ contains
             collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
             )
           return
-        end if
-        if (photo_escape_model_enabled(cfg%particle_species(s))) then
-          if (.not. present(snapshot)) then
-            error stop 'photo_escape_model requires a refreshed electrostatic snapshot.'
-          end if
-          allocate (photo_escape_factor_cache(mesh%nelem))
-          photo_escape_factor_cache = -1.0d0
-          do i = 1, counts_actual(s)
-            if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > mesh%nelem) then
-              error stop 'photo_raycast emitted invalid elem_idx.'
-            end if
-            if (photo_escape_factor_cache(emit_elem_species(i, s)) < 0.0d0) then
-              photo_escape_factor_cache(emit_elem_species(i, s)) = photo_escape_weight_factor( &
-                                                                   mesh, cfg%sim, cfg%particle_species(s), &
-                                                                   emit_elem_species(i, s), &
-                                                                   snapshot &
-                                                                   )
-            end if
-            w_species(i, s) = w_species(i, s)*photo_escape_factor_cache(emit_elem_species(i, s))
-          end do
-          deallocate (photo_escape_factor_cache)
         end if
         if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
           do i = 1, counts_actual(s)
@@ -1019,53 +997,6 @@ contains
       error stop 'Unknown sim.reservoir_potential_model in runtime.'
     end select
   end subroutine reservoir_face_velocity_correction
-
-  !> photo_raycast のPE escape closureが有効かを返す。
-  pure logical function photo_escape_model_enabled(spec) result(enabled)
-    type(particle_species_spec), intent(in) :: spec
-
-    enabled = trim(lower_ascii(spec%photo_escape_model)) /= 'none'
-  end function photo_escape_model_enabled
-
-  !> 放出元要素の局所障壁からPE escape重み係数を返す。
-  real(dp) function photo_escape_weight_factor(mesh, sim, spec, elem_idx, snapshot) result(factor)
-    type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
-    type(particle_species_spec), intent(in) :: spec
-    integer(i32), intent(in) :: elem_idx
-    type(electrostatic_snapshot_type), intent(inout) :: snapshot
-
-    real(dp) :: element_potential, barrier_v, thermal_energy_j, arg
-
-    select case (trim(lower_ascii(spec%photo_escape_model)))
-    case ('none')
-      factor = 1.0d0
-      return
-    case ('boltzmann_cutoff')
-      call snapshot%eval_local_phi_without_primary_self(mesh, sim, elem_idx, element_potential)
-      barrier_v = max(element_potential - sim%phi_infty, 0.0d0)
-      if (barrier_v <= 0.0d0) then
-        factor = 1.0d0
-        return
-      end if
-      thermal_energy_j = k_boltzmann*species_temperature_k(spec)
-      if (thermal_energy_j <= 0.0d0) then
-        factor = 0.0d0
-        return
-      end if
-      arg = abs(spec%q_particle)*barrier_v/thermal_energy_j
-      if (.not. ieee_is_finite(arg)) then
-        error stop 'photo_escape_model produced a non-finite Boltzmann argument.'
-      end if
-      if (arg >= 700.0d0) then
-        factor = 0.0d0
-      else
-        factor = exp(-arg)
-      end if
-    case default
-      error stop 'Unknown photo_escape_model in runtime.'
-    end select
-  end function photo_escape_weight_factor
 
   !> reservoir_face 開口面の平均電位を `N x N` 格子平均で評価する。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ。

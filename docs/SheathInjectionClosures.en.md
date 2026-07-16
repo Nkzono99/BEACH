@@ -163,8 +163,10 @@ self-consistent potential profile.
 - Zhao requires negative electron, positive ion, and negative photoelectron species.
 - `floating_no_photo` uses only negative electron and positive ion species and does not modify photoemission.
 
-`photo_escape_model="boltzmann_cutoff"` is a separate local reduced closure. See
-[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for its equation and exclusion with tracked return.
+Photoelectrons are tracked as ordinary particles after emission. Finite boxes use
+`open_boundary_model="potential_barrier"`; external sheaths use `outer_plasma.return_model` and
+`coupling.particle_transfer_mode` to decide return or escape. See
+[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for charge balance.
 
 ## Code reference
 

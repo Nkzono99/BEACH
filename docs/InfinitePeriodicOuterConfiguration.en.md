@@ -67,12 +67,12 @@ Photoelectron outer density and tracked return are separate choices.
 
 | Choice | Outer density | Tracked particle |
 | --- | --- | --- |
-| `photoelectron_closure="none"` | No mean photoelectron density | Ordinary source and orbit only |
-| `kinetic_mean` without transfer | Stationary mean outgoing/returning density | Ordinary open handling at z-high |
-| `kinetic_mean` with profile return | Same mean density | Individual interface crossings also return or escape through the profile |
+| `photoelectron_density_model="none"` | No mean photoelectron density | Ordinary source and orbit only |
+| `photoelectron_density_model="kinetic_mean"` without transfer | Stationary mean outgoing/returning density | Ordinary open handling at z-high |
+| `photoelectron_density_model="kinetic_mean"` with profile return | Same mean density | Individual interface crossings also return or escape through the profile |
 | Unified with explicit orbit | No mean photoelectron closure | Individual 3-D outer trajectories |
 
-Tracked return requires `deposit_opposite_charge_on_emit=true` and excludes legacy `photo_escape_model`. The mean closure neither
+Tracked return requires `deposit_opposite_charge_on_emit=true`. The mean density model neither
 replaces tracked surface deposition nor adds a statistical return deposit. See
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html).
 
@@ -110,8 +110,7 @@ they do not by themselves select a large production backend.
 - Symmetric `k=0` inside `cached_kneq0` versus physical `k=0` in the snapshot.
 - Kinetic interface-potential map versus finite-image `infinity_barrier`.
 - Profile return versus finite-image open `potential_barrier` at z-high.
-- Tracked photoelectron return versus `boltzmann_cutoff`.
-- `kinetic_mean` outer density versus a fictitious statistical return deposit on the surface.
+- `photoelectron_density_model="kinetic_mean"` outer density versus a fictitious statistical return deposit on the surface.
 - Unified base nonzero field versus the incident mode after reflection/transmission replacement.
 
 Validation fails closed on major unsupported combinations, but numerical convergence and physical applicability still require user

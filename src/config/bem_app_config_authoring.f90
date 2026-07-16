@@ -38,7 +38,8 @@ module bem_app_config_authoring
   type :: outer_plasma_authoring_spec
     logical :: present = .false.
     character(len=32) :: model = 'linear_debye'
-    character(len=32) :: photoelectron_closure = 'none'
+    character(len=32) :: photoelectron_density_model = 'none'
+    logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'
     real(dp) :: interface_z = 0.0_dp
     real(dp) :: infinity_potential = 0.0_dp

@@ -398,7 +398,6 @@ contains
       cfg%particle_species(i)%velocity_distribution = lower_ascii(trim(cfg%particle_species(i)%velocity_distribution))
       cfg%particle_species(i)%velocity_grid_pdf_kind = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
       cfg%particle_species(i)%velocity_grid_sampling = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_sampling))
-      cfg%particle_species(i)%photo_escape_model = lower_ascii(trim(cfg%particle_species(i)%photo_escape_model))
       if (.not. all(ieee_is_finite(cfg%particle_species(i)%pos_low)) .or. &
           .not. all(ieee_is_finite(cfg%particle_species(i)%pos_high))) then
         error stop 'particles.species.pos_low/pos_high must contain finite values.'
@@ -462,8 +461,7 @@ contains
         end if
         if (abs(cfg%particle_species(i)%emit_current_density_a_m2) > 0.0d0 .or. &
             cfg%particle_species(i)%rays_per_batch /= 0_i32 .or. cfg%particle_species(i)%has_ray_direction .or. &
-            cfg%particle_species(i)%has_deposit_opposite_charge_on_emit .or. &
-            cfg%particle_species(i)%has_photo_escape_model) then
+            cfg%particle_species(i)%has_deposit_opposite_charge_on_emit) then
           error stop 'photo_raycast keys are only valid for source_mode="photo_raycast".'
         end if
         per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
@@ -487,18 +485,13 @@ contains
       )
     call apply_field_authoring(cfg, authoring)
     call apply_physics_authoring(cfg, authoring)
-    if (trim(lower_ascii(cfg%outer_plasma%photoelectron_closure)) == 'individual_return' .or. &
-        (trim(lower_ascii(cfg%outer_plasma%photoelectron_closure)) == 'kinetic_mean' .and. &
-         trim(lower_ascii(cfg%outer_plasma%return_model)) == 'kinetic_1d_profile_return')) then
+    if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .or. &
+        trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_3d_explicit_orbit') then
       do i = 1, cfg%n_particle_species
         if (.not. cfg%particle_species(i)%enabled) cycle
         if (trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'photo_raycast') cycle
         if (.not. cfg%particle_species(i)%deposit_opposite_charge_on_emit) then
-          error stop 'tracked photoelectron return requires deposit_opposite_charge_on_emit=true.'
-        end if
-        if (cfg%particle_species(i)%has_photo_escape_model .and. &
-            trim(lower_ascii(cfg%particle_species(i)%photo_escape_model)) /= 'none') then
-          error stop 'tracked photoelectron return cannot use the legacy photo_escape_model.'
+          error stop 'tracked outer transfer requires photo_raycast deposit_opposite_charge_on_emit=true.'
         end if
       end do
     end if
@@ -662,12 +655,18 @@ contains
       case ('model')
         call get_toml_string(table, keys(ikey), authoring%outer_plasma%model, 'outer_plasma.model')
         authoring%outer_plasma%model = lower_ascii(trim(authoring%outer_plasma%model))
-      case ('photoelectron_closure')
+      case ('photoelectron_density_model')
         call get_toml_string( &
-          table, keys(ikey), authoring%outer_plasma%photoelectron_closure, 'outer_plasma.photoelectron_closure' &
+          table, keys(ikey), authoring%outer_plasma%photoelectron_density_model, &
+          'outer_plasma.photoelectron_density_model' &
           )
-        authoring%outer_plasma%photoelectron_closure = &
-          lower_ascii(trim(authoring%outer_plasma%photoelectron_closure))
+        authoring%outer_plasma%photoelectron_density_model = &
+          lower_ascii(trim(authoring%outer_plasma%photoelectron_density_model))
+      case ('photoelectron_histogram_enabled')
+        call get_toml_logical( &
+          table, keys(ikey), authoring%outer_plasma%photoelectron_histogram_enabled, &
+          'outer_plasma.photoelectron_histogram_enabled' &
+          )
       case ('return_model')
         call get_toml_string(table, keys(ikey), authoring%outer_plasma%return_model, 'outer_plasma.return_model')
         authoring%outer_plasma%return_model = lower_ascii(trim(authoring%outer_plasma%return_model))
@@ -797,7 +796,8 @@ contains
     end if
     if (authoring%outer_plasma%present) then
       cfg%outer_plasma%model = authoring%outer_plasma%model
-      cfg%outer_plasma%photoelectron_closure = authoring%outer_plasma%photoelectron_closure
+      cfg%outer_plasma%photoelectron_density_model = authoring%outer_plasma%photoelectron_density_model
+      cfg%outer_plasma%photoelectron_histogram_enabled = authoring%outer_plasma%photoelectron_histogram_enabled
       cfg%outer_plasma%return_model = authoring%outer_plasma%return_model
       cfg%outer_plasma%interface_z = authoring%outer_plasma%interface_z
       cfg%outer_plasma%infinity_potential = authoring%outer_plasma%infinity_potential
@@ -1324,10 +1324,6 @@ contains
           'particles.species.deposit_opposite_charge_on_emit' &
           )
         spec%has_deposit_opposite_charge_on_emit = .true.
-      case ('photo_escape_model')
-        call get_toml_string(table, keys(ikey), spec%photo_escape_model, 'particles.species.photo_escape_model')
-        spec%photo_escape_model = lower_ascii(trim(spec%photo_escape_model))
-        spec%has_photo_escape_model = .true.
       case ('normal_drift_speed')
         call get_toml_real(table, keys(ikey), spec%normal_drift_speed, 'particles.species.normal_drift_speed')
       case ('ray_direction')

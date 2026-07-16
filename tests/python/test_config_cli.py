@@ -88,13 +88,14 @@ def test_default_config_matches_official_tutorial_case() -> None:
     )
 
 
-def test_load_config_file_accepts_individual_photoelectron_split() -> None:
+def test_load_config_file_accepts_photoelectron_return_split() -> None:
     config = load_config_file(
-        Path("examples/periodic2_photoelectron_individual_return.toml")
+        Path("examples/periodic2_photoelectron_return.toml")
     )
 
     assert config["periodic2"]["nonzero_mode_backend"] == "panel_spectral_reference"
-    assert config["outer_plasma"]["photoelectron_closure"] == "individual_return"
+    assert config["outer_plasma"]["photoelectron_density_model"] == "none"
+    assert config["outer_plasma"]["photoelectron_histogram_enabled"] is True
     assert config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] is True
 
 
@@ -122,18 +123,81 @@ def test_periodic2_accepts_symmetric_vacuum_and_rejects_unknown_lower_model() ->
         normalize_config_document(config)
 
 
-def test_photoelectron_closure_rejects_statistical_and_nonconserving_modes() -> None:
+def test_photoelectron_settings_reject_unknown_density_and_nonconserving_modes() -> None:
     config = load_config_file(
-        Path("examples/periodic2_photoelectron_individual_return.toml")
+        Path("examples/periodic2_photoelectron_return.toml")
     )
-    config["outer_plasma"]["photoelectron_closure"] = "statistical_return"
+    config["outer_plasma"]["photoelectron_density_model"] = "statistical_return"
     with pytest.raises(ConfigValidationError, match="statistical_return"):
         normalize_config_document(config)
 
-    config["outer_plasma"]["photoelectron_closure"] = "individual_return"
+    config["outer_plasma"]["photoelectron_density_model"] = "none"
     config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] = False
     with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
         normalize_config_document(config)
+
+
+def test_photoelectron_settings_reject_removed_closure_key() -> None:
+    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+    config["outer_plasma"]["photoelectron_closure"] = "individual_return"
+
+    with pytest.raises(ConfigValidationError, match="photoelectron_closure was removed"):
+        normalize_config_document(config)
+
+
+def test_photoelectron_histogram_requires_matching_return_contract() -> None:
+    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+
+    config["outer_plasma"]["return_model"] = "none"
+    with pytest.raises(ConfigValidationError, match="return_model"):
+        normalize_config_document(config)
+
+    config["outer_plasma"]["return_model"] = "electrostatic_1d_instant_return"
+    config["coupling"]["particle_transfer_mode"] = "none"
+    with pytest.raises(ConfigValidationError, match="particle_transfer_mode"):
+        normalize_config_document(config)
+
+
+def test_photoelectron_histogram_uses_optional_threshold_defaults() -> None:
+    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+    del config["outer_plasma"]["photoelectron_histogram_bins"]
+    del config["outer_plasma"]["max_photoelectron_charge_ratio"]
+
+    normalize_config_document(config)
+
+
+def test_kinetic_photoelectron_density_model_requires_matching_transfer_pair() -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config["outer_plasma"]["photoelectron_density_model"] = "kinetic_mean"
+
+    normalize_config_document(config)
+
+    config["coupling"]["particle_transfer_mode"] = "none"
+    with pytest.raises(ConfigValidationError, match="particle_transfer_mode"):
+        normalize_config_document(config)
+
+    config["coupling"]["particle_transfer_mode"] = "electrostatic_1d_instant_return"
+    config["outer_plasma"]["return_model"] = "none"
+    with pytest.raises(ConfigValidationError, match="particle_transfer_mode"):
+        normalize_config_document(config)
+
+    config["coupling"]["particle_transfer_mode"] = "none"
+    normalize_config_document(config)
+
+
+def test_tracked_outer_transfer_requires_opposite_charge_deposit() -> None:
+    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+    config["outer_plasma"]["photoelectron_histogram_enabled"] = False
+    config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] = False
+
+    with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
+        normalize_config_document(config)
+
+    explicit = load_config_file(Path("examples/periodic2_unified_explicit_orbit.toml"))
+    photo_species = config["particles"]["species"][0]
+    explicit["particles"]["species"].append(photo_species)
+    with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
+        normalize_config_document(explicit)
 
 
 def test_load_config_file_resolves_high_level_notation(tmp_path: Path) -> None:
@@ -310,7 +374,7 @@ def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> N
         load_config_file(config_path)
 
 
-def test_load_config_file_rejects_unknown_photo_escape_model(tmp_path: Path) -> None:
+def test_load_config_file_rejects_removed_photo_escape_model(tmp_path: Path) -> None:
     config_path = tmp_path / "beach.toml"
     config_path.write_text(
         """
@@ -327,7 +391,7 @@ source_mode = "photo_raycast"
 emit_current_density_a_m2 = 1.0e-3
 rays_per_batch = 10
 deposit_opposite_charge_on_emit = true
-photo_escape_model = "unknown"
+photo_escape_model = "boltzmann_cutoff"
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 temperature_ev = 1.5

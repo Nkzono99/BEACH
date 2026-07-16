@@ -234,9 +234,11 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 | `emit_current_density_a_m2` | float | 必須 | 放出電流密度 [A/m^2] |
 | `rays_per_batch` | int | 必須 | バッチあたりレイ数 |
 | `deposit_opposite_charge_on_emit` | bool | false | 放出元要素に逆符号電荷を堆積 |
-| `photo_escape_model` | string | `"none"` | `none` / `boltzmann_cutoff`。後者は正電位障壁でPE escape電流をBoltzmann抑制 |
 | `normal_drift_speed` | float | 0.0 | 法線方向ドリフト速度 [m/s] |
 | `ray_direction` | float[3] | 内向き法線 | レイ方向ベクトル |
+
+tracked outer transferを使う`photo_raycast` speciesは、histogramの有無によらず
+`deposit_opposite_charge_on_emit=true`を指定します。
 
 ### [mesh] セクション — ジオメトリ
 
@@ -312,7 +314,7 @@ template入力などを使ってmesh_idを分けてください。
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | reservoir_face 使用時 | CSV: 注入残差状態 |
 | `outer_plasma_profile.csv` | readyな`kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile、条件付きcheckpoint |
-| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"` | CSV: 前batch・累積histogram、条件付きcheckpoint |
+| `photoelectron_histogram.csv` | `photoelectron_histogram_enabled=true` | CSV: 前batch・累積histogram、条件付きcheckpoint |
 | `performance_profile.csv` | `BEACH_PROFILE=1` 環境変数設定時 | CSV: 各領域の計測時間 |
 
 ### MPI 実行時の追加ファイル

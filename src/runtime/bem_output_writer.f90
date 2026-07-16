@@ -5,7 +5,7 @@ module bem_output_writer
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
@@ -137,8 +137,16 @@ contains
     real(dp), intent(in), optional :: mesh_potential_v(:)
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
-    type(photoelectron_coupling_state_type), intent(in), optional :: photoelectron_state
+    type(photoelectron_histogram_state_type), intent(in), optional :: photoelectron_state
 
+    if (cfg%outer_plasma%photoelectron_histogram_enabled) then
+      if (.not. present(photoelectron_state)) then
+        error stop 'photoelectron_histogram_enabled=true requires histogram state for output.'
+      end if
+      if (.not. photoelectron_state%ready) then
+        error stop 'photoelectron_histogram_enabled=true requires ready histogram state for output.'
+      end if
+    end if
     call ensure_output_dir(out_dir)
     call write_summary_file( &
       out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger, &
@@ -154,8 +162,8 @@ contains
     call write_mesh_file(out_dir, mesh)
     call write_mesh_sources_file(out_dir, mesh, cfg)
     if (present(charge_ledger)) call write_charge_ledger_file(out_dir, charge_ledger)
-    if (present(photoelectron_state)) then
-      if (photoelectron_state%ready) call write_photoelectron_histogram_file(out_dir, photoelectron_state)
+    if (cfg%outer_plasma%photoelectron_histogram_enabled) then
+      call write_photoelectron_histogram_file(out_dir, photoelectron_state)
     end if
     if (present(electrostatic_diagnostics)) then
       if (allocated(electrostatic_diagnostics%outer_profile_z)) then
@@ -193,7 +201,7 @@ contains
 
   subroutine write_photoelectron_histogram_file(out_dir, state)
     character(len=*), intent(in) :: out_dir
-    type(photoelectron_coupling_state_type), intent(in) :: state
+    type(photoelectron_histogram_state_type), intent(in) :: state
     character(len=1024) :: path
     integer :: u, ios
     integer(i32) :: bin
@@ -255,11 +263,19 @@ contains
     integer(i32), intent(in), optional :: mpi_world_size
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
-    type(photoelectron_coupling_state_type), intent(in), optional :: photoelectron_state
+    type(photoelectron_histogram_state_type), intent(in), optional :: photoelectron_state
     character(len=1024) :: summary_path
     integer :: u, ios
     integer(i32) :: world_size
 
+    if (cfg%outer_plasma%photoelectron_histogram_enabled) then
+      if (.not. present(photoelectron_state)) then
+        error stop 'photoelectron_histogram_enabled=true requires histogram state for summary output.'
+      end if
+      if (.not. photoelectron_state%ready) then
+        error stop 'photoelectron_histogram_enabled=true requires ready histogram state for summary output.'
+      end if
+    end if
     summary_path = trim(out_dir)//'/summary.txt'
     open (newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary file.'
@@ -352,29 +368,27 @@ contains
         trim(electrostatic_diagnostics%periodic_cache_fingerprint)
       write (u, '(a,a)') 'periodic2_cache_path=', trim(electrostatic_diagnostics%periodic_cache_path)
     end if
-    if (present(photoelectron_state)) then
-      if (photoelectron_state%ready) then
-        write (u, '(a,i0)') 'photoelectron_histogram_bins=', photoelectron_state%cumulative%nbins
-        write (u, '(a,es24.16)') 'photoelectron_histogram_energy_max_J=', &
-          photoelectron_state%cumulative%energy_max
-        write (u, '(a,i0)') 'photoelectron_last_completed_batch=', photoelectron_state%last_completed_batch
-        write (u, '(a,es24.16)') 'photoelectron_cumulative_signed_charge_C=', &
-          photoelectron_state%cumulative%total_signed_charge()
-        write (u, '(a,es24.16)') 'photoelectron_cumulative_kinetic_energy_J=', &
-          photoelectron_state%cumulative%total_kinetic_energy()
-        write (u, '(a,i0)') 'photoelectron_cumulative_count=', photoelectron_state%cumulative%total_count()
-        if (cfg%sim%batch_duration > 0.0_dp) then
-          write (u, '(a,es24.16)') 'photoelectron_previous_signed_current_A=', &
-            photoelectron_state%previous_batch%total_signed_charge()/cfg%sim%batch_duration
-        end if
-        if (cfg%outer_plasma%photoelectron_ambient_charge_scale > 0.0_dp) then
-          write (u, '(a,es24.16)') 'photoelectron_previous_charge_ratio=', &
-            abs(photoelectron_state%previous_batch%total_signed_charge())/ &
-            cfg%outer_plasma%photoelectron_ambient_charge_scale
-          write (u, '(a,es24.16)') 'photoelectron_max_charge_ratio=', &
-            cfg%outer_plasma%max_photoelectron_charge_ratio
-          write (u, '(a)') 'photoelectron_linear_closure_status=applicable'
-        end if
+    if (cfg%outer_plasma%photoelectron_histogram_enabled) then
+      write (u, '(a,i0)') 'photoelectron_histogram_bins=', photoelectron_state%cumulative%nbins
+      write (u, '(a,es24.16)') 'photoelectron_histogram_energy_max_J=', &
+        photoelectron_state%cumulative%energy_max
+      write (u, '(a,i0)') 'photoelectron_last_completed_batch=', photoelectron_state%last_completed_batch
+      write (u, '(a,es24.16)') 'photoelectron_cumulative_signed_charge_C=', &
+        photoelectron_state%cumulative%total_signed_charge()
+      write (u, '(a,es24.16)') 'photoelectron_cumulative_kinetic_energy_J=', &
+        photoelectron_state%cumulative%total_kinetic_energy()
+      write (u, '(a,i0)') 'photoelectron_cumulative_count=', photoelectron_state%cumulative%total_count()
+      if (cfg%sim%batch_duration > 0.0_dp) then
+        write (u, '(a,es24.16)') 'photoelectron_previous_signed_current_A=', &
+          photoelectron_state%previous_batch%total_signed_charge()/cfg%sim%batch_duration
+      end if
+      if (cfg%outer_plasma%photoelectron_ambient_charge_scale > 0.0_dp) then
+        write (u, '(a,es24.16)') 'photoelectron_previous_charge_ratio=', &
+          abs(photoelectron_state%previous_batch%total_signed_charge())/ &
+          cfg%outer_plasma%photoelectron_ambient_charge_scale
+        write (u, '(a,es24.16)') 'photoelectron_max_charge_ratio=', &
+          cfg%outer_plasma%max_photoelectron_charge_ratio
+        write (u, '(a)') 'photoelectron_linear_applicability_status=applicable'
       end if
     end if
     if (present(charge_ledger)) then

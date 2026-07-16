@@ -240,7 +240,7 @@ def test_configuration_recipes_cover_production_kinetic_outer_sheath() -> None:
         assert 'nonzero_mode_backend = "cached_kneq0"' in text
         assert 'model = "kinetic_1d"' in text
         assert 'return_model = "kinetic_1d_profile_return"' in text
-        assert 'photoelectron_closure = "kinetic_mean"' in text
+        assert 'photoelectron_density_model = "kinetic_mean"' in text
         assert 'sheath_injection_model = "none"' in text
         assert "examples/periodic2_kinetic_outer.toml" in text
 

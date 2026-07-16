@@ -36,7 +36,7 @@ program test_outer_plasma_kinetic_runtime
 
   call test_begin('kinetic mean requires an explicit photoelectron source VDF')
   app%particle_species(2)%enabled = .true.
-  app%outer_plasma%photoelectron_closure = 'kinetic_mean'
+  app%outer_plasma%photoelectron_density_model = 'kinetic_mean'
   call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
   call assert_equal_i32(status, outer_plasma_not_applicable, 'missing photoelectron VDF must be not_applicable')
   call test_end()

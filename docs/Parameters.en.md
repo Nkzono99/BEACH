@@ -268,7 +268,18 @@ Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference i
 
 Individual transfer uses `outer_plasma.return_model` and `coupling.particle_transfer_mode` set to `electrostatic_1d_instant_return`. A positive `field_evolution_timescale` and `max_frozen_field_ratio` bound the static-profile approximation. The mode supports only the open z-high interface, x/y periodic wrapping, and `b0=0`. Persistent queuing is not implemented, so `outer_queue_enabled=true` is rejected. See `examples/periodic2_outer_particle_transfer.toml`.
 
-Photoelectron transfer uses `outer_plasma.photoelectron_closure="individual_return"` together with the same instant-return model. Positive `photoelectron_histogram_bins`, `photoelectron_histogram_energy_max` [J], `photoelectron_ambient_charge_scale` [C], and `max_photoelectron_charge_ratio` are required. Every enabled `photo_raycast` species must set `deposit_opposite_charge_on_emit=true` and must not use a legacy `photo_escape_model`. The MPI-global outgoing normal-energy histogram stores signed charge, kinetic energy, tangential momentum, and count for the previous batch and cumulatively in `photoelectron_histogram.csv`. `statistical_return` remains unavailable, and an emission-to-ambient charge ratio above the configured limit fails closed. See `examples/periodic2_photoelectron_individual_return.toml`.
+`outer_plasma.photoelectron_density_model` selects `none` or the `kinetic_mean` density contribution.
+`outer_plasma.photoelectron_histogram_enabled=true` separately enables outgoing-photoelectron diagnostics and the ambient-charge
+applicability check. `photoelectron_histogram_energy_max` [J] and `photoelectron_ambient_charge_scale` [C] are required;
+`photoelectron_histogram_bins` and `max_photoelectron_charge_ratio` default to `32` and `0.1`. Every enabled
+`photo_raycast` species using tracked outer transfer must set `deposit_opposite_charge_on_emit=true`, regardless of whether the
+histogram is enabled. The MPI-global outgoing normal-energy histogram stores
+signed charge, kinetic energy, tangential momentum, and count for the previous batch and cumulatively in
+`photoelectron_histogram.csv`. It does not control particle return; `return_model` and `particle_transfer_mode` do. An
+outward z-high interface-crossing charge ratio above the configured limit fails closed. The current histogram path requires both
+return and transfer IDs to be `electrostatic_1d_instant_return`. The density and histogram settings have separate responsibilities,
+but they cannot currently be enabled together because `kinetic_mean` requires a different return-model branch. See
+`examples/periodic2_photoelectron_return.toml`.
 
 #### `kinetic_1d` contract
 
@@ -302,9 +313,9 @@ return-current time history. See
 
 `reservoir_potential_model`, Zhao injection correction, and nonzero `b0` are rejected.
 
-With `photoelectron_closure="kinetic_mean"`, the first negative `photo_raycast` species supplies a half-Maxwellian flux.
+With `photoelectron_density_model="kinetic_mean"`, the first negative `photo_raycast` species supplies a half-Maxwellian flux.
 The mean closure supplies only the outer profile; tracked particles update surface charge, so statistical return current is not added again.
-Every tracked-return species requires `deposit_opposite_charge_on_emit=true` and no legacy `photo_escape_model`.
+Every tracked-return species requires `deposit_opposite_charge_on_emit=true`.
 
 See `examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
 
@@ -317,7 +328,7 @@ See `examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-pla
 | Nonzero mode | join a $\sqrt{k^2+\kappa^2}$ tail above the highest surface point |
 | `interface_z` | particle ownership plane, not a field truncation plane |
 | Geometry/kernel | require single-valued topography and `triangle_p0` |
-| Photoelectron mean | require `photoelectron_closure="none"` |
+| Photoelectron mean | require `photoelectron_density_model="none"` |
 | Particle transfer | `none` or `electrostatic_3d_explicit_orbit` |
 | 3D orbit | require `b0=0`, fixed step, and energy/frozen-field error contracts |
 | Applicability | fail closed beyond the configured linearity bound |
@@ -537,7 +548,6 @@ to approach that value.
 | `emit_current_density_a_m2` | float | `0.0` | Emission current density referenced to the ray-normal plane [A/m^2] |
 | `rays_per_batch` | int | `0` | Number of launched rays per batch |
 | `deposit_opposite_charge_on_emit` | bool | `false` | Deposit opposite-sign charge on the emitting element |
-| `photo_escape_model` | string | `"none"` | `none` / `boltzmann_cutoff` |
 | `normal_drift_speed` | float | `0.0` | Drift speed along the emission normal [m/s] |
 | `ray_direction` | float[3] | inward normal of injection face | Ray direction |
 
@@ -564,19 +574,8 @@ generated per batch is at most `rays_per_batch`. With `field_bc_mode="periodic2"
 emission starts from the hit coordinate wrapped to the primary cell even when a
 periodic image is hit.
 
-With `photo_escape_model="boltzmann_cutoff"`, the barrier uses the emitting-element
-center potential from the refreshed electrostatic snapshot. Only the emitting
-element in the primary cell is removed; periodic images, zero mode, outer profile,
-and uniform field `e0` remain. `triangle_p0` uses the analytic panel self potential.
-
-```text
-barrier = max(phi_emit - phi_infty, 0)
-escape_factor = exp(-|q_particle| * barrier / (k_B * T_PE))
-```
-
-When `deposit_opposite_charge_on_emit=true`, the same effective weight is used
-for the opposite-sign charge left on the emitting element. Suppressed
-photoelectron current is treated as an immediate return.
+Each emitted photoelectron uses `w_hit` as its weight and is tracked as an ordinary particle. Surface return is absorbed as an
+ordinary collision; `open_boundary_model` or outer particle transfer decides return or escape at an open face.
 
 ---
 
@@ -848,7 +847,7 @@ Output files:
 | `mesh_triangles.csv` | Element geometry. Includes the `mesh_id` column |
 | `mesh_sources.csv` | Original mesh kind, surface model, `epsilon_r`, and element count for each `mesh_id` |
 | `outer_plasma_profile.csv` | Profile for a ready `kinetic_1d` / `unified_linear_response` outer state; a conditional checkpoint |
-| `photoelectron_histogram.csv` | Previous-batch and cumulative histogram for `photoelectron_closure="individual_return"`; a conditional checkpoint |
+| `photoelectron_histogram.csv` | Previous-batch and cumulative histogram when `photoelectron_histogram_enabled=true`; a conditional checkpoint |
 | `mesh_potential.csv` | When `write_mesh_potential=true` |
 | `charge_history.csv` | When `history_stride > 0` |
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |
@@ -856,6 +855,13 @@ Output files:
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | Serial or MPI rank-local random-number state |
 | `macro_residuals.csv` | One MPI-global macro-particle residual file |
 | `charge_ledger.csv` | Per-species signed-charge flux, counts, and restartable cumulative values |
+
+When the histogram state is ready, `summary.txt` also records `photoelectron_histogram_bins`,
+`photoelectron_histogram_energy_max_J`, `photoelectron_last_completed_batch`,
+`photoelectron_cumulative_signed_charge_C`, `photoelectron_cumulative_kinetic_energy_J`,
+`photoelectron_cumulative_count`, `photoelectron_previous_signed_current_A`,
+`photoelectron_previous_charge_ratio`, `photoelectron_max_charge_ratio`, and
+`photoelectron_linear_applicability_status`. See the [Output Guide](OutputGuide.en.html#model-specific-diagnostics) for interpretation.
 
 The [Output Guide's resume section](OutputGuide.en.html#resume-outputs) consolidates column definitions and conditional checkpoint requirements.
 
@@ -878,7 +884,7 @@ Requirements for `resume=true`:
 | Output | `write_files=true` is required |
 | Source | If `restart_from` is unspecified, use `output.dir`; otherwise use `restart_from` |
 | Required files | `summary.txt`, `charges.csv`, and either serial `rng_state.txt` or every MPI `rng_state_rankNNNNN.txt` |
-| Conditional files | `charge_ledger.csv` with ledger metadata, `outer_plasma_profile.csv` for a ready outer state, and `photoelectron_histogram.csv` for `individual_return` |
+| Conditional files | `charge_ledger.csv` with ledger metadata, `outer_plasma_profile.csv` for a ready outer state, and `photoelectron_histogram.csv` when the histogram is enabled |
 | Optional state | Restore the global residual when `macro_residuals.csv` exists |
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 

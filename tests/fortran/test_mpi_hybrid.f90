@@ -12,7 +12,7 @@ program test_mpi_hybrid
                          restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_coupling_state_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
@@ -421,7 +421,7 @@ contains
     type(app_config) :: photo_cfg
     type(sim_stats) :: photo_stats
     type(charge_ledger_type) :: photo_ledger
-    type(photoelectron_coupling_state_type) :: photo_state
+    type(photoelectron_histogram_state_type) :: photo_state
     real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), panel_charge
 
     tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.999_dp]
@@ -463,7 +463,7 @@ contains
     photo_cfg%periodic2%interface_field_tolerance = 1.0e6_dp
     photo_cfg%outer_plasma%model = 'linear_debye'
     photo_cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
-    photo_cfg%outer_plasma%photoelectron_closure = 'individual_return'
+    photo_cfg%outer_plasma%photoelectron_histogram_enabled = .true.
     photo_cfg%outer_plasma%interface_z = 1.0_dp
     photo_cfg%outer_plasma%debye_length = 0.2_dp
     photo_cfg%outer_plasma%thermal_voltage = 10.0_dp

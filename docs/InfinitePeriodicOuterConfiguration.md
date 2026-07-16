@@ -69,12 +69,12 @@ photoelectronの扱いはouter field modelとparticle returnを分けて選び�
 
 | 選択 | outer density | tracked particle |
 | --- | --- | --- |
-| `photoelectron_closure="none"` | photoelectron mean densityなし | 通常のsource/軌道だけ |
-| `kinetic_mean` + transferなし | 定常outgoing/returning mean density | z-highでは通常open処理 |
-| `kinetic_mean` + profile return | 同じmean density | 個々のinterface crossingもprofileでreturn/escape |
+| `photoelectron_density_model="none"` | photoelectron mean densityなし | 通常のsource/軌道だけ |
+| `photoelectron_density_model="kinetic_mean"` + transferなし | 定常outgoing/returning mean density | z-highでは通常open処理 |
+| `photoelectron_density_model="kinetic_mean"` + profile return | 同じmean density | 個々のinterface crossingもprofileでreturn/escape |
 | unified + explicit orbit | 光電子の平均密度モデルなし | 個々の3D外部軌道 |
 
-tracked returnでは`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`を併用しません。平均密度モデルは
+tracked returnでは`deposit_opposite_charge_on_emit=true`を要求します。平均密度モデルは
 tracked surface depositを置き換えず、統計的return chargeを追加depositしません。
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)に、放出から再吸収までの電荷収支をまとめています。
 
@@ -114,8 +114,7 @@ lower_boundary_model = "symmetric_vacuum"
 - `cached_kneq0`内部のsymmetric `k=0`と、最終的な場へ加えるphysical `k=0`。
 - `kinetic_1d`のinterface potential mapと、有限画像 `infinity_barrier`。
 - profile returnと、有限画像open `potential_barrier`のz-high処理。
-- tracked photoelectron returnと`boltzmann_cutoff`。
-- `kinetic_mean` outer densityと、surfaceへの架空の統計return deposit。
+- `photoelectron_density_model="kinetic_mean"`のouter densityと、surfaceへの架空の統計return deposit。
 - unified base nonzero fieldと、reflection/transmission後のincident mode。
 
 設定validationは主要なunsupported combinationをfail closedにしますが、数値収束と物理的な適用範囲はユーザーが確認します。

@@ -8,7 +8,7 @@ program test_restart
   use bem_output_writer, only: write_result_files
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
   use bem_filesystem, only: atomic_rename, filesystem_success
   use bem_types, only: mesh_type, sim_stats, injection_state
@@ -23,7 +23,7 @@ program test_restart
   type(app_config) :: cfg, cfg_changed
   type(charge_ledger_type) :: ledger, restored_ledger
   type(photoelectron_histogram_type) :: photo_batch
-  type(photoelectron_coupling_state_type) :: photo_state, restored_photo_state
+  type(photoelectron_histogram_state_type) :: photo_state, restored_photo_state
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   type(electrostatic_restart_state_type) :: electrostatic_state
   logical :: has_restart, exists
@@ -143,7 +143,7 @@ program test_restart
   cfg%particle_species(1)%species_key = 'electron'
   cfg%particle_species(2) = species_from_defaults()
   cfg%particle_species(2)%species_key = 'ion'
-  cfg%outer_plasma%photoelectron_closure = 'INDIVIDUAL_RETURN'
+  cfg%outer_plasma%photoelectron_histogram_enabled = .true.
   cfg%outer_plasma%photoelectron_histogram_bins = 2_i32
   cfg%outer_plasma%photoelectron_histogram_energy_max = 4.0_dp
   stats%processed_particles = 10_i64

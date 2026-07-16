@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: Split `outer_plasma.photoelectron_closure` into `photoelectron_density_model` (`none` / `kinetic_mean`) and the independent `photoelectron_histogram_enabled` diagnostic switch. Particle return remains controlled only by `outer_plasma.return_model` and `coupling.particle_transfer_mode`.
+- Renamed the tracked photoelectron-return example to `examples/periodic2_photoelectron_return.toml`.
+
+### Removed
+- **BREAKING**: Removed `photo_escape_model` and its `boltzmann_cutoff` reduced-emission closure. Photoelectrons now keep their full emitted weight and use ordinary tracking plus `potential_barrier` or an outer-plasma return model.
+- **BREAKING**: Removed the `individual_return` photoelectron-closure setting; outgoing histograms and applicability checks are enabled with `outer_plasma.photoelectron_histogram_enabled=true`.
+
 ## [1.6.2] - 2026-07-15
 
 ### Added

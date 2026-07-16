@@ -1,5 +1,6 @@
 !> 場・periodic2・panel・外部プラズマ・coupling の型付き設定と互換正規化を定義する。
 module bem_physics_config_types
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config, bc_periodic, bc_open
   use bem_string_utils, only: lower_ascii
@@ -34,7 +35,8 @@ module bem_physics_config_types
 
   type, public :: outer_plasma_config
     character(len=32) :: model = 'none'
-    character(len=32) :: photoelectron_closure = 'none'
+    character(len=32) :: photoelectron_density_model = 'none'
+    logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'
     real(dp) :: interface_z = 0.0_dp
     real(dp) :: infinity_potential = 0.0_dp
@@ -124,6 +126,8 @@ contains
     character(len=*), intent(out) :: message
     character(len=32) :: backend, normalization, source_model, nonzero_backend, zero_policy
 
+    call validate_photoelectron_config(outer, coupling, status, message)
+    if (status /= physics_config_ok) return
     status = physics_config_ok
     message = ''
     backend = lower_ascii(trim(field%backend))
@@ -258,6 +262,8 @@ contains
     character(len=*), intent(out) :: message
     character(len=32) :: nonzero_backend
 
+    call validate_photoelectron_config(outer, coupling, status, message)
+    if (status /= physics_config_ok) return
     nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
     if (trim(nonzero_backend) == 'cached_kneq0') then
       call validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
@@ -387,16 +393,9 @@ contains
       call reject(physics_config_invalid_combination, 'Unknown coupling particle-transfer mode.', status, message)
       return
     end select
-    select case (trim(lower_ascii(outer%photoelectron_closure)))
+    select case (trim(lower_ascii(outer%photoelectron_density_model)))
     case ('none')
       continue
-    case ('individual_return')
-      if (trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return' .or. &
-          outer%photoelectron_histogram_bins < 1_i32 .or. outer%photoelectron_histogram_energy_max <= 0.0_dp .or. &
-          outer%photoelectron_ambient_charge_scale <= 0.0_dp .or. outer%max_photoelectron_charge_ratio <= 0.0_dp) then
-        call reject(physics_config_invalid_combination, 'Invalid individual photoelectron closure.', status, message)
-        return
-      end if
     case ('kinetic_mean')
       if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
           ((trim(lower_ascii(coupling%particle_transfer_mode)) == 'none' .and. &
@@ -409,22 +408,14 @@ contains
                     'kinetic_mean requires kinetic_1d with no transfer or kinetic profile return.', status, message)
         return
       end if
-    case ('statistical_return')
-      call reject(physics_config_unavailable, 'Statistical photoelectron return is not specified.', status, message)
-      return
     case default
-      call reject(physics_config_invalid_combination, 'Unknown photoelectron closure.', status, message)
+      call reject(physics_config_invalid_combination, 'Unknown photoelectron density model.', status, message)
       return
     end select
-    if (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
-        trim(lower_ascii(outer%photoelectron_closure)) == 'individual_return') then
-      call reject(physics_config_unavailable, 'kinetic_1d cannot combine mean density with individual return.', status, message)
-      return
-    end if
     if (trim(lower_ascii(outer%model)) == 'unified_linear_response' .and. &
-        trim(lower_ascii(outer%photoelectron_closure)) /= 'none') then
+        trim(lower_ascii(outer%photoelectron_density_model)) /= 'none') then
       call reject(physics_config_unavailable, &
-                  'unified_linear_response does not support a photoelectron mean closure.', &
+                  'unified_linear_response does not support a photoelectron mean-density model.', &
                   status, message)
       return
     end if
@@ -441,6 +432,43 @@ contains
         )
     end if
   end subroutine validate_active_physics_config
+
+  subroutine validate_photoelectron_config(outer, coupling, status, message)
+    type(outer_plasma_config), intent(in) :: outer
+    type(coupling_config), intent(in) :: coupling
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    status = physics_config_ok
+    message = ''
+    select case (trim(lower_ascii(outer%photoelectron_density_model)))
+    case ('none')
+      continue
+    case ('kinetic_mean')
+      if (trim(lower_ascii(outer%model)) /= 'kinetic_1d') then
+        call reject( &
+          physics_config_invalid_combination, &
+          'photoelectron_density_model=kinetic_mean requires outer_plasma.model=kinetic_1d.', &
+          status, message &
+          )
+        return
+      end if
+    case default
+      call reject(physics_config_invalid_combination, 'Unknown photoelectron density model.', status, message)
+      return
+    end select
+    if (.not. outer%photoelectron_histogram_enabled) return
+    if (.not. all(ieee_is_finite([ &
+                                 outer%photoelectron_histogram_energy_max, outer%photoelectron_ambient_charge_scale, &
+                                 outer%max_photoelectron_charge_ratio &
+                                 ])) .or. &
+        trim(lower_ascii(outer%return_model)) /= 'electrostatic_1d_instant_return' .or. &
+        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return' .or. &
+        outer%photoelectron_histogram_bins < 1_i32 .or. outer%photoelectron_histogram_energy_max <= 0.0_dp .or. &
+        outer%photoelectron_ambient_charge_scale <= 0.0_dp .or. outer%max_photoelectron_charge_ratio <= 0.0_dp) then
+      call reject(physics_config_invalid_combination, 'Invalid photoelectron histogram configuration.', status, message)
+    end if
+  end subroutine validate_photoelectron_config
 
   subroutine validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
     type(sim_config), intent(in) :: sim
@@ -527,9 +555,9 @@ contains
                     'kinetic_1d fixes the infinity-potential gauge to zero.', status, message)
         return
       end if
-      if (trim(lower_ascii(outer%photoelectron_closure)) /= 'none' .and. &
-          trim(lower_ascii(outer%photoelectron_closure)) /= 'kinetic_mean') then
-        call reject(physics_config_unavailable, 'cached kinetic_1d supports none or kinetic_mean photoelectron closure.', &
+      if (trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .and. &
+          trim(lower_ascii(outer%photoelectron_density_model)) /= 'kinetic_mean') then
+        call reject(physics_config_unavailable, 'cached kinetic_1d supports none or kinetic_mean photoelectron density.', &
                     status, message)
         return
       end if
@@ -550,11 +578,11 @@ contains
         return
       end if
       if (trim(lower_ascii(panel%source_model)) /= 'triangle_p0' .or. &
-          trim(lower_ascii(outer%photoelectron_closure)) /= 'none' .or. &
+          trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .or. &
           (trim(lower_ascii(outer%return_model)) /= 'none' .and. &
            trim(lower_ascii(outer%return_model)) /= 'electrostatic_3d_explicit_orbit')) then
         call reject(physics_config_unavailable, &
-                    'cached unified_linear_response received an unsupported source or closure.', &
+                    'cached unified_linear_response received an unsupported source or photoelectron density model.', &
                     status, message)
         return
       end if

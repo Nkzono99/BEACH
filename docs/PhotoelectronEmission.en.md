@@ -76,8 +76,8 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$:
 - when Zhao or another closure supplies $v_{\min}$, normal speed satisfies $v_n\ge v_{\min}$;
 - Gaussian sampling is truncated at $6\sigma$.
 
-Normal velocity is positive, so a new particle leaves the surface toward the illumination side. A tracked orbit or selected
-reduced closure then decides whether it returns or escapes.
+Normal velocity is positive, so a new particle leaves the surface toward the illumination side. Its tracked orbit and common
+box-boundary or outer-transfer treatment then decide whether it returns or escapes.
 
 ## Check charge balance across emission, reabsorption, and escape
 
@@ -94,40 +94,31 @@ If the emitted particle is reabsorbed on element $j$, ordinary absorption deposi
 cancels emission charge; return to another element transfers net charge across the surface. The current insulator model applies
 no subsequent lateral surface conduction.
 
-## Select a reduced emission escape with `photo_escape_model`
+## Use the common escape and return treatment after emission
 
-`photo_escape_model` is a photoelectron-specific approximation that acts only on the weight created by a ray hit.
+A ray hit always creates a photoelectron with weight $w_\mathrm{hit}$. There is no emission-time setting that multiplies this
+weight by an escape fraction. Surface return is handled as an ordinary collision, while a particle reaching an open face uses
+the same `open_boundary_model` or outer particle transfer as reservoir and `volume_seed` particles.
 
-| `photo_escape_model` | Created tracked weight | Meaning |
-| --- | --- | --- |
-| `none` | $w_\mathrm{hit}$ | Preserve emission weight and track the result as an ordinary particle |
-| `boltzmann_cutoff` | $f_\mathrm{esc}w_\mathrm{hit}$ | Immediate reduced closure that never creates the nonescaping fraction |
+For a finite box without a solved external region, `open_boundary_model="potential_barrier"` classifies reflection or escape
+from crossing-point potential and normal kinetic energy. With a self-consistent external sheath,
+`outer_plasma.return_model` and `coupling.particle_transfer_mode` are canonical. See
+[Particle escape and return](ParticleEscapeReturn.en.html) for the scalar barrier, 1-D outer-profile return, and unified 3-D
+explicit orbit.
 
-Legacy Boltzmann cutoff evaluates the local emission potential $\phi_\mathrm{emit}$ without the primary self term:
-
-$$
-f_\mathrm{esc}=
-\exp\left[-\frac{|q|\max(\phi_\mathrm{emit}-\phi_\infty,0)}{k_\mathrm{B}T_\mathrm{PE}}\right].
-$$
-
-It multiplies particle weight by this factor; at $T_\mathrm{PE}=0$ a positive barrier gives zero. It has no returning-particle
-trajectory, reabsorption location, or flight time and does not solve which element receives the nonescaping fraction. Opposite
-source charge uses the same reduced weight.
-
-`photo_escape_model="none"` does not mean that every particle escapes at an open face. Once created, particles reaching an open
-face use the same `open_boundary_model` or outer transfer as reservoir and `volume_seed` particles. See
-[Particle escape and return](ParticleEscapeReturn.en.html) for the common scalar barrier, 1-D outer-profile return, and unified
-3-D explicit orbit.
-
-Configurations with tracked individual return require `deposit_opposite_charge_on_emit=true` and reject a legacy non-`none`
-`photo_escape_model`, preventing duplicate application of an emission cutoff and tracked return.
+Every `photo_raycast` species using tracked outer transfer requires `deposit_opposite_charge_on_emit=true`, regardless of whether
+the histogram is enabled, to close emission and return charge balance.
 
 ## Include photoelectrons in the mean outer-plasma density
 
-`outer_plasma.photoelectron_closure="kinetic_mean"` uses the temperature and emission current density of the first negative
+`outer_plasma.photoelectron_density_model="kinetic_mean"` uses the temperature and emission current density of the first negative
 `photo_raycast` species as a plane-averaged source in the 1-D Poisson density closure. Its outgoing and turning-return populations
 contribute to outer space charge, but it neither replaces surface absorption of tracked particles nor deposits an extra
 statistical return current on the surface.
+
+The mean density model and histogram have separate responsibilities. They cannot currently be enabled together:
+`kinetic_mean` requires `return_model="none"` or `kinetic_1d_profile_return`, whereas the histogram requires
+`electrostatic_1d_instant_return`.
 
 Tracked photoelectrons transferred through z-high use the same source-independent escape/return treatment as other particles.
 See [Particle escape and return](ParticleEscapeReturn.en.html) for the quasi-steady approximation that omits outer flight from
@@ -135,6 +126,18 @@ global time and the 3-D explicit orbit, and [Outer plasma models](OuterPlasmaMod
 
 Zhao models supply emission current density, normal cutoff, and drift according to the selected branch. Tracked particles
 advance in the ordinary field snapshot rather than the Zhao profile $E(z)$.
+
+## Save a photoelectron histogram at the outer interface
+
+`outer_plasma.photoelectron_histogram_enabled=true` bins outward `photo_raycast` crossings at z-high by normal kinetic energy.
+It writes previous-batch and cumulative signed charge, total kinetic energy, tangential momentum, and count to
+`photoelectron_histogram.csv`. The run stops if signed charge crossing the z-high interface outward, relative to the configured
+ambient charge scale, exceeds the applicability limit.
+
+This switch enables diagnostics and the applicability check only. It does not change particle return or escape, which remain
+controlled by `outer_plasma.return_model` and `coupling.particle_transfer_mode`. Every `photo_raycast` species using tracked outer
+transfer must set `deposit_opposite_charge_on_emit=true`. The current implementation supports this histogram only
+when both return and transfer IDs are `electrostatic_1d_instant_return`.
 
 ## Check convergence of photoelectron emission
 
@@ -145,6 +148,8 @@ species-resolved charge balance across emission, absorption, and escape and for 
 ## Code reference
 
 - Ray propagation, hit, emission velocity, and weight: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- Reduced escape factor and source charge difference: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- Tracked-return compatibility validation: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
-- Kinetic mean photoelectron closure: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)
+- Source creation and emission charge difference: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- Outer-transfer and histogram compatibility validation: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
+- Kinetic mean photoelectron density: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
+- Kinetic mean runtime assembly: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
+- Photoelectron histogram and applicability check: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

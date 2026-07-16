@@ -74,8 +74,8 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$で速度をsampleします。
 - Zhaoモデルなどが$v_{\min}$を与える場合、法線速度は$v_n\ge v_{\min}$。
 - Gaussian samplingは$6\sigma$で切る。
 
-法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後に戻るかescapeするかは、tracked orbitまたは
-選択した簡略化モデルが決めます。
+法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後に戻るかescapeするかは、tracked orbitと
+共通のbox境界またはouter transferが決めます。
 
 ## 放出・再吸収・escapeの電荷収支を確認する
 
@@ -91,40 +91,30 @@ MPI all-reduce後に同じbatch commitへ加えます。
 放出粒子が要素$j$へ再吸収されると、通常の吸収として$+qw$を$j$へ堆積します。同じ要素へ戻れば放出と吸収が相殺し、
 別の要素へ戻れば表面内の正味電荷移送になります。現行のinsulator modelはその後の表面伝導を行いません。
 
-## `photo_escape_model`で放出時のreduced escapeを選ぶ
+## 生成後は共通のescape / return処理を使う
 
-`photo_escape_model`は、ray hitから生成する光電子の重みにだけ作用する光電子固有の近似です。
+ray hitで生成する光電子の重みは常に$w_\mathrm{hit}$です。放出時にescape率を掛けて粒子重みを減らす設定はありません。
+表面へ戻った粒子は通常の衝突として再吸収し、open面へ達した粒子にはreservoir粒子や`volume_seed`粒子と同じ
+`open_boundary_model`またはouter particle transferを適用します。
 
-| `photo_escape_model` | 生成するtracked重み | 意味 |
-| --- | --- | --- |
-| `none` | $w_\mathrm{hit}$ | 放出重みを減らさず、生成後は通常粒子として追跡 |
-| `boltzmann_cutoff` | $f_\mathrm{esc}w_\mathrm{hit}$ | 非escape成分を生成しない即時簡略化モデル |
-
-legacy Boltzmann cutoffは、放出元のprimary self項を除いた局所電位$\phi_\mathrm{emit}$から
-
-$$
-f_\mathrm{esc}=
-\exp\left[-\frac{|q|\max(\phi_\mathrm{emit}-\phi_\infty,0)}{k_\mathrm{B}T_\mathrm{PE}}\right]
-$$
-
-を求め、粒子重みをこの係数倍します。$T_\mathrm{PE}=0$で正の障壁がある場合、この係数は0です。
-returning粒子の軌道、再吸収位置、flight timeは扱いません。非escape成分を戻す要素も求めません。
-放出元へ置く逆符号電荷には、減衰後の粒子と同じ重みを使います。
-
-`photo_escape_model="none"`は、open面で必ずescapeさせる指定ではありません。生成後にopen面へ達した粒子には、
-reservoir粒子や`volume_seed`粒子と同じ`open_boundary_model`またはouter transferを適用します。scalar barrier、
-1D outer profile return、unified 3D explicit orbitを含む共通の境界処理は
+有限boxで外部領域を解かない場合は`open_boundary_model="potential_barrier"`が通過点の電位と法線運動エネルギーから
+反射またはescapeを決めます。自己整合な外部sheathを使う場合は`outer_plasma.return_model`と
+`coupling.particle_transfer_mode`が正本です。scalar barrier、1D outer profile return、unified 3D explicit orbitの違いは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
 
-個別returnを使う構成は`deposit_opposite_charge_on_emit=true`を要求し、legacy `photo_escape_model`とは併用しません。
-放出時のescape cutoffと、生成後のtracked returnはどちらか一方だけを適用します。
+tracked outer transferを使う`photo_raycast` speciesでは、histogramの有無によらず、放出と帰還の電荷収支を閉じるため
+`deposit_opposite_charge_on_emit=true`を指定します。
 
 ## 光電子をouter plasmaの平均密度へ含める
 
-`outer_plasma.photoelectron_closure="kinetic_mean"`は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を、
+`outer_plasma.photoelectron_density_model="kinetic_mean"`は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を、
 平面平均sourceとして1D Poisson密度モデルへ加えます。outgoing populationと、turning後のreturning populationが、
 outer領域の空間電荷に寄与します。この平均密度モデルは、個々のtracked粒子の表面吸収を置き換えません。
 統計的なreturn電荷を、別途表面へdepositすることもありません。
+
+平均密度モデルとhistogramは別の責務を持ちます。ただし、現行実装では`kinetic_mean`が
+`return_model="none"`または`kinetic_1d_profile_return`を要求する一方、histogramは
+`electrostatic_1d_instant_return`を要求するため、両方を同時に有効化できません。
 
 生成後のtracked光電子をz-high interfaceからouter領域へ渡す場合も、粒子sourceに依存しない共通の
 escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
@@ -132,6 +122,18 @@ escape/return処理を使います。外部flightをglobal timeへ加えない�
 
 Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入補正モデルです。tracked粒子は
 Zhao profileの$E(z)$ではなく、通常の粒子追跡で使う、batch内で固定された電場中を進みます。
+
+## outer interfaceの光電子histogramを保存する
+
+`outer_plasma.photoelectron_histogram_enabled=true`は、z-high interfaceを外向きに通過する`photo_raycast`粒子を
+法線運動エネルギーbinへ集計します。前batchと累積のsigned charge、全運動エネルギー、接線運動量、個数を
+`photoelectron_histogram.csv`へ保存し、z-high outward interface crossingのsigned chargeとambient charge scaleの比が
+設定上限を超える場合は停止します。
+
+この設定は診断と適用性検査だけを有効にします。粒子のreturn / escapeは変更せず、`outer_plasma.return_model`と
+`coupling.particle_transfer_mode`が引き続き決定します。tracked outer transferを使う全`photo_raycast` speciesに
+`deposit_opposite_charge_on_emit=true`を指定します。現行実装では両方のreturn / transfer IDを
+`electrostatic_1d_instant_return`にした構成だけでhistogramを利用できます。
 
 ## 光電子放出の収束を確認する
 
@@ -142,6 +144,8 @@ outer return固有の診断値は[出力の読み方](OutputGuide.html)で確認
 ## Code reference
 
 - ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- reduced escape係数と放出電荷差分: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- tracked-return互換性検証: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
-- kinetic mean光電子密度モデル: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)
+- 放出電荷差分とsource生成: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- outer transferとhistogramの互換性検証: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
+- kinetic mean光電子密度モデル: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
+- kinetic meanのruntime組立: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
+- 光電子histogramと適用性検査: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

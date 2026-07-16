@@ -229,9 +229,11 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 | `emit_current_density_a_m2` | float | required | Emission current density [A/m^2] |
 | `rays_per_batch` | int | required | Number of rays per batch |
 | `deposit_opposite_charge_on_emit` | bool | false | Deposit opposite-sign charge on the emitting element |
-| `photo_escape_model` | string | `"none"` | `none` / `boltzmann_cutoff`. The latter Boltzmann-suppresses PE escape current at positive potential barriers |
 | `normal_drift_speed` | float | 0.0 | Normal-direction drift speed [m/s] |
 | `ray_direction` | float[3] | inward normal | Ray direction vector |
+
+A `photo_raycast` species using tracked outer transfer must set `deposit_opposite_charge_on_emit=true`, regardless of whether
+the histogram is enabled.
 
 ### [mesh] Section - Geometry
 
@@ -301,7 +303,7 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | When reservoir_face is used | CSV: injection residual state |
 | `outer_plasma_profile.csv` | A ready `kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile and conditional checkpoint |
-| `photoelectron_histogram.csv` | `photoelectron_closure="individual_return"` | CSV: previous-batch and cumulative histogram; a conditional checkpoint |
+| `photoelectron_histogram.csv` | `photoelectron_histogram_enabled=true` | CSV: previous-batch and cumulative histogram; a conditional checkpoint |
 | `performance_profile.csv` | When the `BEACH_PROFILE=1` environment variable is set | CSV: measured times for each region |
 
 ### Additional Files During MPI Runs

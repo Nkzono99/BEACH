@@ -1,14 +1,15 @@
 program test_outer_plasma_photoelectron
   use bem_kinds, only: dp, i32, i64
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_coupling_state_type, &
-                                            validate_photoelectron_linear_applicability, photoelectron_closure_ok, &
-                                            photoelectron_closure_not_applicable
+  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type, &
+                                            validate_photoelectron_linear_applicability, &
+                                            photoelectron_applicability_ok, &
+                                            photoelectron_applicability_not_applicable
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_equal_i32, &
                           assert_equal_i64
   implicit none
 
   type(photoelectron_histogram_type) :: histogram, batch
-  type(photoelectron_coupling_state_type) :: state
+  type(photoelectron_histogram_state_type) :: state
   integer(i32) :: status
 
   call test_init(3)
@@ -34,9 +35,11 @@ program test_outer_plasma_photoelectron
 
   call test_begin('strong_photoelectron_guard')
   call validate_photoelectron_linear_applicability(0.1_dp, 1.0_dp, 0.2_dp, status)
-  call assert_equal_i32(status, photoelectron_closure_ok, 'weak photoelectron closure should be applicable')
+  call assert_equal_i32(status, photoelectron_applicability_ok, 'weak photoelectron signal should be applicable')
   call validate_photoelectron_linear_applicability(0.3_dp, 1.0_dp, 0.2_dp, status)
-  call assert_equal_i32(status, photoelectron_closure_not_applicable, 'strong photoelectron closure must be rejected')
+  call assert_equal_i32( &
+    status, photoelectron_applicability_not_applicable, 'strong photoelectron signal must be rejected' &
+    )
   call test_end()
   call test_summary()
 end program test_outer_plasma_photoelectron
