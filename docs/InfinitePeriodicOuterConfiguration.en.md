@@ -59,7 +59,7 @@ $\phi_I-\phi_\infty$:
 - derives $v_{n,\infty}^2$ from outward $v_{n,I}$ and classifies escape or turning return.
 
 Because both directions use the same energy equation, do not add `reservoir_potential_model` or a Zhao cutoff. See
-[Reservoir injection](ReservoirInjection.en.html) and [Particle escape and return](ParticleEscapeReturn.en.html).
+[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) and [Particle escape and return](ParticleEscapeReturn.en.html).
 
 ## Select mean outer density separately from tracked photoelectrons
 

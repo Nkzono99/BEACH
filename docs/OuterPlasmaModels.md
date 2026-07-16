@@ -48,7 +48,8 @@ scalar補正より多くの空間情報を持つ外部場です。
 | `kinetic_1d` | 収束した外部Poisson profileからinterfaceへの流入を写像 | 離散1D profile |
 
 `floating_no_photo`と`zhao_*`は`sim.sheath_injection_model`で選びます。これらはsource VDFの事前補正であり、
-生成後の粒子を進める空間電場ではありません。詳しいsamplingは[reservoir注入](ReservoirInjection.html)、
+生成後の粒子を進める空間電場ではありません。詳しいsamplingは
+[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)、
 解析モデルは[流入VDFのシース補正](SheathInjectionClosures.html)にあります。
 
 ## 流出側はopen境界とouter transferを分ける

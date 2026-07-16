@@ -391,7 +391,7 @@ Currently, `sheath_injection_model != "none"` is used together with
 `reservoir_potential_model="none"`. See
 [`sim.sheath_injection_model`](#simsheath_injection_model-sheath-injection-correction)
 for details.
-See [Reservoir injection](ReservoirInjection.en.md),
+See [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.md),
 [Sheath injection closures](SheathInjectionClosures.en.md), and
 [Particle escape and return](ParticleEscapeReturn.en.md) for each model's physical role,
 velocity energy mapping, reflection, and return.

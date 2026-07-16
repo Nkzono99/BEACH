@@ -108,7 +108,7 @@ $\bar\phi_f$. Relative to `phi_infty`, it:
 - selects accessible normal speeds from the upstream VDF;
 - maps accepted normal velocity to the face by the same potential difference.
 
-See [Reservoir injection](ReservoirInjection.en.html) for equations and `injection_face_phi_grid_n`.
+See [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) for equations and `injection_face_phi_grid_n`.
 
 This uses one face-average scalar and has no intermediate $E(z)$, turning position, flight time, or space charge. Because
 $\bar\phi_f$ can change with image layer, converge face potential as well as particle flux.

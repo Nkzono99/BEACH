@@ -60,7 +60,7 @@ $\phi_I-\phi_\infty$により
 - outflowでは$v_{n,I}$から$v_{n,\infty}^2$を計算し、escape/turning returnを判定する。
 
 同じenergy equationを逆向きに使うため、`reservoir_potential_model`やZhao cutoffを重ねません。
-[reservoir注入](ReservoirInjection.html)が流入側、[粒子のescapeとreturn](ParticleEscapeReturn.html)が
+[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)が流入側、[粒子のescapeとreturn](ParticleEscapeReturn.html)が
 流出側の写像を説明します。
 
 ## 平均outer密度とtracked光電子を別々に選ぶ

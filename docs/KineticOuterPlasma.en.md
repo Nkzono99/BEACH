@@ -9,7 +9,7 @@ electrostatic, collisionless, and unmagnetized profile. It connects the interfac
 distributions at infinity and obtains interface potential, density, and currents self-consistently.
 
 The converged outer profile is used in both directions. Mapping particles from the infinity VDF to the interface is covered by
-[Reservoir injection](ReservoirInjection.en.html); mapping particles leaving the interface to escape or return is covered by
+[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html); mapping particles leaving the interface to escape or return is covered by
 [Particle escape and return](ParticleEscapeReturn.en.html).
 
 ## Split local and outer regions at the interface

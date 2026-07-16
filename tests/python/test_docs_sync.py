@@ -343,8 +343,8 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
             "## 真空nonzero modeをscreened tailへ接続する",
         ),
         "ReservoirInjection.md": (
-            "## Maxwell分布を流入fluxで重み付けする",
-            "## 一つの電位差で到達条件とface速度を決める",
+            "## Maxwell 分布を流入流束で重み付けする",
+            "## 1 つの電位差で到達条件と注入面速度を決める",
         ),
         "ParticleEscapeReturn.md": (
             "## linear Debye profileからreturn時間を求める",

@@ -117,7 +117,7 @@ v_{n,\infty}^2
 $$
 
 です。$v_{n,\infty}^2\ge0$なら無限遠へ到達できるためescape、負なら指数profile内にturning pointがあるため
-returnです。これは[reservoir注入](ReservoirInjection.html)で無限遠からinterfaceへ写す式の逆向きです。
+returnです。これは[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)で、無限遠からinterfaceへ写す式の逆向きです。
 
 ### linear Debye profileからreturn時間を求める
 

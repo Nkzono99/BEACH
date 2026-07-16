@@ -407,7 +407,7 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
 設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) で説明します。
 各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
-[reservoir注入](ReservoirInjection.md)、[シース流入補正](SheathInjectionClosures.md)、
+[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.md)、[シース流入補正](SheathInjectionClosures.md)、
 [粒子のescapeとreturn](ParticleEscapeReturn.md)で、modelごとの処理を分けて説明します。
 
 `reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で更新した

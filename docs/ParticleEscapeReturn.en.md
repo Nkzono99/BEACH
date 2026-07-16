@@ -121,7 +121,7 @@ $$
 
 If $v_{n,\infty}^2\ge0$, the particle can reach infinity and escapes. A negative value implies a turning point in the
 exponential profile and therefore return. This is the reverse of the infinity-to-interface map in
-[Reservoir injection](ReservoirInjection.en.html).
+[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html).
 
 ### Derive return time from a linear-Debye profile
 

@@ -1,33 +1,29 @@
-title: Particle sources
+title: Particle-source overview
 
 Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBoundaries.en.md)
 
-# Particle sources
+# Particle-source overview
 
-Particle tracking in each batch starts by creating a new population for every `[[particles.species]]` entry. Once created,
-all sources enter the same particle state and use the [Boris particle update](BorisPusher.en.html) and
-[particle-event](ParticleEvents.en.html) processing.
+Use this page to choose `source_mode` from where particles originate and to understand the processing shared after creation.
+The numerical details and physical models for each source are documented on their dedicated pages.
 
-| `source_mode` | What determines particle count | Creation location | Main use |
+## Choose a source for the intended task
+
+Set one `source_mode` for every `[[particles.species]]` entry.
+
+| `source_mode` | What determines particle count | Creation location | Suitable use |
 | --- | --- | --- | --- |
-| `volume_seed` | `npcls_per_step` | Between `pos_low` and `pos_high` | Initial particles and orbit tests |
-| `reservoir_face` | Inflow flux, area, and `batch_duration` | A selected box face | Continuous inflow from an external reservoir |
+| `volume_seed` | `npcls_per_step` | Between `pos_low` and `pos_high` | Initial populations, orbit tests, and specified counts |
+| `reservoir_face` | Inflow flux, aperture area, and `batch_duration` | A selected box face | Continuous inflow from an external reservoir |
 | `photo_raycast` | Current density, projected area, `batch_duration`, and ray count | First surface hit by a ray | Illumination-driven surface emission |
 
-## Create the batch particles after refreshing the snapshot
+Choose `volume_seed` to specify a particle count directly, `reservoir_face` for physical inflow across a face, or
+`photo_raycast` for emission from an illuminated surface.
 
-Sources are evaluated after the field and outer-plasma snapshots have been refreshed at the start of a batch. Reservoir velocity
-corrections and reduced photoelectron escape fractions therefore see surface charge committed through the preceding batch.
-Created particles move through that same snapshot until absorption, escape, or `max_step`.
-
-The only source operation that changes surface charge at creation is the optional opposite charge left at a `photo_raycast`
-emission element. That difference is committed at the end of the batch together with absorption charge and does not alter the
-field seen during the current batch. See [Model overview](Algorithms.en.html) for the complete order.
-
-## Create a specified initial population with `volume_seed`
+## Create a specified population with `volume_seed`
 
 `volume_seed` creates `npcls_per_step` particles in every batch. Position is uniform in the rectangular volume
-`[pos_low, pos_high]`, and velocity is a drifting Maxwell distribution,
+`[pos_low, pos_high]`, and velocity follows the drifting Maxwell distribution
 
 $$
 \mathbf v=\mathbf u+\sigma\mathbf Z,
@@ -35,65 +31,77 @@ $$
 \sigma=\sqrt{\frac{k_\mathrm{B}T}{m}}.
 $$
 
-If `thermal_speed` is supplied it overrides the $\sigma$ derived from temperature. Each standard-normal component is truncated at
-$6\sigma$.
+If `thermal_speed` is supplied, it overrides the $\sigma$ derived from temperature. Each standard-normal component is truncated
+at $6\sigma$.
 
-`npcls_per_step` directly sets the injected population for this source. Use `reservoir_face` for continuous inflow derived from
-a physical flux.
+This mode specifies particle count directly; it does not derive the count from a physical surface flux.
 
-## Build a continuous inflow flux with `reservoir_face`
+## Create continuous external inflow with `reservoir_face`
 
-`reservoir_face` converts a density, temperature, and drift or a velocity grid outside the box into flux crossing a selected face
-inward. Particle count is derived from physical flux, and normal velocity is sampled from a flux-weighted distribution. In a
-configuration with a potential difference between the upstream reservoir and the face, the same difference selects accessible
-upstream particles and maps their velocity to the face by energy conservation.
+`reservoir_face` converts an upstream velocity distribution function (VDF) outside the box into particles entering through a
+selected face. Physical flux determines the count in each batch, and normal velocity is drawn from a flux-weighted distribution
+appropriate for particles crossing a surface.
 
-See [Reservoir injection](ReservoirInjection.en.html) for equations, velocity grids, macro-particle residuals,
-`infinity_barrier`, and coupling to an outer profile.
+After selecting this mode, use the following pages for the distinct calculations:
 
-## Emit particles from illuminated surfaces with `photo_raycast`
+- Convert the upstream VDF into inflow, macro-particle count, initial position, and face-arrival velocity:
+  [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html)
+- Select a consistent combination of `infinity_barrier`, outer plasma, and outflow boundary:
+  [Selecting boundary and outer-domain models](OuterPlasmaModels.en.html)
+- Correct the upstream VDF with a Zhao-family closure or `floating_no_photo`:
+  [Inflow-VDF sheath closures](SheathInjectionClosures.en.html)
 
-`photo_raycast` launches rays from an illumination aperture on a box face, propagates them under box boundary conditions, and
-emits from the first in-box element hit. Emission velocity follows a flux-weighted Maxwell distribution relative to the element
-normal.
+`reservoir_face` itself does not solve an outer sheath or particle trajectories outside the box.
 
-After emission, a photoelectron enters the common particle state and uses the same field, Boris update, mesh collisions, and box
-boundaries as every other particle. Source charge and the photoelectron-specific reduced escape closure are documented in
-[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html); source-independent behavior outside the box is documented
-in [Particle escape and return](ParticleEscapeReturn.en.html).
+## Emit from illuminated surfaces with `photo_raycast`
 
-## Enter the common particle state and charge balance after creation
+`photo_raycast` launches rays from an illumination aperture on a box face and propagates them under the box boundary conditions.
+It emits particles from the first in-box element hit and samples velocity from a flux-weighted Maxwell distribution relative to
+the element normal.
 
-After creation, the main stored quantities are position $\mathbf x$, velocity $\mathbf v$, physical-particle charge $q$ and mass
-$m$, macro-particle weight $w$, and species ID. The charge of a tracked macro particle is $q w$; surface absorption and
-species-resolved charge balance use that value.
+See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for the opposite charge left at the emission source and
+the photoelectron-specific reduced escape model.
 
-| Batch outcome | Treatment |
+## Enter the same particle tracker after creation
+
+All source modes enter the same particle state and tracking path after creation. The main state comprises position $\mathbf x$,
+velocity $\mathbf v$, physical-particle charge $q$ and mass $m$, macro-particle weight $w$, and species ID. The charge of one
+tracked macro particle is $qw$.
+
+| Outcome within a batch | Treatment |
 | --- | --- |
-| Absorbed by the mesh | Deposit $q w$ on the hit element |
-| Escapes to infinity through an open face | Remove and count in species-resolved escape |
-| Returns from an outer region | Map the same particle to the interface and reintegrate the step remainder |
+| Absorbed by the mesh | Deposit $qw$ on the hit element |
+| Escapes to infinity through an open face | Remove and include in species-resolved escape |
+| Returns from an outer region | Map the same particle to the interface and reintegrate the remaining step |
 | Alive after `max_step` | Discard and report as unresolved at batch end |
 
-See [Particle collision and boundary events](ParticleEvents.en.html) for mesh-versus-box ordering,
-[Outer plasma models](OuterPlasmaModels.en.html) for the external field model,
-[Particle escape and return](ParticleEscapeReturn.en.html) for the particle map, and
-[Surface charge update](SurfaceModels.en.html) for charge commit.
+See [Boris particle update](BorisPusher.en.html) for particle advancement,
+[particle collision and boundary events](ParticleEvents.en.html) for mesh-versus-box ordering, and
+[particle escape and return](ParticleEscapeReturn.en.html) for behavior outside the box.
 
-## Preserve global generation amounts across MPI and restart
+## Evaluate sources from the batch-start field
 
-The global `reservoir_face` count and macro-particle remainder are determined once on the root and then split across ranks, so the
-expected inflow does not change with MPI world size. A per-species `macro_residual` is saved in `macro_residuals.csv` and restored
-on resume.
+Sources are evaluated after the field, potential, and outer-plasma state are refreshed at the start of a batch. Reservoir velocity
+corrections and photoelectron escape fractions therefore see surface charge committed through the preceding batch. Created
+particles move through the snapshot fixed for the current batch.
 
-`photo_raycast` `rays_per_batch` is also a global total. Each ray weight is divided by the global ray count, and emitted,
-absorbed, and escaped charge-balance values are global after MPI all-reduce. Expected inflow is world-size independent, while
-random sequences and individual trajectories can change with world size.
+The only source operation that changes surface charge at creation is the optional opposite charge left by `photo_raycast`.
+That difference is committed at batch end with absorbed charge and does not alter the current batch field. See
+[Model overview](Algorithms.en.html) for the complete order.
+
+## Preserve generated amounts across MPI and restart
+
+The global `reservoir_face` count and macro-particle remainder are determined once on the root rank and then split across ranks.
+`photo_raycast` `rays_per_batch` is also a global total. Expected inflow and emission therefore do not depend on MPI world size,
+although random sequences and individual trajectories may change with world size.
+
+The per-species reservoir `macro_residual` is saved in `macro_residuals.csv` and restored on resume. See
+[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) for the residual calculation and diagnostics.
 
 ## Code reference
 
 - Particle distributions and ray casting: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- Per-source batch creation and macro residuals: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- Per-source batch creation and macro-particle residuals: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - Source input validation: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
 - Charge-balance accounting and batch tracking: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- Macro-residual checkpoint: [`bem_restart.f90`](../src/runtime/bem_restart.f90)
+- Macro-particle residual checkpoints: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

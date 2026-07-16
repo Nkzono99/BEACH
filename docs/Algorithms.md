@@ -59,7 +59,7 @@ FMMの選択は[場の評価](FieldSolvers.html)、周期和は[periodic2静電�
 
 `volume_seed`、`reservoir_face`、`photo_raycast`から、そのbatchで追跡する粒子を作ります。reservoir粒子の
 個数は流入fluxと`batch_duration`から決まり、光電子はrayが最初にhitした表面から放出されます。全体は
-[粒子源](ParticleSourcesBoundaries.html)で生成方式を整理し、[reservoir注入](ReservoirInjection.html)と
+[粒子源の全体像](ParticleSourcesBoundaries.html)で生成方式を整理し、[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)と
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)で各sourceを詳しく説明します。
 
 ### 3. 粒子を1 step前進

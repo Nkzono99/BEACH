@@ -9,7 +9,7 @@ Lang: [日本語](KineticOuterPlasma.md) | [English](KineticOuterPlasma.en.md)
 電流を自己整合に求めます。
 
 収束した外部profileは双方向に使われます。無限遠VDFからinterfaceへ入る粒子の写像は
-[reservoir注入](ReservoirInjection.html)、interfaceから出る粒子のescape/return写像は
+[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)、interfaceから出る粒子のescape/return写像は
 [粒子のescapeとreturn](ParticleEscapeReturn.html)に対応します。
 
 ## local領域とouter領域をinterfaceで分ける

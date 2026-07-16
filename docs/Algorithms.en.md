@@ -61,7 +61,7 @@ previous batch. See [Field evaluation](FieldSolvers.en.html) for direct, treecod
 BEACH creates the particles to track in this batch from `volume_seed`, `reservoir_face`, and `photo_raycast`
 sources. Reservoir counts follow inflow flux and `batch_duration`; photoelectrons originate at the first surface
 hit by a ray. See [Particle sources](ParticleSourcesBoundaries.en.html),
-[Reservoir injection](ReservoirInjection.en.html), and
+[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html), and
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html).
 
 ### 3. Advance a particle by one step

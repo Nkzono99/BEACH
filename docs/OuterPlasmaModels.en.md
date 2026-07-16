@@ -49,7 +49,8 @@ correct the density, cutoff, and emitted current of the matching `photo_raycast`
 | `kinetic_1d` | Map inflow to the interface through a converged outer Poisson profile | Discrete 1-D profile |
 
 `floating_no_photo` and `zhao_*` are selected with `sim.sheath_injection_model`. They preprocess source VDFs; they do not provide
-the spatial field used to push generated particles. See [Reservoir Injection](ReservoirInjection.en.html) for sampling and
+the spatial field used to push generated particles. See
+[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) for sampling and
 [Inflow-VDF Sheath Closures](SheathInjectionClosures.en.html) for analytic closures.
 
 ## Separate open-boundary handling from outer transfer
