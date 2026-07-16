@@ -7,7 +7,7 @@ Lang: [日本語](Execution.md) | [English](Execution.en.md)
 設定済みの`beach.toml`は、入力検査、実行、出力確認の順に扱います。計算規模に応じて、
 実行前に負荷も見積もってください。既存のcheckpointからは、同じ設定を使って計算を再開できます。
 未インストールの場合は[インストール](Installation.html)、最初のケースを作る場合は
-[10分チュートリアル](Tutorial.html)から始めてください。
+[10 分チュートリアル](Tutorial.html)から始めてください。
 
 ## 基本フロー
 

@@ -77,4 +77,4 @@ python -m pip uninstall beach-bem
 compilerや開発時のfpmが見つからない場合は、先にOS/HPCのpackage/moduleを設定してください。
 失敗例は[トラブルシューティング](Troubleshooting.html)にまとめています。
 
-次は[10分チュートリアル](Tutorial.html)へ進みます。
+次は[10 分チュートリアル](Tutorial.html)へ進みます。

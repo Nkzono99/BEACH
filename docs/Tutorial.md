@@ -1,11 +1,21 @@
-title: 10分チュートリアル
+title: 10 分チュートリアル
 
 Lang: [日本語](Tutorial.md) | [English](Tutorial.en.md)
 
-# 10分チュートリアル
+# 10 分チュートリアル
 
-この公式入門ケースは、1個の電子を絶縁体平面へ向けて追跡し、吸収と表面電荷堆積までを確認します。
-FMM、周期境界、光電子、導体・誘電体モデルは使いません。
+このチュートリアルでは、1 個の電子を絶縁体平面へ向けて追跡し、吸収と表面電荷の堆積までを確認します。
+公式入門ケースは非周期の最小構成です。FMM、周期境界、光電子、導体・誘電体モデルは使いません。
+
+## 0. インストールを確認する
+
+```bash
+beach --version
+beachx --help
+```
+
+両方のコマンドが実行できれば準備完了です。コマンドが見つからない場合は、先に
+[インストール](Installation.html)を確認してください。
 
 ## 1. 設定を作る
 
@@ -16,71 +26,29 @@ beachx config init beach.toml
 beachx lint beach.toml
 ```
 
-生成内容はリポジトリの
+`beachx config init` が作るのは、非周期の公式入門ケースです。生成内容はリポジトリの
 [`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml)
-と同一です。完全な設定は次のとおりです。
+と同一です。設定全文を読む必要はありません。まずは次のキーだけ押さえてください。
 
-```toml
-[sim]
-dt = 1.0e-7
-batch_count = 1
-max_step = 10
-softening = 1.0e-6
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 1.0]
-bc_x_low = "reflect"
-bc_x_high = "reflect"
-bc_y_low = "reflect"
-bc_y_high = "reflect"
-bc_z_low = "open"
-bc_z_high = "open"
-rng_seed = 12345
-open_boundary_model = "escape"
-field_solver = "direct"
-field_bc_mode = "free"
-field_periodic_far_correction = "none"
+| キー | 値 | このケースでの意味 |
+| --- | --- | --- |
+| `batch_count` | `1` | 1 バッチだけ実行する |
+| `npcls_per_step` | `1` | 1 個の電子を生成する |
+| `drift_velocity` | `[0.0, 0.0, -1.0e6]` | 電子を平面へ向ける |
+| `surface_model` | `"insulator"` | 衝突した電子の電荷を表面に蓄積する |
+| `field_solver` | `"direct"` | 直接計算で電場を求める |
+| `field_bc_mode` | `"free"` | 周期境界を使わない |
+| `dir` | `"outputs/latest"` | 結果の出力先 |
 
-[particles]
-[[particles.species]]
-source_mode = "volume_seed"
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-w_particle = 1.0
-npcls_per_step = 1
-pos_low = [0.5, 0.5, 0.8]
-pos_high = [0.5, 0.5, 0.8]
-drift_velocity = [0.0, 0.0, -1.0e6]
-temperature_k = 0.0
-
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-surface_model = "insulator"
-size_x = 1.0
-size_y = 1.0
-nx = 4
-ny = 4
-center = [0.5, 0.5, 0.2]
-
-[output]
-write_files = true
-dir = "outputs/latest"
-history_stride = 1
-```
-
-## 2. 実行する
+## 2. 実行して成功を確認する
 
 ```bash
 beach beach.toml
 beachx inspect outputs/latest
 ```
 
-正常終了すると、`outputs/latest/summary.txt`と`charges.csv`が生成されます。この決定論的なケースでは、
-`batches=1`、`processed_particles=1`となり、粒子は平面に吸収されます。
+正常終了すると、`outputs/latest/summary.txt` と `outputs/latest/charges.csv` が生成されます。
+この決定論的なケースでは、次の件数を確認できます。
 
 ```text
 processed_particles=1
@@ -89,26 +57,24 @@ batches=1
 survived_max_step=0
 ```
 
-## 3. 結果を見る
+これは、1 個の電子を 1 バッチで処理し、最大ステップ数に達する前に平面へ吸収できたことを表します。
+
+## 3. 堆積した電荷を見る
 
 ```bash
 beachx inspect outputs/latest --save-mesh outputs/latest/charge.png
 ```
 
-`charges.csv`では衝突要素だけに負電荷が堆積します。これは実行経路の確認用で、定常帯電状態ではありません。
+`charges.csv` では、電子が衝突した要素だけに負電荷が堆積します。この結果は、粒子の生成から
+衝突判定、吸収、表面電荷の堆積までの実行経路を確認するものです。定常帯電状態を表すものではありません。
 
 ![公式入門ケースの表面電荷密度](media/tutorial_insulator_charge.png)
 
-## 4. 最初に変える値
+## 4. 目的に合わせて次へ進む
 
-| 目的 | キー |
-| --- | --- |
-| 粒子を増やす | `npcls_per_step` |
-| 発射位置を広げる | `pos_low`, `pos_high` |
-| 速度を変える | `drift_velocity`, `temperature_k` |
-| 表面解像度を上げる | `nx`, `ny` |
-| 長く計算する | `batch_count`, `max_step` |
-| 履歴を間引く | `history_stride` |
-
-次に[設定レシピ](ConfigurationRecipes.html)で流入・周期境界・OBJへ進めます。研究結果へ使う前に
-[計算結果の妥当性確認](ValidationGuide.html)を実施してください。
+| 目的 | 最初に試すこと | 関連ページ |
+| --- | --- | --- |
+| 粒子数、発射位置、速度、表面解像度を変える | `npcls_per_step`、`pos_low` / `pos_high`、`drift_velocity`、`nx` / `ny` を編集する | [設定レシピ](ConfigurationRecipes.html) |
+| 出力ファイルを読み、履歴や分布を調べる | `summary.txt`、`charges.csv`、履歴ファイルの役割を確認する | [出力ガイド](OutputGuide.html)、[後処理チュートリアル](PostprocessTutorial.html) |
+| 粒子更新、衝突、表面電荷更新の仕組みを理解する | 1 バッチ内の計算順序を追う | [アルゴリズム](Algorithms.html) |
+| 結果を研究へ使う | 時間刻み、メッシュ、粒子数への依存性を確認する | [計算結果の妥当性確認](ValidationGuide.html) |

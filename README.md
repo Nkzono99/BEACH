@@ -15,7 +15,7 @@ BEACH は、**境界要素法（BEM）による表面電場計算**と
 - `beach/`: Fortran 出力を読むための Python ライブラリ
 
 現行の主対象は **絶縁体表面への電荷蓄積（insulator accumulation）** です。
-各 batch で電場計算、Boris pusher による粒子前進、メッシュ衝突判定、表面への電荷堆積を行い、表面電位の時間発展を出力します。
+各バッチで電場計算、Boris pusher による粒子前進、メッシュ衝突判定、表面への電荷堆積を行い、表面電位の時間発展を出力します。
 
 <div align="center">
   <img src="https://nkzono99.github.io/BEACH/images/potential_history.gif" alt="帯電シミュレーションの電位変化" width="80%">
@@ -25,9 +25,9 @@ BEACH は、**境界要素法（BEM）による表面電場計算**と
 
 ## 必要なもの
 
-Python パッケージのインストール時に Fortran 実行バイナリもビルドします。通常の
-`pip install`では`fpm`も隔離build環境へ自動導入されるため、事前に必要なのは`make`と
-Fortran compilerです。
+Python パッケージのインストール時に、Fortran 実行バイナリもビルドします。通常の
+`pip install` では `fpm` も隔離ビルド環境へ自動導入されるため、事前に必要なのは `make` と
+Fortran コンパイラです。
 
 ```bash
 make --version
@@ -35,7 +35,7 @@ gfortran --version
 python --version
 ```
 
-`gfortran` 以外の Fortran compiler を使う場合は、環境に合わせて `FC` / `FPM_FC` などを設定してください。
+`gfortran` 以外の Fortran コンパイラを使う場合は、環境に合わせて `FC` / `FPM_FC` などを設定してください。
 
 ## クイックスタート
 
@@ -55,14 +55,15 @@ export PATH="$HOME/.local/bin:$PATH"
 小さな設定を作って実行します。
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
+mkdir beach-tutorial
+cd beach-tutorial
 
 beachx config init
 beachx lint beach.toml
 beach beach.toml
 ```
 
+この入門ケースでは、1 個の電子が平面へ吸収され、衝突した要素へ負電荷が堆積します。
 結果は既定で `outputs/latest/` に出力されます。
 
 ```bash
@@ -78,15 +79,11 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 
 ## 設定ファイル
 
-実行時に`beach`が読むのは`beach.toml`です。`box_origin` / `box_size`、`inject_region_mode = "face_fraction"`、
-`placement_mode`、`mesh.groups`などの座標・配置パラメータもFortran側で直接解決されます。
-まずは `beachx config init` が生成したファイルを編集し、実行前に `beachx lint beach.toml` で検査してください。
+`beach` は実行時に `beach.toml` を読みます。まずは `beachx config init` で生成した設定を編集し、
+実行前に `beachx lint beach.toml` で検査してください。個別の設定項目と制約は、次のガイドにまとめています。
 
-詳細:
-
-- 設定作成・検証: [設定を編集する](https://nkzono99.github.io/BEACH/configuration.html)
-- `beach.toml` 仕様: [Fortran パラメータファイル仕様](https://nkzono99.github.io/BEACH/parameters.html)
-- 実行・開発・テスト: [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html)
+- 設定の作成と検証: [設定を編集する](https://nkzono99.github.io/BEACH/configuration.html)
+- 全設定項目の仕様: [`beach.toml` パラメータ仕様](https://nkzono99.github.io/BEACH/parameters.html)
 
 ## よく使うコマンド
 
@@ -100,19 +97,18 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 | `beachx workload beach.toml --threads 8` | 実行前のワークロード見積もり |
 | `beachx model close-pack` | 密充填球モデルの設定生成 |
 
-旧 CLI 名（`beach-inspect`、`beach-animate-history`、`beach-estimate-workload` など）は互換用 alias です。新しい利用者には `beachx ...` を推奨します。
+旧 CLI 名（`beach-inspect`、`beach-animate-history`、`beach-estimate-workload` など）は互換用の別名です。新しい利用者には `beachx ...` を推奨します。
 
 ## ドキュメント
 
-利用者向け・開発者向けドキュメントは [GitHub Pages](https://nkzono99.github.io/BEACH/) に集約しています。
+利用者向け・開発者向けドキュメントは [BEACH ドキュメント](https://nkzono99.github.io/BEACH/) に集約しています。
 
-- 日本語: [BEACH ドキュメント](https://nkzono99.github.io/BEACH/)
-- English: [BEACH Documentation](https://nkzono99.github.io/BEACH/en.html)
-- Fortran API: [GitHub Pages / fortran](https://nkzono99.github.io/BEACH/fortran/)（FORD）
-- 入門: [インストール](https://nkzono99.github.io/BEACH/installation.html) / [10分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) / [出力の読み方](https://nkzono99.github.io/BEACH/output-guide.html)
-- 運用: [設定レシピ](https://nkzono99.github.io/BEACH/configuration-recipes.html) / [計算結果の妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html) / [トラブルシューティング](https://nkzono99.github.io/BEACH/troubleshooting.html)
-- アルゴリズム: [概要](https://nkzono99.github.io/BEACH/algorithms.html) / [場ソルバー](https://nkzono99.github.io/BEACH/field-solvers.html) / [粒子更新](https://nkzono99.github.io/BEACH/particle-tracking-collision.html) / [FMM](https://nkzono99.github.io/BEACH/fmm-core.html) / [`batch_duration` 安定性](https://nkzono99.github.io/BEACH/batch-duration-stability.html)
-- Python 後処理 API / CLI: [Python 後処理 API リファレンス](https://nkzono99.github.io/BEACH/python-postprocess-api.html)
+- 初めて実行する: [インストール](https://nkzono99.github.io/BEACH/installation.html) → [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) → [出力の読み方](https://nkzono99.github.io/BEACH/output-guide.html)
+- 研究ケースを作る: [設定レシピ](https://nkzono99.github.io/BEACH/configuration-recipes.html) → [計算結果の妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html)
+- 数値モデルを確認する: [アルゴリズム概要](https://nkzono99.github.io/BEACH/algorithms.html) / [場ソルバー](https://nkzono99.github.io/BEACH/field-solvers.html) / [粒子更新](https://nkzono99.github.io/BEACH/particle-tracking-collision.html) / [FMM](https://nkzono99.github.io/BEACH/fmm-core.html)
+- 開発する: [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html) / [Fortran API](https://nkzono99.github.io/BEACH/fortran/) / [Python 後処理 API](https://nkzono99.github.io/BEACH/python-postprocess-api.html)
+- 問題を調べる: [トラブルシューティング](https://nkzono99.github.io/BEACH/troubleshooting.html) / [`batch_duration` の安定性](https://nkzono99.github.io/BEACH/batch-duration-stability.html)
+- 英語版を読む: [BEACH Documentation](https://nkzono99.github.io/BEACH/en.html)
 
 Pages ビルド:
 
@@ -132,7 +128,7 @@ Pages ビルド:
 
 ## 開発者向け
 
-ローカル checkout を編集する場合:
+ローカルチェックアウトを編集する場合は、次の最小構成で準備できます。
 
 ```bash
 python -m pip install fpm
@@ -140,7 +136,7 @@ python -m pip install -e . --no-build-isolation
 make check
 ```
 
-`--no-build-isolation`や`make`を直接使う開発では、`fpm`をPATH上へ用意してください。
+`--no-build-isolation` や `make` を直接使う開発では、`fpm` を PATH 上へ用意してください。
 
 Python 側の確認:
 
@@ -149,7 +145,7 @@ pytest -q
 ruff check .
 ```
 
-Fortran を含むテストは時間がかかるため、目的に応じて tiered target を選んでください。
+Fortran を含むテストは時間がかかるため、目的に応じて階層別のターゲットを選んでください。
 
 ```bash
 make test-l0

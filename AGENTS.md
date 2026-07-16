@@ -66,6 +66,7 @@ Python CLI examples:
 - `fpm test` は時間がかかるため、Bash ツールの `run_in_background: true` でバックグラウンド実行し、完了通知を待つ間に他の作業（コードレビュー・編集など）を並行して進めること。ただし同時に複数の `fpm test` をバックグラウンドで走らせてはいけない。
 
 ## Coding rules
+- When writing or reviewing README files and documentation, follow `.agents/skills/beach-documentation-writing/SKILL.md` and keep paired Japanese/English pages behaviorally consistent.
 - Do not change public APIs without updating docs + examples.
 - When bumping versions or preparing a release, update both `pyproject.toml` and `fpm.toml` together to keep Python and Fortran package versions in sync.
 - For core simulation behavior, treat Fortran implementation and docs (`SPEC.md`) as source of truth.

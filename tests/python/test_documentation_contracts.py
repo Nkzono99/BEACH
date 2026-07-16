@@ -93,6 +93,7 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
     )
     for entry in files:
         name = entry["name"]
+        assert "output.write_files=true" in entry["condition"], name
         producer = _read(entry["producer"])
         assert name in producer, (name, entry["producer"])
         for text in docs:

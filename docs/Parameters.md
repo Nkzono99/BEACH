@@ -74,7 +74,7 @@ GitHub Raw URL を指定することもできます。
 
 ## 公式入門ケース
 
-最初の実行には [10分チュートリアル](Tutorial.html) と
+最初の実行には [10 分チュートリアル](Tutorial.html) と
 `examples/tutorial_insulator.toml` を使ってください。`beachx config init`
 も同一の設定を生成します。
 

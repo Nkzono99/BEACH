@@ -1,0 +1,4 @@
+interface:
+  display_name: "BEACH Documentation Writing"
+  short_description: "Write and review clear BEACH documentation"
+  default_prompt: "Use $beach-documentation-writing to improve this BEACH document for clarity and accuracy."
