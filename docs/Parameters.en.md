@@ -281,9 +281,10 @@ return and transfer IDs to be `electrostatic_1d_instant_return`. The density and
 but they cannot currently be enabled together because `kinetic_mean` requires a different return-model branch. See
 `examples/periodic2_photoelectron_return.toml`.
 
-#### `kinetic_1d` contract
+#### `kinetic_1d` contract (standard and recommended)
 
-`kinetic_1d` is used with `cached_kneq0`. Negative and positive z-high `reservoir_face` species define the infinity electron and ion VDFs.
+For a new outer-sheath configuration, select `kinetic_1d` as the standard model. Production runs use it with `cached_kneq0`. Negative and
+positive z-high `reservoir_face` species define the infinity electron and ion VDFs.
 
 | Item | Contract |
 | --- | --- |
@@ -319,7 +320,10 @@ Every tracked-return species requires `deposit_opposite_charge_on_emit=true`.
 
 See `examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
 
-#### `unified_linear_response` contract
+#### `unified_linear_response` contract (advanced and specialized)
+
+`unified_linear_response` is not a higher-accuracy replacement for `kinetic_1d`. Select it as rough-surface linear screening only
+when roughness and plasma response occupy the same region, no split window is available, and the linearity gate passes.
 
 | Item | Contract |
 | --- | --- |

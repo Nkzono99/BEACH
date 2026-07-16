@@ -47,6 +47,10 @@ Choose the mode that matches the user's goal:
 4. Tie concepts back to concrete files, commands, or TOML keys.
 5. Offer a small next exercise, such as running a case, running one batch, or plotting charge history.
 
+When explaining outer-plasma models, present `kinetic_1d` first as the standard self-consistent outer-sheath path. Present
+`unified_linear_response` separately as an advanced rough-surface linear-screening path with conditional applicability, not as
+a higher-accuracy replacement.
+
 ## Output
 
 Use the response language. Prefer this structure for guided learning:

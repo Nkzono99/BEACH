@@ -41,10 +41,11 @@
     },
     "outer_plasma": {
       "type": "object",
+      "description": "Optional outer-domain field model. For a new self-consistent outer sheath, use kinetic_1d as the standard model. unified_linear_response is an advanced rough-surface linear-screening model, not a higher-accuracy replacement.",
       "additionalProperties": false,
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
-        "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]},
+        "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"], "description": "Select kinetic_1d for the standard VDF-based outer sheath. Select unified_linear_response only for advanced rough-surface linear screening within its applicability limits."},
         "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
         "photoelectron_histogram_enabled": {"type": "boolean", "default": false},
         "return_model": {"enum": ["none", "electrostatic_1d_instant_return", "kinetic_1d_profile_return", "electrostatic_3d_explicit_orbit"], "default": "none"},

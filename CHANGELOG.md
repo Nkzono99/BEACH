@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Changed
+- Documented `kinetic_1d` as the standard outer-sheath model and reclassified `unified_linear_response` as advanced rough-surface linear screening. Model identifiers and runtime defaults are unchanged.
 - **BREAKING**: Split `outer_plasma.photoelectron_closure` into `photoelectron_density_model` (`none` / `kinetic_mean`) and the independent `photoelectron_histogram_enabled` diagnostic switch. Particle return remains controlled only by `outer_plasma.return_model` and `coupling.particle_transfer_mode`.
 - Renamed the tracked photoelectron-return example to `examples/periodic2_photoelectron_return.toml`.
 

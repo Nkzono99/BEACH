@@ -1,12 +1,17 @@
-title: Unified linear response
+title: Advanced rough-surface linear screening
 
 Lang: [日本語](UnifiedLinearResponse.md) | [English](UnifiedLinearResponse.en.md)
 
-# Unified linear response
+# Advanced rough-surface linear screening (`unified_linear_response`)
 
 `outer_plasma.model="unified_linear_response"` combines the rough-surface height range, plane-averaged surface-charge source,
 plasma-accessible area, and linear Debye response in one field model. It is the linear model for cases without a vacuum window in
 which lateral modes have decayed between the surface and ownership interface.
+
+This is not the standard outer-sheath model. It is an advanced linear-screening model for cases where roughness and plasma
+response occupy the same region. Use `kinetic_1d` for ordinary outer sheaths that require species VDFs, the Bohm condition,
+inflow correction, or current balance. Do not treat `unified_linear_response` as a higher-accuracy replacement or automatic
+fallback for `kinetic_1d`.
 
 ## Replace the split window with one field solve
 

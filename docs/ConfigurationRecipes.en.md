@@ -125,6 +125,10 @@ and convergence checks. Use the next recipe when the case needs an infinite-peri
 
 ## Infinite Periodic + External Kinetic Sheath
 
+Use this `kinetic_1d` composition as the standard starting point for an outer sheath in BEACH. Consider
+[advanced rough-surface linear screening](UnifiedLinearResponse.en.html) only for specialized cases that must screen lateral
+fields near a rough surface linearly.
+
 The production lunar-regolith setup solves the `k != 0` surface-charge component with the infinite-periodic cache and
 connects the area-mean `k = 0` component to an external 1D kinetic sheath. Add these main sections to an existing box,
 mesh, and ambient electron/ion configuration:

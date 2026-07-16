@@ -123,9 +123,9 @@ $$
 誘電率を持たない最小の対称境界条件です。`e_bottom_zero`は過去の計算を再現するための設定であり、一般的な
 物理defaultではありません。
 
-outer modelを接続すると、surface zero modeのfield/interface条件を使ってplasma profileを作ります。split kinetic modelは
-[kinetic 1D外部プラズマ](KineticOuterPlasma.html)、surfaceから統合する線形modelは
-[unified linear response](UnifiedLinearResponse.html)でそれぞれ説明します。
+outer modelを接続すると、surface zero modeのfield/interface条件を使ってplasma profileを作ります。標準のsplit kinetic
+構成は[kinetic 1D外部プラズマ](KineticOuterPlasma.html)で説明します。split windowを置けないrough surfaceに限定した
+高度な線形modelは[粗面線形screening](UnifiedLinearResponse.html)で説明します。
 
 ## 粒子衝突では軌道が届く周期画像を調べる
 

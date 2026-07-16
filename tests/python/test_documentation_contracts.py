@@ -116,6 +116,39 @@ def test_photoelectron_schema_matches_density_transfer_and_deposit_contracts() -
     assert list(validator.iter_errors(tracked_photoelectron))
 
 
+def test_outer_sheath_guidance_keeps_kinetic_as_the_standard_model() -> None:
+    outer = _schema()["properties"]["outer_plasma"]
+    model = outer["properties"]["model"]
+
+    assert "kinetic_1d as the standard model" in outer["description"]
+    assert "advanced rough-surface linear screening" in model["description"]
+    assert "default" not in model
+
+    for path in ("docs/OuterPlasmaModels.md", "docs/KineticOuterPlasma.md"):
+        text = _read(path)
+        assert "標準" in text
+        assert "kinetic_1d" in text
+
+    for path in (
+        "docs/OuterPlasmaModels.en.md",
+        "docs/KineticOuterPlasma.en.md",
+    ):
+        text = _read(path)
+        assert "standard" in text
+        assert "kinetic_1d" in text
+
+    assert "高度な粗面線形screening" in _read("docs/UnifiedLinearResponse.md")
+    assert "Advanced rough-surface linear screening" in _read(
+        "docs/UnifiedLinearResponse.en.md"
+    )
+    assert "Standard kinetic-sheath contract fixture" in _read(
+        "examples/periodic2_kinetic_outer.toml"
+    )
+    assert "Advanced linear-screening" in _read(
+        "examples/periodic2_unified_linear_response.toml"
+    )
+
+
 def test_coupling_reference_covers_every_schema_key() -> None:
     coupling = _schema()["properties"]["coupling"]["properties"]
     for path in ("docs/Parameters.md", "docs/Parameters.en.md"):

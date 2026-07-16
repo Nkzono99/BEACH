@@ -8,6 +8,10 @@ Lang: [日本語](KineticOuterPlasma.md) | [English](KineticOuterPlasma.en.md)
 非磁化profileとして解きます。表面電荷が与えるinterface電場と無限遠の粒子VDFを接続し、interface電位、密度、
 電流を自己整合に求めます。
 
+BEACHでは、外部reservoirと平均シースを結ぶ標準モデルとして`kinetic_1d`を推奨します。対応する
+`return_model`と`particle_transfer_mode`を組み合わせると、同じprofileを粒子の流入とescape/returnにも使います。
+外部シースが必要なケースは、rough surface近傍の横方向screeningを解く明確な要件がない限り、このモデルから構成します。
+
 収束した外部profileは双方向に使われます。無限遠VDFからinterfaceへ入る粒子の写像は
 [`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)、interfaceから出る粒子のescape/return写像は
 [粒子のescapeとreturn](ParticleEscapeReturn.html)に対応します。
@@ -22,8 +26,8 @@ local粒子領域とouter領域はz-highのownership interface $z=z_I$で接続�
 | interfaceより外側 | `kinetic_1d`の平面平均profile |
 
 outer profileをlocal領域の全点へ重ねません。このsplit構成では、interfaceまでに横方向modeが十分減衰すると仮定し、
-interfaceで電位と法線電場を接続します。roughnessとplasma responseを同じ領域で解く必要がある場合は
-[unified linear response](UnifiedLinearResponse.html)を使います。
+interfaceで電位と法線電場を接続します。roughnessとplasma responseを同じ領域で線形に解く必要がある場合だけ、
+[高度な粗面線形screening](UnifiedLinearResponse.html)を使います。
 
 ## interface電場と無限遠VDFから電位を決める
 

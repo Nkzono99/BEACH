@@ -8,6 +8,11 @@ Connecting a finite particle box to an external reservoir involves five stages: 
 boundary handling, outer-field construction, and particle motion outside the box. These are not alternatives under one `model`
 key; they are separate stages that must be combined consistently.
 
+For ordinary production runs that couple an external reservoir self-consistently to surface charging, use `kinetic_1d` as the
+standard outer-sheath model. `unified_linear_response` is not a higher-accuracy replacement. It is an advanced model for cases
+that specifically require linear screening of lateral fields near a rough surface. The implicit configuration default remains
+`none` so cases without an outer sheath do not acquire one silently.
+
 ## Distinguish five configuration stages
 
 | Stage | Main configuration | Role |
@@ -73,20 +78,25 @@ quasi-steady approximation.
 
 ## Choose an outer model by required field complexity
 
-| `outer_plasma.model` | Solved state | Appropriate use |
-| --- | --- | --- |
-| `none` | No outer field | Simple open boundaries, scalar barriers, and analytic injection closures |
-| `linear_debye` | Exponential zero-mode response from an interface | Reduced 1-D instant return |
-| `kinetic_1d` | Nonlinear 1-D Poisson profile with VDF closures | Self-consistent inflow, current, and escape/return |
-| `unified_linear_response` | Linear zero/nonzero response from a rough surface to the far region | Rough surfaces without a clean vacuum split window |
+Start by asking whether `kinetic_1d` with matching return and transfer settings can close the infinity VDF, interface inflow,
+mean sheath, and escape/return with one profile.
+Use `unified_linear_response` only when the roughness range overlaps the plasma response, no split window exists in which lateral
+modes decay before the interface, and a linear response remains adequate.
+
+| `outer_plasma.model` | Position | Solved state | Appropriate use |
+| --- | --- | --- | --- |
+| `none` | No outer sheath | No outer field | Simple open boundaries, scalar barriers, and analytic injection closures |
+| `linear_debye` | Simplified reference | Exponential zero-mode response from an interface | Reduced 1-D instant return |
+| `kinetic_1d` | **Standard and recommended** | Nonlinear 1-D Poisson profile with VDF closures | Self-consistent inflow, current, and escape/return with matching transfer settings |
+| `unified_linear_response` | Advanced and specialized | Linear zero/nonzero screening from a rough surface to the far region | Rough surfaces without a clean vacuum split window |
 
 `kinetic_1d` solves a monotone branch satisfying ambient electron/ion far VDFs, the Bohm condition, Poisson residual, and far
 quasineutrality. `unified_linear_response` does not solve species VDFs or current balance; it adds a linear Debye-Hueckel response
 and plasma-accessible area to the field.
 
-Use [Outer Field: kinetic 1D](KineticOuterPlasma.en.html) when a self-consistent mean sheath is required. Use
-[Outer Field: unified linear response](UnifiedLinearResponse.en.html) when roughness and plasma response occupy the same region
-but a linear approximation is acceptable.
+The standard configuration is documented in [Outer sheath: kinetic 1D](KineticOuterPlasma.en.html). Use
+[Advanced rough-surface linear screening](UnifiedLinearResponse.en.html) only when roughness and plasma response occupy the same
+region and a linear approximation is acceptable.
 
 ## Select a typical composition
 

@@ -280,9 +280,10 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 | `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
 | `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
 
-#### `kinetic_1d`の仕様
+#### `kinetic_1d`の仕様（標準・推奨）
 
-`kinetic_1d`は`cached_kneq0`と組み合わせます。z-highに定義した負電荷と正電荷の`reservoir_face` speciesを、
+外部シースを新しく構成する場合は`kinetic_1d`を標準モデルとして選びます。productionでは`cached_kneq0`と
+組み合わせます。z-highに定義した負電荷と正電荷の`reservoir_face` speciesを、
 それぞれ無限遠のelectron VDFとion VDFとして使います。
 
 | 項目 | 仕様 |
@@ -316,7 +317,10 @@ return currentの物理的な時間履歴として解釈できません。[<sup>
 
 実行例は`examples/periodic2_kinetic_outer.toml`、物理モデルの前提は`docs/adr/0001-kinetic-outer-plasma.md`です。
 
-#### `unified_linear_response`の仕様
+#### `unified_linear_response`の仕様（高度・限定用途）
+
+`unified_linear_response`は`kinetic_1d`の上位互換ではありません。roughnessとplasma responseが同じ領域に重なり、
+split windowを置けず、線形性gateを満たす場合だけ、rough surfaceの線形screeningとして選びます。
 
 | 項目 | 仕様 |
 | --- | --- |

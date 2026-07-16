@@ -597,9 +597,9 @@ BEACH/
 | `docs/PeriodicElectrostatics.en.md` | periodic2 field and zero mode |
 | `docs/FinitePeriodicConfiguration.en.md` | Integrated finite-image and scalar-boundary configuration |
 | `docs/InfinitePeriodicOuterConfiguration.en.md` | Integrated infinite-periodic and outer-plasma configuration |
-| `docs/OuterPlasmaModels.en.md` | Outer plasma and return closures |
-| `docs/KineticOuterPlasma.en.md` | Kinetic 1-D outer Poisson solve |
-| `docs/UnifiedLinearResponse.en.md` | Unified linear response with rough surfaces |
+| `docs/OuterPlasmaModels.en.md` | Choose the standard outer sheath or advanced rough-surface screening |
+| `docs/KineticOuterPlasma.en.md` | Standard and recommended self-consistent kinetic 1-D outer sheath |
+| `docs/UnifiedLinearResponse.en.md` | Advanced rough-surface linear screening |
 | `docs/ParticleEscapeReturn.en.md` | Open boundaries, 1-D return, and 3-D outer orbits |
 | `docs/FMM.en.md` | FMM selection and verification |
 | `docs/FMMCore.en.md` | FMM internals and Ewald |

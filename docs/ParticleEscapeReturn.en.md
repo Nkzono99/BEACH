@@ -12,6 +12,10 @@ Treatment of a particle reaching an open boundary can be organized into five mod
 4. `kinetic_1d`: map escape or return through a solved discrete 1-D profile.
 5. `unified_linear_response`: integrate an orbit in an external 3-D field to decide escape or return.
 
+This list compares boundary-processing algorithms; it is not an operational ranking. The standard path for a self-consistent
+outer sheath is `kinetic_1d` with its matching 1-D transfer. `unified_linear_response` with an explicit 3-D orbit is an advanced
+path for cases that require both rough-surface linear screening and 3-D motion outside the box.
+
 These are not five alternatives under one configuration key. `escape` and `potential_barrier` are values of
 `sim.open_boundary_model` for ordinary open faces. The other three are values of `outer_plasma.model` when z-high is an
 ownership interface to an outer region, combined with corresponding `return_model` and `particle_transfer_mode` settings.
@@ -34,8 +38,8 @@ particle crosses an open face
 | `escape` | None | Always escape | None | Simple finite box |
 | `potential_barrier` | Scalar potential at the crossing | Compare normal energy with a barrier | None | Low-cost local reflection |
 | `linear_debye` | Analytic exponential 1-D profile | Conserved energy | Analytic expression | Reduced quasisteady 1-D outer plasma |
-| `kinetic_1d` | Converged discrete 1-D profile | Conserved energy and turning-point search | Profile integration | Self-consistent mean sheath |
-| `unified_linear_response` | 3-D field with zero and nonzero modes | Time-integrate an outer orbit | Measured from the orbit | Linear 3-D response over a rough surface |
+| `kinetic_1d` | Converged discrete 1-D profile | Conserved energy and turning-point search | Profile integration | **Standard:** self-consistent mean sheath |
+| `unified_linear_response` | 3-D field with zero and nonzero modes | Time-integrate an outer orbit | Measured from the orbit | **Advanced:** linear 3-D response over a rough surface |
 
 All five treatments are independent of particle source. Reservoir particles, photoelectrons, and `volume_seed` particles receive
 the same boundary treatment when they cross the same face in the same state. See

@@ -41,6 +41,7 @@ For workload questions, use schema/TOML inspection and `beachx estimate-workload
 - Check solver controls: `field_solver`, `softening`, tree/FMM parameters, periodic far correction, and field normalization.
 - Check output size risk: `history_stride`, `write_potential_history`, `write_mesh_potential`, mesh size, batch count.
 - Check resume compatibility when `output.resume = true`.
+- Treat `kinetic_1d` as the standard outer-sheath path. When `unified_linear_response` appears, do not reject it automatically; verify why no split window is valid and whether linearity, accessible-fraction, mode, and grid-refinement checks are planned.
 
 ## Output
 

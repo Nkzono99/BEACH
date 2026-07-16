@@ -606,9 +606,9 @@ BEACH/
 | `docs/PeriodicElectrostatics.md` | periodic2場とzero mode |
 | `docs/FinitePeriodicConfiguration.md` | 有限画像とscalar境界補正の統合構成 |
 | `docs/InfinitePeriodicOuterConfiguration.md` | 無限周期場とouter plasmaの統合構成 |
-| `docs/OuterPlasmaModels.md` | 外部プラズマとreturnモデル |
-| `docs/KineticOuterPlasma.md` | kinetic 1D outer Poisson solve |
-| `docs/UnifiedLinearResponse.md` | rough surfaceを含む統合線形応答 |
+| `docs/OuterPlasmaModels.md` | 標準外部シースと高度なrough-surface screeningの選び方 |
+| `docs/KineticOuterPlasma.md` | 標準・推奨の自己整合kinetic 1D外部シース |
+| `docs/UnifiedLinearResponse.md` | 高度なrough-surface線形screening |
 | `docs/ParticleEscapeReturn.md` | open境界、1D return、3D outer軌道 |
 | `docs/FMM.md` | FMMの選択と精度確認 |
 | `docs/FMMCore.md` | FMM内部実装・Ewald |

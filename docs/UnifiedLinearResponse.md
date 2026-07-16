@@ -1,12 +1,16 @@
-title: unified linear response
+title: 高度な粗面線形screening
 
 Lang: [日本語](UnifiedLinearResponse.md) | [English](UnifiedLinearResponse.en.md)
 
-# unified linear response
+# 高度な粗面線形screening（`unified_linear_response`）
 
 `outer_plasma.model="unified_linear_response"`は、rough surfaceの高さ範囲、表面電荷の平面平均source、
 plasmaが占有できる面積、線形Debye応答を一つのfield modelにまとめます。surfaceとownership interfaceの間に
 横方向modeが十分に減衰するvacuum windowを仮定できない場合の線形modelです。
+
+これは標準の外部シースモデルではなく、roughnessとplasma responseが同じ領域に重なる場合の高度な線形screening
+です。species VDF、Bohm条件、流入補正、電流balanceが必要な通常の外部シースには`kinetic_1d`を使います。
+`unified_linear_response`を`kinetic_1d`の高精度版や自動fallbackとして選んではいけません。
 
 ## split windowを一つのfield solveへ置き換える
 

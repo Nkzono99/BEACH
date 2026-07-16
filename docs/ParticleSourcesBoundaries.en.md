@@ -60,7 +60,7 @@ It emits particles from the first in-box element hit and samples velocity from a
 the element normal.
 
 See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for the opposite charge left at the emission source and
-the photoelectron-specific reduced escape model.
+escape/return through ordinary tracking and outer-sheath handling.
 
 ## Enter the same particle tracker after creation
 

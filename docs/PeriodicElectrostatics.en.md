@@ -124,8 +124,9 @@ Neither solves dielectric screening or polarization. `symmetric_vacuum` is the m
 interface or permittivity; `e_bottom_zero` exists for legacy reproduction and is not a universal physical default.
 
 An outer model uses surface zero-mode field and interface conditions to form plasma response. See
-[Kinetic 1-D outer plasma](KineticOuterPlasma.en.html) for the split kinetic model and
-[Unified linear response](UnifiedLinearResponse.en.html) for the surface-to-far linear model.
+[Kinetic 1-D outer plasma](KineticOuterPlasma.en.html) for the standard split kinetic composition. See
+[advanced rough-surface linear screening](UnifiedLinearResponse.en.html) for the surface-to-far linear model limited to cases
+without a split window.
 
 ## Search periodic images reachable by particle trajectories
 

@@ -152,8 +152,9 @@ Because this path has already built a local VDF, it does not also apply a generi
 The Zhao result is a literature-based source-VDF precorrection. The Boris field snapshot and Zhao root are not updated from
 batch-varying `q_elem`, so this closure does not represent a self-consistent external field for arbitrary 3-D surface geometry.
 
-Use `kinetic_1d + kinetic_1d_profile_return` or a validated unified configuration when incoming and outgoing particles share one
-self-consistent potential profile.
+Use the standard `kinetic_1d + kinetic_1d_profile_return` composition when incoming and outgoing particles share one
+self-consistent potential profile. Use a validated unified composition only when a rough surface has no split window and requires
+linear screening.
 
 ## Apply only one source correction
 

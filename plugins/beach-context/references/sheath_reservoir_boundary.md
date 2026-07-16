@@ -15,8 +15,8 @@ BEACHには目的の異なる複数のreduced modelがあります。
 | `reservoir_potential_model="infinity_barrier"` | 注入面平均電位と`phi_infty` | 流入flux、法線速度cutoff、face速度 | いいえ |
 | `sheath_injection_model="zhao_*"` | 背景species、太陽高度、光電子基準密度 | reservoir密度/VDF cutoff、ion drift、photoemission current | いいえ |
 | `floating_no_photo` | electron/ion流入flux | electron cutoff | いいえ |
-| `outer_plasma.model="kinetic_1d"` | 無限遠VDF、surface zero-mode field | 自己整合1D電位・電場・密度profile | outer領域で使用 |
-| `unified_linear_response` | surface field、accessible area、線形plasma応答 | localからfarまでのzero/nonzero field | はい |
+| `outer_plasma.model="kinetic_1d"` | 無限遠VDF、surface zero-mode field | **標準:** 自己整合1D電位・電場・密度profile | outer領域で使用 |
+| `unified_linear_response` | surface field、accessible area、線形plasma応答 | **高度:** localからfarまでのrough-surface線形screening | はい |
 | `open_boundary_model="potential_barrier"` | 境界通過点電位と`phi_infty` | 外向き粒子のescape/反射 | いいえ |
 
 Zhao系を`kinetic_1d`の別解法として扱ってはいけません。Zhao系は既存speciesの注入分布を
@@ -215,8 +215,9 @@ photoelectron free/captured population、ion速度を再構成します。この
 
 Zhao profileの$E(z)$はparticle pusherで用いる電場へ加算されません。任意のsurface geometryや
 時間変化する`q_elem`に自己整合させる外部場でもありません。Zhao系は文献モデルに基づく
-injection/photoemission closureであり、軌道と同じ外部電位profileを必要とするproduction計算では
-`kinetic_1d`または`unified_linear_response`を使います。
+injection/photoemission closureであり、軌道と同じ外部電位profileを必要とするproduction計算では標準の
+`kinetic_1d`を使います。split windowを置けないrough surfaceで線形性条件を満たす場合だけ、
+高度な`unified_linear_response`を選びます。
 
 ## 8. `floating_no_photo`とtracked photoelectron
 
@@ -231,8 +232,8 @@ injection/photoemission closureであり、軌道と同じ外部電位profileを
 
 | 目的 | 推奨構成 |
 | --- | --- |
-| 無限周期レゴリス + 自己整合1D sheath | `cached_kneq0` + `kinetic_1d` + `kinetic_1d_profile_return` |
-| rough surfaceでsplit windowがない線形検証 | `unified_linear_response` + explicit 3D orbit |
+| **標準:** 無限周期レゴリス + 自己整合1D sheath | `cached_kneq0` + `kinetic_1d` + `kinetic_1d_profile_return` |
+| **高度:** rough surfaceでsplit windowがない線形検証 | `unified_linear_response` + explicit 3D orbit |
 | 有限画像のface scalar障壁 | `infinity_barrier` |
 | Zhao文献closureとの比較 | `zhao_*`を単独で使用 |
 | 光電子なしの簡易電流釣合い | `floating_no_photo` |

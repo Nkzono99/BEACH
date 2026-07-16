@@ -8,6 +8,9 @@ This configuration assembles an x/y infinite-periodic surface field and a z-dire
 snapshot. Near images, an Ewald-generated far `k\ne0` operator, physical `k=0`, and outer response are composed without duplication,
 and the same outer potential controls reservoir inflow and particle return.
 
+The standard composition is split `kinetic_1d`, which solves a nonlinear mean sheath from species VDFs. The unified composition
+is an advanced option limited to rough surfaces that have no split window and require linear screening.
+
 ## Assign one owner to each field component
 
 | Component | Owner |
@@ -22,12 +25,12 @@ and the same outer potential controls reservoir inflow and particle return.
 
 See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for periodic operators and `k=0` equations.
 
-## Select nonlinear split or linear unified response
+## Select standard split kinetic or advanced linear unified response
 
 | Configuration | Mean plasma | Nonzero mode | Particle transfer |
 | --- | --- | --- | --- |
-| Split kinetic | Nonlinear `kinetic_1d` VDF closure | Assumed decayed by the interface | `kinetic_1d_profile_return` |
-| Unified linear | Linear Poisson with accessible fraction | Joined to screened modes at response start | None or 3-D explicit orbit |
+| **Standard: split kinetic** | Nonlinear `kinetic_1d` VDF closure | Assumed decayed by the interface | `kinetic_1d_profile_return` |
+| Advanced: unified linear | Linear Poisson with accessible fraction | Joined to screened modes at response start | None or 3-D explicit orbit |
 
 Split kinetic represents species VDFs, Bohm entry, and mean photoelectron density, but assumes a split window containing local
 surface field below the interface. See [Kinetic 1-D outer plasma](KineticOuterPlasma.en.html).
@@ -101,9 +104,9 @@ This block alone does not enable outer plasma. Add kinetic or unified `[outer_pl
 minimal cache example [`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml).
 
 Small references use Direct plus `panel_spectral_reference`.
-[`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml) and
-[`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml) check model contracts;
-they do not by themselves select a large production backend.
+[`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml) is a small contract fixture for the standard
+kinetic composition. [`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml)
+checks the analytic limit and applicability of advanced linear screening. Neither selects a large production backend by itself.
 
 ## Apply each closure exactly once
 

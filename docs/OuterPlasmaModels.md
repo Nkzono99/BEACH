@@ -7,6 +7,11 @@ Lang: [日本語](OuterPlasmaModels.md) | [English](OuterPlasmaModels.en.md)
 有限な粒子計算boxと外部reservoirをつなぐ処理は、粒子生成、流入補正、流出境界、外部場、box外粒子の
 5段階に分かれます。これらは一つの`model`を選ぶ設定ではなく、必要な段階を矛盾しないように組み合わせる設定です。
 
+外部reservoirと表面帯電を自己整合に結ぶ通常のproduction計算では、`kinetic_1d`を標準の外部シースモデルとして
+使います。`unified_linear_response`はその上位版ではなく、rough surface近傍の横方向fieldを線形screeningする必要が
+ある場合だけ選ぶ高度なモデルです。外部シースを使わないケースとの互換性を保つため、設定上の暗黙の既定は`none`の
+ままです。
+
 ## 5つの設定段階を区別する
 
 | 段階 | 主な設定 | 役割 |
@@ -71,19 +76,23 @@ escape/returnは`open_boundary_model`ではなく対応するouter modelが担�
 
 ## 外部場の複雑さからmodelを選ぶ
 
-| `outer_plasma.model` | 解くもの | 適した用途 |
-| --- | --- | --- |
-| `none` | 外部場なし | 単純open境界、scalar barrier、解析的な注入補正 |
-| `linear_debye` | interfaceからの指数zero-mode応答 | 簡易1D instant return |
-| `kinetic_1d` | VDFに基づく密度モデルを含む非線形1D Poisson profile | 自己整合な流入・電流・escape/return |
-| `unified_linear_response` | rough surfaceからfarまでの線形zero/nonzero応答 | 真空split windowを置けないrough surface |
+まず`kinetic_1d`と対応するreturn/transfer設定で、無限遠VDF、interfaceへの流入、平均シース、escape/returnを
+一つのprofileで閉じられるかを検討します。surfaceのroughness範囲とplasma responseが重なり、interfaceまでに横方向modeが減衰するsplit windowを
+置けず、かつ線形応答で十分な場合に限って`unified_linear_response`を選びます。
+
+| `outer_plasma.model` | 位置付け | 解くもの | 適した用途 |
+| --- | --- | --- | --- |
+| `none` | 外部シースなし | 外部場なし | 単純open境界、scalar barrier、解析的な注入補正 |
+| `linear_debye` | 簡易・参照 | interfaceからの指数zero-mode応答 | 簡易1D instant return |
+| `kinetic_1d` | **標準・推奨** | VDFに基づく密度モデルを含む非線形1D Poisson profile | 対応するtransferと組み合わせた自己整合な流入・電流・escape/return |
+| `unified_linear_response` | 高度・限定用途 | rough surfaceからfarまでの線形zero/nonzero screening | 真空split windowを置けないrough surface |
 
 `kinetic_1d`はambient electron/ionの無限遠VDF、Bohm条件、Poisson residual、無限遠準中性を満たす単調分枝を
 解きます。`unified_linear_response`はspecies別VDFや電流balanceを解かず、Debye–Hückel型の線形応答と
 plasma-accessible areaを場へ組み込みます。
 
-したがって、自己整合な平均sheathが必要なら[外部場: kinetic 1D](KineticOuterPlasma.html)、roughnessと
-plasma応答が同じ領域に重なるが線形近似でよい場合は[外部場: unified linear response](UnifiedLinearResponse.html)を使います。
+標準構成は[外部シース: kinetic 1D](KineticOuterPlasma.html)にまとめています。roughnessとplasma応答が同じ領域に
+重なるが線形近似でよい場合だけ、[高度な粗面線形screening](UnifiedLinearResponse.html)を使います。
 
 ## 典型的な構成を選ぶ
 

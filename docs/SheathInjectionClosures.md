@@ -154,8 +154,9 @@ $$
 Zhao profileから得る量は、文献モデルに基づくsource VDFの事前補正です。Zhao rootはBoris pusherで用いる電場とは独立しており、
 batchごとの`q_elem`からは更新されません。したがって、任意の3D surface geometryと自己整合な外部場を必要とする構成には対応しません。
 
-sourceと外向き粒子が同じ自己整合potential profileを共有する計算には、
-`kinetic_1d + kinetic_1d_profile_return`または検証済みのunified構成を使います。
+sourceと外向き粒子が同じ自己整合potential profileを共有する計算には、標準の
+`kinetic_1d + kinetic_1d_profile_return`を使います。split windowを置けないrough surfaceで線形screeningが必要な場合だけ、
+適用性を検証したunified構成を使います。
 
 ## 一つのsource補正だけを適用する
 

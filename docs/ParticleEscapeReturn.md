@@ -12,6 +12,10 @@ open境界へ到達した粒子の扱いは、次の5つのmodelに整理でき�
 4. `kinetic_1d`: 自己整合に解いた離散1D profileでescape/returnを写像する。
 5. `unified_linear_response`: 外部3D場中の軌道を積分してescape/returnを判定する。
 
+この一覧は境界処理アルゴリズムの比較であり、運用上の推奨順位ではありません。自己整合な外部シースの標準経路は
+`kinetic_1d`と対応する1D transferです。`unified_linear_response`と3D explicit orbitは、rough surfaceの線形screeningと
+3D外部軌道の両方が必要な場合の高度な経路です。
+
 ただし、これらは同じ設定キーの5択ではありません。`escape`と`potential_barrier`は通常のopen面に使う
 `sim.open_boundary_model`です。残り3つはz-highを外部領域へのownership interfaceにしたときの
 `outer_plasma.model`であり、対応する`return_model`と`particle_transfer_mode`を組み合わせます。
@@ -34,8 +38,8 @@ open面を粒子が通過
 | `escape` | なし | 常にescape | なし | 単純な有限box |
 | `potential_barrier` | 通過点のscalar電位 | 法線energyと障壁を比較 | なし | 低コストな局所反射 |
 | `linear_debye` | 解析的な指数1D profile | 保存energy | 解析式 | 簡易な準定常1D outer plasma |
-| `kinetic_1d` | 収束した離散1D profile | 保存energyとturning point探索 | profileを積分 | 自己整合な平均sheath |
-| `unified_linear_response` | zero/nonzero modeを含む3D場 | 外部軌道を時間積分 | 軌道から計測 | rough surfaceを含む線形3D応答 |
+| `kinetic_1d` | 収束した離散1D profile | 保存energyとturning point探索 | profileを積分 | **標準:** 自己整合な平均sheath |
+| `unified_linear_response` | zero/nonzero modeを含む3D場 | 外部軌道を時間積分 | 軌道から計測 | **高度:** rough surfaceを含む線形3D応答 |
 
 どのmodelでも粒子sourceには依存しません。reservoir粒子、光電子、`volume_seed`粒子は、同じ状態で同じ面を
 横切れば同じ境界処理を受けます。外部場自体の選び方は

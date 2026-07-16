@@ -122,6 +122,9 @@ field_periodic_far_correction = "none"
 
 ## 無限周期 + 外部kinetic sheath
 
+BEACHで外部シースを扱う場合は、この`kinetic_1d`構成を標準の出発点にします。rough surface近傍の横方向fieldを
+線形screeningする必要がある特殊なケースだけ、[高度な粗面線形screening](UnifiedLinearResponse.html)を検討してください。
+
 月面レゴリスのproduction設定では、表面電荷の`k != 0`成分を無限周期cacheで解きます。
 一方、面平均の`k = 0`成分は外部の1D kinetic sheathに接続します。次は、設定済みのbox、mesh、
 ambient electron/ion speciesに追加する主要なsectionです。

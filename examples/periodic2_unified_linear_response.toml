@@ -1,4 +1,5 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+# Advanced linear-screening contract fixture for the flat analytic limit; it does not solve species VDFs, Bohm entry, or current balance.
 
 [sim]
 dt = 1.0e-9

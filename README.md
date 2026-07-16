@@ -105,6 +105,7 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 
 - 初めて実行する: [インストール](https://nkzono99.github.io/BEACH/installation.html) → [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) → [出力の読み方](https://nkzono99.github.io/BEACH/output-guide.html)
 - 研究ケースを作る: [設定レシピ](https://nkzono99.github.io/BEACH/configuration-recipes.html) → [計算結果の妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html)
+- 外部シースを設定する: [境界・外部領域の構成を選ぶ](https://nkzono99.github.io/BEACH/outer-plasma-models.html)。標準は`kinetic_1d`で、`unified_linear_response`はrough surface向けの高度な線形screeningです。
 - 数値モデルを確認する: [アルゴリズム概要](https://nkzono99.github.io/BEACH/algorithms.html) / [場ソルバー](https://nkzono99.github.io/BEACH/field-solvers.html) / [粒子更新](https://nkzono99.github.io/BEACH/particle-tracking-collision.html) / [FMM](https://nkzono99.github.io/BEACH/fmm-core.html)
 - 開発する: [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html) / [Fortran API](https://nkzono99.github.io/BEACH/fortran/) / [Python 後処理 API](https://nkzono99.github.io/BEACH/python-postprocess-api.html)
 - 問題を調べる: [トラブルシューティング](https://nkzono99.github.io/BEACH/troubleshooting.html) / [`batch_duration` の安定性](https://nkzono99.github.io/BEACH/batch-duration-stability.html)

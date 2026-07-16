@@ -8,6 +8,9 @@ Lang: [日本語](InfinitePeriodicOuterConfiguration.md) | [English](InfinitePer
 near image、Ewaldから生成したfar `k\ne0` operator、物理`k=0`、outer responseを重複なく合成し、同じouter potentialを
 reservoir inflowとparticle returnに使います。
 
+標準構成は、species VDFから非線形平均シースを解くsplit `kinetic_1d`です。unified構成は、split windowを置けない
+rough surfaceで線形screeningが必要な場合に限る高度な選択肢です。
+
 ## 各field成分に一つのownerを割り当てる
 
 | component | owner |
@@ -22,12 +25,12 @@ reservoir inflowとparticle returnに使います。
 
 periodic operatorと`k=0`の式は[periodic2静電場](PeriodicElectrostatics.html)で説明します。
 
-## nonlinear splitとlinear unifiedを選ぶ
+## 標準のsplit kineticと高度なlinear unifiedを選ぶ
 
 | 構成 | mean plasma | nonzero mode | particle transfer |
 | --- | --- | --- | --- |
-| split kinetic | VDFに基づく密度モデルを使う非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `kinetic_1d_profile_return` |
-| unified linear | accessible fraction付き線形Poisson | response startでscreened modeへ接続 | なし、または3D explicit orbit |
+| **標準: split kinetic** | VDFに基づく密度モデルを使う非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `kinetic_1d_profile_return` |
+| 高度: unified linear | accessible fraction付き線形Poisson | response startでscreened modeへ接続 | なし、または3D explicit orbit |
 
 split kineticはspecies別VDF、Bohm entry、photoelectron mean densityを扱えます。一方で、surfaceとinterfaceの間には、
 local surface fieldだけを扱うsplit windowを仮定します。[kinetic 1D外部プラズマ](KineticOuterPlasma.html)に
@@ -103,8 +106,9 @@ lower_boundary_model = "symmetric_vacuum"
 最小のcache例は[`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml)です。
 
 小規模のreference計算にはDirect + `panel_spectral_reference`を使います。
-[`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)と
-[`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml)は、各modelの前提を確認するための例です。
+[`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)は標準kinetic構成の小規模contract fixture、
+[`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml)は高度な線形screeningの
+解析極限と適用性を確認するfixtureです。
 大規模productionでは、計算規模に合わせたbackendを別途選びます。
 
 ## 同じ物理効果を二重に加えない

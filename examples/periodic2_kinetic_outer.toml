@@ -1,4 +1,5 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+# Standard kinetic-sheath contract fixture. Production runs normally replace the Direct spectral-reference backend with cached_kneq0.
 
 [sim]
 dt = 1.0e-9

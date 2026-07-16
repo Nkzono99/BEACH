@@ -169,6 +169,9 @@ $$
 
 ### 4.1 split modelとunified modelは違う
 
+自己整合な外部シースの標準はsplit `kinetic_1d`です。`unified_linear_response`はその高精度版ではなく、
+split windowを置けず、かつ線形応答で十分なrough surfaceに限る高度なscreening modelです。
+
 split modelでは、局所領域と外部領域はinterfaceで接続されます。
 
 | 領域 | 使用する場 |
@@ -188,12 +191,12 @@ ownership面だけです。
 
 ### 4.2 model別の数値処理
 
-| `outer_plasma.model` | zero-mode処理 | 主な適用範囲 |
-| --- | --- | --- |
-| `none` | surface `k=0`だけをboundary closureで評価 | 外部plasmaを置かない |
-| `linear_debye` | $\Delta\phi\exp[-(z-z_I)/\lambda_D]$ | 小振幅split reference |
-| `kinetic_1d` | VDF closureを含む非線形1D Poisson solve | 単調・無衝突・非磁化sheath |
-| `unified_linear_response` | rough surfaceとplasma sourceを同じ1D Poisson gridへ投入 | 線形応答でsplit windowがない場合 |
+| `outer_plasma.model` | 位置付け | zero-mode処理 | 主な適用範囲 |
+| --- | --- | --- | --- |
+| `none` | 外部シースなし | surface `k=0`だけをboundary closureで評価 | 外部plasmaを置かない |
+| `linear_debye` | 簡易・reference | $\Delta\phi\exp[-(z-z_I)/\lambda_D]$ | 小振幅split reference |
+| `kinetic_1d` | **標準・推奨** | VDF closureを含む非線形1D Poisson solve | 単調・無衝突・非磁化sheath |
+| `unified_linear_response` | 高度・限定用途 | rough surfaceとplasma sourceを同じ1D Poisson gridへ投入 | 線形応答でsplit windowがない場合 |
 
 `cached_kneq0`のproduction経路が受理するouter modelは現在`none`、`kinetic_1d`、
 `unified_linear_response`です。`linear_debye`は`panel_spectral_reference`の小規模検証経路です。
