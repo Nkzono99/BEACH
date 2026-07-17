@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel field and potential evaluation for `point` and `triangle_p0` comparisons.
 
 ### Fixed
+- The Camphor `ifx` install profile no longer passes unsupported inline/report options or enables the unstable IPO link path, allowing release executables to link reliably with Intel 2023.2.
 - Reflected and periodic particle events now place surviving particles a scale-aware distance inside the box, preventing zero-time boundary chatter caused by a subnormal one-ULP offset at zero-valued faces. The existing eight-event safety limit is unchanged.
 
 ### Changed
