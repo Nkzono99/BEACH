@@ -6,6 +6,7 @@
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-far-correction-diagnostics test-fortran-benchmark \
+	benchmark-field-kernel \
 	test-field-kernel-cache \
 	test-python test-quick test-ci test-local \
 	build-kernel \
@@ -107,6 +108,7 @@ FORTRAN_FAR_CORRECTION_DIAGNOSTIC_TARGETS ?= \
 	test_periodic2_flat_oracle_diag
 FORTRAN_BENCHMARK_TARGETS ?= \
 	benchmark_periodic2_runtime
+FIELD_KERNEL_BENCHMARK_TARGET_COUNT ?= 2048
 KERNEL_FC ?= gfortran
 KERNEL_LIB ?= build/libbeach_field_kernel.so
 KERNEL_FPM_FLAG ?= $(OPENMP_FLAG) -fPIC
@@ -237,6 +239,11 @@ test-fortran-far-correction-diagnostics:
 
 test-fortran-benchmark:
 	$(call run_fortran_targets,$(FORTRAN_BENCHMARK_TARGETS),release,run,example)
+
+benchmark-field-kernel:
+	BEACH_VERSION_MODE=$(RUN_VERSION_MODE) FPM_ACTION=run FPM_PROFILE=release \
+		FPM_FFLAGS="$(OPENMP_FLAG)" $(BUILD_SH) --example benchmark_field_kernel_runtime -- \
+		$(CONFIG) $(FIELD_KERNEL_BENCHMARK_TARGET_COUNT)
 
 test-field-kernel-cache: export BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1
 test-field-kernel-cache: build-kernel

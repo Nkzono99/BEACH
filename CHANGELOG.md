@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel field and potential evaluation for `point` and `triangle_p0` comparisons.
+
 ### Fixed
 - Reflected and periodic particle events now place surviving particles a scale-aware distance inside the box, preventing zero-time boundary chatter caused by a subnormal one-ULP offset at zero-valued faces. The existing eight-event safety limit is unchanged.
 

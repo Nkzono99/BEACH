@@ -116,6 +116,18 @@ The `m2l_root_oracle` correctness tests are opt-in through `make test-fortran-fa
 The assertion-free `test_periodic2_flat_oracle_diag` is separated under
 `make test-fortran-far-correction-diagnostics`. Runtime comparison uses the release profile through
 `make test-fortran-benchmark` instead of running inside a debug correctness test.
+To compare `point` and `triangle_p0` field-evaluation costs on a real mesh, run the
+following command once for each configuration. `FIELD_KERNEL_BENCHMARK_TARGET_COUNT`
+sets the number of targets evaluated in both the volume and near-panel sets. The CSV output
+separates mesh construction, solver initialization, charge refresh, electric
+field evaluation, and potential evaluation.
+
+```bash
+make benchmark-field-kernel CONFIG=beach.toml FIELD_KERNEL_BENCHMARK_TARGET_COUNT=2048
+```
+
+Also pass `OPENMP_FLAG=-qopenmp` when using Intel `ifx`.
+
 `make test-field-kernel-cache` builds the shared kernel and passes its absolute
 path to the long-running native periodic plane-oracle receipt test. It remains
 opt-in and is not part of L1/L2/L3 or `make test-physics-release`.

@@ -116,6 +116,16 @@ BEACH のテストは開発ループ向けに階層化しています。
 `m2l_root_oracle`のcorrectnessは計算量が大きいため、`make test-fortran-far-correction`で実行します。
 数値assertを持たない`test_periodic2_flat_oracle_diag`は、`make test-fortran-far-correction-diagnostics`で実行します。
 速度比較には、release profileの`make test-fortran-benchmark`を使います。
+実際のメッシュで`point`と`triangle_p0`の場評価コストを比較する場合は、比較する各設定に対して
+次を実行します。`FIELD_KERNEL_BENCHMARK_TARGET_COUNT`は領域内と面近傍でそれぞれ
+評価する点数です。出力はメッシュ構築、
+ソルバ初期化、電荷更新、電場・電位評価を分けたCSV形式です。
+
+```bash
+make benchmark-field-kernel CONFIG=beach.toml FIELD_KERNEL_BENCHMARK_TARGET_COUNT=2048
+```
+
+Intel `ifx`では`OPENMP_FLAG=-qopenmp`も指定します。
 
 `make test-field-kernel-cache`はshared kernelをbuildし、その絶対pathをnative periodic plane-oracle receipt testに渡します。
 長時間実行するopt-in gateであり、L1/L2/L3と`make test-physics-release`には含まれません。
