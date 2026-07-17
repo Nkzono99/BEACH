@@ -166,6 +166,7 @@ docs-site/src/content/docs/
 docs-site/public/images/
 docs-site/public/media/
 docs/superpowers/
+docs/adr/
 
 # mypy
 .mypy_cache/
