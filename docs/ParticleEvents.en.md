@@ -153,6 +153,8 @@ mechanism. They are documented separately in [Particle sources and boundaries](P
 
 Position and velocity at a box event are interpolated between candidate input and output states, and only the active face
 coordinate is set exactly to the box value. After applying the surviving action, BEACH uses
+a guard derived from the box coordinates and span to place reflected or periodic particles inside the face. This avoids a
+subnormal one-ULP offset at a zero-valued face and prevents the next event fraction from underflowing to zero.
 
 $$
 \Delta t_\mathrm{remain}=(1-t_\mathrm{event})\Delta t_\mathrm{segment}
@@ -164,6 +166,7 @@ The pre-reflection field sample is not reused for that remaining time.
 At most eight box events are processed in one outer step. All eight are supported; if a ninth is required,
 `particle_step_multiple_box_events` is returned and the incomplete state is not committed. This also acts as a safety signal for
 an excessively large `dt`, narrow box, or very fast particle.
+The scale-aware guard does not change this existing eight-event safety limit.
 
 ## Transfer particles through z-high to an outer model
 

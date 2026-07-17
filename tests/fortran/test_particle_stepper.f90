@@ -131,7 +131,8 @@ contains
     call assert_true(result%interface_crossing%has_crossing, 'interface crossing after periodic event is missing')
     call assert_close_dp(result%interface_crossing%fraction, 2.0_dp/3.0_dp, 1.0e-14_dp, 'global fraction mismatch')
     call assert_allclose_1d( &
-      result%interface_crossing%position, [0.1_dp, 0.2_dp, 1.0_dp], 1.0e-14_dp, 'interface position mismatch' &
+      result%interface_crossing%position, [0.1_dp, 0.2_dp, 1.0_dp], &
+      128.0_dp*epsilon(1.0_dp), 'interface position mismatch' &
       )
     call assert_close_dp(result%interface_crossing%dt_remaining, 0.1_dp, 1.0e-14_dp, 'remaining dt mismatch')
     call assert_true(result%field_eval_count == 2_i32, 'periodic interface path should evaluate one remainder')

@@ -184,7 +184,7 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 - `reflect`: 法線成分反転
 - `periodic`: 反対側へラップ
 - additive な `find_first_boundary_event` は、box 内の始点から候補終点までの最初の交差 fraction と、corner/edge で同時に交差する全 face を bit mask で返す
-- additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置を境界から1 ULP内側へ置く。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
+- additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置をbox座標とspanに応じたnormal値のguard幅だけ内側へ置く。これによりzero-valued faceのsubnormalな1 ULP offsetと、直後のevent fractionが0へunderflowする境界chatterを避ける。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
 - production particle loop はcandidate生成とmesh queryを先行し、box crossing時だけevent resolverへ進む。候補終点がstrictなbox内部なら追加event geometryを行わず、場評価1回・collision query 1回のfast pathとなる
 - production particle loop は candidate の位置または速度が非有限なら collision query を呼ばず `particle_step_invalid_boundary` としてfail closedとする
 - reflect/periodic crossingだけ残り時間を最大8回再積分する。各eventはmeshとの最早順序を保って処理し、9回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとする。上限なしのevent loopやadaptive substepは行わない

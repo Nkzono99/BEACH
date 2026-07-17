@@ -14,7 +14,7 @@ program test_boundary
   real(dp) :: x(3), v(3), expected(3)
   logical :: alive, escaped_boundary
 
-  call test_init(20)
+  call test_init(21)
 
   cfg = sim_config()
   cfg%use_box = .true.
@@ -159,6 +159,10 @@ program test_boundary
   call test_boundary_event_mixed_reflect_periodic()
   call test_end()
 
+  call test_begin('periodic_wrap_reentry_fraction_is_positive')
+  call test_periodic_wrap_reentry_fraction_is_positive()
+  call test_end()
+
   call test_begin('boundary_event_open_escape')
   call test_boundary_event_open_escape()
   call test_end()
@@ -262,10 +266,9 @@ contains
       )
     call assert_equal_i32(status, boundary_event_ok, 'corner action status mismatch')
     call assert_true(event_alive .and. .not. event_escaped, 'reflect corner should keep particle alive')
-    call assert_true( &
-      event_x(1) == nearest(1.0_dp, -1.0_dp) .and. event_x(2) == nearest(1.0_dp, -1.0_dp), &
-      'corner reflection should move both coordinates one ULP inward' &
-      )
+    call assert_true(all(event_x(1:2) < 1.0_dp), 'corner reflection should move both coordinates inward')
+    call assert_true(all(1.0_dp - event_x(1:2) >= 32.0_dp*epsilon(1.0_dp)), &
+                     'corner reflection inset should exceed the event tolerance scale')
     call assert_allclose_1d(event_v, [-1.0_dp, -2.0_dp, 3.0_dp], 0.0_dp, 'corner reflection velocity mismatch')
   end subroutine test_boundary_event_corner_reflect
 
@@ -292,10 +295,42 @@ contains
 
     call assert_equal_i32(status, boundary_event_ok, 'mixed action status mismatch')
     call assert_true(event_alive .and. .not. event_escaped, 'mixed action should keep particle alive')
-    call assert_true(event_x(1) == nearest(1.0_dp, -1.0_dp), 'reflect coordinate should be inside high face')
-    call assert_true(event_x(2) == nearest(0.0_dp, 1.0_dp), 'periodic coordinate should wrap inside low face')
+    call assert_true(event_x(1) < 1.0_dp, 'reflect coordinate should be inside high face')
+    call assert_true(event_x(2) > 0.0_dp, 'periodic coordinate should wrap inside low face')
+    call assert_true(event_x(2) >= 32.0_dp*epsilon(1.0_dp), &
+                     'periodic low-face inset should not be subnormal')
     call assert_allclose_1d(event_v, [-1.0_dp, 2.0_dp, 3.0_dp], 0.0_dp, 'mixed action velocity mismatch')
   end subroutine test_boundary_event_mixed_reflect_periodic
+
+  subroutine test_periodic_wrap_reentry_fraction_is_positive()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event, reentry_event
+    integer(i32) :: status
+    real(dp) :: event_x(3), event_v(3)
+    logical :: event_alive, event_escaped
+
+    call init_event_box(event_cfg)
+    event_cfg%box_max(1) = 1.0e-4_dp
+    event_cfg%bc_low(1) = bc_periodic
+    event_cfg%bc_high(1) = bc_periodic
+    call find_first_boundary_event( &
+      event_cfg, [0.9e-4_dp, 0.5_dp, 0.5_dp], [1.1e-4_dp, 0.5_dp, 0.5_dp], event, status &
+      )
+    event_x = [1.0e-4_dp, 0.5_dp, 0.5_dp]
+    event_v = [1.0_dp, 0.0_dp, 0.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status &
+      )
+    call assert_equal_i32(status, boundary_event_ok, 'periodic wrap status mismatch')
+    call find_first_boundary_event( &
+      event_cfg, event_x, [-1.0e-4_dp, 0.5_dp, 0.5_dp], reentry_event, status &
+      )
+
+    call assert_equal_i32(status, boundary_event_ok, 'periodic reentry status mismatch')
+    call assert_true(reentry_event%has_event, 'outward reentry chord should produce an event')
+    call assert_true(reentry_event%fraction > 0.0_dp, 'reentry fraction must not underflow to zero')
+  end subroutine test_periodic_wrap_reentry_fraction_is_positive
 
   subroutine test_boundary_event_open_escape()
     type(sim_config) :: event_cfg

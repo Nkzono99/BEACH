@@ -194,20 +194,23 @@ contains
     real(dp), intent(in) :: box_min, box_max
     real(dp), intent(inout) :: x(3), v(3)
     integer(i32), intent(inout) :: status
+    real(dp) :: inset
+
+    inset = boundary_inset(box_min, box_max)
 
     select case (bc)
     case (bc_reflect)
       if (high_side) then
-        x(axis) = nearest(box_max, -1.0_dp)
+        x(axis) = box_max - inset
       else
-        x(axis) = nearest(box_min, 1.0_dp)
+        x(axis) = box_min + inset
       end if
       v(axis) = -v(axis)
     case (bc_periodic)
       if (high_side) then
-        x(axis) = nearest(box_min, 1.0_dp)
+        x(axis) = box_min + inset
       else
-        x(axis) = nearest(box_max, -1.0_dp)
+        x(axis) = box_max - inset
       end if
     case default
       status = boundary_event_invalid_geometry
@@ -217,7 +220,7 @@ contains
   !> Event APIで扱える有限かつ正幅のbox設定かを返す。
   logical function valid_event_box(cfg) result(valid)
     type(sim_config), intent(in) :: cfg
-    real(dp) :: low_inside(3), high_inside(3)
+    real(dp) :: inset
     integer(i32) :: axis
 
     valid = .false.
@@ -226,13 +229,23 @@ contains
     if (.not. all(valid_boundary_condition(cfg%bc_low)) .or. &
         .not. all(valid_boundary_condition(cfg%bc_high))) return
     do axis = 1_i32, 3_i32
-      low_inside(axis) = nearest(cfg%box_min(axis), 1.0_dp)
-      high_inside(axis) = nearest(cfg%box_max(axis), -1.0_dp)
+      inset = boundary_inset(cfg%box_min(axis), cfg%box_max(axis))
+      if (.not. ieee_is_finite(inset) .or. inset <= 0.0_dp) return
+      if (cfg%box_min(axis) + inset >= cfg%box_max(axis) - inset) return
     end do
-    if (.not. all(ieee_is_finite(low_inside)) .or. .not. all(ieee_is_finite(high_inside))) return
-    if (any(low_inside >= cfg%box_max) .or. any(high_inside <= cfg%box_min)) return
     valid = .true.
   end function valid_event_box
+
+  !> 境界作用後の座標をnormal範囲かつevent toleranceより十分内側へ置く。
+  pure real(dp) function boundary_inset(box_min, box_max) result(inset)
+    real(dp), intent(in) :: box_min, box_max
+    real(dp) :: span, scale
+
+    span = box_max - box_min
+    scale = max(abs(box_min), abs(box_max), span, tiny(1.0_dp))
+    inset = max(64.0_dp*epsilon(1.0_dp)*scale, spacing(scale))
+    inset = min(0.25_dp*span, inset)
+  end function boundary_inset
 
   !> 境界条件enum配列の各値が既知かを返す。
   elemental logical function valid_boundary_condition(bc) result(valid)

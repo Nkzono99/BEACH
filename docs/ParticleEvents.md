@@ -151,6 +151,8 @@ reservoir粒子の加減速、outer sheath、photoelectron returnは、衝突位
 
 box境界イベント時の位置と速度は、候補軌道の入出力状態を交差fractionで補間します。そのうえで、
 faceに垂直な座標をbox面の値へ正確に揃えます。粒子が生存する境界作用を適用した後、
+reflect/periodic後の座標はbox座標とspanに応じたguard幅だけ面内へ置きます。原点側でsubnormalに
+なる1 ULP offsetを避け、残り軌道による次のevent fractionが0へunderflowする境界chatterを防ぎます。
 
 $$
 \Delta t_\mathrm{remain}=(1-t_\mathrm{event})\Delta t_\mathrm{segment}
@@ -162,6 +164,7 @@ $$
 1 particle step内で処理できるbox境界イベントは最大8回です。8回までは正しく処理し、9回目が必要なら
 `particle_step_multiple_box_events`を返して未完成stateをcommitしません。これは非常に大きい`dt`、狭いbox、
 または高速粒子を検出する安全上限でもあります。
+guard幅の変更はこの最大8回の安全上限を変更しません。
 
 ## z-highから外部モデルへ粒子を渡す
 
