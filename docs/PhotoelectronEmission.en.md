@@ -142,7 +142,7 @@ when both return and transfer IDs are `electrostatic_1d_instant_return`.
 ## Check convergence of photoelectron emission
 
 Increase `rays_per_batch` and verify convergence of hit fraction, emitted current, and charging distribution. When reabsorption
-location matters, reduce `dt` and verify that the result is unchanged. See [Reading output files](OutputGuide.en.html) for the
+location matters, reduce `dt` and verify that the result is unchanged. See [Inspect Output Files](OutputGuide.en.html) for the
 species-resolved charge balance across emission, absorption, and escape and for diagnostics specific to outer return.
 
 ## Code reference

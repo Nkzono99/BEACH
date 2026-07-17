@@ -7,7 +7,7 @@ Lang: [English](PostprocessTutorial.en.md) | [日本語](PostprocessTutorial.md)
 BEACH post-processing can use the `beach` Python package directly or the `beachx` commands that package common workflows.
 This page introduces the Python API first and then the ready-made visualization and analysis commands. See
 [Python Post-processing API Reference](PythonPostprocessAPI.en.html) for every class and function and
-[Reading Output Files](OutputGuide.en.html) for file meanings.
+[Inspect Output Files](OutputGuide.en.html) for file meanings.
 
 ## Post-process with the Python API
 

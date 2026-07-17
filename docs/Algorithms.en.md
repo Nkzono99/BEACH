@@ -88,13 +88,13 @@ ranks. See [Run a simulation](Execution.en.html) for the parallel execution stru
 The global charge delta is added to `q_elem` once. Floating conductors are then relaxed toward equipotential while
 preserving object charge when requested. See [Surface charge update](SurfaceModels.en.html) for insulator charging and conductor
 processing, [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for reaction-charge signs, and
-[Reading output files](OutputGuide.en.html) for species-resolved charge balance.
+[Inspect Output Files](OutputGuide.en.html) for species-resolved charge balance.
 
 ### 7. Update statistics and history state
 
 BEACH updates absorption, escape, `max_step` survivor counts, and `tol_rel`, then writes charge and potential
 history at the configured stride. `tol_rel` is a monitoring metric, not an early-stop condition. See
-[Output files](OutputGuide.en.html) and [Run a simulation](Execution.en.html). Final results and the checkpoint are
+[Inspect Output Files](OutputGuide.en.html) and [Run a simulation](Execution.en.html). Final results and the checkpoint are
 written after all `n` batches complete.
 
 ## State carried between batches

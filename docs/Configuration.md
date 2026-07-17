@@ -1,10 +1,12 @@
-title: 設定を編集する
+title: beach.tomlを作成・検証する
 
 Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 
-# 設定を編集する
+# `beach.toml`を作成・検証する
 
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。
+メッシュ、粒子源、境界条件を選んで物理的な構成を組み立てる手順は
+[シミュレーションケースを設計する](ConfigurationRecipes.html)にまとめています。
 
 - Fortran 実行系 `beach` は `beach.toml` を直接読みます。
 - `beachx config init` は、最小限の実行可能な `beach.toml` を作ります。

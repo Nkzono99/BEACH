@@ -136,7 +136,7 @@ KUDPC のログインノード上では、`make test*` / `fpm test` や同等の
 ## 3. 実行フロー
 
 通常は、`beach.toml`を編集し、そのまま`beach`に渡します。作成・検査方法は
-[設定を編集する](Configuration.html)にまとめています。
+[`beach.toml`を作成・検証する](Configuration.html)にまとめています。
 
 1. `beach.toml` を用意する
 2. `beachx lint beach.toml` で設定を確認する

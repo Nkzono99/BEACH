@@ -6,7 +6,7 @@ Lang: [日本語](PostprocessTutorial.md) | [English](PostprocessTutorial.en.md)
 
 BEACHの後処理は、Python package `beach`を直接使う方法と、そのpackageで定型処理を行う`beachx`があります。
 このページではPython APIを先に示し、その後に用意済みの可視化・解析commandを紹介します。全class・関数は
-[Python後処理APIリファレンス](PythonPostprocessAPI.html)、出力fileの意味は[出力の読み方](OutputGuide.html)から確認できます。
+[Python後処理APIリファレンス](PythonPostprocessAPI.html)、出力 file の意味は[出力ファイルを調べる](OutputGuide.html)から確認できます。
 
 ## Python APIで後処理する
 

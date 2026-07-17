@@ -1,10 +1,12 @@
-title: Edit configuration
+title: Create and Validate beach.toml
 
 Lang: [English](Configuration.en.md) | [日本語](Configuration.md)
 
-# Edit configuration
+# Create and Validate `beach.toml`
 
 This document describes the directly edited `beach.toml` file and the `beachx config` helper commands.
+See [Design a Simulation Case](ConfigurationRecipes.en.html) for choosing meshes, particle sources, boundary conditions,
+and the rest of the physical setup.
 
 - The Fortran runtime `beach` reads `beach.toml` directly.
 - `beachx config init` creates a small runnable `beach.toml`.

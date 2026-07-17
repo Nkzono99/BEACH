@@ -7,15 +7,15 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 本文書は、Fortran実行系が読む`beach.toml`のパラメータリファレンスです。
 単位は、特に断りがない限り SI 単位です。
 
-初めて設定を組む場合は、先に [設定レシピ](ConfigurationRecipes.html) を読むと全体像を掴みやすいです。
+初めて設定を組む場合は、先に[シミュレーションケースを設計する](ConfigurationRecipes.html)を読むと全体像を掴みやすいです。
 
 box基準の座標・配置を指定する補助パラメータも通常のinput keyとして掲載し、どの値を計算または上書きするかを
 [座標・配置の補助パラメータ](#座標配置の補助パラメータ)に明記しています。
 
 | 関連ドキュメント | 内容 |
 |---|---|
-| [設定レシピ](ConfigurationRecipes.html) | 目的別の設定手順と調整ポイント |
-| [設定を編集する](Configuration.html) | `beachx config`、schema、lint |
+| [シミュレーションケースを設計する](ConfigurationRecipes.html) | 目的別の設定手順と調整ポイント |
+| [`beach.toml`を作成・検証する](Configuration.html) | `beachx config`、schema、lint |
 | [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順への導線 |
 | [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
 | [FMM](FMM.html) | `field_solver="fmm"`の選択と精度確認 |
@@ -34,21 +34,12 @@ box基準の座標・配置を指定する補助パラメータも通常のinput
 | schema | `schemas/beach.schema.json` |
 | lint | `beachx lint beach.toml` |
 
-Editor schema を使う場合は、`beach.toml` の先頭にコメント directive を置きます。
+Editor schema を使う場合は、`beach.toml` の先頭に GitHub Raw URL のコメント directive を置きます。
 Fortran パーサは最初のセクションより前の通常キーを受け付けないため、`"$schema" = "..."` は使いません。
-
-```toml
-#:schema ../schemas/beach.schema.json
-```
-
-GitHub Raw URL を指定することもできます。
 
 ```toml
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
 ```
-
-相対パスは、その `beach.toml` 自身から見た相対パスです。
-`outputs/.../beach.toml` など深い場所に置く場合は `../../schemas/beach.schema.json` のように調整してください。
 
 ---
 
@@ -80,24 +71,46 @@ GitHub Raw URL を指定することもできます。
 `field_periodic_image_layers=1`、`field_periodic_far_correction="none"` の有限画像和で扱います。
 
 `reservoir_face`、無限周期補正、外部シースは、そのケースが実行できた後に
-[設定レシピ](ConfigurationRecipes.html) から追加する応用設定です。
+[シミュレーションケースを設計する](ConfigurationRecipes.html)から追加する応用設定です。
 
 ---
 
-## セクション一覧
+## TOML の階層とセクション一覧
 
-| セクション | 必須 | 内容 |
-|---|---:|---|
-| `[sim]` | 条件付き | 時間刻み、バッチ数、場ソルバ、境界、外部場、シース補正 |
-| `[particles]` | yes | `[[particles.species]]` のコンテナ |
-| `[[particles.species]]` | yes | 粒子種、注入方式、速度分布、マクロ粒子重み |
-| `[mesh]` | no | OBJ または組み込み template の選択 |
-| `[[mesh.templates]]` | no | `mode="template"` で使う組み込み形状 |
-| `[field]` | no | 要素電荷の離散化 kernel と backend |
-| `[periodic2]` | 条件付き | split periodic2 の非零モード・零モード・下側境界モデル |
-| `[outer_plasma]` | 条件付き | 外部プラズマ profile、適用範囲、return model |
-| `[coupling]` | 条件付き | outer profile の更新と粒子移送 |
-| `[output]` | no | 出力先、履歴、checkpoint 再開 |
+`[sim]`、`[field]`、`[particles]`、`[mesh]`、`[periodic2]`、`[outer_plasma]`、`[coupling]`、
+`[output]` はすべてトップレベルで、互いの子 table ではありません。ネスト関係は次のとおりです。
+
+```text
+beach.toml
+├── [sim]
+├── [field]
+├── [particles]
+│   └── [[particles.species]]       # 1 件以上の array-of-tables
+├── [mesh]
+│   ├── [mesh.groups.<name>]        # 名前付きの子 table
+│   └── [[mesh.templates]]          # 0 件以上の array-of-tables
+├── [periodic2]
+├── [outer_plasma]
+├── [coupling]
+└── [output]
+```
+
+本文中の `sim.dt` や `outer_plasma.model` は「table 名.key」の参照表記です。TOML ではそれぞれ `[sim]`、
+`[outer_plasma]` の下へ `dt = ...`、`model = ...` と書きます。
+
+| TOML table | 親 | 件数・必須条件 | 内容 |
+|---|---|---|---|
+| `[sim]` | root | 条件付き | 時間刻み、バッチ数、場ソルバ、境界、外部場、シース補正 |
+| `[field]` | root | 任意 | 要素電荷の離散化 kernel |
+| `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
+| `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
+| `[mesh]` | root | 任意 | OBJ または組み込み template の選択 |
+| `[mesh.groups.<name>]` | `[mesh]` | 0 件以上 | 複数 template で共有する配置と scale |
+| `[[mesh.templates]]` | `[mesh]` | 0 件以上 | `mode="template"` で使う組み込み形状 |
+| `[periodic2]` | root | 条件付き | split periodic2 の非零モード・零モード・下側境界モデル |
+| `[outer_plasma]` | root | 条件付き | 外部プラズマ profile、適用範囲、return model |
+| `[coupling]` | root | 条件付き | outer profile の更新と粒子移送 |
+| `[output]` | root | 任意 | 出力先、履歴、checkpoint 再開 |
 
 `reservoir_face` または `photo_raycast` を使う場合、`[sim]` は必須です。
 `[[particles.species]]` は 1 件以上必要です。
@@ -240,7 +253,7 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `10000 <= nelem < 50000` | `0.58` | `20` |
 | `50000 <= nelem` | `0.65` | `24` |
 
-#### 場境界と `[periodic2]` / `[outer_plasma]`
+#### 場境界
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -252,34 +265,46 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
 
-legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用のsplit referenceに限り、
-`field_solver="direct"`と以下の3つのtableを明示します。
+### `[periodic2]`: 非零モード・零モード・下側境界
 
-| table.key | 既定 | 意味 |
+`[periodic2]` は `[sim]` の子ではなく、トップレベル table です。
+legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証用の split reference に限り、
+`field_solver="direct"` と `[periodic2]`、`[outer_plasma]`、`[coupling]` を明示します。
+
+| キー | 既定値 | 意味 |
 |---|---:|---|
-| `periodic2.nonzero_mode_backend` | 必須 | `panel_spectral_reference` |
-| `periodic2.zero_mode_policy` | 必須 | `exclude_k0` |
-| `periodic2.lower_boundary_model` | 必須 | `symmetric_vacuum` / `e_bottom_zero` |
-| `periodic2.reference_mode_layers` | `4` | Fourier mode cutoff |
-| `periodic2.panel_quadrature_order` | `12` | panel面積積分次数 |
-| `periodic2.interface_sample_n` | `5` | interface各軸の診断点数 |
-| `periodic2.interface_phi_tolerance` | `1e-3` | 非零モード電位比上限 |
-| `periodic2.interface_field_tolerance` | `1e-3` | 非零モード電場比上限 |
-| `outer_plasma.interface_z` | 必須 | z上側interface。初期モデルではbox上面 |
-| `outer_plasma.debye_length` | 必須 | 線形Debye長 |
-| `outer_plasma.thermal_voltage` | 必須 | 線形性・診断の電位scale |
-| `outer_plasma.unified_grid_points` | `129` | unified zero-mode Poisson grid点数（17以上） |
-| `outer_plasma.accessible_fraction_tolerance` | `0.1` | rough surface高さ標本を各軸2倍にしたときのaccessible fraction最大差 |
-| `outer_plasma.max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage`上限 |
-| `outer_plasma.max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda`上限 |
-| `outer_plasma.max_local_charge_ratio` | `50` | 局所平均plasma電荷推定比上限 |
-| `outer_plasma.photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は`kinetic_1d`へ平均光電子密度を追加 |
-| `outer_plasma.photoelectron_histogram_enabled` | `false` | z-highを外向き通過する光電子のhistogramと適用性検査を有効化 |
-| `outer_plasma.photoelectron_histogram_bins` | `32` | 法線運動エネルギーhistogramのbin数 |
-| `outer_plasma.photoelectron_histogram_energy_max` | histogram有効時に必須 | histogram上端 [J]。正値必須 |
-| `outer_plasma.photoelectron_ambient_charge_scale` | histogram有効時に必須 | 線形モデルの適用性を比較するambient signed-charge scale [C] |
-| `outer_plasma.max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale`上限 |
-| `outer_plasma.return_model` | `none` | 1D解析returnまたはunified 3D明示軌道のID |
+| `nonzero_mode_backend` | 必須 | `panel_spectral_reference` / `cached_kneq0` |
+| `zero_mode_policy` | 必須 | `exclude_k0` |
+| `lower_boundary_model` | 必須 | `symmetric_vacuum` / `e_bottom_zero` |
+| `reference_mode_layers` | `4` | Fourier mode cutoff |
+| `panel_quadrature_order` | `12` | panel 面積積分次数 |
+| `interface_sample_n` | `5` | interface 各軸の診断点数 |
+| `interface_phi_tolerance` | `1e-3` | 非零モード電位比上限 |
+| `interface_field_tolerance` | `1e-3` | 非零モード電場比上限 |
+
+### `[outer_plasma]`: 外部プラズマと return model
+
+`[outer_plasma]` もトップレベル table です。`[periodic2]` と組み合わせますが、その子 table ではありません。
+
+| キー | 既定値 | 意味 |
+|---|---:|---|
+| `model` | 必須 | `linear_debye` / `kinetic_1d` / `unified_linear_response` |
+| `interface_z` | 必須 | z 上側 interface。初期モデルでは box 上面 |
+| `infinity_potential` | `0` | 無限遠基準電位 [V] |
+| `debye_length` | 必須 | 線形 Debye 長 |
+| `thermal_voltage` | 必須 | 線形性・診断の電位 scale |
+| `unified_grid_points` | `129` | unified zero-mode Poisson grid 点数（17 以上） |
+| `accessible_fraction_tolerance` | `0.1` | rough surface 高さ標本を各軸 2 倍にしたときの accessible fraction 最大差 |
+| `max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage` 上限 |
+| `max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda` 上限 |
+| `max_local_charge_ratio` | `50` | 局所平均 plasma 電荷推定比上限 |
+| `photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は `kinetic_1d` へ平均光電子密度を追加 |
+| `photoelectron_histogram_enabled` | `false` | z-high を外向き通過する光電子の histogram と適用性検査を有効化 |
+| `photoelectron_histogram_bins` | `32` | 法線運動エネルギー histogram の bin 数 |
+| `photoelectron_histogram_energy_max` | histogram 有効時に必須 | histogram 上端 [J]。正値必須 |
+| `photoelectron_ambient_charge_scale` | histogram 有効時に必須 | 線形モデルの適用性を比較する ambient signed-charge scale [C] |
+| `max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale` 上限 |
+| `return_model` | `none` | 1D 解析 return または unified 3D 明示軌道の ID |
 
 #### `kinetic_1d`の仕様（標準・推奨）
 
@@ -304,19 +329,22 @@ legacy `periodic2`では`field_solver="fmm"`を使います。小規模検証用
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
 3. turning粒子について解析往復時間後に相当する復帰状態を作り、同じsimulation時刻・batchでinterfaceへ戻す。
 
-これは、定常・準定常sheathを対象としたinstant-return簡略化モデルです。定常化後の平均電流と離脱力の計算に使えます。
-UV照射の開始時など、遅延したreturn currentが影響する過渡応答は表しません。準定常条件は
-`tau_outer/field_evolution_timescale`で制限します。`tau_outer/batch_duration >= 1`の場合はbatch履歴を
-return currentの物理的な時間履歴として解釈できません。[<sup>1</sup>](ParticleEscapeReturn.md)
+適用範囲:
 
-`reservoir_potential_model`、Zhao系`sheath_injection_model`、`b0 != 0`との併用は拒否します。
+- 対象は定常・準定常 sheath です。定常化後の平均電流と離脱力に使用できます。
+- UV 照射開始時など、遅延した return current が効く過渡応答は表しません。
+- 準定常条件は `tau_outer/field_evolution_timescale` で制限します。
+- `tau_outer/batch_duration >= 1` では、batch 履歴を return current の物理時間履歴として解釈できません。
 
-`photoelectron_density_model="kinetic_mean"`では、先頭の負電荷`photo_raycast` speciesからhalf-Maxwellian fluxを作ります。
-平均密度モデルが供給するのはouter profileだけです。表面電荷は明示的に追跡する粒子が更新するため、
-統計的なreturn currentを追加で加算しません。tracked returnを使う全speciesで
-`deposit_opposite_charge_on_emit=true`を指定します。
+組合せ制約:
 
-実行例は`examples/periodic2_kinetic_outer.toml`、物理モデルの前提は`docs/adr/0001-kinetic-outer-plasma.md`です。
+- `reservoir_potential_model`、Zhao 系 `sheath_injection_model`、`b0 != 0` との併用を拒否します。
+- `photoelectron_density_model="kinetic_mean"` は、先頭の負電荷 `photo_raycast` species から half-Maxwellian flux を作ります。
+- 平均密度モデルが供給するのは outer profile だけです。表面電荷は追跡粒子が更新するため、統計的な return current を重ねません。
+- tracked return を使う全 species で `deposit_opposite_charge_on_emit=true` が必要です。
+
+詳細は[粒子の escape と return](ParticleEscapeReturn.html)、実行例は `examples/periodic2_kinetic_outer.toml`、
+物理モデルの前提は `docs/adr/0001-kinetic-outer-plasma.md` にあります。
 
 #### `unified_linear_response`の仕様（高度・限定用途）
 
@@ -335,9 +363,19 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | 3D orbit | `b0=0`、固定刻み、energy/frozen-field errorの上限 |
 | applicability | 線形性上限を超えたらfallbackせず停止 |
 
-検証例は`examples/periodic2_unified_linear_response.toml`、詳細は`docs/adr/0002-unified-periodic-outer-domain.md`です。
+数値・適用性の規則:
 
-#### `[coupling]`: outer更新と粒子移送
+- `unified_grid_points >= 17` が必要で、既定値は `129` です。
+- `accessible_fraction_tolerance` は、両周期軸の高さ標本を 2 倍にしたときの accessible fraction の最大差を制限します。
+- refinement 後の標本を solve に使い、許容差違反時は初期化で停止します。
+- production study では、報告する物理量について grid refinement を確認します。
+
+検証例は `examples/periodic2_unified_linear_response.toml`、明示粒子移送の例は
+`examples/periodic2_unified_explicit_orbit.toml`、詳細は `docs/adr/0002-unified-periodic-outer-domain.md` です。
+
+### `[coupling]`: outer 更新と粒子移送
+
+`[coupling]` はトップレベル table です。
 
 | キー | 型 | 既定値 | 説明 |
 | --- | --- | ---: | --- |
@@ -351,7 +389,7 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | `outer_orbit_energy_tolerance` | float | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
 | `outer_queue_enabled` | bool | `false` | 現在は`true`を拒否 |
 
-#### periodic2共通制約
+### periodic2 / outer plasma / coupling の組合せ制約
 
 関連exampleは目的別に選びます。
 
@@ -362,14 +400,14 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | unified 3D orbit | `periodic2_unified_explicit_orbit.toml` | 全3D field、固定刻みouter orbit |
 | tracked photoelectron return | `periodic2_photoelectron_return.toml` | instant return、放出元逆符号電荷、outgoing histogram |
 
-`photoelectron_histogram_enabled=true`のoutgoing histogramは全MPI rankから集計し、前batchの値と累積値をcheckpointに保存します。
-histogramは診断と適用性検査だけを担当し、粒子のreturn / escapeは`return_model`と`particle_transfer_mode`が決めます。
-現行実装では両方のIDが`electrostatic_1d_instant_return`のときだけhistogramを有効化できます。
-`photoelectron_density_model`とは責務を分離していますが、`kinetic_mean`が要求するreturn modelとは両立しないため、
-現行実装では平均密度モデルとhistogramを同時に有効化できません。
-z-high outward interface crossingのsigned chargeが強く、ambient-onlyの線形モデルの適用範囲を外れる場合は停止します。
-tracked outer transferを使う全`photo_raycast` speciesでは、histogramの有無によらず
-`deposit_opposite_charge_on_emit=true`を指定します。
+光電子 histogram の規則:
+
+- 全 MPI rank を集約し、前 batch と累積の値を checkpoint に保存します。
+- histogram は診断と適用性検査だけを担当します。return / escape は `return_model` と `particle_transfer_mode` が決めます。
+- 両方の ID が `electrostatic_1d_instant_return` の場合だけ有効化できます。
+- `photoelectron_density_model="kinetic_mean"` とは、必要な return model が異なるため併用できません。
+- z-high outward crossing の signed charge が適用性上限を超えると停止します。
+- tracked outer transfer を使う全 `photo_raycast` species で `deposit_opposite_charge_on_emit=true` が必要です。
 
 periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必要です。
 同じ周期条件をfield、collision、`photo_raycast`に適用します。
@@ -387,7 +425,7 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 `cached_kneq0`では`exclude_k0` providerが物理的$k=0$を1回加えます。
 `symmetric_vacuum`は上下を$\pm Q/(2\epsilon_0A)$、`e_bottom_zero`は下側0・上側$Q/(\epsilon_0A)$とします。
 
-#### 外部場
+### `[sim]`: 外部場・流入補助・粒子境界
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -416,18 +454,21 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 | `sheath_electron_drift_mode` | string | `"normal"` | `normal` / `full` |
 | `sheath_ion_drift_mode` | string | `"normal"` | `normal` / `full` |
 
-`sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせて使います。
-設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正) で説明します。
-各modelの物理的役割、速度のenergy mapping、反射・returnとの関係は
-[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.md)、[シース流入補正](SheathInjectionClosures.md)、
-[粒子のescapeとreturn](ParticleEscapeReturn.md)で、modelごとの処理を分けて説明します。
+組合せと詳細:
 
-`reservoir_potential_model="infinity_barrier"` の注入面平均電位は、各 batch 冒頭で更新した
-電場・電位から評価します。選択した point / `triangle_p0` kernel、periodic2、zero mode、
-outer profile、一様外部場 `e0` は粒子運動時と同じ規約で含まれます。
-同じ `N x N` 評価で母標準偏差・最小・最大も集計します。Maxwellian reservoirで
-`abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)` の場合、MPI rootは初回と最終batchに
-面平均近似の警告を出します。この診断で電位評価回数は増えません。
+- `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせます。
+- 設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正)にあります。
+- 流束と速度は[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)を確認してください。
+- シース補正と反射・return は[シース流入補正](SheathInjectionClosures.html)と
+  [粒子の escape と return](ParticleEscapeReturn.html)に分けています。
+
+`reservoir_potential_model="infinity_barrier"` の評価:
+
+- 各 batch 冒頭で更新した電場・電位から、注入面平均電位を評価します。
+- point / `triangle_p0` kernel、periodic2、zero mode、outer profile、`e0` は粒子運動と同じ規約で含めます。
+- 同じ `N x N` 格子で母標準偏差・最小・最大も集計します。この診断による追加の電位評価はありません。
+- Maxwellian reservoir で `abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)` なら、
+  MPI root が初回と最終 batch に面平均近似の警告を出します。
 
 #### 計算領域と粒子境界
 
@@ -443,12 +484,13 @@ outer profile、一様外部場 `e0` は粒子運動時と同じ規約で含ま�
 粒子境界は `open`, `reflect`, `periodic` を指定します。
 `open` は `outflow`, `escape` も同義語として受理されます。
 
-`open_boundary_model="potential_barrier"` では、`open` 面を越えた粒子について、
-境界通過点の BEM 電位 `phi_boundary` と `phi_infty` から電位障壁
-`q_particle * (phi_infty - phi_boundary)` を評価します。障壁が正で、開境界法線方向の運動エネルギー
-`0.5 * m_particle * v_normal^2` より大きい場合は法線速度を反転して反射し、それ以外は脱出として扱います。
-通過点電位は粒子運動と同じsnapshot規約で、一様外部電場 `e0` の局所電位も含みます。一様電場には
-有限な無限遠電位がないため、併用時の `phi_infty` は有効なreservoir基準として整合させてください。
+`open_boundary_model="potential_barrier"` の判定:
+
+1. 境界通過点の BEM 電位 `phi_boundary` を、粒子運動と同じ snapshot 規約で評価します。`e0` の局所電位も含みます。
+2. 電位障壁 `q_particle * (phi_infty - phi_boundary)` を計算します。
+3. 障壁が正で `0.5 * m_particle * v_normal^2` より大きければ、法線速度を反転します。それ以外は脱出です。
+
+一様電場には有限な無限遠電位がありません。`e0` と併用する場合、`phi_infty` を有効な reservoir 基準として整合させます。
 
 `periodic2` の mesh は、runtime で collision 用 canonical unwrapped 表現へ平行移動してから ray-triangle 判定します。
 raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangle を頂点ごとに mod 折り返すことはしません。
@@ -656,7 +698,7 @@ OBJ の対応範囲:
 
 ---
 
-### `[[mesh.templates]]`: 組み込み形状
+#### `[[mesh.templates]]`: 組み込み形状
 
 共通キー:
 
@@ -671,18 +713,6 @@ OBJ の対応範囲:
 
 `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は定義件数で決まります。
 
-### `[field]`: 要素核
-
-`element_kernel="point"`が互換既定値です。`sim.softening`はこのpoint kernelに適用します。
-
-`element_kernel="triangle_p0"`は、各要素の`q_elem`を三角形上の一様な面電荷密度として扱います。
-`sim.field_solver="direct" | "treecode" | "fmm" | "auto"`で利用でき、`auto`は`tree_min_nelem`に従ってdirectとFMMを選びます。
-`sim.softening=0`かつ、すべての表面が`insulator`であることが必要です。Treecodeは厳密なpanel nearと
-monopole farを電場・電位に使い、FMMは厳密なpanel near/P2Mを使います。
-`m2l_root_oracle`はpoint source専用のため、`triangle_p0`では使用できません。
-
-OBJでは`[mesh].surface_side`、templateでは各`[[mesh.templates]].surface_side`を明示してください。
-`outward_closed`を使えるのは、法線の向きが整合した閉じたtwo-manifoldだけです。
 無効化された template は mesh に追加されず、`mesh_id` も消費しません。
 
 `kind` の概要:
@@ -697,7 +727,7 @@ OBJでは`[mesh].surface_side`、templateでは各`[[mesh.templates]].surface_si
 | `cylinder` | 円柱側面と任意の上下キャップ | z 軸方向 |
 | `sphere` | 球面 | 中心は `center` |
 
-#### `kind = "plane"`
+##### `kind = "plane"`
 
 XY 平面上の長方形を `nx * ny` 個の矩形セルに分け、各セルを 2 三角形へ分割します。
 
@@ -711,7 +741,7 @@ XY 平面上の長方形を `nx * ny` 個の矩形セルに分け、各セルを
 
 要素数は `2 * nx * ny` です。
 
-#### `kind = "plate_hole"` / `"plane_hole"`
+##### `kind = "plate_hole"` / `"plane_hole"`
 
 XY 平面上の長方形プレートから、中心の円形穴を除いた形状です。
 `plane_hole` は `plate_hole` の別名です。
@@ -730,7 +760,7 @@ XY 平面上の長方形プレートから、中心の円形穴を除いた形�
 円形穴の半径が半幅または半高以上になる設定はエラーです。
 共通 default の `radius=0.5` は、既定の `size_x=size_y=1.0` ではこの制約に当たるため、`plate_hole` では `radius` を明示指定してください。
 
-#### `kind = "disk"`
+##### `kind = "disk"`
 
 XY 平面上の円板です。
 内部は極座標で分割され、中心から外周へ向かって三角形化されます。
@@ -744,7 +774,7 @@ XY 平面上の円板です。
 
 内部的には `inner_radius=0` の `annulus` と同じ生成経路を使います。
 
-#### `kind = "annulus"`
+##### `kind = "annulus"`
 
 XY 平面上の同心リングです。
 内半径から外半径までを `n_r` 層に分けます。
@@ -759,7 +789,7 @@ XY 平面上の同心リングです。
 
 `inner_radius=0` も受理されますが、円板を作る場合は `kind="disk"` の方が意図が明確です。
 
-#### `kind = "box"`
+##### `kind = "box"`
 
 閉じた直方体表面です。
 6 面すべてを三角形化し、法線は外向きになるように頂点順序を設定します。
@@ -775,7 +805,7 @@ XY 平面上の同心リングです。
 要素数は `4 * (nx * ny + ny * nz + nx * nz)` です。
 これは、各面の矩形セルを 2 三角形へ分け、対向する 2 面分を数えたものです。
 
-#### `kind = "cylinder"`
+##### `kind = "cylinder"`
 
 z 軸方向の円柱です。
 側面を `n_theta * n_z` の矩形セルに分け、必要に応じて上下キャップを追加します。
@@ -795,7 +825,7 @@ z 軸方向の円柱です。
 側面の要素数は `2 * n_theta * n_z` です。
 各キャップを有効化すると、それぞれ `n_theta` 個の三角形が追加されます。
 
-#### `kind = "sphere"`
+##### `kind = "sphere"`
 
 経度・緯度分割に基づく球面です。
 
@@ -817,9 +847,31 @@ z 軸方向の円柱です。
 | `conductor` | `mesh_id` ごとの浮遊導体として、総電荷を保存しながら等電位になるよう要素電荷を再配分 |
 | `dielectric` | `epsilon_r` をメタデータとして保存。現行の場計算・電荷蓄積では誘電体分極をまだ分岐しない |
 
-`conductor` は現時点で `field_bc_mode="free"` の直接 Coulomb 係数を使って再配分します。
-`field_bc_mode="periodic2"` とは併用できません。
-導体要素数が大きいケースでは、dense solve によりバッチごとの追加コストが増えます。
+`conductor` の制約:
+
+- `field_bc_mode="free"` の直接 Coulomb 係数で電荷を再配分します。
+- `field_bc_mode="periodic2"` とは併用できません。
+- 導体要素数が大きい場合、dense solve のバッチごとのコストが増えます。
+
+---
+
+### `[field]`: 要素核
+
+`element_kernel="point"` が互換既定値です。`sim.softening` はこの point kernel に適用します。
+
+`element_kernel="triangle_p0"` の規則:
+
+| 項目 | 規則 |
+| --- | --- |
+| source | 各 `q_elem` を三角形上の一様な面電荷密度として扱う |
+| solver | `direct` / `treecode` / `fmm` / `auto`。`auto` は `tree_min_nelem` で direct / FMM を選ぶ |
+| 必須条件 | `sim.softening=0`、全表面が `insulator` |
+| Treecode | 厳密 panel near + monopole far |
+| FMM | 厳密 panel near + 厳密 triangle P2M |
+| 非対応 | point source 専用の `m2l_root_oracle` |
+| 面の向き | OBJ は `[mesh].surface_side`、template は各 `[[mesh.templates]].surface_side` を指定 |
+
+`outward_closed` は、法線の向きが整合した閉じた two-manifold だけに使用できます。
 
 ---
 
@@ -853,23 +905,32 @@ z 軸方向の円柱です。
 | `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差 |
 | `charge_ledger.csv` | 粒子種別の電荷収支、粒子数、再開用累積値 |
 
-histogram stateがreadyな場合、`summary.txt`には`photoelectron_histogram_bins`、
-`photoelectron_histogram_energy_max_J`、`photoelectron_last_completed_batch`、
-`photoelectron_cumulative_signed_charge_C`、`photoelectron_cumulative_kinetic_energy_J`、
-`photoelectron_cumulative_count`、`photoelectron_previous_signed_current_A`、
-`photoelectron_previous_charge_ratio`、`photoelectron_max_charge_ratio`、
-`photoelectron_linear_applicability_status`も出力します。各値の読み方は[出力ガイド](OutputGuide.html#モデル固有の診断)を参照してください。
+histogram state が ready な場合、`summary.txt` へ次を追加します。
 
-[出力ガイドの再開実行](OutputGuide.html#再開実行の出力)に、列定義と条件別checkpoint要件を集約しています。
+| 種類 | キー |
+| --- | --- |
+| histogram 定義 | `photoelectron_histogram_bins`, `photoelectron_histogram_energy_max_J` |
+| 進行 | `photoelectron_last_completed_batch` |
+| 累積値 | `photoelectron_cumulative_signed_charge_C`, `photoelectron_cumulative_kinetic_energy_J`, `photoelectron_cumulative_count` |
+| 前 batch | `photoelectron_previous_signed_current_A`, `photoelectron_previous_charge_ratio` |
+| 適用性 | `photoelectron_max_charge_ratio`, `photoelectron_linear_applicability_status` |
 
-`mesh_potential.csv` は要素重心での電位 [V] を記録します。
-自己項は `softening > 0` なら `1/softening`、そうでなければ面積等価半径近似を使います。
-`periodic2` では explicit image shell を加えます。
-`m2l_root_oracle` では診断用 Ewald residual、`cached_kneq0` では cached 非零モードと境界条件付き `k=0` を同じ場の評価処理で加えます。
+各値の場所は[構成固有の出力](OutputGuide.html#構成固有の値を探す)にまとめています。
 
-`potential_history.csv` は `charge_history.csv` と同じ `history_stride` で要素ごとの電位を記録します。
-形式は `batch, elem_idx, potential_V` です。
-履歴ごとに `field_solver%refresh` と `compute_mesh_potential` が走るため、有効化すると計算コストが増えます。
+[再開に使う出力ファイル](OutputGuide.html#再開に使うファイル)に、列定義と条件別 checkpoint 要件を集約しています。
+
+`mesh_potential.csv` の評価規約:
+
+- 要素重心の電位 [V] を記録します。
+- 自己項は `softening > 0` なら `1/softening`、それ以外は面積等価半径近似です。
+- `periodic2` は explicit image shell を加えます。
+- `m2l_root_oracle` は診断用 Ewald residual、`cached_kneq0` は cached 非零モードと境界条件付き `k=0` を加えます。
+
+`potential_history.csv`:
+
+- `charge_history.csv` と同じ `history_stride` で記録します。
+- 形式は `batch, elem_idx, potential_V` です。
+- 履歴ごとに `field_solver%refresh` と `compute_mesh_potential` を実行するため、計算コストが増えます。
 
 `resume=true` の要件:
 
@@ -882,8 +943,7 @@ histogram stateがreadyな場合、`summary.txt`には`photoelectron_histogram_b
 | 任意state | `macro_residuals.csv`が存在すればglobal残差を復元 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
-`restart_from` は checkpoint の読み込み元だけを変更します。
-新しい出力は常に `output.dir` に書かれます。
+`restart_from` は checkpoint の読み込み元だけを変更します。新しい出力は常に `output.dir` に書きます。
 
 MPI 実行時:
 
@@ -892,11 +952,13 @@ MPI 実行時:
 | `rng_state_rankNNNNN.txt` | rank 別乱数状態 |
 | `macro_residuals.csv` | 全rankで共有するglobal残差。rootが1個だけ書く |
 
-旧形式の`macro_residuals_rankNNNNN.csv`が存在するcheckpointは、暗黙変換せず拒否します。
+再開時の整合条件:
 
-`summary.txt` の `mpi_world_size` は現在の rank 数と一致している必要があります。schema v2/v3 では model / ordered mesh / ordered species fingerprint も一致する必要があります。schema v3 は outer profile の `field_V_m` と `charge_density_C_m3` も必須です。
-
-`[[particles.species]].species_key` は restart fingerprint 用の安定 ID です。省略時は `species_<1-based index>` を割り当てます。明示する場合は粒子種間で一意にしてください。
+- 旧形式の `macro_residuals_rankNNNNN.csv` がある checkpoint は、暗黙変換せず拒否します。
+- `summary.txt` の `mpi_world_size` は現在の rank 数と一致させます。
+- schema v2/v3 は model、ordered mesh、ordered species の fingerprint 一致が必要です。
+- schema v3 の outer profile は `field_V_m` と `charge_density_C_m3` が必須です。
+- `[[particles.species]].species_key` は安定 ID です。省略時は `species_<1-based index>`、明示時は粒子種間で一意にします。
 
 ---
 
@@ -924,11 +986,14 @@ MPI 実行時:
 | `sphere` | float | `radius`。box 3辺の最小値を基準にする |
 | `cylinder` | float[2] | `radius`, `height`。radiusはx/y幅の最小値、heightはz幅を基準にする |
 
-group scaleが倍率を掛けるのは、templateで明示した`size_x`, `size_y`, `size`, `radius`, `inner_radius`, `height`です。
-`anchor`は`box_center`と各軸の`*_low_face_center` / `*_high_face_center`、`scale_from`は`box_x`, `box_y`,
-`box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, `box_max_xyz`から選びます。
-`placement_mode="absolute"`、`size_mode="absolute"`、`inject_region_mode="absolute"`では、対応する直接指定値をそのまま使います。
-入力前の組合せ確認には[設定を編集する](Configuration.html)の`beachx lint`を使います。
+補助パラメータの選択肢:
+
+- group scale は、template で明示した `size_x`, `size_y`, `size`, `radius`, `inner_radius`, `height` にだけ掛けます。
+- `anchor` は `box_center` または各軸の `*_low_face_center` / `*_high_face_center` です。
+- `scale_from` は `box_x`, `box_y`, `box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, `box_max_xyz` から選びます。
+- `placement_mode="absolute"`、`size_mode="absolute"`、`inject_region_mode="absolute"` は直接指定値をそのまま使います。
+
+入力前に[`beach.toml`を作成・検証する](Configuration.html)の `beachx lint` で組合せを確認してください。
 
 ---
 

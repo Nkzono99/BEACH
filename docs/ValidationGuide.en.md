@@ -10,7 +10,8 @@ A successful process exit does not by itself establish numerical or physical val
 2. Are the observables of interest stable when the numerical resolution is changed?
 3. Does the selected physical model apply, and does the conclusion remain within its scope?
 
-Start with [Reading Output](OutputGuide.en.html) for the role of each file, then follow the sequence on this page.
+Use [Inspect Output Files](OutputGuide.en.html) to locate each value. This page uses those values to decide whether a run
+is acceptable.
 
 ## Define acceptance criteria first
 

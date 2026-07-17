@@ -80,7 +80,7 @@ steady-state charging result.
 
 | Goal | First step | Related pages |
 | --- | --- | --- |
-| Change the particle count, launch region, velocity, or surface resolution | Edit `npcls_per_step`, `pos_low` / `pos_high`, `drift_velocity`, or `nx` / `ny` | [Configuration Recipes](ConfigurationRecipes.en.html) |
-| Read output files and analyze histories or distributions | Learn the roles of `summary.txt`, `charges.csv`, and history files | [Output Guide](OutputGuide.en.html), [Post-processing Tutorial](PostprocessTutorial.en.html) |
+| Change the particle count, launch region, velocity, or surface resolution | Edit `npcls_per_step`, `pos_low` / `pos_high`, `drift_velocity`, or `nx` / `ny` | [Design a Simulation Case](ConfigurationRecipes.en.html) |
+| Read output files and analyze histories or distributions | Learn the roles of `summary.txt`, `charges.csv`, and history files | [Inspect Output Files](OutputGuide.en.html), [Post-processing Tutorial](PostprocessTutorial.en.html) |
 | Understand particle updates, collisions, and surface charge updates | Follow the operations within one batch | [Algorithms](Algorithms.en.html) |
 | Use results for research | Check sensitivity to the time step, mesh, and particle count | [Validating Simulation Results](ValidationGuide.en.html) |

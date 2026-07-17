@@ -51,7 +51,7 @@ limit is counted as `survived_max_step`, not silently reassigned to absorption o
 - exercise trajectories crossing a periodic seam, corner, or post-reflection remainder
 - reconcile absorbed, escaped, and unresolved particle counts with the charge ledger
 
-See [Configuration parameters](Parameters.en.html) for settings and [Output guide](OutputGuide.en.html) for result categories.
+See [Configuration parameters](Parameters.en.html) for settings and [Inspect Output Files](OutputGuide.en.html) for result categories.
 
 ## Code reference
 

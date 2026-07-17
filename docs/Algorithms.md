@@ -85,12 +85,12 @@ MPI/OpenMPの実行構成は[実行する](Execution.html)にまとめていま�
 
 全粒子の電荷差分を`q_elem`へ一度だけ加え、必要なら浮遊導体を総電荷一定のまま等電位化します。絶縁体帯電と
 conductor処理は[表面電荷更新](SurfaceModels.html)、光電子放出の符号は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)、粒子種別の電荷収支は[出力の読み方](OutputGuide.html)で説明します。
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)、粒子種別の電荷収支は[出力ファイルを調べる](OutputGuide.html)で説明します。
 
 ### 7. 統計と履歴状態を更新
 
 吸収、escape、`max_step`まで生存した粒子の数と`tol_rel`を更新し、設定したstrideで電荷・電位履歴を保存します。
-`tol_rel`は監視値であり、早期終了条件ではありません。出力の意味は[出力の読み方](OutputGuide.html)、再開方法は
+`tol_rel`は監視値であり、早期終了条件ではありません。出力の意味は[出力ファイルを調べる](OutputGuide.html)、再開方法は
 [実行する](Execution.html)から確認できます。`n` batch完了後に最終結果とcheckpointを書きます。
 
 ## batch間で引き継ぐもの

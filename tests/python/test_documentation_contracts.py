@@ -46,6 +46,102 @@ def test_parameter_section_inventory_covers_top_level_tables() -> None:
             assert f"`[{table}]`" in inventory, (path, table)
 
 
+def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> None:
+    schema = _schema()
+    documented_objects = {
+        "sim": schema["$defs"]["sim"]["properties"],
+        "field": schema["properties"]["field"]["properties"],
+        "species": schema["$defs"]["species"]["properties"],
+        "mesh": schema["$defs"]["mesh"]["properties"],
+        "mesh.groups": schema["$defs"]["meshGroup"]["properties"],
+        "mesh.templates": schema["$defs"]["template"]["properties"],
+        "periodic2": schema["properties"]["periodic2"]["properties"],
+        "outer_plasma": schema["properties"]["outer_plasma"]["properties"],
+        "coupling": schema["properties"]["coupling"]["properties"],
+        "output": schema["$defs"]["output"]["properties"],
+    }
+    expected_headings = {
+        "docs/Parameters.md": (
+            "### `[sim]`:",
+            "### `[periodic2]`:",
+            "### `[outer_plasma]`:",
+            "### `[coupling]`:",
+            "### `[[particles.species]]`:",
+            "### `[mesh]`:",
+            "#### `[[mesh.templates]]`:",
+            "### `[field]`:",
+            "### `[output]`:",
+        ),
+        "docs/Parameters.en.md": (
+            "### `[sim]`:",
+            "### `[periodic2]`:",
+            "### `[outer_plasma]`:",
+            "### `[coupling]`:",
+            "### `[[particles.species]]`:",
+            "### `[mesh]`:",
+            "#### `[[mesh.templates]]`:",
+            "### `[field]`:",
+            "### `[output]`:",
+        ),
+    }
+    structural_markers = {
+        ("mesh", "groups"): "`[mesh.groups.<name>]`",
+        ("mesh", "templates"): "`[[mesh.templates]]`",
+    }
+
+    for path, headings in expected_headings.items():
+        text = _read(path)
+        for object_name, properties in documented_objects.items():
+            for key in properties:
+                structural_marker = structural_markers.get((object_name, key))
+                if structural_marker is not None:
+                    assert structural_marker in text, (path, object_name, key)
+                    continue
+                markers = (
+                    f"`{key}`",
+                    f".{key}`",
+                    f"`{key}=",
+                    f".{key}=",
+                )
+                assert any(marker in text for marker in markers), (
+                    path,
+                    object_name,
+                    key,
+                )
+        for heading in headings:
+            assert heading in text, (path, heading)
+        assert "├── [particles]" in text
+        assert "│   └── [[particles.species]]" in text
+        assert "│   ├── [mesh.groups.<name>]" in text
+        assert "│   └── [[mesh.templates]]" in text
+
+
+def test_parameter_editor_schema_uses_only_github_raw_url() -> None:
+    directive = (
+        "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/"
+        "schemas/beach.schema.json"
+    )
+    for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
+        text = _read(path)
+        assert text.count("#:schema") == 1, path
+        assert directive in text
+        assert "#:schema ../schemas/beach.schema.json" not in text
+
+
+def test_parameter_reference_prose_paragraphs_remain_scannable() -> None:
+    excluded_prefixes = ("#", "|", "```", "- ")
+
+    for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
+        for block in _read(path).split("\n\n"):
+            paragraph = block.strip()
+            if not paragraph or paragraph.startswith(excluded_prefixes):
+                continue
+            if paragraph[0].isdigit() and paragraph[1:3] in {". ", ") "}:
+                continue
+            normalized = " ".join(paragraph.splitlines())
+            assert len(normalized) <= 450, (path, normalized[:120])
+
+
 def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> None:
     schema = _schema()
     validator = Draft202012Validator(schema)

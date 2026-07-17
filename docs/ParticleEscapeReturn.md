@@ -289,7 +289,7 @@ species別に`interface_outward_gross`、`interface_returned_gross`、`escaped_t
 
 gross outwardとreturnedはどちらもinterface通過量です。その差が正味escapeと一致するのは、そのspeciesの
 transfer対象と電荷収支の集計期間が一致する場合に限ります。各項目と`charge_ledger.csv`の読み方は
-[出力の読み方](OutputGuide.html)にまとめています。
+[出力ファイルを調べる](OutputGuide.html)にまとめています。
 
 ## Code reference
 

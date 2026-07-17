@@ -311,7 +311,7 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
 - `macro_residuals.csv` remains global; the root writes one file rather than one per rank
 
-The canonical conditions and resume requirements are in the [Output Guide](OutputGuide.en.html#resume-outputs).
+The canonical conditions and resume requirements are in [Files Used for Resume](OutputGuide.en.html#files-used-for-resume).
 
 ---
 

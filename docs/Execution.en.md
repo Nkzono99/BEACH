@@ -109,6 +109,6 @@ count to match the saved run.
 - Review `absorbed`, `escaped_boundary`, and `survived_max_step`.
 - Do not treat `tol_rel` as an automatic stopping condition.
 
-Continue with [Output files](OutputGuide.en.html), the
+Continue with [Inspect Output Files](OutputGuide.en.html), the
 [Post-processing tutorial](PostprocessTutorial.en.html), and
 [Validate simulation results](ValidationGuide.en.html).

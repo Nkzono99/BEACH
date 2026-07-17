@@ -8,7 +8,7 @@ This document is the parameter reference for `beach.toml` read by the Fortran ru
 Unless otherwise noted, units are SI units.
 
 For first-time configuration work, start with
-[Configuration Recipes](ConfigurationRecipes.en.html).
+[Design a Simulation Case](ConfigurationRecipes.en.html).
 
 Coordinate and placement helpers are listed as ordinary input keys. See
 [Coordinate and placement helper parameters](#coordinate-and-placement-helper-parameters) for the values each helper calculates
@@ -16,8 +16,8 @@ or replaces.
 
 | Related document | Contents |
 |---|---|
-| [Configuration Recipes](ConfigurationRecipes.en.html) | Task-oriented configuration steps and tuning points |
-| [Edit configuration](Configuration.en.html) | `beachx config`, schema, and lint |
+| [Design a Simulation Case](ConfigurationRecipes.en.html) | Task-oriented configuration steps and tuning points |
+| [Create and Validate `beach.toml`](Configuration.en.html) | `beachx config`, schema, and lint |
 | [Algorithms](Algorithms.en.html) | Entry point to BEM field calculation, particle push, collision, and accumulated-charge procedure |
 | [Workflow](Workflow.en.html) | Execution, development, testing, and KUDPC notes |
 | [FMM](FMM.en.html) | Selection and accuracy checks for `field_solver="fmm"` |
@@ -36,23 +36,12 @@ or replaces.
 | schema | `schemas/beach.schema.json` |
 | lint | `beachx lint beach.toml` |
 
-To use an editor schema, put a comment directive at the beginning of
-`beach.toml`. The Fortran parser does not accept regular keys before the first
-section, so do not use `"$schema" = "..."`.
-
-```toml
-#:schema ../schemas/beach.schema.json
-```
-
-You can also specify the GitHub Raw URL.
+To use an editor schema, put a comment directive with the GitHub Raw URL at the beginning of `beach.toml`.
+The Fortran parser does not accept regular keys before the first section, so do not use `"$schema" = "..."`.
 
 ```toml
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
 ```
-
-Relative paths are interpreted relative to that `beach.toml` file. If the file
-is placed in a deeper directory such as `outputs/.../beach.toml`, adjust the path
-for example to `../../schemas/beach.schema.json`.
 
 ---
 
@@ -84,25 +73,47 @@ configuration. This beginner case uses a finite image sum for x/y `periodic2` wi
 `field_periodic_image_layers=1` and `field_periodic_far_correction="none"`.
 
 Add `reservoir_face`, an infinite-periodic correction, and an outer sheath later from
-[Configuration Recipes](ConfigurationRecipes.en.html), after the beginner case
+[Design a Simulation Case](ConfigurationRecipes.en.html), after the beginner case
 runs successfully.
 
 ---
 
-## Section List
+## TOML Hierarchy and Section List
 
-| Section | Required | Contents |
-|---|---:|---|
-| `[sim]` | conditional | Time step, batch count, field solver, boundaries, external fields, sheath correction |
-| `[particles]` | yes | Container for `[[particles.species]]` |
-| `[[particles.species]]` | yes | Species, injection mode, velocity distribution, macro-particle weight |
-| `[mesh]` | no | Selection of OBJ or built-in template input |
-| `[[mesh.templates]]` | no | Built-in shapes used with `mode="template"` |
-| `[field]` | no | Element-charge discretization kernel and backend |
-| `[periodic2]` | conditional | Nonzero mode, zero mode, and lower-boundary model for split periodic2 |
-| `[outer_plasma]` | conditional | Outer-plasma profile, applicability limits, and return model |
-| `[coupling]` | conditional | Outer-profile refresh and particle transfer |
-| `[output]` | no | Output directory, history, checkpoint resume |
+`[sim]`, `[field]`, `[particles]`, `[mesh]`, `[periodic2]`, `[outer_plasma]`, `[coupling]`, and `[output]` are all
+top-level tables. None is a child of another top-level table. Their nesting is:
+
+```text
+beach.toml
+├── [sim]
+├── [field]
+├── [particles]
+│   └── [[particles.species]]       # one or more array-of-table entries
+├── [mesh]
+│   ├── [mesh.groups.<name>]        # named child table
+│   └── [[mesh.templates]]          # zero or more array-of-table entries
+├── [periodic2]
+├── [outer_plasma]
+├── [coupling]
+└── [output]
+```
+
+Paths such as `sim.dt` and `outer_plasma.model` mean “table name.key” in the prose. In TOML, write `dt = ...` under
+`[sim]` and `model = ...` under `[outer_plasma]`.
+
+| TOML table | Parent | Cardinality / requirement | Contents |
+|---|---|---|---|
+| `[sim]` | root | conditional | Time step, batch count, field solver, boundaries, external fields, sheath correction |
+| `[field]` | root | optional | Element-charge discretization kernel |
+| `[particles]` | root | required | Container for `[[particles.species]]`; do not put ordinary keys directly under it |
+| `[[particles.species]]` | `[particles]` | one or more | Species, injection mode, velocity distribution, macro-particle weight |
+| `[mesh]` | root | optional | Selection of OBJ or built-in template input |
+| `[mesh.groups.<name>]` | `[mesh]` | zero or more | Placement and scale shared by multiple templates |
+| `[[mesh.templates]]` | `[mesh]` | zero or more | Built-in shapes used with `mode="template"` |
+| `[periodic2]` | root | conditional | Nonzero mode, zero mode, and lower-boundary model for split periodic2 |
+| `[outer_plasma]` | root | conditional | Outer-plasma profile, applicability limits, and return model |
+| `[coupling]` | root | conditional | Outer-profile refresh and particle transfer |
+| `[output]` | root | optional | Output directory, history, checkpoint resume |
 
 `[sim]` is required when using `reservoir_face` or `photo_raycast`.
 At least one `[[particles.species]]` entry is required.
@@ -253,7 +264,7 @@ values are used based on the element count.
 | `10000 <= nelem < 50000` | `0.58` | `20` |
 | `50000 <= nelem` | `0.65` | `24` |
 
-#### Field Boundary and `[periodic2]` / `[outer_plasma]`
+#### Field Boundary
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
@@ -265,22 +276,53 @@ values are used based on the element count.
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
 
-Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference instead explicitly selects `field_solver="direct"`, `[periodic2].nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and a lower boundary model. `symmetric_vacuum` is the parameter-free homogeneous-vacuum closure; `e_bottom_zero` remains available for old-run reproduction. `[outer_plasma]` supplies `interface_z`, positive `debye_length` and `thermal_voltage`, plus linearity, gap, and local-charge applicability limits. `[coupling].outer_update_stride` controls explicit profile refreshes. See `examples/periodic2_linear_outer_reference.toml`; applicability failures never fall back to a legacy model.
+### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 
-Individual transfer uses `outer_plasma.return_model` and `coupling.particle_transfer_mode` set to `electrostatic_1d_instant_return`. A positive `field_evolution_timescale` and `max_frozen_field_ratio` bound the static-profile approximation. The mode supports only the open z-high interface, x/y periodic wrapping, and `b0=0`. Persistent queuing is not implemented, so `outer_queue_enabled=true` is rejected. See `examples/periodic2_outer_particle_transfer.toml`.
+`[periodic2]` is a top-level table, not a child of `[sim]`.
 
-`outer_plasma.photoelectron_density_model` selects `none` or the `kinetic_mean` density contribution.
-`outer_plasma.photoelectron_histogram_enabled=true` separately enables outgoing-photoelectron diagnostics and the ambient-charge
-applicability check. `photoelectron_histogram_energy_max` [J] and `photoelectron_ambient_charge_scale` [C] are required;
-`photoelectron_histogram_bins` and `max_photoelectron_charge_ratio` default to `32` and `0.1`. Every enabled
-`photo_raycast` species using tracked outer transfer must set `deposit_opposite_charge_on_emit=true`, regardless of whether the
-histogram is enabled. The MPI-global outgoing normal-energy histogram stores
-signed charge, kinetic energy, tangential momentum, and count for the previous batch and cumulatively in
-`photoelectron_histogram.csv`. It does not control particle return; `return_model` and `particle_transfer_mode` do. An
-outward z-high interface-crossing charge ratio above the configured limit fails closed. The current histogram path requires both
-return and transfer IDs to be `electrostatic_1d_instant_return`. The density and histogram settings have separate responsibilities,
-but they cannot currently be enabled together because `kinetic_mean` requires a different return-model branch. See
-`examples/periodic2_photoelectron_return.toml`.
+| Key | Default | Meaning |
+|---|---:|---|
+| `nonzero_mode_backend` | required | `panel_spectral_reference` / `cached_kneq0` |
+| `zero_mode_policy` | required | `exclude_k0` |
+| `lower_boundary_model` | required | `symmetric_vacuum` / `e_bottom_zero` |
+| `reference_mode_layers` | `4` | Fourier-mode cutoff |
+| `panel_quadrature_order` | `12` | panel-area quadrature order |
+| `interface_sample_n` | `5` | diagnostic samples along each interface axis |
+| `interface_phi_tolerance` | `1e-3` | upper bound on the nonzero-mode potential ratio |
+| `interface_field_tolerance` | `1e-3` | upper bound on the nonzero-mode field ratio |
+
+Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference instead explicitly selects
+`field_solver="direct"`, `nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and a lower
+boundary model. `symmetric_vacuum` is the parameter-free homogeneous-vacuum closure; `e_bottom_zero` remains available for
+old-run reproduction.
+
+### `[outer_plasma]`: Outer Plasma and Return Model
+
+`[outer_plasma]` is another top-level table. It is used with `[periodic2]`, but is not nested under it.
+
+| Key | Default | Meaning |
+|---|---:|---|
+| `model` | required | `linear_debye` / `kinetic_1d` / `unified_linear_response` |
+| `interface_z` | required | upper-z interface; initially the top of the box |
+| `infinity_potential` | `0` | reference potential at infinity [V] |
+| `debye_length` | required | linear Debye length |
+| `thermal_voltage` | required | potential scale for linearity and diagnostics |
+| `unified_grid_points` | `129` | unified zero-mode Poisson grid points; at least 17 |
+| `accessible_fraction_tolerance` | `0.1` | maximum accessible-fraction change after doubling rough-surface samples along both axes |
+| `max_linearity_ratio` | `0.25` | upper bound on `abs(phi_t-phi_inf)/thermal_voltage` |
+| `max_gap_ratio` | `5` | upper bound on `(z_t-z_mesh,max)/lambda` |
+| `max_local_charge_ratio` | `50` | upper bound on the local mean-plasma charge estimate ratio |
+| `photoelectron_density_model` | `none` | `none` / `kinetic_mean`; the latter adds mean photoelectron density to `kinetic_1d` |
+| `photoelectron_histogram_enabled` | `false` | enable the outward z-high photoelectron histogram and applicability check |
+| `photoelectron_histogram_bins` | `32` | normal-kinetic-energy histogram bins |
+| `photoelectron_histogram_energy_max` | required with histogram | histogram upper edge [J]; positive |
+| `photoelectron_ambient_charge_scale` | required with histogram | ambient signed-charge scale for linear-model applicability [C] |
+| `max_photoelectron_charge_ratio` | `0.1` | upper bound on `abs(Q_pe,batch)/Q_ambient,scale` |
+| `return_model` | `none` | ID of the analytic 1-D return or unified explicit 3-D orbit |
+
+Applicability failures do not fall back to a legacy model. See `examples/periodic2_linear_outer_reference.toml`.
+The MPI-global photoelectron histogram stores signed charge, kinetic energy, tangential momentum, and count in
+`photoelectron_histogram.csv`; it does not control particle return. See `examples/periodic2_photoelectron_return.toml`.
 
 #### `kinetic_1d` contract (standard and recommended)
 
@@ -305,21 +347,22 @@ Particle transfer requires `return_model="kinetic_1d_profile_return"` and
 3. Construct the state corresponding to the analytically integrated round trip
    and return the particle at the same simulation time and in the same batch.
 
-This is an intentional instant-return closure for stationary and quasistationary
-sheaths. It supports mean current and detachment force after equilibration, but
-does not represent delayed return current during UV turn-on or other transients.
-Quasistatic validity is bounded by `tau_outer/field_evolution_timescale`. When
-`tau_outer/batch_duration >= 1`, do not interpret the batch history as a physical
-return-current time history. See
-[Particle escape and return](ParticleEscapeReturn.en.md).
+Scope:
 
-`reservoir_potential_model`, Zhao injection correction, and nonzero `b0` are rejected.
+- The model targets stationary and quasistationary sheaths and supports mean current and detachment force after equilibration.
+- It does not represent delayed return current during UV turn-on or other transients.
+- `tau_outer/field_evolution_timescale` bounds the quasistationary approximation.
+- With `tau_outer/batch_duration >= 1`, do not treat batch history as a physical return-current time history.
 
-With `photoelectron_density_model="kinetic_mean"`, the first negative `photo_raycast` species supplies a half-Maxwellian flux.
-The mean closure supplies only the outer profile; tracked particles update surface charge, so statistical return current is not added again.
-Every tracked-return species requires `deposit_opposite_charge_on_emit=true`.
+Combination constraints:
 
-See `examples/periodic2_kinetic_outer.toml` and `docs/adr/0001-kinetic-outer-plasma.md`.
+- `reservoir_potential_model`, Zhao injection correction, and nonzero `b0` are rejected.
+- With `photoelectron_density_model="kinetic_mean"`, the first negative `photo_raycast` species supplies a half-Maxwellian flux.
+- The mean closure supplies only the outer profile. Tracked particles update surface charge, so statistical return current is not added again.
+- Every tracked-return species requires `deposit_opposite_charge_on_emit=true`.
+
+See [Particle Escape and Return](ParticleEscapeReturn.en.html), `examples/periodic2_kinetic_outer.toml`, and
+`docs/adr/0001-kinetic-outer-plasma.md`.
 
 #### `unified_linear_response` contract (advanced and specialized)
 
@@ -338,15 +381,19 @@ when roughness and plasma response occupy the same region, no split window is av
 | 3D orbit | require `b0=0`, fixed step, and energy/frozen-field error contracts |
 | Applicability | fail closed beyond the configured linearity bound |
 
-See `examples/periodic2_unified_linear_response.toml` and `docs/adr/0002-unified-periodic-outer-domain.md`.
-`outer_plasma.unified_grid_points` controls this Poisson grid and must be at least 17;
-the default is 129. Production studies should demonstrate refinement of reported observables.
-`outer_plasma.accessible_fraction_tolerance` bounds the maximum accessible-fraction
-change when the rough-surface height samples are doubled along both periodic axes.
-The refined samples are used by the solve, and a violation fails closed during initialization.
-See `examples/periodic2_unified_explicit_orbit.toml` for explicit particle transfer.
+Numerical and applicability rules:
 
-#### `[coupling]`: Outer Refresh and Particle Transfer
+- `unified_grid_points >= 17` is required; the default is `129`.
+- `accessible_fraction_tolerance` bounds the maximum accessible-fraction change after doubling height samples along both periodic axes.
+- The solve uses the refined samples and stops during initialization when the tolerance is exceeded.
+- Production studies should demonstrate grid refinement of the reported observables.
+
+See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unified_explicit_orbit.toml`, and
+`docs/adr/0002-unified-periodic-outer-domain.md`.
+
+### `[coupling]`: Outer Refresh and Particle Transfer
+
+`[coupling]` is a top-level table.
 
 | Key | Type | Default | Description |
 | --- | --- | ---: | --- |
@@ -360,7 +407,22 @@ See `examples/periodic2_unified_explicit_orbit.toml` for explicit particle trans
 | `outer_orbit_energy_tolerance` | float | `1e-4` | Relative total-energy error limit for a 3-D outer orbit |
 | `outer_queue_enabled` | bool | `false` | `true` is currently rejected |
 
-#### Common periodic2 Constraints
+Transfer rules:
+
+- Set `outer_plasma.return_model` and `coupling.particle_transfer_mode` to matching IDs.
+- `electrostatic_1d_instant_return` requires a positive `field_evolution_timescale` and uses `max_frozen_field_ratio`.
+- This path supports only the open z-high interface, x/y periodic wrapping, and `b0=0`.
+- Persistent queuing is not implemented. See `examples/periodic2_outer_particle_transfer.toml`.
+
+Photoelectron-histogram rules:
+
+- Enabling the histogram requires `photoelectron_histogram_energy_max` [J] and `photoelectron_ambient_charge_scale` [C].
+- Every `photo_raycast` species using tracked outer transfer requires `deposit_opposite_charge_on_emit=true`.
+- The histogram is diagnostic only. `return_model` and `particle_transfer_mode` control return.
+- Both IDs must be `electrostatic_1d_instant_return`.
+- `photoelectron_density_model="kinetic_mean"` cannot be enabled simultaneously because it requires another return-model branch.
+
+### Combined periodic2 / Outer-plasma / Coupling Constraints
 
 Periodic2 requires `sim.use_box=true`, two periodic axes, and one open axis. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
 
@@ -374,7 +436,7 @@ Periodic2 requires `sim.use_box=true`, two periodic axes, and one open axis. The
 With `cached_kneq0`, the `exclude_k0` provider adds the physical zero mode exactly once.
 `symmetric_vacuum` uses $\pm Q/(2\epsilon_0A)$ above and below; `e_bottom_zero` uses zero below and $Q/(\epsilon_0A)$ above.
 
-#### External Fields
+### `[sim]`: External Fields, Inflow Helpers, and Particle Boundaries
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
@@ -403,22 +465,21 @@ The uniform external electric field can be specified directly as
 | `sheath_electron_drift_mode` | string | `"normal"` | `normal` / `full` |
 | `sheath_ion_drift_mode` | string | `"normal"` | `normal` / `full` |
 
-Currently, `sheath_injection_model != "none"` is used together with
-`reservoir_potential_model="none"`. See
-[`sim.sheath_injection_model`](#simsheath_injection_model-sheath-injection-correction)
-for details.
-See [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.md),
-[Sheath injection closures](SheathInjectionClosures.en.md), and
-[Particle escape and return](ParticleEscapeReturn.en.md) for each model's physical role,
-velocity energy mapping, reflection, and return.
+Combinations and details:
 
-With `reservoir_potential_model="infinity_barrier"`, the injection-face average
-potential comes from the electrostatic snapshot refreshed at the start of the
-batch. The selected point or `triangle_p0` kernel, periodic2 terms, zero mode,
-outer profile, and uniform field `e0` follow the same convention as particle motion.
-The same `N x N` pass accumulates the population standard deviation, minimum, and maximum. For a Maxwellian reservoir, the MPI
-root warns on the first and final batch when
-`abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)`. This diagnostic adds no potential evaluations.
+- Currently, `sheath_injection_model != "none"` is used with `reservoir_potential_model="none"`.
+- See [`sim.sheath_injection_model`](#simsheath_injection_model-sheath-injection-correction) for its settings.
+- See [`reservoir_face` Inflow and Velocity Sampling](ReservoirInjection.en.html) for flux and velocity.
+- See [Sheath Injection Closures](SheathInjectionClosures.en.html) and
+  [Particle Escape and Return](ParticleEscapeReturn.en.html) for sheath correction, reflection, and return.
+
+Evaluation with `reservoir_potential_model="infinity_barrier"`:
+
+- Evaluate injection-face average potential from the field and potential refreshed at the beginning of each batch.
+- Include the point / `triangle_p0` kernel, periodic2 terms, zero mode, outer profile, and `e0` under the particle-motion convention.
+- The same `N x N` grid gives the population standard deviation, minimum, and maximum without extra potential evaluations.
+- For a Maxwellian reservoir, the MPI root warns on the first and final batch when
+  `abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)`.
 
 #### Computational Domain and Particle Boundaries
 
@@ -434,16 +495,14 @@ root warns on the first and final batch when
 Particle boundaries are `open`, `reflect`, or `periodic`. `open` also accepts
 `outflow` and `escape` as synonyms.
 
-With `open_boundary_model="potential_barrier"`, particles crossing an `open`
-face are tested against a local BEM potential barrier. The barrier is
-`q_particle * (phi_infty - phi_boundary)`, where `phi_boundary` is evaluated at
-the boundary crossing point. If the barrier is positive and exceeds the normal
-kinetic energy `0.5 * m_particle * v_normal^2`, the normal velocity is reflected;
-otherwise the particle escapes. The crossing-point potential follows the same
-snapshot convention as particle motion and includes the local potential of the
-uniform external field `e0`. Because a uniform field has no finite potential at
-infinity, `phi_infty` must be supplied as a consistent effective reservoir
-reference when these settings are combined.
+Decision with `open_boundary_model="potential_barrier"`:
+
+1. Evaluate BEM potential `phi_boundary` at the crossing point with the particle-motion snapshot convention, including local `e0` potential.
+2. Compute the barrier `q_particle * (phi_infty - phi_boundary)`.
+3. If it is positive and exceeds `0.5 * m_particle * v_normal^2`, reverse the normal velocity. Otherwise, the particle escapes.
+
+A uniform field has no finite potential at infinity. When it is combined with this model, supply `phi_infty` as a consistent
+effective reservoir reference.
 
 For `periodic2`, the mesh is translated at runtime to a canonical unwrapped
 representation for collision before ray-triangle tests. Raw vertices may lie
@@ -670,7 +729,7 @@ Supported OBJ input:
 
 ---
 
-### `[[mesh.templates]]`: Built-In Shapes
+#### `[[mesh.templates]]`: Built-In Shapes
 
 Common keys:
 
@@ -699,7 +758,7 @@ Overview of `kind`:
 | `cylinder` | Cylinder side surface and optional top/bottom caps | z-axis direction |
 | `sphere` | Sphere surface | Center is `center` |
 
-#### `kind = "plane"`
+##### `kind = "plane"`
 
 Splits a rectangle on the XY plane into `nx * ny` rectangular cells, then splits
 each cell into two triangles.
@@ -714,7 +773,7 @@ each cell into two triangles.
 
 The number of elements is `2 * nx * ny`.
 
-#### `kind = "plate_hole"` / `"plane_hole"`
+##### `kind = "plate_hole"` / `"plane_hole"`
 
 A rectangular plate on the XY plane with a circular center hole removed.
 `plane_hole` is an alias for `plate_hole`. The hole boundary is approximated by a
@@ -735,7 +794,7 @@ circular hole radius is at least the half-width or half-height. The common
 default `radius=0.5` hits this constraint with the default
 `size_x=size_y=1.0`, so specify `radius` explicitly for `plate_hole`.
 
-#### `kind = "disk"`
+##### `kind = "disk"`
 
 A disk on the XY plane. The interior is divided in polar coordinates and
 triangulated from the center toward the outer boundary.
@@ -750,7 +809,7 @@ triangulated from the center toward the outer boundary.
 Internally this uses the same generation path as `annulus` with
 `inner_radius=0`.
 
-#### `kind = "annulus"`
+##### `kind = "annulus"`
 
 A concentric ring on the XY plane. The region from inner radius to outer radius
 is divided into `n_r` layers.
@@ -765,7 +824,7 @@ is divided into `n_r` layers.
 
 `inner_radius=0` is accepted, but `kind="disk"` is clearer when creating a disk.
 
-#### `kind = "box"`
+##### `kind = "box"`
 
 A closed rectangular-box surface. All six faces are triangulated, and vertex
 ordering is set so normals point outward.
@@ -782,7 +841,7 @@ The number of elements is `4 * (nx * ny + ny * nz + nx * nz)`. This counts two
 opposite faces for each axis pair after splitting each rectangular face cell
 into two triangles.
 
-#### `kind = "cylinder"`
+##### `kind = "cylinder"`
 
 A cylinder along the z axis. The side surface is split into `n_theta * n_z`
 rectangular cells, and top/bottom caps are added as needed.
@@ -802,7 +861,7 @@ The cylinder extends from `z = center[3] - height/2` to
 `z = center[3] + height/2`. The side surface has `2 * n_theta * n_z` elements.
 Each enabled cap adds `n_theta` triangles.
 
-#### `kind = "sphere"`
+##### `kind = "sphere"`
 
 A sphere surface based on longitude and latitude divisions.
 
@@ -824,10 +883,31 @@ Surface model:
 | `conductor` | Redistribute element charge for each `mesh_id` floating conductor so it becomes equipotential while conserving total charge |
 | `dielectric` | Store `epsilon_r` as metadata. Current field calculation and charge accumulation do not yet branch for dielectric polarization |
 
-At present, `conductor` redistributes charge using direct Coulomb coefficients
-with `field_bc_mode="free"`. It cannot be combined with
-`field_bc_mode="periodic2"`. For cases with many conductor elements, the dense
-solve increases additional per-batch cost.
+`conductor` constraints:
+
+- Redistribute charge with direct Coulomb coefficients under `field_bc_mode="free"`.
+- Do not combine it with `field_bc_mode="periodic2"`.
+- Large conductor element counts increase per-batch dense-solve cost.
+
+---
+
+### `[field]`: Element Kernel
+
+`element_kernel="point"` is the compatibility default, and `sim.softening` applies to this point kernel.
+
+Rules for `element_kernel="triangle_p0"`:
+
+| Item | Rule |
+| --- | --- |
+| Source | Treat each `q_elem` as a constant surface-charge density over its triangle |
+| Solver | `direct` / `treecode` / `fmm` / `auto`; `auto` selects direct / FMM with `tree_min_nelem` |
+| Requirements | `sim.softening=0` and insulator-only surfaces |
+| Treecode | exact panel near + monopole far |
+| FMM | exact panel near + exact triangle P2M |
+| Unsupported | point-source-only `m2l_root_oracle` |
+| Surface side | `[mesh].surface_side` for OBJ; `surface_side` on every enabled template |
+
+Use `outward_closed` only for consistently oriented, closed two-manifold components.
 
 ---
 
@@ -861,26 +941,32 @@ Output files:
 | `macro_residuals.csv` | One MPI-global macro-particle residual file |
 | `charge_ledger.csv` | Per-species signed-charge flux, counts, and restartable cumulative values |
 
-When the histogram state is ready, `summary.txt` also records `photoelectron_histogram_bins`,
-`photoelectron_histogram_energy_max_J`, `photoelectron_last_completed_batch`,
-`photoelectron_cumulative_signed_charge_C`, `photoelectron_cumulative_kinetic_energy_J`,
-`photoelectron_cumulative_count`, `photoelectron_previous_signed_current_A`,
-`photoelectron_previous_charge_ratio`, `photoelectron_max_charge_ratio`, and
-`photoelectron_linear_applicability_status`. See the [Output Guide](OutputGuide.en.html#model-specific-diagnostics) for interpretation.
+When the histogram state is ready, `summary.txt` adds:
 
-The [Output Guide's resume section](OutputGuide.en.html#resume-outputs) consolidates column definitions and conditional checkpoint requirements.
+| Group | Keys |
+| --- | --- |
+| Histogram definition | `photoelectron_histogram_bins`, `photoelectron_histogram_energy_max_J` |
+| Progress | `photoelectron_last_completed_batch` |
+| Cumulative | `photoelectron_cumulative_signed_charge_C`, `photoelectron_cumulative_kinetic_energy_J`, `photoelectron_cumulative_count` |
+| Previous batch | `photoelectron_previous_signed_current_A`, `photoelectron_previous_charge_ratio` |
+| Applicability | `photoelectron_max_charge_ratio`, `photoelectron_linear_applicability_status` |
 
-`mesh_potential.csv` records the potential [V] at each element centroid. The
-self term uses `1/softening` when `softening > 0`; otherwise it uses an
-area-equivalent radius approximation. For `periodic2`, the explicit image shell
-is added. `m2l_root_oracle` adds the diagnostic Ewald residual;
-`cached_kneq0` adds the cached nonzero mode and boundary-specific `k=0` from
-the same electrostatic snapshot.
+See [Configuration-specific output](OutputGuide.en.html#locate-configuration-specific-values) to locate these values.
 
-`potential_history.csv` records the potential for each element with the same
-`history_stride` as `charge_history.csv`. The format is
-`batch, elem_idx, potential_V`. Enabling it increases computational cost because
-`field_solver%refresh` and `compute_mesh_potential` run for each history output.
+[Files Used for Resume](OutputGuide.en.html#files-used-for-resume) consolidates column definitions and conditional checkpoint requirements.
+
+Evaluation rules for `mesh_potential.csv`:
+
+- Record potential [V] at each element centroid.
+- Use `1/softening` for the self term when `softening > 0`; otherwise use an area-equivalent radius approximation.
+- Add the explicit image shell for `periodic2`.
+- Add the diagnostic Ewald residual for `m2l_root_oracle`, or the cached nonzero mode and boundary-specific `k=0` for `cached_kneq0`.
+
+`potential_history.csv`:
+
+- Use the same `history_stride` as `charge_history.csv`.
+- Write `batch, elem_idx, potential_V`.
+- Run `field_solver%refresh` and `compute_mesh_potential` for each history output, which increases computational cost.
 
 Requirements for `resume=true`:
 
@@ -893,8 +979,7 @@ Requirements for `resume=true`:
 | Optional state | Restore the global residual when `macro_residuals.csv` exists |
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 
-`restart_from` changes only the checkpoint read source. New output is always
-written to `output.dir`.
+`restart_from` changes only the checkpoint read source. New output is always written to `output.dir`.
 
 During MPI execution:
 
@@ -903,11 +988,13 @@ During MPI execution:
 | `rng_state_rankNNNNN.txt` | Random-number state per rank |
 | `macro_residuals.csv` | One global residual shared by all ranks and written by the root |
 
-Checkpoints containing legacy `macro_residuals_rankNNNNN.csv` files are rejected instead of being converted implicitly.
+Resume consistency rules:
 
-`mpi_world_size` in `summary.txt` must match the current number of ranks. Schema v2/v3 also requires matching model, ordered-mesh, and ordered-species fingerprints. Schema v3 additionally requires `field_V_m` and `charge_density_C_m3` in the outer profile.
-
-`[[particles.species]].species_key` is a stable identifier for restart fingerprints. When omitted it becomes `species_<1-based index>`; explicit keys must be unique across species.
+- Reject checkpoints with legacy `macro_residuals_rankNNNNN.csv` instead of converting them implicitly.
+- Match `mpi_world_size` in `summary.txt` to the current rank count.
+- Schema v2/v3 requires matching model, ordered-mesh, and ordered-species fingerprints.
+- Schema v3 outer profiles require `field_V_m` and `charge_density_C_m3`.
+- `[[particles.species]].species_key` is stable. Omission yields `species_<1-based index>`; explicit values must be unique.
 
 ---
 
@@ -935,11 +1022,14 @@ The dimensions replaced by `size_mode="box_fraction"` depend on `kind`.
 | `sphere` | float | `radius`, referenced to the minimum of the three box dimensions |
 | `cylinder` | float[2] | `radius`, `height`; radius uses the minimum x/y box size and height uses z size |
 
-Group scaling applies to explicitly specified `size_x`, `size_y`, `size`, `radius`, `inner_radius`, and `height`.
-`anchor` accepts `box_center` and each axis's `*_low_face_center` / `*_high_face_center`; `scale_from` accepts `box_x`, `box_y`,
-`box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, or `box_max_xyz`.
-With `placement_mode="absolute"`, `size_mode="absolute"`, or `inject_region_mode="absolute"`, the corresponding direct values
-are used unchanged. Use `beachx lint` from [Edit configuration](Configuration.en.html) to check combinations before a run.
+Helper-parameter choices:
+
+- Group scaling applies only to explicitly specified `size_x`, `size_y`, `size`, `radius`, `inner_radius`, and `height`.
+- `anchor` accepts `box_center` or each axis's `*_low_face_center` / `*_high_face_center`.
+- `scale_from` accepts `box_x`, `box_y`, `box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, or `box_max_xyz`.
+- `placement_mode="absolute"`, `size_mode="absolute"`, and `inject_region_mode="absolute"` preserve direct values.
+
+Run `beachx lint` from [Create and Validate `beach.toml`](Configuration.en.html) before execution.
 
 ---
 
@@ -958,6 +1048,3 @@ Before running, this is recommended.
 ```bash
 beachx lint beach.toml
 ```
-### `[field]`: element kernel
-
-`element_kernel="point"` is the compatibility default, and `sim.softening` applies to this point kernel. `element_kernel="triangle_p0"` treats each `q_elem` as total charge distributed with constant density over its triangle and supports `sim.field_solver="direct" | "treecode" | "fmm" | "auto"`. Auto selects direct or FMM using `tree_min_nelem`. It requires `sim.softening=0` and insulator-only surfaces. Treecode uses exact panel near interactions and monopole far interactions for both field and potential; FMM uses exact panel near interactions and exact triangle P2M moments. The point-source `m2l_root_oracle` is rejected. Set `[mesh].surface_side` for OBJ input or `surface_side` on every enabled template. `outward_closed` is valid only for consistently oriented, closed two-manifold components.

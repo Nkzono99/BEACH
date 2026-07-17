@@ -1,147 +1,92 @@
-title: Reading Output Files
+title: Inspect Output Files
 
 Lang: [English](OutputGuide.en.md) | [日本語](OutputGuide.md)
 
-# Reading Output Files
+# Inspect Output Files
 
-After a first run, inspect completion, charge balance, element charge, and history under `outputs/latest/` in that order.
-For plotting commands, see [Post-processing Tutorial](PostprocessTutorial.en.html). For all configuration keys, see [Input Parameters Reference](Parameters.en.html).
+Use this page to locate a value in a BEACH output directory. Use [Validating Simulation Results](ValidationGuide.en.html)
+to decide whether a run is acceptable, and use the [Post-processing Tutorial](PostprocessTutorial.en.html) to create plots
+or animations.
 
-## First Checks
-
-The checks on this page assume `output.write_files = true`. With `false`, BEACH does not create or update `summary.txt`,
-`charges.csv`, or the other files under `output.dir` for that run, so `beachx inspect` cannot inspect it. Existing files,
-if any, belong to an earlier run. Only the summary printed to the terminal remains available.
-
-First confirm that the run reached the configured batch count and wrote the required files. After completion is established, evaluate
-the physical model and discretization with [Validating Simulation Results](ValidationGuide.en.html).
-
-1. `outputs/latest/summary.txt` exists.
-2. `batches` in `summary.txt` reaches the configured `sim.batch_count`.
-3. `charges.csv` exists and contains final element charges.
-4. `beachx inspect outputs/latest` prints a run summary without errors.
+## Start with Four Outputs
 
 ```bash
 beachx inspect outputs/latest
 ```
 
-If `output.dir` is changed, replace `outputs/latest` with that output directory.
+If `output.dir` was changed, replace `outputs/latest` with the actual output directory.
 
-## Main Files
-
-| File | When it appears | What to inspect first |
+| Question | Read | Main contents |
 | --- | --- | --- |
-| `summary.txt` | Always | batch count, absorbed and escaped counts, last relative charge change, MPI rank count |
-| `outer_plasma_profile.csv` | An outer state is ready for `kinetic_1d` / `unified_linear_response` | Converged outer-grid `z, phi, E, rho`; a conditional checkpoint |
-| `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` and the histogram state is ready | Previous-batch and cumulative photoelectron histogram; a conditional checkpoint |
-| `charges.csv` | Always | final charge per element |
-| `mesh_triangles.csv` | Always | triangle vertices, element IDs, `mesh_id` |
-| `mesh_sources.csv` | OBJ or template mesh | `mesh_id`, `source_kind`, `surface_model`, and element count |
-| `mesh_potential.csv` | `output.write_mesh_potential=true` | final centroid potential |
-| `charge_history.csv` | `output.history_stride > 0` | element charge history by batch |
-| `potential_history.csv` | `output.write_potential_history=true` and `output.history_stride > 0` | centroid potential history by batch |
-| `performance_profile.csv` | `BEACH_PROFILE=1` | phase timing |
-| `rng_state.txt` / `rng_state_rankNNNNN.txt` | Always | Serial or MPI rank-local random-number state for resume |
-| `macro_residuals.csv` | Macro-particle residual state is allocated | One MPI-global fractional macro-particle state file |
-| `charge_ledger.csv` | Charge-ledger state is present | per-species signed-charge flux and particle counts |
+| How many batches ran, and how did particles terminate? | `summary.txt` | `batches`, `absorbed`, `escaped`, `survived_max_step` |
+| Where did each species' charge enter and leave? | `charge_ledger.csv` | injection, emission, absorption, escape, unresolved discard |
+| Where is the final surface charge? | `charges.csv` + `mesh_triangles.csv` | element index, charge, triangle coordinates, `mesh_id` |
+| Is batch-by-batch evolution available? | `charge_history.csv`, `potential_history.csv` | element charge and centroid-potential history |
 
-Every file in this table also requires `output.write_files = true`. The machine-readable
-[`beach.output-manifest.json`](../schemas/beach.output-manifest.json) is canonical for additional file-generation conditions and restart roles.
+`beachx inspect` prints a run summary. For completion, charge conservation, time convergence, and model-applicability
+criteria, follow [Validating Simulation Results](ValidationGuide.en.html).
 
-## Species-resolved charge balance
+## When Files Are Updated
 
-`charge_ledger.csv` records charge and particle-count inflow, internal transfer, and outflow for each species.
+This page assumes `output.write_files = true`. With `false`, BEACH does not create or update `summary.txt`, `charges.csv`,
+or other files under `output.dir`. Any existing files in that directory belong to an earlier run.
 
-| Item | Meaning |
-| --- | --- |
-| `injected_from_remote_C` | Charge entering from `volume_seed` or `reservoir_face` |
-| `emitted_from_surface_C` | Tracked charge leaving a surface through `photo_raycast` |
-| `absorbed_on_surface_C` | Charge absorbed by the mesh |
-| `escaped_to_infinity_C` | Charge escaping through open or outer models |
-| `discarded_unresolved_C` | Charge discarded alive at `max_step` |
-| `interface_outward_gross_C` / `interface_returned_gross_C` | Gross outward and return charge transfer across the outer ownership interface |
+The machine-readable [`beach.output-manifest.json`](../schemas/beach.output-manifest.json) is canonical for generation
+conditions and restart roles.
 
-The charge-conservation residual combines before/after changes of surface, local-flight, outer-flight, and unresolved stocks with
-remote injection, escape, and discard. Surface emission and absorption are internal transfers between surface and flight stocks,
-so they are not counted twice as independent external sources.
+## `summary.txt`: Whole-run Summary
 
-Separately from `charge_ledger_residual_C`, where opposite species can cancel,
-`charge_ledger_discarded_unresolved_abs_C` reports $\sum_s|Q_{s,\mathrm{discard}}|$. A small conservation residual does not
-validate a run with large unresolved discard.
+`summary.txt` uses `key=value` lines. Start with these groups.
 
-## Interpreting Success and Warnings
-
-Start with these quantities in `summary.txt`.
-
-| Item | Meaning |
-| --- | --- |
-| `batches` | In a normal run, completion means this reaches `sim.batch_count` |
-| `absorbed` | Number of absorbed macro-particle events; it does not include charge sign or particle weight |
-| `escaped` | Number of particles leaving through open boundaries; useful for checking injection and boundary conditions |
-| `survived_max_step` | Particles that remained alive until `sim.max_step`; if large, revisit `dt`, the box, or injection conditions |
-| `last_rel_change` | Monitoring value for the final batch charge change; it is not an early-stop condition in the current implementation |
-| `charge_ledger_residual_C` | Charge-conservation residual; unresolved discard must still be checked separately |
-| `charge_ledger_discarded_unresolved_abs_C` | Non-cancelling absolute max-step discard charge across species |
-
-`absorbed` alone does not measure accumulated charge. Use `absorbed_on_surface_C` for signed, weighted absorbed charge,
-the difference between `charge_ledger_surface_charge_before_C` and `charge_ledger_surface_charge_after_C` for net
-surface-charge change, and `charges.csv` for the final distribution.
-
-### Model-Specific Diagnostics
-
-`field_source_model` and `field_kernel_id` identify the element kernel that produced the output. `triangle_p0_exact_tree_near` denotes Treecode with all-vertex node radii, analytic panel-near evaluation, and monopole far evaluation. `triangle_p0_exact_p2m_near` denotes the all-vertex topology, analytic panel-near, exact-panel-P2M FMM. `FieldKernel.from_result` dispatches `triangle_p0` output to the panel C ABI. The other Python potential/field/force/field-line estimators remain point-only and fail closed.
-
-For split periodic2 runs, `summary.txt` records `interface_potential_V`, `interface_normal_field_V_m`,
-`interface_eta_phi_kneq0`, `interface_eta_field_kneq0`, `interface_eta_gap`, `interface_eta_local_charge`,
-`gauss_residual_C`, `outer_integrated_charge_C`, and `last_outer_update_batch`. These values cover the interface
-potential and normal field, the Gauss residual, integrated outer charge, and update point. They diagnose physical-model
-applicability and are part of the restart contract; a split checkpoint missing its outer state is rejected.
-
-When the photoelectron histogram state is ready, inspect these additional `summary.txt` keys.
-
-| Key | Meaning |
-| --- | --- |
-| `photoelectron_histogram_bins` | Number of normal-kinetic-energy bins |
-| `photoelectron_histogram_energy_max_J` | Histogram upper edge [J] |
-| `photoelectron_last_completed_batch` | Last batch committed to the histogram |
-| `photoelectron_cumulative_signed_charge_C` | Cumulative signed charge crossing z-high outward [C] |
-| `photoelectron_cumulative_kinetic_energy_J` | Cumulative total kinetic energy [J] |
-| `photoelectron_cumulative_count` | Cumulative crossing count |
-| `photoelectron_previous_signed_current_A` | Previous-batch signed charge divided by `batch_duration` [A] |
-| `photoelectron_previous_charge_ratio` | Previous-batch outward-crossing charge relative to the ambient charge scale |
-| `photoelectron_max_charge_ratio` | Configured applicability limit |
-| `photoelectron_linear_applicability_status` | `applicable` for a batch that completes normally |
-
-A batch whose `photoelectron_previous_charge_ratio` exceeds the limit stops, so an inapplicable state is not continued as a
-normal output.
-
-For `unified_linear_response`, also inspect `outer_accessible_fraction_min`, `outer_accessible_fraction_max`, and
-`outer_accessible_fraction_refinement_error`. The latter is the maximum change in accessible fraction when the
-surface-height sample count is doubled along each periodic axis. Initialization stops if this value exceeds
-`outer_plasma.accessible_fraction_tolerance`.
-
-For `cached_kneq0`, inspect these cache diagnostics.
-
-| Summary key | Cold miss | Warm reuse |
+| Group | Main keys | Meaning |
 | --- | --- | --- |
-| `periodic2_cache_hit` | `F` | `T` |
-| `periodic2_operator_build_count` | `1` on the root rank | `0` |
-| `periodic2_cache_fingerprint` | generated identity | matches the reused identity |
-| `periodic2_cache_path` | publication target | read source |
+| Run identity | `build_version`, `build_source_commit`, `model_fingerprint`, `mesh_fingerprint`, `species_fingerprint` | build, configuration, mesh, and species that produced the output |
+| Size | `mesh_nelem`, `mesh_count`, `mpi_world_size` | element, mesh, and MPI-rank counts |
+| Particle processing | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step` | particle-event totals |
+| Progress | `batches`, `last_rel_change` | completed batches and final-batch charge-change monitor |
+| Field evaluation | `field_backend`, `field_source_model`, `field_kernel_id` | field solver and source kernel used for the output |
 
-A cold build distributes target slices across MPI ranks and proxy right-hand sides across OpenMP threads within each rank.
-Only the root rank performs cache I/O. The regenerable operator payload is not stored in the checkpoint.
-The configured cache directory and generation tolerance are also recorded in the summary.
+`absorbed` is an event count; it does not include charge sign or macro-particle weight. Read charge amounts from
+`charge_ledger.csv` and the final distribution from `charges.csv`.
 
-With particle transfer enabled, `interface_outward_gross_C` and `interface_returned_gross_C` in `charge_ledger.csv` record gross crossings and are not added twice to the conservation residual. `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, and `max_outer_energy_relative_error` in `summary.txt` are MPI-global run maxima.
+`last_rel_change` is a monitoring value. It is not an early-stop condition in the current implementation.
 
-When a mesh includes `dielectric`, `summary.txt` records `surface_model_dielectric_elem_count` and
-`surface_model_note=metadata_only_dielectric_present`. `dielectric` is metadata in the current implementation; it is
-not a solved dielectric boundary model. A mesh containing only `conductor` does not emit this note.
+## `charge_ledger.csv`: Charge Transfer by Species
 
-## Using History
+`charge_ledger.csv` has one row per species and separates signed charge [C] from event counts.
 
-Set `output.history_stride` to a positive value to inspect time evolution.
+| Column | Recorded charge |
+| --- | --- |
+| `injected_from_remote_C` | charge entering through `volume_seed` or `reservoir_face` |
+| `emitted_from_surface_C` | tracked charge emitted from a surface through `photo_raycast` |
+| `absorbed_on_surface_C` | charge absorbed by the mesh |
+| `escaped_to_infinity_C` | charge escaping through an open boundary or outer model |
+| `discarded_unresolved_C` | charge discarded alive at `max_step` |
+| `interface_outward_gross_C` | gross charge transferred from the local to outer region |
+| `interface_returned_gross_C` | gross charge returned from the outer to local region |
+
+The corresponding `*_count` columns contain event counts. `charge_ledger_residual_C` and
+`charge_ledger_discarded_unresolved_abs_C` in `summary.txt` aggregate all species. See
+[Check particle and charge balance](ValidationGuide.en.html#2-check-particle-and-charge-balance) for acceptance criteria.
+
+## Match Surface Values to the Mesh
+
+| File | One row represents | Main columns |
+| --- | --- | --- |
+| `charges.csv` | one triangle element | `elem_idx`, `charge_C` |
+| `mesh_triangles.csv` | one triangle element | `elem_idx`, three vertices, `charge_C`, `mesh_id` |
+| `mesh_sources.csv` | one mesh | `mesh_id`, `source_kind`, `surface_model`, element count |
+| `mesh_potential.csv` | one triangle element | `elem_idx`, `potential_V` |
+
+Join `charges.csv` to `mesh_triangles.csv` by `elem_idx`. For multiple meshes, use `mesh_id` in `mesh_triangles.csv`
+and the corresponding row in `mesh_sources.csv`.
+
+`mesh_potential.csv` is generated only with `output.write_mesh_potential = true` and contains final element-centroid
+potential. For `field_source_model="triangle_p0"`, use this file instead of reconstructing potential as point charges in Python.
+
+## History Files
+
+Set a positive `output.history_stride` before the run to write history.
 
 ```toml
 [output]
@@ -149,67 +94,63 @@ history_stride = 1
 write_potential_history = true
 ```
 
-`charge_history.csv` is written when
+| File | Generation condition | Contents |
+| --- | --- | --- |
+| `charge_history.csv` | `output.history_stride > 0` | element charge at recorded batches |
+| `potential_history.csv` | above plus `output.write_potential_history = true` | element-centroid potential at recorded batches |
 
-$$
-(\texttt{stats.batches}-1)\bmod\texttt{history\_stride}=0,
-$$
+Batch 1 is always included, followed by every `history_stride` batches. Potential history performs another field evaluation
+when written, so increase `history_stride` to reduce output frequency for large meshes.
 
-so batch 1 is always included. With `output.write_potential_history=true`, the current `q_elem` refreshes the field at the same stride
-and writes element-centroid `potential_history.csv`.
+See [History Animation](PostprocessTutorial.en.html#history-animation) for plots and animations.
 
-Potential history requires additional field evaluations, so it can increase runtime for large meshes or frequent history output.
-Start with `history_stride = 1` on a small case, then thin the history for larger runs.
+## Find Other Files by Purpose
 
-## Useful Next Commands
+| Purpose | File | Generation condition or role |
+| --- | --- | --- |
+| Break down runtime | `performance_profile.csv` | `BEACH_PROFILE=1` |
+| Read the outer-sheath grid profile | `outer_plasma_profile.csv` | a `kinetic_1d` / `unified_linear_response` outer state is ready |
+| Read the photoelectron energy distribution | `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` and the state is ready |
+| Resume random-number state | `rng_state.txt` / `rng_state_rankNNNNN.txt` | former for serial, latter per MPI rank |
+| Restore fractional macro-particles | `macro_residuals.csv` | residual state is allocated; one file even with MPI |
 
-```bash
-beachx inspect outputs/latest \
-  --save-mesh outputs/latest/charges_mesh.png
+Every generated file also requires `output.write_files = true`.
 
-beachx animate outputs/latest \
-  --quantity charge \
-  --save-gif outputs/latest/charge_history.gif
-```
+## Locate Configuration-specific Values
 
-Only results with `field_source_model="point"` can reconstruct and plot potential through the Python estimator.
+Detailed acceptance criteria stay with each model page; this table only points to the output.
 
-```bash
-beachx inspect outputs/latest \
-  --save-potential-mesh outputs/latest/potential_mesh.png
-```
+| Configuration | Main output | Details |
+| --- | --- | --- |
+| finite-image `periodic2` | periodic2 configuration in `summary.txt`, `charges.csv` | [Finite-image Configuration](FinitePeriodicConfiguration.en.html) |
+| `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [Periodic Far Correction](PeriodicFarCorrection.en.html) |
+| `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [Standard 1-D Kinetic Outer Sheath](KineticOuterPlasma.en.html) |
+| `unified_linear_response` | above plus `outer_accessible_fraction_min`, `outer_accessible_fraction_max`, `outer_accessible_fraction_refinement_error` | [Advanced Rough-surface Linear Screening](UnifiedLinearResponse.en.html) |
+| photoelectron histogram | `photoelectron_histogram.csv`, `photoelectron_previous_charge_ratio`, `photoelectron_linear_applicability_status` | [Photoelectron Emission and Lifecycle](PhotoelectronEmission.en.html) |
+| outer particle transfer | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [Particle Escape and Return](ParticleEscapeReturn.en.html) |
 
-For `triangle_p0`, `--recompute-potential`, `--save-potential-mesh`, and `--show` fail closed. To obtain
-element-centroid potential, set
-`output.write_mesh_potential = true` before the run and use the simulator-written `mesh_potential.csv`.
+When a mesh contains `dielectric` elements, `summary.txt` records `surface_model_dielectric_elem_count` and
+`surface_model_note=metadata_only_dielectric_present`. In the current implementation, `dielectric` is metadata; this note
+does not mean that a dielectric boundary condition was solved.
 
-From Python:
+## Files Used for Resume
 
-```python
-from beach import Beach
+Resume state shares the output directory with analysis files, but should not be edited individually.
 
-b = Beach("outputs/latest")
-print(b.result.absorbed, b.result.escaped)
-b.plot_mesh()
-
-if b.result.field_source_model == "point":
-    b.plot_potential()
-```
-
-`Beach.plot_potential()` is also point-source only.
-
-## Resume Outputs
-
-With `output.resume=true`, files are loaded according to the configuration and saved state:
-
-| Checkpoint file | Resume behavior |
+| Checkpoint | Resume role |
 | --- | --- |
-| `summary.txt`, `charges.csv` | Always required |
-| `rng_state.txt` / `rng_state_rankNNNNN.txt` | The former is required for serial runs; every rank file is required for MPI |
-| `macro_residuals.csv` | Restores the global residual when present. MPI still uses one file; legacy rank-local files are rejected |
-| `charge_ledger.csv` | Required when the summary contains ledger checkpoint metadata |
-| `outer_plasma_profile.csv` | Required when resuming a ready outer state for `kinetic_1d` / `unified_linear_response` |
-| `photoelectron_histogram.csv` | Required when resuming with `outer_plasma.photoelectron_histogram_enabled=true` |
+| `summary.txt`, `charges.csv` | always required |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | former for serial; every rank file for MPI |
+| `macro_residuals.csv` | restores global fractional state when present |
+| `charge_ledger.csv` | required when `summary.txt` contains ledger metadata |
+| `outer_plasma_profile.csv` | required when resuming a ready `kinetic_1d` / `unified_linear_response` state |
+| `photoelectron_histogram.csv` | required when resuming photoelectron histogram state |
 
-Schema v3 restores matching model, mesh, and species fingerprints plus the complete outer solver profile/state. A schema-v2 three-column outer profile remains readable, but it forces a new outer solve at the next refresh instead of being treated as a complete held state.
-When `output.restart_from` is set, checkpoint files are read from `restart_from`, while new outputs are written under `output.dir`.
+With `output.restart_from`, BEACH reads checkpoints from `restart_from` and writes new output under `output.dir`.
+See [Run a Simulation](Execution.en.html#resume-a-run) for the resume procedure and fingerprint checks.
+
+## Where to Go Next
+
+- Decide whether the result is numerically and physically acceptable: [Validating Simulation Results](ValidationGuide.en.html)
+- Create plots, animations, or Python analysis: [Post-processing Tutorial](PostprocessTutorial.en.html)
+- Look up `[output]` settings: [Input Parameters Reference](Parameters.en.html#output-output-and-resume)

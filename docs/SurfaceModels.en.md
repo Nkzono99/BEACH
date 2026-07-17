@@ -128,7 +128,7 @@ $$
 Under the current contract, `tol_rel` is a monitoring and output metric, not an early-stop condition.
 
 See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for reaction-charge signs and emitted-particle tracking.
-See [Reading output files](OutputGuide.en.html) for species-resolved charge balance, history, final output, and restart files.
+See [Inspect Output Files](OutputGuide.en.html) for species-resolved charge balance, history, final output, and restart files.
 
 ## Code reference
 

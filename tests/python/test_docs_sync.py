@@ -215,6 +215,93 @@ def test_sidebar_follows_user_workflow_and_separates_agents() -> None:
     )
 
 
+def test_case_design_and_configuration_pages_have_distinct_tasks() -> None:
+    expected_titles = {
+        "ConfigurationRecipes.md": (
+            "title: シミュレーションケースを設計する",
+            "# シミュレーションケースを設計する",
+        ),
+        "ConfigurationRecipes.en.md": (
+            "title: Design a Simulation Case",
+            "# Design a Simulation Case",
+        ),
+        "Configuration.md": (
+            "title: beach.tomlを作成・検証する",
+            "# `beach.toml`を作成・検証する",
+        ),
+        "Configuration.en.md": (
+            "title: Create and Validate beach.toml",
+            "# Create and Validate `beach.toml`",
+        ),
+    }
+
+    for name, phrases in expected_titles.items():
+        text = _read_doc(name)
+        for phrase in phrases:
+            assert phrase in text
+
+    navigation = json.loads(
+        (ROOT / "docs-site" / "navigation.json").read_text(encoding="utf-8")
+    )
+    simulation_items = navigation["sections"][1]["items"]
+    labels = {
+        item["slug"]: item["label"]
+        for item in simulation_items
+        if item.get("slug") in {"configuration-recipes", "configuration"}
+    }
+    assert labels == {
+        "configuration-recipes": {
+            "root": "ケースを設計する",
+            "en": "Design a case",
+        },
+        "configuration": {
+            "root": "設定ファイルを作成・検証する",
+            "en": "Create and validate configuration",
+        },
+    }
+
+
+def test_output_lookup_and_validation_pages_have_distinct_tasks() -> None:
+    output_pages = {
+        "OutputGuide.md": (
+            "title: 出力ファイルを調べる",
+            "# 出力ファイルを調べる",
+            "[計算結果の妥当性確認](ValidationGuide.html)",
+        ),
+        "OutputGuide.en.md": (
+            "title: Inspect Output Files",
+            "# Inspect Output Files",
+            "[Validating Simulation Results](ValidationGuide.en.html)",
+        ),
+    }
+    for name, phrases in output_pages.items():
+        text = _read_doc(name)
+        for phrase in phrases:
+            assert phrase in text
+        assert "## 成功と注意の読み分け" not in text
+        assert "## Interpreting Success and Warnings" not in text
+
+    assert "その値を使って計算を受理できるか判定します" in _read_doc(
+        "ValidationGuide.md"
+    )
+    assert "uses those values to decide whether a run" in _read_doc(
+        "ValidationGuide.en.md"
+    )
+
+    navigation = json.loads(
+        (ROOT / "docs-site" / "navigation.json").read_text(encoding="utf-8")
+    )
+    output_item = next(
+        item
+        for item in navigation["sections"][1]["items"]
+        if item.get("slug") == "output-guide"
+    )
+    assert output_item["label"] == {
+        "root": "出力ファイルを調べる",
+        "en": "Inspect output files",
+    }
+
+
 def test_generated_pages_show_development_status_freshness_and_edit_source() -> None:
     module = _load_sync_module()
 
@@ -234,17 +321,51 @@ def test_generated_pages_show_development_status_freshness_and_edit_source() -> 
             assert "開発版ドキュメント" in content
 
 
-def test_configuration_recipes_cover_production_kinetic_outer_sheath() -> None:
+def test_configuration_recipes_prioritize_meshes_and_particle_sources() -> None:
     for name in ("ConfigurationRecipes.md", "ConfigurationRecipes.en.md"):
         text = _read_doc(name)
 
-        assert 'field_periodic_far_correction = "cached_kneq0"' in text
-        assert 'nonzero_mode_backend = "cached_kneq0"' in text
-        assert 'model = "kinetic_1d"' in text
-        assert 'return_model = "kinetic_1d_profile_return"' in text
-        assert 'photoelectron_density_model = "kinetic_mean"' in text
-        assert 'sheath_injection_model = "none"' in text
+        for kind in (
+            "plane",
+            "plate_hole",
+            "plane_hole",
+            "disk",
+            "annulus",
+            "box",
+            "cylinder",
+            "sphere",
+        ):
+            assert f"`{kind}`" in text
+        assert 'kind = "sphere"' in text
+
+        for source_mode in ("volume_seed", "reservoir_face", "photo_raycast"):
+            assert f'`{source_mode}`' in text
+            assert f'source_mode = "{source_mode}"' in text
+        assert "target_macro_particles_per_batch" in text
+        assert "rays_per_batch" in text
+        assert "sim.batch_duration" in text
+
+
+def test_configuration_recipes_delegate_advanced_outer_coupling() -> None:
+    expected_links = {
+        "ConfigurationRecipes.md": (
+            "InfinitePeriodicOuterConfiguration.html",
+            "PhotoelectronEmission.html",
+        ),
+        "ConfigurationRecipes.en.md": (
+            "InfinitePeriodicOuterConfiguration.en.html",
+            "PhotoelectronEmission.en.html",
+        ),
+    }
+
+    for name, links in expected_links.items():
+        text = _read_doc(name)
+
+        for link in links:
+            assert link in text
         assert "examples/periodic2_kinetic_outer.toml" in text
+        assert 'field_periodic_far_correction = "cached_kneq0"' not in text
+        assert 'photoelectron_density_model = "kinetic_mean"' not in text
 
 
 def test_split_detail_pages_cover_migrated_numerics_topics() -> None:

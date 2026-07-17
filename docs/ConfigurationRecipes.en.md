@@ -1,12 +1,13 @@
-title: Configuration Recipes
+title: Design a Simulation Case
 
 Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.md)
 
-# Configuration Recipes
+# Design a Simulation Case
 
-Build common cases by replacing the required tables or sections in the official beginner `beach.toml`.
-For the complete key reference, see [Input Parameters Reference](Parameters.en.html). See [Edit configuration](Configuration.en.html)
-for creating and checking the file.
+Build common cases by replacing the mesh and particle sources in the official beginner `beach.toml`.
+This page focuses on choosing the physical setup. For the complete key reference, see
+[Input Parameters Reference](Parameters.en.html). See [Create and Validate `beach.toml`](Configuration.en.html) for generating
+and checking the file.
 
 Each snippet below is a replacement or diff relative to the [official beginner case](Tutorial.en.html).
 Some snippets are not standalone configurations.
@@ -27,16 +28,32 @@ coordinates while loading.
 
 | Recipe | Main section | Use case |
 | --- | --- | --- |
-| Minimal plane-mesh run | `[mesh]`, `[[mesh.templates]]` | First smoke test |
+| Add built-in meshes | `[mesh]`, `[[mesh.templates]]` | Combine planes, spheres, boxes, cylinders, and other shapes |
+| OBJ mesh | `[mesh]` | Use external geometry |
 | Choose particle injection | `[[particles.species]]` | Switch inflow, initial particles, or photoemission |
 | Two-periodic-axis boundary (finite image sum) | `[sim]` | Include a selected range of periodic images |
-| Infinite periodic + external kinetic sheath | `[sim]`, `[periodic2]`, `[outer_plasma]`, `[coupling]` | Production lunar-regolith setup |
-| Add UV photoelectrons to the outer sheath | `[outer_plasma]`, `[[particles.species]]` | Consistent emission, return, and outer space charge |
-| OBJ mesh | `[mesh]` | External geometry |
+| Advanced outer-sheath coupling | `[periodic2]`, `[outer_plasma]`, `[coupling]` | Couple infinite periodicity, `kinetic_1d`, and UV photoelectrons |
 | History output | `[output]` | Visualize time evolution |
 | Resume run | `[output]` | Continue from checkpoint |
 
-## Change Plane-Mesh Resolution
+## Add Built-In Meshes
+
+With `[mesh].mode="template"`, each `[[mesh.templates]]` entry adds one shape. Every enabled template receives a distinct
+`mesh_id`. To keep the official beginner plane and add a sphere, append a new entry after the existing `[[mesh.templates]]` entry.
+
+The available shapes and their main size and resolution keys are:
+
+| `kind` | Shape | Size | Resolution |
+| --- | --- | --- | --- |
+| `plane` | XY rectangle | `size_x`, `size_y` | `nx`, `ny` |
+| `plate_hole`, `plane_hole` | Rectangle with a circular hole | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
+| `disk` | Disk | `radius` | `n_theta`, `n_r` |
+| `annulus` | Concentric ring | `radius`, `inner_radius` | `n_theta`, `n_r` |
+| `box` | Closed rectangular-box surface | `size = [sx, sy, sz]` | `nx`, `ny`, `nz` |
+| `cylinder` | z-axis cylinder | `radius`, `height`, `cap` | `n_theta`, `n_z` |
+| `sphere` | Sphere surface | `radius` | `n_lon`, `n_lat` |
+
+Plane example:
 
 ```toml
 [mesh]
@@ -53,9 +70,49 @@ ny = 20
 center = [0.5, 0.5, 0.02]
 ```
 
-Increasing `nx` / `ny` increases the element count. Start small, inspect outputs and particle counts, then increase resolution.
+Append a sphere to this plane:
+
+```toml
+[[mesh.templates]]
+kind = "sphere"
+enabled = true
+surface_model = "insulator"
+center = [0.5, 0.5, 0.55]
+radius = 0.12
+n_lon = 24
+n_lat = 12
+```
+
+`center` is the shape center. Increasing subdivision counts raises the element count and the cost of field evaluation and
+collision detection. Start with a coarse mesh, confirm placement and collisions, then refine it. See the
+[built-in shape reference](Parameters.en.html#meshtemplates-built-in-shapes) for element counts and constraints.
+
+Use `surface_model="insulator"` for the ordinary charging workflow. `conductor` supports only `field_bc_mode="free"` and cannot
+be combined with `periodic2`. For `dielectric`, `epsilon_r` is currently metadata; BEACH does not yet solve dielectric polarization.
+
+### Use an OBJ File
+
+Replace `[mesh]` with OBJ mode for geometry that the built-in shapes cannot represent.
+
+```toml
+[mesh]
+mode = "obj"
+obj_path = "mesh/object.obj"
+surface_model = "insulator"
+obj_scale = 1.0
+obj_rotation = [0.0, 0.0, 0.0]
+obj_offset = [0.0, 0.0, 0.0]
+```
+
+Transforms apply in scale → rotation → offset order. The whole OBJ file receives one `mesh_id`. Prefer multiple built-in
+templates when separate objects need distinct identities.
 
 ## Choose Particle Injection
+
+Each `[[particles.species]]` entry adds one species. Edit the existing entry to replace the official beginner electron source,
+or append entries when, for example, electrons and ions must enter together.
+When changing `source_mode`, replace the complete existing entry with the corresponding example. Keeping mode-specific keys such
+as `npcls_per_step`, `w_particle`, or `number_density_*` from another mode produces a validation error.
 
 | `source_mode` | Use case | Main keys |
 | --- | --- | --- |
@@ -63,7 +120,25 @@ Increasing `nx` / `ny` increases the element count. Start small, inspect outputs
 | `reservoir_face` | Normal inflow from a face, using Maxwellian-style inputs | `number_density_cm3`, `temperature_ev`, `inject_face`, `target_macro_particles_per_batch` |
 | `photo_raycast` | Raycast photoelectron emission from surfaces | `rays_per_batch`, `emit_current_density_a_m2`, `ray_direction` |
 
-Minimal `reservoir_face` example:
+`volume_seed` example:
+
+```toml
+[[particles.species]]
+source_mode = "volume_seed"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+npcls_per_step = 100
+w_particle = 1.0
+pos_low = [0.1, 0.1, 0.6]
+pos_high = [0.9, 0.9, 0.9]
+drift_velocity = [0.0, 0.0, -1.0e6]
+temperature_k = 0.0
+```
+
+`volume_seed` creates `npcls_per_step` particles in every batch. It does not derive the count from a physical surface flux.
+
+Before using `reservoir_face` or `photo_raycast`, add a positive `batch_duration` for the intended physical timescale to the
+existing `[sim]` table. The following is a minimal `reservoir_face` example when `batch_duration = 1.0e-5`.
 
 ```toml
 [[particles.species]]
@@ -74,13 +149,42 @@ q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 target_macro_particles_per_batch = 300
 inject_face = "z_high"
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
+inject_region_mode = "face_fraction"
+uv_low = [0.0, 0.0]
+uv_high = [1.0, 1.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
 ```
 
+`reservoir_face` requires `sim.use_box=true`, positive `sim.batch_duration`, and `inject_face`.
+With `inject_region_mode="face_fraction"`, `uv_low` / `uv_high` specify the aperture as fractions of the injection face.
 `target_macro_particles_per_batch` fixes the computational particle count per batch and solves the particle weight from the physical inflow.
 Use `w_particle` when you want to specify the weight directly.
+`temperature_k` and `temperature_ev` cannot be specified together.
+
+`photo_raycast` example:
+
+```toml
+[[particles.species]]
+source_mode = "photo_raycast"
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+temperature_ev = 2.2
+emit_current_density_a_m2 = 4.5e-6
+rays_per_batch = 1000
+deposit_opposite_charge_on_emit = true
+inject_face = "z_high"
+inject_region_mode = "face_fraction"
+uv_low = [0.0, 0.0]
+uv_high = [1.0, 1.0]
+ray_direction = [0.0, 0.0, -1.0]
+```
+
+`photo_raycast` also requires positive `sim.batch_duration`. `rays_per_batch` is the number of illumination rays; the first-hit
+rate determines the number of emitted particles. `deposit_opposite_charge_on_emit=true` leaves the opposite charge at the source.
+See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for emission, reabsorption, and open-face handling.
+
+See the [particle-source overview](ParticleSourcesBoundaries.en.html) for source selection and common post-creation processing.
+See [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) for reservoir flux, weight, and velocity distributions.
 
 ## Use a Finite Image Sum on Two Periodic Axes
 
@@ -123,111 +227,18 @@ This is not the infinite-periodic solution obtained by summing the complete latt
 [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for image-layer meaning, scalar potential barriers,
 and convergence checks. Use the next recipe when the case needs an infinite-periodic operator and an external sheath.
 
-## Infinite Periodic + External Kinetic Sheath
+## Use the Coupled-Calculation Guide for Advanced Outer Sheaths
 
-Use this `kinetic_1d` composition as the standard starting point for an outer sheath in BEACH. Consider
-[advanced rough-surface linear screening](UnifiedLinearResponse.en.html) only for specialized cases that must screen lateral
-fields near a rough surface linearly.
+Infinite-periodic `periodic2`, an external `kinetic_1d` sheath, and reservoir inflow and return share potential and particle-transfer
+state across several sections. Do not assemble that advanced setup from fragments on this page. Use
+[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html) as the canonical coupled-calculation guide.
+The standard small contract fixture is
+[`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml).
 
-The production lunar-regolith setup solves the `k != 0` surface-charge component with the infinite-periodic cache and
-connects the area-mean `k = 0` component to an external 1D kinetic sheath. Add these main sections to an existing box,
-mesh, and ambient electron/ion configuration:
-
-```toml
-[sim]
-b0 = [0.0, 0.0, 0.0]
-field_solver = "fmm"
-field_bc_mode = "periodic2"
-field_periodic_far_correction = "cached_kneq0"
-field_periodic_cache_dir = ".beach_cache/periodic2"
-reservoir_potential_model = "none"
-sheath_injection_model = "none"
-
-[periodic2]
-nonzero_mode_backend = "cached_kneq0"
-zero_mode_policy = "exclude_k0"
-lower_boundary_model = "symmetric_vacuum"
-
-[outer_plasma]
-model = "kinetic_1d"
-photoelectron_density_model = "none"
-return_model = "kinetic_1d_profile_return"
-interface_z = 9.899494936611664e-4
-infinity_potential = 0.0
-debye_length = 10.5132
-thermal_voltage = 10.0
-
-[coupling]
-update_mode = "explicit"
-particle_transfer_mode = "electrostatic_1d_instant_return"
-outer_update_stride = 1
-field_evolution_timescale = 6.060915267313266e-8
-max_frozen_field_ratio = 0.1
-outer_queue_enabled = false
-```
-
-Set `interface_z` to the z-high box face. Negative and positive `reservoir_face` species provide the infinity ambient
-electron and ion VDFs, so define both at z-high and satisfy quasineutrality and the ion Bohm-entry condition.
-`infinity_potential = 0` fixes the infinity-potential gauge. Inflow acceleration and outgoing-particle escape/return
-use the same kinetic-profile difference `phi_interface - phi_infinity`.
-
-Do not copy the example values for `debye_length`, `thermal_voltage`, or `field_evolution_timescale`; derive them for
-the target plasma and timescale. Validate first with `outer_update_stride = 1`. Before increasing it to a production
-value such as `100`, confirm that surface potential, absorbed/escaped flux, charge balance, and detachment force are
-unchanged. Unsupported non-monotonic branches, sub-Bohm ions, and frozen-field-limit violations stop without falling
-back to another model. See `examples/periodic2_kinetic_outer.toml` for the complete small fixture and
-[Input Parameters Reference](Parameters.en.html) for the full contract.
-
-## Add UV Photoelectrons to the Outer Sheath
-
-For UV emission, solve the mean photoelectron density in the external region with `kinetic_mean`, while tracked
-`photo_raycast` particles update surface charge. Change and add the following entries:
-
-```toml
-[outer_plasma]
-model = "kinetic_1d"
-photoelectron_density_model = "kinetic_mean"
-return_model = "kinetic_1d_profile_return"
-interface_z = 9.899494936611664e-4
-infinity_potential = 0.0
-debye_length = 10.5132
-thermal_voltage = 10.0
-
-[[particles.species]]
-enabled = true
-source_mode = "photo_raycast"
-emit_current_density_a_m2 = 4.5e-6
-rays_per_batch = 5000
-deposit_opposite_charge_on_emit = true
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-temperature_ev = 2.2
-normal_drift_speed = 0.0
-inject_face = "z_high"
-ray_direction = [0.0, 0.0, -1.0]
-```
-
-The first negative `photo_raycast` species supplies the emission flux and temperature for the mean closure.
-`deposit_opposite_charge_on_emit = true` is required.
-`kinetic_mean` supplies only the outer profile and does not add the return current to the surface a second time.
-Compare UV-off and UV-on runs with the same mesh, batch duration, and ambient inflow. Inspect
-`outer_plasma_profile.csv`, solver residual and species currents in `summary.txt`, and the charge ledger.
-
-`sim.sheath_injection_model = "zhao_*"` is the older inflow-distribution correction, not the external
-`kinetic_1d` Poisson profile. BEACH rejects combining them or combining the kinetic model with
-`reservoir_potential_model`, so both remain `"none"` in this recipe.
-
-## OBJ Mesh
-
-```toml
-[mesh]
-mode = "obj"
-obj_path = "mesh/object.obj"
-surface_model = "insulator"
-```
-
-OBJ mode assigns the same `surface_model` to all elements.
-Use template meshes when you need separate objects with different surface models, or check the current limitations before relying on mixed OBJ surfaces.
+To include UV photoelectrons in mean outer-sheath density, follow “Select mean outer density separately from tracked photoelectrons”
+in the same coupled-calculation guide. See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for local
+`photo_raycast` settings, source charge, and reabsorption checks. `kinetic_mean`, tracked return, and surface deposition have
+different responsibilities, so this page does not present them as independent TOML fragments.
 
 ## History Output
 

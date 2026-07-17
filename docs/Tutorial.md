@@ -78,7 +78,7 @@ beachx inspect outputs/latest --save-mesh outputs/latest/charge.png
 
 | 目的 | 最初に試すこと | 関連ページ |
 | --- | --- | --- |
-| 粒子数、発射位置、速度、表面解像度を変える | `npcls_per_step`、`pos_low` / `pos_high`、`drift_velocity`、`nx` / `ny` を編集する | [設定レシピ](ConfigurationRecipes.html) |
-| 出力ファイルを読み、履歴や分布を調べる | `summary.txt`、`charges.csv`、履歴ファイルの役割を確認する | [出力ガイド](OutputGuide.html)、[後処理チュートリアル](PostprocessTutorial.html) |
+| 粒子数、発射位置、速度、表面解像度を変える | `npcls_per_step`、`pos_low` / `pos_high`、`drift_velocity`、`nx` / `ny` を編集する | [シミュレーションケースを設計する](ConfigurationRecipes.html) |
+| 出力ファイルを読み、履歴や分布を調べる | `summary.txt`、`charges.csv`、履歴ファイルの役割を確認する | [出力ファイルを調べる](OutputGuide.html)、[後処理チュートリアル](PostprocessTutorial.html) |
 | 粒子更新、衝突、表面電荷更新の仕組みを理解する | 1 バッチ内の計算順序を追う | [アルゴリズム](Algorithms.html) |
 | 結果を研究へ使う | 時間刻み、メッシュ、粒子数への依存性を確認する | [計算結果の妥当性確認](ValidationGuide.html) |

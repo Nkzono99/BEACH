@@ -322,7 +322,7 @@ template入力などを使ってmesh_idを分けてください。
 - `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
 - `macro_residuals.csv` はrank別にせず、rootがglobal stateを1個だけ書く
 
-完全な条件と再開要件は[出力ガイド](OutputGuide.html#再開実行の出力)を正本とします。
+完全な条件と再開要件は[再開に使う出力ファイル](OutputGuide.html#再開に使うファイル)を正本とします。
 
 ---
 
@@ -587,7 +587,7 @@ BEACH/
 |-------------|------|
 | `SPEC.md` | Fortran 実装仕様 (権威的) |
 | `docs/OutputGuide.md` | 出力ファイルの読み方 |
-| `docs/ConfigurationRecipes.md` | よくある設定レシピ |
+| `docs/ConfigurationRecipes.md` | メッシュ、粒子源、境界条件からシミュレーションケースを設計する手順 |
 | `docs/Parameters.md` | パラメータ詳細仕様 |
 | `docs/Execution.md` | 通常の実行、負荷見積もり、再開 |
 | `docs/Workflow.md` | 開発・テスト・HPC運用 |

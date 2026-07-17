@@ -3,10 +3,10 @@
     { "source": { "root": "index.md", "en": "index.en.md" }, "slug": "index", "order": 10, "description": { "root": "BEACHの概要、最短実行例、入力から出力までの流れ。", "en": "BEACH overview, shortest runnable example, and input-to-output flow." } },
     { "source": { "root": "Installation.md", "en": "Installation.en.md" }, "slug": "installation", "order": 20, "description": { "root": "BEACHの動作要件とインストール手順。", "en": "BEACH requirements and installation." } },
     { "source": { "root": "Tutorial.md", "en": "Tutorial.en.md" }, "slug": "tutorial", "order": 30, "description": { "root": "公式入門ケースを実行する手順。", "en": "Run the official beginner case." } },
-    { "source": { "root": "ConfigurationRecipes.md", "en": "ConfigurationRecipes.en.md" }, "slug": "configuration-recipes", "order": 40, "description": { "root": "典型的なBEACH設定の変更例。", "en": "Configuration recipes for common BEACH runs." } },
-    { "source": { "root": "Configuration.md", "en": "Configuration.en.md" }, "slug": "configuration", "order": 50, "description": { "root": "beachx configと高水準記法のガイド。", "en": "beachx config and high-level notation guide." } },
+    { "source": { "root": "ConfigurationRecipes.md", "en": "ConfigurationRecipes.en.md" }, "slug": "configuration-recipes", "order": 40, "description": { "root": "メッシュ、粒子源、境界条件からシミュレーションケースを設計する手順。", "en": "Design a simulation case from meshes, particle sources, and boundary conditions." } },
+    { "source": { "root": "Configuration.md", "en": "Configuration.en.md" }, "slug": "configuration", "order": 50, "description": { "root": "beach.tomlの生成、編集、検証とbeachx configのガイド。", "en": "Create, edit, and validate beach.toml with beachx config." } },
     { "source": { "root": "Execution.md", "en": "Execution.en.md" }, "slug": "execution", "order": 60, "description": { "root": "BEACHの実行、負荷見積もり、再開方法。", "en": "Run BEACH, estimate workloads, and resume simulations." } },
-    { "source": { "root": "OutputGuide.md", "en": "OutputGuide.en.md" }, "slug": "output-guide", "order": 70, "description": { "root": "BEACH出力ファイルの読み方。", "en": "Guide to BEACH output files." } },
+    { "source": { "root": "OutputGuide.md", "en": "OutputGuide.en.md" }, "slug": "output-guide", "order": 70, "description": { "root": "目的の値をBEACH出力ファイルから見つけるためのガイド。", "en": "Locate values in BEACH output files." } },
     { "source": { "root": "PostprocessTutorial.md", "en": "PostprocessTutorial.en.md" }, "slug": "postprocess-tutorial", "order": 80, "description": { "root": "BEACH出力を可視化する最初の手順。", "en": "First post-processing steps for BEACH outputs." } },
     { "source": { "root": "ValidationGuide.md", "en": "ValidationGuide.en.md" }, "slug": "validation-guide", "order": 90, "description": { "root": "計算結果の物理・数値妥当性を確認する手順。", "en": "Validate physical and numerical simulation results." } },
     { "source": { "root": "Troubleshooting.md", "en": "Troubleshooting.en.md" }, "slug": "troubleshooting", "order": 100, "description": { "root": "インストールと実行時の問題解決。", "en": "Resolve installation and runtime problems." } },
@@ -52,10 +52,10 @@
     {
       "label": { "root": "シミュレーションする", "en": "Run simulations" },
       "items": [
-        { "type": "page", "slug": "configuration-recipes", "label": { "root": "ケースを作る", "en": "Create a case" } },
-        { "type": "page", "slug": "configuration", "label": { "root": "設定を編集する", "en": "Edit configuration" } },
+        { "type": "page", "slug": "configuration-recipes", "label": { "root": "ケースを設計する", "en": "Design a case" } },
+        { "type": "page", "slug": "configuration", "label": { "root": "設定ファイルを作成・検証する", "en": "Create and validate configuration" } },
         { "type": "page", "slug": "execution" },
-        { "type": "page", "slug": "output-guide" },
+        { "type": "page", "slug": "output-guide", "label": { "root": "出力ファイルを調べる", "en": "Inspect output files" } },
         { "type": "page", "slug": "postprocess-tutorial" },
         { "type": "page", "slug": "validation-guide" },
         { "type": "page", "slug": "troubleshooting" }

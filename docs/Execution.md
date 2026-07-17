@@ -111,6 +111,6 @@ rank数が一致する必要があります。
 - `absorbed`、`escaped_boundary`、`survived_max_step`の内訳を確認する
 - `tol_rel`を自動停止条件として扱わない
 
-ファイルの意味は[出力の読み方](OutputGuide.html)、図の作成は
+ファイルの意味は[出力ファイルを調べる](OutputGuide.html)、図の作成は
 [後処理チュートリアル](PostprocessTutorial.html)、結果の判定は
 [計算結果の妥当性確認](ValidationGuide.html)へ進んでください。

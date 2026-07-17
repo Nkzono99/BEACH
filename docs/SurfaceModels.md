@@ -129,7 +129,7 @@ $$
 
 光電子放出に伴う反作用電荷の符号と放出粒子の追跡は
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)、粒子種別の電荷収支、履歴、最終出力、再開用fileは
-[出力の読み方](OutputGuide.html)で説明します。
+[出力ファイルを調べる](OutputGuide.html)で説明します。
 
 ## Code reference
 

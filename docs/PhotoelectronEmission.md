@@ -139,7 +139,7 @@ Zhao profileの$E(z)$ではなく、通常の粒子追跡で使う、batch内で
 
 `rays_per_batch`を増やし、hit率、放出電流、帯電分布が収束することを確認します。再吸収位置も評価する場合は、
 `dt`を小さくして結果が変わらないことを確認します。放出、吸収、escapeを含む粒子種別の電荷収支と、
-outer return固有の診断値は[出力の読み方](OutputGuide.html)で確認します。
+outer return 固有の診断値は[出力ファイルを調べる](OutputGuide.html)で確認します。
 
 ## Code reference
 

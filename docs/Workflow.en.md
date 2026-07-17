@@ -138,7 +138,7 @@ Submit them to compute nodes with `tssrun` or `sbatch`.
 ## 3. Run Flow
 
 Usually, edit `beach.toml` and pass that file directly to `beach`. See
-[Edit configuration](Configuration.en.html) for creation and validation.
+[Create and Validate `beach.toml`](Configuration.en.html) for creation and validation.
 
 1. Prepare `beach.toml`.
 2. Check it with `beachx lint beach.toml`.
