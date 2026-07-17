@@ -441,8 +441,14 @@ def test_config_cli_init_validate_and_diff(
     assert "status=ok" in validate_streams.out
 
     initialized = load_config_file(tmp_path / "beach.toml")
-    assert initialized["sim"]["field_solver"] == "direct"
-    assert initialized["sim"]["field_bc_mode"] == "free"
+    assert initialized["sim"]["bc_x_low"] == "periodic"
+    assert initialized["sim"]["bc_x_high"] == "periodic"
+    assert initialized["sim"]["bc_y_low"] == "periodic"
+    assert initialized["sim"]["bc_y_high"] == "periodic"
+    assert initialized["sim"]["field_solver"] == "fmm"
+    assert initialized["sim"]["field_bc_mode"] == "periodic2"
+    assert initialized["sim"]["field_periodic_image_layers"] == 1
+    assert initialized["sim"]["field_periodic_far_correction"] == "none"
     assert len(initialized["particles"]["species"]) == 1
     species = initialized["particles"]["species"][0]
     assert species["source_mode"] == "volume_seed"

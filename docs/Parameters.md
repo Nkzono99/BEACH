@@ -76,9 +76,10 @@ GitHub Raw URL を指定することもできます。
 
 最初の実行には [10 分チュートリアル](Tutorial.html) と
 `examples/tutorial_insulator.toml` を使ってください。`beachx config init`
-も同一の設定を生成します。
+も同一の設定を生成します。この入門ケースは x/y 軸の `periodic2` を
+`field_periodic_image_layers=1`、`field_periodic_far_correction="none"` の有限画像和で扱います。
 
-`reservoir_face`、FMM、`periodic2` は、そのケースが実行できた後に
+`reservoir_face`、無限周期補正、外部シースは、そのケースが実行できた後に
 [設定レシピ](ConfigurationRecipes.html) から追加する応用設定です。
 
 ---

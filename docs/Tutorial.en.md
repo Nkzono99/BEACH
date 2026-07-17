@@ -5,8 +5,8 @@ Lang: [English](Tutorial.en.md) | [日本語](Tutorial.md)
 # Ten-Minute Tutorial
 
 This tutorial tracks one electron into an insulating plane and verifies absorption and surface charge deposition.
-The official beginner case is a minimal, non-periodic setup. It excludes FMM, periodic boundaries, photoelectrons,
-conductors, and dielectric models.
+The official beginner case is a minimal finite-image `periodic2` setup on the x and y axes. It excludes an
+infinite-periodic correction, photoelectrons, conductors, and dielectric models.
 
 ## 0. Check the installation
 
@@ -27,7 +27,7 @@ beachx config init beach.toml
 beachx lint beach.toml
 ```
 
-`beachx config init` creates the official non-periodic beginner case. The generated file is identical to
+`beachx config init` creates the official finite-image beginner case with periodic x and y axes. The generated file is identical to
 [`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml).
 You do not need to read the full file yet. Start with these keys:
 
@@ -37,8 +37,11 @@ You do not need to read the full file yet. Start with these keys:
 | `npcls_per_step` | `1` | Create one electron |
 | `drift_velocity` | `[0.0, 0.0, -1.0e6]` | Direct the electron toward the plane |
 | `surface_model` | `"insulator"` | Accumulate the absorbed electron's charge on the surface |
-| `field_solver` | `"direct"` | Compute the electric field directly |
-| `field_bc_mode` | `"free"` | Do not use periodic field boundaries |
+| `bc_x_low/high`, `bc_y_low/high` | `"periodic"` | Wrap particles into the primary x/y cell |
+| `field_solver` | `"fmm"` | Compute the electric field with FMM |
+| `field_bc_mode` | `"periodic2"` | Treat x and y as the two periodic field axes |
+| `field_periodic_image_layers` | `1` | Sum the primary cell and one surrounding layer, totaling $3\times3$ cells |
+| `field_periodic_far_correction` | `"none"` | Do not add an infinite-periodic correction beyond the finite images |
 | `dir` | `"outputs/latest"` | Write results to this directory |
 
 ## 2. Run and confirm success

@@ -8,16 +8,17 @@ softening = 1.0e-6
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 1.0]
-bc_x_low = "reflect"
-bc_x_high = "reflect"
-bc_y_low = "reflect"
-bc_y_high = "reflect"
+bc_x_low = "periodic"
+bc_x_high = "periodic"
+bc_y_low = "periodic"
+bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
 rng_seed = 12345
 open_boundary_model = "escape"
-field_solver = "direct"
-field_bc_mode = "free"
+field_solver = "fmm"
+field_bc_mode = "periodic2"
+field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 
 [particles]

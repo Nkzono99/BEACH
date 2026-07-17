@@ -5,7 +5,8 @@ Lang: [日本語](Tutorial.md) | [English](Tutorial.en.md)
 # 10 分チュートリアル
 
 このチュートリアルでは、1 個の電子を絶縁体平面へ向けて追跡し、吸収と表面電荷の堆積までを確認します。
-公式入門ケースは非周期の最小構成です。FMM、周期境界、光電子、導体・誘電体モデルは使いません。
+公式入門ケースは、x/y 軸の `periodic2` を有限画像和で扱う最小構成です。無限周期補正、光電子、
+導体・誘電体モデルは使いません。
 
 ## 0. インストールを確認する
 
@@ -26,7 +27,7 @@ beachx config init beach.toml
 beachx lint beach.toml
 ```
 
-`beachx config init` が作るのは、非周期の公式入門ケースです。生成内容はリポジトリの
+`beachx config init` が作るのは、x/y 軸を周期境界とする有限画像構成の公式入門ケースです。生成内容はリポジトリの
 [`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml)
 と同一です。設定全文を読む必要はありません。まずは次のキーだけ押さえてください。
 
@@ -36,8 +37,11 @@ beachx lint beach.toml
 | `npcls_per_step` | `1` | 1 個の電子を生成する |
 | `drift_velocity` | `[0.0, 0.0, -1.0e6]` | 電子を平面へ向ける |
 | `surface_model` | `"insulator"` | 衝突した電子の電荷を表面に蓄積する |
-| `field_solver` | `"direct"` | 直接計算で電場を求める |
-| `field_bc_mode` | `"free"` | 周期境界を使わない |
+| `bc_x_low/high`, `bc_y_low/high` | `"periodic"` | 粒子を x/y の基本セルへ戻す |
+| `field_solver` | `"fmm"` | FMM で電場を求める |
+| `field_bc_mode` | `"periodic2"` | x/y の 2 軸を周期場として扱う |
+| `field_periodic_image_layers` | `1` | primary cell の周囲 1 層を含む $3\times3$ cell を足す |
+| `field_periodic_far_correction` | `"none"` | 有限画像より外側の無限周期補正を加えない |
 | `dir` | `"outputs/latest"` | 結果の出力先 |
 
 ## 2. 実行して成功を確認する

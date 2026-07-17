@@ -80,9 +80,10 @@ of `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, or `z_high`.
 
 For the first run, use the [Ten-Minute Tutorial](Tutorial.en.html) and
 `examples/tutorial_insulator.toml`. `beachx config init` generates the same
-configuration.
+configuration. This beginner case uses a finite image sum for x/y `periodic2` with
+`field_periodic_image_layers=1` and `field_periodic_far_correction="none"`.
 
-Add `reservoir_face`, FMM, and `periodic2` later from
+Add `reservoir_face`, an infinite-periodic correction, and an outer sheath later from
 [Configuration Recipes](ConfigurationRecipes.en.html), after the beginner case
 runs successfully.
 
