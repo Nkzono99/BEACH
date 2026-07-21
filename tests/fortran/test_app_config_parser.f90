@@ -71,6 +71,10 @@ program test_app_config_parser
     'default kinetic closure mismatch' &
     )
   call assert_true(trim(cfg%outer_plasma%zhao_branch) == 'auto', 'default Zhao branch mismatch')
+  call assert_close_dp( &
+    cfg%outer_plasma%photoelectron_source_scale, 1.0_dp, 0.0_dp, &
+    'default photoelectron source scale mismatch' &
+    )
   call assert_close_dp(cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'default field_periodic_ewald_alpha mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_ewald_layers, 4_i32, 'default field_periodic_ewald_layers mismatch')
   call assert_true( &
@@ -181,6 +185,10 @@ program test_app_config_parser
     'split kinetic closure mismatch' &
     )
   call assert_true(trim(split_cfg%outer_plasma%zhao_branch) == 'auto', 'split Zhao branch mismatch')
+  call assert_close_dp( &
+    split_cfg%outer_plasma%photoelectron_source_scale, 1.0_dp, 0.0_dp, &
+    'split photoelectron source scale mismatch' &
+    )
   call assert_close_dp(split_cfg%outer_plasma%interface_z, 1.0_dp, 1.0e-15_dp, 'split interface mismatch')
   call assert_close_dp(split_cfg%outer_plasma%debye_length, 0.2_dp, 1.0e-15_dp, 'split Debye length mismatch')
   call assert_equal_i32(split_cfg%outer_plasma%unified_grid_points, 65_i32, 'unified grid points mismatch')
@@ -1010,6 +1018,7 @@ contains
     write (u, '(a)') 'model = "linear_debye"'
     write (u, '(a)') 'kinetic_closure = "Absorbing_Maxwellian"'
     write (u, '(a)') 'zhao_branch = "AUTO"'
+    write (u, '(a)') 'photoelectron_source_scale = 1.0'
     write (u, '(a)') 'photoelectron_density_model = "none"'
     write (u, '(a)') 'photoelectron_histogram_enabled = true'
     write (u, '(a)') 'return_model = "electrostatic_1d_instant_return"'

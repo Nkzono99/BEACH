@@ -314,6 +314,7 @@ old-run reproduction.
 | `max_local_charge_ratio` | `50` | upper bound on the local mean-plasma charge estimate ratio |
 | `kinetic_closure` | `absorbing_maxwellian` | density/VDF closure for `kinetic_1d`: `absorbing_maxwellian` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure branch: `auto` / `a` / `b` / `c` |
+| `photoelectron_source_scale` | `1` | independent multiplier for the analytic Zhao photoelectron source; use `0` without UV; distinct from queue occupancy $\eta$ |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`; the latter adds mean photoelectron density to `kinetic_1d` |
 | `photoelectron_histogram_enabled` | `false` | enable the outward z-high photoelectron histogram and applicability check |
 | `photoelectron_histogram_bins` | `32` | normal-kinetic-energy histogram bins |
@@ -334,7 +335,7 @@ positive z-high `reservoir_face` species define the infinity electron and ion VD
 | Item | Contract |
 | --- | --- |
 | Gauge | `phi(infinity)=0`; reject nonzero `infinity_potential` |
-| Far boundary | `absorbing_maxwellian` uses a Robin tail of length `debye_length`; Zhao instant return derives $\lambda_{D,pe}$ from $T_{pe}$ and $n_{ref}$, while queue mode ends at the finite reservoir boundary $L=10\lambda_{D,pe}$ |
+| Far boundary | `absorbing_maxwellian` uses a Robin tail of length `debye_length`; photoemitting Zhao instant return derives $\lambda_{D,pe}$ from $T_{pe},n_{ref}$; no-photo Zhao derives $\lambda_{D,e}$ from ambient $T_e,n_\infty$; queue mode ends at $L=10\lambda_{D,pe}$ |
 | Closure | default `absorbing_maxwellian`, or `zhao_charge_driven`, which retains the accumulated-charge interface-field condition |
 | Supported branch | monotone for `absorbing_maxwellian`; Zhao A/B/C, including nonmonotone Type A, for `zhao_charge_driven` |
 | Unsupported | virtual cathodes, trapped populations, and sub-Bohm inflow under `absorbing_maxwellian` |
@@ -356,6 +357,14 @@ Scope of the instant map:
 - It does not represent delayed return current during UV turn-on or other transients.
 - `tau_outer/field_evolution_timescale` bounds the quasistationary approximation.
 - With `tau_outer/batch_duration >= 1`, do not treat batch history as a physical return-current time history.
+
+Set `photoelectron_source_scale=0` when UV is absent. This path requires no enabled `photo_raycast` species,
+`sheath_photoelectron_ref_density_cm3`, or $T_{pe}$. It uses the quasineutral-region $n_\infty,T_e,u_e,u_i$ from the
+z-high ambient electron and ion species to derive the incoming-electron reservoir normalization, cutoff, and velocity map
+from the same Zhao VDF.
+
+$E_I=0$ is the flat Type-B/C junction and $E_I<0$ selects Type C. Zero current remains a diagnostic,
+not a per-batch root condition, so a stationary charge state can recover the legacy no-photo Type-C floating root.
 
 With `outer_queue_enabled=true`, outer-flight delay enters the batch history for cases such as strong-UV turn-on. This mode
 requires `kinetic_closure="zhao_charge_driven"`, a positive `batch_duration` resolved either directly or from
@@ -390,19 +399,21 @@ Combination constraints:
   `photoelectron_density_model="none"`. It cannot be combined with legacy `sheath_injection_model` or
   `reservoir_potential_model` corrections.
 - Explicit `zhao_branch="a"`, `"b"`, or `"c"` requires `zhao_charge_driven`; `auto` searches the available branches.
-- `zhao_charge_driven` requires positive `sheath_photoelectron_ref_density_cm3`, positive inward electron and ion drifts,
-  and a negative `photo_raycast` species, and rejects `sheath_reference_coordinate`.
-- Its ambient electron, ion, and photoelectron must be exactly one enabled negative z-high `reservoir_face`, positive z-high
-  `reservoir_face`, and negative `photo_raycast` species respectively; zero or multiple matches are rejected.
+- `zhao_charge_driven` requires quasineutral ambient electron/ion densities and positive inward electron and ion drifts,
+  and rejects `sheath_reference_coordinate`.
+- With `photoelectron_source_scale>0`, exactly one negative `photo_raycast` species and a positive
+  `sheath_photoelectron_ref_density_cm3` are required. With `photoelectron_source_scale=0`, an enabled `photo_raycast`
+  species is rejected and queue mode is unavailable.
 - Only `sheath_electron_drift_mode="normal"` and `sheath_ion_drift_mode="normal"` are accepted.
 - The negative `photo_raycast` species used by Zhao requires `normal_drift_speed=0`, and ion temperature must satisfy the
   cold-ion condition $T_i\le0.1T_e$.
-- The Zhao profile uses $T_{pe}$ and the $\lambda_{D,pe}$ derived from photoelectron temperature and reference density as its
-  potential and length scales; the summary reports the derived length.
+- Photoemitting Zhao uses $T_{pe}$ and the $\lambda_{D,pe}$ derived from photoelectron temperature and reference density.
+  No-photo Zhao switches the same normalization to ambient $T_e,n_\infty$ and reports the derived $\lambda_{D,e}$.
 - `debye_length` and `thermal_voltage` do not change the Zhao root or profile. They are still required as reference inputs for
   the split-interface `interface_eta_gap`, lateral potential/field, and local-charge diagnostics.
 - Tracked `photo_raycast.emit_current_density_a_m2` must agree within 1% with
-  $|q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})$, where $v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$ and $T_{pe}$ is in joules.
+  `photoelectron_source_scale * |q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})`, where
+  $v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$ and $T_{pe}$ is in joules.
 - The analytic raw current enters the tracked-source consistency check and current-density diagnostics, but not the root,
   surface charge, or ledger. Only tracked emission and reabsorption update the latter two, and $\eta$ does not scale the raw
   photoelectron emission-current term in the current diagnostic.
@@ -419,8 +430,11 @@ Combination constraints:
 See [Particle Escape and Return](ParticleEscapeReturn.en.html).
 
 The default-closure example is
-[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml). The charge-driven Zhao example is
-[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml), and the transient-queue example is
+[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml). The photoemitting charge-driven example is
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml), and the no-photo example is
+[`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml).
+
+The transient-queue example is
 [`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml).
 
 The transient-queue example is an expected-fail guard fixture that rejects a long flight at its stated physical timescale,

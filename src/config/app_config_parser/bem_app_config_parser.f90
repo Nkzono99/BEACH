@@ -318,6 +318,11 @@ contains
       case ('zhao_branch')
         call get_toml_string(table, keys(ikey), authoring%outer_plasma%zhao_branch, 'outer_plasma.zhao_branch')
         authoring%outer_plasma%zhao_branch = lower_ascii(trim(authoring%outer_plasma%zhao_branch))
+      case ('photoelectron_source_scale')
+        call get_toml_real( &
+          table, keys(ikey), authoring%outer_plasma%photoelectron_source_scale, &
+          'outer_plasma.photoelectron_source_scale' &
+          )
       case ('photoelectron_density_model')
         call get_toml_string( &
           table, keys(ikey), authoring%outer_plasma%photoelectron_density_model, &
@@ -461,6 +466,7 @@ contains
       cfg%outer_plasma%model = authoring%outer_plasma%model
       cfg%outer_plasma%kinetic_closure = authoring%outer_plasma%kinetic_closure
       cfg%outer_plasma%zhao_branch = authoring%outer_plasma%zhao_branch
+      cfg%outer_plasma%photoelectron_source_scale = authoring%outer_plasma%photoelectron_source_scale
       cfg%outer_plasma%photoelectron_density_model = authoring%outer_plasma%photoelectron_density_model
       cfg%outer_plasma%photoelectron_histogram_enabled = authoring%outer_plasma%photoelectron_histogram_enabled
       cfg%outer_plasma%return_model = authoring%outer_plasma%return_model

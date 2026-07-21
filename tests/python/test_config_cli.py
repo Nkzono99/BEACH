@@ -234,6 +234,23 @@ def test_zhao_charge_driven_closure_constraints() -> None:
     ):
         normalize_config_document(invalid)
 
+    no_photo = copy.deepcopy(config)
+    no_photo["outer_plasma"]["photoelectron_source_scale"] = 0.0
+    no_photo["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
+    normalize_config_document(no_photo)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["photoelectron_source_scale"] = -1.0
+    with pytest.raises(ConfigValidationError, match="photoelectron_source_scale"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
+    invalid["outer_plasma"]["zhao_branch"] = "auto"
+    invalid["outer_plasma"]["photoelectron_source_scale"] = 0.0
+    with pytest.raises(ConfigValidationError, match="photoelectron_source_scale"):
+        normalize_config_document(invalid)
+
     invalid = copy.deepcopy(config)
     invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
     with pytest.raises(ConfigValidationError, match="zhao_branch"):
@@ -280,6 +297,11 @@ def test_zhao_transient_outer_queue_constraints() -> None:
     invalid = copy.deepcopy(config)
     invalid["outer_plasma"]["photoelectron_histogram_enabled"] = True
     with pytest.raises(ConfigValidationError, match="legacy photoelectron histogram"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["photoelectron_source_scale"] = 0.0
+    with pytest.raises(ConfigValidationError, match="photoelectron_source_scale"):
         normalize_config_document(invalid)
 
 

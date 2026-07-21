@@ -300,6 +300,7 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | `max_local_charge_ratio` | `50` | 局所平均 plasma 電荷推定比上限 |
 | `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` の density/VDF closure。`absorbing_maxwellian` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure の branch。`auto` / `a` / `b` / `c` |
+| `photoelectron_source_scale` | `1` | Zhao解析光電子sourceの独立倍率。UVなしは`0`。queue occupancyの$\eta$とは別物 |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は `kinetic_1d` へ平均光電子密度を追加 |
 | `photoelectron_histogram_enabled` | `false` | z-high を外向き通過する光電子の histogram と適用性検査を有効化 |
 | `photoelectron_histogram_bins` | `32` | 法線運動エネルギー histogram の bin 数 |
@@ -317,7 +318,7 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | 項目 | 仕様 |
 | --- | --- |
 | gauge | `phi(infinity)=0`。`infinity_potential`の非ゼロ値を拒否 |
-| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。Zhao instantは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$、queueは$L=10\lambda_{D,pe}$の有限reservoir境界を使う |
+| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。光電子ありZhao instantは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$、no-photo Zhaoはambient $T_e,n_\infty$から導出した$\lambda_{D,e}$、queueは$L=10\lambda_{D,pe}$の有限reservoir境界を使う |
 | closure | 既定の `absorbing_maxwellian`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
 | supported branch | `absorbing_maxwellian` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
 | unsupported | `absorbing_maxwellian` では virtual cathode、trapped population、sub-Bohm inflow |
@@ -338,6 +339,12 @@ instant写像の適用範囲:
 - UV 照射開始時など、遅延した return current が効く過渡応答は表しません。
 - 準定常条件は `tau_outer/field_evolution_timescale` で制限します。
 - `tau_outer/batch_duration >= 1` では、batch 履歴を return current の物理時間履歴として解釈できません。
+
+UVなしでは`photoelectron_source_scale=0`を指定します。この経路はenabledな`photo_raycast` species、
+`sheath_photoelectron_ref_density_cm3`、$T_{pe}$を要求しません。z-highのambient electron/ionが与える準中性領域の
+$n_\infty,T_e,u_e,u_i$から、入射electron reservoirの正規化、cutoff、速度写像を同じZhao VDFで解きます。
+$E_I=0$は平坦なType B/C接続点、$E_I<0$はType Cです。電流ゼロは各batchのroot条件にせず診断として残すため、
+表面電荷が定常化したときに旧no-photo Type Cのfloating rootへ近づくかを検証できます。
 
 `outer_queue_enabled=true`では、強UV立上がりなどのouter flight delayをbatch履歴へ反映します。このmodeは
 `kinetic_closure="zhao_charge_driven"`、`sim.batch_duration`または`dt * batch_duration_step`から解決した正の
@@ -371,17 +378,18 @@ $L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとし
   `photoelectron_density_model="none"` を要求します。legacy `sheath_injection_model` や
   `reservoir_potential_model` と重ねません。
 - `zhao_branch="a"` / `"b"` / `"c"` は `zhao_charge_driven` でのみ指定できます。`auto` は利用可能な branch を探索します。
-- `zhao_charge_driven` は正の `sheath_photoelectron_ref_density_cm3`、正の内向き electron/ion drift、
-  負電荷 `photo_raycast` species を要求し、`sheath_reference_coordinate` を拒否します。
-- ambient electron、ion、photoelectronには、それぞれenabledな負電荷z-high `reservoir_face`、正電荷z-high
-  `reservoir_face`、負電荷`photo_raycast` speciesをちょうど1つ要求し、0個または複数を拒否します。
+- `zhao_charge_driven` は準中性なambient electron/ion density、正の内向きelectron/ion driftを要求し、
+  `sheath_reference_coordinate`を拒否します。
+- `photoelectron_source_scale>0`では正の`sheath_photoelectron_ref_density_cm3`と負電荷`photo_raycast` speciesを
+  ちょうど1つ要求します。`photoelectron_source_scale=0`ではenabledな`photo_raycast` speciesを拒否し、queueも使えません。
 - `sheath_electron_drift_mode="normal"`と`sheath_ion_drift_mode="normal"`だけを受理します。
 - Zhaoに使う負電荷`photo_raycast` speciesは`normal_drift_speed=0`、ion温度はcold-ion近似$T_i\le0.1T_e$を要求します。
-- Zhao profileの電位/長さscaleは$T_{pe}$と基準密度から導出した$\lambda_{D,pe}$で、summaryへ導出長を出力します。
+- 光電子ありZhao profileの電位/長さscaleは$T_{pe}$と基準密度から導出した$\lambda_{D,pe}$です。
+  no-photoでは同じ式の正規化をambient $T_e,n_\infty$へ切り替え、$\lambda_{D,e}$をsummaryへ出力します。
 - `debye_length`と`thermal_voltage`はZhao root/profileを変えません。ただしsplit-interfaceの`interface_eta_gap`、
   lateral phi/field、local-charge診断のreference inputとして現時点でも必要です。
 - tracked `photo_raycast.emit_current_density_a_m2`は、$T_{pe}$をJへ換算し、$v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$として
-  $|q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})$と1%以内で一致する必要があります。
+  `photoelectron_source_scale * |q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})`と1%以内で一致する必要があります。
 - analytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使いますが、root、surface charge、ledgerへ
   別途加えません。tracked放出と再吸収だけが後二者を更新し、$\eta$はcurrent診断のraw photoelectron emission-current項を
   scaleしません。
@@ -397,9 +405,12 @@ $L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとし
 詳細は[粒子の escape と return](ParticleEscapeReturn.html)を参照してください。
 
 既定 closure の例は
-[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)です。charge-driven Zhao closureの例は
-[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)、過渡queueの例は
-[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)です。後者は記載した物理timescaleで
+[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)です。no-photo Zhao例は
+[`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml)、UVありのbranch-entry例は
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)です。
+
+過渡queueの例は[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)です。
+これは記載した物理timescaleで
 長いflightを拒否するexpected-fail guard fixtureであり、成功した物理検証例ではありません。
 
 物理モデルの前提は

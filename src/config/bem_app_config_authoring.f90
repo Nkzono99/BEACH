@@ -40,6 +40,7 @@ module bem_app_config_authoring
     character(len=32) :: model = 'linear_debye'
     character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
     character(len=32) :: zhao_branch = 'auto'
+    real(dp) :: photoelectron_source_scale = 1.0_dp
     character(len=32) :: photoelectron_density_model = 'none'
     logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'

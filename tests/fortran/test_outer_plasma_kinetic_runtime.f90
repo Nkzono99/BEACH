@@ -13,7 +13,7 @@ program test_outer_plasma_kinetic_runtime
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(9)
+  call test_init(13)
 
   call test_begin('runtime adapter resolves the ambient reservoir VDFs')
   call init_fixture(app)
@@ -64,8 +64,17 @@ program test_outer_plasma_kinetic_runtime
   call assert_true(trim(options%zhao_branch) == 'c', 'Zhao branch was not propagated')
   call assert_close_dp(options%electron_drift_infinity, 1.5e5_dp, 0.0_dp, 'Zhao electron drift mismatch')
   call assert_close_dp(options%photoelectron_reference_density, 64.0e6_dp, 0.0_dp, 'Zhao reference density mismatch')
+  call assert_close_dp(options%photoelectron_source_scale, 1.0_dp, 0.0_dp, 'Zhao source scale mismatch')
   call assert_close_dp(options%photoelectron_temperature_j, 2.2_dp*qe, 1.0e-32_dp, 'Zhao photoelectron temperature mismatch')
   call assert_close_dp(options%photoelectron_emission_flux, 0.0_dp, 0.0_dp, 'Zhao closure must not replace tracked emission')
+  call test_end()
+
+  call test_begin('runtime adapter scales the tracked Zhao source independently')
+  app%outer_plasma%photoelectron_source_scale = 0.5_dp
+  app%particle_species(3)%emit_current_density_a_m2 = 0.5_dp*app%particle_species(3)%emit_current_density_a_m2
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'scaled Zhao source resolution failed: '//trim(message))
+  call assert_close_dp(options%photoelectron_source_scale, 0.5_dp, 0.0_dp, 'scaled Zhao source mismatch')
   call test_end()
 
   call test_begin('runtime adapter rejects inconsistent tracked Zhao emission')
@@ -75,7 +84,63 @@ program test_outer_plasma_kinetic_runtime
                         'inconsistent Zhao tracked emission must be not_applicable')
   call test_end()
 
+  call test_begin('runtime adapter derives the no-photo Zhao scale from upstream plasma')
+  call init_fixture(app)
+  app%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+  app%outer_plasma%zhao_branch = 'auto'
+  app%outer_plasma%photoelectron_source_scale = 0.0_dp
+  app%sim%sheath_photoelectron_ref_density_cm3 = 0.0_dp
+  app%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.5e5_dp]
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'no-photo Zhao runtime resolution failed: '//trim(message))
+  call assert_close_dp(options%photoelectron_source_scale, 0.0_dp, 0.0_dp, 'no-photo source scale mismatch')
+  call assert_close_dp( &
+    options%photoelectron_reference_density, options%ion_density_infinity, 0.0_dp, &
+    'no-photo Zhao normalization density mismatch' &
+    )
+  call assert_close_dp( &
+    options%photoelectron_temperature_j, options%electron_temperature_j, 0.0_dp, &
+    'no-photo Zhao normalization temperature mismatch' &
+    )
+  call assert_close_dp(options%photoelectron_population_fraction, 0.0_dp, 0.0_dp, &
+                       'no-photo Zhao population must vanish')
+  call test_end()
+
+  call test_begin('runtime adapter rejects an enabled source in no-photo Zhao mode')
+  app%n_particle_species = 3_i32
+  app%particle_species(3)%enabled = .true.
+  app%particle_species(3)%source_mode = 'photo_raycast'
+  app%particle_species(3)%q_particle = -qe
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_not_applicable, &
+                        'no-photo Zhao must reject an enabled photoelectron source')
+  call test_end()
+
+  call test_begin('runtime adapter enforces upstream Zhao quasineutrality')
+  app%n_particle_species = 2_i32
+  app%particle_species(2)%number_density_m3 = 2.1e6_dp
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_not_applicable, &
+                        'non-neutral Zhao upstream state must be not_applicable')
+  call test_end()
+
   call test_begin('runtime adapter rejects a shifted Zhao photoelectron VDF')
+  call init_fixture(app)
+  app%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+  app%outer_plasma%zhao_branch = 'c'
+  app%sim%sheath_alpha_deg = 10.0_dp
+  app%sim%sheath_photoelectron_ref_density_cm3 = 64.0_dp
+  app%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.5e5_dp]
+  app%n_particle_species = 3_i32
+  app%particle_species(3)%enabled = .true.
+  app%particle_species(3)%source_mode = 'photo_raycast'
+  app%particle_species(3)%q_particle = -qe
+  app%particle_species(3)%m_particle = 9.1093837139e-31_dp
+  app%particle_species(3)%temperature_ev = 2.2_dp
+  app%particle_species(3)%has_temperature_ev = .true.
+  app%particle_species(3)%emit_current_density_a_m2 = &
+    qe*64.0e6_dp*sin(10.0_dp*acos(-1.0_dp)/180.0_dp)* &
+    sqrt(2.0_dp*2.2_dp*qe/app%particle_species(3)%m_particle)/(2.0_dp*sqrt(acos(-1.0_dp)))
   app%particle_species(3)%emit_current_density_a_m2 = 0.5_dp*app%particle_species(3)%emit_current_density_a_m2
   app%particle_species(3)%normal_drift_speed = 1.0_dp
   call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)

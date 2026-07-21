@@ -38,7 +38,7 @@ program test_outer_plasma_zhao
   character(len=256) :: message
   integer :: fraction_index
 
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('stationary Zhao-A root is recovered by its interface field')
   call configure_params(60.0_dp, params)
@@ -92,7 +92,44 @@ program test_outer_plasma_zhao
                         'a finite Zhao-A profile ending before its minimum must fail closed')
   call test_end()
 
+  call test_begin('no-photo Zhao-C stationary root is recovered without photoelectron inputs')
+  call build_zhao_params( &
+    60.0_dp, 8.7e6_dp, 8.7e6_dp, 12.0_dp, 12.0_dp, 4.0529988897111727e5_dp, &
+    4.0529988897111727e5_dp, proton_mass, electron_mass, params, &
+    photoelectron_population_fraction=0.0_dp, photoelectron_source_scale=0.0_dp &
+    )
+  call assert_close_dp(params%n_phe0_m3, 0.0_dp, 0.0_dp, 'no-photo Zhao source density must vanish')
+  call solve_zhao_unknowns('zhao_c', params, phi0_v, phi_m_v, density_m3, branch)
+  call assert_true(branch == 'C', 'stationary no-photo Zhao root must select Type C')
+  stationary = zhao_charge_root_type( &
+               branch=branch, phi0_v=phi0_v, phi_m_v=phi_m_v, n_swe_inf_m3=density_m3 &
+               )
+  call evaluate_zhao_interface_field(params, stationary, equilibrium_field, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'no-photo Zhao-C field evaluation failed: '//trim(message))
+  call assert_true(equilibrium_field < 0.0_dp, 'stationary no-photo Zhao-C field must be negative')
+  call solve_zhao_charge_root( &
+    'zhao_c', params, equilibrium_field, charge_root, status, message, initial_root=stationary &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'charge-driven no-photo Zhao-C solve failed: '//trim(message))
+  call assert_close_dp(charge_root%phi0_v, phi0_v, 2.0e-5_dp, 'no-photo Zhao-C phi0 recovery mismatch')
+  call assert_close_dp(charge_root%n_swe_inf_m3, density_m3, 2.0e2_dp, &
+                       'no-photo Zhao-C density recovery mismatch')
+  call assert_true(abs(charge_root%net_current_density_a_m2) < 1.0e-11_dp, &
+                   'stationary no-photo Zhao-C net current is not zero')
+  call test_end()
+
   call test_begin('field perturbation leaves a nonzero Zhao-A charging current')
+  call configure_params(60.0_dp, params)
+  call solve_zhao_unknowns('zhao_a', params, phi0_v, phi_m_v, density_m3, branch)
+  stationary = zhao_charge_root_type( &
+               branch=branch, phi0_v=phi0_v, phi_m_v=phi_m_v, n_swe_inf_m3=density_m3 &
+               )
+  call evaluate_zhao_interface_field(params, stationary, equilibrium_field, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'stationary Zhao-A field evaluation failed before perturbation')
+  call solve_zhao_charge_root( &
+    'zhao_a', params, equilibrium_field, charge_root, status, message, initial_root=stationary &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'stationary Zhao-A recovery failed before perturbation')
   perturbed_field = 1.01_dp*equilibrium_field
   call solve_zhao_charge_root( &
     'zhao_a', params, perturbed_field, perturbed_root, status, message, initial_root=charge_root &

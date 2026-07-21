@@ -480,12 +480,14 @@ contains
 
   subroutine build_zhao_params( &
     alpha_deg, n_swi_inf_m3, n_phe_ref_m3, t_swe_ev, t_phe_ev, v_d_electron_mps, v_d_ion_mps, m_i_kg, m_e_kg, p, &
-    photoelectron_population_fraction &
+    photoelectron_population_fraction, photoelectron_source_scale &
     )
     real(dp), intent(in) :: alpha_deg, n_swi_inf_m3, n_phe_ref_m3, t_swe_ev, t_phe_ev
     real(dp), intent(in) :: v_d_electron_mps, v_d_ion_mps, m_i_kg, m_e_kg
     type(zhao_params_type), intent(out) :: p
     real(dp), intent(in), optional :: photoelectron_population_fraction
+    real(dp), intent(in), optional :: photoelectron_source_scale
+    real(dp) :: source_scale
 
     if (t_swe_ev <= 0.0d0) error stop 'Zhao sheath requires electron temperature > 0.'
     if (t_phe_ev <= 0.0d0) error stop 'Zhao sheath requires photoelectron temperature > 0.'
@@ -498,11 +500,18 @@ contains
         error stop 'Zhao sheath requires a finite non-negative photoelectron population fraction.'
       end if
     end if
+    source_scale = 1.0d0
+    if (present(photoelectron_source_scale)) then
+      if (.not. ieee_is_finite(photoelectron_source_scale) .or. photoelectron_source_scale < 0.0d0) then
+        error stop 'Zhao sheath requires a finite non-negative photoelectron source scale.'
+      end if
+      source_scale = photoelectron_source_scale
+    end if
 
     p%alpha_rad = alpha_deg*pi/180.0d0
     p%n_swi_inf_m3 = n_swi_inf_m3
     p%n_phe_ref_m3 = n_phe_ref_m3
-    p%n_phe0_m3 = n_phe_ref_m3*sin(p%alpha_rad)
+    p%n_phe0_m3 = source_scale*n_phe_ref_m3*sin(p%alpha_rad)
     p%photoelectron_population_fraction = 1.0d0
     if (present(photoelectron_population_fraction)) then
       p%photoelectron_population_fraction = photoelectron_population_fraction

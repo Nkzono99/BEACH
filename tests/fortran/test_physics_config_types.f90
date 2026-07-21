@@ -258,6 +258,13 @@ program test_physics_config_types
   sim%sheath_photoelectron_ref_density_cm3 = 0.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'Zhao closure must require positive photoelectron reference density')
+  outer%photoelectron_source_scale = 0.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'no-photo Zhao must not require a photoelectron reference density')
+  outer%photoelectron_source_scale = -1.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'negative photoelectron source scale must fail closed')
+  outer%photoelectron_source_scale = 1.0_dp
   sim%sheath_photoelectron_ref_density_cm3 = 64.0_dp
   outer%infinity_potential = 1.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
@@ -283,6 +290,10 @@ program test_physics_config_types
 
   call test_begin('persistent_outer_queue_contract')
   coupling%outer_queue_enabled = .true.
+  outer%photoelectron_source_scale = 0.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'persistent queue must require a photoelectron source')
+  outer%photoelectron_source_scale = 1.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'outer queue must require physical batch time')
   sim%batch_duration = 1.0e-6_dp

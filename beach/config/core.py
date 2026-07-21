@@ -895,6 +895,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         )
     kinetic_closure = "absorbing_maxwellian"
     zhao_branch = "auto"
+    photoelectron_source_scale = 1.0
     if isinstance(outer_plasma, Mapping):
         kinetic_closure = (
             str(outer_plasma.get("kinetic_closure", "absorbing_maxwellian"))
@@ -902,6 +903,9 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             .lower()
         )
         zhao_branch = str(outer_plasma.get("zhao_branch", "auto")).strip().lower()
+        photoelectron_source_scale = outer_plasma.get(
+            "photoelectron_source_scale", 1.0
+        )
     if kinetic_closure not in {"absorbing_maxwellian", "zhao_charge_driven"}:
         raise ConfigValidationError(
             "BEACH constraint error: unsupported outer_plasma.kinetic_closure="
@@ -912,10 +916,28 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "BEACH constraint error: unsupported outer_plasma.zhao_branch="
             f"{zhao_branch!r}."
         )
+    if (
+        not isinstance(photoelectron_source_scale, (int, float))
+        or isinstance(photoelectron_source_scale, bool)
+        or not math.isfinite(photoelectron_source_scale)
+        or photoelectron_source_scale < 0.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: outer_plasma.photoelectron_source_scale "
+            "must be finite and >= 0."
+        )
     if kinetic_closure == "absorbing_maxwellian" and zhao_branch != "auto":
         raise ConfigValidationError(
             "BEACH constraint error: outer_plasma.zhao_branch must be auto when "
             "outer_plasma.kinetic_closure=absorbing_maxwellian."
+        )
+    if (
+        kinetic_closure == "absorbing_maxwellian"
+        and float(photoelectron_source_scale) != 1.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: outer_plasma.photoelectron_source_scale requires "
+            "outer_plasma.kinetic_closure=zhao_charge_driven."
         )
     if kinetic_closure == "zhao_charge_driven":
         if (
@@ -958,7 +980,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "does not accept an explicit sim.sheath_reference_coordinate."
             )
         reference_density = sim.get("sheath_photoelectron_ref_density_cm3", 64.0)
-        if (
+        if float(photoelectron_source_scale) > 0.0 and (
             not isinstance(reference_density, (int, float))
             or isinstance(reference_density, bool)
             or not math.isfinite(reference_density)
@@ -993,6 +1015,11 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "BEACH constraint error: coupling.outer_queue_enabled must be a boolean."
         )
     if outer_queue_enabled:
+        if float(photoelectron_source_scale) <= 0.0:
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue requires a positive "
+                "outer_plasma.photoelectron_source_scale."
+            )
         if (
             not isinstance(outer_plasma, Mapping)
             or outer_plasma.get("model") != "kinetic_1d"

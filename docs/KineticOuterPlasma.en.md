@@ -99,9 +99,9 @@ deposition by tracked particles and do not add a second statistical return curre
 photoelectrons, and cold ions, and solves a profile that matches $E_I$ from the currently accumulated surface charge.
 Select `zhao_branch="auto"` or `a`, `b`, or `c`. The default
 `kinetic_closure="absorbing_maxwellian"` remains the existing finite-grid Poisson model.
-The Zhao closure requires exactly one enabled negative z-high `reservoir_face` ambient electron, one positive z-high
-`reservoir_face` ion, and one negative `photo_raycast` photoelectron; the runtime
-rejects both zero and multiple matches.
+The Zhao closure requires exactly one enabled negative z-high `reservoir_face` ambient electron and one positive z-high
+`reservoir_face` ion. With `photoelectron_source_scale>0`, it also requires exactly one negative `photo_raycast`
+photoelectron. With `photoelectron_source_scale=0`, it rejects an enabled photoelectron source.
 The current implementation accepts only `sim.sheath_electron_drift_mode="normal"` and
 `sim.sheath_ion_drift_mode="normal"`. It also requires `photo_raycast.normal_drift_speed=0` and the cold-ion condition
 $T_i\le0.1T_e$.
@@ -127,6 +127,12 @@ If the initial $E_I=0$ state has no quasineutral root with a strong photoelectro
 once and recorded as branch `0`, representing an outer population that has not formed yet. After the first tracked current
 creates charge, ordinary Zhao roots are solved; this bootstrap is never a fallback at nonzero field.
 
+Select the UV-free path with `outer_plasma.photoelectron_source_scale=0`. Zhao photoelectron density and raw emission current
+then vanish exactly, and the normalization uses ambient $n_\infty,T_e$. The configured ambient electron density is the total
+quasineutral-region density and is checked against the ion density; the solver derives the incoming-electron density needed by
+the free/reflected VDF. Reservoir macro-particle counts and velocity cutoffs use that derived density and the same profile map.
+The flat $E_I=0$ state is the Type-B/C junction, and a negative $E_I$ selects Type C.
+
 The quasisteady A/B/C branches with the full photoelectron population need not connect continuously to $E_I=0$. A requested
 field outside their solvable range stops with `no_physical_solution` under the default `outer_queue_enabled=false` behavior.
 
@@ -151,14 +157,17 @@ discretization, the end-of-batch corrector, and checkpoint rules.
 
 [`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml) remains a branch-entry smoke
 that does not solve the transient and uses one coarse batch to reach a known Type-A range.
+[`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml) is a no-photo smoke that charges from
+the flat state toward Type C using only the same ambient inputs.
 [`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml) is a frozen-field guard fixture for the
 strong-UV queue closure. With its stated physical timescale, a long outer flight is expected to stop fail-closed; it is not a
 successful validation run. Interpreting return current requires a separately justified slower field timescale and convergence
 checks in `batch_duration`, particle count, and control-volume length.
 
-This first implementation treats the z-high interface as the effective Zhao emitting plane. It reuses
-`sim.sheath_alpha_deg` and `sim.sheath_photoelectron_ref_density_cm3`, and obtains mass and temperature from the first negative
-`photo_raycast` species. The Zhao solver uses that temperature $T_{pe}$ as its potential scale and the photoelectron Debye length
+This first implementation treats the z-high interface as the effective Zhao emitting plane. With
+`photoelectron_source_scale>0`, it reuses `sim.sheath_alpha_deg` and `sim.sheath_photoelectron_ref_density_cm3`, and obtains
+mass and temperature from the first negative `photo_raycast` species. The Zhao solver uses that temperature $T_{pe}$ as its
+potential scale and the photoelectron Debye length
 $\lambda_{D,pe}$ derived from the temperature and reference density as its length scale. It writes the derived length as
 `outer_debye_length_m` in the converged state.
 
@@ -172,13 +181,14 @@ requires exposing its point count as an input.
 The tracked `photo_raycast.emit_current_density_a_m2` must agree within 1% with the analytic raw source at the effective plane,
 
 $$
-J_{pe,\mathrm{raw}}=
+J_{pe,\mathrm{raw}}=s_{UV}
 \frac{|q_{pe}|n_{\mathrm{ref}}\sin(\alpha)v_{\mathrm{th},pe}}{2\sqrt{\pi}},
 \qquad
 v_{\mathrm{th},pe}=\sqrt{\frac{2T_{pe}}{m_{pe}}}.
 $$
 
-Here $T_{pe}$ in the speed formula is thermal energy in joules. The runtime rejects a mismatch. The analytic raw current enters
+Here $s_{UV}$ is `photoelectron_source_scale` and $T_{pe}$ in the speed formula is thermal energy in joules. The runtime rejects
+a mismatch. The analytic raw current enters
 the tracked-source consistency check and current-density diagnostics, but not the root, surface charge, or ledger; only tracked
 emission and reabsorption update the latter two. The population scale $\eta$ does not scale that raw photoelectron
 emission-current term in the current diagnostic.

@@ -321,6 +321,8 @@ contains
     write (u, '(a,a)') 'outer_plasma_model=', trim(cfg%outer_plasma%model)
     write (u, '(a,a)') 'outer_plasma_kinetic_closure=', trim(cfg%outer_plasma%kinetic_closure)
     write (u, '(a,a)') 'outer_plasma_zhao_branch_requested=', trim(cfg%outer_plasma%zhao_branch)
+    write (u, '(a,es24.16)') 'outer_plasma_photoelectron_source_scale=', &
+      cfg%outer_plasma%photoelectron_source_scale
     write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
     write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
     write (u, '(a,l1)') 'coupling_outer_queue_enabled=', cfg%coupling%outer_queue_enabled

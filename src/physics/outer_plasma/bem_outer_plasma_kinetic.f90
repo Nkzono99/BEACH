@@ -38,6 +38,7 @@ module bem_outer_plasma_kinetic
     real(dp) :: photoelectron_emission_flux = 0.0_dp
     real(dp) :: photoelectron_reference_density = 0.0_dp
     real(dp) :: photoelectron_population_fraction = 1.0_dp
+    real(dp) :: photoelectron_source_scale = 1.0_dp
     logical :: photoelectron_column_closure_enabled = .false.
     real(dp) :: photoelectron_column_target_m2 = 0.0_dp
     real(dp) :: zhao_alpha_deg = 60.0_dp
@@ -222,7 +223,8 @@ contains
       options%zhao_alpha_deg, options%ion_density_infinity, options%photoelectron_reference_density, &
       electron_temperature_ev, photoelectron_temperature_ev, options%electron_drift_infinity, &
       options%ion_drift_infinity, options%ion_mass, options%electron_mass, params, &
-      photoelectron_population_fraction=options%photoelectron_population_fraction &
+      photoelectron_population_fraction=options%photoelectron_population_fraction, &
+      photoelectron_source_scale=options%photoelectron_source_scale &
       )
     has_initial_root = .false.
     if (present(initial_state)) then

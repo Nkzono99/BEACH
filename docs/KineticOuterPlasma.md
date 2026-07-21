@@ -99,9 +99,9 @@ source電荷とtracked再吸収の収支を説明します。
 なるZhao populationを使い、現在の蓄積表面電荷が与える$E_I$を満たすprofileを解きます。
 `zhao_branch="auto"`または`a`、`b`、`c`でbranchを選びます。既定の
 `kinetic_closure="absorbing_maxwellian"`は従来の有限grid Poisson modelです。
-Zhao closureでは、enabledな負電荷z-high `reservoir_face` ambient electron、正電荷z-high `reservoir_face` ion、
-負電荷`photo_raycast` photoelectronをそれぞれちょうど1つ要求し、
-0個または複数の設定をruntimeで拒否します。
+Zhao closureでは、enabledな負電荷z-high `reservoir_face` ambient electronと正電荷z-high `reservoir_face` ionを
+それぞれちょうど1つ要求します。`photoelectron_source_scale>0`では負電荷`photo_raycast` photoelectronも
+ちょうど1つ要求し、`photoelectron_source_scale=0`では逆にenabledな光電子sourceを拒否します。
 現行実装は`sim.sheath_electron_drift_mode="normal"`と`sim.sheath_ion_drift_mode="normal"`だけを受理し、
 `photo_raycast.normal_drift_speed=0`およびcold-ion近似$T_i\le0.1T_e$を要求します。
 
@@ -125,6 +125,12 @@ raw photoelectron emission-current項はscaleせず、full tracked sourceのま�
 初期の$E_I=0$で強い光電子populationを含む準中性rootが存在しない場合だけ、outer populationが未形成の
 ambient-only平坦stateをbranch `0`として使います。最初のtracked currentが電荷を作った後は通常のZhao rootを解き、
 非零電場でこのbootstrapへfallbackしません。
+
+UVなしは`outer_plasma.photoelectron_source_scale=0`で選びます。このときZhaoの光電子密度・raw emission currentは
+厳密に0で、正規化密度と温度にはambient $n_\infty,T_e$を使います。設定されたambient electron densityは
+準中性領域の総密度としてion densityとの準中性を検査し、solverがfree/reflected VDFに必要な入射electron densityを
+解きます。reservoir macro数と速度cutoffにもその導出密度と同じprofile写像を使います。平坦な$E_I=0$はType B/Cの
+接続点で、負の$E_I$ではType Cへ入ります。
 
 full photoelectron populationの準定常A/B/C branchは、必ずしも$E_I=0$へ連続しません。要求電場がbranchの
 可解域外なら、既定の`outer_queue_enabled=false`では`no_physical_solution`で停止します。
@@ -150,13 +156,16 @@ Robin tailを使ったreturn判定を行いません。各eventでは、`t_due`�
 
 [`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)は過渡を解かず、
 1 coarse batchで既知のType A可解域へ入るbranch-entry smokeです。
+[`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml)は同じambient入力だけで
+flat stateからType Cへ帯電するno-photo smokeです。
 [`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)はstrong-UV queue closureの
 frozen-field guard fixtureです。記載した物理timescaleでは長いouter flightをfail-closedで停止させることが期待値であり、
 成功RUNではありません。return-currentを解釈するには、別途根拠を与えた遅いfield timescaleを用い、`batch_duration`・粒子数・
 control-volume長の収束確認が必要です。
 
-この初版ではz-high interfaceをZhaoの有効放出面として扱います。`sim.sheath_alpha_deg`と
-`sim.sheath_photoelectron_ref_density_cm3`を再利用し、最初の負電荷`photo_raycast` speciesから質量と温度を得ます。
+この初版ではz-high interfaceをZhaoの有効放出面として扱います。`photoelectron_source_scale>0`では
+`sim.sheath_alpha_deg`と`sim.sheath_photoelectron_ref_density_cm3`を再利用し、最初の負電荷
+`photo_raycast` speciesから質量と温度を得ます。
 Zhao solverはこの温度$T_{pe}$を電位scale、温度と基準密度から導出したphotoelectron Debye長
 $\lambda_{D,pe}$を長さscaleとして使い、収束stateの`outer_debye_length_m`へ導出値を出力します。
 
@@ -169,13 +178,14 @@ Zhaoの収束はこれらを変えて判定せず、profile grid、有効interfa
 tracked sourceの`photo_raycast.emit_current_density_a_m2`は、有効平面での解析raw source
 
 $$
-J_{pe,\mathrm{raw}}=
+J_{pe,\mathrm{raw}}=s_{UV}
 \frac{|q_{pe}|n_{\mathrm{ref}}\sin(\alpha)v_{\mathrm{th},pe}}{2\sqrt{\pi}},
 \qquad
 v_{\mathrm{th},pe}=\sqrt{\frac{2T_{pe}}{m_{pe}}}
 $$
 
-と1%以内で一致させます。この速度式の$T_{pe}$はJへ換算した熱エネルギーです。一致しない設定はruntimeで拒否します。
+と1%以内で一致させます。ここで$s_{UV}$は`photoelectron_source_scale`です。この速度式の$T_{pe}$はJへ換算した
+熱エネルギーです。一致しない設定はruntimeで拒否します。
 analytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使いますが、root、surface charge、ledgerへ
 別途加えません。表面電荷とledgerはtracked放出・再吸収だけで更新します。$\eta$もcurrent診断のraw photoelectron
 emission-current項をscaleしません。

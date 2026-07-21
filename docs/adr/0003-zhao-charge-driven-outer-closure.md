@@ -20,6 +20,11 @@ UV 照射開始直後や帯電途中に毎 batch `J=0` を課すと、解くべ�
 既定の`absorbing_maxwellian`は変更しない。legacy Zhao injection、reservoir potential correction、
 `photoelectron_density_model="kinetic_mean"`との重複適用は拒否する。
 
+UV source強度はouter-cloud occupancy $\eta$と分離し、`outer_plasma.photoelectron_source_scale=s_UV`で指定する。
+既定値は1で、`s_UV=0`をno-photo経路とする。no-photoでは光電子species、$T_{pe}$、$n_{pe,ref}$を要求せず、
+ambient $T_e$と準中性密度$n_\infty$をZhao式の電位・密度scaleへ使う。$E_I=0$は解析的な平坦Type B/C接続点、
+$E_I<0$はType Cである。surface chargeが決める電場をroot条件とし、zero-currentは定常性の診断に残す。
+
 Zhaoの無次元電位と電場を
 
 ```text
@@ -66,12 +71,13 @@ Type A profileは途中にpotential minimumを持つ。粒子のescape/returnと
 `E_I>0`、Type Bは`E_I>=0`、Type Cは`E_I<0`を要求する。interfaceが実際の光電子放出面から有限距離上にあり、
 Type A minimumより上側に来る一般の場合は、この境界条件だけでは扱わない。
 
-`sheath_photoelectron_ref_density_cm3`と`sheath_alpha_deg`は既存 Zhao 入力を再利用する。solver profileの
+光電子ありでは`sheath_photoelectron_ref_density_cm3`と`sheath_alpha_deg`を既存 Zhao 入力として再利用する。solver profileの
 物理scaleは、photoelectron温度$T_{pe}$と、$T_{pe}$および$n_{ref}$から導出した$\lambda_{D,pe}$である。
 `outer_plasma.debye_length`と`outer_plasma.thermal_voltage`はZhao root/profileには入らない。ただし現時点では、
 `interface_eta_gap`、横方向phi/field比、local-charge推定などsplit-interface適用性診断のreference inputとして残す。
-ambient electron、ion、photoelectronはそれぞれenabledな負電荷z-high `reservoir_face`、正電荷z-high
-`reservoir_face`、負電荷`photo_raycast` speciesちょうど1つから構成し、0個または複数を拒否する。
+ambient electron、ionはそれぞれenabledな負電荷z-high `reservoir_face`、正電荷z-high `reservoir_face` species
+ちょうど1つから構成し、準中性密度を要求する。`s_UV>0`では負電荷`photo_raycast` speciesもちょうど1つ要求し、
+`s_UV=0`ではenabledな光電子sourceとqueueを拒否する。
 electron/ionは`sheath_electron_drift_mode="normal"`と`sheath_ion_drift_mode="normal"`だけを受理する。
 photoelectronは`normal_drift_speed=0`、ionはcold-ion近似$T_i\le0.1T_e$を要求し、外れる状態を`not_applicable`とする。
 
@@ -79,7 +85,7 @@ tracked `photo_raycast`のraw source currentは、有効平面の解析値
 
 ```text
 v_th,pe = sqrt(2 T_pe[J] / m_pe)
-J_pe,raw = |q_pe| n_ref sin(alpha) v_th,pe / (2 sqrt(pi))
+J_pe,raw = s_UV |q_pe| n_ref sin(alpha) v_th,pe / (2 sqrt(pi))
 ```
 
 と1%以内で一致させ、一致しない設定をruntimeで拒否する。解析currentはrootの電流診断へだけ使い、表面電荷へ

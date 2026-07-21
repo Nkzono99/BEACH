@@ -248,6 +248,21 @@ def test_zhao_charge_driven_schema_contract() -> None:
     invalid["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
     assert list(validator.iter_errors(invalid))
 
+    no_photo = copy.deepcopy(config)
+    no_photo["outer_plasma"]["photoelectron_source_scale"] = 0.0
+    no_photo["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
+    assert not list(validator.iter_errors(no_photo))
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["photoelectron_source_scale"] = -1.0
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
+    invalid["outer_plasma"]["zhao_branch"] = "auto"
+    invalid["outer_plasma"]["photoelectron_source_scale"] = 0.0
+    assert list(validator.iter_errors(invalid))
+
     invalid = copy.deepcopy(config)
     invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
     assert list(validator.iter_errors(invalid))

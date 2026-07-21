@@ -37,6 +37,7 @@ module bem_physics_config_types
     character(len=32) :: model = 'none'
     character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
     character(len=32) :: zhao_branch = 'auto'
+    real(dp) :: photoelectron_source_scale = 1.0_dp
     character(len=32) :: photoelectron_density_model = 'none'
     logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'
@@ -451,6 +452,12 @@ contains
     message = ''
     closure = lower_ascii(trim(outer%kinetic_closure))
     branch = lower_ascii(trim(outer%zhao_branch))
+    if (.not. ieee_is_finite(outer%photoelectron_source_scale) .or. &
+        outer%photoelectron_source_scale < 0.0_dp) then
+      call reject(physics_config_invalid_combination, &
+                  'outer_plasma.photoelectron_source_scale must be finite and non-negative.', status, message)
+      return
+    end if
     select case (trim(branch))
     case ('auto', 'a', 'b', 'c')
       continue
@@ -463,6 +470,10 @@ contains
       if (trim(branch) /= 'auto') then
         call reject(physics_config_invalid_combination, &
                     'outer_plasma.zhao_branch requires kinetic_closure=zhao_charge_driven.', status, message)
+      else if (abs(outer%photoelectron_source_scale - 1.0_dp) > 64.0_dp*epsilon(1.0_dp)) then
+        call reject(physics_config_invalid_combination, &
+                    'outer_plasma.photoelectron_source_scale requires kinetic_closure=zhao_charge_driven.', &
+                    status, message)
       end if
     case ('zhao_charge_driven')
       if (trim(lower_ascii(outer%model)) /= 'kinetic_1d') then
@@ -503,10 +514,12 @@ contains
                   status, message)
       return
     end if
-    if (.not. ieee_is_finite(sim%sheath_photoelectron_ref_density_cm3) .or. &
-        sim%sheath_photoelectron_ref_density_cm3 <= 0.0_dp) then
+    if (outer%photoelectron_source_scale > 0.0_dp .and. &
+        (.not. ieee_is_finite(sim%sheath_photoelectron_ref_density_cm3) .or. &
+         sim%sheath_photoelectron_ref_density_cm3 <= 0.0_dp)) then
       call reject(physics_config_invalid_combination, &
-                  'zhao_charge_driven requires a positive sheath_photoelectron_ref_density_cm3.', status, message)
+                  'Photoemitting zhao_charge_driven requires a positive sheath_photoelectron_ref_density_cm3.', &
+                  status, message)
     end if
   end subroutine validate_zhao_charge_driven_sim_config
 
@@ -558,6 +571,11 @@ contains
     status = physics_config_ok
     message = ''
     if (.not. coupling%outer_queue_enabled) return
+    if (outer%photoelectron_source_scale <= 0.0_dp) then
+      call reject(physics_config_invalid_combination, &
+                  'Persistent outer queue requires a positive photoelectron source scale.', status, message)
+      return
+    end if
     if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
         trim(lower_ascii(outer%kinetic_closure)) /= 'zhao_charge_driven' .or. &
         trim(lower_ascii(outer%zhao_branch)) /= 'auto' .or. &

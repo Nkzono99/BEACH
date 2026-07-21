@@ -41,6 +41,7 @@ contains
     call feed_string(hash, cfg%outer_plasma%model)
     call feed_string(hash, cfg%outer_plasma%kinetic_closure)
     call feed_string(hash, cfg%outer_plasma%zhao_branch)
+    call feed_real(hash, cfg%outer_plasma%photoelectron_source_scale)
     call feed_string(hash, cfg%outer_plasma%photoelectron_density_model)
     call feed_logical(hash, cfg%outer_plasma%photoelectron_histogram_enabled)
     call feed_string(hash, cfg%outer_plasma%return_model)

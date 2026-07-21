@@ -22,16 +22,19 @@ contains
     character(len=*), intent(out) :: message
     integer(i32) :: species, electron_index, ion_index, photoelectron_index
     integer(i32) :: electron_count, ion_count, photoelectron_count
-    logical :: use_zhao
+    logical :: use_zhao, no_photo_zhao
+    real(dp) :: quasineutral_charge_scale
 
     options = kinetic_outer_plasma_options_type()
     options%kinetic_closure = trim(lower_ascii(app%outer_plasma%kinetic_closure))
     options%zhao_branch = trim(lower_ascii(app%outer_plasma%zhao_branch))
     options%zhao_alpha_deg = app%sim%sheath_alpha_deg
+    options%photoelectron_source_scale = app%outer_plasma%photoelectron_source_scale
     options%photoelectron_reference_density = 1.0e6_dp*app%sim%sheath_photoelectron_ref_density_cm3
     options%photoelectron_column_closure_enabled = app%coupling%outer_queue_enabled
     options%photoelectron_column_target_m2 = 0.0_dp
     use_zhao = trim(options%kinetic_closure) == 'zhao_charge_driven'
+    no_photo_zhao = use_zhao .and. options%photoelectron_source_scale == 0.0_dp
     status = outer_plasma_invalid
     message = ''
     if (use_zhao .and. &
@@ -72,10 +75,19 @@ contains
         if (ion_index == 0_i32) ion_index = species
       end if
     end do
-    if (use_zhao .and. &
-        (electron_count /= 1_i32 .or. ion_count /= 1_i32 .or. photoelectron_count /= 1_i32)) then
+    if (use_zhao .and. (electron_count /= 1_i32 .or. ion_count /= 1_i32)) then
       status = outer_plasma_not_applicable
-      message = 'Zhao charge-driven closure requires exactly one ambient electron, ion, and photoelectron species'
+      message = 'Zhao charge-driven closure requires exactly one ambient electron and ion species'
+      return
+    end if
+    if (use_zhao .and. .not. no_photo_zhao .and. photoelectron_count /= 1_i32) then
+      status = outer_plasma_not_applicable
+      message = 'Photoemitting Zhao closure requires exactly one enabled photoelectron species'
+      return
+    end if
+    if (no_photo_zhao .and. photoelectron_count /= 0_i32) then
+      status = outer_plasma_not_applicable
+      message = 'No-photo Zhao closure requires no enabled photoelectron species'
       return
     end if
     if (electron_index == 0_i32 .or. ion_index == 0_i32) then
@@ -83,7 +95,8 @@ contains
       message = 'kinetic_1d requires negative and positive z_high reservoir_face species'
       return
     end if
-    if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. use_zhao) .and. &
+    if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. &
+         (use_zhao .and. .not. no_photo_zhao)) .and. &
         photoelectron_index == 0_i32) then
       status = outer_plasma_not_applicable
       message = 'selected kinetic closure requires a negative photo_raycast species'
@@ -126,10 +139,32 @@ contains
                                    app%particle_species(ion_index), app%sim%sheath_ion_drift_mode &
                                    )
       if (options%electron_drift_infinity <= 0.0_dp .or. options%ion_drift_infinity <= 0.0_dp .or. &
-          options%photoelectron_reference_density <= 0.0_dp) then
+          (.not. no_photo_zhao .and. options%photoelectron_reference_density <= 0.0_dp)) then
         status = outer_plasma_not_applicable
-        message = 'Zhao charge-driven closure requires positive inward drifts and photoelectron reference density'
+        message = 'Zhao charge-driven closure requires positive inward drifts and, when emitting, reference density'
         return
+      end if
+      quasineutral_charge_scale = max( &
+                                  abs(options%electron_charge*options%electron_density_infinity), &
+                                  abs(options%ion_charge*options%ion_density_infinity), tiny(1.0_dp) &
+                                  )
+      if (abs(options%electron_charge*options%electron_density_infinity + &
+              options%ion_charge*options%ion_density_infinity) > 1.0e-10_dp*quasineutral_charge_scale) then
+        status = outer_plasma_not_applicable
+        message = 'Zhao upstream ambient electron and ion densities must be quasineutral'
+        return
+      end if
+      if (no_photo_zhao) then
+        options%photoelectron_charge = options%electron_charge
+        options%photoelectron_mass = options%electron_mass
+        options%photoelectron_temperature_j = options%electron_temperature_j
+        options%photoelectron_reference_density = options%ion_density_infinity
+        options%photoelectron_population_fraction = 0.0_dp
+        options%tail_length = sqrt( &
+                              eps0*options%electron_temperature_j/ &
+                              (options%ion_density_infinity*options%electron_charge**2) &
+                              )
+        options%domain_length = 10.0_dp*options%tail_length
       end if
     end if
     if (photoelectron_index > 0_i32) then
@@ -255,7 +290,8 @@ contains
                                   )
     expected_emit_current_density = abs(options%photoelectron_charge)* &
                                     options%photoelectron_reference_density*sin(options%zhao_alpha_deg*pi/180.0_dp)* &
-                                    photoelectron_thermal_speed/(2.0_dp*sqrt(pi))
+                                    photoelectron_thermal_speed/(2.0_dp*sqrt(pi))* &
+                                    options%photoelectron_source_scale
     if (expected_emit_current_density <= 0.0_dp .or. species%emit_current_density_a_m2 <= 0.0_dp .or. &
         abs(species%emit_current_density_a_m2 - expected_emit_current_density) > &
         0.01_dp*expected_emit_current_density) then
