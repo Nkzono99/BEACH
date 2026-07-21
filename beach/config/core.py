@@ -847,6 +847,76 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "BEACH constraint error: unsupported outer_plasma.photoelectron_density_model="
             f"{photoelectron_density_model!r}."
         )
+    kinetic_closure = "absorbing_maxwellian"
+    zhao_branch = "auto"
+    if isinstance(outer_plasma, Mapping):
+        kinetic_closure = str(
+            outer_plasma.get("kinetic_closure", "absorbing_maxwellian")
+        ).strip().lower()
+        zhao_branch = str(outer_plasma.get("zhao_branch", "auto")).strip().lower()
+    if kinetic_closure not in {"absorbing_maxwellian", "zhao_charge_driven"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: unsupported outer_plasma.kinetic_closure="
+            f"{kinetic_closure!r}."
+        )
+    if zhao_branch not in {"auto", "a", "b", "c"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: unsupported outer_plasma.zhao_branch="
+            f"{zhao_branch!r}."
+        )
+    if kinetic_closure == "absorbing_maxwellian" and zhao_branch != "auto":
+        raise ConfigValidationError(
+            "BEACH constraint error: outer_plasma.zhao_branch must be auto when "
+            "outer_plasma.kinetic_closure=absorbing_maxwellian."
+        )
+    if kinetic_closure == "zhao_charge_driven":
+        if not isinstance(outer_plasma, Mapping) or outer_plasma.get("model") != "kinetic_1d":
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
+                "requires outer_plasma.model=kinetic_1d."
+            )
+        if photoelectron_density_model != "none":
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
+                "requires outer_plasma.photoelectron_density_model=none."
+            )
+        infinity_potential = outer_plasma.get("infinity_potential", 0.0)
+        if (
+            not isinstance(infinity_potential, (int, float))
+            or isinstance(infinity_potential, bool)
+            or not math.isfinite(infinity_potential)
+            or float(infinity_potential) != 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
+                "requires outer_plasma.infinity_potential=0."
+            )
+        if str(sim.get("sheath_injection_model", "none")).strip().lower() != "none":
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
+                "requires sim.sheath_injection_model=none."
+            )
+        if str(sim.get("reservoir_potential_model", "none")).strip().lower() != "none":
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
+                "requires sim.reservoir_potential_model=none."
+            )
+        if "sheath_reference_coordinate" in sim:
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
+                "does not accept an explicit sim.sheath_reference_coordinate."
+            )
+        reference_density = sim.get("sheath_photoelectron_ref_density_cm3", 64.0)
+        if (
+            not isinstance(reference_density, (int, float))
+            or isinstance(reference_density, bool)
+            or not math.isfinite(reference_density)
+            or reference_density <= 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.sheath_photoelectron_ref_density_cm3 "
+                "must be finite and > 0 for zhao_charge_driven."
+            )
     if not isinstance(photoelectron_histogram_enabled, bool):
         raise ConfigValidationError(
             "BEACH constraint error: outer_plasma.photoelectron_histogram_enabled "

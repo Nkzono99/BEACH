@@ -319,6 +319,8 @@ contains
     write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
       cfg%sim%field_periodic_generation_tolerance
     write (u, '(a,a)') 'outer_plasma_model=', trim(cfg%outer_plasma%model)
+    write (u, '(a,a)') 'outer_plasma_kinetic_closure=', trim(cfg%outer_plasma%kinetic_closure)
+    write (u, '(a,a)') 'outer_plasma_zhao_branch_requested=', trim(cfg%outer_plasma%zhao_branch)
     write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
     write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
     if (present(electrostatic_diagnostics)) then
@@ -353,6 +355,14 @@ contains
         electrostatic_diagnostics%outer_photoelectron_current_density
       write (u, '(a,es24.16)') 'outer_total_current_density_A_m2=', &
         electrostatic_diagnostics%outer_total_current_density
+      if (trim(electrostatic_diagnostics%outer_kinetic_closure) == 'zhao_charge_driven') then
+        write (u, '(a,a)') 'outer_plasma_zhao_branch_resolved=', electrostatic_diagnostics%outer_zhao_branch
+        write (u, '(a,es24.16)') 'outer_plasma_zhao_phi0_V=', electrostatic_diagnostics%outer_zhao_phi0
+        write (u, '(a,es24.16)') 'outer_plasma_zhao_phi_minimum_V=', &
+          electrostatic_diagnostics%outer_zhao_phi_minimum
+        write (u, '(a,es24.16)') 'outer_plasma_zhao_electron_density_infinity_m3=', &
+          electrostatic_diagnostics%outer_zhao_electron_density_infinity
+      end if
       write (u, '(a,es24.16)') 'outer_accessible_fraction_min=', &
         electrostatic_diagnostics%accessible_fraction_min
       write (u, '(a,es24.16)') 'outer_accessible_fraction_max=', &

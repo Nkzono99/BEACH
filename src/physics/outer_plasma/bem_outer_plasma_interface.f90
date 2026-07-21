@@ -5,6 +5,7 @@ module bem_outer_plasma_interface
   use bem_interface_types, only: interface_crossing_type, interface_particle_outcome_type, &
                                  interface_outcome_returned_local, interface_outcome_escaped_to_infinity, &
                                  interface_outcome_queued_outer, interface_outcome_invalid_model
+  use bem_string_utils, only: lower_ascii
   implicit none
   private
 
@@ -19,7 +20,8 @@ contains
     real(dp), intent(in) :: charge, mass, velocity_infinity
     logical, intent(out) :: accessible
     real(dp), intent(out) :: velocity_interface
-    real(dp) :: speed_squared
+    real(dp) :: speed_squared, profile_speed_squared, tolerance
+    integer :: point
 
     accessible = .false.
     velocity_interface = 0.0_dp
@@ -27,6 +29,15 @@ contains
     speed_squared = velocity_infinity*velocity_infinity - &
                     2.0_dp*charge*(state%interface_potential - state%infinity_potential)/mass
     if (.not. ieee_is_finite(speed_squared) .or. speed_squared < 0.0_dp) return
+    if (trim(state%model) == 'kinetic_1d') then
+      if (.not. valid_kinetic_profile_state(state)) return
+      tolerance = 256.0_dp*epsilon(1.0_dp)*max(1.0_dp, velocity_infinity*velocity_infinity, abs(speed_squared))
+      do point = state%profile_n, 1, -1
+        profile_speed_squared = velocity_infinity*velocity_infinity + &
+                                2.0_dp*charge*(state%infinity_potential - state%potential(point))/mass
+        if (.not. ieee_is_finite(profile_speed_squared) .or. profile_speed_squared < -tolerance) return
+      end do
+    end if
     velocity_interface = sqrt(speed_squared)
     accessible = .true.
   end subroutine map_infinity_normal_velocity_to_interface
@@ -141,13 +152,6 @@ contains
       return
     end if
     tolerance = 256.0_dp*epsilon(1.0_dp)*max(1.0_dp, speed2, abs(infinity_speed2))
-    if (infinity_speed2 >= -tolerance) then
-      outcome%kind = interface_outcome_escaped_to_infinity
-      outcome%position = crossing%position
-      outcome%velocity = crossing%velocity
-      return
-    end if
-
     outward_time = 0.0_dp
     do point = 1, state%profile_n - 1
       next_speed2 = crossing%velocity(3)**2 + &
@@ -176,6 +180,13 @@ contains
       speed2 = next_speed2
     end do
 
+    if (infinity_speed2 >= -tolerance) then
+      outcome%kind = interface_outcome_escaped_to_infinity
+      outcome%position = crossing%position
+      outcome%velocity = crossing%velocity
+      return
+    end if
+
     deficit = -infinity_speed2
     if (state%debye_length <= 0.0_dp .or. speed2 <= 0.0_dp) then
       outcome%kind = interface_outcome_invalid_model
@@ -193,7 +204,7 @@ contains
   logical function valid_kinetic_profile_state(state) result(valid)
     type(outer_plasma_state_type), intent(in) :: state
     real(dp) :: scale, tolerance
-    logical :: nondecreasing, nonincreasing
+    integer :: minimum_index
 
     valid = state%ready .and. trim(state%model) == 'kinetic_1d' .and. state%profile_n >= 2 .and. &
             allocated(state%z) .and. allocated(state%potential)
@@ -209,11 +220,36 @@ contains
     valid = abs(state%z(1) - state%interface_z) <= tolerance .and. &
             abs(state%potential(1) - state%interface_potential) <= tolerance
     if (.not. valid) return
-    nondecreasing = all(state%potential(2:) >= state%potential(:state%profile_n - 1) - tolerance) .and. &
-                    state%infinity_potential >= state%potential(state%profile_n) - tolerance
-    nonincreasing = all(state%potential(2:) <= state%potential(:state%profile_n - 1) + tolerance) .and. &
-                    state%infinity_potential <= state%potential(state%profile_n) + tolerance
-    valid = nondecreasing .or. nonincreasing
+    select case (trim(lower_ascii(state%kinetic_closure)))
+    case ('zhao_charge_driven')
+      select case (state%zhao_branch)
+      case ('A')
+        if (state%profile_n < 3) then
+          valid = .false.
+          return
+        end if
+        minimum_index = minloc(state%potential, dim=1)
+        valid = minimum_index > 1 .and. minimum_index < state%profile_n
+        if (.not. valid) return
+        valid = all(state%potential(2:minimum_index) <= &
+                    state%potential(1:minimum_index - 1) + tolerance) .and. &
+          all(state%potential(minimum_index + 1:) >= &
+              state%potential(minimum_index:state%profile_n - 1) - tolerance)
+      case ('B')
+        valid = all(state%potential(2:) <= state%potential(:state%profile_n - 1) + tolerance)
+      case ('C')
+        valid = all(state%potential(2:) >= state%potential(:state%profile_n - 1) - tolerance)
+      case ('0')
+        valid = maxval(abs(state%potential - state%potential(1))) <= tolerance
+      case default
+        valid = .false.
+      end select
+    case ('absorbing_maxwellian', 'none', '')
+      valid = all(state%potential(2:) <= state%potential(:state%profile_n - 1) + tolerance) .or. &
+              all(state%potential(2:) >= state%potential(:state%profile_n - 1) - tolerance)
+    case default
+      valid = .false.
+    end select
   end function valid_kinetic_profile_state
 
   subroutine finish_kinetic_return( &

@@ -56,6 +56,9 @@ program test_restart
   call test_begin('kinetic_outer_profile_checkpoint')
   call default_app_config(cfg)
   cfg%outer_plasma%model = 'kinetic_1d'
+  cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+  cfg%outer_plasma%zhao_branch = 'auto'
+  cfg%outer_plasma%photoelectron_density_model = 'none'
   cfg%outer_plasma%debye_length = 1.0_dp
   cfg%outer_plasma%thermal_voltage = 2.0_dp
   stats = sim_stats()
@@ -72,6 +75,11 @@ program test_restart
   electrostatic_diagnostics%outer_ion_current_density = 1.5e-6_dp
   electrostatic_diagnostics%outer_photoelectron_current_density = 0.25e-6_dp
   electrostatic_diagnostics%outer_total_current_density = -0.25e-6_dp
+  electrostatic_diagnostics%outer_kinetic_closure = 'zhao_charge_driven'
+  electrostatic_diagnostics%outer_zhao_branch = 'A'
+  electrostatic_diagnostics%outer_zhao_phi0 = 1.25_dp
+  electrostatic_diagnostics%outer_zhao_phi_minimum = -0.4_dp
+  electrostatic_diagnostics%outer_zhao_electron_density_infinity = 7.5e6_dp
   electrostatic_diagnostics%outer_profile_z = [1.0_dp, 1.5_dp, 2.0_dp]
   electrostatic_diagnostics%outer_profile_potential = [-0.25_dp, -0.1_dp, -0.02_dp]
   electrostatic_diagnostics%outer_profile_field = [0.3_dp, 0.23_dp, 0.16_dp]
@@ -119,6 +127,13 @@ program test_restart
                        'kinetic restart photoelectron current mismatch')
   call assert_close_dp(electrostatic_state%outer_total_current_density, -0.25e-6_dp, 1.0e-18_dp, &
                        'kinetic restart total current mismatch')
+  call assert_true(electrostatic_state%outer_zhao_branch == 'A', 'Zhao restart branch mismatch')
+  call assert_close_dp(electrostatic_state%outer_zhao_phi0, 1.25_dp, 1.0e-15_dp, &
+                       'Zhao restart phi0 mismatch')
+  call assert_close_dp(electrostatic_state%outer_zhao_phi_minimum, -0.4_dp, 1.0e-15_dp, &
+                       'Zhao restart minimum mismatch')
+  call assert_close_dp(electrostatic_state%outer_zhao_electron_density_infinity, 7.5e6_dp, 1.0e-8_dp, &
+                       'Zhao restart electron density mismatch')
   call test_end()
 
   call test_begin('schema_v2_outer_profile_migrates_by_forcing_refresh')

@@ -93,9 +93,74 @@ $\partial n_s/\partial\phi_I$を返します。
 統計的return currentを別途表面へ加えません。[光電子の放出とライフサイクル](PhotoelectronEmission.html)で、
 source電荷とtracked再吸収の収支を説明します。
 
-## 有限gridをRobin tailで無限遠へ接続する
+## Zhao populationを蓄積電荷へ接続する
 
-内部点は伸長可能なnonuniform 1D grid上のconservative finite-volume residualです。現行runtime値は次のとおりで、
+`kinetic_closure="zhao_charge_driven"`は、free/reflected ambient electron、free/captured photoelectron、cold ionから
+なるZhao populationを使い、現在の蓄積表面電荷が与える$E_I$を満たすprofileを解きます。
+`zhao_branch="auto"`または`a`、`b`、`c`でbranchを選びます。既定の
+`kinetic_closure="absorbing_maxwellian"`は従来の有限grid Poisson modelです。
+Zhao closureでは、enabledな負電荷z-high `reservoir_face` ambient electron、正電荷z-high `reservoir_face` ion、
+負電荷`photo_raycast` photoelectronをそれぞれちょうど1つ要求し、
+0個または複数の設定をruntimeで拒否します。
+現行実装は`sim.sheath_electron_drift_mode="normal"`と`sim.sheath_ion_drift_mode="normal"`だけを受理し、
+`photo_raycast.normal_drift_speed=0`およびcold-ion近似$T_i\le0.1T_e$を要求します。
+
+charge-driven Zhaoでは、旧定常Zhao modelのzero-current式を境界条件にしません。Type B/Cでは無限遠準中性と
+
+$$
+2\int_{\psi_0}^{0}\hat\rho(\psi)\,d\psi=\hat E_I^2,
+$$
+
+Type Aでは無限遠準中性、upper branchのfar-field条件、および
+
+$$
+-2\int_{\psi_m}^{\psi_0}\hat\rho_{\mathrm{lower}}(\psi)\,d\psi=\hat E_I^2
+$$
+
+を解きます。ここで$\psi=\phi/T_{pe}$、$\hat E_I=E_I\lambda_{D,pe}/T_{pe}$です。旧current balanceは
+species別とtotalのcurrent-density診断として残るため、帯電途中のtotal currentは非零で構いません。
+初期の$E_I=0$で強い光電子populationを含む準中性rootが存在しない場合だけ、outer populationが未形成の
+ambient-only平坦stateをbranch `0`として使います。最初のtracked currentが電荷を作った後は通常のZhao rootを解き、
+非零電場でこのbootstrapへfallbackしません。
+
+full photoelectron populationの準定常A/B/C branchは、必ずしも$E_I=0$へ連続しません。要求電場がbranchの
+可解域外なら`no_physical_solution`で停止します。未帯電から小さいbatchでこのgapを通過する計算には、outer
+photoelectron cloud occupancyを持つ時間依存closureが別途必要です。付属exampleはその過渡を解かず、1 coarse batchで
+既知のType A可解域へ入り、2 batch目でresolved branchを実行するbranch-entry smokeです。
+
+この初版ではz-high interfaceをZhaoの有効放出面として扱います。`sim.sheath_alpha_deg`と
+`sim.sheath_photoelectron_ref_density_cm3`を再利用し、最初の負電荷`photo_raycast` speciesから質量と温度を得ます。
+Zhao solverはこの温度$T_{pe}$を電位scale、温度と基準密度から導出したphotoelectron Debye長
+$\lambda_{D,pe}$を長さscaleとして使い、収束stateの`outer_debye_length_m`へ導出値を出力します。
+
+`outer_plasma.debye_length`と`outer_plasma.thermal_voltage`はZhao rootやprofileの物理scaleには使いません。
+ただし現時点ではsplit-interface適用性診断のreference inputとして残り、前者は`interface_eta_gap`と
+local-charge推定、後者は横方向の`interface_eta_phi_kneq0`と`interface_eta_field_kneq0`のscaleに使われます。
+Zhaoの収束はこれらを変えて判定せず、profile grid、有効interface位置、tracked粒子数、`dt`やbatch解像度を変えて確認します。
+現行のprofile gridはruntime固定の128点であり、productionのgrid収束調査には点数の入力化が必要です。
+
+tracked sourceの`photo_raycast.emit_current_density_a_m2`は、有効平面での解析raw source
+
+$$
+J_{pe,\mathrm{raw}}=
+\frac{|q_{pe}|n_{\mathrm{ref}}\sin(\alpha)v_{\mathrm{th},pe}}{2\sqrt{\pi}},
+\qquad
+v_{\mathrm{th},pe}=\sqrt{\frac{2T_{pe}}{m_{pe}}}
+$$
+
+と1%以内で一致させます。この速度式の$T_{pe}$はJへ換算した熱エネルギーです。一致しない設定はruntimeで拒否します。
+解析currentは診断だけに使い、表面電荷は
+tracked放出・再吸収だけで更新します。legacy Zhao `sheath_injection_model`、`reservoir_potential_model`、
+`photoelectron_density_model="kinetic_mean"`との併用も拒否します。
+
+この有効平面近似は、tracked rayの方向分布やrough surfaceからinterfaceへ到達したVDFをZhao outer populationへ
+自己無撞着に接続しません。`ray_direction`は照射rayによる放出面sampling、$\alpha$は解析Zhao sourceを決める独立の入力です。
+適用範囲と一般化に必要な境界VDFについては[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)を参照してください。
+
+## `absorbing_maxwellian`の有限gridをRobin tailで無限遠へ接続する
+
+この節と次のNewton法は既定の`absorbing_maxwellian`に固有です。Zhaoは前節のSagdeev条件からrootとprofileを構成します。
+`absorbing_maxwellian`の内部点は伸長可能なnonuniform 1D grid上のconservative finite-volume residualです。現行runtime値は次のとおりで、
 `debye_length`以外はまだ個別のinput parameterではありません。
 
 | 項目 | 現行値 |
@@ -114,7 +179,7 @@ $$
 
 というRobin条件を課し、無限遠gaugeへ指数緩和させます。grid外のtailは、return particleのflight-time積分にも使います。
 
-## continuation付きNewton法で物理解を追う
+## continuation付きNewton法で物理解を追う（`absorbing_maxwellian`）
 
 解析density derivativeからbordered-tridiagonal Jacobianを作るため、1 Newton stepは$O(N_z)$です。
 $\phi_I=\phi_1$への内部densityの依存が、通常のtridiagonal stencilへborder列を加えます。
@@ -126,18 +191,20 @@ $\phi_I=\phi_1$への内部densityの依存が、通常のtridiagonal stencilへ
 
 regularizationとcontinuationは収束経路だけを変えます。最終判定は必ず元の離散Poisson残差へ戻ります。
 
-## supported sheath branchだけを受理する
+## closureごとのsupported sheath branchだけを受理する
 
 | 条件 | 必要な内容 |
 | --- | --- |
 | original Poisson residual | regularized式ではなく元の残差がtolerance以下 |
-| monotone branch | supported electron-repelling profileから外れない |
+| branch | `absorbing_maxwellian`はsupported monotone branch、Zhaoは要求したA/B/Cの符号とpopulation条件 |
 | ion accessibility | 全grid点で$u_i^2(z)>0$ |
 | kinetic Bohm entry | $u_{i,\infty}\ge\sqrt{(T_e+\gamma_iT_i)/m_i}$ |
 | infinity quasineutrality | $q_en_{e,\infty}+q_in_{i,\infty}\simeq0$ |
 
-virtual cathodeを持つ非単調profile、trapped population、sub-Bohm ion inflowは適用外です。数値的に収束しても、
-これらの条件を満たさない解は受理しません。`not_applicable`、`no_physical_solution`、`numerical_failure`のいずれかのstatusを付けて停止します。
+`absorbing_maxwellian`ではvirtual cathodeを持つ非単調profileとtrapped populationは適用外です。
+`zhao_charge_driven`はType Aの単一potential minimumと、Zhao式に含まれるreflected/captured populationだけを扱います。
+sub-Bohm ion inflowや各closureの条件を外れた解は受理せず、`not_applicable`、`no_physical_solution`、
+`numerical_failure`のいずれかのstatusを付けて停止します。
 
 ## profileを指定strideで更新し全rankへ共有する
 
@@ -154,13 +221,15 @@ MPIではroot rankが1D solveを行い、status、profile、current diagnostics�
 最低限確認するのは、`interface_potential`、`interface_field`、`outer_integrated_charge`、species別とtotalのcurrent density、
 Newton反復数、original nonlinear residualです。
 
-さらに`debye_length`とinterface位置、必要ならsource samplingを変え、interface電位、電流、表面帯電が収束することを
-確認します。returnを有効にした場合は[粒子のescapeとreturn](ParticleEscapeReturn.html)のflight time、
-frozen-field ratio、準定常性も検査します。
+`absorbing_maxwellian`では`debye_length`、interface位置、必要ならsource samplingを変え、interface電位、電流、
+表面帯電が収束することを確認します。Zhaoでは導出$\lambda_{D,pe}$を使うため、profile grid、有効interface位置、
+tracked粒子数、時間解像度を収束軸にします。returnを有効にした場合は
+[粒子のescapeとreturn](ParticleEscapeReturn.html)のflight time、frozen-field ratio、準定常性も検査します。
 
 ## Code reference
 
 - VDFに基づく密度モデルとnonlinear Poisson solve: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
+- charge-driven Zhao rootと非単調profile: [`bem_outer_plasma_zhao.f90`](../src/physics/outer_plasma/bem_outer_plasma_zhao.f90)
 - runtime speciesからsolver optionを構成: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
 - surface fieldとの接続とMPI collective solve: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
 - profile output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)

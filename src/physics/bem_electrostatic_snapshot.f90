@@ -52,6 +52,11 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_ion_current_density = 0.0_dp
     real(dp) :: outer_photoelectron_current_density = 0.0_dp
     real(dp) :: outer_total_current_density = 0.0_dp
+    character(len=32) :: outer_kinetic_closure = 'none'
+    character(len=1) :: outer_zhao_branch = ' '
+    real(dp) :: outer_zhao_phi0 = 0.0_dp
+    real(dp) :: outer_zhao_phi_minimum = 0.0_dp
+    real(dp) :: outer_zhao_electron_density_infinity = 0.0_dp
     real(dp) :: accessible_fraction_min = 0.0_dp
     real(dp) :: accessible_fraction_max = 0.0_dp
     real(dp) :: accessible_fraction_refinement_error = 0.0_dp
@@ -90,6 +95,11 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_ion_current_density = 0.0_dp
     real(dp) :: outer_photoelectron_current_density = 0.0_dp
     real(dp) :: outer_total_current_density = 0.0_dp
+    character(len=1) :: outer_zhao_branch = ' '
+    real(dp) :: outer_zhao_phi0 = 0.0_dp
+    real(dp) :: outer_zhao_phi_minimum = 0.0_dp
+    real(dp) :: outer_zhao_electron_density_infinity = 0.0_dp
+    logical :: outer_zhao_state_complete = .false.
     integer(i32) :: last_outer_update_batch = -1_i32
     real(dp), allocatable :: outer_profile_z(:)
     real(dp), allocatable :: outer_profile_potential(:)
@@ -316,6 +326,11 @@ contains
     diagnostics%outer_ion_current_density = self%outer%ion_current_density
     diagnostics%outer_photoelectron_current_density = self%outer%photoelectron_current_density
     diagnostics%outer_total_current_density = self%outer%total_current_density
+    diagnostics%outer_kinetic_closure = self%outer%kinetic_closure
+    diagnostics%outer_zhao_branch = self%outer%zhao_branch
+    diagnostics%outer_zhao_phi0 = self%outer%zhao_phi0
+    diagnostics%outer_zhao_phi_minimum = self%outer%zhao_phi_minimum
+    diagnostics%outer_zhao_electron_density_infinity = self%outer%zhao_electron_density_infinity
     if (allocated(self%outer%z) .and. allocated(self%outer%potential)) then
       diagnostics%outer_profile_z = self%outer%z
       diagnostics%outer_profile_potential = self%outer%potential
@@ -343,6 +358,7 @@ contains
       end if
       self%outer = outer_plasma_state_type()
       self%outer%model = 'kinetic_1d'
+      self%outer%kinetic_closure = self%outer_options%kinetic_closure
       self%outer%ready = state%outer_ready .and. state%outer_profile_complete
       self%outer%applicability_status = state%outer_applicability_status
       self%outer%profile_n = self%kinetic_options%grid_points
@@ -360,6 +376,10 @@ contains
       self%outer%ion_current_density = state%outer_ion_current_density
       self%outer%photoelectron_current_density = state%outer_photoelectron_current_density
       self%outer%total_current_density = state%outer_total_current_density
+      self%outer%zhao_branch = state%outer_zhao_branch
+      self%outer%zhao_phi0 = state%outer_zhao_phi0
+      self%outer%zhao_phi_minimum = state%outer_zhao_phi_minimum
+      self%outer%zhao_electron_density_infinity = state%outer_zhao_electron_density_infinity
       self%outer%z = state%outer_profile_z
       self%outer%potential = state%outer_profile_potential
       if (state%outer_profile_complete) then
@@ -449,6 +469,12 @@ contains
       state%outer_ion_current_density = self%outer%ion_current_density
       state%outer_photoelectron_current_density = self%outer%photoelectron_current_density
       state%outer_total_current_density = self%outer%total_current_density
+      state%outer_zhao_branch = self%outer%zhao_branch
+      state%outer_zhao_phi0 = self%outer%zhao_phi0
+      state%outer_zhao_phi_minimum = self%outer%zhao_phi_minimum
+      state%outer_zhao_electron_density_infinity = self%outer%zhao_electron_density_infinity
+      state%outer_zhao_state_complete = &
+        trim(lower_ascii(self%outer%kinetic_closure)) == 'zhao_charge_driven'
     end if
     if (state%outer_profile_complete) then
       state%outer_profile_z = self%outer%z
@@ -878,8 +904,8 @@ contains
     class(electrostatic_snapshot_type), intent(inout) :: self
     real(dp), intent(in) :: interface_field
     type(outer_plasma_state_type) :: solved
-    integer(i32) :: status_values(3), status
-    real(dp) :: scalar_values(11)
+    integer(i32) :: status_values(4), status
+    real(dp) :: scalar_values(14)
     character(len=256) :: message
 
     self%kinetic_options%interface_field = interface_field
@@ -888,12 +914,13 @@ contains
       if (allocated(self%outer%potential) .and. &
           size(self%outer%potential) == self%kinetic_options%grid_points) then
         call solve_outer_plasma_kinetic( &
-          self%kinetic_options, solved, status, message, initial_potential=self%outer%potential &
+          self%kinetic_options, solved, status, message, initial_potential=self%outer%potential, &
+          initial_state=self%outer &
           )
       else
         call solve_outer_plasma_kinetic(self%kinetic_options, solved, status, message)
       end if
-      status_values = [status, solved%profile_n, solved%nonlinear_iterations]
+      status_values = [status, solved%profile_n, solved%nonlinear_iterations, int(iachar(solved%zhao_branch), i32)]
     end if
     call mpi_bcast_i32_array(self%mpi, status_values, 0_i32)
     status = status_values(1)
@@ -907,6 +934,8 @@ contains
     if (.not. mpi_is_root(self%mpi)) then
       solved = outer_plasma_state_type()
       solved%model = 'kinetic_1d'
+      solved%kinetic_closure = self%kinetic_options%kinetic_closure
+      solved%zhao_branch = achar(status_values(4))
       solved%profile_n = status_values(2)
       solved%nonlinear_iterations = status_values(3)
       allocate (solved%z(solved%profile_n), solved%potential(solved%profile_n), &
@@ -917,7 +946,8 @@ contains
                       solved%interface_potential, solved%infinity_potential, solved%debye_length, &
                       solved%interface_field, solved%nonlinear_residual, solved%integrated_charge_per_area, &
                       merge(1.0_dp, 0.0_dp, solved%ready), solved%electron_current_density, &
-                      solved%ion_current_density, solved%photoelectron_current_density, solved%total_current_density &
+                      solved%ion_current_density, solved%photoelectron_current_density, solved%total_current_density, &
+                      solved%zhao_phi0, solved%zhao_phi_minimum, solved%zhao_electron_density_infinity &
                       ]
     end if
     call mpi_bcast_real_dp_array(self%mpi, scalar_values, 0_i32)
@@ -938,6 +968,12 @@ contains
     solved%ion_current_density = scalar_values(9)
     solved%photoelectron_current_density = scalar_values(10)
     solved%total_current_density = scalar_values(11)
+    solved%zhao_phi0 = scalar_values(12)
+    solved%zhao_phi_minimum = scalar_values(13)
+    solved%zhao_electron_density_infinity = scalar_values(14)
+    solved%model = 'kinetic_1d'
+    solved%kinetic_closure = self%kinetic_options%kinetic_closure
+    solved%zhao_branch = achar(status_values(4))
     solved%applicability_status = outer_plasma_ok
     self%outer = solved
   end subroutine solve_kinetic_collective

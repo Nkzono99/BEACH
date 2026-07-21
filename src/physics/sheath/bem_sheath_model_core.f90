@@ -80,6 +80,13 @@ module bem_sheath_model_core
   public :: zhao_electron_vmin_normal
   public :: zhao_photo_vmin_normal
   public :: zhao_photo_emit_current_density
+  public :: evaluate_zhao_density_hat
+  public :: evaluate_zhao_rho_hat
+  public :: zhao_residuals_type_a
+  public :: zhao_residuals_type_b
+  public :: zhao_residuals_type_c
+  public :: swe_free_current_term
+  public :: type_a_e2_sum_at_infinity
 
 contains
 

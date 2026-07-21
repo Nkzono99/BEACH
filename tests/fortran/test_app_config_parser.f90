@@ -66,6 +66,11 @@ program test_app_config_parser
     'default typed periodic backend mismatch' &
     )
   call assert_true(trim(cfg%outer_plasma%model) == 'none', 'default typed outer model mismatch')
+  call assert_true( &
+    trim(cfg%outer_plasma%kinetic_closure) == 'absorbing_maxwellian', &
+    'default kinetic closure mismatch' &
+    )
+  call assert_true(trim(cfg%outer_plasma%zhao_branch) == 'auto', 'default Zhao branch mismatch')
   call assert_close_dp(cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'default field_periodic_ewald_alpha mismatch')
   call assert_equal_i32(cfg%sim%field_periodic_ewald_layers, 4_i32, 'default field_periodic_ewald_layers mismatch')
   call assert_true( &
@@ -171,6 +176,11 @@ program test_app_config_parser
   call assert_equal_i32(split_cfg%periodic2%panel_quadrature_order, 16_i32, 'split quadrature order mismatch')
   call assert_equal_i32(split_cfg%periodic2%interface_sample_n, 7_i32, 'split interface sample mismatch')
   call assert_true(trim(split_cfg%outer_plasma%model) == 'linear_debye', 'split outer model mismatch')
+  call assert_true( &
+    trim(split_cfg%outer_plasma%kinetic_closure) == 'absorbing_maxwellian', &
+    'split kinetic closure mismatch' &
+    )
+  call assert_true(trim(split_cfg%outer_plasma%zhao_branch) == 'auto', 'split Zhao branch mismatch')
   call assert_close_dp(split_cfg%outer_plasma%interface_z, 1.0_dp, 1.0e-15_dp, 'split interface mismatch')
   call assert_close_dp(split_cfg%outer_plasma%debye_length, 0.2_dp, 1.0e-15_dp, 'split Debye length mismatch')
   call assert_equal_i32(split_cfg%outer_plasma%unified_grid_points, 65_i32, 'unified grid points mismatch')
@@ -998,6 +1008,8 @@ contains
     write (u, '(a)') 'interface_sample_n = 7'
     write (u, '(a)') '[outer_plasma]'
     write (u, '(a)') 'model = "linear_debye"'
+    write (u, '(a)') 'kinetic_closure = "Absorbing_Maxwellian"'
+    write (u, '(a)') 'zhao_branch = "AUTO"'
     write (u, '(a)') 'photoelectron_density_model = "none"'
     write (u, '(a)') 'photoelectron_histogram_enabled = true'
     write (u, '(a)') 'return_model = "electrostatic_1d_instant_return"'

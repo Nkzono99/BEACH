@@ -18,7 +18,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: continuation_steps
   character(len=256) :: message
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -37,6 +37,35 @@ program test_outer_plasma_kinetic
     state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
     1.0e-20_dp, 'finite-domain Gauss closure mismatch' &
     )
+  call test_end()
+
+  call test_begin('charge-driven Zhao closure dispatches through kinetic state contract')
+  options = reference_options()
+  options%kinetic_closure = 'zhao_charge_driven'
+  options%zhao_branch = 'auto'
+  options%grid_points = 65_i32
+  options%electron_density_infinity = 8.7e6_dp
+  options%electron_temperature_j = 12.0_dp*qe
+  options%electron_drift_infinity = 4.0529988897111727e5_dp
+  options%ion_density_infinity = 8.7e6_dp
+  options%ion_temperature_j = 0.1_dp*qe
+  options%ion_drift_infinity = 4.0529988897111727e5_dp
+  options%photoelectron_charge = -qe
+  options%photoelectron_mass = electron_mass
+  options%photoelectron_temperature_j = 2.2_dp*qe
+  options%photoelectron_reference_density = 64.0e6_dp
+  options%zhao_alpha_deg = 60.0_dp
+  options%interface_field = 0.0_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'Zhao dispatch failed: '//trim(message))
+  call assert_true(state%ready .and. trim(state%model) == 'kinetic_1d', &
+                   'Zhao closure must produce a ready kinetic_1d state')
+  call assert_true(trim(state%kinetic_closure) == 'zhao_charge_driven', &
+                   'Zhao closure metadata mismatch')
+  call assert_true(state%zhao_branch == '0', 'strong-photoemission zero field must bootstrap branch 0')
+  call assert_close_dp(state%zhao_electron_density_infinity, 8.7e6_dp, 1.0e-8_dp, &
+                       'Zhao bootstrap electron density mismatch')
+  call assert_true(maxval(abs(state%potential)) == 0.0_dp, 'Zhao bootstrap profile must be flat')
   call test_end()
 
   call test_begin('analytic kinetic Jacobian action matches residual differences')

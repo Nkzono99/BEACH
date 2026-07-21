@@ -167,8 +167,8 @@ $$
 v_n^2(z)=v_{n,I}^2+\frac{2q[\phi_I-\phi(z)]}{m}
 $$
 
-を評価します。profileを最後まで通過できればescape、最初に$v_n^2$の符号が変わる区間があればturning pointを
-線形補間してreturnとします。
+を評価します。interface から profile を外向きに走査し、最初に$v_n^2$の符号が変わる区間があれば turning point を
+線形補間して return とします。離散 profile と far Robin tail の全経路を通過できる場合だけ escape と判定します。
 
 正の速度を持つ区間$a\to b$の片道時間は
 
@@ -179,10 +179,40 @@ $$
 で積算します。turning区間では到達fractionまでを積分し、grid上端より先にturning pointがある場合は
 far Robin exponential tailを解析積分します。往復後の速度反転、接線変位、periodic wrapは`linear_debye`と同じです。
 
+Zhao closureの現実装は、このgrid外積分にもphotoelectron reference Debye長をtail scaleとして使います。真の漸近scale
+`abs(phi_end/E_end)`とは一般に一致しないため、separatrix近傍のflight timeは暫定値です。production利用前にこの差を
+評価し、必要ならouter stateへ独立なtail scaleを追加します。
+
+### 非単調 Type A profile の障壁を全経路で調べる
+
+`kinetic_closure="zhao_charge_driven"` の Type A profile は途中に potential minimum を持つため、interface と
+無限遠の電位差だけでは粒子の到達可能性を決められません。外向き粒子は profile の全区間を z の順に走査し、
+最初に到達不能になる区間を turning point とします。
+
+無限遠からの流入では、無限遠での法線速度 $v_{n,\infty}$ に対して全 grid 点で
+
+$$
+v_n^2(z)=v_{n,\infty}^2+\frac{2q[\phi_\infty-\phi(z)]}{m}
+$$
+
+を検査します。どこか 1 点でも負になれば interface へ到達不能とします。これは endpoint の電位差ではなく、
+経路上で最も厳しい potential-energy barrier を流入 cutoff に使うことに相当します。
+
 ### profileの物理解を検査する
 
-profileは有限値、単調性、interface点との整合を検査します。非単調profile、物理的turning pointをbracketしない
-区間、非正のRobin tailはinvalid modelとして停止します。自己整合な平均sheathを扱える一方、平面平均された
+profileは有限値、z座標の狭義単調増加、interface点との整合に加え、closureとresolved branchごとの電位shapeを検査します。
+
+| closure / branch | 受理する電位shape |
+| --- | --- |
+| `absorbing_maxwellian` | 全gridで単調増加または単調減少 |
+| Zhao `A` | interior minimumまで非増加、その後は非減少 |
+| Zhao `B` | 全gridで非増加 |
+| Zhao `C` | 全gridで非減少 |
+| Zhao `0` | flat bootstrap |
+
+この条件外の非単調profileは受理しません。
+物理的 turning point を bracket しない区間や、必要な Robin tail が非正の場合は invalid model として停止します。
+自己整合な平均 sheath を扱える一方、平面平均された
 静電・無衝突・非磁化1D profileという仮定を持ちます。詳しくは
 [外部場: kinetic 1D](KineticOuterPlasma.html)で説明します。
 

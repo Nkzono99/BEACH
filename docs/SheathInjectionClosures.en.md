@@ -152,6 +152,12 @@ Because this path has already built a local VDF, it does not also apply a generi
 The Zhao result is a literature-based source-VDF precorrection. The Boris field snapshot and Zhao root are not updated from
 batch-varying `q_elem`, so this closure does not represent a self-consistent external field for arbitrary 3-D surface geometry.
 
+This is the legacy static injection closure. The new `outer_plasma.model="kinetic_1d"` with
+`kinetic_closure="zhao_charge_driven"` is not a source correction: at each outer refresh it updates the Zhao populations and
+Poisson profile using the accumulated-charge interface field as a boundary condition. It does not impose a floating-current
+root, and uses the same profile for inflow and return, so total current may remain nonzero while charge evolves. The two paths
+cannot be combined.
+
 Use the standard `kinetic_1d + kinetic_1d_profile_return` composition when incoming and outgoing particles share one
 self-consistent potential profile. Use a validated unified composition only when a rough surface has no split window and requires
 linear screening.
@@ -160,7 +166,8 @@ linear screening.
 
 - `sheath_injection_model` is rejected with `reservoir_potential_model`.
 - A `velocity_distribution="grid"` reservoir cannot currently use Zhao or floating correction.
-- `kinetic_1d_profile_return` rejects Zhao and `reservoir_potential_model`.
+- `kinetic_1d_profile_return` rejects Zhao `sheath_injection_model` and `reservoir_potential_model` corrections.
+  `outer_plasma.kinetic_closure="zhao_charge_driven"` is supported as a separate path.
 - Zhao requires negative electron, positive ion, and negative photoelectron species.
 - `floating_no_photo` uses only negative electron and positive ion species and does not modify photoemission.
 

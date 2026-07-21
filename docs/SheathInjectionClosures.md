@@ -154,6 +154,11 @@ $$
 Zhao profileから得る量は、文献モデルに基づくsource VDFの事前補正です。Zhao rootはBoris pusherで用いる電場とは独立しており、
 batchごとの`q_elem`からは更新されません。したがって、任意の3D surface geometryと自己整合な外部場を必要とする構成には対応しません。
 
+これは legacy の static injection closure です。新しい
+`outer_plasma.model="kinetic_1d"` + `kinetic_closure="zhao_charge_driven"` は source 補正ではなく、outer refresh ごとに
+蓄積電荷が作る interface 電場を境界条件として Zhao population と Poisson profile を更新します。floating-current root を
+課さず、同じ profile を流入と return に使うため、帯電途中の total current は非零でも構いません。この 2 経路は併用できません。
+
 sourceと外向き粒子が同じ自己整合potential profileを共有する計算には、標準の
 `kinetic_1d + kinetic_1d_profile_return`を使います。split windowを置けないrough surfaceで線形screeningが必要な場合だけ、
 適用性を検証したunified構成を使います。
@@ -162,7 +167,8 @@ sourceと外向き粒子が同じ自己整合potential profileを共有する計
 
 - `sheath_injection_model`は`reservoir_potential_model`との併用を拒否します。
 - `velocity_distribution="grid"`のreservoirは現行Zhao/floating補正と併用できません。
-- `kinetic_1d_profile_return`はZhao系と`reservoir_potential_model`を拒否します。
+- `kinetic_1d_profile_return`は Zhao 系 `sheath_injection_model` と `reservoir_potential_model` を拒否します。
+  `outer_plasma.kinetic_closure="zhao_charge_driven"` は別経路として対応します。
 - Zhaoは負electron、正ion、負photoelectronの3 speciesを要求します。
 - `floating_no_photo`は負electronと正ionだけを使い、photoelectron sourceを補正しません。
 

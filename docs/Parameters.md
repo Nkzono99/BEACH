@@ -291,13 +291,15 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | `model` | 必須 | `linear_debye` / `kinetic_1d` / `unified_linear_response` |
 | `interface_z` | 必須 | z 上側 interface。初期モデルでは box 上面 |
 | `infinity_potential` | `0` | 無限遠基準電位 [V] |
-| `debye_length` | 必須 | 線形 Debye 長 |
-| `thermal_voltage` | 必須 | 線形性・診断の電位 scale |
+| `debye_length` | 必須 | 線形/`absorbing_maxwellian` tailとsplit診断の長さscale。Zhao profileの物理scaleではない |
+| `thermal_voltage` | 必須 | 線形性とsplit診断の電位scale。Zhao profileの物理scaleではない |
 | `unified_grid_points` | `129` | unified zero-mode Poisson grid 点数（17 以上） |
 | `accessible_fraction_tolerance` | `0.1` | rough surface 高さ標本を各軸 2 倍にしたときの accessible fraction 最大差 |
 | `max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage` 上限 |
 | `max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda` 上限 |
 | `max_local_charge_ratio` | `50` | 局所平均 plasma 電荷推定比上限 |
+| `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` の density/VDF closure。`absorbing_maxwellian` / `zhao_charge_driven` |
+| `zhao_branch` | `auto` | Zhao closure の branch。`auto` / `a` / `b` / `c` |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は `kinetic_1d` へ平均光電子密度を追加 |
 | `photoelectron_histogram_enabled` | `false` | z-high を外向き通過する光電子の histogram と適用性検査を有効化 |
 | `photoelectron_histogram_bins` | `32` | 法線運動エネルギー histogram の bin 数 |
@@ -315,9 +317,10 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | 項目 | 仕様 |
 | --- | --- |
 | gauge | `phi(infinity)=0`。`infinity_potential`の非ゼロ値を拒否 |
-| far boundary | `debye_length`を長さとするRobin tail |
-| supported branch | 単調・無衝突・非磁化、Bohm条件を満たすion inflow |
-| unsupported | virtual cathode、trapped population、sub-Bohm inflow |
+| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。Zhaoは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$を使う |
+| closure | 既定の `absorbing_maxwellian`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
+| supported branch | `absorbing_maxwellian` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
+| unsupported | `absorbing_maxwellian` では virtual cathode、trapped population、sub-Bohm inflow |
 | nonlinear solve | 解析bordered-tridiagonal Jacobian + branch-preserving Newton |
 | recovery | pseudo-transientとinterface-field continuation。元のPoisson residual合格後だけ受理 |
 | fallback | 別sheath modelや前回解へfallbackしない |
@@ -339,12 +342,37 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 組合せ制約:
 
 - `reservoir_potential_model`、Zhao 系 `sheath_injection_model`、`b0 != 0` との併用を拒否します。
-- `photoelectron_density_model="kinetic_mean"` は、先頭の負電荷 `photo_raycast` species から half-Maxwellian flux を作ります。
+- `kinetic_closure="zhao_charge_driven"` は `model="kinetic_1d"`、`infinity_potential=0`、
+  `photoelectron_density_model="none"` を要求します。legacy `sheath_injection_model` や
+  `reservoir_potential_model` と重ねません。
+- `zhao_branch="a"` / `"b"` / `"c"` は `zhao_charge_driven` でのみ指定できます。`auto` は利用可能な branch を探索します。
+- `zhao_charge_driven` は正の `sheath_photoelectron_ref_density_cm3`、正の内向き electron/ion drift、
+  負電荷 `photo_raycast` species を要求し、`sheath_reference_coordinate` を拒否します。
+- ambient electron、ion、photoelectronには、それぞれenabledな負電荷z-high `reservoir_face`、正電荷z-high
+  `reservoir_face`、負電荷`photo_raycast` speciesをちょうど1つ要求し、0個または複数を拒否します。
+- `sheath_electron_drift_mode="normal"`と`sheath_ion_drift_mode="normal"`だけを受理します。
+- Zhaoに使う負電荷`photo_raycast` speciesは`normal_drift_speed=0`、ion温度はcold-ion近似$T_i\le0.1T_e$を要求します。
+- Zhao profileの電位/長さscaleは$T_{pe}$と基準密度から導出した$\lambda_{D,pe}$で、summaryへ導出長を出力します。
+- `debye_length`と`thermal_voltage`はZhao root/profileを変えません。ただしsplit-interfaceの`interface_eta_gap`、
+  lateral phi/field、local-charge診断のreference inputとして現時点でも必要です。
+- tracked `photo_raycast.emit_current_density_a_m2`は、$T_{pe}$をJへ換算し、$v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$として
+  $|q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})$と1%以内で一致する必要があります。
+- 解析currentは表面電荷へ加算せず、tracked放出と再吸収だけが更新します。
+- 初版は有効平面近似です。`ray_direction`やrough surfaceから到達するVDFをZhao outer populationへ自己無撞着に
+  接続せず、`ray_direction`と`sheath_alpha_deg`はそれぞれ照射rayによる放出面samplingと解析sourceを独立に指定します。
+- Zhaoの収束はprofile grid、有効interface位置、tracked粒子数、`dt`/batch解像度で調べます。
+  `debye_length`や`thermal_voltage`の変更をprofile収束試験として解釈しません。
+- `photoelectron_density_model="kinetic_mean"` は既定の `absorbing_maxwellian` で、先頭の負電荷
+  `photo_raycast` species から half-Maxwellian flux を作ります。
 - 平均密度モデルが供給するのは outer profile だけです。表面電荷は追跡粒子が更新するため、統計的な return current を重ねません。
 - tracked return を使う全 species で `deposit_opposite_charge_on_emit=true` が必要です。
 
-詳細は[粒子の escape と return](ParticleEscapeReturn.html)、実行例は `examples/periodic2_kinetic_outer.toml`、
-物理モデルの前提は `docs/adr/0001-kinetic-outer-plasma.md` にあります。
+詳細は[粒子の escape と return](ParticleEscapeReturn.html)を参照してください。
+
+既定 closure の例は
+[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)、charge-driven Zhao closure の例は
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)、物理モデルの前提は
+[ADR 0001](adr/0001-kinetic-outer-plasma.md)と[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)にあります。
 
 #### `unified_linear_response`の仕様（高度・限定用途）
 

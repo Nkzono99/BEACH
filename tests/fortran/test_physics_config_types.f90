@@ -20,7 +20,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -212,6 +212,73 @@ program test_physics_config_types
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'unknown photoelectron density model must fail closed')
   outer%photoelectron_density_model = 'none'
+  call test_end()
+
+  call test_begin('zhao_charge_driven_closure_contract')
+  sim = sim_config()
+  sim%field_solver = 'fmm'
+  sim%field_bc_mode = 'periodic2'
+  sim%field_periodic_far_correction = 'cached_kneq0'
+  sim%use_box = .true.
+  sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+  sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+  sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+  sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  call normalize_legacy_physics_config(sim, field, periodic2, panel, outer, coupling)
+  outer%model = 'kinetic_1d'
+  outer%kinetic_closure = 'zhao_charge_driven'
+  outer%zhao_branch = 'c'
+  outer%photoelectron_density_model = 'none'
+  outer%interface_z = 1.0_dp
+  outer%debye_length = 0.2_dp
+  outer%thermal_voltage = 2.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'Zhao charge-driven closure should be valid')
+
+  outer%model = 'linear_debye'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'Zhao closure must require kinetic_1d')
+  outer%model = 'kinetic_1d'
+  outer%photoelectron_density_model = 'kinetic_mean'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'Zhao closure must own its photoelectron population')
+  outer%photoelectron_density_model = 'none'
+  sim%sheath_injection_model = 'zhao_a'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'Zhao closure must reject a second sheath injection correction')
+  sim%sheath_injection_model = 'none'
+  sim%reservoir_potential_model = 'infinity_barrier'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'Zhao closure must reject a reservoir-potential correction')
+  sim%reservoir_potential_model = 'none'
+  sim%has_sheath_reference_coordinate = .true.
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'Zhao closure must reject an explicit sheath reference coordinate')
+  sim%has_sheath_reference_coordinate = .false.
+  sim%sheath_photoelectron_ref_density_cm3 = 0.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'Zhao closure must require positive photoelectron reference density')
+  sim%sheath_photoelectron_ref_density_cm3 = 64.0_dp
+  outer%infinity_potential = 1.0_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'Zhao closure must fix the infinity-potential gauge')
+  outer%infinity_potential = 0.0_dp
+  outer%zhao_branch = 'unknown'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'unknown Zhao branch must fail closed')
+  outer%zhao_branch = 'auto'
+  outer%kinetic_closure = 'unknown'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'unknown kinetic closure must fail closed')
+  outer%kinetic_closure = 'absorbing_maxwellian'
+  outer%zhao_branch = 'c'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'explicit Zhao branch must require the Zhao closure')
+  outer%kinetic_closure = 'zhao_charge_driven'
+  outer%zhao_branch = 'auto'
+  outer%return_model = 'kinetic_1d_profile_return'
+  coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+  coupling%field_evolution_timescale = 1.0_dp
   call test_end()
 
   call test_begin('persistent_outer_queue_unavailable')

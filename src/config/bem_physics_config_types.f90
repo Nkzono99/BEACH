@@ -35,6 +35,8 @@ module bem_physics_config_types
 
   type, public :: outer_plasma_config
     character(len=32) :: model = 'none'
+    character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
+    character(len=32) :: zhao_branch = 'auto'
     character(len=32) :: photoelectron_density_model = 'none'
     logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'
@@ -126,6 +128,8 @@ contains
     character(len=*), intent(out) :: message
     character(len=32) :: backend, normalization, source_model, nonzero_backend, zero_policy
 
+    call validate_kinetic_closure_config(outer, status, message)
+    if (status /= physics_config_ok) return
     call validate_photoelectron_config(outer, coupling, status, message)
     if (status /= physics_config_ok) return
     status = physics_config_ok
@@ -262,6 +266,10 @@ contains
     character(len=*), intent(out) :: message
     character(len=32) :: nonzero_backend
 
+    call validate_kinetic_closure_config(outer, status, message)
+    if (status /= physics_config_ok) return
+    call validate_zhao_charge_driven_sim_config(sim, outer, status, message)
+    if (status /= physics_config_ok) return
     call validate_photoelectron_config(outer, coupling, status, message)
     if (status /= physics_config_ok) return
     nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
@@ -432,6 +440,75 @@ contains
         )
     end if
   end subroutine validate_active_physics_config
+
+  subroutine validate_kinetic_closure_config(outer, status, message)
+    type(outer_plasma_config), intent(in) :: outer
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    character(len=32) :: closure, branch
+
+    status = physics_config_ok
+    message = ''
+    closure = lower_ascii(trim(outer%kinetic_closure))
+    branch = lower_ascii(trim(outer%zhao_branch))
+    select case (trim(branch))
+    case ('auto', 'a', 'b', 'c')
+      continue
+    case default
+      call reject(physics_config_invalid_combination, 'Unknown outer_plasma.zhao_branch.', status, message)
+      return
+    end select
+    select case (trim(closure))
+    case ('absorbing_maxwellian')
+      if (trim(branch) /= 'auto') then
+        call reject(physics_config_invalid_combination, &
+                    'outer_plasma.zhao_branch requires kinetic_closure=zhao_charge_driven.', status, message)
+      end if
+    case ('zhao_charge_driven')
+      if (trim(lower_ascii(outer%model)) /= 'kinetic_1d') then
+        call reject(physics_config_invalid_combination, &
+                    'zhao_charge_driven requires outer_plasma.model=kinetic_1d.', status, message)
+      else if (trim(lower_ascii(outer%photoelectron_density_model)) /= 'none') then
+        call reject(physics_config_invalid_combination, &
+                    'zhao_charge_driven includes its photoelectron population and requires photoelectron_density_model=none.', &
+                    status, message)
+      else if (.not. ieee_is_finite(outer%infinity_potential) .or. &
+               abs(outer%infinity_potential) > 64.0_dp*epsilon(1.0_dp)) then
+        call reject(physics_config_invalid_combination, &
+                    'zhao_charge_driven fixes the infinity-potential gauge to zero.', status, message)
+      end if
+    case default
+      call reject(physics_config_invalid_combination, 'Unknown outer_plasma.kinetic_closure.', status, message)
+    end select
+  end subroutine validate_kinetic_closure_config
+
+  subroutine validate_zhao_charge_driven_sim_config(sim, outer, status, message)
+    type(sim_config), intent(in) :: sim
+    type(outer_plasma_config), intent(in) :: outer
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    status = physics_config_ok
+    message = ''
+    if (trim(lower_ascii(outer%kinetic_closure)) /= 'zhao_charge_driven') return
+    if (trim(lower_ascii(sim%sheath_injection_model)) /= 'none' .or. &
+        trim(lower_ascii(sim%reservoir_potential_model)) /= 'none') then
+      call reject(physics_config_invalid_combination, &
+                  'zhao_charge_driven cannot mix with legacy sheath or reservoir-potential corrections.', status, message)
+      return
+    end if
+    if (sim%has_sheath_reference_coordinate) then
+      call reject(physics_config_invalid_combination, &
+                  'zhao_charge_driven uses outer_plasma.interface_z and rejects sheath_reference_coordinate.', &
+                  status, message)
+      return
+    end if
+    if (.not. ieee_is_finite(sim%sheath_photoelectron_ref_density_cm3) .or. &
+        sim%sheath_photoelectron_ref_density_cm3 <= 0.0_dp) then
+      call reject(physics_config_invalid_combination, &
+                  'zhao_charge_driven requires a positive sheath_photoelectron_ref_density_cm3.', status, message)
+    end if
+  end subroutine validate_zhao_charge_driven_sim_config
 
   subroutine validate_photoelectron_config(outer, coupling, status, message)
     type(outer_plasma_config), intent(in) :: outer

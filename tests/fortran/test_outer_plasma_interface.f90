@@ -18,7 +18,7 @@ program test_outer_plasma_interface
   logical :: accessible
   real(dp) :: mapped_speed
 
-  call test_init(8)
+  call test_init(9)
   call init_outer_plasma_linear( &
     interface_z=1.0_dp, interface_potential=-1.0_dp, infinity_potential=0.0_dp, &
     debye_length=0.5_dp, linearity_ratio=0.1_dp, max_linearity_ratio=1.0_dp, &
@@ -86,15 +86,34 @@ program test_outer_plasma_interface
                         'kinetic super-threshold particle must escape')
   call test_end()
 
-  call test_begin('kinetic_profile_rejects_nonmonotonic_state')
-  call set_kinetic_profile(state, [-1.0_dp, -0.25_dp, -0.5_dp, 0.0_dp], [1.0_dp, 1.5_dp, 2.0_dp, 3.0_dp])
+  call test_begin('kinetic_profile_nonmonotonic_barrier_returns_particle')
+  call set_kinetic_profile(state, [0.0_dp, -1.0_dp, 0.0_dp], [1.0_dp, 2.0_dp, 3.0_dp])
+  state%infinity_potential = 0.0_dp
   crossing%velocity(3) = 1.0_dp
   call map_outer_particle_kinetic_profile( &
-    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, crossing, &
     field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
     )
   call assert_equal_i32(outcome%kind, interface_outcome_invalid_model, &
-                        'nonmonotonic kinetic profile must fail closed')
+                        'default kinetic closure must reject a nonmonotonic profile')
+  state%kinetic_closure = 'zhao_charge_driven'
+  state%zhao_branch = 'A'
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_returned_local, &
+                        'an interior nonmonotonic barrier must return the particle')
+  call assert_close_dp(outcome%outer_flight_time, 2.0_dp, 1.0e-14_dp, &
+                       'nonmonotonic turning-point flight time mismatch')
+  call test_end()
+
+  call test_begin('kinetic_profile_nonmonotonic_barrier_filters_inflow')
+  call map_infinity_normal_velocity_to_interface(state, -1.0_dp, 1.0_dp, 1.0_dp, accessible, mapped_speed)
+  call assert_true(.not. accessible, 'an infinity particle below the interior barrier must be rejected')
+  call map_infinity_normal_velocity_to_interface(state, -1.0_dp, 1.0_dp, 2.0_dp, accessible, mapped_speed)
+  call assert_true(accessible, 'an infinity particle above the interior barrier must reach the interface')
+  call assert_close_dp(mapped_speed, 2.0_dp, 1.0e-14_dp, 'nonmonotonic inflow energy map mismatch')
   call test_end()
 
   call init_outer_plasma_linear( &
@@ -146,6 +165,7 @@ contains
     real(dp), intent(in) :: potential(:), z(:)
 
     value%model = 'kinetic_1d'
+    value%kinetic_closure = 'absorbing_maxwellian'
     value%ready = .true.
     value%interface_z = z(1)
     value%interface_potential = potential(1)

@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(13)
+  call test_init(15)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -77,6 +77,24 @@ program test_model_fingerprint
   call assert_true( &
     model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
     'photoelectron density model must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('kinetic_closure_change_detected')
+  cfg_changed = cfg
+  cfg_changed%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'kinetic closure must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('zhao_branch_change_detected')
+  cfg_changed = cfg
+  cfg_changed%outer_plasma%zhao_branch = 'c'
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'Zhao branch must alter fingerprint' &
     )
   call test_end()
 

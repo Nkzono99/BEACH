@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -183,6 +184,55 @@ def test_kinetic_photoelectron_density_model_requires_matching_transfer_pair() -
 
     config["coupling"]["particle_transfer_mode"] = "none"
     normalize_config_document(config)
+
+
+def test_zhao_charge_driven_closure_constraints() -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config["outer_plasma"]["kinetic_closure"] = "zhao_charge_driven"
+    config["outer_plasma"]["zhao_branch"] = "c"
+    config["outer_plasma"]["photoelectron_density_model"] = "none"
+
+    normalize_config_document(config)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["model"] = "linear_debye"
+    with pytest.raises(ConfigValidationError, match="outer_plasma.model"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["photoelectron_density_model"] = "kinetic_mean"
+    with pytest.raises(ConfigValidationError, match="photoelectron_density_model"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["infinity_potential"] = 1.0
+    with pytest.raises(ConfigValidationError, match="infinity_potential"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["sheath_injection_model"] = "zhao_a"
+    with pytest.raises(ConfigValidationError, match="sheath_injection_model"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["reservoir_potential_model"] = "infinity_barrier"
+    with pytest.raises(ConfigValidationError, match="reservoir_potential_model"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["sheath_reference_coordinate"] = 0.0
+    with pytest.raises(ConfigValidationError, match="sheath_reference_coordinate"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
+    with pytest.raises(ConfigValidationError, match="sheath_photoelectron_ref_density_cm3"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
+    with pytest.raises(ConfigValidationError, match="zhao_branch"):
+        normalize_config_document(invalid)
 
 
 def test_tracked_outer_transfer_requires_opposite_charge_deposit() -> None:

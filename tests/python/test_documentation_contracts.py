@@ -212,6 +212,47 @@ def test_photoelectron_schema_matches_density_transfer_and_deposit_contracts() -
     assert list(validator.iter_errors(tracked_photoelectron))
 
 
+def test_zhao_charge_driven_schema_contract() -> None:
+    validator = Draft202012Validator(_schema())
+    config = tomllib.loads(_read("examples/periodic2_kinetic_outer.toml"))
+    config["outer_plasma"]["kinetic_closure"] = "zhao_charge_driven"
+    config["outer_plasma"]["zhao_branch"] = "c"
+
+    assert not list(validator.iter_errors(config))
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["model"] = "linear_debye"
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["photoelectron_density_model"] = "kinetic_mean"
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["infinity_potential"] = 1.0
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["sheath_injection_model"] = "zhao_a"
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["reservoir_potential_model"] = "infinity_barrier"
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["sheath_reference_coordinate"] = 0.0
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
+    assert list(validator.iter_errors(invalid))
+
+
 def test_outer_sheath_guidance_keeps_kinetic_as_the_standard_model() -> None:
     outer = _schema()["properties"]["outer_plasma"]
     model = outer["properties"]["model"]

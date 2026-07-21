@@ -39,6 +39,8 @@ contains
     call feed_string(hash, cfg%panel%kernel_id)
     call feed_string(hash, cfg%panel%surface_side_policy)
     call feed_string(hash, cfg%outer_plasma%model)
+    call feed_string(hash, cfg%outer_plasma%kinetic_closure)
+    call feed_string(hash, cfg%outer_plasma%zhao_branch)
     call feed_string(hash, cfg%outer_plasma%photoelectron_density_model)
     call feed_logical(hash, cfg%outer_plasma%photoelectron_histogram_enabled)
     call feed_string(hash, cfg%outer_plasma%return_model)

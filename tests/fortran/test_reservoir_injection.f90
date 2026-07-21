@@ -27,7 +27,7 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(10)
+  call test_init(12)
 
   call test_begin('particle_source_plan_equivalence')
   call test_particle_source_plan_equivalence()
@@ -35,6 +35,14 @@ program test_reservoir_injection
 
   call test_begin('split_outer_infinity_vdf_map')
   call test_split_outer_infinity_vdf_map()
+  call test_end()
+
+  call test_begin('split_outer_nonmonotonic_interior_barrier')
+  call test_split_outer_nonmonotonic_interior_barrier()
+  call test_end()
+
+  call test_begin('zhao_density_and_target_weight_follow_outer_state')
+  call test_zhao_density_and_target_weight_follow_outer_state()
   call test_end()
 
   call test_begin('snapshot_infinity_barrier')
@@ -337,7 +345,7 @@ contains
     type(particles_soa) :: particles
     type(injection_state) :: state
     type(outer_plasma_state_type) :: outer_state
-    real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
+    real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), vmin_normal, barrier_normal
 
     v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
     v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
@@ -373,16 +381,149 @@ contains
     split_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
     outer_state%model = 'kinetic_1d'
     outer_state%ready = .true.
+    outer_state%profile_n = 3_i32
+    outer_state%interface_z = 0.0_dp
     outer_state%interface_potential = -2.0_dp
     outer_state%infinity_potential = 0.0_dp
+    allocate (outer_state%z(3), outer_state%potential(3))
+    outer_state%z = [0.0_dp, 1.0_dp, 2.0_dp]
+    outer_state%potential = [-2.0_dp, -1.0_dp, 0.0_dp]
     allocate (state%macro_residual(1))
     state%macro_residual = 0.0_dp
+    call reservoir_face_velocity_correction( &
+      split_cfg, split_cfg%particle_species(1), vmin_normal, barrier_normal, outer_state=outer_state &
+      )
+    call assert_close_dp(barrier_normal, -4.0_dp, 1.0e-14_dp, 'monotonic endpoint map changed')
+    call assert_close_dp(vmin_normal, 0.0_dp, 1.0e-14_dp, 'monotonic profile cutoff changed')
     call init_particle_batch_from_config( &
       split_cfg, 1_i32, particles, state=state, mesh=split_mesh, outer_state=outer_state &
       )
     call assert_equal_i32(particles%n, 10_i32, 'mapped ambient macro count mismatch')
     call assert_close_dp(particles%v(3, 1), -sqrt(5.0_dp), 1.0e-14_dp, 'kinetic interface velocity mismatch')
   end subroutine test_split_outer_infinity_vdf_map
+
+  subroutine test_split_outer_nonmonotonic_interior_barrier()
+    type(app_config) :: split_cfg
+    type(outer_plasma_state_type) :: outer_state
+    real(dp) :: vmin_normal, barrier_normal
+
+    call default_app_config(split_cfg)
+    split_cfg%outer_plasma%model = 'kinetic_1d'
+    split_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+    split_cfg%particle_species(1) = species_from_defaults()
+    split_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    split_cfg%particle_species(1)%inject_face = 'z_high'
+    split_cfg%particle_species(1)%q_particle = -1.0_dp
+    split_cfg%particle_species(1)%m_particle = 1.0_dp
+
+    outer_state%model = 'kinetic_1d'
+    outer_state%ready = .true.
+    outer_state%profile_n = 4_i32
+    outer_state%interface_z = 0.0_dp
+    outer_state%interface_potential = 0.0_dp
+    outer_state%infinity_potential = 0.0_dp
+    allocate (outer_state%z(4), outer_state%potential(4))
+    outer_state%z = [0.0_dp, 1.0_dp, 2.0_dp, 3.0_dp]
+    outer_state%potential = [0.0_dp, -2.0_dp, -1.0_dp, 0.0_dp]
+
+    call reservoir_face_velocity_correction( &
+      split_cfg, split_cfg%particle_species(1), vmin_normal, barrier_normal, outer_state=outer_state &
+      )
+    call assert_close_dp(barrier_normal, 0.0_dp, 1.0e-14_dp, 'endpoint map must remain an endpoint quantity')
+    call assert_close_dp(vmin_normal, 2.0_dp, 1.0e-14_dp, 'interior potential barrier was not applied')
+  end subroutine test_split_outer_nonmonotonic_interior_barrier
+
+  subroutine test_zhao_density_and_target_weight_follow_outer_state()
+    type(app_config) :: zhao_cfg
+    type(particle_source_plan_type) :: source_plan
+    type(particles_soa) :: particles
+    type(injection_state) :: state
+    type(outer_plasma_state_type) :: outer_state
+
+    call default_app_config(zhao_cfg)
+    zhao_cfg%sim%batch_count = 2_i32
+    zhao_cfg%sim%batch_duration = 1.0_dp
+    zhao_cfg%sim%has_batch_duration = .true.
+    zhao_cfg%sim%dt = 0.0_dp
+    zhao_cfg%sim%use_box = .true.
+    zhao_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    zhao_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    zhao_cfg%outer_plasma%model = 'kinetic_1d'
+    zhao_cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+    zhao_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+    zhao_cfg%n_particle_species = 2_i32
+    zhao_cfg%particle_species(1) = species_from_defaults()
+    zhao_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    zhao_cfg%particle_species(1)%number_density_m3 = 100.0_dp
+    zhao_cfg%particle_species(1)%has_number_density_m3 = .true.
+    zhao_cfg%particle_species(1)%temperature_k = 0.0_dp
+    zhao_cfg%particle_species(1)%has_temperature_k = .true.
+    zhao_cfg%particle_species(1)%q_particle = -1.0_dp
+    zhao_cfg%particle_species(1)%m_particle = 1.0_dp
+    zhao_cfg%particle_species(1)%target_macro_particles_per_batch = 4_i32
+    zhao_cfg%particle_species(1)%has_target_macro_particles_per_batch = .true.
+    zhao_cfg%particle_species(1)%w_particle = 50.0_dp
+    zhao_cfg%particle_species(1)%has_w_particle = .true.
+    zhao_cfg%particle_species(1)%inject_face = 'z_high'
+    zhao_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    zhao_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    zhao_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -2.0_dp]
+    zhao_cfg%particle_species(2) = species_from_defaults()
+    zhao_cfg%particle_species(2)%source_mode = 'reservoir_face'
+    zhao_cfg%particle_species(2)%number_density_m3 = 40.0_dp
+    zhao_cfg%particle_species(2)%has_number_density_m3 = .true.
+    zhao_cfg%particle_species(2)%temperature_k = 0.0_dp
+    zhao_cfg%particle_species(2)%has_temperature_k = .true.
+    zhao_cfg%particle_species(2)%q_particle = 1.0_dp
+    zhao_cfg%particle_species(2)%m_particle = 1.0_dp
+    zhao_cfg%particle_species(2)%target_macro_particles_per_batch = -1_i32
+    zhao_cfg%particle_species(2)%has_target_macro_particles_per_batch = .true.
+    zhao_cfg%particle_species(2)%w_particle = 50.0_dp
+    zhao_cfg%particle_species(2)%has_w_particle = .true.
+    zhao_cfg%particle_species(2)%inject_face = 'z_high'
+    zhao_cfg%particle_species(2)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    zhao_cfg%particle_species(2)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    zhao_cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+
+    outer_state%model = 'kinetic_1d'
+    outer_state%kinetic_closure = 'zhao_charge_driven'
+    outer_state%zhao_branch = '0'
+    outer_state%ready = .true.
+    outer_state%profile_n = 2_i32
+    outer_state%interface_z = 0.0_dp
+    outer_state%interface_potential = 0.0_dp
+    outer_state%infinity_potential = 0.0_dp
+    outer_state%zhao_electron_density_infinity = 40.0_dp
+    allocate (outer_state%z(2), outer_state%potential(2))
+    outer_state%z = [0.0_dp, 1.0_dp]
+    outer_state%potential = 0.0_dp
+    allocate (state%macro_residual(2))
+    state%macro_residual = 0.0_dp
+    call build_particle_source_plan(zhao_cfg, source_plan)
+
+    call init_particle_batch_from_config( &
+      zhao_cfg, 1_i32, particles, state=state, outer_state=outer_state, source_plan=source_plan &
+      )
+    call assert_equal_i32( &
+      int(count(particles%species_id == 1_i32), i32), 4_i32, 'Zhao target count did not use the solved density' &
+      )
+    call assert_equal_i32( &
+      int(count(particles%species_id == 2_i32), i32), 2_i32, 'shared target weight was not updated for the ion' &
+      )
+    call assert_true(all(abs(particles%w - 20.0_dp) <= 1.0e-14_dp), 'Zhao target weight did not use the solved density')
+
+    outer_state%zhao_electron_density_infinity = 20.0_dp
+    call init_particle_batch_from_config( &
+      zhao_cfg, 2_i32, particles, state=state, outer_state=outer_state, source_plan=source_plan &
+      )
+    call assert_equal_i32( &
+      int(count(particles%species_id == 1_i32), i32), 4_i32, 'Zhao target count changed after a density update' &
+      )
+    call assert_equal_i32( &
+      int(count(particles%species_id == 2_i32), i32), 4_i32, 'shared target count retained the old electron weight' &
+      )
+    call assert_true(all(abs(particles%w - 10.0_dp) <= 1.0e-14_dp), 'source plan retained a stale Zhao target weight')
+  end subroutine test_zhao_density_and_target_weight_follow_outer_state
 
   subroutine test_global_count_independent_of_mpi_size()
     integer(i32), parameter :: rank_sizes(3) = [1_i32, 2_i32, 4_i32]
@@ -420,8 +561,13 @@ contains
     count_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
     outer_state%model = 'kinetic_1d'
     outer_state%ready = .true.
+    outer_state%profile_n = 2_i32
+    outer_state%interface_z = 0.0_dp
     outer_state%interface_potential = 0.125_dp
     outer_state%infinity_potential = 0.0_dp
+    allocate (outer_state%z(2), outer_state%potential(2))
+    outer_state%z = [0.0_dp, 1.0_dp]
+    outer_state%potential = [0.125_dp, 0.0_dp]
 
     do size_index = 1_i32, size(rank_sizes)
       n_ranks = rank_sizes(size_index)

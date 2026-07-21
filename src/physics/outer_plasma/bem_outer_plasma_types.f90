@@ -12,9 +12,14 @@ module bem_outer_plasma_types
   type, public :: outer_plasma_state_type
     logical :: ready = .false.
     character(len=32) :: model = 'none'
+    character(len=32) :: kinetic_closure = 'none'
+    character(len=1) :: zhao_branch = ' '
     integer(i32) :: applicability_status = outer_plasma_invalid
     real(dp) :: interface_z = 0.0_dp
     real(dp) :: interface_potential = 0.0_dp
+    real(dp) :: zhao_phi0 = 0.0_dp
+    real(dp) :: zhao_phi_minimum = 0.0_dp
+    real(dp) :: zhao_electron_density_infinity = 0.0_dp
     real(dp) :: infinity_potential = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: interface_field = 0.0_dp

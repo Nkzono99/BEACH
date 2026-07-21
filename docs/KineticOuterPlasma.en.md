@@ -93,9 +93,80 @@ Outgoing and returning densities in `kinetic_mean` are a stationary closure for 
 deposition by tracked particles and do not add a second statistical return current. See
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for source charge and tracked reabsorption.
 
-## Connect the finite grid to infinity with a Robin tail
+## Connect Zhao populations to accumulated charge
 
-Interior points use conservative finite-volume residuals on a stretchable nonuniform 1-D grid. Current runtime values are below;
+`kinetic_closure="zhao_charge_driven"` uses Zhao populations of free/reflected ambient electrons, free/captured
+photoelectrons, and cold ions, and solves a profile that matches $E_I$ from the currently accumulated surface charge.
+Select `zhao_branch="auto"` or `a`, `b`, or `c`. The default
+`kinetic_closure="absorbing_maxwellian"` remains the existing finite-grid Poisson model.
+The Zhao closure requires exactly one enabled negative z-high `reservoir_face` ambient electron, one positive z-high
+`reservoir_face` ion, and one negative `photo_raycast` photoelectron; the runtime
+rejects both zero and multiple matches.
+The current implementation accepts only `sim.sheath_electron_drift_mode="normal"` and
+`sim.sheath_ion_drift_mode="normal"`. It also requires `photo_raycast.normal_drift_speed=0` and the cold-ion condition
+$T_i\le0.1T_e$.
+
+The charge-driven Zhao closure does not impose the zero-current equation of the stationary Zhao model. Types B and C solve
+infinity quasineutrality and
+
+$$
+2\int_{\psi_0}^{0}\hat\rho(\psi)\,d\psi=\hat E_I^2.
+$$
+
+Type A solves infinity quasineutrality, the upper-branch far-field condition, and
+
+$$
+-2\int_{\psi_m}^{\psi_0}\hat\rho_{\mathrm{lower}}(\psi)\,d\psi=\hat E_I^2.
+$$
+
+Here $\psi=\phi/T_{pe}$ and $\hat E_I=E_I\lambda_{D,pe}/T_{pe}$. The former current balance remains as species and total
+current-density diagnostics, so total current may be nonzero while the surface is charging.
+If the initial $E_I=0$ state has no quasineutral root with a strong photoelectron population, an ambient-only flat state is used
+once and recorded as branch `0`, representing an outer population that has not formed yet. After the first tracked current
+creates charge, ordinary Zhao roots are solved; this bootstrap is never a fallback at nonzero field.
+
+The quasisteady A/B/C branches with the full photoelectron population need not connect continuously to $E_I=0$. A requested
+field outside their solvable range stops with `no_physical_solution`. Crossing this gap from an uncharged state with small
+batches requires a separate time-dependent closure with an outer-photoelectron-cloud occupancy state. The bundled example
+does not model that transient; it is a branch-entry smoke whose first coarse batch reaches a known Type-A range and whose second batch exercises the resolved branch.
+
+This first implementation treats the z-high interface as the effective Zhao emitting plane. It reuses
+`sim.sheath_alpha_deg` and `sim.sheath_photoelectron_ref_density_cm3`, and obtains mass and temperature from the first negative
+`photo_raycast` species. The Zhao solver uses that temperature $T_{pe}$ as its potential scale and the photoelectron Debye length
+$\lambda_{D,pe}$ derived from the temperature and reference density as its length scale. It writes the derived length as
+`outer_debye_length_m` in the converged state.
+
+`outer_plasma.debye_length` and `outer_plasma.thermal_voltage` are not physical scales for the Zhao root or profile. They remain
+reference inputs for the split-interface applicability diagnostics: the former scales `interface_eta_gap` and the local-charge
+estimate, while the latter scales the lateral `interface_eta_phi_kneq0` and `interface_eta_field_kneq0` diagnostics. Do not test
+Zhao convergence by varying these inputs. Refine the profile grid, effective interface location, tracked-particle count, and
+`dt` or batch resolution instead. The current 128-point profile grid is fixed at runtime, so a production grid-convergence study
+requires exposing its point count as an input.
+
+The tracked `photo_raycast.emit_current_density_a_m2` must agree within 1% with the analytic raw source at the effective plane,
+
+$$
+J_{pe,\mathrm{raw}}=
+\frac{|q_{pe}|n_{\mathrm{ref}}\sin(\alpha)v_{\mathrm{th},pe}}{2\sqrt{\pi}},
+\qquad
+v_{\mathrm{th},pe}=\sqrt{\frac{2T_{pe}}{m_{pe}}}.
+$$
+
+Here $T_{pe}$ in the speed formula is thermal energy in joules. The runtime rejects a mismatch. Analytic current remains a
+diagnostic and is not added to surface charge; only tracked emission
+and reabsorption update that charge. The closure also rejects a legacy Zhao `sheath_injection_model`,
+`reservoir_potential_model`, and `photoelectron_density_model="kinetic_mean"`.
+
+This effective-plane approximation does not self-consistently connect tracked-ray directions or a VDF reaching the interface
+from a rough surface to the Zhao outer population. `ray_direction` controls illumination-ray sampling of emitting surfaces, while $\alpha$
+independently controls the analytic Zhao source. See [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md) for scope and the
+boundary VDF needed by a future generalization.
+
+## Connect the `absorbing_maxwellian` finite grid to infinity with a Robin tail
+
+This section and the next Newton section are specific to the default `absorbing_maxwellian`. Zhao constructs its root and profile
+from the Sagdeev conditions described above. `absorbing_maxwellian` interior points use conservative finite-volume residuals on
+a stretchable nonuniform 1-D grid. Current runtime values are below;
 only `debye_length` is currently exposed as a separate input.
 
 | Item | Current value |
@@ -115,7 +186,7 @@ $$
 This gives exponential relaxation toward the infinity gauge. The remaining tail is also used for return-particle flight-time
 integration.
 
-## Follow the physical branch with continued Newton solves
+## Follow the physical branch with continued Newton solves (`absorbing_maxwellian`)
 
 Analytic density derivatives form a bordered-tridiagonal Jacobian, making one Newton step $O(N_z)$. Dependence of interior
 densities on $\phi_I=\phi_1$ produces the border column in addition to the ordinary tridiagonal stencil.
@@ -128,19 +199,20 @@ densities on $\phi_I=\phi_1$ produces the border column in addition to the ordin
 Regularization and continuation change only the convergence path. Final validation always returns to the original discrete
 Poisson residual.
 
-## Accept only the supported sheath branch
+## Accept only branches supported by each closure
 
 | Condition | Requirement |
 | --- | --- |
 | Original Poisson residual | Unregularized residual is below tolerance |
-| Monotone branch | Remain on the supported electron-repelling profile |
+| Branch | The supported monotone branch for `absorbing_maxwellian`; the requested A/B/C sign and population conditions for Zhao |
 | Ion accessibility | $u_i^2(z)>0$ at every grid point |
 | Kinetic Bohm entry | $u_{i,\infty}\ge\sqrt{(T_e+\gamma_iT_i)/m_i}$ |
 | Infinity quasineutrality | $q_en_{e,\infty}+q_in_{i,\infty}\simeq0$ |
 
-Nonmonotone virtual-cathode profiles, trapped populations, and sub-Bohm ion inflow are outside this model. A numerical iterate is
-not accepted if these conditions fail. The run stops with status `not_applicable`, `no_physical_solution`, or
-`numerical_failure`.
+Nonmonotone virtual-cathode profiles and trapped populations remain outside `absorbing_maxwellian`.
+`zhao_charge_driven` supports the single potential minimum of Type A and only the reflected/captured populations represented by
+the Zhao formulas. Sub-Bohm ion inflow and states outside the selected closure are rejected. The run stops with status
+`not_applicable`, `no_physical_solution`, or `numerical_failure`.
 
 ## Refresh the profile at its stride and share it across ranks
 
@@ -157,13 +229,15 @@ Converged $z,\phi,E,\rho$ are written to `outer_plasma_profile.csv` and can seed
 `interface_potential`, `interface_field`, `outer_integrated_charge`, species and total current densities, Newton iteration count,
 and original nonlinear residual.
 
-Also vary `debye_length`, interface location, and when needed source sampling, and confirm convergence of interface potential,
-currents, and surface charging. With return active, inspect flight time, frozen-field ratio, and quasisteady applicability in
-[Particle escape and return](ParticleEscapeReturn.en.html).
+For `absorbing_maxwellian`, vary `debye_length`, interface location, and when needed source sampling, and confirm convergence of
+interface potential, currents, and surface charging. Zhao uses the derived $\lambda_{D,pe}$, so refine the profile grid,
+effective interface location, tracked-particle count, and time resolution instead. With return active, inspect flight time,
+frozen-field ratio, and quasisteady applicability in [Particle escape and return](ParticleEscapeReturn.en.html).
 
 ## Code reference
 
 - VDF closures and nonlinear Poisson solve: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
+- Charge-driven Zhao roots and nonmonotone profiles: [`bem_outer_plasma_zhao.f90`](../src/physics/outer_plasma/bem_outer_plasma_zhao.f90)
 - Build solver options from runtime species: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
 - Surface-field coupling and MPI collective solve: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
 - Profile output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)

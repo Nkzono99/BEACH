@@ -171,8 +171,8 @@ $$
 v_n^2(z)=v_{n,I}^2+\frac{2q[\phi_I-\phi(z)]}{m}.
 $$
 
-A particle that traverses the profile escapes. Otherwise, the first interval where $v_n^2$ changes sign brackets a turning
-point, which is linearly interpolated for return.
+The mapper scans outward from the interface. The first interval where $v_n^2$ changes sign brackets a turning point, which is
+linearly interpolated for return. A particle escapes only when it can traverse the entire discrete profile and far Robin tail.
 
 The one-way time over a positive-speed interval $a\to b$ is accumulated as
 
@@ -184,11 +184,41 @@ The turning interval is integrated only to the crossing fraction. If the turning
 exponential tail is integrated analytically. Velocity reversal, tangential displacement, and periodic wrapping after the round
 trip follow the `linear_debye` treatment.
 
+The current Zhao closure also uses the photoelectron reference Debye length as this off-grid tail scale. It generally differs
+from the true asymptotic `abs(phi_end/E_end)`, so near-separatrix flight times are provisional. Quantify this difference before
+production use and add an independent tail scale to the outer state when necessary.
+
+### Scan the full barrier of a nonmonotone Type A profile
+
+A Type A profile from `kinetic_closure="zhao_charge_driven"` contains an intermediate potential minimum, so the endpoint
+potential difference alone cannot determine accessibility. For an outgoing particle, the mapper scans every profile interval
+in z order and uses the first inaccessible interval as the turning point.
+
+For inflow from infinity with normal speed $v_{n,\infty}$, every grid point is checked using
+
+$$
+v_n^2(z)=v_{n,\infty}^2+\frac{2q[\phi_\infty-\phi(z)]}{m}.
+$$
+
+If this value is negative at any point, the particle cannot reach the interface. This is equivalent to using the most
+restrictive potential-energy barrier along the path instead of only the endpoint difference.
+
 ### Validate the physical profile branch
 
-The profile is checked for finite values, monotonicity, and consistency with the interface point. A nonmonotone profile, an
-interval that fails to bracket a physical turning point, or a nonpositive Robin tail stops as an invalid model. The model can
-represent a self-consistent mean sheath, but assumes a plane-averaged, electrostatic, collisionless, unmagnetized 1-D profile.
+The profile is checked for finite values, strictly increasing z coordinates, consistency with the interface point, and the
+potential shape required by its closure and resolved branch.
+
+| Closure / branch | Accepted potential shape |
+| --- | --- |
+| `absorbing_maxwellian` | Monotone increasing or monotone decreasing over the full grid |
+| Zhao `A` | Nonincreasing to an interior minimum, then nondecreasing |
+| Zhao `B` | Nonincreasing over the full grid |
+| Zhao `C` | Nondecreasing over the full grid |
+| Zhao `0` | Flat bootstrap |
+
+Other nonmonotone profiles are rejected. An interval that fails to bracket a physical turning point, or a nonpositive Robin tail when one
+is required, stops as an invalid model. The model can represent a self-consistent mean sheath, but assumes a plane-averaged,
+electrostatic, collisionless, unmagnetized 1-D profile.
 See [Outer field: kinetic 1D](KineticOuterPlasma.en.html) for details.
 
 ## 5. `unified_linear_response`: integrate an external 3-D orbit

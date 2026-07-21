@@ -1,14 +1,19 @@
 module bem_outer_plasma_kinetic
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_constants, only: pi, eps0
+  use bem_constants, only: pi, eps0, qe
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_invalid, &
                                     outer_plasma_no_physical_solution, outer_plasma_numerical_failure
   use bem_outer_plasma_grid, only: outer_plasma_grid_type, init_outer_plasma_grid
+  use bem_outer_plasma_zhao, only: zhao_charge_root_type, solve_outer_plasma_zhao
+  use bem_sheath_model_core, only: zhao_params_type, build_zhao_params
+  use bem_string_utils, only: lower_ascii
   implicit none
   private
 
   type, public :: kinetic_outer_plasma_options_type
+    character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
+    character(len=16) :: zhao_branch = 'auto'
     integer(i32) :: grid_points = 128_i32
     integer(i32) :: max_iterations = 40_i32
     real(dp) :: domain_length = 0.0_dp
@@ -19,6 +24,7 @@ module bem_outer_plasma_kinetic
     real(dp) :: electron_mass = 0.0_dp
     real(dp) :: electron_density_infinity = 0.0_dp
     real(dp) :: electron_temperature_j = 0.0_dp
+    real(dp) :: electron_drift_infinity = 0.0_dp
     real(dp) :: ion_charge = 0.0_dp
     real(dp) :: ion_mass = 0.0_dp
     real(dp) :: ion_density_infinity = 0.0_dp
@@ -29,6 +35,8 @@ module bem_outer_plasma_kinetic
     real(dp) :: photoelectron_mass = 0.0_dp
     real(dp) :: photoelectron_temperature_j = 0.0_dp
     real(dp) :: photoelectron_emission_flux = 0.0_dp
+    real(dp) :: photoelectron_reference_density = 0.0_dp
+    real(dp) :: zhao_alpha_deg = 60.0_dp
     real(dp) :: residual_tolerance = 1.0e-8_dp
     real(dp) :: external_current_density = 0.0_dp
   end type kinetic_outer_plasma_options_type
@@ -45,7 +53,7 @@ module bem_outer_plasma_kinetic
 contains
 
   subroutine solve_outer_plasma_kinetic( &
-    options, state, status, message, initial_potential, continuation_steps &
+    options, state, status, message, initial_potential, continuation_steps, initial_state &
     )
     type(kinetic_outer_plasma_options_type), intent(in) :: options
     type(outer_plasma_state_type), intent(out) :: state
@@ -53,6 +61,7 @@ contains
     character(len=*), intent(out) :: message
     real(dp), intent(in), optional :: initial_potential(:)
     integer(i32), intent(out), optional :: continuation_steps
+    type(outer_plasma_state_type), intent(in), optional :: initial_state
     type(kinetic_outer_plasma_options_type) :: step_options
     type(outer_plasma_state_type) :: step_state
     type(outer_plasma_grid_type) :: grid
@@ -62,6 +71,26 @@ contains
     integer(i32) :: successful_steps, attempts
 
     if (present(continuation_steps)) continuation_steps = 0_i32
+    select case (trim(lower_ascii(options%kinetic_closure)))
+    case ('zhao_charge_driven')
+      if (present(initial_state)) then
+        call solve_outer_plasma_zhao_closure(options, state, status, message, initial_state)
+      else
+        call solve_outer_plasma_zhao_closure(options, state, status, message)
+      end if
+      if (status == outer_plasma_ok .and. present(continuation_steps)) continuation_steps = 1_i32
+      return
+    case ('absorbing_maxwellian')
+      continue
+    case default
+      state = outer_plasma_state_type()
+      state%model = 'kinetic_1d'
+      state%kinetic_closure = options%kinetic_closure
+      state%applicability_status = outer_plasma_invalid
+      status = outer_plasma_invalid
+      message = 'unknown kinetic outer-plasma closure'
+      return
+    end select
     if (.not. present(initial_potential)) then
       call solve_outer_plasma_kinetic_fixed(options, state, status, message)
       return
@@ -135,6 +164,88 @@ contains
     state%applicability_status = status
     message = 'kinetic interface-field continuation reached its attempt limit'
   end subroutine solve_outer_plasma_kinetic
+
+  subroutine solve_outer_plasma_zhao_closure(options, state, status, message, initial_state)
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(outer_plasma_state_type), intent(out) :: state
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    type(outer_plasma_state_type), intent(in), optional :: initial_state
+
+    type(zhao_params_type) :: params
+    type(zhao_charge_root_type) :: root, initial_root
+    real(dp) :: electron_temperature_ev, photoelectron_temperature_ev, charge_tolerance
+    logical :: has_initial_root
+
+    state = outer_plasma_state_type()
+    state%model = 'kinetic_1d'
+    state%kinetic_closure = 'zhao_charge_driven'
+    status = outer_plasma_invalid
+    message = ''
+    charge_tolerance = 0.1_dp*qe
+    if (options%grid_points < 5_i32 .or. options%ion_density_infinity <= 0.0_dp .or. &
+        options%photoelectron_reference_density <= 0.0_dp .or. &
+        options%electron_temperature_j <= 0.0_dp .or. options%photoelectron_temperature_j <= 0.0_dp .or. &
+        options%electron_drift_infinity <= 0.0_dp .or. options%ion_drift_infinity <= 0.0_dp .or. &
+        options%electron_mass <= 0.0_dp .or. options%ion_mass <= 0.0_dp .or. &
+        options%photoelectron_mass <= 0.0_dp) then
+      state%applicability_status = status
+      message = 'Zhao charge-driven closure parameters are invalid'
+      return
+    end if
+    if (abs(abs(options%electron_charge) - qe) > charge_tolerance .or. &
+        abs(options%ion_charge - qe) > charge_tolerance .or. &
+        abs(abs(options%photoelectron_charge) - qe) > charge_tolerance) then
+      state%applicability_status = status
+      message = 'Zhao charge-driven closure requires singly charged physical species'
+      return
+    end if
+    if (abs(options%external_current_density) > tiny(1.0_dp)) then
+      state%applicability_status = status
+      message = 'Zhao charge-driven closure does not support external_current_density'
+      return
+    end if
+
+    electron_temperature_ev = options%electron_temperature_j/qe
+    photoelectron_temperature_ev = options%photoelectron_temperature_j/qe
+    call build_zhao_params( &
+      options%zhao_alpha_deg, options%ion_density_infinity, options%photoelectron_reference_density, &
+      electron_temperature_ev, photoelectron_temperature_ev, options%electron_drift_infinity, &
+      options%ion_drift_infinity, options%ion_mass, options%electron_mass, params &
+      )
+    has_initial_root = .false.
+    if (present(initial_state)) then
+      has_initial_root = initial_state%ready .and. &
+                         trim(lower_ascii(initial_state%model)) == 'kinetic_1d' .and. &
+                         trim(lower_ascii(initial_state%kinetic_closure)) == 'zhao_charge_driven' .and. &
+                         index('ABC0', initial_state%zhao_branch) > 0 .and. &
+                         initial_state%zhao_electron_density_infinity > 0.0_dp
+      if (has_initial_root) then
+        initial_root%branch = initial_state%zhao_branch
+        initial_root%phi0_v = initial_state%zhao_phi0
+        initial_root%phi_m_v = initial_state%zhao_phi_minimum
+        initial_root%n_swe_inf_m3 = initial_state%zhao_electron_density_infinity
+        initial_root%interface_field_v_m = initial_state%interface_field
+      end if
+    end if
+    if (has_initial_root) then
+      call solve_outer_plasma_zhao( &
+        options%zhao_branch, params, options%interface_field, options%grid_points, state, root, status, message, &
+        initial_root=initial_root &
+        )
+    else
+      call solve_outer_plasma_zhao( &
+        options%zhao_branch, params, options%interface_field, options%grid_points, state, root, status, message &
+        )
+    end if
+    state%model = 'kinetic_1d'
+    state%kinetic_closure = 'zhao_charge_driven'
+    state%zhao_branch = root%branch
+    state%zhao_phi0 = root%phi0_v
+    state%zhao_phi_minimum = root%phi_m_v
+    state%zhao_electron_density_infinity = root%n_swe_inf_m3
+    state%applicability_status = status
+  end subroutine solve_outer_plasma_zhao_closure
 
   subroutine solve_outer_plasma_kinetic_fixed(options, state, status, message, initial_potential)
     type(kinetic_outer_plasma_options_type), intent(in) :: options
@@ -562,6 +673,7 @@ contains
     integer(i32) :: j, closure_status
 
     state%profile_n = grid%n
+    state%kinetic_closure = options%kinetic_closure
     state%interface_z = 0.0_dp
     state%interface_potential = phi(1)
     state%infinity_potential = 0.0_dp

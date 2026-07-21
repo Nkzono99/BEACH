@@ -449,10 +449,11 @@ contains
     type(particle_source_plan_type), intent(in), optional, target :: source_plan
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
+    integer(i32) :: zhao_electron_species
     integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
     integer(i32), allocatable :: counts_max(:), counts_actual(:), global_counts(:), species_cursor(:), species_id(:), &
                                  emit_elem_species(:, :)
-    real(dp), allocatable :: vmin_normal(:), barrier_normal(:)
+    real(dp), allocatable :: vmin_normal(:), barrier_normal(:), batch_density_m3(:), batch_weight(:)
     logical :: use_collective_reservoir_count
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
@@ -497,17 +498,26 @@ contains
 
     allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species), global_counts(cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
+    allocate (batch_density_m3(cfg%n_particle_species), batch_weight(cfg%n_particle_species))
     counts_max = 0_i32
     counts_actual = 0_i32
     global_counts = 0_i32
     vmin_normal = active_source_plan%sheath_vmin_normal
     barrier_normal = 0.0d0
+    batch_density_m3 = active_source_plan%effective_density_m3
+    batch_weight = active_source_plan%effective_weight
+    zhao_electron_species = 0_i32
+    if (trim(lower_ascii(cfg%outer_plasma%kinetic_closure)) == 'zhao_charge_driven') then
+      if (.not. present(outer_state)) then
+        error stop 'Zhao charge-driven ambient inflow requires the refreshed outer state.'
+      end if
+      call resolve_zhao_ambient_electron_species(cfg, outer_state, zhao_electron_species)
+      batch_density_m3(zhao_electron_species) = outer_state%zhao_electron_density_infinity
+    end if
     associate ( &
-      effective_density_m3 => active_source_plan%effective_density_m3, &
       effective_particle_flux_m2_s => active_source_plan%effective_particle_flux_m2_s, &
       effective_temperature_k => active_source_plan%effective_temperature_k, &
       effective_drift_velocity => active_source_plan%effective_drift_velocity, &
-      w_effective => active_source_plan%effective_weight, &
       apply_barrier_energy_shift => active_source_plan%apply_barrier_energy_shift, &
       photo_emit_current_density => active_source_plan%photo_emit_current_density, &
       photo_vmin_normal => active_source_plan%photo_vmin_normal, &
@@ -528,12 +538,30 @@ contains
           warn_face_variation=local_rank == 0_i32 .and. &
           (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
           )
+        if (s == zhao_electron_species .and. &
+            cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
+            cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
+          call resolve_reservoir_target_weight( &
+            cfg%sim, cfg%particle_species(s), batch_density_m3(s), vmin_normal(s), &
+            effective_temperature_k(s), effective_drift_velocity(:, s), &
+            cfg%particle_species(s)%target_macro_particles_per_batch, batch_weight(s) &
+            )
+          if (s == 1_i32) then
+            do i = 2_i32, cfg%n_particle_species
+              if (.not. cfg%particle_species(i)%enabled) cycle
+              if (.not. cfg%particle_species(i)%has_target_macro_particles_per_batch) cycle
+              if (cfg%particle_species(i)%target_macro_particles_per_batch == -1_i32) then
+                batch_weight(i) = batch_weight(1)
+              end if
+            end do
+          end if
+        end if
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
             cfg%sim, cfg%particle_species(s), state%macro_residual(s), global_counts(s), vmin_normal=vmin_normal(s), &
-            number_density_override=effective_density_m3(s), particle_flux_override=effective_particle_flux_m2_s(s), &
+            number_density_override=batch_density_m3(s), particle_flux_override=effective_particle_flux_m2_s(s), &
             temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
-            w_particle_override=w_effective(s) &
+            w_particle_override=batch_weight(s) &
             )
         end if
         if (.not. use_collective_reservoir_count) then
@@ -576,7 +604,7 @@ contains
           temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
           )
         counts_actual(s) = counts_max(s)
-        w_species(1:counts_actual(s), s) = w_effective(s)
+        w_species(1:counts_actual(s), s) = batch_weight(s)
       case ('photo_raycast')
         if (.not. present(mesh)) then
           error stop 'photo_raycast requires mesh in init_particle_batch_from_config.'
@@ -1017,6 +1045,9 @@ contains
     logical, intent(in), optional :: warn_face_variation
 
     real(dp) :: phi_face, phi_std, phi_min, phi_max, delta_phi, area_xy
+    real(dp) :: profile_barrier, coordinate_scale, potential_scale
+    real(dp) :: coordinate_tolerance, potential_tolerance
+    integer(i32) :: point
     logical :: emit_warning
 
     vmin_normal = 0.0d0
@@ -1032,11 +1063,55 @@ contains
         if (.not. outer_state%ready .or. trim(lower_ascii(outer_state%model)) /= 'kinetic_1d') then
           error stop 'kinetic_1d ambient inflow requires a ready kinetic outer state.'
         end if
+        if (outer_state%profile_n < 2_i32 .or. .not. allocated(outer_state%z) .or. &
+            .not. allocated(outer_state%potential)) then
+          error stop 'kinetic_1d ambient inflow requires an allocated outer potential profile.'
+        end if
+        if (size(outer_state%z) /= outer_state%profile_n .or. &
+            size(outer_state%potential) /= outer_state%profile_n) then
+          error stop 'kinetic_1d ambient inflow profile shape does not match profile_n.'
+        end if
+        if (.not. all(ieee_is_finite(outer_state%z)) .or. &
+            .not. all(ieee_is_finite(outer_state%potential)) .or. &
+            .not. ieee_is_finite(outer_state%interface_z) .or. &
+            .not. ieee_is_finite(outer_state%interface_potential) .or. &
+            .not. ieee_is_finite(outer_state%infinity_potential)) then
+          error stop 'kinetic_1d ambient inflow profile contains non-finite values.'
+        end if
+        if (any(outer_state%z(2:) <= outer_state%z(:outer_state%profile_n - 1_i32))) then
+          error stop 'kinetic_1d ambient inflow profile coordinates must be strictly increasing.'
+        end if
+        coordinate_scale = max(1.0_dp, maxval(abs(outer_state%z)), abs(outer_state%interface_z))
+        potential_scale = max( &
+                          1.0_dp, maxval(abs(outer_state%potential)), &
+                          abs(outer_state%interface_potential), abs(outer_state%infinity_potential) &
+                          )
+        coordinate_tolerance = 256.0_dp*epsilon(1.0_dp)*coordinate_scale
+        potential_tolerance = 256.0_dp*epsilon(1.0_dp)*potential_scale
+        if (abs(outer_state%z(1) - outer_state%interface_z) > coordinate_tolerance .or. &
+            abs(outer_state%potential(1) - outer_state%interface_potential) > potential_tolerance) then
+          error stop 'kinetic_1d ambient inflow profile does not start at the outer interface.'
+        end if
+        if (.not. ieee_is_finite(spec%q_particle) .or. .not. ieee_is_finite(spec%m_particle) .or. &
+            spec%m_particle <= 0.0_dp) then
+          error stop 'kinetic_1d ambient inflow requires finite charge and positive finite mass.'
+        end if
         delta_phi = outer_state%interface_potential - outer_state%infinity_potential
         if (.not. ieee_is_finite(delta_phi)) error stop 'kinetic_1d ambient inflow barrier is non-finite.'
         barrier_normal = 2.0_dp*spec%q_particle*delta_phi/spec%m_particle
         if (.not. ieee_is_finite(barrier_normal)) error stop 'kinetic_1d ambient inflow map is non-finite.'
-        if (barrier_normal > 0.0_dp) vmin_normal = sqrt(barrier_normal)
+        profile_barrier = 0.0_dp
+        do point = 1_i32, outer_state%profile_n
+          profile_barrier = max( &
+                            profile_barrier, &
+                            2.0_dp*spec%q_particle* &
+                            (outer_state%potential(point) - outer_state%infinity_potential)/spec%m_particle &
+                            )
+        end do
+        if (.not. ieee_is_finite(profile_barrier)) then
+          error stop 'kinetic_1d ambient inflow profile barrier is non-finite.'
+        end if
+        vmin_normal = sqrt(max(0.0_dp, profile_barrier))
         return
       end if
       if (.not. present(mesh)) error stop 'Split outer-plasma ambient inflow requires the charged mesh.'
@@ -1075,6 +1150,44 @@ contains
       error stop 'Unknown sim.reservoir_potential_model in runtime.'
     end select
   end subroutine reservoir_face_velocity_correction
+
+  !> Zhao charge-driven closure が解いた ambient electron reservoir を一意に解決する。
+  subroutine resolve_zhao_ambient_electron_species(cfg, outer_state, electron_species)
+    type(app_config), intent(in) :: cfg
+    type(outer_plasma_state_type), intent(in) :: outer_state
+    integer(i32), intent(out) :: electron_species
+
+    integer(i32) :: species
+
+    electron_species = 0_i32
+    if (trim(lower_ascii(cfg%outer_plasma%model)) /= 'kinetic_1d') then
+      error stop 'Zhao charge-driven ambient inflow requires outer_plasma.model="kinetic_1d".'
+    end if
+    if (.not. outer_state%ready .or. trim(lower_ascii(outer_state%model)) /= 'kinetic_1d') then
+      error stop 'Zhao charge-driven ambient inflow requires a ready kinetic outer state.'
+    end if
+    if (trim(lower_ascii(outer_state%kinetic_closure)) /= 'zhao_charge_driven') then
+      error stop 'Zhao charge-driven config and refreshed outer-state closure do not match.'
+    end if
+    if (.not. ieee_is_finite(outer_state%zhao_electron_density_infinity) .or. &
+        outer_state%zhao_electron_density_infinity <= 0.0_dp) then
+      error stop 'Zhao charge-driven outer state requires a positive finite electron density at infinity.'
+    end if
+
+    do species = 1_i32, cfg%n_particle_species
+      if (.not. cfg%particle_species(species)%enabled) cycle
+      if (trim(lower_ascii(cfg%particle_species(species)%source_mode)) /= 'reservoir_face') cycle
+      if (trim(lower_ascii(cfg%particle_species(species)%inject_face)) /= 'z_high') cycle
+      if (cfg%particle_species(species)%q_particle >= 0.0_dp) cycle
+      if (electron_species /= 0_i32) then
+        error stop 'Zhao charge-driven closure requires exactly one negative z_high reservoir_face species.'
+      end if
+      electron_species = species
+    end do
+    if (electron_species == 0_i32) then
+      error stop 'Zhao charge-driven closure requires one negative z_high reservoir_face species.'
+    end if
+  end subroutine resolve_zhao_ambient_electron_species
 
   !> reservoir_face 開口面の平均電位を `N x N` 格子平均で評価する。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ。

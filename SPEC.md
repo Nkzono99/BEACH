@@ -156,6 +156,27 @@ pseudo-transient stepへ切り替え、前回profileとのinterface field差が�
 current診断だけを供給し、表面へreturn chargeを再加算しません。表面の電荷収支はtracked粒子の放出と
 再吸収だけで更新します。
 
+`outer_plasma.kinetic_closure="zhao_charge_driven"`は、同じsurface zero modeのinterface電場を境界条件として、
+Zhao Type A/B/Cのfree/reflected ambient electron、free/captured photoelectron、cold ion populationを使う選択肢です。
+無限遠準中性とSagdeev積分のfield条件を解き、旧Zhaoのzero-current式はrootへ課さずcurrent density診断として出力します。
+`zhao_branch="auto"`または`a`、`b`、`c`を選べます。Type Aの非単調profileでは、流入とescape/returnの両方が離散profile
+全体の最初のenergy barrierを走査します。legacy `sheath_injection_model="zhao_*"`、`reservoir_potential_model`、
+`photoelectron_density_model="kinetic_mean"`との併用を拒否し、tracked粒子だけが表面電荷を更新します。初版はz-high interfaceを
+Zhaoの有効放出面とみなす平面・無衝突・非磁化の準定常modelであり、実放出面からinterfaceまでの一般VDF接続は対象外です。
+ambient electron、ion、photoelectronにはそれぞれenabledな負電荷z-high `reservoir_face`、正電荷z-high
+`reservoir_face`、負電荷`photo_raycast` speciesをちょうど1つ要求し、0個または複数を拒否します。
+electron/ion drift modeは`normal`だけを受理し、photoelectronは`normal_drift_speed=0`、ionは$T_i\le0.1T_e$を要求します。
+
+Zhao profileの物理scaleはphotoelectron温度$T_{pe}$と、$T_{pe}$および$n_{ref}$から導出した$\lambda_{D,pe}$です。
+`outer_plasma.debye_length`と`thermal_voltage`はZhao root/profileへ入らず、現時点では`interface_eta_gap`、横方向phi/field比、
+local-charge推定などsplit-interface適用性診断のreference inputとして残ります。tracked
+`photo_raycast.emit_current_density_a_m2`は、$T_{pe}$をJへ換算して$v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$とし、有効平面のraw source
+$|q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})$と1%以内で一致しなければなりません。解析currentは表面電荷へ加算せず、
+tracked放出と再吸収だけが更新します。初版は`ray_direction`やrough surfaceからinterfaceへ到達するVDFをZhao outer populationへ
+自己無撞着に接続せず、`ray_direction`と`sheath_alpha_deg`はそれぞれ照射rayによる放出面samplingと解析sourceを独立に指定します。
+Zhaoの収束確認はprofile grid、有効interface位置、tracked粒子数、時間解像度で行い、汎用の`debye_length`や
+`thermal_voltage`をprofile収束parameterとして扱いません。
+
 `sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
 
 ### 5.2 粒子前進

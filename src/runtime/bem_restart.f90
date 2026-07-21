@@ -116,6 +116,19 @@ contains
             electrostatic_state%outer_ready) then
           call load_kinetic_outer_profile(trim(out_dir), electrostatic_state, local_rank, mpi)
         end if
+        if (trim(lower_ascii(app%outer_plasma%kinetic_closure)) == 'zhao_charge_driven' .and. &
+            electrostatic_state%outer_ready) then
+          if (.not. electrostatic_state%outer_zhao_state_complete .or. &
+              index('ABC0', electrostatic_state%outer_zhao_branch) == 0 .or. &
+              .not. all(ieee_is_finite([ &
+                                       electrostatic_state%outer_zhao_phi0, &
+                                       electrostatic_state%outer_zhao_phi_minimum, &
+                                       electrostatic_state%outer_zhao_electron_density_infinity &
+                                       ])) .or. &
+              electrostatic_state%outer_zhao_electron_density_infinity <= 0.0_dp) then
+            error stop 'Resume checkpoint is missing the resolved Zhao outer-plasma state.'
+          end if
+        end if
       end if
     end if
     call load_charge_file(trim(charges_path), mesh)
@@ -279,12 +292,13 @@ contains
     character(len=512) :: line
     character(len=64) :: key
     character(len=256) :: value
-    logical :: found_potential, found_batch, found_v3_state(13)
+    logical :: found_potential, found_batch, found_v3_state(13), found_zhao_state(4)
 
     state = electrostatic_restart_state_type()
     found_potential = .false.
     found_batch = .false.
     found_v3_state = .false.
+    found_zhao_state = .false.
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary.txt for electrostatic restart state.'
     do
@@ -344,6 +358,23 @@ contains
       case ('outer_total_current_density_A_m2')
         read (value, *, iostat=ios) state%outer_total_current_density
         found_v3_state(13) = ios == 0
+      case ('outer_plasma_zhao_branch_resolved')
+        if (len_trim(value) > 0) then
+          state%outer_zhao_branch = value(1:1)
+          ios = 0
+          found_zhao_state(1) = .true.
+        else
+          ios = 1
+        end if
+      case ('outer_plasma_zhao_phi0_V')
+        read (value, *, iostat=ios) state%outer_zhao_phi0
+        found_zhao_state(2) = ios == 0
+      case ('outer_plasma_zhao_phi_minimum_V')
+        read (value, *, iostat=ios) state%outer_zhao_phi_minimum
+        found_zhao_state(3) = ios == 0
+      case ('outer_plasma_zhao_electron_density_infinity_m3')
+        read (value, *, iostat=ios) state%outer_zhao_electron_density_infinity
+        found_zhao_state(4) = ios == 0
       end select
       if (ios /= 0) error stop 'Malformed electrostatic restart state in summary.txt.'
     end do
@@ -355,6 +386,7 @@ contains
         .not. all(found_v3_state)) then
       error stop 'Schema v3 electrostatic restart state is incomplete in summary.txt.'
     end if
+    state%outer_zhao_state_complete = all(found_zhao_state)
   end subroutine load_electrostatic_state
 
   !> schema v2 fingerprint を現在の ordered model/mesh/species contract と照合する。

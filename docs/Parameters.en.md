@@ -305,13 +305,15 @@ old-run reproduction.
 | `model` | required | `linear_debye` / `kinetic_1d` / `unified_linear_response` |
 | `interface_z` | required | upper-z interface; initially the top of the box |
 | `infinity_potential` | `0` | reference potential at infinity [V] |
-| `debye_length` | required | linear Debye length |
-| `thermal_voltage` | required | potential scale for linearity and diagnostics |
+| `debye_length` | required | length scale for linear/`absorbing_maxwellian` tails and split diagnostics; not the Zhao profile's physical scale |
+| `thermal_voltage` | required | potential scale for linearity and split diagnostics; not the Zhao profile's physical scale |
 | `unified_grid_points` | `129` | unified zero-mode Poisson grid points; at least 17 |
 | `accessible_fraction_tolerance` | `0.1` | maximum accessible-fraction change after doubling rough-surface samples along both axes |
 | `max_linearity_ratio` | `0.25` | upper bound on `abs(phi_t-phi_inf)/thermal_voltage` |
 | `max_gap_ratio` | `5` | upper bound on `(z_t-z_mesh,max)/lambda` |
 | `max_local_charge_ratio` | `50` | upper bound on the local mean-plasma charge estimate ratio |
+| `kinetic_closure` | `absorbing_maxwellian` | density/VDF closure for `kinetic_1d`: `absorbing_maxwellian` / `zhao_charge_driven` |
+| `zhao_branch` | `auto` | Zhao closure branch: `auto` / `a` / `b` / `c` |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`; the latter adds mean photoelectron density to `kinetic_1d` |
 | `photoelectron_histogram_enabled` | `false` | enable the outward z-high photoelectron histogram and applicability check |
 | `photoelectron_histogram_bins` | `32` | normal-kinetic-energy histogram bins |
@@ -332,9 +334,10 @@ positive z-high `reservoir_face` species define the infinity electron and ion VD
 | Item | Contract |
 | --- | --- |
 | Gauge | `phi(infinity)=0`; reject nonzero `infinity_potential` |
-| Far boundary | Robin tail with length `debye_length` |
-| Supported branch | monotonic, collisionless, unmagnetized, with Bohm-compliant ion inflow |
-| Unsupported | virtual cathode, trapped population, and sub-Bohm inflow |
+| Far boundary | `absorbing_maxwellian` uses a Robin tail of length `debye_length`; Zhao derives $\lambda_{D,pe}$ from $T_{pe}$ and $n_{ref}$ |
+| Closure | default `absorbing_maxwellian`, or `zhao_charge_driven`, which retains the accumulated-charge interface-field condition |
+| Supported branch | monotone for `absorbing_maxwellian`; Zhao A/B/C, including nonmonotone Type A, for `zhao_charge_driven` |
+| Unsupported | virtual cathodes, trapped populations, and sub-Bohm inflow under `absorbing_maxwellian` |
 | Nonlinear solve | analytic bordered-tridiagonal Jacobian plus branch-preserving Newton |
 | Recovery | pseudo-transient and interface-field continuation; accept only after the original Poisson residual passes |
 | Fallback | never return another sheath model or a held previous profile as a converged solution |
@@ -357,12 +360,41 @@ Scope:
 Combination constraints:
 
 - `reservoir_potential_model`, Zhao injection correction, and nonzero `b0` are rejected.
-- With `photoelectron_density_model="kinetic_mean"`, the first negative `photo_raycast` species supplies a half-Maxwellian flux.
+- `kinetic_closure="zhao_charge_driven"` requires `model="kinetic_1d"`, `infinity_potential=0`, and
+  `photoelectron_density_model="none"`. It cannot be combined with legacy `sheath_injection_model` or
+  `reservoir_potential_model` corrections.
+- Explicit `zhao_branch="a"`, `"b"`, or `"c"` requires `zhao_charge_driven`; `auto` searches the available branches.
+- `zhao_charge_driven` requires positive `sheath_photoelectron_ref_density_cm3`, positive inward electron and ion drifts,
+  and a negative `photo_raycast` species, and rejects `sheath_reference_coordinate`.
+- Its ambient electron, ion, and photoelectron must be exactly one enabled negative z-high `reservoir_face`, positive z-high
+  `reservoir_face`, and negative `photo_raycast` species respectively; zero or multiple matches are rejected.
+- Only `sheath_electron_drift_mode="normal"` and `sheath_ion_drift_mode="normal"` are accepted.
+- The negative `photo_raycast` species used by Zhao requires `normal_drift_speed=0`, and ion temperature must satisfy the
+  cold-ion condition $T_i\le0.1T_e$.
+- The Zhao profile uses $T_{pe}$ and the $\lambda_{D,pe}$ derived from photoelectron temperature and reference density as its
+  potential and length scales; the summary reports the derived length.
+- `debye_length` and `thermal_voltage` do not change the Zhao root or profile. They are still required as reference inputs for
+  the split-interface `interface_eta_gap`, lateral potential/field, and local-charge diagnostics.
+- Tracked `photo_raycast.emit_current_density_a_m2` must agree within 1% with
+  $|q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})$, where $v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$ and $T_{pe}$ is in joules.
+- Analytic current is not added to surface charge; only tracked emission and reabsorption update it.
+- This first version is an effective-plane approximation. It does not self-consistently connect `ray_direction` or the VDF
+  arriving from a rough surface to the Zhao outer population. `ray_direction` and `sheath_alpha_deg` independently specify
+  illumination-ray sampling of emitting surfaces and the analytic source, respectively.
+- Test Zhao convergence with the profile grid, effective interface location, tracked-particle count, and `dt` or batch
+  resolution. Do not interpret changes in `debye_length` or `thermal_voltage` as a profile-convergence test.
+- With the default `absorbing_maxwellian`, `photoelectron_density_model="kinetic_mean"` uses the first negative
+  `photo_raycast` species to supply a half-Maxwellian flux.
 - The mean closure supplies only the outer profile. Tracked particles update surface charge, so statistical return current is not added again.
 - Every tracked-return species requires `deposit_opposite_charge_on_emit=true`.
 
-See [Particle Escape and Return](ParticleEscapeReturn.en.html), `examples/periodic2_kinetic_outer.toml`, and
-`docs/adr/0001-kinetic-outer-plasma.md`.
+See [Particle Escape and Return](ParticleEscapeReturn.en.html).
+
+The default-closure example is
+[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml), the charge-driven Zhao example is
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml), and the model assumptions are
+documented in [ADR 0001](adr/0001-kinetic-outer-plasma.md) and
+[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md).
 
 #### `unified_linear_response` contract (advanced and specialized)
 

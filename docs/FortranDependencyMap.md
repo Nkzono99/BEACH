@@ -8,11 +8,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 ## 概要
 
-- ソースファイル数: 88
-- モジュール数: 74
+- ソースファイル数: 89
+- モジュール数: 75
 - submodule 数: 13
 - program 数: 1
-- 内部依存エッジ数: 341
+- 内部依存エッジ数: 350
 
 ## 全体グラフ
 
@@ -37,7 +37,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `src/physics/field_solver/fmm/internal/periodic` | 7 | 29 |
 | `src/physics/field_solver/fmm/internal/runtime` | 2 | 15 |
 | `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
-| `src/physics/outer_plasma` | 9 | 24 |
+| `src/physics/outer_plasma` | 10 | 33 |
 | `src/physics/panel` | 5 | 13 |
 | `src/physics/periodic_zero_mode` | 3 | 9 |
 | `src/physics/sheath` | 2 | 11 |
@@ -49,15 +49,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 | エンティティ | kind | 被依存数 |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 69 |
+| `bem_kinds` | `module` | 70 |
 | `bem_types` | `module` | 30 |
-| `bem_constants` | `module` | 22 |
-| `bem_string_utils` | `module` | 22 |
+| `bem_string_utils` | `module` | 25 |
+| `bem_constants` | `module` | 23 |
 | `bem_panel_geometry` | `module` | 11 |
 | `bem_app_config_types` | `module` | 10 |
 | `bem_coulomb_fmm_types` | `module` | 10 |
+| `bem_outer_plasma_types` | `module` | 10 |
 | `bem_electrostatic_snapshot` | `module` | 9 |
-| `bem_outer_plasma_types` | `module` | 9 |
 | `bem_physics_config_types` | `module` | 9 |
 
 ## エンティティ一覧
@@ -117,14 +117,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_coulomb_fmm_plan_ops` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM plan 構築と tree トポロジ前計算。 |
 | `bem_coulomb_fmm_tree_utils` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_tree_utils.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | Coulomb FMM tree 構造の共通ユーティリティ。 |
 | `bem_outer_plasma_grid` | `module` | `src/physics/outer_plasma/bem_outer_plasma_grid.f90` | `bem_kinds` | - |
-| `bem_outer_plasma_interface` | `module` | `src/physics/outer_plasma/bem_outer_plasma_interface.f90` | `bem_kinds`, `bem_outer_plasma_types`, `bem_interface_types` | - |
-| `bem_outer_plasma_kinetic` | `module` | `src/physics/outer_plasma/bem_outer_plasma_kinetic.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid` | - |
+| `bem_outer_plasma_interface` | `module` | `src/physics/outer_plasma/bem_outer_plasma_interface.f90` | `bem_kinds`, `bem_outer_plasma_types`, `bem_interface_types`, `bem_string_utils` | - |
+| `bem_outer_plasma_kinetic` | `module` | `src/physics/outer_plasma/bem_outer_plasma_kinetic.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid`, `bem_outer_plasma_zhao`, `bem_sheath_model_core`, `bem_string_utils` | - |
 | `bem_outer_plasma_linear` | `module` | `src/physics/outer_plasma/bem_outer_plasma_linear.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types` | - |
 | `bem_outer_plasma_local_mean` | `module` | `src/physics/outer_plasma/bem_outer_plasma_local_mean.f90` | `bem_kinds`, `bem_outer_plasma_types`, `bem_types` | - |
 | `bem_outer_plasma_orbit` | `module` | `src/physics/outer_plasma/bem_outer_plasma_orbit.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_interface_types` | 固定された静電場中で外部領域の粒子軌道を明示的に追跡する。 |
 | `bem_outer_plasma_photoelectron` | `module` | `src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90` | `bem_kinds` | - |
 | `bem_outer_plasma_types` | `module` | `src/physics/outer_plasma/bem_outer_plasma_types.f90` | `bem_kinds` | - |
 | `bem_outer_plasma_unified` | `module` | `src/physics/outer_plasma/bem_outer_plasma_unified.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types` | - |
+| `bem_outer_plasma_zhao` | `module` | `src/physics/outer_plasma/bem_outer_plasma_zhao.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_sheath_model_core`, `bem_string_utils` | Charge-driven quasi-steady Zhao outer-plasma closure. |
 | `bem_panel_geometry` | `module` | `src/physics/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry and exact Cartesian surface moments. |
 | `bem_panel_kernel` | `module` | `src/physics/panel/bem_panel_kernel.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms` | Analytic free-space P0 triangle potential, field, principal value, and jump. |
 | `bem_panel_quadrature` | `module` | `src/physics/panel/bem_panel_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry` | Independent triangle cubature and Gauss-Duffy correctness oracles. |
@@ -643,7 +644,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/outer_plasma/bem_outer_plasma_interface.f90`
 - group: `src/physics/outer_plasma`
-- 内部依存: `bem_kinds`, `bem_outer_plasma_types`, `bem_interface_types`
+- 内部依存: `bem_kinds`, `bem_outer_plasma_types`, `bem_interface_types`, `bem_string_utils`
 - external dependencies: `ieee_arithmetic`
 
 ### `bem_outer_plasma_kinetic`
@@ -651,7 +652,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/outer_plasma/bem_outer_plasma_kinetic.f90`
 - group: `src/physics/outer_plasma`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid`, `bem_outer_plasma_zhao`, `bem_sheath_model_core`, `bem_string_utils`
 - external dependencies: `ieee_arithmetic`
 
 ### `bem_outer_plasma_linear`
@@ -702,6 +703,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - group: `src/physics/outer_plasma`
 - 内部依存: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`
 - external dependencies: `ieee_arithmetic`
+
+### `bem_outer_plasma_zhao`
+
+- kind: `module`
+- path: `src/physics/outer_plasma/bem_outer_plasma_zhao.f90`
+- group: `src/physics/outer_plasma`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_sheath_model_core`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`
+- 概要: Charge-driven quasi-steady Zhao outer-plasma closure.
 
 ### `bem_panel_geometry`
 

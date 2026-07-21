@@ -38,6 +38,8 @@ module bem_app_config_authoring
   type :: outer_plasma_authoring_spec
     logical :: present = .false.
     character(len=32) :: model = 'linear_debye'
+    character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
+    character(len=32) :: zhao_branch = 'auto'
     character(len=32) :: photoelectron_density_model = 'none'
     logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'
