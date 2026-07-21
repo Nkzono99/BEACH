@@ -16,6 +16,8 @@ module bem_field_kernel_c
   integer(c_int), parameter, public :: beach_kernel_invalid_handle = 1_c_int
   integer(c_int), parameter, public :: beach_kernel_invalid_argument = 2_c_int
   integer(c_int), parameter, public :: beach_kernel_not_ready = 3_c_int
+  integer(c_int), parameter, public :: beach_kernel_abi_major = 1_c_int
+  integer(c_int), parameter, public :: beach_kernel_abi_minor = 0_c_int
   integer, parameter :: periodic_cache_path_max_bytes = 256
   character(len=*), parameter :: default_periodic_cache_dir = '.beach_cache/periodic2'
   real(dp), parameter :: default_periodic_generation_tolerance = 1.0d-8
@@ -30,6 +32,7 @@ module bem_field_kernel_c
   end type field_kernel_handle
 
   public :: beach_kernel_create
+  public :: beach_kernel_get_abi_version
   public :: beach_kernel_get_build_info
   public :: beach_kernel_destroy
   public :: beach_kernel_build
@@ -44,6 +47,22 @@ module bem_field_kernel_c
   public :: beach_kernel_force_on_charges
 
 contains
+
+  integer(c_int) function beach_kernel_get_abi_version(major_ptr, minor_ptr) &
+    bind(C, name='beach_kernel_get_abi_version') result(status)
+    type(c_ptr), value :: major_ptr, minor_ptr
+    integer(c_int), pointer :: major, minor
+
+    if (.not. c_associated(major_ptr) .or. .not. c_associated(minor_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    call c_f_pointer(major_ptr, major)
+    call c_f_pointer(minor_ptr, minor)
+    major = beach_kernel_abi_major
+    minor = beach_kernel_abi_minor
+    status = beach_kernel_ok
+  end function beach_kernel_get_abi_version
 
   integer(c_int) function beach_kernel_get_build_info(buffer_ptr, buffer_capacity, length_ptr) &
     bind(C, name='beach_kernel_get_build_info') result(status)

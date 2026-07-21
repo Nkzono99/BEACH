@@ -6,19 +6,12 @@ from typing import Iterable
 
 import numpy as np
 
+from .context import RunContext, resolve_result
 from .history import FortranChargeHistory
 from .types import FortranRunResult, MeshSelection
 
 
-def _resolve_result(result: FortranRunResult | object) -> FortranRunResult:
-    if isinstance(result, FortranRunResult):
-        return result
-
-    candidate = getattr(result, "result", None)
-    if isinstance(candidate, FortranRunResult):
-        return candidate
-
-    raise TypeError("result must be FortranRunResult or Beach.")
+_resolve_result = resolve_result
 
 
 def _require_point_source_model(result: FortranRunResult) -> None:
@@ -93,39 +86,16 @@ def _build_mesh_selection(
 
 
 def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarray:
-    if step is None:
-        return result.charges
-
-    history = result.history
-    if history is None or not history.has_data:
-        if step == -1:
-            return result.charges
-        raise ValueError(
-            "charge_history.csv is required when step is specified and must not be empty."
-        )
-    if step == -1:
-        return history.get_step(-1)
-    return history.get_step(step)
+    return RunContext.from_value(result).charges_at(step)
 
 
 def _mesh_ids_or_default(result: FortranRunResult) -> np.ndarray:
-    if result.mesh_ids is None or result.mesh_ids.size != result.mesh_nelem:
-        return np.ones(result.mesh_nelem, dtype=np.int64)
-    return result.mesh_ids.astype(np.int64, copy=False)
+    return RunContext.from_value(result).mesh_ids_or_default()
 
 
 def _require_triangles(result: FortranRunResult) -> np.ndarray:
-    if result.triangles is None:
-        raise ValueError(
-            "mesh_triangles.csv is not found. Re-run Fortran with latest output format."
-        )
-    return result.triangles
+    return RunContext.from_value(result).require_triangles()
 
 
 def _require_history(result: FortranRunResult) -> FortranChargeHistory:
-    history = result.history
-    if history is None or not history.has_data:
-        raise ValueError(
-            "charge_history.csv is not found or empty. Enable history output and rerun."
-        )
-    return history
+    return RunContext.from_value(result).require_history()

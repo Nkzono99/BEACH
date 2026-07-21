@@ -4,6 +4,7 @@ module bem_output_writer
   use bem_types, only: mesh_type, sim_stats, surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_checkpoint_contract, only: checkpoint_schema_version_current
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
@@ -284,7 +285,7 @@ contains
     if (ios /= 0) error stop 'Failed to open summary file.'
     world_size = 1_i32
     if (present(mpi_world_size)) world_size = max(1_i32, mpi_world_size)
-    write (u, '(a)') 'checkpoint_schema_version=3'
+    write (u, '(a,i0)') 'checkpoint_schema_version=', checkpoint_schema_version_current
     write (u, '(a)') 'build_info_schema_version=1'
     write (u, '(a,a)') 'build_version=', beach_version
     write (u, '(a,a)') 'build_version_mode=', beach_version_mode

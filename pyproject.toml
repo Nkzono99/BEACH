@@ -42,6 +42,7 @@ beach-plot-performance-profile = "beach.cli.legacy:profile_main"
 packages = ["beach", "beach.fortran_results", "beach.cli", "beach.config"]
 
 [tool.setuptools.package-data]
+"beach" = ["include/*.h"]
 "beach.config" = ["schemas/*.json"]
 
 [tool.pytest.ini_options]

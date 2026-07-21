@@ -7,6 +7,7 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
+from .context import RunContext
 from .mesh import (
     _configure_mesh_axes,
     _maybe_apply_periodic2_mesh,
@@ -21,7 +22,7 @@ from .potential import (
     _resolve_self_term,
     _resolve_softening,
 )
-from .selection import _require_history, _require_triangles, _resolve_result
+from .selection import _require_history, _require_triangles
 from .types import FortranRunResult
 
 if TYPE_CHECKING:
@@ -100,7 +101,8 @@ def animate_history_mesh(
     from matplotlib.animation import FuncAnimation, PillowWriter
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     if fps <= 0:
         raise ValueError("fps must be > 0.")
     if frame_stride <= 0:
@@ -116,6 +118,7 @@ def animate_history_mesh(
         triangles,
         periodic2=periodic2,
         apply_periodic2_mesh=apply_periodic2_mesh,
+        context=context,
     )
     history = _require_history(resolved)
     charge_history = history.as_array()
@@ -136,12 +139,20 @@ def animate_history_mesh(
         title_prefix = "Surface charge density history"
         use_cmap = "coolwarm" if cmap is None else cmap
     elif quantity_key == "potential":
-        resolved_softening = _resolve_softening(resolved, softening)
+        resolved_softening = _resolve_softening(
+            resolved,
+            softening,
+            context=context,
+        )
         self_term_key = _resolve_self_term(self_term, resolved_softening)
         periodic_cfg = _coerce_periodic2(periodic2)
         if periodic_cfg is None:
-            periodic_cfg = _auto_periodic2_from_result(resolved)
-        resolved_reference = _resolve_reference_point(resolved, reference_point)
+            periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
+        resolved_reference = _resolve_reference_point(
+            resolved,
+            reference_point,
+            context=context,
+        )
         values_history = _potential_history(
             charges_sampled,
             triangles,
@@ -162,6 +173,7 @@ def animate_history_mesh(
         values_history,
         periodic2=periodic2,
         periodic2_repeat=periodic2_repeat,
+        context=context,
     )
 
     max_abs = float(np.max(np.abs(values_history)))

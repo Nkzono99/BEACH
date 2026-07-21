@@ -9,7 +9,7 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
-from .potential import _find_config_path_near_output, _load_toml
+from .context import RunContext
 from .selection import _mesh_ids_or_default
 from .types import FortranRunResult, MeshSource
 
@@ -46,14 +46,15 @@ def resolve_object_specs(
     result: FortranRunResult,
     *,
     config_path: str | Path | None,
+    context: RunContext | None = None,
 ) -> list[ResolvedObjectSpec]:
     """Resolve object labels, kinds, and optional template definitions."""
 
     mesh_ids = tuple(int(v) for v in np.unique(_mesh_ids_or_default(result)))
+    run_context = context or RunContext.from_value(result, config_path=config_path)
     config_specs = _object_specs_from_config(
-        result,
         mesh_ids=mesh_ids,
-        config_path=config_path,
+        context=run_context,
     )
     if config_specs is not None:
         return _with_mesh_source_materials(config_specs, result.mesh_sources)
@@ -83,23 +84,13 @@ def resolve_object_specs(
 
 
 def _object_specs_from_config(
-    result: FortranRunResult,
     *,
     mesh_ids: tuple[int, ...],
-    config_path: str | Path | None,
+    context: RunContext,
 ) -> list[ResolvedObjectSpec] | None:
-    path: Path | None
-    if config_path is None:
-        path = _find_config_path_near_output(result.directory)
-    else:
-        path = Path(config_path)
-        if not path.exists():
-            raise ValueError(f'config file is not found: "{path}".')
-
-    if path is None:
+    config = context.config
+    if config is None:
         return None
-
-    config = _load_toml(path)
     mesh_cfg = config.get("mesh")
     if not isinstance(mesh_cfg, Mapping):
         return None

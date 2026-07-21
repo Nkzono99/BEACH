@@ -1,12 +1,115 @@
 from __future__ import annotations
 
+import copy
+from pathlib import Path
+
 import pytest
 
 from beach.cli_estimate_fortran_workload import (
+    ALLOWED_SIM_KEYS,
+    ALLOWED_SPECIES_KEYS,
     completed_batches_from_resume_config,
     estimate_workload,
+    load_toml,
     read_macro_residuals,
 )
+from beach.config import default_config
+from beach.config.schema import schema_definition_property_names
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_workload_allowed_keys_follow_packaged_schema() -> None:
+    assert ALLOWED_SIM_KEYS == schema_definition_property_names("sim")
+    assert ALLOWED_SPECIES_KEYS == schema_definition_property_names("species")
+
+
+def test_estimate_workload_accepts_generated_and_tutorial_configs() -> None:
+    generated = estimate_workload(default_config(), threads=1)
+    tutorial = estimate_workload(
+        load_toml(ROOT / "examples" / "tutorial_insulator.toml"),
+        threads=1,
+    )
+
+    assert generated["batch_totals"] == [1]
+    assert tutorial["batch_totals"] == [1]
+
+
+def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:
+    config = {
+        "sim": {
+            "batch_count": 1,
+            "open_boundary_model": "escape",
+            "multiple_box_events_policy": "soft_discard",
+            "multiple_box_events_soft_discard_count_limit": 100,
+            "multiple_box_events_soft_discard_abs_charge_limit": 1.0e-12,
+        },
+        "particles": {
+            "species": [{"source_mode": "volume_seed", "npcls_per_step": 2}]
+        },
+    }
+
+    assert estimate_workload(config, threads=1)["batch_totals"] == [2]
+
+
+def test_estimate_workload_normalizes_high_level_face_region_without_mutation() -> None:
+    high_level = {
+        "sim": {
+            "batch_count": 1,
+            "batch_duration": 1.0,
+            "use_box": True,
+            "box_origin": [0.0, 0.0, 0.0],
+            "box_size": [2.0, 4.0, 6.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "reservoir_face",
+                    "number_density_m3": 10.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "target_macro_particles_per_batch": 8,
+                    "inject_face": "z_low",
+                    "inject_region_mode": "face_fraction",
+                    "uv_low": [0.25, 0.25],
+                    "uv_high": [0.75, 0.75],
+                    "drift_velocity": [0.0, 0.0, 1.0],
+                }
+            ]
+        },
+    }
+    normalized = {
+        "sim": {
+            "batch_count": 1,
+            "batch_duration": 1.0,
+            "use_box": True,
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [2.0, 4.0, 6.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "reservoir_face",
+                    "number_density_m3": 10.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "target_macro_particles_per_batch": 8,
+                    "inject_face": "z_low",
+                    "pos_low": [0.5, 1.0, 0.0],
+                    "pos_high": [1.5, 3.0, 0.0],
+                    "drift_velocity": [0.0, 0.0, 1.0],
+                }
+            ]
+        },
+    }
+    original = copy.deepcopy(high_level)
+
+    assert estimate_workload(high_level, threads=2) == estimate_workload(
+        normalized,
+        threads=2,
+    )
+    assert high_level == original
 
 
 def _fractional_reservoir_config() -> dict[str, object]:
@@ -183,6 +286,21 @@ def test_completed_batches_from_resume_config_reads_restart_from(tmp_path) -> No
     }
 
     assert completed_batches_from_resume_config(config) == 6
+
+
+def test_completed_batches_from_resume_config_rejects_duplicate_summary_key(
+    tmp_path: Path,
+) -> None:
+    out_dir = tmp_path / "outputs" / "latest"
+    out_dir.mkdir(parents=True)
+    (out_dir / "summary.txt").write_text(
+        "batches=4\n batches =5\n",
+        encoding="utf-8",
+    )
+    config = {"output": {"resume": True, "dir": str(out_dir)}}
+
+    with pytest.raises(SystemExit, match="duplicate key 'batches'"):
+        completed_batches_from_resume_config(config)
 
 
 def test_estimate_workload_supports_species_target_minus_one_following_species1_w() -> None:

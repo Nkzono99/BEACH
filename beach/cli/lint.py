@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from importlib import resources
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 from beach.config import (
     CONFIG_FILENAME,
@@ -15,11 +14,12 @@ from beach.config import (
     normalize_high_level_config,
 )
 from beach.config._toml import load_toml_file
+from beach.config.schema import load_schema as _load_schema
+from beach.config.schema import schema_errors as _schema_errors
 
 from ._shared import configure_entry_parser
 
 COMMAND_NAME = "lint"
-DEFAULT_SCHEMA_RESOURCE = "schemas/beach.schema.json"
 
 
 def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
@@ -137,65 +137,6 @@ def _raise_schema_errors(
     if hidden_count > 0:
         lines.append(f"... {hidden_count} more schema error(s) omitted.")
     raise SystemExit("\n".join(lines))
-
-
-def _load_schema(path: Path | None) -> tuple[dict[str, Any], str]:
-    if path is not None:
-        return _load_json_schema(path), str(path)
-
-    schema_resource = resources.files("beach.config").joinpath(DEFAULT_SCHEMA_RESOURCE)
-    with schema_resource.open("r", encoding="utf-8") as stream:
-        schema = json.load(stream)
-    return schema, f"package:beach.config/{DEFAULT_SCHEMA_RESOURCE}"
-
-
-def _load_json_schema(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as stream:
-        schema = json.load(stream)
-    if not isinstance(schema, dict):
-        raise ValueError(f"schema must decode to a JSON object: {path}")
-    return schema
-
-
-def _schema_errors(config: dict[str, Any], schema: dict[str, Any]) -> list[str]:
-    try:
-        from jsonschema import Draft7Validator
-        from jsonschema.exceptions import SchemaError
-    except ModuleNotFoundError as exc:
-        raise SystemExit(
-            "jsonschema is required for `beachx lint`. "
-            "Install BEACH dependencies or run `python -m pip install jsonschema`."
-        ) from exc
-
-    try:
-        Draft7Validator.check_schema(schema)
-    except SchemaError as exc:
-        raise SystemExit(f"schema file is invalid: {exc.message}") from exc
-    validator = Draft7Validator(schema)
-    errors = sorted(
-        validator.iter_errors(config),
-        key=lambda error: (tuple(error.absolute_path), tuple(error.absolute_schema_path)),
-    )
-    return [_format_schema_error(error) for error in errors]
-
-
-def _format_schema_error(error: Any) -> str:
-    path = _format_json_path(tuple(error.absolute_path))
-    return f"schema error at {path}: {error.message}"
-
-
-def _format_json_path(path: tuple[Any, ...]) -> str:
-    if not path:
-        return "<root>"
-    parts: list[str] = []
-    for item in path:
-        if isinstance(item, int):
-            parts.append(f"[{item}]")
-        else:
-            if parts:
-                parts.append(".")
-            parts.append(str(item))
-    return "".join(parts)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -199,7 +199,7 @@ class Beach:
         """
 
         return calc_coulomb(
-            self.result,
+            self,
             target,
             source,
             step=step,
@@ -374,7 +374,7 @@ class Beach:
         """
 
         return plot_charge_mesh(
-            self.result,
+            self,
             cmap=cmap,
             view_elev=view_elev,
             view_azim=view_azim,
@@ -426,7 +426,7 @@ class Beach:
         """
 
         return compute_potential_mesh(
-            self.result,
+            self,
             softening=softening,
             self_term=self_term,
             periodic2=periodic2,
@@ -466,7 +466,7 @@ class Beach:
         """
 
         return compute_potential_points(
-            self.result,
+            self,
             points,
             softening=softening,
             chunk_size=chunk_size,
@@ -522,7 +522,7 @@ class Beach:
         """
 
         return compute_potential_slices(
-            self.result,
+            self,
             box_min=box_min,
             box_max=box_max,
             grid_n=grid_n,
@@ -587,7 +587,7 @@ class Beach:
         """
 
         return plot_potential_mesh(
-            self.result,
+            self,
             softening=softening,
             self_term=self_term,
             cmap=cmap,
@@ -661,7 +661,7 @@ class Beach:
         """
 
         return plot_potential_slices(
-            self.result,
+            self,
             box_min=box_min,
             box_max=box_max,
             grid_n=grid_n,
@@ -831,7 +831,7 @@ class Beach:
         """
 
         return animate_history_mesh(
-            self.result,
+            self,
             output_path=output_path,
             quantity=quantity,
             fps=fps,
@@ -876,7 +876,7 @@ class Beach:
         """
 
         return compute_electric_field_points(
-            self.result,
+            self,
             points,
             softening=softening,
             chunk_size=chunk_size,
@@ -921,7 +921,7 @@ class Beach:
         """
 
         return trace_field_lines(
-            self.result,
+            self,
             seed_points,
             ds=ds,
             max_steps=max_steps,
@@ -1000,7 +1000,7 @@ class Beach:
         """
 
         return plot_field_lines_3d(
-            self.result,
+            self,
             seed_points,
             ds=ds,
             max_steps=max_steps,

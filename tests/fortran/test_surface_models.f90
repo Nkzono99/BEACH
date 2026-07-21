@@ -8,7 +8,11 @@ program test_surface_models
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
   implicit none
 
-  call test_init(4)
+  call test_init(5)
+
+  call test_begin('all_insulator_mesh_is_unchanged')
+  call test_all_insulator_mesh_is_unchanged()
+  call test_end()
 
   call test_begin('isolated_conductor_equalizes_symmetric_charge')
   call test_isolated_conductor_equalizes_symmetric_charge()
@@ -29,6 +33,25 @@ program test_surface_models
   call test_summary()
 
 contains
+
+  subroutine test_all_insulator_mesh_is_unchanged()
+    type(mesh_type) :: mesh
+    real(dp) :: centers(3, 2), q0(2)
+    integer(i32) :: mesh_ids(2), surface_models(2)
+
+    centers(:, 1) = [0.0d0, 0.0d0, 0.0d0]
+    centers(:, 2) = [1.0d0, 0.0d0, 0.0d0]
+    q0 = [2.0d-12, -1.0d-12]
+    mesh_ids = [1_i32, 1_i32]
+    surface_models = [surface_model_insulator, surface_model_insulator]
+    call init_test_mesh(mesh, centers, q0, mesh_ids, surface_models)
+
+    call apply_surface_model_charge_relaxation( &
+      mesh, 0.2d0, [1.0d0, 0.0d0, 0.0d0], field_bc_mode='periodic2')
+
+    call assert_close_dp(mesh%q_elem(1), q0(1), 0.0d0, 'first insulator charge must remain unchanged')
+    call assert_close_dp(mesh%q_elem(2), q0(2), 0.0d0, 'second insulator charge must remain unchanged')
+  end subroutine test_all_insulator_mesh_is_unchanged
 
   subroutine test_isolated_conductor_equalizes_symmetric_charge()
     type(mesh_type) :: mesh

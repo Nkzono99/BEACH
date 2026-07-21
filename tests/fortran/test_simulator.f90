@@ -3,6 +3,7 @@ program test_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
+  use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
   use bem_types, only: mesh_type, sim_stats, bc_open, bc_reflect, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
@@ -110,7 +111,11 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(15)
+  call test_init(16)
+
+  call test_begin('batch_workspace_reuse')
+  call test_batch_workspace_reuse()
+  call test_end()
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -259,6 +264,51 @@ program test_simulator
   call test_summary()
 
 contains
+
+  subroutine test_batch_workspace_reuse()
+    type(simulator_batch_workspace_type) :: workspace
+
+    call workspace%init(2_i32, 3_i32, 2_i32)
+    call assert_equal_i32(int(size(workspace%dq_thread, 1), i32), 2_i32, 'workspace mesh capacity mismatch')
+    call assert_equal_i32(int(size(workspace%dq_thread, 2), i32), 2_i32, 'workspace thread capacity mismatch')
+    call assert_equal_i32( &
+      int(size(workspace%ledger_charge_values), i32), 21_i32, 'workspace ledger charge capacity mismatch' &
+      )
+
+    call workspace%prepare_particle_flags(5_i32)
+    workspace%escaped_boundary_flag = .true.
+    workspace%absorbed_flag = .true.
+    workspace%soft_discarded_boundary_flag = .true.
+    workspace%dq_thread = 1.0_dp
+    workspace%photo_emission_dq = 2.0_dp
+    workspace%interface_outward_thread = 3.0_dp
+    workspace%interface_returned_thread = 4.0_dp
+    workspace%interface_tau_max_thread = 5.0_dp
+    workspace%interface_frozen_ratio_max_thread = 6.0_dp
+    workspace%interface_energy_error_max_thread = 7.0_dp
+
+    call workspace%reset_before_injection()
+    call workspace%prepare_particle_flags(2_i32)
+    call assert_true(all(workspace%dq_thread == 0.0_dp), 'workspace dq_thread reset mismatch')
+    call assert_true(all(workspace%photo_emission_dq == 0.0_dp), 'workspace photo charge reset mismatch')
+    call assert_true(all(workspace%interface_outward_thread == 0.0_dp), 'workspace outward reset mismatch')
+    call assert_true(all(workspace%interface_returned_thread == 0.0_dp), 'workspace returned reset mismatch')
+    call assert_true(all(workspace%interface_tau_max_thread == 0.0_dp), 'workspace tau reset mismatch')
+    call assert_true(all(workspace%interface_frozen_ratio_max_thread == 0.0_dp), 'workspace ratio reset mismatch')
+    call assert_true(all(workspace%interface_energy_error_max_thread == 0.0_dp), 'workspace energy reset mismatch')
+    call assert_true(all(.not. workspace%escaped_boundary_flag(:2)), 'workspace escaped flag reset mismatch')
+    call assert_true(all(.not. workspace%absorbed_flag(:2)), 'workspace absorbed flag reset mismatch')
+    call assert_true(all(.not. workspace%soft_discarded_boundary_flag(:2)), 'workspace discard flag reset mismatch')
+    call assert_equal_i32( &
+      int(size(workspace%escaped_boundary_flag), i32), 5_i32, 'workspace flags should retain grown capacity' &
+      )
+
+    call workspace%prepare_particle_flags(8_i32)
+    call assert_equal_i32( &
+      int(size(workspace%escaped_boundary_flag), i32), 8_i32, 'workspace flags should grow on demand' &
+      )
+    call assert_true(all(.not. workspace%escaped_boundary_flag), 'grown workspace escaped flags must start clear')
+  end subroutine test_batch_workspace_reuse
 
   subroutine test_photoelectron_return_histogram()
     use bem_constants, only: eps0

@@ -741,6 +741,20 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
     assert result.charge_ledger is None
 
 
+def test_load_fortran_result_rejects_duplicate_summary_keys(tmp_path: Path) -> None:
+    out = tmp_path / "duplicate_summary"
+    out.mkdir()
+    _write_minimal_result_fixture(out)
+    summary_path = out / "summary.txt"
+    summary_path.write_text(
+        summary_path.read_text(encoding="utf-8") + "\nbatches=2\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate key 'batches'"):
+        load_fortran_result(out)
+
+
 def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) -> None:
     out = tmp_path / "contract"
     out.mkdir()

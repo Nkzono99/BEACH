@@ -3,9 +3,11 @@ program test_field_kernel_c
   use, intrinsic :: iso_c_binding, only: c_char, c_double, c_int, c_loc, c_null_char, c_null_ptr, c_ptr
   use bem_constants, only: k_coulomb
   use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_build_panel, beach_kernel_create, &
+                                beach_kernel_abi_major, beach_kernel_abi_minor, &
                                 beach_kernel_destroy, beach_kernel_eval_e, beach_kernel_eval_e_direct, &
                                 beach_kernel_eval_phi, beach_kernel_eval_phi_direct, &
-                                beach_kernel_force_on_charges, beach_kernel_get_build_info, &
+                                beach_kernel_force_on_charges, beach_kernel_get_abi_version, &
+                                beach_kernel_get_build_info, &
                                 beach_kernel_get_periodic_cache_info, &
                                 beach_kernel_invalid_argument, beach_kernel_invalid_handle, beach_kernel_not_ready, &
                                 beach_kernel_ok, beach_kernel_set_periodic_cache, beach_kernel_update_charges
@@ -25,7 +27,8 @@ program test_field_kernel_c
   real(dp) :: expected_phi
   type(panel_geometry_type) :: geometry
   integer(i32) :: geometry_status
-  integer(c_int), target :: build_info_length, cache_hit, cache_build_count, fingerprint_length, path_length
+  integer(c_int), target :: abi_major, abi_minor, build_info_length, cache_hit, cache_build_count
+  integer(c_int), target :: fingerprint_length, path_length
   character(kind=c_char), target :: cache_path(8), embedded_nul_path(3), invalid_utf8_path(2), long_path(257)
   character(kind=c_char), target :: valid_utf8_path(5), overlong_path(2), surrogate_path(3), out_of_range_path(4)
   character(kind=c_char), target :: truncated_utf8_path(2), blank_path(1), trailing_blank_path(2)
@@ -34,6 +37,18 @@ program test_field_kernel_c
   real(c_double), target :: cache_periodic_len(2), cache_box_min(3), cache_box_max(3)
   integer(i32) :: panel_target_idx
   integer :: i
+
+  call test_begin('field_kernel_c_abi_version')
+  abi_major = -1_c_int
+  abi_minor = -1_c_int
+  status = beach_kernel_get_abi_version(c_null_ptr, c_loc(abi_minor))
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'ABI version NULL major output')
+  status = beach_kernel_get_abi_version(c_loc(abi_major), c_null_ptr)
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'ABI version NULL minor output')
+  status = beach_kernel_get_abi_version(c_loc(abi_major), c_loc(abi_minor))
+  call assert_equal_i32(status, beach_kernel_ok, 'ABI version getter status')
+  call assert_equal_i32(abi_major, beach_kernel_abi_major, 'ABI major version')
+  call assert_equal_i32(abi_minor, beach_kernel_abi_minor, 'ABI minor version')
 
   call test_begin('field_kernel_c_build_info')
   build_info_buffer = achar(88, kind=c_char)

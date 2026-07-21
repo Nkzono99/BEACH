@@ -65,6 +65,8 @@ Notes:
 Main C ABI:
 
 ```text
+beach_kernel_get_abi_version(major, minor)
+beach_kernel_get_build_info(buffer, capacity, length)
 beach_kernel_create(handle)
 beach_kernel_destroy(handle)
 beach_kernel_build(handle, src_pos, options...)
@@ -74,7 +76,18 @@ beach_kernel_eval_phi(handle, target_pos, phi)
 beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torque)
 ```
 
+The public header is `beach/include/beach_field_kernel.h` in the Python package.
+The current ABI is `1.0`. Before calling the other functions, a C caller should
+call `beach_kernel_get_abi_version` and require an equal major version and a
+library minor version greater than or equal to its required minor version.
+Coordinate and vector arrays use `values[3 * point_index + component]` storage.
+The public header defines status codes, periodic far-correction codes, and handle
+ownership.
+
 The Python side calls this ABI with `ctypes` through `beach.fortran_results.kernel.FieldKernel`.
+The Python wrapper checks compatible libraries that provide the version-query
+symbol when loading them. It accepts older libraries without that symbol for
+transition compatibility, while newly built libraries are required to provide it.
 `calc_object_forces_kernel` evaluates `sum(q_i E_not_self(r_i))` by zeroing the object's own source charge, avoiding self-force contamination while using the same field kernel, including `periodic2 + m2l_root_oracle`.
 `Beach.scene()` / `BeachScene` temporarily apply rigid translations and rotations of objects on the Python side and pass the edited centroid array to the same ABI.
 The rigid-transform helper path uses NumPy by default and can use an optional Numba backend, but field evaluation itself is done by the Fortran kernel.

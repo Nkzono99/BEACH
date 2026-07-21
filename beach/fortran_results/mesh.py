@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Mapping
 
 import numpy as np
 
+from .context import RunContext
+
 if TYPE_CHECKING:
     from .types import FortranRunResult
 
@@ -118,6 +120,7 @@ def _maybe_apply_periodic2_mesh(
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
     periodic2_mesh_mode: str = "centroid",
+    context: RunContext | None = None,
 ) -> np.ndarray:
     if not apply_periodic2_mesh:
         return triangles
@@ -126,21 +129,20 @@ def _maybe_apply_periodic2_mesh(
 
     periodic_cfg = _coerce_periodic2(periodic2)
     if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved)
+        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
     if periodic_cfg is None:
         raise ValueError(
             "apply_periodic2_mesh requires periodic2 settings or nearby beach.toml "
             'with sim.field_bc_mode="periodic2".'
         )
 
-    axes, lengths, origins, _nimg, _far_correction, _alpha, _ewald_layers = periodic_cfg
     mode = str(periodic2_mesh_mode).strip().lower()
     if mode in {"centroid", "face", "triangle"}:
         return _wrap_periodic2_triangles_by_centroid(
             triangles,
-            axes=axes,
-            lengths=lengths,
-            origins=origins,
+            axes=periodic_cfg.axes,
+            lengths=periodic_cfg.lengths,
+            origins=periodic_cfg.origins,
         )
     if mode in {"mesh", "object"}:
         if resolved.mesh_ids is None:
@@ -148,9 +150,9 @@ def _maybe_apply_periodic2_mesh(
         return _wrap_periodic2_triangles_by_mesh_centroid(
             triangles,
             resolved.mesh_ids,
-            axes=axes,
-            lengths=lengths,
-            origins=origins,
+            axes=periodic_cfg.axes,
+            lengths=periodic_cfg.lengths,
+            origins=periodic_cfg.origins,
         )
     raise ValueError("periodic2_mesh_mode must be one of {'centroid', 'mesh'}.")
 
@@ -208,6 +210,7 @@ def _maybe_replicate_periodic2(
     *,
     periodic2: Mapping[str, object] | None = None,
     periodic2_repeat: int = 0,
+    context: RunContext | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Replicate triangles and values for periodic display when requested.
 
@@ -220,19 +223,18 @@ def _maybe_replicate_periodic2(
 
     periodic_cfg = _coerce_periodic2(periodic2)
     if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved)
+        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
     if periodic_cfg is None:
         raise ValueError(
             "periodic2_repeat requires periodic2 settings or nearby beach.toml "
             'with sim.field_bc_mode="periodic2".'
         )
 
-    axes, lengths, _origins, _nimg, _far_correction, _alpha, _ewald_layers = periodic_cfg
     return _replicate_periodic2(
         triangles,
         values,
-        axes=axes,
-        lengths=lengths,
+        axes=periodic_cfg.axes,
+        lengths=periodic_cfg.lengths,
         n_repeat=periodic2_repeat,
     )
 

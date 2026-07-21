@@ -5,6 +5,7 @@ module bem_restart
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_checkpoint_contract, only: checkpoint_schema_version_current
   use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
@@ -226,7 +227,7 @@ contains
     if (state%outer_profile_complete) then
       state%outer_profile_field = field
       state%outer_profile_charge_density = charge_density
-    else if (state%checkpoint_schema_version >= 3_i32) then
+    else if (state%checkpoint_schema_version >= checkpoint_schema_version_current) then
       error stop 'Schema v3 checkpoint requires complete outer E/rho profile columns.'
     end if
   end subroutine load_kinetic_outer_profile
@@ -350,7 +351,8 @@ contains
     if (state%outer_ready .and. .not. (found_potential .and. found_batch)) then
       error stop 'Incomplete electrostatic restart state in summary.txt.'
     end if
-    if (state%outer_ready .and. state%checkpoint_schema_version >= 3_i32 .and. .not. all(found_v3_state)) then
+    if (state%outer_ready .and. state%checkpoint_schema_version >= checkpoint_schema_version_current .and. &
+        .not. all(found_v3_state)) then
       error stop 'Schema v3 electrostatic restart state is incomplete in summary.txt.'
     end if
   end subroutine load_electrostatic_state
@@ -430,7 +432,7 @@ contains
       end if
       return
     end if
-    if (schema_version /= 2_i32 .and. schema_version /= 3_i32) then
+    if (schema_version /= 2_i32 .and. schema_version /= checkpoint_schema_version_current) then
       status = restart_contract_unsupported_schema
       message = 'unsupported checkpoint schema version'
       return

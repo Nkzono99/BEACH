@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
+
+from beach.summary import CORE_SUMMARY_REQUIRED_KEYS, load_summary_file
 
 from .history import FortranChargeHistory
 from .types import ChargeLedgerEntry, FortranRunResult, MeshSource
@@ -34,7 +35,10 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     """
 
     out_dir = Path(directory)
-    summary = _load_summary(out_dir / "summary.txt")
+    summary = load_summary_file(
+        out_dir / "summary.txt",
+        required_keys=CORE_SUMMARY_REQUIRED_KEYS,
+    )
     mesh_nelem = _parse_nonnegative_int(summary["mesh_nelem"], key="mesh_nelem")
     q_values = _load_charges(out_dir / "charges.csv", mesh_nelem=mesh_nelem)
 
@@ -147,28 +151,6 @@ def list_fortran_runs(root: str | Path) -> list[Path]:
         if (path / "summary.txt").exists() and (path / "charges.csv").exists():
             runs.append(path)
     return runs
-
-
-def _load_summary(path: Path) -> dict[str, str]:
-    data: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        data[key.strip()] = value.strip()
-    _ensure_keys(
-        data,
-        [
-            "mesh_nelem",
-            "processed_particles",
-            "absorbed",
-            "escaped",
-            "batches",
-            "last_rel_change",
-        ],
-    )
-    return data
 
 
 def _parse_nonnegative_int(value: str, *, key: str) -> int:
@@ -387,9 +369,3 @@ def _load_mesh_potential_if_exists(
     if not np.all(np.isfinite(potential)):
         raise ValueError("mesh_potential.csv potential_V values must be finite.")
     return potential
-
-
-def _ensure_keys(data: dict[str, str], required: Iterable[str]) -> None:
-    missing = [key for key in required if key not in data]
-    if missing:
-        raise ValueError(f"Missing keys in summary: {missing}")

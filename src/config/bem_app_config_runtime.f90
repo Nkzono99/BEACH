@@ -30,6 +30,27 @@ module bem_app_config_runtime
   implicit none
   private :: finalize_particle_batch_collision_query
 
+  !> 1回の simulation run で不変な粒子 source の導出値。
+  type, public :: particle_source_plan_type
+    private
+    logical :: ready = .false.
+    logical :: mpi_argument_present = .false.
+    logical :: use_collective_reservoir_count = .false.
+    integer(i32) :: nspecies = 0_i32
+    integer(i32) :: mpi_rank = 0_i32
+    integer(i32) :: mpi_size = 1_i32
+    real(dp), allocatable :: effective_density_m3(:)
+    real(dp), allocatable :: effective_particle_flux_m2_s(:)
+    real(dp), allocatable :: effective_temperature_k(:)
+    real(dp), allocatable :: effective_drift_velocity(:, :)
+    real(dp), allocatable :: effective_weight(:)
+    real(dp), allocatable :: sheath_vmin_normal(:)
+    logical, allocatable :: apply_barrier_energy_shift(:)
+    real(dp), allocatable :: photo_emit_current_density(:)
+    real(dp), allocatable :: photo_vmin_normal(:)
+    real(dp), allocatable :: photo_normal_drift_speed(:)
+  end type particle_source_plan_type
+
 contains
 
   !> `mesh_mode` と OBJ ファイル有無に応じてメッシュ生成方法を選ぶ。
@@ -272,6 +293,128 @@ contains
     call seed_rng([seed_value])
   end subroutine seed_particles_from_config
 
+  !> 設定とMPI配置だけに依存する粒子 source の導出値を構築する。
+  !! 乱数、残差、mesh/snapshot依存の障壁は扱わず、run中に不変な値だけを保持する。
+  subroutine build_particle_source_plan(cfg, plan, mpi_rank, mpi_size, mpi)
+    type(app_config), intent(in) :: cfg
+    type(particle_source_plan_type), intent(out) :: plan
+    integer(i32), intent(in), optional :: mpi_rank, mpi_size
+    type(mpi_context), intent(in), optional :: mpi
+
+    integer(i32) :: s, local_rank, n_ranks
+    logical :: has_enabled_reservoir
+    type(sheath_injection_context) :: sheath_ctx
+
+    call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'build_particle_source_plan')
+    plan%nspecies = cfg%n_particle_species
+    plan%mpi_rank = local_rank
+    plan%mpi_size = n_ranks
+    plan%mpi_argument_present = present(mpi)
+    has_enabled_reservoir = .false.
+    do s = 1, cfg%n_particle_species
+      if (.not. cfg%particle_species(s)%enabled) cycle
+      has_enabled_reservoir = has_enabled_reservoir .or. &
+                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face'
+    end do
+    plan%use_collective_reservoir_count = present(mpi) .and. has_enabled_reservoir
+
+    allocate (plan%effective_density_m3(cfg%n_particle_species))
+    allocate (plan%effective_particle_flux_m2_s(cfg%n_particle_species))
+    allocate (plan%effective_temperature_k(cfg%n_particle_species))
+    allocate (plan%effective_drift_velocity(3, cfg%n_particle_species))
+    allocate (plan%effective_weight(cfg%n_particle_species))
+    allocate (plan%sheath_vmin_normal(cfg%n_particle_species))
+    allocate (plan%apply_barrier_energy_shift(cfg%n_particle_species))
+    allocate (plan%photo_emit_current_density(cfg%n_particle_species))
+    allocate (plan%photo_vmin_normal(cfg%n_particle_species))
+    allocate (plan%photo_normal_drift_speed(cfg%n_particle_species))
+    plan%effective_density_m3 = 0.0_dp
+    plan%effective_particle_flux_m2_s = 0.0_dp
+    plan%effective_temperature_k = 0.0_dp
+    plan%effective_drift_velocity = 0.0_dp
+    plan%effective_weight = 0.0_dp
+    plan%sheath_vmin_normal = 0.0_dp
+    plan%apply_barrier_energy_shift = .true.
+    plan%photo_emit_current_density = 0.0_dp
+    plan%photo_vmin_normal = 0.0_dp
+    plan%photo_normal_drift_speed = 0.0_dp
+
+    do s = 1, cfg%n_particle_species
+      if (.not. cfg%particle_species(s)%enabled) cycle
+      select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
+      case ('volume_seed')
+        plan%effective_weight(s) = cfg%particle_species(s)%w_particle
+        plan%effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
+        plan%effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
+      case ('reservoir_face')
+        if (trim(lower_ascii(cfg%particle_species(s)%velocity_distribution)) == 'grid') then
+          plan%effective_particle_flux_m2_s(s) = cfg%particle_species(s)%particle_flux_m2_s
+        else
+          plan%effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
+        end if
+        plan%effective_weight(s) = cfg%particle_species(s)%w_particle
+        plan%effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
+        plan%effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
+      case ('photo_raycast')
+        plan%photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
+        plan%photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
+      end select
+    end do
+
+    call resolve_sheath_injection_context(cfg, sheath_ctx)
+    if (sheath_ctx%enabled) then
+      s = int(sheath_ctx%electron_species)
+      plan%effective_density_m3(s) = sheath_ctx%electron_number_density_m3
+      plan%sheath_vmin_normal(s) = max(plan%sheath_vmin_normal(s), sheath_ctx%electron_vmin_normal)
+      plan%apply_barrier_energy_shift(s) = .false.
+
+      if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
+          cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
+        call resolve_reservoir_target_weight( &
+          cfg%sim, cfg%particle_species(s), plan%effective_density_m3(s), plan%sheath_vmin_normal(s), &
+          plan%effective_temperature_k(s), plan%effective_drift_velocity(:, s), &
+          cfg%particle_species(s)%target_macro_particles_per_batch, plan%effective_weight(s) &
+          )
+      end if
+
+      if (sheath_ctx%has_local_reservoir_profile) then
+        s = int(sheath_ctx%ion_species)
+        plan%effective_density_m3(s) = sheath_ctx%ion_number_density_m3
+        plan%effective_temperature_k(s) = 0.0_dp
+        call apply_normal_speed_override( &
+          cfg%particle_species(s)%drift_velocity, sheath_ctx%reference_inward_normal, &
+          sheath_ctx%ion_normal_speed_mps, plan%effective_drift_velocity(:, s) &
+          )
+
+        if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
+            cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
+          call resolve_reservoir_target_weight( &
+            cfg%sim, cfg%particle_species(s), plan%effective_density_m3(s), plan%sheath_vmin_normal(s), &
+            plan%effective_temperature_k(s), plan%effective_drift_velocity(:, s), &
+            cfg%particle_species(s)%target_macro_particles_per_batch, plan%effective_weight(s) &
+            )
+        end if
+      end if
+
+      if (sheath_ctx%has_photo_species) then
+        s = int(sheath_ctx%photo_species)
+        plan%photo_emit_current_density(s) = sheath_ctx%photo_emit_current_density_a_m2
+        plan%photo_vmin_normal(s) = sheath_ctx%photo_vmin_normal
+        plan%photo_normal_drift_speed(s) = 0.0_dp
+      end if
+
+      do s = 1, cfg%n_particle_species
+        if (.not. cfg%particle_species(s)%enabled) cycle
+        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
+        if (.not. cfg%particle_species(s)%has_target_macro_particles_per_batch) cycle
+        if (cfg%particle_species(s)%target_macro_particles_per_batch == -1_i32) then
+          plan%effective_weight(s) = plan%effective_weight(1)
+        end if
+      end do
+    end if
+    plan%ready = .true.
+  end subroutine build_particle_source_plan
+
   !> 指定バッチ番号に対応する粒子バッチを生成する。
   !! @param[in] cfg 粒子種とシミュレーション条件を含むアプリ設定。
   !! @param[in] batch_idx 生成対象のバッチ番号（1始まり）。
@@ -285,9 +428,11 @@ contains
   !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
   !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
+  !! @param[in] source_plan run中に再利用する粒子source導出値（省略時は呼出し内で構築）。
   subroutine init_particle_batch_from_config( &
     cfg, batch_idx, pcls, state, mesh, outer_state, photo_emission_dq, mpi_rank, mpi_size, mpi, &
-    collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot &
+    collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot, &
+    source_plan &
     )
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
@@ -301,20 +446,18 @@ contains
     integer(i32), intent(out), optional :: collision_failure_status, collision_failure_species
     integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
     type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
+    type(particle_source_plan_type), intent(in), optional, target :: source_plan
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
     integer(i32), allocatable :: counts_max(:), counts_actual(:), global_counts(:), species_cursor(:), species_id(:), &
                                  emit_elem_species(:, :)
-    real(dp), allocatable :: vmin_normal(:), barrier_normal(:), effective_density_m3(:), w_effective(:), &
-                             effective_particle_flux_m2_s(:), &
-                             effective_temperature_k(:), effective_drift_velocity(:, :), &
-                             photo_emit_current_density(:), photo_vmin_normal(:), photo_normal_drift_speed(:)
-    logical, allocatable :: apply_barrier_energy_shift(:)
-    logical :: has_enabled_reservoir, use_collective_reservoir_count
+    real(dp), allocatable :: vmin_normal(:), barrier_normal(:)
+    logical :: use_collective_reservoir_count
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
-    type(sheath_injection_context) :: sheath_ctx
+    type(particle_source_plan_type), target :: generated_source_plan
+    type(particle_source_plan_type), pointer :: active_source_plan
 
     if (present(collision_failure_status)) collision_failure_status = collision_query_ok
     if (present(collision_failure_species)) collision_failure_species = huge(0_i32)
@@ -325,13 +468,23 @@ contains
       error stop 'Requested batch index is out of range.'
     end if
     call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'init_particle_batch_from_config')
-    has_enabled_reservoir = .false.
-    do s = 1, cfg%n_particle_species
-      if (.not. cfg%particle_species(s)%enabled) cycle
-      has_enabled_reservoir = has_enabled_reservoir .or. &
-                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face'
-    end do
-    use_collective_reservoir_count = present(mpi) .and. has_enabled_reservoir
+    if (present(source_plan)) then
+      active_source_plan => source_plan
+    else
+      call build_particle_source_plan( &
+        cfg, generated_source_plan, mpi_rank=mpi_rank, mpi_size=mpi_size, mpi=mpi &
+        )
+      active_source_plan => generated_source_plan
+    end if
+    if (.not. active_source_plan%ready) error stop 'particle source plan is not initialized.'
+    if (active_source_plan%nspecies /= cfg%n_particle_species) then
+      error stop 'particle source plan species count does not match app config.'
+    end if
+    if (active_source_plan%mpi_rank /= local_rank .or. active_source_plan%mpi_size /= n_ranks .or. &
+        active_source_plan%mpi_argument_present .neqv. present(mpi)) then
+      error stop 'particle source plan MPI context does not match batch initialization.'
+    end if
+    use_collective_reservoir_count = active_source_plan%use_collective_reservoir_count
     if (present(state)) then
       if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
       if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
@@ -344,98 +497,22 @@ contains
 
     allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species), global_counts(cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
-    allocate (effective_density_m3(cfg%n_particle_species), w_effective(cfg%n_particle_species))
-    allocate (effective_particle_flux_m2_s(cfg%n_particle_species))
-    allocate (effective_temperature_k(cfg%n_particle_species), effective_drift_velocity(3, cfg%n_particle_species))
-    allocate (photo_emit_current_density(cfg%n_particle_species), photo_vmin_normal(cfg%n_particle_species))
-    allocate (photo_normal_drift_speed(cfg%n_particle_species), apply_barrier_energy_shift(cfg%n_particle_species))
     counts_max = 0_i32
     counts_actual = 0_i32
     global_counts = 0_i32
-    vmin_normal = 0.0d0
+    vmin_normal = active_source_plan%sheath_vmin_normal
     barrier_normal = 0.0d0
-    effective_density_m3 = 0.0d0
-    w_effective = 0.0d0
-    effective_particle_flux_m2_s = 0.0d0
-    effective_temperature_k = 0.0d0
-    effective_drift_velocity = 0.0d0
-    photo_emit_current_density = 0.0d0
-    photo_vmin_normal = 0.0d0
-    photo_normal_drift_speed = 0.0d0
-    apply_barrier_energy_shift = .true.
-    do s = 1, cfg%n_particle_species
-      if (.not. cfg%particle_species(s)%enabled) cycle
-      select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
-      case ('volume_seed')
-        w_effective(s) = cfg%particle_species(s)%w_particle
-        effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
-        effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
-      case ('reservoir_face')
-        if (trim(lower_ascii(cfg%particle_species(s)%velocity_distribution)) == 'grid') then
-          effective_particle_flux_m2_s(s) = cfg%particle_species(s)%particle_flux_m2_s
-        else
-          effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
-        end if
-        w_effective(s) = cfg%particle_species(s)%w_particle
-        effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
-        effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
-      case ('photo_raycast')
-        photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
-        photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
-      end select
-    end do
-
-    call resolve_sheath_injection_context(cfg, sheath_ctx)
-    if (sheath_ctx%enabled) then
-      s = int(sheath_ctx%electron_species)
-      effective_density_m3(s) = sheath_ctx%electron_number_density_m3
-      vmin_normal(s) = max(vmin_normal(s), sheath_ctx%electron_vmin_normal)
-      apply_barrier_energy_shift(s) = .false.
-
-      if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
-          cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
-        call resolve_reservoir_target_weight( &
-          cfg%sim, cfg%particle_species(s), effective_density_m3(s), vmin_normal(s), &
-          effective_temperature_k(s), effective_drift_velocity(:, s), &
-          cfg%particle_species(s)%target_macro_particles_per_batch, w_effective(s) &
-          )
-      end if
-
-      if (sheath_ctx%has_local_reservoir_profile) then
-        s = int(sheath_ctx%ion_species)
-        effective_density_m3(s) = sheath_ctx%ion_number_density_m3
-        effective_temperature_k(s) = 0.0d0
-        call apply_normal_speed_override( &
-          cfg%particle_species(s)%drift_velocity, sheath_ctx%reference_inward_normal, &
-          sheath_ctx%ion_normal_speed_mps, effective_drift_velocity(:, s) &
-          )
-
-        if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
-            cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
-          call resolve_reservoir_target_weight( &
-            cfg%sim, cfg%particle_species(s), effective_density_m3(s), vmin_normal(s), &
-            effective_temperature_k(s), effective_drift_velocity(:, s), &
-            cfg%particle_species(s)%target_macro_particles_per_batch, w_effective(s) &
-            )
-        end if
-      end if
-
-      if (sheath_ctx%has_photo_species) then
-        s = int(sheath_ctx%photo_species)
-        photo_emit_current_density(s) = sheath_ctx%photo_emit_current_density_a_m2
-        photo_vmin_normal(s) = sheath_ctx%photo_vmin_normal
-        photo_normal_drift_speed(s) = 0.0d0
-      end if
-
-      do s = 1, cfg%n_particle_species
-        if (.not. cfg%particle_species(s)%enabled) cycle
-        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
-        if (.not. cfg%particle_species(s)%has_target_macro_particles_per_batch) cycle
-        if (cfg%particle_species(s)%target_macro_particles_per_batch == -1_i32) then
-          w_effective(s) = w_effective(1)
-        end if
-      end do
-    end if
+    associate ( &
+      effective_density_m3 => active_source_plan%effective_density_m3, &
+      effective_particle_flux_m2_s => active_source_plan%effective_particle_flux_m2_s, &
+      effective_temperature_k => active_source_plan%effective_temperature_k, &
+      effective_drift_velocity => active_source_plan%effective_drift_velocity, &
+      w_effective => active_source_plan%effective_weight, &
+      apply_barrier_energy_shift => active_source_plan%apply_barrier_energy_shift, &
+      photo_emit_current_density => active_source_plan%photo_emit_current_density, &
+      photo_vmin_normal => active_source_plan%photo_vmin_normal, &
+      photo_normal_drift_speed => active_source_plan%photo_normal_drift_speed &
+      )
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
@@ -564,6 +641,7 @@ contains
     end do
 
     call init_particles(pcls, x, v, q, m, w, species_id=species_id)
+    end associate
   end subroutine init_particle_batch_from_config
 
   !> batch injection の不完全な photo collision query を返し、status 未要求なら serial に停止する。

@@ -53,6 +53,7 @@ class _FakeKernelLibrary:
         cache_getter: bool,
         diagnostics: tuple[int, int, bytes, bytes] = (0, 0, b"", b""),
         build_info: bytes | None = None,
+        abi_version: tuple[int, int] | None = None,
     ) -> None:
         self.events: list[str] = []
         self.cache_settings: list[tuple[bytes, float]] = []
@@ -115,6 +116,13 @@ class _FakeKernelLibrary:
             ctypes.memmove(buffer_ptr, build_info + b"\0", len(build_info) + 1)
             return 0
 
+        def get_abi_version(major_ptr: object, minor_ptr: object) -> int:
+            assert abi_version is not None
+            major, minor = abi_version
+            ctypes.cast(major_ptr, ctypes.POINTER(ctypes.c_int))[0] = major
+            ctypes.cast(minor_ptr, ctypes.POINTER(ctypes.c_int))[0] = minor
+            return 0
+
         self.beach_kernel_create = _FakeFunction("create", create, self.events)
         self.beach_kernel_destroy = _FakeFunction("destroy", ok, self.events)
         self.beach_kernel_build = _FakeFunction("build", ok, self.events)
@@ -134,6 +142,10 @@ class _FakeKernelLibrary:
         if build_info is not None:
             self.beach_kernel_get_build_info = _FakeFunction(
                 "get_build_info", get_build_info, self.events
+            )
+        if abi_version is not None:
+            self.beach_kernel_get_abi_version = _FakeFunction(
+                "get_abi_version", get_abi_version, self.events
             )
 
 
@@ -156,6 +168,38 @@ def _kernel_lib() -> Path:
 
 def test_field_kernel_diagnostics_is_a_frozen_top_level_api() -> None:
     assert FieldKernelDiagnostics.__dataclass_params__.frozen
+
+
+def test_field_kernel_accepts_matching_or_newer_minor_abi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeKernelLibrary(
+        cache_setter=False,
+        cache_getter=False,
+        abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR, 99),
+    )
+    _install_fake_kernel(monkeypatch, lib)
+    source_pos, source_q = _one_source()
+
+    with FieldKernel(source_pos, source_q):
+        pass
+
+    assert "get_abi_version" in lib.events
+
+
+def test_field_kernel_rejects_incompatible_major_abi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeKernelLibrary(
+        cache_setter=False,
+        cache_getter=False,
+        abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR + 1, 0),
+    )
+    _install_fake_kernel(monkeypatch, lib)
+    source_pos, source_q = _one_source()
+
+    with pytest.raises(FieldKernelError, match="ABI is incompatible"):
+        FieldKernel(source_pos, source_q)
 
 
 def test_field_kernel_build_info_is_a_frozen_top_level_api(

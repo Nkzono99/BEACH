@@ -75,6 +75,8 @@ opaque handle APIとして公開します。`make build-kernel`を実行する�
 主な C ABI:
 
 ```text
+beach_kernel_get_abi_version(major, minor)
+beach_kernel_get_build_info(buffer, capacity, length)
 beach_kernel_create(handle)
 beach_kernel_destroy(handle)
 beach_kernel_build(handle, src_pos, options...)
@@ -84,7 +86,16 @@ beach_kernel_eval_phi(handle, target_pos, phi)
 beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torque)
 ```
 
+公開ヘッダは Python package 内の `beach/include/beach_field_kernel.h` にあります。現行 ABI は
+`1.0` です。C の呼び出し側は、ほかの関数を使う前に `beach_kernel_get_abi_version` を呼び、
+major が一致し、library の minor が必要な minor 以上であることを確認してください。座標と
+vector の配列は `values[3 * point_index + component]` の順で格納します。status code、
+periodic far-correction code、handle の所有権は公開ヘッダに定義しています。
+
 Pythonでは、`beach.fortran_results.kernel.FieldKernel`がこのABIを`ctypes`で呼び出します。
+Python wrapper は version 問い合わせを提供する library の互換性を読込時に検査します。
+問い合わせ symbol がない従来の library は移行互換のため受理しますが、新しく構築する
+library は version 問い合わせを提供する必要があります。
 `calc_object_forces_kernel`は、対象object自身のsource電荷をゼロにして
 `sum(q_i E_not_self(r_i))`を評価します。これにより、自己力を除外しながら、
 `periodic2 + m2l_root_oracle`を含むfield kernelをそのまま利用できます。

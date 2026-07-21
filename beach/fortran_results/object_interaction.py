@@ -10,23 +10,23 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from .context import RunContext
 from .detachment import ObjectForcePath, ObjectWrench, WrenchComponent
 from .kernel import (
     FieldKernel,
     FieldKernelError,
     FieldKernelOptions,
-    _load_full_config,
     _options_from_result,
 )
 from .mesh import _triangle_centers, _wrap_periodic2_triangles_by_mesh_centroid
 from .panel_quadrature import _quadrature_order, panel_target_quadrature
+from .periodic import coerce_periodic2
 from .periodic_zero_mode import PeriodicZeroMode
 from .scene import RigidTransform
 from .selection import (
     _charges_for_step,
     _mesh_ids_or_default,
     _require_triangles,
-    _resolve_result,
 )
 from .types import FortranRunResult
 
@@ -126,14 +126,15 @@ class ObjectInteractionSnapshot:
             raise ValueError(
                 'periodic_model must be "configured" or "infinite_physical".'
             )
-        resolved = _resolve_result(result)
+        context = RunContext.from_value(result, config_path=config_path)
+        resolved = context.result
         source_model = str(resolved.field_source_model).strip().lower()
         if source_model not in {"point", "triangle_p0"}:
             raise ValueError(
                 "Object interaction requires field_source_model='point' or "
                 f"'triangle_p0'; got {resolved.field_source_model!r}."
             )
-        full_config = _load_full_config(resolved.directory, config_path=config_path)
+        full_config = context.config
         if full_config is None:
             raise ValueError(
                 "Object interaction requires the run's beach.toml so boundary, "
@@ -155,6 +156,7 @@ class ObjectInteractionSnapshot:
             leaf_max=None,
             order=4,
             config_path=config_path,
+            context=context,
         )
         external_e0 = np.asarray(options.external_e0, dtype=np.float64)
         periodic2 = options.periodic2
@@ -163,23 +165,15 @@ class ObjectInteractionSnapshot:
                 raise ValueError(
                     "periodic_model='infinite_physical' requires an x/y periodic2 run."
                 )
-            periodic2 = (
-                periodic2[0],
-                periodic2[1],
-                periodic2[2],
-                periodic2[3],
-                "cached_kneq0",
-                periodic2[5],
-                periodic2[6],
-            )
-        far_correction = "free" if periodic2 is None else periodic2[4]
+            periodic2 = periodic2._replace(far_correction="cached_kneq0")
+        far_correction = "free" if periodic2 is None else periodic2.far_correction
         if far_correction not in {"free", "none", "cached_kneq0"}:
             raise ValueError(
                 "Object interaction supports free, configured finite images, or "
                 "cached_kneq0 physical periodic fields; "
                 f"got {far_correction!r}."
             )
-        if periodic2 is not None and tuple(periodic2[0]) != (0, 1):
+        if periodic2 is not None and periodic2.axes != (0, 1):
             raise ValueError("Physical periodic object interaction requires x/y axes (0, 1).")
 
         centers = _triangle_centers(triangles)
@@ -221,7 +215,7 @@ class ObjectInteractionSnapshot:
                 zero_mode = PeriodicZeroMode(
                     heights,
                     charges,
-                    float(periodic2[1][0] * periodic2[1][1]),
+                    float(periodic2.lengths[0] * periodic2.lengths[1]),
                     library_path=library_path,
                 )
             return cls(
@@ -482,9 +476,9 @@ class ObjectProbe:
             target_triangles = _wrap_periodic2_triangles_by_mesh_centroid(
                 target_triangles,
                 np.full(np.count_nonzero(self._target_mask), self.mesh_id),
-                axes=periodic2[0],
-                lengths=periodic2[1],
-                origins=periodic2[2],
+                axes=periodic2.axes,
+                lengths=periodic2.lengths,
+                origins=periodic2.origins,
             )
             self._target_geometry_representation = "periodic2_mesh_connected"
         self._target_triangles_m = _readonly(target_triangles)
@@ -678,7 +672,7 @@ class ObjectProbe:
         total = physical["total_external"]
         cached = (
             self._snapshot._options.periodic2 is not None
-            and self._snapshot._options.periodic2[4] == "cached_kneq0"
+            and self._snapshot._options.periodic2.far_correction == "cached_kneq0"
         )
         p_full = _aggregate_wrench(
             target_points,
@@ -713,7 +707,7 @@ class ObjectProbe:
             "effective_far_correction": (
                 "free"
                 if self._snapshot._options.periodic2 is None
-                else self._snapshot._options.periodic2[4]
+                else self._snapshot._options.periodic2.far_correction
             ),
             "target_integration": self._integration_label,
             "quadrature_order": self._integration_order,
@@ -900,7 +894,7 @@ class ObjectProbe:
             "effective_far_correction": (
                 "free"
                 if self._snapshot._options.periodic2 is None
-                else self._snapshot._options.periodic2[4]
+                else self._snapshot._options.periodic2.far_correction
             ),
             "target_integration": self._integration_label,
             "quadrature_order": self._integration_order,
@@ -1160,8 +1154,9 @@ def _validate_target_points(points_m: np.ndarray, options: FieldKernelOptions) -
     lower = np.asarray(options.box_min, dtype=np.float64)
     upper = np.asarray(options.box_max, dtype=np.float64)
     bounded_axes = np.ones(3, dtype=bool)
-    if options.periodic2 is not None:
-        bounded_axes[np.asarray(options.periodic2[0], dtype=np.int64)] = False
+    periodic2 = coerce_periodic2(options.periodic2, allow_cached_kneq0=True)
+    if periodic2 is not None:
+        bounded_axes[np.asarray(periodic2.axes, dtype=np.int64)] = False
     bounded = points[:, bounded_axes]
     if np.any(bounded < lower[bounded_axes][None, :]) or np.any(
         bounded > upper[bounded_axes][None, :]

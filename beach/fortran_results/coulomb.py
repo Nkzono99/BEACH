@@ -7,8 +7,10 @@ from typing import Iterable, Literal, Mapping
 import numpy as np
 
 from .constants import K_COULOMB
+from .context import RunContext
 from .mesh import _triangle_centers
-from .selection import _coerce_group_selection, _require_point_source_model, _resolve_result
+from .periodic import Periodic2Config
+from .selection import _coerce_group_selection, _require_point_source_model
 from .types import CoulombInteraction, FortranRunResult, MeshSelection
 
 
@@ -66,7 +68,8 @@ def calc_coulomb(
 
     from .potential import _auto_periodic2_from_result, _coerce_periodic2
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     _require_point_source_model(resolved)
     softening = float(softening)
     if not np.isfinite(softening) or softening < 0.0:
@@ -97,7 +100,7 @@ def calc_coulomb(
 
     periodic_cfg = _coerce_periodic2(periodic2)
     if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved)
+        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
 
     centers_target = _triangle_centers(sel_target.triangles)
     centers_source = _triangle_centers(sel_source.triangles)
@@ -137,7 +140,7 @@ def _pairwise_force_torque(
     *,
     origin: np.ndarray,
     softening: float,
-    periodic2: tuple | None = None,
+    periodic2: Periodic2Config | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute pairwise Coulomb force and torque.
 
@@ -184,21 +187,20 @@ def _pairwise_force_torque_periodic2(
     *,
     origin: np.ndarray,
     softening: float,
-    periodic2: tuple,
+    periodic2: Periodic2Config,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Pairwise Coulomb force/torque with periodic2 image-shell summation."""
 
-    axes, lengths, origins, nimg, _far_correction, _alpha, _ewald_layers = periodic2
-    axis1, axis2 = axes
-    l1, l2 = lengths
+    axis1, axis2 = periodic2.axes
+    l1, l2 = periodic2.lengths
 
     force = np.zeros(3, dtype=float)
     torque = np.zeros(3, dtype=float)
     eps2 = softening * softening
     min_dist2 = np.finfo(float).tiny
 
-    for ix in range(-nimg, nimg + 1):
-        for iy in range(-nimg, nimg + 1):
+    for ix in range(-periodic2.image_layers, periodic2.image_layers + 1):
+        for iy in range(-periodic2.image_layers, periodic2.image_layers + 1):
             shifted_b = centers_b.copy()
             shifted_b[:, axis1] += float(ix) * l1
             shifted_b[:, axis2] += float(iy) * l2

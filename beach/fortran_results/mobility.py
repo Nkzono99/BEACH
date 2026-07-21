@@ -8,10 +8,12 @@ from typing import Iterable
 
 import numpy as np
 
+from .context import RunContext
 from .coulomb import calc_coulomb
 from .mesh import _triangle_centers
 from .objects import normalize_kind_filter, resolve_object_specs
-from .selection import _build_mesh_selection, _resolve_result
+from .periodic import auto_periodic2_from_result
+from .selection import _build_mesh_selection
 from .types import (
     CoulombMobilityAnalysis,
     CoulombMobilityRecord,
@@ -77,7 +79,8 @@ def analyze_coulomb_mobility(
         If arguments are invalid or no target objects are available.
     """
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result, config_path=config_path)
+    resolved = context.result
     softening = float(softening)
     if not np.isfinite(softening) or softening < 0.0:
         raise ValueError("softening must be finite and >= 0.")
@@ -101,7 +104,12 @@ def analyze_coulomb_mobility(
     support_normal_vec = _resolve_support_normal(gravity_vec, support_normal)
     support_kind_filter = normalize_kind_filter(support_kinds) or set()
     target_kind_filter = normalize_kind_filter(target_kinds)
-    object_specs = resolve_object_specs(resolved, config_path=config_path)
+    object_specs = resolve_object_specs(
+        resolved,
+        config_path=config_path,
+        context=context,
+    )
+    periodic2 = auto_periodic2_from_result(resolved, context=context)
 
     if target_kind_filter is None:
         target_specs = [
@@ -137,6 +145,7 @@ def analyze_coulomb_mobility(
                 step=step,
                 softening=softening,
                 torque_origin="target_center",
+                periodic2=periodic2,
             )
             force = interaction.force_on_a_N
             torque = interaction.torque_on_a_Nm

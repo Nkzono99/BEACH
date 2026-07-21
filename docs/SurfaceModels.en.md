@@ -133,5 +133,6 @@ See [Inspect Output Files](OutputGuide.en.html) for species-resolved charge bala
 ## Code reference
 
 - Particle absorption and batch commit: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- Conductor relaxation: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
+- Conductor relaxation facade: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
+- Floating-conductor solver: [`bem_surface_models_conductor.f90`](../src/physics/bem_surface_models_conductor.f90)
 - Batch statistics: [`bem_simulator_stats.f90`](../src/runtime/simulator/bem_simulator_stats.f90)

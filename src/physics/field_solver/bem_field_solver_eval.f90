@@ -1,6 +1,6 @@
 !> `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_eval
-  use bem_coulomb_fmm_core, only: eval_point, eval_potential_points
+  use bem_coulomb_fmm_core, only: eval_point, eval_potential_point, eval_potential_points
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, &
                                    reset_fmm_plan, initialize_fmm_state, reset_fmm_state
   use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle
@@ -57,7 +57,6 @@ contains
   !> 観測点の電位を direct / treecode / FMM で評価して返す。
   module procedure eval_potential_field_solver
   real(dp) :: r_scaled(3), soft2, phi_sum
-  real(dp), allocatable :: targets(:, :), phi_values(:)
 
   phi = 0.0d0
   if (mesh%nelem <= 0_i32) return
@@ -67,11 +66,8 @@ contains
       error stop 'FMM core is not ready. Call solver%init/refresh before eval_potential.'
     end if
     r_scaled = (r - self%field_origin)*self%field_inv_length_scale
-    allocate (targets(3, 1), phi_values(1))
-    targets(:, 1) = r_scaled
-    call eval_potential_points(self%fmm_core_plan, self%fmm_core_state, targets, phi_values)
-    phi = self%potential_output_scale*phi_values(1)
-    deallocate (targets, phi_values)
+    call eval_potential_point(self%fmm_core_plan, self%fmm_core_state, r_scaled, phi)
+    phi = self%potential_output_scale*phi
     return
   end if
 

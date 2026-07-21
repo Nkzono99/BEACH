@@ -73,6 +73,11 @@ def test_release_metadata_and_sdist_gates_are_synchronized() -> None:
     assert pyproject["project"]["license-files"] == ["LICENSE"]
     assert "setuptools>=77" in pyproject["build-system"]["requires"]
     assert "recursive-include benchmarks *.f90" in manifest
+    assert "recursive-include beach/include *.h" in manifest
+    assert "include tools/check_source_text.py" in manifest
+    assert pyproject["tool"]["setuptools"]["package-data"]["beach"] == [
+        "include/*.h"
+    ]
     assert "include tools/verify_sdist.py" in manifest
     assert "python tools/verify_sdist.py dist/*.tar.gz" in publish_workflow
     assert "python -m pip wheel --no-deps dist/*.tar.gz" in publish_workflow

@@ -11,12 +11,11 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from .context import RunContext, load_config_for_output
 from .mesh import _triangle_centers
+from .periodic import Periodic2Input
 from .potential import (
-    _auto_periodic2_from_result,
     _coerce_periodic2,
-    _find_config_path_near_output,
-    _load_toml,
     _periodic2_from_sim,
     _resolve_softening,
 )
@@ -25,7 +24,6 @@ from .selection import (
     _mesh_ids_or_default,
     _require_point_source_model,
     _require_triangles,
-    _resolve_result,
 )
 from .types import FortranRunResult
 
@@ -44,6 +42,9 @@ _FAR_CORRECTION_CODES = {
     "cached_kneq0": 3,
 }
 
+FIELD_KERNEL_ABI_MAJOR = 1
+FIELD_KERNEL_ABI_MINOR = 0
+
 
 class FieldKernelError(RuntimeError):
     """Raised when the shared field kernel cannot be used."""
@@ -57,15 +58,7 @@ class FieldKernelOptions:
     theta: float = 0.5
     leaf_max: int = 16
     order: int = 4
-    periodic2: tuple[
-        tuple[int, int],
-        tuple[float, float],
-        tuple[float, float],
-        int,
-        str,
-        float,
-        int,
-    ] | None = None
+    periodic2: Periodic2Input | None = None
     box_min: tuple[float, float, float] | None = None
     box_max: tuple[float, float, float] | None = None
     external_e0: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -228,7 +221,8 @@ class FieldKernel:
     ) -> "FieldKernel":
         """Build a kernel from one BEACH output directory."""
 
-        resolved = _resolve_result(result)
+        context = RunContext.from_value(result, config_path=config_path)
+        resolved = context.result
         triangles = _require_triangles(resolved)
         centers = _triangle_centers(triangles)
         charges = _charges_for_step(resolved, step=step)
@@ -240,6 +234,7 @@ class FieldKernel:
             leaf_max=leaf_max,
             order=order,
             config_path=config_path,
+            context=context,
         )
         source_triangles = triangles if resolved.field_source_model == "triangle_p0" else None
         return cls(
@@ -316,13 +311,16 @@ class FieldKernel:
 
         far_key = "none"
         if periodic_cfg is not None:
-            axes, lengths, origins, image_layers, far_key, ewald_alpha, ewald_layers = (
-                periodic_cfg
-            )
+            axes = periodic_cfg.axes
+            lengths = periodic_cfg.lengths
+            image_layers = periodic_cfg.image_layers
+            far_key = periodic_cfg.far_correction
+            ewald_alpha = periodic_cfg.ewald_alpha
+            ewald_layers = periodic_cfg.ewald_layers
             box_min_vec, box_max_vec = _periodic_box_vectors(
                 axes=axes,
                 lengths=lengths,
-                origins=origins,
+                origins=periodic_cfg.origins,
                 box_min=opts.box_min,
                 box_max=opts.box_max,
                 source_positions_3xn=src_pos,
@@ -672,7 +670,8 @@ def calc_object_forces_kernel(
     Coulomb self-force contamination.
     """
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result, config_path=config_path)
+    resolved = context.result
     _require_point_source_model(resolved)
     triangles = _require_triangles(resolved)
     centers = _triangle_centers(triangles)
@@ -697,6 +696,7 @@ def calc_object_forces_kernel(
         leaf_max=leaf_max,
         order=order,
         config_path=config_path,
+        context=context,
     )
     records: list[KernelObjectForceRecord] = []
     with FieldKernel(centers, charges, options=options, library_path=library_path) as kernel:
@@ -736,7 +736,8 @@ def field_kernel_options_from_result(
 ) -> FieldKernelOptions:
     """Resolve field-kernel options from a BEACH result and optional config."""
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result, config_path=config_path)
+    resolved = context.result
     _require_point_source_model(resolved)
     return _options_from_result(
         resolved,
@@ -746,6 +747,7 @@ def field_kernel_options_from_result(
         leaf_max=leaf_max,
         order=order,
         config_path=config_path,
+        context=context,
     )
 
 
@@ -758,20 +760,22 @@ def _options_from_result(
     leaf_max: int | None,
     order: int,
     config_path: str | Path | None,
+    context: RunContext | None = None,
 ) -> FieldKernelOptions:
-    sim = _load_sim_config(resolved.directory, config_path=config_path)
-    resolved_softening = _resolve_kernel_softening(resolved, sim=sim, softening=softening)
+    run_context = context or RunContext.from_value(resolved, config_path=config_path)
+    sim = run_context.sim
+    resolved_softening = _resolve_kernel_softening(
+        resolved,
+        sim=sim,
+        softening=softening,
+        context=run_context,
+    )
     periodic_cfg = _coerce_periodic2(periodic2, allow_cached_kneq0=True)
-    if periodic_cfg is None:
-        if sim is None and config_path is None:
-            periodic_cfg = _auto_periodic2_from_result(
-                resolved, allow_cached_kneq0=True
-            )
-        elif sim is not None:
-            periodic_cfg = _coerce_periodic2(
-                _periodic2_from_sim(sim, allow_cached_kneq0=True),
-                allow_cached_kneq0=True,
-            )
+    if periodic_cfg is None and sim is not None:
+        periodic_cfg = _coerce_periodic2(
+            _periodic2_from_sim(sim, allow_cached_kneq0=True),
+            allow_cached_kneq0=True,
+        )
     resolved_theta = float(theta if theta is not None else (sim or {}).get("tree_theta", 0.5))
     resolved_leaf_max = int(leaf_max if leaf_max is not None else (sim or {}).get("tree_leaf_max", 16))
     box_min: tuple[float, float, float] | None = None
@@ -814,15 +818,7 @@ def _load_full_config(
     *,
     config_path: str | Path | None,
 ) -> Mapping[str, object] | None:
-    if config_path is None:
-        path = _find_config_path_near_output(output_dir)
-    else:
-        path = Path(config_path)
-        if not path.exists():
-            raise ValueError(f'config file is not found: "{path}".')
-    if path is None:
-        return None
-    return _load_toml(path)
+    return load_config_for_output(output_dir, config_path=config_path)
 
 
 def _load_sim_config_near_output(output_dir: Path) -> Mapping[str, object] | None:
@@ -867,9 +863,10 @@ def _resolve_kernel_softening(
     *,
     sim: Mapping[str, object] | None,
     softening: float | None,
+    context: RunContext | None = None,
 ) -> float:
     if softening is not None or sim is None:
-        return _resolve_softening(resolved, softening)
+        return _resolve_softening(resolved, softening, context=context)
     value = float(sim.get("softening", 0.0))
     if not np.isfinite(value) or value < 0.0:
         raise ValueError("softening must be finite and >= 0.")
@@ -958,6 +955,11 @@ def _configure_library(lib: ctypes.CDLL) -> None:
     c_void_p = ctypes.c_void_p
     c_int = ctypes.c_int
     c_double = ctypes.c_double
+
+    abi_getter = getattr(lib, "beach_kernel_get_abi_version", None)
+    if abi_getter is not None:
+        abi_getter.argtypes = [c_void_p, c_void_p]
+        abi_getter.restype = c_int
 
     lib.beach_kernel_create.argtypes = [ctypes.POINTER(c_void_p)]
     lib.beach_kernel_create.restype = c_int
@@ -1049,7 +1051,25 @@ def _configure_library(lib: ctypes.CDLL) -> None:
     if build_info_getter is not None:
         build_info_getter.argtypes = [c_void_p, c_int, c_void_p]
         build_info_getter.restype = c_int
+    _validate_library_abi(lib)
     lib._beach_kernel_ctypes_configured = True
+
+
+def _validate_library_abi(lib: ctypes.CDLL) -> None:
+    getter = getattr(lib, "beach_kernel_get_abi_version", None)
+    if getter is None:
+        return
+
+    major = ctypes.c_int()
+    minor = ctypes.c_int()
+    status = getter(ctypes.byref(major), ctypes.byref(minor))
+    _check_status(status, "beach_kernel_get_abi_version")
+    if major.value != FIELD_KERNEL_ABI_MAJOR or minor.value < FIELD_KERNEL_ABI_MINOR:
+        raise FieldKernelError(
+            "field-kernel ABI is incompatible: "
+            f"library={major.value}.{minor.value}, "
+            f"required={FIELD_KERNEL_ABI_MAJOR}.{FIELD_KERNEL_ABI_MINOR}."
+        )
 
 
 def _check_status(status: int, operation: str) -> None:

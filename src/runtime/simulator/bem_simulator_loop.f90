@@ -23,13 +23,8 @@ contains
   logical :: potential_history_enabled
   integer :: pot_hist_unit
   real(dp), allocatable :: potential_buf(:)
-  real(dp), allocatable :: dq_thread(:, :), dq(:), photo_emission_dq(:)
-  real(dp), allocatable :: interface_outward_thread(:, :), interface_returned_thread(:, :)
-  real(dp), allocatable :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
-  real(dp), allocatable :: interface_energy_error_max_thread(:)
   type(photoelectron_histogram_type), allocatable :: photoelectron_histogram_thread(:)
   type(photoelectron_histogram_type) :: photoelectron_batch_histogram
-  logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:), soft_discarded_boundary_flag(:)
   integer(i32) :: batch_counts(6)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
@@ -40,6 +35,8 @@ contains
   type(electrostatic_snapshot_type) :: snapshot
   type(outer_coupler_type) :: outer_coupler
   type(charge_ledger_type) :: batch_ledger
+  type(simulator_batch_workspace_type) :: workspace
+  type(particle_source_plan_type) :: source_plan
   logical :: ledger_enabled
   logical :: photoelectron_histogram_enabled
   integer(i32) :: thread_index, photoelectron_status
@@ -63,11 +60,7 @@ contains
 
   nth = 1
 !$ nth = max(1, omp_get_max_threads())
-  allocate (dq_thread(mesh%nelem, nth), dq(mesh%nelem), photo_emission_dq(mesh%nelem))
-  allocate (interface_outward_thread(app%n_particle_species, nth))
-  allocate (interface_returned_thread(app%n_particle_species, nth))
-  allocate (interface_tau_max_thread(nth), interface_frozen_ratio_max_thread(nth), &
-            interface_energy_error_max_thread(nth))
+  call workspace%init(mesh%nelem, app%n_particle_species, nth)
   max_outer_flight_time = 0.0_dp
   max_frozen_field_ratio = 0.0_dp
   max_outer_energy_relative_error = 0.0_dp
@@ -144,9 +137,9 @@ contains
     call perf_region_end(perf_region_field_refresh, t0)
 
     call perf_region_begin(perf_region_prepare_batch, t0)
+    if (local_batch_idx == 1_i32) call build_particle_source_plan(app, source_plan, mpi=mpi_ctx)
     call prepare_batch_state( &
-      mesh, app, snapshot, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      soft_discarded_boundary_flag, photo_emission_dq, mpi_ctx, snapshot%outer, inject_state, &
+      mesh, app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, snapshot%outer, inject_state, &
       photo_failure_status, photo_failure_species, &
       photo_failure_ray, photo_failure_bounce &
       )
@@ -175,25 +168,28 @@ contains
     call perf_region_begin(perf_region_particle_batch, t0)
     if (photoelectron_histogram_enabled) then
       call process_particle_batch( &
-        mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-        soft_discarded_boundary_flag, interface_outward_thread, interface_returned_thread, &
+        mesh, app, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
+        workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+        workspace%soft_discarded_boundary_flag, workspace%interface_outward_thread, workspace%interface_returned_thread, &
         collision_failure_status, collision_failure_particle, &
-        collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
-        interface_frozen_ratio_max_thread, interface_energy_error_max_thread, photoelectron_histogram_thread &
+        collision_failure_step, collision_failure_x, collision_failure_v, workspace%interface_tau_max_thread, &
+        workspace%interface_frozen_ratio_max_thread, workspace%interface_energy_error_max_thread, &
+        photoelectron_histogram_thread &
         )
     else
       call process_particle_batch( &
-        mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-        soft_discarded_boundary_flag, interface_outward_thread, interface_returned_thread, &
+        mesh, app, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
+        workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+        workspace%soft_discarded_boundary_flag, workspace%interface_outward_thread, workspace%interface_returned_thread, &
         collision_failure_status, collision_failure_particle, &
-        collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
-        interface_frozen_ratio_max_thread, interface_energy_error_max_thread &
+        collision_failure_step, collision_failure_x, collision_failure_v, workspace%interface_tau_max_thread, &
+        workspace%interface_frozen_ratio_max_thread, workspace%interface_energy_error_max_thread &
         )
     end if
-    max_outer_flight_time = max(max_outer_flight_time, maxval(interface_tau_max_thread))
-    max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(interface_frozen_ratio_max_thread))
+    max_outer_flight_time = max(max_outer_flight_time, maxval(workspace%interface_tau_max_thread))
+    max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(workspace%interface_frozen_ratio_max_thread))
     max_outer_energy_relative_error = &
-      max(max_outer_energy_relative_error, maxval(interface_energy_error_max_thread))
+      max(max_outer_energy_relative_error, maxval(workspace%interface_energy_error_max_thread))
     call perf_region_end(perf_region_particle_batch, t0)
 
     collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
@@ -217,15 +213,20 @@ contains
     end if
 
     if (ledger_enabled) then
-      batch_ledger%interface_outward_gross = sum(interface_outward_thread, dim=2)
-      batch_ledger%interface_returned_gross = sum(interface_returned_thread, dim=2)
+      batch_ledger%interface_outward_gross = sum(workspace%interface_outward_thread, dim=2)
+      batch_ledger%interface_returned_gross = sum(workspace%interface_returned_thread, dim=2)
       call record_batch_outcome_charge( &
-        pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, batch_ledger &
+        pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, &
+        workspace%soft_discarded_boundary_flag, batch_ledger &
         )
-      call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx)
+      call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx, workspace)
     end if
     if (photoelectron_histogram_enabled) then
-      call photoelectron_state%begin_batch(photoelectron_batch_histogram)
+      if (local_batch_idx == 1_i32) then
+        call photoelectron_state%begin_batch(photoelectron_batch_histogram)
+      else
+        call photoelectron_batch_histogram%reset()
+      end if
       do thread_index = 1_i32, nth
         call photoelectron_batch_histogram%merge(photoelectron_histogram_thread(thread_index))
       end do
@@ -244,7 +245,7 @@ contains
     call perf_region_begin(perf_region_commit_charge, t0)
     call commit_batch_charge( &
       mesh, app%sim%q_floor, app%sim%softening, app%sim%e0, app%sim%field_bc_mode, &
-      dq_thread, photo_emission_dq, dq, rel, mpi_ctx &
+      workspace, rel, mpi_ctx &
       )
     call perf_region_end(perf_region_commit_charge, t0)
 
@@ -255,7 +256,7 @@ contains
 
     call perf_region_begin(perf_region_count_outcomes, t0)
     call count_batch_outcomes( &
-      pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, &
+      pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%soft_discarded_boundary_flag, &
       batch_counts, batch_soft_discarded_abs_charge &
       )
     call perf_region_end(perf_region_count_outcomes, t0)
@@ -329,62 +330,30 @@ contains
   end if
 
   if (allocated(potential_buf)) deallocate (potential_buf)
-  if (allocated(escaped_boundary_flag)) deallocate (escaped_boundary_flag)
-  if (allocated(absorbed_flag)) deallocate (absorbed_flag)
-  if (allocated(soft_discarded_boundary_flag)) deallocate (soft_discarded_boundary_flag)
-  deallocate ( &
-    dq_thread, dq, photo_emission_dq, interface_outward_thread, interface_returned_thread, &
-    interface_tau_max_thread, interface_frozen_ratio_max_thread &
-    )
   end procedure run_absorption_insulator
 
   !> 1バッチ分の粒子群と作業バッファを初期化する。
   module procedure prepare_batch_state
   batch_idx = stats%batches + 1_i32
+  call workspace%reset_before_injection()
   if (present(inject_state)) then
     call init_particle_batch_from_config( &
-      app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=photo_emission_dq, &
+      app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=workspace%photo_emission_dq, &
       snapshot=snapshot, outer_state=outer_state, mpi=mpi, collision_failure_status=collision_failure_status, &
       collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
-      collision_failure_bounce=collision_failure_bounce &
+      collision_failure_bounce=collision_failure_bounce, source_plan=source_plan &
       )
   else
     call init_particle_batch_from_config( &
-      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=photo_emission_dq, mpi=mpi, &
+      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=workspace%photo_emission_dq, mpi=mpi, &
       snapshot=snapshot, outer_state=outer_state, collision_failure_status=collision_failure_status, &
       collision_failure_species=collision_failure_species, &
-      collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce &
+      collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce, &
+      source_plan=source_plan &
       )
   end if
   if (collision_failure_status /= collision_query_ok) return
-  if (allocated(escaped_boundary_flag)) then
-    if (size(escaped_boundary_flag) < pcls_batch%n) then
-      deallocate (escaped_boundary_flag)
-      allocate (escaped_boundary_flag(pcls_batch%n))
-    end if
-  else
-    allocate (escaped_boundary_flag(pcls_batch%n))
-  end if
-  if (allocated(absorbed_flag)) then
-    if (size(absorbed_flag) < pcls_batch%n) then
-      deallocate (absorbed_flag)
-      allocate (absorbed_flag(pcls_batch%n))
-    end if
-  else
-    allocate (absorbed_flag(pcls_batch%n))
-  end if
-  if (allocated(soft_discarded_boundary_flag)) then
-    if (size(soft_discarded_boundary_flag) < pcls_batch%n) then
-      deallocate (soft_discarded_boundary_flag)
-      allocate (soft_discarded_boundary_flag(pcls_batch%n))
-    end if
-  else
-    allocate (soft_discarded_boundary_flag(pcls_batch%n))
-  end if
-  escaped_boundary_flag(:pcls_batch%n) = .false.
-  absorbed_flag(:pcls_batch%n) = .false.
-  soft_discarded_boundary_flag(:pcls_batch%n) = .false.
-  dq_thread = 0.0d0
+  call workspace%prepare_particle_flags(pcls_batch%n)
   end procedure prepare_batch_state
 
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
@@ -730,16 +699,14 @@ contains
   !> スレッド別電荷差分を合算してメッシュへ反映し、相対変化量を返す。
   module procedure commit_batch_charge
   real(dp) :: norm_dq, norm_q
-  real(dp), allocatable :: q_before(:)
 
-  allocate (q_before(mesh%nelem))
-  q_before = mesh%q_elem
-  dq = sum(dq_thread, dim=2) + photo_emission_dq
-  call mpi_allreduce_sum_real_dp_array(mpi, dq)
-  mesh%q_elem = mesh%q_elem + dq
+  workspace%q_before = mesh%q_elem
+  workspace%dq = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
+  call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
+  mesh%q_elem = mesh%q_elem + workspace%dq
   call apply_surface_model_charge_relaxation(mesh, softening, external_e, field_bc_mode=field_bc_mode)
-  dq = mesh%q_elem - q_before
-  norm_dq = sqrt(sum(dq*dq))
+  workspace%dq = mesh%q_elem - workspace%q_before
+  norm_dq = sqrt(sum(workspace%dq*workspace%dq))
   norm_q = sqrt(sum(mesh%q_elem*mesh%q_elem))
   rel = norm_dq/max(norm_q, q_floor)
   end procedure commit_batch_charge
@@ -801,42 +768,40 @@ contains
   end subroutine record_batch_outcome_charge
 
   !> species 別 flux/count だけを MPI-global 値へ集約する。stock は全 rank で同じ mesh state から得る。
-  subroutine reduce_charge_ledger_fluxes(ledger, mpi)
+  subroutine reduce_charge_ledger_fluxes(ledger, mpi, workspace)
     type(charge_ledger_type), intent(inout) :: ledger
     type(mpi_context), intent(in) :: mpi
-    real(dp), allocatable :: charge_values(:)
-    integer(i64), allocatable :: count_values(:)
+    type(simulator_batch_workspace_type), intent(inout) :: workspace
     integer :: n
 
     n = int(ledger%nspecies)
-    allocate (charge_values(7*n), count_values(5*n))
-    charge_values(1:n) = ledger%injected_from_remote
-    charge_values(n + 1:2*n) = ledger%emitted_from_surface
-    charge_values(2*n + 1:3*n) = ledger%absorbed_on_surface
-    charge_values(3*n + 1:4*n) = ledger%escaped_to_infinity
-    charge_values(4*n + 1:5*n) = ledger%discarded_unresolved
-    charge_values(5*n + 1:6*n) = ledger%interface_outward_gross
-    charge_values(6*n + 1:7*n) = ledger%interface_returned_gross
-    call mpi_allreduce_sum_real_dp_array(mpi, charge_values)
-    ledger%injected_from_remote = charge_values(1:n)
-    ledger%emitted_from_surface = charge_values(n + 1:2*n)
-    ledger%absorbed_on_surface = charge_values(2*n + 1:3*n)
-    ledger%escaped_to_infinity = charge_values(3*n + 1:4*n)
-    ledger%discarded_unresolved = charge_values(4*n + 1:5*n)
-    ledger%interface_outward_gross = charge_values(5*n + 1:6*n)
-    ledger%interface_returned_gross = charge_values(6*n + 1:7*n)
+    workspace%ledger_charge_values(1:n) = ledger%injected_from_remote
+    workspace%ledger_charge_values(n + 1:2*n) = ledger%emitted_from_surface
+    workspace%ledger_charge_values(2*n + 1:3*n) = ledger%absorbed_on_surface
+    workspace%ledger_charge_values(3*n + 1:4*n) = ledger%escaped_to_infinity
+    workspace%ledger_charge_values(4*n + 1:5*n) = ledger%discarded_unresolved
+    workspace%ledger_charge_values(5*n + 1:6*n) = ledger%interface_outward_gross
+    workspace%ledger_charge_values(6*n + 1:7*n) = ledger%interface_returned_gross
+    call mpi_allreduce_sum_real_dp_array(mpi, workspace%ledger_charge_values)
+    ledger%injected_from_remote = workspace%ledger_charge_values(1:n)
+    ledger%emitted_from_surface = workspace%ledger_charge_values(n + 1:2*n)
+    ledger%absorbed_on_surface = workspace%ledger_charge_values(2*n + 1:3*n)
+    ledger%escaped_to_infinity = workspace%ledger_charge_values(3*n + 1:4*n)
+    ledger%discarded_unresolved = workspace%ledger_charge_values(4*n + 1:5*n)
+    ledger%interface_outward_gross = workspace%ledger_charge_values(5*n + 1:6*n)
+    ledger%interface_returned_gross = workspace%ledger_charge_values(6*n + 1:7*n)
 
-    count_values(1:n) = ledger%injected_count
-    count_values(n + 1:2*n) = ledger%emitted_count
-    count_values(2*n + 1:3*n) = ledger%absorbed_count
-    count_values(3*n + 1:4*n) = ledger%escaped_count
-    count_values(4*n + 1:5*n) = ledger%discarded_unresolved_count
-    call mpi_allreduce_sum_i64_array(mpi, count_values)
-    ledger%injected_count = count_values(1:n)
-    ledger%emitted_count = count_values(n + 1:2*n)
-    ledger%absorbed_count = count_values(2*n + 1:3*n)
-    ledger%escaped_count = count_values(3*n + 1:4*n)
-    ledger%discarded_unresolved_count = count_values(4*n + 1:5*n)
+    workspace%ledger_count_values(1:n) = ledger%injected_count
+    workspace%ledger_count_values(n + 1:2*n) = ledger%emitted_count
+    workspace%ledger_count_values(2*n + 1:3*n) = ledger%absorbed_count
+    workspace%ledger_count_values(3*n + 1:4*n) = ledger%escaped_count
+    workspace%ledger_count_values(4*n + 1:5*n) = ledger%discarded_unresolved_count
+    call mpi_allreduce_sum_i64_array(mpi, workspace%ledger_count_values)
+    ledger%injected_count = workspace%ledger_count_values(1:n)
+    ledger%emitted_count = workspace%ledger_count_values(n + 1:2*n)
+    ledger%absorbed_count = workspace%ledger_count_values(2*n + 1:3*n)
+    ledger%escaped_count = workspace%ledger_count_values(3*n + 1:4*n)
+    ledger%discarded_unresolved_count = workspace%ledger_count_values(4*n + 1:5*n)
   end subroutine reduce_charge_ledger_fluxes
 
 end submodule bem_simulator_loop

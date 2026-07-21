@@ -7,8 +7,10 @@ from typing import Iterable, Mapping
 import numpy as np
 
 from .constants import K_COULOMB
+from .context import RunContext
 from .mesh import _triangle_centers
-from .selection import _require_point_source_model, _require_triangles, _resolve_result
+from .periodic import Periodic2Config
+from .selection import _require_point_source_model, _require_triangles
 from .types import FortranRunResult
 
 
@@ -56,7 +58,8 @@ def compute_electric_field_points(
         _resolve_softening,
     )
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     _require_point_source_model(resolved)
     resolved_softening = _resolve_softening(resolved, softening)
     if chunk_size <= 0:
@@ -72,7 +75,7 @@ def compute_electric_field_points(
     centers = _triangle_centers(triangles)
     periodic_cfg = _coerce_periodic2(periodic2)
     if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved)
+        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
 
     if periodic_cfg is None:
         return _efield_points_free(
@@ -126,22 +129,24 @@ def _efield_points_periodic2(
     *,
     softening: float,
     chunk_size: int,
-    periodic2: tuple,
+    periodic2: Periodic2Config,
 ) -> np.ndarray:
     from .potential import _wrap_periodic2_points
 
-    axes, lengths, origins, nimg, _far_correction, _alpha, _ewald_layers = periodic2
-    axis1, axis2 = axes
-    l1, l2 = lengths
+    axis1, axis2 = periodic2.axes
+    l1, l2 = periodic2.lengths
     eps2 = softening * softening
     min_dist2 = np.finfo(float).tiny
     efield = np.zeros((points.shape[0], 3), dtype=float)
     wrapped_points = _wrap_periodic2_points(
-        points, axes=axes, lengths=lengths, origins=origins,
+        points,
+        axes=periodic2.axes,
+        lengths=periodic2.lengths,
+        origins=periodic2.origins,
     )
 
-    for ix in range(-nimg, nimg + 1):
-        for iy in range(-nimg, nimg + 1):
+    for ix in range(-periodic2.image_layers, periodic2.image_layers + 1):
+        for iy in range(-periodic2.image_layers, periodic2.image_layers + 1):
             shifted = centers.copy()
             shifted[:, axis1] += float(ix) * l1
             shifted[:, axis2] += float(iy) * l2
@@ -212,7 +217,8 @@ def trace_field_lines(
         _resolve_softening,
     )
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     _require_point_source_model(resolved)
     resolved_softening = _resolve_softening(resolved, softening)
 
@@ -226,7 +232,7 @@ def trace_field_lines(
     centers = _triangle_centers(triangles)
     periodic_cfg = _coerce_periodic2(periodic2)
     if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved)
+        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
 
     if ds is None:
         edges = np.concatenate([
@@ -290,7 +296,7 @@ def _rk4_trace(
     charges: np.ndarray,
     *,
     softening: float,
-    periodic2: tuple | None,
+    periodic2: Periodic2Config | None,
     ds: float,
     max_steps: int,
     sign: float,
@@ -355,7 +361,7 @@ def _efield_single_point(
     charges: np.ndarray,
     *,
     softening: float,
-    periodic2: tuple | None,
+    periodic2: Periodic2Config | None,
 ) -> np.ndarray:
     """Compute the electric field vector at a single 3D point (internal)."""
 
@@ -374,16 +380,18 @@ def _efield_single_point(
 
     from .potential import _wrap_periodic2_points
 
-    axes, lengths, origins, nimg, _fc, _alpha, _el = periodic2
-    axis1, axis2 = axes
-    l1, l2 = lengths
+    axis1, axis2 = periodic2.axes
+    l1, l2 = periodic2.lengths
     pt = _wrap_periodic2_points(
-        point.reshape(1, 3), axes=axes, lengths=lengths, origins=origins,
+        point.reshape(1, 3),
+        axes=periodic2.axes,
+        lengths=periodic2.lengths,
+        origins=periodic2.origins,
     )[0]
 
     efield = np.zeros(3, dtype=float)
-    for ix in range(-nimg, nimg + 1):
-        for iy in range(-nimg, nimg + 1):
+    for ix in range(-periodic2.image_layers, periodic2.image_layers + 1):
+        for iy in range(-periodic2.image_layers, periodic2.image_layers + 1):
             shifted = centers.copy()
             shifted[:, axis1] += float(ix) * l1
             shifted[:, axis2] += float(iy) * l2
@@ -482,9 +490,10 @@ def plot_field_lines_3d(
         _surface_charge_density,
     )
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     lines = trace_field_lines(
-        resolved,
+        context,
         seed_points,
         ds=ds,
         max_steps=max_steps,

@@ -6,6 +6,7 @@ module bem_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
+  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type, &
                                         electrostatic_restart_state_type
   use bem_outer_coupler, only: outer_coupler_type
@@ -26,6 +27,7 @@ module bem_simulator
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
   use bem_outer_plasma_types, only: outer_plasma_ok, outer_plasma_state_type
+  use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
                      mpi_allreduce_sum_real_dp_scalar, mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
                      mpi_allreduce_max_real_dp_array, &
@@ -59,22 +61,18 @@ module bem_simulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。
     module subroutine prepare_batch_state( &
-      mesh, app, snapshot, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      soft_discarded_boundary_flag, photo_emission_dq, mpi, outer_state, inject_state, &
+      mesh, app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi, outer_state, inject_state, &
       collision_failure_status, collision_failure_species, &
       collision_failure_ray, collision_failure_bounce &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
+      type(particle_source_plan_type), intent(in) :: source_plan
       type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(sim_stats), intent(in) :: stats
       integer(i32), intent(out) :: batch_idx
-      real(dp), intent(inout) :: dq_thread(:, :)
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
       type(particles_soa), intent(out) :: pcls_batch
-      logical, allocatable, intent(inout) :: escaped_boundary_flag(:)
-      logical, allocatable, intent(inout) :: absorbed_flag(:)
-      logical, allocatable, intent(inout) :: soft_discarded_boundary_flag(:)
-      real(dp), intent(out) :: photo_emission_dq(:)
       type(mpi_context), intent(in) :: mpi
       type(outer_plasma_state_type), intent(in) :: outer_state
       type(injection_state), intent(inout), optional :: inject_state
@@ -111,16 +109,14 @@ module bem_simulator
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
     module subroutine commit_batch_charge( &
-      mesh, q_floor, softening, external_e, field_bc_mode, dq_thread, photo_emission_dq, dq, rel, mpi &
+      mesh, q_floor, softening, external_e, field_bc_mode, workspace, rel, mpi &
       )
       type(mesh_type), intent(inout) :: mesh
       real(dp), intent(in) :: q_floor
       real(dp), intent(in) :: softening
       real(dp), intent(in) :: external_e(3)
       character(len=*), intent(in) :: field_bc_mode
-      real(dp), intent(in) :: dq_thread(:, :)
-      real(dp), intent(in) :: photo_emission_dq(:)
-      real(dp), intent(out) :: dq(:)
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
       real(dp), intent(out) :: rel
       type(mpi_context), intent(in) :: mpi
     end subroutine commit_batch_charge
@@ -197,4 +193,3 @@ module bem_simulator
   end interface
 
 end module bem_simulator
-                                   

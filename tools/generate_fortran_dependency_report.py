@@ -529,7 +529,7 @@ def markdown_report(entities: list[Entity], lang: str) -> str:
             lines.append(f"- {labels['summary']}: {entity.summary}")
         lines.append("")
 
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def escape_pipes(text: str) -> str:

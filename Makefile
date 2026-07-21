@@ -2,7 +2,7 @@
 	install install-local install-auto install-generic install-camphor install-camphor-local \
 	install-intel install-intel-local \
 	build check run \
-	static-check schema-check \
+	static-check source-text-check schema-check \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-far-correction-diagnostics test-fortran-benchmark \
@@ -39,7 +39,11 @@ VERSION_MODE ?=
 BUILD_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),git)
 CHECK_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
 RUN_VERSION_MODE ?= $(if $(VERSION_MODE),$(VERSION_MODE),dev)
-SCHEMAS ?= schemas/beach.schema.json
+SCHEMA_CANONICAL ?= schemas/beach.schema.json
+SCHEMA_COPIES ?= \
+	beach/config/schemas/beach.schema.json \
+	plugins/beach-context/references/schemas/beach.schema.json
+SCHEMAS ?= $(SCHEMA_CANONICAL) $(SCHEMA_COPIES)
 PHYSICS_RELEASE_MANIFEST ?= build/physics-release/manifest.txt
 FORTRAN_L1_TARGETS ?= \
 	test_version \
@@ -188,14 +192,24 @@ run:
 	BEACH_VERSION_MODE=$(RUN_VERSION_MODE) FPM=$(FPM) FPM_ACTION=run \
 		FPM_PROFILE=$(PROFILE) FPM_FFLAGS="$(OPENMP_FLAG)" $(BUILD_SH) -- $(CONFIG)
 
-static-check:
+static-check: source-text-check
 	git diff --check
+
+source-text-check:
+	$(PYTHON) tools/check_source_text.py
 
 schema-check:
 	@set -eu; \
 	for schema in $(SCHEMAS); do \
 		echo "==> validate $$schema"; \
 		$(PYTHON) -m json.tool "$$schema" >/dev/null; \
+	done; \
+	for schema in $(SCHEMA_COPIES); do \
+		echo "==> compare $$schema"; \
+		cmp "$(SCHEMA_CANONICAL)" "$$schema" >/dev/null || { \
+			echo "$$schema must match $(SCHEMA_CANONICAL) byte-for-byte" >&2; \
+			exit 1; \
+		}; \
 	done
 
 test-l0: static-check schema-check check

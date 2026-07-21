@@ -10,6 +10,7 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from .context import RunContext
 from .coulomb import calc_coulomb
 from .mesh import (
     DEFAULT_MESH_VIEW_AZIM,
@@ -22,9 +23,9 @@ from .mesh import (
     _triangle_areas,
 )
 from .objects import normalize_kind_filter, resolve_object_specs
+from .periodic import Periodic2Config
 from .potential import (
-    _find_config_path_near_output,
-    _load_toml,
+    _coerce_periodic2,
     _periodic2_from_sim,
     _resolve_reference_point,
     compute_potential_mesh,
@@ -154,7 +155,8 @@ def plot_charge_mesh(
         If triangle geometry is unavailable.
     """
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     triangles = _require_triangles(resolved)
     triangles = _maybe_apply_periodic2_mesh(
         resolved,
@@ -162,6 +164,7 @@ def plot_charge_mesh(
         periodic2=periodic2,
         apply_periodic2_mesh=apply_periodic2_mesh,
         periodic2_mesh_mode=periodic2_mesh_mode,
+        context=context,
     )
     sigma = _surface_charge_density(resolved.charges, triangles)
     triangles, sigma = _maybe_replicate_periodic2(
@@ -170,6 +173,7 @@ def plot_charge_mesh(
         sigma,
         periodic2=periodic2,
         periodic2_repeat=periodic2_repeat,
+        context=context,
     )
     return _plot_scalar_mesh(
         triangles,
@@ -250,11 +254,16 @@ def plot_potential_slices(
 
     import matplotlib.pyplot as plt
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     axis_label, axis_scale = _resolve_axis_unit(axis_unit)
-    resolved_reference = _resolve_reference_point(resolved, reference_point)
+    resolved_reference = _resolve_reference_point(
+        resolved,
+        reference_point,
+        context=context,
+    )
     slices = compute_potential_slices(
-        result,
+        context,
         box_min=box_min,
         box_max=box_max,
         grid_n=grid_n,
@@ -264,7 +273,7 @@ def plot_potential_slices(
         softening=softening,
         chunk_size=chunk_size,
         periodic2=periodic2,
-        reference_point=reference_point,
+        reference_point=resolved_reference,
     )
 
     ordered_planes = ("xy", "yz", "xz")
@@ -363,7 +372,8 @@ def plot_potential_mesh(
         If potential reconstruction arguments are invalid.
     """
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result)
+    resolved = context.result
     triangles = _require_triangles(resolved)
     plot_triangles = _maybe_apply_periodic2_mesh(
         resolved,
@@ -371,14 +381,19 @@ def plot_potential_mesh(
         periodic2=periodic2,
         apply_periodic2_mesh=apply_periodic2_mesh,
         periodic2_mesh_mode=periodic2_mesh_mode,
+        context=context,
     )
-    resolved_reference = _resolve_reference_point(resolved, reference_point)
-    phi = compute_potential_mesh(
+    resolved_reference = _resolve_reference_point(
         resolved,
+        reference_point,
+        context=context,
+    )
+    phi = compute_potential_mesh(
+        context,
         softening=softening,
         self_term=self_term,
         periodic2=periodic2,
-        reference_point=reference_point,
+        reference_point=resolved_reference,
     )
     plot_triangles, phi = _maybe_replicate_periodic2(
         resolved,
@@ -386,6 +401,7 @@ def plot_potential_mesh(
         phi,
         periodic2=periodic2,
         periodic2_repeat=periodic2_repeat,
+        context=context,
     )
     title = "Electric potential mesh" if resolved_reference is None else "Electric potential difference mesh"
     colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
@@ -451,12 +467,21 @@ def plot_coulomb_force_matrix(
 
     import matplotlib.pyplot as plt
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result, config_path=config_path)
+    resolved = context.result
     if workers < 1:
         raise ValueError("workers must be >= 1.")
     component_idx, component_label = _force_component_info(component)
-    object_specs = resolve_object_specs(resolved, config_path=config_path)
-    periodic2 = _periodic2_for_coulomb_matrix(resolved, config_path=config_path)
+    object_specs = resolve_object_specs(
+        resolved,
+        config_path=config_path,
+        context=context,
+    )
+    periodic2 = _periodic2_for_coulomb_matrix(
+        resolved,
+        config_path=config_path,
+        context=context,
+    )
 
     resolved_target_kinds = normalize_kind_filter(target_kinds)
     target_specs = [
@@ -590,20 +615,15 @@ def _periodic2_for_coulomb_matrix(
     resolved: FortranRunResult,
     *,
     config_path: str | Path | None,
-) -> Mapping[str, object] | None:
-    if config_path is None:
-        path = _find_config_path_near_output(resolved.directory)
-        if path is None:
-            return None
-    else:
-        path = Path(config_path)
-    if not path.exists():
-        raise ValueError(f'config file is not found: "{path}".')
-    config = _load_toml(path)
-    sim = config.get("sim")
-    if not isinstance(sim, Mapping):
+    context: RunContext | None = None,
+) -> Periodic2Config | None:
+    run_context = context or RunContext.from_value(
+        resolved,
+        config_path=config_path,
+    )
+    if run_context.sim is None:
         return None
-    return _periodic2_from_sim(sim)
+    return _coerce_periodic2(_periodic2_from_sim(run_context.sim))
 
 
 def _short_directory_label(directory: Path) -> str:

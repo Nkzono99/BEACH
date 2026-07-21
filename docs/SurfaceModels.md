@@ -134,5 +134,6 @@ $$
 ## Code reference
 
 - particle absorptionとbatch commit: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- conductor relaxation: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
+- conductor relaxation facade: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
+- floating-conductor solver: [`bem_surface_models_conductor.f90`](../src/physics/bem_surface_models_conductor.f90)
 - batch statistics: [`bem_simulator_stats.f90`](../src/runtime/simulator/bem_simulator_stats.f90)

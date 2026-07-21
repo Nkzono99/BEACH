@@ -2,8 +2,9 @@
 program test_reservoir_injection
   use bem_kinds, only: dp, i32
   use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config, &
-                            species_from_defaults, init_particle_batch_from_config
-  use bem_app_config_runtime, only: compute_face_average_potential, reservoir_face_velocity_correction
+                            species_from_defaults, seed_particles_from_config, init_particle_batch_from_config
+  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan, &
+                                    compute_face_average_potential, reservoir_face_velocity_correction
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_types, only: particles_soa, injection_state
@@ -26,7 +27,11 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(9)
+  call test_init(10)
+
+  call test_begin('particle_source_plan_equivalence')
+  call test_particle_source_plan_equivalence()
+  call test_end()
 
   call test_begin('split_outer_infinity_vdf_map')
   call test_split_outer_infinity_vdf_map()
@@ -133,6 +138,91 @@ program test_reservoir_injection
   call test_summary()
 
 contains
+
+  subroutine test_particle_source_plan_equivalence()
+    type(app_config) :: plan_cfg
+    type(particle_source_plan_type) :: source_plan
+    type(particles_soa) :: particles_without_plan, particles_with_plan
+    type(injection_state) :: state_without_plan, state_with_plan
+    integer, allocatable :: rng_before(:), rng_after_build(:), rng_without_plan(:), rng_with_plan(:)
+    integer :: rng_size
+
+    call default_app_config(plan_cfg)
+    plan_cfg%sim%rng_seed = 2468_i32
+    plan_cfg%sim%batch_count = 2_i32
+    plan_cfg%sim%batch_duration = 1.0_dp
+    plan_cfg%sim%has_batch_duration = .true.
+    plan_cfg%sim%use_box = .true.
+    plan_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    plan_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    plan_cfg%n_particle_species = 3_i32
+
+    plan_cfg%particle_species(1) = species_from_defaults()
+    plan_cfg%particle_species(1)%source_mode = 'volume_seed'
+    plan_cfg%particle_species(1)%npcls_per_step = 2_i32
+    plan_cfg%particle_species(1)%q_particle = -1.0_dp
+    plan_cfg%particle_species(1)%m_particle = 2.0_dp
+    plan_cfg%particle_species(1)%w_particle = 3.0_dp
+    plan_cfg%particle_species(1)%pos_low = [0.1_dp, 0.2_dp, 0.3_dp]
+    plan_cfg%particle_species(1)%pos_high = [0.4_dp, 0.5_dp, 0.6_dp]
+    plan_cfg%particle_species(1)%temperature_k = 1.0_dp
+    plan_cfg%particle_species(1)%has_temperature_k = .true.
+    plan_cfg%particle_species(1)%drift_velocity = [0.5_dp, -0.25_dp, 0.125_dp]
+
+    plan_cfg%particle_species(2) = species_from_defaults()
+    plan_cfg%particle_species(2)%enabled = .false.
+
+    plan_cfg%particle_species(3) = species_from_defaults()
+    plan_cfg%particle_species(3)%source_mode = 'reservoir_face'
+    plan_cfg%particle_species(3)%number_density_m3 = 4.0_dp
+    plan_cfg%particle_species(3)%has_number_density_m3 = .true.
+    plan_cfg%particle_species(3)%temperature_k = 0.0_dp
+    plan_cfg%particle_species(3)%has_temperature_k = .true.
+    plan_cfg%particle_species(3)%q_particle = 1.0_dp
+    plan_cfg%particle_species(3)%m_particle = 1.0_dp
+    plan_cfg%particle_species(3)%w_particle = 1.0_dp
+    plan_cfg%particle_species(3)%has_w_particle = .true.
+    plan_cfg%particle_species(3)%inject_face = 'z_low'
+    plan_cfg%particle_species(3)%pos_low = [0.0_dp, 0.0_dp, 0.0_dp]
+    plan_cfg%particle_species(3)%pos_high = [1.0_dp, 1.0_dp, 0.0_dp]
+    plan_cfg%particle_species(3)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
+
+    allocate (state_without_plan%macro_residual(3), state_with_plan%macro_residual(3))
+    state_without_plan%macro_residual = 0.0_dp
+    state_with_plan%macro_residual = 0.0_dp
+    call random_seed(size=rng_size)
+    allocate (rng_before(rng_size), rng_after_build(rng_size), rng_without_plan(rng_size), rng_with_plan(rng_size))
+    call seed_particles_from_config(plan_cfg)
+    call random_seed(get=rng_before)
+    call build_particle_source_plan(plan_cfg, source_plan)
+    call random_seed(get=rng_after_build)
+    call assert_true(all(rng_before == rng_after_build), 'building a source plan must not consume random numbers')
+
+    call seed_particles_from_config(plan_cfg)
+    call init_particle_batch_from_config(plan_cfg, 1_i32, particles_without_plan, state=state_without_plan)
+    call random_seed(get=rng_without_plan)
+
+    call seed_particles_from_config(plan_cfg)
+    call init_particle_batch_from_config( &
+      plan_cfg, 1_i32, particles_with_plan, state=state_with_plan, source_plan=source_plan &
+      )
+    call random_seed(get=rng_with_plan)
+
+    call assert_equal_i32(particles_with_plan%n, particles_without_plan%n, 'source plan particle count mismatch')
+    call assert_true( &
+      all(particles_with_plan%species_id == particles_without_plan%species_id), 'source plan species order mismatch' &
+      )
+    call assert_true(all(particles_with_plan%x == particles_without_plan%x), 'source plan position sequence mismatch')
+    call assert_true(all(particles_with_plan%v == particles_without_plan%v), 'source plan velocity sequence mismatch')
+    call assert_true(all(particles_with_plan%q == particles_without_plan%q), 'source plan charge mismatch')
+    call assert_true(all(particles_with_plan%m == particles_without_plan%m), 'source plan mass mismatch')
+    call assert_true(all(particles_with_plan%w == particles_without_plan%w), 'source plan weight mismatch')
+    call assert_true(all(particles_with_plan%alive .eqv. particles_without_plan%alive), 'source plan alive mismatch')
+    call assert_true( &
+      all(state_with_plan%macro_residual == state_without_plan%macro_residual), 'source plan residual mismatch' &
+      )
+    call assert_true(all(rng_with_plan == rng_without_plan), 'source plan must preserve the post-batch random state')
+  end subroutine test_particle_source_plan_equivalence
 
   subroutine test_face_potential_statistics_share_sampling_pass()
     type(app_config) :: stats_cfg

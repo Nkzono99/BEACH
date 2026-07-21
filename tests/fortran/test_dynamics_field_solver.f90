@@ -435,6 +435,7 @@ contains
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
     real(dp) :: r(3), e_direct(3), e_fmm(3), norm_direct, rel_err
+    real(dp) :: phi_direct, phi_fmm
 
     call make_sphere(mesh_fmm, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[5.0d-5, 0.0d0, 0.0d0])
     mesh_fmm%q_elem = 1.0d-13
@@ -453,10 +454,16 @@ contains
     r = [8.0d-5, -6.0d-5, 7.0d-5]
     call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
     call solver%eval_e(mesh_fmm, r, e_fmm)
+    call electric_potential_at(mesh_fmm, r, sim%softening, phi_direct)
+    call solver%eval_potential(mesh_fmm, sim, r, phi_fmm)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
     rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_direct
     call assert_true(rel_err <= 5.0d-3, 'normalized FMM E relative error exceeds 5e-3')
+    call assert_close_dp( &
+      phi_fmm, phi_direct, max(1.0d-12, abs(phi_direct)*5.0d-3), &
+      'normalized FMM potential relative error exceeds 5e-3' &
+      )
     call assert_close_dp( &
       solver%fmm_core_options%softening, sim%softening/sim%field_length_scale, 1.0d-15, &
       'normalized FMM softening mismatch' &

@@ -139,6 +139,49 @@ module bem_electrostatic_snapshot
     procedure :: export_restart_state => export_snapshot_restart_state
   end type electrostatic_snapshot_type
 
+  interface
+    !> 観測点の局所電場を、選択中の非零モードと零モードから評価する。
+    module subroutine eval_snapshot_local_e(self, mesh, position, electric_field)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      real(dp), intent(in) :: position(3)
+      real(dp), intent(out) :: electric_field(3)
+    end subroutine eval_snapshot_local_e
+
+    !> 観測点の局所電位を、選択中の非零モードと零モードから評価する。
+    module subroutine eval_snapshot_local_phi(self, mesh, sim, position, potential)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      type(sim_config), intent(in) :: sim
+      real(dp), intent(in) :: position(3)
+      real(dp), intent(out) :: potential
+    end subroutine eval_snapshot_local_phi
+
+    !> 指定要素の主自己寄与を除いた重心電位を評価する。
+    module subroutine eval_snapshot_local_phi_without_primary_self(self, mesh, sim, element, potential)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      type(sim_config), intent(in) :: sim
+      integer(i32), intent(in) :: element
+      real(dp), intent(out) :: potential
+    end subroutine eval_snapshot_local_phi_without_primary_self
+
+    !> 全要素重心での電位を評価する。
+    module subroutine compute_snapshot_mesh_potential(self, mesh, sim, potential)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      type(sim_config), intent(in) :: sim
+      real(dp), intent(out) :: potential(:)
+    end subroutine compute_snapshot_mesh_potential
+
+    !> unified outer profile の電位と電場を補間または指数外挿する。
+    module subroutine eval_unified_zero_profile(self, z, potential, field)
+      class(electrostatic_snapshot_type), intent(in) :: self
+      real(dp), intent(in) :: z
+      real(dp), intent(out) :: potential, field
+    end subroutine eval_unified_zero_profile
+  end interface
+
 contains
 
   subroutine init_electrostatic_snapshot( &
@@ -255,132 +298,6 @@ contains
                           self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
     call update_interface_diagnostics(self, mesh)
   end subroutine refresh_electrostatic_snapshot
-
-  subroutine eval_snapshot_local_e(self, mesh, position, electric_field)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: position(3)
-    real(dp), intent(out) :: electric_field(3)
-
-    real(dp) :: zero_potential, zero_field, tail_potential, tail_field(3)
-
-    if (self%use_cached_kneq0) then
-      call self%nonzero_solver%eval_e(mesh, position, electric_field)
-    else if (self%use_panel_spectral_reference) then
-      call eval_periodic_nonzero_panel_reference( &
-        mesh, position, self%periodic_length(1), self%periodic_length(2), &
-        self%reference_mode_layers, self%panel_quadrature_order, zero_potential, electric_field &
-        )
-    else
-      call self%nonzero_solver%eval_e(mesh, position, electric_field)
-    end if
-    if (self%use_unified_outer) then
-      call eval_unified_zero_profile(self, position(3), zero_potential, zero_field)
-      call eval_periodic_nonzero_tail_plan(self%nonzero_tail, position, tail_potential, tail_field)
-      electric_field = electric_field + tail_field
-      electric_field(3) = electric_field(3) + zero_field
-    else if (self%use_zero_mode) then
-      call eval_periodic_zero_mode( &
-        self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
-        )
-      electric_field(3) = electric_field(3) + zero_field
-    end if
-    electric_field = electric_field + self%prescribed_e
-  end subroutine eval_snapshot_local_e
-
-  subroutine eval_snapshot_local_phi(self, mesh, sim, position, potential)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
-    real(dp), intent(in) :: position(3)
-    real(dp), intent(out) :: potential
-
-    real(dp) :: zero_potential, zero_field, electric_field_dummy(3), tail_potential, tail_field(3)
-
-    if (self%use_cached_kneq0) then
-      call self%nonzero_solver%eval_potential(mesh, sim, position, potential)
-    else if (self%use_panel_spectral_reference) then
-      call eval_periodic_nonzero_panel_reference( &
-        mesh, position, self%periodic_length(1), self%periodic_length(2), &
-        self%reference_mode_layers, self%panel_quadrature_order, potential, electric_field_dummy &
-        )
-    else
-      call self%nonzero_solver%eval_potential(mesh, sim, position, potential)
-    end if
-    if (self%use_unified_outer) then
-      call eval_unified_zero_profile(self, position(3), zero_potential, zero_field)
-      call eval_periodic_nonzero_tail_plan(self%nonzero_tail, position, tail_potential, tail_field)
-      potential = potential + zero_potential + tail_potential
-    else if (self%use_zero_mode) then
-      call eval_periodic_zero_mode( &
-        self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
-        )
-      potential = potential + zero_potential
-    end if
-    potential = potential - dot_product(self%prescribed_e, position - self%prescribed_phi_origin)
-  end subroutine eval_snapshot_local_phi
-
-  subroutine eval_snapshot_local_phi_without_primary_self(self, mesh, sim, element, potential)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
-    integer(i32), intent(in) :: element
-    real(dp), intent(out) :: potential
-
-    type(panel_geometry_type) :: geometry
-    real(dp) :: self_potential, self_field(3)
-    integer(i32) :: geometry_status
-
-    if (element < 1_i32 .or. element > mesh%nelem) then
-      error stop 'snapshot self exclusion element index is out of range.'
-    end if
-    if (sim%softening < 0.0_dp) error stop 'snapshot self exclusion requires non-negative softening.'
-
-    call self%eval_local_phi(mesh, sim, mesh%centers(:, element), potential)
-    select case (trim(self%source_model))
-    case ('triangle_p0')
-      call init_panel_geometry( &
-        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, geometry_status &
-        )
-      if (geometry_status /= panel_geometry_ok) then
-        error stop 'snapshot self exclusion received invalid panel geometry.'
-      end if
-      call panel_potential_field( &
-        geometry, mesh%q_elem(element), mesh%centers(:, element), panel_side_principal_value, &
-        self_potential, self_field &
-        )
-    case ('point')
-      if (sim%softening > 0.0_dp) then
-        self_potential = k_coulomb*mesh%q_elem(element)/sim%softening
-      else
-        self_potential = 0.0_dp
-      end if
-    case default
-      error stop 'snapshot self exclusion received an unknown source model.'
-    end select
-    potential = potential - self_potential
-  end subroutine eval_snapshot_local_phi_without_primary_self
-
-  subroutine compute_snapshot_mesh_potential(self, mesh, sim, potential)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
-    real(dp), intent(out) :: potential(:)
-    integer(i32) :: element
-
-    if (size(potential) /= mesh%nelem) error stop 'snapshot mesh-potential size mismatch.'
-    if (self%use_panel_spectral_reference .or. self%use_cached_kneq0) then
-      do element = 1, mesh%nelem
-        call self%eval_local_phi(mesh, sim, mesh%centers(:, element), potential(element))
-      end do
-    else
-      call self%nonzero_solver%compute_mesh_potential(mesh, sim, potential)
-      do element = 1, mesh%nelem
-        potential(element) = potential(element) - &
-                             dot_product(self%prescribed_e, mesh%centers(:, element) - self%prescribed_phi_origin)
-      end do
-    end if
-  end subroutine compute_snapshot_mesh_potential
 
   subroutine get_snapshot_diagnostics(self, diagnostics)
     class(electrostatic_snapshot_type), intent(in) :: self
@@ -841,24 +758,6 @@ contains
     self%diagnostics%response_start_z = self%nonzero_tail%handoff_z
     self%diagnostics%status = 'unified_linear_converged'
   end subroutine refresh_unified_outer
-
-  subroutine eval_unified_zero_profile(self, z, potential, field)
-    class(electrostatic_snapshot_type), intent(in) :: self
-    real(dp), intent(in) :: z
-    real(dp), intent(out) :: potential, field
-    real(dp) :: decay
-    integer(i32) :: n
-
-    n = self%unified_grid%n
-    if (z <= self%unified_grid%z(n)) then
-      call interpolate_outer_profile(self%unified_grid, self%outer%potential, z, potential)
-      call interpolate_outer_profile(self%unified_grid, self%outer%field, z, field)
-      return
-    end if
-    decay = exp(-(z - self%unified_grid%z(n))/self%unified_options%tail_length)
-    potential = self%outer%potential(n)*decay
-    field = potential/self%unified_options%tail_length
-  end subroutine eval_unified_zero_profile
 
   subroutine solve_unified_collective(self)
     class(electrostatic_snapshot_type), intent(inout) :: self

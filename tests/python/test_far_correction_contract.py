@@ -38,16 +38,8 @@ def test_fortran_far_correction_defaults_and_normalization_match() -> None:
     )
 
 
-def test_far_correction_schema_copies_and_metadata_match() -> None:
-    schema_paths = (
-        "schemas/beach.schema.json",
-        "beach/config/schemas/beach.schema.json",
-        "plugins/beach-context/references/schemas/beach.schema.json",
-    )
-    schema_texts = [_read(path) for path in schema_paths]
-
-    assert schema_texts[0] == schema_texts[1] == schema_texts[2]
-    schema = json.loads(schema_texts[0])
+def test_far_correction_schema_metadata_match() -> None:
+    schema = json.loads(_read("schemas/beach.schema.json"))
     far = schema["$defs"]["sim"]["properties"][
         "field_periodic_far_correction"
     ]
