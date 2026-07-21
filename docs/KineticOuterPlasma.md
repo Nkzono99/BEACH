@@ -105,7 +105,8 @@ Zhao closureでは、enabledな負電荷z-high `reservoir_face` ambient electron
 現行実装は`sim.sheath_electron_drift_mode="normal"`と`sim.sheath_ion_drift_mode="normal"`だけを受理し、
 `photo_raycast.normal_drift_speed=0`およびcold-ion近似$T_i\le0.1T_e$を要求します。
 
-charge-driven Zhaoでは、旧定常Zhao modelのzero-current式を境界条件にしません。Type B/Cでは無限遠準中性と
+charge-driven Zhaoでは、現在のinterface電場を指定するため、旧Zhaoのzero-current式をrootへ課しません。
+Type B/Cでは無限遠準中性と
 
 $$
 2\int_{\psi_0}^{0}\hat\rho(\psi)\,d\psi=\hat E_I^2,
@@ -117,16 +118,42 @@ $$
 -2\int_{\psi_m}^{\psi_0}\hat\rho_{\mathrm{lower}}(\psi)\,d\psi=\hat E_I^2
 $$
 
-を解きます。ここで$\psi=\phi/T_{pe}$、$\hat E_I=E_I\lambda_{D,pe}/T_{pe}$です。旧current balanceは
-species別とtotalのcurrent-density診断として残るため、帯電途中のtotal currentは非零で構いません。
+を解きます。ここで$\psi=\phi/T_{pe}$、$\hat E_I=E_I\lambda_{D,pe}/T_{pe}$です。旧zero-current式は
+species別とtotalのcurrent-density診断へ変換され、帯電途中のtotal currentは非零でも構いません。
+過渡population scale $\eta$はphotoelectron密度、無限遠準中性、Sagdeev項をscaleしますが、current診断の
+raw photoelectron emission-current項はscaleせず、full tracked sourceのまま使います。
 初期の$E_I=0$で強い光電子populationを含む準中性rootが存在しない場合だけ、outer populationが未形成の
 ambient-only平坦stateをbranch `0`として使います。最初のtracked currentが電荷を作った後は通常のZhao rootを解き、
 非零電場でこのbootstrapへfallbackしません。
 
 full photoelectron populationの準定常A/B/C branchは、必ずしも$E_I=0$へ連続しません。要求電場がbranchの
-可解域外なら`no_physical_solution`で停止します。未帯電から小さいbatchでこのgapを通過する計算には、outer
-photoelectron cloud occupancyを持つ時間依存closureが別途必要です。付属exampleはその過渡を解かず、1 coarse batchで
-既知のType A可解域へ入り、2 batch目でresolved branchを実行するbranch-entry smokeです。
+可解域外なら、既定の`outer_queue_enabled=false`では`no_physical_solution`で停止します。
+
+`outer_queue_enabled=true`では、追跡中の光電子がouter領域に滞在する間、そのmacro粒子重みをqueue inventoryとして保持します。
+全rankの光電子数を水平面積で割ったcolumnをtargetとし、$0\le z\le10\lambda_{D,pe}$で
+$n_{pe,f}+n_{pe,c}$を積分したZhao columnが一致するようにpopulation scale $\eta$を解きます。
+`outer_photoelectron_population_fraction`という出力名ですが、$\eta$は確率ではなく定常reference populationに対する
+occupancy scaleです。solverは$\eta=0$から連続する$0\le\eta\le16$の物理解を探索し、1を超える一時的overshootも
+許します。`[0,1]`へclampせず、targetを無視したfull-population解やbranch `0`、disconnected branchへjump/fallbackしません。
+queue modeは`zhao_branch="auto"`を要求し、縮退条件を満たす連続的なA/B等のbranch遷移だけを許します。
+現在のbisectionはcolumnが$\eta$とともに単調増加するpathだけを受理し、foldを含む連続pathは未対応として停止します。
+targetへ至る連結・単調解がない場合は`no_physical_solution`で停止します。
+
+同じ$0\le z\le10\lambda_{D,pe}$をqueue粒子の有限control volumeとし、
+この範囲内でturningしなければ$L=10\lambda_{D,pe}$で外部reservoirへ吸収/escapeします。queue modeでは$L$外の
+Robin tailを使ったreturn判定を行いません。各eventでは、`t_due`から最初のbatch-start pollまでの量子化遅延
+`delta_poll`と、batch内crossing時刻のmidpoint近似誤差上限`batch_duration/2`を含む
+`tau_outer + delta_poll + batch_duration/2`へ
+`max_frozen_field_ratio * field_evolution_timescale`の上限を課します。`batch_duration`にも同じ上限を設定時に
+要求します。時間離散化、batch末corrector、checkpointの規約は
+[粒子のescapeとreturn](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする)を参照してください。
+
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)は過渡を解かず、
+1 coarse batchで既知のType A可解域へ入るbranch-entry smokeです。
+[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)はstrong-UV queue closureの
+frozen-field guard fixtureです。記載した物理timescaleでは長いouter flightをfail-closedで停止させることが期待値であり、
+成功RUNではありません。return-currentを解釈するには、別途根拠を与えた遅いfield timescaleを用い、`batch_duration`・粒子数・
+control-volume長の収束確認が必要です。
 
 この初版ではz-high interfaceをZhaoの有効放出面として扱います。`sim.sheath_alpha_deg`と
 `sim.sheath_photoelectron_ref_density_cm3`を再利用し、最初の負電荷`photo_raycast` speciesから質量と温度を得ます。
@@ -149,13 +176,16 @@ v_{\mathrm{th},pe}=\sqrt{\frac{2T_{pe}}{m_{pe}}}
 $$
 
 と1%以内で一致させます。この速度式の$T_{pe}$はJへ換算した熱エネルギーです。一致しない設定はruntimeで拒否します。
-解析currentは診断だけに使い、表面電荷は
-tracked放出・再吸収だけで更新します。legacy Zhao `sheath_injection_model`、`reservoir_potential_model`、
+analytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使いますが、root、surface charge、ledgerへ
+別途加えません。表面電荷とledgerはtracked放出・再吸収だけで更新します。$\eta$もcurrent診断のraw photoelectron
+emission-current項をscaleしません。
+legacy Zhao `sheath_injection_model`、`reservoir_potential_model`、
 `photoelectron_density_model="kinetic_mean"`との併用も拒否します。
 
 この有効平面近似は、tracked rayの方向分布やrough surfaceからinterfaceへ到達したVDFをZhao outer populationへ
 自己無撞着に接続しません。`ray_direction`は照射rayによる放出面sampling、$\alpha$は解析Zhao sourceを決める独立の入力です。
-適用範囲と一般化に必要な境界VDFについては[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)を参照してください。
+適用範囲と一般化に必要な境界VDFについては[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)、
+過渡queueの決定は[ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md)に記録しています。
 
 ## `absorbing_maxwellian`の有限gridをRobin tailで無限遠へ接続する
 

@@ -7,6 +7,7 @@ module bem_simulator
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
+  use bem_particles, only: append_particles
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type, &
                                         electrostatic_restart_state_type
   use bem_outer_coupler, only: outer_coupler_type
@@ -19,7 +20,10 @@ module bem_simulator
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
   use bem_string_utils, only: lower_ascii
   use bem_interface_types, only: interface_particle_outcome_type, interface_outcome_returned_local, &
-                                 interface_outcome_escaped_to_infinity
+                                 interface_outcome_escaped_to_infinity, interface_outcome_queued_outer
+  use bem_outer_event_queue, only: outer_event_queue_type, outer_event_record_type, &
+                                   outer_event_outcome_return, outer_event_outcome_escape, &
+                                   outer_event_queue_global_fingerprint
   use bem_outer_plasma_interface, only: map_outer_particle_linear_debye, map_outer_particle_kinetic_profile
   use bem_outer_plasma_orbit, only: trace_unified_outer_particle
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type, &
@@ -41,7 +45,8 @@ module bem_simulator
     !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
-      potential_history_unit, charge_ledger, electrostatic_diagnostics, electrostatic_restart_state, photoelectron_state &
+      potential_history_unit, charge_ledger, electrostatic_diagnostics, electrostatic_restart_state, photoelectron_state, &
+      outer_queue_state &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -57,6 +62,7 @@ module bem_simulator
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
       type(electrostatic_restart_state_type), intent(inout), optional :: electrostatic_restart_state
       type(photoelectron_histogram_state_type), intent(inout), optional :: photoelectron_state
+      type(outer_event_queue_type), intent(inout), optional :: outer_queue_state
     end subroutine run_absorption_insulator
 
     !> 1バッチ分の粒子群と作業配列を初期化する。
@@ -83,7 +89,8 @@ module bem_simulator
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
       mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank, &
-      soft_discarded_boundary_flag, interface_outward_thread, interface_returned_thread, &
+      soft_discarded_boundary_flag, queued_outer_flag, outer_event_staging, &
+      interface_outward_thread, interface_returned_thread, &
       collision_failure_status, collision_failure_particle, &
       collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
       interface_frozen_ratio_max_thread, interface_energy_error_max_thread, photoelectron_histogram_thread &
@@ -96,6 +103,8 @@ module bem_simulator
       logical, intent(inout) :: escaped_boundary_flag(:)
       logical, intent(inout) :: absorbed_flag(:)
       logical, intent(inout) :: soft_discarded_boundary_flag(:)
+      logical, intent(inout) :: queued_outer_flag(:)
+      type(outer_event_record_type), intent(inout) :: outer_event_staging(:)
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx
       integer(i32), intent(in) :: mpi_rank
@@ -124,12 +133,13 @@ module bem_simulator
     !> 今バッチの粒子処理結果を局所集計する。
     module subroutine count_batch_outcomes( &
       pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, &
-      batch_counts, soft_discarded_abs_charge &
+      queued_outer_flag, batch_counts, soft_discarded_abs_charge &
       )
       type(particles_soa), intent(in) :: pcls_batch
       logical, intent(in) :: escaped_boundary_flag(:)
       logical, intent(in) :: absorbed_flag(:)
       logical, intent(in) :: soft_discarded_boundary_flag(:)
+      logical, intent(in) :: queued_outer_flag(:)
       integer(i32), intent(out) :: batch_counts(6)
       real(dp), intent(out) :: soft_discarded_abs_charge
     end subroutine count_batch_outcomes

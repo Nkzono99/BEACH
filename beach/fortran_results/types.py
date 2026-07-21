@@ -312,6 +312,14 @@ class FortranRunResult:
     max_outer_flight_time_s: float | None = None
     max_outer_frozen_field_ratio: float | None = None
     max_outer_energy_relative_error: float | None = None
+    coupling_outer_queue_enabled: bool | None = None
+    outer_photoelectron_population_fraction: float | None = None
+    outer_photoelectron_column_per_area_m2: float | None = None
+    outer_photoelectron_column_target_per_area_m2: float | None = None
+    outer_photoelectron_column_residual_per_area_m2: float | None = None
+    outer_queue_event_count: int | None = None
+    outer_queue_signed_charge_c: float | None = None
+    outer_queue_fingerprint: str | None = None
     multiple_box_events_soft_discarded: int = 0
     multiple_box_events_soft_discarded_abs_charge_c: float = 0.0
 

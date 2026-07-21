@@ -9,6 +9,7 @@ module bem_restart
   use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
+  use bem_outer_event_queue, only: outer_event_queue_fingerprint_is_valid
   use bem_string_utils, only: lower_ascii
   use bem_physics_config_types, only: validate_phase0_physics_config, physics_config_ok
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
@@ -116,6 +117,20 @@ contains
             electrostatic_state%outer_ready) then
           call load_kinetic_outer_profile(trim(out_dir), electrostatic_state, local_rank, mpi)
         end if
+        if (electrostatic_state%outer_ready .and. &
+            electrostatic_state%checkpoint_schema_version >= 4_i32) then
+          if (.not. electrostatic_state%outer_max_diagnostics_complete .or. &
+              .not. all(ieee_is_finite([ &
+                                       electrostatic_state%max_outer_flight_time, &
+                                       electrostatic_state%max_frozen_field_ratio, &
+                                       electrostatic_state%max_outer_energy_relative_error &
+                                       ])) .or. &
+              electrostatic_state%max_outer_flight_time < 0.0_dp .or. &
+              electrostatic_state%max_frozen_field_ratio < 0.0_dp .or. &
+              electrostatic_state%max_outer_energy_relative_error < 0.0_dp) then
+            error stop 'Resume checkpoint is missing valid cumulative outer diagnostics.'
+          end if
+        end if
         if (trim(lower_ascii(app%outer_plasma%kinetic_closure)) == 'zhao_charge_driven' .and. &
             electrostatic_state%outer_ready) then
           if (.not. electrostatic_state%outer_zhao_state_complete .or. &
@@ -127,6 +142,24 @@ contains
                                        ])) .or. &
               electrostatic_state%outer_zhao_electron_density_infinity <= 0.0_dp) then
             error stop 'Resume checkpoint is missing the resolved Zhao outer-plasma state.'
+          end if
+          if (app%coupling%outer_queue_enabled .and. &
+              (.not. electrostatic_state%outer_zhao_transient_state_complete .or. &
+               .not. electrostatic_state%outer_queue_inventory_complete .or. &
+               .not. all(ieee_is_finite([ &
+                                        electrostatic_state%outer_photoelectron_population_fraction, &
+                                        electrostatic_state%outer_photoelectron_column_per_area, &
+                                        electrostatic_state%outer_photoelectron_column_target_per_area, &
+                                        electrostatic_state%outer_photoelectron_column_residual_per_area, &
+                                        electrostatic_state%outer_queue_signed_charge &
+                                        ])) .or. &
+               electrostatic_state%outer_photoelectron_population_fraction < 0.0_dp .or. &
+               electrostatic_state%outer_photoelectron_column_per_area < 0.0_dp .or. &
+               electrostatic_state%outer_photoelectron_column_target_per_area < 0.0_dp .or. &
+               electrostatic_state%outer_queue_event_count < 0_i64 .or. &
+               .not. outer_event_queue_fingerprint_is_valid( &
+               electrostatic_state%outer_queue_fingerprint))) then
+            error stop 'Resume checkpoint is missing the transient Zhao or outer-queue inventory state.'
           end if
         end if
       end if
@@ -240,8 +273,8 @@ contains
     if (state%outer_profile_complete) then
       state%outer_profile_field = field
       state%outer_profile_charge_density = charge_density
-    else if (state%checkpoint_schema_version >= checkpoint_schema_version_current) then
-      error stop 'Schema v3 checkpoint requires complete outer E/rho profile columns.'
+    else if (state%checkpoint_schema_version >= 3_i32) then
+      error stop 'Schema v3+ checkpoint requires complete outer E/rho profile columns.'
     end if
   end subroutine load_kinetic_outer_profile
 
@@ -292,13 +325,17 @@ contains
     character(len=512) :: line
     character(len=64) :: key
     character(len=256) :: value
-    logical :: found_potential, found_batch, found_v3_state(13), found_zhao_state(4)
+    logical :: found_potential, found_batch, found_v3_state(13), found_zhao_state(4), found_zhao_transient_state(4)
+    logical :: found_outer_queue_inventory(3), found_outer_max_diagnostics(3)
 
     state = electrostatic_restart_state_type()
     found_potential = .false.
     found_batch = .false.
     found_v3_state = .false.
     found_zhao_state = .false.
+    found_zhao_transient_state = .false.
+    found_outer_queue_inventory = .false.
+    found_outer_max_diagnostics = .false.
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary.txt for electrostatic restart state.'
     do
@@ -375,6 +412,41 @@ contains
       case ('outer_plasma_zhao_electron_density_infinity_m3')
         read (value, *, iostat=ios) state%outer_zhao_electron_density_infinity
         found_zhao_state(4) = ios == 0
+      case ('outer_photoelectron_population_fraction')
+        read (value, *, iostat=ios) state%outer_photoelectron_population_fraction
+        found_zhao_transient_state(1) = ios == 0
+      case ('outer_photoelectron_column_per_area_m2')
+        read (value, *, iostat=ios) state%outer_photoelectron_column_per_area
+        found_zhao_transient_state(2) = ios == 0
+      case ('outer_photoelectron_column_target_per_area_m2')
+        read (value, *, iostat=ios) state%outer_photoelectron_column_target_per_area
+        found_zhao_transient_state(3) = ios == 0
+      case ('outer_photoelectron_column_residual_per_area_m2')
+        read (value, *, iostat=ios) state%outer_photoelectron_column_residual_per_area
+        found_zhao_transient_state(4) = ios == 0
+      case ('outer_queue_event_count')
+        read (value, *, iostat=ios) state%outer_queue_event_count
+        found_outer_queue_inventory(1) = ios == 0
+      case ('outer_queue_signed_charge_C')
+        read (value, *, iostat=ios) state%outer_queue_signed_charge
+        found_outer_queue_inventory(2) = ios == 0
+      case ('outer_queue_fingerprint')
+        if (outer_event_queue_fingerprint_is_valid(value)) then
+          state%outer_queue_fingerprint = value
+          ios = 0
+          found_outer_queue_inventory(3) = .true.
+        else
+          ios = 1
+        end if
+      case ('max_outer_flight_time_s')
+        read (value, *, iostat=ios) state%max_outer_flight_time
+        found_outer_max_diagnostics(1) = ios == 0
+      case ('max_outer_frozen_field_ratio')
+        read (value, *, iostat=ios) state%max_frozen_field_ratio
+        found_outer_max_diagnostics(2) = ios == 0
+      case ('max_outer_energy_relative_error')
+        read (value, *, iostat=ios) state%max_outer_energy_relative_error
+        found_outer_max_diagnostics(3) = ios == 0
       end select
       if (ios /= 0) error stop 'Malformed electrostatic restart state in summary.txt.'
     end do
@@ -382,11 +454,37 @@ contains
     if (state%outer_ready .and. .not. (found_potential .and. found_batch)) then
       error stop 'Incomplete electrostatic restart state in summary.txt.'
     end if
-    if (state%outer_ready .and. state%checkpoint_schema_version >= checkpoint_schema_version_current .and. &
+    if (state%outer_ready .and. state%checkpoint_schema_version >= 3_i32 .and. &
         .not. all(found_v3_state)) then
       error stop 'Schema v3 electrostatic restart state is incomplete in summary.txt.'
     end if
+    if (state%outer_ready .and. state%checkpoint_schema_version >= 4_i32 .and. &
+        .not. all(found_outer_max_diagnostics)) then
+      error stop 'Schema v4 cumulative outer diagnostics are incomplete in summary.txt.'
+    end if
+    if (state%outer_ready .and. state%checkpoint_schema_version >= 4_i32 .and. &
+        (.not. all(ieee_is_finite([ &
+                                  state%max_outer_flight_time, state%max_frozen_field_ratio, &
+                                  state%max_outer_energy_relative_error &
+                                  ])) .or. &
+         state%max_outer_flight_time < 0.0_dp .or. state%max_frozen_field_ratio < 0.0_dp .or. &
+         state%max_outer_energy_relative_error < 0.0_dp)) then
+      error stop 'Schema v4 cumulative outer diagnostics must be finite and nonnegative.'
+    end if
+    if (state%checkpoint_schema_version >= 4_i32 .and. any(found_outer_queue_inventory) .and. &
+        .not. all(found_outer_queue_inventory)) then
+      error stop 'Schema v4 outer-queue inventory is incomplete in summary.txt.'
+    end if
+    if (state%checkpoint_schema_version >= 4_i32 .and. all(found_outer_queue_inventory) .and. &
+        (state%outer_queue_event_count < 0_i64 .or. &
+         .not. ieee_is_finite(state%outer_queue_signed_charge))) then
+      error stop 'Schema v4 outer-queue inventory values are invalid in summary.txt.'
+    end if
     state%outer_zhao_state_complete = all(found_zhao_state)
+    state%outer_zhao_transient_state_complete = all(found_zhao_transient_state)
+    state%outer_queue_inventory_complete = all(found_outer_queue_inventory)
+    state%outer_max_diagnostics_complete = &
+      state%checkpoint_schema_version >= 4_i32 .and. all(found_outer_max_diagnostics)
   end subroutine load_electrostatic_state
 
   !> schema v2 fingerprint を現在の ordered model/mesh/species contract と照合する。
@@ -464,7 +562,8 @@ contains
       end if
       return
     end if
-    if (schema_version /= 2_i32 .and. schema_version /= checkpoint_schema_version_current) then
+    if (schema_version /= 2_i32 .and. schema_version /= 3_i32 .and. &
+        schema_version /= checkpoint_schema_version_current) then
       status = restart_contract_unsupported_schema
       message = 'unsupported checkpoint schema version'
       return

@@ -5,7 +5,8 @@ module bem_outer_plasma_kinetic
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_invalid, &
                                     outer_plasma_no_physical_solution, outer_plasma_numerical_failure
   use bem_outer_plasma_grid, only: outer_plasma_grid_type, init_outer_plasma_grid
-  use bem_outer_plasma_zhao, only: zhao_charge_root_type, solve_outer_plasma_zhao
+  use bem_outer_plasma_zhao, only: zhao_charge_root_type, solve_outer_plasma_zhao, &
+                                   solve_outer_plasma_zhao_column
   use bem_sheath_model_core, only: zhao_params_type, build_zhao_params
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -36,6 +37,9 @@ module bem_outer_plasma_kinetic
     real(dp) :: photoelectron_temperature_j = 0.0_dp
     real(dp) :: photoelectron_emission_flux = 0.0_dp
     real(dp) :: photoelectron_reference_density = 0.0_dp
+    real(dp) :: photoelectron_population_fraction = 1.0_dp
+    logical :: photoelectron_column_closure_enabled = .false.
+    real(dp) :: photoelectron_column_target_m2 = 0.0_dp
     real(dp) :: zhao_alpha_deg = 60.0_dp
     real(dp) :: residual_tolerance = 1.0e-8_dp
     real(dp) :: external_current_density = 0.0_dp
@@ -188,7 +192,13 @@ contains
         options%electron_temperature_j <= 0.0_dp .or. options%photoelectron_temperature_j <= 0.0_dp .or. &
         options%electron_drift_infinity <= 0.0_dp .or. options%ion_drift_infinity <= 0.0_dp .or. &
         options%electron_mass <= 0.0_dp .or. options%ion_mass <= 0.0_dp .or. &
-        options%photoelectron_mass <= 0.0_dp) then
+        options%photoelectron_mass <= 0.0_dp .or. &
+        .not. ieee_is_finite(options%photoelectron_population_fraction) .or. &
+        options%photoelectron_population_fraction < 0.0_dp .or. &
+        (options%photoelectron_column_closure_enabled .and. &
+         (.not. ieee_is_finite(options%photoelectron_column_target_m2) .or. &
+          options%photoelectron_column_target_m2 < 0.0_dp .or. &
+          .not. ieee_is_finite(options%domain_length) .or. options%domain_length <= 0.0_dp))) then
       state%applicability_status = status
       message = 'Zhao charge-driven closure parameters are invalid'
       return
@@ -211,7 +221,8 @@ contains
     call build_zhao_params( &
       options%zhao_alpha_deg, options%ion_density_infinity, options%photoelectron_reference_density, &
       electron_temperature_ev, photoelectron_temperature_ev, options%electron_drift_infinity, &
-      options%ion_drift_infinity, options%ion_mass, options%electron_mass, params &
+      options%ion_drift_infinity, options%ion_mass, options%electron_mass, params, &
+      photoelectron_population_fraction=options%photoelectron_population_fraction &
       )
     has_initial_root = .false.
     if (present(initial_state)) then
@@ -226,16 +237,31 @@ contains
         initial_root%phi_m_v = initial_state%zhao_phi_minimum
         initial_root%n_swe_inf_m3 = initial_state%zhao_electron_density_infinity
         initial_root%interface_field_v_m = initial_state%interface_field
+        initial_root%photoelectron_population_fraction = initial_state%photoelectron_population_fraction
       end if
     end if
-    if (has_initial_root) then
+    if (options%photoelectron_column_closure_enabled) then
+      if (has_initial_root) then
+        call solve_outer_plasma_zhao_column( &
+          options%zhao_branch, params, options%interface_field, options%grid_points, &
+          options%domain_length, options%photoelectron_column_target_m2, state, root, status, message, &
+          initial_root=initial_root &
+          )
+      else
+        call solve_outer_plasma_zhao_column( &
+          options%zhao_branch, params, options%interface_field, options%grid_points, &
+          options%domain_length, options%photoelectron_column_target_m2, state, root, status, message &
+          )
+      end if
+    else if (has_initial_root) then
       call solve_outer_plasma_zhao( &
         options%zhao_branch, params, options%interface_field, options%grid_points, state, root, status, message, &
         initial_root=initial_root &
         )
     else
       call solve_outer_plasma_zhao( &
-        options%zhao_branch, params, options%interface_field, options%grid_points, state, root, status, message &
+        options%zhao_branch, params, options%interface_field, options%grid_points, state, root, status, message, &
+        allow_transient_bootstrap=.true. &
         )
     end if
     state%model = 'kinetic_1d'
@@ -244,6 +270,7 @@ contains
     state%zhao_phi0 = root%phi0_v
     state%zhao_phi_minimum = root%phi_m_v
     state%zhao_electron_density_infinity = root%n_swe_inf_m3
+    state%photoelectron_population_fraction = root%photoelectron_population_fraction
     state%applicability_status = status
   end subroutine solve_outer_plasma_zhao_closure
 

@@ -107,6 +107,8 @@ lower_boundary_model = "symmetric_vacuum"
 
 小規模のreference計算にはDirect + `panel_spectral_reference`を使います。
 [`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)は標準kinetic構成の小規模contract fixture、
+[`examples/periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)はZhao過渡queueで長いflightを
+物理timescale guardが拒否するexpected-fail fixture、
 [`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml)は高度な線形screeningの
 解析極限と適用性を確認するfixtureです。
 大規模productionでは、計算規模に合わせたbackendを別途選びます。
@@ -126,8 +128,15 @@ lower_boundary_model = "symmetric_vacuum"
 ## outer flight中はbatch-start fieldを固定する
 
 1D instant returnと3D explicit orbitはouter flight timeを計算しますが、global simulation timeには加えません。
-flight timeと`field_evolution_timescale`の比は、`max_frozen_field_ratio`以下に保ちます。persistent delayed-return queueは未実装です。
-steady/quasisteadyでないreturn currentには、[粒子のescapeとreturn](ParticleEscapeReturn.html)で示す制約が加わります。
+flight timeと`field_evolution_timescale`の比は、`max_frozen_field_ratio`以下に保ちます。
+対応する`kinetic_1d` + `zhao_charge_driven`構成では、1D eventをbatch間queueへ保存し、due batchでreturn/escapeを
+計上できます。queueの外部領域は$L=10\lambda_{D,pe}$までで、そこに達した粒子はreservoirへescapeし、$L$外のRobin tailで
+returnを判定しません。eventのterminal状態はenqueue時のfieldで決め、その後のfieldでは再積分しません。
+各eventでは`tau_outer`、次のbatch-start pollまでの量子化遅延、midpoint crossing時刻誤差上限の合計へ
+`max_frozen_field_ratio * field_evolution_timescale`の上限を課し、`batch_duration`にも同じ上限を設定時に要求します。
+3D explicit orbitのpersistent queueは
+未実装です。詳細は
+[粒子のescapeとreturn](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする)を参照してください。
 
 ## componentごとに収束と収支を確認する
 
@@ -139,6 +148,7 @@ steady/quasisteadyでないreturn currentには、[粒子のescapeとreturn](Par
 | unified profile | `unified_grid_points`、height sampling、mode layer | linearity、accessible fraction、Gauss residual |
 | reservoir | macro target、batch duration | inflow current、macro residual |
 | photoelectron | ray数、`dt`、outer return | emission、reabsorption、escape/return charge |
+| Zhao過渡queue | `batch_duration`、time-scale guard、ray数、面積、interface位置 | $\eta$、column residual、return/escape current、force |
 | batch coupling | `batch_duration` | steady surface chargeとcurrent balance |
 
 `summary.txt`、`outer_plasma_profile.csv`、`charge_ledger.csv`、`charges.csv`を合わせて確認します。fieldだけ、particle countだけ、

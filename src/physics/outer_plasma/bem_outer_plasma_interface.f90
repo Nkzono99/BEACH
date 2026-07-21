@@ -82,19 +82,12 @@ contains
     outcome%outer_flight_time = 4.0_dp*state%debye_length/sqrt(deficit)* &
                                 atan(sqrt(normal_speed_squared/deficit))
     outcome%frozen_field_ratio = outcome%outer_flight_time/field_timescale
-    if (.not. ieee_is_finite(outcome%outer_flight_time) .or. &
-        outcome%frozen_field_ratio > max_frozen_field_ratio) then
-      if (queue_enabled) then
-        outcome%kind = interface_outcome_queued_outer
-        outcome%message = 'outer flight exceeds frozen-field limit'
-      else
-        outcome%kind = interface_outcome_invalid_model
-        outcome%message = 'outer flight requires a persistent queue'
-      end if
+    if (.not. ieee_is_finite(outcome%outer_flight_time) .or. outcome%outer_flight_time <= 0.0_dp) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'invalid linear-Debye outer flight time'
       return
     end if
 
-    outcome%kind = interface_outcome_returned_local
     outcome%position = crossing%position + crossing%velocity*outcome%outer_flight_time
     outcome%position(1) = wrap_periodic(outcome%position(1), box_min(1), box_max(1))
     outcome%position(2) = wrap_periodic(outcome%position(2), box_min(2), box_max(2))
@@ -105,11 +98,21 @@ contains
     energy_before = 0.5_dp*mass*normal_speed_squared + charge*state%interface_potential
     energy_turn = charge*state%interface_potential + 0.5_dp*mass*outcome%velocity(3)**2
     outcome%normal_energy_residual = energy_turn - energy_before
+    if (outcome%frozen_field_ratio > max_frozen_field_ratio) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'linear-Debye outer flight violates the frozen-field limit'
+    else if (queue_enabled) then
+      outcome%kind = interface_outcome_queued_outer
+      outcome%queued_terminal_kind = interface_outcome_returned_local
+      outcome%message = 'linear-Debye return scheduled in persistent outer queue'
+    else
+      outcome%kind = interface_outcome_returned_local
+    end if
   end subroutine map_outer_particle_linear_debye
 
   subroutine map_outer_particle_kinetic_profile( &
     state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-    queue_enabled, outcome &
+    queue_enabled, outcome, queue_poll_interval &
     )
     type(outer_plasma_state_type), intent(in) :: state
     real(dp), intent(in) :: box_min(3), box_max(3), charge, mass
@@ -117,8 +120,9 @@ contains
     real(dp), intent(in) :: field_timescale, max_frozen_field_ratio
     logical, intent(in) :: queue_enabled
     type(interface_particle_outcome_type), intent(out) :: outcome
+    real(dp), intent(in), optional :: queue_poll_interval
     real(dp) :: speed2, next_speed2, infinity_speed2, outward_time, segment_length, turning_fraction
-    real(dp) :: deficit, tolerance
+    real(dp) :: deficit, tolerance, resolved_queue_poll_interval
     integer :: point
 
     outcome = interface_particle_outcome_type()
@@ -140,6 +144,14 @@ contains
     if (field_timescale <= 0.0_dp .or. max_frozen_field_ratio <= 0.0_dp) then
       outcome%kind = interface_outcome_invalid_model
       outcome%message = 'invalid kinetic outer-interface timescale limits'
+      return
+    end if
+    resolved_queue_poll_interval = 0.0_dp
+    if (present(queue_poll_interval)) resolved_queue_poll_interval = queue_poll_interval
+    if (queue_enabled .and. &
+        (.not. ieee_is_finite(resolved_queue_poll_interval) .or. resolved_queue_poll_interval <= 0.0_dp)) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'persistent kinetic outer queue requires a positive finite poll interval'
       return
     end if
 
@@ -172,7 +184,7 @@ contains
         outward_time = outward_time + 2.0_dp*segment_length*turning_fraction/sqrt(speed2)
         call finish_kinetic_return( &
           state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-          queue_enabled, 2.0_dp*outward_time, outcome &
+          queue_enabled, resolved_queue_poll_interval, 2.0_dp*outward_time, outcome &
           )
         return
       end if
@@ -180,10 +192,14 @@ contains
       speed2 = next_speed2
     end do
 
-    if (infinity_speed2 >= -tolerance) then
-      outcome%kind = interface_outcome_escaped_to_infinity
-      outcome%position = crossing%position
-      outcome%velocity = crossing%velocity
+    ! The persistent closure owns only the finite [interface,L] control volume.
+    ! A queued particle that reaches L leaves that inventory even when the
+    ! analytic Robin continuation would turn farther out.
+    if (queue_enabled .or. infinity_speed2 >= -tolerance) then
+      call finish_kinetic_escape( &
+        state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
+        queue_enabled, resolved_queue_poll_interval, outward_time, speed2, outcome &
+        )
       return
     end if
 
@@ -197,7 +213,7 @@ contains
                    2.0_dp*state%debye_length/sqrt(deficit)*atan(sqrt(speed2/deficit))
     call finish_kinetic_return( &
       state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-      queue_enabled, 2.0_dp*outward_time, outcome &
+      queue_enabled, resolved_queue_poll_interval, 2.0_dp*outward_time, outcome &
       )
   end subroutine map_outer_particle_kinetic_profile
 
@@ -254,10 +270,11 @@ contains
 
   subroutine finish_kinetic_return( &
     state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-    queue_enabled, flight_time, outcome &
+    queue_enabled, queue_poll_interval, flight_time, outcome &
     )
     type(outer_plasma_state_type), intent(in) :: state
     real(dp), intent(in) :: box_min(3), box_max(3), charge, mass, field_timescale, max_frozen_field_ratio
+    real(dp), intent(in) :: queue_poll_interval
     type(interface_crossing_type), intent(in) :: crossing
     logical, intent(in) :: queue_enabled
     real(dp), intent(in) :: flight_time
@@ -266,20 +283,15 @@ contains
 
     outcome = interface_particle_outcome_type()
     outcome%outer_flight_time = flight_time
-    outcome%frozen_field_ratio = flight_time/field_timescale
-    if (.not. ieee_is_finite(flight_time) .or. flight_time <= 0.0_dp .or. &
-        outcome%frozen_field_ratio > max_frozen_field_ratio) then
-      if (queue_enabled) then
-        outcome%kind = interface_outcome_queued_outer
-        outcome%message = 'kinetic outer flight exceeds frozen-field limit'
-      else
-        outcome%kind = interface_outcome_invalid_model
-        outcome%message = 'kinetic outer flight requires a persistent queue'
-      end if
+    if (.not. ieee_is_finite(flight_time) .or. flight_time <= 0.0_dp) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'invalid kinetic outer return flight time'
       return
     end if
+    outcome%frozen_field_ratio = effective_frozen_duration( &
+                                 flight_time, queue_enabled, queue_poll_interval &
+                                 )/field_timescale
 
-    outcome%kind = interface_outcome_returned_local
     outcome%position = crossing%position + crossing%velocity*flight_time
     outcome%position(1) = wrap_periodic(outcome%position(1), box_min(1), box_max(1))
     outcome%position(2) = wrap_periodic(outcome%position(2), box_min(2), box_max(2))
@@ -292,7 +304,90 @@ contains
     outcome%normal_energy_residual = energy_after - energy_before
     energy_scale = max(abs(energy_before), 0.5_dp*mass*crossing%velocity(3)**2, tiny(1.0_dp))
     outcome%energy_relative_error = abs(outcome%normal_energy_residual)/energy_scale
+    if (outcome%frozen_field_ratio > max_frozen_field_ratio) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'kinetic outer return violates the frozen-field limit'
+    else if (queue_enabled) then
+      outcome%kind = interface_outcome_queued_outer
+      outcome%queued_terminal_kind = interface_outcome_returned_local
+      outcome%message = 'kinetic return scheduled in persistent outer queue'
+    else
+      outcome%kind = interface_outcome_returned_local
+    end if
   end subroutine finish_kinetic_return
+
+  subroutine finish_kinetic_escape( &
+    state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
+    queue_enabled, queue_poll_interval, flight_time, final_speed_squared, outcome &
+    )
+    type(outer_plasma_state_type), intent(in) :: state
+    real(dp), intent(in) :: box_min(3), box_max(3), charge, mass, field_timescale, max_frozen_field_ratio
+    real(dp), intent(in) :: queue_poll_interval
+    type(interface_crossing_type), intent(in) :: crossing
+    logical, intent(in) :: queue_enabled
+    real(dp), intent(in) :: flight_time, final_speed_squared
+    type(interface_particle_outcome_type), intent(out) :: outcome
+    real(dp) :: energy_before, energy_after, energy_scale
+
+    outcome = interface_particle_outcome_type()
+    if (.not. queue_enabled) then
+      outcome%kind = interface_outcome_escaped_to_infinity
+      outcome%position = crossing%position
+      outcome%velocity = crossing%velocity
+      return
+    end if
+    if (.not. ieee_is_finite(flight_time) .or. flight_time <= 0.0_dp .or. &
+        .not. ieee_is_finite(final_speed_squared) .or. final_speed_squared < 0.0_dp) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'invalid kinetic outer escape flight time'
+      return
+    end if
+
+    outcome%outer_flight_time = flight_time
+    outcome%frozen_field_ratio = effective_frozen_duration( &
+                                 flight_time, queue_enabled, queue_poll_interval &
+                                 )/field_timescale
+    outcome%position = crossing%position + crossing%velocity*flight_time
+    outcome%position(1) = wrap_periodic(outcome%position(1), box_min(1), box_max(1))
+    outcome%position(2) = wrap_periodic(outcome%position(2), box_min(2), box_max(2))
+    outcome%position(3) = state%z(state%profile_n)
+    outcome%velocity = crossing%velocity
+    outcome%velocity(3) = sqrt(final_speed_squared)
+    energy_before = 0.5_dp*mass*crossing%velocity(3)**2 + charge*state%interface_potential
+    energy_after = 0.5_dp*mass*final_speed_squared + charge*state%potential(state%profile_n)
+    outcome%normal_energy_residual = energy_after - energy_before
+    energy_scale = max(abs(energy_before), 0.5_dp*mass*crossing%velocity(3)**2, tiny(1.0_dp))
+    outcome%energy_relative_error = abs(outcome%normal_energy_residual)/energy_scale
+    if (outcome%frozen_field_ratio > max_frozen_field_ratio) then
+      outcome%kind = interface_outcome_invalid_model
+      outcome%message = 'kinetic outer escape violates the frozen-field limit'
+      return
+    end if
+    outcome%kind = interface_outcome_queued_outer
+    outcome%queued_terminal_kind = interface_outcome_escaped_to_infinity
+    outcome%message = 'kinetic escape scheduled to finite profile boundary'
+  end subroutine finish_kinetic_escape
+
+  !> Bound a midpoint-timestamped event through its crossing-time uncertainty and next queue poll.
+  pure real(dp) function effective_frozen_duration(flight_time, queue_enabled, queue_poll_interval) result(duration)
+    real(dp), intent(in) :: flight_time, queue_poll_interval
+    logical, intent(in) :: queue_enabled
+    real(dp) :: due_phase, phase_tolerance, quantization_delay
+
+    duration = flight_time
+    if (.not. queue_enabled) return
+
+    due_phase = modulo(0.5_dp*queue_poll_interval + flight_time, queue_poll_interval)
+    phase_tolerance = 64.0_dp*epsilon(1.0_dp)*max( &
+                      queue_poll_interval, abs(flight_time), tiny(1.0_dp) &
+                      )
+    if (due_phase <= phase_tolerance .or. queue_poll_interval - due_phase <= phase_tolerance) then
+      quantization_delay = 0.0_dp
+    else
+      quantization_delay = queue_poll_interval - due_phase
+    end if
+    duration = flight_time + quantization_delay + 0.5_dp*queue_poll_interval
+  end function effective_frozen_duration
 
   pure real(dp) function wrap_periodic(value, low, high) result(wrapped)
     real(dp), intent(in) :: value, low, high

@@ -7,6 +7,7 @@ program test_output_writer_io
   use bem_app_config, only: app_config, default_app_config
   use bem_types, only: mesh_type, sim_stats
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, delete_file_if_exists, remove_empty_directory
@@ -18,9 +19,11 @@ program test_output_writer_io
   type(charge_ledger_type) :: ledger
   type(photoelectron_histogram_type) :: photo_batch
   type(photoelectron_histogram_state_type) :: photo_state
+  type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_photo_batch, saw_photo_flux
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
+  logical :: saw_queue_population, saw_queue_count, saw_queue_fingerprint
   integer :: literal_unit, ios
   character(len=512) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
@@ -39,7 +42,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(4)
+  call test_init(5)
 
   stats = sim_stats()
 
@@ -121,6 +124,33 @@ program test_output_writer_io
   cfg%outer_plasma%photoelectron_histogram_enabled = .false.
   call test_end()
 
+  call test_begin('queue_diagnostics_follow_enable_flag')
+  electrostatic_diagnostics%outer_kinetic_closure = 'zhao_charge_driven'
+  electrostatic_diagnostics%outer_zhao_branch = 'B'
+  electrostatic_diagnostics%outer_photoelectron_population_fraction = 0.5_dp
+  electrostatic_diagnostics%outer_queue_event_count = 2_i32
+  electrostatic_diagnostics%outer_queue_fingerprint = 'FEDCBA9876543210'
+  cfg%coupling%outer_queue_enabled = .false.
+  call write_result_files( &
+    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
+    )
+  call scan_queue_summary_fields( &
+    out_dir_disabled//'/summary.txt', saw_queue_population, saw_queue_count, saw_queue_fingerprint &
+    )
+  call assert_true(.not. saw_queue_population .and. .not. saw_queue_count .and. .not. saw_queue_fingerprint, &
+                   'disabled queue must not write queue-specific diagnostics')
+  cfg%coupling%outer_queue_enabled = .true.
+  call write_result_files( &
+    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
+    )
+  call scan_queue_summary_fields( &
+    out_dir_disabled//'/summary.txt', saw_queue_population, saw_queue_count, saw_queue_fingerprint &
+    )
+  call assert_true(saw_queue_population .and. saw_queue_count .and. saw_queue_fingerprint, &
+                   'enabled queue must write queue-specific diagnostics')
+  cfg%coupling%outer_queue_enabled = .false.
+  call test_end()
+
   call test_begin('charge_ledger_and_model_metadata')
   call ledger%init(2_i32)
   call ledger%reset(1_i32)
@@ -153,7 +183,7 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=3') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=4') > 0
     saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
@@ -172,7 +202,7 @@ program test_output_writer_io
   saw_ledger_header = ios == 0 .and. index(line, 'species_idx') > 0 .and. index(line, 'discarded_unresolved_C') > 0
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
-  call assert_true(saw_schema, 'summary should record checkpoint schema v3')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v4')
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')
@@ -187,6 +217,27 @@ program test_output_writer_io
   call test_summary()
 
 contains
+
+  subroutine scan_queue_summary_fields(path, saw_population, saw_count, saw_fingerprint)
+    character(len=*), intent(in) :: path
+    logical, intent(out) :: saw_population, saw_count, saw_fingerprint
+    integer :: unit, read_status
+    character(len=512) :: summary_line
+
+    saw_population = .false.
+    saw_count = .false.
+    saw_fingerprint = .false.
+    open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
+    if (read_status /= 0) error stop 'failed to open queue summary fixture'
+    do
+      read (unit, '(A)', iostat=read_status) summary_line
+      if (read_status /= 0) exit
+      saw_population = saw_population .or. index(summary_line, 'outer_photoelectron_population_fraction=') == 1
+      saw_count = saw_count .or. index(summary_line, 'outer_queue_event_count=') == 1
+      saw_fingerprint = saw_fingerprint .or. index(summary_line, 'outer_queue_fingerprint=FEDCBA9876543210') == 1
+    end do
+    close (unit)
+  end subroutine scan_queue_summary_fields
 
   !> 2 要素メッシュを初期化する。
   subroutine build_two_element_mesh(mesh)

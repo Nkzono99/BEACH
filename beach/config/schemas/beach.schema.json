@@ -141,7 +141,7 @@
         "outer_orbit_dt": {"type": "number", "minimum": 0, "default": 0},
         "outer_orbit_max_steps": {"type": "integer", "minimum": 1, "default": 100000},
         "outer_orbit_energy_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.0001},
-        "outer_queue_enabled": {"const": false, "default": false}
+        "outer_queue_enabled": {"type": "boolean", "default": false, "description": "Delay Zhao kinetic-profile return and finite-domain reservoir-escape events across batches, close the photoelectron population from the queued column over 10 photoelectron Debye lengths, require automatic branch continuation, bound each flight plus next-poll delay and half-batch midpoint uncertainty, and bound batch_duration by max_frozen_field_ratio * field_evolution_timescale."}
       }
     },
     "mesh": {
@@ -158,6 +158,53 @@
   ],
   "additionalProperties": false,
   "allOf": [
+    {
+      "if": {
+        "required": ["coupling"],
+        "properties": {
+          "coupling": {
+            "required": ["outer_queue_enabled"],
+            "properties": {
+              "outer_queue_enabled": {"const": true}
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["outer_plasma", "coupling", "sim"],
+        "properties": {
+          "outer_plasma": {
+            "required": ["model", "kinetic_closure", "return_model"],
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "kinetic_closure": {"const": "zhao_charge_driven"},
+              "zhao_branch": {"const": "auto"},
+              "return_model": {"const": "kinetic_1d_profile_return"},
+              "photoelectron_histogram_enabled": {"const": false}
+            }
+          },
+          "coupling": {
+            "required": ["particle_transfer_mode", "field_evolution_timescale"],
+            "properties": {
+              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"},
+              "outer_update_stride": {"const": 1},
+              "field_evolution_timescale": {"exclusiveMinimum": 0},
+              "max_frozen_field_ratio": {"exclusiveMinimum": 0}
+            }
+          },
+          "sim": {
+            "properties": {
+              "batch_duration": {"exclusiveMinimum": 0},
+              "batch_duration_step": {"exclusiveMinimum": 0}
+            },
+            "anyOf": [
+              {"required": ["batch_duration"]},
+              {"required": ["batch_duration_step"]}
+            ]
+          }
+        }
+      }
+    },
     {
       "if": {
         "required": ["outer_plasma"],

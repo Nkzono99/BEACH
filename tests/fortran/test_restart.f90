@@ -59,8 +59,13 @@ program test_restart
   cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
   cfg%outer_plasma%zhao_branch = 'auto'
   cfg%outer_plasma%photoelectron_density_model = 'none'
+  cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
   cfg%outer_plasma%debye_length = 1.0_dp
   cfg%outer_plasma%thermal_voltage = 2.0_dp
+  cfg%sim%batch_duration = 1.0e-6_dp
+  cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+  cfg%coupling%field_evolution_timescale = 1.0_dp
+  cfg%coupling%outer_queue_enabled = .true.
   stats = sim_stats()
   stats%batches = 2_i32
   stats%last_rel_change = 0.0_dp
@@ -80,6 +85,16 @@ program test_restart
   electrostatic_diagnostics%outer_zhao_phi0 = 1.25_dp
   electrostatic_diagnostics%outer_zhao_phi_minimum = -0.4_dp
   electrostatic_diagnostics%outer_zhao_electron_density_infinity = 7.5e6_dp
+  electrostatic_diagnostics%outer_photoelectron_population_fraction = 0.35_dp
+  electrostatic_diagnostics%outer_photoelectron_column_per_area = 2.0e9_dp
+  electrostatic_diagnostics%outer_photoelectron_column_target_per_area = 2.0e9_dp
+  electrostatic_diagnostics%outer_photoelectron_column_residual_per_area = 1.0e-3_dp
+  electrostatic_diagnostics%outer_queue_event_count = 3_i64
+  electrostatic_diagnostics%outer_queue_signed_charge = -4.5e-15_dp
+  electrostatic_diagnostics%outer_queue_fingerprint = '0123456789ABCDEF'
+  electrostatic_diagnostics%max_outer_flight_time = 1.25_dp
+  electrostatic_diagnostics%max_frozen_field_ratio = 0.125_dp
+  electrostatic_diagnostics%max_outer_energy_relative_error = 2.0e-12_dp
   electrostatic_diagnostics%outer_profile_z = [1.0_dp, 1.5_dp, 2.0_dp]
   electrostatic_diagnostics%outer_profile_potential = [-0.25_dp, -0.1_dp, -0.02_dp]
   electrostatic_diagnostics%outer_profile_field = [0.3_dp, 0.23_dp, 0.16_dp]
@@ -87,12 +102,12 @@ program test_restart
   call write_result_files(out_dir, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics)
   call write_rng_state_file(out_dir)
   open (newunit=profile_unit, file=out_dir//'/outer_plasma_profile.csv', status='old', action='read', iostat=profile_ios)
-  call assert_equal_i32(int(profile_ios, i32), 0_i32, 'schema v3 outer profile should open')
+  call assert_equal_i32(int(profile_ios, i32), 0_i32, 'schema v4 outer profile should open')
   read (profile_unit, '(A)', iostat=profile_ios) profile_header
   close (profile_unit)
   call assert_true( &
     trim(profile_header) == 'point,z_m,potential_V,field_V_m,charge_density_C_m3', &
-    'schema v3 outer profile header mismatch' &
+    'schema v4 outer profile header mismatch' &
     )
   call load_restart_checkpoint(out_dir, mesh, stats, has_restart, app=cfg, electrostatic_state=electrostatic_state)
   call assert_true(has_restart, 'kinetic profile checkpoint should load')
@@ -134,6 +149,32 @@ program test_restart
                        'Zhao restart minimum mismatch')
   call assert_close_dp(electrostatic_state%outer_zhao_electron_density_infinity, 7.5e6_dp, 1.0e-8_dp, &
                        'Zhao restart electron density mismatch')
+  call assert_true(electrostatic_state%outer_zhao_transient_state_complete, &
+                   'transient Zhao restart state should be complete')
+  call assert_close_dp(electrostatic_state%outer_photoelectron_population_fraction, 0.35_dp, 1.0e-15_dp, &
+                       'transient Zhao population mismatch')
+  call assert_close_dp(electrostatic_state%outer_photoelectron_column_per_area, 2.0e9_dp, 1.0e-6_dp, &
+                       'transient Zhao column mismatch')
+  call assert_close_dp(electrostatic_state%outer_photoelectron_column_target_per_area, 2.0e9_dp, 1.0e-6_dp, &
+                       'transient Zhao target column mismatch')
+  call assert_close_dp(electrostatic_state%outer_photoelectron_column_residual_per_area, 1.0e-3_dp, 1.0e-15_dp, &
+                       'transient Zhao column residual mismatch')
+  call assert_true(electrostatic_state%outer_queue_inventory_complete, &
+                   'outer queue restart inventory should be complete')
+  call assert_equal_i64(electrostatic_state%outer_queue_event_count, 3_i64, &
+                        'outer queue restart event count mismatch')
+  call assert_close_dp(electrostatic_state%outer_queue_signed_charge, -4.5e-15_dp, 1.0e-30_dp, &
+                       'outer queue restart signed charge mismatch')
+  call assert_true(electrostatic_state%outer_queue_fingerprint == '0123456789ABCDEF', &
+                   'outer queue restart fingerprint mismatch')
+  call assert_true(electrostatic_state%outer_max_diagnostics_complete, &
+                   'schema v4 cumulative outer diagnostics should be complete')
+  call assert_close_dp(electrostatic_state%max_outer_flight_time, 1.25_dp, 1.0e-15_dp, &
+                       'cumulative outer flight-time mismatch')
+  call assert_close_dp(electrostatic_state%max_frozen_field_ratio, 0.125_dp, 1.0e-15_dp, &
+                       'cumulative frozen-field ratio mismatch')
+  call assert_close_dp(electrostatic_state%max_outer_energy_relative_error, 2.0e-12_dp, 1.0e-24_dp, &
+                       'cumulative outer energy error mismatch')
   call test_end()
 
   call test_begin('schema_v2_outer_profile_migrates_by_forcing_refresh')
@@ -145,6 +186,8 @@ program test_restart
   call assert_true(electrostatic_state%outer_ready, 'schema v2 outer state should remain available as an initial guess')
   call assert_true(.not. electrostatic_state%outer_profile_complete, &
                    'schema v2 profile must force a complete root refresh')
+  call assert_true(.not. electrostatic_state%outer_max_diagnostics_complete, &
+                   'schema v2 must not claim cumulative outer-diagnostic restart coverage')
   call assert_allclose_1d( &
     electrostatic_state%outer_profile_potential, [-0.25_dp, -0.1_dp, -0.02_dp], 1.0e-15_dp, &
     'schema v2 migration potential mismatch' &
@@ -298,7 +341,7 @@ contains
     summary_path = trim(dir_path)//'/summary.txt'
     summary_tmp = trim(summary_path)//'.v2tmp'
     open (newunit=input_unit, file=trim(summary_path), status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'failed to open schema v3 summary for migration fixture'
+    if (ios /= 0) error stop 'failed to open schema v4 summary for migration fixture'
     open (newunit=output_unit, file=trim(summary_tmp), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to create schema v2 summary fixture'
     do
@@ -318,11 +361,11 @@ contains
     profile_path = trim(dir_path)//'/outer_plasma_profile.csv'
     profile_tmp = trim(profile_path)//'.v2tmp'
     open (newunit=input_unit, file=trim(profile_path), status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'failed to open schema v3 profile for migration fixture'
+    if (ios /= 0) error stop 'failed to open schema v4 profile for migration fixture'
     open (newunit=output_unit, file=trim(profile_tmp), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to create schema v2 profile fixture'
     read (input_unit, '(A)', iostat=ios) line
-    if (ios /= 0) error stop 'schema v3 profile header is missing'
+    if (ios /= 0) error stop 'schema v4 profile header is missing'
     write (output_unit, '(a)') 'point,z_m,potential_V'
     do
       read (input_unit, *, iostat=ios) point, z, potential, field, charge_density

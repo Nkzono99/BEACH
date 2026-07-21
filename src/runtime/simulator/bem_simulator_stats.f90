@@ -11,7 +11,9 @@ contains
   soft_discarded_abs_charge = 0.0_dp
   batch_counts(1) = pcls_batch%n
   do i = 1, pcls_batch%n
-    if (absorbed_flag(i)) then
+    if (queued_outer_flag(i)) then
+      cycle
+    else if (absorbed_flag(i)) then
       batch_counts(2) = batch_counts(2) + 1_i32
     else if (escaped_boundary_flag(i)) then
       batch_counts(3) = batch_counts(3) + 1_i32

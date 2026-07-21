@@ -68,6 +68,8 @@ beachx inspect outputs/latest
 対応する `*_count` 列はイベント数です。`summary.txt` の `charge_ledger_residual_C` と
 `charge_ledger_discarded_unresolved_abs_C` は全粒子種を集約した値です。許容値の決め方は
 [粒子数と電荷の収支を確認する](ValidationGuide.html#2-粒子数と電荷の収支を確認する)で扱います。
+Zhao過渡queueでは、`charge_ledger_outer_flight_charge_before_C`と
+`charge_ledger_outer_flight_charge_after_C`がbatch前後のouter-flight stockを記録します。
 
 ## 表面分布とメッシュを対応させる
 
@@ -111,6 +113,7 @@ write_potential_history = true
 | 実行時間を分解する | `performance_profile.csv` | `BEACH_PROFILE=1` |
 | 外部シースの格子 profile を読む | `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` の外部状態が準備済み |
 | 光電子のエネルギー分布を読む | `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` で状態が準備済み |
+| Zhao過渡eventを再開する | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `coupling.outer_queue_enabled=true`。serialでは前者、MPIではrankごとに後者 |
 | 乱数状態から再開する | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serial では前者、MPI ではランクごとに後者 |
 | 端数マクロ粒子を復元する | `macro_residuals.csv` | 残差状態が割り当てられた場合。MPI でも 1 ファイル |
 
@@ -125,6 +128,7 @@ write_potential_history = true
 | 有限画像 `periodic2` | `summary.txt` の periodic2 構成、`charges.csv` | [有限画像構成](FinitePeriodicConfiguration.html) |
 | `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [周期遠方補正](PeriodicFarCorrection.html) |
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [標準 1D kinetic 外部シース](KineticOuterPlasma.html) |
+| Zhao過渡queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [粒子の escape と return](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする) |
 | `unified_linear_response` | 上記に加えて `outer_accessible_fraction_min`, `outer_accessible_fraction_max`, `outer_accessible_fraction_refinement_error` | [高度な粗面線形 screening](UnifiedLinearResponse.html) |
 | 光電子 histogram | `photoelectron_histogram.csv`, `photoelectron_previous_charge_ratio`, `photoelectron_linear_applicability_status` | [光電子の放出とライフサイクル](PhotoelectronEmission.html) |
 | 外部粒子移送 | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [粒子の escape と return](ParticleEscapeReturn.html) |
@@ -145,9 +149,12 @@ write_potential_history = true
 | `charge_ledger.csv` | `summary.txt` に台帳メタデータがある場合に必須 |
 | `outer_plasma_profile.csv` | 準備済みの `kinetic_1d` / `unified_linear_response` 状態を再開する場合に必須 |
 | `photoelectron_histogram.csv` | 光電子 histogram 状態を再開する場合に必須 |
+| `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | Zhao過渡queue有効時に必須。serialでは前者、MPIでは同じworld sizeの全rank分が必要 |
 
 `output.restart_from` を指定すると、チェックポイントを `restart_from` から読み、新しい出力を `output.dir` に書きます。
 再開手順と fingerprint の照合は[実行する](Execution.html#再開実行)にまとめています。
+queue checkpointはactive phase-space record、terminal outcome、due時刻、`next_event_id`を保持し、schema、rank、
+world size、完了batchの不一致をfail closedで拒否します。
 
 ## 次に読むページ
 

@@ -12,6 +12,8 @@ contains
   !> 吸着モデルのバッチループを実行し、電荷更新と統計集計を進める。
   module procedure run_absorption_insulator
   integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
+  integer(i32) :: fresh_particle_count, due_escape_count_total
+  integer(i64) :: outer_queue_event_count_before, outer_queue_event_count_after_pop, outer_queue_event_count_after
   integer(i32) :: collision_failure_count, collision_failure_rank, collision_failure_status
   integer(i32) :: collision_failure_particle, collision_failure_step
   integer(i32) :: local_failure_values(3), selected_failure_values(3)
@@ -30,7 +32,15 @@ contains
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   real(dp) :: max_outer_flight_time, max_frozen_field_ratio, max_outer_energy_relative_error
   real(dp) :: outer_max_diagnostics(3)
+  real(dp) :: outer_queue_charge_before, outer_queue_charge_after_pop, outer_queue_charge_after
+  real(dp) :: outer_queue_photoelectron_number_before, outer_queue_photoelectron_number_after_pop
+  real(dp) :: outer_queue_photoelectron_number_after
+  real(dp) :: outer_queue_area_xy, outer_queue_photoelectron_column_target
+  character(len=16) :: outer_queue_fingerprint
   type(particles_soa) :: pcls_batch
+  type(outer_event_record_type), allocatable :: due_outer_events(:)
+  real(dp), allocatable :: due_returned_charge(:), due_escaped_charge(:)
+  integer(i64), allocatable :: due_escaped_count(:)
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
   type(outer_coupler_type) :: outer_coupler
@@ -38,6 +48,7 @@ contains
   type(simulator_batch_workspace_type) :: workspace
   type(particle_source_plan_type) :: source_plan
   logical :: ledger_enabled
+  logical :: outer_queue_enabled
   logical :: photoelectron_histogram_enabled
   integer(i32) :: thread_index, photoelectron_status
   integer(i32) :: kinetic_status
@@ -49,6 +60,20 @@ contains
   mpi_ctx = mpi_context()
   if (present(mpi)) mpi_ctx = mpi
   ledger_enabled = present(charge_ledger)
+  outer_queue_enabled = app%coupling%outer_queue_enabled
+  if (outer_queue_enabled .and. .not. present(outer_queue_state)) then
+    error stop 'outer_queue_enabled=true requires a persistent outer queue state.'
+  end if
+  outer_queue_area_xy = 1.0_dp
+  if (outer_queue_enabled) then
+    outer_queue_area_xy = (app%sim%box_max(1) - app%sim%box_min(1))* &
+                          (app%sim%box_max(2) - app%sim%box_min(2))
+    if (.not. ieee_is_finite(outer_queue_area_xy) .or. outer_queue_area_xy <= 0.0_dp) then
+      error stop 'outer_queue_enabled=true requires a positive finite horizontal box area.'
+    end if
+  end if
+  allocate (due_returned_charge(app%n_particle_species), due_escaped_charge(app%n_particle_species))
+  allocate (due_escaped_count(app%n_particle_species))
   if (ledger_enabled) then
     if (.not. allocated(charge_ledger%injected_from_remote)) then
       call charge_ledger%init(app%n_particle_species)
@@ -64,6 +89,22 @@ contains
   max_outer_flight_time = 0.0_dp
   max_frozen_field_ratio = 0.0_dp
   max_outer_energy_relative_error = 0.0_dp
+  if (present(electrostatic_restart_state)) then
+    if (electrostatic_restart_state%outer_max_diagnostics_complete) then
+      outer_max_diagnostics = [ &
+                              electrostatic_restart_state%max_outer_flight_time, &
+                              electrostatic_restart_state%max_frozen_field_ratio, &
+                              electrostatic_restart_state%max_outer_energy_relative_error &
+                              ]
+      if (.not. all(ieee_is_finite(outer_max_diagnostics)) .or. any(outer_max_diagnostics < 0.0_dp)) then
+        error stop 'Restart cumulative outer diagnostics must be finite and nonnegative.'
+      end if
+      max_outer_flight_time = outer_max_diagnostics(1)
+      max_frozen_field_ratio = outer_max_diagnostics(2)
+      max_outer_energy_relative_error = outer_max_diagnostics(3)
+    end if
+  end if
+  outer_queue_fingerprint = ''
   photoelectron_histogram_enabled = app%outer_plasma%photoelectron_histogram_enabled
   if (photoelectron_histogram_enabled .and. .not. present(photoelectron_state)) then
     error stop 'photoelectron_histogram_enabled=true requires a photoelectron histogram state.'
@@ -132,6 +173,40 @@ contains
     end if
 
     batch_idx = stats%batches + 1_i32
+    due_returned_charge = 0.0_dp
+    due_escaped_charge = 0.0_dp
+    due_escaped_count = 0_i64
+    due_escape_count_total = 0_i32
+    outer_queue_charge_before = 0.0_dp
+    outer_queue_charge_after_pop = 0.0_dp
+    outer_queue_charge_after = 0.0_dp
+    outer_queue_photoelectron_number_before = 0.0_dp
+    outer_queue_photoelectron_number_after_pop = 0.0_dp
+    outer_queue_photoelectron_number_after = 0.0_dp
+    outer_queue_photoelectron_column_target = 0.0_dp
+    outer_queue_event_count_before = 0_i64
+    outer_queue_event_count_after_pop = 0_i64
+    outer_queue_event_count_after = 0_i64
+    if (outer_queue_enabled) then
+      call measure_outer_queue_state( &
+        app, outer_queue_state, mpi_ctx, outer_queue_charge_before, outer_queue_photoelectron_number_before, &
+        outer_queue_event_count_before &
+        )
+      call outer_queue_state%pop_due( &
+        real(batch_idx - 1_i32, dp)*app%sim%batch_duration, due_outer_events &
+        )
+      call tally_due_outer_events( &
+        app, due_outer_events, due_returned_charge, due_escaped_charge, due_escaped_count, due_escape_count_total &
+        )
+      ! This post-pop global inventory is the hand-off point for the transient Zhao column closure.
+      call measure_outer_queue_state( &
+        app, outer_queue_state, mpi_ctx, outer_queue_charge_after_pop, outer_queue_photoelectron_number_after_pop, &
+        outer_queue_event_count_after_pop &
+        )
+      outer_queue_photoelectron_column_target = outer_queue_photoelectron_number_after_pop/outer_queue_area_xy
+      snapshot%kinetic_options%photoelectron_column_closure_enabled = .true.
+      snapshot%kinetic_options%photoelectron_column_target_m2 = outer_queue_photoelectron_column_target
+    end if
     call perf_region_begin(perf_region_field_refresh, t0)
     call outer_coupler%refresh(snapshot, mesh, batch_idx)
     call perf_region_end(perf_region_field_refresh, t0)
@@ -144,12 +219,7 @@ contains
       photo_failure_ray, photo_failure_bounce &
       )
     call perf_region_end(perf_region_prepare_batch, t0)
-
-    if (ledger_enabled) then
-      call batch_ledger%reset(batch_idx)
-      batch_ledger%surface_charge_before = sum(mesh%q_elem)
-      call record_batch_initial_charge(app, pcls_batch, batch_ledger)
-    end if
+    fresh_particle_count = pcls_batch%n
 
     photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
     call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
@@ -165,12 +235,25 @@ contains
         )
     end if
 
+    if (outer_queue_enabled) then
+      call append_due_return_particles(due_outer_events, pcls_batch)
+      call workspace%prepare_particle_flags(pcls_batch%n, outer_queue_enabled=.true.)
+    end if
+
+    if (ledger_enabled) then
+      call batch_ledger%reset(batch_idx)
+      batch_ledger%surface_charge_before = sum(mesh%q_elem)
+      batch_ledger%outer_flight_charge_before = outer_queue_charge_before
+      call record_batch_initial_charge(app, pcls_batch, fresh_particle_count, batch_ledger)
+    end if
+
     call perf_region_begin(perf_region_particle_batch, t0)
     if (photoelectron_histogram_enabled) then
       call process_particle_batch( &
         mesh, app, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
         workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-        workspace%soft_discarded_boundary_flag, workspace%interface_outward_thread, workspace%interface_returned_thread, &
+        workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
+        workspace%interface_outward_thread, workspace%interface_returned_thread, &
         collision_failure_status, collision_failure_particle, &
         collision_failure_step, collision_failure_x, collision_failure_v, workspace%interface_tau_max_thread, &
         workspace%interface_frozen_ratio_max_thread, workspace%interface_energy_error_max_thread, &
@@ -180,7 +263,8 @@ contains
       call process_particle_batch( &
         mesh, app, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
         workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-        workspace%soft_discarded_boundary_flag, workspace%interface_outward_thread, workspace%interface_returned_thread, &
+        workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
+        workspace%interface_outward_thread, workspace%interface_returned_thread, &
         collision_failure_status, collision_failure_particle, &
         collision_failure_step, collision_failure_x, collision_failure_v, workspace%interface_tau_max_thread, &
         workspace%interface_frozen_ratio_max_thread, workspace%interface_energy_error_max_thread &
@@ -212,12 +296,27 @@ contains
         )
     end if
 
+    if (outer_queue_enabled) then
+      call enqueue_staged_outer_events( &
+        outer_queue_state, workspace%queued_outer_flag, workspace%outer_event_staging, pcls_batch%n &
+        )
+      call measure_outer_queue_state( &
+        app, outer_queue_state, mpi_ctx, outer_queue_charge_after, outer_queue_photoelectron_number_after, &
+        outer_queue_event_count_after &
+        )
+      workspace%interface_returned_thread(:, 1) = &
+        workspace%interface_returned_thread(:, 1) + due_returned_charge
+    end if
+
     if (ledger_enabled) then
       batch_ledger%interface_outward_gross = sum(workspace%interface_outward_thread, dim=2)
       batch_ledger%interface_returned_gross = sum(workspace%interface_returned_thread, dim=2)
+      batch_ledger%escaped_to_infinity = batch_ledger%escaped_to_infinity + due_escaped_charge
+      batch_ledger%escaped_count = batch_ledger%escaped_count + due_escaped_count
+      batch_ledger%outer_flight_charge_after = outer_queue_charge_after
       call record_batch_outcome_charge( &
         pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, &
-        workspace%soft_discarded_boundary_flag, batch_ledger &
+        workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, batch_ledger &
         )
       call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx, workspace)
     end if
@@ -249,6 +348,19 @@ contains
       )
     call perf_region_end(perf_region_commit_charge, t0)
 
+    if (outer_queue_enabled) then
+      ! Complete each batch with a Zhao closure at the same time level as the
+      ! committed surface charge and post-enqueue queue inventory.  Keeping this
+      ! corrector in the per-batch operation sequence makes a straight run and a
+      ! checkpoint/resume split use the same continuation seed at the next batch.
+      outer_queue_photoelectron_column_target = outer_queue_photoelectron_number_after/outer_queue_area_xy
+      snapshot%kinetic_options%photoelectron_column_closure_enabled = .true.
+      snapshot%kinetic_options%photoelectron_column_target_m2 = outer_queue_photoelectron_column_target
+      call perf_region_begin(perf_region_field_refresh, t0)
+      call outer_coupler%refresh(snapshot, mesh, batch_idx)
+      call perf_region_end(perf_region_field_refresh, t0)
+    end if
+
     if (ledger_enabled) then
       batch_ledger%surface_charge_after = sum(mesh%q_elem)
       call accumulate_charge_ledger(charge_ledger, batch_ledger)
@@ -257,8 +369,10 @@ contains
     call perf_region_begin(perf_region_count_outcomes, t0)
     call count_batch_outcomes( &
       pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%soft_discarded_boundary_flag, &
-      batch_counts, batch_soft_discarded_abs_charge &
+      workspace%queued_outer_flag, batch_counts, batch_soft_discarded_abs_charge &
       )
+    batch_counts(3) = batch_counts(3) + due_escape_count_total
+    batch_counts(4) = batch_counts(4) + due_escape_count_total
     call perf_region_end(perf_region_count_outcomes, t0)
 
     call perf_region_begin(perf_region_mpi_reduce, t0)
@@ -273,6 +387,14 @@ contains
     call perf_region_begin(perf_region_history_write, t0)
     if (mpi_is_root(mpi_ctx)) then
       call print_batch_progress(batch_idx, final_batch_idx, rel)
+      if (outer_queue_enabled) then
+        write (output_unit, '(a,i0,a,i0,a,i0,a,es13.5,a,es13.5,a,es13.5,a,a,a,es13.5)') &
+          'BEACH outer-queue batch=', batch_idx, ' events_after_pop=', outer_queue_event_count_after_pop, &
+          ' events_for_closure=', outer_queue_event_count_after, ' charge_after_C=', outer_queue_charge_after, &
+          ' photoelectron_column_target_m-2=', outer_queue_photoelectron_column_target, &
+          ' eta=', snapshot%outer%photoelectron_population_fraction, ' branch=', snapshot%outer%zhao_branch, &
+          ' column_residual_m-2=', snapshot%outer%photoelectron_column_residual_per_area
+      end if
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (potential_history_enabled) then
         call snapshot%refresh(mesh, update_outer=.false.)
@@ -313,20 +435,44 @@ contains
       call snapshot%compute_mesh_potential(mesh, app%sim, mesh_potential_v)
     end if
   end if
+  outer_max_diagnostics = [max_outer_flight_time, max_frozen_field_ratio, max_outer_energy_relative_error]
+  if (present(electrostatic_diagnostics) .or. present(electrostatic_restart_state)) then
+    call mpi_allreduce_max_real_dp_array(mpi_ctx, outer_max_diagnostics)
+    if (outer_queue_enabled) then
+      call measure_outer_queue_state( &
+        app, outer_queue_state, mpi_ctx, outer_queue_charge_after, outer_queue_photoelectron_number_after, &
+        outer_queue_event_count_after &
+        )
+      call measure_outer_queue_fingerprint(outer_queue_state, mpi_ctx, outer_queue_fingerprint)
+    end if
+  end if
   if (present(electrostatic_diagnostics)) then
     if (.not. present(mesh_potential_v) .and. mpi_is_root(mpi_ctx)) then
       call snapshot%refresh(mesh, update_outer=.false.)
     end if
     call snapshot%get_diagnostics(electrostatic_diagnostics)
-    outer_max_diagnostics = [max_outer_flight_time, max_frozen_field_ratio, max_outer_energy_relative_error]
-    call mpi_allreduce_max_real_dp_array(mpi_ctx, outer_max_diagnostics)
     electrostatic_diagnostics%last_outer_update_batch = outer_coupler%last_outer_update_batch
     electrostatic_diagnostics%max_outer_flight_time = outer_max_diagnostics(1)
     electrostatic_diagnostics%max_frozen_field_ratio = outer_max_diagnostics(2)
     electrostatic_diagnostics%max_outer_energy_relative_error = outer_max_diagnostics(3)
+    if (outer_queue_enabled) then
+      electrostatic_diagnostics%outer_queue_event_count = outer_queue_event_count_after
+      electrostatic_diagnostics%outer_queue_signed_charge = outer_queue_charge_after
+      electrostatic_diagnostics%outer_queue_fingerprint = outer_queue_fingerprint
+    end if
   end if
   if (present(electrostatic_restart_state)) then
     call snapshot%export_restart_state(outer_coupler%last_outer_update_batch, electrostatic_restart_state)
+    electrostatic_restart_state%max_outer_flight_time = outer_max_diagnostics(1)
+    electrostatic_restart_state%max_frozen_field_ratio = outer_max_diagnostics(2)
+    electrostatic_restart_state%max_outer_energy_relative_error = outer_max_diagnostics(3)
+    electrostatic_restart_state%outer_max_diagnostics_complete = .true.
+    if (outer_queue_enabled) then
+      electrostatic_restart_state%outer_queue_event_count = outer_queue_event_count_after
+      electrostatic_restart_state%outer_queue_signed_charge = outer_queue_charge_after
+      electrostatic_restart_state%outer_queue_fingerprint = outer_queue_fingerprint
+      electrostatic_restart_state%outer_queue_inventory_complete = .true.
+    end if
   end if
 
   if (allocated(potential_buf)) deallocate (potential_buf)
@@ -353,7 +499,7 @@ contains
       )
   end if
   if (collision_failure_status /= collision_query_ok) return
-  call workspace%prepare_particle_flags(pcls_batch%n)
+  call workspace%prepare_particle_flags(pcls_batch%n, outer_queue_enabled=app%coupling%outer_queue_enabled)
   end procedure prepare_batch_state
 
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
@@ -388,7 +534,7 @@ contains
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth,interface_active) &
-  !$omp shared(soft_discarded_boundary_flag) &
+  !$omp shared(soft_discarded_boundary_flag,queued_outer_flag,outer_event_staging) &
   !$omp shared(interface_outward_thread,interface_returned_thread) &
   !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread) &
   !$omp shared(interface_energy_error_max_thread) &
@@ -487,7 +633,8 @@ contains
             call map_outer_particle_kinetic_profile( &
               snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
               step_result%interface_crossing, app%coupling%field_evolution_timescale, &
-              app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
+              app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome, &
+              queue_poll_interval=app%sim%batch_duration &
               )
           else
             call map_outer_particle_linear_debye( &
@@ -496,13 +643,28 @@ contains
               app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
               )
           end if
-          select case (interface_outcome%kind)
-          case (interface_outcome_returned_local)
+          if (interface_outcome%kind == interface_outcome_returned_local .or. &
+              interface_outcome%kind == interface_outcome_escaped_to_infinity .or. &
+              interface_outcome%kind == interface_outcome_queued_outer) then
             interface_energy_error_max_thread(tid) = &
               max(interface_energy_error_max_thread(tid), interface_outcome%energy_relative_error)
             interface_tau_max_thread(tid) = max(interface_tau_max_thread(tid), interface_outcome%outer_flight_time)
             interface_frozen_ratio_max_thread(tid) = &
               max(interface_frozen_ratio_max_thread(tid), interface_outcome%frozen_field_ratio)
+          end if
+          if (app%coupling%outer_queue_enabled .and. &
+              (interface_outcome%kind == interface_outcome_returned_local .or. &
+               interface_outcome%kind == interface_outcome_escaped_to_infinity .or. &
+               interface_outcome%kind == interface_outcome_queued_outer)) then
+            call stage_outer_event( &
+              outer_event_staging(i), interface_outcome, pcls_batch, i, batch_idx, mpi_rank, app%sim%batch_duration &
+              )
+            pcls_batch%alive(i) = .false.
+            queued_outer_flag(i) = .true.
+            exit
+          end if
+          select case (interface_outcome%kind)
+          case (interface_outcome_returned_local)
             interface_returned_thread(species_idx, tid) = interface_returned_thread(species_idx, tid) + qdep
             if (step_result%interface_crossing%dt_remaining > 0.0_dp) then
               call advance_particle_step( &
@@ -516,8 +678,6 @@ contains
               step_result%interface_crossing%has_crossing = .false.
             end if
           case (interface_outcome_escaped_to_infinity)
-            interface_energy_error_max_thread(tid) = &
-              max(interface_energy_error_max_thread(tid), interface_outcome%energy_relative_error)
             step_result%x = interface_outcome%position
             step_result%v = interface_outcome%velocity
             step_result%escaped_boundary = .true.
@@ -597,6 +757,164 @@ contains
   !$omp end do
   !$omp end parallel
   end procedure process_particle_batch
+
+  !> OpenMP 粒子ループでは index 固有 record だけを書き、queue 本体は後段で更新する。
+  subroutine stage_outer_event(event, outcome, pcls_batch, particle_index, batch_idx, mpi_rank, batch_duration)
+    type(outer_event_record_type), intent(out) :: event
+    type(interface_particle_outcome_type), intent(in) :: outcome
+    type(particles_soa), intent(in) :: pcls_batch
+    integer(i32), intent(in) :: particle_index, batch_idx, mpi_rank
+    real(dp), intent(in) :: batch_duration
+
+    event = outer_event_record_type()
+    ! Crossing times are not synchronized inside a BEACH batch; use the batch midpoint as the closure time.
+    event%queued_time = (real(batch_idx, dp) - 0.5_dp)*batch_duration
+    event%due_time = event%queued_time + outcome%outer_flight_time
+    select case (outcome%kind)
+    case (interface_outcome_returned_local)
+      event%outcome = outer_event_outcome_return
+    case (interface_outcome_escaped_to_infinity)
+      event%outcome = outer_event_outcome_escape
+    case (interface_outcome_queued_outer)
+      if (outcome%queued_terminal_kind == interface_outcome_returned_local) then
+        event%outcome = outer_event_outcome_return
+      else if (outcome%queued_terminal_kind == interface_outcome_escaped_to_infinity) then
+        event%outcome = outer_event_outcome_escape
+      else
+        error stop 'queued outer-interface outcome has no valid terminal kind.'
+      end if
+    end select
+    event%species_id = pcls_batch%species_id(particle_index)
+    event%origin_rank = mpi_rank
+    event%origin_batch = batch_idx
+    event%origin_particle_id = int(particle_index, i64)
+    event%interface_face_index = 6_i32
+    event%q = pcls_batch%q(particle_index)
+    event%m = pcls_batch%m(particle_index)
+    event%w = pcls_batch%w(particle_index)
+    event%x = outcome%position
+    event%v = outcome%velocity
+  end subroutine stage_outer_event
+
+  !> 全 rank の process failure が無いことを確認した後、粒子 index 順で deterministic に enqueue する。
+  subroutine enqueue_staged_outer_events(queue, queued_outer_flag, staging, particle_count)
+    type(outer_event_queue_type), intent(inout) :: queue
+    logical, intent(in) :: queued_outer_flag(:)
+    type(outer_event_record_type), intent(in) :: staging(:)
+    integer(i32), intent(in) :: particle_count
+    integer(i32) :: particle_index
+
+    do particle_index = 1_i32, particle_count
+      if (queued_outer_flag(particle_index)) call queue%enqueue(staging(particle_index))
+    end do
+  end subroutine enqueue_staged_outer_events
+
+  !> rank-local queue stock を global signed charge、photoelectron number、event count に集約する。
+  subroutine measure_outer_queue_state(app, queue, mpi, signed_charge, photoelectron_number, event_count)
+    type(app_config), intent(in) :: app
+    type(outer_event_queue_type), intent(in) :: queue
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(out) :: signed_charge, photoelectron_number
+    integer(i64), intent(out) :: event_count
+    integer(i32) :: species_idx
+    integer(i64) :: count_buffer(1)
+
+    signed_charge = queue%signed_charge()
+    photoelectron_number = 0.0_dp
+    do species_idx = 1_i32, app%n_particle_species
+      if (app%particle_species(species_idx)%enabled .and. &
+          trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast' .and. &
+          app%particle_species(species_idx)%q_particle < 0.0_dp) then
+        photoelectron_number = photoelectron_number + queue%species_particle_number(species_idx)
+      end if
+    end do
+    count_buffer(1) = int(queue%size(), i64)
+    call mpi_allreduce_sum_real_dp_scalar(mpi, signed_charge)
+    call mpi_allreduce_sum_real_dp_scalar(mpi, photoelectron_number)
+    call mpi_allreduce_sum_i64_array(mpi, count_buffer)
+    event_count = count_buffer(1)
+  end subroutine measure_outer_queue_state
+
+  !> Rank-local queue identitiesをcollectiveに畳み込み、summary用のglobal fingerprintを得る。
+  subroutine measure_outer_queue_fingerprint(queue, mpi, fingerprint)
+    type(outer_event_queue_type), intent(in) :: queue
+    type(mpi_context), intent(in) :: mpi
+    character(len=16), intent(out) :: fingerprint
+    integer(i64) :: components(2)
+
+    call queue%fingerprint_components(mpi%rank, components)
+    call mpi_allreduce_sum_i64_array(mpi, components)
+    fingerprint = outer_event_queue_global_fingerprint(components, mpi%size)
+  end subroutine measure_outer_queue_fingerprint
+
+  !> batch start に due になった outer event を return stock と infinity escape flux に分ける。
+  subroutine tally_due_outer_events( &
+    app, events, returned_charge, escaped_charge, escaped_count, escaped_count_total &
+    )
+    type(app_config), intent(in) :: app
+    type(outer_event_record_type), intent(in) :: events(:)
+    real(dp), intent(out) :: returned_charge(:), escaped_charge(:)
+    integer(i64), intent(out) :: escaped_count(:)
+    integer(i32), intent(out) :: escaped_count_total
+    integer(i32) :: event_index, species_idx
+    real(dp) :: macro_charge
+
+    returned_charge = 0.0_dp
+    escaped_charge = 0.0_dp
+    escaped_count = 0_i64
+    escaped_count_total = 0_i32
+    if (size(returned_charge) /= app%n_particle_species .or. &
+        size(escaped_charge) /= app%n_particle_species .or. size(escaped_count) /= app%n_particle_species) then
+      error stop 'outer-event due tally species size mismatch.'
+    end if
+    do event_index = 1_i32, int(size(events), i32)
+      species_idx = events(event_index)%species_id
+      if (species_idx < 1_i32 .or. species_idx > app%n_particle_species) then
+        error stop 'outer-event due tally has an invalid species index.'
+      end if
+      macro_charge = events(event_index)%q*events(event_index)%w
+      select case (events(event_index)%outcome)
+      case (outer_event_outcome_return)
+        returned_charge(species_idx) = returned_charge(species_idx) + macro_charge
+      case (outer_event_outcome_escape)
+        escaped_charge(species_idx) = escaped_charge(species_idx) + macro_charge
+        escaped_count(species_idx) = escaped_count(species_idx) + 1_i64
+        escaped_count_total = escaped_count_total + 1_i32
+      case default
+        error stop 'outer-event due tally has an invalid outcome.'
+      end select
+    end do
+  end subroutine tally_due_outer_events
+
+  !> due return event を fresh source の後ろへ追加し、local-domain particle として再開する。
+  subroutine append_due_return_particles(events, pcls_batch)
+    type(outer_event_record_type), intent(in) :: events(:)
+    type(particles_soa), intent(inout) :: pcls_batch
+    real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
+    integer(i32), allocatable :: species_id(:)
+    integer(i32) :: event_index, return_index, return_count
+
+    return_count = 0_i32
+    do event_index = 1_i32, int(size(events), i32)
+      if (events(event_index)%outcome == outer_event_outcome_return) return_count = return_count + 1_i32
+    end do
+    if (return_count == 0_i32) return
+
+    allocate (x(3, return_count), v(3, return_count), q(return_count), m(return_count), w(return_count))
+    allocate (species_id(return_count))
+    return_index = 0_i32
+    do event_index = 1_i32, int(size(events), i32)
+      if (events(event_index)%outcome /= outer_event_outcome_return) cycle
+      return_index = return_index + 1_i32
+      x(:, return_index) = events(event_index)%x
+      v(:, return_index) = events(event_index)%v
+      q(return_index) = events(event_index)%q
+      m(return_index) = events(event_index)%m
+      w(return_index) = events(event_index)%w
+      species_id(return_index) = events(event_index)%species_id
+    end do
+    call append_particles(pcls_batch, x, v, q, m, w, species_id)
+  end subroutine append_due_return_particles
 
   subroutine reduce_photoelectron_histogram(histogram, mpi)
     type(photoelectron_histogram_type), intent(inout) :: histogram
@@ -712,15 +1030,19 @@ contains
   end procedure commit_batch_charge
 
   !> batch 初期粒子を remote injection と surface emission に分類する。
-  subroutine record_batch_initial_charge(app, pcls_batch, ledger)
+  subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)
     type(app_config), intent(in) :: app
     type(particles_soa), intent(in) :: pcls_batch
+    integer(i32), intent(in) :: fresh_particle_count
     type(charge_ledger_type), intent(inout) :: ledger
     integer(i32) :: i, species_idx
     real(dp) :: macro_charge
     character(len=32) :: source_mode
 
-    do i = 1, pcls_batch%n
+    if (fresh_particle_count < 0_i32 .or. fresh_particle_count > pcls_batch%n) then
+      error stop 'fresh particle count is invalid while recording charge ledger input.'
+    end if
+    do i = 1, fresh_particle_count
       species_idx = pcls_batch%species_id(i)
       if (species_idx < 1_i32 .or. species_idx > ledger%nspecies) then
         error stop 'particle species index is invalid while recording charge ledger input.'
@@ -739,11 +1061,12 @@ contains
 
   !> batch 終了粒子を surface absorption、infinity escape、unresolved discard に分類する。
   subroutine record_batch_outcome_charge( &
-    pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, ledger &
+    pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, queued_outer_flag, ledger &
     )
     type(particles_soa), intent(in) :: pcls_batch
     logical, intent(in) :: escaped_boundary_flag(:), absorbed_flag(:)
     logical, intent(in) :: soft_discarded_boundary_flag(:)
+    logical, intent(in) :: queued_outer_flag(:)
     type(charge_ledger_type), intent(inout) :: ledger
     integer(i32) :: i, species_idx
     real(dp) :: macro_charge
@@ -754,7 +1077,9 @@ contains
         error stop 'particle species index is invalid while recording charge ledger output.'
       end if
       macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
-      if (absorbed_flag(i)) then
+      if (queued_outer_flag(i)) then
+        cycle
+      else if (absorbed_flag(i)) then
         ledger%absorbed_on_surface(species_idx) = ledger%absorbed_on_surface(species_idx) + macro_charge
         ledger%absorbed_count(species_idx) = ledger%absorbed_count(species_idx) + 1_i64
       else if (escaped_boundary_flag(i)) then

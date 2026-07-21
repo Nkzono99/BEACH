@@ -54,7 +54,8 @@ Type Bは約$1.339\,\mathrm{V/m}$以上、Type Aは約$1.449$--$1.752\,\mathrm{V
 $0<E_I<1.339\,\mathrm{V/m}$にはA/B解がない。これはNewton seed不足ではなく、無限遠準中性から要求される正の
 ambient electron密度とSagdeev積分の可解域である。従って細かいbatchで未帯電状態から追跡するには、outer
 photoelectron cloud occupancyなどを時間発展させる別の過渡closureが必要になる。現実装はこのgapを定常解で補間せず、
-`no_physical_solution`として停止する。
+`outer_queue_enabled=false`では`no_physical_solution`として停止する。後から追加した有限column inventoryとevent queueによる
+過渡closureは[ADR 0004](0004-zhao-transient-photoelectron-column-queue.md)で定義する。
 
 Type A profileは途中にpotential minimumを持つ。粒子のescape/returnと無限遠からの流入はendpointの
 電位差だけでは分類せず、離散profile全体を走査して最初のturning pointまたは最大障壁を使う。

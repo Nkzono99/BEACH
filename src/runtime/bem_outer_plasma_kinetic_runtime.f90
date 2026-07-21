@@ -29,6 +29,8 @@ contains
     options%zhao_branch = trim(lower_ascii(app%outer_plasma%zhao_branch))
     options%zhao_alpha_deg = app%sim%sheath_alpha_deg
     options%photoelectron_reference_density = 1.0e6_dp*app%sim%sheath_photoelectron_ref_density_cm3
+    options%photoelectron_column_closure_enabled = app%coupling%outer_queue_enabled
+    options%photoelectron_column_target_m2 = 0.0_dp
     use_zhao = trim(options%kinetic_closure) == 'zhao_charge_driven'
     status = outer_plasma_invalid
     message = ''

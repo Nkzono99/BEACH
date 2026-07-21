@@ -59,6 +59,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic_zero_mode \
 	test_outer_plasma_linear \
 	test_outer_plasma_kinetic_core \
+	test_outer_plasma_zhao \
 	test_outer_plasma_grid \
 	test_outer_plasma_kinetic_runtime \
 	test_outer_plasma_local_mean \
@@ -71,6 +72,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_outer_plasma_orbit \
 	test_outer_plasma_photoelectron \
 	test_interface_particle_buffer \
+	test_outer_event_queue \
+	test_outer_event_queue_io \
 	test_boundary \
 	test_restart \
 	test_reservoir_injection \

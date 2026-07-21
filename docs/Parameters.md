@@ -317,7 +317,7 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | 項目 | 仕様 |
 | --- | --- |
 | gauge | `phi(infinity)=0`。`infinity_potential`の非ゼロ値を拒否 |
-| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。Zhaoは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$を使う |
+| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。Zhao instantは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$、queueは$L=10\lambda_{D,pe}$の有限reservoir境界を使う |
 | closure | 既定の `absorbing_maxwellian`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
 | supported branch | `absorbing_maxwellian` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
 | unsupported | `absorbing_maxwellian` では virtual cathode、trapped population、sub-Bohm inflow |
@@ -326,18 +326,43 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | fallback | 別sheath modelや前回解へfallbackしない |
 
 粒子移送を使う場合は`return_model="kinetic_1d_profile_return"`と
-`particle_transfer_mode="electrostatic_1d_instant_return"`を指定します。
+`particle_transfer_mode="electrostatic_1d_instant_return"`を指定します。`outer_queue_enabled=false`では次のinstant写像を使います。
 
 1. 更新済みprofileの`phi_interface-phi_infinity`で無限遠VDFをinterfaceへ写像する。
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
 3. turning粒子について解析往復時間後に相当する復帰状態を作り、同じsimulation時刻・batchでinterfaceへ戻す。
 
-適用範囲:
+instant写像の適用範囲:
 
 - 対象は定常・準定常 sheath です。定常化後の平均電流と離脱力に使用できます。
 - UV 照射開始時など、遅延した return current が効く過渡応答は表しません。
 - 準定常条件は `tau_outer/field_evolution_timescale` で制限します。
 - `tau_outer/batch_duration >= 1` では、batch 履歴を return current の物理時間履歴として解釈できません。
+
+`outer_queue_enabled=true`では、強UV立上がりなどのouter flight delayをbatch履歴へ反映します。このmodeは
+`kinetic_closure="zhao_charge_driven"`、`sim.batch_duration`または`dt * batch_duration_step`から解決した正の
+`batch_duration`、`outer_update_stride=1`、`photoelectron_histogram_enabled=false`を要求します。
+
+1. batch開始時にdue eventをrank-local queueからpopする。
+2. 残ったglobal photoelectron inventoryを水平面積で割り、$0\le z\le10\lambda_{D,pe}$の有限columnに一致する
+   Zhao population scale $\eta$とprofileを更新する。
+3. fresh sourceとdue returnを進め、外向き粒子は$L$より手前のreturnまたは$L$でのreservoir escapeを解き、
+   batch中央を通過時刻として$t_{due}=t_{mid}+\tau_{outer}$でenqueueする。
+
+出力名`outer_photoelectron_population_fraction`の$\eta$は確率ではなく定常reference populationに対するoccupancy scaleです。
+$\eta=0$から連結するpathを$0\le\eta\le16$で探索し、$\eta>1$を許します。
+
+clamp、targetを無視したfull-population解、
+disconnected branchへのjump/fallbackは行いません。queue modeは`zhao_branch="auto"`を要求し、縮退条件を満たす連続branch
+遷移とcolumnが$\eta$とともに単調増加するpathだけを許します。foldを含むpathやtargetに到達できないpathでは停止します。
+
+eventはbatch開始時だけreleaseされ、enqueue後にouter fieldが変わってもterminal状態を再積分しません。queue modeは
+$L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとします。各eventでは`tau_outer`に次のbatch-start pollまでの
+量子化遅延とmidpoint crossing時刻の誤差上限`batch_duration/2`を加えた時間が
+`max_frozen_field_ratio * field_evolution_timescale`以下でなければ停止します。
+`batch_duration`自体にも同じ上限を設定validationで課します。
+
+`batch_duration`、tracked粒子数、水平面積、有効interface位置、profile gridの収束を確認します。
 
 組合せ制約:
 
@@ -357,7 +382,9 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
   lateral phi/field、local-charge診断のreference inputとして現時点でも必要です。
 - tracked `photo_raycast.emit_current_density_a_m2`は、$T_{pe}$をJへ換算し、$v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$として
   $|q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})$と1%以内で一致する必要があります。
-- 解析currentは表面電荷へ加算せず、tracked放出と再吸収だけが更新します。
+- analytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使いますが、root、surface charge、ledgerへ
+  別途加えません。tracked放出と再吸収だけが後二者を更新し、$\eta$はcurrent診断のraw photoelectron emission-current項を
+  scaleしません。
 - 初版は有効平面近似です。`ray_direction`やrough surfaceから到達するVDFをZhao outer populationへ自己無撞着に
   接続せず、`ray_direction`と`sheath_alpha_deg`はそれぞれ照射rayによる放出面samplingと解析sourceを独立に指定します。
 - Zhaoの収束はprofile grid、有効interface位置、tracked粒子数、`dt`/batch解像度で調べます。
@@ -370,8 +397,12 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 詳細は[粒子の escape と return](ParticleEscapeReturn.html)を参照してください。
 
 既定 closure の例は
-[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)、charge-driven Zhao closure の例は
-[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)、物理モデルの前提は
+[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)です。charge-driven Zhao closureの例は
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)、過渡queueの例は
+[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)です。後者は記載した物理timescaleで
+長いflightを拒否するexpected-fail guard fixtureであり、成功した物理検証例ではありません。
+
+物理モデルの前提は
 [ADR 0001](adr/0001-kinetic-outer-plasma.md)と[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)にあります。
 
 #### `unified_linear_response`の仕様（高度・限定用途）
@@ -410,12 +441,24 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | `update_mode` | string | `"explicit"` | 現在は`explicit`のみ。outer profileを明示的な更新点で再計算 |
 | `particle_transfer_mode` | string | `"none"` | return modelと同じIDを指定 |
 | `outer_update_stride` | int | `1` | outer profile更新batch間隔 |
-| `field_evolution_timescale` | float | `0` | frozen-field比較時間 [s]。instant returnでは正値必須 |
-| `max_frozen_field_ratio` | float | `0.1` | `tau_outer/field_evolution_timescale`上限 |
+| `field_evolution_timescale` | float | `0` | frozen-field比較時間 [s]。1D returnでは正値必須 |
+| `max_frozen_field_ratio` | float | `0.1` | instantでは`tau_outer`、queueでは`tau_outer`、次のpollまでの遅延、midpoint時刻誤差上限の合計を`field_evolution_timescale`で割った上限。queueの`batch_duration`にも適用 |
 | `outer_orbit_dt` | float | `0` | 3D outer orbit固定刻み [s]。3D modeでは正値必須 |
 | `outer_orbit_max_steps` | int | `100000` | 3D outer orbit step上限。到達時はdiscardせず停止 |
 | `outer_orbit_energy_tolerance` | float | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
-| `outer_queue_enabled` | bool | `false` | 現在は`true`を拒否 |
+| `outer_queue_enabled` | bool | `false` | 対応するZhao構成でouter flightをbatch間queueへ保存し、queued photoelectron columnで過渡closureを解く |
+
+粒子移送の規則:
+
+- `outer_plasma.return_model`と`coupling.particle_transfer_mode`は対応するIDを指定します。
+- 1D transferはopenなz-high interface、x/y周期wrap、`b0=0`だけに対応します。
+- instant modeは正の`field_evolution_timescale`を要求し、`max_frozen_field_ratio`を適用性上限に使います。
+- queue modeは`kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` + `kinetic_1d_profile_return`、
+  `particle_transfer_mode="electrostatic_1d_instant_return"`、直接指定または`dt * batch_duration_step`から解決した正の
+  `batch_duration`、`outer_update_stride=1`を要求します。
+  各eventでは`tau_outer`、次のbatch-start pollまでの遅延、midpoint crossing時刻誤差上限の合計に
+  `max_frozen_field_ratio * field_evolution_timescale`の上限を課し、`batch_duration`にも同じ上限を要求します。
+- queue modeは`photoelectron_histogram_enabled=true`を拒否します。3D explicit orbitのpersistent queueは未実装です。
 
 ### periodic2 / outer plasma / coupling の組合せ制約
 
@@ -425,6 +468,7 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | --- | --- | --- |
 | split linear reference | `periodic2_linear_outer_reference.toml` | 閾値違反時にfallbackしない |
 | 1D instant return | `periodic2_outer_particle_transfer.toml` | z-high、`b0=0`、x/y periodic |
+| 強UV Zhao過渡queue | `periodic2_zhao_transient_outer.toml` | expected-failのflight/batch time-scale guard、stride 1、有限$10\lambda_{D,pe}$領域、rank-local checkpoint |
 | unified 3D orbit | `periodic2_unified_explicit_orbit.toml` | 全3D field、固定刻みouter orbit |
 | tracked photoelectron return | `periodic2_photoelectron_return.toml` | instant return、放出元逆符号電荷、outgoing histogram |
 
@@ -928,6 +972,7 @@ z 軸方向の円柱です。
 | `mesh_sources.csv` | `mesh_id` ごとの元メッシュ種別、表面モデル、`epsilon_r`、要素数 |
 | `outer_plasma_profile.csv` | outer stateが有効な`kinetic_1d` / `unified_linear_response`のprofile。条件付きcheckpoint |
 | `photoelectron_histogram.csv` | `photoelectron_histogram_enabled=true`の前batch・累積histogram。条件付きcheckpoint |
+| `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `outer_queue_enabled=true`のactive event。serialでは前者、MPIではrankごとに後者を使う条件付きcheckpoint |
 | `mesh_potential.csv` | `write_mesh_potential=true` のとき |
 | `charge_history.csv` | `history_stride > 0` のとき |
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
@@ -945,6 +990,14 @@ histogram state が ready な場合、`summary.txt` へ次を追加します。
 | 累積値 | `photoelectron_cumulative_signed_charge_C`, `photoelectron_cumulative_kinetic_energy_J`, `photoelectron_cumulative_count` |
 | 前 batch | `photoelectron_previous_signed_current_A`, `photoelectron_previous_charge_ratio` |
 | 適用性 | `photoelectron_max_charge_ratio`, `photoelectron_linear_applicability_status` |
+
+`coupling_outer_queue_enabled`は常に`summary.txt`へ出力します。値が`T`のときだけ、次のqueue stateを追加します。
+
+| 種類 | キー |
+| --- | --- |
+| closure | `outer_photoelectron_population_fraction` |
+| column | `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2` |
+| queue stock | `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` |
 
 各値の場所は[構成固有の出力](OutputGuide.html#構成固有の値を探す)にまとめています。
 
@@ -970,7 +1023,7 @@ histogram state が ready な場合、`summary.txt` へ次を追加します。
 | 出力 | `write_files=true` が必須 |
 | 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
 | 必須ファイル | `summary.txt`, `charges.csv`, serialの`rng_state.txt`またはMPI全rankの`rng_state_rankNNNNN.txt` |
-| 条件付きファイル | ledger metadataがある場合の`charge_ledger.csv`、readyなouter stateの`outer_plasma_profile.csv`、histogram有効時の`photoelectron_histogram.csv` |
+| 条件付きファイル | ledger metadataがある場合の`charge_ledger.csv`、readyなouter stateの`outer_plasma_profile.csv`、histogram有効時の`photoelectron_histogram.csv`、queue有効時の`outer_event_queue.csv`またはMPI全rankの`outer_event_queue_rankNNNNN.csv` |
 | 任意state | `macro_residuals.csv`が存在すればglobal残差を復元 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
@@ -981,14 +1034,17 @@ MPI 実行時:
 | ファイル | 内容 |
 |---|---|
 | `rng_state_rankNNNNN.txt` | rank 別乱数状態 |
+| `outer_event_queue_rankNNNNN.csv` | Zhao過渡queueのrank-local active event。全rank分を保存 |
 | `macro_residuals.csv` | 全rankで共有するglobal残差。rootが1個だけ書く |
 
 再開時の整合条件:
 
 - 旧形式の `macro_residuals_rankNNNNN.csv` がある checkpoint は、暗黙変換せず拒否します。
 - `summary.txt` の `mpi_world_size` は現在の rank 数と一致させます。
-- schema v2/v3 は model、ordered mesh、ordered species の fingerprint 一致が必要です。
+- schema v2/v3/v4はmodel、ordered mesh、ordered speciesのfingerprint一致が必要です。
 - schema v3 の outer profile は `field_V_m` と `charge_density_C_m3` が必須です。
+- schema v4のqueue再開はtransient Zhao state、queue file schema 2、rank、world size、完了batch、global count、signed
+  charge、全rank queue fingerprintが一致しなければ停止します。
 - `[[particles.species]].species_key` は安定 ID です。省略時は `species_<1-based index>`、明示時は粒子種間で一意にします。
 
 ---

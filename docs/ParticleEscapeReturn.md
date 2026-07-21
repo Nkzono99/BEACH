@@ -212,6 +212,7 @@ profileは有限値、z座標の狭義単調増加、interface点との整合に
 
 この条件外の非単調profileは受理しません。
 物理的 turning point を bracket しない区間や、必要な Robin tail が非正の場合は invalid model として停止します。
+Robin tailを使うのはinstant経路であり、Zhao queue経路は後述する有限$L$境界で終了します。
 自己整合な平均 sheath を扱える一方、平面平均された
 静電・無衝突・非磁化1D profileという仮定を持ちます。詳しくは
 [外部場: kinetic 1D](KineticOuterPlasma.html)で説明します。
@@ -270,7 +271,7 @@ energy errorに対して収束確認します。場の構成と適用範囲は
 | `particle_transfer_mode` | 対応するmodel | 粒子処理 |
 | --- | --- | --- |
 | `none` | outer transferなし | 通常のopen境界 |
-| `electrostatic_1d_instant_return` | `linear_debye`または`kinetic_1d` | 保存energyからescape/returnを直接写像 |
+| `electrostatic_1d_instant_return` | `linear_debye`または`kinetic_1d` | 保存energyからescape/returnを写像。対応するZhao構成ではqueueへ遅延可能 |
 | `electrostatic_3d_explicit_orbit` | `unified_linear_response` | batch内で固定された3D場で外部軌道を時間積分 |
 
 1D/3D transferはいずれもz-highがopenであることと`sim.b0=0`を要求します。現行modelは外部領域での磁場軌道を
@@ -285,21 +286,107 @@ outer modelへ渡す交差情報は次のとおりです。
 - local Boris step内の交差時刻。
 - 交差後に残る`dt_remaining`。
 
-returnした粒子はinterfaceの直内側へ戻し、`dt_remaining`の間だけ通常のBoris更新とevent処理をやり直します。
-outer flight timeは、このlocal step remainderとは別の診断量です。
+instant modeでreturnした粒子はinterfaceの直内側へ戻し、`dt_remaining`の間だけ通常のBoris更新とevent処理を
+やり直します。queue modeでは構成済みのreturn位置・速度をevent recordへ保存し、dueとなったbatchのfresh sourceの
+後ろへ追加してlocal-domain粒子として再開します。outer flight timeは、local step remainderとは別の診断量です。
 
-### outer flightをglobal timeへ加えない近似
+## outer flightをglobal timeへ加えない近似
 
 1D returnの「instant」は、outer flightを状態写像には使う一方、global simulation timeを進めないという意味です。
 3D explicit orbitも現行実装では同じ規約です。粒子はinterfaceを出たlocal stepと同じsimulation時刻へ戻り、
 outward/returned chargeは同じbatchに計上されます。
 
 この近似は定常または準定常outer plasmaを対象にします。UV照射の開始、plasma条件の急変、短pulseへの過渡応答には、
-過去のoutgoing currentを保持するdelayed-return queueが必要です。
+次節のdelayed-return queueを使います。
+
+### Zhao 過渡closureでouter flightをqueueする
+
+強いUV照射の開始など、outer flightの遅延をbatch履歴へ反映する場合は次のZhao構成を使います。
+
+```toml
+[sim]
+batch_duration = 2.5e-7
+
+[outer_plasma]
+model = "kinetic_1d"
+kinetic_closure = "zhao_charge_driven"
+photoelectron_histogram_enabled = false
+return_model = "kinetic_1d_profile_return"
+
+[coupling]
+particle_transfer_mode = "electrostatic_1d_instant_return"
+outer_update_stride = 1
+field_evolution_timescale = 2.0e-5
+max_frozen_field_ratio = 0.2
+outer_queue_enabled = true
+```
+
+`linear_debye`、`absorbing_maxwellian`、3D explicit orbit、legacy photoelectron histogramとの組合せは拒否します。
+さらに`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を要求します。
+`outer_queue_enabled=true`は、tracked粒子のouter flightとZhao光電子populationを一つの保存inventoryで接続します。
+各rankはeventをlocal queueに保持し、Zhao closureへの入力として光電子のmacro粒子数をMPI全体で合計します。
+batch開始時にdue eventを除いた
+光電子column targetは
+
+$$
+N_{pe,q}=\frac{1}{A_{xy}}
+\sum_{j\in\text{queued photoelectron}}w_j
+$$
+
+です。Zhao solverは有限control volume $L=10\lambda_{D,pe}$について
+
+$$
+N_{pe,Zhao}(\eta)=
+\int_0^L\left[n_{pe,f}(z;\eta)+n_{pe,c}(z;\eta)\right]dz
+=N_{pe,q}
+$$
+
+を満たすpopulation scale $\eta$を解きます。`outer_photoelectron_population_fraction`という出力名ですが、$\eta$は
+確率ではなく定常reference populationに対するoccupancy scaleです。$\eta=0$から連続する物理解を$0\le\eta\le16$で
+探索し、1を超える一時的overshootも許します。`[0,1]`へclampせず、targetを無視したfull-population解や
+disconnected branchへjump/fallbackしません。queue modeは`zhao_branch="auto"`を要求し、縮退条件を満たす連続的なA/B等の
+branch遷移だけを許します。現在はcolumnが$\eta$とともに単調増加するpathだけを受理し、foldは未対応です。targetへ到達する
+連結・単調pathがなければ`no_physical_solution`で停止します。targetが0なら$\eta=0$を厳密に使います。
+$\eta$はphotoelectron密度、無限遠準中性、Sagdeev項をscaleしますが、current診断のraw photoelectron
+emission-current項はscaleしません。このanalytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使い、
+root、surface charge、ledgerへ別途加えません。
+
+同じ$0\le z\le L$がqueueの粒子ownership領域です。離散profile上で$L$より手前にturning pointがあればreturn event、
+$L$へ到達すれば外部reservoirに吸収されたescape eventとしてqueueへ入れます。queue modeは$L$外のRobin tailを延長して
+returnを判定しません。
+
+1 batchの時刻更新は次の順です。
+
+1. batch $b$の開始時刻$t_b=(b-1)\Delta t_b$までにdueとなったrank-local eventをpopする。
+2. pop後のglobal光電子inventoryから$N_{pe,q}$を計算し、Zhao profileと$\eta$を更新する。
+3. fresh sourceを生成し、due return粒子を追加してlocal particle loopを実行する。due escapeはこのbatchの
+   `escaped_to_infinity`へ計上する。
+4. z-highを外向きに通過した粒子について、現在のprofileでinterface returnまたは$L$へのreservoir escapeと
+   $\tau_{outer}$を計算し、
+   batch中央を通過時刻とする
+   $t_{due}=(b-\tfrac12)\Delta t_b+\tau_{outer}$でenqueueする。
+5. surface chargeをcommitし、post-enqueue inventoryでZhao profileと$\eta$をcorrector更新する。この状態を次batchの
+   continuation seedとcheckpointに使うため、straight runとsplit-resumeは同じbatchごとの演算列を通る。
+
+BEACHのbatch内粒子は共通の物理時刻で同期していないため、crossing時刻にはbatch中央を使います。due eventはbatch開始時
+だけreleaseされるため、return/escape時刻も`batch_duration`単位に量子化されます。enqueue時に決めたterminal状態と
+due時刻は、その後にouter fieldが変わっても再積分しません。このclosureはflight delayとouter光電子columnを表しますが、
+時間依存Vlasov–Poisson解、outer粒子間衝突、energy-resolved cloud evolutionではありません。
+
+`batch_duration`を半分、`batch_count`を2倍にして同じ終了時刻を比較し、少なくとも$\eta$、column residual、return/escape
+current、表面電荷、離脱力の収束を確認します。profileは固定128点の$0\le z\le10\lambda_{D,pe}$へ再標本化するため、
+productionのcolumn grid収束にはgrid点数の入力化も必要です。tracked粒子数、horizontal area、effective interface位置も
+独立に確認してください。
+
+queue stateはserialでは`outer_event_queue.csv`、MPIでは各rankの`outer_event_queue_rankNNNNN.csv`へ保存します。
+active eventのphase-space状態、terminal outcome、due時刻、`next_event_id`を保持します。resumeではqueue有効時に全rank分を
+必須とします。queue-file schema 2はrank-local内容の`local_fingerprint`を持ち、summaryの
+`outer_queue_fingerprint`は全rankのqueue内容と順序を束縛します。schema、rank、world size、完了batchに加えてglobal
+event count、signed charge、fingerprintが一致しないcheckpointをfail closedで拒否します。
 
 ### outer flight中にfieldを固定できるか検査する
 
-snapshotの有効性を
+instant modeではsnapshotの有効性を
 
 $$
 \epsilon_\mathrm{ad}
@@ -309,13 +396,37 @@ $$
 で評価し、`max_frozen_field_ratio`以下を要求します。$\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$では、
 十分に定常化した長時間平均は使えますが、batchごとのreturn currentは正しい時間変化を表しません。
 
-persistent delayed-return queueは未実装です。`outer_queue_enabled=true`は設定検証で拒否され、queueが必要な軌道は
-停止します。
+Zhao queue modeでも`field_evolution_timescale`と`max_frozen_field_ratio`は正値を要求します。eventはbatch開始時だけ
+releaseされるため、$t_{due}$から最初のbatch-start pollまでの量子化遅延$\delta_{poll}$と、batch内crossing時刻の
+midpoint近似誤差上限$\Delta t_b/2$を含め、
+
+$$
+\frac{\tau_{outer}+\delta_{poll}+\Delta t_b/2}{\texttt{field\_evolution\_timescale}}
+\le\texttt{max\_frozen\_field\_ratio}
+$$
+
+を要求します。超過eventはdiscardやinstant fallbackをせず、enqueue前に停止します。さらに1 batchの幅についても
+
+$$
+\texttt{batch\_duration}
+\le
+\texttt{max\_frozen\_field\_ratio}\,
+\texttt{field\_evolution\_timescale}
+$$
+
+を設定検証で要求し、違反時は停止します。3D explicit orbitのpersistent queueは未実装で、その軌道がbatch内の上限までに
+完了しなければ停止します。
 
 ## 診断量でmodelの結果を確認する
 
 species別に`interface_outward_gross`、`interface_returned_gross`、`escaped_to_infinity`を区別します。さらに、最大
 `outer_flight_time`、frozen-field ratio、3D orbitのenergy errorを出力します。
+
+Zhao queue modeでは`summary.txt`の`outer_photoelectron_population_fraction`、
+`outer_photoelectron_column_per_area_m2`、`outer_photoelectron_column_target_per_area_m2`、
+`outer_photoelectron_column_residual_per_area_m2`、`outer_queue_event_count`、`outer_queue_signed_charge_C`を確認します。
+`charge_ledger_outer_flight_charge_before_C`と`charge_ledger_outer_flight_charge_after_C`はqueue stockを電荷保存残差へ
+組み込みます。
 
 gross outwardとreturnedはどちらもinterface通過量です。その差が正味escapeと一致するのは、そのspeciesの
 transfer対象と電荷収支の集計期間が一致する場合に限ります。各項目と`charge_ledger.csv`の読み方は
@@ -325,6 +436,8 @@ transfer対象と電荷収支の集計期間が一致する場合に限ります
 
 - `escape`と`potential_barrier`: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
 - `linear_debye`と`kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
+- delayed event queue: [`bem_outer_event_queue.f90`](../src/runtime/coupling/bem_outer_event_queue.f90)
+- queue checkpoint: [`bem_outer_event_queue_io.f90`](../src/runtime/coupling/bem_outer_event_queue_io.f90)
 - `unified_linear_response`の3D軌道: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)
 - interface transferとdiagnostic集計: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - model組合せの検証: [`bem_physics_config_types.f90`](../src/config/bem_physics_config_types.f90)

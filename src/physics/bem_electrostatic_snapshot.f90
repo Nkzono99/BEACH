@@ -1,6 +1,6 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: iso_fortran_env, only: error_unit
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0, qe, k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field_solver, only: field_solver_type
@@ -57,6 +57,13 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_zhao_phi0 = 0.0_dp
     real(dp) :: outer_zhao_phi_minimum = 0.0_dp
     real(dp) :: outer_zhao_electron_density_infinity = 0.0_dp
+    real(dp) :: outer_photoelectron_population_fraction = 1.0_dp
+    real(dp) :: outer_photoelectron_column_per_area = 0.0_dp
+    real(dp) :: outer_photoelectron_column_target_per_area = 0.0_dp
+    real(dp) :: outer_photoelectron_column_residual_per_area = 0.0_dp
+    integer(i64) :: outer_queue_event_count = 0_i64
+    real(dp) :: outer_queue_signed_charge = 0.0_dp
+    character(len=16) :: outer_queue_fingerprint = ''
     real(dp) :: accessible_fraction_min = 0.0_dp
     real(dp) :: accessible_fraction_max = 0.0_dp
     real(dp) :: accessible_fraction_refinement_error = 0.0_dp
@@ -99,7 +106,20 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_zhao_phi0 = 0.0_dp
     real(dp) :: outer_zhao_phi_minimum = 0.0_dp
     real(dp) :: outer_zhao_electron_density_infinity = 0.0_dp
+    real(dp) :: outer_photoelectron_population_fraction = 1.0_dp
+    real(dp) :: outer_photoelectron_column_per_area = 0.0_dp
+    real(dp) :: outer_photoelectron_column_target_per_area = 0.0_dp
+    real(dp) :: outer_photoelectron_column_residual_per_area = 0.0_dp
+    integer(i64) :: outer_queue_event_count = 0_i64
+    real(dp) :: outer_queue_signed_charge = 0.0_dp
+    character(len=16) :: outer_queue_fingerprint = ''
     logical :: outer_zhao_state_complete = .false.
+    logical :: outer_zhao_transient_state_complete = .false.
+    logical :: outer_queue_inventory_complete = .false.
+    real(dp) :: max_outer_flight_time = 0.0_dp
+    real(dp) :: max_frozen_field_ratio = 0.0_dp
+    real(dp) :: max_outer_energy_relative_error = 0.0_dp
+    logical :: outer_max_diagnostics_complete = .false.
     integer(i32) :: last_outer_update_batch = -1_i32
     real(dp), allocatable :: outer_profile_z(:)
     real(dp), allocatable :: outer_profile_potential(:)
@@ -331,6 +351,10 @@ contains
     diagnostics%outer_zhao_phi0 = self%outer%zhao_phi0
     diagnostics%outer_zhao_phi_minimum = self%outer%zhao_phi_minimum
     diagnostics%outer_zhao_electron_density_infinity = self%outer%zhao_electron_density_infinity
+    diagnostics%outer_photoelectron_population_fraction = self%outer%photoelectron_population_fraction
+    diagnostics%outer_photoelectron_column_per_area = self%outer%photoelectron_column_per_area
+    diagnostics%outer_photoelectron_column_target_per_area = self%outer%photoelectron_column_target_per_area
+    diagnostics%outer_photoelectron_column_residual_per_area = self%outer%photoelectron_column_residual_per_area
     if (allocated(self%outer%z) .and. allocated(self%outer%potential)) then
       diagnostics%outer_profile_z = self%outer%z
       diagnostics%outer_profile_potential = self%outer%potential
@@ -380,6 +404,14 @@ contains
       self%outer%zhao_phi0 = state%outer_zhao_phi0
       self%outer%zhao_phi_minimum = state%outer_zhao_phi_minimum
       self%outer%zhao_electron_density_infinity = state%outer_zhao_electron_density_infinity
+      self%outer%photoelectron_population_fraction = state%outer_photoelectron_population_fraction
+      self%outer%photoelectron_column_per_area = state%outer_photoelectron_column_per_area
+      self%outer%photoelectron_column_target_per_area = state%outer_photoelectron_column_target_per_area
+      self%outer%photoelectron_column_residual_per_area = state%outer_photoelectron_column_residual_per_area
+      self%kinetic_options%photoelectron_population_fraction = state%outer_photoelectron_population_fraction
+      if (self%kinetic_options%photoelectron_column_closure_enabled) then
+        self%kinetic_options%photoelectron_column_target_m2 = state%outer_photoelectron_column_target_per_area
+      end if
       self%outer%z = state%outer_profile_z
       self%outer%potential = state%outer_profile_potential
       if (state%outer_profile_complete) then
@@ -473,8 +505,13 @@ contains
       state%outer_zhao_phi0 = self%outer%zhao_phi0
       state%outer_zhao_phi_minimum = self%outer%zhao_phi_minimum
       state%outer_zhao_electron_density_infinity = self%outer%zhao_electron_density_infinity
+      state%outer_photoelectron_population_fraction = self%outer%photoelectron_population_fraction
+      state%outer_photoelectron_column_per_area = self%outer%photoelectron_column_per_area
+      state%outer_photoelectron_column_target_per_area = self%outer%photoelectron_column_target_per_area
+      state%outer_photoelectron_column_residual_per_area = self%outer%photoelectron_column_residual_per_area
       state%outer_zhao_state_complete = &
         trim(lower_ascii(self%outer%kinetic_closure)) == 'zhao_charge_driven'
+      state%outer_zhao_transient_state_complete = state%outer_zhao_state_complete
     end if
     if (state%outer_profile_complete) then
       state%outer_profile_z = self%outer%z
@@ -905,7 +942,7 @@ contains
     real(dp), intent(in) :: interface_field
     type(outer_plasma_state_type) :: solved
     integer(i32) :: status_values(4), status
-    real(dp) :: scalar_values(14)
+    real(dp) :: scalar_values(18)
     character(len=256) :: message
 
     self%kinetic_options%interface_field = interface_field
@@ -947,7 +984,9 @@ contains
                       solved%interface_field, solved%nonlinear_residual, solved%integrated_charge_per_area, &
                       merge(1.0_dp, 0.0_dp, solved%ready), solved%electron_current_density, &
                       solved%ion_current_density, solved%photoelectron_current_density, solved%total_current_density, &
-                      solved%zhao_phi0, solved%zhao_phi_minimum, solved%zhao_electron_density_infinity &
+                      solved%zhao_phi0, solved%zhao_phi_minimum, solved%zhao_electron_density_infinity, &
+                      solved%photoelectron_population_fraction, solved%photoelectron_column_per_area, &
+                      solved%photoelectron_column_target_per_area, solved%photoelectron_column_residual_per_area &
                       ]
     end if
     call mpi_bcast_real_dp_array(self%mpi, scalar_values, 0_i32)
@@ -971,10 +1010,15 @@ contains
     solved%zhao_phi0 = scalar_values(12)
     solved%zhao_phi_minimum = scalar_values(13)
     solved%zhao_electron_density_infinity = scalar_values(14)
+    solved%photoelectron_population_fraction = scalar_values(15)
+    solved%photoelectron_column_per_area = scalar_values(16)
+    solved%photoelectron_column_target_per_area = scalar_values(17)
+    solved%photoelectron_column_residual_per_area = scalar_values(18)
     solved%model = 'kinetic_1d'
     solved%kinetic_closure = self%kinetic_options%kinetic_closure
     solved%zhao_branch = achar(status_values(4))
     solved%applicability_status = outer_plasma_ok
+    self%kinetic_options%photoelectron_population_fraction = solved%photoelectron_population_fraction
     self%outer = solved
   end subroutine solve_kinetic_collective
 

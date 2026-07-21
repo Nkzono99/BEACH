@@ -82,6 +82,14 @@
       "consumer": "src/runtime/bem_restart.f90"
     },
     {
+      "name": "outer_event_queue.csv",
+      "mpi_name": "outer_event_queue_rankNNNNN.csv",
+      "producer": "src/runtime/coupling/bem_outer_event_queue_io.f90",
+      "condition": "output.write_files=true and coupling.outer_queue_enabled=true; serial name or one file per MPI rank",
+      "restart_role": "conditional: required when resuming with coupling.outer_queue_enabled=true",
+      "consumer": "src/runtime/coupling/bem_outer_event_queue_io.f90"
+    },
+    {
       "name": "performance_profile.csv",
       "producer": "src/runtime/bem_performance_profile.f90",
       "condition": "BEACH_PROFILE=1 and output.write_files=true",

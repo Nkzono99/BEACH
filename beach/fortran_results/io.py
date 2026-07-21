@@ -13,6 +13,17 @@ from .history import FortranChargeHistory
 from .types import ChargeLedgerEntry, FortranRunResult, MeshSource
 
 
+_OUTER_QUEUE_SUMMARY_KEYS = (
+    "outer_photoelectron_population_fraction",
+    "outer_photoelectron_column_per_area_m2",
+    "outer_photoelectron_column_target_per_area_m2",
+    "outer_photoelectron_column_residual_per_area_m2",
+    "outer_queue_event_count",
+    "outer_queue_signed_charge_C",
+    "outer_queue_fingerprint",
+)
+
+
 def load_fortran_result(directory: str | Path) -> FortranRunResult:
     """Load one Fortran output directory into a structured result object.
 
@@ -56,6 +67,8 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     if history_path.exists():
         history = FortranChargeHistory(history_path, mesh_nelem=mesh_nelem)
     charge_ledger = _load_charge_ledger_if_exists(out_dir / "charge_ledger.csv")
+    outer_queue_enabled = _parse_optional_bool(summary, "coupling_outer_queue_enabled")
+    _validate_outer_queue_summary_contract(summary, enabled=outer_queue_enabled)
 
     return FortranRunResult(
         directory=out_dir,
@@ -125,6 +138,28 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         ),
         max_outer_energy_relative_error=_parse_optional_nonnegative_finite_float(
             summary, "max_outer_energy_relative_error"
+        ),
+        coupling_outer_queue_enabled=outer_queue_enabled,
+        outer_photoelectron_population_fraction=_parse_optional_nonnegative_finite_float(
+            summary, "outer_photoelectron_population_fraction"
+        ),
+        outer_photoelectron_column_per_area_m2=_parse_optional_nonnegative_finite_float(
+            summary, "outer_photoelectron_column_per_area_m2"
+        ),
+        outer_photoelectron_column_target_per_area_m2=_parse_optional_nonnegative_finite_float(
+            summary, "outer_photoelectron_column_target_per_area_m2"
+        ),
+        outer_photoelectron_column_residual_per_area_m2=_parse_optional_finite_float(
+            summary, "outer_photoelectron_column_residual_per_area_m2"
+        ),
+        outer_queue_event_count=_parse_optional_nonnegative_int(
+            summary, "outer_queue_event_count"
+        ),
+        outer_queue_signed_charge_c=_parse_optional_finite_float(
+            summary, "outer_queue_signed_charge_C"
+        ),
+        outer_queue_fingerprint=_parse_optional_fingerprint(
+            summary, "outer_queue_fingerprint"
         ),
     )
 
@@ -199,6 +234,35 @@ def _parse_optional_bool(data: dict[str, str], key: str) -> bool | None:
     if value in {"f", "false"}:
         return False
     raise ValueError(f"summary.txt {key} must be true or false.")
+
+
+def _parse_optional_fingerprint(data: dict[str, str], key: str) -> str | None:
+    if key not in data:
+        return None
+    value = data[key].strip()
+    if len(value) != 16 or any(char not in "0123456789ABCDEF" for char in value):
+        raise ValueError(
+            f"summary.txt {key} must be exactly 16 uppercase hexadecimal characters."
+        )
+    return value
+
+
+def _validate_outer_queue_summary_contract(
+    data: dict[str, str], *, enabled: bool | None
+) -> None:
+    present = [key for key in _OUTER_QUEUE_SUMMARY_KEYS if key in data]
+    if enabled is True:
+        missing = [key for key in _OUTER_QUEUE_SUMMARY_KEYS if key not in data]
+        if missing:
+            joined = ", ".join(missing)
+            raise ValueError(
+                "summary.txt coupling_outer_queue_enabled=true requires " + joined + "."
+            )
+    elif enabled is False and present:
+        joined = ", ".join(present)
+        raise ValueError(
+            "summary.txt coupling_outer_queue_enabled=false forbids " + joined + "."
+        )
 
 
 def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] | None:
@@ -281,7 +345,9 @@ def _load_triangles_if_exists(
     if data.ndim == 1:
         data = data[None, :]
     if data.shape[1] < 10:
-        raise ValueError("mesh_triangles.csv must contain elem_idx and triangle vertices.")
+        raise ValueError(
+            "mesh_triangles.csv must contain elem_idx and triangle vertices."
+        )
     if data.shape[0] != mesh_nelem:
         raise ValueError(
             "mesh_triangles.csv row count "
@@ -289,7 +355,9 @@ def _load_triangles_if_exists(
         )
     expected = np.arange(1, mesh_nelem + 1, dtype=np.int64)
     if not np.all(np.isfinite(data[:, 0])) or not np.array_equal(data[:, 0], expected):
-        raise ValueError("mesh_triangles.csv elem_idx column must be 1..mesh_nelem in order.")
+        raise ValueError(
+            "mesh_triangles.csv elem_idx column must be 1..mesh_nelem in order."
+        )
     verts = data[:, 1:10].reshape(-1, 3, 3)
     if not np.all(np.isfinite(verts)):
         raise ValueError("mesh_triangles.csv vertex values must be finite.")
@@ -331,7 +399,9 @@ def _load_mesh_sources_if_exists(path: Path) -> dict[int, MeshSource] | None:
             )
         epsilon_r = float(row.get("epsilon_r") or "1.0")
         if not np.isfinite(epsilon_r) or epsilon_r < 1.0:
-            raise ValueError("mesh_sources.csv epsilon_r values must be finite and >= 1.")
+            raise ValueError(
+                "mesh_sources.csv epsilon_r values must be finite and >= 1."
+            )
         out[mesh_id] = MeshSource(
             mesh_id=mesh_id,
             source_kind=row.get("source_kind", ""),
@@ -343,9 +413,7 @@ def _load_mesh_sources_if_exists(path: Path) -> dict[int, MeshSource] | None:
     return out
 
 
-def _load_mesh_potential_if_exists(
-    path: Path, *, mesh_nelem: int
-) -> np.ndarray | None:
+def _load_mesh_potential_if_exists(path: Path, *, mesh_nelem: int) -> np.ndarray | None:
     if not path.exists():
         return None
 
@@ -357,14 +425,18 @@ def _load_mesh_potential_if_exists(
     if data.ndim == 1:
         data = data[None, :]
     if data.shape[1] < 2:
-        raise ValueError("mesh_potential.csv must contain elem_idx and potential_V columns.")
+        raise ValueError(
+            "mesh_potential.csv must contain elem_idx and potential_V columns."
+        )
     if data.shape[0] != mesh_nelem:
         raise ValueError(
             f"mesh_potential.csv row count ({data.shape[0]}) does not match mesh_nelem ({mesh_nelem})."
         )
     expected = np.arange(1, mesh_nelem + 1, dtype=np.int64)
     if not np.all(np.isfinite(data[:, 0])) or not np.array_equal(data[:, 0], expected):
-        raise ValueError("mesh_potential.csv elem_idx column must be 1..mesh_nelem in order.")
+        raise ValueError(
+            "mesh_potential.csv elem_idx column must be 1..mesh_nelem in order."
+        )
     potential = np.asarray(data[:, 1], dtype=float)
     if not np.all(np.isfinite(potential)):
         raise ValueError("mesh_potential.csv potential_V values must be finite.")

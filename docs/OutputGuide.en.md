@@ -68,6 +68,8 @@ conditions and restart roles.
 The corresponding `*_count` columns contain event counts. `charge_ledger_residual_C` and
 `charge_ledger_discarded_unresolved_abs_C` in `summary.txt` aggregate all species. See
 [Check particle and charge balance](ValidationGuide.en.html#2-check-particle-and-charge-balance) for acceptance criteria.
+For the transient Zhao queue, `charge_ledger_outer_flight_charge_before_C` and
+`charge_ledger_outer_flight_charge_after_C` record outer-flight stock before and after each batch.
 
 ## Match Surface Values to the Mesh
 
@@ -111,6 +113,7 @@ See [History Animation](PostprocessTutorial.en.html#history-animation) for plots
 | Break down runtime | `performance_profile.csv` | `BEACH_PROFILE=1` |
 | Read the outer-sheath grid profile | `outer_plasma_profile.csv` | a `kinetic_1d` / `unified_linear_response` outer state is ready |
 | Read the photoelectron energy distribution | `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` and the state is ready |
+| Resume transient Zhao events | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `coupling.outer_queue_enabled=true`; former for serial, latter per MPI rank |
 | Resume random-number state | `rng_state.txt` / `rng_state_rankNNNNN.txt` | former for serial, latter per MPI rank |
 | Restore fractional macro-particles | `macro_residuals.csv` | residual state is allocated; one file even with MPI |
 
@@ -125,6 +128,7 @@ Detailed acceptance criteria stay with each model page; this table only points t
 | finite-image `periodic2` | periodic2 configuration in `summary.txt`, `charges.csv` | [Finite-image Configuration](FinitePeriodicConfiguration.en.html) |
 | `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [Periodic Far Correction](PeriodicFarCorrection.en.html) |
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [Standard 1-D Kinetic Outer Sheath](KineticOuterPlasma.en.html) |
+| transient Zhao queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [Particle Escape and Return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure) |
 | `unified_linear_response` | above plus `outer_accessible_fraction_min`, `outer_accessible_fraction_max`, `outer_accessible_fraction_refinement_error` | [Advanced Rough-surface Linear Screening](UnifiedLinearResponse.en.html) |
 | photoelectron histogram | `photoelectron_histogram.csv`, `photoelectron_previous_charge_ratio`, `photoelectron_linear_applicability_status` | [Photoelectron Emission and Lifecycle](PhotoelectronEmission.en.html) |
 | outer particle transfer | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [Particle Escape and Return](ParticleEscapeReturn.en.html) |
@@ -145,9 +149,12 @@ Resume state shares the output directory with analysis files, but should not be 
 | `charge_ledger.csv` | required when `summary.txt` contains ledger metadata |
 | `outer_plasma_profile.csv` | required when resuming a ready `kinetic_1d` / `unified_linear_response` state |
 | `photoelectron_histogram.csv` | required when resuming photoelectron histogram state |
+| `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | required with the transient Zhao queue; former for serial and every rank file from the same MPI world size for MPI |
 
 With `output.restart_from`, BEACH reads checkpoints from `restart_from` and writes new output under `output.dir`.
 See [Run a Simulation](Execution.en.html#resume-a-run) for the resume procedure and fingerprint checks.
+The queue checkpoint retains active phase-space records, terminal outcomes, due times, and `next_event_id`, and fails closed on
+schema, rank, world-size, or completed-batch mismatches.
 
 ## Where to Go Next
 

@@ -90,9 +90,7 @@ def test_default_config_matches_official_tutorial_case() -> None:
 
 
 def test_load_config_file_accepts_photoelectron_return_split() -> None:
-    config = load_config_file(
-        Path("examples/periodic2_photoelectron_return.toml")
-    )
+    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
 
     assert config["periodic2"]["nonzero_mode_backend"] == "panel_spectral_reference"
     assert config["outer_plasma"]["photoelectron_density_model"] == "none"
@@ -105,7 +103,10 @@ def test_load_config_file_accepts_unified_explicit_outer_orbit() -> None:
 
     assert config["outer_plasma"]["model"] == "unified_linear_response"
     assert config["outer_plasma"]["return_model"] == "electrostatic_3d_explicit_orbit"
-    assert config["coupling"]["particle_transfer_mode"] == "electrostatic_3d_explicit_orbit"
+    assert (
+        config["coupling"]["particle_transfer_mode"]
+        == "electrostatic_3d_explicit_orbit"
+    )
 
     config["coupling"]["outer_orbit_dt"] = 0.0
     with pytest.raises(ConfigValidationError, match="outer_orbit_dt"):
@@ -124,10 +125,10 @@ def test_periodic2_accepts_symmetric_vacuum_and_rejects_unknown_lower_model() ->
         normalize_config_document(config)
 
 
-def test_photoelectron_settings_reject_unknown_density_and_nonconserving_modes() -> None:
-    config = load_config_file(
-        Path("examples/periodic2_photoelectron_return.toml")
-    )
+def test_photoelectron_settings_reject_unknown_density_and_nonconserving_modes() -> (
+    None
+):
+    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
     config["outer_plasma"]["photoelectron_density_model"] = "statistical_return"
     with pytest.raises(ConfigValidationError, match="statistical_return"):
         normalize_config_document(config)
@@ -142,7 +143,9 @@ def test_photoelectron_settings_reject_removed_closure_key() -> None:
     config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
     config["outer_plasma"]["photoelectron_closure"] = "individual_return"
 
-    with pytest.raises(ConfigValidationError, match="photoelectron_closure was removed"):
+    with pytest.raises(
+        ConfigValidationError, match="photoelectron_closure was removed"
+    ):
         normalize_config_document(config)
 
 
@@ -226,12 +229,57 @@ def test_zhao_charge_driven_closure_constraints() -> None:
 
     invalid = copy.deepcopy(config)
     invalid["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
-    with pytest.raises(ConfigValidationError, match="sheath_photoelectron_ref_density_cm3"):
+    with pytest.raises(
+        ConfigValidationError, match="sheath_photoelectron_ref_density_cm3"
+    ):
         normalize_config_document(invalid)
 
     invalid = copy.deepcopy(config)
     invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
     with pytest.raises(ConfigValidationError, match="zhao_branch"):
+        normalize_config_document(invalid)
+
+
+def test_zhao_transient_outer_queue_constraints() -> None:
+    config = load_config_file(Path("examples/periodic2_zhao_transient_outer.toml"))
+
+    assert config["coupling"]["outer_queue_enabled"] is True
+    normalize_config_document(config)
+
+    default_dt_step = copy.deepcopy(config)
+    del default_dt_step["sim"]["dt"]
+    del default_dt_step["sim"]["batch_duration"]
+    default_dt_step["sim"]["batch_duration_step"] = 100.0
+    normalize_config_document(default_dt_step)
+
+    invalid = copy.deepcopy(config)
+    invalid["coupling"]["outer_update_stride"] = 2
+    with pytest.raises(ConfigValidationError, match="outer_update_stride=1"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["batch_duration"] = 0.0
+    with pytest.raises(ConfigValidationError, match="finite positive"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["batch_duration"] = 5.0e-6
+    with pytest.raises(ConfigValidationError, match="field evolution timescale"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
+    with pytest.raises(ConfigValidationError, match="persistent outer queue"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["zhao_branch"] = "b"
+    with pytest.raises(ConfigValidationError, match="automatic Zhao"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["photoelectron_histogram_enabled"] = True
+    with pytest.raises(ConfigValidationError, match="legacy photoelectron histogram"):
         normalize_config_document(invalid)
 
 
@@ -417,7 +465,9 @@ def test_load_config_file_rejects_conductor_with_periodic2(tmp_path: Path) -> No
 def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> None:
     config_path = tmp_path / "beach.toml"
     _write_base_config(config_path)
-    text = config_path.read_text(encoding="utf-8").replace("size_x = 1.0", "size_x = inf")
+    text = config_path.read_text(encoding="utf-8").replace(
+        "size_x = 1.0", "size_x = inf"
+    )
     config_path.write_text(text, encoding="utf-8")
 
     with pytest.raises(ConfigValidationError, match="mesh.templates\\[1\\].size_x"):
@@ -509,9 +559,9 @@ def test_config_cli_init_validate_and_diff(
 
     modified = tmp_path / "modified.toml"
     modified.write_text(
-        (tmp_path / "beach.toml").read_text(encoding="utf-8").replace(
-            "batch_count = 1", "batch_count = 2"
-        ),
+        (tmp_path / "beach.toml")
+        .read_text(encoding="utf-8")
+        .replace("batch_count = 1", "batch_count = 2"),
         encoding="utf-8",
     )
     beachx_main(["config", "diff", "beach.toml", str(modified)])
@@ -572,7 +622,9 @@ def test_lint_cli_reports_authoring_schema_error(tmp_path: Path) -> None:
     config_path = tmp_path / "beach.toml"
     _write_high_level_authoring_config(config_path)
     config_path.write_text(
-        config_path.read_text(encoding="utf-8").replace("scale_factor", "scale_factorr"),
+        config_path.read_text(encoding="utf-8").replace(
+            "scale_factor", "scale_factorr"
+        ),
         encoding="utf-8",
     )
 

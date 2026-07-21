@@ -217,7 +217,8 @@ potential shape required by its closure and resolved branch.
 | Zhao `0` | Flat bootstrap |
 
 Other nonmonotone profiles are rejected. An interval that fails to bracket a physical turning point, or a nonpositive Robin tail when one
-is required, stops as an invalid model. The model can represent a self-consistent mean sheath, but assumes a plane-averaged,
+is required, stops as an invalid model. The instant path uses that tail; the Zhao queue path ends at the finite $L$ boundary
+described below. The model can represent a self-consistent mean sheath, but assumes a plane-averaged,
 electrostatic, collisionless, unmagnetized 1-D profile.
 See [Outer field: kinetic 1D](KineticOuterPlasma.en.html) for details.
 
@@ -275,7 +276,7 @@ Only an open z-high face with active `coupling.particle_transfer_mode` passes cr
 | `particle_transfer_mode` | Corresponding model | Particle treatment |
 | --- | --- | --- |
 | `none` | No outer transfer | Ordinary open boundary |
-| `electrostatic_1d_instant_return` | `linear_debye` or `kinetic_1d` | Direct energy-based escape/return map |
+| `electrostatic_1d_instant_return` | `linear_debye` or `kinetic_1d` | Energy-based escape/return map; the matching Zhao configuration can delay it through the queue |
 | `electrostatic_3d_explicit_orbit` | `unified_linear_response` | Time-integrated orbit in a batch-fixed 3-D field |
 
 Both 1-D and 3-D transfer require open z-high and `sim.b0=0`; current models do not include an external magnetic orbit.
@@ -289,21 +290,109 @@ face. The outer-model crossing record contains:
 - crossing time within the local Boris step;
 - `dt_remaining` after the crossing.
 
-A returned particle is placed just inside the interface, and ordinary Boris/event handling reintegrates only `dt_remaining`.
-Outer flight time is a separate diagnostic from this local step remainder.
+In instant mode, a returned particle is placed just inside the interface, and ordinary Boris/event handling reintegrates only
+`dt_remaining`. In queue mode, the resolved return position and velocity are saved in an event record and appended after fresh
+sources as a local-domain particle in the batch where it becomes due. Outer flight time is a separate diagnostic from the
+local step remainder.
 
-### Keep outer flight outside global simulation time
+### Keep outer flight outside global simulation time in instant mode
 
 “Instant” in the 1-D model means outer flight affects the state map but does not advance global simulation time. The current 3-D
 explicit orbit uses the same convention. A particle returns at the simulation time of the local step in which it left, and
 outward and returned charge are recorded in the same batch.
 
-This approximation targets a steady or quasisteady outer plasma. UV turn-on, abrupt plasma changes, and short-pulse transients
-require a delayed-return queue that retains past outward current.
+This approximation targets a steady or quasisteady outer plasma. Use the delayed-return queue in the next section for UV
+turn-on, abrupt plasma changes, or short-pulse transients.
+
+### Queue outer flight for the transient Zhao closure
+
+For a case that must put outer-flight delay into the batch history, such as strong-UV turn-on, use this Zhao composition.
+
+```toml
+[sim]
+batch_duration = 2.5e-7
+
+[outer_plasma]
+model = "kinetic_1d"
+kinetic_closure = "zhao_charge_driven"
+photoelectron_histogram_enabled = false
+return_model = "kinetic_1d_profile_return"
+
+[coupling]
+particle_transfer_mode = "electrostatic_1d_instant_return"
+outer_update_stride = 1
+field_evolution_timescale = 2.0e-5
+max_frozen_field_ratio = 0.2
+outer_queue_enabled = true
+```
+
+Combinations with `linear_debye`, `absorbing_maxwellian`, the explicit 3-D orbit, or the legacy photoelectron histogram are
+rejected. The configuration must also satisfy
+`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`.
+`outer_queue_enabled=true` connects tracked-particle outer flight and the Zhao photoelectron population through one conserved
+inventory. Each rank retains its local events, while the photoelectron macro-particle number is summed over MPI as the Zhao
+closure input. After due events are removed at a batch start, the target column is
+
+$$
+N_{pe,q}=\frac{1}{A_{xy}}
+\sum_{j\in\text{queued photoelectron}}w_j.
+$$
+
+Over the finite control volume $L=10\lambda_{D,pe}$, the Zhao solver finds a population scale $\eta$ satisfying
+
+$$
+N_{pe,Zhao}(\eta)=
+\int_0^L\left[n_{pe,f}(z;\eta)+n_{pe,c}(z;\eta)\right]dz
+=N_{pe,q}.
+$$
+
+Despite the output name `outer_photoelectron_population_fraction`, $\eta$ is an occupancy scale relative to the stationary
+reference population, not a probability. The solver follows a physical path connected to $\eta=0$ over
+$0\le\eta\le16$ and permits transient overshoot above one. It does not clamp to `[0,1]`, fall back to a target-independent
+full-population solution, or jump to a disconnected branch. Queue mode requires `zhao_branch="auto"`; only continuous A/B or
+other branch transitions satisfying the degeneracy condition are allowed. The current bisection additionally requires the
+column to increase monotonically with $\eta$ and does not support folds. A target without a connected, monotone path stops with
+`no_physical_solution`; a zero target uses exactly $\eta=0$.
+$\eta$ scales photoelectron density, infinity quasineutrality, and Sagdeev terms, but not the raw photoelectron emission-current
+term in the current diagnostic. That analytic raw current enters the tracked-source consistency check and current-density
+diagnostics, but not the root, surface charge, or ledger.
+
+The same $0\le z\le L$ interval is the queue's particle-ownership domain. A turning point before $L$ creates a return event;
+reaching $L$ creates an escape event absorbed by the exterior reservoir. Queue mode does not extend a Robin tail beyond $L$ to
+classify return.
+
+One batch advances this state in the following order.
+
+1. At the start time $t_b=(b-1)\Delta t_b$ of batch $b$, pop rank-local events that are due.
+2. Form $N_{pe,q}$ from the remaining global photoelectron inventory, then refresh the Zhao profile and $\eta$.
+3. Generate fresh sources, append due return particles, and run the local particle loop. Count a due escape in this batch's
+   `escaped_to_infinity`.
+4. For an outward z-high crossing, use the current profile to resolve interface return or reservoir escape at $L$ and
+   $\tau_{outer}$. Enqueue it
+   at $t_{due}=(b-\tfrac12)\Delta t_b+\tau_{outer}$ using the batch midpoint as its crossing time.
+5. Commit surface charge and correct the Zhao profile and $\eta$ with the post-enqueue inventory. This state is the next
+   batch's continuation seed and the checkpoint state, so straight and split-resume runs execute the same per-batch sequence.
+
+BEACH particles within one batch do not share a synchronized physical time, so the crossing time is represented by the batch
+midpoint. Events are released only at batch starts, quantizing return and escape to `batch_duration`. The terminal state and
+due time resolved at enqueue are not reintegrated after the outer field changes. This closure represents flight delay and an
+outer photoelectron column; it is not a time-dependent Vlasov--Poisson solve, an outer collision model, or an energy-resolved
+cloud evolution.
+
+Halve `batch_duration` and double `batch_count` to compare the same final physical time. At minimum, verify convergence of
+$\eta$, the column residual, return/escape current, surface charge, and detachment force. The profile is resampled to a fixed
+128-point grid over $0\le z\le10\lambda_{D,pe}$, so a production column-grid study also requires exposing the point count as
+an input. Independently refine tracked-particle count, horizontal area, and effective-interface location.
+
+Queue state is written to `outer_event_queue.csv` in serial and one `outer_event_queue_rankNNNNN.csv` per MPI rank. It stores
+active phase-space records, terminal outcomes, due times, and `next_event_id`. Queue-file schema 2 stores a
+`local_fingerprint` of each rank-local payload, while `outer_queue_fingerprint` in the summary binds the queue contents and
+ordering across all ranks. A queue-enabled resume requires every rank file and rejects schema, rank, world-size,
+completed-batch, global-event-count, signed-charge, or fingerprint mismatches fail closed.
 
 ### Check whether the field can remain frozen during outer flight
 
-Snapshot validity over a flight is measured by
+In instant mode, snapshot validity over a flight is measured by
 
 $$
 \epsilon_\mathrm{ad}
@@ -313,13 +402,38 @@ $$
 and must not exceed `max_frozen_field_ratio`. If $\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$, a converged long-time
 mean can still be useful under a strong steady-state assumption, but per-batch return current is not temporally correct.
 
-A persistent delayed-return queue is not implemented. Configuration validation rejects `outer_queue_enabled=true`, and
-trajectories requiring a queue stop.
+Zhao queue mode still requires positive `field_evolution_timescale` and `max_frozen_field_ratio`. Because events are released
+only at batch starts, it includes the quantization delay $\delta_{poll}$ from $t_{due}$ to the first batch-start poll and the
+half-batch bound on uncertainty from approximating the crossing time by the batch midpoint:
+
+$$
+\frac{\tau_{outer}+\delta_{poll}+\Delta t_b/2}{\texttt{field\_evolution\_timescale}}
+\le\texttt{max\_frozen\_field\_ratio}.
+$$
+
+An over-limit event stops before enqueue; it is not discarded and does not fall back to instant return. Configuration
+validation additionally bounds one batch interval:
+
+$$
+\texttt{batch\_duration}
+\le
+\texttt{max\_frozen\_field\_ratio}\,
+\texttt{field\_evolution\_timescale}.
+$$
+
+A violation stops the run. Persistent queuing remains unavailable for the explicit 3-D orbit; an orbit that does not finish within
+its in-batch limit stops.
 
 ## Verify model results with diagnostics
 
 Species-resolved output separates `interface_outward_gross`, `interface_returned_gross`, and `escaped_to_infinity`. It also
 reports maximum `outer_flight_time`, frozen-field ratio, and 3-D orbit energy error.
+
+For Zhao queue mode, inspect `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`,
+`outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`,
+`outer_queue_event_count`, and `outer_queue_signed_charge_C` in `summary.txt`.
+`charge_ledger_outer_flight_charge_before_C` and `charge_ledger_outer_flight_charge_after_C` include queue stock in the charge
+conservation residual.
 
 Gross outward minus returned equals net escape only when transfer coverage and the charge-balance interval match for that
 species. See [Inspect Output Files](OutputGuide.en.html) for these fields and the `charge_ledger.csv` format.
@@ -328,6 +442,8 @@ species. See [Inspect Output Files](OutputGuide.en.html) for these fields and th
 
 - `escape` and `potential_barrier`: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
 - `linear_debye` and `kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
+- Delayed event queue: [`bem_outer_event_queue.f90`](../src/runtime/coupling/bem_outer_event_queue.f90)
+- Queue checkpoint: [`bem_outer_event_queue_io.f90`](../src/runtime/coupling/bem_outer_event_queue_io.f90)
 - `unified_linear_response` 3-D orbit: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)
 - Interface transfer and diagnostic aggregation: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - Model-combination validation: [`bem_physics_config_types.f90`](../src/config/bem_physics_config_types.f90)

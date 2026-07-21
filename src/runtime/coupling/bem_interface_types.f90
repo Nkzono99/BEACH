@@ -20,6 +20,7 @@ module bem_interface_types
 
   type, public :: interface_particle_outcome_type
     integer(i32) :: kind = interface_outcome_none
+    integer(i32) :: queued_terminal_kind = interface_outcome_none
     real(dp) :: position(3) = 0.0_dp
     real(dp) :: velocity(3) = 0.0_dp
     real(dp) :: outer_flight_time = 0.0_dp

@@ -24,10 +24,7 @@ TOP_LEVEL_CONFIG_ORDER = (
     "output",
 )
 _REQUIRED_RUNTIME_TABLES = ("sim", "particles", "mesh", "output")
-SCHEMA_DIRECTIVE = (
-    "#:schema "
-    f"{BEACH_SCHEMA_URL}"
-)
+SCHEMA_DIRECTIVE = f"#:schema {BEACH_SCHEMA_URL}"
 _FRAGMENT_TOP_LEVEL_KEYS = frozenset(TOP_LEVEL_CONFIG_ORDER)
 _RESERVED_TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "title", "use_presets", "override", "base_case"}
@@ -161,7 +158,9 @@ def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
         species = particles.get("species")
         if isinstance(species, list):
             resolved_species = [
-                _resolve_species_high_level(dict(item), box_min=box_min, box_max=box_max)
+                _resolve_species_high_level(
+                    dict(item), box_min=box_min, box_max=box_max
+                )
                 for item in species
             ]
             particles_dict = dict(particles)
@@ -170,7 +169,9 @@ def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
 
     mesh = resolved.get("mesh")
     if isinstance(mesh, Mapping):
-        resolved["mesh"] = _resolve_mesh_high_level(dict(mesh), box_min=box_min, box_max=box_max)
+        resolved["mesh"] = _resolve_mesh_high_level(
+            dict(mesh), box_min=box_min, box_max=box_max
+        )
 
     _strip_id_fields(resolved)
     return resolved
@@ -187,7 +188,9 @@ def _resolve_sim_high_level(sim: dict[str, Any]) -> dict[str, Any]:
         origin = _coerce_numeric_sequence(box_origin, length=3, name="sim.box_origin")
         size = _coerce_numeric_sequence(box_size, length=3, name="sim.box_size")
         if any(component <= 0.0 for component in size):
-            raise ConfigError("high-level config error: sim.box_size components must be > 0.")
+            raise ConfigError(
+                "high-level config error: sim.box_size components must be > 0."
+            )
         sim["box_min"] = origin
         sim["box_max"] = [origin[i] + size[i] for i in range(3)]
     return sim
@@ -206,7 +209,7 @@ def _resolve_species_high_level(
     if mode is None:
         if uv_low is not None or uv_high is not None:
             raise ConfigError(
-                "high-level config error: uv_low/uv_high require inject_region_mode=\"face_fraction\"."
+                'high-level config error: uv_low/uv_high require inject_region_mode="face_fraction".'
             )
         return species
     if not isinstance(source_mode, str) or source_mode not in _FACE_SOURCE_MODES:
@@ -215,11 +218,13 @@ def _resolve_species_high_level(
             'source_mode="reservoir_face" or "photo_raycast".'
         )
     if not isinstance(mode, str):
-        raise ConfigError("high-level config error: inject_region_mode must be a string.")
+        raise ConfigError(
+            "high-level config error: inject_region_mode must be a string."
+        )
     if mode == "absolute":
         if uv_low is not None or uv_high is not None:
             raise ConfigError(
-                "high-level config error: inject_region_mode=\"absolute\" cannot use uv_low/uv_high."
+                'high-level config error: inject_region_mode="absolute" cannot use uv_low/uv_high.'
             )
         return species
     if mode != "face_fraction":
@@ -232,7 +237,7 @@ def _resolve_species_high_level(
         )
     if box_min is None or box_max is None:
         raise ConfigError(
-            "high-level config error: inject_region_mode=\"face_fraction\" requires sim.box_min/box_max."
+            'high-level config error: inject_region_mode="face_fraction" requires sim.box_min/box_max.'
         )
     if uv_low is None or uv_high is None:
         raise ConfigError(
@@ -241,9 +246,13 @@ def _resolve_species_high_level(
     uv_low_vec = _coerce_numeric_sequence(uv_low, length=2, name="uv_low")
     uv_high_vec = _coerce_numeric_sequence(uv_high, length=2, name="uv_high")
     if any(value < 0.0 or value > 1.0 for value in [*uv_low_vec, *uv_high_vec]):
-        raise ConfigError("high-level config error: uv_low/uv_high must be inside [0, 1].")
+        raise ConfigError(
+            "high-level config error: uv_low/uv_high must be inside [0, 1]."
+        )
     if any(uv_low_vec[i] > uv_high_vec[i] for i in range(2)):
-        raise ConfigError("high-level config error: uv_low must be <= uv_high component-wise.")
+        raise ConfigError(
+            "high-level config error: uv_low must be <= uv_high component-wise."
+        )
     inject_face = species.get("inject_face")
     if not isinstance(inject_face, str) or inject_face == "":
         raise ConfigError(
@@ -276,7 +285,9 @@ def _resolve_mesh_high_level(
     resolved_templates: list[dict[str, Any]] = []
     for template in templates:
         if not isinstance(template, Mapping):
-            raise ConfigError("high-level config error: mesh.templates entries must be tables.")
+            raise ConfigError(
+                "high-level config error: mesh.templates entries must be tables."
+            )
         template_dict = dict(template)
         if "group" in template_dict:
             resolved_templates.append(
@@ -313,14 +324,16 @@ def _resolve_direct_template(
     if placement_mode == "absolute":
         if anchor is not None or offset is not None or offset_frac is not None:
             raise ConfigError(
-                "high-level config error: placement_mode=\"absolute\" cannot use anchor/offset/offset_frac."
+                'high-level config error: placement_mode="absolute" cannot use anchor/offset/offset_frac.'
             )
         if "center" not in template:
-            raise ConfigError("high-level config error: direct mesh template requires center.")
+            raise ConfigError(
+                "high-level config error: direct mesh template requires center."
+            )
     elif placement_mode == "box_anchor":
         if "center" in template:
             raise ConfigError(
-                "high-level config error: placement_mode=\"box_anchor\" cannot be combined with center."
+                'high-level config error: placement_mode="box_anchor" cannot be combined with center.'
             )
         template["center"] = _resolve_anchor_position(
             anchor=anchor,
@@ -347,7 +360,9 @@ def _resolve_grouped_template(
 ) -> dict[str, Any]:
     group_name = template.pop("group")
     if not isinstance(group_name, str) or group_name == "":
-        raise ConfigError("high-level config error: mesh template group must be a non-empty string.")
+        raise ConfigError(
+            "high-level config error: mesh template group must be a non-empty string."
+        )
     if group_name not in group_definitions:
         raise ConfigError(
             f'high-level config error: mesh template references undefined group "{group_name}".'
@@ -370,7 +385,9 @@ def _resolve_grouped_template(
         raise ConfigError(
             f'high-level config error: grouped mesh template "{group_name}" requires center_local.'
         )
-    center_local_vec = _coerce_numeric_sequence(center_local, length=3, name="center_local")
+    center_local_vec = _coerce_numeric_sequence(
+        center_local, length=3, name="center_local"
+    )
     group_origin = _resolve_group_origin(
         dict(group_definitions[group_name]),
         box_min=box_min,
@@ -399,19 +416,23 @@ def _resolve_template_size_high_level(
     if size_mode == "absolute":
         if size_frac is not None:
             raise ConfigError(
-                "high-level config error: size_frac requires size_mode=\"box_fraction\"."
+                'high-level config error: size_frac requires size_mode="box_fraction".'
             )
         return
     if size_mode != "box_fraction":
-        raise ConfigError(f"high-level config error: unsupported size_mode={size_mode!r}.")
+        raise ConfigError(
+            f"high-level config error: unsupported size_mode={size_mode!r}."
+        )
     if size_frac is None:
         raise ConfigError(
-            "high-level config error: size_mode=\"box_fraction\" requires size_frac."
+            'high-level config error: size_mode="box_fraction" requires size_frac.'
         )
     box_size = _require_box_size(box_min=box_min, box_max=box_max, context="size_frac")
     kind = template.get("kind", "plane")
     if not isinstance(kind, str):
-        raise ConfigError("high-level config error: mesh template kind must be a string.")
+        raise ConfigError(
+            "high-level config error: mesh template kind must be a string."
+        )
     if kind in {"plane", "plane_hole", "plate_hole"}:
         frac = _coerce_numeric_sequence(size_frac, length=2, name="size_frac")
         template["size_x"] = frac[0] * box_size[0]
@@ -431,7 +452,7 @@ def _resolve_template_size_high_level(
         template["height"] = frac[1] * box_size[2]
         return
     raise ConfigError(
-        f"high-level config error: size_mode=\"box_fraction\" is not supported for kind={kind!r}."
+        f'high-level config error: size_mode="box_fraction" is not supported for kind={kind!r}.'
     )
 
 
@@ -470,7 +491,9 @@ def _resolve_face_fraction_region(
         ranges = ((0, box_min[0], box_max[0]), (1, box_min[1], box_max[1]))
         axis = 2
     else:
-        raise ConfigError(f"high-level config error: invalid inject_face={inject_face!r}.")
+        raise ConfigError(
+            f"high-level config error: invalid inject_face={inject_face!r}."
+        )
 
     pos_low[axis] = boundary
     pos_high[axis] = boundary
@@ -485,12 +508,14 @@ def _normalize_group_definitions(groups_raw: object) -> dict[str, dict[str, Any]
     if groups_raw in ({}, None):
         return {}
     if not isinstance(groups_raw, Mapping):
-        raise ConfigError("high-level config error: mesh.groups must be a table of group definitions.")
+        raise ConfigError(
+            "high-level config error: mesh.groups must be a table of group definitions."
+        )
     normalized: dict[str, dict[str, Any]] = {}
     for name, value in groups_raw.items():
         if not isinstance(value, Mapping):
             raise ConfigError(
-                f'high-level config error: mesh.groups.{name} must be a table.'
+                f"high-level config error: mesh.groups.{name} must be a table."
             )
         normalized[name] = dict(value)
     return normalized
@@ -512,7 +537,7 @@ def _resolve_group_origin(
     if placement_mode == "absolute":
         if anchor is not None:
             raise ConfigError(
-                "high-level config error: group placement_mode=\"absolute\" cannot use anchor."
+                'high-level config error: group placement_mode="absolute" cannot use anchor.'
             )
         base = [0.0, 0.0, 0.0]
         offset_vec = _resolve_offset_vector(
@@ -602,7 +627,9 @@ def _resolve_anchor_position(
     box_max: list[float] | None,
 ) -> list[float]:
     if not isinstance(anchor, str) or anchor == "":
-        raise ConfigError("high-level config error: box_anchor placement requires anchor.")
+        raise ConfigError(
+            "high-level config error: box_anchor placement requires anchor."
+        )
     base = _resolve_anchor(anchor, box_min=box_min, box_max=box_max)
     offset_vec = _resolve_offset_vector(
         offset=offset,
@@ -658,7 +685,9 @@ def _resolve_offset_vector(
     if offset is not None:
         return _coerce_numeric_sequence(offset, length=3, name="offset")
     frac = _coerce_numeric_sequence(offset_frac, length=3, name="offset_frac")
-    box_size = _require_box_size(box_min=box_min, box_max=box_max, context="offset_frac")
+    box_size = _require_box_size(
+        box_min=box_min, box_max=box_max, context="offset_frac"
+    )
     return [frac[i] * box_size[i] for i in range(3)]
 
 
@@ -670,7 +699,9 @@ def _scale_template_lengths(template: dict[str, Any], scale: float) -> None:
         template["size"] = [scale * float(value) for value in template["size"]]
 
 
-def _resolved_box_bounds(config: Mapping[str, Any]) -> tuple[list[float] | None, list[float] | None]:
+def _resolved_box_bounds(
+    config: Mapping[str, Any],
+) -> tuple[list[float] | None, list[float] | None]:
     sim = config.get("sim")
     if not isinstance(sim, Mapping):
         return None, None
@@ -703,16 +734,26 @@ def _require_box_size(
 
 
 def _coerce_numeric_sequence(value: object, *, length: int, name: str) -> list[float]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != length:
-        raise ConfigError(f"high-level config error: {name} must be a {length}-element numeric array.")
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes))
+        or len(value) != length
+    ):
+        raise ConfigError(
+            f"high-level config error: {name} must be a {length}-element numeric array."
+        )
     out: list[float] = []
     for index in range(length):
         item = value[index]
         if not isinstance(item, (int, float)) or isinstance(item, bool):
-            raise ConfigError(f"high-level config error: {name} must contain only numeric values.")
+            raise ConfigError(
+                f"high-level config error: {name} must contain only numeric values."
+            )
         numeric = float(item)
         if not math.isfinite(numeric):
-            raise ConfigError(f"high-level config error: {name} must contain only finite values.")
+            raise ConfigError(
+                f"high-level config error: {name} must contain only finite values."
+            )
         out.append(numeric)
     return out
 
@@ -751,12 +792,16 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     outer_plasma = final_config.get("outer_plasma", {})
     coupling = final_config.get("coupling", {})
     _validate_runtime_external_e_field(sim)
-    _validate_nonnegative_finite_number(sim.get("softening", 1.0e-6), name="sim.softening")
+    _validate_nonnegative_finite_number(
+        sim.get("softening", 1.0e-6), name="sim.softening"
+    )
     _validate_runtime_mesh(mesh)
 
     species = particles.get("species")
-    if not isinstance(species, list) or len(species) == 0 or not all(
-        isinstance(item, Mapping) for item in species
+    if (
+        not isinstance(species, list)
+        or len(species) == 0
+        or not all(isinstance(item, Mapping) for item in species)
     ):
         raise ConfigValidationError(
             "BEACH constraint error: particles.species must be a non-empty array of tables."
@@ -799,7 +844,8 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             and isinstance(field, Mapping)
             and field.get("element_kernel") == "triangle_p0"
             and isinstance(periodic2_config, Mapping)
-            and periodic2_config.get("nonzero_mode_backend") == "panel_spectral_reference"
+            and periodic2_config.get("nonzero_mode_backend")
+            == "panel_spectral_reference"
             and periodic2_config.get("zero_mode_policy") == "exclude_k0"
             and periodic2_config.get("lower_boundary_model")
             in supported_lower_boundaries
@@ -816,7 +862,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         periodic_axes = _periodic_axis_count(sim)
         if periodic_axes != 2:
             raise ConfigValidationError(
-                "BEACH constraint error: field_bc_mode=\"periodic2\" requires exactly "
+                'BEACH constraint error: field_bc_mode="periodic2" requires exactly '
                 "two periodic axes."
             )
     if field_bc_mode != "free" and _mesh_has_surface_model(mesh, "conductor"):
@@ -836,9 +882,9 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "BEACH constraint error: outer_plasma.photoelectron_closure was removed; "
                 "use photoelectron_density_model and photoelectron_histogram_enabled."
             )
-        photoelectron_density_model = str(
-            outer_plasma.get("photoelectron_density_model", "none")
-        ).strip().lower()
+        photoelectron_density_model = (
+            str(outer_plasma.get("photoelectron_density_model", "none")).strip().lower()
+        )
         photoelectron_histogram_enabled = outer_plasma.get(
             "photoelectron_histogram_enabled", False
         )
@@ -850,9 +896,11 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     kinetic_closure = "absorbing_maxwellian"
     zhao_branch = "auto"
     if isinstance(outer_plasma, Mapping):
-        kinetic_closure = str(
-            outer_plasma.get("kinetic_closure", "absorbing_maxwellian")
-        ).strip().lower()
+        kinetic_closure = (
+            str(outer_plasma.get("kinetic_closure", "absorbing_maxwellian"))
+            .strip()
+            .lower()
+        )
         zhao_branch = str(outer_plasma.get("zhao_branch", "auto")).strip().lower()
     if kinetic_closure not in {"absorbing_maxwellian", "zhao_charge_driven"}:
         raise ConfigValidationError(
@@ -870,7 +918,10 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "outer_plasma.kinetic_closure=absorbing_maxwellian."
         )
     if kinetic_closure == "zhao_charge_driven":
-        if not isinstance(outer_plasma, Mapping) or outer_plasma.get("model") != "kinetic_1d":
+        if (
+            not isinstance(outer_plasma, Mapping)
+            or outer_plasma.get("model") != "kinetic_1d"
+        ):
             raise ConfigValidationError(
                 "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
                 "requires outer_plasma.model=kinetic_1d."
@@ -932,6 +983,71 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         if isinstance(coupling, Mapping)
         else "none"
     )
+    outer_queue_enabled = (
+        coupling.get("outer_queue_enabled", False)
+        if isinstance(coupling, Mapping)
+        else False
+    )
+    if not isinstance(outer_queue_enabled, bool):
+        raise ConfigValidationError(
+            "BEACH constraint error: coupling.outer_queue_enabled must be a boolean."
+        )
+    if outer_queue_enabled:
+        if (
+            not isinstance(outer_plasma, Mapping)
+            or outer_plasma.get("model") != "kinetic_1d"
+            or kinetic_closure != "zhao_charge_driven"
+            or outer_plasma.get("zhao_branch", "auto") != "auto"
+            or return_model != "kinetic_1d_profile_return"
+            or transfer_mode != "electrostatic_1d_instant_return"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue requires automatic Zhao kinetic_1d "
+                "profile return with electrostatic_1d_instant_return transfer."
+            )
+        if not math.isfinite(resolved_batch_duration) or resolved_batch_duration <= 0.0:
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue requires a finite positive "
+                "sim.batch_duration or resolved batch_duration_step."
+            )
+        field_evolution_timescale = coupling.get("field_evolution_timescale", 0.0)
+        max_frozen_field_ratio = coupling.get("max_frozen_field_ratio", 0.1)
+        if (
+            not isinstance(field_evolution_timescale, (int, float))
+            or isinstance(field_evolution_timescale, bool)
+            or not math.isfinite(field_evolution_timescale)
+            or field_evolution_timescale <= 0.0
+            or not isinstance(max_frozen_field_ratio, (int, float))
+            or isinstance(max_frozen_field_ratio, bool)
+            or not math.isfinite(max_frozen_field_ratio)
+            or max_frozen_field_ratio <= 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue requires finite positive "
+                "field_evolution_timescale and max_frozen_field_ratio."
+            )
+        if resolved_batch_duration > (
+            float(max_frozen_field_ratio) * float(field_evolution_timescale)
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue batch duration does not "
+                "resolve the configured field evolution timescale."
+            )
+        outer_update_stride = coupling.get("outer_update_stride", 1)
+        if (
+            not isinstance(outer_update_stride, int)
+            or isinstance(outer_update_stride, bool)
+            or outer_update_stride != 1
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue requires "
+                "coupling.outer_update_stride=1."
+            )
+        if photoelectron_histogram_enabled:
+            raise ConfigValidationError(
+                "BEACH constraint error: persistent outer queue does not support the legacy "
+                "photoelectron histogram."
+            )
     if photoelectron_histogram_enabled:
         if not isinstance(coupling, Mapping) or (
             return_model != "electrostatic_1d_instant_return"
@@ -973,14 +1089,11 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "BEACH constraint error: outer_plasma.photoelectron_histogram_bins must be >= 1."
             )
     if photoelectron_density_model == "kinetic_mean":
-        if (
-            outer_plasma.get("model") != "kinetic_1d"
-            or not (
-                (return_model == "none" and transfer_mode == "none")
-                or (
-                    return_model == "kinetic_1d_profile_return"
-                    and transfer_mode == "electrostatic_1d_instant_return"
-                )
+        if outer_plasma.get("model") != "kinetic_1d" or not (
+            (return_model == "none" and transfer_mode == "none")
+            or (
+                return_model == "kinetic_1d_profile_return"
+                and transfer_mode == "electrostatic_1d_instant_return"
             )
         ):
             raise ConfigValidationError(
@@ -1020,7 +1133,11 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                     "for electrostatic_3d_explicit_orbit."
                 )
         max_steps = coupling.get("outer_orbit_max_steps", 100000)
-        if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps < 1:
+        if (
+            not isinstance(max_steps, int)
+            or isinstance(max_steps, bool)
+            or max_steps < 1
+        ):
             raise ConfigValidationError(
                 "BEACH constraint error: coupling.outer_orbit_max_steps must be >= 1."
             )
@@ -1065,15 +1182,19 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 f"BEACH constraint error: particles.species[{index}] cannot define both "
                 "temperature_k and temperature_ev."
             )
-        velocity_distribution = str(
-            species_table.get("velocity_distribution", "maxwellian")
-        ).strip().lower()
-        velocity_grid_pdf_kind = str(
-            species_table.get("velocity_grid_pdf_kind", "phase_space")
-        ).strip().lower()
-        velocity_grid_sampling = str(
-            species_table.get("velocity_grid_sampling", "auto")
-        ).strip().lower()
+        velocity_distribution = (
+            str(species_table.get("velocity_distribution", "maxwellian"))
+            .strip()
+            .lower()
+        )
+        velocity_grid_pdf_kind = (
+            str(species_table.get("velocity_grid_pdf_kind", "phase_space"))
+            .strip()
+            .lower()
+        )
+        velocity_grid_sampling = (
+            str(species_table.get("velocity_grid_sampling", "auto")).strip().lower()
+        )
         if velocity_distribution not in {"maxwellian", "grid"}:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] has unsupported "
@@ -1184,7 +1305,10 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             )
             current_density = species_table.get("emit_current_density_a_m2", 0.0)
             rays_per_batch = species_table.get("rays_per_batch", 0)
-            if not isinstance(current_density, (int, float)) or float(current_density) <= 0.0:
+            if (
+                not isinstance(current_density, (int, float))
+                or float(current_density) <= 0.0
+            ):
                 raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] uses "
                     'source_mode="photo_raycast" and requires emit_current_density_a_m2 > 0.'
@@ -1280,18 +1404,23 @@ def _validate_fragment_structure(
             )
     if unknown_keys:
         raise ConfigError(
-            f"{context} error: unsupported top-level key(s): " + ", ".join(sorted(unknown_keys))
+            f"{context} error: unsupported top-level key(s): "
+            + ", ".join(sorted(unknown_keys))
         )
 
     for key in _FRAGMENT_TOP_LEVEL_KEYS.intersection(document):
         value = document[key]
         if not isinstance(value, Mapping):
-            raise ConfigError(f"{context} error: top-level key {key!r} must be a table.")
+            raise ConfigError(
+                f"{context} error: top-level key {key!r} must be a table."
+            )
 
     particles = document.get("particles")
     if isinstance(particles, Mapping) and "species" in particles:
         species = particles["species"]
-        if not isinstance(species, list) or not all(isinstance(item, Mapping) for item in species):
+        if not isinstance(species, list) or not all(
+            isinstance(item, Mapping) for item in species
+        ):
             raise ConfigError(
                 f"{context} error: particles.species must be an array of tables."
             )
@@ -1333,10 +1462,15 @@ def _validate_high_level_fragment(
         for index, item in enumerate(species, start=1):
             if not isinstance(item, Mapping):
                 continue
-            if not any(key in item for key in ("inject_region_mode", "uv_low", "uv_high")):
+            if not any(
+                key in item for key in ("inject_region_mode", "uv_low", "uv_high")
+            ):
                 continue
             source_mode = item.get("source_mode", "volume_seed")
-            if not isinstance(source_mode, str) or source_mode not in _FACE_SOURCE_MODES:
+            if (
+                not isinstance(source_mode, str)
+                or source_mode not in _FACE_SOURCE_MODES
+            ):
                 raise ConfigError(
                     f"{context} error: particles.species[{index}] uses inject_region_mode/uv_* "
                     'but source_mode must be "reservoir_face" or "photo_raycast".'
@@ -1344,7 +1478,7 @@ def _validate_high_level_fragment(
 
 
 def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
-    dt = float(sim.get("dt", 0.0))
+    dt = float(sim.get("dt", 1.0e-9))
     has_batch_duration = "batch_duration" in sim
     has_batch_duration_step = "batch_duration_step" in sim
     if has_batch_duration and has_batch_duration_step:
@@ -1373,7 +1507,9 @@ def _validate_runtime_external_e_field(sim: Mapping[str, Any]) -> None:
             not isinstance(e0, Sequence)
             or isinstance(e0, (str, bytes))
             or len(e0) != 3
-            or not all(isinstance(v, (int, float)) and math.isfinite(float(v)) for v in e0)
+            or not all(
+                isinstance(v, (int, float)) and math.isfinite(float(v)) for v in e0
+            )
         ):
             raise ConfigValidationError(
                 "BEACH constraint error: sim.e0 must contain 3 finite values."
@@ -1385,7 +1521,11 @@ def _validate_runtime_external_e_field(sim: Mapping[str, Any]) -> None:
         )
     if has_abs:
         e0_abs = sim.get("e0_abs")
-        if not isinstance(e0_abs, (int, float)) or not math.isfinite(float(e0_abs)) or float(e0_abs) < 0.0:
+        if (
+            not isinstance(e0_abs, (int, float))
+            or not math.isfinite(float(e0_abs))
+            or float(e0_abs) < 0.0
+        ):
             raise ConfigValidationError(
                 "BEACH constraint error: sim.e0_abs must be finite and >= 0."
             )
@@ -1413,14 +1553,22 @@ def _validate_grid_flux_keys(species_table: Mapping[str, Any], *, index: int) ->
         )
     if has_flux:
         value = species_table["particle_flux_m2_s"]
-        if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0.0:
+        if (
+            not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) <= 0.0
+        ):
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}].particle_flux_m2_s "
                 "must be finite and > 0."
             )
     if has_current:
         value = species_table["current_density_a_m2"]
-        if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) == 0.0:
+        if (
+            not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) == 0.0
+        ):
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}].current_density_a_m2 "
                 "must be finite and non-zero."
@@ -1443,12 +1591,18 @@ def _validate_velocity_grid_forbidden(
     index: int,
     source_mode: str,
 ) -> None:
-    if str(species_table.get("velocity_distribution", "maxwellian")).strip().lower() != "maxwellian":
+    if (
+        str(species_table.get("velocity_distribution", "maxwellian")).strip().lower()
+        != "maxwellian"
+    ):
         raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and cannot define velocity_distribution="grid".'
         )
-    if str(species_table.get("velocity_grid_sampling", "auto")).strip().lower() != "auto":
+    if (
+        str(species_table.get("velocity_grid_sampling", "auto")).strip().lower()
+        != "auto"
+    ):
         raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
             f'source_mode="{source_mode}" and cannot define velocity_grid_sampling.'
@@ -1599,7 +1753,9 @@ def _validate_runtime_mesh(mesh: Mapping[str, Any]) -> None:
     templates = mesh.get("templates")
     if templates is None:
         return
-    if not isinstance(templates, list) or not all(isinstance(item, Mapping) for item in templates):
+    if not isinstance(templates, list) or not all(
+        isinstance(item, Mapping) for item in templates
+    ):
         raise ConfigValidationError(
             "BEACH constraint error: mesh.templates must be an array of tables."
         )
@@ -1632,9 +1788,15 @@ def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> No
         return
 
     if kind in {"plate_hole", "plane_hole"}:
-        size_x = _positive_template_scalar(template, index=index, key="size_x", default=1.0)
-        size_y = _positive_template_scalar(template, index=index, key="size_y", default=1.0)
-        radius = _positive_template_scalar(template, index=index, key="radius", default=0.2)
+        size_x = _positive_template_scalar(
+            template, index=index, key="size_x", default=1.0
+        )
+        size_y = _positive_template_scalar(
+            template, index=index, key="size_y", default=1.0
+        )
+        radius = _positive_template_scalar(
+            template, index=index, key="radius", default=0.2
+        )
         if radius >= 0.5 * min(size_x, size_y):
             raise ConfigValidationError(
                 f"BEACH constraint error: mesh.templates[{index}] radius must be smaller "
@@ -1647,7 +1809,9 @@ def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> No
         return
 
     if kind == "annulus":
-        radius = _positive_template_scalar(template, index=index, key="radius", default=0.5)
+        radius = _positive_template_scalar(
+            template, index=index, key="radius", default=0.5
+        )
         inner_radius = _nonnegative_template_scalar(
             template,
             index=index,
@@ -1790,8 +1954,14 @@ def _template_scalar(
 def _maybe_vec3(value: object, *, name: str) -> list[float] | None:
     if value is None:
         return None
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 3:
-        raise ConfigValidationError(f"BEACH constraint error: {name} must be a 3-element array.")
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes))
+        or len(value) != 3
+    ):
+        raise ConfigValidationError(
+            f"BEACH constraint error: {name} must be a 3-element array."
+        )
     out: list[float] = []
     for item in value:
         if not isinstance(item, (int, float)) or isinstance(item, bool):
@@ -1825,9 +1995,13 @@ def _append_semantic_diff(
             if in_left and in_right:
                 _append_semantic_diff(lines, next_path, left[key], right[key])
             elif in_left:
-                lines.append(f"- {_format_path(next_path)} = {_summarize_value(left[key])}")
+                lines.append(
+                    f"- {_format_path(next_path)} = {_summarize_value(left[key])}"
+                )
             else:
-                lines.append(f"+ {_format_path(next_path)} = {_summarize_value(right[key])}")
+                lines.append(
+                    f"+ {_format_path(next_path)} = {_summarize_value(right[key])}"
+                )
         return
 
     if _is_array_of_tables(left) and _is_array_of_tables(right):
@@ -1837,11 +2011,17 @@ def _append_semantic_diff(
         for index in range(limit):
             next_path = (*path, index)
             if index < len(left_items) and index < len(right_items):
-                _append_semantic_diff(lines, next_path, left_items[index], right_items[index])
+                _append_semantic_diff(
+                    lines, next_path, left_items[index], right_items[index]
+                )
             elif index < len(left_items):
-                lines.append(f"- {_format_path(next_path)} = {_summarize_value(left_items[index])}")
+                lines.append(
+                    f"- {_format_path(next_path)} = {_summarize_value(left_items[index])}"
+                )
             else:
-                lines.append(f"+ {_format_path(next_path)} = {_summarize_value(right_items[index])}")
+                lines.append(
+                    f"+ {_format_path(next_path)} = {_summarize_value(right_items[index])}"
+                )
         return
 
     if left != right:
@@ -1869,6 +2049,8 @@ def _summarize_value(value: Any) -> str:
 
 
 def _is_array_of_tables(value: object) -> bool:
-    return isinstance(value, list) and len(value) > 0 and all(
-        isinstance(item, Mapping) for item in value
+    return (
+        isinstance(value, list)
+        and len(value) > 0
+        and all(isinstance(item, Mapping) for item in value)
     )

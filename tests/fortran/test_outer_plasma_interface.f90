@@ -18,7 +18,7 @@ program test_outer_plasma_interface
   logical :: accessible
   real(dp) :: mapped_speed
 
-  call test_init(9)
+  call test_init(13)
   call init_outer_plasma_linear( &
     interface_z=1.0_dp, interface_potential=-1.0_dp, infinity_potential=0.0_dp, &
     debye_length=0.5_dp, linearity_ratio=0.1_dp, max_linearity_ratio=1.0_dp, &
@@ -86,6 +86,69 @@ program test_outer_plasma_interface
                         'kinetic super-threshold particle must escape')
   call test_end()
 
+  call test_begin('kinetic_profile_return_is_queued_with_target_state')
+  call set_kinetic_profile(state, [-1.0_dp, 0.0_dp], [1.0_dp, 2.0_dp])
+  crossing%velocity = [0.0_dp, 0.0_dp, 1.2_dp]
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=100.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.true., outcome=outcome, &
+    queue_poll_interval=1.0_dp &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_queued_outer, 'kinetic return must enter persistent queue')
+  call assert_equal_i32(outcome%queued_terminal_kind, interface_outcome_returned_local, &
+                        'queued kinetic return must retain an explicit terminal kind')
+  call assert_true(outcome%outer_flight_time > 0.0_dp, 'queued return must retain a positive due-time offset')
+  call assert_true(outcome%velocity(3) < 0.0_dp, 'queued return target velocity must point into the local domain')
+  call test_end()
+
+  call test_begin('kinetic_robin_tail_return_exits_finite_queue_volume')
+  call set_kinetic_profile(state, [-1.0_dp, -0.5_dp], [1.0_dp, 2.0_dp])
+  state%infinity_potential = 0.0_dp
+  state%debye_length = 1.0_dp
+  crossing%velocity = [0.0_dp, 0.0_dp, 1.2_dp]
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=100.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.true., outcome=outcome, &
+    queue_poll_interval=1.0_dp &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_queued_outer, &
+                        'finite-volume departure must enter the persistent queue')
+  call assert_equal_i32(outcome%queued_terminal_kind, interface_outcome_escaped_to_infinity, &
+                        'a particle reaching L must leave the finite queue volume')
+  call assert_close_dp(outcome%position(3), state%z(state%profile_n), 1.0e-14_dp, &
+                       'finite-volume departure endpoint mismatch')
+  call test_end()
+
+  call test_begin('kinetic_profile_escape_is_queued_to_profile_end')
+  crossing%velocity = [0.0_dp, 0.0_dp, 2.0_dp]
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=1.0_dp, queue_enabled=.true., outcome=outcome, &
+    queue_poll_interval=1.0_dp &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_queued_outer, 'kinetic escape must enter persistent queue')
+  call assert_equal_i32(outcome%queued_terminal_kind, interface_outcome_escaped_to_infinity, &
+                        'queued kinetic escape must retain an explicit terminal kind')
+  call assert_close_dp(outcome%position(3), state%z(state%profile_n), 1.0e-14_dp, &
+                       'queued escape endpoint must be the finite profile boundary')
+  call assert_close_dp(outcome%velocity(3), sqrt(3.0_dp), 1.0e-14_dp, &
+                       'queued escape target speed mismatch')
+  call test_end()
+
+  call test_begin('kinetic_queue_frozen_limit_includes_batch_poll_delay')
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=10.0_dp, max_frozen_field_ratio=0.1_dp, queue_enabled=.true., outcome=outcome, &
+    queue_poll_interval=1.0_dp &
+    )
+  call assert_true(outcome%outer_flight_time/10.0_dp < 0.1_dp, &
+                   'fixture flight alone must fit the frozen-field bound')
+  call assert_close_dp(outcome%frozen_field_ratio, 0.20_dp, 1.0e-14_dp, &
+                       'frozen-field ratio must include poll delay and midpoint uncertainty')
+  call assert_equal_i32(outcome%kind, interface_outcome_invalid_model, &
+                        'queue poll quantization must not bypass the frozen-field limit')
+  call test_end()
+
   call test_begin('kinetic_profile_nonmonotonic_barrier_returns_particle')
   call set_kinetic_profile(state, [0.0_dp, -1.0_dp, 0.0_dp], [1.0_dp, 2.0_dp, 3.0_dp])
   state%infinity_potential = 0.0_dp
@@ -147,13 +210,14 @@ program test_outer_plasma_interface
   call assert_equal_i32(outcome%kind, interface_outcome_escaped_to_infinity, 'super-threshold particle must escape')
   call test_end()
 
-  call test_begin('frozen_field_violation_is_queued')
+  call test_begin('frozen_field_violation_is_rejected_even_with_queue')
   crossing%velocity(3) = 1.0_dp
   call map_outer_particle_linear_debye( &
     state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
     field_timescale=1.0_dp, max_frozen_field_ratio=0.1_dp, queue_enabled=.true., outcome=outcome &
     )
-  call assert_equal_i32(outcome%kind, interface_outcome_queued_outer, 'slow return must enter the outer queue')
+  call assert_equal_i32(outcome%kind, interface_outcome_invalid_model, &
+                        'persistent queue must not bypass the frozen-field limit')
   call test_end()
 
   call test_summary()

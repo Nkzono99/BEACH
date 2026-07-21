@@ -66,15 +66,15 @@ A particle reaching an open face follows either an ordinary open-boundary rule o
 | --- | --- | --- |
 | `open_boundary_model="escape"` | Remove the particle immediately | None |
 | `open_boundary_model="potential_barrier"` | Reflect or escape from crossing potential and normal kinetic energy | Scalar potential only |
-| `electrostatic_1d_instant_return` | Compute escape, turning point, and round-trip time from a 1-D profile | Analytic or discrete 1-D profile |
+| `electrostatic_1d_instant_return` | Compute escape, turning point, and round-trip time from a 1-D profile; the matching Zhao configuration can queue events across batches over a finite $10\lambda_{D,pe}$ domain | Analytic or discrete 1-D profile, or a rank-local event queue |
 | `electrostatic_3d_explicit_orbit` | Integrate an orbit in the batch-fixed external 3-D field | Zero/nonzero 3-D field |
 
 `potential_barrier` is independent of particle source. Reservoir particles, photoelectrons, and volume-seeded particles receive
 the same decision when they cross the same face in the same state. When z-high is an outer ownership interface, escape and return
 on that face are owned by the corresponding outer model rather than `open_boundary_model`.
 
-See [Open Boundaries, Escape, and Return](ParticleEscapeReturn.en.html) for decision equations, return time, 3-D orbits, and the
-quasi-steady approximation.
+See [Open Boundaries, Escape, and Return](ParticleEscapeReturn.en.html) for decision equations, return time, the transient Zhao
+queue, 3-D orbits, and the quasi-steady approximation.
 
 ## Choose an outer model by required field complexity
 
@@ -105,16 +105,24 @@ region and a linear approximation is acceptable.
 | Simple finite box | `reservoir_face`, no correction | `escape` | None |
 | Finite images with scalar barriers | `infinity_barrier` | `potential_barrier` | None |
 | Zhao literature closure | `sheath_injection_model="zhao_*"` | Ordinary open boundary | None |
-| Self-consistent 1-D sheath | Inflow mapped through kinetic profile | Kinetic profile return | `kinetic_1d` with 1-D transfer |
+| Self-consistent 1-D sheath | Inflow mapped through kinetic profile | Kinetic profile return | `kinetic_1d` with instant 1-D transfer |
+| Strong-UV turn-on | Inflow mapped through kinetic Zhao profile | Profile return/escape in the due batch | `kinetic_1d` + `zhao_charge_driven` + transient queue |
 | Linear response over a rough surface | Source prescribed at the face | Open or 3-D outer orbit | `unified_linear_response` |
 
 Complete examples are provided in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html) and
 [Infinite-Periodic Configuration with Outer Plasma](InfinitePeriodicOuterConfiguration.en.html).
+The transient-Zhao frozen-field guard fixture is
+[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml). With its stated physical timescale,
+it is a negative case that should stop a long flight fail-closed, not a successful physical-validation run.
+This queue treats reaching $L=10\lambda_{D,pe}$ as reservoir escape and requires
+each event's `tau_outer`, delay to the next batch-start poll, and half-batch midpoint uncertainty to remain within
+`max_frozen_field_ratio * field_evolution_timescale`; the same bound applies to `batch_duration`.
 
 ## Do not stack corrections with the same responsibility
 
 - Do not combine `sheath_injection_model` with `reservoir_potential_model`.
-- Kinetic profile return uses the same profile for inflow; do not add Zhao or `infinity_barrier`.
+- Kinetic profile return uses the same profile for inflow; do not add legacy `sheath_injection_model="zhao_*"` or
+  `infinity_barrier`. Select `kinetic_closure="zhao_charge_driven"` when the kinetic profile should contain Zhao populations.
 - `unified_linear_response` does not determine source VDFs or floating-current balance. Define any reservoir distribution at the face.
 - Do not interpret z-high outer transfer and scalar reflection by `potential_barrier` as the same operation.
 - A failed model does not silently fall back to a simpler closure.

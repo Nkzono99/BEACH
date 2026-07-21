@@ -272,6 +272,8 @@ contains
     if (status /= physics_config_ok) return
     call validate_photoelectron_config(outer, coupling, status, message)
     if (status /= physics_config_ok) return
+    call validate_outer_queue_config(sim, outer, coupling, status, message)
+    if (status /= physics_config_ok) return
     nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
     if (trim(nonzero_backend) == 'cached_kneq0') then
       call validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
@@ -365,7 +367,9 @@ contains
         return
       end if
     case ('electrostatic_1d_instant_return')
-      if (coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
+      if (.not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
+          .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
+          coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
         call reject(physics_config_invalid_combination, 'Invalid electrostatic 1D instant-return coupling.', status, message)
         return
       end if
@@ -388,10 +392,6 @@ contains
            trim(lower_ascii(sim%sheath_injection_model)) /= 'none')) then
         call reject(physics_config_invalid_combination, &
                     'Kinetic profile return cannot mix with legacy or Zhao injection corrections.', status, message)
-        return
-      end if
-      if (coupling%outer_queue_enabled) then
-        call reject(physics_config_unavailable, 'Persistent outer queue is not available yet.', status, message)
         return
       end if
     case ('electrostatic_3d_explicit_orbit')
@@ -547,6 +547,52 @@ contains
     end if
   end subroutine validate_photoelectron_config
 
+  !> Persistent outer-flight events are currently a Zhao-only transient closure.
+  subroutine validate_outer_queue_config(sim, outer, coupling, status, message)
+    type(sim_config), intent(in) :: sim
+    type(outer_plasma_config), intent(in) :: outer
+    type(coupling_config), intent(in) :: coupling
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    status = physics_config_ok
+    message = ''
+    if (.not. coupling%outer_queue_enabled) return
+    if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
+        trim(lower_ascii(outer%kinetic_closure)) /= 'zhao_charge_driven' .or. &
+        trim(lower_ascii(outer%zhao_branch)) /= 'auto' .or. &
+        trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return' .or. &
+        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return') then
+      call reject(physics_config_invalid_combination, &
+                  'Persistent outer queue requires the automatic Zhao kinetic_1d profile return.', status, message)
+      return
+    end if
+    if (.not. ieee_is_finite(sim%batch_duration) .or. &
+        .not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
+        .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
+        sim%batch_duration <= 0.0_dp .or. coupling%field_evolution_timescale <= 0.0_dp .or. &
+        coupling%max_frozen_field_ratio <= 0.0_dp) then
+      call reject(physics_config_invalid_combination, &
+                  'Persistent outer queue requires finite positive time-scale limits.', status, message)
+      return
+    end if
+    if (sim%batch_duration > coupling%max_frozen_field_ratio*coupling%field_evolution_timescale) then
+      call reject(physics_config_invalid_combination, &
+                  'Persistent outer queue batch_duration does not resolve the configured field evolution timescale.', &
+                  status, message)
+      return
+    end if
+    if (coupling%outer_update_stride /= 1_i32) then
+      call reject(physics_config_invalid_combination, &
+                  'Persistent outer queue requires outer_update_stride=1.', status, message)
+      return
+    end if
+    if (outer%photoelectron_histogram_enabled) then
+      call reject(physics_config_unavailable, &
+                  'Persistent outer queue does not yet support the legacy photoelectron histogram.', status, message)
+    end if
+  end subroutine validate_outer_queue_config
+
   subroutine validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
     type(sim_config), intent(in) :: sim
     type(field_physics_config), intent(in) :: field
@@ -589,6 +635,8 @@ contains
     case ('electrostatic_1d_instant_return')
       if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
           trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return' .or. &
+          .not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
+          .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
           coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
         call reject(physics_config_invalid_combination, 'Invalid cached kinetic 1D profile return.', status, message)
         return
@@ -602,10 +650,6 @@ contains
           trim(lower_ascii(sim%sheath_injection_model)) /= 'none') then
         call reject(physics_config_invalid_combination, &
                     'Kinetic profile return cannot mix with legacy or Zhao injection corrections.', status, message)
-        return
-      end if
-      if (coupling%outer_queue_enabled) then
-        call reject(physics_config_unavailable, 'Persistent outer queue is not available yet.', status, message)
         return
       end if
     case ('electrostatic_3d_explicit_orbit')
@@ -696,6 +740,10 @@ contains
     message = ''
     if (trim(lower_ascii(outer%model)) /= 'unified_linear_response' .or. &
         trim(lower_ascii(outer%return_model)) /= 'electrostatic_3d_explicit_orbit' .or. &
+        .not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
+        .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
+        .not. ieee_is_finite(coupling%outer_orbit_dt) .or. &
+        .not. ieee_is_finite(coupling%outer_orbit_energy_tolerance) .or. &
         coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp .or. &
         coupling%outer_orbit_dt <= 0.0_dp .or. coupling%outer_orbit_max_steps < 1_i32 .or. &
         coupling%outer_orbit_energy_tolerance <= 0.0_dp) then

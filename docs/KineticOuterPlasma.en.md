@@ -106,8 +106,8 @@ The current implementation accepts only `sim.sheath_electron_drift_mode="normal"
 `sim.sheath_ion_drift_mode="normal"`. It also requires `photo_raycast.normal_drift_speed=0` and the cold-ion condition
 $T_i\le0.1T_e$.
 
-The charge-driven Zhao closure does not impose the zero-current equation of the stationary Zhao model. Types B and C solve
-infinity quasineutrality and
+Because the charge-driven Zhao closure prescribes the current interface field, it does not impose the legacy Zhao zero-current
+equation as a root. Types B and C solve infinity quasineutrality and
 
 $$
 2\int_{\psi_0}^{0}\hat\rho(\psi)\,d\psi=\hat E_I^2.
@@ -119,16 +119,42 @@ $$
 -2\int_{\psi_m}^{\psi_0}\hat\rho_{\mathrm{lower}}(\psi)\,d\psi=\hat E_I^2.
 $$
 
-Here $\psi=\phi/T_{pe}$ and $\hat E_I=E_I\lambda_{D,pe}/T_{pe}$. The former current balance remains as species and total
-current-density diagnostics, so total current may be nonzero while the surface is charging.
+Here $\psi=\phi/T_{pe}$ and $\hat E_I=E_I\lambda_{D,pe}/T_{pe}$. The legacy zero-current equation is instead evaluated as
+species and total current-density diagnostics, so total current may be nonzero while charge evolves. The transient population
+scale $\eta$ scales photoelectron density, infinity quasineutrality, and Sagdeev terms, but it does not scale the raw
+photoelectron emission-current term in the current diagnostic; that term retains the full tracked source.
 If the initial $E_I=0$ state has no quasineutral root with a strong photoelectron population, an ambient-only flat state is used
 once and recorded as branch `0`, representing an outer population that has not formed yet. After the first tracked current
 creates charge, ordinary Zhao roots are solved; this bootstrap is never a fallback at nonzero field.
 
 The quasisteady A/B/C branches with the full photoelectron population need not connect continuously to $E_I=0$. A requested
-field outside their solvable range stops with `no_physical_solution`. Crossing this gap from an uncharged state with small
-batches requires a separate time-dependent closure with an outer-photoelectron-cloud occupancy state. The bundled example
-does not model that transient; it is a branch-entry smoke whose first coarse batch reaches a known Type-A range and whose second batch exercises the resolved branch.
+field outside their solvable range stops with `no_physical_solution` under the default `outer_queue_enabled=false` behavior.
+
+With `outer_queue_enabled=true`, tracked photoelectrons retain their macro-particle weights as queue inventory while they occupy
+the outer region. The MPI-global photoelectron number divided by horizontal area is the target column. The closure solves a
+population scale $\eta$ so the Zhao integral of $n_{pe,f}+n_{pe,c}$ over $0\le z\le10\lambda_{D,pe}$ matches that target.
+Despite the output name `outer_photoelectron_population_fraction`, $\eta$ is an occupancy scale relative to the stationary
+reference population, not a probability. The solver follows the physical path connected to $\eta=0$ over
+$0\le\eta\le16$ and permits transient overshoot above one. It does not clamp to `[0,1]`, fall back to a target-independent
+full-population solution or branch `0`, or jump to a disconnected branch. Queue mode requires `zhao_branch="auto"` and allows
+only continuous A/B or other branch transitions satisfying the degeneracy condition. The current bisection accepts only paths
+whose column increases monotonically with $\eta$; a continuous path containing a fold is unsupported and stops. If no connected,
+monotone path reaches the target, the solve stops with `no_physical_solution`.
+The same $0\le z\le10\lambda_{D,pe}$ interval is the finite queue-particle control volume. A particle that does not turn inside
+it is absorbed by the exterior reservoir and escapes at $L=10\lambda_{D,pe}$; queue mode does not use a Robin tail outside $L$
+to classify return. For each event, it applies the frozen-field bound to
+`tau_outer + delta_poll + batch_duration/2`, where `delta_poll` is the quantization delay from `t_due` to the first batch-start
+poll and the half-batch term bounds uncertainty from approximating the crossing time by the batch midpoint.
+Configuration validation applies the same bound to `batch_duration`. See
+[Particle escape and return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure) for time
+discretization, the end-of-batch corrector, and checkpoint rules.
+
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml) remains a branch-entry smoke
+that does not solve the transient and uses one coarse batch to reach a known Type-A range.
+[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml) is a frozen-field guard fixture for the
+strong-UV queue closure. With its stated physical timescale, a long outer flight is expected to stop fail-closed; it is not a
+successful validation run. Interpreting return current requires a separately justified slower field timescale and convergence
+checks in `batch_duration`, particle count, and control-volume length.
 
 This first implementation treats the z-high interface as the effective Zhao emitting plane. It reuses
 `sim.sheath_alpha_deg` and `sim.sheath_photoelectron_ref_density_cm3`, and obtains mass and temperature from the first negative
@@ -152,15 +178,18 @@ J_{pe,\mathrm{raw}}=
 v_{\mathrm{th},pe}=\sqrt{\frac{2T_{pe}}{m_{pe}}}.
 $$
 
-Here $T_{pe}$ in the speed formula is thermal energy in joules. The runtime rejects a mismatch. Analytic current remains a
-diagnostic and is not added to surface charge; only tracked emission
-and reabsorption update that charge. The closure also rejects a legacy Zhao `sheath_injection_model`,
+Here $T_{pe}$ in the speed formula is thermal energy in joules. The runtime rejects a mismatch. The analytic raw current enters
+the tracked-source consistency check and current-density diagnostics, but not the root, surface charge, or ledger; only tracked
+emission and reabsorption update the latter two. The population scale $\eta$ does not scale that raw photoelectron
+emission-current term in the current diagnostic.
+The closure also rejects a legacy Zhao `sheath_injection_model`,
 `reservoir_potential_model`, and `photoelectron_density_model="kinetic_mean"`.
 
 This effective-plane approximation does not self-consistently connect tracked-ray directions or a VDF reaching the interface
 from a rough surface to the Zhao outer population. `ray_direction` controls illumination-ray sampling of emitting surfaces, while $\alpha$
 independently controls the analytic Zhao source. See [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md) for scope and the
-boundary VDF needed by a future generalization.
+boundary VDF needed by a future generalization, and [ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md) for the
+transient-queue decision.
 
 ## Connect the `absorbing_maxwellian` finite grid to infinity with a Robin tail
 

@@ -281,10 +281,33 @@ program test_physics_config_types
   coupling%field_evolution_timescale = 1.0_dp
   call test_end()
 
-  call test_begin('persistent_outer_queue_unavailable')
+  call test_begin('persistent_outer_queue_contract')
   coupling%outer_queue_enabled = .true.
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_unavailable, 'persistent outer queue must fail closed')
+  call assert_equal_i32(status, physics_config_invalid_combination, 'outer queue must require physical batch time')
+  sim%batch_duration = 1.0e-6_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'bounded Zhao outer queue should be available')
+  coupling%field_evolution_timescale = ieee_value(0.0_dp, ieee_quiet_nan)
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, &
+                        'outer queue must reject a non-finite field-evolution timescale')
+  coupling%field_evolution_timescale = 1.0_dp
+  outer%zhao_branch = 'b'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, &
+                        'outer queue must require automatic branch continuation')
+  outer%zhao_branch = 'auto'
+  sim%batch_duration = 0.2_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, &
+                        'outer queue batch time must resolve field evolution')
+  sim%batch_duration = 1.0e-6_dp
+  coupling%outer_update_stride = 2_i32
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'outer queue must refresh the closure every batch')
+  coupling%outer_update_stride = 1_i32
+  coupling%outer_queue_enabled = .false.
   call test_end()
 
   call test_begin('triangle_panel_direct_free_available')

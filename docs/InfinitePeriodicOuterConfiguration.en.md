@@ -105,7 +105,9 @@ minimal cache example [`examples/periodic2_cached_panel.toml`](../examples/perio
 
 Small references use Direct plus `panel_spectral_reference`.
 [`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml) is a small contract fixture for the standard
-kinetic composition. [`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml)
+kinetic composition. [`examples/periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml) is an
+expected-fail fixture in which the transient Zhao queue's physical-timescale guard rejects a long flight.
+[`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml)
 checks the analytic limit and applicability of advanced linear screening. Neither selects a large production backend by itself.
 
 ## Apply each closure exactly once
@@ -122,8 +124,16 @@ verification.
 ## Hold the batch-start field fixed during outer flight
 
 Both 1-D instant return and 3-D explicit orbit calculate outer flight time but do not add it to global simulation time. Flight time
-relative to `field_evolution_timescale` must remain below `max_frozen_field_ratio`. A persistent delayed-return queue is not
-implemented. See [Particle escape and return](ParticleEscapeReturn.en.html) for restrictions outside steady or quasisteady use.
+relative to `field_evolution_timescale` must remain below `max_frozen_field_ratio`. The matching `kinetic_1d` +
+`zhao_charge_driven` configuration can instead retain 1-D events across batches and count return/escape when each event becomes
+due. Its outer domain ends at $L=10\lambda_{D,pe}$: a particle reaching $L$ escapes into the reservoir, and no Robin tail beyond
+$L$ is used to classify return. The terminal state is resolved with the field at enqueue and is not reintegrated after that
+field changes. Queue mode applies the frozen-field bound to each event's `tau_outer`, its delay to the next batch-start poll,
+and the half-batch bound on midpoint crossing-time uncertainty. Configuration validation applies the same bound to
+`batch_duration`. Persistent queuing remains unavailable for a
+3-D explicit orbit.
+See
+[Particle escape and return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure).
 
 ## Check convergence and balance component by component
 
@@ -135,6 +145,7 @@ implemented. See [Particle escape and return](ParticleEscapeReturn.en.html) for 
 | Unified profile | `unified_grid_points`, height sampling, mode layer | Linearity, accessible fraction, Gauss residual |
 | Reservoir | Macro target and batch duration | Inflow current and macro residual |
 | Photoelectron | Ray count, `dt`, outer return | Emission, reabsorption, and escape/return charge |
+| Transient Zhao queue | `batch_duration`, time-scale guard, ray count, area, interface location | $\eta$, column residual, return/escape current, force |
 | Batch coupling | `batch_duration` | Steady surface charge and current balance |
 
 Inspect `summary.txt`, `outer_plasma_profile.csv`, `charge_ledger.csv`, and `charges.csv` together. Checking only field, particle

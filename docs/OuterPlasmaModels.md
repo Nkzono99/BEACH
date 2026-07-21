@@ -65,14 +65,15 @@ open面へ到達した粒子には、通常のopen境界規則または外部領
 | --- | --- | --- |
 | `open_boundary_model="escape"` | その場で粒子を除去 | なし |
 | `open_boundary_model="potential_barrier"` | 通過点電位と法線運動energyから反射・escapeを判定 | scalar電位だけ |
-| `electrostatic_1d_instant_return` | 1D profileからescape/turning point/往復時間を計算 | 解析または離散1D profile |
+| `electrostatic_1d_instant_return` | 1D profileからescape/turning point/往復時間を計算。対応するZhao構成では有限$10\lambda_{D,pe}$領域のeventをbatch間queueへ遅延可能 | 解析または離散1D profile、またはrank-local event queue |
 | `electrostatic_3d_explicit_orbit` | batch内で固定された外部3D場中を時間積分 | zero/nonzero 3D field |
 
 `potential_barrier`はsourceの種類に依存しません。reservoir粒子、光電子、volume seed粒子が同じ状態で同じopen面を
 横切れば、同じ判定を受けます。z-highをouter ownership interfaceとしてtransferする構成では、その面の
 escape/returnは`open_boundary_model`ではなく対応するouter modelが担当します。
 
-判定式、return時間、3D軌道、準定常近似は[open境界・escape・return](ParticleEscapeReturn.html)で説明します。
+判定式、return時間、Zhao過渡queue、3D軌道、準定常近似は
+[open境界・escape・return](ParticleEscapeReturn.html)で説明します。
 
 ## 外部場の複雑さからmodelを選ぶ
 
@@ -101,16 +102,24 @@ plasma-accessible areaを場へ組み込みます。
 | 単純な有限box | `reservoir_face`、補正なし | `escape` | なし |
 | 有限画像＋scalar barrier | `infinity_barrier` | `potential_barrier` | なし |
 | Zhao文献モデル | `sheath_injection_model="zhao_*"` | 通常のopen境界 | なし |
-| 自己整合1D sheath | kinetic profileから流入写像 | kinetic profile return | `kinetic_1d` + 1D transfer |
+| 自己整合1D sheath | kinetic profileから流入写像 | kinetic profile return | `kinetic_1d` + 1D instant transfer |
+| 強UV立上がり | kinetic Zhao profileから流入写像 | due batchでprofile return/escape | `kinetic_1d` + `zhao_charge_driven` + transient queue |
 | rough surface線形応答 | faceで指定したsource | openまたは3D outer orbit | `unified_linear_response` |
 
 完成した設定例は[有限画像構成](FinitePeriodicConfiguration.html)と
 [無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)にあります。
+Zhao過渡queueのfrozen-field guard fixtureは
+[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)です。これは記載した物理timescaleで
+長いflightをfail-closedに停止する負例であり、成功した物理検証RUNではありません。
+このqueueでは$L=10\lambda_{D,pe}$到達をreservoir escapeとし、
+各eventの`tau_outer`、次のbatch-start pollまでの遅延、midpoint crossing時刻誤差上限の合計へ
+`max_frozen_field_ratio * field_evolution_timescale`の上限を課し、`batch_duration`にも同じ上限を要求します。
 
 ## 同じ役割の補正を重ねない
 
 - `sheath_injection_model`と`reservoir_potential_model`は同時に使わない。
-- `kinetic_1d`のprofile returnでは、流入にも同じprofileを使い、Zhaoや`infinity_barrier`を重ねない。
+- `kinetic_1d`のprofile returnでは流入にも同じprofileを使い、legacy `sheath_injection_model="zhao_*"`や
+  `infinity_barrier`を重ねない。Zhao populationを使う場合は`kinetic_closure="zhao_charge_driven"`を選ぶ。
 - `unified_linear_response`はsource VDFや浮遊電流を決めない。reservoirを使う場合はface上の分布を別に定義する。
 - outer transfer対象のz-high面と、通常の`potential_barrier`によるscalar反射を同じ処理として解釈しない。
 - modelが失敗したときに、別の簡略化モデルへsilent fallbackしない。

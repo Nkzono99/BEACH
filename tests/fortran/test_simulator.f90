@@ -4,8 +4,9 @@ program test_simulator
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_simulator_workspace, only: simulator_batch_workspace_type
+  use bem_particles, only: init_particles, append_particles
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
-  use bem_types, only: mesh_type, sim_stats, bc_open, bc_reflect, bc_periodic
+  use bem_types, only: mesh_type, particles_soa, sim_stats, bc_open, bc_reflect, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
@@ -111,10 +112,14 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(16)
+  call test_init(17)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
+  call test_end()
+
+  call test_begin('particle_append_preserves_existing_state')
+  call test_particle_append_preserves_existing_state()
   call test_end()
 
   call test_begin('basic_simulation')
@@ -265,6 +270,32 @@ program test_simulator
 
 contains
 
+  subroutine test_particle_append_preserves_existing_state()
+    type(particles_soa) :: particles
+    real(dp) :: initial_x(3, 1), initial_v(3, 1), append_x(3, 2), append_v(3, 2)
+
+    initial_x(:, 1) = [1.0_dp, 2.0_dp, 3.0_dp]
+    initial_v(:, 1) = [4.0_dp, 5.0_dp, 6.0_dp]
+    append_x(:, 1) = [7.0_dp, 8.0_dp, 9.0_dp]
+    append_x(:, 2) = [10.0_dp, 11.0_dp, 12.0_dp]
+    append_v(:, 1) = [13.0_dp, 14.0_dp, 15.0_dp]
+    append_v(:, 2) = [16.0_dp, 17.0_dp, 18.0_dp]
+    call init_particles( &
+      particles, initial_x, initial_v, [1.0_dp], [2.0_dp], [3.0_dp], [1_i32] &
+      )
+    particles%alive(1) = .false.
+    call append_particles( &
+      particles, append_x, append_v, [4.0_dp, 5.0_dp], [6.0_dp, 7.0_dp], [8.0_dp, 9.0_dp], [2_i32, 3_i32] &
+      )
+
+    call assert_equal_i32(particles%n, 3_i32, 'particle append count mismatch')
+    call assert_true(.not. particles%alive(1), 'particle append must preserve prior alive state')
+    call assert_true(all(particles%alive(2:3)), 'particle append must activate appended particles')
+    call assert_close_dp(particles%x(3, 3), 12.0_dp, 0.0_dp, 'particle append position mismatch')
+    call assert_close_dp(particles%w(3), 9.0_dp, 0.0_dp, 'particle append weight mismatch')
+    call assert_equal_i32(particles%species_id(3), 3_i32, 'particle append species mismatch')
+  end subroutine test_particle_append_preserves_existing_state
+
   subroutine test_batch_workspace_reuse()
     type(simulator_batch_workspace_type) :: workspace
 
@@ -276,9 +307,12 @@ contains
       )
 
     call workspace%prepare_particle_flags(5_i32)
+    call assert_equal_i32(int(size(workspace%outer_event_staging), i32), 0_i32, &
+                          'disabled outer queue must not allocate per-particle staging')
     workspace%escaped_boundary_flag = .true.
     workspace%absorbed_flag = .true.
     workspace%soft_discarded_boundary_flag = .true.
+    workspace%queued_outer_flag = .true.
     workspace%dq_thread = 1.0_dp
     workspace%photo_emission_dq = 2.0_dp
     workspace%interface_outward_thread = 3.0_dp
@@ -299,6 +333,7 @@ contains
     call assert_true(all(.not. workspace%escaped_boundary_flag(:2)), 'workspace escaped flag reset mismatch')
     call assert_true(all(.not. workspace%absorbed_flag(:2)), 'workspace absorbed flag reset mismatch')
     call assert_true(all(.not. workspace%soft_discarded_boundary_flag(:2)), 'workspace discard flag reset mismatch')
+    call assert_true(all(.not. workspace%queued_outer_flag(:2)), 'workspace outer queue flag reset mismatch')
     call assert_equal_i32( &
       int(size(workspace%escaped_boundary_flag), i32), 5_i32, 'workspace flags should retain grown capacity' &
       )
@@ -308,6 +343,10 @@ contains
       int(size(workspace%escaped_boundary_flag), i32), 8_i32, 'workspace flags should grow on demand' &
       )
     call assert_true(all(.not. workspace%escaped_boundary_flag), 'grown workspace escaped flags must start clear')
+    call assert_true(all(.not. workspace%queued_outer_flag), 'grown workspace outer queue flags must start clear')
+    call workspace%prepare_particle_flags(8_i32, outer_queue_enabled=.true.)
+    call assert_equal_i32(int(size(workspace%outer_event_staging), i32), 8_i32, &
+                          'enabled outer queue staging must grow on demand')
   end subroutine test_batch_workspace_reuse
 
   subroutine test_photoelectron_return_histogram()
@@ -402,13 +441,15 @@ contains
 
   subroutine test_split_outer_instant_return_ledger()
     use bem_constants, only: eps0
-    use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
+    use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
     type(mesh_type) :: split_mesh
     type(app_config) :: split_cfg
-    type(sim_stats) :: split_stats
+    type(sim_stats) :: split_stats, split_resume_stats
     type(charge_ledger_type) :: split_ledger
-    type(electrostatic_diagnostics_type) :: split_diagnostics
+    type(electrostatic_diagnostics_type) :: split_diagnostics, split_resume_diagnostics
+    type(electrostatic_restart_state_type) :: split_restart_state
     real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), panel_charge
+    real(dp) :: expected_maxima(3)
 
     tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
     tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
@@ -470,7 +511,7 @@ contains
     call seed_particles_from_config(split_cfg)
     call run_absorption_insulator( &
       split_mesh, split_cfg, split_stats, charge_ledger=split_ledger, &
-      electrostatic_diagnostics=split_diagnostics &
+      electrostatic_diagnostics=split_diagnostics, electrostatic_restart_state=split_restart_state &
       )
     call assert_equal_i64(split_stats%escaped_boundary, 0_i64, 'returned particle must not escape')
     call assert_equal_i64(split_stats%survived_max_step, 1_i64, 'returned particle should remain local after one step')
@@ -478,6 +519,30 @@ contains
     call assert_close_dp(split_ledger%interface_returned_gross(1), 1.0_dp, 1.0e-12_dp, 'returned gross mismatch')
     call assert_true(split_diagnostics%max_outer_flight_time > 0.0_dp, 'outer flight-time diagnostic is missing')
     call assert_true(split_diagnostics%max_frozen_field_ratio > 0.0_dp, 'frozen-field diagnostic is missing')
+    expected_maxima = [ &
+                      split_diagnostics%max_outer_flight_time, split_diagnostics%max_frozen_field_ratio, &
+                      split_diagnostics%max_outer_energy_relative_error &
+                      ]
+    call assert_true(split_restart_state%outer_max_diagnostics_complete, &
+                     'exported cumulative outer diagnostics should be complete')
+    call run_absorption_insulator( &
+      split_mesh, split_cfg, split_resume_stats, initial_stats=split_stats, &
+      electrostatic_diagnostics=split_resume_diagnostics, electrostatic_restart_state=split_restart_state &
+      )
+    call assert_equal_i32(split_resume_stats%batches, split_stats%batches, &
+                          'zero-batch resume changed the completed batch count')
+    call assert_close_dp(split_resume_diagnostics%max_outer_flight_time, expected_maxima(1), 0.0_dp, &
+                         'restart flight-time maximum was not preserved')
+    call assert_close_dp(split_resume_diagnostics%max_frozen_field_ratio, expected_maxima(2), 0.0_dp, &
+                         'restart frozen-field maximum was not preserved')
+    call assert_close_dp(split_resume_diagnostics%max_outer_energy_relative_error, expected_maxima(3), 0.0_dp, &
+                         'restart energy-error maximum was not preserved')
+    call assert_close_dp(split_restart_state%max_outer_flight_time, expected_maxima(1), 0.0_dp, &
+                         're-exported flight-time maximum mismatch')
+    call assert_close_dp(split_restart_state%max_frozen_field_ratio, expected_maxima(2), 0.0_dp, &
+                         're-exported frozen-field maximum mismatch')
+    call assert_close_dp(split_restart_state%max_outer_energy_relative_error, expected_maxima(3), 0.0_dp, &
+                         're-exported energy-error maximum mismatch')
   end subroutine test_split_outer_instant_return_ledger
 
   subroutine test_unified_explicit_outer_escape_ledger()

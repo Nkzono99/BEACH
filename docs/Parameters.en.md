@@ -334,7 +334,7 @@ positive z-high `reservoir_face` species define the infinity electron and ion VD
 | Item | Contract |
 | --- | --- |
 | Gauge | `phi(infinity)=0`; reject nonzero `infinity_potential` |
-| Far boundary | `absorbing_maxwellian` uses a Robin tail of length `debye_length`; Zhao derives $\lambda_{D,pe}$ from $T_{pe}$ and $n_{ref}$ |
+| Far boundary | `absorbing_maxwellian` uses a Robin tail of length `debye_length`; Zhao instant return derives $\lambda_{D,pe}$ from $T_{pe}$ and $n_{ref}$, while queue mode ends at the finite reservoir boundary $L=10\lambda_{D,pe}$ |
 | Closure | default `absorbing_maxwellian`, or `zhao_charge_driven`, which retains the accumulated-charge interface-field condition |
 | Supported branch | monotone for `absorbing_maxwellian`; Zhao A/B/C, including nonmonotone Type A, for `zhao_charge_driven` |
 | Unsupported | virtual cathodes, trapped populations, and sub-Bohm inflow under `absorbing_maxwellian` |
@@ -343,19 +343,45 @@ positive z-high `reservoir_face` species define the infinity electron and ion VD
 | Fallback | never return another sheath model or a held previous profile as a converged solution |
 
 Particle transfer requires `return_model="kinetic_1d_profile_return"` and
-`particle_transfer_mode="electrostatic_1d_instant_return"`.
+`particle_transfer_mode="electrostatic_1d_instant_return"`. With `outer_queue_enabled=false`, it uses this instant map.
 
 1. Map the infinity VDF to the interface using the refreshed `phi_interface-phi_infinity`.
 2. Use the same discrete profile and Robin tail to classify escape or a turning point.
 3. Construct the state corresponding to the analytically integrated round trip
    and return the particle at the same simulation time and in the same batch.
 
-Scope:
+Scope of the instant map:
 
 - The model targets stationary and quasistationary sheaths and supports mean current and detachment force after equilibration.
 - It does not represent delayed return current during UV turn-on or other transients.
 - `tau_outer/field_evolution_timescale` bounds the quasistationary approximation.
 - With `tau_outer/batch_duration >= 1`, do not treat batch history as a physical return-current time history.
+
+With `outer_queue_enabled=true`, outer-flight delay enters the batch history for cases such as strong-UV turn-on. This mode
+requires `kinetic_closure="zhao_charge_driven"`, a positive `batch_duration` resolved either directly or from
+`dt * batch_duration_step`, `outer_update_stride=1`, and `photoelectron_histogram_enabled=false`.
+
+1. Pop due events from each rank-local queue at the batch start.
+2. Divide the remaining global photoelectron inventory by horizontal area, then refresh the profile and Zhao population scale
+   $\eta$ that match the finite column over $0\le z\le10\lambda_{D,pe}$.
+3. Advance fresh sources and due returns, resolve each outward particle as return before $L$ or reservoir escape at $L$, then
+   enqueue it at $t_{due}=t_{mid}+\tau_{outer}$ with the batch midpoint as its crossing time.
+
+Despite its output name `outer_photoelectron_population_fraction`, $\eta$ is an occupancy scale relative to the stationary
+reference population, not a probability. The solver follows the path connected to $\eta=0$ over $0\le\eta\le16$, permits
+$\eta>1$.
+
+It does not clamp, fall back to a target-independent full-population solution, or jump to a disconnected branch. Queue mode
+requires `zhao_branch="auto"`; only continuous branch transitions satisfying the degeneracy condition and a column that
+increases monotonically with $\eta$ are accepted. Paths containing a fold and unreachable targets stop the run.
+
+Events are released only at batch starts, and a terminal state is not reintegrated after the outer field changes. Queue mode
+does not use a Robin tail outside $L$; reaching $L$ is absorption/escape into the reservoir.
+
+For each event, `tau_outer` plus the quantization delay to the next batch-start poll and the half-batch midpoint uncertainty must not exceed
+`max_frozen_field_ratio * field_evolution_timescale`. Configuration validation applies the same limit to `batch_duration`.
+
+Check convergence in `batch_duration`, tracked-particle count, horizontal area, effective-interface location, and profile grid.
 
 Combination constraints:
 
@@ -377,7 +403,9 @@ Combination constraints:
   the split-interface `interface_eta_gap`, lateral potential/field, and local-charge diagnostics.
 - Tracked `photo_raycast.emit_current_density_a_m2` must agree within 1% with
   $|q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})$, where $v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$ and $T_{pe}$ is in joules.
-- Analytic current is not added to surface charge; only tracked emission and reabsorption update it.
+- The analytic raw current enters the tracked-source consistency check and current-density diagnostics, but not the root,
+  surface charge, or ledger. Only tracked emission and reabsorption update the latter two, and $\eta$ does not scale the raw
+  photoelectron emission-current term in the current diagnostic.
 - This first version is an effective-plane approximation. It does not self-consistently connect `ray_direction` or the VDF
   arriving from a rough surface to the Zhao outer population. `ray_direction` and `sheath_alpha_deg` independently specify
   illumination-ray sampling of emitting surfaces and the analytic source, respectively.
@@ -391,8 +419,14 @@ Combination constraints:
 See [Particle Escape and Return](ParticleEscapeReturn.en.html).
 
 The default-closure example is
-[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml), the charge-driven Zhao example is
-[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml), and the model assumptions are
+[`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml). The charge-driven Zhao example is
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml), and the transient-queue example is
+[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml).
+
+The transient-queue example is an expected-fail guard fixture that rejects a long flight at its stated physical timescale,
+not a successful physical-validation example.
+
+The model assumptions are
 documented in [ADR 0001](adr/0001-kinetic-outer-plasma.md) and
 [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md).
 
@@ -432,19 +466,25 @@ See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unifi
 | `update_mode` | string | `"explicit"` | Only `explicit` is supported; refresh the outer profile at explicit update points |
 | `particle_transfer_mode` | string | `"none"` | Use the transfer ID matching the selected return model |
 | `outer_update_stride` | int | `1` | Batch interval between outer-profile refreshes |
-| `field_evolution_timescale` | float | `0` | Frozen-field comparison time [s]; positive for instant return |
-| `max_frozen_field_ratio` | float | `0.1` | Upper bound on `tau_outer/field_evolution_timescale` |
+| `field_evolution_timescale` | float | `0` | Frozen-field comparison time [s]; positive for 1-D return |
+| `max_frozen_field_ratio` | float | `0.1` | Limit on instant `tau_outer`, or queue `tau_outer` plus next-poll delay and half-batch midpoint uncertainty, divided by `field_evolution_timescale`; queue mode also applies it to `batch_duration` |
 | `outer_orbit_dt` | float | `0` | Fixed 3-D outer-orbit step [s]; positive in 3-D mode |
 | `outer_orbit_max_steps` | int | `100000` | 3-D outer-orbit step limit; reaching it stops instead of discarding |
 | `outer_orbit_energy_tolerance` | float | `1e-4` | Relative total-energy error limit for a 3-D outer orbit |
-| `outer_queue_enabled` | bool | `false` | `true` is currently rejected |
+| `outer_queue_enabled` | bool | `false` | In the supported Zhao configuration, retain outer flight across batches and close the transient queued photoelectron column |
 
 Transfer rules:
 
 - Set `outer_plasma.return_model` and `coupling.particle_transfer_mode` to matching IDs.
-- `electrostatic_1d_instant_return` requires a positive `field_evolution_timescale` and uses `max_frozen_field_ratio`.
-- This path supports only the open z-high interface, x/y periodic wrapping, and `b0=0`.
-- Persistent queuing is not implemented. See `examples/periodic2_outer_particle_transfer.toml`.
+- The 1-D path supports only the open z-high interface, x/y periodic wrapping, and `b0=0`.
+- Instant mode requires a positive `field_evolution_timescale` and uses `max_frozen_field_ratio` as an applicability limit.
+- Queue mode requires `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` + `kinetic_1d_profile_return`,
+  `particle_transfer_mode="electrostatic_1d_instant_return"`, a positive `batch_duration` resolved directly or from
+  `dt * batch_duration_step`, and `outer_update_stride=1`.
+  Each event's `tau_outer`, delay to the next batch-start poll, and half-batch midpoint uncertainty are bounded by
+  `max_frozen_field_ratio * field_evolution_timescale`; the same bound applies to `batch_duration`.
+- Queue mode rejects `photoelectron_histogram_enabled=true`. Persistent queuing remains unavailable for a 3-D explicit orbit.
+- See `examples/periodic2_outer_particle_transfer.toml` and `examples/periodic2_zhao_transient_outer.toml`.
 
 Photoelectron-histogram rules:
 
@@ -968,6 +1008,7 @@ Output files:
 | `mesh_sources.csv` | Original mesh kind, surface model, `epsilon_r`, and element count for each `mesh_id` |
 | `outer_plasma_profile.csv` | Profile for a ready `kinetic_1d` / `unified_linear_response` outer state; a conditional checkpoint |
 | `photoelectron_histogram.csv` | Previous-batch and cumulative histogram when `photoelectron_histogram_enabled=true`; a conditional checkpoint |
+| `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | Active events when `outer_queue_enabled=true`; the former is serial and the latter is one conditional checkpoint per MPI rank |
 | `mesh_potential.csv` | When `write_mesh_potential=true` |
 | `charge_history.csv` | When `history_stride > 0` |
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |
@@ -985,6 +1026,14 @@ When the histogram state is ready, `summary.txt` adds:
 | Cumulative | `photoelectron_cumulative_signed_charge_C`, `photoelectron_cumulative_kinetic_energy_J`, `photoelectron_cumulative_count` |
 | Previous batch | `photoelectron_previous_signed_current_A`, `photoelectron_previous_charge_ratio` |
 | Applicability | `photoelectron_max_charge_ratio`, `photoelectron_linear_applicability_status` |
+
+`coupling_outer_queue_enabled` is always written to `summary.txt`. Only when it is `T`, the following queue state is added:
+
+| Group | Keys |
+| --- | --- |
+| Closure | `outer_photoelectron_population_fraction` |
+| Column | `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2` |
+| Queue stock | `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` |
 
 See [Configuration-specific output](OutputGuide.en.html#locate-configuration-specific-values) to locate these values.
 
@@ -1010,7 +1059,7 @@ Requirements for `resume=true`:
 | Output | `write_files=true` is required |
 | Source | If `restart_from` is unspecified, use `output.dir`; otherwise use `restart_from` |
 | Required files | `summary.txt`, `charges.csv`, and either serial `rng_state.txt` or every MPI `rng_state_rankNNNNN.txt` |
-| Conditional files | `charge_ledger.csv` with ledger metadata, `outer_plasma_profile.csv` for a ready outer state, and `photoelectron_histogram.csv` when the histogram is enabled |
+| Conditional files | `charge_ledger.csv` with ledger metadata, `outer_plasma_profile.csv` for a ready outer state, `photoelectron_histogram.csv` when the histogram is enabled, and serial `outer_event_queue.csv` or every MPI `outer_event_queue_rankNNNNN.csv` when the queue is enabled |
 | Optional state | Restore the global residual when `macro_residuals.csv` exists |
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 
@@ -1021,14 +1070,17 @@ During MPI execution:
 | File | Contents |
 |---|---|
 | `rng_state_rankNNNNN.txt` | Random-number state per rank |
+| `outer_event_queue_rankNNNNN.csv` | Rank-local active events for the transient Zhao queue; every rank writes one |
 | `macro_residuals.csv` | One global residual shared by all ranks and written by the root |
 
 Resume consistency rules:
 
 - Reject checkpoints with legacy `macro_residuals_rankNNNNN.csv` instead of converting them implicitly.
 - Match `mpi_world_size` in `summary.txt` to the current rank count.
-- Schema v2/v3 requires matching model, ordered-mesh, and ordered-species fingerprints.
+- Schema v2/v3/v4 requires matching model, ordered-mesh, and ordered-species fingerprints.
 - Schema v3 outer profiles require `field_V_m` and `charge_density_C_m3`.
+- A schema-v4 queue resume stops unless the transient Zhao state, queue-file schema 2, rank, world size, completed batch,
+  global count, signed charge, and all-rank queue fingerprint match.
 - `[[particles.species]].species_key` is stable. Omission yields `species_<1-based index>`; explicit values must be unique.
 
 ---

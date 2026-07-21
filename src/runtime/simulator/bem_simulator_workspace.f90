@@ -1,6 +1,7 @@
 !> シミュレーション実行中に再利用するバッチ作業配列を管理する。
 module bem_simulator_workspace
   use bem_kinds, only: dp, i32, i64
+  use bem_outer_event_queue, only: outer_event_record_type
   implicit none
   private
 
@@ -19,6 +20,8 @@ module bem_simulator_workspace
     logical, allocatable :: escaped_boundary_flag(:)
     logical, allocatable :: absorbed_flag(:)
     logical, allocatable :: soft_discarded_boundary_flag(:)
+    logical, allocatable :: queued_outer_flag(:)
+    type(outer_event_record_type), allocatable :: outer_event_staging(:)
     real(dp), allocatable :: q_before(:)
     real(dp), allocatable :: ledger_charge_values(:)
     integer(i64), allocatable :: ledger_count_values(:)
@@ -70,17 +73,29 @@ contains
   end subroutine reset_before_injection
 
   !> 可変粒子数に合わせて outcome flag を grow-only で確保し、有効範囲を初期化する。
-  subroutine prepare_particle_flags(self, particle_count)
+  subroutine prepare_particle_flags(self, particle_count, outer_queue_enabled)
     class(simulator_batch_workspace_type), intent(inout) :: self
     integer(i32), intent(in) :: particle_count
+    logical, intent(in), optional :: outer_queue_enabled
+    logical :: prepare_outer_staging
 
     if (particle_count < 0_i32) error stop 'simulator workspace particle count must be >= 0.'
     call ensure_logical_capacity(self%escaped_boundary_flag, particle_count)
     call ensure_logical_capacity(self%absorbed_flag, particle_count)
     call ensure_logical_capacity(self%soft_discarded_boundary_flag, particle_count)
+    call ensure_logical_capacity(self%queued_outer_flag, particle_count)
+    prepare_outer_staging = .false.
+    if (present(outer_queue_enabled)) prepare_outer_staging = outer_queue_enabled
+    if (prepare_outer_staging) then
+      call ensure_outer_event_capacity(self%outer_event_staging, particle_count)
+    else if (.not. allocated(self%outer_event_staging)) then
+      allocate (self%outer_event_staging(0))
+    end if
     self%escaped_boundary_flag(:particle_count) = .false.
     self%absorbed_flag(:particle_count) = .false.
     self%soft_discarded_boundary_flag(:particle_count) = .false.
+    self%queued_outer_flag(:particle_count) = .false.
+    if (prepare_outer_staging) self%outer_event_staging(:particle_count) = outer_event_record_type()
   end subroutine prepare_particle_flags
 
   !> logical 配列を既存容量を保ちながら必要時だけ拡張する。
@@ -95,5 +110,18 @@ contains
     allocate (grown(required_size))
     call move_alloc(grown, values)
   end subroutine ensure_logical_capacity
+
+  !> queue event staging 配列を粒子数に合わせて grow-only で確保する。
+  subroutine ensure_outer_event_capacity(values, required_size)
+    type(outer_event_record_type), allocatable, intent(inout) :: values(:)
+    integer(i32), intent(in) :: required_size
+    type(outer_event_record_type), allocatable :: grown(:)
+
+    if (allocated(values)) then
+      if (size(values) >= required_size) return
+    end if
+    allocate (grown(required_size))
+    call move_alloc(grown, values)
+  end subroutine ensure_outer_event_capacity
 
 end module bem_simulator_workspace

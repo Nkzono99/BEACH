@@ -323,6 +323,7 @@ contains
     write (u, '(a,a)') 'outer_plasma_zhao_branch_requested=', trim(cfg%outer_plasma%zhao_branch)
     write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
     write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
+    write (u, '(a,l1)') 'coupling_outer_queue_enabled=', cfg%coupling%outer_queue_enabled
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active
       write (u, '(a,l1)') 'electrostatic_applicable=', electrostatic_diagnostics%applicable
@@ -362,6 +363,21 @@ contains
           electrostatic_diagnostics%outer_zhao_phi_minimum
         write (u, '(a,es24.16)') 'outer_plasma_zhao_electron_density_infinity_m3=', &
           electrostatic_diagnostics%outer_zhao_electron_density_infinity
+        if (cfg%coupling%outer_queue_enabled) then
+          write (u, '(a,es24.16)') 'outer_photoelectron_population_fraction=', &
+            electrostatic_diagnostics%outer_photoelectron_population_fraction
+          write (u, '(a,es24.16)') 'outer_photoelectron_column_per_area_m2=', &
+            electrostatic_diagnostics%outer_photoelectron_column_per_area
+          write (u, '(a,es24.16)') 'outer_photoelectron_column_target_per_area_m2=', &
+            electrostatic_diagnostics%outer_photoelectron_column_target_per_area
+          write (u, '(a,es24.16)') 'outer_photoelectron_column_residual_per_area_m2=', &
+            electrostatic_diagnostics%outer_photoelectron_column_residual_per_area
+          write (u, '(a,i0)') 'outer_queue_event_count=', electrostatic_diagnostics%outer_queue_event_count
+          write (u, '(a,es24.16)') 'outer_queue_signed_charge_C=', &
+            electrostatic_diagnostics%outer_queue_signed_charge
+          write (u, '(a,a)') 'outer_queue_fingerprint=', &
+            trim(electrostatic_diagnostics%outer_queue_fingerprint)
+        end if
       end if
       write (u, '(a,es24.16)') 'outer_accessible_fraction_min=', &
         electrostatic_diagnostics%accessible_fraction_min

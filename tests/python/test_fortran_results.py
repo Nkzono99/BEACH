@@ -270,8 +270,7 @@ def _write_minimal_result_fixture(
         summary_lines.extend(summary_extra)
     (out / "summary.txt").write_text("\n".join(summary_lines), encoding="utf-8")
     (out / "charges.csv").write_text(
-        charges_text
-        or "elem_idx,charge_C\n1,1.0e-10\n2,-2.0e-10\n",
+        charges_text or "elem_idx,charge_C\n1,1.0e-10\n2,-2.0e-10\n",
         encoding="utf-8",
     )
     (out / "mesh_triangles.csv").write_text(
@@ -364,8 +363,12 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         result.history.as_array(),
         np.array([[2.0e-11, 1.0e-10], [-1.0e-11, -2.0e-10]]),
     )
-    np.testing.assert_array_equal(result.history.processed_particles_by_batch, np.array([5, 10]))
-    np.testing.assert_allclose(result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8]))
+    np.testing.assert_array_equal(
+        result.history.processed_particles_by_batch, np.array([5, 10])
+    )
+    np.testing.assert_allclose(
+        result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8])
+    )
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
 
 
@@ -608,8 +611,7 @@ def test_load_fortran_result_defers_corrupt_history_validation(tmp_path: Path) -
     out.mkdir()
     _write_minimal_result_fixture(out)
     (out / "charge_history.csv").write_text(
-        "batch,processed_particles,rel_change,elem_idx,charge_C\n"
-        "1,2,1.0e-1,1,1.0e-9\n",
+        "batch,processed_particles,rel_change,elem_idx,charge_C\n1,2,1.0e-1,1,1.0e-9\n",
         encoding="utf-8",
     )
 
@@ -643,7 +645,9 @@ def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> Non
 
     assert result.history is not None
     np.testing.assert_allclose(result.history[1], np.array([5.0e-10, 1.0e-9, -1.5e-9]))
-    np.testing.assert_allclose(result.history_at(10), np.array([1.0e-9, 2.0e-9, -3.0e-9]))
+    np.testing.assert_allclose(
+        result.history_at(10), np.array([1.0e-9, 2.0e-9, -3.0e-9])
+    )
     history = result.history.as_array()
     np.testing.assert_allclose(
         history,
@@ -712,7 +716,9 @@ def test_beach_default_lazy_history_keeps_step_access(tmp_path: Path) -> None:
 
     assert result.history is not None
     np.testing.assert_allclose(beach.get_mesh_charge(2, step=10), np.array([2.0e-9]))
-    np.testing.assert_allclose(result.history.get_step(10), np.array([1.0e-9, 2.0e-9, -3.0e-9]))
+    np.testing.assert_allclose(
+        result.history.get_step(10), np.array([1.0e-9, 2.0e-9, -3.0e-9])
+    )
 
 
 def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
@@ -761,7 +767,7 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     _write_minimal_result_fixture(
         out,
         summary_extra=[
-            "checkpoint_schema_version=3",
+            "checkpoint_schema_version=4",
             "model_fingerprint=0123456789ABCDEF",
             "mesh_fingerprint=1111111122222222",
             "species_fingerprint=3333333344444444",
@@ -775,6 +781,14 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
             "max_outer_flight_time_s=3.0e-6",
             "max_outer_frozen_field_ratio=3.0e-2",
             "max_outer_energy_relative_error=4.0e-5",
+            "coupling_outer_queue_enabled=T",
+            "outer_photoelectron_population_fraction=1.25",
+            "outer_photoelectron_column_per_area_m2=2.0e12",
+            "outer_photoelectron_column_target_per_area_m2=2.1e12",
+            "outer_photoelectron_column_residual_per_area_m2=-1.0e11",
+            "outer_queue_event_count=7",
+            "outer_queue_signed_charge_C=-3.5e-16",
+            "outer_queue_fingerprint=FEDCBA9876543210",
         ],
     )
     (out / "charge_ledger.csv").write_text(
@@ -788,7 +802,7 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
 
     result = load_fortran_result(out)
 
-    assert result.checkpoint_schema_version == 3
+    assert result.checkpoint_schema_version == 4
     assert result.model_fingerprint == "0123456789ABCDEF"
     assert result.mesh_fingerprint == "1111111122222222"
     assert result.species_fingerprint == "3333333344444444"
@@ -806,6 +820,119 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.max_outer_flight_time_s == pytest.approx(3.0e-6)
     assert result.max_outer_frozen_field_ratio == pytest.approx(3.0e-2)
     assert result.max_outer_energy_relative_error == pytest.approx(4.0e-5)
+    assert result.coupling_outer_queue_enabled is True
+    assert result.outer_photoelectron_population_fraction == pytest.approx(1.25)
+    assert result.outer_photoelectron_column_per_area_m2 == pytest.approx(2.0e12)
+    assert result.outer_photoelectron_column_target_per_area_m2 == pytest.approx(2.1e12)
+    assert result.outer_photoelectron_column_residual_per_area_m2 == pytest.approx(
+        -1.0e11
+    )
+    assert result.outer_queue_event_count == 7
+    assert result.outer_queue_signed_charge_c == pytest.approx(-3.5e-16)
+    assert result.outer_queue_fingerprint == "FEDCBA9876543210"
+
+
+def test_load_fortran_result_queue_disabled_has_no_queue_state(tmp_path: Path) -> None:
+    out = tmp_path / "queue_disabled"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=["coupling_outer_queue_enabled=F"],
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.coupling_outer_queue_enabled is False
+    assert result.outer_photoelectron_population_fraction is None
+    assert result.outer_photoelectron_column_per_area_m2 is None
+    assert result.outer_photoelectron_column_target_per_area_m2 is None
+    assert result.outer_photoelectron_column_residual_per_area_m2 is None
+    assert result.outer_queue_event_count is None
+    assert result.outer_queue_signed_charge_c is None
+    assert result.outer_queue_fingerprint is None
+
+
+def test_load_fortran_result_queue_disabled_rejects_queue_state(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "queue_disabled_with_state"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "coupling_outer_queue_enabled=F",
+            "outer_queue_event_count=0",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="queue_enabled=false forbids"):
+        load_fortran_result(out)
+
+
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "outer_photoelectron_population_fraction",
+        "outer_photoelectron_column_per_area_m2",
+        "outer_photoelectron_column_target_per_area_m2",
+        "outer_photoelectron_column_residual_per_area_m2",
+        "outer_queue_event_count",
+        "outer_queue_signed_charge_C",
+        "outer_queue_fingerprint",
+    ],
+)
+def test_load_fortran_result_queue_enabled_requires_complete_state(
+    tmp_path: Path, missing_key: str
+) -> None:
+    out = tmp_path / missing_key
+    out.mkdir()
+    queue_values = {
+        "outer_photoelectron_population_fraction": "1.25",
+        "outer_photoelectron_column_per_area_m2": "2.0e12",
+        "outer_photoelectron_column_target_per_area_m2": "2.1e12",
+        "outer_photoelectron_column_residual_per_area_m2": "-1.0e11",
+        "outer_queue_event_count": "7",
+        "outer_queue_signed_charge_C": "-3.5e-16",
+        "outer_queue_fingerprint": "FEDCBA9876543210",
+    }
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "coupling_outer_queue_enabled=T",
+            *[
+                f"{key}={value}"
+                for key, value in queue_values.items()
+                if key != missing_key
+            ],
+        ],
+    )
+
+    with pytest.raises(ValueError, match="queue_enabled=true requires"):
+        load_fortran_result(out)
+
+
+@pytest.mark.parametrize("fingerprint", ["fedcba9876543210", "ABCDEF"])
+def test_load_fortran_result_rejects_invalid_queue_fingerprint(
+    tmp_path: Path, fingerprint: str
+) -> None:
+    out = tmp_path / fingerprint
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "coupling_outer_queue_enabled=T",
+            "outer_photoelectron_population_fraction=1.25",
+            "outer_photoelectron_column_per_area_m2=2.0e12",
+            "outer_photoelectron_column_target_per_area_m2=2.1e12",
+            "outer_photoelectron_column_residual_per_area_m2=-1.0e11",
+            "outer_queue_event_count=7",
+            "outer_queue_signed_charge_C=-3.5e-16",
+            f"outer_queue_fingerprint={fingerprint}",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="16 uppercase hexadecimal"):
+        load_fortran_result(out)
 
 
 def test_beach_get_mesh_supports_step_selection(tmp_path: Path) -> None:
@@ -889,7 +1016,9 @@ def test_calc_coulomb_defaults_to_latest_history_step(tmp_path: Path) -> None:
 
     interaction = calc_coulomb(Beach(out), 1, 2)
     expected_fx = K_COULOMB * 2.0e-18
-    np.testing.assert_allclose(interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0]))
+    np.testing.assert_allclose(
+        interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0])
+    )
 
 
 def test_calc_coulomb_accepts_target_source_keywords(tmp_path: Path) -> None:
@@ -918,7 +1047,9 @@ def test_calc_coulomb_accepts_target_source_keywords(tmp_path: Path) -> None:
     np.testing.assert_allclose(
         interaction.torque_origin_m, interaction_legacy_origin.torque_origin_m
     )
-    np.testing.assert_allclose(interaction.force_on_a_N, interaction_legacy_origin.force_on_a_N)
+    np.testing.assert_allclose(
+        interaction.force_on_a_N, interaction_legacy_origin.force_on_a_N
+    )
 
 
 def test_calc_coulomb_accepts_composite_groups(tmp_path: Path) -> None:
@@ -972,7 +1103,9 @@ def test_calc_coulomb_matches_two_charge_expected_force(tmp_path: Path) -> None:
     interaction = calc_coulomb(result, 1, 2)
 
     expected_fx = K_COULOMB * 2.0e-18
-    np.testing.assert_allclose(interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0]))
+    np.testing.assert_allclose(
+        interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0])
+    )
     np.testing.assert_allclose(interaction.torque_on_a_Nm, np.zeros(3))
 
 
@@ -988,7 +1121,6 @@ def test_surface_charge_density_uses_triangle_area() -> None:
     density = _surface_charge_density(charges, triangles)
 
     np.testing.assert_allclose(density, np.array([6.0, -3.0]))
-
 
 
 def test_compute_potential_mesh_uses_precomputed_output_when_available() -> None:
@@ -1011,8 +1143,9 @@ def test_compute_potential_mesh_uses_precomputed_output_when_available() -> None
     np.testing.assert_allclose(potential, np.array([3.0, -4.0]))
 
 
-
-def test_compute_potential_mesh_requires_triangles_when_precomputed_output_is_incompatible() -> None:
+def test_compute_potential_mesh_requires_triangles_when_precomputed_output_is_incompatible() -> (
+    None
+):
     result = FortranRunResult(
         directory=Path("dummy"),
         mesh_nelem=1,
@@ -1029,7 +1162,6 @@ def test_compute_potential_mesh_requires_triangles_when_precomputed_output_is_in
 
     with pytest.raises(ValueError, match="mesh_triangles.csv"):
         compute_potential_mesh(result, self_term="exclude")
-
 
 
 def test_compute_potential_mesh_matches_area_equivalent_expected_values() -> None:
@@ -1797,9 +1929,7 @@ def test_potential_history_supports_periodic2_image_sum() -> None:
 def test_coerce_periodic2_rejects_legacy_ewald_modes() -> None:
     with pytest.raises(
         ValueError,
-        match=(
-            'periodic2.far_correction must be "auto", "none", or "m2l_root_oracle"'
-        ),
+        match=('periodic2.far_correction must be "auto", "none", or "m2l_root_oracle"'),
     ):
         _coerce_periodic2(
             {
@@ -2141,9 +2271,7 @@ def test_plot_charge_mesh_can_apply_periodic2_mesh_wrapping() -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
 
-    triangles = np.array(
-        [[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]]
-    )
+    triangles = np.array([[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]])
     result = FortranRunResult(
         directory=Path("dummy"),
         mesh_nelem=1,
@@ -2215,9 +2343,7 @@ def test_plot_potential_mesh_can_apply_periodic2_mesh_wrapping() -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
 
-    triangles = np.array(
-        [[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]]
-    )
+    triangles = np.array([[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]])
     result = FortranRunResult(
         directory=Path("dummy"),
         mesh_nelem=1,
@@ -2434,7 +2560,9 @@ def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(
     fig.clf()
 
 
-def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(tmp_path: Path) -> None:
+def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(
+    tmp_path: Path,
+) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
 
