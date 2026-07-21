@@ -29,9 +29,9 @@ contains
   real(dp), allocatable :: interface_energy_error_max_thread(:)
   type(photoelectron_histogram_type), allocatable :: photoelectron_histogram_thread(:)
   type(photoelectron_histogram_type) :: photoelectron_batch_histogram
-  logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:)
-  integer(i32) :: batch_counts(5)
-  real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0
+  logical, allocatable :: escaped_boundary_flag(:), absorbed_flag(:), soft_discarded_boundary_flag(:)
+  integer(i32) :: batch_counts(6)
+  real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   real(dp) :: max_outer_flight_time, max_frozen_field_ratio, max_outer_energy_relative_error
   real(dp) :: outer_max_diagnostics(3)
@@ -146,7 +146,8 @@ contains
     call perf_region_begin(perf_region_prepare_batch, t0)
     call prepare_batch_state( &
       mesh, app, snapshot, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      photo_emission_dq, mpi_ctx, snapshot%outer, inject_state, photo_failure_status, photo_failure_species, &
+      soft_discarded_boundary_flag, photo_emission_dq, mpi_ctx, snapshot%outer, inject_state, &
+      photo_failure_status, photo_failure_species, &
       photo_failure_ray, photo_failure_bounce &
       )
     call perf_region_end(perf_region_prepare_batch, t0)
@@ -175,14 +176,16 @@ contains
     if (photoelectron_histogram_enabled) then
       call process_particle_batch( &
         mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-        interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
+        soft_discarded_boundary_flag, interface_outward_thread, interface_returned_thread, &
+        collision_failure_status, collision_failure_particle, &
         collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
         interface_frozen_ratio_max_thread, interface_energy_error_max_thread, photoelectron_histogram_thread &
         )
     else
       call process_particle_batch( &
         mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-        interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
+        soft_discarded_boundary_flag, interface_outward_thread, interface_returned_thread, &
+        collision_failure_status, collision_failure_particle, &
         collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
         interface_frozen_ratio_max_thread, interface_energy_error_max_thread &
         )
@@ -216,7 +219,9 @@ contains
     if (ledger_enabled) then
       batch_ledger%interface_outward_gross = sum(interface_outward_thread, dim=2)
       batch_ledger%interface_returned_gross = sum(interface_returned_thread, dim=2)
-      call record_batch_outcome_charge(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_ledger)
+      call record_batch_outcome_charge( &
+        pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, batch_ledger &
+        )
       call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx)
     end if
     if (photoelectron_histogram_enabled) then
@@ -249,15 +254,19 @@ contains
     end if
 
     call perf_region_begin(perf_region_count_outcomes, t0)
-    call count_batch_outcomes(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_counts)
+    call count_batch_outcomes( &
+      pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, &
+      batch_counts, batch_soft_discarded_abs_charge &
+      )
     call perf_region_end(perf_region_count_outcomes, t0)
 
     call perf_region_begin(perf_region_mpi_reduce, t0)
     call mpi_allreduce_sum_i32_array(mpi_ctx, batch_counts)
+    call mpi_allreduce_sum_real_dp_scalar(mpi_ctx, batch_soft_discarded_abs_charge)
     call perf_region_end(perf_region_mpi_reduce, t0)
 
     call perf_region_begin(perf_region_stats_update, t0)
-    call accumulate_batch_stats(stats, batch_counts, rel)
+    call accumulate_batch_stats(stats, batch_counts, batch_soft_discarded_abs_charge, rel)
     call perf_region_end(perf_region_stats_update, t0)
 
     call perf_region_begin(perf_region_history_write, t0)
@@ -273,6 +282,22 @@ contains
       end if
     end if
     call perf_region_end(perf_region_history_write, t0)
+
+    if (stats%multiple_box_events_soft_discarded > &
+        int(app%sim%multiple_box_events_soft_discard_count_limit, i64) .or. &
+        stats%multiple_box_events_soft_discarded_abs_charge > &
+        app%sim%multiple_box_events_soft_discard_abs_charge_limit) then
+      if (mpi_is_root(mpi_ctx)) then
+        write (error_unit, '(a,i0,a,i0,a,es13.5,a,es13.5)') &
+          'multiple_box_events soft-discard limit exceeded: count=', &
+          stats%multiple_box_events_soft_discarded, ' count_limit=', &
+          app%sim%multiple_box_events_soft_discard_count_limit, ' abs_charge_C=', &
+          stats%multiple_box_events_soft_discarded_abs_charge, ' abs_charge_limit_C=', &
+          app%sim%multiple_box_events_soft_discard_abs_charge_limit
+        flush (error_unit)
+      end if
+      error stop 1
+    end if
 
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
@@ -306,6 +331,7 @@ contains
   if (allocated(potential_buf)) deallocate (potential_buf)
   if (allocated(escaped_boundary_flag)) deallocate (escaped_boundary_flag)
   if (allocated(absorbed_flag)) deallocate (absorbed_flag)
+  if (allocated(soft_discarded_boundary_flag)) deallocate (soft_discarded_boundary_flag)
   deallocate ( &
     dq_thread, dq, photo_emission_dq, interface_outward_thread, interface_returned_thread, &
     interface_tau_max_thread, interface_frozen_ratio_max_thread &
@@ -347,8 +373,17 @@ contains
   else
     allocate (absorbed_flag(pcls_batch%n))
   end if
+  if (allocated(soft_discarded_boundary_flag)) then
+    if (size(soft_discarded_boundary_flag) < pcls_batch%n) then
+      deallocate (soft_discarded_boundary_flag)
+      allocate (soft_discarded_boundary_flag(pcls_batch%n))
+    end if
+  else
+    allocate (soft_discarded_boundary_flag(pcls_batch%n))
+  end if
   escaped_boundary_flag(:pcls_batch%n) = .false.
   absorbed_flag(:pcls_batch%n) = .false.
+  soft_discarded_boundary_flag(:pcls_batch%n) = .false.
   dq_thread = 0.0d0
   end procedure prepare_batch_state
 
@@ -384,6 +419,7 @@ contains
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth,interface_active) &
+  !$omp shared(soft_discarded_boundary_flag) &
   !$omp shared(interface_outward_thread,interface_returned_thread) &
   !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread) &
   !$omp shared(interface_energy_error_max_thread) &
@@ -524,6 +560,20 @@ contains
           end select
         end if
         if (step_result%status /= collision_query_ok) then
+          if (step_result%status == particle_step_multiple_box_events .and. &
+              trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard') then
+            qdep = pcls_batch%q(i)*pcls_batch%w(i)
+            pcls_batch%alive(i) = .false.
+            soft_discarded_boundary_flag(i) = .true.
+            !$omp critical (beach_soft_discard_boundary_event)
+            write (output_unit, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,es13.5,a,3es13.5,a,3es13.5)') &
+              'BEACH soft-discard: batch=', batch_idx, ' rank=', mpi_rank, ' particle=', i, &
+              ' species=', pcls_batch%species_id(i), ' step=', step, ' macro_charge_C=', qdep, &
+              ' x=', x0, ' v=', v0
+            flush (output_unit)
+            !$omp end critical (beach_soft_discard_boundary_event)
+            exit
+          end if
           !$omp critical (beach_collision_query_failure)
           if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
               (i == collision_failure_particle .and. step < collision_failure_step)) then
@@ -721,9 +771,12 @@ contains
   end subroutine record_batch_initial_charge
 
   !> batch 終了粒子を surface absorption、infinity escape、unresolved discard に分類する。
-  subroutine record_batch_outcome_charge(pcls_batch, escaped_boundary_flag, absorbed_flag, ledger)
+  subroutine record_batch_outcome_charge( &
+    pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, ledger &
+    )
     type(particles_soa), intent(in) :: pcls_batch
     logical, intent(in) :: escaped_boundary_flag(:), absorbed_flag(:)
+    logical, intent(in) :: soft_discarded_boundary_flag(:)
     type(charge_ledger_type), intent(inout) :: ledger
     integer(i32) :: i, species_idx
     real(dp) :: macro_charge
@@ -740,7 +793,7 @@ contains
       else if (escaped_boundary_flag(i)) then
         ledger%escaped_to_infinity(species_idx) = ledger%escaped_to_infinity(species_idx) + macro_charge
         ledger%escaped_count(species_idx) = ledger%escaped_count(species_idx) + 1_i64
-      else if (pcls_batch%alive(i)) then
+      else if (soft_discarded_boundary_flag(i) .or. pcls_batch%alive(i)) then
         ledger%discarded_unresolved(species_idx) = ledger%discarded_unresolved(species_idx) + macro_charge
         ledger%discarded_unresolved_count(species_idx) = ledger%discarded_unresolved_count(species_idx) + 1_i64
       end if

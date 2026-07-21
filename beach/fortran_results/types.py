@@ -312,6 +312,8 @@ class FortranRunResult:
     max_outer_flight_time_s: float | None = None
     max_outer_frozen_field_ratio: float | None = None
     max_outer_energy_relative_error: float | None = None
+    multiple_box_events_soft_discarded: int = 0
+    multiple_box_events_soft_discarded_abs_charge_c: float = 0.0
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

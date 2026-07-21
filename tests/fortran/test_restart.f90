@@ -243,6 +243,13 @@ program test_restart
   call assert_equal_i32(stats%batches, 2_i32, 'batches mismatch')
   call assert_equal_i64(stats%escaped_boundary, 1_i64, 'escaped_boundary mismatch')
   call assert_equal_i64(stats%survived_max_step, 2_i64, 'survived_max_step mismatch')
+  call assert_equal_i64( &
+    stats%multiple_box_events_soft_discarded, 4_i64, 'soft discarded count mismatch' &
+    )
+  call assert_close_dp( &
+    stats%multiple_box_events_soft_discarded_abs_charge, 2.5d-15, 1.0d-27, &
+    'soft discarded absolute charge mismatch' &
+    )
   call assert_close_dp(stats%last_rel_change, 1.0d-3, 1.0d-12, 'last_rel_change mismatch')
   call assert_allclose_1d(mesh%q_elem, [1.0d-12, -2.0d-12], 1.0d-24, 'charge restore mismatch')
   call assert_allclose_1d(state%macro_residual, [0.25d0, 0.75d0], 1.0d-12, 'macro residual restore mismatch')
@@ -343,6 +350,8 @@ contains
     write (u, '(a)') 'batches=2'
     write (u, '(a)') 'escaped_boundary=1'
     write (u, '(a)') 'survived_max_step=2'
+    write (u, '(a)') 'multiple_box_events_soft_discarded=4'
+    write (u, '(a)') 'multiple_box_events_soft_discarded_abs_charge_C=2.5e-15'
     write (u, '(a)') 'last_rel_change=1.0e-3'
     close (u)
   end subroutine write_summary_fixture

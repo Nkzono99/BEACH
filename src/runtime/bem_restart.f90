@@ -576,6 +576,10 @@ contains
         read (value, *) stats%escaped_boundary
       case ('survived_max_step')
         read (value, *) stats%survived_max_step
+      case ('multiple_box_events_soft_discarded')
+        read (value, *) stats%multiple_box_events_soft_discarded
+      case ('multiple_box_events_soft_discarded_abs_charge_C')
+        read (value, *) stats%multiple_box_events_soft_discarded_abs_charge
       case ('last_rel_change')
         read (value, *) stats%last_rel_change
         found_rel = .true.
@@ -913,6 +917,13 @@ contains
     if (stats%escaped < 0_i64) error stop 'Resume checkpoint escaped must be >= 0.'
     if (stats%escaped_boundary < 0_i64) error stop 'Resume checkpoint escaped_boundary must be >= 0.'
     if (stats%survived_max_step < 0_i64) error stop 'Resume checkpoint survived_max_step must be >= 0.'
+    if (stats%multiple_box_events_soft_discarded < 0_i64) then
+      error stop 'Resume checkpoint multiple_box_events_soft_discarded must be >= 0.'
+    end if
+    if (.not. ieee_is_finite(stats%multiple_box_events_soft_discarded_abs_charge) .or. &
+        stats%multiple_box_events_soft_discarded_abs_charge < 0.0_dp) then
+      error stop 'Resume checkpoint multiple_box_events_soft_discarded_abs_charge_C must be finite and >= 0.'
+    end if
     if (stats%batches < 0_i32) error stop 'Resume checkpoint batches must be >= 0.'
     if (.not. ieee_is_finite(stats%last_rel_change) .or. stats%last_rel_change < 0.0d0) then
       error stop 'Resume checkpoint last_rel_change must be finite and >= 0.'

@@ -166,6 +166,12 @@ $$
 または高速粒子を検出する安全上限でもあります。
 guard幅の変更はこの最大8回の安全上限を変更しません。
 
+既定の`multiple_box_events_policy="abort"`はこの時点でRUNをfail closedにします。有限画像和の定性的な
+感度確認など、明示的に`"soft_discard"`を選んだ場合だけ、該当macro particleを消滅させ、batch、rank、
+particle、species、step、macro charge、位置、速度を標準エラーへ記録します。件数と絶対macro chargeは
+`summary.txt`、restart、charge ledgerにも残り、設定した累積上限のどちらかを超えるとRUNを停止します。
+これは局所的な数値回避策であり、物理境界条件そのものの代替ではありません。
+
 ## z-highから外部モデルへ粒子を渡す
 
 particle transferが有効なとき、z-high open faceに達した粒子はその場でescapeさせず、interface crossingとして
@@ -206,7 +212,8 @@ DDA分岐名に加えて `p0` / `p1`、collision grid範囲、cell index、`t_cu
 2. 薄い面、edge/corner近傍、三角形とほぼ平行な軌道線分を含む小ケースを作る。
 3. reflect後とperiodic wrap後の残り時間内にmeshへ当たる軌道を確認する。
 4. periodic seamで`pos`と`pos_wrapped`が意図した要素へ対応するか確認する。
-5. `multiple_box_events`が出る場合、上限を回避するために`dt`を小さくする。
+5. `multiple_box_events`が出る場合、まず`dt`を小さくする。定性的な有限画像和比較でsoft discardを使う場合も、
+   discard率と絶対電荷が結論を左右しないことを確認する。
 6. mesh refinementで最初のhitと最終的な表面電荷分布が収束するか確認する。
 
 ## Code reference

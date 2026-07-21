@@ -110,7 +110,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('basic_simulation')
   call delete_file_if_exists(history_path)
@@ -246,6 +246,10 @@ program test_simulator
 
   call test_begin('multiple_box_event_failure_context')
   call test_multiple_box_event_failure_context()
+  call test_end()
+
+  call test_begin('multiple_box_event_soft_discard')
+  call test_multiple_box_event_soft_discard()
   call test_end()
 
   call test_begin('invalid_candidate_failure_context')
@@ -917,6 +921,63 @@ contains
     call seed_particles_from_config(failure_cfg)
     call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
   end subroutine run_multiple_box_event_failure_probe
+
+  subroutine test_multiple_box_event_soft_discard()
+    type(mesh_type) :: soft_mesh
+    type(app_config) :: soft_cfg
+    type(sim_stats) :: soft_stats
+    type(charge_ledger_type) :: soft_ledger
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [10.0_dp, -1.0_dp, -1.0_dp]
+    tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
+    tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
+    call init_mesh(soft_mesh, tri_v0, tri_v1, tri_v2)
+    call default_app_config(soft_cfg)
+    soft_cfg%sim%rng_seed = 995_i32
+    soft_cfg%sim%batch_count = 1_i32
+    soft_cfg%sim%dt = 1.0_dp
+    soft_cfg%sim%max_step = 1_i32
+    soft_cfg%sim%use_box = .true.
+    soft_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    soft_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    soft_cfg%sim%bc_low(1) = bc_reflect
+    soft_cfg%sim%bc_high(1) = bc_reflect
+    soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
+    soft_cfg%sim%multiple_box_events_soft_discard_count_limit = 100000_i32
+    soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = 1.0e9_dp
+    soft_cfg%n_particle_species = 1_i32
+    soft_cfg%particle_species(1) = species_from_defaults()
+    soft_cfg%particle_species(1)%source_mode = 'volume_seed'
+    soft_cfg%particle_species(1)%npcls_per_step = 1_i32
+    soft_cfg%particle_species(1)%q_particle = 2.0_dp
+    soft_cfg%particle_species(1)%m_particle = 1.0_dp
+    soft_cfg%particle_species(1)%w_particle = 3.0_dp
+    soft_cfg%particle_species(1)%pos_low = [0.9_dp, 0.2_dp, 0.2_dp]
+    soft_cfg%particle_species(1)%pos_high = soft_cfg%particle_species(1)%pos_low
+    soft_cfg%particle_species(1)%drift_velocity = [9.0_dp, 0.0_dp, 0.0_dp]
+    soft_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(soft_cfg)
+
+    call run_absorption_insulator(soft_mesh, soft_cfg, soft_stats, charge_ledger=soft_ledger)
+    call assert_equal_i64(soft_stats%processed_particles, 1_i64, 'soft discard processed count mismatch')
+    call assert_equal_i64(soft_stats%absorbed, 0_i64, 'soft discard absorbed count mismatch')
+    call assert_equal_i64(soft_stats%escaped, 1_i64, 'soft discard escaped umbrella count mismatch')
+    call assert_equal_i64( &
+      soft_stats%multiple_box_events_soft_discarded, 1_i64, 'soft discard event count mismatch' &
+      )
+    call assert_close_dp( &
+      soft_stats%multiple_box_events_soft_discarded_abs_charge, 6.0_dp, 1.0e-12_dp, &
+      'soft discard absolute charge mismatch' &
+      )
+    call assert_equal_i64( &
+      soft_ledger%discarded_unresolved_count(1), 1_i64, 'soft discard ledger count mismatch' &
+      )
+    call assert_close_dp( &
+      soft_ledger%discarded_unresolved(1), 6.0_dp, 1.0e-12_dp, 'soft discard ledger charge mismatch' &
+      )
+    call assert_close_dp(soft_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'soft discard ledger residual mismatch')
+  end subroutine test_multiple_box_event_soft_discard
 
   subroutine test_invalid_candidate_failure_context()
     character(len=1024) :: executable_path, command, child_line

@@ -2740,6 +2740,7 @@ def _validate_charge_ledger(
     absorbed: int,
     escaped_boundary: int,
     survived_max_step: int,
+    soft_discarded: int,
 ) -> None:
     count_fields = (
         "injected_count",
@@ -2800,7 +2801,7 @@ def _validate_charge_ledger(
         raise ValidationError("charge_ledger absorbed particle count mismatch")
     if totals["escaped_count"] != escaped_boundary:
         raise ValidationError("charge_ledger outcome counts mismatch")
-    if totals["discarded_unresolved_count"] != survived_max_step:
+    if totals["discarded_unresolved_count"] != survived_max_step + soft_discarded:
         raise ValidationError("charge_ledger unresolved particle count mismatch")
 
 
@@ -3248,6 +3249,11 @@ def verify_run(
     batches = _summary_int(summary, "batches")
     escaped_boundary = _summary_int(summary, "escaped_boundary")
     survived = _summary_int(summary, "survived_max_step")
+    soft_discarded = (
+        _summary_int(summary, "multiple_box_events_soft_discarded")
+        if "multiple_box_events_soft_discarded" in summary
+        else 0
+    )
     _summary_float(summary, "last_rel_change")
     if mesh_nelem < 1 or mesh_count < 1:
         raise ValidationError("mesh counts must be positive")
@@ -3266,8 +3272,10 @@ def verify_run(
         raise ValidationError(f"batches mismatch: {batches} != {expected}")
     if processed != absorbed + escaped:
         raise ValidationError("processed_particles != absorbed + escaped")
-    if escaped != escaped_boundary + survived:
-        raise ValidationError("escaped != escaped_boundary + survived_max_step")
+    if escaped != escaped_boundary + survived + soft_discarded:
+        raise ValidationError(
+            "escaped != escaped_boundary + survived_max_step + multiple_box_events_soft_discarded"
+        )
     for key in ("model_fingerprint", "mesh_fingerprint", "species_fingerprint"):
         value = summary.get(key, "")
         if len(value) != 16:
@@ -3322,6 +3330,7 @@ def verify_run(
         absorbed=absorbed,
         escaped_boundary=escaped_boundary,
         survived_max_step=survived,
+        soft_discarded=soft_discarded,
     )
     _validate_checkpoint(output, world_size)
     restart_batch = 0

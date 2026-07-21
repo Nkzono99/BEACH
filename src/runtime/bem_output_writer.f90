@@ -111,6 +111,9 @@ contains
     print '(a,i0)', 'batches=', stats%batches
     print '(a,i0)', 'escaped_boundary=', stats%escaped_boundary
     print '(a,i0)', 'survived_max_step=', stats%survived_max_step
+    print '(a,i0)', 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
+    print '(a,es12.4)', 'multiple_box_events_soft_discarded_abs_charge_C=', &
+      stats%multiple_box_events_soft_discarded_abs_charge
     print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
     print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
     dielectric_count = count_dielectric_surfaces(mesh)
@@ -299,6 +302,9 @@ contains
     write (u, '(a,i0)') 'batches=', stats%batches
     write (u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
     write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
+    write (u, '(a,i0)') 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
+    write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &
+      stats%multiple_box_events_soft_discarded_abs_charge
     write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
     write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
     write (u, '(a,a)') 'field_backend=', trim(cfg%field%backend)

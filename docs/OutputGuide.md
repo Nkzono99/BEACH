@@ -42,7 +42,7 @@ beachx inspect outputs/latest
 | --- | --- | --- |
 | 実行識別 | `build_version`, `build_source_commit`, `model_fingerprint`, `mesh_fingerprint`, `species_fingerprint` | どのビルド・設定・メッシュ・粒子種で作った出力か |
 | 規模 | `mesh_nelem`, `mesh_count`, `mpi_world_size` | 要素数、メッシュ数、MPI ランク数 |
-| 粒子処理 | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step` | 粒子イベントの集計数 |
+| 粒子処理 | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | 粒子イベントの集計数と記録付きsoft discard |
 | 進行 | `batches`, `last_rel_change` | 完了バッチ数と最終バッチの電荷変化監視値 |
 | 場計算 | `field_backend`, `field_source_model`, `field_kernel_id` | 出力を作った場ソルバーと source kernel |
 

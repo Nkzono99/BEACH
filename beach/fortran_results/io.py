@@ -71,6 +71,14 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
             summary.get("survived_max_step", "0"),
             key="survived_max_step",
         ),
+        multiple_box_events_soft_discarded=_parse_nonnegative_int(
+            summary.get("multiple_box_events_soft_discarded", "0"),
+            key="multiple_box_events_soft_discarded",
+        ),
+        multiple_box_events_soft_discarded_abs_charge_c=_parse_nonnegative_finite_float(
+            summary.get("multiple_box_events_soft_discarded_abs_charge_C", "0"),
+            key="multiple_box_events_soft_discarded_abs_charge_C",
+        ),
         last_rel_change=_parse_nonnegative_finite_float(
             summary["last_rel_change"],
             key="last_rel_change",

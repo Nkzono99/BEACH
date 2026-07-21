@@ -331,6 +331,20 @@ contains
     case default
       error stop 'sim.open_boundary_model must be "escape" or "potential_barrier".'
     end select
+    cfg%sim%multiple_box_events_policy = lower_ascii(trim(cfg%sim%multiple_box_events_policy))
+    select case (trim(cfg%sim%multiple_box_events_policy))
+    case ('abort', 'soft_discard')
+      continue
+    case default
+      error stop 'sim.multiple_box_events_policy must be "abort" or "soft_discard".'
+    end select
+    if (cfg%sim%multiple_box_events_soft_discard_count_limit < 1_i32) then
+      error stop 'sim.multiple_box_events_soft_discard_count_limit must be >= 1.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%multiple_box_events_soft_discard_abs_charge_limit) .or. &
+        cfg%sim%multiple_box_events_soft_discard_abs_charge_limit <= 0.0_dp) then
+      error stop 'sim.multiple_box_events_soft_discard_abs_charge_limit must be finite and > 0.'
+    end if
     if (cfg%sim%injection_face_phi_grid_n < 1_i32) then
       error stop 'sim.injection_face_phi_grid_n must be >= 1.'
     end if
@@ -1133,6 +1147,21 @@ contains
       case ('open_boundary_model')
         call get_toml_string(table, keys(ikey), cfg%sim%open_boundary_model, 'sim.open_boundary_model')
         cfg%sim%open_boundary_model = lower_ascii(trim(cfg%sim%open_boundary_model))
+      case ('multiple_box_events_policy')
+        call get_toml_string( &
+          table, keys(ikey), cfg%sim%multiple_box_events_policy, 'sim.multiple_box_events_policy' &
+          )
+        cfg%sim%multiple_box_events_policy = lower_ascii(trim(cfg%sim%multiple_box_events_policy))
+      case ('multiple_box_events_soft_discard_count_limit')
+        call get_toml_int( &
+          table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_count_limit, &
+          'sim.multiple_box_events_soft_discard_count_limit' &
+          )
+      case ('multiple_box_events_soft_discard_abs_charge_limit')
+        call get_toml_real( &
+          table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_abs_charge_limit, &
+          'sim.multiple_box_events_soft_discard_abs_charge_limit' &
+          )
       case ('injection_face_phi_grid_n')
         call get_toml_int(table, keys(ikey), cfg%sim%injection_face_phi_grid_n, 'sim.injection_face_phi_grid_n')
       case ('raycast_max_bounce')

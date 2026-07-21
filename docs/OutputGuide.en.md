@@ -42,7 +42,7 @@ conditions and restart roles.
 | --- | --- | --- |
 | Run identity | `build_version`, `build_source_commit`, `model_fingerprint`, `mesh_fingerprint`, `species_fingerprint` | build, configuration, mesh, and species that produced the output |
 | Size | `mesh_nelem`, `mesh_count`, `mpi_world_size` | element, mesh, and MPI-rank counts |
-| Particle processing | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step` | particle-event totals |
+| Particle processing | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | particle-event totals and recorded soft discards |
 | Progress | `batches`, `last_rel_change` | completed batches and final-batch charge-change monitor |
 | Field evaluation | `field_backend`, `field_source_model`, `field_kernel_id` | field solver and source kernel used for the output |
 

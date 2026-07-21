@@ -27,7 +27,8 @@ module bem_simulator
   use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
   use bem_outer_plasma_types, only: outer_plasma_ok, outer_plasma_state_type
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
-                     mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, mpi_allreduce_max_real_dp_array, &
+                     mpi_allreduce_sum_real_dp_scalar, mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
+                     mpi_allreduce_max_real_dp_array, &
                      mpi_select_lowest_rank_i32_values
   implicit none
   private
@@ -59,7 +60,8 @@ module bem_simulator
     !> 1バッチ分の粒子群と作業配列を初期化する。
     module subroutine prepare_batch_state( &
       mesh, app, snapshot, stats, batch_idx, dq_thread, pcls_batch, escaped_boundary_flag, absorbed_flag, &
-      photo_emission_dq, mpi, outer_state, inject_state, collision_failure_status, collision_failure_species, &
+      soft_discarded_boundary_flag, photo_emission_dq, mpi, outer_state, inject_state, &
+      collision_failure_status, collision_failure_species, &
       collision_failure_ray, collision_failure_bounce &
       )
       type(mesh_type), intent(in) :: mesh
@@ -71,6 +73,7 @@ module bem_simulator
       type(particles_soa), intent(out) :: pcls_batch
       logical, allocatable, intent(inout) :: escaped_boundary_flag(:)
       logical, allocatable, intent(inout) :: absorbed_flag(:)
+      logical, allocatable, intent(inout) :: soft_discarded_boundary_flag(:)
       real(dp), intent(out) :: photo_emission_dq(:)
       type(mpi_context), intent(in) :: mpi
       type(outer_plasma_state_type), intent(in) :: outer_state
@@ -82,7 +85,8 @@ module bem_simulator
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
       mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank, &
-      interface_outward_thread, interface_returned_thread, collision_failure_status, collision_failure_particle, &
+      soft_discarded_boundary_flag, interface_outward_thread, interface_returned_thread, &
+      collision_failure_status, collision_failure_particle, &
       collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
       interface_frozen_ratio_max_thread, interface_energy_error_max_thread, photoelectron_histogram_thread &
       )
@@ -93,6 +97,7 @@ module bem_simulator
       real(dp), intent(inout) :: dq_thread(:, :)
       logical, intent(inout) :: escaped_boundary_flag(:)
       logical, intent(inout) :: absorbed_flag(:)
+      logical, intent(inout) :: soft_discarded_boundary_flag(:)
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx
       integer(i32), intent(in) :: mpi_rank
@@ -121,17 +126,23 @@ module bem_simulator
     end subroutine commit_batch_charge
 
     !> 今バッチの粒子処理結果を局所集計する。
-    module subroutine count_batch_outcomes(pcls_batch, escaped_boundary_flag, absorbed_flag, batch_counts)
+    module subroutine count_batch_outcomes( &
+      pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, &
+      batch_counts, soft_discarded_abs_charge &
+      )
       type(particles_soa), intent(in) :: pcls_batch
       logical, intent(in) :: escaped_boundary_flag(:)
       logical, intent(in) :: absorbed_flag(:)
-      integer(i32), intent(out) :: batch_counts(5)
+      logical, intent(in) :: soft_discarded_boundary_flag(:)
+      integer(i32), intent(out) :: batch_counts(6)
+      real(dp), intent(out) :: soft_discarded_abs_charge
     end subroutine count_batch_outcomes
 
     !> バッチ完了後の統計値を更新する。
-    module subroutine accumulate_batch_stats(stats, batch_counts, rel)
+    module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, rel)
       type(sim_stats), intent(inout) :: stats
-      integer(i32), intent(in) :: batch_counts(5)
+      integer(i32), intent(in) :: batch_counts(6)
+      real(dp), intent(in) :: soft_discarded_abs_charge
       real(dp), intent(in) :: rel
     end subroutine accumulate_batch_stats
 

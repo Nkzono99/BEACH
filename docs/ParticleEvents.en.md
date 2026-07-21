@@ -168,6 +168,12 @@ At most eight box events are processed in one outer step. All eight are supporte
 an excessively large `dt`, narrow box, or very fast particle.
 The scale-aware guard does not change this existing eight-event safety limit.
 
+The default `multiple_box_events_policy="abort"` fails the run closed at this point. Only an explicit
+`"soft_discard"` removes the affected macro-particle and records batch, rank, particle, species, step, macro charge,
+position, and velocity on standard error. Count and absolute macro charge are also retained in `summary.txt`, restart,
+and the charge ledger. The run aborts when either configured cumulative limit is exceeded. This is a bounded numerical
+workaround for qualitative comparisons, not a replacement for a physical boundary model.
+
 ## Transfer particles through z-high to an outer model
 
 When particle transfer is active, the z-high open face is returned to the caller as an interface crossing instead of immediately
@@ -209,7 +215,8 @@ standard error. This environment variable enables diagnostics only and does not 
 2. Build reduced cases with thin surfaces, edge and corner hits, and nearly parallel trajectory segments.
 3. Test a mesh hit during the remainder after reflection and after periodic wrapping.
 4. At a periodic seam, verify that `pos` and `pos_wrapped` identify the intended base element.
-5. If `multiple_box_events` occurs, reduce `dt` instead of bypassing the bound.
+5. If `multiple_box_events` occurs, reduce `dt` first. If a qualitative finite-image comparison uses soft discard,
+   verify that its rate and absolute charge cannot affect the conclusion.
 6. Refine the mesh and check convergence of the first hit and final surface-charge distribution.
 
 ## Code reference

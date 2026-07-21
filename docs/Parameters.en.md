@@ -456,6 +456,9 @@ The uniform external electric field can be specified directly as
 | `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | Reference potential at infinity [V] |
 | `open_boundary_model` | string | `"escape"` | `escape` / `potential_barrier` |
+| `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard`; action when a step exceeds the box-event limit |
+| `multiple_box_events_soft_discard_count_limit` | int | `1000` | abort after the cumulative soft-discard count exceeds this value |
+| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1e-12` | abort after cumulative absolute soft-discarded macro charge [C] exceeds this value |
 | `injection_face_phi_grid_n` | int | `3` | `N x N` evaluation grid for injection-face average potential |
 | `raycast_max_bounce` | int | `16` | Maximum number of reflections for `photo_raycast` |
 | `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |

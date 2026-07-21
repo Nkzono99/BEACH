@@ -302,6 +302,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
                 "batches=1",
                 "escaped_boundary=2",
                 "survived_max_step=1",
+                "multiple_box_events_soft_discarded=4",
+                "multiple_box_events_soft_discarded_abs_charge_C=2.5e-15",
                 "last_rel_change=1.0e-8",
             ]
         ),
@@ -342,6 +344,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     assert result.absorbed == 7
     assert result.escaped_boundary == 2
     assert result.survived_max_step == 1
+    assert result.multiple_box_events_soft_discarded == 4
+    assert result.multiple_box_events_soft_discarded_abs_charge_c == 2.5e-15
     assert result.triangles is not None
     assert result.triangles.shape == (2, 3, 3)
     assert result.history is not None

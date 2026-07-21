@@ -646,6 +646,27 @@
           "default": "escape",
           "description": "Return/escape model applied at open particle boundaries."
         },
+        "multiple_box_events_policy": {
+          "type": "string",
+          "enum": [
+            "abort",
+            "soft_discard"
+          ],
+          "default": "abort",
+          "description": "Action when one particle step exceeds the internal box-boundary event limit. soft_discard records and removes only that particle."
+        },
+        "multiple_box_events_soft_discard_count_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000,
+          "description": "Cumulative recorded soft-discard count above which the run aborts."
+        },
+        "multiple_box_events_soft_discard_abs_charge_limit": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1e-12,
+          "description": "Cumulative absolute macro-particle charge [C] above which the run aborts."
+        },
         "injection_face_phi_grid_n": {
           "type": "integer",
           "minimum": 1,

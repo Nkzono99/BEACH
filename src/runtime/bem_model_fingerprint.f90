@@ -85,6 +85,11 @@ contains
     call feed_string(hash, cfg%sim%reservoir_potential_model)
     call feed_real(hash, cfg%sim%phi_infty)
     call feed_string(hash, cfg%sim%open_boundary_model)
+    if (trim(cfg%sim%multiple_box_events_policy) /= 'abort') then
+      call feed_string(hash, cfg%sim%multiple_box_events_policy)
+      call feed_integer(hash, cfg%sim%multiple_box_events_soft_discard_count_limit)
+      call feed_real(hash, cfg%sim%multiple_box_events_soft_discard_abs_charge_limit)
+    end if
     call feed_integer(hash, cfg%sim%injection_face_phi_grid_n)
     call feed_integer(hash, cfg%sim%raycast_max_bounce)
     call feed_string(hash, cfg%sim%sheath_injection_model)

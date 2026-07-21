@@ -445,6 +445,9 @@ periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必
 | `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
 | `open_boundary_model` | string | `"escape"` | `escape` / `potential_barrier` |
+| `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard`。1 step の box event 上限超過時の処理 |
+| `multiple_box_events_soft_discard_count_limit` | int | `1000` | 累積 soft discard 件数がこの値を超えると停止 |
+| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1e-12` | 累積 soft discard 絶対 macro charge [C] がこの値を超えると停止 |
 | `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の `N x N` 評価格子 |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大反射回数 |
 | `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |

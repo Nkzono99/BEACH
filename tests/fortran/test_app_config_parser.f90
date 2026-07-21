@@ -81,6 +81,15 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%tree_leaf_max, 16_i32, 'default tree_leaf_max mismatch')
   call assert_true(.not. cfg%sim%has_tree_leaf_max, 'default has_tree_leaf_max should be false')
   call assert_equal_i32(cfg%sim%tree_min_nelem, 256_i32, 'default tree_min_nelem mismatch')
+  call assert_true(trim(cfg%sim%multiple_box_events_policy) == 'abort', 'default multiple box event policy mismatch')
+  call assert_equal_i32( &
+    cfg%sim%multiple_box_events_soft_discard_count_limit, 1000_i32, &
+    'default multiple box event soft discard count limit mismatch' &
+    )
+  call assert_close_dp( &
+    cfg%sim%multiple_box_events_soft_discard_abs_charge_limit, 1.0d-12, 1.0d-24, &
+    'default multiple box event soft discard charge limit mismatch' &
+    )
   call assert_true(.not. cfg%write_mesh_potential, 'default write_mesh_potential should be false')
   call assert_true(len_trim(cfg%output_restart_from) == 0, 'default output_restart_from should be empty')
   call load_app_config(cfg_path, cfg)
@@ -117,6 +126,15 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'infinity_barrier', 'reservoir_potential_model mismatch')
   call assert_close_dp(cfg%sim%phi_infty, -2.0d0, 1.0d-12, 'phi_infty mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'potential_barrier', 'open_boundary_model mismatch')
+  call assert_true(trim(cfg%sim%multiple_box_events_policy) == 'soft_discard', 'multiple box event policy mismatch')
+  call assert_equal_i32( &
+    cfg%sim%multiple_box_events_soft_discard_count_limit, 100000_i32, &
+    'multiple box event soft discard count limit mismatch' &
+    )
+  call assert_close_dp( &
+    cfg%sim%multiple_box_events_soft_discard_abs_charge_limit, 1.0d-9, 1.0d-21, &
+    'multiple box event soft discard charge limit mismatch' &
+    )
   call assert_equal_i32(cfg%sim%injection_face_phi_grid_n, 5_i32, 'injection_face_phi_grid_n mismatch')
   call assert_equal_i32(cfg%history_stride, 2_i32, 'history_stride mismatch')
   call assert_true(cfg%write_mesh_potential, 'write_mesh_potential mismatch')
@@ -521,6 +539,9 @@ contains
     write (u, '(a)') 'reservoir_potential_model = "infinity_barrier"'
     write (u, '(a)') 'phi_infty = -2.0'
     write (u, '(a)') 'open_boundary_model = "potential_barrier"'
+    write (u, '(a)') 'multiple_box_events_policy = "soft_discard"'
+    write (u, '(a)') 'multiple_box_events_soft_discard_count_limit = 100000'
+    write (u, '(a)') 'multiple_box_events_soft_discard_abs_charge_limit = 1.0e-9'
     write (u, '(a)') 'injection_face_phi_grid_n = 5'
     write (u, '(a)') 'field_solver = "fmm"'
     write (u, '(a)') 'field_normalization = "length"'
