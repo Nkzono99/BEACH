@@ -60,3 +60,5 @@ UV開始直後の未形成cloudから、部分populationを経て準定常branch
 このclosureは動的Vlasov/Poisson解ではない。$L=10\lambda_{D,pe}$、128点、batch midpoint時刻、flight中の凍結field、
 平面・無衝突・非磁化という近似を持つ。production利用前に$L$、profile grid、tracked粒子数、batch duration、
 `field_evolution_timescale`、interface位置の収束と、queue inventory・current・charge ledgerの保存則を確認する必要がある。
+強UV runで判明したcontinuationの診断と、連成rootおよび動的outer stateへの段階移行は
+[ADR 0005](0005-zhao-continuation-and-dynamic-outer.md)で定義する。
