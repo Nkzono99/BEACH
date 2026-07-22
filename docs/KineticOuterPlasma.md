@@ -135,6 +135,46 @@ UVなしは`outer_plasma.photoelectron_source_scale=0`で選びます。この�
 full photoelectron populationの準定常A/B/C branchは、必ずしも$E_I=0$へ連続しません。要求電場がbranchの
 可解域外なら、既定の`outer_queue_enabled=false`では`no_physical_solution`で停止します。
 
+### 定常研究を Zhao 零電流根から開始する
+
+強UVの定常観測量が目的で、未帯電状態からの立上がり過渡を研究対象にしない場合は、
+`coupling.steady_start_mode="zhao_floating"`を選べます。このmodeは最初batch前に、設定済みの無限遠準中性条件、
+温度、drift、UV sourceを使って旧 Zhao 零電流定常根を解きます。得られた根から
+`phi(infinity)=0`のprofileを作り、そのinterface電場$E_I$に必要な一様平面電荷を初期値にします。
+
+水平面積を$A$とすると、電荷はzero-modeの下側境界条件に応じて
+
+$$
+Q_{seed}=2\epsilon_0AE_I
+\quad\text{(\texttt{symmetric\_vacuum})},
+$$
+
+または
+
+$$
+Q_{seed}=\epsilon_0AE_I
+\quad\text{(\texttt{e\_bottom\_zero})}
+$$
+
+です。`steady_start_mesh_id`で選んだ水平平面の三角形に、この電荷を面積比で配ります。選択平面は同一高さで
+periodic cellの水平面積全体を覆い、outer interfaceより下にある必要があります。現在は非重複・無欠損tilingを
+構築時に保証する`mesh.mode="template"`だけを受け入れ、任意OBJ平面は拒否します。他のmeshは電荷0のままなので、
+plane + sphereでplaneをmesh 1とすると、planeだけをseedしsphereは中性で開始します。
+
+定常根から構成した同一profileを、最初のouter state、無限遠reservoirからinterfaceへの密度・速度写像、
+およびinterface外のinstant return / escapeに使います。零電流条件を課すのは初期状態の構成時だけで、
+後続batchのcharge-driven更新は従来どおり現在の表面電荷が決める$E_I$を解き、currentを診断します。
+analytic currentを表面電荷に加えないため、tracked放出・流入・再吸収と二重計上しません。
+
+この初期化はphysical transientではありません。`outer_queue_enabled=false`のinstant経路だけで使い、
+新規実行で既存電荷を上書きしません。同一configで`output.resume=true`とした場合はcheckpointのmesh電荷と完全なouter stateを
+復元し、零電流根から再seedしません。queue過渡closureとの併用は拒否します。UV立上がり、return-current遅延、
+cloud inventoryの過渡が問いなら、引き続きqueueまたは動的outer modelが必要です。定常論文でも、warm startだけを
+一意性や動的安定性の根拠にせず、独立に緩和させた状態または摂動seedから同じ定常量へ返るかを確認します。
+
+この用途とqueue過渡closureとの役割分担は
+[ADR 0006](adr/0006-zhao-stationary-warm-start.md)に記録しています。
+
 `outer_queue_enabled=true`では、追跡中の光電子がouter領域に滞在する間、そのmacro粒子重みをqueue inventoryとして保持します。
 全rankの光電子数を水平面積で割ったcolumnをtargetとし、$0\le z\le10\lambda_{D,pe}$で
 $n_{pe,f}+n_{pe,c}$を積分したZhao columnが一致するようにpopulation scale $\eta$を解きます。
@@ -204,7 +244,7 @@ Robin tailを使ったreturn判定を行いません。各eventでは、`t_due`�
 [粒子のescapeとreturn](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする)を参照してください。
 
 [`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)は過渡を解かず、
-1 coarse batchで既知のType A可解域へ入るbranch-entry smokeです。
+`zhao_floating`で定常Type A根から通常のsmall batchを開始するwarm-start smokeです。
 [`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml)は同じambient入力だけで
 flat stateからType Cへ帯電するno-photo smokeです。
 [`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)はstrong-UV queue closureの
@@ -245,7 +285,8 @@ legacy Zhao `sheath_injection_model`、`reservoir_potential_model`、
 自己無撞着に接続しません。`ray_direction`は照射rayによる放出面sampling、$\alpha$は解析Zhao sourceを決める独立の入力です。
 適用範囲と一般化に必要な境界VDFについては[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)、
 過渡queueの決定は[ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md)、continuation診断と
-dynamic outerへの段階移行は[ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md)に記録しています。
+dynamic outerへの段階移行は[ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md)、定常warm startは
+[ADR 0006](adr/0006-zhao-stationary-warm-start.md)に記録しています。
 
 ## `absorbing_maxwellian`の有限gridをRobin tailで無限遠へ接続する
 
@@ -321,6 +362,7 @@ tracked粒子数、時間解像度を収束軸にします。returnを有効に�
 - VDFに基づく密度モデルとnonlinear Poisson solve: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
 - charge-driven Zhao rootと非単調profile: [`bem_outer_plasma_zhao.f90`](../src/physics/outer_plasma/bem_outer_plasma_zhao.f90)
 - runtime speciesからsolver optionを構成: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
+- 定常根と平面電荷のwarm start: [`bem_zhao_steady_start.f90`](../src/runtime/coupling/bem_zhao_steady_start.f90)
 - surface fieldとの接続とMPI collective solve: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
 - profile output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)
 - profile restart: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

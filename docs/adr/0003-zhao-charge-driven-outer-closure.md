@@ -115,5 +115,6 @@ production適用前には、有効interface位置、profile grid、tracked粒子
 帯電時間の比、tracked crossing histogramから得たflux/VDFとの比較が必要である。Zhao profileの収束確認に
 `debye_length`や`thermal_voltage`を使わない。今回のflat-plane pilotは実装smokeであり、一般rough-surface closureの
 妥当性を示す証拠にはしない。
-付属flat-plane exampleは配線検証のため、1 coarse batchで既知のType A可解域へ着地するようweightを選んだ
-branch-entry smokeであり、未帯電過渡の時間積分やbatch収束を表さない。
+初期の付属flat-plane exampleは配線検証のため、1 coarse batchで既知のType A可解域へ着地するようweightを選んだ
+branch-entry smokeだった。現在のexampleは[ADR 0006](0006-zhao-stationary-warm-start.md)の明示的な定常warm startに置き換え、
+通常のsmall batchを使う。どちらも未帯電過渡の時間積分やbatch収束を表さない。

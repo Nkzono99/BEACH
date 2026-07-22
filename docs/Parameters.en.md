@@ -479,6 +479,8 @@ See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unifi
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | Only `explicit` is supported; refresh the outer profile at explicit update points |
 | `particle_transfer_mode` | string | `"none"` | Use the transfer ID matching the selected return model |
+| `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`; initialize a fresh run from a Zhao zero-current stationary root and its matching plane charge |
+| `steady_start_mesh_id` | int | `1` | `mesh_id` of the horizontal plane that receives the `zhao_floating` charge in proportion to triangle area |
 | `outer_update_stride` | int | `1` | Batch interval between outer-profile refreshes |
 | `field_evolution_timescale` | float | `0` | Frozen-field comparison time [s]; positive for 1-D return |
 | `max_frozen_field_ratio` | float | `0.1` | Limit on instant `tau_outer`, or queue `tau_outer` plus next-poll delay and half-batch midpoint uncertainty, divided by `field_evolution_timescale`; queue mode also applies it to `batch_duration` |
@@ -486,6 +488,52 @@ See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unifi
 | `outer_orbit_max_steps` | int | `100000` | 3-D outer-orbit step limit; reaching it stops instead of discarding |
 | `outer_orbit_energy_tolerance` | float | `1e-4` | Relative total-energy error limit for a 3-D outer orbit |
 | `outer_queue_enabled` | bool | `false` | In the supported Zhao configuration, retain outer flight across batches and close the transient queued photoelectron column |
+
+Stationary warm start:
+
+```toml
+[coupling]
+particle_transfer_mode = "electrostatic_1d_instant_return"
+steady_start_mode = "zhao_floating"
+steady_start_mesh_id = 1
+outer_queue_enabled = false
+```
+
+Before the first batch of a fresh run, `zhao_floating` solves the Zhao zero-current stationary root from the configured
+infinity reservoir and UV source. It constructs the kinetic profile with `phi(infinity)=0`. For horizontal area $A$ and
+stationary-root interface field $E_I$, the total charge placed on the selected plane is
+
+$$
+Q_{seed}=
+\begin{cases}
+2\epsilon_0 A E_I, & \texttt{symmetric_vacuum},\\
+\epsilon_0 A E_I, & \texttt{e_bottom_zero}.
+\end{cases}
+$$
+
+The charge is distributed over triangles of `steady_start_mesh_id` in proportion to area; all other meshes start with zero
+charge. Thus, in a plane-plus-sphere input where mesh 1 is the plane, `steady_start_mesh_id=1` seeds only the plane and leaves
+the sphere neutral.
+
+The first outer refresh, corrected inflow from the infinity reservoir, and instant return or escape at the interface all use
+this same profile. Analytic current is not deposited separately; subsequent surface-charge updates still come only from
+tracked particles.
+
+This mode explicitly selects an initial condition on a stationary branch instead of time-integrating the physical relaxation
+from an uncharged state. Use it for stationary and quasistationary observables, not for claims about UV turn-on or delayed
+return current. The queue transient closure remains a separate mode for that purpose.
+
+`zhao_floating` requires:
+
+- `kinetic_1d` + `zhao_charge_driven` + `kinetic_1d_profile_return` + `electrostatic_1d_instant_return`;
+- `outer_queue_enabled=false`, `zero_mode_policy="exclude_k0"`, and a supported lower-boundary model;
+- zero initial charge on every mesh for a fresh run; with `output.resume=true`, restore checkpoint mesh charge and outer
+  state without reseeding;
+- `mesh.mode="template"`, with the selected mesh forming one coplanar horizontal plane that covers periodic-cell area $A$
+  and lies below the outer interface.
+
+A warm start alone does not establish physical uniqueness or stability. Publication use should confirm that an independently
+relaxed or perturbed seed returns to the same stationary observables.
 
 Transfer rules:
 
@@ -1041,7 +1089,12 @@ When the histogram state is ready, `summary.txt` adds:
 | Previous batch | `photoelectron_previous_signed_current_A`, `photoelectron_previous_charge_ratio` |
 | Applicability | `photoelectron_max_charge_ratio`, `photoelectron_linear_applicability_status` |
 
-`coupling_outer_queue_enabled` is always written to `summary.txt`. Only when it is `T`, the following queue state is added:
+`coupling_steady_start_mode`, `coupling_steady_start_mesh_id`, and `coupling_outer_queue_enabled` are always written to
+`summary.txt`. At a fresh `zhao_floating` startup, one standard-output record beginning with
+`zhao_steady_start_branch=...` reports the resolved branch, $E_I$, $Q_{seed}$, and mesh ID. Resume does not reseed and instead
+reports the restored batch count as `zhao_steady_start_restored_after_batches=...`.
+
+Only when `coupling_outer_queue_enabled=T` is the following queue state added:
 
 | Group | Keys |
 | --- | --- |

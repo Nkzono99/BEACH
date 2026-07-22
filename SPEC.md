@@ -124,6 +124,19 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 
 `outer_queue_enabled=true`は、`model="kinetic_1d"`、`kinetic_closure="zhao_charge_driven"`、`zhao_branch="auto"`、`return_model="kinetic_1d_profile_return"`、`particle_transfer_mode="electrostatic_1d_instant_return"`の組合せだけで使えます。正の`sim.batch_duration`、`outer_update_stride=1`、`photoelectron_histogram_enabled=false`を要求し、`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を満たさなければ停止します。各eventでは、`t_due=t_mid+tau_outer`から最初のbatch-start pollまでの量子化遅延`delta_poll`と、batch内crossing時刻のmidpoint近似誤差上限`batch_duration/2`も含め、`tau_outer + delta_poll + batch_duration/2 <= max_frozen_field_ratio * field_evolution_timescale`を課します。超過時はenqueueせず停止します。queueが所有する外部領域はinterfaceから$L=10\lambda_{D,pe}$までの有限control volumeです。turning pointが$L$より手前ならreturn、$L$へ到達すればreservoirへの吸収/escapeとし、queue modeでは$L$外のRobin tailを使ってreturnを判定しません。各batch開始時にdue eventをrank-local queueから取り出し、残った光電子inventoryを面積で割ってZhao closureをpredictor更新します。そのbatchで外向き通過したeventはbatch中央を通過時刻とし、interfaceへのreturnまたは$L$へのescapeまでの`tau_outer`を使って`t_due=t_mid+tau_outer`でqueueへ追加します。surface chargeのcommit後、post-enqueue inventoryでもう一度Zhao closureをcorrector更新し、次batchとcheckpointのcontinuation seedにします。straight runとsplit-resumeは全batchで同じpredictor/corrector列を通ります。return/escapeはdueとなったbatchで計上するため過渡遅延を表しますが、eventはbatch開始時だけreleaseされ、enqueue時のterminal状態を後の場で再積分しません。両modeとも`b0=0`のみを許し、`reservoir_potential_model`およびlegacy Zhao injection correctionとの併用を拒否します。
 
+`coupling.steady_start_mode="zhao_floating"`は、定常・準定常研究用の明示的な初期条件です。新規実行の最初batch前に、
+設定済みの無限遠reservoirとUV sourceで Zhao 零電流定常根を解き、`phi(infinity)=0`のprofileを構築します。定常根の
+interface電場を$E_I$、水平cell面積を$A$として、`symmetric_vacuum`では$Q_{seed}=2\epsilon_0AE_I$、
+`e_bottom_zero`では$Q_{seed}=\epsilon_0AE_I$を`coupling.steady_start_mesh_id`の水平平面へ面積比で配ります。選択meshは
+同一高さの水平平面でperiodic cell全体を覆い、outer interfaceより下でなければなりません。現在は非重複・無欠損tilingを
+構築時に保証できる`mesh.mode="template"`だけを受け入れます。他のmeshは電荷0のままなので、
+plane + sphereでplaneを選べばsphereは中性で開始します。この同一profileを初回outer state、reservoir流入補正、instant
+return / escapeに使います。後続のbatchは通常のcharge-driven更新に戻り、analytic currentを表面電荷に二重加算しません。
+`kinetic_1d` + `zhao_charge_driven` + `kinetic_1d_profile_return` + `electrostatic_1d_instant_return`、
+`outer_queue_enabled=false`、`zero_mode_policy="exclude_k0"`、対応するlower boundaryを要求します。新規実行では既存初期電荷を拒否します。
+同一configのresumeではcheckpointのmesh電荷と完全なouter stateを復元し、再seedしません。これは未帯電状態からのphysical transientを表せず、
+queue過渡closureを置換しません。publication用の定常結果でも、独立な緩和状態または摂動seedに対する感度を確認します。
+
 上記の`sim.batch_duration`は実行時に解決された値を指し、直接指定の代わりに正の
 `dt * batch_duration_step`を使ってもよいものとします。
 

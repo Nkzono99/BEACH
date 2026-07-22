@@ -54,6 +54,8 @@ contains
   integer(i32) :: kinetic_status
   character(len=256) :: kinetic_message
   type(kinetic_outer_plasma_options_type) :: kinetic_options
+  type(outer_plasma_state_type) :: steady_start_state
+  real(dp) :: steady_start_charge
 
   stats = sim_stats()
   if (present(initial_stats)) stats = initial_stats
@@ -158,6 +160,37 @@ contains
   end if
   if (present(electrostatic_restart_state)) then
     call snapshot%restore_outer_state(electrostatic_restart_state)
+  end if
+  if (trim(lower_ascii(app%coupling%steady_start_mode)) == 'zhao_floating') then
+    if (stats%batches == 0_i32) then
+      if (snapshot%outer%ready) then
+        error stop 'Zhao floating steady start cannot overwrite an outer state on a fresh run.'
+      end if
+      call initialize_zhao_floating_steady_start( &
+        mesh, app%mesh_mode, app%sim, app%periodic2, app%coupling, kinetic_options, steady_start_state, &
+        steady_start_charge, kinetic_status, kinetic_message &
+        )
+      if (kinetic_status /= outer_plasma_ok) then
+        error stop 'Zhao floating steady start: '//trim(kinetic_message)
+      end if
+      snapshot%outer = steady_start_state
+      if (mpi_is_root(mpi_ctx)) then
+        write (output_unit, '(a,a,a,es24.16,a,es24.16,a,i0)') &
+          'zhao_steady_start_branch=', steady_start_state%zhao_branch, &
+          ' interface_field_V_m=', steady_start_state%interface_field, &
+          ' surface_charge_C=', steady_start_charge, &
+          ' mesh_id=', app%coupling%steady_start_mesh_id
+      end if
+    else
+      if (.not. snapshot%outer%ready) then
+        error stop 'Zhao floating steady-start resume requires a complete restored outer state.'
+      end if
+      if (mpi_is_root(mpi_ctx)) then
+        write (output_unit, '(a,i0)') 'zhao_steady_start_restored_after_batches=', stats%batches
+      end if
+    end if
+  end if
+  if (present(electrostatic_restart_state)) then
     call outer_coupler%init(app%coupling, electrostatic_restart_state%last_outer_update_batch)
   else
     call outer_coupler%init(app%coupling)

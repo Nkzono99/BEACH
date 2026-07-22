@@ -1,16 +1,17 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
-# Bounded flat-plane branch-entry smoke fixture for the charge-driven Zhao kinetic closure.
+# Bounded flat-plane stationary warm-start smoke for the charge-driven Zhao kinetic closure.
 # The legacy Zhao injection correction is intentionally disabled: accumulated
 # surface charge supplies the kinetic outer solve's interface-field condition.
-# A full-photoelectron Zhao state has no small-positive-field branch for these
-# parameters. The first coarse batch is deliberately weighted to land near the
-# stationary Type-A field; the second batch exercises that resolved branch. It
-# validates plumbing, not the unresolved uncharged-to-Zhao transient; do not
-# use this batch duration for convergence.
+# A full-photoelectron Zhao state has no branch connecting the uncharged state
+# to the stationary Type-A root for these parameters. zhao_floating therefore
+# initializes the plane charge and outer profile from that stationary root,
+# then ordinary small batches exercise reservoir mapping and instant return.
+# This fixture validates plumbing, not the uncharged-to-Zhao transient,
+# uniqueness, dynamic stability, or a converged production observable.
 
 [sim]
 dt = 1.979898987322333e-12
-batch_duration = 1.7270951095049674e-5
+batch_duration = 2.5e-7
 batch_count = 2
 max_step = 20000
 tol_rel = 1.0e-8
@@ -55,6 +56,7 @@ interface_field_tolerance = 1.0e-3
 model = "kinetic_1d"
 kinetic_closure = "zhao_charge_driven"
 zhao_branch = "auto"
+photoelectron_source_scale = 1.0
 photoelectron_density_model = "none"
 return_model = "kinetic_1d_profile_return"
 interface_z = 2.0e-04
@@ -67,8 +69,13 @@ thermal_voltage = 10.0
 [coupling]
 update_mode = "explicit"
 particle_transfer_mode = "electrostatic_1d_instant_return"
+steady_start_mode = "zhao_floating"
+steady_start_mesh_id = 1
 outer_update_stride = 1
-# Smoke-only quasi-steady timescale; production cases must justify this value.
+# The plane alone receives Q_seed=2 epsilon_0 A E_I for symmetric_vacuum;
+# every other mesh would remain neutral. This example contains only the plane.
+# Smoke-only quasi-steady timescale; production cases must justify this value
+# and test sensitivity to an independently relaxed or perturbed seed.
 field_evolution_timescale = 1.0
 max_frozen_field_ratio = 0.1
 outer_queue_enabled = false
@@ -139,7 +146,7 @@ center = [4.949747468305832e-05, 4.949747468305832e-05, 1.979898987322333e-06]
 
 [output]
 write_files = true
-dir = "outputs/periodic2_zhao_charge_driven_outer"
+dir = "outputs/periodic2_zhao_charge_driven_outer_steady_start"
 history_stride = 1
 write_mesh_potential = true
 write_potential_history = true

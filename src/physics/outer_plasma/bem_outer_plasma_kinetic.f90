@@ -6,8 +6,9 @@ module bem_outer_plasma_kinetic
                                     outer_plasma_no_physical_solution, outer_plasma_numerical_failure
   use bem_outer_plasma_grid, only: outer_plasma_grid_type, init_outer_plasma_grid
   use bem_outer_plasma_zhao, only: zhao_charge_root_type, zhao_continuation_diagnostics_type, &
-                                   solve_outer_plasma_zhao, solve_outer_plasma_zhao_column
-  use bem_sheath_model_core, only: zhao_params_type, build_zhao_params
+                                   solve_outer_plasma_zhao, solve_outer_plasma_zhao_column, &
+                                   evaluate_zhao_interface_field
+  use bem_sheath_model_core, only: zhao_params_type, build_zhao_params, try_solve_zhao_unknowns
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -54,6 +55,7 @@ module bem_outer_plasma_kinetic
   public :: eval_kinetic_current_balance
   public :: eval_kinetic_residual_jacobian_action
   public :: solve_outer_plasma_kinetic
+  public :: solve_outer_plasma_zhao_stationary
 
 contains
 
@@ -177,6 +179,100 @@ contains
     message = 'kinetic interface-field continuation reached its attempt limit'
   end subroutine solve_outer_plasma_kinetic
 
+  !> Zhao の零電流定常枝を解き、同じ根から外部 profile を構築する。
+  subroutine solve_outer_plasma_zhao_stationary(options, state, status, message)
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(outer_plasma_state_type), intent(out) :: state
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_params_type) :: params
+    type(zhao_charge_root_type) :: seed_root, solved_root
+    character(len=32) :: stationary_model
+    character(len=1) :: branch
+    real(dp) :: phi0_v, phi_m_v, density_m3, interface_field_v_m
+    logical :: success
+
+    state = outer_plasma_state_type()
+    state%model = 'kinetic_1d'
+    state%kinetic_closure = 'zhao_charge_driven'
+    if (.not. ieee_is_finite(options%photoelectron_source_scale) .or. &
+        options%photoelectron_source_scale < 0.0_dp) then
+      status = outer_plasma_invalid
+      state%applicability_status = status
+      message = 'Zhao stationary initialization requires a finite nonnegative photoelectron source scale'
+      return
+    end if
+    if (options%photoelectron_column_closure_enabled) then
+      status = outer_plasma_invalid
+      state%applicability_status = status
+      message = 'Zhao stationary initialization cannot use the transient photoelectron-column closure'
+      return
+    end if
+    if ((options%photoelectron_source_scale > 0.0_dp .and. &
+         abs(options%photoelectron_population_fraction - 1.0_dp) > 64.0_dp*epsilon(1.0_dp)) .or. &
+        (options%photoelectron_source_scale == 0.0_dp .and. &
+         abs(options%photoelectron_population_fraction) > 64.0_dp*epsilon(1.0_dp))) then
+      status = outer_plasma_invalid
+      state%applicability_status = status
+      message = 'Zhao stationary initialization requires the full steady photoelectron population'
+      return
+    end if
+    call prepare_zhao_closure_params(options, params, status, message)
+    if (status /= outer_plasma_ok) then
+      state%applicability_status = status
+      return
+    end if
+
+    select case (trim(lower_ascii(options%zhao_branch)))
+    case ('auto')
+      stationary_model = 'zhao_auto'
+    case ('a')
+      stationary_model = 'zhao_a'
+    case ('b')
+      stationary_model = 'zhao_b'
+    case ('c')
+      stationary_model = 'zhao_c'
+    case default
+      status = outer_plasma_invalid
+      state%applicability_status = status
+      message = 'unknown Zhao branch for stationary initialization'
+      return
+    end select
+    call try_solve_zhao_unknowns( &
+      stationary_model, params, phi0_v, phi_m_v, density_m3, branch, success &
+      )
+    if (.not. success) then
+      status = outer_plasma_no_physical_solution
+      state%applicability_status = status
+      message = 'Zhao stationary zero-current branch solve failed'
+      return
+    end if
+
+    seed_root = zhao_charge_root_type( &
+                branch=branch, phi0_v=phi0_v, phi_m_v=phi_m_v, n_swe_inf_m3=density_m3, &
+                photoelectron_population_fraction=options%photoelectron_population_fraction &
+                )
+    if (branch == 'A') then
+      seed_root%interface_side = 'lower'
+    else
+      seed_root%interface_side = 'monotonic'
+    end if
+    call evaluate_zhao_interface_field(params, seed_root, interface_field_v_m, status, message)
+    if (status /= outer_plasma_ok) then
+      state%applicability_status = status
+      return
+    end if
+    seed_root%interface_field_v_m = interface_field_v_m
+    call solve_outer_plasma_zhao( &
+      options%zhao_branch, params, interface_field_v_m, options%grid_points, state, solved_root, status, message, &
+      initial_root=seed_root &
+      )
+    state%model = 'kinetic_1d'
+    state%kinetic_closure = 'zhao_charge_driven'
+    state%applicability_status = status
+  end subroutine solve_outer_plasma_zhao_stationary
+
   subroutine solve_outer_plasma_zhao_closure( &
     options, state, status, message, initial_state, zhao_diagnostics &
     )
@@ -189,7 +285,6 @@ contains
 
     type(zhao_params_type) :: params
     type(zhao_charge_root_type) :: root, initial_root
-    real(dp) :: electron_temperature_ev, photoelectron_temperature_ev, charge_tolerance
     logical :: has_initial_root
 
     state = outer_plasma_state_type()
@@ -197,45 +292,11 @@ contains
     state%kinetic_closure = 'zhao_charge_driven'
     status = outer_plasma_invalid
     message = ''
-    charge_tolerance = 0.1_dp*qe
-    if (options%grid_points < 5_i32 .or. options%ion_density_infinity <= 0.0_dp .or. &
-        options%photoelectron_reference_density <= 0.0_dp .or. &
-        options%electron_temperature_j <= 0.0_dp .or. options%photoelectron_temperature_j <= 0.0_dp .or. &
-        options%electron_drift_infinity <= 0.0_dp .or. options%ion_drift_infinity <= 0.0_dp .or. &
-        options%electron_mass <= 0.0_dp .or. options%ion_mass <= 0.0_dp .or. &
-        options%photoelectron_mass <= 0.0_dp .or. &
-        .not. ieee_is_finite(options%photoelectron_population_fraction) .or. &
-        options%photoelectron_population_fraction < 0.0_dp .or. &
-        (options%photoelectron_column_closure_enabled .and. &
-         (.not. ieee_is_finite(options%photoelectron_column_target_m2) .or. &
-          options%photoelectron_column_target_m2 < 0.0_dp .or. &
-          .not. ieee_is_finite(options%domain_length) .or. options%domain_length <= 0.0_dp))) then
+    call prepare_zhao_closure_params(options, params, status, message)
+    if (status /= outer_plasma_ok) then
       state%applicability_status = status
-      message = 'Zhao charge-driven closure parameters are invalid'
       return
     end if
-    if (abs(abs(options%electron_charge) - qe) > charge_tolerance .or. &
-        abs(options%ion_charge - qe) > charge_tolerance .or. &
-        abs(abs(options%photoelectron_charge) - qe) > charge_tolerance) then
-      state%applicability_status = status
-      message = 'Zhao charge-driven closure requires singly charged physical species'
-      return
-    end if
-    if (abs(options%external_current_density) > tiny(1.0_dp)) then
-      state%applicability_status = status
-      message = 'Zhao charge-driven closure does not support external_current_density'
-      return
-    end if
-
-    electron_temperature_ev = options%electron_temperature_j/qe
-    photoelectron_temperature_ev = options%photoelectron_temperature_j/qe
-    call build_zhao_params( &
-      options%zhao_alpha_deg, options%ion_density_infinity, options%photoelectron_reference_density, &
-      electron_temperature_ev, photoelectron_temperature_ev, options%electron_drift_infinity, &
-      options%ion_drift_infinity, options%ion_mass, options%electron_mass, params, &
-      photoelectron_population_fraction=options%photoelectron_population_fraction, &
-      photoelectron_source_scale=options%photoelectron_source_scale &
-      )
     has_initial_root = .false.
     if (present(initial_state)) then
       has_initial_root = initial_state%ready .and. &
@@ -299,6 +360,56 @@ contains
     state%photoelectron_population_fraction = root%photoelectron_population_fraction
     state%applicability_status = status
   end subroutine solve_outer_plasma_zhao_closure
+
+  subroutine prepare_zhao_closure_params(options, params, status, message)
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(zhao_params_type), intent(out) :: params
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    real(dp) :: electron_temperature_ev, photoelectron_temperature_ev, charge_tolerance
+
+    params = zhao_params_type()
+    status = outer_plasma_invalid
+    message = ''
+    charge_tolerance = 0.1_dp*qe
+    if (options%grid_points < 5_i32 .or. options%ion_density_infinity <= 0.0_dp .or. &
+        options%photoelectron_reference_density <= 0.0_dp .or. &
+        options%electron_temperature_j <= 0.0_dp .or. options%photoelectron_temperature_j <= 0.0_dp .or. &
+        options%electron_drift_infinity <= 0.0_dp .or. options%ion_drift_infinity <= 0.0_dp .or. &
+        options%electron_mass <= 0.0_dp .or. options%ion_mass <= 0.0_dp .or. &
+        options%photoelectron_mass <= 0.0_dp .or. &
+        .not. ieee_is_finite(options%photoelectron_population_fraction) .or. &
+        options%photoelectron_population_fraction < 0.0_dp .or. &
+        (options%photoelectron_column_closure_enabled .and. &
+         (.not. ieee_is_finite(options%photoelectron_column_target_m2) .or. &
+          options%photoelectron_column_target_m2 < 0.0_dp .or. &
+          .not. ieee_is_finite(options%domain_length) .or. options%domain_length <= 0.0_dp))) then
+      message = 'Zhao charge-driven closure parameters are invalid'
+      return
+    end if
+    if (abs(abs(options%electron_charge) - qe) > charge_tolerance .or. &
+        abs(options%ion_charge - qe) > charge_tolerance .or. &
+        abs(abs(options%photoelectron_charge) - qe) > charge_tolerance) then
+      message = 'Zhao charge-driven closure requires singly charged physical species'
+      return
+    end if
+    if (abs(options%external_current_density) > tiny(1.0_dp)) then
+      message = 'Zhao charge-driven closure does not support external_current_density'
+      return
+    end if
+
+    electron_temperature_ev = options%electron_temperature_j/qe
+    photoelectron_temperature_ev = options%photoelectron_temperature_j/qe
+    call build_zhao_params( &
+      options%zhao_alpha_deg, options%ion_density_infinity, options%photoelectron_reference_density, &
+      electron_temperature_ev, photoelectron_temperature_ev, options%electron_drift_infinity, &
+      options%ion_drift_infinity, options%ion_mass, options%electron_mass, params, &
+      photoelectron_population_fraction=options%photoelectron_population_fraction, &
+      photoelectron_source_scale=options%photoelectron_source_scale &
+      )
+    status = outer_plasma_ok
+  end subroutine prepare_zhao_closure_params
 
   subroutine solve_outer_plasma_kinetic_fixed(options, state, status, message, initial_potential)
     type(kinetic_outer_plasma_options_type), intent(in) :: options

@@ -304,6 +304,16 @@ outward and returned charge are recorded in the same batch.
 This approximation targets a steady or quasisteady outer plasma. Use the delayed-return queue in the next section for UV
 turn-on, abrupt plasma changes, or short-pulse transients.
 
+### Start the instant path from a stationary Zhao profile
+
+`steady_start_mode="zhao_floating"` initializes a fresh run with the Zhao zero-current stationary root and the plane charge
+that produces its $E_I$. It does not change the return algorithm. The same kinetic profile connected to
+`phi(infinity)=0` supplies both the inflow barrier from the infinity reservoir and instant escape or return outside the
+interface. On resume, BEACH restores the checkpoint profile and mesh charge without reseeding the stationary root. Because
+this mode bypasses the transient from an uncharged state, do not use it to evaluate delayed return current. See
+[Outer field: kinetic 1D](KineticOuterPlasma.en.html#start-stationary-studies-from-the-zhao-zero-current-root) for the
+configuration and charge relation.
+
 ### Queue outer flight for the transient Zhao closure
 
 For a case that must put outer-flight delay into the batch history, such as strong-UV turn-on, use this Zhao composition.

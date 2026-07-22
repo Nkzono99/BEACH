@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Added opt-in `coupling.steady_start_mode="zhao_floating"` for stationary Zhao studies. Fresh runs seed the selected full-cell plane from the zero-current root, while resumed runs restore checkpoint charge and outer state without reseeding.
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel field and potential evaluation for `point` and `triangle_p0` comparisons.
 
 ### Fixed

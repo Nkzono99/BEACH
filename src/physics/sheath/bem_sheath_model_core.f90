@@ -76,6 +76,7 @@ module bem_sheath_model_core
   public :: solve_no_photo_floating_potential
   public :: build_zhao_params
   public :: solve_zhao_unknowns
+  public :: try_solve_zhao_unknowns
   public :: sample_zhao_state_at_z
   public :: resolve_species_drift_speed
   public :: zhao_electron_vmin_normal
@@ -541,25 +542,70 @@ contains
     real(dp), intent(out) :: phi0_v, phi_m_v, n_swe_inf_m3
     character(len=1), intent(out) :: branch
 
-    real(dp) :: x3(3), x2(2)
     logical :: success
-    character(len=1), dimension(3) :: order
-    integer :: i
+
+    call try_solve_zhao_unknowns(model, p, phi0_v, phi_m_v, n_swe_inf_m3, branch, success)
+    if (success) return
 
     select case (trim(model))
     case ('zhao_a')
-      call solve_zhao_branch_a(p, phi0_v, phi_m_v, n_swe_inf_m3)
-      branch = 'A'
+      error stop 'Zhao Type-A root solve failed.'
+    case ('zhao_b')
+      error stop 'Zhao Type-B root solve failed.'
+    case ('zhao_c')
+      error stop 'Zhao Type-C root solve failed.'
+    case ('zhao_auto')
+      error stop 'Zhao sheath auto branch selection failed.'
+    case default
+      error stop 'Unknown Zhao sheath model.'
+    end select
+  end subroutine solve_zhao_unknowns
+
+  !> Zhao の零電流定常根を fail-closed な status 付きで探索する。
+  subroutine try_solve_zhao_unknowns(model, p, phi0_v, phi_m_v, n_swe_inf_m3, branch, success)
+    character(len=*), intent(in) :: model
+    type(zhao_params_type), intent(in) :: p
+    real(dp), intent(out) :: phi0_v, phi_m_v, n_swe_inf_m3
+    character(len=1), intent(out) :: branch
+    logical, intent(out) :: success
+
+    real(dp) :: x3(3), x2(2)
+    character(len=1), dimension(3) :: order
+    integer :: i
+
+    phi0_v = 0.0_dp
+    phi_m_v = 0.0_dp
+    n_swe_inf_m3 = 0.0_dp
+    branch = ' '
+    success = .false.
+
+    select case (trim(model))
+    case ('zhao_a')
+      call try_solve_zhao_branch_a(p, x3, success)
+      if (success) then
+        phi0_v = x3(1)
+        phi_m_v = x3(2)
+        n_swe_inf_m3 = x3(3)
+        branch = 'A'
+      end if
       return
     case ('zhao_b')
-      call solve_zhao_branch_b(p, phi0_v, n_swe_inf_m3)
-      phi_m_v = phi0_v
-      branch = 'B'
+      call try_solve_zhao_branch_b(p, x2, success)
+      if (success) then
+        phi0_v = x2(1)
+        phi_m_v = x2(1)
+        n_swe_inf_m3 = x2(2)
+        branch = 'B'
+      end if
       return
     case ('zhao_c')
-      call solve_zhao_branch_c(p, phi0_v, n_swe_inf_m3)
-      phi_m_v = phi0_v
-      branch = 'C'
+      call try_solve_zhao_branch_c(p, x2, success)
+      if (success) then
+        phi0_v = x2(1)
+        phi_m_v = x2(1)
+        n_swe_inf_m3 = x2(2)
+        branch = 'C'
+      end if
       return
     case ('zhao_auto')
       if (p%alpha_rad*180.0d0/pi < 20.0d0) then
@@ -568,7 +614,7 @@ contains
         order = ['A', 'B', 'C']
       end if
     case default
-      error stop 'Unknown Zhao sheath model.'
+      return
     end select
 
     do i = 1, size(order)
@@ -580,6 +626,7 @@ contains
           phi_m_v = x3(2)
           n_swe_inf_m3 = x3(3)
           branch = 'A'
+          success = .true.
           return
         end if
       case ('B')
@@ -589,6 +636,7 @@ contains
           phi_m_v = x2(1)
           n_swe_inf_m3 = x2(2)
           branch = 'B'
+          success = .true.
           return
         end if
       case ('C')
@@ -598,13 +646,13 @@ contains
           phi_m_v = x2(1)
           n_swe_inf_m3 = x2(2)
           branch = 'C'
+          success = .true.
           return
         end if
       end select
     end do
 
-    error stop 'Zhao sheath auto branch selection failed.'
-  end subroutine solve_zhao_unknowns
+  end subroutine try_solve_zhao_unknowns
 
   subroutine solve_zhao_branch_a(p, phi0_v, phi_m_v, n_swe_inf_m3)
     type(zhao_params_type), intent(in) :: p

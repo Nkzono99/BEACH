@@ -325,6 +325,8 @@ contains
       cfg%outer_plasma%photoelectron_source_scale
     write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
     write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
+    write (u, '(a,a)') 'coupling_steady_start_mode=', trim(cfg%coupling%steady_start_mode)
+    write (u, '(a,i0)') 'coupling_steady_start_mesh_id=', cfg%coupling%steady_start_mesh_id
     write (u, '(a,l1)') 'coupling_outer_queue_enabled=', cfg%coupling%outer_queue_enabled
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active

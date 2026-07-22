@@ -24,6 +24,7 @@ program test_output_writer_io
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_photo_batch, saw_photo_flux
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_queue_population, saw_queue_count, saw_queue_fingerprint
+  logical :: saw_steady_start_mode, saw_steady_start_mesh_id
   integer :: literal_unit, ios
   character(len=512) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
@@ -162,6 +163,8 @@ program test_output_writer_io
   ledger%injected_count(1) = 1
   ledger%absorbed_count(1) = 1
   cfg%output_dir = out_dir_ledger
+  cfg%coupling%steady_start_mode = 'none'
+  cfg%coupling%steady_start_mesh_id = 7_i32
   call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
 
   saw_integrator = .false.
@@ -176,6 +179,8 @@ program test_output_writer_io
   saw_build_mode = .false.
   saw_source_commit = .false.
   saw_build_id = .false.
+  saw_steady_start_mode = .false.
+  saw_steady_start_mesh_id = .false.
   open (newunit=literal_unit, file=out_dir_ledger//'/summary.txt', status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to open summary metadata fixture'
   do
@@ -193,6 +198,8 @@ program test_output_writer_io
     saw_build_mode = saw_build_mode .or. index(line, 'build_version_mode=') == 1
     saw_source_commit = saw_source_commit .or. index(line, 'build_source_commit=') == 1
     saw_build_id = saw_build_id .or. index(line, 'build_id=') == 1
+    saw_steady_start_mode = saw_steady_start_mode .or. index(line, 'coupling_steady_start_mode=none') == 1
+    saw_steady_start_mesh_id = saw_steady_start_mesh_id .or. index(line, 'coupling_steady_start_mesh_id=7') == 1
   end do
   close (literal_unit)
   open (newunit=literal_unit, file=out_dir_ledger//'/charge_ledger.csv', status='old', action='read', iostat=ios)
@@ -206,6 +213,8 @@ program test_output_writer_io
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')
+  call assert_true(saw_steady_start_mode .and. saw_steady_start_mesh_id, &
+                   'summary should record the steady-start configuration')
   call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
   call test_end()

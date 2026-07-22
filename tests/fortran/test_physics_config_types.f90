@@ -20,7 +20,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(15)
+  call test_init(16)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -286,6 +286,33 @@ program test_physics_config_types
   outer%return_model = 'kinetic_1d_profile_return'
   coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
   coupling%field_evolution_timescale = 1.0_dp
+  call test_end()
+
+  call test_begin('zhao_floating_steady_start_contract')
+  coupling%steady_start_mode = 'zhao_floating'
+  coupling%steady_start_mesh_id = 2_i32
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'Zhao floating steady start should be valid')
+  coupling%steady_start_mesh_id = 0_i32
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'steady start must require a positive mesh ID')
+  coupling%steady_start_mesh_id = 2_i32
+  coupling%outer_queue_enabled = .true.
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'steady start must reject the transient queue')
+  coupling%outer_queue_enabled = .false.
+  outer%return_model = 'none'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'steady start must require kinetic profile return')
+  outer%return_model = 'kinetic_1d_profile_return'
+  periodic2%zero_mode_policy = 'legacy_not_decomposed'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'steady start must require the split zero mode')
+  periodic2%zero_mode_policy = 'exclude_k0'
+  coupling%steady_start_mode = 'unknown'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'unknown steady-start mode must fail closed')
+  coupling%steady_start_mode = 'none'
   call test_end()
 
   call test_begin('persistent_outer_queue_contract')

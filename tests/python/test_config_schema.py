@@ -60,3 +60,40 @@ def test_schema_enforces_transient_zhao_queue_conditionals() -> None:
     del missing_batch_width["sim"]["batch_duration"]
     missing_batch_width["sim"].pop("batch_duration_step", None)
     assert any("sim" in error for error in schema_errors(missing_batch_width, schema))
+
+
+def test_schema_enforces_zhao_floating_steady_start_contract() -> None:
+    schema, _ = load_schema()
+    config = load_config_file(ROOT / "examples/periodic2_zhao_charge_driven_outer.toml")
+    config["coupling"]["steady_start_mode"] = "zhao_floating"
+    config["coupling"]["steady_start_mesh_id"] = 1
+
+    assert schema_errors(config, schema) == []
+
+    resumed = copy.deepcopy(config)
+    resumed["output"]["resume"] = True
+    assert schema_errors(resumed, schema) == []
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["model"] = "linear_debye"
+    assert schema_errors(invalid, schema)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["return_model"] = "none"
+    assert schema_errors(invalid, schema)
+
+    invalid = copy.deepcopy(config)
+    invalid["coupling"]["particle_transfer_mode"] = "none"
+    assert schema_errors(invalid, schema)
+
+    invalid = copy.deepcopy(config)
+    invalid["coupling"]["outer_queue_enabled"] = True
+    assert schema_errors(invalid, schema)
+
+    invalid = copy.deepcopy(config)
+    invalid["coupling"]["steady_start_mesh_id"] = 0
+    assert schema_errors(invalid, schema)
+
+    invalid = copy.deepcopy(config)
+    invalid["mesh"]["mode"] = "obj"
+    assert schema_errors(invalid, schema)

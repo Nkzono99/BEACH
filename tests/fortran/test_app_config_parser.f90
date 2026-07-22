@@ -33,7 +33,6 @@ program test_app_config_parser
     call load_app_config(missing_deposit_cfg_path, cfg)
     error stop 'missing 3D photoelectron countercharge probe unexpectedly completed'
   end if
-
   call write_config_fixture(cfg_path)
   call write_photo_config_fixture(photo_cfg_path)
   call write_large_config_fixture(large_cfg_path)
@@ -71,6 +70,8 @@ program test_app_config_parser
     'default kinetic closure mismatch' &
     )
   call assert_true(trim(cfg%outer_plasma%zhao_branch) == 'auto', 'default Zhao branch mismatch')
+  call assert_true(trim(cfg%coupling%steady_start_mode) == 'none', 'default steady-start mode mismatch')
+  call assert_equal_i32(cfg%coupling%steady_start_mesh_id, 1_i32, 'default steady-start mesh ID mismatch')
   call assert_close_dp( &
     cfg%outer_plasma%photoelectron_source_scale, 1.0_dp, 0.0_dp, &
     'default photoelectron source scale mismatch' &
@@ -224,6 +225,8 @@ program test_app_config_parser
     trim(split_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
     'split transfer mode mismatch' &
     )
+  call assert_true(trim(split_cfg%coupling%steady_start_mode) == 'none', 'split steady-start mode mismatch')
+  call assert_equal_i32(split_cfg%coupling%steady_start_mesh_id, 7_i32, 'split steady-start mesh ID mismatch')
   call assert_close_dp( &
     split_cfg%coupling%field_evolution_timescale, 2.0_dp, 1.0e-15_dp, 'split field timescale mismatch' &
     )
@@ -1038,6 +1041,8 @@ contains
     write (u, '(a)') '[coupling]'
     write (u, '(a)') 'update_mode = "explicit"'
     write (u, '(a)') 'particle_transfer_mode = "electrostatic_1d_instant_return"'
+    write (u, '(a)') 'steady_start_mode = "NoNe"'
+    write (u, '(a)') 'steady_start_mesh_id = 7'
     write (u, '(a)') 'outer_update_stride = 1'
     write (u, '(a)') 'field_evolution_timescale = 2.0'
     write (u, '(a)') 'max_frozen_field_ratio = 0.1'

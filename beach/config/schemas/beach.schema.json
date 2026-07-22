@@ -136,6 +136,8 @@
       "properties": {
         "update_mode": {"const": "explicit", "default": "explicit"},
         "particle_transfer_mode": {"enum": ["none", "electrostatic_1d_instant_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
+        "steady_start_mode": {"enum": ["none", "zhao_floating"], "default": "none", "description": "Optional pre-equilibrated startup contract. On a fresh run, zhao_floating seeds the selected mesh from the stationary Zhao floating-current state before the first batch; resume restores checkpoint mesh and outer state without reapplying the seed."},
+        "steady_start_mesh_id": {"type": "integer", "minimum": 1, "default": 1, "description": "One-based generated-template mesh ID that receives the zhao_floating steady-start charge."},
         "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
         "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
         "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
@@ -159,6 +161,51 @@
   ],
   "additionalProperties": false,
   "allOf": [
+    {
+      "if": {
+        "required": ["coupling"],
+        "properties": {
+          "coupling": {
+            "required": ["steady_start_mode"],
+            "properties": {
+              "steady_start_mode": {"const": "zhao_floating"}
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["outer_plasma", "coupling", "periodic2", "mesh"],
+        "properties": {
+          "outer_plasma": {
+            "required": ["model", "kinetic_closure", "return_model"],
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "kinetic_closure": {"const": "zhao_charge_driven"},
+              "return_model": {"const": "kinetic_1d_profile_return"}
+            }
+          },
+          "coupling": {
+            "required": ["particle_transfer_mode"],
+            "properties": {
+              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"},
+              "outer_queue_enabled": {"const": false}
+            }
+          },
+          "periodic2": {
+            "properties": {
+              "zero_mode_policy": {"const": "exclude_k0"},
+              "lower_boundary_model": {"enum": ["e_bottom_zero", "symmetric_vacuum"]}
+            }
+          },
+          "mesh": {
+            "required": ["mode"],
+            "properties": {
+              "mode": {"const": "template"}
+            }
+          }
+        }
+      }
+    },
     {
       "if": {
         "required": ["coupling"],

@@ -34,13 +34,42 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(16)
+  call test_init(19)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
   fp_b = mesh_fingerprint(mesh)
   call assert_true(fp_a == fp_b, 'mesh fingerprint must be deterministic')
   call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'fingerprint length mismatch')
+  call test_end()
+
+  call test_begin('steady_start_mode_change_detected')
+  cfg_changed = cfg
+  cfg_changed%coupling%steady_start_mode = 'zhao_floating'
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'steady-start mode must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('inactive_steady_start_mesh_id_ignored')
+  cfg_changed = cfg
+  cfg_changed%coupling%steady_start_mesh_id = 2_i32
+  call assert_true( &
+    model_fingerprint(cfg_changed) == model_fingerprint(cfg), &
+    'inactive steady-start mesh ID must preserve the legacy fingerprint stream' &
+    )
+  call test_end()
+
+  call test_begin('active_steady_start_mesh_id_change_detected')
+  cfg_changed = cfg
+  cfg_changed%coupling%steady_start_mode = 'zhao_floating'
+  fp_a = model_fingerprint(cfg_changed)
+  cfg_changed%coupling%steady_start_mesh_id = 2_i32
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= fp_a, &
+    'active steady-start mesh ID must alter fingerprint' &
+    )
   call test_end()
 
   call test_begin('split_numeric_contract_change_detected')

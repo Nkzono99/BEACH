@@ -299,6 +299,14 @@ outward/returned chargeは同じbatchに計上されます。
 この近似は定常または準定常outer plasmaを対象にします。UV照射の開始、plasma条件の急変、短pulseへの過渡応答には、
 次節のdelayed-return queueを使います。
 
+### 定常 Zhao profileからinstant経路を開始する
+
+`steady_start_mode="zhao_floating"`は、Zhao 零電流定常根とその$E_I$に対応する平面電荷を新規実行の初期値にします。
+この初期化はreturn algorithmを変更しません。`phi(infinity)=0`へ接続した同一kinetic profileを、無限遠reservoirからの
+流入barrierとinterface外のinstant escape/returnの両方に使います。resumeではcheckpointのprofileとmesh電荷を復元し、
+定常根から再seedしません。このmodeは未帯電状態からの過渡を短絡するため、return-current遅延の評価には使いません。
+設定と電荷式は[kinetic 1D外部プラズマ](KineticOuterPlasma.html#定常研究を-zhao-零電流根から開始する)を参照してください。
+
 ### Zhao 過渡closureでouter flightをqueueする
 
 強いUV照射の開始など、outer flightの遅延をbatch履歴へ反映する場合は次のZhao構成を使います。

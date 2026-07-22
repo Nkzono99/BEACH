@@ -413,6 +413,11 @@ contains
           table, keys(ikey), authoring%coupling%particle_transfer_mode, 'coupling.particle_transfer_mode' &
           )
         authoring%coupling%particle_transfer_mode = lower_ascii(trim(authoring%coupling%particle_transfer_mode))
+      case ('steady_start_mode')
+        call get_toml_string(table, keys(ikey), authoring%coupling%steady_start_mode, 'coupling.steady_start_mode')
+        authoring%coupling%steady_start_mode = lower_ascii(trim(authoring%coupling%steady_start_mode))
+      case ('steady_start_mesh_id')
+        call get_toml_int(table, keys(ikey), authoring%coupling%steady_start_mesh_id, 'coupling.steady_start_mesh_id')
       case ('outer_update_stride')
         call get_toml_int( &
           table, keys(ikey), authoring%coupling%outer_update_stride, 'coupling.outer_update_stride' &
@@ -488,6 +493,8 @@ contains
     if (authoring%coupling%present) then
       cfg%coupling%update_mode = authoring%coupling%update_mode
       cfg%coupling%particle_transfer_mode = authoring%coupling%particle_transfer_mode
+      cfg%coupling%steady_start_mode = authoring%coupling%steady_start_mode
+      cfg%coupling%steady_start_mesh_id = authoring%coupling%steady_start_mesh_id
       cfg%coupling%outer_update_stride = authoring%coupling%outer_update_stride
       cfg%coupling%field_evolution_timescale = authoring%coupling%field_evolution_timescale
       cfg%coupling%max_frozen_field_ratio = authoring%coupling%max_frozen_field_ratio

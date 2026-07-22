@@ -63,6 +63,8 @@ module bem_app_config_authoring
     logical :: present = .false.
     character(len=32) :: update_mode = 'explicit'
     character(len=32) :: particle_transfer_mode = 'none'
+    character(len=32) :: steady_start_mode = 'none'
+    integer(i32) :: steady_start_mesh_id = 1_i32
     integer(i32) :: outer_update_stride = 1_i32
     real(dp) :: field_evolution_timescale = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.1_dp

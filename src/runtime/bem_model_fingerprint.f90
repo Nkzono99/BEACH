@@ -60,6 +60,10 @@ contains
     call feed_real(hash, cfg%outer_plasma%max_photoelectron_charge_ratio)
     call feed_string(hash, cfg%coupling%update_mode)
     call feed_string(hash, cfg%coupling%particle_transfer_mode)
+    if (trim(cfg%coupling%steady_start_mode) /= 'none') then
+      call feed_string(hash, cfg%coupling%steady_start_mode)
+      call feed_integer(hash, cfg%coupling%steady_start_mesh_id)
+    end if
     call feed_integer(hash, cfg%coupling%outer_update_stride)
     call feed_real(hash, cfg%coupling%field_evolution_timescale)
     call feed_real(hash, cfg%coupling%max_frozen_field_ratio)

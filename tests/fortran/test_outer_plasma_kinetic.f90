@@ -3,11 +3,12 @@ program test_outer_plasma_kinetic
   use bem_constants, only: qe, eps0
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_no_physical_solution
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic, &
-                                      eval_kinetic_residual_jacobian_action
+                                      solve_outer_plasma_zhao_stationary, eval_kinetic_residual_jacobian_action
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
   implicit none
 
   real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
+  real(dp), parameter :: proton_mass = 1.67262192369e-27_dp
   type(kinetic_outer_plasma_options_type) :: options
   type(outer_plasma_state_type) :: state
   type(outer_plasma_state_type) :: ambient_state
@@ -18,7 +19,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: continuation_steps
   character(len=256) :: message
 
-  call test_init(12)
+  call test_init(14)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -37,6 +38,40 @@ program test_outer_plasma_kinetic
     state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
     1.0e-20_dp, 'finite-domain Gauss closure mismatch' &
     )
+  call test_end()
+
+  call test_begin('stationary Zhao helper builds the UV-on Type-A equilibrium')
+  options = zhao_stationary_options()
+  call solve_outer_plasma_zhao_stationary(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'stationary UV-on Zhao solve failed: '//trim(message))
+  call assert_true(state%ready, 'stationary UV-on Zhao state must be ready')
+  call assert_true(state%zhao_branch == 'A', 'stationary UV-on Zhao state must select Type A')
+  call assert_true( &
+    state%interface_field > 0.0_dp .and. state%interface_potential > 0.0_dp .and. &
+    minval(state%potential) < 0.0_dp, &
+    'stationary UV-on Zhao state must contain the Type-A potential well' &
+    )
+  call assert_close_dp(state%infinity_potential, 0.0_dp, 0.0_dp, 'stationary Zhao infinity gauge mismatch')
+  call assert_true(abs(state%total_current_density) < 1.0e-11_dp, &
+                   'stationary UV-on Zhao current balance mismatch')
+  call test_end()
+
+  call test_begin('stationary Zhao helper builds the no-photo Type-C equilibrium')
+  options = zhao_stationary_options()
+  options%photoelectron_reference_density = options%ion_density_infinity
+  options%photoelectron_temperature_j = options%electron_temperature_j
+  options%photoelectron_population_fraction = 0.0_dp
+  options%photoelectron_source_scale = 0.0_dp
+  call solve_outer_plasma_zhao_stationary(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'stationary no-photo Zhao solve failed: '//trim(message))
+  call assert_true(state%ready, 'stationary no-photo Zhao state must be ready')
+  call assert_true(state%zhao_branch == 'C', 'stationary no-photo Zhao state must select Type C')
+  call assert_true(state%interface_field < 0.0_dp .and. state%interface_potential < 0.0_dp, &
+                   'stationary no-photo Zhao state must be a negative Type-C sheath')
+  call assert_close_dp(state%photoelectron_current_density, 0.0_dp, 0.0_dp, &
+                       'stationary no-photo Zhao photoelectron current must vanish')
+  call assert_true(abs(state%total_current_density) < 1.0e-11_dp, &
+                   'stationary no-photo Zhao current balance mismatch')
   call test_end()
 
   call test_begin('charge-driven Zhao closure dispatches through kinetic state contract')
@@ -274,5 +309,26 @@ contains
     value%max_iterations = 30_i32
     value%residual_tolerance = 1.0e-10_dp
   end function reference_options
+
+  function zhao_stationary_options() result(value)
+    type(kinetic_outer_plasma_options_type) :: value
+
+    value = reference_options()
+    value%kinetic_closure = 'zhao_charge_driven'
+    value%zhao_branch = 'auto'
+    value%grid_points = 65_i32
+    value%electron_density_infinity = 8.7e6_dp
+    value%electron_temperature_j = 12.0_dp*qe
+    value%electron_drift_infinity = 4.0529988897111727e5_dp
+    value%ion_mass = proton_mass
+    value%ion_density_infinity = 8.7e6_dp
+    value%ion_temperature_j = 0.1_dp*qe
+    value%ion_drift_infinity = 4.0529988897111727e5_dp
+    value%photoelectron_charge = -qe
+    value%photoelectron_mass = electron_mass
+    value%photoelectron_temperature_j = 2.2_dp*qe
+    value%photoelectron_reference_density = 64.0e6_dp
+    value%zhao_alpha_deg = 60.0_dp
+  end function zhao_stationary_options
 
 end program test_outer_plasma_kinetic

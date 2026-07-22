@@ -1,30 +1,45 @@
 program test_outer_coupler
   use bem_kinds, only: dp, i32
+  use bem_constants, only: eps0, qe
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
+  use bem_app_config, only: app_config, default_app_config, build_mesh_from_config
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
                                       outer_plasma_config, coupling_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_restart_state_type
   use bem_outer_coupler, only: outer_coupler_type
-  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
+  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
+  use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_invalid
+  use bem_zhao_steady_start, only: initialize_zhao_floating_steady_start
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
   implicit none
 
   type(mesh_type) :: mesh
+  type(mesh_type) :: steady_mesh
   type(sim_config) :: sim
+  type(sim_config) :: steady_sim
+  type(app_config) :: steady_app
   type(field_physics_config) :: field_config
   type(periodic2_physics_config) :: periodic_config
+  type(periodic2_physics_config) :: steady_periodic
   type(panel_kernel_config) :: panel_config
   type(outer_plasma_config) :: outer_config
   type(coupling_config) :: coupling
+  type(coupling_config) :: steady_coupling
+  type(kinetic_outer_plasma_options_type) :: kinetic_options
+  type(outer_plasma_state_type) :: steady_state
   type(electrostatic_snapshot_type) :: snapshot
   type(outer_coupler_type) :: coupler
   type(electrostatic_snapshot_type) :: restarted_snapshot
   type(outer_coupler_type) :: restarted_coupler
   type(electrostatic_restart_state_type) :: restart_state
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
+  real(dp) :: symmetric_charge, zero_bottom_charge, expected_charge, selected_area
+  integer(i32) :: status, element
+  character(len=256) :: message
   logical :: updated
 
-  call test_init(3)
+  call test_init(4)
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
   v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
   v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
@@ -90,5 +105,118 @@ program test_outer_coupler
   call assert_close_dp(snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, 'scheduled closure mismatch')
   call test_end()
 
+  call test_begin('Zhao steady start seeds only the selected plane by panel area')
+  call default_app_config(steady_app)
+  steady_app%mesh_mode = 'template'
+  steady_app%n_templates = 2_i32
+  steady_app%templates(1)%enabled = .true.
+  steady_app%templates(1)%kind = 'plane'
+  steady_app%templates(1)%size_x = 1.0_dp
+  steady_app%templates(1)%size_y = 1.0_dp
+  steady_app%templates(1)%nx = 2_i32
+  steady_app%templates(1)%ny = 1_i32
+  steady_app%templates(1)%center = [0.5_dp, 0.5_dp, 0.25_dp]
+  steady_app%templates(2)%enabled = .true.
+  steady_app%templates(2)%kind = 'sphere'
+  steady_app%templates(2)%radius = 0.05_dp
+  steady_app%templates(2)%n_lon = 8_i32
+  steady_app%templates(2)%n_lat = 4_i32
+  steady_app%templates(2)%center = [0.5_dp, 0.5_dp, 0.5_dp]
+  call build_mesh_from_config(steady_app, steady_mesh)
+
+  steady_sim = sim_config()
+  steady_sim%use_box = .true.
+  steady_sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+  steady_sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+  steady_periodic = periodic2_physics_config(lower_boundary_model='symmetric_vacuum')
+  steady_coupling = coupling_config(steady_start_mode='zhao_floating', steady_start_mesh_id=1_i32)
+  kinetic_options = zhao_stationary_options()
+
+  call initialize_zhao_floating_steady_start( &
+    steady_mesh, steady_app%mesh_mode, steady_sim, steady_periodic, steady_coupling, kinetic_options, steady_state, &
+    symmetric_charge, status, message &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'symmetric Zhao steady start failed: '//trim(message))
+  expected_charge = 2.0_dp*eps0*steady_state%interface_field
+  call assert_close_dp(symmetric_charge, expected_charge, 1.0e-30_dp, &
+                       'symmetric-vacuum Zhao seed coefficient mismatch')
+  call assert_close_dp(sum(steady_mesh%q_elem), symmetric_charge, 1.0e-30_dp, &
+                       'distributed Zhao seed charge mismatch')
+  call assert_true(maxval(abs(pack(steady_mesh%q_elem, steady_mesh%elem_mesh_id == 2_i32))) == 0.0_dp, &
+                   'unselected sphere must remain neutral')
+  selected_area = sum(steady_mesh%panel_area, mask=steady_mesh%elem_mesh_id == 1_i32)
+  do element = 1_i32, steady_mesh%nelem
+    if (steady_mesh%elem_mesh_id(element) /= 1_i32) cycle
+    call assert_close_dp( &
+      steady_mesh%q_elem(element), symmetric_charge*steady_mesh%panel_area(element)/selected_area, &
+      1.0e-30_dp, 'Zhao seed was not distributed in proportion to panel area' &
+      )
+  end do
+
+  steady_mesh%q_elem = 0.0_dp
+  steady_periodic%lower_boundary_model = 'e_bottom_zero'
+  call initialize_zhao_floating_steady_start( &
+    steady_mesh, steady_app%mesh_mode, steady_sim, steady_periodic, steady_coupling, kinetic_options, steady_state, &
+    zero_bottom_charge, status, message &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'zero-bottom Zhao steady start failed: '//trim(message))
+  expected_charge = eps0*steady_state%interface_field
+  call assert_close_dp(zero_bottom_charge, expected_charge, 1.0e-30_dp, &
+                       'e_bottom_zero Zhao seed coefficient mismatch')
+  call assert_close_dp(symmetric_charge, 2.0_dp*zero_bottom_charge, 1.0e-30_dp, &
+                       'lower-boundary Zhao seed factors must differ by two')
+  call assert_true(maxval(abs(pack(steady_mesh%q_elem, steady_mesh%elem_mesh_id == 2_i32))) == 0.0_dp, &
+                   'unselected sphere must remain neutral after e_bottom_zero initialization')
+
+  steady_mesh%q_elem = 0.0_dp
+  steady_coupling%steady_start_mesh_id = 2_i32
+  call initialize_zhao_floating_steady_start( &
+    steady_mesh, steady_app%mesh_mode, steady_sim, steady_periodic, steady_coupling, kinetic_options, steady_state, &
+    zero_bottom_charge, status, message &
+    )
+  call assert_equal_i32(status, outer_plasma_invalid, 'a sphere must be rejected as the steady-start plane')
+  call assert_true(index(message, 'must be horizontal') > 0, &
+                   'non-plane steady-start rejection lost its actionable reason')
+  call assert_true(all(steady_mesh%q_elem == 0.0_dp), &
+                   'failed steady-start validation must not mutate mesh charge')
+
+  steady_coupling%steady_start_mesh_id = 1_i32
+  call initialize_zhao_floating_steady_start( &
+    steady_mesh, 'obj', steady_sim, steady_periodic, steady_coupling, kinetic_options, steady_state, &
+    zero_bottom_charge, status, message &
+    )
+  call assert_equal_i32(status, outer_plasma_invalid, 'non-template mesh mode must be rejected')
+  call assert_true(index(message, 'mesh.mode="template"') > 0, &
+                   'non-template steady-start rejection lost its actionable reason')
+  call assert_true(all(steady_mesh%q_elem == 0.0_dp), &
+                   'non-template steady-start rejection must not mutate mesh charge')
+  call test_end()
+
   call test_summary()
+
+contains
+
+  function zhao_stationary_options() result(value)
+    type(kinetic_outer_plasma_options_type) :: value
+
+    value%kinetic_closure = 'zhao_charge_driven'
+    value%zhao_branch = 'auto'
+    value%grid_points = 65_i32
+    value%electron_charge = -qe
+    value%electron_mass = 9.1093837139e-31_dp
+    value%electron_density_infinity = 8.7e6_dp
+    value%electron_temperature_j = 12.0_dp*qe
+    value%electron_drift_infinity = 4.0529988897111727e5_dp
+    value%ion_charge = qe
+    value%ion_mass = 1.67262192369e-27_dp
+    value%ion_density_infinity = 8.7e6_dp
+    value%ion_temperature_j = 0.1_dp*qe
+    value%ion_drift_infinity = 4.0529988897111727e5_dp
+    value%photoelectron_charge = -qe
+    value%photoelectron_mass = value%electron_mass
+    value%photoelectron_temperature_j = 2.2_dp*qe
+    value%photoelectron_reference_density = 64.0e6_dp
+    value%zhao_alpha_deg = 60.0_dp
+  end function zhao_stationary_options
+
 end program test_outer_coupler

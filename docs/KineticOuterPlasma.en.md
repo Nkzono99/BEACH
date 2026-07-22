@@ -136,6 +136,49 @@ The flat $E_I=0$ state is the Type-B/C junction, and a negative $E_I$ selects Ty
 The quasisteady A/B/C branches with the full photoelectron population need not connect continuously to $E_I=0$. A requested
 field outside their solvable range stops with `no_physical_solution` under the default `outer_queue_enabled=false` behavior.
 
+### Start stationary studies from the Zhao zero-current root
+
+When the target is a strong-UV stationary observable rather than the turn-on transient from an uncharged state, select
+`coupling.steady_start_mode="zhao_floating"`. Before the first batch, this mode uses the configured infinity quasineutral
+conditions, temperatures, drifts, and UV source to solve the legacy Zhao zero-current stationary root. It constructs the
+`phi(infinity)=0` profile from that root and initializes the uniform plane charge required by its interface field $E_I$.
+
+For horizontal area $A$, the charge follows the zero-mode lower-boundary condition:
+
+$$
+Q_{seed}=2\epsilon_0AE_I
+\quad\text{for \texttt{symmetric\_vacuum}},
+$$
+
+or
+
+$$
+Q_{seed}=\epsilon_0AE_I
+\quad\text{for \texttt{e\_bottom\_zero}}.
+$$
+
+The charge is distributed by triangle area over the horizontal plane selected by `steady_start_mesh_id`. That plane must be
+coplanar, cover the full horizontal periodic-cell area, and lie below the outer interface. The current implementation accepts
+only `mesh.mode="template"`, whose generated plane guarantees a nonoverlapping, gap-free tiling; arbitrary OBJ planes are
+rejected. Other meshes retain zero initial charge. For a plane-plus-sphere model with the plane as mesh 1,
+`steady_start_mesh_id=1` seeds only the plane and starts the sphere neutral.
+
+The first outer state, density and velocity map from the infinity reservoir to the interface, and instant return or escape
+outside the interface all use the same stationary-root profile. Zero current is imposed only while constructing the initial
+state. Subsequent charge-driven refreshes retain the ordinary contract: current surface charge determines $E_I$, and current
+remains a diagnostic. Analytic current is not added to surface charge, so it does not double count tracked emission, inflow,
+or reabsorption.
+
+This initialization is not a physical transient. It is available only on the instant path with
+`outer_queue_enabled=false`, and it does not overwrite existing charge on a fresh run. With the same configuration and
+`output.resume=true`, BEACH restores checkpoint mesh charge and a complete outer state without reseeding from the zero-current
+root. Combining the warm start with the queue transient closure is rejected. UV turn-on, delayed return current, and transient
+cloud inventory still require the queue or a dynamic outer model.
+Even for a stationary publication result, a warm start alone does not demonstrate uniqueness or dynamic stability. Confirm
+that an independently relaxed or perturbed seed returns to the same stationary observables.
+
+[ADR 0006](adr/0006-zhao-stationary-warm-start.md) records this scope and its separation from the queue transient closure.
+
 With `outer_queue_enabled=true`, tracked photoelectrons retain their macro-particle weights as queue inventory while they occupy
 the outer region. The MPI-global photoelectron number divided by horizontal area is the target column. The closure solves a
 population scale $\eta$ so the Zhao integral of $n_{pe,f}+n_{pe,c}$ over $0\le z\le10\lambda_{D,pe}$ matches that target.
@@ -208,8 +251,8 @@ Configuration validation applies the same bound to `batch_duration`. See
 [Particle escape and return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure) for time
 discretization, the end-of-batch corrector, and checkpoint rules.
 
-[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml) remains a branch-entry smoke
-that does not solve the transient and uses one coarse batch to reach a known Type-A range.
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml) is a warm-start smoke that
+does not solve the transient. It uses `zhao_floating` to begin ordinary small batches from the stationary Type-A root.
 [`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml) is a no-photo smoke that charges from
 the flat state toward Type C using only the same ambient inputs.
 [`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml) is a frozen-field guard fixture for the
@@ -252,8 +295,8 @@ This effective-plane approximation does not self-consistently connect tracked-ra
 from a rough surface to the Zhao outer population. `ray_direction` controls illumination-ray sampling of emitting surfaces, while $\alpha$
 independently controls the analytic Zhao source. See [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md) for scope and the
 boundary VDF needed by a future generalization, [ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md) for the
-transient-queue decision, and [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) for staged continuation diagnostics
-and a possible dynamic outer model.
+transient-queue decision, [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) for staged continuation diagnostics
+and a possible dynamic outer model, and [ADR 0006](adr/0006-zhao-stationary-warm-start.md) for the stationary warm start.
 
 ## Connect the `absorbing_maxwellian` finite grid to infinity with a Robin tail
 
@@ -332,6 +375,7 @@ frozen-field ratio, and quasisteady applicability in [Particle escape and return
 - VDF closures and nonlinear Poisson solve: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
 - Charge-driven Zhao roots and nonmonotone profiles: [`bem_outer_plasma_zhao.f90`](../src/physics/outer_plasma/bem_outer_plasma_zhao.f90)
 - Build solver options from runtime species: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
+- Stationary-root and plane-charge warm start: [`bem_zhao_steady_start.f90`](../src/runtime/coupling/bem_zhao_steady_start.f90)
 - Surface-field coupling and MPI collective solve: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
 - Profile output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)
 - Profile restart: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

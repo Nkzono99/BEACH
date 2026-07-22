@@ -5,8 +5,9 @@ program test_simulator
   use bem_simulator, only: run_absorption_insulator
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_particles, only: init_particles, append_particles
-  use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
-  use bem_types, only: mesh_type, particles_soa, sim_stats, bc_open, bc_reflect, bc_periodic
+  use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
+                            build_mesh_from_config
+  use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
@@ -112,7 +113,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(17)
+  call test_init(18)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -242,6 +243,10 @@ program test_simulator
   call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
   call test_end()
 
+  call test_begin('zhao_steady_start_resume_does_not_reseed')
+  call test_zhao_steady_start_resume()
+  call test_end()
+
   call test_begin('collision_query_failure_context')
   call test_collision_query_failure_context()
   call test_end()
@@ -269,6 +274,164 @@ program test_simulator
   call test_summary()
 
 contains
+
+  subroutine test_zhao_steady_start_resume()
+    use bem_constants, only: qe
+    use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
+    type(mesh_type) :: steady_mesh
+    type(app_config) :: steady_cfg
+    type(sim_stats) :: first_stats, resumed_stats
+    type(injection_state) :: steady_injection_state
+    type(electrostatic_restart_state_type) :: restart_state, saved_restart_state
+    real(dp), allocatable :: saved_charge(:)
+    real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
+    real(dp), parameter :: proton_mass = 1.67262192369e-27_dp
+    real(dp), parameter :: box_width = 9.899494936611664e-5_dp
+    real(dp), parameter :: interface_z = 2.0e-4_dp
+    real(dp), parameter :: inward_drift = 4.0529988897111727e5_dp
+
+    call default_app_config(steady_cfg)
+    steady_cfg%sim%rng_seed = 24602_i32
+    steady_cfg%sim%batch_count = 1_i32
+    steady_cfg%sim%dt = 1.0e-12_dp
+    steady_cfg%sim%batch_duration = 1.0e-12_dp
+    steady_cfg%sim%has_batch_duration = .true.
+    steady_cfg%sim%max_step = 100_i32
+    steady_cfg%sim%softening = 0.0_dp
+    steady_cfg%sim%q_floor = 1.0e-40_dp
+    steady_cfg%sim%field_solver = 'direct'
+    steady_cfg%sim%field_bc_mode = 'periodic2'
+    steady_cfg%sim%use_box = .true.
+    steady_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    steady_cfg%sim%box_max = [box_width, box_width, interface_z]
+    steady_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+    steady_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    steady_cfg%sim%reservoir_potential_model = 'none'
+    steady_cfg%sim%open_boundary_model = 'escape'
+    steady_cfg%sim%sheath_injection_model = 'none'
+    steady_cfg%sim%sheath_alpha_deg = 60.0_dp
+    steady_cfg%sim%sheath_photoelectron_ref_density_cm3 = 0.0_dp
+    steady_cfg%sim%sheath_electron_drift_mode = 'normal'
+    steady_cfg%sim%sheath_ion_drift_mode = 'normal'
+
+    steady_cfg%field%backend = 'direct'
+    steady_cfg%panel%source_model = 'triangle_p0'
+    steady_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    steady_cfg%panel%surface_side_policy = 'per_element'
+    steady_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
+    steady_cfg%periodic2%zero_mode_policy = 'exclude_k0'
+    steady_cfg%periodic2%lower_boundary_model = 'symmetric_vacuum'
+    steady_cfg%periodic2%reference_mode_layers = 2_i32
+    steady_cfg%periodic2%panel_quadrature_order = 4_i32
+    steady_cfg%periodic2%interface_sample_n = 2_i32
+    steady_cfg%periodic2%interface_phi_tolerance = 1.0e-2_dp
+    steady_cfg%periodic2%interface_field_tolerance = 1.0e-2_dp
+
+    steady_cfg%outer_plasma%model = 'kinetic_1d'
+    steady_cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+    steady_cfg%outer_plasma%zhao_branch = 'auto'
+    steady_cfg%outer_plasma%photoelectron_source_scale = 0.0_dp
+    steady_cfg%outer_plasma%photoelectron_density_model = 'none'
+    steady_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
+    steady_cfg%outer_plasma%interface_z = interface_z
+    steady_cfg%outer_plasma%infinity_potential = 0.0_dp
+    steady_cfg%outer_plasma%debye_length = 1.0_dp
+    steady_cfg%outer_plasma%thermal_voltage = 10.0_dp
+    steady_cfg%coupling%update_mode = 'explicit'
+    steady_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+    steady_cfg%coupling%steady_start_mode = 'zhao_floating'
+    steady_cfg%coupling%steady_start_mesh_id = 1_i32
+    steady_cfg%coupling%outer_update_stride = 1_i32
+    steady_cfg%coupling%field_evolution_timescale = 1.0_dp
+    steady_cfg%coupling%max_frozen_field_ratio = 1.0_dp
+    steady_cfg%coupling%outer_queue_enabled = .false.
+
+    steady_cfg%n_particle_species = 2_i32
+    steady_cfg%particle_species(1) = species_from_defaults()
+    steady_cfg%particle_species(1)%species_key = 'ambient_electron'
+    steady_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    steady_cfg%particle_species(1)%inject_face = 'z_high'
+    steady_cfg%particle_species(1)%q_particle = -qe
+    steady_cfg%particle_species(1)%m_particle = electron_mass
+    steady_cfg%particle_species(1)%number_density_m3 = 8.7e6_dp
+    steady_cfg%particle_species(1)%has_number_density_m3 = .true.
+    steady_cfg%particle_species(1)%temperature_ev = 12.0_dp
+    steady_cfg%particle_species(1)%has_temperature_ev = .true.
+    steady_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -inward_drift]
+    steady_cfg%particle_species(1)%target_macro_particles_per_batch = 1_i32
+    steady_cfg%particle_species(1)%has_target_macro_particles_per_batch = .true.
+    steady_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, interface_z]
+    steady_cfg%particle_species(1)%pos_high = [box_width, box_width, interface_z]
+
+    steady_cfg%particle_species(2) = species_from_defaults()
+    steady_cfg%particle_species(2)%species_key = 'ambient_proton'
+    steady_cfg%particle_species(2)%source_mode = 'reservoir_face'
+    steady_cfg%particle_species(2)%inject_face = 'z_high'
+    steady_cfg%particle_species(2)%q_particle = qe
+    steady_cfg%particle_species(2)%m_particle = proton_mass
+    steady_cfg%particle_species(2)%number_density_m3 = 8.7e6_dp
+    steady_cfg%particle_species(2)%has_number_density_m3 = .true.
+    steady_cfg%particle_species(2)%temperature_ev = 0.1_dp
+    steady_cfg%particle_species(2)%has_temperature_ev = .true.
+    steady_cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -inward_drift]
+    steady_cfg%particle_species(2)%target_macro_particles_per_batch = -1_i32
+    steady_cfg%particle_species(2)%has_target_macro_particles_per_batch = .true.
+    steady_cfg%particle_species(2)%pos_low = [0.0_dp, 0.0_dp, interface_z]
+    steady_cfg%particle_species(2)%pos_high = [box_width, box_width, interface_z]
+
+    steady_cfg%mesh_mode = 'template'
+    steady_cfg%n_templates = 1_i32
+    steady_cfg%templates(1)%enabled = .true.
+    steady_cfg%templates(1)%kind = 'plane'
+    steady_cfg%templates(1)%surface_side_policy = 'normal_plus'
+    steady_cfg%templates(1)%size_x = box_width
+    steady_cfg%templates(1)%size_y = box_width
+    steady_cfg%templates(1)%nx = 2_i32
+    steady_cfg%templates(1)%ny = 2_i32
+    steady_cfg%templates(1)%center = [0.5_dp*box_width, 0.5_dp*box_width, 2.0e-6_dp]
+
+    call build_mesh_from_config(steady_cfg, steady_mesh)
+    call prepare_periodic2_collision_mesh(steady_mesh, steady_cfg%sim)
+    call seed_particles_from_config(steady_cfg)
+    allocate (steady_injection_state%macro_residual(steady_cfg%n_particle_species))
+    steady_injection_state%macro_residual = 0.0_dp
+    call run_absorption_insulator( &
+      steady_mesh, steady_cfg, first_stats, inject_state=steady_injection_state, &
+      electrostatic_restart_state=restart_state &
+      )
+    call assert_equal_i32(first_stats%batches, 1_i32, 'steady-start fixture did not complete its first batch')
+    call assert_true(restart_state%outer_ready .and. restart_state%outer_profile_complete, &
+                     'steady-start fixture did not export a complete outer profile')
+    call assert_true(restart_state%outer_zhao_state_complete, &
+                     'steady-start fixture did not export a complete Zhao state')
+    call assert_true(restart_state%outer_zhao_branch == 'C', &
+                     'no-photo steady-start fixture did not select Zhao Type C')
+    saved_charge = steady_mesh%q_elem
+    saved_restart_state = restart_state
+
+    call run_absorption_insulator( &
+      steady_mesh, steady_cfg, resumed_stats, initial_stats=first_stats, &
+      inject_state=steady_injection_state, electrostatic_restart_state=restart_state &
+      )
+    call assert_equal_i32(resumed_stats%batches, first_stats%batches, &
+                          'zero-batch steady-start resume changed the completed batch count')
+    call assert_true(all(steady_mesh%q_elem == saved_charge), &
+                     'steady-start resume changed mesh charge or reapplied the seed')
+    call assert_true(restart_state%outer_zhao_branch == saved_restart_state%outer_zhao_branch, &
+                     'steady-start resume changed the Zhao branch')
+    call assert_close_dp(restart_state%outer_interface_field, saved_restart_state%outer_interface_field, 0.0_dp, &
+                         'steady-start resume changed the interface field')
+    call assert_true(all(restart_state%outer_profile_z == saved_restart_state%outer_profile_z), &
+                     'steady-start resume changed the outer-profile coordinates')
+    call assert_true(all(restart_state%outer_profile_potential == saved_restart_state%outer_profile_potential), &
+                     'steady-start resume changed the outer potential')
+    call assert_true(all(restart_state%outer_profile_field == saved_restart_state%outer_profile_field), &
+                     'steady-start resume changed the outer field')
+    call assert_true( &
+      all(restart_state%outer_profile_charge_density == saved_restart_state%outer_profile_charge_density), &
+      'steady-start resume changed the outer charge density' &
+      )
+  end subroutine test_zhao_steady_start_resume
 
   subroutine test_particle_append_preserves_existing_state()
     type(particles_soa) :: particles

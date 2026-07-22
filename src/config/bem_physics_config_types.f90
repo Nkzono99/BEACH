@@ -59,6 +59,8 @@ module bem_physics_config_types
   type, public :: coupling_config
     character(len=32) :: update_mode = 'explicit'
     character(len=32) :: particle_transfer_mode = 'none'
+    character(len=32) :: steady_start_mode = 'none'
+    integer(i32) :: steady_start_mesh_id = 1_i32
     integer(i32) :: outer_update_stride = 1_i32
     real(dp) :: field_evolution_timescale = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.1_dp
@@ -274,6 +276,8 @@ contains
     call validate_photoelectron_config(outer, coupling, status, message)
     if (status /= physics_config_ok) return
     call validate_outer_queue_config(sim, outer, coupling, status, message)
+    if (status /= physics_config_ok) return
+    call validate_steady_start_config(periodic2, outer, coupling, status, message)
     if (status /= physics_config_ok) return
     nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
     if (trim(nonzero_backend) == 'cached_kneq0') then
@@ -610,6 +614,54 @@ contains
                   'Persistent outer queue does not yet support the legacy photoelectron histogram.', status, message)
     end if
   end subroutine validate_outer_queue_config
+
+  !> Validate the opt-in pre-equilibrated surface-charge initialization contract.
+  subroutine validate_steady_start_config(periodic2, outer, coupling, status, message)
+    type(periodic2_physics_config), intent(in) :: periodic2
+    type(outer_plasma_config), intent(in) :: outer
+    type(coupling_config), intent(in) :: coupling
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    character(len=32) :: mode
+
+    status = physics_config_ok
+    message = ''
+    mode = lower_ascii(trim(coupling%steady_start_mode))
+    if (coupling%steady_start_mesh_id < 1_i32) then
+      call reject(physics_config_invalid_combination, &
+                  'coupling.steady_start_mesh_id must be >= 1.', status, message)
+      return
+    end if
+    select case (trim(mode))
+    case ('none')
+      return
+    case ('zhao_floating')
+      continue
+    case default
+      call reject(physics_config_invalid_combination, 'Unknown coupling.steady_start_mode.', status, message)
+      return
+    end select
+    if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
+        trim(lower_ascii(outer%kinetic_closure)) /= 'zhao_charge_driven' .or. &
+        trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return' .or. &
+        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return') then
+      call reject(physics_config_invalid_combination, &
+                  'zhao_floating steady start requires the Zhao kinetic_1d instant profile return.', &
+                  status, message)
+      return
+    end if
+    if (coupling%outer_queue_enabled) then
+      call reject(physics_config_invalid_combination, &
+                  'zhao_floating steady start requires coupling.outer_queue_enabled=false.', status, message)
+      return
+    end if
+    if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'exclude_k0' .or. &
+        .not. supported_lower_boundary(periodic2%lower_boundary_model)) then
+      call reject(physics_config_invalid_combination, &
+                  'zhao_floating steady start requires exclude_k0 and a supported lower boundary model.', &
+                  status, message)
+    end if
+  end subroutine validate_steady_start_config
 
   subroutine validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
     type(sim_config), intent(in) :: sim

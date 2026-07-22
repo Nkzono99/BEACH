@@ -30,6 +30,7 @@ module bem_simulator
                                             validate_photoelectron_linear_applicability, photoelectron_applicability_ok
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
+  use bem_zhao_steady_start, only: initialize_zhao_floating_steady_start
   use bem_outer_plasma_types, only: outer_plasma_ok, outer_plasma_state_type
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
