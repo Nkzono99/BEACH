@@ -40,6 +40,10 @@ module bem_outer_plasma_zhao
   real(dp), parameter :: atlas_default_residual_tolerance = 1.0e-12_dp
   real(dp), parameter :: atlas_default_log_density_floor = -27.0_dp
   real(dp), parameter :: atlas_fold_tangent_tolerance = 1.0e-6_dp
+  real(dp), parameter :: ab_degeneracy_probe_q = 1.0e-3_dp
+  real(dp), parameter :: ab_root_condition_tolerance = 1.0e-8_dp
+  real(dp), parameter :: ab_density_zero_tolerance = 1.0e-8_dp
+  real(dp), parameter :: ab_limit_condition_tolerance = 1.0e-8_dp
   integer, parameter :: atlas_eval_ok = 0
   integer, parameter :: atlas_eval_physical = 1
   integer, parameter :: atlas_eval_numerical = 2
@@ -162,6 +166,34 @@ module bem_outer_plasma_zhao
     logical :: seed_reanchored = .false.
   end type zhao_branch_atlas_type
 
+  !> Diagnostic chart for the singular Type-B to Type-A limit.
+  !>
+  !> q=sqrt(-phi_m/T_pe) regularizes the Type-A minimum coordinate.  A
+  !> non-trivial Type-A tangent requires a density-zero field limit and a zero
+  !> q^3 coefficient of the far-field Sagdeev residual.  These are necessary,
+  !> not sufficient, connection conditions.  This record is diagnostic only
+  !> and is not consulted by production branch selection.
+  type, public :: zhao_ab_degeneracy_diagnostics_type
+    character(len=48) :: classification = 'none'
+    real(dp) :: ambient_density_ratio = 0.0_dp
+    real(dp) :: photoelectron_quasineutral_term_hat = 0.0_dp
+    real(dp) :: doubled_quasineutral_residual_hat = 0.0_dp
+    real(dp) :: limiting_field_squared_jump_hat = 0.0_dp
+    real(dp) :: b_field_squared_residual_hat = 0.0_dp
+    real(dp) :: quasineutral_far_field_q3_coefficient = 0.0_dp
+    real(dp) :: probe_q = ab_degeneracy_probe_q
+    real(dp) :: probe_ambient_density_ratio = 0.0_dp
+    real(dp) :: probe_quasineutral_residual = 0.0_dp
+    real(dp) :: probe_far_field_q3_coefficient = 0.0_dp
+    real(dp) :: probe_field_squared_residual_hat = 0.0_dp
+    logical :: probe_available = .false.
+    logical :: density_zero_limit = .false.
+    logical :: b_root_field_condition_met = .false.
+    logical :: limiting_field_condition_met = .false.
+    logical :: far_field_tangent_condition_met = .false.
+    logical :: regular_connection_conditions_met = .false.
+  end type zhao_ab_degeneracy_diagnostics_type
+
   public :: solve_zhao_charge_root
   public :: evaluate_zhao_interface_field
   public :: build_zhao_outer_profile
@@ -170,8 +202,160 @@ module bem_outer_plasma_zhao
   public :: zhao_net_current_density
   public :: write_zhao_continuation_diagnostics
   public :: trace_zhao_branch_atlas
+  public :: diagnose_zhao_ab_degeneracy
 
 contains
+
+  subroutine diagnose_zhao_ab_degeneracy(params, b_root, diagnostics, status, message)
+    type(zhao_params_type), intent(in) :: params
+    type(zhao_charge_root_type), intent(in) :: b_root
+    type(zhao_ab_degeneracy_diagnostics_type), intent(out) :: diagnostics
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_params_type) :: trial_params
+    real(dp) :: phi0_hat, density_hat, density_for_integral_hat
+    real(dp) :: photo_density_hat, ion_density_hat
+    real(dp) :: a_integral, b_integral, a_field_squared, b_field_squared
+    real(dp) :: probe_q, probe_phi_m_hat, probe_density_hat, probe_numerator, probe_denominator
+    real(dp) :: probe_integral, probe_field_squared, target_field_hat, field_scale
+    real(dp) :: x3(3), raw(3), condition_scale
+    logical :: a_integral_ok, b_integral_ok, probe_integral_ok
+
+    diagnostics = zhao_ab_degeneracy_diagnostics_type()
+    status = outer_plasma_invalid
+    message = ''
+    if (.not. valid_zhao_params(params) .or. b_root%branch /= 'B' .or. &
+        .not. all(ieee_is_finite([ &
+                                 b_root%phi0_v, b_root%n_swe_inf_m3, &
+                                 b_root%photoelectron_population_fraction, &
+                                 b_root%interface_field_v_m &
+                                 ])) .or. b_root%phi0_v <= 0.0_dp .or. &
+        b_root%n_swe_inf_m3 < 0.0_dp .or. &
+        b_root%photoelectron_population_fraction < 0.0_dp .or. &
+        b_root%interface_field_v_m <= 0.0_dp) then
+      diagnostics%classification = 'invalid_b_limit'
+      message = 'invalid Zhao-B root for A/B degeneracy diagnostics'
+      return
+    end if
+
+    trial_params = params
+    trial_params%photoelectron_population_fraction = &
+      b_root%photoelectron_population_fraction
+    phi0_hat = b_root%phi0_v/trial_params%t_phe_ev
+    density_hat = b_root%n_swe_inf_m3/trial_params%n_phe_ref_m3
+    ! integrate_rho_hat rejects an exactly zero normalization even though the
+    ! density formulas have a regular zero-density limit.
+    density_for_integral_hat = max( &
+                               density_hat, epsilon(1.0_dp)*ab_density_zero_tolerance &
+                               )
+    ion_density_hat = trial_params%n_swi_inf_m3/trial_params%n_phe_ref_m3
+    photo_density_hat = &
+      trial_params%photoelectron_population_fraction* &
+      trial_params%n_phe0_m3/trial_params%n_phe_ref_m3*exp(-phi0_hat)
+
+    diagnostics%ambient_density_ratio = density_hat
+    diagnostics%photoelectron_quasineutral_term_hat = photo_density_hat
+    diagnostics%doubled_quasineutral_residual_hat = &
+      density_hat*(1.0_dp + erf(trial_params%u)) + &
+      photo_density_hat - 2.0_dp*ion_density_hat
+    ! This is the q^3 coefficient after projection onto the Type-A
+    ! quasineutral curve; an off-curve state also has a q^2 term.
+    diagnostics%quasineutral_far_field_q3_coefficient = &
+      2.0_dp/(3.0_dp*sqrt(pi))*( &
+      photo_density_hat - &
+      density_hat*exp(-trial_params%u*trial_params%u)/sqrt(trial_params%tau) &
+      )
+
+    call integrate_rho_hat( &
+      trial_params, 'A', 'lower', 0.0_dp, phi0_hat, phi0_hat, 0.0_dp, &
+      density_for_integral_hat, a_integral, a_integral_ok &
+      )
+    call integrate_rho_hat( &
+      trial_params, 'B', 'monotonic', phi0_hat, 0.0_dp, phi0_hat, phi0_hat, &
+      density_for_integral_hat, b_integral, b_integral_ok &
+      )
+    if (.not. a_integral_ok .or. .not. b_integral_ok) then
+      diagnostics%classification = 'limit_profile_evaluation_failed'
+      status = outer_plasma_numerical_failure
+      message = 'Zhao A/B limiting profile could not be evaluated'
+      return
+    end if
+    a_field_squared = -2.0_dp*a_integral
+    b_field_squared = 2.0_dp*b_integral
+    diagnostics%limiting_field_squared_jump_hat = a_field_squared - b_field_squared
+    field_scale = trial_params%t_phe_ev/trial_params%lambda_d_phe_ref_m
+    target_field_hat = b_root%interface_field_v_m/field_scale
+    diagnostics%b_field_squared_residual_hat = &
+      b_field_squared - target_field_hat*target_field_hat
+
+    probe_q = diagnostics%probe_q
+    probe_phi_m_hat = -(probe_q*probe_q)
+    probe_numerator = &
+      2.0_dp*ion_density_hat - photo_density_hat*erfc(probe_q)
+    probe_denominator = &
+      1.0_dp + 2.0_dp*erf(trial_params%u) + &
+      erf(probe_q/sqrt(trial_params%tau) - trial_params%u)
+    if (ieee_is_finite(probe_numerator) .and. &
+        ieee_is_finite(probe_denominator) .and. &
+        probe_numerator > 0.0_dp .and. probe_denominator > 0.0_dp) then
+      probe_density_hat = probe_numerator/probe_denominator
+      diagnostics%probe_ambient_density_ratio = probe_density_hat
+      x3 = [ &
+           b_root%phi0_v, &
+           probe_phi_m_hat*trial_params%t_phe_ev, &
+           probe_density_hat*trial_params%n_phe_ref_m3 &
+           ]
+      call zhao_residuals_type_a(trial_params, x3, raw)
+      diagnostics%probe_quasineutral_residual = raw(1)/trial_params%n_phe_ref_m3
+      diagnostics%probe_far_field_q3_coefficient = raw(3)/(probe_q**3)
+
+      call integrate_rho_hat( &
+        trial_params, 'A', 'lower', probe_phi_m_hat, phi0_hat, &
+        phi0_hat, probe_phi_m_hat, probe_density_hat, &
+        probe_integral, probe_integral_ok &
+        )
+      if (probe_integral_ok) then
+        probe_field_squared = -2.0_dp*probe_integral
+        diagnostics%probe_field_squared_residual_hat = &
+          probe_field_squared - b_field_squared
+        diagnostics%probe_available = .true.
+      end if
+    end if
+
+    condition_scale = max(abs(a_field_squared), abs(b_field_squared), 1.0_dp)
+    diagnostics%density_zero_limit = &
+      density_hat <= ab_density_zero_tolerance
+    diagnostics%b_root_field_condition_met = &
+      abs(diagnostics%b_field_squared_residual_hat) <= ab_root_condition_tolerance*condition_scale
+    diagnostics%limiting_field_condition_met = &
+      abs(diagnostics%limiting_field_squared_jump_hat) <= &
+      ab_limit_condition_tolerance*condition_scale
+    diagnostics%far_field_tangent_condition_met = &
+      abs(diagnostics%quasineutral_far_field_q3_coefficient) <= &
+      ab_limit_condition_tolerance
+    diagnostics%regular_connection_conditions_met = &
+      abs(diagnostics%doubled_quasineutral_residual_hat) <= ab_root_condition_tolerance .and. &
+      diagnostics%density_zero_limit .and. &
+      diagnostics%b_root_field_condition_met .and. &
+      diagnostics%limiting_field_condition_met .and. &
+      diagnostics%far_field_tangent_condition_met
+
+    if (abs(diagnostics%doubled_quasineutral_residual_hat) > ab_root_condition_tolerance) then
+      diagnostics%classification = 'b_limit_not_quasineutral'
+    else if (.not. diagnostics%b_root_field_condition_met) then
+      diagnostics%classification = 'b_limit_field_mismatch'
+    else if (.not. diagnostics%density_zero_limit) then
+      diagnostics%classification = 'nonzero_ambient_density_limit'
+    else if (.not. diagnostics%limiting_field_condition_met) then
+      diagnostics%classification = 'limiting_field_discontinuous'
+    else if (.not. diagnostics%far_field_tangent_condition_met) then
+      diagnostics%classification = 'no_regular_type_a_tangent'
+    else
+      diagnostics%classification = 'regular_connection_candidate'
+    end if
+    status = outer_plasma_ok
+  end subroutine diagnose_zhao_ab_degeneracy
 
   subroutine write_zhao_continuation_diagnostics(unit, diagnostics, call_stage, batch_index)
     integer, intent(in) :: unit

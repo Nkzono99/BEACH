@@ -160,8 +160,22 @@ three-digit exponent. The root flushes all five records before every MPI rank st
 The public Fortran procedure `trace_zhao_branch_atlas` is a diagnostic pseudo-arclength tracer for one requested A, B, or C
 branch. It is not connected to production continuation, root selection, or fallback. Reaching a finite density floor or point
 limit is a `search_limit`; without tracing other branches and degeneracy connections, it does not establish that the target is
-unreachable on every stationary Zhao root. [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) records the scope of the
-strong-UV fixture and the next A/B-connection diagnostic.
+unreachable on every stationary Zhao root.
+
+The public Fortran procedure `diagnose_zhao_ab_degeneracy` examines a Type-B density-zero endpoint in the coordinate
+$q=\sqrt{-\phi_m/T_{pe}}$. It records the $q^3$ coefficient of the Type-A far-field residual along the quasineutral curve, the
+Type-A/B interface-field integral difference, the supplied Type-B quasineutral and field residuals, and a finite-$q$ probe in
+`zhao_ab_degeneracy_diagnostics_type`. `regular_connection_conditions_met` represents necessary connection conditions only; it
+does not establish the absence of a disconnected Type-A component or its dynamic stability. This API also leaves production
+branch selection unchanged.
+
+For the strong-UV fixture, neither the forward Type-B atlas to its density floor nor the reverse atlas to its $\eta$ lower bound
+brackets the target column at $E_I=0.9072962759\,\mathrm{V/m}$ and $L=10\lambda_{D,pe}$. At the density-zero endpoint, the
+quasineutral $q^3$ coefficient is approximately $2.9\times10^{-2}$ rather than zero, excluding a local Type-A branch continuous
+with that endpoint. The target is therefore unreachable on the refined Type-B component containing the runtime neighborhood.
+This result does not exclude a different $L$ or a disconnected Type-A root, and the production solver continues to fail closed.
+[ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) records the numerical evidence, scope, and decision to proceed toward
+a dynamic outer model.
 
 The same $0\le z\le10\lambda_{D,pe}$ interval is the finite queue-particle control volume. A particle that does not turn inside
 it is absorbed by the exterior reservoir and escapes at $L=10\lambda_{D,pe}$; queue mode does not use a Robin tail outside $L$

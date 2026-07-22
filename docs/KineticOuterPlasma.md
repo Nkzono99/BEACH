@@ -157,8 +157,20 @@ full-range scientific formatで記録し、rootが5行をflushした後に全MPI
 
 公開Fortran procedure `trace_zhao_branch_atlas`は、指定したA/B/C branchの連結curveをpseudo-arclengthで追跡する
 診断APIです。production continuation、root選択、fallbackには接続していません。有限density floorやpoint数への到達は
-`search_limit`であり、別branchや退化接続を調べずに全Zhao定常解の`target_unreachable`を意味しません。強UV fixtureの
-適用範囲と次のA/B接続診断は[ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md)に記録しています。
+`search_limit`であり、別branchや退化接続を調べずに全Zhao定常解の`target_unreachable`を意味しません。
+
+公開Fortran procedure `diagnose_zhao_ab_degeneracy`は、Type Bの密度ゼロ端を
+$q=\sqrt{-\phi_m/T_{pe}}$で診断します。Type Aの準中性curveに沿うfar-field residualの$q^3$係数、
+Type A/Bのinterface field積分差、入力Type B rootの準中性・field residual、および有限$q$ probeを
+`zhao_ab_degeneracy_diagnostics_type`へ保存します。`regular_connection_conditions_met`は接続の必要条件だけを表し、
+独立したType A componentの非存在や動的安定性を保証しません。このAPIもproduction branch選択を変更しません。
+
+強UV fixtureでは、forward Type B atlasを密度floorまで、reverse atlasを$\eta$下限まで追跡しても、
+$E_I=0.9072962759\,\mathrm{V/m}$、$L=10\lambda_{D,pe}$のtarget columnを挟みませんでした。密度ゼロ端では
+準中性curve上の$q^3$係数が約$2.9\times10^{-2}$で0ではないため、その端へ連続する局所Type A branchもありません。
+従って実行時rootを精密化したType B componentではtargetが不可達です。この結論は別の$L$やdisconnected Type A rootを
+排除せず、production solverは引き続きfail closedします。数値、適用範囲、dynamic outerへ進む判断は
+[ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md)に記録しています。
 
 同じ$0\le z\le10\lambda_{D,pe}$をqueue粒子の有限control volumeとし、
 この範囲内でturningしなければ$L=10\lambda_{D,pe}$で外部reservoirへ吸収/escapeします。queue modeでは$L$外の

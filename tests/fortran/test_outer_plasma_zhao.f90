@@ -16,7 +16,9 @@ program test_outer_plasma_zhao
                                    zhao_continuation_reason_search_limit, &
                                    zhao_continuation_reason_target_bracketed, &
                                    zhao_branch_atlas_options_type, zhao_branch_atlas_type, &
-                                   trace_zhao_branch_atlas, write_zhao_continuation_diagnostics
+                                   zhao_ab_degeneracy_diagnostics_type, &
+                                   trace_zhao_branch_atlas, write_zhao_continuation_diagnostics, &
+                                   diagnose_zhao_ab_degeneracy
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, &
                           assert_close_dp, assert_equal_i32
@@ -38,19 +40,21 @@ program test_outer_plasma_zhao
   type(zhao_continuation_diagnostics_type) :: continuation_diagnostics
   type(zhao_branch_atlas_options_type) :: atlas_options
   type(zhao_branch_atlas_type) :: branch_atlas, coarse_branch_atlas
+  type(zhao_branch_atlas_type) :: reverse_branch_atlas, candidate_branch_atlas
+  type(zhao_ab_degeneracy_diagnostics_type) :: ab_diagnostics
   type(outer_plasma_state_type) :: state, reference_state, continuation_target_state
   type(outer_plasma_state_type) :: field_target_state
   real(dp) :: equilibrium_field, perturbed_field, gauss_expected, gauss_scale, reference_column
   real(dp) :: continuation_target_column, field_target, field_target_column
   real(dp) :: manually_integrated_column, type_a_minimum_z, type_a_native_extent
-  real(dp) :: phi0_v, phi_m_v, density_m3
+  real(dp) :: phi0_v, phi_m_v, density_m3, ab_limit_coefficient
   integer(i32) :: status
   character(len=1) :: branch
   character(len=256) :: message
   character(len=2048) :: diagnostic_lines(5)
   integer :: fraction_index, atlas_index, diagnostic_unit, diagnostic_ios
 
-  call test_init(20)
+  call test_init(23)
 
   call test_begin('stationary Zhao-A root is recovered by its interface field')
   call configure_params(60.0_dp, params)
@@ -733,6 +737,141 @@ program test_outer_plasma_zhao
   call assert_true( &
     .not. coarse_branch_atlas%target_bracketed, &
     'coarse-floor strong-UV atlas falsely bracketed the target' &
+    )
+  call test_end()
+
+  call test_begin('strong-UV Zhao-B endpoint has no regular local Type-A tangent')
+  call diagnose_zhao_ab_degeneracy( &
+    params, branch_atlas%points(branch_atlas%point_count)%root, &
+    ab_diagnostics, status, message &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'strong-UV A/B degeneracy diagnostic failed: '//trim(message))
+  call assert_true( &
+    trim(ab_diagnostics%classification) == 'no_regular_type_a_tangent', &
+    'strong-UV A/B endpoint received the wrong local classification' &
+    )
+  call assert_true( &
+    ab_diagnostics%density_zero_limit .and. &
+    ab_diagnostics%b_root_field_condition_met .and. &
+    ab_diagnostics%limiting_field_condition_met, &
+    'strong-UV B endpoint did not approach its density-zero field limit' &
+    )
+  call assert_true( &
+    .not. ab_diagnostics%far_field_tangent_condition_met .and. &
+    .not. ab_diagnostics%regular_connection_conditions_met, &
+    'strong-UV B endpoint falsely admitted a regular local Type-A connection' &
+    )
+  call assert_true( &
+    ab_diagnostics%ambient_density_ratio < 5.0e-12_dp .and. &
+    abs(ab_diagnostics%doubled_quasineutral_residual_hat) < 1.0e-10_dp .and. &
+    abs(ab_diagnostics%b_field_squared_residual_hat) < 1.0e-10_dp, &
+    'strong-UV B endpoint is no longer at its quasineutral density boundary' &
+    )
+  call assert_true( &
+    ab_diagnostics%limiting_field_squared_jump_hat <= 0.0_dp .and. &
+    ab_diagnostics%quasineutral_far_field_q3_coefficient > 2.8e-2_dp .and. &
+    ab_diagnostics%quasineutral_far_field_q3_coefficient < 3.0e-2_dp, &
+    'strong-UV Type-A far-field q^3 limit changed unexpectedly' &
+    )
+  call assert_true( &
+    ab_diagnostics%probe_available .and. &
+    ab_diagnostics%probe_ambient_density_ratio > 0.0_dp .and. &
+    abs(ab_diagnostics%probe_quasineutral_residual) < 1.0e-12_dp .and. &
+    abs(ab_diagnostics%probe_far_field_q3_coefficient - &
+        ab_diagnostics%quasineutral_far_field_q3_coefficient) < 5.0e-4_dp, &
+    'finite-q Type-A probe did not converge to its analytic far-field limit' &
+    )
+  call assert_true( &
+    abs(ab_diagnostics%probe_field_squared_residual_hat) > 5.0e-5_dp, &
+    'finite-q Type-A probe unexpectedly solved the fixed-field equation' &
+    )
+  ab_limit_coefficient = ab_diagnostics%quasineutral_far_field_q3_coefficient
+  zero_root = branch_atlas%points(branch_atlas%point_count)%root
+  zero_root%n_swe_inf_m3 = 0.0_dp
+  zero_root%photoelectron_population_fraction = &
+    2.0_dp*params%n_swi_inf_m3*exp(zero_root%phi0_v/params%t_phe_ev)/params%n_phe0_m3
+  call diagnose_zhao_ab_degeneracy( &
+    params, zero_root, ab_diagnostics, status, message &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'exact density-zero A/B diagnostic failed: '//trim(message))
+  call assert_true( &
+    trim(ab_diagnostics%classification) == 'no_regular_type_a_tangent' .and. &
+    ab_diagnostics%ambient_density_ratio == 0.0_dp .and. &
+    abs(ab_diagnostics%quasineutral_far_field_q3_coefficient - ab_limit_coefficient) < 1.0e-6_dp, &
+    'finite-density atlas endpoint did not converge to its analytic density-zero limit' &
+    )
+  call test_end()
+
+  call test_begin('strong-UV reverse Zhao-B atlas does not reach the larger target column')
+  atlas_options = zhao_branch_atlas_options_type()
+  atlas_options%eta_direction = -1_i32
+  atlas_options%max_points = 512_i32
+  call trace_zhao_branch_atlas( &
+    params, reference_root%interface_field_v_m, 128_i32, &
+    10.0_dp*params%lambda_d_phe_ref_m, branch_atlas%points(1)%root, &
+    reverse_branch_atlas, status, message, &
+    target_column_m2=9.9455765203101724e7_dp, options=atlas_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'reverse strong-UV Zhao-B atlas failed: '//trim(message))
+  call assert_true( &
+    .not. reverse_branch_atlas%target_bracketed .and. &
+    reverse_branch_atlas%maximum_column_m2 < 9.9455765203101724e7_dp - 1.8e6_dp, &
+    'reverse strong-UV Zhao-B atlas unexpectedly reached the target column' &
+    )
+  call assert_true( &
+    .not. reverse_branch_atlas%eta_fold_detected .and. &
+    .not. reverse_branch_atlas%column_fold_detected, &
+    'reverse strong-UV Zhao-B atlas introduced an unexpected fold' &
+    )
+  call assert_true( &
+    reverse_branch_atlas%point_count > 1_i32 .and. &
+    reverse_branch_atlas%points(reverse_branch_atlas%point_count)%root% &
+    photoelectron_population_fraction < &
+    reverse_branch_atlas%points(1)%root%photoelectron_population_fraction, &
+    'reverse strong-UV Zhao-B atlas did not advance toward smaller eta' &
+    )
+  call assert_true( &
+    reverse_branch_atlas%termination_reason_code == zhao_continuation_reason_search_limit .and. &
+    trim(reverse_branch_atlas%termination_reason) == 'eta_lower_search_limit', &
+    'reverse strong-UV Zhao-B atlas stopped before its eta lower limit' &
+    )
+  do atlas_index = 1, int(reverse_branch_atlas%point_count)
+    call assert_true( &
+      reverse_branch_atlas%points(atlas_index)%root%branch == 'B' .and. &
+      reverse_branch_atlas%points(atlas_index)%root%residual_norm <= 5.0e-12_dp, &
+      'reverse strong-UV atlas left its converged Zhao-B curve' &
+      )
+  end do
+  call test_end()
+
+  call test_begin('strong-UV density candidates refine onto the same Zhao-B root')
+  continuation_target_root = zhao_charge_root_type( &
+                             branch='B', interface_side='monotonic', &
+                             phi0_v=2.2999370655044924_dp, phi_m_v=2.2999370655044924_dp, &
+                             n_swe_inf_m3=1.6511518550182400e-1_dp, &
+                             photoelectron_population_fraction=reference_root%photoelectron_population_fraction, &
+                             interface_field_v_m=reference_root%interface_field_v_m &
+                             )
+  atlas_options = zhao_branch_atlas_options_type()
+  atlas_options%max_points = 1_i32
+  call trace_zhao_branch_atlas( &
+    params, reference_root%interface_field_v_m, 128_i32, &
+    10.0_dp*params%lambda_d_phe_ref_m, continuation_target_root, &
+    candidate_branch_atlas, status, message, options=atlas_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'candidate Zhao-B seed refinement failed: '//trim(message))
+  call assert_true( &
+    branch_atlas%seed_reanchored .and. branch_atlas%seed_refinement_jump > 0.25_dp .and. &
+    .not. candidate_branch_atlas%seed_reanchored .and. &
+    candidate_branch_atlas%seed_refinement_jump < 5.0e-2_dp, &
+    'strong-UV runtime and candidate seeds recorded the wrong refinement neighborhoods' &
+    )
+  call assert_true( &
+    abs(candidate_branch_atlas%points(1)%root%phi0_v - &
+        branch_atlas%points(1)%root%phi0_v)/params%t_phe_ev < 1.0e-8_dp .and. &
+    abs(log(candidate_branch_atlas%points(1)%root%n_swe_inf_m3/ &
+            branch_atlas%points(1)%root%n_swe_inf_m3)) < 1.0e-5_dp, &
+    'strong-UV density candidates did not refine onto the same local Zhao-B root' &
     )
   call test_end()
 

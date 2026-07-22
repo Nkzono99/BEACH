@@ -2,7 +2,7 @@
 
 - Status: accepted for staged implementation
 - Date: 2026-07-22
-- Implementation: phase 1 diagnostics and fixed-branch atlas implemented; runtime continuation unchanged
+- Implementation: phase 1 diagnostics, bidirectional fixed-branch atlas, and A/B endpoint diagnostic implemented; runtime continuation unchanged
 
 ## Context
 
@@ -137,6 +137,46 @@ target $9.94557652\times10^7\,\mathrm{m^{-2}}$をbracketせず、差は約$1.841
 動的安定性も未検証である。従ってphase 1が支持する主張は、固定$E_I$、固定$L$のforward Type B tailが
 収束した有限density floorまでtargetをbracketしなかったことに限る。次の診断対象は、Bのdensity-zero極限から
 $\phi_m<0$のType A seedを構成し、A curveと退化接続を追跡することである。
+
+## Phase 1b evidence: A/B endpointと双方向B component
+
+上記の「density-zero端からType A seedを構成する」という仮説を、
+$q=\sqrt{-\phi_m/T_{pe}}$を使う局所chartで検査した。Type Aの準中性curveに沿ってfar-field residualを展開すると、
+
+$$
+\frac{F_{A,\infty}}{q^3}\rightarrow
+\frac{2}{3\sqrt{\pi}}\left[
+Q-\frac{r e^{-u^2}}{\sqrt{\tau}}
+\right],
+\qquad
+Q=\eta\frac{n_{pe0}}{n_{ref}}e^{-\phi_0/T_{pe}},\quad
+r=\frac{n_{e,\infty}}{n_{ref}}.
+$$
+
+強UVのType B端では$r\rightarrow0$、$Q\rightarrow2n_i/n_{ref}>0$であり、この係数は約
+$2.9\times10^{-2}$へ収束した。$q=10^{-3}$でType A準中性を厳密に満たす有限probeも同じ係数を
+$5\times10^{-4}$以内で再現する一方、固定interface field条件を満たさなかった。従ってこの端はlog座標だけの
+数値的特異点ではなく、そこへ連続する局所Type A root列に必要なfar-field条件を満たさない。
+`diagnose_zhao_ab_degeneracy`は、この準中性条件付き$q^3$係数、Type A/Bのfield積分差、入力B root residual、
+有限$q$ probeを記録する。`regular_connection_conditions_met`は必要条件だけで、独立Type A componentの非存在を意味しない。
+
+forward atlasの初期精密化では、runtime受理rootの$0.2233685\,\mathrm{m^{-3}}$と拒否candidateの
+$0.1651152\,\mathrm{m^{-3}}$を同じ$\eta=0.251334841178$へ置くと、いずれも
+$n_{e,\infty}\simeq0.1590606\,\mathrm{m^{-3}}$の同じ高精度Type B rootへ収束した。従って
+`seed_reanchored=true`は、絶対密度がほぼ0の領域でlog-density metricだけが大きくなることによる。
+
+同じ高精度rootからreverse Type B atlasをprofile 128点で$\eta$下限まで追跡した。197点で
+$\eta=8.64\times10^{-9}$、column約$2.91\,\mathrm{m^{-2}}$へ達し、targetをbracketせず、$\eta$ foldとcolumn foldも
+検出しなかった。forward側は密度ゼロ端までtargetとの差を約$1.84\times10^6\,\mathrm{m^{-2}}$残す。
+正のinterface fieldではType Cは候補でなく、密度ゼロ端へ接続するType Aも上記$q^3$条件で除かれる。
+
+以上から、$E_I=0.9072962759\,\mathrm{V/m}$、$L=10\lambda_{D,pe}$において、実行時rootの近傍を含む
+精密化Type B componentではtarget column $9.94557652\times10^7\,\mathrm{m^{-2}}$が不可達である。
+これは別の$L$やdisconnected Type A rootを排除しないが、そのrootへjumpすることはconnected continuationではない。
+従って現行の固定$E_I$ Type B continuationでは、このbatch 16 targetを回復できない。一方、phase 2が扱う
+$(E_I,N_{pe})$同時homotopyは、途中の別電場でA/B接続または別sheetを経由する可能性があり、今回の固定電場断面だけでは
+可否を判定できない。次は拡張manifold上の連結経路を診断し、targetへ至るpathがなければphase 3の
+energy/flight-phaseを保持するdynamic outer stateへ進む。production root選択とfail-closed statusはまだ変更しない。
 
 ## Rejected alternatives
 

@@ -201,6 +201,10 @@ targetへ到達する連結・単調解がなければ`no_physical_solution`で�
 MPI rootが`BEACH zhao-continuation` prefixの5行へcall stage、batch、reason/status、target、直前root、拒否candidate、
 root jumpをfull-range scientific formatで出力し、flushと全rank barrierの後にfail closedします。このtelemetryは
 root選択を変更しません。固定branchのpseudo-arclength atlasは診断APIであり、runtime fallbackではありません。
+`diagnose_zhao_ab_degeneracy`は$q=\sqrt{-\phi_m/T_{pe}}$を使い、Type B密度ゼロ端におけるType A準中性curve上の
+far-field $q^3$係数、A/Bのinterface field積分差、有限$q$ probeを返します。
+`regular_connection_conditions_met`は局所接続の必要条件であり、独立componentの存在や安定性を判定しません。
+このA/B診断もruntime root選択には使いません。
 これはflight delayと有限column inventoryのclosureであり、時間依存Vlasov--Poisson、
 outer collision、energy-resolved cloud evolutionではありません。`batch_duration`、tracked粒子数、水平面積、有効interface位置、
 profile gridについて収束を確認します。
