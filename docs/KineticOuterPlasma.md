@@ -165,12 +165,34 @@ Type A/Bのinterface field積分差、入力Type B rootの準中性・field resi
 `zhao_ab_degeneracy_diagnostics_type`へ保存します。`regular_connection_conditions_met`は接続の必要条件だけを表し、
 独立したType A componentの非存在や動的安定性を保証しません。このAPIもproduction branch選択を変更しません。
 
+公開Fortran procedure `trace_zhao_field_column_homotopy`は、前状態$(E_0,N_0)$とtarget
+$(E_1,N_1)$を直線補間し、photoelectron sourceが非零の固定Type B/C branch上でZhao残差と有限長column残差を同時に
+pseudo-arclength追跡する診断APIです。accepted point間で$\lambda=1$を挟むと、$\lambda=1$を固定したcorrectorで
+targetへ厳密に着地します。`target_reached`はこのcorrectorが収束した場合だけtrueとなり、
+`homotopy_fold_detected`は接線の$\lambda$成分の反転を記録します。異なるbranchへの切替、production root選択、
+fallbackには接続していません。
+非単調Type Aの5座標correctorは現段階では数値的に十分条件付けされていないため明示的に拒否し、
+columnが恒等的に0となるno-photo Type Cも退化系として拒否します。Type Aは既存の固定電場atlasとA/B端診断を使います。
+
 強UV fixtureでは、forward Type B atlasを密度floorまで、reverse atlasを$\eta$下限まで追跡しても、
-$E_I=0.9072962759\,\mathrm{V/m}$、$L=10\lambda_{D,pe}$のtarget columnを挟みませんでした。密度ゼロ端では
-準中性curve上の$q^3$係数が約$2.9\times10^{-2}$で0ではないため、その端へ連続する局所Type A branchもありません。
+$E_I=0.9072962759\,\mathrm{V/m}$、$L=10\lambda_{D,pe}$のtarget columnを挟みませんでした。密度ゼロlimitでは
+準中性curve上の$q^3$係数が約$2.9\times10^{-2}$で0ではないため、そのlimitへ連続するregular local Type A tangentの
+必要条件を満たしません。
 従って実行時rootを精密化したType B componentではtargetが不可達です。この結論は別の$L$やdisconnected Type A rootを
 排除せず、production solverは引き続きfail closedします。数値、適用範囲、dynamic outerへ進む判断は
 [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md)に記録しています。
+
+batch 15の正常終了を再生して得たType B stateから、停止したbatch 16 targetまで上記の直線homotopyも追跡しました。
+$E_0=0.8424570666\,\mathrm{V/m}$、$N_0=9.3202065681\times10^7\,\mathrm{m^{-2}}$から開始したforward curveは、
+$\lambda\simeq0.33179$、$E_I\simeq0.86397\,\mathrm{V/m}$で有限ambient density floorへ達しました。
+floorを$\log(n_{e,\infty}/n_{pe,ref})=-27$から$-24$へ変えても終端$\lambda$の差は$10^{-5}$未満で、
+density-zero limitへの収束と整合します。全accepted pointでroot/column残差は$5\times10^{-10}$以下、
+row-rank indicatorは有限かつ数値拒否閾値$10^{-12}$を上回りました。
+target $E_1=0.9072962759\,\mathrm{V/m}$、$N_1=9.9455765203\times10^7\,\mathrm{m^{-2}}$には届かず、
+$\lambda$ foldもありません。この端でも準中性$q^3$係数は約$2.9\times10^{-2}$であり、
+regular local Type A tangentの必要条件を満たしません。
+従って、batch 15 rootから$\lambda$増加方向へ進む固定branchの同時$(E_I,N_{pe})$準定常pathは、target前に有限floorで終端します。
+逆向きの大域curve、disconnected component、異なる$L$はこの診断の対象外です。
 
 同じ$0\le z\le10\lambda_{D,pe}$をqueue粒子の有限control volumeとし、
 この範囲内でturningしなければ$L=10\lambda_{D,pe}$で外部reservoirへ吸収/escapeします。queue modeでは$L$外の

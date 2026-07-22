@@ -37,7 +37,10 @@ module bem_outer_plasma_zhao
   real(dp), parameter :: profile_phi_end_hat = 1.0e-4_dp
   real(dp), parameter :: zero_field_tolerance_hat = 1.0e-12_dp
   integer, parameter :: atlas_max_coordinates = 4
+  integer, parameter :: homotopy_max_coordinates = 4
+  integer, parameter :: homotopy_max_residuals = 3
   real(dp), parameter :: atlas_default_residual_tolerance = 1.0e-12_dp
+  real(dp), parameter :: homotopy_default_residual_tolerance = 1.0e-10_dp
   real(dp), parameter :: atlas_default_log_density_floor = -27.0_dp
   real(dp), parameter :: atlas_fold_tangent_tolerance = 1.0e-6_dp
   real(dp), parameter :: ab_degeneracy_probe_q = 1.0e-3_dp
@@ -166,6 +169,57 @@ module bem_outer_plasma_zhao
     logical :: seed_reanchored = .false.
   end type zhao_branch_atlas_type
 
+  !> Controls for a diagnostic straight field-column homotopy on Zhao B/C.
+  !>
+  !> The homotopy coordinate prescribes both the interface field and the finite
+  !> photoelectron column between two accepted time levels.  This tracer is not
+  !> consulted by the runtime closure or automatic branch selection.
+  type, public :: zhao_field_column_homotopy_options_type
+    integer(i32) :: max_points = 512_i32
+    integer(i32) :: max_corrector_iterations = 24_i32
+    integer(i32) :: max_step_halvings = 20_i32
+    real(dp) :: initial_step = 2.5e-2_dp
+    real(dp) :: minimum_step = 1.0e-7_dp
+    real(dp) :: maximum_step = 5.0e-2_dp
+    real(dp) :: residual_tolerance = homotopy_default_residual_tolerance
+    real(dp) :: seed_refinement_limit = 5.0e-1_dp
+    real(dp) :: eta_min = 0.0_dp
+    real(dp) :: eta_max = column_eta_search_max
+    real(dp) :: homotopy_min = -2.5e-1_dp
+    real(dp) :: homotopy_max = 1.25_dp
+    real(dp) :: log_density_floor = atlas_default_log_density_floor
+  end type zhao_field_column_homotopy_options_type
+
+  type, public :: zhao_field_column_homotopy_point_type
+    type(zhao_charge_root_type) :: root
+    real(dp) :: homotopy_fraction = 0.0_dp
+    real(dp) :: prescribed_column_m2 = 0.0_dp
+    real(dp) :: normalized_column_residual = 0.0_dp
+    real(dp) :: arc_length = 0.0_dp
+    real(dp) :: accepted_step = 0.0_dp
+    real(dp) :: tangent(homotopy_max_coordinates) = [0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+    real(dp) :: row_rank_indicator = 0.0_dp
+    real(dp) :: normalized_jump_from_previous = 0.0_dp
+    integer(i32) :: corrector_iterations = 0_i32
+  end type zhao_field_column_homotopy_point_type
+
+  type, public :: zhao_field_column_homotopy_type
+    type(zhao_field_column_homotopy_point_type), allocatable :: points(:)
+    character(len=1) :: branch = ' '
+    integer(i32) :: point_count = 0_i32
+    integer(i32) :: termination_reason_code = zhao_continuation_reason_none
+    character(len=48) :: termination_reason = 'none'
+    real(dp) :: start_field_v_m = 0.0_dp
+    real(dp) :: target_field_v_m = 0.0_dp
+    real(dp) :: start_column_m2 = 0.0_dp
+    real(dp) :: target_column_m2 = 0.0_dp
+    real(dp) :: column_scale_m2 = 1.0_dp
+    real(dp) :: seed_refinement_jump = 0.0_dp
+    logical :: target_reached = .false.
+    logical :: homotopy_fold_detected = .false.
+    logical :: seed_reanchored = .false.
+  end type zhao_field_column_homotopy_type
+
   !> Diagnostic chart for the singular Type-B to Type-A limit.
   !>
   !> q=sqrt(-phi_m/T_pe) regularizes the Type-A minimum coordinate.  A
@@ -202,6 +256,7 @@ module bem_outer_plasma_zhao
   public :: zhao_net_current_density
   public :: write_zhao_continuation_diagnostics
   public :: trace_zhao_branch_atlas
+  public :: trace_zhao_field_column_homotopy
   public :: diagnose_zhao_ab_degeneracy
 
 contains
@@ -634,7 +689,7 @@ contains
         resolved%residual_tolerance <= 0.0_dp .or. resolved%seed_refinement_limit <= 0.0_dp .or. &
         resolved%eta_min < 0.0_dp .or. &
         resolved%eta_max <= resolved%eta_min .or. resolved%eta_max > column_eta_search_max .or. &
-        resolved%log_density_floor < -30.0_dp .or. resolved%log_density_floor >= 0.0_dp) then
+        resolved%log_density_floor <= -30.0_dp .or. resolved%log_density_floor >= 0.0_dp) then
       atlas%termination_reason_code = zhao_continuation_reason_invalid_request
       atlas%termination_reason = 'invalid_options'
       message = 'invalid Zhao branch-atlas request'
@@ -961,6 +1016,950 @@ contains
       call move_alloc(compact_points, atlas%points)
     end if
   end subroutine trace_zhao_branch_atlas
+
+  !> Trace one fixed monotone Zhao B/C branch along a straight field-column homotopy.
+  !>
+  !> This diagnostic augments the encoded Zhao root with eta and lambda.  It
+  !> solves the branch residuals and the finite-control-volume column residual
+  !> with a pseudo-arclength corrector, then uses a fixed-lambda corrector to
+  !> land exactly at lambda=1.  It does not participate in runtime root choice.
+  subroutine trace_zhao_field_column_homotopy( &
+    params, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+    grid_points, control_length_m, seed_root, homotopy, status, message, options &
+    )
+    type(zhao_params_type), intent(in) :: params
+    real(dp), intent(in) :: start_field_v_m, start_column_m2
+    real(dp), intent(in) :: target_field_v_m, target_column_m2
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m
+    type(zhao_charge_root_type), intent(in) :: seed_root
+    type(zhao_field_column_homotopy_type), intent(out) :: homotopy
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    type(zhao_field_column_homotopy_options_type), intent(in), optional :: options
+
+    type(zhao_field_column_homotopy_options_type) :: resolved
+    type(zhao_field_column_homotopy_point_type), allocatable :: compact_points(:)
+    type(zhao_field_column_homotopy_point_type) :: next_point
+    type(zhao_charge_root_type) :: candidate_root
+    real(dp) :: z(homotopy_max_coordinates), seed_coordinates(homotopy_max_coordinates)
+    real(dp) :: corrected_z(homotopy_max_coordinates), target_predictor(homotopy_max_coordinates)
+    real(dp) :: predictor(homotopy_max_coordinates), tangent(homotopy_max_coordinates)
+    real(dp) :: next_tangent(homotopy_max_coordinates), anchor_tangent(homotopy_max_coordinates)
+    real(dp) :: residual(homotopy_max_residuals), step, trial_step, accepted_distance
+    real(dp) :: row_rank, next_rank, target_fraction
+    real(dp) :: potential_jump, density_jump, root_jump
+    integer :: n, density_coordinate, eta_coordinate, lambda_coordinate, z_dimension
+    integer :: point_index, halving, iterations, target_iterations, failure_kind
+    integer :: corrector_failure_kind, lambda_tangent_sign, next_sign
+    logical :: valid, tangent_ok, corrected, candidate_decoded, target_landed
+    logical :: last_density_limit, last_eta_lower_limit, last_eta_upper_limit
+    logical :: last_homotopy_lower_limit, last_homotopy_upper_limit
+
+    status = outer_plasma_invalid
+    message = ''
+    resolved = zhao_field_column_homotopy_options_type()
+    if (present(options)) resolved = options
+    homotopy%branch = seed_root%branch
+    homotopy%start_field_v_m = start_field_v_m
+    homotopy%target_field_v_m = target_field_v_m
+    homotopy%start_column_m2 = start_column_m2
+    homotopy%target_column_m2 = target_column_m2
+    homotopy%column_scale_m2 = max( &
+                               1.0_dp, start_column_m2, target_column_m2, &
+                               params%n_phe_ref_m3*control_length_m &
+                               )
+
+    if (seed_root%branch == 'B' .or. seed_root%branch == 'C') then
+      n = 2
+    else if (seed_root%branch == 'A') then
+      homotopy%termination_reason_code = zhao_continuation_reason_invalid_request
+      homotopy%termination_reason = 'unsupported_type_a_homotopy'
+      message = 'Zhao field-column homotopy does not yet support Type A coordinates'
+      return
+    else
+      homotopy%termination_reason_code = zhao_continuation_reason_invalid_request
+      homotopy%termination_reason = 'invalid_seed_branch'
+      message = 'Zhao field-column homotopy requires a Type B or C seed root'
+      return
+    end if
+    eta_coordinate = n + 1
+    lambda_coordinate = n + 2
+    z_dimension = lambda_coordinate
+    density_coordinate = merge(3, 2, seed_root%branch == 'A')
+    if (.not. valid_zhao_params(params) .or. &
+        .not. all(ieee_is_finite([ &
+                                 start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+                                 control_length_m &
+                                 ])) .or. &
+        start_column_m2 < 0.0_dp .or. target_column_m2 < 0.0_dp .or. &
+        control_length_m <= 0.0_dp .or. grid_points < 5_i32 .or. &
+        resolved%max_points < 2_i32 .or. resolved%max_corrector_iterations < 1_i32 .or. &
+        resolved%max_step_halvings < 0_i32 .or. &
+        .not. all(ieee_is_finite([ &
+                                 resolved%initial_step, resolved%minimum_step, resolved%maximum_step, &
+                                 resolved%residual_tolerance, resolved%seed_refinement_limit, &
+                                 resolved%eta_min, resolved%eta_max, resolved%homotopy_min, &
+                                 resolved%homotopy_max, resolved%log_density_floor &
+                                 ])) .or. &
+        resolved%minimum_step <= 0.0_dp .or. &
+        resolved%initial_step < resolved%minimum_step .or. &
+        resolved%maximum_step < resolved%initial_step .or. &
+        resolved%residual_tolerance <= 0.0_dp .or. resolved%seed_refinement_limit <= 0.0_dp .or. &
+        resolved%eta_min < 0.0_dp .or. resolved%eta_max <= resolved%eta_min .or. &
+        resolved%eta_max > column_eta_search_max .or. resolved%homotopy_min > 0.0_dp .or. &
+        resolved%homotopy_max < 1.0_dp .or. resolved%homotopy_max <= resolved%homotopy_min .or. &
+        resolved%log_density_floor <= -30.0_dp .or. resolved%log_density_floor >= 0.0_dp) then
+      homotopy%termination_reason_code = zhao_continuation_reason_invalid_request
+      homotopy%termination_reason = 'invalid_options'
+      message = 'invalid Zhao field-column homotopy request'
+      return
+    end if
+    if (((seed_root%branch == 'A' .or. seed_root%branch == 'B') .and. &
+         (start_field_v_m <= 0.0_dp .or. target_field_v_m <= 0.0_dp)) .or. &
+        (seed_root%branch == 'C' .and. &
+         (start_field_v_m >= 0.0_dp .or. target_field_v_m >= 0.0_dp))) then
+      homotopy%termination_reason_code = zhao_continuation_reason_invalid_request
+      homotopy%termination_reason = 'field_sign_crossing'
+      message = 'Zhao field-column homotopy must preserve the field sign of its fixed branch'
+      return
+    end if
+    if (params%n_phe0_m3 <= 0.0_dp) then
+      homotopy%termination_reason_code = zhao_continuation_reason_invalid_request
+      homotopy%termination_reason = 'degenerate_zero_photoelectron_column'
+      message = 'Zhao field-column homotopy requires a nonzero photoelectron source column'
+      return
+    end if
+
+    z = 0.0_dp
+    call encode_unknowns( &
+      params, seed_root%branch, seed_root%phi0_v, seed_root%phi_m_v, &
+      seed_root%n_swe_inf_m3, z(1:3), valid &
+      )
+    if (.not. valid) then
+      homotopy%termination_reason_code = zhao_continuation_reason_invalid_request
+      homotopy%termination_reason = 'invalid_seed_encoding'
+      message = 'Zhao field-column homotopy seed root cannot be encoded'
+      return
+    end if
+    z(eta_coordinate) = seed_root%photoelectron_population_fraction
+    z(lambda_coordinate) = 0.0_dp
+    seed_coordinates = z
+    if (z(eta_coordinate) < resolved%eta_min .or. z(eta_coordinate) > resolved%eta_max) then
+      homotopy%termination_reason_code = zhao_continuation_reason_invalid_request
+      homotopy%termination_reason = 'seed_eta_outside_options'
+      message = 'Zhao field-column homotopy seed eta lies outside its requested interval'
+      return
+    end if
+
+    ! Reconcile the recorded previous root with its exact field and queue column.
+    anchor_tangent = 0.0_dp
+    anchor_tangent(lambda_coordinate) = 1.0_dp
+    call correct_zhao_field_column_homotopy_point( &
+      params, seed_root%branch, start_field_v_m, start_column_m2, &
+      target_field_v_m, target_column_m2, grid_points, control_length_m, &
+      homotopy%column_scale_m2, n, z, anchor_tangent, resolved, &
+      corrected_z, iterations, corrected, corrector_failure_kind &
+      )
+    if (.not. corrected) then
+      status = merge( &
+               outer_plasma_no_physical_solution, outer_plasma_numerical_failure, &
+               corrector_failure_kind == atlas_eval_physical &
+               )
+      homotopy%termination_reason_code = merge( &
+                                         zhao_continuation_reason_physical_endpoint, &
+                                         zhao_continuation_reason_numerical_failure, &
+                                         corrector_failure_kind == atlas_eval_physical &
+                                         )
+      homotopy%termination_reason = 'seed_corrector_failed'
+      message = 'Zhao field-column homotopy seed corrector failed'
+      return
+    end if
+    if (corrected_z(eta_coordinate) < resolved%eta_min .or. &
+        corrected_z(eta_coordinate) > resolved%eta_max .or. &
+        corrected_z(density_coordinate) < resolved%log_density_floor .or. &
+        abs(corrected_z(lambda_coordinate)) > resolved%residual_tolerance) then
+      status = outer_plasma_invalid
+      homotopy%termination_reason_code = zhao_continuation_reason_guard_rejected
+      homotopy%termination_reason = 'seed_corrector_left_options'
+      message = 'Zhao field-column homotopy seed correction left its requested bounds'
+      return
+    end if
+    if (maxval(abs(corrected_z(1:z_dimension) - seed_coordinates(1:z_dimension))) > &
+        resolved%seed_refinement_limit) then
+      status = outer_plasma_numerical_failure
+      homotopy%termination_reason_code = zhao_continuation_reason_guard_rejected
+      homotopy%termination_reason = 'seed_refinement_left_local_root'
+      message = 'Zhao field-column homotopy seed refinement left the local root neighborhood'
+      return
+    end if
+    z = corrected_z
+    call evaluate_zhao_field_column_homotopy_system( &
+      params, seed_root%branch, start_field_v_m, start_column_m2, &
+      target_field_v_m, target_column_m2, grid_points, control_length_m, &
+      homotopy%column_scale_m2, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid .or. maxval(abs(residual(1:n + 1))) > resolved%residual_tolerance) then
+      status = outer_plasma_numerical_failure
+      homotopy%termination_reason_code = zhao_continuation_reason_numerical_failure
+      homotopy%termination_reason = 'seed_residual_not_converged'
+      message = 'Zhao field-column homotopy seed residual is not converged'
+      return
+    end if
+    call zhao_field_column_homotopy_tangent( &
+      params, seed_root%branch, start_field_v_m, start_column_m2, &
+      target_field_v_m, target_column_m2, grid_points, control_length_m, &
+      homotopy%column_scale_m2, n, z, tangent, row_rank, tangent_ok, failure_kind &
+      )
+    if (.not. tangent_ok) then
+      status = outer_plasma_numerical_failure
+      homotopy%termination_reason_code = zhao_continuation_reason_numerical_failure
+      homotopy%termination_reason = 'seed_jacobian_rank_loss'
+      message = 'Zhao field-column homotopy seed Jacobian has unresolved row-rank loss'
+      return
+    end if
+    if (abs(tangent(lambda_coordinate)) <= atlas_fold_tangent_tolerance) then
+      status = outer_plasma_numerical_failure
+      homotopy%termination_reason_code = zhao_continuation_reason_numerical_failure
+      homotopy%termination_reason = 'seed_homotopy_tangent_degenerate'
+      message = 'Zhao field-column homotopy has no resolved positive-lambda seed direction'
+      return
+    end if
+    if (tangent(lambda_coordinate) < 0.0_dp) tangent = -tangent
+    lambda_tangent_sign = 1
+
+    allocate (homotopy%points(resolved%max_points))
+    call zhao_field_column_homotopy_point_from_coordinates( &
+      params, seed_root%branch, start_field_v_m, start_column_m2, &
+      target_field_v_m, target_column_m2, grid_points, control_length_m, &
+      homotopy%column_scale_m2, n, z, homotopy%points(1), status, message &
+      )
+    if (status /= outer_plasma_ok) then
+      homotopy%termination_reason_code = merge( &
+                                         zhao_continuation_reason_physical_endpoint, &
+                                         zhao_continuation_reason_numerical_failure, &
+                                         status == outer_plasma_no_physical_solution &
+                                         )
+      homotopy%termination_reason = 'seed_profile_failed'
+      return
+    end if
+    call zhao_root_jump_metrics( &
+      params, seed_root, homotopy%points(1)%root, potential_jump, density_jump, root_jump &
+      )
+    if (.not. ieee_is_finite(root_jump) .or. root_jump > resolved%seed_refinement_limit) then
+      status = outer_plasma_numerical_failure
+      homotopy%termination_reason_code = zhao_continuation_reason_guard_rejected
+      homotopy%termination_reason = 'seed_refinement_root_jump'
+      message = 'Zhao field-column homotopy seed refinement changed the physical root too far'
+      return
+    end if
+    homotopy%seed_refinement_jump = root_jump
+    homotopy%seed_reanchored = root_jump > branch_same_root_step_limit
+    homotopy%points(1)%normalized_jump_from_previous = root_jump
+    homotopy%points(1)%tangent = tangent
+    homotopy%points(1)%row_rank_indicator = row_rank
+    homotopy%points(1)%corrector_iterations = int(iterations, i32)
+    homotopy%point_count = 1_i32
+
+    step = resolved%initial_step
+    trace_loop: do point_index = 2, int(resolved%max_points)
+      if (homotopy%target_reached) exit trace_loop
+      if (zhao_field_column_homotopy_coordinate_endpoint( &
+          seed_root%branch, n, z, tangent, resolved, homotopy%termination_reason_code, &
+          homotopy%termination_reason)) exit trace_loop
+
+      trial_step = min(step, resolved%maximum_step)
+      corrected = .false.
+      target_landed = .false.
+      corrector_failure_kind = atlas_eval_numerical
+      do halving = 0, int(resolved%max_step_halvings)
+        last_density_limit = .false.
+        last_eta_lower_limit = .false.
+        last_eta_upper_limit = .false.
+        last_homotopy_lower_limit = .false.
+        last_homotopy_upper_limit = .false.
+        predictor = z + trial_step*tangent
+        if (predictor(eta_coordinate) < resolved%eta_min) then
+          last_eta_lower_limit = .true.
+        else if (predictor(eta_coordinate) > resolved%eta_max) then
+          last_eta_upper_limit = .true.
+        else if (predictor(lambda_coordinate) < resolved%homotopy_min) then
+          last_homotopy_lower_limit = .true.
+        else if (predictor(lambda_coordinate) > resolved%homotopy_max .and. &
+                 .not. (z(lambda_coordinate) < 1.0_dp .and. &
+                        predictor(lambda_coordinate) >= 1.0_dp)) then
+          last_homotopy_upper_limit = .true.
+        else
+          call correct_zhao_field_column_homotopy_point( &
+            params, seed_root%branch, start_field_v_m, start_column_m2, &
+            target_field_v_m, target_column_m2, grid_points, control_length_m, &
+            homotopy%column_scale_m2, n, predictor, tangent, resolved, &
+            corrected_z, iterations, corrected, corrector_failure_kind &
+            )
+          if (corrected) then
+            if (corrected_z(eta_coordinate) < resolved%eta_min) then
+              corrected = .false.
+              last_eta_lower_limit = .true.
+            else if (corrected_z(eta_coordinate) > resolved%eta_max) then
+              corrected = .false.
+              last_eta_upper_limit = .true.
+            else if (corrected_z(lambda_coordinate) < resolved%homotopy_min) then
+              corrected = .false.
+              last_homotopy_lower_limit = .true.
+            else if (corrected_z(lambda_coordinate) > resolved%homotopy_max .and. &
+                     .not. (z(lambda_coordinate) < 1.0_dp .and. &
+                            corrected_z(lambda_coordinate) >= 1.0_dp)) then
+              corrected = .false.
+              last_homotopy_upper_limit = .true.
+            else if (sqrt(sum((corrected_z(1:z_dimension) - predictor(1:z_dimension))**2)) > &
+                     2.0_dp*trial_step .or. &
+                     sqrt(sum((corrected_z(1:z_dimension) - z(1:z_dimension))**2)) > &
+                     2.5_dp*trial_step) then
+              corrected = .false.
+              corrector_failure_kind = atlas_eval_numerical
+            end if
+          end if
+          if (corrected) then
+            candidate_root = zhao_charge_root_type()
+            candidate_root%branch = seed_root%branch
+            candidate_root%interface_field_v_m = start_field_v_m + &
+                                                 corrected_z(lambda_coordinate)* &
+                                                 (target_field_v_m - start_field_v_m)
+            candidate_root%photoelectron_population_fraction = corrected_z(eta_coordinate)
+            call decode_unknowns( &
+              params, seed_root%branch, corrected_z(1:3), candidate_root%phi0_v, &
+              candidate_root%phi_m_v, candidate_root%n_swe_inf_m3, candidate_decoded &
+              )
+            if (candidate_decoded) then
+              call zhao_root_jump_metrics( &
+                params, homotopy%points(point_index - 1)%root, candidate_root, &
+                potential_jump, density_jump, root_jump &
+                )
+              if (.not. ieee_is_finite(root_jump) .or. root_jump > branch_same_root_step_limit) then
+                corrected = .false.
+                corrector_failure_kind = atlas_eval_numerical
+              end if
+            else
+              corrected = .false.
+              corrector_failure_kind = atlas_eval_numerical
+            end if
+          end if
+          if (corrected .and. z(lambda_coordinate) < 1.0_dp .and. &
+              corrected_z(lambda_coordinate) >= 1.0_dp) then
+            target_fraction = (1.0_dp - z(lambda_coordinate))/ &
+                              (corrected_z(lambda_coordinate) - z(lambda_coordinate))
+            target_predictor = z + target_fraction*(corrected_z - z)
+            target_predictor(lambda_coordinate) = 1.0_dp
+            anchor_tangent = 0.0_dp
+            anchor_tangent(lambda_coordinate) = 1.0_dp
+            call correct_zhao_field_column_homotopy_point( &
+              params, seed_root%branch, start_field_v_m, start_column_m2, &
+              target_field_v_m, target_column_m2, grid_points, control_length_m, &
+              homotopy%column_scale_m2, n, target_predictor, anchor_tangent, resolved, &
+              corrected_z, target_iterations, corrected, corrector_failure_kind &
+              )
+            if (corrected) then
+              corrected_z(lambda_coordinate) = 1.0_dp
+              if (corrected_z(eta_coordinate) < resolved%eta_min) then
+                corrected = .false.
+                last_eta_lower_limit = .true.
+              else if (corrected_z(eta_coordinate) > resolved%eta_max) then
+                corrected = .false.
+                last_eta_upper_limit = .true.
+              else if (corrected_z(density_coordinate) < resolved%log_density_floor) then
+                corrected = .false.
+                last_density_limit = .true.
+              end if
+            end if
+            if (corrected) then
+              call evaluate_zhao_field_column_homotopy_system( &
+                params, seed_root%branch, start_field_v_m, start_column_m2, &
+                target_field_v_m, target_column_m2, grid_points, control_length_m, &
+                homotopy%column_scale_m2, n, corrected_z, residual, valid, failure_kind &
+                )
+              if (.not. valid .or. &
+                  maxval(abs(residual(1:n + 1))) > resolved%residual_tolerance) then
+                corrected = .false.
+                corrector_failure_kind = failure_kind
+              end if
+            end if
+            if (corrected) then
+              candidate_root = zhao_charge_root_type()
+              candidate_root%branch = seed_root%branch
+              candidate_root%interface_field_v_m = target_field_v_m
+              candidate_root%photoelectron_population_fraction = corrected_z(eta_coordinate)
+              call decode_unknowns( &
+                params, seed_root%branch, corrected_z(1:3), candidate_root%phi0_v, &
+                candidate_root%phi_m_v, candidate_root%n_swe_inf_m3, candidate_decoded &
+                )
+              if (candidate_decoded) then
+                call zhao_root_jump_metrics( &
+                  params, homotopy%points(point_index - 1)%root, candidate_root, &
+                  potential_jump, density_jump, root_jump &
+                  )
+                if (.not. ieee_is_finite(root_jump) .or. &
+                    root_jump > branch_same_root_step_limit) corrected = .false.
+              else
+                corrected = .false.
+              end if
+              if (corrected) then
+                iterations = iterations + target_iterations
+                target_landed = .true.
+              end if
+            end if
+          end if
+        end if
+        if (corrected) exit
+        trial_step = 0.5_dp*trial_step
+        if (trial_step < resolved%minimum_step) exit
+      end do
+      if (.not. corrected) then
+        if (last_density_limit) then
+          homotopy%termination_reason_code = zhao_continuation_reason_search_limit
+          homotopy%termination_reason = 'ambient_density_floor_limit'
+          status = outer_plasma_ok
+          message = ''
+        else if (last_eta_lower_limit) then
+          homotopy%termination_reason_code = zhao_continuation_reason_search_limit
+          homotopy%termination_reason = 'eta_lower_search_limit'
+          status = outer_plasma_ok
+          message = ''
+        else if (last_eta_upper_limit) then
+          homotopy%termination_reason_code = zhao_continuation_reason_search_limit
+          homotopy%termination_reason = 'eta_upper_search_limit'
+          status = outer_plasma_ok
+          message = ''
+        else if (last_homotopy_lower_limit) then
+          homotopy%termination_reason_code = zhao_continuation_reason_search_limit
+          homotopy%termination_reason = 'homotopy_lower_search_limit'
+          status = outer_plasma_ok
+          message = ''
+        else if (last_homotopy_upper_limit) then
+          homotopy%termination_reason_code = zhao_continuation_reason_search_limit
+          homotopy%termination_reason = 'homotopy_upper_search_limit'
+          status = outer_plasma_ok
+          message = ''
+        else
+          homotopy%termination_reason_code = zhao_continuation_reason_numerical_failure
+          homotopy%termination_reason = 'pseudo_arclength_corrector_failed'
+          status = outer_plasma_numerical_failure
+          message = 'Zhao field-column homotopy pseudo-arclength corrector failed'
+        end if
+        exit trace_loop
+      end if
+
+      accepted_distance = sqrt(sum((corrected_z(1:z_dimension) - z(1:z_dimension))**2))
+      call zhao_field_column_homotopy_tangent( &
+        params, seed_root%branch, start_field_v_m, start_column_m2, &
+        target_field_v_m, target_column_m2, grid_points, control_length_m, &
+        homotopy%column_scale_m2, n, corrected_z, next_tangent, &
+        next_rank, tangent_ok, failure_kind &
+        )
+      if (.not. tangent_ok) then
+        homotopy%termination_reason_code = zhao_continuation_reason_numerical_failure
+        homotopy%termination_reason = 'jacobian_rank_failure'
+        status = outer_plasma_numerical_failure
+        message = 'Zhao field-column homotopy tangent Jacobian lost numerical row rank'
+        exit trace_loop
+      end if
+      if (dot_product(tangent(1:z_dimension), next_tangent(1:z_dimension)) < 0.0_dp) then
+        next_tangent = -next_tangent
+      end if
+      if (abs(next_tangent(lambda_coordinate)) > atlas_fold_tangent_tolerance) then
+        next_sign = merge(1, -1, next_tangent(lambda_coordinate) > 0.0_dp)
+        if (next_sign /= lambda_tangent_sign) homotopy%homotopy_fold_detected = .true.
+        lambda_tangent_sign = next_sign
+      end if
+
+      call zhao_field_column_homotopy_point_from_coordinates( &
+        params, seed_root%branch, start_field_v_m, start_column_m2, &
+        target_field_v_m, target_column_m2, grid_points, control_length_m, &
+        homotopy%column_scale_m2, n, corrected_z, next_point, status, message &
+        )
+      if (status /= outer_plasma_ok) then
+        if (status == outer_plasma_no_physical_solution) then
+          homotopy%termination_reason_code = zhao_continuation_reason_physical_endpoint
+          homotopy%termination_reason = 'profile_domain_endpoint'
+          status = outer_plasma_ok
+          message = ''
+        else
+          homotopy%termination_reason_code = zhao_continuation_reason_numerical_failure
+          homotopy%termination_reason = 'profile_numerical_failure'
+        end if
+        exit trace_loop
+      end if
+      next_point%arc_length = homotopy%points(point_index - 1)%arc_length + accepted_distance
+      next_point%accepted_step = accepted_distance
+      next_point%tangent = next_tangent
+      next_point%row_rank_indicator = next_rank
+      next_point%corrector_iterations = int(iterations, i32)
+      call zhao_root_jump_metrics( &
+        params, homotopy%points(point_index - 1)%root, next_point%root, &
+        potential_jump, density_jump, root_jump &
+        )
+      next_point%normalized_jump_from_previous = root_jump
+      homotopy%points(point_index) = next_point
+      homotopy%point_count = int(point_index, i32)
+      z = corrected_z
+      tangent = next_tangent
+      if (target_landed) then
+        homotopy%target_reached = .true.
+        homotopy%termination_reason_code = zhao_continuation_reason_converged
+        homotopy%termination_reason = 'target_reached'
+        status = outer_plasma_ok
+        message = ''
+        exit trace_loop
+      end if
+      if (iterations <= 4) then
+        step = min(resolved%maximum_step, 1.25_dp*trial_step)
+      else if (iterations >= int(resolved%max_corrector_iterations)/2) then
+        step = max(resolved%minimum_step, 0.5_dp*trial_step)
+      else
+        step = trial_step
+      end if
+    end do trace_loop
+
+    if (homotopy%termination_reason_code == zhao_continuation_reason_none) then
+      homotopy%termination_reason_code = zhao_continuation_reason_search_limit
+      homotopy%termination_reason = 'point_limit'
+    end if
+    if (status == outer_plasma_invalid) status = outer_plasma_ok
+    if (allocated(homotopy%points)) then
+      allocate (compact_points(homotopy%point_count))
+      compact_points = homotopy%points(1:homotopy%point_count)
+      call move_alloc(compact_points, homotopy%points)
+    end if
+  end subroutine trace_zhao_field_column_homotopy
+
+  subroutine evaluate_zhao_field_column_homotopy_system( &
+    params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+    grid_points, control_length_m, column_scale_m2, n, z, residual, valid, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: start_field_v_m, start_column_m2
+    real(dp), intent(in) :: target_field_v_m, target_column_m2
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m, column_scale_m2
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(homotopy_max_coordinates)
+    real(dp), intent(out) :: residual(homotopy_max_residuals)
+    logical, intent(out) :: valid
+    integer, intent(out) :: failure_kind
+
+    type(zhao_branch_atlas_point_type) :: fixed_point
+    real(dp) :: fixed_z(atlas_max_coordinates), root_residual(3)
+    real(dp) :: lambda, interface_field_v_m, prescribed_column_m2
+    integer(i32) :: point_status
+    character(len=256) :: point_message
+
+    residual = 0.0_dp
+    valid = .false.
+    failure_kind = atlas_eval_numerical
+    if (n + 2 > homotopy_max_coordinates .or. n + 1 > homotopy_max_residuals) return
+    lambda = z(n + 2)
+    if (.not. ieee_is_finite(lambda)) return
+    interface_field_v_m = start_field_v_m + lambda*(target_field_v_m - start_field_v_m)
+    prescribed_column_m2 = start_column_m2 + lambda*(target_column_m2 - start_column_m2)
+    if (.not. all(ieee_is_finite([interface_field_v_m, prescribed_column_m2])) .or. &
+        prescribed_column_m2 < 0.0_dp .or. column_scale_m2 <= 0.0_dp) then
+      failure_kind = atlas_eval_physical
+      return
+    end if
+    if (((branch == 'A' .or. branch == 'B') .and. interface_field_v_m <= 0.0_dp) .or. &
+        (branch == 'C' .and. interface_field_v_m >= 0.0_dp)) then
+      failure_kind = atlas_eval_physical
+      return
+    end if
+    fixed_z = 0.0_dp
+    fixed_z(1:n + 1) = z(1:n + 1)
+    call evaluate_zhao_atlas_system( &
+      params, branch, interface_field_v_m, n, fixed_z, root_residual, valid, failure_kind &
+      )
+    if (.not. valid) return
+    call zhao_atlas_point_from_coordinates( &
+      params, branch, interface_field_v_m, grid_points, control_length_m, n, fixed_z, &
+      .true., prescribed_column_m2, fixed_point, point_status, point_message &
+      )
+    if (point_status /= outer_plasma_ok) then
+      valid = .false.
+      failure_kind = merge( &
+                     atlas_eval_physical, atlas_eval_numerical, &
+                     point_status == outer_plasma_no_physical_solution &
+                     )
+      return
+    end if
+    residual(1:n) = root_residual(1:n)
+    residual(n + 1) = fixed_point%root%photoelectron_column_residual_per_area/column_scale_m2
+    valid = all(ieee_is_finite(residual(1:n + 1)))
+    failure_kind = merge(atlas_eval_ok, atlas_eval_numerical, valid)
+  end subroutine evaluate_zhao_field_column_homotopy_system
+
+  subroutine numerical_zhao_field_column_homotopy_jacobian( &
+    params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+    grid_points, control_length_m, column_scale_m2, n, z, residual, jacobian, &
+    success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: start_field_v_m, start_column_m2
+    real(dp), intent(in) :: target_field_v_m, target_column_m2
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m, column_scale_m2
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(homotopy_max_coordinates), residual(homotopy_max_residuals)
+    real(dp), intent(out) :: jacobian(homotopy_max_residuals, homotopy_max_coordinates)
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: plus_z(homotopy_max_coordinates), minus_z(homotopy_max_coordinates)
+    real(dp) :: plus_residual(homotopy_max_residuals), minus_residual(homotopy_max_residuals)
+    real(dp) :: h
+    integer :: column, plus_kind, minus_kind, residual_count, z_dimension
+    logical :: plus_valid, minus_valid
+
+    jacobian = 0.0_dp
+    success = .true.
+    failure_kind = atlas_eval_ok
+    residual_count = n + 1
+    z_dimension = n + 2
+    do column = 1, z_dimension
+      h = epsilon(1.0_dp)**(1.0_dp/3.0_dp)*max(1.0_dp, abs(z(column)))
+      plus_z = z
+      minus_z = z
+      plus_z(column) = plus_z(column) + h
+      minus_z(column) = minus_z(column) - h
+      call evaluate_zhao_field_column_homotopy_system( &
+        params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+        grid_points, control_length_m, column_scale_m2, n, plus_z, plus_residual, &
+        plus_valid, plus_kind &
+        )
+      call evaluate_zhao_field_column_homotopy_system( &
+        params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+        grid_points, control_length_m, column_scale_m2, n, minus_z, minus_residual, &
+        minus_valid, minus_kind &
+        )
+      if (plus_valid .and. minus_valid) then
+        jacobian(1:residual_count, column) = &
+          (plus_residual(1:residual_count) - minus_residual(1:residual_count))/(2.0_dp*h)
+      else if (plus_valid) then
+        jacobian(1:residual_count, column) = &
+          (plus_residual(1:residual_count) - residual(1:residual_count))/h
+      else if (minus_valid) then
+        jacobian(1:residual_count, column) = &
+          (residual(1:residual_count) - minus_residual(1:residual_count))/h
+      else
+        success = .false.
+        failure_kind = merge( &
+                       atlas_eval_physical, atlas_eval_numerical, &
+                       plus_kind == atlas_eval_physical .and. minus_kind == atlas_eval_physical &
+                       )
+        return
+      end if
+    end do
+    success = all(ieee_is_finite(jacobian(1:residual_count, 1:z_dimension)))
+    if (.not. success) failure_kind = atlas_eval_numerical
+  end subroutine numerical_zhao_field_column_homotopy_jacobian
+
+  subroutine zhao_field_column_homotopy_tangent( &
+    params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+    grid_points, control_length_m, column_scale_m2, n, z, tangent, row_rank_indicator, &
+    success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: start_field_v_m, start_column_m2
+    real(dp), intent(in) :: target_field_v_m, target_column_m2
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m, column_scale_m2
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(homotopy_max_coordinates)
+    real(dp), intent(out) :: tangent(homotopy_max_coordinates), row_rank_indicator
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: residual(homotopy_max_residuals)
+    real(dp) :: jacobian(homotopy_max_residuals, homotopy_max_coordinates)
+    real(dp) :: scaled_jacobian(homotopy_max_residuals, homotopy_max_coordinates)
+    real(dp) :: cofactors(homotopy_max_coordinates), minor3(3, 3)
+    real(dp) :: raw_norm, row_norm
+    integer :: column, source_column, minor_column, row, residual_count, z_dimension
+    logical :: valid, jacobian_ok
+
+    tangent = 0.0_dp
+    row_rank_indicator = 0.0_dp
+    success = .false.
+    residual_count = n + 1
+    z_dimension = n + 2
+    call evaluate_zhao_field_column_homotopy_system( &
+      params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+      grid_points, control_length_m, column_scale_m2, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid) return
+    call numerical_zhao_field_column_homotopy_jacobian( &
+      params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+      grid_points, control_length_m, column_scale_m2, n, z, residual, jacobian, &
+      jacobian_ok, failure_kind &
+      )
+    if (.not. jacobian_ok) return
+    scaled_jacobian = jacobian
+    do row = 1, residual_count
+      row_norm = sqrt(sum(jacobian(row, 1:z_dimension)**2))
+      if (.not. ieee_is_finite(row_norm) .or. row_norm <= tiny(1.0_dp)) return
+      scaled_jacobian(row, 1:z_dimension) = jacobian(row, 1:z_dimension)/row_norm
+    end do
+    cofactors = 0.0_dp
+    do column = 1, z_dimension
+      minor_column = 0
+      minor3 = 0.0_dp
+      do source_column = 1, z_dimension
+        if (source_column == column) cycle
+        minor_column = minor_column + 1
+        minor3(:, minor_column) = scaled_jacobian(1:3, source_column)
+      end do
+      cofactors(column) = (-1.0_dp)**(column + 1)*determinant3(minor3)
+    end do
+    raw_norm = sqrt(sum(cofactors(1:z_dimension)**2))
+    if (.not. ieee_is_finite(raw_norm) .or. raw_norm <= tiny(1.0_dp)) return
+    row_rank_indicator = raw_norm
+    if (row_rank_indicator <= 1.0e-12_dp) return
+    tangent(1:z_dimension) = cofactors(1:z_dimension)/raw_norm
+    failure_kind = atlas_eval_ok
+    success = .true.
+  end subroutine zhao_field_column_homotopy_tangent
+
+  subroutine correct_zhao_field_column_homotopy_point( &
+    params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+    grid_points, control_length_m, column_scale_m2, n, predictor, tangent, options, &
+    corrected_z, iterations, success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: start_field_v_m, start_column_m2
+    real(dp), intent(in) :: target_field_v_m, target_column_m2
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m, column_scale_m2
+    integer, intent(in) :: n
+    real(dp), intent(in) :: predictor(homotopy_max_coordinates)
+    real(dp), intent(in) :: tangent(homotopy_max_coordinates)
+    type(zhao_field_column_homotopy_options_type), intent(in) :: options
+    real(dp), intent(out) :: corrected_z(homotopy_max_coordinates)
+    integer, intent(out) :: iterations
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: z(homotopy_max_coordinates), residual(homotopy_max_residuals)
+    real(dp) :: jacobian(homotopy_max_residuals, homotopy_max_coordinates)
+    real(dp) :: system(homotopy_max_coordinates, homotopy_max_coordinates)
+    real(dp) :: rhs(homotopy_max_coordinates), delta(homotopy_max_coordinates)
+    real(dp) :: trial_z(homotopy_max_coordinates), trial_residual(homotopy_max_residuals)
+    real(dp) :: norm, trial_norm, arc_residual, trial_arc_residual, backtrack_step
+    integer :: iteration, backtrack, residual_count, z_dimension, trial_kind
+    logical :: valid, jacobian_ok, linear_ok, trial_valid
+
+    residual_count = n + 1
+    z_dimension = n + 2
+    z = predictor
+    corrected_z = predictor
+    success = .false.
+    failure_kind = atlas_eval_numerical
+    iterations = 0
+    call evaluate_zhao_field_column_homotopy_system( &
+      params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+      grid_points, control_length_m, column_scale_m2, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid) return
+    arc_residual = dot_product(tangent(1:z_dimension), z(1:z_dimension) - predictor(1:z_dimension))
+    norm = max(maxval(abs(residual(1:residual_count))), abs(arc_residual))
+    do iteration = 0, int(options%max_corrector_iterations)
+      if (norm <= options%residual_tolerance) then
+        success = .true.
+        exit
+      end if
+      if (iteration == int(options%max_corrector_iterations)) exit
+      call numerical_zhao_field_column_homotopy_jacobian( &
+        params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+        grid_points, control_length_m, column_scale_m2, n, z, residual, jacobian, &
+        jacobian_ok, failure_kind &
+        )
+      if (.not. jacobian_ok) exit
+      system = 0.0_dp
+      rhs = 0.0_dp
+      system(1:residual_count, 1:z_dimension) = jacobian(1:residual_count, 1:z_dimension)
+      system(z_dimension, 1:z_dimension) = tangent(1:z_dimension)
+      rhs(1:residual_count) = -residual(1:residual_count)
+      rhs(z_dimension) = -arc_residual
+      call solve_zhao_homotopy_system(system, rhs, z_dimension, delta, linear_ok)
+      if (.not. linear_ok) exit
+      backtrack_step = 1.0_dp
+      do backtrack = 1, root_max_backtracks
+        trial_z = z + backtrack_step*delta
+        call evaluate_zhao_field_column_homotopy_system( &
+          params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+          grid_points, control_length_m, column_scale_m2, n, trial_z, trial_residual, &
+          trial_valid, trial_kind &
+          )
+        if (trial_valid) then
+          trial_arc_residual = dot_product( &
+                               tangent(1:z_dimension), &
+                               trial_z(1:z_dimension) - predictor(1:z_dimension) &
+                               )
+          trial_norm = max(maxval(abs(trial_residual(1:residual_count))), abs(trial_arc_residual))
+          if (trial_norm < norm) then
+            z = trial_z
+            residual = trial_residual
+            arc_residual = trial_arc_residual
+            norm = trial_norm
+            failure_kind = atlas_eval_ok
+            exit
+          end if
+        end if
+        backtrack_step = 0.5_dp*backtrack_step
+      end do
+      if (backtrack > root_max_backtracks) exit
+    end do
+    iterations = iteration
+    corrected_z = z
+    if (.not. success) failure_kind = atlas_eval_numerical
+  end subroutine correct_zhao_field_column_homotopy_point
+
+  subroutine solve_zhao_homotopy_system(a_in, b_in, n, x, success)
+    real(dp), intent(in) :: a_in(homotopy_max_coordinates, homotopy_max_coordinates)
+    real(dp), intent(in) :: b_in(homotopy_max_coordinates)
+    integer, intent(in) :: n
+    real(dp), intent(out) :: x(homotopy_max_coordinates)
+    logical, intent(out) :: success
+
+    real(dp) :: a(homotopy_max_coordinates, homotopy_max_coordinates)
+    real(dp) :: b(homotopy_max_coordinates), row_scale, factor, pivot_value, tmp
+    integer :: i, j, k, pivot
+
+    a = a_in
+    b = b_in
+    x = 0.0_dp
+    success = .false.
+    do i = 1, n
+      row_scale = maxval(abs(a(i, 1:n)))
+      if (.not. ieee_is_finite(row_scale) .or. row_scale <= tiny(1.0_dp)) return
+      a(i, 1:n) = a(i, 1:n)/row_scale
+      b(i) = b(i)/row_scale
+    end do
+    do k = 1, n
+      pivot = k
+      do i = k + 1, n
+        if (abs(a(i, k)) > abs(a(pivot, k))) pivot = i
+      end do
+      if (.not. ieee_is_finite(a(pivot, k)) .or. abs(a(pivot, k)) <= 1.0e-13_dp) return
+      if (pivot /= k) then
+        do j = k, n
+          tmp = a(k, j)
+          a(k, j) = a(pivot, j)
+          a(pivot, j) = tmp
+        end do
+        tmp = b(k)
+        b(k) = b(pivot)
+        b(pivot) = tmp
+      end if
+      pivot_value = a(k, k)
+      do i = k + 1, n
+        factor = a(i, k)/pivot_value
+        a(i, k:n) = a(i, k:n) - factor*a(k, k:n)
+        b(i) = b(i) - factor*b(k)
+      end do
+    end do
+    do i = n, 1, -1
+      x(i) = b(i)
+      do j = i + 1, n
+        x(i) = x(i) - a(i, j)*x(j)
+      end do
+      x(i) = x(i)/a(i, i)
+    end do
+    success = all(ieee_is_finite(x(1:n)))
+  end subroutine solve_zhao_homotopy_system
+
+  subroutine zhao_field_column_homotopy_point_from_coordinates( &
+    params, branch, start_field_v_m, start_column_m2, target_field_v_m, target_column_m2, &
+    grid_points, control_length_m, column_scale_m2, n, z, point, status, message &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: start_field_v_m, start_column_m2
+    real(dp), intent(in) :: target_field_v_m, target_column_m2
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m, column_scale_m2
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(homotopy_max_coordinates)
+    type(zhao_field_column_homotopy_point_type), intent(out) :: point
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_branch_atlas_point_type) :: fixed_point
+    real(dp) :: fixed_z(atlas_max_coordinates), interface_field_v_m, prescribed_column_m2
+
+    point%homotopy_fraction = z(n + 2)
+    interface_field_v_m = start_field_v_m + &
+                          point%homotopy_fraction*(target_field_v_m - start_field_v_m)
+    prescribed_column_m2 = start_column_m2 + &
+                           point%homotopy_fraction*(target_column_m2 - start_column_m2)
+    point%prescribed_column_m2 = prescribed_column_m2
+    fixed_z = 0.0_dp
+    fixed_z(1:n + 1) = z(1:n + 1)
+    call zhao_atlas_point_from_coordinates( &
+      params, branch, interface_field_v_m, grid_points, control_length_m, n, fixed_z, &
+      .true., prescribed_column_m2, fixed_point, status, message &
+      )
+    if (status /= outer_plasma_ok) return
+    point%root = fixed_point%root
+    point%normalized_column_residual = &
+      point%root%photoelectron_column_residual_per_area/column_scale_m2
+  end subroutine zhao_field_column_homotopy_point_from_coordinates
+
+  logical function zhao_field_column_homotopy_coordinate_endpoint( &
+    branch, n, z, tangent, options, reason_code, reason &
+    ) result(at_endpoint)
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(homotopy_max_coordinates), tangent(homotopy_max_coordinates)
+    type(zhao_field_column_homotopy_options_type), intent(in) :: options
+    integer(i32), intent(out) :: reason_code
+    character(len=*), intent(out) :: reason
+
+    integer :: density_coordinate, eta_coordinate, lambda_coordinate
+
+    at_endpoint = .false.
+    reason_code = zhao_continuation_reason_none
+    reason = 'none'
+    density_coordinate = merge(3, 2, branch == 'A')
+    eta_coordinate = n + 1
+    lambda_coordinate = n + 2
+    if (z(density_coordinate) <= options%log_density_floor .and. &
+        tangent(density_coordinate) < 0.0_dp) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'ambient_density_floor_limit'
+    else if (z(eta_coordinate) <= options%eta_min + options%minimum_step .and. &
+             tangent(eta_coordinate) < 0.0_dp) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'eta_lower_search_limit'
+    else if (z(eta_coordinate) >= options%eta_max - options%minimum_step .and. &
+             tangent(eta_coordinate) > 0.0_dp) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'eta_upper_search_limit'
+    else if (z(lambda_coordinate) <= options%homotopy_min + options%minimum_step .and. &
+             tangent(lambda_coordinate) < 0.0_dp) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'homotopy_lower_search_limit'
+    else if (z(lambda_coordinate) >= options%homotopy_max - options%minimum_step .and. &
+             tangent(lambda_coordinate) > 0.0_dp .and. &
+             .not. (z(lambda_coordinate) < 1.0_dp .and. options%homotopy_max >= 1.0_dp)) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'homotopy_upper_search_limit'
+    end if
+  end function zhao_field_column_homotopy_coordinate_endpoint
 
   subroutine evaluate_zhao_atlas_system( &
     params, branch, interface_field_v_m, n, z, residual, valid, failure_kind &

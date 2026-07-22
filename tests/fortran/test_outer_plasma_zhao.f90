@@ -1,5 +1,5 @@
 program test_outer_plasma_zhao
-  use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_value, ieee_quiet_nan
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, qe
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, &
@@ -16,9 +16,11 @@ program test_outer_plasma_zhao
                                    zhao_continuation_reason_search_limit, &
                                    zhao_continuation_reason_target_bracketed, &
                                    zhao_branch_atlas_options_type, zhao_branch_atlas_type, &
+                                   zhao_field_column_homotopy_options_type, &
+                                   zhao_field_column_homotopy_type, &
                                    zhao_ab_degeneracy_diagnostics_type, &
                                    trace_zhao_branch_atlas, write_zhao_continuation_diagnostics, &
-                                   diagnose_zhao_ab_degeneracy
+                                   trace_zhao_field_column_homotopy, diagnose_zhao_ab_degeneracy
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, &
                           assert_close_dp, assert_equal_i32
@@ -41,6 +43,9 @@ program test_outer_plasma_zhao
   type(zhao_branch_atlas_options_type) :: atlas_options
   type(zhao_branch_atlas_type) :: branch_atlas, coarse_branch_atlas
   type(zhao_branch_atlas_type) :: reverse_branch_atlas, candidate_branch_atlas
+  type(zhao_field_column_homotopy_options_type) :: homotopy_options
+  type(zhao_field_column_homotopy_type) :: field_column_homotopy
+  type(zhao_field_column_homotopy_type) :: coarse_field_column_homotopy
   type(zhao_ab_degeneracy_diagnostics_type) :: ab_diagnostics
   type(outer_plasma_state_type) :: state, reference_state, continuation_target_state
   type(outer_plasma_state_type) :: field_target_state
@@ -54,7 +59,7 @@ program test_outer_plasma_zhao
   character(len=2048) :: diagnostic_lines(5)
   integer :: fraction_index, atlas_index, diagnostic_unit, diagnostic_ios
 
-  call test_init(23)
+  call test_init(29)
 
   call test_begin('stationary Zhao-A root is recovered by its interface field')
   call configure_params(60.0_dp, params)
@@ -170,6 +175,20 @@ program test_outer_plasma_zhao
                    'stationary no-photo Zhao-C net current is not zero')
   call test_end()
 
+  call test_begin('field-column homotopy rejects a degenerate no-photo Zhao-C column')
+  call trace_zhao_field_column_homotopy( &
+    params, equilibrium_field, 0.0_dp, equilibrium_field, 0.0_dp, &
+    profile_points, control_length_m, charge_root, field_column_homotopy, status, message &
+    )
+  call assert_equal_i32( &
+    status, outer_plasma_invalid, 'no-photo Zhao-C homotopy did not reject its zero column' &
+    )
+  call assert_true( &
+    trim(field_column_homotopy%termination_reason) == 'degenerate_zero_photoelectron_column', &
+    'no-photo Zhao-C homotopy lost its degenerate-column classification' &
+    )
+  call test_end()
+
   call test_begin('field perturbation leaves a nonzero Zhao-A charging current')
   call configure_params(60.0_dp, params)
   call solve_zhao_unknowns('zhao_a', params, phi0_v, phi_m_v, density_m3, branch)
@@ -238,6 +257,74 @@ program test_outer_plasma_zhao
     abs(state%integrated_charge_per_area - gauss_expected) <= 5.0e-2_dp*gauss_scale, &
     'Zhao-C finite-profile Gauss closure mismatch' &
     )
+  field_target = 1.01_dp*equilibrium_field
+  call solve_zhao_charge_root( &
+    'zhao_c', params, field_target, field_target_root, status, message, initial_root=charge_root &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'nearby Zhao-C target solve failed: '//trim(message))
+  call build_zhao_outer_profile( &
+    params, field_target_root, profile_points, field_target_state, status, message, &
+    control_length_m=state%z(state%profile_n) &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'nearby Zhao-C target profile failed: '//trim(message))
+  field_target_column = field_target_state%photoelectron_column_per_area
+  call assert_true( &
+    abs(field_target - equilibrium_field) > 1.0e-3_dp*abs(equilibrium_field) .and. &
+    abs(field_target_column - state%photoelectron_column_per_area) > &
+    1.0e-4_dp*max(field_target_column, state%photoelectron_column_per_area), &
+    'nearby Zhao-C fixture did not change both prescribed quantities' &
+    )
+  homotopy_options = zhao_field_column_homotopy_options_type()
+  homotopy_options%max_points = 96_i32
+  homotopy_options%homotopy_max = 1.0_dp
+  call trace_zhao_field_column_homotopy( &
+    params, equilibrium_field, state%photoelectron_column_per_area, &
+    field_target, field_target_column, profile_points, state%z(state%profile_n), &
+    charge_root, field_column_homotopy, status, message, options=homotopy_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'populated Zhao-C homotopy failed: '//trim(message))
+  call assert_true( &
+    field_column_homotopy%target_reached .and. field_column_homotopy%branch == 'C' .and. &
+    field_column_homotopy%point_count > 2_i32 .and. &
+    .not. field_column_homotopy%homotopy_fold_detected .and. &
+    trim(field_column_homotopy%termination_reason) == 'target_reached', &
+    'populated Zhao-C homotopy did not reach its rank-regular target' &
+    )
+  call assert_close_dp( &
+    field_column_homotopy%points(field_column_homotopy%point_count)%homotopy_fraction, &
+    1.0_dp, 1.0e-14_dp, 'populated Zhao-C homotopy did not land exactly at lambda=1' &
+    )
+  call assert_close_dp( &
+    field_column_homotopy%points(field_column_homotopy%point_count)%root%interface_field_v_m, &
+    field_target, 1.0e-12_dp, 'populated Zhao-C homotopy missed its target field' &
+    )
+  call assert_close_dp( &
+    field_column_homotopy%points(field_column_homotopy%point_count)%root% &
+    photoelectron_column_per_area, field_target_column, &
+    1.0e-8_dp*field_target_column, 'populated Zhao-C homotopy missed its target column' &
+    )
+  call assert_true( &
+    abs(field_column_homotopy%points(field_column_homotopy%point_count)%root%phi0_v - &
+        field_target_root%phi0_v)/params%t_phe_ev < 5.0e-8_dp .and. &
+    abs(log(field_column_homotopy%points(field_column_homotopy%point_count)%root% &
+            n_swe_inf_m3/field_target_root%n_swe_inf_m3)) < 1.0e-8_dp .and. &
+    abs(field_column_homotopy%points(field_column_homotopy%point_count)%root% &
+        photoelectron_population_fraction - &
+        field_target_root%photoelectron_population_fraction) < 1.0e-8_dp, &
+    'populated Zhao-C homotopy did not recover its independent target root' &
+    )
+  do atlas_index = 1, int(field_column_homotopy%point_count)
+    call assert_true( &
+      field_column_homotopy%points(atlas_index)%root%branch == 'C' .and. &
+      field_column_homotopy%points(atlas_index)%root%residual_norm <= &
+      5.0_dp*homotopy_options%residual_tolerance .and. &
+      abs(field_column_homotopy%points(atlas_index)%normalized_column_residual) <= &
+      5.0_dp*homotopy_options%residual_tolerance .and. &
+      ieee_is_finite(field_column_homotopy%points(atlas_index)%row_rank_indicator) .and. &
+      field_column_homotopy%points(atlas_index)%row_rank_indicator > 1.0e-12_dp, &
+      'populated Zhao-C homotopy accepted an unconverged or rank-deficient point' &
+      )
+  end do
   call test_end()
 
   call test_begin('branch-incompatible prescribed fields fail physically')
@@ -469,6 +556,112 @@ program test_outer_plasma_zhao
   call assert_close_dp( &
     charge_root%photoelectron_population_fraction, 0.1_dp, 1.0e-12_dp, &
     'field homotopy changed eta for an already matched inventory' &
+    )
+  call test_end()
+
+  call test_begin('field-column homotopy lands on a smooth Zhao-B target')
+  homotopy_options = zhao_field_column_homotopy_options_type()
+  homotopy_options%max_points = 96_i32
+  homotopy_options%homotopy_max = 1.0_dp
+  call trace_zhao_field_column_homotopy( &
+    params, population_gap_field, reference_column, field_target, field_target_column, &
+    profile_points, control_length_m, reference_root, field_column_homotopy, status, message, &
+    options=homotopy_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'smooth Zhao-B field-column homotopy failed: '//trim(message))
+  call assert_true(field_column_homotopy%target_reached, 'smooth Zhao-B homotopy did not reach lambda=1')
+  call assert_true( &
+    .not. field_column_homotopy%homotopy_fold_detected .and. &
+    field_column_homotopy%point_count > 2_i32 .and. &
+    trim(field_column_homotopy%termination_reason) == 'target_reached', &
+    'smooth Zhao-B homotopy introduced an unexpected lambda fold' &
+    )
+  call assert_close_dp( &
+    field_column_homotopy%points(field_column_homotopy%point_count)%homotopy_fraction, &
+    1.0_dp, 1.0e-14_dp, 'smooth Zhao-B homotopy did not land exactly at lambda=1' &
+    )
+  call assert_close_dp( &
+    field_column_homotopy%points(field_column_homotopy%point_count)%root% &
+    photoelectron_column_per_area, field_target_column, &
+    1.0e-8_dp*field_target_column, 'smooth Zhao-B homotopy missed its target column' &
+    )
+  call assert_true( &
+    abs(field_column_homotopy%points(field_column_homotopy%point_count)%root%phi0_v - &
+        field_target_root%phi0_v)/params%t_phe_ev < 1.0e-8_dp .and. &
+    abs(log(field_column_homotopy%points(field_column_homotopy%point_count)%root% &
+            n_swe_inf_m3/field_target_root%n_swe_inf_m3)) < 1.0e-8_dp .and. &
+    abs(field_column_homotopy%points(field_column_homotopy%point_count)%root% &
+        photoelectron_population_fraction - &
+        field_target_root%photoelectron_population_fraction) < 1.0e-8_dp, &
+    'smooth Zhao-B homotopy did not recover its independent target root' &
+    )
+  call assert_true( &
+    all(field_column_homotopy%points%root%residual_norm <= &
+        5.0_dp*homotopy_options%residual_tolerance) .and. &
+    all(abs(field_column_homotopy%points%normalized_column_residual) <= &
+        5.0_dp*homotopy_options%residual_tolerance) .and. &
+    all(ieee_is_finite(field_column_homotopy%points%row_rank_indicator)) .and. &
+    all(field_column_homotopy%points%row_rank_indicator > 1.0e-12_dp), &
+    'smooth Zhao-B homotopy accepted an unconverged or non-finite point' &
+    )
+  call test_end()
+
+  call test_begin('field-column homotopy reports a bounded point search')
+  homotopy_options = zhao_field_column_homotopy_options_type()
+  homotopy_options%max_points = 2_i32
+  call trace_zhao_field_column_homotopy( &
+    params, population_gap_field, reference_column, field_target, field_target_column, &
+    profile_points, control_length_m, reference_root, field_column_homotopy, status, message, &
+    options=homotopy_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'bounded Zhao-B homotopy failed numerically')
+  call assert_true( &
+    .not. field_column_homotopy%target_reached .and. &
+    field_column_homotopy%point_count == 2_i32 .and. &
+    trim(field_column_homotopy%termination_reason) == 'point_limit', &
+    'bounded Zhao-B homotopy lost its point-limit classification' &
+    )
+  homotopy_options = zhao_field_column_homotopy_options_type()
+  homotopy_options%log_density_floor = -30.0_dp
+  call trace_zhao_field_column_homotopy( &
+    params, population_gap_field, reference_column, field_target, field_target_column, &
+    profile_points, control_length_m, reference_root, field_column_homotopy, status, message, &
+    options=homotopy_options &
+    )
+  call assert_equal_i32(status, outer_plasma_invalid, 'decoder-edge density floor was not rejected')
+  call assert_true( &
+    trim(field_column_homotopy%termination_reason) == 'invalid_options', &
+    'decoder-edge density floor lost its invalid-option classification' &
+    )
+  atlas_options = zhao_branch_atlas_options_type()
+  atlas_options%log_density_floor = -30.0_dp
+  call trace_zhao_branch_atlas( &
+    params, population_gap_field, profile_points, control_length_m, reference_root, &
+    branch_atlas, status, message, options=atlas_options &
+    )
+  call assert_equal_i32(status, outer_plasma_invalid, 'atlas decoder-edge density floor was not rejected')
+  call assert_true( &
+    trim(branch_atlas%termination_reason) == 'invalid_options', &
+    'atlas decoder-edge density floor lost its invalid-option classification' &
+    )
+  call test_end()
+
+  call test_begin('field-column homotopy honors a requested eta lower bound')
+  homotopy_options = zhao_field_column_homotopy_options_type()
+  homotopy_options%max_points = 96_i32
+  homotopy_options%eta_min = 7.5e-2_dp
+  call trace_zhao_field_column_homotopy( &
+    params, population_gap_field, reference_column, population_gap_field, &
+    continuation_target_column, profile_points, control_length_m, reference_root, &
+    field_column_homotopy, status, message, options=homotopy_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'eta-bounded Zhao-B homotopy failed numerically')
+  call assert_true( &
+    .not. field_column_homotopy%target_reached .and. &
+    trim(field_column_homotopy%termination_reason) == 'eta_lower_search_limit' .and. &
+    minval(field_column_homotopy%points%root%photoelectron_population_fraction) >= &
+    homotopy_options%eta_min, &
+    'eta-bounded Zhao-B homotopy crossed its requested lower bound' &
     )
   call test_end()
 
@@ -875,6 +1068,145 @@ program test_outer_plasma_zhao
     )
   call test_end()
 
+  call test_begin('strong-UV batch transition traces the coupled Zhao-B manifold')
+  ! Recovered from project_dust_release run R20260722-0005, whose child step
+  ! 8184334.0 failed at batch 16,
+  ! by the 15-batch replay job 8186918 using BEACH commit 5ccc7f9.  ADR 0005
+  ! records the executable hash and the limitation that replay raw files were
+  ! not retained.
+  reference_root = zhao_charge_root_type( &
+                   branch='B', interface_side='monotonic', &
+                   phi0_v=2.1622086033018255_dp, phi_m_v=2.1622086033018255_dp, &
+                   n_swe_inf_m3=1.3842809338228058e5_dp, &
+                   photoelectron_population_fraction=2.3203997288209771e-1_dp, &
+                   photoelectron_column_per_area=9.3202065343372747e7_dp, &
+                   photoelectron_column_target_per_area=9.3202065681229725e7_dp, &
+                   photoelectron_column_residual_per_area=-3.3785697817802429e-1_dp, &
+                   interface_field_v_m=8.4245706656096919e-1_dp, &
+                   residual_norm=1.4155343563970746e-15_dp &
+                   )
+  homotopy_options = zhao_field_column_homotopy_options_type()
+  homotopy_options%log_density_floor = -27.0_dp
+  call trace_zhao_field_column_homotopy( &
+    params, reference_root%interface_field_v_m, &
+    reference_root%photoelectron_column_target_per_area, 9.0729627587860184e-1_dp, &
+    9.9455765203101724e7_dp, 128_i32, 10.0_dp*params%lambda_d_phe_ref_m, &
+    reference_root, field_column_homotopy, status, message, options=homotopy_options &
+    )
+  call assert_equal_i32( &
+    status, outer_plasma_ok, 'strong-UV coupled Zhao-B homotopy failed numerically: '//trim(message) &
+    )
+  call assert_true( &
+    field_column_homotopy%point_count > 1_i32, &
+    'strong-UV coupled Zhao-B homotopy did not leave its batch-15 seed' &
+    )
+  call assert_true( &
+    .not. field_column_homotopy%target_reached .and. &
+    .not. field_column_homotopy%homotopy_fold_detected, &
+    'strong-UV coupled Zhao-B path unexpectedly reached or folded before its endpoint' &
+    )
+  call assert_true( &
+    field_column_homotopy%termination_reason_code == zhao_continuation_reason_search_limit .and. &
+    trim(field_column_homotopy%termination_reason) == 'ambient_density_floor_limit', &
+    'strong-UV coupled Zhao-B path did not terminate at its finite density floor' &
+    )
+  call assert_true( &
+    abs(field_column_homotopy%points(field_column_homotopy%point_count)%homotopy_fraction - &
+        0.3317869678461613_dp) < 1.0e-5_dp .and. &
+    field_column_homotopy%points(field_column_homotopy%point_count)%root%n_swe_inf_m3/ &
+    params%n_phe_ref_m3 < 5.0e-12_dp, &
+    'strong-UV coupled Zhao-B endpoint moved away from the one-third homotopy density limit' &
+    )
+  call assert_true( &
+    log(field_column_homotopy%points(field_column_homotopy%point_count)%root%n_swe_inf_m3/ &
+        params%n_phe_ref_m3) <= homotopy_options%log_density_floor .and. &
+    log(field_column_homotopy%points(field_column_homotopy%point_count)%root%n_swe_inf_m3/ &
+        params%n_phe_ref_m3) >= homotopy_options%log_density_floor - &
+    field_column_homotopy%points(field_column_homotopy%point_count)%accepted_step - 1.0e-10_dp .and. &
+    log(field_column_homotopy%points(field_column_homotopy%point_count - 1_i32)%root% &
+        n_swe_inf_m3/params%n_phe_ref_m3) > homotopy_options%log_density_floor .and. &
+    .not. field_column_homotopy%seed_reanchored .and. &
+    field_column_homotopy%seed_refinement_jump < 1.0e-6_dp, &
+    'strong-UV coupled Zhao-B trace did not stop at its first density-floor crossing' &
+    )
+  call assert_true( &
+    abs(field_column_homotopy%points(field_column_homotopy%point_count)% &
+        normalized_column_residual) < 1.0e-8_dp, &
+    'strong-UV coupled Zhao-B endpoint does not close its prescribed intermediate column' &
+    )
+  do atlas_index = 1, int(field_column_homotopy%point_count)
+    call assert_true( &
+      field_column_homotopy%points(atlas_index)%root%branch == 'B' .and. &
+      field_column_homotopy%points(atlas_index)%root%residual_norm <= &
+      5.0_dp*homotopy_options%residual_tolerance .and. &
+      abs(field_column_homotopy%points(atlas_index)%normalized_column_residual) <= &
+      5.0_dp*homotopy_options%residual_tolerance .and. &
+      ieee_is_finite(field_column_homotopy%points(atlas_index)%row_rank_indicator) .and. &
+      field_column_homotopy%points(atlas_index)%row_rank_indicator > 1.0e-12_dp, &
+      'strong-UV coupled Zhao-B trace accepted an unconverged or rank-deficient point' &
+      )
+  end do
+  call diagnose_zhao_ab_degeneracy( &
+    params, field_column_homotopy%points(field_column_homotopy%point_count)%root, &
+    ab_diagnostics, status, message &
+    )
+  call assert_equal_i32( &
+    status, outer_plasma_ok, 'strong-UV coupled endpoint A/B diagnostic failed: '//trim(message) &
+    )
+  call assert_true( &
+    trim(ab_diagnostics%classification) == 'no_regular_type_a_tangent' .and. &
+    .not. ab_diagnostics%regular_connection_conditions_met .and. &
+    ab_diagnostics%quasineutral_far_field_q3_coefficient > 2.8e-2_dp .and. &
+    ab_diagnostics%quasineutral_far_field_q3_coefficient < 3.0e-2_dp, &
+    'strong-UV coupled endpoint falsely admitted a regular local Type-A connection' &
+    )
+  homotopy_options%log_density_floor = -24.0_dp
+  call trace_zhao_field_column_homotopy( &
+    params, reference_root%interface_field_v_m, &
+    reference_root%photoelectron_column_target_per_area, 9.0729627587860184e-1_dp, &
+    9.9455765203101724e7_dp, 128_i32, 10.0_dp*params%lambda_d_phe_ref_m, &
+    reference_root, coarse_field_column_homotopy, status, message, options=homotopy_options &
+    )
+  call assert_equal_i32( &
+    status, outer_plasma_ok, 'coarse-floor coupled Zhao-B homotopy failed numerically: '//trim(message) &
+    )
+  call assert_true( &
+    coarse_field_column_homotopy%termination_reason_code == &
+    zhao_continuation_reason_search_limit .and. &
+    trim(coarse_field_column_homotopy%termination_reason) == 'ambient_density_floor_limit' .and. &
+    .not. coarse_field_column_homotopy%target_reached .and. &
+    .not. coarse_field_column_homotopy%homotopy_fold_detected .and. &
+    abs(coarse_field_column_homotopy%points(coarse_field_column_homotopy%point_count)% &
+        homotopy_fraction - &
+        field_column_homotopy%points(field_column_homotopy%point_count)%homotopy_fraction) < 1.0e-5_dp, &
+    'strong-UV coupled endpoint depends materially on the diagnostic density floor' &
+    )
+  call assert_true( &
+    log(coarse_field_column_homotopy%points(coarse_field_column_homotopy%point_count)%root% &
+        n_swe_inf_m3/params%n_phe_ref_m3) <= homotopy_options%log_density_floor .and. &
+    log(coarse_field_column_homotopy%points(coarse_field_column_homotopy%point_count)%root% &
+        n_swe_inf_m3/params%n_phe_ref_m3) >= homotopy_options%log_density_floor - &
+    coarse_field_column_homotopy%points(coarse_field_column_homotopy%point_count)%accepted_step - &
+    1.0e-10_dp .and. &
+    log(coarse_field_column_homotopy%points( &
+        coarse_field_column_homotopy%point_count - 1_i32)%root%n_swe_inf_m3/ &
+        params%n_phe_ref_m3) > homotopy_options%log_density_floor, &
+    'coarse-floor coupled Zhao-B trace did not stop at its first density-floor crossing' &
+    )
+  do atlas_index = 1, int(coarse_field_column_homotopy%point_count)
+    call assert_true( &
+      coarse_field_column_homotopy%points(atlas_index)%root%branch == 'B' .and. &
+      coarse_field_column_homotopy%points(atlas_index)%root%residual_norm <= &
+      5.0_dp*homotopy_options%residual_tolerance .and. &
+      abs(coarse_field_column_homotopy%points(atlas_index)%normalized_column_residual) <= &
+      5.0_dp*homotopy_options%residual_tolerance .and. &
+      ieee_is_finite(coarse_field_column_homotopy%points(atlas_index)%row_rank_indicator) .and. &
+      coarse_field_column_homotopy%points(atlas_index)%row_rank_indicator > 1.0e-12_dp, &
+      'coarse-floor coupled Zhao-B trace accepted an unconverged or rank-deficient point' &
+      )
+  end do
+  call test_end()
+
   call test_begin('branch atlas brackets a reachable target on a smooth Zhao-B curve')
   call configure_params(60.0_dp, params)
   params%photoelectron_population_fraction = 0.10_dp
@@ -936,6 +1268,21 @@ program test_outer_plasma_zhao
     branch_atlas%points(2)%root%branch == 'A' .and. &
     branch_atlas%points(2)%root%residual_norm <= 1.1e-12_dp, &
     'Zhao-A four-coordinate corrector left its converged branch' &
+    )
+  call test_end()
+
+  call test_begin('field-column homotopy rejects unsupported Zhao-A coordinates')
+  homotopy_options = zhao_field_column_homotopy_options_type()
+  call trace_zhao_field_column_homotopy( &
+    params, equilibrium_field, branch_atlas%points(1)%root%photoelectron_column_per_area, &
+    equilibrium_field, branch_atlas%points(1)%root%photoelectron_column_per_area, &
+    profile_points, type_a_native_extent, branch_atlas%points(1)%root, &
+    field_column_homotopy, status, message, options=homotopy_options &
+    )
+  call assert_equal_i32(status, outer_plasma_invalid, 'Zhao-A field-column homotopy was not rejected')
+  call assert_true( &
+    trim(field_column_homotopy%termination_reason) == 'unsupported_type_a_homotopy', &
+    'Zhao-A field-column homotopy lost its unsupported-coordinate classification' &
     )
   call test_end()
 

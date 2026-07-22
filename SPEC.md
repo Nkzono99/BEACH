@@ -205,6 +205,13 @@ root選択を変更しません。固定branchのpseudo-arclength atlasは診断
 far-field $q^3$係数、A/Bのinterface field積分差、有限$q$ probeを返します。
 `regular_connection_conditions_met`は局所接続の必要条件であり、独立componentの存在や安定性を判定しません。
 このA/B診断もruntime root選択には使いません。
+`trace_zhao_field_column_homotopy`は、photoelectron sourceが非零のType B/C branchを1本固定し、前後のbatch状態を結ぶ
+$E_I(\lambda)$と$N_{pe}(\lambda)$の直線homotopy上で、Zhao残差と有限長column残差を
+pseudo-arclength追跡する診断APIです。`target_reached`は$\lambda=1$固定correctorでtargetへ着地した場合だけtrueとなり、
+`homotopy_fold_detected`は接線の$\lambda$成分が反転したことを表します。有限density floor、$\eta$範囲、homotopy範囲、
+point数への到達は`search_limit`であり、全Zhao manifoldでの不可達を意味しません。非単調Type Aの5座標系と、
+columnが恒等的に0となるno-photo Type CはこのAPIの対象外です。このAPIもproduction continuation、branch選択、
+fallbackを変更しません。
 これはflight delayと有限column inventoryのclosureであり、時間依存Vlasov--Poisson、
 outer collision、energy-resolved cloud evolutionではありません。`batch_duration`、tracked粒子数、水平面積、有効interface位置、
 profile gridについて収束を確認します。

@@ -2,7 +2,7 @@
 
 - Status: accepted for staged implementation
 - Date: 2026-07-22
-- Implementation: phase 1 diagnostics, bidirectional fixed-branch atlas, and A/B endpoint diagnostic implemented; runtime continuation unchanged
+- Implementation: phase 1/1b branch diagnostics and phase 2 straight-homotopy diagnostic implemented; runtime continuation unchanged
 
 ## Context
 
@@ -178,6 +178,56 @@ $(E_I,N_{pe})$同時homotopyは、途中の別電場でA/B接続または別shee
 可否を判定できない。次は拡張manifold上の連結経路を診断し、targetへ至るpathがなければphase 3の
 energy/flight-phaseを保持するdynamic outer stateへ進む。production root選択とfail-closed statusはまだ変更しない。
 
+## Phase 2 diagnostic evidence: $(E_I,N_{pe})$同時homotopy
+
+公開診断API `trace_zhao_field_column_homotopy`を追加した。photoelectron sourceが非零の固定Type B/C branchについて、
+
+$$
+E(\lambda)=E_0+\lambda(E_1-E_0),\qquad
+N(\lambda)=N_0+\lambda(N_1-N_0)
+$$
+
+を指定し、encoded root、$\eta$、$\lambda$を未知数としてZhao残差と有限長column残差を
+pseudo-arclength追跡する。4座標3残差であり、accepted pointが
+$\lambda=1$を挟んだ場合は、$\lambda=1$を固定したbordered Newtonでtargetへ着地する。
+`target_reached`と`homotopy_fold_detected`を分離し、有限density floor、$\eta$、homotopy、point数の上限は
+`search_limit`として残す。このAPIはdiagnostic-onlyであり、runtime root選択やfallbackには接続していない。
+Type Aの5座標correctorは局所probeでstepが$10^{-6}$程度まで縮退して安定追跡できなかったため公開契約から外し、
+no-photo Type Cはcolumn残差が恒等的に0となるrank-degenerate requestとして明示拒否する。
+
+失敗RUNにはbatch 15のfull rootが保存されていなかったため、同じ入力を15 batchで正常終了させて始点を回収した。
+元入力と丸め表示のbatch履歴はproject_dust_releaseの
+`runs/single_sphere_plane_infinite_zhao_uv_on/R20260722-0005--zhao-photo-3x112`に残る。親Slurm job `8184334`は
+`COMPLETED`だが、BEACHを実行したchild step `8184334.0`はbatch 16でexit 128となった。
+replay job `8186918`は同RUNの入力を`batch_count=15`へ変更し、BEACH commit `5ccc7f9`の実行ファイル
+（SHA256 `7d0600d2b10be73cef64a4a9aed8be615f7457435e322c552e7a581d47899e2d`）を3 process × 4 threadで実行した。
+replayの一時directoryとraw logは保存されておらず、以下のfull-precision rootは回収時にtest fixtureへ転記した二次記録である。
+従ってjob、元入力、binaryは追跡できるが、replay raw outputを直接再監査できないというprovenance上の制限が残る。
+
+| quantity | batch 15 start | batch 16 target |
+|---|---:|---:|
+| $E_I$ [$\mathrm{V/m}$] | 0.8424570665609692 | 0.9072962758786018 |
+| $N_{pe,q}$ [$\mathrm{m^{-2}}$] | $9.3202065681229725\times10^7$ | $9.9455765203101724\times10^7$ |
+| $\eta$ | 0.2320399728820977 | solved variable |
+| branch | B | fixed B diagnostic |
+
+profile 128点、$L=10\lambda_{D,pe}$でforward curveを追跡すると、
+$\lambda\simeq0.33179$、$E_I\simeq0.86397\,\mathrm{V/m}$、
+$N_{pe}\simeq9.528\times10^7\,\mathrm{m^{-2}}$で有限のambient density floor
+（$\log(n_{e,\infty}/n_{pe,ref})=-27$）へ達した。このとき$\eta\simeq0.240$、
+$n_{e,\infty}\simeq2.4\times10^{-4}\,\mathrm{m^{-3}}$で、targetには届かず、$\lambda$ foldも
+検出されなかった。floorを$-24$へ変えたときの終端$\lambda$の差は$10^{-5}$未満であり、
+終端$\lambda$はtested cutoff範囲で安定し、density-zero limitへの収束と整合した。default traceの全accepted pointで、
+Zhao root residualと正規化column residualは$5\times10^{-10}$以下、row-rank indicatorは有限かつ
+数値拒否閾値$10^{-12}$を上回った。端のA/B診断でも準中性$q^3$係数は約
+$2.9\times10^{-2}$で非零となり、そこへ連続するregular local Type A tangentの必要条件を満たさなかった。
+
+従ってbatch 15 rootから$\lambda$増加方向へ進む固定branchの直線$(E_I,N_{pe})$準定常homotopyは、
+batch 16 target前に有限density floorで終端する。phase 2 runtime solveをこの強UV fixtureの回復策として有効化せず、
+phase 3のenergy/flight-phaseを保持するdynamic outer stateへ進む。これは逆向きに出発して大域的にfoldするcurve、
+disconnected component、異なるcontrol-volume長を排除しない。そのような経路はsingle-valuedなforward runtime homotopyの
+根拠には使わない。
+
 ## Rejected alternatives
 
 - `branch_same_root_step_limit`や最小刻みを緩和する。遠い同ラベルrootへのjumpを受理し得る。
@@ -210,14 +260,15 @@ energy/flight-phaseを保持するdynamic outer stateへ進む。production root
 
 既存のZhao unit test 15件が計算ノードで通る状態を改修前baselineとする。phase 1後は、強UV fixture、
 writer schema、non-finite rootと有限探索上限の分類、smooth Type B target bracket、Type A 4-coordinate correctorを含む
-20件を通す。現行queueとno-photo Type Cは、
+20件を通す。phase 1b後は23件、phase 2 diagnostic後はsmooth Type B target、strong-UV batch遷移、
+populated Type C、Type A/no-photo Type Cの明示的な適用範囲を含む29件を通す。現行queueとno-photo Type Cは、
 上記の新statusまたはstateを使わない既存caseで挙動を変えない。
 
 ## Consequences
 
-実装済みの第一段階だけでは強UV runを完走させないが、数値的なroot追跡失敗を物理解なしと誤認せず、
-失敗rootと探索範囲を再現できる。
-第二段階は、解が存在する場合に現在のscalar queueを保ったまま人工的なfield-then-$\eta$経路を除去する。
+実装済みの第一段階と第二段階の診断だけでは強UV runを完走させないが、数値的なroot追跡失敗を物理解なしと誤認せず、
+失敗rootと探索範囲を再現できる。第二段階のruntime solveは、診断でtargetへ連結する解が確認された条件に限り、
+現在のscalar queueを保ったまま人工的なfield-then-$\eta$経路を除去できる。今回の強UV fixtureはその条件を満たさない。
 第三段階は、stationary Zhao manifoldに存在しない過渡状態を明示的なdynamic stateとして扱う。
 
 この順序により、最小のsolver改修で到達可能な準定常解を回復しつつ、強UVで本当に必要な動的physicsを

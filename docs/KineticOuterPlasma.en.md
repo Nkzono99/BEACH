@@ -169,13 +169,35 @@ Type-A/B interface-field integral difference, the supplied Type-B quasineutral a
 does not establish the absence of a disconnected Type-A component or its dynamic stability. This API also leaves production
 branch selection unchanged.
 
+The public Fortran procedure `trace_zhao_field_column_homotopy` linearly interpolates a previous state $(E_0,N_0)$ and a target
+$(E_1,N_1)$, then pseudo-arclength traces the Zhao residuals together with the finite-length column residual on one fixed Type B
+or C branch with a nonzero photoelectron source. When accepted points bracket $\lambda=1$, a fixed-$\lambda=1$ corrector lands exactly on the target.
+`target_reached` is true only after that corrector converges, and `homotopy_fold_detected` records a sign reversal of the tangent's
+$\lambda$ component. The API does not switch branches or alter production root selection or fallback.
+The nonmonotone five-coordinate Type-A corrector is explicitly unsupported until it is adequately conditioned, and no-photo
+Type C is rejected because its column equation is identically zero. Type A remains available through the fixed-field atlas and
+A/B endpoint diagnostics.
+
 For the strong-UV fixture, neither the forward Type-B atlas to its density floor nor the reverse atlas to its $\eta$ lower bound
-brackets the target column at $E_I=0.9072962759\,\mathrm{V/m}$ and $L=10\lambda_{D,pe}$. At the density-zero endpoint, the
-quasineutral $q^3$ coefficient is approximately $2.9\times10^{-2}$ rather than zero, excluding a local Type-A branch continuous
-with that endpoint. The target is therefore unreachable on the refined Type-B component containing the runtime neighborhood.
+brackets the target column at $E_I=0.9072962759\,\mathrm{V/m}$ and $L=10\lambda_{D,pe}$. At the density-zero limit, the
+quasineutral $q^3$ coefficient is approximately $2.9\times10^{-2}$ rather than zero, so a necessary condition for a regular
+local Type-A tangent continuous with that limit is not met. The target is therefore unreachable on the refined Type-B component containing the runtime neighborhood.
 This result does not exclude a different $L$ or a disconnected Type-A root, and the production solver continues to fail closed.
 [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) records the numerical evidence, scope, and decision to proceed toward
 a dynamic outer model.
+
+The same straight homotopy was traced from a Type-B batch-15 state recovered by a successful 15-batch replay to the failed
+batch-16 target. The forward curve starts at $E_0=0.8424570666\,\mathrm{V/m}$ and
+$N_0=9.3202065681\times10^7\,\mathrm{m^{-2}}$, then reaches the finite ambient-density floor at
+$\lambda\simeq0.33179$ and $E_I\simeq0.86397\,\mathrm{V/m}$. Changing
+$\log(n_{e,\infty}/n_{pe,ref})$ from $-27$ to $-24$ moves the endpoint by less than $10^{-5}$ in $\lambda$, consistent with
+convergence toward the density-zero limit. At every accepted point, the root and normalized-column residuals are at most
+$5\times10^{-10}$, and the row-rank indicator is finite and above the numerical rejection threshold of $10^{-12}$. It does not reach the target
+$E_1=0.9072962759\,\mathrm{V/m}$ and $N_1=9.9455765203\times10^7\,\mathrm{m^{-2}}$, and no $\lambda$ fold is detected.
+The quasineutral $q^3$ coefficient at this endpoint is approximately $2.9\times10^{-2}$, so a necessary condition for a regular
+local Type-A tangent is not met. The fixed-branch quasisteady path in the increasing-$\lambda$ direction from the batch-15 root therefore ends at
+the finite floor before the target. This diagnostic does not cover the global curve in the reverse direction, disconnected components, or a different
+$L$.
 
 The same $0\le z\le10\lambda_{D,pe}$ interval is the finite queue-particle control volume. A particle that does not turn inside
 it is absorbed by the exterior reservoir and escapes at $L=10\lambda_{D,pe}$; queue mode does not use a Robin tail outside $L$
