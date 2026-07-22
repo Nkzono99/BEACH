@@ -36,18 +36,24 @@ contains
     if (present(last_outer_update_batch)) self%last_outer_update_batch = last_outer_update_batch
   end subroutine init_outer_coupler
 
-  subroutine refresh_outer_coupler(self, snapshot, mesh, batch_index, outer_updated)
+  subroutine refresh_outer_coupler( &
+    self, snapshot, mesh, batch_index, outer_updated, continuation_stage &
+    )
     class(outer_coupler_type), intent(inout) :: self
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(mesh_type), intent(in) :: mesh
     integer(i32), intent(in) :: batch_index
     logical, intent(out), optional :: outer_updated
+    character(len=*), intent(in), optional :: continuation_stage
     logical :: update_now
 
     if (batch_index < 1_i32) error stop 'outer coupler batch index must be >= 1.'
     update_now = self%last_outer_update_batch < 0_i32 .or. &
                  mod(batch_index - 1_i32, self%update_stride) == 0_i32
-    call snapshot%refresh(mesh, update_outer=update_now)
+    call snapshot%refresh( &
+      mesh, update_outer=update_now, continuation_stage=continuation_stage, &
+      continuation_batch=batch_index &
+      )
     if (update_now) self%last_outer_update_batch = batch_index
     if (present(outer_updated)) outer_updated = update_now
   end subroutine refresh_outer_coupler

@@ -36,6 +36,25 @@ module bem_outer_plasma_zhao
   real(dp), parameter :: column_eta_search_max = 16.0_dp
   real(dp), parameter :: profile_phi_end_hat = 1.0e-4_dp
   real(dp), parameter :: zero_field_tolerance_hat = 1.0e-12_dp
+  integer, parameter :: atlas_max_coordinates = 4
+  real(dp), parameter :: atlas_default_residual_tolerance = 1.0e-12_dp
+  real(dp), parameter :: atlas_default_log_density_floor = -27.0_dp
+  real(dp), parameter :: atlas_fold_tangent_tolerance = 1.0e-6_dp
+  integer, parameter :: atlas_eval_ok = 0
+  integer, parameter :: atlas_eval_physical = 1
+  integer, parameter :: atlas_eval_numerical = 2
+
+  integer(i32), parameter, public :: zhao_continuation_reason_none = 0_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_converged = 1_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_numerical_failure = 2_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_guard_rejected = 3_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_disconnected_branch = 4_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_nonmonotone_column = 5_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_physical_endpoint = 6_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_target_unreachable = 7_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_search_limit = 8_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_invalid_request = 9_i32
+  integer(i32), parameter, public :: zhao_continuation_reason_target_bracketed = 10_i32
 
   type, public :: zhao_charge_root_type
     character(len=1) :: branch = ' '
@@ -53,14 +72,1130 @@ module bem_outer_plasma_zhao
     integer(i32) :: nonlinear_iterations = 0_i32
   end type zhao_charge_root_type
 
+  !> Full-precision telemetry for one Zhao continuation decision.
+  !>
+  !> This record deliberately does not reinterpret a rejected same-branch jump
+  !> as a fold.  A later branch-atlas pass must establish whether the connected
+  !> root curve continues before assigning that physical classification.
+  type, public :: zhao_continuation_diagnostics_type
+    integer(i32) :: reason_code = zhao_continuation_reason_none
+    integer(i32) :: underlying_status = outer_plasma_invalid
+    integer(i32) :: return_status = outer_plasma_invalid
+    integer(i32) :: attempt = 0_i32
+    character(len=48) :: reason = 'none'
+    character(len=24) :: solver_stage = 'none'
+    logical :: candidate_available = .false.
+    logical :: saw_numerical_failure = .false.
+    character(len=1) :: from_branch = ' '
+    character(len=1) :: candidate_branch = ' '
+    real(dp) :: target_field_v_m = 0.0_dp
+    real(dp) :: target_eta = 0.0_dp
+    real(dp) :: target_column_m2 = 0.0_dp
+    real(dp) :: attempted_step = 0.0_dp
+    real(dp) :: from_field_v_m = 0.0_dp
+    real(dp) :: from_eta = 0.0_dp
+    real(dp) :: from_phi0_v = 0.0_dp
+    real(dp) :: from_phi_m_v = 0.0_dp
+    real(dp) :: from_density_m3 = 0.0_dp
+    real(dp) :: from_column_m2 = 0.0_dp
+    real(dp) :: from_column_residual_m2 = 0.0_dp
+    real(dp) :: from_root_residual = 0.0_dp
+    real(dp) :: candidate_field_v_m = 0.0_dp
+    real(dp) :: candidate_eta = 0.0_dp
+    real(dp) :: candidate_phi0_v = 0.0_dp
+    real(dp) :: candidate_phi_m_v = 0.0_dp
+    real(dp) :: candidate_density_m3 = 0.0_dp
+    real(dp) :: candidate_column_m2 = 0.0_dp
+    real(dp) :: candidate_column_residual_m2 = 0.0_dp
+    real(dp) :: candidate_root_residual = 0.0_dp
+    real(dp) :: normalized_potential_jump = 0.0_dp
+    real(dp) :: log_density_jump = 0.0_dp
+    real(dp) :: normalized_root_jump = 0.0_dp
+  end type zhao_continuation_diagnostics_type
+
+  !> Controls for a diagnostic pseudo-arclength trace on one fixed Zhao branch.
+  !>
+  !> The trace is intentionally not used by the runtime closure.  It establishes
+  !> whether a rejected fixed-eta step lies on a connected root curve before a
+  !> later change is allowed to alter production root selection.
+  type, public :: zhao_branch_atlas_options_type
+    integer(i32) :: max_points = 160_i32
+    integer(i32) :: max_corrector_iterations = 24_i32
+    integer(i32) :: max_step_halvings = 20_i32
+    integer(i32) :: eta_direction = 1_i32
+    real(dp) :: initial_step = 5.0e-2_dp
+    real(dp) :: minimum_step = 1.0e-7_dp
+    real(dp) :: maximum_step = 1.0e-1_dp
+    real(dp) :: residual_tolerance = atlas_default_residual_tolerance
+    real(dp) :: seed_refinement_limit = 5.0e-1_dp
+    real(dp) :: eta_min = 0.0_dp
+    real(dp) :: eta_max = column_eta_search_max
+    real(dp) :: log_density_floor = atlas_default_log_density_floor
+  end type zhao_branch_atlas_options_type
+
+  type, public :: zhao_branch_atlas_point_type
+    type(zhao_charge_root_type) :: root
+    real(dp) :: arc_length = 0.0_dp
+    real(dp) :: accepted_step = 0.0_dp
+    real(dp) :: tangent(atlas_max_coordinates) = [0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+    real(dp) :: dcolumn_ds = 0.0_dp
+    real(dp) :: row_rank_indicator = 0.0_dp
+    real(dp) :: normalized_jump_from_previous = 0.0_dp
+    integer(i32) :: corrector_iterations = 0_i32
+  end type zhao_branch_atlas_point_type
+
+  type, public :: zhao_branch_atlas_type
+    type(zhao_branch_atlas_point_type), allocatable :: points(:)
+    character(len=1) :: branch = ' '
+    integer(i32) :: point_count = 0_i32
+    integer(i32) :: termination_reason_code = zhao_continuation_reason_none
+    character(len=48) :: termination_reason = 'none'
+    real(dp) :: interface_field_v_m = 0.0_dp
+    real(dp) :: target_column_m2 = 0.0_dp
+    real(dp) :: maximum_column_m2 = 0.0_dp
+    real(dp) :: log_density_floor = atlas_default_log_density_floor
+    real(dp) :: seed_refinement_jump = 0.0_dp
+    logical :: target_requested = .false.
+    logical :: target_bracketed = .false.
+    logical :: eta_fold_detected = .false.
+    logical :: column_fold_detected = .false.
+    logical :: seed_reanchored = .false.
+  end type zhao_branch_atlas_type
+
   public :: solve_zhao_charge_root
   public :: evaluate_zhao_interface_field
   public :: build_zhao_outer_profile
   public :: solve_outer_plasma_zhao
   public :: solve_outer_plasma_zhao_column
   public :: zhao_net_current_density
+  public :: write_zhao_continuation_diagnostics
+  public :: trace_zhao_branch_atlas
 
 contains
+
+  subroutine write_zhao_continuation_diagnostics(unit, diagnostics, call_stage, batch_index)
+    integer, intent(in) :: unit
+    type(zhao_continuation_diagnostics_type), intent(in) :: diagnostics
+    character(len=*), intent(in), optional :: call_stage
+    integer(i32), intent(in), optional :: batch_index
+
+    character(len=32) :: resolved_call_stage
+    character(len=1) :: resolved_from_branch, resolved_candidate_branch
+    integer(i32) :: resolved_batch
+
+    resolved_call_stage = 'unknown'
+    if (present(call_stage)) resolved_call_stage = trim(call_stage)
+    resolved_batch = -1_i32
+    if (present(batch_index)) resolved_batch = batch_index
+    resolved_from_branch = diagnostics%from_branch
+    if (resolved_from_branch == ' ') resolved_from_branch = '-'
+    resolved_candidate_branch = diagnostics%candidate_branch
+    if (resolved_candidate_branch == ' ') resolved_candidate_branch = '-'
+    write (unit, '(a,a,a,a,a,i0,a,i0,a,l1)') &
+      'BEACH zhao-continuation call_stage=', trim(resolved_call_stage), &
+      ' solver_stage=', trim(diagnostics%solver_stage), ' batch=', resolved_batch, &
+      ' reason_code=', diagnostics%reason_code, &
+      ' saw_numerical_failure=', diagnostics%saw_numerical_failure
+    write (unit, '(a,a,a,i0,a,i0,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3)') &
+      'BEACH zhao-continuation reason=', trim(diagnostics%reason), &
+      ' underlying_status=', diagnostics%underlying_status, &
+      ' return_status=', diagnostics%return_status, &
+      ' target_field_V_m=', diagnostics%target_field_v_m, &
+      ' target_eta=', diagnostics%target_eta, &
+      ' target_column_m-2=', diagnostics%target_column_m2, &
+      ' attempted_step=', diagnostics%attempted_step
+    write (unit, '(a,i0,a,a,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3)') &
+      'BEACH zhao-continuation attempt=', diagnostics%attempt, &
+      ' from_branch=', resolved_from_branch, &
+      ' from_field_V_m=', diagnostics%from_field_v_m, &
+      ' from_eta=', diagnostics%from_eta, &
+      ' from_phi0_V=', diagnostics%from_phi0_v, &
+      ' from_phi_m_V=', diagnostics%from_phi_m_v, &
+      ' from_density_m-3=', diagnostics%from_density_m3, &
+      ' from_column_m-2=', diagnostics%from_column_m2, &
+      ' from_column_residual_m-2=', diagnostics%from_column_residual_m2
+    write (unit, '(a,l1,a,a,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3)') &
+      'BEACH zhao-continuation candidate_available=', diagnostics%candidate_available, &
+      ' candidate_branch=', resolved_candidate_branch, &
+      ' candidate_field_V_m=', diagnostics%candidate_field_v_m, &
+      ' candidate_eta=', diagnostics%candidate_eta, &
+      ' candidate_phi0_V=', diagnostics%candidate_phi0_v, &
+      ' candidate_phi_m_V=', diagnostics%candidate_phi_m_v, &
+      ' candidate_density_m-3=', diagnostics%candidate_density_m3, &
+      ' candidate_column_m-2=', diagnostics%candidate_column_m2, &
+      ' candidate_column_residual_m-2=', diagnostics%candidate_column_residual_m2
+    write (unit, '(a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3,a,es25.16e3)') &
+      'BEACH zhao-continuation from_root_residual=', diagnostics%from_root_residual, &
+      ' candidate_root_residual=', diagnostics%candidate_root_residual, &
+      ' normalized_potential_jump=', diagnostics%normalized_potential_jump, &
+      ' log_density_jump=', diagnostics%log_density_jump, &
+      ' normalized_root_jump=', diagnostics%normalized_root_jump
+  end subroutine write_zhao_continuation_diagnostics
+
+  subroutine set_zhao_continuation_origin( &
+    diagnostics, stage, reason_code, reason, underlying_status, from_eta, from_root &
+    )
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: diagnostics
+    character(len=*), intent(in) :: stage, reason
+    integer(i32), intent(in) :: reason_code, underlying_status
+    real(dp), intent(in) :: from_eta
+    type(zhao_charge_root_type), intent(in) :: from_root
+
+    if (.not. present(diagnostics)) return
+    diagnostics%reason_code = reason_code
+    diagnostics%underlying_status = underlying_status
+    diagnostics%return_status = underlying_status
+    diagnostics%reason = trim(reason)
+    diagnostics%solver_stage = trim(stage)
+    diagnostics%candidate_available = .false.
+    diagnostics%attempt = 0_i32
+    diagnostics%attempted_step = 0.0_dp
+    diagnostics%candidate_branch = ' '
+    diagnostics%candidate_field_v_m = 0.0_dp
+    diagnostics%candidate_eta = 0.0_dp
+    diagnostics%candidate_phi0_v = 0.0_dp
+    diagnostics%candidate_phi_m_v = 0.0_dp
+    diagnostics%candidate_density_m3 = 0.0_dp
+    diagnostics%candidate_column_m2 = 0.0_dp
+    diagnostics%candidate_column_residual_m2 = 0.0_dp
+    diagnostics%candidate_root_residual = 0.0_dp
+    diagnostics%normalized_potential_jump = 0.0_dp
+    diagnostics%log_density_jump = 0.0_dp
+    diagnostics%normalized_root_jump = 0.0_dp
+    diagnostics%from_branch = from_root%branch
+    diagnostics%from_field_v_m = from_root%interface_field_v_m
+    diagnostics%from_eta = from_eta
+    diagnostics%from_phi0_v = from_root%phi0_v
+    diagnostics%from_phi_m_v = from_root%phi_m_v
+    diagnostics%from_density_m3 = from_root%n_swe_inf_m3
+    diagnostics%from_column_m2 = from_root%photoelectron_column_per_area
+    diagnostics%from_column_residual_m2 = from_root%photoelectron_column_residual_per_area
+    diagnostics%from_root_residual = from_root%residual_norm
+  end subroutine set_zhao_continuation_origin
+
+  subroutine set_zhao_continuation_pair( &
+    diagnostics, stage, reason_code, reason, underlying_status, params, from_eta, from_root, &
+    candidate_eta, candidate_root &
+    )
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: diagnostics
+    character(len=*), intent(in) :: stage, reason
+    integer(i32), intent(in) :: reason_code, underlying_status
+    type(zhao_params_type), intent(in) :: params
+    real(dp), intent(in) :: from_eta, candidate_eta
+    type(zhao_charge_root_type), intent(in) :: from_root, candidate_root
+
+    if (.not. present(diagnostics)) return
+    call set_zhao_continuation_origin( &
+      diagnostics, stage, reason_code, reason, underlying_status, from_eta, from_root &
+      )
+    diagnostics%candidate_available = .true.
+    diagnostics%candidate_branch = candidate_root%branch
+    diagnostics%candidate_field_v_m = candidate_root%interface_field_v_m
+    diagnostics%candidate_eta = candidate_eta
+    diagnostics%candidate_phi0_v = candidate_root%phi0_v
+    diagnostics%candidate_phi_m_v = candidate_root%phi_m_v
+    diagnostics%candidate_density_m3 = candidate_root%n_swe_inf_m3
+    diagnostics%candidate_column_m2 = candidate_root%photoelectron_column_per_area
+    diagnostics%candidate_column_residual_m2 = candidate_root%photoelectron_column_residual_per_area
+    diagnostics%candidate_root_residual = candidate_root%residual_norm
+    call zhao_root_jump_metrics( &
+      params, from_root, candidate_root, diagnostics%normalized_potential_jump, &
+      diagnostics%log_density_jump, diagnostics%normalized_root_jump &
+      )
+  end subroutine set_zhao_continuation_pair
+
+  subroutine mark_zhao_continuation_converged(diagnostics, root)
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: diagnostics
+    type(zhao_charge_root_type), intent(in) :: root
+
+    if (.not. present(diagnostics)) return
+    diagnostics = zhao_continuation_diagnostics_type()
+    diagnostics%reason_code = zhao_continuation_reason_converged
+    diagnostics%underlying_status = outer_plasma_ok
+    diagnostics%return_status = outer_plasma_ok
+    diagnostics%reason = 'converged'
+    diagnostics%solver_stage = 'complete'
+    diagnostics%target_field_v_m = root%interface_field_v_m
+    diagnostics%target_eta = root%photoelectron_population_fraction
+    diagnostics%target_column_m2 = root%photoelectron_column_target_per_area
+    diagnostics%candidate_available = .true.
+    diagnostics%candidate_branch = root%branch
+    diagnostics%candidate_field_v_m = root%interface_field_v_m
+    diagnostics%candidate_eta = root%photoelectron_population_fraction
+    diagnostics%candidate_phi0_v = root%phi0_v
+    diagnostics%candidate_phi_m_v = root%phi_m_v
+    diagnostics%candidate_density_m3 = root%n_swe_inf_m3
+    diagnostics%candidate_column_m2 = root%photoelectron_column_per_area
+    diagnostics%candidate_column_residual_m2 = root%photoelectron_column_residual_per_area
+    diagnostics%candidate_root_residual = root%residual_norm
+  end subroutine mark_zhao_continuation_converged
+
+  subroutine zhao_root_jump_metrics(params, from_root, to_root, potential_change, density_change, jump)
+    type(zhao_params_type), intent(in) :: params
+    type(zhao_charge_root_type), intent(in) :: from_root, to_root
+    real(dp), intent(out) :: potential_change, density_change, jump
+
+    real(dp) :: potential_scale
+
+    potential_change = huge(1.0_dp)
+    density_change = huge(1.0_dp)
+    jump = huge(1.0_dp)
+    if (.not. zhao_charge_root_is_finite(from_root) .or. &
+        .not. zhao_charge_root_is_finite(to_root)) return
+    if (from_root%n_swe_inf_m3 <= 0.0_dp .or. to_root%n_swe_inf_m3 <= 0.0_dp) return
+    potential_scale = max(params%t_phe_ev, tiny(1.0_dp))
+    potential_change = max( &
+                       abs(to_root%phi0_v - from_root%phi0_v), &
+                       abs(to_root%phi_m_v - from_root%phi_m_v) &
+                       )/potential_scale
+    density_change = abs(log(to_root%n_swe_inf_m3/from_root%n_swe_inf_m3))
+    jump = max(potential_change, density_change)
+  end subroutine zhao_root_jump_metrics
+
+  pure logical function zhao_charge_root_is_finite(root) result(finite)
+    type(zhao_charge_root_type), intent(in) :: root
+
+    finite = all(ieee_is_finite([ &
+                                root%phi0_v, root%phi_m_v, root%n_swe_inf_m3, &
+                                root%photoelectron_population_fraction, &
+                                root%photoelectron_column_per_area, &
+                                root%photoelectron_column_target_per_area, &
+                                root%photoelectron_column_residual_per_area, &
+                                root%interface_field_v_m, root%net_current_density_a_m2, root%residual_norm &
+                                ]))
+  end function zhao_charge_root_is_finite
+
+  subroutine trace_zhao_branch_atlas( &
+    params, interface_field_v_m, grid_points, control_length_m, seed_root, atlas, status, message, &
+    target_column_m2, options &
+    )
+    type(zhao_params_type), intent(in) :: params
+    real(dp), intent(in) :: interface_field_v_m
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m
+    type(zhao_charge_root_type), intent(in) :: seed_root
+    type(zhao_branch_atlas_type), intent(out) :: atlas
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    real(dp), intent(in), optional :: target_column_m2
+    type(zhao_branch_atlas_options_type), intent(in), optional :: options
+
+    type(zhao_branch_atlas_options_type) :: resolved
+    type(zhao_branch_atlas_point_type), allocatable :: compact_points(:)
+    type(zhao_branch_atlas_point_type) :: next_point
+    type(zhao_charge_root_type) :: candidate_root
+    real(dp) :: z(atlas_max_coordinates), seed_coordinates(atlas_max_coordinates)
+    real(dp) :: corrected_z(atlas_max_coordinates)
+    real(dp) :: predictor(atlas_max_coordinates), tangent(atlas_max_coordinates)
+    real(dp) :: next_tangent(atlas_max_coordinates), anchor_tangent(atlas_max_coordinates)
+    real(dp) :: residual(3), step, trial_step, row_rank, next_rank
+    real(dp) :: target_tolerance, previous_target_residual, next_target_residual
+    real(dp) :: column_rate_tolerance
+    real(dp) :: potential_jump, density_jump, root_jump
+    integer :: n, z_dimension, point_index, halving, iterations, failure_kind
+    integer :: corrector_failure_kind, eta_tangent_sign, column_rate_sign, next_sign
+    logical :: valid, tangent_ok, corrected, point_ok, candidate_decoded
+    logical :: last_eta_lower_limit, last_eta_upper_limit
+
+    atlas%branch = ' '
+    atlas%point_count = 0_i32
+    atlas%termination_reason_code = zhao_continuation_reason_none
+    atlas%termination_reason = 'none'
+    atlas%interface_field_v_m = 0.0_dp
+    atlas%target_column_m2 = 0.0_dp
+    atlas%maximum_column_m2 = 0.0_dp
+    atlas%log_density_floor = atlas_default_log_density_floor
+    atlas%seed_refinement_jump = 0.0_dp
+    atlas%target_requested = .false.
+    atlas%target_bracketed = .false.
+    atlas%eta_fold_detected = .false.
+    atlas%column_fold_detected = .false.
+    atlas%seed_reanchored = .false.
+    status = outer_plasma_invalid
+    message = ''
+    resolved = zhao_branch_atlas_options_type()
+    if (present(options)) resolved = options
+    atlas%branch = seed_root%branch
+    atlas%interface_field_v_m = interface_field_v_m
+    atlas%log_density_floor = resolved%log_density_floor
+    if (present(target_column_m2)) then
+      atlas%target_requested = .true.
+      atlas%target_column_m2 = target_column_m2
+    end if
+
+    if (seed_root%branch == 'A') then
+      n = 3
+    else if (seed_root%branch == 'B' .or. seed_root%branch == 'C') then
+      n = 2
+    else
+      atlas%termination_reason_code = zhao_continuation_reason_invalid_request
+      atlas%termination_reason = 'invalid_seed_branch'
+      message = 'Zhao branch atlas requires an A, B, or C seed root'
+      return
+    end if
+    z_dimension = n + 1
+    if (.not. valid_zhao_params(params) .or. .not. ieee_is_finite(interface_field_v_m) .or. &
+        grid_points < 5_i32 .or. .not. ieee_is_finite(control_length_m) .or. &
+        control_length_m <= 0.0_dp .or. resolved%max_points < 1_i32 .or. &
+        resolved%max_corrector_iterations < 1_i32 .or. resolved%max_step_halvings < 0_i32 .or. &
+        abs(resolved%eta_direction) /= 1_i32 .or. &
+        .not. all(ieee_is_finite([ &
+                                 resolved%initial_step, resolved%minimum_step, resolved%maximum_step, &
+                                 resolved%residual_tolerance, resolved%seed_refinement_limit, &
+                                 resolved%eta_min, resolved%eta_max, &
+                                 resolved%log_density_floor &
+                                 ])) .or. resolved%minimum_step <= 0.0_dp .or. &
+        resolved%initial_step < resolved%minimum_step .or. &
+        resolved%maximum_step < resolved%initial_step .or. &
+        resolved%residual_tolerance <= 0.0_dp .or. resolved%seed_refinement_limit <= 0.0_dp .or. &
+        resolved%eta_min < 0.0_dp .or. &
+        resolved%eta_max <= resolved%eta_min .or. resolved%eta_max > column_eta_search_max .or. &
+        resolved%log_density_floor < -30.0_dp .or. resolved%log_density_floor >= 0.0_dp) then
+      atlas%termination_reason_code = zhao_continuation_reason_invalid_request
+      atlas%termination_reason = 'invalid_options'
+      message = 'invalid Zhao branch-atlas request'
+      return
+    end if
+    if (atlas%target_requested) then
+      if (.not. ieee_is_finite(atlas%target_column_m2) .or. atlas%target_column_m2 < 0.0_dp) then
+        atlas%termination_reason_code = zhao_continuation_reason_invalid_request
+        atlas%termination_reason = 'invalid_target_column'
+        message = 'invalid Zhao branch-atlas target column'
+        return
+      end if
+    end if
+
+    z = 0.0_dp
+    call encode_unknowns( &
+      params, seed_root%branch, seed_root%phi0_v, seed_root%phi_m_v, &
+      seed_root%n_swe_inf_m3, z(1:3), valid &
+      )
+    if (.not. valid) then
+      atlas%termination_reason_code = zhao_continuation_reason_invalid_request
+      atlas%termination_reason = 'invalid_seed_encoding'
+      message = 'Zhao branch-atlas seed root cannot be encoded'
+      return
+    end if
+    z(z_dimension) = seed_root%photoelectron_population_fraction
+    seed_coordinates = z
+    if (z(z_dimension) < resolved%eta_min .or. z(z_dimension) > resolved%eta_max) then
+      atlas%termination_reason_code = zhao_continuation_reason_invalid_request
+      atlas%termination_reason = 'seed_eta_outside_options'
+      message = 'Zhao branch-atlas seed eta lies outside its requested interval'
+      return
+    end if
+
+    ! Refine the supplied runtime root at fixed eta before computing a tangent.
+    anchor_tangent = 0.0_dp
+    anchor_tangent(z_dimension) = 1.0_dp
+    call correct_zhao_atlas_point( &
+      params, seed_root%branch, interface_field_v_m, n, z, anchor_tangent, resolved, &
+      corrected_z, iterations, corrected, corrector_failure_kind &
+      )
+    if (.not. corrected) then
+      status = merge( &
+               outer_plasma_no_physical_solution, outer_plasma_numerical_failure, &
+               corrector_failure_kind == atlas_eval_physical &
+               )
+      atlas%termination_reason_code = merge( &
+                                      zhao_continuation_reason_physical_endpoint, zhao_continuation_reason_numerical_failure, &
+                                      corrector_failure_kind == atlas_eval_physical &
+                                      )
+      atlas%termination_reason = 'seed_corrector_failed'
+      message = 'Zhao branch-atlas seed corrector failed'
+      return
+    end if
+    if (maxval(abs(corrected_z(1:z_dimension) - seed_coordinates(1:z_dimension))) > &
+        resolved%seed_refinement_limit) then
+      status = outer_plasma_numerical_failure
+      atlas%termination_reason_code = zhao_continuation_reason_guard_rejected
+      atlas%termination_reason = 'seed_refinement_left_local_root'
+      message = 'Zhao branch-atlas seed refinement left the local root neighborhood'
+      return
+    end if
+    z = corrected_z
+    call evaluate_zhao_atlas_system( &
+      params, seed_root%branch, interface_field_v_m, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid .or. maxval(abs(residual(1:n))) > resolved%residual_tolerance) then
+      status = outer_plasma_numerical_failure
+      atlas%termination_reason_code = zhao_continuation_reason_numerical_failure
+      atlas%termination_reason = 'seed_residual_not_converged'
+      message = 'Zhao branch-atlas seed residual is not converged'
+      return
+    end if
+    call zhao_atlas_tangent( &
+      params, seed_root%branch, interface_field_v_m, n, z, tangent, row_rank, tangent_ok, failure_kind &
+      )
+    if (.not. tangent_ok) then
+      status = outer_plasma_numerical_failure
+      atlas%termination_reason_code = zhao_continuation_reason_numerical_failure
+      atlas%termination_reason = 'seed_jacobian_rank_loss'
+      message = 'Zhao branch-atlas seed Jacobian has unresolved row-rank loss'
+      return
+    end if
+    if (tangent(z_dimension)*real(resolved%eta_direction, dp) < 0.0_dp) tangent = -tangent
+    eta_tangent_sign = 0
+    if (abs(tangent(z_dimension)) > atlas_fold_tangent_tolerance) then
+      eta_tangent_sign = merge(1, -1, tangent(z_dimension) > 0.0_dp)
+    end if
+    column_rate_sign = 0
+
+    allocate (atlas%points(resolved%max_points))
+    call zhao_atlas_point_from_coordinates( &
+      params, seed_root%branch, interface_field_v_m, grid_points, control_length_m, n, z, &
+      atlas%target_requested, atlas%target_column_m2, atlas%points(1), status, message &
+      )
+    if (status /= outer_plasma_ok) then
+      if (status == outer_plasma_no_physical_solution) then
+        atlas%termination_reason_code = zhao_continuation_reason_physical_endpoint
+      else
+        atlas%termination_reason_code = zhao_continuation_reason_numerical_failure
+      end if
+      atlas%termination_reason = 'seed_profile_failed'
+      return
+    end if
+    call zhao_root_jump_metrics( &
+      params, seed_root, atlas%points(1)%root, potential_jump, density_jump, root_jump &
+      )
+    if (.not. ieee_is_finite(root_jump) .or. root_jump > resolved%seed_refinement_limit) then
+      status = outer_plasma_numerical_failure
+      atlas%termination_reason_code = zhao_continuation_reason_guard_rejected
+      atlas%termination_reason = 'seed_refinement_root_jump'
+      message = 'Zhao branch-atlas seed refinement changed the physical root too far'
+      return
+    end if
+    atlas%seed_refinement_jump = root_jump
+    atlas%seed_reanchored = root_jump > branch_same_root_step_limit
+    atlas%points(1)%normalized_jump_from_previous = root_jump
+    atlas%point_count = 1_i32
+    atlas%points(1)%tangent = tangent
+    atlas%points(1)%row_rank_indicator = row_rank
+    atlas%points(1)%corrector_iterations = int(iterations, i32)
+    atlas%maximum_column_m2 = atlas%points(1)%root%photoelectron_column_per_area
+    target_tolerance = max( &
+                       column_root_relative_tolerance*max(atlas%target_column_m2, 1.0_dp), &
+                       64.0_dp*epsilon(1.0_dp)*max(atlas%target_column_m2, 1.0_dp) &
+                       )
+    if (atlas%target_requested) then
+      previous_target_residual = &
+        atlas%points(1)%root%photoelectron_column_per_area - atlas%target_column_m2
+      atlas%target_bracketed = abs(previous_target_residual) <= target_tolerance
+      if (atlas%target_bracketed) then
+        atlas%termination_reason_code = zhao_continuation_reason_target_bracketed
+        atlas%termination_reason = 'target_at_seed'
+      end if
+    else
+      previous_target_residual = 0.0_dp
+    end if
+
+    step = resolved%initial_step
+    trace_loop: do point_index = 2, int(resolved%max_points)
+      if (atlas%target_bracketed) exit trace_loop
+      if (zhao_atlas_coordinate_endpoint( &
+          seed_root%branch, n, z, tangent, resolved, atlas%termination_reason_code, &
+          atlas%termination_reason)) exit trace_loop
+
+      trial_step = min(step, resolved%maximum_step)
+      corrected = .false.
+      corrector_failure_kind = atlas_eval_numerical
+      do halving = 0, int(resolved%max_step_halvings)
+        last_eta_lower_limit = .false.
+        last_eta_upper_limit = .false.
+        predictor = z + trial_step*tangent
+        if (predictor(z_dimension) < resolved%eta_min) then
+          last_eta_lower_limit = .true.
+          corrector_failure_kind = atlas_eval_numerical
+        else if (predictor(z_dimension) > resolved%eta_max) then
+          last_eta_upper_limit = .true.
+          corrector_failure_kind = atlas_eval_numerical
+        else
+          call correct_zhao_atlas_point( &
+            params, seed_root%branch, interface_field_v_m, n, predictor, tangent, resolved, &
+            corrected_z, iterations, corrected, corrector_failure_kind &
+            )
+          if (corrected) then
+            if (corrected_z(z_dimension) < resolved%eta_min) then
+              corrected = .false.
+              last_eta_lower_limit = .true.
+            else if (corrected_z(z_dimension) > resolved%eta_max) then
+              corrected = .false.
+              last_eta_upper_limit = .true.
+            else if (sqrt(sum((corrected_z(1:z_dimension) - predictor(1:z_dimension))**2)) > &
+                     2.0_dp*trial_step .or. &
+                     sqrt(sum((corrected_z(1:z_dimension) - z(1:z_dimension))**2)) > &
+                     2.5_dp*trial_step) then
+              corrected = .false.
+              corrector_failure_kind = atlas_eval_numerical
+            end if
+          end if
+          if (corrected) then
+            candidate_root = zhao_charge_root_type()
+            candidate_root%branch = seed_root%branch
+            candidate_root%interface_field_v_m = interface_field_v_m
+            candidate_root%photoelectron_population_fraction = corrected_z(z_dimension)
+            call decode_unknowns( &
+              params, seed_root%branch, corrected_z(1:3), candidate_root%phi0_v, &
+              candidate_root%phi_m_v, candidate_root%n_swe_inf_m3, candidate_decoded &
+              )
+            if (candidate_decoded) then
+              call zhao_root_jump_metrics( &
+                params, atlas%points(point_index - 1)%root, candidate_root, &
+                potential_jump, density_jump, root_jump &
+                )
+              if (.not. ieee_is_finite(root_jump) .or. root_jump > branch_same_root_step_limit) then
+                corrected = .false.
+                corrector_failure_kind = atlas_eval_numerical
+              end if
+            else
+              corrected = .false.
+              corrector_failure_kind = atlas_eval_numerical
+            end if
+          end if
+        end if
+        if (corrected) exit
+        trial_step = 0.5_dp*trial_step
+        if (trial_step < resolved%minimum_step) exit
+      end do
+      if (.not. corrected) then
+        if (last_eta_lower_limit) then
+          atlas%termination_reason_code = zhao_continuation_reason_search_limit
+          atlas%termination_reason = 'eta_lower_search_limit'
+          status = outer_plasma_ok
+          message = ''
+        else if (last_eta_upper_limit) then
+          atlas%termination_reason_code = zhao_continuation_reason_search_limit
+          atlas%termination_reason = 'eta_upper_search_limit'
+          status = outer_plasma_ok
+          message = ''
+        else
+          atlas%termination_reason_code = zhao_continuation_reason_numerical_failure
+          atlas%termination_reason = 'pseudo_arclength_corrector_failed'
+          status = outer_plasma_numerical_failure
+          message = 'Zhao branch-atlas pseudo-arclength corrector failed'
+        end if
+        exit trace_loop
+      end if
+
+      call zhao_atlas_tangent( &
+        params, seed_root%branch, interface_field_v_m, n, corrected_z, next_tangent, &
+        next_rank, tangent_ok, failure_kind &
+        )
+      if (.not. tangent_ok) then
+        atlas%termination_reason_code = zhao_continuation_reason_numerical_failure
+        atlas%termination_reason = 'jacobian_rank_failure'
+        status = outer_plasma_numerical_failure
+        message = 'Zhao branch-atlas tangent Jacobian lost numerical row rank'
+        exit trace_loop
+      end if
+      if (dot_product(tangent(1:z_dimension), next_tangent(1:z_dimension)) < 0.0_dp) then
+        next_tangent = -next_tangent
+      end if
+      if (abs(next_tangent(z_dimension)) > atlas_fold_tangent_tolerance) then
+        next_sign = merge(1, -1, next_tangent(z_dimension) > 0.0_dp)
+        if (eta_tangent_sign /= 0 .and. next_sign /= eta_tangent_sign) then
+          atlas%eta_fold_detected = .true.
+        end if
+        eta_tangent_sign = next_sign
+      end if
+
+      call zhao_atlas_point_from_coordinates( &
+        params, seed_root%branch, interface_field_v_m, grid_points, control_length_m, n, &
+        corrected_z, atlas%target_requested, atlas%target_column_m2, next_point, status, message &
+        )
+      point_ok = status == outer_plasma_ok
+      if (.not. point_ok) then
+        if (status == outer_plasma_no_physical_solution) then
+          atlas%termination_reason_code = zhao_continuation_reason_physical_endpoint
+          atlas%termination_reason = 'profile_domain_endpoint'
+          status = outer_plasma_ok
+          message = ''
+        else
+          atlas%termination_reason_code = zhao_continuation_reason_numerical_failure
+          atlas%termination_reason = 'profile_numerical_failure'
+        end if
+        exit trace_loop
+      end if
+      next_point%arc_length = atlas%points(point_index - 1)%arc_length + trial_step
+      next_point%accepted_step = trial_step
+      next_point%tangent = next_tangent
+      next_point%row_rank_indicator = next_rank
+      next_point%corrector_iterations = int(iterations, i32)
+      next_point%dcolumn_ds = &
+        (next_point%root%photoelectron_column_per_area - &
+         atlas%points(point_index - 1)%root%photoelectron_column_per_area)/trial_step
+      call zhao_root_jump_metrics( &
+        params, atlas%points(point_index - 1)%root, next_point%root, &
+        potential_jump, density_jump, root_jump &
+        )
+      next_point%normalized_jump_from_previous = root_jump
+      column_rate_tolerance = column_root_relative_tolerance*max( &
+                              atlas%points(point_index - 1)%root%photoelectron_column_per_area, &
+                              next_point%root%photoelectron_column_per_area, 1.0_dp &
+                              )/max(trial_step, resolved%minimum_step)
+      if (abs(next_point%dcolumn_ds) > column_rate_tolerance) then
+        next_sign = merge(1, -1, next_point%dcolumn_ds > 0.0_dp)
+        if (column_rate_sign /= 0 .and. next_sign /= column_rate_sign) then
+          atlas%column_fold_detected = .true.
+        end if
+        column_rate_sign = next_sign
+      end if
+      atlas%points(point_index) = next_point
+      atlas%point_count = int(point_index, i32)
+      atlas%maximum_column_m2 = max( &
+                                atlas%maximum_column_m2, next_point%root%photoelectron_column_per_area &
+                                )
+      if (atlas%target_requested) then
+        next_target_residual = next_point%root%photoelectron_column_per_area - atlas%target_column_m2
+        atlas%target_bracketed = abs(next_target_residual) <= target_tolerance .or. &
+                                 previous_target_residual*next_target_residual < 0.0_dp
+        previous_target_residual = next_target_residual
+        if (atlas%target_bracketed) then
+          atlas%termination_reason_code = zhao_continuation_reason_target_bracketed
+          atlas%termination_reason = 'target_bracketed'
+        end if
+      end if
+      z = corrected_z
+      tangent = next_tangent
+      if (iterations <= 4) then
+        step = min(resolved%maximum_step, 1.25_dp*trial_step)
+      else if (iterations >= int(resolved%max_corrector_iterations)/2) then
+        step = max(resolved%minimum_step, 0.5_dp*trial_step)
+      else
+        step = trial_step
+      end if
+    end do trace_loop
+
+    if (atlas%termination_reason_code == zhao_continuation_reason_none) then
+      atlas%termination_reason_code = zhao_continuation_reason_search_limit
+      atlas%termination_reason = 'point_limit'
+    end if
+    if (status == outer_plasma_invalid) status = outer_plasma_ok
+    if (allocated(atlas%points)) then
+      allocate (compact_points(atlas%point_count))
+      compact_points = atlas%points(1:atlas%point_count)
+      call move_alloc(compact_points, atlas%points)
+    end if
+  end subroutine trace_zhao_branch_atlas
+
+  subroutine evaluate_zhao_atlas_system( &
+    params, branch, interface_field_v_m, n, z, residual, valid, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: interface_field_v_m
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(atlas_max_coordinates)
+    real(dp), intent(out) :: residual(3)
+    logical, intent(out) :: valid
+    integer, intent(out) :: failure_kind
+
+    type(zhao_params_type) :: trial_params
+    real(dp) :: phi0_v, phi_m_v, density_m3, field_scale, target_field_hat
+    logical :: decoded
+
+    residual = 0.0_dp
+    valid = .false.
+    failure_kind = atlas_eval_numerical
+    if (n + 1 > atlas_max_coordinates) return
+    if (.not. ieee_is_finite(z(n + 1)) .or. z(n + 1) < 0.0_dp .or. &
+        z(n + 1) > column_eta_search_max) then
+      failure_kind = atlas_eval_numerical
+      return
+    end if
+    call decode_unknowns( &
+      params, branch, z(1:3), phi0_v, phi_m_v, density_m3, decoded &
+      )
+    if (.not. decoded) then
+      failure_kind = atlas_eval_numerical
+      return
+    end if
+    trial_params = params
+    trial_params%photoelectron_population_fraction = z(n + 1)
+    field_scale = trial_params%t_phe_ev/trial_params%lambda_d_phe_ref_m
+    target_field_hat = interface_field_v_m/field_scale
+    call eval_charge_residual( &
+      trial_params, branch, target_field_hat, z(1:3), residual, valid &
+      )
+    if (valid) then
+      failure_kind = atlas_eval_ok
+    else if (.not. ion_accessible(trial_params, max(phi0_v/trial_params%t_phe_ev, 0.0_dp))) then
+      failure_kind = atlas_eval_physical
+    end if
+  end subroutine evaluate_zhao_atlas_system
+
+  subroutine numerical_zhao_atlas_jacobian( &
+    params, branch, interface_field_v_m, n, z, residual, jacobian, success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: interface_field_v_m
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(atlas_max_coordinates), residual(3)
+    real(dp), intent(out) :: jacobian(3, atlas_max_coordinates)
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: plus_z(atlas_max_coordinates), minus_z(atlas_max_coordinates)
+    real(dp) :: plus_residual(3), minus_residual(3), h
+    integer :: column, plus_kind, minus_kind, z_dimension
+    logical :: plus_valid, minus_valid
+
+    jacobian = 0.0_dp
+    success = .true.
+    failure_kind = atlas_eval_ok
+    z_dimension = n + 1
+    do column = 1, z_dimension
+      h = epsilon(1.0_dp)**(1.0_dp/3.0_dp)*max(1.0_dp, abs(z(column)))
+      plus_z = z
+      minus_z = z
+      plus_z(column) = plus_z(column) + h
+      minus_z(column) = minus_z(column) - h
+      call evaluate_zhao_atlas_system( &
+        params, branch, interface_field_v_m, n, plus_z, plus_residual, plus_valid, plus_kind &
+        )
+      call evaluate_zhao_atlas_system( &
+        params, branch, interface_field_v_m, n, minus_z, minus_residual, minus_valid, minus_kind &
+        )
+      if (plus_valid .and. minus_valid) then
+        jacobian(1:n, column) = (plus_residual(1:n) - minus_residual(1:n))/(2.0_dp*h)
+      else if (plus_valid) then
+        jacobian(1:n, column) = (plus_residual(1:n) - residual(1:n))/h
+      else if (minus_valid) then
+        jacobian(1:n, column) = (residual(1:n) - minus_residual(1:n))/h
+      else
+        success = .false.
+        failure_kind = merge( &
+                       atlas_eval_physical, atlas_eval_numerical, &
+                       plus_kind == atlas_eval_physical .and. minus_kind == atlas_eval_physical &
+                       )
+        return
+      end if
+    end do
+    success = all(ieee_is_finite(jacobian(1:n, 1:z_dimension)))
+    if (.not. success) failure_kind = atlas_eval_numerical
+  end subroutine numerical_zhao_atlas_jacobian
+
+  subroutine zhao_atlas_tangent( &
+    params, branch, interface_field_v_m, n, z, tangent, row_rank_indicator, success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: interface_field_v_m
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(atlas_max_coordinates)
+    real(dp), intent(out) :: tangent(atlas_max_coordinates), row_rank_indicator
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: residual(3), jacobian(3, atlas_max_coordinates)
+    real(dp) :: scaled_jacobian(3, atlas_max_coordinates)
+    real(dp) :: cofactors(atlas_max_coordinates), minor(3, 3), raw_norm, row_norm
+    integer :: column, source_column, minor_column, row, z_dimension
+    logical :: valid, jacobian_ok
+
+    tangent = 0.0_dp
+    row_rank_indicator = 0.0_dp
+    success = .false.
+    z_dimension = n + 1
+    call evaluate_zhao_atlas_system( &
+      params, branch, interface_field_v_m, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid) then
+      failure_kind = atlas_eval_numerical
+      return
+    end if
+    call numerical_zhao_atlas_jacobian( &
+      params, branch, interface_field_v_m, n, z, residual, jacobian, jacobian_ok, failure_kind &
+      )
+    if (.not. jacobian_ok) return
+    scaled_jacobian = jacobian
+    do row = 1, n
+      row_norm = sqrt(sum(jacobian(row, 1:z_dimension)**2))
+      if (.not. ieee_is_finite(row_norm) .or. row_norm <= tiny(1.0_dp)) return
+      scaled_jacobian(row, 1:z_dimension) = jacobian(row, 1:z_dimension)/row_norm
+    end do
+    cofactors = 0.0_dp
+    if (n == 2) then
+      cofactors(1) = scaled_jacobian(1, 2)*scaled_jacobian(2, 3) - &
+                     scaled_jacobian(1, 3)*scaled_jacobian(2, 2)
+      cofactors(2) = scaled_jacobian(1, 3)*scaled_jacobian(2, 1) - &
+                     scaled_jacobian(1, 1)*scaled_jacobian(2, 3)
+      cofactors(3) = scaled_jacobian(1, 1)*scaled_jacobian(2, 2) - &
+                     scaled_jacobian(1, 2)*scaled_jacobian(2, 1)
+    else
+      do column = 1, 4
+        minor = 0.0_dp
+        minor_column = 0
+        do source_column = 1, 4
+          if (source_column == column) cycle
+          minor_column = minor_column + 1
+          minor(1:3, minor_column) = scaled_jacobian(1:3, source_column)
+        end do
+        cofactors(column) = (-1.0_dp)**(column + 1)*determinant3(minor)
+      end do
+    end if
+    raw_norm = sqrt(sum(cofactors(1:z_dimension)**2))
+    if (.not. ieee_is_finite(raw_norm) .or. raw_norm <= tiny(1.0_dp)) return
+    row_rank_indicator = raw_norm
+    if (.not. ieee_is_finite(row_rank_indicator) .or. row_rank_indicator <= 1.0e-12_dp) return
+    tangent(1:z_dimension) = cofactors(1:z_dimension)/raw_norm
+    failure_kind = atlas_eval_ok
+    success = .true.
+  end subroutine zhao_atlas_tangent
+
+  subroutine correct_zhao_atlas_point( &
+    params, branch, interface_field_v_m, n, predictor, tangent, options, &
+    corrected_z, iterations, success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: interface_field_v_m
+    integer, intent(in) :: n
+    real(dp), intent(in) :: predictor(atlas_max_coordinates), tangent(atlas_max_coordinates)
+    type(zhao_branch_atlas_options_type), intent(in) :: options
+    real(dp), intent(out) :: corrected_z(atlas_max_coordinates)
+    integer, intent(out) :: iterations
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: z(atlas_max_coordinates), residual(3), jacobian(3, atlas_max_coordinates)
+    real(dp) :: system(atlas_max_coordinates, atlas_max_coordinates)
+    real(dp) :: rhs(atlas_max_coordinates), delta(atlas_max_coordinates)
+    real(dp) :: trial_z(atlas_max_coordinates), trial_residual(3)
+    real(dp) :: norm, trial_norm, arc_residual, trial_arc_residual, backtrack_step
+    integer :: iteration, backtrack, z_dimension, trial_kind
+    logical :: valid, jacobian_ok, linear_ok, trial_valid
+
+    z_dimension = n + 1
+    z = predictor
+    corrected_z = predictor
+    success = .false.
+    failure_kind = atlas_eval_numerical
+    iterations = 0
+    call evaluate_zhao_atlas_system( &
+      params, branch, interface_field_v_m, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid) return
+    arc_residual = dot_product(tangent(1:z_dimension), z(1:z_dimension) - predictor(1:z_dimension))
+    norm = max(maxval(abs(residual(1:n))), abs(arc_residual))
+    do iteration = 0, int(options%max_corrector_iterations)
+      if (norm <= options%residual_tolerance) then
+        success = .true.
+        exit
+      end if
+      if (iteration == int(options%max_corrector_iterations)) exit
+      call numerical_zhao_atlas_jacobian( &
+        params, branch, interface_field_v_m, n, z, residual, jacobian, &
+        jacobian_ok, failure_kind &
+        )
+      if (.not. jacobian_ok) exit
+      system = 0.0_dp
+      rhs = 0.0_dp
+      system(1:n, 1:z_dimension) = jacobian(1:n, 1:z_dimension)
+      system(z_dimension, 1:z_dimension) = tangent(1:z_dimension)
+      rhs(1:n) = -residual(1:n)
+      rhs(z_dimension) = -arc_residual
+      call solve_zhao_atlas_system(system, rhs, z_dimension, delta, linear_ok)
+      if (.not. linear_ok) exit
+      backtrack_step = 1.0_dp
+      do backtrack = 1, root_max_backtracks
+        trial_z = z + backtrack_step*delta
+        call evaluate_zhao_atlas_system( &
+          params, branch, interface_field_v_m, n, trial_z, trial_residual, &
+          trial_valid, trial_kind &
+          )
+        if (trial_valid) then
+          trial_arc_residual = dot_product( &
+                               tangent(1:z_dimension), trial_z(1:z_dimension) - predictor(1:z_dimension) &
+                               )
+          trial_norm = max(maxval(abs(trial_residual(1:n))), abs(trial_arc_residual))
+          if (trial_norm < norm) then
+            z = trial_z
+            residual = trial_residual
+            arc_residual = trial_arc_residual
+            norm = trial_norm
+            failure_kind = atlas_eval_ok
+            exit
+          end if
+        end if
+        backtrack_step = 0.5_dp*backtrack_step
+      end do
+      if (backtrack > root_max_backtracks) exit
+    end do
+    iterations = iteration
+    corrected_z = z
+    if (.not. success) failure_kind = atlas_eval_numerical
+  end subroutine correct_zhao_atlas_point
+
+  subroutine solve_zhao_atlas_system(a_in, b_in, n, x, success)
+    real(dp), intent(in) :: a_in(atlas_max_coordinates, atlas_max_coordinates)
+    real(dp), intent(in) :: b_in(atlas_max_coordinates)
+    integer, intent(in) :: n
+    real(dp), intent(out) :: x(atlas_max_coordinates)
+    logical, intent(out) :: success
+
+    real(dp) :: a(atlas_max_coordinates, atlas_max_coordinates)
+    real(dp) :: b(atlas_max_coordinates), row_scale, factor, pivot_value, tmp
+    integer :: i, j, k, pivot
+
+    a = a_in
+    b = b_in
+    x = 0.0_dp
+    success = .false.
+    do i = 1, n
+      row_scale = maxval(abs(a(i, 1:n)))
+      if (.not. ieee_is_finite(row_scale) .or. row_scale <= tiny(1.0_dp)) return
+      a(i, 1:n) = a(i, 1:n)/row_scale
+      b(i) = b(i)/row_scale
+    end do
+    do k = 1, n
+      pivot = k
+      do i = k + 1, n
+        if (abs(a(i, k)) > abs(a(pivot, k))) pivot = i
+      end do
+      if (.not. ieee_is_finite(a(pivot, k)) .or. abs(a(pivot, k)) <= 1.0e-13_dp) return
+      if (pivot /= k) then
+        do j = k, n
+          tmp = a(k, j)
+          a(k, j) = a(pivot, j)
+          a(pivot, j) = tmp
+        end do
+        tmp = b(k)
+        b(k) = b(pivot)
+        b(pivot) = tmp
+      end if
+      pivot_value = a(k, k)
+      do i = k + 1, n
+        factor = a(i, k)/pivot_value
+        a(i, k:n) = a(i, k:n) - factor*a(k, k:n)
+        b(i) = b(i) - factor*b(k)
+      end do
+    end do
+    do i = n, 1, -1
+      x(i) = b(i)
+      do j = i + 1, n
+        x(i) = x(i) - a(i, j)*x(j)
+      end do
+      x(i) = x(i)/a(i, i)
+    end do
+    success = all(ieee_is_finite(x(1:n)))
+  end subroutine solve_zhao_atlas_system
+
+  subroutine zhao_atlas_point_from_coordinates( &
+    params, branch, interface_field_v_m, grid_points, control_length_m, n, z, &
+    target_requested, target_column_m2, point, status, message &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: interface_field_v_m
+    integer(i32), intent(in) :: grid_points
+    real(dp), intent(in) :: control_length_m
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(atlas_max_coordinates)
+    logical, intent(in) :: target_requested
+    real(dp), intent(in) :: target_column_m2
+    type(zhao_branch_atlas_point_type), intent(out) :: point
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_params_type) :: trial_params
+    type(outer_plasma_state_type) :: state
+    real(dp) :: residual(3)
+    logical :: decoded, valid
+    integer :: failure_kind
+
+    point%root = zhao_charge_root_type()
+    point%arc_length = 0.0_dp
+    point%accepted_step = 0.0_dp
+    point%tangent = 0.0_dp
+    point%dcolumn_ds = 0.0_dp
+    point%row_rank_indicator = 0.0_dp
+    point%normalized_jump_from_previous = 0.0_dp
+    point%corrector_iterations = 0_i32
+    trial_params = params
+    trial_params%photoelectron_population_fraction = z(n + 1)
+    point%root%branch = branch
+    point%root%interface_field_v_m = interface_field_v_m
+    point%root%photoelectron_population_fraction = z(n + 1)
+    call decode_unknowns( &
+      trial_params, branch, z(1:3), point%root%phi0_v, point%root%phi_m_v, &
+      point%root%n_swe_inf_m3, decoded &
+      )
+    if (.not. decoded) then
+      status = outer_plasma_no_physical_solution
+      message = 'Zhao branch-atlas point left the physical root domain'
+      return
+    end if
+    if (branch == 'A') then
+      point%root%interface_side = 'lower'
+    else
+      point%root%interface_side = 'monotonic'
+    end if
+    call evaluate_zhao_atlas_system( &
+      params, branch, interface_field_v_m, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid) then
+      status = outer_plasma_numerical_failure
+      message = 'Zhao branch-atlas point residual could not be evaluated'
+      return
+    end if
+    point%root%residual_norm = maxval(abs(residual(1:n)))
+    point%root%net_current_density_a_m2 = zhao_net_current_density(trial_params, point%root)
+    call build_zhao_outer_profile( &
+      trial_params, point%root, grid_points, state, status, message, &
+      control_length_m=control_length_m &
+      )
+    if (status /= outer_plasma_ok) return
+    point%root%photoelectron_column_per_area = state%photoelectron_column_per_area
+    if (target_requested) then
+      point%root%photoelectron_column_target_per_area = target_column_m2
+      point%root%photoelectron_column_residual_per_area = &
+        point%root%photoelectron_column_per_area - target_column_m2
+    end if
+  end subroutine zhao_atlas_point_from_coordinates
+
+  logical function zhao_atlas_coordinate_endpoint( &
+    branch, n, z, tangent, options, reason_code, reason &
+    ) result(at_endpoint)
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(atlas_max_coordinates), tangent(atlas_max_coordinates)
+    type(zhao_branch_atlas_options_type), intent(in) :: options
+    integer(i32), intent(out) :: reason_code
+    character(len=*), intent(out) :: reason
+
+    integer :: density_coordinate, z_dimension
+
+    at_endpoint = .false.
+    reason_code = zhao_continuation_reason_none
+    reason = 'none'
+    z_dimension = n + 1
+    density_coordinate = merge(3, 2, branch == 'A')
+    if (z(density_coordinate) <= options%log_density_floor .and. tangent(density_coordinate) < 0.0_dp) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'ambient_density_floor_limit'
+    else if (z(z_dimension) <= options%eta_min + options%minimum_step .and. &
+             tangent(z_dimension) < 0.0_dp) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'eta_lower_search_limit'
+    else if (z(z_dimension) >= options%eta_max - options%minimum_step .and. &
+             tangent(z_dimension) > 0.0_dp) then
+      at_endpoint = .true.
+      reason_code = zhao_continuation_reason_search_limit
+      reason = 'eta_upper_search_limit'
+    end if
+  end function zhao_atlas_coordinate_endpoint
+
+  pure real(dp) function determinant3(matrix) result(value)
+    real(dp), intent(in) :: matrix(3, 3)
+
+    value = matrix(1, 1)*(matrix(2, 2)*matrix(3, 3) - matrix(2, 3)*matrix(3, 2)) - &
+            matrix(1, 2)*(matrix(2, 1)*matrix(3, 3) - matrix(2, 3)*matrix(3, 1)) + &
+            matrix(1, 3)*(matrix(2, 1)*matrix(3, 2) - matrix(2, 2)*matrix(3, 1))
+  end function determinant3
 
   subroutine evaluate_zhao_interface_field(params, root, interface_field_v_m, status, message)
     type(zhao_params_type), intent(in) :: params
@@ -177,7 +1312,7 @@ contains
 
   subroutine solve_outer_plasma_zhao_column( &
     model, params, interface_field_v_m, grid_points, control_length_m, target_column_m2, &
-    state, root, status, message, initial_root &
+    state, root, status, message, initial_root, diagnostics &
     )
     character(len=*), intent(in) :: model
     type(zhao_params_type), intent(in) :: params
@@ -189,6 +1324,7 @@ contains
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
     type(zhao_charge_root_type), intent(in), optional :: initial_root
+    type(zhao_continuation_diagnostics_type), intent(out), optional :: diagnostics
 
     type(outer_plasma_state_type) :: lower_state, trial_state
     type(zhao_charge_root_type) :: lower_root, upper_root, trial_root, current_root
@@ -199,9 +1335,15 @@ contains
     integer(i32) :: first_trial_status
     logical :: have_bracket
     character(len=256) :: first_trial_message
+    type(zhao_continuation_diagnostics_type) :: first_trial_diagnostics
 
     state = outer_plasma_state_type()
     root = zhao_charge_root_type()
+    if (present(diagnostics)) then
+      diagnostics = zhao_continuation_diagnostics_type()
+      diagnostics%target_field_v_m = interface_field_v_m
+      diagnostics%target_column_m2 = target_column_m2
+    end if
     status = outer_plasma_invalid
     message = ''
     if (.not. valid_zhao_params(params) .or. .not. ieee_is_finite(interface_field_v_m) .or. &
@@ -209,15 +1351,33 @@ contains
         .not. ieee_is_finite(target_column_m2) .or. target_column_m2 < 0.0_dp .or. &
         grid_points < 5_i32) then
       message = 'invalid Zhao photoelectron-column closure request'
+      if (present(diagnostics)) then
+        diagnostics%reason_code = zhao_continuation_reason_invalid_request
+        diagnostics%reason = 'invalid_request'
+        diagnostics%solver_stage = 'request'
+        diagnostics%underlying_status = status
+        diagnostics%return_status = status
+      end if
       return
     end if
     if (.not. automatic_zhao_model(model)) then
       message = 'Zhao photoelectron-column closure requires zhao_branch=auto'
+      if (present(diagnostics)) then
+        diagnostics%reason_code = zhao_continuation_reason_invalid_request
+        diagnostics%reason = 'fixed_branch_request'
+        diagnostics%solver_stage = 'request'
+        diagnostics%underlying_status = status
+        diagnostics%return_status = status
+      end if
       return
     end if
     if (present(initial_root)) then
       if (initial_root%branch == '0') then
         message = 'Zhao photoelectron-column closure cannot continue from transient branch 0'
+        call set_zhao_continuation_origin( &
+          diagnostics, 'request', zhao_continuation_reason_invalid_request, 'transient_anchor', &
+          status, initial_root%photoelectron_population_fraction, initial_root &
+          )
         return
       end if
     end if
@@ -238,11 +1398,26 @@ contains
         if (status /= outer_plasma_numerical_failure) status = outer_plasma_no_physical_solution
         state%applicability_status = status
         message = 'photoelectron-column closure has no eta=0 Zhao anchor: '//trim(message)
+        if (present(diagnostics)) then
+          diagnostics%reason_code = merge( &
+                                    zhao_continuation_reason_numerical_failure, zhao_continuation_reason_physical_endpoint, &
+                                    status == outer_plasma_numerical_failure &
+                                    )
+          if (status == outer_plasma_numerical_failure) then
+            diagnostics%reason = 'eta_zero_numerical_failure'
+          else
+            diagnostics%reason = 'eta_zero_physical_endpoint'
+          end if
+          diagnostics%solver_stage = 'eta_anchor'
+          diagnostics%underlying_status = status
+          diagnostics%return_status = status
+        end if
         return
       end if
       if (target_column_m2 == 0.0_dp) then
         state = lower_state
         root = lower_root
+        call mark_zhao_continuation_converged(diagnostics, root)
         return
       end if
       current_eta = 0.0_dp
@@ -253,6 +1428,10 @@ contains
         status = outer_plasma_no_physical_solution
         state%applicability_status = status
         message = 'positive target column is not bracketed above the eta=0 Zhao state'
+        call set_zhao_continuation_origin( &
+          diagnostics, 'eta_anchor', zhao_continuation_reason_target_unreachable, &
+          'target_below_eta_zero', status, current_eta, current_root &
+          )
         return
       end if
     else
@@ -262,12 +1441,16 @@ contains
         status = outer_plasma_no_physical_solution
         state%applicability_status = status
         message = 'previous Zhao eta lies outside the connected column-search interval'
+        call set_zhao_continuation_origin( &
+          diagnostics, 'eta_anchor', zhao_continuation_reason_search_limit, &
+          'previous_eta_outside_search', status, current_eta, initial_root &
+          )
         return
       end if
       call continue_column_candidate_in_field( &
         model, params, initial_root%interface_field_v_m, current_eta, initial_root, &
         interface_field_v_m, grid_points, control_length_m, target_column_m2, &
-        column_tolerance, trial_state, trial_root, status, message &
+        column_tolerance, trial_state, trial_root, status, message, diagnostics &
         )
       if (status /= outer_plasma_ok) then
         if (status /= outer_plasma_numerical_failure) status = outer_plasma_no_physical_solution
@@ -282,6 +1465,7 @@ contains
       if (abs(current_residual) <= column_tolerance) then
         state = trial_state
         root = trial_root
+        call mark_zhao_continuation_converged(diagnostics, root)
         return
       end if
     end if
@@ -298,7 +1482,7 @@ contains
         call continue_column_candidate_in_eta( &
           model, params, interface_field_v_m, current_eta, current_root, trial_eta, &
           grid_points, control_length_m, target_column_m2, column_tolerance, &
-          trial_state, trial_root, status, message &
+          trial_state, trial_root, status, message, diagnostics &
           )
         if (status /= outer_plasma_ok) then
           if (status /= outer_plasma_numerical_failure) status = outer_plasma_no_physical_solution
@@ -312,6 +1496,7 @@ contains
         if (abs(trial_residual) <= column_tolerance) then
           state = trial_state
           root = trial_root
+          call mark_zhao_continuation_converged(diagnostics, root)
           return
         else if (trial_residual > 0.0_dp) then
           upper_eta = trial_eta
@@ -342,7 +1527,7 @@ contains
         call continue_column_candidate_in_eta( &
           model, params, interface_field_v_m, current_eta, current_root, trial_eta, &
           grid_points, control_length_m, target_column_m2, column_tolerance, &
-          trial_state, trial_root, status, message &
+          trial_state, trial_root, status, message, diagnostics &
           )
         if (status /= outer_plasma_ok) then
           if (status /= outer_plasma_numerical_failure) status = outer_plasma_no_physical_solution
@@ -356,6 +1541,7 @@ contains
         if (abs(trial_residual) <= column_tolerance) then
           state = trial_state
           root = trial_root
+          call mark_zhao_continuation_converged(diagnostics, root)
           return
         else if (trial_residual < 0.0_dp) then
           lower_eta = trial_eta
@@ -377,9 +1563,27 @@ contains
     if (.not. have_bracket) then
       status = outer_plasma_no_physical_solution
       state%applicability_status = status
-      write (message, '(a,es12.4,a,es12.4)') &
-        'photoelectron-column target ', target_column_m2, &
-        ' m^-2 is outside the connected Zhao path below eta=', column_eta_search_max
+      if (current_eta >= column_eta_search_max - 64.0_dp*epsilon(1.0_dp)*column_eta_search_max) then
+        write (message, '(a,es12.4,a,es12.4)') &
+          'photoelectron-column target ', target_column_m2, &
+          ' m^-2 was not bracketed before eta search limit ', column_eta_search_max
+        call set_zhao_continuation_origin( &
+          diagnostics, 'eta_search', zhao_continuation_reason_search_limit, &
+          'eta_upper_search_limit', status, current_eta, current_root &
+          )
+      else if (current_eta <= 64.0_dp*epsilon(1.0_dp)) then
+        message = 'photoelectron-column target lies below the connected Zhao path at eta=0'
+        call set_zhao_continuation_origin( &
+          diagnostics, 'eta_search', zhao_continuation_reason_target_unreachable, &
+          'target_below_eta_zero', status, current_eta, current_root &
+          )
+      else
+        message = 'photoelectron-column eta search reached its iteration limit without a bracket'
+        call set_zhao_continuation_origin( &
+          diagnostics, 'eta_search', zhao_continuation_reason_search_limit, &
+          'eta_iteration_search_limit', status, current_eta, current_root &
+          )
+      end if
       return
     end if
 
@@ -388,15 +1592,16 @@ contains
       call continue_column_candidate_in_eta( &
         model, params, interface_field_v_m, lower_eta, lower_root, trial_eta, &
         grid_points, control_length_m, target_column_m2, column_tolerance, &
-        trial_state, trial_root, status, message &
+        trial_state, trial_root, status, message, diagnostics &
         )
       first_trial_status = status
       first_trial_message = message
+      if (present(diagnostics)) first_trial_diagnostics = diagnostics
       if (status /= outer_plasma_ok) then
         call continue_column_candidate_in_eta( &
           model, params, interface_field_v_m, upper_eta, upper_root, trial_eta, &
           grid_points, control_length_m, target_column_m2, column_tolerance, &
-          trial_state, trial_root, status, message &
+          trial_state, trial_root, status, message, diagnostics &
           )
       end if
       if (status /= outer_plasma_ok) then
@@ -406,6 +1611,7 @@ contains
           if (first_trial_status == outer_plasma_numerical_failure) then
             message = 'photoelectron-column Zhao bracket has an unresolved numerical failure: '// &
                       trim(first_trial_message)
+            if (present(diagnostics)) diagnostics = first_trial_diagnostics
           else
             message = 'photoelectron-column Zhao bracket has an unresolved numerical failure: '// &
                       trim(message)
@@ -424,12 +1630,17 @@ contains
         status = outer_plasma_no_physical_solution
         state%applicability_status = status
         message = 'photoelectron-column Zhao path is non-monotone inside the eta bracket'
+        call set_zhao_continuation_pair( &
+          diagnostics, 'eta_bracket', zhao_continuation_reason_nonmonotone_column, &
+          'nonmonotone_column', status, params, lower_eta, lower_root, trial_eta, trial_root &
+          )
         return
       end if
       trial_residual = trial_root%photoelectron_column_residual_per_area
       if (abs(trial_residual) <= column_tolerance) then
         state = trial_state
         root = trial_root
+        call mark_zhao_continuation_converged(diagnostics, root)
         return
       end if
       if (upper_eta - lower_eta <= 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, trial_eta)) then
@@ -440,6 +1651,10 @@ contains
         write (message, '(a,es12.4,a,es12.4)') &
           'photoelectron-column eta bracket collapsed before convergence; target=', &
           target_column_m2, ', residual=', trial_residual
+        call set_zhao_continuation_pair( &
+          diagnostics, 'eta_bracket', zhao_continuation_reason_numerical_failure, &
+          'collapsed_eta_bracket', status, params, lower_eta, lower_root, trial_eta, trial_root &
+          )
         return
       end if
       if (trial_residual > 0.0_dp) then
@@ -461,6 +1676,10 @@ contains
     write (message, '(a,es12.4,a,es12.4)') &
       'photoelectron-column eta solve reached its iteration limit; target=', &
       target_column_m2, ', residual=', trial_residual
+    call set_zhao_continuation_pair( &
+      diagnostics, 'eta_bracket', zhao_continuation_reason_search_limit, &
+      'eta_root_iteration_limit', status, params, lower_eta, lower_root, trial_eta, trial_root &
+      )
   end subroutine solve_outer_plasma_zhao_column
 
   subroutine evaluate_column_candidate( &
@@ -506,7 +1725,7 @@ contains
 
   subroutine continue_column_candidate_in_field( &
     model, params, start_field_v_m, eta, start_root, target_field_v_m, grid_points, &
-    control_length_m, target_column_m2, column_tolerance, state, root, status, message &
+    control_length_m, target_column_m2, column_tolerance, state, root, status, message, diagnostics &
     )
     character(len=*), intent(in) :: model
     type(zhao_params_type), intent(in) :: params
@@ -518,6 +1737,7 @@ contains
     type(zhao_charge_root_type), intent(out) :: root
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: diagnostics
 
     type(outer_plasma_state_type) :: waypoint_state
     type(zhao_charge_root_type) :: waypoint_root
@@ -529,7 +1749,17 @@ contains
     message = ''
     if (.not. ieee_is_finite(start_field_v_m) .or. &
         .not. ieee_is_finite(target_field_v_m)) then
+      status = outer_plasma_invalid
       message = 'photoelectron-column field continuation has a non-finite endpoint'
+      call set_zhao_continuation_origin( &
+        diagnostics, 'field_path', zhao_continuation_reason_invalid_request, &
+        'nonfinite_field_endpoint', status, eta, start_root &
+        )
+      if (present(diagnostics)) then
+        diagnostics%target_field_v_m = target_field_v_m
+        diagnostics%target_eta = eta
+        diagnostics%target_column_m2 = target_column_m2
+      end if
       return
     end if
     if (.not. automatic_zhao_model(model)) then
@@ -539,7 +1769,7 @@ contains
         )
       if (status == outer_plasma_ok) then
         call validate_column_continuation_step( &
-          model, params, eta, start_root, eta, root, column_tolerance, status, message &
+          model, params, eta, start_root, eta, root, column_tolerance, status, message, diagnostics &
           )
       end if
       return
@@ -550,7 +1780,7 @@ contains
     if (.not. crosses_zero) then
       call continue_column_candidate_field_segment( &
         model, params, start_field_v_m, eta, start_root, target_field_v_m, grid_points, &
-        control_length_m, target_column_m2, column_tolerance, state, root, status, message &
+        control_length_m, target_column_m2, column_tolerance, state, root, status, message, diagnostics &
         )
       return
     end if
@@ -558,21 +1788,22 @@ contains
     call continue_column_candidate_field_segment( &
       model, params, start_field_v_m, eta, start_root, 0.0_dp, grid_points, &
       control_length_m, target_column_m2, column_tolerance, waypoint_state, waypoint_root, &
-      status, message &
+      status, message, diagnostics &
       )
     if (status /= outer_plasma_ok) then
+      if (present(diagnostics)) diagnostics%target_field_v_m = target_field_v_m
       message = 'photoelectron-column field continuation could not reach E=0: '//trim(message)
       return
     end if
     call continue_column_candidate_field_segment( &
       model, params, 0.0_dp, eta, waypoint_root, target_field_v_m, grid_points, &
-      control_length_m, target_column_m2, column_tolerance, state, root, status, message &
+      control_length_m, target_column_m2, column_tolerance, state, root, status, message, diagnostics &
       )
   end subroutine continue_column_candidate_in_field
 
   subroutine continue_column_candidate_field_segment( &
     model, params, start_field_v_m, eta, start_root, target_field_v_m, grid_points, &
-    control_length_m, target_column_m2, column_tolerance, state, root, status, message &
+    control_length_m, target_column_m2, column_tolerance, state, root, status, message, diagnostics &
     )
     character(len=*), intent(in) :: model
     type(zhao_params_type), intent(in) :: params
@@ -584,13 +1815,14 @@ contains
     type(zhao_charge_root_type), intent(out) :: root
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: diagnostics
 
     type(outer_plasma_state_type) :: candidate_state
     type(zhao_charge_root_type) :: candidate_root, current_root
     real(dp) :: current_field, trial_field, remaining, direction
     real(dp) :: total_distance, maximum_step, minimum_step, step, scale
     integer :: attempt
-    logical :: saw_numerical_failure
+    logical :: saw_numerical_failure, candidate_solved
     character(len=256) :: last_message
 
     state = outer_plasma_state_type()
@@ -599,6 +1831,11 @@ contains
     message = ''
     last_message = ''
     saw_numerical_failure = .false.
+    if (present(diagnostics)) then
+      diagnostics%target_field_v_m = target_field_v_m
+      diagnostics%target_eta = eta
+      diagnostics%target_column_m2 = target_column_m2
+    end if
     current_field = start_field_v_m
     current_root = start_root
     total_distance = abs(target_field_v_m - start_field_v_m)
@@ -617,10 +1854,22 @@ contains
         )
       if (status == outer_plasma_ok) then
         call validate_column_continuation_step( &
-          model, params, eta, current_root, eta, root, column_tolerance, status, message &
+          model, params, eta, current_root, eta, root, column_tolerance, status, message, diagnostics &
           )
       end if
       if (status /= outer_plasma_ok) then
+        if (present(diagnostics)) then
+          if (diagnostics%reason_code == zhao_continuation_reason_none) then
+            call set_zhao_continuation_origin( &
+              diagnostics, 'field_continuation', &
+              merge(zhao_continuation_reason_numerical_failure, &
+                    zhao_continuation_reason_physical_endpoint, &
+                    status == outer_plasma_numerical_failure), &
+              'unchanged_field_update_failed', status, eta, current_root &
+              )
+          end if
+          diagnostics%attempted_step = 0.0_dp
+        end if
         if (status /= outer_plasma_numerical_failure) status = outer_plasma_no_physical_solution
         state%applicability_status = status
         message = 'photoelectron-column root update failed at unchanged field: '//trim(message)
@@ -644,10 +1893,11 @@ contains
         model, params, trial_field, grid_points, control_length_m, eta, &
         target_column_m2, candidate_state, candidate_root, status, message, current_root &
         )
+      candidate_solved = status == outer_plasma_ok
       if (status == outer_plasma_ok) then
         call validate_column_continuation_step( &
           model, params, eta, current_root, eta, candidate_root, &
-          column_tolerance, status, message &
+          column_tolerance, status, message, diagnostics &
           )
       end if
       if (status == outer_plasma_ok) then
@@ -660,6 +1910,22 @@ contains
         end if
         step = min(maximum_step, 2.0_dp*step)
       else
+        if (present(diagnostics)) then
+          if (.not. candidate_solved) then
+            call set_zhao_continuation_origin( &
+              diagnostics, 'field_continuation', &
+              merge(zhao_continuation_reason_numerical_failure, &
+                    zhao_continuation_reason_physical_endpoint, &
+                    status == outer_plasma_numerical_failure), &
+              'field_candidate_failed', status, eta, current_root &
+              )
+          end if
+          diagnostics%attempt = int(attempt, i32)
+          diagnostics%attempted_step = abs(trial_field - current_field)
+          diagnostics%target_field_v_m = target_field_v_m
+          diagnostics%target_eta = eta
+          diagnostics%target_column_m2 = target_column_m2
+        end if
         saw_numerical_failure = saw_numerical_failure .or. status == outer_plasma_numerical_failure
         last_message = message
         if (step <= minimum_step) exit
@@ -674,11 +1940,15 @@ contains
     end if
     state%applicability_status = status
     message = 'bounded Zhao field continuation exhausted step-halving: '//trim(last_message)
+    if (present(diagnostics)) then
+      diagnostics%saw_numerical_failure = saw_numerical_failure
+      diagnostics%return_status = status
+    end if
   end subroutine continue_column_candidate_field_segment
 
   subroutine continue_column_candidate_in_eta( &
     model, params, interface_field_v_m, start_eta, start_root, target_eta, grid_points, &
-    control_length_m, target_column_m2, column_tolerance, state, root, status, message &
+    control_length_m, target_column_m2, column_tolerance, state, root, status, message, diagnostics &
     )
     character(len=*), intent(in) :: model
     type(zhao_params_type), intent(in) :: params
@@ -690,13 +1960,14 @@ contains
     type(zhao_charge_root_type), intent(out) :: root
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: diagnostics
 
     type(outer_plasma_state_type) :: candidate_state
     type(zhao_charge_root_type) :: candidate_root, current_root
     real(dp) :: current_eta, trial_eta, remaining, direction
     real(dp) :: total_distance, maximum_step, minimum_step, step, scale
     integer :: attempt
-    logical :: saw_numerical_failure
+    logical :: saw_numerical_failure, candidate_solved
     character(len=256) :: last_message
 
     state = outer_plasma_state_type()
@@ -705,9 +1976,18 @@ contains
     message = ''
     last_message = ''
     saw_numerical_failure = .false.
+    if (present(diagnostics)) then
+      diagnostics%target_field_v_m = interface_field_v_m
+      diagnostics%target_eta = target_eta
+      diagnostics%target_column_m2 = target_column_m2
+    end if
     if (.not. ieee_is_finite(start_eta) .or. .not. ieee_is_finite(target_eta) .or. &
         start_eta < 0.0_dp .or. target_eta < 0.0_dp) then
       message = 'photoelectron-column eta continuation has an invalid endpoint'
+      call set_zhao_continuation_origin( &
+        diagnostics, 'eta_continuation', zhao_continuation_reason_invalid_request, &
+        'invalid_eta_endpoint', status, start_eta, start_root &
+        )
       return
     end if
     if (.not. automatic_zhao_model(model)) then
@@ -718,8 +1998,20 @@ contains
       if (status == outer_plasma_ok) then
         call validate_column_continuation_step( &
           model, params, start_eta, start_root, target_eta, root, &
-          column_tolerance, status, message &
+          column_tolerance, status, message, diagnostics &
           )
+      end if
+      if (status /= outer_plasma_ok .and. present(diagnostics)) then
+        if (diagnostics%reason_code == zhao_continuation_reason_none) then
+          call set_zhao_continuation_origin( &
+            diagnostics, 'eta_continuation', &
+            merge(zhao_continuation_reason_numerical_failure, &
+                  zhao_continuation_reason_physical_endpoint, &
+                  status == outer_plasma_numerical_failure), &
+            'fixed_branch_candidate_failed', status, start_eta, start_root &
+            )
+        end if
+        diagnostics%attempted_step = abs(target_eta - start_eta)
       end if
       return
     end if
@@ -740,10 +2032,22 @@ contains
       if (status == outer_plasma_ok) then
         call validate_column_continuation_step( &
           model, params, current_eta, current_root, target_eta, root, &
-          column_tolerance, status, message &
+          column_tolerance, status, message, diagnostics &
           )
       end if
       if (status /= outer_plasma_ok) then
+        if (present(diagnostics)) then
+          if (diagnostics%reason_code == zhao_continuation_reason_none) then
+            call set_zhao_continuation_origin( &
+              diagnostics, 'eta_continuation', &
+              merge(zhao_continuation_reason_numerical_failure, &
+                    zhao_continuation_reason_physical_endpoint, &
+                    status == outer_plasma_numerical_failure), &
+              'unchanged_eta_update_failed', status, current_eta, current_root &
+              )
+          end if
+          diagnostics%attempted_step = 0.0_dp
+        end if
         if (status /= outer_plasma_numerical_failure) status = outer_plasma_no_physical_solution
         state%applicability_status = status
         message = 'photoelectron-column root update failed at unchanged eta: '//trim(message)
@@ -767,10 +2071,11 @@ contains
         model, params, interface_field_v_m, grid_points, control_length_m, trial_eta, &
         target_column_m2, candidate_state, candidate_root, status, message, current_root &
         )
+      candidate_solved = status == outer_plasma_ok
       if (status == outer_plasma_ok) then
         call validate_column_continuation_step( &
           model, params, current_eta, current_root, trial_eta, candidate_root, &
-          column_tolerance, status, message &
+          column_tolerance, status, message, diagnostics &
           )
       end if
       if (status == outer_plasma_ok) then
@@ -788,6 +2093,22 @@ contains
         end if
         step = min(maximum_step, 2.0_dp*step)
       else
+        if (present(diagnostics)) then
+          if (.not. candidate_solved) then
+            call set_zhao_continuation_origin( &
+              diagnostics, 'eta_continuation', &
+              merge(zhao_continuation_reason_numerical_failure, &
+                    zhao_continuation_reason_physical_endpoint, &
+                    status == outer_plasma_numerical_failure), &
+              'eta_candidate_failed', status, current_eta, current_root &
+              )
+          end if
+          diagnostics%attempt = int(attempt, i32)
+          diagnostics%attempted_step = abs(trial_eta - current_eta)
+          diagnostics%target_field_v_m = interface_field_v_m
+          diagnostics%target_eta = target_eta
+          diagnostics%target_column_m2 = target_column_m2
+        end if
         saw_numerical_failure = saw_numerical_failure .or. status == outer_plasma_numerical_failure
         last_message = message
         if (step <= minimum_step) exit
@@ -802,6 +2123,10 @@ contains
     end if
     state%applicability_status = status
     message = 'bounded Zhao eta continuation exhausted step-halving: '//trim(last_message)
+    if (present(diagnostics)) then
+      diagnostics%saw_numerical_failure = saw_numerical_failure
+      diagnostics%return_status = status
+    end if
   end subroutine continue_column_candidate_in_eta
 
   logical function column_target_is_bracketed(from_root, to_root, column_tolerance) result(bracketed)
@@ -818,7 +2143,7 @@ contains
   end function column_target_is_bracketed
 
   subroutine validate_column_continuation_step( &
-    model, params, from_eta, from_root, to_eta, to_root, column_tolerance, status, message &
+    model, params, from_eta, from_root, to_eta, to_root, column_tolerance, status, message, diagnostics &
     )
     character(len=*), intent(in) :: model
     type(zhao_params_type), intent(in) :: params
@@ -826,6 +2151,7 @@ contains
     type(zhao_charge_root_type), intent(in) :: from_root, to_root
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: diagnostics
 
     real(dp) :: from_column, to_column, monotonic_tolerance
 
@@ -834,15 +2160,24 @@ contains
     from_column = from_root%photoelectron_column_per_area
     to_column = to_root%photoelectron_column_per_area
     if (.not. ieee_is_finite(from_eta) .or. .not. ieee_is_finite(to_eta) .or. &
-        .not. ieee_is_finite(from_column) .or. .not. ieee_is_finite(to_column)) then
+        .not. zhao_charge_root_is_finite(from_root) .or. &
+        .not. zhao_charge_root_is_finite(to_root)) then
       status = outer_plasma_numerical_failure
       message = 'photoelectron-column Zhao continuation contains a non-finite state'
+      call set_zhao_continuation_pair( &
+        diagnostics, 'step_validation', zhao_continuation_reason_numerical_failure, &
+        'nonfinite_state', status, params, from_eta, from_root, to_eta, to_root &
+        )
       return
     end if
 
     if (from_root%branch == '0' .or. to_root%branch == '0') then
       status = outer_plasma_no_physical_solution
       message = 'photoelectron-column continuation cannot use transient branch 0'
+      call set_zhao_continuation_pair( &
+        diagnostics, 'step_validation', zhao_continuation_reason_physical_endpoint, &
+        'transient_branch', status, params, from_eta, from_root, to_eta, to_root &
+        )
       return
     end if
     if (automatic_zhao_model(model)) then
@@ -852,11 +2187,19 @@ contains
           write (message, '(a,a,a,a)') &
             'automatic Zhao continuation rejected a disconnected ', from_root%branch, &
             '->', to_root%branch
+          call set_zhao_continuation_pair( &
+            diagnostics, 'step_validation', zhao_continuation_reason_disconnected_branch, &
+            'disconnected_branch', status, params, from_eta, from_root, to_eta, to_root &
+            )
           return
         end if
       else if (.not. zhao_same_branch_step_is_bounded(params, from_root, to_root)) then
         status = outer_plasma_no_physical_solution
         message = 'automatic Zhao continuation step moved too far on one root branch'
+        call set_zhao_continuation_pair( &
+          diagnostics, 'step_validation', zhao_continuation_reason_guard_rejected, &
+          'same_branch_jump_guard', status, params, from_eta, from_root, to_eta, to_root &
+          )
         return
       end if
     end if
@@ -868,9 +2211,17 @@ contains
     if (to_eta > from_eta .and. to_column < from_column - monotonic_tolerance) then
       status = outer_plasma_no_physical_solution
       message = 'photoelectron-column Zhao path decreases while eta increases'
+      call set_zhao_continuation_pair( &
+        diagnostics, 'step_validation', zhao_continuation_reason_nonmonotone_column, &
+        'column_decreases_with_eta', status, params, from_eta, from_root, to_eta, to_root &
+        )
     else if (to_eta < from_eta .and. to_column > from_column + monotonic_tolerance) then
       status = outer_plasma_no_physical_solution
       message = 'photoelectron-column Zhao path increases while eta decreases'
+      call set_zhao_continuation_pair( &
+        diagnostics, 'step_validation', zhao_continuation_reason_nonmonotone_column, &
+        'column_increases_as_eta_decreases', status, params, from_eta, from_root, to_eta, to_root &
+        )
     end if
   end subroutine validate_column_continuation_step
 
@@ -887,21 +2238,16 @@ contains
     type(zhao_params_type), intent(in) :: params
     type(zhao_charge_root_type), intent(in) :: from_root, to_root
 
-    real(dp) :: potential_scale, potential_change, density_change
+    real(dp) :: potential_change, density_change, jump
 
     bounded = .false.
     if (from_root%branch /= to_root%branch) return
     if (index('ABC', from_root%branch) == 0) return
     if (from_root%n_swe_inf_m3 <= 0.0_dp .or. to_root%n_swe_inf_m3 <= 0.0_dp) return
 
-    potential_scale = max(params%t_phe_ev, tiny(1.0_dp))
-    potential_change = max( &
-                       abs(to_root%phi0_v - from_root%phi0_v), &
-                       abs(to_root%phi_m_v - from_root%phi_m_v) &
-                       )/potential_scale
-    density_change = abs(log(to_root%n_swe_inf_m3/from_root%n_swe_inf_m3))
+    call zhao_root_jump_metrics(params, from_root, to_root, potential_change, density_change, jump)
     bounded = ieee_is_finite(potential_change) .and. ieee_is_finite(density_change) .and. &
-              max(potential_change, density_change) <= branch_same_root_step_limit
+              jump <= branch_same_root_step_limit
   end function zhao_same_branch_step_is_bounded
 
   logical function zhao_branch_transition_is_continuous(params, from_root, to_root) result(continuous)

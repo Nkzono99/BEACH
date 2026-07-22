@@ -2,6 +2,7 @@
 
 - Status: accepted for staged implementation
 - Date: 2026-07-22
+- Implementation: phase 1 diagnostics and fixed-branch atlas implemented; runtime continuation unchanged
 
 ## Context
 
@@ -25,7 +26,13 @@ automatic Zhao continuation step moved too far on one root branch
 この時点までreturn eventはまだ1件もpopされていない。したがって今回の停止は、returned
 photoelectron feedbackやcolumn residualの収束不良ではない。固定$\eta$のNewton solveは同じ
 Type Bラベルのcandidateを返したが、直前rootに対する正規化jumpがguard 0.25を超え、刻みを
-下限まで半減しても近傍rootを回復できなかった。
+下限まで半減しても近傍rootを回復できなかった。追加したfull-precision診断では、最終的な
+試行223の刻みは$5.4026\times10^{-11}$だった。受理済みrootと拒否candidateは、それぞれ
+$\eta=0.251334841178$と$0.251334841232$、$\phi_0=2.299937073\,\mathrm{V}$と
+$2.299937066\,\mathrm{V}$だった。一方、ambient electron densityは$0.2233685$から
+$0.1651152\,\mathrm{m^{-3}}$へ変わり、potential jumpが$3.40\times10^{-9}$であるのに対し、
+log-density jumpは$0.30218$だった。従ってguardは電位の不連続ではなく、ほぼゼロになった
+ambient densityのlog座標が悪条件化する状況と整合する。
 
 現行algorithmは、前状態から$\eta$を固定して$E_I$を変更し、その後$E_I$を固定して
 $\eta$を変更する。さらに$N_{pe}(\eta)$が単調なpathだけを受理する。A/B/Cはprofile形状の分類で
@@ -62,15 +69,17 @@ $(\phi_0,\phi_m,\log n_{e,\infty})$とする。branch atlasは最初にtestま�
 実装し、runtime fallbackにはしない。
 
 各accepted pointで$E_I$、$\eta$、column、current、root residual、jump metric、Jacobianの
-conditioning指標、接線と$dN_{pe}/ds$を記録する。停止statusを少なくとも次に分ける。
+conditioning指標、接線と$dN_{pe}/ds$を記録する。phase 1はtermination reasonを少なくとも次に分ける。
 
 - `numerical_failure`: residualまたはlinear solveが数値的に収束しない
-- `fold_detected`: 選んだ座標のfoldだが、連結root curveは継続する
 - `physical_endpoint`: density正値性、Sagdeev実数条件、branch topologyなどの物理制約で終端する
-- `target_unreachable`: 追跡した連結curveにtarget columnとの交点がない
+- `search_limit`: 有限density cutoff、point数、$\eta$範囲など診断の探索上限へ達する
+- `target_bracketed`: accepted point間でtarget columnを挟む
 
 Newton不収束だけを`no_physical_solution`とは判定しない。pseudo-arclengthがfold後の数学的rootを
-見つけても、そのrootの動的安定性が不明なまま自動採用しない。
+見つけても、そのrootの動的安定性が不明なまま自動採用しない。curveを継続しながら検出したfoldは
+`eta_fold_detected`または`column_fold_detected` flagへ記録する。`target_unreachable`は、物理終端まで
+連結componentを追跡して交点がないことを確認する将来の判定用に予約し、有限探索上限からは設定しない。
 
 ### 2. 到達可能な準定常rootの連成solve
 
@@ -109,6 +118,26 @@ full 1D kinetic Vlasov/particle-Poisson modelは、まずflat-planeの基準解�
 energy-bin、outer timestep、domain lengthへ収束しない、またはoscillatory/trapped topologyを再現できない場合に
 限ってonline closureへ昇格する。
 
+## Phase 1 evidence
+
+`zhao_continuation_diagnostics_type`は、失敗stage、batch、underlying/return status、target、直前root、
+拒否candidate、root residual、potential/log-density jumpを保持する。runtimeはZhao closureが失敗したとき、
+MPI rootから`BEACH zhao-continuation`で始まる5行をflushしてから全rankを停止する。これは診断追加であり、
+root選択、jump guard、fallback規則を変更しない。
+
+`trace_zhao_branch_atlas`は固定branchのdiagnostic-only pseudo-arclength tracerとして実装した。上記batch 16の
+$E_I=0.9072962759\,\mathrm{V/m}$、$L=10\lambda_{D,pe}$について、直前runtime rootを再精密化し、forward Type B
+tailを$n_{e,\infty}/n_{ref}=\exp(-27)$の有限cutoffまで追跡した。再精密化jumpはproduction guard 0.25を超えるため
+`seed_reanchored`として明示される。追跡したcurveの最大columnは約$9.76140649\times10^7\,\mathrm{m^{-2}}$で、
+target $9.94557652\times10^7\,\mathrm{m^{-2}}$をbracketせず、差は約$1.8417003\times10^6\,\mathrm{m^{-2}}$
+（targetの1.85%）だった。cutoffを$\exp(-24)$へ変えても最大column差は$10\,\mathrm{m^{-2}}$未満だった。
+
+この結果のterminationは`ambient_density_floor_limit`を伴う`search_limit`であり、
+`target_unreachable`ではない。固定branch atlasはA/B退化点を越えず、逆向きB curve、別component、control-volume長依存性、
+動的安定性も未検証である。従ってphase 1が支持する主張は、固定$E_I$、固定$L$のforward Type B tailが
+収束した有限density floorまでtargetをbracketしなかったことに限る。次の診断対象は、Bのdensity-zero極限から
+$\phi_m<0$のType A seedを構成し、A curveと退化接続を追跡することである。
+
 ## Rejected alternatives
 
 - `branch_same_root_step_limit`や最小刻みを緩和する。遠い同ラベルrootへのjumpを受理し得る。
@@ -139,12 +168,15 @@ energy-bin、outer timestep、domain lengthへ収束しない、またはoscilla
 6. flat-planeでUV turn-on/off、batch duration、outer domain length、profile grid、energy bin、particle数、
    restart分割を収束確認した後にsingle-sphere plus planeへ戻す。
 
-既存のZhao unit test 15件が計算ノードで通る状態を改修前baselineとする。現行queueとno-photo Type Cは、
+既存のZhao unit test 15件が計算ノードで通る状態を改修前baselineとする。phase 1後は、強UV fixture、
+writer schema、non-finite rootと有限探索上限の分類、smooth Type B target bracket、Type A 4-coordinate correctorを含む
+20件を通す。現行queueとno-photo Type Cは、
 上記の新statusまたはstateを使わない既存caseで挙動を変えない。
 
 ## Consequences
 
-第一段階だけでは強UV runを完走させないが、数値的なroot追跡失敗を物理解なしと誤認しなくなる。
+実装済みの第一段階だけでは強UV runを完走させないが、数値的なroot追跡失敗を物理解なしと誤認せず、
+失敗rootと探索範囲を再現できる。
 第二段階は、解が存在する場合に現在のscalar queueを保ったまま人工的なfield-then-$\eta$経路を除去する。
 第三段階は、stationary Zhao manifoldに存在しない過渡状態を明示的なdynamic stateとして扱う。
 

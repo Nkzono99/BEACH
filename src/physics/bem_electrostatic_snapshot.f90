@@ -15,6 +15,9 @@ module bem_electrostatic_snapshot
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok
   use bem_outer_plasma_linear, only: init_outer_plasma_linear, outer_plasma_integrated_charge_per_area
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic
+  use bem_outer_plasma_zhao, only: zhao_continuation_diagnostics_type, &
+                                   zhao_continuation_reason_none, &
+                                   write_zhao_continuation_diagnostics
   use bem_outer_plasma_grid, only: outer_plasma_grid_type, init_outer_plasma_grid, interpolate_outer_profile
   use bem_outer_plasma_local_mean, only: sample_plasma_facing_height_field, &
                                          build_accessible_fraction_from_heights
@@ -24,7 +27,8 @@ module bem_electrostatic_snapshot
     refresh_periodic_nonzero_tail_plan, eval_periodic_nonzero_tail_plan, periodic_nonzero_tail_ok
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
-  use bem_mpi, only: mpi_context, mpi_is_root, mpi_bcast_i32_array, mpi_bcast_real_dp_array
+  use bem_mpi, only: mpi_context, mpi_is_root, mpi_bcast_i32_array, mpi_bcast_real_dp_array, &
+                     mpi_world_barrier
   implicit none
   private
 
@@ -264,10 +268,14 @@ contains
     end if
   end subroutine init_electrostatic_snapshot
 
-  subroutine refresh_electrostatic_snapshot(self, mesh, update_outer)
+  subroutine refresh_electrostatic_snapshot( &
+    self, mesh, update_outer, continuation_stage, continuation_batch &
+    )
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
     logical, intent(in), optional :: update_outer
+    character(len=*), intent(in), optional :: continuation_stage
+    integer(i32), intent(in), optional :: continuation_batch
 
     real(dp) :: interface_potential, interface_field, raw_potential, linearity_ratio
     integer(i32) :: status
@@ -285,7 +293,9 @@ contains
         )
       return
     else if (self%use_cached_kneq0) then
-      call refresh_cached_kinetic_outer(self, mesh, update_outer)
+      call refresh_cached_kinetic_outer( &
+        self, mesh, update_outer, continuation_stage, continuation_batch &
+        )
       return
     else if (.not. self%use_panel_spectral_reference) then
       call self%nonzero_solver%refresh(mesh)
@@ -303,7 +313,9 @@ contains
       raw_potential, interface_field &
       )
     if (refresh_outer .and. trim(lower_ascii(self%outer_options%model)) == 'kinetic_1d') then
-      call solve_kinetic_collective(self, interface_field)
+      call solve_kinetic_collective( &
+        self, interface_field, continuation_stage, continuation_batch &
+        )
       interface_potential = self%outer%interface_potential
     else if (refresh_outer) then
       interface_potential = self%outer_options%infinity_potential + self%outer_options%debye_length*interface_field
@@ -871,10 +883,14 @@ contains
     self%outer = solved
   end subroutine solve_unified_collective
 
-  subroutine refresh_cached_kinetic_outer(self, mesh, update_outer)
+  subroutine refresh_cached_kinetic_outer( &
+    self, mesh, update_outer, continuation_stage, continuation_batch &
+    )
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
     logical, intent(in), optional :: update_outer
+    character(len=*), intent(in), optional :: continuation_stage
+    integer(i32), intent(in), optional :: continuation_batch
     real(dp) :: raw_potential, interface_field
     logical :: refresh_outer
 
@@ -890,7 +906,11 @@ contains
       self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
       raw_potential, interface_field &
       )
-    if (refresh_outer) call solve_kinetic_collective(self, interface_field)
+    if (refresh_outer) then
+      call solve_kinetic_collective( &
+        self, interface_field, continuation_stage, continuation_batch &
+        )
+    end if
     call refresh_periodic_zero_mode_state( &
       self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), self%zero_plan%break_z(1), &
       self%outer%interface_potential - raw_potential, self%zero_state &
@@ -937,10 +957,15 @@ contains
     end select
   end function supported_lower_boundary
 
-  subroutine solve_kinetic_collective(self, interface_field)
+  subroutine solve_kinetic_collective( &
+    self, interface_field, continuation_stage, continuation_batch &
+    )
     class(electrostatic_snapshot_type), intent(inout) :: self
     real(dp), intent(in) :: interface_field
+    character(len=*), intent(in), optional :: continuation_stage
+    integer(i32), intent(in), optional :: continuation_batch
     type(outer_plasma_state_type) :: solved
+    type(zhao_continuation_diagnostics_type) :: zhao_diagnostics
     integer(i32) :: status_values(4), status
     real(dp) :: scalar_values(18)
     character(len=256) :: message
@@ -952,10 +977,12 @@ contains
           size(self%outer%potential) == self%kinetic_options%grid_points) then
         call solve_outer_plasma_kinetic( &
           self%kinetic_options, solved, status, message, initial_potential=self%outer%potential, &
-          initial_state=self%outer &
+          initial_state=self%outer, zhao_diagnostics=zhao_diagnostics &
           )
       else
-        call solve_outer_plasma_kinetic(self%kinetic_options, solved, status, message)
+        call solve_outer_plasma_kinetic( &
+          self%kinetic_options, solved, status, message, zhao_diagnostics=zhao_diagnostics &
+          )
       end if
       status_values = [status, solved%profile_n, solved%nonlinear_iterations, int(iachar(solved%zhao_branch), i32)]
     end if
@@ -963,9 +990,17 @@ contains
     status = status_values(1)
     if (status /= outer_plasma_ok) then
       if (mpi_is_root(self%mpi)) then
+        if (trim(lower_ascii(self%kinetic_options%kinetic_closure)) == 'zhao_charge_driven' .and. &
+            zhao_diagnostics%reason_code /= zhao_continuation_reason_none) then
+          call write_zhao_continuation_diagnostics( &
+            error_unit, zhao_diagnostics, continuation_stage, continuation_batch &
+            )
+        end if
         write (error_unit, '(a,i0,a,es24.16,2a)') 'kinetic outer-plasma solve failed without fallback: status=', status, &
           ' interface_field_V_m=', interface_field, ' message=', trim(message)
+        flush (error_unit)
       end if
+      call mpi_world_barrier(self%mpi)
       error stop 'kinetic outer-plasma solve failed without fallback.'
     end if
     if (.not. mpi_is_root(self%mpi)) then

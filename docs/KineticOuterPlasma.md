@@ -145,6 +145,21 @@ queue modeは`zhao_branch="auto"`を要求し、縮退条件を満たす連続�
 現在のbisectionはcolumnが$\eta$とともに単調増加するpathだけを受理し、foldを含む連続pathは未対応として停止します。
 targetへ至る連結・単調解がない場合は`no_physical_solution`で停止します。
 
+### Zhao continuation失敗を診断する
+
+Zhao continuationがfail closedすると、MPI rootはgeneric errorの前に
+`BEACH zhao-continuation`で始まる5行をstderrへ出力します。`call_stage`は`pre_batch`または
+`post_enqueue`、`batch`は失敗したbatchです。残りの行にはsolver stage、reason code、underlying/return status、
+`attempt`、`attempted_step`、target field・$\eta$・column、直前root、拒否candidate、root residual、
+`normalized_potential_jump`、`log_density_jump`、`normalized_root_jump`が入ります。
+branchを特定できない場合は`from_branch=-`または`candidate_branch=-`と出力します。実数は3桁指数を含む
+full-range scientific formatで記録し、rootが5行をflushした後に全MPI rankが停止します。
+
+公開Fortran procedure `trace_zhao_branch_atlas`は、指定したA/B/C branchの連結curveをpseudo-arclengthで追跡する
+診断APIです。production continuation、root選択、fallbackには接続していません。有限density floorやpoint数への到達は
+`search_limit`であり、別branchや退化接続を調べずに全Zhao定常解の`target_unreachable`を意味しません。強UV fixtureの
+適用範囲と次のA/B接続診断は[ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md)に記録しています。
+
 同じ$0\le z\le10\lambda_{D,pe}$をqueue粒子の有限control volumeとし、
 この範囲内でturningしなければ$L=10\lambda_{D,pe}$で外部reservoirへ吸収/escapeします。queue modeでは$L$外の
 Robin tailを使ったreturn判定を行いません。各eventでは、`t_due`から最初のbatch-start pollまでの量子化遅延
@@ -195,7 +210,8 @@ legacy Zhao `sheath_injection_model`、`reservoir_potential_model`、
 この有効平面近似は、tracked rayの方向分布やrough surfaceからinterfaceへ到達したVDFをZhao outer populationへ
 自己無撞着に接続しません。`ray_direction`は照射rayによる放出面sampling、$\alpha$は解析Zhao sourceを決める独立の入力です。
 適用範囲と一般化に必要な境界VDFについては[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)、
-過渡queueの決定は[ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md)に記録しています。
+過渡queueの決定は[ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md)、continuation診断と
+dynamic outerへの段階移行は[ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md)に記録しています。
 
 ## `absorbing_maxwellian`の有限gridをRobin tailで無限遠へ接続する
 

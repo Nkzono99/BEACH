@@ -1,4 +1,5 @@
 program test_outer_plasma_zhao
+  use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, qe
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, &
@@ -8,7 +9,14 @@ program test_outer_plasma_zhao
                                    evaluate_zhao_density_hat
   use bem_outer_plasma_zhao, only: zhao_charge_root_type, solve_zhao_charge_root, &
                                    evaluate_zhao_interface_field, build_zhao_outer_profile, &
-                                   solve_outer_plasma_zhao_column
+                                   solve_outer_plasma_zhao_column, &
+                                   zhao_continuation_diagnostics_type, &
+                                   zhao_continuation_reason_guard_rejected, &
+                                   zhao_continuation_reason_numerical_failure, &
+                                   zhao_continuation_reason_search_limit, &
+                                   zhao_continuation_reason_target_bracketed, &
+                                   zhao_branch_atlas_options_type, zhao_branch_atlas_type, &
+                                   trace_zhao_branch_atlas, write_zhao_continuation_diagnostics
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, &
                           assert_close_dp, assert_equal_i32
@@ -26,7 +34,10 @@ program test_outer_plasma_zhao
   type(zhao_params_type) :: params
   type(kinetic_outer_plasma_options_type) :: kinetic_options
   type(zhao_charge_root_type) :: stationary, charge_root, perturbed_root, zero_root, reference_root
-  type(zhao_charge_root_type) :: continuation_target_root, field_target_root
+  type(zhao_charge_root_type) :: continuation_target_root, field_target_root, nonfinite_root
+  type(zhao_continuation_diagnostics_type) :: continuation_diagnostics
+  type(zhao_branch_atlas_options_type) :: atlas_options
+  type(zhao_branch_atlas_type) :: branch_atlas, coarse_branch_atlas
   type(outer_plasma_state_type) :: state, reference_state, continuation_target_state
   type(outer_plasma_state_type) :: field_target_state
   real(dp) :: equilibrium_field, perturbed_field, gauss_expected, gauss_scale, reference_column
@@ -36,9 +47,10 @@ program test_outer_plasma_zhao
   integer(i32) :: status
   character(len=1) :: branch
   character(len=256) :: message
-  integer :: fraction_index
+  character(len=2048) :: diagnostic_lines(5)
+  integer :: fraction_index, atlas_index, diagnostic_unit, diagnostic_ios
 
-  call test_init(15)
+  call test_init(20)
 
   call test_begin('stationary Zhao-A root is recovered by its interface field')
   call configure_params(60.0_dp, params)
@@ -90,6 +102,42 @@ program test_outer_plasma_zhao
     )
   call assert_equal_i32(status, outer_plasma_no_physical_solution, &
                         'a finite Zhao-A profile ending before its minimum must fail closed')
+  call test_end()
+
+  call test_begin('continuation diagnostics use an unambiguous full-range schema')
+  continuation_diagnostics = zhao_continuation_diagnostics_type()
+  continuation_diagnostics%from_density_m3 = huge(1.0_dp)
+  continuation_diagnostics%candidate_density_m3 = tiny(1.0_dp)
+  open (newunit=diagnostic_unit, status='scratch', action='readwrite', iostat=diagnostic_ios)
+  call assert_true(diagnostic_ios == 0, 'failed to open scratch stream for Zhao diagnostics')
+  if (diagnostic_ios == 0) then
+    call write_zhao_continuation_diagnostics( &
+      diagnostic_unit, continuation_diagnostics, 'test_stage', 42_i32 &
+      )
+    rewind (diagnostic_unit)
+    diagnostic_lines = ''
+    do atlas_index = 1, size(diagnostic_lines)
+      read (diagnostic_unit, '(A)', iostat=diagnostic_ios) diagnostic_lines(atlas_index)
+      call assert_true(diagnostic_ios == 0, 'Zhao diagnostics did not emit exactly five readable records')
+    end do
+    close (diagnostic_unit)
+    call assert_true( &
+      index(diagnostic_lines(1), 'call_stage=test_stage') > 0 .and. &
+      index(diagnostic_lines(1), 'batch=42') > 0, &
+      'Zhao diagnostics lost call-stage or batch context' &
+      )
+    call assert_true( &
+      index(diagnostic_lines(3), 'from_branch=-') > 0 .and. &
+      index(diagnostic_lines(4), 'candidate_branch=-') > 0, &
+      'Zhao diagnostics did not encode missing branches with a sentinel' &
+      )
+    do atlas_index = 1, size(diagnostic_lines)
+      call assert_true( &
+        index(diagnostic_lines(atlas_index), '*') == 0, &
+        'Zhao diagnostics overflowed its full-range real format' &
+        )
+    end do
+  end if
   call test_end()
 
   call test_begin('no-photo Zhao-C stationary root is recovered without photoelectron inputs')
@@ -420,6 +468,28 @@ program test_outer_plasma_zhao
     )
   call test_end()
 
+  call test_begin('column continuation classifies a non-finite root numerically')
+  nonfinite_root = reference_root
+  nonfinite_root%phi0_v = ieee_value(0.0_dp, ieee_quiet_nan)
+  call solve_outer_plasma_zhao_column( &
+    'auto', params, population_gap_field, profile_points, control_length_m, reference_column, &
+    state, charge_root, status, message, initial_root=nonfinite_root, &
+    diagnostics=continuation_diagnostics &
+    )
+  call assert_equal_i32( &
+    status, outer_plasma_numerical_failure, &
+    'non-finite continuation root was not classified numerically: '//trim(message) &
+    )
+  call assert_equal_i32( &
+    continuation_diagnostics%reason_code, zhao_continuation_reason_numerical_failure, &
+    'non-finite continuation root lost its numerical-failure reason' &
+    )
+  call assert_true( &
+    trim(continuation_diagnostics%reason) == 'nonfinite_state', &
+    'non-finite continuation root recorded the wrong reason detail' &
+    )
+  call test_end()
+
   call test_begin('kinetic options route queue column closure through continuation state')
   kinetic_options = kinetic_outer_plasma_options_type()
   kinetic_options%kinetic_closure = 'zhao_charge_driven'
@@ -480,6 +550,34 @@ program test_outer_plasma_zhao
     'unreachable photoelectron inventory must report no physical solution' &
     )
   call assert_true(len_trim(message) > 0, 'unreachable photoelectron inventory needs a diagnostic message')
+  call build_zhao_params( &
+    60.0_dp, 8.7e6_dp, 8.7e6_dp, 12.0_dp, 12.0_dp, 4.0529988897111727e5_dp, &
+    4.0529988897111727e5_dp, proton_mass, electron_mass, params, &
+    photoelectron_population_fraction=0.0_dp, photoelectron_source_scale=0.0_dp &
+    )
+  call solve_zhao_unknowns('zhao_c', params, phi0_v, phi_m_v, density_m3, branch)
+  stationary = zhao_charge_root_type( &
+               branch=branch, phi0_v=phi0_v, phi_m_v=phi_m_v, n_swe_inf_m3=density_m3 &
+               )
+  call evaluate_zhao_interface_field(params, stationary, equilibrium_field, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'no-photo eta-limit field evaluation failed')
+  continuation_diagnostics = zhao_continuation_diagnostics_type()
+  call solve_outer_plasma_zhao_column( &
+    'auto', params, equilibrium_field, profile_points, control_length_m, 1.0_dp, &
+    state, charge_root, status, message, diagnostics=continuation_diagnostics &
+    )
+  call assert_equal_i32( &
+    status, outer_plasma_no_physical_solution, &
+    'no-photo positive column must stop at the finite eta search limit' &
+    )
+  call assert_equal_i32( &
+    continuation_diagnostics%reason_code, zhao_continuation_reason_search_limit, &
+    'finite eta search bound was misclassified as target-unreachable' &
+    )
+  call assert_true( &
+    trim(continuation_diagnostics%reason) == 'eta_upper_search_limit', &
+    'finite eta search bound recorded the wrong reason detail' &
+    )
   call test_end()
 
   call test_begin('column closure brackets a target before a later Zhao path endpoint')
@@ -504,6 +602,201 @@ program test_outer_plasma_zhao
   call assert_close_dp( &
     state%photoelectron_column_per_area, runtime_target_column, &
     1.0e-8_dp*runtime_target_column, 'runtime target column residual is too large' &
+    )
+  call test_end()
+
+  call test_begin('strong-UV column failure records the near-zero-density Zhao-B jump')
+  call build_zhao_params( &
+    60.0_dp, 5.0e6_dp, 130.68910376476308e6_dp, 10.0_dp, 2.2_dp, &
+    4.0e5_dp, 4.0e5_dp, 1.672482821616e-27_dp, 9.10938356e-31_dp, params, &
+    photoelectron_population_fraction=1.0_dp, photoelectron_source_scale=1.0_dp &
+    )
+  reference_root = zhao_charge_root_type( &
+                   branch='B', interface_side='monotonic', &
+                   phi0_v=2.2999370729879152_dp, phi_m_v=2.2999370729879152_dp, &
+                   n_swe_inf_m3=2.2336848555940270e-1_dp, &
+                   photoelectron_population_fraction=2.5133484117801319e-1_dp, &
+                   photoelectron_column_per_area=9.7614063582301259e7_dp, &
+                   photoelectron_column_target_per_area=9.9455765203101724e7_dp, &
+                   photoelectron_column_residual_per_area=-1.8417016208004653e6_dp, &
+                   interface_field_v_m=9.0729627587860184e-1_dp, &
+                   residual_norm=9.9958608057448828e-10_dp &
+                   )
+  call solve_outer_plasma_zhao_column( &
+    'auto', params, 9.0729627587860184e-1_dp, 128_i32, &
+    10.0_dp*params%lambda_d_phe_ref_m, 9.9455765203101724e7_dp, &
+    state, charge_root, status, message, initial_root=reference_root, &
+    diagnostics=continuation_diagnostics &
+    )
+  call assert_equal_i32( &
+    status, outer_plasma_numerical_failure, &
+    'strong-UV characterization changed its aggregated return status: '//trim(message) &
+    )
+  call assert_equal_i32( &
+    continuation_diagnostics%reason_code, zhao_continuation_reason_guard_rejected, &
+    'strong-UV characterization lost the same-branch guard decision' &
+    )
+  call assert_true( &
+    trim(continuation_diagnostics%reason) == 'same_branch_jump_guard', &
+    'strong-UV characterization recorded the wrong reason detail' &
+    )
+  call assert_true( &
+    continuation_diagnostics%candidate_available .and. &
+    continuation_diagnostics%from_branch == 'B' .and. &
+    continuation_diagnostics%candidate_branch == 'B', &
+    'strong-UV characterization did not preserve the Zhao-B root pair' &
+    )
+  call assert_close_dp( &
+    continuation_diagnostics%from_density_m3, 2.2336848555940270e-1_dp, 1.0e-10_dp, &
+    'strong-UV characterization changed the accepted ambient density' &
+    )
+  call assert_close_dp( &
+    continuation_diagnostics%candidate_density_m3, 1.6511518550182400e-1_dp, 5.0e-4_dp, &
+    'strong-UV characterization changed the rejected ambient density' &
+    )
+  call assert_true( &
+    continuation_diagnostics%normalized_potential_jump < 1.0e-7_dp .and. &
+    continuation_diagnostics%log_density_jump > 0.25_dp, &
+    'strong-UV root jump is no longer isolated to the near-zero density coordinate' &
+    )
+  call assert_true( &
+    reference_root%n_swe_inf_m3/params%n_phe_ref_m3 < 2.0e-9_dp, &
+    'strong-UV predecessor is no longer at the ambient-density positivity boundary' &
+    )
+  atlas_options = zhao_branch_atlas_options_type()
+  atlas_options%eta_direction = 1_i32
+  call trace_zhao_branch_atlas( &
+    params, reference_root%interface_field_v_m, 128_i32, &
+    10.0_dp*params%lambda_d_phe_ref_m, reference_root, branch_atlas, status, message, &
+    target_column_m2=9.9455765203101724e7_dp, options=atlas_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'strong-UV branch atlas failed: '//trim(message))
+  call assert_equal_i32( &
+    branch_atlas%termination_reason_code, zhao_continuation_reason_search_limit, &
+    'strong-UV forward Zhao-B atlas did not report its finite density floor' &
+    )
+  call assert_true( &
+    trim(branch_atlas%termination_reason) == 'ambient_density_floor_limit', &
+    'strong-UV forward Zhao-B atlas reported the wrong search limit' &
+    )
+  call assert_true(branch_atlas%point_count > 20_i32, 'strong-UV branch atlas stopped prematurely')
+  call assert_true(.not. branch_atlas%target_bracketed, 'strong-UV atlas falsely bracketed the target')
+  call assert_true( &
+    branch_atlas%maximum_column_m2 < 9.9455765203101724e7_dp - 1.8e6_dp, &
+    'strong-UV forward Zhao-B tail approached the target unexpectedly' &
+    )
+  call assert_true( &
+    branch_atlas%points(branch_atlas%point_count)%root%n_swe_inf_m3/params%n_phe_ref_m3 < 5.0e-12_dp, &
+    'strong-UV atlas did not approach its configured ambient-density floor' &
+    )
+  call assert_true( &
+    .not. branch_atlas%eta_fold_detected .and. .not. branch_atlas%column_fold_detected, &
+    'strong-UV forward Zhao-B tail was incorrectly classified as a fold' &
+    )
+  call assert_true( &
+    branch_atlas%seed_reanchored .and. &
+    branch_atlas%seed_refinement_jump > 0.25_dp .and. &
+    branch_atlas%seed_refinement_jump <= atlas_options%seed_refinement_limit, &
+    'strong-UV atlas did not disclose refinement beyond the production same-root guard' &
+    )
+  do atlas_index = 1, int(branch_atlas%point_count)
+    call assert_true( &
+      branch_atlas%points(atlas_index)%root%branch == 'B' .and. &
+      branch_atlas%points(atlas_index)%root%residual_norm <= 5.0e-12_dp, &
+      'strong-UV atlas left its fixed converged Zhao-B curve' &
+      )
+  end do
+  atlas_options%log_density_floor = -24.0_dp
+  call trace_zhao_branch_atlas( &
+    params, reference_root%interface_field_v_m, 128_i32, &
+    10.0_dp*params%lambda_d_phe_ref_m, reference_root, coarse_branch_atlas, status, message, &
+    target_column_m2=9.9455765203101724e7_dp, options=atlas_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'coarse-floor strong-UV atlas failed: '//trim(message))
+  call assert_equal_i32( &
+    coarse_branch_atlas%termination_reason_code, zhao_continuation_reason_search_limit, &
+    'coarse-floor strong-UV atlas did not stop at its density floor' &
+    )
+  call assert_true( &
+    trim(coarse_branch_atlas%termination_reason) == 'ambient_density_floor_limit', &
+    'coarse-floor strong-UV atlas stopped at a different search limit' &
+    )
+  call assert_true( &
+    coarse_branch_atlas%points(coarse_branch_atlas%point_count)%root%n_swe_inf_m3/ &
+    params%n_phe_ref_m3 < 5.0e-11_dp, &
+    'coarse-floor strong-UV atlas did not approach its configured density floor' &
+    )
+  call assert_true( &
+    abs(branch_atlas%maximum_column_m2 - coarse_branch_atlas%maximum_column_m2) < 10.0_dp, &
+    'strong-UV forward Zhao-B maximum column is not converged with density floor' &
+    )
+  call assert_true( &
+    .not. coarse_branch_atlas%target_bracketed, &
+    'coarse-floor strong-UV atlas falsely bracketed the target' &
+    )
+  call test_end()
+
+  call test_begin('branch atlas brackets a reachable target on a smooth Zhao-B curve')
+  call configure_params(60.0_dp, params)
+  params%photoelectron_population_fraction = 0.10_dp
+  call solve_zhao_charge_root( &
+    'zhao_b', params, population_gap_field, reference_root, status, message &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'smooth Zhao-B atlas seed failed: '//trim(message))
+  params%photoelectron_population_fraction = 0.14_dp
+  call solve_zhao_charge_root( &
+    'zhao_b', params, population_gap_field, continuation_target_root, status, message, &
+    initial_root=reference_root &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'smooth Zhao-B atlas target root failed: '//trim(message))
+  call build_zhao_outer_profile( &
+    params, continuation_target_root, profile_points, continuation_target_state, status, message, &
+    control_length_m=control_length_m &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'smooth Zhao-B atlas target profile failed: '//trim(message))
+  atlas_options = zhao_branch_atlas_options_type()
+  atlas_options%max_points = 32_i32
+  atlas_options%initial_step = 1.0e-2_dp
+  atlas_options%maximum_step = 2.5e-2_dp
+  call trace_zhao_branch_atlas( &
+    params, population_gap_field, profile_points, control_length_m, reference_root, &
+    branch_atlas, status, message, &
+    target_column_m2=continuation_target_state%photoelectron_column_per_area, options=atlas_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'smooth Zhao-B branch atlas failed: '//trim(message))
+  call assert_equal_i32( &
+    branch_atlas%termination_reason_code, zhao_continuation_reason_target_bracketed, &
+    'smooth Zhao-B branch atlas did not bracket its reachable target' &
+    )
+  call assert_true(branch_atlas%target_bracketed, 'smooth Zhao-B atlas lost its target crossing')
+  call assert_true(branch_atlas%point_count > 1_i32, 'smooth Zhao-B atlas did not advance')
+  call test_end()
+
+  call test_begin('branch atlas exercises the four-coordinate Zhao-A corrector')
+  call configure_params(60.0_dp, params)
+  call solve_zhao_unknowns('zhao_a', params, phi0_v, phi_m_v, density_m3, branch)
+  reference_root = zhao_charge_root_type( &
+                   branch=branch, phi0_v=phi0_v, phi_m_v=phi_m_v, n_swe_inf_m3=density_m3, &
+                   photoelectron_population_fraction=params%photoelectron_population_fraction &
+                   )
+  call evaluate_zhao_interface_field(params, reference_root, equilibrium_field, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'Zhao-A atlas seed field failed: '//trim(message))
+  reference_root%interface_field_v_m = equilibrium_field
+  atlas_options = zhao_branch_atlas_options_type()
+  atlas_options%max_points = 2_i32
+  atlas_options%eta_direction = -1_i32
+  atlas_options%initial_step = 1.0e-3_dp
+  atlas_options%maximum_step = 1.0e-3_dp
+  call trace_zhao_branch_atlas( &
+    params, equilibrium_field, profile_points, type_a_native_extent, reference_root, &
+    branch_atlas, status, message, options=atlas_options &
+    )
+  call assert_equal_i32(status, outer_plasma_ok, 'Zhao-A branch atlas failed: '//trim(message))
+  call assert_equal_i32(branch_atlas%point_count, 2_i32, 'Zhao-A branch atlas did not accept one step')
+  call assert_true( &
+    branch_atlas%points(2)%root%branch == 'A' .and. &
+    branch_atlas%points(2)%root%residual_norm <= 1.1e-12_dp, &
+    'Zhao-A four-coordinate corrector left its converged branch' &
     )
   call test_end()
 

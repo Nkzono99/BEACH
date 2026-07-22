@@ -208,7 +208,9 @@ contains
       snapshot%kinetic_options%photoelectron_column_target_m2 = outer_queue_photoelectron_column_target
     end if
     call perf_region_begin(perf_region_field_refresh, t0)
-    call outer_coupler%refresh(snapshot, mesh, batch_idx)
+    call outer_coupler%refresh( &
+      snapshot, mesh, batch_idx, continuation_stage='pre_batch' &
+      )
     call perf_region_end(perf_region_field_refresh, t0)
 
     call perf_region_begin(perf_region_prepare_batch, t0)
@@ -357,7 +359,9 @@ contains
       snapshot%kinetic_options%photoelectron_column_closure_enabled = .true.
       snapshot%kinetic_options%photoelectron_column_target_m2 = outer_queue_photoelectron_column_target
       call perf_region_begin(perf_region_field_refresh, t0)
-      call outer_coupler%refresh(snapshot, mesh, batch_idx)
+      call outer_coupler%refresh( &
+        snapshot, mesh, batch_idx, continuation_stage='post_enqueue' &
+        )
       call perf_region_end(perf_region_field_refresh, t0)
     end if
 

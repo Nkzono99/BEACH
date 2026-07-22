@@ -5,8 +5,8 @@ module bem_outer_plasma_kinetic
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_invalid, &
                                     outer_plasma_no_physical_solution, outer_plasma_numerical_failure
   use bem_outer_plasma_grid, only: outer_plasma_grid_type, init_outer_plasma_grid
-  use bem_outer_plasma_zhao, only: zhao_charge_root_type, solve_outer_plasma_zhao, &
-                                   solve_outer_plasma_zhao_column
+  use bem_outer_plasma_zhao, only: zhao_charge_root_type, zhao_continuation_diagnostics_type, &
+                                   solve_outer_plasma_zhao, solve_outer_plasma_zhao_column
   use bem_sheath_model_core, only: zhao_params_type, build_zhao_params
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -58,7 +58,8 @@ module bem_outer_plasma_kinetic
 contains
 
   subroutine solve_outer_plasma_kinetic( &
-    options, state, status, message, initial_potential, continuation_steps, initial_state &
+    options, state, status, message, initial_potential, continuation_steps, initial_state, &
+    zhao_diagnostics &
     )
     type(kinetic_outer_plasma_options_type), intent(in) :: options
     type(outer_plasma_state_type), intent(out) :: state
@@ -67,6 +68,7 @@ contains
     real(dp), intent(in), optional :: initial_potential(:)
     integer(i32), intent(out), optional :: continuation_steps
     type(outer_plasma_state_type), intent(in), optional :: initial_state
+    type(zhao_continuation_diagnostics_type), intent(out), optional :: zhao_diagnostics
     type(kinetic_outer_plasma_options_type) :: step_options
     type(outer_plasma_state_type) :: step_state
     type(outer_plasma_grid_type) :: grid
@@ -76,12 +78,17 @@ contains
     integer(i32) :: successful_steps, attempts
 
     if (present(continuation_steps)) continuation_steps = 0_i32
+    if (present(zhao_diagnostics)) zhao_diagnostics = zhao_continuation_diagnostics_type()
     select case (trim(lower_ascii(options%kinetic_closure)))
     case ('zhao_charge_driven')
       if (present(initial_state)) then
-        call solve_outer_plasma_zhao_closure(options, state, status, message, initial_state)
+        call solve_outer_plasma_zhao_closure( &
+          options, state, status, message, initial_state, zhao_diagnostics &
+          )
       else
-        call solve_outer_plasma_zhao_closure(options, state, status, message)
+        call solve_outer_plasma_zhao_closure( &
+          options, state, status, message, zhao_diagnostics=zhao_diagnostics &
+          )
       end if
       if (status == outer_plasma_ok .and. present(continuation_steps)) continuation_steps = 1_i32
       return
@@ -170,12 +177,15 @@ contains
     message = 'kinetic interface-field continuation reached its attempt limit'
   end subroutine solve_outer_plasma_kinetic
 
-  subroutine solve_outer_plasma_zhao_closure(options, state, status, message, initial_state)
+  subroutine solve_outer_plasma_zhao_closure( &
+    options, state, status, message, initial_state, zhao_diagnostics &
+    )
     type(kinetic_outer_plasma_options_type), intent(in) :: options
     type(outer_plasma_state_type), intent(out) :: state
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
     type(outer_plasma_state_type), intent(in), optional :: initial_state
+    type(zhao_continuation_diagnostics_type), intent(inout), optional :: zhao_diagnostics
 
     type(zhao_params_type) :: params
     type(zhao_charge_root_type) :: root, initial_root
@@ -240,6 +250,19 @@ contains
         initial_root%n_swe_inf_m3 = initial_state%zhao_electron_density_infinity
         initial_root%interface_field_v_m = initial_state%interface_field
         initial_root%photoelectron_population_fraction = initial_state%photoelectron_population_fraction
+        initial_root%photoelectron_column_per_area = initial_state%photoelectron_column_per_area
+        initial_root%photoelectron_column_target_per_area = &
+          initial_state%photoelectron_column_target_per_area
+        initial_root%photoelectron_column_residual_per_area = &
+          initial_state%photoelectron_column_residual_per_area
+        initial_root%residual_norm = initial_state%nonlinear_residual
+        initial_root%nonlinear_iterations = initial_state%nonlinear_iterations
+        initial_root%net_current_density_a_m2 = initial_state%total_current_density
+        if (initial_root%branch == 'A') then
+          initial_root%interface_side = 'lower'
+        else
+          initial_root%interface_side = 'monotonic'
+        end if
       end if
     end if
     if (options%photoelectron_column_closure_enabled) then
@@ -247,12 +270,13 @@ contains
         call solve_outer_plasma_zhao_column( &
           options%zhao_branch, params, options%interface_field, options%grid_points, &
           options%domain_length, options%photoelectron_column_target_m2, state, root, status, message, &
-          initial_root=initial_root &
+          initial_root=initial_root, diagnostics=zhao_diagnostics &
           )
       else
         call solve_outer_plasma_zhao_column( &
           options%zhao_branch, params, options%interface_field, options%grid_points, &
-          options%domain_length, options%photoelectron_column_target_m2, state, root, status, message &
+          options%domain_length, options%photoelectron_column_target_m2, state, root, status, message, &
+          diagnostics=zhao_diagnostics &
           )
       end if
     else if (has_initial_root) then

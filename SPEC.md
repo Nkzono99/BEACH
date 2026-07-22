@@ -197,7 +197,11 @@ Zhao profileは有限領域$0\le z\le10\lambda_{D,pe}$へ再標本化し、free/
 overshootを許します。`[0,1]`へclampせず、targetを無視したfull-population解やdisconnected branchへjump/fallbackしません。
 queue modeは`zhao_branch="auto"`を要求し、縮退条件を満たす連続的なA/B等のbranch遷移だけを許します。現在の
 bisectionはcolumnが$\eta$とともに単調増加するpathだけを受理し、foldを含む連続pathは未対応として停止します。
-targetへ到達する連結・単調解がなければ`no_physical_solution`で停止します。これはflight delayと有限column inventoryのclosureであり、時間依存Vlasov--Poisson、
+targetへ到達する連結・単調解がなければ`no_physical_solution`で停止します。Zhao continuationが失敗した場合は、
+MPI rootが`BEACH zhao-continuation` prefixの5行へcall stage、batch、reason/status、target、直前root、拒否candidate、
+root jumpをfull-range scientific formatで出力し、flushと全rank barrierの後にfail closedします。このtelemetryは
+root選択を変更しません。固定branchのpseudo-arclength atlasは診断APIであり、runtime fallbackではありません。
+これはflight delayと有限column inventoryのclosureであり、時間依存Vlasov--Poisson、
 outer collision、energy-resolved cloud evolutionではありません。`batch_duration`、tracked粒子数、水平面積、有効interface位置、
 profile gridについて収束を確認します。
 

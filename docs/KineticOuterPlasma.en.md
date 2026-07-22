@@ -146,6 +146,23 @@ full-population solution or branch `0`, or jump to a disconnected branch. Queue 
 only continuous A/B or other branch transitions satisfying the degeneracy condition. The current bisection accepts only paths
 whose column increases monotonically with $\eta$; a continuous path containing a fold is unsupported and stops. If no connected,
 monotone path reaches the target, the solve stops with `no_physical_solution`.
+
+### Diagnose a Zhao continuation failure
+
+When Zhao continuation fails closed, the MPI root writes five stderr records prefixed with
+`BEACH zhao-continuation` before the generic error. `call_stage` is `pre_batch` or `post_enqueue`, and `batch` identifies the
+failing batch. The remaining records contain the solver stage, reason code, underlying and return status, target field,
+`attempt`, `attempted_step`, $\eta$, and column, the previous root, the rejected candidate, root residuals,
+`normalized_potential_jump`, `log_density_jump`, and `normalized_root_jump`.
+An unavailable branch is encoded as `from_branch=-` or `candidate_branch=-`. Reals use a full-range scientific format with a
+three-digit exponent. The root flushes all five records before every MPI rank stops.
+
+The public Fortran procedure `trace_zhao_branch_atlas` is a diagnostic pseudo-arclength tracer for one requested A, B, or C
+branch. It is not connected to production continuation, root selection, or fallback. Reaching a finite density floor or point
+limit is a `search_limit`; without tracing other branches and degeneracy connections, it does not establish that the target is
+unreachable on every stationary Zhao root. [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) records the scope of the
+strong-UV fixture and the next A/B-connection diagnostic.
+
 The same $0\le z\le10\lambda_{D,pe}$ interval is the finite queue-particle control volume. A particle that does not turn inside
 it is absorbed by the exterior reservoir and escapes at $L=10\lambda_{D,pe}$; queue mode does not use a Robin tail outside $L$
 to classify return. For each event, it applies the frozen-field bound to
@@ -198,8 +215,9 @@ The closure also rejects a legacy Zhao `sheath_injection_model`,
 This effective-plane approximation does not self-consistently connect tracked-ray directions or a VDF reaching the interface
 from a rough surface to the Zhao outer population. `ray_direction` controls illumination-ray sampling of emitting surfaces, while $\alpha$
 independently controls the analytic Zhao source. See [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md) for scope and the
-boundary VDF needed by a future generalization, and [ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md) for the
-transient-queue decision.
+boundary VDF needed by a future generalization, [ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md) for the
+transient-queue decision, and [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) for staged continuation diagnostics
+and a possible dynamic outer model.
 
 ## Connect the `absorbing_maxwellian` finite grid to infinity with a Robin tail
 
