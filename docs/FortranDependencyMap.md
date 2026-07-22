@@ -8,11 +8,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 ## 概要
 
-- ソースファイル数: 89
-- モジュール数: 75
+- ソースファイル数: 91
+- モジュール数: 77
 - submodule 数: 13
 - program 数: 1
-- 内部依存エッジ数: 350
+- 内部依存エッジ数: 363
 
 ## 全体グラフ
 
@@ -24,13 +24,13 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 | ディレクトリ | エンティティ数 | 内部依存数 |
 | --- | ---: | ---: |
-| `app` | 1 | 13 |
+| `app` | 1 | 15 |
 | `src/config` | 6 | 34 |
 | `src/config/app_config_parser` | 3 | 10 |
 | `src/core` | 6 | 3 |
 | `src/mesh` | 3 | 11 |
 | `src/particles` | 3 | 10 |
-| `src/physics` | 8 | 34 |
+| `src/physics` | 8 | 35 |
 | `src/physics/field_solver` | 5 | 24 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
 | `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
@@ -41,15 +41,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `src/physics/panel` | 5 | 13 |
 | `src/physics/periodic_zero_mode` | 3 | 9 |
 | `src/physics/sheath` | 2 | 11 |
-| `src/runtime` | 7 | 35 |
-| `src/runtime/coupling` | 4 | 9 |
-| `src/runtime/simulator` | 6 | 32 |
+| `src/runtime` | 7 | 36 |
+| `src/runtime/coupling` | 6 | 15 |
+| `src/runtime/simulator` | 6 | 35 |
 
 ## 被依存の多いモジュール
 
 | エンティティ | kind | 被依存数 |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 70 |
+| `bem_kinds` | `module` | 72 |
 | `bem_types` | `module` | 30 |
 | `bem_string_utils` | `module` | 25 |
 | `bem_constants` | `module` | 23 |
@@ -64,7 +64,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 | エンティティ | kind | パス | 内部依存 | 概要 |
 | --- | --- | --- | --- | --- |
-| `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
+| `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_outer_event_queue`, `bem_outer_event_queue_io`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
 | `bem_app_config` | `module` | `src/config/bem_app_config.f90` | `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime` | 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。 |
 | `bem_app_config_authoring` | `module` | `src/config/bem_app_config_authoring.f90` | `bem_kinds`, `bem_app_config_types`, `bem_string_utils` | BEACH TOML の高水準 authoring キーを実行時設定へ正規化する補助モジュール。 |
 | `bem_app_config_runtime` | `module` | `src/config/bem_app_config_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_collision`, `bem_importers`, `bem_injection`, `bem_particles`, `bem_sheath_injection_model`, `bem_outer_plasma_types`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers` | `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。 |
@@ -88,7 +88,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_sheath_injection_model` | `module` | `src/particles/bem_sheath_injection_model.f90` | `bem_sheath_runtime` | 互換性維持のためのシース注入ラッパモジュール。 |
 | `bem_boundary` | `module` | `src/physics/bem_boundary.f90` | `bem_kinds`, `bem_types` | シミュレーションボックス境界（流出/反射/周期）を適用するモジュール。 |
 | `bem_collision` | `module` | `src/physics/bem_collision.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。 |
-| `bem_electrostatic_snapshot` | `module` | `src/physics/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_linear`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi` | - |
+| `bem_electrostatic_snapshot` | `module` | `src/physics/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_linear`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi` | - |
 | `bem_field` | `module` | `src/physics/bem_field.f90` | `bem_kinds`, `bem_constants`, `bem_types` | 境界要素に蓄積した電荷から観測点の電場を評価する場計算モジュール。 |
 | `bem_pusher` | `module` | `src/physics/bem_pusher.f90` | `bem_kinds` | 荷電粒子の時間発展にBoris法を適用する運動方程式ソルバ。 |
 | `bem_surface_models` | `module` | `src/physics/bem_surface_models.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 表面モデルごとの電荷更新後処理を扱うモジュール。 |
@@ -142,14 +142,16 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_outer_plasma_kinetic_runtime` | `module` | `src/runtime/bem_outer_plasma_kinetic_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_string_utils` | - |
 | `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_version`, `bem_filesystem`, `bem_string_utils` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
 | `bem_performance_profile` | `module` | `src/runtime/bem_performance_profile.f90` | `bem_kinds`, `bem_mpi`, `bem_string_utils` | 実行フェーズごとの壁時計計測と MPI 集約出力を担う軽量プロファイラ。 |
-| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
+| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_outer_event_queue`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
 | `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
 | `bem_interface_particle_buffer` | `module` | `src/runtime/coupling/bem_interface_particle_buffer.f90` | `bem_kinds`, `bem_interface_types` | - |
 | `bem_interface_types` | `module` | `src/runtime/coupling/bem_interface_types.f90` | `bem_kinds` | - |
 | `bem_outer_coupler` | `module` | `src/runtime/coupling/bem_outer_coupler.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_string_utils` | - |
+| `bem_outer_event_queue` | `module` | `src/runtime/coupling/bem_outer_event_queue.f90` | `bem_kinds`, `bem_interface_types` | - |
+| `bem_outer_event_queue_io` | `module` | `src/runtime/coupling/bem_outer_event_queue_io.f90` | `bem_kinds`, `bem_filesystem`, `bem_mpi`, `bem_outer_event_queue` | Rank-local delayed outer-event queue checkpoint I/O. |
 | `bem_particle_stepper` | `module` | `src/runtime/simulator/bem_particle_stepper.f90` | `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_interface_types` | 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。 |
-| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_outer_coupler`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_interface_types`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit`, `bem_outer_plasma_photoelectron`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_kinetic_runtime`, `bem_outer_plasma_types`, `bem_simulator_workspace`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。 |
-| `bem_simulator_workspace` | `module` | `src/runtime/simulator/bem_simulator_workspace.f90` | `bem_kinds` | シミュレーション実行中に再利用するバッチ作業配列を管理する。 |
+| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_app_config_runtime`, `bem_particles`, `bem_electrostatic_snapshot`, `bem_outer_coupler`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_interface_types`, `bem_outer_event_queue`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit`, `bem_outer_plasma_photoelectron`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_kinetic_runtime`, `bem_outer_plasma_types`, `bem_simulator_workspace`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。 |
+| `bem_simulator_workspace` | `module` | `src/runtime/simulator/bem_simulator_workspace.f90` | `bem_kinds`, `bem_outer_event_queue` | シミュレーション実行中に再利用するバッチ作業配列を管理する。 |
 | `bem_simulator_io` | `submodule` | `src/runtime/simulator/bem_simulator_io.f90` | `bem_simulator` | `bem_simulator` の進捗表示と履歴出力を実装する submodule。 |
 | `bem_simulator_loop` | `submodule` | `src/runtime/simulator/bem_simulator_loop.f90` | `bem_simulator`, `bem_performance_profile` | `bem_simulator` の主ループと粒子処理計算を実装する submodule。 |
 | `bem_simulator_stats` | `submodule` | `src/runtime/simulator/bem_simulator_stats.f90` | `bem_simulator` | `bem_simulator` のバッチ集計・統計更新処理を実装する submodule。 |
@@ -161,8 +163,8 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `program`
 - path: `app/main.f90`
 - group: `app`
-- 内部依存: `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`
-- external dependencies: なし
+- 内部依存: `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_outer_event_queue`, `bem_outer_event_queue_io`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`
+- external dependencies: `iso_fortran_env`
 - 概要: 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 
 ### `bem_app_config`
@@ -379,7 +381,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/bem_electrostatic_snapshot.f90`
 - group: `src/physics`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_linear`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_linear`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi`
 - external dependencies: `iso_fortran_env`
 
 ### `bem_field`
@@ -859,7 +861,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/runtime/bem_restart.f90`
 - group: `src/runtime`
-- 内部依存: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi`
+- 内部依存: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_outer_plasma_photoelectron`, `bem_model_fingerprint`, `bem_outer_event_queue`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi`
 - external dependencies: `ieee_arithmetic`
 - 概要: チェックポイントファイルの保存/復元を扱う補助モジュール。
 
@@ -896,6 +898,23 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - 内部依存: `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_string_utils`
 - external dependencies: なし
 
+### `bem_outer_event_queue`
+
+- kind: `module`
+- path: `src/runtime/coupling/bem_outer_event_queue.f90`
+- group: `src/runtime/coupling`
+- 内部依存: `bem_kinds`, `bem_interface_types`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_outer_event_queue_io`
+
+- kind: `module`
+- path: `src/runtime/coupling/bem_outer_event_queue_io.f90`
+- group: `src/runtime/coupling`
+- 内部依存: `bem_kinds`, `bem_filesystem`, `bem_mpi`, `bem_outer_event_queue`
+- external dependencies: `ieee_arithmetic`
+- 概要: Rank-local delayed outer-event queue checkpoint I/O.
+
 ### `bem_particle_stepper`
 
 - kind: `module`
@@ -910,7 +929,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/runtime/simulator/bem_simulator.f90`
 - group: `src/runtime/simulator`
-- 内部依存: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_outer_coupler`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_interface_types`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit`, `bem_outer_plasma_photoelectron`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_kinetic_runtime`, `bem_outer_plasma_types`, `bem_simulator_workspace`, `bem_mpi`
+- 内部依存: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_app_config_runtime`, `bem_particles`, `bem_electrostatic_snapshot`, `bem_outer_coupler`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_interface_types`, `bem_outer_event_queue`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit`, `bem_outer_plasma_photoelectron`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_kinetic_runtime`, `bem_outer_plasma_types`, `bem_simulator_workspace`, `bem_mpi`
 - external dependencies: `iso_fortran_env`, `ieee_arithmetic`
 - 概要: 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。
 
@@ -919,7 +938,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/runtime/simulator/bem_simulator_workspace.f90`
 - group: `src/runtime/simulator`
-- 内部依存: `bem_kinds`
+- 内部依存: `bem_kinds`, `bem_outer_event_queue`
 - external dependencies: なし
 - 概要: シミュレーション実行中に再利用するバッチ作業配列を管理する。
 
