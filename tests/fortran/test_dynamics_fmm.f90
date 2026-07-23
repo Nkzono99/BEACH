@@ -6,7 +6,6 @@ program test_dynamics_fmm
   use bem_templates, only: make_sphere
   use bem_field, only: electric_field_at
   use bem_field_solver, only: field_solver_type
-  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
@@ -681,7 +680,7 @@ contains
     type(field_solver_type), intent(in) :: solver
     real(dp), intent(in) :: r(3)
     real(dp), intent(out) :: e(3)
-    real(dp) :: wrapped_r(3), e_core(3)
+    real(dp) :: wrapped_r(3)
     integer(i32) :: axis
 
     wrapped_r = r
@@ -698,11 +697,6 @@ contains
       mesh, wrapped_r, solver%softening, solver%target_box_min, solver%target_box_max, solver%periodic_axes, &
       solver%periodic_image_layers, e &
       )
-    if (trim(solver%periodic_far_correction) /= 'm2l_root_oracle') return
-
-    e_core = e/k_coulomb
-    call add_periodic2_exact_ewald_correction_all_sources(solver%fmm_core_plan, solver%fmm_core_state, wrapped_r, e_core)
-    e = k_coulomb*e_core
   end subroutine electric_field_at_periodic2_reference
 
 end program test_dynamics_fmm

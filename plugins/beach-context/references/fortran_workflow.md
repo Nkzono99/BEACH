@@ -94,8 +94,7 @@ BEACH のテストは開発ループ向けに階層化しています。
 - L3: L2 + heavy FMM targets / full fpm suite（release gate / nightly / main 統合前）
 
 `make test-fortran` は軽量 Fortran target の alias です。重い FMM 系
-（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_periodic`,
-`test_periodic2_flat_oracle_diag`）は通常の `make test` から外し、`make test-l3` /
+（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_periodic`）は通常の `make test` から外し、`make test-l3` /
 `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行します。
 
 個別 target だけ確認する場合は次を使います。

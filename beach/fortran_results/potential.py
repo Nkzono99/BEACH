@@ -54,7 +54,7 @@ def compute_potential_mesh(
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
         ``far_correction`` (``"auto"``, ``"none"``, or
-        ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
+        historical-read-only ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
         ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
@@ -168,7 +168,7 @@ def compute_potential_points(
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
         ``far_correction`` (``"auto"``, ``"none"``, or
-        ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
+        historical-read-only ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
         ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は

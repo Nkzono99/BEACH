@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Renamed the tracked photoelectron-return example to `examples/periodic2_photoelectron_return.toml`.
 
 ### Removed
+- **BREAKING**: Removed the executable `m2l_root_oracle` periodic far-correction backend and its exact-Ewald out-of-box fallback. New configurations are rejected with guidance to use `cached_kneq0`; historical output metadata remains readable.
 - **BREAKING**: Removed `photo_escape_model` and its `boltzmann_cutoff` reduced-emission closure. Photoelectrons now keep their full emitted weight and use ordinary tracking plus `potential_barrier` or an outer-plasma return model.
 - **BREAKING**: Removed the `individual_return` photoelectron-closure setting; outgoing histograms and applicability checks are enabled with `outer_plasma.photoelectron_histogram_enabled=true`.
 

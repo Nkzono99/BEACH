@@ -1,7 +1,7 @@
-!> periodic2 build-only Ewald oracle と fallback exact correction。
+!> periodic2 cached operator生成用のEwald teacher。
 module bem_coulomb_fmm_periodic_ewald
   use bem_kinds, only: dp, i32
-  use bem_coulomb_fmm_types, only: inv_sqrt_pi, fmm_plan_type, fmm_state_type, reset_periodic2_ewald_data
+  use bem_coulomb_fmm_types, only: inv_sqrt_pi, fmm_plan_type, reset_periodic2_ewald_data
   use bem_coulomb_fmm_periodic, only: use_periodic2_root_operator
   implicit none
   private
@@ -13,10 +13,8 @@ module bem_coulomb_fmm_periodic_ewald
   public :: precompute_periodic2_ewald_data
   public :: add_periodic2_exact_ewald_correction_single_source
   public :: add_periodic2_exact_ewald_kneq0_correction_single_source
-  public :: add_periodic2_exact_ewald_correction_all_sources
   public :: add_periodic2_exact_ewald_potential_correction_single_source
   public :: add_periodic2_kneq0_potential_correction_single_source
-  public :: add_periodic2_exact_ewald_potential_correction_all_sources
 
 contains
 
@@ -124,50 +122,6 @@ contains
     plan%periodic_ewald%ready = .true.
     plan%options%periodic_ewald_alpha = alpha
   end subroutine precompute_periodic2_ewald_data
-
-  !> 全ソース分の periodic2 Ewald 補正を加算する。
-  !! @param[in] plan FMM 計画。
-  !! @param[in] state ソース電荷を含む state。
-  !! @param[in] target 評価点。
-  !! @param[inout] e 電場。
-  subroutine add_periodic2_exact_ewald_correction_all_sources(plan, state, target, e)
-    type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(inout) :: e(3)
-    integer(i32) :: idx
-    real(dp) :: total_charge
-
-    if (.not. plan%periodic_ewald%ready) return
-    total_charge = 0.0d0
-    do idx = 1_i32, plan%nsrc
-      total_charge = total_charge + state%src_q(idx)
-      call add_periodic2_exact_ewald_correction_single_source(plan, state%src_q(idx), plan%src_pos(:, idx), target, e)
-    end do
-    call add_exact_periodic2_charged_wall_total_charge_correction(plan, total_charge, target, e)
-  end subroutine add_periodic2_exact_ewald_correction_all_sources
-
-  !> 全ソース分の periodic2 Ewald の電位補正を加算する。
-  !! @param[in] plan FMM 計画。
-  !! @param[in] state ソース電荷を含む state。
-  !! @param[in] target 評価点。
-  !! @param[inout] phi 電位。
-  subroutine add_periodic2_exact_ewald_potential_correction_all_sources(plan, state, target, phi)
-    type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(inout) :: phi
-    integer(i32) :: idx
-    real(dp) :: total_charge
-
-    if (.not. plan%periodic_ewald%ready) return
-    total_charge = 0.0d0
-    do idx = 1_i32, plan%nsrc
-      total_charge = total_charge + state%src_q(idx)
-      call add_periodic2_exact_ewald_potential_correction_single_source(plan, state%src_q(idx), plan%src_pos(:, idx), target, phi)
-    end do
-    call add_exact_periodic2_charged_wall_phi_correction(plan, total_charge, target, phi)
-  end subroutine add_periodic2_exact_ewald_potential_correction_all_sources
 
   !> 1 粒子分の periodic2 Ewald 補正を加算する。
   !! @param[in] plan FMM 計画。
@@ -367,66 +321,6 @@ contains
     arg = plan%periodic_ewald%alpha*dz
     phi = phi - plan%periodic_ewald%k0_pref*q*(dz*erf(arg) + exp(-(arg*arg))/(plan%periodic_ewald%alpha*sqrt(pi_dp)))
   end subroutine add_exact_periodic2_k0_potential_correction
-
-  !> 非中性 slab を charged-walls で閉じる total-charge 補正を加算する。
-  !! 壁の場は slab 内では相殺されるため、box 外評価にだけ効く。
-  subroutine add_exact_periodic2_charged_wall_total_charge_correction(plan, total_charge, target, e)
-    type(fmm_plan_type), intent(in) :: plan
-    real(dp), intent(in) :: total_charge, target(3)
-    real(dp), intent(inout) :: e(3)
-    integer(i32) :: axis_free
-    real(dp) :: z, z_low, z_high, pref, tol
-
-    if (abs(total_charge) <= tiny(1.0d0)) return
-    if (plan%periodic_ewald%cell_area <= 0.0d0) return
-
-    axis_free = plan%periodic_ewald%axis_free
-    if (axis_free <= 0_i32 .or. axis_free > 3_i32) return
-
-    z_low = plan%options%target_box_min(axis_free)
-    z_high = plan%options%target_box_max(axis_free)
-    if (z_high <= z_low) return
-
-    z = target(axis_free)
-    tol = 1.0d-12*max(1.0d0, max(abs(z_low), abs(z_high)))
-    pref = two_pi_dp*total_charge/plan%periodic_ewald%cell_area
-
-    if (z < z_low - tol) then
-      e(axis_free) = e(axis_free) + pref
-    else if (z > z_high + tol) then
-      e(axis_free) = e(axis_free) - pref
-    end if
-  end subroutine add_exact_periodic2_charged_wall_total_charge_correction
-
-  !> charged-walls total-charge 補正の電位版を加算する。
-  !! slab 内を基準電位 0 とする。
-  subroutine add_exact_periodic2_charged_wall_phi_correction(plan, total_charge, target, phi)
-    type(fmm_plan_type), intent(in) :: plan
-    real(dp), intent(in) :: total_charge, target(3)
-    real(dp), intent(inout) :: phi
-    integer(i32) :: axis_free
-    real(dp) :: z, z_low, z_high, pref, tol
-
-    if (abs(total_charge) <= tiny(1.0d0)) return
-    if (plan%periodic_ewald%cell_area <= 0.0d0) return
-
-    axis_free = plan%periodic_ewald%axis_free
-    if (axis_free <= 0_i32 .or. axis_free > 3_i32) return
-
-    z_low = plan%options%target_box_min(axis_free)
-    z_high = plan%options%target_box_max(axis_free)
-    if (z_high <= z_low) return
-
-    z = target(axis_free)
-    tol = 1.0d-12*max(1.0d0, max(abs(z_low), abs(z_high)))
-    pref = two_pi_dp*total_charge/plan%periodic_ewald%cell_area
-
-    if (z < z_low - tol) then
-      phi = phi - pref*(z - z_low)
-    else if (z > z_high + tol) then
-      phi = phi + pref*(z - z_high)
-    end if
-  end subroutine add_exact_periodic2_charged_wall_phi_correction
 
   subroutine add_screened_point_charge(q, target, source, alpha, e)
     real(dp), intent(in) :: q

@@ -219,8 +219,8 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `tree_leaf_max` | int | `16` | source tree の葉 node あたり最大 source 数。`>= 1` |
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / 診断用 `m2l_root_oracle` / production `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | operator generator / oracle の Ewald 分解パラメータ |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / production `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | operator generator の Ewald 分解パラメータ |
 | `field_periodic_ewald_layers` | int | `4` | Ewald generator の real-space / reciprocal cutoff 深さ |
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
@@ -259,8 +259,8 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 |---|---|---:|---|
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `m2l_root_oracle` / `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | operator generator / oracle の Ewald 分解パラメータ |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | operator generator の Ewald 分解パラメータ |
 | `field_periodic_ewald_layers` | int | `4` | Ewald generator の outer shell / reciprocal cutoff 深さ |
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
@@ -555,11 +555,11 @@ periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要�
 | --- | --- |
 | `none` | 有限画像近似 |
 | `auto` | 互換用。現在は`none` |
-| `m2l_root_oracle` | exact periodic Ewald residualをfitする高コスト診断 |
 | `cached_kneq0` | versioned operatorを再利用するproduction非零モード |
 
 `field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
 無限周期のproduction計算では、`cached_kneq0`を明示的に選択してください。
+削除済みの`m2l_root_oracle`を指定すると、`cached_kneq0`を案内して起動時にrejectします。
 
 `cached_kneq0`では`exclude_k0` providerが物理的$k=0$を1回加えます。
 `symmetric_vacuum`は上下を$\pm Q/(2\epsilon_0A)$、`e_bottom_zero`は下側0・上側$Q/(\epsilon_0A)$とします。
@@ -1010,7 +1010,6 @@ z 軸方向の円柱です。
 | 必須条件 | `sim.softening=0`、全表面が `insulator` |
 | Treecode | 厳密 panel near + monopole far |
 | FMM | 厳密 panel near + 厳密 triangle P2M |
-| 非対応 | point source 専用の `m2l_root_oracle` |
 | 面の向き | OBJ は `[mesh].surface_side`、template は各 `[[mesh.templates]].surface_side` を指定 |
 
 `outward_closed` は、法線の向きが整合した閉じた two-manifold だけに使用できます。
@@ -1079,7 +1078,7 @@ histogram state が ready な場合、`summary.txt` へ次を追加します。
 - 要素重心の電位 [V] を記録します。
 - 自己項は `softening > 0` なら `1/softening`、それ以外は面積等価半径近似です。
 - `periodic2` は explicit image shell を加えます。
-- `m2l_root_oracle` は診断用 Ewald residual、`cached_kneq0` は cached 非零モードと境界条件付き `k=0` を加えます。
+- `cached_kneq0` は cached 非零モードと境界条件付き `k=0` を加えます。
 
 `potential_history.csv`:
 

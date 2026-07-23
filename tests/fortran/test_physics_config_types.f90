@@ -378,9 +378,6 @@ program test_physics_config_types
   panel = panel_kernel_config(source_model='triangle_p0', kernel_id='triangle_p0_exact_p2m_near')
   call validate_phase1_panel_config(sim, panel, status, message)
   call assert_equal_i32(status, physics_config_ok, 'triangle panel FMM should be available')
-  sim%field_periodic_far_correction = 'm2l_root_oracle'
-  call validate_phase1_panel_config(sim, panel, status, message)
-  call assert_equal_i32(status, physics_config_unavailable, 'point-source root oracle must be rejected for panels')
   call test_end()
 
   call test_begin('triangle_panel_auto_and_treecode')
@@ -411,17 +408,18 @@ program test_physics_config_types
   call assert_equal_i32(status, physics_config_ok, 'finite image legacy config should be valid')
   call test_end()
 
-  call test_begin('root_oracle_legacy_normalization')
+  call test_begin('removed_root_oracle_normalization')
   sim%field_periodic_far_correction = 'm2l_root_oracle'
   call normalize_legacy_physics_config(sim, field, periodic2, panel, outer, coupling)
-  call assert_true(trim(periodic2%nonzero_mode_backend) == 'legacy_root_oracle', 'root oracle backend mismatch')
-  call assert_true(trim(periodic2%zero_mode_policy) == 'legacy_charged_walls', 'root oracle zero policy mismatch')
+  call assert_true(trim(periodic2%nonzero_mode_backend) == 'invalid', 'removed root oracle must normalize to invalid')
+  call assert_true(trim(periodic2%zero_mode_policy) == 'invalid', 'removed root oracle zero policy must be invalid')
   call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_ok, 'root oracle legacy config should be valid')
+  call assert_equal_i32(status, physics_config_invalid_combination, 'removed root oracle config must be invalid')
   call test_end()
 
   call test_begin('mismatched_zero_policy_rejected')
-  periodic2%zero_mode_policy = 'exclude_k0'
+  periodic2%nonzero_mode_backend = 'cached_kneq0'
+  periodic2%zero_mode_policy = 'legacy_not_decomposed'
   call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'mismatched zero policy must be rejected')
   call assert_true(len_trim(message) > 0, 'invalid combination should report a message')

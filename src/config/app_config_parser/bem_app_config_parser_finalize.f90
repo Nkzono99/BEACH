@@ -103,15 +103,13 @@ contains
   case ('none')
     continue
   case ('m2l_root_oracle')
-    continue
+    error stop 'sim.field_periodic_far_correction="m2l_root_oracle" was removed; use "cached_kneq0".'
   case ('cached_kneq0')
     continue
   case default
-    error stop 'sim.field_periodic_far_correction must be "auto", "none", '// &
-      '"m2l_root_oracle", or "cached_kneq0".'
+    error stop 'sim.field_periodic_far_correction must be "auto", "none", or "cached_kneq0".'
   end select
-  if (trim(cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle' .or. &
-      trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0') then
+  if (trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0') then
     if (trim(cfg%sim%field_solver) /= 'fmm' .or. trim(cfg%sim%field_bc_mode) /= 'periodic2') then
       error stop 'sim.field_periodic_far_correction requires sim.field_solver="fmm" and sim.field_bc_mode="periodic2".'
     end if

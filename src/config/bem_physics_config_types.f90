@@ -105,9 +105,6 @@ contains
     case ('none', 'auto')
       periodic2%nonzero_mode_backend = 'legacy_finite_images'
       periodic2%zero_mode_policy = 'legacy_not_decomposed'
-    case ('m2l_root_oracle')
-      periodic2%nonzero_mode_backend = 'legacy_root_oracle'
-      periodic2%zero_mode_policy = 'legacy_charged_walls'
     case ('cached_kneq0')
       periodic2%nonzero_mode_backend = 'cached_kneq0'
       periodic2%zero_mode_policy = 'exclude_k0'
@@ -186,13 +183,6 @@ contains
           'legacy_finite_images requires zero_mode_policy=legacy_not_decomposed.', status, message &
           )
       end if
-    case ('legacy_root_oracle')
-      if (trim(zero_policy) /= 'legacy_charged_walls') then
-        call reject( &
-          physics_config_invalid_combination, &
-          'legacy_root_oracle requires zero_mode_policy=legacy_charged_walls.', status, message &
-          )
-      end if
     case ('reference_kneq0')
       if (trim(zero_policy) /= 'exclude_k0') then
         call reject(physics_config_invalid_combination, 'kneq0 backends require zero_mode_policy=exclude_k0.', status, message)
@@ -248,8 +238,6 @@ contains
         call reject(physics_config_invalid_combination, 'triangle_p0 FMM requires exact P2M/panel-near kernel.', status, message)
       else if (trim(boundary) /= 'free' .and. trim(boundary) /= 'periodic2') then
         call reject(physics_config_invalid_combination, 'triangle_p0 FMM supports free or periodic2 boundaries.', status, message)
-      else if (trim(lower_ascii(sim%field_periodic_far_correction)) == 'm2l_root_oracle') then
-        call reject(physics_config_unavailable, 'triangle_p0 FMM does not support the point-source root oracle.', status, message)
       end if
     case ('auto')
       if (trim(kernel_id) /= 'triangle_p0_exact_auto' .or. trim(boundary) /= 'free') then

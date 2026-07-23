@@ -437,6 +437,11 @@ def test_field_kernel_diagnostics_requires_new_symbol(
             kernel.diagnostics()
 
 
+def test_removed_root_oracle_is_rejected() -> None:
+    with pytest.raises(ValueError, match='was removed; use "cached_kneq0"'):
+        kernel_module._far_correction_code("m2l_root_oracle")
+
+
 def test_coerce_periodic2_validates_legacy_tuple_and_cached_policy() -> None:
     cached = ((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "cached_kneq0", 0.0, 4)
 

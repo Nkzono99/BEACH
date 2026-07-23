@@ -194,6 +194,12 @@ program test_field_kernel_c
   cache_box_max = [2.0d0, 2.0d0, 1.0d0]
   status = beach_kernel_build( &
            handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 2_c_int, 0.0d0, 1_c_int, &
+           c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 2_c_int, 0.0d0, 4_c_int, &
+           c_loc(cache_box_min), c_loc(cache_box_max) &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'removed far-correction ABI code 2')
+  status = beach_kernel_build( &
+           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 2_c_int, 0.0d0, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 0_c_int, 3_c_int, 0.0d0, 4_c_int, &
            c_loc(cache_box_min), c_loc(cache_box_max) &
            )
