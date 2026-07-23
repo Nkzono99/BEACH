@@ -87,8 +87,7 @@ make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: cumulative L0-L3 verification
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # oracle far-correction correctness
-make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-far-correction  # cached operator / exact Ewald correctness
 make test-fortran-benchmark  # release-profile runtime benchmark
 make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
@@ -97,7 +96,7 @@ pytest -q         # Python テストのみ
 ```
 
 `make test` is the L1 alias and is the normal default for the inner AI/development loop.
-Long-running FMM targets are run explicitly with `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`. Use `make test-fortran-far-correction` for `m2l_root_oracle` correctness, `make test-fortran-far-correction-diagnostics` for assertion-free output, and `make test-fortran-benchmark` for release-profile timing.
+Long-running FMM targets are run explicitly with `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`. Use `make test-fortran-far-correction` for `cached_kneq0` cold-operator and exact-Ewald correctness, and `make test-fortran-benchmark` for release-profile timing.
 Run the shared-kernel cache contract and native periodic plane-oracle receipt
 with the opt-in `make test-field-kernel-cache` target. It passes the built
 library's absolute path to the test and is not included in L1/L2/L3 or
@@ -135,7 +134,7 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | Electric-field evaluation method |
 | `field_bc_mode` | string | "free" | free, periodic2 | Normal periodic2 uses FMM; the Direct split reference is the exception |
 | `field_periodic_image_layers` | int | 1 | >= 0 | Number of periodic2 image-shell layers |
-| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle, cached_kneq0 | `cached_kneq0` is the production infinite-periodic nonzero mode |
+| `field_periodic_far_correction` | string | "none" | auto, none, cached_kneq0 | `cached_kneq0` is the production infinite-periodic nonzero mode |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald splitting parameter, 0 means automatic |
 | `field_periodic_ewald_layers` | int | 4 | >= 0 | Ewald shell depth |
 | `field_periodic_cache_dir` | string | ".beach_cache/periodic2" | non-empty | Versioned operator cache |

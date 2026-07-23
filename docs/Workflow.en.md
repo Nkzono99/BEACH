@@ -95,8 +95,7 @@ make test-l2      # L2: contract/integration
 make test-l3      # L3: cumulative L0-L3 verification
 make test-physics-release  # HPC: minimal release correctness + MPI manifest
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # oracle far-correction correctness
-make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-far-correction  # cached operator / exact Ewald correctness
 make test-fortran-benchmark  # release-profile runtime benchmark
 make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
@@ -112,9 +111,8 @@ The test suite is tiered for the development loop.
 `make test-fortran` aliases the lightweight Fortran targets. Heavy FMM targets such as
 `test_dynamics_fmm` and `test_coulomb_fmm_core_basic` are excluded from normal `make test` and must be run with
 `make test-l3`, `make test-heavy`, `make test-fortran-heavy`, or `make test-full`.
-The `m2l_root_oracle` correctness tests are opt-in through `make test-fortran-far-correction`.
-The assertion-free `test_periodic2_flat_oracle_diag` is separated under
-`make test-fortran-far-correction-diagnostics`. Runtime comparison uses the release profile through
+The `cached_kneq0` cold-operator and exact-Ewald correctness tests are opt-in through
+`make test-fortran-far-correction`. Runtime comparison uses the release profile through
 `make test-fortran-benchmark` instead of running inside a debug correctness test.
 To compare `point` and `triangle_p0` field-evaluation costs on a real mesh, run the
 following command once for each configuration. `FIELD_KERNEL_BENCHMARK_TARGET_COUNT`

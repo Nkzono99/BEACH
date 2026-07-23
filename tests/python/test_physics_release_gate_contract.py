@@ -155,9 +155,9 @@ def test_far_correction_diagnostic_and_benchmark_are_opt_in() -> None:
     )
 
     assert match is not None
-    assert "test_periodic2_flat_oracle_diag" not in match.group(1)
-    assert "FORTRAN_FAR_CORRECTION_DIAGNOSTIC_TARGETS" in makefile
-    assert "test-fortran-far-correction-diagnostics:" in makefile
+    assert "oracle" not in match.group(1)
+    assert "FORTRAN_FAR_CORRECTION_DIAGNOSTIC_TARGETS" not in makefile
+    assert "test-fortran-far-correction-diagnostics:" not in makefile
     assert "FORTRAN_BENCHMARK_TARGETS" in makefile
     assert "test-fortran-benchmark:" in makefile
     assert "$(call run_fortran_targets,$(FORTRAN_BENCHMARK_TARGETS),release,run,example)" in makefile

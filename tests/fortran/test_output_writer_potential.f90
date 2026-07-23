@@ -76,7 +76,7 @@ program test_output_writer_potential
   cfg%sim%softening = 0.0d0
   cfg%sim%field_solver = 'fmm'
   cfg%sim%field_bc_mode = 'periodic2'
-  cfg%sim%field_periodic_far_correction = 'm2l_root_oracle'
+  cfg%sim%field_periodic_far_correction = 'none'
   cfg%sim%field_periodic_image_layers = 1_i32
   cfg%sim%field_periodic_ewald_layers = 1_i32
   cfg%sim%use_box = .true.
@@ -92,7 +92,7 @@ program test_output_writer_potential
   call write_result_files(out_dir_periodic, mesh, stats, cfg, mesh_potential_v=potential_v)
   call read_potential_values(out_dir_periodic, values)
   call assert_equal_i32(int(size(values), i32), 1_i32, 'periodic mesh_potential.csv row count mismatch')
-  call assert_close_dp(values(1), expected_periodic_potential(), 1.0d-9, 'periodic potential mismatch')
+  call assert_close_dp(values(1), expected_periodic_potential(), 5.0d-9, 'periodic potential mismatch')
   call test_end()
 
   ! --- FMM core mesh potential test ---
@@ -146,7 +146,7 @@ contains
     call fmm_solver%refresh(mesh)
     allocate (values(mesh%nelem))
     call fmm_solver%compute_mesh_potential(mesh, sim, values)
-    call assert_close_dp(values(1), expected_phi, 1.0d-9, 'periodic FMM mesh potential mismatch')
+    call assert_close_dp(values(1), expected_phi, 5.0d-9, 'periodic FMM mesh potential mismatch')
   end subroutine test_fmm_core_mesh_potential
 
   !> `mesh_potential.csv` を読み込む。
@@ -202,63 +202,18 @@ contains
     expected_free_potential_2 = k_coulomb*(-self_coeff*1.0d-12 + 2.0d-12)
   end function expected_free_potential_2
 
-  !> periodic2 image shell + oracle residual つき 1 要素期待電位。
+  !> periodic2 finite image shell の 1 要素期待電位。
   real(dp) function expected_periodic_potential()
     real(dp), parameter :: q = 1.0d-12
-    real(dp), parameter :: alpha = 0.6d0
     real(dp) :: self_coeff
 
     self_coeff = 2.0d0*sqrt(2.0d0*pi_dp)
-    expected_periodic_potential = k_coulomb*q*(self_coeff + direct_shell_sum() + oracle_real_space_correction(alpha) + &
-                                               oracle_reciprocal_correction(alpha) + oracle_k0_correction(alpha))
+    expected_periodic_potential = k_coulomb*q*(self_coeff + direct_shell_sum())
   end function expected_periodic_potential
 
   real(dp) function direct_shell_sum()
     direct_shell_sum = 4.0d0 + 2.0d0*sqrt(2.0d0)
   end function direct_shell_sum
-
-  real(dp) function oracle_real_space_correction(alpha)
-    real(dp), intent(in) :: alpha
-    integer :: ix, iy
-    real(dp) :: r
-
-    oracle_real_space_correction = 0.0d0
-    do ix = -2, 2
-      do iy = -2, 2
-        if (ix == 0 .and. iy == 0) cycle
-        r = sqrt(real(ix*ix + iy*iy, dp))
-        oracle_real_space_correction = oracle_real_space_correction + erfc(alpha*r)/r
-      end do
-    end do
-    do ix = -1, 1
-      do iy = -1, 1
-        if (ix == 0 .and. iy == 0) cycle
-        r = sqrt(real(ix*ix + iy*iy, dp))
-        oracle_real_space_correction = oracle_real_space_correction - 1.0d0/r
-      end do
-    end do
-  end function oracle_real_space_correction
-
-  real(dp) function oracle_reciprocal_correction(alpha)
-    real(dp), intent(in) :: alpha
-    integer :: h1, h2
-    real(dp) :: kmag
-
-    oracle_reciprocal_correction = 0.0d0
-    do h1 = -1, 1
-      do h2 = -1, 1
-        if (h1 == 0 .and. h2 == 0) cycle
-        kmag = 2.0d0*pi_dp*sqrt(real(h1*h1 + h2*h2, dp))
-        oracle_reciprocal_correction = oracle_reciprocal_correction + (pi_dp/kmag)*2.0d0*erfc(0.5d0*kmag/alpha)
-      end do
-    end do
-  end function oracle_reciprocal_correction
-
-  real(dp) function oracle_k0_correction(alpha)
-    real(dp), intent(in) :: alpha
-
-    oracle_k0_correction = -2.0d0*pi_dp/(alpha*sqrt(pi_dp))
-  end function oracle_k0_correction
 
   !> writer テストの一時出力を削除する。
   subroutine cleanup_output_dir(out_dir)

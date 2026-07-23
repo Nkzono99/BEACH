@@ -129,3 +129,38 @@ def test_plot_slices_load_sim_box_defaults_periodic2_far_correction_to_none(
     assert periodic2 is not None
     assert periodic2["far_correction"] == "none"
     assert periodic2["ewald_layers"] == 4
+
+
+def test_plot_slices_load_sim_box_limits_removed_root_oracle_to_history(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "beach.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[sim]",
+                'field_solver = "fmm"',
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -1.0]",
+                "box_max = [1.0, 1.0, 1.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                'field_periodic_far_correction = "m2l_root_oracle"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match='was removed; use "none"'):
+        _load_sim_box(config_path)
+
+    _, _, _, periodic2 = _load_sim_box(
+        config_path,
+        allow_historical_root_oracle=True,
+    )
+    assert periodic2 is not None
+    assert periodic2["far_correction"] == "none"

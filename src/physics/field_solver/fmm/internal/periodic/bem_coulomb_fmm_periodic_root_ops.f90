@@ -8,8 +8,7 @@ module bem_coulomb_fmm_periodic_root_ops
   use bem_filesystem, only: create_directories, filesystem_success, acquire_file_lock, release_file_lock
   use bem_coulomb_fmm_types, only: fmm_plan_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
-  use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle, use_periodic2_cached_kneq0, &
-                                      use_periodic2_root_operator
+  use bem_coulomb_fmm_periodic, only: use_periodic2_cached_kneq0
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_single_source, &
                                             add_periodic2_exact_ewald_potential_correction_single_source
   use bem_coulomb_fmm_periodic_cache, only: read_periodic_operator_cache, write_periodic_operator_cache, &
@@ -20,14 +19,14 @@ module bem_coulomb_fmm_periodic_root_ops
   implicit none
   private
 
-  integer(i32), parameter :: root_oracle_target_depth = 1_i32
-  real(dp), parameter :: root_oracle_proxy_multiplier = 8.0d0
-  real(dp), parameter :: root_oracle_check_multiplier = 24.0d0
-  real(dp), parameter :: root_oracle_proxy_shell_scale = 1.15d0
-  real(dp), parameter :: root_oracle_check_shell_scale = 0.92d0
-  real(dp), parameter :: root_oracle_tall_box_ratio = 4.0d0
-  real(dp), parameter :: root_oracle_lstsq_ridge = 1.0d-12
-  real(dp), parameter :: root_oracle_qr_tol = 1.0d-12
+  integer(i32), parameter :: periodic_operator_target_depth = 1_i32
+  real(dp), parameter :: periodic_operator_proxy_multiplier = 8.0d0
+  real(dp), parameter :: periodic_operator_check_multiplier = 24.0d0
+  real(dp), parameter :: periodic_operator_proxy_shell_scale = 1.15d0
+  real(dp), parameter :: periodic_operator_check_shell_scale = 0.92d0
+  real(dp), parameter :: periodic_operator_tall_box_ratio = 4.0d0
+  real(dp), parameter :: periodic_operator_lstsq_ridge = 1.0d-12
+  real(dp), parameter :: periodic_operator_qr_tol = 1.0d-12
 
   public :: precompute_periodic_root_operator
 
@@ -51,143 +50,8 @@ contains
       call mpi_initialize(mpi)
       call precompute_periodic_cached_operator_collective(plan, mpi)
       call mpi_shutdown(mpi)
-    else if (use_periodic2_root_operator(plan)) then
-      call precompute_periodic_root_oracle_operator(plan)
     end if
   end subroutine precompute_periodic_root_operator
-
-  subroutine precompute_periodic_root_oracle_operator(plan)
-    type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: nproxy, ncheck, j, i, target_idx, node_idx, n_target_nodes, anchor_depth, target_count
-    real(dp) :: source_center(3), source_half(3), proxy_half(3), target_center(3), target_half(3)
-    real(dp), allocatable :: proxy_points(:, :), check_points(:, :)
-    real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :)
-    real(dp), allocatable :: field_matrix(:, :), field_rhs(:)
-    real(dp), allocatable :: coeff(:), proxy_pinv(:, :)
-    real(dp), allocatable :: potential_rhs(:)
-    real(dp) :: e_res(3), phi_res
-    integer(i32), allocatable :: target_nodes(:)
-    type(regularized_qr_type) :: field_factorization
-    logical :: use_target_tree, cache_loaded
-    integer :: cache_lock_fd, lock_status, directory_status
-
-    if (.not. plan%periodic_ewald%ready) return
-    if (plan%ncoef <= 1_i32) return
-    use_target_tree = plan%target_tree_ready
-    n_target_nodes = active_tree_nnode(plan, use_target_tree)
-    if (n_target_nodes <= 0_i32) return
-
-    nproxy = max(4_i32*plan%ncoef, int(root_oracle_proxy_multiplier*real(plan%ncoef, dp), i32))
-    ncheck = max(8_i32*plan%ncoef, int(root_oracle_check_multiplier*real(plan%ncoef, dp), i32))
-    source_center = plan%node_center(:, 1_i32)
-    source_half = plan%node_half_size(:, 1_i32)
-    proxy_half = source_half
-    proxy_half = max(proxy_half, 0.25d0*min(plan%options%periodic_len(1), plan%options%periodic_len(2)))
-    anchor_depth = periodic_root_anchor_depth(plan, use_target_tree)
-    allocate (target_nodes(max(1_i32, n_target_nodes)))
-    target_count = 0_i32
-    call collect_periodic_root_targets(plan, use_target_tree, 1_i32, anchor_depth, target_nodes, target_count)
-    if (target_count <= 0_i32) then
-      deallocate (target_nodes)
-      return
-    end if
-
-    cache_loaded = .false.
-    cache_lock_fd = -1
-    if (use_periodic2_cached_kneq0(plan)) then
-      call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
-      if (cache_loaded) then
-        deallocate (target_nodes)
-        return
-      end if
-      call create_directories(trim(plan%options%periodic_cache_dir), directory_status)
-      if (directory_status /= filesystem_success) error stop 'Failed to create periodic operator cache directory.'
-      call acquire_file_lock(trim(plan%periodic_cache_path)//'.lock', cache_lock_fd, lock_status)
-      if (lock_status /= filesystem_success) error stop 'Failed to lock periodic operator cache.'
-      call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
-      if (cache_loaded) then
-        call release_file_lock(cache_lock_fd, lock_status)
-        deallocate (target_nodes)
-        return
-      end if
-    end if
-
-    allocate (proxy_points(3, nproxy), check_points(3, ncheck))
-    call build_root_surface_points(source_center, proxy_half, nproxy, 0.13d0, root_oracle_proxy_shell_scale, proxy_points)
-
-    allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
-    allocate (field_matrix(3_i32*ncheck, plan%ncoef - 1_i32))
-    allocate (field_rhs(3_i32*ncheck), coeff(plan%ncoef - 1_i32))
-    if (use_periodic2_cached_kneq0(plan)) allocate (potential_rhs(ncheck))
-    allocate (proxy_pinv(nproxy, plan%ncoef))
-
-    call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
-    call build_minimum_norm_pseudoinverse(proxy_to_multipole, proxy_pinv)
-
-    plan%periodic_root_target_count = target_count
-    allocate (plan%periodic_root_target_nodes(target_count))
-    plan%periodic_root_target_nodes = target_nodes(1:target_count)
-    deallocate (target_nodes)
-    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, target_count))
-    plan%periodic_root_operator = 0.0d0
-
-    do target_idx = 1_i32, plan%periodic_root_target_count
-      node_idx = plan%periodic_root_target_nodes(target_idx)
-      target_center = active_tree_node_center(plan, use_target_tree, node_idx)
-      target_half = active_tree_node_half_size(plan, use_target_tree, node_idx)
-      call build_root_surface_points(target_center, target_half, ncheck, 0.37d0, root_oracle_check_shell_scale, check_points)
-      call build_local_field_matrix(plan, target_center, check_points, field_matrix)
-      call prepare_regularized_qr( &
-        field_factorization, field_matrix, root_oracle_lstsq_ridge, root_oracle_qr_tol &
-        )
-      plan%periodic_qr_preparation_count = plan%periodic_qr_preparation_count + 1_i32
-
-      proxy_to_local = 0.0d0
-      do j = 1_i32, nproxy
-        field_rhs = 0.0d0
-        if (use_periodic2_cached_kneq0(plan)) potential_rhs = 0.0_dp
-        do i = 1_i32, ncheck
-          e_res = 0.0d0
-          if (use_periodic2_cached_kneq0(plan)) then
-            phi_res = 0.0_dp
-            call add_periodic2_exact_ewald_correction_single_source( &
-              plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res &
-              )
-            call add_periodic2_exact_ewald_potential_correction_single_source( &
-              plan, 1.0_dp, proxy_points(:, j), check_points(:, i), phi_res &
-              )
-            potential_rhs(i) = phi_res
-          else
-            call add_periodic2_exact_ewald_correction_single_source( &
-              plan, 1.0d0, proxy_points(:, j), check_points(:, i), e_res &
-              )
-          end if
-          field_rhs(i) = e_res(1)
-          field_rhs(ncheck + i) = e_res(2)
-          field_rhs(2_i32*ncheck + i) = e_res(3)
-        end do
-        call solve_regularized_qr(field_factorization, field_rhs, coeff)
-        proxy_to_local(2:plan%ncoef, j) = coeff
-        if (use_periodic2_cached_kneq0(plan)) then
-          call fit_local_potential_constant( &
-            plan, target_center, check_points, potential_rhs, proxy_to_local(:, j) &
-            )
-        end if
-      end do
-
-      plan%periodic_root_operator(:, :, target_idx) = matmul(proxy_to_local, proxy_pinv)
-      if (.not. use_periodic2_cached_kneq0(plan)) plan%periodic_root_operator(1_i32, :, target_idx) = 0.0d0
-    end do
-
-    plan%periodic_root_operator_ready = .true.
-    plan%periodic_operator_local_target_count = plan%periodic_root_target_count
-    plan%periodic_operator_build_count = plan%periodic_operator_build_count + 1_i32
-    if (use_periodic2_cached_kneq0(plan)) then
-      call publish_cached_operator(plan)
-      call release_file_lock(cache_lock_fd, lock_status)
-      if (lock_status /= filesystem_success) error stop 'Failed to release periodic operator cache lock.'
-    end if
-  end subroutine precompute_periodic_root_oracle_operator
 
   subroutine precompute_periodic_cached_operator_collective(plan, mpi)
     type(fmm_plan_type), intent(inout) :: plan
@@ -211,8 +75,8 @@ contains
     n_target_nodes = active_tree_nnode(plan, use_target_tree)
     if (n_target_nodes <= 0_i32) return
 
-    nproxy = max(4_i32*plan%ncoef, int(root_oracle_proxy_multiplier*real(plan%ncoef, dp), i32))
-    ncheck = max(8_i32*plan%ncoef, int(root_oracle_check_multiplier*real(plan%ncoef, dp), i32))
+    nproxy = max(4_i32*plan%ncoef, int(periodic_operator_proxy_multiplier*real(plan%ncoef, dp), i32))
+    ncheck = max(8_i32*plan%ncoef, int(periodic_operator_check_multiplier*real(plan%ncoef, dp), i32))
     source_center = plan%node_center(:, 1_i32)
     source_half = plan%node_half_size(:, 1_i32)
     proxy_half = source_half
@@ -254,7 +118,9 @@ contains
     end if
 
     allocate (proxy_points(3, nproxy), check_points(3, ncheck))
-    call build_root_surface_points(source_center, proxy_half, nproxy, 0.13_dp, root_oracle_proxy_shell_scale, proxy_points)
+    call build_root_surface_points( &
+      source_center, proxy_half, nproxy, 0.13_dp, periodic_operator_proxy_shell_scale, proxy_points &
+      )
     allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
     allocate (field_matrix(3_i32*ncheck, plan%ncoef - 1_i32), proxy_pinv(nproxy, plan%ncoef))
     call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
@@ -271,10 +137,12 @@ contains
       node_idx = plan%periodic_root_target_nodes(target_idx)
       target_center = active_tree_node_center(plan, use_target_tree, node_idx)
       target_half = active_tree_node_half_size(plan, use_target_tree, node_idx)
-      call build_root_surface_points(target_center, target_half, ncheck, 0.37_dp, root_oracle_check_shell_scale, check_points)
+      call build_root_surface_points( &
+        target_center, target_half, ncheck, 0.37_dp, periodic_operator_check_shell_scale, check_points &
+        )
       call build_local_field_matrix(plan, target_center, check_points, field_matrix)
       call prepare_regularized_qr( &
-        field_factorization, field_matrix, root_oracle_lstsq_ridge, root_oracle_qr_tol &
+        field_factorization, field_matrix, periodic_operator_lstsq_ridge, periodic_operator_qr_tol &
         )
       plan%periodic_qr_preparation_count = plan%periodic_qr_preparation_count + 1_i32
       plan%periodic_operator_local_target_count = plan%periodic_operator_local_target_count + 1_i32
@@ -451,11 +319,11 @@ contains
     logical, intent(in) :: use_target_tree
     real(dp) :: target_half(3), periodic_span, target_span_ratio
 
-    periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), root_oracle_target_depth)
+    periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), periodic_operator_target_depth)
     target_half = active_tree_node_half_size(plan, use_target_tree, 1_i32)
     periodic_span = max(minval(plan%options%periodic_len), tiny(1.0d0))
     target_span_ratio = maxval(2.0d0*target_half)/periodic_span
-    if (target_span_ratio > root_oracle_tall_box_ratio) then
+    if (target_span_ratio > periodic_operator_tall_box_ratio) then
       periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), periodic_root_anchor_depth + 1_i32)
     end if
   end function periodic_root_anchor_depth
@@ -650,8 +518,8 @@ contains
         v = v - corr*q(:, basis_idx)
       end do
       norm_v = sqrt(sum(v*v))
-      if (norm_v <= root_oracle_qr_tol*base_norm) then
-        r(col_idx, col_idx) = root_oracle_qr_tol*base_norm
+      if (norm_v <= periodic_operator_qr_tol*base_norm) then
+        r(col_idx, col_idx) = periodic_operator_qr_tol*base_norm
       else
         r(col_idx, col_idx) = norm_v
         q(:, col_idx) = v/norm_v
@@ -677,65 +545,11 @@ contains
         solution(row_idx) = solution(row_idx) - matrix(col_idx, row_idx)*solution(col_idx)
       end do
       diag_val = matrix(row_idx, row_idx)
-      if (abs(diag_val) <= tiny(1.0d0)) diag_val = sign(root_oracle_qr_tol, diag_val + root_oracle_qr_tol)
+      if (abs(diag_val) <= tiny(1.0d0)) then
+        diag_val = sign(periodic_operator_qr_tol, diag_val + periodic_operator_qr_tol)
+      end if
       solution(row_idx) = solution(row_idx)/diag_val
     end do
   end subroutine solve_lower_triangular_transpose_system
-
-  subroutine solve_square_system(matrix, rhs, solution)
-    real(dp), intent(in) :: matrix(:, :)
-    real(dp), intent(in) :: rhs(:)
-    real(dp), intent(out) :: solution(:)
-    integer(i32) :: ncol, pivot_row, row_idx, col_idx, swap_idx
-    real(dp), allocatable :: work(:, :), rhs_work(:), row_tmp(:)
-    real(dp) :: pivot_abs, factor
-
-    ncol = int(size(matrix, 1), i32)
-    if (size(matrix, 2) /= ncol .or. size(rhs) /= ncol .or. size(solution) /= ncol) then
-      error stop 'solve_square_system dimension mismatch.'
-    end if
-
-    allocate (work(ncol, ncol), rhs_work(ncol), row_tmp(ncol))
-    work = matrix
-    rhs_work = rhs
-
-    do col_idx = 1_i32, ncol
-      pivot_row = col_idx
-      pivot_abs = abs(work(col_idx, col_idx))
-      do row_idx = col_idx + 1_i32, ncol
-        if (abs(work(row_idx, col_idx)) > pivot_abs) then
-          pivot_abs = abs(work(row_idx, col_idx))
-          pivot_row = row_idx
-        end if
-      end do
-      if (pivot_abs <= 1.0d-20) error stop 'periodic root oracle linear system is singular.'
-
-      if (pivot_row /= col_idx) then
-        row_tmp = work(col_idx, :)
-        work(col_idx, :) = work(pivot_row, :)
-        work(pivot_row, :) = row_tmp
-        factor = rhs_work(col_idx)
-        rhs_work(col_idx) = rhs_work(pivot_row)
-        rhs_work(pivot_row) = factor
-      end if
-
-      factor = work(col_idx, col_idx)
-      work(col_idx, col_idx:ncol) = work(col_idx, col_idx:ncol)/factor
-      rhs_work(col_idx) = rhs_work(col_idx)/factor
-      do row_idx = col_idx + 1_i32, ncol
-        factor = work(row_idx, col_idx)
-        if (abs(factor) <= tiny(1.0d0)) cycle
-        work(row_idx, col_idx:ncol) = work(row_idx, col_idx:ncol) - factor*work(col_idx, col_idx:ncol)
-        rhs_work(row_idx) = rhs_work(row_idx) - factor*rhs_work(col_idx)
-      end do
-    end do
-
-    solution = rhs_work
-    do row_idx = ncol, 1_i32, -1_i32
-      do swap_idx = row_idx + 1_i32, ncol
-        solution(row_idx) = solution(row_idx) - work(row_idx, swap_idx)*solution(swap_idx)
-      end do
-    end do
-  end subroutine solve_square_system
 
 end module bem_coulomb_fmm_periodic_root_ops

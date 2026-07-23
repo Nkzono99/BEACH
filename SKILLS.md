@@ -56,7 +56,7 @@ Layer 15 app/main.f90
 | 中量 | `test_restart` | ~数秒 |
 | 重量 | `test_dynamics_fmm` | ~30秒+ |
 | 重量 | `test_coulomb_fmm_core_periodic` | ~30秒+ |
-| 重量 | `test_periodic2_flat_oracle_diag` | ~30秒+ |
+| 重量 | `test_periodic2_infinite_operator` | ~30秒+ |
 
 ### テスト実行パターン
 

@@ -432,7 +432,7 @@ Specify `periodic2` as a `Mapping` with the following keys.
 | `origins` | `list[float]` (length 2) | - | `[0.0, 0.0]` | Box origin on each periodic axis [m] |
 | `box_min` | `list[float]` (length 3) | - | - | Alternative to `origins`. Extracts periodic-axis origins from the lower limit of the 3D box |
 | `image_layers` | `int` | - | `1` | Number of image-shell layers. Evaluates `[-N, N]` on each periodic axis |
-| `far_correction` | `str` | - | `"none"` | `"auto"` / `"none"` / `"m2l_root_oracle"`. `auto` is treated as `"none"` for compatibility. Kept on the Python side for configuration compatibility, but the oracle residual itself is not reproduced |
+| `far_correction` | `str` | - | `"none"` | Explicit inputs accept `"auto"` / `"none"`. `auto` is treated as `"none"` for compatibility |
 | `ewald_alpha` | `float` | - | `0.0` | Ewald decomposition parameter, reserved |
 | `ewald_layers` | `int` | - | `4` | Ewald truncation depth, reserved |
 
@@ -455,7 +455,7 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 ### 8.3 Limitations of the Python-side periodic2 Implementation
 
 - On the Python side, periodic sums are reconstructed only by direct sums over explicit image shells
-- The Ewald far correction using explicit `m2l_root_oracle` in the Fortran FMM is not reproduced on the Python side. `far_correction` is kept for configuration compatibility, but it does not affect Python direct-sum calculations
+- Removed `m2l_root_oracle` metadata is accepted only when `periodic2=None` auto-discovers historical metadata near the output, and is normalized to `none` for the finite image shell. Explicit `periodic2` values and config paths are rejected. Python does not reproduce the Ewald correction
 - Larger `image_layers` improves accuracy but increases cost by a factor of `(2*N+1)^2`
 
 ## 9. Coulomb Mobility Analysis

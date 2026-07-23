@@ -20,7 +20,7 @@ enum beach_kernel_status {
 enum beach_kernel_far_correction {
   BEACH_KERNEL_FAR_AUTO = 0,
   BEACH_KERNEL_FAR_NONE = 1,
-  BEACH_KERNEL_FAR_M2L_ROOT_ORACLE = 2,
+  BEACH_KERNEL_FAR_RESERVED_2 = 2,
   BEACH_KERNEL_FAR_CACHED_KNEQ0 = 3
 };
 

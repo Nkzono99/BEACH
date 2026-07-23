@@ -106,12 +106,11 @@ contains
     case ('none')
       continue
     case ('m2l_root_oracle')
-      continue
+      error stop 'periodic2 far correction "m2l_root_oracle" was removed; use "cached_kneq0".'
     case ('cached_kneq0')
       continue
     case default
-      error stop 'periodic2 far correction supports "auto", "none", '// &
-        '"m2l_root_oracle", or "cached_kneq0" only.'
+      error stop 'periodic2 far correction supports "auto", "none", or "cached_kneq0" only.'
     end select
     self%use_periodic2 = .true.
   case default
@@ -180,7 +179,7 @@ contains
 
   if (trim(self%mode) == 'fmm') then
     select case (trim(self%periodic_far_correction))
-    case ('auto', 'none', 'm2l_root_oracle', 'cached_kneq0')
+    case ('auto', 'none', 'cached_kneq0')
       continue
     case default
       error stop 'FMM core received an unsupported periodic far correction.'

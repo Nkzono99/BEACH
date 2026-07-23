@@ -88,7 +88,7 @@ The Python side calls this ABI with `ctypes` through `beach.fortran_results.kern
 The Python wrapper checks compatible libraries that provide the version-query
 symbol when loading them. It accepts older libraries without that symbol for
 transition compatibility, while newly built libraries are required to provide it.
-`calc_object_forces_kernel` evaluates `sum(q_i E_not_self(r_i))` by zeroing the object's own source charge, avoiding self-force contamination while using the same field kernel, including `periodic2 + m2l_root_oracle`.
+`calc_object_forces_kernel` evaluates `sum(q_i E_not_self(r_i))` by zeroing the object's own source charge, avoiding self-force contamination while using the same field kernel, including `periodic2 + cached_kneq0`.
 `Beach.scene()` / `BeachScene` temporarily apply rigid translations and rotations of objects on the Python side and pass the edited centroid array to the same ABI.
 The rigid-transform helper path uses NumPy by default and can use an optional Numba backend, but field evaluation itself is done by the Fortran kernel.
 
@@ -119,12 +119,12 @@ Main internal options:
 - `use_periodic2`: enable two-periodic-axis mode
 - `periodic_axes(2)`, `periodic_len(2)`: periodic axes and lengths
 - `periodic_image_layers`: near image-sum layer count `N`
-- `periodic_far_correction`: core values are `auto`, `none`, and `m2l_root_oracle`; with `periodic2`, `auto` is normalized to `none`, and `m2l_root_oracle` is enabled only when explicit
-- `periodic_ewald_alpha`, `periodic_ewald_layers`: decomposition parameter and cutoff depth used by the build-time Ewald fit for `m2l_root_oracle`
+- `periodic_far_correction`: core values are `auto`, `none`, and `cached_kneq0`; with `periodic2`, `auto` is normalized to `none`
+- `periodic_ewald_alpha`, `periodic_ewald_layers`: decomposition parameter and cutoff depth used by the build-time Ewald fit for `cached_kneq0`
 - `target_box_min/max`: box used for a dual-target tree
 
 The BEACH adapter currently uses `order = 4`, while the core itself accepts variable order.
-For `periodic2`, `auto` is normalized to `none`; `m2l_root_oracle` explicitly enables far correction.
+For `periodic2`, `auto` is normalized to `none`; `cached_kneq0` explicitly enables far correction.
 
 #### 3.2 `fmm_plan_type`
 
@@ -428,8 +428,6 @@ eval_point(r):
   leaf = locate_target_leaf(r)
   if leaf not found or leaf is not mapped to a leaf slot:
     use direct sum over all sources
-    if periodic2 and far correction is m2l_root_oracle:
-      add exact periodic Ewald correction
     return
 
   evaluate local expansion at leaf center
@@ -448,17 +446,17 @@ eval_point(r):
 
 Source indices in the near list are evaluated by direct sum.
 In `periodic2`, image shifts in `[-N, N] x [-N, N]` are handled explicitly.
-Fallback uses the same direct kernel; if explicit `m2l_root_oracle` is enabled in `periodic2`, the oracle correction is added separately.
+Fallback uses the same direct kernel.
 
 #### 7.3 Out-of-box fallback
 
 When a dual-target tree is used, evaluation points can leave the target box.
 Then there is no target leaf, so evaluation falls back to direct sum over all sources.
-With explicit `m2l_root_oracle`, the same exact periodic correction used as the build-time Ewald-fit teacher is added to direct fallback.
+`cached_kneq0` assumes a fixed target topology and rejects evaluation outside the target box.
 
 #### 7.4 Location of root correction
 
-The `m2l_root_oracle` root correction is injected into `state%local(:, root)` during `update_state`.
+The `cached_kneq0` root correction is injected into target-anchor local expansions during `update_state`.
 Therefore normal leaf evaluation in `eval_point(s)` does not recompute the root correction; it just uses the local expansion carried by `state`.
 
 ## 8. `periodic2` and far correction
@@ -483,7 +481,7 @@ M2L uses the same image-shift set and precomputes each pair derivative as an ima
 `bem_coulomb_fmm_periodic_ewald.f90` implements an Ewald-form correction for the two-periodic, one-open Coulomb field.
 Here `exact` means the finite sum actually evaluated by the code. It is not the theoretical infinite sum; it is a build-time oracle whose real-space and reciprocal-space cutoffs are controlled by `field_periodic_image_layers = N` and `field_periodic_ewald_layers = L`.
 
-Ewald2P is a build-time teacher for `m2l_root_oracle` or `cached_kneq0`, not the
+Ewald2P is a build-time teacher for `cached_kneq0`, not the
 runtime particle kernel. In the cached `triangle_p0` path, the teacher is applied
 to proxy point charges and fitted as a root-multipole-to-local operator. Real
 triangles still use the analytic panel kernel in the near field and
@@ -604,7 +602,7 @@ $$
 q\,\frac{2\pi}{A}\operatorname{erf}(\alpha z)\,\mathbf e_f
 $$
 
-The single-source oracle keeps this form as the `k=0` electric-field contribution.
+The single-source Ewald teacher keeps this form as the `k=0` electric-field contribution.
 
 ##### 8.2.5 Implemented correction
 
@@ -617,23 +615,7 @@ $$
 {}+ \mathbf E_0
 $$
 
-`add_periodic2_exact_ewald_correction_all_sources` first sums this over all sources.
-
-##### 8.2.6 `charged_walls` total-charge correction
-
-For the non-neutral slab `charged_walls` closure, `add_periodic2_exact_ewald_correction_all_sources` adds this total-charge correction after summing all sources:
-
-$$
-\mathbf E_{\mathrm{walls}}(z) =
-\begin{cases}
-\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f, & z < z_{\mathrm{low}}, \\
-0, & z_{\mathrm{low}} \le z \le z_{\mathrm{high}}, \\
-{}-\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f, & z > z_{\mathrm{high}}
-\end{cases}
-$$
-
-Here `A = L_1 L_2` is the periodic-cell area, `Q_tot = \sum_j q_j`, and `z_low/high` are the nonperiodic-axis bounds of `target_box_min/max`.
-This term corresponds to the field from two compensation walls. It cancels exactly inside the slab, so it does not affect a root oracle built inside the target box or normal particle advancement. It affects only direct fallback evaluations outside the target box.
+This single-source correction is evaluated at proxy/check points to generate the cached operator.
 
 If `field_periodic_ewald_alpha <= 0`, `resolve_periodic2_ewald_alpha` selects:
 
@@ -641,36 +623,13 @@ $$
 \alpha = \frac{1.2}{(N+1)\min(L_1,L_2)}
 $$
 
-automatically. If `min(L_1,L_2) <= 0`, it sets `alpha = 0` and disables the oracle.
+automatically. If `min(L_1,L_2) <= 0`, it sets `alpha = 0` and disables operator generation.
 Internally, `kmax = max(1, field_periodic_ewald_layers)` defines the reciprocal-space finite sum.
 
-The actual runtime direct fallback is:
-
-$$
-\mathbf E_{\mathrm{fallback}} =
-\sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
-{}+
-\mathbf E_{\mathrm{corr}}
-{}+
-\mathbf E_{\mathrm{walls}}
-$$
-
-In the build-time fit for `m2l_root_oracle`, check points are inside the target box, so `\mathbf E_{\mathrm{walls}} = 0`; the teacher uses only the single-source `\mathbf E_{\mathrm{corr}}`.
-Because the `periodic_root_operator` does not use the constant potential mode, the monopole column is fixed to zero.
-
-##### 8.2.7 `m2l_root_oracle`
-
-`m2l_root_oracle` is an explicit opt-in, high-cost diagnostic mode that uses this Ewald2P correction as the teacher and fits an operator from root multipole to root local at proxy/check points.
-Infinite-periodic production runs use `cached_kneq0`; the default remains
-`none` only to preserve finite-image compatibility.
-
-- `periodic_image_layers = N`: near image shells left explicit at runtime
-- `periodic_ewald_layers = L`: build-time oracle real-space outer shell `N < max(|i|,|j|) <= N+L` and reciprocal cutoff `|m|, |n| <= L`
-- `periodic_ewald_alpha = alpha`: Ewald decomposition parameter, auto-selected when `<= 0`
-- during build, exact periodic Ewald correction is evaluated at check points, and the field residual is fit by least squares to create the root-local operator
-- at runtime, only `local(:, root) += T_root_oracle * multipole(:, root)` is added, so the eval path does not contain the Ewald implementation
-- outside-tree fallback directly adds exact periodic correction to direct sum, reducing periodic residual outside the target box
-- the fit uses field, not potential, and fixes the constant potential mode of the local expansion to zero
+The `cached_kneq0` cold build evaluates Ewald-residual field and potential at check points and fits a
+root-multipole-to-target-local operator. The constant-potential coefficient, which is not determined by the field fit, is fitted
+separately from the potential residual and stored in the versioned cache. `m2l_root_oracle` has been removed and is rejected.
+Infinite-periodic production runs use `cached_kneq0`.
 
 ## 9. Interpreting computational cost
 
@@ -699,7 +658,7 @@ This FMM core is not a generic kernel FMM.
 - source coordinates are considered immutable after `build_plan`
 - supported boundaries are `free` and `periodic2`
 - `periodic2` requires exactly two periodic axes
-- far correction modes are `none` by default, `auto`, and `m2l_root_oracle`; `periodic2` `auto` normalizes to `none`, and `m2l_root_oracle` is explicit opt-in
+- far correction modes are `none` by default, `auto`, and `cached_kneq0`; `periodic2` `auto` normalizes to `none`
 - `eval_point(s)` return values do not include `k_coulomb`
 
 ### 10.1 Cached periodic nonzero operator
@@ -851,14 +810,14 @@ Main implementation locations:
   `eval_point`, `eval_points`
   in `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90`
 - periodic2 helpers:
-  `has_valid_target_box`, `use_periodic2_m2l_root_oracle`,
+  `has_valid_target_box`, `use_periodic2_cached_kneq0`,
   `use_periodic2_root_operator`, `build_periodic_shift_values`, `add_point_charge_images_field`,
   `wrap_periodic2_point`, `apply_periodic2_minimum_image`, `distance_to_source_bbox`,
   `distance_to_source_bbox_periodic`
   in `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90`
 - periodic2 Ewald/oracle:
   `resolve_periodic2_ewald_alpha`, `precompute_periodic2_ewald_data`,
-  `add_periodic2_exact_ewald_correction_single_source`, `add_periodic2_exact_ewald_correction_all_sources`
+  `add_periodic2_exact_ewald_correction_single_source`
   in `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90`
 - periodic2 root operator:
   `precompute_periodic_root_operator`

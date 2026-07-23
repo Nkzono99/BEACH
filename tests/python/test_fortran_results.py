@@ -31,6 +31,7 @@ from beach.fortran_results.mesh import (
     _wrap_periodic2_triangles_by_mesh_centroid,
 )
 from beach.fortran_results.objects import resolve_object_specs
+from beach.fortran_results.plotting import _periodic2_for_coulomb_matrix
 from beach.fortran_results.potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
@@ -1621,7 +1622,7 @@ def test_compute_potential_points_supports_periodic2_image_sum() -> None:
         "axes": (0, 1),
         "lengths": (1.0, 1.0),
         "image_layers": 1,
-        "far_correction": "m2l_root_oracle",
+        "far_correction": "none",
         "ewald_layers": 4,
     }
 
@@ -1655,7 +1656,7 @@ def test_compute_potential_mesh_supports_periodic2_image_sum() -> None:
         "axes": (0, 1),
         "lengths": (1.0, 1.0),
         "image_layers": 1,
-        "far_correction": "m2l_root_oracle",
+        "far_correction": "none",
         "ewald_layers": 4,
     }
 
@@ -1730,6 +1731,111 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(
             radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
             expected_sum += 2.0e-9 / radius
     np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+
+
+def test_coulomb_matrix_auto_reader_accepts_historical_root_oracle(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -1.0]",
+                "box_max = [1.0, 1.0, 1.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                'field_periodic_far_correction = "m2l_root_oracle"',
+                "field_periodic_ewald_layers = 4",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([0.0]),
+        triangles=np.array(
+            [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
+        ),
+    )
+
+    periodic2 = _periodic2_for_coulomb_matrix(result, config_path=None)
+
+    assert periodic2 is not None
+    assert periodic2.far_correction == "none"
+    with pytest.raises(ValueError, match='was removed; use "none"'):
+        _periodic2_for_coulomb_matrix(
+            result,
+            config_path=tmp_path / "beach.toml",
+        )
+
+
+def test_composed_analyses_normalize_auto_loaded_historical_root_oracle(
+    tmp_path: Path,
+) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+
+    out = tmp_path / "run_historical_periodic"
+    out.mkdir()
+    _write_coulomb_matrix_fixture(out)
+    config_path = out / "beach.toml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        + "\n".join(
+            [
+                "",
+                "",
+                "[sim]",
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -1.0]",
+                "box_max = [3.0, 2.0, 2.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                "field_periodic_image_layers = 0",
+                'field_periodic_far_correction = "m2l_root_oracle"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    beach = Beach(out)
+    slices = beach.compute_potential_slices(
+        box_min=[0.0, 0.0, -1.0],
+        box_max=[3.0, 2.0, 2.0],
+        grid_n=2,
+    )
+    assert all(np.all(np.isfinite(item.potential_V)) for item in slices.values())
+
+    analysis = beach.analyze_coulomb_mobility()
+    assert analysis.records
+
+    fig, ax = beach.plot_coulomb_force_matrix(component="x")
+    assert np.all(np.isfinite(getattr(ax, "_beach_coulomb_matrix")["matrix"]))
+    fig.clf()
+
+    explicit_beach = Beach(out, config_path=config_path)
+    with pytest.raises(ValueError, match='was removed; use "none"'):
+        explicit_beach.compute_potential_points(np.array([[0.5, 0.5, 0.5]]))
+    with pytest.raises(ValueError, match='was removed; use "none"'):
+        explicit_beach.analyze_coulomb_mobility()
 
 
 def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
@@ -1929,7 +2035,7 @@ def test_potential_history_supports_periodic2_image_sum() -> None:
 def test_coerce_periodic2_rejects_legacy_ewald_modes() -> None:
     with pytest.raises(
         ValueError,
-        match=('periodic2.far_correction must be "auto", "none", or "m2l_root_oracle"'),
+        match='periodic2.far_correction must be "auto" or "none"',
     ):
         _coerce_periodic2(
             {
@@ -1975,13 +2081,29 @@ def test_coerce_periodic2_preserves_none() -> None:
     assert periodic2[6] == 4
 
 
+def test_coerce_periodic2_rejects_removed_root_oracle() -> None:
+    with pytest.raises(
+        ValueError,
+        match='periodic2.far_correction "m2l_root_oracle" was removed',
+    ):
+        _coerce_periodic2(
+            {
+                "axes": (0, 1),
+                "lengths": (1.0, 1.0),
+                "image_layers": 1,
+                "far_correction": "m2l_root_oracle",
+                "ewald_layers": 4,
+            }
+        )
+
+
 @pytest.mark.parametrize("far_correction", ["m2l_root", "m2l_root_trunc"])
 def test_coerce_periodic2_rejects_removed_far_correction_aliases(
     far_correction: str,
 ) -> None:
     with pytest.raises(
         ValueError,
-        match='periodic2.far_correction must be "auto", "none", or "m2l_root_oracle"',
+        match='periodic2.far_correction must be "auto" or "none"',
     ):
         _coerce_periodic2(
             {

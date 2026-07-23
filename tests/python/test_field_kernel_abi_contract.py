@@ -52,3 +52,5 @@ def test_abi_status_and_far_correction_codes_are_synchronized() -> None:
     for name, code in kernel_module._FAR_CORRECTION_CODES.items():
         macro_name = name.upper()
         assert f"BEACH_KERNEL_FAR_{macro_name} = {code}" in header
+    assert "BEACH_KERNEL_FAR_RESERVED_2 = 2" in header
+    assert "M2L_ROOT_ORACLE" not in header

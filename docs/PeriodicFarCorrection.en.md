@@ -28,11 +28,11 @@ field_periodic_generation_tolerance = 1.0e-8
 | --- | --- | --- |
 | `none` | Primary cell and finite images only | Finite-image model and convergence comparisons |
 | `auto` | Currently normalized to `none` | Compatibility only |
-| `m2l_root_oracle` | Fit the Ewald residual for every build | High-cost diagnostics |
 | `cached_kneq0` | Build and reuse a versioned operator | Production infinite-periodic nonzero modes |
 
 `cached_kneq0` does not determine the z-directed plane-average `k=0` field or outer-plasma response. The field composition in
 [periodic2 electrostatics](PeriodicElectrostatics.en.html) owns those terms.
+`m2l_root_oracle` has been removed and is rejected at startup with guidance to use `cached_kneq0`.
 
 ## Evaluate the finite image shell with ordinary FMM
 
@@ -103,14 +103,12 @@ The cold build constructs $\mathbf A_t$ as follows:
 4. Compose proxy-to-local with the minimum-norm pseudoinverse of proxy-to-multipole.
 5. Build a fingerprint from geometry and configuration, then publish the operator with a checksum.
 
-`m2l_root_oracle` performs this fit during every plan build as a diagnostic path. `cached_kneq0` stores the same linear map in a
-versioned cache and reuses it only when fingerprint, shape, and checksum all match.
-`m2l_root_oracle` is restricted to point sources, while `cached_kneq0` also supports triangle P0 by applying the proxy-point
-operator to triangle-averaged P2M coefficients.
+`cached_kneq0` stores this linear map in a versioned cache and reuses it only when fingerprint, shape, and checksum all match.
+It supports both point sources and triangle P0 by applying the proxy-point operator to triangle-averaged P2M coefficients.
 
-A field-only fit cannot determine the constant-potential coefficient of a local expansion. Diagnostic `m2l_root_oracle` fixes
-that constant mode to zero, while `cached_kneq0` fits it separately from potential residuals at the same check points. This avoids
-mixing field and potential, which have different units, in one least-squares column set.
+A field-only fit cannot determine the constant-potential coefficient of a local expansion, so `cached_kneq0` fits it separately
+from potential residuals at the same check points. This avoids mixing field and potential, which have different units, in one
+least-squares column set.
 
 ## Apply correction after ordinary M2L and before L2L
 
@@ -170,9 +168,8 @@ MPI root owns cache I/O and locking. During a cold build, target-operator slices
 within a target are evaluated with OpenMP, and the completed operator is collected across ranks. Charge history and particle
 positions are not stored in the cache.
 
-`cached_kneq0` requires targets to remain inside the configured target box and does not provide an out-of-box Direct fallback.
-In contrast, out-of-box fallback under `m2l_root_oracle` adds the exact Ewald correction to the finite-image Direct sum. This
-difference reflects that a cached operator is a production kernel for a fixed target topology.
+`cached_kneq0` requires targets to remain inside the configured target box and does not provide an out-of-box Direct fallback
+because the cached operator is a production kernel for a fixed target topology.
 
 ## Check convergence and cache diagnostics
 

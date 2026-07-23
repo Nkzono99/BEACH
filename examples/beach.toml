@@ -38,7 +38,6 @@ injection_face_phi_grid_n = 3
 # periodic2 + fmm 有効時、field_periodic_far_correction の選択肢:
 #   "none"            — 有限 image shell のみ（既定、無限周期解ではない）
 #   "auto"            — 互換用 alias。現在は "none" と同じ
-#   "m2l_root_oracle" — Ewald residual を build-time fit（高コスト診断用）
 #   "cached_kneq0"    — versioned 非零モード operator（production 無限周期用）
 # field_solver = "fmm"
 # field_bc_mode = "periodic2"

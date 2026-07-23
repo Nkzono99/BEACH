@@ -53,15 +53,14 @@ def compute_potential_mesh(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"``, ``"none"``, or
-        ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
-        ``ewald_layers`` (int, default 4).
+        ``far_correction`` (``"auto"`` or ``"none"``), ``ewald_alpha``
+        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
         互換条件が合えば ``mesh_potential.csv`` の値を優先し、そうでない場合は
-        explicit な image shell を Python 側で再構成する。Python 再構成側は
-        oracle residual 自体は再現しないため、``far_correction`` は設定互換の
-        ために保持する。
+        explicit な image shell を Python 側で再構成する。過去出力の自動読込では
+        ``m2l_root_oracle`` metadata も受理して ``none`` に正規化するが、
+        Python 再構成側は oracle residual 自体を再現しない。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。``"species1_injection_center"`` は
         ``particles.species[0]`` の注入面中心を使う。
@@ -167,13 +166,13 @@ def compute_potential_points(
         keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
         positive box lengths), and optional ``origins`` (length-2 periodic-box
         origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"``, ``"none"``, or
-        ``"m2l_root_oracle"``), ``ewald_alpha`` (float, reserved, default 0.0),
-        ``ewald_layers`` (int, default 4).
+        ``far_correction`` (``"auto"`` or ``"none"``), ``ewald_alpha``
+        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
         If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
         ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
-        explicit な image shell のみを再構成し、oracle residual 自体は
-        再現しないため、``far_correction`` は設定互換のために保持する。
+        explicit な image shell のみを再構成する。過去出力の自動読込では
+        ``m2l_root_oracle`` metadata も受理して ``none`` に正規化するが、
+        oracle residual 自体は再現しない。
     reference_point : iterable of float, {"species1_injection_center"}, or None, default None
         基準電位を差し引く参照点。
 

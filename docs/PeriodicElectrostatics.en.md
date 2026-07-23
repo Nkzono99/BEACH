@@ -30,11 +30,11 @@ See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) 
 | Finite images | Small comparison and finite-image model | Contains nothing outside the image range |
 | `panel_spectral_reference` | Small triangle-P0 reference | Direct, zero softening, and mode/quadrature convergence |
 | `cached_kneq0` | Infinite-periodic nonzero modes for FMM production | x/y periodic, z nonperiodic, and `exclude_k0` |
-| `m2l_root_oracle` | Far-correction diagnostics | Not a production particle hot path |
 
 `field_periodic_far_correction="auto"` currently has compatibility behavior equivalent to `none`. Infinite-periodic production
 must select `cached_kneq0` explicitly. Startup validation checks consistency between high-level settings and typed `[periodic2]`
 configuration and rejects contradictory zero-mode ownership or unsupported outer models.
+`m2l_root_oracle` has been removed and is rejected at startup.
 
 The Ewald2P teacher, root-multipole-to-local operator, cache, and FMM-state connection are documented separately in
 [periodic2 Far Correction](PeriodicFarCorrection.en.html). This page treats that implementation as the nonzero component of the
