@@ -95,8 +95,7 @@ make test-l2      # L2: contract/integration
 make test-l3      # L3: cumulative L0-L3 verification
 make test-physics-release  # HPC: minimal release correctness + MPI manifest
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # oracle far-correction correctness
-make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-far-correction  # cached operator / exact Ewald correctness
 make test-fortran-benchmark  # release-profile runtime benchmark
 make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
@@ -113,8 +112,8 @@ BEACH のテストは開発ループ向けに階層化しています。
 `test_dynamics_fmm`と`test_coulomb_fmm_core_basic`は通常の`make test`には含まれません。
 `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`で明示的に実行します。
 
-`m2l_root_oracle`のcorrectnessは計算量が大きいため、`make test-fortran-far-correction`で実行します。
-数値assertを持たない`test_periodic2_flat_oracle_diag`は、`make test-fortran-far-correction-diagnostics`で実行します。
+`cached_kneq0`のcold operator生成とexact Ewald比較は計算量が大きいため、
+`make test-fortran-far-correction`で実行します。
 速度比較には、release profileの`make test-fortran-benchmark`を使います。
 実際のメッシュで`point`と`triangle_p0`の場評価コストを比較する場合は、比較する各設定に対して
 次を実行します。`FIELD_KERNEL_BENCHMARK_TARGET_COUNT`は領域内と面近傍でそれぞれ

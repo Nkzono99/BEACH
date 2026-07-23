@@ -90,8 +90,7 @@ make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
 make test-l3      # L3: cumulative L0-L3 verification
 make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # oracle far-correction correctness
-make test-fortran-far-correction-diagnostics  # assertion-free diagnostics
+make test-fortran-far-correction  # cached operator / exact Ewald correctness
 make test-fortran-benchmark  # release-profile runtime benchmark
 make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
 make test-full    # unfiltered fpm test
@@ -102,8 +101,8 @@ pytest -q         # Python テストのみ
 `make test`はL1のaliasであり、通常のAI作業や開発の短いループではL1までを実行する。
 FMM系の長時間targetは、`make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full`で明示的に実行する。
 
-`m2l_root_oracle`のcorrectnessは`make test-fortran-far-correction`、表示専用診断は
-`make test-fortran-far-correction-diagnostics`で確認する。速度比較には`make test-fortran-benchmark`を使う。
+`cached_kneq0`のcold operator生成とexact Ewald比較は`make test-fortran-far-correction`で確認する。
+速度比較には`make test-fortran-benchmark`を使う。
 
 shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make test-field-kernel-cache`で確認する。
 このtargetはbuild済みlibraryの絶対pathをtestに渡す。L1/L2/L3と`make test-physics-release`には含まれない。
@@ -140,7 +139,7 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 | `field_solver` | string | "auto" | direct, treecode, fmm, auto | 電場評価手法 |
 | `field_bc_mode` | string | "free" | free, periodic2 | 通常のperiodic2はFMM。Direct split referenceだけ例外 |
 | `field_periodic_image_layers` | int | 1 | >= 0 | periodic2 のイメージシェル層数 |
-| `field_periodic_far_correction` | string | "none" | auto, none, m2l_root_oracle, cached_kneq0 | `cached_kneq0` が production 無限周期非零モード |
+| `field_periodic_far_correction` | string | "none" | auto, none, cached_kneq0 | `cached_kneq0` が production 無限周期非零モード |
 | `field_periodic_ewald_alpha` | float | 0.0 | >= 0 | Ewald 分割パラメータ (0=自動) |
 | `field_periodic_ewald_layers` | int | 4 | >= 0 | Ewald シェル深度 |
 | `field_periodic_cache_dir` | string | ".beach_cache/periodic2" | non-empty | versioned operator cache |

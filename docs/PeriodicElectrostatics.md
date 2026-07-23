@@ -31,11 +31,11 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 | finite images | 小規模比較、有限画像model | 画像範囲外は含まない |
 | `panel_spectral_reference` | triangle P0の小規模reference | Direct、softening 0、mode/quadrature収束が必要 |
 | `cached_kneq0` | FMM productionの無限周期nonzero mode | x/y periodic、z nonperiodic、`exclude_k0` |
-| `m2l_root_oracle` | far correctionの診断 | production hot pathには使わない |
 
 `field_periodic_far_correction="auto"`は、現在は互換性のため`none`として動作します。無限周期のproduction計算では
 `cached_kneq0`を明示します。起動時には、高水準設定とtyped `[periodic2]`の整合性を検証します。
 zero-mode ownershipが矛盾している場合や、未対応のouter modelが選ばれている場合は停止します。
+`m2l_root_oracle`は削除済みで、設定すると起動時にrejectされます。
 
 Ewald2P teacher、root multipoleからlocal展開へのoperator、cacheとFMM stateの接続は
 [periodic2遠方補正](PeriodicFarCorrection.html)に分けています。このページでは、それを場全体のnonzero成分として扱います。

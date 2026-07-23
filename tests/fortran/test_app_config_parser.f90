@@ -10,7 +10,7 @@ program test_app_config_parser
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
-  type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg, high_level_cfg
+  type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, sheath_cfg, high_level_cfg
   type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg, panel_tree_cfg, split_cfg
   type(app_config) :: external_boundary_cfg, none_boundary_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
@@ -18,6 +18,7 @@ program test_app_config_parser
   character(len=*), parameter :: large_cfg_path = 'test_app_config_parser_large_tmp.toml'
   character(len=*), parameter :: periodic_cfg_path = 'test_app_config_parser_periodic_tmp.toml'
   character(len=*), parameter :: periodic_oracle_cfg_path = 'test_app_config_parser_periodic_oracle_tmp.toml'
+  character(len=*), parameter :: periodic_oracle_output_path = 'test_app_config_parser_periodic_oracle_tmp.out'
   character(len=*), parameter :: sheath_cfg_path = 'test_app_config_parser_sheath_tmp.toml'
   character(len=*), parameter :: high_level_cfg_path = 'test_app_config_parser_high_level_tmp.toml'
   character(len=*), parameter :: multiline_cfg_path = 'test_app_config_parser_multiline_tmp.toml'
@@ -92,11 +93,16 @@ program test_app_config_parser
     call load_app_config(noop_boundary_cfg_path, cfg)
     error stop 'active field without explicit box probe unexpectedly completed'
   end if
+  if (trim(run_mode) == 'probe_removed_root_oracle') then
+    call write_periodic_oracle_config_fixture(periodic_oracle_cfg_path)
+    call default_app_config(cfg)
+    call load_app_config(periodic_oracle_cfg_path, cfg)
+    error stop 'removed root oracle probe unexpectedly completed'
+  end if
   call write_config_fixture(cfg_path)
   call write_photo_config_fixture(photo_cfg_path)
   call write_large_config_fixture(large_cfg_path)
   call write_periodic_config_fixture(periodic_cfg_path)
-  call write_periodic_oracle_config_fixture(periodic_oracle_cfg_path)
   call write_sheath_config_fixture(sheath_cfg_path)
   call write_high_level_config_fixture(high_level_cfg_path)
   call write_multiline_config_fixture(multiline_cfg_path)
@@ -450,28 +456,8 @@ program test_app_config_parser
   call assert_equal_i32(periodic_cfg%sim%field_periodic_ewald_layers, 5_i32, 'periodic ewald layers mismatch')
   call test_end()
 
-  call test_begin('periodic_oracle_config')
-  call default_app_config(periodic_oracle_cfg)
-  call load_app_config(periodic_oracle_cfg_path, periodic_oracle_cfg)
-  call assert_true(trim(periodic_oracle_cfg%sim%field_bc_mode) == 'periodic2', 'periodic oracle field_bc_mode mismatch')
-  call assert_true( &
-    trim(periodic_oracle_cfg%sim%field_periodic_far_correction) == 'm2l_root_oracle', &
-    'periodic oracle far correction mismatch' &
-    )
-  call assert_true( &
-    trim(periodic_oracle_cfg%periodic2%nonzero_mode_backend) == 'legacy_root_oracle', &
-    'periodic oracle typed backend mismatch' &
-    )
-  call assert_true( &
-    trim(periodic_oracle_cfg%periodic2%zero_mode_policy) == 'legacy_charged_walls', &
-    'periodic oracle typed zero policy mismatch' &
-    )
-  call assert_equal_i32( &
-    periodic_oracle_cfg%sim%field_periodic_ewald_layers, 3_i32, 'periodic oracle ewald layers mismatch' &
-    )
-  call assert_close_dp( &
-    periodic_oracle_cfg%sim%field_periodic_ewald_alpha, 0.0d0, 1.0d-15, 'periodic oracle ewald alpha mismatch' &
-    )
+  call test_begin('removed_root_oracle_config')
+  call assert_removed_root_oracle_rejected()
   call test_end()
 
   call test_begin('sheath_config')
@@ -564,6 +550,7 @@ program test_app_config_parser
   call delete_file_if_exists(large_cfg_path)
   call delete_file_if_exists(periodic_cfg_path)
   call delete_file_if_exists(periodic_oracle_cfg_path)
+  call delete_file_if_exists(periodic_oracle_output_path)
   call delete_file_if_exists(sheath_cfg_path)
   call delete_file_if_exists(high_level_cfg_path)
   call delete_file_if_exists(multiline_cfg_path)
@@ -583,6 +570,34 @@ program test_app_config_parser
   call test_summary()
 
 contains
+
+  subroutine assert_removed_root_oracle_rejected()
+    character(len=1024) :: executable_path, line
+    character(len=4096) :: command
+    integer :: child_exit_status, child_cmd_status, u, ios
+    logical :: saw_removal
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" probe_removed_root_oracle > "'// &
+              periodic_oracle_output_path//'" 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'removed root oracle probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'removed root oracle configuration must fail')
+    saw_removal = .false.
+    open (newunit=u, file=periodic_oracle_output_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to read removed root oracle probe output'
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      saw_removal = saw_removal .or. index(line, '"m2l_root_oracle" was removed; use "cached_kneq0"') > 0
+    end do
+    close (u)
+    call assert_true(saw_removal, 'removed root oracle probe must recommend cached_kneq0')
+    call delete_file_if_exists(periodic_oracle_cfg_path)
+    call delete_file_if_exists(periodic_oracle_output_path)
+  end subroutine assert_removed_root_oracle_rejected
 
   subroutine assert_missing_3d_photo_deposit_rejected()
     character(len=1024) :: executable_path, line
@@ -1123,7 +1138,7 @@ contains
     close (u)
   end subroutine write_periodic_config_fixture
 
-  !> `m2l_root_oracle` が受理される periodic2 設定を書き出す。
+  !> 削除済み `m2l_root_oracle` を指定する periodic2 設定を書き出す。
   subroutine write_periodic_oracle_config_fixture(path)
     character(len=*), intent(in) :: path
     integer :: u, ios

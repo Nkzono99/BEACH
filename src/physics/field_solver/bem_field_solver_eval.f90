@@ -1,11 +1,6 @@
 !> `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_eval
   use bem_coulomb_fmm_core, only: eval_point, eval_potential_point, eval_potential_points
-  use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, &
-                                   reset_fmm_plan, initialize_fmm_state, reset_fmm_state
-  use bem_coulomb_fmm_periodic, only: use_periodic2_m2l_root_oracle
-  use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data, &
-                                            add_periodic2_exact_ewald_potential_correction_all_sources
   use bem_string_utils, only: lower_ascii
   use bem_panel_geometry, only: panel_geometry_type
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
@@ -287,7 +282,7 @@ contains
     real(dp), intent(out) :: potential_v(:)
 
     real(dp), parameter :: pi_dp = acos(-1.0d0)
-    real(dp) :: phi_anchor_exact, phi_offset, self_coeff, softening, h_elem_scaled
+    real(dp) :: self_coeff, softening, h_elem_scaled
     real(dp), allocatable :: centers_scaled(:, :)
     integer(i32) :: i
 
@@ -305,12 +300,6 @@ contains
     end do
     call eval_potential_points(self%fmm_core_plan, self%fmm_core_state, centers_scaled, potential_v)
 
-    if (use_periodic2_m2l_root_oracle(self%fmm_core_plan)) then
-      call compute_exact_potential_point(self%fmm_core_plan, self%fmm_core_state, centers_scaled(:, 1), phi_anchor_exact)
-      phi_offset = phi_anchor_exact - potential_v(1)
-      potential_v = potential_v + phi_offset
-    end if
-
     if (softening <= 0.0d0) then
       do i = 1, mesh%nelem
         h_elem_scaled = mesh%h_elem(i)*self%field_inv_length_scale
@@ -322,74 +311,6 @@ contains
     potential_v = self%potential_output_scale*potential_v
     deallocate (centers_scaled)
   end subroutine compute_mesh_potential_fmm
-
-  !> FMM source/state を使って 1 点の exact 電位を O(N) で再評価する。
-  subroutine compute_exact_potential_point(plan, state, target_in, phi)
-    type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
-    real(dp), intent(in) :: target_in(3)
-    real(dp), intent(out) :: phi
-
-    integer(i32) :: j, img_i, img_j, axis1, axis2, nimg
-    real(dp) :: target(3), shifted(3), dx, dy, dz, r2, soft2, min_dist2
-
-    phi = 0.0d0
-    if (.not. plan%built .or. .not. state%ready) return
-
-    soft2 = plan%options%softening*plan%options%softening
-    min_dist2 = tiny(1.0d0)
-    target = target_in
-
-    if (.not. plan%options%use_periodic2) then
-      do j = 1, plan%nsrc
-        if (abs(state%src_q(j)) <= tiny(1.0d0)) cycle
-        dx = target(1) - plan%src_pos(1, j)
-        dy = target(2) - plan%src_pos(2, j)
-        dz = target(3) - plan%src_pos(3, j)
-        r2 = dx*dx + dy*dy + dz*dz + soft2
-        if (r2 <= min_dist2) cycle
-        phi = phi + state%src_q(j)/sqrt(r2)
-      end do
-      return
-    end if
-
-    axis1 = plan%options%periodic_axes(1)
-    axis2 = plan%options%periodic_axes(2)
-    nimg = max(0_i32, plan%options%periodic_image_layers)
-    target(axis1) = wrap_periodic(target(axis1), plan%options%target_box_min(axis1), plan%options%periodic_len(1))
-    target(axis2) = wrap_periodic(target(axis2), plan%options%target_box_min(axis2), plan%options%periodic_len(2))
-
-    do j = 1, plan%nsrc
-      if (abs(state%src_q(j)) <= tiny(1.0d0)) cycle
-      dx = target(1) - plan%src_pos(1, j)
-      dy = target(2) - plan%src_pos(2, j)
-      dz = target(3) - plan%src_pos(3, j)
-      r2 = dx*dx + dy*dy + dz*dz + soft2
-      if (r2 > min_dist2) phi = phi + state%src_q(j)/sqrt(r2)
-    end do
-
-    do img_i = -nimg, nimg
-      do img_j = -nimg, nimg
-        if (img_i == 0_i32 .and. img_j == 0_i32) cycle
-        do j = 1, plan%nsrc
-          if (abs(state%src_q(j)) <= tiny(1.0d0)) cycle
-          shifted = plan%src_pos(:, j)
-          shifted(axis1) = shifted(axis1) + real(img_i, dp)*plan%options%periodic_len(1)
-          shifted(axis2) = shifted(axis2) + real(img_j, dp)*plan%options%periodic_len(2)
-          dx = target(1) - shifted(1)
-          dy = target(2) - shifted(2)
-          dz = target(3) - shifted(3)
-          r2 = dx*dx + dy*dy + dz*dz + soft2
-          if (r2 <= min_dist2) cycle
-          phi = phi + state%src_q(j)/sqrt(r2)
-        end do
-      end do
-    end do
-
-    if (use_periodic2_m2l_root_oracle(plan)) then
-      call add_periodic2_exact_ewald_potential_correction_all_sources(plan, state, target, phi)
-    end if
-  end subroutine compute_exact_potential_point
 
   !> O(N^2) 直接総和でメッシュ重心電位を計算する。
   subroutine compute_mesh_potential_direct(self, mesh, sim, potential_v)
@@ -404,9 +325,7 @@ contains
     real(dp) :: softening, softening_scaled, soft2, min_dist2, self_coeff, h_elem_scaled
     real(dp) :: periodic_len(2), periodic_origins(2), span
     real(dp) :: target(3), shifted(3), dx, dy, dz, r2
-    logical :: use_periodic2, use_exact_ewald_residual
-    type(fmm_plan_type) :: ewald_plan
-    type(fmm_state_type) :: ewald_state
+    logical :: use_periodic2
     character(len=16) :: field_bc_mode
 
     softening = sim%softening
@@ -456,11 +375,6 @@ contains
 
     axis1 = periodic_axes(1)
     axis2 = periodic_axes(2)
-    call initialize_fmm_state(ewald_state)
-    call init_ewald_context( &
-      mesh, sim, use_periodic2, periodic_axes, periodic_len, image_layers, self%field_inv_length_scale, &
-      self%field_length_scale, self%field_origin, ewald_plan, ewald_state, use_exact_ewald_residual &
-      )
 
     do i = 1, mesh%nelem
       if (softening > 0.0d0) then
@@ -495,8 +409,7 @@ contains
     periodic_origins(2) = (periodic_origins(2) - self%field_origin(axis2))*self%field_inv_length_scale
     !$omp parallel do default(none) schedule(static) &
     !$omp   shared(mesh, soft2, min_dist2, potential_v, axis1, axis2, &
-    !$omp          periodic_origins, periodic_len, image_layers, &
-    !$omp          use_exact_ewald_residual, ewald_plan, ewald_state, self) &
+    !$omp          periodic_origins, periodic_len, image_layers, self) &
     !$omp   private(i, j, ix, iy, target, shifted, dx, dy, dz, r2)
     do i = 1, mesh%nelem
       target = (mesh%centers(:, i) - self%field_origin)*self%field_inv_length_scale
@@ -529,79 +442,11 @@ contains
         end do
       end do
 
-      if (use_exact_ewald_residual) then
-        call add_periodic2_exact_ewald_potential_correction_all_sources(ewald_plan, ewald_state, target, potential_v(i))
-      end if
     end do
     !$omp end parallel do
 
-    if (use_exact_ewald_residual) then
-      call reset_fmm_state(ewald_state)
-      call reset_fmm_plan(ewald_plan)
-    end if
     potential_v = self%potential_output_scale*potential_v
   end subroutine compute_mesh_potential_direct
-
-  !> exact Ewald residual 用の最小 periodic2 context を作る。
-  subroutine init_ewald_context( &
-    mesh, sim, use_periodic2, periodic_axes, periodic_len, image_layers, inv_length_scale, length_scale, origin, &
-    plan, state, enabled &
-    )
-    type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
-    logical, intent(in) :: use_periodic2
-    integer(i32), intent(in) :: periodic_axes(2), image_layers
-    real(dp), intent(in) :: periodic_len(2)
-    real(dp), intent(in) :: inv_length_scale, length_scale, origin(3)
-    type(fmm_plan_type), intent(inout) :: plan
-    type(fmm_state_type), intent(inout) :: state
-    logical, intent(out) :: enabled
-
-    character(len=16) :: far_correction
-    integer(i32) :: ewald_layers, src_idx
-
-    enabled = .false.
-    call reset_fmm_plan(plan)
-    call reset_fmm_state(state)
-    if (.not. use_periodic2) return
-
-    far_correction = trim(lower_ascii(sim%field_periodic_far_correction))
-    ewald_layers = max(0_i32, sim%field_periodic_ewald_layers)
-    select case (trim(far_correction))
-    case ('auto', 'none')
-      return
-    case ('m2l_root_oracle')
-      ewald_layers = max(1_i32, ewald_layers)
-    case default
-      return
-    end select
-
-    plan%options%use_periodic2 = .true.
-    plan%options%periodic_far_correction = far_correction
-    plan%options%periodic_axes = periodic_axes
-    plan%options%periodic_len = periodic_len*inv_length_scale
-    plan%options%periodic_image_layers = image_layers
-    plan%options%periodic_ewald_alpha = sim%field_periodic_ewald_alpha*length_scale
-    plan%options%periodic_ewald_layers = ewald_layers
-    plan%options%softening = sim%softening*inv_length_scale
-    plan%options%target_box_min = (sim%box_min - origin)*inv_length_scale
-    plan%options%target_box_max = (sim%box_max - origin)*inv_length_scale
-    plan%nsrc = mesh%nelem
-    allocate (plan%src_pos(3, mesh%nelem))
-    do src_idx = 1_i32, mesh%nelem
-      plan%src_pos(:, src_idx) = (mesh%centers(:, src_idx) - origin)*inv_length_scale
-    end do
-    allocate (state%src_q(mesh%nelem))
-    state%src_q = mesh%q_elem
-    state%ready = .true.
-
-    call precompute_periodic2_ewald_data(plan)
-    enabled = plan%periodic_ewald%ready
-    if (.not. enabled) then
-      call reset_fmm_state(state)
-      call reset_fmm_plan(plan)
-    end if
-  end subroutine init_ewald_context
 
   !> 周期軸上の座標を [origin, origin + length) に折り返す。
   pure real(dp) function wrap_periodic(x, origin, periodic_len) result(wrapped)

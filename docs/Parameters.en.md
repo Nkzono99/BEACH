@@ -237,8 +237,8 @@ See [FMM](FMM.en.html) for selection and verification, and
 | `tree_leaf_max` | int | `16` | Maximum number of sources per source-tree leaf node. `>= 1` |
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | Number of near image layers for `periodic2` |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / diagnostic `m2l_root_oracle` / production `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation or diagnostics |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / production `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation |
 | `field_periodic_ewald_layers` | int | `4` | Real-space / reciprocal cutoff depth for the Ewald generator |
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
@@ -279,8 +279,8 @@ values are used based on the element count.
 |---|---|---:|---|
 | `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
 | `field_periodic_image_layers` | int | `1` | Number of near image layers for `periodic2` |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `m2l_root_oracle` / `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation or diagnostics |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation |
 | `field_periodic_ewald_layers` | int | `4` | Outer shell / reciprocal cutoff depth for the Ewald generator |
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
@@ -738,8 +738,9 @@ and an open z-high interface. The same periodicity applies to field evaluation, 
 | --- | --- |
 | `none` | finite-image approximation |
 | `auto` | compatibility input; currently `none` |
-| `m2l_root_oracle` | expensive diagnostic fit of the exact periodic Ewald residual |
 | `cached_kneq0` | production nonzero mode using a reusable versioned operator |
+
+The removed `m2l_root_oracle` value is rejected at startup with guidance to use `cached_kneq0`.
 
 With `cached_kneq0`, the `exclude_k0` provider adds the physical zero mode exactly once.
 `symmetric_vacuum` uses $\pm Q/(2\epsilon_0A)$ above and below; `e_bottom_zero` uses zero below and $Q/(\epsilon_0A)$ above.
@@ -1243,7 +1244,6 @@ Rules for `element_kernel="triangle_p0"`:
 | Requirements | `sim.softening=0` and insulator-only surfaces |
 | Treecode | exact panel near + monopole far |
 | FMM | exact panel near + exact triangle P2M |
-| Unsupported | point-source-only `m2l_root_oracle` |
 | Surface side | `[mesh].surface_side` for OBJ; `surface_side` on every enabled template |
 
 Use `outward_closed` only for consistently oriented, closed two-manifold components.
@@ -1313,7 +1313,7 @@ Evaluation rules for `mesh_potential.csv`:
 - Record potential [V] at each element centroid.
 - Use `1/softening` for the self term when `softening > 0`; otherwise use an area-equivalent radius approximation.
 - Add the explicit image shell for `periodic2`.
-- Add the diagnostic Ewald residual for `m2l_root_oracle`, or the cached nonzero mode and boundary-specific `k=0` for `cached_kneq0`.
+- Add the cached nonzero mode and boundary-specific `k=0` for `cached_kneq0`.
 
 `potential_history.csv`:
 

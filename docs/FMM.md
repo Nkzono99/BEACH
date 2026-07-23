@@ -231,7 +231,7 @@ near kernelに含めます。[<sup>1</sup>](DirectSolver.html#要素中心の電
 root multipoleからtarget localへの追加operatorとして`M2L`後・`L2L`前に注入します。そのため実装はFMMの
 `plan`、`state`、local展開を共有しますが、通常のtree M2Lとは異なる計算段階として分離されています。
 
-`none`、診断用`m2l_root_oracle`、production用`cached_kneq0`の違い、Ewald2P teacher、cache、`k=0`の
+`none`とproduction用`cached_kneq0`の違い、Ewald2P teacher、cache、`k=0`の
 ownershipは[periodic2遠方補正](PeriodicFarCorrection.html)に分けました。場全体の成分構成は
 [periodic2静電場](PeriodicElectrostatics.html)、外部領域との結合は[外部プラズマモデル](OuterPlasmaModels.html)で
 説明します。

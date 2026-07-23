@@ -66,3 +66,21 @@ def test_periodic2_from_sim_keeps_split_periodic_table_out_of_scope() -> None:
 
 def test_periodic2_from_free_sim_is_none() -> None:
     assert periodic2_from_sim({"field_bc_mode": "free"}) is None
+
+
+def test_periodic2_from_sim_rejects_removed_root_oracle() -> None:
+    sim = {
+        "field_bc_mode": "periodic2",
+        "box_min": [0.0, 0.0, -1.0],
+        "box_max": [1.0, 1.0, 1.0],
+        "bc_x_low": "periodic",
+        "bc_x_high": "periodic",
+        "bc_y_low": "periodic",
+        "bc_y_high": "periodic",
+        "bc_z_low": "open",
+        "bc_z_high": "open",
+        "field_periodic_far_correction": "m2l_root_oracle",
+    }
+
+    with pytest.raises(ValueError, match='was removed; use "none"'):
+        periodic2_from_sim(sim)

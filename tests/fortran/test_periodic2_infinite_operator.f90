@@ -4,7 +4,7 @@ program test_periodic2_infinite_operator
                                   eval_point, eval_potential_point, destroy_plan, destroy_state
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_kneq0_correction_single_source, &
                                             add_periodic2_kneq0_potential_correction_single_source
-  use test_support, only: test_begin, test_end, test_summary, assert_true
+  use test_support, only: test_begin, test_end, test_summary, assert_true, remove_empty_directory
   implicit none
 
   type(fmm_options_type) :: options
@@ -16,7 +16,8 @@ program test_periodic2_infinite_operator
   real(dp) :: field_error, potential_error, max_field_error, max_potential_error
   real(dp) :: layer_field_delta, layer_potential_delta, translation_field(3), translation_phi
   integer(i32) :: target_idx
-  character(len=512) :: cache_path0, cache_path1
+  integer :: clock_count
+  character(len=512) :: cache_path0, cache_path1, cache_dir
 
   src_pos(:, 1) = [0.15_dp, 0.20_dp, -0.10_dp]
   src_pos(:, 2) = [0.75_dp, 0.25_dp, 0.08_dp]
@@ -27,12 +28,17 @@ program test_periodic2_infinite_operator
   targets(:, 2) = [0.55_dp, 0.48_dp, 0.18_dp]
   targets(:, 3) = [0.91_dp, 0.08_dp, 0.31_dp]
   call configure_options(options)
+  call system_clock(count=clock_count)
+  write (cache_dir, '(a,i0)') 'test_periodic2_infinite_operator_tmp_', clock_count
+  options%periodic_cache_dir = trim(cache_dir)
 
-  call test_begin('cached_kneq0_matches_reference_and_image_layers')
+  call test_begin('cached_kneq0_cold_build_matches_exact_ewald')
   options%periodic_image_layers = 1_i32
   call build_plan(plan0, src_pos, options)
   call update_state(plan0, state0, q)
   cache_path0 = plan0%periodic_cache_path
+  call assert_true(.not. plan0%periodic_cache_hit, 'first cached kneq0 plan must be a cold build')
+  call assert_true(plan0%periodic_operator_build_count == 1_i32, 'cold cached kneq0 operator must be built once')
   options%periodic_image_layers = 2_i32
   call build_plan(plan1, src_pos, options)
   call update_state(plan1, state1, q)
@@ -103,6 +109,7 @@ program test_periodic2_infinite_operator
   call destroy_plan(plan1)
   call delete_cache(cache_path0)
   call delete_cache(cache_path1)
+  call remove_empty_directory(cache_dir)
   call test_summary()
 
 contains

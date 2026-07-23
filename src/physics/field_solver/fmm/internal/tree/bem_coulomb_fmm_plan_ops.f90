@@ -87,14 +87,13 @@ contains
       case ('none')
         continue
       case ('m2l_root_oracle')
-        continue
+        error stop 'periodic far correction "m2l_root_oracle" was removed; use "cached_kneq0".'
       case ('cached_kneq0')
         continue
       case default
         error stop 'Unsupported periodic far correction in FMM core.'
       end select
-      if (trim(plan%options%periodic_far_correction) == 'm2l_root_oracle' .or. &
-          trim(plan%options%periodic_far_correction) == 'cached_kneq0') then
+      if (trim(plan%options%periodic_far_correction) == 'cached_kneq0') then
         if (plan%options%periodic_ewald_layers < 1_i32) then
           error stop 'periodic2 root-operator far correction requires periodic_ewald_layers >= 1.'
         end if

@@ -6,10 +6,7 @@ module bem_coulomb_fmm_eval_ops
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
-  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_m2l_root_oracle, &
-                                      use_periodic2_cached_kneq0
-  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources, &
-                                            add_periodic2_exact_ewald_potential_correction_all_sources
+  use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_cached_kneq0
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
@@ -189,7 +186,6 @@ contains
     real(dp), intent(out) :: ex, ey, ez
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: axes(2)
-    logical :: use_periodic_root_oracle_fallback
     real(dp) :: rt(3), soft2
 
     ex = 0.0d0
@@ -200,15 +196,11 @@ contains
     rt = [rx, ry, rz]
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
     soft2 = plan%options%softening*plan%options%softening
-    use_periodic_root_oracle_fallback = use_periodic2_m2l_root_oracle(plan)
-
     leaf_node = locate_target_leaf(plan, rt)
     leaf_slot = 0_i32
     if (leaf_node > 0_i32) leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
-      call apply_direct_fallback_field( &
-        plan, state, rt, soft2, use_periodic_root_oracle_fallback, ex, ey, ez &
-        )
+      call apply_direct_fallback_field(plan, state, rt, soft2, ex, ey, ez)
       return
     end if
 
@@ -226,7 +218,6 @@ contains
     real(dp), intent(out) :: phi
     integer(i32) :: leaf_node, leaf_slot
     integer(i32) :: axes(2)
-    logical :: use_periodic_root_oracle_fallback
     real(dp) :: rt(3), soft2
 
     phi = 0.0d0
@@ -235,13 +226,11 @@ contains
     rt = [rx, ry, rz]
     if (plan%options%use_periodic2) call wrap_periodic2_point(plan, rt)
     soft2 = plan%options%softening*plan%options%softening
-    use_periodic_root_oracle_fallback = use_periodic2_m2l_root_oracle(plan)
-
     leaf_node = locate_target_leaf(plan, rt)
     leaf_slot = 0_i32
     if (leaf_node > 0_i32) leaf_slot = plan%leaf_slot_of_node(leaf_node)
     if (leaf_slot <= 0_i32) then
-      call apply_direct_fallback_potential(plan, state, rt, soft2, use_periodic_root_oracle_fallback, phi)
+      call apply_direct_fallback_potential(plan, state, rt, soft2, phi)
       return
     end if
 
@@ -285,43 +274,30 @@ contains
     phi = phi - potential_si/k_coulomb
   end subroutine subtract_cached_periodic_k0_potential
 
-  subroutine apply_direct_fallback_field(plan, state, rt, soft2, use_periodic_root_oracle_fallback, ex, ey, ez)
+  subroutine apply_direct_fallback_field(plan, state, rt, soft2, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: rt(3)
     real(dp), intent(in) :: soft2
-    logical, intent(in) :: use_periodic_root_oracle_fallback
     real(dp), intent(inout) :: ex, ey, ez
-    real(dp) :: evec(3)
 
     if (use_periodic2_cached_kneq0(plan)) then
       error stop 'cached_kneq0 evaluation requires targets inside the configured target box.'
     end if
     call eval_direct_all_sources_scalar(plan, state, rt(1), rt(2), rt(3), soft2, ex, ey, ez)
-    if (use_periodic_root_oracle_fallback) then
-      evec = [ex, ey, ez]
-      call add_periodic2_exact_ewald_correction_all_sources(plan, state, rt, evec)
-      ex = evec(1)
-      ey = evec(2)
-      ez = evec(3)
-    end if
   end subroutine apply_direct_fallback_field
 
-  subroutine apply_direct_fallback_potential(plan, state, rt, soft2, use_periodic_root_oracle_fallback, phi)
+  subroutine apply_direct_fallback_potential(plan, state, rt, soft2, phi)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: rt(3)
     real(dp), intent(in) :: soft2
-    logical, intent(in) :: use_periodic_root_oracle_fallback
     real(dp), intent(inout) :: phi
 
     if (use_periodic2_cached_kneq0(plan)) then
       error stop 'cached_kneq0 potential evaluation requires targets inside the configured target box.'
     end if
     call eval_direct_all_sources_potential_scalar(plan, state, rt(1), rt(2), rt(3), soft2, phi)
-    if (use_periodic_root_oracle_fallback) then
-      call add_periodic2_exact_ewald_potential_correction_all_sources(plan, state, rt, phi)
-    end if
   end subroutine apply_direct_fallback_potential
 
   subroutine accumulate_leaf_local_expansion(plan, state, leaf_node, rt, ex, ey, ez)

@@ -98,7 +98,7 @@ Python wrapper は version 問い合わせを提供する library の互換性�
 library は version 問い合わせを提供する必要があります。
 `calc_object_forces_kernel`は、対象object自身のsource電荷をゼロにして
 `sum(q_i E_not_self(r_i))`を評価します。これにより、自己力を除外しながら、
-`periodic2 + m2l_root_oracle`を含むfield kernelをそのまま利用できます。
+`periodic2 + cached_kneq0`を含むfield kernelをそのまま利用できます。
 
 `Beach.scene()` / `BeachScene`は、Python側でobjectの剛体移動や回転を一時的に適用し、
 変換後の重心配列を同じABIへ渡します。剛体変換の補助処理には既定でNumPyを使い、
@@ -132,14 +132,14 @@ BEACH の field solver adapter は、source model に応じて異なる幾何を
 - `use_periodic2`: 2 周期軸モードの有効化
 - `periodic_axes(2)`, `periodic_len(2)`: 周期軸と周期長
 - `periodic_image_layers`: 近傍画像和の層数 `N`
-- `periodic_far_correction`: coreが受ける値は`auto`, `none`, `m2l_root_oracle`。`periodic2`有効時の
-  `auto`は互換性のため`none`へ正規化され、`m2l_root_oracle`は明示指定した場合だけ有効になる
-- `periodic_ewald_alpha`, `periodic_ewald_layers`: `m2l_root_oracle`のbuild-time Ewald fitで使う
+- `periodic_far_correction`: coreが受ける値は`auto`, `none`, `cached_kneq0`。`periodic2`有効時の
+  `auto`は互換性のため`none`へ正規化される
+- `periodic_ewald_alpha`, `periodic_ewald_layers`: `cached_kneq0`のbuild-time Ewald fitで使う
   分解パラメータと打切り深さ
 - `target_box_min/max`: dual-target tree を作るときの box
 
 BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可変次数を受けられます。
-`periodic2` の `auto` は `none` に正規化されます。`m2l_root_oracle` は遠方補正を明示的に有効化します。
+`periodic2` の `auto` は `none` に正規化されます。`cached_kneq0` は遠方補正を明示的に有効化します。
 
 ### 3.2 `fmm_plan_type`
 
@@ -446,8 +446,6 @@ eval_point(r):
   leaf = locate_target_leaf(r)
   if leaf not found or leaf is not mapped to a leaf slot:
     use direct sum over all sources
-    if periodic2 and far correction is m2l_root_oracle:
-      add exact periodic Ewald correction
     return
 
   evaluate local expansion at leaf center
@@ -466,17 +464,16 @@ eval_point(r):
 
 near listに入ったsource indexについてDirect和を計算します。`periodic2`では、
 `[-N, N] x [-N, N]`の画像シフトも陽に加算します。fallbackでも同じDirect kernelを使います。
-ただし、`periodic2`で`m2l_root_oracle`が明示的に有効な場合は、oracle補正を別途加算します。
 
 ### 7.3 box外fallback
 
 dual-target treeを使う場合、target boxの外にある評価点にはtarget leafがありません。この場合は、
-全sourceのDirect和へfallbackします。`m2l_root_oracle`を明示している場合は、build-time Ewald fitの
-teacherと同じexact periodic correctionをDirect fallbackへ加えます。
+全sourceのDirect和へfallbackします。`cached_kneq0`は固定target topologyを前提とするため、
+target box外の評価をrejectします。
 
 ### 7.4 root補正の位置
 
-`m2l_root_oracle`のroot補正は、`update_state`が`state%local(:, root)`へ注入します。
+`cached_kneq0`のroot補正は、`update_state`がtarget anchorのlocal展開へ注入します。
 通常のleaf評価ではroot補正を再計算せず、`state`に保存されたlocal展開をそのまま使います。
 
 ## 8. `periodic2` と遠方補正
@@ -505,7 +502,7 @@ M2L でも同じ画像シフト集合を使い、各 pair の derivative を画�
 real-spaceとreciprocal-spaceの打切り深さは、`field_periodic_image_layers = N`と
 `field_periodic_ewald_layers = L`で決まります。この有限和をbuild-time oracleとして使います。
 
-Ewald2Pはruntime particle kernelではなく、`m2l_root_oracle`または`cached_kneq0`を作るための
+Ewald2Pはruntime particle kernelではなく、`cached_kneq0`を作るための
 build-time teacherです。`triangle_p0`のcached経路でも、teacherはproxy point chargeに適用されます。
 その結果を、root multipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価には解析panel kernel、
 遠方source表現にはtriangle-averaged P2Mを引き続き使います。
@@ -627,7 +624,7 @@ $$
 q\,\frac{2\pi}{A}\operatorname{erf}(\alpha z)\,\mathbf e_f
 $$
 
-です。single-source の oracle では `k=0` の電場寄与としてこの形を保持します。
+です。single-source の Ewald teacher では `k=0` の電場寄与としてこの形を保持します。
 
 #### 8.2.5 実装される補正
 
@@ -640,26 +637,7 @@ $$
 {}+ \mathbf E_0
 $$
 
-です。`add_periodic2_exact_ewald_correction_all_sources` はまずこれを全ソースに対して総和します。
-
-#### 8.2.6 `charged_walls` total-charge補正
-
-非中性slabの`charged_walls`境界条件では、`add_periodic2_exact_ewald_correction_all_sources`が
-全sourceの和を計算した後に、次のtotal-charge補正を加えます。
-
-$$
-\mathbf E_{\mathrm{walls}}(z) =
-\begin{cases}
-\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f, & z < z_{\mathrm{low}}, \\
-0, & z_{\mathrm{low}} \le z \le z_{\mathrm{high}}, \\
--\frac{2\pi Q_{\mathrm{tot}}}{A}\,\mathbf e_f, & z > z_{\mathrm{high}}
-\end{cases}
-$$
-
-ここで`A = L_1 L_2`は周期cellの面積、`Q_tot = \sum_j q_j`、`z_low/high`は
-`target_box_min/max`の非周期軸境界です。この項は2枚の補償壁が作る場に対応し、slab内では厳密に
-打ち消し合います。そのため、target box内でbuildするroot oracleと通常の粒子前進には影響しません。
-適用されるのは、target box外のDirect fallback評価だけです。
+です。このsingle-source補正をproxy/check点で評価し、cached operatorを生成します。
 
 `field_periodic_ewald_alpha` が `<= 0` の場合、`resolve_periodic2_ewald_alpha` は
 
@@ -667,41 +645,13 @@ $$
 \alpha = \frac{1.2}{(N+1)\min(L_1,L_2)}
 $$
 
-を自動選択します。`min(L_1,L_2)\le 0` なら `alpha = 0` として oracle を無効化します。
+を自動選択します。`min(L_1,L_2)\le 0` なら `alpha = 0` としてoperator生成を無効化します。
 また内部では `kmax = max(1, field_periodic_ewald_layers)` として逆空間の有限和を作ります。
 
-実際の runtime direct fallback は
-
-$$
-\mathbf E_{\mathrm{fallback}} =
-\sum_{(i,j)\in\mathcal I_N} \mathbf E_\epsilon(\mathbf R_{ij})
-{}+
-\mathbf E_{\mathrm{corr}}
-{}+
-\mathbf E_{\mathrm{walls}}
-$$
-
-です。`m2l_root_oracle`のbuild-time fitでは、check pointsがtarget box内にあるため
-`\mathbf E_{\mathrm{walls}} = 0`となります。したがってteacherに使うのはsingle-sourceの
-`\mathbf E_{\mathrm{corr}}`だけです。`periodic_root_operator`は定数potential modeを使わないため、
-monopole columnを0に固定します。
-
-#### 8.2.7 `m2l_root_oracle`
-
-`m2l_root_oracle`は、Ewald2P補正をteacherとして、root multipoleからroot localへのoperatorを
-proxy/check点でfitする高コストな診断modeです。明示的にopt-inした場合だけ有効になります。
-無限周期の通常運用には`cached_kneq0`を使い、有限画像との互換性のため既定値は`none`に維持します。
-
-- `periodic_image_layers = N`: runtimeで陽に加算する近傍画像殻
-- `periodic_ewald_layers = L`: build-time oracleのreal-space outer shell
-  `N < max(|i|,|j|) <= N+L`とreciprocal cutoff `|m|, |n| <= L`
-- `periodic_ewald_alpha = alpha`: Ewald分解パラメータ。`<= 0`なら自動決定
-- build時はexact periodic Ewald correctionをcheck pointsで評価し、field residualをleast-squares fitして
-  root local operatorを作る
-- runtimeでは`local(:, root) += T_root_oracle * multipole(:, root)`を加えるだけで、eval pathでEwald和を
-  計算しない
-- tree外fallbackでは、Direct和へexact periodic correctionを加え、target box外でもperiodic residualを含める
-- fitにはpotentialではなくfieldを使い、localの定数potential modeは0に固定する
+`cached_kneq0`のcold buildはcheck pointsでEwald residualの電場と電位を評価し、root multipoleから
+target localへのoperatorをfitします。電場fitで決まらない定数potential係数はpotential residualから
+別にfitし、versioned cacheへ保存します。`m2l_root_oracle` は削除済みで、指定時はrejectします。
+無限周期のproduction計算には`cached_kneq0`を使います。
 
 ## 9. 計算量の見方
 
@@ -730,8 +680,8 @@ proxy/check点でfitする高コストな診断modeです。明示的にopt-in�
 - source 座標は `build_plan` 後に不変とみなす
 - 対応境界は `free` と `periodic2`
 - `periodic2` は正確に 2 周期軸が必要
-- far correctionは`none`（既定）、`auto`、`m2l_root_oracle`、`cached_kneq0`。
-  `auto`は`none`として動作し、root oracleは診断、cached backendはproductionの非零modeに使う
+- far correctionは`none`（既定）、`auto`、`cached_kneq0`。
+  `auto`は`none`として動作し、cached backendはproductionの非零modeに使う
 - `eval_point(s)` の返り値には `k_coulomb` を含めない
 
 ### 10.1 cached periodic nonzero operator
@@ -881,14 +831,14 @@ cold buildでは、再利用可能なoperator行列を初回だけ生成しま�
   `eval_point`, `eval_points`
   （`src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90`）
 - periodic2 補助:
-  `has_valid_target_box`, `use_periodic2_m2l_root_oracle`,
+  `has_valid_target_box`, `use_periodic2_cached_kneq0`,
   `use_periodic2_root_operator`, `build_periodic_shift_values`, `add_point_charge_images_field`,
   `wrap_periodic2_point`, `apply_periodic2_minimum_image`, `distance_to_source_bbox`,
   `distance_to_source_bbox_periodic`
   （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90`）
 - periodic2 Ewald/oracle:
   `resolve_periodic2_ewald_alpha`, `precompute_periodic2_ewald_data`,
-  `add_periodic2_exact_ewald_correction_single_source`, `add_periodic2_exact_ewald_correction_all_sources`
+  `add_periodic2_exact_ewald_correction_single_source`
   （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90`）
 - periodic2 root operator:
   `precompute_periodic_root_operator`

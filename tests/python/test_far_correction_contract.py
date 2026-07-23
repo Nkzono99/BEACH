@@ -44,9 +44,9 @@ def test_far_correction_schema_metadata_match() -> None:
         "field_periodic_far_correction"
     ]
     assert far["default"] == "none"
-    assert far["enum"] == ["auto", "none", "m2l_root_oracle", "cached_kneq0"]
+    assert far["enum"] == ["auto", "none", "cached_kneq0"]
     assert "cached_kneq0" in far["description"]
-    assert "high-cost diagnostic" in far["description"]
+    assert "m2l_root_oracle" not in far["description"]
 
 
 def test_spec_and_canonical_docs_state_the_staged_contract() -> None:
@@ -57,11 +57,8 @@ def test_spec_and_canonical_docs_state_the_staged_contract() -> None:
 
     assert '`field_periodic_far_correction="none"`' in spec
     assert "`auto`" in spec and "互換用" in spec and "`none` に正規化" in spec
-    assert (
-        "`m2l_root_oracle`" in spec
-        and "明示" in spec
-        and "高コスト診断" in spec
-    )
+    assert '`m2l_root_oracle` は削除済み' in spec
+    assert '`cached_kneq0` を使用' in spec
     assert "有限画像" in spec
     assert "cached_kneq0" in spec and "generator version" in spec
     assert "production" in spec and "O(log n)" in spec
@@ -75,8 +72,7 @@ def test_spec_and_canonical_docs_state_the_staged_contract() -> None:
         in parameters_ja
     )
     assert "現在は `none` と同じ扱い" in parameters_ja
-    assert "高コストな診断mode" in fmm_core_ja
-    assert "明示的にopt-inした場合だけ有効" in fmm_core_ja
+    assert "`m2l_root_oracle` は削除済み" in fmm_core_ja
     assert "production" in fmm_core_ja and "`cached_kneq0`" in fmm_core_ja
     assert "Infinite-periodic production runs use `cached_kneq0`" in fmm_core_en
 

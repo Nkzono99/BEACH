@@ -1,39 +1,15 @@
-!> periodic2 FMM コアテスト: 周期境界精度, oracle 補正, 非中性電荷壁, canonical seam。
+!> periodic2 FMM コアの有限画像精度テスト。
 program test_coulomb_fmm_core_periodic
-  use bem_constants, only: k_coulomb
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
-  use bem_templates, only: make_sphere
-  use bem_field, only: electric_field_at
-  use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, eval_point, &
                                   destroy_plan, destroy_state
-  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_all_sources, &
-                                            add_periodic2_exact_ewald_correction_single_source
-  use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true
   implicit none
 
-  call test_init(6)
+  call test_init(2)
 
   call test_begin('periodic2_field_accuracy')
   call test_periodic2_field_accuracy()
-  call test_end()
-
-  call test_begin('periodic2_target_oracle_operator_residual_accuracy')
-  call test_periodic2_target_oracle_operator_residual_accuracy()
-  call test_end()
-
-  call test_begin('periodic2_m2l_root_oracle_correction_effect')
-  call test_periodic2_m2l_root_oracle_correction_effect()
-  call test_end()
-
-  call test_begin('periodic2_nonneutral_charged_wall_outside_box')
-  call test_periodic2_nonneutral_charged_wall_outside_box()
-  call test_end()
-
-  call test_begin('field_solver_core_periodic2_m2l_root_oracle_adapter')
-  call test_field_solver_core_periodic2_m2l_root_oracle_adapter()
   call test_end()
 
   call test_begin('periodic2_canonical_seam_accuracy')
@@ -55,36 +31,35 @@ contains
 
     allocate (plan, state)
     call make_periodic_sources(src_pos, q)
-    options%theta = 0.55d0
+    options%theta = 0.55_dp
     options%leaf_max = 2_i32
     options%order = 4_i32
     options%use_periodic2 = .true.
     options%periodic_axes = [1_i32, 2_i32]
-    options%periodic_len = [1.0d0, 1.0d0]
+    options%periodic_len = [1.0_dp, 1.0_dp]
     options%periodic_image_layers = 1_i32
-    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+    options%target_box_min = [0.0_dp, 0.0_dp, -1.0_dp]
+    options%target_box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     call build_plan(plan, src_pos, options)
     call update_state(plan, state, q)
 
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
-    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
-    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
-    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
-    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
+    queries(:, 1) = [0.15_dp, 0.15_dp, -0.60_dp]
+    queries(:, 2) = [0.85_dp, 0.20_dp, -0.20_dp]
+    queries(:, 3) = [0.20_dp, 0.80_dp, 0.10_dp]
+    queries(:, 4) = [0.75_dp, 0.75_dp, 0.50_dp]
+    queries(:, 5) = [0.55_dp, 0.35_dp, -0.75_dp]
+    queries(:, 6) = [0.35_dp, 0.60_dp, 0.85_dp]
 
-    max_rel_err = 0.0d0
+    max_rel_err = 0.0_dp
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       call eval_point(plan, state, queries(:, i), e_fmm)
-      call direct_field_periodic2(plan%src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
-                                  options%periodic_axes, options%periodic_image_layers, e_ref)
-      if (trim(plan%options%periodic_far_correction) == 'm2l_root_oracle') then
-        call add_periodic2_exact_ewald_correction_all_sources(plan, state, queries(:, i), e_ref)
-      end if
+      call direct_field_periodic2( &
+        plan%src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
+        options%periodic_axes, options%periodic_image_layers, e_ref &
+        )
       norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
+      if (norm_ref <= 1.0e-16_dp) cycle
       rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
@@ -93,299 +68,11 @@ contains
     call assert_true(valid_count == 6_i32, 'periodic2 core test lost valid samples')
     write (*, '(A,I0,A,ES12.5)') &
       'test_periodic2_field_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(max_rel_err <= 8.0d-2, 'periodic2 core FMM relative error exceeds 8e-2')
+    call assert_true(max_rel_err <= 8.0e-2_dp, 'periodic2 core FMM relative error exceeds 8e-2')
 
     call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_periodic2_field_accuracy
-
-  subroutine test_periodic2_target_oracle_operator_residual_accuracy()
-    type(fmm_plan_type), allocatable :: plan
-    type(fmm_state_type), allocatable :: state
-    type(fmm_options_type) :: options
-    real(dp), allocatable :: src_pos(:, :), q(:), probes(:, :), target_local(:)
-    real(dp) :: e_operator(3), e_ref(3)
-    real(dp) :: norm_ref, rel_err, max_rel_err, mean_rel_err, global_rel_err
-    real(dp) :: sq_err_sum, sq_ref_sum
-    integer(i32) :: i, nprobe, valid_count, ntarget_sample, sample_idx, target_idx, node_idx
-
-    allocate (plan, state)
-    call make_periodic_sources(src_pos, q)
-    options%theta = 0.55d0
-    options%leaf_max = 2_i32
-    options%order = 4_i32
-    options%use_periodic2 = .true.
-    options%periodic_axes = [1_i32, 2_i32]
-    options%periodic_len = [1.0d0, 1.0d0]
-    options%periodic_image_layers = 1_i32
-    options%periodic_far_correction = 'm2l_root_oracle'
-    options%periodic_ewald_layers = 2_i32
-    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    call build_plan(plan, src_pos, options)
-    call update_state(plan, state, q)
-
-    call assert_true(plan%periodic_root_operator_ready, 'm2l_root_oracle should build target operators')
-    call assert_true(plan%periodic_root_target_count > 1_i32, 'target oracle should cover multiple target nodes')
-    call assert_true( &
-      size(plan%periodic_root_operator, 3) == plan%periodic_root_target_count, &
-      'target operator count should match stored target nodes' &
-      )
-    nprobe = 2_i32*plan%ncoef
-    ntarget_sample = min(plan%periodic_root_target_count, 4_i32)
-    allocate (probes(3, nprobe), target_local(plan%ncoef))
-
-    max_rel_err = 0.0d0
-    mean_rel_err = 0.0d0
-    sq_err_sum = 0.0d0
-    sq_ref_sum = 0.0d0
-    valid_count = 0_i32
-    do sample_idx = 1_i32, ntarget_sample
-      if (ntarget_sample == 1_i32) then
-        target_idx = 1_i32
-      else
-        target_idx = 1_i32 + int( &
-                     real(plan%periodic_root_target_count - 1_i32, dp)*real(sample_idx - 1_i32, dp)/ &
-                     real(ntarget_sample - 1_i32, dp), i32 &
-                     )
-      end if
-      node_idx = plan%periodic_root_target_nodes(target_idx)
-      call build_test_root_sample_points( &
-        plan%target_node_center(:, node_idx), plan%target_node_half_size(:, node_idx), nprobe, 0.61d0, probes &
-        )
-      target_local = matmul(plan%periodic_root_operator(:, :, target_idx), state%multipole(:, 1_i32))
-      do i = 1_i32, nprobe
-        call eval_local_field_from_coeff(plan, plan%target_node_center(:, node_idx), target_local, probes(:, i), e_operator)
-        e_ref = 0.0d0
-        call add_periodic2_exact_ewald_correction_all_sources(plan, state, probes(:, i), e_ref)
-        norm_ref = sqrt(sum(e_ref*e_ref))
-        if (norm_ref <= 1.0d-18) cycle
-        rel_err = sqrt(sum((e_operator - e_ref)*(e_operator - e_ref)))/norm_ref
-        max_rel_err = max(max_rel_err, rel_err)
-        mean_rel_err = mean_rel_err + rel_err
-        sq_err_sum = sq_err_sum + sum((e_operator - e_ref)*(e_operator - e_ref))
-        sq_ref_sum = sq_ref_sum + sum(e_ref*e_ref)
-        valid_count = valid_count + 1_i32
-      end do
-    end do
-
-    call assert_true( &
-      valid_count >= max(1_i32, ntarget_sample*nprobe/2_i32), &
-      'periodic2 target oracle operator test lost too many valid samples' &
-      )
-    mean_rel_err = mean_rel_err/real(valid_count, dp)
-    global_rel_err = sqrt(sq_err_sum/max(sq_ref_sum, tiny(1.0d0)))
-    write (*, '(A,I0,A,ES12.5,A,ES12.5,A,ES12.5)') &
-      'test_periodic2_target_oracle_operator_residual_accuracy: valid_count=', valid_count, &
-      ', global_rel_err=', global_rel_err, ', mean_rel_err=', mean_rel_err, ', max_rel_err=', max_rel_err
-    call assert_true(global_rel_err <= 3.5d-1, 'periodic2 target oracle operator global relative error exceeds 3.5e-1')
-    call assert_true(max_rel_err <= 2.0d0, 'periodic2 target oracle operator pointwise relative error exceeds 2')
-
-    call destroy_state(state)
-    call destroy_plan(plan)
-  end subroutine test_periodic2_target_oracle_operator_residual_accuracy
-
-  subroutine test_periodic2_m2l_root_oracle_correction_effect()
-    type(fmm_plan_type), allocatable :: plan_oracle
-    type(fmm_state_type), allocatable :: state_oracle
-    type(fmm_options_type) :: options_oracle
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 6), e_ref(3), e_oracle(3)
-    real(dp) :: norm_ref, rel_oracle, max_rel_oracle
-    integer(i32) :: i, valid_count
-
-    allocate (plan_oracle, state_oracle)
-    call make_periodic_sources(src_pos, q)
-    options_oracle%theta = 0.55d0
-    options_oracle%leaf_max = 2_i32
-    options_oracle%order = 4_i32
-    options_oracle%use_periodic2 = .true.
-    options_oracle%periodic_axes = [1_i32, 2_i32]
-    options_oracle%periodic_len = [1.0d0, 1.0d0]
-    options_oracle%periodic_image_layers = 1_i32
-    options_oracle%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options_oracle%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    options_oracle%periodic_far_correction = 'm2l_root_oracle'
-    options_oracle%periodic_ewald_layers = 2_i32
-    call build_plan(plan_oracle, src_pos, options_oracle)
-    call update_state(plan_oracle, state_oracle, q)
-
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
-    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
-    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
-    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
-    queries(:, 6) = [0.35d0, 0.60d0, 1.20d0]
-
-    call assert_true(plan_oracle%periodic_ewald%ready, 'm2l_root_oracle should precompute periodic Ewald data')
-    call assert_true(plan_oracle%periodic_root_operator_ready, 'm2l_root_oracle should build target operators')
-
-    max_rel_oracle = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      call direct_field_periodic2( &
-        plan_oracle%src_pos, q, queries(:, i), options_oracle%target_box_min, &
-        options_oracle%target_box_max, options_oracle%periodic_axes, &
-        options_oracle%periodic_image_layers, e_ref)
-      call add_periodic2_exact_ewald_correction_all_sources(plan_oracle, state_oracle, queries(:, i), e_ref)
-      call eval_point(plan_oracle, state_oracle, queries(:, i), e_oracle)
-
-      norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_oracle = sqrt(sum((e_oracle - e_ref)*(e_oracle - e_ref)))/norm_ref
-      max_rel_oracle = max(max_rel_oracle, rel_oracle)
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 6_i32, 'periodic2 m2l_root_oracle core test lost valid samples')
-    call assert_true(max_rel_oracle <= 8.0d-2, 'm2l_root_oracle periodic2 accuracy exceeds 8e-2')
-
-    call destroy_state(state_oracle)
-    call destroy_plan(plan_oracle)
-  end subroutine test_periodic2_m2l_root_oracle_correction_effect
-
-  subroutine test_periodic2_nonneutral_charged_wall_outside_box()
-    type(fmm_plan_type), allocatable :: plan
-    type(fmm_state_type), allocatable :: state
-    type(fmm_options_type) :: options
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 2), e_fmm(3), e_ref(3)
-    real(dp) :: norm_ref, rel_err, max_rel_err, total_charge
-    integer(i32) :: i, idx, valid_count
-
-    allocate (plan, state)
-    call make_periodic_sources_nonneutral(src_pos, q)
-    total_charge = sum(q)
-    options%theta = 0.55d0
-    options%leaf_max = 2_i32
-    options%order = 4_i32
-    options%use_periodic2 = .true.
-    options%periodic_axes = [1_i32, 2_i32]
-    options%periodic_len = [1.0d0, 1.0d0]
-    options%periodic_image_layers = 1_i32
-    options%periodic_far_correction = 'm2l_root_oracle'
-    options%periodic_ewald_layers = 2_i32
-    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
-    call build_plan(plan, src_pos, options)
-    call update_state(plan, state, q)
-
-    queries(:, 1) = [0.45d0, 0.40d0, 1.30d0]
-    queries(:, 2) = [0.45d0, 0.40d0, -1.25d0]
-
-    max_rel_err = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      call eval_point(plan, state, queries(:, i), e_fmm)
-      call direct_field_periodic2(plan%src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
-                                  options%periodic_axes, options%periodic_image_layers, e_ref)
-      do idx = 1_i32, int(size(q), i32)
-        call add_periodic2_exact_ewald_correction_single_source(plan, q(idx), plan%src_pos(:, idx), queries(:, i), e_ref)
-      end do
-      call add_expected_charged_wall_field( &
-        total_charge, options%target_box_min(3), options%target_box_max(3), plan%periodic_ewald%cell_area, 3_i32, &
-        queries(:, i), e_ref &
-        )
-      norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
-      max_rel_err = max(max_rel_err, rel_err)
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 2_i32, 'periodic2 nonneutral charged-wall test lost valid samples')
-    write (*, '(A,I0,A,ES12.5)') &
-      'test_periodic2_nonneutral_charged_wall_outside_box: valid_count=', valid_count, &
-      ', max_rel_err=', max_rel_err
-    call assert_true(max_rel_err <= 1.0d-12, 'periodic2 nonneutral charged-wall correction mismatch')
-
-    call destroy_state(state)
-    call destroy_plan(plan)
-  end subroutine test_periodic2_nonneutral_charged_wall_outside_box
-
-  subroutine test_field_solver_core_periodic2_m2l_root_oracle_adapter()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_root = field_solver_type()
-    type(sim_config) :: sim
-    real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 4), e_raw(3), e_ref(3), e_root(3)
-    real(dp) :: norm_ref, rel_root, mean_rel_root
-    integer(i32) :: i, valid_count
-
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    do i = 1_i32, mesh_fmm%nelem
-      if (mod(i, 2_i32) == 0_i32) then
-        mesh_fmm%q_elem(i) = -1.0d-12
-      else
-        mesh_fmm%q_elem(i) = 1.0d-12
-      end if
-    end do
-
-    sim = sim_config()
-    sim%softening = 0.0d0
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'm2l_root_oracle'
-    sim%field_periodic_image_layers = 1_i32
-    sim%field_periodic_ewald_layers = 2_i32
-    sim%tree_leaf_max = 128_i32
-    sim%has_tree_leaf_max = .true.
-    sim%tree_min_nelem = 64_i32
-    sim%use_box = .true.
-    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
-    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
-    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_root%init(mesh_fmm, sim)
-    call solver_root%refresh(mesh_fmm)
-
-    call assert_true( &
-      solver_root%fmm_use_core, &
-      'softening=0 periodic2 m2l_root_oracle FMM should use the core path' &
-      )
-    call assert_true( &
-      trim(solver_root%periodic_far_correction) == 'm2l_root_oracle', &
-      'explicit periodic2 m2l_root_oracle should be preserved' &
-      )
-    call assert_true( &
-      trim(solver_root%fmm_core_options%periodic_far_correction) == 'm2l_root_oracle', &
-      'core adapter should pass explicit m2l_root_oracle into FMM options' &
-      )
-
-    call mesh_centers_as_sources(mesh_fmm, src_pos, q)
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.75d0, 0.75d0, 0.50d0]
-
-    mean_rel_root = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, 2_i32
-      call direct_field_periodic2( &
-        solver_root%fmm_core_plan%src_pos, q, queries(:, i), sim%box_min, sim%box_max, &
-        [1_i32, 2_i32], solver_root%periodic_image_layers, e_raw &
-        )
-      call add_periodic2_exact_ewald_correction_all_sources( &
-        solver_root%fmm_core_plan, solver_root%fmm_core_state, queries(:, i), e_raw &
-        )
-      e_ref = k_coulomb*e_raw
-      call solver_root%eval_e(mesh_fmm, queries(:, i), e_root)
-
-      norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_root = sqrt(sum((e_root - e_ref)*(e_root - e_ref)))/norm_ref
-      mean_rel_root = mean_rel_root + rel_root
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true( &
-      valid_count == 2_i32, &
-      'core periodic2 m2l_root_oracle adapter test lost valid samples' &
-      )
-    mean_rel_root = mean_rel_root/real(valid_count, dp)
-    call assert_true( &
-      mean_rel_root <= 8.0d-2, &
-      'core adapter periodic2 m2l_root_oracle accuracy exceeds 8e-2' &
-      )
-  end subroutine test_field_solver_core_periodic2_m2l_root_oracle_adapter
 
   subroutine test_periodic2_canonical_seam_accuracy()
     type(fmm_plan_type), allocatable :: plan
@@ -396,55 +83,48 @@ contains
     real(dp) :: norm_ref, rel_err, max_rel_err, bb_width_x, bb_width_y
     integer(i32) :: i, valid_count
 
-    allocate (plan, state)
-    allocate (src_pos(3, 6), q(6))
-    src_pos(:, 1) = [0.02d0, 0.03d0, -0.30d0]
-    src_pos(:, 2) = [0.04d0, 0.97d0, 0.20d0]
-    src_pos(:, 3) = [0.96d0, 0.02d0, -0.10d0]
-    src_pos(:, 4) = [0.98d0, 0.98d0, 0.40d0]
-    src_pos(:, 5) = [0.50d0, 0.50d0, 0.00d0]
-    src_pos(:, 6) = [0.03d0, 0.95d0, -0.50d0]
-    q = [-1.0d-12, 1.1d-12, -0.9d-12, 1.2d-12, -1.3d-12, 1.0d-12]
+    allocate (plan, state, src_pos(3, 6), q(6))
+    src_pos(:, 1) = [0.02_dp, 0.03_dp, -0.30_dp]
+    src_pos(:, 2) = [0.04_dp, 0.97_dp, 0.20_dp]
+    src_pos(:, 3) = [0.96_dp, 0.02_dp, -0.10_dp]
+    src_pos(:, 4) = [0.98_dp, 0.98_dp, 0.40_dp]
+    src_pos(:, 5) = [0.50_dp, 0.50_dp, 0.00_dp]
+    src_pos(:, 6) = [0.03_dp, 0.95_dp, -0.50_dp]
+    q = [-1.0e-12_dp, 1.1e-12_dp, -0.9e-12_dp, 1.2e-12_dp, -1.3e-12_dp, 1.0e-12_dp]
 
-    options%theta = 0.55d0
+    options%theta = 0.55_dp
     options%leaf_max = 2_i32
     options%order = 4_i32
     options%use_periodic2 = .true.
     options%periodic_axes = [1_i32, 2_i32]
-    options%periodic_len = [1.0d0, 1.0d0]
+    options%periodic_len = [1.0_dp, 1.0_dp]
     options%periodic_image_layers = 1_i32
-    options%periodic_far_correction = 'm2l_root_oracle'
-    options%periodic_ewald_layers = 2_i32
-    options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
-    options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
+    options%periodic_far_correction = 'none'
+    options%target_box_min = [0.0_dp, 0.0_dp, -1.0_dp]
+    options%target_box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     call build_plan(plan, src_pos, options)
     call update_state(plan, state, q)
 
     bb_width_x = maxval(plan%src_pos(1, :)) - minval(plan%src_pos(1, :))
     bb_width_y = maxval(plan%src_pos(2, :)) - minval(plan%src_pos(2, :))
-    call assert_true( &
-      bb_width_x < 0.60d0, &
-      'canonical seam should compact x bounding box' &
-      )
-    call assert_true( &
-      bb_width_y < 0.60d0, &
-      'canonical seam should compact y bounding box' &
-      )
+    call assert_true(bb_width_x < 0.60_dp, 'canonical seam should compact x bounding box')
+    call assert_true(bb_width_y < 0.60_dp, 'canonical seam should compact y bounding box')
 
-    queries(:, 1) = [0.15d0, 0.15d0, -0.50d0]
-    queries(:, 2) = [0.85d0, 0.85d0, 0.30d0]
-    queries(:, 3) = [0.50d0, 0.50d0, -0.80d0]
-    queries(:, 4) = [0.30d0, 0.70d0, 0.60d0]
+    queries(:, 1) = [0.15_dp, 0.15_dp, -0.50_dp]
+    queries(:, 2) = [0.85_dp, 0.85_dp, 0.30_dp]
+    queries(:, 3) = [0.50_dp, 0.50_dp, -0.80_dp]
+    queries(:, 4) = [0.30_dp, 0.70_dp, 0.60_dp]
 
-    max_rel_err = 0.0d0
+    max_rel_err = 0.0_dp
     valid_count = 0_i32
-    do i = 1_i32, 4_i32
+    do i = 1_i32, int(size(queries, 2), i32)
       call eval_point(plan, state, queries(:, i), e_fmm)
-      call direct_field_periodic2(plan%src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
-                                  options%periodic_axes, options%periodic_image_layers, e_ref)
-      call add_periodic2_exact_ewald_correction_all_sources(plan, state, queries(:, i), e_ref)
+      call direct_field_periodic2( &
+        plan%src_pos, q, queries(:, i), options%target_box_min, options%target_box_max, &
+        options%periodic_axes, options%periodic_image_layers, e_ref &
+        )
       norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
+      if (norm_ref <= 1.0e-16_dp) cycle
       rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
       max_rel_err = max(max_rel_err, rel_err)
       valid_count = valid_count + 1_i32
@@ -453,7 +133,7 @@ contains
     call assert_true(valid_count >= 3_i32, 'canonical seam test lost valid samples')
     write (*, '(A,I0,A,ES12.5)') &
       'test_periodic2_canonical_seam_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(max_rel_err <= 8.0d-2, 'canonical seam FMM relative error exceeds 8e-2')
+    call assert_true(max_rel_err <= 8.0e-2_dp, 'canonical seam FMM relative error exceeds 8e-2')
 
     call destroy_state(state)
     call destroy_plan(plan)
@@ -464,154 +144,46 @@ contains
     real(dp), allocatable, intent(out) :: q(:)
 
     allocate (src_pos(3, 8), q(8))
-    src_pos(:, 1) = [0.20d0, 0.20d0, -0.40d0]
-    src_pos(:, 2) = [0.80d0, 0.20d0, -0.20d0]
-    src_pos(:, 3) = [0.25d0, 0.75d0, 0.10d0]
-    src_pos(:, 4) = [0.75d0, 0.70d0, 0.35d0]
-    src_pos(:, 5) = [0.40d0, 0.35d0, -0.70d0]
-    src_pos(:, 6) = [0.60d0, 0.55d0, 0.55d0]
-    src_pos(:, 7) = [0.30d0, 0.60d0, 0.85d0]
-    src_pos(:, 8) = [0.65d0, 0.30d0, -0.85d0]
+    src_pos(:, 1) = [0.20_dp, 0.20_dp, -0.40_dp]
+    src_pos(:, 2) = [0.80_dp, 0.20_dp, -0.20_dp]
+    src_pos(:, 3) = [0.25_dp, 0.75_dp, 0.10_dp]
+    src_pos(:, 4) = [0.75_dp, 0.70_dp, 0.35_dp]
+    src_pos(:, 5) = [0.40_dp, 0.35_dp, -0.70_dp]
+    src_pos(:, 6) = [0.60_dp, 0.55_dp, 0.55_dp]
+    src_pos(:, 7) = [0.30_dp, 0.60_dp, 0.85_dp]
+    src_pos(:, 8) = [0.65_dp, 0.30_dp, -0.85_dp]
     q = [ &
-        -1.0d-12, 1.1d-12, -1.2d-12, 1.3d-12, &
-        -1.4d-12, 1.5d-12, -1.6d-12, 1.3d-12 &
+        -1.0e-12_dp, 1.1e-12_dp, -1.2e-12_dp, 1.3e-12_dp, &
+        -1.4e-12_dp, 1.5e-12_dp, -1.6e-12_dp, 1.3e-12_dp &
         ]
   end subroutine make_periodic_sources
 
-  subroutine make_periodic_sources_nonneutral(src_pos, q)
-    real(dp), allocatable, intent(out) :: src_pos(:, :)
-    real(dp), allocatable, intent(out) :: q(:)
-
-    allocate (src_pos(3, 4), q(4))
-    src_pos(:, 1) = [0.20d0, 0.20d0, -0.30d0]
-    src_pos(:, 2) = [0.78d0, 0.30d0, 0.15d0]
-    src_pos(:, 3) = [0.32d0, 0.75d0, 0.45d0]
-    src_pos(:, 4) = [0.68d0, 0.68d0, -0.55d0]
-    q(1) = 1.0d-12
-    q(2) = 0.4d-12
-    q(3) = -0.2d-12
-    q(4) = 0.7d-12
-  end subroutine make_periodic_sources_nonneutral
-
-  subroutine mesh_centers_as_sources(mesh, src_pos, q)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), allocatable, intent(out) :: src_pos(:, :)
-    real(dp), allocatable, intent(out) :: q(:)
-    integer(i32) :: idx
-
-    allocate (src_pos(3, mesh%nelem), q(mesh%nelem))
-    do idx = 1_i32, mesh%nelem
-      src_pos(:, idx) = [mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)]
-      q(idx) = mesh%q_elem(idx)
-    end do
-  end subroutine mesh_centers_as_sources
-
-  subroutine direct_field_periodic2(src_pos, q, r, box_min, box_max, periodic_axes, nimg, e, softening)
+  subroutine direct_field_periodic2(src_pos, q, r, box_min, box_max, periodic_axes, nimg, e)
     real(dp), intent(in) :: src_pos(:, :), q(:), r(3), box_min(3), box_max(3)
     integer(i32), intent(in) :: periodic_axes(2), nimg
     real(dp), intent(out) :: e(3)
-    real(dp), intent(in), optional :: softening
     integer(i32) :: idx, img_i, img_j, axis1, axis2
-    real(dp) :: shifted(3), d(3), r2, inv_r3, l1, l2, soft2
+    real(dp) :: shifted(3), d(3), r2, inv_r3, len1, len2
 
     axis1 = periodic_axes(1)
     axis2 = periodic_axes(2)
-    l1 = box_max(axis1) - box_min(axis1)
-    l2 = box_max(axis2) - box_min(axis2)
-    e = 0.0d0
-    soft2 = 0.0d0
-    if (present(softening)) soft2 = softening*softening
+    len1 = box_max(axis1) - box_min(axis1)
+    len2 = box_max(axis2) - box_min(axis2)
+    e = 0.0_dp
     do idx = 1_i32, int(size(q), i32)
       do img_i = -nimg, nimg
         do img_j = -nimg, nimg
           shifted = src_pos(:, idx)
-          shifted(axis1) = shifted(axis1) + real(img_i, dp)*l1
-          shifted(axis2) = shifted(axis2) + real(img_j, dp)*l2
+          shifted(axis1) = shifted(axis1) + real(img_i, dp)*len1
+          shifted(axis2) = shifted(axis2) + real(img_j, dp)*len2
           d = r - shifted
-          r2 = sum(d*d) + soft2
-          if (r2 <= tiny(1.0d0)) cycle
-          inv_r3 = 1.0d0/(sqrt(r2)*r2)
+          r2 = sum(d*d)
+          if (r2 <= tiny(1.0_dp)) cycle
+          inv_r3 = 1.0_dp/(sqrt(r2)*r2)
           e = e + q(idx)*inv_r3*d
         end do
       end do
     end do
   end subroutine direct_field_periodic2
-
-  subroutine add_expected_charged_wall_field(total_charge, z_low, z_high, cell_area, axis_free, target, e)
-    real(dp), intent(in) :: total_charge, z_low, z_high, cell_area, target(3)
-    integer(i32), intent(in) :: axis_free
-    real(dp), intent(inout) :: e(3)
-    real(dp), parameter :: two_pi_dp = 2.0d0*acos(-1.0d0)
-    real(dp) :: pref, tol
-
-    if (abs(total_charge) <= tiny(1.0d0) .or. cell_area <= 0.0d0) return
-    tol = 1.0d-12*max(1.0d0, max(abs(z_low), abs(z_high)))
-    pref = two_pi_dp*total_charge/cell_area
-    if (target(axis_free) < z_low - tol) then
-      e(axis_free) = e(axis_free) + pref
-    else if (target(axis_free) > z_high + tol) then
-      e(axis_free) = e(axis_free) - pref
-    end if
-  end subroutine add_expected_charged_wall_field
-
-  subroutine build_test_root_sample_points(center, half_size, npoint, offset, points)
-    real(dp), intent(in) :: center(3), half_size(3), offset
-    integer(i32), intent(in) :: npoint
-    real(dp), intent(out) :: points(3, npoint)
-    integer(i32) :: idx
-    real(dp) :: f1, f2, f3
-    real(dp), parameter :: g1 = 0.7548776662466927d0
-    real(dp), parameter :: g2 = 0.5698402909980532d0
-    real(dp), parameter :: g3 = 0.4301597090019468d0
-
-    do idx = 1_i32, npoint
-      f1 = modulo(offset + real(idx, dp)*g1, 1.0d0)
-      f2 = modulo(offset + real(idx, dp)*g2, 1.0d0)
-      f3 = modulo(offset + real(idx, dp)*g3, 1.0d0)
-      points(1, idx) = center(1) + (2.0d0*(0.05d0 + 0.9d0*f1) - 1.0d0)*half_size(1)
-      points(2, idx) = center(2) + (2.0d0*(0.05d0 + 0.9d0*f2) - 1.0d0)*half_size(2)
-      points(3, idx) = center(3) + (2.0d0*(0.05d0 + 0.9d0*f3) - 1.0d0)*half_size(3)
-    end do
-  end subroutine build_test_root_sample_points
-
-  subroutine eval_local_field_from_coeff(plan, center, local_coeff, target, e)
-    type(fmm_plan_type), intent(in) :: plan
-    real(dp), intent(in) :: center(3), local_coeff(:), target(3)
-    real(dp), intent(out) :: e(3)
-    integer(i32) :: term_idx
-    real(dp) :: dr(3), monomial
-    real(dp) :: xpow(0:plan%options%order), ypow(0:plan%options%order), zpow(0:plan%options%order)
-
-    if (size(local_coeff) /= plan%ncoef) error stop 'eval_local_field_from_coeff size mismatch.'
-
-    e = 0.0d0
-    if (plan%eval_term_count <= 0_i32) return
-
-    dr = target - center
-    call build_powers(dr, plan%options%order, xpow, ypow, zpow)
-    do term_idx = 1_i32, plan%eval_term_count
-      monomial = xpow(plan%eval_exp(1, term_idx))*ypow(plan%eval_exp(2, term_idx))*zpow(plan%eval_exp(3, term_idx))* &
-                 plan%eval_inv_factorial(term_idx)
-      e(1) = e(1) - local_coeff(plan%eval_deriv_idx(1, term_idx))*monomial
-      e(2) = e(2) - local_coeff(plan%eval_deriv_idx(2, term_idx))*monomial
-      e(3) = e(3) - local_coeff(plan%eval_deriv_idx(3, term_idx))*monomial
-    end do
-  end subroutine eval_local_field_from_coeff
-
-  subroutine build_powers(d, order, xpow, ypow, zpow)
-    real(dp), intent(in) :: d(3)
-    integer(i32), intent(in) :: order
-    real(dp), intent(out) :: xpow(0:order), ypow(0:order), zpow(0:order)
-    integer(i32) :: k
-
-    xpow(0) = 1.0d0
-    ypow(0) = 1.0d0
-    zpow(0) = 1.0d0
-    do k = 1_i32, order
-      xpow(k) = xpow(k - 1_i32)*d(1)
-      ypow(k) = ypow(k - 1_i32)*d(2)
-      zpow(k) = zpow(k - 1_i32)*d(3)
-    end do
-  end subroutine build_powers
 
 end program test_coulomb_fmm_core_periodic

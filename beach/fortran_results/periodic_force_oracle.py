@@ -17,6 +17,7 @@ from .object_interaction import (
     ObjectProbe,
     _aggregate_wrench,
 )
+from .periodic import Periodic2Config
 from .scene import RigidTransform
 
 
@@ -429,14 +430,14 @@ def _finite_probe(
     configured = snapshot._options.periodic2
     if configured is None:
         raise ValueError("finite-shell validation requires an x/y periodic snapshot.")
-    periodic2 = (
-        configured[0],
-        configured[1],
-        configured[2],
-        image_layers,
-        "none",
-        configured[5],
-        configured[6],
+    periodic2 = Periodic2Config(
+        axes=configured.axes,
+        lengths=configured.lengths,
+        origins=configured.origins,
+        image_layers=image_layers,
+        far_correction="none",
+        ewald_alpha=configured.ewald_alpha,
+        ewald_layers=configured.ewald_layers,
     )
     options = replace(snapshot._options, periodic2=periodic2)
     source_triangles = (

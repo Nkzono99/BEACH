@@ -32,7 +32,7 @@ MPI電荷収支、MPIによるperiodic cacheの同時生成を検証します。
 | rough accessibility | 8x8 → 16x16 | 3.1250e-2 | tolerance 1.0e-1 | tolerance以下 |
 | outer orbit dt | 0.1 → 0.05 | energy error 1.2000e-3 | 3.8835e-4 | dt半減で減少 |
 
-flat surfaceの表示専用診断は`make test-fortran-far-correction-diagnostics`で実行します。
+periodic far correctionの数値検証は`make test-fortran-far-correction`で実行します。
 無限周期operatorは`test_periodic2_infinite_operator`、cold/warm cacheは`test_periodic2_operator_cache`、
 MPIによる同時生成は`test_periodic2_operator_cache_mpi`で検証します。速度比較はdebug buildで行う正しさの検証とは分け、
 release profileの`make test-fortran-benchmark`で実行します。

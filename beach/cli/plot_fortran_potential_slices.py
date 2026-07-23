@@ -160,6 +160,8 @@ def _find_config_path(output_dir: Path, explicit: Path | None) -> Path:
 
 def _load_sim_box(
     config_path: Path,
+    *,
+    allow_historical_root_oracle: bool = False,
 ) -> tuple[list[float], list[float], bool, dict[str, object] | None]:
     config = _load_toml(config_path)
     sim = config.get("sim")
@@ -179,7 +181,10 @@ def _load_sim_box(
 
     use_box = bool(sim.get("use_box", False))
     try:
-        periodic2 = _periodic2_from_sim(sim)
+        periodic2 = _periodic2_from_sim(
+            sim,
+            allow_historical_root_oracle=allow_historical_root_oracle,
+        )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     return box_min, box_max, use_box, periodic2
@@ -248,7 +253,10 @@ def run(args: argparse.Namespace) -> None:
         ) from exc
 
     config_path = _find_config_path(output_dir, args.config)
-    box_min, box_max, use_box, periodic2 = _load_sim_box(config_path)
+    box_min, box_max, use_box, periodic2 = _load_sim_box(
+        config_path,
+        allow_historical_root_oracle=args.config is None,
+    )
     xy_z, yz_x, xz_y = _default_slice_values(
         box_min,
         box_max,

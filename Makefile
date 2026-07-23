@@ -5,7 +5,7 @@
 	static-check source-text-check schema-check \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
-	test-fortran-far-correction test-fortran-far-correction-diagnostics test-fortran-benchmark \
+	test-fortran-far-correction test-fortran-benchmark \
 	benchmark-field-kernel \
 	test-field-kernel-cache \
 	test-python test-quick test-ci test-local \
@@ -16,7 +16,7 @@
 
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
-	test-fortran-far-correction test-fortran-far-correction-diagnostics test-fortran-benchmark \
+	test-fortran-far-correction test-fortran-benchmark \
 	test-field-kernel-cache \
 	test-mpi test-mpi-periodic-cache
 
@@ -113,8 +113,6 @@ FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic2_cached_snapshot \
 	test_coulomb_fmm_core_periodic \
 	test_periodic_nonzero_reference
-FORTRAN_FAR_CORRECTION_DIAGNOSTIC_TARGETS ?= \
-	test_periodic2_flat_oracle_diag
 FORTRAN_BENCHMARK_TARGETS ?= \
 	benchmark_periodic2_runtime
 FIELD_KERNEL_BENCHMARK_TARGET_COUNT ?= 2048
@@ -252,9 +250,6 @@ test-fortran-release-correctness:
 
 test-fortran-far-correction:
 	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS),debug,test)
-
-test-fortran-far-correction-diagnostics:
-	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_DIAGNOSTIC_TARGETS),debug,test)
 
 test-fortran-benchmark:
 	$(call run_fortran_targets,$(FORTRAN_BENCHMARK_TARGETS),release,run,example)

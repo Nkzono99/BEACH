@@ -16,7 +16,7 @@ and fails when a required convergence category is missing.
 Per-target Fortran timings are written to `test_l3-target-timings.csv` and
 `far_correction-target-timings.csv`.
 
-Run the assertion-free flat-surface diagnostic with `make test-fortran-far-correction-diagnostics`.
+Run periodic far-correction correctness checks with `make test-fortran-far-correction`.
 Runtime comparison is separated from debug correctness and runs under the release profile with
 `make test-fortran-benchmark`.
 

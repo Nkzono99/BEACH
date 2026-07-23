@@ -12,7 +12,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - モジュール数: 80
 - submodule 数: 13
 - program 数: 1
-- 内部依存エッジ数: 387
+- 内部依存エッジ数: 383
 
 ## 全体グラフ
 
@@ -31,11 +31,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `src/mesh` | 3 | 11 |
 | `src/particles` | 3 | 10 |
 | `src/physics` | 8 | 35 |
-| `src/physics/field_solver` | 5 | 24 |
+| `src/physics/field_solver` | 5 | 21 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
 | `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
 | `src/physics/field_solver/fmm/internal/periodic` | 7 | 29 |
-| `src/physics/field_solver/fmm/internal/runtime` | 2 | 15 |
+| `src/physics/field_solver/fmm/internal/runtime` | 2 | 14 |
 | `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
 | `src/physics/outer_plasma` | 10 | 33 |
 | `src/physics/panel` | 5 | 13 |
@@ -57,8 +57,8 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_panel_geometry` | `module` | 11 |
 | `bem_physics_config_types` | `module` | 11 |
 | `bem_app_config_types` | `module` | 10 |
-| `bem_coulomb_fmm_types` | `module` | 10 |
 | `bem_electrostatic_snapshot` | `module` | 10 |
+| `bem_coulomb_fmm_types` | `module` | 9 |
 
 ## エンティティ一覧
 
@@ -98,7 +98,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_field_kernel_c` | `module` | `src/physics/field_solver/bem_field_kernel_c.f90` | `bem_constants`, `bem_coulomb_fmm_core`, `bem_kinds`, `bem_version` | C ABI wrapper for the simulator-independent Coulomb FMM field kernel. |
 | `bem_field_solver` | `module` | `src/physics/field_solver/bem_field_solver.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_physics_config_types` | 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。 |
 | `bem_field_solver_config` | `submodule` | `src/physics/field_solver/bem_field_solver_config.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_types`, `bem_physics_config_types` | `bem_field_solver` の初期化・設定補助手続きを実装する submodule。 |
-| `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
+| `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
 | `bem_field_solver_tree` | `submodule` | `src/physics/field_solver/bem_field_solver_tree.f90` | `bem_field_solver`, `bem_coulomb_fmm_core` | `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。 |
 | `bem_coulomb_fmm_core` | `module` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | `mesh_type` や `sim_config` に依存しない Coulomb FMM コア API。 |
 | `bem_coulomb_fmm_core_build` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_build.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_plan_ops` | `bem_coulomb_fmm_core` の plan 構築 API ラッパ。 |
@@ -108,12 +108,12 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_coulomb_fmm_types` | `module` | `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90` | `bem_kinds`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan` | Coulomb FMM コアで共有する型定義。 |
 | `bem_coulomb_fmm_periodic` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | Coulomb FMM の periodic2 境界処理。 |
 | `bem_coulomb_fmm_periodic_cache` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90` | `bem_filesystem`, `bem_kinds` | Versioned stream codec for cached periodic root operators. |
-| `bem_coulomb_fmm_periodic_ewald` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | periodic2 build-only Ewald oracle と fallback exact correction。 |
+| `bem_coulomb_fmm_periodic_ewald` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | periodic2 cached operator生成用のEwald teacher。 |
 | `bem_coulomb_fmm_periodic_nonzero_reference` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature` | - |
 | `bem_coulomb_fmm_periodic_nonzero_tail` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_tail.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature` | - |
 | `bem_coulomb_fmm_periodic_root_ops` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90` | `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_cache`, `bem_regularized_qr`, `bem_coulomb_fmm_tree_utils` | periodic2 root operator の前計算。 |
 | `bem_regularized_qr` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_regularized_qr.f90` | `bem_kinds` | Reusable column-scaled QR factorization for ridge-regularized least squares. |
-| `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval` | Coulomb FMM 電場評価。 |
+| `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval` | Coulomb FMM 電場評価。 |
 | `bem_coulomb_fmm_state_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90` | `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan` | Coulomb FMM state 更新と upward/downward pass。 |
 | `bem_coulomb_fmm_plan_ops` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM plan 構築と tree トポロジ前計算。 |
 | `bem_coulomb_fmm_tree_utils` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_tree_utils.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | Coulomb FMM tree 構造の共通ユーティリティ。 |
@@ -477,7 +477,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - path: `src/physics/field_solver/bem_field_solver_eval.f90`
 - group: `src/physics/field_solver`
 - parent: `bem_field_solver`
-- 内部依存: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel`
+- 内部依存: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel`
 - external dependencies: なし
 - 概要: `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 
@@ -573,7 +573,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - group: `src/physics/field_solver/fmm/internal/periodic`
 - 内部依存: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic`
 - external dependencies: なし
-- 概要: periodic2 build-only Ewald oracle と fallback exact correction。
+- 概要: periodic2 cached operator生成用のEwald teacher。
 
 ### `bem_coulomb_fmm_periodic_nonzero_reference`
 
@@ -614,7 +614,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/runtime`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval`
 - external dependencies: なし
 - 概要: Coulomb FMM 電場評価。
 

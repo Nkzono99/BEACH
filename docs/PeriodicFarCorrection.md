@@ -28,11 +28,11 @@ field_periodic_generation_tolerance = 1.0e-8
 | --- | --- | --- |
 | `none` | primary + 有限画像だけ | 有限画像model、収束比較 |
 | `auto` | 現行では`none`へ正規化 | 互換性のみ |
-| `m2l_root_oracle` | buildごとにEwald residualをfit | 高コスト診断 |
 | `cached_kneq0` | versioned operatorを生成・再利用 | 無限周期nonzero modeのproduction経路 |
 
 `cached_kneq0`を選んでも、z方向の平均場`k=0`や外部plasma responseまでは決まりません。それらは
 [periodic2静電場](PeriodicElectrostatics.html)の場の合成処理が担当します。
+`m2l_root_oracle`は削除済みで、設定すると`cached_kneq0`を案内して起動時にrejectされます。
 
 ## 有限画像shellを通常のFMMで評価する
 
@@ -101,14 +101,12 @@ $$
 4. proxy-to-local写像とproxy-to-multipoleの最小norm擬似逆を合成する。
 5. geometryと設定からfingerprintを作り、operatorとchecksumをcacheへ公開する。
 
-`m2l_root_oracle`はこのfitをplan構築ごとに行う診断経路です。`cached_kneq0`は同じ線形写像をversioned cacheへ
-保存し、fingerprint、shape、checksumが一致するwarm runで再利用します。
-`m2l_root_oracle`はpoint source専用ですが、`cached_kneq0`はtriangle P0にも対応し、proxy pointから作った
-operatorをtriangle-averaged P2M係数へ適用します。
+`cached_kneq0`はこの線形写像をversioned cacheへ保存し、fingerprint、shape、checksumが一致するwarm runで
+再利用します。point sourceとtriangle P0の両方に対応し、proxy pointから作ったoperatorを
+triangle-averaged P2M係数へ適用します。
 
-電場だけのfitではlocal展開の定数potential係数を決められません。診断用`m2l_root_oracle`はこの定数modeを0に固定し、
-`cached_kneq0`は同じcheck点のpotential residualから定数係数を別にfitします。これは電場のfitとpotential gaugeを
-同じ単位のleast-squares列へ混ぜないためです。
+電場だけのfitではlocal展開の定数potential係数を決められないため、同じcheck点のpotential residualから
+定数係数を別にfitします。これは電場のfitとpotential gaugeを同じ単位のleast-squares列へ混ぜないためです。
 
 ## 通常M2Lの後、L2Lの前に補正を加える
 
@@ -167,9 +165,8 @@ ownership規則です。
 cache I/OとlockはMPI rootが担当します。cold buildではtarget operator sliceをMPI rankへ分配し、target内のproxy列を
 OpenMPで評価し、完成したoperatorをrank間で集約します。charge履歴や粒子位置はcacheに含めません。
 
-`cached_kneq0`はconfigured target box内の評価を前提とし、box外targetをDirect fallbackしません。対して
-`m2l_root_oracle`のbox外fallbackは有限画像Direct和にexact Ewald correctionを加えます。この差は、cached operatorが
-固定target topologyに対するproduction kernelだからです。
+`cached_kneq0`はconfigured target box内の評価を前提とし、box外targetをDirect fallbackしません。これはcached
+operatorが固定target topologyに対するproduction kernelだからです。
 
 ## 収束とcache診断を確認する
 

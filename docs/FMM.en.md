@@ -232,7 +232,7 @@ The ordinary P2M-to-L2P sequence is unchanged for `periodic2`. Only the smooth p
 inserted as an additional root-multipole-to-target-local operator after tree M2L and before L2L. The implementation therefore
 shares the FMM `plan`, `state`, and local coefficients, while remaining a distinct stage from ordinary tree M2L.
 
-[periodic2 Far Correction](PeriodicFarCorrection.en.html) now covers `none`, diagnostic `m2l_root_oracle`, production
+[periodic2 Far Correction](PeriodicFarCorrection.en.html) now covers `none`, production
 `cached_kneq0`, the Ewald2P teacher, cache behavior, and `k=0` ownership. See [periodic2 electrostatics](PeriodicElectrostatics.en.html)
 for the complete field decomposition and [outer-plasma models](OuterPlasmaModels.en.html) for outer-domain coupling.
 

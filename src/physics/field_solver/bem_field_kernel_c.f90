@@ -296,7 +296,8 @@ contains
       case (1_c_int)
         options%periodic_far_correction = 'none'
       case (2_c_int)
-        options%periodic_far_correction = 'm2l_root_oracle'
+        status = beach_kernel_invalid_argument
+        return
       case (3_c_int)
         if (order < 1_c_int .or. image_layers < 1_c_int .or. ewald_layers < 1_c_int) then
           status = beach_kernel_invalid_argument
