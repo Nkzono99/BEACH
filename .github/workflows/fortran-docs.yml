@@ -65,7 +65,7 @@ jobs:
           python-version: "3.12"
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
@@ -121,3 +121,7 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v5
+        # deploy-pages@v5 still bundles punycode until the upstream fix is released:
+        # https://github.com/actions/deploy-pages/pull/433
+        env:
+          NODE_OPTIONS: "--disable-warning=DEP0040"
