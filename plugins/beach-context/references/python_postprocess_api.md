@@ -428,7 +428,7 @@ fig.savefig("field_lines.png", dpi=150)
 | `origins` | `list[float]` (長さ 2) | - | `[0.0, 0.0]` | 各周期軸のボックス原点 [m] |
 | `box_min` | `list[float]` (長さ 3) | - | - | `origins` の代替。3D ボックス下限から周期軸の原点を抽出 |
 | `image_layers` | `int` | - | `1` | 画像シェルの層数。各周期軸で `[-N, N]` を評価 |
-| `far_correction` | `str` | - | `"none"` | `"auto"` / `"none"` / 履歴読込専用の `"m2l_root_oracle"`。`auto` は互換用に `"none"` として扱う。oracle residual 自体は再現しない |
+| `far_correction` | `str` | - | `"none"` | 明示指定では `"auto"` / `"none"`。`auto` は互換用に `"none"` として扱う |
 | `ewald_alpha` | `float` | - | `0.0` | Ewald 分解パラメータ（予約） |
 | `ewald_layers` | `int` | - | `4` | Ewald 打切り深さ（予約） |
 
@@ -451,7 +451,7 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 ### 8.3 Python 側の periodic2 実装の制限
 
 - Python 側では explicit image shell による直接和のみで周期和を再構成します
-- 削除済み `m2l_root_oracle` は過去の出力メタデータを読むためだけに受理されます。Python 側で Ewald 遠方補正は再現せず、direct 和にも影響しません
+- 削除済み `m2l_root_oracle` は、`periodic2=None` で出力近傍の過去メタデータを自動検出する場合だけ受理され、有限 image shell を表す `none` に正規化されます。明示した `periodic2` や設定ファイルでは拒否されます。Python 側で Ewald 遠方補正は再現しません
 - 大きな `image_layers` を指定するほど精度は向上しますが、計算量は `(2*N+1)^2` 倍に増加します
 
 ## 9. Coulomb mobility 解析

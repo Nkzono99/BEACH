@@ -37,6 +37,7 @@ def coerce_periodic2(
     periodic2: Periodic2Input | None,
     *,
     allow_cached_kneq0: bool = False,
+    allow_historical_root_oracle: bool = False,
 ) -> Periodic2Config | None:
     """Validate external periodic2 input and return its canonical typed form."""
 
@@ -108,14 +109,12 @@ def coerce_periodic2(
         periodic2.get("far_correction", "none"),
         ewald_layers=ewald_layers,
         allow_cached_kneq0=allow_cached_kneq0,
+        allow_historical_root_oracle=allow_historical_root_oracle,
     )
 
     ewald_alpha = float(periodic2.get("ewald_alpha", 0.0))
     if (not math.isfinite(ewald_alpha)) or ewald_alpha < 0.0:
         raise ValueError("periodic2.ewald_alpha must be finite and >= 0.")
-    if far_correction == "m2l_root_oracle" and ewald_layers < 1:
-        raise ValueError("periodic2.ewald_layers must be >= 1 for m2l_root_oracle.")
-
     return Periodic2Config(
         axes=axes,
         lengths=lengths,
@@ -138,17 +137,24 @@ def auto_periodic2_from_result(
     run_context = context or RunContext.from_value(resolved)
     if run_context.sim is None:
         return None
+    allow_historical_root_oracle = run_context.requested_config_path is None
     periodic2 = periodic2_from_sim(
         run_context.sim,
         allow_cached_kneq0=allow_cached_kneq0,
+        allow_historical_root_oracle=allow_historical_root_oracle,
     )
-    return coerce_periodic2(periodic2, allow_cached_kneq0=allow_cached_kneq0)
+    return coerce_periodic2(
+        periodic2,
+        allow_cached_kneq0=allow_cached_kneq0,
+        allow_historical_root_oracle=allow_historical_root_oracle,
+    )
 
 
 def periodic2_from_sim(
     sim: Mapping[str, object],
     *,
     allow_cached_kneq0: bool = False,
+    allow_historical_root_oracle: bool = False,
 ) -> dict[str, object] | None:
     """Translate a simulator table into the external periodic2 mapping shape."""
 
@@ -186,6 +192,7 @@ def periodic2_from_sim(
         sim.get("field_periodic_far_correction", "none"),
         ewald_layers=ewald_layers,
         allow_cached_kneq0=allow_cached_kneq0,
+        allow_historical_root_oracle=allow_historical_root_oracle,
     )
 
     return {
@@ -204,17 +211,26 @@ def normalize_periodic2_far_correction(
     *,
     ewald_layers: int,
     allow_cached_kneq0: bool = False,
+    allow_historical_root_oracle: bool = False,
 ) -> tuple[str, int]:
     """Normalize the configured far-correction policy."""
 
     far_correction = str(raw_far_correction).strip().lower()
-    allowed = {"auto", "none", "m2l_root_oracle"}
+    if far_correction == "m2l_root_oracle":
+        if not allow_historical_root_oracle:
+            replacement = "cached_kneq0" if allow_cached_kneq0 else "none"
+            raise ValueError(
+                'periodic2.far_correction "m2l_root_oracle" was removed; '
+                f'use "{replacement}".'
+            )
+        return "none", ewald_layers
+    allowed = {"auto", "none"}
     if allow_cached_kneq0:
         allowed.add("cached_kneq0")
     if far_correction not in allowed:
-        expected = '"auto", "none", or "m2l_root_oracle"'
+        expected = '"auto" or "none"'
         if allow_cached_kneq0:
-            expected = '"auto", "none", "m2l_root_oracle", or "cached_kneq0"'
+            expected = '"auto", "none", or "cached_kneq0"'
         raise ValueError(f"periodic2.far_correction must be {expected}.")
     if far_correction == "auto":
         return "none", ewald_layers

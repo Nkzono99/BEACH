@@ -25,8 +25,7 @@ from .mesh import (
 from .objects import normalize_kind_filter, resolve_object_specs
 from .periodic import Periodic2Config
 from .potential import (
-    _coerce_periodic2,
-    _periodic2_from_sim,
+    _auto_periodic2_from_result,
     _resolve_reference_point,
     compute_potential_mesh,
     compute_potential_slices,
@@ -621,9 +620,7 @@ def _periodic2_for_coulomb_matrix(
         resolved,
         config_path=config_path,
     )
-    if run_context.sim is None:
-        return None
-    return _coerce_periodic2(_periodic2_from_sim(run_context.sim))
+    return _auto_periodic2_from_result(resolved, context=run_context)
 
 
 def _short_directory_label(directory: Path) -> str:
