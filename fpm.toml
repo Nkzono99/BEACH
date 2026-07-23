@@ -227,6 +227,16 @@ source-dir = "tests/fortran"
 main = "test_boundary.f90"
 
 [[test]]
+name = "test_external_boundary_contract"
+source-dir = "tests/fortran"
+main = "test_external_boundary_contract.f90"
+
+[[test]]
+name = "test_external_step_driver"
+source-dir = "tests/fortran"
+main = "test_external_step_driver.f90"
+
+[[test]]
 name = "test_restart"
 source-dir = "tests/fortran"
 main = "test_restart.f90"

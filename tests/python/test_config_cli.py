@@ -172,6 +172,17 @@ def test_photoelectron_histogram_uses_optional_threshold_defaults() -> None:
 
 def test_kinetic_photoelectron_density_model_requires_matching_transfer_pair() -> None:
     config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+    zhao_config = load_config_file(
+        Path("examples/periodic2_zhao_charge_driven_outer.toml")
+    )
+    photoelectron = next(
+        copy.deepcopy(species)
+        for species in zhao_config["particles"]["species"]
+        if species.get("source_mode") == "photo_raycast"
+    )
+    photoelectron["pos_low"] = [0.0, 0.0, 1.0]
+    photoelectron["pos_high"] = [1.0, 1.0, 1.0]
+    config["particles"]["species"].append(photoelectron)
     config["outer_plasma"]["photoelectron_density_model"] = "kinetic_mean"
 
     normalize_config_document(config)
@@ -190,10 +201,10 @@ def test_kinetic_photoelectron_density_model_requires_matching_transfer_pair() -
 
 
 def test_zhao_charge_driven_closure_constraints() -> None:
-    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
-    config["outer_plasma"]["kinetic_closure"] = "zhao_charge_driven"
+    config = load_config_file(
+        Path("examples/periodic2_zhao_charge_driven_outer.toml")
+    )
     config["outer_plasma"]["zhao_branch"] = "c"
-    config["outer_plasma"]["photoelectron_density_model"] = "none"
 
     normalize_config_document(config)
 
@@ -237,6 +248,9 @@ def test_zhao_charge_driven_closure_constraints() -> None:
     no_photo = copy.deepcopy(config)
     no_photo["outer_plasma"]["photoelectron_source_scale"] = 0.0
     no_photo["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
+    for species in no_photo["particles"]["species"]:
+        if species.get("source_mode") == "photo_raycast":
+            species["enabled"] = False
     normalize_config_document(no_photo)
 
     invalid = copy.deepcopy(config)
@@ -255,6 +269,45 @@ def test_zhao_charge_driven_closure_constraints() -> None:
     invalid["outer_plasma"]["kinetic_closure"] = "absorbing_maxwellian"
     with pytest.raises(ConfigValidationError, match="zhao_branch"):
         normalize_config_document(invalid)
+
+
+def test_external_boundary_contract_rejects_competing_owners_and_mismatched_pairs() -> (
+    None
+):
+    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+    config["sim"]["open_boundary_model"] = "potential_barrier"
+    normalize_config_document(config)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["reservoir_potential_model"] = "infinity_barrier"
+    with pytest.raises(ConfigValidationError, match="owns inflow"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["sim"]["sheath_injection_model"] = "zhao_a"
+    with pytest.raises(ConfigValidationError, match="owns inflow"):
+        normalize_config_document(invalid)
+
+    invalid = copy.deepcopy(config)
+    invalid["outer_plasma"]["return_model"] = "kinetic_1d_profile_return"
+    with pytest.raises(ConfigValidationError, match="matching"):
+        normalize_config_document(invalid)
+
+
+def test_kinetic_outer_requires_unique_ambient_species_and_zero_gauge() -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+
+    duplicate = copy.deepcopy(config)
+    duplicate["particles"]["species"].append(
+        copy.deepcopy(duplicate["particles"]["species"][0])
+    )
+    with pytest.raises(ConfigValidationError, match="exactly one enabled negative"):
+        normalize_config_document(duplicate)
+
+    shifted_gauge = copy.deepcopy(config)
+    shifted_gauge["outer_plasma"]["infinity_potential"] = 1.0
+    with pytest.raises(ConfigValidationError, match="fixes infinity_potential=0"):
+        normalize_config_document(shifted_gauge)
 
 
 def test_zhao_transient_outer_queue_constraints() -> None:

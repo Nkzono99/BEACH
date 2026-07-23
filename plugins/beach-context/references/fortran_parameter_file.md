@@ -406,7 +406,7 @@ $L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとし
 
 既定 closure の例は
 [`periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)です。no-photo Zhao例は
-[`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml)、UVありのbranch-entry例は
+[`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml)、UVありの定常warm-start例は
 [`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml)です。
 
 過渡queueの例は[`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)です。
@@ -450,7 +450,9 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | キー | 型 | 既定値 | 説明 |
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | 現在は`explicit`のみ。outer profileを明示的な更新点で再計算 |
-| `particle_transfer_mode` | string | `"none"` | return modelと同じIDを指定 |
+| `particle_transfer_mode` | string | `"none"` | `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit`。対応するreturnとの組を下表から選ぶ |
+| `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`。新規実行を Zhao 零電流定常根と対応する平面電荷から開始 |
+| `steady_start_mesh_id` | int | `1` | `zhao_floating`で初期電荷を面積比で配る水平平面の`mesh_id` |
 | `outer_update_stride` | int | `1` | outer profile更新batch間隔 |
 | `field_evolution_timescale` | float | `0` | frozen-field比較時間 [s]。1D returnでは正値必須 |
 | `max_frozen_field_ratio` | float | `0.1` | instantでは`tau_outer`、queueでは`tau_outer`、次のpollまでの遅延、midpoint時刻誤差上限の合計を`field_evolution_timescale`で割った上限。queueの`batch_duration`にも適用 |
@@ -459,10 +461,64 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | `outer_orbit_energy_tolerance` | float | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
 | `outer_queue_enabled` | bool | `false` | 対応するZhao構成でouter flightをbatch間queueへ保存し、queued photoelectron columnで過渡closureを解く |
 
+returnとtransferの有効な組:
+
+| `outer_plasma.model` | `outer_plasma.return_model` | `coupling.particle_transfer_mode` |
+| --- | --- | --- |
+| `linear_debye` | `electrostatic_1d_instant_return` | `electrostatic_1d_instant_return` |
+| `kinetic_1d` | `kinetic_1d_profile_return` | `electrostatic_1d_instant_return` |
+| `unified_linear_response` | `electrostatic_3d_explicit_orbit` | `electrostatic_3d_explicit_orbit` |
+
+`kinetic_1d_profile_return`ではreturnとtransferの文字列は同一ではありません。1D transferを有効にした
+`linear_debye`と`kinetic_1d`は同じprofileで流入も所有するため、`reservoir_potential_model`と
+`sheath_injection_model`は`none`にします。`kinetic_1d`と`unified_linear_response`の
+`infinity_potential`は0固定です。
+
+定常 warm start:
+
+```toml
+[coupling]
+particle_transfer_mode = "electrostatic_1d_instant_return"
+steady_start_mode = "zhao_floating"
+steady_start_mesh_id = 1
+outer_queue_enabled = false
+```
+
+`zhao_floating`は、新規実行の最初batch前に設定済み無限遠reservoirとUV sourceから Zhao 零電流定常根を解き、
+その根から`phi(infinity)=0`のkinetic profileを構築します。水平断面積を$A$、定常根のinterface電場を$E_I$
+とすると、選択平面へ与える総電荷は次です。
+
+$$
+Q_{seed}=
+\begin{cases}
+2\epsilon_0 A E_I, & \texttt{symmetric_vacuum},\\
+\epsilon_0 A E_I, & \texttt{e_bottom_zero}.
+\end{cases}
+$$
+
+電荷は`steady_start_mesh_id`の三角形へ面積比で配り、他のmeshは電荷0のまま開始します。従ってplane + sphereで
+`steady_start_mesh_id=1`がplaneなら、planeだけをseedしsphereは中性です。最初のouter refresh、無限遠reservoirからの流入補正、
+interfaceを出た粒子のinstant return / escapeは、この同じprofileを使います。analytic currentを表面電荷へ追加せず、
+後続の電荷更新は通常どおりtracked粒子だけが行います。
+
+このmodeは未帯電状態からの物理過渡を時間積分せず、定常branch上の初期条件を明示的に与えます。定常・準定常量の
+評価用であり、UV立上がりやreturn-current遅延の主張には使いません。後者のためのqueue過渡closureは別modeとして残ります。
+
+`zhao_floating`は次を要求します。
+
+- `kinetic_1d` + `zhao_charge_driven` + `kinetic_1d_profile_return` + `electrostatic_1d_instant_return`
+- `outer_queue_enabled=false`、`zero_mode_policy="exclude_k0"`、対応するlower boundary model
+- 新規実行では全meshの初期電荷0。`output.resume=true`ではcheckpointのmesh電荷とouter stateを復元し、再seedしない
+- `mesh.mode="template"`で、選択meshが水平・同一高さの1平面としてperiodic cellの$A$を覆い、outer interfaceより下にあること
+
+物理的な一意性や安定性はwarm startだけでは確立しません。publication用には、独立に緩和させた状態または摂動した
+seedから同じ定常観測量へ返るかを確認します。
+
 粒子移送の規則:
 
-- `outer_plasma.return_model`と`coupling.particle_transfer_mode`は対応するIDを指定します。
+- `outer_plasma.return_model`と`coupling.particle_transfer_mode`は上表の対応する組を指定します。
 - 1D transferはopenなz-high interface、x/y周期wrap、`b0=0`だけに対応します。
+- `kinetic_1d`はenabledな負・正z-high `reservoir_face` speciesをそれぞれちょうど1つ要求します。
 - instant modeは正の`field_evolution_timescale`を要求し、`max_frozen_field_ratio`を適用性上限に使います。
 - queue modeは`kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` + `kinetic_1d_profile_return`、
   `particle_transfer_mode="electrostatic_1d_instant_return"`、直接指定または`dt * batch_duration_step`から解決した正の
@@ -492,8 +548,8 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 - z-high outward crossing の signed charge が適用性上限を超えると停止します。
 - tracked outer transfer を使う全 `photo_raycast` species で `deposit_opposite_charge_on_emit=true` が必要です。
 
-periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必要です。
-同じ周期条件をfield、collision、`photo_raycast`に適用します。
+periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要です。outer transferを使う構成では、
+その2軸をx/yとし、z-highをopen interfaceにします。同じ周期条件をfield、collision、`photo_raycast`に適用します。
 
 | far correction | 意味 |
 | --- | --- |
@@ -1002,7 +1058,11 @@ histogram state が ready な場合、`summary.txt` へ次を追加します。
 | 前 batch | `photoelectron_previous_signed_current_A`, `photoelectron_previous_charge_ratio` |
 | 適用性 | `photoelectron_max_charge_ratio`, `photoelectron_linear_applicability_status` |
 
-`coupling_outer_queue_enabled`は常に`summary.txt`へ出力します。値が`T`のときだけ、次のqueue stateを追加します。
+`coupling_steady_start_mode`、`coupling_steady_start_mesh_id`、`coupling_outer_queue_enabled`は常に
+`summary.txt`へ出力します。`zhao_floating`の新規開始時は、resolved branch、$E_I$、$Q_{seed}$、mesh IDを
+`zhao_steady_start_branch=...` で始まる1行として標準出力に記録します。resume時は再seedせず、
+`zhao_steady_start_restored_after_batches=...`に復元したbatch数を記録します。`coupling_outer_queue_enabled=T`のときだけ、
+次のqueue stateを追加します。
 
 | 種類 | キー |
 | --- | --- |

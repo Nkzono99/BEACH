@@ -75,6 +75,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_outer_event_queue \
 	test_outer_event_queue_io \
 	test_boundary \
+	test_external_boundary_contract \
+	test_external_step_driver \
 	test_restart \
 	test_reservoir_injection \
 	test_external_field_velocity_grid \

@@ -27,6 +27,17 @@ that specifically require linear screening of lateral fields near a rough surfac
 `potential_barrier` acts in the opposite direction on particles leaving through an open face. `kinetic_1d` and
 `unified_linear_response` retain more spatial information than a scalar correction.
 
+## Resolve boundary ownership into one runtime contract
+
+The public TOML keys remain split across the five stages for compatibility. BEACH resolves the owners of inflow correction,
+ordinary open faces, z-high transport, and the queue into one internal contract. The particle loop shares the contract resolved
+at startup read-only, while batch injection uses the same resolver outside the hot loop.
+
+When 1-D transfer is active, `linear_debye` and `kinetic_1d` own both return and the z-high inflow map through the same profile.
+Configuration therefore rejects an additional `infinity_barrier` or legacy `sheath_injection_model`.
+`open_boundary_model` has a separate responsibility and still applies to ordinary open faces not owned by the outer model.
+This normalization is internal; existing TOML files do not need a new bundle.
+
 ## Separate particle creation from inflow-VDF correction
 
 ```text

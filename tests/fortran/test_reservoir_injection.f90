@@ -27,7 +27,7 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(12)
+  call test_init(13)
 
   call test_begin('particle_source_plan_equivalence')
   call test_particle_source_plan_equivalence()
@@ -39,6 +39,10 @@ program test_reservoir_injection
 
   call test_begin('split_outer_nonmonotonic_interior_barrier')
   call test_split_outer_nonmonotonic_interior_barrier()
+  call test_end()
+
+  call test_begin('linear_inflow_uses_resolved_outer_state')
+  call test_linear_inflow_uses_resolved_outer_state()
   call test_end()
 
   call test_begin('zhao_density_and_target_weight_follow_outer_state')
@@ -146,6 +150,39 @@ program test_reservoir_injection
   call test_summary()
 
 contains
+
+  subroutine test_linear_inflow_uses_resolved_outer_state()
+    type(app_config) :: linear_cfg
+    type(outer_plasma_state_type) :: outer_state
+    real(dp) :: vmin_normal, barrier_normal
+
+    call default_app_config(linear_cfg)
+    linear_cfg%outer_plasma%model = 'linear_debye'
+    linear_cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
+    linear_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+    linear_cfg%particle_species(1) = species_from_defaults()
+    linear_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    linear_cfg%particle_species(1)%inject_face = 'z_high'
+    linear_cfg%particle_species(1)%q_particle = 1.0_dp
+    linear_cfg%particle_species(1)%m_particle = 1.0_dp
+
+    outer_state%model = 'linear_debye'
+    outer_state%ready = .true.
+    outer_state%interface_potential = 0.25_dp
+    outer_state%infinity_potential = 0.0_dp
+    call reservoir_face_velocity_correction( &
+      linear_cfg, linear_cfg%particle_species(1), vmin_normal, barrier_normal, outer_state=outer_state &
+      )
+    call assert_close_dp(barrier_normal, 0.5_dp, 1.0e-14_dp, 'refreshed linear barrier mismatch')
+    call assert_close_dp(vmin_normal, sqrt(0.5_dp), 1.0e-14_dp, 'refreshed linear cutoff mismatch')
+
+    outer_state%interface_potential = 0.5_dp
+    call reservoir_face_velocity_correction( &
+      linear_cfg, linear_cfg%particle_species(1), vmin_normal, barrier_normal, outer_state=outer_state &
+      )
+    call assert_close_dp(barrier_normal, 1.0_dp, 1.0e-14_dp, 'updated linear barrier mismatch')
+    call assert_close_dp(vmin_normal, 1.0_dp, 1.0e-14_dp, 'updated linear cutoff mismatch')
+  end subroutine test_linear_inflow_uses_resolved_outer_state
 
   subroutine test_particle_source_plan_equivalence()
     type(app_config) :: plan_cfg
@@ -362,6 +399,7 @@ contains
     split_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     split_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     split_cfg%outer_plasma%model = 'kinetic_1d'
+    split_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
     split_cfg%outer_plasma%debye_length = 0.2_dp
     split_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
     split_cfg%n_particle_species = 1_i32
@@ -409,6 +447,7 @@ contains
 
     call default_app_config(split_cfg)
     split_cfg%outer_plasma%model = 'kinetic_1d'
+    split_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
     split_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
     split_cfg%particle_species(1) = species_from_defaults()
     split_cfg%particle_species(1)%source_mode = 'reservoir_face'
@@ -450,6 +489,7 @@ contains
     zhao_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     zhao_cfg%outer_plasma%model = 'kinetic_1d'
     zhao_cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+    zhao_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
     zhao_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
     zhao_cfg%n_particle_species = 2_i32
     zhao_cfg%particle_species(1) = species_from_defaults()
@@ -543,6 +583,7 @@ contains
     count_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     count_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     count_cfg%outer_plasma%model = 'kinetic_1d'
+    count_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
     count_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
     count_cfg%n_particle_species = 1_i32
     count_cfg%particle_species(1) = species_from_defaults()

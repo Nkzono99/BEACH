@@ -97,3 +97,10 @@ def test_schema_enforces_zhao_floating_steady_start_contract() -> None:
     invalid = copy.deepcopy(config)
     invalid["mesh"]["mode"] = "obj"
     assert schema_errors(invalid, schema)
+
+
+def test_schema_enforces_outer_plasma_zero_gauge() -> None:
+    schema, _ = load_schema()
+    kinetic = load_config_file(ROOT / "examples/periodic2_kinetic_outer.toml")
+    kinetic["outer_plasma"]["infinity_potential"] = 1.0
+    assert schema_errors(kinetic, schema)

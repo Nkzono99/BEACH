@@ -13,7 +13,7 @@ program test_outer_plasma_kinetic_runtime
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(13)
+  call test_init(16)
 
   call test_begin('runtime adapter resolves the ambient reservoir VDFs')
   call init_fixture(app)
@@ -28,7 +28,24 @@ program test_outer_plasma_kinetic_runtime
   call assert_close_dp(options%domain_length, 10.0_dp*app%outer_plasma%debye_length, 0.0_dp, 'domain length mismatch')
   call test_end()
 
+  call test_begin('absorbing closure rejects duplicate ambient electrons')
+  call init_fixture(app)
+  app%n_particle_species = 3_i32
+  app%particle_species(3) = app%particle_species(1)
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_not_applicable, 'duplicate ambient electron must be not_applicable')
+  call test_end()
+
+  call test_begin('absorbing closure rejects duplicate ambient ions')
+  call init_fixture(app)
+  app%n_particle_species = 3_i32
+  app%particle_species(3) = app%particle_species(2)
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_not_applicable, 'duplicate ambient ion must be not_applicable')
+  call test_end()
+
   call test_begin('runtime adapter fails closed without an ion reservoir')
+  call init_fixture(app)
   app%particle_species(2)%enabled = .false.
   call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
   call assert_equal_i32(status, outer_plasma_not_applicable, 'missing ion reservoir must be not_applicable')
@@ -39,6 +56,18 @@ program test_outer_plasma_kinetic_runtime
   app%outer_plasma%photoelectron_density_model = 'kinetic_mean'
   call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
   call assert_equal_i32(status, outer_plasma_not_applicable, 'missing photoelectron VDF must be not_applicable')
+  call test_end()
+
+  call test_begin('kinetic mean rejects duplicate photoelectron sources')
+  call init_fixture(app)
+  app%outer_plasma%photoelectron_density_model = 'kinetic_mean'
+  app%n_particle_species = 4_i32
+  app%particle_species(3)%enabled = .true.
+  app%particle_species(3)%source_mode = 'photo_raycast'
+  app%particle_species(3)%q_particle = -qe
+  app%particle_species(4) = app%particle_species(3)
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_not_applicable, 'duplicate photoelectron VDF must be not_applicable')
   call test_end()
 
   call test_begin('runtime adapter resolves Zhao charge-driven inputs without replacing emission current')

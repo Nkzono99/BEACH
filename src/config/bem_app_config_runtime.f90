@@ -1,7 +1,7 @@
 !> `app_config` からメッシュ・粒子群を構築する実行時変換モジュール。
 module bem_app_config_runtime
   use bem_kinds, only: dp, i32
-  use bem_constants, only: k_boltzmann, eps0
+  use bem_constants, only: k_boltzmann
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state, bc_periodic
   use bem_types, only: surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
@@ -20,6 +20,10 @@ module bem_app_config_runtime
   use bem_particles, only: init_particles
   use bem_sheath_injection_model, only: sheath_injection_context, resolve_sheath_injection_context
   use bem_outer_plasma_types, only: outer_plasma_state_type
+  use bem_external_boundary_contract, only: &
+    external_boundary_contract_type, external_boundary_ok, external_inflow_none, external_inflow_scalar_barrier, &
+    external_inflow_legacy_sheath, external_inflow_linear_profile, external_inflow_kinetic_profile, &
+    resolve_external_boundary_contract
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, particles_per_batch_from_config, &
     total_particles_from_config
@@ -449,7 +453,7 @@ contains
     type(particle_source_plan_type), intent(in), optional, target :: source_plan
 
     integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
-    integer(i32) :: zhao_electron_species
+    integer(i32) :: zhao_electron_species, boundary_status
     integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
     integer(i32), allocatable :: counts_max(:), counts_actual(:), global_counts(:), species_cursor(:), species_id(:), &
                                  emit_elem_species(:, :)
@@ -459,6 +463,9 @@ contains
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
     type(particle_source_plan_type), target :: generated_source_plan
     type(particle_source_plan_type), pointer :: active_source_plan
+    type(external_boundary_contract_type) :: active_boundary_contract
+    real(dp) :: correction_vmin_normal
+    character(len=256) :: boundary_message
 
     if (present(collision_failure_status)) collision_failure_status = collision_query_ok
     if (present(collision_failure_species)) collision_failure_species = huge(0_i32)
@@ -468,6 +475,13 @@ contains
     if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
       error stop 'Requested batch index is out of range.'
     end if
+    call resolve_external_boundary_contract( &
+      cfg%sim%reservoir_potential_model, cfg%sim%sheath_injection_model, cfg%sim%open_boundary_model, &
+      cfg%outer_plasma%model, cfg%outer_plasma%kinetic_closure, cfg%outer_plasma%return_model, &
+      cfg%coupling%particle_transfer_mode, cfg%coupling%outer_queue_enabled, active_boundary_contract, &
+      boundary_status, boundary_message &
+      )
+    if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
     call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'init_particle_batch_from_config')
     if (present(source_plan)) then
       active_source_plan => source_plan
@@ -534,10 +548,12 @@ contains
           error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
         end if
         call reservoir_face_velocity_correction( &
-          cfg, cfg%particle_species(s), vmin_normal(s), barrier_normal(s), mesh, snapshot, outer_state, &
+          cfg, cfg%particle_species(s), correction_vmin_normal, barrier_normal(s), mesh, snapshot, outer_state, &
           warn_face_variation=local_rank == 0_i32 .and. &
-          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
+          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
+          boundary_contract=active_boundary_contract &
           )
+        vmin_normal(s) = max(vmin_normal(s), correction_vmin_normal)
         if (s == zhao_electron_species .and. &
             cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
             cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
@@ -1033,7 +1049,7 @@ contains
   !! @param[inout] snapshot refresh 済み静電 snapshot（infinity barrier 使用時に必要）。
   !! @param[in] warn_face_variation 面平均近似の電位ばらつき警告を出すか。
   subroutine reservoir_face_velocity_correction( &
-    cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, outer_state, warn_face_variation &
+    cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, outer_state, warn_face_variation, boundary_contract &
     )
     type(app_config), intent(in) :: cfg
     type(particle_species_spec), intent(in) :: spec
@@ -1043,23 +1059,41 @@ contains
     type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
     type(outer_plasma_state_type), intent(in), optional :: outer_state
     logical, intent(in), optional :: warn_face_variation
+    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
 
-    real(dp) :: phi_face, phi_std, phi_min, phi_max, delta_phi, area_xy
+    real(dp) :: phi_face, phi_std, phi_min, phi_max, delta_phi
     real(dp) :: profile_barrier, coordinate_scale, potential_scale
     real(dp) :: coordinate_tolerance, potential_tolerance
-    integer(i32) :: point
+    integer(i32) :: point, boundary_status
     logical :: emit_warning
+    type(external_boundary_contract_type) :: active_boundary_contract
+    character(len=256) :: boundary_message
 
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
     emit_warning = .false.
     if (present(warn_face_variation)) emit_warning = warn_face_variation
-    if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return') then
+    if (present(boundary_contract)) then
+      active_boundary_contract = boundary_contract
+    else
+      call resolve_external_boundary_contract( &
+        cfg%sim%reservoir_potential_model, cfg%sim%sheath_injection_model, cfg%sim%open_boundary_model, &
+        cfg%outer_plasma%model, cfg%outer_plasma%kinetic_closure, cfg%outer_plasma%return_model, &
+        cfg%coupling%particle_transfer_mode, cfg%coupling%outer_queue_enabled, active_boundary_contract, &
+        boundary_status, boundary_message &
+        )
+      if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
+    end if
+    select case (active_boundary_contract%inflow_map)
+    case (external_inflow_none, external_inflow_legacy_sheath)
+      return
+    case (external_inflow_linear_profile, external_inflow_kinetic_profile)
       if (trim(lower_ascii(spec%inject_face)) /= 'z_high') then
         error stop 'Split outer-plasma ambient inflow must use inject_face="z_high".'
       end if
-      if (trim(lower_ascii(cfg%outer_plasma%model)) == 'kinetic_1d') then
-        if (.not. present(outer_state)) error stop 'kinetic_1d ambient inflow requires the refreshed outer state.'
+      if (.not. present(outer_state)) error stop 'Profile-owned ambient inflow requires the refreshed outer state.'
+      if (.not. outer_state%ready) error stop 'Profile-owned ambient inflow requires a ready outer state.'
+      if (active_boundary_contract%inflow_map == external_inflow_kinetic_profile) then
         if (.not. outer_state%ready .or. trim(lower_ascii(outer_state%model)) /= 'kinetic_1d') then
           error stop 'kinetic_1d ambient inflow requires a ready kinetic outer state.'
         end if
@@ -1114,18 +1148,19 @@ contains
         vmin_normal = sqrt(max(0.0_dp, profile_barrier))
         return
       end if
-      if (.not. present(mesh)) error stop 'Split outer-plasma ambient inflow requires the charged mesh.'
-      area_xy = (cfg%sim%box_max(1) - cfg%sim%box_min(1))*(cfg%sim%box_max(2) - cfg%sim%box_min(2))
-      delta_phi = cfg%outer_plasma%debye_length*sum(mesh%q_elem)/(eps0*area_xy)
+      if (trim(lower_ascii(outer_state%model)) /= 'linear_debye') then
+        error stop 'Linear profile inflow requires a refreshed linear_debye outer state.'
+      end if
+      if (.not. ieee_is_finite(outer_state%interface_potential) .or. &
+          .not. ieee_is_finite(outer_state%infinity_potential)) then
+        error stop 'Linear profile inflow received non-finite outer potentials.'
+      end if
+      delta_phi = outer_state%interface_potential - outer_state%infinity_potential
       barrier_normal = 2.0_dp*spec%q_particle*delta_phi/spec%m_particle
       if (.not. ieee_is_finite(barrier_normal)) error stop 'Outer-plasma inflow map produced a non-finite barrier.'
       if (barrier_normal > 0.0_dp) vmin_normal = sqrt(barrier_normal)
       return
-    end if
-    select case (trim(lower_ascii(cfg%sim%reservoir_potential_model)))
-    case ('none')
-      return
-    case ('infinity_barrier')
+    case (external_inflow_scalar_barrier)
       if (.not. present(mesh)) then
         error stop 'sim.reservoir_potential_model="infinity_barrier" requires mesh in init_particle_batch_from_config.'
       end if
@@ -1147,7 +1182,7 @@ contains
         vmin_normal = 0.0d0
       end if
     case default
-      error stop 'Unknown sim.reservoir_potential_model in runtime.'
+      error stop 'Unknown external inflow map in runtime.'
     end select
   end subroutine reservoir_face_velocity_correction
 

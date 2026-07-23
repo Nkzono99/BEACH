@@ -143,7 +143,7 @@ $$
 
 The particle reflects when $v_\mathrm{out}>0$, $\Delta U>0$, and $K_n<\Delta U$; otherwise it escapes. This is a reduced
 single-face model. A corner involving multiple simultaneous open faces is not generalized and returns
-`particle_step_unsupported_barrier_corner`.
+`particle_step_ambiguous_open_corner`.
 
 Reservoir acceleration, the outer sheath, and photoelectron return are physical boundary models built around this event
 mechanism. They are documented separately in [Particle sources and boundaries](ParticleSourcesBoundaries.en.html) and
@@ -163,7 +163,7 @@ $$
 to build a new predicted-midpoint field and Boris candidate. The earliest mesh or box event is then queried on the remainder.
 The pre-reflection field sample is not reused for that remaining time.
 
-At most eight box events are processed in one outer step. All eight are supported; if a ninth is required,
+At most eight box events are processed in one local continuation. All eight are supported; if a ninth is required,
 `particle_step_multiple_box_events` is returned and the incomplete state is not committed. This also acts as a safety signal for
 an excessively large `dt`, narrow box, or very fast particle.
 The scale-aware guard does not change this existing eight-event safety limit.
@@ -181,9 +181,17 @@ applying escape. For this face only, crossing time is refined from a quadratic t
 positions and velocities rather than using the straight-segment fraction unchanged. The payload contains face, fraction of the full step,
 position, velocity, and remaining time.
 
+BEACH fails closed instead of guessing an action order if quadratic z-high refinement changes the earlier-than or simultaneous
+relationship between z-high and a lateral face represented by the original face mask, in either direction.
+
+This refinement only revisits the normal crossing time detected because the candidate endpoint is outside z-high. It does not
+search for a temporary excursion that returns to an inside endpoint; x/y faces and mesh hits retain the existing chord test.
+
 If the outer model returns the particle locally, ordinary particle stepping resumes from the returned position and velocity for
 the remaining time. If it escapes to infinity, it is removed. See [Outer-plasma models](OuterPlasmaModels.en.html) for outer
 acceleration and return conditions.
+Across the original local step, BEACH processes at most eight external events; a ninth returns
+`particle_step_multiple_external_events`. This budget is distinct from the box-event budget of each local continuation.
 
 ## Stop when the query cannot be completed
 
@@ -198,7 +206,10 @@ A collision query is `ok` only when all required candidates were examined.
 | `collision_query_grid_stalled` | 4 | Invalid grid geometry or DDA failed to progress |
 | `particle_step_invalid_boundary` | 1001 | Invalid particle, box, or event geometry |
 | `particle_step_multiple_box_events` | 1002 | A ninth box event was needed in one step |
-| `particle_step_unsupported_barrier_corner` | 1003 | Multiple open faces occurred with the potential barrier |
+| `particle_step_ambiguous_open_corner` | 1003 | Multiple open faces occurred at an outer-owned or potential-barrier event |
+| `particle_step_multiple_external_events` | 1004 | A ninth external event was needed in the original local step |
+
+The former name `particle_step_unsupported_barrier_corner` remains as a compatibility alias for code 1003.
 
 Treating these states as "no hit" could let particles pass through a surface and corrupt the charge ledger, so normal tracking
 fails closed. Within OpenMP, the earliest particle and step failure is selected. In MPI, failure rank and particle state are

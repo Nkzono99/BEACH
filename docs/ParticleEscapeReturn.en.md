@@ -94,7 +94,7 @@ unchanged.
 
 Its only external state is the scalar potential at the crossing. It has no external $E(\mathbf x)$, turning position, flight
 time, or space charge. It is not generalized to a corner crossing multiple open faces; that case fails with
-`unsupported_barrier_corner`.
+`ambiguous_open_corner`.
 
 The crossing potential follows the same snapshot convention as particle motion and therefore includes the local potential of
 `sim.e0`. Because a uniform field has no finite potential at infinity, a configuration combining `sim.e0` with this model must
@@ -291,9 +291,16 @@ face. The outer-model crossing record contains:
 - `dt_remaining` after the crossing.
 
 In instant mode, a returned particle is placed just inside the interface, and ordinary Boris/event handling reintegrates only
-`dt_remaining`. In queue mode, the resolved return position and velocity are saved in an event record and appended after fresh
-sources as a local-domain particle in the batch where it becomes due. Outer flight time is a separate diagnostic from the
-local step remainder.
+`dt_remaining`. If it reaches z-high again during that remainder, BEACH dispatches it through outer transfer again and repeats
+until the local step is complete. The limit is eight outer events per local step; a ninth event fails closed without committing
+the state. In queue mode, the resolved return position and velocity are saved in an event record and appended after fresh
+sources as a local-domain particle in the batch where it becomes due. Outer flight time is a separate diagnostic from the local
+step remainder.
+
+At a corner that remains simultaneous after quadratic z-high timing refinement, BEACH applies a lateral periodic wrap or
+reflection before dispatching the crossing to the outer model. BEACH does not guess an action order if refinement changes the
+earlier-than or simultaneous relationship between z-high and a lateral face in either direction. Those cases fail closed, as
+does a simultaneous crossing of z-high and another open face whose owner is not unique.
 
 ### Keep outer flight outside global simulation time in instant mode
 

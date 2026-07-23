@@ -478,7 +478,7 @@ See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unifi
 | Key | Type | Default | Description |
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | Only `explicit` is supported; refresh the outer profile at explicit update points |
-| `particle_transfer_mode` | string | `"none"` | Use the transfer ID matching the selected return model |
+| `particle_transfer_mode` | string | `"none"` | `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit`; select the matching return pair below |
 | `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`; initialize a fresh run from a Zhao zero-current stationary root and its matching plane charge |
 | `steady_start_mesh_id` | int | `1` | `mesh_id` of the horizontal plane that receives the `zhao_floating` charge in proportion to triangle area |
 | `outer_update_stride` | int | `1` | Batch interval between outer-profile refreshes |
@@ -488,6 +488,19 @@ See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unifi
 | `outer_orbit_max_steps` | int | `100000` | 3-D outer-orbit step limit; reaching it stops instead of discarding |
 | `outer_orbit_energy_tolerance` | float | `1e-4` | Relative total-energy error limit for a 3-D outer orbit |
 | `outer_queue_enabled` | bool | `false` | In the supported Zhao configuration, retain outer flight across batches and close the transient queued photoelectron column |
+
+Valid return and transfer pairs:
+
+| `outer_plasma.model` | `outer_plasma.return_model` | `coupling.particle_transfer_mode` |
+| --- | --- | --- |
+| `linear_debye` | `electrostatic_1d_instant_return` | `electrostatic_1d_instant_return` |
+| `kinetic_1d` | `kinetic_1d_profile_return` | `electrostatic_1d_instant_return` |
+| `unified_linear_response` | `electrostatic_3d_explicit_orbit` | `electrostatic_3d_explicit_orbit` |
+
+The return and transfer strings are intentionally different for `kinetic_1d_profile_return`. With active 1-D transfer,
+`linear_debye` and `kinetic_1d` also own inflow through the same profile, so set both `reservoir_potential_model` and
+`sheath_injection_model` to `none`. `infinity_potential` is fixed to zero for `kinetic_1d` and
+`unified_linear_response`.
 
 Stationary warm start:
 
@@ -537,8 +550,9 @@ relaxed or perturbed seed returns to the same stationary observables.
 
 Transfer rules:
 
-- Set `outer_plasma.return_model` and `coupling.particle_transfer_mode` to matching IDs.
+- Select `outer_plasma.return_model` and `coupling.particle_transfer_mode` from the matching pairs above.
 - The 1-D path supports only the open z-high interface, x/y periodic wrapping, and `b0=0`.
+- `kinetic_1d` requires exactly one enabled negative and one enabled positive z-high `reservoir_face` species.
 - Instant mode requires a positive `field_evolution_timescale` and uses `max_frozen_field_ratio` as an applicability limit.
 - Queue mode requires `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` + `kinetic_1d_profile_return`,
   `particle_transfer_mode="electrostatic_1d_instant_return"`, a positive `batch_duration` resolved directly or from
@@ -558,7 +572,8 @@ Photoelectron-histogram rules:
 
 ### Combined periodic2 / Outer-plasma / Coupling Constraints
 
-Periodic2 requires `sim.use_box=true`, two periodic axes, and one open axis. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
+Periodic2 requires `sim.use_box=true` and exactly two periodic axes. A configuration with outer transfer uses x/y as those axes
+and an open z-high interface. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
 
 | Far correction | Meaning |
 | --- | --- |

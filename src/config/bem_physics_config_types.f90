@@ -4,6 +4,8 @@ module bem_physics_config_types
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config, bc_periodic, bc_open
   use bem_string_utils, only: lower_ascii
+  use bem_external_boundary_contract, only: &
+    external_boundary_contract_type, external_boundary_ok, resolve_external_boundary_contract
   implicit none
   private
 
@@ -268,7 +270,31 @@ contains
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
     character(len=32) :: nonzero_backend
+    type(external_boundary_contract_type) :: boundary_contract
+    integer(i32) :: boundary_status
 
+    call resolve_external_boundary_contract( &
+      sim%reservoir_potential_model, sim%sheath_injection_model, sim%open_boundary_model, outer%model, &
+      outer%kinetic_closure, outer%return_model, coupling%particle_transfer_mode, coupling%outer_queue_enabled, &
+      boundary_contract, boundary_status, message &
+      )
+    if (boundary_status /= external_boundary_ok) then
+      status = physics_config_invalid_combination
+      return
+    end if
+    if (.not. ieee_is_finite(outer%infinity_potential)) then
+      call reject(physics_config_invalid_combination, 'outer_plasma.infinity_potential must be finite.', status, message)
+      return
+    end if
+    if ((trim(lower_ascii(outer%model)) == 'kinetic_1d' .or. &
+         trim(lower_ascii(outer%model)) == 'unified_linear_response') .and. &
+        outer%infinity_potential /= 0.0_dp) then
+      call reject( &
+        physics_config_invalid_combination, &
+        'kinetic_1d and unified_linear_response fix the infinity-potential gauge to zero.', status, message &
+        )
+      return
+    end if
     call validate_kinetic_closure_config(outer, status, message)
     if (status /= physics_config_ok) return
     call validate_zhao_charge_driven_sim_config(sim, outer, status, message)
@@ -367,10 +393,7 @@ contains
     end if
     select case (trim(lower_ascii(coupling%particle_transfer_mode)))
     case ('none')
-      if (trim(lower_ascii(outer%return_model)) /= 'none') then
-        call reject(physics_config_invalid_combination, 'A return model requires particle transfer.', status, message)
-        return
-      end if
+      continue
     case ('electrostatic_1d_instant_return')
       if (.not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
           .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
@@ -378,51 +401,15 @@ contains
         call reject(physics_config_invalid_combination, 'Invalid electrostatic 1D instant-return coupling.', status, message)
         return
       end if
-      if ((trim(lower_ascii(outer%model)) == 'linear_debye' .and. &
-           trim(lower_ascii(outer%return_model)) /= 'electrostatic_1d_instant_return') .or. &
-          (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
-           trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return') .or. &
-          (trim(lower_ascii(outer%model)) /= 'linear_debye' .and. &
-           trim(lower_ascii(outer%model)) /= 'kinetic_1d')) then
-        call reject(physics_config_invalid_combination, &
-                    'The 1D return model identifier must match the outer-plasma model.', status, message)
-        return
-      end if
       if (sim%bc_high(3) /= bc_open .or. any(sim%b0 /= 0.0_dp)) then
         call reject(physics_config_unavailable, 'Instant return requires an open z-high face and b0=0.', status, message)
         return
       end if
-      if (trim(lower_ascii(outer%model)) == 'kinetic_1d' .and. &
-          (trim(lower_ascii(sim%reservoir_potential_model)) /= 'none' .or. &
-           trim(lower_ascii(sim%sheath_injection_model)) /= 'none')) then
-        call reject(physics_config_invalid_combination, &
-                    'Kinetic profile return cannot mix with legacy or Zhao injection corrections.', status, message)
-        return
-      end if
     case ('electrostatic_3d_explicit_orbit')
-      call validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
+      call validate_explicit_3d_orbit_config(sim, coupling, status, message)
       if (status /= physics_config_ok) return
     case default
       call reject(physics_config_invalid_combination, 'Unknown coupling particle-transfer mode.', status, message)
-      return
-    end select
-    select case (trim(lower_ascii(outer%photoelectron_density_model)))
-    case ('none')
-      continue
-    case ('kinetic_mean')
-      if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
-          ((trim(lower_ascii(coupling%particle_transfer_mode)) == 'none' .and. &
-            trim(lower_ascii(outer%return_model)) /= 'none') .or. &
-           (trim(lower_ascii(coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .and. &
-            trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return') .or. &
-           (trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none' .and. &
-            trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return'))) then
-        call reject(physics_config_invalid_combination, &
-                    'kinetic_mean requires kinetic_1d with no transfer or kinetic profile return.', status, message)
-        return
-      end if
-    case default
-      call reject(physics_config_invalid_combination, 'Unknown photoelectron density model.', status, message)
       return
     end select
     if (trim(lower_ascii(outer%model)) == 'unified_linear_response' .and. &
@@ -487,8 +474,7 @@ contains
         call reject(physics_config_invalid_combination, &
                     'zhao_charge_driven includes its photoelectron population and requires photoelectron_density_model=none.', &
                     status, message)
-      else if (.not. ieee_is_finite(outer%infinity_potential) .or. &
-               abs(outer%infinity_potential) > 64.0_dp*epsilon(1.0_dp)) then
+      else if (.not. ieee_is_finite(outer%infinity_potential) .or. outer%infinity_potential /= 0.0_dp) then
         call reject(physics_config_invalid_combination, &
                     'zhao_charge_driven fixes the infinity-potential gauge to zero.', status, message)
       end if
@@ -698,13 +684,9 @@ contains
     end if
     select case (trim(lower_ascii(coupling%particle_transfer_mode)))
     case ('none')
-      if (trim(lower_ascii(outer%return_model)) /= 'none') then
-        call reject(physics_config_invalid_combination, 'A cached return model requires particle transfer.', status, message)
-        return
-      end if
+      continue
     case ('electrostatic_1d_instant_return')
       if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
-          trim(lower_ascii(outer%return_model)) /= 'kinetic_1d_profile_return' .or. &
           .not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
           .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
           coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp) then
@@ -716,14 +698,8 @@ contains
                     status, message)
         return
       end if
-      if (trim(lower_ascii(sim%reservoir_potential_model)) /= 'none' .or. &
-          trim(lower_ascii(sim%sheath_injection_model)) /= 'none') then
-        call reject(physics_config_invalid_combination, &
-                    'Kinetic profile return cannot mix with legacy or Zhao injection corrections.', status, message)
-        return
-      end if
     case ('electrostatic_3d_explicit_orbit')
-      call validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
+      call validate_explicit_3d_orbit_config(sim, coupling, status, message)
       if (status /= physics_config_ok) return
     case default
       call reject(physics_config_unavailable, 'cached_kneq0 does not support the requested particle transfer.', &
@@ -739,11 +715,6 @@ contains
           64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(sim%box_max(3)))) then
         call reject(physics_config_invalid_combination, &
                     'kinetic_1d requires positive scales and interface_z at z-high.', status, message)
-        return
-      end if
-      if (abs(outer%infinity_potential) > 64.0_dp*epsilon(1.0_dp)) then
-        call reject(physics_config_invalid_combination, &
-                    'kinetic_1d fixes the infinity-potential gauge to zero.', status, message)
         return
       end if
       if (trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .and. &
@@ -769,9 +740,7 @@ contains
         return
       end if
       if (trim(lower_ascii(panel%source_model)) /= 'triangle_p0' .or. &
-          trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .or. &
-          (trim(lower_ascii(outer%return_model)) /= 'none' .and. &
-           trim(lower_ascii(outer%return_model)) /= 'electrostatic_3d_explicit_orbit')) then
+          trim(lower_ascii(outer%photoelectron_density_model)) /= 'none') then
         call reject(physics_config_unavailable, &
                     'cached unified_linear_response received an unsupported source or photoelectron density model.', &
                     status, message)
@@ -799,18 +768,15 @@ contains
     end select
   end function supported_lower_boundary
 
-  subroutine validate_explicit_3d_orbit_config(sim, outer, coupling, status, message)
+  subroutine validate_explicit_3d_orbit_config(sim, coupling, status, message)
     type(sim_config), intent(in) :: sim
-    type(outer_plasma_config), intent(in) :: outer
     type(coupling_config), intent(in) :: coupling
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
     status = physics_config_ok
     message = ''
-    if (trim(lower_ascii(outer%model)) /= 'unified_linear_response' .or. &
-        trim(lower_ascii(outer%return_model)) /= 'electrostatic_3d_explicit_orbit' .or. &
-        .not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
+    if (.not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
         .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
         .not. ieee_is_finite(coupling%outer_orbit_dt) .or. &
         .not. ieee_is_finite(coupling%outer_orbit_energy_tolerance) .or. &

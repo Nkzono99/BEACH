@@ -52,8 +52,11 @@ contains
   logical :: photoelectron_histogram_enabled
   integer(i32) :: thread_index, photoelectron_status
   integer(i32) :: kinetic_status
+  integer(i32) :: boundary_status
   character(len=256) :: kinetic_message
+  character(len=256) :: boundary_message
   type(kinetic_outer_plasma_options_type) :: kinetic_options
+  type(external_boundary_contract_type) :: boundary_contract
   type(outer_plasma_state_type) :: steady_start_state
   real(dp) :: steady_start_charge
 
@@ -61,6 +64,13 @@ contains
   if (present(initial_stats)) stats = initial_stats
   mpi_ctx = mpi_context()
   if (present(mpi)) mpi_ctx = mpi
+  call resolve_external_boundary_contract( &
+    app%sim%reservoir_potential_model, app%sim%sheath_injection_model, app%sim%open_boundary_model, &
+    app%outer_plasma%model, app%outer_plasma%kinetic_closure, app%outer_plasma%return_model, &
+    app%coupling%particle_transfer_mode, app%coupling%outer_queue_enabled, boundary_contract, boundary_status, &
+    boundary_message &
+    )
+  if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
   ledger_enabled = present(charge_ledger)
   outer_queue_enabled = app%coupling%outer_queue_enabled
   if (outer_queue_enabled .and. .not. present(outer_queue_state)) then
@@ -285,7 +295,7 @@ contains
     call perf_region_begin(perf_region_particle_batch, t0)
     if (photoelectron_histogram_enabled) then
       call process_particle_batch( &
-        mesh, app, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
+        mesh, app, boundary_contract, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
         workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
         workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
         workspace%interface_outward_thread, workspace%interface_returned_thread, &
@@ -296,7 +306,7 @@ contains
         )
     else
       call process_particle_batch( &
-        mesh, app, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
+        mesh, app, boundary_contract, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
         workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
         workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
         workspace%interface_outward_thread, workspace%interface_returned_thread, &
@@ -545,11 +555,11 @@ contains
   real(dp) :: x0(3), v0(3), x1(3), v1(3), qdep
   type(hit_info) :: hit
   type(particle_step_result) :: step_result
-  type(particle_step_result) :: remainder_result
-  type(interface_particle_outcome_type) :: interface_outcome
-  logical :: has_warn_stride, collision_failed, candidate_inside, used_event_resolver, interface_active
+  type(particle_step_result) :: external_final_result
+  type(external_step_trace_type) :: external_trace
+  logical :: has_warn_stride, collision_failed, candidate_inside, used_event_resolver
   logical :: photoelectron_histogram_enabled
-  integer(i32) :: species_idx
+  integer(i32) :: species_idx, external_event
 
   nth = size(dq_thread, 2)
   call read_env_i32_local('BEACH_WARN_LONG_PARTICLE_STEPS', warn_stride, has_warn_stride)
@@ -564,13 +574,10 @@ contains
   interface_tau_max_thread = 0.0_dp
   interface_frozen_ratio_max_thread = 0.0_dp
   interface_energy_error_max_thread = 0.0_dp
-  interface_active = &
-    trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .or. &
-    trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_3d_explicit_orbit'
   photoelectron_histogram_enabled = present(photoelectron_histogram_thread)
 
   !$omp parallel default(none) &
-  !$omp shared(mesh,pcls_batch,app,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth,interface_active) &
+  !$omp shared(mesh,pcls_batch,app,boundary_contract,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(soft_discarded_boundary_flag,queued_outer_flag,outer_event_staging) &
   !$omp shared(interface_outward_thread,interface_returned_thread) &
   !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread) &
@@ -578,7 +585,8 @@ contains
   !$omp shared(photoelectron_histogram_thread,photoelectron_histogram_enabled) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
-  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,remainder_result,interface_outcome,tid,qdep,species_idx) &
+  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,external_final_result,external_trace,tid,qdep,species_idx) &
+  !$omp private(external_event) &
   !$omp private(collision_status,collision_failed,candidate_inside,used_event_resolver)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
@@ -616,7 +624,7 @@ contains
         if (.not. candidate_inside) then
           call resolve_particle_boundary_candidate( &
             mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
-            result=step_result, defer_z_high_interface=interface_active &
+            result=step_result, boundary_contract=boundary_contract &
             )
           used_event_resolver = .true.
         else
@@ -646,84 +654,60 @@ contains
       else
         call resolve_particle_boundary_candidate( &
           mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
-          hit=hit, result=step_result, defer_z_high_interface=interface_active &
+          hit=hit, result=step_result, boundary_contract=boundary_contract &
           )
         used_event_resolver = .true.
       end if
       if (used_event_resolver) then
         if (step_result%interface_crossing%has_crossing) then
+          call continue_external_particle_step( &
+            boundary_contract, snapshot, mesh, app%sim, app%outer_plasma, app%coupling, bfield, &
+            pcls_batch%q(i), pcls_batch%m(i), app%sim%batch_duration, step_result, external_final_result, &
+            external_trace &
+            )
+          step_result = external_final_result
           species_idx = pcls_batch%species_id(i)
           qdep = pcls_batch%q(i)*pcls_batch%w(i)
-          if (photoelectron_histogram_enabled .and. &
-              trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast') then
-            call photoelectron_histogram_thread(tid)%add( &
-              pcls_batch%q(i), pcls_batch%m(i), pcls_batch%w(i), step_result%interface_crossing%velocity &
-              )
-          end if
-          interface_outward_thread(species_idx, tid) = interface_outward_thread(species_idx, tid) + qdep
-          if (trim(lower_ascii(app%coupling%particle_transfer_mode)) == 'electrostatic_3d_explicit_orbit') then
-            call trace_unified_outer_particle( &
-              snapshot, mesh, app%sim, app%outer_plasma, app%coupling, pcls_batch%q(i), pcls_batch%m(i), &
-              step_result%interface_crossing, interface_outcome &
-              )
-          else if (trim(lower_ascii(app%outer_plasma%return_model)) == 'kinetic_1d_profile_return') then
-            call map_outer_particle_kinetic_profile( &
-              snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
-              step_result%interface_crossing, app%coupling%field_evolution_timescale, &
-              app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome, &
-              queue_poll_interval=app%sim%batch_duration &
-              )
-          else
-            call map_outer_particle_linear_debye( &
-              snapshot%outer, app%sim%box_min, app%sim%box_max, pcls_batch%q(i), pcls_batch%m(i), &
-              step_result%interface_crossing, app%coupling%field_evolution_timescale, &
-              app%coupling%max_frozen_field_ratio, app%coupling%outer_queue_enabled, interface_outcome &
-              )
-          end if
-          if (interface_outcome%kind == interface_outcome_returned_local .or. &
-              interface_outcome%kind == interface_outcome_escaped_to_infinity .or. &
-              interface_outcome%kind == interface_outcome_queued_outer) then
-            interface_energy_error_max_thread(tid) = &
-              max(interface_energy_error_max_thread(tid), interface_outcome%energy_relative_error)
-            interface_tau_max_thread(tid) = max(interface_tau_max_thread(tid), interface_outcome%outer_flight_time)
-            interface_frozen_ratio_max_thread(tid) = &
-              max(interface_frozen_ratio_max_thread(tid), interface_outcome%frozen_field_ratio)
-          end if
-          if (app%coupling%outer_queue_enabled .and. &
-              (interface_outcome%kind == interface_outcome_returned_local .or. &
-               interface_outcome%kind == interface_outcome_escaped_to_infinity .or. &
-               interface_outcome%kind == interface_outcome_queued_outer)) then
-            call stage_outer_event( &
-              outer_event_staging(i), interface_outcome, pcls_batch, i, batch_idx, mpi_rank, app%sim%batch_duration &
+          do external_event = 1_i32, external_trace%count
+            if (photoelectron_histogram_enabled .and. &
+                trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast') then
+              call photoelectron_histogram_thread(tid)%add( &
+                pcls_batch%q(i), pcls_batch%m(i), pcls_batch%w(i), &
+                external_trace%crossing(external_event)%velocity &
+                )
+            end if
+            interface_outward_thread(species_idx, tid) = interface_outward_thread(species_idx, tid) + qdep
+            if (external_trace%outcome(external_event)%kind == interface_outcome_returned_local .or. &
+                external_trace%outcome(external_event)%kind == interface_outcome_escaped_to_infinity .or. &
+                external_trace%outcome(external_event)%kind == interface_outcome_queued_outer) then
+              interface_energy_error_max_thread(tid) = max( &
+                                                       interface_energy_error_max_thread(tid), &
+                                                       external_trace%outcome(external_event)%energy_relative_error &
+                                                       )
+              interface_tau_max_thread(tid) = max( &
+                                              interface_tau_max_thread(tid), &
+                                              external_trace%outcome(external_event)%outer_flight_time &
+                                              )
+              interface_frozen_ratio_max_thread(tid) = max( &
+                                                       interface_frozen_ratio_max_thread(tid), &
+                                                       external_trace%outcome(external_event)%frozen_field_ratio &
+                                                       )
+            end if
+            if (.not. boundary_contract%queue_enabled .and. &
+                external_trace%outcome(external_event)%kind == interface_outcome_returned_local) then
+              interface_returned_thread(species_idx, tid) = interface_returned_thread(species_idx, tid) + qdep
+            end if
+          end do
+          if (boundary_contract%queue_enabled .and. external_trace%count > 0_i32 .and. &
+              external_trace%outcome(external_trace%count)%kind == interface_outcome_queued_outer) then
+            call stage_queued_outer_event( &
+              outer_event_staging(i), external_trace%outcome(external_trace%count), pcls_batch, i, batch_idx, &
+              mpi_rank, app%sim%batch_duration &
               )
             pcls_batch%alive(i) = .false.
             queued_outer_flag(i) = .true.
             exit
           end if
-          select case (interface_outcome%kind)
-          case (interface_outcome_returned_local)
-            interface_returned_thread(species_idx, tid) = interface_returned_thread(species_idx, tid) + qdep
-            if (step_result%interface_crossing%dt_remaining > 0.0_dp) then
-              call advance_particle_step( &
-                mesh, app%sim, snapshot, bfield, interface_outcome%position, interface_outcome%velocity, &
-                pcls_batch%q(i), pcls_batch%m(i), step_result%interface_crossing%dt_remaining, remainder_result &
-                )
-              step_result = remainder_result
-            else
-              step_result%x = interface_outcome%position
-              step_result%v = interface_outcome%velocity
-              step_result%interface_crossing%has_crossing = .false.
-            end if
-          case (interface_outcome_escaped_to_infinity)
-            step_result%x = interface_outcome%position
-            step_result%v = interface_outcome%velocity
-            step_result%escaped_boundary = .true.
-            step_result%interface_crossing%has_crossing = .false.
-          case default
-            write (error_unit, '(a,i0,a,a)') 'outer interface mapping failed: kind=', interface_outcome%kind, &
-              ' message=', trim(interface_outcome%message)
-            step_result%status = particle_step_invalid_boundary
-          end select
         end if
         if (step_result%status /= collision_query_ok) then
           if (step_result%status == particle_step_multiple_box_events .and. &
@@ -796,7 +780,7 @@ contains
   end procedure process_particle_batch
 
   !> OpenMP 粒子ループでは index 固有 record だけを書き、queue 本体は後段で更新する。
-  subroutine stage_outer_event(event, outcome, pcls_batch, particle_index, batch_idx, mpi_rank, batch_duration)
+  subroutine stage_queued_outer_event(event, outcome, pcls_batch, particle_index, batch_idx, mpi_rank, batch_duration)
     type(outer_event_record_type), intent(out) :: event
     type(interface_particle_outcome_type), intent(in) :: outcome
     type(particles_soa), intent(in) :: pcls_batch
@@ -807,19 +791,16 @@ contains
     ! Crossing times are not synchronized inside a BEACH batch; use the batch midpoint as the closure time.
     event%queued_time = (real(batch_idx, dp) - 0.5_dp)*batch_duration
     event%due_time = event%queued_time + outcome%outer_flight_time
-    select case (outcome%kind)
+    if (outcome%kind /= interface_outcome_queued_outer) then
+      error stop 'outer-event staging requires a queued interface outcome.'
+    end if
+    select case (outcome%queued_terminal_kind)
     case (interface_outcome_returned_local)
       event%outcome = outer_event_outcome_return
     case (interface_outcome_escaped_to_infinity)
       event%outcome = outer_event_outcome_escape
-    case (interface_outcome_queued_outer)
-      if (outcome%queued_terminal_kind == interface_outcome_returned_local) then
-        event%outcome = outer_event_outcome_return
-      else if (outcome%queued_terminal_kind == interface_outcome_escaped_to_infinity) then
-        event%outcome = outer_event_outcome_escape
-      else
-        error stop 'queued outer-interface outcome has no valid terminal kind.'
-      end if
+    case default
+      error stop 'queued outer-interface outcome has no valid terminal kind.'
     end select
     event%species_id = pcls_batch%species_id(particle_index)
     event%origin_rank = mpi_rank
@@ -831,7 +812,7 @@ contains
     event%w = pcls_batch%w(particle_index)
     event%x = outcome%position
     event%v = outcome%velocity
-  end subroutine stage_outer_event
+  end subroutine stage_queued_outer_event
 
   !> 全 rank の process failure が無いことを確認した後、粒子 index 順で deterministic に enqueue する。
   subroutine enqueue_staged_outer_events(queue, queued_outer_flag, staging, particle_count)
@@ -986,8 +967,10 @@ contains
       failure_name = 'invalid_boundary'
     case (particle_step_multiple_box_events)
       failure_name = 'multiple_box_events'
-    case (particle_step_unsupported_barrier_corner)
-      failure_name = 'unsupported_barrier_corner'
+    case (particle_step_ambiguous_open_corner)
+      failure_name = 'ambiguous_open_corner'
+    case (particle_step_multiple_external_events)
+      failure_name = 'multiple_external_events'
     case default
       failure_name = 'unknown'
     end select

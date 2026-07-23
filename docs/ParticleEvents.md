@@ -142,7 +142,7 @@ $$
 
 を比較します。$v_\mathrm{out}>0$、$\Delta U>0$かつ$K_n<\Delta U$ならreflectし、それ以外はescapeします。
 これは単一faceのreduced modelです。複数open faceが同時に関係するcornerは一般化せず、
-`particle_step_unsupported_barrier_corner`で停止します。
+`particle_step_ambiguous_open_corner`で停止します。
 
 reservoir粒子の加減速、outer sheath、photoelectron returnは、衝突位置を決めた後に適用する物理モデルです。
 [粒子源](ParticleSourcesBoundaries.html)が生成側、[外部プラズマモデル](OuterPlasmaModels.html)が外部領域での処理を説明します。
@@ -161,7 +161,7 @@ $$
 について、新しい予測中点場とBoris候補を計算します。新たな軌道線分でも、meshとの衝突とbox境界通過を
 比較し、最初に起きるものを調べます。場も再評価するため、反射前のfield sampleは使い回しません。
 
-1 particle step内で処理できるbox境界イベントは最大8回です。8回までは正しく処理し、9回目が必要なら
+1回のlocal continuation内で処理できるbox境界イベントは最大8回です。8回までは正しく処理し、9回目が必要なら
 `particle_step_multiple_box_events`を返して未完成stateをcommitしません。これは非常に大きい`dt`、狭いbox、
 または高速粒子を検出する安全上限でもあります。
 guard幅の変更はこの最大8回の安全上限を変更しません。
@@ -178,9 +178,17 @@ particle transferが有効なとき、z-high open faceに達した粒子はそ�
 callerへ返します。このfaceでは、Boris更新の入出力位置と速度に整合する二次軌道を使って交差時刻を再評価します。
 payloadには、face、step全体に対するfraction、位置、速度、残り時間が入ります。
 
+z-highの二次軌道による時刻補正で、z-highと横面の先後・同時関係が元のface maskから変わる場合は、
+どちらの向きの順序反転でも作用順序を推測せずfail closedにします。
+
+この補正は、候補終点がz-high外側にあるためchordが検出したcrossingの法線時刻だけを対象にします。
+候補終点がbox内へ戻る途中の一時的越境は探索せず、x/y面とmesh hitは従来のchord判定のままです。
+
 outer modelがlocal returnを返した場合は、戻り位置・速度から残り時間を再び通常のparticle stepで進めます。
 infinityへescapeした場合は粒子を消滅させます。outer側の加減速やreturn条件は
 [外部プラズマモデル](OuterPlasmaModels.html)で決まります。
+元のlocal step全体ではexternal eventを最大8回まで処理し、9回目は
+`particle_step_multiple_external_events`で停止します。この上限と各continuationのbox event上限は別に数えます。
 
 ## 判定を完了できなければ停止する
 
@@ -195,7 +203,10 @@ collision queryは、必要な候補をすべて調べた場合だけ`ok`です�
 | `collision_query_grid_stalled` | 4 | grid geometry不正またはDDAが進行しない |
 | `particle_step_invalid_boundary` | 1001 | particle、box、衝突・境界geometryが不正 |
 | `particle_step_multiple_box_events` | 1002 | 1 stepで9回目のbox境界イベントが必要 |
-| `particle_step_unsupported_barrier_corner` | 1003 | potential barrierで複数open faceが同時に発生 |
+| `particle_step_ambiguous_open_corner` | 1003 | outer所有面またはpotential barrierで複数open faceが同時に発生 |
+| `particle_step_multiple_external_events` | 1004 | 元のlocal stepで9回目のexternal eventが必要 |
+
+旧名`particle_step_unsupported_barrier_corner`は、code 1003の互換aliasとして残します。
 
 これらの異常を「命中なし」とみなすと、粒子が表面を通り抜けて電荷収支を壊します。そのため、通常の
 追跡はfail closedです。OpenMP内では、particle/step番号が最小の失敗情報を選びます。MPI実行では失敗rankと

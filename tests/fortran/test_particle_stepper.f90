@@ -9,11 +9,15 @@ program test_particle_stepper
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
                                   resolve_particle_boundary_candidate, particle_step_result, &
                                   particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events, &
-                                  particle_step_unsupported_barrier_corner
+                                  particle_step_ambiguous_open_corner
+  use bem_external_boundary_contract, only: external_boundary_contract_type, external_transport_linear_1d
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(19)
+  type(external_boundary_contract_type) :: interface_contract
+
+  interface_contract%interface_transport = external_transport_linear_1d
+  call test_init(24)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -25,6 +29,26 @@ program test_particle_stepper
 
   call test_begin('z_high_interface_after_periodic_event')
   call test_z_high_interface_after_periodic_event()
+  call test_end()
+
+  call test_begin('z_high_interface_owns_simultaneous_periodic_corner')
+  call test_z_high_interface_owns_simultaneous_periodic_corner()
+  call test_end()
+
+  call test_begin('z_high_interface_rejects_simultaneous_open_corner')
+  call test_z_high_interface_rejects_simultaneous_open_corner()
+  call test_end()
+
+  call test_begin('z_high_interface_rejects_dephased_corner')
+  call test_z_high_interface_rejects_dephased_corner()
+  call test_end()
+
+  call test_begin('z_high_interface_rejects_reordered_lateral_face')
+  call test_z_high_interface_rejects_reordered_lateral_face()
+  call test_end()
+
+  call test_begin('z_high_interface_rejects_reverse_reordered_lateral_face')
+  call test_z_high_interface_rejects_reverse_reordered_lateral_face()
   call test_end()
 
   call test_begin('z_high_interface_acceleration_reversal')
@@ -95,6 +119,120 @@ program test_particle_stepper
 
 contains
 
+  subroutine test_z_high_interface_owns_simultaneous_periodic_corner()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], 0.0_dp, 1.0_dp, 0.2_dp, &
+      [1.1_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, 1.0_dp], result=result, boundary_contract=interface_contract &
+      )
+
+    call assert_true(result%interface_crossing%has_crossing, 'periodic z-high corner lost outer ownership')
+    call assert_true(.not. result%escaped_boundary, 'periodic z-high corner must not use ordinary open escape')
+    call assert_close_dp(result%interface_crossing%fraction, 0.5_dp, 1.0e-14_dp, 'corner fraction mismatch')
+    call assert_true( &
+      result%interface_crossing%position(1) > 0.0_dp .and. &
+      result%interface_crossing%position(1) < 1.0e-12_dp, &
+      'simultaneous periodic face must wrap before outer dispatch' &
+      )
+    call assert_close_dp(result%interface_crossing%position(2), 0.2_dp, 1.0e-14_dp, 'corner y mismatch')
+    call assert_close_dp(result%interface_crossing%position(3), 1.0_dp, 1.0e-14_dp, 'corner z mismatch')
+    call assert_close_dp(result%interface_crossing%dt_remaining, 0.1_dp, 1.0e-14_dp, 'corner remainder mismatch')
+  end subroutine test_z_high_interface_owns_simultaneous_periodic_corner
+
+  subroutine test_z_high_interface_rejects_simultaneous_open_corner()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], 0.0_dp, 1.0_dp, 0.2_dp, &
+      [1.1_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, 1.0_dp], result=result, boundary_contract=interface_contract &
+      )
+
+    call assert_true( &
+      result%status == particle_step_ambiguous_open_corner, &
+      'simultaneous external and ordinary open faces must fail closed' &
+      )
+    call assert_true(.not. result%interface_crossing%has_crossing, 'ambiguous open corner must not reach outer transport')
+  end subroutine test_z_high_interface_rejects_simultaneous_open_corner
+
+  subroutine test_z_high_interface_rejects_dephased_corner()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.5_dp], 0.0_dp, 1.0_dp, 0.2_dp, &
+      [1.1_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, 0.5_dp], result=result, boundary_contract=interface_contract &
+      )
+
+    call assert_true( &
+      result%status == particle_step_invalid_boundary, &
+      'corner whose refined z-high time differs from its companion face must fail closed' &
+      )
+    call assert_true(.not. result%interface_crossing%has_crossing, 'dephased corner must not reach outer transport')
+  end subroutine test_z_high_interface_rejects_dephased_corner
+
+  subroutine test_z_high_interface_rejects_reordered_lateral_face()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.7_dp, 0.2_dp, 0.99_dp], [1.0_dp, 0.0_dp, -0.96_dp], 0.0_dp, 1.0_dp, 1.0_dp, &
+      [1.7_dp, 0.2_dp, 1.99_dp], [1.0_dp, 0.0_dp, 2.96_dp], result=result, boundary_contract=interface_contract &
+      )
+
+    call assert_true( &
+      result%status == particle_step_invalid_boundary, &
+      'lateral face moved ahead of the refined z-high crossing must fail closed' &
+      )
+    call assert_true(.not. result%interface_crossing%has_crossing, 'reordered lateral face must not be skipped')
+  end subroutine test_z_high_interface_rejects_reordered_lateral_face
+
+  subroutine test_z_high_interface_rejects_reverse_reordered_lateral_face()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call resolve_particle_boundary_candidate( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.7_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.2_dp], 0.0_dp, 1.0_dp, 1.0_dp, &
+      [1.7_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, -0.8_dp], result=result, boundary_contract=interface_contract &
+      )
+
+    call assert_true( &
+      result%status == particle_step_invalid_boundary, &
+      'refined z-high crossing moved ahead of the selected lateral face must fail closed' &
+      )
+    call assert_true(.not. result%interface_crossing%has_crossing, 'reverse-reordered z-high face must not be skipped')
+  end subroutine test_z_high_interface_rejects_reverse_reordered_lateral_face
+
   subroutine test_z_high_interface_event_payload()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
@@ -105,7 +243,7 @@ contains
     call resolve_particle_boundary_candidate( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.5_dp], 0.0_dp, 1.0_dp, 1.0_dp, &
-      [0.2_dp, 0.2_dp, 1.3_dp], [0.0_dp, 0.0_dp, 0.5_dp], result=result, defer_z_high_interface=.true. &
+      [0.2_dp, 0.2_dp, 1.3_dp], [0.0_dp, 0.0_dp, 0.5_dp], result=result, boundary_contract=interface_contract &
       )
     call assert_true(result%interface_crossing%has_crossing, 'z-high crossing payload is missing')
     call assert_close_dp(result%interface_crossing%fraction, 0.4_dp, 1.0e-14_dp, 'interface fraction mismatch')
@@ -125,7 +263,7 @@ contains
     call resolve_particle_boundary_candidate( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.9_dp, 0.2_dp, 0.8_dp], [1.0_dp, 0.0_dp, 1.0_dp], 0.0_dp, 1.0_dp, 0.3_dp, &
-      [1.2_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, 1.0_dp], result=result, defer_z_high_interface=.true. &
+      [1.2_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, 1.0_dp], result=result, boundary_contract=interface_contract &
       )
 
     call assert_true(result%interface_crossing%has_crossing, 'interface crossing after periodic event is missing')
@@ -148,7 +286,7 @@ contains
     call resolve_particle_boundary_candidate( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.99_dp], [0.0_dp, 0.0_dp, -1.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, &
-      [0.2_dp, 0.2_dp, 1.99_dp], [0.0_dp, 0.0_dp, 3.0_dp], result=result, defer_z_high_interface=.true. &
+      [0.2_dp, 0.2_dp, 1.99_dp], [0.0_dp, 0.0_dp, 3.0_dp], result=result, boundary_contract=interface_contract &
       )
 
     call assert_true(result%interface_crossing%has_crossing, 'accelerated z-high crossing payload is missing')
@@ -591,7 +729,7 @@ contains
       [0.8_dp, 0.8_dp, 0.2_dp], [1.0_dp, 1.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
       )
     call assert_true( &
-      result%status == particle_step_unsupported_barrier_corner, &
+      result%status == particle_step_ambiguous_open_corner, &
       'simultaneous multi-open potential barrier should fail closed' &
       )
   end subroutine test_advance_potential_barrier_single_face_only

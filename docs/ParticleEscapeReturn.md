@@ -91,7 +91,7 @@ $$
 
 このmodelが保持する外部状態は通過点のscalar potentialだけです。open面の外側にある$E(\mathbf x)$、
 turning位置、flight time、空間電荷は扱いません。複数のopen面を同時に横切るcornerにも対応しておらず、
-`unsupported_barrier_corner`で停止します。
+`ambiguous_open_corner`で停止します。
 
 通過点電位は粒子運動と同じsnapshot規約で評価するため`sim.e0`の局所電位も含みます。一様電場には有限な
 無限遠電位がないため、`sim.e0`と併用する場合の`phi_infty`は有効なreservoir基準電位としてユーザが
@@ -287,8 +287,14 @@ outer modelへ渡す交差情報は次のとおりです。
 - 交差後に残る`dt_remaining`。
 
 instant modeでreturnした粒子はinterfaceの直内側へ戻し、`dt_remaining`の間だけ通常のBoris更新とevent処理を
-やり直します。queue modeでは構成済みのreturn位置・速度をevent recordへ保存し、dueとなったbatchのfresh sourceの
+やり直します。その残り時間内にz-highへ再到達した場合もouter transferへ戻し、local stepが完了するまで
+returnと再交差を反復します。1 local stepあたり8回を上限とし、9回目は状態をcommitせずfail closedにします。
+queue modeでは構成済みのreturn位置・速度をevent recordへ保存し、dueとなったbatchのfresh sourceの
 後ろへ追加してlocal-domain粒子として再開します。outer flight timeは、local step remainderとは別の診断量です。
+
+z-highの二次軌道補正後も周期または反射面を同時に横切るcornerでは、横方向の周期wrapまたは反射を先に合成してから
+outer modelへ渡します。補正によってz-highと横面の先後・同時関係がどちら向きに変わっても作用順序を推測しません。
+z-highと別のopen面を同時に横切ってownerが一意でない場合と同様にfail closedにします。
 
 ## outer flightをglobal timeへ加えない近似
 

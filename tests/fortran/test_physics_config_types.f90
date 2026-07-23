@@ -175,6 +175,16 @@ program test_physics_config_types
              )
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'instant return config should be valid')
+  sim%open_boundary_model = 'potential_barrier'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'ordinary open barrier must remain valid outside z-high ownership')
+  sim%reservoir_potential_model = 'infinity_barrier'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32( &
+    status, physics_config_invalid_combination, 'linear transfer must reject a competing scalar inflow owner' &
+    )
+  sim%reservoir_potential_model = 'none'
+  sim%open_boundary_model = 'escape'
   call test_end()
 
   call test_begin('photoelectron_histogram_contract')

@@ -9,13 +9,18 @@ module bem_particle_stepper
   use bem_boundary, only: boundary_event_type, boundary_event_ok, boundary_event_invalid_geometry, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
   use bem_interface_types, only: interface_crossing_type
+  use bem_external_boundary_contract, only: &
+    external_boundary_contract_type, external_open_escape, external_open_potential_barrier, &
+    external_transport_none, external_boundary_owns_event
   implicit none
   private
 
   integer(i32), parameter, public :: particle_step_ok = collision_query_ok
   integer(i32), parameter, public :: particle_step_invalid_boundary = 1001_i32
   integer(i32), parameter, public :: particle_step_multiple_box_events = 1002_i32
-  integer(i32), parameter, public :: particle_step_unsupported_barrier_corner = 1003_i32
+  integer(i32), parameter, public :: particle_step_ambiguous_open_corner = 1003_i32
+  integer(i32), parameter, public :: particle_step_unsupported_barrier_corner = particle_step_ambiguous_open_corner
+  integer(i32), parameter, public :: particle_step_multiple_external_events = 1004_i32
 
   type, public :: particle_step_result
     real(dp) :: x(3) = 0.0_dp
@@ -73,12 +78,13 @@ contains
   end subroutine project_field_sample_to_box
 
   !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大八度だけremainderを再積分する。
-  subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result)
+  subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     type(particle_step_result), intent(out) :: result
+    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
 
     type(hit_info) :: hit
     real(dp) :: x_candidate(3), v_candidate(3)
@@ -104,7 +110,8 @@ contains
     if (query_status /= collision_query_ok) then
       if (sim%use_box .and. .not. point_strictly_inside_box(sim, x_candidate)) then
         call advance_particle_boundary_crossing( &
-          mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, result=result &
+          mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, result=result, &
+          boundary_contract=boundary_contract &
           )
         return
       end if
@@ -122,13 +129,14 @@ contains
     end if
 
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, &
+      boundary_contract=boundary_contract &
       )
   end subroutine advance_particle_step
 
   !> 構築済みcandidateがbox crossing候補のとき、fieldを再評価せずeventを解決する。
   subroutine resolve_particle_boundary_candidate( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -136,7 +144,7 @@ contains
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(out) :: result
-    logical, intent(in), optional :: defer_z_high_interface
+    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
 
     result = particle_step_result()
     result%x = x0
@@ -149,13 +157,13 @@ contains
       return
     end if
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract &
       )
   end subroutine resolve_particle_boundary_candidate
 
   !> box crossing時だけevent用stateを確保し、最大八つのeventとremainderを処理する。
   subroutine advance_particle_boundary_crossing( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, defer_z_high_interface &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -163,19 +171,29 @@ contains
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(inout) :: result
-    logical, intent(in), optional :: defer_z_high_interface
+    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
 
     integer(i32), parameter :: max_boundary_events = 8_i32
     type(boundary_event_type) :: event
     type(hit_info) :: remainder_hit
     real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3)
-    real(dp) :: dt_segment, dt_remaining, elapsed_dt, global_fraction, refined_fraction
+    real(dp) :: dt_segment, dt_remaining, elapsed_dt, global_fraction, refined_fraction, event_order_tolerance
     integer(i32) :: query_status, boundary_status, event_count
-    logical :: alive, escaped
-    logical :: defer_interface, first_segment
+    logical :: alive, escaped, external_event_owned, z_high_chord_candidate
+    logical :: first_segment
+    type(external_boundary_contract_type) :: active_boundary_contract
 
-    defer_interface = .false.
-    if (present(defer_z_high_interface)) defer_interface = defer_z_high_interface
+    active_boundary_contract = external_boundary_contract_type()
+    select case (trim(sim%open_boundary_model))
+    case ('escape')
+      active_boundary_contract%ordinary_open_model = external_open_escape
+    case ('potential_barrier')
+      active_boundary_contract%ordinary_open_model = external_open_potential_barrier
+    case default
+      result%status = particle_step_invalid_boundary
+      return
+    end select
+    if (present(boundary_contract)) active_boundary_contract = boundary_contract
     x_start = x0
     v_start = v0
     x_trial = x_candidate
@@ -221,15 +239,37 @@ contains
         return
       end if
 
-      if (defer_interface .and. event%face_mask == shiftl(1_i32, 5_i32) .and. event%face_bc(6) == bc_open) then
+      external_event_owned = external_boundary_owns_event( &
+                             active_boundary_contract, event%face_mask, event%face_bc &
+                             )
+      z_high_chord_candidate = external_event_owned .or. &
+                               (active_boundary_contract%interface_transport /= external_transport_none .and. &
+                                event%face_bc(6) == bc_open .and. x_start(3) < sim%box_max(3) .and. &
+                                x_trial(3) >= sim%box_max(3))
+      if (z_high_chord_candidate) then
         call refine_z_high_crossing_fraction( &
           sim, x_start, v_start, x_trial, v_trial, dt_segment, refined_fraction, boundary_status &
           )
-        if (boundary_status /= boundary_event_ok) then
-          result%status = particle_step_invalid_boundary
-          return
+        if (external_event_owned) then
+          if (boundary_status /= boundary_event_ok) then
+            result%status = particle_step_invalid_boundary
+            return
+          end if
+          if (.not. refined_z_high_preserves_lateral_event_order( &
+              sim, event, x_start, x_trial, refined_fraction &
+              )) then
+            result%status = particle_step_invalid_boundary
+            return
+          end if
+          event%fraction = refined_fraction
+        else if (boundary_status == boundary_event_ok) then
+          event_order_tolerance = 64.0_dp*epsilon(1.0_dp)* &
+                                  max(1.0_dp, abs(event%fraction), abs(refined_fraction))
+          if (refined_fraction <= event%fraction + event_order_tolerance) then
+            result%status = particle_step_invalid_boundary
+            return
+          end if
         end if
-        event%fraction = refined_fraction
       end if
 
       if (first_segment .and. present(hit)) then
@@ -255,7 +295,14 @@ contains
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
       global_fraction = (elapsed_dt + event%fraction*dt_segment)/dt
 
-      if (defer_interface .and. event%face_mask == shiftl(1_i32, 5_i32) .and. event%face_bc(6) == bc_open) then
+      if (external_event_owned) then
+        call apply_external_companion_faces( &
+          sim, event, x_event, v_event, boundary_status &
+          )
+        if (boundary_status /= boundary_event_ok) then
+          result%status = boundary_status
+          return
+        end if
         result%x = x_event
         result%v = v_event
         result%interface_crossing%has_crossing = .true.
@@ -269,7 +316,7 @@ contains
 
       alive = .true.
       escaped = .false.
-      if (trim(sim%open_boundary_model) == 'potential_barrier') then
+      if (active_boundary_contract%ordinary_open_model == external_open_potential_barrier) then
         call apply_potential_barrier_event( &
           mesh, sim, snapshot, event, q, m, x_event, v_event, alive, escaped, boundary_status &
           )
@@ -352,6 +399,51 @@ contains
     end do
   end subroutine refine_z_high_crossing_fraction
 
+  !> z-high時刻補正後も、既存chordが示すx/y面の先後・同時関係が保たれるか検査する。
+  pure logical function refined_z_high_preserves_lateral_event_order( &
+    sim, event, x0, x1, refined_fraction &
+    ) result(preserves_order)
+    type(sim_config), intent(in) :: sim
+    type(boundary_event_type), intent(in) :: event
+    real(dp), intent(in) :: x0(3), x1(3), refined_fraction
+
+    real(dp) :: delta, candidate_fraction, tie_tolerance
+    integer(i32) :: axis, candidate_face, axis_mask
+    logical :: has_original_companion
+
+    preserves_order = .false.
+    if (.not. ieee_is_finite(refined_fraction) .or. refined_fraction < 0.0_dp .or. &
+        refined_fraction > 1.0_dp) return
+    do axis = 1_i32, 2_i32
+      axis_mask = ior(shiftl(1_i32, 2_i32*axis - 2_i32), shiftl(1_i32, 2_i32*axis - 1_i32))
+      has_original_companion = iand(event%face_mask, axis_mask) /= 0_i32
+      delta = x1(axis) - x0(axis)
+      candidate_face = 0_i32
+      candidate_fraction = huge(1.0_dp)
+      if (delta > 0.0_dp .and. x1(axis) >= sim%box_max(axis)) then
+        candidate_face = 2_i32*axis
+        candidate_fraction = (sim%box_max(axis) - x0(axis))/delta
+      else if (delta < 0.0_dp .and. x1(axis) <= sim%box_min(axis)) then
+        candidate_face = 2_i32*axis - 1_i32
+        candidate_fraction = (sim%box_min(axis) - x0(axis))/delta
+      end if
+      if (candidate_face == 0_i32) then
+        if (has_original_companion) return
+        cycle
+      end if
+      if (.not. ieee_is_finite(candidate_fraction)) return
+      tie_tolerance = 64.0_dp*epsilon(1.0_dp)* &
+                      max(1.0_dp, abs(candidate_fraction), abs(refined_fraction))
+      if (has_original_companion) then
+        if (.not. btest(event%face_mask, candidate_face - 1_i32) .or. &
+            abs(candidate_fraction - refined_fraction) > tie_tolerance) return
+      else if (candidate_fraction <= refined_fraction + tie_tolerance) then
+        return
+      end if
+    end do
+    preserves_order = .true.
+  end function refined_z_high_preserves_lateral_event_order
+
   !> 既に選択済みのmesh hitをresultへ反映する。
   subroutine accept_particle_hit(va, xb, vb, hit, result)
     real(dp), intent(in) :: va(3), xb(3), vb(3)
@@ -403,6 +495,41 @@ contains
     end do
   end subroutine interpolate_boundary_state
 
+  !> interface面と同時に交差した周期・反射面を先に合成し、別open面との曖昧なcornerは拒否する。
+  subroutine apply_external_companion_faces(sim, event, x, v, status)
+    type(sim_config), intent(in) :: sim
+    type(boundary_event_type), intent(in) :: event
+    real(dp), intent(inout) :: x(3), v(3)
+    integer(i32), intent(out) :: status
+
+    type(sim_config) :: action_sim
+    type(boundary_event_type) :: companion_event
+    integer(i32) :: face, action_status
+    logical :: alive, escaped
+
+    status = boundary_event_ok
+    companion_event = event
+    companion_event%face_mask = ibclr(companion_event%face_mask, 5_i32)
+    if (companion_event%face_mask == 0_i32) return
+    do face = 1_i32, 6_i32
+      if (btest(companion_event%face_mask, face - 1_i32) .and. companion_event%face_bc(face) == bc_open) then
+        status = particle_step_ambiguous_open_corner
+        return
+      end if
+    end do
+
+    action_sim = sim
+    action_sim%open_boundary_model = 'escape'
+    alive = .true.
+    escaped = .false.
+    call apply_escape_reflect_periodic_event( &
+      action_sim, companion_event, x, v, alive, escaped, action_status &
+      )
+    if (action_status /= boundary_event_ok .or. .not. alive .or. escaped) then
+      status = particle_step_invalid_boundary
+    end if
+  end subroutine apply_external_companion_faces
+
   !> 単一open面のpotential-barrier式をevent位置と補間速度で評価する。
   subroutine apply_potential_barrier_event( &
     mesh, sim, snapshot, event, q, m, x, v, alive, escaped, status &
@@ -441,7 +568,7 @@ contains
       end if
     end do
     if (open_count > 1_i32) then
-      status = particle_step_unsupported_barrier_corner
+      status = particle_step_ambiguous_open_corner
       return
     end if
 

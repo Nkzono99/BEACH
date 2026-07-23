@@ -450,7 +450,7 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | キー | 型 | 既定値 | 説明 |
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | 現在は`explicit`のみ。outer profileを明示的な更新点で再計算 |
-| `particle_transfer_mode` | string | `"none"` | return modelと同じIDを指定 |
+| `particle_transfer_mode` | string | `"none"` | `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit`。対応するreturnとの組を下表から選ぶ |
 | `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`。新規実行を Zhao 零電流定常根と対応する平面電荷から開始 |
 | `steady_start_mesh_id` | int | `1` | `zhao_floating`で初期電荷を面積比で配る水平平面の`mesh_id` |
 | `outer_update_stride` | int | `1` | outer profile更新batch間隔 |
@@ -460,6 +460,19 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | `outer_orbit_max_steps` | int | `100000` | 3D outer orbit step上限。到達時はdiscardせず停止 |
 | `outer_orbit_energy_tolerance` | float | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
 | `outer_queue_enabled` | bool | `false` | 対応するZhao構成でouter flightをbatch間queueへ保存し、queued photoelectron columnで過渡closureを解く |
+
+returnとtransferの有効な組:
+
+| `outer_plasma.model` | `outer_plasma.return_model` | `coupling.particle_transfer_mode` |
+| --- | --- | --- |
+| `linear_debye` | `electrostatic_1d_instant_return` | `electrostatic_1d_instant_return` |
+| `kinetic_1d` | `kinetic_1d_profile_return` | `electrostatic_1d_instant_return` |
+| `unified_linear_response` | `electrostatic_3d_explicit_orbit` | `electrostatic_3d_explicit_orbit` |
+
+`kinetic_1d_profile_return`ではreturnとtransferの文字列は同一ではありません。1D transferを有効にした
+`linear_debye`と`kinetic_1d`は同じprofileで流入も所有するため、`reservoir_potential_model`と
+`sheath_injection_model`は`none`にします。`kinetic_1d`と`unified_linear_response`の
+`infinity_potential`は0固定です。
 
 定常 warm start:
 
@@ -503,8 +516,9 @@ seedから同じ定常観測量へ返るかを確認します。
 
 粒子移送の規則:
 
-- `outer_plasma.return_model`と`coupling.particle_transfer_mode`は対応するIDを指定します。
+- `outer_plasma.return_model`と`coupling.particle_transfer_mode`は上表の対応する組を指定します。
 - 1D transferはopenなz-high interface、x/y周期wrap、`b0=0`だけに対応します。
+- `kinetic_1d`はenabledな負・正z-high `reservoir_face` speciesをそれぞれちょうど1つ要求します。
 - instant modeは正の`field_evolution_timescale`を要求し、`max_frozen_field_ratio`を適用性上限に使います。
 - queue modeは`kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` + `kinetic_1d_profile_return`、
   `particle_transfer_mode="electrostatic_1d_instant_return"`、直接指定または`dt * batch_duration_step`から解決した正の
@@ -534,8 +548,8 @@ seedから同じ定常観測量へ返るかを確認します。
 - z-high outward crossing の signed charge が適用性上限を超えると停止します。
 - tracked outer transfer を使う全 `photo_raycast` species で `deposit_opposite_charge_on_emit=true` が必要です。
 
-periodic2では、`sim.use_box=true`、2つのperiodic軸、1つのopen軸が必要です。
-同じ周期条件をfield、collision、`photo_raycast`に適用します。
+periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要です。outer transferを使う構成では、
+その2軸をx/yとし、z-highをopen interfaceにします。同じ周期条件をfield、collision、`photo_raycast`に適用します。
 
 | far correction | 意味 |
 | --- | --- |

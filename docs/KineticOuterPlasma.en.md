@@ -53,9 +53,10 @@ evaluated from the converged profile.
 
 ## Map VDFs to potential-dependent charge density
 
-The first negative and positive z-high `reservoir_face` species define ambient electrons and ions at infinity. With
-`photoelectron_density_model="kinetic_mean"`, the first negative `photo_raycast` species supplies temperature and emission current
-density for a plane-averaged photoelectron source.
+Exactly one enabled negative and one enabled positive z-high `reservoir_face` species are required for the ambient electron and
+ion populations at infinity; BEACH does not silently choose the first of several candidates. With
+`photoelectron_density_model="kinetic_mean"`, exactly one enabled negative `photo_raycast` species supplies temperature and
+emission current density for a plane-averaged photoelectron source.
 
 | Population | Inputs | Outer density construction |
 | --- | --- | --- |

@@ -116,6 +116,19 @@
         },
         {
           "if": {
+            "required": ["model"],
+            "properties": {
+              "model": {"enum": ["kinetic_1d", "unified_linear_response"]}
+            }
+          },
+          "then": {
+            "properties": {
+              "infinity_potential": {"const": 0}
+            }
+          }
+        },
+        {
+          "if": {
             "required": ["zhao_branch"],
             "properties": {
               "zhao_branch": {"enum": ["a", "b", "c"]}

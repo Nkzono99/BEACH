@@ -13,7 +13,8 @@ module bem_simulator
   use bem_outer_coupler, only: outer_coupler_type
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, advance_particle_step, &
                                   particle_step_result, particle_step_invalid_boundary, &
-                                  particle_step_multiple_box_events, particle_step_unsupported_barrier_corner
+                                  particle_step_multiple_box_events, particle_step_ambiguous_open_corner, &
+                                  particle_step_multiple_external_events
   use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
                            collision_query_index_range, collision_query_invalid_segment, collision_query_ok, find_first_hit
   use bem_surface_models, only: apply_surface_model_charge_relaxation
@@ -24,8 +25,9 @@ module bem_simulator
   use bem_outer_event_queue, only: outer_event_queue_type, outer_event_record_type, &
                                    outer_event_outcome_return, outer_event_outcome_escape, &
                                    outer_event_queue_global_fingerprint
-  use bem_outer_plasma_interface, only: map_outer_particle_linear_debye, map_outer_particle_kinetic_profile
-  use bem_outer_plasma_orbit, only: trace_unified_outer_particle
+  use bem_external_boundary_contract, only: &
+    external_boundary_contract_type, external_boundary_ok, resolve_external_boundary_contract
+  use bem_external_step_driver, only: external_step_trace_type, continue_external_particle_step
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type, &
                                             validate_photoelectron_linear_applicability, photoelectron_applicability_ok
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
@@ -89,7 +91,8 @@ module bem_simulator
 
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
-      mesh, app, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, bfield, batch_idx, mpi_rank, &
+      mesh, app, boundary_contract, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
+      bfield, batch_idx, mpi_rank, &
       soft_discarded_boundary_flag, queued_outer_flag, outer_event_staging, &
       interface_outward_thread, interface_returned_thread, &
       collision_failure_status, collision_failure_particle, &
@@ -98,6 +101,7 @@ module bem_simulator
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
+      type(external_boundary_contract_type), intent(in) :: boundary_contract
       type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(particles_soa), intent(inout) :: pcls_batch
       real(dp), intent(inout) :: dq_thread(:, :)

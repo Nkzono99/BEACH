@@ -26,6 +26,17 @@ Lang: [日本語](OuterPlasmaModels.md) | [English](OuterPlasmaModels.en.md)
 `potential_barrier`は逆向きにopen面へ出た粒子を処理します。`kinetic_1d`と`unified_linear_response`は、
 scalar補正より多くの空間情報を持つ外部場です。
 
+## 境界のownerを一つの実行時契約へ解決する
+
+公開TOMLのキーは互換性のため上の5段階に分かれたままです。BEACHは流入補正、通常open面、
+z-high輸送、queueのownerを一つの内部契約へ解決します。粒子loopは実行開始時に解決した契約を
+read-onlyで共有し、batch injectionもhot loop外で同じresolverを使います。
+
+1D transferを有効にした`linear_debye`と`kinetic_1d`は、returnだけでなくz-highの流入写像も同じprofileで
+所有します。そのため`infinity_barrier`やlegacy `sheath_injection_model`との重ね合わせは設定時に拒否します。
+`open_boundary_model`は別責務であり、outerが所有しない通常open面には引き続き適用できます。
+この正規化は内部実装だけの変更で、既存TOMLを新しいbundleへ書き換える必要はありません。
+
 ## 流入側は粒子生成とVDF補正を分ける
 
 ```text

@@ -813,6 +813,12 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     field_bc_mode = sim.get("field_bc_mode", "free")
     field_solver = sim.get("field_solver", "auto")
     open_boundary_model = sim.get("open_boundary_model", "escape")
+    reservoir_potential_model = (
+        str(sim.get("reservoir_potential_model", "none")).strip().lower()
+    )
+    sheath_injection_model = (
+        str(sim.get("sheath_injection_model", "none")).strip().lower()
+    )
     if field_solver not in {"direct", "treecode", "fmm", "auto"}:
         raise ConfigValidationError(
             'BEACH constraint error: sim.field_solver must be "direct", "treecode", '
@@ -822,6 +828,28 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         raise ConfigValidationError(
             'BEACH constraint error: sim.open_boundary_model must be "escape" '
             'or "potential_barrier".'
+        )
+    if reservoir_potential_model not in {"none", "infinity_barrier"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: sim.reservoir_potential_model must be "
+            '"none" or "infinity_barrier".'
+        )
+    phi_infty = sim.get("phi_infty", 0.0)
+    if (
+        not isinstance(phi_infty, (int, float))
+        or isinstance(phi_infty, bool)
+        or not math.isfinite(phi_infty)
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: sim.phi_infty must be finite."
+        )
+    if (
+        reservoir_potential_model != "none"
+        and sheath_injection_model != "none"
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: legacy sheath injection and reservoir-potential "
+            "correction cannot own the same inflow."
         )
     if field_bc_mode not in {"free", "periodic2"}:
         raise ConfigValidationError(
@@ -995,6 +1023,70 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "BEACH constraint error: outer_plasma.photoelectron_histogram_enabled "
             "must be a boolean."
         )
+    outer_model = (
+        str(outer_plasma.get("model", "none")).strip().lower()
+        if isinstance(outer_plasma, Mapping)
+        else "none"
+    )
+    if outer_model not in {
+        "none",
+        "linear_debye",
+        "kinetic_1d",
+        "unified_linear_response",
+    }:
+        raise ConfigValidationError(
+            f"BEACH constraint error: unsupported outer_plasma.model={outer_model!r}."
+        )
+    if outer_model != "none":
+        for key in ("debye_length", "thermal_voltage"):
+            value = outer_plasma.get(key)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value <= 0.0
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: outer_plasma.{key} must be finite and > 0."
+                )
+        interface_z = outer_plasma.get("interface_z")
+        if (
+            not isinstance(interface_z, (int, float))
+            or isinstance(interface_z, bool)
+            or not math.isfinite(interface_z)
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.interface_z must be finite."
+            )
+        if box_max is not None:
+            interface_tolerance = (
+                64.0 * math.ulp(1.0) * max(1.0, abs(float(box_max[2])))
+            )
+            if not math.isclose(
+                float(interface_z),
+                float(box_max[2]),
+                rel_tol=0.0,
+                abs_tol=interface_tolerance,
+            ):
+                raise ConfigValidationError(
+                    "BEACH constraint error: outer_plasma.interface_z must equal the "
+                    "z-high face."
+                )
+        outer_infinity_potential = outer_plasma.get("infinity_potential", 0.0)
+        if (
+            not isinstance(outer_infinity_potential, (int, float))
+            or isinstance(outer_infinity_potential, bool)
+            or not math.isfinite(outer_infinity_potential)
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.infinity_potential must be finite."
+            )
+        if outer_model in {"kinetic_1d", "unified_linear_response"} and float(
+            outer_infinity_potential
+        ) != 0.0:
+            raise ConfigValidationError(
+                f"BEACH constraint error: {outer_model} fixes infinity_potential=0."
+            )
     return_model = (
         str(outer_plasma.get("return_model", "none")).strip().lower()
         if isinstance(outer_plasma, Mapping)
@@ -1013,6 +1105,81 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     if not isinstance(outer_queue_enabled, bool):
         raise ConfigValidationError(
             "BEACH constraint error: coupling.outer_queue_enabled must be a boolean."
+        )
+    valid_return_models = {
+        "none",
+        "electrostatic_1d_instant_return",
+        "kinetic_1d_profile_return",
+        "electrostatic_3d_explicit_orbit",
+    }
+    valid_transfer_modes = {
+        "none",
+        "electrostatic_1d_instant_return",
+        "electrostatic_3d_explicit_orbit",
+    }
+    if return_model not in valid_return_models:
+        raise ConfigValidationError(
+            f"BEACH constraint error: unsupported outer_plasma.return_model={return_model!r}."
+        )
+    if transfer_mode not in valid_transfer_modes:
+        raise ConfigValidationError(
+            "BEACH constraint error: unsupported coupling.particle_transfer_mode="
+            f"{transfer_mode!r}."
+        )
+    if transfer_mode == "none":
+        if return_model != "none":
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.return_model requires a matching "
+                "coupling.particle_transfer_mode."
+            )
+    elif transfer_mode == "electrostatic_1d_instant_return":
+        expected_return_model = {
+            "linear_debye": "electrostatic_1d_instant_return",
+            "kinetic_1d": "kinetic_1d_profile_return",
+        }.get(outer_model)
+        if expected_return_model is None or return_model != expected_return_model:
+            raise ConfigValidationError(
+                "BEACH constraint error: coupling.particle_transfer_mode="
+                "electrostatic_1d_instant_return requires a matching "
+                "outer_plasma.return_model for linear_debye or kinetic_1d."
+            )
+        if (
+            reservoir_potential_model != "none"
+            or sheath_injection_model != "none"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: electrostatic 1D transfer owns inflow and cannot "
+                "mix with legacy or scalar inflow corrections."
+            )
+        if sim.get("bc_z_high", "open") not in {"open", "outflow", "escape"}:
+            raise ConfigValidationError(
+                "BEACH constraint error: electrostatic 1D transfer requires an open "
+                "z-high interface."
+            )
+        b0 = _maybe_vec3(sim.get("b0"), name="sim.b0")
+        if b0 is not None and any(value != 0.0 for value in b0):
+            raise ConfigValidationError(
+                "BEACH constraint error: electrostatic 1D transfer requires sim.b0=0."
+            )
+        for key in ("field_evolution_timescale", "max_frozen_field_ratio"):
+            value = coupling.get(key, 0.0 if key == "field_evolution_timescale" else 0.1)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value <= 0.0
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: coupling.{key} must be finite and > 0 "
+                    "for electrostatic 1D transfer."
+                )
+    elif (
+        outer_model != "unified_linear_response"
+        or return_model != "electrostatic_3d_explicit_orbit"
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: explicit 3D transfer requires "
+            "unified_linear_response and its matching return model."
         )
     if outer_queue_enabled:
         if float(photoelectron_source_scale) <= 0.0:
@@ -1181,6 +1348,9 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     uses_face_sources = False
     has_volume_seed = False
     total_npcls_per_step = 0
+    ambient_electron_count = 0
+    ambient_ion_count = 0
+    photoelectron_count = 0
     for index, item in enumerate(species, start=1):
         species_table = dict(item)
         source_mode = species_table.get("source_mode", "volume_seed")
@@ -1209,6 +1379,24 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 f"BEACH constraint error: particles.species[{index}] cannot define both "
                 "temperature_k and temperature_ev."
             )
+        enabled = species_table.get("enabled", True)
+        charge = species_table.get("q_particle", -1.602176634e-19)
+        if (
+            enabled is True
+            and isinstance(charge, (int, float))
+            and not isinstance(charge, bool)
+            and math.isfinite(float(charge))
+        ):
+            if (
+                source_mode == "reservoir_face"
+                and species_table.get("inject_face") == "z_high"
+            ):
+                if float(charge) < 0.0:
+                    ambient_electron_count += 1
+                elif float(charge) > 0.0:
+                    ambient_ion_count += 1
+            elif source_mode == "photo_raycast" and float(charge) < 0.0:
+                photoelectron_count += 1
         velocity_distribution = (
             str(species_table.get("velocity_distribution", "maxwellian"))
             .strip()
@@ -1364,6 +1552,31 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             f"BEACH constraint error: particles.species[{index}] has unsupported "
             f"source_mode={source_mode!r}."
         )
+
+    if outer_model == "kinetic_1d" and (
+        ambient_electron_count != 1 or ambient_ion_count != 1
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: kinetic_1d requires exactly one enabled negative "
+            "and one enabled positive z_high reservoir_face species."
+        )
+    if (
+        outer_model == "kinetic_1d"
+        and photoelectron_density_model == "kinetic_mean"
+        and photoelectron_count != 1
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: photoelectron_density_model=kinetic_mean requires "
+            "exactly one enabled negative photo_raycast species."
+        )
+    if kinetic_closure == "zhao_charge_driven":
+        expected_photoelectron_count = 0 if float(photoelectron_source_scale) == 0.0 else 1
+        if photoelectron_count != expected_photoelectron_count:
+            raise ConfigValidationError(
+                "BEACH constraint error: zhao_charge_driven requires exactly one enabled "
+                "negative photo_raycast species when photoelectron_source_scale>0, and "
+                "none when photoelectron_source_scale=0."
+            )
 
     if has_volume_seed and not uses_face_sources and total_npcls_per_step < 1:
         raise ConfigValidationError(

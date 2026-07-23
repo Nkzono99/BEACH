@@ -69,10 +69,15 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 
 ## 4. 1バッチの計算手順
 
-1. 設定に従ってそのバッチの粒子群を生成
-2. 現在の要素電荷に基づいて場ソルバをリフレッシュ (`field_solver%refresh(mesh)`)
-3. 各粒子を `max_step` まで前進（OpenMP スレッド並列）
-4. 各ステップで
+run開始時に、`sim`、`outer_plasma`、`coupling`へ分かれた外部境界設定を、流入写像、通常open面、
+z-high輸送、queue ownershipからなる単一の内部契約へ正規化します。粒子loopではこの契約をread-onlyに共有し、
+batch injectionもhot loop外で同じresolverを使います。外部場の構築は既存のsnapshot/couplerが担います。
+
+1. delayed outer queueが有効なら、batch開始時刻までにdueとなったreturn/escape eventを取り出す
+2. 現在の要素電荷とqueue inventoryに基づいて静電snapshotとouter stateをリフレッシュ
+3. refresh済みouter stateを使ってそのバッチの粒子群を生成し、due return粒子を追加
+4. 各粒子を `max_step` まで前進（OpenMP スレッド並列）
+5. 各ステップで
    - 同一時刻の状態 `x0, v0` から予測中点 `x_mid = x0 + 0.5*v0*dt` を計算
    - 場評価点だけをsolverのprimitive target boxへ写像する（周期軸はwrap、非周期軸はbox面へclamp）。軌道候補座標は写像しない
    - 境界要素電場 `E(x_mid)` を1回評価し、一様外部電場 `sim.e0` を1回加える
@@ -80,12 +85,12 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
    - `x1` がbox内部なら `x0 -> x1` のmesh collisionを1回探索
    - box faceへ到達する場合は、full chordのmesh hit parameterと最初のface event parameterを比較して最早順序を決める
    - periodic2のfull-chord queryがbox外区間でrange limitに達した場合は、最初のface eventまでに制限して再照会する
-   - reflect/periodic後は残り時間を同じBoris規約で再積分し、そのchordのmesh hitを探索（1 outer stepにつき最大8 box event）
+   - reflect/periodic後は残り時間を同じBoris規約で再積分し、そのchordのmesh hitを探索（各local continuationにつき最大8 box event）
    - 衝突時: 粒子を消滅し `q_particle * w_particle` をスレッド別バッファ `dq_thread(elem_idx, tid)` へ加算
    - 残り時間中に9回目のbox eventへ到達し、それ以前にmesh hitがなければ、状態をcommitせず `dt` 縮小を要求する明示的failureとする
-5. バッチ終了時に要素電荷差分をコミット: 全スレッドの `dq_thread` を合算し、`photo_emission_dq` を加算した後、MPI allreduce を行い `mesh%q_elem` に反映
-6. `rel_change = ||dq|| / max(||q||, q_floor)` を更新
-7. 統計と履歴を更新
+6. バッチ終了時に要素電荷差分をコミット: 全スレッドの `dq_thread` を合算し、`photo_emission_dq` を加算した後、MPI allreduce を行い `mesh%q_elem` に反映
+7. `rel_change = ||dq|| / max(||q||, q_floor)` を更新
+8. 統計と履歴を更新
 
 `photo_raycast` で `deposit_opposite_charge_on_emit=true` の場合は、放出元要素に `-q_particle * w_hit` も加算します。
 生成する光電子の重みは常に `w_hit` です。生成後は通常粒子として追跡し、box 内の再吸収、open 面の
@@ -124,6 +129,19 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 
 `outer_queue_enabled=true`は、`model="kinetic_1d"`、`kinetic_closure="zhao_charge_driven"`、`zhao_branch="auto"`、`return_model="kinetic_1d_profile_return"`、`particle_transfer_mode="electrostatic_1d_instant_return"`の組合せだけで使えます。正の`sim.batch_duration`、`outer_update_stride=1`、`photoelectron_histogram_enabled=false`を要求し、`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を満たさなければ停止します。各eventでは、`t_due=t_mid+tau_outer`から最初のbatch-start pollまでの量子化遅延`delta_poll`と、batch内crossing時刻のmidpoint近似誤差上限`batch_duration/2`も含め、`tau_outer + delta_poll + batch_duration/2 <= max_frozen_field_ratio * field_evolution_timescale`を課します。超過時はenqueueせず停止します。queueが所有する外部領域はinterfaceから$L=10\lambda_{D,pe}$までの有限control volumeです。turning pointが$L$より手前ならreturn、$L$へ到達すればreservoirへの吸収/escapeとし、queue modeでは$L$外のRobin tailを使ってreturnを判定しません。各batch開始時にdue eventをrank-local queueから取り出し、残った光電子inventoryを面積で割ってZhao closureをpredictor更新します。そのbatchで外向き通過したeventはbatch中央を通過時刻とし、interfaceへのreturnまたは$L$へのescapeまでの`tau_outer`を使って`t_due=t_mid+tau_outer`でqueueへ追加します。surface chargeのcommit後、post-enqueue inventoryでもう一度Zhao closureをcorrector更新し、次batchとcheckpointのcontinuation seedにします。straight runとsplit-resumeは全batchで同じpredictor/corrector列を通ります。return/escapeはdueとなったbatchで計上するため過渡遅延を表しますが、eventはbatch開始時だけreleaseされ、enqueue時のterminal状態を後の場で再積分しません。両modeとも`b0=0`のみを許し、`reservoir_potential_model`およびlegacy Zhao injection correctionとの併用を拒否します。
 
+`coupling.steady_start_mode="zhao_floating"`は、定常・準定常研究用の明示的な初期条件です。新規実行の最初batch前に、
+設定済みの無限遠reservoirとUV sourceで Zhao 零電流定常根を解き、`phi(infinity)=0`のprofileを構築します。定常根の
+interface電場を$E_I$、水平cell面積を$A$として、`symmetric_vacuum`では$Q_{seed}=2\epsilon_0AE_I$、
+`e_bottom_zero`では$Q_{seed}=\epsilon_0AE_I$を`coupling.steady_start_mesh_id`の水平平面へ面積比で配ります。選択meshは
+同一高さの水平平面でperiodic cell全体を覆い、outer interfaceより下でなければなりません。現在は非重複・無欠損tilingを
+構築時に保証できる`mesh.mode="template"`だけを受け入れます。他のmeshは電荷0のままなので、
+plane + sphereでplaneを選べばsphereは中性で開始します。この同一profileを初回outer state、reservoir流入補正、instant
+return / escapeに使います。後続のbatchは通常のcharge-driven更新に戻り、analytic currentを表面電荷に二重加算しません。
+`kinetic_1d` + `zhao_charge_driven` + `kinetic_1d_profile_return` + `electrostatic_1d_instant_return`、
+`outer_queue_enabled=false`、`zero_mode_policy="exclude_k0"`、対応するlower boundaryを要求します。新規実行では既存初期電荷を拒否します。
+同一configのresumeではcheckpointのmesh電荷と完全なouter stateを復元し、再seedしません。これは未帯電状態からのphysical transientを表せず、
+queue過渡closureを置換しません。publication用の定常結果でも、独立な緩和状態または摂動seedに対する感度を確認します。
+
 上記の`sim.batch_duration`は実行時に解決された値を指し、直接指定の代わりに正の
 `dt * batch_duration_step`を使ってもよいものとします。
 
@@ -148,7 +166,7 @@ histogram stateがreadyな場合、`summary.txt`へ`photoelectron_histogram_bins
 `photoelectron_previous_charge_ratio`、`photoelectron_max_charge_ratio`、
 `photoelectron_linear_applicability_status`を出力します。正常に完了したbatchのstatusは`applicable`です。
 
-`outer_plasma.model="kinetic_1d"`は、z-highの負・正`reservoir_face` speciesを無限遠の
+`outer_plasma.model="kinetic_1d"`は、enabledな負・正z-high `reservoir_face` speciesをそれぞれちょうど1つ要求し、無限遠の
 electron half-Maxwellian / cold drifting ion VDFとして用い、伸長1D格子上のPoisson方程式を
 interface Neumann条件と遠方Robin条件で解きます。初版は単調・無衝突・非磁化分枝に限定し、
 ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infinity)=0`をゲージとして固定し、
@@ -197,7 +215,22 @@ Zhao profileは有限領域$0\le z\le10\lambda_{D,pe}$へ再標本化し、free/
 overshootを許します。`[0,1]`へclampせず、targetを無視したfull-population解やdisconnected branchへjump/fallbackしません。
 queue modeは`zhao_branch="auto"`を要求し、縮退条件を満たす連続的なA/B等のbranch遷移だけを許します。現在の
 bisectionはcolumnが$\eta$とともに単調増加するpathだけを受理し、foldを含む連続pathは未対応として停止します。
-targetへ到達する連結・単調解がなければ`no_physical_solution`で停止します。これはflight delayと有限column inventoryのclosureであり、時間依存Vlasov--Poisson、
+targetへ到達する連結・単調解がなければ`no_physical_solution`で停止します。Zhao continuationが失敗した場合は、
+MPI rootが`BEACH zhao-continuation` prefixの5行へcall stage、batch、reason/status、target、直前root、拒否candidate、
+root jumpをfull-range scientific formatで出力し、flushと全rank barrierの後にfail closedします。このtelemetryは
+root選択を変更しません。固定branchのpseudo-arclength atlasは診断APIであり、runtime fallbackではありません。
+`diagnose_zhao_ab_degeneracy`は$q=\sqrt{-\phi_m/T_{pe}}$を使い、Type B密度ゼロ端におけるType A準中性curve上の
+far-field $q^3$係数、A/Bのinterface field積分差、有限$q$ probeを返します。
+`regular_connection_conditions_met`は局所接続の必要条件であり、独立componentの存在や安定性を判定しません。
+このA/B診断もruntime root選択には使いません。
+`trace_zhao_field_column_homotopy`は、photoelectron sourceが非零のType B/C branchを1本固定し、前後のbatch状態を結ぶ
+$E_I(\lambda)$と$N_{pe}(\lambda)$の直線homotopy上で、Zhao残差と有限長column残差を
+pseudo-arclength追跡する診断APIです。`target_reached`は$\lambda=1$固定correctorでtargetへ着地した場合だけtrueとなり、
+`homotopy_fold_detected`は接線の$\lambda$成分が反転したことを表します。有限density floor、$\eta$範囲、homotopy範囲、
+point数への到達は`search_limit`であり、全Zhao manifoldでの不可達を意味しません。非単調Type Aの5座標系と、
+columnが恒等的に0となるno-photo Type CはこのAPIの対象外です。このAPIもproduction continuation、branch選択、
+fallbackを変更しません。
+これはflight delayと有限column inventoryのclosureであり、時間依存Vlasov--Poisson、
 outer collision、energy-resolved cloud evolutionではありません。`batch_duration`、tracked粒子数、水平面積、有効interface位置、
 profile gridについて収束を確認します。
 
@@ -234,6 +267,9 @@ profile gridについて収束を確認します。
 - production particle loop は candidate の位置または速度が非有限なら collision query を呼ばず `particle_step_invalid_boundary` としてfail closedとする
 - reflect/periodic crossingだけ残り時間を最大8回再積分する。各eventはmeshとの最早順序を保って処理し、9回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとする。上限なしのevent loopやadaptive substepは行わない
 - `open_boundary_model="potential_barrier"` は単一open面のevent位置で局所電位を評価し、補間法線速度の運動エネルギーと `q_particle * (phi_infty - phi_boundary)` を比較する。エネルギー不足では法線速度を反転して残りstepを再積分し、それ以外はescapeとする。複数open faceの同時crossingはfail closedとする
+- outer transferが所有するz-highを含む同時eventはface maskのmembershipで判定する。z-highの二次軌道補正後も同時刻と判定できる周期・反射面は横方向作用を先に合成してからouterへ渡す。補正によってz-highと横面の先後・同時関係が元のface maskから変わる場合は、作用順序を推測せずfail closedとする。別open面も同時に含む場合もownerが一意でないためfail closedとする
+- z-highの二次補正は、候補終点がz-high外側にあるためchordが検出したcrossingの法線時刻だけを再評価する。候補終点がbox内へ戻る途中の一時的越境は探索せず、x/y面とmesh hitは従来のchord判定を維持する
+- instant outer return後の`dt_remaining`でz-highへ再到達した場合も同じ契約へ再dispatchする。1 local stepあたり最大8 external eventとし、9回目は`particle_step_multiple_external_events`でfail closedとする。通常box eventのsoft-discard policyとは混同しない
 - legacy `apply_box_boundary` はphoto rayとsource compatibilityのため残す
 
 ## 6. 注入モード
@@ -252,6 +288,8 @@ profile gridについて収束を確認します。
 - `target_macro_particles_per_batch` 指定時は `w_particle` を自動解決
 - `position_jitter_dt=sim.dt` の速度方向ジッタ後、周期軸はprimitive cellへwrapし、非周期軸はbox面へclampして全粒子を有効box内から開始する
 - `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限とface到達速度を同じenergy mapで補正する
+- 1D outer transfer時は`infinity_barrier`またはlegacy sheath補正を重ねず、refresh済みouter stateの
+  `phi_interface - phi_infinity`（kineticでは全profile上の最大障壁）から流入cutoffを計算する
 - 注入面平均の `N x N` 電位評価では、追加の電位評価を行わずに母標準偏差・最小・最大も集計する。Maxwellian reservoirで `abs(q_particle) * phi_std` が `k_B*T + 0.5*m*u_n^2` の10%を超える場合、MPI rootは初回と最終batchに面平均近似の警告を出す
 - `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる
 - シース 1D 座標の基準平面は共有 `inject_face` の法線方向で定義し、`sim.sheath_reference_coordinate` があればその座標を、未指定なら対応 box face の座標を使う
