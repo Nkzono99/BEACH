@@ -3,24 +3,29 @@ title: 外部シースとreservoir粒子境界
 # 外部シースとreservoir粒子境界
 
 この文書は、`reservoir_face`からの流入、電位差による加減速、流入不能粒子、外向き粒子の
-反射・return・escape、およびZhao系シース注入補正を説明します。zero modeとouter Poisson solverは
+反射・return・escape、およびZhao系シースを説明します。公開入力は
+`external_boundary.field`、`external_boundary.particles`、`external_boundary.ordinary_open`へ分けます。
+以下に現れる`outer_plasma`、`coupling`、`sim`のselectorは、明記した旧構文例を除き、
+facadeから導出される実行時contractです。zero modeとouter Poisson solverは
 [periodic2 zero modeと外部プラズマ](periodic_zero_mode_outer_plasma.md)を参照してください。
 
 ## 1. 「シース」と呼ばれる機能の区別
 
 BEACHには目的の異なる複数のreduced modelがあります。
 
-| 機能 | 入力 | 変更するもの | 空間的な$E(z)$をparticle pusherへ与えるか |
+| 機能 | 公開入力 | 変更するもの | 空間的な$E(z)$をparticle pusherへ与えるか |
 | --- | --- | --- | --- |
-| `reservoir_potential_model="infinity_barrier"` | 注入面平均電位と`phi_infty` | 流入flux、法線速度cutoff、face速度 | いいえ |
-| `sheath_injection_model="zhao_*"` | 背景species、太陽高度、光電子基準密度 | reservoir密度/VDF cutoff、ion drift、photoemission current | いいえ |
-| `floating_no_photo` | electron/ion流入flux | electron cutoff | いいえ |
-| `outer_plasma.model="kinetic_1d"` | 無限遠VDF、surface zero-mode field | **標準:** 自己整合1D電位・電場・密度profile | outer領域で使用 |
-| `unified_linear_response` | surface field、accessible area、線形plasma応答 | **高度:** localからfarまでのrough-surface線形screening | はい |
-| `open_boundary_model="potential_barrier"` | 境界通過点電位と`phi_infty` | 外向き粒子のescape/反射 | いいえ |
+| scalar流入障壁 | `particles.inflow_model="infinity_barrier"` | 流入flux、法線速度cutoff、face速度 | いいえ |
+| legacy Zhao流入 | `inflow_model="legacy_sheath"` + `legacy_sheath_model="zhao_*"` | reservoir密度/VDF cutoff、ion drift、photoemission current | いいえ |
+| 光電子なし浮遊流入 | `legacy_sheath_model="floating_no_photo"` | electron cutoff | いいえ |
+| kinetic outer sheath | `field.model="kinetic_1d"` | **標準:** 自己整合1D電位・電場・密度profile | outer領域で使用 |
+| unified linear response | `field.model="unified_linear_response"` | **高度:** localからfarまでのrough-surface線形screening | はい |
+| 通常open面の障壁 | `ordinary_open.model="potential_barrier"` | 外向き粒子のescape/反射 | いいえ |
 
-Zhao系を`kinetic_1d`の別解法として扱ってはいけません。Zhao系は既存speciesの注入分布を
-事前補正するモデルで、simulation中のsurface chargeから外部Poisson問題を毎batch解くものではありません。
+`legacy_sheath_model="zhao_*"`は既存speciesの注入分布を事前補正する静的モデルで、
+simulation中のsurface chargeから外部Poisson問題を毎batch解きません。一方、
+`field.model="kinetic_1d"` + `kinetic_closure="zhao_charge_driven"`はsurface chargeと
+光電子populationから外部profileを更新する別の自己整合経路です。この2種類を混同したり重ねたりしません。
 
 ## 2. 共通のエネルギー規約
 
@@ -98,8 +103,10 @@ $|q|\sigma_\phi>0.1(k_BT+m u_n^2/2)$の場合はMPI rootが初回と最終batch�
 
 ## 5. outer profileによる流入
 
-`particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high `reservoir_face` speciesを
-無限遠VDFとして解釈します。
+`field.model="linear_debye"`または`"kinetic_1d"`と
+`particles.mode="same_batch"`を選ぶと、z-high `reservoir_face` speciesを無限遠VDFとして解釈します。
+この構成では`inflow_model="auto"`が同じ1D profileへ流入ownershipを渡し、内部の
+`electrostatic_1d_instant_return` transferをBEACHが導出します。
 
 - `kinetic_1d`は各batchで更新済みの`phi_interface-phi_infinity`から$B$を計算します。
 - linear-Debye referenceはzero-mode surface chargeからinterface電位差を作ります。
@@ -111,7 +118,7 @@ $|q|\sigma_\phi>0.1(k_BT+m u_n^2/2)$の場合はMPI rootが初回と最終batch�
 
 ## 6. 外向き粒子のescapeとreturn
 
-### 6.1 `open_boundary_model="potential_barrier"`
+### 6.1 `ordinary_open.model="potential_barrier"`
 
 open face通過点の電位を$\phi_b$、外向き法線速度を$v_n$とすると、無限遠へ必要な障壁は
 
@@ -137,7 +144,9 @@ $$
 
 ### 6.3 kinetic-profile return
 
-`kinetic_1d_profile_return`は同じ判定を、実際に収束した離散$\phi(z)$で行います。
+`field.model="kinetic_1d"` + `particles.mode="same_batch"`は同じ判定を、
+実際に収束した離散$\phi(z)$で行います。正規化後のreturn IDは
+`kinetic_1d_profile_return`です。
 各区分で
 
 $$
@@ -167,19 +176,20 @@ remaining `dt`だけを通常stepperで再積分します。outer flightをgloba
 
 したがってこのmodelは「interfaceで速度とscalar障壁だけを比較する即時鏡面反射」より詳細ですが、
 「外部軌道を時間刻みで明示追跡する」ものではありません。後者が必要な場合は
-`unified_linear_response + electrostatic_3d_explicit_orbit`を使います。
+`field.model="unified_linear_response"` + `particles.mode="same_batch"`を使います。
 
 ### 6.4 unified 3D orbit
 
-`electrostatic_3d_explicit_orbit`はzero modeとscreened nonzero tailを合成した3D電場中を
-固定刻みvelocity-Verletで追跡します。ownership面へ戻ればlocalへ返し、far planeを外向きに
-横切ればescapeです。エネルギー誤差、flight time、frozen-field ratio、step上限を検査します。
+この組合せから導出される`electrostatic_3d_explicit_orbit`は、zero modeとscreened nonzero tailを
+合成した3D電場中を固定刻みvelocity-Verletで追跡します。ownership面へ戻ればlocalへ返し、
+far planeを外向きに横切ればescapeです。エネルギー誤差、flight time、frozen-field ratio、
+step上限を検査します。
 
-## 7. Zhao系シース注入補正
+## 7. legacy Zhaoシース注入補正
 
 ### 7.1 解いているもの
 
-Zhao系はsolar-wind electron、ion、photoelectronの解析密度closureと電流条件から、
+legacy Zhaoはsolar-wind electron、ion、photoelectronの解析密度closureと電流条件から、
 surface電位$\phi_0$、必要な場合の電位極小$\phi_m$、有効solar-wind electron密度
 $n_{\mathrm{swe},\infty}$を非線形root solveで決めます。太陽高度$\alpha$は
 
@@ -213,33 +223,36 @@ photoelectron free/captured population、ion速度を再構成します。この
 
 ### 7.3 重要な非保証
 
-Zhao profileの$E(z)$はparticle pusherで用いる電場へ加算されません。任意のsurface geometryや
-時間変化する`q_elem`に自己整合させる外部場でもありません。Zhao系は文献モデルに基づく
-injection/photoemission closureであり、軌道と同じ外部電位profileを必要とするproduction計算では標準の
-`kinetic_1d`を使います。split windowを置けないrough surfaceで線形性条件を満たす場合だけ、
-高度な`unified_linear_response`を選びます。
+legacy Zhao profileの$E(z)$はparticle pusherで用いる電場へ加算されません。任意のsurface geometryや
+時間変化する`q_elem`に自己整合させる外部場でもありません。これは文献モデルに基づく
+injection/photoemission closureです。軌道と同じ外部電位profileを必要とする場合は
+`field.model="kinetic_1d"`を使います。そこで`kinetic_closure="zhao_charge_driven"`を選ぶと、
+同じZhao解析densityを外部Poisson closureへ使い、surface chargeと光電子populationから毎batch更新します。
+split windowを置けないrough surfaceで線形性条件を満たす場合だけ、高度な
+`field.model="unified_linear_response"`を選びます。
 
 ## 8. `floating_no_photo`とtracked photoelectron
 
 `floating_no_photo`はelectron Maxwellianのcutoff後fluxとion inflow fluxが一致する負の浮遊電位を
 二分法で解き、electron reservoirへcutoffを適用します。空間的なsheath profileは作りません。
 
-光電子は放出時の重みを保ったまま通常粒子として追跡します。有限boxでは
-`open_boundary_model="potential_barrier"`、外部sheathでは`outer_plasma.return_model`と
-`coupling.particle_transfer_mode`がreturn / escapeを決めます。
+光電子は放出時の重みを保ったまま通常粒子として追跡します。通常open面では
+`ordinary_open.model="potential_barrier"`、外部sheathでは`field.model`と
+`particles.mode`から導出されるinterface transportがreturn / escapeを決めます。
 
 ## 9. 互換性と推奨用途
 
 | 目的 | 推奨構成 |
 | --- | --- |
-| **標準:** 無限周期レゴリス + 自己整合1D sheath | `cached_kneq0` + `kinetic_1d` + `kinetic_1d_profile_return` |
-| **高度:** rough surfaceでsplit windowがない線形検証 | `unified_linear_response` + explicit 3D orbit |
-| 有限画像のface scalar障壁 | `infinity_barrier` |
-| Zhao文献closureとの比較 | `zhao_*`を単独で使用 |
-| 光電子なしの簡易電流釣合い | `floating_no_photo` |
+| **標準:** 無限周期レゴリス + 自己整合1D sheath | `cached_kneq0` + `field.model="kinetic_1d"` + `particles.mode="same_batch"` |
+| **高度:** rough surfaceでsplit windowがない線形検証 | `field.model="unified_linear_response"` + `particles.mode="same_batch"` |
+| 有限画像のface scalar障壁 | `particles.inflow_model="infinity_barrier"` |
+| legacy Zhao文献closureとの比較 | `inflow_model="legacy_sheath"` + `legacy_sheath_model="zhao_*"` |
+| charge-driven Zhao外部シース | `field.model="kinetic_1d"` + `kinetic_closure="zhao_charge_driven"` |
+| 光電子なしの簡易電流釣合い | `legacy_sheath_model="floating_no_photo"` |
 
-`kinetic_1d_profile_return`は`reservoir_potential_model`およびZhao系との併用を拒否します。
-同じ電位差やcutoffを二重に適用しないためです。1D instant returnと3D explicit orbitは現在`b0=0`を要求します。
+tracked 1D profileは`inflow_model="auto"`を要求し、scalar barrierやlegacy Zhao流入を重ねません。
+同じ電位差やcutoffを二重に適用しないためです。1D returnと3D explicit orbitは現在`b0=0`を要求します。
 
 ## 10. 実装対応
 

@@ -80,8 +80,10 @@ runs successfully.
 
 ## TOML Hierarchy and Section List
 
-`[sim]`, `[field]`, `[particles]`, `[mesh]`, `[periodic2]`, `[outer_plasma]`, `[coupling]`, and `[output]` are all
-top-level tables. None is a child of another top-level table. Their nesting is:
+`[sim]`, `[field]`, `[particles]`, `[mesh]`, `[periodic2]`, `[external_boundary]`,
+and `[output]` form the normal public configuration. Legacy `[outer_plasma]` and
+`[coupling]` remain compatibility inputs, but cannot be mixed with
+`[external_boundary]`. Their nesting is:
 
 ```text
 beach.toml
@@ -93,13 +95,17 @@ beach.toml
 │   ├── [mesh.groups.<name>]        # named child table
 │   └── [[mesh.templates]]          # zero or more array-of-table entries
 ├── [periodic2]
-├── [outer_plasma]
-├── [coupling]
+├── [external_boundary]
+│   ├── [external_boundary.field]
+│   ├── [external_boundary.particles]
+│   └── [external_boundary.ordinary_open]
+├── [outer_plasma]                  # legacy/runtime representation
+├── [coupling]                      # legacy/runtime representation
 └── [output]
 ```
 
-Paths such as `sim.dt` and `outer_plasma.model` mean “table name.key” in the prose. In TOML, write `dt = ...` under
-`[sim]` and `model = ...` under `[outer_plasma]`.
+Paths such as `sim.dt` and `external_boundary.field.model` mean “table name.key” in the prose. In TOML, write
+`dt = ...` under `[sim]` and `model = ...` under `[external_boundary.field]`.
 
 | TOML table | Parent | Cardinality / requirement | Contents |
 |---|---|---|---|
@@ -111,8 +117,11 @@ Paths such as `sim.dt` and `outer_plasma.model` mean “table name.key” in the
 | `[mesh.groups.<name>]` | `[mesh]` | zero or more | Placement and scale shared by multiple templates |
 | `[[mesh.templates]]` | `[mesh]` | zero or more | Built-in shapes used with `mode="template"` |
 | `[periodic2]` | root | conditional | Nonzero mode, zero mode, and lower-boundary model for split periodic2 |
-| `[outer_plasma]` | root | conditional | Outer-plasma profile, applicability limits, and return model |
-| `[coupling]` | root | conditional | Outer-profile refresh and particle transfer |
+| `[external_boundary.field]` | `[external_boundary]` | required with facade | External-field model and physical/diagnostic parameters |
+| `[external_boundary.particles]` | `[external_boundary]` | required with facade | z-high particle handling, inflow, timing, and orbit guards |
+| `[external_boundary.ordinary_open]` | `[external_boundary]` | optional | Open faces not owned by the outer model; defaults to `escape` |
+| `[outer_plasma]` | root | legacy only | Normalized external-field and return settings |
+| `[coupling]` | root | legacy only | Normalized outer refresh and particle-transfer settings |
 | `[output]` | root | optional | Output directory, history, checkpoint resume |
 
 `[sim]` is required when using `reservoir_face` or `photo_raycast`.
@@ -276,6 +285,146 @@ values are used based on the element count.
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
 
+### `[external_boundary]`: Public External-Condition Configuration
+
+The canonical authoring surface for external conditions in new configuration
+files is this `[external_boundary]` facade. The later `[outer_plasma]`,
+`[coupling]`, and legacy `[sim]` selectors remain only to interpret existing
+files and the normalized runtime representation.
+
+Configure external conditions by three responsibilities instead of combining
+internal implementation selectors:
+
+```toml
+[external_boundary.field]
+model = "kinetic_1d"
+kinetic_closure = "absorbing_maxwellian"
+debye_length = 2.0e-3
+thermal_voltage = 3.0
+
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
+```
+
+- `field` selects the external plasma-response potential/field model. Linear
+  and kinetic models cover beyond z-high; unified covers the rough surface to the far region.
+- `particles` selects z-high crossing behavior and ownership of the inflow VDF.
+- `ordinary_open` applies only to open faces not owned by the outer model.
+
+`field` and `particles` are required when the facade is present. `ordinary_open`
+is optional and defaults to `model="escape"`. Omit `[external_boundary]`
+entirely for an ordinary case that does not need these controls.
+
+#### `[external_boundary.field]`
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `model` | string | required | `none` / `linear_debye` / `kinetic_1d` / `unified_linear_response` |
+| `kinetic_closure` | string | `absorbing_maxwellian` | For `kinetic_1d` only: `absorbing_maxwellian` / `zhao_charge_driven` |
+| `zhao_branch` | string | `auto` | For `zhao_charge_driven` only: `auto` / `a` / `b` / `c` |
+| `photoelectron_source_scale` | float | `1` | Analytic source multiplier for `zhao_charge_driven`; use `0` without UV |
+| `photoelectron_density_model` | string | `none` | Optional mean density for `kinetic_1d + absorbing_maxwellian`: `none` / `kinetic_mean` |
+| `photoelectron_histogram_enabled` | bool | `false` | Set to `true` only to enable the histogram for `linear_debye + same_batch`; otherwise omit the key |
+| `infinity_potential` | float | `0` | Reference potential at infinity [V]; accepted only for `linear_debye` |
+| `debye_length` | float | required for active models | Length scale for `linear_debye`, `kinetic_1d`, or `unified_linear_response` [m] |
+| `thermal_voltage` | float | required for active models | Potential scale for `linear_debye`, `kinetic_1d`, or `unified_linear_response` [V] |
+| `unified_grid_points` | int | `129` | Zero-mode Poisson grid points for `unified_linear_response` |
+| `accessible_fraction_tolerance` | float | `0.1` | Rough-surface accessible-fraction convergence tolerance for `unified_linear_response` |
+| `max_linearity_ratio` | float | `0.25` | Linearity limit for `linear_debye` / `unified_linear_response` |
+| `max_gap_ratio` | float | `5` | Interface-to-mesh gap limit for `linear_debye` / `kinetic_1d` |
+| `max_local_charge_ratio` | float | `50` | Local plasma-charge estimate limit for `linear_debye` / `kinetic_1d` |
+| `photoelectron_histogram_bins` | int | `32` | Number of bins when the `linear_debye + same_batch` histogram is enabled |
+| `photoelectron_histogram_energy_max` | float | required with histogram | Upper edge of the enabled histogram [J] |
+| `photoelectron_ambient_charge_scale` | float | required with histogram | Ambient signed-charge scale for the enabled histogram [C] |
+| `max_photoelectron_charge_ratio` | float | `0.1` | Photoelectron charge-ratio limit for the enabled histogram |
+
+Do not specify `interface_z` or a particle return model. `interface_z` is
+derived from `sim.box_max[2]`; the return model is derived from `field.model`
+and `particles.mode`. With `model="none"`, no field key other than `model` is allowed.
+
+Start with only the row matching the model and closure. Add other conditional keys only when enabling the corresponding
+diagnostic or feature. A key outside the selected row is rejected as a no-op even when its value equals the default.
+
+| Selection | Required or normally configured keys | Conditionally added keys |
+|---|---|---|
+| `none` | `model` only | none allowed |
+| `linear_debye` | `debye_length`, `thermal_voltage` | `infinity_potential`, linearity/gap/local-charge limits, and `same_batch` histogram |
+| `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`, `photoelectron_density_model`, and gap/local-charge limits |
+| `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`, and required `sim.sheath_*` physics values | source scale, branch, and gap/local-charge limits |
+| `unified_linear_response` | `debye_length`, `thermal_voltage` | grid, accessible fraction, and linearity limit |
+
+For `kinetic_closure="zhao_charge_driven"`, `debye_length` and `thermal_voltage` remain schema-required but are not the
+physical scales of the Zhao root or profile. Photoemitting Zhao derives those scales from $T_{pe}$ and the reference density;
+the no-photo case derives them from ambient $T_e$ and $n_\infty$.
+
+The two configured values are reference inputs for split-interface gap, lateral-field, and local-charge diagnostics.
+Normally omit defaults or model-fixed values such as
+`zhao_branch="auto"`, zero gauge, and no separate density model.
+
+#### `[external_boundary.particles]`
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `mode` | string | required | `local_source` / `same_batch` / `zhao_queue` |
+| `inflow_model` | string | `auto` | `auto` / `source_vdf` / `infinity_barrier` / `legacy_sheath` |
+| `legacy_sheath_model` | string | conditional | With `legacy_sheath`: `floating_no_photo` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` |
+| `steady_start_mode` | string | `none` | Specify only to enable `zhao_floating` with `kinetic_1d + zhao_charge_driven + same_batch` |
+| `steady_start_mesh_id` | int | `1` | Mesh ID used with `steady_start_mode="zhao_floating"` |
+| `outer_update_stride` | int | `1` | Refresh interval accepted only for `local_source` / `same_batch` with `linear_debye` / `kinetic_1d` [batches] |
+| `field_evolution_timescale` | float | `0` | Frozen-field diagnostic timescale for `same_batch` / `zhao_queue` [s] |
+| `max_frozen_field_ratio` | float | `0.1` | Frozen-field applicability limit for `same_batch` / `zhao_queue` |
+| `outer_orbit_dt` | float | `0` | Outer-orbit step for unified 3-D `same_batch`; specify a positive value |
+| `outer_orbit_max_steps` | int | `100000` | Maximum number of outer-orbit steps for unified 3-D `same_batch` |
+| `outer_orbit_energy_tolerance` | float | `1e-4` | Relative outer-orbit energy-error limit for unified 3-D `same_batch` |
+
+`mode` selects only whether z-high particles enter an external trajectory and when its result is applied. Select the
+reservoir-inflow distribution or correction independently with `inflow_model`.
+
+| `mode` | Meaning | Compatible field |
+|---|---|---|
+| `local_source` | Retain no external trajectory; handle z-high crossings with `ordinary_open` | all |
+| `same_batch` | Classify return or escape for z-high crossings within the same batch | `linear_debye` / `kinetic_1d` / `unified_linear_response` |
+| `zhao_queue` | Hold particles in the Zhao reservoir queue and reinject in a later batch | `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` |
+
+The additional requirements by mode are:
+
+| `particles.mode` and field | Additional requirements |
+|---|---|
+| `local_source` + `none` / unified | add no transport, time, or orbit keys |
+| `local_source` + linear / kinetic | add only `outer_update_stride` when needed |
+| `same_batch` + linear / kinetic | `field_evolution_timescale > 0` and `inflow_model="auto"`; optionally add update-stride and time guards |
+| `same_batch` + unified | `field_evolution_timescale > 0` and `outer_orbit_dt > 0`; optionally add time and orbit guards |
+| `zhao_queue` | `sim.batch_duration > 0`, `field_evolution_timescale > 0`, and a positive photoelectron source; update stride is fixed internally to 1 |
+
+Write `steady_start_*` only for Zhao `same_batch`, `outer_orbit_*` only for unified `same_batch`, and time guards only for
+`same_batch` / `zhao_queue`. A key with no effect in the selected mode is an error.
+
+`inflow_model="auto"` delegates inflow to the same 1-D profile for tracked
+`linear_debye` / `kinetic_1d`; otherwise it resolves to `source_vdf`.
+Those tracked 1-D configurations cannot stack another inflow correction.
+`unified_linear_response` owns the outer orbit but not the inflow VDF, so it can
+use `source_vdf`, `infinity_barrier`, or `legacy_sheath`.
+
+#### `[external_boundary.ordinary_open]`
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `model` | string | `escape` | `escape` / `potential_barrier` |
+
+With `local_source`, `ordinary_open` also handles z-high. With `same_batch` or
+`zhao_queue`, the outer model owns z-high and `ordinary_open` handles only the
+remaining open faces. The inflow choice
+`particles.inflow_model="infinity_barrier"` and the outflow choice
+`ordinary_open.model="potential_barrier"` may be selected independently.
+
+The facade is normalized at load time to the legacy `[sim]` / `[outer_plasma]` /
+`[coupling]` runtime representation. Mixing both syntaxes in one file is an error.
+See [Configure the External Boundary](OuterPlasmaModels.en.html)
+for the selection workflow and
+[Boundary Configuration Migration](BoundaryConfigurationMigration.en.html) for
+the legacy mapping.
+
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 
 `[periodic2]` is a top-level table, not a child of `[sim]`.
@@ -296,9 +445,14 @@ Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference i
 boundary model. `symmetric_vacuum` is the parameter-free homogeneous-vacuum closure; `e_bottom_zero` remains available for
 old-run reproduction.
 
-### `[outer_plasma]`: Outer Plasma and Return Model
+### `[outer_plasma]`: Compatibility and Normalized-Runtime Reference
 
-`[outer_plasma]` is another top-level table. It is used with `[periodic2]`, but is not nested under it.
+> **This is not an authoring API for new configurations.** Use `[external_boundary.field]` in new files.
+> The raw names below are retained for reading legacy files and the normalized runtime contract;
+> they cannot be added alongside `[external_boundary]`.
+
+The facade derives `interface_z` and `return_model`. Legacy `[outer_plasma]` is a top-level table, not a child of
+`[periodic2]`.
 
 | Key | Default | Meaning |
 |---|---:|---|
@@ -327,10 +481,11 @@ Applicability failures do not fall back to a legacy model. See `examples/periodi
 The MPI-global photoelectron histogram stores signed charge, kinetic energy, tangential momentum, and count in
 `photoelectron_histogram.csv`; it does not control particle return. See `examples/periodic2_photoelectron_return.toml`.
 
-#### `kinetic_1d` contract (standard and recommended)
+#### Normalized `kinetic_1d` Contract (Standard and Recommended)
 
-For a new outer-sheath configuration, select `kinetic_1d` as the standard model. Production runs use it with `cached_kneq0`. Negative and
-positive z-high `reservoir_face` species define the infinity electron and ion VDFs.
+Selecting `external_boundary.field.model="kinetic_1d"` through the public facade normalizes the runtime
+`outer_plasma.model` to `kinetic_1d`. Production runs use it with `cached_kneq0`. Negative and positive z-high
+`reservoir_face` species define the infinity electron and ion VDFs.
 
 | Item | Contract |
 | --- | --- |
@@ -343,8 +498,10 @@ positive z-high `reservoir_face` species define the infinity electron and ion VD
 | Recovery | pseudo-transient and interface-field continuation; accept only after the original Poisson residual passes |
 | Fallback | never return another sheath model or a held previous profile as a converged solution |
 
-Particle transfer requires `return_model="kinetic_1d_profile_return"` and
-`particle_transfer_mode="electrostatic_1d_instant_return"`. With `outer_queue_enabled=false`, it uses this instant map.
+The public `external_boundary.particles.mode="same_batch"` normalizes to
+`return_model="kinetic_1d_profile_return"`,
+`particle_transfer_mode="electrostatic_1d_instant_return"`, and `outer_queue_enabled=false`.
+Do not author these raw IDs; after resolution they denote the following instant map.
 
 1. Map the infinity VDF to the interface using the refreshed `phi_interface-phi_infinity`.
 2. Use the same discrete profile and Robin tail to classify escape or a turning point.
@@ -366,9 +523,12 @@ from the same Zhao VDF.
 $E_I=0$ is the flat Type-B/C junction and $E_I<0$ selects Type C. Zero current remains a diagnostic,
 not a per-batch root condition, so a stationary charge state can recover the legacy no-photo Type-C floating root.
 
-With `outer_queue_enabled=true`, outer-flight delay enters the batch history for cases such as strong-UV turn-on. This mode
-requires `kinetic_closure="zhao_charge_driven"`, a positive `batch_duration` resolved either directly or from
-`dt * batch_duration_step`, `outer_update_stride=1`, and `photoelectron_histogram_enabled=false`.
+The public `external_boundary.particles.mode="zhao_queue"` normalizes to runtime `outer_queue_enabled=true`, so
+outer-flight delay enters the batch history for cases such as strong-UV turn-on. This mode requires
+`external_boundary.field.kinetic_closure="zhao_charge_driven"`, a positive `batch_duration` resolved either directly or from
+`dt * batch_duration_step`.
+
+Runtime fixes the update stride to 1 and disables the histogram, so write neither key in the public input.
 
 1. Pop due events from each rank-local queue at the batch start.
 2. Divide the remaining global photoelectron inventory by horizontal area, then refresh the profile and Zhao population scale
@@ -444,7 +604,7 @@ The model assumptions are
 documented in [ADR 0001](adr/0001-kinetic-outer-plasma.md) and
 [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md).
 
-#### `unified_linear_response` contract (advanced and specialized)
+#### Normalized `unified_linear_response` Contract (Advanced and Specialized)
 
 `unified_linear_response` is not a higher-accuracy replacement for `kinetic_1d`. Select it as rough-surface linear screening only
 when roughness and plasma response occupy the same region, no split window is available, and the linearity gate passes.
@@ -471,14 +631,17 @@ Numerical and applicability rules:
 See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unified_explicit_orbit.toml`, and
 `docs/adr/0002-unified-periodic-outer-domain.md`.
 
-### `[coupling]`: Outer Refresh and Particle Transfer
+### `[coupling]`: Compatibility and Normalized-Runtime Reference
 
-`[coupling]` is a top-level table.
+> **This is not an authoring API for new configurations.** Use `[external_boundary.particles]` in new files.
+> The raw names below are retained for reading legacy files and the normalized runtime contract.
+
+The facade derives `update_mode`, `particle_transfer_mode`, and `outer_queue_enabled` from its model and mode.
 
 | Key | Type | Default | Description |
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | Only `explicit` is supported; refresh the outer profile at explicit update points |
-| `particle_transfer_mode` | string | `"none"` | `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit`; select the matching return pair below |
+| `particle_transfer_mode` | string | `"none"` | Facade-derived `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit` |
 | `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`; initialize a fresh run from a Zhao zero-current stationary root and its matching plane charge |
 | `steady_start_mesh_id` | int | `1` | `mesh_id` of the horizontal plane that receives the `zhao_floating` charge in proportion to triangle area |
 | `outer_update_stride` | int | `1` | Batch interval between outer-profile refreshes |
@@ -489,7 +652,7 @@ See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unifi
 | `outer_orbit_energy_tolerance` | float | `1e-4` | Relative total-energy error limit for a 3-D outer orbit |
 | `outer_queue_enabled` | bool | `false` | In the supported Zhao configuration, retain outer flight across batches and close the transient queued photoelectron column |
 
-Valid return and transfer pairs:
+Runtime return/transfer pairs resolved by the facade:
 
 | `outer_plasma.model` | `outer_plasma.return_model` | `coupling.particle_transfer_mode` |
 | --- | --- | --- |
@@ -498,19 +661,15 @@ Valid return and transfer pairs:
 | `unified_linear_response` | `electrostatic_3d_explicit_orbit` | `electrostatic_3d_explicit_orbit` |
 
 The return and transfer strings are intentionally different for `kinetic_1d_profile_return`. With active 1-D transfer,
-`linear_debye` and `kinetic_1d` also own inflow through the same profile, so set both `reservoir_potential_model` and
-`sheath_injection_model` to `none`. `infinity_potential` is fixed to zero for `kinetic_1d` and
+`linear_debye` and `kinetic_1d` also own inflow through the same profile, so normalized runtime state has both
+`reservoir_potential_model` and `sheath_injection_model` set to `none`. `infinity_potential` is fixed to zero for `kinetic_1d` and
 `unified_linear_response`.
 
 Stationary warm start:
 
-```toml
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
-steady_start_mode = "zhao_floating"
-steady_start_mesh_id = 1
-outer_queue_enabled = false
-```
+In the public facade, select `external_boundary.particles.mode="same_batch"`,
+`steady_start_mode="zhao_floating"`, and `steady_start_mesh_id` when needed.
+The facade derives the raw transfer ID and `outer_queue_enabled`.
 
 Before the first batch of a fresh run, `zhao_floating` solves the Zhao zero-current stationary root from the configured
 infinity reservoir and UV source. It constructs the kinetic profile with `phi(infinity)=0`. For horizontal area $A$ and
@@ -536,10 +695,11 @@ This mode explicitly selects an initial condition on a stationary branch instead
 from an uncharged state. Use it for stationary and quasistationary observables, not for claims about UV turn-on or delayed
 return current. The queue transient closure remains a separate mode for that purpose.
 
-`zhao_floating` requires:
+Public-facade `zhao_floating` requires:
 
-- `kinetic_1d` + `zhao_charge_driven` + `kinetic_1d_profile_return` + `electrostatic_1d_instant_return`;
-- `outer_queue_enabled=false`, `zero_mode_policy="exclude_k0"`, and a supported lower-boundary model;
+- `external_boundary.field.model="kinetic_1d"` +
+  `kinetic_closure="zhao_charge_driven"` + `external_boundary.particles.mode="same_batch"`;
+- `zero_mode_policy="exclude_k0"` and a supported lower-boundary model;
 - zero initial charge on every mesh for a fresh run; with `output.resume=true`, restore checkpoint mesh charge and outer
   state without reseeding;
 - `mesh.mode="template"`, with the selected mesh forming one coplanar horizontal plane that covers periodic-cell area $A$
@@ -550,27 +710,26 @@ relaxed or perturbed seed returns to the same stationary observables.
 
 Transfer rules:
 
-- Select `outer_plasma.return_model` and `coupling.particle_transfer_mode` from the matching pairs above.
+- Normalized `outer_plasma.return_model` and `coupling.particle_transfer_mode` form the matching pair shown above.
 - The 1-D path supports only the open z-high interface, x/y periodic wrapping, and `b0=0`.
 - `kinetic_1d` requires exactly one enabled negative and one enabled positive z-high `reservoir_face` species.
 - Instant mode requires a positive `field_evolution_timescale` and uses `max_frozen_field_ratio` as an applicability limit.
-- Queue mode requires `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` + `kinetic_1d_profile_return`,
-  `particle_transfer_mode="electrostatic_1d_instant_return"`, a positive `batch_duration` resolved directly or from
-  `dt * batch_duration_step`, and `outer_update_stride=1`.
+- Public-facade `zhao_queue` requires `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"`, a positive
+  `batch_duration` resolved directly or from `dt * batch_duration_step`; runtime fixes `outer_update_stride` to 1.
   Each event's `tau_outer`, delay to the next batch-start poll, and half-batch midpoint uncertainty are bounded by
   `max_frozen_field_ratio * field_evolution_timescale`; the same bound applies to `batch_duration`.
-- Queue mode rejects `photoelectron_histogram_enabled=true`. Persistent queuing remains unavailable for a 3-D explicit orbit.
+- Queue mode exposes no photoelectron-histogram setting. Persistent queuing remains unavailable for a 3-D explicit orbit.
 - See `examples/periodic2_outer_particle_transfer.toml` and `examples/periodic2_zhao_transient_outer.toml`.
 
 Photoelectron-histogram rules:
 
 - Enabling the histogram requires `photoelectron_histogram_energy_max` [J] and `photoelectron_ambient_charge_scale` [C].
 - Every `photo_raycast` species using tracked outer transfer requires `deposit_opposite_charge_on_emit=true`.
-- The histogram is diagnostic only. `return_model` and `particle_transfer_mode` control return.
-- Both IDs must be `electrostatic_1d_instant_return`.
+- The histogram is diagnostic only. `field.model` and `particles.mode` resolve return and escape.
+- The public facade supports it only for `linear_debye + same_batch`.
 - `photoelectron_density_model="kinetic_mean"` cannot be enabled simultaneously because it requires another return-model branch.
 
-### Combined periodic2 / Outer-plasma / Coupling Constraints
+### Combined periodic2 and External-Boundary Constraints
 
 Periodic2 requires `sim.use_box=true` and exactly two periodic axes. A configuration with outer transfer uses x/y as those axes
 and an open z-high interface. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
@@ -585,7 +744,16 @@ and an open z-high interface. The same periodicity applies to field evaluation, 
 With `cached_kneq0`, the `exclude_k0` provider adds the physical zero mode exactly once.
 `symmetric_vacuum` uses $\pm Q/(2\epsilon_0A)$ above and below; `e_bottom_zero` uses zero below and $Q/(\epsilon_0A)$ above.
 
-### `[sim]`: External Fields, Inflow Helpers, and Particle Boundaries
+### `[sim]`: External Fields and Physical Values Used by Boundaries
+
+`phi_infty` and the `sheath_*` values are physical inputs used with the new
+`[external_boundary]` facade. In contrast, `reservoir_potential_model`,
+`open_boundary_model`, and `sheath_injection_model` are legacy selectors. Do not
+write those three with the facade; let `external_boundary.particles` and
+`external_boundary.ordinary_open` derive them.
+
+Their raw descriptions below remain for reading legacy inputs and normalized
+runtime state; they are not an alternative authoring API for new files.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
@@ -598,34 +766,44 @@ With `cached_kneq0`, the `exclude_k0` provider adds the physical zero mode exact
 The uniform external electric field can be specified directly as
 `e0 = [Ex, Ey, Ez]`, or by `e0_abs` and angles. Mixing the two forms is an error.
 
-#### Inflow Helpers and Sheath Correction
+#### Physical Values and Legacy-Selector Compatibility Reference
+
+The three rows marked as legacy selectors are compatibility inputs. All other
+rows are physical values or common boundary-processing values that the facade
+may still use.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
+| `reservoir_potential_model` | string | `"none"` | Legacy selector: `none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | Reference potential at infinity [V] |
-| `open_boundary_model` | string | `"escape"` | `escape` / `potential_barrier` |
+| `open_boundary_model` | string | `"escape"` | Legacy selector: `escape` / `potential_barrier` |
 | `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard`; action when a step exceeds the box-event limit |
 | `multiple_box_events_soft_discard_count_limit` | int | `1000` | abort after the cumulative soft-discard count exceeds this value |
 | `multiple_box_events_soft_discard_abs_charge_limit` | float | `1e-12` | abort after cumulative absolute soft-discarded macro charge [C] exceeds this value |
 | `injection_face_phi_grid_n` | int | `3` | `N x N` evaluation grid for injection-face average potential |
 | `raycast_max_bounce` | int | `16` | Maximum number of reflections for `photo_raycast` |
-| `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
+| `sheath_injection_model` | string | `"none"` | Legacy selector: `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
 | `sheath_alpha_deg` | float | `60.0` | Solar elevation angle for the Zhao sheath [deg] |
 | `sheath_photoelectron_ref_density_cm3` | float | `64.0` | Reference photoelectron density for the Zhao sheath [cm^-3] |
 | `sheath_reference_coordinate` | float | unspecified | Reference plane position for the sheath 1D coordinate [m] |
 | `sheath_electron_drift_mode` | string | `"normal"` | `normal` / `full` |
 | `sheath_ion_drift_mode` | string | `"normal"` | `normal` / `full` |
 
-Combinations and details:
+Compatibility-runtime combinations and details:
 
-- Currently, `sheath_injection_model != "none"` is used with `reservoir_potential_model="none"`.
-- See [`sim.sheath_injection_model`](#simsheath_injection_model-sheath-injection-correction) for its settings.
+- In the public facade, `particles.inflow_model="legacy_sheath"` and
+  `"infinity_barrier"` are mutually exclusive. In normalized runtime state,
+  this appears as `sheath_injection_model != "none"` with
+  `reservoir_potential_model="none"`.
+- See [Sheath Injection Closures](SheathInjectionClosures.en.html) for the
+  legacy-sheath values and behavior.
 - See [`reservoir_face` Inflow and Velocity Sampling](ReservoirInjection.en.html) for flux and velocity.
 - See [Sheath Injection Closures](SheathInjectionClosures.en.html) and
   [Particle Escape and Return](ParticleEscapeReturn.en.html) for sheath correction, reflection, and return.
 
-Evaluation with `reservoir_potential_model="infinity_barrier"`:
+Evaluation with
+`external_boundary.particles.inflow_model="infinity_barrier"` (represented as
+`reservoir_potential_model="infinity_barrier"` at normalized runtime):
 
 - Evaluate injection-face average potential from the field and potential refreshed at the beginning of each batch.
 - Include the point / `triangle_p0` kernel, periodic2 terms, zero mode, outer profile, and `e0` under the particle-motion convention.
@@ -647,7 +825,9 @@ Evaluation with `reservoir_potential_model="infinity_barrier"`:
 Particle boundaries are `open`, `reflect`, or `periodic`. `open` also accepts
 `outflow` and `escape` as synonyms.
 
-Decision with `open_boundary_model="potential_barrier"`:
+Decision with `external_boundary.ordinary_open.model="potential_barrier"`
+(represented as `open_boundary_model="potential_barrier"` at normalized
+runtime):
 
 1. Evaluate BEM potential `phi_boundary` at the crossing point with the particle-motion snapshot convention, including local `e0` potential.
 2. Compute the barrier `q_particle * (phi_infty - phi_boundary)`.
@@ -744,7 +924,8 @@ the inflow amount is set by `particle_flux_m2_s` or `current_density_a_m2`.
 For either PDF, only velocities with `v_n > 0` are used. The relative path in
 `velocity_grid_path` is based on the runtime current directory. Currently,
 `velocity_distribution="grid"` is valid only when
-`sim.sheath_injection_model="none"`.
+`external_boundary.particles.inflow_model!="legacy_sheath"`. This corresponds
+to `sim.sheath_injection_model="none"` in normalized runtime state.
 
 The particle count is determined as follows.
 
@@ -790,14 +971,20 @@ generated per batch is at most `rays_per_batch`. With `field_bc_mode="periodic2"
 emission starts from the hit coordinate wrapped to the primary cell even when a
 periodic image is hit.
 
-Each emitted photoelectron uses `w_hit` as its weight and is tracked as an ordinary particle. Surface return is absorbed as an
-ordinary collision; `open_boundary_model` or outer particle transfer decides return or escape at an open face.
+Each emitted photoelectron uses `w_hit` as its weight and is tracked as an
+ordinary particle. Surface return is absorbed as an ordinary collision.
+`external_boundary.ordinary_open.model` controls ordinary open faces, while
+transport resolved from `external_boundary.particles.mode` controls return or
+escape at the z-high interface.
 
 ---
 
-### `sim.sheath_injection_model`: Sheath Injection Correction
+### Legacy Runtime Selector `sim.sheath_injection_model`
 
-`sim.sheath_injection_model` is a shared setting that groups existing
+For new files, use
+`external_boundary.particles.inflow_model="legacy_sheath"` and
+`legacy_sheath_model`. The details below remain for interpreting legacy inputs
+and normalized runtime values. `sim.sheath_injection_model` groups existing
 `reservoir_face` / `photo_raycast` species and overrides sheath-aware fluxes and
 normal-velocity cutoffs.
 

@@ -4,12 +4,15 @@ program test_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config, only: app_config, default_app_config, load_app_config, &
                             particles_per_batch_from_config, total_particles_from_config
+  use bem_app_config_authoring, only: app_config_authoring, lower_external_boundary_authoring
+  use bem_model_fingerprint, only: model_fingerprint
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
   type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, periodic_oracle_cfg, sheath_cfg, high_level_cfg
   type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg, panel_tree_cfg, split_cfg
+  type(app_config) :: external_boundary_cfg, none_boundary_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
   character(len=*), parameter :: photo_cfg_path = 'test_app_config_parser_photo_tmp.toml'
   character(len=*), parameter :: large_cfg_path = 'test_app_config_parser_large_tmp.toml'
@@ -22,9 +25,15 @@ program test_app_config_parser
   character(len=*), parameter :: panel_cfg_path = 'test_app_config_parser_panel_tmp.toml'
   character(len=*), parameter :: panel_tree_cfg_path = 'test_app_config_parser_panel_tree_tmp.toml'
   character(len=*), parameter :: split_cfg_path = 'test_app_config_parser_split_tmp.toml'
+  character(len=*), parameter :: external_boundary_cfg_path = 'test_app_config_parser_external_boundary_tmp.toml'
+  character(len=*), parameter :: mixed_boundary_cfg_path = 'test_app_config_parser_mixed_boundary_tmp.toml'
+  character(len=*), parameter :: mixed_boundary_output_path = 'test_app_config_parser_mixed_boundary_tmp.out'
+  character(len=*), parameter :: noop_boundary_cfg_path = 'test_app_config_parser_noop_boundary_tmp.toml'
+  character(len=*), parameter :: noop_boundary_output_path = 'test_app_config_parser_noop_boundary_tmp.out'
+  character(len=*), parameter :: none_boundary_cfg_path = 'test_app_config_parser_none_boundary_tmp.toml'
   character(len=*), parameter :: missing_deposit_cfg_path = 'test_app_config_parser_missing_deposit_tmp.toml'
   character(len=*), parameter :: missing_deposit_output_path = 'test_app_config_parser_missing_deposit_tmp.out'
-  character(len=64) :: run_mode
+  character(len=64) :: run_mode, probe_argument, noop_kind
 
   call get_command_argument(1, run_mode)
   if (trim(run_mode) == 'probe_missing_3d_photo_deposit') then
@@ -32,6 +41,56 @@ program test_app_config_parser
     call default_app_config(cfg)
     call load_app_config(missing_deposit_cfg_path, cfg)
     error stop 'missing 3D photoelectron countercharge probe unexpectedly completed'
+  end if
+  if (trim(run_mode) == 'probe_mixed_external_boundary_owner') then
+    call get_command_argument(2, probe_argument)
+    call write_external_boundary_config_fixture(mixed_boundary_cfg_path, conflict_owner=trim(probe_argument))
+    call default_app_config(cfg)
+    call load_app_config(mixed_boundary_cfg_path, cfg)
+    error stop 'mixed external-boundary owner probe unexpectedly completed'
+  end if
+  noop_kind = ''
+  select case (trim(run_mode))
+  case ('probe_none_field_option')
+    noop_kind = 'field'
+  case ('probe_none_local_coupling_option')
+    noop_kind = 'coupling'
+  case ('probe_linear_kinetic_option')
+    noop_kind = 'linear_kinetic'
+  case ('probe_linear_unified_option')
+    noop_kind = 'linear_unified'
+  case ('probe_kinetic_zhao_option')
+    noop_kind = 'kinetic_zhao'
+  case ('probe_kinetic_linearity_option')
+    noop_kind = 'kinetic_linearity'
+  case ('probe_unified_scalar_option')
+    noop_kind = 'unified_scalar'
+  case ('probe_disabled_histogram_detail')
+    noop_kind = 'histogram_detail'
+  case ('probe_local_histogram_enabled')
+    noop_kind = 'local_histogram'
+  case ('probe_local_time_guard')
+    noop_kind = 'local_time_guard'
+  case ('probe_linear_outer_orbit')
+    noop_kind = 'linear_orbit'
+  case ('probe_unified_update_stride')
+    noop_kind = 'unified_stride'
+  case ('probe_queue_update_stride')
+    noop_kind = 'queue_stride'
+  case ('probe_linear_steady_start')
+    noop_kind = 'linear_steady'
+  end select
+  if (len_trim(noop_kind) > 0) then
+    call write_external_boundary_noop_fixture(noop_boundary_cfg_path, trim(noop_kind))
+    call default_app_config(cfg)
+    call load_app_config(noop_boundary_cfg_path, cfg)
+    error stop 'external-boundary applicability probe unexpectedly completed'
+  end if
+  if (trim(run_mode) == 'probe_active_field_without_box') then
+    call write_external_boundary_config_fixture(noop_boundary_cfg_path, omit_box=.true.)
+    call default_app_config(cfg)
+    call load_app_config(noop_boundary_cfg_path, cfg)
+    error stop 'active field without explicit box probe unexpectedly completed'
   end if
   call write_config_fixture(cfg_path)
   call write_photo_config_fixture(photo_cfg_path)
@@ -45,8 +104,10 @@ program test_app_config_parser
   call write_panel_config_fixture(panel_cfg_path, 'direct')
   call write_panel_config_fixture(panel_tree_cfg_path, 'treecode')
   call write_split_config_fixture(split_cfg_path)
+  call write_external_boundary_config_fixture(external_boundary_cfg_path)
+  call write_external_boundary_noop_fixture(none_boundary_cfg_path, 'none')
 
-  call test_init(13)
+  call test_init(17)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -183,19 +244,19 @@ program test_app_config_parser
   call assert_true(trim(split_cfg%outer_plasma%model) == 'linear_debye', 'split outer model mismatch')
   call assert_true( &
     trim(split_cfg%outer_plasma%kinetic_closure) == 'absorbing_maxwellian', &
-    'split kinetic closure mismatch' &
+    'split default kinetic closure mismatch' &
     )
-  call assert_true(trim(split_cfg%outer_plasma%zhao_branch) == 'auto', 'split Zhao branch mismatch')
+  call assert_true(trim(split_cfg%outer_plasma%zhao_branch) == 'auto', 'split default Zhao branch mismatch')
   call assert_close_dp( &
     split_cfg%outer_plasma%photoelectron_source_scale, 1.0_dp, 0.0_dp, &
-    'split photoelectron source scale mismatch' &
+    'split default photoelectron source scale mismatch' &
     )
   call assert_close_dp(split_cfg%outer_plasma%interface_z, 1.0_dp, 1.0e-15_dp, 'split interface mismatch')
   call assert_close_dp(split_cfg%outer_plasma%debye_length, 0.2_dp, 1.0e-15_dp, 'split Debye length mismatch')
-  call assert_equal_i32(split_cfg%outer_plasma%unified_grid_points, 65_i32, 'unified grid points mismatch')
+  call assert_equal_i32(split_cfg%outer_plasma%unified_grid_points, 129_i32, 'default unified grid points mismatch')
   call assert_close_dp( &
-    split_cfg%outer_plasma%accessible_fraction_tolerance, 0.04_dp, 1.0e-15_dp, &
-    'accessible-fraction tolerance mismatch' &
+    split_cfg%outer_plasma%accessible_fraction_tolerance, 0.1_dp, 1.0e-15_dp, &
+    'default accessible-fraction tolerance mismatch' &
     )
   call assert_close_dp(split_cfg%outer_plasma%max_gap_ratio, 4.0_dp, 1.0e-15_dp, 'split gap limit mismatch')
   call assert_close_dp( &
@@ -203,7 +264,7 @@ program test_app_config_parser
     )
   call assert_true( &
     trim(split_cfg%outer_plasma%photoelectron_density_model) == 'none', &
-    'photoelectron density model mismatch' &
+    'default photoelectron density model mismatch' &
     )
   call assert_true(split_cfg%outer_plasma%photoelectron_histogram_enabled, 'photoelectron histogram flag mismatch')
   call assert_equal_i32( &
@@ -225,17 +286,83 @@ program test_app_config_parser
     trim(split_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
     'split transfer mode mismatch' &
     )
-  call assert_true(trim(split_cfg%coupling%steady_start_mode) == 'none', 'split steady-start mode mismatch')
-  call assert_equal_i32(split_cfg%coupling%steady_start_mesh_id, 7_i32, 'split steady-start mesh ID mismatch')
+  call assert_true(trim(split_cfg%coupling%steady_start_mode) == 'none', 'split default steady-start mode mismatch')
+  call assert_equal_i32(split_cfg%coupling%steady_start_mesh_id, 1_i32, 'split default steady-start mesh ID mismatch')
   call assert_close_dp( &
     split_cfg%coupling%field_evolution_timescale, 2.0_dp, 1.0e-15_dp, 'split field timescale mismatch' &
     )
-  call assert_close_dp(split_cfg%coupling%outer_orbit_dt, 0.01_dp, 1.0e-15_dp, 'outer orbit dt mismatch')
-  call assert_equal_i32(split_cfg%coupling%outer_orbit_max_steps, 400_i32, 'outer orbit max steps mismatch')
-  call assert_close_dp( &
-    split_cfg%coupling%outer_orbit_energy_tolerance, 2.0e-4_dp, 1.0e-15_dp, &
-    'outer orbit energy tolerance mismatch' &
+  call assert_close_dp(split_cfg%coupling%outer_orbit_dt, 0.0_dp, 0.0_dp, 'default outer orbit dt mismatch')
+  call assert_equal_i32( &
+    split_cfg%coupling%outer_orbit_max_steps, 100000_i32, 'default outer orbit max steps mismatch' &
     )
+  call assert_close_dp( &
+    split_cfg%coupling%outer_orbit_energy_tolerance, 1.0e-4_dp, 1.0e-15_dp, &
+    'default outer orbit energy tolerance mismatch' &
+    )
+  call test_end()
+
+  call test_begin('external_boundary_facade_lowering')
+  call default_app_config(external_boundary_cfg)
+  call load_app_config(external_boundary_cfg_path, external_boundary_cfg)
+  call assert_true( &
+    trim(external_boundary_cfg%outer_plasma%model) == 'linear_debye', &
+    'facade outer field model mismatch' &
+    )
+  call assert_close_dp( &
+    external_boundary_cfg%outer_plasma%interface_z, 1.0_dp, 1.0e-15_dp, &
+    'facade interface location mismatch' &
+    )
+  call assert_true( &
+    trim(external_boundary_cfg%outer_plasma%return_model) == 'electrostatic_1d_instant_return', &
+    'facade return model mismatch' &
+    )
+  call assert_true( &
+    trim(external_boundary_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
+    'facade transfer mode mismatch' &
+    )
+  call assert_true(trim(external_boundary_cfg%coupling%update_mode) == 'explicit', 'facade update mode mismatch')
+  call assert_true(.not. external_boundary_cfg%coupling%outer_queue_enabled, 'facade queue mismatch')
+  call assert_true( &
+    trim(external_boundary_cfg%sim%reservoir_potential_model) == 'none', &
+    'profile-owned facade inflow must disable the scalar correction' &
+    )
+  call assert_true( &
+    trim(external_boundary_cfg%sim%sheath_injection_model) == 'none', &
+    'profile-owned facade inflow must disable the legacy sheath correction' &
+    )
+  call assert_true( &
+    trim(external_boundary_cfg%sim%open_boundary_model) == 'potential_barrier', &
+    'facade ordinary-open model mismatch' &
+    )
+  call assert_close_dp( &
+    external_boundary_cfg%coupling%field_evolution_timescale, 2.0_dp, 1.0e-15_dp, &
+    'facade field timescale mismatch' &
+    )
+  call default_app_config(none_boundary_cfg)
+  call load_app_config(none_boundary_cfg_path, none_boundary_cfg)
+  call assert_true(trim(none_boundary_cfg%outer_plasma%model) == 'none', 'none facade field mismatch')
+  call assert_close_dp( &
+    none_boundary_cfg%outer_plasma%interface_z, 0.0_dp, 0.0_dp, &
+    'none facade must preserve the runtime interface default' &
+    )
+  call assert_true(trim(none_boundary_cfg%outer_plasma%return_model) == 'none', 'none facade return mismatch')
+  call assert_true(trim(none_boundary_cfg%coupling%particle_transfer_mode) == 'none', 'none facade transfer mismatch')
+  call assert_true( &
+    model_fingerprint(external_boundary_cfg) == model_fingerprint(split_cfg), &
+    'facade and raw external-boundary syntax must have identical model fingerprints' &
+    )
+  call test_end()
+
+  call test_begin('external_boundary_facade_mode_matrix')
+  call assert_external_boundary_mode_matrix()
+  call test_end()
+
+  call test_begin('external_boundary_facade_rejects_raw_selector')
+  call assert_mixed_external_boundary_owner_rejected()
+  call test_end()
+
+  call test_begin('external_boundary_facade_rejects_noop_options')
+  call assert_external_boundary_noop_options_rejected()
   call test_end()
 
   call test_begin('triangle_panel_config')
@@ -444,6 +571,12 @@ program test_app_config_parser
   call delete_file_if_exists(panel_cfg_path)
   call delete_file_if_exists(panel_tree_cfg_path)
   call delete_file_if_exists(split_cfg_path)
+  call delete_file_if_exists(external_boundary_cfg_path)
+  call delete_file_if_exists(mixed_boundary_cfg_path)
+  call delete_file_if_exists(mixed_boundary_output_path)
+  call delete_file_if_exists(noop_boundary_cfg_path)
+  call delete_file_if_exists(noop_boundary_output_path)
+  call delete_file_if_exists(none_boundary_cfg_path)
   call delete_file_if_exists(missing_deposit_cfg_path)
   call delete_file_if_exists(missing_deposit_output_path)
 
@@ -480,6 +613,264 @@ contains
     call delete_file_if_exists(missing_deposit_cfg_path)
     call delete_file_if_exists(missing_deposit_output_path)
   end subroutine assert_missing_3d_photo_deposit_rejected
+
+  subroutine assert_external_boundary_mode_matrix()
+    type(app_config) :: mode_cfg
+    type(app_config_authoring) :: mode_authoring
+
+    call default_app_config(mode_cfg)
+    mode_cfg%sim%box_max(3) = 2.0_dp
+    call prepare_external_boundary_authoring(mode_authoring, 'kinetic_1d', 'same_batch', 'auto')
+    mode_authoring%external_boundary%field%has_kinetic_closure = .true.
+    mode_authoring%external_boundary%field%has_photoelectron_density_model = .true.
+    mode_authoring%external_boundary%field%photoelectron_density_model = 'kinetic_mean'
+    mode_authoring%external_boundary%particles%has_time_guard_option = .true.
+    mode_authoring%external_boundary%particles%field_evolution_timescale = 2.0_dp
+    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_true( &
+      trim(mode_cfg%outer_plasma%return_model) == 'kinetic_1d_profile_return', &
+      'kinetic same-batch return mapping mismatch' &
+      )
+    call assert_true( &
+      trim(mode_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
+      'kinetic same-batch transfer mapping mismatch' &
+      )
+    call assert_true(.not. mode_cfg%coupling%outer_queue_enabled, 'kinetic same-batch queue mismatch')
+    call assert_true( &
+      trim(mode_cfg%sim%reservoir_potential_model) == 'none' .and. &
+      trim(mode_cfg%sim%sheath_injection_model) == 'none', &
+      'kinetic profile-owned inflow must disable local inflow corrections' &
+      )
+
+    call default_app_config(mode_cfg)
+    mode_cfg%sim%box_max(3) = 3.0_dp
+    call prepare_external_boundary_authoring( &
+      mode_authoring, 'unified_linear_response', 'same_batch', 'infinity_barrier' &
+      )
+    mode_authoring%external_boundary%field%has_unified_option = .true.
+    mode_authoring%external_boundary%field%unified_grid_points = 65_i32
+    mode_authoring%external_boundary%particles%has_time_guard_option = .true.
+    mode_authoring%external_boundary%particles%field_evolution_timescale = 2.0_dp
+    mode_authoring%external_boundary%particles%has_outer_orbit_option = .true.
+    mode_authoring%external_boundary%particles%outer_orbit_dt = 0.01_dp
+    mode_authoring%external_boundary%ordinary_open%model = 'potential_barrier'
+    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_true( &
+      trim(mode_cfg%outer_plasma%return_model) == 'electrostatic_3d_explicit_orbit', &
+      'unified same-batch return mapping mismatch' &
+      )
+    call assert_true( &
+      trim(mode_cfg%coupling%particle_transfer_mode) == 'electrostatic_3d_explicit_orbit', &
+      'unified same-batch transfer mapping mismatch' &
+      )
+    call assert_true( &
+      trim(mode_cfg%sim%reservoir_potential_model) == 'infinity_barrier', &
+      'unified transport must preserve independent infinity-barrier inflow' &
+      )
+    call assert_true( &
+      trim(mode_cfg%sim%open_boundary_model) == 'potential_barrier', &
+      'unified transport must preserve independent ordinary-open mapping' &
+      )
+
+    call default_app_config(mode_cfg)
+    mode_cfg%sim%box_max(3) = 4.0_dp
+    call prepare_external_boundary_authoring(mode_authoring, 'kinetic_1d', 'zhao_queue', 'auto')
+    mode_authoring%external_boundary%field%kinetic_closure = 'zhao_charge_driven'
+    mode_authoring%external_boundary%field%has_kinetic_closure = .true.
+    mode_authoring%external_boundary%particles%has_time_guard_option = .true.
+    mode_authoring%external_boundary%particles%field_evolution_timescale = 2.0_dp
+    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_true( &
+      trim(mode_cfg%outer_plasma%return_model) == 'kinetic_1d_profile_return', &
+      'Zhao queue return mapping mismatch' &
+      )
+    call assert_true( &
+      trim(mode_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
+      'Zhao queue transfer mapping mismatch' &
+      )
+    call assert_true(mode_cfg%coupling%outer_queue_enabled, 'Zhao queue flag mapping mismatch')
+
+    call default_app_config(mode_cfg)
+    mode_cfg%sim%box_max(3) = 5.0_dp
+    call prepare_external_boundary_authoring(mode_authoring, 'kinetic_1d', 'same_batch', 'auto')
+    mode_authoring%external_boundary%field%kinetic_closure = 'zhao_charge_driven'
+    mode_authoring%external_boundary%field%has_kinetic_closure = .true.
+    mode_authoring%external_boundary%particles%steady_start_mode = 'zhao_floating'
+    mode_authoring%external_boundary%particles%steady_start_mesh_id = 2_i32
+    mode_authoring%external_boundary%particles%has_steady_start_mode = .true.
+    mode_authoring%external_boundary%particles%has_steady_start_mesh_id = .true.
+    mode_authoring%external_boundary%particles%has_time_guard_option = .true.
+    mode_authoring%external_boundary%particles%field_evolution_timescale = 2.0_dp
+    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_true( &
+      trim(mode_cfg%coupling%steady_start_mode) == 'zhao_floating', &
+      'Zhao same-batch steady-start mapping mismatch' &
+      )
+    call assert_equal_i32(mode_cfg%coupling%steady_start_mesh_id, 2_i32, 'Zhao steady-start mesh ID mismatch')
+
+    call default_app_config(mode_cfg)
+    mode_cfg%sim%box_max(3) = 6.0_dp
+    call prepare_external_boundary_authoring(mode_authoring, 'linear_debye', 'local_source', 'source_vdf')
+    mode_authoring%external_boundary%field%has_photoelectron_histogram_enabled = .true.
+    mode_authoring%external_boundary%field%photoelectron_histogram_enabled = .false.
+    mode_authoring%external_boundary%particles%has_outer_update_stride = .true.
+    mode_authoring%external_boundary%particles%outer_update_stride = 3_i32
+    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_equal_i32(mode_cfg%coupling%outer_update_stride, 3_i32, 'linear local-source update stride mismatch')
+
+    call default_app_config(mode_cfg)
+    call prepare_external_boundary_authoring(mode_authoring, 'none', 'local_source', 'legacy_sheath')
+    mode_authoring%external_boundary%particles%legacy_sheath_model = 'zhao_b'
+    mode_authoring%external_boundary%particles%has_legacy_sheath_model = .true.
+    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_true( &
+      trim(mode_cfg%sim%reservoir_potential_model) == 'none', &
+      'legacy sheath must disable the infinity-barrier inflow' &
+      )
+    call assert_true( &
+      trim(mode_cfg%sim%sheath_injection_model) == 'zhao_b', &
+      'legacy sheath lowering mismatch' &
+      )
+  end subroutine assert_external_boundary_mode_matrix
+
+  subroutine prepare_external_boundary_authoring(authoring, field_model, particle_mode, inflow_model)
+    type(app_config_authoring), intent(out) :: authoring
+    character(len=*), intent(in) :: field_model, particle_mode, inflow_model
+
+    authoring%external_boundary%present = .true.
+    authoring%external_boundary%field%present = .true.
+    authoring%external_boundary%field%has_model = .true.
+    authoring%external_boundary%field%model = trim(field_model)
+    authoring%external_boundary%particles%present = .true.
+    authoring%external_boundary%particles%has_mode = .true.
+    authoring%external_boundary%particles%mode = trim(particle_mode)
+    authoring%external_boundary%particles%inflow_model = trim(inflow_model)
+    if (trim(field_model) /= 'none') authoring%sim%has_box_max = .true.
+  end subroutine prepare_external_boundary_authoring
+
+  subroutine assert_mixed_external_boundary_owner_rejected()
+    call assert_external_boundary_owner_rejected( &
+      'outer_plasma', '[external_boundary] cannot be combined with legacy [outer_plasma]' &
+      )
+    call assert_external_boundary_owner_rejected( &
+      'coupling', '[external_boundary] cannot be combined with legacy [coupling]' &
+      )
+    call assert_external_boundary_owner_rejected( &
+      'reservoir', '[external_boundary] cannot be combined with sim.reservoir_potential_model' &
+      )
+    call assert_external_boundary_owner_rejected( &
+      'sheath', '[external_boundary] cannot be combined with sim.sheath_injection_model' &
+      )
+    call assert_external_boundary_owner_rejected( &
+      'open', '[external_boundary] cannot be combined with sim.open_boundary_model' &
+      )
+  end subroutine assert_mixed_external_boundary_owner_rejected
+
+  subroutine assert_external_boundary_owner_rejected(owner, expected_message)
+    character(len=*), intent(in) :: owner, expected_message
+    character(len=1024) :: executable_path, line
+    character(len=4096) :: command
+    integer :: child_exit_status, child_cmd_status, u, ios
+    logical :: saw_conflict
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" probe_mixed_external_boundary_owner '//trim(owner)//' > "'// &
+              mixed_boundary_output_path//'" 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'mixed owner probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'facade combined with a raw selector must fail')
+    saw_conflict = .false.
+    open (newunit=u, file=mixed_boundary_output_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to read mixed owner probe output'
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      saw_conflict = saw_conflict .or. index(line, trim(expected_message)) > 0
+    end do
+    close (u)
+    call assert_true(saw_conflict, 'mixed owner probe must report the explicit owner conflict')
+    call delete_file_if_exists(mixed_boundary_cfg_path)
+    call delete_file_if_exists(mixed_boundary_output_path)
+  end subroutine assert_external_boundary_owner_rejected
+
+  subroutine assert_external_boundary_noop_options_rejected()
+    call assert_external_boundary_probe_rejected( &
+      'probe_none_field_option', 'model="none" does not accept additional field options' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_none_local_coupling_option', 'mode="local_source" does not accept coupling options' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_active_field_without_box', 'requires explicit sim.box_max or sim.box_origin/box_size' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_linear_kinetic_option', 'kinetic_closure requires field.model="kinetic_1d"' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_linear_unified_option', 'Unified field options require field.model="unified_linear_response"' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_kinetic_zhao_option', 'Zhao field options require kinetic_1d' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_kinetic_linearity_option', 'max_linearity_ratio does not apply to kinetic_1d' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_unified_scalar_option', 'Scalar interface diagnostic options do not apply' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_disabled_histogram_detail', 'histogram detail options require an enabled linear_debye' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_local_histogram_enabled', 'enabled photoelectron histogram requires linear_debye' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_local_time_guard', 'time-guard options require particles.mode="same_batch" or "zhao_queue"' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_linear_outer_orbit', 'Outer-orbit options require unified_linear_response' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_unified_update_stride', 'outer_update_stride requires a linear/kinetic field' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_queue_update_stride', 'outer_update_stride requires a linear/kinetic field and a non-queue particle mode' &
+      )
+    call assert_external_boundary_probe_rejected( &
+      'probe_linear_steady_start', 'Steady-start options require Zhao kinetic_1d' &
+      )
+  end subroutine assert_external_boundary_noop_options_rejected
+
+  subroutine assert_external_boundary_probe_rejected(probe_mode, expected_message)
+    character(len=*), intent(in) :: probe_mode, expected_message
+    character(len=1024) :: executable_path, line
+    character(len=4096) :: command
+    integer :: child_exit_status, child_cmd_status, u, ios
+    logical :: saw_expected_message
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" '//trim(probe_mode)//' > "'// &
+              noop_boundary_output_path//'" 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'no-op option probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'facade no-op option probe must fail')
+    saw_expected_message = .false.
+    open (newunit=u, file=noop_boundary_output_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to read no-op option probe output'
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      saw_expected_message = saw_expected_message .or. index(line, trim(expected_message)) > 0
+    end do
+    close (u)
+    call assert_true(saw_expected_message, 'no-op option probe must report the facade applicability conflict')
+    call delete_file_if_exists(noop_boundary_cfg_path)
+    call delete_file_if_exists(noop_boundary_output_path)
+  end subroutine assert_external_boundary_probe_rejected
 
   subroutine write_missing_3d_photo_deposit_fixture(path)
     character(len=*), intent(in) :: path
@@ -1008,6 +1399,7 @@ contains
     write (u, '(a)') 'bc_y_high = "periodic"'
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
+    write (u, '(a)') 'open_boundary_model = "potential_barrier"'
     write (u, '(a)') '[field]'
     write (u, '(a)') 'element_kernel = "triangle_p0"'
     write (u, '(a)') '[periodic2]'
@@ -1019,18 +1411,12 @@ contains
     write (u, '(a)') 'interface_sample_n = 7'
     write (u, '(a)') '[outer_plasma]'
     write (u, '(a)') 'model = "linear_debye"'
-    write (u, '(a)') 'kinetic_closure = "Absorbing_Maxwellian"'
-    write (u, '(a)') 'zhao_branch = "AUTO"'
-    write (u, '(a)') 'photoelectron_source_scale = 1.0'
-    write (u, '(a)') 'photoelectron_density_model = "none"'
     write (u, '(a)') 'photoelectron_histogram_enabled = true'
     write (u, '(a)') 'return_model = "electrostatic_1d_instant_return"'
     write (u, '(a)') 'interface_z = 1.0'
     write (u, '(a)') 'infinity_potential = 0.0'
     write (u, '(a)') 'debye_length = 0.2'
     write (u, '(a)') 'thermal_voltage = 10.0'
-    write (u, '(a)') 'unified_grid_points = 65'
-    write (u, '(a)') 'accessible_fraction_tolerance = 0.04'
     write (u, '(a)') 'max_linearity_ratio = 0.5'
     write (u, '(a)') 'max_gap_ratio = 4.0'
     write (u, '(a)') 'max_local_charge_ratio = 6.0'
@@ -1041,14 +1427,9 @@ contains
     write (u, '(a)') '[coupling]'
     write (u, '(a)') 'update_mode = "explicit"'
     write (u, '(a)') 'particle_transfer_mode = "electrostatic_1d_instant_return"'
-    write (u, '(a)') 'steady_start_mode = "NoNe"'
-    write (u, '(a)') 'steady_start_mesh_id = 7'
     write (u, '(a)') 'outer_update_stride = 1'
     write (u, '(a)') 'field_evolution_timescale = 2.0'
     write (u, '(a)') 'max_frozen_field_ratio = 0.1'
-    write (u, '(a)') 'outer_orbit_dt = 0.01'
-    write (u, '(a)') 'outer_orbit_max_steps = 400'
-    write (u, '(a)') 'outer_orbit_energy_tolerance = 2.0e-4'
     write (u, '(a)') 'outer_queue_enabled = false'
     write (u, '(a)') '[particles]'
     write (u, '(a)') '[[particles.species]]'
@@ -1061,5 +1442,150 @@ contains
     write (u, '(a)') 'center = [0.5, 0.5, 0.25]'
     close (u)
   end subroutine write_split_config_fixture
+
+  subroutine write_external_boundary_config_fixture(path, conflict_owner, omit_box)
+    character(len=*), intent(in) :: path
+    character(len=*), intent(in), optional :: conflict_owner
+    logical, intent(in), optional :: omit_box
+    integer :: u, ios
+    logical :: omit_explicit_box
+    character(len=32) :: owner
+
+    open (newunit=u, file=path, status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open external-boundary config fixture'
+    owner = ''
+    if (present(conflict_owner)) owner = trim(conflict_owner)
+    omit_explicit_box = .false.
+    if (present(omit_box)) omit_explicit_box = omit_box
+    write (u, '(a)') '[sim]'
+    write (u, '(a)') 'batch_count = 1'
+    write (u, '(a)') 'dt = 1.0e-9'
+    write (u, '(a)') 'max_step = 2'
+    write (u, '(a)') 'field_solver = "direct"'
+    write (u, '(a)') 'field_bc_mode = "periodic2"'
+    write (u, '(a)') 'softening = 0.0'
+    write (u, '(a)') 'use_box = true'
+    if (.not. omit_explicit_box) then
+      write (u, '(a)') 'box_origin = [0.0, 0.0, 0.0]'
+      write (u, '(a)') 'box_size = [1.0, 1.0, 1.0]'
+    end if
+    write (u, '(a)') 'bc_x_low = "periodic"'
+    write (u, '(a)') 'bc_x_high = "periodic"'
+    write (u, '(a)') 'bc_y_low = "periodic"'
+    write (u, '(a)') 'bc_y_high = "periodic"'
+    write (u, '(a)') 'bc_z_low = "open"'
+    write (u, '(a)') 'bc_z_high = "open"'
+    if (trim(owner) == 'reservoir') write (u, '(a)') 'reservoir_potential_model = "none"'
+    if (trim(owner) == 'sheath') write (u, '(a)') 'sheath_injection_model = "none"'
+    if (trim(owner) == 'open') write (u, '(a)') 'open_boundary_model = "escape"'
+    write (u, '(a)') '[field]'
+    write (u, '(a)') 'element_kernel = "triangle_p0"'
+    write (u, '(a)') '[periodic2]'
+    write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
+    write (u, '(a)') 'zero_mode_policy = "exclude_k0"'
+    write (u, '(a)') 'lower_boundary_model = "symmetric_vacuum"'
+    write (u, '(a)') 'reference_mode_layers = 5'
+    write (u, '(a)') 'panel_quadrature_order = 16'
+    write (u, '(a)') 'interface_sample_n = 7'
+    if (trim(owner) == 'outer_plasma') write (u, '(a)') '[outer_plasma]'
+    if (trim(owner) == 'coupling') write (u, '(a)') '[coupling]'
+    write (u, '(a)') '[external_boundary.field]'
+    write (u, '(a)') 'model = "linear_debye"'
+    write (u, '(a)') 'debye_length = 0.2'
+    write (u, '(a)') 'thermal_voltage = 10.0'
+    write (u, '(a)') 'infinity_potential = 0.0'
+    write (u, '(a)') 'max_linearity_ratio = 0.5'
+    write (u, '(a)') 'max_gap_ratio = 4.0'
+    write (u, '(a)') 'max_local_charge_ratio = 6.0'
+    write (u, '(a)') 'photoelectron_histogram_enabled = true'
+    write (u, '(a)') 'photoelectron_histogram_bins = 8'
+    write (u, '(a)') 'photoelectron_histogram_energy_max = 12.0'
+    write (u, '(a)') 'photoelectron_ambient_charge_scale = 4.0'
+    write (u, '(a)') 'max_photoelectron_charge_ratio = 0.2'
+    write (u, '(a)') '[external_boundary.particles]'
+    write (u, '(a)') 'mode = "same_batch"'
+    write (u, '(a)') 'inflow_model = "auto"'
+    write (u, '(a)') 'outer_update_stride = 1'
+    write (u, '(a)') 'field_evolution_timescale = 2.0'
+    write (u, '(a)') 'max_frozen_field_ratio = 0.1'
+    write (u, '(a)') '[external_boundary.ordinary_open]'
+    write (u, '(a)') 'model = "potential_barrier"'
+    write (u, '(a)') '[particles]'
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'npcls_per_step = 1'
+    write (u, '(a)') '[mesh]'
+    write (u, '(a)') 'mode = "template"'
+    write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'kind = "plane"'
+    write (u, '(a)') 'surface_side = "normal_plus"'
+    write (u, '(a)') 'center = [0.5, 0.5, 0.25]'
+    close (u)
+  end subroutine write_external_boundary_config_fixture
+
+  subroutine write_external_boundary_noop_fixture(path, conflict_kind)
+    character(len=*), intent(in) :: path, conflict_kind
+    integer :: u, ios
+    character(len=32) :: field_model, particle_mode
+
+    field_model = 'none'
+    particle_mode = 'local_source'
+    select case (trim(conflict_kind))
+    case ('field', 'coupling', 'none')
+      continue
+    case ('linear_kinetic', 'linear_unified', 'histogram_detail', 'linear_orbit', 'linear_steady')
+      field_model = 'linear_debye'
+      particle_mode = 'same_batch'
+    case ('kinetic_zhao', 'kinetic_linearity')
+      field_model = 'kinetic_1d'
+      particle_mode = 'same_batch'
+    case ('unified_scalar', 'unified_stride')
+      field_model = 'unified_linear_response'
+      particle_mode = 'same_batch'
+    case ('queue_stride')
+      field_model = 'kinetic_1d'
+      particle_mode = 'zhao_queue'
+    case ('local_time_guard')
+      field_model = 'linear_debye'
+    case ('local_histogram')
+      field_model = 'linear_debye'
+    case default
+      error stop 'unknown external-boundary no-op fixture kind'
+    end select
+
+    open (newunit=u, file=path, status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open external-boundary no-op fixture'
+    if (trim(field_model) /= 'none') then
+      write (u, '(a)') '[sim]'
+      write (u, '(a)') 'box_origin = [0.0, 0.0, 0.0]'
+      write (u, '(a)') 'box_size = [1.0, 1.0, 1.0]'
+    end if
+    write (u, '(a)') '[external_boundary.field]'
+    write (u, '(a)') 'model = "'//trim(field_model)//'"'
+    if (trim(field_model) /= 'none') then
+      write (u, '(a)') 'debye_length = 1.0'
+      write (u, '(a)') 'thermal_voltage = 1.0'
+    end if
+    if (trim(conflict_kind) == 'field') write (u, '(a)') 'debye_length = 1.0'
+    if (trim(conflict_kind) == 'linear_kinetic') write (u, '(a)') 'kinetic_closure = "absorbing_maxwellian"'
+    if (trim(conflict_kind) == 'linear_unified') write (u, '(a)') 'unified_grid_points = 65'
+    if (trim(conflict_kind) == 'kinetic_zhao') write (u, '(a)') 'zhao_branch = "auto"'
+    if (trim(conflict_kind) == 'queue_stride') write (u, '(a)') 'kinetic_closure = "zhao_charge_driven"'
+    if (trim(conflict_kind) == 'kinetic_linearity') write (u, '(a)') 'max_linearity_ratio = 0.5'
+    if (trim(conflict_kind) == 'unified_scalar') write (u, '(a)') 'max_gap_ratio = 4.0'
+    if (trim(conflict_kind) == 'histogram_detail') write (u, '(a)') 'photoelectron_histogram_bins = 8'
+    if (trim(conflict_kind) == 'local_histogram') write (u, '(a)') 'photoelectron_histogram_enabled = true'
+    write (u, '(a)') '[external_boundary.particles]'
+    write (u, '(a)') 'mode = "'//trim(particle_mode)//'"'
+    if (trim(conflict_kind) == 'coupling') write (u, '(a)') 'outer_update_stride = 1'
+    if (trim(conflict_kind) == 'local_time_guard') write (u, '(a)') 'field_evolution_timescale = 2.0'
+    if (trim(conflict_kind) == 'linear_orbit') write (u, '(a)') 'outer_orbit_dt = 0.01'
+    if (trim(conflict_kind) == 'unified_stride') write (u, '(a)') 'outer_update_stride = 2'
+    if (trim(conflict_kind) == 'queue_stride') write (u, '(a)') 'outer_update_stride = 1'
+    if (trim(conflict_kind) == 'linear_steady') write (u, '(a)') 'steady_start_mode = "zhao_floating"'
+    write (u, '(a)') '[particles]'
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'npcls_per_step = 1'
+    close (u)
+  end subroutine write_external_boundary_noop_fixture
 
 end program test_app_config_parser

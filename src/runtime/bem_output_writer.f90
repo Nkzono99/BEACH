@@ -6,6 +6,13 @@ module bem_output_writer
   use bem_charge_ledger, only: charge_ledger_type
   use bem_checkpoint_contract, only: checkpoint_schema_version_current
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
+  use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
+                                            external_inflow_none, external_inflow_scalar_barrier, &
+                                            external_inflow_legacy_sheath, external_inflow_linear_profile, &
+                                            external_inflow_kinetic_profile, external_open_escape, &
+                                            external_open_potential_barrier, external_transport_none, &
+                                            external_transport_linear_1d, external_transport_kinetic_1d, &
+                                            external_transport_unified_3d, resolve_external_boundary_contract
   use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
@@ -268,9 +275,11 @@ contains
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
     type(photoelectron_histogram_state_type), intent(in), optional :: photoelectron_state
+    type(external_boundary_contract_type) :: resolved_boundary
     character(len=1024) :: summary_path
+    character(len=256) :: boundary_message
     integer :: u, ios
-    integer(i32) :: world_size
+    integer(i32) :: world_size, boundary_status
 
     if (cfg%outer_plasma%photoelectron_histogram_enabled) then
       if (.not. present(photoelectron_state)) then
@@ -279,6 +288,15 @@ contains
       if (.not. photoelectron_state%ready) then
         error stop 'photoelectron_histogram_enabled=true requires ready histogram state for summary output.'
       end if
+    end if
+    call resolve_external_boundary_contract( &
+      cfg%sim%reservoir_potential_model, cfg%sim%sheath_injection_model, cfg%sim%open_boundary_model, &
+      cfg%outer_plasma%model, cfg%outer_plasma%kinetic_closure, cfg%outer_plasma%return_model, &
+      cfg%coupling%particle_transfer_mode, cfg%coupling%outer_queue_enabled, resolved_boundary, &
+      boundary_status, boundary_message &
+      )
+    if (boundary_status /= external_boundary_ok) then
+      error stop 'write_summary_file: invalid external boundary contract: '//trim(boundary_message)
     end if
     summary_path = trim(out_dir)//'/summary.txt'
     open (newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
@@ -328,6 +346,12 @@ contains
     write (u, '(a,a)') 'coupling_steady_start_mode=', trim(cfg%coupling%steady_start_mode)
     write (u, '(a,i0)') 'coupling_steady_start_mesh_id=', cfg%coupling%steady_start_mesh_id
     write (u, '(a,l1)') 'coupling_outer_queue_enabled=', cfg%coupling%outer_queue_enabled
+    write (u, '(a,a)') 'external_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
+    write (u, '(a,a)') 'external_ordinary_open_model=', &
+      trim(external_open_model_name(resolved_boundary%ordinary_open_model))
+    write (u, '(a,a)') 'external_interface_transport=', &
+      trim(external_transport_name(resolved_boundary%interface_transport))
+    write (u, '(a,a)') 'outer_particle_mode_resolved=', trim(outer_particle_mode_name(resolved_boundary))
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active
       write (u, '(a,l1)') 'electrostatic_applicable=', electrostatic_diagnostics%applicable
@@ -455,6 +479,75 @@ contains
     end if
     close (u)
   end subroutine write_summary_file
+
+  !> 解決済みの流入モデルを summary 用の安定した語彙へ変換する。
+  function external_inflow_map_name(inflow_map) result(name)
+    integer(i32), intent(in) :: inflow_map
+    character(len=32) :: name
+
+    select case (inflow_map)
+    case (external_inflow_none)
+      name = 'source_vdf'
+    case (external_inflow_scalar_barrier)
+      name = 'infinity_barrier'
+    case (external_inflow_legacy_sheath)
+      name = 'legacy_sheath'
+    case (external_inflow_linear_profile)
+      name = 'linear_profile'
+    case (external_inflow_kinetic_profile)
+      name = 'kinetic_profile'
+    case default
+      error stop 'write_summary_file: unknown resolved external inflow map.'
+    end select
+  end function external_inflow_map_name
+
+  !> 解決済みの通常 open 境界モデルを summary 用の安定した語彙へ変換する。
+  function external_open_model_name(open_model) result(name)
+    integer(i32), intent(in) :: open_model
+    character(len=32) :: name
+
+    select case (open_model)
+    case (external_open_escape)
+      name = 'escape'
+    case (external_open_potential_barrier)
+      name = 'potential_barrier'
+    case default
+      error stop 'write_summary_file: unknown resolved ordinary open model.'
+    end select
+  end function external_open_model_name
+
+  !> 解決済みの interface 輸送モデルを summary 用の安定した語彙へ変換する。
+  function external_transport_name(interface_transport) result(name)
+    integer(i32), intent(in) :: interface_transport
+    character(len=32) :: name
+
+    select case (interface_transport)
+    case (external_transport_none)
+      name = 'none'
+    case (external_transport_linear_1d)
+      name = 'linear_1d'
+    case (external_transport_kinetic_1d)
+      name = 'kinetic_1d'
+    case (external_transport_unified_3d)
+      name = 'unified_3d'
+    case default
+      error stop 'write_summary_file: unknown resolved external interface transport.'
+    end select
+  end function external_transport_name
+
+  !> 粒子外部境界の処理時機を、queue ownership を含めて一意な語彙へ変換する。
+  function outer_particle_mode_name(contract) result(name)
+    type(external_boundary_contract_type), intent(in) :: contract
+    character(len=16) :: name
+
+    if (contract%queue_enabled) then
+      name = 'zhao_queue'
+    else if (contract%interface_transport /= external_transport_none) then
+      name = 'same_batch'
+    else
+      name = 'local_source'
+    end if
+  end function outer_particle_mode_name
 
   !> species 別の signed charge flux と粒子数を `charge_ledger.csv` に保存する。
   subroutine write_charge_ledger_file(out_dir, ledger)

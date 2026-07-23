@@ -118,10 +118,33 @@ batch injectionもhot loop外で同じresolverを使います。外部場の構�
 
 `periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、線形Debye outer plasmaを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`減衰、gap、局所平均plasma電荷推定、線形性を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
 
-運用上、自己整合な外部シースの標準・推奨モデルは`outer_plasma.model="kinetic_1d"`とする。
+運用上、自己整合な外部シースの標準・推奨モデルは
+`external_boundary.field.model="kinetic_1d"`とする。正規化後の実行時表現は
+`outer_plasma.model="kinetic_1d"`である。
 `unified_linear_response`はその上位互換ではなく、roughnessとplasma応答が同じ領域に重なり、split windowを
 仮定できず、線形性条件を満たす場合の高度な粗面線形screeningとする。両者は同じシースを精度違いで解く
 選択肢ではない。外部シースを暗黙に有効化しないため、設定上の既定は引き続き`none`とする。
+
+公開TOMLでは、外部条件を`[external_boundary.field]`、`[external_boundary.particles]`、
+`[external_boundary.ordinary_open]`の3責務で指定する。fieldは外部場、particlesはz-high粒子のlifecycleと
+reservoir流入、ordinary_openはouterが所有しないopen面を表す。`particles.mode`は
+`local_source | same_batch | zhao_queue`、`particles.inflow_model`は
+`auto | source_vdf | infinity_barrier | legacy_sheath`とする。
+
+`same_batch`はfield modelに応じて次の実行時設定へ正規化する。
+
+- `linear_debye`: return/transferとも`electrostatic_1d_instant_return`
+- `kinetic_1d`: returnは`kinetic_1d_profile_return`、transferは`electrostatic_1d_instant_return`
+- `unified_linear_response`: return/transferとも`electrostatic_3d_explicit_orbit`
+
+`zhao_queue`は`kinetic_1d + zhao_charge_driven`へ同じkinetic return/transfer対とpersistent queueを加える。
+`interface_z`は`sim.box_max[2]`、更新方式は`explicit`へ正規化する。linear/kinetic 1D tracked構成では
+`inflow_model="auto"`が同じprofileへ流入ownershipを渡し、local scalar/legacy補正との併用を拒否する。
+unified 3D orbitは流入を所有しないためlocal inflowを独立に選べる。
+
+旧`sim.reservoir_potential_model`、`sim.sheath_injection_model`、`sim.open_boundary_model`、
+`[outer_plasma]`、`[coupling]`はcompatibility inputとして読み込むが、`[external_boundary]`との混在は拒否する。
+以下の節で使うreturn/transfer/queue名は正規化後の実行時contractを表し、通常利用者が組み立てる公開設定ではない。
 
 `coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。`linear_debye`は`return_model="electrostatic_1d_instant_return"`、`kinetic_1d`は`return_model="kinetic_1d_profile_return"`を使います。後者の流入障壁は各batchで先に更新したouter stateの`phi_interface-phi_infinity`から計算し、総表面電荷の線形Debye近似へfallbackしません。instant経路の外向き粒子は同じ離散kinetic profileとfar Robin tail上でescape/turning pointを判定し、区分線形電位と指数tailを解析積分して往復時間後に相当するlocal復帰状態を構成します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapします。
 

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Added the `[external_boundary]` authoring facade, which separates outer-field physics, z-high particle lifecycle/inflow, and ordinary open-face handling while deriving internal return, transfer, queue, and interface settings.
+- Added resolved external-boundary receipts to `summary.txt` so runs report the effective inflow map, ordinary-open model, interface transport, and particle mode.
 - Added opt-in `coupling.steady_start_mode="zhao_floating"` for stationary Zhao studies. Fresh runs seed the selected full-cell plane from the zero-current root, while resumed runs restore checkpoint charge and outer state without reseeding.
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel field and potential evaluation for `point` and `triangle_p0` comparisons.
 
@@ -14,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Reflected and periodic particle events now place surviving particles a scale-aware distance inside the box, preventing zero-time boundary chatter caused by a subnormal one-ULP offset at zero-valued faces. The existing eight-event safety limit is unchanged.
 
 ### Changed
+- Canonical examples and user documentation now use `[external_boundary]`; the former `[outer_plasma]`, `[coupling]`, and related `[sim]` selectors remain supported as mutually exclusive compatibility input.
 - Documented `kinetic_1d` as the standard outer-sheath model and reclassified `unified_linear_response` as advanced rough-surface linear screening. Model identifiers and runtime defaults are unchanged.
 - **BREAKING**: Split `outer_plasma.photoelectron_closure` into `photoelectron_density_model` (`none` / `kinetic_mean`) and the independent `photoelectron_histogram_enabled` diagnostic switch. Particle return remains controlled only by `outer_plasma.return_model` and `coupling.particle_transfer_mode`.
 - Renamed the tracked photoelectron-return example to `examples/periodic2_photoelectron_return.toml`.

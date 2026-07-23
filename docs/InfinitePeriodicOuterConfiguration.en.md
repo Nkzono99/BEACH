@@ -29,8 +29,8 @@ See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for periodic oper
 
 | Configuration | Mean plasma | Nonzero mode | Particle transfer |
 | --- | --- | --- | --- |
-| **Standard: split kinetic** | Nonlinear `kinetic_1d` VDF closure | Assumed decayed by the interface | `kinetic_1d_profile_return` |
-| Advanced: unified linear | Linear Poisson with accessible fraction | Joined to screened modes at response start | None or 3-D explicit orbit |
+| **Standard: split kinetic** | Nonlinear `kinetic_1d` VDF closure | Assumed decayed by the interface | `particles.mode="local_source"`, or the 1-D profile with `"same_batch"` |
+| Advanced: unified linear | Linear Poisson with accessible fraction | Joined to screened modes at response start | `particles.mode="local_source"`, or a 3-D orbit with `"same_batch"` |
 
 Split kinetic represents species VDFs, Bohm entry, and mean photoelectron density, but assumes a split window containing local
 surface field below the interface. See [Kinetic 1-D outer plasma](KineticOuterPlasma.en.html).
@@ -61,7 +61,9 @@ $\phi_I-\phi_\infty$:
 - selects accessible $v_{n,\infty}$ and accelerates or decelerates them to $v_{n,I}$ on inflow;
 - derives $v_{n,\infty}^2$ from outward $v_{n,I}$ and classifies escape or turning return.
 
-Because both directions use the same energy equation, do not add `reservoir_potential_model` or a Zhao cutoff. See
+For tracked split kinetic, `external_boundary.particles.inflow_model="auto"`
+delegates inflow to the same profile. Do not combine it with
+`inflow_model="infinity_barrier"` or `"legacy_sheath"`. See
 [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) and [Particle escape and return](ParticleEscapeReturn.en.html).
 
 ## Select mean outer density separately from tracked photoelectrons
@@ -71,9 +73,9 @@ Photoelectron outer density and tracked return are separate choices.
 | Choice | Outer density | Tracked particle |
 | --- | --- | --- |
 | `photoelectron_density_model="none"` | No mean photoelectron density | Ordinary source and orbit only |
-| `photoelectron_density_model="kinetic_mean"` without transfer | Stationary mean outgoing/returning density | Ordinary open handling at z-high |
-| `photoelectron_density_model="kinetic_mean"` with profile return | Same mean density | Individual interface crossings also return or escape through the profile |
-| Unified with explicit orbit | No mean photoelectron closure | Individual 3-D outer trajectories |
+| `photoelectron_density_model="kinetic_mean"` with `particles.mode="local_source"` | Stationary mean outgoing/returning density | Ordinary open handling at z-high |
+| `photoelectron_density_model="kinetic_mean"` with `particles.mode="same_batch"` | Same mean density | Individual interface crossings also return or escape through the profile |
+| Unified with `particles.mode="same_batch"` | No mean photoelectron closure | Individual 3-D outer trajectories |
 
 Tracked return requires `deposit_opposite_charge_on_emit=true`. The mean density model neither
 replaces tracked surface deposition nor adds a statistical return deposit. See
@@ -100,7 +102,8 @@ zero_mode_policy = "exclude_k0"
 lower_boundary_model = "symmetric_vacuum"
 ```
 
-This block alone does not enable outer plasma. Add kinetic or unified `[outer_plasma]` and `[coupling]` configuration. See the
+This block alone does not enable outer plasma. Add kinetic or unified
+`[external_boundary.field]` and `[external_boundary.particles]` configuration. See the
 minimal cache example [`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml).
 
 Small references use Direct plus `panel_spectral_reference`.

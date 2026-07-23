@@ -4,12 +4,14 @@ Lang: [日本語](UnifiedLinearResponse.md) | [English](UnifiedLinearResponse.en
 
 # 高度な粗面線形screening（`unified_linear_response`）
 
-`outer_plasma.model="unified_linear_response"`は、rough surfaceの高さ範囲、表面電荷の平面平均source、
+`external_boundary.field.model="unified_linear_response"`は、rough surfaceの高さ範囲、表面電荷の平面平均source、
 plasmaが占有できる面積、線形Debye応答を一つのfield modelにまとめます。surfaceとownership interfaceの間に
 横方向modeが十分に減衰するvacuum windowを仮定できない場合の線形modelです。
 
 これは標準の外部シースモデルではなく、roughnessとplasma responseが同じ領域に重なる場合の高度な線形screening
-です。species VDF、Bohm条件、流入補正、電流balanceが必要な通常の外部シースには`kinetic_1d`を使います。
+です。species VDF、Bohm条件、電流balanceを含む自己整合な外部シースには`kinetic_1d`を使います。
+unified modelはfieldだけを所有し、source VDFは所有しません。流入補正は
+`external_boundary.particles.inflow_model`で独立に選びます。
 `unified_linear_response`を`kinetic_1d`の高精度版や自動fallbackとして選んではいけません。
 
 ## split windowを一つのfield solveへ置き換える
@@ -18,7 +20,7 @@ plasmaが占有できる面積、線形Debye応答を一つのfield modelにま�
 unified modelはsurface projectionからfar boundaryまで一つのzero-mode Poisson gridを解き、nonzero modeも
 plasma tailへ連続接続します。
 
-`outer_plasma.interface_z`はz-high box面上の粒子ownership境界であり、field solveの境界でもplasma responseの
+`sim.box_max[2]`から導出されるinterfaceはz-high box面上の粒子ownership境界であり、field solveの境界でもplasma responseの
 開始面でもありません。mesh geometryとDebye長が同じなら、interface高さだけを動かしてlocal field profileが
 変わらないことが、このmodelに求められる条件です。
 
@@ -157,8 +159,8 @@ $\max(\eta_0,\max_k\eta_k)$が`max_linearity_ratio`を越えた場合は、非�
 | prescribed field | `sim.e0=0` |
 | mean plasma | scalar linear Debye responseのみ |
 | species model | species別VDF、Bohm条件、光電子の平均密度モデルなし |
-| particle transfer | `none`または`electrostatic_3d_explicit_orbit` |
-| magnetic field | explicit outer orbitは`sim.b0=0` |
+| particle transfer | `external_boundary.particles.mode="local_source"`、または3D外部軌道を使う`"same_batch"` |
+| magnetic field | `particles.mode="same_batch"`は`sim.b0=0` |
 | failure | nonlinear modelやlegacy sheathへfallbackせず停止 |
 
 `max_gap_ratio`と`max_local_charge_ratio`はsplit scalar-interface model向けdiagnosticです。unified固有の受理判定は
@@ -176,7 +178,7 @@ surface chargeをcommitして場を更新するたび、surface zero mode、unif
 現行のunified経路は、`outer_update_stride`によるsolve skipを行いません。MPI rootがtridiagonal solveを実行し、
 statusと$z,\phi,E,\rho$を全rankへbroadcastします。
 
-`particle_transfer_mode="none"`ならz-high粒子は通常のopen境界に従います。`electrostatic_3d_explicit_orbit`なら
+`external_boundary.particles.mode="local_source"`ならz-high粒子は通常のopen境界に従います。`"same_batch"`なら
 同じzero/nonzero field中で外部軌道を追跡します。[<sup>1</sup>](ParticleEscapeReturn.html)
 
 ## geometry・grid・modeを独立に収束させる

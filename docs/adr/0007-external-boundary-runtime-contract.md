@@ -3,6 +3,10 @@
 - Status: accepted
 - Date: 2026-07-23
 
+> 公開TOMLを分割したまま維持する判断は
+> [ADR 0008](0008-external-boundary-authoring-facade.md)で置き換えた。ここで定義した実行時ownership契約と
+> particle loop境界は引き続き有効である。
+
 ## Context
 
 外部条件は、`sim.reservoir_potential_model`、`sim.sheath_injection_model`、

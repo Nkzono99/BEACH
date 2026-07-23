@@ -77,8 +77,9 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 
 ## TOML の階層とセクション一覧
 
-`[sim]`、`[field]`、`[particles]`、`[mesh]`、`[periodic2]`、`[outer_plasma]`、`[coupling]`、
-`[output]` はすべてトップレベルで、互いの子 table ではありません。ネスト関係は次のとおりです。
+`[sim]`、`[field]`、`[particles]`、`[mesh]`、`[periodic2]`、`[external_boundary]`、
+`[output]` が通常の公開構成です。旧 `[outer_plasma]` と `[coupling]` は互換入力として残りますが、
+`[external_boundary]` とは混在できません。ネスト関係は次のとおりです。
 
 ```text
 beach.toml
@@ -90,13 +91,17 @@ beach.toml
 │   ├── [mesh.groups.<name>]        # 名前付きの子 table
 │   └── [[mesh.templates]]          # 0 件以上の array-of-tables
 ├── [periodic2]
-├── [outer_plasma]
-├── [coupling]
+├── [external_boundary]
+│   ├── [external_boundary.field]
+│   ├── [external_boundary.particles]
+│   └── [external_boundary.ordinary_open]
+├── [outer_plasma]                 # 旧互換・正規化後の実行時表現
+├── [coupling]                     # 旧互換・正規化後の実行時表現
 └── [output]
 ```
 
-本文中の `sim.dt` や `outer_plasma.model` は「table 名.key」の参照表記です。TOML ではそれぞれ `[sim]`、
-`[outer_plasma]` の下へ `dt = ...`、`model = ...` と書きます。
+本文中の `sim.dt` や `external_boundary.field.model` は「table 名.key」の参照表記です。TOML ではそれぞれ
+`[sim]` の下へ `dt = ...`、`[external_boundary.field]` の下へ `model = ...` と書きます。
 
 | TOML table | 親 | 件数・必須条件 | 内容 |
 |---|---|---|---|
@@ -108,8 +113,11 @@ beach.toml
 | `[mesh.groups.<name>]` | `[mesh]` | 0 件以上 | 複数 template で共有する配置と scale |
 | `[[mesh.templates]]` | `[mesh]` | 0 件以上 | `mode="template"` で使う組み込み形状 |
 | `[periodic2]` | root | 条件付き | split periodic2 の非零モード・零モード・下側境界モデル |
-| `[outer_plasma]` | root | 条件付き | 外部プラズマ profile、適用範囲、return model |
-| `[coupling]` | root | 条件付き | outer profile の更新と粒子移送 |
+| `[external_boundary.field]` | `[external_boundary]` | facade 使用時は必須 | 外部場モデルと物理・診断パラメータ |
+| `[external_boundary.particles]` | `[external_boundary]` | facade 使用時は必須 | z-high 粒子、流入、時間・orbit guard |
+| `[external_boundary.ordinary_open]` | `[external_boundary]` | 任意 | outer が所有しない open 面。既定は `escape` |
+| `[outer_plasma]` | root | 旧互換のみ | 正規化後の外部場・return設定 |
+| `[coupling]` | root | 旧互換のみ | 正規化後のouter更新・粒子移送設定 |
 | `[output]` | root | 任意 | 出力先、履歴、checkpoint 再開 |
 
 `reservoir_face` または `photo_raycast` を使う場合、`[sim]` は必須です。
@@ -265,11 +273,145 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
 | `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
 
+### `[external_boundary]`: 外部条件の公開設定
+
+新しい設定ファイルで外部条件を指定する正本は、この`[external_boundary]` facadeです。
+後段の`[outer_plasma]`、`[coupling]`、旧`[sim]` selectorは、既存設定の読解と
+正規化後のruntime表現を確認するための互換リファレンスです。
+
+外部条件は、内部実装の selector を組み合わせるのではなく、次の3つの責務で指定します。
+
+```toml
+[external_boundary.field]
+model = "kinetic_1d"
+kinetic_closure = "absorbing_maxwellian"
+debye_length = 2.0e-3
+thermal_voltage = 3.0
+
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
+```
+
+- `field` は外部 plasma 応答の電位・電場モデルを選ぶ。linear/kinetic は
+  z-high interface 外、unified は rough surface から far 領域までを扱う。
+- `particles` は z-high を通過する粒子の扱いと、流入 VDF の所有者を選ぶ。
+- `ordinary_open` は outer model が所有しない open 面だけを扱う。
+
+`field` と `particles` は facade を使うときの必須 table です。`ordinary_open` は省略でき、
+その場合は `model="escape"` です。外部条件を使わない通常ケースでは `[external_boundary]`
+自体を省略できます。
+
+#### `[external_boundary.field]`
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `model` | string | 必須 | `none` / `linear_debye` / `kinetic_1d` / `unified_linear_response` |
+| `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `zhao_charge_driven` |
+| `zhao_branch` | string | `auto` | `zhao_charge_driven` のみ。`auto` / `a` / `b` / `c` |
+| `photoelectron_source_scale` | float | `1` | `zhao_charge_driven` の解析光電子 source 倍率。UV なしは `0` |
+| `photoelectron_density_model` | string | `none` | `kinetic_1d + absorbing_maxwellian` の任意平均密度。`none` / `kinetic_mean` |
+| `photoelectron_histogram_enabled` | bool | `false` | `linear_debye + same_batch` で histogram を有効にするときだけ `true` を指定。無効時は key 自体を省略 |
+| `infinity_potential` | float | `0` | `linear_debye` だけで指定できる無限遠基準電位 [V] |
+| `debye_length` | float | active model で必須 | `linear_debye` / `kinetic_1d` / `unified_linear_response` の長さ scale [m] |
+| `thermal_voltage` | float | active model で必須 | `linear_debye` / `kinetic_1d` / `unified_linear_response` の電位 scale [V] |
+| `unified_grid_points` | int | `129` | `unified_linear_response` の zero-mode Poisson grid 点数 |
+| `accessible_fraction_tolerance` | float | `0.1` | `unified_linear_response` の rough-surface accessible fraction 収束許容値 |
+| `max_linearity_ratio` | float | `0.25` | `linear_debye` / `unified_linear_response` の線形性診断上限 |
+| `max_gap_ratio` | float | `5` | `linear_debye` / `kinetic_1d` の interface–mesh gap 診断上限 |
+| `max_local_charge_ratio` | float | `50` | `linear_debye` / `kinetic_1d` の局所 plasma 電荷推定比上限 |
+| `photoelectron_histogram_bins` | int | `32` | `linear_debye + same_batch` で histogram を有効にしたときの bin 数 |
+| `photoelectron_histogram_energy_max` | float | histogram 時に必須 | 有効にした histogram の上端 [J] |
+| `photoelectron_ambient_charge_scale` | float | histogram 時に必須 | 有効にした histogram の ambient signed-charge scale [C] |
+| `max_photoelectron_charge_ratio` | float | `0.1` | 有効にした histogram の光電子電荷比上限 |
+
+`interface_z` と粒子 return model は指定しません。`interface_z` は
+`sim.box_max[2]` から、return model は `field.model` と `particles.mode` から導出されます。
+`model="none"` では `model` 以外の field key を書けません。
+
+まず model/closure に対応する行だけを使い、その他の条件付き key は必要な診断や機能を有効にするときだけ追加します。
+選んだ行にない key は、既定値と同じ値を書いても no-op として拒否されます。
+
+| 選択 | 必須・通常設定する key | 条件付きで追加する key |
+|---|---|---|
+| `none` | `model` のみ | 追加不可 |
+| `linear_debye` | `debye_length`, `thermal_voltage` | `infinity_potential`、linearity / gap / local-charge 上限、`same_batch` histogram |
+| `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`、`photoelectron_density_model`、gap / local-charge 上限 |
+| `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`、必要な `sim.sheath_*` 物理値 | source scale / branch、gap / local-charge 上限 |
+| `unified_linear_response` | `debye_length`, `thermal_voltage` | grid、accessible fraction、linearity 上限 |
+
+`kinetic_closure="zhao_charge_driven"` でも `debye_length` と `thermal_voltage` は schema 上必須ですが、
+Zhao root/profile の物理 scale ではありません。光電子ありでは $T_{pe}$ と基準密度、光電子なしでは
+ambient $T_e$ と $n_\infty$ から profile scale を導出します。
+
+この 2 値は split-interface の gap、lateral field、local-charge 診断の基準量です。
+`zhao_branch="auto"`、zero gauge、density model なしなど、
+既定値または model が固定する値は通常は書きません。
+
+#### `[external_boundary.particles]`
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `mode` | string | 必須 | `local_source` / `same_batch` / `zhao_queue` |
+| `inflow_model` | string | `auto` | `auto` / `source_vdf` / `infinity_barrier` / `legacy_sheath` |
+| `legacy_sheath_model` | string | 条件付き | `legacy_sheath` 時の `floating_no_photo` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` |
+| `steady_start_mode` | string | `none` | `kinetic_1d + zhao_charge_driven + same_batch` で `zhao_floating` を有効にするときだけ指定 |
+| `steady_start_mesh_id` | int | `1` | `steady_start_mode="zhao_floating"` で使う mesh ID |
+| `outer_update_stride` | int | `1` | `local_source` / `same_batch` の `linear_debye` / `kinetic_1d` だけで指定できる更新間隔 [batch] |
+| `field_evolution_timescale` | float | `0` | `same_batch` / `zhao_queue` の frozen-field 診断時間 scale [s] |
+| `max_frozen_field_ratio` | float | `0.1` | `same_batch` / `zhao_queue` の frozen-field 適用性比上限 |
+| `outer_orbit_dt` | float | `0` | unified 3D `same_batch` の外部軌道刻み。正値を明示 |
+| `outer_orbit_max_steps` | int | `100000` | unified 3D `same_batch` の外部軌道最大 step 数 |
+| `outer_orbit_energy_tolerance` | float | `1e-4` | unified 3D `same_batch` の相対 energy 誤差上限 |
+
+`mode` は z-high を出た粒子を外部領域へ移送するか、その結果をいつ反映するかだけを選びます。
+reservoir 流入の分布や補正は `inflow_model` で独立に選びます。
+
+| `mode` | 意味 | 対応する field |
+|---|---|---|
+| `local_source` | 外部軌道へ移送せず、z-high 通過を `ordinary_open` で処理 | すべて |
+| `same_batch` | z-high 通過粒子を同じ batch 内で return / escape 判定 | `linear_debye` / `kinetic_1d` / `unified_linear_response` |
+| `zhao_queue` | Zhao reservoir queue に保持し、後続 batch で再注入 | `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` |
+
+mode ごとの追加必須値は次のとおりです。表にない内部 return / transfer ID は書きません。
+
+| `particles.mode` と field | 追加必須・制約 |
+|---|---|
+| `local_source` + `none` / unified | transport / time / orbit key は追加しない |
+| `local_source` + linear / kinetic | 必要なら `outer_update_stride` だけを追加 |
+| `same_batch` + linear / kinetic | `field_evolution_timescale > 0`、`inflow_model="auto"`。必要なら update stride / time guard |
+| `same_batch` + unified | `field_evolution_timescale > 0`、`outer_orbit_dt > 0`。必要なら time / orbit guard |
+| `zhao_queue` | `sim.batch_duration > 0`、`field_evolution_timescale > 0`、正の photoelectron source。update stride は内部で 1 に固定 |
+
+`steady_start_*` は Zhao `same_batch`、`outer_orbit_*` は unified `same_batch`、
+time guard は `same_batch` / `zhao_queue` にだけ書けます。mode に効果のない key はエラーです。
+
+`inflow_model="auto"` は、tracked `linear_debye` / `kinetic_1d` では同じ1D profileへ
+流入を委ね、それ以外では `source_vdf` として解決します。この1D tracked構成では
+別の inflow correction を重ねられません。`unified_linear_response` は外部軌道を所有しますが
+流入 VDF は所有しないため、`source_vdf`、`infinity_barrier`、`legacy_sheath`を選べます。
+
+#### `[external_boundary.ordinary_open]`
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `model` | string | `escape` | `escape` / `potential_barrier` |
+
+`local_source` では z-high も `ordinary_open` が処理します。`same_batch` / `zhao_queue` では
+outer model が z-high を所有し、`ordinary_open` は残りの open 面だけを処理します。流入の
+`particles.inflow_model="infinity_barrier"` と、流出の
+`ordinary_open.model="potential_barrier"` は別々に選べます。
+
+facade は読み込み時に旧 `[sim]` / `[outer_plasma]` / `[coupling]` の実行時表現へ正規化されます。
+両方の書式を同じファイルに混在させるとエラーです。選択手順と制約は
+[外部境界を構成する](OuterPlasmaModels.html)、旧書式との対応は
+[境界設定の移行ガイド](BoundaryConfigurationMigration.html)にまとめています。
+
 ### `[periodic2]`: 非零モード・零モード・下側境界
 
 `[periodic2]` は `[sim]` の子ではなく、トップレベル table です。
 legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証用の split reference に限り、
-`field_solver="direct"` と `[periodic2]`、`[outer_plasma]`、`[coupling]` を明示します。
+`field_solver="direct"` と `[periodic2]`、`[external_boundary]` を明示します。
 
 | キー | 既定値 | 意味 |
 |---|---:|---|
@@ -282,9 +424,14 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | `interface_phi_tolerance` | `1e-3` | 非零モード電位比上限 |
 | `interface_field_tolerance` | `1e-3` | 非零モード電場比上限 |
 
-### `[outer_plasma]`: 外部プラズマと return model
+### `[outer_plasma]`: 互換・正規化後 runtime リファレンス
 
-`[outer_plasma]` もトップレベル table です。`[periodic2]` と組み合わせますが、その子 table ではありません。
+> **新規設定用の API ではありません。** 新規ファイルでは `[external_boundary.field]` を使ってください。
+> 以下の raw 名は旧ファイルと正規化後の runtime contract を読むためのもので、
+> `[external_boundary]` と同じファイルへ追加できません。
+
+facade では `interface_z` と `return_model` を自動導出します。旧 `[outer_plasma]` はトップレベル table で、
+`[periodic2]` の子ではありません。
 
 | キー | 既定値 | 意味 |
 |---|---:|---|
@@ -309,11 +456,12 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | `max_photoelectron_charge_ratio` | `0.1` | `abs(Q_pe,batch)/Q_ambient,scale` 上限 |
 | `return_model` | `none` | 1D 解析 return または unified 3D 明示軌道の ID |
 
-#### `kinetic_1d`の仕様（標準・推奨）
+#### 正規化後の `kinetic_1d` contract（標準・推奨）
 
-外部シースを新しく構成する場合は`kinetic_1d`を標準モデルとして選びます。productionでは`cached_kneq0`と
-組み合わせます。z-highに定義した負電荷と正電荷の`reservoir_face` speciesを、
-それぞれ無限遠のelectron VDFとion VDFとして使います。
+公開 facade で `external_boundary.field.model="kinetic_1d"` を選ぶと、runtime の
+`outer_plasma.model` も `kinetic_1d` に正規化されます。production では `cached_kneq0` と組み合わせます。
+z-high に定義した負電荷と正電荷の `reservoir_face` species を、それぞれ無限遠の electron VDF と ion VDF
+として使います。
 
 | 項目 | 仕様 |
 | --- | --- |
@@ -326,8 +474,10 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | recovery | pseudo-transientとinterface-field continuation。元のPoisson residual合格後だけ受理 |
 | fallback | 別sheath modelや前回解へfallbackしない |
 
-粒子移送を使う場合は`return_model="kinetic_1d_profile_return"`と
-`particle_transfer_mode="electrostatic_1d_instant_return"`を指定します。`outer_queue_enabled=false`では次のinstant写像を使います。
+公開設定の `external_boundary.particles.mode="same_batch"` は、
+`return_model="kinetic_1d_profile_return"` と
+`particle_transfer_mode="electrostatic_1d_instant_return"`、`outer_queue_enabled=false` へ正規化されます。
+これらの raw ID は入力せず、解決後は次の instant 写像を表します。
 
 1. 更新済みprofileの`phi_interface-phi_infinity`で無限遠VDFをinterfaceへ写像する。
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
@@ -346,9 +496,12 @@ $n_\infty,T_e,u_e,u_i$から、入射electron reservoirの正規化、cutoff、�
 $E_I=0$は平坦なType B/C接続点、$E_I<0$はType Cです。電流ゼロは各batchのroot条件にせず診断として残すため、
 表面電荷が定常化したときに旧no-photo Type Cのfloating rootへ近づくかを検証できます。
 
-`outer_queue_enabled=true`では、強UV立上がりなどのouter flight delayをbatch履歴へ反映します。このmodeは
-`kinetic_closure="zhao_charge_driven"`、`sim.batch_duration`または`dt * batch_duration_step`から解決した正の
-`batch_duration`、`outer_update_stride=1`、`photoelectron_histogram_enabled=false`を要求します。
+公開設定の `external_boundary.particles.mode="zhao_queue"` は runtime の `outer_queue_enabled=true` へ正規化され、
+強 UV 立上がりなどの outer flight delay を batch 履歴へ反映します。この mode は
+`external_boundary.field.kinetic_closure="zhao_charge_driven"`、`sim.batch_duration` または
+`dt * batch_duration_step` から解決した正の `batch_duration` を要求します。
+
+update stride は runtime で 1、histogram は無効に固定されるため、公開入力にはどちらの key も書きません。
 
 1. batch開始時にdue eventをrank-local queueからpopする。
 2. 残ったglobal photoelectron inventoryを水平面積で割り、$0\le z\le10\lambda_{D,pe}$の有限columnに一致する
@@ -416,7 +569,7 @@ $L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとし
 物理モデルの前提は
 [ADR 0001](adr/0001-kinetic-outer-plasma.md)と[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)にあります。
 
-#### `unified_linear_response`の仕様（高度・限定用途）
+#### 正規化後の `unified_linear_response` contract（高度・限定用途）
 
 `unified_linear_response`は`kinetic_1d`の上位互換ではありません。roughnessとplasma responseが同じ領域に重なり、
 split windowを置けず、線形性gateを満たす場合だけ、rough surfaceの線形screeningとして選びます。
@@ -443,14 +596,17 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 検証例は `examples/periodic2_unified_linear_response.toml`、明示粒子移送の例は
 `examples/periodic2_unified_explicit_orbit.toml`、詳細は `docs/adr/0002-unified-periodic-outer-domain.md` です。
 
-### `[coupling]`: outer 更新と粒子移送
+### `[coupling]`: 互換・正規化後 runtime リファレンス
 
-`[coupling]` はトップレベル table です。
+> **新規設定用の API ではありません。** 新規ファイルでは `[external_boundary.particles]` を使ってください。
+> 以下の raw 名は旧ファイルと正規化後の runtime contract を読むためのものです。
+
+facade は `update_mode`、`particle_transfer_mode`、`outer_queue_enabled` を model と mode から導出します。
 
 | キー | 型 | 既定値 | 説明 |
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | 現在は`explicit`のみ。outer profileを明示的な更新点で再計算 |
-| `particle_transfer_mode` | string | `"none"` | `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit`。対応するreturnとの組を下表から選ぶ |
+| `particle_transfer_mode` | string | `"none"` | facade が導出する `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit` |
 | `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`。新規実行を Zhao 零電流定常根と対応する平面電荷から開始 |
 | `steady_start_mesh_id` | int | `1` | `zhao_floating`で初期電荷を面積比で配る水平平面の`mesh_id` |
 | `outer_update_stride` | int | `1` | outer profile更新batch間隔 |
@@ -461,7 +617,7 @@ split windowを置けず、線形性gateを満たす場合だけ、rough surface
 | `outer_orbit_energy_tolerance` | float | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
 | `outer_queue_enabled` | bool | `false` | 対応するZhao構成でouter flightをbatch間queueへ保存し、queued photoelectron columnで過渡closureを解く |
 
-returnとtransferの有効な組:
+facade が解決する return / transfer の runtime 対:
 
 | `outer_plasma.model` | `outer_plasma.return_model` | `coupling.particle_transfer_mode` |
 | --- | --- | --- |
@@ -470,19 +626,15 @@ returnとtransferの有効な組:
 | `unified_linear_response` | `electrostatic_3d_explicit_orbit` | `electrostatic_3d_explicit_orbit` |
 
 `kinetic_1d_profile_return`ではreturnとtransferの文字列は同一ではありません。1D transferを有効にした
-`linear_debye`と`kinetic_1d`は同じprofileで流入も所有するため、`reservoir_potential_model`と
-`sheath_injection_model`は`none`にします。`kinetic_1d`と`unified_linear_response`の
-`infinity_potential`は0固定です。
+`linear_debye`と`kinetic_1d`は同じprofileで流入も所有するため、正規化後の
+`reservoir_potential_model`と`sheath_injection_model`はともに`none`です。
+`kinetic_1d`と`unified_linear_response`の`infinity_potential`は0固定です。
 
 定常 warm start:
 
-```toml
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
-steady_start_mode = "zhao_floating"
-steady_start_mesh_id = 1
-outer_queue_enabled = false
-```
+公開 facade では `external_boundary.particles.mode="same_batch"`、
+`steady_start_mode="zhao_floating"`、必要なら `steady_start_mesh_id` を指定します。
+raw の transfer ID と `outer_queue_enabled` は facade が導出します。
 
 `zhao_floating`は、新規実行の最初batch前に設定済み無限遠reservoirとUV sourceから Zhao 零電流定常根を解き、
 その根から`phi(infinity)=0`のkinetic profileを構築します。水平断面積を$A$、定常根のinterface電場を$E_I$
@@ -504,10 +656,11 @@ interfaceを出た粒子のinstant return / escapeは、この同じprofileを�
 このmodeは未帯電状態からの物理過渡を時間積分せず、定常branch上の初期条件を明示的に与えます。定常・準定常量の
 評価用であり、UV立上がりやreturn-current遅延の主張には使いません。後者のためのqueue過渡closureは別modeとして残ります。
 
-`zhao_floating`は次を要求します。
+公開 facade の `zhao_floating` は次を要求します。
 
-- `kinetic_1d` + `zhao_charge_driven` + `kinetic_1d_profile_return` + `electrostatic_1d_instant_return`
-- `outer_queue_enabled=false`、`zero_mode_policy="exclude_k0"`、対応するlower boundary model
+- `external_boundary.field.model="kinetic_1d"` +
+  `kinetic_closure="zhao_charge_driven"` + `external_boundary.particles.mode="same_batch"`
+- `zero_mode_policy="exclude_k0"` と対応する lower boundary model
 - 新規実行では全meshの初期電荷0。`output.resume=true`ではcheckpointのmesh電荷とouter stateを復元し、再seedしない
 - `mesh.mode="template"`で、選択meshが水平・同一高さの1平面としてperiodic cellの$A$を覆い、outer interfaceより下にあること
 
@@ -516,18 +669,18 @@ seedから同じ定常観測量へ返るかを確認します。
 
 粒子移送の規則:
 
-- `outer_plasma.return_model`と`coupling.particle_transfer_mode`は上表の対応する組を指定します。
+- 正規化後の `outer_plasma.return_model` と `coupling.particle_transfer_mode` は上表の対応する対になります。
 - 1D transferはopenなz-high interface、x/y周期wrap、`b0=0`だけに対応します。
 - `kinetic_1d`はenabledな負・正z-high `reservoir_face` speciesをそれぞれちょうど1つ要求します。
 - instant modeは正の`field_evolution_timescale`を要求し、`max_frozen_field_ratio`を適用性上限に使います。
-- queue modeは`kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` + `kinetic_1d_profile_return`、
-  `particle_transfer_mode="electrostatic_1d_instant_return"`、直接指定または`dt * batch_duration_step`から解決した正の
-  `batch_duration`、`outer_update_stride=1`を要求します。
+- 公開 facade の `zhao_queue` は `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"`、
+  直接指定または`dt * batch_duration_step`から解決した正の`batch_duration`を要求し、
+  runtime の `outer_update_stride` を 1 に固定します。
   各eventでは`tau_outer`、次のbatch-start pollまでの遅延、midpoint crossing時刻誤差上限の合計に
   `max_frozen_field_ratio * field_evolution_timescale`の上限を課し、`batch_duration`にも同じ上限を要求します。
-- queue modeは`photoelectron_histogram_enabled=true`を拒否します。3D explicit orbitのpersistent queueは未実装です。
+- queue modeではphotoelectron histogramを公開設定できません。3D explicit orbitのpersistent queueは未実装です。
 
-### periodic2 / outer plasma / coupling の組合せ制約
+### periodic2 と外部境界の組合せ制約
 
 関連exampleは目的別に選びます。
 
@@ -542,8 +695,8 @@ seedから同じ定常観測量へ返るかを確認します。
 光電子 histogram の規則:
 
 - 全 MPI rank を集約し、前 batch と累積の値を checkpoint に保存します。
-- histogram は診断と適用性検査だけを担当します。return / escape は `return_model` と `particle_transfer_mode` が決めます。
-- 両方の ID が `electrostatic_1d_instant_return` の場合だけ有効化できます。
+- histogram は診断と適用性検査だけを担当します。return / escape は `field.model` と `particles.mode` から解決されます。
+- 公開 facade では `linear_debye + same_batch` の場合だけ有効化できます。
 - `photoelectron_density_model="kinetic_mean"` とは、必要な return model が異なるため併用できません。
 - z-high outward crossing の signed charge が適用性上限を超えると停止します。
 - tracked outer transfer を使う全 `photo_raycast` species で `deposit_opposite_charge_on_emit=true` が必要です。
@@ -564,7 +717,16 @@ periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要�
 `cached_kneq0`では`exclude_k0` providerが物理的$k=0$を1回加えます。
 `symmetric_vacuum`は上下を$\pm Q/(2\epsilon_0A)$、`e_bottom_zero`は下側0・上側$Q/(\epsilon_0A)$とします。
 
-### `[sim]`: 外部場・流入補助・粒子境界
+### `[sim]`: 外部場と外部境界が参照する物理値
+
+`phi_infty` と `sheath_*` はモデルが参照する物理値なので、新しい
+`[external_boundary]` と併用します。一方、`reservoir_potential_model`、
+`open_boundary_model`、`sheath_injection_model` は旧互換 selector です。
+facade 使用時はこれら3つを書かず、`external_boundary.particles` と
+`external_boundary.ordinary_open` から導出させます。
+
+以下のraw selector説明は、旧設定と正規化後のruntime状態を読むために残しており、
+新規設定向けの別APIではありません。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -577,34 +739,40 @@ periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要�
 一様外部電場は、`e0 = [Ex, Ey, Ez]` で直接指定するか、`e0_abs` と角度で指定します。
 両形式の混在はエラーです。
 
-#### 流入補助とシース補正
+#### 物理値と旧selectorの互換リファレンス
+
+表中で「旧selector」と示した3行は互換入力専用です。それ以外はfacadeからも参照される
+物理値または共通の境界処理値です。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `reservoir_potential_model` | string | `"none"` | `none` / `infinity_barrier` |
+| `reservoir_potential_model` | string | `"none"` | 旧 selector。`none` / `infinity_barrier` |
 | `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
-| `open_boundary_model` | string | `"escape"` | `escape` / `potential_barrier` |
+| `open_boundary_model` | string | `"escape"` | 旧 selector。`escape` / `potential_barrier` |
 | `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard`。1 step の box event 上限超過時の処理 |
 | `multiple_box_events_soft_discard_count_limit` | int | `1000` | 累積 soft discard 件数がこの値を超えると停止 |
 | `multiple_box_events_soft_discard_abs_charge_limit` | float | `1e-12` | 累積 soft discard 絶対 macro charge [C] がこの値を超えると停止 |
 | `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の `N x N` 評価格子 |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大反射回数 |
-| `sheath_injection_model` | string | `"none"` | `none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
+| `sheath_injection_model` | string | `"none"` | 旧 selector。`none` / `zhao_auto` / `zhao_a` / `zhao_b` / `zhao_c` / `floating_no_photo` |
 | `sheath_alpha_deg` | float | `60.0` | Zhao シースの太陽高度角 [deg] |
 | `sheath_photoelectron_ref_density_cm3` | float | `64.0` | Zhao シースの基準光電子密度 [cm^-3] |
 | `sheath_reference_coordinate` | float | 未指定 | シース 1D 座標の基準平面位置 [m] |
 | `sheath_electron_drift_mode` | string | `"normal"` | `normal` / `full` |
 | `sheath_ion_drift_mode` | string | `"normal"` | `normal` / `full` |
 
-組合せと詳細:
+互換runtimeでの組合せと詳細:
 
-- `sheath_injection_model != "none"` は、現状 `reservoir_potential_model="none"` と組み合わせます。
-- 設定値は [`sim.sheath_injection_model`](#simsheath_injection_model-シース流入補正)にあります。
+- 公開facadeでは`particles.inflow_model="legacy_sheath"`と`"infinity_barrier"`を同時に選べません。
+  正規化後のruntimeでは、これは`sheath_injection_model != "none"`と
+  `reservoir_potential_model="none"`の組として表れます。
+- legacy sheathの値と挙動は[シース流入補正](SheathInjectionClosures.html)にあります。
 - 流束と速度は[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)を確認してください。
 - シース補正と反射・return は[シース流入補正](SheathInjectionClosures.html)と
   [粒子の escape と return](ParticleEscapeReturn.html)に分けています。
 
-`reservoir_potential_model="infinity_barrier"` の評価:
+`external_boundary.particles.inflow_model="infinity_barrier"`の評価
+（互換runtimeでは`reservoir_potential_model="infinity_barrier"`）:
 
 - 各 batch 冒頭で更新した電場・電位から、注入面平均電位を評価します。
 - point / `triangle_p0` kernel、periodic2、zero mode、outer profile、`e0` は粒子運動と同じ規約で含めます。
@@ -626,7 +794,8 @@ periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要�
 粒子境界は `open`, `reflect`, `periodic` を指定します。
 `open` は `outflow`, `escape` も同義語として受理されます。
 
-`open_boundary_model="potential_barrier"` の判定:
+`external_boundary.ordinary_open.model="potential_barrier"`の判定
+（互換runtimeでは`open_boundary_model="potential_barrier"`）:
 
 1. 境界通過点の BEM 電位 `phi_boundary` を、粒子運動と同じ snapshot 規約で評価します。`e0` の局所電位も含みます。
 2. 電位障壁 `q_particle * (phi_infty - phi_boundary)` を計算します。
@@ -718,7 +887,9 @@ Grid 分布では、`velocity_grid_path` の CSV を読み込みます。
 
 どちらの PDF でも、`v_n > 0` の速度だけを使います。
 `velocity_grid_path` の相対パスは実行時のカレントディレクトリ基準です。
-現状、`velocity_distribution="grid"` は `sim.sheath_injection_model="none"` のときのみ有効です。
+現状、`velocity_distribution="grid"`は
+`external_boundary.particles.inflow_model!="legacy_sheath"`のときのみ有効です。
+正規化後のruntimeでは`sim.sheath_injection_model="none"`に対応します。
 
 粒子数は次のように決まります。
 
@@ -762,13 +933,17 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 `field_bc_mode="periodic2"` では、periodic image に命中しても primary cell に wrap した hit 座標から放出します。
 
 生成した光電子は常に`w_hit`を重みに使い、通常粒子として追跡します。表面へ戻れば通常の衝突として吸収し、
-open面では`open_boundary_model`またはouter particle transferがreturn / escapeを決めます。
+open面では`external_boundary.ordinary_open.model`、z-high interfaceでは
+`external_boundary.particles.mode`から解決した輸送がreturn / escapeを決めます。
 
 ---
 
-### `sim.sheath_injection_model`: シース流入補正
+### 旧互換runtime selector `sim.sheath_injection_model`
 
-`sim.sheath_injection_model` は、既存の `reservoir_face` / `photo_raycast` species を束ね、シースに対応する流束や法線速度 cutoff を上書きする共有設定です。
+新規設定では`external_boundary.particles.inflow_model="legacy_sheath"`と
+`legacy_sheath_model`を使います。以下は、旧設定と正規化後のruntime値を解釈するための説明です。
+`sim.sheath_injection_model`は既存の`reservoir_face` / `photo_raycast` speciesを束ね、
+シースに対応する流束や法線速度cutoffを上書きします。
 
 | 値 | 内容 |
 |---|---|

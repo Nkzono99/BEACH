@@ -15,7 +15,6 @@ bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
 rng_seed = 12345
-open_boundary_model = "escape"
 field_solver = "fmm"
 field_bc_mode = "periodic2"
 field_periodic_image_layers = 1

@@ -4,44 +4,41 @@ Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.m
 
 # 粒子のescapeとreturn
 
-open境界へ到達した粒子の扱いは、次の5つのmodelに整理できます。
+粒子が open 面へ到達したときは、最初に「z-high の外部領域がその面を所有するか」を判定します。
+設定も同じ責務に合わせて2段に分けます。
 
-1. `escape`: 粒子をその場で除去する。
-2. `potential_barrier`: 通過点のscalar電位から反射またはescapeを判定する。
-3. `linear_debye`: 解析的な1D Debye profileでescape/returnを写像する。
-4. `kinetic_1d`: 自己整合に解いた離散1D profileでescape/returnを写像する。
-5. `unified_linear_response`: 外部3D場中の軌道を積分してescape/returnを判定する。
-
-この一覧は境界処理アルゴリズムの比較であり、運用上の推奨順位ではありません。自己整合な外部シースの標準経路は
-`kinetic_1d`と対応する1D transferです。`unified_linear_response`と3D explicit orbitは、rough surfaceの線形screeningと
-3D外部軌道の両方が必要な場合の高度な経路です。
-
-ただし、これらは同じ設定キーの5択ではありません。`escape`と`potential_barrier`は通常のopen面に使う
-`sim.open_boundary_model`です。残り3つはz-highを外部領域へのownership interfaceにしたときの
-`outer_plasma.model`であり、対応する`return_model`と`particle_transfer_mode`を組み合わせます。
+1. outer が所有しない面は `external_boundary.ordinary_open.model` で処理する。
+2. `particles.mode="same_batch"` または `"zhao_queue"` が所有する z-high は、
+   `external_boundary.field.model` に対応する外部軌道で処理する。
 
 ```text
 open面を粒子が通過
-├─ outer transferの対象外
+├─ outerが所有しない面
 │  ├─ escape                    無条件に除去
 │  └─ potential_barrier         scalar障壁で反射またはescape
-└─ z-highをouter transfer
+└─ particles.modeが所有するz-high
    ├─ linear_debye              解析的1D return
    ├─ kinetic_1d                離散1D profile return
    └─ unified_linear_response   明示的3D outer orbit
 ```
 
-## 5つのmodelを比較する
+したがって、5つを1つの model 選択肢として並べる必要はありません。
+通常 open 面には次の2択があります。
 
-| model | 外部状態 | 粒子の判定方法 | return時間 | 主な用途 |
+| `ordinary_open.model` | 外部状態 | 粒子の判定方法 | 主な用途 |
+| --- | --- | --- | --- |
+| `escape` | なし | 常にescape | 単純な有限box |
+| `potential_barrier` | 通過点のscalar電位 | 法線energyと障壁を比較 | 低コストな局所反射 |
+
+z-high を outer が所有する場合は `particles.mode` で追跡方法を選び、具体的な軌道は field から導出します。
+
+| `field.model` | 外部状態 | 粒子の判定方法 | return時間 | 主な用途 |
 | --- | --- | --- | --- | --- |
-| `escape` | なし | 常にescape | なし | 単純な有限box |
-| `potential_barrier` | 通過点のscalar電位 | 法線energyと障壁を比較 | なし | 低コストな局所反射 |
 | `linear_debye` | 解析的な指数1D profile | 保存energy | 解析式 | 簡易な準定常1D outer plasma |
 | `kinetic_1d` | 収束した離散1D profile | 保存energyとturning point探索 | profileを積分 | **標準:** 自己整合な平均sheath |
 | `unified_linear_response` | zero/nonzero modeを含む3D場 | 外部軌道を時間積分 | 軌道から計測 | **高度:** rough surfaceを含む線形3D応答 |
 
-どのmodelでも粒子sourceには依存しません。reservoir粒子、光電子、`volume_seed`粒子は、同じ状態で同じ面を
+どの境界処理も粒子sourceには依存しません。reservoir粒子、光電子、`volume_seed`粒子は、同じ状態で同じ面を
 横切れば同じ境界処理を受けます。外部場自体の選び方は
 [境界・外部領域の構成を選ぶ](OuterPlasmaModels.html)にまとめています。
 
@@ -50,8 +47,14 @@ open面を粒子が通過
 最も単純なmodelです。outer transfer対象でないopen面に対して次を指定します。
 
 ```toml
-[sim]
-open_boundary_model = "escape"
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+
+[external_boundary.ordinary_open]
+model = "escape"
 ```
 
 粒子は境界通過位置で直ちに除去されます。macro電荷$qw$はspecies別`escaped_to_infinity`へ計上され、
@@ -67,8 +70,16 @@ reflectまたはescapeを選びます。
 
 ```toml
 [sim]
-open_boundary_model = "potential_barrier"
 phi_infty = 0.0
+
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+
+[external_boundary.ordinary_open]
+model = "potential_barrier"
 ```
 
 ### 通過点の法線energyだけを比較する
@@ -103,12 +114,14 @@ interfaceから外側の電位差をDebye長$\lambda_D$の指数profileで表す
 解析式からescape/return、往復時間、接線変位を一度に求めます。
 
 ```toml
-[outer_plasma]
+[external_boundary.field]
 model = "linear_debye"
-return_model = "electrostatic_1d_instant_return"
+debye_length = 0.2
+thermal_voltage = 10.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
 ```
 
 ### 保存energyでescapeとreturnを分ける
@@ -151,12 +164,14 @@ ambient electron/ionのVDFから非線形1D Poisson問題を解き、batch開始
 両方へ使うmodelです。
 
 ```toml
-[outer_plasma]
+[external_boundary.field]
 model = "kinetic_1d"
-return_model = "kinetic_1d_profile_return"
+debye_length = 0.2
+thermal_voltage = 2.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
 ```
 
 ### 離散kinetic profile上でturning pointを探す
@@ -224,12 +239,15 @@ rough surfaceからfar planeまでのzero modeとscreened nonzero modeを一つ�
 外部粒子を明示的に追跡します。
 
 ```toml
-[outer_plasma]
+[external_boundary.field]
 model = "unified_linear_response"
-return_model = "electrostatic_3d_explicit_orbit"
+debye_length = 0.2
+thermal_voltage = 2.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_3d_explicit_orbit"
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
+outer_orbit_dt = 1.0e-4
 ```
 
 ### unified 3D field中で外部軌道を進める
@@ -266,13 +284,14 @@ energy errorに対して収束確認します。場の構成と適用範囲は
 
 ### z-highを粒子ownershipのinterfaceにする
 
-`coupling.particle_transfer_mode`が有効なz-high open面だけが、交差情報をouter modelへ渡します。
+`external_boundary.particles.mode`が所有するz-high open面だけが、交差情報をouter modelへ渡します。
 
-| `particle_transfer_mode` | 対応するmodel | 粒子処理 |
+| `particles.mode` | 対応するfield | 粒子処理 |
 | --- | --- | --- |
-| `none` | outer transferなし | 通常のopen境界 |
-| `electrostatic_1d_instant_return` | `linear_debye`または`kinetic_1d` | 保存energyからescape/returnを写像。対応するZhao構成ではqueueへ遅延可能 |
-| `electrostatic_3d_explicit_orbit` | `unified_linear_response` | batch内で固定された3D場で外部軌道を時間積分 |
+| `local_source` | すべて | 通常のopen境界 |
+| `same_batch` | `linear_debye` / `kinetic_1d` | 保存energyからescape/returnを写像 |
+| `same_batch` | `unified_linear_response` | batch内で固定された3D場で外部軌道を時間積分 |
+| `zhao_queue` | Zhao `kinetic_1d` | 1D結果を後続batchのeventへ遅延 |
 
 1D/3D transferはいずれもz-highがopenであることと`sim.b0=0`を要求します。現行modelは外部領域での磁場軌道を
 扱いません。
@@ -321,23 +340,21 @@ outward/returned chargeは同じbatchに計上されます。
 [sim]
 batch_duration = 2.5e-7
 
-[outer_plasma]
+[external_boundary.field]
 model = "kinetic_1d"
 kinetic_closure = "zhao_charge_driven"
-photoelectron_histogram_enabled = false
-return_model = "kinetic_1d_profile_return"
+debye_length = 10.5
+thermal_voltage = 10.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
-outer_update_stride = 1
+[external_boundary.particles]
+mode = "zhao_queue"
 field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
-outer_queue_enabled = true
 ```
 
 `linear_debye`、`absorbing_maxwellian`、3D explicit orbit、legacy photoelectron histogramとの組合せは拒否します。
 さらに`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を要求します。
-`outer_queue_enabled=true`は、tracked粒子のouter flightとZhao光電子populationを一つの保存inventoryで接続します。
+`particles.mode="zhao_queue"`は、tracked粒子のouter flightとZhao光電子populationを一つの保存inventoryで接続します。
 各rankはeventをlocal queueに保持し、Zhao closureへの入力として光電子のmacro粒子数をMPI全体で合計します。
 batch開始時にdue eventを除いた
 光電子column targetは

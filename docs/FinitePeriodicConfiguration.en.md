@@ -37,10 +37,18 @@ bc_y_low = "periodic"
 bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
-open_boundary_model = "potential_barrier"
-reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
 injection_face_phi_grid_n = 5
+
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+inflow_model = "infinity_barrier"
+
+[external_boundary.ordinary_open]
+model = "potential_barrier"
 ```
 
 | Parameter | Typical value | Meaning in this configuration |
@@ -48,8 +56,8 @@ injection_face_phi_grid_n = 5
 | `field_bc_mode` | `"periodic2"` | Add x/y periodic images to the field source |
 | `field_periodic_image_layers` | Start at `1`, then converge | Set the finite image-shell range |
 | `field_periodic_far_correction` | `"none"` | Keep a finite-image model without an Ewald or cached far operator |
-| `reservoir_potential_model` | `"infinity_barrier"` | Use face-average potential for upstream accessibility and face velocity |
-| `open_boundary_model` | `"potential_barrier"` | Use energy at each crossing to classify reflection or escape |
+| `external_boundary.particles.inflow_model` | `"infinity_barrier"` | Use face-average potential for upstream accessibility and face velocity |
+| `external_boundary.ordinary_open.model` | `"potential_barrier"` | Use energy at each crossing to classify reflection or escape |
 | `phi_infty` | Match the physical gauge | Shared reference potential for reservoir and open outflow |
 | `injection_face_phi_grid_n` | Start at `5`, then converge | Samples per periodic axis for face mean and variation |
 
@@ -101,7 +109,7 @@ or the far boundary along z. Use the infinite-periodic plus outer-plasma configu
 
 ## Correct reservoir inflow with face-average potential
 
-With `reservoir_potential_model="infinity_barrier"`, the batch-start finite-image snapshot gives mean aperture potential
+With `external_boundary.particles.inflow_model="infinity_barrier"`, the batch-start finite-image snapshot gives mean aperture potential
 $\bar\phi_f$. Relative to `phi_infty`, it:
 
 - selects accessible normal speeds from the upstream VDF;
@@ -119,7 +127,7 @@ energy.
 
 ## Classify crossing-point energy at open faces
 
-`open_boundary_model="potential_barrier"` compares crossing-point potential to `phi_infty`, reflects particles whose normal
+`external_boundary.ordinary_open.model="potential_barrier"` compares crossing-point potential to `phi_infty`, reflects particles whose normal
 energy is insufficient, and removes particles that can cross the barrier as escape.
 
 Reservoir `infinity_barrier` and outflow `potential_barrier` can use the same energy convention, but the former filters an upstream

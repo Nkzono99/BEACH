@@ -158,16 +158,27 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 | Parameter | Type | Default | Description |
 |------------|------|-----------|------|
 | `b0` | float[3] | [0, 0, 0] | Uniform magnetic field [T] |
-| `reservoir_potential_model` | string | "none" | none, infinity_barrier |
 | `phi_infty` | float | 0.0 | Infinity reference potential [V] |
 | `injection_face_phi_grid_n` | int | 3 | Injection-face potential grid resolution NxN |
 | `raycast_max_bounce` | int | 16 | Maximum number of ray reflections for photo_raycast |
 
-### Sheath Model
+### External Boundary and Sheath
+
+New configurations split `[external_boundary]` into three responsibilities.
+
+| Table | Main choices | Description |
+|------------|------|------|
+| `external_boundary.field` | `none`, `linear_debye`, `kinetic_1d`, `unified_linear_response` | Field of the external plasma response |
+| `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high particle handling; `inflow_model` selects source VDF, scalar barrier, or legacy sheath |
+| `external_boundary.ordinary_open` | `escape`, `potential_barrier` | Open faces not owned by the outer model |
+
+The model and mode derive `return_model`, `particle_transfer_mode`, queue flag,
+and `interface_z`. See [Configure the External Boundary](OuterPlasmaModels.en.html).
+
+### Sheath Physical Inputs
 
 | Parameter | Type | Default | Description |
 |------------|------|-----------|------|
-| `sheath_injection_model` | string | "none" | none, zhao_auto, zhao_a, zhao_b, zhao_c, floating_no_photo |
 | `sheath_alpha_deg` | float | 60.0 | Solar elevation angle [deg] |
 | `sheath_photoelectron_ref_density_cm3` | float | 64.0 | Reference photoelectron density [cm^-3] |
 | `sheath_reference_coordinate` | float | - | Sheath reference-plane coordinate [m] |
@@ -533,7 +544,7 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 | `reservoir_face` | `use_box=true`, `batch_duration>0`, `inject_face` specified |
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
 | `periodic2` | Normally `field_solver=fmm`; the Direct split reference is the exception. Exactly two periodic axes and `use_box=true` |
-| Sheath model | Compatible with `reservoir_potential_model = "none"` |
+| Legacy sheath inflow | Set `external_boundary.particles.inflow_model="legacy_sheath"` and `legacy_sheath_model` |
 | Resume | `write_files=true`, checkpoint file exists, in the `restart_from` directory when specified, MPI size matches |
 | Performance profiling | Environment variable `BEACH_PROFILE=1` |
 | MPI run | Compiled with `-DUSE_MPI`, MPI compiler wrapper used |

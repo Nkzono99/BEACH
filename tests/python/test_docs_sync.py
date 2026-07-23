@@ -121,7 +121,7 @@ def test_japanese_pages_name_the_batch_fixed_field_concretely() -> None:
             assert phrase not in text, f"{page.source}: {phrase}"
 
 
-def test_particle_escape_return_is_grouped_by_model() -> None:
+def test_particle_escape_return_starts_from_boundary_ownership() -> None:
     expected_headings = {
         "ParticleEscapeReturn.md": (
             "## 1. `escape`: open面で粒子を除去する",
@@ -143,9 +143,11 @@ def test_particle_escape_return_is_grouped_by_model() -> None:
         text = _read_doc(name)
         positions = [text.index(heading) for heading in headings]
         assert positions == sorted(positions)
-        assert "sim.open_boundary_model" in text
-        assert "outer_plasma.model" in text
-        assert "particle_transfer_mode" in text
+        assert "external_boundary.ordinary_open.model" in text
+        assert "external_boundary.field.model" in text
+        assert "external_boundary.particles.mode" in text
+        assert "sim.open_boundary_model" not in text
+        assert "particle_transfer_mode" not in text
 
 
 def test_config_init_docs_match_official_tutorial_case() -> None:

@@ -32,7 +32,7 @@ coordinates while loading.
 | OBJ mesh | `[mesh]` | Use external geometry |
 | Choose particle injection | `[[particles.species]]` | Switch inflow, initial particles, or photoemission |
 | Two-periodic-axis boundary (finite image sum) | `[sim]` | Include a selected range of periodic images |
-| Advanced outer-sheath coupling | `[periodic2]`, `[outer_plasma]`, `[coupling]` | Couple infinite periodicity, `kinetic_1d`, and UV photoelectrons |
+| Advanced outer-sheath coupling | `[periodic2]`, `[external_boundary]` | Couple infinite periodicity, `kinetic_1d`, and UV photoelectrons |
 | History output | `[output]` | Visualize time evolution |
 | Resume run | `[output]` | Continue from checkpoint |
 

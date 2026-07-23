@@ -4,15 +4,31 @@ Lang: [日本語](SheathInjectionClosures.md) | [English](SheathInjectionClosure
 
 # シース流入補正
 
-`sim.sheath_injection_model`は、解析的なシースモデルから`reservoir_face`と`photo_raycast`の密度、drift、
-cutoffを決めます。補正結果はsource samplingへ適用し、生成後の粒子は、別に構成されてbatch内で固定された電場中を進みます。
+`external_boundary.particles.inflow_model="legacy_sheath"`は、解析的なシースモデルから
+`reservoir_face`と`photo_raycast`の密度、drift、cutoffを決めます。具体的な解析モデルは
+`legacy_sheath_model`で選びます。`sim.sheath_*`はモデルが参照する物理値として残ります。
+補正結果はsource samplingへ適用し、生成後の粒子は、別に構成されてbatch内で固定された電場中を進みます。
+
+```toml
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+inflow_model = "legacy_sheath"
+legacy_sheath_model = "zhao_auto"
+```
 
 | model | 解く量 | particle sourceへ反映する量 |
 | --- | --- | --- |
-| `none` | なし | 設定したVDFをそのまま使用 |
 | `floating_no_photo` | 光電子なしの負の浮遊電位 | electronの法線cutoff |
-| `zhao_a/b/c` | 指定したZhao branchの解析モデル | electron/ion/photoelectronの密度、drift、cutoff、放出電流 |
 | `zhao_auto` | 太陽高度に応じてZhao branchを探索 | 収束したbranchと同じ補正 |
+| `zhao_a` | Zhao Type A branchの解析モデル | electron/ion/photoelectronの密度、drift、cutoff、放出電流 |
+| `zhao_b` | Zhao Type B branchの解析モデル | electron/ion/photoelectronの密度、drift、cutoff、放出電流 |
+| `zhao_c` | Zhao Type C branchの解析モデル | electron/ion/photoelectronの密度、drift、cutoff、放出電流 |
+
+補正なしは`legacy_sheath_model`の値ではありません。
+`external_boundary.particles.inflow_model="source_vdf"`を選び、設定したVDFをそのまま使います。
 
 自己整合なouter Poisson profileは[kinetic 1D外部プラズマ](KineticOuterPlasma.html)、rough surfaceを含む
 線形fieldは[unified linear response](UnifiedLinearResponse.html)で説明します。
@@ -90,7 +106,7 @@ potential minimum $\phi_m$、有効solar-wind electron密度$n_{\mathrm{swe},\in
 
 `zhao_auto`は$\alpha<20^\circ$でC→A→B、それ以外でA→B→Cの順にrootを試します。この探索は、
 Zhao family内でbranchを選ぶためのものです。すべて失敗すれば停止し、`floating_no_photo`やouter Poisson modelへ切り替えません。
-`zhao_a/b/c`を明示した場合は指定branchだけを解き、失敗時に別branchへ移りません。
+`zhao_a`、`zhao_b`、`zhao_c`を明示した場合は指定branchだけを解き、失敗時に別branchへ移りません。
 
 ## モデルの解を各sourceへ反映する
 
@@ -146,7 +162,7 @@ $$
 距離において、Zhao 1D profileをsampleします。局所$\phi(z_s)$からfree/reflected electron、free/captured photoelectron、ionの速度と
 密度を再構成し、electron density/cutoffとion cold-beam法線速度に反映します。
 
-この経路はすでにlocal VDFを構成しているため、汎用の`reservoir_potential_model`によるbarrier energy shiftを
+この経路はすでにlocal VDFを構成しているため、`inflow_model="infinity_barrier"`によるbarrier energy shiftを
 重ねません。
 
 ## Zhaoモデルを使う範囲
@@ -155,25 +171,26 @@ Zhao profileから得る量は、文献モデルに基づくsource VDFの事前�
 batchごとの`q_elem`からは更新されません。したがって、任意の3D surface geometryと自己整合な外部場を必要とする構成には対応しません。
 
 これは legacy の static injection closure です。新しい
-`outer_plasma.model="kinetic_1d"` + `kinetic_closure="zhao_charge_driven"` は source 補正ではなく、outer refresh ごとに
+`external_boundary.field.model="kinetic_1d"` + `kinetic_closure="zhao_charge_driven"` は source 補正ではなく、outer refresh ごとに
 蓄積電荷が作る interface 電場を境界条件として Zhao population と Poisson profile を更新します。floating-current root を
 課さず、同じ profile を流入と return に使うため、帯電途中の total current は非零でも構いません。この 2 経路は併用できません。
 
-sourceと外向き粒子が同じ自己整合potential profileを共有する計算には、標準の
-`kinetic_1d + kinetic_1d_profile_return`を使います。split windowを置けないrough surfaceで線形screeningが必要な場合だけ、
+sourceと外向き粒子が同じ自己整合potential profileを共有する計算には、
+`field.model="kinetic_1d"`と`particles.mode="same_batch"`を使います。split windowを置けないrough surfaceで線形screeningが必要な場合だけ、
 適用性を検証したunified構成を使います。
 
 ## 一つのsource補正だけを適用する
 
-- `sheath_injection_model`は`reservoir_potential_model`との併用を拒否します。
+- `inflow_model="legacy_sheath"`と`"infinity_barrier"`は同時に選べません。
 - `velocity_distribution="grid"`のreservoirは現行Zhao/floating補正と併用できません。
-- `kinetic_1d_profile_return`は Zhao 系 `sheath_injection_model` と `reservoir_potential_model` を拒否します。
-  `outer_plasma.kinetic_closure="zhao_charge_driven"` は別経路として対応します。
+- tracked `kinetic_1d`はlegacy sheathとscalar barrierを拒否します。
+  `external_boundary.field.kinetic_closure="zhao_charge_driven"`は別経路として対応します。
 - Zhaoは負electron、正ion、負photoelectronの3 speciesを要求します。
 - `floating_no_photo`は負electronと正ionだけを使い、photoelectron sourceを補正しません。
 
-光電子は放出後に通常粒子として追跡します。有限boxでは`open_boundary_model="potential_barrier"`、外部sheathでは
-`outer_plasma.return_model`と`coupling.particle_transfer_mode`がreturn / escapeを決めます。
+光電子は放出後に通常粒子として追跡します。有限boxでは
+`external_boundary.ordinary_open.model="potential_barrier"`、外部sheathでは
+`external_boundary.field.model`と`external_boundary.particles.mode`がreturn / escapeを決めます。
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)に電荷収支をまとめています。
 
 ## Code reference

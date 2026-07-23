@@ -45,11 +45,27 @@ conditions and restart roles.
 | Particle processing | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | particle-event totals and recorded soft discards |
 | Progress | `batches`, `last_rel_change` | completed batches and final-batch charge-change monitor |
 | Field evaluation | `field_backend`, `field_source_model`, `field_kernel_id` | field solver and source kernel used for the output |
+| Resolved external boundary | `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | inflow, ordinary-open handling, z-high transport, and timing resolved from the public configuration |
 
 `absorbed` is an event count; it does not include charge sign or macro-particle weight. Read charge amounts from
 `charge_ledger.csv` and the final distribution from `charges.csv`.
 
 `last_rel_change` is a monitoring value. It is not an early-stop condition in the current implementation.
+
+The four external-boundary keys are not configuration inputs. They are a
+receipt showing how the `[external_boundary]` facade resolved at runtime.
+
+| Key | Output values |
+| --- | --- |
+| `external_inflow_map` | `source_vdf` / `infinity_barrier` / `legacy_sheath` / `linear_profile` / `kinetic_profile` |
+| `external_ordinary_open_model` | `escape` / `potential_barrier` |
+| `external_interface_transport` | `none` / `linear_1d` / `kinetic_1d` / `unified_3d` |
+| `outer_particle_mode_resolved` | `local_source` / `same_batch` / `zhao_queue` |
+
+For example, `particles.inflow_model="auto"` resolves to
+`external_inflow_map=source_vdf`, `linear_profile`, or `kinetic_profile`
+according to the field and particle mode. Preserve both the input facade and
+this receipt when checking reproducibility.
 
 ## `charge_ledger.csv`: Charge Transfer by Species
 
@@ -112,8 +128,8 @@ See [History Animation](PostprocessTutorial.en.html#history-animation) for plots
 | --- | --- | --- |
 | Break down runtime | `performance_profile.csv` | `BEACH_PROFILE=1` |
 | Read the outer-sheath grid profile | `outer_plasma_profile.csv` | a `kinetic_1d` / `unified_linear_response` outer state is ready |
-| Read the photoelectron energy distribution | `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` and the state is ready |
-| Resume transient Zhao events | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `coupling.outer_queue_enabled=true`; former for serial, latter per MPI rank |
+| Read the photoelectron energy distribution | `photoelectron_histogram.csv` | `external_boundary.field.photoelectron_histogram_enabled=true` and the state is ready |
+| Resume transient Zhao events | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `external_boundary.particles.mode="zhao_queue"`; former for serial, latter per MPI rank |
 | Resume random-number state | `rng_state.txt` / `rng_state_rankNNNNN.txt` | former for serial, latter per MPI rank |
 | Restore fractional macro-particles | `macro_residuals.csv` | residual state is allocated; one file even with MPI |
 

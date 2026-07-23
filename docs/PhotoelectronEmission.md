@@ -95,11 +95,12 @@ MPI all-reduce後に同じbatch commitへ加えます。
 
 ray hitで生成する光電子の重みは常に$w_\mathrm{hit}$です。放出時にescape率を掛けて粒子重みを減らす設定はありません。
 表面へ戻った粒子は通常の衝突として再吸収し、open面へ達した粒子にはreservoir粒子や`volume_seed`粒子と同じ
-`open_boundary_model`またはouter particle transferを適用します。
+`external_boundary.ordinary_open`またはouter particle modeを適用します。
 
-有限boxで外部領域を解かない場合は`open_boundary_model="potential_barrier"`が通過点の電位と法線運動エネルギーから
-反射またはescapeを決めます。自己整合な外部sheathを使う場合は`outer_plasma.return_model`と
-`coupling.particle_transfer_mode`が正本です。scalar barrier、1D outer profile return、unified 3D explicit orbitの違いは
+有限boxで外部領域を解かない場合は`external_boundary.ordinary_open.model="potential_barrier"`が
+通過点の電位と法線運動エネルギーから反射またはescapeを決めます。自己整合な外部sheathを使う場合は
+`external_boundary.field.model`と`external_boundary.particles.mode`が正本です。
+scalar barrier、1D outer profile return、unified 3D explicit orbitの違いは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
 
 tracked outer transferを使う`photo_raycast` speciesでは、histogramの有無によらず、放出と帰還の電荷収支を閉じるため
@@ -107,33 +108,37 @@ tracked outer transferを使う`photo_raycast` speciesでは、histogramの有�
 
 ## 光電子をouter plasmaの平均密度へ含める
 
-`outer_plasma.photoelectron_density_model="kinetic_mean"`は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を、
+`external_boundary.field.photoelectron_density_model="kinetic_mean"`は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を、
 平面平均sourceとして1D Poisson密度モデルへ加えます。outgoing populationと、turning後のreturning populationが、
 outer領域の空間電荷に寄与します。この平均密度モデルは、個々のtracked粒子の表面吸収を置き換えません。
 統計的なreturn電荷を、別途表面へdepositすることもありません。
 
-平均密度モデルとhistogramは別の責務を持ちます。ただし、現行実装では`kinetic_mean`が
-`return_model="none"`または`kinetic_1d_profile_return`を要求する一方、histogramは
-`electrostatic_1d_instant_return`を要求するため、両方を同時に有効化できません。
+平均密度モデルとhistogramは別の責務を持ちますが、現行の対応 model/mode が異なるため、
+両方を同時に有効化できません。
 
 生成後のtracked光電子をz-high interfaceからouter領域へ渡す場合も、粒子sourceに依存しない共通の
 escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
-Zhao系は、branchに応じて放出電流密度、法線cutoff、driftを与える注入補正モデルです。tracked粒子は
-Zhao profileの$E(z)$ではなく、通常の粒子追跡で使う、batch内で固定された電場中を進みます。
+`external_boundary.particles.inflow_model="legacy_sheath"`で選ぶlegacy Zhaoは、branchに応じて
+放出電流密度、法線cutoff、driftだけをsource samplingへ与えます。この経路は空間的な$E(z)$を構築しないため、
+生成後のtracked粒子は、別に構成されたbatch固定の電場中を進みます。
+
+一方、`external_boundary.field.kinetic_closure="zhao_charge_driven"`は、蓄積電荷が決めるinterface電場を保つ
+自己整合な1D outer profileを構築します。`external_boundary.particles.mode="zhao_queue"`では、さらに
+tracked outer inventoryから光電子populationを閉じます。`mode="same_batch"`または`"zhao_queue"`では、このprofileが
+z-high interfaceでの流入とreturn / escapeを決めます。legacy Zhaoのsource補正とは別の経路です。
 
 ## outer interfaceの光電子histogramを保存する
 
-`outer_plasma.photoelectron_histogram_enabled=true`は、z-high interfaceを外向きに通過する`photo_raycast`粒子を
+`external_boundary.field.photoelectron_histogram_enabled=true`は、z-high interfaceを外向きに通過する`photo_raycast`粒子を
 法線運動エネルギーbinへ集計します。前batchと累積のsigned charge、全運動エネルギー、接線運動量、個数を
 `photoelectron_histogram.csv`へ保存し、z-high outward interface crossingのsigned chargeとambient charge scaleの比が
 設定上限を超える場合は停止します。
 
-この設定は診断と適用性検査だけを有効にします。粒子のreturn / escapeは変更せず、`outer_plasma.return_model`と
-`coupling.particle_transfer_mode`が引き続き決定します。tracked outer transferを使う全`photo_raycast` speciesに
-`deposit_opposite_charge_on_emit=true`を指定します。現行実装では両方のreturn / transfer IDを
-`electrostatic_1d_instant_return`にした構成だけでhistogramを利用できます。
+この設定は診断と適用性検査だけを有効にします。粒子のreturn / escapeは変更せず、
+`external_boundary.field.model`と`external_boundary.particles.mode`が引き続き決定します。
+tracked outer transferを使う全`photo_raycast` speciesに`deposit_opposite_charge_on_emit=true`を指定します。
 
 ## 光電子放出の収束を確認する
 

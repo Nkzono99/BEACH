@@ -4,44 +4,42 @@ Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.m
 
 # Particle escape and return
 
-Treatment of a particle reaching an open boundary can be organized into five models.
+When a particle reaches an open face, BEACH first decides whether the z-high
+outer region owns that face. Configuration follows the same two-stage split:
 
-1. `escape`: remove the particle immediately.
-2. `potential_barrier`: decide reflection or escape from a scalar potential at the crossing.
-3. `linear_debye`: map escape or return through an analytic 1-D Debye profile.
-4. `kinetic_1d`: map escape or return through a solved discrete 1-D profile.
-5. `unified_linear_response`: integrate an orbit in an external 3-D field to decide escape or return.
-
-This list compares boundary-processing algorithms; it is not an operational ranking. The standard path for a self-consistent
-outer sheath is `kinetic_1d` with its matching 1-D transfer. `unified_linear_response` with an explicit 3-D orbit is an advanced
-path for cases that require both rough-surface linear screening and 3-D motion outside the box.
-
-These are not five alternatives under one configuration key. `escape` and `potential_barrier` are values of
-`sim.open_boundary_model` for ordinary open faces. The other three are values of `outer_plasma.model` when z-high is an
-ownership interface to an outer region, combined with corresponding `return_model` and `particle_transfer_mode` settings.
+1. Faces not owned by the outer region use `external_boundary.ordinary_open.model`.
+2. z-high owned by `particles.mode="same_batch"` or `"zhao_queue"` uses the
+   outer trajectory derived from `external_boundary.field.model`.
 
 ```text
 particle crosses an open face
-+-- face is not owned by outer transfer
++-- face is not owned by the outer model
 |   +-- escape                    remove unconditionally
 |   +-- potential_barrier         reflect or escape at a scalar barrier
-+-- z-high is owned by outer transfer
++-- z-high is owned by particles.mode
     +-- linear_debye              analytic 1-D return
     +-- kinetic_1d                discrete 1-D profile return
     +-- unified_linear_response   explicit 3-D outer orbit
 ```
 
-## Compare the five models
+The five algorithms are therefore not one model selector. Ordinary open faces
+have two choices:
 
-| Model | External state | Particle decision | Return time | Typical use |
+| `ordinary_open.model` | External state | Particle decision | Typical use |
+| --- | --- | --- | --- |
+| `escape` | None | Always escape | Simple finite box |
+| `potential_barrier` | Scalar potential at the crossing | Compare normal energy with a barrier | Low-cost local reflection |
+
+When the outer region owns z-high, `particles.mode` selects tracking and the
+field determines the concrete trajectory:
+
+| `field.model` | External state | Particle decision | Return time | Typical use |
 | --- | --- | --- | --- | --- |
-| `escape` | None | Always escape | None | Simple finite box |
-| `potential_barrier` | Scalar potential at the crossing | Compare normal energy with a barrier | None | Low-cost local reflection |
 | `linear_debye` | Analytic exponential 1-D profile | Conserved energy | Analytic expression | Reduced quasisteady 1-D outer plasma |
 | `kinetic_1d` | Converged discrete 1-D profile | Conserved energy and turning-point search | Profile integration | **Standard:** self-consistent mean sheath |
 | `unified_linear_response` | 3-D field with zero and nonzero modes | Time-integrate an outer orbit | Measured from the orbit | **Advanced:** linear 3-D response over a rough surface |
 
-All five treatments are independent of particle source. Reservoir particles, photoelectrons, and `volume_seed` particles receive
+All boundary treatments are independent of particle source. Reservoir particles, photoelectrons, and `volume_seed` particles receive
 the same boundary treatment when they cross the same face in the same state. See
 [Choosing boundary and outer-domain models](OuterPlasmaModels.en.html) for selecting the external field itself.
 
@@ -50,8 +48,14 @@ the same boundary treatment when they cross the same face in the same state. See
 This is the simplest model. Select it for an open face that is not owned by outer transfer.
 
 ```toml
-[sim]
-open_boundary_model = "escape"
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+
+[external_boundary.ordinary_open]
+model = "escape"
 ```
 
 The particle is removed at the boundary crossing. Its macro charge $qw$ is recorded in species-resolved
@@ -69,8 +73,16 @@ without constructing a spatial profile outside the box.
 
 ```toml
 [sim]
-open_boundary_model = "potential_barrier"
 phi_infty = 0.0
+
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+
+[external_boundary.ordinary_open]
+model = "potential_barrier"
 ```
 
 ### Compare only normal energy at the crossing
@@ -106,12 +118,14 @@ This model represents the potential difference outside the interface by an expon
 It makes z-high an ownership interface and obtains escape or return, round-trip time, and tangential displacement analytically.
 
 ```toml
-[outer_plasma]
+[external_boundary.field]
 model = "linear_debye"
-return_model = "electrostatic_1d_instant_return"
+debye_length = 0.2
+thermal_voltage = 10.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
 ```
 
 ### Separate escape and return with conserved energy
@@ -155,12 +169,14 @@ This model solves a nonlinear 1-D Poisson problem from ambient electron and ion 
 start of each batch for both inflow and outflow.
 
 ```toml
-[outer_plasma]
+[external_boundary.field]
 model = "kinetic_1d"
-return_model = "kinetic_1d_profile_return"
+debye_length = 0.2
+thermal_voltage = 2.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
 ```
 
 ### Find the turning point on a discrete kinetic profile
@@ -229,12 +245,15 @@ nonzero modes. `unified_linear_response` alone does not enable particle return. 
 track particles outside the ownership interface.
 
 ```toml
-[outer_plasma]
+[external_boundary.field]
 model = "unified_linear_response"
-return_model = "electrostatic_3d_explicit_orbit"
+debye_length = 0.2
+thermal_voltage = 2.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_3d_explicit_orbit"
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
+outer_orbit_dt = 1.0e-4
 ```
 
 ### Advance an outer orbit in the unified 3-D field
@@ -271,13 +290,15 @@ escape fractions, flight time, and energy error. See
 
 ### Make z-high the particle-ownership interface
 
-Only an open z-high face with active `coupling.particle_transfer_mode` passes crossing data to an outer model.
+Only an open z-high face owned by `external_boundary.particles.mode` passes
+crossing data to an outer model.
 
-| `particle_transfer_mode` | Corresponding model | Particle treatment |
+| `particles.mode` | Corresponding field | Particle treatment |
 | --- | --- | --- |
-| `none` | No outer transfer | Ordinary open boundary |
-| `electrostatic_1d_instant_return` | `linear_debye` or `kinetic_1d` | Energy-based escape/return map; the matching Zhao configuration can delay it through the queue |
-| `electrostatic_3d_explicit_orbit` | `unified_linear_response` | Time-integrated orbit in a batch-fixed 3-D field |
+| `local_source` | all | Ordinary open boundary |
+| `same_batch` | `linear_debye` / `kinetic_1d` | Energy-based escape/return map |
+| `same_batch` | `unified_linear_response` | Time-integrated orbit in a batch-fixed 3-D field |
+| `zhao_queue` | Zhao `kinetic_1d` | Delay the 1-D result as an event in a later batch |
 
 Both 1-D and 3-D transfer require open z-high and `sim.b0=0`; current models do not include an external magnetic orbit.
 
@@ -329,24 +350,22 @@ For a case that must put outer-flight delay into the batch history, such as stro
 [sim]
 batch_duration = 2.5e-7
 
-[outer_plasma]
+[external_boundary.field]
 model = "kinetic_1d"
 kinetic_closure = "zhao_charge_driven"
-photoelectron_histogram_enabled = false
-return_model = "kinetic_1d_profile_return"
+debye_length = 10.5
+thermal_voltage = 10.0
 
-[coupling]
-particle_transfer_mode = "electrostatic_1d_instant_return"
-outer_update_stride = 1
+[external_boundary.particles]
+mode = "zhao_queue"
 field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
-outer_queue_enabled = true
 ```
 
 Combinations with `linear_debye`, `absorbing_maxwellian`, the explicit 3-D orbit, or the legacy photoelectron histogram are
 rejected. The configuration must also satisfy
 `batch_duration <= max_frozen_field_ratio * field_evolution_timescale`.
-`outer_queue_enabled=true` connects tracked-particle outer flight and the Zhao photoelectron population through one conserved
+`particles.mode="zhao_queue"` connects tracked-particle outer flight and the Zhao photoelectron population through one conserved
 inventory. Each rank retains its local events, while the photoelectron macro-particle number is summed over MPI as the Zhao
 closure input. After due events are removed at a batch start, the target column is
 

@@ -39,6 +39,10 @@
         "interface_field_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001}
       }
     },
+    "external_boundary": {
+      "$ref": "#/$defs/externalBoundary",
+      "description": "Authoring facade for the external field, tracked interface particles, inflow ownership, and ordinary open-boundary behavior. It is lowered to sim, outer_plasma, and coupling before execution."
+    },
     "outer_plasma": {
       "type": "object",
       "description": "Optional outer-domain field model. For a new self-consistent outer sheath, use kinetic_1d as the standard model. unified_linear_response is an advanced rough-surface linear-screening model, not a higher-accuracy replacement.",
@@ -174,6 +178,572 @@
   ],
   "additionalProperties": false,
   "allOf": [
+    {
+      "if": {
+        "required": ["external_boundary"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {"required": ["outer_plasma"]},
+            {"required": ["coupling"]},
+            {
+              "required": ["sim"],
+              "properties": {
+                "sim": {
+                  "anyOf": [
+                    {"required": ["reservoir_potential_model"]},
+                    {"required": ["sheath_injection_model"]},
+                    {"required": ["open_boundary_model"]}
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "required": ["particles"],
+            "properties": {
+              "particles": {
+                "anyOf": [
+                  {"required": ["steady_start_mode"]},
+                  {"required": ["steady_start_mesh_id"]}
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["kinetic_closure"],
+                "properties": {
+                  "model": {"const": "kinetic_1d"},
+                  "kinetic_closure": {"const": "zhao_charge_driven"}
+                }
+              },
+              "particles": {
+                "properties": {
+                  "mode": {"const": "same_batch"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "required": ["particles"],
+            "properties": {
+              "particles": {
+                "required": ["outer_update_stride"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "properties": {
+                  "model": {"enum": ["linear_debye", "kinetic_1d"]}
+                }
+              },
+              "particles": {
+                "properties": {
+                  "mode": {"enum": ["local_source", "same_batch"]}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "required": ["steady_start_mode"],
+                "properties": {
+                  "steady_start_mode": {"const": "zhao_floating"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["periodic2", "mesh"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["model", "kinetic_closure"],
+                "properties": {
+                  "model": {"const": "kinetic_1d"},
+                  "kinetic_closure": {"const": "zhao_charge_driven"}
+                }
+              },
+              "particles": {
+                "properties": {
+                  "mode": {"const": "same_batch"}
+                }
+              }
+            }
+          },
+          "periodic2": {
+            "properties": {
+              "zero_mode_policy": {"const": "exclude_k0"},
+              "lower_boundary_model": {"enum": ["e_bottom_zero", "symmetric_vacuum"]}
+            }
+          },
+          "mesh": {
+            "required": ["mode"],
+            "properties": {
+              "mode": {"const": "template"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "required": ["particles"],
+            "properties": {
+              "particles": {
+                "anyOf": [
+                  {"required": ["outer_orbit_dt"]},
+                  {"required": ["outer_orbit_max_steps"]},
+                  {"required": ["outer_orbit_energy_tolerance"]}
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "properties": {
+                  "model": {"const": "unified_linear_response"}
+                }
+              },
+              "particles": {
+                "properties": {
+                  "mode": {"const": "same_batch"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["model"],
+                "properties": {
+                  "model": {
+                    "enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["sim"],
+        "properties": {
+          "sim": {
+            "anyOf": [
+              {"required": ["box_max"]},
+              {"required": ["box_origin", "box_size"]}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["kinetic_closure"],
+                "properties": {
+                  "kinetic_closure": {"const": "zhao_charge_driven"}
+                },
+                "not": {
+                  "required": ["photoelectron_source_scale"],
+                  "properties": {
+                    "photoelectron_source_scale": {"const": 0}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sim": {
+            "properties": {
+              "sheath_photoelectron_ref_density_cm3": {"exclusiveMinimum": 0}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "required": ["particles"],
+            "properties": {
+              "particles": {
+                "required": ["mode"],
+                "properties": {
+                  "mode": {"const": "zhao_queue"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["sim"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["model", "kinetic_closure"],
+                "properties": {
+                  "model": {"const": "kinetic_1d"},
+                  "kinetic_closure": {"const": "zhao_charge_driven"},
+                  "zhao_branch": {"const": "auto"},
+                  "photoelectron_source_scale": {"exclusiveMinimum": 0},
+                  "photoelectron_histogram_enabled": {"const": false}
+                }
+              },
+              "particles": {
+                "required": ["field_evolution_timescale"],
+                "properties": {
+                  "inflow_model": {"const": "auto"},
+                  "steady_start_mode": {"const": "none"},
+                  "outer_update_stride": {"const": 1},
+                  "field_evolution_timescale": {"exclusiveMinimum": 0},
+                  "max_frozen_field_ratio": {"exclusiveMinimum": 0}
+                }
+              }
+            }
+          },
+          "sim": {
+            "properties": {
+              "batch_duration": {"exclusiveMinimum": 0},
+              "batch_duration_step": {"exclusiveMinimum": 0}
+            },
+            "anyOf": [
+              {"required": ["batch_duration"]},
+              {"required": ["batch_duration_step"]}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["model"],
+                "properties": {
+                  "model": {"const": "none"}
+                }
+              },
+              "particles": {
+                "required": ["mode"],
+                "properties": {
+                  "mode": {"const": "local_source"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "not": {
+                  "anyOf": [
+                    {"required": ["steady_start_mode"]},
+                    {"required": ["steady_start_mesh_id"]},
+                    {"required": ["outer_update_stride"]},
+                    {"required": ["field_evolution_timescale"]},
+                    {"required": ["max_frozen_field_ratio"]},
+                    {"required": ["outer_orbit_dt"]},
+                    {"required": ["outer_orbit_max_steps"]},
+                    {"required": ["outer_orbit_energy_tolerance"]}
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "required": ["mode"],
+                "properties": {
+                  "mode": {"const": "same_batch"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "properties": {
+                  "model": {
+                    "enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["model"],
+                "properties": {
+                  "model": {"enum": ["linear_debye", "kinetic_1d"]}
+                }
+              },
+              "particles": {
+                "required": ["mode"],
+                "properties": {
+                  "mode": {"const": "same_batch"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "required": ["field_evolution_timescale"],
+                "properties": {
+                  "inflow_model": {"const": "auto"},
+                  "field_evolution_timescale": {"exclusiveMinimum": 0}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["model"],
+                "properties": {
+                  "model": {"const": "unified_linear_response"}
+                }
+              },
+              "particles": {
+                "required": ["mode"],
+                "properties": {
+                  "mode": {"const": "same_batch"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "required": ["field_evolution_timescale", "outer_orbit_dt"],
+                "properties": {
+                  "field_evolution_timescale": {"exclusiveMinimum": 0},
+                  "outer_orbit_dt": {"exclusiveMinimum": 0}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["photoelectron_histogram_enabled"],
+                "properties": {
+                  "photoelectron_histogram_enabled": {"const": true}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "properties": {
+                  "model": {"const": "linear_debye"}
+                }
+              },
+              "particles": {
+                "properties": {
+                  "mode": {"const": "same_batch"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "field": {
+                "required": ["kinetic_closure"],
+                "properties": {
+                  "kinetic_closure": {"const": "zhao_charge_driven"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "properties": {
+                  "inflow_model": {"enum": ["auto", "source_vdf"]}
+                }
+              }
+            }
+          },
+          "sim": {
+            "not": {
+              "required": ["sheath_reference_coordinate"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["external_boundary"],
+        "properties": {
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "required": ["mode"],
+                "properties": {
+                  "mode": {"enum": ["same_batch", "zhao_queue"]}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "particles": {
+            "properties": {
+              "species": {
+                "items": {
+                  "if": {
+                    "required": ["source_mode"],
+                    "properties": {
+                      "source_mode": {"const": "photo_raycast"}
+                    }
+                  },
+                  "then": {
+                    "required": ["deposit_opposite_charge_on_emit"],
+                    "properties": {
+                      "deposit_opposite_charge_on_emit": {"const": true}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "if": {
         "required": ["coupling"],
@@ -367,10 +937,18 @@
       "allOf": [
         {
           "if": {
+            "required": ["outer_plasma"],
             "properties": {
               "outer_plasma": {
+                "required": ["kinetic_closure"],
                 "properties": {
-                  "photoelectron_source_scale": {"exclusiveMinimum": 0}
+                  "kinetic_closure": {"const": "zhao_charge_driven"}
+                },
+                "not": {
+                  "required": ["photoelectron_source_scale"],
+                  "properties": {
+                    "photoelectron_source_scale": {"const": 0}
+                  }
                 }
               }
             }
@@ -525,6 +1103,301 @@
     }
   ],
   "$defs": {
+    "externalBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "particles"],
+      "properties": {
+        "field": {
+          "$ref": "#/$defs/externalBoundaryField"
+        },
+        "particles": {
+          "$ref": "#/$defs/externalBoundaryParticles"
+        },
+        "ordinary_open": {
+          "$ref": "#/$defs/externalBoundaryOrdinaryOpen"
+        }
+      }
+    },
+    "externalBoundaryField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model"],
+      "properties": {
+        "model": {"enum": ["none", "linear_debye", "kinetic_1d", "unified_linear_response"]},
+        "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
+        "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto"},
+        "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1},
+        "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
+        "photoelectron_histogram_enabled": {"type": "boolean", "default": false},
+        "infinity_potential": {"type": "number", "default": 0},
+        "debye_length": {"type": "number", "exclusiveMinimum": 0},
+        "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
+        "unified_grid_points": {"type": "integer", "minimum": 17, "default": 129},
+        "accessible_fraction_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
+        "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
+        "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
+        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50},
+        "photoelectron_histogram_bins": {"type": "integer", "minimum": 1, "default": 32},
+        "photoelectron_histogram_energy_max": {"type": "number", "exclusiveMinimum": 0},
+        "photoelectron_ambient_charge_scale": {"type": "number", "exclusiveMinimum": 0},
+        "max_photoelectron_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1}
+      },
+      "dependencies": {
+        "infinity_potential": {
+          "properties": {
+            "model": {"const": "linear_debye"}
+          }
+        },
+        "max_linearity_ratio": {
+          "properties": {
+            "model": {"enum": ["linear_debye", "unified_linear_response"]}
+          }
+        },
+        "max_gap_ratio": {
+          "properties": {
+            "model": {"enum": ["linear_debye", "kinetic_1d"]}
+          }
+        },
+        "max_local_charge_ratio": {
+          "properties": {
+            "model": {"enum": ["linear_debye", "kinetic_1d"]}
+          }
+        },
+        "kinetic_closure": {
+          "properties": {
+            "model": {"const": "kinetic_1d"}
+          }
+        },
+        "zhao_branch": {
+          "required": ["kinetic_closure"],
+          "properties": {
+            "model": {"const": "kinetic_1d"},
+            "kinetic_closure": {"const": "zhao_charge_driven"}
+          }
+        },
+        "photoelectron_source_scale": {
+          "required": ["kinetic_closure"],
+          "properties": {
+            "model": {"const": "kinetic_1d"},
+            "kinetic_closure": {"const": "zhao_charge_driven"}
+          }
+        },
+        "photoelectron_density_model": {
+          "properties": {
+            "model": {"const": "kinetic_1d"},
+            "kinetic_closure": {"const": "absorbing_maxwellian"}
+          }
+        },
+        "photoelectron_histogram_enabled": {
+          "properties": {
+            "model": {"const": "linear_debye"}
+          }
+        },
+        "photoelectron_histogram_bins": {
+          "required": ["photoelectron_histogram_enabled"],
+          "properties": {
+            "model": {"const": "linear_debye"},
+            "photoelectron_histogram_enabled": {"const": true}
+          }
+        },
+        "photoelectron_histogram_energy_max": {
+          "required": ["photoelectron_histogram_enabled"],
+          "properties": {
+            "model": {"const": "linear_debye"},
+            "photoelectron_histogram_enabled": {"const": true}
+          }
+        },
+        "photoelectron_ambient_charge_scale": {
+          "required": ["photoelectron_histogram_enabled"],
+          "properties": {
+            "model": {"const": "linear_debye"},
+            "photoelectron_histogram_enabled": {"const": true}
+          }
+        },
+        "max_photoelectron_charge_ratio": {
+          "required": ["photoelectron_histogram_enabled"],
+          "properties": {
+            "model": {"const": "linear_debye"},
+            "photoelectron_histogram_enabled": {"const": true}
+          }
+        },
+        "unified_grid_points": {
+          "properties": {
+            "model": {"const": "unified_linear_response"}
+          }
+        },
+        "accessible_fraction_tolerance": {
+          "properties": {
+            "model": {"const": "unified_linear_response"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["model"],
+            "properties": {
+              "model": {"const": "none"}
+            }
+          },
+          "then": {
+            "maxProperties": 1
+          }
+        },
+        {
+          "if": {
+            "required": ["model"],
+            "properties": {
+              "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]}
+            }
+          },
+          "then": {
+            "required": ["debye_length", "thermal_voltage"]
+          }
+        },
+        {
+          "if": {
+            "required": ["model"],
+            "properties": {
+              "model": {"enum": ["kinetic_1d", "unified_linear_response"]}
+            }
+          },
+          "then": {
+            "properties": {
+              "infinity_potential": {"const": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["photoelectron_density_model"],
+            "properties": {
+              "photoelectron_density_model": {"const": "kinetic_mean"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["kinetic_closure"],
+            "properties": {
+              "kinetic_closure": {"const": "zhao_charge_driven"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "photoelectron_density_model": {"const": "none"},
+              "infinity_potential": {"const": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["photoelectron_histogram_enabled"],
+            "properties": {
+              "photoelectron_histogram_enabled": {"const": true}
+            }
+          },
+          "then": {
+            "required": [
+              "photoelectron_histogram_energy_max",
+              "photoelectron_ambient_charge_scale"
+            ]
+          }
+        }
+      ]
+    },
+    "externalBoundaryParticles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["local_source", "same_batch", "zhao_queue"]},
+        "inflow_model": {"enum": ["auto", "source_vdf", "infinity_barrier", "legacy_sheath"], "default": "auto"},
+        "legacy_sheath_model": {"enum": ["zhao_auto", "zhao_a", "zhao_b", "zhao_c", "floating_no_photo"]},
+        "steady_start_mode": {"enum": ["none", "zhao_floating"], "default": "none"},
+        "steady_start_mesh_id": {"type": "integer", "minimum": 1, "default": 1},
+        "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
+        "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
+        "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
+        "outer_orbit_dt": {"type": "number", "minimum": 0, "default": 0},
+        "outer_orbit_max_steps": {"type": "integer", "minimum": 1, "default": 100000},
+        "outer_orbit_energy_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.0001}
+      },
+      "dependencies": {
+        "steady_start_mode": {
+          "properties": {
+            "mode": {"const": "same_batch"}
+          }
+        },
+        "steady_start_mesh_id": {
+          "required": ["steady_start_mode"],
+          "properties": {
+            "mode": {"const": "same_batch"},
+            "steady_start_mode": {"const": "zhao_floating"}
+          }
+        },
+        "outer_update_stride": {
+          "properties": {
+            "mode": {"enum": ["local_source", "same_batch"]}
+          }
+        },
+        "field_evolution_timescale": {
+          "properties": {
+            "mode": {"enum": ["same_batch", "zhao_queue"]}
+          }
+        },
+        "max_frozen_field_ratio": {
+          "properties": {
+            "mode": {"enum": ["same_batch", "zhao_queue"]}
+          }
+        },
+        "outer_orbit_dt": {
+          "properties": {
+            "mode": {"const": "same_batch"}
+          }
+        },
+        "outer_orbit_max_steps": {
+          "properties": {
+            "mode": {"const": "same_batch"}
+          }
+        },
+        "outer_orbit_energy_tolerance": {
+          "properties": {
+            "mode": {"const": "same_batch"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["inflow_model"],
+            "properties": {
+              "inflow_model": {"const": "legacy_sheath"}
+            }
+          },
+          "then": {
+            "required": ["legacy_sheath_model"]
+          },
+          "else": {
+            "not": {"required": ["legacy_sheath_model"]}
+          }
+        }
+      ]
+    },
+    "externalBoundaryOrdinaryOpen": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {"enum": ["escape", "potential_barrier"], "default": "escape"}
+      }
+    },
     "vec3": {
       "description": "3-component vector [x, y, z].",
       "type": "array",

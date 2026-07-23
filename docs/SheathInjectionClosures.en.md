@@ -4,16 +4,34 @@ Lang: [日本語](SheathInjectionClosures.md) | [English](SheathInjectionClosure
 
 # Sheath injection closures
 
-`sim.sheath_injection_model` derives density, drift, and cutoff values for `reservoir_face` and `photo_raycast` from an analytic
-sheath closure. These corrections apply to source sampling; generated particles advance in the separately composed field
-snapshot.
+`external_boundary.particles.inflow_model="legacy_sheath"` derives density,
+drift, and cutoff values for `reservoir_face` and `photo_raycast` from an
+analytic sheath closure. Select the specific analytic model with
+`legacy_sheath_model`; the physical `sim.sheath_*` inputs remain under `[sim]`.
+These corrections apply to source sampling; generated particles advance in the
+separately composed field snapshot.
+
+```toml
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+inflow_model = "legacy_sheath"
+legacy_sheath_model = "zhao_auto"
+```
 
 | Model | Quantity solved | Values applied to particle sources |
 | --- | --- | --- |
-| `none` | None | Use configured VDFs unchanged |
 | `floating_no_photo` | Negative floating potential without photoelectrons | Electron normal cutoff |
-| `zhao_a/b/c` | Analytic closure on the selected Zhao branch | Electron/ion/photoelectron density, drift, cutoff, and emission current |
 | `zhao_auto` | Zhao branch search ordered by solar elevation | Same corrections from the converged branch |
+| `zhao_a` | Analytic Zhao Type A branch | Electron/ion/photoelectron density, drift, cutoff, and emission current |
+| `zhao_b` | Analytic Zhao Type B branch | Electron/ion/photoelectron density, drift, cutoff, and emission current |
+| `zhao_c` | Analytic Zhao Type C branch | Electron/ion/photoelectron density, drift, cutoff, and emission current |
+
+No correction is not a `legacy_sheath_model` value. Select
+`external_boundary.particles.inflow_model="source_vdf"` to use the configured
+VDF unchanged.
 
 See [Kinetic 1-D outer plasma](KineticOuterPlasma.en.html) for a self-consistent outer Poisson profile and
 [Unified linear response](UnifiedLinearResponse.en.html) for a linear field including rough surfaces.
@@ -90,8 +108,8 @@ where applicable, and effective solar-wind electron density $n_{\mathrm{swe},\in
 | C | Monotone $\phi_0<0$; reflected solar-wind electrons and no photoelectron cutoff |
 
 `zhao_auto` tries C→A→B for $\alpha<20^\circ$ and A→B→C otherwise. This is branch selection within the Zhao family. Failure of
-all branches stops without switching to `floating_no_photo` or an outer Poisson model. Explicit `zhao_a/b/c` solves only the
-requested branch and does not move to another branch on failure.
+all branches stops without switching to `floating_no_photo` or an outer Poisson model. Explicit `zhao_a`, `zhao_b`, or `zhao_c`
+solves only the requested branch and does not move to another branch on failure.
 
 ## Apply closure results to each source
 
@@ -145,35 +163,37 @@ With `sheath_reference_coordinate`, that plane is sheath coordinate $z_s=0$. The
 the common reservoir face, reconstructing free/reflected electrons, free/captured photoelectrons, and ion speed and density. These
 values override electron density/cutoff and ion cold-beam normal speed.
 
-Because this path has already built a local VDF, it does not also apply a generic `reservoir_potential_model` barrier shift.
+Because this path has already built a local VDF, it does not also apply an
+`inflow_model="infinity_barrier"` energy shift.
 
 ## Scope of the Zhao closure
 
 The Zhao result is a literature-based source-VDF precorrection. The Boris field snapshot and Zhao root are not updated from
 batch-varying `q_elem`, so this closure does not represent a self-consistent external field for arbitrary 3-D surface geometry.
 
-This is the legacy static injection closure. The new `outer_plasma.model="kinetic_1d"` with
+This is the legacy static injection closure. The new `external_boundary.field.model="kinetic_1d"` with
 `kinetic_closure="zhao_charge_driven"` is not a source correction: at each outer refresh it updates the Zhao populations and
 Poisson profile using the accumulated-charge interface field as a boundary condition. It does not impose a floating-current
 root, and uses the same profile for inflow and return, so total current may remain nonzero while charge evolves. The two paths
 cannot be combined.
 
-Use the standard `kinetic_1d + kinetic_1d_profile_return` composition when incoming and outgoing particles share one
+Use `field.model="kinetic_1d"` with `particles.mode="same_batch"` when incoming and outgoing particles share one
 self-consistent potential profile. Use a validated unified composition only when a rough surface has no split window and requires
 linear screening.
 
 ## Apply only one source correction
 
-- `sheath_injection_model` is rejected with `reservoir_potential_model`.
+- `inflow_model="legacy_sheath"` and `"infinity_barrier"` cannot be selected together.
 - A `velocity_distribution="grid"` reservoir cannot currently use Zhao or floating correction.
-- `kinetic_1d_profile_return` rejects Zhao `sheath_injection_model` and `reservoir_potential_model` corrections.
-  `outer_plasma.kinetic_closure="zhao_charge_driven"` is supported as a separate path.
+- Tracked `kinetic_1d` rejects legacy sheath and scalar-barrier inflow corrections.
+  `external_boundary.field.kinetic_closure="zhao_charge_driven"` is supported as a separate path.
 - Zhao requires negative electron, positive ion, and negative photoelectron species.
 - `floating_no_photo` uses only negative electron and positive ion species and does not modify photoemission.
 
 Photoelectrons are tracked as ordinary particles after emission. Finite boxes use
-`open_boundary_model="potential_barrier"`; external sheaths use `outer_plasma.return_model` and
-`coupling.particle_transfer_mode` to decide return or escape. See
+`external_boundary.ordinary_open.model="potential_barrier"`; external sheaths
+use `external_boundary.field.model` and `external_boundary.particles.mode` to
+decide return or escape. See
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for charge balance.
 
 ## Code reference

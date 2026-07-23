@@ -25,6 +25,7 @@
     { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 156, "description": { "root": "open境界、scalar障壁、1D return、3D outer軌道。", "en": "Open boundaries, scalar barriers, 1-D return, and 3-D outer orbits." } },
     { "source": { "root": "KineticOuterPlasma.md", "en": "KineticOuterPlasma.en.md" }, "slug": "kinetic-outer-plasma", "order": 157, "description": { "root": "標準・推奨の自己整合1D外部シース。", "en": "Standard and recommended self-consistent 1-D outer sheath." } },
     { "source": { "root": "UnifiedLinearResponse.md", "en": "UnifiedLinearResponse.en.md" }, "slug": "unified-linear-response", "order": 158, "description": { "root": "rough surface向けの高度なzero/nonzero mode線形screening。", "en": "Advanced zero/nonzero-mode linear screening for rough surfaces." } },
+    { "source": { "root": "BoundaryConfigurationMigration.md", "en": "BoundaryConfigurationMigration.en.md" }, "slug": "boundary-configuration-migration", "order": 159, "description": { "root": "旧sim・outer_plasma・coupling設定からexternal_boundaryへ移行する対応表。", "en": "Map legacy sim, outer_plasma, and coupling settings to external_boundary." } },
     { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 160, "description": { "root": "periodic2の近傍画像、nonzero operator、zero mode。", "en": "periodic2 near images, nonzero operator, and zero mode." } },
     { "source": { "root": "FinitePeriodicConfiguration.md", "en": "FinitePeriodicConfiguration.en.md" }, "slug": "finite-periodic-configuration", "order": 161, "description": { "root": "有限画像和とscalar reservoir/escape補正を組み合わせる構成。", "en": "Finite image sums with scalar reservoir and escape closures." } },
     { "source": { "root": "InfinitePeriodicOuterConfiguration.md", "en": "InfinitePeriodicOuterConfiguration.en.md" }, "slug": "infinite-periodic-outer-configuration", "order": 162, "description": { "root": "無限周期場、物理k=0、outer plasma、particle transferの統合構成。", "en": "Integrated infinite-periodic field, physical k=0, outer plasma, and particle transfer." } },
@@ -101,6 +102,7 @@
               "collapsed": true,
               "items": [
                 { "type": "page", "slug": "outer-plasma-models", "label": { "root": "構成の選び方", "en": "Selection guide" } },
+                { "type": "page", "slug": "boundary-configuration-migration", "label": { "root": "旧設定から移行する", "en": "Migrate legacy configuration" } },
                 { "type": "page", "slug": "sheath-injection-closures", "label": { "root": "流入VDFのシース補正", "en": "Inflow-VDF sheath closures" } },
                 { "type": "page", "slug": "particle-escape-return", "label": { "root": "open境界・escape・return", "en": "Open boundaries, escape, and return" } },
                 { "type": "page", "slug": "kinetic-outer-plasma", "label": { "root": "標準: kinetic 1Dシース", "en": "Standard: kinetic 1-D sheath" } },

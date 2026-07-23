@@ -191,7 +191,9 @@ ownership面だけです。
 
 ### 4.2 model別の数値処理
 
-| `outer_plasma.model` | 位置付け | zero-mode処理 | 主な適用範囲 |
+公開入力では`external_boundary.field.model`を選び、実行時に対応する`outer_plasma.model`へ正規化します。
+
+| `external_boundary.field.model` | 位置付け | zero-mode処理 | 主な適用範囲 |
 | --- | --- | --- | --- |
 | `none` | 外部シースなし | surface `k=0`だけをboundary closureで評価 | 外部plasmaを置かない |
 | `linear_debye` | 簡易・reference | $\Delta\phi\exp[-(z-z_I)/\lambda_D]$ | 小振幅split reference |

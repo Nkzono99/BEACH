@@ -29,9 +29,6 @@ bc_z_high = "open"
 rng_seed = 24602
 field_solver = "direct"
 field_bc_mode = "periodic2"
-reservoir_potential_model = "none"
-open_boundary_model = "escape"
-sheath_injection_model = "none"
 # alpha controls the analytic Zhao effective-plane source; it does not set the
 # tracked ray direction below.
 sheath_alpha_deg = 60.0
@@ -52,33 +49,22 @@ interface_sample_n = 2
 interface_phi_tolerance = 1.0e-3
 interface_field_tolerance = 1.0e-3
 
-[outer_plasma]
+[external_boundary.field]
 model = "kinetic_1d"
 kinetic_closure = "zhao_charge_driven"
-zhao_branch = "auto"
-photoelectron_source_scale = 1.0
-photoelectron_density_model = "none"
-return_model = "kinetic_1d_profile_return"
-interface_z = 2.0e-04
-infinity_potential = 0.0
 # These remain split-interface diagnostic references. The Zhao solver instead
 # uses T_pe and the Debye length derived from T_pe and n_ref.
 debye_length = 10.513585779475326
 thermal_voltage = 10.0
 
-[coupling]
-update_mode = "explicit"
-particle_transfer_mode = "electrostatic_1d_instant_return"
+[external_boundary.particles]
+mode = "same_batch"
 steady_start_mode = "zhao_floating"
-steady_start_mesh_id = 1
-outer_update_stride = 1
 # The plane alone receives Q_seed=2 epsilon_0 A E_I for symmetric_vacuum;
 # every other mesh would remain neutral. This example contains only the plane.
 # Smoke-only quasi-steady timescale; production cases must justify this value
 # and test sensitivity to an independently relaxed or perturbed seed.
 field_evolution_timescale = 1.0
-max_frozen_field_ratio = 0.1
-outer_queue_enabled = false
 
 [particles]
 [[particles.species]]

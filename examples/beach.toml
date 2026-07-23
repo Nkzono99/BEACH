@@ -24,17 +24,13 @@ bc_y_high = "reflect"
 bc_z_low = "open"
 bc_z_high = "open"
 rng_seed = 12345
-reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
-# open_boundary_model = "potential_barrier"  # open 境界で局所電位障壁による return/escape 判定を行う
 injection_face_phi_grid_n = 3
-# sheath_injection_model = "zhao_auto"
 # sheath_alpha_deg = 60.0
 # sheath_photoelectron_ref_density_cm3 = 64.0
 # sheath_reference_coordinate = 0.02  # 指定すると、この平面から reservoir_face 境界までの局所 VDF 変形も反映
 # sheath_electron_drift_mode = "normal"
 # sheath_ion_drift_mode = "normal"
-# 注意: 現状は sheath_injection_model と reservoir_potential_model を同時に使えません。
 # periodic2 + fmm 有効時、field_periodic_far_correction の選択肢:
 #   "none"            — 有限 image shell のみ（既定、無限周期解ではない）
 #   "auto"            — 互換用 alias。現在は "none" と同じ
@@ -48,6 +44,20 @@ injection_face_phi_grid_n = 3
 # field_periodic_ewald_layers = 4
 # field_periodic_cache_dir = ".beach_cache/periodic2"
 # field_periodic_generation_tolerance = 1.0e-8
+
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+inflow_model = "infinity_barrier"
+# legacy Zhao を使う場合:
+# inflow_model = "legacy_sheath"
+# legacy_sheath_model = "zhao_auto"
+
+[external_boundary.ordinary_open]
+model = "escape"
+# model = "potential_barrier"  # 通常 open 面で局所電位障壁による return/escape 判定を行う
 
 [particles]
 [[particles.species]]

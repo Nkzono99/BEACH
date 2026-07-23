@@ -118,7 +118,7 @@ $$
 
 ### open、reflect、periodic
 
-`open_boundary_model="escape"`では、maskにopen faceが1つでも含まれていれば粒子を消滅させ、
+`external_boundary.ordinary_open.model="escape"`では、maskにopen faceが1つでも含まれていれば粒子を消滅させ、
 `escaped_boundary`へ数えます。reflectだけのfaceでは、該当する速度成分を反転します。periodic faceでは
 粒子を反対側へ移し、速度は変えません。境界処理後も生存する粒子は、`nearest`を使ってfaceから
 1 floating-point値だけboxの内側へ置きます。
@@ -128,7 +128,7 @@ cornerでreflectとperiodicが組み合わさっても、face maskへまとめ�
 
 ### potential barrier
 
-`open_boundary_model="potential_barrier"`は、単一open faceから外向きに出る粒子について法線運動エネルギー
+`external_boundary.ordinary_open.model="potential_barrier"`は、単一open faceから外向きに出る粒子について法線運動エネルギー
 
 $$
 K_n=\frac{1}{2}m v_\mathrm{out}^2

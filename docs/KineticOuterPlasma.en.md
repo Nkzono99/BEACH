@@ -4,12 +4,12 @@ Lang: [日本語](KineticOuterPlasma.md) | [English](KineticOuterPlasma.en.md)
 
 # Kinetic 1-D outer plasma
 
-`outer_plasma.model="kinetic_1d"` solves the plasma above a periodic surface as a plane-averaged, one-dimensional,
+`external_boundary.field.model="kinetic_1d"` solves the plasma above a periodic surface as a plane-averaged, one-dimensional,
 electrostatic, collisionless, and unmagnetized profile. It connects the interface field produced by surface charge to velocity
 distributions at infinity and obtains interface potential, density, and currents self-consistently.
 
-BEACH recommends `kinetic_1d` as the standard model that connects an external reservoir to a mean sheath. With the matching
-`return_model` and `particle_transfer_mode`, the same profile also controls particle inflow and escape/return. Start outer-sheath
+BEACH recommends `kinetic_1d` as the standard model that connects an external reservoir to a mean sheath. With
+`external_boundary.particles.mode="same_batch"`, the same profile also controls particle inflow and escape/return. Start outer-sheath
 cases with this model unless the case has a specific requirement to resolve linear lateral-field screening near a rough surface.
 
 The converged outer profile is used in both directions. Mapping particles from the infinity VDF to the interface is covered by
@@ -128,19 +128,20 @@ If the initial $E_I=0$ state has no quasineutral root with a strong photoelectro
 once and recorded as branch `0`, representing an outer population that has not formed yet. After the first tracked current
 creates charge, ordinary Zhao roots are solved; this bootstrap is never a fallback at nonzero field.
 
-Select the UV-free path with `outer_plasma.photoelectron_source_scale=0`. Zhao photoelectron density and raw emission current
+Select the UV-free path with `external_boundary.field.photoelectron_source_scale=0`. Zhao photoelectron density and raw emission current
 then vanish exactly, and the normalization uses ambient $n_\infty,T_e$. The configured ambient electron density is the total
 quasineutral-region density and is checked against the ion density; the solver derives the incoming-electron density needed by
 the free/reflected VDF. Reservoir macro-particle counts and velocity cutoffs use that derived density and the same profile map.
 The flat $E_I=0$ state is the Type-B/C junction, and a negative $E_I$ selects Type C.
 
 The quasisteady A/B/C branches with the full photoelectron population need not connect continuously to $E_I=0$. A requested
-field outside their solvable range stops with `no_physical_solution` under the default `outer_queue_enabled=false` behavior.
+field outside their solvable range stops with `no_physical_solution` in
+`external_boundary.particles.mode="same_batch"`.
 
 ### Start stationary studies from the Zhao zero-current root
 
 When the target is a strong-UV stationary observable rather than the turn-on transient from an uncharged state, select
-`coupling.steady_start_mode="zhao_floating"`. Before the first batch, this mode uses the configured infinity quasineutral
+`external_boundary.particles.steady_start_mode="zhao_floating"`. Before the first batch, this mode uses the configured infinity quasineutral
 conditions, temperatures, drifts, and UV source to solve the legacy Zhao zero-current stationary root. It constructs the
 `phi(infinity)=0` profile from that root and initializes the uniform plane charge required by its interface field $E_I$.
 
@@ -171,7 +172,7 @@ remains a diagnostic. Analytic current is not added to surface charge, so it doe
 or reabsorption.
 
 This initialization is not a physical transient. It is available only on the instant path with
-`outer_queue_enabled=false`, and it does not overwrite existing charge on a fresh run. With the same configuration and
+`external_boundary.particles.mode="same_batch"`, and it does not overwrite existing charge on a fresh run. With the same configuration and
 `output.resume=true`, BEACH restores checkpoint mesh charge and a complete outer state without reseeding from the zero-current
 root. Combining the warm start with the queue transient closure is rejected. UV turn-on, delayed return current, and transient
 cloud inventory still require the queue or a dynamic outer model.
@@ -180,8 +181,8 @@ that an independently relaxed or perturbed seed returns to the same stationary o
 
 [ADR 0006](adr/0006-zhao-stationary-warm-start.md) records this scope and its separation from the queue transient closure.
 
-With `outer_queue_enabled=true`, tracked photoelectrons retain their macro-particle weights as queue inventory while they occupy
-the outer region. The MPI-global photoelectron number divided by horizontal area is the target column. The closure solves a
+With `external_boundary.particles.mode="zhao_queue"`, tracked photoelectrons retain their macro-particle weights as queue
+inventory while they occupy the outer region. The MPI-global photoelectron number divided by horizontal area is the target column. The closure solves a
 population scale $\eta$ so the Zhao integral of $n_{pe,f}+n_{pe,c}$ over $0\le z\le10\lambda_{D,pe}$ matches that target.
 Despite the output name `outer_photoelectron_population_fraction`, $\eta$ is an occupancy scale relative to the stationary
 reference population, not a probability. The solver follows the physical path connected to $\eta=0$ over
@@ -268,7 +269,7 @@ potential scale and the photoelectron Debye length
 $\lambda_{D,pe}$ derived from the temperature and reference density as its length scale. It writes the derived length as
 `outer_debye_length_m` in the converged state.
 
-`outer_plasma.debye_length` and `outer_plasma.thermal_voltage` are not physical scales for the Zhao root or profile. They remain
+`external_boundary.field.debye_length` and `external_boundary.field.thermal_voltage` are not physical scales for the Zhao root or profile. They remain
 reference inputs for the split-interface applicability diagnostics: the former scales `interface_eta_gap` and the local-charge
 estimate, while the latter scales the lateral `interface_eta_phi_kneq0` and `interface_eta_field_kneq0` diagnostics. Do not test
 Zhao convergence by varying these inputs. Refine the profile grid, effective interface location, tracked-particle count, and
@@ -289,8 +290,10 @@ a mismatch. The analytic raw current enters
 the tracked-source consistency check and current-density diagnostics, but not the root, surface charge, or ledger; only tracked
 emission and reabsorption update the latter two. The population scale $\eta$ does not scale that raw photoelectron
 emission-current term in the current diagnostic.
-The closure also rejects a legacy Zhao `sheath_injection_model`,
-`reservoir_potential_model`, and `photoelectron_density_model="kinetic_mean"`.
+The closure also rejects
+`external_boundary.particles.inflow_model="legacy_sheath"` or
+`"infinity_barrier"` and
+`external_boundary.field.photoelectron_density_model="kinetic_mean"`.
 
 This effective-plane approximation does not self-consistently connect tracked-ray directions or a VDF reaching the interface
 from a rough surface to the Zhao outer population. `ray_direction` controls illumination-ray sampling of emitting surfaces, while $\alpha$

@@ -43,7 +43,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(5)
+  call test_init(6)
 
   stats = sim_stats()
 
@@ -83,6 +83,55 @@ program test_output_writer_io
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   inquire (file=trim(out_dir_disabled)//'/mesh_potential.csv', exist=exists)
   call assert_true(.not. exists, 'mesh_potential.csv should not be written when output.write_mesh_potential=false')
+  call test_end()
+
+  call test_begin('resolved_external_boundary_receipt')
+  call default_app_config(cfg)
+  cfg%sim%reservoir_potential_model = 'infinity_barrier'
+  cfg%sim%open_boundary_model = 'potential_barrier'
+  call write_result_files(out_dir_disabled, mesh, stats, cfg)
+  call assert_resolved_boundary_summary( &
+    out_dir_disabled//'/summary.txt', 'infinity_barrier', 'potential_barrier', 'none', 'local_source' &
+    )
+
+  call default_app_config(cfg)
+  cfg%sim%sheath_injection_model = 'zhao_auto'
+  call write_result_files(out_dir_disabled, mesh, stats, cfg)
+  call assert_resolved_boundary_summary( &
+    out_dir_disabled//'/summary.txt', 'legacy_sheath', 'escape', 'none', 'local_source' &
+    )
+
+  call default_app_config(cfg)
+  cfg%outer_plasma%model = 'linear_debye'
+  cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
+  cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+  call write_result_files(out_dir_disabled, mesh, stats, cfg)
+  call assert_resolved_boundary_summary( &
+    out_dir_disabled//'/summary.txt', 'linear_profile', 'escape', 'linear_1d', 'same_batch' &
+    )
+
+  call default_app_config(cfg)
+  cfg%outer_plasma%model = 'kinetic_1d'
+  cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
+  cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
+  call write_result_files(out_dir_disabled, mesh, stats, cfg)
+  call assert_resolved_boundary_summary( &
+    out_dir_disabled//'/summary.txt', 'kinetic_profile', 'escape', 'kinetic_1d', 'same_batch' &
+    )
+
+  call default_app_config(cfg)
+  cfg%outer_plasma%model = 'unified_linear_response'
+  cfg%outer_plasma%return_model = 'electrostatic_3d_explicit_orbit'
+  cfg%coupling%particle_transfer_mode = 'electrostatic_3d_explicit_orbit'
+  call write_result_files(out_dir_disabled, mesh, stats, cfg)
+  call assert_resolved_boundary_summary( &
+    out_dir_disabled//'/summary.txt', 'source_vdf', 'escape', 'unified_3d', 'same_batch' &
+    )
+
+  call default_app_config(cfg)
+  cfg%sim%batch_duration = 1.0_dp
+  cfg%output_dir = out_dir_disabled
+  cfg%write_mesh_potential = .false.
   call test_end()
 
   call test_begin('photoelectron_checkpoint_output')
@@ -140,6 +189,10 @@ program test_output_writer_io
     )
   call assert_true(.not. saw_queue_population .and. .not. saw_queue_count .and. .not. saw_queue_fingerprint, &
                    'disabled queue must not write queue-specific diagnostics')
+  cfg%outer_plasma%model = 'kinetic_1d'
+  cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
+  cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
+  cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
   cfg%coupling%outer_queue_enabled = .true.
   call write_result_files( &
     out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
@@ -149,7 +202,11 @@ program test_output_writer_io
     )
   call assert_true(saw_queue_population .and. saw_queue_count .and. saw_queue_fingerprint, &
                    'enabled queue must write queue-specific diagnostics')
-  cfg%coupling%outer_queue_enabled = .false.
+  call assert_resolved_boundary_summary( &
+    out_dir_disabled//'/summary.txt', 'kinetic_profile', 'escape', 'kinetic_1d', 'zhao_queue' &
+    )
+  call default_app_config(cfg)
+  cfg%sim%batch_duration = 1.0_dp
   call test_end()
 
   call test_begin('charge_ledger_and_model_metadata')
@@ -226,6 +283,35 @@ program test_output_writer_io
   call test_summary()
 
 contains
+
+  subroutine assert_resolved_boundary_summary(path, inflow_map, open_model, interface_transport, particle_mode)
+    character(len=*), intent(in) :: path, inflow_map, open_model, interface_transport, particle_mode
+    logical :: saw_inflow, saw_open, saw_transport, saw_particle_mode
+    integer :: unit, read_status
+    character(len=512) :: summary_line
+
+    saw_inflow = .false.
+    saw_open = .false.
+    saw_transport = .false.
+    saw_particle_mode = .false.
+    open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
+    if (read_status /= 0) error stop 'failed to open resolved external boundary summary fixture'
+    do
+      read (unit, '(A)', iostat=read_status) summary_line
+      if (read_status /= 0) exit
+      saw_inflow = saw_inflow .or. trim(summary_line) == 'external_inflow_map='//trim(inflow_map)
+      saw_open = saw_open .or. trim(summary_line) == 'external_ordinary_open_model='//trim(open_model)
+      saw_transport = saw_transport .or. &
+                      trim(summary_line) == 'external_interface_transport='//trim(interface_transport)
+      saw_particle_mode = saw_particle_mode .or. &
+                          trim(summary_line) == 'outer_particle_mode_resolved='//trim(particle_mode)
+    end do
+    close (unit)
+    call assert_true(saw_inflow, 'summary should record the resolved external inflow map')
+    call assert_true(saw_open, 'summary should record the resolved ordinary open model')
+    call assert_true(saw_transport, 'summary should record the resolved interface transport')
+    call assert_true(saw_particle_mode, 'summary should record the resolved outer particle mode')
+  end subroutine assert_resolved_boundary_summary
 
   subroutine scan_queue_summary_fields(path, saw_population, saw_count, saw_fingerprint)
     character(len=*), intent(in) :: path

@@ -29,8 +29,8 @@ periodic operatorと`k=0`の式は[periodic2静電場](PeriodicElectrostatics.ht
 
 | 構成 | mean plasma | nonzero mode | particle transfer |
 | --- | --- | --- | --- |
-| **標準: split kinetic** | VDFに基づく密度モデルを使う非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `kinetic_1d_profile_return` |
-| 高度: unified linear | accessible fraction付き線形Poisson | response startでscreened modeへ接続 | なし、または3D explicit orbit |
+| **標準: split kinetic** | VDFに基づく密度モデルを使う非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `particles.mode="local_source"`、または`"same_batch"`の1D profile |
+| 高度: unified linear | accessible fraction付き線形Poisson | response startでscreened modeへ接続 | `particles.mode="local_source"`、または`"same_batch"`の3D orbit |
 
 split kineticはspecies別VDF、Bohm entry、photoelectron mean densityを扱えます。一方で、surfaceとinterfaceの間には、
 local surface fieldだけを扱うsplit windowを仮定します。[kinetic 1D外部プラズマ](KineticOuterPlasma.html)に
@@ -62,7 +62,8 @@ $\phi_I-\phi_\infty$により
 - inflowでは到達可能な$v_{n,\infty}$を選び、$v_{n,I}$へ加減速する。
 - outflowでは$v_{n,I}$から$v_{n,\infty}^2$を計算し、escape/turning returnを判定する。
 
-同じenergy equationを逆向きに使うため、`reservoir_potential_model`やZhao cutoffを重ねません。
+tracked split kineticでは`external_boundary.particles.inflow_model="auto"`が同じprofileへ流入を委ねます。
+このため、`inflow_model="infinity_barrier"`や`"legacy_sheath"`を重ねません。
 [`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)が流入側、[粒子のescapeとreturn](ParticleEscapeReturn.html)が
 流出側の写像を説明します。
 
@@ -73,9 +74,9 @@ photoelectronの扱いはouter field modelとparticle returnを分けて選び�
 | 選択 | outer density | tracked particle |
 | --- | --- | --- |
 | `photoelectron_density_model="none"` | photoelectron mean densityなし | 通常のsource/軌道だけ |
-| `photoelectron_density_model="kinetic_mean"` + transferなし | 定常outgoing/returning mean density | z-highでは通常open処理 |
-| `photoelectron_density_model="kinetic_mean"` + profile return | 同じmean density | 個々のinterface crossingもprofileでreturn/escape |
-| unified + explicit orbit | 光電子の平均密度モデルなし | 個々の3D外部軌道 |
+| `photoelectron_density_model="kinetic_mean"` + `particles.mode="local_source"` | 定常outgoing/returning mean density | z-highでは通常open処理 |
+| `photoelectron_density_model="kinetic_mean"` + `particles.mode="same_batch"` | 同じmean density | 個々のinterface crossingもprofileでreturn/escape |
+| unified + `particles.mode="same_batch"` | 光電子の平均密度モデルなし | 個々の3D外部軌道 |
 
 tracked returnでは`deposit_opposite_charge_on_emit=true`を要求します。平均密度モデルは
 tracked surface depositを置き換えず、統計的return chargeを追加depositしません。
@@ -102,7 +103,8 @@ zero_mode_policy = "exclude_k0"
 lower_boundary_model = "symmetric_vacuum"
 ```
 
-このblockだけではouter plasmaを有効にしません。`[outer_plasma]`と`[coupling]`でkineticまたはunified構成を追加します。
+このblockだけではouter plasmaを有効にしません。`[external_boundary.field]`と
+`[external_boundary.particles]`でkineticまたはunified構成を追加します。
 最小のcache例は[`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml)です。
 
 小規模のreference計算にはDirect + `panel_spectral_reference`を使います。

@@ -45,11 +45,26 @@ beachx inspect outputs/latest
 | 粒子処理 | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | 粒子イベントの集計数と記録付きsoft discard |
 | 進行 | `batches`, `last_rel_change` | 完了バッチ数と最終バッチの電荷変化監視値 |
 | 場計算 | `field_backend`, `field_source_model`, `field_kernel_id` | 出力を作った場ソルバーと source kernel |
+| 外部境界の解決結果 | `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | 公開設定から実行時に解決された流入、通常open面、z-high輸送、処理時機 |
 
 `absorbed` は吸収イベント数であり、電荷の符号やマクロ粒子重みを含みません。電荷量は
 `charge_ledger.csv`、最終分布は `charges.csv` から読みます。
 
 `last_rel_change` は監視値です。現行実装では早期停止条件ではありません。
+
+外部境界の4キーは設定項目ではなく、`[external_boundary]` facadeが実行時にどう解決されたかを確認する
+receiptです。
+
+| キー | 出力値 |
+| --- | --- |
+| `external_inflow_map` | `source_vdf` / `infinity_barrier` / `legacy_sheath` / `linear_profile` / `kinetic_profile` |
+| `external_ordinary_open_model` | `escape` / `potential_barrier` |
+| `external_interface_transport` | `none` / `linear_1d` / `kinetic_1d` / `unified_3d` |
+| `outer_particle_mode_resolved` | `local_source` / `same_batch` / `zhao_queue` |
+
+たとえば`particles.inflow_model="auto"`は、fieldとparticle modeに応じて
+`external_inflow_map=source_vdf`、`linear_profile`、または`kinetic_profile`へ解決されます。
+再現性を確認するときは、入力facadeとこのreceiptを併せて保存します。
 
 ## `charge_ledger.csv`: 粒子種別の電荷移動
 
@@ -112,8 +127,8 @@ write_potential_history = true
 | --- | --- | --- |
 | 実行時間を分解する | `performance_profile.csv` | `BEACH_PROFILE=1` |
 | 外部シースの格子 profile を読む | `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` の外部状態が準備済み |
-| 光電子のエネルギー分布を読む | `photoelectron_histogram.csv` | `outer_plasma.photoelectron_histogram_enabled=true` で状態が準備済み |
-| Zhao過渡eventを再開する | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `coupling.outer_queue_enabled=true`。serialでは前者、MPIではrankごとに後者 |
+| 光電子のエネルギー分布を読む | `photoelectron_histogram.csv` | `external_boundary.field.photoelectron_histogram_enabled=true` で状態が準備済み |
+| Zhao過渡eventを再開する | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `external_boundary.particles.mode="zhao_queue"`。serialでは前者、MPIではrankごとに後者 |
 | 乱数状態から再開する | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serial では前者、MPI ではランクごとに後者 |
 | 端数マクロ粒子を復元する | `macro_residuals.csv` | 残差状態が割り当てられた場合。MPI でも 1 ファイル |
 

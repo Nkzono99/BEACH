@@ -163,16 +163,27 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
 | `b0` | float[3] | [0, 0, 0] | 一様磁場 [T] |
-| `reservoir_potential_model` | string | "none" | none, infinity_barrier |
 | `phi_infty` | float | 0.0 | 無限遠参照電位 [V] |
 | `injection_face_phi_grid_n` | int | 3 | 注入面ポテンシャルグリッド解像度 NxN |
 | `raycast_max_bounce` | int | 16 | photo_raycast のレイ反射最大回数 |
 
-### シースモデル
+### 外部境界・シース
+
+新しい設定では `[external_boundary]` を3つの責務に分けます。
+
+| table | 主な選択 | 説明 |
+|------------|------|------|
+| `external_boundary.field` | `none`, `linear_debye`, `kinetic_1d`, `unified_linear_response` | 外部 plasma 応答の場 |
+| `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high 粒子の扱い。`inflow_model` で source VDF / scalar barrier / legacy sheath を選択 |
+| `external_boundary.ordinary_open` | `escape`, `potential_barrier` | outer が所有しない open 面 |
+
+`return_model`、`particle_transfer_mode`、queue flag、`interface_z` は model と mode から導出します。
+詳細は[外部境界を構成する](OuterPlasmaModels.html)を参照してください。
+
+### シースの物理入力
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `sheath_injection_model` | string | "none" | none, zhao_auto, zhao_a, zhao_b, zhao_c, floating_no_photo |
 | `sheath_alpha_deg` | float | 60.0 | 太陽仰角 [deg] |
 | `sheath_photoelectron_ref_density_cm3` | float | 64.0 | 参照光電子密度 [cm^-3] |
 | `sheath_reference_coordinate` | float | — | シース参照面位置 [m] |
@@ -542,7 +553,7 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 | `reservoir_face` | `use_box=true`, `batch_duration>0`, `inject_face` 指定 |
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
 | `periodic2` | 通常は`field_solver=fmm`。Direct split referenceだけ例外。ちょうど2軸がperiodic、`use_box=true` |
-| シースモデル | `reservoir_potential_model = "none"` と互換 |
+| legacy sheath流入 | `external_boundary.particles.inflow_model="legacy_sheath"` と `legacy_sheath_model` を指定 |
 | リジューム | `write_files=true`, checkpoint ファイル存在 (`restart_from` 指定時はそのディレクトリ), MPI サイズ一致 |
 | 性能プロファイル | 環境変数 `BEACH_PROFILE=1` |
 | MPI 実行 | `-DUSE_MPI` でコンパイル, MPI コンパイララッパー使用 |

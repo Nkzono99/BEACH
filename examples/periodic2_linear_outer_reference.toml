@@ -30,20 +30,13 @@ interface_sample_n = 5
 interface_phi_tolerance = 1.0e-3
 interface_field_tolerance = 1.0e-3
 
-[outer_plasma]
+[external_boundary.field]
 model = "linear_debye"
-interface_z = 1.0
-infinity_potential = 0.0
 debye_length = 0.2
 thermal_voltage = 10.0
-max_linearity_ratio = 0.25
-max_gap_ratio = 5.0
-max_local_charge_ratio = 50.0
 
-[coupling]
-update_mode = "explicit"
-particle_transfer_mode = "none"
-outer_update_stride = 1
+[external_boundary.particles]
+mode = "local_source"
 
 [particles]
 [[particles.species]]

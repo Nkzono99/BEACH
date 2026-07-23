@@ -134,12 +134,13 @@ $$
 | 構成 | `reservoir_face` が受け取るもの |
 | --- | --- |
 | 補正なし | $B=0$ として、設定した VDF を注入面上の分布として使う |
-| `reservoir_potential_model="infinity_barrier"` | 開口の平均電位と `sim.phi_infty` から求めた 1 つの電位差 |
+| `external_boundary.particles.inflow_model="infinity_barrier"` | 開口の平均電位と `sim.phi_infty` から求めた 1 つの電位差 |
 | split `linear_debye` | 表面電荷のゼロモードから求めた界面電位差 |
 | split `kinetic_1d` | 収束した外部プロファイルの $\phi_I-\phi_\infty$ |
 
-`infinity_barrier` は、バッチ開始時の電位を開口内の `injection_face_phi_grid_n` 四方のセル中心で評価し、
-平均値 $\bar\phi_f$ を使います。点電荷または三角形カーネル、周期場、ゼロモード、外部状態、`sim.e0` を含む
+`infinity_barrier` は、`injection_face_phi_grid_n` を $N$ とする開口内の $N\times N$ セル中心格子で
+バッチ開始時の電位を評価し、平均値 $\bar\phi_f$ を使います。点電荷または三角形カーネル、周期場、
+ゼロモード、外部状態、`sim.e0` を含む
 同じ電位規約を使いますが、注入面までの途中の $E(z)$、折り返し位置、飛行時間、空間電荷は解きません。
 同じ評価から電位の母標準偏差、最小値、最大値も集計し、Maxwell 分布のリザーバーでは面内のばらつきが特徴エネルギーに対して
 大きい場合に、初回と最終バッチで警告します。

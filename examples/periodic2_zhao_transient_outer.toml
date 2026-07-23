@@ -29,9 +29,6 @@ bc_z_high = "open"
 rng_seed = 24603
 field_solver = "direct"
 field_bc_mode = "periodic2"
-reservoir_potential_model = "none"
-open_boundary_model = "escape"
-sheath_injection_model = "none"
 # Strong-UV analytic effective-plane source. This angle is independent of the
 # tracked illumination-ray direction below.
 sheath_alpha_deg = 60.0
@@ -54,31 +51,22 @@ interface_sample_n = 2
 interface_phi_tolerance = 1.0e-3
 interface_field_tolerance = 1.0e-3
 
-[outer_plasma]
+[external_boundary.field]
 model = "kinetic_1d"
 kinetic_closure = "zhao_charge_driven"
-zhao_branch = "auto"
-photoelectron_density_model = "none"
-photoelectron_histogram_enabled = false
-return_model = "kinetic_1d_profile_return"
-interface_z = 2.0e-04
-infinity_potential = 0.0
 # These are split-interface diagnostic references. The Zhao transient profile
 # and its finite column domain use T_pe and the derived lambda_D,pe instead.
 debye_length = 10.513585779475326
 thermal_voltage = 10.0
 
-[coupling]
-update_mode = "explicit"
-particle_transfer_mode = "electrostatic_1d_instant_return"
-outer_update_stride = 1
+[external_boundary.particles]
+mode = "zhao_queue"
 # Queue mode bounds batch_duration at configuration time and each resolved
 # flight, its delay to the next batch-start poll, and half-batch midpoint
 # uncertainty. The total bound is 4 us, so this 0.25 us batch leaves at most
 # 3.875 us for flight plus polling delay. A longer flight stops this fixture.
 field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
-outer_queue_enabled = true
 
 [particles]
 [[particles.species]]

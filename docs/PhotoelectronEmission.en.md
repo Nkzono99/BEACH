@@ -98,11 +98,12 @@ no subsequent lateral surface conduction.
 
 A ray hit always creates a photoelectron with weight $w_\mathrm{hit}$. There is no emission-time setting that multiplies this
 weight by an escape fraction. Surface return is handled as an ordinary collision, while a particle reaching an open face uses
-the same `open_boundary_model` or outer particle transfer as reservoir and `volume_seed` particles.
+the same `external_boundary.ordinary_open` or outer particle mode as reservoir and `volume_seed` particles.
 
-For a finite box without a solved external region, `open_boundary_model="potential_barrier"` classifies reflection or escape
+For a finite box without a solved external region,
+`external_boundary.ordinary_open.model="potential_barrier"` classifies reflection or escape
 from crossing-point potential and normal kinetic energy. With a self-consistent external sheath,
-`outer_plasma.return_model` and `coupling.particle_transfer_mode` are canonical. See
+`external_boundary.field.model` and `external_boundary.particles.mode` are canonical. See
 [Particle escape and return](ParticleEscapeReturn.en.html) for the scalar barrier, 1-D outer-profile return, and unified 3-D
 explicit orbit.
 
@@ -111,33 +112,45 @@ the histogram is enabled, to close emission and return charge balance.
 
 ## Include photoelectrons in the mean outer-plasma density
 
-`outer_plasma.photoelectron_density_model="kinetic_mean"` uses the temperature and emission current density of the first negative
+`external_boundary.field.photoelectron_density_model="kinetic_mean"` uses the temperature and emission current density of the first negative
 `photo_raycast` species as a plane-averaged source in the 1-D Poisson density closure. Its outgoing and turning-return populations
 contribute to outer space charge, but it neither replaces surface absorption of tracked particles nor deposits an extra
 statistical return current on the surface.
 
-The mean density model and histogram have separate responsibilities. They cannot currently be enabled together:
-`kinetic_mean` requires `return_model="none"` or `kinetic_1d_profile_return`, whereas the histogram requires
-`electrostatic_1d_instant_return`.
+The mean density model and histogram have separate responsibilities, but their
+currently supported model/mode combinations differ, so they cannot be enabled together.
 
 Tracked photoelectrons transferred through z-high use the same source-independent escape/return treatment as other particles.
 See [Particle escape and return](ParticleEscapeReturn.en.html) for the quasi-steady approximation that omits outer flight from
 global time and the 3-D explicit orbit, and [Outer plasma models](OuterPlasmaModels.en.html) for field construction.
 
-Zhao models supply emission current density, normal cutoff, and drift according to the selected branch. Tracked particles
-advance in the ordinary field snapshot rather than the Zhao profile $E(z)$.
+Legacy Zhao, selected with
+`external_boundary.particles.inflow_model="legacy_sheath"`, applies only
+branch-dependent emission current density, normal cutoff, and drift to source
+sampling. It does not construct a spatial $E(z)$, so generated particles
+advance in the separately composed batch-fixed field.
+
+In contrast,
+`external_boundary.field.kinetic_closure="zhao_charge_driven"` constructs a
+self-consistent 1-D outer profile that preserves the interface field set by
+accumulated charge. `external_boundary.particles.mode="zhao_queue"`
+additionally closes the photoelectron population from tracked outer inventory.
+With `mode="same_batch"` or `"zhao_queue"`, that profile controls inflow and
+return or escape at the z-high interface. This path is separate from the legacy
+Zhao source correction.
 
 ## Save a photoelectron histogram at the outer interface
 
-`outer_plasma.photoelectron_histogram_enabled=true` bins outward `photo_raycast` crossings at z-high by normal kinetic energy.
+`external_boundary.field.photoelectron_histogram_enabled=true` bins outward `photo_raycast` crossings at z-high by normal kinetic energy.
 It writes previous-batch and cumulative signed charge, total kinetic energy, tangential momentum, and count to
 `photoelectron_histogram.csv`. The run stops if signed charge crossing the z-high interface outward, relative to the configured
 ambient charge scale, exceeds the applicability limit.
 
-This switch enables diagnostics and the applicability check only. It does not change particle return or escape, which remain
-controlled by `outer_plasma.return_model` and `coupling.particle_transfer_mode`. Every `photo_raycast` species using tracked outer
-transfer must set `deposit_opposite_charge_on_emit=true`. The current implementation supports this histogram only
-when both return and transfer IDs are `electrostatic_1d_instant_return`.
+This switch enables diagnostics and the applicability check only. It does not
+change particle return or escape, which remain controlled by
+`external_boundary.field.model` and `external_boundary.particles.mode`. Every
+`photo_raycast` species using tracked outer transfer must set
+`deposit_opposite_charge_on_emit=true`.
 
 ## Check convergence of photoelectron emission
 

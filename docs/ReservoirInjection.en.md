@@ -134,12 +134,13 @@ This page converts a supplied upstream VDF and potential drop into particles. Us
 | Configuration | Value supplied to `reservoir_face` |
 | --- | --- |
 | No correction | Use $B=0$ and interpret the configured VDF as the distribution at the face |
-| `reservoir_potential_model="infinity_barrier"` | One potential drop derived from the mean aperture potential and `sim.phi_infty` |
+| `external_boundary.particles.inflow_model="infinity_barrier"` | One potential drop derived from the mean aperture potential and `sim.phi_infty` |
 | Split `linear_debye` | Interface potential drop derived from the surface zero mode |
 | Split `kinetic_1d` | $\phi_I-\phi_\infty$ from the converged outer profile |
 
-`infinity_barrier` evaluates the batch-start potential on an `injection_face_phi_grid_n` by
-`injection_face_phi_grid_n` cell-centered grid in the aperture and uses the mean $\bar\phi_f$. It follows the same potential
+`infinity_barrier` evaluates the batch-start potential on an $N\times N$
+cell-centered grid in the aperture, where `injection_face_phi_grid_n` sets
+$N$, and uses the mean $\bar\phi_f$. It follows the same potential
 convention as the field snapshot, including the point or triangle kernel, periodic field, zero mode, outer state, and `sim.e0`,
 but does not solve intermediate $E(z)$, turning position, flight time, or space charge. The same evaluation accumulates the
 population standard deviation, minimum, and maximum. For a Maxwell reservoir, a large in-face variation relative to its

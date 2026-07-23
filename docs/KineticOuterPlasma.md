@@ -4,12 +4,12 @@ Lang: [日本語](KineticOuterPlasma.md) | [English](KineticOuterPlasma.en.md)
 
 # kinetic 1D外部プラズマ
 
-`outer_plasma.model="kinetic_1d"`は、periodic表面の上にある外部プラズマを、平面平均された1Dの静電・無衝突・
+`external_boundary.field.model="kinetic_1d"`は、periodic表面の上にある外部プラズマを、平面平均された1Dの静電・無衝突・
 非磁化profileとして解きます。表面電荷が与えるinterface電場と無限遠の粒子VDFを接続し、interface電位、密度、
 電流を自己整合に求めます。
 
-BEACHでは、外部reservoirと平均シースを結ぶ標準モデルとして`kinetic_1d`を推奨します。対応する
-`return_model`と`particle_transfer_mode`を組み合わせると、同じprofileを粒子の流入とescape/returnにも使います。
+BEACHでは、外部reservoirと平均シースを結ぶ標準モデルとして`kinetic_1d`を推奨します。
+`external_boundary.particles.mode="same_batch"`を選ぶと、同じprofileを粒子の流入とescape/returnにも使います。
 外部シースが必要なケースは、rough surface近傍の横方向screeningを解く明確な要件がない限り、このモデルから構成します。
 
 収束した外部profileは双方向に使われます。無限遠VDFからinterfaceへ入る粒子の写像は
@@ -127,19 +127,19 @@ raw photoelectron emission-current項はscaleせず、full tracked sourceのま�
 ambient-only平坦stateをbranch `0`として使います。最初のtracked currentが電荷を作った後は通常のZhao rootを解き、
 非零電場でこのbootstrapへfallbackしません。
 
-UVなしは`outer_plasma.photoelectron_source_scale=0`で選びます。このときZhaoの光電子密度・raw emission currentは
+UVなしは`external_boundary.field.photoelectron_source_scale=0`で選びます。このときZhaoの光電子密度・raw emission currentは
 厳密に0で、正規化密度と温度にはambient $n_\infty,T_e$を使います。設定されたambient electron densityは
 準中性領域の総密度としてion densityとの準中性を検査し、solverがfree/reflected VDFに必要な入射electron densityを
 解きます。reservoir macro数と速度cutoffにもその導出密度と同じprofile写像を使います。平坦な$E_I=0$はType B/Cの
 接続点で、負の$E_I$ではType Cへ入ります。
 
 full photoelectron populationの準定常A/B/C branchは、必ずしも$E_I=0$へ連続しません。要求電場がbranchの
-可解域外なら、既定の`outer_queue_enabled=false`では`no_physical_solution`で停止します。
+可解域外なら、`external_boundary.particles.mode="same_batch"`では`no_physical_solution`で停止します。
 
 ### 定常研究を Zhao 零電流根から開始する
 
 強UVの定常観測量が目的で、未帯電状態からの立上がり過渡を研究対象にしない場合は、
-`coupling.steady_start_mode="zhao_floating"`を選べます。このmodeは最初batch前に、設定済みの無限遠準中性条件、
+`external_boundary.particles.steady_start_mode="zhao_floating"`を選べます。このmodeは最初batch前に、設定済みの無限遠準中性条件、
 温度、drift、UV sourceを使って旧 Zhao 零電流定常根を解きます。得られた根から
 `phi(infinity)=0`のprofileを作り、そのinterface電場$E_I$に必要な一様平面電荷を初期値にします。
 
@@ -167,7 +167,7 @@ plane + sphereでplaneをmesh 1とすると、planeだけをseedしsphereは中�
 後続batchのcharge-driven更新は従来どおり現在の表面電荷が決める$E_I$を解き、currentを診断します。
 analytic currentを表面電荷に加えないため、tracked放出・流入・再吸収と二重計上しません。
 
-この初期化はphysical transientではありません。`outer_queue_enabled=false`のinstant経路だけで使い、
+この初期化はphysical transientではありません。`external_boundary.particles.mode="same_batch"`のinstant経路だけで使い、
 新規実行で既存電荷を上書きしません。同一configで`output.resume=true`とした場合はcheckpointのmesh電荷と完全なouter stateを
 復元し、零電流根から再seedしません。queue過渡closureとの併用は拒否します。UV立上がり、return-current遅延、
 cloud inventoryの過渡が問いなら、引き続きqueueまたは動的outer modelが必要です。定常論文でも、warm startだけを
@@ -176,7 +176,8 @@ cloud inventoryの過渡が問いなら、引き続きqueueまたは動的outer 
 この用途とqueue過渡closureとの役割分担は
 [ADR 0006](adr/0006-zhao-stationary-warm-start.md)に記録しています。
 
-`outer_queue_enabled=true`では、追跡中の光電子がouter領域に滞在する間、そのmacro粒子重みをqueue inventoryとして保持します。
+`external_boundary.particles.mode="zhao_queue"`では、追跡中の光電子がouter領域に滞在する間、
+そのmacro粒子重みをqueue inventoryとして保持します。
 全rankの光電子数を水平面積で割ったcolumnをtargetとし、$0\le z\le10\lambda_{D,pe}$で
 $n_{pe,f}+n_{pe,c}$を積分したZhao columnが一致するようにpopulation scale $\eta$を解きます。
 `outer_photoelectron_population_fraction`という出力名ですが、$\eta$は確率ではなく定常reference populationに対する
@@ -259,7 +260,7 @@ control-volume長の収束確認が必要です。
 Zhao solverはこの温度$T_{pe}$を電位scale、温度と基準密度から導出したphotoelectron Debye長
 $\lambda_{D,pe}$を長さscaleとして使い、収束stateの`outer_debye_length_m`へ導出値を出力します。
 
-`outer_plasma.debye_length`と`outer_plasma.thermal_voltage`はZhao rootやprofileの物理scaleには使いません。
+`external_boundary.field.debye_length`と`external_boundary.field.thermal_voltage`はZhao rootやprofileの物理scaleには使いません。
 ただし現時点ではsplit-interface適用性診断のreference inputとして残り、前者は`interface_eta_gap`と
 local-charge推定、後者は横方向の`interface_eta_phi_kneq0`と`interface_eta_field_kneq0`のscaleに使われます。
 Zhaoの収束はこれらを変えて判定せず、profile grid、有効interface位置、tracked粒子数、`dt`やbatch解像度を変えて確認します。
@@ -279,8 +280,8 @@ $$
 analytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使いますが、root、surface charge、ledgerへ
 別途加えません。表面電荷とledgerはtracked放出・再吸収だけで更新します。$\eta$もcurrent診断のraw photoelectron
 emission-current項をscaleしません。
-legacy Zhao `sheath_injection_model`、`reservoir_potential_model`、
-`photoelectron_density_model="kinetic_mean"`との併用も拒否します。
+`external_boundary.particles.inflow_model="legacy_sheath"`または`"infinity_barrier"`、
+`external_boundary.field.photoelectron_density_model="kinetic_mean"`との併用も拒否します。
 
 この有効平面近似は、tracked rayの方向分布やrough surfaceからinterfaceへ到達したVDFをZhao outer populationへ
 自己無撞着に接続しません。`ray_direction`は照射rayによる放出面sampling、$\alpha$は解析Zhao sourceを決める独立の入力です。

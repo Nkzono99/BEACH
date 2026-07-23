@@ -120,7 +120,7 @@ one mask.
 
 ### Open, reflect, and periodic faces
 
-With `open_boundary_model="escape"`, any open face in the mask removes the particle and increments `escaped_boundary`.
+With `external_boundary.ordinary_open.model="escape"`, any open face in the mask removes the particle and increments `escaped_boundary`.
 A reflect-only face reverses the corresponding velocity component. A periodic face moves the particle to the opposite face
 without changing velocity. A surviving event uses `nearest` so its new coordinate is one floating-point value inside the box,
 not exactly on the face.
@@ -129,7 +129,7 @@ Reflect and periodic actions at a corner are applied from one face mask, making 
 
 ### Potential barrier
 
-`open_boundary_model="potential_barrier"` compares outward normal kinetic energy at a single open face,
+`external_boundary.ordinary_open.model="potential_barrier"` compares outward normal kinetic energy at a single open face,
 
 $$
 K_n=\frac{1}{2}m v_\mathrm{out}^2,

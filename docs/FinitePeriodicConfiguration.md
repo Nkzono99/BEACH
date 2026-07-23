@@ -36,10 +36,18 @@ bc_y_low = "periodic"
 bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
-open_boundary_model = "potential_barrier"
-reservoir_potential_model = "infinity_barrier"
 phi_infty = 0.0
 injection_face_phi_grid_n = 5
+
+[external_boundary.field]
+model = "none"
+
+[external_boundary.particles]
+mode = "local_source"
+inflow_model = "infinity_barrier"
+
+[external_boundary.ordinary_open]
+model = "potential_barrier"
 ```
 
 | parameter | 典型値 | この構成での意味 |
@@ -47,8 +55,8 @@ injection_face_phi_grid_n = 5
 | `field_bc_mode` | `"periodic2"` | x/y周期の画像をfield sourceへ加える |
 | `field_periodic_image_layers` | `1`から収束確認 | 加える有限画像shellの範囲を決める |
 | `field_periodic_far_correction` | `"none"` | Ewald/cached far operatorを加えず、有限画像modelに固定する |
-| `reservoir_potential_model` | `"infinity_barrier"` | face平均電位で上流VDFの到達条件とface速度を決める |
-| `open_boundary_model` | `"potential_barrier"` | 個々の通過点のenergyでreflect/escapeを決める |
+| `external_boundary.particles.inflow_model` | `"infinity_barrier"` | face平均電位で上流VDFの到達条件とface速度を決める |
+| `external_boundary.ordinary_open.model` | `"potential_barrier"` | 個々の通過点のenergyでreflect/escapeを決める |
 | `phi_infty` | 物理gaugeに合わせる | reservoirとopen outflowが共有する基準電位 |
 | `injection_face_phi_grid_n` | `5`から収束確認 | face平均とばらつきを求める各周期軸の標本数 |
 
@@ -99,7 +107,7 @@ primary cellから指定した層までのcopyだけをfield sourceに含めま�
 
 ## reservoir流入をface平均potentialで補正する
 
-`reservoir_potential_model="infinity_barrier"`は、batch開始時に有限画像和で構成した場から注入開口の平均potential
+`external_boundary.particles.inflow_model="infinity_barrier"`は、batch開始時に有限画像和で構成した場から注入開口の平均potential
 $\bar\phi_f$を求め、`phi_infty`との差で
 
 - 上流VDFの到達可能な法線速度を選ぶ。
@@ -116,7 +124,7 @@ $\bar\phi_f$も変わり得るので、粒子fluxだけでなくface potential�
 
 ## open面で通過点ごとのenergyを判定する
 
-`open_boundary_model="potential_barrier"`は通過点potentialと`phi_infty`を比較し、法線energyが不足する粒子だけを
+`external_boundary.ordinary_open.model="potential_barrier"`は通過点potentialと`phi_infty`を比較し、法線energyが不足する粒子だけを
 reflectし、障壁を越えられる粒子をescapeとして除去します。
 
 reservoir側の`infinity_barrier`とoutflow側の`potential_barrier`は、同じenergy conventionを使えます。ただし、

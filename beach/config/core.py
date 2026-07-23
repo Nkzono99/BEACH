@@ -17,6 +17,7 @@ TOP_LEVEL_CONFIG_ORDER = (
     "sim",
     "field",
     "periodic2",
+    "external_boundary",
     "outer_plasma",
     "coupling",
     "particles",
@@ -30,6 +31,103 @@ _RESERVED_TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "title", "use_presets", "override", "base_case"}
 )
 _FACE_SOURCE_MODES = frozenset({"reservoir_face", "photo_raycast"})
+_EXTERNAL_BOUNDARY_SIM_SELECTORS = (
+    "reservoir_potential_model",
+    "sheath_injection_model",
+    "open_boundary_model",
+)
+_EXTERNAL_BOUNDARY_FIELD_MODELS = frozenset(
+    {"none", "linear_debye", "kinetic_1d", "unified_linear_response"}
+)
+_EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS = frozenset(
+    {"model", "debye_length", "thermal_voltage"}
+)
+_EXTERNAL_BOUNDARY_HISTOGRAM_FIELD_KEYS = frozenset(
+    {
+        "photoelectron_histogram_enabled",
+        "photoelectron_histogram_bins",
+        "photoelectron_histogram_energy_max",
+        "photoelectron_ambient_charge_scale",
+        "max_photoelectron_charge_ratio",
+    }
+)
+_EXTERNAL_BOUNDARY_KINETIC_FIELD_KEYS = frozenset(
+    {
+        "kinetic_closure",
+        "zhao_branch",
+        "photoelectron_source_scale",
+        "photoelectron_density_model",
+    }
+)
+_EXTERNAL_BOUNDARY_UNIFIED_FIELD_KEYS = frozenset(
+    {"unified_grid_points", "accessible_fraction_tolerance"}
+)
+_EXTERNAL_BOUNDARY_FIELD_KEYS_BY_MODEL = {
+    "none": frozenset({"model"}),
+    "linear_debye": (
+        _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS
+        | {
+            "infinity_potential",
+            "max_linearity_ratio",
+            "max_gap_ratio",
+            "max_local_charge_ratio",
+        }
+        | _EXTERNAL_BOUNDARY_HISTOGRAM_FIELD_KEYS
+    ),
+    "kinetic_1d": (
+        _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS
+        | {"max_gap_ratio", "max_local_charge_ratio"}
+        | _EXTERNAL_BOUNDARY_KINETIC_FIELD_KEYS
+    ),
+    "unified_linear_response": (
+        _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS
+        | {"max_linearity_ratio"}
+        | _EXTERNAL_BOUNDARY_UNIFIED_FIELD_KEYS
+    ),
+}
+_EXTERNAL_BOUNDARY_FIELD_KEYS = frozenset().union(
+    *_EXTERNAL_BOUNDARY_FIELD_KEYS_BY_MODEL.values()
+)
+_EXTERNAL_BOUNDARY_STEADY_START_KEYS = frozenset(
+    {"steady_start_mode", "steady_start_mesh_id"}
+)
+_EXTERNAL_BOUNDARY_TRACKED_PARTICLE_KEYS = frozenset(
+    {"field_evolution_timescale", "max_frozen_field_ratio"}
+)
+_EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS = frozenset(
+    {
+        "outer_orbit_dt",
+        "outer_orbit_max_steps",
+        "outer_orbit_energy_tolerance",
+    }
+)
+_EXTERNAL_BOUNDARY_COUPLING_KEYS = (
+    "steady_start_mode",
+    "steady_start_mesh_id",
+    "outer_update_stride",
+    "field_evolution_timescale",
+    "max_frozen_field_ratio",
+    "outer_orbit_dt",
+    "outer_orbit_max_steps",
+    "outer_orbit_energy_tolerance",
+)
+_EXTERNAL_BOUNDARY_PARTICLE_KEYS = frozenset(
+    {
+        "mode",
+        "inflow_model",
+        "legacy_sheath_model",
+        *_EXTERNAL_BOUNDARY_COUPLING_KEYS,
+    }
+)
+_EXTERNAL_BOUNDARY_PARTICLE_MODES = frozenset(
+    {"local_source", "same_batch", "zhao_queue"}
+)
+_EXTERNAL_BOUNDARY_INFLOW_MODELS = frozenset(
+    {"auto", "source_vdf", "infinity_barrier", "legacy_sheath"}
+)
+_EXTERNAL_BOUNDARY_LEGACY_SHEATH_MODELS = frozenset(
+    {"zhao_auto", "zhao_a", "zhao_b", "zhao_c", "floating_no_photo"}
+)
 
 
 class ConfigError(ValueError):
@@ -59,7 +157,6 @@ def default_config() -> dict[str, Any]:
             "bc_z_low": "open",
             "bc_z_high": "open",
             "rng_seed": 12345,
-            "open_boundary_model": "escape",
             "field_solver": "fmm",
             "field_bc_mode": "periodic2",
             "field_periodic_image_layers": 1,
@@ -147,10 +244,12 @@ def _strip_id_fields(config: dict[str, Any]) -> None:
 def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
     """Resolve high-level spatial notation into runtime beach.toml values."""
 
+    _validate_external_boundary_facade_mix(config, context="high-level config")
     resolved = copy.deepcopy(dict(config))
     sim = resolved.get("sim")
     if isinstance(sim, Mapping):
         resolved["sim"] = _resolve_sim_high_level(dict(sim))
+    _resolve_external_boundary_facade(resolved)
     box_min, box_max = _resolved_box_bounds(resolved)
 
     particles = resolved.get("particles")
@@ -175,6 +274,442 @@ def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
 
     _strip_id_fields(resolved)
     return resolved
+
+
+def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
+    external_boundary = config.pop("external_boundary", None)
+    if external_boundary is None:
+        return
+    if not isinstance(external_boundary, Mapping):
+        raise ConfigError(
+            "high-level config error: external_boundary must be a table."
+        )
+
+    field = external_boundary.get("field")
+    particles = external_boundary.get("particles")
+    ordinary_open = external_boundary.get("ordinary_open", {})
+    if not isinstance(field, Mapping):
+        raise ConfigError(
+            "high-level config error: external_boundary.field must be a table."
+        )
+    if not isinstance(particles, Mapping):
+        raise ConfigError(
+            "high-level config error: external_boundary.particles must be a table."
+        )
+    if not isinstance(ordinary_open, Mapping):
+        raise ConfigError(
+            "high-level config error: external_boundary.ordinary_open must be a table."
+        )
+
+    unknown_external_keys = set(external_boundary) - {
+        "field",
+        "particles",
+        "ordinary_open",
+    }
+    unknown_field_keys = set(field) - _EXTERNAL_BOUNDARY_FIELD_KEYS
+    unknown_particle_keys = set(particles) - _EXTERNAL_BOUNDARY_PARTICLE_KEYS
+    unknown_open_keys = set(ordinary_open) - {"model"}
+    for path, unknown_keys in (
+        ("external_boundary", unknown_external_keys),
+        ("external_boundary.field", unknown_field_keys),
+        ("external_boundary.particles", unknown_particle_keys),
+        ("external_boundary.ordinary_open", unknown_open_keys),
+    ):
+        if unknown_keys:
+            raise ConfigError(
+                f"high-level config error: unsupported {path} key(s): "
+                + ", ".join(sorted(unknown_keys))
+            )
+
+    field_model = field.get("model")
+    if (
+        not isinstance(field_model, str)
+        or field_model not in _EXTERNAL_BOUNDARY_FIELD_MODELS
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.field.model must be "
+            '"none", "linear_debye", "kinetic_1d", or "unified_linear_response".'
+        )
+    particle_mode = particles.get("mode")
+    if (
+        not isinstance(particle_mode, str)
+        or particle_mode not in _EXTERNAL_BOUNDARY_PARTICLE_MODES
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.particles.mode must be "
+            '"local_source", "same_batch", or "zhao_queue".'
+        )
+    inflow_model = particles.get("inflow_model", "auto")
+    if (
+        not isinstance(inflow_model, str)
+        or inflow_model not in _EXTERNAL_BOUNDARY_INFLOW_MODELS
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.particles.inflow_model must be "
+            '"auto", "source_vdf", "infinity_barrier", or "legacy_sheath".'
+        )
+    ordinary_open_model = ordinary_open.get("model", "escape")
+    if (
+        not isinstance(ordinary_open_model, str)
+        or ordinary_open_model not in {"escape", "potential_barrier"}
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.ordinary_open.model must be "
+            '"escape" or "potential_barrier".'
+        )
+
+    legacy_sheath_model = particles.get("legacy_sheath_model")
+    if inflow_model == "legacy_sheath":
+        if (
+            not isinstance(legacy_sheath_model, str)
+            or legacy_sheath_model not in _EXTERNAL_BOUNDARY_LEGACY_SHEATH_MODELS
+        ):
+            raise ConfigError(
+                "high-level config error: inflow_model=legacy_sheath requires "
+                "external_boundary.particles.legacy_sheath_model."
+            )
+    elif "legacy_sheath_model" in particles:
+        raise ConfigError(
+            "high-level config error: external_boundary.particles.legacy_sheath_model "
+            "is only valid with inflow_model=legacy_sheath."
+        )
+
+    has_coupling_options = any(
+        key in particles for key in _EXTERNAL_BOUNDARY_COUPLING_KEYS
+    )
+    if field_model == "none" and len(field) != 1:
+        raise ConfigError(
+            "high-level config error: external_boundary.field.model=none does not "
+            "accept outer-field parameters."
+        )
+    if (
+        field_model == "none"
+        and particle_mode == "local_source"
+        and has_coupling_options
+    ):
+        raise ConfigError(
+            "high-level config error: field.model=none with particles.mode=local_source "
+            "does not accept external-boundary coupling options."
+        )
+
+    _validate_external_boundary_facade_controls(
+        config=config,
+        field=field,
+        particles=particles,
+        field_model=field_model,
+        particle_mode=particle_mode,
+    )
+
+    if particle_mode == "local_source":
+        return_model = "none"
+        transfer_mode = "none"
+        queue_enabled = False
+    elif particle_mode == "same_batch":
+        transfer_contracts = {
+            "linear_debye": (
+                "electrostatic_1d_instant_return",
+                "electrostatic_1d_instant_return",
+            ),
+            "kinetic_1d": (
+                "kinetic_1d_profile_return",
+                "electrostatic_1d_instant_return",
+            ),
+            "unified_linear_response": (
+                "electrostatic_3d_explicit_orbit",
+                "electrostatic_3d_explicit_orbit",
+            ),
+        }
+        contract = transfer_contracts.get(field_model)
+        if contract is None:
+            raise ConfigError(
+                "high-level config error: external_boundary.particles.mode=same_batch "
+                "requires an active external_boundary.field.model."
+            )
+        return_model, transfer_mode = contract
+        queue_enabled = False
+    else:
+        if (
+            field_model != "kinetic_1d"
+            or field.get("kinetic_closure", "absorbing_maxwellian")
+            != "zhao_charge_driven"
+            or field.get("zhao_branch", "auto") != "auto"
+        ):
+            raise ConfigError(
+                "high-level config error: external_boundary.particles.mode=zhao_queue "
+                "requires kinetic_1d with kinetic_closure=zhao_charge_driven and "
+                "zhao_branch=auto."
+            )
+        return_model = "kinetic_1d_profile_return"
+        transfer_mode = "electrostatic_1d_instant_return"
+        queue_enabled = True
+
+    tracked_1d = (
+        transfer_mode == "electrostatic_1d_instant_return"
+        and field_model in {"linear_debye", "kinetic_1d"}
+    )
+    if tracked_1d and inflow_model != "auto":
+        raise ConfigError(
+            "high-level config error: tracked linear_debye/kinetic_1d transfer owns "
+            "inflow and requires external_boundary.particles.inflow_model=auto."
+        )
+
+    sim = config.get("sim")
+    if not isinstance(sim, Mapping):
+        raise ConfigError(
+            "high-level config error: external_boundary requires a [sim] table."
+        )
+    sim_dict = dict(sim)
+    if inflow_model == "infinity_barrier":
+        sim_dict["reservoir_potential_model"] = "infinity_barrier"
+    elif inflow_model == "legacy_sheath":
+        sim_dict["sheath_injection_model"] = legacy_sheath_model
+    if ordinary_open_model == "potential_barrier":
+        sim_dict["open_boundary_model"] = "potential_barrier"
+    config["sim"] = sim_dict
+
+    if field_model != "none":
+        box_max = sim_dict.get("box_max")
+        if box_max is None:
+            raise ConfigError(
+                "high-level config error: an active external_boundary.field.model "
+                "requires sim.box_max or sim.box_origin/sim.box_size."
+            )
+        resolved_box_max = _coerce_numeric_sequence(
+            box_max, length=3, name="sim.box_max"
+        )
+        outer_plasma = copy.deepcopy(dict(field))
+        outer_plasma["return_model"] = return_model
+        outer_plasma["interface_z"] = resolved_box_max[2]
+        config["outer_plasma"] = outer_plasma
+
+    if (
+        field_model != "none"
+        or particle_mode != "local_source"
+        or has_coupling_options
+    ):
+        coupling = {
+            "update_mode": "explicit",
+            "particle_transfer_mode": transfer_mode,
+        }
+        for key in _EXTERNAL_BOUNDARY_COUPLING_KEYS:
+            if key in particles:
+                coupling[key] = copy.deepcopy(particles[key])
+        coupling["outer_queue_enabled"] = queue_enabled
+        config["coupling"] = coupling
+
+
+def _validate_external_boundary_facade_controls(
+    *,
+    config: Mapping[str, Any],
+    field: Mapping[str, Any],
+    particles: Mapping[str, Any],
+    field_model: str,
+    particle_mode: str,
+) -> None:
+    allowed_field_keys = _EXTERNAL_BOUNDARY_FIELD_KEYS_BY_MODEL[field_model]
+    inapplicable_field_keys = set(field) - allowed_field_keys
+    if inapplicable_field_keys:
+        raise ConfigError(
+            "high-level config error: external_boundary.field key(s) "
+            + ", ".join(sorted(inapplicable_field_keys))
+            + f" are not applicable to model={field_model!r}."
+        )
+
+    histogram_controls = _EXTERNAL_BOUNDARY_HISTOGRAM_FIELD_KEYS - {
+        "photoelectron_histogram_enabled"
+    }
+    if set(field) & histogram_controls and (
+        field.get("photoelectron_histogram_enabled") is not True
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.field histogram controls "
+            "require photoelectron_histogram_enabled=true."
+        )
+    if (
+        set(field) & {"zhao_branch", "photoelectron_source_scale"}
+        and field.get("kinetic_closure") != "zhao_charge_driven"
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.field.zhao_branch and "
+            "photoelectron_source_scale require kinetic_closure=zhao_charge_driven."
+        )
+    if (
+        "photoelectron_density_model" in field
+        and field.get("kinetic_closure", "absorbing_maxwellian")
+        != "absorbing_maxwellian"
+    ):
+        raise ConfigError(
+            "high-level config error: "
+            "external_boundary.field.photoelectron_density_model requires "
+            "kinetic_closure=absorbing_maxwellian."
+        )
+
+    for key in (
+        "accessible_fraction_tolerance",
+        "max_linearity_ratio",
+        "max_gap_ratio",
+        "max_local_charge_ratio",
+        "photoelectron_histogram_energy_max",
+        "photoelectron_ambient_charge_scale",
+        "max_photoelectron_charge_ratio",
+    ):
+        _validate_external_boundary_numeric_option(
+            field,
+            key=key,
+            path=f"external_boundary.field.{key}",
+            minimum=0.0,
+            exclusive=True,
+        )
+    for key, minimum in (
+        ("unified_grid_points", 17),
+        ("photoelectron_histogram_bins", 1),
+    ):
+        _validate_external_boundary_numeric_option(
+            field,
+            key=key,
+            path=f"external_boundary.field.{key}",
+            minimum=minimum,
+            integer=True,
+        )
+
+    inapplicable_particle_keys: set[str] = set()
+    if particle_mode == "local_source":
+        inapplicable_particle_keys.update(
+            _EXTERNAL_BOUNDARY_TRACKED_PARTICLE_KEYS
+            | _EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS
+            | _EXTERNAL_BOUNDARY_STEADY_START_KEYS
+        )
+    elif particle_mode == "zhao_queue":
+        inapplicable_particle_keys.update(
+            _EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS
+            | _EXTERNAL_BOUNDARY_STEADY_START_KEYS
+        )
+    elif field_model != "unified_linear_response":
+        inapplicable_particle_keys.update(_EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS)
+    if "outer_update_stride" in particles and (
+        field_model not in {"linear_debye", "kinetic_1d"}
+        or particle_mode == "zhao_queue"
+    ):
+        inapplicable_particle_keys.add("outer_update_stride")
+    present_steady_start_keys = set(particles) & _EXTERNAL_BOUNDARY_STEADY_START_KEYS
+    if present_steady_start_keys and (
+        particle_mode != "same_batch"
+        or field_model != "kinetic_1d"
+        or field.get("kinetic_closure") != "zhao_charge_driven"
+    ):
+        inapplicable_particle_keys.update(present_steady_start_keys)
+    present_inapplicable_particle_keys = set(particles) & inapplicable_particle_keys
+    if present_inapplicable_particle_keys:
+        raise ConfigError(
+            "high-level config error: external_boundary.particles key(s) "
+            + ", ".join(sorted(present_inapplicable_particle_keys))
+            + f" are not applicable to mode={particle_mode!r} "
+            f"with field.model={field_model!r}."
+        )
+
+    for key, minimum in (
+        ("steady_start_mesh_id", 1),
+        ("outer_update_stride", 1),
+        ("outer_orbit_max_steps", 1),
+    ):
+        _validate_external_boundary_numeric_option(
+            particles,
+            key=key,
+            path=f"external_boundary.particles.{key}",
+            minimum=minimum,
+            integer=True,
+        )
+    for key, minimum, exclusive in (
+        ("field_evolution_timescale", 0.0, False),
+        ("max_frozen_field_ratio", 0.0, True),
+        ("outer_orbit_dt", 0.0, False),
+        ("outer_orbit_energy_tolerance", 0.0, True),
+    ):
+        _validate_external_boundary_numeric_option(
+            particles,
+            key=key,
+            path=f"external_boundary.particles.{key}",
+            minimum=minimum,
+            exclusive=exclusive,
+        )
+
+    steady_start_mode = particles.get("steady_start_mode", "none")
+    if (
+        not isinstance(steady_start_mode, str)
+        or steady_start_mode not in {"none", "zhao_floating"}
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.particles.steady_start_mode "
+            'must be "none" or "zhao_floating".'
+        )
+    if (
+        "steady_start_mesh_id" in particles
+        and steady_start_mode != "zhao_floating"
+    ):
+        raise ConfigError(
+            "high-level config error: external_boundary.particles.steady_start_mesh_id "
+            "requires steady_start_mode=zhao_floating."
+        )
+    if steady_start_mode != "zhao_floating":
+        return
+
+    if (
+        particle_mode != "same_batch"
+        or field_model != "kinetic_1d"
+        or field.get("kinetic_closure") != "zhao_charge_driven"
+    ):
+        raise ConfigError(
+            "high-level config error: steady_start_mode=zhao_floating requires "
+            "kinetic_1d zhao_charge_driven with particles.mode=same_batch."
+        )
+    periodic2 = config.get("periodic2")
+    valid_periodic2 = (
+        isinstance(periodic2, Mapping)
+        and periodic2.get("zero_mode_policy", "exclude_k0") == "exclude_k0"
+        and periodic2.get("lower_boundary_model", "e_bottom_zero")
+        in {"e_bottom_zero", "symmetric_vacuum"}
+    )
+    if not valid_periodic2:
+        raise ConfigError(
+            "high-level config error: steady_start_mode=zhao_floating requires "
+            "periodic2 exclude_k0 with a supported lower boundary model."
+        )
+    mesh = config.get("mesh")
+    if not isinstance(mesh, Mapping) or mesh.get("mode") != "template":
+        raise ConfigError(
+            "high-level config error: steady_start_mode=zhao_floating requires "
+            "mesh.mode=template."
+        )
+
+
+def _validate_external_boundary_numeric_option(
+    table: Mapping[str, Any],
+    *,
+    key: str,
+    path: str,
+    minimum: float | int,
+    exclusive: bool = False,
+    integer: bool = False,
+) -> None:
+    if key not in table:
+        return
+    value = table[key]
+    if integer:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ConfigError(f"high-level config error: {path} must be an integer.")
+        invalid = value < minimum
+    else:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ConfigError(f"high-level config error: {path} must be numeric.")
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise ConfigError(f"high-level config error: {path} must be finite.")
+        invalid = numeric <= minimum if exclusive else numeric < minimum
+    if invalid:
+        operator = ">" if exclusive else ">="
+        raise ConfigError(
+            f"high-level config error: {path} must be {operator} {minimum}."
+        )
 
 
 def _resolve_sim_high_level(sim: dict[str, Any]) -> dict[str, Any]:
@@ -776,6 +1311,11 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         context="runtime config",
         allow_meta_keys=False,
     )
+    if "external_boundary" in final_config:
+        raise ConfigValidationError(
+            "BEACH constraint error: runtime config contains the authoring-only "
+            "[external_boundary] facade; normalize it before runtime validation."
+        )
 
     for key in _REQUIRED_RUNTIME_TABLES:
         if key not in final_config:
@@ -1309,13 +1849,17 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "BEACH constraint error: electrostatic_3d_explicit_orbit requires matching "
                 "unified return and transfer models."
             )
+        explicit_orbit_defaults = {
+            "max_frozen_field_ratio": 0.1,
+            "outer_orbit_energy_tolerance": 1.0e-4,
+        }
         for key in (
             "field_evolution_timescale",
             "max_frozen_field_ratio",
             "outer_orbit_dt",
             "outer_orbit_energy_tolerance",
         ):
-            value = coupling.get(key)
+            value = coupling.get(key, explicit_orbit_defaults.get(key))
             if (
                 not isinstance(value, (int, float))
                 or isinstance(value, bool)
@@ -1683,6 +2227,8 @@ def _validate_high_level_fragment(
     *,
     context: str,
 ) -> None:
+    _validate_external_boundary_facade_mix(document, context=context)
+
     sim = document.get("sim")
     if isinstance(sim, Mapping):
         if "box_origin" in sim and "box_min" in sim:
@@ -1715,6 +2261,31 @@ def _validate_high_level_fragment(
                     f"{context} error: particles.species[{index}] uses inject_region_mode/uv_* "
                     'but source_mode must be "reservoir_face" or "photo_raycast".'
                 )
+
+
+def _validate_external_boundary_facade_mix(
+    document: Mapping[str, Any],
+    *,
+    context: str,
+) -> None:
+    if "external_boundary" not in document:
+        return
+
+    conflicts = [
+        f"[{key}]" for key in ("outer_plasma", "coupling") if key in document
+    ]
+    sim = document.get("sim")
+    if isinstance(sim, Mapping):
+        conflicts.extend(
+            f"sim.{key}" for key in _EXTERNAL_BOUNDARY_SIM_SELECTORS if key in sim
+        )
+    if conflicts:
+        raise ConfigError(
+            f"{context} error: [external_boundary] cannot be combined with raw "
+            "external-boundary owner(s): "
+            + ", ".join(conflicts)
+            + "."
+        )
 
 
 def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:

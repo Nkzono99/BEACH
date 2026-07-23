@@ -30,7 +30,7 @@ beachx inspect outputs/latest
 | OBJ メッシュ | `[mesh]` | 外部形状を使う |
 | 粒子注入を選ぶ | `[[particles.species]]` | 流入、初期粒子、光電子放出を切り替える |
 | 2軸周期境界（有限画像和） | `[sim]` | 指定した範囲の周期画像を使う |
-| 高度な外部シース連成 | `[periodic2]`, `[outer_plasma]`, `[coupling]` | 無限周期、`kinetic_1d`、UV 光電子を結合する |
+| 高度な外部シース連成 | `[periodic2]`, `[external_boundary]` | 無限周期、`kinetic_1d`、UV 光電子を結合する |
 | 履歴出力 | `[output]` | 時間発展を可視化する |
 | 再開実行 | `[output]` | checkpoint から続ける |
 

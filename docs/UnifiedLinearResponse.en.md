@@ -4,14 +4,15 @@ Lang: [日本語](UnifiedLinearResponse.md) | [English](UnifiedLinearResponse.en
 
 # Advanced rough-surface linear screening (`unified_linear_response`)
 
-`outer_plasma.model="unified_linear_response"` combines the rough-surface height range, plane-averaged surface-charge source,
+`external_boundary.field.model="unified_linear_response"` combines the rough-surface height range, plane-averaged surface-charge source,
 plasma-accessible area, and linear Debye response in one field model. It is the linear model for cases without a vacuum window in
 which lateral modes have decayed between the surface and ownership interface.
 
 This is not the standard outer-sheath model. It is an advanced linear-screening model for cases where roughness and plasma
-response occupy the same region. Use `kinetic_1d` for ordinary outer sheaths that require species VDFs, the Bohm condition,
-inflow correction, or current balance. Do not treat `unified_linear_response` as a higher-accuracy replacement or automatic
-fallback for `kinetic_1d`.
+response occupy the same region. Use `kinetic_1d` for a self-consistent outer sheath that includes species VDFs, the Bohm
+condition, or current balance. The unified model owns only the field, not the source VDF; select an inflow correction
+independently with `external_boundary.particles.inflow_model`. Do not treat
+`unified_linear_response` as a higher-accuracy replacement or automatic fallback for `kinetic_1d`.
 
 ## Replace the split window with one field solve
 
@@ -19,7 +20,7 @@ fallback for `kinetic_1d`.
 model solves one zero-mode Poisson grid from the surface projection to the far boundary and continues nonzero modes into plasma
 tails.
 
-`outer_plasma.interface_z` is the particle-ownership boundary on the z-high box face. It is neither a field-solve boundary nor the
+The interface derived from `sim.box_max[2]` is the particle-ownership boundary on the z-high box face. It is neither a field-solve boundary nor the
 start of plasma response. With unchanged mesh geometry and Debye length, moving only the interface must not change the local field
 profile.
 
@@ -160,8 +161,8 @@ is an operational small-perturbation gate, not an error bound.
 | Prescribed field | `sim.e0=0` |
 | Mean plasma | Scalar linear Debye response only |
 | Species model | No species VDF, Bohm condition, or photoelectron mean closure |
-| Particle transfer | `none` or `electrostatic_3d_explicit_orbit` |
-| Magnetic field | Explicit outer orbit requires `sim.b0=0` |
+| Particle transfer | `external_boundary.particles.mode="local_source"`, or `"same_batch"` for a 3-D outer orbit |
+| Magnetic field | `particles.mode="same_batch"` requires `sim.b0=0` |
 | Failure | Stop without fallback to a nonlinear or legacy sheath model |
 
 `max_gap_ratio` and `max_local_charge_ratio` are diagnostics for split scalar-interface models. Unified acceptance centers on
@@ -179,8 +180,8 @@ Every snapshot refresh after surface-charge commit updates the surface zero mode
 The current unified path does not skip solves according to `outer_update_stride`. The MPI root performs the tridiagonal solve and
 broadcasts status and $z,\phi,E,\rho$.
 
-With `particle_transfer_mode="none"`, z-high particles follow the ordinary open boundary. With
-`electrostatic_3d_explicit_orbit`, they move through the same zero/nonzero outer field. See
+With `external_boundary.particles.mode="local_source"`, z-high particles follow the ordinary open boundary. With
+`"same_batch"`, they move through the same zero/nonzero outer field. See
 [Particle escape and return](ParticleEscapeReturn.en.html).
 
 ## Converge geometry, grid, and modes independently

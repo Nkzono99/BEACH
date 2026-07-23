@@ -5,12 +5,19 @@ contains
 
   module procedure finalize_loaded_config
   integer :: i, j, axis
-  integer(i32) :: per_batch_particles
+  integer(i32) :: per_batch_particles, physics_status
   integer(i32) :: n_periodic_axes
   logical :: has_dynamic_source_species
   character(len=64) :: generated_species_key
+  character(len=256) :: physics_message
 
   call normalize_high_level_config(cfg, authoring)
+  call normalize_legacy_physics_config( &
+    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+    )
+  call apply_field_authoring(cfg, authoring)
+  call apply_physics_authoring(cfg, authoring)
+  call lower_external_boundary_authoring(cfg, authoring)
 
   if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
   if (.not. ieee_is_finite(cfg%sim%dt) .or. cfg%sim%dt <= 0.0d0) then
@@ -359,11 +366,10 @@ contains
     error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
   end if
   cfg%n_particles = cfg%sim%batch_count*per_batch_particles
-  call normalize_legacy_physics_config( &
-    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+  call validate_active_physics_config( &
+    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling, physics_status, physics_message &
     )
-  call apply_field_authoring(cfg, authoring)
-  call apply_physics_authoring(cfg, authoring)
+  if (physics_status /= physics_config_ok) error stop trim(physics_message)
   if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .or. &
       trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_3d_explicit_orbit') then
     do i = 1, cfg%n_particle_species
