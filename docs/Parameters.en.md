@@ -307,8 +307,8 @@ mode = "same_batch"
 field_evolution_timescale = 1.0
 ```
 
-- `field` selects the external plasma-response potential/field model. Kinetic
-  covers beyond z-high; unified covers the rough surface to the far region.
+- `field` selects the external plasma-response potential/field model. `kinetic_1d`
+  covers beyond z-high.
 - `particles` selects z-high crossing behavior and ownership of the inflow VDF.
 - `ordinary_open` applies only to open faces not owned by the outer model.
 
@@ -320,16 +320,13 @@ entirely for an ordinary case that does not need these controls.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `model` | string | required | `none` / `kinetic_1d` / `unified_linear_response` |
+| `model` | string | required | `none` / `kinetic_1d` |
 | `kinetic_closure` | string | `absorbing_maxwellian` | For `kinetic_1d` only: `absorbing_maxwellian` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | For `zhao_charge_driven` only: `auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | float | `1` | Analytic source multiplier for `zhao_charge_driven`; use `0` without UV |
 | `photoelectron_density_model` | string | `none` | Optional mean density for `kinetic_1d + absorbing_maxwellian`: `none` / `kinetic_mean` |
-| `debye_length` | float | required for active models | Length scale for `kinetic_1d` or `unified_linear_response` [m] |
-| `thermal_voltage` | float | required for active models | Potential scale for `kinetic_1d` or `unified_linear_response` [V] |
-| `unified_grid_points` | int | `129` | Zero-mode Poisson grid points for `unified_linear_response` |
-| `accessible_fraction_tolerance` | float | `0.1` | Rough-surface accessible-fraction convergence tolerance for `unified_linear_response` |
-| `max_linearity_ratio` | float | `0.25` | Linearity limit for `unified_linear_response` |
+| `debye_length` | float | required for active models | Length scale for `kinetic_1d` [m] |
+| `thermal_voltage` | float | required for active models | Potential scale for `kinetic_1d` [V] |
 | `max_gap_ratio` | float | `5` | Interface-to-mesh gap limit for `kinetic_1d` |
 | `max_local_charge_ratio` | float | `50` | Local plasma-charge estimate limit for `kinetic_1d` |
 
@@ -345,7 +342,6 @@ diagnostic or feature. A key outside the selected row is rejected as a no-op eve
 | `none` | `model` only | none allowed |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`, `photoelectron_density_model`, and gap/local-charge limits |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`, and required `sim.sheath_*` physics values | source scale, branch, and gap/local-charge limits |
-| `unified_linear_response` | `debye_length`, `thermal_voltage` | grid, accessible fraction, and linearity limit |
 
 For `kinetic_closure="zhao_charge_driven"`, `debye_length` and `thermal_voltage` remain schema-required but are not the
 physical scales of the Zhao root or profile. Photoemitting Zhao derives those scales from $T_{pe}$ and the reference density;
@@ -366,9 +362,6 @@ Normally omit defaults or model-fixed values such as
 | `outer_update_stride` | int | `1` | Refresh interval accepted only for `local_source` / `same_batch` with `kinetic_1d` [batches] |
 | `field_evolution_timescale` | float | `0` | Frozen-field diagnostic timescale for `same_batch` / `zhao_queue` [s] |
 | `max_frozen_field_ratio` | float | `0.1` | Frozen-field applicability limit for `same_batch` / `zhao_queue` |
-| `outer_orbit_dt` | float | `0` | Outer-orbit step for unified 3-D `same_batch`; specify a positive value |
-| `outer_orbit_max_steps` | int | `100000` | Maximum number of outer-orbit steps for unified 3-D `same_batch` |
-| `outer_orbit_energy_tolerance` | float | `1e-4` | Relative outer-orbit energy-error limit for unified 3-D `same_batch` |
 
 `mode` selects only whether z-high particles enter an external trajectory and when its result is applied. Select the
 reservoir-inflow distribution or correction independently with `inflow_model`.
@@ -376,27 +369,24 @@ reservoir-inflow distribution or correction independently with `inflow_model`.
 | `mode` | Meaning | Compatible field |
 |---|---|---|
 | `local_source` | Retain no external trajectory; handle z-high crossings with `ordinary_open` | all |
-| `same_batch` | Classify return or escape for z-high crossings within the same batch | `kinetic_1d` / `unified_linear_response` |
+| `same_batch` | Classify return or escape for z-high crossings within the same batch | `kinetic_1d` |
 | `zhao_queue` | Hold particles in the Zhao reservoir queue and reinject in a later batch | `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` |
 
 The additional requirements by mode are:
 
 | `particles.mode` and field | Additional requirements |
 |---|---|
-| `local_source` + `none` / unified | add no transport, time, or orbit keys |
+| `local_source` + `none` | add no transport or time keys |
 | `local_source` + kinetic | add only `outer_update_stride` when needed |
 | `same_batch` + kinetic | `field_evolution_timescale > 0` and `inflow_model="auto"`; optionally add update-stride and time guards |
-| `same_batch` + unified | `field_evolution_timescale > 0` and `outer_orbit_dt > 0`; optionally add time and orbit guards |
 | `zhao_queue` | `sim.batch_duration > 0`, `field_evolution_timescale > 0`, and a positive photoelectron source; update stride is fixed internally to 1 |
 
-Write `steady_start_*` only for Zhao `same_batch`, `outer_orbit_*` only for unified `same_batch`, and time guards only for
-`same_batch` / `zhao_queue`. A key with no effect in the selected mode is an error.
+Write `steady_start_*` only for Zhao `same_batch`, and time guards only for `same_batch` / `zhao_queue`.
+A key with no effect in the selected mode is an error.
 
 `inflow_model="auto"` delegates inflow to the same 1-D profile for tracked
 `kinetic_1d`; otherwise it resolves to `source_vdf`.
 Those tracked 1-D configurations cannot stack another inflow correction.
-`unified_linear_response` owns the outer orbit but not the inflow VDF, so it can
-use `source_vdf` or `infinity_barrier`.
 
 #### `[external_boundary.ordinary_open]`
 
@@ -448,20 +438,17 @@ The facade derives `interface_z` and `return_model`. Legacy `[outer_plasma]` is 
 
 | Key | Default | Meaning |
 |---|---:|---|
-| `model` | required | `kinetic_1d` / `unified_linear_response` |
+| `model` | required | `kinetic_1d` |
 | `interface_z` | required | upper-z interface; initially the top of the box |
 | `debye_length` | required | length scale for `absorbing_maxwellian` tails and split diagnostics; not the Zhao profile's physical scale |
-| `thermal_voltage` | required | potential scale for linearity and split diagnostics; not the Zhao profile's physical scale |
-| `unified_grid_points` | `129` | unified zero-mode Poisson grid points; at least 17 |
-| `accessible_fraction_tolerance` | `0.1` | maximum accessible-fraction change after doubling rough-surface samples along both axes |
-| `max_linearity_ratio` | `0.25` | upper bound on `abs(phi_t-phi_inf)/thermal_voltage` |
+| `thermal_voltage` | required | potential scale for interface nonzero-mode potential/field-decay diagnostics; not the Zhao profile's physical scale |
 | `max_gap_ratio` | `5` | upper bound on `(z_t-z_mesh,max)/lambda` |
 | `max_local_charge_ratio` | `50` | upper bound on the local mean-plasma charge estimate ratio |
 | `kinetic_closure` | `absorbing_maxwellian` | density/VDF closure for `kinetic_1d`: `absorbing_maxwellian` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure branch: `auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | `1` | independent multiplier for the analytic Zhao photoelectron source; use `0` without UV; distinct from queue occupancy $\eta$ |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`; the latter adds mean photoelectron density to `kinetic_1d` |
-| `return_model` | `none` | ID of the kinetic 1-D profile return or unified explicit 3-D orbit |
+| `return_model` | `none` | ID of the kinetic 1-D profile return |
 
 #### Normalized `kinetic_1d` Contract (Standard and Recommended)
 
@@ -584,33 +571,6 @@ The model assumptions are
 documented in [ADR 0001](adr/0001-kinetic-outer-plasma.md) and
 [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md).
 
-#### Normalized `unified_linear_response` Contract (Advanced and Specialized)
-
-`unified_linear_response` is not a higher-accuracy replacement for `kinetic_1d`. Select it as rough-surface linear screening only
-when roughness and plasma response occupy the same region, no split window is available, and the linearity gate passes.
-
-| Item | Contract |
-| --- | --- |
-| Zero mode | one Poisson grid from surface projection to the far boundary |
-| Rough surface | include plasma-accessible area and linear mean-plasma charge |
-| Nonzero mode | join a $\sqrt{k^2+\kappa^2}$ tail above the highest surface point |
-| `interface_z` | particle ownership plane, not a field truncation plane |
-| Geometry/kernel | require single-valued topography and `triangle_p0` |
-| Photoelectron mean | require `photoelectron_density_model="none"` |
-| Particle transfer | `none` or `electrostatic_3d_explicit_orbit` |
-| 3D orbit | require `b0=0`, fixed step, and energy/frozen-field error contracts |
-| Applicability | fail closed beyond the configured linearity bound |
-
-Numerical and applicability rules:
-
-- `unified_grid_points >= 17` is required; the default is `129`.
-- `accessible_fraction_tolerance` bounds the maximum accessible-fraction change after doubling height samples along both periodic axes.
-- The solve uses the refined samples and stops during initialization when the tolerance is exceeded.
-- Production studies should demonstrate grid refinement of the reported observables.
-
-See `examples/periodic2_unified_linear_response.toml`, `examples/periodic2_unified_explicit_orbit.toml`, and
-`docs/adr/0002-unified-periodic-outer-domain.md`.
-
 ### `[coupling]`: Compatibility and Normalized-Runtime Reference
 
 > **This is not an authoring API for new configurations.** Use `[external_boundary.particles]` in new files.
@@ -621,15 +581,12 @@ The facade derives `update_mode`, `particle_transfer_mode`, and `outer_queue_ena
 | Key | Type | Default | Description |
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | Only `explicit` is supported; refresh the outer profile at explicit update points |
-| `particle_transfer_mode` | string | `"none"` | Facade-derived `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit` |
+| `particle_transfer_mode` | string | `"none"` | Facade-derived `none` / `electrostatic_1d_instant_return` |
 | `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`; initialize a fresh run from a Zhao zero-current stationary root and its matching plane charge |
 | `steady_start_mesh_id` | int | `1` | `mesh_id` of the horizontal plane that receives the `zhao_floating` charge in proportion to triangle area |
 | `outer_update_stride` | int | `1` | Batch interval between outer-profile refreshes |
 | `field_evolution_timescale` | float | `0` | Frozen-field comparison time [s]; positive for 1-D return |
 | `max_frozen_field_ratio` | float | `0.1` | Limit on instant `tau_outer`, or queue `tau_outer` plus next-poll delay and half-batch midpoint uncertainty, divided by `field_evolution_timescale`; queue mode also applies it to `batch_duration` |
-| `outer_orbit_dt` | float | `0` | Fixed 3-D outer-orbit step [s]; positive in 3-D mode |
-| `outer_orbit_max_steps` | int | `100000` | 3-D outer-orbit step limit; reaching it stops instead of discarding |
-| `outer_orbit_energy_tolerance` | float | `1e-4` | Relative total-energy error limit for a 3-D outer orbit |
 | `outer_queue_enabled` | bool | `false` | In the supported Zhao configuration, retain outer flight across batches and close the transient queued photoelectron column |
 
 Runtime return/transfer pairs resolved by the facade:
@@ -637,12 +594,11 @@ Runtime return/transfer pairs resolved by the facade:
 | `outer_plasma.model` | `outer_plasma.return_model` | `coupling.particle_transfer_mode` |
 | --- | --- | --- |
 | `kinetic_1d` | `kinetic_1d_profile_return` | `electrostatic_1d_instant_return` |
-| `unified_linear_response` | `electrostatic_3d_explicit_orbit` | `electrostatic_3d_explicit_orbit` |
 
 The return and transfer strings are intentionally different for `kinetic_1d_profile_return`. With active 1-D transfer,
 `kinetic_1d` also owns inflow through the same profile, so normalized runtime state has
-`reservoir_potential_model` set to `none`. The infinity gauge is fixed internally to zero for `kinetic_1d` and
-`unified_linear_response`; no configuration key is accepted for it.
+`reservoir_potential_model` set to `none`. The infinity gauge is fixed internally to zero for `kinetic_1d`;
+no configuration key is accepted for it.
 
 Stationary warm start:
 
@@ -697,7 +653,6 @@ Transfer rules:
   `batch_duration` resolved directly or from `dt * batch_duration_step`; runtime fixes `outer_update_stride` to 1.
   Each event's `tau_outer`, delay to the next batch-start poll, and half-batch midpoint uncertainty are bounded by
   `max_frozen_field_ratio * field_evolution_timescale`; the same bound applies to `batch_duration`.
-- Persistent queuing remains unavailable for a 3-D explicit orbit.
 - See `examples/periodic2_kinetic_outer.toml` and `examples/periodic2_zhao_transient_outer.toml`.
 
 ### Combined periodic2 and External-Boundary Constraints
@@ -1173,7 +1128,7 @@ Output files:
 | `charges.csv` | Final element charges |
 | `mesh_triangles.csv` | Element geometry. Includes the `mesh_id` column |
 | `mesh_sources.csv` | Original mesh kind, surface model, `epsilon_r`, and element count for each `mesh_id` |
-| `outer_plasma_profile.csv` | Profile for a ready `kinetic_1d` / `unified_linear_response` outer state; a conditional checkpoint |
+| `outer_plasma_profile.csv` | Profile for a ready `kinetic_1d` outer state; a conditional checkpoint |
 | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | Active events when `outer_queue_enabled=true`; the former is serial and the latter is one conditional checkpoint per MPI rank |
 | `mesh_potential.csv` | When `write_mesh_potential=true` |
 | `charge_history.csv` | When `history_stride > 0` |

@@ -61,14 +61,9 @@ FORTRAN_L1_TARGETS ?= \
 	test_outer_plasma_zhao \
 	test_outer_plasma_grid \
 	test_outer_plasma_kinetic_runtime \
-	test_outer_plasma_local_mean \
-	test_periodic2_nonzero_tail \
-	test_outer_plasma_unified \
-	test_electrostatic_unified \
 	test_electrostatic_snapshot \
 	test_outer_coupler \
 	test_outer_plasma_interface \
-	test_outer_plasma_orbit \
 	test_interface_particle_buffer \
 	test_outer_event_queue \
 	test_outer_event_queue_io \
@@ -99,9 +94,7 @@ FORTRAN_L3_TARGETS ?= \
 	test_dynamics_panel_fmm \
 	test_outer_plasma_kinetic
 FORTRAN_RELEASE_CONVERGENCE_TARGETS ?= \
-	test_dynamics_basic \
-	test_electrostatic_unified \
-	test_outer_plasma_orbit
+	test_dynamics_basic
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_field_kernel_cache_c \
 	test_periodic2_operator_cache \

@@ -344,19 +344,6 @@ contains
         call get_toml_real(table, keys(ikey), authoring%outer_plasma%debye_length, 'outer_plasma.debye_length')
       case ('thermal_voltage')
         call get_toml_real(table, keys(ikey), authoring%outer_plasma%thermal_voltage, 'outer_plasma.thermal_voltage')
-      case ('unified_grid_points')
-        call get_toml_int( &
-          table, keys(ikey), authoring%outer_plasma%unified_grid_points, 'outer_plasma.unified_grid_points' &
-          )
-      case ('accessible_fraction_tolerance')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%accessible_fraction_tolerance, &
-          'outer_plasma.accessible_fraction_tolerance' &
-          )
-      case ('max_linearity_ratio')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%max_linearity_ratio, 'outer_plasma.max_linearity_ratio' &
-          )
       case ('max_gap_ratio')
         call get_toml_real(table, keys(ikey), authoring%outer_plasma%max_gap_ratio, 'outer_plasma.max_gap_ratio')
       case ('max_local_charge_ratio')
@@ -405,17 +392,6 @@ contains
       case ('max_frozen_field_ratio')
         call get_toml_real( &
           table, keys(ikey), authoring%coupling%max_frozen_field_ratio, 'coupling.max_frozen_field_ratio' &
-          )
-      case ('outer_orbit_dt')
-        call get_toml_real(table, keys(ikey), authoring%coupling%outer_orbit_dt, 'coupling.outer_orbit_dt')
-      case ('outer_orbit_max_steps')
-        call get_toml_int( &
-          table, keys(ikey), authoring%coupling%outer_orbit_max_steps, 'coupling.outer_orbit_max_steps' &
-          )
-      case ('outer_orbit_energy_tolerance')
-        call get_toml_real( &
-          table, keys(ikey), authoring%coupling%outer_orbit_energy_tolerance, &
-          'coupling.outer_orbit_energy_tolerance' &
           )
       case ('outer_queue_enabled')
         call get_toml_logical( &
@@ -502,26 +478,12 @@ contains
         call get_toml_real(table, keys(ikey), field%debye_length, 'external_boundary.field.debye_length')
       case ('thermal_voltage')
         call get_toml_real(table, keys(ikey), field%thermal_voltage, 'external_boundary.field.thermal_voltage')
-      case ('unified_grid_points')
-        call get_toml_int(table, keys(ikey), field%unified_grid_points, 'external_boundary.field.unified_grid_points')
-        field%has_unified_option = .true.
-      case ('accessible_fraction_tolerance')
-        call get_toml_real( &
-          table, keys(ikey), field%accessible_fraction_tolerance, &
-          'external_boundary.field.accessible_fraction_tolerance' &
-          )
-        field%has_unified_option = .true.
-      case ('max_linearity_ratio')
-        call get_toml_real(table, keys(ikey), field%max_linearity_ratio, 'external_boundary.field.max_linearity_ratio')
-        field%has_max_linearity_ratio = .true.
       case ('max_gap_ratio')
         call get_toml_real(table, keys(ikey), field%max_gap_ratio, 'external_boundary.field.max_gap_ratio')
-        field%has_scalar_diagnostic_option = .true.
       case ('max_local_charge_ratio')
         call get_toml_real( &
           table, keys(ikey), field%max_local_charge_ratio, 'external_boundary.field.max_local_charge_ratio' &
           )
-        field%has_scalar_diagnostic_option = .true.
       case default
         error stop 'Unknown key in [external_boundary.field]: '//trim(keys(ikey)%key)
       end select
@@ -543,7 +505,7 @@ contains
       select case (trim(k))
       case ( &
         'steady_start_mode', 'steady_start_mesh_id', 'outer_update_stride', 'field_evolution_timescale', &
-        'max_frozen_field_ratio', 'outer_orbit_dt', 'outer_orbit_max_steps', 'outer_orbit_energy_tolerance' &
+        'max_frozen_field_ratio' &
         )
         particles%has_coupling_option = .true.
       end select
@@ -583,20 +545,6 @@ contains
           'external_boundary.particles.max_frozen_field_ratio' &
           )
         particles%has_time_guard_option = .true.
-      case ('outer_orbit_dt')
-        call get_toml_real(table, keys(ikey), particles%outer_orbit_dt, 'external_boundary.particles.outer_orbit_dt')
-        particles%has_outer_orbit_option = .true.
-      case ('outer_orbit_max_steps')
-        call get_toml_int( &
-          table, keys(ikey), particles%outer_orbit_max_steps, 'external_boundary.particles.outer_orbit_max_steps' &
-          )
-        particles%has_outer_orbit_option = .true.
-      case ('outer_orbit_energy_tolerance')
-        call get_toml_real( &
-          table, keys(ikey), particles%outer_orbit_energy_tolerance, &
-          'external_boundary.particles.outer_orbit_energy_tolerance' &
-          )
-        particles%has_outer_orbit_option = .true.
       case default
         error stop 'Unknown key in [external_boundary.particles]: '//trim(keys(ikey)%key)
       end select
@@ -648,9 +596,6 @@ contains
       cfg%outer_plasma%interface_z = authoring%outer_plasma%interface_z
       cfg%outer_plasma%debye_length = authoring%outer_plasma%debye_length
       cfg%outer_plasma%thermal_voltage = authoring%outer_plasma%thermal_voltage
-      cfg%outer_plasma%unified_grid_points = authoring%outer_plasma%unified_grid_points
-      cfg%outer_plasma%accessible_fraction_tolerance = authoring%outer_plasma%accessible_fraction_tolerance
-      cfg%outer_plasma%max_linearity_ratio = authoring%outer_plasma%max_linearity_ratio
       cfg%outer_plasma%max_gap_ratio = authoring%outer_plasma%max_gap_ratio
       cfg%outer_plasma%max_local_charge_ratio = authoring%outer_plasma%max_local_charge_ratio
     end if
@@ -662,9 +607,6 @@ contains
       cfg%coupling%outer_update_stride = authoring%coupling%outer_update_stride
       cfg%coupling%field_evolution_timescale = authoring%coupling%field_evolution_timescale
       cfg%coupling%max_frozen_field_ratio = authoring%coupling%max_frozen_field_ratio
-      cfg%coupling%outer_orbit_dt = authoring%coupling%outer_orbit_dt
-      cfg%coupling%outer_orbit_max_steps = authoring%coupling%outer_orbit_max_steps
-      cfg%coupling%outer_orbit_energy_tolerance = authoring%coupling%outer_orbit_energy_tolerance
       cfg%coupling%outer_queue_enabled = authoring%coupling%outer_queue_enabled
     end if
   end subroutine apply_physics_authoring

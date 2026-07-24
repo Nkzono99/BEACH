@@ -4,7 +4,7 @@ submodule(bem_electrostatic_snapshot) bem_electrostatic_snapshot_eval
 contains
 
   module procedure eval_snapshot_local_e
-  real(dp) :: zero_potential, zero_field, tail_potential, tail_field(3)
+  real(dp) :: zero_potential, zero_field
 
   if (self%use_cached_kneq0) then
     call self%nonzero_solver%eval_e(mesh, position, electric_field)
@@ -16,12 +16,7 @@ contains
   else
     call self%nonzero_solver%eval_e(mesh, position, electric_field)
   end if
-  if (self%use_unified_outer) then
-    call eval_unified_zero_profile(self, position(3), zero_potential, zero_field)
-    call eval_periodic_nonzero_tail_plan(self%nonzero_tail, position, tail_potential, tail_field)
-    electric_field = electric_field + tail_field
-    electric_field(3) = electric_field(3) + zero_field
-  else if (self%use_zero_mode) then
+  if (self%use_zero_mode) then
     call eval_periodic_zero_mode( &
       self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
       )
@@ -31,7 +26,7 @@ contains
   end procedure eval_snapshot_local_e
 
   module procedure eval_snapshot_local_phi
-  real(dp) :: zero_potential, zero_field, electric_field_dummy(3), tail_potential, tail_field(3)
+  real(dp) :: zero_potential, zero_field, electric_field_dummy(3)
 
   if (self%use_cached_kneq0) then
     call self%nonzero_solver%eval_potential(mesh, sim, position, potential)
@@ -43,11 +38,7 @@ contains
   else
     call self%nonzero_solver%eval_potential(mesh, sim, position, potential)
   end if
-  if (self%use_unified_outer) then
-    call eval_unified_zero_profile(self, position(3), zero_potential, zero_field)
-    call eval_periodic_nonzero_tail_plan(self%nonzero_tail, position, tail_potential, tail_field)
-    potential = potential + zero_potential + tail_potential
-  else if (self%use_zero_mode) then
+  if (self%use_zero_mode) then
     call eval_periodic_zero_mode( &
       self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
       )
@@ -107,20 +98,5 @@ contains
     end do
   end if
   end procedure compute_snapshot_mesh_potential
-
-  module procedure eval_unified_zero_profile
-  real(dp) :: decay
-  integer(i32) :: n
-
-  n = self%unified_grid%n
-  if (z <= self%unified_grid%z(n)) then
-    call interpolate_outer_profile(self%unified_grid, self%outer%potential, z, potential)
-    call interpolate_outer_profile(self%unified_grid, self%outer%field, z, field)
-    return
-  end if
-  decay = exp(-(z - self%unified_grid%z(n))/self%unified_options%tail_length)
-  potential = self%outer%potential(n)*decay
-  field = potential/self%unified_options%tail_length
-  end procedure eval_unified_zero_profile
 
 end submodule bem_electrostatic_snapshot_eval

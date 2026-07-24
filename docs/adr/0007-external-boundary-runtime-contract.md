@@ -6,7 +6,8 @@
 > 公開TOMLを分割したまま維持する判断は
 > [ADR 0008](0008-external-boundary-authoring-facade.md)で置き換えた。ここで定義した実行時ownership契約と
 > particle loop境界は引き続き有効である。[ADR 0009](0009-remove-linear-debye-and-legacy-sheath.md)は
-> `linear_debye` / `legacy_sheath` 分岐を削除したため、以下のモデル名とselector列挙は履歴上の記録である。
+> `linear_debye` / `legacy_sheath` 分岐を、[ADR 0010](0010-remove-unified-linear-response.md)は
+> unified 3D 分岐を削除したため、以下のモデル名とselector列挙は履歴上の記録である。
 
 ## Context
 

@@ -1,7 +1,7 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: eps0, qe, k_coulomb
+  use bem_constants, only: eps0, k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
@@ -17,13 +17,6 @@ module bem_electrostatic_snapshot
   use bem_outer_plasma_zhao, only: zhao_continuation_diagnostics_type, &
                                    zhao_continuation_reason_none, &
                                    write_zhao_continuation_diagnostics
-  use bem_outer_plasma_grid, only: outer_plasma_grid_type, init_outer_plasma_grid, interpolate_outer_profile
-  use bem_outer_plasma_local_mean, only: sample_plasma_facing_height_field, &
-                                         build_accessible_fraction_from_heights
-  use bem_outer_plasma_unified, only: unified_outer_linear_options_type, solve_unified_outer_linear
-  use bem_coulomb_fmm_periodic_nonzero_tail, only: &
-    periodic_nonzero_tail_plan_type, build_periodic_nonzero_tail_plan, &
-    refresh_periodic_nonzero_tail_plan, eval_periodic_nonzero_tail_plan, periodic_nonzero_tail_ok
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_bcast_i32_array, mpi_bcast_real_dp_array, &
@@ -48,8 +41,6 @@ module bem_electrostatic_snapshot
     integer(i32) :: outer_applicability_status = 0_i32
     real(dp) :: outer_infinity_potential = 0.0_dp
     real(dp) :: outer_debye_length = 0.0_dp
-    real(dp) :: outer_linearity_ratio = 0.0_dp
-    real(dp) :: outer_max_linearity_ratio = 0.0_dp
     real(dp) :: outer_integrated_charge_per_area = 0.0_dp
     real(dp) :: outer_electron_current_density = 0.0_dp
     real(dp) :: outer_ion_current_density = 0.0_dp
@@ -67,11 +58,6 @@ module bem_electrostatic_snapshot
     integer(i64) :: outer_queue_event_count = 0_i64
     real(dp) :: outer_queue_signed_charge = 0.0_dp
     character(len=16) :: outer_queue_fingerprint = ''
-    real(dp) :: accessible_fraction_min = 0.0_dp
-    real(dp) :: accessible_fraction_max = 0.0_dp
-    real(dp) :: accessible_fraction_refinement_error = 0.0_dp
-    real(dp) :: nonzero_tail_linearity = 0.0_dp
-    real(dp) :: response_start_z = 0.0_dp
     character(len=64) :: status = 'legacy_or_not_applicable'
     integer(i32) :: last_outer_update_batch = -1_i32
     real(dp) :: max_outer_flight_time = 0.0_dp
@@ -98,8 +84,6 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_nonlinear_residual = 0.0_dp
     real(dp) :: outer_infinity_potential = 0.0_dp
     real(dp) :: outer_debye_length = 0.0_dp
-    real(dp) :: outer_linearity_ratio = 0.0_dp
-    real(dp) :: outer_max_linearity_ratio = 0.0_dp
     real(dp) :: outer_integrated_charge_per_area = 0.0_dp
     real(dp) :: outer_electron_current_density = 0.0_dp
     real(dp) :: outer_ion_current_density = 0.0_dp
@@ -139,7 +123,6 @@ module bem_electrostatic_snapshot
     logical :: use_outer_plasma = .false.
     logical :: use_panel_spectral_reference = .false.
     logical :: use_cached_kneq0 = .false.
-    logical :: use_unified_outer = .false.
     real(dp) :: periodic_length(2) = [0.0_dp, 0.0_dp]
     real(dp) :: periodic_origin(2) = [0.0_dp, 0.0_dp]
     integer(i32) :: reference_mode_layers = 0_i32
@@ -150,12 +133,6 @@ module bem_electrostatic_snapshot
     type(outer_plasma_config) :: outer_options
     type(kinetic_outer_plasma_options_type) :: kinetic_options
     type(mpi_context) :: mpi
-    type(unified_outer_linear_options_type) :: unified_options
-    type(periodic_nonzero_tail_plan_type) :: nonzero_tail
-    type(outer_plasma_grid_type) :: unified_grid
-    real(dp), allocatable :: unified_z(:)
-    real(dp), allocatable :: unified_surface_field(:)
-    real(dp), allocatable :: unified_accessible_fraction(:)
     type(periodic2_physics_config) :: periodic_options
     type(electrostatic_diagnostics_type) :: diagnostics
     real(dp) :: mesh_top_z = 0.0_dp
@@ -207,12 +184,6 @@ module bem_electrostatic_snapshot
       real(dp), intent(out) :: potential(:)
     end subroutine compute_snapshot_mesh_potential
 
-    !> unified outer profile の電位と電場を補間または指数外挿する。
-    module subroutine eval_unified_zero_profile(self, z, potential, field)
-      class(electrostatic_snapshot_type), intent(in) :: self
-      real(dp), intent(in) :: z
-      real(dp), intent(out) :: potential, field
-    end subroutine eval_unified_zero_profile
   end interface
 
 contains
@@ -238,7 +209,6 @@ contains
     self%use_outer_plasma = .false.
     self%use_panel_spectral_reference = .false.
     self%use_cached_kneq0 = .false.
-    self%use_unified_outer = .false.
     self%gauss_residual = 0.0_dp
     self%diagnostics = electrostatic_diagnostics_type()
     self%mpi = mpi_context()
@@ -279,10 +249,7 @@ contains
     real(dp) :: interface_potential, interface_field, raw_potential
     logical :: refresh_outer
 
-    if (self%use_unified_outer) then
-      call refresh_unified_outer(self, mesh)
-      return
-    else if (self%use_cached_kneq0 .and. .not. self%use_outer_plasma) then
+    if (self%use_cached_kneq0 .and. .not. self%use_outer_plasma) then
       call self%nonzero_solver%refresh(mesh)
       call refresh_periodic_zero_mode_state( &
         self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
@@ -336,8 +303,6 @@ contains
     diagnostics%outer_applicability_status = self%outer%applicability_status
     diagnostics%outer_infinity_potential = self%outer%infinity_potential
     diagnostics%outer_debye_length = self%outer%debye_length
-    diagnostics%outer_linearity_ratio = self%outer%linearity_ratio
-    diagnostics%outer_max_linearity_ratio = self%outer%max_linearity_ratio
     diagnostics%outer_integrated_charge_per_area = self%outer%integrated_charge_per_area
     diagnostics%outer_electron_current_density = self%outer%electron_current_density
     diagnostics%outer_ion_current_density = self%outer%ion_current_density
@@ -384,8 +349,6 @@ contains
       self%outer%interface_field = state%outer_interface_field
       self%outer%infinity_potential = state%outer_infinity_potential
       self%outer%debye_length = state%outer_debye_length
-      self%outer%linearity_ratio = state%outer_linearity_ratio
-      self%outer%max_linearity_ratio = state%outer_max_linearity_ratio
       self%outer%nonlinear_iterations = state%outer_nonlinear_iterations
       self%outer%nonlinear_residual = state%outer_nonlinear_residual
       self%outer%integrated_charge_per_area = state%outer_integrated_charge_per_area
@@ -419,47 +382,6 @@ contains
       end if
       return
     end if
-    if (trim(lower_ascii(self%outer_options%model)) == 'unified_linear_response') then
-      if (.not. allocated(state%outer_profile_z) .or. .not. allocated(state%outer_profile_potential) .or. &
-          size(state%outer_profile_z) /= self%unified_grid%n .or. &
-          size(state%outer_profile_potential) /= self%unified_grid%n .or. &
-          maxval(abs(state%outer_profile_z - self%unified_grid%z)) > &
-          64.0_dp*epsilon(1.0_dp)*max(1.0_dp, maxval(abs(self%unified_grid%z)))) then
-        error stop 'checkpoint unified outer profile is missing or has an incompatible grid.'
-      end if
-      self%outer = outer_plasma_state_type()
-      self%outer%model = 'unified_linear_response'
-      self%outer%ready = state%outer_ready .and. state%outer_profile_complete
-      self%outer%applicability_status = state%outer_applicability_status
-      self%outer%profile_n = self%unified_grid%n
-      self%outer%interface_z = self%outer_options%interface_z
-      self%outer%interface_potential = state%outer_interface_potential
-      self%outer%interface_field = state%outer_interface_field
-      self%outer%infinity_potential = state%outer_infinity_potential
-      self%outer%debye_length = state%outer_debye_length
-      self%outer%linearity_ratio = state%outer_linearity_ratio
-      self%outer%max_linearity_ratio = state%outer_max_linearity_ratio
-      self%outer%nonlinear_iterations = state%outer_nonlinear_iterations
-      self%outer%nonlinear_residual = state%outer_nonlinear_residual
-      self%outer%integrated_charge_per_area = state%outer_integrated_charge_per_area
-      self%outer%electron_current_density = state%outer_electron_current_density
-      self%outer%ion_current_density = state%outer_ion_current_density
-      self%outer%photoelectron_current_density = state%outer_photoelectron_current_density
-      self%outer%total_current_density = state%outer_total_current_density
-      self%outer%z = state%outer_profile_z
-      self%outer%potential = state%outer_profile_potential
-      if (state%outer_profile_complete) then
-        if (.not. allocated(state%outer_profile_field) .or. &
-            .not. allocated(state%outer_profile_charge_density) .or. &
-            size(state%outer_profile_field) /= self%unified_grid%n .or. &
-            size(state%outer_profile_charge_density) /= self%unified_grid%n) then
-          error stop 'checkpoint unified outer profile is marked complete but E/rho arrays are missing.'
-        end if
-        self%outer%field = state%outer_profile_field
-        self%outer%charge_density = state%outer_profile_charge_density
-      end if
-      return
-    end if
     error stop 'checkpoint outer state is incompatible with the active outer-plasma model.'
   end subroutine restore_snapshot_outer_state
 
@@ -480,8 +402,6 @@ contains
       state%outer_nonlinear_residual = self%outer%nonlinear_residual
       state%outer_infinity_potential = self%outer%infinity_potential
       state%outer_debye_length = self%outer%debye_length
-      state%outer_linearity_ratio = self%outer%linearity_ratio
-      state%outer_max_linearity_ratio = self%outer%max_linearity_ratio
       state%outer_integrated_charge_per_area = self%outer%integrated_charge_per_area
       state%outer_electron_current_density = self%outer%electron_current_density
       state%outer_ion_current_density = self%outer%ion_current_density
@@ -582,9 +502,8 @@ contains
       error stop 'cached_kneq0 requires exclude_k0 and a supported lower boundary model.'
     end if
     if (trim(lower_ascii(outer_config%model)) /= 'none' .and. &
-        trim(lower_ascii(outer_config%model)) /= 'kinetic_1d' .and. &
-        trim(lower_ascii(outer_config%model)) /= 'unified_linear_response') then
-      error stop 'cached_kneq0 supports none, kinetic_1d, or unified_linear_response.'
+        trim(lower_ascii(outer_config%model)) /= 'kinetic_1d') then
+      error stop 'cached_kneq0 supports none or kinetic_1d.'
     end if
     if (trim(lower_ascii(outer_config%model)) == 'kinetic_1d' .and. .not. present(kinetic_options)) then
       error stop 'cached kinetic_1d requires resolved kinetic options.'
@@ -612,9 +531,6 @@ contains
     self%mesh_top_z = max(maxval(mesh%v0(3, :)), max(maxval(mesh%v1(3, :)), maxval(mesh%v2(3, :))))
     if (present(kinetic_options)) self%kinetic_options = kinetic_options
     if (trim(lower_ascii(outer_config%model)) == 'kinetic_1d') self%use_outer_plasma = .true.
-    if (trim(lower_ascii(outer_config%model)) == 'unified_linear_response') then
-      call init_unified_outer_snapshot(self, mesh, sim, periodic_config, outer_config)
-    end if
     self%diagnostics%split_periodic_active = .true.
     self%diagnostics%status = 'cached_kneq0'
     self%diagnostics%periodic_cache_hit = self%nonzero_solver%fmm_core_plan%periodic_cache_hit
@@ -645,9 +561,8 @@ contains
     if (trim(lower_ascii(panel_config%source_model)) /= 'triangle_p0') then
       error stop 'panel spectral reference requires triangle_p0 sources.'
     end if
-    if (trim(lower_ascii(outer_config%model)) /= 'kinetic_1d' .and. &
-        trim(lower_ascii(outer_config%model)) /= 'unified_linear_response') then
-      error stop 'split periodic snapshot requires kinetic_1d or unified_linear_response.'
+    if (trim(lower_ascii(outer_config%model)) /= 'kinetic_1d') then
+      error stop 'split periodic snapshot requires kinetic_1d.'
     end if
     if (trim(lower_ascii(outer_config%model)) == 'kinetic_1d' .and. .not. present(kinetic_options)) then
       error stop 'split periodic kinetic_1d requires resolved kinetic options.'
@@ -685,176 +600,7 @@ contains
     self%use_panel_spectral_reference = .true.
     self%use_zero_mode = .true.
     self%use_outer_plasma = .true.
-    if (trim(lower_ascii(outer_config%model)) == 'unified_linear_response') then
-      call init_unified_outer_snapshot(self, mesh, sim, periodic_config, outer_config)
-    end if
   end subroutine init_split_periodic_snapshot
-
-  subroutine init_unified_outer_snapshot(self, mesh, sim, periodic_config, outer_config)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
-    type(periodic2_physics_config), intent(in) :: periodic_config
-    type(outer_plasma_config), intent(in) :: outer_config
-    type(outer_plasma_grid_type) :: grid
-    real(dp), allocatable :: surface_height(:), refined_surface_height(:), coarse_accessible_fraction(:)
-    real(dp) :: grid_min, grid_max, response_z, response_offset
-    integer(i32) :: status, multiple_intersection_count
-
-    call sample_plasma_facing_height_field( &
-      mesh, sim%box_min(1:2), sim%box_max(1:2), periodic_config%interface_sample_n, &
-      periodic_config%interface_sample_n, surface_height, multiple_intersection_count, status &
-      )
-    if (status /= outer_plasma_ok) then
-      error stop 'unified outer model requires a single-valued plasma-facing height field.'
-    end if
-    call sample_plasma_facing_height_field( &
-      mesh, sim%box_min(1:2), sim%box_max(1:2), 2_i32*periodic_config%interface_sample_n, &
-      2_i32*periodic_config%interface_sample_n, refined_surface_height, multiple_intersection_count, status &
-      )
-    if (status /= outer_plasma_ok) then
-      error stop 'unified outer model requires a refined single-valued plasma-facing height field.'
-    end if
-    grid_min = min(minval(mesh%v0(3, :)), min(minval(mesh%v1(3, :)), minval(mesh%v2(3, :)))) - &
-               outer_config%debye_length
-    grid_max = self%mesh_top_z + 10.0_dp*outer_config%debye_length
-    call init_outer_plasma_grid(outer_config%unified_grid_points, grid_max - grid_min, 0.0_dp, grid)
-    grid%z = grid%z + grid_min
-    self%unified_grid = grid
-    self%unified_z = grid%z
-    allocate ( &
-      self%unified_surface_field(grid%n), self%unified_accessible_fraction(grid%n), &
-      coarse_accessible_fraction(grid%n) &
-      )
-    call build_accessible_fraction_from_heights( &
-      self%unified_z, surface_height, coarse_accessible_fraction, status &
-      )
-    if (status /= outer_plasma_ok) error stop 'failed to build unified accessible-area profile.'
-    call build_accessible_fraction_from_heights( &
-      self%unified_z, refined_surface_height, self%unified_accessible_fraction, status &
-      )
-    if (status /= outer_plasma_ok) error stop 'failed to build refined unified accessible-area profile.'
-    self%diagnostics%accessible_fraction_refinement_error = &
-      maxval(abs(self%unified_accessible_fraction - coarse_accessible_fraction))
-    if (self%diagnostics%accessible_fraction_refinement_error > outer_config%accessible_fraction_tolerance) then
-      error stop 'unified accessible-area sampling exceeds accessible_fraction_tolerance.'
-    end if
-    self%diagnostics%interface_sample_n = periodic_config%interface_sample_n
-    self%unified_options%kappa = 1.0_dp/outer_config%debye_length
-    self%unified_options%tail_length = outer_config%debye_length
-    self%unified_options%bottom_field = zero_mode_bottom_field(self, mesh%q_elem)
-    self%unified_options%thermal_voltage = outer_config%thermal_voltage
-    self%unified_options%max_linearity_ratio = outer_config%max_linearity_ratio
-    response_offset = max( &
-                      64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(maxval(surface_height))), &
-                      1.0e-6_dp*outer_config%debye_length &
-                      )
-    response_z = self%mesh_top_z + response_offset
-    call build_periodic_nonzero_tail_plan( &
-      mesh, self%periodic_length(1), self%periodic_length(2), response_z, &
-      self%unified_options%kappa, periodic_config%reference_mode_layers, &
-      periodic_config%panel_quadrature_order, qe, qe*outer_config%thermal_voltage, &
-      self%nonzero_tail, status &
-      )
-    if (status /= periodic_nonzero_tail_ok) error stop 'failed to build periodic nonzero-tail plan.'
-    self%use_unified_outer = .true.
-    self%use_outer_plasma = .true.
-    self%diagnostics%status = 'unified_initialized'
-  end subroutine init_unified_outer_snapshot
-
-  subroutine refresh_unified_outer(self, mesh)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(mesh_type), intent(in) :: mesh
-    real(dp) :: potential, field, interface_potential, interface_field
-    integer(i32) :: point, status
-
-    if (self%use_cached_kneq0) call self%nonzero_solver%refresh(mesh)
-    self%unified_options%bottom_field = zero_mode_bottom_field(self, mesh%q_elem)
-    call refresh_periodic_zero_mode_state( &
-      self%zero_plan, mesh%q_elem, self%unified_options%bottom_field, &
-      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
-      )
-    do point = 1_i32, self%unified_grid%n
-      call eval_periodic_zero_mode( &
-        self%zero_plan, self%zero_state, self%unified_z(point), zero_mode_trace_plus, potential, field &
-        )
-      self%unified_surface_field(point) = field
-    end do
-    call solve_unified_collective(self)
-    call refresh_periodic_nonzero_tail_plan(mesh%q_elem, self%nonzero_tail, status)
-    if (status /= periodic_nonzero_tail_ok) error stop 'failed to refresh periodic nonzero-tail state.'
-    if (max(self%outer%linearity_ratio, self%nonzero_tail%max_linearity) > &
-        self%outer_options%max_linearity_ratio) then
-      error stop 'unified linear response is not applicable; nonlinear lateral response is required.'
-    end if
-    call eval_unified_zero_profile(self, self%outer_options%interface_z, interface_potential, interface_field)
-    self%outer%interface_z = self%outer_options%interface_z
-    self%outer%interface_potential = interface_potential
-    self%outer%interface_field = interface_field
-    self%gauss_residual = upper_flux_charge(self) + &
-                          self%zero_plan%area_xy*self%outer%integrated_charge_per_area
-    self%diagnostics%split_periodic_active = .true.
-    self%diagnostics%applicable = .true.
-    self%diagnostics%interface_potential = interface_potential
-    self%diagnostics%interface_field = interface_field
-    self%diagnostics%gauss_residual = self%gauss_residual
-    self%diagnostics%outer_integrated_charge = &
-      self%zero_plan%area_xy*self%outer%integrated_charge_per_area
-    self%diagnostics%accessible_fraction_min = minval(self%unified_accessible_fraction)
-    self%diagnostics%accessible_fraction_max = maxval(self%unified_accessible_fraction)
-    self%diagnostics%nonzero_tail_linearity = self%nonzero_tail%max_linearity
-    self%diagnostics%response_start_z = self%nonzero_tail%handoff_z
-    self%diagnostics%status = 'unified_linear_converged'
-  end subroutine refresh_unified_outer
-
-  subroutine solve_unified_collective(self)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(outer_plasma_state_type) :: solved
-    integer(i32) :: status_values(2), status
-    real(dp) :: scalar_values(8)
-    character(len=256) :: message
-
-    status_values = 0_i32
-    if (mpi_is_root(self%mpi)) then
-      call solve_unified_outer_linear( &
-        self%unified_z, self%unified_surface_field, self%unified_accessible_fraction, &
-        self%unified_options, solved, status, message &
-        )
-      status_values = [status, solved%profile_n]
-    end if
-    call mpi_bcast_i32_array(self%mpi, status_values, 0_i32)
-    status = status_values(1)
-    if (status /= outer_plasma_ok) error stop 'unified outer-plasma solve failed without fallback.'
-    if (.not. mpi_is_root(self%mpi)) then
-      solved = outer_plasma_state_type()
-      solved%model = 'unified_linear_response'
-      solved%profile_n = status_values(2)
-      allocate (solved%z(solved%profile_n), solved%potential(solved%profile_n), &
-                solved%field(solved%profile_n), solved%charge_density(solved%profile_n))
-    end if
-    if (mpi_is_root(self%mpi)) then
-      scalar_values = [ &
-                      solved%infinity_potential, solved%debye_length, solved%linearity_ratio, &
-                      solved%max_linearity_ratio, solved%integrated_charge_per_area, &
-                      merge(1.0_dp, 0.0_dp, solved%ready), solved%nonlinear_residual, &
-                      real(solved%applicability_status, dp) &
-                      ]
-    end if
-    call mpi_bcast_real_dp_array(self%mpi, scalar_values, 0_i32)
-    call mpi_bcast_real_dp_array(self%mpi, solved%z, 0_i32)
-    call mpi_bcast_real_dp_array(self%mpi, solved%potential, 0_i32)
-    call mpi_bcast_real_dp_array(self%mpi, solved%field, 0_i32)
-    call mpi_bcast_real_dp_array(self%mpi, solved%charge_density, 0_i32)
-    solved%infinity_potential = scalar_values(1)
-    solved%debye_length = scalar_values(2)
-    solved%linearity_ratio = scalar_values(3)
-    solved%max_linearity_ratio = scalar_values(4)
-    solved%integrated_charge_per_area = scalar_values(5)
-    solved%ready = scalar_values(6) > 0.5_dp
-    solved%nonlinear_residual = scalar_values(7)
-    solved%applicability_status = int(scalar_values(8), i32)
-    self%outer = solved
-  end subroutine solve_unified_collective
 
   subroutine refresh_cached_kinetic_outer( &
     self, mesh, update_outer, continuation_stage, continuation_batch &

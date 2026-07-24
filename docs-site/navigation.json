@@ -21,9 +21,8 @@
     { "source": { "root": "BorisPusher.md", "en": "BorisPusher.en.md" }, "slug": "boris-pusher", "order": 151, "description": { "root": "予測中点場、Boris速度回転、台形位置更新。", "en": "Predicted-midpoint field, Boris velocity rotation, and trapezoidal position update." } },
     { "source": { "root": "ParticleEvents.md", "en": "ParticleEvents.en.md" }, "slug": "particle-events", "order": 152, "description": { "root": "mesh衝突とbox境界をperiodic imageまで含めて比較し、最初に起きる処理を選ぶ方法。", "en": "Mesh collision, box boundaries, periodic images, and earliest-event selection." } },
     { "source": { "root": "OuterPlasmaModels.md", "en": "OuterPlasmaModels.en.md" }, "slug": "outer-plasma-models", "order": 155, "description": { "root": "粒子流入、open境界、外部場、particle transferの組み合わせ。", "en": "Combine particle inflow, open boundaries, outer fields, and particle transfer." } },
-    { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 156, "description": { "root": "open境界、scalar障壁、1D return、3D outer軌道。", "en": "Open boundaries, scalar barriers, 1-D return, and 3-D outer orbits." } },
-    { "source": { "root": "KineticOuterPlasma.md", "en": "KineticOuterPlasma.en.md" }, "slug": "kinetic-outer-plasma", "order": 157, "description": { "root": "標準・推奨の自己整合1D外部シース。", "en": "Standard and recommended self-consistent 1-D outer sheath." } },
-    { "source": { "root": "UnifiedLinearResponse.md", "en": "UnifiedLinearResponse.en.md" }, "slug": "unified-linear-response", "order": 158, "description": { "root": "rough surface向けの高度なzero/nonzero mode線形screening。", "en": "Advanced zero/nonzero-mode linear screening for rough surfaces." } },
+    { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 156, "description": { "root": "open境界、scalar障壁、1D return。", "en": "Open boundaries, scalar barriers, and 1-D return." } },
+    { "source": { "root": "KineticOuterPlasma.md", "en": "KineticOuterPlasma.en.md" }, "slug": "kinetic-outer-plasma", "order": 157, "description": { "root": "自己整合1D外部シース。", "en": "Self-consistent 1-D outer sheath." } },
     { "source": { "root": "BoundaryConfigurationMigration.md", "en": "BoundaryConfigurationMigration.en.md" }, "slug": "boundary-configuration-migration", "order": 159, "description": { "root": "旧sim・outer_plasma・coupling設定からexternal_boundaryへ移行する対応表。", "en": "Map legacy sim, outer_plasma, and coupling settings to external_boundary." } },
     { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 160, "description": { "root": "periodic2の近傍画像、nonzero operator、zero mode。", "en": "periodic2 near images, nonzero operator, and zero mode." } },
     { "source": { "root": "FinitePeriodicConfiguration.md", "en": "FinitePeriodicConfiguration.en.md" }, "slug": "finite-periodic-configuration", "order": 161, "description": { "root": "有限画像和とscalar reservoir/escape補正を組み合わせる構成。", "en": "Finite image sums with scalar reservoir and escape closures." } },
@@ -103,8 +102,7 @@
                 { "type": "page", "slug": "outer-plasma-models", "label": { "root": "構成の選び方", "en": "Selection guide" } },
                 { "type": "page", "slug": "boundary-configuration-migration", "label": { "root": "旧設定から移行する", "en": "Migrate legacy configuration" } },
                 { "type": "page", "slug": "particle-escape-return", "label": { "root": "open境界・escape・return", "en": "Open boundaries, escape, and return" } },
-                { "type": "page", "slug": "kinetic-outer-plasma", "label": { "root": "標準: kinetic 1Dシース", "en": "Standard: kinetic 1-D sheath" } },
-                { "type": "page", "slug": "unified-linear-response", "label": { "root": "高度: 粗面線形screening", "en": "Advanced: rough-surface screening" } }
+                { "type": "page", "slug": "kinetic-outer-plasma", "label": { "root": "kinetic 1Dシース", "en": "Kinetic 1-D sheath" } }
               ]
             }
           ]

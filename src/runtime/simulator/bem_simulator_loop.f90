@@ -593,7 +593,7 @@ contains
       if (used_event_resolver) then
         if (step_result%interface_crossing%has_crossing) then
           call continue_external_particle_step( &
-            boundary_contract, snapshot, mesh, app%sim, app%outer_plasma, app%coupling, bfield, &
+            boundary_contract, snapshot, mesh, app%sim, app%coupling, bfield, &
             pcls_batch%q(i), pcls_batch%m(i), app%sim%batch_duration, step_result, external_final_result, &
             external_trace &
             )

@@ -45,9 +45,6 @@ module bem_physics_config_types
     real(dp) :: interface_z = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
-    integer(i32) :: unified_grid_points = 129_i32
-    real(dp) :: accessible_fraction_tolerance = 0.1_dp
-    real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
   end type outer_plasma_config
@@ -60,9 +57,6 @@ module bem_physics_config_types
     integer(i32) :: outer_update_stride = 1_i32
     real(dp) :: field_evolution_timescale = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.1_dp
-    real(dp) :: outer_orbit_dt = 0.0_dp
-    integer(i32) :: outer_orbit_max_steps = 100000_i32
-    real(dp) :: outer_orbit_energy_tolerance = 1.0e-4_dp
     logical :: outer_queue_enabled = .false.
   end type coupling_config
 
@@ -339,9 +333,8 @@ contains
       call reject(physics_config_invalid_combination, 'Periodic interface tolerances must be positive.', status, message)
       return
     end if
-    if ((trim(lower_ascii(outer%model)) /= 'kinetic_1d' .and. &
-         trim(lower_ascii(outer%model)) /= 'unified_linear_response') .or. outer%debye_length <= 0.0_dp .or. &
-        outer%thermal_voltage <= 0.0_dp .or. outer%max_linearity_ratio <= 0.0_dp .or. &
+    if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. outer%debye_length <= 0.0_dp .or. &
+        outer%thermal_voltage <= 0.0_dp .or. &
         outer%max_gap_ratio <= 0.0_dp .or. outer%max_local_charge_ratio <= 0.0_dp) then
       call reject(physics_config_invalid_combination, 'Split periodic mode requires a valid outer-plasma model.', status, message)
       return
@@ -373,27 +366,10 @@ contains
         call reject(physics_config_unavailable, 'Instant return requires an open z-high face and b0=0.', status, message)
         return
       end if
-    case ('electrostatic_3d_explicit_orbit')
-      call validate_explicit_3d_orbit_config(sim, coupling, status, message)
-      if (status /= physics_config_ok) return
     case default
       call reject(physics_config_invalid_combination, 'Unknown coupling particle-transfer mode.', status, message)
       return
     end select
-    if (trim(lower_ascii(outer%model)) == 'unified_linear_response' .and. &
-        trim(lower_ascii(outer%photoelectron_density_model)) /= 'none') then
-      call reject(physics_config_unavailable, &
-                  'unified_linear_response does not support a photoelectron mean-density model.', &
-                  status, message)
-      return
-    end if
-    if (trim(lower_ascii(outer%model)) == 'unified_linear_response' .and. &
-        (outer%unified_grid_points < 17_i32 .or. outer%accessible_fraction_tolerance <= 0.0_dp)) then
-      call reject(physics_config_invalid_combination, &
-                  'unified_linear_response requires unified_grid_points >= 17 and a positive accessibility tolerance.', &
-                  status, message)
-      return
-    end if
     if (any(sim%e0 /= 0.0_dp)) then
       call reject( &
         physics_config_unavailable, 'Periodic split outer models currently require sim.e0=0.', status, message &
@@ -640,9 +616,6 @@ contains
                     status, message)
         return
       end if
-    case ('electrostatic_3d_explicit_orbit')
-      call validate_explicit_3d_orbit_config(sim, coupling, status, message)
-      if (status /= physics_config_ok) return
     case default
       call reject(physics_config_unavailable, 'cached_kneq0 does not support the requested particle transfer.', &
                   status, message)
@@ -662,29 +635,6 @@ contains
       if (trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .and. &
           trim(lower_ascii(outer%photoelectron_density_model)) /= 'kinetic_mean') then
         call reject(physics_config_unavailable, 'cached kinetic_1d supports none or kinetic_mean photoelectron density.', &
-                    status, message)
-        return
-      end if
-    case ('unified_linear_response')
-      if (outer%debye_length <= 0.0_dp .or. outer%thermal_voltage <= 0.0_dp .or. &
-          outer%max_linearity_ratio <= 0.0_dp .or. outer%unified_grid_points < 17_i32 .or. &
-          outer%accessible_fraction_tolerance <= 0.0_dp .or. &
-          abs(outer%interface_z - sim%box_max(3)) > &
-          64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(sim%box_max(3)))) then
-        call reject(physics_config_invalid_combination, &
-                    'unified_linear_response requires positive scales and interface_z at z-high.', status, message)
-        return
-      end if
-      if (any(sim%e0 /= 0.0_dp)) then
-        call reject(physics_config_unavailable, &
-                    'unified_linear_response requires a finite far-potential gauge and sim.e0=0.', &
-                    status, message)
-        return
-      end if
-      if (trim(lower_ascii(panel%source_model)) /= 'triangle_p0' .or. &
-          trim(lower_ascii(outer%photoelectron_density_model)) /= 'none') then
-        call reject(physics_config_unavailable, &
-                    'cached unified_linear_response received an unsupported source or photoelectron density model.', &
                     status, message)
         return
       end if
@@ -709,34 +659,6 @@ contains
       supported = .false.
     end select
   end function supported_lower_boundary
-
-  subroutine validate_explicit_3d_orbit_config(sim, coupling, status, message)
-    type(sim_config), intent(in) :: sim
-    type(coupling_config), intent(in) :: coupling
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
-
-    status = physics_config_ok
-    message = ''
-    if (.not. ieee_is_finite(coupling%field_evolution_timescale) .or. &
-        .not. ieee_is_finite(coupling%max_frozen_field_ratio) .or. &
-        .not. ieee_is_finite(coupling%outer_orbit_dt) .or. &
-        .not. ieee_is_finite(coupling%outer_orbit_energy_tolerance) .or. &
-        coupling%field_evolution_timescale <= 0.0_dp .or. coupling%max_frozen_field_ratio <= 0.0_dp .or. &
-        coupling%outer_orbit_dt <= 0.0_dp .or. coupling%outer_orbit_max_steps < 1_i32 .or. &
-        coupling%outer_orbit_energy_tolerance <= 0.0_dp) then
-      call reject(physics_config_invalid_combination, 'Invalid electrostatic 3D explicit-orbit coupling.', status, message)
-      return
-    end if
-    if (sim%bc_high(3) /= bc_open .or. any(sim%b0 /= 0.0_dp)) then
-      call reject(physics_config_unavailable, 'Explicit 3D outer orbit requires an open z-high face and b0=0.', &
-                  status, message)
-      return
-    end if
-    if (coupling%outer_queue_enabled) then
-      call reject(physics_config_unavailable, 'Persistent outer queue is not available yet.', status, message)
-    end if
-  end subroutine validate_explicit_3d_orbit_config
 
   pure subroutine reject(code, text, status, message)
     integer(i32), intent(in) :: code

@@ -48,9 +48,6 @@ module bem_app_config_authoring
     real(dp) :: interface_z = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
-    integer(i32) :: unified_grid_points = 129_i32
-    real(dp) :: accessible_fraction_tolerance = 0.1_dp
-    real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
   end type outer_plasma_authoring_spec
@@ -64,9 +61,6 @@ module bem_app_config_authoring
     integer(i32) :: outer_update_stride = 1_i32
     real(dp) :: field_evolution_timescale = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.1_dp
-    real(dp) :: outer_orbit_dt = 0.0_dp
-    integer(i32) :: outer_orbit_max_steps = 100000_i32
-    real(dp) :: outer_orbit_energy_tolerance = 1.0e-4_dp
     logical :: outer_queue_enabled = .false.
   end type coupling_authoring_spec
 
@@ -79,9 +73,6 @@ module bem_app_config_authoring
     logical :: has_kinetic_closure = .false.
     logical :: has_zhao_option = .false.
     logical :: has_photoelectron_density_model = .false.
-    logical :: has_unified_option = .false.
-    logical :: has_max_linearity_ratio = .false.
-    logical :: has_scalar_diagnostic_option = .false.
     character(len=32) :: model = 'none'
     character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
     character(len=32) :: zhao_branch = 'auto'
@@ -89,9 +80,6 @@ module bem_app_config_authoring
     character(len=32) :: photoelectron_density_model = 'none'
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
-    integer(i32) :: unified_grid_points = 129_i32
-    real(dp) :: accessible_fraction_tolerance = 0.1_dp
-    real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
   end type external_boundary_field_authoring_spec
@@ -106,7 +94,6 @@ module bem_app_config_authoring
     logical :: has_steady_start_mesh_id = .false.
     logical :: has_outer_update_stride = .false.
     logical :: has_time_guard_option = .false.
-    logical :: has_outer_orbit_option = .false.
     character(len=32) :: mode = 'local_source'
     character(len=32) :: inflow_model = 'auto'
     character(len=32) :: steady_start_mode = 'none'
@@ -114,9 +101,6 @@ module bem_app_config_authoring
     integer(i32) :: outer_update_stride = 1_i32
     real(dp) :: field_evolution_timescale = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.1_dp
-    real(dp) :: outer_orbit_dt = 0.0_dp
-    integer(i32) :: outer_orbit_max_steps = 100000_i32
-    real(dp) :: outer_orbit_energy_tolerance = 1.0e-4_dp
   end type external_boundary_particles_authoring_spec
 
   !> outer interface が所有しない通常 open 面の公開 authoring 設定。
@@ -369,7 +353,7 @@ contains
     ordinary_open_model = lower_ascii(trim(authoring%external_boundary%ordinary_open%model))
 
     select case (trim(field_model))
-    case ('none', 'kinetic_1d', 'unified_linear_response')
+    case ('none', 'kinetic_1d')
       continue
     case default
       error stop 'external_boundary.field.model is not supported.'
@@ -405,10 +389,6 @@ contains
     if (trim(field_model) /= 'none') cfg%outer_plasma%interface_z = cfg%sim%box_max(3)
     cfg%outer_plasma%debye_length = authoring%external_boundary%field%debye_length
     cfg%outer_plasma%thermal_voltage = authoring%external_boundary%field%thermal_voltage
-    cfg%outer_plasma%unified_grid_points = authoring%external_boundary%field%unified_grid_points
-    cfg%outer_plasma%accessible_fraction_tolerance = &
-      authoring%external_boundary%field%accessible_fraction_tolerance
-    cfg%outer_plasma%max_linearity_ratio = authoring%external_boundary%field%max_linearity_ratio
     cfg%outer_plasma%max_gap_ratio = authoring%external_boundary%field%max_gap_ratio
     cfg%outer_plasma%max_local_charge_ratio = authoring%external_boundary%field%max_local_charge_ratio
 
@@ -419,10 +399,6 @@ contains
     cfg%coupling%field_evolution_timescale = &
       authoring%external_boundary%particles%field_evolution_timescale
     cfg%coupling%max_frozen_field_ratio = authoring%external_boundary%particles%max_frozen_field_ratio
-    cfg%coupling%outer_orbit_dt = authoring%external_boundary%particles%outer_orbit_dt
-    cfg%coupling%outer_orbit_max_steps = authoring%external_boundary%particles%outer_orbit_max_steps
-    cfg%coupling%outer_orbit_energy_tolerance = &
-      authoring%external_boundary%particles%outer_orbit_energy_tolerance
     cfg%coupling%outer_queue_enabled = .false.
     cfg%sim%open_boundary_model = ordinary_open_model
 
@@ -437,9 +413,6 @@ contains
         cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
         cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
         profile_owned_inflow = .true.
-      case ('unified_linear_response')
-        cfg%outer_plasma%return_model = 'electrostatic_3d_explicit_orbit'
-        cfg%coupling%particle_transfer_mode = 'electrostatic_3d_explicit_orbit'
       case default
         error stop 'external_boundary.particles.mode="same_batch" requires an outer field model.'
       end select
@@ -473,8 +446,7 @@ contains
 
   !> facade で明示されたキーが、選択した field/particle model に実際に適用されることを確認する。
   !!
-  !! runtime 既定値は全 model 分を保持するため、値だけを検査すると省略と no-op の明示を区別できない。
-  !! ここでは authoring DTO の presence flag だけを使い、legacy raw 設定の許容範囲は変更しない。
+  !! 省略と no-op の明示を区別するため、authoring DTO の presence flag を使う。
   subroutine validate_external_boundary_option_applicability(field, particles, field_model, closure, particle_mode)
     type(external_boundary_field_authoring_spec), intent(in) :: field
     type(external_boundary_particles_authoring_spec), intent(in) :: particles
@@ -494,22 +466,9 @@ contains
         (trim(field_model) /= 'kinetic_1d' .or. trim(closure) /= 'absorbing_maxwellian')) then
       error stop 'external_boundary.field.photoelectron_density_model requires absorbing-Maxwellian kinetic_1d.'
     end if
-    if (field%has_unified_option .and. trim(field_model) /= 'unified_linear_response') then
-      error stop 'Unified field options require field.model="unified_linear_response".'
-    end if
-    if (field%has_max_linearity_ratio .and. trim(field_model) == 'kinetic_1d') then
-      error stop 'external_boundary.field.max_linearity_ratio does not apply to kinetic_1d.'
-    end if
-    if (field%has_scalar_diagnostic_option .and. trim(field_model) == 'unified_linear_response') then
-      error stop 'Scalar interface diagnostic options do not apply to unified_linear_response.'
-    end if
     if (particles%has_time_guard_option .and. &
         trim(particle_mode) /= 'same_batch' .and. trim(particle_mode) /= 'zhao_queue') then
       error stop 'External field time-guard options require particles.mode="same_batch" or "zhao_queue".'
-    end if
-    if (particles%has_outer_orbit_option .and. &
-        (trim(field_model) /= 'unified_linear_response' .or. trim(particle_mode) /= 'same_batch')) then
-      error stop 'Outer-orbit options require unified_linear_response with particles.mode="same_batch".'
     end if
     if (particles%has_outer_update_stride .and. &
         (trim(field_model) /= 'kinetic_1d' .or. trim(particle_mode) == 'zhao_queue')) then

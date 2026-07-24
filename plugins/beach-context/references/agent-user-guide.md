@@ -172,7 +172,7 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 
 | table | 主な選択 | 説明 |
 |------------|------|------|
-| `external_boundary.field` | `none`, `kinetic_1d`, `unified_linear_response` | 外部 plasma 応答の場 |
+| `external_boundary.field` | `none`, `kinetic_1d` | 外部 plasma 応答の場 |
 | `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high 粒子の扱い。`inflow_model` で source VDF / scalar barrier を選択 |
 | `external_boundary.ordinary_open` | `escape`, `potential_barrier` | outer が所有しない open 面 |
 
@@ -322,7 +322,7 @@ template入力などを使ってmesh_idを分けてください。
 | `potential_history.csv` | `write_potential_history = true` かつ `history_stride > 0` | CSV: `batch, elem_idx, potential_V` |
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | reservoir_face 使用時 | CSV: 注入残差状態 |
-| `outer_plasma_profile.csv` | readyな`kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile、条件付きcheckpoint |
+| `outer_plasma_profile.csv` | readyな`kinetic_1d` outer state | CSV: outer profile、条件付きcheckpoint |
 | `performance_profile.csv` | `BEACH_PROFILE=1` 環境変数設定時 | CSV: 各領域の計測時間 |
 
 ### MPI 実行時の追加ファイル
@@ -612,10 +612,9 @@ BEACH/
 | `docs/PeriodicElectrostatics.md` | periodic2場とzero mode |
 | `docs/FinitePeriodicConfiguration.md` | 有限画像とscalar境界補正の統合構成 |
 | `docs/InfinitePeriodicOuterConfiguration.md` | 無限周期場とouter plasmaの統合構成 |
-| `docs/OuterPlasmaModels.md` | 標準外部シースと高度なrough-surface screeningの選び方 |
-| `docs/KineticOuterPlasma.md` | 標準・推奨の自己整合kinetic 1D外部シース |
-| `docs/UnifiedLinearResponse.md` | 高度なrough-surface線形screening |
-| `docs/ParticleEscapeReturn.md` | open境界、1D return、3D outer軌道 |
+| `docs/OuterPlasmaModels.md` | 外部シース、流入、通常open面の選び方 |
+| `docs/KineticOuterPlasma.md` | 自己整合kinetic 1D外部シース |
+| `docs/ParticleEscapeReturn.md` | open境界と1D return |
 | `docs/FMM.md` | FMMの選択と精度確認 |
 | `docs/FMMCore.md` | FMM内部実装・Ewald |
 | `docs/BatchDurationStability.md` | `batch_duration` 安定性 |

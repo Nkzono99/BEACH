@@ -1727,8 +1727,6 @@ def _write_run_output(
         "outer_nonlinear_residual=0.0",
         "outer_infinity_potential_V=0.0",
         "outer_debye_length_m=0.0",
-        "outer_linearity_ratio=0.0",
-        "outer_max_linearity_ratio=0.0",
         "outer_integrated_charge_per_area_C_m2=0.0",
         "outer_electron_current_density_A_m2=0.0",
         "outer_ion_current_density_A_m2=0.0",

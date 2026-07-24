@@ -18,7 +18,6 @@ module bem_external_boundary_contract
 
   integer(i32), parameter, public :: external_transport_none = 0_i32
   integer(i32), parameter, public :: external_transport_kinetic_1d = 1_i32
-  integer(i32), parameter, public :: external_transport_unified_3d = 2_i32
 
   type, public :: external_boundary_contract_type
     integer(i32) :: inflow_map = external_inflow_none
@@ -75,8 +74,6 @@ contains
       continue
     case ('kinetic_1d')
       continue
-    case ('unified_linear_response')
-      continue
     case default
       call reject('Unknown outer_plasma.model.', status, message)
       return
@@ -117,14 +114,6 @@ contains
         call reject('Electrostatic 1D transfer requires kinetic_1d.', status, message)
         return
       end select
-    case ('electrostatic_3d_explicit_orbit')
-      if (trim(field_model) /= 'unified_linear_response' .or. &
-          trim(return_map) /= 'electrostatic_3d_explicit_orbit') then
-        call reject('Explicit 3D transfer requires unified_linear_response and its matching return model.', &
-                    status, message)
-        return
-      end if
-      contract%interface_transport = external_transport_unified_3d
     case default
       call reject('Unknown coupling.particle_transfer_mode.', status, message)
       return

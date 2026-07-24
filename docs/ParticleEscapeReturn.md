@@ -17,12 +17,10 @@ open面を粒子が通過
 │  ├─ escape                    無条件に除去
 │  └─ potential_barrier         scalar障壁で反射またはescape
 └─ particles.modeが所有するz-high
-   ├─ kinetic_1d                離散1D profile return
-   └─ unified_linear_response   明示的3D outer orbit
+   └─ kinetic_1d                離散1D profile return
 ```
 
-したがって、4つを1つの model 選択肢として並べる必要はありません。
-通常 open 面には次の2択があります。
+通常 open 面の処理と kinetic outer transfer は別の責務です。通常 open 面には次の2択があります。
 
 | `ordinary_open.model` | 外部状態 | 粒子の判定方法 | 主な用途 |
 | --- | --- | --- | --- |
@@ -34,7 +32,6 @@ z-high を outer が所有する場合は `particles.mode` で追跡方法を選
 | `field.model` | 外部状態 | 粒子の判定方法 | return時間 | 主な用途 |
 | --- | --- | --- | --- | --- |
 | `kinetic_1d` | 収束した離散1D profile | 保存energyとturning point探索 | profileを積分 | **標準:** 自己整合な平均sheath |
-| `unified_linear_response` | zero/nonzero modeを含む3D場 | 外部軌道を時間積分 | 軌道から計測 | **高度:** rough surfaceを含む線形3D応答 |
 
 どの境界処理も粒子sourceには依存しません。reservoir粒子、光電子、`volume_seed`粒子は、同じ状態で同じ面を
 横切れば同じ境界処理を受けます。外部場自体の選び方は
@@ -180,54 +177,6 @@ Robin tailを使うのはinstant経路であり、Zhao queue経路は後述す�
 静電・無衝突・非磁化1D profileという仮定を持ちます。詳しくは
 [外部場: kinetic 1D](KineticOuterPlasma.html)で説明します。
 
-## 4. `unified_linear_response`: 外部3D軌道を積分する
-
-rough surfaceからfar planeまでのzero modeとscreened nonzero modeを一つの線形応答場として構築するmodelです。
-`unified_linear_response`だけでは粒子returnは有効になりません。次の3D orbit設定を組み合わせたときに、
-外部粒子を明示的に追跡します。
-
-```toml
-[external_boundary.field]
-model = "unified_linear_response"
-debye_length = 0.2
-thermal_voltage = 2.0
-
-[external_boundary.particles]
-mode = "same_batch"
-field_evolution_timescale = 1.0
-outer_orbit_dt = 1.0e-4
-```
-
-### unified 3D field中で外部軌道を進める
-
-batch内で固定された電場に対し、固定刻み`outer_orbit_dt`のvelocity-Verlet更新を使います。
-
-$$
-\mathbf v^{n+1/2}=\mathbf v^n+\frac{q\mathbf E(\mathbf x^n)}{2m}\Delta t_o,
-$$
-
-$$
-\mathbf x^{n+1}=\mathbf x^n+\mathbf v^{n+1/2}\Delta t_o,
-\qquad
-\mathbf v^{n+1}=\mathbf v^{n+1/2}+\frac{q\mathbf E(\mathbf x^{n+1})}{2m}\Delta t_o
-$$
-
-です。ownership interfaceを内向きに再通過すればreturn、unified grid上端のfar planeを外向きに通過すれば
-escapeです。境界到達位置と速度は最後のouter step内で線形補間します。
-
-### 軌道の収束とenergyを検査する
-
-`outer_orbit_max_steps`までにどちらの境界にも到達しない場合は、persistent queueが必要になるため停止します。
-また、初期状態とreturn/escape境界へ到達したときの全エネルギー
-
-$$
-\mathcal E=\frac12m|\mathbf v|^2+q\phi(\mathbf x)
-$$
-
-の相対誤差が`outer_orbit_energy_tolerance`を越えても停止します。`outer_orbit_dt`はreturn/escape率、flight time、
-energy errorに対して収束確認します。場の構成と適用範囲は
-[外部場: unified linear response](UnifiedLinearResponse.html)で説明します。
-
 ## outer transferに共通する処理
 
 ### z-highを粒子ownershipのinterfaceにする
@@ -238,11 +187,9 @@ energy errorに対して収束確認します。場の構成と適用範囲は
 | --- | --- | --- |
 | `local_source` | すべて | 通常のopen境界 |
 | `same_batch` | `kinetic_1d` | 保存energyからescape/returnを写像 |
-| `same_batch` | `unified_linear_response` | batch内で固定された3D場で外部軌道を時間積分 |
 | `zhao_queue` | Zhao `kinetic_1d` | 1D結果を後続batchのeventへ遅延 |
 
-1D/3D transferはいずれもz-highがopenであることと`sim.b0=0`を要求します。現行modelは外部領域での磁場軌道を
-扱いません。
+1D transferはz-highがopenであることと`sim.b0=0`を要求します。現行modelは外部領域での磁場軌道を扱いません。
 
 ### 境界通過時の状態を外部modelへ渡す
 
@@ -266,8 +213,7 @@ z-highと別のopen面を同時に横切ってownerが一意でない場合と�
 ## outer flightをglobal timeへ加えない近似
 
 1D returnの「instant」は、outer flightを状態写像には使う一方、global simulation timeを進めないという意味です。
-3D explicit orbitも現行実装では同じ規約です。粒子はinterfaceを出たlocal stepと同じsimulation時刻へ戻り、
-outward/returned chargeは同じbatchに計上されます。
+粒子はinterfaceを出たlocal stepと同じsimulation時刻へ戻り、outward/returned chargeは同じbatchに計上されます。
 
 この近似は定常または準定常outer plasmaを対象にします。UV照射の開始、plasma条件の急変、短pulseへの過渡応答には、
 次節のdelayed-return queueを使います。
@@ -300,7 +246,7 @@ field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
 ```
 
-`absorbing_maxwellian`または3D explicit orbitとの組合せは拒否します。
+`zhao_queue`は`zhao_charge_driven`専用で、`absorbing_maxwellian`との組合せは拒否します。
 さらに`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を要求します。
 `particles.mode="zhao_queue"`は、tracked粒子のouter flightとZhao光電子populationを一つの保存inventoryで接続します。
 各rankはeventをlocal queueに保持し、Zhao closureへの入力として光電子のmacro粒子数をMPI全体で合計します。
@@ -393,13 +339,14 @@ $$
 \texttt{field\_evolution\_timescale}
 $$
 
-を設定検証で要求し、違反時は停止します。3D explicit orbitのpersistent queueは未実装で、その軌道がbatch内の上限までに
-完了しなければ停止します。
+を設定検証で要求し、違反時は停止します。
 
 ## 診断量でmodelの結果を確認する
 
 species別に`interface_outward_gross`、`interface_returned_gross`、`escaped_to_infinity`を区別します。さらに、最大
-`outer_flight_time`、frozen-field ratio、3D orbitのenergy errorを出力します。
+`outer_flight_time`、frozen-field ratio、kinetic 1D return / escape写像の
+`max_outer_energy_relative_error`を出力します。最後の値は法線運動エネルギーと静電エネルギーの保存残差を規格化した
+診断です。
 
 Zhao queue modeでは`summary.txt`の`outer_photoelectron_population_fraction`、
 `outer_photoelectron_column_per_area_m2`、`outer_photoelectron_column_target_per_area_m2`、
@@ -417,6 +364,5 @@ transfer対象と電荷収支の集計期間が一致する場合に限ります
 - `kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
 - delayed event queue: [`bem_outer_event_queue.f90`](../src/runtime/coupling/bem_outer_event_queue.f90)
 - queue checkpoint: [`bem_outer_event_queue_io.f90`](../src/runtime/coupling/bem_outer_event_queue_io.f90)
-- `unified_linear_response`の3D軌道: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)
 - interface transferとdiagnostic集計: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - model組合せの検証: [`bem_physics_config_types.f90`](../src/config/bem_physics_config_types.f90)

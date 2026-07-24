@@ -99,15 +99,6 @@ program test_output_writer_io
     )
 
   call default_app_config(cfg)
-  cfg%outer_plasma%model = 'unified_linear_response'
-  cfg%outer_plasma%return_model = 'electrostatic_3d_explicit_orbit'
-  cfg%coupling%particle_transfer_mode = 'electrostatic_3d_explicit_orbit'
-  call write_result_files(out_dir_disabled, mesh, stats, cfg)
-  call assert_resolved_boundary_summary( &
-    out_dir_disabled//'/summary.txt', 'source_vdf', 'escape', 'unified_3d', 'same_batch' &
-    )
-
-  call default_app_config(cfg)
   cfg%sim%batch_duration = 1.0_dp
   cfg%output_dir = out_dir_disabled
   cfg%write_mesh_potential = .false.

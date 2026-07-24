@@ -160,6 +160,7 @@ def replace_repo_links(text: str, locale: str) -> str:
     text = text.replace("(../tests/", f"({GITHUB_BLOB_ROOT}/tests/")
     text = text.replace("(../schemas/", f"({GITHUB_BLOB_ROOT}/schemas/")
     text = text.replace("(../examples/", f"({GITHUB_BLOB_ROOT}/examples/")
+    text = text.replace("(adr/", f"({GITHUB_BLOB_ROOT}/docs/adr/")
 
     text = text.replace("(../media/", f"({SITE_BASE}/media/")
     text = text.replace("(../images/", f"({SITE_BASE}/images/")

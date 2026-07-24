@@ -33,7 +33,7 @@ Read `references/style-guide.md` before drafting or reviewing prose. Apply its d
 - Distinguish a completed run from a numerically or physically validated result.
 - Do not describe `tol_rel` as an early-stop condition in the current implementation.
 - Do not imply that the default insulator-accumulation workflow validates conductor, resistive, or other extension models.
-- Present `kinetic_1d` as the standard self-consistent outer-sheath model. Present `unified_linear_response` separately as an advanced rough-surface linear-screening model with conditional applicability, not as a higher-accuracy replacement.
+- Present `kinetic_1d` as the only supported self-consistent outer-sheath model. Do not document removed field models as configurable alternatives; link historical design decisions to their ADRs when that context matters.
 
 ## Review Output
 

@@ -8,8 +8,7 @@ Lang: [日本語](InfinitePeriodicOuterConfiguration.md) | [English](InfinitePer
 near image、Ewaldから生成したfar `k\ne0` operator、物理`k=0`、outer responseを重複なく合成し、同じouter potentialを
 reservoir inflowとparticle returnに使います。
 
-標準構成は、species VDFから非線形平均シースを解くsplit `kinetic_1d`です。unified構成は、split windowを置けない
-rough surfaceで線形screeningが必要な場合に限る高度な選択肢です。
+対応する外部シース構成は、species VDFから非線形平均シースを解くsplit `kinetic_1d`です。
 
 ## 各field成分に一つのownerを割り当てる
 
@@ -18,33 +17,28 @@ rough surfaceで線形screeningが必要な場合に限る高度な選択肢で�
 | primary/near image | FMMまたはspectral base field |
 | infinite-periodic far `k\ne0` | `cached_kneq0`、小規模検証では`panel_spectral_reference` |
 | surface `k=0` | periodic zero-mode plan/state |
-| outer mean response | `kinetic_1d`またはunified zero-mode solve |
-| outer nonzero response | unified modelのreflection/transmission correction |
+| outer mean response | `kinetic_1d` |
 | reservoir velocity map | outer interface potential差 |
-| outward escape/return | 同じouter profileまたは同じunified 3D field |
+| outward escape/return | 同じouter profile |
 
 periodic operatorと`k=0`の式は[periodic2静電場](PeriodicElectrostatics.html)で説明します。
 
-## 標準のsplit kineticと高度なlinear unifiedを選ぶ
+## split kineticの責務を確認する
 
 | 構成 | mean plasma | nonzero mode | particle transfer |
 | --- | --- | --- | --- |
-| **標準: split kinetic** | VDFに基づく密度モデルを使う非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `particles.mode="local_source"`、または`"same_batch"`の1D profile |
-| 高度: unified linear | accessible fraction付き線形Poisson | response startでscreened modeへ接続 | `particles.mode="local_source"`、または`"same_batch"`の3D orbit |
+| split kinetic | VDFに基づく密度モデルを使う非線形`kinetic_1d` | surface側でinterfaceまで減衰すると仮定 | `particles.mode="local_source"`、または`"same_batch"`の1D profile |
 
 split kineticはspecies別VDF、Bohm entry、photoelectron mean densityを扱えます。一方で、surfaceとinterfaceの間には、
 local surface fieldだけを扱うsplit windowを仮定します。[kinetic 1D外部プラズマ](KineticOuterPlasma.html)に
 この分割と非線形solveをまとめています。
 
-unified linearはroughness範囲からplasma responseを入れられますが、線形Debye応答モデルでありspecies VDFやBohm条件を
-解きません。[unified linear response](UnifiedLinearResponse.html)で適用範囲とfield solveを説明します。
-
 ## batch開始時に確定した場を流入とreturnで共有する
 
 1. commit済み`q_elem`からFMM/source multipoleとsurface zero modeをrefreshする。
 2. cached far operatorをcurrent root multipoleへ適用する。
-3. split構成では必要なstrideでinterface fieldからouter profileを解く。unified構成では場を更新するたびに解く。
-4. potential gauge、Gauss residual、interface/linearity diagnosticsを更新する。
+3. 必要なstrideでinterface fieldからouter profileを解く。
+4. potential gauge、Gauss residual、interface diagnosticsを更新する。
 5. outer stateを使ってz-high reservoirのglobal粒子数とinterface速度を決める。
 6. photo raycastを行い、source reaction chargeをbatch差分へ記録する。
 7. 全粒子をbatch内で固定された場の中で追跡する。
@@ -76,7 +70,6 @@ photoelectronの扱いはouter field modelとparticle returnを分けて選び�
 | `photoelectron_density_model="none"` | photoelectron mean densityなし | 通常のsource/軌道だけ |
 | `photoelectron_density_model="kinetic_mean"` + `particles.mode="local_source"` | 定常outgoing/returning mean density | z-highでは通常open処理 |
 | `photoelectron_density_model="kinetic_mean"` + `particles.mode="same_batch"` | 同じmean density | 個々のinterface crossingもprofileでreturn/escape |
-| unified + `particles.mode="same_batch"` | 光電子の平均密度モデルなし | 個々の3D外部軌道 |
 
 tracked returnでは`deposit_opposite_charge_on_emit=true`を要求します。平均密度モデルは
 tracked surface depositを置き換えず、統計的return chargeを追加depositしません。
@@ -104,15 +97,13 @@ lower_boundary_model = "symmetric_vacuum"
 ```
 
 このblockだけではouter plasmaを有効にしません。`[external_boundary.field]`と
-`[external_boundary.particles]`でkineticまたはunified構成を追加します。
+`[external_boundary.particles]`でkinetic構成を追加します。
 最小のcache例は[`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml)です。
 
 小規模のreference計算にはDirect + `panel_spectral_reference`を使います。
 [`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)は標準kinetic構成の小規模contract fixture、
 [`examples/periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml)はZhao過渡queueで長いflightを
-物理timescale guardが拒否するexpected-fail fixture、
-[`examples/periodic2_unified_linear_response.toml`](../examples/periodic2_unified_linear_response.toml)は高度な線形screeningの
-解析極限と適用性を確認するfixtureです。
+物理timescale guardが拒否するexpected-fail fixtureです。
 大規模productionでは、計算規模に合わせたbackendを別途選びます。
 
 ## 同じ物理効果を二重に加えない
@@ -123,21 +114,19 @@ lower_boundary_model = "symmetric_vacuum"
 - `kinetic_1d`のinterface potential mapと、有限画像 `infinity_barrier`。
 - profile returnと、有限画像open `potential_barrier`のz-high処理。
 - `photoelectron_density_model="kinetic_mean"`のouter densityと、surfaceへの架空の統計return deposit。
-- unified base nonzero fieldと、reflection/transmission後のincident mode。
 
 設定validationは主要なunsupported combinationをfail closedにしますが、数値収束と物理的な適用範囲はユーザーが確認します。
 
 ## outer flight中はbatch-start fieldを固定する
 
-1D instant returnと3D explicit orbitはouter flight timeを計算しますが、global simulation timeには加えません。
+1D instant returnはouter flight timeを計算しますが、global simulation timeには加えません。
 flight timeと`field_evolution_timescale`の比は、`max_frozen_field_ratio`以下に保ちます。
 対応する`kinetic_1d` + `zhao_charge_driven`構成では、1D eventをbatch間queueへ保存し、due batchでreturn/escapeを
 計上できます。queueの外部領域は$L=10\lambda_{D,pe}$までで、そこに達した粒子はreservoirへescapeし、$L$外のRobin tailで
 returnを判定しません。eventのterminal状態はenqueue時のfieldで決め、その後のfieldでは再積分しません。
 各eventでは`tau_outer`、次のbatch-start pollまでの量子化遅延、midpoint crossing時刻誤差上限の合計へ
 `max_frozen_field_ratio * field_evolution_timescale`の上限を課し、`batch_duration`にも同じ上限を設定時に要求します。
-3D explicit orbitのpersistent queueは
-未実装です。詳細は
+詳細は
 [粒子のescapeとreturn](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする)を参照してください。
 
 ## componentごとに収束と収支を確認する
@@ -147,7 +136,6 @@ returnを判定しません。eventのterminal状態はenqueue時のfieldで決�
 | near/far periodic | image layer、Ewald layer、cache cold/warm | $\phi,\mathbf E$、force、operator residual |
 | physical `k=0` | 下側境界条件、height/grid refinement | Gauss residual、interface field |
 | kinetic profile | Debye長、source sampling、outer stride | $\phi_I$、current、nonlinear residual |
-| unified profile | `unified_grid_points`、height sampling、mode layer | linearity、accessible fraction、Gauss residual |
 | reservoir | macro target、batch duration | inflow current、macro residual |
 | photoelectron | ray数、`dt`、outer return | emission、reabsorption、escape/return charge |
 | Zhao過渡queue | `batch_duration`、time-scale guard、ray数、面積、interface位置 | $\eta$、column residual、return/escape current、force |

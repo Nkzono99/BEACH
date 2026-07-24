@@ -99,7 +99,7 @@ ray hitで生成する光電子の重みは常に$w_\mathrm{hit}$です。放出
 有限boxで外部領域を解かない場合は`external_boundary.ordinary_open.model="potential_barrier"`が
 通過点の電位と法線運動エネルギーから反射またはescapeを決めます。自己整合な外部sheathを使う場合は
 `external_boundary.field.model`と`external_boundary.particles.mode`が正本です。
-scalar barrier、1D outer profile return、unified 3D explicit orbitの違いは
+scalar barrierと1D outer profile returnの違いは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
 
 tracked outer transferを使う`photo_raycast` speciesでは、放出と帰還の電荷収支を閉じるため
@@ -113,7 +113,7 @@ outer領域の空間電荷に寄与します。この平均密度モデルは、
 統計的なreturn電荷を、別途表面へdepositすることもありません。
 
 生成後のtracked光電子をz-high interfaceからouter領域へ渡す場合も、粒子sourceに依存しない共通の
-escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
+escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似は
 [粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
 `external_boundary.field.kinetic_closure="zhao_charge_driven"`は、蓄積電荷が決めるinterface電場を保つ

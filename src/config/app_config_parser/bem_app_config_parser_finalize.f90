@@ -351,8 +351,7 @@ contains
     cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling, physics_status, physics_message &
     )
   if (physics_status /= physics_config_ok) error stop trim(physics_message)
-  if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .or. &
-      trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_3d_explicit_orbit') then
+  if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return') then
     do i = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(i)%enabled) cycle
       if (trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'photo_raycast') cycle

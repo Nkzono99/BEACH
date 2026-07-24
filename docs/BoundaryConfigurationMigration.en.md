@@ -14,7 +14,7 @@ The public configuration vocabulary is limited to:
 
 | Responsibility | Choices |
 | --- | --- |
-| `external_boundary.field.model` | `none` / `kinetic_1d` / `unified_linear_response` |
+| `external_boundary.field.model` | `none` / `kinetic_1d` |
 | `external_boundary.particles.mode` | `local_source` / `same_batch` / `zhao_queue` |
 | `external_boundary.particles.inflow_model` | `auto` / `source_vdf` / `infinity_barrier` |
 | `external_boundary.ordinary_open.model` | `escape` / `potential_barrier` |
@@ -25,14 +25,18 @@ so use `inflow_model="auto"`.
 
 ## Removed Settings
 
-The analytic linear Debye outer field, static sheath source correction, and the linear-model-only photoelectron histogram
+The analytic linear Debye outer field, `unified_linear_response`, static sheath source correction, and the
+linear-model-only photoelectron histogram
 have been removed. Their facade values and legacy runtime selector are errors and are not converted to another model.
 
 | Removed input or artifact | Current behavior |
 | --- | --- |
 | `external_boundary.field.model="linear_debye"` / `outer_plasma.model="linear_debye"` | Configuration error; there is no alias to another field model |
+| `external_boundary.field.model="unified_linear_response"` / `outer_plasma.model="unified_linear_response"` | Configuration error; no current model is equivalent to rough-surface 3-D screening |
+| `unified_grid_points`, `accessible_fraction_tolerance`, and `max_linearity_ratio` | Configuration error; the unified-field discretization and applicability settings were removed |
+| `electrostatic_3d_explicit_orbit` and `outer_orbit_*` | Configuration error; the dedicated 3-D outer transfer and its integration settings were removed |
 | `external_boundary.particles.inflow_model="legacy_sheath"`, `legacy_sheath_model`, and `sim.sheath_injection_model` | Configuration error; the static source correction is not run |
-| `external_boundary.field.infinity_potential` / `outer_plasma.infinity_potential` | Configuration error; the kinetic and unified infinity gauge is fixed internally at zero |
+| `external_boundary.field.infinity_potential` / `outer_plasma.infinity_potential` | Configuration error; the kinetic infinity gauge is fixed internally at zero |
 | `photoelectron_histogram_*` and `photoelectron_histogram.csv` | Configuration, output, and checkpoint state have been removed |
 
 The following are choices by physical intent, not equivalent replacements:
@@ -40,15 +44,18 @@ The following are choices by physical intent, not equivalent replacements:
 | Previous intent | Current configuration to consider | Important difference |
 | --- | --- | --- |
 | Reduced 1-D field or return | `kinetic_1d` + `local_source` or `same_batch` | Solves species VDFs and a nonlinear Poisson profile; it does not reproduce the analytic linear solution |
-| 3-D screening over a rough surface | `unified_linear_response` | A linear 3-D response, not a replacement for a 1-D sheath |
+| 3-D screening over a rough surface | No direct replacement | Redesign from the physical contract and validation problems if this capability is needed again |
 | Inflow without source-VDF correction | `field.model="none"` + `inflow_model="source_vdf"` | Uses the configured VDF directly as the face distribution |
 | Inflow barrier from an explicit infinity potential | `field.model="none"` + `inflow_model="infinity_barrier"` | A scalar energy barrier, not a static current-balance closure |
 | Zhao sheath closed by accumulated charge | `kinetic_1d` + `kinetic_closure="zhao_charge_driven"` | Refreshes the profile from surface charge each batch and closes inflow and return with the same profile |
 | Linear-model-only photoelectron histogram | No direct replacement | Derive a needed distribution separately from particle or event output |
 
 BEACH 1.5 or 1.6 configurations that use a removed value are errors in the current parser.
-Checkpoints created with a removed model or a non-default removed feature cannot be resumed because their runtime contract and model fingerprint differ. Checkpoint-v4 runs using `kinetic_1d` or `unified_linear_response` with the retired features left at their former defaults remain fingerprint-compatible after the retired keys are removed from the configuration.
+Checkpoints created with a removed model or a non-default removed feature cannot be resumed because their runtime contract and
+model fingerprint differ. There is no migration path for a `unified_linear_response` checkpoint. A checkpoint-v4 run using
+`kinetic_1d` with retired features left at their former defaults remains fingerprint-compatible after those keys are removed.
 Start the new configuration from its initial state.
+See [ADR 0010](adr/0010-remove-unified-linear-response.md) for the removal rationale and redesign criteria.
 
 ## Move Current Raw Settings into the Facade
 
@@ -62,7 +69,7 @@ Start the new configuration from its initial state.
 | `outer_plasma.model` | `external_boundary.field.model` |
 | `outer_plasma.kinetic_closure` | `external_boundary.field.kinetic_closure` |
 | Other current outer physics and diagnostic keys | Same key under `external_boundary.field` |
-| Time-scale, orbit, and steady-start keys under `coupling` | Same key under `external_boundary.particles` |
+| Time-scale and steady-start keys under `coupling` | Same key under `external_boundary.particles` |
 | `sim.open_boundary_model` | `external_boundary.ordinary_open.model` |
 | `sim.reservoir_potential_model="infinity_barrier"` | `external_boundary.particles.inflow_model="infinity_barrier"` |
 | `outer_plasma.return_model` | Omit; derived from the field and particle mode |
@@ -129,28 +136,6 @@ max_frozen_field_ratio = 0.2
 ```
 
 The queue requires `zhao_branch="auto"` and update stride 1. Do not repeat fixed values; contradictory explicit values are errors.
-
-## Unified 3-D Orbit
-
-```toml
-[external_boundary.field]
-model = "unified_linear_response"
-debye_length = 0.2
-thermal_voltage = 10.0
-unified_grid_points = 129
-
-[external_boundary.particles]
-mode = "same_batch"
-inflow_model = "source_vdf"
-field_evolution_timescale = 1.0e-4
-max_frozen_field_ratio = 0.1
-outer_orbit_dt = 1.0e-9
-outer_orbit_max_steps = 10000
-outer_orbit_energy_tolerance = 1.0e-3
-```
-
-A unified 3-D orbit does not own inflow, so select `source_vdf` or `infinity_barrier` separately.
-Use `particles.mode="local_source"` for field-only operation.
 
 After migration, run `beachx lint path/to/beach.toml`. After a run, inspect `summary.txt` for the resolved inflow,
 ordinary-open rule, interface transport, and particle mode.

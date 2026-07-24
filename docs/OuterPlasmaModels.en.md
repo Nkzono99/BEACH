@@ -46,7 +46,6 @@ Otherwise, start with the row closest to the intended calculation.
 | Standard self-consistent 1-D sheath | `kinetic_1d` + `absorbing_maxwellian` | `same_batch` | `auto` |
 | Stationary or quasistationary Zhao sheath closed by accumulated charge | `kinetic_1d` + `zhao_charge_driven` | `same_batch` | `auto` |
 | Zhao transient with outer-flight delay | `kinetic_1d` + `zhao_charge_driven` | `zhao_queue` | `auto` |
-| Advanced linear 3-D response over a rough surface | `unified_linear_response` | `local_source` / `same_batch` | select locally |
 
 Add the following only when ordinary outflow needs a scalar barrier:
 
@@ -58,18 +57,13 @@ model = "potential_barrier"
 ## Choose the External Field
 
 `external_boundary.field.model` selects only the external plasma-response field.
-The kinetic model solves beyond the interface; unified solves from
-the rough surface to the far region. Whether particles enter the external region is
+The kinetic model solves beyond the interface. Whether particles enter the external region is
 a separate choice under `external_boundary.particles.mode`.
 
 | `field.model` | Position | Main use |
 | --- | --- | --- |
 | `none` | No external field | Ordinary open faces, the configured source VDF, and scalar barriers |
-| `kinetic_1d` | **Standard and recommended** self-consistent 1-D sheath | Close the reservoir VDF, mean sheath, inflow, and return with one profile |
-| `unified_linear_response` | Advanced, specialized 3-D linear response | Cases without a split window between roughness and plasma response |
-
-`unified_linear_response` is not a higher-accuracy replacement for `kinetic_1d`. It does not solve species VDFs or floating
-current balance; it constructs linear screening from a rough surface to the far region.
+| `kinetic_1d` | Supported self-consistent 1-D sheath | Close the reservoir VDF, mean sheath, inflow, and return with one profile |
 
 Field-only configurations remain supported:
 
@@ -90,18 +84,13 @@ inflow_model = "source_vdf"
 | `particles.mode` | Particle leaving through z-high | Use |
 | --- | --- | --- |
 | `local_source` | Apply `ordinary_open`; retain no external trajectory | No external field, field-only, or scalar inflow |
-| `same_batch` | Evaluate the field model's 1-D return or 3-D orbit | Tracked return in steady and quasi-steady studies |
+| `same_batch` | Evaluate return with the kinetic 1-D profile | Tracked return in steady and quasi-steady studies |
 | `zhao_queue` | Hold Zhao photoelectron return/escape events until their due batch | Delayed current during strong-UV turn-on |
 
 `particles.mode` selects only external transport of z-high particles. Select the reservoir-inflow VDF independently with
 `inflow_model` below.
 
-The field model determines the concrete same-batch calculation.
-
-| `field.model` | Resolved result for `particles.mode="same_batch"` |
-| --- | --- |
-| `kinetic_1d` | Discrete kinetic 1-D profile |
-| `unified_linear_response` | Explicit 3-D outer orbit |
+Combine `same_batch` with `field.model="kinetic_1d"`. Return and escape are evaluated on the discrete kinetic 1-D profile.
 
 `zhao_queue` is not a generic delayed transport option. It is available only with `kinetic_1d` and
 `kinetic_closure="zhao_charge_driven"`.
@@ -137,7 +126,6 @@ Do not add an update-stride key; queue mode fixes it internally to 1.
 
 For tracked `kinetic_1d`, including `zhao_queue`, the same 1-D profile owns inflow.
 Only `inflow_model="auto"` is accepted, preventing a second `infinity_barrier` correction.
-A 3-D orbit does not own inflow, so `unified_linear_response + same_batch` may select local inflow separately.
 
 ## Choose Ordinary Open Faces
 
@@ -163,7 +151,7 @@ BEACH does not repair contradictory input or silently fall back to another model
 - Unsupported magnetic field, species, periodic2, zero-mode, or time-scale choices
 - Mixing `[external_boundary]` with legacy `[outer_plasma]` or `[coupling]`
 
-Physical inputs and numerical guards are not guessed. Specify species, Debye length, temperature, field time scale, orbit step,
+Physical inputs and numerical guards are not guessed. Specify species, Debye length, temperature, field time scale,
 and periodic2 backend as required by the selected model; contradictory values remain errors.
 For `zhao_queue`, update stride is fixed internally to 1; do not write it in the public input.
 
@@ -175,5 +163,4 @@ not just the authoring syntax.
 Use [External-Boundary Configuration Migration](BoundaryConfigurationMigration.en.html) to convert legacy
 `[sim]` / `[outer_plasma]` / `[coupling]` input. Model physics and validation are documented separately in
 [Outer Sheath: Kinetic 1-D](KineticOuterPlasma.en.html),
-[Advanced Rough-Surface Linear Screening](UnifiedLinearResponse.en.html), and
 [Open Boundaries, Escape, and Return](ParticleEscapeReturn.en.html).

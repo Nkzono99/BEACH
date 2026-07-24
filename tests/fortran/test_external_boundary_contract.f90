@@ -6,7 +6,7 @@ program test_external_boundary_contract
     external_boundary_contract_type, external_boundary_ok, external_boundary_invalid, &
     external_inflow_none, external_inflow_scalar_barrier, &
     external_inflow_kinetic_profile, external_open_potential_barrier, external_transport_none, &
-    external_transport_kinetic_1d, external_transport_unified_3d, &
+    external_transport_kinetic_1d, &
     resolve_external_boundary_contract, external_boundary_owns_event
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
@@ -16,7 +16,7 @@ program test_external_boundary_contract
   integer(i32) :: face_bc(6)
   character(len=256) :: message
 
-  call test_init(8)
+  call test_init(7)
 
   call test_begin('default_contract_has_no_external_owner')
   call resolve( &
@@ -74,15 +74,6 @@ program test_external_boundary_contract
   call assert_equal_i32(contract%inflow_map, external_inflow_kinetic_profile, 'kinetic inflow mismatch')
   call assert_equal_i32(contract%interface_transport, external_transport_kinetic_1d, 'kinetic transport mismatch')
   call assert_true(contract%queue_enabled, 'queue contract flag mismatch')
-  call test_end()
-
-  call test_begin('unified_contract_uses_explicit_3d_transport')
-  call resolve( &
-    'none', 'escape', 'unified_linear_response', 'absorbing_maxwellian', &
-    'electrostatic_3d_explicit_orbit', 'electrostatic_3d_explicit_orbit', .false., contract, status, message &
-    )
-  call assert_equal_i32(status, external_boundary_ok, 'unified contract resolution failed')
-  call assert_equal_i32(contract%interface_transport, external_transport_unified_3d, 'unified transport mismatch')
   call test_end()
 
   call test_begin('z_high_membership_owns_periodic_corner_event')

@@ -116,14 +116,12 @@ batch injectionもhot loop外で同じresolverを使います。外部場の構�
 `field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` provider が場の合成時に一度だけ加えます。`lower_boundary_model="symmetric_vacuum"` は均質真空の無外場境界条件として `E_bottom=-Q/(2 epsilon0 A)`、`E_top=+Q/(2 epsilon0 A)` を選び、interface位置や誘電率を必要としません。`e_bottom_zero` は下側場を0に固定する旧計算再現用境界条件です。外部シースのGauss残差は上側へ入る電束 `Q + epsilon0 A E_bottom` とouter chargeの和で評価します。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的なzero-mode boundary conditionで閉じます。cache fingerprintは周期長、FMM order、画像/Ewald層、source/target topology、softening、generator version、tolerance、real kind、build versionを含みます。MPIではrank 0だけがlock、検証、cache I/O、atomic publishを担当します。cache missのoperator生成はtarget sliceを全rankに分配し、各rank内でproxy RHSをOpenMP並列評価した後、`MPI_Allreduce(SUM)`で全rankに組み立てます。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
-`periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、選択したouter responseを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`減衰、gap、局所平均plasma電荷推定、線形性を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
+`periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、選択したouter responseを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`電位・電場減衰、gap、局所平均plasma電荷推定を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
 
-運用上、自己整合な外部シースの標準・推奨モデルは
+運用上、自己整合な外部シースの対応モデルは
 `external_boundary.field.model="kinetic_1d"`とする。正規化後の実行時表現は
 `outer_plasma.model="kinetic_1d"`である。
-`unified_linear_response`はその上位互換ではなく、roughnessとplasma応答が同じ領域に重なり、split windowを
-仮定できず、線形性条件を満たす場合の高度な粗面線形screeningとする。両者は同じシースを精度違いで解く
-選択肢ではない。外部シースを暗黙に有効化しないため、設定上の既定は引き続き`none`とする。
+外部シースを暗黙に有効化しないため、設定上の既定は引き続き`none`とする。
 
 公開TOMLでは、外部条件を`[external_boundary.field]`、`[external_boundary.particles]`、
 `[external_boundary.ordinary_open]`の3責務で指定する。fieldは外部場、particlesはz-high粒子のlifecycleと
@@ -131,15 +129,12 @@ reservoir流入、ordinary_openはouterが所有しないopen面を表す。`par
 `local_source | same_batch | zhao_queue`、`particles.inflow_model`は
 `auto | source_vdf | infinity_barrier`とする。
 
-`same_batch`はfield modelに応じて次の実行時設定へ正規化する。
-
-- `kinetic_1d`: returnは`kinetic_1d_profile_return`、transferは`electrostatic_1d_instant_return`
-- `unified_linear_response`: return/transferとも`electrostatic_3d_explicit_orbit`
+`same_batch`は`kinetic_1d`の`kinetic_1d_profile_return`と
+`electrostatic_1d_instant_return`へ正規化する。
 
 `zhao_queue`は`kinetic_1d + zhao_charge_driven`へ同じkinetic return/transfer対とpersistent queueを加える。
 `interface_z`は`sim.box_max[2]`、更新方式は`explicit`へ正規化する。kinetic 1D tracked構成では
 `inflow_model="auto"`が同じprofileへ流入ownershipを渡し、local scalar補正との併用を拒否する。
-unified 3D orbitは流入を所有しないためlocal inflowを独立に選べる。
 
 旧`sim.reservoir_potential_model`、`sim.open_boundary_model`、
 `[outer_plasma]`、`[coupling]`はcompatibility inputとして読み込むが、`[external_boundary]`との混在は拒否する。
@@ -167,14 +162,7 @@ queue過渡closureを置換しません。publication用の定常結果でも、
 上記の`sim.batch_duration`は実行時に解決された値を指し、直接指定の代わりに正の
 `dt * batch_duration_step`を使ってもよいものとします。
 
-`outer_plasma.model="unified_linear_response"` と
-`coupling.particle_transfer_mode="electrostatic_3d_explicit_orbit"` の組合せでは、z-high ownership面を
-出た粒子を、unified zero modeとscreened nonzero tailを合成した同じ3D静電場中で固定刻み
-velocity-Verletにより追跡します。ownership面へ戻る粒子はx/yを周期wrapしてlocal stepperへ返し、
-unified grid上端のfar planeを外向きに通過する粒子はinfinity escapeとします。全エネルギー相対誤差、
-outer flight time、frozen-field ratioを検査し、step上限到達をdiscardしません。この3D経路のpersistent queueは未実装の
-ため該当軌道は停止します。前段のZhao 1D queueとは別の制約です。
-非queue 1D/3D経路はlong flightのfrozen-field上限違反で停止し、Zhao 1D queueはflight、batch-start poll遅延、
+非queue 1D経路はlong flightのfrozen-field上限違反で停止し、Zhao 1D queueはflight、batch-start poll遅延、
 midpoint crossing時刻誤差上限の合計へ上限を課し、さらにbatch幅も設定時に制限します。外部磁場を無視する条件は未決なので`b0=0`のみを許可します。
 
 `outer_plasma.model="kinetic_1d"`は、enabledな負・正z-high `reservoir_face` speciesをそれぞれちょうど1つ要求し、無限遠の

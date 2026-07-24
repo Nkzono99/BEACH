@@ -37,11 +37,11 @@ program test_app_config_parser
   character(len=64) :: run_mode, probe_argument, noop_kind
 
   call get_command_argument(1, run_mode)
-  if (trim(run_mode) == 'probe_missing_3d_photo_deposit') then
-    call write_missing_3d_photo_deposit_fixture(missing_deposit_cfg_path)
+  if (trim(run_mode) == 'probe_missing_1d_photo_deposit') then
+    call write_missing_1d_photo_deposit_fixture(missing_deposit_cfg_path)
     call default_app_config(cfg)
     call load_app_config(missing_deposit_cfg_path, cfg)
-    error stop 'missing 3D photoelectron countercharge probe unexpectedly completed'
+    error stop 'missing 1D photoelectron countercharge probe unexpectedly completed'
   end if
   if (trim(run_mode) == 'probe_mixed_external_boundary_owner') then
     call get_command_argument(2, probe_argument)
@@ -56,22 +56,10 @@ program test_app_config_parser
     noop_kind = 'field'
   case ('probe_none_local_coupling_option')
     noop_kind = 'coupling'
-  case ('probe_unified_kinetic_option')
-    noop_kind = 'unified_kinetic'
-  case ('probe_kinetic_unified_option')
-    noop_kind = 'kinetic_unified'
   case ('probe_kinetic_zhao_option')
     noop_kind = 'kinetic_zhao'
-  case ('probe_kinetic_linearity_option')
-    noop_kind = 'kinetic_linearity'
-  case ('probe_unified_scalar_option')
-    noop_kind = 'unified_scalar'
   case ('probe_local_time_guard')
     noop_kind = 'local_time_guard'
-  case ('probe_kinetic_outer_orbit')
-    noop_kind = 'kinetic_orbit'
-  case ('probe_unified_update_stride')
-    noop_kind = 'unified_stride'
   case ('probe_queue_update_stride')
     noop_kind = 'queue_stride'
   case ('probe_kinetic_steady_start')
@@ -255,11 +243,6 @@ program test_app_config_parser
     )
   call assert_close_dp(split_cfg%outer_plasma%interface_z, 1.0_dp, 1.0e-15_dp, 'split interface mismatch')
   call assert_close_dp(split_cfg%outer_plasma%debye_length, 0.2_dp, 1.0e-15_dp, 'split Debye length mismatch')
-  call assert_equal_i32(split_cfg%outer_plasma%unified_grid_points, 129_i32, 'default unified grid points mismatch')
-  call assert_close_dp( &
-    split_cfg%outer_plasma%accessible_fraction_tolerance, 0.1_dp, 1.0e-15_dp, &
-    'default accessible-fraction tolerance mismatch' &
-    )
   call assert_close_dp(split_cfg%outer_plasma%max_gap_ratio, 4.0_dp, 1.0e-15_dp, 'split gap limit mismatch')
   call assert_close_dp( &
     split_cfg%outer_plasma%max_local_charge_ratio, 6.0_dp, 1.0e-15_dp, 'split local-charge limit mismatch' &
@@ -280,14 +263,6 @@ program test_app_config_parser
   call assert_equal_i32(split_cfg%coupling%steady_start_mesh_id, 1_i32, 'split default steady-start mesh ID mismatch')
   call assert_close_dp( &
     split_cfg%coupling%field_evolution_timescale, 2.0_dp, 1.0e-15_dp, 'split field timescale mismatch' &
-    )
-  call assert_close_dp(split_cfg%coupling%outer_orbit_dt, 0.0_dp, 0.0_dp, 'default outer orbit dt mismatch')
-  call assert_equal_i32( &
-    split_cfg%coupling%outer_orbit_max_steps, 100000_i32, 'default outer orbit max steps mismatch' &
-    )
-  call assert_close_dp( &
-    split_cfg%coupling%outer_orbit_energy_tolerance, 1.0e-4_dp, 1.0e-15_dp, &
-    'default outer orbit energy tolerance mismatch' &
     )
   call test_end()
 
@@ -517,8 +492,8 @@ program test_app_config_parser
   call assert_true(trim(toml_syntax_cfg%output_dir) == 'outputs/#literal', 'literal hash in string mismatch')
   call test_end()
 
-  call test_begin('tracked_3d_photo_requires_countercharge')
-  call assert_missing_3d_photo_deposit_rejected()
+  call test_begin('tracked_1d_photo_requires_countercharge')
+  call assert_missing_1d_photo_deposit_rejected()
   call test_end()
 
   call delete_file_if_exists(cfg_path)
@@ -575,20 +550,20 @@ contains
     call delete_file_if_exists(periodic_oracle_output_path)
   end subroutine assert_removed_root_oracle_rejected
 
-  subroutine assert_missing_3d_photo_deposit_rejected()
+  subroutine assert_missing_1d_photo_deposit_rejected()
     character(len=1024) :: executable_path, line
     character(len=4096) :: command
     integer :: child_exit_status, child_cmd_status, u, ios
     logical :: saw_requirement
 
     call get_command_argument(0, executable_path)
-    command = '"'//trim(executable_path)//'" probe_missing_3d_photo_deposit > "'// &
+    command = '"'//trim(executable_path)//'" probe_missing_1d_photo_deposit > "'// &
               missing_deposit_output_path//'" 2>&1'
     call execute_command_line( &
       trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
       )
     call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'missing deposit probe command status mismatch')
-    call assert_true(child_exit_status /= 0, 'tracked 3D photoelectron transfer without countercharge must fail')
+    call assert_true(child_exit_status /= 0, 'tracked 1D photoelectron transfer without countercharge must fail')
     saw_requirement = .false.
     open (newunit=u, file=missing_deposit_output_path, status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to read missing deposit probe output'
@@ -603,7 +578,7 @@ contains
     call assert_true(saw_requirement, 'missing deposit probe must report the tracked outer transfer requirement')
     call delete_file_if_exists(missing_deposit_cfg_path)
     call delete_file_if_exists(missing_deposit_output_path)
-  end subroutine assert_missing_3d_photo_deposit_rejected
+  end subroutine assert_missing_1d_photo_deposit_rejected
 
   subroutine assert_external_boundary_mode_matrix()
     type(app_config) :: mode_cfg
@@ -630,36 +605,6 @@ contains
     call assert_true( &
       trim(mode_cfg%sim%reservoir_potential_model) == 'none', &
       'kinetic profile-owned inflow must disable the scalar inflow correction' &
-      )
-
-    call default_app_config(mode_cfg)
-    mode_cfg%sim%box_max(3) = 3.0_dp
-    call prepare_external_boundary_authoring( &
-      mode_authoring, 'unified_linear_response', 'same_batch', 'infinity_barrier' &
-      )
-    mode_authoring%external_boundary%field%has_unified_option = .true.
-    mode_authoring%external_boundary%field%unified_grid_points = 65_i32
-    mode_authoring%external_boundary%particles%has_time_guard_option = .true.
-    mode_authoring%external_boundary%particles%field_evolution_timescale = 2.0_dp
-    mode_authoring%external_boundary%particles%has_outer_orbit_option = .true.
-    mode_authoring%external_boundary%particles%outer_orbit_dt = 0.01_dp
-    mode_authoring%external_boundary%ordinary_open%model = 'potential_barrier'
-    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
-    call assert_true( &
-      trim(mode_cfg%outer_plasma%return_model) == 'electrostatic_3d_explicit_orbit', &
-      'unified same-batch return mapping mismatch' &
-      )
-    call assert_true( &
-      trim(mode_cfg%coupling%particle_transfer_mode) == 'electrostatic_3d_explicit_orbit', &
-      'unified same-batch transfer mapping mismatch' &
-      )
-    call assert_true( &
-      trim(mode_cfg%sim%reservoir_potential_model) == 'infinity_barrier', &
-      'unified transport must preserve independent infinity-barrier inflow' &
-      )
-    call assert_true( &
-      trim(mode_cfg%sim%open_boundary_model) == 'potential_barrier', &
-      'unified transport must preserve independent ordinary-open mapping' &
       )
 
     call default_app_config(mode_cfg)
@@ -781,28 +726,10 @@ contains
       'probe_active_field_without_box', 'requires explicit sim.box_max or sim.box_origin/box_size' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_unified_kinetic_option', 'kinetic_closure requires field.model="kinetic_1d"' &
-      )
-    call assert_external_boundary_probe_rejected( &
-      'probe_kinetic_unified_option', 'Unified field options require field.model="unified_linear_response"' &
-      )
-    call assert_external_boundary_probe_rejected( &
       'probe_kinetic_zhao_option', 'Zhao field options require kinetic_1d' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_kinetic_linearity_option', 'max_linearity_ratio does not apply to kinetic_1d' &
-      )
-    call assert_external_boundary_probe_rejected( &
-      'probe_unified_scalar_option', 'Scalar interface diagnostic options do not apply' &
-      )
-    call assert_external_boundary_probe_rejected( &
       'probe_local_time_guard', 'time-guard options require particles.mode="same_batch" or "zhao_queue"' &
-      )
-    call assert_external_boundary_probe_rejected( &
-      'probe_kinetic_outer_orbit', 'Outer-orbit options require unified_linear_response' &
-      )
-    call assert_external_boundary_probe_rejected( &
-      'probe_unified_update_stride', 'outer_update_stride requires a kinetic_1d field and a non-queue particle mode' &
       )
     call assert_external_boundary_probe_rejected( &
       'probe_queue_update_stride', 'outer_update_stride requires a kinetic_1d field and a non-queue particle mode' &
@@ -841,17 +768,20 @@ contains
     call delete_file_if_exists(noop_boundary_output_path)
   end subroutine assert_external_boundary_probe_rejected
 
-  subroutine write_missing_3d_photo_deposit_fixture(path)
+  !> kinetic 1D の追跡粒子返送に必要な光電子逆電荷を欠く設定を書き出す。
+  !! @param[in] path 書き出し先TOMLファイルパス。
+  subroutine write_missing_1d_photo_deposit_fixture(path)
     character(len=*), intent(in) :: path
     integer :: u, ios
 
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
-    if (ios /= 0) error stop 'failed to open missing deposit fixture'
+    if (ios /= 0) error stop 'failed to open missing 1D photoelectron deposit fixture'
+
     write (u, '(a)') '[sim]'
     write (u, '(a)') 'dt = 1.0e-9'
+    write (u, '(a)') 'batch_duration = 1.0e-8'
     write (u, '(a)') 'batch_count = 1'
-    write (u, '(a)') 'batch_duration = 1.0e-7'
-    write (u, '(a)') 'max_step = 2'
+    write (u, '(a)') 'max_step = 4'
     write (u, '(a)') 'softening = 0.0'
     write (u, '(a)') 'field_solver = "direct"'
     write (u, '(a)') 'field_bc_mode = "periodic2"'
@@ -864,46 +794,87 @@ contains
     write (u, '(a)') 'bc_y_high = "periodic"'
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
+    write (u, '(a)') ''
     write (u, '(a)') '[field]'
     write (u, '(a)') 'element_kernel = "triangle_p0"'
+    write (u, '(a)') ''
     write (u, '(a)') '[periodic2]'
     write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
     write (u, '(a)') 'zero_mode_policy = "exclude_k0"'
     write (u, '(a)') 'lower_boundary_model = "symmetric_vacuum"'
-    write (u, '(a)') '[outer_plasma]'
-    write (u, '(a)') 'model = "unified_linear_response"'
-    write (u, '(a)') 'return_model = "electrostatic_3d_explicit_orbit"'
-    write (u, '(a)') 'interface_z = 1.0'
+    write (u, '(a)') 'reference_mode_layers = 2'
+    write (u, '(a)') 'panel_quadrature_order = 4'
+    write (u, '(a)') 'interface_sample_n = 2'
+    write (u, '(a)') 'interface_phi_tolerance = 1.0e-3'
+    write (u, '(a)') 'interface_field_tolerance = 1.0e-3'
+    write (u, '(a)') ''
+    write (u, '(a)') '[external_boundary.field]'
+    write (u, '(a)') 'model = "kinetic_1d"'
     write (u, '(a)') 'debye_length = 0.2'
-    write (u, '(a)') 'thermal_voltage = 10.0'
-    write (u, '(a)') '[coupling]'
-    write (u, '(a)') 'particle_transfer_mode = "electrostatic_3d_explicit_orbit"'
-    write (u, '(a)') 'field_evolution_timescale = 1.0e-4'
-    write (u, '(a)') 'max_frozen_field_ratio = 0.1'
-    write (u, '(a)') 'outer_orbit_dt = 1.0e-9'
-    write (u, '(a)') 'outer_orbit_max_steps = 10000'
-    write (u, '(a)') 'outer_orbit_energy_tolerance = 1.0e-3'
+    write (u, '(a)') 'thermal_voltage = 2.0'
+    write (u, '(a)') ''
+    write (u, '(a)') '[external_boundary.particles]'
+    write (u, '(a)') 'mode = "same_batch"'
+    write (u, '(a)') 'field_evolution_timescale = 1.0'
+    write (u, '(a)') ''
     write (u, '(a)') '[particles]'
     write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'enabled = true'
+    write (u, '(a)') 'species_key = "ambient_electron"'
+    write (u, '(a)') 'source_mode = "reservoir_face"'
+    write (u, '(a)') 'number_density_m3 = 1.0e6'
+    write (u, '(a)') 'target_macro_particles_per_batch = 1'
+    write (u, '(a)') 'q_particle = -1.602176634e-19'
+    write (u, '(a)') 'm_particle = 9.1093837139e-31'
+    write (u, '(a)') 'inject_face = "z_high"'
+    write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
+    write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
+    write (u, '(a)') 'drift_velocity = [0.0, 0.0, -1.0e5]'
+    write (u, '(a)') 'temperature_ev = 2.0'
+    write (u, '(a)') ''
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'species_key = "ambient_proton"'
+    write (u, '(a)') 'source_mode = "reservoir_face"'
+    write (u, '(a)') 'number_density_m3 = 1.0e6'
+    write (u, '(a)') 'target_macro_particles_per_batch = 1'
+    write (u, '(a)') 'q_particle = 1.602176634e-19'
+    write (u, '(a)') 'm_particle = 1.67262192595e-27'
+    write (u, '(a)') 'inject_face = "z_high"'
+    write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
+    write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
+    write (u, '(a)') 'drift_velocity = [0.0, 0.0, -4.0e4]'
+    write (u, '(a)') 'temperature_ev = 0.1'
+    write (u, '(a)') ''
+    write (u, '(a)') '[[particles.species]]'
+    write (u, '(a)') 'species_key = "photoelectron"'
     write (u, '(a)') 'source_mode = "photo_raycast"'
     write (u, '(a)') 'emit_current_density_a_m2 = 1.0e-3'
     write (u, '(a)') 'rays_per_batch = 4'
-    write (u, '(a)') 'q_particle = -1.0'
-    write (u, '(a)') 'm_particle = 1.0'
+    write (u, '(a)') 'q_particle = -1.602176634e-19'
+    write (u, '(a)') 'm_particle = 9.1093837139e-31'
     write (u, '(a)') 'temperature_k = 0.0'
     write (u, '(a)') 'inject_face = "z_high"'
     write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
     write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
     write (u, '(a)') 'ray_direction = [0.0, 0.0, -1.0]'
+    write (u, '(a)') ''
     write (u, '(a)') '[mesh]'
     write (u, '(a)') 'mode = "template"'
     write (u, '(a)') '[[mesh.templates]]'
+    write (u, '(a)') 'enabled = true'
     write (u, '(a)') 'kind = "plane"'
+    write (u, '(a)') 'surface_model = "insulator"'
     write (u, '(a)') 'surface_side = "normal_plus"'
     write (u, '(a)') 'center = [0.5, 0.5, 0.25]'
+    write (u, '(a)') 'size_x = 1.0'
+    write (u, '(a)') 'size_y = 1.0'
+    write (u, '(a)') 'nx = 1'
+    write (u, '(a)') 'ny = 1'
+    write (u, '(a)') ''
+    write (u, '(a)') '[output]'
+    write (u, '(a)') 'write_files = false'
+
     close (u)
-  end subroutine write_missing_3d_photo_deposit_fixture
+  end subroutine write_missing_1d_photo_deposit_fixture
 
   !> テスト専用の一時設定ファイルを書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
@@ -1484,14 +1455,8 @@ contains
     select case (trim(conflict_kind))
     case ('field', 'coupling', 'none')
       continue
-    case ('unified_kinetic')
-      field_model = 'unified_linear_response'
-      particle_mode = 'same_batch'
-    case ('kinetic_unified', 'kinetic_zhao', 'kinetic_linearity', 'kinetic_orbit', 'kinetic_steady')
+    case ('kinetic_zhao', 'kinetic_steady')
       field_model = 'kinetic_1d'
-      particle_mode = 'same_batch'
-    case ('unified_scalar', 'unified_stride')
-      field_model = 'unified_linear_response'
       particle_mode = 'same_batch'
     case ('queue_stride')
       field_model = 'kinetic_1d'
@@ -1516,18 +1481,12 @@ contains
       write (u, '(a)') 'thermal_voltage = 1.0'
     end if
     if (trim(conflict_kind) == 'field') write (u, '(a)') 'debye_length = 1.0'
-    if (trim(conflict_kind) == 'unified_kinetic') write (u, '(a)') 'kinetic_closure = "absorbing_maxwellian"'
-    if (trim(conflict_kind) == 'kinetic_unified') write (u, '(a)') 'unified_grid_points = 65'
     if (trim(conflict_kind) == 'kinetic_zhao') write (u, '(a)') 'zhao_branch = "auto"'
     if (trim(conflict_kind) == 'queue_stride') write (u, '(a)') 'kinetic_closure = "zhao_charge_driven"'
-    if (trim(conflict_kind) == 'kinetic_linearity') write (u, '(a)') 'max_linearity_ratio = 0.5'
-    if (trim(conflict_kind) == 'unified_scalar') write (u, '(a)') 'max_gap_ratio = 4.0'
     write (u, '(a)') '[external_boundary.particles]'
     write (u, '(a)') 'mode = "'//trim(particle_mode)//'"'
     if (trim(conflict_kind) == 'coupling') write (u, '(a)') 'outer_update_stride = 1'
     if (trim(conflict_kind) == 'local_time_guard') write (u, '(a)') 'field_evolution_timescale = 2.0'
-    if (trim(conflict_kind) == 'kinetic_orbit') write (u, '(a)') 'outer_orbit_dt = 0.01'
-    if (trim(conflict_kind) == 'unified_stride') write (u, '(a)') 'outer_update_stride = 2'
     if (trim(conflict_kind) == 'queue_stride') write (u, '(a)') 'outer_update_stride = 1'
     if (trim(conflict_kind) == 'kinetic_steady') write (u, '(a)') 'steady_start_mode = "zhao_floating"'
     write (u, '(a)') '[particles]'

@@ -308,7 +308,6 @@ class FortranRunResult:
     periodic2_cache_fingerprint: str | None = None
     periodic2_cache_path: str | None = None
     periodic2_generation_tolerance: float | None = None
-    outer_accessible_fraction_refinement_error: float | None = None
     max_outer_flight_time_s: float | None = None
     max_outer_frozen_field_ratio: float | None = None
     max_outer_energy_relative_error: float | None = None

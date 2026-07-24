@@ -103,8 +103,7 @@ For a finite box without a solved external region,
 `external_boundary.ordinary_open.model="potential_barrier"` classifies reflection or escape
 from crossing-point potential and normal kinetic energy. With a self-consistent external sheath,
 `external_boundary.field.model` and `external_boundary.particles.mode` are canonical. See
-[Particle escape and return](ParticleEscapeReturn.en.html) for the scalar barrier, 1-D outer-profile return, and unified 3-D
-explicit orbit.
+[Particle escape and return](ParticleEscapeReturn.en.html) for the scalar barrier and 1-D outer-profile return.
 
 Every `photo_raycast` species using tracked outer transfer requires `deposit_opposite_charge_on_emit=true` to close emission and
 return charge balance.
@@ -118,7 +117,7 @@ statistical return current on the surface.
 
 Tracked photoelectrons transferred through z-high use the same source-independent escape/return treatment as other particles.
 See [Particle escape and return](ParticleEscapeReturn.en.html) for the quasi-steady approximation that omits outer flight from
-global time and the 3-D explicit orbit, and [Outer plasma models](OuterPlasmaModels.en.html) for field construction.
+global time, and [Outer plasma models](OuterPlasmaModels.en.html) for field construction.
 
 `external_boundary.field.kinetic_closure="zhao_charge_driven"` constructs a
 self-consistent 1-D outer profile that preserves the interface field set by

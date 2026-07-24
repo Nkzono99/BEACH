@@ -103,21 +103,6 @@ def test_load_config_file_accepts_kinetic_profile_return_split() -> None:
     )
 
 
-def test_load_config_file_accepts_unified_explicit_outer_orbit() -> None:
-    config = load_config_file(Path("examples/periodic2_unified_explicit_orbit.toml"))
-
-    assert config["outer_plasma"]["model"] == "unified_linear_response"
-    assert config["outer_plasma"]["return_model"] == "electrostatic_3d_explicit_orbit"
-    assert (
-        config["coupling"]["particle_transfer_mode"]
-        == "electrostatic_3d_explicit_orbit"
-    )
-
-    config["coupling"]["outer_orbit_dt"] = 0.0
-    with pytest.raises(ConfigValidationError, match="outer_orbit_dt"):
-        normalize_config_document(config)
-
-
 def test_periodic2_accepts_symmetric_vacuum_and_rejects_unknown_lower_model() -> None:
     config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
     config["periodic2"]["lower_boundary_model"] = "symmetric_vacuum"
@@ -371,31 +356,6 @@ def test_external_boundary_facade_rejects_inert_none_options() -> None:
 
 
 @pytest.mark.parametrize(
-    ("example", "key", "value"),
-    [
-        ("periodic2_kinetic_outer.toml", "max_linearity_ratio", 0.25),
-        ("periodic2_kinetic_outer.toml", "unified_grid_points", 129),
-        ("periodic2_unified_linear_response.toml", "max_gap_ratio", 5.0),
-        (
-            "periodic2_unified_linear_response.toml",
-            "max_local_charge_ratio",
-            50.0,
-        ),
-    ],
-)
-def test_external_boundary_facade_rejects_model_specific_field_options(
-    example: str,
-    key: str,
-    value: object,
-) -> None:
-    config = load_toml_file(Path("examples") / example)
-    config["external_boundary"]["field"][key] = value
-
-    with pytest.raises(ConfigError, match="not applicable"):
-        normalize_config_document(config)
-
-
-@pytest.mark.parametrize(
     ("key", "value"),
     [
         ("infinity_potential", 0.0),
@@ -404,6 +364,9 @@ def test_external_boundary_facade_rejects_model_specific_field_options(
         ("photoelectron_histogram_energy_max", 10.0),
         ("photoelectron_ambient_charge_scale", 1.0),
         ("max_photoelectron_charge_ratio", 0.1),
+        ("unified_grid_points", 129),
+        ("accessible_fraction_tolerance", 0.1),
+        ("max_linearity_ratio", 0.25),
     ],
 )
 def test_external_boundary_facade_rejects_removed_field_options(
@@ -413,6 +376,45 @@ def test_external_boundary_facade_rejects_removed_field_options(
     config["external_boundary"]["field"][key] = value
 
     with pytest.raises(ConfigError, match="unsupported external_boundary.field"):
+        normalize_config_document(config)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("outer_orbit_dt", 1.0e-9),
+        ("outer_orbit_max_steps", 100),
+        ("outer_orbit_energy_tolerance", 1.0e-4),
+    ],
+)
+def test_external_boundary_facade_rejects_removed_particle_options(
+    key: str, value: object
+) -> None:
+    config = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config["external_boundary"]["particles"][key] = value
+
+    with pytest.raises(ConfigError, match="unsupported external_boundary.particles"):
+        normalize_config_document(config)
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [
+        ("outer_plasma", "unified_grid_points", 129),
+        ("outer_plasma", "accessible_fraction_tolerance", 0.1),
+        ("outer_plasma", "max_linearity_ratio", 0.25),
+        ("coupling", "outer_orbit_dt", 1.0e-9),
+        ("coupling", "outer_orbit_max_steps", 100),
+        ("coupling", "outer_orbit_energy_tolerance", 1.0e-4),
+    ],
+)
+def test_runtime_config_rejects_removed_unified_options(
+    section: str, key: str, value: object
+) -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config[section][key] = value
+
+    with pytest.raises(ConfigValidationError, match=f"unsupported {section} key"):
         normalize_config_document(config)
 
 
@@ -433,14 +435,6 @@ def test_external_boundary_facade_requires_specialized_field_option_owners() -> 
 @pytest.mark.parametrize(
     ("example", "key", "value"),
     [
-        (
-            "periodic2_unified_linear_response.toml",
-            "field_evolution_timescale",
-            1.0,
-        ),
-        ("periodic2_kinetic_outer.toml", "outer_orbit_dt", 1.0e-9),
-        ("periodic2_zhao_transient_outer.toml", "outer_orbit_max_steps", 100),
-        ("periodic2_unified_explicit_orbit.toml", "outer_update_stride", 1),
         ("periodic2_zhao_transient_outer.toml", "outer_update_stride", 1),
     ],
 )
@@ -459,9 +453,6 @@ def test_external_boundary_facade_rejects_mode_specific_particle_options(
 @pytest.mark.parametrize(
     ("section", "key", "value"),
     [
-        ("field", "unified_grid_points", 16),
-        ("field", "accessible_fraction_tolerance", 0.0),
-        ("field", "max_linearity_ratio", 0.0),
         ("field", "max_gap_ratio", 0.0),
         ("field", "max_local_charge_ratio", 0.0),
         ("particles", "outer_update_stride", 0),
@@ -474,17 +465,7 @@ def test_external_boundary_facade_rejects_invalid_control_ranges(
     key: str,
     value: object,
 ) -> None:
-    example = (
-        "periodic2_unified_explicit_orbit.toml"
-        if key
-        in {
-            "unified_grid_points",
-            "accessible_fraction_tolerance",
-            "max_linearity_ratio",
-        }
-        else "periodic2_kinetic_outer.toml"
-    )
-    config = load_toml_file(Path("examples") / example)
+    config = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
     config["external_boundary"][section][key] = value
 
     with pytest.raises(ConfigError, match=key):
@@ -547,31 +528,18 @@ def test_external_boundary_facade_rejects_raw_owner_mixing_by_presence(
         normalize_config_document(config)
 
 
-def test_external_boundary_facade_keeps_unified_inflow_independent() -> None:
+def test_external_boundary_facade_enforces_inflow_ownership() -> None:
     kinetic = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
     kinetic["external_boundary"]["particles"]["inflow_model"] = "source_vdf"
     with pytest.raises(ConfigError, match="requires.*inflow_model=auto"):
         normalize_config_document(kinetic)
 
-    unified = load_toml_file(Path("examples/periodic2_unified_explicit_orbit.toml"))
-    unified["external_boundary"]["particles"]["inflow_model"] = "infinity_barrier"
-    unified["external_boundary"].setdefault("ordinary_open", {})["model"] = (
-        "potential_barrier"
-    )
-    normalized = normalize_config_document(unified)
-    assert normalized["sim"]["reservoir_potential_model"] == "infinity_barrier"
-    assert normalized["sim"]["open_boundary_model"] == "potential_barrier"
-    assert (
-        normalized["coupling"]["particle_transfer_mode"]
-        == "electrostatic_3d_explicit_orbit"
-    )
-
-    removed_inflow = copy.deepcopy(unified)
+    removed_inflow = copy.deepcopy(kinetic)
     removed_inflow["external_boundary"]["particles"]["inflow_model"] = "legacy_sheath"
     with pytest.raises(ConfigError, match="inflow_model"):
         normalize_config_document(removed_inflow)
 
-    removed_option = copy.deepcopy(unified)
+    removed_option = copy.deepcopy(kinetic)
     removed_option["external_boundary"]["particles"][
         "legacy_sheath_model"
     ] = "zhao_auto"
@@ -653,11 +621,6 @@ def test_tracked_outer_transfer_requires_opposite_charge_deposit() -> None:
 
     with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
         normalize_config_document(config)
-
-    explicit = load_config_file(Path("examples/periodic2_unified_explicit_orbit.toml"))
-    explicit["particles"]["species"].append(copy.deepcopy(photo_species))
-    with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
-        normalize_config_document(explicit)
 
 
 def test_load_config_file_resolves_high_level_notation(tmp_path: Path) -> None:

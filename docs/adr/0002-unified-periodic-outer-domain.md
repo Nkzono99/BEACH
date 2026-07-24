@@ -1,6 +1,12 @@
 # ADR 0002: unified periodic outer domain と handoff-only interface
 
-- Status: accepted for Phase 8 field domain and Phase 9 explicit orbit
+- Status: superseded
+- Superseded by: [ADR 0010](0010-remove-unified-linear-response.md)
+
+> この ADR が記述する `unified_linear_response` は削除済みです。以下は当時の設計判断を保存する履歴であり、
+> 現行 BEACH の設定または実装を説明するものではありません。
+
+- Historical status: accepted for Phase 8 field domain and Phase 9 explicit orbit
 - Date: 2026-07-11
 
 ## Context

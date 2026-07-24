@@ -4,6 +4,9 @@
 - Date: 2026-07-24
 - Supersedes: ADR 0008 の field / inflow 語彙と、該当 raw selector の互換維持
 
+> この ADR が維持対象とした `unified_linear_response` は
+> [ADR 0010](0010-remove-unified-linear-response.md)で削除した。以下の該当箇所は当時の移行判断を示す履歴である。
+
 ## Context
 
 ADR 0007 と ADR 0008 は、外部境界を field、z-high particle lifecycle、reservoir 流入、

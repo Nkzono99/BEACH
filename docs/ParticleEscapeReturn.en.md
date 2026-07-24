@@ -18,11 +18,10 @@ particle crosses an open face
 |   +-- potential_barrier         reflect or escape at a scalar barrier
 +-- z-high is owned by particles.mode
     +-- kinetic_1d                discrete 1-D profile return
-    +-- unified_linear_response   explicit 3-D outer orbit
 ```
 
-The four algorithms are therefore not one model selector. Ordinary open faces
-have two choices:
+Ordinary-open handling and kinetic outer transfer are separate responsibilities.
+Ordinary open faces have two choices:
 
 | `ordinary_open.model` | External state | Particle decision | Typical use |
 | --- | --- | --- | --- |
@@ -35,7 +34,6 @@ field determines the concrete trajectory:
 | `field.model` | External state | Particle decision | Return time | Typical use |
 | --- | --- | --- | --- | --- |
 | `kinetic_1d` | Converged discrete 1-D profile | Conserved energy and turning-point search | Profile integration | **Standard:** self-consistent mean sheath |
-| `unified_linear_response` | 3-D field with zero and nonzero modes | Time-integrate an outer orbit | Measured from the orbit | **Advanced:** linear 3-D response over a rough surface |
 
 All boundary treatments are independent of particle source. Reservoir particles, photoelectrons, and `volume_seed` particles receive
 the same boundary treatment when they cross the same face in the same state. See
@@ -185,54 +183,6 @@ described below. The model can represent a self-consistent mean sheath, but assu
 electrostatic, collisionless, unmagnetized 1-D profile.
 See [Outer field: kinetic 1D](KineticOuterPlasma.en.html) for details.
 
-## 4. `unified_linear_response`: integrate an external 3-D orbit
-
-This model constructs one linear response field from a rough surface to the far plane, including the zero mode and screened
-nonzero modes. `unified_linear_response` alone does not enable particle return. The following 3-D orbit settings explicitly
-track particles outside the ownership interface.
-
-```toml
-[external_boundary.field]
-model = "unified_linear_response"
-debye_length = 0.2
-thermal_voltage = 2.0
-
-[external_boundary.particles]
-mode = "same_batch"
-field_evolution_timescale = 1.0
-outer_orbit_dt = 1.0e-4
-```
-
-### Advance an outer orbit in the unified 3-D field
-
-The batch-fixed field is integrated with fixed-step velocity Verlet using `outer_orbit_dt`:
-
-$$
-\mathbf v^{n+1/2}=\mathbf v^n+\frac{q\mathbf E(\mathbf x^n)}{2m}\Delta t_o,
-$$
-
-$$
-\mathbf x^{n+1}=\mathbf x^n+\mathbf v^{n+1/2}\Delta t_o,
-\qquad
-\mathbf v^{n+1}=\mathbf v^{n+1/2}+\frac{q\mathbf E(\mathbf x^{n+1})}{2m}\Delta t_o.
-$$
-
-An inward recrossing of the ownership interface returns the particle; an outward crossing of the far plane at the top of the
-unified grid escapes. Event position and velocity are linearly interpolated within the final outer step.
-
-### Check orbit convergence and energy
-
-Failure to reach either plane within `outer_orbit_max_steps` requires a persistent queue and stops. The method also checks
-relative change in total energy
-
-$$
-\mathcal E=\frac12m|\mathbf v|^2+q\phi(\mathbf x)
-$$
-
-between the initial and event states against `outer_orbit_energy_tolerance`. Check `outer_orbit_dt` convergence of return and
-escape fractions, flight time, and energy error. See
-[Outer field: unified linear response](UnifiedLinearResponse.en.html) for field construction and applicability.
-
 ## Processing common to outer transfer
 
 ### Make z-high the particle-ownership interface
@@ -244,10 +194,9 @@ crossing data to an outer model.
 | --- | --- | --- |
 | `local_source` | all | Ordinary open boundary |
 | `same_batch` | `kinetic_1d` | Energy-based escape/return map |
-| `same_batch` | `unified_linear_response` | Time-integrated orbit in a batch-fixed 3-D field |
 | `zhao_queue` | Zhao `kinetic_1d` | Delay the 1-D result as an event in a later batch |
 
-Both 1-D and 3-D transfer require open z-high and `sim.b0=0`; current models do not include an external magnetic orbit.
+The 1-D transfer requires open z-high and `sim.b0=0`; current models do not include an external magnetic orbit.
 
 ### Pass the boundary-crossing state to the outer model
 
@@ -272,8 +221,8 @@ does a simultaneous crossing of z-high and another open face whose owner is not 
 
 ### Keep outer flight outside global simulation time in instant mode
 
-“Instant” in the 1-D model means outer flight affects the state map but does not advance global simulation time. The current 3-D
-explicit orbit uses the same convention. A particle returns at the simulation time of the local step in which it left, and
+“Instant” in the 1-D model means outer flight affects the state map but does not advance global simulation time.
+A particle returns at the simulation time of the local step in which it left, and
 outward and returned charge are recorded in the same batch.
 
 This approximation targets a steady or quasisteady outer plasma. Use the delayed-return queue in the next section for UV
@@ -309,7 +258,7 @@ field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
 ```
 
-Combinations with `absorbing_maxwellian` or the explicit 3-D orbit are rejected. The configuration must also satisfy
+`zhao_queue` is specific to `zhao_charge_driven`; `absorbing_maxwellian` is rejected. The configuration must also satisfy
 `batch_duration <= max_frozen_field_ratio * field_evolution_timescale`.
 `particles.mode="zhao_queue"` connects tracked-particle outer flight and the Zhao photoelectron population through one conserved
 inventory. Each rank retains its local events, while the photoelectron macro-particle number is summed over MPI as the Zhao
@@ -403,13 +352,13 @@ $$
 \texttt{field\_evolution\_timescale}.
 $$
 
-A violation stops the run. Persistent queuing remains unavailable for the explicit 3-D orbit; an orbit that does not finish within
-its in-batch limit stops.
+A violation stops the run.
 
 ## Verify model results with diagnostics
 
 Species-resolved output separates `interface_outward_gross`, `interface_returned_gross`, and `escaped_to_infinity`. It also
-reports maximum `outer_flight_time`, frozen-field ratio, and 3-D orbit energy error.
+reports maximum `outer_flight_time`, frozen-field ratio, and `max_outer_energy_relative_error` for the kinetic 1-D
+return/escape mapping. The last value is the normalized conservation residual of normal kinetic plus electrostatic energy.
 
 For Zhao queue mode, inspect `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`,
 `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`,
@@ -426,6 +375,5 @@ species. See [Inspect Output Files](OutputGuide.en.html) for these fields and th
 - `kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
 - Delayed event queue: [`bem_outer_event_queue.f90`](../src/runtime/coupling/bem_outer_event_queue.f90)
 - Queue checkpoint: [`bem_outer_event_queue_io.f90`](../src/runtime/coupling/bem_outer_event_queue_io.f90)
-- `unified_linear_response` 3-D orbit: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)
 - Interface transfer and diagnostic aggregation: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - Model-combination validation: [`bem_physics_config_types.f90`](../src/config/bem_physics_config_types.f90)

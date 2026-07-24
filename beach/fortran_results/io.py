@@ -127,9 +127,6 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         periodic2_generation_tolerance=_parse_optional_finite_float(
             summary, "periodic2_generation_tolerance"
         ),
-        outer_accessible_fraction_refinement_error=_parse_optional_nonnegative_finite_float(
-            summary, "outer_accessible_fraction_refinement_error"
-        ),
         max_outer_flight_time_s=_parse_optional_nonnegative_finite_float(
             summary, "max_outer_flight_time_s"
         ),

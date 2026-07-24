@@ -103,8 +103,7 @@ contains
         if (trim(app%periodic2%zero_mode_policy) == 'exclude_k0' .and. .not. electrostatic_state%outer_ready) then
           error stop 'Resume checkpoint is missing the required split-periodic outer state.'
         end if
-        if ((trim(lower_ascii(app%outer_plasma%model)) == 'kinetic_1d' .or. &
-             trim(lower_ascii(app%outer_plasma%model)) == 'unified_linear_response') .and. &
+        if (trim(lower_ascii(app%outer_plasma%model)) == 'kinetic_1d' .and. &
             electrostatic_state%outer_ready) then
           call load_kinetic_outer_profile(trim(out_dir), electrostatic_state, local_rank, mpi)
         end if
@@ -265,7 +264,7 @@ contains
     character(len=512) :: line
     character(len=64) :: key
     character(len=256) :: value
-    logical :: found_potential, found_batch, found_v3_state(13), found_zhao_state(4), found_zhao_transient_state(4)
+    logical :: found_potential, found_batch, found_v3_state(11), found_zhao_state(4), found_zhao_transient_state(4)
     logical :: found_outer_queue_inventory(3), found_outer_max_diagnostics(3)
 
     state = electrostatic_restart_state_type()
@@ -314,27 +313,21 @@ contains
       case ('outer_debye_length_m')
         read (value, *, iostat=ios) state%outer_debye_length
         found_v3_state(6) = ios == 0
-      case ('outer_linearity_ratio')
-        read (value, *, iostat=ios) state%outer_linearity_ratio
-        found_v3_state(7) = ios == 0
-      case ('outer_max_linearity_ratio')
-        read (value, *, iostat=ios) state%outer_max_linearity_ratio
-        found_v3_state(8) = ios == 0
       case ('outer_integrated_charge_per_area_C_m2')
         read (value, *, iostat=ios) state%outer_integrated_charge_per_area
-        found_v3_state(9) = ios == 0
+        found_v3_state(7) = ios == 0
       case ('outer_electron_current_density_A_m2')
         read (value, *, iostat=ios) state%outer_electron_current_density
-        found_v3_state(10) = ios == 0
+        found_v3_state(8) = ios == 0
       case ('outer_ion_current_density_A_m2')
         read (value, *, iostat=ios) state%outer_ion_current_density
-        found_v3_state(11) = ios == 0
+        found_v3_state(9) = ios == 0
       case ('outer_photoelectron_current_density_A_m2')
         read (value, *, iostat=ios) state%outer_photoelectron_current_density
-        found_v3_state(12) = ios == 0
+        found_v3_state(10) = ios == 0
       case ('outer_total_current_density_A_m2')
         read (value, *, iostat=ios) state%outer_total_current_density
-        found_v3_state(13) = ios == 0
+        found_v3_state(11) = ios == 0
       case ('outer_plasma_zhao_branch_resolved')
         if (len_trim(value) > 0) then
           state%outer_zhao_branch = value(1:1)

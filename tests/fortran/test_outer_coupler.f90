@@ -66,8 +66,7 @@ program test_outer_coupler
                     interface_phi_tolerance=1.0e12_dp, interface_field_tolerance=1.0e12_dp &
                     )
   outer_config = outer_plasma_config( &
-                 model='kinetic_1d', interface_z=1.0_dp, debye_length=0.2_dp, thermal_voltage=10.0_dp, &
-                 max_linearity_ratio=0.5_dp &
+                 model='kinetic_1d', interface_z=1.0_dp, debye_length=0.2_dp, thermal_voltage=10.0_dp &
                  )
   kinetic_options = kinetic_outer_plasma_options_type( &
                     grid_points=17_i32, domain_length=1.0_dp, tail_length=0.2_dp, &

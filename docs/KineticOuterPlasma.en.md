@@ -11,6 +11,8 @@ distributions at infinity and obtains interface potential, density, and currents
 BEACH recommends `kinetic_1d` as the standard model that connects an external reservoir to a mean sheath. With
 `external_boundary.particles.mode="same_batch"`, the same profile also controls particle inflow and escape/return. Start outer-sheath
 cases with this model unless the case has a specific requirement to resolve linear lateral-field screening near a rough surface.
+The current model set does not support that requirement. [ADR 0010](adr/0010-remove-unified-linear-response.md) records the
+removed approximation and the criteria for a redesign.
 
 The converged outer profile is used in both directions. Mapping particles from the infinity VDF to the interface is covered by
 [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html); mapping particles leaving the interface to escape or return is covered by
@@ -26,8 +28,7 @@ The local particle region meets the outer region at the z-high ownership interfa
 | Beyond the interface | Plane-averaged `kinetic_1d` profile |
 
 The outer profile is not superposed at every point in the local region. The split contract assumes lateral modes have decayed
-sufficiently by the interface and matches potential and normal field there. Only when roughness and plasma response must be
-solved linearly in the same region, use [advanced rough-surface linear screening](UnifiedLinearResponse.en.html).
+sufficiently by the interface and matches potential and normal field there.
 
 ## Determine potential from interface field and infinity VDFs
 

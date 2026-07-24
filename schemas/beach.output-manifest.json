@@ -55,7 +55,7 @@
     {
       "name": "outer_plasma_profile.csv",
       "producer": "src/runtime/bem_output_writer.f90",
-      "condition": "output.write_files=true and a kinetic_1d or unified_linear_response outer state is ready",
+      "condition": "output.write_files=true and a kinetic_1d outer state is ready",
       "restart_role": "conditional: required when resuming that ready outer state",
       "consumer": "src/runtime/bem_restart.f90"
     },

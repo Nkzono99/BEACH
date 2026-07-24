@@ -199,33 +199,27 @@ def test_schema_enforces_facade_model_mode_requirements() -> None:
     del missing_scale["external_boundary"]["field"]["thermal_voltage"]
     assert schema_errors(missing_scale, schema)
 
-    unified = load_toml_file(
-        ROOT / "examples/periodic2_unified_explicit_orbit.toml"
-    )
-    for particle_key in ("field_evolution_timescale", "outer_orbit_dt"):
-        missing_orbit_control = copy.deepcopy(unified)
-        del missing_orbit_control["external_boundary"]["particles"][particle_key]
-        assert schema_errors(missing_orbit_control, schema)
 
-        nonpositive_orbit_control = copy.deepcopy(unified)
-        nonpositive_orbit_control["external_boundary"]["particles"][
-            particle_key
-        ] = 0.0
-        assert schema_errors(nonpositive_orbit_control, schema)
-
-
-def test_schema_rejects_facade_model_specific_field_options() -> None:
+def test_schema_rejects_removed_unified_field_vocabulary() -> None:
     schema, _ = load_schema()
+    authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
 
-    for example, key, value in (
-        ("periodic2_kinetic_outer.toml", "max_linearity_ratio", 0.25),
-        ("periodic2_kinetic_outer.toml", "unified_grid_points", 129),
-        ("periodic2_unified_linear_response.toml", "max_gap_ratio", 5.0),
-        ("periodic2_unified_linear_response.toml", "max_local_charge_ratio", 50.0),
+    for key, value in (
+        ("max_linearity_ratio", 0.25),
+        ("unified_grid_points", 129),
+        ("accessible_fraction_tolerance", 0.1),
     ):
-        authoring = load_toml_file(ROOT / "examples" / example)
-        authoring["external_boundary"]["field"][key] = value
-        assert schema_errors(authoring, schema)
+        invalid = copy.deepcopy(authoring)
+        invalid["external_boundary"]["field"][key] = value
+        assert schema_errors(invalid, schema)
+
+    invalid = copy.deepcopy(authoring)
+    invalid["external_boundary"]["field"]["model"] = "unified_linear_response"
+    assert schema_errors(invalid, schema)
+
+    runtime = load_config_file(ROOT / "examples/periodic2_kinetic_outer.toml")
+    runtime["outer_plasma"]["model"] = "unified_linear_response"
+    assert schema_errors(runtime, schema)
 
 
 def test_schema_requires_facade_specialized_field_option_owners() -> None:
@@ -248,14 +242,9 @@ def test_schema_rejects_facade_mode_specific_particle_options() -> None:
     schema, _ = load_schema()
 
     for example, key, value in (
-        (
-            "periodic2_unified_linear_response.toml",
-            "field_evolution_timescale",
-            1.0,
-        ),
         ("periodic2_kinetic_outer.toml", "outer_orbit_dt", 1.0e-9),
         ("periodic2_zhao_transient_outer.toml", "outer_orbit_max_steps", 100),
-        ("periodic2_unified_explicit_orbit.toml", "outer_update_stride", 1),
+        ("periodic2_kinetic_outer.toml", "outer_orbit_energy_tolerance", 1.0e-4),
         ("periodic2_zhao_transient_outer.toml", "outer_update_stride", 1),
     ):
         authoring = load_toml_file(ROOT / "examples" / example)
@@ -267,26 +256,13 @@ def test_schema_enforces_facade_control_ranges() -> None:
     schema, _ = load_schema()
 
     for section, key, value in (
-        ("field", "unified_grid_points", 16),
-        ("field", "accessible_fraction_tolerance", 0.0),
-        ("field", "max_linearity_ratio", 0.0),
         ("field", "max_gap_ratio", 0.0),
         ("field", "max_local_charge_ratio", 0.0),
         ("particles", "outer_update_stride", 0),
         ("particles", "field_evolution_timescale", -1.0),
         ("particles", "max_frozen_field_ratio", 0.0),
     ):
-        example = (
-            "periodic2_unified_explicit_orbit.toml"
-            if key
-            in {
-                "unified_grid_points",
-                "accessible_fraction_tolerance",
-                "max_linearity_ratio",
-            }
-            else "periodic2_kinetic_outer.toml"
-        )
-        authoring = load_toml_file(ROOT / "examples" / example)
+        authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
         authoring["external_boundary"][section][key] = value
         assert schema_errors(authoring, schema)
 
@@ -340,9 +316,7 @@ def test_schema_enforces_facade_zhao_closure_and_zero_source_exception() -> None
 
 def test_schema_rejects_removed_legacy_sheath_vocabulary() -> None:
     schema, _ = load_schema()
-    authoring = load_toml_file(
-        ROOT / "examples/periodic2_unified_explicit_orbit.toml"
-    )
+    authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
     authoring["external_boundary"]["particles"]["inflow_model"] = "legacy_sheath"
 
     assert schema_errors(authoring, schema)

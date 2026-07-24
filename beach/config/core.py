@@ -36,7 +36,7 @@ _EXTERNAL_BOUNDARY_SIM_SELECTORS = (
     "open_boundary_model",
 )
 _EXTERNAL_BOUNDARY_FIELD_MODELS = frozenset(
-    {"none", "kinetic_1d", "unified_linear_response"}
+    {"none", "kinetic_1d"}
 )
 _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS = frozenset(
     {"model", "debye_length", "thermal_voltage"}
@@ -49,20 +49,12 @@ _EXTERNAL_BOUNDARY_KINETIC_FIELD_KEYS = frozenset(
         "photoelectron_density_model",
     }
 )
-_EXTERNAL_BOUNDARY_UNIFIED_FIELD_KEYS = frozenset(
-    {"unified_grid_points", "accessible_fraction_tolerance"}
-)
 _EXTERNAL_BOUNDARY_FIELD_KEYS_BY_MODEL = {
     "none": frozenset({"model"}),
     "kinetic_1d": (
         _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS
         | {"max_gap_ratio", "max_local_charge_ratio"}
         | _EXTERNAL_BOUNDARY_KINETIC_FIELD_KEYS
-    ),
-    "unified_linear_response": (
-        _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS
-        | {"max_linearity_ratio"}
-        | _EXTERNAL_BOUNDARY_UNIFIED_FIELD_KEYS
     ),
 }
 _EXTERNAL_BOUNDARY_FIELD_KEYS = frozenset().union(
@@ -74,22 +66,12 @@ _EXTERNAL_BOUNDARY_STEADY_START_KEYS = frozenset(
 _EXTERNAL_BOUNDARY_TRACKED_PARTICLE_KEYS = frozenset(
     {"field_evolution_timescale", "max_frozen_field_ratio"}
 )
-_EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS = frozenset(
-    {
-        "outer_orbit_dt",
-        "outer_orbit_max_steps",
-        "outer_orbit_energy_tolerance",
-    }
-)
 _EXTERNAL_BOUNDARY_COUPLING_KEYS = (
     "steady_start_mode",
     "steady_start_mesh_id",
     "outer_update_stride",
     "field_evolution_timescale",
     "max_frozen_field_ratio",
-    "outer_orbit_dt",
-    "outer_orbit_max_steps",
-    "outer_orbit_energy_tolerance",
 )
 _EXTERNAL_BOUNDARY_PARTICLE_KEYS = frozenset(
     {
@@ -103,6 +85,33 @@ _EXTERNAL_BOUNDARY_PARTICLE_MODES = frozenset(
 )
 _EXTERNAL_BOUNDARY_INFLOW_MODELS = frozenset(
     {"auto", "source_vdf", "infinity_barrier"}
+)
+_RUNTIME_OUTER_PLASMA_KEYS = frozenset(
+    {
+        "model",
+        "kinetic_closure",
+        "zhao_branch",
+        "photoelectron_source_scale",
+        "photoelectron_density_model",
+        "return_model",
+        "interface_z",
+        "debye_length",
+        "thermal_voltage",
+        "max_gap_ratio",
+        "max_local_charge_ratio",
+    }
+)
+_RUNTIME_COUPLING_KEYS = frozenset(
+    {
+        "update_mode",
+        "particle_transfer_mode",
+        "steady_start_mode",
+        "steady_start_mesh_id",
+        "outer_update_stride",
+        "field_evolution_timescale",
+        "max_frozen_field_ratio",
+        "outer_queue_enabled",
+    }
 )
 _REMOVED_SIM_KEYS = frozenset(
     {"sheath_injection_model", "sheath_reference_coordinate"}
@@ -317,7 +326,7 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
     ):
         raise ConfigError(
             "high-level config error: external_boundary.field.model must be "
-            '"none", "kinetic_1d", or "unified_linear_response".'
+            '"none" or "kinetic_1d".'
         )
     particle_mode = particles.get("mode")
     if (
@@ -382,10 +391,6 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
             "kinetic_1d": (
                 "kinetic_1d_profile_return",
                 "electrostatic_1d_instant_return",
-            ),
-            "unified_linear_response": (
-                "electrostatic_3d_explicit_orbit",
-                "electrostatic_3d_explicit_orbit",
             ),
         }
         contract = transfer_contracts.get(field_model)
@@ -502,8 +507,6 @@ def _validate_external_boundary_facade_controls(
         )
 
     for key in (
-        "accessible_fraction_tolerance",
-        "max_linearity_ratio",
         "max_gap_ratio",
         "max_local_charge_ratio",
     ):
@@ -514,29 +517,14 @@ def _validate_external_boundary_facade_controls(
             minimum=0.0,
             exclusive=True,
         )
-    for key, minimum in (("unified_grid_points", 17),):
-        _validate_external_boundary_numeric_option(
-            field,
-            key=key,
-            path=f"external_boundary.field.{key}",
-            minimum=minimum,
-            integer=True,
-        )
-
     inapplicable_particle_keys: set[str] = set()
     if particle_mode == "local_source":
         inapplicable_particle_keys.update(
             _EXTERNAL_BOUNDARY_TRACKED_PARTICLE_KEYS
-            | _EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS
             | _EXTERNAL_BOUNDARY_STEADY_START_KEYS
         )
     elif particle_mode == "zhao_queue":
-        inapplicable_particle_keys.update(
-            _EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS
-            | _EXTERNAL_BOUNDARY_STEADY_START_KEYS
-        )
-    elif field_model != "unified_linear_response":
-        inapplicable_particle_keys.update(_EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS)
+        inapplicable_particle_keys.update(_EXTERNAL_BOUNDARY_STEADY_START_KEYS)
     if "outer_update_stride" in particles and (
         field_model != "kinetic_1d" or particle_mode == "zhao_queue"
     ):
@@ -560,7 +548,6 @@ def _validate_external_boundary_facade_controls(
     for key, minimum in (
         ("steady_start_mesh_id", 1),
         ("outer_update_stride", 1),
-        ("outer_orbit_max_steps", 1),
     ):
         _validate_external_boundary_numeric_option(
             particles,
@@ -572,8 +559,6 @@ def _validate_external_boundary_facade_controls(
     for key, minimum, exclusive in (
         ("field_evolution_timescale", 0.0, False),
         ("max_frozen_field_ratio", 0.0, True),
-        ("outer_orbit_dt", 0.0, False),
-        ("outer_orbit_energy_tolerance", 0.0, True),
     ):
         _validate_external_boundary_numeric_option(
             particles,
@@ -1289,6 +1274,11 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             + "."
         )
     if isinstance(outer_plasma, Mapping):
+        if "photoelectron_closure" in outer_plasma:
+            raise ConfigValidationError(
+                "BEACH constraint error: outer_plasma.photoelectron_closure was removed; "
+                "use photoelectron_density_model."
+            )
         removed_outer_keys = sorted(
             set(outer_plasma) & _REMOVED_OUTER_PLASMA_KEYS
         )
@@ -1296,6 +1286,21 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             raise ConfigValidationError(
                 "BEACH constraint error: removed outer_plasma key(s): "
                 + ", ".join(removed_outer_keys)
+                + "."
+            )
+        unknown_outer_keys = sorted(set(outer_plasma) - _RUNTIME_OUTER_PLASMA_KEYS)
+        if unknown_outer_keys:
+            raise ConfigValidationError(
+                "BEACH constraint error: unsupported outer_plasma key(s): "
+                + ", ".join(unknown_outer_keys)
+                + "."
+            )
+    if isinstance(coupling, Mapping):
+        unknown_coupling_keys = sorted(set(coupling) - _RUNTIME_COUPLING_KEYS)
+        if unknown_coupling_keys:
+            raise ConfigValidationError(
+                "BEACH constraint error: unsupported coupling key(s): "
+                + ", ".join(unknown_coupling_keys)
                 + "."
             )
     _validate_runtime_external_e_field(sim)
@@ -1411,11 +1416,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
 
     photoelectron_density_model = "none"
     if isinstance(outer_plasma, Mapping):
-        if "photoelectron_closure" in outer_plasma:
-            raise ConfigValidationError(
-                "BEACH constraint error: outer_plasma.photoelectron_closure was removed; "
-                "use photoelectron_density_model."
-            )
         photoelectron_density_model = (
             str(outer_plasma.get("photoelectron_density_model", "none")).strip().lower()
         )
@@ -1502,7 +1502,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     if outer_model not in {
         "none",
         "kinetic_1d",
-        "unified_linear_response",
     }:
         raise ConfigValidationError(
             f"BEACH constraint error: unsupported outer_plasma.model={outer_model!r}."
@@ -1564,12 +1563,10 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     valid_return_models = {
         "none",
         "kinetic_1d_profile_return",
-        "electrostatic_3d_explicit_orbit",
     }
     valid_transfer_modes = {
         "none",
         "electrostatic_1d_instant_return",
-        "electrostatic_3d_explicit_orbit",
     }
     if return_model not in valid_return_models:
         raise ConfigValidationError(
@@ -1620,14 +1617,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                     f"BEACH constraint error: coupling.{key} must be finite and > 0 "
                     "for electrostatic 1D transfer."
                 )
-    elif (
-        outer_model != "unified_linear_response"
-        or return_model != "electrostatic_3d_explicit_orbit"
-    ):
-        raise ConfigValidationError(
-            "BEACH constraint error: explicit 3D transfer requires "
-            "unified_linear_response and its matching return model."
-        )
     if outer_queue_enabled:
         if float(photoelectron_source_scale) <= 0.0:
             raise ConfigValidationError(
@@ -1698,59 +1687,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "or kinetic_1d_profile_return with electrostatic_1d_instant_return transfer."
             )
 
-    explicit_orbit = "electrostatic_3d_explicit_orbit"
-    if return_model == explicit_orbit or transfer_mode == explicit_orbit:
-        if (
-            not isinstance(outer_plasma, Mapping)
-            or not isinstance(coupling, Mapping)
-            or outer_plasma.get("model") != "unified_linear_response"
-            or return_model != explicit_orbit
-            or transfer_mode != explicit_orbit
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: electrostatic_3d_explicit_orbit requires matching "
-                "unified return and transfer models."
-            )
-        explicit_orbit_defaults = {
-            "max_frozen_field_ratio": 0.1,
-            "outer_orbit_energy_tolerance": 1.0e-4,
-        }
-        for key in (
-            "field_evolution_timescale",
-            "max_frozen_field_ratio",
-            "outer_orbit_dt",
-            "outer_orbit_energy_tolerance",
-        ):
-            value = coupling.get(key, explicit_orbit_defaults.get(key))
-            if (
-                not isinstance(value, (int, float))
-                or isinstance(value, bool)
-                or not math.isfinite(value)
-                or value <= 0
-            ):
-                raise ConfigValidationError(
-                    f"BEACH constraint error: coupling.{key} must be finite and > 0 "
-                    "for electrostatic_3d_explicit_orbit."
-                )
-        max_steps = coupling.get("outer_orbit_max_steps", 100000)
-        if (
-            not isinstance(max_steps, int)
-            or isinstance(max_steps, bool)
-            or max_steps < 1
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: coupling.outer_orbit_max_steps must be >= 1."
-            )
-        b0 = _maybe_vec3(sim.get("b0"), name="sim.b0")
-        if b0 is not None and any(value != 0.0 for value in b0):
-            raise ConfigValidationError(
-                "BEACH constraint error: electrostatic_3d_explicit_orbit requires sim.b0=0."
-            )
-        if coupling.get("outer_queue_enabled", False) is not False:
-            raise ConfigValidationError(
-                "BEACH constraint error: persistent outer queue is not available."
-            )
-
     uses_face_sources = False
     has_volume_seed = False
     total_npcls_per_step = 0
@@ -1770,10 +1706,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "was removed; track emitted photoelectrons and configure the open-boundary "
                 "or outer-plasma return model instead."
             )
-        tracked_outer_transfer = transfer_mode in {
-            "electrostatic_1d_instant_return",
-            "electrostatic_3d_explicit_orbit",
-        }
+        tracked_outer_transfer = transfer_mode == "electrostatic_1d_instant_return"
         if tracked_outer_transfer and source_mode == "photo_raycast":
             if species_table.get("deposit_opposite_charge_on_emit") is not True:
                 raise ConfigValidationError(

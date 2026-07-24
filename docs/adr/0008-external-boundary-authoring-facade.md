@@ -7,6 +7,8 @@
 > `linear_debye`、静的 sheath 流入補正、専用 histogram の公開・互換設定は
 > [ADR 0009](0009-remove-linear-debye-and-legacy-sheath.md)で削除した。3責務の facade と
 > field / particle mode から runtime contract を導出する判断は引き続き有効である。
+> `unified_linear_response` と明示的 3D outer orbit は
+> [ADR 0010](0010-remove-unified-linear-response.md)で削除したため、以下の該当箇所は履歴上の記録である。
 
 ## Context
 

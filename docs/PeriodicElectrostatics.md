@@ -124,8 +124,7 @@ $$
 物理defaultではありません。
 
 outer modelを接続すると、surface zero modeのfield/interface条件を使ってplasma profileを作ります。標準のsplit kinetic
-構成は[kinetic 1D外部プラズマ](KineticOuterPlasma.html)で説明します。split windowを置けないrough surfaceに限定した
-高度な線形modelは[粗面線形screening](UnifiedLinearResponse.html)で説明します。
+構成は[kinetic 1D外部プラズマ](KineticOuterPlasma.html)で説明します。
 
 ## 粒子衝突では軌道が届く周期画像を調べる
 

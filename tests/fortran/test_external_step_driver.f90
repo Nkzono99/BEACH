@@ -81,7 +81,7 @@ program test_external_step_driver
   call assert_true(initial_result%interface_crossing%has_crossing, 'initial z-high crossing is missing')
 
   call continue_external_particle_step( &
-    contract, snapshot, mesh, sim, outer, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
+    contract, snapshot, mesh, sim, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
     initial_result, final_result, trace &
     )
   call assert_equal_i32(trace%count, 2_i32, 'remainder must produce exactly two external returns')
@@ -108,7 +108,7 @@ program test_external_step_driver
     )
   call assert_true(initial_result%interface_crossing%has_crossing, 'cap fixture initial crossing is missing')
   call continue_external_particle_step( &
-    contract, snapshot, mesh, sim, outer, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
+    contract, snapshot, mesh, sim, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
     initial_result, final_result, trace &
     )
   call assert_equal_i32(trace%count, 8_i32, 'external cap must retain exactly eight attempted outcomes')

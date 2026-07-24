@@ -5,7 +5,7 @@ title: periodic2 zero modeと外部プラズマ
 この文書は、2軸周期・1軸開放の静電場を、横方向に変化する`k!=0`成分、
 平面平均された`k=0`成分、外部プラズマへどう分けて計算するかを説明します。
 FMM自体の展開式は[FMMCore](FMMCore.md)、入力の選び方は
-[FieldSolvers](FieldSolvers.md)、物理モデルの適用範囲はADR 0001とADR 0002を参照してください。
+[FieldSolvers](FieldSolvers.md)、物理モデルの適用範囲はADR 0001を参照してください。
 
 ## 1. 最初に押さえる全体像
 
@@ -16,7 +16,7 @@ FMM自体の展開式は[FMMCore](FMMCore.md)、入力の選び方は
 | --- | --- | --- |
 | `k!=0` | x/y方向の局所的な電荷むら | FMM有限画像和 + `cached_kneq0`遠方operator |
 | surface `k=0` | 各高さより下にある総電荷が作る平面平均場 | triangle-height累積多項式 |
-| outer profile | interfaceから無限遠までのplasma応答 | `kinetic_1d`または`unified_linear_response` |
+| outer profile | interfaceから無限遠までのplasma応答 | `kinetic_1d` |
 
 `cached_kneq0`は全電場を返すsolverではありません。意図的にsurface `k=0`を除いた
 非零モードだけを返し、`electrostatic_snapshot`が物理的なzero modeを一度だけ合成します。
@@ -167,10 +167,9 @@ $$
 
 ## 4. outer-plasma modelとの接続
 
-### 4.1 split modelとunified modelは違う
+### 4.1 split modelの接続
 
-自己整合な外部シースの標準はsplit `kinetic_1d`です。`unified_linear_response`はその高精度版ではなく、
-split windowを置けず、かつ線形応答で十分なrough surfaceに限る高度なscreening modelです。
+自己整合な外部シースには split `kinetic_1d` を使います。
 
 split modelでは、局所領域と外部領域はinterfaceで接続されます。
 
@@ -182,10 +181,6 @@ split modelでは、局所領域と外部領域はinterfaceで接続されます
 したがってouter profileを局所領域の全点へ加算しません。interfaceで電位と法線電場を一致させ、
 外部へ出た粒子だけが同じprofileをreturn/escape判定に使います。
 
-`unified_linear_response`は別経路です。surface projectionからfar boundaryまで一つのzero-mode
-Poisson gridを解き、nonzero modeもplasma tailへ連続接続します。particle interfaceはfield境界ではなく
-ownership面だけです。
-
 流入粒子の加減速と外向き粒子のturning/returnは
 [外部シースとreservoir粒子境界](sheath_reservoir_boundary.md)で説明します。
 
@@ -196,11 +191,9 @@ ownership面だけです。
 | `external_boundary.field.model` | 位置付け | zero-mode処理 | 主な適用範囲 |
 | --- | --- | --- | --- |
 | `none` | 外部シースなし | surface `k=0`だけをboundary closureで評価 | 外部plasmaを置かない |
-| `kinetic_1d` | **標準・推奨** | VDF closureを含む非線形1D Poisson solve | 単調・無衝突・非磁化sheath |
-| `unified_linear_response` | 高度・限定用途 | rough surfaceとplasma sourceを同じ1D Poisson gridへ投入 | 線形応答でsplit windowがない場合 |
+| `kinetic_1d` | 自己整合な外部シース | VDF closureを含む非線形1D Poisson solve | 単調・無衝突・非磁化sheath |
 
-`cached_kneq0`のproduction経路が受理するouter modelは現在`none`、`kinetic_1d`、
-`unified_linear_response`です。
+`cached_kneq0`のproduction経路が受理するouter modelは現在`none`と`kinetic_1d`です。
 
 ### 4.3 `kinetic_1d`
 
@@ -222,20 +215,6 @@ backtracking、pseudo-transient、interface-field continuationは収束経路だ
 元のPoisson residual、単調分枝、ion accessibility、Bohm条件をすべて要求します。MPIではrootが解き、
 statusとprofileをbroadcastします。失敗時に別sheathや前batch解へfallbackしません。
 
-### 4.4 `unified_linear_response`
-
-高さごとのplasma accessible fractionを$f_{\mathrm{access}}(z)$、
-$\kappa=1/\lambda_D$とすると、surfaceの平面平均sourceと
-
-$$
-\rho_{\mathrm{plasma}}(z)=-\epsilon_0f_{\mathrm{access}}(z)\kappa^2\phi(z)
-$$
-
-を同じ非一様1D gridへ入れます。bottom fieldとfar Robin条件を含むtridiagonal Poisson系を解きます。
-非零モードはresponse startより上で$\alpha=\sqrt{k^2+\kappa^2}$のtailへ接続し、電位、法線場、
-接線場を連続にします。linearity、height-field geometry、accessible-area収束、mode truncationの
-いずれかがcontract外なら停止します。
-
 ## 5. batchごとの処理順
 
 | 順序 | 処理 |
@@ -252,7 +231,7 @@ outer profileを更新せず、batch commit後にまとめて更新します。
 ## 6. 診断と停止条件
 
 最低限確認する量は、`interface_potential`、`interface_field`、`gauss_residual`、
-`outer_integrated_charge`、nonlinear residual、linearity ratio、cache fingerprint/hitです。
+`outer_integrated_charge`、nonlinear residual、cache fingerprint/hitです。
 
 Gauss診断では上側へ出るsurface電束を
 
@@ -261,7 +240,7 @@ Q_{\mathrm{upper\ flux}}=Q+\epsilon_0AE_{\mathrm{bottom}}
 $$
 
 とし、outer integrated chargeとの和を残差にします。数値収束だけでなく、Bohm条件、単調性、
-線形性など物理的な適用条件を満たさない場合もfail closedです。
+speciesや境界条件など物理的な適用条件を満たさない場合もfail closedです。
 
 ## 7. 実装対応
 
@@ -273,4 +252,3 @@ $$
 | zero-mode evaluation | `periodic_zero_mode/bem_periodic_zero_mode_eval.f90` |
 | field ownership/composition | `bem_electrostatic_snapshot.f90` |
 | kinetic outer model | `outer_plasma/bem_outer_plasma_kinetic.f90` |
-| unified linear model | `outer_plasma/bem_outer_plasma_unified.f90` |

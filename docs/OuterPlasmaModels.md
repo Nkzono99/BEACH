@@ -46,7 +46,6 @@ field_evolution_timescale = 1.0
 | 標準の自己整合 1D シース | `kinetic_1d` + `absorbing_maxwellian` | `same_batch` | `auto` |
 | 蓄積電荷で閉じる Zhao 定常・準定常シース | `kinetic_1d` + `zhao_charge_driven` | `same_batch` | `auto` |
 | Zhao の外部飛行遅延を含む過渡 | `kinetic_1d` + `zhao_charge_driven` | `zhao_queue` | `auto` |
-| rough surface の高度な線形 3D 応答 | `unified_linear_response` | `local_source` / `same_batch` | local に選択 |
 
 通常流出に scalar barrier が必要な場合だけ次を追加します。
 
@@ -57,18 +56,14 @@ model = "potential_barrier"
 
 ## 外部場を選ぶ
 
-`external_boundary.field.model` は外部 plasma 応答の場だけを選びます。kinetic は
-interface 外を解き、unified は rough surface から far 領域までを一体で解きます。粒子を外部領域へ渡すかどうかは
+`external_boundary.field.model` は外部 plasma 応答の場だけを選びます。`kinetic_1d` は
+interface 外を解きます。粒子を外部領域へ渡すかどうかは
 `external_boundary.particles.mode` で別に選びます。
 
 | `field.model` | 位置付け | 主な用途 |
 | --- | --- | --- |
 | `none` | 外部場なし | 通常 open、設定済み source VDF、scalar barrier |
-| `kinetic_1d` | **標準・推奨**の自己整合 1D シース | reservoir VDF、平均シース、流入、return を同じ profile で閉じる |
-| `unified_linear_response` | 高度・限定用途の 3D 線形応答 | roughness と plasma 応答に split window がない場合 |
-
-`unified_linear_response` は `kinetic_1d` の高精度版ではありません。species 別 VDF や浮遊電流を解かず、
-rough surface から far 領域までの線形 screening を構成します。
+| `kinetic_1d` | 対応する自己整合 1D シース | reservoir VDF、平均シース、流入、return を同じ profile で閉じる |
 
 field-only も有効な構成です。
 
@@ -89,18 +84,14 @@ inflow_model = "source_vdf"
 | `particles.mode` | z-high を出た粒子 | 用途 |
 | --- | --- | --- |
 | `local_source` | `ordinary_open` で処理し、外部軌道を保持しない | 外部場なし、field-only、scalar 流入 |
-| `same_batch` | field model に対応する 1D return または 3D orbit を計算 | 定常・準定常の tracked return |
+| `same_batch` | kinetic 1D profile による return を計算 | 定常・準定常の tracked return |
 | `zhao_queue` | Zhao 光電子の return/escape event を due batch まで保持 | 強 UV 立上がりなどの遅延電流 |
 
 `particles.mode` が選ぶのは z-high 粒子の外部輸送だけです。reservoir からの流入 VDF は
 後述の `inflow_model` で独立に選びます。
 
-`same_batch` の具体的な計算法は field から一意に決まります。
-
-| `field.model` | `particles.mode="same_batch"` の解決結果 |
-| --- | --- |
-| `kinetic_1d` | 離散 kinetic 1D profile |
-| `unified_linear_response` | 明示的 3D outer orbit |
+`same_batch` は `field.model="kinetic_1d"` と組み合わせ、離散 kinetic 1D profile 上で
+return / escape を判定します。
 
 `zhao_queue` は汎用的な遅延輸送ではありません。`kinetic_1d` と
 `kinetic_closure="zhao_charge_driven"` の組合せだけで使用できます。
@@ -137,7 +128,6 @@ update stride は queue が内部で 1 に固定するため追加しません�
 
 `kinetic_1d` の `same_batch` と `zhao_queue` では、同じ 1D profile が流入を所有します。
 この場合、`inflow_model` は `auto` だけを許し、`infinity_barrier` との二重補正を拒否します。
-3D orbit は流入を所有しないため、`unified_linear_response + same_batch` では local inflow を別に選べます。
 
 ## 通常 open 面を選ぶ
 
@@ -163,7 +153,7 @@ BEACH は矛盾する値を補正したり、別モデルへ silent fallback し
 - 対応しない磁場、species、periodic2、zero-mode、時間スケール
 - `[external_boundary]` と旧 `[outer_plasma]` / `[coupling]` の混在
 
-物理入力や数値 guard は自動推定しません。species、Debye 長、温度、field timescale、orbit 刻み、
+物理入力や数値 guard は自動推定しません。species、Debye 長、温度、field timescale、
 periodic2 backend などは使用する model に応じて明示し、矛盾時はエラーにします。
 `zhao_queue` の update stride は内部で 1 に固定するため、公開入力へ書きません。
 
@@ -175,5 +165,4 @@ periodic2 backend などは使用する model に応じて明示し、矛盾時�
 旧 `[sim]` / `[outer_plasma]` / `[coupling]` からの移行は
 [外部境界設定の移行](BoundaryConfigurationMigration.html)を使ってください。個々のモデルの物理と妥当性確認は
 [外部シース: kinetic 1D](KineticOuterPlasma.html)、
-[高度な粗面線形 screening](UnifiedLinearResponse.html)、
 [open 境界・escape・return](ParticleEscapeReturn.html)に分けています。

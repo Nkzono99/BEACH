@@ -127,13 +127,11 @@ def test_particle_escape_return_starts_from_boundary_ownership() -> None:
             "## 1. `escape`: open面で粒子を除去する",
             "## 2. `potential_barrier`: scalar障壁で反射を判定する",
             "## 3. `kinetic_1d`: 離散sheath profileでreturnを求める",
-            "## 4. `unified_linear_response`: 外部3D軌道を積分する",
         ),
         "ParticleEscapeReturn.en.md": (
             "## 1. `escape`: remove a particle at an open face",
             "## 2. `potential_barrier`: decide reflection at a scalar barrier",
             "## 3. `kinetic_1d`: obtain return from a discrete sheath profile",
-            "## 4. `unified_linear_response`: integrate an external 3-D orbit",
         ),
     }
 
@@ -321,6 +319,25 @@ def test_generated_pages_show_development_status_freshness_and_edit_source() -> 
             assert "開発版ドキュメント" in content
 
 
+def test_generated_pages_rewrite_adr_links_to_github() -> None:
+    module = _load_sync_module()
+
+    for page in module.PAGES:
+        _, content = module.render_page(page)
+        assert "](adr/" not in content, page.source
+
+    migration = next(
+        page
+        for page in module.PAGES
+        if page.locale == "root" and page.slug == "boundary-configuration-migration"
+    )
+    _, content = module.render_page(migration)
+    assert (
+        f"{module.GITHUB_BLOB_ROOT}/docs/adr/0010-remove-unified-linear-response.md"
+        in content
+    )
+
+
 def test_configuration_recipes_prioritize_meshes_and_particle_sources() -> None:
     for name in ("ConfigurationRecipes.md", "ConfigurationRecipes.en.md"):
         text = _read_doc(name)
@@ -393,8 +410,6 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
             "PeriodicElectrostatics.en.md",
             "KineticOuterPlasma.md",
             "KineticOuterPlasma.en.md",
-            "UnifiedLinearResponse.md",
-            "UnifiedLinearResponse.en.md",
             "ReservoirInjection.md",
             "ReservoirInjection.en.md",
             "ParticleEscapeReturn.md",
@@ -460,10 +475,6 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
             "## Zhao populationを蓄積電荷へ接続する",
             "## continuation付きNewton法で物理解を追う",
         ),
-        "UnifiedLinearResponse.md": (
-            "## 表面電荷とplasma応答からzero modeを解く",
-            "## 真空nonzero modeをscreened tailへ接続する",
-        ),
         "ReservoirInjection.md": (
             "## Maxwell 分布を流入流束で重み付けする",
             "## 1 つの電位差で到達条件と注入面速度を決める",
@@ -491,10 +502,6 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
             "## Map VDFs to potential-dependent charge density",
             "## Connect Zhao populations to accumulated charge",
             "## Follow the physical branch with continued Newton solves",
-        ),
-        "UnifiedLinearResponse.en.md": (
-            "## Solve the zero mode from surface charge and plasma response",
-            "## Connect vacuum nonzero modes to a screened tail",
         ),
         "ReservoirInjection.en.md": (
             "## Weight a Maxwell distribution by inflow flux",

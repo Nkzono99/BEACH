@@ -14,7 +14,7 @@
 
 | 責務 | 選択肢 |
 | --- | --- |
-| `field.model` | `none` / `kinetic_1d` / `unified_linear_response` |
+| `field.model` | `none` / `kinetic_1d` |
 | `particles.mode` | `local_source` / `same_batch` / `zhao_queue` |
 | `particles.inflow_model` | `auto` / `source_vdf` / `infinity_barrier` |
 | `ordinary_open.model` | `escape` / `potential_barrier` |
@@ -30,10 +30,8 @@
 | 標準の自己整合 1D sheath | `kinetic_1d + absorbing_maxwellian` | `same_batch` | `auto` |
 | 蓄積電荷で閉じる Zhao sheath | `kinetic_1d + zhao_charge_driven` | `same_batch` | `auto` |
 | Zhao outer flight を後続 batch へ遅延 | `kinetic_1d + zhao_charge_driven` | `zhao_queue` | `auto` |
-| rough surface を含む高度な線形 3D 応答 | `unified_linear_response` | `local_source` / `same_batch` | `source_vdf` / `infinity_barrier` |
 
-標準の外部シースは `kinetic_1d` です。`unified_linear_response` は species VDF や電流 balance を解かず、
-roughness と plasma response が同じ領域に重なる場合の線形 screening を扱います。
+自己整合な外部シースには `kinetic_1d` を使います。
 
 ## 3. `source_vdf` と `infinity_barrier`
 

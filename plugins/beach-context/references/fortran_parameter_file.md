@@ -293,8 +293,8 @@ mode = "same_batch"
 field_evolution_timescale = 1.0
 ```
 
-- `field` は外部 plasma 応答の電位・電場モデルを選ぶ。kinetic は
-  z-high interface 外、unified は rough surface から far 領域までを扱う。
+- `field` は外部 plasma 応答の電位・電場モデルを選ぶ。`kinetic_1d` は
+  z-high interface 外を扱う。
 - `particles` は z-high を通過する粒子の扱いと、流入 VDF の所有者を選ぶ。
 - `ordinary_open` は outer model が所有しない open 面だけを扱う。
 
@@ -306,16 +306,13 @@ field_evolution_timescale = 1.0
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `model` | string | 必須 | `none` / `kinetic_1d` / `unified_linear_response` |
+| `model` | string | 必須 | `none` / `kinetic_1d` |
 | `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | `zhao_charge_driven` のみ。`auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | float | `1` | `zhao_charge_driven` の解析光電子 source 倍率。UV なしは `0` |
 | `photoelectron_density_model` | string | `none` | `kinetic_1d + absorbing_maxwellian` の任意平均密度。`none` / `kinetic_mean` |
-| `debye_length` | float | active model で必須 | `kinetic_1d` / `unified_linear_response` の長さ scale [m] |
-| `thermal_voltage` | float | active model で必須 | `kinetic_1d` / `unified_linear_response` の電位 scale [V] |
-| `unified_grid_points` | int | `129` | `unified_linear_response` の zero-mode Poisson grid 点数 |
-| `accessible_fraction_tolerance` | float | `0.1` | `unified_linear_response` の rough-surface accessible fraction 収束許容値 |
-| `max_linearity_ratio` | float | `0.25` | `unified_linear_response` の線形性診断上限 |
+| `debye_length` | float | active model で必須 | `kinetic_1d` の長さ scale [m] |
+| `thermal_voltage` | float | active model で必須 | `kinetic_1d` の電位 scale [V] |
 | `max_gap_ratio` | float | `5` | `kinetic_1d` の interface–mesh gap 診断上限 |
 | `max_local_charge_ratio` | float | `50` | `kinetic_1d` の局所 plasma 電荷推定比上限 |
 
@@ -331,7 +328,6 @@ field_evolution_timescale = 1.0
 | `none` | `model` のみ | 追加不可 |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`、`photoelectron_density_model`、gap / local-charge 上限 |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`、必要な `sim.sheath_*` 物理値 | source scale / branch、gap / local-charge 上限 |
-| `unified_linear_response` | `debye_length`, `thermal_voltage` | grid、accessible fraction、linearity 上限 |
 
 `kinetic_closure="zhao_charge_driven"` でも `debye_length` と `thermal_voltage` は schema 上必須ですが、
 Zhao root/profile の物理 scale ではありません。光電子ありでは $T_{pe}$ と基準密度、光電子なしでは
@@ -352,9 +348,6 @@ ambient $T_e$ と $n_\infty$ から profile scale を導出します。
 | `outer_update_stride` | int | `1` | `local_source` / `same_batch` の `kinetic_1d` だけで指定できる更新間隔 [batch] |
 | `field_evolution_timescale` | float | `0` | `same_batch` / `zhao_queue` の frozen-field 診断時間 scale [s] |
 | `max_frozen_field_ratio` | float | `0.1` | `same_batch` / `zhao_queue` の frozen-field 適用性比上限 |
-| `outer_orbit_dt` | float | `0` | unified 3D `same_batch` の外部軌道刻み。正値を明示 |
-| `outer_orbit_max_steps` | int | `100000` | unified 3D `same_batch` の外部軌道最大 step 数 |
-| `outer_orbit_energy_tolerance` | float | `1e-4` | unified 3D `same_batch` の相対 energy 誤差上限 |
 
 `mode` は z-high を出た粒子を外部領域へ移送するか、その結果をいつ反映するかだけを選びます。
 reservoir 流入の分布や補正は `inflow_model` で独立に選びます。
@@ -362,26 +355,24 @@ reservoir 流入の分布や補正は `inflow_model` で独立に選びます。
 | `mode` | 意味 | 対応する field |
 |---|---|---|
 | `local_source` | 外部軌道へ移送せず、z-high 通過を `ordinary_open` で処理 | すべて |
-| `same_batch` | z-high 通過粒子を同じ batch 内で return / escape 判定 | `kinetic_1d` / `unified_linear_response` |
+| `same_batch` | z-high 通過粒子を同じ batch 内で return / escape 判定 | `kinetic_1d` |
 | `zhao_queue` | Zhao reservoir queue に保持し、後続 batch で再注入 | `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"` |
 
 mode ごとの追加必須値は次のとおりです。表にない内部 return / transfer ID は書きません。
 
 | `particles.mode` と field | 追加必須・制約 |
 |---|---|
-| `local_source` + `none` / unified | transport / time / orbit key は追加しない |
+| `local_source` + `none` | transport / time key は追加しない |
 | `local_source` + kinetic | 必要なら `outer_update_stride` だけを追加 |
 | `same_batch` + kinetic | `field_evolution_timescale > 0`、`inflow_model="auto"`。必要なら update stride / time guard |
-| `same_batch` + unified | `field_evolution_timescale > 0`、`outer_orbit_dt > 0`。必要なら time / orbit guard |
 | `zhao_queue` | `sim.batch_duration > 0`、`field_evolution_timescale > 0`、正の photoelectron source。update stride は内部で 1 に固定 |
 
-`steady_start_*` は Zhao `same_batch`、`outer_orbit_*` は unified `same_batch`、
-time guard は `same_batch` / `zhao_queue` にだけ書けます。mode に効果のない key はエラーです。
+`steady_start_*` は Zhao `same_batch`、time guard は `same_batch` / `zhao_queue` にだけ書けます。
+mode に効果のない key はエラーです。
 
 `inflow_model="auto"` は、tracked `kinetic_1d` では同じ1D profileへ
 流入を委ね、それ以外では `source_vdf` として解決します。この1D tracked構成では
-別の inflow correction を重ねられません。`unified_linear_response` は外部軌道を所有しますが
-流入 VDF は所有しないため、`source_vdf`または`infinity_barrier`を選べます。
+別の inflow correction を重ねられません。
 
 #### `[external_boundary.ordinary_open]`
 
@@ -427,20 +418,17 @@ facade では `interface_z` と `return_model` を自動導出します。旧 `[
 
 | キー | 既定値 | 意味 |
 |---|---:|---|
-| `model` | 必須 | `kinetic_1d` / `unified_linear_response` |
+| `model` | 必須 | `kinetic_1d` |
 | `interface_z` | 必須 | z 上側 interface。初期モデルでは box 上面 |
 | `debye_length` | 必須 | `absorbing_maxwellian` tailとsplit診断の長さscale。Zhao profileの物理scaleではない |
-| `thermal_voltage` | 必須 | 線形性とsplit診断の電位scale。Zhao profileの物理scaleではない |
-| `unified_grid_points` | `129` | unified zero-mode Poisson grid 点数（17 以上） |
-| `accessible_fraction_tolerance` | `0.1` | rough surface 高さ標本を各軸 2 倍にしたときの accessible fraction 最大差 |
-| `max_linearity_ratio` | `0.25` | `abs(phi_t-phi_inf)/thermal_voltage` 上限 |
+| `thermal_voltage` | 必須 | interfaceの非零モード電位・電場減衰診断に使う電位scale。Zhao profileの物理scaleではない |
 | `max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda` 上限 |
 | `max_local_charge_ratio` | `50` | 局所平均 plasma 電荷推定比上限 |
 | `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` の density/VDF closure。`absorbing_maxwellian` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure の branch。`auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | `1` | Zhao解析光電子sourceの独立倍率。UVなしは`0`。queue occupancyの$\eta$とは別物 |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は `kinetic_1d` へ平均光電子密度を追加 |
-| `return_model` | `none` | kinetic 1D profile return または unified 3D 明示軌道の ID |
+| `return_model` | `none` | kinetic 1D profile return の ID |
 
 #### 正規化後の `kinetic_1d` contract（標準・推奨）
 
@@ -553,33 +541,6 @@ $L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとし
 物理モデルの前提は
 [ADR 0001](adr/0001-kinetic-outer-plasma.md)と[ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md)にあります。
 
-#### 正規化後の `unified_linear_response` contract（高度・限定用途）
-
-`unified_linear_response`は`kinetic_1d`の上位互換ではありません。roughnessとplasma responseが同じ領域に重なり、
-split windowを置けず、線形性gateを満たす場合だけ、rough surfaceの線形screeningとして選びます。
-
-| 項目 | 仕様 |
-| --- | --- |
-| zero mode | 表面投影から遠方まで一つのPoisson grid |
-| rough surface | plasma-accessible areaと線形mean-plasma電荷を含む |
-| nonzero mode | 表面最高点直上から$\sqrt{k^2+\kappa^2}$ tailへ接続 |
-| `interface_z` | field切断面ではなく粒子ownership面 |
-| geometry/kernel | single-valued height fieldと`triangle_p0`が必須 |
-| photoelectron mean | `photoelectron_density_model="none"`のみ |
-| particle transfer | `none`または`electrostatic_3d_explicit_orbit` |
-| 3D orbit | `b0=0`、固定刻み、energy/frozen-field errorの上限 |
-| applicability | 線形性上限を超えたらfallbackせず停止 |
-
-数値・適用性の規則:
-
-- `unified_grid_points >= 17` が必要で、既定値は `129` です。
-- `accessible_fraction_tolerance` は、両周期軸の高さ標本を 2 倍にしたときの accessible fraction の最大差を制限します。
-- refinement 後の標本を solve に使い、許容差違反時は初期化で停止します。
-- production study では、報告する物理量について grid refinement を確認します。
-
-検証例は `examples/periodic2_unified_linear_response.toml`、明示粒子移送の例は
-`examples/periodic2_unified_explicit_orbit.toml`、詳細は `docs/adr/0002-unified-periodic-outer-domain.md` です。
-
 ### `[coupling]`: 互換・正規化後 runtime リファレンス
 
 > **新規設定用の API ではありません。** 新規ファイルでは `[external_boundary.particles]` を使ってください。
@@ -590,15 +551,12 @@ facade は `update_mode`、`particle_transfer_mode`、`outer_queue_enabled` を 
 | キー | 型 | 既定値 | 説明 |
 | --- | --- | ---: | --- |
 | `update_mode` | string | `"explicit"` | 現在は`explicit`のみ。outer profileを明示的な更新点で再計算 |
-| `particle_transfer_mode` | string | `"none"` | facade が導出する `none` / `electrostatic_1d_instant_return` / `electrostatic_3d_explicit_orbit` |
+| `particle_transfer_mode` | string | `"none"` | facade が導出する `none` / `electrostatic_1d_instant_return` |
 | `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`。新規実行を Zhao 零電流定常根と対応する平面電荷から開始 |
 | `steady_start_mesh_id` | int | `1` | `zhao_floating`で初期電荷を面積比で配る水平平面の`mesh_id` |
 | `outer_update_stride` | int | `1` | outer profile更新batch間隔 |
 | `field_evolution_timescale` | float | `0` | frozen-field比較時間 [s]。1D returnでは正値必須 |
 | `max_frozen_field_ratio` | float | `0.1` | instantでは`tau_outer`、queueでは`tau_outer`、次のpollまでの遅延、midpoint時刻誤差上限の合計を`field_evolution_timescale`で割った上限。queueの`batch_duration`にも適用 |
-| `outer_orbit_dt` | float | `0` | 3D outer orbit固定刻み [s]。3D modeでは正値必須 |
-| `outer_orbit_max_steps` | int | `100000` | 3D outer orbit step上限。到達時はdiscardせず停止 |
-| `outer_orbit_energy_tolerance` | float | `1e-4` | 3D outer orbit全エネルギー相対誤差上限 |
 | `outer_queue_enabled` | bool | `false` | 対応するZhao構成でouter flightをbatch間queueへ保存し、queued photoelectron columnで過渡closureを解く |
 
 facade が解決する return / transfer の runtime 対:
@@ -606,12 +564,11 @@ facade が解決する return / transfer の runtime 対:
 | `outer_plasma.model` | `outer_plasma.return_model` | `coupling.particle_transfer_mode` |
 | --- | --- | --- |
 | `kinetic_1d` | `kinetic_1d_profile_return` | `electrostatic_1d_instant_return` |
-| `unified_linear_response` | `electrostatic_3d_explicit_orbit` | `electrostatic_3d_explicit_orbit` |
 
 `kinetic_1d_profile_return`ではreturnとtransferの文字列は同一ではありません。1D transferを有効にした
 `kinetic_1d`は同じprofileで流入も所有するため、正規化後の
-`reservoir_potential_model`は`none`です。`kinetic_1d`と`unified_linear_response`の
-無限遠gaugeは内部で0に固定され、設定keyは受理しません。
+`reservoir_potential_model`は`none`です。`kinetic_1d`の無限遠gaugeは内部で0に固定され、
+設定keyは受理しません。
 
 定常 warm start:
 
@@ -661,7 +618,6 @@ seedから同じ定常観測量へ返るかを確認します。
   runtime の `outer_update_stride` を 1 に固定します。
   各eventでは`tau_outer`、次のbatch-start pollまでの遅延、midpoint crossing時刻誤差上限の合計に
   `max_frozen_field_ratio * field_evolution_timescale`の上限を課し、`batch_duration`にも同じ上限を要求します。
-- 3D explicit orbitのpersistent queueは未実装です。
 
 ### periodic2 と外部境界の組合せ制約
 
@@ -671,7 +627,6 @@ seedから同じ定常観測量へ返るかを確認します。
 | --- | --- | --- |
 | 1D kinetic instant return | `periodic2_kinetic_outer.toml` | z-high、`b0=0`、x/y periodic |
 | 強UV Zhao過渡queue | `periodic2_zhao_transient_outer.toml` | expected-failのflight/batch time-scale guard、stride 1、有限$10\lambda_{D,pe}$領域、rank-local checkpoint |
-| unified 3D orbit | `periodic2_unified_explicit_orbit.toml` | 全3D field、固定刻みouter orbit |
 
 periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要です。outer transferを使う構成では、
 その2軸をx/yとし、z-highをopen interfaceにします。同じ周期条件をfield、collision、`photo_raycast`に適用します。
@@ -1128,7 +1083,7 @@ z 軸方向の円柱です。
 | `charges.csv` | 最終要素電荷 |
 | `mesh_triangles.csv` | 要素 geometry。`mesh_id` 列を含む |
 | `mesh_sources.csv` | `mesh_id` ごとの元メッシュ種別、表面モデル、`epsilon_r`、要素数 |
-| `outer_plasma_profile.csv` | outer stateが有効な`kinetic_1d` / `unified_linear_response`のprofile。条件付きcheckpoint |
+| `outer_plasma_profile.csv` | outer stateが有効な`kinetic_1d`のprofile。条件付きcheckpoint |
 | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `outer_queue_enabled=true`のactive event。serialでは前者、MPIではrankごとに後者を使う条件付きcheckpoint |
 | `mesh_potential.csv` | `write_mesh_potential=true` のとき |
 | `charge_history.csv` | `history_stride > 0` のとき |

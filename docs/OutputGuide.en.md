@@ -59,7 +59,7 @@ receipt showing how the `[external_boundary]` facade resolved at runtime.
 | --- | --- |
 | `external_inflow_map` | `source_vdf` / `infinity_barrier` / `kinetic_profile` |
 | `external_ordinary_open_model` | `escape` / `potential_barrier` |
-| `external_interface_transport` | `none` / `kinetic_1d` / `unified_3d` |
+| `external_interface_transport` | `none` / `kinetic_1d` |
 | `outer_particle_mode_resolved` | `local_source` / `same_batch` / `zhao_queue` |
 
 For example, `particles.inflow_model="auto"` resolves to
@@ -127,7 +127,7 @@ See [History Animation](PostprocessTutorial.en.html#history-animation) for plots
 | Purpose | File | Generation condition or role |
 | --- | --- | --- |
 | Break down runtime | `performance_profile.csv` | `BEACH_PROFILE=1` |
-| Read the outer-sheath grid profile | `outer_plasma_profile.csv` | a `kinetic_1d` / `unified_linear_response` outer state is ready |
+| Read the outer-sheath grid profile | `outer_plasma_profile.csv` | a `kinetic_1d` outer state is ready |
 | Resume transient Zhao events | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `external_boundary.particles.mode="zhao_queue"`; former for serial, latter per MPI rank |
 | Resume random-number state | `rng_state.txt` / `rng_state_rankNNNNN.txt` | former for serial, latter per MPI rank |
 | Restore fractional macro-particles | `macro_residuals.csv` | residual state is allocated; one file even with MPI |
@@ -144,11 +144,12 @@ Detailed acceptance criteria stay with each model page; this table only points t
 | `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [Periodic Far Correction](PeriodicFarCorrection.en.html) |
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [Standard 1-D Kinetic Outer Sheath](KineticOuterPlasma.en.html) |
 | transient Zhao queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [Particle Escape and Return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure) |
-| `unified_linear_response` | above plus `outer_accessible_fraction_min`, `outer_accessible_fraction_max`, `outer_accessible_fraction_refinement_error` | [Advanced Rough-surface Linear Screening](UnifiedLinearResponse.en.html) |
 | outer particle transfer | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [Particle Escape and Return](ParticleEscapeReturn.en.html) |
 
 `outer_infinity_potential_V` is an internal infinity-gauge diagnostic, not an input key.
-It is fixed at zero for current kinetic and unified states.
+It is fixed at zero for the current kinetic state.
+`max_outer_energy_relative_error` is the maximum normalized conservation residual of normal kinetic plus electrostatic
+energy in the kinetic 1-D return/escape mapping.
 
 When a mesh contains `dielectric` elements, `summary.txt` records `surface_model_dielectric_elem_count` and
 `surface_model_note=metadata_only_dielectric_present`. In the current implementation, `dielectric` is metadata; this note
@@ -164,7 +165,7 @@ Resume state shares the output directory with analysis files, but should not be 
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | former for serial; every rank file for MPI |
 | `macro_residuals.csv` | restores global fractional state when present |
 | `charge_ledger.csv` | required when `summary.txt` contains ledger metadata |
-| `outer_plasma_profile.csv` | required when resuming a ready `kinetic_1d` / `unified_linear_response` state |
+| `outer_plasma_profile.csv` | required when resuming a ready `kinetic_1d` state |
 | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | required with the transient Zhao queue; former for serial and every rank file from the same MPI world size for MPI |
 
 With `output.restart_from`, BEACH reads checkpoints from `restart_from` and writes new output under `output.dir`.

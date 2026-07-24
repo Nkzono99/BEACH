@@ -2,7 +2,7 @@
 module bem_external_step_driver
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config
-  use bem_physics_config_types, only: outer_plasma_config, coupling_config
+  use bem_physics_config_types, only: coupling_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_particle_stepper, only: &
     particle_step_result, particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_external_events, &
@@ -11,9 +11,8 @@ module bem_external_step_driver
     interface_crossing_type, interface_particle_outcome_type, interface_outcome_returned_local, &
     interface_outcome_escaped_to_infinity, interface_outcome_queued_outer, interface_outcome_invalid_model
   use bem_external_boundary_contract, only: &
-    external_boundary_contract_type, external_transport_kinetic_1d, external_transport_unified_3d
+    external_boundary_contract_type, external_transport_kinetic_1d
   use bem_outer_plasma_interface, only: map_outer_particle_kinetic_profile
-  use bem_outer_plasma_orbit, only: trace_unified_outer_particle
   implicit none
   private
 
@@ -30,14 +29,13 @@ module bem_external_step_driver
 contains
 
   subroutine continue_external_particle_step( &
-    contract, snapshot, mesh, sim, outer, coupling, bfield, charge, mass, batch_duration, initial_result, &
+    contract, snapshot, mesh, sim, coupling, bfield, charge, mass, batch_duration, initial_result, &
     final_result, trace &
     )
     type(external_boundary_contract_type), intent(in) :: contract
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(outer_plasma_config), intent(in) :: outer
     type(coupling_config), intent(in) :: coupling
     real(dp), intent(in) :: bfield(3), charge, mass, batch_duration
     type(particle_step_result), intent(in) :: initial_result
@@ -69,7 +67,7 @@ contains
         trace%crossing(event_index)%fraction = consumed_fraction
       end if
       call dispatch_external_interface_particle( &
-        contract, snapshot, mesh, sim, outer, coupling, charge, mass, current_result%interface_crossing, &
+        contract, snapshot, sim, coupling, charge, mass, current_result%interface_crossing, &
         batch_duration, outcome &
         )
       trace%outcome(event_index) = outcome
@@ -118,13 +116,11 @@ contains
 
   !> 解決済みtransport tagを既存の外部粒子modelへ配送する。
   subroutine dispatch_external_interface_particle( &
-    contract, snapshot, mesh, sim, outer, coupling, charge, mass, crossing, batch_duration, outcome &
+    contract, snapshot, sim, coupling, charge, mass, crossing, batch_duration, outcome &
     )
     type(external_boundary_contract_type), intent(in) :: contract
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
-    type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
-    type(outer_plasma_config), intent(in) :: outer
     type(coupling_config), intent(in) :: coupling
     real(dp), intent(in) :: charge, mass
     type(interface_crossing_type), intent(in) :: crossing
@@ -138,8 +134,6 @@ contains
         coupling%field_evolution_timescale, coupling%max_frozen_field_ratio, contract%queue_enabled, outcome, &
         queue_poll_interval=batch_duration &
         )
-    case (external_transport_unified_3d)
-      call trace_unified_outer_particle(snapshot, mesh, sim, outer, coupling, charge, mass, crossing, outcome)
     case default
       outcome = interface_particle_outcome_type()
       outcome%kind = interface_outcome_invalid_model

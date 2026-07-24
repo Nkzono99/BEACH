@@ -2829,8 +2829,6 @@ def _validate_electrostatic_restart_state(summary: Mapping[str, str]) -> None:
         "outer_nonlinear_residual",
         "outer_infinity_potential_V",
         "outer_debye_length_m",
-        "outer_linearity_ratio",
-        "outer_max_linearity_ratio",
         "outer_integrated_charge_per_area_C_m2",
         "outer_electron_current_density_A_m2",
         "outer_ion_current_density_A_m2",
@@ -3500,7 +3498,7 @@ def verify_run(
     if not isinstance(outer_config, Mapping):
         raise ValidationError(f"outer_plasma configuration is invalid for {name}")
     outer_model = str(outer_config.get("model", "none")).strip().lower()
-    if outer_model in {"kinetic_1d", "unified_linear_response"}:
+    if outer_model == "kinetic_1d":
         required_outputs.append(output / "outer_plasma_profile.csv")
     required_outputs.extend(
         output / f"rng_state_rank{rank:05d}.txt" for rank in range(world_size)

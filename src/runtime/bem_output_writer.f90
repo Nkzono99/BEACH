@@ -10,8 +10,7 @@ module bem_output_writer
                                             external_inflow_none, external_inflow_scalar_barrier, &
                                             external_inflow_kinetic_profile, external_open_escape, &
                                             external_open_potential_barrier, external_transport_none, &
-                                            external_transport_kinetic_1d, &
-                                            external_transport_unified_3d, resolve_external_boundary_contract
+                                            external_transport_kinetic_1d, resolve_external_boundary_contract
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
@@ -317,9 +316,6 @@ contains
       write (u, '(a,es24.16)') 'outer_infinity_potential_V=', &
         electrostatic_diagnostics%outer_infinity_potential
       write (u, '(a,es24.16)') 'outer_debye_length_m=', electrostatic_diagnostics%outer_debye_length
-      write (u, '(a,es24.16)') 'outer_linearity_ratio=', electrostatic_diagnostics%outer_linearity_ratio
-      write (u, '(a,es24.16)') 'outer_max_linearity_ratio=', &
-        electrostatic_diagnostics%outer_max_linearity_ratio
       write (u, '(a,es24.16)') 'outer_integrated_charge_per_area_C_m2=', &
         electrostatic_diagnostics%outer_integrated_charge_per_area
       write (u, '(a,es24.16)') 'outer_electron_current_density_A_m2=', &
@@ -353,16 +349,6 @@ contains
             trim(electrostatic_diagnostics%outer_queue_fingerprint)
         end if
       end if
-      write (u, '(a,es24.16)') 'outer_accessible_fraction_min=', &
-        electrostatic_diagnostics%accessible_fraction_min
-      write (u, '(a,es24.16)') 'outer_accessible_fraction_max=', &
-        electrostatic_diagnostics%accessible_fraction_max
-      write (u, '(a,es24.16)') 'outer_accessible_fraction_refinement_error=', &
-        electrostatic_diagnostics%accessible_fraction_refinement_error
-      write (u, '(a,es24.16)') 'outer_nonzero_tail_linearity=', &
-        electrostatic_diagnostics%nonzero_tail_linearity
-      write (u, '(a,es24.16)') 'outer_response_start_z_m=', &
-        electrostatic_diagnostics%response_start_z
       write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
       write (u, '(a,es24.16)') 'max_outer_flight_time_s=', electrostatic_diagnostics%max_outer_flight_time
       write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio
@@ -445,8 +431,6 @@ contains
       name = 'none'
     case (external_transport_kinetic_1d)
       name = 'kinetic_1d'
-    case (external_transport_unified_3d)
-      name = 'unified_3d'
     case default
       error stop 'write_summary_file: unknown resolved external interface transport.'
     end select

@@ -45,22 +45,19 @@
     },
     "outer_plasma": {
       "type": "object",
-      "description": "Optional outer-domain field model. For a new self-consistent outer sheath, use kinetic_1d as the standard model. unified_linear_response is an advanced rough-surface linear-screening model, not a higher-accuracy replacement.",
+      "description": "Optional outer-domain field model. kinetic_1d is the supported VDF-based outer sheath model.",
       "additionalProperties": false,
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
-        "model": {"enum": ["kinetic_1d", "unified_linear_response"], "description": "Select kinetic_1d for the standard VDF-based outer sheath. Select unified_linear_response only for advanced rough-surface linear screening within its applicability limits."},
+        "model": {"const": "kinetic_1d", "description": "Select the supported VDF-based outer sheath."},
         "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian", "description": "Density/VDF closure used by kinetic_1d. zhao_charge_driven retains the accumulated-charge interface-field condition instead of imposing a floating-current root."},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto", "description": "Requested Zhao branch when kinetic_closure is zhao_charge_driven."},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1, "description": "Independent Zhao photoelectron source multiplier. Set to 0 for the no-photo Type-C path; positive values require a matching enabled photo_raycast species. This is distinct from the transient outer-cloud occupancy eta."},
         "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
-        "return_model": {"enum": ["none", "kinetic_1d_profile_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
+        "return_model": {"enum": ["none", "kinetic_1d_profile_return"], "default": "none"},
         "interface_z": {"type": "number"},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
         "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
-        "unified_grid_points": {"type": "integer", "minimum": 17, "default": 129},
-        "accessible_fraction_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
-        "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
         "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
         "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
       },
@@ -114,15 +111,12 @@
       "additionalProperties": false,
       "properties": {
         "update_mode": {"const": "explicit", "default": "explicit"},
-        "particle_transfer_mode": {"enum": ["none", "electrostatic_1d_instant_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
+        "particle_transfer_mode": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
         "steady_start_mode": {"enum": ["none", "zhao_floating"], "default": "none", "description": "Optional pre-equilibrated startup contract. On a fresh run, zhao_floating seeds the selected mesh from the stationary Zhao floating-current state before the first batch; resume restores checkpoint mesh and outer state without reapplying the seed."},
         "steady_start_mesh_id": {"type": "integer", "minimum": 1, "default": 1, "description": "One-based generated-template mesh ID that receives the zhao_floating steady-start charge."},
         "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
         "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
         "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
-        "outer_orbit_dt": {"type": "number", "minimum": 0, "default": 0},
-        "outer_orbit_max_steps": {"type": "integer", "minimum": 1, "default": 100000},
-        "outer_orbit_energy_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.0001},
         "outer_queue_enabled": {"type": "boolean", "default": false, "description": "Delay Zhao kinetic-profile return and finite-domain reservoir-escape events across batches, close the photoelectron population from the queued column over 10 photoelectron Debye lengths, require automatic branch continuation, bound each flight plus next-poll delay and half-batch midpoint uncertainty, and bound batch_duration by max_frozen_field_ratio * field_evolution_timescale."}
       }
     },
@@ -290,50 +284,11 @@
         "required": ["external_boundary"],
         "properties": {
           "external_boundary": {
-            "required": ["particles"],
-            "properties": {
-              "particles": {
-                "anyOf": [
-                  {"required": ["outer_orbit_dt"]},
-                  {"required": ["outer_orbit_max_steps"]},
-                  {"required": ["outer_orbit_energy_tolerance"]}
-                ]
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "properties": {
-                  "model": {"const": "unified_linear_response"}
-                }
-              },
-              "particles": {
-                "properties": {
-                  "mode": {"const": "same_batch"}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
             "properties": {
               "field": {
                 "required": ["model"],
                 "properties": {
-                  "model": {
-                    "enum": ["kinetic_1d", "unified_linear_response"]
-                  }
+                  "model": {"const": "kinetic_1d"}
                 }
               }
             }
@@ -473,10 +428,7 @@
                     {"required": ["steady_start_mesh_id"]},
                     {"required": ["outer_update_stride"]},
                     {"required": ["field_evolution_timescale"]},
-                    {"required": ["max_frozen_field_ratio"]},
-                    {"required": ["outer_orbit_dt"]},
-                    {"required": ["outer_orbit_max_steps"]},
-                    {"required": ["outer_orbit_energy_tolerance"]}
+                    {"required": ["max_frozen_field_ratio"]}
                   ]
                 }
               }
@@ -507,9 +459,7 @@
             "properties": {
               "field": {
                 "properties": {
-                  "model": {
-                    "enum": ["kinetic_1d", "unified_linear_response"]
-                  }
+                  "model": {"const": "kinetic_1d"}
                 }
               }
             }
@@ -548,44 +498,6 @@
                 "properties": {
                   "inflow_model": {"const": "auto"},
                   "field_evolution_timescale": {"exclusiveMinimum": 0}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["model"],
-                "properties": {
-                  "model": {"const": "unified_linear_response"}
-                }
-              },
-              "particles": {
-                "required": ["mode"],
-                "properties": {
-                  "mode": {"const": "same_batch"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "required": ["field_evolution_timescale", "outer_orbit_dt"],
-                "properties": {
-                  "field_evolution_timescale": {"exclusiveMinimum": 0},
-                  "outer_orbit_dt": {"exclusiveMinimum": 0}
                 }
               }
             }
@@ -888,9 +800,7 @@
           "coupling": {
             "required": ["particle_transfer_mode"],
             "properties": {
-              "particle_transfer_mode": {
-                "enum": ["electrostatic_1d_instant_return", "electrostatic_3d_explicit_orbit"]
-              }
+              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"}
             }
           }
         }
@@ -1017,25 +927,17 @@
       "additionalProperties": false,
       "required": ["model"],
       "properties": {
-        "model": {"enum": ["none", "kinetic_1d", "unified_linear_response"]},
+        "model": {"enum": ["none", "kinetic_1d"]},
         "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto"},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1},
         "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
         "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
-        "unified_grid_points": {"type": "integer", "minimum": 17, "default": 129},
-        "accessible_fraction_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
-        "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
         "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
         "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
       },
       "dependencies": {
-        "max_linearity_ratio": {
-          "properties": {
-            "model": {"const": "unified_linear_response"}
-          }
-        },
         "max_gap_ratio": {
           "properties": {
             "model": {"const": "kinetic_1d"}
@@ -1070,16 +972,6 @@
             "model": {"const": "kinetic_1d"},
             "kinetic_closure": {"const": "absorbing_maxwellian"}
           }
-        },
-        "unified_grid_points": {
-          "properties": {
-            "model": {"const": "unified_linear_response"}
-          }
-        },
-        "accessible_fraction_tolerance": {
-          "properties": {
-            "model": {"const": "unified_linear_response"}
-          }
         }
       },
       "allOf": [
@@ -1098,7 +990,7 @@
           "if": {
             "required": ["model"],
             "properties": {
-              "model": {"enum": ["kinetic_1d", "unified_linear_response"]}
+              "model": {"const": "kinetic_1d"}
             }
           },
           "then": {
@@ -1145,10 +1037,7 @@
         "steady_start_mesh_id": {"type": "integer", "minimum": 1, "default": 1},
         "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
         "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
-        "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
-        "outer_orbit_dt": {"type": "number", "minimum": 0, "default": 0},
-        "outer_orbit_max_steps": {"type": "integer", "minimum": 1, "default": 100000},
-        "outer_orbit_energy_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.0001}
+        "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1}
       },
       "dependencies": {
         "steady_start_mode": {
@@ -1176,21 +1065,6 @@
         "max_frozen_field_ratio": {
           "properties": {
             "mode": {"enum": ["same_batch", "zhao_queue"]}
-          }
-        },
-        "outer_orbit_dt": {
-          "properties": {
-            "mode": {"const": "same_batch"}
-          }
-        },
-        "outer_orbit_max_steps": {
-          "properties": {
-            "mode": {"const": "same_batch"}
-          }
-        },
-        "outer_orbit_energy_tolerance": {
-          "properties": {
-            "mode": {"const": "same_batch"}
           }
         }
       }

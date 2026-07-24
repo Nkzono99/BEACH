@@ -95,7 +95,7 @@ cache.warm_max_cold_ratio=0.5
 convergence_csv=$convergence_csv
 test_l3.target_timings_csv=$test_l3_timings_csv
 far_correction.target_timings_csv=$far_correction_timings_csv
-convergence.required_categories=boris_dt,panel_fmm_order,rough_panel_mesh,rough_outer_grid,rough_accessibility,outer_orbit_dt
+convergence.required_categories=boris_dt,panel_fmm_order,rough_panel_mesh
 EOF
 
 run_gate() {
@@ -154,7 +154,7 @@ if ((!dry_run)); then
   sed -n 's/^.*BEACH_CONVERGENCE,//p' \
     "$artifact_dir/test_l3.log" "$artifact_dir/far_correction.log" \
     "$artifact_dir/mpi.log" "$artifact_dir/mpi_cache.log" >>"$convergence_csv"
-  for category in boris_dt panel_fmm_order rough_panel_mesh rough_outer_grid rough_accessibility outer_orbit_dt; do
+  for category in boris_dt panel_fmm_order rough_panel_mesh; do
     if ! grep -q "^${category}," "$convergence_csv"; then
       printf 'convergence.status=failed_missing_%s\nstatus=failed\n' "$category" >>"$manifest"
       echo "missing convergence category: $category" >&2

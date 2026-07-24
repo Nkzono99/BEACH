@@ -565,7 +565,7 @@ def test_active_outer_model_rejected_before_native_construction(
     _write_periodic_config(
         config,
         far_correction="cached_kneq0",
-        outer_model="unified_linear_response",
+        outer_model="kinetic_1d",
     )
     result = _result(
         tmp_path,

@@ -8,11 +8,11 @@ Lang: [English](FortranDependencyMap.en.md) | [日本語](FortranDependencyMap.m
 
 ## Overview
 
-- Source files: 90
-- Modules: 76
+- Source files: 86
+- Modules: 72
 - Submodules: 13
 - Programs: 1
-- Internal dependency edges: 363
+- Internal dependency edges: 342
 
 ## Overall Graph
 
@@ -30,35 +30,35 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `src/core` | 7 | 6 |
 | `src/mesh` | 3 | 11 |
 | `src/particles` | 2 | 9 |
-| `src/physics` | 8 | 34 |
+| `src/physics` | 8 | 30 |
 | `src/physics/field_solver` | 5 | 21 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
 | `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
-| `src/physics/field_solver/fmm/internal/periodic` | 7 | 29 |
+| `src/physics/field_solver/fmm/internal/periodic` | 6 | 24 |
 | `src/physics/field_solver/fmm/internal/runtime` | 2 | 14 |
 | `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
-| `src/physics/outer_plasma` | 8 | 29 |
+| `src/physics/outer_plasma` | 5 | 18 |
 | `src/physics/panel` | 5 | 13 |
 | `src/physics/periodic_zero_mode` | 3 | 9 |
 | `src/physics/sheath` | 1 | 2 |
 | `src/runtime` | 7 | 35 |
 | `src/runtime/coupling` | 7 | 22 |
-| `src/runtime/simulator` | 7 | 45 |
+| `src/runtime/simulator` | 7 | 44 |
 
 ## Most Depended-on Modules
 
 | Entity | kind | Incoming dependencies |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 72 |
-| `bem_types` | `module` | 32 |
+| `bem_kinds` | `module` | 68 |
+| `bem_types` | `module` | 29 |
 | `bem_string_utils` | `module` | 25 |
-| `bem_constants` | `module` | 22 |
-| `bem_panel_geometry` | `module` | 11 |
-| `bem_physics_config_types` | `module` | 11 |
-| `bem_electrostatic_snapshot` | `module` | 10 |
-| `bem_outer_plasma_types` | `module` | 10 |
+| `bem_constants` | `module` | 20 |
+| `bem_panel_geometry` | `module` | 10 |
+| `bem_physics_config_types` | `module` | 10 |
 | `bem_app_config_types` | `module` | 9 |
 | `bem_coulomb_fmm_types` | `module` | 9 |
+| `bem_electrostatic_snapshot` | `module` | 9 |
+| `bem_coulomb_fmm_core` | `module` | 8 |
 
 ## Entity List
 
@@ -88,7 +88,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_particles` | `module` | `src/particles/bem_particles.f90` | `bem_kinds`, `bem_types` | 粒子SoAデータ構造の初期化を提供するモジュール。 |
 | `bem_boundary` | `module` | `src/physics/bem_boundary.f90` | `bem_kinds`, `bem_types` | シミュレーションボックス境界（流出/反射/周期）を適用するモジュール。 |
 | `bem_collision` | `module` | `src/physics/bem_collision.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。 |
-| `bem_electrostatic_snapshot` | `module` | `src/physics/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi` | - |
+| `bem_electrostatic_snapshot` | `module` | `src/physics/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi` | - |
 | `bem_field` | `module` | `src/physics/bem_field.f90` | `bem_kinds`, `bem_constants`, `bem_types` | 境界要素に蓄積した電荷から観測点の電場を評価する場計算モジュール。 |
 | `bem_pusher` | `module` | `src/physics/bem_pusher.f90` | `bem_kinds` | 荷電粒子の時間発展にBoris法を適用する運動方程式ソルバ。 |
 | `bem_surface_models` | `module` | `src/physics/bem_surface_models.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 表面モデルごとの電荷更新後処理を扱うモジュール。 |
@@ -109,7 +109,6 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_coulomb_fmm_periodic_cache` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90` | `bem_filesystem`, `bem_kinds` | Versioned stream codec for cached periodic root operators. |
 | `bem_coulomb_fmm_periodic_ewald` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | periodic2 cached operator生成用のEwald teacher。 |
 | `bem_coulomb_fmm_periodic_nonzero_reference` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature` | - |
-| `bem_coulomb_fmm_periodic_nonzero_tail` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_tail.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature` | - |
 | `bem_coulomb_fmm_periodic_root_ops` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90` | `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_cache`, `bem_regularized_qr`, `bem_coulomb_fmm_tree_utils` | periodic2 root operator の前計算。 |
 | `bem_regularized_qr` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_regularized_qr.f90` | `bem_kinds` | Reusable column-scaled QR factorization for ridge-regularized least squares. |
 | `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval` | Coulomb FMM 電場評価。 |
@@ -119,10 +118,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_outer_plasma_grid` | `module` | `src/physics/outer_plasma/bem_outer_plasma_grid.f90` | `bem_kinds` | - |
 | `bem_outer_plasma_interface` | `module` | `src/physics/outer_plasma/bem_outer_plasma_interface.f90` | `bem_kinds`, `bem_outer_plasma_types`, `bem_interface_types`, `bem_string_utils` | - |
 | `bem_outer_plasma_kinetic` | `module` | `src/physics/outer_plasma/bem_outer_plasma_kinetic.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid`, `bem_outer_plasma_zhao`, `bem_sheath_model_core`, `bem_string_utils` | - |
-| `bem_outer_plasma_local_mean` | `module` | `src/physics/outer_plasma/bem_outer_plasma_local_mean.f90` | `bem_kinds`, `bem_outer_plasma_types`, `bem_types` | - |
-| `bem_outer_plasma_orbit` | `module` | `src/physics/outer_plasma/bem_outer_plasma_orbit.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_interface_types` | 固定された静電場中で外部領域の粒子軌道を明示的に追跡する。 |
 | `bem_outer_plasma_types` | `module` | `src/physics/outer_plasma/bem_outer_plasma_types.f90` | `bem_kinds` | - |
-| `bem_outer_plasma_unified` | `module` | `src/physics/outer_plasma/bem_outer_plasma_unified.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types` | - |
 | `bem_outer_plasma_zhao` | `module` | `src/physics/outer_plasma/bem_outer_plasma_zhao.f90` | `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_sheath_model_core`, `bem_string_utils` | Charge-driven quasi-steady Zhao outer-plasma closure. |
 | `bem_panel_geometry` | `module` | `src/physics/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry and exact Cartesian surface moments. |
 | `bem_panel_kernel` | `module` | `src/physics/panel/bem_panel_kernel.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms` | Analytic free-space P0 triangle potential, field, principal value, and jump. |
@@ -147,7 +143,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_outer_event_queue` | `module` | `src/runtime/coupling/bem_outer_event_queue.f90` | `bem_kinds`, `bem_interface_types` | - |
 | `bem_outer_event_queue_io` | `module` | `src/runtime/coupling/bem_outer_event_queue_io.f90` | `bem_kinds`, `bem_filesystem`, `bem_mpi`, `bem_outer_event_queue` | Rank-local delayed outer-event queue checkpoint I/O. |
 | `bem_zhao_steady_start` | `module` | `src/runtime/coupling/bem_zhao_steady_start.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_physics_config_types`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_types`, `bem_string_utils` | Fresh run を Zhao 零電流定常枝の水平平均電荷へ初期化する。 |
-| `bem_external_step_driver` | `module` | `src/runtime/simulator/bem_external_step_driver.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_interface_types`, `bem_external_boundary_contract`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit` | local stepと外部輸送を、同一stepの残り時間が尽きるまで有限回接続する。 |
+| `bem_external_step_driver` | `module` | `src/runtime/simulator/bem_external_step_driver.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_interface_types`, `bem_external_boundary_contract`, `bem_outer_plasma_interface` | local stepと外部輸送を、同一stepの残り時間が尽きるまで有限回接続する。 |
 | `bem_particle_stepper` | `module` | `src/runtime/simulator/bem_particle_stepper.f90` | `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_interface_types`, `bem_external_boundary_contract` | 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。 |
 | `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_app_config_runtime`, `bem_particles`, `bem_electrostatic_snapshot`, `bem_outer_coupler`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_interface_types`, `bem_outer_event_queue`, `bem_external_boundary_contract`, `bem_external_step_driver`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_kinetic_runtime`, `bem_zhao_steady_start`, `bem_outer_plasma_types`, `bem_simulator_workspace`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行うモジュール。 |
 | `bem_simulator_workspace` | `module` | `src/runtime/simulator/bem_simulator_workspace.f90` | `bem_kinds`, `bem_outer_event_queue` | シミュレーション実行中に再利用するバッチ作業配列を管理する。 |
@@ -380,7 +376,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/bem_electrostatic_snapshot.f90`
 - group: `src/physics`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_outer_plasma_grid`, `bem_outer_plasma_local_mean`, `bem_outer_plasma_unified`, `bem_coulomb_fmm_periodic_nonzero_tail`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi`
 - external dependencies: `iso_fortran_env`
 
 ### `bem_field`
@@ -570,14 +566,6 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature`
 - external dependencies: `ieee_arithmetic`
 
-### `bem_coulomb_fmm_periodic_nonzero_tail`
-
-- kind: `module`
-- path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_tail.f90`
-- group: `src/physics/field_solver/fmm/internal/periodic`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature`
-- external dependencies: `ieee_arithmetic`
-
 ### `bem_coulomb_fmm_periodic_root_ops`
 
 - kind: `module`
@@ -656,23 +644,6 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`, `bem_outer_plasma_grid`, `bem_outer_plasma_zhao`, `bem_sheath_model_core`, `bem_string_utils`
 - external dependencies: `ieee_arithmetic`
 
-### `bem_outer_plasma_local_mean`
-
-- kind: `module`
-- path: `src/physics/outer_plasma/bem_outer_plasma_local_mean.f90`
-- group: `src/physics/outer_plasma`
-- Internal dependencies: `bem_kinds`, `bem_outer_plasma_types`, `bem_types`
-- external dependencies: `ieee_arithmetic`
-
-### `bem_outer_plasma_orbit`
-
-- kind: `module`
-- path: `src/physics/outer_plasma/bem_outer_plasma_orbit.f90`
-- group: `src/physics/outer_plasma`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_interface_types`
-- external dependencies: `ieee_arithmetic`
-- Source summary: 固定された静電場中で外部領域の粒子軌道を明示的に追跡する。
-
 ### `bem_outer_plasma_types`
 
 - kind: `module`
@@ -680,14 +651,6 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - group: `src/physics/outer_plasma`
 - Internal dependencies: `bem_kinds`
 - external dependencies: none
-
-### `bem_outer_plasma_unified`
-
-- kind: `module`
-- path: `src/physics/outer_plasma/bem_outer_plasma_unified.f90`
-- group: `src/physics/outer_plasma`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_outer_plasma_types`
-- external dependencies: `ieee_arithmetic`
 
 ### `bem_outer_plasma_zhao`
 
@@ -903,7 +866,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/runtime/simulator/bem_external_step_driver.f90`
 - group: `src/runtime/simulator`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_interface_types`, `bem_external_boundary_contract`, `bem_outer_plasma_interface`, `bem_outer_plasma_orbit`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_physics_config_types`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_interface_types`, `bem_external_boundary_contract`, `bem_outer_plasma_interface`
 - external dependencies: none
 - Source summary: local stepと外部輸送を、同一stepの残り時間が尽きるまで有限回接続する。
 

@@ -167,7 +167,7 @@ New configurations split `[external_boundary]` into three responsibilities.
 
 | Table | Main choices | Description |
 |------------|------|------|
-| `external_boundary.field` | `none`, `kinetic_1d`, `unified_linear_response` | Field of the external plasma response |
+| `external_boundary.field` | `none`, `kinetic_1d` | Field of the external plasma response |
 | `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high particle handling; `inflow_model` selects source VDF or a scalar barrier |
 | `external_boundary.ordinary_open` | `escape`, `potential_barrier` | Open faces not owned by the outer model |
 
@@ -311,7 +311,7 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 | `potential_history.csv` | `write_potential_history = true` and `history_stride > 0` | CSV: `batch, elem_idx, potential_V` |
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | When reservoir_face is used | CSV: injection residual state |
-| `outer_plasma_profile.csv` | A ready `kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile and conditional checkpoint |
+| `outer_plasma_profile.csv` | A ready `kinetic_1d` outer state | CSV: outer profile and conditional checkpoint |
 | `performance_profile.csv` | When the `BEACH_PROFILE=1` environment variable is set | CSV: measured times for each region |
 
 ### Additional Files During MPI Runs
@@ -603,10 +603,9 @@ BEACH/
 | `docs/PeriodicElectrostatics.en.md` | periodic2 field and zero mode |
 | `docs/FinitePeriodicConfiguration.en.md` | Integrated finite-image and scalar-boundary configuration |
 | `docs/InfinitePeriodicOuterConfiguration.en.md` | Integrated infinite-periodic and outer-plasma configuration |
-| `docs/OuterPlasmaModels.en.md` | Choose the standard outer sheath or advanced rough-surface screening |
-| `docs/KineticOuterPlasma.en.md` | Standard and recommended self-consistent kinetic 1-D outer sheath |
-| `docs/UnifiedLinearResponse.en.md` | Advanced rough-surface linear screening |
-| `docs/ParticleEscapeReturn.en.md` | Open boundaries, 1-D return, and 3-D outer orbits |
+| `docs/OuterPlasmaModels.en.md` | Choose the outer sheath, inflow, and ordinary-open handling |
+| `docs/KineticOuterPlasma.en.md` | Self-consistent kinetic 1-D outer sheath |
+| `docs/ParticleEscapeReturn.en.md` | Open boundaries and 1-D return |
 | `docs/FMM.en.md` | FMM selection and verification |
 | `docs/FMMCore.en.md` | FMM internals and Ewald |
 | `docs/BatchDurationStability.en.md` | `batch_duration` stability |

@@ -29,7 +29,7 @@ Use this skill when a user asks what parameter controls a phenomenon, how to bui
 - For sweeps, vary one primary physical control at a time unless the user explicitly asks for coupled scaling.
 - Estimate cost risk before proposing large batch/mesh/history settings.
 - Keep v1 scope clear: absorption and insulator accumulation are standard; conductor/resistive/secondary-emission models are extension points unless the repo now documents them.
-- For a new outer sheath, propose `kinetic_1d` as the standard model. Propose `unified_linear_response` only as an advanced option when the user's geometry or intent shows overlapping roughness and plasma response, no valid split window, and a need to verify linear applicability.
+- For a new self-consistent outer sheath, propose `kinetic_1d`. Do not suggest removed field models as configurable alternatives.
 
 ## Output
 

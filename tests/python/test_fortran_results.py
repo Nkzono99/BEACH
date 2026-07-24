@@ -778,7 +778,6 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
             "periodic2_cache_fingerprint=ABCDEF0123456789",
             "periodic2_cache_path=.beach_cache/periodic2/operator.bin",
             "periodic2_generation_tolerance=1.0e-8",
-            "outer_accessible_fraction_refinement_error=2.5e-2",
             "max_outer_flight_time_s=3.0e-6",
             "max_outer_frozen_field_ratio=3.0e-2",
             "max_outer_energy_relative_error=4.0e-5",
@@ -817,7 +816,6 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.periodic2_cache_fingerprint == "ABCDEF0123456789"
     assert result.periodic2_cache_path == ".beach_cache/periodic2/operator.bin"
     assert result.periodic2_generation_tolerance == pytest.approx(1.0e-8)
-    assert result.outer_accessible_fraction_refinement_error == pytest.approx(2.5e-2)
     assert result.max_outer_flight_time_s == pytest.approx(3.0e-6)
     assert result.max_outer_frozen_field_ratio == pytest.approx(3.0e-2)
     assert result.max_outer_energy_relative_error == pytest.approx(4.0e-5)

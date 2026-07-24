@@ -116,7 +116,6 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
 | `potential_barrier` | open面の通過点電位と`sim.phi_infty`、法線運動エネルギーによる反射・流出判定 |
 | `kinetic_1d` | solver status、Poisson residual、単調分枝、Bohm条件 |
-| `unified_linear_response` | accessibility refinement、線形性、Gauss則の整合性、outer軌道のenergy/frozen-field error |
 | 光電子 | 放出・帰還・流出の電荷収支、ray samplingと時間刻みへの収束 |
 
 各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)、
