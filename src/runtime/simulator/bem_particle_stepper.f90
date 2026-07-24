@@ -177,9 +177,9 @@ contains
     type(boundary_event_type) :: event
     type(hit_info) :: remainder_hit
     real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3)
-    real(dp) :: dt_segment, dt_remaining, elapsed_dt, global_fraction, refined_fraction, event_order_tolerance
+    real(dp) :: dt_segment, dt_remaining, elapsed_dt, global_fraction
     integer(i32) :: query_status, boundary_status, event_count
-    logical :: alive, escaped, external_event_owned, z_high_chord_candidate
+    logical :: alive, escaped, external_event_owned, z_high_chord_candidate, dense_boundary_event
     logical :: first_segment
     type(external_boundary_contract_type) :: active_boundary_contract
 
@@ -242,34 +242,23 @@ contains
       external_event_owned = external_boundary_owns_event( &
                              active_boundary_contract, event%face_mask, event%face_bc &
                              )
+      dense_boundary_event = .false.
       z_high_chord_candidate = external_event_owned .or. &
                                (active_boundary_contract%interface_transport /= external_transport_none .and. &
                                 event%face_bc(6) == bc_open .and. x_start(3) < sim%box_max(3) .and. &
                                 x_trial(3) >= sim%box_max(3))
       if (z_high_chord_candidate) then
-        call refine_z_high_crossing_fraction( &
-          sim, x_start, v_start, x_trial, v_trial, dt_segment, refined_fraction, boundary_status &
+        call refine_interface_boundary_event( &
+          sim, x_start, v_start, x_trial, v_trial, dt_segment, event, boundary_status &
           )
-        if (external_event_owned) then
-          if (boundary_status /= boundary_event_ok) then
-            result%status = particle_step_invalid_boundary
-            return
-          end if
-          if (.not. refined_z_high_preserves_lateral_event_order( &
-              sim, event, x_start, x_trial, refined_fraction &
-              )) then
-            result%status = particle_step_invalid_boundary
-            return
-          end if
-          event%fraction = refined_fraction
-        else if (boundary_status == boundary_event_ok) then
-          event_order_tolerance = 64.0_dp*epsilon(1.0_dp)* &
-                                  max(1.0_dp, abs(event%fraction), abs(refined_fraction))
-          if (refined_fraction <= event%fraction + event_order_tolerance) then
-            result%status = particle_step_invalid_boundary
-            return
-          end if
+        if (boundary_status /= boundary_event_ok) then
+          result%status = particle_step_invalid_boundary
+          return
         end if
+        external_event_owned = external_boundary_owns_event( &
+                               active_boundary_contract, event%face_mask, event%face_bc &
+                               )
+        dense_boundary_event = .true.
       end if
 
       if (first_segment .and. present(hit)) then
@@ -281,7 +270,9 @@ contains
         end if
       end if
 
-      call interpolate_boundary_state(sim, event, x_start, v_start, x_trial, v_trial, x_event, v_event)
+      call interpolate_boundary_state( &
+        sim, event, x_start, v_start, x_trial, v_trial, dt_segment, dense_boundary_event, x_event, v_event &
+        )
       if (.not. (first_segment .and. present(hit))) then
         call query_particle_chord(mesh, sim, x_start, v_start, x_event, v_event, result, remainder_hit, query_status)
         if (query_status /= collision_query_ok .or. result%absorbed) return
@@ -359,28 +350,84 @@ contains
     end do
   end subroutine advance_particle_boundary_crossing
 
-  !> Boris端点と整合する二次軌道から、外向きz-high交差の時刻率を求める。
-  subroutine refine_z_high_crossing_fraction(sim, x0, v0, x1, v1, dt, fraction, status)
+  !> interface候補stepではBoris端点と整合する二次軌道で全box面の最初の交差を選び直す。
+  subroutine refine_interface_boundary_event(sim, x0, v0, x1, v1, dt, event, status)
     type(sim_config), intent(in) :: sim
     real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), dt
+    type(boundary_event_type), intent(inout) :: event
+    integer(i32), intent(out) :: status
+
+    real(dp) :: candidate_fraction(3), first_fraction, tie_tolerance
+    integer(i32) :: candidate_face(3), axis, candidate_count, crossing_status
+    type(boundary_event_type) :: refined_event
+
+    status = boundary_event_invalid_geometry
+    if (.not. ieee_is_finite(dt) .or. dt <= 0.0_dp) return
+    if (.not. all(ieee_is_finite(x0)) .or. .not. all(ieee_is_finite(x1)) .or. &
+        .not. all(ieee_is_finite(v0)) .or. .not. all(ieee_is_finite(v1))) return
+
+    refined_event = boundary_event_type()
+    refined_event%face_bc = event%face_bc
+    candidate_fraction = huge(1.0_dp)
+    candidate_face = 0_i32
+    candidate_count = 0_i32
+    do axis = 1_i32, 3_i32
+      if (x1(axis) >= sim%box_max(axis)) then
+        candidate_count = candidate_count + 1_i32
+        candidate_face(candidate_count) = 2_i32*axis
+        call refine_axis_crossing_fraction( &
+          x0(axis), v0(axis), v1(axis), dt, sim%box_max(axis), .true., &
+          candidate_fraction(candidate_count), crossing_status &
+          )
+      else if (x1(axis) <= sim%box_min(axis)) then
+        candidate_count = candidate_count + 1_i32
+        candidate_face(candidate_count) = 2_i32*axis - 1_i32
+        call refine_axis_crossing_fraction( &
+          x0(axis), v0(axis), v1(axis), dt, sim%box_min(axis), .false., &
+          candidate_fraction(candidate_count), crossing_status &
+          )
+      else
+        cycle
+      end if
+      if (crossing_status /= boundary_event_ok) return
+    end do
+
+    if (candidate_count < 1_i32) return
+    first_fraction = minval(candidate_fraction(:candidate_count))
+    tie_tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(first_fraction))
+    refined_event%has_event = .true.
+    refined_event%fraction = first_fraction
+    do axis = 1_i32, candidate_count
+      if (abs(candidate_fraction(axis) - first_fraction) <= tie_tolerance) then
+        refined_event%face_mask = ior(refined_event%face_mask, shiftl(1_i32, candidate_face(axis) - 1_i32))
+      end if
+    end do
+    if (refined_event%face_mask == 0_i32) return
+    event = refined_event
+    status = boundary_event_ok
+  end subroutine refine_interface_boundary_event
+
+  !> 一軸の二次dense軌道について指定box面を外向きに横切る最初の時刻率を返す。
+  subroutine refine_axis_crossing_fraction(x0, v0, v1, dt, boundary, high_side, fraction, status)
+    real(dp), intent(in) :: x0, v0, v1, dt, boundary
+    logical, intent(in) :: high_side
     real(dp), intent(out) :: fraction
     integer(i32), intent(out) :: status
-    real(dp) :: a, b, c, discriminant, q_root, roots(2), velocity, coefficient_tolerance, root_tolerance
+
+    real(dp) :: a, b, c, discriminant, q_root, roots(2), velocity
+    real(dp) :: coefficient_tolerance, root_tolerance, candidate
     integer(i32) :: root
 
-    fraction = 0.0_dp
+    fraction = huge(1.0_dp)
     status = boundary_event_invalid_geometry
-    if (.not. ieee_is_finite(dt) .or. dt <= 0.0_dp .or. x0(3) >= sim%box_max(3) .or. &
-        x1(3) < sim%box_max(3)) return
-
-    a = 0.5_dp*dt*(v1(3) - v0(3))
-    b = dt*v0(3)
-    c = x0(3) - sim%box_max(3)
+    a = 0.5_dp*dt*(v1 - v0)
+    b = dt*v0
+    c = x0 - boundary
     coefficient_tolerance = 256.0_dp*epsilon(1.0_dp)*max(tiny(1.0_dp), abs(a), abs(b), abs(c))
     root_tolerance = 256.0_dp*epsilon(1.0_dp)
     roots = huge(1.0_dp)
     if (abs(a) <= coefficient_tolerance) then
-      if (b <= 0.0_dp) return
+      if (b == 0.0_dp) return
       roots(1) = -c/b
     else
       discriminant = b*b - 4.0_dp*a*c
@@ -390,59 +437,14 @@ contains
       roots = [q_root/a, c/q_root]
     end if
     do root = 1_i32, 2_i32
-      velocity = v0(3) + roots(root)*(v1(3) - v0(3))
-      if (roots(root) >= -root_tolerance .and. roots(root) <= 1.0_dp + root_tolerance .and. velocity > 0.0_dp) then
-        fraction = min(max(roots(root), 0.0_dp), 1.0_dp)
-        status = boundary_event_ok
-        return
-      end if
+      candidate = roots(root)
+      if (candidate < -root_tolerance .or. candidate > 1.0_dp + root_tolerance) cycle
+      velocity = v0 + candidate*(v1 - v0)
+      if ((high_side .and. velocity <= 0.0_dp) .or. (.not. high_side .and. velocity >= 0.0_dp)) cycle
+      fraction = min(fraction, min(max(candidate, 0.0_dp), 1.0_dp))
     end do
-  end subroutine refine_z_high_crossing_fraction
-
-  !> z-high時刻補正後も、既存chordが示すx/y面の先後・同時関係が保たれるか検査する。
-  pure logical function refined_z_high_preserves_lateral_event_order( &
-    sim, event, x0, x1, refined_fraction &
-    ) result(preserves_order)
-    type(sim_config), intent(in) :: sim
-    type(boundary_event_type), intent(in) :: event
-    real(dp), intent(in) :: x0(3), x1(3), refined_fraction
-
-    real(dp) :: delta, candidate_fraction, tie_tolerance
-    integer(i32) :: axis, candidate_face, axis_mask
-    logical :: has_original_companion
-
-    preserves_order = .false.
-    if (.not. ieee_is_finite(refined_fraction) .or. refined_fraction < 0.0_dp .or. &
-        refined_fraction > 1.0_dp) return
-    do axis = 1_i32, 2_i32
-      axis_mask = ior(shiftl(1_i32, 2_i32*axis - 2_i32), shiftl(1_i32, 2_i32*axis - 1_i32))
-      has_original_companion = iand(event%face_mask, axis_mask) /= 0_i32
-      delta = x1(axis) - x0(axis)
-      candidate_face = 0_i32
-      candidate_fraction = huge(1.0_dp)
-      if (delta > 0.0_dp .and. x1(axis) >= sim%box_max(axis)) then
-        candidate_face = 2_i32*axis
-        candidate_fraction = (sim%box_max(axis) - x0(axis))/delta
-      else if (delta < 0.0_dp .and. x1(axis) <= sim%box_min(axis)) then
-        candidate_face = 2_i32*axis - 1_i32
-        candidate_fraction = (sim%box_min(axis) - x0(axis))/delta
-      end if
-      if (candidate_face == 0_i32) then
-        if (has_original_companion) return
-        cycle
-      end if
-      if (.not. ieee_is_finite(candidate_fraction)) return
-      tie_tolerance = 64.0_dp*epsilon(1.0_dp)* &
-                      max(1.0_dp, abs(candidate_fraction), abs(refined_fraction))
-      if (has_original_companion) then
-        if (.not. btest(event%face_mask, candidate_face - 1_i32) .or. &
-            abs(candidate_fraction - refined_fraction) > tie_tolerance) return
-      else if (candidate_fraction <= refined_fraction + tie_tolerance) then
-        return
-      end if
-    end do
-    preserves_order = .true.
-  end function refined_z_high_preserves_lateral_event_order
+    if (fraction <= 1.0_dp) status = boundary_event_ok
+  end subroutine refine_axis_crossing_fraction
 
   !> 既に選択済みのmesh hitをresultへ反映する。
   subroutine accept_particle_hit(va, xb, vb, hit, result)
@@ -480,14 +482,20 @@ contains
   end subroutine query_particle_chord
 
   !> Event fractionのdense stateを作り、setされたface座標をbox値へ正確に揃える。
-  subroutine interpolate_boundary_state(sim, event, x0, v0, x1, v1, x_event, v_event)
+  subroutine interpolate_boundary_state(sim, event, x0, v0, x1, v1, dt, use_dense_position, x_event, v_event)
     type(sim_config), intent(in) :: sim
     type(boundary_event_type), intent(in) :: event
-    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3)
+    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), dt
+    logical, intent(in) :: use_dense_position
     real(dp), intent(out) :: x_event(3), v_event(3)
     integer(i32) :: axis
 
-    x_event = x0 + event%fraction*(x1 - x0)
+    if (use_dense_position) then
+      x_event = x0 + event%fraction*dt*v0 + &
+                0.5_dp*event%fraction*event%fraction*dt*(v1 - v0)
+    else
+      x_event = x0 + event%fraction*(x1 - x0)
+    end if
     v_event = v0 + event%fraction*(v1 - v0)
     do axis = 1_i32, 3_i32
       if (btest(event%face_mask, 2_i32*axis - 2_i32)) x_event(axis) = sim%box_min(axis)

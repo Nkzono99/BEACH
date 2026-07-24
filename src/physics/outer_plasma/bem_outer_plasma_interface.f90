@@ -191,7 +191,7 @@ contains
       case default
         valid = .false.
       end select
-    case ('absorbing_maxwellian', 'none', '')
+    case ('absorbing_maxwellian', 'ambient_linear_debye', 'none', '')
       valid = all(state%potential(2:) <= state%potential(:state%profile_n - 1) + tolerance) .or. &
               all(state%potential(2:) >= state%potential(:state%profile_n - 1) - tolerance)
     case default

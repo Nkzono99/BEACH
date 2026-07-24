@@ -198,6 +198,17 @@ program test_physics_config_types
   outer%kinetic_closure = 'unknown'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'unknown kinetic closure must fail closed')
+  outer%kinetic_closure = 'ambient_linear_debye'
+  outer%photoelectron_density_model = 'none'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'ambient linear Debye closure should be valid')
+  outer%photoelectron_density_model = 'kinetic_mean'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'ambient linear Debye must reject photoelectron mean density')
+  outer%photoelectron_density_model = 'linearized_mean'
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'ambient linear Debye must accept linearized photoelectron mean')
+  outer%photoelectron_density_model = 'none'
   outer%kinetic_closure = 'absorbing_maxwellian'
   outer%zhao_branch = 'c'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)

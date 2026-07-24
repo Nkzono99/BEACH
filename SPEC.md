@@ -182,6 +182,20 @@ pseudo-transient stepへ切り替え、前回profileとのinterface field差が�
 current診断だけを供給し、表面へreturn chargeを再加算しません。表面の電荷収支はtracked粒子の放出と
 再吸収だけで更新します。
 
+`outer_plasma.kinetic_closure="ambient_linear_debye"`は、surface zero modeが与えるinterface電場$E_I$から
+$\phi_I=\lambda_D E_I$、$\phi(z)=\phi_I\exp(-z/\lambda_D)$、
+$\rho_{\mathrm{amb}}=-\epsilon_0\phi/\lambda_D^2$を解析的に構成します。
+`photoelectron_density_model="none"`では、enabledな`photo_raycast`光電子はtracked放出・再吸収・escapeと
+表面電荷更新には残しますが、1D平均密度、平均outer電流、outer space chargeへ含めません。
+`photoelectron_density_model="linearized_mean"`では、放出flux$\Gamma_{pe}$から
+$n_{pe,*}=\Gamma_{pe}\sqrt{\pi m_e/(2T_{pe})}$と
+$\lambda_{D,pe}=\sqrt{\epsilon_0T_{pe}/(n_{pe,*}q_{pe}^2)}$を導出し、
+$\lambda_{\mathrm{eff}}^{-2}=\lambda_D^{-2}+\lambda_{D,pe}^{-2}$として
+$\phi_I=\lambda_{\mathrm{eff}}E_I$の線形化された平均光電子感受率を加えます。
+同じprofileをambient reservoir流入とz-high return/escapeへ使用し、解析光電子電流は診断だけに使います。
+この近似は基準光電子雲からの線形摂動であり、有限な定常光電子space charge、非線形sheath、virtual cathode、
+space-charge-limited / inverse sheath、trapped population、非単調profileは適用外です。
+
 `outer_plasma.kinetic_closure="zhao_charge_driven"`は、同じsurface zero modeのinterface電場を境界条件として、
 Zhao Type A/B/Cのfree/reflected ambient electron、free/captured photoelectron、cold ion populationを使う選択肢です。
 無限遠準中性、Sagdeev積分のfield条件、Type Aではfar-field条件をrootとして解きます。定常Zhaoのzero-current式は
@@ -266,8 +280,8 @@ profile gridについて収束を確認します。
 - production particle loop は candidate の位置または速度が非有限なら collision query を呼ばず `particle_step_invalid_boundary` としてfail closedとする
 - reflect/periodic crossingだけ残り時間を最大8回再積分する。各eventはmeshとの最早順序を保って処理し、9回目のbox eventまでにmesh hitがなければ `particle_step_multiple_box_events` でfail closedとする。上限なしのevent loopやadaptive substepは行わない
 - `open_boundary_model="potential_barrier"` は単一open面のevent位置で局所電位を評価し、補間法線速度の運動エネルギーと `q_particle * (phi_infty - phi_boundary)` を比較する。エネルギー不足では法線速度を反転して残りstepを再積分し、それ以外はescapeとする。複数open faceの同時crossingはfail closedとする
-- outer transferが所有するz-highを含む同時eventはface maskのmembershipで判定する。z-highの二次軌道補正後も同時刻と判定できる周期・反射面は横方向作用を先に合成してからouterへ渡す。補正によってz-highと横面の先後・同時関係が元のface maskから変わる場合は、作用順序を推測せずfail closedとする。別open面も同時に含む場合もownerが一意でないためfail closedとする
-- z-highの二次補正は、候補終点がz-high外側にあるためchordが検出したcrossingの法線時刻だけを再評価する。候補終点がbox内へ戻る途中の一時的越境は探索せず、x/y面とmesh hitは従来のchord判定を維持する
+- outer transfer候補stepでは、Boris端点と整合する二次軌道でz-highと候補x/y面の交差時刻を再評価し、実際に最初のeventを選ぶ。周期・反射面が先なら作用後の残り時間を再積分し、z-highが先ならouterへ渡す。同時刻の周期・反射面は横方向作用を先に合成する。別open面も同時に含む場合はownerが一意でないためfail closedとする
+- 二次補正は、候補終点がbox外側にあるため検出されたcrossingだけを対象とする。候補終点がbox内へ戻る途中の一時的越境は探索せず、mesh hitは従来のchord判定を維持する
 - instant outer return後の`dt_remaining`でz-highへ再到達した場合も同じ契約へ再dispatchする。1 local stepあたり最大8 external eventとし、9回目は`particle_step_multiple_external_events`でfail closedとする。通常box eventのsoft-discard policyとは混同しない
 - legacy `apply_box_boundary` はphoto rayとsource compatibilityのため残す
 

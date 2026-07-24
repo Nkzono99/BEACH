@@ -462,9 +462,18 @@ contains
     if (field%has_zhao_option .and. .not. zhao_field) then
       error stop 'Zhao field options require kinetic_1d with kinetic_closure="zhao_charge_driven".'
     end if
+    if (field%has_photoelectron_density_model .and. trim(field_model) /= 'kinetic_1d') then
+      error stop 'external_boundary.field.photoelectron_density_model requires kinetic_1d.'
+    end if
     if (field%has_photoelectron_density_model .and. &
-        (trim(field_model) /= 'kinetic_1d' .or. trim(closure) /= 'absorbing_maxwellian')) then
-      error stop 'external_boundary.field.photoelectron_density_model requires absorbing-Maxwellian kinetic_1d.'
+        trim(field%photoelectron_density_model) == 'kinetic_mean' .and. &
+        trim(closure) /= 'absorbing_maxwellian') then
+      error stop 'photoelectron_density_model="kinetic_mean" requires absorbing-Maxwellian kinetic_1d.'
+    end if
+    if (field%has_photoelectron_density_model .and. &
+        trim(field%photoelectron_density_model) == 'linearized_mean' .and. &
+        trim(closure) /= 'ambient_linear_debye') then
+      error stop 'photoelectron_density_model="linearized_mean" requires ambient_linear_debye.'
     end if
     if (particles%has_time_guard_option .and. &
         trim(particle_mode) /= 'same_batch' .and. trim(particle_mode) /= 'zhao_queue') then

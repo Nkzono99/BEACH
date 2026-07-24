@@ -401,7 +401,7 @@ contains
       return
     end select
     select case (trim(closure))
-    case ('absorbing_maxwellian')
+    case ('absorbing_maxwellian', 'ambient_linear_debye')
       if (trim(branch) /= 'auto') then
         call reject(physics_config_invalid_combination, &
                     'outer_plasma.zhao_branch requires kinetic_closure=zhao_charge_driven.', status, message)
@@ -409,6 +409,17 @@ contains
         call reject(physics_config_invalid_combination, &
                     'outer_plasma.photoelectron_source_scale requires kinetic_closure=zhao_charge_driven.', &
                     status, message)
+      end if
+      if (status == physics_config_ok .and. trim(closure) == 'ambient_linear_debye') then
+        if (trim(lower_ascii(outer%model)) /= 'kinetic_1d') then
+          call reject(physics_config_invalid_combination, &
+                      'ambient_linear_debye requires outer_plasma.model=kinetic_1d.', status, message)
+        else if (trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .and. &
+                 trim(lower_ascii(outer%photoelectron_density_model)) /= 'linearized_mean') then
+          call reject(physics_config_invalid_combination, &
+                      'ambient_linear_debye requires photoelectron_density_model=none or linearized_mean.', &
+                      status, message)
+        end if
       end if
     case ('zhao_charge_driven')
       if (trim(lower_ascii(outer%model)) /= 'kinetic_1d') then
@@ -462,6 +473,24 @@ contains
         call reject( &
           physics_config_invalid_combination, &
           'photoelectron_density_model=kinetic_mean requires outer_plasma.model=kinetic_1d.', &
+          status, message &
+          )
+        return
+      end if
+      if (trim(lower_ascii(outer%kinetic_closure)) /= 'absorbing_maxwellian') then
+        call reject( &
+          physics_config_invalid_combination, &
+          'photoelectron_density_model=kinetic_mean requires kinetic_closure=absorbing_maxwellian.', &
+          status, message &
+          )
+        return
+      end if
+    case ('linearized_mean')
+      if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
+          trim(lower_ascii(outer%kinetic_closure)) /= 'ambient_linear_debye') then
+        call reject( &
+          physics_config_invalid_combination, &
+          'photoelectron_density_model=linearized_mean requires kinetic_closure=ambient_linear_debye.', &
           status, message &
           )
         return
@@ -633,8 +662,10 @@ contains
         return
       end if
       if (trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .and. &
-          trim(lower_ascii(outer%photoelectron_density_model)) /= 'kinetic_mean') then
-        call reject(physics_config_unavailable, 'cached kinetic_1d supports none or kinetic_mean photoelectron density.', &
+          trim(lower_ascii(outer%photoelectron_density_model)) /= 'kinetic_mean' .and. &
+          trim(lower_ascii(outer%photoelectron_density_model)) /= 'linearized_mean') then
+        call reject(physics_config_unavailable, &
+                    'cached kinetic_1d supports none, kinetic_mean, or linearized_mean photoelectron density.', &
                     status, message)
         return
       end if

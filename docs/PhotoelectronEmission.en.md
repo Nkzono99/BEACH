@@ -126,6 +126,13 @@ additionally closes the photoelectron population from tracked outer inventory.
 With `mode="same_batch"` or `"zhao_queue"`, that profile controls inflow and
 return or escape at the z-high interface.
 
+To add only the mean photoelectron $k=0$ response without solving a nonlinear sheath, combine
+`kinetic_closure="ambient_linear_debye"` with
+`photoelectron_density_model="linearized_mean"`. The model evaluates
+$n_{pe,*}=\Gamma_{pe}\sqrt{\pi m_{pe}/(2T_{pe})}$ from the emitted flux and adds its Debye susceptibility to the ambient
+response. This is a small-signal capacitance model: it neither replaces surface-charge updates by tracked photoelectrons nor
+represents a finite stationary photoelectron cloud or a virtual cathode.
+
 ## Check convergence of photoelectron emission
 
 Increase `rays_per_batch` and verify convergence of hit fraction, emitted current, and charging distribution. When reabsorption

@@ -101,6 +101,27 @@ def test_schema_accepts_external_boundary_facade_and_rejects_raw_owner_mix() -> 
         assert schema_errors(mixed, schema)
 
 
+def test_schema_accepts_linearized_photoelectron_mean_only_with_ambient_linear_closure() -> None:
+    schema, _ = load_schema()
+    authoring = load_toml_file(
+        ROOT / "examples/periodic2_ambient_linear_photo_outer.toml"
+    )
+
+    assert schema_errors(authoring, schema) == []
+
+    wrong_closure = copy.deepcopy(authoring)
+    wrong_closure["external_boundary"]["field"]["kinetic_closure"] = (
+        "absorbing_maxwellian"
+    )
+    assert schema_errors(wrong_closure, schema)
+
+    wrong_density = copy.deepcopy(authoring)
+    wrong_density["external_boundary"]["field"][
+        "photoelectron_density_model"
+    ] = "kinetic_mean"
+    assert schema_errors(wrong_density, schema)
+
+
 def test_schema_requires_explicit_box_for_an_active_external_field() -> None:
     schema, _ = load_schema()
     authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")

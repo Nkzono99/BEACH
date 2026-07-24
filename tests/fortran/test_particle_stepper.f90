@@ -39,16 +39,16 @@ program test_particle_stepper
   call test_z_high_interface_rejects_simultaneous_open_corner()
   call test_end()
 
-  call test_begin('z_high_interface_rejects_dephased_corner')
-  call test_z_high_interface_rejects_dephased_corner()
+  call test_begin('z_high_interface_resolves_dephased_corner')
+  call test_z_high_interface_resolves_dephased_corner()
   call test_end()
 
-  call test_begin('z_high_interface_rejects_reordered_lateral_face')
-  call test_z_high_interface_rejects_reordered_lateral_face()
+  call test_begin('z_high_interface_resolves_reordered_lateral_face')
+  call test_z_high_interface_resolves_reordered_lateral_face()
   call test_end()
 
-  call test_begin('z_high_interface_rejects_reverse_reordered_lateral_face')
-  call test_z_high_interface_rejects_reverse_reordered_lateral_face()
+  call test_begin('z_high_interface_resolves_reverse_reordered_lateral_face')
+  call test_z_high_interface_resolves_reverse_reordered_lateral_face()
   call test_end()
 
   call test_begin('z_high_interface_acceleration_reversal')
@@ -167,7 +167,7 @@ contains
     call assert_true(.not. result%interface_crossing%has_crossing, 'ambiguous open corner must not reach outer transport')
   end subroutine test_z_high_interface_rejects_simultaneous_open_corner
 
-  subroutine test_z_high_interface_rejects_dephased_corner()
+  subroutine test_z_high_interface_resolves_dephased_corner()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
@@ -182,14 +182,19 @@ contains
       [1.1_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, 0.5_dp], result=result, boundary_contract=interface_contract &
       )
 
-    call assert_true( &
-      result%status == particle_step_invalid_boundary, &
-      'corner whose refined z-high time differs from its companion face must fail closed' &
+    call assert_true(result%status == particle_step_ok, 'dephased corner should resolve the earlier z-high event')
+    call assert_true(result%interface_crossing%has_crossing, 'dephased corner lost outer transport')
+    call assert_close_dp( &
+      result%interface_crossing%fraction, 0.5_dp*(3.0_dp - sqrt(5.0_dp)), 1.0e-14_dp, &
+      'dephased corner z-high fraction mismatch' &
       )
-    call assert_true(.not. result%interface_crossing%has_crossing, 'dephased corner must not reach outer transport')
-  end subroutine test_z_high_interface_rejects_dephased_corner
+    call assert_true( &
+      result%interface_crossing%position(1) > 0.9_dp .and. result%interface_crossing%position(1) < 1.0_dp, &
+      'later periodic face must not be applied before z-high dispatch' &
+      )
+  end subroutine test_z_high_interface_resolves_dephased_corner
 
-  subroutine test_z_high_interface_rejects_reordered_lateral_face()
+  subroutine test_z_high_interface_resolves_reordered_lateral_face()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
@@ -204,14 +209,15 @@ contains
       [1.7_dp, 0.2_dp, 1.99_dp], [1.0_dp, 0.0_dp, 2.96_dp], result=result, boundary_contract=interface_contract &
       )
 
+    call assert_true(result%status == particle_step_ok, 'earlier lateral face should be processed before z-high')
+    call assert_true(result%interface_crossing%has_crossing, 'z-high crossing after the lateral event is missing')
     call assert_true( &
-      result%status == particle_step_invalid_boundary, &
-      'lateral face moved ahead of the refined z-high crossing must fail closed' &
+      result%interface_crossing%position(1) > 0.0_dp .and. result%interface_crossing%position(1) < 1.0_dp, &
+      'earlier periodic face was not applied before z-high dispatch' &
       )
-    call assert_true(.not. result%interface_crossing%has_crossing, 'reordered lateral face must not be skipped')
-  end subroutine test_z_high_interface_rejects_reordered_lateral_face
+  end subroutine test_z_high_interface_resolves_reordered_lateral_face
 
-  subroutine test_z_high_interface_rejects_reverse_reordered_lateral_face()
+  subroutine test_z_high_interface_resolves_reverse_reordered_lateral_face()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
@@ -226,12 +232,17 @@ contains
       [1.7_dp, 0.2_dp, 1.1_dp], [1.0_dp, 0.0_dp, -0.8_dp], result=result, boundary_contract=interface_contract &
       )
 
-    call assert_true( &
-      result%status == particle_step_invalid_boundary, &
-      'refined z-high crossing moved ahead of the selected lateral face must fail closed' &
+    call assert_true(result%status == particle_step_ok, 'earlier refined z-high event should be dispatched')
+    call assert_true(result%interface_crossing%has_crossing, 'earlier refined z-high crossing is missing')
+    call assert_close_dp( &
+      result%interface_crossing%fraction, 0.5_dp*(1.2_dp - sqrt(1.04_dp)), 1.0e-14_dp, &
+      'reverse-reordered z-high fraction mismatch' &
       )
-    call assert_true(.not. result%interface_crossing%has_crossing, 'reverse-reordered z-high face must not be skipped')
-  end subroutine test_z_high_interface_rejects_reverse_reordered_lateral_face
+    call assert_true( &
+      result%interface_crossing%position(1) > 0.7_dp .and. result%interface_crossing%position(1) < 1.0_dp, &
+      'later periodic face must not be applied before z-high dispatch' &
+      )
+  end subroutine test_z_high_interface_resolves_reverse_reordered_lateral_face
 
   subroutine test_z_high_interface_event_payload()
     type(mesh_type) :: mesh

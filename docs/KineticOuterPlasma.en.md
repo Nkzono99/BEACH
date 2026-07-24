@@ -95,6 +95,49 @@ Outgoing and returning densities in `kinetic_mean` are a stationary closure for 
 deposition by tracked particles and do not add a second statistical return current. See
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for source charge and tracked reabsorption.
 
+## Add photoelectron susceptibility to the ambient linear Debye response
+
+`kinetic_closure="ambient_linear_debye"` analytically constructs
+
+$$
+\phi_I=\lambda_D E_I,\qquad
+\phi(z)=\phi_I\exp(-z/\lambda_D),\qquad
+\rho_{\mathrm{amb}}(z)=-\frac{\epsilon_0}{\lambda_D^2}\phi(z)
+$$
+
+from the interface field $E_I$ supplied by the current surface zero mode. It performs no spatial Poisson root or Newton
+iteration. The infinity gauge is $\phi(\infty)=0$. The same profile controls ambient-reservoir accessibility and velocity
+mapping and z-high return or escape. Diagnostic ambient inflow currents use the one-sided drifting-Maxwellian flux of each
+`reservoir_face` species with the same interface barrier.
+
+With `photoelectron_density_model="none"`, enabled `photo_raycast` sources remain ordinary tracked particles that are emitted,
+reabsorbed, or allowed to escape. Their mean density, mean outer current, and outer space charge are excluded.
+
+With `photoelectron_density_model="linearized_mean"`, the emitted current density defines the number flux
+$\Gamma_{pe}=J_{pe}/|q_{pe}|$ and
+
+$$
+n_{pe,*}=\Gamma_{pe}\sqrt{\frac{\pi m_{pe}}{2T_{pe}}},
+\qquad
+\lambda_{D,pe}=
+\sqrt{\frac{\epsilon_0T_{pe}}{n_{pe,*}q_{pe}^2}},
+$$
+
+$$
+\lambda_{\mathrm{eff}}^{-2}
+=\lambda_D^{-2}+\lambda_{D,pe}^{-2}.
+$$
+
+The resulting profile is
+$\phi(z)=\lambda_{\mathrm{eff}}E_I\exp(-z/\lambda_{\mathrm{eff}})$, and
+`outer_debye_length_m` reports the resolved $\lambda_{\mathrm{eff}}$.
+
+The mean response and analytic escape current supply only the field and diagnostics. Tracked emission and absorption remain
+the sole owners of surface-charge updates. This is a perturbation about a reference photoelectron cloud; it does not retain
+the finite stationary cloud charge or its transient return inventory. Use `absorbing_maxwellian + kinetic_mean` or
+`zhao_charge_driven` for a virtual cathode, a space-charge-limited or inverse sheath, trapped populations, or a nonmonotone
+profile.
+
 ## Connect Zhao populations to accumulated charge
 
 `kinetic_closure="zhao_charge_driven"` uses Zhao populations of free/reflected ambient electrons, free/captured

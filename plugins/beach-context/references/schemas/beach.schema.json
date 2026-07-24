@@ -50,10 +50,10 @@
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
         "model": {"const": "kinetic_1d", "description": "Select the supported VDF-based outer sheath."},
-        "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian", "description": "Density/VDF closure used by kinetic_1d. zhao_charge_driven retains the accumulated-charge interface-field condition instead of imposing a floating-current root."},
+        "kinetic_closure": {"enum": ["absorbing_maxwellian", "ambient_linear_debye", "zhao_charge_driven"], "default": "absorbing_maxwellian", "description": "Closure used by kinetic_1d. ambient_linear_debye applies an analytic linear Debye response and can optionally add linearized photoelectron susceptibility; zhao_charge_driven retains the accumulated-charge interface-field condition."},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto", "description": "Requested Zhao branch when kinetic_closure is zhao_charge_driven."},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1, "description": "Independent Zhao photoelectron source multiplier. Set to 0 for the no-photo Type-C path; positive values require a matching enabled photo_raycast species. This is distinct from the transient outer-cloud occupancy eta."},
-        "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
+        "photoelectron_density_model": {"enum": ["none", "kinetic_mean", "linearized_mean"], "default": "none", "description": "Mean outer photoelectron response. kinetic_mean uses the stationary emitted VDF with absorbing_maxwellian; linearized_mean adds a flux-derived linear susceptibility to ambient_linear_debye."},
         "return_model": {"enum": ["none", "kinetic_1d_profile_return"], "default": "none"},
         "interface_z": {"type": "number"},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
@@ -64,6 +64,20 @@
       "allOf": [
         {
           "if": {
+            "required": ["kinetic_closure"],
+            "properties": {
+              "kinetic_closure": {"const": "ambient_linear_debye"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "photoelectron_density_model": {"enum": ["none", "linearized_mean"]}
+            }
+          }
+        },
+        {
+          "if": {
             "required": ["photoelectron_density_model"],
             "properties": {
               "photoelectron_density_model": {"const": "kinetic_mean"}
@@ -72,6 +86,22 @@
           "then": {
             "properties": {
               "model": {"const": "kinetic_1d"},
+              "kinetic_closure": {"const": "absorbing_maxwellian"},
+              "return_model": {"enum": ["none", "kinetic_1d_profile_return"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["photoelectron_density_model"],
+            "properties": {
+              "photoelectron_density_model": {"const": "linearized_mean"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "kinetic_closure": {"const": "ambient_linear_debye"},
               "return_model": {"enum": ["none", "kinetic_1d_profile_return"]}
             }
           }
@@ -675,7 +705,7 @@
           "outer_plasma": {
             "required": ["photoelectron_density_model"],
             "properties": {
-              "photoelectron_density_model": {"const": "kinetic_mean"}
+              "photoelectron_density_model": {"enum": ["kinetic_mean", "linearized_mean"]}
             }
           }
         }
@@ -928,10 +958,10 @@
       "required": ["model"],
       "properties": {
         "model": {"enum": ["none", "kinetic_1d"]},
-        "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
+        "kinetic_closure": {"enum": ["absorbing_maxwellian", "ambient_linear_debye", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto"},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1},
-        "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
+        "photoelectron_density_model": {"enum": ["none", "kinetic_mean", "linearized_mean"], "default": "none"},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
         "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
         "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
@@ -970,11 +1000,25 @@
         "photoelectron_density_model": {
           "properties": {
             "model": {"const": "kinetic_1d"},
-            "kinetic_closure": {"const": "absorbing_maxwellian"}
+            "kinetic_closure": {"enum": ["absorbing_maxwellian", "ambient_linear_debye"]}
           }
         }
       },
       "allOf": [
+        {
+          "if": {
+            "required": ["kinetic_closure"],
+            "properties": {
+              "kinetic_closure": {"const": "ambient_linear_debye"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "photoelectron_density_model": {"enum": ["none", "linearized_mean"]}
+            }
+          }
+        },
         {
           "if": {
             "required": ["model"],
@@ -1006,7 +1050,22 @@
           },
           "then": {
             "properties": {
-              "model": {"const": "kinetic_1d"}
+              "model": {"const": "kinetic_1d"},
+              "kinetic_closure": {"const": "absorbing_maxwellian"}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["photoelectron_density_model"],
+            "properties": {
+              "photoelectron_density_model": {"const": "linearized_mean"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "kinetic_closure": {"const": "ambient_linear_debye"}
             }
           }
         },

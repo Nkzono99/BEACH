@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Added `kinetic_closure="ambient_linear_debye"` for an analytic ambient-only Debye profile coupled to ordinary tracked photoelectron emission, reabsorption, and escape without photoelectron mean space charge.
 - Added the `[external_boundary]` authoring facade, which separates outer-field physics, z-high particle lifecycle/inflow, and ordinary open-face handling while deriving internal return, transfer, queue, and interface settings.
 - Added resolved external-boundary receipts to `summary.txt` so runs report the effective inflow map, ordinary-open model, interface transport, and particle mode.
 - Added opt-in `coupling.steady_start_mode="zhao_floating"` for stationary Zhao studies. Fresh runs seed the selected full-cell plane from the zero-current root, while resumed runs restore checkpoint charge and outer state without reseeding.

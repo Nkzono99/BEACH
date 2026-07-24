@@ -1,6 +1,6 @@
 program test_outer_plasma_kinetic
   use bem_kinds, only: dp, i32
-  use bem_constants, only: qe, eps0
+  use bem_constants, only: qe, eps0, pi
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_no_physical_solution
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic, &
                                       solve_outer_plasma_zhao_stationary, eval_kinetic_residual_jacobian_action
@@ -19,7 +19,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: continuation_steps
   character(len=256) :: message
 
-  call test_init(14)
+  call test_init(16)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -37,6 +37,68 @@ program test_outer_plasma_kinetic
   call assert_close_dp( &
     state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
     1.0e-20_dp, 'finite-domain Gauss closure mismatch' &
+    )
+  call test_end()
+
+  call test_begin('ambient linear Debye closure matches its analytic profile')
+  options = reference_options()
+  options%kinetic_closure = 'ambient_linear_debye'
+  options%interface_field = -0.25_dp
+  options%domain_length = 6.0_dp
+  options%tail_length = 2.0_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'ambient linear Debye solve failed: '//trim(message))
+  call assert_true(state%ready, 'ambient linear Debye state must be ready')
+  call assert_true(trim(state%kinetic_closure) == 'ambient_linear_debye', &
+                   'ambient linear Debye closure metadata mismatch')
+  call assert_close_dp(state%interface_potential, -0.5_dp, 1.0e-14_dp, &
+                       'ambient linear Debye interface potential mismatch')
+  call assert_close_dp(state%potential(state%profile_n), -0.5_dp*exp(-3.0_dp), 1.0e-14_dp, &
+                       'ambient linear Debye far profile mismatch')
+  call assert_close_dp(state%field(state%profile_n), -0.25_dp*exp(-3.0_dp), 1.0e-14_dp, &
+                       'ambient linear Debye far field mismatch')
+  call assert_close_dp( &
+    state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
+    1.0e-24_dp, 'ambient linear Debye Gauss closure mismatch' &
+    )
+  call assert_close_dp(state%photoelectron_current_density, 0.0_dp, 0.0_dp, &
+                       'tracked-only photoelectron mean current must vanish')
+  call test_end()
+
+  call test_begin('ambient linear Debye adds flux-derived photoelectron screening')
+  options = reference_options()
+  options%kinetic_closure = 'ambient_linear_debye'
+  options%interface_field = 0.25_dp
+  options%domain_length = 20.0_dp
+  options%tail_length = 10.0_dp
+  options%photoelectron_charge = -qe
+  options%photoelectron_mass = electron_mass
+  options%photoelectron_temperature_j = 2.2_dp*qe
+  options%photoelectron_emission_flux = 4.5e-6_dp/qe
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'ambient linear photo mean solve failed: '//trim(message))
+  call assert_true(state%ready, 'ambient linear photo mean state must be ready')
+  call assert_close_dp( &
+    state%debye_length, &
+    1.0_dp/sqrt( &
+    1.0_dp/options%tail_length**2 + &
+    options%photoelectron_emission_flux*sqrt( &
+    pi*options%photoelectron_mass/(2.0_dp*options%photoelectron_temperature_j) &
+    )*options%photoelectron_charge**2/(eps0*options%photoelectron_temperature_j) &
+    ), &
+    1.0e-12_dp, 'ambient linear photo mean screening length mismatch' &
+    )
+  call assert_close_dp( &
+    state%interface_potential, state%debye_length*options%interface_field, 1.0e-14_dp, &
+    'ambient linear photo mean interface potential mismatch' &
+    )
+  call assert_true(state%debye_length < options%tail_length, &
+                   'photoelectron susceptibility must shorten the response length')
+  call assert_true(state%photoelectron_current_density > 0.0_dp, &
+                   'escaping photoelectrons must produce a positive surface-current diagnostic')
+  call assert_close_dp( &
+    state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
+    1.0e-24_dp, 'ambient linear photo mean Gauss closure mismatch' &
     )
   call test_end()
 

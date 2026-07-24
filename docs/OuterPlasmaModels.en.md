@@ -44,6 +44,7 @@ Otherwise, start with the row closest to the intended calculation.
 | --- | --- | --- | --- |
 | No external field or a scalar barrier | `none` | `local_source` | `source_vdf` / `infinity_barrier` |
 | Standard self-consistent 1-D sheath | `kinetic_1d` + `absorbing_maxwellian` | `same_batch` | `auto` |
+| Linear response with weak photoemission represented only by tracked particles | `kinetic_1d` + `ambient_linear_debye` | `same_batch` | `auto` |
 | Stationary or quasistationary Zhao sheath closed by accumulated charge | `kinetic_1d` + `zhao_charge_driven` | `same_batch` | `auto` |
 | Zhao transient with outer-flight delay | `kinetic_1d` + `zhao_charge_driven` | `zhao_queue` | `auto` |
 
@@ -78,6 +79,29 @@ thermal_voltage = 10.0
 mode = "local_source"
 inflow_model = "source_vdf"
 ```
+
+For weak photoemission under a linear-response approximation, select:
+
+```toml
+[external_boundary.field]
+model = "kinetic_1d"
+kinetic_closure = "ambient_linear_debye"
+debye_length = 0.2
+thermal_voltage = 2.0
+
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
+```
+
+This closure responds with the ambient plasma only,
+$\phi(z)=\lambda_D E_I\exp(-z/\lambda_D)$.
+`photo_raycast` photoelectrons are still emitted, tracked, and reabsorbed normally and therefore update surface charge,
+but they do not enter the 1-D mean density or mean current. Use this closure only while photoelectron space charge remains
+small compared with the ambient linear response: it cannot represent a virtual cathode, a space-charge-limited or inverse
+sheath, or trapped populations. See
+[`periodic2_ambient_linear_photo_outer.toml`](../examples/periodic2_ambient_linear_photo_outer.toml)
+for a complete example.
 
 ## Choose Interface-Particle Handling
 
