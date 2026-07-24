@@ -82,7 +82,7 @@ contains
     end if
     if (.not. use_zhao .and. (electron_count /= 1_i32 .or. ion_count /= 1_i32)) then
       status = outer_plasma_not_applicable
-      message = 'Absorbing-Maxwellian closure requires exactly one ambient electron and ion species'
+      message = 'Selected ambient kinetic closure requires exactly one ambient electron and ion species'
       return
     end if
     if (use_zhao .and. .not. no_photo_zhao .and. photoelectron_count /= 1_i32) then
@@ -207,6 +207,7 @@ contains
     options%electron_mass = species%m_particle
     options%electron_density_infinity = species_density_m3(species)
     options%electron_temperature_j = species_temperature_j(species)
+    options%electron_drift_infinity = -species%drift_velocity(3)
     if (options%electron_charge >= 0.0_dp .or. options%electron_mass <= 0.0_dp .or. &
         options%electron_density_infinity <= 0.0_dp .or. options%electron_temperature_j <= 0.0_dp) then
       message = 'kinetic electron reservoir requires positive density, mass, and temperature'

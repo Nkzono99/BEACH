@@ -1437,7 +1437,11 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         photoelectron_source_scale = outer_plasma.get(
             "photoelectron_source_scale", 1.0
         )
-    if kinetic_closure not in {"absorbing_maxwellian", "zhao_charge_driven"}:
+    if kinetic_closure not in {
+        "absorbing_maxwellian",
+        "ambient_linear_debye",
+        "zhao_charge_driven",
+    }:
         raise ConfigValidationError(
             "BEACH constraint error: unsupported outer_plasma.kinetic_closure="
             f"{kinetic_closure!r}."
@@ -1457,19 +1461,35 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "BEACH constraint error: outer_plasma.photoelectron_source_scale "
             "must be finite and >= 0."
         )
-    if kinetic_closure == "absorbing_maxwellian" and zhao_branch != "auto":
+    if kinetic_closure != "zhao_charge_driven" and zhao_branch != "auto":
         raise ConfigValidationError(
             "BEACH constraint error: outer_plasma.zhao_branch must be auto when "
-            "outer_plasma.kinetic_closure=absorbing_maxwellian."
+            "outer_plasma.kinetic_closure is not zhao_charge_driven."
         )
     if (
-        kinetic_closure == "absorbing_maxwellian"
+        kinetic_closure != "zhao_charge_driven"
         and float(photoelectron_source_scale) != 1.0
     ):
         raise ConfigValidationError(
             "BEACH constraint error: outer_plasma.photoelectron_source_scale requires "
             "outer_plasma.kinetic_closure=zhao_charge_driven."
         )
+    if kinetic_closure == "ambient_linear_debye":
+        if (
+            not isinstance(outer_plasma, Mapping)
+            or outer_plasma.get("model") != "kinetic_1d"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: "
+                "outer_plasma.kinetic_closure=ambient_linear_debye "
+                "requires outer_plasma.model=kinetic_1d."
+            )
+        if photoelectron_density_model != "none":
+            raise ConfigValidationError(
+                "BEACH constraint error: "
+                "outer_plasma.kinetic_closure=ambient_linear_debye "
+                "requires outer_plasma.photoelectron_density_model=none."
+            )
     if kinetic_closure == "zhao_charge_driven":
         if (
             not isinstance(outer_plasma, Mapping)

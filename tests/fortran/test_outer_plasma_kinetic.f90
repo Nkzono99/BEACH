@@ -19,7 +19,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: continuation_steps
   character(len=256) :: message
 
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -38,6 +38,31 @@ program test_outer_plasma_kinetic
     state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
     1.0e-20_dp, 'finite-domain Gauss closure mismatch' &
     )
+  call test_end()
+
+  call test_begin('ambient linear Debye closure matches its analytic profile')
+  options = reference_options()
+  options%kinetic_closure = 'ambient_linear_debye'
+  options%interface_field = -0.25_dp
+  options%domain_length = 6.0_dp
+  options%tail_length = 2.0_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'ambient linear Debye solve failed: '//trim(message))
+  call assert_true(state%ready, 'ambient linear Debye state must be ready')
+  call assert_true(trim(state%kinetic_closure) == 'ambient_linear_debye', &
+                   'ambient linear Debye closure metadata mismatch')
+  call assert_close_dp(state%interface_potential, -0.5_dp, 1.0e-14_dp, &
+                       'ambient linear Debye interface potential mismatch')
+  call assert_close_dp(state%potential(state%profile_n), -0.5_dp*exp(-3.0_dp), 1.0e-14_dp, &
+                       'ambient linear Debye far profile mismatch')
+  call assert_close_dp(state%field(state%profile_n), -0.25_dp*exp(-3.0_dp), 1.0e-14_dp, &
+                       'ambient linear Debye far field mismatch')
+  call assert_close_dp( &
+    state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
+    1.0e-24_dp, 'ambient linear Debye Gauss closure mismatch' &
+    )
+  call assert_close_dp(state%photoelectron_current_density, 0.0_dp, 0.0_dp, &
+                       'tracked-only photoelectron mean current must vanish')
   call test_end()
 
   call test_begin('stationary Zhao helper builds the UV-on Type-A equilibrium')

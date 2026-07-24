@@ -432,6 +432,28 @@ def test_external_boundary_facade_requires_specialized_field_option_owners() -> 
         normalize_config_document(zhao_density)
 
 
+def test_ambient_linear_photo_facade_keeps_photoelectrons_tracked_only() -> None:
+    config = load_toml_file(
+        Path("examples/periodic2_ambient_linear_photo_outer.toml")
+    )
+    normalized = normalize_config_document(config)
+
+    assert normalized["outer_plasma"]["kinetic_closure"] == (
+        "ambient_linear_debye"
+    )
+    assert normalized["outer_plasma"].get("photoelectron_density_model", "none") == "none"
+    assert normalized["outer_plasma"]["return_model"] == (
+        "kinetic_1d_profile_return"
+    )
+
+    invalid = copy.deepcopy(config)
+    invalid["external_boundary"]["field"]["photoelectron_density_model"] = (
+        "kinetic_mean"
+    )
+    with pytest.raises(ConfigError, match="requires kinetic_closure=absorbing"):
+        normalize_config_document(invalid)
+
+
 @pytest.mark.parametrize(
     ("example", "key", "value"),
     [

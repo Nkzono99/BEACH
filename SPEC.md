@@ -182,6 +182,15 @@ pseudo-transient stepへ切り替え、前回profileとのinterface field差が�
 current診断だけを供給し、表面へreturn chargeを再加算しません。表面の電荷収支はtracked粒子の放出と
 再吸収だけで更新します。
 
+`outer_plasma.kinetic_closure="ambient_linear_debye"`は、surface zero modeが与えるinterface電場$E_I$から
+$\phi_I=\lambda_D E_I$、$\phi(z)=\phi_I\exp(-z/\lambda_D)$、
+$\rho_{\mathrm{amb}}=-\epsilon_0\phi/\lambda_D^2$を解析的に構成します。
+`photoelectron_density_model="none"`を要求し、enabledな`photo_raycast`光電子はtracked放出・再吸収・escapeと
+表面電荷更新には残しますが、1D平均密度、平均outer電流、outer space chargeへ含めません。同じprofileを
+ambient reservoir流入とz-high return/escapeへ使用します。このclosureは単調なambient線形応答だけを表し、
+光電子space charge、非線形sheath、virtual cathode、space-charge-limited / inverse sheath、trapped populationは
+適用外です。
+
 `outer_plasma.kinetic_closure="zhao_charge_driven"`は、同じsurface zero modeのinterface電場を境界条件として、
 Zhao Type A/B/Cのfree/reflected ambient electron、free/captured photoelectron、cold ion populationを使う選択肢です。
 無限遠準中性、Sagdeev積分のfield条件、Type Aではfar-field条件をrootとして解きます。定常Zhaoのzero-current式は

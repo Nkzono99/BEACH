@@ -321,7 +321,7 @@ entirely for an ordinary case that does not need these controls.
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `model` | string | required | `none` / `kinetic_1d` |
-| `kinetic_closure` | string | `absorbing_maxwellian` | For `kinetic_1d` only: `absorbing_maxwellian` / `zhao_charge_driven` |
+| `kinetic_closure` | string | `absorbing_maxwellian` | For `kinetic_1d` only: `absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | For `zhao_charge_driven` only: `auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | float | `1` | Analytic source multiplier for `zhao_charge_driven`; use `0` without UV |
 | `photoelectron_density_model` | string | `none` | Optional mean density for `kinetic_1d + absorbing_maxwellian`: `none` / `kinetic_mean` |
@@ -341,6 +341,7 @@ diagnostic or feature. A key outside the selected row is rejected as a no-op eve
 |---|---|---|
 | `none` | `model` only | none allowed |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`, `photoelectron_density_model`, and gap/local-charge limits |
+| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | gap/local-charge limits; photoelectrons remain tracked sources only |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`, and required `sim.sheath_*` physics values | source scale, branch, and gap/local-charge limits |
 
 For `kinetic_closure="zhao_charge_driven"`, `debye_length` and `thermal_voltage` remain schema-required but are not the
@@ -440,11 +441,11 @@ The facade derives `interface_z` and `return_model`. Legacy `[outer_plasma]` is 
 |---|---:|---|
 | `model` | required | `kinetic_1d` |
 | `interface_z` | required | upper-z interface; initially the top of the box |
-| `debye_length` | required | length scale for `absorbing_maxwellian` tails and split diagnostics; not the Zhao profile's physical scale |
+| `debye_length` | required | length scale for `absorbing_maxwellian` tails, the physical scale of `ambient_linear_debye`, and split diagnostics; not the Zhao profile's physical scale |
 | `thermal_voltage` | required | potential scale for interface nonzero-mode potential/field-decay diagnostics; not the Zhao profile's physical scale |
 | `max_gap_ratio` | `5` | upper bound on `(z_t-z_mesh,max)/lambda` |
 | `max_local_charge_ratio` | `50` | upper bound on the local mean-plasma charge estimate ratio |
-| `kinetic_closure` | `absorbing_maxwellian` | density/VDF closure for `kinetic_1d`: `absorbing_maxwellian` / `zhao_charge_driven` |
+| `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` closure: `absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure branch: `auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | `1` | independent multiplier for the analytic Zhao photoelectron source; use `0` without UV; distinct from queue occupancy $\eta$ |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`; the latter adds mean photoelectron density to `kinetic_1d` |
@@ -459,11 +460,11 @@ Selecting `external_boundary.field.model="kinetic_1d"` through the public facade
 | Item | Contract |
 | --- | --- |
 | Gauge | `phi(infinity)=0`; not configurable through public or compatibility input |
-| Far boundary | `absorbing_maxwellian` uses a Robin tail of length `debye_length`; photoemitting Zhao instant return derives $\lambda_{D,pe}$ from $T_{pe},n_{ref}$; no-photo Zhao derives $\lambda_{D,e}$ from ambient $T_e,n_\infty$; queue mode ends at $L=10\lambda_{D,pe}$ |
-| Closure | default `absorbing_maxwellian`, or `zhao_charge_driven`, which retains the accumulated-charge interface-field condition |
-| Supported branch | monotone for `absorbing_maxwellian`; Zhao A/B/C, including nonmonotone Type A, for `zhao_charge_driven` |
-| Unsupported | virtual cathodes, trapped populations, and sub-Bohm inflow under `absorbing_maxwellian` |
-| Nonlinear solve | analytic bordered-tridiagonal Jacobian plus branch-preserving Newton |
+| Far boundary | `absorbing_maxwellian` uses a Robin tail of length `debye_length`; `ambient_linear_debye` uses an analytic exponential tail of the same length; photoemitting Zhao instant return derives $\lambda_{D,pe}$ from $T_{pe},n_{ref}$; no-photo Zhao derives $\lambda_{D,e}$ from ambient $T_e,n_\infty$; queue mode ends at $L=10\lambda_{D,pe}$ |
+| Closure | default `absorbing_maxwellian`, analytic ambient-only `ambient_linear_debye`, or `zhao_charge_driven`, which retains the accumulated-charge interface-field condition |
+| Supported branch | monotone for `absorbing_maxwellian` and `ambient_linear_debye`; Zhao A/B/C, including nonmonotone Type A, for `zhao_charge_driven` |
+| Unsupported | `ambient_linear_debye` excludes mean photoelectron density, nonlinear sheaths, virtual cathodes, and trapped populations |
+| Nonlinear solve | no iteration for `ambient_linear_debye`; closure-specific root or Newton solve otherwise |
 | Recovery | pseudo-transient and interface-field continuation; accept only after the original Poisson residual passes |
 | Fallback | never return another sheath model or a held previous profile as a converged solution |
 

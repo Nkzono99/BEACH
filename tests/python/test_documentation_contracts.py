@@ -275,6 +275,25 @@ def test_zhao_charge_driven_schema_contract() -> None:
     assert list(validator.iter_errors(invalid))
 
 
+def test_ambient_linear_photo_schema_contract() -> None:
+    validator = Draft7Validator(_schema())
+    config = tomllib.loads(
+        _read("examples/periodic2_ambient_linear_photo_outer.toml")
+    )
+
+    assert not list(validator.iter_errors(config))
+
+    invalid = copy.deepcopy(config)
+    invalid["external_boundary"]["field"]["photoelectron_density_model"] = (
+        "kinetic_mean"
+    )
+    assert list(validator.iter_errors(invalid))
+
+    invalid = copy.deepcopy(config)
+    invalid["external_boundary"]["field"]["zhao_branch"] = "a"
+    assert list(validator.iter_errors(invalid))
+
+
 def test_outer_sheath_guidance_keeps_kinetic_as_the_standard_model() -> None:
     outer = _schema()["properties"]["outer_plasma"]
     model = outer["properties"]["model"]

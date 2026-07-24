@@ -34,6 +34,7 @@ program test_outer_plasma_interface
 
   call test_begin('kinetic_profile_constant_field_return')
   call set_kinetic_profile(state, [-1.0_dp, 0.0_dp], [1.0_dp, 2.0_dp])
+  state%kinetic_closure = 'ambient_linear_debye'
   crossing%velocity = [0.5_dp, 0.25_dp, 1.0_dp]
   call map_outer_particle_kinetic_profile( &
     state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &

@@ -95,6 +95,30 @@ Outgoing and returning densities in `kinetic_mean` are a stationary closure for 
 deposition by tracked particles and do not add a second statistical return current. See
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for source charge and tracked reabsorption.
 
+## Separate the ambient linear Debye response from tracked photoelectrons
+
+`kinetic_closure="ambient_linear_debye"` analytically constructs
+
+$$
+\phi_I=\lambda_D E_I,\qquad
+\phi(z)=\phi_I\exp(-z/\lambda_D),\qquad
+\rho_{\mathrm{amb}}(z)=-\frac{\epsilon_0}{\lambda_D^2}\phi(z)
+$$
+
+from the interface field $E_I$ supplied by the current surface zero mode. It performs no spatial Poisson root or Newton
+iteration. The infinity gauge is $\phi(\infty)=0$. The same profile controls ambient-reservoir accessibility and velocity
+mapping and z-high return or escape. Diagnostic ambient inflow currents use the one-sided drifting-Maxwellian flux of each
+`reservoir_face` species with the same interface barrier.
+
+This closure requires `photoelectron_density_model="none"`. It does not reject enabled `photo_raycast` sources:
+photoelectrons are emitted, reabsorbed, or allowed to escape as ordinary tracked particles. Their mean density, mean outer
+current, and outer space charge are excluded from the closure. Surface charge is therefore updated only by tracked emission
+and absorption; no analytic photoelectron current is added again.
+
+The applicability range is weak photoemission for which the ambient linear response dominates. The model cannot represent a
+photoelectron-space-charge virtual cathode, a space-charge-limited or inverse sheath, trapped populations, or a nonmonotone
+profile.
+
 ## Connect Zhao populations to accumulated charge
 
 `kinetic_closure="zhao_charge_driven"` uses Zhao populations of free/reflected ambient electrons, free/captured

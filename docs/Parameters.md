@@ -307,7 +307,7 @@ field_evolution_timescale = 1.0
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `model` | string | 必須 | `none` / `kinetic_1d` |
-| `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `zhao_charge_driven` |
+| `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | `zhao_charge_driven` のみ。`auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | float | `1` | `zhao_charge_driven` の解析光電子 source 倍率。UV なしは `0` |
 | `photoelectron_density_model` | string | `none` | `kinetic_1d + absorbing_maxwellian` の任意平均密度。`none` / `kinetic_mean` |
@@ -327,6 +327,7 @@ field_evolution_timescale = 1.0
 |---|---|---|
 | `none` | `model` のみ | 追加不可 |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`、`photoelectron_density_model`、gap / local-charge 上限 |
+| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | gap / local-charge 上限。光電子はtracked sourceだけ |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`、必要な `sim.sheath_*` 物理値 | source scale / branch、gap / local-charge 上限 |
 
 `kinetic_closure="zhao_charge_driven"` でも `debye_length` と `thermal_voltage` は schema 上必須ですが、
@@ -420,11 +421,11 @@ facade では `interface_z` と `return_model` を自動導出します。旧 `[
 |---|---:|---|
 | `model` | 必須 | `kinetic_1d` |
 | `interface_z` | 必須 | z 上側 interface。初期モデルでは box 上面 |
-| `debye_length` | 必須 | `absorbing_maxwellian` tailとsplit診断の長さscale。Zhao profileの物理scaleではない |
+| `debye_length` | 必須 | `absorbing_maxwellian` tail、`ambient_linear_debye`の物理scale、split診断の長さscale。Zhao profileの物理scaleではない |
 | `thermal_voltage` | 必須 | interfaceの非零モード電位・電場減衰診断に使う電位scale。Zhao profileの物理scaleではない |
 | `max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda` 上限 |
 | `max_local_charge_ratio` | `50` | 局所平均 plasma 電荷推定比上限 |
-| `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` の density/VDF closure。`absorbing_maxwellian` / `zhao_charge_driven` |
+| `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` closure。`absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure の branch。`auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | `1` | Zhao解析光電子sourceの独立倍率。UVなしは`0`。queue occupancyの$\eta$とは別物 |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は `kinetic_1d` へ平均光電子密度を追加 |
@@ -440,11 +441,11 @@ z-high に定義した負電荷と正電荷の `reservoir_face` species を、�
 | 項目 | 仕様 |
 | --- | --- |
 | gauge | `phi(infinity)=0`。公開・互換入力では変更不可 |
-| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。光電子ありZhao instantは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$、no-photo Zhaoはambient $T_e,n_\infty$から導出した$\lambda_{D,e}$、queueは$L=10\lambda_{D,pe}$の有限reservoir境界を使う |
-| closure | 既定の `absorbing_maxwellian`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
-| supported branch | `absorbing_maxwellian` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
-| unsupported | `absorbing_maxwellian` では virtual cathode、trapped population、sub-Bohm inflow |
-| nonlinear solve | 解析bordered-tridiagonal Jacobian + branch-preserving Newton |
+| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。`ambient_linear_debye`は同じ長さの解析指数tail。光電子ありZhao instantは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$、no-photo Zhaoはambient $T_e,n_\infty$から導出した$\lambda_{D,e}$、queueは$L=10\lambda_{D,pe}$の有限reservoir境界を使う |
+| closure | 既定の `absorbing_maxwellian`、ambientだけの解析的 `ambient_linear_debye`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
+| supported branch | `absorbing_maxwellian` と `ambient_linear_debye` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
+| unsupported | `ambient_linear_debye` は光電子平均密度・非線形 sheath・virtual cathode・trapped populationを扱わない |
+| nonlinear solve | `ambient_linear_debye` は反復なし。他は closure 固有の root / Newton |
 | recovery | pseudo-transientとinterface-field continuation。元のPoisson residual合格後だけ受理 |
 | fallback | 別sheath modelや前回解へfallbackしない |
 

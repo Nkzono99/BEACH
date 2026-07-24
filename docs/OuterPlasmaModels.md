@@ -44,6 +44,7 @@ field_evolution_timescale = 1.0
 | --- | --- | --- | --- |
 | 外部場なし、または scalar barrier | `none` | `local_source` | `source_vdf` / `infinity_barrier` |
 | 標準の自己整合 1D シース | `kinetic_1d` + `absorbing_maxwellian` | `same_batch` | `auto` |
+| 弱い光電子放出を tracked 粒子だけで扱う線形応答 | `kinetic_1d` + `ambient_linear_debye` | `same_batch` | `auto` |
 | 蓄積電荷で閉じる Zhao 定常・準定常シース | `kinetic_1d` + `zhao_charge_driven` | `same_batch` | `auto` |
 | Zhao の外部飛行遅延を含む過渡 | `kinetic_1d` + `zhao_charge_driven` | `zhao_queue` | `auto` |
 
@@ -78,6 +79,29 @@ thermal_voltage = 10.0
 mode = "local_source"
 inflow_model = "source_vdf"
 ```
+
+弱い光電子放出を線形近似で扱う場合は、次の closure を選べます。
+
+```toml
+[external_boundary.field]
+model = "kinetic_1d"
+kinetic_closure = "ambient_linear_debye"
+debye_length = 0.2
+thermal_voltage = 2.0
+
+[external_boundary.particles]
+mode = "same_batch"
+field_evolution_timescale = 1.0
+```
+
+この closure は ambient plasma だけを
+$\phi(z)=\lambda_D E_I\exp(-z/\lambda_D)$ として応答させます。
+`photo_raycast` 光電子は通常どおり放出・追跡・再吸収され、表面電荷を更新しますが、
+1D 平均密度と平均電流には入りません。virtual cathode、space-charge-limited / inverse sheath、
+trapped population を表せないため、光電子空間電荷が ambient 線形応答に対して十分小さい場合だけ使います。
+完全な例は
+[`periodic2_ambient_linear_photo_outer.toml`](../examples/periodic2_ambient_linear_photo_outer.toml)
+です。
 
 ## 接続面の粒子を選ぶ
 

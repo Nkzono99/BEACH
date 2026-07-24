@@ -82,6 +82,10 @@ contains
     if (present(continuation_steps)) continuation_steps = 0_i32
     if (present(zhao_diagnostics)) zhao_diagnostics = zhao_continuation_diagnostics_type()
     select case (trim(lower_ascii(options%kinetic_closure)))
+    case ('ambient_linear_debye')
+      call solve_outer_plasma_ambient_linear_debye(options, state, status, message)
+      if (status == outer_plasma_ok .and. present(continuation_steps)) continuation_steps = 1_i32
+      return
     case ('zhao_charge_driven')
       if (present(initial_state)) then
         call solve_outer_plasma_zhao_closure( &
@@ -178,6 +182,110 @@ contains
     state%applicability_status = status
     message = 'kinetic interface-field continuation reached its attempt limit'
   end subroutine solve_outer_plasma_kinetic
+
+  !> Ambient plasmaだけを線形Debye応答とし、tracked photoelectronは密度源へ含めない。
+  subroutine solve_outer_plasma_ambient_linear_debye(options, state, status, message)
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(outer_plasma_state_type), intent(out) :: state
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    type(outer_plasma_grid_type) :: grid
+    real(dp) :: interface_potential, electron_cutoff, ion_cutoff
+    real(dp) :: electron_flux, ion_flux
+
+    state = outer_plasma_state_type()
+    state%model = 'kinetic_1d'
+    state%kinetic_closure = 'ambient_linear_debye'
+    status = outer_plasma_invalid
+    message = ''
+    if (options%grid_points < 3_i32 .or. &
+        .not. all(ieee_is_finite([ &
+                                 options%domain_length, options%grid_stretch, options%tail_length, options%interface_field, &
+                                 options%electron_charge, options%electron_mass, options%electron_density_infinity, &
+                                 options%electron_temperature_j, options%electron_drift_infinity, options%ion_charge, &
+                                 options%ion_mass, options%ion_density_infinity, options%ion_temperature_j, &
+                                 options%ion_drift_infinity, options%photoelectron_emission_flux, options%external_current_density &
+                                 ])) .or. &
+        options%domain_length <= 0.0_dp .or. options%grid_stretch < 0.0_dp .or. &
+        options%tail_length <= 0.0_dp) then
+      state%applicability_status = status
+      message = 'ambient_linear_debye requires a finite grid, interface field, and positive Debye length'
+      return
+    end if
+    if (options%electron_charge >= 0.0_dp .or. options%electron_mass <= 0.0_dp .or. &
+        options%electron_density_infinity <= 0.0_dp .or. options%electron_temperature_j <= 0.0_dp .or. &
+        options%ion_charge <= 0.0_dp .or. options%ion_mass <= 0.0_dp .or. &
+        options%ion_density_infinity <= 0.0_dp .or. options%ion_temperature_j < 0.0_dp) then
+      state%applicability_status = status
+      message = 'ambient_linear_debye requires physical ambient electron and ion reservoirs'
+      return
+    end if
+    if (options%photoelectron_emission_flux /= 0.0_dp) then
+      state%applicability_status = status
+      message = 'ambient_linear_debye excludes photoelectrons from the mean outer charge density'
+      return
+    end if
+
+    call init_outer_plasma_grid(options%grid_points, options%domain_length, options%grid_stretch, grid)
+    interface_potential = options%tail_length*options%interface_field
+    state%profile_n = grid%n
+    state%interface_z = 0.0_dp
+    state%interface_potential = interface_potential
+    state%infinity_potential = 0.0_dp
+    state%debye_length = options%tail_length
+    state%interface_field = options%interface_field
+    state%nonlinear_iterations = 0_i32
+    state%nonlinear_residual = 0.0_dp
+    allocate (state%z(grid%n), state%potential(grid%n), state%field(grid%n), state%charge_density(grid%n))
+    state%z = grid%z
+    state%potential = interface_potential*exp(-grid%z/options%tail_length)
+    state%field = options%interface_field*exp(-grid%z/options%tail_length)
+    state%charge_density = -eps0*state%potential/options%tail_length**2
+    state%integrated_charge_per_area = &
+      eps0*(state%field(grid%n) - options%interface_field)
+
+    electron_cutoff = sqrt(max(0.0_dp, &
+                               2.0_dp*options%electron_charge*interface_potential/options%electron_mass))
+    ion_cutoff = sqrt(max(0.0_dp, 2.0_dp*options%ion_charge*interface_potential/options%ion_mass))
+    electron_flux = drifting_maxwellian_inflow_flux( &
+                    options%electron_density_infinity, options%electron_temperature_j, &
+                    options%electron_mass, options%electron_drift_infinity, electron_cutoff &
+                    )
+    ion_flux = drifting_maxwellian_inflow_flux( &
+               options%ion_density_infinity, options%ion_temperature_j, &
+               options%ion_mass, options%ion_drift_infinity, ion_cutoff &
+               )
+    state%electron_current_density = options%electron_charge*electron_flux
+    state%ion_current_density = options%ion_charge*ion_flux
+    state%photoelectron_current_density = 0.0_dp
+    state%total_current_density = state%electron_current_density + state%ion_current_density + &
+                                  options%external_current_density
+    state%applicability_status = outer_plasma_ok
+    state%ready = .true.
+    status = outer_plasma_ok
+  end subroutine solve_outer_plasma_ambient_linear_debye
+
+  !> 1D drifting Maxwellianの速度cutoff付き片側流束を返す。
+  pure real(dp) function drifting_maxwellian_inflow_flux( &
+    density, temperature_j, mass, inward_drift, minimum_speed &
+    ) result(flux)
+    real(dp), intent(in) :: density, temperature_j, mass, inward_drift, minimum_speed
+    real(dp) :: sigma, normalized_cutoff, upper_probability, gaussian_density
+
+    if (temperature_j <= 0.0_dp) then
+      if (inward_drift >= minimum_speed) then
+        flux = density*inward_drift
+      else
+        flux = 0.0_dp
+      end if
+      return
+    end if
+    sigma = sqrt(temperature_j/mass)
+    normalized_cutoff = (minimum_speed - inward_drift)/sigma
+    upper_probability = 0.5_dp*erfc(normalized_cutoff/sqrt(2.0_dp))
+    gaussian_density = exp(-0.5_dp*normalized_cutoff**2)/sqrt(2.0_dp*pi)
+    flux = density*max(0.0_dp, inward_drift*upper_probability + sigma*gaussian_density)
+  end function drifting_maxwellian_inflow_flux
 
   !> Zhao の零電流定常枝を解き、同じ根から外部 profile を構築する。
   subroutine solve_outer_plasma_zhao_stationary(options, state, status, message)
