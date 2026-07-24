@@ -337,6 +337,7 @@ ambient $T_e$ と $n_\infty$ から profile scale を導出します。
 この 2 値は split-interface の gap、lateral field、local-charge 診断の基準量です。
 `ambient_linear_debye + linearized_mean`では、`debye_length`をambient値として使い、放出fluxと$T_{pe}$から
 導出した光電子Debye長との逆二乗和で実効応答長を決めます。
+
 `zhao_branch="auto"`、zero gauge、density model なしなど、
 既定値または model が固定する値は通常は書きません。
 

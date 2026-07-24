@@ -441,7 +441,10 @@ def test_ambient_linear_photo_facade_keeps_photoelectrons_tracked_only() -> None
     assert normalized["outer_plasma"]["kinetic_closure"] == (
         "ambient_linear_debye"
     )
-    assert normalized["outer_plasma"].get("photoelectron_density_model", "none") == "none"
+    assert (
+        normalized["outer_plasma"]["photoelectron_density_model"]
+        == "linearized_mean"
+    )
     assert normalized["outer_plasma"]["return_model"] == (
         "kinetic_1d_profile_return"
     )

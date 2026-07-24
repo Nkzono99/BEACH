@@ -351,6 +351,7 @@ the no-photo case derives them from ambient $T_e$ and $n_\infty$.
 The two configured values are reference inputs for split-interface gap, lateral-field, and local-charge diagnostics.
 With `ambient_linear_debye + linearized_mean`, `debye_length` is the ambient value; the resolved response length combines
 its inverse square with that of the photoelectron Debye length derived from emission flux and $T_{pe}$.
+
 Normally omit defaults or model-fixed values such as
 `zhao_branch="auto"`, zero gauge, and no separate density model.
 
