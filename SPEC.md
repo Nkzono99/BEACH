@@ -185,11 +185,16 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 `outer_plasma.kinetic_closure="ambient_linear_debye"`は、surface zero modeが与えるinterface電場$E_I$から
 $\phi_I=\lambda_D E_I$、$\phi(z)=\phi_I\exp(-z/\lambda_D)$、
 $\rho_{\mathrm{amb}}=-\epsilon_0\phi/\lambda_D^2$を解析的に構成します。
-`photoelectron_density_model="none"`を要求し、enabledな`photo_raycast`光電子はtracked放出・再吸収・escapeと
-表面電荷更新には残しますが、1D平均密度、平均outer電流、outer space chargeへ含めません。同じprofileを
-ambient reservoir流入とz-high return/escapeへ使用します。このclosureは単調なambient線形応答だけを表し、
-光電子space charge、非線形sheath、virtual cathode、space-charge-limited / inverse sheath、trapped populationは
-適用外です。
+`photoelectron_density_model="none"`では、enabledな`photo_raycast`光電子はtracked放出・再吸収・escapeと
+表面電荷更新には残しますが、1D平均密度、平均outer電流、outer space chargeへ含めません。
+`photoelectron_density_model="linearized_mean"`では、放出flux$\Gamma_{pe}$から
+$n_{pe,*}=\Gamma_{pe}\sqrt{\pi m_e/(2T_{pe})}$と
+$\lambda_{D,pe}=\sqrt{\epsilon_0T_{pe}/(n_{pe,*}q_{pe}^2)}$を導出し、
+$\lambda_{\mathrm{eff}}^{-2}=\lambda_D^{-2}+\lambda_{D,pe}^{-2}$として
+$\phi_I=\lambda_{\mathrm{eff}}E_I$の線形化された平均光電子感受率を加えます。
+同じprofileをambient reservoir流入とz-high return/escapeへ使用し、解析光電子電流は診断だけに使います。
+この近似は基準光電子雲からの線形摂動であり、有限な定常光電子space charge、非線形sheath、virtual cathode、
+space-charge-limited / inverse sheath、trapped population、非単調profileは適用外です。
 
 `outer_plasma.kinetic_closure="zhao_charge_driven"`は、同じsurface zero modeのinterface電場を境界条件として、
 Zhao Type A/B/Cのfree/reflected ambient electron、free/captured photoelectron、cold ion populationを使う選択肢です。

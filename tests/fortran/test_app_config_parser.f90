@@ -609,6 +609,21 @@ contains
 
     call default_app_config(mode_cfg)
     mode_cfg%sim%box_max(3) = 4.0_dp
+    call prepare_external_boundary_authoring(mode_authoring, 'kinetic_1d', 'same_batch', 'auto')
+    mode_authoring%external_boundary%field%kinetic_closure = 'ambient_linear_debye'
+    mode_authoring%external_boundary%field%has_kinetic_closure = .true.
+    mode_authoring%external_boundary%field%photoelectron_density_model = 'linearized_mean'
+    mode_authoring%external_boundary%field%has_photoelectron_density_model = .true.
+    mode_authoring%external_boundary%particles%has_time_guard_option = .true.
+    mode_authoring%external_boundary%particles%field_evolution_timescale = 2.0_dp
+    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_true( &
+      trim(mode_cfg%outer_plasma%photoelectron_density_model) == 'linearized_mean', &
+      'ambient linearized photoelectron mean facade mapping mismatch' &
+      )
+
+    call default_app_config(mode_cfg)
+    mode_cfg%sim%box_max(3) = 4.0_dp
     call prepare_external_boundary_authoring(mode_authoring, 'kinetic_1d', 'zhao_queue', 'auto')
     mode_authoring%external_boundary%field%kinetic_closure = 'zhao_charge_driven'
     mode_authoring%external_boundary%field%has_kinetic_closure = .true.

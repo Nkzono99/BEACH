@@ -1,7 +1,7 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
-# Weak-photo outer-boundary example. The ambient plasma uses an analytic
-# linear Debye response. Photoelectrons remain tracked particles: they can
-# charge the surface and return or escape, but do not enter the mean 1-D density.
+# Linearized-photo outer-boundary example. The ambient plasma uses an analytic
+# linear Debye response, and the photoelectron emission flux adds a linearized
+# mean susceptibility. Tracked photoelectrons still own surface charge updates.
 
 [sim]
 dt = 1.0e-9
@@ -37,6 +37,7 @@ interface_field_tolerance = 1.0e-3
 [external_boundary.field]
 model = "kinetic_1d"
 kinetic_closure = "ambient_linear_debye"
+photoelectron_density_model = "linearized_mean"
 debye_length = 0.2
 thermal_voltage = 2.0
 

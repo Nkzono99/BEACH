@@ -183,7 +183,7 @@ contains
     message = 'kinetic interface-field continuation reached its attempt limit'
   end subroutine solve_outer_plasma_kinetic
 
-  !> Ambient plasmaだけを線形Debye応答とし、tracked photoelectronは密度源へ含めない。
+  !> Ambient plasmaとoptionalなflux-derived photoelectron susceptibilityを線形Debye応答として扱う。
   subroutine solve_outer_plasma_ambient_linear_debye(options, state, status, message)
     type(kinetic_outer_plasma_options_type), intent(in) :: options
     type(outer_plasma_state_type), intent(out) :: state
@@ -191,7 +191,8 @@ contains
     character(len=*), intent(out) :: message
     type(outer_plasma_grid_type) :: grid
     real(dp) :: interface_potential, electron_cutoff, ion_cutoff
-    real(dp) :: electron_flux, ion_flux
+    real(dp) :: electron_flux, ion_flux, escape_fraction, return_fraction
+    real(dp) :: response_length, photoelectron_reference_density, photoelectron_debye_length
 
     state = outer_plasma_state_type()
     state%model = 'kinetic_1d'
@@ -220,27 +221,49 @@ contains
       message = 'ambient_linear_debye requires physical ambient electron and ion reservoirs'
       return
     end if
-    if (options%photoelectron_emission_flux /= 0.0_dp) then
-      state%applicability_status = status
-      message = 'ambient_linear_debye excludes photoelectrons from the mean outer charge density'
-      return
+    response_length = options%tail_length
+    if (options%photoelectron_emission_flux > 0.0_dp) then
+      if (.not. all(ieee_is_finite([ &
+                                   options%photoelectron_charge, options%photoelectron_mass, &
+                                   options%photoelectron_temperature_j &
+                                   ])) .or. options%photoelectron_charge >= 0.0_dp .or. &
+          options%photoelectron_mass <= 0.0_dp .or. options%photoelectron_temperature_j <= 0.0_dp) then
+        state%applicability_status = status
+        message = 'ambient linearized photoelectron mean requires physical emitted electrons'
+        return
+      end if
+      photoelectron_reference_density = options%photoelectron_emission_flux*sqrt( &
+                                        pi*options%photoelectron_mass/(2.0_dp*options%photoelectron_temperature_j) &
+                                        )
+      photoelectron_debye_length = sqrt( &
+                                   eps0*options%photoelectron_temperature_j/ &
+                                   (photoelectron_reference_density*options%photoelectron_charge**2) &
+                                   )
+      response_length = 1.0_dp/sqrt( &
+                        1.0_dp/options%tail_length**2 + 1.0_dp/photoelectron_debye_length**2 &
+                        )
+      if (.not. ieee_is_finite(response_length) .or. response_length <= 0.0_dp) then
+        state%applicability_status = status
+        message = 'ambient linearized photoelectron screening length is invalid'
+        return
+      end if
     end if
 
     call init_outer_plasma_grid(options%grid_points, options%domain_length, options%grid_stretch, grid)
-    interface_potential = options%tail_length*options%interface_field
+    interface_potential = response_length*options%interface_field
     state%profile_n = grid%n
     state%interface_z = 0.0_dp
     state%interface_potential = interface_potential
     state%infinity_potential = 0.0_dp
-    state%debye_length = options%tail_length
+    state%debye_length = response_length
     state%interface_field = options%interface_field
     state%nonlinear_iterations = 0_i32
     state%nonlinear_residual = 0.0_dp
     allocate (state%z(grid%n), state%potential(grid%n), state%field(grid%n), state%charge_density(grid%n))
     state%z = grid%z
-    state%potential = interface_potential*exp(-grid%z/options%tail_length)
-    state%field = options%interface_field*exp(-grid%z/options%tail_length)
-    state%charge_density = -eps0*state%potential/options%tail_length**2
+    state%potential = interface_potential*exp(-grid%z/response_length)
+    state%field = options%interface_field*exp(-grid%z/response_length)
+    state%charge_density = -eps0*state%potential/response_length**2
     state%integrated_charge_per_area = &
       eps0*(state%field(grid%n) - options%interface_field)
 
@@ -255,11 +278,24 @@ contains
                options%ion_density_infinity, options%ion_temperature_j, &
                options%ion_mass, options%ion_drift_infinity, ion_cutoff &
                )
-    state%electron_current_density = options%electron_charge*electron_flux
-    state%ion_current_density = options%ion_charge*ion_flux
-    state%photoelectron_current_density = 0.0_dp
-    state%total_current_density = state%electron_current_density + state%ion_current_density + &
-                                  options%external_current_density
+    escape_fraction = 1.0_dp
+    if (options%photoelectron_emission_flux > 0.0_dp) then
+      call eval_photoelectron_escape_return( &
+        interface_potential, 0.0_dp, options%photoelectron_charge, options%photoelectron_temperature_j, &
+        escape_fraction, return_fraction, status &
+        )
+      if (status /= outer_plasma_ok) then
+        state%applicability_status = status
+        message = 'ambient linearized photoelectron escape fraction is invalid'
+        return
+      end if
+    end if
+    call eval_kinetic_current_balance( &
+      electron_flux, ion_flux, options%photoelectron_emission_flux, escape_fraction, &
+      options%electron_charge, options%ion_charge, options%external_current_density, &
+      state%electron_current_density, state%ion_current_density, state%photoelectron_current_density, &
+      state%total_current_density &
+      )
     state%applicability_status = outer_plasma_ok
     state%ready = .true.
     status = outer_plasma_ok

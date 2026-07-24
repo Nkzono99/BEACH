@@ -95,7 +95,7 @@ Outgoing and returning densities in `kinetic_mean` are a stationary closure for 
 deposition by tracked particles and do not add a second statistical return current. See
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for source charge and tracked reabsorption.
 
-## Separate the ambient linear Debye response from tracked photoelectrons
+## Add photoelectron susceptibility to the ambient linear Debye response
 
 `kinetic_closure="ambient_linear_debye"` analytically constructs
 
@@ -110,13 +110,32 @@ iteration. The infinity gauge is $\phi(\infty)=0$. The same profile controls amb
 mapping and z-high return or escape. Diagnostic ambient inflow currents use the one-sided drifting-Maxwellian flux of each
 `reservoir_face` species with the same interface barrier.
 
-This closure requires `photoelectron_density_model="none"`. It does not reject enabled `photo_raycast` sources:
-photoelectrons are emitted, reabsorbed, or allowed to escape as ordinary tracked particles. Their mean density, mean outer
-current, and outer space charge are excluded from the closure. Surface charge is therefore updated only by tracked emission
-and absorption; no analytic photoelectron current is added again.
+With `photoelectron_density_model="none"`, enabled `photo_raycast` sources remain ordinary tracked particles that are emitted,
+reabsorbed, or allowed to escape. Their mean density, mean outer current, and outer space charge are excluded.
 
-The applicability range is weak photoemission for which the ambient linear response dominates. The model cannot represent a
-photoelectron-space-charge virtual cathode, a space-charge-limited or inverse sheath, trapped populations, or a nonmonotone
+With `photoelectron_density_model="linearized_mean"`, the emitted current density defines the number flux
+$\Gamma_{pe}=J_{pe}/|q_{pe}|$ and
+
+$$
+n_{pe,*}=\Gamma_{pe}\sqrt{\frac{\pi m_{pe}}{2T_{pe}}},
+\qquad
+\lambda_{D,pe}=
+\sqrt{\frac{\epsilon_0T_{pe}}{n_{pe,*}q_{pe}^2}},
+$$
+
+$$
+\lambda_{\mathrm{eff}}^{-2}
+=\lambda_D^{-2}+\lambda_{D,pe}^{-2}.
+$$
+
+The resulting profile is
+$\phi(z)=\lambda_{\mathrm{eff}}E_I\exp(-z/\lambda_{\mathrm{eff}})$, and
+`outer_debye_length_m` reports the resolved $\lambda_{\mathrm{eff}}$.
+
+The mean response and analytic escape current supply only the field and diagnostics. Tracked emission and absorption remain
+the sole owners of surface-charge updates. This is a perturbation about a reference photoelectron cloud; it does not retain
+the finite stationary cloud charge or its transient return inventory. Use `absorbing_maxwellian + kinetic_mean` or
+`zhao_charge_driven` for a virtual cathode, a space-charge-limited or inverse sheath, trapped populations, or a nonmonotone
 profile.
 
 ## Connect Zhao populations to accumulated charge

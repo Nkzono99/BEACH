@@ -310,7 +310,7 @@ field_evolution_timescale = 1.0
 | `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | `zhao_charge_driven` のみ。`auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | float | `1` | `zhao_charge_driven` の解析光電子 source 倍率。UV なしは `0` |
-| `photoelectron_density_model` | string | `none` | `kinetic_1d + absorbing_maxwellian` の任意平均密度。`none` / `kinetic_mean` |
+| `photoelectron_density_model` | string | `none` | 光電子平均応答。`absorbing_maxwellian`では`kinetic_mean`、`ambient_linear_debye`では`linearized_mean`を選択可能 |
 | `debye_length` | float | active model で必須 | `kinetic_1d` の長さ scale [m] |
 | `thermal_voltage` | float | active model で必須 | `kinetic_1d` の電位 scale [V] |
 | `max_gap_ratio` | float | `5` | `kinetic_1d` の interface–mesh gap 診断上限 |
@@ -327,7 +327,7 @@ field_evolution_timescale = 1.0
 |---|---|---|
 | `none` | `model` のみ | 追加不可 |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`、`photoelectron_density_model`、gap / local-charge 上限 |
-| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | gap / local-charge 上限。光電子はtracked sourceだけ |
+| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | `photoelectron_density_model="linearized_mean"`、gap / local-charge 上限 |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`、必要な `sim.sheath_*` 物理値 | source scale / branch、gap / local-charge 上限 |
 
 `kinetic_closure="zhao_charge_driven"` でも `debye_length` と `thermal_voltage` は schema 上必須ですが、
@@ -335,6 +335,8 @@ Zhao root/profile の物理 scale ではありません。光電子ありでは 
 ambient $T_e$ と $n_\infty$ から profile scale を導出します。
 
 この 2 値は split-interface の gap、lateral field、local-charge 診断の基準量です。
+`ambient_linear_debye + linearized_mean`では、`debye_length`をambient値として使い、放出fluxと$T_{pe}$から
+導出した光電子Debye長との逆二乗和で実効応答長を決めます。
 `zhao_branch="auto"`、zero gauge、density model なしなど、
 既定値または model が固定する値は通常は書きません。
 

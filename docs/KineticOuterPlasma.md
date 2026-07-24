@@ -95,7 +95,7 @@ $\partial n_s/\partial\phi_I$を返します。
 統計的return currentを別途表面へ加えません。[光電子の放出とライフサイクル](PhotoelectronEmission.html)で、
 source電荷とtracked再吸収の収支を説明します。
 
-## ambient 線形 Debye 応答と tracked 光電子を分離する
+## ambient 線形 Debye 応答へ光電子感受率を追加する
 
 `kinetic_closure="ambient_linear_debye"` は、現在の surface zero mode が与える interface 電場 $E_I$ から
 
@@ -110,13 +110,32 @@ $\phi(\infty)=0$ であり、この同じ profile を ambient reservoir の到�
 z-high の return/escape 判定に使います。診断用 ambient 流入電流は、各 `reservoir_face` species の
 drifting Maxwellian を同じ interface barrier で切った片側流束から計算します。
 
-この closure は `photoelectron_density_model="none"` を要求します。enabled な `photo_raycast` source は
-拒否せず、光電子を通常の tracked 粒子として放出、再吸収、escape させます。ただし光電子の平均密度、
-平均外部電流、outer space charge は closure に含めません。したがって表面電荷は tracked 放出・吸収だけで
-更新され、解析電流を重ねて加算しません。
+`photoelectron_density_model="none"` では、enabled な `photo_raycast` source を通常の tracked 粒子として
+放出、再吸収、escape させますが、光電子の平均密度、平均外部電流、outer space charge は含めません。
 
-適用範囲は ambient plasma の線形応答が支配的な弱光電子放出です。光電子 space charge による
-virtual cathode、space-charge-limited / inverse sheath、trapped population、非単調 profile は扱えません。
+`photoelectron_density_model="linearized_mean"` では、放出電流密度から数流束
+$\Gamma_{pe}=J_{pe}/|q_{pe}|$を求め、
+
+$$
+n_{pe,*}=\Gamma_{pe}\sqrt{\frac{\pi m_{pe}}{2T_{pe}}},
+\qquad
+\lambda_{D,pe}=
+\sqrt{\frac{\epsilon_0T_{pe}}{n_{pe,*}q_{pe}^2}},
+$$
+
+$$
+\lambda_{\mathrm{eff}}^{-2}
+=\lambda_D^{-2}+\lambda_{D,pe}^{-2}
+$$
+
+として、flux-derived な光電子感受率を ambient Debye 応答へ加えます。profile は
+$\phi(z)=\lambda_{\mathrm{eff}}E_I\exp(-z/\lambda_{\mathrm{eff}})$です。
+`outer_debye_length_m`には解決後の$\lambda_{\mathrm{eff}}$を出力します。
+
+この平均応答と解析escape電流は場と診断だけに使い、表面電荷はtracked放出・吸収だけで更新します。
+これは基準光電子雲からの線形摂動であり、有限な定常光電子space chargeやreturn populationの過渡在庫を
+直接保持しません。virtual cathode、space-charge-limited / inverse sheath、trapped population、非単調profileには
+`absorbing_maxwellian + kinetic_mean`または`zhao_charge_driven`を使います。
 
 ## Zhao populationを蓄積電荷へ接続する
 

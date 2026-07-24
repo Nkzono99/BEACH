@@ -121,6 +121,13 @@ escape/return処理を使います。外部flightをglobal timeへ加えない�
 tracked outer inventoryから光電子populationを閉じます。`mode="same_batch"`または`"zhao_queue"`では、このprofileが
 z-high interfaceでの流入とreturn / escapeを決めます。
 
+非線形sheathを解かずに光電子の平均$k=0$応答だけを加える場合は、
+`kinetic_closure="ambient_linear_debye"`と
+`photoelectron_density_model="linearized_mean"`を組み合わせます。放出fluxから
+$n_{pe,*}=\Gamma_{pe}\sqrt{\pi m_{pe}/(2T_{pe})}$を評価し、そのDebye感受率をambient応答へ加えます。
+これは容量を増やす微小信号近似であり、tracked光電子の表面電荷更新を置き換えず、有限な定常光電子雲や
+virtual cathodeは表しません。
+
 ## 光電子放出の収束を確認する
 
 `rays_per_batch`を増やし、hit率、放出電流、帯電分布が収束することを確認します。再吸収位置も評価する場合は、

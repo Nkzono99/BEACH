@@ -57,7 +57,8 @@ contains
     photoelectron_count = 0_i32
     do species = 1_i32, app%n_particle_species
       if (.not. app%particle_species(species)%enabled) cycle
-      if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. use_zhao) .and. &
+      if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. &
+           trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'linearized_mean' .or. use_zhao) .and. &
           trim(lower_ascii(app%particle_species(species)%source_mode)) == 'photo_raycast' .and. &
           app%particle_species(species)%q_particle < 0.0_dp) then
         photoelectron_count = photoelectron_count + 1_i32
@@ -96,10 +97,11 @@ contains
       return
     end if
     if (.not. use_zhao .and. &
-        trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .and. &
+        (trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. &
+         trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'linearized_mean') .and. &
         photoelectron_count /= 1_i32) then
       status = outer_plasma_not_applicable
-      message = 'kinetic_mean requires exactly one enabled photoelectron species'
+      message = 'selected photoelectron mean model requires exactly one enabled photoelectron species'
       return
     end if
     if (electron_index == 0_i32 .or. ion_index == 0_i32) then
@@ -108,6 +110,7 @@ contains
       return
     end if
     if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. &
+         trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'linearized_mean' .or. &
          (use_zhao .and. .not. no_photo_zhao)) .and. &
         photoelectron_index == 0_i32) then
       status = outer_plasma_not_applicable

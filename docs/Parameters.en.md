@@ -324,7 +324,7 @@ entirely for an ordinary case that does not need these controls.
 | `kinetic_closure` | string | `absorbing_maxwellian` | For `kinetic_1d` only: `absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | For `zhao_charge_driven` only: `auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | float | `1` | Analytic source multiplier for `zhao_charge_driven`; use `0` without UV |
-| `photoelectron_density_model` | string | `none` | Optional mean density for `kinetic_1d + absorbing_maxwellian`: `none` / `kinetic_mean` |
+| `photoelectron_density_model` | string | `none` | Mean photoelectron response: `kinetic_mean` with `absorbing_maxwellian`, or `linearized_mean` with `ambient_linear_debye` |
 | `debye_length` | float | required for active models | Length scale for `kinetic_1d` [m] |
 | `thermal_voltage` | float | required for active models | Potential scale for `kinetic_1d` [V] |
 | `max_gap_ratio` | float | `5` | Interface-to-mesh gap limit for `kinetic_1d` |
@@ -341,7 +341,7 @@ diagnostic or feature. A key outside the selected row is rejected as a no-op eve
 |---|---|---|
 | `none` | `model` only | none allowed |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`, `photoelectron_density_model`, and gap/local-charge limits |
-| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | gap/local-charge limits; photoelectrons remain tracked sources only |
+| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | `photoelectron_density_model="linearized_mean"` and gap/local-charge limits |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`, and required `sim.sheath_*` physics values | source scale, branch, and gap/local-charge limits |
 
 For `kinetic_closure="zhao_charge_driven"`, `debye_length` and `thermal_voltage` remain schema-required but are not the
@@ -349,6 +349,8 @@ physical scales of the Zhao root or profile. Photoemitting Zhao derives those sc
 the no-photo case derives them from ambient $T_e$ and $n_\infty$.
 
 The two configured values are reference inputs for split-interface gap, lateral-field, and local-charge diagnostics.
+With `ambient_linear_debye + linearized_mean`, `debye_length` is the ambient value; the resolved response length combines
+its inverse square with that of the photoelectron Debye length derived from emission flux and $T_{pe}$.
 Normally omit defaults or model-fixed values such as
 `zhao_branch="auto"`, zero gauge, and no separate density model.
 
