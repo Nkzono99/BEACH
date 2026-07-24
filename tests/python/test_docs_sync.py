@@ -126,16 +126,14 @@ def test_particle_escape_return_starts_from_boundary_ownership() -> None:
         "ParticleEscapeReturn.md": (
             "## 1. `escape`: open面で粒子を除去する",
             "## 2. `potential_barrier`: scalar障壁で反射を判定する",
-            "## 3. `linear_debye`: 解析的な1D profileでreturnを写像する",
-            "## 4. `kinetic_1d`: 離散sheath profileでreturnを求める",
-            "## 5. `unified_linear_response`: 外部3D軌道を積分する",
+            "## 3. `kinetic_1d`: 離散sheath profileでreturnを求める",
+            "## 4. `unified_linear_response`: 外部3D軌道を積分する",
         ),
         "ParticleEscapeReturn.en.md": (
             "## 1. `escape`: remove a particle at an open face",
             "## 2. `potential_barrier`: decide reflection at a scalar barrier",
-            "## 3. `linear_debye`: map return through an analytic 1-D profile",
-            "## 4. `kinetic_1d`: obtain return from a discrete sheath profile",
-            "## 5. `unified_linear_response`: integrate an external 3-D orbit",
+            "## 3. `kinetic_1d`: obtain return from a discrete sheath profile",
+            "## 4. `unified_linear_response`: integrate an external 3-D orbit",
         ),
     }
 
@@ -401,8 +399,6 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
             "ReservoirInjection.en.md",
             "ParticleEscapeReturn.md",
             "ParticleEscapeReturn.en.md",
-            "SheathInjectionClosures.md",
-            "SheathInjectionClosures.en.md",
             "PhotoelectronEmission.md",
             "PhotoelectronEmission.en.md",
         )
@@ -461,6 +457,7 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
         ),
         "KineticOuterPlasma.md": (
             "## VDFを電位依存の電荷密度へ写す",
+            "## Zhao populationを蓄積電荷へ接続する",
             "## continuation付きNewton法で物理解を追う",
         ),
         "UnifiedLinearResponse.md": (
@@ -472,12 +469,8 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
             "## 1 つの電位差で到達条件と注入面速度を決める",
         ),
         "ParticleEscapeReturn.md": (
-            "## linear Debye profileからreturn時間を求める",
+            "## 3. `kinetic_1d`: 離散sheath profileでreturnを求める",
             "## outer flightをglobal timeへ加えない近似",
-        ),
-        "SheathInjectionClosures.md": (
-            "## `floating_no_photo`でelectron/ion流入を釣り合わせる",
-            "## Zhao closureの無次元量を作る",
         ),
         "PhotoelectronEmission.md": (
             "## 放出から再吸収までを同じbatchで追う",
@@ -496,6 +489,7 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
         ),
         "KineticOuterPlasma.en.md": (
             "## Map VDFs to potential-dependent charge density",
+            "## Connect Zhao populations to accumulated charge",
             "## Follow the physical branch with continued Newton solves",
         ),
         "UnifiedLinearResponse.en.md": (
@@ -507,12 +501,8 @@ def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
             "## Use one potential drop for accessibility and face velocity",
         ),
         "ParticleEscapeReturn.en.md": (
-            "## Derive return time from a linear-Debye profile",
+            "## 3. `kinetic_1d`: obtain return from a discrete sheath profile",
             "## Keep outer flight outside global simulation time",
-        ),
-        "SheathInjectionClosures.en.md": (
-            "## Balance electron and ion inflow with `floating_no_photo`",
-            "## Form the dimensionless Zhao variables",
         ),
         "PhotoelectronEmission.en.md": (
             "## Track emission through reabsorption in the same batch",

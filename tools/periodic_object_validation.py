@@ -3502,11 +3502,6 @@ def verify_run(
     outer_model = str(outer_config.get("model", "none")).strip().lower()
     if outer_model in {"kinetic_1d", "unified_linear_response"}:
         required_outputs.append(output / "outer_plasma_profile.csv")
-    photoelectron_histogram_enabled = outer_config.get(
-        "photoelectron_histogram_enabled", False
-    )
-    if photoelectron_histogram_enabled is True:
-        required_outputs.append(output / "photoelectron_histogram.csv")
     required_outputs.extend(
         output / f"rng_state_rank{rank:05d}.txt" for rank in range(world_size)
     )

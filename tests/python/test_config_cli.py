@@ -91,13 +91,16 @@ def test_default_config_matches_official_tutorial_case() -> None:
     )
 
 
-def test_load_config_file_accepts_photoelectron_return_split() -> None:
-    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+def test_load_config_file_accepts_kinetic_profile_return_split() -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
 
     assert config["periodic2"]["nonzero_mode_backend"] == "panel_spectral_reference"
-    assert config["outer_plasma"].get("photoelectron_density_model", "none") == "none"
-    assert config["outer_plasma"]["photoelectron_histogram_enabled"] is True
-    assert config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] is True
+    assert config["outer_plasma"]["model"] == "kinetic_1d"
+    assert config["outer_plasma"]["return_model"] == "kinetic_1d_profile_return"
+    assert (
+        config["coupling"]["particle_transfer_mode"]
+        == "electrostatic_1d_instant_return"
+    )
 
 
 def test_load_config_file_accepts_unified_explicit_outer_orbit() -> None:
@@ -130,19 +133,26 @@ def test_periodic2_accepts_symmetric_vacuum_and_rejects_unknown_lower_model() ->
 def test_photoelectron_settings_reject_unknown_density_and_nonconserving_modes() -> (
     None
 ):
-    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+    config = load_config_file(
+        Path("examples/periodic2_zhao_charge_driven_outer.toml")
+    )
     config["outer_plasma"]["photoelectron_density_model"] = "statistical_return"
     with pytest.raises(ConfigValidationError, match="statistical_return"):
         normalize_config_document(config)
 
     config["outer_plasma"]["photoelectron_density_model"] = "none"
-    config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] = False
+    photoelectron = next(
+        species
+        for species in config["particles"]["species"]
+        if species.get("source_mode") == "photo_raycast"
+    )
+    photoelectron["deposit_opposite_charge_on_emit"] = False
     with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
         normalize_config_document(config)
 
 
 def test_photoelectron_settings_reject_removed_closure_key() -> None:
-    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
     config["outer_plasma"]["photoelectron_closure"] = "individual_return"
 
     with pytest.raises(
@@ -151,25 +161,24 @@ def test_photoelectron_settings_reject_removed_closure_key() -> None:
         normalize_config_document(config)
 
 
-def test_photoelectron_histogram_requires_matching_return_contract() -> None:
-    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("photoelectron_histogram_enabled", True),
+        ("photoelectron_histogram_bins", 16),
+        ("photoelectron_histogram_energy_max", 10.0),
+        ("photoelectron_ambient_charge_scale", 1.0),
+        ("max_photoelectron_charge_ratio", 0.1),
+    ],
+)
+def test_runtime_rejects_removed_photoelectron_histogram_controls(
+    key: str, value: object
+) -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config["outer_plasma"][key] = value
 
-    config["outer_plasma"]["return_model"] = "none"
-    with pytest.raises(ConfigValidationError, match="return_model"):
+    with pytest.raises(ConfigValidationError, match=key):
         normalize_config_document(config)
-
-    config["outer_plasma"]["return_model"] = "electrostatic_1d_instant_return"
-    config["coupling"]["particle_transfer_mode"] = "none"
-    with pytest.raises(ConfigValidationError, match="particle_transfer_mode"):
-        normalize_config_document(config)
-
-
-def test_photoelectron_histogram_uses_optional_threshold_defaults() -> None:
-    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
-    config["outer_plasma"].pop("photoelectron_histogram_bins", None)
-    config["outer_plasma"].pop("max_photoelectron_charge_ratio", None)
-
-    normalize_config_document(config)
 
 
 def test_kinetic_photoelectron_density_model_requires_matching_transfer_pair() -> None:
@@ -255,6 +264,13 @@ def test_zhao_charge_driven_closure_constraints() -> None:
             species["enabled"] = False
     normalize_config_document(no_photo)
 
+    invalid = copy.deepcopy(no_photo)
+    invalid["sim"]["sheath_photoelectron_ref_density_cm3"] = -1.0
+    with pytest.raises(
+        ConfigValidationError, match="sheath_photoelectron_ref_density_cm3"
+    ):
+        normalize_config_document(invalid)
+
     invalid = copy.deepcopy(config)
     invalid["outer_plasma"]["photoelectron_source_scale"] = -1.0
     with pytest.raises(ConfigValidationError, match="photoelectron_source_scale"):
@@ -276,7 +292,7 @@ def test_zhao_charge_driven_closure_constraints() -> None:
 def test_external_boundary_contract_rejects_competing_owners_and_mismatched_pairs() -> (
     None
 ):
-    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
     config["sim"]["open_boundary_model"] = "potential_barrier"
     normalize_config_document(config)
 
@@ -286,30 +302,23 @@ def test_external_boundary_contract_rejects_competing_owners_and_mismatched_pair
         normalize_config_document(invalid)
 
     invalid = copy.deepcopy(config)
-    invalid["sim"]["sheath_injection_model"] = "zhao_a"
-    with pytest.raises(ConfigValidationError, match="owns inflow"):
-        normalize_config_document(invalid)
-
-    invalid = copy.deepcopy(config)
-    invalid["outer_plasma"]["return_model"] = "kinetic_1d_profile_return"
+    invalid["outer_plasma"]["return_model"] = "none"
     with pytest.raises(ConfigValidationError, match="matching"):
         normalize_config_document(invalid)
 
 
-def test_external_boundary_facade_lowers_to_the_legacy_runtime_contract() -> None:
-    authoring = load_toml_file(
-        Path("examples/periodic2_outer_particle_transfer.toml")
-    )
+def test_external_boundary_facade_lowers_to_the_runtime_contract() -> None:
+    authoring = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
     external_boundary = authoring["external_boundary"]
 
-    legacy = copy.deepcopy(authoring)
-    del legacy["external_boundary"]
-    legacy["outer_plasma"] = {
+    runtime = copy.deepcopy(authoring)
+    del runtime["external_boundary"]
+    runtime["outer_plasma"] = {
         **external_boundary["field"],
-        "return_model": "electrostatic_1d_instant_return",
-        "interface_z": legacy["sim"]["box_max"][2],
+        "return_model": "kinetic_1d_profile_return",
+        "interface_z": runtime["sim"]["box_max"][2],
     }
-    legacy["coupling"] = {
+    runtime["coupling"] = {
         "update_mode": "explicit",
         "particle_transfer_mode": "electrostatic_1d_instant_return",
         "field_evolution_timescale": external_boundary["particles"][
@@ -321,18 +330,18 @@ def test_external_boundary_facade_lowers_to_the_legacy_runtime_contract() -> Non
     normalized = normalize_config_document(authoring)
 
     assert "external_boundary" not in normalized
-    assert normalized == normalize_config_document(legacy)
+    assert normalized == normalize_config_document(runtime)
 
 
 def test_external_boundary_facade_preserves_the_simple_default_contract() -> None:
-    legacy = default_config()
-    authoring = copy.deepcopy(legacy)
+    runtime = default_config()
+    authoring = copy.deepcopy(runtime)
     authoring["external_boundary"] = {
         "field": {"model": "none"},
         "particles": {"mode": "local_source"},
     }
 
-    assert normalize_config_document(authoring) == legacy
+    assert normalize_config_document(authoring) == runtime
 
 
 def test_runtime_validator_rejects_unlowered_external_boundary_facade() -> None:
@@ -364,12 +373,6 @@ def test_external_boundary_facade_rejects_inert_none_options() -> None:
 @pytest.mark.parametrize(
     ("example", "key", "value"),
     [
-        (
-            "periodic2_linear_outer_reference.toml",
-            "kinetic_closure",
-            "absorbing_maxwellian",
-        ),
-        ("periodic2_kinetic_outer.toml", "infinity_potential", 0.0),
         ("periodic2_kinetic_outer.toml", "max_linearity_ratio", 0.25),
         ("periodic2_kinetic_outer.toml", "unified_grid_points", 129),
         ("periodic2_unified_linear_response.toml", "max_gap_ratio", 5.0),
@@ -377,11 +380,6 @@ def test_external_boundary_facade_rejects_inert_none_options() -> None:
             "periodic2_unified_linear_response.toml",
             "max_local_charge_ratio",
             50.0,
-        ),
-        (
-            "periodic2_unified_linear_response.toml",
-            "photoelectron_histogram_enabled",
-            False,
         ),
     ],
 )
@@ -397,14 +395,28 @@ def test_external_boundary_facade_rejects_model_specific_field_options(
         normalize_config_document(config)
 
 
-def test_external_boundary_facade_requires_specialized_field_option_owners() -> None:
-    histogram = load_toml_file(
-        Path("examples/periodic2_linear_outer_reference.toml")
-    )
-    histogram["external_boundary"]["field"]["photoelectron_histogram_bins"] = 16
-    with pytest.raises(ConfigError, match="histogram controls require"):
-        normalize_config_document(histogram)
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("infinity_potential", 0.0),
+        ("photoelectron_histogram_enabled", False),
+        ("photoelectron_histogram_bins", 16),
+        ("photoelectron_histogram_energy_max", 10.0),
+        ("photoelectron_ambient_charge_scale", 1.0),
+        ("max_photoelectron_charge_ratio", 0.1),
+    ],
+)
+def test_external_boundary_facade_rejects_removed_field_options(
+    key: str, value: object
+) -> None:
+    config = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config["external_boundary"]["field"][key] = value
 
+    with pytest.raises(ConfigError, match="unsupported external_boundary.field"):
+        normalize_config_document(config)
+
+
+def test_external_boundary_facade_requires_specialized_field_option_owners() -> None:
     zhao = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
     zhao["external_boundary"]["field"]["zhao_branch"] = "auto"
     with pytest.raises(ConfigError, match="require kinetic_closure"):
@@ -422,11 +434,11 @@ def test_external_boundary_facade_requires_specialized_field_option_owners() -> 
     ("example", "key", "value"),
     [
         (
-            "periodic2_linear_outer_reference.toml",
+            "periodic2_unified_linear_response.toml",
             "field_evolution_timescale",
             1.0,
         ),
-        ("periodic2_outer_particle_transfer.toml", "outer_orbit_dt", 1.0e-9),
+        ("periodic2_kinetic_outer.toml", "outer_orbit_dt", 1.0e-9),
         ("periodic2_zhao_transient_outer.toml", "outer_orbit_max_steps", 100),
         ("periodic2_unified_explicit_orbit.toml", "outer_update_stride", 1),
         ("periodic2_zhao_transient_outer.toml", "outer_update_stride", 1),
@@ -464,8 +476,13 @@ def test_external_boundary_facade_rejects_invalid_control_ranges(
 ) -> None:
     example = (
         "periodic2_unified_explicit_orbit.toml"
-        if key in {"unified_grid_points", "accessible_fraction_tolerance"}
-        else "periodic2_outer_particle_transfer.toml"
+        if key
+        in {
+            "unified_grid_points",
+            "accessible_fraction_tolerance",
+            "max_linearity_ratio",
+        }
+        else "periodic2_kinetic_outer.toml"
     )
     config = load_toml_file(Path("examples") / example)
     config["external_boundary"][section][key] = value
@@ -490,9 +507,7 @@ def test_external_boundary_facade_validates_zhao_steady_start_semantics() -> Non
     with pytest.raises(ConfigError, match="steady_start_mesh_id"):
         normalize_config_document(invalid_mesh_id)
 
-    invalid_contract = load_toml_file(
-        Path("examples/periodic2_outer_particle_transfer.toml")
-    )
+    invalid_contract = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
     invalid_contract["external_boundary"]["particles"][
         "steady_start_mode"
     ] = "zhao_floating"
@@ -511,7 +526,6 @@ def test_external_boundary_facade_validates_zhao_steady_start_semantics() -> Non
         ("outer_plasma", {}),
         ("coupling", {}),
         ("reservoir_potential_model", "none"),
-        ("sheath_injection_model", "none"),
         ("open_boundary_model", "escape"),
     ],
 )
@@ -534,10 +548,10 @@ def test_external_boundary_facade_rejects_raw_owner_mixing_by_presence(
 
 
 def test_external_boundary_facade_keeps_unified_inflow_independent() -> None:
-    linear = load_toml_file(Path("examples/periodic2_outer_particle_transfer.toml"))
-    linear["external_boundary"]["particles"]["inflow_model"] = "source_vdf"
+    kinetic = load_toml_file(Path("examples/periodic2_kinetic_outer.toml"))
+    kinetic["external_boundary"]["particles"]["inflow_model"] = "source_vdf"
     with pytest.raises(ConfigError, match="requires.*inflow_model=auto"):
-        normalize_config_document(linear)
+        normalize_config_document(kinetic)
 
     unified = load_toml_file(Path("examples/periodic2_unified_explicit_orbit.toml"))
     unified["external_boundary"]["particles"]["inflow_model"] = "infinity_barrier"
@@ -552,13 +566,22 @@ def test_external_boundary_facade_keeps_unified_inflow_independent() -> None:
         == "electrostatic_3d_explicit_orbit"
     )
 
-    unified["external_boundary"]["particles"]["inflow_model"] = "legacy_sheath"
-    unified["external_boundary"]["particles"]["legacy_sheath_model"] = "zhao_auto"
-    normalized = normalize_config_document(unified)
-    assert normalized["sim"]["sheath_injection_model"] == "zhao_auto"
+    removed_inflow = copy.deepcopy(unified)
+    removed_inflow["external_boundary"]["particles"]["inflow_model"] = "legacy_sheath"
+    with pytest.raises(ConfigError, match="inflow_model"):
+        normalize_config_document(removed_inflow)
+
+    removed_option = copy.deepcopy(unified)
+    removed_option["external_boundary"]["particles"][
+        "legacy_sheath_model"
+    ] = "zhao_auto"
+    with pytest.raises(ConfigError, match="unsupported external_boundary.particles"):
+        normalize_config_document(removed_option)
 
 
-def test_kinetic_outer_requires_unique_ambient_species_and_zero_gauge() -> None:
+def test_kinetic_outer_requires_unique_ambient_species_and_rejects_removed_gauge_key() -> (
+    None
+):
     config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
 
     duplicate = copy.deepcopy(config)
@@ -570,7 +593,7 @@ def test_kinetic_outer_requires_unique_ambient_species_and_zero_gauge() -> None:
 
     shifted_gauge = copy.deepcopy(config)
     shifted_gauge["outer_plasma"]["infinity_potential"] = 1.0
-    with pytest.raises(ConfigValidationError, match="fixes infinity_potential=0"):
+    with pytest.raises(ConfigValidationError, match="infinity_potential"):
         normalize_config_document(shifted_gauge)
 
 
@@ -612,27 +635,27 @@ def test_zhao_transient_outer_queue_constraints() -> None:
         normalize_config_document(invalid)
 
     invalid = copy.deepcopy(config)
-    invalid["outer_plasma"]["photoelectron_histogram_enabled"] = True
-    with pytest.raises(ConfigValidationError, match="legacy photoelectron histogram"):
-        normalize_config_document(invalid)
-
-    invalid = copy.deepcopy(config)
     invalid["outer_plasma"]["photoelectron_source_scale"] = 0.0
     with pytest.raises(ConfigValidationError, match="photoelectron_source_scale"):
         normalize_config_document(invalid)
 
 
 def test_tracked_outer_transfer_requires_opposite_charge_deposit() -> None:
-    config = load_config_file(Path("examples/periodic2_photoelectron_return.toml"))
-    config["outer_plasma"]["photoelectron_histogram_enabled"] = False
-    config["particles"]["species"][0]["deposit_opposite_charge_on_emit"] = False
+    config = load_config_file(
+        Path("examples/periodic2_zhao_charge_driven_outer.toml")
+    )
+    photo_species = next(
+        species
+        for species in config["particles"]["species"]
+        if species.get("source_mode") == "photo_raycast"
+    )
+    photo_species["deposit_opposite_charge_on_emit"] = False
 
     with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
         normalize_config_document(config)
 
     explicit = load_config_file(Path("examples/periodic2_unified_explicit_orbit.toml"))
-    photo_species = config["particles"]["species"][0]
-    explicit["particles"]["species"].append(photo_species)
+    explicit["particles"]["species"].append(copy.deepcopy(photo_species))
     with pytest.raises(ConfigValidationError, match="deposit_opposite_charge_on_emit"):
         normalize_config_document(explicit)
 

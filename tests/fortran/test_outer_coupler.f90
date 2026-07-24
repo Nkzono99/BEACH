@@ -66,11 +66,19 @@ program test_outer_coupler
                     interface_phi_tolerance=1.0e12_dp, interface_field_tolerance=1.0e12_dp &
                     )
   outer_config = outer_plasma_config( &
-                 model='linear_debye', interface_z=1.0_dp, debye_length=0.2_dp, thermal_voltage=10.0_dp, &
+                 model='kinetic_1d', interface_z=1.0_dp, debye_length=0.2_dp, thermal_voltage=10.0_dp, &
                  max_linearity_ratio=0.5_dp &
                  )
+  kinetic_options = kinetic_outer_plasma_options_type( &
+                    grid_points=17_i32, domain_length=1.0_dp, tail_length=0.2_dp, &
+                    electron_charge=-1.0_dp, electron_mass=1.0_dp, electron_density_infinity=0.0_dp, &
+                    electron_temperature_j=1.0_dp, ion_charge=1.0_dp, ion_mass=1.0_dp, &
+                    ion_density_infinity=0.0_dp, ion_temperature_j=0.0_dp, ion_drift_infinity=1.0_dp &
+                    )
   coupling = coupling_config(outer_update_stride=2_i32)
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
+  call snapshot%init( &
+    mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options=kinetic_options &
+    )
   call coupler%init(coupling)
 
   call test_begin('first_batch_and_stride_ownership')
@@ -91,7 +99,9 @@ program test_outer_coupler
   mesh%q_elem = 2.0e-12_dp
   call coupler%refresh(snapshot, mesh, 2_i32, updated)
   call snapshot%export_restart_state(coupler%last_outer_update_batch, restart_state)
-  call restarted_snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
+  call restarted_snapshot%init( &
+    mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options=kinetic_options &
+    )
   call restarted_snapshot%restore_outer_state(restart_state)
   call restarted_coupler%init(coupling, restart_state%last_outer_update_batch)
   call restarted_coupler%refresh(restarted_snapshot, mesh, 3_i32, updated)

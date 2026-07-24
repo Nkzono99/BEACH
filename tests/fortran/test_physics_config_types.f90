@@ -20,7 +20,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(16)
+  call test_init(15)
 
   call test_begin('free_legacy_normalization')
   sim = sim_config()
@@ -59,11 +59,6 @@ program test_physics_config_types
   outer%thermal_voltage = 2.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'cached kinetic_1d config should be valid')
-
-  outer%infinity_potential = 1.0_dp
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_true(status /= physics_config_ok, 'kinetic_1d must reject a nonzero infinity-potential gauge')
-  outer%infinity_potential = 0.0_dp
 
   outer%model = 'unified_linear_response'
   outer%photoelectron_density_model = 'none'
@@ -113,13 +108,9 @@ program test_physics_config_types
   outer%return_model = 'kinetic_1d_profile_return'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'cached kinetic profile return should be valid')
-  sim%sheath_injection_model = 'zhao_a'
+  outer%return_model = 'unsupported_return'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_true(status /= physics_config_ok, 'kinetic profile return must reject a second sheath injection model')
-  sim%sheath_injection_model = 'none'
-  outer%return_model = 'electrostatic_1d_instant_return'
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_true(status /= physics_config_ok, 'kinetic outer model must reject the linear Debye return identifier')
+  call assert_true(status /= physics_config_ok, 'kinetic outer model must reject an unsupported return identifier')
   call test_end()
 
   call test_begin('cached_kneq0_active_contract')
@@ -167,7 +158,7 @@ program test_physics_config_types
               )
   panel = panel_kernel_config(source_model='triangle_p0', kernel_id='triangle_p0_exact_direct')
   outer = outer_plasma_config( &
-          model='linear_debye', return_model='electrostatic_1d_instant_return', interface_z=1.0_dp, &
+          model='kinetic_1d', return_model='kinetic_1d_profile_return', interface_z=1.0_dp, &
           debye_length=0.2_dp, thermal_voltage=10.0_dp &
           )
   coupling = coupling_config( &
@@ -181,40 +172,10 @@ program test_physics_config_types
   sim%reservoir_potential_model = 'infinity_barrier'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32( &
-    status, physics_config_invalid_combination, 'linear transfer must reject a competing scalar inflow owner' &
+    status, physics_config_invalid_combination, 'kinetic transfer must reject a competing scalar inflow owner' &
     )
   sim%reservoir_potential_model = 'none'
   sim%open_boundary_model = 'escape'
-  call test_end()
-
-  call test_begin('photoelectron_histogram_contract')
-  outer%photoelectron_histogram_enabled = .true.
-  outer%photoelectron_histogram_bins = 8_i32
-  outer%photoelectron_histogram_energy_max = 12.0_dp
-  outer%photoelectron_ambient_charge_scale = 4.0_dp
-  outer%max_photoelectron_charge_ratio = 0.2_dp
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_ok, 'photoelectron histogram should be valid')
-  outer%return_model = 'none'
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_invalid_combination, 'histogram requires instant-return model')
-  outer%return_model = 'electrostatic_1d_instant_return'
-  outer%photoelectron_ambient_charge_scale = 0.0_dp
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_invalid_combination, 'missing photoelectron scale must be rejected')
-  outer%photoelectron_ambient_charge_scale = 4.0_dp
-  outer%photoelectron_histogram_energy_max = ieee_value(0.0_dp, ieee_quiet_nan)
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_invalid_combination, 'non-finite histogram energy must be rejected')
-  outer%photoelectron_histogram_energy_max = 12.0_dp
-  outer%photoelectron_ambient_charge_scale = ieee_value(0.0_dp, ieee_quiet_nan)
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_invalid_combination, 'non-finite ambient charge scale must be rejected')
-  outer%photoelectron_ambient_charge_scale = 4.0_dp
-  outer%max_photoelectron_charge_ratio = ieee_value(0.0_dp, ieee_quiet_nan)
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_equal_i32(status, physics_config_invalid_combination, 'non-finite maximum charge ratio must be rejected')
-  outer%max_photoelectron_charge_ratio = 0.2_dp
   call test_end()
 
   call test_begin('unknown_photoelectron_density_model')
@@ -245,7 +206,7 @@ program test_physics_config_types
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_equal_i32(status, physics_config_ok, 'Zhao charge-driven closure should be valid')
 
-  outer%model = 'linear_debye'
+  outer%model = 'unified_linear_response'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'Zhao closure must require kinetic_1d')
   outer%model = 'kinetic_1d'
@@ -253,18 +214,10 @@ program test_physics_config_types
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'Zhao closure must own its photoelectron population')
   outer%photoelectron_density_model = 'none'
-  sim%sheath_injection_model = 'zhao_a'
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_true(status /= physics_config_ok, 'Zhao closure must reject a second sheath injection correction')
-  sim%sheath_injection_model = 'none'
   sim%reservoir_potential_model = 'infinity_barrier'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'Zhao closure must reject a reservoir-potential correction')
   sim%reservoir_potential_model = 'none'
-  sim%has_sheath_reference_coordinate = .true.
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_true(status /= physics_config_ok, 'Zhao closure must reject an explicit sheath reference coordinate')
-  sim%has_sheath_reference_coordinate = .false.
   sim%sheath_photoelectron_ref_density_cm3 = 0.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'Zhao closure must require positive photoelectron reference density')
@@ -276,10 +229,6 @@ program test_physics_config_types
   call assert_true(status /= physics_config_ok, 'negative photoelectron source scale must fail closed')
   outer%photoelectron_source_scale = 1.0_dp
   sim%sheath_photoelectron_ref_density_cm3 = 64.0_dp
-  outer%infinity_potential = 1.0_dp
-  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
-  call assert_true(status /= physics_config_ok, 'Zhao closure must fix the infinity-potential gauge')
-  outer%infinity_potential = 0.0_dp
   outer%zhao_branch = 'unknown'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'unknown Zhao branch must fail closed')

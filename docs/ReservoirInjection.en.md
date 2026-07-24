@@ -135,7 +135,6 @@ This page converts a supplied upstream VDF and potential drop into particles. Us
 | --- | --- |
 | No correction | Use $B=0$ and interpret the configured VDF as the distribution at the face |
 | `external_boundary.particles.inflow_model="infinity_barrier"` | One potential drop derived from the mean aperture potential and `sim.phi_infty` |
-| Split `linear_debye` | Interface potential drop derived from the surface zero mode |
 | Split `kinetic_1d` | $\phi_I-\phi_\infty$ from the converged outer profile |
 
 `infinity_barrier` evaluates the batch-start potential on an $N\times N$
@@ -148,9 +147,6 @@ characteristic energy produces a warning in the first and final batch.
 
 In a split outer model, z-high `reservoir_face` species are interpreted as VDFs at infinity. For `kinetic_1d`, the interface field
 is a Poisson boundary condition, while particle velocity changes through $\phi_I-\phi_\infty$.
-
-Zhao-family models and `floating_no_photo` do not supply a generic potential drop $B$; they correct upstream-VDF density, drift,
-and speed floor. See [Inflow-VDF sheath closures](SheathInjectionClosures.en.html) for those rules.
 
 ## Disperse initial positions with a virtual flight interval
 
@@ -178,7 +174,6 @@ Changing `batch_duration` changes both expected particles per batch and the fiel
 
 - Choose a particle source: [Particle-source overview](ParticleSourcesBoundaries.en.html)
 - Combine inflow correction, outflow boundaries, and outer fields: [Selecting boundary and outer-domain models](OuterPlasmaModels.en.html)
-- Correct the VDF with Zhao-family models or `floating_no_photo`: [Inflow-VDF sheath closures](SheathInjectionClosures.en.html)
 - Process particles that leave through an open face: [Particle escape and return](ParticleEscapeReturn.en.html)
 
 ## Code reference
@@ -186,5 +181,4 @@ Changing `batch_duration` changes both expected particles per batch and the fiel
 - Flux integration, macro-particle count, and Maxwell or velocity-grid sampling: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - Velocity corrections from barriers and outer profiles: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - Aperture geometry and input-combination validation: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
-- Zhao species correction: [`bem_sheath_runtime.f90`](../src/physics/sheath/bem_sheath_runtime.f90)
 - MPI-global macro-particle remainder: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

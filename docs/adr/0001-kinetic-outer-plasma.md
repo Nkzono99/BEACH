@@ -3,6 +3,9 @@
 - Status: accepted for Phase 7
 - Date: 2026-07-11
 
+> `kinetic_1d` に関する決定は引き続き有効である。legacy Zhao injection を独立維持する記述は
+> [ADR 0009](0009-remove-linear-debye-and-legacy-sheath.md)で置き換えた。
+
 ## Context
 
 BEACH の `linear_debye` outer model は小振幅応答だけを表す。強い表面電位と

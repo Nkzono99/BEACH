@@ -48,9 +48,6 @@ After selecting this mode, use the following pages for the distinct calculations
   [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html)
 - Select a consistent combination of `infinity_barrier`, outer plasma, and outflow boundary:
   [Selecting boundary and outer-domain models](OuterPlasmaModels.en.html)
-- Correct the upstream VDF with a Zhao-family closure or `floating_no_photo`:
-  [Inflow-VDF sheath closures](SheathInjectionClosures.en.html)
-
 `reservoir_face` itself does not solve an outer sheath or particle trajectories outside the box.
 
 ## Emit from illuminated surfaces with `photo_raycast`

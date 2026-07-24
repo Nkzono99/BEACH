@@ -163,9 +163,6 @@ contains
     if (len_trim(spec%velocity_grid_path) == 0) then
       error stop 'velocity_distribution="grid" requires velocity_grid_path.'
     end if
-    if (trim(lower_ascii(cfg%sim%sheath_injection_model)) /= 'none') then
-      error stop 'velocity_distribution="grid" currently requires sim.sheath_injection_model="none".'
-    end if
     if (spec%has_number_density_cm3 .or. spec%has_number_density_m3) then
       error stop 'velocity_distribution="grid" uses particle_flux_m2_s/current_density_a_m2, not number_density.'
     end if

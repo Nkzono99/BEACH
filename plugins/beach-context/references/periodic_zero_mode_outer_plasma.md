@@ -186,7 +186,7 @@ split modelでは、局所領域と外部領域はinterfaceで接続されます
 Poisson gridを解き、nonzero modeもplasma tailへ連続接続します。particle interfaceはfield境界ではなく
 ownership面だけです。
 
-流入粒子の加減速、外向き粒子のturning/return、Zhao系注入補正との違いは
+流入粒子の加減速と外向き粒子のturning/returnは
 [外部シースとreservoir粒子境界](sheath_reservoir_boundary.md)で説明します。
 
 ### 4.2 model別の数値処理
@@ -196,25 +196,13 @@ ownership面だけです。
 | `external_boundary.field.model` | 位置付け | zero-mode処理 | 主な適用範囲 |
 | --- | --- | --- | --- |
 | `none` | 外部シースなし | surface `k=0`だけをboundary closureで評価 | 外部plasmaを置かない |
-| `linear_debye` | 簡易・reference | $\Delta\phi\exp[-(z-z_I)/\lambda_D]$ | 小振幅split reference |
 | `kinetic_1d` | **標準・推奨** | VDF closureを含む非線形1D Poisson solve | 単調・無衝突・非磁化sheath |
 | `unified_linear_response` | 高度・限定用途 | rough surfaceとplasma sourceを同じ1D Poisson gridへ投入 | 線形応答でsplit windowがない場合 |
 
 `cached_kneq0`のproduction経路が受理するouter modelは現在`none`、`kinetic_1d`、
-`unified_linear_response`です。`linear_debye`は`panel_spectral_reference`の小規模検証経路です。
+`unified_linear_response`です。
 
-### 4.3 `linear_debye`
-
-interfaceを$z_I$、$\Delta\phi=\phi_I-\phi_\infty$とすると
-
-$$
-\phi(z)=\phi_\infty+\Delta\phi e^{-(z-z_I)/\lambda_D},\qquad
-E(z)=\frac{\Delta\phi}{\lambda_D}e^{-(z-z_I)/\lambda_D}
-$$
-
-を使います。$|\Delta\phi|/V_T$が設定した線形性上限を超える場合は適用外です。
-
-### 4.4 `kinetic_1d`
+### 4.3 `kinetic_1d`
 
 interface fieldをsurface zero modeから受け取り、ambient electron half-Maxwellian、cold drifting ion、
 任意のphotoelectron fluxから$\rho(\phi)$を構成し、
@@ -234,7 +222,7 @@ backtracking、pseudo-transient、interface-field continuationは収束経路だ
 元のPoisson residual、単調分枝、ion accessibility、Bohm条件をすべて要求します。MPIではrootが解き、
 statusとprofileをbroadcastします。失敗時に別sheathや前batch解へfallbackしません。
 
-### 4.5 `unified_linear_response`
+### 4.4 `unified_linear_response`
 
 高さごとのplasma accessible fractionを$f_{\mathrm{access}}(z)$、
 $\kappa=1/\lambda_D$とすると、surfaceの平面平均sourceと
@@ -284,6 +272,5 @@ $$
 | surface zero-mode plan/state | `periodic_zero_mode/bem_periodic_zero_mode_plan.f90` |
 | zero-mode evaluation | `periodic_zero_mode/bem_periodic_zero_mode_eval.f90` |
 | field ownership/composition | `bem_electrostatic_snapshot.f90` |
-| linear outer model | `outer_plasma/bem_outer_plasma_linear.f90` |
 | kinetic outer model | `outer_plasma/bem_outer_plasma_kinetic.f90` |
 | unified linear model | `outer_plasma/bem_outer_plasma_unified.f90` |

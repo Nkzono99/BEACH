@@ -63,7 +63,7 @@ $\phi_I-\phi_\infty$により
 - outflowでは$v_{n,I}$から$v_{n,\infty}^2$を計算し、escape/turning returnを判定する。
 
 tracked split kineticでは`external_boundary.particles.inflow_model="auto"`が同じprofileへ流入を委ねます。
-このため、`inflow_model="infinity_barrier"`や`"legacy_sheath"`を重ねません。
+このため、`inflow_model="infinity_barrier"`を重ねません。
 [`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)が流入側、[粒子のescapeとreturn](ParticleEscapeReturn.html)が
 流出側の写像を説明します。
 

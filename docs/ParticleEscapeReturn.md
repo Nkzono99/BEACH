@@ -17,12 +17,11 @@ open面を粒子が通過
 │  ├─ escape                    無条件に除去
 │  └─ potential_barrier         scalar障壁で反射またはescape
 └─ particles.modeが所有するz-high
-   ├─ linear_debye              解析的1D return
    ├─ kinetic_1d                離散1D profile return
    └─ unified_linear_response   明示的3D outer orbit
 ```
 
-したがって、5つを1つの model 選択肢として並べる必要はありません。
+したがって、4つを1つの model 選択肢として並べる必要はありません。
 通常 open 面には次の2択があります。
 
 | `ordinary_open.model` | 外部状態 | 粒子の判定方法 | 主な用途 |
@@ -34,7 +33,6 @@ z-high を outer が所有する場合は `particles.mode` で追跡方法を選
 
 | `field.model` | 外部状態 | 粒子の判定方法 | return時間 | 主な用途 |
 | --- | --- | --- | --- | --- |
-| `linear_debye` | 解析的な指数1D profile | 保存energy | 解析式 | 簡易な準定常1D outer plasma |
 | `kinetic_1d` | 収束した離散1D profile | 保存energyとturning point探索 | profileを積分 | **標準:** 自己整合な平均sheath |
 | `unified_linear_response` | zero/nonzero modeを含む3D場 | 外部軌道を時間積分 | 軌道から計測 | **高度:** rough surfaceを含む線形3D応答 |
 
@@ -108,57 +106,7 @@ turning位置、flight time、空間電荷は扱いません。複数のopen面�
 無限遠電位がないため、`sim.e0`と併用する場合の`phi_infty`は有効なreservoir基準電位としてユーザが
 整合させる必要があります。
 
-## 3. `linear_debye`: 解析的な1D profileでreturnを写像する
-
-interfaceから外側の電位差をDebye長$\lambda_D$の指数profileで表すmodelです。z-highをownership interfaceにし、
-解析式からescape/return、往復時間、接線変位を一度に求めます。
-
-```toml
-[external_boundary.field]
-model = "linear_debye"
-debye_length = 0.2
-thermal_voltage = 10.0
-
-[external_boundary.particles]
-mode = "same_batch"
-field_evolution_timescale = 1.0
-```
-
-### 保存energyでescapeとreturnを分ける
-
-interface電位を$\phi_I$、無限遠を$\phi_\infty$、interfaceでの外向き法線速度を$v_{n,I}$とすると、
-
-$$
-v_{n,\infty}^2
-=v_{n,I}^2+\frac{2q(\phi_I-\phi_\infty)}{m}
-$$
-
-です。$v_{n,\infty}^2\ge0$なら無限遠へ到達できるためescape、負なら指数profile内にturning pointがあるため
-returnです。これは[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)で、無限遠からinterfaceへ写す式の逆向きです。
-
-### linear Debye profileからreturn時間を求める
-
-escape不能粒子について
-
-$$
-D=-v_{n,\infty}^2>0
-$$
-
-とすると、往復時間は
-
-$$
-\tau_\mathrm{outer}
-=\frac{4\lambda_D}{\sqrt D}
-\tan^{-1}\left(\frac{v_{n,I}}{\sqrt D}\right)
-$$
-
-です。return時は法線速度だけを$-v_{n,I}$へ反転し、接線速度は保持します。接線位置を
-$\mathbf v_t\tau_\mathrm{outer}$だけ進め、x/yをprimary periodic cellへwrapします。
-
-このmodelは低コストですが、外部電位を指数profileへ固定する近似です。自己整合なVDFや非線形sheathが必要なら
-`kinetic_1d`を使います。
-
-## 4. `kinetic_1d`: 離散sheath profileでreturnを求める
+## 3. `kinetic_1d`: 離散sheath profileでreturnを求める
 
 ambient electron/ionのVDFから非線形1D Poisson問題を解き、batch開始時に収束した$\phi(z)$を流入と流出の
 両方へ使うmodelです。
@@ -192,7 +140,7 @@ $$
 $$
 
 で積算します。turning区間では到達fractionまでを積分し、grid上端より先にturning pointがある場合は
-far Robin exponential tailを解析積分します。往復後の速度反転、接線変位、periodic wrapは`linear_debye`と同じです。
+far Robin exponential tailを解析積分します。往復後は法線速度を反転し、接線変位を加えてperiodic wrapします。
 
 Zhao closureの現実装は、このgrid外積分にもphotoelectron reference Debye長をtail scaleとして使います。真の漸近scale
 `abs(phi_end/E_end)`とは一般に一致しないため、separatrix近傍のflight timeは暫定値です。production利用前にこの差を
@@ -232,7 +180,7 @@ Robin tailを使うのはinstant経路であり、Zhao queue経路は後述す�
 静電・無衝突・非磁化1D profileという仮定を持ちます。詳しくは
 [外部場: kinetic 1D](KineticOuterPlasma.html)で説明します。
 
-## 5. `unified_linear_response`: 外部3D軌道を積分する
+## 4. `unified_linear_response`: 外部3D軌道を積分する
 
 rough surfaceからfar planeまでのzero modeとscreened nonzero modeを一つの線形応答場として構築するmodelです。
 `unified_linear_response`だけでは粒子returnは有効になりません。次の3D orbit設定を組み合わせたときに、
@@ -289,7 +237,7 @@ energy errorに対して収束確認します。場の構成と適用範囲は
 | `particles.mode` | 対応するfield | 粒子処理 |
 | --- | --- | --- |
 | `local_source` | すべて | 通常のopen境界 |
-| `same_batch` | `linear_debye` / `kinetic_1d` | 保存energyからescape/returnを写像 |
+| `same_batch` | `kinetic_1d` | 保存energyからescape/returnを写像 |
 | `same_batch` | `unified_linear_response` | batch内で固定された3D場で外部軌道を時間積分 |
 | `zhao_queue` | Zhao `kinetic_1d` | 1D結果を後続batchのeventへ遅延 |
 
@@ -352,7 +300,7 @@ field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
 ```
 
-`linear_debye`、`absorbing_maxwellian`、3D explicit orbit、legacy photoelectron histogramとの組合せは拒否します。
+`absorbing_maxwellian`または3D explicit orbitとの組合せは拒否します。
 さらに`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を要求します。
 `particles.mode="zhao_queue"`は、tracked粒子のouter flightとZhao光電子populationを一つの保存inventoryで接続します。
 各rankはeventをlocal queueに保持し、Zhao closureへの入力として光電子のmacro粒子数をMPI全体で合計します。
@@ -466,7 +414,7 @@ transfer対象と電荷収支の集計期間が一致する場合に限ります
 ## Code reference
 
 - `escape`と`potential_barrier`: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
-- `linear_debye`と`kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
+- `kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
 - delayed event queue: [`bem_outer_event_queue.f90`](../src/runtime/coupling/bem_outer_event_queue.f90)
 - queue checkpoint: [`bem_outer_event_queue_io.f90`](../src/runtime/coupling/bem_outer_event_queue_io.f90)
 - `unified_linear_response`の3D軌道: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)

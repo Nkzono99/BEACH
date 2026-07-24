@@ -16,8 +16,8 @@ independently with `external_boundary.particles.inflow_model`. Do not treat
 
 ## Replace the split window with one field solve
 
-`linear_debye` and `kinetic_1d` join a surface field below an ownership interface to a 1-D outer profile above it. The unified
-model solves one zero-mode Poisson grid from the surface projection to the far boundary and continues nonzero modes into plasma
+`kinetic_1d` joins a surface field below an ownership interface to a 1-D outer profile above it. The unified
+model does not use that split interface as a field boundary; it solves one zero-mode Poisson grid from the surface projection to the far boundary and continues nonzero modes into plasma
 tails.
 
 The interface derived from `sim.box_max[2]` is the particle-ownership boundary on the z-high box face. It is neither a field-solve boundary nor the
@@ -163,7 +163,7 @@ is an operational small-perturbation gate, not an error bound.
 | Species model | No species VDF, Bohm condition, or photoelectron mean closure |
 | Particle transfer | `external_boundary.particles.mode="local_source"`, or `"same_batch"` for a 3-D outer orbit |
 | Magnetic field | `particles.mode="same_batch"` requires `sim.b0=0` |
-| Failure | Stop without fallback to a nonlinear or legacy sheath model |
+| Failure | Stop without falling back to another model when an applicability condition fails |
 
 `max_gap_ratio` and `max_local_charge_ratio` are diagnostics for split scalar-interface models. Unified acceptance centers on
 accessible-area convergence and zero/nonzero linearity.

@@ -167,8 +167,8 @@ New configurations split `[external_boundary]` into three responsibilities.
 
 | Table | Main choices | Description |
 |------------|------|------|
-| `external_boundary.field` | `none`, `linear_debye`, `kinetic_1d`, `unified_linear_response` | Field of the external plasma response |
-| `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high particle handling; `inflow_model` selects source VDF, scalar barrier, or legacy sheath |
+| `external_boundary.field` | `none`, `kinetic_1d`, `unified_linear_response` | Field of the external plasma response |
+| `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high particle handling; `inflow_model` selects source VDF or a scalar barrier |
 | `external_boundary.ordinary_open` | `escape`, `potential_barrier` | Open faces not owned by the outer model |
 
 The model and mode derive `return_model`, `particle_transfer_mode`, queue flag,
@@ -180,7 +180,6 @@ and `interface_z`. See [Configure the External Boundary](OuterPlasmaModels.en.ht
 |------------|------|-----------|------|
 | `sheath_alpha_deg` | float | 60.0 | Solar elevation angle [deg] |
 | `sheath_photoelectron_ref_density_cm3` | float | 64.0 | Reference photoelectron density [cm^-3] |
-| `sheath_reference_coordinate` | float | - | Sheath reference-plane coordinate [m] |
 | `sheath_electron_drift_mode` | string | "normal" | normal, full |
 | `sheath_ion_drift_mode` | string | "normal" | normal, full |
 
@@ -242,8 +241,8 @@ and `interface_z`. See [Configure the External Boundary](OuterPlasmaModels.en.ht
 | `normal_drift_speed` | float | 0.0 | Normal-direction drift speed [m/s] |
 | `ray_direction` | float[3] | inward normal | Ray direction vector |
 
-A `photo_raycast` species using tracked outer transfer must set `deposit_opposite_charge_on_emit=true`, regardless of whether
-the histogram is enabled.
+A `photo_raycast` species using tracked outer transfer must set `deposit_opposite_charge_on_emit=true` to close emission and
+return charge balance.
 
 ### [mesh] Section - Geometry
 
@@ -313,7 +312,6 @@ Output destination: the directory specified by `output.dir`, default `outputs/la
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | When reservoir_face is used | CSV: injection residual state |
 | `outer_plasma_profile.csv` | A ready `kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile and conditional checkpoint |
-| `photoelectron_histogram.csv` | `photoelectron_histogram_enabled=true` | CSV: previous-batch and cumulative histogram; a conditional checkpoint |
 | `performance_profile.csv` | When the `BEACH_PROFILE=1` environment variable is set | CSV: measured times for each region |
 
 ### Additional Files During MPI Runs
@@ -543,7 +541,6 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 | `reservoir_face` | `use_box=true`, `batch_duration>0`, `inject_face` specified |
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
 | `periodic2` | Normally `field_solver=fmm`; the Direct split reference is the exception. Exactly two periodic axes and `use_box=true` |
-| Legacy sheath inflow | Set `external_boundary.particles.inflow_model="legacy_sheath"` and `legacy_sheath_model` |
 | Resume | `write_files=true`, checkpoint file exists, in the `restart_from` directory when specified, MPI size matches |
 | Performance profiling | Environment variable `BEACH_PROFILE=1` |
 | MPI run | Compiled with `-DUSE_MPI`, MPI compiler wrapper used |
@@ -597,7 +594,6 @@ BEACH/
 | `docs/ParticleSourcesBoundaries.en.md` | Particle-source overview |
 | `docs/ReservoirInjection.en.md` | Reservoir flux, velocity distributions, and potential mapping |
 | `docs/PhotoelectronEmission.en.md` | Photoelectron emission and lifecycle |
-| `docs/SheathInjectionClosures.en.md` | Zhao and floating source-VDF corrections |
 | `docs/ParticleTrackingCollision.en.md` | Particle-update flow |
 | `docs/BorisPusher.en.md` | Boris velocity and position update |
 | `docs/ParticleEvents.en.md` | Triangle collisions and box-boundary events |

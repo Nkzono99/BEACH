@@ -477,16 +477,14 @@ def test_estimate_workload_accepts_periodic_field_sim_keys() -> None:
     assert result["batch_totals"] == [3]
 
 
-def test_estimate_workload_accepts_normalization_and_sheath_sim_keys() -> None:
+def test_estimate_workload_accepts_normalization_and_zhao_sim_keys() -> None:
     config = {
         "sim": {
             "batch_count": 1,
             "field_normalization": "length",
             "field_length_scale": 2.0,
-            "sheath_injection_model": "none",
             "sheath_alpha_deg": 60.0,
             "sheath_photoelectron_ref_density_cm3": 64.0,
-            "sheath_reference_coordinate": 0.02,
             "sheath_electron_drift_mode": "normal",
             "sheath_ion_drift_mode": "normal",
             "use_box": True,

@@ -28,8 +28,6 @@ module bem_simulator
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type, external_boundary_ok, resolve_external_boundary_contract
   use bem_external_step_driver, only: external_step_trace_type, continue_external_particle_step
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type, &
-                                            validate_photoelectron_linear_applicability, photoelectron_applicability_ok
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
   use bem_zhao_steady_start, only: initialize_zhao_floating_steady_start
@@ -48,7 +46,7 @@ module bem_simulator
     !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
-      potential_history_unit, charge_ledger, electrostatic_diagnostics, electrostatic_restart_state, photoelectron_state, &
+      potential_history_unit, charge_ledger, electrostatic_diagnostics, electrostatic_restart_state, &
       outer_queue_state &
       )
       type(mesh_type), intent(inout) :: mesh
@@ -64,7 +62,6 @@ module bem_simulator
       type(charge_ledger_type), intent(inout), optional :: charge_ledger
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
       type(electrostatic_restart_state_type), intent(inout), optional :: electrostatic_restart_state
-      type(photoelectron_histogram_state_type), intent(inout), optional :: photoelectron_state
       type(outer_event_queue_type), intent(inout), optional :: outer_queue_state
     end subroutine run_absorption_insulator
 
@@ -97,7 +94,7 @@ module bem_simulator
       interface_outward_thread, interface_returned_thread, &
       collision_failure_status, collision_failure_particle, &
       collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
-      interface_frozen_ratio_max_thread, interface_energy_error_max_thread, photoelectron_histogram_thread &
+      interface_frozen_ratio_max_thread, interface_energy_error_max_thread &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -118,7 +115,6 @@ module bem_simulator
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
       real(dp), intent(out) :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
       real(dp), intent(out) :: interface_energy_error_max_thread(:)
-      type(photoelectron_histogram_type), intent(inout), optional :: photoelectron_histogram_thread(:)
     end subroutine process_particle_batch
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。

@@ -163,7 +163,7 @@ def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> N
     validator = Draft7Validator(schema)
 
     for path in (
-        "examples/periodic2_linear_outer_reference.toml",
+        "examples/periodic2_kinetic_outer.toml",
         "examples/periodic2_unified_linear_response.toml",
     ):
         document = tomllib.loads(_read(path))
@@ -182,22 +182,6 @@ def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> N
 
     assert "periodic2 は fmm 必須" not in _read("docs/agent-user-guide.md")
     assert "periodic2 requires fmm" not in _read("docs/agent-user-guide.en.md")
-
-
-def test_photoelectron_histogram_schema_uses_derived_return_contract() -> None:
-    validator = Draft7Validator(_schema())
-    document = tomllib.loads(_read("examples/periodic2_photoelectron_return.toml"))
-
-    errors = list(validator.iter_errors(document))
-    assert not errors, [error.message for error in errors]
-    assert "outer_plasma" not in document
-    assert "coupling" not in document
-    assert document["external_boundary"]["field"]["model"] == "linear_debye"
-    assert document["external_boundary"]["particles"]["mode"] == "same_batch"
-
-    document["external_boundary"]["particles"]["mode"] = "local_source"
-    errors = list(validator.iter_errors(document))
-    assert errors
 
 
 def test_photoelectron_schema_matches_density_transfer_and_deposit_contracts() -> None:
@@ -221,11 +205,14 @@ def test_photoelectron_schema_matches_density_transfer_and_deposit_contracts() -
     assert list(validator.iter_errors(wrong_field))
 
     tracked_photoelectron = tomllib.loads(
-        _read("examples/periodic2_photoelectron_return.toml")
+        _read("examples/periodic2_zhao_charge_driven_outer.toml")
     )
-    tracked_photoelectron["particles"]["species"][0][
-        "deposit_opposite_charge_on_emit"
-    ] = False
+    photoelectron = next(
+        species
+        for species in tracked_photoelectron["particles"]["species"]
+        if species.get("source_mode") == "photo_raycast"
+    )
+    photoelectron["deposit_opposite_charge_on_emit"] = False
     assert list(validator.iter_errors(tracked_photoelectron))
 
 
@@ -378,14 +365,11 @@ def test_output_guide_documents_resolved_external_boundary_receipt() -> None:
         "external_inflow_map": (
             "source_vdf",
             "infinity_barrier",
-            "legacy_sheath",
-            "linear_profile",
             "kinetic_profile",
         ),
         "external_ordinary_open_model": ("escape", "potential_barrier"),
         "external_interface_transport": (
             "none",
-            "linear_1d",
             "kinetic_1d",
             "unified_3d",
         ),

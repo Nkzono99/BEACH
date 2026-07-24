@@ -17,7 +17,6 @@
     { "source": { "root": "ParticleSourcesBoundaries.md", "en": "ParticleSourcesBoundaries.en.md" }, "slug": "particle-sources-boundaries", "order": 145, "description": { "root": "source_mode の選択と、生成後に共通する粒子処理。", "en": "Choose source_mode and understand the particle processing shared after creation." } },
     { "source": { "root": "ReservoirInjection.md", "en": "ReservoirInjection.en.md" }, "slug": "reservoir-injection", "order": 146, "description": { "root": "reservoir_face が上流 VDF からバッチ流入量と注入面速度を作る方法。", "en": "How reservoir_face converts an upstream VDF into batch inflow and face-arrival velocity." } },
     { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 147, "description": { "root": "光線追跡による放出、表面電荷、通常追跡と外部シースによるescape/return。", "en": "Ray-cast emission, surface charge, and escape/return through ordinary tracking and outer-sheath handling." } },
-    { "source": { "root": "SheathInjectionClosures.md", "en": "SheathInjectionClosures.en.md" }, "slug": "sheath-injection-closures", "order": 148, "description": { "root": "floatingおよびZhao系による粒子source VDFの補正。", "en": "Particle-source VDF corrections from floating and Zhao-family closures." } },
     { "source": { "root": "ParticleTrackingCollision.md", "en": "ParticleTrackingCollision.en.md" }, "slug": "particle-tracking-collision", "order": 150, "description": { "root": "同じ時刻の位置・速度から候補軌道を作り、最初の衝突・境界まで確定する流れ。", "en": "Overview of same-time particle updates and earliest-event processing." } },
     { "source": { "root": "BorisPusher.md", "en": "BorisPusher.en.md" }, "slug": "boris-pusher", "order": 151, "description": { "root": "予測中点場、Boris速度回転、台形位置更新。", "en": "Predicted-midpoint field, Boris velocity rotation, and trapezoidal position update." } },
     { "source": { "root": "ParticleEvents.md", "en": "ParticleEvents.en.md" }, "slug": "particle-events", "order": 152, "description": { "root": "mesh衝突とbox境界をperiodic imageまで含めて比較し、最初に起きる処理を選ぶ方法。", "en": "Mesh collision, box boundaries, periodic images, and earliest-event selection." } },
@@ -103,7 +102,6 @@
               "items": [
                 { "type": "page", "slug": "outer-plasma-models", "label": { "root": "構成の選び方", "en": "Selection guide" } },
                 { "type": "page", "slug": "boundary-configuration-migration", "label": { "root": "旧設定から移行する", "en": "Migrate legacy configuration" } },
-                { "type": "page", "slug": "sheath-injection-closures", "label": { "root": "流入VDFのシース補正", "en": "Inflow-VDF sheath closures" } },
                 { "type": "page", "slug": "particle-escape-return", "label": { "root": "open境界・escape・return", "en": "Open boundaries, escape, and return" } },
                 { "type": "page", "slug": "kinetic-outer-plasma", "label": { "root": "標準: kinetic 1Dシース", "en": "Standard: kinetic 1-D sheath" } },
                 { "type": "page", "slug": "unified-linear-response", "label": { "root": "高度: 粗面線形screening", "en": "Advanced: rough-surface screening" } }

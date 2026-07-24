@@ -4142,7 +4142,7 @@ def test_verify_run_requires_complete_infinite_electrostatic_restart_state(
         tool.verify_run(out, 1)
 
 
-def test_verify_run_requires_conditional_outer_checkpoint_files(
+def test_verify_run_requires_conditional_outer_profile_file(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
@@ -4152,7 +4152,6 @@ def test_verify_run_requires_conditional_outer_checkpoint_files(
     config = _load_toml(archive_input)
     config["outer_plasma"] = {
         "model": "kinetic_1d",
-        "photoelectron_histogram_enabled": True,
     }
     _write_toml(archive_input, config)
     validation_root = tmp_path / "validation"
@@ -4172,8 +4171,7 @@ def test_verify_run_requires_conditional_outer_checkpoint_files(
         "1,0.0,0.0,0.0,0.0\n",
         encoding="utf-8",
     )
-    with pytest.raises(tool.ValidationError, match="photoelectron_histogram.csv"):
-        tool.verify_run(out, 1)
+    assert tool.verify_run(out, 1)["status"] == "ok"
 
 
 def test_legacy_estimator_audit_compares_exact_native_archive_keys(

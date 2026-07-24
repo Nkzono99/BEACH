@@ -116,7 +116,7 @@ batch injectionもhot loop外で同じresolverを使います。外部場の構�
 `field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` provider が場の合成時に一度だけ加えます。`lower_boundary_model="symmetric_vacuum"` は均質真空の無外場境界条件として `E_bottom=-Q/(2 epsilon0 A)`、`E_top=+Q/(2 epsilon0 A)` を選び、interface位置や誘電率を必要としません。`e_bottom_zero` は下側場を0に固定する旧計算再現用境界条件です。外部シースのGauss残差は上側へ入る電束 `Q + epsilon0 A E_bottom` とouter chargeの和で評価します。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的なzero-mode boundary conditionで閉じます。cache fingerprintは周期長、FMM order、画像/Ewald層、source/target topology、softening、generator version、tolerance、real kind、build versionを含みます。MPIではrank 0だけがlock、検証、cache I/O、atomic publishを担当します。cache missのoperator生成はtarget sliceを全rankに分配し、各rank内でproxy RHSをOpenMP並列評価した後、`MPI_Allreduce(SUM)`で全rankに組み立てます。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
-`periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、線形Debye outer plasmaを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`減衰、gap、局所平均plasma電荷推定、線形性を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
+`periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、選択したouter responseを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`減衰、gap、局所平均plasma電荷推定、線形性を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
 
 運用上、自己整合な外部シースの標準・推奨モデルは
 `external_boundary.field.model="kinetic_1d"`とする。正規化後の実行時表現は
@@ -129,28 +129,27 @@ batch injectionもhot loop外で同じresolverを使います。外部場の構�
 `[external_boundary.ordinary_open]`の3責務で指定する。fieldは外部場、particlesはz-high粒子のlifecycleと
 reservoir流入、ordinary_openはouterが所有しないopen面を表す。`particles.mode`は
 `local_source | same_batch | zhao_queue`、`particles.inflow_model`は
-`auto | source_vdf | infinity_barrier | legacy_sheath`とする。
+`auto | source_vdf | infinity_barrier`とする。
 
 `same_batch`はfield modelに応じて次の実行時設定へ正規化する。
 
-- `linear_debye`: return/transferとも`electrostatic_1d_instant_return`
 - `kinetic_1d`: returnは`kinetic_1d_profile_return`、transferは`electrostatic_1d_instant_return`
 - `unified_linear_response`: return/transferとも`electrostatic_3d_explicit_orbit`
 
 `zhao_queue`は`kinetic_1d + zhao_charge_driven`へ同じkinetic return/transfer対とpersistent queueを加える。
-`interface_z`は`sim.box_max[2]`、更新方式は`explicit`へ正規化する。linear/kinetic 1D tracked構成では
-`inflow_model="auto"`が同じprofileへ流入ownershipを渡し、local scalar/legacy補正との併用を拒否する。
+`interface_z`は`sim.box_max[2]`、更新方式は`explicit`へ正規化する。kinetic 1D tracked構成では
+`inflow_model="auto"`が同じprofileへ流入ownershipを渡し、local scalar補正との併用を拒否する。
 unified 3D orbitは流入を所有しないためlocal inflowを独立に選べる。
 
-旧`sim.reservoir_potential_model`、`sim.sheath_injection_model`、`sim.open_boundary_model`、
+旧`sim.reservoir_potential_model`、`sim.open_boundary_model`、
 `[outer_plasma]`、`[coupling]`はcompatibility inputとして読み込むが、`[external_boundary]`との混在は拒否する。
 以下の節で使うreturn/transfer/queue名は正規化後の実行時contractを表し、通常利用者が組み立てる公開設定ではない。
 
-`coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。`linear_debye`は`return_model="electrostatic_1d_instant_return"`、`kinetic_1d`は`return_model="kinetic_1d_profile_return"`を使います。後者の流入障壁は各batchで先に更新したouter stateの`phi_interface-phi_infinity`から計算し、総表面電荷の線形Debye近似へfallbackしません。instant経路の外向き粒子は同じ離散kinetic profileとfar Robin tail上でescape/turning pointを判定し、区分線形電位と指数tailを解析積分して往復時間後に相当するlocal復帰状態を構成します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapします。
+`coupling.particle_transfer_mode="electrostatic_1d_instant_return"`では、z-high面を唯一のouter particle interfaceとします。無限遠reservoirの法線VDFはLiouville/flux保存と法線エネルギー保存でinterfaceへ写像します。`kinetic_1d`は`return_model="kinetic_1d_profile_return"`を使います。流入障壁は各batchで先に更新したouter stateの`phi_interface-phi_infinity`から計算し、別の近似へfallbackしません。instant経路の外向き粒子は同じ離散kinetic profileとfar Robin tail上でescape/turning pointを判定し、区分線形電位と指数tailを解析積分して往復時間後に相当するlocal復帰状態を構成します。return位置のx/yには`v_t*tau_outer`を加えて周期wrapします。
 
 `outer_queue_enabled=false`では、outer flightをglobal simulation timeへ加算せず、return粒子の残り`dt`を既存stepperで再積分し、turning粒子のoutward/returned chargeを同じbatchに計上します。これは定常・準定常sheathを消去した簡略化モデルで、定常化後の平均電流と離脱力には適用できますが、UV照射開始などの遅延return currentを含む過渡応答は表しません。`tau_outer/field_evolution_timescale`が上限を超える場合は停止し、`tau_outer/batch_duration >= 1`ではbatch履歴を物理的なreturn-current時間履歴として解釈しません。
 
-`outer_queue_enabled=true`は、`model="kinetic_1d"`、`kinetic_closure="zhao_charge_driven"`、`zhao_branch="auto"`、`return_model="kinetic_1d_profile_return"`、`particle_transfer_mode="electrostatic_1d_instant_return"`の組合せだけで使えます。正の`sim.batch_duration`、`outer_update_stride=1`、`photoelectron_histogram_enabled=false`を要求し、`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を満たさなければ停止します。各eventでは、`t_due=t_mid+tau_outer`から最初のbatch-start pollまでの量子化遅延`delta_poll`と、batch内crossing時刻のmidpoint近似誤差上限`batch_duration/2`も含め、`tau_outer + delta_poll + batch_duration/2 <= max_frozen_field_ratio * field_evolution_timescale`を課します。超過時はenqueueせず停止します。queueが所有する外部領域はinterfaceから$L=10\lambda_{D,pe}$までの有限control volumeです。turning pointが$L$より手前ならreturn、$L$へ到達すればreservoirへの吸収/escapeとし、queue modeでは$L$外のRobin tailを使ってreturnを判定しません。各batch開始時にdue eventをrank-local queueから取り出し、残った光電子inventoryを面積で割ってZhao closureをpredictor更新します。そのbatchで外向き通過したeventはbatch中央を通過時刻とし、interfaceへのreturnまたは$L$へのescapeまでの`tau_outer`を使って`t_due=t_mid+tau_outer`でqueueへ追加します。surface chargeのcommit後、post-enqueue inventoryでもう一度Zhao closureをcorrector更新し、次batchとcheckpointのcontinuation seedにします。straight runとsplit-resumeは全batchで同じpredictor/corrector列を通ります。return/escapeはdueとなったbatchで計上するため過渡遅延を表しますが、eventはbatch開始時だけreleaseされ、enqueue時のterminal状態を後の場で再積分しません。両modeとも`b0=0`のみを許し、`reservoir_potential_model`およびlegacy Zhao injection correctionとの併用を拒否します。
+`outer_queue_enabled=true`は、`model="kinetic_1d"`、`kinetic_closure="zhao_charge_driven"`、`zhao_branch="auto"`、`return_model="kinetic_1d_profile_return"`、`particle_transfer_mode="electrostatic_1d_instant_return"`の組合せだけで使えます。正の`sim.batch_duration`と`outer_update_stride=1`を要求し、`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`を満たさなければ停止します。各eventでは、`t_due=t_mid+tau_outer`から最初のbatch-start pollまでの量子化遅延`delta_poll`と、batch内crossing時刻のmidpoint近似誤差上限`batch_duration/2`も含め、`tau_outer + delta_poll + batch_duration/2 <= max_frozen_field_ratio * field_evolution_timescale`を課します。超過時はenqueueせず停止します。queueが所有する外部領域はinterfaceから$L=10\lambda_{D,pe}$までの有限control volumeです。turning pointが$L$より手前ならreturn、$L$へ到達すればreservoirへの吸収/escapeとし、queue modeでは$L$外のRobin tailを使ってreturnを判定しません。各batch開始時にdue eventをrank-local queueから取り出し、残った光電子inventoryを面積で割ってZhao closureをpredictor更新します。そのbatchで外向き通過したeventはbatch中央を通過時刻とし、interfaceへのreturnまたは$L$へのescapeまでの`tau_outer`を使って`t_due=t_mid+tau_outer`でqueueへ追加します。surface chargeのcommit後、post-enqueue inventoryでもう一度Zhao closureをcorrector更新し、次batchとcheckpointのcontinuation seedにします。straight runとsplit-resumeは全batchで同じpredictor/corrector列を通ります。return/escapeはdueとなったbatchで計上するため過渡遅延を表しますが、eventはbatch開始時だけreleaseされ、enqueue時のterminal状態を後の場で再積分しません。両modeとも`b0=0`のみを許し、tracked kinetic構成では`inflow_model="auto"`を要求します。
 
 `coupling.steady_start_mode="zhao_floating"`は、定常・準定常研究用の明示的な初期条件です。新規実行の最初batch前に、
 設定済みの無限遠reservoirとUV sourceで Zhao 零電流定常根を解き、`phi(infinity)=0`のprofileを構築します。定常根の
@@ -178,24 +177,13 @@ outer flight time、frozen-field ratioを検査し、step上限到達をdiscard�
 非queue 1D/3D経路はlong flightのfrozen-field上限違反で停止し、Zhao 1D queueはflight、batch-start poll遅延、
 midpoint crossing時刻誤差上限の合計へ上限を課し、さらにbatch幅も設定時に制限します。外部磁場を無視する条件は未決なので`b0=0`のみを許可します。
 
-`outer_plasma.photoelectron_histogram_enabled=true`では、`photo_raycast`粒子がz-high interfaceを外向き通過した時点で、法線運動エネルギーbinごとのsigned charge、全運動エネルギー、接線運動量、個数をMPI-globalに集計します。粒子のreturn / escapeは`outer_plasma.return_model`と`coupling.particle_transfer_mode`だけが決め、統計量から別粒子を再注入しません。各batchの統計は`previous_batch`として次batchへ渡し、累積統計とともに`photoelectron_histogram.csv`へcheckpointします。tracked outer transferを使う全`photo_raycast` speciesには、histogramの有無によらず`deposit_opposite_charge_on_emit=true`を要求します。z-high outward interface crossingのsigned chargeと`photoelectron_ambient_charge_scale`の比が`max_photoelectron_charge_ratio`を超えると、ambient-only線形モデルを適用外として停止し、silent fallbackしません。
-現行histogram経路では、`return_model`と`particle_transfer_mode`の両方に`electrostatic_1d_instant_return`を要求します。
-`photoelectron_density_model`とhistogramは責務を分離していますが、現行のreturn制約では`kinetic_mean`とhistogramを同時に有効化できません。
-
-histogram stateがreadyな場合、`summary.txt`へ`photoelectron_histogram_bins`、
-`photoelectron_histogram_energy_max_J`、`photoelectron_last_completed_batch`、
-`photoelectron_cumulative_signed_charge_C`、`photoelectron_cumulative_kinetic_energy_J`、
-`photoelectron_cumulative_count`、`photoelectron_previous_signed_current_A`、
-`photoelectron_previous_charge_ratio`、`photoelectron_max_charge_ratio`、
-`photoelectron_linear_applicability_status`を出力します。正常に完了したbatchのstatusは`applicable`です。
-
 `outer_plasma.model="kinetic_1d"`は、enabledな負・正z-high `reservoir_face` speciesをそれぞれちょうど1つ要求し、無限遠の
 electron half-Maxwellian / cold drifting ion VDFとして用い、伸長1D格子上のPoisson方程式を
 interface Neumann条件と遠方Robin条件で解きます。初版は単調・無衝突・非磁化分枝に限定し、
-ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infinity)=0`をゲージとして固定し、
-非ゼロの`outer_plasma.infinity_potential`を拒否します。`photoelectron_density_model="kinetic_mean"`は負電荷
+ionにはkinetic Bohm入口条件を課します。無限遠電位は`phi(infinity)=0`をゲージとして内部で固定し、
+公開・互換入力では変更できません。`photoelectron_density_model="kinetic_mean"`は負電荷
 `photo_raycast` speciesの放出fluxからoutgoing/returning平均密度を構成します。解状態は
-`converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、線形モデルへ
+`converged`、`not_applicable`、`no_physical_solution`、`numerical_failure`を区別し、別のfield modelへ
 silent fallbackしません。profileは`outer_plasma_profile.csv`へ保存し、restart時のNewton初期値に使います。
 非線形solveは密度モデルの解析微分から構成したbordered-tridiagonal Jacobianを使い、1反復を
 格子点数に対して線形時間で解きます。Newton backtrackingが停滞した場合は同じPoisson残差に対する
@@ -208,11 +196,11 @@ current診断だけを供給し、表面へreturn chargeを再加算しません
 
 `outer_plasma.kinetic_closure="zhao_charge_driven"`は、同じsurface zero modeのinterface電場を境界条件として、
 Zhao Type A/B/Cのfree/reflected ambient electron、free/captured photoelectron、cold ion populationを使う選択肢です。
-無限遠準中性、Sagdeev積分のfield条件、Type Aではfar-field条件をrootとして解きます。旧Zhaoのzero-current式は
+無限遠準中性、Sagdeev積分のfield条件、Type Aではfar-field条件をrootとして解きます。定常Zhaoのzero-current式は
 rootに課さず、species別とtotalのcurrent densityを診断として出力します。
 `zhao_branch="auto"`または`a`、`b`、`c`を選べます。Type Aの非単調profileでは、流入とescape/returnの両方が離散profile
-全体の最初のenergy barrierを走査します。legacy `sheath_injection_model="zhao_*"`、`reservoir_potential_model`、
-`photoelectron_density_model="kinetic_mean"`との併用を拒否し、tracked粒子だけが表面電荷を更新します。初版はz-high interfaceを
+全体の最初のenergy barrierを走査します。`photoelectron_density_model="kinetic_mean"`との併用を拒否し、
+tracked粒子だけが表面電荷を更新します。初版はz-high interfaceを
 Zhaoの有効放出面とみなす平面・無衝突・非磁化の準定常modelであり、実放出面からinterfaceまでの一般VDF接続は対象外です。
 ambient electron、ion、photoelectronにはそれぞれenabledな負電荷z-high `reservoir_face`、正電荷z-high
 `reservoir_face`、負電荷`photo_raycast` speciesをちょうど1つ要求し、0個または複数を拒否します。
@@ -311,12 +299,9 @@ profile gridについて収束を確認します。
 - `target_macro_particles_per_batch` 指定時は `w_particle` を自動解決
 - `position_jitter_dt=sim.dt` の速度方向ジッタ後、周期軸はprimitive cellへwrapし、非周期軸はbox面へclampして全粒子を有効box内から開始する
 - `reservoir_potential_model="infinity_barrier"` 時は注入面平均電位を使って法線速度下限とface到達速度を同じenergy mapで補正する
-- 1D outer transfer時は`infinity_barrier`またはlegacy sheath補正を重ねず、refresh済みouter stateの
+- 1D outer transfer時は`infinity_barrier`を重ねず、refresh済みouter stateの
   `phi_interface - phi_infinity`（kineticでは全profile上の最大障壁）から流入cutoffを計算する
 - 注入面平均の `N x N` 電位評価では、追加の電位評価を行わずに母標準偏差・最小・最大も集計する。Maxwellian reservoirで `abs(q_particle) * phi_std` が `k_B*T + 0.5*m*u_n^2` の10%を超える場合、MPI rootは初回と最終batchに面平均近似の警告を出す
-- `sheath_injection_model` が有効な場合、最初の負電荷 `reservoir_face` species は共有シース解に基づく `n_swe_inf` と `vmin_normal` で上書きされる
-- シース 1D 座標の基準平面は共有 `inject_face` の法線方向で定義し、`sim.sheath_reference_coordinate` があればその座標を、未指定なら対応 box face の座標を使う
-- `sim.sheath_reference_coordinate` を明示した Zhao モデルでは、基準平面から reservoir 境界までの局所 `phi(z)` を使って electron reservoir の有効密度・cutoff と ion reservoir の局所密度・法線ドリフトを更新し、シースによる VDF 変形を近似する
 
 ### 6.3 `photo_raycast`
 
@@ -328,7 +313,6 @@ profile gridについて収束を確認します。
 - 生成粒子の重みには常に `w_hit` を使う
 - box内では通常粒子として追跡し、open面では共通の`open_boundary_model`またはouter particle transferを適用する
 - `sim.field_bc_mode="periodic2"` で periodic image に命中した場合も、放出位置は primary cell に wrap した hit 座標を使う
-- `sheath_injection_model` が Zhao 系のとき、最初の負電荷 `photo_raycast` species の `emit_current_density_a_m2` は Zhao の自由光電子電流へ上書きされ、法線速度 cutoff も分枝に応じて適用される
 
 ## 7. 実行制御と停止条件
 
@@ -356,7 +340,6 @@ profile gridについて収束を確認します。
 - `macro_residuals.csv`
 - `charge_ledger.csv`（粒子種別の電荷収支と粒子数）
 - `outer_plasma_profile.csv`（readyなouter stateの条件付きcheckpoint）
-- `photoelectron_histogram.csv`（histogram有効時の条件付きcheckpoint）
 - `outer_event_queue.csv`（serialのZhao過渡queue。queue有効時の条件付きcheckpoint）
 - `performance_profile.csv`（`BEACH_PROFILE=1` 環境変数設定時）
 

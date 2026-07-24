@@ -38,11 +38,49 @@ def test_packaged_schema_exposes_workload_property_contracts() -> None:
     )
 
 
+def test_schema_rejects_removed_outer_boundary_and_sheath_keys() -> None:
+    schema, _ = load_schema()
+    config = load_config_file(ROOT / "examples/periodic2_kinetic_outer.toml")
+    removed_outer_keys = {
+        "infinity_potential": 0.0,
+        "photoelectron_histogram_enabled": False,
+        "photoelectron_histogram_bins": 16,
+        "photoelectron_histogram_energy_max": 10.0,
+        "photoelectron_ambient_charge_scale": 1.0,
+        "max_photoelectron_charge_ratio": 0.1,
+    }
+    removed_sim_keys = {
+        "sheath_injection_model": "none",
+        "sheath_reference_coordinate": 0.0,
+    }
+
+    outer_properties = schema["properties"]["outer_plasma"]["properties"]
+    facade_field_properties = schema["$defs"]["externalBoundaryField"]["properties"]
+    sim_properties = schema["$defs"]["sim"]["properties"]
+    assert not (removed_outer_keys.keys() & outer_properties.keys())
+    assert not (removed_outer_keys.keys() & facade_field_properties.keys())
+    assert not (removed_sim_keys.keys() & sim_properties.keys())
+
+    for key, value in removed_outer_keys.items():
+        invalid = copy.deepcopy(config)
+        invalid["outer_plasma"][key] = value
+        assert schema_errors(invalid, schema)
+
+    authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
+    for key, value in removed_outer_keys.items():
+        invalid = copy.deepcopy(authoring)
+        invalid["external_boundary"]["field"][key] = value
+        assert schema_errors(invalid, schema)
+
+    for key, value in removed_sim_keys.items():
+        invalid = copy.deepcopy(config)
+        invalid["sim"][key] = value
+        assert schema_errors(invalid, schema)
+
+
 def test_schema_accepts_external_boundary_facade_and_rejects_raw_owner_mix() -> None:
     schema, _ = load_schema()
-    authoring = load_toml_file(
-        ROOT / "examples/periodic2_outer_particle_transfer.toml"
-    )
+    authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
 
     assert schema_errors(authoring, schema) == []
 
@@ -56,7 +94,6 @@ def test_schema_accepts_external_boundary_facade_and_rejects_raw_owner_mix() -> 
 
     for selector, value in (
         ("reservoir_potential_model", "none"),
-        ("sheath_injection_model", "none"),
         ("open_boundary_model", "escape"),
     ):
         mixed = copy.deepcopy(authoring)
@@ -66,9 +103,7 @@ def test_schema_accepts_external_boundary_facade_and_rejects_raw_owner_mix() -> 
 
 def test_schema_requires_explicit_box_for_an_active_external_field() -> None:
     schema, _ = load_schema()
-    authoring = load_toml_file(
-        ROOT / "examples/periodic2_outer_particle_transfer.toml"
-    )
+    authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
 
     missing_interface_box = copy.deepcopy(authoring)
     del missing_interface_box["sim"]["box_max"]
@@ -115,7 +150,6 @@ def test_schema_enforces_external_boundary_required_models_and_queue_shape() -> 
         ("model", "linear_debye"),
         ("zhao_branch", "b"),
         ("photoelectron_source_scale", 0.0),
-        ("photoelectron_histogram_enabled", True),
     ):
         invalid_queue = copy.deepcopy(authoring)
         invalid_queue["external_boundary"]["field"][field_key] = invalid_value
@@ -145,25 +179,23 @@ def test_schema_enforces_external_boundary_required_models_and_queue_shape() -> 
 
 def test_schema_enforces_facade_model_mode_requirements() -> None:
     schema, _ = load_schema()
-    linear = load_toml_file(
-        ROOT / "examples/periodic2_outer_particle_transfer.toml"
-    )
+    kinetic = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
 
-    inactive = copy.deepcopy(linear)
+    inactive = copy.deepcopy(kinetic)
     inactive["external_boundary"]["field"] = {"model": "none"}
     assert schema_errors(inactive, schema)
 
-    competing_inflow = copy.deepcopy(linear)
+    competing_inflow = copy.deepcopy(kinetic)
     competing_inflow["external_boundary"]["particles"]["inflow_model"] = (
         "infinity_barrier"
     )
     assert schema_errors(competing_inflow, schema)
 
-    missing_scale = copy.deepcopy(linear)
+    missing_scale = copy.deepcopy(kinetic)
     del missing_scale["external_boundary"]["field"]["debye_length"]
     assert schema_errors(missing_scale, schema)
 
-    missing_scale = copy.deepcopy(linear)
+    missing_scale = copy.deepcopy(kinetic)
     del missing_scale["external_boundary"]["field"]["thermal_voltage"]
     assert schema_errors(missing_scale, schema)
 
@@ -186,21 +218,10 @@ def test_schema_rejects_facade_model_specific_field_options() -> None:
     schema, _ = load_schema()
 
     for example, key, value in (
-        (
-            "periodic2_linear_outer_reference.toml",
-            "kinetic_closure",
-            "absorbing_maxwellian",
-        ),
-        ("periodic2_kinetic_outer.toml", "infinity_potential", 0.0),
         ("periodic2_kinetic_outer.toml", "max_linearity_ratio", 0.25),
         ("periodic2_kinetic_outer.toml", "unified_grid_points", 129),
         ("periodic2_unified_linear_response.toml", "max_gap_ratio", 5.0),
         ("periodic2_unified_linear_response.toml", "max_local_charge_ratio", 50.0),
-        (
-            "periodic2_unified_linear_response.toml",
-            "photoelectron_histogram_enabled",
-            False,
-        ),
     ):
         authoring = load_toml_file(ROOT / "examples" / example)
         authoring["external_boundary"]["field"][key] = value
@@ -209,12 +230,6 @@ def test_schema_rejects_facade_model_specific_field_options() -> None:
 
 def test_schema_requires_facade_specialized_field_option_owners() -> None:
     schema, _ = load_schema()
-
-    histogram = load_toml_file(
-        ROOT / "examples/periodic2_linear_outer_reference.toml"
-    )
-    histogram["external_boundary"]["field"]["photoelectron_histogram_bins"] = 16
-    assert schema_errors(histogram, schema)
 
     zhao = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
     zhao["external_boundary"]["field"]["zhao_branch"] = "auto"
@@ -234,11 +249,11 @@ def test_schema_rejects_facade_mode_specific_particle_options() -> None:
 
     for example, key, value in (
         (
-            "periodic2_linear_outer_reference.toml",
+            "periodic2_unified_linear_response.toml",
             "field_evolution_timescale",
             1.0,
         ),
-        ("periodic2_outer_particle_transfer.toml", "outer_orbit_dt", 1.0e-9),
+        ("periodic2_kinetic_outer.toml", "outer_orbit_dt", 1.0e-9),
         ("periodic2_zhao_transient_outer.toml", "outer_orbit_max_steps", 100),
         ("periodic2_unified_explicit_orbit.toml", "outer_update_stride", 1),
         ("periodic2_zhao_transient_outer.toml", "outer_update_stride", 1),
@@ -263,8 +278,13 @@ def test_schema_enforces_facade_control_ranges() -> None:
     ):
         example = (
             "periodic2_unified_explicit_orbit.toml"
-            if key in {"unified_grid_points", "accessible_fraction_tolerance"}
-            else "periodic2_outer_particle_transfer.toml"
+            if key
+            in {
+                "unified_grid_points",
+                "accessible_fraction_tolerance",
+                "max_linearity_ratio",
+            }
+            else "periodic2_kinetic_outer.toml"
         )
         authoring = load_toml_file(ROOT / "examples" / example)
         authoring["external_boundary"][section][key] = value
@@ -282,6 +302,10 @@ def test_schema_enforces_facade_zhao_closure_and_zero_source_exception() -> None
         no_photo["external_boundary"]["field"]["photoelectron_source_scale"] == 0.0
     )
     assert schema_errors(no_photo, schema) == []
+
+    negative_density = copy.deepcopy(no_photo)
+    negative_density["sim"]["sheath_photoelectron_ref_density_cm3"] = -1.0
+    assert schema_errors(negative_density, schema)
 
     photoemitting = load_toml_file(
         ROOT / "examples/periodic2_zhao_charge_driven_outer.toml"
@@ -314,7 +338,7 @@ def test_schema_enforces_facade_zhao_closure_and_zero_source_exception() -> None
     assert schema_errors(competing_inflow, schema)
 
 
-def test_schema_requires_legacy_sheath_model_only_for_legacy_inflow() -> None:
+def test_schema_rejects_removed_legacy_sheath_vocabulary() -> None:
     schema, _ = load_schema()
     authoring = load_toml_file(
         ROOT / "examples/periodic2_unified_explicit_orbit.toml"
@@ -323,18 +347,14 @@ def test_schema_requires_legacy_sheath_model_only_for_legacy_inflow() -> None:
 
     assert schema_errors(authoring, schema)
 
-    authoring["external_boundary"]["particles"]["legacy_sheath_model"] = "zhao_auto"
-    assert schema_errors(authoring, schema) == []
-
     authoring["external_boundary"]["particles"]["inflow_model"] = "source_vdf"
+    authoring["external_boundary"]["particles"]["legacy_sheath_model"] = "zhao_auto"
     assert schema_errors(authoring, schema)
 
 
 def test_schema_rejects_inert_external_boundary_none_options() -> None:
     schema, _ = load_schema()
-    authoring = load_toml_file(
-        ROOT / "examples/periodic2_outer_particle_transfer.toml"
-    )
+    authoring = load_toml_file(ROOT / "examples/periodic2_kinetic_outer.toml")
     authoring["external_boundary"] = {
         "field": {"model": "none"},
         "particles": {"mode": "local_source"},
@@ -406,7 +426,7 @@ def test_schema_enforces_facade_zhao_floating_steady_start_contract() -> None:
     assert schema_errors(invalid_mesh_id, schema)
 
     inactive_steady_start = load_toml_file(
-        ROOT / "examples/periodic2_outer_particle_transfer.toml"
+        ROOT / "examples/periodic2_kinetic_outer.toml"
     )
     inactive_steady_start["external_boundary"]["particles"][
         "steady_start_mode"
@@ -451,7 +471,7 @@ def test_schema_enforces_zhao_floating_steady_start_contract() -> None:
     assert schema_errors(invalid, schema)
 
 
-def test_schema_enforces_outer_plasma_zero_gauge() -> None:
+def test_schema_rejects_removed_outer_plasma_infinity_potential() -> None:
     schema, _ = load_schema()
     kinetic = load_config_file(ROOT / "examples/periodic2_kinetic_outer.toml")
     kinetic["outer_plasma"]["infinity_potential"] = 1.0

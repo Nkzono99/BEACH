@@ -106,7 +106,7 @@ Zhao closureでは、enabledな負電荷z-high `reservoir_face` ambient electron
 現行実装は`sim.sheath_electron_drift_mode="normal"`と`sim.sheath_ion_drift_mode="normal"`だけを受理し、
 `photo_raycast.normal_drift_speed=0`およびcold-ion近似$T_i\le0.1T_e$を要求します。
 
-charge-driven Zhaoでは、現在のinterface電場を指定するため、旧Zhaoのzero-current式をrootへ課しません。
+charge-driven Zhaoでは、現在のinterface電場を指定するため、定常Zhaoのzero-current式をrootへ課しません。
 Type B/Cでは無限遠準中性と
 
 $$
@@ -140,7 +140,7 @@ full photoelectron populationの準定常A/B/C branchは、必ずしも$E_I=0$�
 
 強UVの定常観測量が目的で、未帯電状態からの立上がり過渡を研究対象にしない場合は、
 `external_boundary.particles.steady_start_mode="zhao_floating"`を選べます。このmodeは最初batch前に、設定済みの無限遠準中性条件、
-温度、drift、UV sourceを使って旧 Zhao 零電流定常根を解きます。得られた根から
+温度、drift、UV sourceを使って Zhao 零電流定常根を解きます。得られた根から
 `phi(infinity)=0`のprofileを作り、そのinterface電場$E_I$に必要な一様平面電荷を初期値にします。
 
 水平面積を$A$とすると、電荷はzero-modeの下側境界条件に応じて
@@ -280,7 +280,7 @@ $$
 analytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使いますが、root、surface charge、ledgerへ
 別途加えません。表面電荷とledgerはtracked放出・再吸収だけで更新します。$\eta$もcurrent診断のraw photoelectron
 emission-current項をscaleしません。
-`external_boundary.particles.inflow_model="legacy_sheath"`または`"infinity_barrier"`、
+`external_boundary.particles.inflow_model="infinity_barrier"`、
 `external_boundary.field.photoelectron_density_model="kinetic_mean"`との併用も拒否します。
 
 この有効平面近似は、tracked rayの方向分布やrough surfaceからinterfaceへ到達したVDFをZhao outer populationへ

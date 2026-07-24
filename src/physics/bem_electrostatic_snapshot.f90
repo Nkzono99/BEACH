@@ -13,7 +13,6 @@ module bem_electrostatic_snapshot
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok
-  use bem_outer_plasma_linear, only: init_outer_plasma_linear, outer_plasma_integrated_charge_per_area
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type, solve_outer_plasma_kinetic
   use bem_outer_plasma_zhao, only: zhao_continuation_diagnostics_type, &
                                    zhao_continuation_reason_none, &
@@ -277,9 +276,7 @@ contains
     character(len=*), intent(in), optional :: continuation_stage
     integer(i32), intent(in), optional :: continuation_batch
 
-    real(dp) :: interface_potential, interface_field, raw_potential, linearity_ratio
-    integer(i32) :: status
-    character(len=256) :: message
+    real(dp) :: interface_potential, interface_field, raw_potential
     logical :: refresh_outer
 
     if (self%use_unified_outer) then
@@ -312,13 +309,11 @@ contains
       self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
       raw_potential, interface_field &
       )
-    if (refresh_outer .and. trim(lower_ascii(self%outer_options%model)) == 'kinetic_1d') then
+    if (refresh_outer) then
       call solve_kinetic_collective( &
         self, interface_field, continuation_stage, continuation_batch &
         )
       interface_potential = self%outer%interface_potential
-    else if (refresh_outer) then
-      interface_potential = self%outer_options%infinity_potential + self%outer_options%debye_length*interface_field
     else
       interface_potential = self%outer%interface_potential
     end if
@@ -326,18 +321,8 @@ contains
       self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), self%zero_plan%break_z(1), &
       interface_potential - raw_potential, self%zero_state &
       )
-    if (refresh_outer .and. trim(lower_ascii(self%outer_options%model)) == 'linear_debye') then
-      linearity_ratio = abs(interface_potential - self%outer_options%infinity_potential)/ &
-                        self%outer_options%thermal_voltage
-      call init_outer_plasma_linear( &
-        self%outer_options%interface_z, interface_potential, self%outer_options%infinity_potential, &
-        self%outer_options%debye_length, linearity_ratio, self%outer_options%max_linearity_ratio, &
-        self%outer, status, message &
-        )
-      if (status /= outer_plasma_ok) error stop 'outer plasma refresh: '//trim(message)
-    end if
     self%gauss_residual = upper_flux_charge(self) + &
-                          self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
+                          self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
     call update_interface_diagnostics(self, mesh)
   end subroutine refresh_electrostatic_snapshot
 
@@ -380,10 +365,6 @@ contains
   subroutine restore_snapshot_outer_state(self, state)
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(electrostatic_restart_state_type), intent(in) :: state
-    integer(i32) :: status
-    character(len=256) :: message
-    real(dp) :: linearity_ratio
-
     if (.not. state%outer_ready) return
     if (.not. self%use_outer_plasma) error stop 'checkpoint outer state is incompatible with the active model.'
     if (trim(lower_ascii(self%outer_options%model)) == 'kinetic_1d') then
@@ -479,14 +460,7 @@ contains
       end if
       return
     end if
-    linearity_ratio = abs(state%outer_interface_potential - self%outer_options%infinity_potential)/ &
-                      self%outer_options%thermal_voltage
-    call init_outer_plasma_linear( &
-      self%outer_options%interface_z, state%outer_interface_potential, self%outer_options%infinity_potential, &
-      self%outer_options%debye_length, linearity_ratio, self%outer_options%max_linearity_ratio, &
-      self%outer, status, message &
-      )
-    if (status /= outer_plasma_ok) error stop 'checkpoint outer state: '//trim(message)
+    error stop 'checkpoint outer state is incompatible with the active outer-plasma model.'
   end subroutine restore_snapshot_outer_state
 
   subroutine export_snapshot_restart_state(self, last_outer_update_batch, state)
@@ -576,7 +550,7 @@ contains
     self%diagnostics%eta_local_charge = local_charge_estimate/surface_scale
     self%diagnostics%gauss_residual = self%gauss_residual
     self%diagnostics%outer_integrated_charge = &
-      self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
+      self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
     self%diagnostics%applicable = &
       self%diagnostics%eta_phi_kneq0 <= self%periodic_options%interface_phi_tolerance .and. &
       self%diagnostics%eta_field_kneq0 <= self%periodic_options%interface_field_tolerance .and. &
@@ -671,10 +645,9 @@ contains
     if (trim(lower_ascii(panel_config%source_model)) /= 'triangle_p0') then
       error stop 'panel spectral reference requires triangle_p0 sources.'
     end if
-    if (trim(lower_ascii(outer_config%model)) /= 'linear_debye' .and. &
-        trim(lower_ascii(outer_config%model)) /= 'kinetic_1d' .and. &
+    if (trim(lower_ascii(outer_config%model)) /= 'kinetic_1d' .and. &
         trim(lower_ascii(outer_config%model)) /= 'unified_linear_response') then
-      error stop 'split periodic snapshot requires linear_debye, kinetic_1d, or unified_linear_response.'
+      error stop 'split periodic snapshot requires kinetic_1d or unified_linear_response.'
     end if
     if (trim(lower_ascii(outer_config%model)) == 'kinetic_1d' .and. .not. present(kinetic_options)) then
       error stop 'split periodic kinetic_1d requires resolved kinetic options.'
@@ -685,7 +658,7 @@ contains
       error stop 'split periodic snapshot currently requires x/y periodic and z open.'
     end if
     if (any(self%prescribed_e /= 0.0_dp)) then
-      error stop 'split periodic linear outer snapshot currently requires sim.e0=0.'
+      error stop 'split periodic outer snapshot currently requires sim.e0=0.'
     end if
     self%periodic_length = sim%box_max(1:2) - sim%box_min(1:2)
     self%periodic_origin = sim%box_min(1:2)
@@ -697,7 +670,7 @@ contains
       error stop 'outer-plasma interface must equal the z-high box face and lie above the mesh.'
     end if
     if (outer_config%debye_length <= 0.0_dp .or. outer_config%thermal_voltage <= 0.0_dp) then
-      error stop 'linear outer plasma requires positive Debye length and thermal voltage.'
+      error stop 'outer plasma requires positive Debye length and thermal voltage.'
     end if
     call build_periodic_zero_mode_plan( &
       mesh, product(self%periodic_length), self%zero_plan, status, message &
@@ -916,12 +889,12 @@ contains
       self%outer%interface_potential - raw_potential, self%zero_state &
       )
     self%gauss_residual = upper_flux_charge(self) + &
-                          self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
+                          self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
     self%diagnostics%interface_potential = self%outer%interface_potential
     self%diagnostics%interface_field = self%outer%interface_field
     self%diagnostics%gauss_residual = self%gauss_residual
     self%diagnostics%outer_integrated_charge = &
-      self%zero_plan%area_xy*outer_plasma_integrated_charge_per_area(self%outer)
+      self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
     self%diagnostics%status = 'kinetic_converged'
     self%diagnostics%applicable = .true.
   end subroutine refresh_cached_kinetic_outer

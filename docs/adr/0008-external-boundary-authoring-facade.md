@@ -4,6 +4,10 @@
 - Date: 2026-07-23
 - Supersedes: ADR 0007の公開TOMLを変更しない判断
 
+> `linear_debye`、静的 sheath 流入補正、専用 histogram の公開・互換設定は
+> [ADR 0009](0009-remove-linear-debye-and-legacy-sheath.md)で削除した。3責務の facade と
+> field / particle mode から runtime contract を導出する判断は引き続き有効である。
+
 ## Context
 
 外部境界の実行時処理はADR 0007で、流入写像、通常open面、interface輸送、delayed queueの

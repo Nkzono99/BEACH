@@ -64,6 +64,13 @@ program test_outer_plasma_zhao
   call test_begin('stationary Zhao-A root is recovered by its interface field')
   call configure_params(60.0_dp, params)
   call solve_zhao_unknowns('zhao_a', params, phi0_v, phi_m_v, density_m3, branch)
+  call assert_true(branch == 'A', 'stationary Zhao-A reference selected the wrong branch')
+  call assert_close_dp(phi0_v, 2.9712182827319435_dp, 5.0e-6_dp, &
+                       'stationary Zhao-A reference phi0 changed')
+  call assert_close_dp(phi_m_v, -0.8169121871620854_dp, 5.0e-6_dp, &
+                       'stationary Zhao-A reference phi_m changed')
+  call assert_close_dp(density_m3, 7.819215729579456e6_dp, 5.0e1_dp, &
+                       'stationary Zhao-A reference density changed')
   stationary = zhao_charge_root_type( &
                branch=branch, phi0_v=phi0_v, phi_m_v=phi_m_v, n_swe_inf_m3=density_m3 &
                )

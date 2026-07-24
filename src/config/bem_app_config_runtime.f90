@@ -18,11 +18,10 @@ module bem_app_config_runtime
     sample_photo_raycast_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_particles, only: init_particles
-  use bem_sheath_injection_model, only: sheath_injection_context, resolve_sheath_injection_context
   use bem_outer_plasma_types, only: outer_plasma_state_type
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type, external_boundary_ok, external_inflow_none, external_inflow_scalar_barrier, &
-    external_inflow_legacy_sheath, external_inflow_linear_profile, external_inflow_kinetic_profile, &
+    external_inflow_kinetic_profile, &
     resolve_external_boundary_contract
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, particles_per_batch_from_config, &
@@ -48,10 +47,7 @@ module bem_app_config_runtime
     real(dp), allocatable :: effective_temperature_k(:)
     real(dp), allocatable :: effective_drift_velocity(:, :)
     real(dp), allocatable :: effective_weight(:)
-    real(dp), allocatable :: sheath_vmin_normal(:)
-    logical, allocatable :: apply_barrier_energy_shift(:)
     real(dp), allocatable :: photo_emit_current_density(:)
-    real(dp), allocatable :: photo_vmin_normal(:)
     real(dp), allocatable :: photo_normal_drift_speed(:)
   end type particle_source_plan_type
 
@@ -307,7 +303,6 @@ contains
 
     integer(i32) :: s, local_rank, n_ranks
     logical :: has_enabled_reservoir
-    type(sheath_injection_context) :: sheath_ctx
 
     call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'build_particle_source_plan')
     plan%nspecies = cfg%n_particle_species
@@ -327,20 +322,14 @@ contains
     allocate (plan%effective_temperature_k(cfg%n_particle_species))
     allocate (plan%effective_drift_velocity(3, cfg%n_particle_species))
     allocate (plan%effective_weight(cfg%n_particle_species))
-    allocate (plan%sheath_vmin_normal(cfg%n_particle_species))
-    allocate (plan%apply_barrier_energy_shift(cfg%n_particle_species))
     allocate (plan%photo_emit_current_density(cfg%n_particle_species))
-    allocate (plan%photo_vmin_normal(cfg%n_particle_species))
     allocate (plan%photo_normal_drift_speed(cfg%n_particle_species))
     plan%effective_density_m3 = 0.0_dp
     plan%effective_particle_flux_m2_s = 0.0_dp
     plan%effective_temperature_k = 0.0_dp
     plan%effective_drift_velocity = 0.0_dp
     plan%effective_weight = 0.0_dp
-    plan%sheath_vmin_normal = 0.0_dp
-    plan%apply_barrier_energy_shift = .true.
     plan%photo_emit_current_density = 0.0_dp
-    plan%photo_vmin_normal = 0.0_dp
     plan%photo_normal_drift_speed = 0.0_dp
 
     do s = 1, cfg%n_particle_species
@@ -365,57 +354,6 @@ contains
       end select
     end do
 
-    call resolve_sheath_injection_context(cfg, sheath_ctx)
-    if (sheath_ctx%enabled) then
-      s = int(sheath_ctx%electron_species)
-      plan%effective_density_m3(s) = sheath_ctx%electron_number_density_m3
-      plan%sheath_vmin_normal(s) = max(plan%sheath_vmin_normal(s), sheath_ctx%electron_vmin_normal)
-      plan%apply_barrier_energy_shift(s) = .false.
-
-      if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
-          cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
-        call resolve_reservoir_target_weight( &
-          cfg%sim, cfg%particle_species(s), plan%effective_density_m3(s), plan%sheath_vmin_normal(s), &
-          plan%effective_temperature_k(s), plan%effective_drift_velocity(:, s), &
-          cfg%particle_species(s)%target_macro_particles_per_batch, plan%effective_weight(s) &
-          )
-      end if
-
-      if (sheath_ctx%has_local_reservoir_profile) then
-        s = int(sheath_ctx%ion_species)
-        plan%effective_density_m3(s) = sheath_ctx%ion_number_density_m3
-        plan%effective_temperature_k(s) = 0.0_dp
-        call apply_normal_speed_override( &
-          cfg%particle_species(s)%drift_velocity, sheath_ctx%reference_inward_normal, &
-          sheath_ctx%ion_normal_speed_mps, plan%effective_drift_velocity(:, s) &
-          )
-
-        if (cfg%particle_species(s)%has_target_macro_particles_per_batch .and. &
-            cfg%particle_species(s)%target_macro_particles_per_batch > 0_i32) then
-          call resolve_reservoir_target_weight( &
-            cfg%sim, cfg%particle_species(s), plan%effective_density_m3(s), plan%sheath_vmin_normal(s), &
-            plan%effective_temperature_k(s), plan%effective_drift_velocity(:, s), &
-            cfg%particle_species(s)%target_macro_particles_per_batch, plan%effective_weight(s) &
-            )
-        end if
-      end if
-
-      if (sheath_ctx%has_photo_species) then
-        s = int(sheath_ctx%photo_species)
-        plan%photo_emit_current_density(s) = sheath_ctx%photo_emit_current_density_a_m2
-        plan%photo_vmin_normal(s) = sheath_ctx%photo_vmin_normal
-        plan%photo_normal_drift_speed(s) = 0.0_dp
-      end if
-
-      do s = 1, cfg%n_particle_species
-        if (.not. cfg%particle_species(s)%enabled) cycle
-        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
-        if (.not. cfg%particle_species(s)%has_target_macro_particles_per_batch) cycle
-        if (cfg%particle_species(s)%target_macro_particles_per_batch == -1_i32) then
-          plan%effective_weight(s) = plan%effective_weight(1)
-        end if
-      end do
-    end if
     plan%ready = .true.
   end subroutine build_particle_source_plan
 
@@ -476,7 +414,7 @@ contains
       error stop 'Requested batch index is out of range.'
     end if
     call resolve_external_boundary_contract( &
-      cfg%sim%reservoir_potential_model, cfg%sim%sheath_injection_model, cfg%sim%open_boundary_model, &
+      cfg%sim%reservoir_potential_model, cfg%sim%open_boundary_model, &
       cfg%outer_plasma%model, cfg%outer_plasma%kinetic_closure, cfg%outer_plasma%return_model, &
       cfg%coupling%particle_transfer_mode, cfg%coupling%outer_queue_enabled, active_boundary_contract, &
       boundary_status, boundary_message &
@@ -516,7 +454,7 @@ contains
     counts_max = 0_i32
     counts_actual = 0_i32
     global_counts = 0_i32
-    vmin_normal = active_source_plan%sheath_vmin_normal
+    vmin_normal = 0.0d0
     barrier_normal = 0.0d0
     batch_density_m3 = active_source_plan%effective_density_m3
     batch_weight = active_source_plan%effective_weight
@@ -532,9 +470,7 @@ contains
       effective_particle_flux_m2_s => active_source_plan%effective_particle_flux_m2_s, &
       effective_temperature_k => active_source_plan%effective_temperature_k, &
       effective_drift_velocity => active_source_plan%effective_drift_velocity, &
-      apply_barrier_energy_shift => active_source_plan%apply_barrier_energy_shift, &
       photo_emit_current_density => active_source_plan%photo_emit_current_density, &
-      photo_vmin_normal => active_source_plan%photo_vmin_normal, &
       photo_normal_drift_speed => active_source_plan%photo_normal_drift_speed &
       )
     do s = 1, cfg%n_particle_species
@@ -616,7 +552,6 @@ contains
           cfg%sim, cfg%particle_species(s), counts_max(s), &
           x_species(:, 1:counts_max(s), s), v_species(:, 1:counts_max(s), s), &
           barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
-          apply_barrier_energy_shift=apply_barrier_energy_shift(s), &
           temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
           )
         counts_actual(s) = counts_max(s)
@@ -635,7 +570,7 @@ contains
           emit_elem_idx=emit_elem_species(1:counts_max(s), s), &
           global_rays_per_batch=cfg%particle_species(s)%rays_per_batch, &
           emit_current_density_override=photo_emit_current_density(s), &
-          normal_drift_speed_override=photo_normal_drift_speed(s), vmin_normal=photo_vmin_normal(s), &
+          normal_drift_speed_override=photo_normal_drift_speed(s), &
           collision_failure_status=photo_collision_status, collision_failure_ray=photo_collision_ray, &
           collision_failure_bounce=photo_collision_bounce &
           )
@@ -1033,13 +968,6 @@ contains
     end if
   end subroutine resolve_reservoir_target_weight
 
-  subroutine apply_normal_speed_override(drift_velocity, inward_normal, normal_speed, drift_velocity_out)
-    real(dp), intent(in) :: drift_velocity(3), inward_normal(3), normal_speed
-    real(dp), intent(out) :: drift_velocity_out(3)
-
-    drift_velocity_out = drift_velocity - dot_product(drift_velocity, inward_normal)*inward_normal + normal_speed*inward_normal
-  end subroutine apply_normal_speed_override
-
   !> reservoir_face 注入に対する法線速度補正パラメータを計算する。
   !! @param[in] cfg シミュレーション・結合設定を含むアプリ設定。
   !! @param[in] spec reservoir_face 粒子種設定。
@@ -1077,7 +1005,7 @@ contains
       active_boundary_contract = boundary_contract
     else
       call resolve_external_boundary_contract( &
-        cfg%sim%reservoir_potential_model, cfg%sim%sheath_injection_model, cfg%sim%open_boundary_model, &
+        cfg%sim%reservoir_potential_model, cfg%sim%open_boundary_model, &
         cfg%outer_plasma%model, cfg%outer_plasma%kinetic_closure, cfg%outer_plasma%return_model, &
         cfg%coupling%particle_transfer_mode, cfg%coupling%outer_queue_enabled, active_boundary_contract, &
         boundary_status, boundary_message &
@@ -1085,80 +1013,66 @@ contains
       if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
     end if
     select case (active_boundary_contract%inflow_map)
-    case (external_inflow_none, external_inflow_legacy_sheath)
+    case (external_inflow_none)
       return
-    case (external_inflow_linear_profile, external_inflow_kinetic_profile)
+    case (external_inflow_kinetic_profile)
       if (trim(lower_ascii(spec%inject_face)) /= 'z_high') then
         error stop 'Split outer-plasma ambient inflow must use inject_face="z_high".'
       end if
       if (.not. present(outer_state)) error stop 'Profile-owned ambient inflow requires the refreshed outer state.'
       if (.not. outer_state%ready) error stop 'Profile-owned ambient inflow requires a ready outer state.'
-      if (active_boundary_contract%inflow_map == external_inflow_kinetic_profile) then
-        if (.not. outer_state%ready .or. trim(lower_ascii(outer_state%model)) /= 'kinetic_1d') then
-          error stop 'kinetic_1d ambient inflow requires a ready kinetic outer state.'
-        end if
-        if (outer_state%profile_n < 2_i32 .or. .not. allocated(outer_state%z) .or. &
-            .not. allocated(outer_state%potential)) then
-          error stop 'kinetic_1d ambient inflow requires an allocated outer potential profile.'
-        end if
-        if (size(outer_state%z) /= outer_state%profile_n .or. &
-            size(outer_state%potential) /= outer_state%profile_n) then
-          error stop 'kinetic_1d ambient inflow profile shape does not match profile_n.'
-        end if
-        if (.not. all(ieee_is_finite(outer_state%z)) .or. &
-            .not. all(ieee_is_finite(outer_state%potential)) .or. &
-            .not. ieee_is_finite(outer_state%interface_z) .or. &
-            .not. ieee_is_finite(outer_state%interface_potential) .or. &
-            .not. ieee_is_finite(outer_state%infinity_potential)) then
-          error stop 'kinetic_1d ambient inflow profile contains non-finite values.'
-        end if
-        if (any(outer_state%z(2:) <= outer_state%z(:outer_state%profile_n - 1_i32))) then
-          error stop 'kinetic_1d ambient inflow profile coordinates must be strictly increasing.'
-        end if
-        coordinate_scale = max(1.0_dp, maxval(abs(outer_state%z)), abs(outer_state%interface_z))
-        potential_scale = max( &
-                          1.0_dp, maxval(abs(outer_state%potential)), &
-                          abs(outer_state%interface_potential), abs(outer_state%infinity_potential) &
-                          )
-        coordinate_tolerance = 256.0_dp*epsilon(1.0_dp)*coordinate_scale
-        potential_tolerance = 256.0_dp*epsilon(1.0_dp)*potential_scale
-        if (abs(outer_state%z(1) - outer_state%interface_z) > coordinate_tolerance .or. &
-            abs(outer_state%potential(1) - outer_state%interface_potential) > potential_tolerance) then
-          error stop 'kinetic_1d ambient inflow profile does not start at the outer interface.'
-        end if
-        if (.not. ieee_is_finite(spec%q_particle) .or. .not. ieee_is_finite(spec%m_particle) .or. &
-            spec%m_particle <= 0.0_dp) then
-          error stop 'kinetic_1d ambient inflow requires finite charge and positive finite mass.'
-        end if
-        delta_phi = outer_state%interface_potential - outer_state%infinity_potential
-        if (.not. ieee_is_finite(delta_phi)) error stop 'kinetic_1d ambient inflow barrier is non-finite.'
-        barrier_normal = 2.0_dp*spec%q_particle*delta_phi/spec%m_particle
-        if (.not. ieee_is_finite(barrier_normal)) error stop 'kinetic_1d ambient inflow map is non-finite.'
-        profile_barrier = 0.0_dp
-        do point = 1_i32, outer_state%profile_n
-          profile_barrier = max( &
-                            profile_barrier, &
-                            2.0_dp*spec%q_particle* &
-                            (outer_state%potential(point) - outer_state%infinity_potential)/spec%m_particle &
-                            )
-        end do
-        if (.not. ieee_is_finite(profile_barrier)) then
-          error stop 'kinetic_1d ambient inflow profile barrier is non-finite.'
-        end if
-        vmin_normal = sqrt(max(0.0_dp, profile_barrier))
-        return
+      if (.not. outer_state%ready .or. trim(lower_ascii(outer_state%model)) /= 'kinetic_1d') then
+        error stop 'kinetic_1d ambient inflow requires a ready kinetic outer state.'
       end if
-      if (trim(lower_ascii(outer_state%model)) /= 'linear_debye') then
-        error stop 'Linear profile inflow requires a refreshed linear_debye outer state.'
+      if (outer_state%profile_n < 2_i32 .or. .not. allocated(outer_state%z) .or. &
+          .not. allocated(outer_state%potential)) then
+        error stop 'kinetic_1d ambient inflow requires an allocated outer potential profile.'
       end if
-      if (.not. ieee_is_finite(outer_state%interface_potential) .or. &
+      if (size(outer_state%z) /= outer_state%profile_n .or. &
+          size(outer_state%potential) /= outer_state%profile_n) then
+        error stop 'kinetic_1d ambient inflow profile shape does not match profile_n.'
+      end if
+      if (.not. all(ieee_is_finite(outer_state%z)) .or. &
+          .not. all(ieee_is_finite(outer_state%potential)) .or. &
+          .not. ieee_is_finite(outer_state%interface_z) .or. &
+          .not. ieee_is_finite(outer_state%interface_potential) .or. &
           .not. ieee_is_finite(outer_state%infinity_potential)) then
-        error stop 'Linear profile inflow received non-finite outer potentials.'
+        error stop 'kinetic_1d ambient inflow profile contains non-finite values.'
+      end if
+      if (any(outer_state%z(2:) <= outer_state%z(:outer_state%profile_n - 1_i32))) then
+        error stop 'kinetic_1d ambient inflow profile coordinates must be strictly increasing.'
+      end if
+      coordinate_scale = max(1.0_dp, maxval(abs(outer_state%z)), abs(outer_state%interface_z))
+      potential_scale = max( &
+                        1.0_dp, maxval(abs(outer_state%potential)), &
+                        abs(outer_state%interface_potential), abs(outer_state%infinity_potential) &
+                        )
+      coordinate_tolerance = 256.0_dp*epsilon(1.0_dp)*coordinate_scale
+      potential_tolerance = 256.0_dp*epsilon(1.0_dp)*potential_scale
+      if (abs(outer_state%z(1) - outer_state%interface_z) > coordinate_tolerance .or. &
+          abs(outer_state%potential(1) - outer_state%interface_potential) > potential_tolerance) then
+        error stop 'kinetic_1d ambient inflow profile does not start at the outer interface.'
+      end if
+      if (.not. ieee_is_finite(spec%q_particle) .or. .not. ieee_is_finite(spec%m_particle) .or. &
+          spec%m_particle <= 0.0_dp) then
+        error stop 'kinetic_1d ambient inflow requires finite charge and positive finite mass.'
       end if
       delta_phi = outer_state%interface_potential - outer_state%infinity_potential
+      if (.not. ieee_is_finite(delta_phi)) error stop 'kinetic_1d ambient inflow barrier is non-finite.'
       barrier_normal = 2.0_dp*spec%q_particle*delta_phi/spec%m_particle
-      if (.not. ieee_is_finite(barrier_normal)) error stop 'Outer-plasma inflow map produced a non-finite barrier.'
-      if (barrier_normal > 0.0_dp) vmin_normal = sqrt(barrier_normal)
+      if (.not. ieee_is_finite(barrier_normal)) error stop 'kinetic_1d ambient inflow map is non-finite.'
+      profile_barrier = 0.0_dp
+      do point = 1_i32, outer_state%profile_n
+        profile_barrier = max( &
+                          profile_barrier, &
+                          2.0_dp*spec%q_particle* &
+                          (outer_state%potential(point) - outer_state%infinity_potential)/spec%m_particle &
+                          )
+      end do
+      if (.not. ieee_is_finite(profile_barrier)) then
+        error stop 'kinetic_1d ambient inflow profile barrier is non-finite.'
+      end if
+      vmin_normal = sqrt(max(0.0_dp, profile_barrier))
       return
     case (external_inflow_scalar_barrier)
       if (.not. present(mesh)) then

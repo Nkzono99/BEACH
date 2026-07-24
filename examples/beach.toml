@@ -28,7 +28,6 @@ phi_infty = 0.0
 injection_face_phi_grid_n = 3
 # sheath_alpha_deg = 60.0
 # sheath_photoelectron_ref_density_cm3 = 64.0
-# sheath_reference_coordinate = 0.02  # 指定すると、この平面から reservoir_face 境界までの局所 VDF 変形も反映
 # sheath_electron_drift_mode = "normal"
 # sheath_ion_drift_mode = "normal"
 # periodic2 + fmm 有効時、field_periodic_far_correction の選択肢:
@@ -50,9 +49,6 @@ model = "none"
 [external_boundary.particles]
 mode = "local_source"
 inflow_model = "infinity_barrier"
-# legacy Zhao を使う場合:
-# inflow_model = "legacy_sheath"
-# legacy_sheath_model = "zhao_auto"
 
 [external_boundary.ordinary_open]
 model = "escape"

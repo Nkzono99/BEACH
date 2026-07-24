@@ -4,49 +4,74 @@ Lang: [日本語](BoundaryConfigurationMigration.md) | [English](BoundaryConfigu
 
 # 外部境界設定を移行する
 
-このページは、旧 `[sim]` / `[outer_plasma]` / `[coupling]` の外部境界キーを
-`[external_boundary]` authoring facade へ移すための対応表です。旧構文は互換入力として読み込めますが、
-新しい example とガイドは facade を正本とします。
+このページは、旧 `[outer_plasma]` / `[coupling]` のうち現行モデルに対応する設定を
+`[external_boundary]` authoring facade へ移す方法と、削除された外部境界モデルを含む入力の扱いを示します。
+新しい入力では `[external_boundary]` を正本としてください。
 
-## 移行ルール
+## 現行の選択肢
 
-- `[external_boundary]` と旧 `[outer_plasma]` / `[coupling]` は同じファイルに書かない。
-- facade 使用時は `sim.reservoir_potential_model`、`sim.sheath_injection_model`、
-  `sim.open_boundary_model` を書かない。
-- `sim.phi_infty`、legacy sheath の物理パラメータ、box、species、periodic2、solver は引き続き併用できる。
-- 旧構文と新構文は同じ runtime contract へ解決され、物理 fingerprint に authoring 形式の違いを入れない。
+現行の公開設定は次に限定されています。
 
-同じ値を両側へ書いても merge しません。値の一致を前提にした last-wins は設定ミスを隠すため、混在はエラーです。
+| 責務 | 選択肢 |
+| --- | --- |
+| `external_boundary.field.model` | `none` / `kinetic_1d` / `unified_linear_response` |
+| `external_boundary.particles.mode` | `local_source` / `same_batch` / `zhao_queue` |
+| `external_boundary.particles.inflow_model` | `auto` / `source_vdf` / `infinity_barrier` |
+| `external_boundary.ordinary_open.model` | `escape` / `potential_barrier` |
 
-## キーの対応
+`potential_barrier` は通常 open 面からの流出、`infinity_barrier` は reservoir からの流入を担当します。
+両者は独立して選べます。`kinetic_1d` の tracked mode では同じ kinetic profile が流入と return を所有するため、
+`inflow_model="auto"` を使います。
 
-| 旧設定 | 新設定 |
+## 削除された設定
+
+解析的な線形 Debye 外部場、静的な sheath source 補正、その線形モデル専用の光電子 histogram は削除されました。
+該当する facade 値と旧 runtime selector はエラーになり、別モデルへ自動変換されません。
+
+| 削除された入力・artifact | 現行の扱い |
+| --- | --- |
+| `external_boundary.field.model="linear_debye"` / `outer_plasma.model="linear_debye"` | 設定エラー。別の field model への alias はない |
+| `external_boundary.particles.inflow_model="legacy_sheath"`、`legacy_sheath_model`、`sim.sheath_injection_model` | 設定エラー。静的 source 補正は実行しない |
+| `external_boundary.field.infinity_potential` / `outer_plasma.infinity_potential` | 設定エラー。kinetic / unified の無限遠 gauge は内部で 0 に固定 |
+| `photoelectron_histogram_*` と `photoelectron_histogram.csv` | 設定、出力、checkpoint state を削除 |
+
+移行先は「等価な置換」ではなく、計算目的に応じて選ぶ新しい物理モデルです。
+
+| 以前の目的 | 検討する現行構成 | 重要な違い |
+| --- | --- | --- |
+| 簡易な 1D field / return | `kinetic_1d` + `local_source` または `same_batch` | species VDF と非線形 Poisson profile を解くため、線形解析解とは一致しない |
+| rough surface を含む 3D screening | `unified_linear_response` | 線形 3D 応答であり、1D sheath の代替ではない |
+| source VDF を補正しない流入 | `field.model="none"` + `inflow_model="source_vdf"` | 設定した VDF を face 分布としてそのまま使う |
+| 明示した無限遠電位による流入障壁 | `field.model="none"` + `inflow_model="infinity_barrier"` | 静的な電流釣合い closure ではなく scalar energy barrier |
+| 蓄積電荷で閉じる Zhao sheath | `kinetic_1d` + `kinetic_closure="zhao_charge_driven"` | surface charge から profile を batch ごとに更新し、流入と return を同じ profile で閉じる |
+| 線形モデル専用の光電子 histogram | 直接の置換なし | 必要な分布は出力粒子・event から別途解析する |
+
+BEACH 1.5 / 1.6 の設定で削除値を使っている場合は、現行 parser でエラーになります。
+削除されたモデル、または非デフォルト値の削除機能を有効にして作成した checkpoint は、現行 runtime contract と model fingerprint が異なるため再開できません。一方、削除機能が旧デフォルト値のままだった `kinetic_1d` / `unified_linear_response` の checkpoint-v4 は、設定から廃止キーを除けば fingerprint 互換です。
+新しい構成は初期状態から実行してください。
+
+## 現行 raw 設定を facade へ移す
+
+- `[external_boundary]` と旧 `[outer_plasma]` / `[coupling]` は同じファイルに書きません。
+- `sim.open_boundary_model` と `sim.reservoir_potential_model` は facade 側へ移します。
+- box、species、periodic2、solver、`sim.phi_infty` などの物理・数値設定はそのまま併用できます。
+- 同じ値を両構文へ書いても merge しません。混在は設定エラーです。
+
+| 旧設定 | facade |
 | --- | --- |
 | `outer_plasma.model` | `external_boundary.field.model` |
 | `outer_plasma.kinetic_closure` | `external_boundary.field.kinetic_closure` |
-| その他の outer 物理・診断キー | `external_boundary.field` の同名キー |
+| その他の現行 outer 物理・診断キー | `external_boundary.field` の同名キー |
 | `coupling` の時間スケール・orbit・steady-start キー | `external_boundary.particles` の同名キー |
 | `sim.open_boundary_model` | `external_boundary.ordinary_open.model` |
-| `sim.reservoir_potential_model="infinity_barrier"` | `particles.inflow_model="infinity_barrier"` |
-| `sim.sheath_injection_model=...` | `inflow_model="legacy_sheath"` と `legacy_sheath_model=...` |
-| `outer_plasma.return_model` | 削除。field と particle mode から導出 |
-| `coupling.particle_transfer_mode` | 削除。`particles.mode` から導出 |
-| `coupling.outer_queue_enabled` | 削除。`particles.mode="zhao_queue"` で導出 |
-| `coupling.update_mode` | 削除。現行は `explicit` 固定 |
-| `outer_plasma.interface_z` | 削除。`sim.box_max[2]` から導出 |
+| `sim.reservoir_potential_model="infinity_barrier"` | `external_boundary.particles.inflow_model="infinity_barrier"` |
+| `outer_plasma.return_model` | 記述しない。field と particle mode から導出 |
+| `coupling.particle_transfer_mode` | 記述しない。`particles.mode` から導出 |
+| `coupling.outer_queue_enabled` | 記述しない。`particles.mode="zhao_queue"` で導出 |
+| `coupling.update_mode` | 記述しない。現行は `explicit` 固定 |
+| `outer_plasma.interface_z` | 記述しない。`sim.box_max[2]` から導出 |
 
 ## scalar 流入と通常 open 面
-
-旧設定:
-
-```toml
-[sim]
-reservoir_potential_model = "infinity_barrier"
-open_boundary_model = "potential_barrier"
-phi_infty = 0.0
-```
-
-新設定:
 
 ```toml
 [sim]
@@ -63,63 +88,9 @@ inflow_model = "infinity_barrier"
 model = "potential_barrier"
 ```
 
-`infinity_barrier` は流入、`potential_barrier` は通常 open 面を担当します。一方だけを有効にする構成も維持されます。
-
-## legacy Zhao 流入補正
-
-旧設定:
-
-```toml
-[sim]
-sheath_injection_model = "zhao_auto"
-open_boundary_model = "escape"
-sheath_alpha_deg = 60.0
-sheath_photoelectron_ref_density_cm3 = 64.0
-```
-
-新設定:
-
-```toml
-[sim]
-sheath_alpha_deg = 60.0
-sheath_photoelectron_ref_density_cm3 = 64.0
-
-[external_boundary.field]
-model = "none"
-
-[external_boundary.particles]
-mode = "local_source"
-inflow_model = "legacy_sheath"
-legacy_sheath_model = "zhao_auto"
-
-[external_boundary.ordinary_open]
-model = "escape"
-```
-
-これは静的 source-VDF 補正です。`kinetic_closure="zhao_charge_driven"` へ自動変換しません。
+`infinity_barrier` は流入、`potential_barrier` は通常 open 面を担当します。一方だけを有効にしても構いません。
 
 ## kinetic 1D tracked return
-
-旧設定:
-
-```toml
-[outer_plasma]
-model = "kinetic_1d"
-kinetic_closure = "absorbing_maxwellian"
-return_model = "kinetic_1d_profile_return"
-interface_z = 1.0
-debye_length = 0.2
-thermal_voltage = 2.0
-
-[coupling]
-update_mode = "explicit"
-particle_transfer_mode = "electrostatic_1d_instant_return"
-field_evolution_timescale = 1.0
-max_frozen_field_ratio = 0.1
-outer_queue_enabled = false
-```
-
-新設定:
 
 ```toml
 [external_boundary.field]
@@ -138,12 +109,10 @@ max_frozen_field_ratio = 0.1
 model = "escape"
 ```
 
-linear field-only は `field.model="linear_debye"` と `particles.mode="local_source"`、
-linear 1D return は `particles.mode="same_batch"` にします。`kinetic_1d` の field-only も同じ区別です。
+field-only なら `particles.mode="local_source"`、kinetic profile で return / escape まで閉じるなら
+`particles.mode="same_batch"` を使います。
 
 ## Zhao queue
-
-旧 `outer_queue_enabled=true` は次へ移します。
 
 ```toml
 [external_boundary.field]
@@ -159,12 +128,10 @@ field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
 ```
 
-queue は `zhao_branch="auto"`、更新 stride 1、非 histogram を要求します。これらの固定値を繰り返し入力せず、
+queue は `zhao_branch="auto"`、更新 stride 1 を要求します。固定値を繰り返し入力せず、
 矛盾する明示値はエラーにします。
 
 ## unified 3D orbit
-
-旧 explicit 3D return/transfer の対は、次の `same_batch` へ移します。
 
 ```toml
 [external_boundary.field]
@@ -183,7 +150,7 @@ outer_orbit_max_steps = 10000
 outer_orbit_energy_tolerance = 1.0e-3
 ```
 
-unified 3D orbit は流入を所有しないため、`source_vdf`、`infinity_barrier`、legacy sheath を別に選べます。
+unified 3D orbit は流入を所有しないため、`source_vdf` または `infinity_barrier` を別に選べます。
 field-only は `particles.mode="local_source"` を使います。
 
 移行後は `beachx lint path/to/beach.toml` を実行し、実行後の `summary.txt` で解決された

@@ -57,7 +57,6 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic2_cache_codec \
 	test_regularized_qr \
 	test_periodic_zero_mode \
-	test_outer_plasma_linear \
 	test_outer_plasma_kinetic_core \
 	test_outer_plasma_zhao \
 	test_outer_plasma_grid \
@@ -70,7 +69,6 @@ FORTRAN_L1_TARGETS ?= \
 	test_outer_coupler \
 	test_outer_plasma_interface \
 	test_outer_plasma_orbit \
-	test_outer_plasma_photoelectron \
 	test_interface_particle_buffer \
 	test_outer_event_queue \
 	test_outer_event_queue_io \
@@ -87,8 +85,6 @@ FORTRAN_L1_TARGETS ?= \
 	test_templates_importers_runtime \
 	test_simulator \
 	test_injection_sampling \
-	test_sheath_injection_model \
-	test_sheath_model_core \
 	test_performance_profile \
 	test_output_writer_io \
 	test_output_writer_potential

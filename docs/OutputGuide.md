@@ -57,13 +57,13 @@ receiptです。
 
 | キー | 出力値 |
 | --- | --- |
-| `external_inflow_map` | `source_vdf` / `infinity_barrier` / `legacy_sheath` / `linear_profile` / `kinetic_profile` |
+| `external_inflow_map` | `source_vdf` / `infinity_barrier` / `kinetic_profile` |
 | `external_ordinary_open_model` | `escape` / `potential_barrier` |
-| `external_interface_transport` | `none` / `linear_1d` / `kinetic_1d` / `unified_3d` |
+| `external_interface_transport` | `none` / `kinetic_1d` / `unified_3d` |
 | `outer_particle_mode_resolved` | `local_source` / `same_batch` / `zhao_queue` |
 
 たとえば`particles.inflow_model="auto"`は、fieldとparticle modeに応じて
-`external_inflow_map=source_vdf`、`linear_profile`、または`kinetic_profile`へ解決されます。
+`external_inflow_map=source_vdf`または`kinetic_profile`へ解決されます。
 再現性を確認するときは、入力facadeとこのreceiptを併せて保存します。
 
 ## `charge_ledger.csv`: 粒子種別の電荷移動
@@ -127,7 +127,6 @@ write_potential_history = true
 | --- | --- | --- |
 | 実行時間を分解する | `performance_profile.csv` | `BEACH_PROFILE=1` |
 | 外部シースの格子 profile を読む | `outer_plasma_profile.csv` | `kinetic_1d` / `unified_linear_response` の外部状態が準備済み |
-| 光電子のエネルギー分布を読む | `photoelectron_histogram.csv` | `external_boundary.field.photoelectron_histogram_enabled=true` で状態が準備済み |
 | Zhao過渡eventを再開する | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | `external_boundary.particles.mode="zhao_queue"`。serialでは前者、MPIではrankごとに後者 |
 | 乱数状態から再開する | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serial では前者、MPI ではランクごとに後者 |
 | 端数マクロ粒子を復元する | `macro_residuals.csv` | 残差状態が割り当てられた場合。MPI でも 1 ファイル |
@@ -145,8 +144,10 @@ write_potential_history = true
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [標準 1D kinetic 外部シース](KineticOuterPlasma.html) |
 | Zhao過渡queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [粒子の escape と return](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする) |
 | `unified_linear_response` | 上記に加えて `outer_accessible_fraction_min`, `outer_accessible_fraction_max`, `outer_accessible_fraction_refinement_error` | [高度な粗面線形 screening](UnifiedLinearResponse.html) |
-| 光電子 histogram | `photoelectron_histogram.csv`, `photoelectron_previous_charge_ratio`, `photoelectron_linear_applicability_status` | [光電子の放出とライフサイクル](PhotoelectronEmission.html) |
 | 外部粒子移送 | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [粒子の escape と return](ParticleEscapeReturn.html) |
+
+`outer_infinity_potential_V` は内部の無限遠 gauge を記録する診断値であり、入力 key ではありません。
+現行の kinetic / unified 状態では 0 に固定されます。
 
 `dielectric` 要素がある場合、`summary.txt` は `surface_model_dielectric_elem_count` と
 `surface_model_note=metadata_only_dielectric_present` を記録します。現行実装の `dielectric` はメタデータであり、
@@ -163,7 +164,6 @@ write_potential_history = true
 | `macro_residuals.csv` | 存在する場合に全体の端数状態を復元 |
 | `charge_ledger.csv` | `summary.txt` に台帳メタデータがある場合に必須 |
 | `outer_plasma_profile.csv` | 準備済みの `kinetic_1d` / `unified_linear_response` 状態を再開する場合に必須 |
-| `photoelectron_histogram.csv` | 光電子 histogram 状態を再開する場合に必須 |
 | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv` | Zhao過渡queue有効時に必須。serialでは前者、MPIでは同じworld sizeの全rank分が必要 |
 
 `output.restart_from` を指定すると、チェックポイントを `restart_from` から読み、新しい出力を `output.dir` に書きます。

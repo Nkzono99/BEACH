@@ -16,8 +16,8 @@ unified modelはfieldだけを所有し、source VDFは所有しません。流�
 
 ## split windowを一つのfield solveへ置き換える
 
-`linear_debye`と`kinetic_1d`は、ownership interfaceより下のsurface fieldと上の1D outer profileを接続します。
-unified modelはsurface projectionからfar boundaryまで一つのzero-mode Poisson gridを解き、nonzero modeも
+`kinetic_1d`は、ownership interfaceより下のsurface fieldと上の1D outer profileを接続します。
+unified modelはsplit interfaceをfield境界にせず、surface projectionからfar boundaryまで一つのzero-mode Poisson gridを解き、nonzero modeも
 plasma tailへ連続接続します。
 
 `sim.box_max[2]`から導出されるinterfaceはz-high box面上の粒子ownership境界であり、field solveの境界でもplasma responseの
@@ -161,7 +161,7 @@ $\max(\eta_0,\max_k\eta_k)$が`max_linearity_ratio`を越えた場合は、非�
 | species model | species別VDF、Bohm条件、光電子の平均密度モデルなし |
 | particle transfer | `external_boundary.particles.mode="local_source"`、または3D外部軌道を使う`"same_batch"` |
 | magnetic field | `particles.mode="same_batch"`は`sim.b0=0` |
-| failure | nonlinear modelやlegacy sheathへfallbackせず停止 |
+| failure | 適用条件を満たさなければ別モデルへfallbackせず停止 |
 
 `max_gap_ratio`と`max_local_charge_ratio`はsplit scalar-interface model向けdiagnosticです。unified固有の受理判定は
 accessible-area収束とzero/nonzero linearityを中心に行います。

@@ -12,7 +12,6 @@ program test_mpi_hybrid
                          restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
@@ -87,7 +86,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(8)
+  call test_init(7)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -129,10 +128,6 @@ program test_mpi_hybrid
   call assert_equal_i64(ledger%absorbed_count(1), 4_i64, 'mpi ledger absorbed count mismatch')
   call assert_close_dp(ledger%injected_from_remote(1), 4.0_dp, 1.0e-12_dp, 'mpi ledger injected charge mismatch')
   call assert_close_dp(ledger%residual(), 0.0_dp, 1.0e-12_dp, 'mpi ledger residual mismatch')
-  call test_end()
-
-  call test_begin('mpi_global_photoelectron_histogram')
-  call run_mpi_photoelectron_histogram_test(mpi)
   call test_end()
 
   call test_begin('mpi_history')
@@ -414,98 +409,6 @@ contains
     call assert_close_dp(unified_snapshot%gauss_residual, 0.0_dp, 2.0e-24_dp, &
                          'MPI unified Gauss residual mismatch')
   end subroutine run_mpi_unified_outer_test
-
-  subroutine run_mpi_photoelectron_histogram_test(mpi)
-    type(mpi_context), intent(in) :: mpi
-    type(mesh_type) :: photo_mesh
-    type(app_config) :: photo_cfg
-    type(sim_stats) :: photo_stats
-    type(charge_ledger_type) :: photo_ledger
-    type(photoelectron_histogram_state_type) :: photo_state
-    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), panel_charge
-
-    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.999_dp]
-    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.999_dp]
-    tri_v2(:, 1) = [1.0_dp, 1.0_dp, 0.999_dp]
-    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.999_dp]
-    tri_v1(:, 2) = [1.0_dp, 1.0_dp, 0.999_dp]
-    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.999_dp]
-    panel_charge = 2.5_dp*eps0
-    call init_mesh(photo_mesh, tri_v0, tri_v1, tri_v2, q0=[panel_charge, panel_charge])
-    photo_mesh%elem_vacuum_sign = 1_i32
-    photo_mesh%vacuum_normals = photo_mesh%normals
-
-    call default_app_config(photo_cfg)
-    photo_cfg%sim%rng_seed = 8642_i32
-    photo_cfg%sim%batch_count = 1_i32
-    photo_cfg%sim%batch_duration = 1.0_dp
-    photo_cfg%sim%has_batch_duration = .true.
-    photo_cfg%sim%dt = 0.01_dp
-    photo_cfg%sim%max_step = 1_i32
-    photo_cfg%sim%softening = 0.0_dp
-    photo_cfg%sim%field_solver = 'direct'
-    photo_cfg%sim%field_bc_mode = 'periodic2'
-    photo_cfg%sim%use_box = .true.
-    photo_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    photo_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
-    photo_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    photo_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    photo_cfg%field%backend = 'direct'
-    photo_cfg%panel%source_model = 'triangle_p0'
-    photo_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
-    photo_cfg%panel%surface_side_policy = 'per_element'
-    photo_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
-    photo_cfg%periodic2%zero_mode_policy = 'exclude_k0'
-    photo_cfg%periodic2%lower_boundary_model = 'e_bottom_zero'
-    photo_cfg%periodic2%reference_mode_layers = 2_i32
-    photo_cfg%periodic2%panel_quadrature_order = 12_i32
-    photo_cfg%periodic2%interface_phi_tolerance = 1.0e6_dp
-    photo_cfg%periodic2%interface_field_tolerance = 1.0e6_dp
-    photo_cfg%outer_plasma%model = 'linear_debye'
-    photo_cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
-    photo_cfg%outer_plasma%photoelectron_histogram_enabled = .true.
-    photo_cfg%outer_plasma%interface_z = 1.0_dp
-    photo_cfg%outer_plasma%debye_length = 0.2_dp
-    photo_cfg%outer_plasma%thermal_voltage = 10.0_dp
-    photo_cfg%outer_plasma%max_linearity_ratio = 1.0_dp
-    photo_cfg%outer_plasma%photoelectron_histogram_bins = 4_i32
-    photo_cfg%outer_plasma%photoelectron_histogram_energy_max = 10.0_dp
-    photo_cfg%outer_plasma%photoelectron_ambient_charge_scale = 100.0_dp
-    photo_cfg%outer_plasma%max_photoelectron_charge_ratio = 0.1_dp
-    photo_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-    photo_cfg%coupling%field_evolution_timescale = 10.0_dp
-    photo_cfg%coupling%max_frozen_field_ratio = 1.0_dp
-    photo_cfg%n_particle_species = 1_i32
-    photo_cfg%particle_species(1) = species_from_defaults()
-    photo_cfg%particle_species(1)%source_mode = 'photo_raycast'
-    photo_cfg%particle_species(1)%rays_per_batch = 4_i32
-    photo_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0_dp
-    photo_cfg%particle_species(1)%q_particle = -1.0_dp
-    photo_cfg%particle_species(1)%m_particle = 1.0_dp
-    photo_cfg%particle_species(1)%inject_face = 'z_high'
-    photo_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
-    photo_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
-    photo_cfg%particle_species(1)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
-    photo_cfg%particle_species(1)%has_ray_direction = .true.
-    photo_cfg%particle_species(1)%temperature_k = 0.0_dp
-    photo_cfg%particle_species(1)%normal_drift_speed = 0.2_dp
-    photo_cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
-    photo_cfg%particle_species(1)%has_deposit_opposite_charge_on_emit = .true.
-
-    call prepare_periodic2_collision_mesh(photo_mesh, photo_cfg%sim)
-    call seed_particles_from_config(photo_cfg, mpi=mpi)
-    call run_absorption_insulator( &
-      photo_mesh, photo_cfg, photo_stats, mpi=mpi, charge_ledger=photo_ledger, photoelectron_state=photo_state &
-      )
-    call assert_equal_i64(photo_state%cumulative%total_count(), 4_i64, 'MPI photoelectron count mismatch')
-    call assert_close_dp( &
-      photo_state%cumulative%total_signed_charge(), -1.0_dp, 1.0e-12_dp, 'MPI photoelectron charge mismatch' &
-      )
-    call assert_close_dp( &
-      sum(photo_ledger%interface_returned_gross), -1.0_dp, 1.0e-12_dp, 'MPI photoelectron return mismatch' &
-      )
-    call assert_close_dp(photo_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'MPI photoelectron residual mismatch')
-  end subroutine run_mpi_photoelectron_histogram_test
 
   subroutine write_summary_fixture(dir_path, mpi_world_size)
     character(len=*), intent(in) :: dir_path

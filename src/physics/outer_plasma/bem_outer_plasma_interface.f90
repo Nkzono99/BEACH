@@ -10,7 +10,6 @@ module bem_outer_plasma_interface
   private
 
   public :: map_infinity_normal_velocity_to_interface
-  public :: map_outer_particle_linear_debye
   public :: map_outer_particle_kinetic_profile
 
 contains
@@ -41,74 +40,6 @@ contains
     velocity_interface = sqrt(speed_squared)
     accessible = .true.
   end subroutine map_infinity_normal_velocity_to_interface
-
-  subroutine map_outer_particle_linear_debye( &
-    state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-    queue_enabled, outcome &
-    )
-    type(outer_plasma_state_type), intent(in) :: state
-    real(dp), intent(in) :: box_min(3), box_max(3), charge, mass
-    type(interface_crossing_type), intent(in) :: crossing
-    real(dp), intent(in) :: field_timescale, max_frozen_field_ratio
-    logical, intent(in) :: queue_enabled
-    type(interface_particle_outcome_type), intent(out) :: outcome
-    real(dp) :: normal_speed_squared, infinity_speed_squared, deficit, delta_potential
-    real(dp) :: energy_before, energy_turn, inward_offset
-
-    outcome = interface_particle_outcome_type()
-    if (.not. state%ready .or. .not. crossing%has_crossing .or. crossing%face_index /= 6 .or. &
-        mass <= 0.0_dp .or. crossing%velocity(3) <= 0.0_dp .or. &
-        field_timescale <= 0.0_dp .or. max_frozen_field_ratio <= 0.0_dp) then
-      outcome%kind = interface_outcome_invalid_model
-      outcome%message = 'invalid z-high outer-interface crossing'
-      return
-    end if
-    delta_potential = state%interface_potential - state%infinity_potential
-    normal_speed_squared = crossing%velocity(3)*crossing%velocity(3)
-    infinity_speed_squared = normal_speed_squared + 2.0_dp*charge*delta_potential/mass
-    if (.not. ieee_is_finite(infinity_speed_squared)) then
-      outcome%kind = interface_outcome_invalid_model
-      outcome%message = 'non-finite outer normal energy'
-      return
-    end if
-    if (infinity_speed_squared >= 0.0_dp) then
-      outcome%kind = interface_outcome_escaped_to_infinity
-      outcome%position = crossing%position
-      outcome%velocity = crossing%velocity
-      return
-    end if
-
-    deficit = -infinity_speed_squared
-    outcome%outer_flight_time = 4.0_dp*state%debye_length/sqrt(deficit)* &
-                                atan(sqrt(normal_speed_squared/deficit))
-    outcome%frozen_field_ratio = outcome%outer_flight_time/field_timescale
-    if (.not. ieee_is_finite(outcome%outer_flight_time) .or. outcome%outer_flight_time <= 0.0_dp) then
-      outcome%kind = interface_outcome_invalid_model
-      outcome%message = 'invalid linear-Debye outer flight time'
-      return
-    end if
-
-    outcome%position = crossing%position + crossing%velocity*outcome%outer_flight_time
-    outcome%position(1) = wrap_periodic(outcome%position(1), box_min(1), box_max(1))
-    outcome%position(2) = wrap_periodic(outcome%position(2), box_min(2), box_max(2))
-    inward_offset = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(box_max(3)))
-    outcome%position(3) = box_max(3) - inward_offset
-    outcome%velocity = crossing%velocity
-    outcome%velocity(3) = -crossing%velocity(3)
-    energy_before = 0.5_dp*mass*normal_speed_squared + charge*state%interface_potential
-    energy_turn = charge*state%interface_potential + 0.5_dp*mass*outcome%velocity(3)**2
-    outcome%normal_energy_residual = energy_turn - energy_before
-    if (outcome%frozen_field_ratio > max_frozen_field_ratio) then
-      outcome%kind = interface_outcome_invalid_model
-      outcome%message = 'linear-Debye outer flight violates the frozen-field limit'
-    else if (queue_enabled) then
-      outcome%kind = interface_outcome_queued_outer
-      outcome%queued_terminal_kind = interface_outcome_returned_local
-      outcome%message = 'linear-Debye return scheduled in persistent outer queue'
-    else
-      outcome%kind = interface_outcome_returned_local
-    end if
-  end subroutine map_outer_particle_linear_debye
 
   subroutine map_outer_particle_kinetic_profile( &
     state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &

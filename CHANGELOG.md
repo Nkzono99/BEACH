@@ -16,15 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Reflected and periodic particle events now place surviving particles a scale-aware distance inside the box, preventing zero-time boundary chatter caused by a subnormal one-ULP offset at zero-valued faces. The existing eight-event safety limit is unchanged.
 
 ### Changed
-- Canonical examples and user documentation now use `[external_boundary]`; the former `[outer_plasma]`, `[coupling]`, and related `[sim]` selectors remain supported as mutually exclusive compatibility input.
-- Documented `kinetic_1d` as the standard outer-sheath model and reclassified `unified_linear_response` as advanced rough-surface linear screening. Model identifiers and runtime defaults are unchanged.
-- **BREAKING**: Split `outer_plasma.photoelectron_closure` into `photoelectron_density_model` (`none` / `kinetic_mean`) and the independent `photoelectron_histogram_enabled` diagnostic switch. Particle return remains controlled only by `outer_plasma.return_model` and `coupling.particle_transfer_mode`.
-- Renamed the tracked photoelectron-return example to `examples/periodic2_photoelectron_return.toml`.
+- Canonical examples and user documentation now use `[external_boundary]`; supported kinetic/unified `[outer_plasma]` and `[coupling]` settings remain mutually exclusive compatibility input.
+- Documented `kinetic_1d` as the standard outer-sheath model and reclassified `unified_linear_response` as advanced rough-surface linear screening.
 
 ### Removed
 - **BREAKING**: Removed the executable `m2l_root_oracle` periodic far-correction backend and its exact-Ewald out-of-box fallback. New configurations are rejected with guidance to use `cached_kneq0`; historical output metadata remains readable.
+- **BREAKING**: Removed the `linear_debye` field/return model, `legacy_sheath` inflow and raw `sim.sheath_injection_model`, configurable outer `infinity_potential`, and the linear-return-only photoelectron histogram. These values are not aliased to another physical model. Checkpoints that activated a removed model or non-default removed feature cannot be resumed; unaffected kinetic/unified checkpoint-v4 runs remain fingerprint-compatible after retired default-valued keys are removed from the configuration.
 - **BREAKING**: Removed `photo_escape_model` and its `boltzmann_cutoff` reduced-emission closure. Photoelectrons now keep their full emitted weight and use ordinary tracking plus `potential_barrier` or an outer-plasma return model.
-- **BREAKING**: Removed the `individual_return` photoelectron-closure setting; outgoing histograms and applicability checks are enabled with `outer_plasma.photoelectron_histogram_enabled=true`.
+- **BREAKING**: Removed the `individual_return` photoelectron-closure setting.
 
 ## [1.6.2] - 2026-07-15
 

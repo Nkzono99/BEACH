@@ -47,9 +47,6 @@ $$
   [`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)
 - `infinity_barrier`、外部プラズマ、流出境界を含む構成の選択:
   [境界・外部領域の構成を選ぶ](OuterPlasmaModels.html)
-- Zhao 系または `floating_no_photo` による上流 VDF の補正:
-  [流入 VDF のシース補正](SheathInjectionClosures.html)
-
 `reservoir_face` 自体は、外部シースやボックス外の粒子軌道を解くモデルではありません。
 
 ## `photo_raycast` で照射面から粒子を放出する

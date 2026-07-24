@@ -43,6 +43,13 @@ program test_model_fingerprint
   call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'fingerprint length mismatch')
   call test_end()
 
+  call test_begin('checkpoint_v4_default_model_fingerprint')
+  call assert_true( &
+    model_fingerprint(cfg) == '4092D2A57AF9D0A0', &
+    'checkpoint-v4 default model fingerprint stream changed' &
+    )
+  call test_end()
+
   call test_begin('steady_start_mode_change_detected')
   cfg_changed = cfg
   cfg_changed%coupling%steady_start_mode = 'zhao_floating'
@@ -133,15 +140,6 @@ program test_model_fingerprint
   call assert_true( &
     model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
     'photoelectron source scale must alter fingerprint' &
-    )
-  call test_end()
-
-  call test_begin('photoelectron_histogram_flag_change_detected')
-  cfg_changed = cfg
-  cfg_changed%outer_plasma%photoelectron_histogram_enabled = .true.
-  call assert_true( &
-    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
-    'photoelectron histogram flag must alter fingerprint' &
     )
   call test_end()
 

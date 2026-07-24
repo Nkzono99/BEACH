@@ -335,20 +335,11 @@ contains
           )
         authoring%outer_plasma%photoelectron_density_model = &
           lower_ascii(trim(authoring%outer_plasma%photoelectron_density_model))
-      case ('photoelectron_histogram_enabled')
-        call get_toml_logical( &
-          table, keys(ikey), authoring%outer_plasma%photoelectron_histogram_enabled, &
-          'outer_plasma.photoelectron_histogram_enabled' &
-          )
       case ('return_model')
         call get_toml_string(table, keys(ikey), authoring%outer_plasma%return_model, 'outer_plasma.return_model')
         authoring%outer_plasma%return_model = lower_ascii(trim(authoring%outer_plasma%return_model))
       case ('interface_z')
         call get_toml_real(table, keys(ikey), authoring%outer_plasma%interface_z, 'outer_plasma.interface_z')
-      case ('infinity_potential')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%infinity_potential, 'outer_plasma.infinity_potential' &
-          )
       case ('debye_length')
         call get_toml_real(table, keys(ikey), authoring%outer_plasma%debye_length, 'outer_plasma.debye_length')
       case ('thermal_voltage')
@@ -371,26 +362,6 @@ contains
       case ('max_local_charge_ratio')
         call get_toml_real( &
           table, keys(ikey), authoring%outer_plasma%max_local_charge_ratio, 'outer_plasma.max_local_charge_ratio' &
-          )
-      case ('photoelectron_histogram_bins')
-        call get_toml_int( &
-          table, keys(ikey), authoring%outer_plasma%photoelectron_histogram_bins, &
-          'outer_plasma.photoelectron_histogram_bins' &
-          )
-      case ('photoelectron_histogram_energy_max')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%photoelectron_histogram_energy_max, &
-          'outer_plasma.photoelectron_histogram_energy_max' &
-          )
-      case ('photoelectron_ambient_charge_scale')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%photoelectron_ambient_charge_scale, &
-          'outer_plasma.photoelectron_ambient_charge_scale' &
-          )
-      case ('max_photoelectron_charge_ratio')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%max_photoelectron_charge_ratio, &
-          'outer_plasma.max_photoelectron_charge_ratio' &
           )
       case default
         error stop 'Unknown key in [outer_plasma]: '//trim(keys(ikey)%key)
@@ -527,15 +498,6 @@ contains
           )
         field%photoelectron_density_model = lower_ascii(trim(field%photoelectron_density_model))
         field%has_photoelectron_density_model = .true.
-      case ('photoelectron_histogram_enabled')
-        call get_toml_logical( &
-          table, keys(ikey), field%photoelectron_histogram_enabled, &
-          'external_boundary.field.photoelectron_histogram_enabled' &
-          )
-        field%has_photoelectron_histogram_enabled = .true.
-      case ('infinity_potential')
-        call get_toml_real(table, keys(ikey), field%infinity_potential, 'external_boundary.field.infinity_potential')
-        field%has_infinity_potential = .true.
       case ('debye_length')
         call get_toml_real(table, keys(ikey), field%debye_length, 'external_boundary.field.debye_length')
       case ('thermal_voltage')
@@ -560,30 +522,6 @@ contains
           table, keys(ikey), field%max_local_charge_ratio, 'external_boundary.field.max_local_charge_ratio' &
           )
         field%has_scalar_diagnostic_option = .true.
-      case ('photoelectron_histogram_bins')
-        call get_toml_int( &
-          table, keys(ikey), field%photoelectron_histogram_bins, &
-          'external_boundary.field.photoelectron_histogram_bins' &
-          )
-        field%has_photoelectron_histogram_detail = .true.
-      case ('photoelectron_histogram_energy_max')
-        call get_toml_real( &
-          table, keys(ikey), field%photoelectron_histogram_energy_max, &
-          'external_boundary.field.photoelectron_histogram_energy_max' &
-          )
-        field%has_photoelectron_histogram_detail = .true.
-      case ('photoelectron_ambient_charge_scale')
-        call get_toml_real( &
-          table, keys(ikey), field%photoelectron_ambient_charge_scale, &
-          'external_boundary.field.photoelectron_ambient_charge_scale' &
-          )
-        field%has_photoelectron_histogram_detail = .true.
-      case ('max_photoelectron_charge_ratio')
-        call get_toml_real( &
-          table, keys(ikey), field%max_photoelectron_charge_ratio, &
-          'external_boundary.field.max_photoelectron_charge_ratio' &
-          )
-        field%has_photoelectron_histogram_detail = .true.
       case default
         error stop 'Unknown key in [external_boundary.field]: '//trim(keys(ikey)%key)
       end select
@@ -617,13 +555,6 @@ contains
       case ('inflow_model')
         call get_toml_string(table, keys(ikey), particles%inflow_model, 'external_boundary.particles.inflow_model')
         particles%inflow_model = lower_ascii(trim(particles%inflow_model))
-      case ('legacy_sheath_model')
-        call get_toml_string( &
-          table, keys(ikey), particles%legacy_sheath_model, &
-          'external_boundary.particles.legacy_sheath_model' &
-          )
-        particles%legacy_sheath_model = lower_ascii(trim(particles%legacy_sheath_model))
-        particles%has_legacy_sheath_model = .true.
       case ('steady_start_mode')
         call get_toml_string( &
           table, keys(ikey), particles%steady_start_mode, 'external_boundary.particles.steady_start_mode' &
@@ -713,10 +644,8 @@ contains
       cfg%outer_plasma%zhao_branch = authoring%outer_plasma%zhao_branch
       cfg%outer_plasma%photoelectron_source_scale = authoring%outer_plasma%photoelectron_source_scale
       cfg%outer_plasma%photoelectron_density_model = authoring%outer_plasma%photoelectron_density_model
-      cfg%outer_plasma%photoelectron_histogram_enabled = authoring%outer_plasma%photoelectron_histogram_enabled
       cfg%outer_plasma%return_model = authoring%outer_plasma%return_model
       cfg%outer_plasma%interface_z = authoring%outer_plasma%interface_z
-      cfg%outer_plasma%infinity_potential = authoring%outer_plasma%infinity_potential
       cfg%outer_plasma%debye_length = authoring%outer_plasma%debye_length
       cfg%outer_plasma%thermal_voltage = authoring%outer_plasma%thermal_voltage
       cfg%outer_plasma%unified_grid_points = authoring%outer_plasma%unified_grid_points
@@ -724,11 +653,6 @@ contains
       cfg%outer_plasma%max_linearity_ratio = authoring%outer_plasma%max_linearity_ratio
       cfg%outer_plasma%max_gap_ratio = authoring%outer_plasma%max_gap_ratio
       cfg%outer_plasma%max_local_charge_ratio = authoring%outer_plasma%max_local_charge_ratio
-      cfg%outer_plasma%photoelectron_histogram_bins = authoring%outer_plasma%photoelectron_histogram_bins
-      cfg%outer_plasma%photoelectron_histogram_energy_max = &
-        authoring%outer_plasma%photoelectron_histogram_energy_max
-      cfg%outer_plasma%photoelectron_ambient_charge_scale = authoring%outer_plasma%photoelectron_ambient_charge_scale
-      cfg%outer_plasma%max_photoelectron_charge_ratio = authoring%outer_plasma%max_photoelectron_charge_ratio
     end if
     if (authoring%coupling%present) then
       cfg%coupling%update_mode = authoring%coupling%update_mode
@@ -1068,10 +992,6 @@ contains
         call get_toml_int(table, keys(ikey), cfg%sim%injection_face_phi_grid_n, 'sim.injection_face_phi_grid_n')
       case ('raycast_max_bounce')
         call get_toml_int(table, keys(ikey), cfg%sim%raycast_max_bounce, 'sim.raycast_max_bounce')
-      case ('sheath_injection_model')
-        call get_toml_string(table, keys(ikey), cfg%sim%sheath_injection_model, 'sim.sheath_injection_model')
-        cfg%sim%sheath_injection_model = lower_ascii(trim(cfg%sim%sheath_injection_model))
-        sim_auth%has_sheath_injection_model = .true.
       case ('sheath_alpha_deg')
         call get_toml_real(table, keys(ikey), cfg%sim%sheath_alpha_deg, 'sim.sheath_alpha_deg')
       case ('sheath_photoelectron_ref_density_cm3')
@@ -1079,9 +999,6 @@ contains
           table, keys(ikey), cfg%sim%sheath_photoelectron_ref_density_cm3, &
           'sim.sheath_photoelectron_ref_density_cm3' &
           )
-      case ('sheath_reference_coordinate')
-        call get_toml_real(table, keys(ikey), cfg%sim%sheath_reference_coordinate, 'sim.sheath_reference_coordinate')
-        cfg%sim%has_sheath_reference_coordinate = .true.
       case ('sheath_electron_drift_mode')
         call get_toml_string(table, keys(ikey), cfg%sim%sheath_electron_drift_mode, 'sim.sheath_electron_drift_mode')
         cfg%sim%sheath_electron_drift_mode = lower_ascii(trim(cfg%sim%sheath_electron_drift_mode))

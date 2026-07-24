@@ -63,7 +63,7 @@ $\phi_I-\phi_\infty$:
 
 For tracked split kinetic, `external_boundary.particles.inflow_model="auto"`
 delegates inflow to the same profile. Do not combine it with
-`inflow_model="infinity_barrier"` or `"legacy_sheath"`. See
+`inflow_model="infinity_barrier"`. See
 [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) and [Particle escape and return](ParticleEscapeReturn.en.html).
 
 ## Select mean outer density separately from tracked photoelectrons

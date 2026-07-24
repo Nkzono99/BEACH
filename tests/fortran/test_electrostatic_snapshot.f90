@@ -1,12 +1,12 @@
 program test_electrostatic_snapshot
   use bem_kinds, only: dp, i32
-  use bem_constants, only: k_coulomb
+  use bem_constants, only: eps0, k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
                                       outer_plasma_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
-  use bem_outer_plasma_linear, only: outer_plasma_integrated_charge_per_area
+  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_allclose_1d
@@ -18,6 +18,7 @@ program test_electrostatic_snapshot
   type(periodic2_physics_config) :: periodic_config
   type(panel_kernel_config) :: panel_config
   type(outer_plasma_config) :: outer_config
+  type(kinetic_outer_plasma_options_type) :: kinetic_options
   type(electrostatic_snapshot_type) :: snapshot
   type(electrostatic_diagnostics_type) :: diagnostics
   type(panel_geometry_type) :: geometry
@@ -75,14 +76,22 @@ program test_electrostatic_snapshot
                     interface_phi_tolerance=1.0e12_dp, interface_field_tolerance=1.0e12_dp &
                     )
   outer_config = outer_plasma_config( &
-                 model='linear_debye', interface_z=1.0_dp, infinity_potential=0.0_dp, &
+                 model='kinetic_1d', interface_z=1.0_dp, &
                  debye_length=0.2_dp, thermal_voltage=10.0_dp, max_linearity_ratio=0.5_dp &
                  )
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
+  kinetic_options = kinetic_outer_plasma_options_type( &
+                    grid_points=17_i32, domain_length=1.0_dp, tail_length=0.2_dp, &
+                    electron_charge=-1.0_dp, electron_mass=1.0_dp, electron_density_infinity=0.0_dp, &
+                    electron_temperature_j=1.0_dp, ion_charge=1.0_dp, ion_mass=1.0_dp, &
+                    ion_density_infinity=0.0_dp, ion_temperature_j=0.0_dp, ion_drift_infinity=1.0_dp &
+                    )
+  call snapshot%init( &
+    mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options=kinetic_options &
+    )
   call snapshot%refresh(mesh)
   call snapshot%get_diagnostics(diagnostics)
   call assert_close_dp( &
-    sum(mesh%q_elem) + sim%box_max(1)*sim%box_max(2)*outer_plasma_integrated_charge_per_area(snapshot%outer), &
+    sum(mesh%q_elem) - sim%box_max(1)*sim%box_max(2)*eps0*snapshot%outer%interface_field, &
     0.0_dp, 1.0e-24_dp, 'surface plus outer charge must close' &
     )
   call assert_close_dp(snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, 'snapshot Gauss residual mismatch')

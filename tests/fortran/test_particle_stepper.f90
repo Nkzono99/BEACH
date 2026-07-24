@@ -10,13 +10,13 @@ program test_particle_stepper
                                   resolve_particle_boundary_candidate, particle_step_result, &
                                   particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events, &
                                   particle_step_ambiguous_open_corner
-  use bem_external_boundary_contract, only: external_boundary_contract_type, external_transport_linear_1d
+  use bem_external_boundary_contract, only: external_boundary_contract_type, external_transport_kinetic_1d
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
   type(external_boundary_contract_type) :: interface_contract
 
-  interface_contract%interface_transport = external_transport_linear_1d
+  interface_contract%interface_transport = external_transport_kinetic_1d
   call test_init(24)
 
   call test_begin('uniform_e0_included_once')

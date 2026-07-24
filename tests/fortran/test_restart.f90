@@ -8,7 +8,6 @@ program test_restart
   use bem_output_writer, only: write_result_files
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
   use bem_filesystem, only: atomic_rename, filesystem_success
   use bem_types, only: mesh_type, sim_stats, injection_state
@@ -22,8 +21,6 @@ program test_restart
   type(injection_state) :: state
   type(app_config) :: cfg, cfg_changed
   type(charge_ledger_type) :: ledger, restored_ledger
-  type(photoelectron_histogram_type) :: photo_batch
-  type(photoelectron_histogram_state_type) :: photo_state, restored_photo_state
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   type(electrostatic_restart_state_type) :: electrostatic_state
   logical :: has_restart, exists
@@ -40,7 +37,6 @@ program test_restart
   call delete_file_if_exists(out_dir//'/macro_residuals.csv')
   call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
   call delete_file_if_exists(out_dir//'/macro_residuals_rank00001.csv')
-  call delete_file_if_exists(out_dir//'/photoelectron_histogram.csv')
   call delete_file_if_exists(out_dir//'/outer_plasma_profile.csv')
   call remove_empty_directory(out_dir)
 
@@ -201,9 +197,6 @@ program test_restart
   cfg%particle_species(1)%species_key = 'electron'
   cfg%particle_species(2) = species_from_defaults()
   cfg%particle_species(2)%species_key = 'ion'
-  cfg%outer_plasma%photoelectron_histogram_enabled = .true.
-  cfg%outer_plasma%photoelectron_histogram_bins = 2_i32
-  cfg%outer_plasma%photoelectron_histogram_energy_max = 4.0_dp
   stats%processed_particles = 10_i64
   stats%absorbed = 7_i64
   stats%escaped = 3_i64
@@ -216,36 +209,19 @@ program test_restart
   ledger%injected_from_remote = [-3.0_dp, 4.0_dp]
   ledger%injected_count = [3_i64, 4_i64]
   mesh%q_elem = [1.0e-12_dp, -2.0e-12_dp]
-  call photo_state%init(2_i32, 4.0_dp)
-  call photo_state%begin_batch(photo_batch)
-  call photo_batch%add(-1.0_dp, 2.0_dp, 3.0_dp, [1.0_dp, -2.0_dp, 1.0_dp])
-  call photo_state%commit_batch(1_i32, photo_batch)
-  call photo_state%begin_batch(photo_batch)
-  call photo_batch%add(-1.0_dp, 2.0_dp, 5.0_dp, [-1.0_dp, 1.0_dp, 2.0_dp])
-  call photo_state%commit_batch(2_i32, photo_batch)
-  call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger, photoelectron_state=photo_state)
+  call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
   call write_rng_state_file(out_dir)
   call write_macro_residuals_file(out_dir, state)
 
   call build_test_mesh(mesh)
   call load_restart_checkpoint( &
-    out_dir, mesh, stats, has_restart, state, app=cfg, charge_ledger=restored_ledger, &
-    photoelectron_state=restored_photo_state &
+    out_dir, mesh, stats, has_restart, state, app=cfg, charge_ledger=restored_ledger &
     )
   call assert_true(has_restart, 'schema v2 checkpoint should load')
   call assert_equal_i32(restored_ledger%batch_count, 2_i32, 'ledger batch count mismatch')
   call assert_close_dp(restored_ledger%surface_charge_before, 1.0_dp, 1.0e-12_dp, 'ledger stock mismatch')
   call assert_allclose_1d( &
     restored_ledger%injected_from_remote, [-3.0_dp, 4.0_dp], 1.0e-12_dp, 'ledger flux restore mismatch' &
-    )
-  call assert_equal_i32(restored_photo_state%last_completed_batch, 2_i32, 'photoelectron batch restore mismatch')
-  call assert_close_dp( &
-    restored_photo_state%previous_batch%total_signed_charge(), -5.0_dp, 1.0e-12_dp, &
-    'photoelectron previous-batch charge mismatch' &
-    )
-  call assert_close_dp( &
-    restored_photo_state%cumulative%total_signed_charge(), -8.0_dp, 1.0e-12_dp, &
-    'photoelectron cumulative charge mismatch' &
     )
 
   cfg_changed = cfg
@@ -322,7 +298,6 @@ program test_restart
   call delete_file_if_exists(out_dir//'/mesh_triangles.csv')
   call delete_file_if_exists(out_dir//'/mesh_sources.csv')
   call delete_file_if_exists(out_dir//'/charge_ledger.csv')
-  call delete_file_if_exists(out_dir//'/photoelectron_histogram.csv')
   call delete_file_if_exists(out_dir//'/outer_plasma_profile.csv')
   call remove_empty_directory(out_dir)
 

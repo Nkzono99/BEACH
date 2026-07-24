@@ -11,9 +11,8 @@ module bem_external_step_driver
     interface_crossing_type, interface_particle_outcome_type, interface_outcome_returned_local, &
     interface_outcome_escaped_to_infinity, interface_outcome_queued_outer, interface_outcome_invalid_model
   use bem_external_boundary_contract, only: &
-    external_boundary_contract_type, external_transport_linear_1d, external_transport_kinetic_1d, &
-    external_transport_unified_3d
-  use bem_outer_plasma_interface, only: map_outer_particle_linear_debye, map_outer_particle_kinetic_profile
+    external_boundary_contract_type, external_transport_kinetic_1d, external_transport_unified_3d
+  use bem_outer_plasma_interface, only: map_outer_particle_kinetic_profile
   use bem_outer_plasma_orbit, only: trace_unified_outer_particle
   implicit none
   private
@@ -133,11 +132,6 @@ contains
     type(interface_particle_outcome_type), intent(out) :: outcome
 
     select case (contract%interface_transport)
-    case (external_transport_linear_1d)
-      call map_outer_particle_linear_debye( &
-        snapshot%outer, sim%box_min, sim%box_max, charge, mass, crossing, &
-        coupling%field_evolution_timescale, coupling%max_frozen_field_ratio, contract%queue_enabled, outcome &
-        )
     case (external_transport_kinetic_1d)
       call map_outer_particle_kinetic_profile( &
         snapshot%outer, sim%box_min, sim%box_max, charge, mass, crossing, &

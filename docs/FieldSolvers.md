@@ -41,7 +41,6 @@ triangle P0にFMMを選びます。既定のしきい値は`256`です。solver�
 
 `periodic2`ではさらに`sim.use_box=true`、ちょうど2つのperiodic軸、1つのopen軸が必要です。
 Direct split referenceは小規模な基準解・検証用であり、通常のperiodic2 production経路はFMMです。
-完全な構成は[Direct split referenceの公式設定例](../examples/periodic2_linear_outer_reference.toml)にあります。
 
 ## source kernelで要素電荷の離散化を決める
 

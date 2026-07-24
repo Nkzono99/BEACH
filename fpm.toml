@@ -127,11 +127,6 @@ source-dir = "tests/fortran"
 main = "test_periodic_zero_mode_c.f90"
 
 [[test]]
-name = "test_outer_plasma_linear"
-source-dir = "tests/fortran"
-main = "test_outer_plasma_linear.f90"
-
-[[test]]
 name = "test_outer_plasma_kinetic_core"
 source-dir = "tests/fortran"
 main = "test_outer_plasma_kinetic_core.f90"
@@ -200,11 +195,6 @@ main = "test_outer_plasma_interface.f90"
 name = "test_outer_plasma_orbit"
 source-dir = "tests/fortran"
 main = "test_outer_plasma_orbit.f90"
-
-[[test]]
-name = "test_outer_plasma_photoelectron"
-source-dir = "tests/fortran"
-main = "test_outer_plasma_photoelectron.f90"
 
 [[test]]
 name = "test_interface_particle_buffer"
@@ -290,16 +280,6 @@ main = "test_simulator.f90"
 name = "test_injection_sampling"
 source-dir = "tests/fortran"
 main = "test_injection_sampling.f90"
-
-[[test]]
-name = "test_sheath_injection_model"
-source-dir = "tests/fortran"
-main = "test_sheath_injection_model.f90"
-
-[[test]]
-name = "test_sheath_model_core"
-source-dir = "tests/fortran"
-main = "test_sheath_model_core.f90"
 
 [[test]]
 name = "test_performance_profile"

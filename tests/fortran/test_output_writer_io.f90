@@ -8,7 +8,6 @@ program test_output_writer_io
   use bem_types, only: mesh_type, sim_stats
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_type, photoelectron_histogram_state_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, delete_file_if_exists, remove_empty_directory
   implicit none
@@ -17,11 +16,9 @@ program test_output_writer_io
   type(app_config) :: cfg
   type(sim_stats) :: stats
   type(charge_ledger_type) :: ledger
-  type(photoelectron_histogram_type) :: photo_batch
-  type(photoelectron_histogram_state_type) :: photo_state
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
-  logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_photo_batch, saw_photo_flux
+  logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_queue_population, saw_queue_count, saw_queue_fingerprint
   logical :: saw_steady_start_mode, saw_steady_start_mesh_id
@@ -29,7 +26,6 @@ program test_output_writer_io
   character(len=512) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
   character(len=*), parameter :: out_dir_ledger = 'test_output_writer_io_ledger_tmp'
-  character(len=*), parameter :: out_dir_photo = 'test_output_writer_io_photo_tmp'
   character(len=*), parameter :: literal_parent = 'test_output_writer_io_literal_tmp'
   character(len=*), parameter :: marker_path = 'test_output_writer_io_shell_marker_tmp'
   character(len=*), parameter :: literal_dir = &
@@ -43,13 +39,12 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(6)
+  call test_init(5)
 
   stats = sim_stats()
 
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
-  call cleanup_output_dir(out_dir_photo)
 
   call delete_file_if_exists(marker_path)
   call remove_test_directory(literal_dir)
@@ -95,22 +90,6 @@ program test_output_writer_io
     )
 
   call default_app_config(cfg)
-  cfg%sim%sheath_injection_model = 'zhao_auto'
-  call write_result_files(out_dir_disabled, mesh, stats, cfg)
-  call assert_resolved_boundary_summary( &
-    out_dir_disabled//'/summary.txt', 'legacy_sheath', 'escape', 'none', 'local_source' &
-    )
-
-  call default_app_config(cfg)
-  cfg%outer_plasma%model = 'linear_debye'
-  cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
-  cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-  call write_result_files(out_dir_disabled, mesh, stats, cfg)
-  call assert_resolved_boundary_summary( &
-    out_dir_disabled//'/summary.txt', 'linear_profile', 'escape', 'linear_1d', 'same_batch' &
-    )
-
-  call default_app_config(cfg)
   cfg%outer_plasma%model = 'kinetic_1d'
   cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
   cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
@@ -132,46 +111,6 @@ program test_output_writer_io
   cfg%sim%batch_duration = 1.0_dp
   cfg%output_dir = out_dir_disabled
   cfg%write_mesh_potential = .false.
-  call test_end()
-
-  call test_begin('photoelectron_checkpoint_output')
-  call photo_state%init(2_i32, 4.0_dp)
-  call photo_state%begin_batch(photo_batch)
-  call photo_batch%add(-1.0_dp, 2.0_dp, 3.0_dp, [1.0_dp, -2.0_dp, 1.0_dp])
-  call photo_state%commit_batch(1_i32, photo_batch)
-  stats%batches = 1_i32
-  cfg%outer_plasma%photoelectron_histogram_enabled = .false.
-  call write_result_files(out_dir_photo, mesh, stats, cfg, photoelectron_state=photo_state)
-  inquire (file=out_dir_photo//'/photoelectron_histogram.csv', exist=exists)
-  call assert_true(.not. exists, 'disabled photoelectron histogram must ignore a supplied ready state')
-  saw_photo_batch = .false.
-  open (newunit=literal_unit, file=out_dir_photo//'/summary.txt', status='old', action='read', iostat=ios)
-  if (ios /= 0) error stop 'failed to open disabled photoelectron summary fixture'
-  do
-    read (literal_unit, '(A)', iostat=ios) line
-    if (ios /= 0) exit
-    saw_photo_batch = saw_photo_batch .or. index(line, 'photoelectron_last_completed_batch=') > 0
-  end do
-  close (literal_unit)
-  call assert_true(.not. saw_photo_batch, 'disabled histogram must not add photoelectron summary fields')
-  cfg%outer_plasma%photoelectron_histogram_enabled = .true.
-  call write_result_files(out_dir_photo, mesh, stats, cfg, photoelectron_state=photo_state)
-  inquire (file=out_dir_photo//'/photoelectron_histogram.csv', exist=exists)
-  call assert_true(exists, 'photoelectron histogram checkpoint should be written')
-  saw_photo_batch = .false.
-  saw_photo_flux = .false.
-  open (newunit=literal_unit, file=out_dir_photo//'/summary.txt', status='old', action='read', iostat=ios)
-  if (ios /= 0) error stop 'failed to open photoelectron summary fixture'
-  do
-    read (literal_unit, '(A)', iostat=ios) line
-    if (ios /= 0) exit
-    saw_photo_batch = saw_photo_batch .or. index(line, 'photoelectron_last_completed_batch=1') > 0
-    saw_photo_flux = saw_photo_flux .or. index(line, 'photoelectron_previous_signed_current_A=') > 0
-  end do
-  close (literal_unit)
-  call assert_true(saw_photo_batch, 'summary should record photoelectron histogram batch ownership')
-  call assert_true(saw_photo_flux, 'summary should record the outgoing photoelectron signed current')
-  cfg%outer_plasma%photoelectron_histogram_enabled = .false.
   call test_end()
 
   call test_begin('queue_diagnostics_follow_enable_flag')
@@ -278,7 +217,6 @@ program test_output_writer_io
 
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
-  call cleanup_output_dir(out_dir_photo)
 
   call test_summary()
 
@@ -358,7 +296,6 @@ contains
     call delete_file_if_exists(out_dir//'/mesh_triangles.csv')
     call delete_file_if_exists(out_dir//'/mesh_sources.csv')
     call delete_file_if_exists(out_dir//'/charge_ledger.csv')
-    call delete_file_if_exists(out_dir//'/photoelectron_histogram.csv')
     call remove_empty_directory(out_dir)
   end subroutine cleanup_output_dir
 

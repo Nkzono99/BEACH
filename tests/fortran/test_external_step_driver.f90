@@ -46,8 +46,8 @@ program test_external_step_driver
   sim%e0 = [0.0_dp, 0.0_dp, 4.0_dp]
 
   outer = outer_plasma_config()
-  outer%model = 'linear_debye'
-  outer%return_model = 'electrostatic_1d_instant_return'
+  outer%model = 'kinetic_1d'
+  outer%return_model = 'kinetic_1d_profile_return'
   outer%interface_z = 1.0_dp
   outer%debye_length = 0.1_dp
   outer%thermal_voltage = 10.0_dp
@@ -56,20 +56,23 @@ program test_external_step_driver
   coupling%field_evolution_timescale = 1.0e9_dp
   coupling%max_frozen_field_ratio = 0.1_dp
   call resolve_external_boundary_contract( &
-    sim%reservoir_potential_model, sim%sheath_injection_model, sim%open_boundary_model, outer%model, &
+    sim%reservoir_potential_model, sim%open_boundary_model, outer%model, &
     outer%kinetic_closure, outer%return_model, coupling%particle_transfer_mode, coupling%outer_queue_enabled, &
     contract, status, message &
     )
-  call assert_equal_i32(status, external_boundary_ok, 'linear contract fixture is invalid')
+  call assert_equal_i32(status, external_boundary_ok, 'kinetic contract fixture is invalid')
 
   call snapshot%init(mesh, sim)
   call snapshot%refresh(mesh)
-  snapshot%outer%model = 'linear_debye'
+  snapshot%outer%model = 'kinetic_1d'
   snapshot%outer%ready = .true.
   snapshot%outer%interface_z = 1.0_dp
   snapshot%outer%interface_potential = -1.0_dp
   snapshot%outer%infinity_potential = 0.0_dp
   snapshot%outer%debye_length = 0.1_dp
+  snapshot%outer%profile_n = 2_i32
+  snapshot%outer%z = [1.0_dp, 1.1_dp]
+  snapshot%outer%potential = [-1.0_dp, 0.0_dp]
 
   call advance_particle_step( &
     mesh, sim, snapshot, [0.0_dp, 0.0_dp, 0.0_dp], [0.2_dp, 0.2_dp, 0.9_dp], &

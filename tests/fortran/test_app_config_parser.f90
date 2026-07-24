@@ -10,7 +10,7 @@ program test_app_config_parser
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none
 
-  type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, sheath_cfg, high_level_cfg
+  type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, zhao_cfg, high_level_cfg
   type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg, panel_tree_cfg, split_cfg
   type(app_config) :: external_boundary_cfg, none_boundary_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
@@ -19,7 +19,7 @@ program test_app_config_parser
   character(len=*), parameter :: periodic_cfg_path = 'test_app_config_parser_periodic_tmp.toml'
   character(len=*), parameter :: periodic_oracle_cfg_path = 'test_app_config_parser_periodic_oracle_tmp.toml'
   character(len=*), parameter :: periodic_oracle_output_path = 'test_app_config_parser_periodic_oracle_tmp.out'
-  character(len=*), parameter :: sheath_cfg_path = 'test_app_config_parser_sheath_tmp.toml'
+  character(len=*), parameter :: zhao_cfg_path = 'test_app_config_parser_zhao_tmp.toml'
   character(len=*), parameter :: high_level_cfg_path = 'test_app_config_parser_high_level_tmp.toml'
   character(len=*), parameter :: multiline_cfg_path = 'test_app_config_parser_multiline_tmp.toml'
   character(len=*), parameter :: toml_syntax_cfg_path = 'test_app_config_parser_toml_syntax_tmp.toml'
@@ -56,30 +56,26 @@ program test_app_config_parser
     noop_kind = 'field'
   case ('probe_none_local_coupling_option')
     noop_kind = 'coupling'
-  case ('probe_linear_kinetic_option')
-    noop_kind = 'linear_kinetic'
-  case ('probe_linear_unified_option')
-    noop_kind = 'linear_unified'
+  case ('probe_unified_kinetic_option')
+    noop_kind = 'unified_kinetic'
+  case ('probe_kinetic_unified_option')
+    noop_kind = 'kinetic_unified'
   case ('probe_kinetic_zhao_option')
     noop_kind = 'kinetic_zhao'
   case ('probe_kinetic_linearity_option')
     noop_kind = 'kinetic_linearity'
   case ('probe_unified_scalar_option')
     noop_kind = 'unified_scalar'
-  case ('probe_disabled_histogram_detail')
-    noop_kind = 'histogram_detail'
-  case ('probe_local_histogram_enabled')
-    noop_kind = 'local_histogram'
   case ('probe_local_time_guard')
     noop_kind = 'local_time_guard'
-  case ('probe_linear_outer_orbit')
-    noop_kind = 'linear_orbit'
+  case ('probe_kinetic_outer_orbit')
+    noop_kind = 'kinetic_orbit'
   case ('probe_unified_update_stride')
     noop_kind = 'unified_stride'
   case ('probe_queue_update_stride')
     noop_kind = 'queue_stride'
-  case ('probe_linear_steady_start')
-    noop_kind = 'linear_steady'
+  case ('probe_kinetic_steady_start')
+    noop_kind = 'kinetic_steady'
   end select
   if (len_trim(noop_kind) > 0) then
     call write_external_boundary_noop_fixture(noop_boundary_cfg_path, trim(noop_kind))
@@ -103,7 +99,7 @@ program test_app_config_parser
   call write_photo_config_fixture(photo_cfg_path)
   call write_large_config_fixture(large_cfg_path)
   call write_periodic_config_fixture(periodic_cfg_path)
-  call write_sheath_config_fixture(sheath_cfg_path)
+  call write_zhao_physics_config_fixture(zhao_cfg_path)
   call write_high_level_config_fixture(high_level_cfg_path)
   call write_multiline_config_fixture(multiline_cfg_path)
   call write_toml_syntax_config_fixture(toml_syntax_cfg_path)
@@ -247,7 +243,7 @@ program test_app_config_parser
   call assert_equal_i32(split_cfg%periodic2%reference_mode_layers, 5_i32, 'split mode layers mismatch')
   call assert_equal_i32(split_cfg%periodic2%panel_quadrature_order, 16_i32, 'split quadrature order mismatch')
   call assert_equal_i32(split_cfg%periodic2%interface_sample_n, 7_i32, 'split interface sample mismatch')
-  call assert_true(trim(split_cfg%outer_plasma%model) == 'linear_debye', 'split outer model mismatch')
+  call assert_true(trim(split_cfg%outer_plasma%model) == 'kinetic_1d', 'split outer model mismatch')
   call assert_true( &
     trim(split_cfg%outer_plasma%kinetic_closure) == 'absorbing_maxwellian', &
     'split default kinetic closure mismatch' &
@@ -272,21 +268,9 @@ program test_app_config_parser
     trim(split_cfg%outer_plasma%photoelectron_density_model) == 'none', &
     'default photoelectron density model mismatch' &
     )
-  call assert_true(split_cfg%outer_plasma%photoelectron_histogram_enabled, 'photoelectron histogram flag mismatch')
-  call assert_equal_i32( &
-    split_cfg%outer_plasma%photoelectron_histogram_bins, 8_i32, 'photoelectron histogram bins mismatch' &
-    )
-  call assert_close_dp( &
-    split_cfg%outer_plasma%photoelectron_histogram_energy_max, 12.0_dp, 1.0e-15_dp, &
-    'photoelectron histogram energy mismatch' &
-    )
-  call assert_close_dp( &
-    split_cfg%outer_plasma%photoelectron_ambient_charge_scale, 4.0_dp, 1.0e-15_dp, &
-    'photoelectron ambient charge scale mismatch' &
-    )
-  call assert_close_dp( &
-    split_cfg%outer_plasma%max_photoelectron_charge_ratio, 0.2_dp, 1.0e-15_dp, &
-    'photoelectron charge ratio mismatch' &
+  call assert_true( &
+    trim(split_cfg%outer_plasma%return_model) == 'kinetic_1d_profile_return', &
+    'split return model mismatch' &
     )
   call assert_true( &
     trim(split_cfg%coupling%particle_transfer_mode) == 'electrostatic_1d_instant_return', &
@@ -311,7 +295,7 @@ program test_app_config_parser
   call default_app_config(external_boundary_cfg)
   call load_app_config(external_boundary_cfg_path, external_boundary_cfg)
   call assert_true( &
-    trim(external_boundary_cfg%outer_plasma%model) == 'linear_debye', &
+    trim(external_boundary_cfg%outer_plasma%model) == 'kinetic_1d', &
     'facade outer field model mismatch' &
     )
   call assert_close_dp( &
@@ -319,7 +303,7 @@ program test_app_config_parser
     'facade interface location mismatch' &
     )
   call assert_true( &
-    trim(external_boundary_cfg%outer_plasma%return_model) == 'electrostatic_1d_instant_return', &
+    trim(external_boundary_cfg%outer_plasma%return_model) == 'kinetic_1d_profile_return', &
     'facade return model mismatch' &
     )
   call assert_true( &
@@ -331,10 +315,6 @@ program test_app_config_parser
   call assert_true( &
     trim(external_boundary_cfg%sim%reservoir_potential_model) == 'none', &
     'profile-owned facade inflow must disable the scalar correction' &
-    )
-  call assert_true( &
-    trim(external_boundary_cfg%sim%sheath_injection_model) == 'none', &
-    'profile-owned facade inflow must disable the legacy sheath correction' &
     )
   call assert_true( &
     trim(external_boundary_cfg%sim%open_boundary_model) == 'potential_barrier', &
@@ -460,20 +440,16 @@ program test_app_config_parser
   call assert_removed_root_oracle_rejected()
   call test_end()
 
-  call test_begin('sheath_config')
-  call default_app_config(sheath_cfg)
-  call load_app_config(sheath_cfg_path, sheath_cfg)
-  call assert_true(trim(sheath_cfg%sim%sheath_injection_model) == 'zhao_auto', 'sheath model mismatch')
-  call assert_close_dp(sheath_cfg%sim%sheath_alpha_deg, 42.0d0, 1.0d-12, 'sheath alpha mismatch')
+  call test_begin('zhao_physics_inputs')
+  call default_app_config(zhao_cfg)
+  call load_app_config(zhao_cfg_path, zhao_cfg)
+  call assert_close_dp(zhao_cfg%sim%sheath_alpha_deg, 42.0d0, 1.0d-12, 'Zhao alpha mismatch')
   call assert_close_dp( &
-    sheath_cfg%sim%sheath_photoelectron_ref_density_cm3, 48.0d0, 1.0d-12, 'sheath photoelectron density mismatch' &
+    zhao_cfg%sim%sheath_photoelectron_ref_density_cm3, 48.0d0, 1.0d-12, &
+    'Zhao photoelectron density mismatch' &
     )
-  call assert_true(sheath_cfg%sim%has_sheath_reference_coordinate, 'sheath reference coordinate flag mismatch')
-  call assert_close_dp( &
-    sheath_cfg%sim%sheath_reference_coordinate, 0.25d0, 1.0d-12, 'sheath reference coordinate mismatch' &
-    )
-  call assert_true(trim(sheath_cfg%sim%sheath_electron_drift_mode) == 'full', 'sheath electron drift mode mismatch')
-  call assert_true(trim(sheath_cfg%sim%sheath_ion_drift_mode) == 'normal', 'sheath ion drift mode mismatch')
+  call assert_true(trim(zhao_cfg%sim%sheath_electron_drift_mode) == 'full', 'Zhao electron drift mode mismatch')
+  call assert_true(trim(zhao_cfg%sim%sheath_ion_drift_mode) == 'normal', 'Zhao ion drift mode mismatch')
   call test_end()
 
   call test_begin('high_level_config_normalization')
@@ -551,7 +527,7 @@ program test_app_config_parser
   call delete_file_if_exists(periodic_cfg_path)
   call delete_file_if_exists(periodic_oracle_cfg_path)
   call delete_file_if_exists(periodic_oracle_output_path)
-  call delete_file_if_exists(sheath_cfg_path)
+  call delete_file_if_exists(zhao_cfg_path)
   call delete_file_if_exists(high_level_cfg_path)
   call delete_file_if_exists(multiline_cfg_path)
   call delete_file_if_exists(toml_syntax_cfg_path)
@@ -652,9 +628,8 @@ contains
       )
     call assert_true(.not. mode_cfg%coupling%outer_queue_enabled, 'kinetic same-batch queue mismatch')
     call assert_true( &
-      trim(mode_cfg%sim%reservoir_potential_model) == 'none' .and. &
-      trim(mode_cfg%sim%sheath_injection_model) == 'none', &
-      'kinetic profile-owned inflow must disable local inflow corrections' &
+      trim(mode_cfg%sim%reservoir_potential_model) == 'none', &
+      'kinetic profile-owned inflow must disable the scalar inflow correction' &
       )
 
     call default_app_config(mode_cfg)
@@ -725,26 +700,14 @@ contains
 
     call default_app_config(mode_cfg)
     mode_cfg%sim%box_max(3) = 6.0_dp
-    call prepare_external_boundary_authoring(mode_authoring, 'linear_debye', 'local_source', 'source_vdf')
-    mode_authoring%external_boundary%field%has_photoelectron_histogram_enabled = .true.
-    mode_authoring%external_boundary%field%photoelectron_histogram_enabled = .false.
+    call prepare_external_boundary_authoring(mode_authoring, 'kinetic_1d', 'local_source', 'source_vdf')
     mode_authoring%external_boundary%particles%has_outer_update_stride = .true.
     mode_authoring%external_boundary%particles%outer_update_stride = 3_i32
     call lower_external_boundary_authoring(mode_cfg, mode_authoring)
-    call assert_equal_i32(mode_cfg%coupling%outer_update_stride, 3_i32, 'linear local-source update stride mismatch')
-
-    call default_app_config(mode_cfg)
-    call prepare_external_boundary_authoring(mode_authoring, 'none', 'local_source', 'legacy_sheath')
-    mode_authoring%external_boundary%particles%legacy_sheath_model = 'zhao_b'
-    mode_authoring%external_boundary%particles%has_legacy_sheath_model = .true.
-    call lower_external_boundary_authoring(mode_cfg, mode_authoring)
+    call assert_equal_i32(mode_cfg%coupling%outer_update_stride, 3_i32, 'kinetic local-source update stride mismatch')
     call assert_true( &
       trim(mode_cfg%sim%reservoir_potential_model) == 'none', &
-      'legacy sheath must disable the infinity-barrier inflow' &
-      )
-    call assert_true( &
-      trim(mode_cfg%sim%sheath_injection_model) == 'zhao_b', &
-      'legacy sheath lowering mismatch' &
+      'source-vdf inflow must not enable the scalar inflow correction' &
       )
   end subroutine assert_external_boundary_mode_matrix
 
@@ -772,9 +735,6 @@ contains
       )
     call assert_external_boundary_owner_rejected( &
       'reservoir', '[external_boundary] cannot be combined with sim.reservoir_potential_model' &
-      )
-    call assert_external_boundary_owner_rejected( &
-      'sheath', '[external_boundary] cannot be combined with sim.sheath_injection_model' &
       )
     call assert_external_boundary_owner_rejected( &
       'open', '[external_boundary] cannot be combined with sim.open_boundary_model' &
@@ -821,10 +781,10 @@ contains
       'probe_active_field_without_box', 'requires explicit sim.box_max or sim.box_origin/box_size' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_linear_kinetic_option', 'kinetic_closure requires field.model="kinetic_1d"' &
+      'probe_unified_kinetic_option', 'kinetic_closure requires field.model="kinetic_1d"' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_linear_unified_option', 'Unified field options require field.model="unified_linear_response"' &
+      'probe_kinetic_unified_option', 'Unified field options require field.model="unified_linear_response"' &
       )
     call assert_external_boundary_probe_rejected( &
       'probe_kinetic_zhao_option', 'Zhao field options require kinetic_1d' &
@@ -836,25 +796,19 @@ contains
       'probe_unified_scalar_option', 'Scalar interface diagnostic options do not apply' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_disabled_histogram_detail', 'histogram detail options require an enabled linear_debye' &
-      )
-    call assert_external_boundary_probe_rejected( &
-      'probe_local_histogram_enabled', 'enabled photoelectron histogram requires linear_debye' &
-      )
-    call assert_external_boundary_probe_rejected( &
       'probe_local_time_guard', 'time-guard options require particles.mode="same_batch" or "zhao_queue"' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_linear_outer_orbit', 'Outer-orbit options require unified_linear_response' &
+      'probe_kinetic_outer_orbit', 'Outer-orbit options require unified_linear_response' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_unified_update_stride', 'outer_update_stride requires a linear/kinetic field' &
+      'probe_unified_update_stride', 'outer_update_stride requires a kinetic_1d field and a non-queue particle mode' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_queue_update_stride', 'outer_update_stride requires a linear/kinetic field and a non-queue particle mode' &
+      'probe_queue_update_stride', 'outer_update_stride requires a kinetic_1d field and a non-queue particle mode' &
       )
     call assert_external_boundary_probe_rejected( &
-      'probe_linear_steady_start', 'Steady-start options require Zhao kinetic_1d' &
+      'probe_kinetic_steady_start', 'Steady-start options require Zhao kinetic_1d' &
       )
   end subroutine assert_external_boundary_noop_options_rejected
 
@@ -1175,20 +1129,18 @@ contains
     close (u)
   end subroutine write_periodic_oracle_config_fixture
 
-  !> シース注入キーの受理を確認する設定を書き出す。
-  subroutine write_sheath_config_fixture(path)
+  !> Zhao kinetic closure が共有する物理入力キーの受理を確認する設定を書き出す。
+  subroutine write_zhao_physics_config_fixture(path)
     character(len=*), intent(in) :: path
     integer :: u, ios
 
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
-    if (ios /= 0) error stop 'failed to open sheath config fixture'
+    if (ios /= 0) error stop 'failed to open Zhao physics config fixture'
 
     write (u, '(a)') '[sim]'
     write (u, '(a)') 'batch_count = 1'
-    write (u, '(a)') 'sheath_injection_model = "zhao_auto"'
     write (u, '(a)') 'sheath_alpha_deg = 42.0'
     write (u, '(a)') 'sheath_photoelectron_ref_density_cm3 = 48.0'
-    write (u, '(a)') 'sheath_reference_coordinate = 0.25'
     write (u, '(a)') 'sheath_electron_drift_mode = "full"'
     write (u, '(a)') 'sheath_ion_drift_mode = "normal"'
     write (u, '(a)') ''
@@ -1202,7 +1154,7 @@ contains
     write (u, '(a)') 'enabled = true'
 
     close (u)
-  end subroutine write_sheath_config_fixture
+  end subroutine write_zhao_physics_config_fixture
 
   !> 高水準 authoring キーを Fortran 側で正規化することを確認する設定を書き出す。
   subroutine write_high_level_config_fixture(path)
@@ -1425,20 +1377,13 @@ contains
     write (u, '(a)') 'panel_quadrature_order = 16'
     write (u, '(a)') 'interface_sample_n = 7'
     write (u, '(a)') '[outer_plasma]'
-    write (u, '(a)') 'model = "linear_debye"'
-    write (u, '(a)') 'photoelectron_histogram_enabled = true'
-    write (u, '(a)') 'return_model = "electrostatic_1d_instant_return"'
+    write (u, '(a)') 'model = "kinetic_1d"'
+    write (u, '(a)') 'return_model = "kinetic_1d_profile_return"'
     write (u, '(a)') 'interface_z = 1.0'
-    write (u, '(a)') 'infinity_potential = 0.0'
     write (u, '(a)') 'debye_length = 0.2'
     write (u, '(a)') 'thermal_voltage = 10.0'
-    write (u, '(a)') 'max_linearity_ratio = 0.5'
     write (u, '(a)') 'max_gap_ratio = 4.0'
     write (u, '(a)') 'max_local_charge_ratio = 6.0'
-    write (u, '(a)') 'photoelectron_histogram_bins = 8'
-    write (u, '(a)') 'photoelectron_histogram_energy_max = 12.0'
-    write (u, '(a)') 'photoelectron_ambient_charge_scale = 4.0'
-    write (u, '(a)') 'max_photoelectron_charge_ratio = 0.2'
     write (u, '(a)') '[coupling]'
     write (u, '(a)') 'update_mode = "explicit"'
     write (u, '(a)') 'particle_transfer_mode = "electrostatic_1d_instant_return"'
@@ -1491,7 +1436,6 @@ contains
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
     if (trim(owner) == 'reservoir') write (u, '(a)') 'reservoir_potential_model = "none"'
-    if (trim(owner) == 'sheath') write (u, '(a)') 'sheath_injection_model = "none"'
     if (trim(owner) == 'open') write (u, '(a)') 'open_boundary_model = "escape"'
     write (u, '(a)') '[field]'
     write (u, '(a)') 'element_kernel = "triangle_p0"'
@@ -1505,18 +1449,11 @@ contains
     if (trim(owner) == 'outer_plasma') write (u, '(a)') '[outer_plasma]'
     if (trim(owner) == 'coupling') write (u, '(a)') '[coupling]'
     write (u, '(a)') '[external_boundary.field]'
-    write (u, '(a)') 'model = "linear_debye"'
+    write (u, '(a)') 'model = "kinetic_1d"'
     write (u, '(a)') 'debye_length = 0.2'
     write (u, '(a)') 'thermal_voltage = 10.0'
-    write (u, '(a)') 'infinity_potential = 0.0'
-    write (u, '(a)') 'max_linearity_ratio = 0.5'
     write (u, '(a)') 'max_gap_ratio = 4.0'
     write (u, '(a)') 'max_local_charge_ratio = 6.0'
-    write (u, '(a)') 'photoelectron_histogram_enabled = true'
-    write (u, '(a)') 'photoelectron_histogram_bins = 8'
-    write (u, '(a)') 'photoelectron_histogram_energy_max = 12.0'
-    write (u, '(a)') 'photoelectron_ambient_charge_scale = 4.0'
-    write (u, '(a)') 'max_photoelectron_charge_ratio = 0.2'
     write (u, '(a)') '[external_boundary.particles]'
     write (u, '(a)') 'mode = "same_batch"'
     write (u, '(a)') 'inflow_model = "auto"'
@@ -1547,10 +1484,10 @@ contains
     select case (trim(conflict_kind))
     case ('field', 'coupling', 'none')
       continue
-    case ('linear_kinetic', 'linear_unified', 'histogram_detail', 'linear_orbit', 'linear_steady')
-      field_model = 'linear_debye'
+    case ('unified_kinetic')
+      field_model = 'unified_linear_response'
       particle_mode = 'same_batch'
-    case ('kinetic_zhao', 'kinetic_linearity')
+    case ('kinetic_unified', 'kinetic_zhao', 'kinetic_linearity', 'kinetic_orbit', 'kinetic_steady')
       field_model = 'kinetic_1d'
       particle_mode = 'same_batch'
     case ('unified_scalar', 'unified_stride')
@@ -1560,9 +1497,7 @@ contains
       field_model = 'kinetic_1d'
       particle_mode = 'zhao_queue'
     case ('local_time_guard')
-      field_model = 'linear_debye'
-    case ('local_histogram')
-      field_model = 'linear_debye'
+      field_model = 'kinetic_1d'
     case default
       error stop 'unknown external-boundary no-op fixture kind'
     end select
@@ -1581,22 +1516,20 @@ contains
       write (u, '(a)') 'thermal_voltage = 1.0'
     end if
     if (trim(conflict_kind) == 'field') write (u, '(a)') 'debye_length = 1.0'
-    if (trim(conflict_kind) == 'linear_kinetic') write (u, '(a)') 'kinetic_closure = "absorbing_maxwellian"'
-    if (trim(conflict_kind) == 'linear_unified') write (u, '(a)') 'unified_grid_points = 65'
+    if (trim(conflict_kind) == 'unified_kinetic') write (u, '(a)') 'kinetic_closure = "absorbing_maxwellian"'
+    if (trim(conflict_kind) == 'kinetic_unified') write (u, '(a)') 'unified_grid_points = 65'
     if (trim(conflict_kind) == 'kinetic_zhao') write (u, '(a)') 'zhao_branch = "auto"'
     if (trim(conflict_kind) == 'queue_stride') write (u, '(a)') 'kinetic_closure = "zhao_charge_driven"'
     if (trim(conflict_kind) == 'kinetic_linearity') write (u, '(a)') 'max_linearity_ratio = 0.5'
     if (trim(conflict_kind) == 'unified_scalar') write (u, '(a)') 'max_gap_ratio = 4.0'
-    if (trim(conflict_kind) == 'histogram_detail') write (u, '(a)') 'photoelectron_histogram_bins = 8'
-    if (trim(conflict_kind) == 'local_histogram') write (u, '(a)') 'photoelectron_histogram_enabled = true'
     write (u, '(a)') '[external_boundary.particles]'
     write (u, '(a)') 'mode = "'//trim(particle_mode)//'"'
     if (trim(conflict_kind) == 'coupling') write (u, '(a)') 'outer_update_stride = 1'
     if (trim(conflict_kind) == 'local_time_guard') write (u, '(a)') 'field_evolution_timescale = 2.0'
-    if (trim(conflict_kind) == 'linear_orbit') write (u, '(a)') 'outer_orbit_dt = 0.01'
+    if (trim(conflict_kind) == 'kinetic_orbit') write (u, '(a)') 'outer_orbit_dt = 0.01'
     if (trim(conflict_kind) == 'unified_stride') write (u, '(a)') 'outer_update_stride = 2'
     if (trim(conflict_kind) == 'queue_stride') write (u, '(a)') 'outer_update_stride = 1'
-    if (trim(conflict_kind) == 'linear_steady') write (u, '(a)') 'steady_start_mode = "zhao_floating"'
+    if (trim(conflict_kind) == 'kinetic_steady') write (u, '(a)') 'steady_start_mode = "zhao_floating"'
     write (u, '(a)') '[particles]'
     write (u, '(a)') '[[particles.species]]'
     write (u, '(a)') 'npcls_per_step = 1'

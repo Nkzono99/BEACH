@@ -41,10 +41,8 @@ module bem_physics_config_types
     character(len=32) :: zhao_branch = 'auto'
     real(dp) :: photoelectron_source_scale = 1.0_dp
     character(len=32) :: photoelectron_density_model = 'none'
-    logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'
     real(dp) :: interface_z = 0.0_dp
-    real(dp) :: infinity_potential = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
     integer(i32) :: unified_grid_points = 129_i32
@@ -52,10 +50,6 @@ module bem_physics_config_types
     real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
-    integer(i32) :: photoelectron_histogram_bins = 32_i32
-    real(dp) :: photoelectron_histogram_energy_max = 0.0_dp
-    real(dp) :: photoelectron_ambient_charge_scale = 0.0_dp
-    real(dp) :: max_photoelectron_charge_ratio = 0.1_dp
   end type outer_plasma_config
 
   type, public :: coupling_config
@@ -132,7 +126,7 @@ contains
 
     call validate_kinetic_closure_config(outer, status, message)
     if (status /= physics_config_ok) return
-    call validate_photoelectron_config(outer, coupling, status, message)
+    call validate_photoelectron_config(outer, status, message)
     if (status /= physics_config_ok) return
     status = physics_config_ok
     message = ''
@@ -262,7 +256,7 @@ contains
     integer(i32) :: boundary_status
 
     call resolve_external_boundary_contract( &
-      sim%reservoir_potential_model, sim%sheath_injection_model, sim%open_boundary_model, outer%model, &
+      sim%reservoir_potential_model, sim%open_boundary_model, outer%model, &
       outer%kinetic_closure, outer%return_model, coupling%particle_transfer_mode, coupling%outer_queue_enabled, &
       boundary_contract, boundary_status, message &
       )
@@ -270,24 +264,11 @@ contains
       status = physics_config_invalid_combination
       return
     end if
-    if (.not. ieee_is_finite(outer%infinity_potential)) then
-      call reject(physics_config_invalid_combination, 'outer_plasma.infinity_potential must be finite.', status, message)
-      return
-    end if
-    if ((trim(lower_ascii(outer%model)) == 'kinetic_1d' .or. &
-         trim(lower_ascii(outer%model)) == 'unified_linear_response') .and. &
-        outer%infinity_potential /= 0.0_dp) then
-      call reject( &
-        physics_config_invalid_combination, &
-        'kinetic_1d and unified_linear_response fix the infinity-potential gauge to zero.', status, message &
-        )
-      return
-    end if
     call validate_kinetic_closure_config(outer, status, message)
     if (status /= physics_config_ok) return
     call validate_zhao_charge_driven_sim_config(sim, outer, status, message)
     if (status /= physics_config_ok) return
-    call validate_photoelectron_config(outer, coupling, status, message)
+    call validate_photoelectron_config(outer, status, message)
     if (status /= physics_config_ok) return
     call validate_outer_queue_config(sim, outer, coupling, status, message)
     if (status /= physics_config_ok) return
@@ -358,8 +339,7 @@ contains
       call reject(physics_config_invalid_combination, 'Periodic interface tolerances must be positive.', status, message)
       return
     end if
-    if ((trim(lower_ascii(outer%model)) /= 'linear_debye' .and. &
-         trim(lower_ascii(outer%model)) /= 'kinetic_1d' .and. &
+    if ((trim(lower_ascii(outer%model)) /= 'kinetic_1d' .and. &
          trim(lower_ascii(outer%model)) /= 'unified_linear_response') .or. outer%debye_length <= 0.0_dp .or. &
         outer%thermal_voltage <= 0.0_dp .or. outer%max_linearity_ratio <= 0.0_dp .or. &
         outer%max_gap_ratio <= 0.0_dp .or. outer%max_local_charge_ratio <= 0.0_dp) then
@@ -416,7 +396,7 @@ contains
     end if
     if (any(sim%e0 /= 0.0_dp)) then
       call reject( &
-        physics_config_unavailable, 'Phase 2 linear outer model currently requires sim.e0=0.', status, message &
+        physics_config_unavailable, 'Periodic split outer models currently require sim.e0=0.', status, message &
         )
     end if
   end subroutine validate_active_physics_config
@@ -462,9 +442,6 @@ contains
         call reject(physics_config_invalid_combination, &
                     'zhao_charge_driven includes its photoelectron population and requires photoelectron_density_model=none.', &
                     status, message)
-      else if (.not. ieee_is_finite(outer%infinity_potential) .or. outer%infinity_potential /= 0.0_dp) then
-        call reject(physics_config_invalid_combination, &
-                    'zhao_charge_driven fixes the infinity-potential gauge to zero.', status, message)
       end if
     case default
       call reject(physics_config_invalid_combination, 'Unknown outer_plasma.kinetic_closure.', status, message)
@@ -480,16 +457,9 @@ contains
     status = physics_config_ok
     message = ''
     if (trim(lower_ascii(outer%kinetic_closure)) /= 'zhao_charge_driven') return
-    if (trim(lower_ascii(sim%sheath_injection_model)) /= 'none' .or. &
-        trim(lower_ascii(sim%reservoir_potential_model)) /= 'none') then
+    if (trim(lower_ascii(sim%reservoir_potential_model)) /= 'none') then
       call reject(physics_config_invalid_combination, &
-                  'zhao_charge_driven cannot mix with legacy sheath or reservoir-potential corrections.', status, message)
-      return
-    end if
-    if (sim%has_sheath_reference_coordinate) then
-      call reject(physics_config_invalid_combination, &
-                  'zhao_charge_driven uses outer_plasma.interface_z and rejects sheath_reference_coordinate.', &
-                  status, message)
+                  'zhao_charge_driven cannot mix with reservoir-potential correction.', status, message)
       return
     end if
     if (outer%photoelectron_source_scale > 0.0_dp .and. &
@@ -501,9 +471,8 @@ contains
     end if
   end subroutine validate_zhao_charge_driven_sim_config
 
-  subroutine validate_photoelectron_config(outer, coupling, status, message)
+  subroutine validate_photoelectron_config(outer, status, message)
     type(outer_plasma_config), intent(in) :: outer
-    type(coupling_config), intent(in) :: coupling
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
@@ -525,17 +494,6 @@ contains
       call reject(physics_config_invalid_combination, 'Unknown photoelectron density model.', status, message)
       return
     end select
-    if (.not. outer%photoelectron_histogram_enabled) return
-    if (.not. all(ieee_is_finite([ &
-                                 outer%photoelectron_histogram_energy_max, outer%photoelectron_ambient_charge_scale, &
-                                 outer%max_photoelectron_charge_ratio &
-                                 ])) .or. &
-        trim(lower_ascii(outer%return_model)) /= 'electrostatic_1d_instant_return' .or. &
-        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return' .or. &
-        outer%photoelectron_histogram_bins < 1_i32 .or. outer%photoelectron_histogram_energy_max <= 0.0_dp .or. &
-        outer%photoelectron_ambient_charge_scale <= 0.0_dp .or. outer%max_photoelectron_charge_ratio <= 0.0_dp) then
-      call reject(physics_config_invalid_combination, 'Invalid photoelectron histogram configuration.', status, message)
-    end if
   end subroutine validate_photoelectron_config
 
   !> Persistent outer-flight events are currently a Zhao-only transient closure.
@@ -582,10 +540,6 @@ contains
       call reject(physics_config_invalid_combination, &
                   'Persistent outer queue requires outer_update_stride=1.', status, message)
       return
-    end if
-    if (outer%photoelectron_histogram_enabled) then
-      call reject(physics_config_unavailable, &
-                  'Persistent outer queue does not yet support the legacy photoelectron histogram.', status, message)
     end if
   end subroutine validate_outer_queue_config
 

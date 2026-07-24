@@ -49,46 +49,22 @@
       "additionalProperties": false,
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
-        "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"], "description": "Select kinetic_1d for the standard VDF-based outer sheath. Select unified_linear_response only for advanced rough-surface linear screening within its applicability limits."},
+        "model": {"enum": ["kinetic_1d", "unified_linear_response"], "description": "Select kinetic_1d for the standard VDF-based outer sheath. Select unified_linear_response only for advanced rough-surface linear screening within its applicability limits."},
         "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian", "description": "Density/VDF closure used by kinetic_1d. zhao_charge_driven retains the accumulated-charge interface-field condition instead of imposing a floating-current root."},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto", "description": "Requested Zhao branch when kinetic_closure is zhao_charge_driven."},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1, "description": "Independent Zhao photoelectron source multiplier. Set to 0 for the no-photo Type-C path; positive values require a matching enabled photo_raycast species. This is distinct from the transient outer-cloud occupancy eta."},
         "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
-        "photoelectron_histogram_enabled": {"type": "boolean", "default": false},
-        "return_model": {"enum": ["none", "electrostatic_1d_instant_return", "kinetic_1d_profile_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
+        "return_model": {"enum": ["none", "kinetic_1d_profile_return", "electrostatic_3d_explicit_orbit"], "default": "none"},
         "interface_z": {"type": "number"},
-        "infinity_potential": {"type": "number", "default": 0},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
         "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
         "unified_grid_points": {"type": "integer", "minimum": 17, "default": 129},
         "accessible_fraction_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
         "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
         "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
-        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50},
-        "photoelectron_histogram_bins": {"type": "integer", "minimum": 1, "default": 32},
-        "photoelectron_histogram_energy_max": {"type": "number", "exclusiveMinimum": 0},
-        "photoelectron_ambient_charge_scale": {"type": "number", "exclusiveMinimum": 0},
-        "max_photoelectron_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1}
+        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
       },
       "allOf": [
-        {
-          "if": {
-            "required": ["photoelectron_histogram_enabled"],
-            "properties": {
-              "photoelectron_histogram_enabled": {"const": true}
-            }
-          },
-          "then": {
-            "required": [
-              "return_model",
-              "photoelectron_histogram_energy_max",
-              "photoelectron_ambient_charge_scale"
-            ],
-            "properties": {
-              "return_model": {"const": "electrostatic_1d_instant_return"}
-            }
-          }
-        },
         {
           "if": {
             "required": ["photoelectron_density_model"],
@@ -113,21 +89,7 @@
           "then": {
             "properties": {
               "model": {"const": "kinetic_1d"},
-              "photoelectron_density_model": {"const": "none"},
-              "infinity_potential": {"const": 0}
-            }
-          }
-        },
-        {
-          "if": {
-            "required": ["model"],
-            "properties": {
-              "model": {"enum": ["kinetic_1d", "unified_linear_response"]}
-            }
-          },
-          "then": {
-            "properties": {
-              "infinity_potential": {"const": 0}
+              "photoelectron_density_model": {"const": "none"}
             }
           }
         },
@@ -193,7 +155,6 @@
                 "sim": {
                   "anyOf": [
                     {"required": ["reservoir_potential_model"]},
-                    {"required": ["sheath_injection_model"]},
                     {"required": ["open_boundary_model"]}
                   ]
                 }
@@ -261,7 +222,7 @@
             "properties": {
               "field": {
                 "properties": {
-                  "model": {"enum": ["linear_debye", "kinetic_1d"]}
+                  "model": {"const": "kinetic_1d"}
                 }
               },
               "particles": {
@@ -371,7 +332,7 @@
                 "required": ["model"],
                 "properties": {
                   "model": {
-                    "enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]
+                    "enum": ["kinetic_1d", "unified_linear_response"]
                   }
                 }
               }
@@ -451,8 +412,7 @@
                   "model": {"const": "kinetic_1d"},
                   "kinetic_closure": {"const": "zhao_charge_driven"},
                   "zhao_branch": {"const": "auto"},
-                  "photoelectron_source_scale": {"exclusiveMinimum": 0},
-                  "photoelectron_histogram_enabled": {"const": false}
+                  "photoelectron_source_scale": {"exclusiveMinimum": 0}
                 }
               },
               "particles": {
@@ -548,7 +508,7 @@
               "field": {
                 "properties": {
                   "model": {
-                    "enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]
+                    "enum": ["kinetic_1d", "unified_linear_response"]
                   }
                 }
               }
@@ -566,7 +526,7 @@
               "field": {
                 "required": ["model"],
                 "properties": {
-                  "model": {"enum": ["linear_debye", "kinetic_1d"]}
+                  "model": {"const": "kinetic_1d"}
                 }
               },
               "particles": {
@@ -640,41 +600,6 @@
           "external_boundary": {
             "properties": {
               "field": {
-                "required": ["photoelectron_histogram_enabled"],
-                "properties": {
-                  "photoelectron_histogram_enabled": {"const": true}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "properties": {
-                  "model": {"const": "linear_debye"}
-                }
-              },
-              "particles": {
-                "properties": {
-                  "mode": {"const": "same_batch"}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
                 "required": ["kinetic_closure"],
                 "properties": {
                   "kinetic_closure": {"const": "zhao_charge_driven"}
@@ -693,11 +618,6 @@
                   "inflow_model": {"enum": ["auto", "source_vdf"]}
                 }
               }
-            }
-          },
-          "sim": {
-            "not": {
-              "required": ["sheath_reference_coordinate"]
             }
           }
         }
@@ -811,8 +731,7 @@
               "kinetic_closure": {"const": "zhao_charge_driven"},
               "zhao_branch": {"const": "auto"},
               "photoelectron_source_scale": {"exclusiveMinimum": 0},
-              "return_model": {"const": "kinetic_1d_profile_return"},
-              "photoelectron_histogram_enabled": {"const": false}
+              "return_model": {"const": "kinetic_1d_profile_return"}
             }
           },
           "coupling": {
@@ -833,30 +752,6 @@
               {"required": ["batch_duration"]},
               {"required": ["batch_duration_step"]}
             ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["outer_plasma"],
-        "properties": {
-          "outer_plasma": {
-            "required": ["photoelectron_histogram_enabled"],
-            "properties": {
-              "photoelectron_histogram_enabled": {"const": true}
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["coupling"],
-        "properties": {
-          "coupling": {
-            "required": ["particle_transfer_mode"],
-            "properties": {
-              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"}
-            }
           }
         }
       }
@@ -925,9 +820,7 @@
         "required": ["sim"],
         "properties": {
           "sim": {
-            "not": {"required": ["sheath_reference_coordinate"]},
             "properties": {
-              "sheath_injection_model": {"const": "none"},
               "reservoir_potential_model": {"const": "none"},
               "sheath_photoelectron_ref_density_cm3": {}
             }
@@ -1124,44 +1017,33 @@
       "additionalProperties": false,
       "required": ["model"],
       "properties": {
-        "model": {"enum": ["none", "linear_debye", "kinetic_1d", "unified_linear_response"]},
+        "model": {"enum": ["none", "kinetic_1d", "unified_linear_response"]},
         "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto"},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1},
         "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
-        "photoelectron_histogram_enabled": {"type": "boolean", "default": false},
-        "infinity_potential": {"type": "number", "default": 0},
         "debye_length": {"type": "number", "exclusiveMinimum": 0},
         "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
         "unified_grid_points": {"type": "integer", "minimum": 17, "default": 129},
         "accessible_fraction_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
         "max_linearity_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.25},
         "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
-        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50},
-        "photoelectron_histogram_bins": {"type": "integer", "minimum": 1, "default": 32},
-        "photoelectron_histogram_energy_max": {"type": "number", "exclusiveMinimum": 0},
-        "photoelectron_ambient_charge_scale": {"type": "number", "exclusiveMinimum": 0},
-        "max_photoelectron_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1}
+        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
       },
       "dependencies": {
-        "infinity_potential": {
-          "properties": {
-            "model": {"const": "linear_debye"}
-          }
-        },
         "max_linearity_ratio": {
           "properties": {
-            "model": {"enum": ["linear_debye", "unified_linear_response"]}
+            "model": {"const": "unified_linear_response"}
           }
         },
         "max_gap_ratio": {
           "properties": {
-            "model": {"enum": ["linear_debye", "kinetic_1d"]}
+            "model": {"const": "kinetic_1d"}
           }
         },
         "max_local_charge_ratio": {
           "properties": {
-            "model": {"enum": ["linear_debye", "kinetic_1d"]}
+            "model": {"const": "kinetic_1d"}
           }
         },
         "kinetic_closure": {
@@ -1187,39 +1069,6 @@
           "properties": {
             "model": {"const": "kinetic_1d"},
             "kinetic_closure": {"const": "absorbing_maxwellian"}
-          }
-        },
-        "photoelectron_histogram_enabled": {
-          "properties": {
-            "model": {"const": "linear_debye"}
-          }
-        },
-        "photoelectron_histogram_bins": {
-          "required": ["photoelectron_histogram_enabled"],
-          "properties": {
-            "model": {"const": "linear_debye"},
-            "photoelectron_histogram_enabled": {"const": true}
-          }
-        },
-        "photoelectron_histogram_energy_max": {
-          "required": ["photoelectron_histogram_enabled"],
-          "properties": {
-            "model": {"const": "linear_debye"},
-            "photoelectron_histogram_enabled": {"const": true}
-          }
-        },
-        "photoelectron_ambient_charge_scale": {
-          "required": ["photoelectron_histogram_enabled"],
-          "properties": {
-            "model": {"const": "linear_debye"},
-            "photoelectron_histogram_enabled": {"const": true}
-          }
-        },
-        "max_photoelectron_charge_ratio": {
-          "required": ["photoelectron_histogram_enabled"],
-          "properties": {
-            "model": {"const": "linear_debye"},
-            "photoelectron_histogram_enabled": {"const": true}
           }
         },
         "unified_grid_points": {
@@ -1249,24 +1098,11 @@
           "if": {
             "required": ["model"],
             "properties": {
-              "model": {"enum": ["linear_debye", "kinetic_1d", "unified_linear_response"]}
-            }
-          },
-          "then": {
-            "required": ["debye_length", "thermal_voltage"]
-          }
-        },
-        {
-          "if": {
-            "required": ["model"],
-            "properties": {
               "model": {"enum": ["kinetic_1d", "unified_linear_response"]}
             }
           },
           "then": {
-            "properties": {
-              "infinity_potential": {"const": 0}
-            }
+            "required": ["debye_length", "thermal_voltage"]
           }
         },
         {
@@ -1292,23 +1128,8 @@
           "then": {
             "properties": {
               "model": {"const": "kinetic_1d"},
-              "photoelectron_density_model": {"const": "none"},
-              "infinity_potential": {"const": 0}
+              "photoelectron_density_model": {"const": "none"}
             }
-          }
-        },
-        {
-          "if": {
-            "required": ["photoelectron_histogram_enabled"],
-            "properties": {
-              "photoelectron_histogram_enabled": {"const": true}
-            }
-          },
-          "then": {
-            "required": [
-              "photoelectron_histogram_energy_max",
-              "photoelectron_ambient_charge_scale"
-            ]
           }
         }
       ]
@@ -1319,8 +1140,7 @@
       "required": ["mode"],
       "properties": {
         "mode": {"enum": ["local_source", "same_batch", "zhao_queue"]},
-        "inflow_model": {"enum": ["auto", "source_vdf", "infinity_barrier", "legacy_sheath"], "default": "auto"},
-        "legacy_sheath_model": {"enum": ["zhao_auto", "zhao_a", "zhao_b", "zhao_c", "floating_no_photo"]},
+        "inflow_model": {"enum": ["auto", "source_vdf", "infinity_barrier"], "default": "auto"},
         "steady_start_mode": {"enum": ["none", "zhao_floating"], "default": "none"},
         "steady_start_mesh_id": {"type": "integer", "minimum": 1, "default": 1},
         "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
@@ -1373,23 +1193,7 @@
             "mode": {"const": "same_batch"}
           }
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "required": ["inflow_model"],
-            "properties": {
-              "inflow_model": {"const": "legacy_sheath"}
-            }
-          },
-          "then": {
-            "required": ["legacy_sheath_model"]
-          },
-          "else": {
-            "not": {"required": ["legacy_sheath_model"]}
-          }
-        }
-      ]
+      }
     },
     "externalBoundaryOrdinaryOpen": {
       "type": "object",
@@ -1762,19 +1566,6 @@
           "default": 16,
           "description": "Maximum bounce count for photo_raycast ray tracing."
         },
-        "sheath_injection_model": {
-          "type": "string",
-          "enum": [
-            "none",
-            "zhao_auto",
-            "zhao_a",
-            "zhao_b",
-            "zhao_c",
-            "floating_no_photo"
-          ],
-          "default": "none",
-          "description": "Sheath injection model."
-        },
         "sheath_alpha_deg": {
           "type": "number",
           "minimum": 0,
@@ -1784,12 +1575,9 @@
         },
         "sheath_photoelectron_ref_density_cm3": {
           "type": "number",
+          "minimum": 0,
           "default": 64.0,
           "description": "Reference photoelectron density [cm^-3] for Zhao sheath models."
-        },
-        "sheath_reference_coordinate": {
-          "type": "number",
-          "description": "Reference plane position [m] for sheath reconstruction."
         },
         "sheath_electron_drift_mode": {
           "type": "string",
@@ -1798,7 +1586,7 @@
             "full"
           ],
           "default": "normal",
-          "description": "Electron drift mode for sheath injection."
+          "description": "Electron drift mode for Zhao kinetic inflow."
         },
         "sheath_ion_drift_mode": {
           "type": "string",
@@ -1807,7 +1595,7 @@
             "full"
           ],
           "default": "normal",
-          "description": "Ion drift mode for sheath injection."
+          "description": "Ion drift mode for Zhao kinetic inflow."
         },
         "use_box": {
           "type": "boolean",
@@ -2158,55 +1946,6 @@
                 }
               }
             ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "sheath_injection_model": {
-                "enum": [
-                  "zhao_auto",
-                  "zhao_a",
-                  "zhao_b",
-                  "zhao_c"
-                ]
-              }
-            },
-            "required": [
-              "sheath_injection_model"
-            ]
-          },
-          "then": {
-            "properties": {
-              "sheath_photoelectron_ref_density_cm3": {
-                "exclusiveMinimum": 0
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "sheath_injection_model": {
-                "enum": [
-                  "zhao_auto",
-                  "zhao_a",
-                  "zhao_b",
-                  "zhao_c",
-                  "floating_no_photo"
-                ]
-              }
-            },
-            "required": [
-              "sheath_injection_model"
-            ]
-          },
-          "then": {
-            "properties": {
-              "reservoir_potential_model": {
-                "const": "none"
-              }
-            }
           }
         }
       ]

@@ -18,7 +18,7 @@ Layer 7  bem_config_helpers (resolve_inject_face, resolve_inward_normal, etc.)
 Layer 8  bem_coulomb_fmm_core
 Layer 9  bem_field_solver (+config/eval/tree submodules)
          bem_app_config_parser (+validate/parse_utils submodules)
-Layer 10 bem_sheath_model_core, bem_sheath_runtime
+Layer 10 bem_sheath_model_core
 Layer 11 bem_app_config_runtime
 Layer 12 bem_app_config (ファサード)
 Layer 13 bem_output_writer (純粋I/O、物理計算なし)
@@ -49,8 +49,7 @@ Layer 15 app/main.f90
 | 中量 | `test_app_config_parser` | ~数秒 |
 | 中量 | `test_injection_sampling` | ~数秒 |
 | 中量 | `test_reservoir_injection` | ~数秒 |
-| 中量 | `test_sheath_model_core` | ~数秒 |
-| 中量 | `test_sheath_injection_model` | ~数秒 |
+| 中量 | `test_outer_plasma_kinetic` | ~数秒 |
 | 中量 | `test_templates_importers_runtime` | ~数秒 |
 | 中量 | `test_simulator` | ~数秒 |
 | 中量 | `test_restart` | ~数秒 |
@@ -67,7 +66,7 @@ fpm test --target test_boundary
 
 # 特定モジュールの変更後
 fpm test --target test_output_writer_potential  # output_writer 変更後
-fpm test --target test_sheath_model_core        # sheath 変更後
+fpm test --target test_outer_plasma_kinetic     # kinetic/Zhao sheath 変更後
 fpm test --target test_app_config_parser        # parser 変更後
 
 # 全テスト（時間がかかる。バックグラウンド推奨）

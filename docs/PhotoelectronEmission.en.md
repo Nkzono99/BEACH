@@ -73,7 +73,6 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$:
 
 - normal speed follows a flux-weighted half-range Maxwell distribution with `normal_drift_speed`;
 - both tangential components are zero-mean Gaussians with standard deviation $\sigma$;
-- when Zhao or another closure supplies $v_{\min}$, normal speed satisfies $v_n\ge v_{\min}$;
 - Gaussian sampling is truncated at $6\sigma$.
 
 Normal velocity is positive, so a new particle leaves the surface toward the illumination side. Its tracked orbit and common
@@ -107,8 +106,8 @@ from crossing-point potential and normal kinetic energy. With a self-consistent 
 [Particle escape and return](ParticleEscapeReturn.en.html) for the scalar barrier, 1-D outer-profile return, and unified 3-D
 explicit orbit.
 
-Every `photo_raycast` species using tracked outer transfer requires `deposit_opposite_charge_on_emit=true`, regardless of whether
-the histogram is enabled, to close emission and return charge balance.
+Every `photo_raycast` species using tracked outer transfer requires `deposit_opposite_charge_on_emit=true` to close emission and
+return charge balance.
 
 ## Include photoelectrons in the mean outer-plasma density
 
@@ -117,40 +116,16 @@ the histogram is enabled, to close emission and return charge balance.
 contribute to outer space charge, but it neither replaces surface absorption of tracked particles nor deposits an extra
 statistical return current on the surface.
 
-The mean density model and histogram have separate responsibilities, but their
-currently supported model/mode combinations differ, so they cannot be enabled together.
-
 Tracked photoelectrons transferred through z-high use the same source-independent escape/return treatment as other particles.
 See [Particle escape and return](ParticleEscapeReturn.en.html) for the quasi-steady approximation that omits outer flight from
 global time and the 3-D explicit orbit, and [Outer plasma models](OuterPlasmaModels.en.html) for field construction.
 
-Legacy Zhao, selected with
-`external_boundary.particles.inflow_model="legacy_sheath"`, applies only
-branch-dependent emission current density, normal cutoff, and drift to source
-sampling. It does not construct a spatial $E(z)$, so generated particles
-advance in the separately composed batch-fixed field.
-
-In contrast,
 `external_boundary.field.kinetic_closure="zhao_charge_driven"` constructs a
 self-consistent 1-D outer profile that preserves the interface field set by
 accumulated charge. `external_boundary.particles.mode="zhao_queue"`
 additionally closes the photoelectron population from tracked outer inventory.
 With `mode="same_batch"` or `"zhao_queue"`, that profile controls inflow and
-return or escape at the z-high interface. This path is separate from the legacy
-Zhao source correction.
-
-## Save a photoelectron histogram at the outer interface
-
-`external_boundary.field.photoelectron_histogram_enabled=true` bins outward `photo_raycast` crossings at z-high by normal kinetic energy.
-It writes previous-batch and cumulative signed charge, total kinetic energy, tangential momentum, and count to
-`photoelectron_histogram.csv`. The run stops if signed charge crossing the z-high interface outward, relative to the configured
-ambient charge scale, exceeds the applicability limit.
-
-This switch enables diagnostics and the applicability check only. It does not
-change particle return or escape, which remain controlled by
-`external_boundary.field.model` and `external_boundary.particles.mode`. Every
-`photo_raycast` species using tracked outer transfer must set
-`deposit_opposite_charge_on_emit=true`.
+return or escape at the z-high interface.
 
 ## Check convergence of photoelectron emission
 
@@ -162,7 +137,5 @@ species-resolved charge balance across emission, absorption, and escape and for 
 
 - Ray propagation, hit, emission velocity, and weight: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - Source creation and emission charge difference: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- Outer-transfer and histogram compatibility validation: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
 - Kinetic mean photoelectron density: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
 - Kinetic mean runtime assembly: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
-- Photoelectron histogram and applicability check: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

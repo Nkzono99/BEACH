@@ -33,23 +33,13 @@ _RESERVED_TOP_LEVEL_KEYS = frozenset(
 _FACE_SOURCE_MODES = frozenset({"reservoir_face", "photo_raycast"})
 _EXTERNAL_BOUNDARY_SIM_SELECTORS = (
     "reservoir_potential_model",
-    "sheath_injection_model",
     "open_boundary_model",
 )
 _EXTERNAL_BOUNDARY_FIELD_MODELS = frozenset(
-    {"none", "linear_debye", "kinetic_1d", "unified_linear_response"}
+    {"none", "kinetic_1d", "unified_linear_response"}
 )
 _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS = frozenset(
     {"model", "debye_length", "thermal_voltage"}
-)
-_EXTERNAL_BOUNDARY_HISTOGRAM_FIELD_KEYS = frozenset(
-    {
-        "photoelectron_histogram_enabled",
-        "photoelectron_histogram_bins",
-        "photoelectron_histogram_energy_max",
-        "photoelectron_ambient_charge_scale",
-        "max_photoelectron_charge_ratio",
-    }
 )
 _EXTERNAL_BOUNDARY_KINETIC_FIELD_KEYS = frozenset(
     {
@@ -64,16 +54,6 @@ _EXTERNAL_BOUNDARY_UNIFIED_FIELD_KEYS = frozenset(
 )
 _EXTERNAL_BOUNDARY_FIELD_KEYS_BY_MODEL = {
     "none": frozenset({"model"}),
-    "linear_debye": (
-        _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS
-        | {
-            "infinity_potential",
-            "max_linearity_ratio",
-            "max_gap_ratio",
-            "max_local_charge_ratio",
-        }
-        | _EXTERNAL_BOUNDARY_HISTOGRAM_FIELD_KEYS
-    ),
     "kinetic_1d": (
         _EXTERNAL_BOUNDARY_COMMON_FIELD_KEYS
         | {"max_gap_ratio", "max_local_charge_ratio"}
@@ -115,7 +95,6 @@ _EXTERNAL_BOUNDARY_PARTICLE_KEYS = frozenset(
     {
         "mode",
         "inflow_model",
-        "legacy_sheath_model",
         *_EXTERNAL_BOUNDARY_COUPLING_KEYS,
     }
 )
@@ -123,10 +102,20 @@ _EXTERNAL_BOUNDARY_PARTICLE_MODES = frozenset(
     {"local_source", "same_batch", "zhao_queue"}
 )
 _EXTERNAL_BOUNDARY_INFLOW_MODELS = frozenset(
-    {"auto", "source_vdf", "infinity_barrier", "legacy_sheath"}
+    {"auto", "source_vdf", "infinity_barrier"}
 )
-_EXTERNAL_BOUNDARY_LEGACY_SHEATH_MODELS = frozenset(
-    {"zhao_auto", "zhao_a", "zhao_b", "zhao_c", "floating_no_photo"}
+_REMOVED_SIM_KEYS = frozenset(
+    {"sheath_injection_model", "sheath_reference_coordinate"}
+)
+_REMOVED_OUTER_PLASMA_KEYS = frozenset(
+    {
+        "infinity_potential",
+        "photoelectron_histogram_enabled",
+        "photoelectron_histogram_bins",
+        "photoelectron_histogram_energy_max",
+        "photoelectron_ambient_charge_scale",
+        "max_photoelectron_charge_ratio",
+    }
 )
 
 
@@ -328,7 +317,7 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
     ):
         raise ConfigError(
             "high-level config error: external_boundary.field.model must be "
-            '"none", "linear_debye", "kinetic_1d", or "unified_linear_response".'
+            '"none", "kinetic_1d", or "unified_linear_response".'
         )
     particle_mode = particles.get("mode")
     if (
@@ -346,7 +335,7 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
     ):
         raise ConfigError(
             "high-level config error: external_boundary.particles.inflow_model must be "
-            '"auto", "source_vdf", "infinity_barrier", or "legacy_sheath".'
+            '"auto", "source_vdf", or "infinity_barrier".'
         )
     ordinary_open_model = ordinary_open.get("model", "escape")
     if (
@@ -356,22 +345,6 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
         raise ConfigError(
             "high-level config error: external_boundary.ordinary_open.model must be "
             '"escape" or "potential_barrier".'
-        )
-
-    legacy_sheath_model = particles.get("legacy_sheath_model")
-    if inflow_model == "legacy_sheath":
-        if (
-            not isinstance(legacy_sheath_model, str)
-            or legacy_sheath_model not in _EXTERNAL_BOUNDARY_LEGACY_SHEATH_MODELS
-        ):
-            raise ConfigError(
-                "high-level config error: inflow_model=legacy_sheath requires "
-                "external_boundary.particles.legacy_sheath_model."
-            )
-    elif "legacy_sheath_model" in particles:
-        raise ConfigError(
-            "high-level config error: external_boundary.particles.legacy_sheath_model "
-            "is only valid with inflow_model=legacy_sheath."
         )
 
     has_coupling_options = any(
@@ -406,10 +379,6 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
         queue_enabled = False
     elif particle_mode == "same_batch":
         transfer_contracts = {
-            "linear_debye": (
-                "electrostatic_1d_instant_return",
-                "electrostatic_1d_instant_return",
-            ),
             "kinetic_1d": (
                 "kinetic_1d_profile_return",
                 "electrostatic_1d_instant_return",
@@ -445,11 +414,11 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
 
     tracked_1d = (
         transfer_mode == "electrostatic_1d_instant_return"
-        and field_model in {"linear_debye", "kinetic_1d"}
+        and field_model == "kinetic_1d"
     )
     if tracked_1d and inflow_model != "auto":
         raise ConfigError(
-            "high-level config error: tracked linear_debye/kinetic_1d transfer owns "
+            "high-level config error: tracked kinetic_1d transfer owns "
             "inflow and requires external_boundary.particles.inflow_model=auto."
         )
 
@@ -461,8 +430,6 @@ def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
     sim_dict = dict(sim)
     if inflow_model == "infinity_barrier":
         sim_dict["reservoir_potential_model"] = "infinity_barrier"
-    elif inflow_model == "legacy_sheath":
-        sim_dict["sheath_injection_model"] = legacy_sheath_model
     if ordinary_open_model == "potential_barrier":
         sim_dict["open_boundary_model"] = "potential_barrier"
     config["sim"] = sim_dict
@@ -515,16 +482,6 @@ def _validate_external_boundary_facade_controls(
             + f" are not applicable to model={field_model!r}."
         )
 
-    histogram_controls = _EXTERNAL_BOUNDARY_HISTOGRAM_FIELD_KEYS - {
-        "photoelectron_histogram_enabled"
-    }
-    if set(field) & histogram_controls and (
-        field.get("photoelectron_histogram_enabled") is not True
-    ):
-        raise ConfigError(
-            "high-level config error: external_boundary.field histogram controls "
-            "require photoelectron_histogram_enabled=true."
-        )
     if (
         set(field) & {"zhao_branch", "photoelectron_source_scale"}
         and field.get("kinetic_closure") != "zhao_charge_driven"
@@ -549,9 +506,6 @@ def _validate_external_boundary_facade_controls(
         "max_linearity_ratio",
         "max_gap_ratio",
         "max_local_charge_ratio",
-        "photoelectron_histogram_energy_max",
-        "photoelectron_ambient_charge_scale",
-        "max_photoelectron_charge_ratio",
     ):
         _validate_external_boundary_numeric_option(
             field,
@@ -560,10 +514,7 @@ def _validate_external_boundary_facade_controls(
             minimum=0.0,
             exclusive=True,
         )
-    for key, minimum in (
-        ("unified_grid_points", 17),
-        ("photoelectron_histogram_bins", 1),
-    ):
+    for key, minimum in (("unified_grid_points", 17),):
         _validate_external_boundary_numeric_option(
             field,
             key=key,
@@ -587,8 +538,7 @@ def _validate_external_boundary_facade_controls(
     elif field_model != "unified_linear_response":
         inapplicable_particle_keys.update(_EXTERNAL_BOUNDARY_ORBIT_PARTICLE_KEYS)
     if "outer_update_stride" in particles and (
-        field_model not in {"linear_debye", "kinetic_1d"}
-        or particle_mode == "zhao_queue"
+        field_model != "kinetic_1d" or particle_mode == "zhao_queue"
     ):
         inapplicable_particle_keys.add("outer_update_stride")
     present_steady_start_keys = set(particles) & _EXTERNAL_BOUNDARY_STEADY_START_KEYS
@@ -1331,6 +1281,23 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     periodic2_config = final_config.get("periodic2", {})
     outer_plasma = final_config.get("outer_plasma", {})
     coupling = final_config.get("coupling", {})
+    removed_sim_keys = sorted(set(sim) & _REMOVED_SIM_KEYS)
+    if removed_sim_keys:
+        raise ConfigValidationError(
+            "BEACH constraint error: removed sim key(s): "
+            + ", ".join(removed_sim_keys)
+            + "."
+        )
+    if isinstance(outer_plasma, Mapping):
+        removed_outer_keys = sorted(
+            set(outer_plasma) & _REMOVED_OUTER_PLASMA_KEYS
+        )
+        if removed_outer_keys:
+            raise ConfigValidationError(
+                "BEACH constraint error: removed outer_plasma key(s): "
+                + ", ".join(removed_outer_keys)
+                + "."
+            )
     _validate_runtime_external_e_field(sim)
     _validate_nonnegative_finite_number(
         sim.get("softening", 1.0e-6), name="sim.softening"
@@ -1356,9 +1323,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     reservoir_potential_model = (
         str(sim.get("reservoir_potential_model", "none")).strip().lower()
     )
-    sheath_injection_model = (
-        str(sim.get("sheath_injection_model", "none")).strip().lower()
-    )
     if field_solver not in {"direct", "treecode", "fmm", "auto"}:
         raise ConfigValidationError(
             'BEACH constraint error: sim.field_solver must be "direct", "treecode", '
@@ -1383,13 +1347,16 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         raise ConfigValidationError(
             "BEACH constraint error: sim.phi_infty must be finite."
         )
+    reference_density = sim.get("sheath_photoelectron_ref_density_cm3", 64.0)
     if (
-        reservoir_potential_model != "none"
-        and sheath_injection_model != "none"
+        not isinstance(reference_density, (int, float))
+        or isinstance(reference_density, bool)
+        or not math.isfinite(reference_density)
+        or reference_density < 0.0
     ):
         raise ConfigValidationError(
-            "BEACH constraint error: legacy sheath injection and reservoir-potential "
-            "correction cannot own the same inflow."
+            "BEACH constraint error: sim.sheath_photoelectron_ref_density_cm3 "
+            "must be finite and >= 0."
         )
     if field_bc_mode not in {"free", "periodic2"}:
         raise ConfigValidationError(
@@ -1443,18 +1410,14 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     box_max = _maybe_vec3(sim.get("box_max"), name="sim.box_max")
 
     photoelectron_density_model = "none"
-    photoelectron_histogram_enabled = False
     if isinstance(outer_plasma, Mapping):
         if "photoelectron_closure" in outer_plasma:
             raise ConfigValidationError(
                 "BEACH constraint error: outer_plasma.photoelectron_closure was removed; "
-                "use photoelectron_density_model and photoelectron_histogram_enabled."
+                "use photoelectron_density_model."
             )
         photoelectron_density_model = (
             str(outer_plasma.get("photoelectron_density_model", "none")).strip().lower()
-        )
-        photoelectron_histogram_enabled = outer_plasma.get(
-            "photoelectron_histogram_enabled", False
         )
     if photoelectron_density_model not in {"none", "kinetic_mean"}:
         raise ConfigValidationError(
@@ -1521,48 +1484,16 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
                 "requires outer_plasma.photoelectron_density_model=none."
             )
-        infinity_potential = outer_plasma.get("infinity_potential", 0.0)
-        if (
-            not isinstance(infinity_potential, (int, float))
-            or isinstance(infinity_potential, bool)
-            or not math.isfinite(infinity_potential)
-            or float(infinity_potential) != 0.0
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
-                "requires outer_plasma.infinity_potential=0."
-            )
-        if str(sim.get("sheath_injection_model", "none")).strip().lower() != "none":
-            raise ConfigValidationError(
-                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
-                "requires sim.sheath_injection_model=none."
-            )
         if str(sim.get("reservoir_potential_model", "none")).strip().lower() != "none":
             raise ConfigValidationError(
                 "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
                 "requires sim.reservoir_potential_model=none."
             )
-        if "sheath_reference_coordinate" in sim:
-            raise ConfigValidationError(
-                "BEACH constraint error: outer_plasma.kinetic_closure=zhao_charge_driven "
-                "does not accept an explicit sim.sheath_reference_coordinate."
-            )
-        reference_density = sim.get("sheath_photoelectron_ref_density_cm3", 64.0)
-        if float(photoelectron_source_scale) > 0.0 and (
-            not isinstance(reference_density, (int, float))
-            or isinstance(reference_density, bool)
-            or not math.isfinite(reference_density)
-            or reference_density <= 0.0
-        ):
+        if float(photoelectron_source_scale) > 0.0 and reference_density <= 0.0:
             raise ConfigValidationError(
                 "BEACH constraint error: sim.sheath_photoelectron_ref_density_cm3 "
                 "must be finite and > 0 for zhao_charge_driven."
             )
-    if not isinstance(photoelectron_histogram_enabled, bool):
-        raise ConfigValidationError(
-            "BEACH constraint error: outer_plasma.photoelectron_histogram_enabled "
-            "must be a boolean."
-        )
     outer_model = (
         str(outer_plasma.get("model", "none")).strip().lower()
         if isinstance(outer_plasma, Mapping)
@@ -1570,7 +1501,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     )
     if outer_model not in {
         "none",
-        "linear_debye",
         "kinetic_1d",
         "unified_linear_response",
     }:
@@ -1612,21 +1542,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                     "BEACH constraint error: outer_plasma.interface_z must equal the "
                     "z-high face."
                 )
-        outer_infinity_potential = outer_plasma.get("infinity_potential", 0.0)
-        if (
-            not isinstance(outer_infinity_potential, (int, float))
-            or isinstance(outer_infinity_potential, bool)
-            or not math.isfinite(outer_infinity_potential)
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: outer_plasma.infinity_potential must be finite."
-            )
-        if outer_model in {"kinetic_1d", "unified_linear_response"} and float(
-            outer_infinity_potential
-        ) != 0.0:
-            raise ConfigValidationError(
-                f"BEACH constraint error: {outer_model} fixes infinity_potential=0."
-            )
     return_model = (
         str(outer_plasma.get("return_model", "none")).strip().lower()
         if isinstance(outer_plasma, Mapping)
@@ -1648,7 +1563,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         )
     valid_return_models = {
         "none",
-        "electrostatic_1d_instant_return",
         "kinetic_1d_profile_return",
         "electrostatic_3d_explicit_orbit",
     }
@@ -1673,23 +1587,16 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "coupling.particle_transfer_mode."
             )
     elif transfer_mode == "electrostatic_1d_instant_return":
-        expected_return_model = {
-            "linear_debye": "electrostatic_1d_instant_return",
-            "kinetic_1d": "kinetic_1d_profile_return",
-        }.get(outer_model)
-        if expected_return_model is None or return_model != expected_return_model:
+        if outer_model != "kinetic_1d" or return_model != "kinetic_1d_profile_return":
             raise ConfigValidationError(
                 "BEACH constraint error: coupling.particle_transfer_mode="
                 "electrostatic_1d_instant_return requires a matching "
-                "outer_plasma.return_model for linear_debye or kinetic_1d."
+                "kinetic_1d_profile_return."
             )
-        if (
-            reservoir_potential_model != "none"
-            or sheath_injection_model != "none"
-        ):
+        if reservoir_potential_model != "none":
             raise ConfigValidationError(
                 "BEACH constraint error: electrostatic 1D transfer owns inflow and cannot "
-                "mix with legacy or scalar inflow corrections."
+                "mix with scalar inflow corrections."
             )
         if sim.get("bc_z_high", "open") not in {"open", "outflow", "escape"}:
             raise ConfigValidationError(
@@ -1776,51 +1683,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             raise ConfigValidationError(
                 "BEACH constraint error: persistent outer queue requires "
                 "coupling.outer_update_stride=1."
-            )
-        if photoelectron_histogram_enabled:
-            raise ConfigValidationError(
-                "BEACH constraint error: persistent outer queue does not support the legacy "
-                "photoelectron histogram."
-            )
-    if photoelectron_histogram_enabled:
-        if not isinstance(coupling, Mapping) or (
-            return_model != "electrostatic_1d_instant_return"
-            or transfer_mode != "electrostatic_1d_instant_return"
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: photoelectron_histogram_enabled=true requires "
-                "outer_plasma.return_model and coupling.particle_transfer_mode to both be "
-                "electrostatic_1d_instant_return."
-            )
-        for key in (
-            "photoelectron_histogram_energy_max",
-            "photoelectron_ambient_charge_scale",
-        ):
-            value = outer_plasma.get(key)
-            if (
-                not isinstance(value, (int, float))
-                or isinstance(value, bool)
-                or not math.isfinite(value)
-                or value <= 0
-            ):
-                raise ConfigValidationError(
-                    f"BEACH constraint error: outer_plasma.{key} must be finite and > 0."
-                )
-        max_charge_ratio = outer_plasma.get("max_photoelectron_charge_ratio", 0.1)
-        if (
-            not isinstance(max_charge_ratio, (int, float))
-            or isinstance(max_charge_ratio, bool)
-            or not math.isfinite(max_charge_ratio)
-            or max_charge_ratio <= 0
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: outer_plasma.max_photoelectron_charge_ratio "
-                "must be finite and > 0."
-            )
-        bins = outer_plasma.get("photoelectron_histogram_bins", 32)
-        if not isinstance(bins, int) or isinstance(bins, bool) or bins < 1:
-            raise ConfigValidationError(
-                "BEACH constraint error: outer_plasma.photoelectron_histogram_bins must be >= 1."
             )
     if photoelectron_density_model == "kinetic_mean":
         if outer_plasma.get("model") != "kinetic_1d" or not (

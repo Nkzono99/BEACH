@@ -43,7 +43,6 @@ This table is the canonical compatibility reference for solvers, source kernels,
 
 `periodic2` additionally requires `sim.use_box=true`, exactly two periodic axes, and one open axis.
 The Direct split reference is intended for reduced reference and validation cases; the normal periodic2 production path uses FMM.
-The [official Direct split-reference configuration](../examples/periodic2_linear_outer_reference.toml) provides a complete example.
 
 ## Choose element-charge discretization with the source kernel
 

@@ -1,7 +1,7 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
 # Bounded flat-plane stationary warm-start smoke for the charge-driven Zhao kinetic closure.
-# The legacy Zhao injection correction is intentionally disabled: accumulated
-# surface charge supplies the kinetic outer solve's interface-field condition.
+# Accumulated surface charge supplies the kinetic outer solve's interface-field
+# condition; the same profile owns reservoir inflow and particle return.
 # A full-photoelectron Zhao state has no branch connecting the uncharged state
 # to the stationary Type-A root for these parameters. zhao_floating therefore
 # initializes the plane charge and outer profile from that stationary root,

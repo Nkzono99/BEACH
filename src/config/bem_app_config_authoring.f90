@@ -15,7 +15,6 @@ module bem_app_config_authoring
     logical :: has_box_min = .false.
     logical :: has_box_max = .false.
     logical :: has_reservoir_potential_model = .false.
-    logical :: has_sheath_injection_model = .false.
     logical :: has_open_boundary_model = .false.
     real(dp) :: box_origin(3) = 0.0d0
     real(dp) :: box_size(3) = 0.0d0
@@ -40,15 +39,13 @@ module bem_app_config_authoring
 
   type :: outer_plasma_authoring_spec
     logical :: present = .false.
-    character(len=32) :: model = 'linear_debye'
+    character(len=32) :: model = 'none'
     character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
     character(len=32) :: zhao_branch = 'auto'
     real(dp) :: photoelectron_source_scale = 1.0_dp
     character(len=32) :: photoelectron_density_model = 'none'
-    logical :: photoelectron_histogram_enabled = .false.
     character(len=32) :: return_model = 'none'
     real(dp) :: interface_z = 0.0_dp
-    real(dp) :: infinity_potential = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
     integer(i32) :: unified_grid_points = 129_i32
@@ -56,10 +53,6 @@ module bem_app_config_authoring
     real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
-    integer(i32) :: photoelectron_histogram_bins = 32_i32
-    real(dp) :: photoelectron_histogram_energy_max = 0.0_dp
-    real(dp) :: photoelectron_ambient_charge_scale = 0.0_dp
-    real(dp) :: max_photoelectron_charge_ratio = 0.1_dp
   end type outer_plasma_authoring_spec
 
   type :: coupling_authoring_spec
@@ -86,19 +79,14 @@ module bem_app_config_authoring
     logical :: has_kinetic_closure = .false.
     logical :: has_zhao_option = .false.
     logical :: has_photoelectron_density_model = .false.
-    logical :: has_photoelectron_histogram_enabled = .false.
-    logical :: has_infinity_potential = .false.
     logical :: has_unified_option = .false.
     logical :: has_max_linearity_ratio = .false.
     logical :: has_scalar_diagnostic_option = .false.
-    logical :: has_photoelectron_histogram_detail = .false.
     character(len=32) :: model = 'none'
     character(len=32) :: kinetic_closure = 'absorbing_maxwellian'
     character(len=32) :: zhao_branch = 'auto'
     real(dp) :: photoelectron_source_scale = 1.0_dp
     character(len=32) :: photoelectron_density_model = 'none'
-    logical :: photoelectron_histogram_enabled = .false.
-    real(dp) :: infinity_potential = 0.0_dp
     real(dp) :: debye_length = 0.0_dp
     real(dp) :: thermal_voltage = 0.0_dp
     integer(i32) :: unified_grid_points = 129_i32
@@ -106,10 +94,6 @@ module bem_app_config_authoring
     real(dp) :: max_linearity_ratio = 0.25_dp
     real(dp) :: max_gap_ratio = 5.0_dp
     real(dp) :: max_local_charge_ratio = 50.0_dp
-    integer(i32) :: photoelectron_histogram_bins = 32_i32
-    real(dp) :: photoelectron_histogram_energy_max = 0.0_dp
-    real(dp) :: photoelectron_ambient_charge_scale = 0.0_dp
-    real(dp) :: max_photoelectron_charge_ratio = 0.1_dp
   end type external_boundary_field_authoring_spec
 
   !> `[external_boundary.particles]` の公開 authoring 設定。
@@ -117,7 +101,6 @@ module bem_app_config_authoring
   type :: external_boundary_particles_authoring_spec
     logical :: present = .false.
     logical :: has_mode = .false.
-    logical :: has_legacy_sheath_model = .false.
     logical :: has_coupling_option = .false.
     logical :: has_steady_start_mode = .false.
     logical :: has_steady_start_mesh_id = .false.
@@ -126,7 +109,6 @@ module bem_app_config_authoring
     logical :: has_outer_orbit_option = .false.
     character(len=32) :: mode = 'local_source'
     character(len=32) :: inflow_model = 'auto'
-    character(len=32) :: legacy_sheath_model = ''
     character(len=32) :: steady_start_mode = 'none'
     integer(i32) :: steady_start_mesh_id = 1_i32
     integer(i32) :: outer_update_stride = 1_i32
@@ -348,7 +330,7 @@ contains
     type(app_config_authoring), intent(in) :: authoring
 
     character(len=32) :: field_model, closure, branch
-    character(len=32) :: particle_mode, inflow_model, legacy_sheath_model
+    character(len=32) :: particle_mode, inflow_model
     character(len=32) :: ordinary_open_model
     logical :: profile_owned_inflow
 
@@ -362,9 +344,6 @@ contains
     end if
     if (authoring%sim%has_reservoir_potential_model) then
       error stop '[external_boundary] cannot be combined with sim.reservoir_potential_model.'
-    end if
-    if (authoring%sim%has_sheath_injection_model) then
-      error stop '[external_boundary] cannot be combined with sim.sheath_injection_model.'
     end if
     if (authoring%sim%has_open_boundary_model) then
       error stop '[external_boundary] cannot be combined with sim.open_boundary_model.'
@@ -387,11 +366,10 @@ contains
     branch = lower_ascii(trim(authoring%external_boundary%field%zhao_branch))
     particle_mode = lower_ascii(trim(authoring%external_boundary%particles%mode))
     inflow_model = lower_ascii(trim(authoring%external_boundary%particles%inflow_model))
-    legacy_sheath_model = lower_ascii(trim(authoring%external_boundary%particles%legacy_sheath_model))
     ordinary_open_model = lower_ascii(trim(authoring%external_boundary%ordinary_open%model))
 
     select case (trim(field_model))
-    case ('none', 'linear_debye', 'kinetic_1d', 'unified_linear_response')
+    case ('none', 'kinetic_1d', 'unified_linear_response')
       continue
     case default
       error stop 'external_boundary.field.model is not supported.'
@@ -423,11 +401,8 @@ contains
     cfg%outer_plasma%zhao_branch = branch
     cfg%outer_plasma%photoelectron_source_scale = authoring%external_boundary%field%photoelectron_source_scale
     cfg%outer_plasma%photoelectron_density_model = authoring%external_boundary%field%photoelectron_density_model
-    cfg%outer_plasma%photoelectron_histogram_enabled = &
-      authoring%external_boundary%field%photoelectron_histogram_enabled
     ! inactive field は legacy simple config と同じ fingerprint になるよう runtime 既定値を保持する。
     if (trim(field_model) /= 'none') cfg%outer_plasma%interface_z = cfg%sim%box_max(3)
-    cfg%outer_plasma%infinity_potential = authoring%external_boundary%field%infinity_potential
     cfg%outer_plasma%debye_length = authoring%external_boundary%field%debye_length
     cfg%outer_plasma%thermal_voltage = authoring%external_boundary%field%thermal_voltage
     cfg%outer_plasma%unified_grid_points = authoring%external_boundary%field%unified_grid_points
@@ -436,14 +411,6 @@ contains
     cfg%outer_plasma%max_linearity_ratio = authoring%external_boundary%field%max_linearity_ratio
     cfg%outer_plasma%max_gap_ratio = authoring%external_boundary%field%max_gap_ratio
     cfg%outer_plasma%max_local_charge_ratio = authoring%external_boundary%field%max_local_charge_ratio
-    cfg%outer_plasma%photoelectron_histogram_bins = &
-      authoring%external_boundary%field%photoelectron_histogram_bins
-    cfg%outer_plasma%photoelectron_histogram_energy_max = &
-      authoring%external_boundary%field%photoelectron_histogram_energy_max
-    cfg%outer_plasma%photoelectron_ambient_charge_scale = &
-      authoring%external_boundary%field%photoelectron_ambient_charge_scale
-    cfg%outer_plasma%max_photoelectron_charge_ratio = &
-      authoring%external_boundary%field%max_photoelectron_charge_ratio
 
     cfg%coupling%update_mode = 'explicit'
     cfg%coupling%steady_start_mode = authoring%external_boundary%particles%steady_start_mode
@@ -466,10 +433,6 @@ contains
       cfg%coupling%particle_transfer_mode = 'none'
     case ('same_batch')
       select case (trim(field_model))
-      case ('linear_debye')
-        cfg%outer_plasma%return_model = 'electrostatic_1d_instant_return'
-        cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-        profile_owned_inflow = .true.
       case ('kinetic_1d')
         cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
         cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
@@ -498,30 +461,11 @@ contains
     if (profile_owned_inflow .and. trim(inflow_model) /= 'auto') then
       error stop 'Profile-owned tracked inflow requires external_boundary.particles.inflow_model="auto".'
     end if
-    if (trim(inflow_model) == 'legacy_sheath') then
-      if (.not. authoring%external_boundary%particles%has_legacy_sheath_model) then
-        error stop 'inflow_model="legacy_sheath" requires external_boundary.particles.legacy_sheath_model.'
-      end if
-      select case (trim(legacy_sheath_model))
-      case ('floating_no_photo', 'zhao_auto', 'zhao_a', 'zhao_b', 'zhao_c')
-        continue
-      case default
-        error stop 'external_boundary.particles.legacy_sheath_model is not supported.'
-      end select
-    else if (authoring%external_boundary%particles%has_legacy_sheath_model) then
-      error stop 'external_boundary.particles.legacy_sheath_model requires inflow_model="legacy_sheath".'
-    end if
-
     select case (trim(inflow_model))
     case ('auto', 'source_vdf')
       cfg%sim%reservoir_potential_model = 'none'
-      cfg%sim%sheath_injection_model = 'none'
     case ('infinity_barrier')
       cfg%sim%reservoir_potential_model = 'infinity_barrier'
-      cfg%sim%sheath_injection_model = 'none'
-    case ('legacy_sheath')
-      cfg%sim%reservoir_potential_model = 'none'
-      cfg%sim%sheath_injection_model = legacy_sheath_model
     case default
       error stop 'external_boundary.particles.inflow_model is not supported.'
     end select
@@ -550,9 +494,6 @@ contains
         (trim(field_model) /= 'kinetic_1d' .or. trim(closure) /= 'absorbing_maxwellian')) then
       error stop 'external_boundary.field.photoelectron_density_model requires absorbing-Maxwellian kinetic_1d.'
     end if
-    if (field%has_infinity_potential .and. trim(field_model) /= 'linear_debye') then
-      error stop 'external_boundary.field.infinity_potential is only configurable for linear_debye.'
-    end if
     if (field%has_unified_option .and. trim(field_model) /= 'unified_linear_response') then
       error stop 'Unified field options require field.model="unified_linear_response".'
     end if
@@ -562,19 +503,6 @@ contains
     if (field%has_scalar_diagnostic_option .and. trim(field_model) == 'unified_linear_response') then
       error stop 'Scalar interface diagnostic options do not apply to unified_linear_response.'
     end if
-    if (field%has_photoelectron_histogram_enabled .and. trim(field_model) /= 'linear_debye') then
-      error stop 'external_boundary.field.photoelectron_histogram_enabled requires linear_debye.'
-    end if
-    if (field%photoelectron_histogram_enabled .and. &
-        (trim(field_model) /= 'linear_debye' .or. trim(particle_mode) /= 'same_batch')) then
-      error stop 'An enabled photoelectron histogram requires linear_debye with particles.mode="same_batch".'
-    end if
-    if (field%has_photoelectron_histogram_detail .and. &
-        (.not. field%photoelectron_histogram_enabled .or. trim(field_model) /= 'linear_debye' .or. &
-         trim(particle_mode) /= 'same_batch')) then
-      error stop 'Photoelectron histogram detail options require an enabled linear_debye same-batch histogram.'
-    end if
-
     if (particles%has_time_guard_option .and. &
         trim(particle_mode) /= 'same_batch' .and. trim(particle_mode) /= 'zhao_queue') then
       error stop 'External field time-guard options require particles.mode="same_batch" or "zhao_queue".'
@@ -584,9 +512,8 @@ contains
       error stop 'Outer-orbit options require unified_linear_response with particles.mode="same_batch".'
     end if
     if (particles%has_outer_update_stride .and. &
-        ((trim(field_model) /= 'linear_debye' .and. trim(field_model) /= 'kinetic_1d') .or. &
-         trim(particle_mode) == 'zhao_queue')) then
-      error stop 'outer_update_stride requires a linear/kinetic field and a non-queue particle mode.'
+        (trim(field_model) /= 'kinetic_1d' .or. trim(particle_mode) == 'zhao_queue')) then
+      error stop 'outer_update_stride requires a kinetic_1d field and a non-queue particle mode.'
     end if
     if ((particles%has_steady_start_mode .or. particles%has_steady_start_mesh_id) .and. &
         .not. steady_start_available) then

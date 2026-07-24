@@ -172,8 +172,8 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 
 | table | 主な選択 | 説明 |
 |------------|------|------|
-| `external_boundary.field` | `none`, `linear_debye`, `kinetic_1d`, `unified_linear_response` | 外部 plasma 応答の場 |
-| `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high 粒子の扱い。`inflow_model` で source VDF / scalar barrier / legacy sheath を選択 |
+| `external_boundary.field` | `none`, `kinetic_1d`, `unified_linear_response` | 外部 plasma 応答の場 |
+| `external_boundary.particles` | `local_source`, `same_batch`, `zhao_queue` | z-high 粒子の扱い。`inflow_model` で source VDF / scalar barrier を選択 |
 | `external_boundary.ordinary_open` | `escape`, `potential_barrier` | outer が所有しない open 面 |
 
 `return_model`、`particle_transfer_mode`、queue flag、`interface_z` は model と mode から導出します。
@@ -185,7 +185,6 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 |------------|------|-----------|------|
 | `sheath_alpha_deg` | float | 60.0 | 太陽仰角 [deg] |
 | `sheath_photoelectron_ref_density_cm3` | float | 64.0 | 参照光電子密度 [cm^-3] |
-| `sheath_reference_coordinate` | float | — | シース参照面位置 [m] |
 | `sheath_electron_drift_mode` | string | "normal" | normal, full |
 | `sheath_ion_drift_mode` | string | "normal" | normal, full |
 
@@ -247,7 +246,7 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 | `normal_drift_speed` | float | 0.0 | 法線方向ドリフト速度 [m/s] |
 | `ray_direction` | float[3] | 内向き法線 | レイ方向ベクトル |
 
-tracked outer transferを使う`photo_raycast` speciesは、histogramの有無によらず
+tracked outer transferを使う`photo_raycast` speciesは、放出と帰還の電荷収支を閉じるため
 `deposit_opposite_charge_on_emit=true`を指定します。
 
 ### [mesh] セクション — ジオメトリ
@@ -324,7 +323,6 @@ template入力などを使ってmesh_idを分けてください。
 | `mesh_potential.csv` | `write_mesh_potential = true` | CSV: `elem_idx, potential_V` |
 | `macro_residuals.csv` | reservoir_face 使用時 | CSV: 注入残差状態 |
 | `outer_plasma_profile.csv` | readyな`kinetic_1d` / `unified_linear_response` outer state | CSV: outer profile、条件付きcheckpoint |
-| `photoelectron_histogram.csv` | `photoelectron_histogram_enabled=true` | CSV: 前batch・累積histogram、条件付きcheckpoint |
 | `performance_profile.csv` | `BEACH_PROFILE=1` 環境変数設定時 | CSV: 各領域の計測時間 |
 
 ### MPI 実行時の追加ファイル
@@ -552,7 +550,6 @@ beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4
 | `reservoir_face` | `use_box=true`, `batch_duration>0`, `inject_face` 指定 |
 | `photo_raycast` | `use_box=true`, `batch_duration>0`, `emit_current_density_a_m2>0`, `rays_per_batch>=1` |
 | `periodic2` | 通常は`field_solver=fmm`。Direct split referenceだけ例外。ちょうど2軸がperiodic、`use_box=true` |
-| legacy sheath流入 | `external_boundary.particles.inflow_model="legacy_sheath"` と `legacy_sheath_model` を指定 |
 | リジューム | `write_files=true`, checkpoint ファイル存在 (`restart_from` 指定時はそのディレクトリ), MPI サイズ一致 |
 | 性能プロファイル | 環境変数 `BEACH_PROFILE=1` |
 | MPI 実行 | `-DUSE_MPI` でコンパイル, MPI コンパイララッパー使用 |
@@ -606,7 +603,6 @@ BEACH/
 | `docs/ParticleSourcesBoundaries.md` | 粒子源の全体像 |
 | `docs/ReservoirInjection.md` | reservoir flux、速度分布、電位写像 |
 | `docs/PhotoelectronEmission.md` | 光電子の放出とライフサイクル |
-| `docs/SheathInjectionClosures.md` | Zhao/floating source VDF補正 |
 | `docs/ParticleTrackingCollision.md` | 粒子更新の流れ |
 | `docs/BorisPusher.md` | Boris速度・位置更新 |
 | `docs/ParticleEvents.md` | 三角形衝突とbox境界イベント |

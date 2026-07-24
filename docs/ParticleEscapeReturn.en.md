@@ -17,12 +17,11 @@ particle crosses an open face
 |   +-- escape                    remove unconditionally
 |   +-- potential_barrier         reflect or escape at a scalar barrier
 +-- z-high is owned by particles.mode
-    +-- linear_debye              analytic 1-D return
     +-- kinetic_1d                discrete 1-D profile return
     +-- unified_linear_response   explicit 3-D outer orbit
 ```
 
-The five algorithms are therefore not one model selector. Ordinary open faces
+The four algorithms are therefore not one model selector. Ordinary open faces
 have two choices:
 
 | `ordinary_open.model` | External state | Particle decision | Typical use |
@@ -35,7 +34,6 @@ field determines the concrete trajectory:
 
 | `field.model` | External state | Particle decision | Return time | Typical use |
 | --- | --- | --- | --- | --- |
-| `linear_debye` | Analytic exponential 1-D profile | Conserved energy | Analytic expression | Reduced quasisteady 1-D outer plasma |
 | `kinetic_1d` | Converged discrete 1-D profile | Conserved energy and turning-point search | Profile integration | **Standard:** self-consistent mean sheath |
 | `unified_linear_response` | 3-D field with zero and nonzero modes | Time-integrate an outer orbit | Measured from the orbit | **Advanced:** linear 3-D response over a rough surface |
 
@@ -112,58 +110,7 @@ The crossing potential follows the same snapshot convention as particle motion a
 `sim.e0`. Because a uniform field has no finite potential at infinity, a configuration combining `sim.e0` with this model must
 supply `phi_infty` as a consistent effective reservoir reference.
 
-## 3. `linear_debye`: map return through an analytic 1-D profile
-
-This model represents the potential difference outside the interface by an exponential profile with Debye length $\lambda_D$.
-It makes z-high an ownership interface and obtains escape or return, round-trip time, and tangential displacement analytically.
-
-```toml
-[external_boundary.field]
-model = "linear_debye"
-debye_length = 0.2
-thermal_voltage = 10.0
-
-[external_boundary.particles]
-mode = "same_batch"
-field_evolution_timescale = 1.0
-```
-
-### Separate escape and return with conserved energy
-
-For interface potential $\phi_I$, infinity potential $\phi_\infty$, and outward interface normal speed $v_{n,I}$,
-
-$$
-v_{n,\infty}^2
-=v_{n,I}^2+\frac{2q(\phi_I-\phi_\infty)}{m}.
-$$
-
-If $v_{n,\infty}^2\ge0$, the particle can reach infinity and escapes. A negative value implies a turning point in the
-exponential profile and therefore return. This is the reverse of the infinity-to-interface map in
-[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html).
-
-### Derive return time from a linear-Debye profile
-
-For a particle that cannot escape, define
-
-$$
-D=-v_{n,\infty}^2>0.
-$$
-
-The round-trip time is
-
-$$
-\tau_\mathrm{outer}
-=\frac{4\lambda_D}{\sqrt D}
-\tan^{-1}\left(\frac{v_{n,I}}{\sqrt D}\right).
-$$
-
-Return reverses only normal velocity to $-v_{n,I}$ and preserves tangential velocity. Tangential position advances by
-$\mathbf v_t\tau_\mathrm{outer}$, then x/y are wrapped into the primary periodic cell.
-
-This model is inexpensive but assumes an exponential external potential. Use `kinetic_1d` when a self-consistent VDF or
-nonlinear sheath is required.
-
-## 4. `kinetic_1d`: obtain return from a discrete sheath profile
+## 3. `kinetic_1d`: obtain return from a discrete sheath profile
 
 This model solves a nonlinear 1-D Poisson problem from ambient electron and ion VDFs. It uses the converged $\phi(z)$ at the
 start of each batch for both inflow and outflow.
@@ -197,8 +144,8 @@ $$
 $$
 
 The turning interval is integrated only to the crossing fraction. If the turning point lies above the grid, the far Robin
-exponential tail is integrated analytically. Velocity reversal, tangential displacement, and periodic wrapping after the round
-trip follow the `linear_debye` treatment.
+exponential tail is integrated analytically. After the round trip, normal velocity is reversed, tangential displacement is
+added, and x/y are wrapped into the primary periodic cell.
 
 The current Zhao closure also uses the photoelectron reference Debye length as this off-grid tail scale. It generally differs
 from the true asymptotic `abs(phi_end/E_end)`, so near-separatrix flight times are provisional. Quantify this difference before
@@ -238,7 +185,7 @@ described below. The model can represent a self-consistent mean sheath, but assu
 electrostatic, collisionless, unmagnetized 1-D profile.
 See [Outer field: kinetic 1D](KineticOuterPlasma.en.html) for details.
 
-## 5. `unified_linear_response`: integrate an external 3-D orbit
+## 4. `unified_linear_response`: integrate an external 3-D orbit
 
 This model constructs one linear response field from a rough surface to the far plane, including the zero mode and screened
 nonzero modes. `unified_linear_response` alone does not enable particle return. The following 3-D orbit settings explicitly
@@ -296,7 +243,7 @@ crossing data to an outer model.
 | `particles.mode` | Corresponding field | Particle treatment |
 | --- | --- | --- |
 | `local_source` | all | Ordinary open boundary |
-| `same_batch` | `linear_debye` / `kinetic_1d` | Energy-based escape/return map |
+| `same_batch` | `kinetic_1d` | Energy-based escape/return map |
 | `same_batch` | `unified_linear_response` | Time-integrated orbit in a batch-fixed 3-D field |
 | `zhao_queue` | Zhao `kinetic_1d` | Delay the 1-D result as an event in a later batch |
 
@@ -362,8 +309,7 @@ field_evolution_timescale = 2.0e-5
 max_frozen_field_ratio = 0.2
 ```
 
-Combinations with `linear_debye`, `absorbing_maxwellian`, the explicit 3-D orbit, or the legacy photoelectron histogram are
-rejected. The configuration must also satisfy
+Combinations with `absorbing_maxwellian` or the explicit 3-D orbit are rejected. The configuration must also satisfy
 `batch_duration <= max_frozen_field_ratio * field_evolution_timescale`.
 `particles.mode="zhao_queue"` connects tracked-particle outer flight and the Zhao photoelectron population through one conserved
 inventory. Each rank retains its local events, while the photoelectron macro-particle number is summed over MPI as the Zhao
@@ -477,7 +423,7 @@ species. See [Inspect Output Files](OutputGuide.en.html) for these fields and th
 ## Code reference
 
 - `escape` and `potential_barrier`: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
-- `linear_debye` and `kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
+- `kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
 - Delayed event queue: [`bem_outer_event_queue.f90`](../src/runtime/coupling/bem_outer_event_queue.f90)
 - Queue checkpoint: [`bem_outer_event_queue_io.f90`](../src/runtime/coupling/bem_outer_event_queue_io.f90)
 - `unified_linear_response` 3-D orbit: [`bem_outer_plasma_orbit.f90`](../src/physics/outer_plasma/bem_outer_plasma_orbit.f90)

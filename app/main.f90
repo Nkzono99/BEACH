@@ -21,7 +21,6 @@ program main
   use bem_mesh, only: prepare_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
-  use bem_outer_plasma_photoelectron, only: photoelectron_histogram_state_type
   implicit none
 
   type(mesh_type) :: mesh
@@ -32,7 +31,6 @@ program main
   type(charge_ledger_type) :: charge_ledger
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   type(electrostatic_restart_state_type) :: electrostatic_restart_state
-  type(photoelectron_histogram_state_type) :: photoelectron_state
   type(outer_event_queue_type) :: outer_queue_state
   type(mpi_context) :: mpi
   integer :: history_unit
@@ -73,14 +71,14 @@ program main
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, &
           potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          photoelectron_state=photoelectron_state, outer_queue_state=outer_queue_state &
+          outer_queue_state=outer_queue_state &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          photoelectron_state=photoelectron_state, outer_queue_state=outer_queue_state &
+          outer_queue_state=outer_queue_state &
           )
       end if
     else
@@ -90,14 +88,14 @@ program main
           inject_state=inject_state, mpi=mpi, &
           potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          photoelectron_state=photoelectron_state, outer_queue_state=outer_queue_state &
+          outer_queue_state=outer_queue_state &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          photoelectron_state=photoelectron_state, outer_queue_state=outer_queue_state &
+          outer_queue_state=outer_queue_state &
           )
       end if
     end if
@@ -110,14 +108,14 @@ program main
           mesh_potential_v=mesh_potential_v, &
           potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          photoelectron_state=photoelectron_state, outer_queue_state=outer_queue_state &
+          outer_queue_state=outer_queue_state &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          photoelectron_state=photoelectron_state, outer_queue_state=outer_queue_state &
+          outer_queue_state=outer_queue_state &
           )
       end if
     else
@@ -126,13 +124,13 @@ program main
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          photoelectron_state=photoelectron_state, outer_queue_state=outer_queue_state &
+          outer_queue_state=outer_queue_state &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics, &
-          electrostatic_restart_state=electrostatic_restart_state, photoelectron_state=photoelectron_state, &
+          electrostatic_restart_state=electrostatic_restart_state, &
           outer_queue_state=outer_queue_state &
           )
       end if
@@ -149,13 +147,12 @@ program main
       if (allocated(mesh_potential_v)) then
         call write_result_files( &
           trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), mesh_potential_v=mesh_potential_v, &
-          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics, &
-          photoelectron_state=photoelectron_state &
+          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics &
           )
       else
         call write_result_files( &
           trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, photoelectron_state=photoelectron_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       end if
       call perf_region_end(perf_region_write_results, perf_t0)
@@ -239,7 +236,7 @@ contains
       call load_restart_checkpoint( &
         trim(restart_dir), mesh, initial_stats, resumed, inject_state, &
         mpi=mpi, require_checkpoint=.true., app=app, charge_ledger=charge_ledger, &
-        electrostatic_state=electrostatic_restart_state, photoelectron_state=photoelectron_state &
+        electrostatic_state=electrostatic_restart_state &
         )
       if (app%coupling%outer_queue_enabled) then
         call load_outer_event_queue_checkpoint( &

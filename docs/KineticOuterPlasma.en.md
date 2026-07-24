@@ -107,7 +107,7 @@ The current implementation accepts only `sim.sheath_electron_drift_mode="normal"
 `sim.sheath_ion_drift_mode="normal"`. It also requires `photo_raycast.normal_drift_speed=0` and the cold-ion condition
 $T_i\le0.1T_e$.
 
-Because the charge-driven Zhao closure prescribes the current interface field, it does not impose the legacy Zhao zero-current
+Because the charge-driven Zhao closure prescribes the current interface field, it does not impose the stationary Zhao zero-current
 equation as a root. Types B and C solve infinity quasineutrality and
 
 $$
@@ -142,7 +142,7 @@ field outside their solvable range stops with `no_physical_solution` in
 
 When the target is a strong-UV stationary observable rather than the turn-on transient from an uncharged state, select
 `external_boundary.particles.steady_start_mode="zhao_floating"`. Before the first batch, this mode uses the configured infinity quasineutral
-conditions, temperatures, drifts, and UV source to solve the legacy Zhao zero-current stationary root. It constructs the
+conditions, temperatures, drifts, and UV source to solve the Zhao zero-current stationary root. It constructs the
 `phi(infinity)=0` profile from that root and initializes the uniform plane charge required by its interface field $E_I$.
 
 For horizontal area $A$, the charge follows the zero-mode lower-boundary condition:
@@ -291,8 +291,7 @@ the tracked-source consistency check and current-density diagnostics, but not th
 emission and reabsorption update the latter two. The population scale $\eta$ does not scale that raw photoelectron
 emission-current term in the current diagnostic.
 The closure also rejects
-`external_boundary.particles.inflow_model="legacy_sheath"` or
-`"infinity_barrier"` and
+`external_boundary.particles.inflow_model="infinity_barrier"` and
 `external_boundary.field.photoelectron_density_model="kinetic_mean"`.
 
 This effective-plane approximation does not self-consistently connect tracked-ray directions or a VDF reaching the interface

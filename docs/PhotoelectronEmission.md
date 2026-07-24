@@ -71,7 +71,6 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$で速度をsampleします。
 
 - 法線速度は、drift `normal_drift_speed`を持つflux-weighted half-range Maxwell分布。
 - 接線2成分は平均0、標準偏差$\sigma$のGaussian。
-- Zhaoモデルなどが$v_{\min}$を与える場合、法線速度は$v_n\ge v_{\min}$。
 - Gaussian samplingは$6\sigma$で切る。
 
 法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後に戻るかescapeするかは、tracked orbitと
@@ -103,7 +102,7 @@ ray hitで生成する光電子の重みは常に$w_\mathrm{hit}$です。放出
 scalar barrier、1D outer profile return、unified 3D explicit orbitの違いは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
 
-tracked outer transferを使う`photo_raycast` speciesでは、histogramの有無によらず、放出と帰還の電荷収支を閉じるため
+tracked outer transferを使う`photo_raycast` speciesでは、放出と帰還の電荷収支を閉じるため
 `deposit_opposite_charge_on_emit=true`を指定します。
 
 ## 光電子をouter plasmaの平均密度へ含める
@@ -113,32 +112,14 @@ tracked outer transferを使う`photo_raycast` speciesでは、histogramの有�
 outer領域の空間電荷に寄与します。この平均密度モデルは、個々のtracked粒子の表面吸収を置き換えません。
 統計的なreturn電荷を、別途表面へdepositすることもありません。
 
-平均密度モデルとhistogramは別の責務を持ちますが、現行の対応 model/mode が異なるため、
-両方を同時に有効化できません。
-
 生成後のtracked光電子をz-high interfaceからouter領域へ渡す場合も、粒子sourceに依存しない共通の
 escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似と3D explicit orbitは
 [粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
-`external_boundary.particles.inflow_model="legacy_sheath"`で選ぶlegacy Zhaoは、branchに応じて
-放出電流密度、法線cutoff、driftだけをsource samplingへ与えます。この経路は空間的な$E(z)$を構築しないため、
-生成後のtracked粒子は、別に構成されたbatch固定の電場中を進みます。
-
-一方、`external_boundary.field.kinetic_closure="zhao_charge_driven"`は、蓄積電荷が決めるinterface電場を保つ
+`external_boundary.field.kinetic_closure="zhao_charge_driven"`は、蓄積電荷が決めるinterface電場を保つ
 自己整合な1D outer profileを構築します。`external_boundary.particles.mode="zhao_queue"`では、さらに
 tracked outer inventoryから光電子populationを閉じます。`mode="same_batch"`または`"zhao_queue"`では、このprofileが
-z-high interfaceでの流入とreturn / escapeを決めます。legacy Zhaoのsource補正とは別の経路です。
-
-## outer interfaceの光電子histogramを保存する
-
-`external_boundary.field.photoelectron_histogram_enabled=true`は、z-high interfaceを外向きに通過する`photo_raycast`粒子を
-法線運動エネルギーbinへ集計します。前batchと累積のsigned charge、全運動エネルギー、接線運動量、個数を
-`photoelectron_histogram.csv`へ保存し、z-high outward interface crossingのsigned chargeとambient charge scaleの比が
-設定上限を超える場合は停止します。
-
-この設定は診断と適用性検査だけを有効にします。粒子のreturn / escapeは変更せず、
-`external_boundary.field.model`と`external_boundary.particles.mode`が引き続き決定します。
-tracked outer transferを使う全`photo_raycast` speciesに`deposit_opposite_charge_on_emit=true`を指定します。
+z-high interfaceでの流入とreturn / escapeを決めます。
 
 ## 光電子放出の収束を確認する
 
@@ -150,7 +131,5 @@ outer return 固有の診断値は[出力ファイルを調べる](OutputGuide.h
 
 - ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - 放出電荷差分とsource生成: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- outer transferとhistogramの互換性検証: [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90)
 - kinetic mean光電子密度モデル: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
 - kinetic meanのruntime組立: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
-- 光電子histogramと適用性検査: [`bem_outer_plasma_photoelectron.f90`](../src/physics/outer_plasma/bem_outer_plasma_photoelectron.f90)

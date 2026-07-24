@@ -135,7 +135,6 @@ $$
 | --- | --- |
 | 補正なし | $B=0$ として、設定した VDF を注入面上の分布として使う |
 | `external_boundary.particles.inflow_model="infinity_barrier"` | 開口の平均電位と `sim.phi_infty` から求めた 1 つの電位差 |
-| split `linear_debye` | 表面電荷のゼロモードから求めた界面電位差 |
 | split `kinetic_1d` | 収束した外部プロファイルの $\phi_I-\phi_\infty$ |
 
 `infinity_barrier` は、`injection_face_phi_grid_n` を $N$ とする開口内の $N\times N$ セル中心格子で
@@ -147,9 +146,6 @@ $$
 
 split 外部モデルでは、z-high の `reservoir_face` を無限遠 VDF として解釈します。`kinetic_1d` では界面電場を
 Poisson 境界条件に使いますが、粒子速度を変える量は $\phi_I-\phi_\infty$ です。
-
-Zhao 系と `floating_no_photo` は、一般の電位差 $B$ を渡すのではなく、上流 VDF の密度、ドリフト、速度下限を補正します。
-詳しい規則は [流入 VDF のシース補正](SheathInjectionClosures.html)を参照してください。
 
 ## 仮想飛行時間で初期位置をずらす
 
@@ -177,7 +173,6 @@ MPI では、全ランク合計の粒子数と端数をルートランクで決�
 
 - 粒子源を選ぶ: [粒子源の全体像](ParticleSourcesBoundaries.html)
 - 流入補正、流出境界、外部場を組み合わせる: [境界・外部領域の構成を選ぶ](OuterPlasmaModels.html)
-- Zhao 系と `floating_no_photo` の VDF 補正: [流入 VDF のシース補正](SheathInjectionClosures.html)
 - 注入後の粒子が開放面から出たときの処理: [粒子の脱出と帰還](ParticleEscapeReturn.html)
 
 ## Code reference
@@ -185,5 +180,4 @@ MPI では、全ランク合計の粒子数と端数をルートランクで決�
 - 流束積分、マクロ粒子数、Maxwell／速度グリッドからの生成: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - 電位障壁と外部プロファイルによる速度補正: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - 開口形状と入力組み合わせの検証: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
-- Zhao 粒子種補正: [`bem_sheath_runtime.f90`](../src/physics/sheath/bem_sheath_runtime.f90)
 - MPI 全体のマクロ粒子端数: [`bem_restart.f90`](../src/runtime/bem_restart.f90)
