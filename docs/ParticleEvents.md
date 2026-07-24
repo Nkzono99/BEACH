@@ -178,11 +178,12 @@ particle transferが有効なとき、z-high open faceに達した粒子はそ�
 callerへ返します。このfaceでは、Boris更新の入出力位置と速度に整合する二次軌道を使って交差時刻を再評価します。
 payloadには、face、step全体に対するfraction、位置、速度、残り時間が入ります。
 
-z-highの二次軌道による時刻補正で、z-highと横面の先後・同時関係が元のface maskから変わる場合は、
-どちらの向きの順序反転でも作用順序を推測せずfail closedにします。
+候補終点がz-high外側にあるstepでは、同じ二次軌道で候補となるx/y面の交差時刻も再評価し、
+実際に先行するbox eventを選び直します。横周期・反射面が先ならその作用後の残り時間を再積分し、
+z-highが先ならouterへ渡します。同時刻なら横方向作用を合成してからouterへ渡します。
 
-この補正は、候補終点がz-high外側にあるためchordが検出したcrossingの法線時刻だけを対象にします。
-候補終点がbox内へ戻る途中の一時的越境は探索せず、x/y面とmesh hitは従来のchord判定のままです。
+この補正は、候補終点がbox外側にあるため検出されたcrossingを対象にします。候補終点がbox内へ戻る
+途中の一時的越境は探索せず、mesh hitは従来のchord判定のままです。
 
 outer modelがlocal returnを返した場合は、戻り位置・速度から残り時間を再び通常のparticle stepで進めます。
 infinityへescapeした場合は粒子を消滅させます。outer側の加減速やreturn条件は

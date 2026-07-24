@@ -181,11 +181,13 @@ applying escape. For this face only, crossing time is refined from a quadratic t
 positions and velocities rather than using the straight-segment fraction unchanged. The payload contains face, fraction of the full step,
 position, velocity, and remaining time.
 
-BEACH fails closed instead of guessing an action order if quadratic z-high refinement changes the earlier-than or simultaneous
-relationship between z-high and a lateral face represented by the original face mask, in either direction.
+For a step whose candidate endpoint is outside z-high, BEACH evaluates candidate x/y crossing times on the same quadratic
+trajectory and selects the event that actually occurs first. An earlier lateral periodic or reflecting face is applied before
+reintegrating the remainder; an earlier z-high event is transferred to the outer model. Simultaneous lateral actions are composed
+before transfer.
 
-This refinement only revisits the normal crossing time detected because the candidate endpoint is outside z-high. It does not
-search for a temporary excursion that returns to an inside endpoint; x/y faces and mesh hits retain the existing chord test.
+This refinement covers crossings detected because the candidate endpoint is outside the box. It does not search for a temporary
+excursion that returns to an inside endpoint; mesh hits retain the existing chord test.
 
 If the outer model returns the particle locally, ordinary particle stepping resumes from the returned position and velocity for
 the remaining time. If it escapes to infinity, it is removed. See [Outer-plasma models](OuterPlasmaModels.en.html) for outer
