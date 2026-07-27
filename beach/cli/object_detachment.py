@@ -259,7 +259,6 @@ def run(args: argparse.Namespace) -> None:
                 torque_origin=torque_origin,
                 components=True,
             )
-            source_model = snapshot.source_model
             resolved_snapshot_step = snapshot.step
         release = path.evaluate_release(
             mass_kg=args.mass_kg,
@@ -278,7 +277,6 @@ def run(args: argparse.Namespace) -> None:
         resolved_snapshot_step=resolved_snapshot_step,
         charge_source=charge_source,
         resolved_charge_batch=resolved_charge_batch,
-        source_model=source_model,
         adhesion=adhesion,
         wrench=wrench,
         path=path,
@@ -467,7 +465,6 @@ def _build_summary(
     resolved_snapshot_step: int | None,
     charge_source: str,
     resolved_charge_batch: int,
-    source_model: str,
     adhesion: AdhesionProfile,
     wrench: Any,
     path: Any,
@@ -509,7 +506,7 @@ def _build_summary(
             "surface_trace": "principal_value",
             "source_geometry_policy": "frozen",
             "target_motion": "vertical_translation",
-            "source_model": source_model,
+            "source_model": "triangle_p0",
             "target_integration": numerical.get("target_integration"),
             "quadrature_order": numerical.get("quadrature_order"),
             "uniform_potential_has_no_half_factor": True,

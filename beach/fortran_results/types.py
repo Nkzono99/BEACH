@@ -80,8 +80,6 @@ class CoulombInteraction:
         Mesh ids used as the source group.
     step : int or None
         History step used for the interaction snapshot.
-    softening : float
-        Softening length used in the force computation.
     torque_origin_m : numpy.ndarray
         Torque origin in meters with shape ``(3,)``.
     force_on_a_N : numpy.ndarray
@@ -101,7 +99,6 @@ class CoulombInteraction:
     group_a_mesh_ids: tuple[int, ...]
     group_b_mesh_ids: tuple[int, ...]
     step: int | None
-    softening: float
     torque_origin_m: np.ndarray
     force_on_a_N: np.ndarray
     force_on_b_N: np.ndarray
@@ -190,8 +187,6 @@ class CoulombMobilityAnalysis:
     ----------
     step : int or None
         History step used for the analysis snapshot.
-    softening : float
-        Softening length used in Coulomb-force evaluation.
     gravity_m_s2 : numpy.ndarray
         Gravity vector in meters per second squared with shape ``(3,)``.
     support_normal_m : numpy.ndarray
@@ -211,7 +206,6 @@ class CoulombMobilityAnalysis:
     """
 
     step: int | None
-    softening: float
     gravity_m_s2: np.ndarray
     support_normal_m: np.ndarray
     support_kinds: tuple[str, ...]
@@ -301,7 +295,7 @@ class FortranRunResult:
     species_fingerprint: str | None = None
     charge_ledger_residual_c: float | None = None
     charge_ledger: tuple[ChargeLedgerEntry, ...] | None = None
-    field_source_model: str = "point"
+    field_source_model: str = "triangle_p0"
     field_kernel_id: str | None = None
     periodic2_cache_hit: bool | None = None
     periodic2_operator_build_count: int | None = None

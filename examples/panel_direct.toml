@@ -4,12 +4,8 @@
 dt = 1.0e-10
 batch_count = 1
 max_step = 20
-softening = 0.0
 field_solver = "direct"
 field_bc_mode = "free"
-
-[field]
-element_kernel = "triangle_p0"
 
 [particles]
 [[particles.species]]

@@ -252,7 +252,6 @@ batch_duration = 6.060915267313266
 batch_count = 280000
 max_step = 100000
 tol_rel = 1.0e-8
-softening = 9.899494936611663e-11
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [9.899494936611664e-05, 9.899494936611664e-05, 0.0009899494936611664]
@@ -815,6 +814,49 @@ def test_stage_rejects_archive_mpi_resource_mismatch(
     _write_toml(manifest_path, manifest)
 
     with pytest.raises(tool.ValidationError, match="archived MPI resources"):
+        tool.stage_validation(archive_run, tmp_path / "validation", binary)
+
+
+@pytest.mark.parametrize(
+    "removed_setting",
+    [
+        "softening = 1.0e-10",
+        'field_source_model = "point"',
+        'field_kernel_id = "softened_point"',
+    ],
+)
+def test_stage_rejects_removed_point_source_configuration(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+    removed_setting: str,
+) -> None:
+    tool = _load_tool()
+    config_path = archive_run / "input/beach.toml"
+    config = config_path.read_text(encoding="utf-8")
+    config_path.write_text(
+        config.replace("[sim]\n", f"[sim]\n{removed_setting}\n", 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(tool.ValidationError, match="removed point-source"):
+        tool.stage_validation(archive_run, tmp_path / "validation", binary)
+
+
+def test_stage_rejects_removed_point_element_kernel_table(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+) -> None:
+    tool = _load_tool()
+    config_path = archive_run / "input/beach.toml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        + '\n[field]\nelement_kernel = "point"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(tool.ValidationError, match=r"removed point-source.*\[field\]"):
         tool.stage_validation(archive_run, tmp_path / "validation", binary)
 
 
@@ -1573,8 +1615,8 @@ def test_probe_library_executes_basic_field_and_potential(
     calls: list[Path] = []
 
     class FakeKernel:
-        def __init__(self, positions, charges, *, library_path):
-            assert np.asarray(positions).shape == (1, 3)
+        def __init__(self, triangles, charges, *, library_path):
+            assert np.asarray(triangles).shape == (1, 3, 3)
             assert np.asarray(charges).shape == (1,)
             calls.append(Path(library_path))
 
@@ -1701,8 +1743,8 @@ def _write_run_output(
         "species_fingerprint=2222222222222222",
         "field_backend=fmm",
         "field_normalization=si",
-        "field_source_model=point",
-        "field_kernel_id=softened_point",
+        "field_source_model=triangle_p0",
+        "field_kernel_id=triangle_p0_exact_p2m_near",
         f"mesh_nelem={mesh_nelem}",
         f"mesh_count={mesh_count}",
         "mpi_world_size=6",
@@ -1870,9 +1912,9 @@ def _replace_summary_value(output: Path, key: str, value: str | None) -> None:
         ("field_normalization", None),
         ("field_normalization", "box"),
         ("field_source_model", None),
-        ("field_source_model", "triangle_p0"),
+        ("field_source_model", "point"),
         ("field_kernel_id", None),
-        ("field_kernel_id", "triangle_p0_exact_p2m_near"),
+        ("field_kernel_id", "softened_point"),
     ],
 )
 def test_verify_run_rejects_nonproduction_field_execution_contract(
@@ -2613,43 +2655,29 @@ def test_submission_provenance_rejects_numeric_job_id_value(
         tool._verify_submission_provenance(validation_root, manifest)
 
 
-def _fake_periodic_kernel_oracle(
-    field_source_model: str,
-    field_kernel_id: str,
-) -> dict[str, object]:
+def _fake_periodic_kernel_oracle() -> dict[str, object]:
     expected_decay_ratio = float(np.exp(-np.pi * 0.25))
-    cache_labels = (
-        ["uniform_4", "uniform_8", "point_primary", "cosine_4", "cosine_8"]
-        if field_source_model == "point"
-        else ["uniform_4", "cosine_4", "cosine_8"]
-    )
-    cache_groups = (
-        {
-            "4": ("uniform_4", "cosine_4"),
-            "8": ("uniform_8", "cosine_8", "point_primary"),
-        }
-        if field_source_model == "point"
-        else {
-            "4": ("uniform_4", "cosine_4"),
-            "8": ("cosine_8",),
-        }
-    )
     cache_identities = {
         group: {
             "hit": True,
             "build_count": 0,
-            "fingerprint": f"fake-{field_source_model}-{group}",
+            "fingerprint": f"fake-triangle_p0-{group}",
             "path": f"__CACHE_PATH_{group}__",
             "sha256": f"__CACHE_SHA256_{group}__",
         }
         for group in ("4", "8")
     }
     group_for_label = {
-        label: group for group, labels in cache_groups.items() for label in labels
+        label: group
+        for group, labels in {
+            "4": ("uniform_4", "cosine_4"),
+            "8": ("cosine_8",),
+        }.items()
+        for label in labels
     }
-    result: dict[str, object] = {
-        "field_source_model": field_source_model,
-        "field_kernel_id": field_kernel_id,
+    return {
+        "field_source_model": "triangle_p0",
+        "field_kernel_id": "triangle_p0_exact_p2m_near",
         "effective_field_contract": {
             "requested_periodic_model": "infinite_physical",
             "configured_far_correction": "none",
@@ -2671,7 +2699,7 @@ def _fake_periodic_kernel_oracle(
                 "path": cache_identities[group_for_label[label]]["path"],
                 "sha256": cache_identities[group_for_label[label]]["sha256"],
             }
-            for label in cache_labels
+            for label in ("uniform_4", "cosine_4", "cosine_8")
         ],
         "uniform_plane": {
             "closure": "e_bottom_zero",
@@ -2687,13 +2715,37 @@ def _fake_periodic_kernel_oracle(
             "quadrature_relative_difference": 0.0,
             "quadrature_relative_tolerance": 0.01,
             "relative_tolerance": 0.12,
-            "field_cells_per_axis": (
-                8 if field_source_model == "point" else 4
-            ),
+            "field_cells_per_axis": 4,
+            "target_integration": "gauss_duffy_order_3_and_7",
+            "quadrature_order": [3, 7],
             "interpretation": (
                 "Maxwell traction under E_bottom=0; not universal free-space "
                 "self force"
             ),
+            "wrench_refinement": [
+                {
+                    "cells_per_axis": 4,
+                    "force_relative_error": 0.01,
+                    "transverse_relative_error": 0.0,
+                    "torque_relative_error": 0.0,
+                    "other_objects_normalized_absolute": 0.0,
+                    "external_uniform_normalized_absolute": 0.0,
+                    "total_minus_images_normalized_absolute": 0.0,
+                    "primary_free_subtraction_normalized_absolute": 1.0e-12,
+                    "component_consistency_relative_error": 1.0e-12,
+                },
+                {
+                    "cells_per_axis": 4,
+                    "force_relative_error": 0.01,
+                    "transverse_relative_error": 0.0,
+                    "torque_relative_error": 0.0,
+                    "other_objects_normalized_absolute": 0.0,
+                    "external_uniform_normalized_absolute": 0.0,
+                    "total_minus_images_normalized_absolute": 0.0,
+                    "primary_free_subtraction_normalized_absolute": 1.0e-12,
+                    "component_consistency_relative_error": 1.0e-12,
+                },
+            ],
         },
         "neutral_cosine_plane": {
             "errors": [
@@ -2705,8 +2757,7 @@ def _fake_periodic_kernel_oracle(
                     "potential_decay_ratio": expected_decay_ratio * 0.92,
                     "field_decay_ratio_relative_error": 0.10,
                     "potential_decay_ratio_relative_error": 0.08,
-                    "field_parity_relative_error": 1.0e-12,
-                    "potential_parity_relative_error": 1.0e-12,
+                    "charge_neutrality_ratio": 1.0e-16,
                 },
                 {
                     "cells_per_axis": 8,
@@ -2716,8 +2767,7 @@ def _fake_periodic_kernel_oracle(
                     "potential_decay_ratio": expected_decay_ratio * 0.98,
                     "field_decay_ratio_relative_error": 0.03,
                     "potential_decay_ratio_relative_error": 0.02,
-                    "field_parity_relative_error": 1.0e-12,
-                    "potential_parity_relative_error": 1.0e-12,
+                    "charge_neutrality_ratio": 1.0e-16,
                 },
             ],
             "sample_abs_z_m": [0.25, 0.5],
@@ -2727,119 +2777,34 @@ def _fake_periodic_kernel_oracle(
             "expected_decay": "exp(-k*abs(z-z0))",
         },
     }
-    if field_source_model == "point":
-        result["uniform_plane"]["force_relative_errors"] = [0.005, 0.001]
-        result["uniform_plane"][
-            "force_transverse_relative_errors"
-        ] = [0.004, 0.001]
-        result["uniform_plane"]["torque_relative_errors"] = [0.003, 0.001]
-        result["uniform_plane"]["quadrature_relative_difference"] = 0.005
-        result["uniform_plane"]["target_integration"] = "point_centroid"
-        result["uniform_plane"]["quadrature_order"] = None
-        result["uniform_plane"][
-            "source_refinement_force_relative_difference"
-        ] = 0.005
-        result["uniform_plane"]["wrench_refinement"] = [
-            {
-                "cells_per_axis": 4,
-                "force_relative_error": 0.005,
-                "transverse_relative_error": 0.004,
-                "torque_relative_error": 0.003,
-                "other_objects_normalized_absolute": 0.0,
-                "external_uniform_normalized_absolute": 0.0,
-                "total_minus_images_normalized_absolute": 0.0,
-                "primary_free_subtraction_normalized_absolute": 0.036,
-                "component_consistency_relative_error": 0.036,
-            },
-            {
-                "cells_per_axis": 8,
-                "force_relative_error": 0.001,
-                "transverse_relative_error": 0.001,
-                "torque_relative_error": 0.001,
-                "other_objects_normalized_absolute": 0.0,
-                "external_uniform_normalized_absolute": 0.0,
-                "total_minus_images_normalized_absolute": 0.0,
-                "primary_free_subtraction_normalized_absolute": 0.001,
-                "component_consistency_relative_error": 0.001,
-            },
-        ]
-        result["uniform_plane"]["primary_self_subtraction"] = {
-            "force_normalized_absolute": 0.0,
-            "potential_relative_error": 1.0e-13,
-            "relative_tolerance": 1.0e-11,
-        }
-        result["uniform_plane"]["point_source_refinement"] = [
-            {
-                "cells_per_axis": 4,
-                "off_surface_modulation_rms_V_m": 0.03,
-            },
-            {
-                "cells_per_axis": 8,
-                "off_surface_modulation_rms_V_m": 0.002,
-            },
-        ]
-        for row in result["neutral_cosine_plane"]["errors"]:
-            row["charge_neutrality_ratio"] = 1.0e-16
-            row["field_parity_relative_error"] = 1.0e-12
-            row["potential_parity_relative_error"] = 1.0e-12
-        result["softened_point_micro_oracle"] = {
-            "sample_count": 4,
-            "softening_to_period_ratio": 1.0e-6,
-            "target_distance_over_softening": 1.0,
-            "field_relative_error": 1.0e-13,
-            "potential_relative_error": 1.0e-13,
-            "ordinary_field_relative_mismatch": 1.0e-13,
-            "ordinary_potential_relative_mismatch": 1.0e-13,
-            "self_field_normalized_absolute": 0.0,
-            "relative_tolerance": 1.0e-11,
-        }
-    else:
-        result["uniform_plane"][
-            "target_integration"
-        ] = "gauss_duffy_order_3_and_7"
-        result["uniform_plane"]["quadrature_order"] = [3, 7]
-        result["uniform_plane"][
-            "source_refinement_force_relative_difference"
-        ] = None
-        result["uniform_plane"]["wrench_refinement"] = [
-            {
-                "cells_per_axis": 4,
-                "force_relative_error": 0.01,
-                "transverse_relative_error": 0.0,
-                "torque_relative_error": 0.0,
-                "other_objects_normalized_absolute": 0.0,
-                "external_uniform_normalized_absolute": 0.0,
-                "total_minus_images_normalized_absolute": 0.0,
-                "primary_free_subtraction_normalized_absolute": 1.0e-12,
-                "component_consistency_relative_error": 1.0e-12,
-            },
-            {
-                "cells_per_axis": 4,
-                "force_relative_error": 0.01,
-                "transverse_relative_error": 0.0,
-                "torque_relative_error": 0.0,
-                "other_objects_normalized_absolute": 0.0,
-                "external_uniform_normalized_absolute": 0.0,
-                "total_minus_images_normalized_absolute": 0.0,
-                "primary_free_subtraction_normalized_absolute": 1.0e-12,
-                "component_consistency_relative_error": 1.0e-12,
-            },
-        ]
-    return result
 
 
 def _fake_periodic_kernel_oracles() -> dict[str, dict[str, object]]:
-    return {
-        "triangle_p0": _fake_periodic_kernel_oracle(
-            "triangle_p0", "triangle_p0_exact_p2m_near"
-        ),
-        "production_point": _fake_periodic_kernel_oracle(
-            "point", "softened_point"
-        ),
-    }
+    return {"triangle_p0": _fake_periodic_kernel_oracle()}
 
 
-@pytest.mark.parametrize("mutation", ["refinement", "parity", "component"])
+def test_probe_periodic_oracles_rejects_stale_point_config(
+    archive_run: Path,
+    binary: Path,
+    tmp_path: Path,
+) -> None:
+    tool = _load_tool()
+    validation_root = tmp_path / "validation"
+    manifest = tool.stage_validation(
+        archive_run,
+        validation_root,
+        binary,
+        library=binary,
+    )
+    library = Path(manifest["analysis_library"]["staged_path"])
+    stale = validation_root / "provenance/oracles/periodic_plane_point.toml"
+    stale.write_text("[sim]\nfield_source_model = \"point\"\n", encoding="utf-8")
+
+    with pytest.raises(tool.ValidationError, match="must be empty"):
+        tool.probe_periodic_oracles(validation_root, library)
+
+
+@pytest.mark.parametrize("mutation", ["quadrature", "neutrality", "component"])
 def test_probe_periodic_oracles_deeply_validates_payload_before_publish(
     archive_run: Path,
     binary: Path,
@@ -2856,36 +2821,30 @@ def test_probe_periodic_oracles_deeply_validates_payload_before_publish(
         library=binary,
     )
     library = Path(manifest["analysis_library"]["staged_path"])
-    kernel_oracles = _fake_periodic_kernel_oracles()
-    production = kernel_oracles["production_point"]
-    if mutation == "refinement":
-        rows = production["uniform_plane"]["point_source_refinement"]
-        rows[1]["off_surface_modulation_rms_V_m"] = rows[0][
-            "off_surface_modulation_rms_V_m"
-        ]
-    elif mutation == "parity":
-        production["neutral_cosine_plane"]["errors"][1][
-            "field_parity_relative_error"
-        ] = 0.09
+    oracle = _fake_periodic_kernel_oracle()
+    if mutation == "quadrature":
+        oracle["uniform_plane"]["quadrature_relative_difference"] = 0.02
+    elif mutation == "neutrality":
+        oracle["neutral_cosine_plane"]["errors"][1][
+            "charge_neutrality_ratio"
+        ] = 1.0e-8
     else:
-        row = production["uniform_plane"]["wrench_refinement"][0]
+        row = oracle["uniform_plane"]["wrench_refinement"][0]
         row["total_minus_images_normalized_absolute"] = 1.0e-5
         row["component_consistency_relative_error"] = 1.0e-5
 
-    def fake_run(*, cache_dir: Path, field_source_model: str, **_kwargs):
-        label = "production_point" if field_source_model == "point" else "triangle_p0"
-        result = copy.deepcopy(kernel_oracles[label])
+    def fake_run(*, cache_dir: Path, **_kwargs):
+        result = copy.deepcopy(oracle)
         identities = result["cache_identities"]
         for group, identity in identities.items():
-            cache_path = cache_dir / f"operator-{label}-{group}.bin"
-            cache_path.write_bytes(f"cache:{label}:{group}\n".encode())
+            cache_path = cache_dir / f"operator-triangle_p0-{group}.bin"
+            cache_path.write_bytes(f"cache:triangle_p0:{group}\n".encode())
             identity["path"] = str(cache_path.resolve())
             identity["sha256"] = tool._sha256(cache_path)
         result["cache_diagnostics"] = copy.deepcopy(identities["4"])
-        groups = tool.ORACLE_CACHE_EVALUATION_GROUPS[label]
         group_for_evaluation = {
             evaluation_label: group
-            for group, evaluation_labels in groups.items()
+            for group, evaluation_labels in tool.ORACLE_CACHE_EVALUATION_GROUPS.items()
             for evaluation_label in evaluation_labels
         }
         for evaluation in result["cache_evaluations"]:
@@ -2900,7 +2859,7 @@ def test_probe_periodic_oracles_deeply_validates_payload_before_publish(
 
     with pytest.raises(
         tool.ValidationError,
-        match="production point-plane|production_point",
+        match="threshold|integration|neutrality|triangle_p0",
     ):
         tool.probe_periodic_oracles(validation_root, library)
 
@@ -2917,27 +2876,27 @@ def _write_periodic_oracle_receipt(
 ) -> Path:
     cache_dir = validation_root / "cache/oracles"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    if kernel_oracles is None:
+        kernel_oracles = _fake_periodic_kernel_oracles()
     cache_artifacts = {
         label: {
             group: cache_dir / f"operator-{label}-{group}.bin"
             for group in ("4", "8")
         }
-        for label in ("triangle_p0", "production_point")
+        for label in kernel_oracles
     }
     for label, grouped_paths in cache_artifacts.items():
         for group, path in grouped_paths.items():
             path.write_bytes(
                 f"deterministic-oracle-cache:{label}:{group}\n".encode()
             )
+    if not cache_artifacts:
+        (cache_dir / "operator-missing-model-fixture.bin").write_bytes(
+            b"deterministic-oracle-cache:missing-model\n"
+        )
     config_path = validation_root / "provenance/oracles/periodic_plane.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     tool._oracle_panel_config(config_path)
-    point_config_path = (
-        validation_root / "provenance/oracles/periodic_plane_point.toml"
-    )
-    tool._oracle_point_config(point_config_path)
-    if kernel_oracles is None:
-        kernel_oracles = _fake_periodic_kernel_oracles()
     for label, kernel_oracle in kernel_oracles.items():
         identities = kernel_oracle["cache_identities"]
         for group, identity in identities.items():
@@ -2947,10 +2906,9 @@ def _write_periodic_oracle_receipt(
             if str(identity["sha256"]).startswith("__CACHE_SHA256_"):
                 identity["sha256"] = tool._sha256(default_cache_path)
         kernel_oracle["cache_diagnostics"] = copy.deepcopy(identities["4"])
-        groups = tool.ORACLE_CACHE_EVALUATION_GROUPS[label]
         group_for_evaluation = {
             evaluation_label: group
-            for group, evaluation_labels in groups.items()
+            for group, evaluation_labels in tool.ORACLE_CACHE_EVALUATION_GROUPS.items()
             for evaluation_label in evaluation_labels
         }
         for evaluation in kernel_oracle.get("cache_evaluations", []):
@@ -2959,12 +2917,9 @@ def _write_periodic_oracle_receipt(
                 evaluation["path"] = identity["path"]
             if str(evaluation["sha256"]).startswith("__CACHE_SHA256_"):
                 evaluation["sha256"] = identity["sha256"]
-    legacy_triangle = kernel_oracles.get("triangle_p0") or _fake_periodic_kernel_oracle(
-        "triangle_p0", "triangle_p0_exact_p2m_near"
-    )
     report: dict[str, object] = {
         "receipt_schema_version": 1,
-        "oracle_schema_version": 2,
+        "oracle_schema_version": 3,
         "status": "qualified",
         "manifest_sha256": tool._sha256(validation_root / "manifest.json"),
         "library": str(library.resolve()),
@@ -2976,18 +2931,11 @@ def _write_periodic_oracle_receipt(
                 "path": str(config_path.resolve()),
                 "sha256": tool._sha256(config_path),
             },
-            "production_point": {
-                "path": str(point_config_path.resolve()),
-                "sha256": tool._sha256(point_config_path),
-            },
         },
         "cache_dir": str(cache_dir.resolve()),
         "cache_files": tool._output_inventory(cache_dir),
         "execution_job_id": "9006",
         "kernel_oracles": kernel_oracles,
-        # Temporary aliases keep old receipts readable while schema 2 is rolled out.
-        "uniform_plane": legacy_triangle["uniform_plane"],
-        "neutral_cosine_plane": legacy_triangle["neutral_cosine_plane"],
         "verified_at": "2026-07-12T00:00:00+00:00",
     }
     manifest = json.loads(
@@ -3022,37 +2970,19 @@ def test_periodic_oracle_receipt_is_bound_to_library_and_cache_inventory(
 
     assert report["status"] == "qualified"
     assert report["receipt_sha256"] == tool._sha256(receipt)
-    assert set(report["kernel_oracles"]) == {"triangle_p0", "production_point"}
-    assert report["kernel_oracles"]["triangle_p0"]["field_source_model"] == (
-        "triangle_p0"
-    )
-    assert report["kernel_oracles"]["production_point"]["field_source_model"] == (
-        "point"
-    )
-    assert report["kernel_oracles"]["production_point"]["field_kernel_id"] == (
-        "softened_point"
-    )
-    assert [
-        row["label"]
-        for row in report["kernel_oracles"]["triangle_p0"]["cache_evaluations"]
-    ] == ["uniform_4", "cosine_4", "cosine_8"]
-    assert [
-        row["label"]
-        for row in report["kernel_oracles"]["production_point"][
-            "cache_evaluations"
-        ]
-    ] == [
+    assert set(report["kernel_oracles"]) == {"triangle_p0"}
+    oracle = report["kernel_oracles"]["triangle_p0"]
+    assert oracle["field_source_model"] == "triangle_p0"
+    assert oracle["field_kernel_id"] == "triangle_p0_exact_p2m_near"
+    assert [row["label"] for row in oracle["cache_evaluations"]] == [
         "uniform_4",
-        "uniform_8",
-        "point_primary",
         "cosine_4",
         "cosine_8",
     ]
-    for oracle in report["kernel_oracles"].values():
-        identities = oracle["cache_identities"]
-        assert oracle["cache_diagnostics"] == identities["4"]
-        assert identities["4"]["fingerprint"] != identities["8"]["fingerprint"]
-        assert identities["4"]["path"] != identities["8"]["path"]
+    identities = oracle["cache_identities"]
+    assert oracle["cache_diagnostics"] == identities["4"]
+    assert identities["4"]["fingerprint"] != identities["8"]["fingerprint"]
+    assert identities["4"]["path"] != identities["8"]["path"]
 
 
 @pytest.mark.parametrize(
@@ -3065,6 +2995,7 @@ def test_periodic_oracle_receipt_is_bound_to_library_and_cache_inventory(
         "ratio_threshold",
         "missing_ratio_tolerance",
         "tampered_ratio_tolerance",
+        "charge_neutrality",
     ],
 )
 def test_periodic_oracle_receipt_rejects_invalid_multiheight_decay_contract(
@@ -3083,7 +3014,7 @@ def test_periodic_oracle_receipt_rejects_invalid_multiheight_decay_contract(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     kernel_oracles = _fake_periodic_kernel_oracles()
-    cosine = kernel_oracles["production_point"]["neutral_cosine_plane"]
+    cosine = kernel_oracles["triangle_p0"]["neutral_cosine_plane"]
     fine = cosine["errors"][1]
     if mutation == "missing_sample_abs_z":
         del cosine["sample_abs_z_m"]
@@ -3098,8 +3029,10 @@ def test_periodic_oracle_receipt_rejects_invalid_multiheight_decay_contract(
         fine["field_decay_ratio_relative_error"] = 0.19
     elif mutation == "missing_ratio_tolerance":
         del cosine["decay_ratio_relative_tolerance"]
-    else:
+    elif mutation == "tampered_ratio_tolerance":
         cosine["decay_ratio_relative_tolerance"] = 0.19
+    else:
+        fine["charge_neutrality_ratio"] = 1.0e-8
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
@@ -3109,7 +3042,7 @@ def test_periodic_oracle_receipt_rejects_invalid_multiheight_decay_contract(
 
     with pytest.raises(
         tool.ValidationError,
-        match="cosine|decay|sample|threshold|contract",
+        match="cosine|decay|sample|threshold|contract|neutrality",
     ):
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
@@ -3152,12 +3085,10 @@ def test_periodic_oracle_receipt_rechecks_library_build_origin(
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 
-@pytest.mark.parametrize("alias_name", ["uniform_plane", "neutral_cosine_plane"])
-def test_periodic_oracle_receipt_rejects_legacy_alias_mismatch(
+def test_periodic_oracle_receipt_rejects_legacy_point_schema(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
-    alias_name: str,
 ) -> None:
     tool = _load_tool()
     validation_root = tmp_path / "validation"
@@ -3168,25 +3099,14 @@ def test_periodic_oracle_receipt_rejects_legacy_alias_mismatch(
         library=binary,
     )
     library = Path(manifest["analysis_library"]["staged_path"])
-    nested_triangle = _fake_periodic_kernel_oracle(
-        "triangle_p0", "triangle_p0_exact_p2m_near"
-    )
-    alias = json.loads(json.dumps(nested_triangle[alias_name]))
-    if alias_name == "uniform_plane":
-        alias["nonzero_relative_error"] = 0.02
-    else:
-        alias["errors"][1]["field_relative_error"] = 0.05
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
         library,
-        overrides={alias_name: alias},
+        overrides={"oracle_schema_version": 2},
     )
 
-    with pytest.raises(
-        tool.ValidationError,
-        match=r"legacy.*alias|alias.*triangle_p0",
-    ):
+    with pytest.raises(tool.ValidationError, match="no longer matches staging"):
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 
@@ -3222,12 +3142,12 @@ def test_periodic_oracle_receipt_gates_effective_backend_and_cache_diagnostics(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     kernel_oracles = _fake_periodic_kernel_oracles()
-    production = kernel_oracles["production_point"]
-    if field_name in production["effective_field_contract"]:
-        production["effective_field_contract"][field_name] = tampered_value
+    oracle = kernel_oracles["triangle_p0"]
+    if field_name in oracle["effective_field_contract"]:
+        oracle["effective_field_contract"][field_name] = tampered_value
     else:
         key = field_name.removeprefix("cache_")
-        production["cache_identities"]["4"][key] = tampered_value
+        oracle["cache_identities"]["4"][key] = tampered_value
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
@@ -3242,12 +3162,12 @@ def test_periodic_oracle_receipt_gates_effective_backend_and_cache_diagnostics(
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 
-@pytest.mark.parametrize("missing_model", ["triangle_p0", "production_point"])
-def test_periodic_oracle_receipt_requires_both_kernel_models(
+@pytest.mark.parametrize("mutation", ["missing", "extra_legacy"])
+def test_periodic_oracle_receipt_requires_only_triangle_kernel_model(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
-    missing_model: str,
+    mutation: str,
 ) -> None:
     tool = _load_tool()
     validation_root = tmp_path / "validation"
@@ -3259,7 +3179,12 @@ def test_periodic_oracle_receipt_requires_both_kernel_models(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     kernel_oracles = _fake_periodic_kernel_oracles()
-    del kernel_oracles[missing_model]
+    if mutation == "missing":
+        del kernel_oracles["triangle_p0"]
+    else:
+        kernel_oracles["legacy_point"] = copy.deepcopy(
+            kernel_oracles["triangle_p0"]
+        )
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
@@ -3267,11 +3192,11 @@ def test_periodic_oracle_receipt_requires_both_kernel_models(
         kernel_oracles=kernel_oracles,
     )
 
-    with pytest.raises(tool.ValidationError, match=missing_model):
+    with pytest.raises(tool.ValidationError, match="kernel model set mismatch"):
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 
-def test_periodic_oracle_receipt_rejects_point_config_tampering(
+def test_periodic_oracle_receipt_rejects_triangle_config_tampering(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
@@ -3286,24 +3211,24 @@ def test_periodic_oracle_receipt_rejects_point_config_tampering(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     _write_periodic_oracle_receipt(tool, validation_root, library)
-    point_config = validation_root / "provenance/oracles/periodic_plane_point.toml"
-    point_config.write_text(
-        point_config.read_text(encoding="utf-8") + "\n# tampered\n",
+    config = validation_root / "provenance/oracles/periodic_plane.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8") + "\n# tampered\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(tool.ValidationError, match="production_point.*config"):
+    with pytest.raises(tool.ValidationError, match="config"):
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 
 @pytest.mark.parametrize(
     ("field_name", "tampered_value"),
     [
-        ("field_source_model", "triangle_p0"),
-        ("field_kernel_id", "triangle_p0_exact_p2m_near"),
+        ("field_source_model", "point"),
+        ("field_kernel_id", "softened_point"),
     ],
 )
-def test_periodic_oracle_receipt_rejects_nonproduction_point_identity(
+def test_periodic_oracle_receipt_rejects_legacy_kernel_identity(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
@@ -3320,7 +3245,7 @@ def test_periodic_oracle_receipt_rejects_nonproduction_point_identity(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     kernel_oracles = _fake_periodic_kernel_oracles()
-    kernel_oracles["production_point"][field_name] = tampered_value
+    kernel_oracles["triangle_p0"][field_name] = tampered_value
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
@@ -3351,7 +3276,7 @@ def test_periodic_oracle_receipt_gates_triangle_integration_structure(
     kernel_oracles = _fake_periodic_kernel_oracles()
     triangle = kernel_oracles["triangle_p0"]["uniform_plane"]
     if mutation == "integration":
-        triangle["target_integration"] = "point_centroid"
+        triangle["target_integration"] = "centroid"
     elif mutation == "orders":
         triangle["quadrature_order"] = [7, 7]
     else:
@@ -3404,7 +3329,7 @@ def test_periodic_oracle_receipt_gates_triangle_component_identities(
 
 
 @pytest.mark.parametrize("oracle_kind", ["uniform", "cosine"])
-def test_periodic_oracle_receipt_rejects_production_point_threshold_excess(
+def test_periodic_oracle_receipt_rejects_triangle_threshold_excess(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
@@ -3420,11 +3345,11 @@ def test_periodic_oracle_receipt_rejects_production_point_threshold_excess(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     kernel_oracles = _fake_periodic_kernel_oracles()
-    production = kernel_oracles["production_point"]
+    oracle = kernel_oracles["triangle_p0"]
     if oracle_kind == "uniform":
-        production["uniform_plane"]["nonzero_relative_error"] = 0.13
+        oracle["uniform_plane"]["nonzero_relative_error"] = 0.13
     else:
-        production["neutral_cosine_plane"]["errors"][1][
+        oracle["neutral_cosine_plane"]["errors"][1][
             "field_relative_error"
         ] = 0.09
     _write_periodic_oracle_receipt(
@@ -3435,99 +3360,6 @@ def test_periodic_oracle_receipt_rejects_production_point_threshold_excess(
     )
 
     with pytest.raises(tool.ValidationError, match="threshold"):
-        tool._verify_periodic_oracle_receipt(validation_root, library)
-
-
-@pytest.mark.parametrize(
-    ("summary_key", "row_key"),
-    [
-        ("force_relative_errors", "force_relative_error"),
-        (
-            "force_transverse_relative_errors",
-            "transverse_relative_error",
-        ),
-        ("torque_relative_errors", "torque_relative_error"),
-    ],
-)
-def test_periodic_oracle_receipt_rejects_worse_fine_point_wrench_error(
-    archive_run: Path,
-    binary: Path,
-    tmp_path: Path,
-    summary_key: str,
-    row_key: str,
-) -> None:
-    tool = _load_tool()
-    validation_root = tmp_path / "validation"
-    manifest = tool.stage_validation(
-        archive_run,
-        validation_root,
-        binary,
-        library=binary,
-    )
-    library = Path(manifest["analysis_library"]["staged_path"])
-    kernel_oracles = _fake_periodic_kernel_oracles()
-    uniform = kernel_oracles["production_point"]["uniform_plane"]
-    coarse_error = float(uniform[summary_key][0])
-    worse_fine_error = coarse_error + 1.0e-3
-    uniform[summary_key][1] = worse_fine_error
-    uniform["wrench_refinement"][1][row_key] = worse_fine_error
-    _write_periodic_oracle_receipt(
-        tool,
-        validation_root,
-        library,
-        kernel_oracles=kernel_oracles,
-    )
-
-    with pytest.raises(
-        tool.ValidationError,
-        match="production point-plane|production_point",
-    ):
-        tool._verify_periodic_oracle_receipt(validation_root, library)
-
-
-@pytest.mark.parametrize("collision_kind", ["fingerprint", "path"])
-def test_periodic_oracle_receipt_rejects_cross_model_cache_collision(
-    archive_run: Path,
-    binary: Path,
-    tmp_path: Path,
-    collision_kind: str,
-) -> None:
-    tool = _load_tool()
-    validation_root = tmp_path / "validation"
-    manifest = tool.stage_validation(
-        archive_run,
-        validation_root,
-        binary,
-        library=binary,
-    )
-    library = Path(manifest["analysis_library"]["staged_path"])
-    kernel_oracles = _fake_periodic_kernel_oracles()
-    triangle_cache = kernel_oracles["triangle_p0"]["cache_identities"]["4"]
-    point_oracle = kernel_oracles["production_point"]
-    point_cache = point_oracle["cache_identities"]["4"]
-    if collision_kind == "fingerprint":
-        point_cache["fingerprint"] = triangle_cache["fingerprint"]
-        for evaluation in point_oracle["cache_evaluations"]:
-            if evaluation["label"] in {"uniform_4", "cosine_4"}:
-                evaluation["fingerprint"] = triangle_cache["fingerprint"]
-    else:
-        point_cache["path"] = str(
-            (
-                validation_root
-                / "cache/oracles/operator-triangle_p0-4.bin"
-            ).resolve()
-        )
-        for evaluation in point_oracle["cache_evaluations"]:
-            if evaluation["label"] in {"uniform_4", "cosine_4"}:
-                evaluation["path"] = point_cache["path"]
-    _write_periodic_oracle_receipt(
-        tool,
-        validation_root,
-        library,
-        kernel_oracles=kernel_oracles,
-    )
-
-    with pytest.raises(tool.ValidationError, match="cache"):
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 
@@ -3544,7 +3376,7 @@ def test_periodic_oracle_receipt_rejects_cross_model_cache_collision(
         "group_collision",
     ],
 )
-def test_periodic_oracle_receipt_binds_every_model_cache_evaluation(
+def test_periodic_oracle_receipt_binds_every_triangle_cache_evaluation(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
@@ -3560,19 +3392,17 @@ def test_periodic_oracle_receipt_binds_every_model_cache_evaluation(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     kernel_oracles = _fake_periodic_kernel_oracles()
-    evaluations = kernel_oracles["production_point"]["cache_evaluations"]
+    oracle = kernel_oracles["triangle_p0"]
+    evaluations = oracle["cache_evaluations"]
     if mutation == "missing_label":
         evaluations.pop()
     elif mutation == "duplicate_label":
         evaluations[-1]["label"] = evaluations[0]["label"]
     elif mutation == "fingerprint_drift":
-        evaluations[-1]["fingerprint"] = "drifted-point-cache"
+        evaluations[-1]["fingerprint"] = "drifted-triangle-cache"
     elif mutation == "path_drift":
         evaluations[-1]["path"] = str(
-            (
-                validation_root
-                / "cache/oracles/operator-triangle-p0.bin"
-            ).resolve()
+            (validation_root / "cache/oracles/operator-unbound.bin").resolve()
         )
     elif mutation == "sha256_drift":
         evaluations[-1]["sha256"] = "0" * 64
@@ -3581,13 +3411,12 @@ def test_periodic_oracle_receipt_binds_every_model_cache_evaluation(
     elif mutation == "cache_build":
         evaluations[-1]["build_count"] = 1
     else:
-        production = kernel_oracles["production_point"]
-        production["cache_identities"]["8"] = copy.deepcopy(
-            production["cache_identities"]["4"]
+        oracle["cache_identities"]["8"] = copy.deepcopy(
+            oracle["cache_identities"]["4"]
         )
-        coarse = production["cache_identities"]["4"]
+        coarse = oracle["cache_identities"]["4"]
         for evaluation in evaluations:
-            if evaluation["label"] in {"uniform_8", "cosine_8", "point_primary"}:
+            if evaluation["label"] == "cosine_8":
                 for key in ("fingerprint", "path", "sha256"):
                     evaluation[key] = coarse[key]
     _write_periodic_oracle_receipt(
@@ -3598,125 +3427,6 @@ def test_periodic_oracle_receipt_binds_every_model_cache_evaluation(
     )
 
     with pytest.raises(tool.ValidationError, match="cache evaluation|4/8 cache"):
-        tool._verify_periodic_oracle_receipt(validation_root, library)
-
-
-@pytest.mark.parametrize(
-    "mutation", ["missing", "field_error", "scale", "ordinary"]
-)
-def test_periodic_oracle_receipt_requires_softened_point_micro_oracle(
-    archive_run: Path,
-    binary: Path,
-    tmp_path: Path,
-    mutation: str,
-) -> None:
-    tool = _load_tool()
-    validation_root = tmp_path / "validation"
-    manifest = tool.stage_validation(
-        archive_run,
-        validation_root,
-        binary,
-        library=binary,
-    )
-    library = Path(manifest["analysis_library"]["staged_path"])
-    kernel_oracles = _fake_periodic_kernel_oracles()
-    production = kernel_oracles["production_point"]
-    if mutation == "missing":
-        del production["softened_point_micro_oracle"]
-    elif mutation == "field_error":
-        production["softened_point_micro_oracle"]["field_relative_error"] = 2.0e-11
-    elif mutation == "scale":
-        production["softened_point_micro_oracle"]["softening_to_period_ratio"] = 2.0e-6
-    else:
-        production["softened_point_micro_oracle"][
-            "ordinary_field_relative_mismatch"
-        ] = 2.0e-11
-    _write_periodic_oracle_receipt(
-        tool,
-        validation_root,
-        library,
-        kernel_oracles=kernel_oracles,
-    )
-
-    with pytest.raises(tool.ValidationError, match="softened-point"):
-        tool._verify_periodic_oracle_receipt(validation_root, library)
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        "missing_refinement",
-        "nondecreasing_refinement",
-        "charge",
-        "parity",
-        "integration",
-        "potential",
-        "field_cells",
-        "component",
-        "component_identity",
-        "primary",
-    ],
-)
-def test_periodic_oracle_receipt_gates_point_plane_structure(
-    archive_run: Path,
-    binary: Path,
-    tmp_path: Path,
-    mutation: str,
-) -> None:
-    tool = _load_tool()
-    validation_root = tmp_path / "validation"
-    manifest = tool.stage_validation(
-        archive_run,
-        validation_root,
-        binary,
-        library=binary,
-    )
-    library = Path(manifest["analysis_library"]["staged_path"])
-    kernel_oracles = _fake_periodic_kernel_oracles()
-    production = kernel_oracles["production_point"]
-    if mutation == "missing_refinement":
-        del production["uniform_plane"]["point_source_refinement"]
-    elif mutation == "nondecreasing_refinement":
-        production["uniform_plane"]["point_source_refinement"][1][
-            "off_surface_modulation_rms_V_m"
-        ] = 0.04
-    elif mutation == "charge":
-        production["neutral_cosine_plane"]["errors"][1][
-            "charge_neutrality_ratio"
-        ] = 1.0e-8
-    elif mutation == "parity":
-        production["neutral_cosine_plane"]["errors"][1][
-            "field_parity_relative_error"
-        ] = 0.09
-    elif mutation == "integration":
-        production["uniform_plane"]["target_integration"] = "gauss_duffy"
-    elif mutation == "potential":
-        production["uniform_plane"]["potential_nonzero_relative_error"] = 0.13
-    elif mutation == "field_cells":
-        production["uniform_plane"]["field_cells_per_axis"] = 4
-    elif mutation == "component":
-        production["uniform_plane"]["wrench_refinement"][1][
-            "component_consistency_relative_error"
-        ] = 0.02
-    elif mutation == "component_identity":
-        production["uniform_plane"]["wrench_refinement"][1][
-            "other_objects_normalized_absolute"
-        ] = 1.0e-5
-    else:
-        production["uniform_plane"]["primary_self_subtraction"][
-            "potential_relative_error"
-        ] = 2.0e-11
-    _write_periodic_oracle_receipt(
-        tool,
-        validation_root,
-        library,
-        kernel_oracles=kernel_oracles,
-    )
-
-    with pytest.raises(
-        tool.ValidationError,
-        match="production point-plane|production_point",
-    ):
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 

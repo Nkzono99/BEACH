@@ -33,10 +33,10 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         help="history batch step used for charges (-1: latest history)",
     )
     parser.add_argument(
-        "--softening",
-        type=float,
-        default=0.0,
-        help="softening length [m] for Coulomb-force evaluation",
+        "--library",
+        type=Path,
+        default=None,
+        help="path to libbeach_field_kernel shared library",
     )
     parser.add_argument(
         "--gravity",
@@ -199,7 +199,6 @@ def run(args: argparse.Namespace) -> None:
     """Execute the Coulomb mobility command."""
 
     parser = args._parser
-    require_nonnegative_finite(parser, args.softening, "--softening")
     require_nonnegative_finite(parser, args.adhesion_force_N, "--adhesion-force-N")
     require_positive_finite(parser, args.density_kg_m3, "--density-kg-m3")
     require_nonnegative_finite(parser, args.mu_static, "--mu-static")
@@ -226,8 +225,8 @@ def run(args: argparse.Namespace) -> None:
     try:
         analysis = beach.analyze_coulomb_mobility(
             step=args.step,
-            softening=args.softening,
             config_path=args.config,
+            library_path=args.library,
             gravity=args.gravity,
             support_normal=args.support_normal,
             support_kinds=support_kinds,

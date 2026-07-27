@@ -8,6 +8,11 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 import numpy as np
 
 from .context import RunContext
+from .kernel import (
+    _options_from_result,
+    _require_total_field_config,
+    _require_total_field_reconstruction,
+)
 from .mesh import (
     _configure_mesh_axes,
     _maybe_apply_periodic2_mesh,
@@ -19,10 +24,12 @@ from .potential import (
     _coerce_periodic2,
     _potential_history,
     _resolve_reference_point,
-    _resolve_self_term,
-    _resolve_softening,
 )
-from .selection import _require_history, _require_triangles
+from .selection import (
+    _require_history,
+    _require_triangle_source_model,
+    _require_triangles,
+)
 from .types import FortranRunResult
 
 if TYPE_CHECKING:
@@ -38,14 +45,13 @@ def animate_history_mesh(
     frame_stride: int = 1,
     total_frames: int | None = None,
     cmap: str | None = None,
-    softening: float | None = None,
-    self_term: str = "auto",
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
     periodic2_repeat: int = 0,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
     view_elev: float | None = None,
     view_azim: float | None = None,
+    library_path: str | Path | None = None,
 ) -> Path | FuncAnimation:
     """Render mesh history as an animation.
 
@@ -65,11 +71,6 @@ def animate_history_mesh(
         Evenly sampled frame count. Cannot be combined with ``frame_stride != 1``.
     cmap : str or None, default None
         Matplotlib colormap name. ``None`` uses quantity-specific defaults.
-    softening : float or None, default None
-        Softening length in meters (used for potential mode). ``None`` は
-        ``sim.softening`` を自動参照する。
-    self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-        Potential self-term model (used for potential mode).
     periodic2 : mapping or None, default None
         Two-axis periodic setting for potential mode. ``None`` の場合は
         出力ディレクトリ近傍の ``beach.toml`` から自動判定する。
@@ -139,27 +140,46 @@ def animate_history_mesh(
         title_prefix = "Surface charge density history"
         use_cmap = "coolwarm" if cmap is None else cmap
     elif quantity_key == "potential":
-        resolved_softening = _resolve_softening(
-            resolved,
-            softening,
-            context=context,
+        _require_triangle_source_model(resolved)
+        periodic_cfg = _coerce_periodic2(
+            periodic2,
+            allow_cached_kneq0=True,
         )
-        self_term_key = _resolve_self_term(self_term, resolved_softening)
-        periodic_cfg = _coerce_periodic2(periodic2)
         if periodic_cfg is None:
-            periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
+            periodic_cfg = _auto_periodic2_from_result(
+                resolved,
+                allow_cached_kneq0=True,
+                context=context,
+            )
         resolved_reference = _resolve_reference_point(
             resolved,
             reference_point,
             context=context,
         )
+        _require_total_field_config(
+            context,
+            operation="potential history recomputation",
+        )
+        field_options = _options_from_result(
+            resolved,
+            periodic2=periodic_cfg,
+            theta=None,
+            leaf_max=None,
+            order=4,
+            config_path=context.requested_config_path,
+            context=context,
+        )
+        _require_total_field_reconstruction(
+            context,
+            field_options,
+            operation="potential history recomputation",
+        )
         values_history = _potential_history(
             charges_sampled,
             triangles,
-            softening=resolved_softening,
-            self_term=self_term_key,
-            periodic2=periodic_cfg,
             reference_point=resolved_reference,
+            field_options=field_options,
+            library_path=library_path,
         )
         colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
         title_prefix = "Electric potential history" if resolved_reference is None else "Electric potential difference history"

@@ -30,9 +30,8 @@ module bem_physics_config_types
   end type periodic2_physics_config
 
   type, public :: panel_kernel_config
-    character(len=32) :: source_model = 'point'
-    character(len=32) :: kernel_id = 'softened_point'
-    character(len=32) :: surface_side_policy = 'not_applicable'
+    character(len=32) :: kernel_id = 'triangle_p0_exact_auto'
+    character(len=32) :: surface_side_policy = 'per_element'
   end type panel_kernel_config
 
   type, public :: outer_plasma_config
@@ -61,7 +60,6 @@ module bem_physics_config_types
   end type coupling_config
 
   public :: normalize_legacy_physics_config
-  public :: validate_phase0_physics_config
   public :: validate_phase1_panel_config
   public :: validate_active_physics_config
 
@@ -85,6 +83,16 @@ contains
 
     field%backend = lower_ascii(trim(sim%field_solver))
     field%normalization = lower_ascii(trim(sim%field_normalization))
+    select case (trim(field%backend))
+    case ('direct')
+      panel%kernel_id = 'triangle_p0_exact_direct'
+    case ('treecode')
+      panel%kernel_id = 'triangle_p0_exact_tree_near'
+    case ('fmm')
+      panel%kernel_id = 'triangle_p0_exact_p2m_near'
+    case default
+      panel%kernel_id = 'triangle_p0_exact_auto'
+    end select
     bc_mode = lower_ascii(trim(sim%field_bc_mode))
     if (trim(bc_mode) /= 'periodic2') return
 
@@ -107,108 +115,19 @@ contains
     end if
   end subroutine normalize_legacy_physics_config
 
-  !> Phase 0 で実装済みの組合せだけを許可し、将来 mode は fail closed にする。
-  subroutine validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
-    type(field_physics_config), intent(in) :: field
-    type(periodic2_physics_config), intent(in) :: periodic2
-    type(panel_kernel_config), intent(in) :: panel
-    type(outer_plasma_config), intent(in) :: outer
-    type(coupling_config), intent(in) :: coupling
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
-    character(len=32) :: backend, normalization, source_model, nonzero_backend, zero_policy
-
-    call validate_kinetic_closure_config(outer, status, message)
-    if (status /= physics_config_ok) return
-    call validate_photoelectron_config(outer, status, message)
-    if (status /= physics_config_ok) return
-    status = physics_config_ok
-    message = ''
-    backend = lower_ascii(trim(field%backend))
-    normalization = lower_ascii(trim(field%normalization))
-    source_model = lower_ascii(trim(panel%source_model))
-    nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
-    zero_policy = lower_ascii(trim(periodic2%zero_mode_policy))
-
-    select case (trim(backend))
-    case ('direct', 'treecode', 'fmm', 'auto')
-      continue
-    case default
-      call reject(physics_config_invalid_combination, 'Unknown field backend.', status, message)
-      return
-    end select
-    select case (trim(normalization))
-    case ('si', 'box', 'mesh', 'length')
-      continue
-    case default
-      call reject(physics_config_invalid_combination, 'Unknown field normalization.', status, message)
-      return
-    end select
-
-    if (trim(source_model) /= 'point') then
-      call reject(physics_config_unavailable, 'Only point sources are available in Phase 0.', status, message)
-      return
-    end if
-    if (trim(lower_ascii(outer%model)) /= 'none' .or. &
-        trim(lower_ascii(coupling%particle_transfer_mode)) /= 'none') then
-      call reject(physics_config_unavailable, 'Outer plasma coupling is not available in Phase 0.', status, message)
-      return
-    end if
-    if (coupling%outer_update_stride < 1_i32) then
-      call reject(physics_config_invalid_combination, 'coupling.outer_update_stride must be >= 1.', status, message)
-      return
-    end if
-
-    select case (trim(nonzero_backend))
-    case ('not_applicable')
-      if (trim(zero_policy) /= 'not_applicable') then
-        call reject(physics_config_invalid_combination, 'Free-space mode cannot select a zero-mode policy.', status, message)
-      end if
-    case ('legacy_finite_images')
-      if (trim(zero_policy) /= 'legacy_not_decomposed') then
-        call reject( &
-          physics_config_invalid_combination, &
-          'legacy_finite_images requires zero_mode_policy=legacy_not_decomposed.', status, message &
-          )
-      end if
-    case ('reference_kneq0')
-      if (trim(zero_policy) /= 'exclude_k0') then
-        call reject(physics_config_invalid_combination, 'kneq0 backends require zero_mode_policy=exclude_k0.', status, message)
-      else
-        call reject(physics_config_unavailable, 'Separated k0/kneq0 physics is not available in Phase 0.', status, message)
-      end if
-    case ('cached_kneq0')
-      if (trim(zero_policy) /= 'exclude_k0') then
-        call reject(physics_config_invalid_combination, 'cached_kneq0 requires zero_mode_policy=exclude_k0.', status, message)
-      end if
-    case default
-      call reject(physics_config_invalid_combination, 'Unknown periodic2 nonzero-mode backend.', status, message)
-    end select
-  end subroutine validate_phase0_physics_config
-
-  !> triangle_p0 direct/treecode/FMM kernel の solver/boundary/softening 契約を検証する。
+  !> triangle_p0 direct/treecode/FMM kernel の solver/boundary 契約を検証する。
   subroutine validate_phase1_panel_config(sim, panel, status, message)
     type(sim_config), intent(in) :: sim
     type(panel_kernel_config), intent(in) :: panel
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
-    character(len=32) :: source_model, kernel_id, solver, boundary
+    character(len=32) :: kernel_id, solver, boundary
 
     status = physics_config_ok
     message = ''
-    source_model = lower_ascii(trim(panel%source_model))
     kernel_id = lower_ascii(trim(panel%kernel_id))
     solver = lower_ascii(trim(sim%field_solver))
     boundary = lower_ascii(trim(sim%field_bc_mode))
-    if (trim(source_model) == 'point') return
-    if (trim(source_model) /= 'triangle_p0') then
-      call reject(physics_config_invalid_combination, 'Unknown panel source model.', status, message)
-      return
-    end if
-    if (sim%softening /= 0.0_dp) then
-      call reject(physics_config_invalid_combination, 'triangle_p0 requires softening=0.', status, message)
-      return
-    end if
     select case (trim(solver))
     case ('direct')
       if (trim(kernel_id) /= 'triangle_p0_exact_direct' .or. trim(boundary) /= 'free') then
@@ -249,6 +168,14 @@ contains
     type(external_boundary_contract_type) :: boundary_contract
     integer(i32) :: boundary_status
 
+    if (trim(lower_ascii(coupling%update_mode)) /= 'explicit') then
+      call reject(physics_config_invalid_combination, 'coupling.update_mode must be explicit.', status, message)
+      return
+    end if
+    if (coupling%outer_update_stride < 1_i32) then
+      call reject(physics_config_invalid_combination, 'coupling.outer_update_stride must be >= 1.', status, message)
+      return
+    end if
     call resolve_external_boundary_contract( &
       sim%reservoir_potential_model, sim%open_boundary_model, outer%model, &
       outer%kinetic_closure, outer%return_model, coupling%particle_transfer_mode, coupling%outer_queue_enabled, &
@@ -273,16 +200,38 @@ contains
       call validate_cached_periodic_config(sim, field, periodic2, panel, outer, coupling, status, message)
       return
     end if
-    if (trim(nonzero_backend) /= 'panel_spectral_reference') then
-      if (trim(lower_ascii(panel%source_model)) == 'triangle_p0') then
-        call validate_phase1_panel_config(sim, panel, status, message)
-        if (status /= physics_config_ok) return
-        if (trim(lower_ascii(outer%model)) /= 'none') then
-          call reject(physics_config_unavailable, 'Free-space triangle_p0 does not support outer plasma.', status, message)
-        end if
-      else
-        call validate_phase0_physics_config(field, periodic2, panel, outer, coupling, status, message)
+    if (trim(nonzero_backend) == 'not_applicable') then
+      if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'not_applicable') then
+        call reject( &
+          physics_config_invalid_combination, &
+          'Free-space mode requires zero_mode_policy=not_applicable.', status, message &
+          )
+        return
       end if
+      call validate_phase1_panel_config(sim, panel, status, message)
+      if (status /= physics_config_ok) return
+      if (trim(lower_ascii(outer%model)) /= 'none') then
+        call reject(physics_config_unavailable, 'Free-space triangle_p0 does not support outer plasma.', status, message)
+      end if
+      return
+    end if
+    if (trim(nonzero_backend) == 'legacy_finite_images') then
+      if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'legacy_not_decomposed') then
+        call reject( &
+          physics_config_invalid_combination, &
+          'legacy_finite_images requires zero_mode_policy=legacy_not_decomposed.', status, message &
+          )
+        return
+      end if
+      call validate_phase1_panel_config(sim, panel, status, message)
+      if (status /= physics_config_ok) return
+      if (trim(lower_ascii(outer%model)) /= 'none') then
+        call reject(physics_config_unavailable, 'Free-space triangle_p0 does not support outer plasma.', status, message)
+      end if
+      return
+    end if
+    if (trim(nonzero_backend) /= 'panel_spectral_reference') then
+      call reject(physics_config_invalid_combination, 'Unknown periodic nonzero-mode backend.', status, message)
       return
     end if
 
@@ -316,11 +265,10 @@ contains
         )
       return
     end if
-    if (trim(lower_ascii(panel%source_model)) /= 'triangle_p0' .or. &
-        trim(lower_ascii(panel%kernel_id)) /= 'triangle_p0_exact_direct' .or. sim%softening /= 0.0_dp) then
+    if (trim(lower_ascii(panel%kernel_id)) /= 'triangle_p0_exact_direct') then
       call reject( &
         physics_config_invalid_combination, &
-        'panel_spectral_reference requires triangle_p0_exact_direct and softening=0.', status, message &
+        'panel_spectral_reference requires triangle_p0_exact_direct.', status, message &
         )
       return
     end if
@@ -651,11 +599,7 @@ contains
       call reject(physics_config_unavailable, 'cached_kneq0 received an unsupported outer-plasma model.', status, message)
       return
     end select
-    if (trim(lower_ascii(panel%source_model)) == 'triangle_p0') then
-      call validate_phase1_panel_config(sim, panel, status, message)
-    else if (trim(lower_ascii(panel%source_model)) /= 'point') then
-      call reject(physics_config_invalid_combination, 'cached_kneq0 received an unknown source model.', status, message)
-    end if
+    call validate_phase1_panel_config(sim, panel, status, message)
   end subroutine validate_cached_periodic_config
 
   pure logical function supported_lower_boundary(model) result(supported)

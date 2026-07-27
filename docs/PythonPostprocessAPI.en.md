@@ -45,7 +45,10 @@ This high-level interface binds one output directory and provides the main analy
 b = Beach("outputs/latest")
 ```
 
-You can explicitly specify the configuration file as in `Beach("outputs/latest", config_path="path/to/beach.toml")`. When `config_path=None`, BEACH searches automatically in order through `output_dir/beach.toml`, the parent directory, and the grandparent directory. Config-aware object/kernel analyses resolve object kind/order, `sim.softening`, periodic2, and tree parameters from this `beach.toml`.
+You can explicitly specify the configuration file as in `Beach("outputs/latest", config_path="path/to/beach.toml")`. When `config_path=None`, BEACH searches automatically in order through `output_dir/beach.toml`, the parent directory, and the grandparent directory. Config-aware object/kernel analyses resolve object kind/order, periodic2, and tree parameters from this `beach.toml`.
+High-level APIs that recompute the total field require this file rather than
+guessing boundary, uniform-field, or outer-field policies. It is not required
+when reading an unchanged simulator-written `mesh_potential.csv`.
 
 ### 2.1 Constructor
 
@@ -162,31 +165,34 @@ trusted in-memory path whose caller supplies the dense matrix.
 
 ## 4. Potential Reconstruction
 
-### 4.1 `compute_potential_mesh(result, *, softening, self_term, periodic2, reference_point)`
+### 4.1 `compute_potential_mesh(result, *, periodic2, reference_point, config_path, library_path)`
 
-Reconstructs the potential at triangle centroids. If Fortran has already output `mesh_potential.csv` and the conditions match, that output is preferred.
+Evaluates potential at triangle centroids with the native P0 triangle panel
+kernel. If Fortran has already output `mesh_potential.csv` and the conditions
+match, that output is preferred.
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
 | `result` | `FortranRunResult \| object` | (required) | - | Result object |
-| `softening` | `float \| None` | `None` | m | When `None`, automatically references `sim.softening` |
-| `self_term` | `str` | `"auto"` | - | Self interaction: `"auto"` / `"area_equivalent"` / `"exclude"` / `"softened_point"` |
 | `periodic2` | `Mapping \| None` | `None` | - | Two-axis periodic settings, described below. `None` enables automatic detection |
 | `reference_point` | `Iterable[float] \| str \| None` | `None` | m | Reference potential point. `"species1_injection_center"` means the species 1 injection-face center |
+| `config_path` | `str \| Path \| None` | `None` | - | Explicit `beach.toml` path |
+| `library_path` | `str \| Path \| None` | `None` | - | Explicit native field-kernel library path |
 
 Return value: `ndarray (mesh_nelem,)` [V]
 
-### 4.2 `compute_potential_points(result, points, *, softening, chunk_size, periodic2, reference_point)`
+### 4.2 `compute_potential_points(result, points, *, chunk_size, periodic2, reference_point, config_path, library_path)`
 
 Computes the potential at arbitrary 3D points.
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
 | `points` | `ndarray (n_points, 3)` | (required) | m | Sampling point coordinates |
-| `softening` | `float \| None` | `None` | m | Automatic when `None` |
 | `chunk_size` | `int` | `2048` | - | Chunk size |
 | `periodic2` | `Mapping \| None` | `None` | - | Automatic detection when `None` |
 | `reference_point` | `Iterable[float] \| str \| None` | `None` | m | Reference potential point |
+| `config_path` | `str \| Path \| None` | `None` | - | Explicit `beach.toml` path |
+| `library_path` | `str \| Path \| None` | `None` | - | Explicit native field-kernel library path |
 
 Return value: `ndarray (n_points,)` [V]
 
@@ -198,7 +204,7 @@ Return value: `dict[str, PotentialSlice2D]` (keys: `"xy"`, `"yz"`, `"xz"`)
 
 ## 5. Coulomb Force/Torque Calculation
 
-### 5.1 `calc_coulomb(result, target, source, *, step, softening, torque_origin, periodic2)`
+### 5.1 `calc_coulomb(result, target, source, *, step, torque_origin, periodic2, quadrature_order, config_path, library_path)`
 
 Computes the Coulomb force and torque that the target mesh group receives from the source mesh group.
 
@@ -208,15 +214,18 @@ Computes the Coulomb force and torque that the target mesh group receives from t
 | `target` | `int \| MeshSelection \| Iterable` | (required) | - | Target mesh group (group A) |
 | `source` | `int \| MeshSelection \| Iterable` | (required) | - | Source mesh group (group B) |
 | `step` | `int \| None` | `-1` | - | History step. `-1` means latest; `None` means final charge |
-| `softening` | `float` | `0.0` | m | Softening length |
 | `torque_origin` | `str` | `"target_center"` | - | Torque reference point: `"target_center"` / `"source_center"` / `"origin"` |
 | `periodic2` | `Mapping \| None` | `None` | - | Two-axis periodic boundary settings. `None` enables automatic detection |
+| `quadrature_order` | `int` | `7` | - | Gauss-Duffy integration order for target panels |
+| `config_path` | `str \| Path \| None` | `None` | - | Explicit `beach.toml` path |
+| `library_path` | `str \| Path \| None` | `None` | - | Explicit native field-kernel library path |
 
 Return value: `CoulombInteraction`
 
 ### Periodic Coulomb Sum Using the `periodic2` Parameter
 
-When `periodic2` is specified, source-charge image shells `ix in [-nimg, nimg], iy in [-nimg, nimg]` are generated in the two periodic directions, and the Coulomb force/torque is computed as a nearest-cell sum.
+When `periodic2` is specified, the native field kernel is constructed with
+that two-axis periodic configuration for the force and torque evaluation.
 
 When `periodic2=None` (default), BEACH searches for `beach.toml` near the output directory and automatically applies periodic settings if `sim.field_bc_mode="periodic2"` is set. This uses the same automatic-detection logic as functions such as `compute_potential_mesh`.
 
@@ -227,7 +236,6 @@ When `periodic2=None` (default), BEACH searches for `beach.toml` near the output
 | `group_a_mesh_ids` | `tuple[int, ...]` | - | Target mesh IDs |
 | `group_b_mesh_ids` | `tuple[int, ...]` | - | Source mesh IDs |
 | `step` | `int \| None` | - | History step used |
-| `softening` | `float` | m | Softening length used |
 | `torque_origin_m` | `ndarray (3,)` | m | Torque reference point |
 | `force_on_a_N` | `ndarray (3,)` | N | Net force acting on group A |
 | `force_on_b_N` | `ndarray (3,)` | N | Net force acting on group B |
@@ -257,25 +265,24 @@ interaction_p = b.calc_coulomb(
 
 ## 6. Electric Field Calculation
 
-### 6.1 `compute_electric_field_points(result, points, *, softening, chunk_size, periodic2)`
+### 6.1 `compute_electric_field_points(result, points, *, chunk_size, periodic2, config_path, library_path)`
 
-Computes electric-field vectors at arbitrary 3D points directly from surface charges using Coulomb's law.
-
-Formula: `E(r) = K * sum_j q_j * (r - r_j) / |r - r_j|^3`
-
-Here, `r_j` is the centroid of triangle element `j`, and `q_j` is the element charge.
+Computes electric-field vectors at arbitrary 3D points with the native P0
+triangle panel kernel.
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
 | `result` | `FortranRunResult \| object` | (required) | - | Result object |
 | `points` | `ndarray (n_points, 3)` | (required) | m | Sampling point coordinates |
-| `softening` | `float \| None` | `None` | m | Softening length. When `None`, automatically references `sim.softening` |
 | `chunk_size` | `int` | `2048` | - | Chunk size |
 | `periodic2` | `Mapping \| None` | `None` | - | Two-axis periodic settings. `None` enables automatic detection |
+| `config_path` | `str \| Path \| None` | `None` | - | Explicit `beach.toml` path |
+| `library_path` | `str \| Path \| None` | `None` | - | Explicit native field-kernel library path |
 
 Return value: `ndarray (n_points, 3)` [V/m]
 
-In periodic2 mode, sampling points are wrapped into the periodic cell, and source-charge image shells are superposed with `ix in [-nimg, nimg], iy in [-nimg, nimg]`.
+In periodic2 mode, the native kernel evaluates finite images or the cached
+nonzero mode according to the configuration.
 
 ### Example
 
@@ -299,7 +306,7 @@ print(f"E-field [V/m]: {efield[0]}")
 
 ## 7. Electric Field-Line Tracing
 
-### 7.1 `trace_field_lines(result, seed_points, *, ds, max_steps, softening, periodic2, direction, box_min, box_max)`
+### 7.1 `trace_field_lines(result, seed_points, *, ds, max_steps, periodic2, direction, box_min, box_max, config_path, library_path)`
 
 Traces electric field lines from seed points in the electric-field direction, or in the opposite direction, using RK4 integration.
 
@@ -309,7 +316,6 @@ Traces electric field lines from seed points in the electric-field direction, or
 | `seed_points` | `ndarray (n_seeds, 3)` | (required) | m | Starting point coordinates for field lines |
 | `ds` | `float \| None` | `None` | m | Integration step size. When `None`, automatically set from average mesh edge length x 0.5 |
 | `max_steps` | `int` | `500` | - | Maximum number of integration steps in each direction |
-| `softening` | `float \| None` | `None` | m | Softening length. Automatic when `None` |
 | `periodic2` | `Mapping \| None` | `None` | - | Two-axis periodic settings. `None` enables automatic detection |
 | `direction` | `str` | `"both"` | - | Trace direction: `"forward"` (electric-field direction) / `"backward"` (opposite direction) / `"both"` (both directions) |
 | `box_min` | `Iterable[float] \| None` | `None` | m | Lower boundary-box limit. Stop when a field line exits this box |
@@ -326,9 +332,9 @@ Return value: `list[ndarray]` -- each element is a field-line coordinate array w
 
 #### Limitations
 
-- This is a direct-sum calculation on the Python side, so large meshes with tens of thousands of elements or more can take a long time
-- Fortran treecode/fmm is not used. Python-side electric-field calculation is only a direct sum over point charges at element centroids
-- In periodic2, only explicit image shells are reconstructed; oracle residuals (Ewald far correction) are not reproduced on the Python side
+- The native field-kernel shared library is required.
+- Every RK4 stage evaluates the field kernel, so cost grows with the seed count and `max_steps`.
+- Tracing does not stop on mesh collision; it stops at the field threshold, `max_steps`, or the configured box.
 
 ### Example
 
@@ -360,7 +366,6 @@ Draws electric field lines in 3D, optionally overlaying the mesh surface colored
 | `seed_points` | `ndarray (n_seeds, 3)` | (required) | Seed points [m] |
 | `ds` | `float \| None` | `None` | Integration step size [m] |
 | `max_steps` | `int` | `500` | Maximum number of steps |
-| `softening` | `float \| None` | `None` | Softening length [m] |
 | `periodic2` | `Mapping \| None` | `None` | Periodic settings |
 | `direction` | `str` | `"both"` | Trace direction |
 | `box_min` | `Iterable[float] \| None` | `None` | Lower boundary-box limit [m] |
@@ -419,7 +424,9 @@ The common `periodic2` parameter is available for potential reconstruction, Coul
 ### 8.1 Automatic Detection (`periodic2=None`)
 
 With the default `None`, BEACH searches for `beach.toml` near the output directory and automatically applies periodic boundary settings when `sim.field_bc_mode="periodic2"` is set.
-If no configuration file is found, or if `field_bc_mode` is not `periodic2`, calculations are performed in free-space mode.
+If no configuration file is found, high-level total-field reconstruction stops
+instead of silently falling back to free space. Free-space reconstruction is
+used only when the configuration explicitly sets `field_bc_mode="free"`.
 
 ### 8.2 Explicit Specification
 
@@ -455,12 +462,13 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 ### 8.3 Limitations of the Python-side periodic2 Implementation
 
 - On the Python side, periodic sums are reconstructed only by direct sums over explicit image shells
+- The native `cached_kneq0` operator returns only the $k\ne0$ component. General potential, field, and force APIs reject it rather than presenting it as the total field. Use a saved `mesh_potential.csv` or `ObjectInteractionSnapshot`, which explicitly composes the physical zero mode
 - Removed `m2l_root_oracle` metadata is accepted only when `periodic2=None` auto-discovers historical metadata near the output, and is normalized to `none` for the finite image shell. Explicit `periodic2` values and config paths are rejected. Python does not reproduce the Ewald correction
 - Larger `image_layers` improves accuracy but increases cost by a factor of `(2*N+1)^2`
 
 ## 9. Coulomb Mobility Analysis
 
-### 9.1 `analyze_coulomb_mobility(result, *, step, softening, config_path, gravity, support_normal, ...)`
+### 9.1 `analyze_coulomb_mobility(result, *, step, config_path, library_path, gravity, support_normal, ...)`
 
 Analyzes the tendency of each object to slide, roll, or lift under Coulomb forces.
 
@@ -470,7 +478,10 @@ Return value: `CoulombMobilityAnalysis` (stores a tuple of `CoulombMobilityRecor
 
 ### 10.1 `FieldKernel`
 
-Loads `build/libbeach_field_kernel.so`, generated by `make build-kernel`, through `ctypes` and evaluates electric fields and potentials using the same Fortran FMM core as the simulation. It reads softening, periodic2, and tree settings from `config_path` or an automatically discovered `beach.toml`.
+Loads `build/libbeach_field_kernel.so`, generated by `make build-kernel`,
+through `ctypes` and evaluates P0 triangle panel fields and potentials using the
+same Fortran field core as the simulation. It reads periodic2 and tree settings
+from `config_path` or an automatically discovered `beach.toml`.
 
 ```python
 from beach import Beach, FieldKernel
@@ -484,7 +495,10 @@ with FieldKernel.from_result(run) as kernel:
 If the shared library is located elsewhere, specify `library_path=` or the environment variable `BEACH_FIELD_KERNEL_LIB`.
 
 `eval_e()` and `eval_phi()` use the free, finite-periodic, or cached-periodic
-configuration with which the plan was built. `eval_e_direct()` and
+configuration with which the plan was built. For a cached plan, they return the
+`cached_kneq0` $k\ne0$ component plus `sim.e0`, not the simulator total field
+with its physical zero mode or active outer state. `FieldKernel` is the
+low-level API for handling that component explicitly. `eval_e_direct()` and
 `eval_phi_direct()` are **non-periodic exact-direct** diagnostics over the same
 source geometry and charges. The direct methods reject periodic plans and do
 not add uniform `sim.e0`. They are intended for small FMM accuracy or primary
@@ -495,15 +509,12 @@ free-space subtraction oracles, not as an infinite-periodic replacement.
 For each object, this API zeros its own source charges and calculates
 `sum(q_i E_not_self(r_i))` and torque. Its existing self policy is
 `exclude_target_lattice`: in a periodic calculation it removes both the target's
-primary source and that object's periodic images. It is also point-source only.
+primary source and that object's periodic images.
+This high-level API rejects an uncomposed `cached_kneq0` field.
 
 To retain an object's own periodic images when evaluating detachment, use
 `ObjectInteractionSnapshot.object_probe(...)` as described below. Its self
 policy is fixed to `exclude_primary_keep_images`.
-`compute_potential_mesh(..., self_term="area_equivalent")` is a separate
-centroid self-potential approximation and is not equivalent to either
-object-force self policy.
-
 ```python
 from beach import Beach
 
@@ -573,11 +584,12 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | Value | Field definition |
 |---|---|
 | `"configured"` | Uses the run's `beach.toml` unchanged. The result can therefore be free space, a finite shell with `far_correction="none"`, or cached periodic |
-| `"infinite_physical"` | For an x/y-periodic run, combines cached `k != 0` with the physical `k = 0` mode (`E_bottom=0`). Cache generation or reuse must succeed |
+| `"infinite_physical"` | For an x/y-periodic run, combines cached `k != 0` with the physical `k = 0` mode selected by `[periodic2].lower_boundary_model`. Cache generation or reuse must succeed |
 
 A complete `beach.toml` with `sim.box_min` and `sim.box_max` is required. The
-current release supports only `outer_plasma.model="none"`; it rejects an active
-outer field explicitly instead of silently omitting it.
+current release supports only `outer_plasma.model="none"` or
+`external_boundary.field.model="none"`; it rejects an active outer field
+explicitly instead of silently omitting it.
 
 When an x/y-periodic mesh crosses a cell seam, the snapshot keeps all-source
 geometry in the saved representation so it remains identical to the simulation
@@ -604,10 +616,10 @@ on its reference point, so retain `ObjectWrench.torque_origin_m` and
 `vertical_path()` records the reference point at every height in
 `numerical_metadata["torque_origin_m"]`.
 
-Point sources use element centroids for target integration. `triangle_p0` uses
-order-7 Gauss-Duffy area integration by default.
-`target_integration="centroid_compatibility"` is an explicitly labelled legacy
-comparison and is never selected by triangle `auto`.
+Target integration uses order-7 Gauss-Duffy area integration by default.
+`target_integration="centroid_compatibility"` is an explicitly labelled
+comparison with historical centroid integration and is never selected by
+`auto`.
 
 Mechanical force on a surface uses the principal-value (PV) zero-mode trace.
 The simulator particle pusher uses the one-sided `zero_mode_trace_plus` value at

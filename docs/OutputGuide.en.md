@@ -100,7 +100,9 @@ Join `charges.csv` to `mesh_triangles.csv` by `elem_idx`. For multiple meshes, u
 and the corresponding row in `mesh_sources.csv`.
 
 `mesh_potential.csv` is generated only with `output.write_mesh_potential = true` and contains final element-centroid
-potential. For `field_source_model="triangle_p0"`, use this file instead of reconstructing potential as point charges in Python.
+potential. Read this file to reuse the recorded values, or use
+`compute_potential_mesh` / `compute_potential_points` to evaluate arbitrary
+points with the native P0 panel kernel.
 
 ## History Files
 

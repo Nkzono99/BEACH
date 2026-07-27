@@ -323,7 +323,7 @@ contains
     end if
     call perf_region_begin(perf_region_commit_charge, t0)
     call commit_batch_charge( &
-      mesh, app%sim%q_floor, app%sim%softening, app%sim%e0, app%sim%field_bc_mode, &
+      mesh, app%sim%q_floor, app%sim%e0, app%sim%field_bc_mode, &
       workspace, rel, mpi_ctx &
       )
     call perf_region_end(perf_region_commit_charge, t0)
@@ -956,7 +956,7 @@ contains
   workspace%dq = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
   call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
   mesh%q_elem = mesh%q_elem + workspace%dq
-  call apply_surface_model_charge_relaxation(mesh, softening, external_e, field_bc_mode=field_bc_mode)
+  call apply_surface_model_charge_relaxation(mesh, external_e, field_bc_mode=field_bc_mode)
   workspace%dq = mesh%q_elem - workspace%q_before
   norm_dq = sqrt(sum(workspace%dq*workspace%dq))
   norm_q = sqrt(sum(mesh%q_elem*mesh%q_elem))

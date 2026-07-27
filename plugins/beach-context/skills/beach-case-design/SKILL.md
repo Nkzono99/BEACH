@@ -24,7 +24,8 @@ Use this skill when a user asks what parameter controls a phenomenon, how to bui
 - Identify the physical objective: reservoir plasma, photoelectron emission, object charging, periodic slab, mobility, force/torque, or workload test.
 - Separate physical controls from numerical controls:
   - physical: species charge/mass, density, temperature, drift velocity, injection face, external `e0`/`b0`, mesh/object geometry, photo current.
-  - numerical: `dt`, `batch_duration`, `batch_count`, `max_step`, macro-particle target, solver mode, softening, tree/FMM controls, history cadence.
+  - numerical: `dt`, `batch_duration`, `batch_count`, `max_step`, macro-particle target, solver mode, tree/FMM controls, history cadence.
+- Treat the P0 triangle panel as the fixed element source. Do not propose the removed `[field]` table or `sim.softening`.
 - Preserve comparable diagnostics across sweep cases: output flags, history cadence, seed policy, mesh resolution, and solver settings.
 - For sweeps, vary one primary physical control at a time unless the user explicitly asks for coupled scaling.
 - Estimate cost risk before proposing large batch/mesh/history settings.

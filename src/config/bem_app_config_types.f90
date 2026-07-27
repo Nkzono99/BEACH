@@ -84,7 +84,7 @@ module bem_app_config_types
 
   !> 実行条件・メッシュ入力・粒子注入・出力設定を一元管理する。
   type :: app_config
-    character(len=16) :: mesh_mode = 'auto'
+    character(len=16) :: mesh_mode = 'template'
     character(len=256) :: obj_path = 'examples/simple_plate.obj'
     character(len=16) :: mesh_surface_model = 'insulator'
     character(len=32) :: mesh_surface_side_policy = 'not_specified'
@@ -176,7 +176,7 @@ contains
   subroutine default_app_config(cfg)
     type(app_config), intent(out) :: cfg
 
-    cfg%mesh_mode = 'auto'
+    cfg%mesh_mode = 'template'
     cfg%obj_path = 'examples/simple_plate.obj'
     cfg%mesh_surface_model = 'insulator'
     cfg%mesh_epsilon_r = 1.0d0
@@ -202,7 +202,6 @@ contains
     cfg%sim%batch_count = 1_i32
     cfg%sim%max_step = 400
     cfg%sim%tol_rel = 1.0d-8
-    cfg%sim%softening = 1.0d-6
     cfg%sim%field_solver = 'auto'
     cfg%sim%field_normalization = 'si'
     cfg%sim%field_length_scale = 1.0d0
@@ -242,6 +241,7 @@ contains
     cfg%templates(1)%nx = 1
     cfg%templates(1)%ny = 1
     cfg%templates(1)%center = [0.0d0, 0.0d0, 0.0d0]
+    cfg%templates(1)%surface_side_policy = 'normal_plus'
     call normalize_legacy_physics_config( &
       cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
       )

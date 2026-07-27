@@ -44,9 +44,10 @@ program test_model_fingerprint
   call test_end()
 
   call test_begin('checkpoint_v4_default_model_fingerprint')
+  fp_a = model_fingerprint(cfg)
   call assert_true( &
-    model_fingerprint(cfg) == '4092D2A57AF9D0A0', &
-    'checkpoint-v4 default model fingerprint stream changed' &
+    fp_a == '080673E71F479214', &
+    'checkpoint-v4 default model fingerprint stream changed: got '//fp_a &
     )
   call test_end()
 

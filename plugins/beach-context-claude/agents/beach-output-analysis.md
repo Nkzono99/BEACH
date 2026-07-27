@@ -36,9 +36,9 @@ color: purple
 
 - 最初の確認には `beachx inspect outputs/latest` を優先する。
 - script では `from beach import Beach` を使う。
-- `beach.toml` が output directory 近傍にあるか確認し、解析時の object label、softening、periodic2 設定に使う。
+- `beach.toml` が output directory 近傍にあるか確認し、解析時の object label、periodic2、tree/FMM 設定に使う。
 - abnormal result では `absorbed`, `escaped_boundary`, `survived_max_step`, `last_rel_change`、charge sign/scale、mesh placement、injection を比較する。
-- periodic2 では Python 側の direct reconstruction が Fortran FMM far correction を完全再現しない点を明示する。
+- field/potential解析ではnative P0 panel kernelを使い、共有libraryとperiodic2設定がrunに一致するか確認する。
 
 ## 出力形式
 

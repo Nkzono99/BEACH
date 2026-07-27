@@ -159,7 +159,7 @@ beachx kernel-forces outputs/latest \
 
 `beachx coulomb` は、`beach.toml` の `mesh.templates` が見つかれば object の kind と順序をそこから読み取り、既定では全 object を target 軸に並べて行列を描きます。特定 kind だけに絞りたいときは `--target-kinds sphere` のように指定できます。
 `beachx mobility` は、既定で `plane` を support とみなし、それ以外の object について合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV に書き出します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
-`beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran FMM core を Python から呼び出し、`beach.toml` の `sim.softening` / `sim.field_bc_mode` / periodic2 / tree 設定を使って object ごとの net force を計算します。共有ライブラリは `make build-kernel` で `build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または `BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は `--config path/to/beach.toml` を指定します。
+`beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran field core を Python から呼び出し、`beach.toml` の `sim.field_bc_mode` / periodic2 / tree 設定を使って object ごとの net force を計算します。sourceはP0 triangle panelに固定されています。共有ライブラリは `make build-kernel` で `build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または `BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は `--config path/to/beach.toml` を指定します。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` なども当面は使えますが、今後は `beachx ...` を推奨します。
@@ -190,8 +190,6 @@ run.animate_mesh("charge_tiled.gif", apply_periodic2_mesh=True, periodic2_repeat
 # ポテンシャル [V] の面積重み付き箱ひげ図（mesh sourceごと）
 fig_phi, ax_phi = run.plot_mesh_source_boxplot(
     quantity="potential",
-    softening=0.0,
-    self_term="area_equivalent",
 )
 fig_phi.savefig("outputs/latest/potential_box_by_source.png", dpi=150)
 

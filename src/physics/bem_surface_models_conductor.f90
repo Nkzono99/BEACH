@@ -1,6 +1,8 @@
 !> `bem_surface_models` の浮遊導体電荷再配分を実装する submodule。
 submodule(bem_surface_models) bem_surface_models_conductor
   use bem_constants, only: k_coulomb
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
+  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   implicit none
 contains
 
@@ -11,7 +13,7 @@ contains
 
   allocate (conductor_elems(ncond), elem_group(ncond), conductor_mesh_ids(ncond))
   call collect_conductor_elements(mesh, conductor_elems, conductor_mesh_ids, elem_group, ngroup)
-  call solve_floating_conductor_charges(mesh, softening, external_e, conductor_elems, elem_group, ngroup)
+  call solve_floating_conductor_charges(mesh, external_e, conductor_elems, elem_group, ngroup)
   end procedure relax_floating_conductor_charges
 
   !> conductor 要素番号と、対応する conductor object group を列挙する。
@@ -55,33 +57,41 @@ contains
   end function find_or_append_mesh_id
 
   !> conductor 要素の電荷と object 電位を同時に解く。
-  subroutine solve_floating_conductor_charges(mesh, softening, external_e, conductor_elems, elem_group, ngroup)
+  subroutine solve_floating_conductor_charges(mesh, external_e, conductor_elems, elem_group, ngroup)
     type(mesh_type), intent(inout) :: mesh
-    real(dp), intent(in) :: softening
     real(dp), intent(in) :: external_e(3)
     integer(i32), intent(in) :: conductor_elems(:)
     integer(i32), intent(in) :: elem_group(:)
     integer(i32), intent(in) :: ngroup
 
     real(dp), allocatable :: matrix(:, :), rhs(:), solution(:), total_charge(:)
-    integer(i32) :: ncond, nsys, row, col, group_idx, elem_i, elem_j
+    type(panel_geometry_type), allocatable :: panel_geometry(:)
+    integer(i32) :: ncond, nsys, row, col, group_idx, elem_i, elem_j, status
 
     ncond = int(size(conductor_elems), kind=i32)
     nsys = ncond + ngroup
-    allocate (matrix(nsys, nsys), rhs(nsys), solution(nsys), total_charge(ngroup))
+    allocate (matrix(nsys, nsys), rhs(nsys), solution(nsys), total_charge(ngroup), panel_geometry(mesh%nelem))
     matrix = 0.0d0
     rhs = 0.0d0
     total_charge = 0.0d0
+    do elem_j = 1_i32, mesh%nelem
+      call init_panel_geometry( &
+        mesh%v0(:, elem_j), mesh%v1(:, elem_j), mesh%v2(:, elem_j), panel_geometry(elem_j), status &
+        )
+      if (status /= panel_geometry_ok) then
+        error stop 'floating conductor received invalid triangle geometry.'
+      end if
+    end do
 
     do row = 1, ncond
       elem_i = conductor_elems(row)
       group_idx = elem_group(row)
       do col = 1, ncond
         elem_j = conductor_elems(col)
-        matrix(row, col) = potential_coeff(mesh, elem_i, elem_j, softening)
+        matrix(row, col) = potential_coeff(panel_geometry(elem_j), mesh%centers(:, elem_i))
       end do
       matrix(row, ncond + group_idx) = -1.0d0
-      rhs(row) = -fixed_scaled_potential(mesh, elem_i, softening, external_e)
+      rhs(row) = -fixed_scaled_potential(mesh, panel_geometry, elem_i, external_e)
       total_charge(group_idx) = total_charge(group_idx) + mesh%q_elem(elem_i)
     end do
 
@@ -99,44 +109,30 @@ contains
     end do
   end subroutine solve_floating_conductor_charges
 
-  !> 要素 j の単位電荷が要素 i の重心に作る、k_coulomb で割った電位係数。
-  real(dp) function potential_coeff(mesh, elem_i, elem_j, softening) result(coeff)
-    type(mesh_type), intent(in) :: mesh
-    integer(i32), intent(in) :: elem_i, elem_j
-    real(dp), intent(in) :: softening
-    real(dp), parameter :: pi_dp = acos(-1.0d0)
-    real(dp) :: dx, dy, dz, r2, soft2, min_dist2
+  !> P0 triangle j の単位電荷が要素 i の重心に作る、k_coulomb で割った電位係数。
+  real(dp) function potential_coeff(geometry, target) result(coeff)
+    type(panel_geometry_type), intent(in) :: geometry
+    real(dp), intent(in) :: target(3)
+    real(dp) :: potential, field(3)
 
-    if (elem_i == elem_j) then
-      if (softening > 0.0d0) then
-        coeff = 1.0d0/softening
-      else
-        coeff = 2.0d0*sqrt(pi_dp)/max(mesh%h_elem(elem_i), sqrt(tiny(1.0d0)))
-      end if
-      return
-    end if
-
-    soft2 = softening*softening
-    min_dist2 = tiny(1.0d0)
-    dx = mesh%center_x(elem_i) - mesh%center_x(elem_j)
-    dy = mesh%center_y(elem_i) - mesh%center_y(elem_j)
-    dz = mesh%center_z(elem_i) - mesh%center_z(elem_j)
-    r2 = dx*dx + dy*dy + dz*dz + soft2
-    coeff = 1.0d0/sqrt(max(r2, min_dist2))
+    call panel_potential_field( &
+      geometry, 1.0_dp, target, panel_side_principal_value, potential, field &
+      )
+    coeff = potential/k_coulomb
   end function potential_coeff
 
   !> conductor 以外の既存電荷と一様外部電場が作る、k_coulomb で割った電位。
-  real(dp) function fixed_scaled_potential(mesh, elem_i, softening, external_e) result(phi)
+  real(dp) function fixed_scaled_potential(mesh, panel_geometry, elem_i, external_e) result(phi)
     type(mesh_type), intent(in) :: mesh
+    type(panel_geometry_type), intent(in) :: panel_geometry(:)
     integer(i32), intent(in) :: elem_i
-    real(dp), intent(in) :: softening
     real(dp), intent(in) :: external_e(3)
     integer(i32) :: elem_j
 
     phi = -dot_product(external_e, mesh%centers(:, elem_i))/k_coulomb
     do elem_j = 1, mesh%nelem
       if (mesh%elem_surface_model(elem_j) == surface_model_conductor) cycle
-      phi = phi + mesh%q_elem(elem_j)*potential_coeff(mesh, elem_i, elem_j, softening)
+      phi = phi + mesh%q_elem(elem_j)*potential_coeff(panel_geometry(elem_j), mesh%centers(:, elem_i))
     end do
   end function fixed_scaled_potential
 

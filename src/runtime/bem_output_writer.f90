@@ -273,7 +273,7 @@ contains
     write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
     write (u, '(a,a)') 'field_backend=', trim(cfg%field%backend)
     write (u, '(a,a)') 'field_normalization=', trim(cfg%field%normalization)
-    write (u, '(a,a)') 'field_source_model=', trim(cfg%panel%source_model)
+    write (u, '(a)') 'field_source_model=triangle_p0'
     write (u, '(a,a)') 'field_kernel_id=', trim(cfg%panel%kernel_id)
     write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
     write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)

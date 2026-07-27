@@ -13,16 +13,16 @@ import numpy as np
 
 from .context import RunContext, load_config_for_output
 from .mesh import _triangle_centers
-from .periodic import Periodic2Input
-from .potential import (
-    _coerce_periodic2,
-    _periodic2_from_sim,
-    _resolve_softening,
+from .panel_quadrature import panel_target_quadrature
+from .periodic import (
+    Periodic2Input,
+    coerce_periodic2 as _coerce_periodic2,
+    periodic2_from_sim as _periodic2_from_sim,
 )
 from .selection import (
     _charges_for_step,
     _mesh_ids_or_default,
-    _require_point_source_model,
+    _require_triangle_source_model,
     _require_triangles,
 )
 from .types import FortranRunResult
@@ -41,7 +41,7 @@ _FAR_CORRECTION_CODES = {
     "cached_kneq0": 3,
 }
 
-FIELD_KERNEL_ABI_MAJOR = 1
+FIELD_KERNEL_ABI_MAJOR = 2
 FIELD_KERNEL_ABI_MINOR = 0
 
 
@@ -53,7 +53,6 @@ class FieldKernelError(RuntimeError):
 class FieldKernelOptions:
     """Options passed to the Fortran Coulomb FMM kernel."""
 
-    softening: float = 0.0
     theta: float = 0.5
     leaf_max: int = 16
     order: int = 4
@@ -174,17 +173,19 @@ class FieldKernel:
 
     The kernel uses the same Fortran FMM core as the simulator. Source geometry
     is fixed after ``build``; charges can be refreshed cheaply with
-    :meth:`update_charges`.
+    :meth:`update_charges`. A ``cached_kneq0`` periodic plan evaluates only the
+    nonzero in-plane Fourier component; it is not the simulator's total field
+    unless the physical zero mode and any outer-boundary contribution are
+    composed separately.
     """
 
     def __init__(
         self,
-        source_positions: np.ndarray,
+        source_triangles: np.ndarray,
         source_charges: np.ndarray,
         *,
         options: FieldKernelOptions | None = None,
         library_path: str | Path | None = None,
-        source_triangles: np.ndarray | None = None,
     ) -> None:
         self._lib = _load_kernel_library(library_path)
         _configure_library(self._lib)
@@ -192,13 +193,12 @@ class FieldKernel:
         self._closed = False
         self._source_count = 0
         self._options = FieldKernelOptions()
+        self._cached_target_free_axis: int | None = None
+        self._cached_target_free_bounds: tuple[float, float] | None = None
         status = self._lib.beach_kernel_create(ctypes.byref(self._handle))
         _check_status(status, "beach_kernel_create")
         try:
-            if source_triangles is None:
-                self.build(source_positions, options=options)
-            else:
-                self.build_panel(source_triangles, options=options)
+            self.build(source_triangles, options=options)
             self.update_charges(source_charges)
         except Exception:
             self.close()
@@ -210,7 +210,6 @@ class FieldKernel:
         result: FortranRunResult | object,
         *,
         step: int | None = -1,
-        softening: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
@@ -222,12 +221,11 @@ class FieldKernel:
 
         context = RunContext.from_value(result, config_path=config_path)
         resolved = context.result
+        _require_triangle_source_model(resolved)
         triangles = _require_triangles(resolved)
-        centers = _triangle_centers(triangles)
         charges = _charges_for_step(resolved, step=step)
         options = _options_from_result(
             resolved,
-            softening=softening,
             periodic2=periodic2,
             theta=theta,
             leaf_max=leaf_max,
@@ -235,13 +233,11 @@ class FieldKernel:
             config_path=config_path,
             context=context,
         )
-        source_triangles = triangles if resolved.field_source_model == "triangle_p0" else None
         return cls(
-            centers,
+            triangles,
             charges,
             options=options,
             library_path=library_path,
-            source_triangles=source_triangles,
         )
 
     @staticmethod
@@ -257,19 +253,6 @@ class FieldKernel:
 
     def build(
         self,
-        source_positions: np.ndarray,
-        *,
-        options: FieldKernelOptions | None = None,
-    ) -> None:
-        """Build or rebuild the source-geometry plan."""
-
-        self._require_open()
-        opts = options or FieldKernelOptions()
-        src_pos = _points_to_fortran_3xn(source_positions, name="source_positions")
-        self._build_geometry(src_pos, None, opts)
-
-    def build_panel(
-        self,
         source_triangles: np.ndarray,
         *,
         options: FieldKernelOptions | None = None,
@@ -278,21 +261,19 @@ class FieldKernel:
 
         self._require_open()
         opts = options or FieldKernelOptions()
-        if opts.softening != 0.0:
-            raise ValueError("triangle-panel field kernels require softening=0.")
         vertices = _triangles_to_fortran_vertices(source_triangles)
-        src_pos = (vertices[0] + vertices[1] + vertices[2]) / 3.0
-        self._build_geometry(src_pos, vertices, opts)
+        self._build_geometry(vertices, opts)
 
     def _build_geometry(
         self,
-        src_pos: np.ndarray,
-        panel_vertices: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+        panel_vertices: tuple[np.ndarray, np.ndarray, np.ndarray],
         opts: FieldKernelOptions,
     ) -> None:
-        nsrc = src_pos.shape[1]
+        nsrc = panel_vertices[0].shape[1]
         if nsrc <= 0:
-            raise ValueError("source_positions must contain at least one point.")
+            raise ValueError("source_triangles must contain at least one triangle.")
+        if opts.order < 1:
+            raise ValueError("FMM expansion order must be >= 1.")
 
         periodic_cfg = _coerce_periodic2(opts.periodic2, allow_cached_kneq0=True)
         periodic_axes = _null_ptr()
@@ -304,9 +285,9 @@ class FieldKernel:
         far_correction = 0
         ewald_alpha = 0.0
         ewald_layers = 4
-        keepalive: list[np.ndarray] = [src_pos]
-        if panel_vertices is not None:
-            keepalive.extend(panel_vertices)
+        cached_target_free_axis: int | None = None
+        cached_target_free_bounds: tuple[float, float] | None = None
+        keepalive: list[np.ndarray] = [*panel_vertices]
 
         far_key = "none"
         if periodic_cfg is not None:
@@ -322,7 +303,7 @@ class FieldKernel:
                 origins=periodic_cfg.origins,
                 box_min=opts.box_min,
                 box_max=opts.box_max,
-                source_positions_3xn=src_pos,
+                source_vertices_3xn=panel_vertices,
             )
             axes_1based = np.ascontiguousarray(np.asarray(axes, dtype=np.int32) + 1)
             lengths_vec = np.ascontiguousarray(np.asarray(lengths, dtype=np.float64))
@@ -335,27 +316,27 @@ class FieldKernel:
             box_max = box_max_arr.ctypes.data_as(ctypes.c_void_p)
             use_periodic2 = 1
             far_correction = _far_correction_code(far_key)
+            if far_key == "cached_kneq0":
+                cached_target_free_axis = next(
+                    axis for axis in range(3) if axis not in axes
+                )
+                cached_target_free_bounds = (
+                    float(box_min_vec[cached_target_free_axis]),
+                    float(box_max_vec[cached_target_free_axis]),
+                )
 
         self._set_periodic_cache_options(opts, far_key=far_key)
 
-        geometry_args: list[object]
-        if panel_vertices is None:
-            build_function = self._lib.beach_kernel_build
-            geometry_args = [src_pos.ctypes.data_as(ctypes.c_void_p)]
-            operation = "beach_kernel_build"
-        else:
-            build_function = self._lib.beach_kernel_build_panel
-            geometry_args = [vertex.ctypes.data_as(ctypes.c_void_p) for vertex in panel_vertices]
-            operation = "beach_kernel_build_panel"
-
-        status = build_function(
+        status = self._lib.beach_kernel_build(
             self._handle,
             ctypes.c_int(nsrc),
-            *geometry_args,
+            *[
+                vertex.ctypes.data_as(ctypes.c_void_p)
+                for vertex in panel_vertices
+            ],
             ctypes.c_double(opts.theta),
             ctypes.c_int(opts.leaf_max),
             ctypes.c_int(opts.order),
-            ctypes.c_double(opts.softening),
             ctypes.c_int(use_periodic2),
             periodic_axes,
             periodic_len,
@@ -366,9 +347,11 @@ class FieldKernel:
             box_min,
             box_max,
         )
-        _check_status(status, operation)
+        _check_status(status, "beach_kernel_build")
         self._source_count = nsrc
         self._options = opts
+        self._cached_target_free_axis = cached_target_free_axis
+        self._cached_target_free_bounds = cached_target_free_bounds
         self._keepalive = keepalive
 
     def _set_periodic_cache_options(
@@ -421,10 +404,14 @@ class FieldKernel:
         self._charges_keepalive = q
 
     def eval_e(self, points: np.ndarray) -> np.ndarray:
-        """Evaluate electric field vectors at points with shape ``(n, 3)``."""
+        """Evaluate electric field vectors at points with shape ``(n, 3)``.
+
+        For ``cached_kneq0``, this returns the ``k!=0`` component only.
+        """
 
         self._require_open()
         target_pos = _points_to_fortran_3xn(points, name="points")
+        self._validate_cached_target_points(target_pos)
         ntarget = target_pos.shape[1]
         e = np.zeros((3, ntarget), dtype=np.float64, order="F")
         if ntarget == 0:
@@ -443,10 +430,14 @@ class FieldKernel:
         return field
 
     def eval_phi(self, points: np.ndarray) -> np.ndarray:
-        """Evaluate electric potential at points with shape ``(n, 3)``."""
+        """Evaluate electric potential at points with shape ``(n, 3)``.
+
+        For ``cached_kneq0``, this returns the ``k!=0`` component only.
+        """
 
         self._require_open()
         target_pos = _points_to_fortran_3xn(points, name="points")
+        self._validate_cached_target_points(target_pos)
         ntarget = target_pos.shape[1]
         phi = np.zeros(ntarget, dtype=np.float64)
         if ntarget == 0:
@@ -458,6 +449,9 @@ class FieldKernel:
             phi.ctypes.data_as(ctypes.c_void_p),
         )
         _check_status(status, "beach_kernel_eval_phi")
+        external_e0 = np.asarray(self._options.external_e0, dtype=np.float64)
+        if np.any(external_e0 != 0.0):
+            phi = phi - target_pos.T @ external_e0
         return phi
 
     def eval_e_direct(self, points: np.ndarray) -> np.ndarray:
@@ -505,10 +499,14 @@ class FieldKernel:
         *,
         origin: Iterable[float] = (0.0, 0.0, 0.0),
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Return net force and torque on target charges in the current field."""
+        """Return net force and torque on target charges in the current field.
+
+        For ``cached_kneq0``, the current field is the ``k!=0`` component only.
+        """
 
         self._require_open()
         target_pos = _points_to_fortran_3xn(positions, name="positions")
+        self._validate_cached_target_points(target_pos)
         ntarget = target_pos.shape[1]
         target_q = _charges_1d(charges, expected=ntarget, name="charges")
         origin_arr = _vec3(origin, name="origin")
@@ -635,6 +633,26 @@ class FieldKernel:
         if self._closed or not self._handle.value:
             raise FieldKernelError("field kernel is closed.")
 
+    def _validate_cached_target_points(self, target_pos: np.ndarray) -> None:
+        axis = self._cached_target_free_axis
+        bounds = self._cached_target_free_bounds
+        if axis is None or bounds is None or target_pos.shape[1] == 0:
+            return
+        lower, upper = bounds
+        coordinates = target_pos[axis]
+        outside = (coordinates < lower) | (coordinates > upper)
+        if not np.any(outside):
+            return
+        target_index = int(np.flatnonzero(outside)[0])
+        axis_name = ("x", "y", "z")[axis]
+        raise ValueError(
+            "cached_kneq0 target points must lie inside the configured target "
+            f"box on the non-periodic {axis_name} axis; target[{target_index}] "
+            f"has {axis_name}={coordinates[target_index]:.17g}, expected "
+            f"{lower:.17g} <= {axis_name} <= {upper:.17g}. Periodic-axis "
+            "coordinates are wrapped automatically."
+        )
+
     def _direct_evaluator(self, symbol: str):  # type: ignore[no-untyped-def]
         if self._options.periodic2 is not None:
             raise FieldKernelError(
@@ -653,7 +671,6 @@ def calc_object_forces_kernel(
     *,
     step: int | None = -1,
     target_mesh_ids: int | Iterable[int] | None = None,
-    softening: float | None = None,
     periodic2: Mapping[str, object] | None = None,
     theta: float | None = None,
     leaf_max: int | None = None,
@@ -664,14 +681,15 @@ def calc_object_forces_kernel(
     """Compute object-wise net force using the Fortran FMM field kernel.
 
     For each target object, its own source charges are zeroed before evaluating
-    ``sum(q_i E_not_self(r_i))``. A configured uniform ``sim.e0`` is added to
-    the target field, matching the simulator pusher semantics while avoiding
-    Coulomb self-force contamination.
+    the target panel lattice is integrated with seventh-order Gauss-Duffy
+    quadrature. A configured uniform ``sim.e0`` is added to the target field,
+    matching the simulator pusher semantics while avoiding central-cell
+    primary self-force contamination.
     """
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_point_source_model(resolved)
+    _require_triangle_source_model(resolved)
     triangles = _require_triangles(resolved)
     centers = _triangle_centers(triangles)
     charges = _charges_for_step(resolved, step=step)
@@ -687,9 +705,12 @@ def calc_object_forces_kernel(
     if missing:
         raise ValueError(f"unknown mesh id(s): {missing}. available={list(available_ids)}")
 
+    _require_total_field_config(
+        context,
+        operation="calc_object_forces_kernel",
+    )
     options = _options_from_result(
         resolved,
-        softening=softening,
         periodic2=periodic2,
         theta=theta,
         leaf_max=leaf_max,
@@ -697,8 +718,13 @@ def calc_object_forces_kernel(
         config_path=config_path,
         context=context,
     )
+    _require_total_field_reconstruction(
+        context,
+        options,
+        operation="calc_object_forces_kernel",
+    )
     records: list[KernelObjectForceRecord] = []
-    with FieldKernel(centers, charges, options=options, library_path=library_path) as kernel:
+    with FieldKernel(triangles, charges, options=options, library_path=library_path) as kernel:
         for mesh_id in target_ids:
             mask = mesh_ids == mesh_id
             if not np.any(mask):
@@ -706,10 +732,20 @@ def calc_object_forces_kernel(
             source_q = np.asarray(charges, dtype=np.float64).copy()
             source_q[mask] = 0.0
             kernel.update_charges(source_q)
-            target_centers = centers[mask]
             target_q = np.asarray(charges[mask], dtype=np.float64)
+            target_triangles = triangles[mask]
+            target_centers = centers[mask]
+            target_points, target_weights, _ = panel_target_quadrature(
+                target_triangles,
+                target_q,
+                7,
+            )
             center = target_centers.mean(axis=0)
-            force, torque = kernel.force_on_charges(target_centers, target_q, origin=center)
+            force, torque = kernel.force_on_charges(
+                target_points,
+                target_weights,
+                origin=center,
+            )
             records.append(
                 KernelObjectForceRecord(
                     mesh_id=mesh_id,
@@ -726,7 +762,6 @@ def calc_object_forces_kernel(
 def field_kernel_options_from_result(
     result: FortranRunResult | object,
     *,
-    softening: float | None = None,
     periodic2: Mapping[str, object] | None = None,
     theta: float | None = None,
     leaf_max: int | None = None,
@@ -737,10 +772,9 @@ def field_kernel_options_from_result(
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_point_source_model(resolved)
+    _require_triangle_source_model(resolved)
     return _options_from_result(
         resolved,
-        softening=softening,
         periodic2=periodic2,
         theta=theta,
         leaf_max=leaf_max,
@@ -753,7 +787,6 @@ def field_kernel_options_from_result(
 def _options_from_result(
     resolved: FortranRunResult,
     *,
-    softening: float | None,
     periodic2: Mapping[str, object] | None,
     theta: float | None,
     leaf_max: int | None,
@@ -763,17 +796,17 @@ def _options_from_result(
 ) -> FieldKernelOptions:
     run_context = context or RunContext.from_value(resolved, config_path=config_path)
     sim = run_context.sim
-    resolved_softening = _resolve_kernel_softening(
-        resolved,
-        sim=sim,
-        softening=softening,
-        context=run_context,
-    )
     periodic_cfg = _coerce_periodic2(periodic2, allow_cached_kneq0=True)
     if periodic_cfg is None and sim is not None:
+        allow_historical_root_oracle = run_context.requested_config_path is None
         periodic_cfg = _coerce_periodic2(
-            _periodic2_from_sim(sim, allow_cached_kneq0=True),
+            _periodic2_from_sim(
+                sim,
+                allow_cached_kneq0=True,
+                allow_historical_root_oracle=allow_historical_root_oracle,
+            ),
             allow_cached_kneq0=True,
+            allow_historical_root_oracle=allow_historical_root_oracle,
         )
     resolved_theta = float(theta if theta is not None else (sim or {}).get("tree_theta", 0.5))
     resolved_leaf_max = int(leaf_max if leaf_max is not None else (sim or {}).get("tree_leaf_max", 16))
@@ -783,7 +816,6 @@ def _options_from_result(
         box_min = tuple(float(v) for v in sim["box_min"])  # type: ignore[index]
         box_max = tuple(float(v) for v in sim["box_max"])  # type: ignore[index]
     return FieldKernelOptions(
-        softening=resolved_softening,
         external_e0=_external_e0_from_sim(sim),
         theta=resolved_theta,
         leaf_max=resolved_leaf_max,
@@ -798,6 +830,90 @@ def _options_from_result(
             (sim or {}).get("field_periodic_generation_tolerance", 1.0e-8)
         ),
     )
+
+
+def _require_total_field_reconstruction(
+    context: RunContext,
+    options: FieldKernelOptions,
+    *,
+    operation: str,
+) -> None:
+    """Reject component-only kernels where a public API promises total fields."""
+
+    _require_total_field_config(context, operation=operation)
+    _require_complete_total_kernel(options, operation=operation)
+
+
+def _require_total_field_config(
+    context: RunContext,
+    *,
+    operation: str,
+) -> None:
+    """Validate configuration before resolving a total-field kernel."""
+
+    config = context.config
+    if config is None:
+        raise ValueError(
+            f"{operation} requires the run's beach.toml to reconstruct the "
+            "simulator total field; pass config_path or keep beach.toml near "
+            "the output directory."
+        )
+    sim = context.sim
+    if (
+        context.requested_config_path is not None
+        and sim is not None
+        and str(sim.get("field_periodic_far_correction", "")).strip().lower()
+        == "m2l_root_oracle"
+    ):
+        raise ValueError(
+            'periodic2.far_correction "m2l_root_oracle" was removed; use '
+            '"none" for total-field post-processing.'
+        )
+    if _config_has_active_outer_field(config):
+        raise ValueError(
+            f"{operation} cannot reconstruct the simulator total field while "
+            "an outer field model is active. Use saved simulator diagnostics "
+            "or a post-processing API that explicitly composes the outer state."
+        )
+
+
+def _require_complete_total_kernel(
+    options: FieldKernelOptions,
+    *,
+    operation: str,
+) -> None:
+    """Reject a native kernel option set that represents only one component."""
+
+    periodic_cfg = _coerce_periodic2(
+        options.periodic2,
+        allow_cached_kneq0=True,
+    )
+    if periodic_cfg is not None and periodic_cfg.far_correction == "cached_kneq0":
+        raise ValueError(
+            f"{operation} cannot treat cached_kneq0 as the simulator total "
+            "field: the native kernel returns only the k!=0 component and does "
+            "not compose the physical periodic zero mode. Use saved "
+            "mesh_potential.csv where applicable or ObjectInteractionSnapshot "
+            "for supported force workflows."
+        )
+
+
+def _config_has_active_outer_field(config: Mapping[str, object]) -> bool:
+    legacy = config.get("outer_plasma")
+    if isinstance(legacy, Mapping) and _field_model_is_active(legacy.get("model")):
+        return True
+
+    external = config.get("external_boundary")
+    if not isinstance(external, Mapping):
+        return False
+    field = external.get("field")
+    return isinstance(field, Mapping) and _field_model_is_active(field.get("model"))
+
+
+def _field_model_is_active(value: object) -> bool:
+    if value is None:
+        return False
+    return str(value).strip().lower() not in {"", "none", "not_applicable"}
 
 
 def _load_sim_config(
@@ -857,21 +973,6 @@ def _external_e0_from_sim(sim: Mapping[str, object] | None) -> tuple[float, floa
     )
 
 
-def _resolve_kernel_softening(
-    resolved: FortranRunResult,
-    *,
-    sim: Mapping[str, object] | None,
-    softening: float | None,
-    context: RunContext | None = None,
-) -> float:
-    if softening is not None or sim is None:
-        return _resolve_softening(resolved, softening, context=context)
-    value = float(sim.get("softening", 0.0))
-    if not np.isfinite(value) or value < 0.0:
-        raise ValueError("softening must be finite and >= 0.")
-    return value
-
-
 def _periodic_box_vectors(
     *,
     axes: tuple[int, int],
@@ -879,11 +980,12 @@ def _periodic_box_vectors(
     origins: tuple[float, float],
     box_min: tuple[float, float, float] | None,
     box_max: tuple[float, float, float] | None,
-    source_positions_3xn: np.ndarray,
+    source_vertices_3xn: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> tuple[np.ndarray, np.ndarray]:
     if box_min is None:
-        mins = np.min(source_positions_3xn, axis=1)
-        maxs = np.max(source_positions_3xn, axis=1)
+        all_vertices = np.concatenate(source_vertices_3xn, axis=1)
+        mins = np.min(all_vertices, axis=1)
+        maxs = np.max(all_vertices, axis=1)
         span = np.maximum(maxs - mins, 1.0)
         box_min_arr = mins - 0.5 * span
         box_max_arr = maxs + 0.5 * span
@@ -968,10 +1070,11 @@ def _configure_library(lib: ctypes.CDLL) -> None:
         c_void_p,
         c_int,
         c_void_p,
+        c_void_p,
+        c_void_p,
         c_double,
         c_int,
         c_int,
-        c_double,
         c_int,
         c_void_p,
         c_void_p,
@@ -983,27 +1086,6 @@ def _configure_library(lib: ctypes.CDLL) -> None:
         c_void_p,
     ]
     lib.beach_kernel_build.restype = c_int
-    lib.beach_kernel_build_panel.argtypes = [
-        c_void_p,
-        c_int,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-        c_double,
-        c_int,
-        c_int,
-        c_double,
-        c_int,
-        c_void_p,
-        c_void_p,
-        c_int,
-        c_int,
-        c_double,
-        c_int,
-        c_void_p,
-        c_void_p,
-    ]
-    lib.beach_kernel_build_panel.restype = c_int
     lib.beach_kernel_update_charges.argtypes = [c_void_p, c_int, c_void_p]
     lib.beach_kernel_update_charges.restype = c_int
     lib.beach_kernel_eval_e.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
@@ -1057,7 +1139,10 @@ def _configure_library(lib: ctypes.CDLL) -> None:
 def _validate_library_abi(lib: ctypes.CDLL) -> None:
     getter = getattr(lib, "beach_kernel_get_abi_version", None)
     if getter is None:
-        return
+        raise FieldKernelError(
+            "field-kernel ABI version attestation is required; "
+            "the loaded library predates the triangle-only ABI v2 contract."
+        )
 
     major = ctypes.c_int()
     minor = ctypes.c_int()
@@ -1097,6 +1182,12 @@ def _triangles_to_fortran_vertices(
         raise ValueError("source_triangles must contain at least one triangle.")
     if not np.all(np.isfinite(arr)):
         raise ValueError("source_triangles must contain finite values.")
+    edge1 = arr[:, 1] - arr[:, 0]
+    edge2 = arr[:, 2] - arr[:, 0]
+    double_area = np.linalg.norm(np.cross(edge1, edge2), axis=1)
+    scale = np.maximum(1.0, np.max(np.abs(arr), axis=(1, 2)))
+    if np.any(double_area <= 64.0 * np.finfo(np.float64).eps * scale * scale):
+        raise ValueError("source_triangles must contain non-degenerate triangles.")
     return tuple(np.asfortranarray(arr[:, vertex, :].T) for vertex in range(3))  # type: ignore[return-value]
 
 

@@ -101,7 +101,6 @@ dt = 9.9e-8
 batch_count = 100
 max_step = 100000
 tol_rel = 1.0e-8
-softening = 1.0e-6
 b0 = [0.0, 0.0, 0.0]
 use_box = true
 box_min = [0.0, 0.0, 0.0]

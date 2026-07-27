@@ -29,7 +29,7 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 | 非零modeの構成 | 用途 | 制約 |
 | --- | --- | --- |
 | finite images | 小規模比較、有限画像model | 画像範囲外は含まない |
-| `panel_spectral_reference` | triangle P0の小規模reference | Direct、softening 0、mode/quadrature収束が必要 |
+| `panel_spectral_reference` | triangle P0の小規模reference | Direct、mode/quadrature収束が必要 |
 | `cached_kneq0` | FMM productionの無限周期nonzero mode | x/y periodic、z nonperiodic、`exclude_k0` |
 
 `field_periodic_far_correction="auto"`は、現在は互換性のため`none`として動作します。無限周期のproduction計算では

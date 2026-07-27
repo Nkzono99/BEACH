@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import sys
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -78,7 +79,8 @@ def _result(
         charges=np.asarray(charges, dtype=float),
         triangles=_triangles_at(positions),
         mesh_ids=np.array([1, 2]),
-        field_source_model="point",
+        field_source_model="triangle_p0",
+        field_kernel_id="triangle_p0_exact_p2m_near",
     )
 
 
@@ -96,7 +98,6 @@ bc_z_low = "open"
 bc_z_high = "open"
 box_min = [0.0, 0.0, -1.0]
 box_max = [2.0, 2.0, 1.0]
-softening = 0.05
 tree_theta = 0.1
 tree_leaf_max = 64
 tree_order = 2
@@ -117,8 +118,6 @@ def _write_panel_periodic_config(path: Path) -> None:
 [sim]
 field_solver = "fmm"
 field_bc_mode = "periodic2"
-field_source_model = "triangle_p0"
-field_kernel_id = "triangle_p0_exact_p2m_near"
 bc_x_low = "periodic"
 bc_x_high = "periodic"
 bc_y_low = "periodic"
@@ -127,7 +126,6 @@ bc_z_low = "open"
 bc_z_high = "open"
 box_min = [0.0, 0.0, -1.0]
 box_max = [2.0, 2.0, 1.0]
-softening = 0.0
 tree_theta = 0.2
 tree_leaf_max = 16
 tree_order = 4
@@ -144,19 +142,12 @@ e0 = [0.0, 0.0, 0.0]
 
 def _write_free_interaction_config(
     path: Path,
-    *,
-    source_model: str,
-    kernel_id: str,
-    softening: float,
 ) -> None:
     path.write_text(
-        f"""
+        """
 [sim]
 field_solver = "fmm"
 field_bc_mode = "free"
-field_source_model = "{source_model}"
-field_kernel_id = "{kernel_id}"
-softening = {softening:.17g}
 tree_theta = 0.2
 tree_leaf_max = 16
 tree_order = 4
@@ -280,7 +271,7 @@ def _canonical_periodic_sources(points: np.ndarray, length: float) -> np.ndarray
     return result
 
 
-def test_identity_rigid_transform_preserves_point_bits_about_nonzero_origin() -> None:
+def test_identity_rigid_transform_preserves_panel_center_bits_about_nonzero_origin() -> None:
     points = np.mean(_plane_triangles(4), axis=1)
     transformed = RigidTransform.identity().apply(
         points,
@@ -290,18 +281,11 @@ def test_identity_rigid_transform_preserves_point_bits_about_nonzero_origin() ->
     assert transformed.tobytes() == points.tobytes()
 
 
-def test_point_wrench_identity_transform_keeps_primary_residual_at_roundoff(
+def test_panel_wrench_identity_transform_records_primary_self_subtraction(
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
-    config.write_text(
-        config.read_text(encoding="utf-8").replace(
-            "softening = 0.05",
-            "softening = 2.0e-6",
-        ),
-        encoding="utf-8",
-    )
     triangles = _plane_triangles(8)
     coarse_triangles = _plane_triangles(4)
     centers = np.mean(triangles, axis=1)
@@ -326,7 +310,8 @@ def test_point_wrench_identity_transform_keeps_primary_residual_at_roundoff(
         charges=charges,
         triangles=triangles,
         mesh_ids=np.ones(triangles.shape[0], dtype=np.int64),
-        field_source_model="point",
+        field_source_model="triangle_p0",
+        field_kernel_id="triangle_p0_exact_p2m_near",
     )
 
     with ObjectInteractionSnapshot.from_result(
@@ -342,45 +327,27 @@ def test_point_wrench_identity_transform_keeps_primary_residual_at_roundoff(
             origin=probe._geometric_area_centroid_m,
         )
         primary_field = probe._primary.eval_e_direct(transformed_points)
+        wrench = probe.wrench()
 
     residual = np.sum(
         probe._target_charge_weights_C[:, None] * primary_field,
         axis=0,
     )
-    separations = centers[:, None, :] - centers[None, :, :]
-    distance_squared = np.sum(separations**2, axis=2)
-    upper = np.triu_indices(len(charges), k=1)
-    pair_force_scale = float(
-        np.sum(
-            K_COULOMB
-            * np.abs(charges[upper[0]] * charges[upper[1]])
-            / distance_squared[upper]
-        )
+    primary_subtraction = wrench.numerical_metadata["primary_free_subtraction"]
+    assert isinstance(primary_subtraction, Mapping)
+    np.testing.assert_allclose(
+        primary_subtraction["force_N"],
+        -residual,
+        rtol=0.0,
+        atol=0.0,
     )
-    tolerance = 512.0 * np.finfo(np.float64).eps * pair_force_scale
-    assert np.linalg.norm(residual) <= tolerance
 
 
-@pytest.mark.parametrize(
-    ("source_model", "kernel_id", "softening"),
-    [
-        ("point", "softened_point", 2.0e-6),
-        ("triangle_p0", "triangle_p0_exact_p2m_near", 0.0),
-    ],
-)
 def test_free_space_moved_single_source_has_no_primary_image_residual(
     tmp_path: Path,
-    source_model: str,
-    kernel_id: str,
-    softening: float,
 ) -> None:
-    config = tmp_path / f"{source_model}.toml"
-    _write_free_interaction_config(
-        config,
-        source_model=source_model,
-        kernel_id=kernel_id,
-        softening=softening,
-    )
+    config = tmp_path / "triangle_p0.toml"
+    _write_free_interaction_config(config)
     triangles = _plane_triangles(1)[:1]
     charge = 1.0e-12
     result = FortranRunResult(
@@ -396,8 +363,8 @@ def test_free_space_moved_single_source_has_no_primary_image_residual(
         charges=np.array([charge]),
         triangles=triangles,
         mesh_ids=np.ones(1, dtype=np.int64),
-        field_source_model=source_model,
-        field_kernel_id=kernel_id,
+        field_source_model="triangle_p0",
+        field_kernel_id="triangle_p0_exact_p2m_near",
     )
 
     with ObjectInteractionSnapshot.from_result(
@@ -484,6 +451,8 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
     ) as snapshot:
         probe = snapshot.object_probe(1)
         shell = finite_shell_wrench(snapshot, probe, None, 1, "symmetric")
+        target_points = np.array(probe._target_points_m, copy=True)
+        target_weights = np.array(probe._target_charge_weights_C, copy=True)
 
     base = np.array([[0.5, 0.5, 0.0], [1.5, 0.5, 0.3]])
     canonical = _canonical_periodic_sources(base.copy(), 2.0)
@@ -499,16 +468,17 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
                 replicated_pos.append(position)
                 replicated_q.append(charges[source])
     with FieldKernel(
-        np.asarray(replicated_pos),
+        _triangles_at(np.asarray(replicated_pos)),
         np.asarray(replicated_q),
-        options=FieldKernelOptions(softening=0.05, leaf_max=64),
+        options=FieldKernelOptions(leaf_max=64),
         library_path=_kernel_lib(),
     ) as direct:
-        expected_field = direct.eval_e_direct(base[[0]])[0]
+        expected_field = direct.eval_e_direct(target_points)
+    expected_force = np.sum(target_weights[:, None] * expected_field, axis=0)
 
     np.testing.assert_allclose(
         shell.symmetric.force_N,
-        charges[0] * expected_field,
+        expected_force,
         rtol=2.0e-12,
         atol=1.0e-20,
     )
@@ -755,7 +725,7 @@ def test_bottom_zero_closure_rechecks_work_potential_status_with_corrected_scale
             periodic2=((0, 1), (1.0, 1.0), (0.0, 0.0), 0, "none", 0.0, 4)
         ),
         _charges_C=np.array([1.0, total_charge - 1.0]),
-        source_model="point",
+        _triangles_m=np.zeros((2, 3, 3)),
         _centers_m=np.zeros((2, 3)),
     )
     probe = SimpleNamespace(
@@ -798,7 +768,7 @@ def test_bottom_zero_closure_does_not_hide_source_refinement_failure() -> None:
             periodic2=((0, 1), (1.0, 1.0), (0.0, 0.0), 0, "none", 0.0, 4)
         ),
         _charges_C=np.array([1.0, -1.0]),
-        source_model="point",
+        _triangles_m=np.zeros((2, 3, 3)),
         _centers_m=np.zeros((2, 3)),
     )
     probe = SimpleNamespace(
@@ -979,9 +949,7 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
     oracle_dir = tmp_path / "provenance" / "oracles"
     oracle_dir.mkdir(parents=True)
     triangle_config = oracle_dir / "periodic_plane.toml"
-    point_config = oracle_dir / "periodic_plane_point.toml"
     tool._oracle_panel_config(triangle_config)
-    tool._oracle_point_config(point_config)
     cache_dir = tmp_path / "cache" / "oracles"
     cache_dir.mkdir(parents=True)
 
@@ -991,23 +959,13 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
             config_path=triangle_config,
             cache_dir=cache_dir,
             library_path=library,
-            field_source_model="triangle_p0",
-            field_kernel_id="triangle_p0_exact_p2m_near",
-        ),
-        "production_point": tool._run_periodic_plane_kernel_oracle(
-            root=tmp_path,
-            config_path=point_config,
-            cache_dir=cache_dir,
-            library_path=library,
-            field_source_model="point",
-            field_kernel_id="softened_point",
         ),
     }
     for label, result in kernel_oracles.items():
         tool._verify_periodic_oracle_metrics(result, label=label)
         evaluations = result["cache_evaluations"]
         assert tuple(row["label"] for row in evaluations) == (
-            tool.ORACLE_CACHE_EVALUATION_LABELS[label]
+            tool.ORACLE_CACHE_EVALUATION_LABELS
         )
         identities = result["cache_identities"]
         assert result["cache_diagnostics"] == identities["4"]
@@ -1039,7 +997,7 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
         fine_cosine = cosine["errors"][1]
         assert fine_cosine["field_decay_ratio_relative_error"] <= 0.18
         assert fine_cosine["potential_decay_ratio_relative_error"] <= 0.18
-        for group, group_labels in tool.ORACLE_CACHE_EVALUATION_GROUPS[label].items():
+        for group, group_labels in tool.ORACLE_CACHE_EVALUATION_GROUPS.items():
             canonical = identities[group]
             grouped = [row for row in evaluations if row["label"] in group_labels]
             assert {row["label"] for row in grouped} == set(group_labels)
@@ -1053,10 +1011,9 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
                 for row in grouped
             )
 
-    triangle = kernel_oracles["triangle_p0"]
     receipt = {
         "receipt_schema_version": 1,
-        "oracle_schema_version": 2,
+        "oracle_schema_version": 3,
         "status": "qualified",
         "manifest_sha256": tool._sha256(manifest),
         "library": str(library),
@@ -1068,17 +1025,11 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
                 "path": str(triangle_config),
                 "sha256": tool._sha256(triangle_config),
             },
-            "production_point": {
-                "path": str(point_config),
-                "sha256": tool._sha256(point_config),
-            },
         },
         "cache_dir": str(cache_dir),
         "cache_files": tool._output_inventory(cache_dir),
         "execution_job_id": "pytest-native",
         "kernel_oracles": kernel_oracles,
-        "uniform_plane": triangle["uniform_plane"],
-        "neutral_cosine_plane": triangle["neutral_cosine_plane"],
         "library_build_origin": build_origin,
         "verified_at": "pytest-native",
     }
@@ -1091,10 +1042,7 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
     )
 
     assert verified["status"] == "qualified"
-    assert set(verified["kernel_oracles"]) == {
-        "triangle_p0",
-        "production_point",
-    }
+    assert set(verified["kernel_oracles"]) == {"triangle_p0"}
 
 
 @pytest.mark.skipif(

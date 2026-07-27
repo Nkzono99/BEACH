@@ -28,7 +28,7 @@ See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) 
 | Nonzero-mode construction | Use | Constraint |
 | --- | --- | --- |
 | Finite images | Small comparison and finite-image model | Contains nothing outside the image range |
-| `panel_spectral_reference` | Small triangle-P0 reference | Direct, zero softening, and mode/quadrature convergence |
+| `panel_spectral_reference` | Small triangle-P0 reference | Direct and mode/quadrature convergence |
 | `cached_kneq0` | Infinite-periodic nonzero modes for FMM production | x/y periodic, z nonperiodic, and `exclude_k0` |
 
 `field_periodic_far_correction="auto"` currently has compatibility behavior equivalent to `none`. Infinite-periodic production

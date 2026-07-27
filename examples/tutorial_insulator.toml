@@ -4,7 +4,6 @@
 dt = 1.0e-7
 batch_count = 1
 max_step = 10
-softening = 1.0e-6
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 1.0]
@@ -39,6 +38,7 @@ mode = "template"
 kind = "plane"
 enabled = true
 surface_model = "insulator"
+surface_side = "normal_plus"
 size_x = 1.0
 size_y = 1.0
 nx = 4

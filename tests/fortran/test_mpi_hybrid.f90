@@ -60,13 +60,14 @@ program test_mpi_hybrid
   v1(:, 1) = [1.0d0, 0.0d0, 0.0d0]
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   call init_mesh(mesh, v0, v1, v2)
+  mesh%elem_vacuum_sign = 1_i32
+  mesh%vacuum_normals = mesh%normals
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 2468_i32
   cfg%sim%batch_count = 1_i32
   cfg%sim%dt = 1.0d0
   cfg%sim%max_step = 1_i32
-  cfg%sim%softening = 1.0d-6
   cfg%sim%q_floor = 1.0d-30
   cfg%sim%use_box = .true.
   cfg%sim%box_min = [-1.0d0, -1.0d0, -2.0d0]
@@ -208,6 +209,8 @@ program test_mpi_hybrid
   call mpi_world_barrier(mpi)
 
   call init_mesh(mesh_restart, v0, v1, v2)
+  mesh_restart%elem_vacuum_sign = 1_i32
+  mesh_restart%vacuum_normals = mesh_restart%normals
   allocate (state_restart%macro_residual(1))
   state_restart%macro_residual = 0.0d0
   call load_restart_checkpoint(out_dir, mesh_restart, stats_restart, has_restart, state_restart, mpi=mpi)
@@ -261,14 +264,12 @@ contains
     call default_app_config(kinetic_cfg)
     kinetic_cfg%sim%field_solver = 'direct'
     kinetic_cfg%sim%field_bc_mode = 'periodic2'
-    kinetic_cfg%sim%softening = 0.0_dp
     kinetic_cfg%sim%use_box = .true.
     kinetic_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     kinetic_cfg%sim%box_max = [1.0_dp, 1.0_dp, 0.8_dp]
     kinetic_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     kinetic_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     kinetic_cfg%field%backend = 'direct'
-    kinetic_cfg%panel%source_model = 'triangle_p0'
     kinetic_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
     kinetic_cfg%panel%surface_side_policy = 'per_element'
     kinetic_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'

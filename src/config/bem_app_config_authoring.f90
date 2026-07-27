@@ -20,11 +20,6 @@ module bem_app_config_authoring
     real(dp) :: box_size(3) = 0.0d0
   end type sim_authoring_spec
 
-  type :: field_authoring_spec
-    logical :: has_element_kernel = .false.
-    character(len=32) :: element_kernel = 'point'
-  end type field_authoring_spec
-
   type :: periodic2_authoring_spec
     logical :: present = .false.
     character(len=32) :: nonzero_mode_backend = 'panel_spectral_reference'
@@ -174,7 +169,6 @@ module bem_app_config_authoring
 
   type :: app_config_authoring
     type(sim_authoring_spec) :: sim
-    type(field_authoring_spec) :: field
     type(periodic2_authoring_spec) :: periodic2
     type(outer_plasma_authoring_spec) :: outer_plasma
     type(coupling_authoring_spec) :: coupling
@@ -187,7 +181,6 @@ module bem_app_config_authoring
 
   public :: app_config_authoring
   public :: sim_authoring_spec
-  public :: field_authoring_spec
   public :: periodic2_authoring_spec
   public :: outer_plasma_authoring_spec
   public :: coupling_authoring_spec

@@ -47,7 +47,9 @@ b = Beach("outputs/latest")
 
 `Beach("outputs/latest", config_path="path/to/beach.toml")`のように、設定ファイルを明示できます。
 `config_path=None`の場合は、`output_dir/beach.toml`、親ディレクトリ、祖父ディレクトリの順に自動探索します。
-objectやkernelの設定を参照する解析では、この`beach.toml`からobject kind/order、`sim.softening`、periodic2、treeパラメータを取得します。
+objectやkernelの設定を参照する解析では、この`beach.toml`からobject kind/order、periodic2、treeパラメータを取得します。
+全電場を再計算する高水準APIは、境界・一様場・外部場を推測しないため、この設定ファイルを必須とします。
+simulatorが保存した`mesh_potential.csv`をそのまま読む経路では再計算しないため不要です。
 
 ### 2.1 コンストラクタ
 
@@ -158,31 +160,33 @@ trusted in-memory経路として動作します。
 
 ## 4. 電位再構成
 
-### 4.1 `compute_potential_mesh(result, *, softening, self_term, periodic2, reference_point)`
+### 4.1 `compute_potential_mesh(result, *, periodic2, reference_point, config_path, library_path)`
 
-三角形重心での電位を再構成します。Fortran が `mesh_potential.csv` を出力済みで条件が一致する場合はそちらを優先します。
+native field kernelのP0 triangle panel評価で、三角形重心の電位を計算します。Fortran が
+`mesh_potential.csv` を出力済みで条件が一致する場合はそちらを優先します。
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
 | `result` | `FortranRunResult \| object` | (必須) | - | 結果オブジェクト |
-| `softening` | `float \| None` | `None` | m | `None` で `sim.softening` を自動参照 |
-| `self_term` | `str` | `"auto"` | - | 自己相互作用: `"auto"` / `"area_equivalent"` / `"exclude"` / `"softened_point"` |
 | `periodic2` | `Mapping \| None` | `None` | - | 2 軸周期設定（後述）。`None` で自動判定 |
 | `reference_point` | `Iterable[float] \| str \| None` | `None` | m | 基準電位点。`"species1_injection_center"` で species 1 注入面中心 |
+| `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
+| `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
 
 戻り値: `ndarray (mesh_nelem,)` [V]
 
-### 4.2 `compute_potential_points(result, points, *, softening, chunk_size, periodic2, reference_point)`
+### 4.2 `compute_potential_points(result, points, *, chunk_size, periodic2, reference_point, config_path, library_path)`
 
 任意 3D 点での電位を計算します。
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
 | `points` | `ndarray (n_points, 3)` | (必須) | m | サンプリング点座標 |
-| `softening` | `float \| None` | `None` | m | `None` で自動 |
 | `chunk_size` | `int` | `2048` | - | チャンク分割数 |
 | `periodic2` | `Mapping \| None` | `None` | - | `None` で自動判定 |
 | `reference_point` | `Iterable[float] \| str \| None` | `None` | m | 基準電位点 |
+| `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
+| `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
 
 戻り値: `ndarray (n_points,)` [V]
 
@@ -194,7 +198,7 @@ XY/YZ/XZ 平面上の電位断面を計算します。
 
 ## 5. Coulomb 力/トルク計算
 
-### 5.1 `calc_coulomb(result, target, source, *, step, softening, torque_origin, periodic2)`
+### 5.1 `calc_coulomb(result, target, source, *, step, torque_origin, periodic2, quadrature_order, config_path, library_path)`
 
 target メッシュグループが source から受ける Coulomb 力とトルクを計算します。
 
@@ -204,15 +208,17 @@ target メッシュグループが source から受ける Coulomb 力とトル�
 | `target` | `int \| MeshSelection \| Iterable` | (必須) | - | ターゲットメッシュグループ (group A) |
 | `source` | `int \| MeshSelection \| Iterable` | (必須) | - | ソースメッシュグループ (group B) |
 | `step` | `int \| None` | `-1` | - | 履歴ステップ。`-1` で最新、`None` で最終電荷 |
-| `softening` | `float` | `0.0` | m | ソフトニング長 |
 | `torque_origin` | `str` | `"target_center"` | - | トルク基準点: `"target_center"` / `"source_center"` / `"origin"` |
 | `periodic2` | `Mapping \| None` | `None` | - | 2 軸周期境界設定。`None` で自動判定 |
+| `quadrature_order` | `int` | `7` | - | target panelのGauss-Duffy積分次数 |
+| `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
+| `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
 
 戻り値: `CoulombInteraction`
 
 ### periodic2 パラメータによる周期クーロン和
 
-`periodic2` が指定された場合、ソース電荷の画像シェル `ix in [-nimg, nimg], iy in [-nimg, nimg]` を 2 軸周期方向に生成し、最近接セル和としてクーロン力/トルクを計算します。
+`periodic2` が指定された場合、native field kernelをその2軸周期設定で構成して力とトルクを計算します。
 
 `periodic2=None`（デフォルト）の場合は、出力ディレクトリ近傍の `beach.toml` を探索し、`sim.field_bc_mode="periodic2"` が設定されていれば自動的に周期設定を適用します。これは `compute_potential_mesh` 等の他の関数と同じ自動判定ロジックです。
 
@@ -223,7 +229,6 @@ target メッシュグループが source から受ける Coulomb 力とトル�
 | `group_a_mesh_ids` | `tuple[int, ...]` | - | ターゲット mesh ID |
 | `group_b_mesh_ids` | `tuple[int, ...]` | - | ソース mesh ID |
 | `step` | `int \| None` | - | 使用した履歴ステップ |
-| `softening` | `float` | m | 使用したソフトニング長 |
 | `torque_origin_m` | `ndarray (3,)` | m | トルク基準点 |
 | `force_on_a_N` | `ndarray (3,)` | N | group A に作用する正味力 |
 | `force_on_b_N` | `ndarray (3,)` | N | group B に作用する正味力 |
@@ -253,25 +258,22 @@ interaction_p = b.calc_coulomb(
 
 ## 6. 電場計算
 
-### 6.1 `compute_electric_field_points(result, points, *, softening, chunk_size, periodic2)`
+### 6.1 `compute_electric_field_points(result, points, *, chunk_size, periodic2, config_path, library_path)`
 
-任意 3D 点での電場ベクトルを、表面電荷からクーロン則で直接計算します。
-
-計算式: `E(r) = K * sum_j q_j * (r - r_j) / |r - r_j|^3`
-
-ここで `r_j` は三角形要素 `j` の重心、`q_j` は要素電荷です。
+任意 3D 点での電場ベクトルを、native field kernelのP0 triangle panel評価で計算します。
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
 | `result` | `FortranRunResult \| object` | (必須) | - | 結果オブジェクト |
 | `points` | `ndarray (n_points, 3)` | (必須) | m | サンプリング点座標 |
-| `softening` | `float \| None` | `None` | m | ソフトニング長。`None` で `sim.softening` を自動参照 |
 | `chunk_size` | `int` | `2048` | - | チャンクサイズ |
 | `periodic2` | `Mapping \| None` | `None` | - | 2 軸周期設定。`None` で自動判定 |
+| `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
+| `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
 
 戻り値: `ndarray (n_points, 3)` [V/m]
 
-periodic2 モードでは、サンプリング点を周期セルに wrap した上で、ソース電荷の画像シェルを `ix in [-nimg, nimg], iy in [-nimg, nimg]` で重畳します。
+periodic2 モードでは、設定に応じて有限画像またはcached非零modeをnative kernelが評価します。
 
 ### 使用例
 
@@ -295,7 +297,7 @@ print(f"E-field [V/m]: {efield[0]}")
 
 ## 7. 電気力線追跡
 
-### 7.1 `trace_field_lines(result, seed_points, *, ds, max_steps, softening, periodic2, direction, box_min, box_max)`
+### 7.1 `trace_field_lines(result, seed_points, *, ds, max_steps, periodic2, direction, box_min, box_max, config_path, library_path)`
 
 シード点から電場方向（または逆方向）に RK4 積分で電気力線を追跡します。
 
@@ -305,7 +307,6 @@ print(f"E-field [V/m]: {efield[0]}")
 | `seed_points` | `ndarray (n_seeds, 3)` | (必須) | m | 力線の開始点座標 |
 | `ds` | `float \| None` | `None` | m | 積分ステップサイズ。`None` でメッシュ平均辺長 x 0.5 から自動設定 |
 | `max_steps` | `int` | `500` | - | 各方向の最大積分ステップ数 |
-| `softening` | `float \| None` | `None` | m | ソフトニング長。`None` で自動 |
 | `periodic2` | `Mapping \| None` | `None` | - | 2 軸周期設定。`None` で自動判定 |
 | `direction` | `str` | `"both"` | - | 追跡方向: `"forward"` (電場方向) / `"backward"` (逆方向) / `"both"` (両方向) |
 | `box_min` | `Iterable[float] \| None` | `None` | m | 境界ボックス下限。力線がこの外に出たら打ち切り |
@@ -322,9 +323,9 @@ print(f"E-field [V/m]: {efield[0]}")
 
 #### 制約事項
 
-- Python 側での直接和計算であり、大規模メッシュ（数万要素以上）では計算時間が長くなります
-- Fortran の treecode/fmm は使用しません。Python 側の電場計算は要素重心の点電荷による direct 和のみです
-- periodic2 では explicit image shell のみを再構成し、oracle residual（Ewald 遠方補正）は Python 側では再現しません
+- native field kernel共有libraryが必要です
+- RK4の各stageでfield kernelを評価するため、seed数と`max_steps`に比例して計算時間が増えます
+- mesh衝突による自動停止は行わず、field閾値、`max_steps`、box外への退出で停止します
 
 ### 使用例
 
@@ -356,7 +357,6 @@ for i, line in enumerate(lines):
 | `seed_points` | `ndarray (n_seeds, 3)` | (必須) | シード点 [m] |
 | `ds` | `float \| None` | `None` | 積分ステップサイズ [m] |
 | `max_steps` | `int` | `500` | 最大ステップ数 |
-| `softening` | `float \| None` | `None` | ソフトニング長 [m] |
 | `periodic2` | `Mapping \| None` | `None` | 周期設定 |
 | `direction` | `str` | `"both"` | 追跡方向 |
 | `box_min` | `Iterable[float] \| None` | `None` | 境界ボックス下限 [m] |
@@ -415,7 +415,8 @@ fig.savefig("field_lines.png", dpi=150)
 ### 8.1 自動判定（`periodic2=None`）
 
 デフォルトの `None` では、出力ディレクトリ近傍の `beach.toml` を探索し、`sim.field_bc_mode="periodic2"` が設定されている場合に自動的に周期境界設定を適用します。
-設定ファイルが見つからない場合や `field_bc_mode` が `periodic2` でない場合は自由空間モードで計算します。
+設定ファイルが見つからない場合、全電場を再計算する高水準APIは自由空間へ黙ってfallbackせず停止します。
+設定に`field_bc_mode="free"`が明記されている場合だけ自由空間として再計算します。
 
 ### 8.2 明示指定
 
@@ -451,12 +452,13 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 ### 8.3 Python 側の periodic2 実装の制限
 
 - Python 側では explicit image shell による直接和のみで周期和を再構成します
+- `cached_kneq0` native operatorは$k\ne0$成分だけを返します。一般の電位・電場・力APIはこれを全電場として返さず停止します。保存済み`mesh_potential.csv`、または物理的zero modeを明示合成する`ObjectInteractionSnapshot`を使ってください
 - 削除済み `m2l_root_oracle` は、`periodic2=None` で出力近傍の過去メタデータを自動検出する場合だけ受理され、有限 image shell を表す `none` に正規化されます。明示した `periodic2` や設定ファイルでは拒否されます。Python 側で Ewald 遠方補正は再現しません
 - 大きな `image_layers` を指定するほど精度は向上しますが、計算量は `(2*N+1)^2` 倍に増加します
 
 ## 9. Coulomb mobility 解析
 
-### 9.1 `analyze_coulomb_mobility(result, *, step, softening, config_path, gravity, support_normal, ...)`
+### 9.1 `analyze_coulomb_mobility(result, *, step, config_path, library_path, gravity, support_normal, ...)`
 
 オブジェクト単位で Coulomb 力による滑り・転がり・浮上の傾向を解析します。
 
@@ -466,7 +468,7 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 
 ### 10.1 `FieldKernel`
 
-`make build-kernel` で生成した `build/libbeach_field_kernel.so` を `ctypes` 経由で読み込み、シミュレーションと同じ Fortran FMM core で電場・電位を評価します。`config_path` または自動探索された `beach.toml` から、softening、periodic2、tree 設定を読みます。
+`make build-kernel` で生成した `build/libbeach_field_kernel.so` を `ctypes` 経由で読み込み、シミュレーションと同じFortran field coreでP0 triangle panelの電場・電位を評価します。`config_path` または自動探索された `beach.toml` から、periodic2、tree 設定を読みます。
 
 ```python
 from beach import Beach, FieldKernel
@@ -480,6 +482,8 @@ with FieldKernel.from_result(run) as kernel:
 共有ライブラリを別パスに置く場合は `library_path=` または環境変数 `BEACH_FIELD_KERNEL_LIB` を指定します。
 
 `eval_e()` / `eval_phi()`は、構築時に選んだfree / finite periodic / cached periodic設定を使います。
+ただしcached planの返り値は`cached_kneq0`の$k\ne0$成分と`sim.e0`だけで、物理的zero modeや
+active outer stateを含むsimulator全電場ではありません。`FieldKernel`はこの成分を明示的に扱う低水準APIです。
 `eval_e_direct()` / `eval_phi_direct()`は、同じsource geometryとchargeを非周期のexact direct法で評価する診断APIです。
 periodic planでは使用できず、uniform `sim.e0`も加算しません。FMMの精度確認とprimary free-space subtractionの
 小規模oracleに使います。
@@ -488,14 +492,11 @@ periodic planでは使用できず、uniform `sim.e0`も加算しません。FMM
 
 各objectについて、自身のsource電荷を0にしたうえで、`sum(q_i E_not_self(r_i))`とトルクを計算します。
 self policyは`exclude_target_lattice`です。周期計算では、targetのprimary sourceと、target object自身の周期画像を除外します。
-このAPIはpoint source専用です。
+この高水準APIは未合成の`cached_kneq0`を拒否します。
 
 object自身の周期画像を保持したまま離脱力を評価する場合は、後述の
 `ObjectInteractionSnapshot.object_probe(...)`を使います。このAPIでは、self policyが
 `exclude_primary_keep_images`に固定されています。
-
-`compute_potential_mesh(..., self_term="area_equivalent")`は、重心の自己電位を近似する電位再構成の規則です。
-object-force APIのself policyとは用途が異なります。
 
 ```python
 from beach import Beach
@@ -567,10 +568,11 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | 値 | 場の定義 |
 |---|---|
 | `"configured"` | run の `beach.toml` をそのまま使用する。free、`far_correction="none"` の有限画像、または cached periodic のいずれにもなり得る |
-| `"infinite_physical"` | x/y periodic run に対して cached `k != 0` と物理的な `k = 0` mode (`E_bottom=0`) を組み合わせる。cache の生成・再利用条件を満たす必要がある |
+| `"infinite_physical"` | x/y periodic run に対して cached `k != 0` と、`[periodic2].lower_boundary_model`に従う物理的な`k = 0` modeを組み合わせる。cache の生成・再利用条件を満たす必要がある |
 
 完全な`beach.toml`と`sim.box_min` / `sim.box_max`が必要です。現行releaseで扱えるのは
-`outer_plasma.model="none"`だけです。active outer fieldがある場合は、fieldを無視せずに処理を停止します。
+`outer_plasma.model="none"`または`external_boundary.field.model="none"`だけです。
+active outer fieldがある場合は、fieldを無視せずに処理を停止します。
 
 x/y periodic meshがcell seamをまたぐ場合、snapshot全体のsource geometryは、simulationとcache identityに一致する
 saved表現のまま保持します。一方、`object_probe()`は選択したmeshだけを周期的に連結したbranchにunwrapします。
@@ -593,9 +595,9 @@ torqueは基準点に依存するため、`ObjectWrench.torque_origin_m`と
 `numerical_metadata["torque_origin_policy"]`をforceと一緒に保存してください。
 `vertical_path()`では、各高さで使った基準点を`numerical_metadata["torque_origin_m"]`に保存します。
 
-target integration は、point source では要素重心、`triangle_p0` では既定で
-order 7 の Gauss-Duffy 面積積分です。`target_integration="centroid_compatibility"` は
-旧重心近似との比較用で、triangle の `auto` には選ばれません。
+target integration は既定でorder 7のGauss-Duffy面積積分です。
+`target_integration="centroid_compatibility"` は過去の重心積分結果との比較用で、
+`auto`には選ばれません。
 
 surface 上の機械的な合力には zero-mode の principal-value (PV) trace を使います。
 simulator の粒子 pusher は表面の片側値 `zero_mode_trace_plus` を使うため、両者は目的が

@@ -23,7 +23,7 @@ This lag produces dependence on `batch_duration`; see [Batch duration and stabil
 
 ## Conserved quantity and sign
 
-`q_elem(i)` is total charge [C] on element $i$. Even for the `triangle_p0` kernel, stored state is not surface density; field
+`q_elem(i)` is total charge [C] on element $i$. Even with the implicit P0 panel discretization, stored state is not surface density; field
 evaluation alone converts it to
 
 $$
@@ -68,18 +68,17 @@ $$
 \sum_jA_{ij}q_j-V_{g(i)}=-\phi_i^\mathrm{fixed},
 $$
 
-with
+The potential coefficient for source element $j$ carrying unit total charge as
+a P0 triangle is
 
 $$
-A_{ij}=
-\begin{cases}
-1/\epsilon, & i=j,\ \epsilon>0,\\
-2\sqrt\pi/h_i, & i=j,\ \epsilon=0,\\
-1/\sqrt{|\mathbf c_i-\mathbf c_j|^2+\epsilon^2}, & i\ne j.
-\end{cases}
+A_{ij}=\frac{1}{A_j}\int_{T_j}
+\frac{1}{|\mathbf c_i-\mathbf y|}\,dA_{\mathbf y}.
 $$
 
-$\mathbf c_i$ is element centroid, $h_i$ element length scale, and $\epsilon$ field softening.
+$\mathbf c_i$ is the target-element centroid, while $A_j$ and $T_j$ are the
+source-element area and triangle. The analytic P0 panel potential is used,
+including its self term, under the principal-value side convention.
 $\phi_i^\mathrm{fixed}$ is potential from nonconductor charge and uniform external field divided by `k_coulomb`.
 
 Every group adds charge conservation
@@ -91,9 +90,10 @@ $$
 The dense square system of size $N_\mathrm{cond}+N_\mathrm{group}$ is solved by Gaussian elimination with partial pivoting. Only
 conductor $q_i$ values are replaced, so no charge moves between objects and nonconductor elements are unchanged.
 
-This is a simplified centroid point-potential conductor, not an exact triangle-P0 conductor BEM boundary integral. It cannot be
-combined with periodic or outer fields; current validation accepts only `field_bc_mode="free"`. Check convergence of object
-potential and charge distribution with mesh refinement and softening.
+This floating-conductor model uses centroid collocation with a P0 triangle
+influence matrix. It cannot be combined with periodic or outer fields; current
+validation accepts only `field_bc_mode="free"`. Check convergence of object
+potential and charge distribution with mesh refinement.
 
 ## Dielectric metadata
 

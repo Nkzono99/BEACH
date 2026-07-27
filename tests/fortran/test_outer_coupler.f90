@@ -49,7 +49,6 @@ program test_outer_coupler
   sim = sim_config()
   sim%field_solver = 'direct'
   sim%field_bc_mode = 'periodic2'
-  sim%softening = 0.0_dp
   sim%use_box = .true.
   sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
   sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -57,8 +56,7 @@ program test_outer_coupler
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
   field_config = field_physics_config(backend='direct', normalization='si')
   panel_config = panel_kernel_config( &
-                 source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', &
-                 surface_side_policy='per_element' &
+                 kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
                  )
   periodic_config = periodic2_physics_config( &
                     nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
@@ -125,12 +123,14 @@ program test_outer_coupler
   steady_app%templates(1)%nx = 2_i32
   steady_app%templates(1)%ny = 1_i32
   steady_app%templates(1)%center = [0.5_dp, 0.5_dp, 0.25_dp]
+  steady_app%templates(1)%surface_side_policy = 'normal_plus'
   steady_app%templates(2)%enabled = .true.
   steady_app%templates(2)%kind = 'sphere'
   steady_app%templates(2)%radius = 0.05_dp
   steady_app%templates(2)%n_lon = 8_i32
   steady_app%templates(2)%n_lat = 4_i32
   steady_app%templates(2)%center = [0.5_dp, 0.5_dp, 0.5_dp]
+  steady_app%templates(2)%surface_side_policy = 'outward_closed'
   call build_mesh_from_config(steady_app, steady_mesh)
 
   steady_sim = sim_config()

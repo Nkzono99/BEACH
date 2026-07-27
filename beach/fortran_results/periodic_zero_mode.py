@@ -27,8 +27,8 @@ _TRACE_CODES = {
 class PeriodicZeroMode:
     """Evaluate the simulator's physical x/y-periodic zero mode.
 
-    ``source_heights_m`` stores the three vertex heights for each source. Point
-    sources use the same height in all three columns.
+    ``source_heights_m`` stores the three vertex heights for each triangle
+    source.
     """
 
     def __init__(
@@ -83,16 +83,30 @@ class PeriodicZeroMode:
             self.close()
             raise
 
-    def update_charges(self, source_charges_C: np.ndarray) -> None:
-        """Refresh source charges without rebuilding the height plan."""
+    def update_charges(
+        self,
+        source_charges_C: np.ndarray,
+        *,
+        e_bottom_V_m: float | None = None,
+    ) -> None:
+        """Refresh source charges without rebuilding the height plan.
+
+        ``e_bottom_V_m`` overrides the constructor value for this update only.
+        Omitting it preserves the historical fixed-bottom-field behavior.
+        """
 
         self._require_open()
         charges = _charges(source_charges_C, self._source_count)
+        e_bottom = (
+            self._e_bottom_V_m
+            if e_bottom_V_m is None
+            else _finite_scalar(e_bottom_V_m, "e_bottom_V_m")
+        )
         status = self._lib.beach_zero_mode_update(
             self._handle,
             ctypes.c_int(self._source_count),
             ctypes.c_void_p(charges.ctypes.data),
-            ctypes.c_double(self._e_bottom_V_m),
+            ctypes.c_double(e_bottom),
             ctypes.c_double(self._z_gauge_m),
             ctypes.c_double(self._phi_gauge_V),
         )

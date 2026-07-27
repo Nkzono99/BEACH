@@ -24,7 +24,7 @@ commit後のsurface model処理を反映した電荷を次のbatchのfield sourc
 
 ## 保存量と符号
 
-`q_elem(i)`は要素$i$の総電荷[C]です。`triangle_p0` kernelでも保存量は面密度ではなく、場評価時だけ
+`q_elem(i)`は要素$i$の総電荷[C]です。暗黙のP0 panel離散化でも保存量は面密度ではなく、場評価時だけ
 
 $$
 \sigma_i=\frac{q_i}{A_i}
@@ -60,7 +60,7 @@ v1.0のinteractionはabsorptionが基本であり、これらの効果は結果�
 
 `surface_model="conductor"`要素は`mesh_id`ごとに一つのfloating conductor objectを作ります。grounded potentialを
 与える境界ではありません。粒子差分をいったんcommitした後、objectごとの総電荷$Q_g^\mathrm{before}$を保存しながら、
-同じobject内の重心potentialを等しくします。
+同じobject内の要素重心potentialを等しくします。
 
 未知量は、全conductor要素の電荷$q_j$と各groupのscaled equipotential $V_g$です。要素$i$がgroup $g(i)$なら
 
@@ -68,18 +68,15 @@ $$
 \sum_jA_{ij}q_j-V_{g(i)}=-\phi_i^\mathrm{fixed}
 $$
 
-を課します。potential coefficientは
+を課します。source要素$j$を単位総電荷のP0 triangleとしたpotential coefficientは
 
 $$
-A_{ij}=
-\begin{cases}
-1/\epsilon, & i=j,\ \epsilon>0,\\
-2\sqrt\pi/h_i, & i=j,\ \epsilon=0,\\
-1/\sqrt{|\mathbf c_i-\mathbf c_j|^2+\epsilon^2}, & i\ne j
-\end{cases}
+A_{ij}=\frac{1}{A_j}\int_{T_j}
+\frac{1}{|\mathbf c_i-\mathbf y|}\,dA_{\mathbf y}
 $$
 
-です。$\mathbf c_i$は要素重心、$h_i$は要素長さscale、$\epsilon$はfield softeningです。
+です。$\mathbf c_i$はtarget要素重心、$A_j$と$T_j$はsource要素の面積と三角形です。
+自己項を含め、解析的P0 panel potentialをprincipal-value側規約で評価します。
 $\phi_i^\mathrm{fixed}$はnon-conductor電荷と一様外部fieldが作るpotentialを`k_coulomb`で割った量です。
 
 さらに、各groupに総電荷保存
@@ -92,9 +89,9 @@ $$
 解いた$q_i$でconductor要素だけを置換します。したがってconductor relaxationはobject間の電荷を移さず、
 non-conductor要素も変更しません。
 
-このmodelは、centroid point-potential coefficientを使う簡易floating conductorです。triangle P0による厳密なconductor BEM境界積分ではありません。
+このmodelは、要素重心collocationとP0 triangle influence matrixを使うfloating conductorです。
 periodic/outer fieldとは併用できず、現行実装は`field_bc_mode="free"`だけを受理します。
-要素細分化とsofteningに対するobject potential・電荷分布の収束を確認してください。
+要素細分化に対するobject potential・電荷分布の収束を確認してください。
 
 ## dielectric metadata
 

@@ -66,7 +66,7 @@ contains
     plan%nsrc = nsrc
     if (size(src_pos, 1) /= 3) error stop 'FMM core expects src_pos(3,n).'
     if (options%leaf_max <= 0_i32) error stop 'FMM leaf_max must be > 0.'
-    if (options%order < 0_i32) error stop 'FMM order must be >= 0.'
+    if (options%order < 1_i32) error stop 'FMM order must be >= 1.'
     if (options%softening < 0.0d0) error stop 'FMM softening must be >= 0.'
     if (options%use_periodic2) then
       if (any(options%periodic_axes < 1_i32) .or. any(options%periodic_axes > 3_i32)) then

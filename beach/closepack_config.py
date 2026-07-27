@@ -21,7 +21,6 @@ DEFAULT_BASE_CONFIG: dict[str, Any] = {
         "batch_count": 100,
         "max_step": 100000,
         "tol_rel": 1.0e-8,
-        "softening": 1.0e-6,
         "b0": [0.0, 0.0, 0.0],
         "use_box": True,
         "box_min": [0.0, 0.0, 0.0],
@@ -200,6 +199,7 @@ def generate_closepack_sphere_templates(
                         {
                             "kind": "sphere",
                             "enabled": True,
+                            "surface_side": "outward_closed",
                             "radius": spec.radius,
                             "center": [x_shift + basis_x, y_shift + basis_y, center_z],
                             "n_lon": spec.sphere_n_lon,
@@ -331,6 +331,7 @@ def _build_floor_plane_template(
     return {
         "kind": "plane",
         "enabled": True,
+        "surface_side": "normal_plus",
         "size_x": width_x,
         "size_y": width_y,
         "nx": spec.plane_nx,

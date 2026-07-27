@@ -3,6 +3,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import beach.fortran_results.coulomb as coulomb_module
+import beach.fortran_results.potential as potential_module
 from beach.fortran_results import (
     analyze_coulomb_mobility,
     Beach,
@@ -31,12 +33,149 @@ from beach.fortran_results.mesh import (
     _wrap_periodic2_triangles_by_mesh_centroid,
 )
 from beach.fortran_results.objects import resolve_object_specs
+from beach.fortran_results.panel_quadrature import panel_target_quadrature
 from beach.fortran_results.plotting import _periodic2_for_coulomb_matrix
 from beach.fortran_results.potential import (
     _auto_periodic2_from_result,
     _coerce_periodic2,
     _potential_history,
 )
+
+
+class _UnitPanelKernel:
+    """Small deterministic stand-in; native panel accuracy is tested separately."""
+
+    def __init__(self, triangles, charges, *, options, **_kwargs) -> None:
+        panels = np.asarray(triangles, dtype=float)
+        self.centers = panels.mean(axis=1)
+        (
+            self.source_quadrature,
+            self.source_quadrature_weights,
+            self.source_element_index,
+        ) = panel_target_quadrature(
+            panels,
+            np.ones(panels.shape[0], dtype=float),
+            order=7,
+        )
+        self.charges = np.asarray(charges, dtype=float).copy()
+        self.periodic2 = options.periodic2
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        pass
+
+    def update_charges(self, charges: np.ndarray) -> None:
+        self.charges = np.asarray(charges, dtype=float).copy()
+
+    def _wrapped_targets(self, points: np.ndarray) -> np.ndarray:
+        targets = np.asarray(points, dtype=float)
+        if self.periodic2 is None:
+            return targets
+        axes, lengths, origins, *_rest = self.periodic2
+        targets = targets.copy()
+        for axis, length, origin in zip(axes, lengths, origins):
+            targets[:, axis] = origin + np.mod(targets[:, axis] - origin, length)
+        return targets
+
+    def eval_phi(self, points: np.ndarray) -> np.ndarray:
+        targets = self._wrapped_targets(points)
+        values = np.zeros(targets.shape[0], dtype=float)
+        shifts = [np.zeros(3)]
+        if self.periodic2 is not None:
+            axes, lengths, _origins, layers, *_rest = self.periodic2
+            shifts = []
+            for first in range(-layers, layers + 1):
+                for second in range(-layers, layers + 1):
+                    shift = np.zeros(3)
+                    shift[axes[0]] = first * lengths[0]
+                    shift[axes[1]] = second * lengths[1]
+                    shifts.append(shift)
+        for shift in shifts:
+            delta = (
+                targets[:, None, :]
+                - (self.source_quadrature + shift)[None, :, :]
+            )
+            distance = np.linalg.norm(delta, axis=2)
+            inverse_distance = np.zeros_like(distance)
+            np.divide(1.0, distance, out=inverse_distance, where=distance > 0.0)
+            sample_charges = (
+                self.charges[self.source_element_index]
+                * self.source_quadrature_weights
+            )
+            values += K_COULOMB * np.sum(
+                inverse_distance * sample_charges[None, :],
+                axis=1,
+            )
+        return values
+
+    def eval_e(self, points: np.ndarray) -> np.ndarray:
+        targets = self._wrapped_targets(points)
+        field = np.zeros_like(targets)
+        shifts = [np.zeros(3)]
+        if self.periodic2 is not None:
+            axes, lengths, _origins, layers, *_rest = self.periodic2
+            shifts = []
+            for first in range(-layers, layers + 1):
+                for second in range(-layers, layers + 1):
+                    shift = np.zeros(3)
+                    shift[axes[0]] = first * lengths[0]
+                    shift[axes[1]] = second * lengths[1]
+                    shifts.append(shift)
+        for shift in shifts:
+            delta = (
+                targets[:, None, :]
+                - (self.source_quadrature + shift)[None, :, :]
+            )
+            distance = np.linalg.norm(delta, axis=2)
+            inverse_cube = np.zeros_like(distance)
+            np.divide(1.0, distance**3, out=inverse_cube, where=distance > 0.0)
+            sample_charges = (
+                self.charges[self.source_element_index]
+                * self.source_quadrature_weights
+            )
+            field += K_COULOMB * np.sum(
+                sample_charges[None, :, None]
+                * delta
+                * inverse_cube[:, :, None],
+                axis=1,
+            )
+        return field
+
+    def force_on_charges(
+        self,
+        points: np.ndarray,
+        charges: np.ndarray,
+        *,
+        origin: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        target_points = np.asarray(points, dtype=float)
+        force_samples = np.asarray(charges, dtype=float)[:, None] * self.eval_e(
+            target_points
+        )
+        return (
+            np.sum(force_samples, axis=0),
+            np.sum(
+                np.cross(target_points - np.asarray(origin)[None, :], force_samples),
+                axis=0,
+            ),
+        )
+
+
+def _write_complete_free_field_config(directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "beach.toml").write_text(
+        '[sim]\nfield_bc_mode = "free"\n\n'
+        '[external_boundary.field]\nmodel = "none"\n',
+        encoding="utf-8",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _unit_panel_kernel(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(potential_module, "FieldKernel", _UnitPanelKernel)
+    monkeypatch.setattr(coulomb_module, "FieldKernel", _UnitPanelKernel)
 
 
 def _make_history(
@@ -89,6 +228,7 @@ def _write_charge_history(
 
 
 def _write_three_mesh_fixture(out: Path) -> None:
+    _write_complete_free_field_config(out)
     (out / "summary.txt").write_text(
         "\n".join(
             [
@@ -98,6 +238,7 @@ def _write_three_mesh_fixture(out: Path) -> None:
                 "escaped=3",
                 "batches=10",
                 "last_rel_change=1.0e-6",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -142,6 +283,7 @@ def _write_coulomb_matrix_fixture(out: Path) -> None:
                 "escaped=3",
                 "batches=10",
                 "last_rel_change=1.0e-6",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -207,6 +349,7 @@ def _write_mobility_fixture(out: Path) -> None:
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -258,6 +401,7 @@ def _write_minimal_result_fixture(
     mesh_sources_text: str | None = None,
     mesh_potential_text: str | None = None,
     summary_extra: list[str] | None = None,
+    field_source_model: str | None = "triangle_p0",
 ) -> None:
     summary_lines = [
         "mesh_nelem=2",
@@ -267,6 +411,8 @@ def _write_minimal_result_fixture(
         "batches=1",
         "last_rel_change=1.0e-8",
     ]
+    if field_source_model is not None:
+        summary_lines.append(f"field_source_model={field_source_model}")
     if summary_extra is not None:
         summary_lines.extend(summary_extra)
     (out / "summary.txt").write_text("\n".join(summary_lines), encoding="utf-8")
@@ -305,6 +451,7 @@ def test_load_fortran_result(tmp_path: Path) -> None:
                 "multiple_box_events_soft_discarded=4",
                 "multiple_box_events_soft_discarded_abs_charge_C=2.5e-15",
                 "last_rel_change=1.0e-8",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -373,24 +520,42 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
 
 
-def test_python_point_estimators_reject_triangle_panel_output(tmp_path: Path) -> None:
-    out = tmp_path / "run_triangle_panel"
+def test_panel_estimators_reject_removed_point_output(tmp_path: Path) -> None:
+    out = tmp_path / "run_removed_point"
     out.mkdir()
     _write_minimal_result_fixture(
         out,
         summary_extra=[
-            "field_source_model=triangle_p0",
-            "field_kernel_id=triangle_p0_exact_direct",
+            "field_kernel_id=softened_point",
         ],
+        field_source_model="point",
     )
     result = load_fortran_result(out)
 
-    assert result.field_source_model == "triangle_p0"
-    with pytest.raises(ValueError, match="supports field_source_model=point only"):
+    assert result.field_source_model == "point"
+    with pytest.raises(ValueError, match="triangle_p0"):
         compute_potential_mesh(result)
-    with pytest.raises(ValueError, match="supports field_source_model=point only"):
+    with pytest.raises(ValueError, match="triangle_p0"):
         compute_electric_field_points(result, np.zeros((1, 3)))
-    with pytest.raises(ValueError, match="supports field_source_model=point only"):
+    with pytest.raises(ValueError, match="triangle_p0"):
+        calc_coulomb(result, 1, 2, step=None)
+
+
+def test_panel_estimators_reject_output_without_source_model_receipt(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_missing_source_model"
+    out.mkdir()
+    _write_minimal_result_fixture(out, field_source_model=None)
+
+    result = load_fortran_result(out)
+
+    assert result.field_source_model == "unknown"
+    with pytest.raises(ValueError, match="triangle_p0"):
+        compute_potential_mesh(result)
+    with pytest.raises(ValueError, match="triangle_p0"):
+        compute_electric_field_points(result, np.zeros((1, 3)))
+    with pytest.raises(ValueError, match="triangle_p0"):
         calc_coulomb(result, 1, 2, step=None)
 
 
@@ -694,6 +859,7 @@ def test_beach_uses_outputs_latest_by_default(
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -734,6 +900,7 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
                 "escaped=2",
                 "batches=1",
                 "last_rel_change=0.5",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -981,6 +1148,7 @@ def test_beach_get_mesh_returns_tuple_for_multiple_ids(tmp_path: Path) -> None:
 def test_calc_coulomb_defaults_to_latest_history_step(tmp_path: Path) -> None:
     out = tmp_path / "run_calc_coulomb_default_latest"
     out.mkdir()
+    _write_complete_free_field_config(out)
     (out / "summary.txt").write_text(
         "\n".join(
             [
@@ -990,6 +1158,7 @@ def test_calc_coulomb_defaults_to_latest_history_step(tmp_path: Path) -> None:
                 "escaped=0",
                 "batches=2",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -1014,10 +1183,10 @@ def test_calc_coulomb_defaults_to_latest_history_step(tmp_path: Path) -> None:
     )
 
     interaction = calc_coulomb(Beach(out), 1, 2)
-    expected_fx = K_COULOMB * 2.0e-18
-    np.testing.assert_allclose(
-        interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0])
-    )
+    explicit_latest = calc_coulomb(Beach(out), 1, 2, step=-1)
+    np.testing.assert_allclose(interaction.force_on_a_N, explicit_latest.force_on_a_N)
+    assert interaction.force_on_a_N[0] > 0.0
+    np.testing.assert_allclose(interaction.force_on_a_N[1:], np.zeros(2), atol=1.0e-18)
 
 
 def test_calc_coulomb_accepts_target_source_keywords(tmp_path: Path) -> None:
@@ -1071,9 +1240,10 @@ def test_calc_coulomb_accepts_composite_groups(tmp_path: Path) -> None:
     )
 
 
-def test_calc_coulomb_matches_two_charge_expected_force(tmp_path: Path) -> None:
+def test_calc_coulomb_panel_force_obeys_action_reaction(tmp_path: Path) -> None:
     out = tmp_path / "run_calc_coulomb_expected"
     out.mkdir()
+    _write_complete_free_field_config(out)
     (out / "summary.txt").write_text(
         "\n".join(
             [
@@ -1083,6 +1253,7 @@ def test_calc_coulomb_matches_two_charge_expected_force(tmp_path: Path) -> None:
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -1101,11 +1272,19 @@ def test_calc_coulomb_matches_two_charge_expected_force(tmp_path: Path) -> None:
     result = load_fortran_result(out)
     interaction = calc_coulomb(result, 1, 2)
 
-    expected_fx = K_COULOMB * 2.0e-18
+    assert interaction.force_on_a_N[0] > 0.0
     np.testing.assert_allclose(
-        interaction.force_on_a_N, np.array([expected_fx, 0.0, 0.0])
+        interaction.force_on_a_N + interaction.force_on_b_N,
+        np.zeros(3),
+        atol=1.0e-18,
     )
-    np.testing.assert_allclose(interaction.torque_on_a_Nm, np.zeros(3))
+    np.testing.assert_allclose(interaction.force_on_a_N[1:], np.zeros(2), atol=1.0e-18)
+    np.testing.assert_allclose(
+        interaction.torque_on_a_Nm + interaction.torque_on_b_Nm,
+        np.zeros(3),
+        atol=1.0e-18,
+    )
+    assert np.linalg.norm(interaction.torque_on_a_Nm) > 0.0
 
 
 def test_surface_charge_density_uses_triangle_area() -> None:
@@ -1160,10 +1339,11 @@ def test_compute_potential_mesh_requires_triangles_when_precomputed_output_is_in
     )
 
     with pytest.raises(ValueError, match="mesh_triangles.csv"):
-        compute_potential_mesh(result, self_term="exclude")
+        compute_potential_mesh(result, reference_point=[0.0, 0.0, 1.0])
 
 
-def test_compute_potential_mesh_matches_area_equivalent_expected_values() -> None:
+def test_compute_potential_mesh_is_linear_in_panel_charges(tmp_path: Path) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
@@ -1172,7 +1352,7 @@ def test_compute_potential_mesh_matches_area_equivalent_expected_values() -> Non
     )
     charges = np.array([2.0e-9, -1.0e-9])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -1185,21 +1365,27 @@ def test_compute_potential_mesh_matches_area_equivalent_expected_values() -> Non
         triangles=triangles,
     )
 
-    distance = 3.0
-    self_coeff = 2.0 * np.sqrt(np.pi) / np.sqrt(4.5)
-    expected = K_COULOMB * np.array(
-        [
-            charges[0] * self_coeff + charges[1] / distance,
-            charges[0] / distance + charges[1] * self_coeff,
-        ]
+    scaled_result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=2,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=-0.25 * charges,
+        triangles=triangles,
     )
 
-    potential = compute_potential_mesh(result, self_term="area_equivalent")
+    potential = compute_potential_mesh(result)
+    scaled = compute_potential_mesh(scaled_result)
 
-    np.testing.assert_allclose(potential, expected)
+    np.testing.assert_allclose(scaled, -0.25 * potential)
 
 
-def test_compute_potential_mesh_changes_with_softening_for_offdiag_terms() -> None:
+def test_compute_potential_mesh_rejects_removed_softening_keyword() -> None:
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
@@ -1220,20 +1406,17 @@ def test_compute_potential_mesh_changes_with_softening_for_offdiag_terms() -> No
         triangles=triangles,
     )
 
-    potential_small = compute_potential_mesh(
-        result, softening=1.0e-6, self_term="exclude"
-    )
-    potential_large = compute_potential_mesh(result, softening=1.0, self_term="exclude")
-
-    assert np.all(np.isfinite(potential_small))
-    assert np.all(np.isfinite(potential_large))
-    assert np.all(potential_small > potential_large)
+    with pytest.raises(TypeError, match="softening"):
+        compute_potential_mesh(result, softening=1.0)  # type: ignore[call-arg]
 
 
-def test_compute_potential_mesh_excludes_self_term_for_single_triangle() -> None:
+def test_compute_potential_mesh_includes_finite_panel_self_term(
+    tmp_path: Path,
+) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]]])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -1246,12 +1429,18 @@ def test_compute_potential_mesh_excludes_self_term_for_single_triangle() -> None
         triangles=triangles,
     )
 
-    potential = compute_potential_mesh(result, self_term="exclude")
+    potential = compute_potential_mesh(result)
 
-    np.testing.assert_allclose(potential, np.array([0.0]))
+    assert potential.shape == (1,)
+    assert np.isfinite(potential[0])
+    assert potential[0] > 0.0
 
 
-def test_compute_potential_mesh_softened_point_matches_legacy_behavior() -> None:
+def test_compute_potential_mesh_uses_panel_centroids_as_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
@@ -1260,7 +1449,7 @@ def test_compute_potential_mesh_softened_point_matches_legacy_behavior() -> None
     )
     charges = np.array([2.0e-9, -1.0e-9])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -1273,23 +1462,30 @@ def test_compute_potential_mesh_softened_point_matches_legacy_behavior() -> None
         triangles=triangles,
     )
 
-    softening = 0.5
-    distance = 3.0
-    expected = K_COULOMB * np.array(
-        [
-            charges[0] / softening + charges[1] / np.sqrt(distance**2 + softening**2),
-            charges[0] / np.sqrt(distance**2 + softening**2) + charges[1] / softening,
-        ]
-    )
+    captured: dict[str, np.ndarray] = {}
 
-    potential = compute_potential_mesh(
-        result, softening=softening, self_term="softened_point"
-    )
+    class _CapturePanelKernel(_UnitPanelKernel):
+        def __init__(self, source_triangles, source_charges, **kwargs) -> None:
+            captured["source_triangles"] = np.asarray(source_triangles).copy()
+            super().__init__(source_triangles, source_charges, **kwargs)
 
-    np.testing.assert_allclose(potential, expected)
+        def eval_phi(self, points: np.ndarray) -> np.ndarray:
+            captured.setdefault("targets", np.asarray(points).copy())
+            return super().eval_phi(points)
+
+    monkeypatch.setattr(potential_module, "FieldKernel", _CapturePanelKernel)
+
+    potential = compute_potential_mesh(result)
+
+    np.testing.assert_array_equal(captured["source_triangles"], triangles)
+    np.testing.assert_allclose(captured["targets"], triangles.mean(axis=1))
+    assert np.all(np.isfinite(potential))
 
 
-def test_compute_potential_mesh_supports_reference_point_difference() -> None:
+def test_compute_potential_mesh_supports_reference_point_difference(
+    tmp_path: Path,
+) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
@@ -1298,7 +1494,7 @@ def test_compute_potential_mesh_supports_reference_point_difference() -> None:
     )
     charges = np.array([2.0e-9, -1.0e-9])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -1314,26 +1510,22 @@ def test_compute_potential_mesh_supports_reference_point_difference() -> None:
     reference = np.array([0.0, 0.0, 6.0])
     phi = compute_potential_mesh(
         result,
-        softening=0.5,
-        self_term="softened_point",
         reference_point=reference,
     )
-    phi_abs = compute_potential_mesh(
-        result,
-        softening=0.5,
-        self_term="softened_point",
-    )
+    phi_abs = compute_potential_mesh(result)
     phi_ref = compute_potential_points(
         result,
         reference.reshape(1, 3),
-        softening=0.5,
     )[0]
 
     np.testing.assert_allclose(phi, phi_abs - phi_ref)
 
 
-def test_compute_potential_mesh_auto_uses_softening_from_config(tmp_path: Path) -> None:
-    out = tmp_path / "run_softening_auto"
+def test_compute_potential_mesh_reads_panel_solver_options_from_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "run_panel_options"
     out.mkdir()
     (out / "summary.txt").write_text(
         "\n".join(
@@ -1344,6 +1536,7 @@ def test_compute_potential_mesh_auto_uses_softening_from_config(tmp_path: Path) 
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -1362,26 +1555,30 @@ def test_compute_potential_mesh_auto_uses_softening_from_config(tmp_path: Path) 
         "\n".join(
             [
                 "[sim]",
-                "softening = 0.5",
+                "tree_theta = 0.5",
             ]
         ),
         encoding="utf-8",
     )
 
     result = load_fortran_result(out)
-    distance = 3.0
-    softening = 0.5
-    charges = np.array([2.0e-9, -1.0e-9])
-    expected = K_COULOMB * np.array(
-        [
-            charges[0] / softening + charges[1] / np.sqrt(distance**2 + softening**2),
-            charges[0] / np.sqrt(distance**2 + softening**2) + charges[1] / softening,
-        ]
-    )
+    captured: dict[str, object] = {}
 
+    class _CaptureOptionsKernel(_UnitPanelKernel):
+        def __init__(self, source_triangles, source_charges, *, options, **kwargs) -> None:
+            captured["options"] = options
+            super().__init__(
+                source_triangles,
+                source_charges,
+                options=options,
+                **kwargs,
+            )
+
+    monkeypatch.setattr(potential_module, "FieldKernel", _CaptureOptionsKernel)
     potential = compute_potential_mesh(result)
 
-    np.testing.assert_allclose(potential, expected)
+    assert np.all(np.isfinite(potential))
+    assert captured["options"].theta == pytest.approx(0.5)
 
 
 def test_compute_potential_mesh_supports_species1_injection_reference_from_config(
@@ -1398,6 +1595,7 @@ def test_compute_potential_mesh_supports_species1_injection_reference_from_confi
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -1412,7 +1610,7 @@ def test_compute_potential_mesh_supports_species1_injection_reference_from_confi
         "\n".join(
             [
                 "[sim]",
-                "softening = 0.0",
+                "tree_theta = 0.5",
                 "",
                 "[particles]",
                 "",
@@ -1426,20 +1624,21 @@ def test_compute_potential_mesh_supports_species1_injection_reference_from_confi
     )
 
     result = load_fortran_result(out)
+    absolute = compute_potential_mesh(result)
     phi = compute_potential_mesh(
         result,
-        self_term="exclude",
         reference_point="species1_injection_center",
     )
 
-    distance = np.sqrt((2.0 / 3.0) ** 2 + (2.0 / 3.0) ** 2 + 10.0**2)
-    expected = np.array([-K_COULOMB * 2.0e-9 / distance])
-    np.testing.assert_allclose(phi, expected)
+    reference = compute_potential_points(
+        result,
+        np.array([[1.0, 1.0, 10.0]]),
+    )[0]
+    np.testing.assert_allclose(phi, absolute - reference)
 
 
-def test_compute_potential_mesh_allows_zero_softening_for_non_softened_self_terms() -> (
-    None
-):
+def test_compute_potential_mesh_returns_finite_panel_values(tmp_path: Path) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
@@ -1447,7 +1646,7 @@ def test_compute_potential_mesh_allows_zero_softening_for_non_softened_self_term
         ]
     )
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -1460,15 +1659,9 @@ def test_compute_potential_mesh_allows_zero_softening_for_non_softened_self_term
         triangles=triangles,
     )
 
-    potential_area = compute_potential_mesh(
-        result, softening=0.0, self_term="area_equivalent"
-    )
-    potential_exclude = compute_potential_mesh(
-        result, softening=0.0, self_term="exclude"
-    )
+    potential = compute_potential_mesh(result)
 
-    assert np.all(np.isfinite(potential_area))
-    assert np.all(np.isfinite(potential_exclude))
+    assert np.all(np.isfinite(potential))
 
 
 def test_compute_potential_mesh_requires_triangles() -> None:
@@ -1490,7 +1683,7 @@ def test_compute_potential_mesh_requires_triangles() -> None:
         compute_potential_mesh(result)
 
 
-def test_compute_potential_mesh_rejects_negative_softening() -> None:
+def test_compute_potential_mesh_rejects_removed_softening_argument() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
         directory=Path("dummy"),
@@ -1506,11 +1699,11 @@ def test_compute_potential_mesh_rejects_negative_softening() -> None:
         triangles=triangles,
     )
 
-    with pytest.raises(ValueError, match="softening"):
-        compute_potential_mesh(result, softening=-1.0)
+    with pytest.raises(TypeError, match="softening"):
+        compute_potential_mesh(result, softening=-1.0)  # type: ignore[call-arg]
 
 
-def test_compute_potential_mesh_rejects_invalid_self_term() -> None:
+def test_compute_potential_mesh_rejects_removed_self_term_argument() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
         directory=Path("dummy"),
@@ -1526,13 +1719,11 @@ def test_compute_potential_mesh_rejects_invalid_self_term() -> None:
         triangles=triangles,
     )
 
-    with pytest.raises(ValueError, match="self_term"):
-        compute_potential_mesh(result, self_term="invalid")
+    with pytest.raises(TypeError, match="self_term"):
+        compute_potential_mesh(result, self_term="invalid")  # type: ignore[call-arg]
 
 
-def test_compute_potential_mesh_requires_positive_softening_for_softened_point() -> (
-    None
-):
+def test_compute_potential_mesh_has_no_softened_point_compatibility_mode() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
         directory=Path("dummy"),
@@ -1548,16 +1739,18 @@ def test_compute_potential_mesh_requires_positive_softening_for_softened_point()
         triangles=triangles,
     )
 
-    with pytest.raises(ValueError, match="softening"):
-        compute_potential_mesh(result, softening=0.0, self_term="softened_point")
+    with pytest.raises(TypeError, match="self_term"):
+        compute_potential_mesh(  # type: ignore[call-arg]
+            result,
+            self_term="softened_point",
+        )
 
 
-def test_compute_potential_mesh_handles_degenerate_triangle_in_area_equivalent() -> (
-    None
-):
+def test_compute_potential_mesh_rejects_degenerate_panel(tmp_path: Path) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -1570,16 +1763,18 @@ def test_compute_potential_mesh_handles_degenerate_triangle_in_area_equivalent()
         triangles=triangles,
     )
 
-    potential = compute_potential_mesh(result, self_term="area_equivalent")
+    with pytest.raises(ValueError, match="non-degenerate"):
+        compute_potential_mesh(result)
 
-    assert np.isfinite(potential[0])
 
-
-def test_compute_potential_points_matches_centroid_point_charge_model() -> None:
+def test_compute_potential_points_returns_finite_panel_potential(
+    tmp_path: Path,
+) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -1595,15 +1790,18 @@ def test_compute_potential_points_matches_centroid_point_charge_model() -> None:
 
     potential = compute_potential_points(result, points)
 
-    expected = K_COULOMB * charge[0] / np.array([2.0, 4.0])
-    np.testing.assert_allclose(potential, expected)
+    assert np.all(np.isfinite(potential))
+    assert potential[0] > potential[1] > 0.0
 
 
-def test_compute_potential_points_supports_periodic2_image_sum() -> None:
+def test_compute_potential_points_supports_periodic2_image_sum(
+    tmp_path: Path,
+) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -1625,20 +1823,20 @@ def test_compute_potential_points_supports_periodic2_image_sum() -> None:
     }
 
     potential = compute_potential_points(result, points, periodic2=periodic2)
+    free = compute_potential_points(result, points)
 
-    expected_sum = 0.0
-    for ix in range(-1, 2):
-        for iy in range(-1, 2):
-            radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
-            expected_sum += charge[0] / radius
-    np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+    assert np.all(np.isfinite(potential))
+    assert potential[0] > free[0] > 0.0
 
 
-def test_compute_potential_mesh_supports_periodic2_image_sum() -> None:
+def test_compute_potential_mesh_supports_periodic2_image_sum(
+    tmp_path: Path,
+) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -1660,18 +1858,12 @@ def test_compute_potential_mesh_supports_periodic2_image_sum() -> None:
 
     potential = compute_potential_mesh(
         result,
-        self_term="exclude",
         periodic2=periodic2,
     )
+    free = compute_potential_mesh(result)
 
-    expected_sum = 0.0
-    for ix in range(-1, 2):
-        for iy in range(-1, 2):
-            if ix == 0 and iy == 0:
-                continue
-            radius = np.sqrt(float(ix * ix + iy * iy))
-            expected_sum += charge[0] / radius
-    np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+    assert np.all(np.isfinite(potential))
+    assert potential[0] > free[0] > 0.0
 
 
 @pytest.mark.parametrize("far_correction", ["auto", "m2l_root_oracle"])
@@ -1689,6 +1881,7 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -1720,15 +1913,20 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(
     )
 
     result = load_fortran_result(out)
-    points = np.array([[0.0, 0.0, 2.0]])
+    points = np.array([[0.0, 0.0, 0.5]])
     potential = compute_potential_points(result, points)
+    explicit = compute_potential_points(
+        result,
+        points,
+        periodic2={
+            "axes": (0, 1),
+            "lengths": (1.0, 1.0),
+            "image_layers": 1,
+            "far_correction": "none",
+        },
+    )
 
-    expected_sum = 0.0
-    for ix in range(-1, 2):
-        for iy in range(-1, 2):
-            radius = np.sqrt(float(ix * ix + iy * iy) + 4.0)
-            expected_sum += 2.0e-9 / radius
-    np.testing.assert_allclose(potential, np.array([K_COULOMB * expected_sum]))
+    np.testing.assert_allclose(potential, explicit)
 
 
 def test_coulomb_matrix_auto_reader_accepts_historical_root_oracle(
@@ -1850,6 +2048,7 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -1890,12 +2089,8 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
 
     potential = compute_potential_points(result, points)
 
-    expected_sum = 0.0
-    for ix in range(-1, 2):
-        for iy in range(-1, 2):
-            expected_sum += 2.0e-9 / np.sqrt(float(ix * ix + iy * iy) + 1.0)
-    expected = np.array([K_COULOMB * expected_sum, K_COULOMB * expected_sum])
-    np.testing.assert_allclose(potential, expected)
+    assert np.all(np.isfinite(potential))
+    np.testing.assert_allclose(potential[0], potential[1])
 
 
 def test_auto_periodic2_from_result_defaults_far_correction_to_none(
@@ -1912,6 +2107,7 @@ def test_auto_periodic2_from_result_defaults_far_correction_to_none(
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -1964,6 +2160,7 @@ def test_auto_periodic2_from_result_preserves_none_far_correction(
                 "escaped=0",
                 "batches=1",
                 "last_rel_change=0.0",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -2004,7 +2201,7 @@ def test_auto_periodic2_from_result_preserves_none_far_correction(
     assert periodic2[6] == 4
 
 
-def test_potential_history_supports_periodic2_image_sum() -> None:
+def test_potential_history_reuses_panel_kernel_with_periodic2() -> None:
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charges_history = np.array([[2.0e-9, -1.0e-9]])
     periodic2 = _coerce_periodic2(
@@ -2015,19 +2212,14 @@ def test_potential_history_supports_periodic2_image_sum() -> None:
     potential = _potential_history(
         charges_history,
         triangles,
-        softening=0.0,
-        self_term="exclude",
         periodic2=periodic2,
     )
 
-    image_sum = 0.0
-    for ix in range(-1, 2):
-        for iy in range(-1, 2):
-            if ix == 0 and iy == 0:
-                continue
-            image_sum += 1.0 / np.sqrt(float(ix * ix + iy * iy))
-    expected = K_COULOMB * charges_history * image_sum
-    np.testing.assert_allclose(potential, expected)
+    free = _potential_history(charges_history, triangles)
+
+    assert np.all(np.isfinite(potential))
+    np.testing.assert_allclose(potential[:, 1], -0.5 * potential[:, 0])
+    assert abs(potential[0, 0]) > abs(free[0, 0])
 
 
 def test_coerce_periodic2_rejects_legacy_ewald_modes() -> None:
@@ -2122,14 +2314,67 @@ def test_potential_history_supports_reference_point_difference() -> None:
     potential = _potential_history(
         charges_history,
         triangles,
-        softening=0.0,
-        self_term="exclude",
         reference_point=reference_point,
     )
+    absolute = _potential_history(charges_history, triangles)
 
-    distance = np.sqrt((1.0 / 3.0) ** 2 + (1.0 / 3.0) ** 2 + 2.0**2)
-    expected = -K_COULOMB * charges_history / distance
-    np.testing.assert_allclose(potential, expected)
+    assert np.all(np.isfinite(potential))
+    np.testing.assert_allclose(potential[:, 1], 2.0 * potential[:, 0])
+    reference_offset = absolute - potential
+    assert np.all(reference_offset > 0.0)
+    np.testing.assert_allclose(reference_offset[:, 1], 2.0 * reference_offset[:, 0])
+
+
+def test_potential_animation_rejects_cached_kneq0_component(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("matplotlib")
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    (output_dir / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -2.0]",
+                "box_max = [4.0, 5.0, 12.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                'field_periodic_far_correction = "cached_kneq0"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    triangles = np.array(
+        [[[0.2, 0.2, 0.0], [0.8, 0.2, 0.0], [0.2, 0.8, 0.0]]]
+    )
+    result = FortranRunResult(
+        directory=output_dir,
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=1,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([2.0e-9]),
+        triangles=triangles,
+        history=_make_history(
+            mesh_nelem=1,
+            history=np.array([[1.0e-9, 2.0e-9]]),
+        ),
+    )
+    with pytest.raises(ValueError, match="only the k!=0 component"):
+        animate_history_mesh(
+            result,
+            quantity="potential",
+            reference_point=[2.0, 2.5, 10.0],
+        )
 
 
 def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
@@ -2160,11 +2405,12 @@ def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
         )
 
 
-def test_compute_potential_slices_returns_xy_yz_xz_grids() -> None:
+def test_compute_potential_slices_returns_xy_yz_xz_grids(tmp_path: Path) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -2194,10 +2440,16 @@ def test_compute_potential_slices_returns_xy_yz_xz_grids() -> None:
         assert slc.u_values_m.shape == (5,)
         assert slc.v_values_m.shape == (5,)
 
-    center_expected = K_COULOMB * charge[0] / 0.5
-    np.testing.assert_allclose(slices["xy"].potential_V[2, 2], center_expected)
-    np.testing.assert_allclose(slices["yz"].potential_V[2, 2], center_expected)
-    np.testing.assert_allclose(slices["xz"].potential_V[2, 2], center_expected)
+    center_values = np.array(
+        [
+            slices["xy"].potential_V[2, 2],
+            slices["yz"].potential_V[2, 2],
+            slices["xz"].potential_V[2, 2],
+        ]
+    )
+    assert np.all(np.isfinite(center_values))
+    assert np.all(center_values > 0.0)
+    assert np.ptp(center_values) > 0.0
 
 
 def test_compute_potential_slices_rejects_invalid_grid_or_coordinate() -> None:
@@ -2233,13 +2485,14 @@ def test_compute_potential_slices_rejects_invalid_grid_or_coordinate() -> None:
         )
 
 
-def test_plot_potential_slices_returns_figure_and_axes() -> None:
+def test_plot_potential_slices_returns_figure_and_axes(tmp_path: Path) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
+    _write_complete_free_field_config(tmp_path)
 
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -2267,13 +2520,14 @@ def test_plot_potential_slices_returns_figure_and_axes() -> None:
     fig.clf()
 
 
-def test_plot_potential_slices_applies_vmin_vmax() -> None:
+def test_plot_potential_slices_applies_vmin_vmax(tmp_path: Path) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
+    _write_complete_free_field_config(tmp_path)
 
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -2301,10 +2555,11 @@ def test_plot_potential_slices_applies_vmin_vmax() -> None:
     fig.clf()
 
 
-def test_plot_potential_slices_rejects_invalid_vmin_vmax() -> None:
+def test_plot_potential_slices_rejects_invalid_vmin_vmax(tmp_path: Path) -> None:
+    _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -2419,9 +2674,10 @@ def test_plot_charge_mesh_can_apply_periodic2_mesh_wrapping() -> None:
     fig.clf()
 
 
-def test_plot_potential_mesh_returns_figure_and_axes() -> None:
+def test_plot_potential_mesh_returns_figure_and_axes(tmp_path: Path) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
+    _write_complete_free_field_config(tmp_path)
 
     triangles = np.array(
         [
@@ -2430,7 +2686,7 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
         ]
     )
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -2443,7 +2699,7 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
         triangles=triangles,
     )
 
-    fig, ax = plot_potential_mesh(result, softening=0.5, self_term="softened_point")
+    fig, ax = plot_potential_mesh(result, reference_point=None)
 
     assert fig is not None
     assert ax is not None
@@ -2451,21 +2707,23 @@ def test_plot_potential_mesh_returns_figure_and_axes() -> None:
 
     fig, ax = plot_potential_mesh(
         result,
-        softening=0.5,
-        self_term="softened_point",
+        reference_point=None,
         axis_unit="um",
     )
     assert ax.get_xlabel() == "x [um]"
     fig.clf()
 
 
-def test_plot_potential_mesh_can_apply_periodic2_mesh_wrapping() -> None:
+def test_plot_potential_mesh_can_apply_periodic2_mesh_wrapping(
+    tmp_path: Path,
+) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
+    _write_complete_free_field_config(tmp_path)
 
     triangles = np.array([[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]])
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
@@ -2480,8 +2738,7 @@ def test_plot_potential_mesh_can_apply_periodic2_mesh_wrapping() -> None:
 
     fig, ax = plot_potential_mesh(
         result,
-        softening=0.5,
-        self_term="softened_point",
+        reference_point=None,
         periodic2={"axes": (0, 1), "lengths": (1.0, 1.0), "origins": (0.0, 0.0)},
         apply_periodic2_mesh=True,
     )
@@ -2493,9 +2750,10 @@ def test_plot_potential_mesh_can_apply_periodic2_mesh_wrapping() -> None:
     fig.clf()
 
 
-def test_plot_potential_mesh_accepts_custom_view_angles() -> None:
+def test_plot_potential_mesh_accepts_custom_view_angles(tmp_path: Path) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
+    _write_complete_free_field_config(tmp_path)
 
     triangles = np.array(
         [
@@ -2504,7 +2762,7 @@ def test_plot_potential_mesh_accepts_custom_view_angles() -> None:
         ]
     )
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -2519,8 +2777,7 @@ def test_plot_potential_mesh_accepts_custom_view_angles() -> None:
 
     fig, ax = plot_potential_mesh(
         result,
-        softening=0.5,
-        self_term="softened_point",
+        reference_point=None,
         view_elev=11.0,
         view_azim=37.0,
     )
@@ -2566,9 +2823,12 @@ def test_plot_mesh_source_boxplot_charge_uses_area_weighted_statistics() -> None
     fig.clf()
 
 
-def test_plot_mesh_source_boxplot_supports_potential_quantity() -> None:
+def test_plot_mesh_source_boxplot_supports_potential_quantity(
+    tmp_path: Path,
+) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg")
+    _write_complete_free_field_config(tmp_path)
 
     triangles = np.array(
         [
@@ -2577,7 +2837,7 @@ def test_plot_mesh_source_boxplot_supports_potential_quantity() -> None:
         ]
     )
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -2594,8 +2854,6 @@ def test_plot_mesh_source_boxplot_supports_potential_quantity() -> None:
     fig, ax = plot_mesh_source_boxplot(
         result,
         quantity="potential",
-        softening=0.1,
-        self_term="softened_point",
     )
 
     stats = getattr(ax, "_beach_box_stats")
@@ -2659,17 +2917,12 @@ def test_plot_coulomb_force_matrix_auto_labels_targets_from_config(
     matrix_info = getattr(ax, "_beach_coulomb_matrix")
     assert matrix_info["target_labels"] == ("plane", "sphere1", "sphere2")
     assert matrix_info["source_labels"] == ("plane", "sphere1", "sphere2", "net")
+    matrix = matrix_info["matrix"]
+    assert np.all(np.isfinite(matrix))
+    np.testing.assert_allclose(np.diag(matrix[:3]), np.zeros(3))
     np.testing.assert_allclose(
-        matrix_info["matrix"],
-        K_COULOMB
-        * np.array(
-            [
-                [0.0, 2.0e-18, -0.75e-18],
-                [-2.0e-18, 0.0, -6.0e-18],
-                [0.75e-18, 6.0e-18, 0.0],
-                [-1.25e-18, 8.0e-18, -6.75e-18],
-            ]
-        ),
+        matrix[-1],
+        np.sum(matrix[:-1], axis=0),
     )
     fig.clf()
 
@@ -2700,9 +2953,12 @@ def test_plot_coulomb_force_matrix_accepts_explicit_target_kinds(
     matrix_info = getattr(ax, "_beach_coulomb_matrix")
     assert matrix_info["target_labels"] == ("plane",)
     assert matrix_info["source_labels"] == ("plane", "sphere1", "sphere2", "net")
+    matrix = matrix_info["matrix"]
+    assert np.all(np.isfinite(matrix))
+    assert matrix[0, 0] == pytest.approx(0.0)
     np.testing.assert_allclose(
-        matrix_info["matrix"][:, 0],
-        K_COULOMB * np.array([0.0, -2.0e-18, 0.75e-18, -1.25e-18]),
+        matrix[-1, 0],
+        np.sum(matrix[:-1, 0]),
     )
     fig.clf()
 
@@ -2737,21 +2993,30 @@ def test_analyze_coulomb_mobility_computes_lift_and_slide_ratios(
 
     assert len(analysis.records) == 1
     record = analysis.records[0]
-    expected_force = K_COULOMB * 2.0e-8
+    expected_interaction = calc_coulomb(Beach(out), target=2, source=1)
+    expected_force = expected_interaction.force_on_a_N[2]
     expected_mass = 1000.0 * (4.0 * np.pi * 0.1**3 / 3.0)
     expected_weight = expected_mass * 9.81
 
     assert record.label == "sphere"
-    np.testing.assert_allclose(record.force_N, np.array([0.0, 0.0, expected_force]))
-    np.testing.assert_allclose(record.torque_Nm, np.zeros(3))
+    np.testing.assert_allclose(
+        record.force_N,
+        np.array([0.0, 0.0, expected_force]),
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        record.torque_Nm,
+        expected_interaction.torque_on_a_Nm,
+        atol=1.0e-12,
+    )
     assert record.force_normal_N == pytest.approx(expected_force)
-    assert record.force_tangent_N == pytest.approx(0.0)
+    assert record.force_tangent_N == pytest.approx(0.0, abs=1.0e-12)
     assert record.mass_kg == pytest.approx(expected_mass)
     assert record.weight_support_N == pytest.approx(expected_weight)
     assert record.resisting_normal_N == pytest.approx(expected_weight)
     assert record.effective_normal_load_N == pytest.approx(0.0)
     assert record.lift_ratio == pytest.approx(expected_force / expected_weight)
-    assert record.slide_ratio == pytest.approx(0.0)
+    assert record.slide_ratio == pytest.approx(0.0, abs=1.0e-12)
     assert record.notes == ()
 
 
@@ -2820,6 +3085,39 @@ def test_animate_history_mesh_rejects_invalid_quantity(tmp_path: Path) -> None:
         animate_history_mesh(result, tmp_path / "history.gif", quantity="invalid")
 
 
+@pytest.mark.parametrize("source_model", ["point", "unknown"])
+def test_potential_animation_rejects_legacy_or_missing_source_receipt(
+    tmp_path: Path,
+    source_model: str,
+) -> None:
+    pytest.importorskip("matplotlib")
+    triangles = np.array(
+        [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
+        dtype=float,
+    )
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([1.0e-9]),
+        triangles=triangles,
+        history=_make_history(
+            mesh_nelem=1,
+            history=np.array([[1.0e-9, 1.2e-9]]),
+        ),
+        field_source_model=source_model,
+    )
+
+    with pytest.raises(ValueError, match="field_source_model='triangle_p0'"):
+        animate_history_mesh(result, quantity="potential")
+
+
 def test_animate_history_mesh_rejects_invalid_total_frames(tmp_path: Path) -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     result = FortranRunResult(
@@ -2880,6 +3178,7 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
     matplotlib = pytest.importorskip("matplotlib")
     pytest.importorskip("PIL")
     matplotlib.use("Agg")
+    _write_complete_free_field_config(tmp_path)
 
     triangles = np.array(
         [
@@ -2894,7 +3193,7 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
         ]
     )
     result = FortranRunResult(
-        directory=Path("dummy"),
+        directory=tmp_path,
         mesh_nelem=2,
         processed_particles=0,
         absorbed=0,
@@ -2921,8 +3220,6 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
         quantity=quantity,
         fps=4,
         frame_stride=1,
-        softening=0.5,
-        self_term="softened_point",
     )
 
     assert written == out

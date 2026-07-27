@@ -48,7 +48,7 @@ $$
 \mathbf s_{ij}=iL_1\mathbf e_1+jL_2\mathbf e_2
 $$
 
-をsourceへ加えます。near listは元のpointまたはtriangle P0 kernelでDirect評価し、well-separatedなnode pairは
+をsourceへ加えます。near listは固定 P0 triangle kernelでDirect評価し、well-separatedなnode pairは
 各画像shiftを含めたM2L derivativeで評価します。この部分を$K_\mathrm{shell}(N)$と書きます。
 
 `field_periodic_far_correction="none"`では$K_\mathrm{shell}(N)$が全結果です。画像層の外側は暗黙に近似されるのではなく、
@@ -102,7 +102,7 @@ $$
 5. geometryと設定からfingerprintを作り、operatorとchecksumをcacheへ公開する。
 
 `cached_kneq0`はこの線形写像をversioned cacheへ保存し、fingerprint、shape、checksumが一致するwarm runで
-再利用します。point sourceとtriangle P0の両方に対応し、proxy pointから作ったoperatorを
+再利用します。proxy pointから作ったoperatorを、P0 triangle sourceの
 triangle-averaged P2M係数へ適用します。
 
 電場だけのfitではlocal展開の定数potential係数を決められないため、同じcheck点のpotential residualから

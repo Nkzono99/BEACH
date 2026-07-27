@@ -1,6 +1,6 @@
 !> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule(bem_field_solver) bem_field_solver_tree
-  use bem_coulomb_fmm_core, only: build_plan, update_state, destroy_plan, destroy_state
+  use bem_coulomb_fmm_core, only: build_panel_plan, update_state, destroy_plan, destroy_state
   implicit none
 contains
 
@@ -10,7 +10,7 @@ contains
   integer(i32) :: p, idx, p_end
   integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
   real(dp) :: q, abs_q, qx, qy, qz, qi
-  real(dp), allocatable :: src_pos(:, :)
+  real(dp), allocatable :: panel_v0(:, :), panel_v1(:, :), panel_v2(:, :)
   logical :: plan_view_dirty
 
   if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
@@ -30,9 +30,12 @@ contains
     if (.not. self%fmm_core_plan%built .or. self%fmm_core_plan%nsrc /= mesh%nelem) then
       call destroy_plan(self%fmm_core_plan)
       call destroy_state(self%fmm_core_state)
-      call build_core_source_positions(mesh, src_pos, self%field_inv_length_scale, self%field_origin)
-      call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
-      deallocate (src_pos)
+      allocate (panel_v0(3, mesh%nelem), panel_v1(3, mesh%nelem), panel_v2(3, mesh%nelem))
+      panel_v0 = (mesh%v0 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+      panel_v1 = (mesh%v1 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+      panel_v2 = (mesh%v2 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+      call build_panel_plan(self%fmm_core_plan, panel_v0, panel_v1, panel_v2, self%fmm_core_options)
+      deallocate (panel_v0, panel_v1, panel_v2)
       plan_view_dirty = .true.
     end if
 
@@ -189,17 +192,15 @@ contains
   self%node_center(:, node_idx) = center
   self%node_half_size(:, node_idx) = 0.5d0*span
   self%node_radius(node_idx) = sqrt(sum(self%node_half_size(:, node_idx)*self%node_half_size(:, node_idx)))
-  if (trim(self%source_model) == 'triangle_p0') then
-    do p = start_idx, end_idx
-      idx = self%elem_order(p)
-      vertex_radius = sqrt(sum((mesh%v0(:, idx) - center)**2))
-      self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
-      vertex_radius = sqrt(sum((mesh%v1(:, idx) - center)**2))
-      self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
-      vertex_radius = sqrt(sum((mesh%v2(:, idx) - center)**2))
-      self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
-    end do
-  end if
+  do p = start_idx, end_idx
+    idx = self%elem_order(p)
+    vertex_radius = sqrt(sum((mesh%v0(:, idx) - center)**2))
+    self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
+    vertex_radius = sqrt(sum((mesh%v1(:, idx) - center)**2))
+    self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
+    vertex_radius = sqrt(sum((mesh%v2(:, idx) - center)**2))
+    self%node_radius(node_idx) = max(self%node_radius(node_idx), vertex_radius)
+  end do
 
   if (count <= self%leaf_max) return
 
@@ -512,14 +513,5 @@ contains
     dst = src
   end subroutine copy_dp_2d
   end procedure sync_core_plan_view
-
-  module procedure build_core_source_positions
-  integer(i32) :: idx
-
-  allocate (src_pos(3, mesh%nelem))
-  do idx = 1_i32, mesh%nelem
-    src_pos(:, idx) = inv_length_scale*([mesh%center_x(idx), mesh%center_y(idx), mesh%center_z(idx)] - origin)
-  end do
-  end procedure build_core_source_positions
 
 end submodule bem_field_solver_tree

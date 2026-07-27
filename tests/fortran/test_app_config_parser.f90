@@ -101,6 +101,7 @@ program test_app_config_parser
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
+  call assert_true(trim(cfg%mesh_mode) == 'template', 'default mesh_mode mismatch')
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field_solver mismatch')
   call assert_true(trim(cfg%sim%field_normalization) == 'si', 'default field_normalization mismatch')
   call assert_close_dp(cfg%sim%field_length_scale, 1.0d0, 1.0d-15, 'default field_length_scale mismatch')
@@ -110,7 +111,6 @@ program test_app_config_parser
   call assert_equal_i32(cfg%sim%field_periodic_image_layers, 1_i32, 'default field_periodic_image_layers mismatch')
   call assert_true(trim(cfg%sim%field_periodic_far_correction) == 'none', 'default field_periodic_far_correction mismatch')
   call assert_true(trim(cfg%field%backend) == 'auto', 'default typed field backend mismatch')
-  call assert_true(trim(cfg%panel%source_model) == 'point', 'default typed source model mismatch')
   call assert_true( &
     trim(cfg%periodic2%nonzero_mode_backend) == 'not_applicable', &
     'default typed periodic backend mismatch' &
@@ -329,7 +329,6 @@ program test_app_config_parser
   call test_begin('triangle_panel_config')
   call default_app_config(panel_cfg)
   call load_app_config(panel_cfg_path, panel_cfg)
-  call assert_true(trim(panel_cfg%panel%source_model) == 'triangle_p0', 'panel source model mismatch')
   call assert_true(trim(panel_cfg%panel%kernel_id) == 'triangle_p0_exact_direct', 'panel kernel id mismatch')
   call assert_true(trim(panel_cfg%templates(1)%surface_side_policy) == 'normal_plus', 'template side policy mismatch')
   call test_end()
@@ -338,7 +337,6 @@ program test_app_config_parser
   call default_app_config(panel_tree_cfg)
   call load_app_config(panel_tree_cfg_path, panel_tree_cfg)
   call assert_true(trim(panel_tree_cfg%sim%field_solver) == 'treecode', 'panel tree solver mismatch')
-  call assert_true(trim(panel_tree_cfg%panel%source_model) == 'triangle_p0', 'panel tree source model mismatch')
   call assert_true( &
     trim(panel_tree_cfg%panel%kernel_id) == 'triangle_p0_exact_tree_near', &
     'panel tree kernel id mismatch' &
@@ -782,7 +780,6 @@ contains
     write (u, '(a)') 'batch_duration = 1.0e-8'
     write (u, '(a)') 'batch_count = 1'
     write (u, '(a)') 'max_step = 4'
-    write (u, '(a)') 'softening = 0.0'
     write (u, '(a)') 'field_solver = "direct"'
     write (u, '(a)') 'field_bc_mode = "periodic2"'
     write (u, '(a)') 'use_box = true'
@@ -794,9 +791,6 @@ contains
     write (u, '(a)') 'bc_y_high = "periodic"'
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
-    write (u, '(a)') ''
-    write (u, '(a)') '[field]'
-    write (u, '(a)') 'element_kernel = "triangle_p0"'
     write (u, '(a)') ''
     write (u, '(a)') '[periodic2]'
     write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
@@ -1299,9 +1293,6 @@ contains
     write (u, '(a)') 'max_step = 2'
     write (u, '(a)') 'field_solver = "'//trim(solver)//'"'
     write (u, '(a)') 'field_bc_mode = "free"'
-    write (u, '(a)') 'softening = 0.0'
-    write (u, '(a)') '[field]'
-    write (u, '(a)') 'element_kernel = "triangle_p0"'
     write (u, '(a)') '[particles]'
     write (u, '(a)') '[[particles.species]]'
     write (u, '(a)') 'npcls_per_step = 1'
@@ -1327,7 +1318,6 @@ contains
     write (u, '(a)') 'max_step = 2'
     write (u, '(a)') 'field_solver = "direct"'
     write (u, '(a)') 'field_bc_mode = "periodic2"'
-    write (u, '(a)') 'softening = 0.0'
     write (u, '(a)') 'use_box = true'
     write (u, '(a)') 'box_min = [0.0, 0.0, 0.0]'
     write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
@@ -1338,8 +1328,6 @@ contains
     write (u, '(a)') 'bc_z_low = "open"'
     write (u, '(a)') 'bc_z_high = "open"'
     write (u, '(a)') 'open_boundary_model = "potential_barrier"'
-    write (u, '(a)') '[field]'
-    write (u, '(a)') 'element_kernel = "triangle_p0"'
     write (u, '(a)') '[periodic2]'
     write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
     write (u, '(a)') 'zero_mode_policy = "exclude_k0"'
@@ -1394,7 +1382,6 @@ contains
     write (u, '(a)') 'max_step = 2'
     write (u, '(a)') 'field_solver = "direct"'
     write (u, '(a)') 'field_bc_mode = "periodic2"'
-    write (u, '(a)') 'softening = 0.0'
     write (u, '(a)') 'use_box = true'
     if (.not. omit_explicit_box) then
       write (u, '(a)') 'box_origin = [0.0, 0.0, 0.0]'
@@ -1408,8 +1395,6 @@ contains
     write (u, '(a)') 'bc_z_high = "open"'
     if (trim(owner) == 'reservoir') write (u, '(a)') 'reservoir_potential_model = "none"'
     if (trim(owner) == 'open') write (u, '(a)') 'open_boundary_model = "escape"'
-    write (u, '(a)') '[field]'
-    write (u, '(a)') 'element_kernel = "triangle_p0"'
     write (u, '(a)') '[periodic2]'
     write (u, '(a)') 'nonzero_mode_backend = "panel_spectral_reference"'
     write (u, '(a)') 'zero_mode_policy = "exclude_k0"'

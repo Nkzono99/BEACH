@@ -115,7 +115,7 @@ BEACH のテストは開発ループ向けに階層化しています。
 `cached_kneq0`のcold operator生成とexact Ewald比較は計算量が大きいため、
 `make test-fortran-far-correction`で実行します。
 速度比較には、release profileの`make test-fortran-benchmark`を使います。
-実際のメッシュで`point`と`triangle_p0`の場評価コストを比較する場合は、比較する各設定に対して
+実際のメッシュでP0 panel場評価のコストを測る場合は、比較する各solver設定に対して
 次を実行します。`FIELD_KERNEL_BENCHMARK_TARGET_COUNT`は領域内と面近傍でそれぞれ
 評価する点数です。出力はメッシュ構築、
 ソルバ初期化、電荷更新、電場・電位評価を分けたCSV形式です。
@@ -295,8 +295,7 @@ MPI再開時は `summary.txt` の `mpi_world_size` と現在の rank 数が一�
 beachx inspect outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png \
-  --save-potential-mesh outputs/latest/potential_mesh.png \
-  --potential-self-term area-equivalent
+  --save-potential-mesh outputs/latest/potential_mesh.png
 
 # sim.field_bc_mode = "periodic2" の mesh を周期セルへ寄せて描く
 beachx inspect outputs/latest \
@@ -354,7 +353,7 @@ beachx object-detachment outputs/latest \
 `--density-kg-m3`と`beach.toml`の幾何情報が必要です。
 
 `beachx kernel-forces`は、`libbeach_field_kernel`を介してFortran FMM coreをPythonから呼び出します。
-`beach.toml`の`sim.softening` / `sim.field_bc_mode` / periodic2 / tree設定を使い、objectごとのnet forceを計算します。
+`beach.toml`の`sim.field_bc_mode` / periodic2 / tree設定を使い、objectごとのnet forceを計算します。
 共有libraryは`make build-kernel`で`build/libbeach_field_kernel.so`に生成できます。別の場所に置く場合は`--library`または
 `BEACH_FIELD_KERNEL_LIB`を指定します。設定ファイルが出力directoryの近傍にない場合は、`--config path/to/beach.toml`を指定します。
 
@@ -452,8 +451,8 @@ srun beach beach.toml
 
 - 通常実行は `sim.batch_count` 分だけ進みます。再開実行では checkpoint の処理済みバッチ数から `sim.batch_count` に達するまで進みます。
 - `sim.tol_rel` は監視値で、現行実装では早期終了条件に使いません。
-- Fortran 本体の要素核は `field.element_kernel` で選びます。互換既定の `point` は要素重心点電荷 +
-  `sim.softening`、`triangle_p0` は要素総電荷を三角形上の一定面密度として積分し、`softening=0` を必須とします。
+- Fortran 本体の要素sourceはP0 triangle panelに固定され、要素総電荷を三角形上の一定面密度として積分します。
+  旧`[field]` tableと`sim.softening`を残した入力はunknown table / keyとして停止します。
 
 camphor向けのMPIジョブ例は `examples/job_scripts/camphor_mpi_hybrid_job.sh` にあります。
 `test-physics-release`は、収束出力に必要なL1 subset、L3 heavy、far-correction correctness、MPI電荷収支、

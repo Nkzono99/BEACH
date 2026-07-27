@@ -1,7 +1,6 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
-  use bem_coulomb_fmm_core, only: build_plan, build_panel_plan, update_state, destroy_plan, destroy_state
-  use bem_types, only: surface_model_insulator
+  use bem_coulomb_fmm_core, only: build_panel_plan, update_state, destroy_plan, destroy_state
   use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
   implicit none
 contains
@@ -10,8 +9,8 @@ contains
   module procedure init_field_solver
   character(len=16) :: requested_mode, field_bc_mode
   integer(i32) :: axis, n_periodic
-  real(dp) :: span, fmm_softening
-  real(dp), allocatable :: src_pos(:, :), panel_v0(:, :), panel_v1(:, :), panel_v2(:, :)
+  real(dp) :: span
+  real(dp), allocatable :: panel_v0(:, :), panel_v1(:, :), panel_v2(:, :)
   integer(i32) :: panel_status
   character(len=256) :: panel_message
 
@@ -22,7 +21,6 @@ contains
   self%fmm_core_ready = .false.
   call reset_tree_storage(self)
 
-  self%softening = sim%softening
   self%field_normalization = lower_ascii(trim(sim%field_normalization))
   self%field_length_scale = resolve_field_length_scale(mesh, sim)
   self%field_origin = resolve_field_origin(mesh, sim, self%field_normalization)
@@ -45,27 +43,23 @@ contains
 
   requested_mode = lower_ascii(trim(sim%field_solver))
   field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
-  self%source_model = 'point'
   if (present(periodic_config)) continue
   if (present(panel_config)) then
     call validate_phase1_panel_config(sim, panel_config, panel_status, panel_message)
     if (panel_status /= physics_config_ok) error stop 'field solver panel config: '//trim(panel_message)
-    self%source_model = lower_ascii(trim(panel_config%source_model))
-    if (trim(self%source_model) == 'triangle_p0') then
-      if (.not. present(field_config)) error stop 'triangle_p0 requires typed field configuration.'
-      if (trim(lower_ascii(field_config%backend)) /= trim(requested_mode) .or. &
-          trim(lower_ascii(field_config%normalization)) /= trim(self%field_normalization)) then
-        error stop 'triangle_p0 typed field config does not match sim field config.'
-      end if
-      if (any(mesh%panel_area <= 0.0_dp)) then
-        error stop 'triangle_p0 requires finite, non-degenerate triangles.'
-      end if
-      if (any(mesh%elem_surface_model /= surface_model_insulator)) then
-        error stop 'triangle_p0 Phase 1 supports insulator surfaces only.'
-      end if
-      if (any(abs(mesh%elem_vacuum_sign) /= 1_i32)) then
-        error stop 'triangle_p0 requires resolved element vacuum sides.'
-      end if
+  end if
+  if (present(field_config)) then
+    if (trim(lower_ascii(field_config%backend)) /= trim(requested_mode) .or. &
+        trim(lower_ascii(field_config%normalization)) /= trim(self%field_normalization)) then
+      error stop 'typed field config does not match sim field config.'
+    end if
+  end if
+  if (mesh%nelem > 0_i32) then
+    if (any(mesh%panel_area <= 0.0_dp)) then
+      error stop 'triangle_p0 requires finite, non-degenerate triangles.'
+    end if
+    if (any(abs(mesh%elem_vacuum_sign) /= 1_i32)) then
+      error stop 'triangle_p0 requires resolved element vacuum sides.'
     end if
   end if
   self%field_bc_mode = field_bc_mode
@@ -125,12 +119,8 @@ contains
   case ('fmm')
     self%mode = 'fmm'
   case ('auto')
-    if (trim(self%source_model) == 'triangle_p0' .and. mesh%nelem >= self%min_nelem) then
+    if (mesh%nelem >= self%min_nelem) then
       self%mode = 'fmm'
-    else if (trim(self%source_model) == 'triangle_p0') then
-      self%mode = 'direct'
-    else if (mesh%nelem >= self%min_nelem) then
-      self%mode = 'treecode'
     else
       self%mode = 'direct'
     end if
@@ -156,15 +146,10 @@ contains
   end if
 
   self%fmm_core_options = fmm_options_type()
-  fmm_softening = self%softening*self%field_inv_length_scale
   self%fmm_core_options%theta = self%theta
   self%fmm_core_options%leaf_max = self%leaf_max
   self%fmm_core_options%order = 4_i32
-  if (trim(self%source_model) == 'triangle_p0') then
-    self%fmm_core_options%softening = 0.0_dp
-  else
-    self%fmm_core_options%softening = fmm_softening
-  end if
+  self%fmm_core_options%softening = 0.0_dp
   self%fmm_core_options%use_periodic2 = self%use_periodic2
   self%fmm_core_options%periodic_far_correction = self%periodic_far_correction
   self%fmm_core_options%periodic_axes = self%periodic_axes
@@ -186,18 +171,12 @@ contains
     end select
     self%fmm_use_core = .true.
     if (mesh%nelem > 0_i32) then
-      if (trim(self%source_model) == 'triangle_p0') then
-        allocate (panel_v0(3, mesh%nelem), panel_v1(3, mesh%nelem), panel_v2(3, mesh%nelem))
-        panel_v0 = (mesh%v0 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-        panel_v1 = (mesh%v1 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-        panel_v2 = (mesh%v2 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-        call build_panel_plan(self%fmm_core_plan, panel_v0, panel_v1, panel_v2, self%fmm_core_options)
-        deallocate (panel_v0, panel_v1, panel_v2)
-      else
-        call build_core_source_positions(mesh, src_pos, self%field_inv_length_scale, self%field_origin)
-        call build_plan(self%fmm_core_plan, src_pos, self%fmm_core_options)
-        deallocate (src_pos)
-      end if
+      allocate (panel_v0(3, mesh%nelem), panel_v1(3, mesh%nelem), panel_v2(3, mesh%nelem))
+      panel_v0 = (mesh%v0 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+      panel_v1 = (mesh%v1 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+      panel_v2 = (mesh%v2 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
+      call build_panel_plan(self%fmm_core_plan, panel_v0, panel_v1, panel_v2, self%fmm_core_options)
+      deallocate (panel_v0, panel_v1, panel_v2)
       call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
       self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
       call sync_core_plan_view(self)

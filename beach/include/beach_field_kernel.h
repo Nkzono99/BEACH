@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#define BEACH_FIELD_KERNEL_ABI_MAJOR 1
+#define BEACH_FIELD_KERNEL_ABI_MAJOR 2
 #define BEACH_FIELD_KERNEL_ABI_MINOR 0
 
 typedef void *beach_kernel_handle;
@@ -45,16 +45,9 @@ int beach_kernel_get_periodic_cache_info(
     char *path, int path_capacity, int *path_length);
 
 int beach_kernel_build(
-    beach_kernel_handle handle, int source_count, const double *source_xyz,
-    double theta, int leaf_max, int order, double softening,
-    int use_periodic2, const int *periodic_axes_1based,
-    const double *periodic_lengths, int image_layers, int far_correction,
-    double ewald_alpha, int ewald_layers, const double *box_min,
-    const double *box_max);
-int beach_kernel_build_panel(
     beach_kernel_handle handle, int source_count, const double *vertex0_xyz,
     const double *vertex1_xyz, const double *vertex2_xyz, double theta,
-    int leaf_max, int order, double softening, int use_periodic2,
+    int leaf_max, int order, int use_periodic2,
     const int *periodic_axes_1based, const double *periodic_lengths,
     int image_layers, int far_correction, double ewald_alpha,
     int ewald_layers, const double *box_min, const double *box_max);

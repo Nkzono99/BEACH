@@ -12,7 +12,6 @@ from beach.fortran_results.potential import _periodic2_from_sim
 from ._shared import (
     configure_entry_parser,
     require_finite,
-    require_nonnegative_finite,
 )
 
 COMMAND_NAME = "slices"
@@ -52,10 +51,10 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         help="y coordinate [m] for XZ slice (default: box center)",
     )
     parser.add_argument(
-        "--potential-softening",
-        type=float,
+        "--library",
+        type=Path,
         default=None,
-        help="smoothing length [m] used for potential sampling; default uses sim.softening when available",
+        help="path to libbeach_field_kernel shared library",
     )
     parser.add_argument(
         "--chunk-size",
@@ -228,7 +227,6 @@ def run(args: argparse.Namespace) -> None:
     require_finite(parser, args.xy_z, "--xy-z")
     require_finite(parser, args.yz_x, "--yz-x")
     require_finite(parser, args.xz_y, "--xz-y")
-    require_nonnegative_finite(parser, args.potential_softening, "--potential-softening")
     require_finite(parser, args.vmin, "--vmin")
     require_finite(parser, args.vmax, "--vmax")
     if (
@@ -273,13 +271,14 @@ def run(args: argparse.Namespace) -> None:
             xy_z=xy_z,
             yz_x=yz_x,
             xz_y=xz_y,
-            softening=args.potential_softening,
             chunk_size=args.chunk_size,
             cmap=args.cmap,
             vmin=args.vmin,
             vmax=args.vmax,
             periodic2=periodic2,
             axis_unit=args.axis_unit,
+            config_path=config_path,
+            library_path=args.library,
         )
     except ModuleNotFoundError as exc:
         if exc.name is not None and exc.name.startswith("matplotlib"):

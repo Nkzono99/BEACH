@@ -86,9 +86,6 @@ field_periodic_image_layers = 1
 field_periodic_far_correction = "cached_kneq0"
 field_periodic_ewald_layers = 4
 
-[field]
-element_kernel = "triangle_p0"
-
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"
 zero_mode_policy = "exclude_k0"

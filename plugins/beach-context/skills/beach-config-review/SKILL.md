@@ -38,7 +38,8 @@ For workload questions, use schema/TOML inspection and `beachx estimate-workload
 - Check mutually exclusive forms: `temperature_k` vs `temperature_ev`, `e0` vs `e0_abs` angle form.
 - Check box and boundary consistency, especially `field_bc_mode = "periodic2"` with exactly two periodic axes.
 - Check mesh placement relative to box, injection faces, and periodic primitive cell assumptions.
-- Check solver controls: `field_solver`, `softening`, tree/FMM parameters, periodic far correction, and field normalization.
+- Check solver controls: `field_solver`, tree/FMM parameters, periodic far correction, and field normalization.
+- Reject the removed `[field]` table and `sim.softening`; the element source is the implicit P0 triangle panel.
 - Check output size risk: `history_stride`, `write_potential_history`, `write_mesh_potential`, mesh size, batch count.
 - Check resume compatibility when `output.resume = true`.
 - Treat `kinetic_1d` as the supported self-consistent outer-sheath path. Report removed field-model values as configuration errors rather than suggesting aliases.

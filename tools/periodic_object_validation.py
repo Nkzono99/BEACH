@@ -36,7 +36,6 @@ from beach import (  # noqa: E402
     AdhesionProfile,
     Beach,
     FieldKernel,
-    FieldKernelOptions,
     FortranRunResult,
     FortranChargeHistory,
     ObjectInteractionSnapshot,
@@ -82,25 +81,10 @@ ORACLE_EFFECTIVE_FIELD_CONTRACT = {
     "zero_mode_policy": "exclude_k0",
     "lower_boundary_model": "e_bottom_zero",
 }
-ORACLE_CACHE_EVALUATION_LABELS = {
-    "triangle_p0": ("uniform_4", "cosine_4", "cosine_8"),
-    "production_point": (
-        "uniform_4",
-        "uniform_8",
-        "point_primary",
-        "cosine_4",
-        "cosine_8",
-    ),
-}
+ORACLE_CACHE_EVALUATION_LABELS = ("uniform_4", "cosine_4", "cosine_8")
 ORACLE_CACHE_EVALUATION_GROUPS = {
-    "triangle_p0": {
-        "4": ("uniform_4", "cosine_4"),
-        "8": ("cosine_8",),
-    },
-    "production_point": {
-        "4": ("uniform_4", "cosine_4"),
-        "8": ("uniform_8", "cosine_8", "point_primary"),
-    },
+    "4": ("uniform_4", "cosine_4"),
+    "8": ("cosine_8",),
 }
 BUILD_INFO_KEYS = (
     "build_info_schema_version",
@@ -117,8 +101,8 @@ SAFE_STAGE_PATH_PATTERN = re.compile(r"[A-Za-z0-9_./:+-]+\Z")
 PRODUCTION_FIELD_EXECUTION_CONTRACT = {
     "field_backend": "fmm",
     "field_normalization": "si",
-    "field_source_model": "point",
-    "field_kernel_id": "softened_point",
+    "field_source_model": "triangle_p0",
+    "field_kernel_id": "triangle_p0_exact_p2m_near",
 }
 EXPECTED_RESOURCES = {
     "partition": DEFAULT_PARTITION,
@@ -1241,6 +1225,10 @@ def _require_archive_contract(config: Mapping[str, Any], archive_run: Path) -> N
     output = config.get("output")
     if not isinstance(sim, dict) or not isinstance(output, dict):
         raise ValidationError("archived input requires [sim] and [output] tables")
+    if "field" in config:
+        raise ValidationError(
+            "archive uses removed point-source configuration table: [field]"
+        )
     checks = {
         "sim.batch_count": (sim.get("batch_count"), 280000),
         "sim.rng_seed": (sim.get("rng_seed"), 12345),
@@ -1267,12 +1255,16 @@ def _require_archive_contract(config: Mapping[str, Any], archive_run: Path) -> N
             raise ValidationError(
                 f"archive {archive_run} has {name}={actual!r}; expected {expected!r}"
             )
-    try:
-        softening = float(sim["softening"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValidationError("archive sim.softening must be finite and positive") from exc
-    if not math.isfinite(softening) or softening <= 0.0:
-        raise ValidationError("archive sim.softening must be finite and positive")
+    removed_keys = sorted(
+        key
+        for key in ("softening", "field_source_model", "field_kernel_id")
+        if key in sim
+    )
+    if removed_keys:
+        raise ValidationError(
+            "archive uses removed point-source configuration keys: "
+            + ", ".join(f"sim.{key}" for key in removed_keys)
+        )
 
 
 def _case_config(
@@ -8003,12 +7995,15 @@ def probe_library(library: str | Path) -> dict[str, Any]:
     library_path = Path(library).resolve()
     if not library_path.is_file():
         raise ValidationError(f"field-kernel library does not exist: {library_path}")
-    source_positions = np.array([[0.0, 0.0, 0.0]], dtype=np.float64)
+    source_triangles = np.array(
+        [[[0.0, -5.0e-5, -5.0e-5], [0.0, 5.0e-5, -5.0e-5], [0.0, 0.0, 5.0e-5]]],
+        dtype=np.float64,
+    )
     source_charges = np.array([1.0e-15], dtype=np.float64)
     targets = np.array([[1.0e-3, 0.0, 0.0]], dtype=np.float64)
     try:
         with FieldKernel(
-            source_positions,
+            source_triangles,
             source_charges,
             library_path=library_path,
         ) as kernel:
@@ -8062,8 +8057,6 @@ def _oracle_panel_result(
     triangles: np.ndarray,
     charges: np.ndarray,
     *,
-    field_source_model: str = "triangle_p0",
-    field_kernel_id: str = "triangle_p0_exact_p2m_near",
     mesh_ids: np.ndarray | None = None,
 ) -> FortranRunResult:
     return FortranRunResult(
@@ -8083,8 +8076,8 @@ def _oracle_panel_result(
             if mesh_ids is None
             else np.asarray(mesh_ids, dtype=np.int64)
         ),
-        field_source_model=field_source_model,
-        field_kernel_id=field_kernel_id,
+        field_source_model="triangle_p0",
+        field_kernel_id="triangle_p0_exact_p2m_near",
     )
 
 
@@ -8093,8 +8086,6 @@ def _oracle_panel_config_data() -> dict[str, Any]:
         "sim": {
             "field_solver": "fmm",
             "field_bc_mode": "periodic2",
-            "field_source_model": "triangle_p0",
-            "field_kernel_id": "triangle_p0_exact_p2m_near",
             "bc_x_low": "periodic",
             "bc_x_high": "periodic",
             "bc_y_low": "periodic",
@@ -8103,7 +8094,6 @@ def _oracle_panel_config_data() -> dict[str, Any]:
             "bc_z_high": "open",
             "box_min": [0.0, 0.0, -1.0],
             "box_max": [2.0, 2.0, 1.0],
-            "softening": 0.0,
             "tree_theta": 0.2,
             "tree_leaf_max": 16,
             "tree_order": 4,
@@ -8112,25 +8102,17 @@ def _oracle_panel_config_data() -> dict[str, Any]:
             "field_periodic_ewald_layers": 4,
             "field_periodic_generation_tolerance": 1.0e-8,
             "e0": [0.0, 0.0, 0.0],
-        }
+        },
+        "periodic2": {
+            "nonzero_mode_backend": "cached_kneq0",
+            "zero_mode_policy": "exclude_k0",
+            "lower_boundary_model": "e_bottom_zero",
+        },
     }
-
-
-def _oracle_point_config_data() -> dict[str, Any]:
-    config = _oracle_panel_config_data()
-    sim = config["sim"]
-    sim["field_source_model"] = "point"
-    sim["field_kernel_id"] = "softened_point"
-    sim["softening"] = 2.0e-6
-    return config
 
 
 def _oracle_panel_config(path: Path) -> None:
     _write_toml(path, _oracle_panel_config_data())
-
-
-def _oracle_point_config(path: Path) -> None:
-    _write_toml(path, _oracle_point_config_data())
 
 
 def _oracle_nonnegative_number(value: Any, *, label: str) -> float:
@@ -8202,7 +8184,7 @@ def _verify_periodic_oracle_metrics(
             uniform.get("field_cells_per_axis"),
             label=f"{label} uniform field_cells_per_axis",
         )
-        != (8 if kernel_oracle.get("field_source_model") == "point" else 4)
+        != 4
     ):
         raise ValidationError(
             f"periodic uniform-plane oracle {label} contract is invalid"
@@ -8295,7 +8277,9 @@ def _verify_periodic_oracle_metrics(
     errors = cosine.get("errors")
     if not isinstance(errors, list) or len(errors) != 2:
         raise ValidationError("periodic cosine-plane errors are invalid")
-    parsed: list[tuple[int, float, float, float, float, float, float]] = []
+    parsed: list[
+        tuple[int, float, float, float, float, float, float, float]
+    ] = []
     for value in errors:
         if not isinstance(value, Mapping):
             raise ValidationError("periodic cosine-plane error row is invalid")
@@ -8329,6 +8313,10 @@ def _verify_periodic_oracle_metrics(
                     value.get("potential_decay_ratio_relative_error"),
                     label="cosine potential decay ratio error",
                 ),
+                _oracle_nonnegative_number(
+                    value.get("charge_neutrality_ratio"),
+                    label="cosine charge neutrality",
+                ),
             )
         )
     ratio_records_are_consistent = all(
@@ -8352,6 +8340,7 @@ def _verify_periodic_oracle_metrics(
             potential_ratio,
             field_ratio_error,
             potential_ratio_error,
+            _charge_neutrality,
         ) in parsed
     )
     if (
@@ -8363,6 +8352,7 @@ def _verify_periodic_oracle_metrics(
         or not ratio_records_are_consistent
         or max(parsed[1][5], parsed[1][6])
         > ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE
+        or max(value[7] for value in parsed) > 1.0e-12
     ):
         raise ValidationError(
             f"periodic cosine-plane oracle {label} exceeds its thresholds"
@@ -8420,15 +8410,20 @@ def _verify_periodic_oracle_receipt(
         label="periodic plane-oracle config",
     )
     if (
-        receipt.get("oracle_schema_version") != 2
+        not config_path.is_file()
+        or Path(str(receipt.get("config", ""))) != config_path
+        or receipt.get("config_sha256") != _sha256(config_path)
+    ):
+        raise ValidationError(
+            "periodic plane-oracle config no longer matches staging"
+        )
+    if (
+        receipt.get("oracle_schema_version") != 3
         or
         receipt.get("status") != "qualified"
         or receipt.get("manifest_sha256") != _sha256(manifest_path)
         or receipt.get("library_sha256") != _sha256(library)
         or Path(str(receipt.get("library", ""))) != library
-        or not config_path.is_file()
-        or Path(str(receipt.get("config", ""))) != config_path
-        or receipt.get("config_sha256") != _sha256(config_path)
         or Path(str(receipt.get("cache_dir", ""))) != cache_dir
         or receipt.get("cache_files") != _output_inventory(cache_dir)
         or (
@@ -8457,10 +8452,6 @@ def _verify_periodic_oracle_receipt(
         "triangle_p0": (
             config_path,
             _oracle_panel_config_data(),
-        ),
-        "production_point": (
-            validation_root / "provenance/oracles/periodic_plane_point.toml",
-            _oracle_point_config_data(),
         ),
     }
     if not isinstance(kernel_configs, Mapping) or set(kernel_configs) != set(
@@ -8500,7 +8491,6 @@ def _verify_periodic_oracle_receipt(
         raise ValidationError("periodic plane-oracle kernel_oracles are missing")
     expected_models = {
         "triangle_p0": ("triangle_p0", "triangle_p0_exact_p2m_near"),
-        "production_point": ("point", "softened_point"),
     }
     missing_models = sorted(set(expected_models) - set(kernel_oracles))
     extra_models = sorted(set(kernel_oracles) - set(expected_models))
@@ -8585,7 +8575,7 @@ def _verify_periodic_oracle_receipt(
                 f"periodic plane-oracle {label} 4/8 cache identities collide"
             )
         cache_evaluations = value.get("cache_evaluations")
-        expected_cache_labels = ORACLE_CACHE_EVALUATION_LABELS[label]
+        expected_cache_labels = ORACLE_CACHE_EVALUATION_LABELS
         if (
             not isinstance(cache_evaluations, list)
             or not all(isinstance(row, Mapping) for row in cache_evaluations)
@@ -8597,9 +8587,7 @@ def _verify_periodic_oracle_receipt(
             )
         cache_group_for_label = {
             evaluation_label: group
-            for group, evaluation_labels in ORACLE_CACHE_EVALUATION_GROUPS[
-                label
-            ].items()
+            for group, evaluation_labels in ORACLE_CACHE_EVALUATION_GROUPS.items()
             for evaluation_label in evaluation_labels
         }
         for evaluation in cache_evaluations:
@@ -8735,300 +8723,7 @@ def _verify_periodic_oracle_receipt(
                 raise ValidationError(
                     "periodic triangle_p0 integration structure is invalid"
                 )
-        elif label == "production_point":
-            uniform = value["uniform_plane"]
-            cosine = value["neutral_cosine_plane"]
-            assert isinstance(uniform, Mapping)
-            assert isinstance(cosine, Mapping)
-            refinement = uniform.get("point_source_refinement")
-            if not isinstance(refinement, list) or len(refinement) != 2:
-                raise ValidationError(
-                    "periodic production point-plane refinement is invalid"
-                )
-            parsed_refinement: list[tuple[int, float]] = []
-            for row in refinement:
-                if not isinstance(row, Mapping):
-                    raise ValidationError(
-                        "periodic production point-plane refinement is invalid"
-                    )
-                parsed_refinement.append(
-                    (
-                        _oracle_integer(
-                            row.get("cells_per_axis"),
-                            label="production point-plane cells_per_axis",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("off_surface_modulation_rms_V_m"),
-                            label="production point-plane modulation",
-                        ),
-                    )
-                )
-            wrench_rows = uniform.get("wrench_refinement")
-            if not isinstance(wrench_rows, list) or len(wrench_rows) != 2:
-                raise ValidationError(
-                    "periodic production point-plane wrench refinement is invalid"
-                )
-            parsed_wrenches: list[
-                tuple[int, float, float, float, float, float, float, float, float]
-            ] = []
-            for row in wrench_rows:
-                if not isinstance(row, Mapping):
-                    raise ValidationError(
-                        "periodic production point-plane wrench refinement is invalid"
-                    )
-                parsed_wrenches.append(
-                    (
-                        _oracle_integer(
-                            row.get("cells_per_axis"),
-                            label="production point-plane wrench cells",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("force_relative_error"),
-                            label="production point-plane wrench force error",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("transverse_relative_error"),
-                            label="production point-plane wrench transverse error",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("torque_relative_error"),
-                            label="production point-plane wrench torque error",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("component_consistency_relative_error"),
-                            label="production point-plane component error",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("other_objects_normalized_absolute"),
-                            label="production point-plane other-object component",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("external_uniform_normalized_absolute"),
-                            label="production point-plane external component",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("total_minus_images_normalized_absolute"),
-                            label="production point-plane total/image identity",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get(
-                                "primary_free_subtraction_normalized_absolute"
-                            ),
-                            label="production point-plane primary subtraction",
-                        ),
-                    )
-                )
-            primary_self = uniform.get("primary_self_subtraction")
-            if not isinstance(primary_self, Mapping):
-                raise ValidationError(
-                    "periodic production point-plane primary subtraction is invalid"
-                )
-            primary_tolerance = _oracle_nonnegative_number(
-                primary_self.get("relative_tolerance"),
-                label="production point-plane primary tolerance",
-            )
-            primary_force_error = _oracle_nonnegative_number(
-                primary_self.get("force_normalized_absolute"),
-                label="production point-plane primary force",
-            )
-            primary_potential_error = _oracle_nonnegative_number(
-                primary_self.get("potential_relative_error"),
-                label="production point-plane primary potential",
-            )
-            cosine_errors = cosine.get("errors")
-            if not isinstance(cosine_errors, list) or len(cosine_errors) != 2:
-                raise ValidationError(
-                    "periodic production point-plane cosine structure is invalid"
-                )
-            neutrality_and_parity: list[tuple[float, float, float]] = []
-            for row in cosine_errors:
-                if not isinstance(row, Mapping):
-                    raise ValidationError(
-                        "periodic production point-plane cosine structure is invalid"
-                    )
-                neutrality_and_parity.append(
-                    (
-                        _oracle_nonnegative_number(
-                            row.get("charge_neutrality_ratio"),
-                            label="production point-plane charge neutrality",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("field_parity_relative_error"),
-                            label="production point-plane field parity",
-                        ),
-                        _oracle_nonnegative_number(
-                            row.get("potential_parity_relative_error"),
-                            label="production point-plane potential parity",
-                        ),
-                    )
-                )
-            if (
-                uniform.get("target_integration") != "point_centroid"
-                or uniform.get("quadrature_order") is not None
-                or _oracle_nonnegative_number(
-                    uniform.get("source_refinement_force_relative_difference"),
-                    label="production point-plane force refinement",
-                )
-                > ORACLE_QUADRATURE_RELATIVE_TOLERANCE
-                or
-                [row[0] for row in parsed_refinement] != [4, 8]
-                or parsed_refinement[1][1] >= parsed_refinement[0][1]
-                or parsed_refinement[1][1]
-                > ORACLE_UNIFORM_RELATIVE_TOLERANCE
-                or any(
-                    charge > 1.0e-12
-                    for charge, _field_parity, _potential_parity
-                    in neutrality_and_parity
-                )
-                or any(
-                    max(field_parity, potential_parity)
-                    > ORACLE_COSINE_FINE_RELATIVE_TOLERANCE
-                    for _charge, field_parity, potential_parity
-                    in neutrality_and_parity
-                )
-                or [row[0] for row in parsed_wrenches] != [4, 8]
-                or any(
-                    max(force, transverse, torque)
-                    > ORACLE_UNIFORM_RELATIVE_TOLERANCE
-                    for _cells, force, transverse, torque, *_components
-                    in parsed_wrenches
-                )
-                or any(
-                    parsed_wrenches[1][index] >= parsed_wrenches[0][index]
-                    for index in (1, 2, 3)
-                )
-                or any(
-                    max(other, external, total_minus_images) > 1.0e-12
-                    for (
-                        _cells,
-                        _force,
-                        _transverse,
-                        _torque,
-                        _component,
-                        other,
-                        external,
-                        total_minus_images,
-                        _primary,
-                    ) in parsed_wrenches
-                )
-                or parsed_wrenches[1][8] >= parsed_wrenches[0][8]
-                or parsed_wrenches[1][8] > ORACLE_QUADRATURE_RELATIVE_TOLERANCE
-                or any(
-                    not math.isclose(
-                        component,
-                        max(other, external, total_minus_images, primary),
-                        rel_tol=0.0,
-                        abs_tol=1.0e-15,
-                    )
-                    for (
-                        _cells,
-                        _force,
-                        _transverse,
-                        _torque,
-                        component,
-                        other,
-                        external,
-                        total_minus_images,
-                        primary,
-                    ) in parsed_wrenches
-                )
-                or [row[1] for row in parsed_wrenches]
-                != [float(item) for item in uniform["force_relative_errors"]]
-                or [row[2] for row in parsed_wrenches]
-                != [
-                    float(item)
-                    for item in uniform["force_transverse_relative_errors"]
-                ]
-                or [row[3] for row in parsed_wrenches]
-                != [float(item) for item in uniform["torque_relative_errors"]]
-                or primary_tolerance != 1.0e-11
-                or primary_force_error > primary_tolerance
-                or primary_potential_error > primary_tolerance
-            ):
-                raise ValidationError(
-                    "periodic production point-plane structure exceeds its thresholds"
-                )
-            micro = value.get("softened_point_micro_oracle")
-            if not isinstance(micro, Mapping):
-                raise ValidationError(
-                    "periodic softened-point micro-oracle is missing"
-                )
-            tolerance = _oracle_nonnegative_number(
-                micro.get("relative_tolerance"),
-                label="softened-point relative tolerance",
-            )
-            field_error = _oracle_nonnegative_number(
-                micro.get("field_relative_error"),
-                label="softened-point field error",
-            )
-            potential_error = _oracle_nonnegative_number(
-                micro.get("potential_relative_error"),
-                label="softened-point potential error",
-            )
-            ordinary_field_mismatch = _oracle_nonnegative_number(
-                micro.get("ordinary_field_relative_mismatch"),
-                label="softened-point ordinary field mismatch",
-            )
-            ordinary_potential_mismatch = _oracle_nonnegative_number(
-                micro.get("ordinary_potential_relative_mismatch"),
-                label="softened-point ordinary potential mismatch",
-            )
-            self_field_normalized = _oracle_nonnegative_number(
-                micro.get("self_field_normalized_absolute"),
-                label="softened-point self field",
-            )
-            if (
-                _oracle_integer(
-                    micro.get("sample_count"),
-                    label="softened-point sample count",
-                )
-                != 4
-                or
-                _oracle_nonnegative_number(
-                    micro.get("softening_to_period_ratio"),
-                    label="softened-point scale ratio",
-                )
-                != 1.0e-6
-                or _oracle_nonnegative_number(
-                    micro.get("target_distance_over_softening"),
-                    label="softened-point target distance",
-                )
-                != 1.0
-                or tolerance != 1.0e-11
-                or field_error > tolerance
-                or potential_error > tolerance
-                or ordinary_field_mismatch > tolerance
-                or ordinary_potential_mismatch > tolerance
-                or self_field_normalized > 32.0 * np.finfo(np.float64).eps
-            ):
-                raise ValidationError(
-                    "periodic softened-point micro-oracle exceeds its contract"
-                )
         verified_kernel_oracles[label] = dict(value)
-    triangle_caches = verified_kernel_oracles["triangle_p0"]["cache_identities"]
-    point_caches = verified_kernel_oracles["production_point"]["cache_identities"]
-    for triangle_group, triangle_cache in triangle_caches.items():
-        for point_group, point_cache in point_caches.items():
-            if (
-                triangle_cache["fingerprint"] == point_cache["fingerprint"]
-                or Path(str(triangle_cache["path"]))
-                == Path(str(point_cache["path"]))
-            ):
-                raise ValidationError(
-                    "periodic plane-oracle cross-model cache identity collision: "
-                    f"triangle {triangle_group}, point {point_group}"
-                )
-    triangle_oracle = verified_kernel_oracles["triangle_p0"]
-    for alias_name in ("uniform_plane", "neutral_cosine_plane"):
-        difference = _first_difference(
-            receipt.get(alias_name),
-            triangle_oracle[alias_name],
-        )
-        if difference is not None:
-            raise ValidationError(
-                f"periodic legacy alias differs from triangle_p0 "
-                f"{alias_name}: {difference}"
-            )
     return {
         "status": "qualified",
         "receipt_path": (
@@ -9048,14 +8743,8 @@ def _run_periodic_plane_kernel_oracle(
     config_path: Path,
     cache_dir: Path,
     library_path: Path,
-    field_source_model: str,
-    field_kernel_id: str,
 ) -> dict[str, Any]:
     eps0 = 1.0 / (4.0 * math.pi * K_COULOMB)
-    result_options = {
-        "field_source_model": field_source_model,
-        "field_kernel_id": field_kernel_id,
-    }
 
     area_xy = 4.0
     plane_triangles_by_cells = {
@@ -9069,10 +8758,7 @@ def _run_periodic_plane_kernel_oracle(
     oracle_sim = _load_toml(config_path).get("sim", {})
     if not isinstance(oracle_sim, Mapping):
         raise ValidationError("periodic plane-oracle sim config is invalid")
-    cache_contract_label = (
-        "production_point" if field_source_model == "point" else "triangle_p0"
-    )
-    cache_groups = ORACLE_CACHE_EVALUATION_GROUPS[cache_contract_label]
+    cache_groups = ORACLE_CACHE_EVALUATION_GROUPS
     cache_group_for_label = {
         label: group
         for group, labels in cache_groups.items()
@@ -9098,7 +8784,7 @@ def _run_periodic_plane_kernel_oracle(
         }
         if actual != ORACLE_EFFECTIVE_FIELD_CONTRACT:
             raise ValidationError(
-                f"periodic plane-oracle {field_source_model} resolved an invalid "
+                "periodic triangle_p0 plane-oracle resolved an invalid "
                 f"effective field contract: {actual}"
             )
         if (
@@ -9121,7 +8807,7 @@ def _run_periodic_plane_kernel_oracle(
             or not cache_path.is_file()
         ):
             raise ValidationError(
-                f"periodic plane-oracle {field_source_model} cache evaluation "
+                "periodic triangle_p0 plane-oracle cache evaluation "
                 f"{label} was not a warm reuse"
             )
         evaluation = {
@@ -9136,7 +8822,7 @@ def _run_periodic_plane_kernel_oracle(
         group = cache_group_for_label.get(label)
         if group is None:
             raise ValidationError(
-                f"periodic plane-oracle {field_source_model} cache evaluation "
+                "periodic triangle_p0 plane-oracle cache evaluation "
                 f"{label} has no resolution group"
             )
         canonical = canonical_cache_identities.get(group)
@@ -9151,7 +8837,7 @@ def _run_periodic_plane_kernel_oracle(
             for key in ("fingerprint", "path", "sha256")
         }:
             raise ValidationError(
-                f"periodic plane-oracle {field_source_model} cache evaluation "
+                "periodic triangle_p0 plane-oracle cache evaluation "
                 f"{label} changed its resolution-group operator identity"
             )
         cache_evaluations.append(evaluation)
@@ -9167,7 +8853,6 @@ def _run_periodic_plane_kernel_oracle(
                 root,
                 triangles,
                 charges,
-                **result_options,
             ),
             step=None,
             config_path=config_path,
@@ -9185,7 +8870,7 @@ def _run_periodic_plane_kernel_oracle(
                 or not diagnostics.periodic_cache_path.is_file()
             ):
                 raise ValidationError(
-                    f"periodic plane-oracle {field_source_model} cache prime failed"
+                    "periodic triangle_p0 plane-oracle cache prime failed"
                 )
 
     def evaluate_uniform(
@@ -9203,7 +8888,6 @@ def _run_periodic_plane_kernel_oracle(
                 root,
                 triangles,
                 charges,
-                **result_options,
             ),
             step=None,
             config_path=config_path,
@@ -9235,75 +8919,20 @@ def _run_periodic_plane_kernel_oracle(
     prime_cache(4)
     prime_cache(8)
 
-    point_refinement: list[dict[str, float | int]] | None = None
-    if field_source_model == "point":
-        sample_axis = (np.arange(24, dtype=float) + 0.5) * (2.0 / 24.0)
-        sample_x, sample_y = np.meshgrid(sample_axis, sample_axis, indexing="xy")
-        sample_xy = np.column_stack((sample_x.ravel(), sample_y.ravel()))
-        point_refinement = []
-        mean_fields: list[np.ndarray] = []
-        mean_potentials: list[np.ndarray] = []
-        wrenches = []
-        wrench_cells: list[int] = []
-        total_charge = 0.0
-        for cells_per_axis in (4, 8):
-            sample_points = np.concatenate(
-                [
-                    np.column_stack(
-                        (
-                            sample_xy,
-                            np.full(sample_xy.shape[0], z_value),
-                        )
-                    )
-                    for z_value in (-0.25, 0.0, 0.25)
-                ]
-            )
-            field, potential, evaluated_wrenches, total_charge = evaluate_uniform(
-                cells_per_axis,
-                sample_points,
-                cache_label=f"uniform_{cells_per_axis}",
-                quadrature_orders=None,
-            )
-            field_by_height = field.reshape(3, sample_xy.shape[0], 3)
-            mean_field = np.mean(field_by_height, axis=1)
-            mean_fields.append(mean_field)
-            mean_potentials.append(
-                np.mean(
-                    potential.reshape(3, sample_xy.shape[0]),
-                    axis=1,
-                )
-            )
-            expected_by_height = np.zeros_like(field_by_height)
-            expected_by_height[:, :, 2] = expected_field_z[:, None]
-            off_surface = field_by_height[[0, 2]] - expected_by_height[[0, 2]]
-            point_refinement.append(
-                {
-                    "cells_per_axis": cells_per_axis,
-                    "off_surface_modulation_rms_V_m": float(
-                        np.sqrt(np.mean(off_surface**2))
-                    ),
-                }
-            )
-            wrenches.extend(evaluated_wrenches)
-            wrench_cells.append(cells_per_axis)
-        uniform_field = mean_fields[-1]
-        uniform_potential = mean_potentials[-1]
-    else:
-        uniform_points = np.array(
-            [
-                [0.37, 0.61, -0.25],
-                [0.37, 0.61, 0.0],
-                [0.37, 0.61, 0.25],
-            ]
-        )
-        uniform_field, uniform_potential, wrenches, total_charge = evaluate_uniform(
-            4,
-            uniform_points,
-            cache_label="uniform_4",
-            quadrature_orders=(3, 7),
-        )
-        wrench_cells = [4, 4]
-
+    uniform_points = np.array(
+        [
+            [0.37, 0.61, -0.25],
+            [0.37, 0.61, 0.0],
+            [0.37, 0.61, 0.25],
+        ]
+    )
+    uniform_field, uniform_potential, wrenches, total_charge = evaluate_uniform(
+        4,
+        uniform_points,
+        cache_label="uniform_4",
+        quadrature_orders=(3, 7),
+    )
+    wrench_cells = [4, 4]
     below_absolute_error = float(abs(uniform_field[0, 2]))
     nonzero_relative_error = float(
         np.max(
@@ -9383,63 +9012,6 @@ def _run_periodic_plane_kernel_oracle(
             / abs(expected_force)
         )
     )
-    primary_self_subtraction: dict[str, float] | None = None
-    if field_source_model == "point":
-        source_triangles = plane_triangles_by_cells[8]
-        source_charge = eps0 * area_xy / source_triangles.shape[0]
-        source_charges = np.full(source_triangles.shape[0], source_charge)
-        source_mesh_ids = np.full(source_triangles.shape[0], 2, dtype=np.int64)
-        source_mesh_ids[0] = 1
-        with ObjectInteractionSnapshot.from_result(
-            _oracle_panel_result(
-                root,
-                source_triangles,
-                source_charges,
-                mesh_ids=source_mesh_ids,
-                **result_options,
-            ),
-            step=None,
-            config_path=config_path,
-            periodic_model="infinite_physical",
-            cache_dir=cache_dir,
-            library_path=library_path,
-        ) as snapshot:
-            record_effective_contract(snapshot)
-            single_source_wrench = snapshot.object_probe(1).wrench()
-            record_cache_evaluation("point_primary", snapshot._periodic)
-        primary_metadata = single_source_wrench.numerical_metadata[
-            "primary_free_subtraction"
-        ]
-        softening = float(_load_toml(config_path)["sim"]["softening"])
-        expected_primary_energy = -K_COULOMB * source_charge**2 / softening
-        primary_force_scale = K_COULOMB * source_charge**2 / softening**2
-        primary_force_normalized = float(
-            np.linalg.norm(
-                np.asarray(primary_metadata["force_N"], dtype=float)
-            )
-            / primary_force_scale
-        )
-        primary_potential_error = float(
-            abs(
-                float(primary_metadata["potential_energy_J"])
-                - expected_primary_energy
-            )
-            / abs(expected_primary_energy)
-        )
-        primary_tolerance = 1.0e-11
-        if (
-            primary_force_normalized > primary_tolerance
-            or primary_potential_error > primary_tolerance
-        ):
-            raise ValidationError(
-                "periodic production point-plane primary self subtraction failed"
-            )
-        primary_self_subtraction = {
-            "force_normalized_absolute": primary_force_normalized,
-            "potential_relative_error": primary_potential_error,
-            "relative_tolerance": primary_tolerance,
-        }
-
     length = 2.0
     wave_number = 2.0 * math.pi / length
     sigma_amplitude = 2.0 * eps0
@@ -9463,16 +9035,7 @@ def _run_periodic_plane_kernel_oracle(
             for height in sample_abs_z
         ]
     )
-    cosine_points = (
-        np.vstack(
-            (
-                positive_cosine_points,
-                positive_cosine_points * np.array([1.0, 1.0, -1.0]),
-            )
-        )
-        if field_source_model == "point"
-        else positive_cosine_points
-    )
+    cosine_points = positive_cosine_points
     decay = np.exp(-wave_number * np.abs(cosine_points[:, 2]))
     phase = wave_number * cosine_points[:, 0]
     expected_cosine_field = np.zeros_like(cosine_points)
@@ -9507,7 +9070,6 @@ def _run_periodic_plane_kernel_oracle(
                 root,
                 triangles,
                 charges,
-                **result_options,
             ),
             step=None,
             config_path=config_path,
@@ -9520,28 +9082,6 @@ def _run_periodic_plane_kernel_oracle(
             potential = snapshot._periodic.eval_phi(cosine_points)
             record_cache_evaluation(
                 f"cosine_{cells_per_axis}", snapshot._periodic
-            )
-        field_parity_relative_error = 0.0
-        potential_parity_relative_error = 0.0
-        if field_source_model == "point":
-            count = positive_cosine_points.shape[0]
-            positive_field = field[:count]
-            negative_field = field[count:]
-            positive_potential = potential[:count]
-            negative_potential = potential[count:]
-            field_parity_residual = np.concatenate(
-                (
-                    (positive_field[:, :2] - negative_field[:, :2]).ravel(),
-                    (positive_field[:, 2] + negative_field[:, 2]).ravel(),
-                )
-            )
-            field_parity_relative_error = float(
-                np.linalg.norm(field_parity_residual)
-                / np.linalg.norm(expected_cosine_field[:count])
-            )
-            potential_parity_relative_error = float(
-                np.linalg.norm(positive_potential - negative_potential)
-                / np.linalg.norm(expected_cosine_potential[:count])
             )
         positive_field = field[: positive_cosine_points.shape[0]]
         positive_potential = potential[: positive_cosine_points.shape[0]]
@@ -9587,23 +9127,19 @@ def _run_periodic_plane_kernel_oracle(
                 "charge_neutrality_ratio": float(
                     abs(np.sum(charges)) / np.sum(np.abs(charges))
                 ),
-                "field_parity_relative_error": field_parity_relative_error,
-                "potential_parity_relative_error": (
-                    potential_parity_relative_error
-                ),
             }
         )
 
     if set(canonical_cache_identities) != {"4", "8"}:
         raise ValidationError(
-            f"periodic plane-oracle {field_source_model} did not reuse both "
+            "periodic triangle_p0 plane-oracle did not reuse both "
             "resolution-group operator caches"
         )
     if tuple(row["label"] for row in cache_evaluations) != (
-        ORACLE_CACHE_EVALUATION_LABELS[cache_contract_label]
+        ORACLE_CACHE_EVALUATION_LABELS
     ):
         raise ValidationError(
-            f"periodic plane-oracle {field_source_model} cache evaluation coverage is invalid"
+            "periodic triangle_p0 plane-oracle cache evaluation coverage is invalid"
         )
     for group, labels in cache_groups.items():
         actual_labels = {
@@ -9611,7 +9147,7 @@ def _run_periodic_plane_kernel_oracle(
         }
         if actual_labels != set(labels):
             raise ValidationError(
-                f"periodic plane-oracle {field_source_model} cache group {group} "
+                f"periodic triangle_p0 plane-oracle cache group {group} "
                 "coverage is invalid"
             )
     coarse_identity = canonical_cache_identities["4"]
@@ -9621,16 +9157,14 @@ def _run_periodic_plane_kernel_oracle(
         or coarse_identity["path"] == fine_identity["path"]
     ):
         raise ValidationError(
-            f"periodic plane-oracle {field_source_model} 4/8 resolution cache "
+            "periodic triangle_p0 plane-oracle 4/8 resolution cache "
             "identities must be distinct"
         )
     if observed_effective_field_contract is None:
-        raise ValidationError(
-            f"periodic plane-oracle {field_source_model} has no field contract"
-        )
+        raise ValidationError("periodic triangle_p0 plane-oracle has no field contract")
     result: dict[str, Any] = {
-        "field_source_model": field_source_model,
-        "field_kernel_id": field_kernel_id,
+        "field_source_model": "triangle_p0",
+        "field_kernel_id": "triangle_p0_exact_p2m_near",
         "effective_field_contract": observed_effective_field_contract,
         "cache_diagnostics": dict(coarse_identity),
         "cache_identities": {
@@ -9652,22 +9186,9 @@ def _run_periodic_plane_kernel_oracle(
             "quadrature_relative_difference": quadrature_relative_difference,
             "quadrature_relative_tolerance": ORACLE_QUADRATURE_RELATIVE_TOLERANCE,
             "relative_tolerance": ORACLE_UNIFORM_RELATIVE_TOLERANCE,
-            "field_cells_per_axis": (
-                8 if field_source_model == "point" else 4
-            ),
-            "target_integration": (
-                "gauss_duffy_order_3_and_7"
-                if field_source_model == "triangle_p0"
-                else "point_centroid"
-            ),
-            "quadrature_order": (
-                [3, 7] if field_source_model == "triangle_p0" else None
-            ),
-            "source_refinement_force_relative_difference": (
-                quadrature_relative_difference
-                if field_source_model == "point"
-                else None
-            ),
+            "field_cells_per_axis": 4,
+            "target_integration": "gauss_duffy_order_3_and_7",
+            "quadrature_order": [3, 7],
             "interpretation": "Maxwell traction under E_bottom=0; not universal free-space self force",
             "wrench_refinement": wrench_refinement,
         },
@@ -9682,91 +9203,7 @@ def _run_periodic_plane_kernel_oracle(
             "expected_decay": "exp(-k*abs(z-z0))",
         },
     }
-    if point_refinement is not None:
-        result["uniform_plane"]["point_source_refinement"] = point_refinement
-    if primary_self_subtraction is not None:
-        result["uniform_plane"][
-            "primary_self_subtraction"
-        ] = primary_self_subtraction
-    _verify_periodic_oracle_metrics(result, label=field_source_model)
-
-    if field_source_model == "point":
-        softening = float(_load_toml(config_path)["sim"]["softening"])
-        normalized_targets = np.array(
-            [
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 2.0, 0.0],
-                [1.0, -2.0, 2.0],
-            ]
-        )
-        targets = softening * normalized_targets
-        charge = softening / K_COULOMB
-        with FieldKernel(
-            np.zeros((1, 3)),
-            np.array([charge]),
-            options=FieldKernelOptions(
-                softening=softening,
-                theta=0.2,
-                leaf_max=16,
-                order=4,
-            ),
-            library_path=library_path,
-        ) as kernel:
-            direct_field = kernel.eval_e_direct(targets)
-            direct_potential = kernel.eval_phi_direct(targets)
-            ordinary_field = kernel.eval_e(targets)
-            ordinary_potential = kernel.eval_phi(targets)
-        normalized_radius = np.sqrt(
-            np.sum(normalized_targets**2, axis=1) + 1.0
-        )
-        expected_field = (
-            normalized_targets
-            / normalized_radius[:, None] ** 3
-            / softening
-        )
-        expected_potential = 1.0 / normalized_radius
-        field_error = float(
-            np.linalg.norm(direct_field - expected_field)
-            / np.linalg.norm(expected_field)
-        )
-        potential_error = float(
-            np.linalg.norm(direct_potential - expected_potential)
-            / np.linalg.norm(expected_potential)
-        )
-        ordinary_field_mismatch = float(
-            np.linalg.norm(ordinary_field - direct_field)
-            / np.linalg.norm(expected_field)
-        )
-        ordinary_potential_mismatch = float(
-            np.linalg.norm(ordinary_potential - direct_potential)
-            / np.linalg.norm(expected_potential)
-        )
-        self_field_normalized = float(
-            np.linalg.norm(direct_field[0]) * softening
-        )
-        micro_tolerance = 1.0e-11
-        if (
-            field_error > micro_tolerance
-            or potential_error > micro_tolerance
-            or ordinary_field_mismatch > micro_tolerance
-            or ordinary_potential_mismatch > micro_tolerance
-            or self_field_normalized > 32.0 * np.finfo(np.float64).eps
-        ):
-            raise ValidationError(
-                "periodic softened-point micro-oracle exceeds its thresholds"
-            )
-        result["softened_point_micro_oracle"] = {
-            "sample_count": int(normalized_targets.shape[0]),
-            "softening_to_period_ratio": softening / length,
-            "target_distance_over_softening": 1.0,
-            "field_relative_error": field_error,
-            "potential_relative_error": potential_error,
-            "ordinary_field_relative_mismatch": ordinary_field_mismatch,
-            "ordinary_potential_relative_mismatch": ordinary_potential_mismatch,
-            "self_field_normalized_absolute": self_field_normalized,
-            "relative_tolerance": micro_tolerance,
-        }
+    _verify_periodic_oracle_metrics(result, label="triangle_p0")
     return result
 
 
@@ -9830,43 +9267,22 @@ def probe_periodic_oracles(
         "provenance/oracles/periodic_plane.toml",
         label="periodic plane-oracle config",
     )
-    point_config_path = _require_expected_path(
-        root,
-        root / "provenance/oracles/periodic_plane_point.toml",
-        "provenance/oracles/periodic_plane_point.toml",
-        label="periodic point-plane oracle config",
-    )
-    if (
-        config_path.exists()
-        or config_path.is_symlink()
-        or point_config_path.exists()
-        or point_config_path.is_symlink()
-    ):
-        raise ValidationError("periodic oracle config already exists without a receipt")
+    if any(config_path.parent.iterdir()):
+        raise ValidationError(
+            "periodic oracle provenance directory must be empty without a receipt"
+        )
     _oracle_panel_config(config_path)
-    _oracle_point_config(point_config_path)
     kernel_oracles = {
         "triangle_p0": _run_periodic_plane_kernel_oracle(
             root=root,
             config_path=config_path,
             cache_dir=cache_dir,
             library_path=library_path,
-            field_source_model="triangle_p0",
-            field_kernel_id="triangle_p0_exact_p2m_near",
-        ),
-        "production_point": _run_periodic_plane_kernel_oracle(
-            root=root,
-            config_path=point_config_path,
-            cache_dir=cache_dir,
-            library_path=library_path,
-            field_source_model="point",
-            field_kernel_id="softened_point",
         ),
     }
-    legacy_triangle = kernel_oracles["triangle_p0"]
     report = {
         "receipt_schema_version": 1,
-        "oracle_schema_version": 2,
+        "oracle_schema_version": 3,
         "status": "qualified",
         "manifest_sha256": _sha256(root / "manifest.json"),
         "library": str(library_path),
@@ -9878,17 +9294,11 @@ def probe_periodic_oracles(
                 "path": str(config_path),
                 "sha256": _sha256(config_path),
             },
-            "production_point": {
-                "path": str(point_config_path),
-                "sha256": _sha256(point_config_path),
-            },
         },
         "cache_dir": str(cache_dir),
         "cache_files": _output_inventory(cache_dir),
         "execution_job_id": os.environ.get("SLURM_JOB_ID", "manual"),
         "kernel_oracles": kernel_oracles,
-        "uniform_plane": legacy_triangle["uniform_plane"],
-        "neutral_cosine_plane": legacy_triangle["neutral_cosine_plane"],
         "verified_at": _utc_now(),
     }
     if manifest.get("build_origin") is not None:

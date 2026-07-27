@@ -4,6 +4,7 @@ program test_particle_stepper
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
   use bem_mesh, only: init_mesh
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_pusher, only: boris_push
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
@@ -319,7 +320,6 @@ contains
     sim = sim_config()
     sim%field_solver = 'direct'
     sim%field_normalization = 'si'
-    sim%softening = 0.5d0
     sim%e0 = [1.0d0, 0.0d0, 0.0d0]
     call field_solver%init(mesh, sim)
     call field_solver%refresh(mesh)
@@ -354,7 +354,6 @@ contains
     sim = sim_config()
     sim%field_solver = 'direct'
     sim%field_normalization = 'si'
-    sim%softening = 0.5d0
     sim%e0 = 0.0d0
     call field_solver%init(mesh, sim)
     call field_solver%refresh(mesh)
@@ -394,7 +393,6 @@ contains
     sim = sim_config()
     sim%field_solver = 'direct'
     sim%field_normalization = 'si'
-    sim%softening = 0.5_dp
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -437,24 +435,32 @@ contains
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in) :: charge
     real(dp) :: vertex0(3, 1), vertex1(3, 1), vertex2(3, 1), element_charge(1)
+    integer(i32) :: status
+    character(len=128) :: message
 
     vertex0(:, 1) = [-1.0d0, -1.0d0, 0.0d0]
     vertex1(:, 1) = [2.0d0, -1.0d0, 0.0d0]
     vertex2(:, 1) = [-1.0d0, 2.0d0, 0.0d0]
     element_charge(1) = charge
     call init_mesh(mesh, vertex0, vertex1, vertex2, q0=element_charge)
+    call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
+    if (status /= panel_surface_side_ok) error stop 'single-element panel side setup failed: '//trim(message)
   end subroutine init_single_element_mesh
 
   subroutine init_x_plane_mesh(mesh, x_plane)
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in) :: x_plane
     real(dp) :: vertex0(3, 1), vertex1(3, 1), vertex2(3, 1), element_charge(1)
+    integer(i32) :: status
+    character(len=128) :: message
 
     vertex0(:, 1) = [x_plane, -10.0_dp, -10.0_dp]
     vertex1(:, 1) = [x_plane, 10.0_dp, -10.0_dp]
     vertex2(:, 1) = [x_plane, 0.0_dp, 10.0_dp]
     element_charge = 0.0_dp
     call init_mesh(mesh, vertex0, vertex1, vertex2, q0=element_charge)
+    call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
+    if (status /= panel_surface_side_ok) error stop 'x-plane panel side setup failed: '//trim(message)
   end subroutine init_x_plane_mesh
 
   subroutine init_box_stepper(mesh, sim, field_solver, mesh_x)
@@ -467,7 +473,6 @@ contains
     sim = sim_config()
     sim%field_solver = 'direct'
     sim%field_normalization = 'si'
-    sim%softening = 0.5_dp
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -692,7 +697,6 @@ contains
     sim = sim_config()
     sim%field_solver = 'direct'
     sim%field_normalization = 'si'
-    sim%softening = 0.5_dp
     sim%use_box = .true.
     sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

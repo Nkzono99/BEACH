@@ -164,7 +164,6 @@ class Beach:
         source: int | MeshSelection | Iterable[int | MeshSelection],
         *,
         step: int | None = -1,
-        softening: float = 0.0,
         torque_origin: Literal[
             "target_center",
             "source_center",
@@ -173,6 +172,7 @@ class Beach:
             "group_b_center",
         ] = "target_center",
         periodic2: Mapping[str, object] | None = None,
+        library_path: str | Path | None = None,
     ):
         """Compute Coulomb force/torque from source acting on target.
 
@@ -184,8 +184,6 @@ class Beach:
             Source mesh group (group B).
         step : int or None, default -1
             History step used to select charges.
-        softening : float, default 0.0
-            Softening length in meters.
         torque_origin : {"target_center", "source_center", "origin", "group_a_center", "group_b_center"}, default "target_center"
             Torque reference point.
         periodic2 : mapping or None, default None
@@ -203,17 +201,18 @@ class Beach:
             target,
             source,
             step=step,
-            softening=softening,
             torque_origin=torque_origin,
             periodic2=periodic2,
+            config_path=self.config_path,
+            library_path=library_path,
         )
 
     def analyze_coulomb_mobility(
         self,
         *,
         step: int | None = -1,
-        softening: float = 0.0,
         config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
         gravity: Iterable[float] = (0.0, 0.0, -9.81),
         support_normal: Iterable[float] | None = None,
         support_kinds: Iterable[str] | None = ("plane",),
@@ -228,8 +227,8 @@ class Beach:
         return analyze_coulomb_mobility(
             self.result,
             step=step,
-            softening=softening,
             config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
             gravity=gravity,
             support_normal=support_normal,
             support_kinds=support_kinds,
@@ -244,7 +243,6 @@ class Beach:
         self,
         *,
         step: int | None = -1,
-        softening: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
@@ -257,7 +255,6 @@ class Beach:
         return FieldKernel.from_result(
             self.result,
             step=step,
-            softening=softening,
             periodic2=periodic2,
             theta=theta,
             leaf_max=leaf_max,
@@ -293,7 +290,6 @@ class Beach:
         *,
         step: int | None = -1,
         target_mesh_ids: int | Iterable[int] | None = None,
-        softening: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
@@ -307,7 +303,6 @@ class Beach:
             self.result,
             step=step,
             target_mesh_ids=target_mesh_ids,
-            softening=softening,
             periodic2=periodic2,
             theta=theta,
             leaf_max=leaf_max,
@@ -399,19 +394,15 @@ class Beach:
     def compute_potential(
         self,
         *,
-        softening: float | None = None,
-        self_term: str = "auto",
         periodic2: Mapping[str, object] | None = None,
         reference_point: Iterable[float] | str | None = None,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ) -> np.ndarray:
         """Compute potential values at triangle centroids.
 
         Parameters
         ----------
-        softening : float or None, default None
-            Softening length in meters.
-        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-            Self-interaction model.
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_mesh`.
@@ -427,20 +418,21 @@ class Beach:
 
         return compute_potential_mesh(
             self,
-            softening=softening,
-            self_term=self_term,
             periodic2=periodic2,
             reference_point=reference_point,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def compute_potential_points(
         self,
         points: np.ndarray,
         *,
-        softening: float | None = None,
         chunk_size: int = 2048,
         periodic2: Mapping[str, object] | None = None,
         reference_point: Iterable[float] | str | None = None,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ) -> np.ndarray:
         """Compute potential values at arbitrary 3D points.
 
@@ -448,8 +440,6 @@ class Beach:
         ----------
         points : numpy.ndarray
             Sampling points with shape ``(n_points, 3)``.
-        softening : float or None, default None
-            Softening length in meters.
         chunk_size : int, default 2048
             Number of points processed per chunk.
         periodic2 : mapping or None, default None
@@ -468,10 +458,11 @@ class Beach:
         return compute_potential_points(
             self,
             points,
-            softening=softening,
             chunk_size=chunk_size,
             periodic2=periodic2,
             reference_point=reference_point,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def compute_potential_slices(
@@ -483,10 +474,11 @@ class Beach:
         xy_z: float | None = None,
         yz_x: float | None = None,
         xz_y: float | None = None,
-        softening: float | None = None,
         chunk_size: int = 2048,
         periodic2: Mapping[str, object] | None = None,
         reference_point: Iterable[float] | str | None = None,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ):
         """Compute potential slices on XY/YZ/XZ planes.
 
@@ -504,8 +496,6 @@ class Beach:
             X coordinate of YZ slice.
         xz_y : float or None, default None
             Y coordinate of XZ slice.
-        softening : float or None, default None
-            Softening length in meters.
         chunk_size : int, default 2048
             Sampling chunk size.
         periodic2 : mapping or None, default None
@@ -529,17 +519,16 @@ class Beach:
             xy_z=xy_z,
             yz_x=yz_x,
             xz_y=xz_y,
-            softening=softening,
             chunk_size=chunk_size,
             periodic2=periodic2,
             reference_point=reference_point,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def plot_potential(
         self,
         *,
-        softening: float | None = None,
-        self_term: str = "auto",
         cmap: str = "viridis",
         view_elev: float = 24.0,
         view_azim: float = -58.0,
@@ -549,15 +538,13 @@ class Beach:
         periodic2_repeat: int = 0,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
         axis_unit: str = "m",
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ):
         """Plot a 3D mesh colored by reconstructed electric potential.
 
         Parameters
         ----------
-        softening : float or None, default None
-            Softening length in meters.
-        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-            Self-interaction model.
         cmap : str, default "viridis"
             Matplotlib colormap name.
         view_elev : float, default 24.0
@@ -588,8 +575,6 @@ class Beach:
 
         return plot_potential_mesh(
             self,
-            softening=softening,
-            self_term=self_term,
             cmap=cmap,
             view_elev=view_elev,
             view_azim=view_azim,
@@ -599,6 +584,8 @@ class Beach:
             periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
             axis_unit=axis_unit,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def plot_potential_slices(
@@ -610,7 +597,6 @@ class Beach:
         xy_z: float | None = None,
         yz_x: float | None = None,
         xz_y: float | None = None,
-        softening: float | None = None,
         chunk_size: int = 2048,
         cmap: str = "viridis",
         vmin: float | None = None,
@@ -618,6 +604,8 @@ class Beach:
         periodic2: Mapping[str, object] | None = None,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
         axis_unit: str = "m",
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ):
         """Plot XY/YZ/XZ potential slices with a shared color scale.
 
@@ -635,8 +623,6 @@ class Beach:
             X coordinate of YZ slice.
         xz_y : float or None, default None
             Y coordinate of XZ slice.
-        softening : float or None, default None
-            Softening length in meters.
         chunk_size : int, default 2048
             Sampling chunk size.
         cmap : str, default "viridis"
@@ -668,7 +654,6 @@ class Beach:
             xy_z=xy_z,
             yz_x=yz_x,
             xz_y=xz_y,
-            softening=softening,
             chunk_size=chunk_size,
             cmap=cmap,
             vmin=vmin,
@@ -676,6 +661,8 @@ class Beach:
             periodic2=periodic2,
             reference_point=reference_point,
             axis_unit=axis_unit,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def plot_mesh_source_boxplot(
@@ -683,9 +670,9 @@ class Beach:
         *,
         quantity: str = "charge",
         step: int | None = -1,
-        softening: float | None = None,
-        self_term: str = "auto",
         showfliers: bool = True,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ):
         """Plot area-weighted boxplots per mesh source.
 
@@ -696,10 +683,6 @@ class Beach:
         step : int or None, default -1
             History batch step used for charge snapshot.
             ``None`` uses final charges from ``charges.csv``.
-        softening : float or None, default None
-            Softening length in meters (potential mode only).
-        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-            Self-interaction model (potential mode only).
         showfliers : bool, default True
             Whether outlier markers are rendered.
 
@@ -713,9 +696,9 @@ class Beach:
             self.result,
             quantity=quantity,
             step=step,
-            softening=softening,
-            self_term=self_term,
             showfliers=showfliers,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def plot_coulomb_force_matrix(
@@ -723,9 +706,9 @@ class Beach:
         *,
         step: int | None = -1,
         component: str = "z",
-        softening: float = 0.0,
         target_kinds: Iterable[str] | None = None,
         config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
         cmap: str = "coolwarm",
         annotate: bool = True,
         workers: int = 1,
@@ -739,8 +722,6 @@ class Beach:
             ``None`` uses final charges from ``charges.csv``.
         component : {"x", "y", "z"}, default "z"
             Force component rendered in the matrix.
-        softening : float, default 0.0
-            Softening length in meters for Coulomb-force evaluation.
         target_kinds : iterable of str or None, default None
             Template kinds used as target objects. ``None`` means all objects.
         config_path : str, pathlib.Path, or None, default None
@@ -763,9 +744,9 @@ class Beach:
             self.result,
             step=step,
             component=component,
-            softening=softening,
             target_kinds=target_kinds,
             config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
             cmap=cmap,
             annotate=annotate,
             workers=workers,
@@ -780,14 +761,13 @@ class Beach:
         frame_stride: int = 1,
         total_frames: int | None = None,
         cmap: str | None = None,
-        softening: float | None = None,
-        self_term: str = "auto",
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
         periodic2_repeat: int = 0,
         reference_point: Iterable[float] | str | None = "species1_injection_center",
         view_elev: float | None = None,
         view_azim: float | None = None,
+        library_path: str | Path | None = None,
     ) -> Path | FuncAnimation:
         """Animate charge or potential history on the 3D surface mesh.
 
@@ -805,10 +785,6 @@ class Beach:
             Number of evenly sampled frames.
         cmap : str or None, default None
             Matplotlib colormap name.
-        softening : float or None, default None
-            Softening length in meters (potential mode).
-        self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-            Potential self-term model (potential mode).
         periodic2 : mapping or None, default None
             Two-axis periodic setting for potential mode. ``None`` の場合は
             出力ディレクトリ近傍の ``beach.toml`` から自動判定。
@@ -838,23 +814,23 @@ class Beach:
             frame_stride=frame_stride,
             total_frames=total_frames,
             cmap=cmap,
-            softening=softening,
-            self_term=self_term,
             periodic2=periodic2,
             apply_periodic2_mesh=apply_periodic2_mesh,
             periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
             view_elev=view_elev,
             view_azim=view_azim,
+            library_path=library_path,
         )
 
     def compute_electric_field(
         self,
         points: np.ndarray,
         *,
-        softening: float | None = None,
         chunk_size: int = 2048,
         periodic2: Mapping[str, object] | None = None,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ) -> np.ndarray:
         """Compute the electric field vector at arbitrary 3D points.
 
@@ -862,8 +838,6 @@ class Beach:
         ----------
         points : numpy.ndarray
             Sampling points with shape ``(n_points, 3)``.
-        softening : float or None, default None
-            Softening length in meters.
         chunk_size : int, default 2048
             Number of points processed per chunk.
         periodic2 : mapping or None, default None
@@ -878,9 +852,10 @@ class Beach:
         return compute_electric_field_points(
             self,
             points,
-            softening=softening,
             chunk_size=chunk_size,
             periodic2=periodic2,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def trace_field_lines(
@@ -889,11 +864,12 @@ class Beach:
         *,
         ds: float | None = None,
         max_steps: int = 500,
-        softening: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         direction: str = "both",
         box_min: Iterable[float] | None = None,
         box_max: Iterable[float] | None = None,
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ) -> list[np.ndarray]:
         """Trace electric field lines from seed points.
 
@@ -905,8 +881,6 @@ class Beach:
             Integration step size. ``None`` で自動設定。
         max_steps : int, default 500
             Maximum steps per direction.
-        softening : float or None
-            Softening length.
         periodic2 : mapping or None
             Periodic setting. ``None`` で自動判定。
         direction : {"both", "forward", "backward"}
@@ -925,11 +899,12 @@ class Beach:
             seed_points,
             ds=ds,
             max_steps=max_steps,
-            softening=softening,
             periodic2=periodic2,
             direction=direction,
             box_min=box_min,
             box_max=box_max,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )
 
     def plot_field_lines(
@@ -938,7 +913,6 @@ class Beach:
         *,
         ds: float | None = None,
         max_steps: int = 500,
-        softening: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         direction: str = "both",
         box_min: Iterable[float] | None = None,
@@ -953,6 +927,8 @@ class Beach:
         view_azim: float = -58.0,
         title: str = "Electric field lines",
         figsize: tuple[float, float] = (9, 7),
+        config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ):
         """Plot 3D electric field lines with optional mesh overlay.
 
@@ -964,8 +940,6 @@ class Beach:
             Integration step size.
         max_steps : int
             Maximum steps per direction.
-        softening : float or None
-            Softening length.
         periodic2 : mapping or None
             Periodic setting.
         direction : {"both", "forward", "backward"}
@@ -1004,7 +978,6 @@ class Beach:
             seed_points,
             ds=ds,
             max_steps=max_steps,
-            softening=softening,
             periodic2=periodic2,
             direction=direction,
             box_min=box_min,
@@ -1019,4 +992,6 @@ class Beach:
             view_azim=view_azim,
             title=title,
             figsize=figsize,
+            config_path=self._resolve_config_path(config_path),
+            library_path=library_path,
         )

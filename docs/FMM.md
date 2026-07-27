@@ -46,7 +46,7 @@ target locals
 L2P at target + near Direct interactions
 ```
 
-遠方相互作用はCartesian多重極・局所展開で近似し、near listのsourceは選択したpointまたはpanel kernelで
+遠方相互作用はCartesian多重極・局所展開で近似し、near listのsourceは解析panel kernelで
 直接評価します。現行simulator adapterの展開次数は`order = 4`固定で、入力からは変更できません。
 
 ### Cartesian展開の記法
@@ -59,11 +59,10 @@ $$
 \mathbf r^\alpha=r_x^{\alpha_x}r_y^{\alpha_y}r_z^{\alpha_z}.
 $$
 
-point sourceのkernelは
+展開に使うLaplace kernelは
 
 $$
-G_\epsilon(\mathbf r)=\frac{1}{\sqrt{\lVert\mathbf r\rVert^2+\epsilon^2}},qquad
-\phi(\mathbf x)=\sum_j q_jG_\epsilon(\mathbf x-\mathbf x_j),qquad
+G(\mathbf r)=\frac{1}{\lVert\mathbf r\rVert},\qquad
 \mathbf E=-\nabla\phi
 $$
 
@@ -71,15 +70,7 @@ $$
 
 ### P2MとM2Mでsourceを集約する
 
-leaf中心を$\mathbf c$とすると、point sourceのmultipole係数は
-
-$$
-M_\alpha(\mathbf c)=
-\sum_{j\in\mathrm{leaf}}q_j
-\frac{(\mathbf x_j-\mathbf c)^\alpha}{\alpha!}
-$$
-
-です。triangle P0では点位置のmonomialの代わりに、三角形上の厳密な面積平均を使います。
+leaf中心を$\mathbf c$とすると、各triangle P0 sourceのmultipole係数には三角形上の厳密な面積平均を使います。
 
 $$
 M_{i,\alpha}=\frac{q_i}{A_i}\int_{T_i}
@@ -105,11 +96,11 @@ well-separatedなnode pairの寄与は
 $$
 L_\alpha(\mathbf c_t)\mathrel{+}=
 \sum_\beta(-1)^{|\beta|}M_\beta(\mathbf c_s)
-D^{\alpha+\beta}G_\epsilon(\mathbf R)
+D^{\alpha+\beta}G(\mathbf R)
 $$
 
 です。$D^\gamma$はmulti-index微分です。どのsource/target nodeを組み合わせるかはplanのM2L pair cacheに、
-kernel微分$D^{\alpha+\beta}G_\epsilon(\mathbf R)$は`m2l_deriv`に保存されます。したがってbatchごとの
+kernel微分$D^{\alpha+\beta}G(\mathbf R)$は`m2l_deriv`に保存されます。したがってbatchごとの
 `update_state`では、現在のmultipole係数との積和が主な処理になります。
 
 ### L2LとL2Pで評価点まで伝える
@@ -135,7 +126,7 @@ E_{\mathrm{far},k}(\mathbf x)=
 \frac{\mathbf r^\alpha}{\alpha!}.
 $$
 
-最後に同じleafのnear listを元のpoint/panel kernelでDirect評価して加えます。M2Lだけで全相互作用を
+最後に同じleafのnear listを固定 P0 triangle kernelでDirect評価して加えます。M2Lだけで全相互作用を
 評価しているわけではなく、FMMの結果は常に「far local展開 + near Direct和」です。
 
 ## geometryと電荷更新を分けて再利用する
@@ -171,21 +162,13 @@ boxが意図した領域を覆っていることを確認してください。
 
 <a id="source-kernel"></a>
 
-## source離散化をnearとfarで揃える
+## triangle P0をnearとfarで一貫して扱う
 
-### 重心点電荷
-
-point modeは各要素重心をsource位置とし、near interactionには`sim.softening`を含むpoint kernelを使います。
-far interactionは同じ電荷のmultipole展開です。内部座標ではsofteningも$L_0$で割って正規化されます。
-
-### 三角形上の一定面電荷
-
-triangle P0 modeは三角形全体をsource geometryとして保持します。source treeのboxには、重心だけでなく
+triangle P0は三角形全体をsource geometryとして保持します。source treeのboxには、重心だけでなく
 三頂点も含まれます。P2Mには三角形上のmonomialの厳密な面平均を使い、near interactionとtree外fallbackには
 [Direct solver](DirectSolver.html#triangle-p0)と同じ解析panel積分を使います。
 
-near interactionもpoint sourceへ置き換えません。このmodeには`softening=0`、非退化三角形、insulator表面、
-解決済みvacuum sideが必要です。現行FMM coreのpanel電場は、評価点が厳密にpanel面上にある場合に
+非退化三角形と解決済みvacuum sideが必要です。現行FMM coreのpanel電場は、評価点が厳密にpanel面上にある場合に
 principal-value traceを使います。面上の場を直接比較する検証では、Directのvacuum-side traceとの違いを
 考慮してください。粒子追跡では、panel面に達する前の軌道線分との交差として衝突を処理します。
 
@@ -207,7 +190,6 @@ near Directで評価します。
 | `tree_theta` | 小さいほどfar判定が厳しく、一般に高精度・低速 |
 | `tree_leaf_max` | leafのsource数。near Direct量、木の深さ、memoryのバランスを変える |
 | `field_normalization` | 座標の数値スケール。物理単位やモデルは変えない |
-| `softening` | point kernelだけに適用。triangle P0では0が必須 |
 
 `tree_theta`と`tree_leaf_max`を入力に書かなければ、明示`fmm`でも要素数に応じて
 `(0.40, 12)`、`(0.50, 16)`、`(0.58, 20)`、`(0.65, 24)`の順に自動設定します。区切りは
@@ -219,8 +201,8 @@ source離散化の収束は、これとは別にmesh細分化で確認します�
 ## 電場・電位と履歴出力を評価する
 
 通常のtargetでは、電場も電位もlocal expansionとnear Direct和から評価します。要素中心の
-`potential_history.csv`では同じFMM評価後にpoint kernelの有限自己項を補います。triangle P0は解析panel自己積分を
-near kernelに含めます。[<sup>1</sup>](DirectSolver.html#要素中心の電位出力)
+`potential_history.csv`では、triangle P0の解析panel自己積分をnear kernelに含めます。
+[<sup>1</sup>](DirectSolver.html#要素中心の電位出力)
 
 `potential_history`を書き出す時点では、最新の要素電荷でstateをrefreshします。そのため履歴を有効にすると、
 通常のbatch field更新に加えて、stateのrefreshと全要素targetの評価が発生する場合があります。
@@ -258,7 +240,7 @@ release profileで行い、初期化時間、batch更新時間、粒子評価時
 
 推奨する確認順は次のとおりです。
 
-1. 同じmesh、kernel、softening、正規化の小ケースをDirectとFMMで実行する。
+1. 同じmeshと正規化の小ケースをDirectとFMMで実行する。
 2. 表面近傍、遠方、強い電荷勾配、正負電荷が相殺する領域で電場と電位を比較する。
 3. `tree_theta`を小さくし、`tree_leaf_max`も変えて観測量の安定性を確認する。
 4. source meshを細かくし、FMM近似とは独立にkernel離散化の収束を確認する。
@@ -274,7 +256,7 @@ FMMの一点誤差が小さくても、粗いpanel meshや大きい粒子時間�
 - simulator adapterの展開次数は4固定
 - source geometryはplan構築後に固定
 - 対応する場境界はfreeとperiodic2
-- triangle P0はsofteningなし、insulator-onlyのPhase 1
+- triangle P0の解析near kernelと厳密P2M
 - tree外targetはDirect fallback
 - periodic zero modeとouter responseはFMM core単独では完結しない
 

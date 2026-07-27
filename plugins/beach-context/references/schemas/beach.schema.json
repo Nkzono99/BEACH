@@ -12,18 +12,6 @@
       "$ref": "#/$defs/particles",
       "description": "Particle species definitions."
     },
-    "field": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "element_kernel": {
-          "type": "string",
-          "enum": ["point", "triangle_p0"],
-          "default": "point",
-          "description": "Element source model. triangle_p0 supports direct, treecode, FMM, or auto solving and requires softening=0, insulator surfaces, and explicit surface_side settings."
-        }
-      }
-    },
     "periodic2": {
       "type": "object",
       "additionalProperties": false,
@@ -50,7 +38,7 @@
       "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
       "properties": {
         "model": {"const": "kinetic_1d", "description": "Select the supported VDF-based outer sheath."},
-        "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian", "description": "Density/VDF closure used by kinetic_1d. zhao_charge_driven retains the accumulated-charge interface-field condition instead of imposing a floating-current root."},
+        "kinetic_closure": {"enum": ["absorbing_maxwellian", "ambient_linear_debye", "zhao_charge_driven"], "default": "absorbing_maxwellian", "description": "Closure used by kinetic_1d. ambient_linear_debye applies an analytic ambient-only linear Debye response while tracked photoelectrons remain outside the mean density; zhao_charge_driven retains the accumulated-charge interface-field condition."},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto", "description": "Requested Zhao branch when kinetic_closure is zhao_charge_driven."},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1, "description": "Independent Zhao photoelectron source multiplier. Set to 0 for the no-photo Type-C path; positive values require a matching enabled photo_raycast species. This is distinct from the transient outer-cloud occupancy eta."},
         "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
@@ -62,6 +50,20 @@
         "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
       },
       "allOf": [
+        {
+          "if": {
+            "required": ["kinetic_closure"],
+            "properties": {
+              "kinetic_closure": {"const": "ambient_linear_debye"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "photoelectron_density_model": {"const": "none"}
+            }
+          }
+        },
         {
           "if": {
             "required": ["photoelectron_density_model"],
@@ -928,7 +930,7 @@
       "required": ["model"],
       "properties": {
         "model": {"enum": ["none", "kinetic_1d"]},
-        "kinetic_closure": {"enum": ["absorbing_maxwellian", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
+        "kinetic_closure": {"enum": ["absorbing_maxwellian", "ambient_linear_debye", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
         "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto"},
         "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1},
         "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
@@ -975,6 +977,20 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "required": ["kinetic_closure"],
+            "properties": {
+              "kinetic_closure": {"const": "ambient_linear_debye"}
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "kinetic_1d"},
+              "photoelectron_density_model": {"const": "none"}
+            }
+          }
+        },
         {
           "if": {
             "required": ["model"],
@@ -1249,12 +1265,6 @@
           "default": 1.0e-30,
           "description": "Denominator floor for rel_change."
         },
-        "softening": {
-          "type": "number",
-          "minimum": 0,
-          "default": 1.0e-6,
-          "description": "Electric-field softening length [m]."
-        },
         "e0": {
           "$ref": "#/$defs/vec3",
           "default": [
@@ -1314,7 +1324,7 @@
             "periodic2"
           ],
           "default": "free",
-          "description": "Field boundary condition mode. periodic2 normally requires field_solver=fmm; the direct triangle_p0 panel_spectral_reference split model is the validation-only exception."
+          "description": "Field boundary condition mode. periodic2 normally requires field_solver=fmm; the direct triangle_p0 panel_spectral_reference split model is the validation-only exception. Element charge is always evaluated with the triangle_p0 panel kernel."
         },
         "field_periodic_image_layers": {
           "type": "integer",
@@ -2544,7 +2554,7 @@
             "obj",
             "template"
           ],
-          "default": "auto",
+          "default": "template",
           "description": "Mesh input method. auto selects obj if obj_path exists, otherwise template."
         },
         "obj_path": {
@@ -2560,11 +2570,11 @@
             "dielectric"
           ],
           "default": "insulator",
-          "description": "Surface response model assigned to OBJ mesh elements. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release. Template meshes use per-template surface_model instead."
+          "description": "Surface response model assigned to OBJ mesh elements. All surface sources use the implicit triangle_p0 discretization. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release. Template meshes use per-template surface_model instead."
         },
         "surface_side": {
           "$ref": "#/$defs/surfaceSide",
-          "description": "Vacuum side for OBJ panels when field.element_kernel=triangle_p0."
+          "description": "Vacuum side for OBJ panels. Required by the implicit triangle_p0 panel kernel."
         },
         "epsilon_r": {
           "type": "number",
@@ -2607,7 +2617,29 @@
           },
           "description": "High-level named mesh groups that provide a common origin and scale for templates."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "auto",
+                  "obj"
+                ]
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "surface_side"
+            ]
+          }
+        }
+      ]
     },
     "meshGroup": {
       "type": "object",
@@ -2739,11 +2771,11 @@
             "dielectric"
           ],
           "default": "insulator",
-          "description": "Surface response model assigned to elements generated from this template. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release."
+          "description": "Surface response model assigned to elements generated from this template. All surface sources use the implicit triangle_p0 discretization. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release."
         },
         "surface_side": {
           "$ref": "#/$defs/surfaceSide",
-          "description": "Vacuum side for this template when field.element_kernel=triangle_p0."
+          "description": "Vacuum side for this template. Required when enabled by the implicit triangle_p0 panel kernel."
         },
         "epsilon_r": {
           "type": "number",
@@ -2901,6 +2933,24 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": false
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {},
+          "else": {
+            "required": [
+              "surface_side"
+            ]
+          }
+        },
         {
           "if": {
             "properties": {

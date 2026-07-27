@@ -130,9 +130,10 @@ shared kernelのcache互換性とnative periodic plane-oracle receiptは、`make
 | `max_step` | int | 400 | 粒子あたり最大積分ステップ数 |
 | `tol_rel` | float | 1.0e-8 | 監視メトリクス (早期停止条件ではない) |
 | `q_floor` | float | 1.0e-30 | 相対変化計算の分母フロア |
-| `softening` | float | 1.0e-6 | 電場ソフトニング長 [m] |
 
 ### 電場ソルバーパラメータ
+
+要素sourceはP0 triangle panelに固定されます。`[field]` tableやsofteningの設定はありません。
 
 | パラメータ | 型 | デフォルト | 選択肢 | 説明 |
 |------------|------|-----------|--------|------|

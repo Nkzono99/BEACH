@@ -116,7 +116,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
             summary, "charge_ledger_residual_C"
         ),
         charge_ledger=charge_ledger,
-        field_source_model=summary.get("field_source_model", "point").strip().lower(),
+        field_source_model=summary.get("field_source_model", "unknown").strip().lower(),
         field_kernel_id=summary.get("field_kernel_id"),
         periodic2_cache_hit=_parse_optional_bool(summary, "periodic2_cache_hit"),
         periodic2_operator_build_count=_parse_optional_nonnegative_int(

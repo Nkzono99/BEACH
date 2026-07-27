@@ -3,7 +3,7 @@ module bem_field_solver
 !$ use omp_lib
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
+  use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   use bem_string_utils, only: lower_ascii
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
@@ -12,9 +12,7 @@ module bem_field_solver
 
   type :: field_solver_type
     character(len=16) :: mode = 'direct'
-    character(len=32) :: source_model = 'point'
     character(len=16) :: field_bc_mode = 'free'
-    real(dp) :: softening = 1.0d-6
     character(len=16) :: field_normalization = 'si'
     real(dp) :: field_length_scale = 1.0d0
     real(dp) :: field_origin(3) = 0.0d0
@@ -154,20 +152,20 @@ module bem_field_solver
     end function octant_index
 
     !> ノードを再帰走査し、葉では direct 総和、遠方は monopole 近似を適用する。
-    recursive module subroutine traverse_node(self, mesh, node_idx, rx, ry, rz, soft2, ex, ey, ez)
+    recursive module subroutine traverse_node(self, mesh, node_idx, rx, ry, rz, ex, ey, ez)
       class(field_solver_type), intent(in) :: self
       type(mesh_type), intent(in) :: mesh
       integer(i32), intent(in) :: node_idx
-      real(dp), intent(in) :: rx, ry, rz, soft2
+      real(dp), intent(in) :: rx, ry, rz
       real(dp), intent(inout) :: ex, ey, ez
     end subroutine traverse_node
 
     !> ノードを再帰走査し、葉では direct 総和、遠方は monopole 近似で電位を加算する。
-    recursive module subroutine traverse_potential_node(self, mesh, node_idx, rx, ry, rz, soft2, phi_sum)
+    recursive module subroutine traverse_potential_node(self, mesh, node_idx, rx, ry, rz, phi_sum)
       class(field_solver_type), intent(in) :: self
       type(mesh_type), intent(in) :: mesh
       integer(i32), intent(in) :: node_idx
-      real(dp), intent(in) :: rx, ry, rz, soft2
+      real(dp), intent(in) :: rx, ry, rz
       real(dp), intent(inout) :: phi_sum
     end subroutine traverse_potential_node
 
@@ -199,14 +197,6 @@ module bem_field_solver
     module subroutine sync_core_plan_view(self)
       class(field_solver_type), intent(inout) :: self
     end subroutine sync_core_plan_view
-
-    !> mesh 重心から core FMM 用の source 座標配列 `src_pos(3,n)` を作る。
-    module subroutine build_core_source_positions(mesh, src_pos, inv_length_scale, origin)
-      type(mesh_type), intent(in) :: mesh
-      real(dp), intent(in) :: inv_length_scale
-      real(dp), intent(in) :: origin(3)
-      real(dp), allocatable, intent(out) :: src_pos(:, :)
-    end subroutine build_core_source_positions
 
     !> メッシュ重心での電位を計算する（FMM/direct 自動切替）。
     module subroutine compute_mesh_potential_field_solver(self, mesh, sim, potential_v)

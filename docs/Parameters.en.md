@@ -80,7 +80,7 @@ runs successfully.
 
 ## TOML Hierarchy and Section List
 
-`[sim]`, `[field]`, `[particles]`, `[mesh]`, `[periodic2]`, `[external_boundary]`,
+`[sim]`, `[particles]`, `[mesh]`, `[periodic2]`, `[external_boundary]`,
 and `[output]` form the normal public configuration. Legacy `[outer_plasma]` and
 `[coupling]` remain compatibility inputs, but cannot be mixed with
 `[external_boundary]`. Their nesting is:
@@ -88,7 +88,6 @@ and `[output]` form the normal public configuration. Legacy `[outer_plasma]` and
 ```text
 beach.toml
 ├── [sim]
-├── [field]
 ├── [particles]
 │   └── [[particles.species]]       # one or more array-of-table entries
 ├── [mesh]
@@ -110,7 +109,6 @@ Paths such as `sim.dt` and `external_boundary.field.model` mean “table name.ke
 | TOML table | Parent | Cardinality / requirement | Contents |
 |---|---|---|---|
 | `[sim]` | root | conditional | Time step, batch count, field solver, boundaries, external fields, sheath correction |
-| `[field]` | root | optional | Element-charge discretization kernel |
 | `[particles]` | root | required | Container for `[[particles.species]]`; do not put ordinary keys directly under it |
 | `[[particles.species]]` | `[particles]` | one or more | Species, injection mode, velocity distribution, macro-particle weight |
 | `[mesh]` | root | optional | Selection of OBJ or built-in template input |
@@ -160,20 +158,20 @@ corresponding parameters for each option.
 | `direct` | Exact all-to-all evaluation for small element counts and split references | `free`, or a constrained `periodic2` split reference |
 | `treecode` | Approximate evaluation for medium and larger cases | `field_bc_mode="free"` |
 | `fmm` | Large-scale evaluation, `periodic2`, FMM core validation | `field_bc_mode="free"` / `"periodic2"` |
-| `auto` | Select direct / treecode for point sources or direct / FMM for triangle P0 sources based on element count | `field_bc_mode="free"` |
+| `auto` | Select direct / FMM based on element count | `field_bc_mode="free"` |
 
 Use the canonical [solver and field-boundary compatibility table](FieldSolvers.en.html#solver-and-field-boundary-compatibility) to choose the combination.
+Element charge is always evaluated as a constant density on its triangle (a P0 panel); there is no configurable kernel.
 
 Common keys:
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `softening` | float | `1.0e-6` | Softening length for the point kernel [m]. Must be `0` for `triangle_p0` |
 | `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
 | `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `field_length_scale` | float | `1.0` | Length scale used with `field_normalization="length"` [m] |
 
-`field_normalization` only changes normalization of coordinates, softening, and
+`field_normalization` only changes normalization of coordinates and
 periodic cells inside field calculations. Output electric fields and potentials
 are converted back to SI.
 
@@ -193,23 +191,21 @@ and `N` is the number of elements.
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"direct"` |
-| `softening` | float | `1.0e-6` | Relaxes point-source singularities; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before direct evaluation |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
-| `field_bc_mode` | string | `"free"` | Normally `free`; only the `triangle_p0` split reference may use `periodic2` |
+| `field_bc_mode` | string | `"free"` | Normally `free`; only the panel split reference may use `periodic2` |
 
 `tree_theta`, `tree_leaf_max`, and `tree_min_nelem` are not used for `direct`.
 
 ##### `field_solver = "treecode"`
 
 Builds a source octree. Distant nodes are evaluated with a monopole
-approximation, and near nodes are evaluated directly with the selected source kernel. Unlike FMM, it
+approximation, and near nodes are evaluated with the analytic panel kernel. Unlike FMM, it
 does not use local expansion and traverses the tree for each evaluation point.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"treecode"` |
-| `softening` | float | `1.0e-6` | Softening for point near sums and monopoles; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before tree construction |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `tree_theta` | float | `0.5` | MAC parameter. `0 < theta <= 1`. Larger values are faster and coarser |
@@ -230,7 +226,6 @@ See [FMM](FMM.en.html) for selection and verification, and
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"fmm"` |
-| `softening` | float | `1.0e-6` | Used by point-source near sums and FMM evaluation; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before FMM plan construction |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `tree_theta` | float | `0.5` | MAC parameter for near/far classification. `0 < theta <= 1` |
@@ -248,19 +243,16 @@ See [FMM](FMM.en.html) for selection and verification, and
 
 ##### `field_solver = "auto"`
 
-For `element_kernel="point"`, auto uses direct evaluation below `tree_min_nelem`
-and treecode otherwise. For `element_kernel="triangle_p0"`, the same threshold
-selects direct or FMM.
+Auto uses direct evaluation below `tree_min_nelem` and FMM at and above the threshold.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | Specify `"auto"` |
-| `softening` | float | `1.0e-6` | Used by point direct / treecode; `triangle_p0` requires `0` |
 | `field_normalization` | string | `"si"` | Common normalization used before automatic selection |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
-| `tree_min_nelem` | int | `256` | Element-count threshold for switching to treecode. `>= 1` |
-| `tree_theta` | float | `0.5` | MAC parameter when treecode is selected |
-| `tree_leaf_max` | int | `16` | Maximum number of sources per leaf node when treecode is selected |
+| `tree_min_nelem` | int | `256` | Element-count threshold for switching to FMM. `>= 1` |
+| `tree_theta` | float | `0.5` | Near/far MAC parameter when FMM is selected |
+| `tree_leaf_max` | int | `16` | Maximum number of sources per leaf node when FMM is selected |
 | `field_bc_mode` | string | `"free"` | Only `"free"` is supported for `auto` |
 
 If `tree_theta` and `tree_leaf_max` are not specified explicitly, the following
@@ -723,7 +715,7 @@ Evaluation with
 `reservoir_potential_model="infinity_barrier"` at normalized runtime):
 
 - Evaluate injection-face average potential from the field and potential refreshed at the beginning of each batch.
-- Include the point / `triangle_p0` kernel, periodic2 terms, zero mode, outer profile, and `e0` under the particle-motion convention.
+- Include the P0 panel kernel, periodic2 terms, zero mode, outer profile, and `e0` under the particle-motion convention.
 - The same `N x N` grid gives the population standard deviation, minimum, and maximum without extra potential evaluations.
 - For a Maxwellian reservoir, the MPI root warns on the first and final batch when
   `abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)`.
@@ -898,16 +890,18 @@ escape at the z-high interface.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `mode` | string | `"auto"` | `auto` / `obj` / `template` |
+| `mode` | string | `"template"` | `auto` / `obj` / `template` |
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ file path |
 | `surface_model` | string | `"insulator"` | Surface model for the whole OBJ |
+| `surface_side` | string | required with `mode="obj"` or `"auto"` | Vacuum side of OBJ panels: `normal_plus` / `normal_minus` / `outward_closed` |
 | `epsilon_r` | float | `1.0` | Relative permittivity for the whole OBJ. `>= 1` |
 | `obj_scale` | float | `1.0` | Uniform scale after loading the OBJ |
 | `obj_rotation` | float[3] | `[0,0,0]` | Rotation angle after loading the OBJ [deg] |
 | `obj_offset` | float[3] | `[0,0,0]` | Translation after loading the OBJ [m] |
 
 With `mode="auto"`, an OBJ is used if `obj_path` exists; otherwise a template is
-used. The OBJ transformation order is `scale -> rotate -> offset`.
+used. `surface_side` is still required so either branch has a complete OBJ
+contract. The OBJ transformation order is `scale -> rotate -> offset`.
 
 ```text
 v_new = R(rotation) * (v_old * obj_scale) + obj_offset
@@ -937,7 +931,7 @@ Common keys:
 | `enabled` | bool | `true` | Enable the template |
 | `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
 | `surface_model` | string | `"insulator"` | `insulator` / `conductor` / `dielectric` |
-| `surface_side` | string | unset | Vacuum side for `triangle_p0`: `normal_plus` / `normal_minus` / `outward_closed` |
+| `surface_side` | string | required when `enabled=true` | Vacuum side of the panel: `normal_plus` / `normal_minus` / `outward_closed` |
 | `epsilon_r` | float | `1.0` | Relative permittivity. `>= 1` |
 | `center` | float[3] | `[0,0,0]` | Shape center [m] |
 
@@ -1090,17 +1084,17 @@ Surface model:
 
 ---
 
-### `[field]`: Element Kernel
+### Fixed element-source rules
 
-`element_kernel="point"` is the compatibility default, and `sim.softening` applies to this point kernel.
-
-Rules for `element_kernel="triangle_p0"`:
+Element sources use an implicit P0 triangle panel. The former `[field]` table
+and `sim.softening` key have been removed; leaving either in an input fails as
+an unknown table or key.
 
 | Item | Rule |
 | --- | --- |
 | Source | Treat each `q_elem` as a constant surface-charge density over its triangle |
 | Solver | `direct` / `treecode` / `fmm` / `auto`; `auto` selects direct / FMM with `tree_min_nelem` |
-| Requirements | `sim.softening=0` and insulator-only surfaces |
+| Surface models | Common source discretization for `insulator`, `conductor`, and `dielectric` |
 | Treecode | exact panel near + monopole far |
 | FMM | exact panel near + exact triangle P2M |
 | Surface side | `[mesh].surface_side` for OBJ; `surface_side` on every enabled template |
@@ -1159,7 +1153,7 @@ See [Configuration-specific output](OutputGuide.en.html#locate-configuration-spe
 Evaluation rules for `mesh_potential.csv`:
 
 - Record potential [V] at each element centroid.
-- Use `1/softening` for the self term when `softening > 0`; otherwise use an area-equivalent radius approximation.
+- Evaluate the self term with the analytic P0 panel kernel.
 - Add the explicit image shell for `periodic2`.
 - Add the cached nonzero mode and boundary-specific `k=0` for `cached_kneq0`.
 

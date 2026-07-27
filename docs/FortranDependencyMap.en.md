@@ -8,11 +8,11 @@ Lang: [English](FortranDependencyMap.en.md) | [日本語](FortranDependencyMap.m
 
 ## Overview
 
-- Source files: 86
-- Modules: 72
+- Source files: 85
+- Modules: 71
 - Submodules: 13
 - Programs: 1
-- Internal dependency edges: 342
+- Internal dependency edges: 339
 
 ## Overall Graph
 
@@ -30,8 +30,8 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `src/core` | 7 | 6 |
 | `src/mesh` | 3 | 11 |
 | `src/particles` | 2 | 9 |
-| `src/physics` | 8 | 30 |
-| `src/physics/field_solver` | 5 | 21 |
+| `src/physics` | 7 | 29 |
+| `src/physics/field_solver` | 5 | 20 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
 | `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
 | `src/physics/field_solver/fmm/internal/periodic` | 6 | 24 |
@@ -41,7 +41,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `src/physics/panel` | 5 | 13 |
 | `src/physics/periodic_zero_mode` | 3 | 9 |
 | `src/physics/sheath` | 1 | 2 |
-| `src/runtime` | 7 | 35 |
+| `src/runtime` | 7 | 34 |
 | `src/runtime/coupling` | 7 | 22 |
 | `src/runtime/simulator` | 7 | 44 |
 
@@ -49,15 +49,15 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 
 | Entity | kind | Incoming dependencies |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 68 |
-| `bem_types` | `module` | 29 |
-| `bem_string_utils` | `module` | 25 |
-| `bem_constants` | `module` | 20 |
-| `bem_panel_geometry` | `module` | 10 |
-| `bem_physics_config_types` | `module` | 10 |
+| `bem_kinds` | `module` | 67 |
+| `bem_types` | `module` | 27 |
+| `bem_string_utils` | `module` | 24 |
+| `bem_constants` | `module` | 19 |
+| `bem_panel_geometry` | `module` | 12 |
 | `bem_app_config_types` | `module` | 9 |
 | `bem_coulomb_fmm_types` | `module` | 9 |
 | `bem_electrostatic_snapshot` | `module` | 9 |
+| `bem_physics_config_types` | `module` | 9 |
 | `bem_coulomb_fmm_core` | `module` | 8 |
 
 ## Entity List
@@ -89,15 +89,14 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_boundary` | `module` | `src/physics/bem_boundary.f90` | `bem_kinds`, `bem_types` | シミュレーションボックス境界（流出/反射/周期）を適用するモジュール。 |
 | `bem_collision` | `module` | `src/physics/bem_collision.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。 |
 | `bem_electrostatic_snapshot` | `module` | `src/physics/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi` | - |
-| `bem_field` | `module` | `src/physics/bem_field.f90` | `bem_kinds`, `bem_constants`, `bem_types` | 境界要素に蓄積した電荷から観測点の電場を評価する場計算モジュール。 |
 | `bem_pusher` | `module` | `src/physics/bem_pusher.f90` | `bem_kinds` | 荷電粒子の時間発展にBoris法を適用する運動方程式ソルバ。 |
 | `bem_surface_models` | `module` | `src/physics/bem_surface_models.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 表面モデルごとの電荷更新後処理を扱うモジュール。 |
 | `bem_electrostatic_snapshot_eval` | `submodule` | `src/physics/bem_electrostatic_snapshot_eval.f90` | `bem_electrostatic_snapshot` | `bem_electrostatic_snapshot` の局所電場・電位評価を実装する submodule。 |
-| `bem_surface_models_conductor` | `submodule` | `src/physics/bem_surface_models_conductor.f90` | `bem_surface_models`, `bem_constants` | `bem_surface_models` の浮遊導体電荷再配分を実装する submodule。 |
-| `bem_field_kernel_c` | `module` | `src/physics/field_solver/bem_field_kernel_c.f90` | `bem_constants`, `bem_coulomb_fmm_core`, `bem_kinds`, `bem_version` | C ABI wrapper for the simulator-independent Coulomb FMM field kernel. |
+| `bem_surface_models_conductor` | `submodule` | `src/physics/bem_surface_models_conductor.f90` | `bem_surface_models`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_surface_models` の浮遊導体電荷再配分を実装する submodule。 |
+| `bem_field_kernel_c` | `module` | `src/physics/field_solver/bem_field_kernel_c.f90` | `bem_constants`, `bem_coulomb_fmm_core`, `bem_kinds`, `bem_panel_geometry`, `bem_version` | C ABI wrapper for the simulator-independent Coulomb FMM field kernel. |
 | `bem_field_solver` | `module` | `src/physics/field_solver/bem_field_solver.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_physics_config_types` | 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。 |
-| `bem_field_solver_config` | `submodule` | `src/physics/field_solver/bem_field_solver_config.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_types`, `bem_physics_config_types` | `bem_field_solver` の初期化・設定補助手続きを実装する submodule。 |
-| `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
+| `bem_field_solver_config` | `submodule` | `src/physics/field_solver/bem_field_solver_config.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_physics_config_types` | `bem_field_solver` の初期化・設定補助手続きを実装する submodule。 |
+| `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
 | `bem_field_solver_tree` | `submodule` | `src/physics/field_solver/bem_field_solver_tree.f90` | `bem_field_solver`, `bem_coulomb_fmm_core` | `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。 |
 | `bem_coulomb_fmm_core` | `module` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | `mesh_type` や `sim_config` に依存しない Coulomb FMM コア API。 |
 | `bem_coulomb_fmm_core_build` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_build.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_plan_ops` | `bem_coulomb_fmm_core` の plan 構築 API ラッパ。 |
@@ -135,7 +134,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_outer_plasma_kinetic_runtime` | `module` | `src/runtime/bem_outer_plasma_kinetic_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_string_utils` | - |
 | `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_external_boundary_contract`, `bem_model_fingerprint`, `bem_version`, `bem_filesystem`, `bem_string_utils` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
 | `bem_performance_profile` | `module` | `src/runtime/bem_performance_profile.f90` | `bem_kinds`, `bem_mpi`, `bem_string_utils` | 実行フェーズごとの壁時計計測と MPI 集約出力を担う軽量プロファイラ。 |
-| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_model_fingerprint`, `bem_outer_event_queue`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
+| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_model_fingerprint`, `bem_outer_event_queue`, `bem_string_utils`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
 | `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
 | `bem_interface_particle_buffer` | `module` | `src/runtime/coupling/bem_interface_particle_buffer.f90` | `bem_kinds`, `bem_interface_types` | - |
 | `bem_interface_types` | `module` | `src/runtime/coupling/bem_interface_types.f90` | `bem_kinds` | - |
@@ -379,15 +378,6 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_outer_plasma_types`, `bem_outer_plasma_kinetic`, `bem_outer_plasma_zhao`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_mpi`
 - external dependencies: `iso_fortran_env`
 
-### `bem_field`
-
-- kind: `module`
-- path: `src/physics/bem_field.f90`
-- group: `src/physics`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`
-- external dependencies: none
-- Source summary: 境界要素に蓄積した電荷から観測点の電場を評価する場計算モジュール。
-
 ### `bem_pusher`
 
 - kind: `module`
@@ -422,7 +412,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/physics/bem_surface_models_conductor.f90`
 - group: `src/physics`
 - parent: `bem_surface_models`
-- Internal dependencies: `bem_surface_models`, `bem_constants`
+- Internal dependencies: `bem_surface_models`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`
 - external dependencies: none
 - Source summary: `bem_surface_models` の浮遊導体電荷再配分を実装する submodule。
 
@@ -431,7 +421,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/field_solver/bem_field_kernel_c.f90`
 - group: `src/physics/field_solver`
-- Internal dependencies: `bem_constants`, `bem_coulomb_fmm_core`, `bem_kinds`, `bem_version`
+- Internal dependencies: `bem_constants`, `bem_coulomb_fmm_core`, `bem_kinds`, `bem_panel_geometry`, `bem_version`
 - external dependencies: `ieee_arithmetic`, `iso_c_binding`
 - Source summary: C ABI wrapper for the simulator-independent Coulomb FMM field kernel.
 
@@ -450,7 +440,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/physics/field_solver/bem_field_solver_config.f90`
 - group: `src/physics/field_solver`
 - parent: `bem_field_solver`
-- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_types`, `bem_physics_config_types`
+- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_physics_config_types`
 - external dependencies: none
 - Source summary: `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 
@@ -460,7 +450,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/physics/field_solver/bem_field_solver_eval.f90`
 - group: `src/physics/field_solver`
 - parent: `bem_field_solver`
-- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_kernel`
+- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_panel_geometry`, `bem_panel_kernel`
 - external dependencies: none
 - Source summary: `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 
@@ -798,7 +788,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/runtime/bem_restart.f90`
 - group: `src/runtime`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_model_fingerprint`, `bem_outer_event_queue`, `bem_string_utils`, `bem_physics_config_types`, `bem_mpi`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_model_fingerprint`, `bem_outer_event_queue`, `bem_string_utils`, `bem_mpi`
 - external dependencies: `ieee_arithmetic`
 - Source summary: チェックポイントファイルの保存/復元を扱う補助モジュール。
 

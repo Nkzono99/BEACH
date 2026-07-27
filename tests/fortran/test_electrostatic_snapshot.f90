@@ -1,6 +1,6 @@
 program test_electrostatic_snapshot
   use bem_kinds, only: dp, i32
-  use bem_constants, only: eps0, k_coulomb
+  use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
@@ -26,17 +26,19 @@ program test_electrostatic_snapshot
   real(dp) :: potential_without_self, expected_potential, self_potential, self_field(3)
   integer(i32) :: panel_status
 
-  call test_init(5)
+  call test_init(4)
   v0(:, 1) = [-0.5_dp, -0.5_dp, 0.0_dp]
   v1(:, 1) = [0.5_dp, -0.5_dp, 0.0_dp]
   v2(:, 1) = [0.0_dp, 0.5_dp, 0.0_dp]
   call init_mesh(mesh, v0(:, :1), v1(:, :1), v2(:, :1), q0=[0.0_dp])
+  mesh%elem_vacuum_sign = 1_i32
+  mesh%vacuum_normals = mesh%normals
   sim = sim_config()
   sim%field_solver = 'direct'
   sim%e0 = [2.0_dp, -3.0_dp, 4.0_dp]
   field_config = field_physics_config(backend='direct', normalization='si')
   periodic_config = periodic2_physics_config()
-  panel_config = panel_kernel_config()
+  panel_config = panel_kernel_config(kernel_id='triangle_p0_exact_direct')
   outer_config = outer_plasma_config()
   call snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
   call snapshot%refresh(mesh)
@@ -59,7 +61,6 @@ program test_electrostatic_snapshot
   sim = sim_config()
   sim%field_solver = 'direct'
   sim%field_bc_mode = 'periodic2'
-  sim%softening = 0.0_dp
   sim%use_box = .true.
   sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
   sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -67,8 +68,7 @@ program test_electrostatic_snapshot
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
   field_config = field_physics_config(backend='direct', normalization='si')
   panel_config = panel_kernel_config( &
-                 source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', &
-                 surface_side_policy='per_element' &
+                 kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
                  )
   periodic_config = periodic2_physics_config( &
                     nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
@@ -121,7 +121,7 @@ program test_electrostatic_snapshot
     )
   call test_end()
 
-  call test_begin('point_primary_self_is_excluded')
+  call test_begin('triangle_p0_primary_self_is_excluded')
   v0(:, 1) = [-0.5_dp, -0.5_dp, 0.0_dp]
   v1(:, 1) = [0.5_dp, -0.5_dp, 0.0_dp]
   v2(:, 1) = [0.0_dp, 0.5_dp, 0.0_dp]
@@ -129,38 +129,17 @@ program test_electrostatic_snapshot
   v1(:, 2) = [0.5_dp, -0.5_dp, 1.0_dp]
   v2(:, 2) = [0.0_dp, 0.5_dp, 1.0_dp]
   call init_mesh(mesh, v0, v1, v2, q0=[2.0e-12_dp, -0.5e-12_dp])
-  sim = sim_config()
-  sim%field_solver = 'direct'
-  sim%softening = 0.2_dp
-  sim%e0 = [0.0_dp, 0.0_dp, 3.0_dp]
-  field_config = field_physics_config(backend='direct', normalization='si')
-  periodic_config = periodic2_physics_config()
-  panel_config = panel_kernel_config()
-  outer_config = outer_plasma_config()
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
-  call snapshot%refresh(mesh)
-  call snapshot%eval_local_phi(mesh, sim, mesh%centers(:, 1), potential)
-  call snapshot%eval_local_phi_without_primary_self(mesh, sim, 1_i32, potential_without_self)
-  expected_potential = potential - k_coulomb*mesh%q_elem(1)/sim%softening
-  call assert_close_dp( &
-    potential_without_self, expected_potential, 1.0e-14_dp*max(1.0_dp, abs(expected_potential)), &
-    'point primary self exclusion mismatch' &
-    )
-  call test_end()
-
-  call test_begin('triangle_p0_primary_self_is_excluded')
-  call init_mesh(mesh, v0, v1, v2, q0=[2.0e-12_dp, -0.5e-12_dp])
   mesh%elem_vacuum_sign = 1_i32
   mesh%vacuum_normals = mesh%normals
   sim = sim_config()
   sim%field_solver = 'direct'
-  sim%softening = 0.0_dp
   sim%e0 = [0.0_dp, 0.0_dp, 3.0_dp]
   field_config = field_physics_config(backend='direct', normalization='si')
+  periodic_config = periodic2_physics_config()
   panel_config = panel_kernel_config( &
-                 source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', &
-                 surface_side_policy='per_element' &
+                 kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
                  )
+  outer_config = outer_plasma_config()
   call snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
   call snapshot%refresh(mesh)
   call snapshot%eval_local_phi(mesh, sim, mesh%centers(:, 1), potential)

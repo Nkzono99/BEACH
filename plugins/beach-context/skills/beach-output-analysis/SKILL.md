@@ -30,8 +30,8 @@ Use this skill when a user asks how to read BEACH outputs, diagnose physical res
   - profiling: `performance_profile.csv`
 - Prefer `beachx inspect outputs/latest` for first inspection.
 - Use `from beach import Beach` for scripts that combine loading, plotting, Coulomb force, potential, field lines, and mobility analysis.
-- Check whether `beach.toml` is available near the output directory; config-aware analysis uses it for object labels, softening, and periodic2.
-- For periodic2, call out Python limitations: direct image-shell reconstruction does not reproduce every Fortran FMM far correction.
+- Check whether `beach.toml` is available near the output directory; config-aware analysis uses it for object labels, periodic2, and tree/FMM settings.
+- Field and potential analysis uses the native P0 panel kernel; verify that the shared kernel library and periodic2 configuration match the run.
 - For abnormal results, compare `absorbed`, `escaped_boundary`, `survived_max_step`, `last_rel_change`, charge sign/scale, mesh placement, and species injection.
 
 ## Output

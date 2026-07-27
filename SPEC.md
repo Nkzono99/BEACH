@@ -16,7 +16,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 ### 2.1 実装済み（現行）
 
 - 三角形メッシュ（template / OBJ）
-- 静電場（既定は要素重心の point kernel + softening。`field.element_kernel="triangle_p0"` では要素総電荷を三角形上の一定面密度として扱い、direct/treecode/FMM の panel kernel で評価）
+- 静電場（要素総電荷を三角形上の一定面密度として扱う `triangle_p0` panel kernel。direct/treecode/FMM で評価）
 - 一様外部磁場 `b0`（任意）
 - Boris 法による粒子更新
 - 線分 vs 三角形の最初の交差判定
@@ -100,20 +100,23 @@ batch injectionもhot loop外で同じresolverを使います。外部場の構�
 
 ### 5.1 電場
 
-互換既定の `field.element_kernel="point"` は、要素重心点電荷と softening による次式を使います:
+要素 source model は `triangle_p0` に固定され、設定では選択しません。公開設定に
+`[field]` table と `sim.softening` はありません。旧設定を残した入力は alias や暗黙変換を行わず、
+unknown table / key として停止します。
 
-- `E(r) = k * Σ_j q_j * (r - c_j) / (|r - c_j|^2 + softening^2)^(3/2)`
-
-ここで `c_j` は要素 `j` の重心です。
-`field_solver="treecode"` のときはこの核を遠方で monopole 近似し、近傍は direct 和を使います。  
-`field_solver="fmm"` のときは simulator 非依存の Coulomb FMM コアを使い、source octree、optional target tree、Cartesian tensor による multipole/local 展開、近傍 direct 和で電場を評価します。現行 adapter の内部既定次数は 4 です。詳しくは `docs/Algorithms.md` の FMM コア詳細を参照してください。
-
-`field.element_kernel="triangle_p0"` は `field_solver="direct" | "treecode" | "fmm" | "auto"`、`softening=0`、`surface_model="insulator"` に限定します。direct は厳密 free-space panel 和、treecode は全頂点を含む node 半径で near/far を判定して近傍を厳密 panel 核、遠方を monopole で電場・電位とも評価します。FMM は全頂点を含む topology、近傍の厳密 panel 核、三角形 monomial の厳密 P2M を使います。auto は `tree_min_nelem` 未満で direct、以上で FMM を選びます。各 OBJ または template に `surface_side="normal_plus" | "normal_minus" | "outward_closed"` が必要です。`q_elem` は要素総電荷 [C]、面密度は `q_elem/area` です。面上電位は連続、法線電場は `sigma/epsilon0` だけ跳び、重心電位と principal-value 電場を自己項として用います。非対応 solver へ点電荷 fallback はしません。
+`triangle_p0` は各要素の総電荷 `q_elem` [C] を面積で割り、三角形上の一定面密度として扱います。
+`field_solver="direct" | "treecode" | "fmm" | "auto"` と
+すべてのsurface modelで共通して使います。direct は厳密 free-space panel 和、treecode は全頂点を含む
+node 半径で near/far を判定して近傍を厳密 panel 核、遠方を monopole で電場・電位とも評価します。
+FMM は全頂点を含む topology、近傍の厳密 panel 核、三角形 monomial の厳密 P2M を使います。
+auto は `tree_min_nelem` 未満で direct、以上で FMM を選びます。各 OBJ または有効な template に
+`surface_side="normal_plus" | "normal_minus" | "outward_closed"` が必要です。面上電位は連続、
+法線電場は `sigma/epsilon0` だけ跳び、重心電位と principal-value 電場を自己項として用います。
 
 `sim.field_bc_mode="periodic2"` かつ `field_solver="fmm"` では、`bc_low/high` が `periodic` の2軸を周期軸として扱います（第三軸は開放）。  
 近傍画像和は `sim.field_periodic_image_layers = N` に対して各周期軸 `[-N, N]` を評価します。`periodic2` の遠方補正の既定は `field_periodic_far_correction="none"`（`sim` table）です。`auto` は互換用に受理され、`none` に正規化されます。`none` は explicit image shell だけを評価する有限画像近似であり、完全な周期遠方場を与えるものではありません。`m2l_root_oracle` は削除済みで、指定時は reject します。無限周期の非零モードには `cached_kneq0` を使用します。
 
-`field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` provider が場の合成時に一度だけ加えます。`lower_boundary_model="symmetric_vacuum"` は均質真空の無外場境界条件として `E_bottom=-Q/(2 epsilon0 A)`、`E_top=+Q/(2 epsilon0 A)` を選び、interface位置や誘電率を必要としません。`e_bottom_zero` は下側場を0に固定する旧計算再現用境界条件です。外部シースのGauss残差は上側へ入る電束 `Q + epsilon0 A E_bottom` とouter chargeの和で評価します。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的なzero-mode boundary conditionで閉じます。cache fingerprintは周期長、FMM order、画像/Ewald層、source/target topology、softening、generator version、tolerance、real kind、build versionを含みます。MPIではrank 0だけがlock、検証、cache I/O、atomic publishを担当します。cache missのoperator生成はtarget sliceを全rankに分配し、各rank内でproxy RHSをOpenMP並列評価した後、`MPI_Allreduce(SUM)`で全rankに組み立てます。
+`field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` provider が場の合成時に一度だけ加えます。`lower_boundary_model="symmetric_vacuum"` は均質真空の無外場境界条件として `E_bottom=-Q/(2 epsilon0 A)`、`E_top=+Q/(2 epsilon0 A)` を選び、interface位置や誘電率を必要としません。`e_bottom_zero` は下側場を0に固定する旧計算再現用境界条件です。外部シースのGauss残差は上側へ入る電束 `Q + epsilon0 A E_bottom` とouter chargeの和で評価します。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的なzero-mode boundary conditionで閉じます。cache fingerprintは周期長、FMM order、画像/Ewald層、source/target topology、generator version、tolerance、real kind、build versionを含みます。MPIではrank 0だけがlock、検証、cache I/O、atomic publishを担当します。cache missのoperator生成はtarget sliceを全rankに分配し、各rank内でproxy RHSをOpenMP並列評価した後、`MPI_Allreduce(SUM)`で全rankに組み立てます。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
 
 `periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、選択したouter responseを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`電位・電場減衰、gap、局所平均plasma電荷推定を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
@@ -242,7 +245,7 @@ fallbackを変更しません。
 outer collision、energy-resolved cloud evolutionではありません。`batch_duration`、tracked粒子数、水平面積、有効interface位置、
 profile gridについて収束を確認します。
 
-`sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標・softening・periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
+`sim.field_normalization` で場計算内部の長さを正規化できます。`"si"` が既定で従来どおり、`"box"` は最大 box 幅、`"mesh"` は mesh bbox 最大幅、`"length"` は `sim.field_length_scale` を長さ基準 `L0` とします。direct/treecode/FMM の Coulomb kernel は座標と periodic cell を `L0` で割った無次元距離で評価し、電場で `k_coulomb/L0^2`、電位で `k_coulomb/L0` を掛けて SI に戻します。入力ファイルと出力 CSV は SI 単位のままです。
 
 ### 5.2 粒子前進
 
@@ -356,7 +359,7 @@ MPI 実行時はRNGを`rng_state_rankNNNNN.txt`、Zhao過渡queueを`outer_event
 
 `sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
-新規出力の`summary.txt`は`checkpoint_schema_version=4`とmodel / ordered mesh / ordered species fingerprintを持ちます。schema v4はschema v3のreadyなouter held stateに加え、Zhao過渡closureのpopulation fraction、column target/residual、queue inventoryを復元します。queue本体はserialの`outer_event_queue.csv`またはMPI rank別ファイルにactive event、terminal outcome、due時刻、`next_event_id`を保存します。queue有効時はschema、rank、world size、完了batchの不一致や欠落ファイルをfail closedで拒否します。schema v3は`outer_plasma_profile.csv`に`z, phi, E, rho`を保存し、outer solverのstatus、反復数、residual、積分電荷、species別電流とともにheld stateを復元します。schema v2は3 fingerprintを照合した上でread-only migrationとして受理しますが、旧3列outer profileは初期値にだけ使い、次のouter refreshでroot solveを強制します。それより古いschemaはPhase 0で実装済みのlegacy point-source modelに限って読み込めます。
+新規出力の`summary.txt`は`checkpoint_schema_version=4`とmodel / ordered mesh / ordered species fingerprintを持ちます。schema v4はschema v3のreadyなouter held stateに加え、Zhao過渡closureのpopulation fraction、column target/residual、queue inventoryを復元します。queue本体はserialの`outer_event_queue.csv`またはMPI rank別ファイルにactive event、terminal outcome、due時刻、`next_event_id`を保存します。queue有効時はschema、rank、world size、完了batchの不一致や欠落ファイルをfail closedで拒否します。schema v3は`outer_plasma_profile.csv`に`z, phi, E, rho`を保存し、outer solverのstatus、反復数、residual、積分電荷、species別電流とともにheld stateを復元します。schema v2は3 fingerprintを照合した上でread-only migrationとして受理しますが、旧3列outer profileは初期値にだけ使い、次のouter refreshでroot solveを強制します。廃止された重心source modelを使ったcheckpointは再開できません。
 `charge_ledger_residual_C` は surface / flight / unresolved stock の差分と外部 flux から作る電荷保存残差です。species 間相殺を避けた `discarded_unresolved_abs_C` は別診断であり、残差が 0 でも max-step discard が物理的に許容されることを意味しません。
 旧形式の `macro_residuals_rankNNNNN.csv` が残っている場合は、global 残差との対応が曖昧なため停止します。
 
@@ -379,16 +382,17 @@ MPI 実行時はRNGを`rng_state_rankNNNNN.txt`、Zhao過渡queueを`outer_event
 Python パッケージ `beach` は Fortran 出力を読み込み、後処理・可視化を行います。
 詳細な API リファレンスは `docs/PythonPostprocessAPI.md` を参照してください。
 
-### 11.1 電位再構成・電場計算
+### 11.1 電位・電場計算
 
-- `compute_potential_mesh` / `compute_potential_points`: 重心点電荷近似による電位の Python 側再構成
-- `compute_electric_field_points`: 任意 3D 点での電場ベクトル。`E(r) = K * sum_j q_j * (r - r_j) / |r - r_j|^3` の direct 和で計算
+- simulator が出力した `mesh_potential.csv` / `potential_history.csv` を、要素中心電位の正本として読み込む
+- 任意点の電場・電位と object interaction は、三角形 geometry を渡す native `triangle_p0` field kernel で評価する
+- 削除済みの重心 source modelをPython側で再構成して、simulatorと同じ電場・電位として扱わない
 
 ### 11.2 Coulomb 力と periodic2 対応
 
-- `calc_coulomb`: メッシュグループ間の Coulomb 力/トルク計算
-- `periodic2` パラメータ: Fortran 側の `sim.field_bc_mode="periodic2"` に対応し、Python 側でも 2 軸周期境界での画像シェル和をサポート。ソース電荷を `ix in [-nimg, nimg], iy in [-nimg, nimg]` でシフトして直接和を取る
-- `periodic2=None` では出力ディレクトリ近傍の `beach.toml` から `field_bc_mode` を自動判定
+- `calc_coulomb`: native P0 panel kernelとtarget面積積分によるメッシュグループ間の Coulomb 力/トルク計算
+- `periodic2` パラメータ: Fortran 側の `sim.field_bc_mode="periodic2"` に対応し、finite imageをnative kernelで評価する。`cached_kneq0`は物理的zero modeを合成する専用API以外では拒否する
+- `periodic2=None` では出力ディレクトリ近傍の `beach.toml` から `field_bc_mode` を自動判定する。設定が見つからないtotal-field再計算はfree spaceへfallbackしない
 
 ### 11.3 電気力線追跡
 
@@ -397,5 +401,5 @@ Python パッケージ `beach` は Fortran 出力を読み込み、後処理・�
 
 ### 11.4 Python 側の制限
 
-- Python 側の電場・電位計算は要素重心の点電荷による direct 和のみ（Fortran 側の treecode / fmm は使用しない）
-- pure Python の電位再構成は `cached_kneq0` operator を再現せず、explicit image shell のみ。native `FieldKernel` は `cached_kneq0` を利用できる
+- Python 側の電場・電位計算も、三角形 geometry を渡す native `triangle_p0` field kernel を使う
+- `cached_kneq0` は非零モードだけを返す低水準 operator であり、total field として扱うには物理的 zero mode を同じ規約で合成する

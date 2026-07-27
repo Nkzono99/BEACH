@@ -1,7 +1,6 @@
 !> `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_eval
   use bem_coulomb_fmm_core, only: eval_point, eval_potential_point, eval_potential_points
-  use bem_string_utils, only: lower_ascii
   use bem_panel_geometry, only: panel_geometry_type
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   implicit none
@@ -9,7 +8,7 @@ contains
 
   !> 観測点の電場を direct / treecode / fmm で評価して返す。
   module procedure eval_e_field_solver
-  real(dp) :: rx, ry, rz, soft2, ex, ey, ez, r_scaled(3)
+  real(dp) :: rx, ry, rz, ex, ey, ez, r_scaled(3)
 
   if (trim(self%mode) == 'fmm') then
     if (mesh%nelem <= 0_i32) then
@@ -26,23 +25,18 @@ contains
   end if
 
   if (trim(self%mode) /= 'treecode' .or. .not. self%tree_ready) then
-    if (trim(self%source_model) == 'triangle_p0') then
-      call electric_field_at_panel_mesh(mesh, r, e)
-      return
-    end if
-    call electric_field_at_normalized(mesh, r, self%softening, self%field_inv_length_scale, self%field_output_scale, e)
+    call electric_field_at_panel_mesh(mesh, r, e)
     return
   end if
 
   rx = r(1)
   ry = r(2)
   rz = r(3)
-  soft2 = (self%softening*self%field_inv_length_scale)**2
   ex = 0.0d0
   ey = 0.0d0
   ez = 0.0d0
 
-  call traverse_node(self, mesh, 1_i32, rx, ry, rz, soft2, ex, ey, ez)
+  call traverse_node(self, mesh, 1_i32, rx, ry, rz, ex, ey, ez)
 
   e(1) = self%field_output_scale*ex
   e(2) = self%field_output_scale*ey
@@ -51,7 +45,7 @@ contains
 
   !> 観測点の電位を direct / treecode / FMM で評価して返す。
   module procedure eval_potential_field_solver
-  real(dp) :: r_scaled(3), soft2, phi_sum
+  real(dp) :: r_scaled(3), phi_sum
 
   phi = 0.0d0
   if (mesh%nelem <= 0_i32) return
@@ -67,20 +61,13 @@ contains
   end if
 
   if (trim(self%mode) == 'treecode' .and. self%tree_ready) then
-    soft2 = (self%softening*self%field_inv_length_scale)**2
     phi_sum = 0.0_dp
-    call traverse_potential_node(self, mesh, 1_i32, r(1), r(2), r(3), soft2, phi_sum)
+    call traverse_potential_node(self, mesh, 1_i32, r(1), r(2), r(3), phi_sum)
     phi = self%potential_output_scale*phi_sum
     return
   end if
 
-  if (trim(self%source_model) == 'triangle_p0') then
-    call electric_potential_at_panel_mesh(mesh, r, phi)
-    return
-  end if
-  call electric_potential_at_normalized( &
-    mesh, r, sim%softening, self%field_inv_length_scale, self%potential_output_scale, phi &
-    )
+  call electric_potential_at_panel_mesh(mesh, r, phi)
   end procedure eval_potential_field_solver
 
   !> ノードを再帰走査し、葉は direct 総和・遠方は monopole 近似で加算する。
@@ -93,35 +80,19 @@ contains
   min_dist2 = tiny(1.0d0)
   if (self%child_count(node_idx) <= 0_i32) then
     p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
-    if (trim(self%source_model) == 'triangle_p0') then
-      target = [rx, ry, rz]
-      do p = self%node_start(node_idx), p_end
-        idx = self%elem_order(p)
-        if (mesh%elem_vacuum_sign(idx) /= 1_i32 .and. mesh%elem_vacuum_sign(idx) /= -1_i32) then
-          error stop 'triangle_p0 tree field evaluation requires a resolved vacuum side for every element.'
-        end if
-        call geometry_from_mesh(mesh, idx, geometry)
-        call panel_potential_field( &
-          geometry, mesh%q_elem(idx), target, mesh%elem_vacuum_sign(idx), source_potential, source_field &
-          )
-        ex = ex + source_field(1)/self%field_output_scale
-        ey = ey + source_field(2)/self%field_output_scale
-        ez = ez + source_field(3)/self%field_output_scale
-      end do
-      return
-    end if
+    target = [rx, ry, rz]
     do p = self%node_start(node_idx), p_end
       idx = self%elem_order(p)
-      dx = (rx - mesh%center_x(idx))*self%field_inv_length_scale
-      dy = (ry - mesh%center_y(idx))*self%field_inv_length_scale
-      dz = (rz - mesh%center_z(idx))*self%field_inv_length_scale
-      r2 = dx*dx + dy*dy + dz*dz + soft2
-      if (r2 <= min_dist2) cycle
-      inv_r3 = 1.0d0/(sqrt(r2)*r2)
-      qi = mesh%q_elem(idx)
-      ex = ex + qi*inv_r3*dx
-      ey = ey + qi*inv_r3*dy
-      ez = ez + qi*inv_r3*dz
+      if (mesh%elem_vacuum_sign(idx) /= 1_i32 .and. mesh%elem_vacuum_sign(idx) /= -1_i32) then
+        error stop 'triangle_p0 tree field evaluation requires a resolved vacuum side for every element.'
+      end if
+      call geometry_from_mesh(mesh, idx, geometry)
+      call panel_potential_field( &
+        geometry, mesh%q_elem(idx), target, mesh%elem_vacuum_sign(idx), source_potential, source_field &
+        )
+      ex = ex + source_field(1)/self%field_output_scale
+      ey = ey + source_field(2)/self%field_output_scale
+      ez = ez + source_field(3)/self%field_output_scale
     end do
     return
   end if
@@ -132,7 +103,7 @@ contains
       dx = (rx - self%node_charge_center(1, node_idx))*self%field_inv_length_scale
       dy = (ry - self%node_charge_center(2, node_idx))*self%field_inv_length_scale
       dz = (rz - self%node_charge_center(3, node_idx))*self%field_inv_length_scale
-      r2 = dx*dx + dy*dy + dz*dz + soft2
+      r2 = dx*dx + dy*dy + dz*dz
       if (r2 <= min_dist2) return
       inv_r3 = 1.0d0/(sqrt(r2)*r2)
       ex = ex + qi*inv_r3*dx
@@ -143,7 +114,7 @@ contains
   end if
 
   do child_k = 1_i32, self%child_count(node_idx)
-    call traverse_node(self, mesh, self%child_idx(child_k, node_idx), rx, ry, rz, soft2, ex, ey, ez)
+    call traverse_node(self, mesh, self%child_idx(child_k, node_idx), rx, ry, rz, ex, ey, ez)
   end do
   end procedure traverse_node
 
@@ -157,27 +128,14 @@ contains
   min_dist2 = tiny(1.0_dp)
   if (self%child_count(node_idx) <= 0_i32) then
     p_end = self%node_start(node_idx) + self%node_count(node_idx) - 1_i32
-    if (trim(self%source_model) == 'triangle_p0') then
-      target = [rx, ry, rz]
-      do p = self%node_start(node_idx), p_end
-        idx = self%elem_order(p)
-        call geometry_from_mesh(mesh, idx, geometry)
-        call panel_potential_field( &
-          geometry, mesh%q_elem(idx), target, panel_side_principal_value, source_potential, source_field &
-          )
-        phi_sum = phi_sum + source_potential/self%potential_output_scale
-      end do
-      return
-    end if
+    target = [rx, ry, rz]
     do p = self%node_start(node_idx), p_end
       idx = self%elem_order(p)
-      dx = (rx - mesh%center_x(idx))*self%field_inv_length_scale
-      dy = (ry - mesh%center_y(idx))*self%field_inv_length_scale
-      dz = (rz - mesh%center_z(idx))*self%field_inv_length_scale
-      r2 = dx*dx + dy*dy + dz*dz + soft2
-      if (r2 <= min_dist2) cycle
-      inv_r = 1.0_dp/sqrt(r2)
-      phi_sum = phi_sum + mesh%q_elem(idx)*inv_r
+      call geometry_from_mesh(mesh, idx, geometry)
+      call panel_potential_field( &
+        geometry, mesh%q_elem(idx), target, panel_side_principal_value, source_potential, source_field &
+        )
+      phi_sum = phi_sum + source_potential/self%potential_output_scale
     end do
     return
   end if
@@ -188,7 +146,7 @@ contains
       dx = (rx - self%node_charge_center(1, node_idx))*self%field_inv_length_scale
       dy = (ry - self%node_charge_center(2, node_idx))*self%field_inv_length_scale
       dz = (rz - self%node_charge_center(3, node_idx))*self%field_inv_length_scale
-      r2 = dx*dx + dy*dy + dz*dz + soft2
+      r2 = dx*dx + dy*dy + dz*dz
       if (r2 <= min_dist2) return
       phi_sum = phi_sum + qi/sqrt(r2)
     end if
@@ -197,7 +155,7 @@ contains
 
   do child_k = 1_i32, self%child_count(node_idx)
     call traverse_potential_node( &
-      self, mesh, self%child_idx(child_k, node_idx), rx, ry, rz, soft2, phi_sum &
+      self, mesh, self%child_idx(child_k, node_idx), rx, ry, rz, phi_sum &
       )
   end do
   end procedure traverse_potential_node
@@ -243,7 +201,7 @@ contains
   else if (trim(self%mode) == 'treecode' .and. self%tree_ready) then
     call compute_mesh_potential_tree(self, mesh, potential_v)
   else
-    call compute_mesh_potential_direct(self, mesh, sim, potential_v)
+    call compute_mesh_potential_direct(self, mesh, potential_v)
   end if
   end procedure compute_mesh_potential_field_solver
 
@@ -253,23 +211,16 @@ contains
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(out) :: potential_v(:)
 
-    real(dp), parameter :: pi_dp = acos(-1.0_dp)
     integer(i32) :: i
-    real(dp) :: soft2, phi_sum, h_elem_scaled, self_coeff
+    real(dp) :: phi_sum
 
-    soft2 = (self%softening*self%field_inv_length_scale)**2
     !$omp parallel do default(none) schedule(static) &
-    !$omp   shared(self,mesh,potential_v,soft2) private(i,phi_sum,h_elem_scaled,self_coeff)
+    !$omp   shared(self,mesh,potential_v) private(i,phi_sum)
     do i = 1_i32, mesh%nelem
       phi_sum = 0.0_dp
       call traverse_potential_node( &
-        self, mesh, 1_i32, mesh%center_x(i), mesh%center_y(i), mesh%center_z(i), soft2, phi_sum &
+        self, mesh, 1_i32, mesh%center_x(i), mesh%center_y(i), mesh%center_z(i), phi_sum &
         )
-      if (trim(self%source_model) == 'point' .and. self%softening <= 0.0_dp) then
-        h_elem_scaled = mesh%h_elem(i)*self%field_inv_length_scale
-        self_coeff = 2.0_dp*sqrt(pi_dp)/max(h_elem_scaled, sqrt(tiny(1.0_dp)))
-        phi_sum = phi_sum + self_coeff*mesh%q_elem(i)
-      end if
       potential_v(i) = self%potential_output_scale*phi_sum
     end do
     !$omp end parallel do
@@ -281,8 +232,6 @@ contains
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(out) :: potential_v(:)
 
-    real(dp), parameter :: pi_dp = acos(-1.0d0)
-    real(dp) :: self_coeff, softening, h_elem_scaled
     real(dp), allocatable :: centers_scaled(:, :)
     integer(i32) :: i
 
@@ -291,238 +240,28 @@ contains
     if (self%fmm_core_plan%nsrc /= mesh%nelem) &
       error stop 'FMM source count does not match mesh size.'
 
-    softening = self%fmm_core_plan%options%softening
-    if (softening < 0.0d0) error stop 'mesh potential output requires non-negative FMM softening.'
-
     allocate (centers_scaled(3, mesh%nelem))
     do i = 1, mesh%nelem
       centers_scaled(:, i) = (mesh%centers(:, i) - self%field_origin)*self%field_inv_length_scale
     end do
     call eval_potential_points(self%fmm_core_plan, self%fmm_core_state, centers_scaled, potential_v)
 
-    if (softening <= 0.0d0) then
-      do i = 1, mesh%nelem
-        h_elem_scaled = mesh%h_elem(i)*self%field_inv_length_scale
-        self_coeff = 2.0d0*sqrt(pi_dp)/max(h_elem_scaled, sqrt(tiny(1.0d0)))
-        potential_v(i) = potential_v(i) + self_coeff*mesh%q_elem(i)
-      end do
-    end if
-
     potential_v = self%potential_output_scale*potential_v
     deallocate (centers_scaled)
   end subroutine compute_mesh_potential_fmm
 
   !> O(N^2) 直接総和でメッシュ重心電位を計算する。
-  subroutine compute_mesh_potential_direct(self, mesh, sim, potential_v)
+  subroutine compute_mesh_potential_direct(self, mesh, potential_v)
     class(field_solver_type), intent(in) :: self
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
     real(dp), intent(out) :: potential_v(:)
 
-    real(dp), parameter :: pi_dp = acos(-1.0d0)
-    integer(i32) :: i, j, ix, iy, axis1, axis2, image_layers
-    integer(i32) :: periodic_axes(2), n_periodic, axis
-    real(dp) :: softening, softening_scaled, soft2, min_dist2, self_coeff, h_elem_scaled
-    real(dp) :: periodic_len(2), periodic_origins(2), span
-    real(dp) :: target(3), shifted(3), dx, dy, dz, r2
-    logical :: use_periodic2
-    character(len=16) :: field_bc_mode
+    integer(i32) :: i
 
-    softening = sim%softening
-    if (softening < 0.0d0) error stop 'sim.softening must be >= 0 for mesh potential output.'
-    softening_scaled = softening*self%field_inv_length_scale
-    soft2 = softening_scaled*softening_scaled
-    min_dist2 = tiny(1.0d0)
-    potential_v = 0.0d0
-    if (trim(self%source_model) == 'triangle_p0') then
-      do i = 1, mesh%nelem
-        call electric_potential_at_panel_mesh(mesh, mesh%centers(:, i), potential_v(i))
-      end do
-      return
-    end if
-
-    ! Resolve periodic2 configuration
-    use_periodic2 = .false.
-    periodic_axes = 0_i32
-    periodic_len = 0.0d0
-    periodic_origins = 0.0d0
-    image_layers = max(0_i32, sim%field_periodic_image_layers)
-
-    field_bc_mode = trim(lower_ascii(sim%field_bc_mode))
-    if (field_bc_mode == 'periodic2') then
-      if (.not. sim%use_box) error stop 'mesh potential output for periodic2 requires sim.use_box=true.'
-      n_periodic = 0_i32
-      do axis = 1_i32, 3_i32
-        if ((sim%bc_low(axis) == bc_periodic) .neqv. (sim%bc_high(axis) == bc_periodic)) then
-          error stop 'mesh potential output requires bc_low(axis)=bc_high(axis)=periodic for periodic axes.'
-        end if
-        if (sim%bc_low(axis) == bc_periodic) then
-          n_periodic = n_periodic + 1_i32
-          if (n_periodic <= 2_i32) periodic_axes(n_periodic) = axis
-        end if
-      end do
-      if (n_periodic /= 2_i32) then
-        error stop 'mesh potential output with sim.field_bc_mode="periodic2" requires exactly two periodic axes.'
-      end if
-      do axis = 1_i32, 2_i32
-        span = sim%box_max(periodic_axes(axis)) - sim%box_min(periodic_axes(axis))
-        if (span <= 0.0d0) error stop 'mesh potential output requires positive box length on periodic axes.'
-        periodic_len(axis) = span
-        periodic_origins(axis) = sim%box_min(periodic_axes(axis))
-      end do
-      use_periodic2 = .true.
-    end if
-
-    axis1 = periodic_axes(1)
-    axis2 = periodic_axes(2)
-
-    do i = 1, mesh%nelem
-      if (softening > 0.0d0) then
-        self_coeff = 1.0d0/softening_scaled
-      else
-        h_elem_scaled = mesh%h_elem(i)*self%field_inv_length_scale
-        self_coeff = 2.0d0*sqrt(pi_dp)/max(h_elem_scaled, sqrt(tiny(1.0d0)))
-      end if
-      potential_v(i) = self_coeff*mesh%q_elem(i)
+    do i = 1_i32, mesh%nelem
+      call electric_potential_at_panel_mesh(mesh, mesh%centers(:, i), potential_v(i))
     end do
-
-    if (.not. use_periodic2) then
-      !$omp parallel do default(none) schedule(static) &
-      !$omp   shared(mesh, soft2, min_dist2, potential_v, self) private(i, j, dx, dy, dz, r2)
-      do i = 1, mesh%nelem
-        do j = 1, mesh%nelem
-          if (j == i) cycle
-          dx = (mesh%center_x(i) - mesh%center_x(j))*self%field_inv_length_scale
-          dy = (mesh%center_y(i) - mesh%center_y(j))*self%field_inv_length_scale
-          dz = (mesh%center_z(i) - mesh%center_z(j))*self%field_inv_length_scale
-          r2 = dx*dx + dy*dy + dz*dz + soft2
-          potential_v(i) = potential_v(i) + mesh%q_elem(j)/sqrt(max(r2, min_dist2))
-        end do
-      end do
-      !$omp end parallel do
-      potential_v = self%potential_output_scale*potential_v
-      return
-    end if
-
-    periodic_len = periodic_len*self%field_inv_length_scale
-    periodic_origins(1) = (periodic_origins(1) - self%field_origin(axis1))*self%field_inv_length_scale
-    periodic_origins(2) = (periodic_origins(2) - self%field_origin(axis2))*self%field_inv_length_scale
-    !$omp parallel do default(none) schedule(static) &
-    !$omp   shared(mesh, soft2, min_dist2, potential_v, axis1, axis2, &
-    !$omp          periodic_origins, periodic_len, image_layers, self) &
-    !$omp   private(i, j, ix, iy, target, shifted, dx, dy, dz, r2)
-    do i = 1, mesh%nelem
-      target = (mesh%centers(:, i) - self%field_origin)*self%field_inv_length_scale
-      target(axis1) = wrap_periodic(target(axis1), periodic_origins(1), periodic_len(1))
-      target(axis2) = wrap_periodic(target(axis2), periodic_origins(2), periodic_len(2))
-
-      do j = 1, mesh%nelem
-        if (j == i) cycle
-        shifted = (mesh%centers(:, j) - self%field_origin)*self%field_inv_length_scale
-        dx = target(1) - shifted(1)
-        dy = target(2) - shifted(2)
-        dz = target(3) - shifted(3)
-        r2 = dx*dx + dy*dy + dz*dz + soft2
-        potential_v(i) = potential_v(i) + mesh%q_elem(j)/sqrt(max(r2, min_dist2))
-      end do
-
-      do ix = -image_layers, image_layers
-        do iy = -image_layers, image_layers
-          if (ix == 0_i32 .and. iy == 0_i32) cycle
-          do j = 1, mesh%nelem
-            shifted = (mesh%centers(:, j) - self%field_origin)*self%field_inv_length_scale
-            shifted(axis1) = shifted(axis1) + real(ix, dp)*periodic_len(1)
-            shifted(axis2) = shifted(axis2) + real(iy, dp)*periodic_len(2)
-            dx = target(1) - shifted(1)
-            dy = target(2) - shifted(2)
-            dz = target(3) - shifted(3)
-            r2 = dx*dx + dy*dy + dz*dz + soft2
-            potential_v(i) = potential_v(i) + mesh%q_elem(j)/sqrt(max(r2, min_dist2))
-          end do
-        end do
-      end do
-
-    end do
-    !$omp end parallel do
-
-    potential_v = self%potential_output_scale*potential_v
   end subroutine compute_mesh_potential_direct
-
-  !> 周期軸上の座標を [origin, origin + length) に折り返す。
-  pure real(dp) function wrap_periodic(x, origin, periodic_len) result(wrapped)
-    real(dp), intent(in) :: x, origin, periodic_len
-
-    wrapped = origin + modulo(x - origin, periodic_len)
-  end function wrap_periodic
-
-  !> 正規化長さで direct 電場を評価し、SI 電場へ戻す。
-  subroutine electric_field_at_normalized(mesh, r, softening, inv_length_scale, output_scale, e)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: r(3), softening, inv_length_scale, output_scale
-    real(dp), intent(out) :: e(3)
-
-    integer(i32) :: i
-    real(dp) :: soft2, r2, inv_r3, ex, ey, ez, min_dist2
-    real(dp) :: rx, ry, rz, dx, dy, dz, qi
-
-    ex = 0.0d0
-    ey = 0.0d0
-    ez = 0.0d0
-    soft2 = (softening*inv_length_scale)**2
-    min_dist2 = tiny(1.0d0)
-    rx = r(1)
-    ry = r(2)
-    rz = r(3)
-
-    !$omp simd reduction(+:ex,ey,ez) private(dx,dy,dz,r2,inv_r3,qi)
-    do i = 1, mesh%nelem
-      dx = (rx - mesh%center_x(i))*inv_length_scale
-      dy = (ry - mesh%center_y(i))*inv_length_scale
-      dz = (rz - mesh%center_z(i))*inv_length_scale
-      r2 = dx*dx + dy*dy + dz*dz + soft2
-      if (r2 <= min_dist2) cycle
-      inv_r3 = 1.0d0/(sqrt(r2)*r2)
-      qi = mesh%q_elem(i)
-      ex = ex + qi*inv_r3*dx
-      ey = ey + qi*inv_r3*dy
-      ez = ez + qi*inv_r3*dz
-    end do
-
-    e(1) = output_scale*ex
-    e(2) = output_scale*ey
-    e(3) = output_scale*ez
-  end subroutine electric_field_at_normalized
-
-  !> 正規化長さで direct 電位を評価し、SI 電位へ戻す。
-  subroutine electric_potential_at_normalized(mesh, r, softening, inv_length_scale, output_scale, phi)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: r(3), softening, inv_length_scale, output_scale
-    real(dp), intent(out) :: phi
-
-    integer(i32) :: i
-    real(dp) :: soft2, r2, inv_r, phi_sum, min_dist2
-    real(dp) :: rx, ry, rz, dx, dy, dz
-
-    phi_sum = 0.0d0
-    soft2 = (softening*inv_length_scale)**2
-    min_dist2 = tiny(1.0d0)
-    rx = r(1)
-    ry = r(2)
-    rz = r(3)
-
-    !$omp simd reduction(+:phi_sum) private(dx,dy,dz,r2,inv_r)
-    do i = 1, mesh%nelem
-      dx = (rx - mesh%center_x(i))*inv_length_scale
-      dy = (ry - mesh%center_y(i))*inv_length_scale
-      dz = (rz - mesh%center_z(i))*inv_length_scale
-      r2 = dx*dx + dy*dy + dz*dz + soft2
-      if (r2 <= min_dist2) cycle
-      inv_r = 1.0d0/sqrt(r2)
-      phi_sum = phi_sum + mesh%q_elem(i)*inv_r
-    end do
-
-    phi = output_scale*phi_sum
-  end subroutine electric_potential_at_normalized
 
   subroutine electric_field_at_panel_mesh(mesh, target, field)
     type(mesh_type), intent(in) :: mesh

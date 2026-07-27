@@ -10,9 +10,8 @@ module bem_surface_models
 
   interface
     !> conductor 要素を mesh_id ごとの浮遊導体として等電位化する。
-    module subroutine relax_floating_conductor_charges(mesh, softening, external_e, ncond)
+    module subroutine relax_floating_conductor_charges(mesh, external_e, ncond)
       type(mesh_type), intent(inout) :: mesh
-      real(dp), intent(in) :: softening
       real(dp), intent(in) :: external_e(3)
       integer(i32), intent(in) :: ncond
     end subroutine relax_floating_conductor_charges
@@ -22,9 +21,8 @@ contains
 
   !> 表面モデルに応じて、電荷堆積後の要素電荷を緩和する。
   !! conductor は mesh_id ごとの浮遊導体として、総電荷を保存しながら等電位化する。
-  subroutine apply_surface_model_charge_relaxation(mesh, softening, external_e, field_bc_mode)
+  subroutine apply_surface_model_charge_relaxation(mesh, external_e, field_bc_mode)
     type(mesh_type), intent(inout) :: mesh
-    real(dp), intent(in) :: softening
     real(dp), intent(in) :: external_e(3)
     character(len=*), intent(in), optional :: field_bc_mode
 
@@ -35,7 +33,7 @@ contains
     if (ncond <= 0_i32) return
     call validate_conductor_field_bc(field_bc_mode)
 
-    call relax_floating_conductor_charges(mesh, softening, external_e, ncond)
+    call relax_floating_conductor_charges(mesh, external_e, ncond)
   end subroutine apply_surface_model_charge_relaxation
 
   !> conductor 再配分が対応している場境界条件か検証する。

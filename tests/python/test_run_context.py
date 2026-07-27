@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 import beach.fortran_results.context as context_module
+import beach.fortran_results.potential as potential_module
 from beach.fortran_results.context import RunContext, resolve_result
 from beach.fortran_results.potential import compute_potential_mesh
 from beach.fortran_results.types import FortranRunResult
@@ -24,7 +25,9 @@ def _result(directory: Path) -> FortranRunResult:
         survived_max_step=0,
         last_rel_change=0.0,
         charges=np.array([2.0e-9]),
-        triangles=np.zeros((1, 3, 3)),
+        triangles=np.array(
+            [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
+        ),
         mesh_ids=np.array([4]),
     )
 
@@ -35,9 +38,9 @@ class _BeachLike:
         self.config_path = config_path
 
 
-def _write_config(path: Path, softening: float) -> None:
+def _write_config(path: Path, theta: float) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"[sim]\nsoftening = {softening}\n", encoding="utf-8")
+    path.write_text(f"[sim]\ntree_theta = {theta}\n", encoding="utf-8")
 
 
 def test_run_context_preserves_result_protocol_and_errors(tmp_path: Path) -> None:
@@ -77,18 +80,18 @@ def test_run_context_config_precedence_and_lazy_cache(
     assert calls == []
     assert context.output_dir == output_dir
     assert context.config_path == explicit_path
-    assert context.sim == {"softening": 3.0}
+    assert context.sim == {"tree_theta": 3.0}
     assert context.config is context.config
     assert context.sim is context.sim
     assert calls == [explicit_path]
 
     inherited = RunContext.from_value(beach_like)
     assert inherited.config_path == inherited_path
-    assert inherited.sim == {"softening": 2.0}
+    assert inherited.sim == {"tree_theta": 2.0}
 
     auto = RunContext.from_value(_result(output_dir))
     assert auto.config_path == auto_path
-    assert auto.sim == {"softening": 1.0}
+    assert auto.sim == {"tree_theta": 1.0}
 
 
 def test_run_context_missing_config_and_selection_contracts(tmp_path: Path) -> None:
@@ -116,7 +119,7 @@ def test_potential_call_inherits_beach_config_and_parses_it_once(
         """
 [sim]
 field_bc_mode = "free"
-softening = 2.0
+tree_theta = 0.4
 
 [particles]
 [[particles.species]]
@@ -135,6 +138,21 @@ pos_high = [0.0, 2.0, 2.0]
         return original_loader(path)
 
     monkeypatch.setattr(context_module, "load_toml", counting_loader)
+
+    class FakeKernel:
+        def __init__(self, _triangles, _charges, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            pass
+
+        def eval_phi(self, points: np.ndarray) -> np.ndarray:
+            return np.zeros(points.shape[0])
+
+    monkeypatch.setattr(potential_module, "FieldKernel", FakeKernel)
 
     potential = compute_potential_mesh(
         beach_like,

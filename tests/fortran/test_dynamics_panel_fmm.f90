@@ -15,6 +15,7 @@ program test_dynamics_panel_fmm
   type(periodic2_physics_config) :: periodic
   type(panel_kernel_config) :: direct_panel, fmm_panel
   real(dp) :: target(3), direct_e(3), fmm_e(3), direct_phi, fmm_phi, rel_e, rel_phi
+  real(dp), allocatable :: direct_mesh_phi(:), fmm_mesh_phi(:)
   integer(i32) :: element, status
   character(len=128) :: message
 
@@ -29,10 +30,9 @@ program test_dynamics_panel_fmm
   direct_sim = sim_config()
   direct_sim%field_solver = 'direct'
   direct_sim%field_bc_mode = 'free'
-  direct_sim%softening = 0.0_dp
   direct_field = field_physics_config(backend='direct', normalization='si')
   direct_panel = panel_kernel_config( &
-                 source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
+                 kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
                  )
   call direct_solver%init(mesh, direct_sim, direct_field, periodic, direct_panel)
 
@@ -47,7 +47,7 @@ program test_dynamics_panel_fmm
   fmm_sim%has_tree_leaf_max = .true.
   fmm_field = field_physics_config(backend='fmm', normalization='si')
   fmm_panel = panel_kernel_config( &
-              source_model='triangle_p0', kernel_id='triangle_p0_exact_p2m_near', surface_side_policy='per_element' &
+              kernel_id='triangle_p0_exact_p2m_near', surface_side_policy='per_element' &
               )
   call fmm_solver%init(mesh, fmm_sim, fmm_field, periodic, fmm_panel)
   call fmm_solver%refresh(mesh)
@@ -62,6 +62,14 @@ program test_dynamics_panel_fmm
   call assert_true(fmm_solver%fmm_core_plan%panel_source, 'adapter must build a panel FMM plan')
   call assert_true(rel_e < 2.0e-3_dp, 'simulation panel FMM field error exceeds 2e-3')
   call assert_true(rel_phi < 2.0e-3_dp, 'simulation panel FMM potential error exceeds 2e-3')
+  allocate (direct_mesh_phi(mesh%nelem), fmm_mesh_phi(mesh%nelem))
+  call direct_solver%compute_mesh_potential(mesh, direct_sim, direct_mesh_phi)
+  call fmm_solver%compute_mesh_potential(mesh, fmm_sim, fmm_mesh_phi)
+  call assert_true( &
+    maxval(abs(fmm_mesh_phi - direct_mesh_phi))/max(maxval(abs(direct_mesh_phi)), tiny(1.0_dp)) < 2.0e-3_dp, &
+    'panel FMM mesh potential must not add a second self term' &
+    )
+  deallocate (direct_mesh_phi, fmm_mesh_phi)
   call test_end()
 
   call test_begin('panel_auto_selects_supported_backends')
@@ -70,7 +78,7 @@ program test_dynamics_panel_fmm
   fmm_sim%tree_min_nelem = 256_i32
   fmm_field = field_physics_config(backend='auto', normalization='si')
   fmm_panel = panel_kernel_config( &
-              source_model='triangle_p0', kernel_id='triangle_p0_exact_auto', surface_side_policy='per_element' &
+              kernel_id='triangle_p0_exact_auto', surface_side_policy='per_element' &
               )
   call fmm_solver%init(mesh, fmm_sim, fmm_field, periodic, fmm_panel)
   call assert_true(trim(fmm_solver%mode) == 'direct', 'small panel auto case must select direct')

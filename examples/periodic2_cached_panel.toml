@@ -4,7 +4,6 @@
 dt = 1.0e-10
 batch_count = 1
 max_step = 20
-softening = 0.0
 field_solver = "fmm"
 field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
@@ -21,9 +20,6 @@ bc_y_low = "periodic"
 bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
-
-[field]
-element_kernel = "triangle_p0"
 
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"

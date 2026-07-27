@@ -4,7 +4,6 @@
 dt = 1.0e-10
 batch_count = 1
 max_step = 20
-softening = 0.0
 field_solver = "fmm"
 field_bc_mode = "free"
 use_box = true
@@ -18,9 +17,6 @@ bc_z_low = "open"
 bc_z_high = "open"
 tree_theta = 0.45
 tree_leaf_max = 8
-
-[field]
-element_kernel = "triangle_p0"
 
 [particles]
 [[particles.species]]

@@ -7,6 +7,7 @@ program test_simulator
   use bem_particles, only: init_particles, append_particles
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             build_mesh_from_config
+  use bem_physics_config_types, only: normalize_legacy_physics_config
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
@@ -53,13 +54,14 @@ program test_simulator
   v1(:, 1) = [1.0d0, 0.0d0, 0.0d0]
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   call init_mesh(mesh, v0, v1, v2)
+  mesh%elem_vacuum_sign = 1_i32
+  mesh%vacuum_normals = mesh%normals
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 777_i32
   cfg%sim%batch_count = 1_i32
   cfg%sim%dt = 1.0d0
   cfg%sim%max_step = 1_i32
-  cfg%sim%softening = 1.0d-6
   cfg%sim%q_floor = 1.0d-30
   cfg%sim%use_box = .true.
   cfg%sim%box_min = [-1.0d0, -1.0d0, -2.0d0]
@@ -84,8 +86,8 @@ program test_simulator
   cfg%particle_species(2)%q_particle = 1.0d0
   cfg%particle_species(2)%m_particle = 1.0d0
   cfg%particle_species(2)%w_particle = 1.0d0
-  cfg%particle_species(2)%pos_low = [0.9d0, 0.0d0, 0.0d0]
-  cfg%particle_species(2)%pos_high = [0.9d0, 0.0d0, 0.0d0]
+  cfg%particle_species(2)%pos_low = [0.9d0, 0.1d0, 0.5d0]
+  cfg%particle_species(2)%pos_high = [0.9d0, 0.1d0, 0.5d0]
   cfg%particle_species(2)%drift_velocity = [2.0d0, 0.0d0, 0.0d0]
   cfg%particle_species(2)%temperature_k = 0.0d0
 
@@ -95,8 +97,8 @@ program test_simulator
   cfg%particle_species(3)%q_particle = 1.0d0
   cfg%particle_species(3)%m_particle = 1.0d0
   cfg%particle_species(3)%w_particle = 1.0d0
-  cfg%particle_species(3)%pos_low = [0.0d0, 0.0d0, 0.5d0]
-  cfg%particle_species(3)%pos_high = [0.0d0, 0.0d0, 0.5d0]
+  cfg%particle_species(3)%pos_low = [0.1d0, 0.9d0, 0.5d0]
+  cfg%particle_species(3)%pos_high = [0.1d0, 0.9d0, 0.5d0]
   cfg%particle_species(3)%drift_velocity = [0.0d0, 1.0d0, 0.0d0]
   cfg%particle_species(3)%temperature_k = 0.0d0
 
@@ -169,8 +171,13 @@ program test_simulator
 
   call test_begin('treecode_equivalence')
   call init_mesh(mesh_tree, v0, v1, v2)
+  mesh_tree%elem_vacuum_sign = 1_i32
+  mesh_tree%vacuum_normals = mesh_tree%normals
   cfg_tree = cfg
   cfg_tree%sim%field_solver = 'treecode'
+  call normalize_legacy_physics_config( &
+    cfg_tree%sim, cfg_tree%field, cfg_tree%periodic2, cfg_tree%panel, cfg_tree%outer_plasma, cfg_tree%coupling &
+    )
   call seed_particles_from_config(cfg_tree)
   call run_absorption_insulator(mesh_tree, cfg_tree, stats_tree)
 
@@ -185,8 +192,14 @@ program test_simulator
 
   call test_begin('fmm_potential_history_refreshes_after_commit')
   call init_mesh(mesh_potential_history, v0, v1, v2)
+  mesh_potential_history%elem_vacuum_sign = 1_i32
+  mesh_potential_history%vacuum_normals = mesh_potential_history%normals
   cfg_potential_history = cfg
   cfg_potential_history%sim%field_solver = 'fmm'
+  call normalize_legacy_physics_config( &
+    cfg_potential_history%sim, cfg_potential_history%field, cfg_potential_history%periodic2, &
+    cfg_potential_history%panel, cfg_potential_history%outer_plasma, cfg_potential_history%coupling &
+    )
   call seed_particles_from_config(cfg_potential_history)
   call delete_file_if_exists(potential_history_path)
   open (newunit=u, file=potential_history_path, status='replace', action='write', iostat=ios)
@@ -209,6 +222,8 @@ program test_simulator
 
   call test_begin('resume_stats')
   call init_mesh(mesh_resume, v0, v1, v2)
+  mesh_resume%elem_vacuum_sign = 1_i32
+  mesh_resume%vacuum_normals = mesh_resume%normals
   cfg%sim%batch_count = 8_i32
   call seed_particles_from_config(cfg)
   stats_seed = sim_stats()
@@ -285,7 +300,6 @@ contains
     steady_cfg%sim%batch_duration = 1.0e-12_dp
     steady_cfg%sim%has_batch_duration = .true.
     steady_cfg%sim%max_step = 100_i32
-    steady_cfg%sim%softening = 0.0_dp
     steady_cfg%sim%q_floor = 1.0e-40_dp
     steady_cfg%sim%field_solver = 'direct'
     steady_cfg%sim%field_bc_mode = 'periodic2'
@@ -302,7 +316,6 @@ contains
     steady_cfg%sim%sheath_ion_drift_mode = 'normal'
 
     steady_cfg%field%backend = 'direct'
-    steady_cfg%panel%source_model = 'triangle_p0'
     steady_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
     steady_cfg%panel%surface_side_policy = 'per_element'
     steady_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
@@ -529,7 +542,6 @@ contains
     split_cfg%sim%batch_count = 1_i32
     split_cfg%sim%dt = 0.01_dp
     split_cfg%sim%max_step = 1_i32
-    split_cfg%sim%softening = 0.0_dp
     split_cfg%sim%field_solver = 'direct'
     split_cfg%sim%field_bc_mode = 'periodic2'
     split_cfg%sim%use_box = .true.
@@ -538,7 +550,6 @@ contains
     split_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     split_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     split_cfg%field%backend = 'direct'
-    split_cfg%panel%source_model = 'triangle_p0'
     split_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
     split_cfg%panel%surface_side_policy = 'per_element'
     split_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
@@ -689,13 +700,14 @@ contains
     tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
     tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
+    failure_mesh%elem_vacuum_sign = 1_i32
+    failure_mesh%vacuum_normals = failure_mesh%normals
 
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 991_i32
     failure_cfg%sim%batch_count = 1_i32
     failure_cfg%sim%dt = 1.0d0
     failure_cfg%sim%max_step = 1_i32
-    failure_cfg%sim%softening = 1.0d-6
     failure_cfg%sim%field_solver = 'fmm'
     failure_cfg%sim%field_bc_mode = 'periodic2'
     failure_cfg%sim%field_periodic_far_correction = 'none'
@@ -704,6 +716,10 @@ contains
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    call normalize_legacy_physics_config( &
+      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel, &
+      failure_cfg%outer_plasma, failure_cfg%coupling &
+      )
 
     failure_cfg%n_particle_species = 1_i32
     failure_cfg%particle_species(1) = species_from_defaults()
@@ -777,6 +793,8 @@ contains
     tri_v1(:, 1) = [2049.0d0, 0.0d0, 0.5d0]
     tri_v2(:, 1) = [0.5d0, 1.0d0, 0.5d0]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
+    failure_mesh%elem_vacuum_sign = 1_i32
+    failure_mesh%vacuum_normals = failure_mesh%normals
 
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 992_i32
@@ -784,7 +802,6 @@ contains
     failure_cfg%sim%batch_duration = 0.5d0
     failure_cfg%sim%dt = 1.0d0
     failure_cfg%sim%max_step = 1_i32
-    failure_cfg%sim%softening = 1.0d-6
     failure_cfg%sim%field_solver = 'fmm'
     failure_cfg%sim%field_bc_mode = 'periodic2'
     failure_cfg%sim%field_periodic_far_correction = 'none'
@@ -793,6 +810,10 @@ contains
     failure_cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+    call normalize_legacy_physics_config( &
+      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel, &
+      failure_cfg%outer_plasma, failure_cfg%coupling &
+      )
 
     failure_cfg%n_particle_species = 2_i32
     failure_cfg%particle_species(1) = species_from_defaults()
@@ -833,13 +854,14 @@ contains
     tri_v1(:, 1) = [0.5_dp, 1.0_dp, -1.0_dp]
     tri_v2(:, 1) = [0.5_dp, 0.0_dp, 1.0_dp]
     call init_mesh(reflected_mesh, tri_v0, tri_v1, tri_v2)
+    reflected_mesh%elem_vacuum_sign = 1_i32
+    reflected_mesh%vacuum_normals = reflected_mesh%normals
 
     call default_app_config(reflected_cfg)
     reflected_cfg%sim%rng_seed = 993_i32
     reflected_cfg%sim%batch_count = 1_i32
     reflected_cfg%sim%dt = 1.0_dp
     reflected_cfg%sim%max_step = 1_i32
-    reflected_cfg%sim%softening = 1.0e-6_dp
     reflected_cfg%sim%use_box = .true.
     reflected_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     reflected_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
@@ -911,6 +933,8 @@ contains
     tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
+    failure_mesh%elem_vacuum_sign = 1_i32
+    failure_mesh%vacuum_normals = failure_mesh%normals
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 994_i32
     failure_cfg%sim%batch_count = 1_i32
@@ -947,6 +971,8 @@ contains
     tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(soft_mesh, tri_v0, tri_v1, tri_v2)
+    soft_mesh%elem_vacuum_sign = 1_i32
+    soft_mesh%vacuum_normals = soft_mesh%normals
     call default_app_config(soft_cfg)
     soft_cfg%sim%rng_seed = 995_i32
     soft_cfg%sim%batch_count = 1_i32
@@ -1032,6 +1058,8 @@ contains
     tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
     tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
     call init_mesh(failure_mesh, tri_v0, tri_v1, tri_v2)
+    failure_mesh%elem_vacuum_sign = 1_i32
+    failure_mesh%vacuum_normals = failure_mesh%normals
     call default_app_config(failure_cfg)
     failure_cfg%sim%rng_seed = 995_i32
     failure_cfg%sim%batch_count = 1_i32

@@ -138,3 +138,25 @@ def test_periodic_zero_mode_failed_destroy_can_be_retried(
     zero.close()
 
     assert len(lib.beach_zero_mode_destroy.calls) == 2
+
+
+def test_periodic_zero_mode_update_can_override_bottom_field_per_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeZeroModeLibrary()
+    monkeypatch.setattr(zero_mode_module, "_load_kernel_library", lambda _path: lib)
+
+    with PeriodicZeroMode(
+        np.zeros((1, 3)),
+        np.ones(1),
+        1.0,
+        e_bottom_V_m=1.25,
+    ) as zero:
+        zero.update_charges(np.array([2.0]), e_bottom_V_m=-2.5)
+        zero.update_charges(np.array([3.0]))
+
+    e_bottom_values = [
+        float(call[3].value)  # type: ignore[union-attr]
+        for call in lib.beach_zero_mode_update.calls
+    ]
+    np.testing.assert_allclose(e_bottom_values, [1.25, -2.5, 1.25])

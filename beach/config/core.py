@@ -15,7 +15,6 @@ SCHEMA_BASE_URL = "https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas
 BEACH_SCHEMA_URL = f"{SCHEMA_BASE_URL}/beach.schema.json"
 TOP_LEVEL_CONFIG_ORDER = (
     "sim",
-    "field",
     "periodic2",
     "external_boundary",
     "outer_plasma",
@@ -114,7 +113,7 @@ _RUNTIME_COUPLING_KEYS = frozenset(
     }
 )
 _REMOVED_SIM_KEYS = frozenset(
-    {"sheath_injection_model", "sheath_reference_coordinate"}
+    {"sheath_injection_model", "sheath_reference_coordinate", "softening"}
 )
 _REMOVED_OUTER_PLASMA_KEYS = frozenset(
     {
@@ -144,7 +143,6 @@ def default_config() -> dict[str, Any]:
             "dt": 1.0e-7,
             "batch_count": 1,
             "max_step": 10,
-            "softening": 1.0e-6,
             "use_box": True,
             "box_min": [0.0, 0.0, 0.0],
             "box_max": [1.0, 1.0, 1.0],
@@ -182,6 +180,7 @@ def default_config() -> dict[str, Any]:
                     "kind": "plane",
                     "enabled": True,
                     "surface_model": "insulator",
+                    "surface_side": "normal_plus",
                     "size_x": 1.0,
                     "size_y": 1.0,
                     "nx": 4,
@@ -1262,7 +1261,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     particles = _require_table(final_config, "particles", context="runtime config")
     mesh = _require_table(final_config, "mesh", context="runtime config")
     _require_table(final_config, "output", context="runtime config")
-    field = final_config.get("field", {})
     periodic2_config = final_config.get("periodic2", {})
     outer_plasma = final_config.get("outer_plasma", {})
     coupling = final_config.get("coupling", {})
@@ -1304,9 +1302,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 + "."
             )
     _validate_runtime_external_e_field(sim)
-    _validate_nonnegative_finite_number(
-        sim.get("softening", 1.0e-6), name="sim.softening"
-    )
     _validate_runtime_mesh(mesh)
 
     species = particles.get("species")
@@ -1381,8 +1376,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 )
         split_reference = (
             field_solver == "direct"
-            and isinstance(field, Mapping)
-            and field.get("element_kernel") == "triangle_p0"
             and isinstance(periodic2_config, Mapping)
             and periodic2_config.get("nonzero_mode_backend")
             == "panel_spectral_reference"
@@ -2366,10 +2359,15 @@ def _require_table(
 
 
 def _validate_runtime_mesh(mesh: Mapping[str, Any]) -> None:
-    mode = mesh.get("mode", "auto")
+    mode = mesh.get("mode", "template")
     if not isinstance(mode, str) or mode not in {"auto", "obj", "template"}:
         raise ConfigValidationError(
             'BEACH constraint error: mesh.mode must be "auto", "obj", or "template".'
+        )
+    if mode in {"auto", "obj"}:
+        _validate_surface_side(
+            mesh.get("surface_side"),
+            name="mesh.surface_side",
         )
     _validate_surface_model(
         mesh.get("surface_model", "insulator"),
@@ -2390,6 +2388,12 @@ def _validate_runtime_mesh(mesh: Mapping[str, Any]) -> None:
 
 
 def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> None:
+    enabled = template.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigValidationError(
+            f"BEACH constraint error: mesh.templates[{index}].enabled must be boolean."
+        )
+
     kind_value = template.get("kind", "plane")
     if not isinstance(kind_value, str):
         raise ConfigValidationError(
@@ -2404,6 +2408,11 @@ def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> No
         template.get("epsilon_r", 1.0),
         name=f"mesh.templates[{index}].epsilon_r",
     )
+    if enabled:
+        _validate_surface_side(
+            template.get("surface_side"),
+            name=f"mesh.templates[{index}].surface_side",
+        )
 
     if "center" in template:
         _maybe_vec3(template.get("center"), name=f"mesh.templates[{index}].center")
@@ -2489,8 +2498,20 @@ def _validate_surface_model(value: object, *, name: str) -> None:
         )
 
 
+def _validate_surface_side(value: object, *, name: str) -> None:
+    if not isinstance(value, str):
+        raise ConfigValidationError(
+            f"BEACH constraint error: {name} must be specified as a string."
+        )
+    if value not in {"normal_plus", "normal_minus", "outward_closed"}:
+        raise ConfigValidationError(
+            f'BEACH constraint error: {name} must be "normal_plus", '
+            '"normal_minus", or "outward_closed".'
+        )
+
+
 def _mesh_has_surface_model(mesh: Mapping[str, Any], target: str) -> bool:
-    mode = str(mesh.get("mode", "auto")).strip().lower()
+    mode = str(mesh.get("mode", "template")).strip().lower()
     if mode != "template" and mesh.get("surface_model", "insulator") == target:
         return True
     if mode == "obj":

@@ -5,7 +5,6 @@ dt = 2.0e-8
 batch_duration_step = 60000.0
 batch_count = 100
 max_step = 10000
-softening = 1.0e-6
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 10.0]
@@ -39,6 +38,8 @@ mode = "template"
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_model = "insulator"
+surface_side = "normal_plus"
 size_x = 1.0
 size_y = 1.0
 nx = 20

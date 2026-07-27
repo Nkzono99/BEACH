@@ -45,18 +45,20 @@ _COULOMB_MATRIX_WORKER_CONTEXT: dict[str, object] = {}
 def _init_coulomb_matrix_worker(
     resolved: FortranRunResult,
     step: int | None,
-    softening: float,
     component_idx: int,
     periodic2: Mapping[str, object] | None,
+    config_path: str | Path | None,
+    library_path: str | Path | None,
 ) -> None:
     _COULOMB_MATRIX_WORKER_CONTEXT.clear()
     _COULOMB_MATRIX_WORKER_CONTEXT.update(
         {
             "resolved": resolved,
             "step": step,
-            "softening": softening,
             "component_idx": component_idx,
             "periodic2": periodic2,
+            "config_path": config_path,
+            "library_path": library_path,
         }
     )
 
@@ -70,8 +72,9 @@ def _compute_coulomb_matrix_entry_worker(
         target=target_mesh_id,
         source=source_mesh_ids,
         step=_COULOMB_MATRIX_WORKER_CONTEXT["step"],
-        softening=_COULOMB_MATRIX_WORKER_CONTEXT["softening"],
         periodic2=_COULOMB_MATRIX_WORKER_CONTEXT["periodic2"],
+        config_path=_COULOMB_MATRIX_WORKER_CONTEXT["config_path"],
+        library_path=_COULOMB_MATRIX_WORKER_CONTEXT["library_path"],
     )
     component_idx = int(_COULOMB_MATRIX_WORKER_CONTEXT["component_idx"])
     return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
@@ -195,7 +198,6 @@ def plot_potential_slices(
     xy_z: float | None = None,
     yz_x: float | None = None,
     xz_y: float | None = None,
-    softening: float | None = None,
     chunk_size: int = 2048,
     cmap: str = "viridis",
     vmin: float | None = None,
@@ -203,6 +205,8 @@ def plot_potential_slices(
     periodic2: Mapping[str, object] | None = None,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
     axis_unit: str = "m",
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ):
     """Plot XY/YZ/XZ potential slices in one figure.
 
@@ -222,8 +226,6 @@ def plot_potential_slices(
         X coordinate of YZ slice. ``None`` uses box center.
     xz_y : float or None, default None
         Y coordinate of XZ slice. ``None`` uses box center.
-    softening : float or None, default None
-        Softening length in meters.
     chunk_size : int, default 2048
         Sampling chunk size for potential computation.
     cmap : str, default "viridis"
@@ -253,7 +255,7 @@ def plot_potential_slices(
 
     import matplotlib.pyplot as plt
 
-    context = RunContext.from_value(result)
+    context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
     axis_label, axis_scale = _resolve_axis_unit(axis_unit)
     resolved_reference = _resolve_reference_point(
@@ -269,10 +271,11 @@ def plot_potential_slices(
         xy_z=xy_z,
         yz_x=yz_x,
         xz_y=xz_y,
-        softening=softening,
         chunk_size=chunk_size,
         periodic2=periodic2,
         reference_point=resolved_reference,
+        config_path=config_path,
+        library_path=library_path,
     )
 
     ordered_planes = ("xy", "yz", "xz")
@@ -315,8 +318,6 @@ def plot_potential_slices(
 def plot_potential_mesh(
     result: FortranRunResult | object,
     *,
-    softening: float | None = None,
-    self_term: str = "auto",
     cmap: str = "viridis",
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
@@ -326,6 +327,8 @@ def plot_potential_mesh(
     periodic2_repeat: int = 0,
     reference_point: Iterable[float] | str | None = "species1_injection_center",
     axis_unit: str = "m",
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ):
     """Plot a 3D mesh colored by reconstructed electric potential.
 
@@ -333,10 +336,6 @@ def plot_potential_mesh(
     ----------
     result : FortranRunResult or Beach-like object
         Run result or object exposing ``result`` as ``FortranRunResult``.
-    softening : float or None, default None
-        Softening length in meters.
-    self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-        Self-interaction model for potential reconstruction.
     cmap : str, default "viridis"
         Matplotlib colormap name.
     view_elev : float, default 24.0
@@ -371,7 +370,7 @@ def plot_potential_mesh(
         If potential reconstruction arguments are invalid.
     """
 
-    context = RunContext.from_value(result)
+    context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
     triangles = _require_triangles(resolved)
     plot_triangles = _maybe_apply_periodic2_mesh(
@@ -389,10 +388,10 @@ def plot_potential_mesh(
     )
     phi = compute_potential_mesh(
         context,
-        softening=softening,
-        self_term=self_term,
         periodic2=periodic2,
         reference_point=resolved_reference,
+        config_path=config_path,
+        library_path=library_path,
     )
     plot_triangles, phi = _maybe_replicate_periodic2(
         resolved,
@@ -421,9 +420,9 @@ def plot_coulomb_force_matrix(
     *,
     step: int | None = -1,
     component: str = "z",
-    softening: float = 0.0,
     target_kinds: Iterable[str] | None = None,
     config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
     cmap: str = "coolwarm",
     annotate: bool = True,
     workers: int = 1,
@@ -439,8 +438,6 @@ def plot_coulomb_force_matrix(
         ``None`` uses final charges from ``charges.csv``.
     component : {"x", "y", "z"}, default "z"
         Force component rendered in the matrix.
-    softening : float, default 0.0
-        Softening length in meters for Coulomb-force evaluation.
     target_kinds : iterable of str or None, default None
         Template kinds used as target objects. ``None`` means all objects.
     config_path : str, pathlib.Path, or None, default None
@@ -525,8 +522,9 @@ def plot_coulomb_force_matrix(
             target=target_mesh_id,
             source=source_mesh_ids,
             step=step,
-            softening=softening,
             periodic2=periodic2,
+            config_path=config_path,
+            library_path=library_path,
         )
         return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
 
@@ -544,7 +542,14 @@ def plot_coulomb_force_matrix(
             max_workers=max_workers,
             mp_context=mp_context,
             initializer=_init_coulomb_matrix_worker,
-            initargs=(resolved, step, softening, component_idx, periodic2),
+            initargs=(
+                resolved,
+                step,
+                component_idx,
+                periodic2,
+                config_path,
+                library_path,
+            ),
         ) as executor:
             for row_idx, col_idx, value in executor.map(
                 _compute_coulomb_matrix_entry_worker,
@@ -603,7 +608,6 @@ def plot_coulomb_force_matrix(
         "target_mesh_ids": tuple(int(spec.mesh_id) for spec in target_specs),
         "source_mesh_ids": tuple(int(spec.mesh_id) for spec in object_specs),
         "step": step,
-        "softening": float(softening),
         "workers": int(workers),
     }
     fig.tight_layout()
@@ -620,7 +624,10 @@ def _periodic2_for_coulomb_matrix(
         resolved,
         config_path=config_path,
     )
-    return _auto_periodic2_from_result(resolved, context=run_context)
+    return _auto_periodic2_from_result(
+        resolved,
+        context=run_context,
+    )
 
 
 def _short_directory_label(directory: Path) -> str:
@@ -635,9 +642,9 @@ def plot_mesh_source_boxplot(
     *,
     quantity: str = "charge",
     step: int | None = -1,
-    softening: float | None = None,
-    self_term: str = "auto",
     showfliers: bool = True,
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ):
     """Plot area-weighted boxplots per mesh source.
 
@@ -650,10 +657,6 @@ def plot_mesh_source_boxplot(
     step : int or None, default -1
         History batch step used for charge snapshot.
         ``None`` uses final charges from ``charges.csv``.
-    softening : float or None, default None
-        Softening length in meters (potential mode only).
-    self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-        Self-interaction model (potential mode only).
     showfliers : bool, default True
         Whether outlier markers are rendered.
 
@@ -670,14 +673,15 @@ def plot_mesh_source_boxplot(
 
     import matplotlib.pyplot as plt
 
-    resolved = _resolve_result(result)
+    context = RunContext.from_value(result, config_path=config_path)
+    resolved = context.result
     triangles = _require_triangles(resolved)
     values = _boxplot_values_for_quantity(
         resolved,
         quantity=quantity,
         step=step,
-        softening=softening,
-        self_term=self_term,
+        config_path=config_path,
+        library_path=library_path,
     )
     mesh_ids = _mesh_ids_or_default(resolved)
     areas = _triangle_areas(triangles)
@@ -734,8 +738,8 @@ def _boxplot_values_for_quantity(
     *,
     quantity: str,
     step: int | None,
-    softening: float | None,
-    self_term: str,
+    config_path: str | Path | None,
+    library_path: str | Path | None,
 ) -> np.ndarray:
     if quantity == "charge":
         return _charges_for_step(result, step=step)
@@ -748,8 +752,8 @@ def _boxplot_values_for_quantity(
         )
         return compute_potential_mesh(
             potential_result,
-            softening=softening,
-            self_term=self_term,
+            config_path=config_path,
+            library_path=library_path,
         )
     raise ValueError("quantity must be one of {'charge', 'potential'}.")
 

@@ -52,12 +52,14 @@ def test_plot_performance_missing_profile_exits_with_friendly_message() -> None:
         plot_performance_main(["no_such_dir"])
 
 
-def test_plot_coulomb_rejects_nan_softening(capsys: pytest.CaptureFixture[str]) -> None:
+def test_plot_coulomb_rejects_removed_softening_option(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     with pytest.raises(SystemExit) as exc:
         plot_coulomb_main(["--softening", "nan"])
 
     assert exc.value.code == 2
-    assert "--softening must be finite." in capsys.readouterr().err
+    assert "unrecognized arguments: --softening" in capsys.readouterr().err
 
 
 def test_kernel_forces_rejects_nan_theta(capsys: pytest.CaptureFixture[str]) -> None:

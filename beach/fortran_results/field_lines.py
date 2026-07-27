@@ -1,172 +1,68 @@
-"""Electric field computation and 3D field-line tracing."""
+"""Triangle-panel electric-field evaluation and field-line tracing."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Iterable, Mapping
 
 import numpy as np
 
-from .constants import K_COULOMB
 from .context import RunContext
-from .mesh import _triangle_centers
-from .periodic import Periodic2Config
-from .selection import _require_point_source_model, _require_triangles
+from .kernel import (
+    FieldKernel,
+    field_kernel_options_from_result,
+    _require_total_field_config,
+    _require_total_field_reconstruction,
+)
+from .selection import _require_triangle_source_model, _require_triangles
 from .types import FortranRunResult
-
-
-# ---------------------------------------------------------------------------
-# Electric field at arbitrary points
-# ---------------------------------------------------------------------------
 
 
 def compute_electric_field_points(
     result: FortranRunResult | object,
     points: np.ndarray,
     *,
-    softening: float | None = None,
     chunk_size: int = 2048,
     periodic2: Mapping[str, object] | None = None,
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ) -> np.ndarray:
-    """Compute the electric field vector at arbitrary 3D points.
+    """Evaluate the native triangle-P0 electric field at arbitrary points."""
 
-    The field is computed directly from the surface charges via Coulomb's law:
-    ``E(r) = K * sum_j  q_j * (r - r_j) / |r - r_j|^3``.
-
-    Parameters
-    ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
-    points : numpy.ndarray
-        Sampling points with shape ``(n_points, 3)`` in meters.
-    softening : float or None, default None
-        Softening length in meters. ``None`` は ``sim.softening`` を自動参照する。
-    chunk_size : int, default 2048
-        Number of points processed per chunk.
-    periodic2 : mapping or None, default None
-        Two-axis periodic setting. ``None`` の場合は出力ディレクトリ近傍の
-        ``beach.toml`` から自動判定。
-
-    Returns
-    -------
-    numpy.ndarray
-        Electric field vectors in V/m with shape ``(n_points, 3)``.
-    """
-
-    from .potential import (
-        _auto_periodic2_from_result,
-        _coerce_periodic2,
-        _resolve_softening,
-    )
-
-    context = RunContext.from_value(result)
+    context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_point_source_model(resolved)
-    resolved_softening = _resolve_softening(resolved, softening)
+    _require_triangle_source_model(resolved)
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0.")
-
-    sample_points = np.asarray(points, dtype=float)
-    if sample_points.ndim != 2 or sample_points.shape[1] != 3:
-        raise ValueError("points must have shape (n_points, 3).")
+    sample_points = _points(points)
     if sample_points.shape[0] == 0:
         return np.empty((0, 3), dtype=float)
 
-    triangles = _require_triangles(resolved)
-    centers = _triangle_centers(triangles)
-    periodic_cfg = _coerce_periodic2(periodic2)
-    if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
-
-    if periodic_cfg is None:
-        return _efield_points_free(
-            sample_points,
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            chunk_size=chunk_size,
-        )
-    else:
-        return _efield_points_periodic2(
-            sample_points,
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            chunk_size=chunk_size,
-            periodic2=periodic_cfg,
-        )
-
-
-def _efield_points_free(
-    points: np.ndarray,
-    centers: np.ndarray,
-    charges: np.ndarray,
-    *,
-    softening: float,
-    chunk_size: int,
-) -> np.ndarray:
-    eps2 = softening * softening
-    min_dist2 = np.finfo(float).tiny
-    efield = np.empty((points.shape[0], 3), dtype=float)
-    for start in range(0, points.shape[0], chunk_size):
-        stop = min(start + chunk_size, points.shape[0])
-        # delta[i, j, :] = points[i] - centers[j]
-        delta = points[start:stop, None, :] - centers[None, :, :]
-        dist2 = np.sum(delta * delta, axis=2) + eps2  # (chunk, n_src)
-        inv_r3 = 1.0 / (
-            np.maximum(dist2, min_dist2)
-            * np.sqrt(np.maximum(dist2, min_dist2))
-        )  # (chunk, n_src)
-        # coeff[i, j] = K * q_j / |r_ij|^3
-        coeff = K_COULOMB * charges[None, :] * inv_r3  # (chunk, n_src)
-        efield[start:stop] = np.einsum("ij,ijk->ik", coeff, delta)
-    return efield
-
-
-def _efield_points_periodic2(
-    points: np.ndarray,
-    centers: np.ndarray,
-    charges: np.ndarray,
-    *,
-    softening: float,
-    chunk_size: int,
-    periodic2: Periodic2Config,
-) -> np.ndarray:
-    from .potential import _wrap_periodic2_points
-
-    axis1, axis2 = periodic2.axes
-    l1, l2 = periodic2.lengths
-    eps2 = softening * softening
-    min_dist2 = np.finfo(float).tiny
-    efield = np.zeros((points.shape[0], 3), dtype=float)
-    wrapped_points = _wrap_periodic2_points(
-        points,
-        axes=periodic2.axes,
-        lengths=periodic2.lengths,
-        origins=periodic2.origins,
+    _require_total_field_config(
+        context,
+        operation="electric-field recomputation",
     )
-
-    for ix in range(-periodic2.image_layers, periodic2.image_layers + 1):
-        for iy in range(-periodic2.image_layers, periodic2.image_layers + 1):
-            shifted = centers.copy()
-            shifted[:, axis1] += float(ix) * l1
-            shifted[:, axis2] += float(iy) * l2
-            for start in range(0, points.shape[0], chunk_size):
-                stop = min(start + chunk_size, points.shape[0])
-                delta = wrapped_points[start:stop, None, :] - shifted[None, :, :]
-                dist2 = np.sum(delta * delta, axis=2) + eps2
-                inv_r3 = 1.0 / (
-                    np.maximum(dist2, min_dist2)
-                    * np.sqrt(np.maximum(dist2, min_dist2))
-                )
-                coeff = K_COULOMB * charges[None, :] * inv_r3
-                efield[start:stop] += np.einsum("ij,ijk->ik", coeff, delta)
-
-    return efield
-
-
-# ---------------------------------------------------------------------------
-# Field-line tracing (RK4)
-# ---------------------------------------------------------------------------
+    options = field_kernel_options_from_result(
+        context,
+        periodic2=periodic2,
+        config_path=config_path,
+    )
+    _require_total_field_reconstruction(
+        context,
+        options,
+        operation="electric-field recomputation",
+    )
+    field = np.empty_like(sample_points)
+    with FieldKernel.from_result(
+        context,
+        periodic2=periodic2,
+        config_path=config_path,
+        library_path=library_path,
+    ) as kernel:
+        for start in range(0, sample_points.shape[0], chunk_size):
+            stop = min(start + chunk_size, sample_points.shape[0])
+            field[start:stop] = kernel.eval_e(sample_points[start:stop])
+    return field
 
 
 def trace_field_lines(
@@ -175,241 +71,148 @@ def trace_field_lines(
     *,
     ds: float | None = None,
     max_steps: int = 500,
-    softening: float | None = None,
     periodic2: Mapping[str, object] | None = None,
     direction: str = "both",
     box_min: Iterable[float] | None = None,
     box_max: Iterable[float] | None = None,
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ) -> list[np.ndarray]:
-    """Trace electric field lines from seed points using RK4 integration.
+    """Trace field lines using the same triangle-P0 kernel as the simulator."""
 
-    Parameters
-    ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
-    seed_points : numpy.ndarray
-        Starting points with shape ``(n_seeds, 3)`` in meters.
-    ds : float or None, default None
-        Integration step size in meters. ``None`` は三角形メッシュの代表長さ
-        (平均辺長の 0.5 倍) から自動設定する。
-    max_steps : int, default 500
-        Maximum number of integration steps per direction.
-    softening : float or None, default None
-        Softening length in meters. ``None`` は ``sim.softening`` を自動参照する。
-    periodic2 : mapping or None, default None
-        Two-axis periodic setting. ``None`` で自動判定。
-    direction : {"both", "forward", "backward"}, default "both"
-        ``"forward"`` は電場方向、``"backward"`` は逆方向、``"both"`` は両方。
-    box_min : iterable of float or None, default None
-        Bounding box lower corner. 力線がこの範囲外に出たら打ち切る。
-    box_max : iterable of float or None, default None
-        Bounding box upper corner.
-
-    Returns
-    -------
-    list of numpy.ndarray
-        Each element has shape ``(n_points_i, 3)`` representing one field line.
-    """
-
-    from .potential import (
-        _auto_periodic2_from_result,
-        _coerce_periodic2,
-        _resolve_softening,
-    )
-
-    context = RunContext.from_value(result)
+    context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_point_source_model(resolved)
-    resolved_softening = _resolve_softening(resolved, softening)
-
+    _require_triangle_source_model(resolved)
     seeds = np.asarray(seed_points, dtype=float)
-    if seeds.ndim == 1 and seeds.shape[0] == 3:
+    if seeds.ndim == 1 and seeds.shape == (3,):
         seeds = seeds.reshape(1, 3)
     if seeds.ndim != 2 or seeds.shape[1] != 3:
         raise ValueError("seed_points must have shape (n_seeds, 3).")
+    if not np.all(np.isfinite(seeds)):
+        raise ValueError("seed_points must contain finite values.")
+    if isinstance(max_steps, bool) or int(max_steps) != max_steps or max_steps < 0:
+        raise ValueError("max_steps must be a non-negative integer.")
+    direction_key = str(direction).strip().lower()
+    if direction_key not in {"both", "forward", "backward"}:
+        raise ValueError("direction must be one of {'both', 'forward', 'backward'}.")
 
     triangles = _require_triangles(resolved)
-    centers = _triangle_centers(triangles)
-    periodic_cfg = _coerce_periodic2(periodic2)
-    if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
-
     if ds is None:
-        edges = np.concatenate([
-            np.linalg.norm(triangles[:, 1] - triangles[:, 0], axis=1),
-            np.linalg.norm(triangles[:, 2] - triangles[:, 1], axis=1),
-            np.linalg.norm(triangles[:, 0] - triangles[:, 2], axis=1),
-        ])
-        ds = float(np.mean(edges)) * 0.5
+        edges = np.concatenate(
+            [
+                np.linalg.norm(triangles[:, 1] - triangles[:, 0], axis=1),
+                np.linalg.norm(triangles[:, 2] - triangles[:, 1], axis=1),
+                np.linalg.norm(triangles[:, 0] - triangles[:, 2], axis=1),
+            ]
+        )
+        ds_value = float(np.mean(edges)) * 0.5
+    else:
+        ds_value = float(ds)
+    if not np.isfinite(ds_value) or ds_value <= 0.0:
+        raise ValueError("ds must be finite and positive.")
 
-    bb_min = np.asarray(box_min, dtype=float) if box_min is not None else None
-    bb_max = np.asarray(box_max, dtype=float) if box_max is not None else None
+    bb_min = _optional_vec3(box_min, "box_min")
+    bb_max = _optional_vec3(box_max, "box_max")
+    if (bb_min is None) != (bb_max is None):
+        raise ValueError("box_min and box_max must be specified together.")
+    if bb_min is not None and bb_max is not None and np.any(bb_max <= bb_min):
+        raise ValueError("box_max must be greater than box_min on every axis.")
 
+    _require_total_field_config(
+        context,
+        operation="field-line tracing",
+    )
+    options = field_kernel_options_from_result(
+        context,
+        periodic2=periodic2,
+        config_path=config_path,
+    )
+    _require_total_field_reconstruction(
+        context,
+        options,
+        operation="field-line tracing",
+    )
     lines: list[np.ndarray] = []
-    for idx in range(seeds.shape[0]):
-        seed = seeds[idx]
-        parts: list[np.ndarray] = []
-        if direction in ("forward", "both"):
-            fwd = _rk4_trace(
-                seed,
-                centers,
-                resolved.charges,
-                softening=resolved_softening,
-                periodic2=periodic_cfg,
-                ds=ds,
-                max_steps=max_steps,
-                sign=1.0,
-                bb_min=bb_min,
-                bb_max=bb_max,
-            )
-            parts.append(fwd)
-        if direction in ("backward", "both"):
-            bwd = _rk4_trace(
-                seed,
-                centers,
-                resolved.charges,
-                softening=resolved_softening,
-                periodic2=periodic_cfg,
-                ds=ds,
-                max_steps=max_steps,
-                sign=-1.0,
-                bb_min=bb_min,
-                bb_max=bb_max,
-            )
-            parts.append(bwd[::-1])
-
-        if direction == "both" and len(parts) == 2:
-            # backward (reversed) + forward, skip duplicate seed
-            line = np.concatenate([parts[1], parts[0][1:]], axis=0)
-        elif parts:
-            line = parts[0]
-        else:
-            line = seed.reshape(1, 3)
-        lines.append(line)
-
+    with FieldKernel.from_result(
+        context,
+        periodic2=periodic2,
+        config_path=config_path,
+        library_path=library_path,
+    ) as kernel:
+        for seed in seeds:
+            forward: np.ndarray | None = None
+            backward: np.ndarray | None = None
+            if direction_key in {"forward", "both"}:
+                forward = _rk4_trace(
+                    kernel,
+                    seed,
+                    ds=ds_value,
+                    max_steps=int(max_steps),
+                    sign=1.0,
+                    bb_min=bb_min,
+                    bb_max=bb_max,
+                )
+            if direction_key in {"backward", "both"}:
+                backward = _rk4_trace(
+                    kernel,
+                    seed,
+                    ds=ds_value,
+                    max_steps=int(max_steps),
+                    sign=-1.0,
+                    bb_min=bb_min,
+                    bb_max=bb_max,
+                )
+            if forward is not None and backward is not None:
+                lines.append(np.concatenate((backward[::-1], forward[1:]), axis=0))
+            elif forward is not None:
+                lines.append(forward)
+            elif backward is not None:
+                lines.append(backward[::-1])
     return lines
 
 
 def _rk4_trace(
+    kernel: FieldKernel,
     seed: np.ndarray,
-    centers: np.ndarray,
-    charges: np.ndarray,
     *,
-    softening: float,
-    periodic2: Periodic2Config | None,
     ds: float,
     max_steps: int,
     sign: float,
     bb_min: np.ndarray | None,
     bb_max: np.ndarray | None,
 ) -> np.ndarray:
-    """Trace a single field line using 4th-order Runge-Kutta."""
-
-    points_list = [seed.copy()]
-    pos = seed.copy()
-
+    points = [np.asarray(seed, dtype=float).copy()]
+    position = points[0].copy()
     for _ in range(max_steps):
-        k1 = _efield_single_point(
-            pos, centers, charges, softening=softening, periodic2=periodic2,
+        k1 = _unit_field(kernel, position)
+        if k1 is None:
+            break
+        k2 = _unit_field(kernel, position + 0.5 * ds * sign * k1)
+        if k2 is None:
+            break
+        k3 = _unit_field(kernel, position + 0.5 * ds * sign * k2)
+        if k3 is None:
+            break
+        k4 = _unit_field(kernel, position + ds * sign * k3)
+        if k4 is None:
+            break
+        position = position + (ds * sign / 6.0) * (
+            k1 + 2.0 * k2 + 2.0 * k3 + k4
         )
-        norm1 = np.linalg.norm(k1)
-        if norm1 < 1e-30:
+        points.append(position.copy())
+        if bb_min is not None and np.any(position < bb_min):
             break
-        k1 = k1 / norm1
-
-        k2 = _efield_single_point(
-            pos + 0.5 * ds * sign * k1, centers, charges,
-            softening=softening, periodic2=periodic2,
-        )
-        norm2 = np.linalg.norm(k2)
-        if norm2 < 1e-30:
+        if bb_max is not None and np.any(position > bb_max):
             break
-        k2 = k2 / norm2
-
-        k3 = _efield_single_point(
-            pos + 0.5 * ds * sign * k2, centers, charges,
-            softening=softening, periodic2=periodic2,
-        )
-        norm3 = np.linalg.norm(k3)
-        if norm3 < 1e-30:
-            break
-        k3 = k3 / norm3
-
-        k4 = _efield_single_point(
-            pos + ds * sign * k3, centers, charges,
-            softening=softening, periodic2=periodic2,
-        )
-        norm4 = np.linalg.norm(k4)
-        if norm4 < 1e-30:
-            break
-        k4 = k4 / norm4
-
-        pos = pos + (ds * sign / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-        points_list.append(pos.copy())
-
-        if bb_min is not None and np.any(pos < bb_min):
-            break
-        if bb_max is not None and np.any(pos > bb_max):
-            break
-
-    return np.array(points_list)
+    return np.asarray(points)
 
 
-def _efield_single_point(
-    point: np.ndarray,
-    centers: np.ndarray,
-    charges: np.ndarray,
-    *,
-    softening: float,
-    periodic2: Periodic2Config | None,
-) -> np.ndarray:
-    """Compute the electric field vector at a single 3D point (internal)."""
-
-    eps2 = softening * softening
-    min_dist2 = np.finfo(float).tiny
-
-    if periodic2 is None:
-        delta = point - centers  # (n_src, 3)
-        dist2 = np.sum(delta * delta, axis=1) + eps2
-        inv_r3 = 1.0 / (
-            np.maximum(dist2, min_dist2)
-            * np.sqrt(np.maximum(dist2, min_dist2))
-        )
-        coeff = K_COULOMB * charges * inv_r3
-        return np.sum(coeff[:, None] * delta, axis=0)
-
-    from .potential import _wrap_periodic2_points
-
-    axis1, axis2 = periodic2.axes
-    l1, l2 = periodic2.lengths
-    pt = _wrap_periodic2_points(
-        point.reshape(1, 3),
-        axes=periodic2.axes,
-        lengths=periodic2.lengths,
-        origins=periodic2.origins,
-    )[0]
-
-    efield = np.zeros(3, dtype=float)
-    for ix in range(-periodic2.image_layers, periodic2.image_layers + 1):
-        for iy in range(-periodic2.image_layers, periodic2.image_layers + 1):
-            shifted = centers.copy()
-            shifted[:, axis1] += float(ix) * l1
-            shifted[:, axis2] += float(iy) * l2
-            delta = pt - shifted
-            dist2 = np.sum(delta * delta, axis=1) + eps2
-            inv_r3 = 1.0 / (
-                np.maximum(dist2, min_dist2)
-                * np.sqrt(np.maximum(dist2, min_dist2))
-            )
-            coeff = K_COULOMB * charges * inv_r3
-            efield += np.sum(coeff[:, None] * delta, axis=0)
-
-    return efield
-
-
-# ---------------------------------------------------------------------------
-# 3D field-line plotting
-# ---------------------------------------------------------------------------
+def _unit_field(kernel: FieldKernel, point: np.ndarray) -> np.ndarray | None:
+    field = kernel.eval_e(np.asarray(point, dtype=float).reshape(1, 3))[0]
+    magnitude = float(np.linalg.norm(field))
+    if not np.isfinite(magnitude) or magnitude < 1.0e-30:
+        return None
+    return field / magnitude
 
 
 def plot_field_lines_3d(
@@ -418,7 +221,6 @@ def plot_field_lines_3d(
     *,
     ds: float | None = None,
     max_steps: int = 500,
-    softening: float | None = None,
     periodic2: Mapping[str, object] | None = None,
     direction: str = "both",
     box_min: Iterable[float] | None = None,
@@ -433,134 +235,117 @@ def plot_field_lines_3d(
     view_azim: float = -58.0,
     title: str = "Electric field lines",
     figsize: tuple[float, float] = (9, 7),
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ):
-    """Plot 3D electric field lines with optional surface mesh overlay.
-
-    Parameters
-    ----------
-    result : FortranRunResult or Beach-like object
-        Run result.
-    seed_points : numpy.ndarray
-        Starting points with shape ``(n_seeds, 3)``.
-    ds : float or None
-        Integration step size.
-    max_steps : int
-        Maximum steps per direction.
-    softening : float or None
-        Softening length.
-    periodic2 : mapping or None
-        Periodic boundary setting.
-    direction : {"both", "forward", "backward"}
-        Tracing direction.
-    box_min, box_max : iterable of float or None
-        Bounding box for line termination.
-    show_mesh : bool, default True
-        Whether to overlay the triangle mesh.
-    mesh_alpha : float, default 0.25
-        Mesh face transparency.
-    mesh_cmap : str, default "coolwarm"
-        Colormap for mesh surface charge density.
-    line_color : str or None, default None
-        Fixed color for field lines. ``None`` で各力線を ``line_cmap`` で
-        色分けする。
-    line_cmap : str, default "plasma"
-        Colormap used when ``line_color`` is ``None``.
-    line_width : float, default 1.2
-        Line width.
-    view_elev : float, default 24.0
-        Elevation angle.
-    view_azim : float, default -58.0
-        Azimuth angle.
-    title : str, default "Electric field lines"
-        Plot title.
-    figsize : tuple of float, default (9, 7)
-        Figure size.
-
-    Returns
-    -------
-    tuple
-        ``(figure, axes)`` from matplotlib.
-    """
+    """Plot native triangle-P0 field lines and an optional surface mesh."""
 
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    from .mesh import (
-        _configure_mesh_axes,
-        _surface_charge_density,
-    )
+    from .mesh import _configure_mesh_axes, _surface_charge_density
 
-    context = RunContext.from_value(result)
+    context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
     lines = trace_field_lines(
         context,
         seed_points,
         ds=ds,
         max_steps=max_steps,
-        softening=softening,
         periodic2=periodic2,
         direction=direction,
         box_min=box_min,
         box_max=box_max,
+        config_path=config_path,
+        library_path=library_path,
     )
-
+    triangles = _require_triangles(resolved)
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111, projection="3d")
-
-    triangles = _require_triangles(resolved)
-
-    # Optionally draw the mesh
     if show_mesh:
-        charges = resolved.charges
-        scd = _surface_charge_density(charges, triangles)
-        max_abs = float(np.max(np.abs(scd)))
-        if max_abs <= np.finfo(float).tiny:
-            max_abs = 1.0
+        density = _surface_charge_density(resolved.charges, triangles)
+        max_abs = max(float(np.max(np.abs(density))), np.finfo(float).tiny)
         norm = plt.Normalize(vmin=-max_abs, vmax=max_abs)
-        sm = plt.cm.ScalarMappable(norm=norm, cmap=mesh_cmap)
-        facecolors = sm.to_rgba(scd)
+        mapper = plt.cm.ScalarMappable(norm=norm, cmap=mesh_cmap)
+        facecolors = mapper.to_rgba(density)
         facecolors[:, 3] = mesh_alpha
-        mesh_coll = Poly3DCollection(
-            triangles,
-            facecolors=facecolors,
-            edgecolor=(0.0, 0.0, 0.0, 0.15),
-            linewidth=0.2,
+        ax.add_collection3d(
+            Poly3DCollection(
+                triangles,
+                facecolors=facecolors,
+                edgecolor=(0.0, 0.0, 0.0, 0.15),
+                linewidth=0.2,
+            )
         )
-        ax.add_collection3d(mesh_coll)
 
-    # Draw field lines
-    n_lines = len(lines)
-    if line_color is not None:
-        colors = [line_color] * n_lines
-    else:
+    if line_color is None:
         cmap = plt.get_cmap(line_cmap)
-        colors = [cmap(i / max(n_lines - 1, 1)) for i in range(n_lines)]
-
-    for line, c in zip(lines, colors):
+        colors = [
+            cmap(index / max(len(lines) - 1, 1))
+            for index in range(len(lines))
+        ]
+    else:
+        colors = [line_color] * len(lines)
+    for line, color in zip(lines, colors):
         if line.shape[0] < 2:
             continue
-        ax.plot(line[:, 0], line[:, 1], line[:, 2], color=c, linewidth=line_width)
-        # Arrow at midpoint
-        mid = line.shape[0] // 2
-        if mid > 0 and mid < line.shape[0] - 1:
+        ax.plot(
+            line[:, 0],
+            line[:, 1],
+            line[:, 2],
+            color=color,
+            linewidth=line_width,
+        )
+        midpoint = line.shape[0] // 2
+        if 0 < midpoint < line.shape[0] - 1:
+            delta = line[midpoint + 1] - line[midpoint]
             ax.quiver(
-                line[mid, 0], line[mid, 1], line[mid, 2],
-                line[mid + 1, 0] - line[mid, 0],
-                line[mid + 1, 1] - line[mid, 1],
-                line[mid + 1, 2] - line[mid, 2],
-                color=c,
+                *line[midpoint],
+                *delta,
+                color=color,
                 arrow_length_ratio=0.4,
                 linewidth=line_width * 1.5,
             )
 
-    # Draw seed points
     seeds = np.asarray(seed_points, dtype=float)
     if seeds.ndim == 1:
         seeds = seeds.reshape(1, 3)
-    ax.scatter(seeds[:, 0], seeds[:, 1], seeds[:, 2],
-               c="red", s=20, zorder=5, depthshade=False)
-
-    _configure_mesh_axes(ax, triangles, view_elev=view_elev, view_azim=view_azim)
+    ax.scatter(
+        seeds[:, 0],
+        seeds[:, 1],
+        seeds[:, 2],
+        c="red",
+        s=20,
+        zorder=5,
+        depthshade=False,
+    )
+    _configure_mesh_axes(
+        ax,
+        triangles,
+        view_elev=view_elev,
+        view_azim=view_azim,
+    )
     ax.set_title(title)
     fig.tight_layout()
     return fig, ax
+
+
+def _points(value: np.ndarray) -> np.ndarray:
+    points = np.asarray(value, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError("points must have shape (n_points, 3).")
+    if not np.all(np.isfinite(points)):
+        raise ValueError("points must contain finite values.")
+    return points
+
+
+def _optional_vec3(
+    value: Iterable[float] | None,
+    name: str,
+) -> np.ndarray | None:
+    if value is None:
+        return None
+    vector = np.asarray(list(value), dtype=float)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        raise ValueError(f"{name} must contain exactly three finite values.")
+    return vector

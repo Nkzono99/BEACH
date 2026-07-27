@@ -219,8 +219,6 @@ class _FakeProbe:
 
 
 class _FakeSnapshot:
-    source_model = "point"
-
     def __init__(self, step: int | None = None) -> None:
         self.step = step
 
@@ -651,7 +649,7 @@ absorbed=0
 escaped=0
 batches=1
 last_rel_change=0.0
-field_source_model=point
+field_source_model=triangle_p0
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -672,7 +670,6 @@ field_source_model=point
         """
 [sim]
 field_bc_mode = "free"
-softening = 0.05
 box_min = [-2.0, -2.0, -2.0]
 box_max = [2.0, 2.0, 2.0]
 e0 = [0.0, 0.0, 0.0]

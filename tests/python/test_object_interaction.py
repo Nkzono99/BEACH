@@ -15,9 +15,6 @@ from beach import (
     ObjectInteractionSnapshot,
     RigidTransform,
 )
-from beach.fortran_results.constants import K_COULOMB
-
-
 def _kernel_lib() -> Path:
     path = Path("build/libbeach_field_kernel.so")
     if not path.exists():
@@ -43,7 +40,7 @@ def _result(
     charges: np.ndarray,
     mesh_ids: np.ndarray,
     *,
-    source_model: str = "point",
+    source_model: str = "triangle_p0",
 ) -> FortranRunResult:
     return FortranRunResult(
         directory=directory,
@@ -67,7 +64,6 @@ def _write_free_config(path: Path) -> None:
         """
 [sim]
 field_bc_mode = "free"
-softening = 0.0
 box_min = [-2.0, -2.0, -2.0]
 box_max = [2.0, 2.0, 2.0]
 e0 = [0.0, 0.0, 0.0]
@@ -82,8 +78,17 @@ def _write_periodic_config(
     *,
     far_correction: str,
     outer_model: str | None = None,
+    lower_boundary_model: str = "e_bottom_zero",
 ) -> None:
     outer = "" if outer_model is None else f'\n[outer_plasma]\nmodel = "{outer_model}"\n'
+    periodic_policy = ""
+    if far_correction == "cached_kneq0":
+        periodic_policy = (
+            "\n[periodic2]\n"
+            'nonzero_mode_backend = "cached_kneq0"\n'
+            'zero_mode_policy = "exclude_k0"\n'
+            f'lower_boundary_model = "{lower_boundary_model}"\n'
+        )
     path.write_text(
         (
             """
@@ -103,6 +108,7 @@ field_periodic_generation_tolerance = 1.0e-8
 e0 = [7.0, 8.0, 9.0]
 """.strip()
             + f'\nfield_periodic_far_correction = "{far_correction}"\n'
+            + periodic_policy
             + outer
         ),
         encoding="utf-8",
@@ -157,11 +163,8 @@ def test_free_two_object_force_is_coulomb_action_reaction(tmp_path: Path) -> Non
             torque_origin=shifted_origin
         )
 
-    delta = positions[0] - positions[1]
-    expected = K_COULOMB * charges[0] * charges[1] * delta / np.linalg.norm(delta) ** 3
-    np.testing.assert_allclose(first.force_N, expected, rtol=2.0e-14, atol=1.0e-20)
-    np.testing.assert_allclose(second.force_N, -expected, rtol=2.0e-14, atol=1.0e-20)
-    np.testing.assert_allclose(first.torque_Nm, np.cross(positions[0], expected), atol=1.0e-20)
+    assert first.force_N[0] < 0.0
+    np.testing.assert_allclose(second.force_N, -first.force_N, rtol=1.0e-12, atol=1.0e-20)
     np.testing.assert_allclose(
         first_shifted.torque_Nm,
         first.torque_Nm - np.cross(shifted_origin, first.force_N),
@@ -175,15 +178,15 @@ class _FakeFieldKernel:
 
     def __init__(
         self,
-        source_positions: np.ndarray,
+        source_triangles: np.ndarray,
         source_charges: np.ndarray,
         *,
         options,
         library_path=None,
-        source_triangles=None,
     ) -> None:
-        del library_path, source_triangles
-        self.source_positions = np.array(source_positions, copy=True)
+        del library_path
+        self.source_triangles = np.array(source_triangles, copy=True)
+        self.source_positions = self.source_triangles.mean(axis=1)
         self.current = np.array(source_charges, copy=True)
         self.options = options
         self.closed = False
@@ -239,6 +242,8 @@ class _FakeZeroMode:
         source_heights_m: np.ndarray,
         source_charges_C: np.ndarray,
         area_xy_m2: float,
+        *,
+        e_bottom_V_m: float = 0.0,
         **_kwargs,
     ) -> None:
         if type(self).forbidden:
@@ -246,14 +251,26 @@ class _FakeZeroMode:
         self.source_heights_m = np.array(source_heights_m, copy=True)
         self.current = np.array(source_charges_C, copy=True)
         self.area_xy_m2 = area_xy_m2
+        self.default_e_bottom_V_m = float(e_bottom_V_m)
         self.closed = False
         self.update_history = [self.current.copy()]
+        self.e_bottom_history = [self.default_e_bottom_V_m]
         self.trace_history: list[str] = []
         type(self).instances.append(self)
 
-    def update_charges(self, charges: np.ndarray) -> None:
+    def update_charges(
+        self,
+        charges: np.ndarray,
+        *,
+        e_bottom_V_m: float | None = None,
+    ) -> None:
         self.current = np.array(charges, copy=True)
         self.update_history.append(self.current.copy())
+        self.e_bottom_history.append(
+            self.default_e_bottom_V_m
+            if e_bottom_V_m is None
+            else float(e_bottom_V_m)
+        )
 
     def eval(self, z_m: np.ndarray, trace: str = "principal_value"):
         assert trace in {"principal_value", "plus"}
@@ -580,6 +597,162 @@ def test_active_outer_model_rejected_before_native_construction(
     assert fake_field.instances == []
 
 
+def test_active_external_boundary_field_rejected_before_native_construction(
+    tmp_path: Path,
+    fake_native,
+) -> None:
+    fake_field, _ = fake_native
+    config = tmp_path / "beach.toml"
+    _write_periodic_config(config, far_correction="cached_kneq0")
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + '\n[external_boundary.field]\nmodel = "kinetic_1d"\n',
+        encoding="utf-8",
+    )
+    result = _result(
+        tmp_path,
+        np.array([[1.0, 1.0, 1.0]]),
+        np.array([1.0]),
+        np.array([1]),
+    )
+
+    with pytest.raises(ValueError, match="external_boundary.field"):
+        ObjectInteractionSnapshot.from_result(result, config_path=config)
+
+    assert fake_field.instances == []
+
+
+@pytest.mark.parametrize(
+    ("lower_boundary_model", "factor"),
+    [
+        ("e_bottom_zero", 0.0),
+        ("symmetric_vacuum", -1.0 / (2.0 * interaction_module._EPS0_F_M * 16.0)),
+    ],
+)
+def test_cached_zero_mode_updates_bottom_field_for_each_charge_subset(
+    tmp_path: Path,
+    fake_native,
+    lower_boundary_model: str,
+    factor: float,
+) -> None:
+    config = tmp_path / "beach.toml"
+    _write_periodic_config(
+        config,
+        far_correction="cached_kneq0",
+        lower_boundary_model=lower_boundary_model,
+    )
+    result = _result(
+        tmp_path,
+        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
+        np.array([1.0, 2.0]),
+        np.array([1, 2]),
+    )
+
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=config,
+    ) as snapshot:
+        snapshot.object_probe(1).wrench()
+
+    zero = _FakeZeroMode.instances[0]
+    np.testing.assert_allclose(
+        zero.e_bottom_history,
+        factor * np.array([3.0, 2.0, 1.0, 3.0]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("remove_text", "message"),
+    [
+        ("[periodic2]", r"explicit \[periodic2\]"),
+        ('nonzero_mode_backend = "cached_kneq0"\n', "nonzero_mode_backend"),
+        ('zero_mode_policy = "exclude_k0"\n', "zero_mode_policy"),
+        ('lower_boundary_model = "e_bottom_zero"\n', "lower_boundary_model"),
+    ],
+)
+def test_cached_zero_mode_policy_is_explicit_and_fails_before_native_construction(
+    tmp_path: Path,
+    fake_native,
+    remove_text: str,
+    message: str,
+) -> None:
+    fake_field, _ = fake_native
+    config = tmp_path / "beach.toml"
+    _write_periodic_config(config, far_correction="cached_kneq0")
+    text = config.read_text(encoding="utf-8")
+    if remove_text == "[periodic2]":
+        text = text.split("\n[periodic2]\n", maxsplit=1)[0] + "\n"
+    else:
+        text = text.replace(remove_text, "")
+    config.write_text(text, encoding="utf-8")
+    result = _result(
+        tmp_path,
+        np.array([[1.0, 1.0, 1.0]]),
+        np.array([1.0]),
+        np.array([1]),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        ObjectInteractionSnapshot.from_result(result, config_path=config)
+
+    assert fake_field.instances == []
+
+
+@pytest.mark.parametrize(
+    ("key", "configured", "unsupported", "message"),
+    [
+        (
+            "nonzero_mode_backend",
+            "cached_kneq0",
+            "panel_spectral_reference",
+            "nonzero_mode_backend",
+        ),
+        (
+            "zero_mode_policy",
+            "exclude_k0",
+            "legacy_not_decomposed",
+            "zero_mode_policy",
+        ),
+        (
+            "lower_boundary_model",
+            "e_bottom_zero",
+            "dielectric_half_space",
+            "lower_boundary_model",
+        ),
+    ],
+)
+def test_cached_zero_mode_rejects_unsupported_policy_before_native_construction(
+    tmp_path: Path,
+    fake_native,
+    key: str,
+    configured: str,
+    unsupported: str,
+    message: str,
+) -> None:
+    fake_field, _ = fake_native
+    config = tmp_path / "beach.toml"
+    _write_periodic_config(config, far_correction="cached_kneq0")
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            f'{key} = "{configured}"',
+            f'{key} = "{unsupported}"',
+        ),
+        encoding="utf-8",
+    )
+    result = _result(
+        tmp_path,
+        np.array([[1.0, 1.0, 1.0]]),
+        np.array([1.0]),
+        np.array([1]),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        ObjectInteractionSnapshot.from_result(result, config_path=config)
+
+    assert fake_field.instances == []
+
+
 def test_missing_full_config_fails_closed_before_native_construction(
     tmp_path: Path,
     fake_native,
@@ -713,15 +886,16 @@ def test_failed_close_can_be_retried_without_reusing_partial_snapshot(
 
 def test_numpy_wrench_aggregation_matches_native_force_on_charges() -> None:
     source_positions = np.array([[0.0, 0.0, 0.0], [0.5, -0.2, 0.3]])
+    source_triangles = _triangles_at(source_positions)
     source_charges = np.array([1.0e-9, -0.5e-9])
     target_positions = np.array([[0.3, 0.4, 0.5], [-0.2, 0.1, 0.7]])
     target_charges = np.array([2.0e-9, -3.0e-9])
     origin = np.array([0.1, -0.1, 0.2])
 
     with FieldKernel(
-        source_positions,
+        source_triangles,
         source_charges,
-        options=FieldKernelOptions(softening=0.05),
+        options=FieldKernelOptions(),
         library_path=_kernel_lib(),
     ) as kernel:
         field = kernel.eval_e(target_positions)
@@ -953,7 +1127,7 @@ def test_periodic_full_cell_plane_uses_concentration_fallback(
         charges=np.ones(saved.shape[0]),
         triangles=saved,
         mesh_ids=np.ones(saved.shape[0], dtype=np.int64),
-        field_source_model="point",
+        field_source_model="triangle_p0",
     )
 
     with ObjectInteractionSnapshot.from_result(

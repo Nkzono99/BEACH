@@ -1,18 +1,18 @@
 !> 疎結合 Coulomb FMM コア基本テスト: P2M/M2M, free-space 精度, softening, dual tree, state reuse, adapter。
 program test_coulomb_fmm_core_basic
-  use bem_constants, only: k_coulomb
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
+  use bem_types, only: mesh_type, sim_config
   use bem_templates, only: make_sphere
-  use bem_field, only: electric_field_at
   use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, eval_point, &
                                   destroy_plan, destroy_state
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
+  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
   implicit none
 
-  call test_init(7)
+  call test_init(6)
 
   call test_begin('p2m_m2m_root_moments')
   call test_p2m_m2m_root_moments()
@@ -36,10 +36,6 @@ program test_coulomb_fmm_core_basic
 
   call test_begin('field_solver_core_adapter')
   call test_field_solver_core_adapter()
-  call test_end()
-
-  call test_begin('field_solver_core_softened_adapter')
-  call test_field_solver_core_softened_adapter()
   call test_end()
 
   call test_summary()
@@ -235,21 +231,21 @@ contains
     integer(i32) :: i, valid_count
 
     call make_sphere(mesh_fmm, radius=0.35d0, n_lon=12_i32, n_lat=6_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_fmm)
     mesh_fmm%q_elem = 1.0d-12
 
     sim = sim_config()
     sim%field_solver = 'fmm'
     sim%field_bc_mode = 'free'
-    sim%softening = 0.0d0
     call solver%init(mesh_fmm, sim)
-    call assert_true(solver%fmm_use_core, 'softening=0 free FMM should use the core path')
+    call assert_true(solver%fmm_use_core, 'triangle P0 free FMM should use the core path')
     call solver%refresh(mesh_fmm)
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
     do i = 1_i32, 4_i32
       r = [1.2d0 + 0.1d0*real(i - 1_i32, dp), -0.8d0 + 0.2d0*real(i - 1_i32, dp), 0.9d0 - 0.1d0*real(i - 1_i32, dp)]
-      call electric_field_at(mesh_fmm, r, 0.0d0, e_direct)
+      call panel_field_at(mesh_fmm, r, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
       norm_ref = sqrt(sum(e_direct*e_direct))
       if (norm_ref <= 1.0d-16) cycle
@@ -261,41 +257,6 @@ contains
     call assert_true(valid_count == 4_i32, 'core adapter test lost valid samples')
     call assert_true(max_rel_err <= 5.0d-3, 'core adapter relative error exceeds 5e-3')
   end subroutine test_field_solver_core_adapter
-
-  subroutine test_field_solver_core_softened_adapter()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
-    real(dp) :: r(3), e_direct(3), e_fmm(3), rel_err, norm_ref, max_rel_err
-    integer(i32) :: i, valid_count
-
-    call make_sphere(mesh_fmm, radius=0.35d0, n_lon=12_i32, n_lat=6_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    mesh_fmm%q_elem = 1.0d-12
-
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'free'
-    sim%softening = 1.0d-4
-    call solver%init(mesh_fmm, sim)
-    call assert_true(solver%fmm_use_core, 'softening>0 free FMM should use the core path')
-    call solver%refresh(mesh_fmm)
-
-    max_rel_err = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, 4_i32
-      r = [1.2d0 + 0.1d0*real(i - 1_i32, dp), -0.8d0 + 0.2d0*real(i - 1_i32, dp), 0.9d0 - 0.1d0*real(i - 1_i32, dp)]
-      call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
-      call solver%eval_e(mesh_fmm, r, e_fmm)
-      norm_ref = sqrt(sum(e_direct*e_direct))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_ref
-      max_rel_err = max(max_rel_err, rel_err)
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 4_i32, 'softened core adapter test lost valid samples')
-    call assert_true(max_rel_err <= 5.0d-3, 'softened core adapter relative error exceeds 5e-3')
-  end subroutine test_field_solver_core_softened_adapter
 
   subroutine make_free_sources(src_pos, q)
     real(dp), allocatable, intent(out) :: src_pos(:, :)
@@ -373,6 +334,35 @@ contains
       e = e + q(idx)*inv_r3*d
     end do
   end subroutine direct_field_free
+
+  subroutine mark_normal_plus(mesh)
+    type(mesh_type), intent(inout) :: mesh
+
+    mesh%elem_vacuum_sign = 1_i32
+    mesh%vacuum_normals = mesh%normals
+  end subroutine mark_normal_plus
+
+  subroutine panel_field_at(mesh, target, field)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(out) :: field(3)
+
+    type(panel_geometry_type) :: geometry
+    real(dp) :: source_potential, source_field(3)
+    integer(i32) :: element, status
+
+    field = 0.0_dp
+    do element = 1_i32, mesh%nelem
+      call init_panel_geometry( &
+        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
+        )
+      if (status /= panel_geometry_ok) error stop 'FMM adapter test received invalid panel geometry.'
+      call panel_potential_field( &
+        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
+        )
+      field = field + source_field
+    end do
+  end subroutine panel_field_at
 
   subroutine build_powers(d, order, xpow, ypow, zpow)
     real(dp), intent(in) :: d(3)

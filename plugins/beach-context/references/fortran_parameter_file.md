@@ -77,14 +77,13 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 
 ## TOML の階層とセクション一覧
 
-`[sim]`、`[field]`、`[particles]`、`[mesh]`、`[periodic2]`、`[external_boundary]`、
+`[sim]`、`[particles]`、`[mesh]`、`[periodic2]`、`[external_boundary]`、
 `[output]` が通常の公開構成です。旧 `[outer_plasma]` と `[coupling]` は互換入力として残りますが、
 `[external_boundary]` とは混在できません。ネスト関係は次のとおりです。
 
 ```text
 beach.toml
 ├── [sim]
-├── [field]
 ├── [particles]
 │   └── [[particles.species]]       # 1 件以上の array-of-tables
 ├── [mesh]
@@ -106,7 +105,6 @@ beach.toml
 | TOML table | 親 | 件数・必須条件 | 内容 |
 |---|---|---|---|
 | `[sim]` | root | 条件付き | 時間刻み、バッチ数、場ソルバ、境界、外部場、シース補正 |
-| `[field]` | root | 任意 | 要素電荷の離散化 kernel |
 | `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
 | `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
 | `[mesh]` | root | 任意 | OBJ または組み込み template の選択 |
@@ -155,20 +153,20 @@ beach.toml
 | `direct` | 要素数が小さい場合の厳密な全対全評価、split reference | `free`、または条件を満たす`periodic2` split reference |
 | `treecode` | 中規模以上の近似評価 | `field_bc_mode="free"` |
 | `fmm` | 大規模評価、`periodic2`、FMM コア検証 | `field_bc_mode="free"` / `"periodic2"` |
-| `auto` | point は direct / treecode、triangle P0 は direct / FMM を要素数で自動選択 | `field_bc_mode="free"` |
+| `auto` | 要素数に応じて direct / FMM を自動選択 | `field_bc_mode="free"` |
 
-solver、kernel、場境界の組合せは[場の評価の互換表](FieldSolvers.html#solverと場境界の互換表)で確認できます。
+solverと場境界の組合せは[場の評価の互換表](FieldSolvers.html#solverと場境界の互換表)で確認できます。
+要素電荷は常に三角形上の一定面密度（P0 panel）として評価され、設定でkernelを選択しません。
 
 共通キー:
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `softening` | float | `1.0e-6` | point kernel の softening 長さ [m]。`triangle_p0` では `0` が必須 |
 | `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
 | `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` で使う長さスケール [m] |
 
-`field_normalization` は場計算内部の座標・softening・周期 cell の正規化だけを変えます。
+`field_normalization` は場計算内部の座標と周期 cell の正規化だけを変えます。
 出力される電場・電位は SI に戻されます。
 
 | `field_normalization` | 長さスケール |
@@ -186,22 +184,20 @@ solver、kernel、場境界の組合せは[場の評価の互換表](FieldSolver
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"direct"` を指定 |
-| `softening` | float | `1.0e-6` | point source の特異性を緩和。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | direct 評価前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
-| `field_bc_mode` | string | `"free"` | 通常は`free`。`triangle_p0`のsplit referenceだけ`periodic2`を使用可能 |
+| `field_bc_mode` | string | `"free"` | 通常は`free`。panel split referenceだけ`periodic2`を使用可能 |
 
 `tree_theta`、`tree_leaf_max`、`tree_min_nelem` は `direct` では使いません。
 
 ##### `field_solver = "treecode"`
 
-source octree を作り、遠方 node は monopole 近似、近傍 node は選択した source kernel の direct 和で評価します。
+source octree を作り、遠方 node は monopole 近似、近傍 node は解析的 panel kernel で評価します。
 FMM のような local expansion は使わず、評価点ごとに木を走査します。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"treecode"` を指定 |
-| `softening` | float | `1.0e-6` | point の近傍 direct 和と monopole 評価の softening。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | tree 構築前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `tree_theta` | float | `0.5` | MAC パラメータ。`0 < theta <= 1`。大きいほど速く粗い |
@@ -220,7 +216,6 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"fmm"` を指定 |
-| `softening` | float | `1.0e-6` | point source の近傍 direct 和と FMM 評価に使用。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | FMM plan 構築前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `tree_theta` | float | `0.5` | near/far 判定の MAC パラメータ。`0 < theta <= 1` |
@@ -238,18 +233,16 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 
 ##### `field_solver = "auto"`
 
-`element_kernel="point"` は要素数が `tree_min_nelem` 未満なら direct、以上なら treecode を使います。
-`element_kernel="triangle_p0"` は同じしきい値で direct / FMM を選びます。
+要素数が `tree_min_nelem` 未満なら direct、以上なら FMM を使います。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `field_solver` | string | `"auto"` | `"auto"` を指定 |
-| `softening` | float | `1.0e-6` | point の direct / treecode に使用。`triangle_p0` は `0` |
 | `field_normalization` | string | `"si"` | 自動選択前に共通で使う正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
-| `tree_min_nelem` | int | `256` | treecode へ切り替える要素数しきい値。`>= 1` |
-| `tree_theta` | float | `0.5` | treecode 選択時の MAC パラメータ |
-| `tree_leaf_max` | int | `16` | treecode 選択時の葉 node あたり最大 source 数 |
+| `tree_min_nelem` | int | `256` | FMM へ切り替える要素数しきい値。`>= 1` |
+| `tree_theta` | float | `0.5` | FMM 選択時の near/far MAC パラメータ |
+| `tree_leaf_max` | int | `16` | FMM 選択時の葉 node あたり最大 source 数 |
 | `field_bc_mode` | string | `"free"` | `auto` では `"free"` のみ |
 
 `tree_theta` と `tree_leaf_max` は、明示指定がなければ要素数から次の値を使います。
@@ -307,7 +300,7 @@ field_evolution_timescale = 1.0
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `model` | string | 必須 | `none` / `kinetic_1d` |
-| `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `zhao_charge_driven` |
+| `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | `zhao_charge_driven` のみ。`auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | float | `1` | `zhao_charge_driven` の解析光電子 source 倍率。UV なしは `0` |
 | `photoelectron_density_model` | string | `none` | `kinetic_1d + absorbing_maxwellian` の任意平均密度。`none` / `kinetic_mean` |
@@ -327,6 +320,7 @@ field_evolution_timescale = 1.0
 |---|---|---|
 | `none` | `model` のみ | 追加不可 |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`、`photoelectron_density_model`、gap / local-charge 上限 |
+| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | gap / local-charge 上限。光電子はtracked sourceだけ |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`、必要な `sim.sheath_*` 物理値 | source scale / branch、gap / local-charge 上限 |
 
 `kinetic_closure="zhao_charge_driven"` でも `debye_length` と `thermal_voltage` は schema 上必須ですが、
@@ -420,11 +414,11 @@ facade では `interface_z` と `return_model` を自動導出します。旧 `[
 |---|---:|---|
 | `model` | 必須 | `kinetic_1d` |
 | `interface_z` | 必須 | z 上側 interface。初期モデルでは box 上面 |
-| `debye_length` | 必須 | `absorbing_maxwellian` tailとsplit診断の長さscale。Zhao profileの物理scaleではない |
+| `debye_length` | 必須 | `absorbing_maxwellian` tail、`ambient_linear_debye`の物理scale、split診断の長さscale。Zhao profileの物理scaleではない |
 | `thermal_voltage` | 必須 | interfaceの非零モード電位・電場減衰診断に使う電位scale。Zhao profileの物理scaleではない |
 | `max_gap_ratio` | `5` | `(z_t-z_mesh,max)/lambda` 上限 |
 | `max_local_charge_ratio` | `50` | 局所平均 plasma 電荷推定比上限 |
-| `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` の density/VDF closure。`absorbing_maxwellian` / `zhao_charge_driven` |
+| `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` closure。`absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure の branch。`auto` / `a` / `b` / `c` |
 | `photoelectron_source_scale` | `1` | Zhao解析光電子sourceの独立倍率。UVなしは`0`。queue occupancyの$\eta$とは別物 |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は `kinetic_1d` へ平均光電子密度を追加 |
@@ -440,11 +434,11 @@ z-high に定義した負電荷と正電荷の `reservoir_face` species を、�
 | 項目 | 仕様 |
 | --- | --- |
 | gauge | `phi(infinity)=0`。公開・互換入力では変更不可 |
-| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。光電子ありZhao instantは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$、no-photo Zhaoはambient $T_e,n_\infty$から導出した$\lambda_{D,e}$、queueは$L=10\lambda_{D,pe}$の有限reservoir境界を使う |
-| closure | 既定の `absorbing_maxwellian`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
-| supported branch | `absorbing_maxwellian` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
-| unsupported | `absorbing_maxwellian` では virtual cathode、trapped population、sub-Bohm inflow |
-| nonlinear solve | 解析bordered-tridiagonal Jacobian + branch-preserving Newton |
+| far boundary | `absorbing_maxwellian`は`debye_length`のRobin tail。`ambient_linear_debye`は同じ長さの解析指数tail。光電子ありZhao instantは$T_{pe}$と$n_{ref}$から導出した$\lambda_{D,pe}$、no-photo Zhaoはambient $T_e,n_\infty$から導出した$\lambda_{D,e}$、queueは$L=10\lambda_{D,pe}$の有限reservoir境界を使う |
+| closure | 既定の `absorbing_maxwellian`、ambientだけの解析的 `ambient_linear_debye`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
+| supported branch | `absorbing_maxwellian` と `ambient_linear_debye` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
+| unsupported | `ambient_linear_debye` は光電子平均密度・非線形 sheath・virtual cathode・trapped populationを扱わない |
+| nonlinear solve | `ambient_linear_debye` は反復なし。他は closure 固有の root / Newton |
 | recovery | pseudo-transientとinterface-field continuation。元のPoisson residual合格後だけ受理 |
 | fallback | 別sheath modelや前回解へfallbackしない |
 
@@ -693,7 +687,7 @@ facade 使用時はこれら2つを書かず、`external_boundary.particles` と
 （互換runtimeでは`reservoir_potential_model="infinity_barrier"`）:
 
 - 各 batch 冒頭で更新した電場・電位から、注入面平均電位を評価します。
-- point / `triangle_p0` kernel、periodic2、zero mode、outer profile、`e0` は粒子運動と同じ規約で含めます。
+- P0 panel kernel、periodic2、zero mode、outer profile、`e0` は粒子運動と同じ規約で含めます。
 - 同じ `N x N` 格子で母標準偏差・最小・最大も集計します。この診断による追加の電位評価はありません。
 - Maxwellian reservoir で `abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)` なら、
   MPI root が初回と最終 batch に面平均近似の警告を出します。
@@ -858,15 +852,17 @@ open面では`external_boundary.ordinary_open.model`、z-high interfaceでは
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `mode` | string | `"auto"` | `auto` / `obj` / `template` |
+| `mode` | string | `"template"` | `auto` / `obj` / `template` |
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ ファイルパス |
 | `surface_model` | string | `"insulator"` | OBJ 全体の表面モデル |
+| `surface_side` | string | `mode="obj"`または`"auto"`で必須 | OBJ panelの真空側: `normal_plus` / `normal_minus` / `outward_closed` |
 | `epsilon_r` | float | `1.0` | OBJ 全体の相対誘電率。`>= 1` |
 | `obj_scale` | float | `1.0` | OBJ 読み込み後の一様スケール |
 | `obj_rotation` | float[3] | `[0,0,0]` | OBJ 読み込み後の回転角 [deg] |
 | `obj_offset` | float[3] | `[0,0,0]` | OBJ 読み込み後の平行移動 [m] |
 
-`mode="auto"` では、`obj_path` が存在すれば OBJ、なければ template を使います。
+`mode="auto"` では、`obj_path` が存在すれば OBJ、なければ template を使います。どちらを選んでも
+設定が妥当になるよう、`auto`でもOBJ用の`surface_side`を必ず指定します。
 OBJ 変換順序は `scale -> rotate -> offset` です。
 
 ```text
@@ -896,7 +892,7 @@ OBJ の対応範囲:
 | `enabled` | bool | `true` | template を有効化 |
 | `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
 | `surface_model` | string | `"insulator"` | `insulator` / `conductor` / `dielectric` |
-| `surface_side` | string | 未指定 | `triangle_p0` の真空側: `normal_plus` / `normal_minus` / `outward_closed` |
+| `surface_side` | string | `enabled=true` で必須 | panel の真空側: `normal_plus` / `normal_minus` / `outward_closed` |
 | `epsilon_r` | float | `1.0` | 相対誘電率。`>= 1` |
 | `center` | float[3] | `[0,0,0]` | 形状中心 [m] |
 
@@ -1044,17 +1040,16 @@ z 軸方向の円柱です。
 
 ---
 
-### `[field]`: 要素核
+### 要素 source の固定規則
 
-`element_kernel="point"` が互換既定値です。`sim.softening` はこの point kernel に適用します。
-
-`element_kernel="triangle_p0"` の規則:
+要素 source は暗黙の P0 triangle panel に固定されています。旧 `[field]` table と
+`sim.softening` は削除されており、入力に残すと unknown table / key として停止します。
 
 | 項目 | 規則 |
 | --- | --- |
 | source | 各 `q_elem` を三角形上の一様な面電荷密度として扱う |
 | solver | `direct` / `treecode` / `fmm` / `auto`。`auto` は `tree_min_nelem` で direct / FMM を選ぶ |
-| 必須条件 | `sim.softening=0`、全表面が `insulator` |
+| 対象表面 | `insulator` / `conductor` / `dielectric` の共通 source 離散化 |
 | Treecode | 厳密 panel near + monopole far |
 | FMM | 厳密 panel near + 厳密 triangle P2M |
 | 面の向き | OBJ は `[mesh].surface_side`、template は各 `[[mesh.templates]].surface_side` を指定 |
@@ -1112,7 +1107,7 @@ z 軸方向の円柱です。
 `mesh_potential.csv` の評価規約:
 
 - 要素重心の電位 [V] を記録します。
-- 自己項は `softening > 0` なら `1/softening`、それ以外は面積等価半径近似です。
+- 自己項は解析的 P0 panel kernel で評価します。
 - `periodic2` は explicit image shell を加えます。
 - `cached_kneq0` は cached 非零モードと境界条件付き `k=0` を加えます。
 

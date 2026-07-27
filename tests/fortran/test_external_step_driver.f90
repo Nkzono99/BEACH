@@ -3,6 +3,7 @@ program test_external_step_driver
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_physics_config_types, only: outer_plasma_config, coupling_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_particle_stepper, only: &
@@ -33,11 +34,12 @@ program test_external_step_driver
   v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
   v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
   call init_mesh(mesh, v0, v1, v2, q0=[0.0_dp])
+  call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
+  call assert_equal_i32(status, panel_surface_side_ok, 'panel side fixture is invalid')
 
   sim = sim_config()
   sim%field_solver = 'direct'
   sim%field_normalization = 'si'
-  sim%softening = 0.5_dp
   sim%use_box = .true.
   sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
   sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]

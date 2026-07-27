@@ -140,7 +140,7 @@ This page converts a supplied upstream VDF and potential drop into particles. Us
 `infinity_barrier` evaluates the batch-start potential on an $N\times N$
 cell-centered grid in the aperture, where `injection_face_phi_grid_n` sets
 $N$, and uses the mean $\bar\phi_f$. It follows the same potential
-convention as the field snapshot, including the point or triangle kernel, periodic field, zero mode, outer state, and `sim.e0`,
+convention as the field snapshot, including the fixed P0 triangle kernel, periodic field, zero mode, outer state, and `sim.e0`,
 but does not solve intermediate $E(z)$, turning position, flight time, or space charge. The same evaluation accumulates the
 population standard deviation, minimum, and maximum. For a Maxwell reservoir, a large in-face variation relative to its
 characteristic energy produces a warning in the first and final batch.

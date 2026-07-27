@@ -11,7 +11,6 @@ from beach import Beach
 from ._shared import (
     configure_entry_parser,
     require_finite,
-    require_nonnegative_finite,
     require_positive_finite,
 )
 
@@ -52,16 +51,10 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         help="matplotlib colormap name (defaults: charge=coolwarm, potential=viridis)",
     )
     parser.add_argument(
-        "--potential-softening",
-        type=float,
+        "--library",
+        type=Path,
         default=None,
-        help="smoothing length [m] for potential reconstruction; default uses sim.softening when available",
-    )
-    parser.add_argument(
-        "--potential-self-term",
-        choices=("auto", "area-equivalent", "exclude", "softened-point"),
-        default="auto",
-        help="self-term treatment for potential reconstruction",
+        help="path to libbeach_field_kernel shared library",
     )
     parser.add_argument(
         "--apply-periodic2-mesh",
@@ -120,7 +113,6 @@ def run(args: argparse.Namespace) -> None:
     require_positive_finite(parser, args.fps, "--fps")
     require_positive_finite(parser, args.frame_stride, "--frame-stride")
     require_positive_finite(parser, args.total_frames, "--total-frames")
-    require_nonnegative_finite(parser, args.potential_softening, "--potential-softening")
     require_finite(parser, args.view_elev, "--view-elev")
     require_finite(parser, args.view_azim, "--view-azim")
     if args.periodic2_repeat < 0:
@@ -134,7 +126,6 @@ def run(args: argparse.Namespace) -> None:
         if args.save_gif is not None
         else output_dir / f"{args.quantity}_history.gif"
     )
-    self_term = args.potential_self_term.replace("-", "_")
     beach = Beach(output_dir)
     try:
         result = beach.result
@@ -152,12 +143,11 @@ def run(args: argparse.Namespace) -> None:
             frame_stride=args.frame_stride,
             total_frames=args.total_frames,
             cmap=args.cmap,
-            softening=args.potential_softening,
-            self_term=self_term,
             apply_periodic2_mesh=args.apply_periodic2_mesh,
             periodic2_repeat=args.periodic2_repeat,
             view_elev=args.view_elev,
             view_azim=args.view_azim,
+            library_path=args.library,
         )
     except ModuleNotFoundError as exc:
         if exc.name is not None and (

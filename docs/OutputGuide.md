@@ -99,7 +99,8 @@ Zhao過渡queueでは、`charge_ledger_outer_flight_charge_before_C`と
 `mesh_triangles.csv` の `mesh_id` と `mesh_sources.csv` を使って対象を分けます。
 
 `mesh_potential.csv` は `output.write_mesh_potential = true` の場合だけ生成され、最終時刻の要素重心電位を持ちます。
-`field_source_model="triangle_p0"` の電位を調べる場合は、Python 側で点電荷として再構成せず、このファイルを使います。
+出力済みの電位をそのまま使う場合はこのファイルを読み、任意点で再評価する場合はnative P0 panel kernelを使う
+`compute_potential_mesh` / `compute_potential_points`を使います。
 
 ## 履歴ファイル
 

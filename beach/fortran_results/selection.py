@@ -14,11 +14,12 @@ from .types import FortranRunResult, MeshSelection
 _resolve_result = resolve_result
 
 
-def _require_point_source_model(result: FortranRunResult) -> None:
-    if result.field_source_model != "point":
+def _require_triangle_source_model(result: FortranRunResult) -> None:
+    if result.field_source_model != "triangle_p0":
         raise ValueError(
-            "This Python estimator supports field_source_model=point only; "
-            f"the run uses {result.field_source_model!r}. Use simulator-written diagnostics."
+            "This operation requires field_source_model='triangle_p0'; "
+            f"the run uses {result.field_source_model!r}. "
+            "Centroid point-source reconstruction was removed."
         )
 
 

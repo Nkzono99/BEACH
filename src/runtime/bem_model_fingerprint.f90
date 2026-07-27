@@ -35,7 +35,9 @@ contains
     call feed_integer(hash, cfg%periodic2%interface_sample_n)
     call feed_real(hash, cfg%periodic2%interface_phi_tolerance)
     call feed_real(hash, cfg%periodic2%interface_field_tolerance)
-    call feed_string(hash, cfg%panel%source_model)
+    ! Preserve the former source-model slot at the only supported model so
+    ! existing triangle_p0 checkpoints keep the same ordered fingerprint.
+    call feed_string(hash, 'triangle_p0')
     call feed_string(hash, cfg%panel%kernel_id)
     call feed_string(hash, cfg%panel%surface_side_policy)
     call feed_string(hash, cfg%outer_plasma%model)
@@ -79,7 +81,8 @@ contains
     call feed_logical(hash, cfg%sim%has_batch_duration)
     call feed_real(hash, cfg%sim%batch_duration_step)
     call feed_logical(hash, cfg%sim%has_batch_duration_step)
-    call feed_real(hash, cfg%sim%softening)
+    ! Preserve the retired softening slot at the triangle_p0 contract value.
+    call feed_real(hash, 0.0_dp)
     call feed_real(hash, cfg%sim%field_length_scale)
     call feed_string(hash, cfg%sim%field_bc_mode)
     call feed_integer(hash, cfg%sim%field_periodic_image_layers)

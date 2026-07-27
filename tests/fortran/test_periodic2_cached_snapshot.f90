@@ -4,7 +4,7 @@ program test_periodic2_cached_snapshot
   use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
-  use bem_field_kernel_c, only: beach_kernel_build_panel, beach_kernel_create, beach_kernel_destroy, &
+  use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_create, beach_kernel_destroy, &
                                 beach_kernel_eval_e, beach_kernel_eval_phi, &
                                 beach_kernel_get_periodic_cache_info, beach_kernel_ok, &
                                 beach_kernel_set_periodic_cache, beach_kernel_update_charges
@@ -180,12 +180,11 @@ contains
              real(sim%field_periodic_generation_tolerance, c_double) &
              )
     call assert_c_ok(status, 'FieldKernel cache status')
-    status = beach_kernel_build_panel( &
+    status = beach_kernel_build( &
              kernel_handle, int(mesh%nelem, c_int), c_loc(panel_v0), c_loc(panel_v1), c_loc(panel_v2), &
              real(snapshot%nonzero_solver%fmm_core_options%theta, c_double), &
              int(snapshot%nonzero_solver%fmm_core_options%leaf_max, c_int), &
              int(snapshot%nonzero_solver%fmm_core_options%order, c_int), &
-             real(snapshot%nonzero_solver%fmm_core_options%softening, c_double), &
              1_c_int, c_loc(periodic_axes), c_loc(periodic_length), &
              int(snapshot%nonzero_solver%fmm_core_options%periodic_image_layers, c_int), 3_c_int, &
              real(snapshot%nonzero_solver%fmm_core_options%periodic_ewald_alpha, c_double), &
@@ -329,7 +328,6 @@ contains
     sim_out%has_tree_theta = .true.
     sim_out%tree_leaf_max = 8_i32
     sim_out%has_tree_leaf_max = .true.
-    sim_out%softening = 0.0_dp
     sim_out%e0 = [0.2_dp, -0.1_dp, 0.3_dp]
     sim_out%use_box = .true.
     sim_out%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
@@ -342,8 +340,7 @@ contains
                    lower_boundary_model='symmetric_vacuum' &
                    )
     panel_out = panel_kernel_config( &
-                source_model='triangle_p0', kernel_id='triangle_p0_exact_p2m_near', &
-                surface_side_policy='per_element' &
+                kernel_id='triangle_p0_exact_p2m_near', surface_side_policy='per_element' &
                 )
     outer_out = outer_plasma_config(model='none')
   end subroutine configure_fixture

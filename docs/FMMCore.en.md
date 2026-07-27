@@ -12,7 +12,7 @@ See [FMM](FMM.en.html) for the user-facing equations and computation flow, and
 [periodic2 Far Correction](PeriodicFarCorrection.en.html) for root-operator construction and operation. This page focuses on
 Fortran internal arrays and implementation steps.
 
-- Public API / boundary: `src/physics/field_solver/fmm/api/`
+- Low-level developer API / boundary: `src/physics/field_solver/fmm/api/`
 - Internal shared implementation: `src/physics/field_solver/fmm/internal/common/`
 - Tree / plan implementation: `src/physics/field_solver/fmm/internal/tree/`
 - State / eval implementation: `src/physics/field_solver/fmm/internal/runtime/`
@@ -23,7 +23,12 @@ On the BEACH side, the field-solver adapter calls this core.
 
 ## 1. Purpose
 
-The FMM core returns Coulomb electric fields quickly at many evaluation points for a fixed source point set `src_pos(3,n)` and variable charges `src_q(n)`.
+The FMM core returns Coulomb electric fields at many evaluation points for fixed
+source geometry and variable charges `src_q(n)`. A generic monopole plan that
+accepts `src_pos(3,n)` remains for low-level verification and periodic-operator
+construction. BEACH surface charge instead uses a panel plan built from all
+three triangle vertices. The generic plan is not a BEACH surface-source model
+and cannot be selected through TOML or the C/Python API.
 
 Current design goals:
 
@@ -33,12 +38,13 @@ Current design goals:
 - near direct sum is also handled inside the core
 - simulator code sees only array APIs
 
-## 2. Public API
+## 2. Low-level developer API
 
-The core provides four main procedures:
+The core provides these main procedures:
 
 ```fortran
-call build_plan(plan, src_pos, options)
+call build_plan(plan, src_pos, options)             ! generic monopole plan
+call build_panel_plan(plan, v0, v1, v2, options)   ! BEACH surface plan
 call update_state(plan, state, src_q)
 call eval_points(plan, state, target_pos, e)
 call eval_point(plan, state, r, e)
@@ -46,7 +52,8 @@ call eval_point(plan, state, r, e)
 
 Input and output meanings:
 
-- `src_pos(3,n)`: source point coordinates, fixed after `build_plan`
+- `src_pos(3,n)`: low-level generic-plan source coordinates, fixed after `build_plan`
+- `v0(3,n)`, `v1(3,n)`, `v2(3,n)`: panel vertices, fixed after `build_panel_plan`
 - `src_q(n)`: source charges, updateable at each `update_state`
 - `target_pos(3,m)` or `r(3)`: evaluation points
 - `e(3,m)` or `e(3)`: electric field vectors
@@ -54,7 +61,7 @@ Input and output meanings:
 Notes:
 
 - The returned field does not include `k_coulomb`; the BEACH adapter multiplies it at the end.
-- `build_plan` is geometry-dependent processing, and `update_state` is charge-dependent processing.
+- `build_plan` / `build_panel_plan` are geometry-dependent processing, and `update_state` is charge-dependent processing.
 - `eval_point(s)` assumes `plan` and `state` are ready.
 
 #### 2.2 C ABI / Python integration
@@ -69,7 +76,7 @@ beach_kernel_get_abi_version(major, minor)
 beach_kernel_get_build_info(buffer, capacity, length)
 beach_kernel_create(handle)
 beach_kernel_destroy(handle)
-beach_kernel_build(handle, src_pos, options...)
+beach_kernel_build(handle, vertex0_xyz, vertex1_xyz, vertex2_xyz, options...)
 beach_kernel_update_charges(handle, src_q)
 beach_kernel_eval_e(handle, target_pos, e)
 beach_kernel_eval_phi(handle, target_pos, phi)
@@ -77,7 +84,7 @@ beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torqu
 ```
 
 The public header is `beach/include/beach_field_kernel.h` in the Python package.
-The current ABI is `1.0`. Before calling the other functions, a C caller should
+The current ABI is `2.0`. Before calling the other functions, a C caller should
 call `beach_kernel_get_abi_version` and require an equal major version and a
 library minor version greater than or equal to its required minor version.
 Coordinate and vector arrays use `values[3 * point_index + component]` storage.
@@ -85,26 +92,24 @@ The public header defines status codes, periodic far-correction codes, and handl
 ownership.
 
 The Python side calls this ABI with `ctypes` through `beach.fortran_results.kernel.FieldKernel`.
-The Python wrapper checks compatible libraries that provide the version-query
-symbol when loading them. It accepts older libraries without that symbol for
-transition compatibility, while newly built libraries are required to provide it.
+The Python wrapper checks the version-query symbol when loading a library.
+Libraries without that symbol are rejected; only libraries that explicitly
+report compatible ABI v2 or newer are accepted.
 `calc_object_forces_kernel` evaluates `sum(q_i E_not_self(r_i))` by zeroing the object's own source charge, avoiding self-force contamination while using the same field kernel, including `periodic2 + cached_kneq0`.
-`Beach.scene()` / `BeachScene` temporarily apply rigid translations and rotations of objects on the Python side and pass the edited centroid array to the same ABI.
+`Beach.scene()` / `BeachScene` temporarily apply rigid translations and rotations
+of objects on the Python side and pass the transformed three vertices of every
+triangle to the same ABI.
 The rigid-transform helper path uses NumPy by default and can use an optional Numba backend, but field evaluation itself is done by the Fortran kernel.
 
 #### 2.3 BEACH adapter usage
 
-The BEACH field-solver adapter passes different geometry to the core according
-to the source model.
+The BEACH field-solver adapter passes all three vertices of each triangle to
+`build_panel_plan`. `src_q(i)` is the total charge on the triangle, and its
+surface density is `src_q(i)/area(i)`.
 
-| source model | plan construction | meaning of `src_q(i)` |
-|---|---|---|
-| `point` | pass element centroids as `src_pos` to `build_plan` | point charge located at the centroid |
-| `triangle_p0` | pass all three vertices to `build_panel_plan` | total charge on the triangle; surface density is `src_q(i)/area(i)` |
-
-- During initialization, it calls `update_state` immediately after `build_plan` or `build_panel_plan`.
+- During initialization, it calls `update_state` immediately after `build_panel_plan`.
 - During later refreshes, normal operation assumes mesh geometry is unchanged, so the existing `plan` is reused and only `update_state` is called with updated `src_q`.
-- `build_plan` and legacy tree metadata are synchronized again only when the plan is missing, the source count changes, or zero elements caused plan/state disposal.
+- The plan is rebuilt only when it is missing, the source count changes, or zero elements caused plan/state disposal.
 
 ## 3. Data structures
 
@@ -114,8 +119,8 @@ Main internal options:
 
 - `theta`: parameter for well-separated tests
 - `leaf_max`: maximum source count in a source-octree leaf
-- `order`: Cartesian expansion order
-- `softening`: `epsilon` of the softened Coulomb kernel for `point` sources; it must be zero for `triangle_p0`
+- `order`: Cartesian expansion order (at least 1)
+- `softening`: internal value used only by the low-level generic monopole plan; the BEACH adapter always passes zero
 - `use_periodic2`: enable two-periodic-axis mode
 - `periodic_axes(2)`, `periodic_len(2)`: periodic axes and lengths
 - `periodic_image_layers`: near image-sum layer count `N`
@@ -123,7 +128,8 @@ Main internal options:
 - `periodic_ewald_alpha`, `periodic_ewald_layers`: decomposition parameter and cutoff depth used by the build-time Ewald fit for `cached_kneq0`
 - `target_box_min/max`: box used for a dual-target tree
 
-The BEACH adapter currently uses `order = 4`, while the core itself accepts variable order.
+The BEACH adapter currently uses `order = 4`, while the core itself accepts variable orders of at least one.
+`order = 0` is rejected when the plan is built because it cannot represent the far/local electric-field expansion.
 For `periodic2`, `auto` is normalized to `none`; `cached_kneq0` explicitly enables far correction.
 
 #### 3.2 `fmm_plan_type`
@@ -160,31 +166,12 @@ This is charge-dependent data updated on each refresh:
 
 #### 4.1 Source kernels
 
-The core supports two source kernels: `point` and `triangle_p0`.
+The BEACH runtime uses a fixed P0 triangle source kernel. The low-level FMM
+core retains a generic monopole plan through `build_plan` for internal APIs and
+regression tests, but it is not selectable from the BEACH field solver, public
+C ABI, or Python API.
 
-##### Point sources
-
-`point` evaluates charges located at element centroids with the softened
-Coulomb kernel:
-
-$$
-G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\lVert\mathbf{r}\rVert^2 + \epsilon^2}}
-$$
-
-$$
-\phi(\mathbf{x}) = \sum_j q_j \, G_\epsilon(\mathbf{x} - \mathbf{x}_j)
-$$
-
-$$
-\mathbf{E}(\mathbf{x}) = - \nabla \phi(\mathbf{x})
-$$
-
-The near direct sum and far-field expansion are both based on this
-$G_\epsilon$.
-
-##### P0 triangle sources
-
-`triangle_p0` treats `q_i` as the total charge on triangle $T_i$ of area $A_i$,
+At runtime, `q_i` is the total charge on triangle $T_i$ of area $A_i$,
 with constant surface density $\sigma_i=q_i/A_i$:
 
 $$
@@ -207,8 +194,12 @@ $$
 Area weighting is therefore contained in the panel integral and the P2M basis.
 Because `q_i` is already the total element charge, it is not multiplied by
 $A_i$ again. M2M/M2L/L2L then use the unsoftened Coulomb/Laplace expansion for
-these panel moments. `triangle_p0` enforces `softening=0` and never falls back
-to softened point sources.
+these panel moments. Near interactions use the analytic panel kernel.
+
+The internal `build_plan` path uses
+$G_\epsilon(\mathbf r)=1/\sqrt{\lVert\mathbf r\rVert^2+\epsilon^2}$ only where
+needed by low-level tests. This does not restore the removed public source model
+and cannot be configured in `beach.toml`.
 
 #### 4.2 Multi-index
 
@@ -260,11 +251,11 @@ $$
 L_\alpha(c_t) \mathrel{+}=
 \sum_\beta (-1)^{|\beta|}
 M_\beta(c_s)
-D^{\alpha+\beta} G_\epsilon(R)
+D^{\alpha+\beta} G(R)
 $$
 
 Here $D^\gamma$ is a multi-index derivative.
-The current implementation precomputes $D^{\alpha+\beta} G_\epsilon(R)$ per pair as `m2l_deriv(:, pair)`.
+The current implementation precomputes $D^{\alpha+\beta} G(R)$ per pair as `m2l_deriv(:, pair)`.
 
 #### 4.6 L2L
 
@@ -481,9 +472,9 @@ M2L uses the same image-shift set and precomputes each pair derivative as an ima
 `bem_coulomb_fmm_periodic_ewald.f90` implements an Ewald-form correction for the two-periodic, one-open Coulomb field.
 Here `exact` means the finite sum actually evaluated by the code. It is not the theoretical infinite sum; it is a build-time oracle whose real-space and reciprocal-space cutoffs are controlled by `field_periodic_image_layers = N` and `field_periodic_ewald_layers = L`.
 
-Ewald2P is a build-time teacher for `cached_kneq0`, not the
-runtime particle kernel. In the cached `triangle_p0` path, the teacher is applied
-to proxy point charges and fitted as a root-multipole-to-local operator. Real
+Ewald2P is a build-time teacher for `cached_kneq0`, not the runtime particle
+kernel. The teacher is applied to proxy monopoles and fitted as a
+root-multipole-to-local operator. Real
 triangles still use the analytic panel kernel in the near field and
 triangle-averaged P2M in the far source representation.
 
@@ -523,11 +514,11 @@ R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
-Below, $\alpha =$ `field_periodic_ewald_alpha` and $\epsilon =$ `softening`.
+Below, $\alpha =$ `field_periodic_ewald_alpha`.
 
 ##### 8.2.2 Real-space term
 
-The screened Coulomb field implemented by `add_screened_point_charge` is:
+The internal helper implements the screened Coulomb field:
 
 $$
 \mathbf E_\alpha(\mathbf R) =
@@ -543,14 +534,15 @@ $$
 \Phi_\alpha(\mathbf R) = q\,\frac{\operatorname{erfc}(\alpha R)}{R}
 $$
 
-The direct kernel used by `add_softened_point_charge` is:
+The low-level Ewald helper subtracts this direct field for the inner image sum:
 
 $$
 \mathbf E_\epsilon(\mathbf R) =
 q\,\frac{\mathbf R}{(R^2+\epsilon^2)^{3/2}}
 $$
 
-It uses the same softening as the normal runtime direct path.
+For the BEACH P0 panel path, $\epsilon=0$, so
+$\mathbf E_\epsilon=\mathbf E_0=q\mathbf R/R^3$.
 
 The implemented real-space correction is:
 
@@ -561,7 +553,7 @@ $$
 $$
 
 Terms with `r2 <= tiny(1.0d0)` are skipped, so self-interaction is excluded.
-If the direct fallback contribution $\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$ is added to `add_periodic2_exact_ewald_correction_single_source`, the softened inner-image part cancels and the outer shell is replaced by the screened form.
+If the direct fallback contribution $\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$ is added to `add_periodic2_exact_ewald_correction_single_source`, the direct inner-image part cancels and the outer shell is replaced by the screened form.
 
 ##### 8.2.3 Reciprocal-space term
 
@@ -801,7 +793,7 @@ Main implementation locations:
   `fmm_options_type`, `fmm_plan_type`, `fmm_state_type`
   in `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90`
 - Plan construction:
-  `build_plan`
+  `build_plan`, `build_panel_plan`
   in `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90`
 - Charge refresh:
   `update_state`, `p2m_leaf_moments`, `m2m_upward_pass`, `m2l_accumulate`, `l2l_downward_pass`
@@ -832,6 +824,7 @@ Design responsibilities:
 - Core:
   geometry preprocessing, expansion-coefficient updates, near direct, point evaluation
 - BEACH adapter:
-  build `src_pos` from `mesh_type`, pass `q_elem` into `src_q`, and multiply by `k_coulomb` at the end
+  build a panel plan from the three triangle vertices in `mesh_type`, pass
+  `q_elem` into `src_q`, and multiply by `k_coulomb` at the end
 
 ---

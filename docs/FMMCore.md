@@ -5,7 +5,7 @@ Lang: [日本語](FMMCore.md) | [English](FMMCore.en.md)
 # Coulomb FMMコア詳細
 
 Coulomb FMMコアは、source geometryから作る`plan`と、電荷から作る`state`を分離し、
-多重極展開と近傍Direct和から電場を評価します。ここでは、現行Fortran実装の公開API、データ構造、
+多重極展開と近傍Direct和から電場を評価します。ここでは、現行Fortran実装の低水準開発API、データ構造、
 展開式、periodic2補正を、処理順に沿って説明します。
 
 通常のFMMを利用するための数式と計算フローは[FMM](FMM.html)、periodic root operatorの構成と運用は
@@ -14,7 +14,7 @@ Coulomb FMMコアは、source geometryから作る`plan`と、電荷から作る
 
 APIの詳細は[`bem_coulomb_fmm_core` module page](../module/bem_coulomb_fmm_core.html)でも確認できます。
 
-- 公開 API / 境界: `src/physics/field_solver/fmm/api/`
+- 低水準開発 API / 境界: `src/physics/field_solver/fmm/api/`
 - 内部共通実装: `src/physics/field_solver/fmm/internal/common/`
 - tree / plan 実装: `src/physics/field_solver/fmm/internal/tree/`
 - state / eval 実装: `src/physics/field_solver/fmm/internal/runtime/`
@@ -25,8 +25,10 @@ BEACHのfield solver adapterが、simulator側のデータを変換してこの�
 
 ## 1. 目的
 
-このFMMコアは、固定されたsource点群`src_pos(3,n)`と可変電荷`src_q(n)`から、
-多数の評価点におけるCoulomb電場を計算します。
+このFMMコアは、固定されたsource geometryと可変電荷`src_q(n)`から、多数の評価点における
+Coulomb電場を計算します。低水準の検証・periodic operator構築用にはmonopole位置
+`src_pos(3,n)`を受けるgeneric planがあり、BEACHの表面電荷には三角形3頂点を受けるpanel planを
+使います。generic planはBEACHの表面source modelではなく、TOMLやC/Python APIからは選べません。
 
 計算の前提と責務は次のとおりです。
 
@@ -36,14 +38,15 @@ BEACHのfield solver adapterが、simulator側のデータを変換してこの�
 - 近傍 direct 和もコア内部に含める
 - simulator からは配列 API だけが見えるようにする
 
-## 2. 公開 API
+## 2. 低水準開発 API
 
 ### 2.1 Fortran API
 
-コアが提供する主な手続きは次の 4 つです。
+コアが提供する主な手続きは次のとおりです。
 
 ```fortran
-call build_plan(plan, src_pos, options)
+call build_plan(plan, src_pos, options)             ! generic monopole plan
+call build_panel_plan(plan, v0, v1, v2, options)   ! BEACH surface plan
 call update_state(plan, state, src_q)
 call eval_points(plan, state, target_pos, e)
 call eval_point(plan, state, r, e)
@@ -52,7 +55,9 @@ call eval_point(plan, state, r, e)
 入力・出力の意味は次の通りです。
 
 - `src_pos(3,n)`:
-  source 点の座標。`build_plan` 後は固定とみなす。
+  低水準generic planのsource点座標。`build_plan`後は固定とみなす。
+- `v0(3,n)`, `v1(3,n)`, `v2(3,n)`:
+  panel planの三角形頂点。`build_panel_plan`後は固定とみなす。
 - `src_q(n)`:
   source 点の電荷。`update_state` ごとに更新できる。
 - `target_pos(3,m)` または `r(3)`:
@@ -63,7 +68,7 @@ call eval_point(plan, state, r, e)
 呼び出し側では、次の点に注意が必要です。
 
 - コアが返す電場には`k_coulomb`を掛けていません。BEACHのadapterが最後に掛けます。
-- `build_plan` は幾何依存処理、`update_state` は電荷依存処理です。
+- `build_plan` / `build_panel_plan`は幾何依存処理、`update_state`は電荷依存処理です。
 - `eval_point(s)` は `plan` と `state` が ready な前提です。
 
 ### 2.2 C ABI / Python 連携
@@ -79,7 +84,7 @@ beach_kernel_get_abi_version(major, minor)
 beach_kernel_get_build_info(buffer, capacity, length)
 beach_kernel_create(handle)
 beach_kernel_destroy(handle)
-beach_kernel_build(handle, src_pos, options...)
+beach_kernel_build(handle, vertex0_xyz, vertex1_xyz, vertex2_xyz, options...)
 beach_kernel_update_charges(handle, src_q)
 beach_kernel_eval_e(handle, target_pos, e)
 beach_kernel_eval_phi(handle, target_pos, phi)
@@ -87,36 +92,31 @@ beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torqu
 ```
 
 公開ヘッダは Python package 内の `beach/include/beach_field_kernel.h` にあります。現行 ABI は
-`1.0` です。C の呼び出し側は、ほかの関数を使う前に `beach_kernel_get_abi_version` を呼び、
+`2.0` です。C の呼び出し側は、ほかの関数を使う前に `beach_kernel_get_abi_version` を呼び、
 major が一致し、library の minor が必要な minor 以上であることを確認してください。座標と
 vector の配列は `values[3 * point_index + component]` の順で格納します。status code、
 periodic far-correction code、handle の所有権は公開ヘッダに定義しています。
 
 Pythonでは、`beach.fortran_results.kernel.FieldKernel`がこのABIを`ctypes`で呼び出します。
-Python wrapper は version 問い合わせを提供する library の互換性を読込時に検査します。
-問い合わせ symbol がない従来の library は移行互換のため受理しますが、新しく構築する
-library は version 問い合わせを提供する必要があります。
+Python wrapper はversion問い合わせを提供するlibraryの互換性を読込時に検査します。
+問い合わせsymbolがない旧libraryも拒否し、ABI v2以上を明示したlibraryだけを受理します。
 `calc_object_forces_kernel`は、対象object自身のsource電荷をゼロにして
 `sum(q_i E_not_self(r_i))`を評価します。これにより、自己力を除外しながら、
 `periodic2 + cached_kneq0`を含むfield kernelをそのまま利用できます。
 
 `Beach.scene()` / `BeachScene`は、Python側でobjectの剛体移動や回転を一時的に適用し、
-変換後の重心配列を同じABIへ渡します。剛体変換の補助処理には既定でNumPyを使い、
+変換後の三角形3頂点を同じABIへ渡します。剛体変換の補助処理には既定でNumPyを使い、
 任意依存のNumba backendも選べます。電場の評価は、どちらの場合もFortran kernelが担当します。
 
 ### 2.3 BEACH adapterでの使い方
 
-BEACH の field solver adapter は、source model に応じて異なる幾何をコアへ渡します。
+BEACH の field solver adapter は、各三角形の 3 頂点を `build_panel_plan` に渡します。
+`src_q(i)` は三角形全体の総電荷で、面密度は `src_q(i)/area(i)` です。
 
-| source model | plan 構築 | `src_q(i)` の意味 |
-|---|---|---|
-| `point` | 要素重心を `src_pos` として `build_plan` に渡す | 重心に置く点電荷 |
-| `triangle_p0` | 3 頂点を `build_panel_plan` に渡す | 三角形全体の総電荷。面密度は `src_q(i)/area(i)` |
-
-- 初期化時は `build_plan` または `build_panel_plan` の直後に `update_state` を実行します。
+- 初期化時は `build_panel_plan` の直後に `update_state` を実行します。
 - その後のrefreshでは、mesh geometryが変わらない限り既存の`plan`を再利用し、`src_q`を渡して
   `update_state`だけを呼びます。
-- `build_plan`とlegacy tree metadataを再同期するのは、planが未構築の場合、source数が変わった場合、
+- plan を再構築するのは、planが未構築の場合、source数が変わった場合、
   または要素数0としてplan/stateを破棄した場合だけです。
 
 ## 3. データ構造
@@ -127,8 +127,8 @@ BEACH の field solver adapter は、source model に応じて異なる幾何を
 
 - `theta`: well-separated 判定用パラメータ
 - `leaf_max`: source octree の葉に許す最大 source 数
-- `order`: Cartesian 展開次数
-- `softening`: `point` source の softened Coulomb kernel に使う `epsilon`。`triangle_p0` では 0 が必須
+- `order`: Cartesian 展開次数（1以上）
+- `softening`: 低水準の汎用monopole planだけが使う内部値。BEACH adapterは常に0を渡す
 - `use_periodic2`: 2 周期軸モードの有効化
 - `periodic_axes(2)`, `periodic_len(2)`: 周期軸と周期長
 - `periodic_image_layers`: 近傍画像和の層数 `N`
@@ -138,7 +138,8 @@ BEACH の field solver adapter は、source model に応じて異なる幾何を
   分解パラメータと打切り深さ
 - `target_box_min/max`: dual-target tree を作るときの box
 
-BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可変次数を受けられます。
+BEACH の adapter は現状 `order = 4` を使いますが、コア自体は1以上の可変次数を受けられます。
+`order = 0` は電場のfar/local展開を持てないため、plan構築時に拒否します。
 `periodic2` の `auto` は `none` に正規化されます。`cached_kneq0` は遠方補正を明示的に有効化します。
 
 ### 3.2 `fmm_plan_type`
@@ -175,29 +176,11 @@ BEACH の adapter は現状 `order = 4` を使いますが、コア自体は可�
 
 ### 4.1 source kernel
 
-コアには `point` と `triangle_p0` の 2 つの source kernel があります。
+BEACH runtimeのsource kernelはP0 triangleに固定されています。低水準FMM coreには
+`build_plan`による汎用monopole planも内部API・回帰試験用として残っていますが、
+BEACH field solver、公開C ABI、Python APIから選択する経路はありません。
 
-#### point source
-
-`point` は要素重心に置いた点電荷を、softening 付き Coulomb kernel で評価します。
-
-$$
-G_\epsilon(\mathbf{r}) = \frac{1}{\sqrt{\lVert\mathbf{r}\rVert^2 + \epsilon^2}}
-$$
-
-$$
-\phi(\mathbf{x}) = \sum_j q_j \, G_\epsilon(\mathbf{x} - \mathbf{x}_j)
-$$
-
-$$
-\mathbf{E}(\mathbf{x}) = - \nabla \phi(\mathbf{x})
-$$
-
-近傍Direct和と遠方展開は、どちらも同じ$G_\epsilon$に基づきます。
-
-#### P0 triangle source
-
-`triangle_p0` は、`q_i` を三角形 $T_i$ の総電荷、$A_i$ をその面積とし、
+runtimeの`q_i`を三角形$T_i$の総電荷、$A_i$をその面積とし、
 $\sigma_i=q_i/A_i$ を三角形上の一定面密度として扱います。
 
 $$
@@ -218,8 +201,11 @@ $$
 
 area weightingはpanel積分とP2M基底に含まれています。`q_i`は要素の総電荷なので、
 $A_i$を重ねて掛ける必要はありません。以後のM2M/M2L/L2Lには、このpanel momentに対する
-softeningなしのCoulomb/Laplace展開を使います。`triangle_p0`では`softening=0`を強制し、
-softened point sourceへfallbackしません。
+Coulomb/Laplace展開を使います。近傍評価は解析的 panel kernel で処理します。
+
+内部`build_plan`は、必要な低水準試験でだけ
+$G_\epsilon(\mathbf r)=1/\sqrt{\lVert\mathbf r\rVert^2+\epsilon^2}$を使います。
+これは削除済みの公開source modelを復活させるものではなく、`beach.toml`から設定できません。
 
 ### 4.2 多重指数
 
@@ -274,13 +260,13 @@ $$
 L_\alpha(c_t) \mathrel{+}=
 \sum_\beta (-1)^{|\beta|}
 M_\beta(c_s)
-D^{\alpha+\beta} G_\epsilon(R)
+D^{\alpha+\beta} G(R)
 $$
 
 で更新します。
 
 ここで $D^\gamma$ は multi-index 微分です。
-現行実装では、$D^{\alpha+\beta} G_\epsilon(R)$をpairごとに前計算し、
+現行実装では、$D^{\alpha+\beta} G(R)$をpairごとに前計算し、
 `m2l_deriv(:, pair)`へ保存します。
 
 ### 4.6 L2L
@@ -503,7 +489,7 @@ real-spaceとreciprocal-spaceの打切り深さは、`field_periodic_image_layer
 `field_periodic_ewald_layers = L`で決まります。この有限和をbuild-time oracleとして使います。
 
 Ewald2Pはruntime particle kernelではなく、`cached_kneq0`を作るための
-build-time teacherです。`triangle_p0`のcached経路でも、teacherはproxy point chargeに適用されます。
+build-time teacherです。teacherはproxy monopoleに適用されます。
 その結果を、root multipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価には解析panel kernel、
 遠方source表現にはtriangle-averaged P2Mを引き続き使います。
 
@@ -541,11 +527,11 @@ R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
-を導入します。以下では $\alpha =$ `field_periodic_ewald_alpha`、$\epsilon =$ `softening` とします。
+を導入します。以下では $\alpha =$ `field_periodic_ewald_alpha` とします。
 
 #### 8.2.2 実空間項
 
-`add_screened_point_charge` が実装している screened Coulomb field は
+内部helperが実装しているscreened Coulomb fieldは
 
 $$
 \mathbf E_\alpha(\mathbf R) =
@@ -563,14 +549,15 @@ $$
 
 の勾配に一致します。
 
-`add_softened_point_charge` が使う direct kernel は
+低水準Ewald helperが内側画像和から差し引くdirect fieldは
 
 $$
 \mathbf E_\epsilon(\mathbf R) =
 q\,\frac{\mathbf R}{(R^2+\epsilon^2)^{3/2}}
 $$
 
-で、通常の runtime direct path と同じ softening を使います。
+です。BEACHのP0 panel経路では$\epsilon=0$なので、
+$\mathbf E_\epsilon=\mathbf E_0=q\mathbf R/R^3$です。
 
 実装上の real-space 補正は
 
@@ -582,7 +569,7 @@ $$
 
 です。実装では`r2 <= tiny(1.0d0)`の項をskipするため、self interactionは含まれません。
 `add_periodic2_exact_ewald_correction_single_source`にDirect fallbackの
-$\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$を加えると、inner imageのsoftened部分が打ち消され、
+$\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$を加えると、inner imageのdirect部分が打ち消され、
 outer shell側がscreened形式に置き換わります。
 
 #### 8.2.3 逆空間項
@@ -822,7 +809,7 @@ cold buildでは、再利用可能なoperator行列を初回だけ生成しま�
   `fmm_options_type`, `fmm_plan_type`, `fmm_state_type`
   （`src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90`）
 - plan 構築:
-  `build_plan`
+  `build_plan`, `build_panel_plan`
   （`src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90`）
 - charge refresh:
   `update_state`, `p2m_leaf_moments`, `m2m_upward_pass`, `m2l_accumulate`, `l2l_downward_pass`
@@ -853,6 +840,7 @@ cold buildでは、再利用可能なoperator行列を初回だけ生成しま�
 - コア:
   幾何前処理、展開係数更新、近傍 direct、点評価
 - BEACH adapter:
-  `mesh_type`から`src_pos`を作り、`q_elem`を`src_q`へ渡し、最後に`k_coulomb`を掛ける
+  `mesh_type`の三角形3頂点で`build_panel_plan`を構築し、`q_elem`を`src_q`へ渡し、
+  最後に`k_coulomb`を掛ける
 
 ---

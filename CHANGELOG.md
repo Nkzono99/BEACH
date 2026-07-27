@@ -10,17 +10,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Added the `[external_boundary]` authoring facade, which separates outer-field physics, z-high particle lifecycle/inflow, and ordinary open-face handling while deriving internal return, transfer, queue, and interface settings.
 - Added resolved external-boundary receipts to `summary.txt` so runs report the effective inflow map, ordinary-open model, interface transport, and particle mode.
 - Added opt-in `coupling.steady_start_mode="zhao_floating"` for stationary Zhao studies. Fresh runs seed the selected full-cell plane from the zero-current root, while resumed runs restore checkpoint charge and outer state without reseeding.
-- Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel field and potential evaluation for `point` and `triangle_p0` comparisons.
+- Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel P0 field and potential evaluation across solver configurations.
 
 ### Fixed
 - The Camphor `ifx` install profile no longer passes unsupported inline/report options or enables the unstable IPO link path, allowing release executables to link reliably with Intel 2023.2.
 - Reflected and periodic particle events now place surviving particles a scale-aware distance inside the box, preventing zero-time boundary chatter caused by a subnormal one-ULP offset at zero-valued faces. The existing eight-event safety limit is unchanged.
+- FMM mesh-centroid potential output no longer adds an area-equivalent point self term after the analytic triangle-panel self integral has already been evaluated.
 
 ### Changed
 - Canonical examples and user documentation now use `[external_boundary]`; supported kinetic `[outer_plasma]` and `[coupling]` settings remain mutually exclusive compatibility input.
 - Documented `kinetic_1d` as the supported self-consistent outer-sheath model.
+- The native field-kernel C ABI is now version 2 and accepts triangle vertices directly; the former point-source build signature is not retained.
+- FMM expansion order must now be at least one in the core, C/Python field-kernel APIs, and CLI; order zero cannot represent the far/local electric-field expansion and is rejected before plan construction.
+- The mesh-input default is now deterministic `mode="template"`. Explicit `mode="auto"` remains available but, like `mode="obj"`, requires an OBJ `surface_side` so either file-selection branch has a complete triangle-panel contract.
 
 ### Removed
+- **BREAKING**: Removed the public centroid `point` element source, `sim.softening`, and the `[field].element_kernel` selector. All surface models now use the implicit P0 triangle-panel discretization; retained legacy keys fail as unknown input rather than selecting a compatibility path.
 - **BREAKING**: Removed the executable `m2l_root_oracle` periodic far-correction backend and its exact-Ewald out-of-box fallback. New configurations are rejected with guidance to use `cached_kneq0`; historical output metadata remains readable.
 - **BREAKING**: Removed the `linear_debye` field/return model, `legacy_sheath` inflow and raw `sim.sheath_injection_model`, configurable outer `infinity_potential`, and the linear-return-only photoelectron histogram. These values are not aliased to another physical model. Checkpoints that activated a removed model or non-default removed feature cannot be resumed; unaffected kinetic checkpoint-v4 runs remain fingerprint-compatible after retired default-valued keys are removed from the configuration.
 - **BREAKING**: Removed `unified_linear_response`, its accessible-fraction zero mode, screened nonzero-mode tail, explicit 3-D outer orbit, dedicated diagnostics, examples, and checkpoint state. Unified configurations and checkpoints have no automatic migration; `kinetic_1d` remains the supported self-consistent outer-sheath model.

@@ -114,8 +114,8 @@ The test suite is tiered for the development loop.
 The `cached_kneq0` cold-operator and exact-Ewald correctness tests are opt-in through
 `make test-fortran-far-correction`. Runtime comparison uses the release profile through
 `make test-fortran-benchmark` instead of running inside a debug correctness test.
-To compare `point` and `triangle_p0` field-evaluation costs on a real mesh, run the
-following command once for each configuration. `FIELD_KERNEL_BENCHMARK_TARGET_COUNT`
+To measure P0 panel field-evaluation cost on a real mesh, run the following
+command once for each solver configuration. `FIELD_KERNEL_BENCHMARK_TARGET_COUNT`
 sets the number of targets evaluated in both the volume and near-panel sets. The CSV output
 separates mesh construction, solver initialization, charge refresh, electric
 field evaluation, and potential evaluation.
@@ -301,8 +301,7 @@ For MPI resume, the `mpi_world_size` in `summary.txt` must match the current num
 beachx inspect outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png \
-  --save-potential-mesh outputs/latest/potential_mesh.png \
-  --potential-self-term area-equivalent
+  --save-potential-mesh outputs/latest/potential_mesh.png
 
 # Draw a sim.field_bc_mode = "periodic2" mesh wrapped into the periodic cell.
 beachx inspect outputs/latest \
@@ -357,7 +356,7 @@ default places all objects along the target axis for visualization. Use `--targe
 target set. `beachx mobility` treats `plane` as the support by default and writes object force/torque plus
 `lift_ratio`, `slide_ratio`, and `roll_ratio` to CSV. Mass-derived indicators need `--density-kg-m3` and geometry
 from `beach.toml`. `beachx kernel-forces` calls the Fortran FMM core through `libbeach_field_kernel`, using
-`sim.softening`, `sim.field_bc_mode`, periodic2, and tree settings from `beach.toml`. Build the library with
+`sim.field_bc_mode`, periodic2, and tree settings from `beach.toml`. Build the library with
 `make build-kernel`; if it is elsewhere, pass `--library` or set `BEACH_FIELD_KERNEL_LIB`. Use
 `--config path/to/beach.toml` when no config exists near the output directory.
 
@@ -467,9 +466,9 @@ the measured 300-batch fixture, binding changed elapsed time by less than 0.4%.
 - A normal run advances exactly `sim.batch_count` batches. A resume run advances from the checkpoint batch count
   until `sim.batch_count` is reached.
 - `sim.tol_rel` is a monitoring value. It is not used as an early-stop condition in the current implementation.
-- `field.element_kernel` selects the Fortran element kernel. The compatibility-default
-  `point` model uses element-centroid point charges plus `sim.softening`; `triangle_p0`
-  integrates each total element charge as a constant triangle density and requires zero softening.
+- The Fortran element source is a fixed P0 triangle panel that integrates each
+  total element charge as a constant triangle density. Inputs retaining the
+  former `[field]` table or `sim.softening` fail as unknown tables or keys.
 
 For a camphor MPI job example, see `examples/job_scripts/camphor_mpi_hybrid_job.sh`.
 `test-physics-release` sequentially runs the L1 convergence subset, L3-heavy, far-correction correctness,

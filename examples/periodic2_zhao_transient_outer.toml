@@ -15,7 +15,6 @@ batch_duration = 2.5e-7
 batch_count = 80
 max_step = 20000
 tol_rel = 1.0e-8
-softening = 0.0
 b0 = [0.0, 0.0, 0.0]
 use_box = true
 box_min = [0.0, 0.0, 0.0]
@@ -35,9 +34,6 @@ sheath_alpha_deg = 60.0
 sheath_photoelectron_ref_density_cm3 = 64.0
 sheath_electron_drift_mode = "normal"
 sheath_ion_drift_mode = "normal"
-
-[field]
-element_kernel = "triangle_p0"
 
 [periodic2]
 # This direct spectral reference keeps the example self-contained. Production

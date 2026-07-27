@@ -440,15 +440,11 @@ def _finite_probe(
         ewald_layers=configured.ewald_layers,
     )
     options = replace(snapshot._options, periodic2=periodic2)
-    source_triangles = (
-        snapshot._triangles_m if snapshot.source_model == "triangle_p0" else None
-    )
     periodic = FieldKernel(
-        snapshot._centers_m,
+        snapshot._triangles_m,
         snapshot._charges_C,
         options=options,
         library_path=snapshot._library_path,
-        source_triangles=source_triangles,
     )
     finite_snapshot = ObjectInteractionSnapshot(
         result=snapshot.result,
@@ -457,7 +453,6 @@ def _finite_probe(
         centers_m=snapshot._centers_m,
         charges_C=snapshot._charges_C,
         mesh_ids=snapshot._mesh_ids,
-        source_model=snapshot.source_model,
         options=options,
         periodic_model=f"finite_shell_m{image_layers}",
         periodic=periodic,
@@ -798,9 +793,7 @@ def _sum_component(left: object, right: object) -> WrenchComponent:
 
 
 def _zero_gauge_z(snapshot: ObjectInteractionSnapshot) -> float:
-    if snapshot.source_model == "triangle_p0":
-        return float(np.min(snapshot._triangles_m[:, :, 2]))
-    return float(np.min(snapshot._centers_m[:, 2]))
+    return float(np.min(snapshot._triangles_m[:, :, 2]))
 
 
 def _cumulative_trapezoid(x: np.ndarray, y: np.ndarray) -> np.ndarray:

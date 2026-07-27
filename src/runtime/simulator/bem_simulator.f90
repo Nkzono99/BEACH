@@ -119,11 +119,10 @@ module bem_simulator
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
     module subroutine commit_batch_charge( &
-      mesh, q_floor, softening, external_e, field_bc_mode, workspace, rel, mpi &
+      mesh, q_floor, external_e, field_bc_mode, workspace, rel, mpi &
       )
       type(mesh_type), intent(inout) :: mesh
       real(dp), intent(in) :: q_floor
-      real(dp), intent(in) :: softening
       real(dp), intent(in) :: external_e(3)
       character(len=*), intent(in) :: field_bc_mode
       type(simulator_batch_workspace_type), intent(inout) :: workspace

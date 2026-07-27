@@ -30,7 +30,6 @@ def test_parameter_section_inventory_covers_top_level_tables() -> None:
         "sim",
         "particles",
         "mesh",
-        "field",
         "periodic2",
         "external_boundary",
         "outer_plasma",
@@ -51,7 +50,6 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
     schema = _schema()
     documented_objects = {
         "sim": schema["$defs"]["sim"]["properties"],
-        "field": schema["properties"]["field"]["properties"],
         "species": schema["$defs"]["species"]["properties"],
         "mesh": schema["$defs"]["mesh"]["properties"],
         "mesh.groups": schema["$defs"]["meshGroup"]["properties"],
@@ -80,7 +78,7 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
             "### `[[particles.species]]`:",
             "### `[mesh]`:",
             "#### `[[mesh.templates]]`:",
-            "### `[field]`:",
+            "### 要素 source の固定規則",
             "### `[output]`:",
         ),
         "docs/Parameters.en.md": (
@@ -92,7 +90,7 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
             "### `[[particles.species]]`:",
             "### `[mesh]`:",
             "#### `[[mesh.templates]]`:",
-            "### `[field]`:",
+            "### Fixed element-source rules",
             "### `[output]`:",
         ),
     }

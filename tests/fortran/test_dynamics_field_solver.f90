@@ -2,20 +2,19 @@
 program test_dynamics_field_solver
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
+  use bem_types, only: mesh_type, sim_config
   use bem_mesh, only: init_mesh
   use bem_templates, only: make_plane, make_sphere
-  use bem_field, only: electric_field_at, electric_potential_at
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
-  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry
+  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(13)
+  call test_init(12)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -35,10 +34,6 @@ program test_dynamics_field_solver
 
   call test_begin('treecode_mixed_sign_cancellation_sweep')
   call test_treecode_mixed_sign_cancellation_sweep()
-  call test_end()
-
-  call test_begin('zero_softening_self_singularity_skip')
-  call test_zero_softening_self_singularity_skip()
   call test_end()
 
   call test_begin('direct_field_length_normalization_accuracy')
@@ -80,6 +75,7 @@ contains
     type(sim_config) :: sim
 
     call make_plane(mesh_small, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_small)
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 64_i32
@@ -87,17 +83,19 @@ contains
     call assert_true(trim(solver%mode) == 'direct', 'auto solver should select direct for small meshes')
 
     call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_large)
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 64_i32
     sim%tree_theta = 0.95d0
     sim%tree_leaf_max = 1_i32
     call solver%init(mesh_large, sim)
-    call assert_true(trim(solver%mode) == 'treecode', 'auto solver should select treecode for dense meshes')
+    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM for dense meshes')
     call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto theta mismatch for nelem<1500')
     call assert_equal_i32(solver%leaf_max, 12_i32, 'auto leaf_max mismatch for nelem<1500')
 
     call make_plane(mesh_mid, size_x=1.0d0, size_y=1.0d0, nx=30_i32, ny=30_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_mid)
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 1_i32
@@ -106,6 +104,7 @@ contains
     call assert_equal_i32(solver%leaf_max, 16_i32, 'auto leaf_max mismatch for 1500<=nelem<10000')
 
     call make_plane(mesh_dense, size_x=1.0d0, size_y=1.0d0, nx=80_i32, ny=80_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_dense)
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 1_i32
@@ -114,6 +113,7 @@ contains
     call assert_equal_i32(solver%leaf_max, 20_i32, 'auto leaf_max mismatch for 10000<=nelem<50000')
 
     call make_plane(mesh_huge, size_x=1.0d0, size_y=1.0d0, nx=160_i32, ny=160_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_huge)
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 1_i32
@@ -128,6 +128,7 @@ contains
     type(sim_config) :: sim
 
     call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_large)
 
     sim = sim_config()
     sim%field_solver = 'treecode'
@@ -179,10 +180,10 @@ contains
     real(dp) :: norm_direct, norm_diff, rel_err, norm_r
 
     call make_sphere(mesh_tree, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_tree)
     mesh_tree%q_elem = 1.0d-12
 
     sim = sim_config()
-    sim%softening = 1.0d-4
     sim%field_solver = 'treecode'
     sim%tree_theta = 0.10d0
     sim%tree_leaf_max = 6_i32
@@ -212,7 +213,7 @@ contains
         end if
       end if
 
-      call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+      call panel_field_at(mesh_tree, r, e_direct)
       call solver%eval_e(mesh_tree, r, e_tree)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -240,7 +241,7 @@ contains
     call solver%refresh(mesh_tree)
 
     r = [0.0d0, 100.0d0, 0.0d0]
-    call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+    call panel_field_at(mesh_tree, r, e_direct)
     call solver%eval_e(mesh_tree, r, e_tree)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -250,7 +251,7 @@ contains
     call assert_true(relative_error < 2.0d-4, 'same-sign root monopole characterization changed')
     call assert_true(relative_error <= 1.0d-3, 'same-sign root monopole exceeds the tree accuracy contract')
 
-    call electric_potential_at(mesh_tree, r, sim%softening, phi_direct)
+    call panel_potential_at(mesh_tree, r, phi_direct)
     call solver%eval_potential(mesh_tree, sim, r, phi_tree)
     potential_relative_error = abs(phi_tree - phi_direct)/abs(phi_direct)
     call assert_true(potential_relative_error > 4.0d-5, 'same-sign potential should retain the monopole path')
@@ -283,7 +284,7 @@ contains
       end if
 
       call solver%refresh(mesh_tree)
-      call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+      call panel_field_at(mesh_tree, r, e_direct)
       call solver%eval_e(mesh_tree, r, e_tree)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -309,9 +310,9 @@ contains
     v1(:, 2) = [1.0d0, 0.02d0, -0.01d0]
     v2(:, 2) = [1.0d0, -0.01d0, 0.02d0]
     call init_mesh(mesh_tree, v0, v1, v2)
+    call mark_normal_plus(mesh_tree)
 
     sim = sim_config()
-    sim%softening = 0.0d0
     sim%field_solver = 'treecode'
     sim%field_normalization = 'si'
     sim%tree_theta = 0.5d0
@@ -323,29 +324,6 @@ contains
     call assert_true(solver%child_count(1) > 0_i32, 'treecode cancellation fixture root must be internal')
   end subroutine init_treecode_monopole_fixture
 
-  subroutine test_zero_softening_self_singularity_skip()
-    type(mesh_type) :: mesh_direct
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
-    real(dp) :: r(3), e_direct(3), e_solver(3)
-
-    call make_plane(mesh_direct, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    mesh_direct%q_elem = 0.0d0
-    mesh_direct%q_elem(1) = 1.0d-12
-    r = [mesh_direct%center_x(1), mesh_direct%center_y(1), mesh_direct%center_z(1)]
-
-    call electric_field_at(mesh_direct, r, 0.0d0, e_direct)
-    call assert_true(all(e_direct == 0.0d0), 'direct self field should be skipped')
-
-    sim = sim_config()
-    sim%softening = 0.0d0
-    sim%field_solver = 'direct'
-    call solver%init(mesh_direct, sim)
-    call solver%refresh(mesh_direct)
-    call solver%eval_e(mesh_direct, r, e_solver)
-    call assert_true(all(e_solver == 0.0d0), 'solver direct self field should be skipped')
-  end subroutine test_zero_softening_self_singularity_skip
-
   subroutine test_direct_field_length_normalization_accuracy()
     type(mesh_type) :: mesh_direct
     type(field_solver_type) :: solver = field_solver_type()
@@ -353,10 +331,10 @@ contains
     real(dp) :: r(3), e_direct(3), e_solver(3), norm_direct, rel_err
 
     call make_sphere(mesh_direct, radius=2.0d-5, n_lon=8_i32, n_lat=4_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_direct)
     mesh_direct%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%softening = 1.0d-7
     sim%field_solver = 'direct'
     sim%field_normalization = 'length'
     sim%field_length_scale = 1.0d-4
@@ -364,7 +342,7 @@ contains
     call solver%refresh(mesh_direct)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call electric_field_at(mesh_direct, r, sim%softening, e_direct)
+    call panel_field_at(mesh_direct, r, e_direct)
     call solver%eval_e(mesh_direct, r, e_solver)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -383,10 +361,10 @@ contains
     real(dp) :: r(3), phi_direct, phi_solver
 
     call make_sphere(mesh_direct, radius=2.0d-5, n_lon=8_i32, n_lat=4_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_direct)
     mesh_direct%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%softening = 1.0d-7
     sim%field_solver = 'direct'
     sim%field_normalization = 'length'
     sim%field_length_scale = 1.0d-4
@@ -394,7 +372,7 @@ contains
     call solver%refresh(mesh_direct)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call electric_potential_at(mesh_direct, r, sim%softening, phi_direct)
+    call panel_potential_at(mesh_direct, r, phi_direct)
     call solver%eval_potential(mesh_direct, sim, r, phi_solver)
 
     call assert_close_dp(phi_solver, phi_direct, max(1.0d-12, abs(phi_direct)*1.0d-12), 'direct potential mismatch')
@@ -407,10 +385,10 @@ contains
     real(dp) :: r(3), e_direct(3), e_tree(3), norm_direct, rel_err
 
     call make_sphere(mesh_tree, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_tree)
     mesh_tree%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%softening = 1.0d-7
     sim%field_solver = 'treecode'
     sim%field_normalization = 'length'
     sim%field_length_scale = 1.0d-4
@@ -422,7 +400,7 @@ contains
     call solver%refresh(mesh_tree)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call electric_field_at(mesh_tree, r, sim%softening, e_direct)
+    call panel_field_at(mesh_tree, r, e_direct)
     call solver%eval_e(mesh_tree, r, e_tree)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -438,10 +416,10 @@ contains
     real(dp) :: phi_direct, phi_fmm
 
     call make_sphere(mesh_fmm, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[5.0d-5, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_fmm)
     mesh_fmm%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%softening = 1.0d-7
     sim%field_solver = 'fmm'
     sim%field_normalization = 'length'
     sim%field_length_scale = 1.0d-4
@@ -452,9 +430,9 @@ contains
     call solver%refresh(mesh_fmm)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
+    call panel_field_at(mesh_fmm, r, e_direct)
     call solver%eval_e(mesh_fmm, r, e_fmm)
-    call electric_potential_at(mesh_fmm, r, sim%softening, phi_direct)
+    call panel_potential_at(mesh_fmm, r, phi_direct)
     call solver%eval_potential(mesh_fmm, sim, r, phi_fmm)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -465,8 +443,8 @@ contains
       'normalized FMM potential relative error exceeds 5e-3' &
       )
     call assert_close_dp( &
-      solver%fmm_core_options%softening, sim%softening/sim%field_length_scale, 1.0d-15, &
-      'normalized FMM softening mismatch' &
+      solver%fmm_core_options%softening, 0.0_dp, 1.0d-15, &
+      'triangle P0 FMM must keep internal kernel regularization disabled' &
       )
   end subroutine test_fmm_field_length_normalization_accuracy
 
@@ -477,10 +455,10 @@ contains
     real(dp) :: r(3), e_direct(3), e_fmm(3), norm_direct, rel_err
 
     call make_sphere(mesh_fmm, radius=2.0d-5, n_lon=16_i32, n_lat=8_i32, center=[1.05d-3, 2.05d-3, -0.95d-3])
+    call mark_normal_plus(mesh_fmm)
     mesh_fmm%q_elem = 1.0d-13
 
     sim = sim_config()
-    sim%softening = 1.0d-7
     sim%field_solver = 'fmm'
     sim%field_normalization = 'box'
     sim%use_box = .true.
@@ -493,7 +471,7 @@ contains
     call solver%refresh(mesh_fmm)
 
     r = [1.08d-3, 1.94d-3, -0.93d-3]
-    call electric_field_at(mesh_fmm, r, sim%softening, e_direct)
+    call panel_field_at(mesh_fmm, r, e_direct)
     call solver%eval_e(mesh_fmm, r, e_fmm)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -528,12 +506,10 @@ contains
     sim = sim_config()
     sim%field_solver = 'direct'
     sim%field_bc_mode = 'free'
-    sim%softening = 0.0_dp
     field_config = field_physics_config(backend='direct', normalization='si')
     periodic_config = periodic2_physics_config()
     panel_config = panel_kernel_config( &
-                   source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', &
-                   surface_side_policy='per_element' &
+                   kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
                    )
     call solver%init(mesh_panel, sim, field_config, periodic_config, panel_config)
 
@@ -586,13 +562,11 @@ contains
     direct_sim = sim_config()
     direct_sim%field_solver = 'direct'
     direct_sim%field_bc_mode = 'free'
-    direct_sim%softening = 0.0_dp
     direct_sim%field_normalization = 'length'
     direct_sim%field_length_scale = 3.5_dp
     direct_field_config = field_physics_config(backend='direct', normalization='length')
     direct_panel_config = panel_kernel_config( &
-                          source_model='triangle_p0', kernel_id='triangle_p0_exact_direct', &
-                          surface_side_policy='per_element' &
+                          kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
                           )
     periodic_config = periodic2_physics_config()
     call direct_solver%init(mesh_panel, direct_sim, direct_field_config, periodic_config, direct_panel_config)
@@ -605,8 +579,7 @@ contains
     tree_sim%has_tree_leaf_max = .true.
     tree_field_config = field_physics_config(backend='treecode', normalization='length')
     tree_panel_config = panel_kernel_config( &
-                        source_model='triangle_p0', kernel_id='triangle_p0_exact_tree_near', &
-                        surface_side_policy='per_element' &
+                        kernel_id='triangle_p0_exact_tree_near', surface_side_policy='per_element' &
                         )
     call tree_solver%init(mesh_panel, tree_sim, tree_field_config, periodic_config, tree_panel_config)
 
@@ -658,5 +631,56 @@ contains
       'triangle panel tree mesh potential must preserve exact near and self terms' &
       )
   end subroutine test_treecode_triangle_panel_field_and_potential
+
+  subroutine mark_normal_plus(mesh)
+    type(mesh_type), intent(inout) :: mesh
+
+    mesh%elem_vacuum_sign = 1_i32
+    mesh%vacuum_normals = mesh%normals
+  end subroutine mark_normal_plus
+
+  subroutine panel_field_at(mesh, target, field)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(out) :: field(3)
+
+    type(panel_geometry_type) :: geometry
+    real(dp) :: source_potential, source_field(3)
+    integer(i32) :: element, status
+
+    field = 0.0_dp
+    do element = 1_i32, mesh%nelem
+      call init_panel_geometry( &
+        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
+        )
+      if (status /= panel_geometry_ok) error stop 'field solver test received invalid panel geometry.'
+      call panel_potential_field( &
+        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
+        )
+      field = field + source_field
+    end do
+  end subroutine panel_field_at
+
+  subroutine panel_potential_at(mesh, target, potential)
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(out) :: potential
+
+    type(panel_geometry_type) :: geometry
+    real(dp) :: source_potential, source_field(3)
+    integer(i32) :: element, status
+
+    potential = 0.0_dp
+    do element = 1_i32, mesh%nelem
+      call init_panel_geometry( &
+        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
+        )
+      if (status /= panel_geometry_ok) error stop 'field solver test received invalid panel geometry.'
+      call panel_potential_field( &
+        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
+        )
+      potential = potential + source_potential
+    end do
+  end subroutine panel_potential_at
 
 end program test_dynamics_field_solver

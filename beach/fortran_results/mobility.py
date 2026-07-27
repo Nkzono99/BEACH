@@ -10,6 +10,7 @@ import numpy as np
 
 from .context import RunContext
 from .coulomb import calc_coulomb
+from .kernel import _require_total_field_config
 from .mesh import _triangle_centers
 from .objects import normalize_kind_filter, resolve_object_specs
 from .periodic import auto_periodic2_from_result
@@ -25,8 +26,8 @@ def analyze_coulomb_mobility(
     result: FortranRunResult | object,
     *,
     step: int | None = -1,
-    softening: float = 0.0,
     config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
     gravity: Iterable[float] = (0.0, 0.0, -9.81),
     support_normal: Iterable[float] | None = None,
     support_kinds: Iterable[str] | None = ("plane",),
@@ -45,8 +46,6 @@ def analyze_coulomb_mobility(
     step : int or None, default -1
         History batch step used for charge snapshot.
         ``None`` uses final charges from ``charges.csv``.
-    softening : float, default 0.0
-        Softening length used in Coulomb-force evaluation.
     config_path : str, pathlib.Path, or None, default None
         Optional ``beach.toml`` path used for object labels and geometry metadata.
     gravity : iterable of float, default ``(0, 0, -9.81)``
@@ -81,9 +80,10 @@ def analyze_coulomb_mobility(
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    softening = float(softening)
-    if not np.isfinite(softening) or softening < 0.0:
-        raise ValueError("softening must be finite and >= 0.")
+    _require_total_field_config(
+        context,
+        operation="analyze_coulomb_mobility",
+    )
     if density_kg_m3 is not None:
         density_kg_m3 = float(density_kg_m3)
         if not np.isfinite(density_kg_m3) or density_kg_m3 <= 0.0:
@@ -109,7 +109,11 @@ def analyze_coulomb_mobility(
         config_path=config_path,
         context=context,
     )
-    periodic2 = auto_periodic2_from_result(resolved, context=context)
+    periodic2 = auto_periodic2_from_result(
+        resolved,
+        allow_cached_kneq0=True,
+        context=context,
+    )
 
     if target_kind_filter is None:
         target_specs = [
@@ -143,9 +147,10 @@ def analyze_coulomb_mobility(
                 target=spec.mesh_id,
                 source=source_mesh_ids,
                 step=step,
-                softening=softening,
                 torque_origin="target_center",
                 periodic2=periodic2,
+                config_path=config_path,
+                library_path=library_path,
             )
             force = interaction.force_on_a_N
             torque = interaction.torque_on_a_Nm
@@ -164,6 +169,16 @@ def analyze_coulomb_mobility(
         torque_normal = float(np.dot(torque, support_normal_vec))
         torque_tangent_vec = torque - torque_normal * support_normal_vec
         torque_tangent = float(np.linalg.norm(torque_tangent_vec))
+        force_normal, force_tangent = _zero_roundoff_components(
+            force,
+            force_normal,
+            force_tangent,
+        )
+        torque_normal, torque_tangent = _zero_roundoff_components(
+            torque,
+            torque_normal,
+            torque_tangent,
+        )
 
         notes: list[str] = []
         mass_kg, radius_m, geom_notes = _estimate_mass_and_radius(
@@ -230,7 +245,6 @@ def analyze_coulomb_mobility(
 
     return CoulombMobilityAnalysis(
         step=records[0].step if records else step,
-        softening=float(softening),
         gravity_m_s2=gravity_vec,
         support_normal_m=support_normal_vec,
         support_kinds=tuple(sorted(support_kind_filter)),
@@ -344,3 +358,19 @@ def _safe_ratio(numerator: float, denominator: float | None) -> float | None:
             return 0.0
         return float("inf")
     return float(numerator / denominator)
+
+
+def _zero_roundoff_components(
+    vector: np.ndarray,
+    normal_component: float,
+    tangent_magnitude: float,
+) -> tuple[float, float]:
+    """Remove projection noise at machine precision relative to the vector."""
+
+    scale = float(np.linalg.norm(vector))
+    tolerance = 512.0 * np.finfo(float).eps * scale
+    if abs(normal_component) <= tolerance:
+        normal_component = 0.0
+    if tangent_magnitude <= tolerance:
+        tangent_magnitude = 0.0
+    return normal_component, tangent_magnitude

@@ -13,7 +13,6 @@ from beach import Beach, FieldKernelError
 
 from ._shared import (
     configure_entry_parser,
-    require_nonnegative_finite,
     require_positive_finite,
 )
 
@@ -33,12 +32,6 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=-1,
         help="history batch step used for charges (-1: latest history)",
-    )
-    parser.add_argument(
-        "--softening",
-        type=float,
-        default=None,
-        help="softening length [m] (default: read sim.softening near output_dir)",
     )
     parser.add_argument(
         "--target-mesh-ids",
@@ -100,12 +93,11 @@ def run(args: argparse.Namespace) -> None:
     """Execute the kernel-force command."""
 
     parser = args._parser
-    require_nonnegative_finite(parser, args.softening, "--softening")
     require_positive_finite(parser, args.theta, "--theta")
     if args.leaf_max is not None and args.leaf_max <= 0:
         parser.error("--leaf-max must be > 0.")
-    if args.order < 0:
-        parser.error("--order must be >= 0.")
+    if args.order < 1:
+        parser.error("--order must be >= 1.")
 
     output_dir = Path(args.output_dir)
     save_csv = (
@@ -128,7 +120,6 @@ def run(args: argparse.Namespace) -> None:
         records = beach.calc_object_forces_kernel(
             step=args.step,
             target_mesh_ids=target_mesh_ids,
-            softening=args.softening,
             theta=args.theta,
             leaf_max=args.leaf_max,
             order=args.order,

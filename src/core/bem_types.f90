@@ -23,7 +23,6 @@ module bem_types
     integer(i32) :: max_step = 100
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30
-    real(dp) :: softening = 1.0d-4
     character(len=16) :: field_solver = 'auto'
     character(len=16) :: field_normalization = 'si'
     real(dp) :: field_length_scale = 1.0d0

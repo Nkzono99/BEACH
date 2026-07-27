@@ -177,9 +177,6 @@ contains
       case ('particles')
         if (.not. associated(section)) error stop 'TOML section [particles] must be a table.'
         call apply_particles_toml_table(cfg, section, authoring)
-      case ('field')
-        if (.not. associated(section)) error stop 'TOML section [field] must be a table.'
-        call apply_field_toml_table(section, authoring)
       case ('periodic2')
         if (.not. associated(section)) error stop 'TOML section [periodic2] must be a table.'
         call apply_periodic2_toml_table(section, authoring)
@@ -203,53 +200,6 @@ contains
       end select
     end do
   end subroutine apply_toml_document
-
-  subroutine apply_field_toml_table(table, authoring)
-    type(toml_table), intent(inout) :: table
-    type(app_config_authoring), intent(inout) :: authoring
-    type(toml_key), allocatable :: keys(:)
-    integer :: ikey
-    character(len=:), allocatable :: k
-
-    call table%get_keys(keys)
-    do ikey = 1, size(keys)
-      k = lower_ascii(trim(keys(ikey)%key))
-      select case (trim(k))
-      case ('element_kernel')
-        call get_toml_string(table, keys(ikey), authoring%field%element_kernel, 'field.element_kernel')
-        authoring%field%element_kernel = lower_ascii(trim(authoring%field%element_kernel))
-        authoring%field%has_element_kernel = .true.
-      case default
-        error stop 'Unknown key in [field]: '//trim(keys(ikey)%key)
-      end select
-    end do
-  end subroutine apply_field_toml_table
-
-  subroutine apply_field_authoring(cfg, authoring)
-    type(app_config), intent(inout) :: cfg
-    type(app_config_authoring), intent(in) :: authoring
-    if (.not. authoring%field%has_element_kernel) return
-    select case (trim(authoring%field%element_kernel))
-    case ('point')
-      cfg%panel%source_model = 'point'
-      cfg%panel%kernel_id = 'softened_point'
-      cfg%panel%surface_side_policy = 'not_applicable'
-    case ('triangle_p0')
-      cfg%panel%source_model = 'triangle_p0'
-      if (trim(lower_ascii(cfg%sim%field_solver)) == 'fmm') then
-        cfg%panel%kernel_id = 'triangle_p0_exact_p2m_near'
-      else if (trim(lower_ascii(cfg%sim%field_solver)) == 'treecode') then
-        cfg%panel%kernel_id = 'triangle_p0_exact_tree_near'
-      else if (trim(lower_ascii(cfg%sim%field_solver)) == 'auto') then
-        cfg%panel%kernel_id = 'triangle_p0_exact_auto'
-      else
-        cfg%panel%kernel_id = 'triangle_p0_exact_direct'
-      end if
-      cfg%panel%surface_side_policy = 'per_element'
-    case default
-      error stop 'field.element_kernel must be "point" or "triangle_p0".'
-    end select
-  end subroutine apply_field_authoring
 
   subroutine apply_periodic2_toml_table(table, authoring)
     type(toml_table), intent(inout) :: table
@@ -852,8 +802,6 @@ contains
         call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'sim.tol_rel')
       case ('q_floor')
         call get_toml_real(table, keys(ikey), cfg%sim%q_floor, 'sim.q_floor')
-      case ('softening')
-        call get_toml_real(table, keys(ikey), cfg%sim%softening, 'sim.softening')
       case ('field_solver')
         call get_toml_string(table, keys(ikey), cfg%sim%field_solver, 'sim.field_solver')
         cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))

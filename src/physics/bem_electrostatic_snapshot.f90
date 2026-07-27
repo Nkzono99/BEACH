@@ -1,7 +1,7 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: eps0, k_coulomb
+  use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
@@ -116,7 +116,6 @@ module bem_electrostatic_snapshot
 
   type, public :: electrostatic_snapshot_type
     type(field_solver_type) :: nonzero_solver
-    character(len=32) :: source_model = 'point'
     real(dp) :: prescribed_e(3) = [0.0_dp, 0.0_dp, 0.0_dp]
     real(dp) :: prescribed_phi_origin(3) = [0.0_dp, 0.0_dp, 0.0_dp]
     logical :: use_zero_mode = .false.
@@ -203,8 +202,6 @@ contains
 
     self%prescribed_e = sim%e0
     self%prescribed_phi_origin = 0.0_dp
-    self%source_model = 'point'
-    if (present(panel_config)) self%source_model = lower_ascii(trim(panel_config%source_model))
     self%use_zero_mode = .false.
     self%use_outer_plasma = .false.
     self%use_panel_spectral_reference = .false.
@@ -215,7 +212,7 @@ contains
     if (present(mpi)) self%mpi = mpi
     if (present(periodic_config) .and. present(panel_config) .and. present(outer_config)) then
       if (trim(lower_ascii(periodic_config%nonzero_mode_backend)) == 'panel_spectral_reference') then
-        call init_split_periodic_snapshot(self, mesh, sim, periodic_config, panel_config, outer_config, kinetic_options)
+        call init_split_periodic_snapshot(self, mesh, sim, periodic_config, outer_config, kinetic_options)
         return
       else if (trim(lower_ascii(periodic_config%nonzero_mode_backend)) == 'cached_kneq0') then
         if (.not. present(field_config)) error stop 'cached_kneq0 requires typed field configuration.'
@@ -542,13 +539,12 @@ contains
   end subroutine init_cached_periodic_snapshot
 
   subroutine init_split_periodic_snapshot( &
-    self, mesh, sim, periodic_config, panel_config, outer_config, kinetic_options &
+    self, mesh, sim, periodic_config, outer_config, kinetic_options &
     )
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(periodic2_physics_config), intent(in) :: periodic_config
-    type(panel_kernel_config), intent(in) :: panel_config
     type(outer_plasma_config), intent(in) :: outer_config
     type(kinetic_outer_plasma_options_type), intent(in), optional :: kinetic_options
     integer(i32) :: status
@@ -557,9 +553,6 @@ contains
     if (trim(lower_ascii(periodic_config%zero_mode_policy)) /= 'exclude_k0' .or. &
         .not. supported_lower_boundary(periodic_config%lower_boundary_model)) then
       error stop 'panel spectral reference requires exclude_k0 and a supported lower boundary model.'
-    end if
-    if (trim(lower_ascii(panel_config%source_model)) /= 'triangle_p0') then
-      error stop 'panel spectral reference requires triangle_p0 sources.'
     end if
     if (trim(lower_ascii(outer_config%model)) /= 'kinetic_1d') then
       error stop 'split periodic snapshot requires kinetic_1d.'

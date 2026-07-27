@@ -29,5 +29,5 @@
 
 - `survived_max_step` growth can indicate particles do not hit/escape within `sim.max_step`.
 - Unexpectedly low absorption can come from injection face direction, box boundary, mesh placement, or drift velocity sign.
-- Strong field spikes can come from tiny softening, close approach to charged element centers, or excessive accumulated charge.
-- Python post-processing uses direct point-charge reconstruction and does not reproduce every Fortran FMM/periodic far correction detail.
+- Strong field spikes can come from under-resolved panel geometry, sampling very near a charged edge or vertex, or excessive accumulated charge.
+- Python field and potential post-processing uses the native P0 panel kernel; make sure the shared field-kernel library and run configuration match the output.

@@ -6,7 +6,6 @@ dt = 1.0e-9
 batch_duration = 1.0e-8
 batch_count = 1
 max_step = 4
-softening = 0.0
 field_solver = "direct"
 field_bc_mode = "periodic2"
 use_box = true
@@ -18,9 +17,6 @@ bc_y_low = "periodic"
 bc_y_high = "periodic"
 bc_z_low = "open"
 bc_z_high = "open"
-
-[field]
-element_kernel = "triangle_p0"
 
 [periodic2]
 nonzero_mode_backend = "panel_spectral_reference"

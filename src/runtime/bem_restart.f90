@@ -10,7 +10,6 @@ module bem_restart
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_outer_event_queue, only: outer_event_queue_fingerprint_is_valid
   use bem_string_utils, only: lower_ascii
-  use bem_physics_config_types, only: validate_phase0_physics_config, physics_config_ok
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
 
@@ -434,8 +433,6 @@ contains
     character(len=256) :: value
     character(len=16) :: saved_model, saved_mesh, saved_species
     logical :: found_schema, found_model, found_mesh, found_species
-    integer(i32) :: physics_status
-    character(len=256) :: physics_message
 
     status = restart_contract_ok
     message = ''
@@ -484,15 +481,10 @@ contains
     end do
     close (u)
 
-    ! Legacy checkpoints predate fingerprints and are accepted only for implemented Phase 0 point-source modes.
+    ! Unversioned checkpoints predate the triangle-panel fingerprint contract.
     if (.not. found_schema) then
-      call validate_phase0_physics_config( &
-        app%field, app%periodic2, app%panel, app%outer_plasma, app%coupling, physics_status, physics_message &
-        )
-      if (physics_status /= physics_config_ok) then
-        status = restart_contract_mismatch
-        message = 'legacy checkpoint is incompatible with this physics model'
-      end if
+      status = restart_contract_mismatch
+      message = 'unversioned point-source checkpoints are not supported'
       return
     end if
     if (schema_version /= 2_i32 .and. schema_version /= 3_i32 .and. &

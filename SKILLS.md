@@ -10,7 +10,7 @@ Layer 1  bem_constants (pi, eps0, qe, k_coulomb, k_boltzmann)
          bem_string_utils (lower_ascii)
 Layer 2  bem_types, bem_coulomb_fmm_types
 Layer 3  bem_app_config_types
-Layer 4  bem_field, bem_pusher, bem_boundary, bem_particles
+Layer 4  bem_pusher, bem_boundary, bem_particles
 Layer 5  bem_mesh, bem_importers, bem_templates
 Layer 6  bem_collision, bem_injection
 Layer 7  bem_config_helpers (resolve_inject_face, resolve_inward_normal, etc.)

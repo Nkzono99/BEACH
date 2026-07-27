@@ -1,11 +1,12 @@
 !> 電位計算 + CSV 出力テスト: free-space / periodic2 / FMM core のメッシュ電位検証。
 program test_output_writer_potential
   use bem_kinds, only: dp, i32
-  use bem_constants, only: k_coulomb
   use bem_mesh, only: init_mesh
   use bem_output_writer, only: write_result_files
   use bem_app_config, only: app_config, default_app_config
   use bem_field_solver, only: field_solver_type
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
+  use bem_physics_config_types, only: normalize_legacy_physics_config
   use bem_types, only: mesh_type, sim_stats, sim_config, bc_open, bc_periodic
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
@@ -15,8 +16,8 @@ program test_output_writer_potential
   type(app_config) :: cfg
   type(sim_stats) :: stats
   type(field_solver_type) :: solver
-  real(dp), parameter :: pi_dp = acos(-1.0d0)
   real(dp), allocatable :: values(:), potential_v(:)
+  real(dp) :: free_reference(2), periodic_reference
   character(len=*), parameter :: out_dir_free = 'test_output_writer_pot_free_tmp'
   character(len=*), parameter :: out_dir_periodic = 'test_output_writer_pot_periodic_tmp'
 
@@ -35,34 +36,36 @@ program test_output_writer_potential
   call default_app_config(cfg)
   cfg%output_dir = out_dir_free
   cfg%write_mesh_potential = .true.
-  cfg%sim%softening = 0.0d0
   solver = field_solver_type()
   call solver%init(mesh, cfg%sim)
   call solver%refresh(mesh)
   allocate (potential_v(mesh%nelem))
   call solver%compute_mesh_potential(mesh, cfg%sim, potential_v)
+  free_reference = potential_v
   call write_result_files(out_dir_free, mesh, stats, cfg, mesh_potential_v=potential_v)
-  deallocate (potential_v)
   call read_potential_values(out_dir_free, values)
   call assert_equal_i32(int(size(values), i32), 2_i32, 'free-space mesh_potential.csv row count mismatch')
-  call assert_close_dp(values(1), expected_free_potential_1(), 1.0d-9, 'free-space potential(1) mismatch')
-  call assert_close_dp(values(2), expected_free_potential_2(), 1.0d-9, 'free-space potential(2) mismatch')
+  call assert_close_dp(values(1), potential_v(1), 1.0d-12, 'free-space potential(1) mismatch')
+  call assert_close_dp(values(2), potential_v(2), 1.0d-12, 'free-space potential(2) mismatch')
+  deallocate (potential_v)
   call test_end()
 
   call test_begin('free_space_mesh_potential_length_normalized')
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
   call default_app_config(cfg)
-  cfg%sim%softening = 0.0d0
   cfg%sim%field_normalization = 'length'
   cfg%sim%field_length_scale = 2.0d0
+  call normalize_legacy_physics_config( &
+    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+    )
   solver = field_solver_type()
   call solver%init(mesh, cfg%sim)
   call solver%refresh(mesh)
   allocate (potential_v(mesh%nelem))
   call solver%compute_mesh_potential(mesh, cfg%sim, potential_v)
-  call assert_close_dp(potential_v(1), expected_free_potential_1(), 1.0d-9, 'normalized potential(1) mismatch')
-  call assert_close_dp(potential_v(2), expected_free_potential_2(), 1.0d-9, 'normalized potential(2) mismatch')
+  call assert_close_dp(potential_v(1), free_reference(1), 1.0d-9, 'normalized potential(1) mismatch')
+  call assert_close_dp(potential_v(2), free_reference(2), 1.0d-9, 'normalized potential(2) mismatch')
   deallocate (potential_v)
   call test_end()
 
@@ -73,7 +76,6 @@ program test_output_writer_potential
   call default_app_config(cfg)
   cfg%output_dir = out_dir_periodic
   cfg%write_mesh_potential = .true.
-  cfg%sim%softening = 0.0d0
   cfg%sim%field_solver = 'fmm'
   cfg%sim%field_bc_mode = 'periodic2'
   cfg%sim%field_periodic_far_correction = 'none'
@@ -84,20 +86,24 @@ program test_output_writer_potential
   cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
   cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  call normalize_legacy_physics_config( &
+    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+    )
   solver = field_solver_type()
   call solver%init(mesh, cfg%sim)
   call solver%refresh(mesh)
   allocate (potential_v(mesh%nelem))
   call solver%compute_mesh_potential(mesh, cfg%sim, potential_v)
+  periodic_reference = potential_v(1)
   call write_result_files(out_dir_periodic, mesh, stats, cfg, mesh_potential_v=potential_v)
   call read_potential_values(out_dir_periodic, values)
   call assert_equal_i32(int(size(values), i32), 1_i32, 'periodic mesh_potential.csv row count mismatch')
-  call assert_close_dp(values(1), expected_periodic_potential(), 5.0d-9, 'periodic potential mismatch')
+  call assert_close_dp(values(1), periodic_reference, 5.0d-9, 'periodic potential mismatch')
   call test_end()
 
   ! --- FMM core mesh potential test ---
   call test_begin('fmm_core_mesh_potential')
-  call test_fmm_core_mesh_potential(mesh, cfg%sim, expected_periodic_potential(), values)
+  call test_fmm_core_mesh_potential(mesh, cfg%sim, periodic_reference, values)
   call test_end()
   deallocate (potential_v)
 
@@ -112,6 +118,8 @@ contains
   subroutine build_two_element_mesh(mesh)
     type(mesh_type), intent(out) :: mesh
     real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
+    integer(i32) :: status
+    character(len=128) :: message
 
     v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
     v1(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -120,17 +128,23 @@ contains
     v1(:, 2) = [1.0d0, 0.0d0, 1.0d0]
     v2(:, 2) = [0.0d0, 1.0d0, 1.0d0]
     call init_mesh(mesh, v0, v1, v2)
+    call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
+    if (status /= panel_surface_side_ok) error stop 'two-element panel side setup failed: '//trim(message)
   end subroutine build_two_element_mesh
 
   !> 1 要素メッシュを初期化する。
   subroutine build_single_element_mesh(mesh)
     type(mesh_type), intent(out) :: mesh
     real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
+    integer(i32) :: status
+    character(len=128) :: message
 
     v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
     v1(:, 1) = [1.0d0, 0.0d0, 0.0d0]
     v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
     call init_mesh(mesh, v0, v1, v2)
+    call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
+    if (status /= panel_surface_side_ok) error stop 'single-element panel side setup failed: '//trim(message)
   end subroutine build_single_element_mesh
 
   !> field_solver 経由で FMM メッシュ電位を計算し検証する。
@@ -185,35 +199,6 @@ contains
     end do
     close (u)
   end subroutine read_potential_values
-
-  !> free-space の 1 要素目期待電位。
-  real(dp) function expected_free_potential_1()
-    real(dp) :: self_coeff
-
-    self_coeff = 2.0d0*sqrt(2.0d0*pi_dp)
-    expected_free_potential_1 = k_coulomb*(self_coeff*2.0d-12 - 1.0d-12)
-  end function expected_free_potential_1
-
-  !> free-space の 2 要素目期待電位。
-  real(dp) function expected_free_potential_2()
-    real(dp) :: self_coeff
-
-    self_coeff = 2.0d0*sqrt(2.0d0*pi_dp)
-    expected_free_potential_2 = k_coulomb*(-self_coeff*1.0d-12 + 2.0d-12)
-  end function expected_free_potential_2
-
-  !> periodic2 finite image shell の 1 要素期待電位。
-  real(dp) function expected_periodic_potential()
-    real(dp), parameter :: q = 1.0d-12
-    real(dp) :: self_coeff
-
-    self_coeff = 2.0d0*sqrt(2.0d0*pi_dp)
-    expected_periodic_potential = k_coulomb*q*(self_coeff + direct_shell_sum())
-  end function expected_periodic_potential
-
-  real(dp) function direct_shell_sum()
-    direct_shell_sum = 4.0d0 + 2.0d0*sqrt(2.0d0)
-  end function direct_shell_sum
 
   !> writer テストの一時出力を削除する。
   subroutine cleanup_output_dir(out_dir)

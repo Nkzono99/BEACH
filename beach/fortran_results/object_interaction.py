@@ -26,6 +26,7 @@ from .scene import RigidTransform
 from .selection import (
     _charges_for_step,
     _mesh_ids_or_default,
+    _require_triangle_source_model,
     _require_triangles,
 )
 from .types import FortranRunResult
@@ -39,6 +40,7 @@ _PHYSICAL_COMPONENTS = (
 )
 
 _PATH_TARGET_BATCH_LIMIT = 131_072
+_EPS0_F_M = 8.8541878128e-12
 
 
 @dataclass
@@ -81,18 +83,18 @@ class ObjectInteractionSnapshot:
         centers_m: np.ndarray,
         charges_C: np.ndarray,
         mesh_ids: np.ndarray,
-        source_model: str,
         options: FieldKernelOptions,
         periodic_model: str,
         periodic: FieldKernel,
         zero_mode: PeriodicZeroMode | None,
         external_e0_V_m: np.ndarray,
         library_path: str | Path | None,
+        zero_mode_lower_boundary: str | None = None,
+        zero_mode_area_xy_m2: float | None = None,
     ) -> None:
         self.result = result
         self.step = step
         self.periodic_model = periodic_model
-        self.source_model = source_model
         self._triangles_m = _readonly(triangles_m)
         self._centers_m = _readonly(centers_m)
         self._charges_C = _readonly(charges_C)
@@ -100,6 +102,8 @@ class ObjectInteractionSnapshot:
         self._options = options
         self._periodic = periodic
         self._zero_mode = zero_mode
+        self._zero_mode_lower_boundary = zero_mode_lower_boundary
+        self._zero_mode_area_xy_m2 = zero_mode_area_xy_m2
         self._external_e0_V_m = _vec3(external_e0_V_m, "external_e0_V_m")
         self._library_path = library_path
         self._lock = RLock()
@@ -128,12 +132,7 @@ class ObjectInteractionSnapshot:
             )
         context = RunContext.from_value(result, config_path=config_path)
         resolved = context.result
-        source_model = str(resolved.field_source_model).strip().lower()
-        if source_model not in {"point", "triangle_p0"}:
-            raise ValueError(
-                "Object interaction requires field_source_model='point' or "
-                f"'triangle_p0'; got {resolved.field_source_model!r}."
-            )
+        _require_triangle_source_model(resolved)
         full_config = context.config
         if full_config is None:
             raise ValueError(
@@ -150,7 +149,6 @@ class ObjectInteractionSnapshot:
 
         options = _options_from_result(
             resolved,
-            softening=None,
             periodic2=None,
             theta=None,
             leaf_max=None,
@@ -194,28 +192,39 @@ class ObjectInteractionSnapshot:
             periodic_generation_tolerance=tolerance,
         )
 
-        source_triangles = triangles if source_model == "triangle_p0" else None
         periodic: FieldKernel | None = None
         zero_mode: PeriodicZeroMode | None = None
+        zero_mode_lower_boundary: str | None = None
+        zero_mode_area_xy_m2: float | None = None
+        if far_correction == "cached_kneq0":
+            assert periodic2 is not None
+            zero_mode_lower_boundary = _resolve_zero_mode_lower_boundary(
+                full_config
+            )
+            zero_mode_area_xy_m2 = float(
+                periodic2.lengths[0] * periodic2.lengths[1]
+            )
         try:
             periodic = FieldKernel(
-                centers,
+                triangles,
                 charges,
                 options=options,
                 library_path=library_path,
-                source_triangles=source_triangles,
             )
             if far_correction == "cached_kneq0":
                 assert periodic2 is not None
-                heights = (
-                    triangles[:, :, 2]
-                    if source_model == "triangle_p0"
-                    else np.repeat(centers[:, 2, None], 3, axis=1)
-                )
+                heights = triangles[:, :, 2]
+                assert zero_mode_lower_boundary is not None
+                assert zero_mode_area_xy_m2 is not None
                 zero_mode = PeriodicZeroMode(
                     heights,
                     charges,
-                    float(periodic2.lengths[0] * periodic2.lengths[1]),
+                    zero_mode_area_xy_m2,
+                    e_bottom_V_m=_zero_mode_bottom_field(
+                        zero_mode_lower_boundary,
+                        charges,
+                        zero_mode_area_xy_m2,
+                    ),
                     library_path=library_path,
                 )
             return cls(
@@ -225,11 +234,12 @@ class ObjectInteractionSnapshot:
                 centers_m=centers,
                 charges_C=charges,
                 mesh_ids=mesh_ids,
-                source_model=source_model,
                 options=options,
                 periodic_model=model,
                 periodic=periodic,
                 zero_mode=zero_mode,
+                zero_mode_lower_boundary=zero_mode_lower_boundary,
+                zero_mode_area_xy_m2=zero_mode_area_xy_m2,
                 external_e0_V_m=external_e0,
                 library_path=library_path,
             )
@@ -348,14 +358,14 @@ class ObjectInteractionSnapshot:
             try:
                 self._periodic.update_charges(q_other)
                 if self._zero_mode is not None:
-                    self._zero_mode.update_charges(q_other)
+                    self._update_zero_mode_charges(q_other)
                 p_other_native = self._eval_periodic(target_points_m)
                 z_other, trace_other = self._eval_zero_mechanical(target_points_m)
                 p_other = _add_field_component(p_other_native, trace_other)
 
                 self._periodic.update_charges(q_target)
                 if self._zero_mode is not None:
-                    self._zero_mode.update_charges(q_target)
+                    self._update_zero_mode_charges(q_target)
                 p_target_native = self._eval_periodic(target_points_m)
                 z_target, trace_target = self._eval_zero_mechanical(target_points_m)
                 p_target = _add_field_component(p_target_native, trace_target)
@@ -437,10 +447,26 @@ class ObjectInteractionSnapshot:
             errors.append(exc)
         if self._zero_mode is not None:
             try:
-                self._zero_mode.update_charges(self._charges_C)
+                self._update_zero_mode_charges(self._charges_C)
             except Exception as exc:
                 errors.append(exc)
         return errors
+
+    def _update_zero_mode_charges(self, charges_C: np.ndarray) -> None:
+        if (
+            self._zero_mode is None
+            or self._zero_mode_lower_boundary is None
+            or self._zero_mode_area_xy_m2 is None
+        ):
+            raise FieldKernelError("periodic zero-mode boundary state is incomplete.")
+        self._zero_mode.update_charges(
+            charges_C,
+            e_bottom_V_m=_zero_mode_bottom_field(
+                self._zero_mode_lower_boundary,
+                charges_C,
+                self._zero_mode_area_xy_m2,
+            ),
+        )
 
     def _require_usable(self) -> None:
         if self._closed:
@@ -499,7 +525,7 @@ class ObjectProbe:
                 )
             )
         )
-        if snapshot.source_model == "triangle_p0" and target_integration == "auto":
+        if target_integration == "auto":
             (
                 target_points,
                 target_charge_weights,
@@ -518,11 +544,7 @@ class ObjectProbe:
                 self._target_charges_C.size,
                 dtype=np.int64,
             )
-            integration_label = (
-                "centroid_compatibility"
-                if snapshot.source_model == "triangle_p0"
-                else "point_centroid"
-            )
+            integration_label = "centroid_compatibility"
             integration_order = None
         self._target_points_m = _readonly(target_points)
         self._target_charge_weights_C = _readonly(target_charge_weights)
@@ -530,22 +552,15 @@ class ObjectProbe:
         self._integration_label = integration_label
         self._integration_order = integration_order
         primary_options = FieldKernelOptions(
-            softening=snapshot._options.softening,
             theta=snapshot._options.theta,
             leaf_max=snapshot._options.leaf_max,
             order=snapshot._options.order,
         )
-        source_triangles = (
-            self._target_triangles_m
-            if snapshot.source_model == "triangle_p0"
-            else None
-        )
         self._primary = FieldKernel(
-            self._target_centers_m,
+            self._target_triangles_m,
             self._target_charges_C,
             options=primary_options,
             library_path=snapshot._library_path,
-            source_triangles=source_triangles,
         )
         self._closed = False
 
@@ -1177,6 +1192,20 @@ def _geometric_area_centroid(triangles_m: np.ndarray) -> np.ndarray:
 def _reject_active_outer_plasma(config: Mapping[str, object] | None) -> None:
     if config is None:
         return
+    external_boundary = config.get("external_boundary")
+    if external_boundary is not None:
+        if not isinstance(external_boundary, Mapping):
+            raise ValueError("external_boundary config must be a table.")
+        field = external_boundary.get("field")
+        if not isinstance(field, Mapping):
+            raise ValueError("external_boundary.field config must be a table.")
+        model = str(field.get("model", "")).strip().lower()
+        if model != "none":
+            raise ValueError(
+                "Object interaction does not yet support an active "
+                "external_boundary.field; use "
+                "external_boundary.field.model='none'."
+            )
     outer = config.get("outer_plasma")
     if outer is None:
         return
@@ -1188,6 +1217,51 @@ def _reject_active_outer_plasma(config: Mapping[str, object] | None) -> None:
             "Object interaction does not yet support an active outer_plasma field; "
             "use outer_plasma.model='none'."
         )
+
+
+def _resolve_zero_mode_lower_boundary(config: Mapping[str, object]) -> str:
+    periodic2 = config.get("periodic2")
+    if not isinstance(periodic2, Mapping):
+        raise ValueError(
+            "cached_kneq0 object interaction requires an explicit [periodic2] "
+            "table with zero_mode_policy and lower_boundary_model."
+        )
+    nonzero_backend = str(
+        periodic2.get("nonzero_mode_backend", "")
+    ).strip().lower()
+    if nonzero_backend != "cached_kneq0":
+        raise ValueError(
+            "cached_kneq0 object interaction requires "
+            "periodic2.nonzero_mode_backend='cached_kneq0'."
+        )
+    zero_mode_policy = str(periodic2.get("zero_mode_policy", "")).strip().lower()
+    if zero_mode_policy != "exclude_k0":
+        raise ValueError(
+            "cached_kneq0 object interaction requires "
+            "periodic2.zero_mode_policy='exclude_k0'."
+        )
+    lower_boundary = str(
+        periodic2.get("lower_boundary_model", "")
+    ).strip().lower()
+    if lower_boundary not in {"e_bottom_zero", "symmetric_vacuum"}:
+        raise ValueError(
+            "cached_kneq0 object interaction requires "
+            "periodic2.lower_boundary_model='e_bottom_zero' or "
+            "'symmetric_vacuum'."
+        )
+    return lower_boundary
+
+
+def _zero_mode_bottom_field(
+    lower_boundary: str,
+    charges_C: np.ndarray,
+    area_xy_m2: float,
+) -> float:
+    if lower_boundary == "e_bottom_zero":
+        return 0.0
+    if lower_boundary == "symmetric_vacuum":
+        return -float(np.sum(charges_C)) / (2.0 * _EPS0_F_M * area_xy_m2)
+    raise ValueError(f"unsupported periodic2 lower boundary: {lower_boundary!r}.")
 
 
 def _validate_full_box_config(config: Mapping[str, object]) -> None:

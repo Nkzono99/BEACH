@@ -2,11 +2,11 @@
 program test_dynamics_basic
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_next_after, ieee_quiet_nan, ieee_value
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, hit_info, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_templates, only: make_plane
-  use bem_field, only: electric_field_at
+  use bem_field_solver, only: field_solver_type
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_pusher, only: boris_push, boris_update_velocity
   use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
                            collision_query_index_range, collision_query_invalid_segment, collision_query_ok, &
@@ -16,11 +16,13 @@ program test_dynamics_basic
   implicit none
 
   type(mesh_type) :: mesh_field, mesh_hit
+  type(field_solver_type) :: field_solver
   type(hit_info) :: hit
   real(dp) :: v0_field(3, 1), v1_field(3, 1), v2_field(3, 1), q0_field(1)
   real(dp) :: v0_hit(3, 2), v1_hit(3, 2), v2_hit(3, 2)
   real(dp) :: e(3), x_new(3), v_new(3), speed0, speed1
-  real(dp) :: inv_r3, expected_ex
+  integer(i32) :: side_status
+  character(len=128) :: side_message
   character(len=*), parameter :: collision_failure_path = 'test_dynamics_basic_collision_failure_tmp.log'
   character(len=64) :: run_mode
 
@@ -36,19 +38,19 @@ program test_dynamics_basic
 
   call test_init(24)
 
-  call test_begin('electric_field_at')
+  call test_begin('triangle_p0_electric_field')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
-  v1_field(:, 1) = [0.0d0, 1.0d0, 0.0d0]
-  v2_field(:, 1) = [-1.0d0, -1.0d0, 0.0d0]
+  v1_field(:, 1) = [-0.5d0, 0.5d0*sqrt(3.0d0), 0.0d0]
+  v2_field(:, 1) = [-0.5d0, -0.5d0*sqrt(3.0d0), 0.0d0]
   q0_field(1) = 2.0d-9
   call init_mesh(mesh_field, v0_field, v1_field, v2_field, q0=q0_field)
-
-  call electric_field_at(mesh_field, [1.0d0, 0.0d0, 0.0d0], 0.5d0, e)
-  inv_r3 = 1.0d0/(sqrt(1.25d0)*1.25d0)
-  expected_ex = k_coulomb*q0_field(1)*inv_r3
-  call assert_close_dp(e(1), expected_ex, abs(expected_ex)*1.0d-12, 'electric field Ex mismatch')
-  call assert_close_dp(e(2), 0.0d0, 1.0d-20, 'electric field Ey should be zero')
-  call assert_close_dp(e(3), 0.0d0, 1.0d-20, 'electric field Ez should be zero')
+  call resolve_panel_surface_sides(mesh_field, 'normal_plus', side_status, side_message)
+  call assert_equal_i32(side_status, panel_surface_side_ok, 'triangle side setup status')
+  call field_solver%init(mesh_field, sim_config())
+  call field_solver%eval_e(mesh_field, [0.0d0, 0.0d0, 1.0d0], e)
+  call assert_close_dp(e(1), 0.0d0, abs(e(3))*1.0d-12, 'electric field Ex should vanish by symmetry')
+  call assert_close_dp(e(2), 0.0d0, abs(e(3))*1.0d-12, 'electric field Ey should vanish by symmetry')
+  call assert_true(e(3) > 0.0d0 .and. ieee_is_finite(e(3)), 'electric field Ez must be finite and outward')
   call test_end()
 
   call test_begin('boris_push_e_only')

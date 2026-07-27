@@ -25,7 +25,6 @@ dt = 2.0e-8
 batch_duration_step = 10.0
 batch_count = 2
 max_step = 100
-softening = 1.0e-6
 use_box = true
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 10.0]
@@ -52,6 +51,7 @@ mode = "template"
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_side = "normal_plus"
 size_x = 1.0
 size_y = 1.0
 nx = 20
@@ -83,6 +83,31 @@ def test_default_config_uses_no_periodic_far_correction() -> None:
     config = default_config()
 
     assert config["sim"]["field_periodic_far_correction"] == "none"
+    assert "softening" not in config["sim"]
+    assert "field" not in config
+
+
+def test_config_rejects_removed_point_source_options() -> None:
+    config = default_config()
+    config["sim"]["softening"] = 1.0e-6
+    with pytest.raises(ConfigValidationError, match="removed sim key.*softening"):
+        normalize_config_document(config)
+
+    config = default_config()
+    config["field"] = {"element_kernel": "point"}
+    with pytest.raises(ConfigError, match="unsupported top-level key.*field"):
+        normalize_config_document(config)
+
+
+def test_explicit_auto_mesh_requires_obj_surface_side() -> None:
+    config = default_config()
+    config["mesh"]["mode"] = "auto"
+
+    with pytest.raises(ConfigValidationError, match="mesh.surface_side"):
+        normalize_config_document(config)
+
+    config["mesh"]["surface_side"] = "normal_plus"
+    assert normalize_config_document(config)["mesh"]["mode"] == "auto"
 
 
 def test_default_config_matches_official_tutorial_case() -> None:
@@ -654,7 +679,6 @@ dt = 2.0e-8
 batch_duration_step = 10.0
 batch_count = 2
 max_step = 100
-softening = 1.0e-6
 use_box = true
 box_origin = [1.0, 2.0, 3.0]
 box_size = [2.0, 4.0, 6.0]
@@ -688,6 +712,7 @@ mode = "template"
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_side = "normal_plus"
 size_mode = "box_fraction"
 size_frac = [0.5, 0.25]
 nx = 20
@@ -725,7 +750,6 @@ dt = 2.0e-8
 batch_duration_step = 10.0
 batch_count = 2
 max_step = 100
-softening = 1.0e-6
 use_box = true
 box_origin = [1.0, 2.0, 3.0]
 box_size = [2.0, 4.0, 6.0]
@@ -765,6 +789,7 @@ scale_factor = 0.5
 [[mesh.templates]]
 group = "cavity_unit"
 kind = "sphere"
+surface_side = "outward_closed"
 radius = 0.2
 n_lon = 8
 n_lat = 4
@@ -852,6 +877,7 @@ mode = "template"
 [[mesh.templates]]
 kind = "plane"
 enabled = true
+surface_side = "normal_plus"
 size_x = 1.0
 size_y = 1.0
 nx = 1

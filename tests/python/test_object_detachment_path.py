@@ -24,7 +24,7 @@ def _result(
     directory: Path,
     *,
     triangles: np.ndarray | None = None,
-    source_model: str = "point",
+    source_model: str = "triangle_p0",
 ) -> FortranRunResult:
     if triangles is None:
         triangles = _triangles_at(np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -1.0]]))
@@ -50,7 +50,6 @@ def _write_config(path: Path, *, box_max_z: float = 4.0) -> None:
         f"""
 [sim]
 field_bc_mode = "free"
-softening = 0.0
 box_min = [-2.0, -2.0, -2.0]
 box_max = [2.0, 2.0, {box_max_z}]
 e0 = [0.0, 0.0, 0.0]

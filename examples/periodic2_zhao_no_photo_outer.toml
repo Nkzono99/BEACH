@@ -10,7 +10,6 @@ batch_duration = 2.5e-7
 batch_count = 4
 max_step = 20000
 tol_rel = 1.0e-8
-softening = 0.0
 b0 = [0.0, 0.0, 0.0]
 use_box = true
 box_min = [0.0, 0.0, 0.0]
@@ -26,9 +25,6 @@ field_solver = "direct"
 field_bc_mode = "periodic2"
 sheath_electron_drift_mode = "normal"
 sheath_ion_drift_mode = "normal"
-
-[field]
-element_kernel = "triangle_p0"
 
 [periodic2]
 nonzero_mode_backend = "panel_spectral_reference"

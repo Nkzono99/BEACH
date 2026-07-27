@@ -125,9 +125,11 @@ Individual targets can be checked with `FPM_ACTION=test ./build.sh --target <nam
 | `max_step` | int | 400 | Maximum integration steps per particle |
 | `tol_rel` | float | 1.0e-8 | Monitoring metric, not an early-stop condition |
 | `q_floor` | float | 1.0e-30 | Denominator floor for relative-change calculation |
-| `softening` | float | 1.0e-6 | Electric-field softening length [m] |
 
 ### Electric-field Solver Parameters
+
+Element sources use a fixed P0 triangle panel. There is no `[field]` table or
+softening setting.
 
 | Parameter | Type | Default | Choices | Description |
 |------------|------|-----------|--------|------|

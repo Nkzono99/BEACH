@@ -11,7 +11,6 @@ from beach import Beach, list_fortran_runs
 from ._shared import (
     configure_entry_parser,
     require_finite,
-    require_nonnegative_finite,
 )
 
 COMMAND_NAME = "inspect"
@@ -41,24 +40,16 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         "--recompute-potential",
         action="store_true",
         help=(
-            "calculate potential min/max through Beach.compute_potential instead "
-            "of using only mesh_potential.csv; may be expensive"
+            "recompute potential plots and potential min/max through "
+            "Beach.compute_potential instead of using only mesh_potential.csv; "
+            "may be expensive"
         ),
     )
     parser.add_argument(
-        "--potential-softening",
-        type=float,
+        "--library",
+        type=Path,
         default=None,
-        help=(
-            "smoothing length [m] for --recompute-potential and potential plots; "
-            "default uses sim.softening when available"
-        ),
-    )
-    parser.add_argument(
-        "--potential-self-term",
-        choices=("auto", "area-equivalent", "exclude", "softened-point"),
-        default="auto",
-        help="self-term treatment for --recompute-potential and potential plots",
+        help="path to libbeach_field_kernel shared library",
     )
     parser.add_argument(
         "--view-elev",
@@ -129,13 +120,11 @@ def run(args: argparse.Namespace) -> None:
     """Execute the output-inspection command."""
 
     parser = args._parser
-    require_nonnegative_finite(parser, args.potential_softening, "--potential-softening")
     require_finite(parser, args.view_elev, "--view-elev")
     require_finite(parser, args.view_azim, "--view-azim")
     if args.periodic2_repeat < 0:
         parser.error("--periodic2-repeat must be >= 0.")
 
-    self_term = args.potential_self_term.replace("-", "_")
     reference_point = "species1_injection_center"
 
     beach = Beach(args.output_dir)
@@ -167,9 +156,8 @@ def run(args: argparse.Namespace) -> None:
     potential = None
     if args.recompute_potential:
         potential = beach.compute_potential(
-            softening=args.potential_softening,
-            self_term=self_term,
             reference_point=reference_point,
+            library_path=args.library,
         )
     elif result.mesh_potential_v is not None:
         potential = result.mesh_potential_v
@@ -216,8 +204,6 @@ def run(args: argparse.Namespace) -> None:
         if need_potential_mesh_plot:
             if result.triangles is not None:
                 potential_mesh_fig, _ = beach.plot_potential(
-                    softening=args.potential_softening,
-                    self_term=self_term,
                     reference_point=reference_point,
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
@@ -225,6 +211,7 @@ def run(args: argparse.Namespace) -> None:
                     periodic2_mesh_mode=args.periodic2_mesh_mode,
                     periodic2_repeat=args.periodic2_repeat,
                     axis_unit=args.axis_unit,
+                    library_path=args.library,
                 )
                 if args.save_potential_mesh is not None:
                     potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)

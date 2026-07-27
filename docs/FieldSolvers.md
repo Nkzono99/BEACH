@@ -7,57 +7,52 @@ Lang: [日本語](FieldSolvers.md) | [English](FieldSolvers.en.md)
 BEACHは各batchの開始時点の要素電荷`q_elem`から電場を作り、そのbatchで追跡する粒子に同じ場を使います。
 粒子が表面へ運んだ電荷はbatch末尾でまとめて反映されるため、場が変わるのは次のbatchです。
 
-場の評価では、まず要素電荷をどう表すかを選び、次にその相互作用を計算する方式を選びます。
+要素電荷は常に三角形上の一定面密度で表します。利用者が選ぶのは、その相互作用を計算するsolverと
+field boundaryです。
 
 | 選択 | 役割 | 値 |
 | --- | --- | --- |
-| source kernel | 1要素の電荷分布 | `point` / `triangle_p0` |
+| 要素kernel | 1要素の電荷分布 | `triangle_p0`（固定） |
 | solver | 多数のsourceをどう足すか | `direct` / `treecode` / `fmm` / `auto` |
 | field boundary | 周期画像や遠方場をどう含めるか | `free` / `periodic2` |
 
-## 問題規模とkernelからsolverを選ぶ
+## 問題規模からsolverを選ぶ
 
-| solver | 主な用途 | source kernel | 場境界 | 近似 |
-| --- | --- | --- | --- | --- |
-| [Direct](DirectSolver.html) | 小規模計算、基準解、split reference | point、triangle P0 | free、条件付きperiodic2 | 選んだkernelを全要素について直接評価 |
-| [Treecode](Treecode.html) | 中規模のfree-space計算 | point、triangle P0 | free | 遠方nodeをmonopole、近傍leafを選択kernelで評価 |
-| [FMM](FMM.html) | 大規模計算、多数の評価点 | point、triangle P0 | free、periodic2 | 遠方相互作用を多重極・局所展開で近似 |
-| `auto` | free境界で要素数に応じて選択 | point、triangle P0 | free | pointはDirect/Treecode、triangle P0はDirect/FMM |
+| solver | 主な用途 | 場境界 | 近似 |
+| --- | --- | --- | --- |
+| [Direct](DirectSolver.html) | 小規模計算、基準解、split reference | free、条件付きperiodic2 | 解析panel kernelを全要素について直接評価 |
+| [Treecode](Treecode.html) | 中規模のfree-space計算 | free | 遠方nodeをmonopole、近傍leafを解析panel kernelで評価 |
+| [FMM](FMM.html) | 大規模計算、多数の評価点 | free、periodic2 | 遠方相互作用を多重極・局所展開で近似 |
+| `auto` | free境界で要素数に応じて選択 | free | DirectまたはFMM |
 
-`auto`は`nelem < tree_min_nelem`ならDirectを使います。それ以上では、point sourceにTreecode、
-triangle P0にFMMを選びます。既定のしきい値は`256`です。solver間の速度差は要素数だけでなく、
+`auto`は`nelem < tree_min_nelem`ならDirect、それ以上ならFMMを使います。既定のしきい値は`256`です。
+solver間の速度差は要素数だけでなく、
 粒子数、step数、評価点の分布にも依存します。実際の計算条件に近い小規模ケースで測定してください。
 
 ## solverと場境界の互換表
 
-この表をsolver、source kernel、場境界の互換性に関する正本とします。
+この表をsolverと場境界の互換性に関する正本とします。
 
 | solver | `free` | `periodic2` |
 | --- | --- | --- |
-| `direct` | `point` / `triangle_p0` | split referenceのみ。`triangle_p0`、`periodic2.nonzero_mode_backend="panel_spectral_reference"`、`zero_mode_policy="exclude_k0"`、対応するlower-boundary modelが必須 |
-| `treecode` | `point` / `triangle_p0` | 非対応 |
-| `fmm` | `point` / `triangle_p0` | 対応。無限周期productionでは`cached_kneq0`を使用 |
-| `auto` | `point` / `triangle_p0` | 非対応 |
+| `direct` | 対応 | split referenceのみ。`periodic2.nonzero_mode_backend="panel_spectral_reference"`、`zero_mode_policy="exclude_k0"`、対応するlower-boundary modelが必須 |
+| `treecode` | 対応 | 非対応 |
+| `fmm` | 対応 | 対応。無限周期productionでは`cached_kneq0`を使用 |
+| `auto` | 対応 | 非対応 |
 
 `periodic2`ではさらに`sim.use_box=true`、ちょうど2つのperiodic軸、1つのopen軸が必要です。
 Direct split referenceは小規模な基準解・検証用であり、通常のperiodic2 production経路はFMMです。
 
-## source kernelで要素電荷の離散化を決める
+## triangle P0で要素電荷を離散化する
 
-### Point
-
-`field.element_kernel="point"`は、要素の総電荷を三角形重心の点電荷として扱います。
-`sim.softening`で重心近傍の特異性を緩和できます。既存ケースとの互換既定です。
-
-### Triangle P0
-
-`field.element_kernel="triangle_p0"`は、要素の総電荷を三角形上の一定面密度として扱います。
-近傍場と自己電位を三角形の解析kernelで扱えるため、重心点電荷とは異なる離散化です。
-
-triangle P0では`sim.softening=0`、有限で非退化な三角形、各要素のvacuum sideが必要です。
-現行Phase 1はinsulator表面だけに対応します。Treecodeは近傍leafを解析panel核、遠方nodeをmonopoleで
+BEACHは要素の総電荷を三角形上の一定面密度として扱います。`triangle_p0`は暗黙の唯一の要素kernelであり、
+`[field]` tableでは選択しません。有限で非退化な三角形と、各要素で解決済みのvacuum sideが必要です。
+Treecodeは近傍leafを解析panel核、遠方nodeをmonopoleで
 電場・電位とも評価します。[Direct](DirectSolver.html#triangle-p0)、[Treecode](Treecode.html)、
 [FMM](FMM.html#source-kernel)で、それぞれのtriangle P0評価を説明します。
+
+旧`[field]` tableと`sim.softening`は削除済みです。残した入力はunknown table / keyとして停止し、
+別の要素modelへ読み替えません。
 
 ## 長さを正規化して数値スケールを整える
 
@@ -73,9 +68,7 @@ triangle P0では`sim.softening=0`、有限で非退化な三角形、各要素�
 内部では
 
 $$
-\mathbf{x}'=\frac{\mathbf{x}-\mathbf{x}_0}{L_0},
-\qquad
-\epsilon'=\frac{\epsilon}{L_0}
+\mathbf{x}'=\frac{\mathbf{x}-\mathbf{x}_0}{L_0}
 $$
 
 として評価し、電場には$k_c/L_0^2$、電位には$k_c/L_0$を掛けてSIへ戻します。
@@ -91,9 +84,9 @@ legacyの`sim.field_bc_mode="periodic2"`経路はFMMを使います。小規模�
 panel spectral backendを使います。それぞれの成分構成は、
 [periodic2場計算](PeriodicElectrostatics.html)と[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
 
-## solver誤差とsource離散化誤差を分けて測る
+## solver誤差とmesh離散化誤差を分けて測る
 
-新しいmeshやkernelでは、まず小さな同一ケースでDirectとの差を調べます。その後、source meshを細分化して
+新しいmeshでは、まず小さな同一ケースでDirectとの差を調べます。その後、source meshを細分化して
 離散化誤差を、solver設定を変えて近似誤差を分けて確認します。場の一点比較だけでなく、吸収位置、蓄積電荷、
 保存量など最終的に使う観測量も比較してください。[計算結果の妥当性確認](ValidationGuide.html)に
 収束確認の手順をまとめています。

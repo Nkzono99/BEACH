@@ -8,7 +8,7 @@ from typing import Sequence
 
 from beach import Beach
 
-from ._shared import configure_entry_parser, require_nonnegative_finite
+from ._shared import configure_entry_parser
 
 COMMAND_NAME = "coulomb"
 LEGACY_COMMAND_NAME = "beach-plot-coulomb-force-matrix"
@@ -40,10 +40,10 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         help="comma-separated template kinds used as targets (default: all objects)",
     )
     parser.add_argument(
-        "--softening",
-        type=float,
-        default=0.0,
-        help="softening length [m] for Coulomb-force evaluation",
+        "--library",
+        type=Path,
+        default=None,
+        help="path to libbeach_field_kernel shared library",
     )
     parser.add_argument(
         "--cmap",
@@ -107,7 +107,6 @@ def run(args: argparse.Namespace) -> None:
     parser = args._parser
     if args.dpi <= 0:
         parser.error("--dpi must be > 0.")
-    require_nonnegative_finite(parser, args.softening, "--softening")
     if args.workers < 1:
         parser.error("--workers must be >= 1.")
 
@@ -132,9 +131,9 @@ def run(args: argparse.Namespace) -> None:
         fig, ax = beach.plot_coulomb_force_matrix(
             step=args.step,
             component=args.component,
-            softening=args.softening,
             target_kinds=target_kinds,
             config_path=args.config,
+            library_path=args.library,
             cmap=args.cmap,
             annotate=not args.no_annotate,
             workers=args.workers,

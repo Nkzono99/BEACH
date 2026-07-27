@@ -1,142 +1,79 @@
-"""Potential computation helpers for mesh and sampled points."""
+"""Triangle-panel potential evaluation through the native BEACH field kernel."""
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from typing import Iterable, Mapping
 
 import numpy as np
 
-from .constants import K_COULOMB
 from .context import (
     RunContext,
     find_config_path_near_output as _find_config_path_near_output,
     load_toml as _load_toml,
 )
-from .mesh import _triangle_areas, _triangle_centers
+from .kernel import (
+    FieldKernel,
+    FieldKernelOptions,
+    _options_from_result,
+    _require_complete_total_kernel,
+    _require_total_field_config,
+    _require_total_field_reconstruction,
+)
+from .mesh import _triangle_centers
 from .periodic import (
     Periodic2Config,
-    auto_periodic2_from_result as _auto_periodic2_from_result,
-    coerce_periodic2 as _coerce_periodic2,
+    auto_periodic2_from_result,
+    coerce_periodic2,
     periodic2_from_sim,
 )
-from .selection import _require_point_source_model, _require_triangles
+from .selection import _require_triangle_source_model, _require_triangles
 from .types import FortranRunResult, PotentialSlice2D
 
 
 _periodic2_from_sim = periodic2_from_sim
+_auto_periodic2_from_result = auto_periodic2_from_result
+_coerce_periodic2 = coerce_periodic2
 
 
 def compute_potential_mesh(
     result: FortranRunResult | object,
     *,
-    softening: float | None = None,
-    self_term: str = "auto",
     periodic2: Mapping[str, object] | None = None,
     reference_point: Iterable[float] | str | None = None,
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ) -> np.ndarray:
-    """Compute electric potential at each triangle centroid.
+    """Evaluate triangle-P0 potential at every panel centroid."""
 
-    Parameters
-    ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
-    softening : float or None, default None
-        Softening length in meters for off-diagonal interactions. ``None`` は
-        ``sim.softening`` を自動参照し、見つからなければ ``0.0`` を使う。
-    self_term : {"auto", "area_equivalent", "exclude", "softened_point"}, default "auto"
-        Self-interaction model at each centroid. ``"auto"`` は softening が
-        正なら ``"softened_point"``, そうでなければ ``"area_equivalent"`` を選ぶ。
-    periodic2 : mapping or None, default None
-        Two-axis periodic setting for potential reconstruction. Use a mapping with
-        keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
-        positive box lengths), and optional ``origins`` (length-2 periodic-box
-        origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"`` or ``"none"``), ``ewald_alpha``
-        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
-        If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
-        ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
-        互換条件が合えば ``mesh_potential.csv`` の値を優先し、そうでない場合は
-        explicit な image shell を Python 側で再構成する。過去出力の自動読込では
-        ``m2l_root_oracle`` metadata も受理して ``none`` に正規化するが、
-        Python 再構成側は oracle residual 自体を再現しない。
-    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-        基準電位を差し引く参照点。``"species1_injection_center"`` は
-        ``particles.species[0]`` の注入面中心を使う。
-
-    Returns
-    -------
-    numpy.ndarray
-        Potential values in volts with shape ``(mesh_nelem,)``.
-
-    Raises
-    ------
-    ValueError
-        If softening is negative, triangles are unavailable, or ``self_term`` is invalid.
-    """
-
-    context = RunContext.from_value(result)
+    context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_point_source_model(resolved)
-    resolved_softening = _resolve_softening(resolved, softening, context=context)
-    self_term_key = _resolve_self_term(self_term, resolved_softening)
-
-    periodic_cfg = _coerce_periodic2(periodic2)
-    if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
+    _require_triangle_source_model(resolved)
     reference_xyz = _resolve_reference_point(
         resolved,
         reference_point,
         context=context,
     )
-    precomputed_potential_v = _maybe_get_precomputed_mesh_potential_volts(
-        resolved,
-        softening=softening,
-        resolved_softening=resolved_softening,
-        self_term=self_term,
-        self_term_key=self_term_key,
-        periodic2_arg=periodic2,
-        context=context,
-    )
-    if precomputed_potential_v is not None:
-        if reference_xyz is None:
-            return precomputed_potential_v
-        triangles = _require_triangles(resolved)
-        centers = _triangle_centers(triangles)
-        return precomputed_potential_v - _compute_reference_potential_volts(
-            reference_xyz,
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            periodic2=periodic_cfg,
-        )
+
+    if (
+        resolved.mesh_potential_v is not None
+        and periodic2 is None
+        and reference_xyz is None
+    ):
+        return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
 
     triangles = _require_triangles(resolved)
-    centers = _triangle_centers(triangles)
-    self_coeff = _self_potential_coefficients(
-        triangles, self_term=self_term_key, softening=resolved_softening
-    )
-    if periodic_cfg is None:
-        offdiag_kernel = _potential_offdiag_kernel(centers, softening=resolved_softening)
-        potential = offdiag_kernel @ resolved.charges + self_coeff * resolved.charges
-    else:
-        potential = _compute_potential_mesh_periodic2(
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            self_coeff=self_coeff,
-            periodic2=periodic_cfg,
-        )
-    potential_v = K_COULOMB * potential
-    if reference_xyz is not None:
-        potential_v = potential_v - _compute_reference_potential_volts(
-            reference_xyz,
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            periodic2=periodic_cfg,
-        )
+    points = _triangle_centers(triangles)
+    with _panel_kernel(
+        context,
+        periodic2=periodic2,
+        library_path=library_path,
+    ) as kernel:
+        potential_v = kernel.eval_phi(points)
+        if reference_xyz is not None:
+            potential_v = potential_v - float(
+                kernel.eval_phi(reference_xyz.reshape(1, 3))[0]
+            )
     return potential_v
 
 
@@ -144,98 +81,39 @@ def compute_potential_points(
     result: FortranRunResult | object,
     points: np.ndarray,
     *,
-    softening: float | None = None,
     chunk_size: int = 2048,
     periodic2: Mapping[str, object] | None = None,
     reference_point: Iterable[float] | str | None = None,
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ) -> np.ndarray:
-    """Compute electric potential at arbitrary 3D sampling points.
+    """Evaluate triangle-P0 potential at arbitrary points."""
 
-    Parameters
-    ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
-    points : numpy.ndarray
-        Sampling points with shape ``(n_points, 3)`` in meters.
-    softening : float or None, default None
-        Softening length in meters. ``None`` は ``sim.softening`` を自動参照する。
-    chunk_size : int, default 2048
-        Number of points processed per chunk.
-    periodic2 : mapping or None, default None
-        Two-axis periodic setting for potential sampling. Use a mapping with
-        keys ``axes`` (length-2, 0-based axis indices), ``lengths`` (length-2,
-        positive box lengths), and optional ``origins`` (length-2 periodic-box
-        origins) or ``box_min`` (length-3), ``image_layers`` (int, default 1),
-        ``far_correction`` (``"auto"`` or ``"none"``), ``ewald_alpha``
-        (float, reserved, default 0.0), ``ewald_layers`` (int, default 4).
-        If ``None``, ``result.directory`` 近傍の ``beach.toml`` を探索し、
-        ``sim.field_bc_mode="periodic2"`` なら自動適用する。この補助関数は
-        explicit な image shell のみを再構成する。過去出力の自動読込では
-        ``m2l_root_oracle`` metadata も受理して ``none`` に正規化するが、
-        oracle residual 自体は再現しない。
-    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-        基準電位を差し引く参照点。
-
-    Returns
-    -------
-    numpy.ndarray
-        Potential values in volts with shape ``(n_points,)``.
-
-    Raises
-    ------
-    ValueError
-        If argument shapes/ranges are invalid.
-    """
-
-    context = RunContext.from_value(result)
+    context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_point_source_model(resolved)
-    resolved_softening = _resolve_softening(resolved, softening, context=context)
+    _require_triangle_source_model(resolved)
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0.")
 
-    sample_points = np.asarray(points, dtype=float)
-    if sample_points.ndim != 2 or sample_points.shape[1] != 3:
-        raise ValueError("points must have shape (n_points, 3).")
+    sample_points = _points(points)
     if sample_points.shape[0] == 0:
         return np.empty(0, dtype=float)
 
-    triangles = _require_triangles(resolved)
-    centers = _triangle_centers(triangles)
-    periodic_cfg = _coerce_periodic2(periodic2)
-    if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
-    if periodic_cfg is None:
-        potential = _compute_potential_points_free(
-            sample_points,
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            chunk_size=chunk_size,
-        )
-    else:
-        potential = _compute_potential_points_periodic2(
-            sample_points,
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            chunk_size=chunk_size,
-            periodic2=periodic_cfg,
-        )
-    potential_v = K_COULOMB * potential
     reference_xyz = _resolve_reference_point(
         resolved,
         reference_point,
         context=context,
     )
-    if reference_xyz is not None:
-        potential_v = potential_v - _compute_reference_potential_volts(
-            reference_xyz,
-            centers,
-            resolved.charges,
-            softening=resolved_softening,
-            periodic2=periodic_cfg,
-        )
+    with _panel_kernel(
+        context,
+        periodic2=periodic2,
+        library_path=library_path,
+    ) as kernel:
+        potential_v = _eval_phi_chunks(kernel, sample_points, chunk_size)
+        if reference_xyz is not None:
+            potential_v = potential_v - float(
+                kernel.eval_phi(reference_xyz.reshape(1, 3))[0]
+            )
     return potential_v
 
 
@@ -248,71 +126,20 @@ def compute_potential_slices(
     xy_z: float | None = None,
     yz_x: float | None = None,
     xz_y: float | None = None,
-    softening: float | None = None,
     chunk_size: int = 2048,
     periodic2: Mapping[str, object] | None = None,
     reference_point: Iterable[float] | str | None = None,
+    config_path: str | Path | None = None,
+    library_path: str | Path | None = None,
 ) -> dict[str, PotentialSlice2D]:
-    """Sample potential on XY/YZ/XZ slices inside a simulation box.
-
-    Parameters
-    ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
-    box_min : iterable of float
-        Lower simulation-box corner ``[x, y, z]`` in meters.
-    box_max : iterable of float
-        Upper simulation-box corner ``[x, y, z]`` in meters.
-    grid_n : int, default 200
-        Grid size per slice axis (``grid_n x grid_n``).
-    xy_z : float or None, default None
-        Z coordinate for the XY slice. ``None`` uses box center.
-    yz_x : float or None, default None
-        X coordinate for the YZ slice. ``None`` uses box center.
-    xz_y : float or None, default None
-        Y coordinate for the XZ slice. ``None`` uses box center.
-    softening : float or None, default None
-        Softening length in meters. ``None`` は ``sim.softening`` を自動参照する。
-    chunk_size : int, default 2048
-        Number of sampling points processed per chunk.
-    periodic2 : mapping or None, default None
-        Two-axis periodic setting for potential sampling. See
-        :func:`compute_potential_points` for supported keys. ``None`` 時は
-        ``result.directory`` 近傍の ``beach.toml`` から自動判定する。
-    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-        基準電位を差し引く参照点。
-
-    Returns
-    -------
-    dict[str, PotentialSlice2D]
-        Slice data keyed by ``"xy"``, ``"yz"``, and ``"xz"``.
-
-    Raises
-    ------
-    ValueError
-        If box bounds, grid settings, or slice coordinates are invalid.
-    """
+    """Sample triangle-P0 potential on XY, YZ, and XZ slices."""
 
     if grid_n < 2:
         raise ValueError("grid_n must be >= 2.")
-
-    context = RunContext.from_value(result)
-    resolved = context.result
-    _require_point_source_model(resolved)
-    resolved_softening = _resolve_softening(resolved, softening, context=context)
-    periodic_cfg = _coerce_periodic2(periodic2)
-    if periodic_cfg is None:
-        periodic_cfg = _auto_periodic2_from_result(resolved, context=context)
-    resolved_reference = _resolve_reference_point(
-        resolved,
-        reference_point,
-        context=context,
-    )
     min_corner, max_corner = _coerce_box_bounds(box_min, box_max)
     x = np.linspace(min_corner[0], max_corner[0], grid_n, dtype=float)
     y = np.linspace(min_corner[1], max_corner[1], grid_n, dtype=float)
     z = np.linspace(min_corner[2], max_corner[2], grid_n, dtype=float)
-
     z_xy = _coerce_slice_coordinate(
         xy_z,
         lower=min_corner[2],
@@ -333,37 +160,33 @@ def compute_potential_slices(
     )
 
     xx, yy = np.meshgrid(x, y, indexing="xy")
-    points_xy = np.column_stack((xx.reshape(-1), yy.reshape(-1), np.full(xx.size, z_xy)))
-    potential_xy = compute_potential_points(
-        resolved,
-        points_xy,
-        softening=resolved_softening,
-        chunk_size=chunk_size,
-        periodic2=periodic_cfg,
-        reference_point=resolved_reference,
-    ).reshape(grid_n, grid_n)
-
     yy2, zz = np.meshgrid(y, z, indexing="xy")
-    points_yz = np.column_stack((np.full(yy2.size, x_yz), yy2.reshape(-1), zz.reshape(-1)))
-    potential_yz = compute_potential_points(
-        resolved,
-        points_yz,
-        softening=resolved_softening,
-        chunk_size=chunk_size,
-        periodic2=periodic_cfg,
-        reference_point=resolved_reference,
-    ).reshape(grid_n, grid_n)
-
     xx2, zz2 = np.meshgrid(x, z, indexing="xy")
-    points_xz = np.column_stack((xx2.reshape(-1), np.full(xx2.size, y_xz), zz2.reshape(-1)))
-    potential_xz = compute_potential_points(
-        resolved,
-        points_xz,
-        softening=resolved_softening,
+    points_xy = np.column_stack(
+        (xx.reshape(-1), yy.reshape(-1), np.full(xx.size, z_xy))
+    )
+    points_yz = np.column_stack(
+        (np.full(yy2.size, x_yz), yy2.reshape(-1), zz.reshape(-1))
+    )
+    points_xz = np.column_stack(
+        (xx2.reshape(-1), np.full(xx2.size, y_xz), zz2.reshape(-1))
+    )
+    all_points = np.concatenate((points_xy, points_yz, points_xz), axis=0)
+    all_potential = compute_potential_points(
+        result,
+        all_points,
         chunk_size=chunk_size,
-        periodic2=periodic_cfg,
-        reference_point=resolved_reference,
-    ).reshape(grid_n, grid_n)
+        periodic2=periodic2,
+        reference_point=reference_point,
+        config_path=config_path,
+        library_path=library_path,
+    )
+    plane_size = grid_n * grid_n
+    potential_xy = all_potential[:plane_size].reshape(grid_n, grid_n)
+    potential_yz = all_potential[plane_size : 2 * plane_size].reshape(
+        grid_n, grid_n
+    )
+    potential_xz = all_potential[2 * plane_size :].reshape(grid_n, grid_n)
 
     return {
         "xy": PotentialSlice2D(
@@ -399,246 +222,149 @@ def compute_potential_slices(
     }
 
 
+def _potential_history(
+    charges_history: np.ndarray,
+    triangles: np.ndarray,
+    *,
+    periodic2: Periodic2Config | None = None,
+    reference_point: np.ndarray | None = None,
+    field_options: FieldKernelOptions | None = None,
+    library_path: str | Path | None = None,
+) -> np.ndarray:
+    """Evaluate panel potential history with one reusable native plan."""
+
+    charge_frames = np.asarray(charges_history, dtype=np.float64)
+    panels = np.asarray(triangles, dtype=np.float64)
+    if charge_frames.ndim != 2:
+        raise ValueError("charges_history must have shape (nelem, nframe).")
+    if panels.ndim != 3 or panels.shape[1:] != (3, 3):
+        raise ValueError("triangles must have shape (nelem, 3, 3).")
+    if charge_frames.shape[0] != panels.shape[0]:
+        raise ValueError("charges_history and triangles must have the same nelem.")
+    if charge_frames.shape[1] == 0:
+        return np.empty_like(charge_frames)
+
+    centers = _triangle_centers(panels)
+    values = np.empty_like(charge_frames)
+    if field_options is not None and periodic2 is not None:
+        raise ValueError("field_options and periodic2 cannot be used together.")
+    options = (
+        FieldKernelOptions(periodic2=periodic2)
+        if field_options is None
+        else field_options
+    )
+    _require_complete_total_kernel(
+        options,
+        operation="potential history recomputation",
+    )
+    with FieldKernel(
+        panels,
+        charge_frames[:, 0],
+        options=options,
+        library_path=library_path,
+    ) as kernel:
+        for frame in range(charge_frames.shape[1]):
+            if frame:
+                kernel.update_charges(charge_frames[:, frame])
+            values[:, frame] = kernel.eval_phi(centers)
+            if reference_point is not None:
+                reference = _reference_array(reference_point)
+                values[:, frame] -= float(
+                    kernel.eval_phi(reference.reshape(1, 3))[0]
+                )
+    return values
+
+
+def _panel_kernel(
+    context: RunContext,
+    *,
+    periodic2: Mapping[str, object] | None,
+    library_path: str | Path | None,
+) -> FieldKernel:
+    resolved = context.result
+    _require_triangle_source_model(resolved)
+    triangles = _require_triangles(resolved)
+    if periodic2 is not None:
+        _coerce_periodic2(periodic2, allow_cached_kneq0=True)
+    _require_total_field_config(
+        context,
+        operation="potential recomputation",
+    )
+    options = _options_from_result(
+        resolved,
+        periodic2=periodic2,
+        theta=None,
+        leaf_max=None,
+        order=4,
+        config_path=context.requested_config_path,
+        context=context,
+    )
+    _require_total_field_reconstruction(
+        context,
+        options,
+        operation="potential recomputation",
+    )
+    return FieldKernel(
+        triangles,
+        resolved.charges,
+        options=options,
+        library_path=library_path,
+    )
+
+
+def _eval_phi_chunks(
+    kernel: FieldKernel,
+    points: np.ndarray,
+    chunk_size: int,
+) -> np.ndarray:
+    values = np.empty(points.shape[0], dtype=float)
+    for start in range(0, points.shape[0], chunk_size):
+        stop = min(start + chunk_size, points.shape[0])
+        values[start:stop] = kernel.eval_phi(points[start:stop])
+    return values
+
+
+def _points(value: np.ndarray) -> np.ndarray:
+    points = np.asarray(value, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError("points must have shape (n_points, 3).")
+    if not np.all(np.isfinite(points)):
+        raise ValueError("points must contain finite values.")
+    return points
+
+
 def _coerce_box_bounds(
-    box_min: Iterable[float], box_max: Iterable[float]
+    box_min: Iterable[float],
+    box_max: Iterable[float],
 ) -> tuple[np.ndarray, np.ndarray]:
     min_corner = np.asarray(list(box_min), dtype=float)
     max_corner = np.asarray(list(box_max), dtype=float)
     if min_corner.shape != (3,) or max_corner.shape != (3,):
         raise ValueError("box_min and box_max must contain exactly 3 values.")
+    if not np.all(np.isfinite(min_corner)) or not np.all(np.isfinite(max_corner)):
+        raise ValueError("box_min and box_max must contain finite values.")
     if np.any(max_corner <= min_corner):
         raise ValueError("box_max must be greater than box_min on all axes.")
     return min_corner, max_corner
 
 
 def _coerce_slice_coordinate(
-    value: float | None, *, lower: float, upper: float, name: str
+    value: float | None,
+    *,
+    lower: float,
+    upper: float,
+    name: str,
 ) -> float:
     if value is None:
         return 0.5 * (lower + upper)
     coordinate = float(value)
-    if coordinate < lower or coordinate > upper:
+    if not np.isfinite(coordinate) or coordinate < lower or coordinate > upper:
         raise ValueError(
-            f"{name} must be within [{lower:.6e}, {upper:.6e}] but got {coordinate:.6e}."
+            f"{name} must be within [{lower:.6e}, {upper:.6e}] "
+            f"but got {coordinate:.6e}."
         )
     return coordinate
 
-
-def _potential_offdiag_kernel(centers: np.ndarray, *, softening: float) -> np.ndarray:
-    delta = centers[:, None, :] - centers[None, :, :]
-    dist2 = np.sum(delta * delta, axis=2) + softening * softening
-    min_dist2 = np.finfo(float).tiny
-    inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
-    np.fill_diagonal(inv_r, 0.0)
-    return inv_r
-
-
-def _potential_history(
-    charges_history: np.ndarray,
-    triangles: np.ndarray,
-    *,
-    softening: float,
-    self_term: str,
-    periodic2: Periodic2Config | None = None,
-    reference_point: np.ndarray | None = None,
-) -> np.ndarray:
-    softening = float(softening)
-    if not math.isfinite(softening) or softening < 0.0:
-        raise ValueError("softening must be finite and >= 0.")
-
-    centers = _triangle_centers(triangles)
-    self_coeff = _self_potential_coefficients(
-        triangles,
-        self_term=self_term,
-        softening=softening,
-    )
-    if periodic2 is None:
-        offdiag_kernel = _potential_offdiag_kernel(centers, softening=softening)
-        potential = offdiag_kernel @ charges_history + self_coeff[:, None] * charges_history
-    else:
-        potential = np.empty_like(charges_history, dtype=float)
-        for frame_idx in range(charges_history.shape[1]):
-            potential[:, frame_idx] = _compute_potential_mesh_periodic2(
-                centers,
-                charges_history[:, frame_idx],
-                softening=softening,
-                self_coeff=self_coeff,
-                periodic2=periodic2,
-            )
-    potential_v = K_COULOMB * potential
-    if reference_point is not None:
-        for frame_idx in range(charges_history.shape[1]):
-            potential_v[:, frame_idx] = potential_v[:, frame_idx] - _compute_reference_potential_volts(
-                reference_point,
-                centers,
-                charges_history[:, frame_idx],
-                softening=softening,
-                periodic2=periodic2,
-            )
-    return potential_v
-
-
-def _compute_potential_points_free(
-    points: np.ndarray,
-    centers: np.ndarray,
-    charges: np.ndarray,
-    *,
-    softening: float,
-    chunk_size: int,
-) -> np.ndarray:
-    eps2 = softening * softening
-    min_dist2 = np.finfo(float).tiny
-    potential = np.empty(points.shape[0], dtype=float)
-    for start in range(0, points.shape[0], chunk_size):
-        stop = min(start + chunk_size, points.shape[0])
-        delta = points[start:stop, None, :] - centers[None, :, :]
-        dist2 = np.sum(delta * delta, axis=2) + eps2
-        inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
-        potential[start:stop] = inv_r @ charges
-    return potential
-
-
-def _compute_potential_points_periodic2(
-    points: np.ndarray,
-    centers: np.ndarray,
-    charges: np.ndarray,
-    *,
-    softening: float,
-    chunk_size: int,
-    periodic2: Periodic2Config,
-) -> np.ndarray:
-    axis1, axis2 = periodic2.axes
-    l1, l2 = periodic2.lengths
-    eps2 = softening * softening
-    min_dist2 = np.finfo(float).tiny
-    potential = np.zeros(points.shape[0], dtype=float)
-    wrapped_points = _wrap_periodic2_points(
-        points,
-        axes=periodic2.axes,
-        lengths=periodic2.lengths,
-        origins=periodic2.origins,
-    )
-
-    for ix in range(-periodic2.image_layers, periodic2.image_layers + 1):
-        for iy in range(-periodic2.image_layers, periodic2.image_layers + 1):
-            shifted = centers.copy()
-            shifted[:, axis1] += float(ix) * l1
-            shifted[:, axis2] += float(iy) * l2
-            for start in range(0, points.shape[0], chunk_size):
-                stop = min(start + chunk_size, points.shape[0])
-                delta = wrapped_points[start:stop, None, :] - shifted[None, :, :]
-                dist2 = np.sum(delta * delta, axis=2) + eps2
-                inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
-                potential[start:stop] += inv_r @ charges
-
-    return potential
-
-
-def _compute_potential_mesh_periodic2(
-    centers: np.ndarray,
-    charges: np.ndarray,
-    *,
-    softening: float,
-    self_coeff: np.ndarray,
-    periodic2: Periodic2Config,
-) -> np.ndarray:
-    axis1, axis2 = periodic2.axes
-    l1, l2 = periodic2.lengths
-    eps2 = softening * softening
-    min_dist2 = np.finfo(float).tiny
-    target_centers = _wrap_periodic2_points(
-        centers,
-        axes=periodic2.axes,
-        lengths=periodic2.lengths,
-        origins=periodic2.origins,
-    )
-    potential = self_coeff * charges
-
-    # Central-cell off-diagonal interaction.
-    delta0 = target_centers[:, None, :] - centers[None, :, :]
-    dist20 = np.sum(delta0 * delta0, axis=2) + eps2
-    inv_r0 = 1.0 / np.sqrt(np.maximum(dist20, min_dist2))
-    np.fill_diagonal(inv_r0, 0.0)
-    potential += inv_r0 @ charges
-
-    for ix in range(-periodic2.image_layers, periodic2.image_layers + 1):
-        for iy in range(-periodic2.image_layers, periodic2.image_layers + 1):
-            if ix == 0 and iy == 0:
-                continue
-            shifted = centers.copy()
-            shifted[:, axis1] += float(ix) * l1
-            shifted[:, axis2] += float(iy) * l2
-            delta = target_centers[:, None, :] - shifted[None, :, :]
-            dist2 = np.sum(delta * delta, axis=2) + eps2
-            inv_r = 1.0 / np.sqrt(np.maximum(dist2, min_dist2))
-            potential += inv_r @ charges
-
-    return potential
-
-
-def _resolve_softening(
-    resolved: FortranRunResult,
-    softening: float | None,
-    *,
-    context: RunContext | None = None,
-) -> float:
-    if softening is None:
-        sim = (context or RunContext.from_value(resolved)).sim
-        raw = 0.0 if sim is None else sim.get("softening", 0.0)
-    else:
-        raw = softening
-
-    value = float(raw)
-    if (not math.isfinite(value)) or value < 0.0:
-        raise ValueError("softening must be finite and >= 0.")
-    return value
-
-
-def _resolve_self_term(self_term: str, softening: float) -> str:
-    normalized = str(self_term).strip().lower().replace("-", "_")
-    if normalized == "auto":
-        return "softened_point" if softening > 0.0 else "area_equivalent"
-    if normalized in {"area_equivalent", "exclude", "softened_point"}:
-        return normalized
-    raise ValueError(
-        "self_term must be one of {'auto', 'area_equivalent', 'exclude', 'softened_point'}."
-    )
-
-
-
-
-def _maybe_get_precomputed_mesh_potential_volts(
-    resolved: FortranRunResult,
-    *,
-    softening: float | None,
-    resolved_softening: float,
-    self_term: str,
-    self_term_key: str,
-    periodic2_arg: Mapping[str, object] | None,
-    context: RunContext | None = None,
-) -> np.ndarray | None:
-    if resolved.mesh_potential_v is None:
-        return None
-    if periodic2_arg is not None:
-        return None
-
-    normalized_self_term = str(self_term).strip().lower().replace("-", "_")
-    if softening is None and normalized_self_term == "auto":
-        return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
-
-    sim = (context or RunContext.from_value(resolved)).sim
-    if sim is None:
-        return None
-
-    run_softening = float(sim.get("softening", 0.0))
-    if (not math.isfinite(run_softening)) or run_softening < 0.0:
-        return None
-    run_self_term = "softened_point" if run_softening > 0.0 else "area_equivalent"
-    if resolved_softening != run_softening:
-        return None
-    if self_term_key != run_self_term:
-        return None
-    return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
 
 def _resolve_reference_point(
     resolved: FortranRunResult,
@@ -648,16 +374,22 @@ def _resolve_reference_point(
 ) -> np.ndarray | None:
     if reference_point is None:
         return None
-
     if isinstance(reference_point, str):
         key = reference_point.strip().lower()
         if key in {"species1_injection_center", "species1", "default"}:
-            return _species1_injection_center_from_result(resolved, context=context)
+            return _species1_injection_center_from_result(
+                resolved,
+                context=context,
+            )
         raise ValueError(
-            'reference_point string must be "species1_injection_center" or a 3D coordinate.'
+            'reference_point string must be "species1_injection_center" '
+            "or a 3D coordinate."
         )
+    return _reference_array(reference_point)
 
-    point = np.asarray(list(reference_point), dtype=float)
+
+def _reference_array(value: Iterable[float] | np.ndarray) -> np.ndarray:
+    point = np.asarray(list(value), dtype=float)
     if point.shape != (3,):
         raise ValueError("reference_point must contain exactly 3 values.")
     if not np.all(np.isfinite(point)):
@@ -688,21 +420,33 @@ def _species1_injection_center_from_result(
     config = (context or RunContext.from_value(resolved)).config
     if config is None:
         return None
-
     particles = config.get("particles")
     if not isinstance(particles, Mapping):
         return None
     species = particles.get("species")
-    if not isinstance(species, list) or len(species) == 0:
+    if not isinstance(species, list) or not species:
         return None
     first_species = species[0]
     if not isinstance(first_species, Mapping):
         return None
-    if "inject_face" not in first_species or "pos_low" not in first_species or "pos_high" not in first_species:
+    if (
+        "inject_face" not in first_species
+        or "pos_low" not in first_species
+        or "pos_high" not in first_species
+    ):
         return None
-
-    pos_low = np.asarray(_coerce_vec3(first_species["pos_low"], name="particles.species[0].pos_low"))
-    pos_high = np.asarray(_coerce_vec3(first_species["pos_high"], name="particles.species[0].pos_high"))
+    pos_low = np.asarray(
+        _coerce_vec3(
+            first_species["pos_low"],
+            name="particles.species[0].pos_low",
+        )
+    )
+    pos_high = np.asarray(
+        _coerce_vec3(
+            first_species["pos_high"],
+            name="particles.species[0].pos_high",
+        )
+    )
     return 0.5 * (pos_low + pos_high)
 
 
@@ -713,69 +457,27 @@ def _wrap_periodic2_points(
     lengths: tuple[float, float],
     origins: tuple[float, float],
 ) -> np.ndarray:
+    """Wrap points into a periodic cell without changing non-periodic axes."""
+
     wrapped = np.asarray(points, dtype=float).copy()
     wrapped[:, axes[0]] = origins[0] + np.mod(
-        wrapped[:, axes[0]] - origins[0], lengths[0]
+        wrapped[:, axes[0]] - origins[0],
+        lengths[0],
     )
     wrapped[:, axes[1]] = origins[1] + np.mod(
-        wrapped[:, axes[1]] - origins[1], lengths[1]
+        wrapped[:, axes[1]] - origins[1],
+        lengths[1],
     )
     return wrapped
-
-
-def _compute_reference_potential_volts(
-    reference_point: np.ndarray,
-    centers: np.ndarray,
-    charges: np.ndarray,
-    *,
-    softening: float,
-    periodic2: Periodic2Config | None,
-) -> float:
-    points = np.asarray(reference_point, dtype=float).reshape(1, 3)
-    if periodic2 is None:
-        potential = _compute_potential_points_free(
-            points,
-            centers,
-            charges,
-            softening=softening,
-            chunk_size=1,
-        )
-    else:
-        potential = _compute_potential_points_periodic2(
-            points,
-            centers,
-            charges,
-            softening=softening,
-            chunk_size=1,
-            periodic2=periodic2,
-        )
-    return float(K_COULOMB * potential[0])
 
 
 def _coerce_vec3(value: object, *, name: str) -> tuple[float, float, float]:
     if not isinstance(value, (list, tuple)) or len(value) != 3:
         raise ValueError(f"{name} must contain exactly 3 values.")
     try:
-        return float(value[0]), float(value[1]), float(value[2])
+        result = (float(value[0]), float(value[1]), float(value[2]))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} must contain numeric values.") from exc
-def _self_potential_coefficients(
-    triangles: np.ndarray, *, self_term: str, softening: float
-) -> np.ndarray:
-    if self_term == "exclude":
-        return np.zeros(triangles.shape[0], dtype=float)
-
-    if self_term == "softened_point":
-        if softening <= 0.0:
-            raise ValueError("softening must be > 0 when self_term='softened_point'.")
-        return np.full(triangles.shape[0], 1.0 / softening, dtype=float)
-
-    if self_term == "area_equivalent":
-        areas = _triangle_areas(triangles)
-        min_area = np.finfo(float).tiny
-        safe_areas = np.maximum(areas, min_area)
-        return 2.0 * np.sqrt(np.pi) / np.sqrt(safe_areas)
-
-    raise ValueError(
-        "self_term must be one of {'area_equivalent', 'exclude', 'softened_point'}."
-    )
+    if not all(np.isfinite(component) for component in result):
+        raise ValueError(f"{name} must contain finite values.")
+    return result

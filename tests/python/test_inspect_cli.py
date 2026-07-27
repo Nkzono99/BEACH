@@ -24,6 +24,7 @@ def _write_inspect_fixture(
                 "escaped=3",
                 "batches=1",
                 "last_rel_change=1.0e-8",
+                "field_source_model=triangle_p0",
             ]
         ),
         encoding="utf-8",
@@ -122,9 +123,8 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
     output = capsys.readouterr().out
     assert calls == [
         {
-            "softening": None,
-            "self_term": "auto",
             "reference_point": "species1_injection_center",
+            "library_path": None,
         }
     ]
     assert "potential_min=-8.000000e+00" in output

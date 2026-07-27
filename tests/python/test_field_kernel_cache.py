@@ -18,7 +18,7 @@ from beach import FieldKernel, FieldKernelOptions  # noqa: E402
 def test_field_kernel_periodic_cache_cold_then_warm(tmp_path: Path) -> None:
     lib = Path("build/libbeach_field_kernel.so")
     assert lib.exists(), "run `make build-kernel` before the opt-in cache test"
-    source_pos = np.array(
+    source_centers = np.array(
         [
             [0.30, 0.40, -0.20],
             [1.50, 0.50, 0.16],
@@ -26,6 +26,14 @@ def test_field_kernel_periodic_cache_cold_then_warm(tmp_path: Path) -> None:
             [1.64, 1.44, -0.12],
         ],
         dtype=float,
+    )
+    source_triangles = np.stack(
+        (
+            source_centers + [-0.025, -0.025, 0.0],
+            source_centers + [0.025, -0.025, 0.0],
+            source_centers + [-0.025, 0.025, 0.0],
+        ),
+        axis=1,
     )
     source_q = np.array([1.0e-9, -2.0e-9, 1.5e-9, -0.5e-9], dtype=float)
     options = FieldKernelOptions(
@@ -40,11 +48,11 @@ def test_field_kernel_periodic_cache_cold_then_warm(tmp_path: Path) -> None:
     )
 
     with FieldKernel(
-        source_pos, source_q, options=options, library_path=lib
+        source_triangles, source_q, options=options, library_path=lib
     ) as cold_kernel:
         cold = cold_kernel.diagnostics()
     with FieldKernel(
-        source_pos, source_q, options=options, library_path=lib
+        source_triangles, source_q, options=options, library_path=lib
     ) as warm_kernel:
         warm = warm_kernel.diagnostics()
 

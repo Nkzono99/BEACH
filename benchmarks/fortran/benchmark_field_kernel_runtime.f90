@@ -68,7 +68,7 @@ program benchmark_field_kernel_runtime
   write (*, '(a)') 'source_model,nelem,target_count,mesh_s,init_s,refresh_s,'// &
     'eval_e_volume_s,eval_e_near_s,eval_phi_volume_s,eval_phi_near_s,'// &
     'e_volume_checksum,e_near_checksum,phi_volume_checksum,phi_near_checksum'
-  write (*, '(a,a,a,i0,a,i0,11(a,es24.16))') 'field_kernel_benchmark_csv=', trim(cfg%panel%source_model), ',', &
+  write (*, '(a,a,a,i0,a,i0,11(a,es24.16))') 'field_kernel_benchmark_csv=', 'triangle_p0', ',', &
     mesh%nelem, ',', target_count, ',', mesh_seconds, ',', init_seconds, ',', refresh_seconds, ',', &
     e_volume_seconds, ',', e_near_seconds, ',', phi_volume_seconds, ',', phi_near_seconds, ',', &
     e_volume_checksum, ',', e_near_checksum, ',', phi_volume_checksum, ',', phi_near_checksum

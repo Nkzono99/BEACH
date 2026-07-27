@@ -55,30 +55,18 @@ contains
   if (element < 1_i32 .or. element > mesh%nelem) then
     error stop 'snapshot self exclusion element index is out of range.'
   end if
-  if (sim%softening < 0.0_dp) error stop 'snapshot self exclusion requires non-negative softening.'
 
   call self%eval_local_phi(mesh, sim, mesh%centers(:, element), potential)
-  select case (trim(self%source_model))
-  case ('triangle_p0')
-    call init_panel_geometry( &
-      mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, geometry_status &
-      )
-    if (geometry_status /= panel_geometry_ok) then
-      error stop 'snapshot self exclusion received invalid panel geometry.'
-    end if
-    call panel_potential_field( &
-      geometry, mesh%q_elem(element), mesh%centers(:, element), panel_side_principal_value, &
-      self_potential, self_field &
-      )
-  case ('point')
-    if (sim%softening > 0.0_dp) then
-      self_potential = k_coulomb*mesh%q_elem(element)/sim%softening
-    else
-      self_potential = 0.0_dp
-    end if
-  case default
-    error stop 'snapshot self exclusion received an unknown source model.'
-  end select
+  call init_panel_geometry( &
+    mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, geometry_status &
+    )
+  if (geometry_status /= panel_geometry_ok) then
+    error stop 'snapshot self exclusion received invalid panel geometry.'
+  end if
+  call panel_potential_field( &
+    geometry, mesh%q_elem(element), mesh%centers(:, element), panel_side_principal_value, &
+    self_potential, self_field &
+    )
   potential = potential - self_potential
   end procedure eval_snapshot_local_phi_without_primary_self
 

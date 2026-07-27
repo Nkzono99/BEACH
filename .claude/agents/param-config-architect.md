@@ -24,7 +24,7 @@ BEACH (BEM + Accumulated CHarge) プロジェクト:
 
 ### 1. スキーマ設計
 - TOML/JSONパラメータ設定のスキーマを設計・レビューする
-- 階層構造の一貫性を保つ（例: `[sim]`, `[field]`, `[particle]` などのセクション分離）
+- 階層構造の一貫性を保つ（例: `[sim]`, `[periodic2]`, `[external_boundary]`, `[[particles.species]]`, `[mesh]` などのセクション分離）
 - キー命名規則を統一する（snake_case、意味が明確、簡潔）
 - 型の厳密な定義（integer, float, string, boolean, array, table）
 - 単位の明示（コメントまたはキー名に含める方針を決定）
@@ -68,6 +68,8 @@ BEACH (BEM + Accumulated CHarge) プロジェクト:
 3. **ユーザー体験重視**: エラーメッセージ、デフォルト値、ドキュメントはすべて「初めて使うユーザーが迷わない」ことを基準にする。
 
 4. **既存コードとの整合性**: 変更を提案する際は、既存の `examples/beach.toml` や `beach/` 内のPythonコードを確認し、互換性を確保する。
+
+   要素sourceはP0 triangle panelに固定されている。削除済みの`[field]` table、`element_kernel`、`sim.softening`を設定候補として提案しない。
 
 5. **テスト駆動**: バリデーションロジックを変更・追加する場合は、対応するテストも設計する。`pytest -q` で実行可能にする。
 

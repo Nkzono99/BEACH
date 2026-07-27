@@ -15,7 +15,6 @@ contains
   call normalize_legacy_physics_config( &
     cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
     )
-  call apply_field_authoring(cfg, authoring)
   call apply_physics_authoring(cfg, authoring)
   call lower_external_boundary_authoring(cfg, authoring)
 
@@ -29,9 +28,6 @@ contains
   end if
   if (.not. ieee_is_finite(cfg%sim%q_floor) .or. cfg%sim%q_floor <= 0.0d0) then
     error stop 'sim.q_floor must be finite and > 0.'
-  end if
-  if (.not. ieee_is_finite(cfg%sim%softening) .or. cfg%sim%softening < 0.0d0) then
-    error stop 'sim.softening must be finite and >= 0.'
   end if
   if (.not. all(ieee_is_finite(cfg%sim%b0))) error stop 'sim.b0 must contain finite values.'
   if (cfg%sim%use_box) then

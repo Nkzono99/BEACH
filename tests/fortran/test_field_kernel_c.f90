@@ -1,8 +1,7 @@
 program test_field_kernel_c
   use, intrinsic :: ieee_arithmetic, only: ieee_positive_inf, ieee_quiet_nan, ieee_value
   use, intrinsic :: iso_c_binding, only: c_char, c_double, c_int, c_loc, c_null_char, c_null_ptr, c_ptr
-  use bem_constants, only: k_coulomb
-  use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_build_panel, beach_kernel_create, &
+  use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_create, &
                                 beach_kernel_abi_major, beach_kernel_abi_minor, &
                                 beach_kernel_destroy, beach_kernel_eval_e, beach_kernel_eval_e_direct, &
                                 beach_kernel_eval_phi, beach_kernel_eval_phi_direct, &
@@ -20,9 +19,9 @@ program test_field_kernel_c
 
   type(c_ptr) :: handle
   integer(c_int) :: status
-  real(c_double), target :: src_pos(3, 2), src_q(2), target_pos(3, 2), e(3, 2), e_direct(3, 2)
+  real(c_double), target :: v0(3, 2), v1(3, 2), v2(3, 2), src_q(2), target_pos(3, 2), e(3, 2), e_direct(3, 2)
   real(c_double), target :: target_q(1), origin(3), force(3), torque(3)
-  real(c_double), target :: v0(3, 1), v1(3, 1), v2(3, 1), panel_q(1), phi(2), phi_direct(2)
+  real(c_double), target :: panel_q(2), phi(2), phi_direct(2)
   real(c_double) :: expected_e(3), expected_force(3), expected_torque(3)
   real(dp) :: expected_phi
   type(panel_geometry_type) :: geometry
@@ -49,6 +48,7 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_ok, 'ABI version getter status')
   call assert_equal_i32(abi_major, beach_kernel_abi_major, 'ABI major version')
   call assert_equal_i32(abi_minor, beach_kernel_abi_minor, 'ABI minor version')
+  call assert_equal_i32(abi_major, 2_i32, 'panel-only ABI major version')
 
   call test_begin('field_kernel_c_build_info')
   build_info_buffer = achar(88, kind=c_char)
@@ -135,10 +135,31 @@ program test_field_kernel_c
   status = beach_kernel_set_periodic_cache(handle, c_loc(cache_path), 8_c_int, 2.5d-9)
   call assert_equal_i32(status, beach_kernel_ok, 'cache setter valid UTF-8 path')
 
-  src_pos(:, 1) = [0.0d0, 0.0d0, 0.0d0]
-  src_pos(:, 2) = [1.0d0, 0.0d0, 0.0d0]
+  v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
+  v1(:, 1) = [0.2d0, 0.0d0, 0.0d0]
+  v2(:, 1) = [0.0d0, 0.2d0, 0.0d0]
+  v0(:, 2) = [1.0d0, 0.0d0, 0.0d0]
+  v1(:, 2) = [1.2d0, 0.0d0, 0.0d0]
+  v2(:, 2) = [1.0d0, 0.2d0, 0.0d0]
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 4_c_int, 0.0d0, 0_c_int, c_null_ptr, &
+           handle, 2_c_int, c_loc(v0), c_null_ptr, c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0_c_int, c_null_ptr, &
+           c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'panel build rejects NULL vertex array')
+  v2(:, 1) = v0(:, 1)
+  status = beach_kernel_build( &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0_c_int, c_null_ptr, &
+           c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'panel build rejects degenerate triangles')
+  v2(:, 1) = [0.0d0, 0.2d0, 0.0d0]
+  status = beach_kernel_build( &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 0_c_int, 0_c_int, c_null_ptr, &
+           c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'panel build requires positive FMM order')
+  status = beach_kernel_build( &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0_c_int, c_null_ptr, &
            c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
            )
   call assert_equal_i32(status, beach_kernel_ok, 'cache ABI non-cached build')
@@ -193,45 +214,40 @@ program test_field_kernel_c
   cache_box_min = [0.0d0, 0.0d0, -1.0d0]
   cache_box_max = [2.0d0, 2.0d0, 1.0d0]
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 2_c_int, 0.0d0, 1_c_int, &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 2_c_int, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 2_c_int, 0.0d0, 4_c_int, &
            c_loc(cache_box_min), c_loc(cache_box_max) &
            )
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'removed far-correction ABI code 2')
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 2_c_int, 0.0d0, 1_c_int, &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 2_c_int, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 0_c_int, 3_c_int, 0.0d0, 4_c_int, &
            c_loc(cache_box_min), c_loc(cache_box_max) &
            )
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'cached build requires an image layer')
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 2_c_int, 0.0d0, 1_c_int, &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 2_c_int, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 3_c_int, 0.0d0, 0_c_int, &
            c_loc(cache_box_min), c_loc(cache_box_max) &
            )
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'cached build requires an Ewald layer')
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 0_c_int, 0.0d0, 1_c_int, &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 0_c_int, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 3_c_int, 0.0d0, 4_c_int, &
-           c_loc(cache_box_min), c_loc(cache_box_max) &
-           )
-  call assert_equal_i32(status, beach_kernel_invalid_argument, 'cached point build requires positive order')
-  v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
-  v1(:, 1) = [1.0d0, 0.0d0, 0.0d0]
-  v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
-  status = beach_kernel_build_panel( &
-           handle, 1_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 0_c_int, 0.0d0, &
-           1_c_int, c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 3_c_int, 0.0d0, 4_c_int, &
            c_loc(cache_box_min), c_loc(cache_box_max) &
            )
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'cached panel build requires positive order')
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'cache ABI destroy status')
 
-  call test_begin('field_kernel_c_free_eval_and_force')
+  call test_begin('field_kernel_c_panel_free_eval_and_force')
 
-  src_pos(:, 1) = [0.0d0, 0.0d0, 0.0d0]
-  src_pos(:, 2) = [1.0d0, 0.0d0, 0.0d0]
+  v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
+  v1(:, 1) = [0.2d0, 0.0d0, 0.0d0]
+  v2(:, 1) = [0.0d0, 0.2d0, 0.0d0]
+  v0(:, 2) = [1.0d0, 0.0d0, 0.0d0]
+  v1(:, 2) = [1.2d0, 0.0d0, 0.0d0]
+  v2(:, 2) = [1.0d0, 0.2d0, 0.0d0]
   src_q = [1.0d-9, -2.0d-9]
   target_pos(:, 1) = [0.0d0, 1.0d0, 0.0d0]
   target_q = [3.0d-9]
@@ -241,7 +257,7 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_ok, 'create status')
 
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 4_c_int, 0.0d0, 0_c_int, c_null_ptr, &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0_c_int, c_null_ptr, &
            c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
            )
   call assert_equal_i32(status, beach_kernel_ok, 'build status')
@@ -268,18 +284,23 @@ program test_field_kernel_c
   status = beach_kernel_eval_e(handle, 1_c_int, c_loc(target_pos), c_loc(e))
   call assert_equal_i32(status, beach_kernel_ok, 'eval_e status')
 
-  expected_e = direct_e(src_pos, src_q, target_pos(:, 1))
-  call assert_allclose_1d(e(:, 1), expected_e, 1.0d-15, 'eval_e value')
+  call direct_panel_field(v0, v1, v2, src_q, target_pos(:, 1), expected_phi, expected_e)
+  call assert_allclose_1d( &
+    e(:, 1), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'eval_e value' &
+    )
   status = beach_kernel_eval_e_direct(handle, 1_c_int, c_loc(target_pos), c_loc(e_direct))
   call assert_equal_i32(status, beach_kernel_ok, 'eval_e_direct status')
   status = beach_kernel_eval_phi_direct(handle, 1_c_int, c_loc(target_pos), c_loc(phi_direct))
   call assert_equal_i32(status, beach_kernel_ok, 'eval_phi_direct status')
-  call assert_allclose_1d(e_direct(:, 1), expected_e, 1.0d-15, 'eval_e_direct value')
-  expected_phi = direct_phi(src_pos, src_q, target_pos(:, 1))
-  call assert_allclose_1d(phi_direct(:1), [expected_phi], 1.0d-15, 'eval_phi_direct value')
+  call assert_allclose_1d( &
+    e_direct(:, 1), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'eval_e_direct value' &
+    )
+  call assert_allclose_1d( &
+    phi_direct(:1), [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), 'eval_phi_direct value' &
+    )
 
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 4_c_int, 0.0d0, 1_c_int, &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 1_c_int, 0.0d0, 4_c_int, &
            c_loc(cache_box_min), c_loc(cache_box_max) &
            )
@@ -296,7 +317,7 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'periodic eval_phi_direct rejection')
 
   status = beach_kernel_build( &
-           handle, 2_c_int, c_loc(src_pos), 0.5d0, 8_c_int, 4_c_int, 0.0d0, 0_c_int, c_null_ptr, &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0_c_int, c_null_ptr, &
            c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
            )
   call assert_equal_i32(status, beach_kernel_ok, 'restore free build status')
@@ -321,13 +342,13 @@ program test_field_kernel_c
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
   v1(:, 1) = [2.0d0, 0.0d0, 0.0d0]
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
-  panel_q = [2.5d-9]
+  panel_q(1) = 2.5d-9
   target_pos(:, 1) = [0.25d0, 0.2d0, 0.4d0]
   target_pos(:, 2) = [0.25d0, 0.2d0, 0.0d0]
   status = beach_kernel_create(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'panel create status')
-  status = beach_kernel_build_panel( &
-           handle, 1_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0.0d0, &
+  status = beach_kernel_build( &
+           handle, 1_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, &
            0_c_int, c_null_ptr, c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
            )
   call assert_equal_i32(status, beach_kernel_ok, 'panel build status')
@@ -377,35 +398,29 @@ contains
     end do
   end subroutine set_c_bytes
 
-  function direct_e(src, q, target) result(e_out)
-    real(c_double), intent(in) :: src(:, :), q(:), target(3)
-    real(c_double) :: e_out(3)
+  subroutine direct_panel_field(vertices0, vertices1, vertices2, charges, target, phi_out, field_out)
+    real(c_double), intent(in) :: vertices0(:, :), vertices1(:, :), vertices2(:, :)
+    real(c_double), intent(in) :: charges(:), target(3)
+    real(c_double), intent(out) :: phi_out, field_out(3)
+    type(panel_geometry_type) :: panel_geometry
+    integer(i32) :: panel_status
+    real(dp) :: panel_phi, panel_field(3)
     integer :: i
-    real(c_double) :: d(3), r2, inv_r3
-
-    e_out = 0.0d0
-    do i = 1, size(q)
-      d = target - src(:, i)
-      r2 = sum(d*d)
-      inv_r3 = 1.0d0/(sqrt(r2)*r2)
-      e_out = e_out + k_coulomb*q(i)*inv_r3*d
-    end do
-  end function direct_e
-
-  function direct_phi(src, q, target) result(phi_out)
-    real(c_double), intent(in) :: src(:, :), q(:), target(3)
-    real(c_double) :: phi_out
-    integer :: i
-    real(c_double) :: d(3), r2
 
     phi_out = 0.0d0
-    do i = 1, size(q)
-      d = target - src(:, i)
-      r2 = sum(d*d)
-      if (r2 <= tiny(1.0d0)) cycle
-      phi_out = phi_out + k_coulomb*q(i)/sqrt(r2)
+    field_out = 0.0d0
+    do i = 1, size(charges)
+      call init_panel_geometry( &
+        vertices0(:, i), vertices1(:, i), vertices2(:, i), panel_geometry, panel_status &
+        )
+      call assert_equal_i32(panel_status, panel_geometry_ok, 'panel fixture geometry status')
+      call panel_potential_field( &
+        panel_geometry, charges(i), target, panel_side_principal_value, panel_phi, panel_field &
+        )
+      phi_out = phi_out + panel_phi
+      field_out = field_out + panel_field
     end do
-  end function direct_phi
+  end subroutine direct_panel_field
 
   pure function cross(a, b) result(c)
     real(c_double), intent(in) :: a(3), b(3)

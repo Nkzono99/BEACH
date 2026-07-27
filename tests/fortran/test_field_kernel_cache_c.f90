@@ -13,7 +13,8 @@ program test_field_kernel_cache_c
   integer(c_int), target :: cold_hit, cold_count, cold_fingerprint_len, cold_path_len
   integer(c_int), target :: warm_hit, warm_count, warm_fingerprint_len, warm_path_len
   integer(c_int), target :: periodic_axes(2)
-  real(c_double), target :: periodic_len(2), box_min(3), box_max(3), src_pos(3, 4)
+  real(c_double), target :: periodic_len(2), box_min(3), box_max(3)
+  real(c_double), target :: v0(3, 4), v1(3, 4), v2(3, 4)
   character(kind=c_char), allocatable, target :: cache_dir_bytes(:)
   character(kind=c_char), target :: cold_fingerprint(17), warm_fingerprint(17)
   character(kind=c_char), target :: cold_path(513), warm_path(513)
@@ -29,10 +30,14 @@ program test_field_kernel_cache_c
   periodic_len = [2.0d0, 2.0d0]
   box_min = [0.0d0, 0.0d0, -1.0d0]
   box_max = [2.0d0, 2.0d0, 1.0d0]
-  src_pos(:, 1) = [0.30d0, 0.40d0, -0.20d0]
-  src_pos(:, 2) = [1.50d0, 0.50d0, 0.16d0]
-  src_pos(:, 3) = [0.60d0, 1.60d0, 0.24d0]
-  src_pos(:, 4) = [1.64d0, 1.44d0, -0.12d0]
+  v0(:, 1) = [0.30d0, 0.40d0, -0.20d0]
+  v0(:, 2) = [1.50d0, 0.50d0, 0.16d0]
+  v0(:, 3) = [0.60d0, 1.60d0, 0.24d0]
+  v0(:, 4) = [1.64d0, 1.44d0, -0.12d0]
+  v1 = v0
+  v2 = v0
+  v1(1, :) = v1(1, :) + 0.05d0
+  v2(2, :) = v2(2, :) + 0.05d0
 
   call test_begin('field_kernel_cache_c_rejects_invalid_configuration')
   status = beach_kernel_create(cold_handle)
@@ -115,7 +120,7 @@ contains
              )
     call assert_equal_i32(status, beach_kernel_ok, 'cached setter status')
     status = beach_kernel_build( &
-             handle, 4_c_int, c_loc(src_pos), 0.45d0, 2_c_int, 2_c_int, 0.0d0, 1_c_int, &
+             handle, 4_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.45d0, 2_c_int, 2_c_int, 1_c_int, &
              c_loc(periodic_axes), c_loc(periodic_len), 1_c_int, 3_c_int, 0.0d0, 4_c_int, &
              c_loc(box_min), c_loc(box_max) &
              )

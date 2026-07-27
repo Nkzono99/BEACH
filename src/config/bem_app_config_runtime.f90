@@ -100,12 +100,8 @@ contains
     integer(i32) :: i, mesh_id, status
     character(len=256) :: message
 
-    if (trim(lower_ascii(cfg%panel%source_model)) /= 'triangle_p0') return
     if (any(mesh%panel_area <= 0.0_dp)) then
       error stop 'triangle_p0 requires finite, non-degenerate triangles.'
-    end if
-    if (any(mesh%elem_surface_model /= surface_model_insulator)) then
-      error stop 'triangle_p0 Phase 1 supports insulator surfaces only.'
     end if
     if (loaded_obj) then
       call resolve_panel_surface_sides(mesh, cfg%mesh_surface_side_policy, status, message)

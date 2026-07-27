@@ -54,3 +54,17 @@ def test_abi_status_and_far_correction_codes_are_synchronized() -> None:
         assert f"BEACH_KERNEL_FAR_{macro_name} = {code}" in header
     assert "BEACH_KERNEL_FAR_RESERVED_2 = 2" in header
     assert "M2L_ROOT_ORACLE" not in header
+
+
+def test_abi_v2_exposes_only_the_triangle_panel_build_contract() -> None:
+    fortran = FORTRAN_SOURCE.read_text(encoding="utf-8")
+    header = PUBLIC_HEADER.read_text(encoding="utf-8")
+
+    assert kernel_module.FIELD_KERNEL_ABI_MAJOR == 2
+    assert "beach_kernel_build_panel" not in fortran
+    assert "beach_kernel_build_panel" not in header
+    assert "source_positions_3xn" not in header
+    assert "softening" not in header
+    assert "const double *vertex0_xyz" in header
+    assert "const double *vertex1_xyz" in header
+    assert "const double *vertex2_xyz" in header

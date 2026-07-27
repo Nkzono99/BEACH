@@ -53,7 +53,6 @@ def _write_free_config(
         f"""
 [sim]
 field_bc_mode = "free"
-softening = 0.0
 tree_theta = 0.3
 tree_leaf_max = 8
 box_min = [-10.0, -10.0, -10.0]

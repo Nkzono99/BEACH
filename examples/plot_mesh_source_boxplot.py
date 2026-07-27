@@ -23,18 +23,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="history step for charge snapshot (-1 means latest)",
     )
     parser.add_argument(
-        "--softening",
-        type=float,
-        default=0.0,
-        help="softening length [m] in potential mode",
-    )
-    parser.add_argument(
-        "--self-term",
-        choices=("area-equivalent", "exclude", "softened-point"),
-        default="area-equivalent",
-        help="potential self-term model in potential mode",
-    )
-    parser.add_argument(
         "--hide-fliers",
         action="store_true",
         help="hide outlier markers",
@@ -61,13 +49,10 @@ def main(argv: list[str] | None = None) -> None:
     from beach import Beach
 
     args = build_parser().parse_args(argv)
-    self_term = args.self_term.replace("-", "_")
     run = Beach(args.output_dir)
     fig, _ = run.plot_mesh_source_boxplot(
         quantity=args.quantity,
         step=args.step,
-        softening=args.softening,
-        self_term=self_term,
         showfliers=not args.hide_fliers,
     )
 

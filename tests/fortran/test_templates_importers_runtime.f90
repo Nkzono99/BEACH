@@ -22,7 +22,7 @@ program test_templates_importers_runtime
   type(electrostatic_snapshot_type) :: snapshot
   real(dp), allocatable :: photo_emission_dq(:)
   real(dp) :: reservoir_x(3, 128), reservoir_v(3, 128)
-  real(dp) :: photo_v0(3, 2), photo_v1(3, 2), photo_v2(3, 2), expected_photo_counter
+  real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1), expected_photo_counter
   integer(i32) :: i
 
   character(len=*), parameter :: obj_path = 'test_templates_runtime_tmp.obj'
@@ -119,6 +119,7 @@ program test_templates_importers_runtime
   call default_app_config(cfg)
   cfg%mesh_mode = 'obj'
   cfg%obj_path = obj_path
+  cfg%mesh_surface_side_policy = 'normal_plus'
   cfg%mesh_surface_model = 'conductor'
   cfg%mesh_epsilon_r = 5.0d0
   cfg%obj_scale = 2.0d0
@@ -136,6 +137,7 @@ program test_templates_importers_runtime
   call default_app_config(cfg)
   cfg%mesh_mode = 'obj'
   cfg%obj_path = obj_path
+  cfg%mesh_surface_side_policy = 'normal_plus'
   cfg%mesh_surface_model = 'dielectric'
   cfg%mesh_epsilon_r = 3.0d0
   call build_mesh_from_config(cfg, mesh)
@@ -162,7 +164,6 @@ program test_templates_importers_runtime
   call test_begin('triangle_panel_surface_side_runtime')
   call default_app_config(cfg)
   cfg%mesh_mode = 'template'
-  cfg%panel%source_model = 'triangle_p0'
   cfg%panel%kernel_id = 'triangle_p0_exact_direct'
   cfg%panel%surface_side_policy = 'per_element'
   cfg%templates(1)%enabled = .true.
@@ -176,7 +177,6 @@ program test_templates_importers_runtime
   call test_begin('triangle_panel_surface_side_preserves_prior_templates')
   call default_app_config(cfg)
   cfg%mesh_mode = 'template'
-  cfg%panel%source_model = 'triangle_p0'
   cfg%panel%kernel_id = 'triangle_p0_exact_direct'
   cfg%panel%surface_side_policy = 'per_element'
   cfg%n_templates = 2_i32
@@ -286,6 +286,8 @@ program test_templates_importers_runtime
   photo_v1(:, 1) = [1.0d0, 0.0d0, 0.1d0]
   photo_v2(:, 1) = [0.0d0, 1.0d0, 0.1d0]
   call init_mesh(mesh, photo_v0, photo_v1, photo_v2)
+  mesh%elem_vacuum_sign = 1_i32
+  mesh%vacuum_normals = mesh%normals
 
   call default_app_config(cfg)
   cfg%sim%rng_seed = 999_i32

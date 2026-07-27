@@ -48,7 +48,7 @@ $$
 \mathbf s_{ij}=iL_1\mathbf e_1+jL_2\mathbf e_2.
 $$
 
-Near lists use the original point or triangle-P0 kernel directly. Well-separated node pairs use M2L derivatives summed over
+Near lists use the fixed P0 triangle kernel directly. Well-separated node pairs use M2L derivatives summed over
 the same image shifts. Denote this part by $K_\mathrm{shell}(N)$.
 
 With `field_periodic_far_correction="none"`, $K_\mathrm{shell}(N)$ is the complete result. Images outside the range are omitted,
@@ -104,7 +104,8 @@ The cold build constructs $\mathbf A_t$ as follows:
 5. Build a fingerprint from geometry and configuration, then publish the operator with a checksum.
 
 `cached_kneq0` stores this linear map in a versioned cache and reuses it only when fingerprint, shape, and checksum all match.
-It supports both point sources and triangle P0 by applying the proxy-point operator to triangle-averaged P2M coefficients.
+It applies the proxy-point operator to the triangle-averaged P2M coefficients
+of the fixed P0 triangle source discretization.
 
 A field-only fit cannot determine the constant-potential coefficient of a local expansion, so `cached_kneq0` fits it separately
 from potential residuals at the same check points. This avoids mixing field and potential, which have different units, in one

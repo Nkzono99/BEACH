@@ -8,15 +8,21 @@ from typing import Iterable, Literal, Mapping
 
 import numpy as np
 
+from .context import RunContext
 from .kernel import (
     FieldKernel,
-    field_kernel_options_from_result,
     KernelObjectForceRecord,
+    _options_from_result,
+    _require_total_field_config,
+    _require_total_field_reconstruction,
+    field_kernel_options_from_result,
 )
 from .mesh import _triangle_centers
+from .panel_quadrature import panel_target_quadrature
 from .selection import (
     _charges_for_step,
     _mesh_ids_or_default,
+    _require_triangle_source_model,
     _require_triangles,
     _resolve_result,
 )
@@ -284,7 +290,6 @@ class BeachScene:
     def field_kernel(
         self,
         *,
-        softening: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
@@ -296,7 +301,6 @@ class BeachScene:
 
         options = field_kernel_options_from_result(
             self.result,
-            softening=softening,
             periodic2=periodic2,
             theta=theta,
             leaf_max=leaf_max,
@@ -304,7 +308,7 @@ class BeachScene:
             config_path=self._resolve_config_path(config_path),
         )
         return FieldKernel(
-            self.centers_m,
+            self.triangles_m,
             self.charges_C,
             options=options,
             library_path=library_path,
@@ -314,7 +318,6 @@ class BeachScene:
         self,
         *,
         target_mesh_ids: int | Iterable[int] | None = None,
-        softening: float | None = None,
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
@@ -324,19 +327,34 @@ class BeachScene:
     ) -> tuple[KernelObjectForceRecord, ...]:
         """Compute object-wise force/torque for the edited scene geometry."""
 
+        _require_triangle_source_model(self.result)
         target_ids = self._target_ids(target_mesh_ids)
-        options = field_kernel_options_from_result(
+        resolved_config_path = self._resolve_config_path(config_path)
+        context = RunContext.from_value(
             self.result,
-            softening=softening,
+            config_path=resolved_config_path,
+        )
+        _require_total_field_config(
+            context,
+            operation="BeachScene.calc_object_forces_kernel",
+        )
+        options = _options_from_result(
+            self.result,
             periodic2=periodic2,
             theta=theta,
             leaf_max=leaf_max,
             order=order,
-            config_path=self._resolve_config_path(config_path),
+            config_path=resolved_config_path,
+            context=context,
+        )
+        _require_total_field_reconstruction(
+            context,
+            options,
+            operation="BeachScene.calc_object_forces_kernel",
         )
         records: list[KernelObjectForceRecord] = []
         with FieldKernel(
-            self.centers_m,
+            self.triangles_m,
             self.charges_C,
             options=options,
             library_path=library_path,
@@ -346,12 +364,18 @@ class BeachScene:
                 source_q = np.asarray(self.charges_C, dtype=np.float64).copy()
                 source_q[mask] = 0.0
                 kernel.update_charges(source_q)
+                target_triangles = self.triangles_m[mask]
                 target_centers = self.centers_m[mask]
                 target_q = self.charges_C[mask]
+                target_points, target_weights, _ = panel_target_quadrature(
+                    target_triangles,
+                    target_q,
+                    7,
+                )
                 center = np.asarray(target_centers.mean(axis=0), dtype=np.float64)
                 force, torque = kernel.force_on_charges(
-                    target_centers,
-                    target_q,
+                    target_points,
+                    target_weights,
                     origin=center,
                 )
                 records.append(

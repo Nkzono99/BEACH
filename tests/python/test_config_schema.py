@@ -38,6 +38,46 @@ def test_packaged_schema_exposes_workload_property_contracts() -> None:
     )
 
 
+def test_schema_rejects_removed_point_kernel_configuration() -> None:
+    schema, _ = load_schema()
+
+    assert "field" not in schema["properties"]
+    assert "softening" not in schema["$defs"]["sim"]["properties"]
+    assert schema_errors({"field": {"element_kernel": "point"}}, schema)
+    assert schema_errors({"sim": {"softening": 1.0e-6}}, schema)
+
+
+def test_schema_requires_surface_side_only_for_enabled_templates() -> None:
+    schema, _ = load_schema()
+    disabled = load_toml_file(ROOT / "examples/beach.toml")
+    disabled["mesh"]["templates"].append({"enabled": False})
+    enabled = copy.deepcopy(disabled)
+    enabled["mesh"]["templates"][-1]["enabled"] = True
+    implicit_enabled = copy.deepcopy(disabled)
+    implicit_enabled["mesh"]["templates"][-1].pop("enabled")
+
+    assert schema_errors(disabled, schema) == []
+    assert schema_errors(enabled, schema)
+    assert schema_errors(implicit_enabled, schema)
+
+
+def test_schema_requires_obj_surface_side_for_explicit_auto_or_obj_mode() -> None:
+    schema, _ = load_schema()
+    base = load_toml_file(ROOT / "examples/tutorial_insulator.toml")
+    auto = copy.deepcopy(base)
+    auto["mesh"]["mode"] = "auto"
+    auto["mesh"].pop("surface_side", None)
+    obj = copy.deepcopy(auto)
+    obj["mesh"]["mode"] = "obj"
+
+    assert schema["$defs"]["mesh"]["properties"]["mode"]["default"] == "template"
+    assert schema_errors(auto, schema)
+    assert schema_errors(obj, schema)
+    auto["mesh"]["surface_side"] = "normal_plus"
+    assert schema_errors(auto, schema) == []
+    assert schema_errors(base, schema) == []
+
+
 def test_schema_rejects_removed_outer_boundary_and_sheath_keys() -> None:
     schema, _ = load_schema()
     config = load_config_file(ROOT / "examples/periodic2_kinetic_outer.toml")
