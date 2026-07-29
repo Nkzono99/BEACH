@@ -27,6 +27,7 @@ module bem_physics_config_types
     integer(i32) :: interface_sample_n = 5_i32
     real(dp) :: interface_phi_tolerance = 1.0e-3_dp
     real(dp) :: interface_field_tolerance = 1.0e-3_dp
+    real(dp) :: max_nonzero_mode_potential_step = 0.0_dp
   end type periodic2_physics_config
 
   type, public :: panel_kernel_config

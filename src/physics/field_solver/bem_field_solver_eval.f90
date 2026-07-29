@@ -1,6 +1,6 @@
 !> `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_eval
-  use bem_coulomb_fmm_core, only: eval_point, eval_potential_point, eval_potential_points
+  use bem_coulomb_fmm_core, only: eval_point, eval_potential_point, eval_potential_points, update_state
   use bem_panel_geometry, only: panel_geometry_type
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   implicit none
@@ -204,6 +204,54 @@ contains
     call compute_mesh_potential_direct(self, mesh, potential_v)
   end if
   end procedure compute_mesh_potential_field_solver
+
+  !> cached k/=0 線形演算子による候補電荷ステップの重心電位を評価する。
+  module procedure compute_cached_kneq0_mesh_potential_step_field_solver
+  integer(i32) :: update_count_before
+
+  if (size(charge_step) /= mesh%nelem) then
+    error stop 'cached kneq0 potential step requires one charge increment per mesh element.'
+  end if
+  if (size(potential_step_v) /= mesh%nelem) then
+    error stop 'cached kneq0 potential-step output size mismatch.'
+  end if
+  if (.not. all(ieee_is_finite(charge_step)) .or. .not. all(ieee_is_finite(mesh%q_elem))) then
+    error stop 'cached kneq0 potential step requires finite charges.'
+  end if
+  if (trim(self%mode) /= 'fmm' .or. .not. self%fmm_use_core .or. &
+      .not. self%use_periodic2 .or. trim(self%periodic_far_correction) /= 'cached_kneq0') then
+    error stop 'kneq0 potential-step measurement requires the cached_kneq0 FMM backend.'
+  end if
+  if (.not. self%fmm_core_ready .or. .not. self%fmm_core_plan%built .or. &
+      .not. self%fmm_core_state%ready) then
+    error stop 'cached kneq0 potential-step measurement requires a ready FMM state.'
+  end if
+  if (self%fmm_core_plan%nsrc /= mesh%nelem) then
+    error stop 'cached kneq0 potential-step source count does not match the mesh.'
+  end if
+  if (.not. associated(self%fmm_core_state%src_q)) then
+    error stop 'cached kneq0 potential-step measurement requires stored source charges.'
+  end if
+  if (size(self%fmm_core_state%src_q) /= mesh%nelem) then
+    error stop 'cached kneq0 potential-step stored charge count does not match the mesh.'
+  end if
+  if (any(self%fmm_core_state%src_q /= mesh%q_elem)) then
+    error stop 'cached kneq0 potential-step measurement requires solver state at current mesh charges.'
+  end if
+
+  potential_step_v = 0.0_dp
+  if (mesh%nelem <= 0_i32 .or. all(charge_step == 0.0_dp)) return
+
+  update_count_before = self%fmm_core_state%update_count
+  call update_state(self%fmm_core_plan, self%fmm_core_state, charge_step)
+  call compute_mesh_potential_fmm(self, mesh, potential_step_v)
+  call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+  self%fmm_core_state%update_count = update_count_before
+
+  if (.not. all(ieee_is_finite(potential_step_v))) then
+    error stop 'cached kneq0 potential-step measurement produced a non-finite potential.'
+  end if
+  end procedure compute_cached_kneq0_mesh_potential_step_field_solver
 
   !> 構築済み source tree を各要素重心から走査してメッシュ電位を計算する。
   subroutine compute_mesh_potential_tree(self, mesh, potential_v)

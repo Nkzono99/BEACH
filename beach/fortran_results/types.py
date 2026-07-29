@@ -272,6 +272,18 @@ class FortranRunResult:
         Optional per-element centroid potential loaded from ``mesh_potential.csv``.
     history : FortranChargeHistory or None, default None
         Lazy charge-history accessor.
+    simulated_time_s : float or None, default None
+        Sum of accepted batch durations reported by the runtime.
+    adaptive_nonzero_mode_rejected_trials : int, default 0
+        Cumulative rejected adaptive ``k != 0`` trial count.
+    adaptive_nonzero_mode_last_batch_duration_s : float or None, default None
+        Duration of the last accepted adaptive trial.
+    adaptive_nonzero_mode_last_potential_step_v : float or None, default None
+        Last accepted maximum ``k != 0`` potential change.
+    adaptive_nonzero_mode_omp_threads : int or None, default None
+        OpenMP team size recorded and enforced for an adaptive restart.
+    periodic2_max_nonzero_mode_potential_step_v : float or None, default None
+        Configured adaptive ``k != 0`` potential-change limit.
     """
 
     directory: Path
@@ -319,6 +331,12 @@ class FortranRunResult:
     implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2: (
         float | None
     ) = None
+    simulated_time_s: float | None = None
+    adaptive_nonzero_mode_rejected_trials: int = 0
+    adaptive_nonzero_mode_last_batch_duration_s: float | None = None
+    adaptive_nonzero_mode_last_potential_step_v: float | None = None
+    adaptive_nonzero_mode_omp_threads: int | None = None
+    periodic2_max_nonzero_mode_potential_step_v: float | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

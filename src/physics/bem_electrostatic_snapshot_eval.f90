@@ -87,4 +87,39 @@ contains
   end if
   end procedure compute_snapshot_mesh_potential
 
+  !> 候補電荷差分へ cached k/=0 演算子を作用させ、局所電位ステップを測る。
+  module procedure measure_snapshot_kneq0_potential_step
+  real(dp), allocatable :: charge_step(:), potential_step(:)
+
+  if (.not. self%use_cached_kneq0 .or. self%use_panel_spectral_reference) then
+    error stop 'kneq0 potential-step measurement is available only for cached_kneq0 snapshots.'
+  end if
+  if (size(candidate_charge) /= mesh%nelem) then
+    error stop 'kneq0 potential-step measurement requires one candidate charge per mesh element.'
+  end if
+  if (present(delta_phi_v)) then
+    if (size(delta_phi_v) /= mesh%nelem) then
+      error stop 'kneq0 potential-step output size mismatch.'
+    end if
+  end if
+  if (.not. all(ieee_is_finite(candidate_charge)) .or. .not. all(ieee_is_finite(mesh%q_elem))) then
+    error stop 'kneq0 potential-step measurement requires finite charges.'
+  end if
+
+  max_abs_delta_phi_v = 0.0_dp
+  if (present(delta_phi_v)) delta_phi_v = 0.0_dp
+  if (mesh%nelem <= 0_i32) return
+
+  allocate (charge_step(mesh%nelem), potential_step(mesh%nelem))
+  charge_step = candidate_charge - mesh%q_elem
+  if (.not. all(ieee_is_finite(charge_step))) then
+    error stop 'kneq0 potential-step charge difference is not finite.'
+  end if
+  call self%nonzero_solver%compute_cached_kneq0_mesh_potential_step( &
+    mesh, charge_step, potential_step &
+    )
+  max_abs_delta_phi_v = maxval(abs(potential_step))
+  if (present(delta_phi_v)) delta_phi_v = potential_step
+  end procedure measure_snapshot_kneq0_potential_step
+
 end submodule bem_electrostatic_snapshot_eval

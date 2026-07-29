@@ -33,10 +33,12 @@ module bem_simulator
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_outer_plasma_kinetic_runtime, only: find_kinetic_ambient_species, resolve_kinetic_outer_options
   use bem_dynamic_k0_mean, only: &
-    dynamic_k0_ok, dynamic_k0_invalid, dynamic_k0_step_type, advance_dynamic_k0_mean
+    dynamic_k0_ok, dynamic_k0_invalid, &
+    dynamic_k0_step_type, advance_dynamic_k0_mean
   use bem_dynamic_k0_zhao, only: &
     measured_interface_energy_distribution_type, build_measured_interface_energy_distribution, &
-    advance_dynamic_k0_zhao, zhao_profile_barrier_energy, measured_sample_escape_fraction
+    advance_dynamic_k0_zhao, zhao_profile_barrier_energy, measured_sample_escape_fraction, &
+    dynamic_zhao_frozen_cohort_trust_failure
   use bem_mean_charge_transaction, only: &
     mean_charge_transaction_ok, mean_charge_transaction_invalid, &
     mean_charge_transaction_type, build_mean_charge_transaction
@@ -138,7 +140,7 @@ module bem_simulator
       step, photoelectron_outward_current_density, sample_escape_fraction, return_weight_scale, &
       transaction_residual, sampled_deferred_absorbed_charge, sampled_deferred_escaped_charge, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v &
+      collision_failure_x, collision_failure_v, failure_message &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -155,6 +157,7 @@ module bem_simulator
       real(dp), intent(out) :: sampled_deferred_absorbed_charge, sampled_deferred_escaped_charge
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
+      character(len=*), intent(out) :: failure_message
     end subroutine resolve_implicit_mean_batch
 
     !> 保存済みz-high crossingを現平均profileへ通し、終端とgross crossing回数を標本化する。

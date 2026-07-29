@@ -18,6 +18,8 @@ module bem_dynamic_k0_zhao
 
   integer(i32), parameter, public :: dynamic_zhao_nonmonotone_barrier = 3_i32
   integer(i32), parameter, public :: dynamic_zhao_no_physical_root = 4_i32
+  !> A shorter frozen-cohort trial may return inside both trust regions.
+  integer(i32), parameter, public :: dynamic_zhao_frozen_cohort_trust_failure = 5_i32
   real(dp), parameter :: frozen_interface_shift_limit = 0.25_dp
   real(dp), parameter :: frozen_source_log_shift_limit = 0.25_dp
   real(dp), parameter :: frozen_field_shift_limit = 0.25_dp
@@ -630,12 +632,16 @@ contains
                                  normalized_ambient_potential_shift, &
                                  normalized_ambient_electron_barrier_shift, &
                                  normalized_ambient_ion_potential_shift, ambient_density_log_shift &
-                                 ])) .or. &
-        normalized_ambient_potential_shift > frozen_interface_shift_limit .or. &
+                                 ]))) then
+      step%status = dynamic_k0_numerical_failure
+      message = 'dynamic Zhao frozen ambient cohort shift is non-finite'
+      return
+    end if
+    if (normalized_ambient_potential_shift > frozen_interface_shift_limit .or. &
         normalized_ambient_electron_barrier_shift > frozen_interface_shift_limit .or. &
         normalized_ambient_ion_potential_shift > frozen_interface_shift_limit .or. &
         ambient_density_log_shift > frozen_interface_shift_limit) then
-      step%status = dynamic_zhao_no_physical_root
+      step%status = dynamic_zhao_frozen_cohort_trust_failure
       write (message, '(a,7(a,es11.3))') &
         'dynamic Zhao frozen ambient cohort trust failure:', &
         ' dphi/Te=', &
@@ -650,14 +656,27 @@ contains
     end if
     if (.not. all(ieee_is_finite([ &
                                  source_log_shift, normalized_field_shift, normalized_barrier_shift &
-                                 ])) .or. &
-        source_log_shift > frozen_source_log_shift_limit .or. &
-        normalized_field_shift > frozen_field_shift_limit .or. &
-        normalized_barrier_shift > frozen_barrier_shift_limit) then
+                                 ]))) then
+      step%status = dynamic_k0_numerical_failure
+      message = 'dynamic Zhao frozen interface cohort shift is non-finite'
+      return
+    end if
+    ! The measured source is a current density: both its sampled charge and
+    ! trial duration scale with h, so source_log_shift does not contract under
+    ! halving. Fail it immediately instead of exhausting the adaptive ladder.
+    if (source_log_shift > frozen_source_log_shift_limit) then
       step%status = dynamic_zhao_no_physical_root
-      write (message, '(a,3(a,es12.4))') &
-        'dynamic Zhao frozen interface cohort left its trust region:', &
+      write (message, '(a,2(a,es12.4))') &
+        'dynamic Zhao measured source left its frozen normalization range:', &
         ' delta_log_source=', source_log_shift, &
+        ' limit=', frozen_source_log_shift_limit
+      return
+    end if
+    if (normalized_field_shift > frozen_field_shift_limit .or. &
+        normalized_barrier_shift > frozen_barrier_shift_limit) then
+      step%status = dynamic_zhao_frozen_cohort_trust_failure
+      write (message, '(a,2(a,es12.4))') &
+        'dynamic Zhao frozen interface field/barrier left its trust region:', &
         ' lambda_delta_E_over_Tpe=', normalized_field_shift, &
         ' delta_barrier_over_Tpe=', normalized_barrier_shift
       return

@@ -152,6 +152,7 @@ module bem_electrostatic_snapshot
     procedure :: eval_local_phi => eval_snapshot_local_phi
     procedure :: eval_local_phi_without_primary_self => eval_snapshot_local_phi_without_primary_self
     procedure :: compute_mesh_potential => compute_snapshot_mesh_potential
+    procedure :: measure_kneq0_potential_step => measure_snapshot_kneq0_potential_step
     procedure :: get_diagnostics => get_snapshot_diagnostics
     procedure :: restore_outer_state => restore_snapshot_outer_state
     procedure :: export_restart_state => export_snapshot_restart_state
@@ -191,6 +192,17 @@ module bem_electrostatic_snapshot
       type(sim_config), intent(in) :: sim
       real(dp), intent(out) :: potential(:)
     end subroutine compute_snapshot_mesh_potential
+
+    !> 候補電荷への更新が作る k/=0 電位増分の最大絶対値を要素重心上で測る。
+    module subroutine measure_snapshot_kneq0_potential_step( &
+      self, mesh, candidate_charge, max_abs_delta_phi_v, delta_phi_v &
+      )
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      real(dp), intent(in) :: candidate_charge(:)
+      real(dp), intent(out) :: max_abs_delta_phi_v
+      real(dp), intent(out), optional :: delta_phi_v(:)
+    end subroutine measure_snapshot_kneq0_potential_step
 
   end interface
 

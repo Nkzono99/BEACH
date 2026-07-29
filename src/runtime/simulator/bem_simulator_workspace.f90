@@ -34,6 +34,7 @@ module bem_simulator_workspace
     real(dp), allocatable :: mean_deferred_source_charge(:)
     real(dp), allocatable :: mean_returned_destination_charge(:)
     real(dp), allocatable :: mean_candidate_charge(:)
+    logical :: charge_candidate_ready = .false.
     real(dp), allocatable :: ledger_charge_values(:)
     integer(i64), allocatable :: ledger_count_values(:)
   contains
@@ -45,11 +46,14 @@ module bem_simulator_workspace
 contains
 
   !> mesh/species/thread 数が一定の run-local 作業配列を一度だけ確保する。
-  subroutine init_simulator_batch_workspace(self, nelem, nspecies, nthreads, implicit_mean_enabled)
+  subroutine init_simulator_batch_workspace( &
+    self, nelem, nspecies, nthreads, implicit_mean_enabled, candidate_charge_enabled &
+    )
     class(simulator_batch_workspace_type), intent(inout) :: self
     integer(i32), intent(in) :: nelem, nspecies, nthreads
     logical, intent(in), optional :: implicit_mean_enabled
-    logical :: allocate_mean_storage
+    logical, intent(in), optional :: candidate_charge_enabled
+    logical :: allocate_mean_storage, allocate_candidate_storage
 
     if (nelem <= 0_i32) error stop 'simulator workspace requires nelem > 0.'
     if (nspecies <= 0_i32) error stop 'simulator workspace requires nspecies > 0.'
@@ -64,15 +68,24 @@ contains
     allocate (self%q_before(nelem))
     allocate_mean_storage = .false.
     if (present(implicit_mean_enabled)) allocate_mean_storage = implicit_mean_enabled
+    allocate_candidate_storage = allocate_mean_storage
+    if (present(candidate_charge_enabled)) then
+      allocate_candidate_storage = allocate_candidate_storage .or. candidate_charge_enabled
+    end if
+    if (allocate_candidate_storage) then
+      allocate (self%mean_candidate_charge(nelem))
+    else
+      allocate (self%mean_candidate_charge(0))
+    end if
     if (allocate_mean_storage) then
       allocate ( &
         self%mean_pending_charge(nelem), self%mean_deferred_source_charge(nelem), &
-        self%mean_returned_destination_charge(nelem), self%mean_candidate_charge(nelem) &
+        self%mean_returned_destination_charge(nelem) &
         )
     else
       allocate ( &
         self%mean_pending_charge(0), self%mean_deferred_source_charge(0), &
-        self%mean_returned_destination_charge(0), self%mean_candidate_charge(0) &
+        self%mean_returned_destination_charge(0) &
         )
     end if
     allocate (self%ledger_charge_values(7_i32*nspecies), self%ledger_count_values(5_i32*nspecies))
@@ -83,6 +96,7 @@ contains
     self%mean_deferred_source_charge = 0.0_dp
     self%mean_returned_destination_charge = 0.0_dp
     self%mean_candidate_charge = 0.0_dp
+    self%charge_candidate_ready = .false.
     self%ledger_charge_values = 0.0_dp
     self%ledger_count_values = 0_i64
     call self%reset_before_injection()
@@ -104,6 +118,7 @@ contains
     self%mean_deferred_source_charge = 0.0_dp
     self%mean_returned_destination_charge = 0.0_dp
     self%mean_candidate_charge = 0.0_dp
+    self%charge_candidate_ready = .false.
   end subroutine reset_before_injection
 
   !> 可変粒子数に合わせて outcome flag を grow-only で確保し、有効範囲を初期化する。

@@ -35,6 +35,10 @@ contains
     call feed_integer(hash, cfg%periodic2%interface_sample_n)
     call feed_real(hash, cfg%periodic2%interface_phi_tolerance)
     call feed_real(hash, cfg%periodic2%interface_field_tolerance)
+    if (cfg%periodic2%max_nonzero_mode_potential_step > 0.0_dp) then
+      call feed_string(hash, 'adaptive_nonzero_mode_v1')
+      call feed_real(hash, cfg%periodic2%max_nonzero_mode_potential_step)
+    end if
     ! Preserve the former source-model slot at the only supported model so
     ! existing triangle_p0 checkpoints keep the same ordered fingerprint.
     call feed_string(hash, 'triangle_p0')

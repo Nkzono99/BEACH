@@ -6,7 +6,7 @@ program test_dynamic_k0_zhao
     measured_interface_energy_distribution_type, &
     build_measured_interface_energy_distribution, advance_dynamic_k0_zhao, &
     zhao_profile_barrier_energy, measured_sample_escape_fraction, &
-    dynamic_zhao_no_physical_root
+    dynamic_zhao_no_physical_root, dynamic_zhao_frozen_cohort_trust_failure
   use bem_outer_plasma_kinetic, only: &
     kinetic_outer_plasma_options_type, solve_outer_plasma_zhao_stationary, &
     continue_outer_plasma_zhao_connected, continue_outer_plasma_zhao_connected_root, &
@@ -505,7 +505,7 @@ program test_dynamic_k0_zhao
     )
   call test_end()
 
-  call test_begin('large frozen-cohort source jump fails closed')
+  call test_begin('large source jump is non-retryable')
   sample_energy_j = 0.0_dp
   sample_charge_c = 0.325_dp*emitted_charge_c
   call build_measured_interface_energy_distribution( &
@@ -517,7 +517,11 @@ program test_dynamic_k0_zhao
     base_charge_c, time_step_s, distribution, step, accepted, effective_source_scale, message &
     )
   call assert_equal_i32(step%status, dynamic_zhao_no_physical_root, &
-                        'large frozen-cohort source jump was not rejected')
+                        'large source jump became a retryable step failure: '//trim(message))
+  call assert_true(step%status /= dynamic_zhao_frozen_cohort_trust_failure, &
+                   'time-width-invariant source jump entered the adaptive retry path')
+  call assert_true(len_trim(message) > 0, &
+                   'large source jump lost its fail-closed diagnostic')
   call assert_true(.not. accepted%ready, &
                    'failed Zhao update exposed a partially accepted outer state')
   call test_end()

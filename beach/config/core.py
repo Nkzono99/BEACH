@@ -1316,6 +1316,22 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
 
     resolved_batch_duration = _resolve_batch_duration(sim)
     use_box = bool(sim.get("use_box", False))
+    adaptive_nonzero_mode_limit = 0.0
+    if isinstance(periodic2_config, Mapping):
+        raw_adaptive_limit = periodic2_config.get(
+            "max_nonzero_mode_potential_step", 0.0
+        )
+        if (
+            not isinstance(raw_adaptive_limit, (int, float))
+            or isinstance(raw_adaptive_limit, bool)
+            or not math.isfinite(float(raw_adaptive_limit))
+            or float(raw_adaptive_limit) < 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: "
+                "periodic2.max_nonzero_mode_potential_step must be finite and >= 0."
+            )
+        adaptive_nonzero_mode_limit = float(raw_adaptive_limit)
 
     field_bc_mode = sim.get("field_bc_mode", "free")
     field_solver = sim.get("field_solver", "auto")
@@ -1397,6 +1413,25 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             raise ConfigValidationError(
                 'BEACH constraint error: field_bc_mode="periodic2" requires exactly '
                 "two periodic axes."
+            )
+    if adaptive_nonzero_mode_limit > 0.0:
+        if (
+            not isinstance(periodic2_config, Mapping)
+            or periodic2_config.get("nonzero_mode_backend") != "cached_kneq0"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: "
+                "periodic2.max_nonzero_mode_potential_step requires "
+                'nonzero_mode_backend="cached_kneq0".'
+            )
+        if (
+            not math.isfinite(resolved_batch_duration)
+            or resolved_batch_duration <= 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: "
+                "periodic2.max_nonzero_mode_potential_step requires a finite positive "
+                "sim.batch_duration or resolved batch_duration_step."
             )
     if field_bc_mode != "free" and _mesh_has_surface_model(mesh, "conductor"):
         raise ConfigValidationError(
@@ -1686,6 +1721,12 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "BEACH constraint error: persistent outer queue requires "
                 "coupling.outer_update_stride=1."
             )
+    if adaptive_nonzero_mode_limit > 0.0 and outer_queue_enabled:
+        raise ConfigValidationError(
+            "BEACH constraint error: "
+            "periodic2.max_nonzero_mode_potential_step cannot be combined with "
+            "an outer event queue."
+        )
     if photoelectron_density_model == "kinetic_mean":
         if outer_plasma.get("model") != "kinetic_1d" or not (
             (return_model == "none" and transfer_mode == "none")
@@ -1986,6 +2027,26 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     if has_volume_seed and not uses_face_sources and total_npcls_per_step < 1:
         raise ConfigValidationError(
             "BEACH constraint error: volume_seed species require total npcls_per_step >= 1."
+        )
+    if adaptive_nonzero_mode_limit > 0.0 and any(
+        item.get("enabled", True) is True
+        and item.get("source_mode", "volume_seed") == "volume_seed"
+        for item in species
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: "
+            "periodic2.max_nonzero_mode_potential_step requires time-scaled "
+            "reservoir_face/photo_raycast sources."
+        )
+    if adaptive_nonzero_mode_limit > 0.0 and any(
+        item.get("enabled", True) is True
+        and item.get("source_mode", "volume_seed") == "reservoir_face"
+        and "target_macro_particles_per_batch" not in item
+        for item in species
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: adaptive reservoir_face requires "
+            "target_macro_particles_per_batch instead of fixed w_particle."
         )
 
 

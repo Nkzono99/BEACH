@@ -452,6 +452,12 @@ def test_load_fortran_result(tmp_path: Path) -> None:
                 "multiple_box_events_soft_discarded=4",
                 "multiple_box_events_soft_discarded_abs_charge_C=2.5e-15",
                 "last_rel_change=1.0e-8",
+                "simulated_time_s=7.5e-6",
+                "adaptive_nonzero_mode_rejected_trials=3",
+                "adaptive_nonzero_mode_last_batch_duration_s=2.5e-6",
+                "adaptive_nonzero_mode_last_potential_step_V=8.0e-3",
+                "adaptive_nonzero_mode_omp_threads=16",
+                "periodic2_max_nonzero_mode_potential_step_V=1.0e-2",
                 "field_source_model=triangle_p0",
             ]
         ),
@@ -494,6 +500,12 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     assert result.survived_max_step == 1
     assert result.multiple_box_events_soft_discarded == 4
     assert result.multiple_box_events_soft_discarded_abs_charge_c == 2.5e-15
+    assert result.simulated_time_s == 7.5e-6
+    assert result.adaptive_nonzero_mode_rejected_trials == 3
+    assert result.adaptive_nonzero_mode_last_batch_duration_s == 2.5e-6
+    assert result.adaptive_nonzero_mode_last_potential_step_v == 8.0e-3
+    assert result.adaptive_nonzero_mode_omp_threads == 16
+    assert result.periodic2_max_nonzero_mode_potential_step_v == 1.0e-2
     assert result.triangles is not None
     assert result.triangles.shape == (2, 3, 3)
     assert result.history is not None
@@ -914,6 +926,55 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
     assert result.survived_max_step == 0
     assert result.checkpoint_schema_version is None
     assert result.charge_ledger is None
+    assert result.simulated_time_s is None
+    assert result.adaptive_nonzero_mode_rejected_trials == 0
+    assert result.adaptive_nonzero_mode_last_batch_duration_s is None
+    assert result.adaptive_nonzero_mode_last_potential_step_v is None
+    assert result.adaptive_nonzero_mode_omp_threads is None
+    assert result.periodic2_max_nonzero_mode_potential_step_v is None
+
+
+@pytest.mark.parametrize(
+    ("extra_line", "match"),
+    [
+        (
+            None,
+            "adaptive nonzero-mode output requires adaptive_nonzero_mode_omp_threads",
+        ),
+        (
+            "adaptive_nonzero_mode_omp_threads=0",
+            "adaptive_nonzero_mode_omp_threads must be > 0",
+        ),
+    ],
+)
+def test_load_fortran_result_rejects_incomplete_adaptive_summary(
+    tmp_path: Path, extra_line: str | None, match: str
+) -> None:
+    out = tmp_path / "incomplete_adaptive"
+    out.mkdir()
+    lines = [
+        "mesh_nelem=1",
+        "processed_particles=4",
+        "absorbed=2",
+        "escaped=2",
+        "batches=1",
+        "last_rel_change=0.5",
+        "field_source_model=triangle_p0",
+        "periodic2_max_nonzero_mode_potential_step_V=1.0e-2",
+        "simulated_time_s=1.0e-3",
+        "adaptive_nonzero_mode_rejected_trials=1",
+        "adaptive_nonzero_mode_last_batch_duration_s=5.0e-4",
+        "adaptive_nonzero_mode_last_potential_step_V=8.0e-3",
+    ]
+    if extra_line is not None:
+        lines.append(extra_line)
+    (out / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
+    (out / "charges.csv").write_text(
+        "elem_idx,charge_C\n1,0.0\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match=match):
+        load_fortran_result(out)
 
 
 def test_load_fortran_result_rejects_duplicate_summary_keys(tmp_path: Path) -> None:

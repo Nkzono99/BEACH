@@ -4,10 +4,14 @@ Lang: [日本語](BatchDurationStability.md) | [English](BatchDurationStability.
 
 # `batch_duration` の安定性と定常値
 
-`sim.batch_duration`は、1 batchで進める物理時間であり、表面電荷を更新する時間幅です。
+通常の固定幅実行では、`sim.batch_duration`は1 batchで進める物理時間であり、表面電荷を更新する時間幅です。
 `sim.batch_duration_step`を指定した場合は、
 `sim.batch_duration = sim.dt * sim.batch_duration_step`として計算されます。
 `reservoir_face`注入では、この時間内の物理流入量からマクロ粒子数または粒子重みを決めます。
+
+`[periodic2].max_nonzero_mode_potential_step > 0`を指定した場合、`sim.batch_duration`は
+各accepted batchの**最大**試行幅です。実際の進行幅は、`batch_duration`から2分の1ずつ短くする
+固定ladder上で選ばれます。
 
 `batch_duration`を小さくすると表面電荷の更新は安定しやすくなりますが、定常状態までに必要なbatch数は
 増えます。値を決めるには、更新の安定性とMonte Carloノイズを分けて確認します。
@@ -29,8 +33,51 @@ Lang: [日本語](BatchDurationStability.md) | [English](BatchDurationStability.
 | 履歴がノイズで読みにくい | `target_macro_particles_per_batch`, `w_particle` | マクロ粒子数や重みを調整 |
 | 収束前に打ち切られる | `summary.txt` の `batches` | `batch_count` を増やす |
 
-`batch_duration`はdeterministicなexplicit更新の時間刻みです。一方、マクロ粒子数と粒子重みは
-Monte Carloノイズを主に左右します。
+固定幅実行では、`batch_duration`はdeterministicなexplicit更新の時間刻みです。一方、マクロ粒子数と
+粒子重みはMonte Carloノイズを主に左右します。
+
+## periodic2非零モードの適応的な進行
+
+productionの`cached_kneq0`計算では、局所電位の1 batch変化へ上限を設定できます。
+
+```toml
+[periodic2]
+nonzero_mode_backend = "cached_kneq0"
+max_nonzero_mode_potential_step = 1.0e-2 # V
+```
+
+解決後の`sim.batch_duration`を$h_0$とし、各accepted batchで
+$h_0,h_0/2,h_0/4,\ldots$を順に試します。trial幅$h$から粒子数または重みを再計算し、
+候補電荷とbatch開始電荷の差が作る$k\ne0$電位を全panel重心で評価します。最大絶対値が
+`max_nonzero_mode_potential_step`以下となる最初のtrialを受理します。
+
+棄却trialはRNG、macro粒子数残差、outer state、`implicit_mean` transactionを含めて完全に
+rollbackされ、統計、履歴、charge ledgerへ現れません。したがって`batch_count`はaccepted batch数であり、
+物理的な終了時刻は`batch_count * batch_duration`ではなく`summary.txt`の`simulated_time_s`です。
+再開時は、加算順と受理ladderを再現するため、checkpoint作成時と同じ実OpenMP team sizeを使います。
+
+この上限は、batch内で$k\ne0$場を凍結する近似に対する**局所電位trust bound**です。
+局所打切り誤差や大域誤差の次数を保証しません。値を採用する前に
+`max_nonzero_mode_potential_step`を半分にし、同じ`simulated_time_s`付近で表面電荷、局所電位幅、
+総電荷、interface電位を比較します。固定幅計算との比較では、上限を省略または`0`にします。
+この判定は$k=0$更新の安定性を制御しません。`sim.batch_duration`の最大値は、
+explicitな平均電荷更新または選択したimplicit closureについて、別途安定である必要があります。
+
+この経路は`cached_kneq0`、time-scaledな`reservoir_face` / `photo_raycast`を要求します。
+`reservoir_face`は`target_macro_particles_per_batch`を指定する必要があり、固定`w_particle`は
+macro粒子1個の電荷量がhalvingで縮まないため拒否します。explicit SW/UV更新と`implicit_mean`
+PE更新に対応し、`volume_seed`とouter event queueは拒否します。
+
+`implicit_mean` Zhao closureでは、大きいtrial幅によってfrozen ambient cohortまたは
+frozen interfaceの電場・障壁座標がtrust regionを外れた場合に限り、同じladderで再試行します。
+時間幅で縮まらない計測source規格化の変化は再試行しません。
+nonmonotone barrier、物理root不在、数値failure、入力不正はhalvingで回復すると仮定せず、その場で停止します。
+`BEACH adaptive-kneq0 reject`行の`max_delta_phi_V`は$k\ne0$上限による棄却、
+`implicit_status`と`reason`はfrozen-cohort trust-region recoveryを表すため、検証時は別々に数えます。
+
+target方式のreservoirと固定`rays_per_batch`のphoto sourceでは、幅を半分にするとmacro粒子電荷が
+半分になり、同じ物理時間あたりの標本数は増えます。したがって上限半減比較には時間離散化差だけでなく
+Monte Carlo分散の低下も含まれます。同じ乱数seedを使い、電荷分布のnormと粒子統計を併記してください。
 
 ## 連続時間モデルとの対応
 
@@ -52,12 +99,13 @@ $$
 
 と表せます。ここで
 
-- $\Delta t_b = $ `sim.batch_duration`
+- $\Delta t_b = $ 固定幅実行では`sim.batch_duration`、適応進行ではaccepted trial幅
 - $\mathbf A$ は要素面積ベクトル
 - $\boldsymbol\eta^n$ はバッチ内 Monte Carlo サンプリング誤差
 
 です。batch内の粒子は同じ場$E(\mathbf q^n)$を使い、batch末尾で電荷差分をまとめて壁面へ反映します。
-したがって、`batch_duration`はこのexplicit更新の時間刻みに相当します。
+したがって、固定幅実行では`batch_duration`、適応進行では受理されたtrial幅がこのexplicit更新の
+時間刻みに相当します。
 
 ## 定常値が`batch_duration`に依存しない条件
 
@@ -242,6 +290,10 @@ $\tau_\text{charge}$を含む系の有効応答時間が必要です。
 4. 収束値がほぼ一致し、かつ振動や発散傾向が見えなければ、その `batch_duration` は実用上十分と判断できる。
 5. ノイズが大きい場合は、まず `w_particle` または `target_macro_particles_per_batch` を調整する。`batch_duration` の変更だけでノイズを解決しようとしない。
 
+適応進行を使う場合は、手順3を
+`max_nonzero_mode_potential_step`とその1/2の比較に置き換えます。`batch_count`を揃えるだけでは終了時刻が
+一致しないため、`simulated_time_s`が共通になる範囲を比較します。
+
 この比較は、誤差の冪乗則を仮定するRichardson外挿ではなく、**step-size sensitivity check**です。
 
 ## 判断基準
@@ -255,6 +307,7 @@ $\tau_\text{charge}$を含む系の有効応答時間が必要です。
 | ノイズと `batch_duration` | 依存性は注入の正規化方式に依存する |
 | ノイズ低減の主手段 | `w_particle` または `target_macro_particles_per_batch` の調整 |
 | 確認方法 | `batch_duration` を振った step-size sensitivity check |
+| 適応的$k\ne0$進行 | `batch_duration`は最大幅。電位上限を1/2にして収束を確認 |
 
 平均モデルの定常値は`batch_duration`に依存しませんが、安定に到達できる時間幅は
 $\rho(I + \Delta t_b M) < 1$で制限されます。$\tau_{\min}$はケースごとに異なるため、物理スケールの

@@ -77,6 +77,11 @@ module bem_types
     real(dp) :: multiple_box_events_soft_discarded_abs_charge = 0.0_dp
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
+    real(dp) :: simulated_time = 0.0_dp
+    integer(i64) :: adaptive_nonzero_mode_rejected_trials = 0_i64
+    real(dp) :: adaptive_nonzero_mode_last_batch_duration = 0.0_dp
+    real(dp) :: adaptive_nonzero_mode_last_potential_step = 0.0_dp
+    integer(i32) :: adaptive_nonzero_mode_omp_threads = 0_i32
   end type sim_stats
 
   !> 種ごとのマクロ粒子端数を保持し、再開時にも注入期待値を保つ。

@@ -103,6 +103,8 @@ restart_from = "../parent_run/outputs/latest"
 `sim.batch_count`は追加バッチ数ではなく、累積の到達バッチ数です。既存checkpointが
 `batches=100`で`batch_count=150`なら、追加で50バッチ実行します。MPI再開では保存時と現在の
 rank数が一致する必要があります。
+適応的な$k\ne0$進行の再開では、保存時と同じ実OpenMP team sizeも必要です。全MPI rankの
+team size不一致とcheckpointとの不一致はfail-fastします。
 
 ## 実行後に確認すること
 

@@ -18,7 +18,7 @@ beachx inspect outputs/latest
 
 | 知りたいこと | 読む出力 | 主な内容 |
 | --- | --- | --- |
-| 何バッチ実行し、粒子がどう終了したか | `summary.txt` | `batches`, `absorbed`, `escaped`, `survived_max_step` |
+| 何バッチ・何秒進み、粒子がどう終了したか | `summary.txt` | `batches`, `simulated_time_s`, `absorbed`, `escaped`, `survived_max_step` |
 | 粒子種ごとの電荷がどこから入り、どこへ出たか | `charge_ledger.csv` | 注入、放出、吸収、脱出、未解決破棄 |
 | 最終的な表面電荷がどこに分布したか | `charges.csv` + `mesh_triangles.csv` | 要素番号、電荷、三角形座標、`mesh_id` |
 | バッチごとの変化を見られるか | `charge_history.csv`, `potential_history.csv` | 要素電荷・要素重心電位の履歴 |
@@ -43,7 +43,8 @@ beachx inspect outputs/latest
 | 実行識別 | `build_version`, `build_source_commit`, `model_fingerprint`, `mesh_fingerprint`, `species_fingerprint` | どのビルド・設定・メッシュ・粒子種で作った出力か |
 | 規模 | `mesh_nelem`, `mesh_count`, `mpi_world_size` | 要素数、メッシュ数、MPI ランク数 |
 | 粒子処理 | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | 粒子イベントの集計数と記録付きsoft discard |
-| 進行 | `batches`, `last_rel_change` | 完了バッチ数と最終バッチの電荷変化監視値 |
+| 進行 | `batches`, `simulated_time_s`, `last_rel_change` | accepted batch数、受理した物理時間の総和、最終バッチの電荷変化監視値 |
+| 適応的な非零モード進行 | `periodic2_max_nonzero_mode_potential_step_V`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V`, `adaptive_nonzero_mode_omp_threads` | 設定上限、累積棄却trial数、最後に受理した幅・実測$k\ne0$電位変化、再開に必要なthread数 |
 | 場計算 | `field_backend`, `field_source_model`, `field_kernel_id` | 出力を作った場ソルバーと source kernel |
 | 外部境界の解決結果 | `coupling_update_mode`, `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | 公開設定から実行時に解決された更新、流入、通常open面、z-high輸送、処理時機 |
 
@@ -51,6 +52,27 @@ beachx inspect outputs/latest
 `charge_ledger.csv`、最終分布は `charges.csv` から読みます。
 
 `last_rel_change` は監視値です。現行実装では早期停止条件ではありません。
+
+`periodic2_max_nonzero_mode_potential_step_V=0`は適応進行が無効であることを表します。正の場合、
+`sim.batch_duration`は最大trial幅であり、`batches`はaccepted batchだけを数えます。
+`simulated_time_s`は受理したtrial幅の累積値なので、一般には
+`batches * sim.batch_duration`と一致しません。棄却trialはRNG、macro粒子数残差、outer/mean transactionを
+rollbackされ、粒子集計、`charge_history.csv`、`potential_history.csv`、`charge_ledger.csv`へ現れません。
+`adaptive_nonzero_mode_last_potential_step_V`は全panel重心で測った最後のaccepted trialの最大
+$k\ne0$電位変化であり、局所打切り誤差ではありません。
+`adaptive_nonzero_mode_rejected_trials`は共通ladder上の総棄却数なので、$k\ne0$上限超過に加えて
+`implicit_mean` Zhaoの有限なambientまたは界面電場・障壁のtrust-region棄却も含みます。
+時間幅で縮まらない計測source規格化の変化と、その他の$k=0$ closure failureは
+再試行せず停止するため、この値には含まれません。内訳は実行ログで確認します。
+適応runの再開は、加算順と受理ladderを再現するため
+`adaptive_nonzero_mode_omp_threads`と現在の実OpenMP team sizeが全MPI rankで一致する場合だけ受理します。
+適応進行が無効なrunでは、この値は`0`です。
+
+実行中の標準出力では、棄却ごとに`BEACH adaptive-kneq0 reject`行がbatch、halving回数、trial幅を
+記録します。$k\ne0$上限による棄却では実測電位変化と設定上限、`implicit_mean` Zhaoの
+回復可能なtrust-region棄却では`implicit_status`と`reason`を記録するため、両者を区別できます。受理時の
+`BEACH adaptive-kneq0 accept`行は、受理後の
+`time_end_s`、trial幅、実測電位変化、halving回数を記録します。
 
 外部境界の5キーは設定項目ではなく、`[external_boundary]` facadeが実行時にどう解決されたかを確認する
 receiptです。
@@ -164,7 +186,8 @@ write_potential_history = true
 | `charge_history.csv` | `output.history_stride > 0` | 記録バッチごとの要素電荷 |
 | `potential_history.csv` | 上記に加えて `output.write_potential_history = true` | 記録バッチごとの要素重心電位 |
 
-バッチ 1 は常に含まれ、その後は `history_stride` ごとに記録されます。電位履歴は記録時に追加の場評価を行うため、
+受理済み batch 1 は常に含まれ、その後は受理済み batch の番号が `history_stride` ごとに記録されます。
+電位履歴は記録時に追加の場評価を行うため、
 大きなメッシュでは `history_stride` を増やして出力頻度を下げます。
 
 履歴の図とアニメーションは[後処理チュートリアル](PostprocessTutorial.html#履歴アニメーション)にあります。
@@ -189,6 +212,7 @@ write_potential_history = true
 | --- | --- | --- |
 | 有限画像 `periodic2` | `summary.txt` の periodic2 構成、`charges.csv` | [有限画像構成](FinitePeriodicConfiguration.html) |
 | `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [周期遠方補正](PeriodicFarCorrection.html) |
+| 適応的な$k\ne0$進行 | `simulated_time_s`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V` | [`batch_duration`の安定性と定常値](BatchDurationStability.html#periodic2非零モードの適応的な進行) |
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [標準 1D kinetic 外部シース](KineticOuterPlasma.html) |
 | Zhao過渡queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [粒子の escape と return](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする) |
 | 外部粒子移送 | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [粒子の escape と return](ParticleEscapeReturn.html) |
@@ -233,6 +257,9 @@ $\chi_{\mathrm{PE,shadow}}$ は、省略した returning-photoelectron column �
 
 `output.restart_from` を指定すると、チェックポイントを `restart_from` から読み、新しい出力を `output.dir` に書きます。
 再開手順と fingerprint の照合は[実行する](Execution.html#再開実行)にまとめています。
+`summary.txt`から`simulated_time_s`、累積棄却trial数、最後のaccepted trial幅・電位変化、
+適応進行時の実OpenMP team sizeも復元するため、
+再開後の`batch_count`は引き続きaccepted batchの累積到達数です。
 queue checkpointはactive phase-space record、terminal outcome、due時刻、`next_event_id`を保持し、schema、rank、
 world size、完了batchの不一致をfail closedで拒否します。
 

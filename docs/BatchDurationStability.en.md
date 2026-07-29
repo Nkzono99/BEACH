@@ -4,8 +4,16 @@ Lang: [English](BatchDurationStability.en.md) | [日本語](BatchDurationStabili
 
 # `batch_duration` Stability and Steady Value
 
-This section organizes the theoretical relationship between `sim.batch_duration` in the BEACH batch loop, or the one-batch physical time determined from `sim.batch_duration_step`, and the validity and stability of the converged wall-charge distribution.
+In a fixed-width run, `sim.batch_duration` is the physical time advanced by one
+batch and the width of the surface-charge update. This page relates that width,
+or the value determined from `sim.batch_duration_step`, to stability and the
+converged wall-charge distribution.
 In the current implementation, when `batch_duration_step` is used, `sim.batch_duration = sim.dt * sim.batch_duration_step`; in `reservoir_face` injection, the physical inflow per batch determines the macro-particle count or weight.
+
+With `[periodic2].max_nonzero_mode_potential_step > 0`,
+`sim.batch_duration` is the **maximum** trial width of each accepted batch. The
+actual width is selected on a fixed ladder that repeatedly halves
+`batch_duration`.
 
 Implementation entry points:
 
@@ -31,7 +39,69 @@ For first runs, choose `batch_duration` empirically before relying on the theory
 | History is too noisy to read | `target_macro_particles_per_batch`, `w_particle` | Adjust macro-particle count or weight |
 | Run stops before settling | `batches` in `summary.txt` | Increase `batch_count` |
 
-Treat `batch_duration` as the deterministic explicit-update time step, and particle count / weight as the Monte Carlo noise controls.
+In a fixed-width run, treat `batch_duration` as the deterministic
+explicit-update time step, and particle count / weight as the Monte Carlo noise
+controls.
+
+### Adaptive periodic2 Nonzero-mode Progression
+
+A production `cached_kneq0` run can bound the local-potential change of one
+accepted batch.
+
+```toml
+[periodic2]
+nonzero_mode_backend = "cached_kneq0"
+max_nonzero_mode_potential_step = 1.0e-2 # V
+```
+
+Let $h_0$ be the resolved `sim.batch_duration`. Each accepted batch tests
+$h_0,h_0/2,h_0/4,\ldots$ in order. Particle counts or weights are recomputed
+for each trial width $h$. BEACH evaluates, at every panel centroid, the
+$k\ne0$ potential produced by the difference between candidate and batch-start
+charge, and accepts the first trial whose maximum absolute value does not
+exceed `max_nonzero_mode_potential_step`.
+
+A rejected trial fully rolls back the RNG, macro-particle residuals, outer
+state, and `implicit_mean` transaction. It does not appear in statistics,
+history, or the charge ledger. Thus `batch_count` counts accepted batches, and
+the physical end time is `simulated_time_s` in `summary.txt`, not
+`batch_count * batch_duration`.
+An adaptive restart uses the same actual OpenMP team size as its checkpoint to
+reproduce the reduction order and accepted ladder.
+
+This limit is a **local-potential trust bound** for freezing the $k\ne0$ field
+within a batch. It does not guarantee local truncation error or an order of
+global accuracy. Before adopting a value, halve
+`max_nonzero_mode_potential_step` and compare surface charge, local-potential
+range, total charge, and interface potential near the same `simulated_time_s`.
+For a fixed-width control, omit the key or set it to `0`.
+This test does not control stability of the $k=0$ update. The maximum
+`sim.batch_duration` must also be stable for the explicit mean-charge update or
+the selected implicit closure.
+
+This path requires `cached_kneq0` and time-scaled `reservoir_face` /
+`photo_raycast` sources. A reservoir must specify
+`target_macro_particles_per_batch`; fixed `w_particle` is rejected because one
+macro-particle charge would not shrink under halving. The path supports
+explicit SW/UV updates and implicit-mean PE updates, and rejects `volume_seed`
+and the outer event queue.
+
+For an `implicit_mean` Zhao closure, the same ladder retries only when a large
+trial width moves the frozen ambient cohort or the frozen interface
+field/barrier coordinates outside their trust regions. A measured-source
+normalization change does not contract with trial width and is not retried.
+A nonmonotone barrier, absence of a physical root, numerical
+failure, or invalid input stops immediately rather than being assumed
+recoverable by halving. A `BEACH adaptive-kneq0 reject` line with
+`max_delta_phi_V` denotes a $k\ne0$ bound rejection; `implicit_status` and
+`reason` denote frozen-cohort trust-region recovery. Count them separately
+during validation.
+
+For target-count reservoirs and fixed-`rays_per_batch` photo sources, halving
+the width halves macro-particle charge and increases the sample count per unit
+physical time. A limit-halving comparison therefore mixes reduced time-step
+error with reduced Monte Carlo variance. Use the same RNG seed and report both
+charge-distribution norms and particle statistics.
 
 ### 1. Reduction to a continuous-time model
 
@@ -52,12 +122,13 @@ $$
 
 where:
 
-- $\Delta t_b = $ `sim.batch_duration`
+- $\Delta t_b = $ `sim.batch_duration` in a fixed-width run, or the accepted trial width under adaptive progression
 - $\mathbf A$ is the element-area vector
 - $\boldsymbol\eta^n$ is Monte Carlo sampling error within the batch
 
 The implementation follows this picture: particles in a batch see the same field $E(\mathbf q^n)$, and the charge delta is applied to the wall at the end of the batch.
-Thus `batch_duration` is the time step of this explicit update.
+Thus `batch_duration` is the time step of this explicit update in a fixed-width
+run; under adaptive progression, the accepted trial width is the time step.
 
 ### 2. Validity of the steady value
 
@@ -243,6 +314,11 @@ Then refine with numerical experiments.
 5. If noise is large, first adjust `w_particle` or `target_macro_particles_per_batch`. Do not try to solve noise only by changing `batch_duration`.
 6. Oscillation in `charge_history.csv` `last_rel_change`, or jitter in element charge time series, is a useful diagnostic. This is better called a **step-size sensitivity check** than strict Richardson extrapolation, because it does not assume a power law of the error.
 
+With adaptive progression, replace step 3 by a comparison between
+`max_nonzero_mode_potential_step` and half that limit. Matching only
+`batch_count` does not match end time, so compare the range reaching a common
+`simulated_time_s`.
+
 ### 7. Summary
 
 | Item | Conclusion |
@@ -254,6 +330,7 @@ Then refine with numerical experiments.
 | Noise and `batch_duration` | Dependence is set by injection normalization |
 | Main noise-reduction knobs | Adjust `w_particle` or `target_macro_particles_per_batch` |
 | Practical check | Step-size sensitivity check by varying `batch_duration` |
+| Adaptive $k\ne0$ progression | `batch_duration` is the maximum width; verify convergence with half the potential limit |
 
 It is theoretically clean to say that the steady value of the mean model does not depend on how `batch_duration` is chosen.
 The general stability condition $\rho(I + \Delta t_b M) < 1$ follows directly from classical stability analysis.

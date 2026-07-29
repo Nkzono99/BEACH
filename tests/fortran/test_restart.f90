@@ -378,6 +378,9 @@ program test_restart
   call assert_equal_i64( &
     stats%multiple_box_events_soft_discarded, 4_i64, 'soft discarded count mismatch' &
     )
+  call assert_equal_i32( &
+    stats%adaptive_nonzero_mode_omp_threads, 6_i32, 'adaptive OpenMP thread count mismatch' &
+    )
   call assert_close_dp( &
     stats%multiple_box_events_soft_discarded_abs_charge, 2.5d-15, 1.0d-27, &
     'soft discarded absolute charge mismatch' &
@@ -965,6 +968,7 @@ contains
     write (u, '(a)') 'survived_max_step=2'
     write (u, '(a)') 'multiple_box_events_soft_discarded=4'
     write (u, '(a)') 'multiple_box_events_soft_discarded_abs_charge_C=2.5e-15'
+    write (u, '(a)') 'adaptive_nonzero_mode_omp_threads=6'
     write (u, '(a)') 'last_rel_change=1.0e-3'
     close (u)
   end subroutine write_summary_fixture

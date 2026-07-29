@@ -486,6 +486,10 @@ contains
       int(size(regular_workspace%mean_pending_charge), i32), 0_i32, &
       'regular workspace must not allocate implicit-mean element storage' &
       )
+    call assert_equal_i32( &
+      int(size(regular_workspace%mean_candidate_charge), i32), 0_i32, &
+      'regular workspace must not allocate adaptive candidate storage' &
+      )
 
     call workspace%prepare_particle_flags(5_i32, implicit_mean_enabled=.true.)
     call assert_equal_i32(int(size(workspace%outer_event_staging), i32), 0_i32, &

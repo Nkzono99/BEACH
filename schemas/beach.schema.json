@@ -24,7 +24,12 @@
         "panel_quadrature_order": {"type": "integer", "minimum": 2, "default": 12},
         "interface_sample_n": {"type": "integer", "minimum": 2, "default": 5},
         "interface_phi_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001},
-        "interface_field_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001}
+        "interface_field_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001},
+        "max_nonzero_mode_potential_step": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum accepted change of the cached k!=0 potential at panel centroids [V]. When set, batch_duration is the maximum trial duration and rejected trials are retraced at successive factors of 1/2."
+        }
       }
     },
     "external_boundary": {

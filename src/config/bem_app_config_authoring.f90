@@ -30,6 +30,7 @@ module bem_app_config_authoring
     integer(i32) :: interface_sample_n = 5_i32
     real(dp) :: interface_phi_tolerance = 1.0e-3_dp
     real(dp) :: interface_field_tolerance = 1.0e-3_dp
+    real(dp) :: max_nonzero_mode_potential_step = 0.0_dp
   end type periodic2_authoring_spec
 
   type :: outer_plasma_authoring_spec

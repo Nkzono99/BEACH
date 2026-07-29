@@ -101,6 +101,9 @@ restart_from = "../parent_run/outputs/latest"
 `sim.batch_count` is the cumulative target, not an additional batch count. If a checkpoint has `batches=100`
 and the new target is `batch_count=150`, BEACH runs 50 more batches. An MPI resume requires the current rank
 count to match the saved run.
+An adaptive $k\ne0$ restart also requires the actual OpenMP team size saved by
+the checkpoint. Unequal team sizes across MPI ranks or a checkpoint mismatch
+fail fast.
 
 ## Checks after execution
 

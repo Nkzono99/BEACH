@@ -431,6 +431,10 @@ program test_app_config_parser
     )
   call assert_close_dp(periodic_cfg%sim%field_periodic_ewald_alpha, 1.5d0, 1.0d-12, 'periodic ewald alpha mismatch')
   call assert_equal_i32(periodic_cfg%sim%field_periodic_ewald_layers, 5_i32, 'periodic ewald layers mismatch')
+  call assert_close_dp( &
+    periodic_cfg%periodic2%max_nonzero_mode_potential_step, 2.0e-2_dp, 1.0e-15_dp, &
+    'periodic adaptive nonzero-mode potential step mismatch' &
+    )
   call test_end()
 
   call test_begin('removed_root_oracle_config')
@@ -1168,6 +1172,7 @@ contains
 
     write (u, '(a)') '[sim]'
     write (u, '(a)') 'batch_count = 2'
+    write (u, '(a)') 'batch_duration = 1.0e-6'
     write (u, '(a)') 'field_solver = "fmm"'
     write (u, '(a)') 'field_bc_mode = "periodic2"'
     write (u, '(a)') 'use_box = true'
@@ -1186,8 +1191,23 @@ contains
     write (u, '(a)') 'field_periodic_cache_dir = "test-cache"'
     write (u, '(a)') 'field_periodic_generation_tolerance = 2.5e-7'
     write (u, '(a)') ''
+    write (u, '(a)') '[periodic2]'
+    write (u, '(a)') 'nonzero_mode_backend = "cached_kneq0"'
+    write (u, '(a)') 'zero_mode_policy = "exclude_k0"'
+    write (u, '(a)') 'lower_boundary_model = "e_bottom_zero"'
+    write (u, '(a)') 'max_nonzero_mode_potential_step = 2.0e-2'
+    write (u, '(a)') ''
     write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'npcls_per_step = 1'
+    write (u, '(a)') 'source_mode = "photo_raycast"'
+    write (u, '(a)') 'emit_current_density_a_m2 = 1.0e-6'
+    write (u, '(a)') 'rays_per_batch = 1'
+    write (u, '(a)') 'q_particle = -1.602176634e-19'
+    write (u, '(a)') 'm_particle = 9.1093837139e-31'
+    write (u, '(a)') 'temperature_ev = 2.0'
+    write (u, '(a)') 'inject_face = "z_high"'
+    write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
+    write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
+    write (u, '(a)') 'ray_direction = [0.0, 0.0, -1.0]'
     write (u, '(a)') ''
     write (u, '(a)') '[mesh]'
     write (u, '(a)') 'mode = "template"'

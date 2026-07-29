@@ -120,6 +120,15 @@ contains
     print '(a,es12.4)', 'multiple_box_events_soft_discarded_abs_charge_C=', &
       stats%multiple_box_events_soft_discarded_abs_charge
     print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
+    print '(a,es12.4)', 'simulated_time_s=', stats%simulated_time
+    print '(a,i0)', 'adaptive_nonzero_mode_rejected_trials=', &
+      stats%adaptive_nonzero_mode_rejected_trials
+    print '(a,es12.4)', 'adaptive_nonzero_mode_last_batch_duration_s=', &
+      stats%adaptive_nonzero_mode_last_batch_duration
+    print '(a,es12.4)', 'adaptive_nonzero_mode_last_potential_step_V=', &
+      stats%adaptive_nonzero_mode_last_potential_step
+    print '(a,i0)', 'adaptive_nonzero_mode_omp_threads=', &
+      stats%adaptive_nonzero_mode_omp_threads
     print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
     dielectric_count = count_dielectric_surfaces(mesh)
     if (dielectric_count > 0_i32) then
@@ -273,6 +282,15 @@ contains
     write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &
       stats%multiple_box_events_soft_discarded_abs_charge
     write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
+    write (u, '(a,es24.16)') 'simulated_time_s=', stats%simulated_time
+    write (u, '(a,i0)') 'adaptive_nonzero_mode_rejected_trials=', &
+      stats%adaptive_nonzero_mode_rejected_trials
+    write (u, '(a,es24.16)') 'adaptive_nonzero_mode_last_batch_duration_s=', &
+      stats%adaptive_nonzero_mode_last_batch_duration
+    write (u, '(a,es24.16)') 'adaptive_nonzero_mode_last_potential_step_V=', &
+      stats%adaptive_nonzero_mode_last_potential_step
+    write (u, '(a,i0)') 'adaptive_nonzero_mode_omp_threads=', &
+      stats%adaptive_nonzero_mode_omp_threads
     write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
     write (u, '(a,a)') 'field_backend=', trim(cfg%field%backend)
     write (u, '(a,a)') 'field_normalization=', trim(cfg%field%normalization)
@@ -281,6 +299,8 @@ contains
     write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
     write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)
     write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cfg%periodic2%lower_boundary_model)
+    write (u, '(a,es24.16)') 'periodic2_max_nonzero_mode_potential_step_V=', &
+      cfg%periodic2%max_nonzero_mode_potential_step
     write (u, '(a,a)') 'periodic2_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)
     write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
       cfg%sim%field_periodic_generation_tolerance

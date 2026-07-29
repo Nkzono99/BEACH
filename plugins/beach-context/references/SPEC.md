@@ -7,7 +7,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - 境界は三角形メッシュ
 - 粒子運動は Boris push
 - 境界衝突時は吸収して要素へ電荷を堆積
-- `batch_count` 単位でバッチ処理し、統計と履歴を更新
+- `batch_count` 個の accepted batch を処理し、統計と履歴を更新
 
 計算の主系は Fortran（`src/`, `app/`）で、Python（`beach/`）は後処理・可視化を担います。
 
@@ -64,6 +64,11 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 - `escaped_boundary`
 - `survived_max_step`
 - `batches`
+- `simulated_time_s`
+- `adaptive_nonzero_mode_rejected_trials`
+- `adaptive_nonzero_mode_last_batch_duration_s`
+- `adaptive_nonzero_mode_last_potential_step_V`
+- `adaptive_nonzero_mode_omp_threads`
 - `last_rel_change`
 - フェーズ別計測は `bem_performance_profile` モジュールに分離。`BEACH_PROFILE=1` 環境変数で `performance_profile.csv` を出力
 
@@ -72,6 +77,11 @@ OBJ メッシュ読み込み時、`obj_scale` / `obj_rotation` / `obj_offset` �
 run開始時に、`sim`、`outer_plasma`、`coupling`へ分かれた外部境界設定を、流入写像、通常open面、
 z-high輸送、queue ownershipからなる単一の内部契約へ正規化します。粒子loopではこの契約をread-onlyに共有し、
 batch injectionもhot loop外で同じresolverを使います。外部場の構築は既存のsnapshot/couplerが担います。
+
+通常は解決後の`sim.batch_duration`を1 batchの幅とします。
+`periodic2.max_nonzero_mode_potential_step > 0`では、この値を最大幅$h_0$とし、各accepted batchで
+$h_0,h_0/2,h_0/4,\ldots$の固定ladderを先頭から試します。以下の手順3から電荷候補の作成までが
+1 trialであり、受理されたtrialだけが手順6以降をcommitします。
 
 1. delayed outer queueが有効なら、batch開始時刻までにdueとなったreturn/escape eventを取り出す
 2. 現在の要素電荷とqueue inventoryに基づいて静電snapshotとouter stateをリフレッシュ
@@ -88,9 +98,22 @@ batch injectionもhot loop外で同じresolverを使います。外部場の構�
    - reflect/periodic後は残り時間を同じBoris規約で再積分し、そのchordのmesh hitを探索（各local continuationにつき最大8 box event）
    - 衝突時: 粒子を消滅し `q_particle * w_particle` をスレッド別バッファ `dq_thread(elem_idx, tid)` へ加算
    - 残り時間中に9回目のbox eventへ到達し、それ以前にmesh hitがなければ、状態をcommitせず `dt` 縮小を要求する明示的failureとする
-6. バッチ終了時に要素電荷差分をコミット: 全スレッドの `dq_thread` を合算し、`photo_emission_dq` を加算した後、MPI allreduce を行い `mesh%q_elem` に反映
-7. `rel_change = ||dq|| / max(||q||, q_floor)` を更新
-8. 統計と履歴を更新
+6. バッチ終了時に要素電荷候補を作成: 全スレッドの `dq_thread` を合算し、`photo_emission_dq` と
+   `implicit_mean` の候補更新を含めてMPI間で確定する。適応進行では、全panel重心で
+   $\max_j|[P_{k\ne0}(\mathbf q_{\mathrm{candidate}}-\mathbf q_{\mathrm{current}})]_j|$を評価し、
+   `max_nonzero_mode_potential_step`以下なら受理する。超えるtrialはcommitせず、短い次のladder幅で再試行する
+7. 受理した候補だけを `mesh%q_elem` に反映し、`rel_change = ||dq|| / max(||q||, q_floor)` を更新
+8. 受理した幅を`simulated_time_s`へ加え、accepted batch数、統計、履歴、charge ledgerを更新
+
+適応trialを棄却すると、RNG、macro粒子数残差、outer state、`implicit_mean`のmean/outer transactionを
+trial開始前へ完全にrollbackします。棄却trialの粒子outcome、統計、履歴、charge ledgerは外部へ出しません。
+`sim.batch_count`と`sim_stats%batches`はaccepted batch数を表します。
+適応trialの加算順を再現するため、再開時はcheckpointの
+`adaptive_nonzero_mode_omp_threads`と同じ実OpenMP team sizeを使います。適応区間ではdynamic teamを
+無効化し、全MPI rankでteam sizeが一致しない実行と、checkpointとの不一致を拒否します。
+`implicit_mean`のZhao更新が数値的に有効な候補を作れない場合も、設定不正ではなく短い時間幅で
+回復可能なstatusに限って同じladder上で棄却・再試行します。標準出力は$k\ne0$上限超過と
+この$k=0$ closure recoveryを別のreasonとして記録します。
 
 `photo_raycast` で `deposit_opposite_charge_on_emit=true` の場合は、放出元要素に `-q_particle * w_hit` も加算します。
 生成する光電子の重みは常に `w_hit` です。生成後は通常粒子として追跡し、box 内の再吸収、open 面の
@@ -118,6 +141,18 @@ auto は `tree_min_nelem` 未満で direct、以上で FMM を選びます。各
 
 `field_periodic_far_correction="cached_kneq0"` は production 用の無限 periodic2 非零モード backend です。runtime が加算する有限画像 kernel を `K_shell(N)` とすると、cache は滑らかな full-periodic Ewald residual を root-local operator として保持します。charge refresh 時に source 高さ分布から対称 `k=0` state を一度構築し、各 eval で O(log n) で差し引くため、runtime total は代数的に `K_periodic,k!=0` になります。Ewald all-source 和は cache miss 時の operator generation にだけ使い、particle eval hot path では使いません。物理的な `k=0` は `exclude_k0` provider が場の合成時に一度だけ加えます。`lower_boundary_model="symmetric_vacuum"` は均質真空の無外場境界条件として `E_bottom=-Q/(2 epsilon0 A)`、`E_top=+Q/(2 epsilon0 A)` を選び、interface位置や誘電率を必要としません。`e_bottom_zero` は下側場を0に固定する旧計算再現用境界条件です。外部シースのGauss残差は上側へ入る電束 `Q + epsilon0 A E_bottom` とouter chargeの和で評価します。したがって non-neutral cell も暗黙の charged walls ではなく、この明示的なzero-mode boundary conditionで閉じます。cache fingerprintは周期長、FMM order、画像/Ewald層、source/target topology、generator version、tolerance、real kind、build versionを含みます。MPIではrank 0だけがlock、検証、cache I/O、atomic publishを担当します。cache missのoperator生成はtarget sliceを全rankに分配し、各rank内でproxy RHSをOpenMP並列評価した後、`MPI_Allreduce(SUM)`で全rankに組み立てます。
 `tree_theta`/`tree_leaf_max` を未指定の場合は、`periodic2` でも通常の自動推定値を使います。現行実装の推定値は `nelem < 1500` で `theta=0.40`, `leaf_max=12`、`1500 <= nelem < 10000` で `0.50` / `16`、`10000 <= nelem < 50000` で `0.58` / `20`、`50000 <= nelem` で `0.65` / `24` です。
+
+`periodic2.max_nonzero_mode_potential_step`は[V]単位の非負値で、省略または`0`では無効です。
+正値は`nonzero_mode_backend="cached_kneq0"`、正の`sim.batch_duration`、time-scaledな
+`reservoir_face` / `photo_raycast` sourceを要求し、`volume_seed`とouter event queueを拒否します。
+`reservoir_face`はtrial幅とともにmacro粒子電荷も縮小できる
+`target_macro_particles_per_batch`方式に限り、固定`w_particle`は拒否します。
+explicit SW/UV更新と、`kinetic_1d + same_batch` PEが内部で使う`implicit_mean`更新に対応します。
+判定量は候補電荷差のcached $k\ne0$電位を全panel重心で評価した最大絶対値です。これはbatch内の
+frozen-field局所電位変化を制限するtrust boundであり、局所打切り誤差を推定または保証しません。
+時間幅収束は、この上限を半分にした計算との比較で確認します。
+適応時はOpenMPの粒子割当を同じthread数に対して決定的なstatic partitionとし、受理境界に
+丸め誤差幅を設けます。thread数を変えたrun間のbitwise同一性は契約しません。
 
 `periodic2.nonzero_mode_backend="panel_spectral_reference"` は、P0 panelのFourier `k!=0`成分、triangle-heightの厳密`k=0`成分、選択したouter responseを合成する小規模correctness referenceです。この経路だけは`field_solver="direct"`を用い、`zero_mode_policy="exclude_k0"`、対応するlower boundary model、x/y periodic・z open、`e0=0`を必須とします。有限image shellや`charged_walls`とは混用しません。interface面の`k!=0`電位・電場減衰、gap、局所平均plasma電荷推定を実測し、設定閾値を超えた場合は`not_applicable`として停止します。外部状態は`outer_update_stride`とともにcheckpointされ、restart後も更新位相を保存します。
 
@@ -175,7 +210,8 @@ return / escapeに使います。後続のbatchは通常のcharge-driven更新�
 queue過渡closureを置換しません。publication用の定常結果でも、独立な緩和状態または摂動seedに対する感度を確認します。
 
 上記の`sim.batch_duration`は実行時に解決された値を指し、直接指定の代わりに正の
-`dt * batch_duration_step`を使ってもよいものとします。
+`dt * batch_duration_step`を使ってもよいものとします。適応的な非零モード進行ではこの値は最大trial幅であり、
+各accepted batchの物理時間は実際に受理したladder幅です。
 
 非queue 1D経路の通常粒子はlong flightのfrozen-field上限違反で停止します。`implicit_mean`のdeferred
 `photo_raycast` shadowだけはflight timeとratioを診断へ残したまま、この上限を停止条件にしません。
@@ -621,12 +657,14 @@ profile gridについて収束を確認します。
 
 現行実装の停止条件は次の通りです。
 
-- 通常実行では `batch_count` バッチ実行し、再開実行では処理済みバッチ数が `batch_count` に達するまで実行
+- 通常実行では `batch_count` accepted batchを実行し、再開実行では処理済みaccepted batch数が
+  `batch_count` に達するまで実行
 - 各粒子は `max_step` で打ち切り
 
 補足:
 
 - `tol_rel` は `rel_change` の監視値として出力されますが、早期終了には使いません。
+- 適応的な非零モード進行では、棄却trialはbatch数と`simulated_time_s`を進めません。
 
 ## 8. 入出力仕様
 
@@ -648,6 +686,14 @@ profile gridについて収束を確認します。
 
 `mesh_triangles.csv` は要素ごとの `mesh_id` を含み、`mesh_sources.csv` で `mesh_id` と元メッシュ設定を対応付けます。
 
+`summary.txt`は`batches`に加えて`simulated_time_s`、
+`periodic2_max_nonzero_mode_potential_step_V`、`adaptive_nonzero_mode_rejected_trials`、
+`adaptive_nonzero_mode_last_batch_duration_s`、
+`adaptive_nonzero_mode_last_potential_step_V`、`adaptive_nonzero_mode_omp_threads`を記録します。
+棄却trialは履歴CSVとcharge ledgerへ記録しません。
+棄却数は共通ladderの総数であり、$k\ne0$上限超過と回復可能な`implicit_mean` $k=0$ failureの
+内訳は標準出力のreject reasonで区別します。
+
 MPI 実行時はRNGを`rng_state_rankNNNNN.txt`、Zhao過渡queueを`outer_event_queue_rankNNNNN.csv`としてrank別に保存します。
 マクロ粒子残差は全rankで共有する状態なので、rootが単一の`macro_residuals.csv`を保存します。
 
@@ -660,7 +706,10 @@ MPI 実行時はRNGを`rng_state_rankNNNNN.txt`、Zhao過渡queueを`outer_event
 - schema v2/v3/v4では電荷収支出力時の`charge_ledger.csv`
 - queue有効時はserialの`outer_event_queue.csv`またはMPI全rankの`outer_event_queue_rankNNNNN.csv`
 
-`sim.batch_count` は累積の到達バッチ数です。例えば checkpoint が `batches=100` のとき `batch_count=150` で再開すると、追加で50バッチだけ実行します。`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
+`sim.batch_count` は累積のaccepted batch到達数です。例えば checkpoint が `batches=100` のとき
+`batch_count=150` で再開すると、追加で50 accepted batchだけ実行します。
+`simulated_time_s`、累積棄却trial数、最後のaccepted trial幅・電位変化も`summary.txt`から復元します。
+`batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
 新規出力の`summary.txt`は`checkpoint_schema_version=4`とmodel / ordered mesh / ordered species fingerprintを持ちます。schema v4はschema v3のreadyなouter held stateに加え、Zhao過渡closureのpopulation fraction、column target/residual、queue inventoryを復元します。queue本体はserialの`outer_event_queue.csv`またはMPI rank別ファイルにactive event、terminal outcome、due時刻、`next_event_id`を保存します。queue有効時はschema、rank、world size、完了batchの不一致や欠落ファイルをfail closedで拒否します。schema v3は`outer_plasma_profile.csv`に`z, phi, E, rho`を保存し、outer solverのstatus、反復数、residual、積分電荷、species別電流とともにheld stateを復元します。schema v2は3 fingerprintを照合した上でread-only migrationとして受理しますが、旧3列outer profileは初期値にだけ使い、次のouter refreshでroot solveを強制します。廃止された重心source modelを使ったcheckpointは再開できません。
 `charge_ledger_residual_C` は surface / flight / unresolved stock の差分と外部 flux から作る電荷保存残差です。species 間相殺を避けた `discarded_unresolved_abs_C` は別診断であり、残差が 0 でも max-step discard が物理的に許容されることを意味しません。

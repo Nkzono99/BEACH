@@ -8,7 +8,7 @@ contains
   integer(i32) :: per_batch_particles, physics_status, negative_photo_raycast_count
   integer(i32) :: implicit_photo_raycast_index
   integer(i32) :: n_periodic_axes
-  logical :: has_dynamic_source_species
+  logical :: has_dynamic_source_species, has_enabled_volume_seed, adaptive_nonzero_mode
   character(len=64) :: generated_species_key
   character(len=256) :: physics_message
 
@@ -18,6 +18,12 @@ contains
     )
   call apply_physics_authoring(cfg, authoring)
   call lower_external_boundary_authoring(cfg, authoring)
+
+  if (.not. ieee_is_finite(cfg%periodic2%max_nonzero_mode_potential_step) .or. &
+      cfg%periodic2%max_nonzero_mode_potential_step < 0.0_dp) then
+    error stop 'periodic2.max_nonzero_mode_potential_step must be finite and >= 0.'
+  end if
+  adaptive_nonzero_mode = cfg%periodic2%max_nonzero_mode_potential_step > 0.0_dp
 
   if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
   if (.not. ieee_is_finite(cfg%sim%dt) .or. cfg%sim%dt <= 0.0d0) then
@@ -246,6 +252,7 @@ contains
   call resolve_batch_duration(cfg)
   per_batch_particles = 0_i32
   has_dynamic_source_species = .false.
+  has_enabled_volume_seed = .false.
   negative_photo_raycast_count = 0_i32
   implicit_photo_raycast_index = 0_i32
   do i = 1, cfg%n_particle_species
@@ -313,6 +320,7 @@ contains
     end select
     select case (trim(cfg%particle_species(i)%source_mode))
     case ('volume_seed')
+      has_enabled_volume_seed = .true.
       if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
         error stop 'particles.species.npcls_per_step must be >= 0.'
       end if
@@ -348,6 +356,27 @@ contains
 
   if (per_batch_particles <= 0_i32 .and. .not. has_dynamic_source_species) then
     error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
+  end if
+  if (adaptive_nonzero_mode) then
+    if (trim(lower_ascii(cfg%periodic2%nonzero_mode_backend)) /= 'cached_kneq0') then
+      error stop 'periodic2.max_nonzero_mode_potential_step requires nonzero_mode_backend="cached_kneq0".'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%batch_duration) .or. cfg%sim%batch_duration <= 0.0_dp) then
+      error stop 'periodic2.max_nonzero_mode_potential_step requires a positive sim.batch_duration.'
+    end if
+    if (cfg%coupling%outer_queue_enabled) then
+      error stop 'periodic2.max_nonzero_mode_potential_step cannot be combined with an outer event queue.'
+    end if
+    if (has_enabled_volume_seed) then
+      error stop 'periodic2.max_nonzero_mode_potential_step requires time-scaled reservoir_face/photo_raycast sources.'
+    end if
+    do i = 1_i32, cfg%n_particle_species
+      if (.not. cfg%particle_species(i)%enabled) cycle
+      if (trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'reservoir_face') cycle
+      if (.not. cfg%particle_species(i)%has_target_macro_particles_per_batch) then
+        error stop 'adaptive reservoir_face requires target_macro_particles_per_batch instead of fixed w_particle.'
+      end if
+    end do
   end if
   cfg%n_particles = cfg%sim%batch_count*per_batch_particles
   ! kinetic_1dのsame-batch tracked photoelectronは、公開設定を増やさず

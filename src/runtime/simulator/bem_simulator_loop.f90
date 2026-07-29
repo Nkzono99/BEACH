@@ -1,6 +1,7 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
+  use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
                                      perf_region_field_solver_init, perf_region_history_write, perf_region_mpi_reduce, &
@@ -11,9 +12,13 @@ contains
 
   !> 吸着モデルのバッチループを実行し、電荷更新と統計集計を進める。
   module procedure run_absorption_insulator
+  integer(i32), parameter :: adaptive_max_halvings = 24_i32
+  real(dp), parameter :: adaptive_acceptance_roundoff_factor = 64.0_dp
   integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
-  integer(i32) :: fresh_particle_count, due_escape_count_total
+  integer(i32) :: fresh_particle_count, due_escape_count_total, species_idx, trial_halvings
+  integer(i32) :: adaptive_thread_count_sum, adaptive_thread_count_mismatch
   integer(i64) :: outer_queue_event_count_before, outer_queue_event_count_after_pop, outer_queue_event_count_after
+  integer(i64) :: batch_rejected_trials
   integer(i32) :: collision_failure_count, collision_failure_rank, collision_failure_status
   integer(i32) :: collision_failure_particle, collision_failure_step
   integer(i32) :: local_failure_values(3), selected_failure_values(3)
@@ -21,12 +26,19 @@ contains
   integer(i32) :: photo_failure_ray, photo_failure_bounce
   integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
   integer :: hist_unit
+  integer :: rng_state_size
+  integer, allocatable :: rng_state_before(:)
   logical :: history_enabled
   logical :: potential_history_enabled
   integer :: pot_hist_unit
-  real(dp), allocatable :: potential_buf(:)
+!$ integer(kind=omp_sched_kind) :: previous_omp_schedule
+!$ integer :: previous_omp_schedule_chunk
+!$ logical :: previous_omp_dynamic
+  real(dp), allocatable :: potential_buf(:), injection_residual_before(:)
   integer(i32) :: batch_counts(6)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
+  real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step
+  real(dp) :: adaptive_metric_values(1), committed_gauss_residual
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   real(dp) :: max_outer_flight_time, max_frozen_field_ratio, max_outer_energy_relative_error
   real(dp) :: outer_max_diagnostics(3)
@@ -35,12 +47,15 @@ contains
   real(dp) :: outer_queue_photoelectron_number_after
   real(dp) :: outer_queue_area_xy, outer_queue_photoelectron_column_target
   character(len=16) :: outer_queue_fingerprint
+  character(len=256) :: implicit_mean_failure_message
   type(particles_soa) :: pcls_batch
   type(outer_event_record_type), allocatable :: due_outer_events(:)
   real(dp), allocatable :: due_returned_charge(:), due_escaped_charge(:)
   integer(i64), allocatable :: due_escaped_count(:)
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
+  type(electrostatic_diagnostics_type) :: committed_snapshot_diagnostics
+  type(periodic_zero_mode_state_type) :: committed_zero_state
   type(outer_coupler_type) :: outer_coupler
   type(charge_ledger_type) :: batch_ledger
   type(simulator_batch_workspace_type) :: workspace
@@ -52,15 +67,19 @@ contains
   character(len=256) :: kinetic_message
   character(len=256) :: boundary_message
   type(kinetic_outer_plasma_options_type) :: kinetic_options
+  type(kinetic_outer_plasma_options_type) :: committed_kinetic_options
   type(dynamic_k0_step_type) :: dynamic_k0_step
   type(external_boundary_contract_type) :: boundary_contract
-  type(outer_plasma_state_type) :: steady_start_state
+  type(outer_plasma_state_type) :: steady_start_state, committed_outer
+  type(app_config) :: trial_app
   real(dp) :: steady_start_charge
   real(dp) :: dynamic_k0_area_xy, mean_transaction_residual
   real(dp) :: tracked_photoelectron_outward_current_density
   real(dp) :: mean_sample_escape_fraction, mean_return_weight_scale
   real(dp) :: mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge
-  logical :: implicit_mean_enabled
+  logical :: implicit_mean_enabled, adaptive_nonzero_mode, trial_accepted
+  logical :: implicit_mean_retryable_failure
+  logical :: restored_outer_snapshot
 
   stats = sim_stats()
   if (present(initial_stats)) stats = initial_stats
@@ -76,6 +95,76 @@ contains
   ledger_enabled = present(charge_ledger)
   outer_queue_enabled = app%coupling%outer_queue_enabled
   implicit_mean_enabled = trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean'
+  adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
+  nth = 1
+!$ if (adaptive_nonzero_mode) then
+!$  previous_omp_dynamic = omp_get_dynamic()
+!$  call omp_set_dynamic(.false.)
+!$omp parallel default(shared)
+!$omp single
+!$  nth = omp_get_num_threads()
+!$omp end single
+!$omp end parallel
+!$ else
+!$  nth = max(1, omp_get_max_threads())
+!$ end if
+  if (adaptive_nonzero_mode) then
+    adaptive_thread_count_sum = nth
+    call mpi_allreduce_sum_i32_scalar(mpi_ctx, adaptive_thread_count_sum)
+    adaptive_thread_count_mismatch = merge( &
+                                     1_i32, 0_i32, &
+                                     adaptive_thread_count_sum /= nth*mpi_ctx%size &
+                                     )
+    call mpi_allreduce_sum_i32_scalar(mpi_ctx, adaptive_thread_count_mismatch)
+    if (adaptive_thread_count_mismatch > 0_i32) then
+      error stop 'adaptive nonzero-mode requires the same OpenMP team size on every MPI rank.'
+    end if
+    if (trim(lower_ascii(app%periodic2%nonzero_mode_backend)) /= 'cached_kneq0') then
+      error stop 'adaptive nonzero-mode runtime requires nonzero_mode_backend="cached_kneq0".'
+    end if
+    if (outer_queue_enabled) then
+      error stop 'adaptive nonzero-mode runtime cannot mutate an outer event queue.'
+    end if
+    do species_idx = 1_i32, app%n_particle_species
+      if (.not. app%particle_species(species_idx)%enabled) cycle
+      select case (trim(lower_ascii(app%particle_species(species_idx)%source_mode)))
+      case ('volume_seed')
+        error stop 'adaptive nonzero-mode runtime does not support volume_seed sources.'
+      case ('reservoir_face')
+        if (.not. app%particle_species(species_idx)%has_target_macro_particles_per_batch) then
+          error stop 'adaptive nonzero-mode reservoir_face requires target_macro_particles_per_batch.'
+        end if
+      case ('photo_raycast')
+        continue
+      case default
+        error stop 'adaptive nonzero-mode runtime received an unsupported particle source.'
+      end select
+    end do
+    if (stats%batches > 0_i32 .and. &
+        (stats%simulated_time <= 0.0_dp .or. stats%adaptive_nonzero_mode_last_batch_duration <= 0.0_dp)) then
+      error stop 'adaptive nonzero-mode resume requires accepted physical-time checkpoint state.'
+    end if
+    if (stats%batches > 0_i32) then
+      if (stats%adaptive_nonzero_mode_omp_threads <= 0_i32) then
+        error stop 'adaptive nonzero-mode resume requires a checkpointed OpenMP thread count.'
+      end if
+      if (stats%adaptive_nonzero_mode_omp_threads /= nth) then
+        if (mpi_is_root(mpi_ctx)) then
+          write (error_unit, '(a,i0,a,i0)') &
+            'adaptive nonzero-mode resume thread mismatch: checkpoint=', &
+            stats%adaptive_nonzero_mode_omp_threads, ' current=', nth
+        end if
+        error stop 'adaptive nonzero-mode resume requires the original OpenMP thread count.'
+      end if
+    else
+      stats%adaptive_nonzero_mode_omp_threads = nth
+    end if
+  end if
+  if (.not. adaptive_nonzero_mode .and. stats%batches > 0_i32 .and. stats%simulated_time == 0.0_dp) then
+    ! Versioned checkpoints written before physical time became explicit used a
+    ! fixed batch duration, so their accepted time can be reconstructed exactly.
+    stats%simulated_time = real(stats%batches, dp)*app%sim%batch_duration
+  end if
   dynamic_k0_step = dynamic_k0_step_type()
   if (implicit_mean_enabled .and. outer_queue_enabled) then
     error stop 'implicit_mean cannot be combined with an outer event queue.'
@@ -110,11 +199,25 @@ contains
     call batch_ledger%init(app%n_particle_species)
   end if
 
-  nth = 1
-!$ nth = max(1, omp_get_max_threads())
   call workspace%init( &
-    mesh%nelem, app%n_particle_species, nth, implicit_mean_enabled=implicit_mean_enabled &
+    mesh%nelem, app%n_particle_species, nth, implicit_mean_enabled=implicit_mean_enabled, &
+    candidate_charge_enabled=adaptive_nonzero_mode &
     )
+!$ call omp_get_schedule(previous_omp_schedule, previous_omp_schedule_chunk)
+!$ if (adaptive_nonzero_mode) then
+!$  call omp_set_schedule(omp_sched_static, 1)
+!$ else
+!$  call omp_set_schedule(omp_sched_dynamic, 1)
+!$ end if
+  if (adaptive_nonzero_mode) then
+    call random_seed(size=rng_state_size)
+    allocate (rng_state_before(rng_state_size))
+    if (present(inject_state)) then
+      if (allocated(inject_state%macro_residual)) then
+        allocate (injection_residual_before(size(inject_state%macro_residual)))
+      end if
+    end if
+  end if
   max_outer_flight_time = 0.0_dp
   max_frozen_field_ratio = 0.0_dp
   max_outer_energy_relative_error = 0.0_dp
@@ -164,7 +267,9 @@ contains
   else
     call snapshot%init(mesh, app%sim, app%field, app%periodic2, app%panel, app%outer_plasma, mpi=mpi_ctx)
   end if
+  restored_outer_snapshot = .false.
   if (present(electrostatic_restart_state)) then
+    restored_outer_snapshot = electrostatic_restart_state%outer_ready
     call snapshot%restore_outer_state( &
       electrostatic_restart_state, require_charge_consistency=implicit_mean_enabled &
       )
@@ -200,13 +305,14 @@ contains
   end if
   if (present(electrostatic_restart_state)) then
     call outer_coupler%init(app%coupling, electrostatic_restart_state%last_outer_update_batch)
-    if (implicit_mean_enabled .and. snapshot%outer%ready) then
+    if (implicit_mean_enabled .and. restored_outer_snapshot .and. snapshot%outer%ready) then
       call outer_coupler%accept_restored_snapshot()
     end if
   else
     call outer_coupler%init(app%coupling)
   end if
   call perf_region_end(perf_region_field_solver_init, t0)
+  trial_app = app
 
   do local_batch_idx = 1, batch_count_this_run
     call perf_region_begin(perf_region_batch_total, batch_t0)
@@ -251,107 +357,93 @@ contains
       )
     call perf_region_end(perf_region_field_refresh, t0)
 
-    call perf_region_begin(perf_region_prepare_batch, t0)
-    if (local_batch_idx == 1_i32) call build_particle_source_plan(app, source_plan, mpi=mpi_ctx)
-    call prepare_batch_state( &
-      mesh, app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, snapshot%outer, inject_state, &
-      photo_failure_status, photo_failure_species, &
-      photo_failure_ray, photo_failure_bounce &
-      )
-    call perf_region_end(perf_region_prepare_batch, t0)
-    fresh_particle_count = pcls_batch%n
-
-    photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
-    call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
-    if (photo_failure_count > 0_i32) then
-      photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
-      call mpi_select_lowest_rank_i32_values( &
-        mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
-        photo_failure_rank, photo_selected_failure_values &
-        )
-      call stop_for_photo_collision_failure( &
-        batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
-        photo_selected_failure_values(3), photo_selected_failure_values(4) &
-        )
-    end if
-
-    if (outer_queue_enabled) then
-      call append_due_return_particles(due_outer_events, pcls_batch)
-      call workspace%prepare_particle_flags(pcls_batch%n, outer_queue_enabled=.true., implicit_mean_enabled=.false.)
-    end if
-
-    if (ledger_enabled) then
-      call batch_ledger%reset(batch_idx)
-      batch_ledger%surface_charge_before = sum(mesh%q_elem)
-      batch_ledger%outer_flight_charge_before = outer_queue_charge_before
-      call record_batch_initial_charge(app, pcls_batch, fresh_particle_count, batch_ledger)
-    end if
-
-    call perf_region_begin(perf_region_particle_batch, t0)
-    call process_particle_batch( &
-      mesh, app, boundary_contract, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
-      workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
-      workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
-      workspace%deferred_mean_interface_flag, workspace%deferred_mean_interface_step, &
-      workspace%deferred_mean_interface_crossing, &
-      workspace%interface_outward_thread, workspace%interface_returned_thread, &
-      collision_failure_status, collision_failure_particle, &
-      collision_failure_step, collision_failure_x, collision_failure_v, workspace%interface_tau_max_thread, &
-      workspace%interface_frozen_ratio_max_thread, workspace%interface_energy_error_max_thread &
-      )
-    max_outer_flight_time = max(max_outer_flight_time, maxval(workspace%interface_tau_max_thread))
-    max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(workspace%interface_frozen_ratio_max_thread))
-    max_outer_energy_relative_error = &
-      max(max_outer_energy_relative_error, maxval(workspace%interface_energy_error_max_thread))
-    call perf_region_end(perf_region_particle_batch, t0)
-
-    collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
-    call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
-    if (collision_failure_count > 0_i32) then
-      local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
-      call mpi_select_lowest_rank_i32_values( &
-        mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
-        collision_failure_rank, selected_failure_values &
-        )
-      selected_failure_state = 0.0_dp
-      if (mpi_ctx%rank == collision_failure_rank) then
-        selected_failure_state(1:3) = collision_failure_x
-        selected_failure_state(4:6) = collision_failure_v
+    trial_batch_duration = app%sim%batch_duration
+    trial_halvings = 0_i32
+    batch_rejected_trials = 0_i64
+    adaptive_potential_step = 0.0_dp
+    trial_accepted = .false.
+    if (adaptive_nonzero_mode) then
+      call random_seed(get=rng_state_before)
+      if (present(inject_state)) then
+        if (allocated(injection_residual_before)) injection_residual_before = inject_state%macro_residual
       end if
-      call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
-      call stop_for_collision_failure( &
-        batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
-        selected_failure_values(3), app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
-        )
+      committed_outer = snapshot%outer
+      committed_kinetic_options = snapshot%kinetic_options
+      committed_zero_state = snapshot%zero_state
+      committed_snapshot_diagnostics = snapshot%diagnostics
+      committed_gauss_residual = snapshot%gauss_residual
     end if
 
-    if (outer_queue_enabled) then
-      call enqueue_staged_outer_events( &
-        outer_queue_state, workspace%queued_outer_flag, workspace%outer_event_staging, pcls_batch%n &
-        )
-      call measure_outer_queue_state( &
-        app, outer_queue_state, mpi_ctx, outer_queue_charge_after, outer_queue_photoelectron_number_after, &
-        outer_queue_event_count_after &
-        )
-      workspace%interface_returned_thread(:, 1) = &
-        workspace%interface_returned_thread(:, 1) + due_returned_charge
-    end if
+    do while (.not. trial_accepted)
+      if (adaptive_nonzero_mode) then
+        ! Every retry starts from the exact accepted batch boundary.  In particular,
+        ! rejected source sampling must not consume RNG draws or macro residual.
+        call random_seed(put=rng_state_before)
+        if (present(inject_state)) then
+          if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
+        end if
+        snapshot%outer = committed_outer
+        snapshot%kinetic_options = committed_kinetic_options
+        snapshot%zero_state = committed_zero_state
+        snapshot%diagnostics = committed_snapshot_diagnostics
+        snapshot%gauss_residual = committed_gauss_residual
+        dynamic_k0_step = dynamic_k0_step_type()
+      end if
 
-    tracked_photoelectron_outward_current_density = 0.0_dp
-    mean_sample_escape_fraction = 0.0_dp
-    mean_return_weight_scale = 0.0_dp
-    mean_transaction_residual = 0.0_dp
-    mean_sampled_deferred_absorbed_charge = 0.0_dp
-    mean_sampled_deferred_escaped_charge = 0.0_dp
-    if (implicit_mean_enabled) then
-      call resolve_implicit_mean_batch( &
-        mesh, app, boundary_contract, snapshot, pcls_batch, workspace, bfield, mpi_ctx, &
-        dynamic_k0_step, tracked_photoelectron_outward_current_density, mean_sample_escape_fraction, &
-        mean_return_weight_scale, mean_transaction_residual, &
-        mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge, &
-        collision_failure_status, collision_failure_particle, collision_failure_step, &
-        collision_failure_x, collision_failure_v &
+      if (adaptive_nonzero_mode) trial_app = app
+      trial_app%sim%batch_duration = trial_batch_duration
+      duration_ratio = trial_batch_duration/app%sim%batch_duration
+      do species_idx = 1_i32, trial_app%n_particle_species
+        if (.not. trial_app%particle_species(species_idx)%enabled) cycle
+        if (trim(lower_ascii(trial_app%particle_species(species_idx)%source_mode)) /= 'reservoir_face') cycle
+        if (.not. trial_app%particle_species(species_idx)%has_target_macro_particles_per_batch) cycle
+        trial_app%particle_species(species_idx)%w_particle = &
+          app%particle_species(species_idx)%w_particle*duration_ratio
+      end do
+
+      call perf_region_begin(perf_region_prepare_batch, t0)
+      if (adaptive_nonzero_mode .or. local_batch_idx == 1_i32) then
+        call build_particle_source_plan(trial_app, source_plan, mpi=mpi_ctx)
+      end if
+      call prepare_batch_state( &
+        mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, snapshot%outer, &
+        inject_state, photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
         )
+      call perf_region_end(perf_region_prepare_batch, t0)
+      fresh_particle_count = pcls_batch%n
+
+      photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
+      call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
+      if (photo_failure_count > 0_i32) then
+        photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
+        call mpi_select_lowest_rank_i32_values( &
+          mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
+          photo_failure_rank, photo_selected_failure_values &
+          )
+        call stop_for_photo_collision_failure( &
+          batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
+          photo_selected_failure_values(3), photo_selected_failure_values(4) &
+          )
+      end if
+
+      if (outer_queue_enabled) then
+        call append_due_return_particles(due_outer_events, pcls_batch)
+        call workspace%prepare_particle_flags(pcls_batch%n, outer_queue_enabled=.true., implicit_mean_enabled=.false.)
+      end if
+
+      call perf_region_begin(perf_region_particle_batch, t0)
+      call process_particle_batch( &
+        mesh, trial_app, boundary_contract, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
+        workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+        workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
+        workspace%deferred_mean_interface_flag, workspace%deferred_mean_interface_step, &
+        workspace%deferred_mean_interface_crossing, &
+        workspace%interface_outward_thread, workspace%interface_returned_thread, &
+        collision_failure_status, collision_failure_particle, &
+        collision_failure_step, collision_failure_x, collision_failure_v, workspace%interface_tau_max_thread, &
+        workspace%interface_frozen_ratio_max_thread, workspace%interface_energy_error_max_thread &
+        )
+      call perf_region_end(perf_region_particle_batch, t0)
 
       collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
       call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
@@ -369,13 +461,141 @@ contains
         call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
         call stop_for_collision_failure( &
           batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
-          selected_failure_values(3), app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
+          selected_failure_values(3), trial_app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
           )
       end if
-      max_outer_flight_time = max(max_outer_flight_time, maxval(workspace%interface_tau_max_thread))
-      max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(workspace%interface_frozen_ratio_max_thread))
-      max_outer_energy_relative_error = &
-        max(max_outer_energy_relative_error, maxval(workspace%interface_energy_error_max_thread))
+
+      if (outer_queue_enabled) then
+        call enqueue_staged_outer_events( &
+          outer_queue_state, workspace%queued_outer_flag, workspace%outer_event_staging, pcls_batch%n &
+          )
+        call measure_outer_queue_state( &
+          trial_app, outer_queue_state, mpi_ctx, outer_queue_charge_after, outer_queue_photoelectron_number_after, &
+          outer_queue_event_count_after &
+          )
+        workspace%interface_returned_thread(:, 1) = &
+          workspace%interface_returned_thread(:, 1) + due_returned_charge
+      end if
+
+      tracked_photoelectron_outward_current_density = 0.0_dp
+      mean_sample_escape_fraction = 0.0_dp
+      mean_return_weight_scale = 0.0_dp
+      mean_transaction_residual = 0.0_dp
+      mean_sampled_deferred_absorbed_charge = 0.0_dp
+      mean_sampled_deferred_escaped_charge = 0.0_dp
+      implicit_mean_failure_message = ''
+      implicit_mean_retryable_failure = .false.
+      if (implicit_mean_enabled) then
+        call resolve_implicit_mean_batch( &
+          mesh, trial_app, boundary_contract, snapshot, pcls_batch, workspace, bfield, mpi_ctx, &
+          dynamic_k0_step, tracked_photoelectron_outward_current_density, mean_sample_escape_fraction, &
+          mean_return_weight_scale, mean_transaction_residual, &
+          mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge, &
+          collision_failure_status, collision_failure_particle, collision_failure_step, &
+          collision_failure_x, collision_failure_v, implicit_mean_failure_message &
+          )
+
+        collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+        call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
+        if (collision_failure_count > 0_i32) then
+          local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
+          call mpi_select_lowest_rank_i32_values( &
+            mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
+            collision_failure_rank, selected_failure_values &
+            )
+          selected_failure_state = 0.0_dp
+          if (mpi_ctx%rank == collision_failure_rank) then
+            selected_failure_state(1:3) = collision_failure_x
+            selected_failure_state(4:6) = collision_failure_v
+          end if
+          call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
+          call stop_for_collision_failure( &
+            batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
+            selected_failure_values(3), trial_app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
+            )
+        end if
+        if (dynamic_k0_step%status /= dynamic_k0_ok) then
+          implicit_mean_retryable_failure = adaptive_nonzero_mode .and. &
+                                            dynamic_k0_step%status == &
+                                            dynamic_zhao_frozen_cohort_trust_failure
+          if (.not. implicit_mean_retryable_failure) then
+            if (mpi_is_root(mpi_ctx)) then
+              write (error_unit, '(a,i0,2a)') &
+                'implicit mean trial failed with status=', dynamic_k0_step%status, ': ', &
+                trim(implicit_mean_failure_message)
+            end if
+            error stop 'implicit mean k0 update failed without a shorter-step recovery path.'
+          end if
+        end if
+      end if
+
+      if (implicit_mean_retryable_failure) then
+        trial_accepted = .false.
+      else if (adaptive_nonzero_mode) then
+        call prepare_adaptive_charge_candidate(mesh, workspace, implicit_mean_enabled, mpi_ctx)
+        adaptive_metric_values = 0.0_dp
+        if (mpi_is_root(mpi_ctx)) then
+          call snapshot%measure_kneq0_potential_step( &
+            mesh, workspace%mean_candidate_charge, adaptive_metric_values(1) &
+            )
+        end if
+        call mpi_allreduce_max_real_dp_array(mpi_ctx, adaptive_metric_values)
+        adaptive_potential_step = adaptive_metric_values(1)
+        trial_accepted = adaptive_potential_step <= &
+          max(0.0_dp, app%periodic2%max_nonzero_mode_potential_step - &
+              adaptive_acceptance_roundoff_factor*epsilon(1.0_dp)*max( &
+              1.0_dp, adaptive_potential_step, app%periodic2%max_nonzero_mode_potential_step &
+              ))
+      else
+        trial_accepted = .true.
+      end if
+      if (trial_accepted) exit
+
+      batch_rejected_trials = batch_rejected_trials + 1_i64
+      workspace%charge_candidate_ready = .false.
+      if (mpi_is_root(mpi_ctx)) then
+        if (implicit_mean_retryable_failure) then
+          write (output_unit, '(a,i0,a,i0,a,es13.5,a,i0,2a)') &
+            'BEACH adaptive-kneq0 reject: batch=', batch_idx, ' halving=', trial_halvings, &
+            ' duration_s=', trial_batch_duration, ' implicit_status=', dynamic_k0_step%status, &
+            ' reason=', trim(implicit_mean_failure_message)
+        else
+          write (output_unit, '(a,i0,a,i0,3(a,es13.5))') &
+            'BEACH adaptive-kneq0 reject: batch=', batch_idx, ' halving=', trial_halvings, &
+            ' duration_s=', trial_batch_duration, ' max_delta_phi_V=', adaptive_potential_step, &
+            ' limit_V=', app%periodic2%max_nonzero_mode_potential_step
+        end if
+        flush (output_unit)
+      end if
+      if (trial_halvings >= adaptive_max_halvings) then
+        error stop 'adaptive nonzero-mode batch failed after 24 duration halvings.'
+      end if
+      trial_halvings = trial_halvings + 1_i32
+      trial_batch_duration = scale(app%sim%batch_duration, -trial_halvings)
+      if (.not. ieee_is_finite(trial_batch_duration) .or. trial_batch_duration <= 0.0_dp) then
+        error stop 'adaptive nonzero-mode batch duration became invalid.'
+      end if
+    end do
+
+    if (adaptive_nonzero_mode .and. mpi_is_root(mpi_ctx)) then
+      write (output_unit, '(a,i0,3(a,es13.5),a,i0)') &
+        'BEACH adaptive-kneq0 accept: batch=', batch_idx, &
+        ' time_end_s=', stats%simulated_time + trial_batch_duration, &
+        ' duration_s=', trial_batch_duration, ' max_delta_phi_V=', adaptive_potential_step, &
+        ' halvings=', trial_halvings
+      flush (output_unit)
+    end if
+
+    max_outer_flight_time = max(max_outer_flight_time, maxval(workspace%interface_tau_max_thread))
+    max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(workspace%interface_frozen_ratio_max_thread))
+    max_outer_energy_relative_error = &
+      max(max_outer_energy_relative_error, maxval(workspace%interface_energy_error_max_thread))
+
+    if (ledger_enabled) then
+      call batch_ledger%reset(batch_idx)
+      batch_ledger%surface_charge_before = sum(mesh%q_elem)
+      batch_ledger%outer_flight_charge_before = outer_queue_charge_before
+      call record_batch_initial_charge(trial_app, pcls_batch, fresh_particle_count, batch_ledger)
     end if
 
     if (ledger_enabled) then
@@ -391,7 +611,7 @@ contains
       call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx, workspace)
       if (implicit_mean_enabled) then
         call reconcile_implicit_mean_charge_ledger( &
-          app, dynamic_k0_step, dynamic_k0_area_xy, app%sim%batch_duration, &
+          trial_app, dynamic_k0_step, dynamic_k0_area_xy, trial_batch_duration, &
           tracked_photoelectron_outward_current_density, &
           mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge, batch_ledger &
           )
@@ -464,6 +684,13 @@ contains
 
     call perf_region_begin(perf_region_stats_update, t0)
     call accumulate_batch_stats(stats, batch_counts, batch_soft_discarded_abs_charge, rel)
+    stats%simulated_time = stats%simulated_time + trial_batch_duration
+    if (adaptive_nonzero_mode) then
+      stats%adaptive_nonzero_mode_rejected_trials = &
+        stats%adaptive_nonzero_mode_rejected_trials + batch_rejected_trials
+      stats%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
+      stats%adaptive_nonzero_mode_last_potential_step = adaptive_potential_step
+    end if
     call perf_region_end(perf_region_stats_update, t0)
 
     call perf_region_begin(perf_region_history_write, t0)
@@ -604,6 +831,8 @@ contains
   end if
 
   if (allocated(potential_buf)) deallocate (potential_buf)
+!$ call omp_set_schedule(previous_omp_schedule, previous_omp_schedule_chunk)
+!$ if (adaptive_nonzero_mode) call omp_set_dynamic(previous_omp_dynamic)
   end procedure run_absorption_insulator
 
   !> 1バッチ分の粒子群と作業バッファを初期化する。
@@ -673,7 +902,7 @@ contains
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
   tid = 1
 !$ tid = omp_get_thread_num() + 1
-  !$omp do schedule(dynamic, 1)
+  !$omp do schedule(runtime)
   do i = 1, pcls_batch%n
     if (.not. pcls_batch%alive(i)) cycle
     collision_failed = .false.
@@ -922,6 +1151,8 @@ contains
   photoelectron_outward_current_density = 0.0_dp
   sample_escape_fraction = 0.0_dp
   return_weight_scale = 0.0_dp
+  message = ''
+  failure_message = ''
 
   call measure_tracked_ambient_surface_currents( &
     app, pcls_batch, workspace%absorbed_flag, area_xy, app%sim%batch_duration, mpi, &
@@ -999,7 +1230,9 @@ contains
           ' requested_source_scale=', effective_source_scale, &
           ' committed_source_scale=', snapshot%outer%photoelectron_source_scale
       end if
-      error stop 'implicit Zhao mean nonlinear Q(Phi_I) update failed without fallback.'
+      step = scalar_predictor
+      failure_message = message
+      return
     end if
     if (abs(source_charge_total - scalar_predictor%photoelectron_source_charge_c) > &
         4096.0_dp*epsilon(1.0_dp)*max( &
@@ -1019,7 +1252,9 @@ contains
       electron_current, ion_current, photoelectron_outward_current_density, additional_current &
       )
     if (scalar_predictor%status /= dynamic_k0_ok) then
-      error stop 'implicit mean k0 predictor: '//trim(message)
+      step = scalar_predictor
+      failure_message = message
+      return
     end if
   end if
   step = scalar_predictor
@@ -1438,7 +1673,7 @@ contains
   !$omp private(step_result,external_final_result,external_trace,terminal)
   tid = 1_i32
 !$ tid = omp_get_thread_num() + 1_i32
-  !$omp do schedule(dynamic, 1)
+  !$omp do schedule(runtime)
   do i = 1_i32, pcls_batch%n
     if (.not. deferred_flag(i)) cycle
 
@@ -1819,15 +2054,43 @@ contains
   real(dp) :: norm_dq, norm_q
 
   workspace%q_before = mesh%q_elem
-  workspace%dq = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
-  call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
-  mesh%q_elem = mesh%q_elem + workspace%dq
+  if (workspace%charge_candidate_ready) then
+    mesh%q_elem = workspace%mean_candidate_charge
+  else
+    workspace%dq = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
+    call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
+    mesh%q_elem = mesh%q_elem + workspace%dq
+  end if
   call apply_surface_model_charge_relaxation(mesh, external_e, field_bc_mode=field_bc_mode)
   workspace%dq = mesh%q_elem - workspace%q_before
   norm_dq = sqrt(sum(workspace%dq*workspace%dq))
   norm_q = sqrt(sum(mesh%q_elem*mesh%q_elem))
   rel = norm_dq/max(norm_q, q_floor)
+  workspace%charge_candidate_ready = .false.
   end procedure commit_batch_charge
+
+  !> 適応判定と commit が同じ候補電荷を共有できるよう、全rankの差分を確定する。
+  subroutine prepare_adaptive_charge_candidate(mesh, workspace, implicit_mean_enabled, mpi)
+    type(mesh_type), intent(in) :: mesh
+    type(simulator_batch_workspace_type), intent(inout) :: workspace
+    logical, intent(in) :: implicit_mean_enabled
+    type(mpi_context), intent(in) :: mpi
+
+    workspace%q_before = mesh%q_elem
+    if (implicit_mean_enabled) then
+      if (size(workspace%mean_candidate_charge) /= mesh%nelem) then
+        error stop 'adaptive nonzero-mode candidate storage does not match the mesh.'
+      end if
+    else
+      workspace%dq = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
+      call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
+      workspace%mean_candidate_charge = mesh%q_elem + workspace%dq
+    end if
+    if (.not. all(ieee_is_finite(workspace%mean_candidate_charge))) then
+      error stop 'adaptive nonzero-mode candidate charge is not finite.'
+    end if
+    workspace%charge_candidate_ready = .true.
+  end subroutine prepare_adaptive_charge_candidate
 
   !> batch 初期粒子を remote injection と surface emission に分類する。
   subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)

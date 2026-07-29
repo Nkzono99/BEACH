@@ -138,7 +138,7 @@ At least one `[[particles.species]]` entry is required.
 | `dt` | float | `1.0e-9` | Time step [s] |
 | `rng_seed` | int | `12345` | Random seed |
 | `batch_count` | int | `1` | Number of batches processed in a normal run. With `output.resume=true`, this is the cumulative target batch count |
-| `batch_duration` | float | `0.0` | Physical time per batch [s] |
+| `batch_duration` | float | `0.0` | Physical time per batch [s]. Under adaptive nonzero-mode progression, the maximum trial width of each accepted batch |
 | `batch_duration_step` | float | `0.0` | Resolved as `batch_duration = dt * batch_duration_step` |
 | `max_step` | int | `400` | Maximum number of pushes per particle |
 | `tol_rel` | float | `1.0e-8` | Monitored relative-change value. Not used as a stop condition |
@@ -420,11 +420,50 @@ the legacy mapping.
 | `nonzero_mode_backend` | required | `panel_spectral_reference` / `cached_kneq0` |
 | `zero_mode_policy` | required | `exclude_k0` |
 | `lower_boundary_model` | required | `symmetric_vacuum` / `e_bottom_zero` |
+| `max_nonzero_mode_potential_step` | `0` | Maximum accepted change of the $k\ne0$ potential [V]. Omission or `0` disables the feature |
 | `reference_mode_layers` | `4` | Fourier-mode cutoff |
 | `panel_quadrature_order` | `12` | panel-area quadrature order |
 | `interface_sample_n` | `5` | diagnostic samples along each interface axis |
 | `interface_phi_tolerance` | `1e-3` | upper bound on the nonzero-mode potential ratio |
 | `interface_field_tolerance` | `1e-3` | upper bound on the nonzero-mode field ratio |
+
+`max_nonzero_mode_potential_step > 0` is supported only with
+`nonzero_mode_backend="cached_kneq0"`. Let $h_0$ be the resolved
+`sim.batch_duration`. Each accepted batch tests the fixed ladder
+$h_0,h_0/2,h_0/4,\ldots$ and accepts the first trial whose candidate charge
+$\mathbf q_{\mathrm{candidate}}$ satisfies, at every panel centroid,
+
+$$
+\max_j\left|
+\left[P_{k\ne0}
+  \left(\mathbf q_{\mathrm{candidate}}-\mathbf q_{\mathrm{current}}\right)
+\right]_j
+\right|
+\le
+\texttt{max\_nonzero\_mode\_potential\_step}.
+$$
+
+Here, `P_{k\ne0}` is the cached nonzero-mode potential operator. A rejected
+trial restores the RNG, macro-particle residuals, outer state, and
+`implicit_mean` transaction to their pre-trial values. It does not contribute
+to statistics, history, or the charge ledger.
+
+This feature supports time-scaled `reservoir_face` / `photo_raycast` sources
+for explicit SW/UV updates and implicit-mean PE updates. A `reservoir_face`
+source must specify `target_macro_particles_per_batch`; fixed `w_particle`
+cannot be used. It cannot be combined with `volume_seed` or the outer event
+queue.
+
+`sim.batch_count` counts accepted batches, while `simulated_time_s` is the sum
+of accepted widths. An adaptive restart must use the same actual OpenMP team
+size as its checkpoint so that the reduction order and accepted ladder can be
+reproduced. Dynamic teams are disabled during adaptive progression; unequal
+team sizes across MPI ranks or a checkpoint mismatch fail fast.
+
+The test is a
+local-voltage trust bound for the frozen-field approximation, not a
+local-truncation-error guarantee. Verify time-width convergence by repeating
+the calculation with this limit halved.
 
 Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference instead explicitly selects
 `field_solver="direct"`, `nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and a lower

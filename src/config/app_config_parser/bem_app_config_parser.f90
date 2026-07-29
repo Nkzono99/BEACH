@@ -244,6 +244,11 @@ contains
         call get_toml_real( &
           table, keys(ikey), authoring%periodic2%interface_field_tolerance, 'periodic2.interface_field_tolerance' &
           )
+      case ('max_nonzero_mode_potential_step')
+        call get_toml_real( &
+          table, keys(ikey), authoring%periodic2%max_nonzero_mode_potential_step, &
+          'periodic2.max_nonzero_mode_potential_step' &
+          )
       case default
         error stop 'Unknown key in [periodic2]: '//trim(keys(ikey)%key)
       end select
@@ -535,6 +540,8 @@ contains
       cfg%periodic2%interface_sample_n = authoring%periodic2%interface_sample_n
       cfg%periodic2%interface_phi_tolerance = authoring%periodic2%interface_phi_tolerance
       cfg%periodic2%interface_field_tolerance = authoring%periodic2%interface_field_tolerance
+      cfg%periodic2%max_nonzero_mode_potential_step = &
+        authoring%periodic2%max_nonzero_mode_potential_step
     end if
     if (authoring%outer_plasma%present) then
       cfg%outer_plasma%model = authoring%outer_plasma%model

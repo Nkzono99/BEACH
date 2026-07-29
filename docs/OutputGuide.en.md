@@ -18,7 +18,7 @@ If `output.dir` was changed, replace `outputs/latest` with the actual output dir
 
 | Question | Read | Main contents |
 | --- | --- | --- |
-| How many batches ran, and how did particles terminate? | `summary.txt` | `batches`, `absorbed`, `escaped`, `survived_max_step` |
+| How many batches and seconds advanced, and how did particles terminate? | `summary.txt` | `batches`, `simulated_time_s`, `absorbed`, `escaped`, `survived_max_step` |
 | Where did each species' charge enter and leave? | `charge_ledger.csv` | injection, emission, absorption, escape, unresolved discard |
 | Where is the final surface charge? | `charges.csv` + `mesh_triangles.csv` | element index, charge, triangle coordinates, `mesh_id` |
 | Is batch-by-batch evolution available? | `charge_history.csv`, `potential_history.csv` | element charge and centroid-potential history |
@@ -43,7 +43,8 @@ conditions and restart roles.
 | Run identity | `build_version`, `build_source_commit`, `model_fingerprint`, `mesh_fingerprint`, `species_fingerprint` | build, configuration, mesh, and species that produced the output |
 | Size | `mesh_nelem`, `mesh_count`, `mpi_world_size` | element, mesh, and MPI-rank counts |
 | Particle processing | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | particle-event totals and recorded soft discards |
-| Progress | `batches`, `last_rel_change` | completed batches and final-batch charge-change monitor |
+| Progress | `batches`, `simulated_time_s`, `last_rel_change` | accepted batches, sum of accepted physical widths, and final-batch charge-change monitor |
+| Adaptive nonzero-mode progression | `periodic2_max_nonzero_mode_potential_step_V`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V`, `adaptive_nonzero_mode_omp_threads` | configured limit, cumulative rejected trials, last accepted width and measured $k\ne0$ potential change, and thread count required for restart |
 | Field evaluation | `field_backend`, `field_source_model`, `field_kernel_id` | field solver and source kernel used for the output |
 | Resolved external boundary | `coupling_update_mode`, `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | update, inflow, ordinary-open handling, z-high transport, and timing resolved from the public configuration |
 
@@ -51,6 +52,35 @@ conditions and restart roles.
 `charge_ledger.csv` and the final distribution from `charges.csv`.
 
 `last_rel_change` is a monitoring value. It is not an early-stop condition in the current implementation.
+
+`periodic2_max_nonzero_mode_potential_step_V=0` means that adaptive
+progression was disabled. When it is positive, `sim.batch_duration` is the
+maximum trial width and `batches` counts only accepted batches.
+`simulated_time_s` is the sum of accepted trial widths and therefore does not
+generally equal `batches * sim.batch_duration`. A rejected trial rolls back the
+RNG, macro-particle residuals, and outer/mean transaction, and does not enter
+particle totals, `charge_history.csv`, `potential_history.csv`, or
+`charge_ledger.csv`. `adaptive_nonzero_mode_last_potential_step_V` is the
+maximum $k\ne0$ potential change measured over all panel centroids for the last
+accepted trial; it is not a local-truncation-error estimate.
+`adaptive_nonzero_mode_rejected_trials` is the total rejection count on the
+shared ladder, including both $k\ne0$ bound failures and finite `implicit_mean`
+Zhao ambient or interface field/barrier trust-region rejections. A measured
+source-normalization change does not contract with trial width; it and other
+$k=0$ closure failures stop without retry and are not included. Use the
+execution log for the split.
+To reproduce the reduction order and accepted ladder, an adaptive restart is
+accepted only when every MPI rank has the same actual OpenMP team size and it
+equals `adaptive_nonzero_mode_omp_threads`.
+The value is `0` for a run without adaptive progression.
+
+During the run, each `BEACH adaptive-kneq0 reject` standard-output record
+reports the batch and trial width. A record containing `max_delta_phi_V`
+denotes a $k\ne0$ bound rejection. A recoverable `implicit_mean` Zhao
+trust-region rejection instead contains `implicit_status` and `reason`, so the
+two causes can be counted separately. The
+`BEACH adaptive-kneq0 accept` record reports the post-acceptance `time_end_s`,
+trial width, measured potential change, and halving count.
 
 The five external-boundary keys are not configuration inputs. They are a
 receipt showing how the `[external_boundary]` facade resolved at runtime.
@@ -165,7 +195,8 @@ write_potential_history = true
 | `charge_history.csv` | `output.history_stride > 0` | element charge at recorded batches |
 | `potential_history.csv` | above plus `output.write_potential_history = true` | element-centroid potential at recorded batches |
 
-Batch 1 is always included, followed by every `history_stride` batches. Potential history performs another field evaluation
+Accepted batch 1 is always included, followed by every `history_stride`
+accepted batches. Potential history performs another field evaluation
 when written, so increase `history_stride` to reduce output frequency for large meshes.
 
 See [History Animation](PostprocessTutorial.en.html#history-animation) for plots and animations.
@@ -190,6 +221,7 @@ Detailed acceptance criteria stay with each model page; this table only points t
 | --- | --- | --- |
 | finite-image `periodic2` | periodic2 configuration in `summary.txt`, `charges.csv` | [Finite-image Configuration](FinitePeriodicConfiguration.en.html) |
 | `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [Periodic Far Correction](PeriodicFarCorrection.en.html) |
+| adaptive $k\ne0$ progression | `simulated_time_s`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V` | [`batch_duration` stability and steady value](BatchDurationStability.en.html#adaptive-periodic2-nonzero-mode-progression) |
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [Standard 1-D Kinetic Outer Sheath](KineticOuterPlasma.en.html) |
 | transient Zhao queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [Particle Escape and Return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure) |
 | outer particle transfer | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [Particle Escape and Return](ParticleEscapeReturn.en.html) |
@@ -234,6 +266,11 @@ Resume state shares the output directory with analysis files, but should not be 
 
 With `output.restart_from`, BEACH reads checkpoints from `restart_from` and writes new output under `output.dir`.
 See [Run a Simulation](Execution.en.html#resume-a-run) for the resume procedure and fingerprint checks.
+`summary.txt` also restores `simulated_time_s`, the cumulative rejected-trial
+count, the last accepted width and potential change, and the adaptive OpenMP
+team size. After resume,
+`batch_count` therefore remains the cumulative target count of accepted
+batches.
 The queue checkpoint retains active phase-space records, terminal outcomes, due times, and `next_event_id`, and fails closed on
 schema, rank, world-size, or completed-batch mismatches.
 

@@ -177,6 +177,21 @@ program test_outer_coupler
     implicit_snapshot, mesh, 3_i32, updated, continuation_stage='pre_batch' &
     )
   call assert_true(updated, 'restart must perform its first implicit-mean pre-batch refresh')
+
+  call implicit_snapshot%export_restart_state(implicit_coupler%last_outer_update_batch, restart_state)
+  call restarted_snapshot%init( &
+    mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options=kinetic_options &
+    )
+  call restarted_snapshot%restore_outer_state(restart_state)
+  call restarted_coupler%init(implicit_coupling, restart_state%last_outer_update_batch)
+  call restarted_coupler%accept_restored_snapshot()
+  call restarted_coupler%refresh( &
+    restarted_snapshot, mesh, 4_i32, updated, continuation_stage='pre_batch' &
+    )
+  call assert_true(.not. updated, &
+                   'an explicitly accepted restored implicit-mean snapshot must be reused')
+  call assert_true(restarted_coupler%snapshot_matches_mesh, &
+                   'accepted restored snapshot must remain marked current')
   call test_end()
 
   call test_begin('Zhao steady start seeds only the selected plane by panel area')

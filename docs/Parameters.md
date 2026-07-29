@@ -134,7 +134,7 @@ beach.toml
 | `dt` | float | `1.0e-9` | 時間刻み [s] |
 | `rng_seed` | int | `12345` | 乱数シード |
 | `batch_count` | int | `1` | 通常実行では処理するバッチ数。`output.resume=true` では累積の到達バッチ数 |
-| `batch_duration` | float | `0.0` | 1 バッチの物理時間 [s] |
+| `batch_duration` | float | `0.0` | 1 バッチの物理時間 [s]。適応的な非零モード進行では、各 accepted batch の最大試行幅 |
 | `batch_duration_step` | float | `0.0` | `batch_duration = dt * batch_duration_step` として解決 |
 | `max_step` | int | `400` | 粒子 1 個あたりの最大 push 回数 |
 | `tol_rel` | float | `1.0e-8` | 相対変化量の監視値。停止条件には未使用 |
@@ -405,11 +405,44 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | `nonzero_mode_backend` | 必須 | `panel_spectral_reference` / `cached_kneq0` |
 | `zero_mode_policy` | 必須 | `exclude_k0` |
 | `lower_boundary_model` | 必須 | `symmetric_vacuum` / `e_bottom_zero` |
+| `max_nonzero_mode_potential_step` | `0` | accepted trial で許す $k\ne0$ 電位変化の上限 [V]。省略または `0` で無効 |
 | `reference_mode_layers` | `4` | Fourier mode cutoff |
 | `panel_quadrature_order` | `12` | panel 面積積分次数 |
 | `interface_sample_n` | `5` | interface 各軸の診断点数 |
 | `interface_phi_tolerance` | `1e-3` | 非零モード電位比上限 |
 | `interface_field_tolerance` | `1e-3` | 非零モード電場比上限 |
+
+`max_nonzero_mode_potential_step > 0` は `nonzero_mode_backend="cached_kneq0"` でだけ使えます。
+解決後の `sim.batch_duration` を $h_0$ とし、各 accepted batch で
+$h_0,h_0/2,h_0/4,\ldots$ の固定 ladder を順に試します。各 trial の候補電荷
+$\mathbf q_{\mathrm{candidate}}$ について、全 panel 重心で
+
+$$
+\max_j\left|
+\left[P_{k\ne0}
+  \left(\mathbf q_{\mathrm{candidate}}-\mathbf q_{\mathrm{current}}\right)
+\right]_j
+\right|
+\le
+\texttt{max\_nonzero\_mode\_potential\_step}
+$$
+
+を最初に満たした幅を受理します。`P_{k\ne0}` は cached 非零モード電位 operator です。
+棄却 trial は RNG、macro 粒子数残差、outer state、`implicit_mean` transaction を trial 前へ戻し、
+統計、履歴、charge ledger へ加えません。
+
+この機能は time-scaled な `reservoir_face` / `photo_raycast` sourceを使う explicit SW/UV 更新と
+`implicit_mean` PE更新に対応します。`reservoir_face`には
+`target_macro_particles_per_batch`が必要で、固定`w_particle`は使えません。
+`volume_seed`、outer event queueとは併用できません。
+
+`sim.batch_count` は accepted batch数であり、`simulated_time_s` は受理した幅の総和です。
+適応runの再開では、加算順と受理ladderを再現するため、checkpoint作成時と同じ
+実OpenMP team sizeを使う必要があります。適応区間ではdynamic teamを無効化し、全MPI rankの
+team size不一致またはcheckpointとの不一致はfail-fastします。
+
+この判定は frozen-field近似中の局所電位変化を制限するtrust boundであり、局所打切り誤差を
+保証しません。結果の時間幅収束は、この上限を半分にした計算と比較してください。
 
 ### `[outer_plasma]`: 互換・正規化後 runtime リファレンス
 

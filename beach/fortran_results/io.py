@@ -26,6 +26,13 @@ _IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS = (
     "implicit_mean_last_returned_outer_flight_time_mean_s",
     "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2",
 )
+_ADAPTIVE_NONZERO_MODE_SUMMARY_KEYS = (
+    "simulated_time_s",
+    "adaptive_nonzero_mode_rejected_trials",
+    "adaptive_nonzero_mode_last_batch_duration_s",
+    "adaptive_nonzero_mode_last_potential_step_V",
+    "adaptive_nonzero_mode_omp_threads",
+)
 
 
 def load_fortran_result(directory: str | Path) -> FortranRunResult:
@@ -74,6 +81,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     outer_queue_enabled = _parse_optional_bool(summary, "coupling_outer_queue_enabled")
     _validate_outer_queue_summary_contract(summary, enabled=outer_queue_enabled)
     _validate_implicit_mean_shadow_summary_contract(summary)
+    _validate_adaptive_nonzero_mode_summary_contract(summary)
 
     return FortranRunResult(
         directory=out_dir,
@@ -104,6 +112,33 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         last_rel_change=_parse_nonnegative_finite_float(
             summary["last_rel_change"],
             key="last_rel_change",
+        ),
+        simulated_time_s=_parse_optional_nonnegative_finite_float(
+            summary, "simulated_time_s"
+        ),
+        adaptive_nonzero_mode_rejected_trials=(
+            _parse_optional_nonnegative_int(
+                summary, "adaptive_nonzero_mode_rejected_trials"
+            )
+            or 0
+        ),
+        adaptive_nonzero_mode_last_batch_duration_s=(
+            _parse_optional_nonnegative_finite_float(
+                summary, "adaptive_nonzero_mode_last_batch_duration_s"
+            )
+        ),
+        adaptive_nonzero_mode_last_potential_step_v=(
+            _parse_optional_nonnegative_finite_float(
+                summary, "adaptive_nonzero_mode_last_potential_step_V"
+            )
+        ),
+        adaptive_nonzero_mode_omp_threads=_parse_optional_nonnegative_int(
+            summary, "adaptive_nonzero_mode_omp_threads"
+        ),
+        periodic2_max_nonzero_mode_potential_step_v=(
+            _parse_optional_nonnegative_finite_float(
+                summary, "periodic2_max_nonzero_mode_potential_step_V"
+            )
         ),
         charges=q_values,
         triangles=triangles,
@@ -288,6 +323,32 @@ def _validate_implicit_mean_shadow_summary_contract(data: dict[str, str]) -> Non
         raise ValueError(
             "summary.txt implicit_mean shadow diagnostics must appear together; "
             "missing " + ", ".join(missing) + "."
+        )
+
+
+def _validate_adaptive_nonzero_mode_summary_contract(data: dict[str, str]) -> None:
+    limit = _parse_optional_nonnegative_finite_float(
+        data, "periodic2_max_nonzero_mode_potential_step_V"
+    )
+    if limit is None or limit == 0.0:
+        return
+    missing = [
+        key for key in _ADAPTIVE_NONZERO_MODE_SUMMARY_KEYS if key not in data
+    ]
+    if missing:
+        raise ValueError(
+            "summary.txt adaptive nonzero-mode output requires "
+            + ", ".join(missing)
+            + "."
+        )
+    omp_threads = _parse_nonnegative_int(
+        data["adaptive_nonzero_mode_omp_threads"],
+        key="adaptive_nonzero_mode_omp_threads",
+    )
+    if omp_threads == 0:
+        raise ValueError(
+            "summary.txt adaptive_nonzero_mode_omp_threads must be > 0 "
+            "when adaptive nonzero-mode progression is enabled."
         )
 
 

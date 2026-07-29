@@ -140,6 +140,20 @@ def run(args: argparse.Namespace) -> None:
     print(f"processed_particles={result.processed_particles}")
     print(f"absorbed={result.absorbed} escaped={result.escaped}")
     print(f"batches={result.batches} last_rel_change={result.last_rel_change:.6e}")
+    if result.simulated_time_s is not None:
+        print(f"simulated_time_s={result.simulated_time_s:.6e}")
+    if (
+        result.periodic2_max_nonzero_mode_potential_step_v is not None
+        and result.periodic2_max_nonzero_mode_potential_step_v > 0.0
+    ):
+        print(
+            "adaptive_nonzero_mode="
+            f"limit_V:{result.periodic2_max_nonzero_mode_potential_step_v:.6e} "
+            f"last_step_V:{result.adaptive_nonzero_mode_last_potential_step_v or 0.0:.6e} "
+            f"last_duration_s:{result.adaptive_nonzero_mode_last_batch_duration_s or 0.0:.6e} "
+            f"rejected_trials:{result.adaptive_nonzero_mode_rejected_trials} "
+            f"omp_threads:{result.adaptive_nonzero_mode_omp_threads or 0}"
+        )
     print(f"charge_sum={result.charges.sum():.6e}")
     if result.mesh_ids is not None:
         mesh_ids = sorted(int(v) for v in set(result.mesh_ids.tolist()))

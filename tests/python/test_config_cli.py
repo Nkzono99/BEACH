@@ -140,6 +140,49 @@ def test_periodic2_accepts_symmetric_vacuum_and_rejects_unknown_lower_model() ->
         normalize_config_document(config)
 
 
+def test_adaptive_nonzero_mode_requires_cached_time_scaled_sources() -> None:
+    config = load_config_file(Path("examples/periodic2_kinetic_outer.toml"))
+    config["sim"]["field_solver"] = "fmm"
+    config["sim"]["field_periodic_far_correction"] = "cached_kneq0"
+    config["sim"]["field_periodic_image_layers"] = 1
+    config["periodic2"]["nonzero_mode_backend"] = "cached_kneq0"
+    config["periodic2"]["max_nonzero_mode_potential_step"] = 1.0e-2
+
+    normalized = normalize_config_document(config)
+    assert (
+        normalized["periodic2"]["max_nonzero_mode_potential_step"] == 1.0e-2
+    )
+
+    fixed_weight = copy.deepcopy(config)
+    fixed_weight["particles"]["species"][0]["w_particle"] = 1.0
+    fixed_weight["particles"]["species"][0].pop(
+        "target_macro_particles_per_batch", None
+    )
+    with pytest.raises(
+        ConfigValidationError, match="target_macro_particles_per_batch"
+    ):
+        normalize_config_document(fixed_weight)
+
+    spectral = copy.deepcopy(config)
+    spectral["sim"]["field_solver"] = "direct"
+    spectral["sim"]["field_periodic_far_correction"] = "none"
+    spectral["periodic2"]["nonzero_mode_backend"] = "panel_spectral_reference"
+    with pytest.raises(ConfigValidationError, match="cached_kneq0"):
+        normalize_config_document(spectral)
+
+    volume = default_config()
+    volume["sim"]["batch_duration"] = 1.0e-6
+    volume["sim"]["field_periodic_far_correction"] = "cached_kneq0"
+    volume["periodic2"] = {
+        "nonzero_mode_backend": "cached_kneq0",
+        "zero_mode_policy": "exclude_k0",
+        "lower_boundary_model": "e_bottom_zero",
+        "max_nonzero_mode_potential_step": 1.0e-2,
+    }
+    with pytest.raises(ConfigValidationError, match="time-scaled"):
+        normalize_config_document(volume)
+
+
 def test_photoelectron_settings_reject_unknown_density_and_nonconserving_modes() -> (
     None
 ):

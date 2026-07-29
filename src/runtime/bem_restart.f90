@@ -711,6 +711,16 @@ contains
       case ('last_rel_change')
         read (value, *) stats%last_rel_change
         found_rel = .true.
+      case ('simulated_time_s')
+        read (value, *) stats%simulated_time
+      case ('adaptive_nonzero_mode_rejected_trials')
+        read (value, *) stats%adaptive_nonzero_mode_rejected_trials
+      case ('adaptive_nonzero_mode_last_batch_duration_s')
+        read (value, *) stats%adaptive_nonzero_mode_last_batch_duration
+      case ('adaptive_nonzero_mode_last_potential_step_V')
+        read (value, *) stats%adaptive_nonzero_mode_last_potential_step
+      case ('adaptive_nonzero_mode_omp_threads')
+        read (value, *) stats%adaptive_nonzero_mode_omp_threads
       end select
     end do
     close (u)
@@ -1070,6 +1080,23 @@ contains
     if (stats%batches < 0_i32) error stop 'Resume checkpoint batches must be >= 0.'
     if (.not. ieee_is_finite(stats%last_rel_change) .or. stats%last_rel_change < 0.0d0) then
       error stop 'Resume checkpoint last_rel_change must be finite and >= 0.'
+    end if
+    if (.not. ieee_is_finite(stats%simulated_time) .or. stats%simulated_time < 0.0_dp) then
+      error stop 'Resume checkpoint simulated_time_s must be finite and >= 0.'
+    end if
+    if (stats%adaptive_nonzero_mode_rejected_trials < 0_i64) then
+      error stop 'Resume checkpoint adaptive rejected-trial count must be >= 0.'
+    end if
+    if (.not. ieee_is_finite(stats%adaptive_nonzero_mode_last_batch_duration) .or. &
+        stats%adaptive_nonzero_mode_last_batch_duration < 0.0_dp) then
+      error stop 'Resume checkpoint adaptive last batch duration must be finite and >= 0.'
+    end if
+    if (.not. ieee_is_finite(stats%adaptive_nonzero_mode_last_potential_step) .or. &
+        stats%adaptive_nonzero_mode_last_potential_step < 0.0_dp) then
+      error stop 'Resume checkpoint adaptive last potential step must be finite and >= 0.'
+    end if
+    if (stats%adaptive_nonzero_mode_omp_threads < 0_i32) then
+      error stop 'Resume checkpoint adaptive OpenMP thread count must be >= 0.'
     end if
   end subroutine validate_summary_stats
 

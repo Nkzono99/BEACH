@@ -1,6 +1,7 @@
 !> 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。
 module bem_field_solver
 !$ use omp_lib
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config, bc_periodic
@@ -86,6 +87,7 @@ module bem_field_solver
     procedure :: eval_e => eval_e_field_solver
     procedure :: eval_potential => eval_potential_field_solver
     procedure :: compute_mesh_potential => compute_mesh_potential_field_solver
+    procedure :: compute_cached_kneq0_mesh_potential_step => compute_cached_kneq0_mesh_potential_step_field_solver
   end type field_solver_type
 
   public :: field_solver_type
@@ -205,6 +207,17 @@ module bem_field_solver
       type(sim_config), intent(in) :: sim
       real(dp), intent(out) :: potential_v(:)
     end subroutine compute_mesh_potential_field_solver
+
+    !> cached k/=0 演算子を電荷増分へ作用させ、要素重心での電位増分を返す。
+    !!
+    !! 評価中だけ FMM state を `charge_step` へ更新し、返る前に必ず
+    !! 現在の `mesh%q_elem` へ戻す。cached_kneq0 FMM 以外は受理しない。
+    module subroutine compute_cached_kneq0_mesh_potential_step_field_solver(self, mesh, charge_step, potential_step_v)
+      class(field_solver_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      real(dp), intent(in) :: charge_step(:)
+      real(dp), intent(out) :: potential_step_v(:)
+    end subroutine compute_cached_kneq0_mesh_potential_step_field_solver
 
   end interface
 
