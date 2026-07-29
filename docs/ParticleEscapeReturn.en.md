@@ -323,15 +323,35 @@ completed-batch, global-event-count, signed-charge, or fingerprint mismatches fa
 
 ### Check whether the field can remain frozen during outer flight
 
-In instant mode, snapshot validity over a flight is measured by
+For ordinary instant particles, snapshot validity over a flight is measured by
 
 $$
 \epsilon_\mathrm{ad}
 =\frac{\tau_\mathrm{outer}}{\texttt{field\_evolution\_timescale}}
 $$
 
-and must not exceed `max_frozen_field_ratio`. If $\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$, a converged long-time
+and must not exceed `max_frozen_field_ratio`. A deferred PE under `implicit_mean` is a quasistationary shadow that samples the
+orbit and destination of the return total determined by the scalar closure. BEACH retains the same
+$\epsilon_\mathrm{ad}$ as a diagnostic but does not stop on an over-limit shadow. Fail-closed enforcement for ordinary
+`same_batch` particles and ambient species is unchanged.
+
+The Zhao variant of `implicit_mean` does not use the uniform `return_weight_scale` of the ambient linear-Debye closure.
+BEACH collects normal kinetic energy and signed macro charge from photoelectrons that first reach z-high in the batch-start
+field. It solves the nonlinear $Q(\Phi_I)$ relation from this charge-weighted measured CDF and the barrier, including a
+virtual cathode, over the complete Zhao profile. The accepted solution assigns a return weight to each energy group, and the
+same accepted profile is then used for one outer-orbit and local-return-destination trace.
+
+This map requires exactly one outward interface crossing and at most one return crossing per deferred ray. A ray with
+positive return weight must be reabsorbed by the surface; a non-marginal ray with zero return weight must terminate as a
+reservoir escape. If recrossing or a terminal-channel mismatch carries significant charge, BEACH stops fail closed instead
+of transferring its weight to another ray. Only the marginal energy group on the barrier is split statistically into escape
+fraction $f$ and return fraction $1-f$ while its representative ray remains on the return side. This split does not branch a
+particle trajectory in flight.
+
+If $\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$, a converged long-time
 mean can still be useful under a strong steady-state assumption, but per-batch return current is not temporally correct.
+In particular, `implicit_mean` does not solve delayed return current during UV turn-on or retain an outer inventory between
+batches. Those effects require a separately designed delayed inventory or queue compatible with this closure.
 
 Zhao queue mode still requires positive `field_evolution_timescale` and `max_frozen_field_ratio`. Because events are released
 only at batch starts, it includes the quantization delay $\delta_{poll}$ from $t_{due}$ to the first batch-start poll and the
@@ -359,6 +379,7 @@ A violation stops the run.
 Species-resolved output separates `interface_outward_gross`, `interface_returned_gross`, and `escaped_to_infinity`. It also
 reports maximum `outer_flight_time`, frozen-field ratio, and `max_outer_energy_relative_error` for the kinetic 1-D
 return/escape mapping. The last value is the normalized conservation residual of normal kinetic plus electrostatic energy.
+An `implicit_mean` PE-shadow ratio may exceed the configured limit without becoming a stopping condition.
 
 For Zhao queue mode, inspect `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`,
 `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`,

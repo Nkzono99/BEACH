@@ -173,10 +173,13 @@ contains
     integer :: u, ios
     integer(i32) :: point
 
-    if (.not. allocated(diagnostics%outer_profile_potential) .or. &
+    if (.not. allocated(diagnostics%outer_profile_z) .or. &
+        .not. allocated(diagnostics%outer_profile_potential) .or. &
         .not. allocated(diagnostics%outer_profile_field) .or. &
-        .not. allocated(diagnostics%outer_profile_charge_density) .or. &
-        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_potential) .or. &
+        .not. allocated(diagnostics%outer_profile_charge_density)) then
+      error stop 'Outer-plasma diagnostic profile is incomplete.'
+    end if
+    if (size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_potential) .or. &
         size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_field) .or. &
         size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_charge_density)) then
       error stop 'Outer-plasma diagnostic profile is incomplete.'
@@ -333,6 +336,8 @@ contains
           electrostatic_diagnostics%outer_zhao_phi_minimum
         write (u, '(a,es24.16)') 'outer_plasma_zhao_electron_density_infinity_m3=', &
           electrostatic_diagnostics%outer_zhao_electron_density_infinity
+        write (u, '(a,es24.16)') 'outer_plasma_photoelectron_source_scale_resolved=', &
+          electrostatic_diagnostics%outer_photoelectron_source_scale
         if (cfg%coupling%outer_queue_enabled) then
           write (u, '(a,es24.16)') 'outer_photoelectron_population_fraction=', &
             electrostatic_diagnostics%outer_photoelectron_population_fraction
@@ -354,6 +359,13 @@ contains
       write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio
       write (u, '(a,es24.16)') 'max_outer_energy_relative_error=', &
         electrostatic_diagnostics%max_outer_energy_relative_error
+      if (electrostatic_diagnostics%implicit_mean_shadow_diagnostics_available) then
+        write (u, '(a,es24.16)') 'implicit_mean_last_returned_outer_flight_time_mean_s=', &
+          electrostatic_diagnostics%implicit_mean_last_returned_outer_flight_time_mean
+        write (u, '(a,es24.16)') &
+          'implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2=', &
+          electrostatic_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area
+      end if
       write (u, '(a,l1)') 'periodic2_cache_hit=', electrostatic_diagnostics%periodic_cache_hit
       write (u, '(a,i0)') 'periodic2_operator_build_count=', &
         electrostatic_diagnostics%periodic_operator_build_count

@@ -21,6 +21,7 @@ module bem_particle_stepper
   integer(i32), parameter, public :: particle_step_ambiguous_open_corner = 1003_i32
   integer(i32), parameter, public :: particle_step_unsupported_barrier_corner = particle_step_ambiguous_open_corner
   integer(i32), parameter, public :: particle_step_multiple_external_events = 1004_i32
+  integer(i32), parameter, public :: particle_step_invalid_external_model = 1005_i32
 
   type, public :: particle_step_result
     real(dp) :: x(3) = 0.0_dp

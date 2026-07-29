@@ -21,6 +21,8 @@ program test_output_writer_io
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_queue_population, saw_queue_count, saw_queue_fingerprint
+  logical :: saw_resolved_zhao_source_scale
+  logical :: saw_shadow_tau, saw_shadow_column
   logical :: saw_steady_start_mode, saw_steady_start_mesh_id
   integer :: literal_unit, ios
   character(len=512) :: line
@@ -39,7 +41,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(5)
+  call test_init(6)
 
   stats = sim_stats()
 
@@ -107,6 +109,7 @@ program test_output_writer_io
   call test_begin('queue_diagnostics_follow_enable_flag')
   electrostatic_diagnostics%outer_kinetic_closure = 'zhao_charge_driven'
   electrostatic_diagnostics%outer_zhao_branch = 'B'
+  electrostatic_diagnostics%outer_photoelectron_source_scale = 0.375_dp
   electrostatic_diagnostics%outer_photoelectron_population_fraction = 0.5_dp
   electrostatic_diagnostics%outer_queue_event_count = 2_i32
   electrostatic_diagnostics%outer_queue_fingerprint = 'FEDCBA9876543210'
@@ -117,8 +120,13 @@ program test_output_writer_io
   call scan_queue_summary_fields( &
     out_dir_disabled//'/summary.txt', saw_queue_population, saw_queue_count, saw_queue_fingerprint &
     )
+  call scan_resolved_zhao_source_scale( &
+    out_dir_disabled//'/summary.txt', saw_resolved_zhao_source_scale &
+    )
   call assert_true(.not. saw_queue_population .and. .not. saw_queue_count .and. .not. saw_queue_fingerprint, &
                    'disabled queue must not write queue-specific diagnostics')
+  call assert_true(saw_resolved_zhao_source_scale, &
+                   'resolved Zhao source scale must be written independently of queue diagnostics')
   cfg%outer_plasma%model = 'kinetic_1d'
   cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
   cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
@@ -137,6 +145,32 @@ program test_output_writer_io
     )
   call default_app_config(cfg)
   cfg%sim%batch_duration = 1.0_dp
+  call test_end()
+
+  call test_begin('implicit_mean_shadow_diagnostics_follow_availability')
+  electrostatic_diagnostics = electrostatic_diagnostics_type()
+  electrostatic_diagnostics%implicit_mean_shadow_diagnostics_available = .true.
+  electrostatic_diagnostics%implicit_mean_last_returned_outer_flight_time_mean = 2.5e-6_dp
+  electrostatic_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area = &
+    7.5e-12_dp
+  call write_result_files( &
+    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
+    )
+  call scan_implicit_mean_shadow_summary_fields( &
+    out_dir_disabled//'/summary.txt', saw_shadow_tau, saw_shadow_column &
+    )
+  call assert_true(saw_shadow_tau .and. saw_shadow_column, &
+                   'available implicit-mean shadow diagnostics must be written')
+
+  electrostatic_diagnostics = electrostatic_diagnostics_type()
+  call write_result_files( &
+    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
+    )
+  call scan_implicit_mean_shadow_summary_fields( &
+    out_dir_disabled//'/summary.txt', saw_shadow_tau, saw_shadow_column &
+    )
+  call assert_true(.not. saw_shadow_tau .and. .not. saw_shadow_column, &
+                   'unavailable implicit-mean shadow diagnostics must be omitted')
   call test_end()
 
   call test_begin('charge_ledger_and_model_metadata')
@@ -262,6 +296,48 @@ contains
     end do
     close (unit)
   end subroutine scan_queue_summary_fields
+
+  subroutine scan_resolved_zhao_source_scale(path, found)
+    character(len=*), intent(in) :: path
+    logical, intent(out) :: found
+    integer :: unit, read_status
+    character(len=512) :: summary_line
+
+    found = .false.
+    open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
+    if (read_status /= 0) error stop 'failed to open resolved Zhao source-scale summary fixture'
+    do
+      read (unit, '(A)', iostat=read_status) summary_line
+      if (read_status /= 0) exit
+      found = found .or. index( &
+              summary_line, 'outer_plasma_photoelectron_source_scale_resolved=' &
+              ) == 1
+    end do
+    close (unit)
+  end subroutine scan_resolved_zhao_source_scale
+
+  subroutine scan_implicit_mean_shadow_summary_fields(path, saw_tau, saw_column)
+    character(len=*), intent(in) :: path
+    logical, intent(out) :: saw_tau, saw_column
+    integer :: unit, read_status
+    character(len=512) :: summary_line
+
+    saw_tau = .false.
+    saw_column = .false.
+    open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
+    if (read_status /= 0) error stop 'failed to open implicit-mean shadow summary fixture'
+    do
+      read (unit, '(A)', iostat=read_status) summary_line
+      if (read_status /= 0) exit
+      saw_tau = saw_tau .or. &
+                index(summary_line, 'implicit_mean_last_returned_outer_flight_time_mean_s=') == 1
+      saw_column = saw_column .or. index( &
+                   summary_line, &
+                   'implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2=' &
+                   ) == 1
+    end do
+    close (unit)
+  end subroutine scan_implicit_mean_shadow_summary_fields
 
   !> 2 要素メッシュを初期化する。
   subroutine build_two_element_mesh(mesh)

@@ -20,7 +20,7 @@ program test_templates_importers_runtime
   type(particles_soa) :: pcls
   type(injection_state) :: state
   type(electrostatic_snapshot_type) :: snapshot
-  real(dp), allocatable :: photo_emission_dq(:)
+  real(dp), allocatable :: photo_emission_dq(:), photo_source_charge(:)
   real(dp) :: reservoir_x(3, 128), reservoir_v(3, 128)
   real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1), expected_photo_counter
   integer(i32) :: i
@@ -279,6 +279,7 @@ program test_templates_importers_runtime
   call assert_allclose_1d(pcls%x(:, 5), [0.0d0, 0.0d0, 0.0d0], 1.0d-12, 'species-1 position mismatch')
   call assert_allclose_1d(pcls%v(:, 5), [1.0d0, 0.0d0, 0.0d0], 1.0d-12, 'species-1 velocity mismatch')
   call assert_true(all(pcls%alive), 'all particles should start alive')
+  call assert_true(all(pcls%source_element == -1_i32), 'non-photo particles must not carry surface provenance')
   call test_end()
 
   call test_begin('photo_batch')
@@ -341,7 +342,7 @@ program test_templates_importers_runtime
 
   allocate (state%macro_residual(3))
   state%macro_residual = 0.0d0
-  allocate (photo_emission_dq(mesh%nelem))
+  allocate (photo_emission_dq(mesh%nelem), photo_source_charge(mesh%nelem))
   call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma)
   call snapshot%refresh(mesh)
   call seed_particles_from_config(cfg)
@@ -351,14 +352,24 @@ program test_templates_importers_runtime
   call assert_true(pcls%n >= 1_i32, 'batch particle count mismatch')
   call assert_close_dp(pcls%q(1), 1.0d0, 1.0d-12, 'mixed batch species-1 charge mismatch')
   expected_photo_counter = 0.0d0
+  photo_source_charge = 0.0_dp
   do i = 1_i32, pcls%n
-    if (pcls%q(i) < 0.0d0) then
+    if (pcls%species_id(i) == 3_i32) then
+      call assert_true(pcls%source_element(i) >= 1_i32 .and. pcls%source_element(i) <= mesh%nelem, &
+                       'photo particle source provenance is outside the emitting mesh')
       expected_photo_counter = expected_photo_counter - pcls%q(i)*pcls%w(i)
+      photo_source_charge(pcls%source_element(i)) = photo_source_charge(pcls%source_element(i)) - &
+                                                    pcls%q(i)*pcls%w(i)
       call assert_true(pcls%w(i) > 0.0d0, 'mixed batch photo weight should be positive')
+    else
+      call assert_equal_i32(pcls%source_element(i), -1_i32, &
+                            'non-photo batch particle unexpectedly carries surface provenance')
     end if
   end do
   call assert_true(expected_photo_counter > 0.0d0, 'mixed batch should include emitted photo particles')
   call assert_close_dp(sum(photo_emission_dq), expected_photo_counter, 1.0d-12, 'photo counter charge mismatch')
+  call assert_allclose_1d(photo_source_charge, photo_emission_dq, 1.0d-12, &
+                          'source provenance does not reproduce the emitted countercharge distribution')
   call assert_true(state%macro_residual(2) >= 0.0d0, 'reservoir residual should be non-negative')
   call assert_true(state%macro_residual(2) < 1.0d0, 'reservoir residual should be < 1')
   call test_end()

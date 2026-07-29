@@ -302,7 +302,7 @@ field_evolution_timescale = 1.0
 | `model` | string | 必須 | `none` / `kinetic_1d` |
 | `kinetic_closure` | string | `absorbing_maxwellian` | `kinetic_1d` のみ。`absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | string | `auto` | `zhao_charge_driven` のみ。`auto` / `a` / `b` / `c` |
-| `photoelectron_source_scale` | float | `1` | `zhao_charge_driven` の解析光電子 source 倍率。UV なしは `0` |
+| `photoelectron_source_scale` | float | `1` | `zhao_charge_driven` の初期解析 source 倍率。UV なしは `0`。強 PE の自動 `implicit_mean` では界面実測値から batch ごとに resolved 値を更新 |
 | `photoelectron_density_model` | string | `none` | `kinetic_1d + absorbing_maxwellian` の任意平均密度。`none` / `kinetic_mean` |
 | `debye_length` | float | active model で必須 | `kinetic_1d` の長さ scale [m] |
 | `thermal_voltage` | float | active model で必須 | `kinetic_1d` の電位 scale [V] |
@@ -320,7 +320,7 @@ field_evolution_timescale = 1.0
 |---|---|---|
 | `none` | `model` のみ | 追加不可 |
 | `kinetic_1d + absorbing_maxwellian` | `debye_length`, `thermal_voltage` | `kinetic_closure`、`photoelectron_density_model`、gap / local-charge 上限 |
-| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | gap / local-charge 上限。光電子はtracked sourceだけ |
+| `kinetic_1d + ambient_linear_debye` | `debye_length`, `thermal_voltage`, `kinetic_closure` | gap / local-charge 上限。`same_batch` と tracked 光電子があれば平均 $k=0$ 更新を自動導出 |
 | `kinetic_1d + zhao_charge_driven` | `debye_length`, `thermal_voltage`, `kinetic_closure`、必要な `sim.sheath_*` 物理値 | source scale / branch、gap / local-charge 上限 |
 
 `kinetic_closure="zhao_charge_driven"` でも `debye_length` と `thermal_voltage` は schema 上必須ですが、
@@ -331,6 +331,16 @@ ambient $T_e$ と $n_\infty$ から profile scale を導出します。
 `zhao_branch="auto"`、zero gauge、density model なしなど、
 既定値または model が固定する値は通常は書きません。
 
+`ambient_linear_debye + same_batch` と enabled な負電荷 `photo_raycast` species の組合せでは、
+内部の `implicit_mean` 更新を自動導出します。公開 `[external_boundary]` に update mode はありません。
+この組合せでは `outer_update_stride=1`、正の `sim.batch_duration`、
+`deposit_opposite_charge_on_emit=true`、負電荷 `photo_raycast` species の
+`normal_drift_speed=0` が必要です。scalar Maxwellian escape 率は放出driftを含まないため、
+非零の `normal_drift_speed` はfail closedで拒否されます。
+
+`photoelectron_density_model` は公開 TOML に書かず、facade が内部値を `none` に解決します。
+`"none"` を含め、key を明記すると拒否します。
+
 #### `[external_boundary.particles]`
 
 | キー | 型 | 既定値 | 説明 |
@@ -340,8 +350,8 @@ ambient $T_e$ と $n_\infty$ から profile scale を導出します。
 | `steady_start_mode` | string | `none` | `kinetic_1d + zhao_charge_driven + same_batch` で `zhao_floating` を有効にするときだけ指定 |
 | `steady_start_mesh_id` | int | `1` | `steady_start_mode="zhao_floating"` で使う mesh ID |
 | `outer_update_stride` | int | `1` | `local_source` / `same_batch` の `kinetic_1d` だけで指定できる更新間隔 [batch] |
-| `field_evolution_timescale` | float | `0` | `same_batch` / `zhao_queue` の frozen-field 診断時間 scale [s] |
-| `max_frozen_field_ratio` | float | `0.1` | `same_batch` / `zhao_queue` の frozen-field 適用性比上限 |
+| `field_evolution_timescale` | float | `0` | `same_batch` / `zhao_queue` の frozen-field 診断時間 scale [s]。`implicit_mean` PE shadow でも診断を計算 |
+| `max_frozen_field_ratio` | float | `0.1` | 通常の `same_batch` / `zhao_queue` の frozen-field 適用性比上限。`implicit_mean` PE shadow では停止条件にしない |
 
 `mode` は z-high を出た粒子を外部領域へ移送するか、その結果をいつ反映するかだけを選びます。
 reservoir 流入の分布や補正は `inflow_model` で独立に選びます。
@@ -420,7 +430,7 @@ facade では `interface_z` と `return_model` を自動導出します。旧 `[
 | `max_local_charge_ratio` | `50` | 局所平均 plasma 電荷推定比上限 |
 | `kinetic_closure` | `absorbing_maxwellian` | `kinetic_1d` closure。`absorbing_maxwellian` / `ambient_linear_debye` / `zhao_charge_driven` |
 | `zhao_branch` | `auto` | Zhao closure の branch。`auto` / `a` / `b` / `c` |
-| `photoelectron_source_scale` | `1` | Zhao解析光電子sourceの独立倍率。UVなしは`0`。queue occupancyの$\eta$とは別物 |
+| `photoelectron_source_scale` | `1` | Zhao 解析光電子 source の初期倍率。UV なしは `0`。queue occupancy の $\eta$ と、強 PE `implicit_mean` が界面実測値から解く resolved 倍率とは別物 |
 | `photoelectron_density_model` | `none` | `none` / `kinetic_mean`。後者は `kinetic_1d` へ平均光電子密度を追加 |
 | `return_model` | `none` | kinetic 1D profile return の ID |
 
@@ -438,9 +448,77 @@ z-high に定義した負電荷と正電荷の `reservoir_face` species を、�
 | closure | 既定の `absorbing_maxwellian`、ambientだけの解析的 `ambient_linear_debye`、または蓄積電荷が決める interface 電場を保つ `zhao_charge_driven` |
 | supported branch | `absorbing_maxwellian` と `ambient_linear_debye` は単調 branch。`zhao_charge_driven` は非単調 Type A を含む Zhao A/B/C |
 | unsupported | `ambient_linear_debye` は光電子平均密度・非線形 sheath・virtual cathode・trapped populationを扱わない |
-| nonlinear solve | `ambient_linear_debye` は反復なし。他は closure 固有の root / Newton |
+| nonlinear solve | `ambient_linear_debye` は scalar backward-Euler 根、強 PE `zhao_charge_driven` は実測 energy CDF と Zhao branch を結ぶ一般化固定点。他は closure 固有の root / Newton |
 | recovery | pseudo-transientとinterface-field continuation。元のPoisson residual合格後だけ受理 |
 | fallback | 別sheath modelや前回解へfallbackしない |
+
+`ambient_linear_debye + same_batch` と負電荷 `photo_raycast` の自動 `implicit_mean` 経路では、
+outer profile 自体は解析的です。平面平均電位の backward Euler スカラー根がcell総電荷と
+continuous Maxwellianのescape / return総量を確定し、
+tracked ambient 吸収が electron/ion 電流を与えます。
+このMaxwellian総量はdriftless放出を仮定するため、対象 `photo_raycast` speciesの
+`normal_drift_speed` は0でなければなりません。
+
+最初の trace が stage した全 surface charge delta も集計し、ambient と PE 外向き成分以外を
+`J_other` として保存するため、追加 species や他面・未解決 outcome の総電荷を平均更新から落としません。
+
+平均解を全要素候補電荷へ反映するときはbatch-startの $k\ne0$ を固定し、mean-only snapshotを1回更新します。
+その確定profileで各実 z-high crossing の位置・速度・macro weightを既存の `kinetic_1d_profile_return` へ渡し、
+離散profileとRobin tailに沿ってenergy-resolvedに1回追跡します。turning粒子は解析往復時間に対応する状態で
+local領域へ戻し、return後にz-highを再びcrossした場合もterminalな吸収またはescapeまで同じdriverで追跡します。
+rayのescape率は分布標本の診断であり、平均総量を解き直す入力ではありません。
+`emit_current_density_a_m2` は tracked 3D 放出のweightを決めますが、独立な平均sourceとして再利用しません。
+
+terminalに再吸収されたrayの放出元 / 実hit分布へ、analytic return総量を同じ
+`return_weight_scale`で正規化配分します。放出元counterchargeとhit depositは零和transactionであり、
+scalar解が決めた総電荷を変えません。analytic returnがtracked outward sourceの範囲外、正なのに再吸収sampleがない、
+transactionが相殺しない、
+または許可された追跡内にterminal outcomeへ到達しない場合はfail closedで停止します。
+ray分類を使ったinner fixed-pointや別要素への残差配分は行いません。
+このため `implicit_mean` はOBJ / templateの別や特定meshを要求しません。
+
+`summary.txt` の `coupling_update_mode=implicit_mean` と、標準出力の `BEACH implicit-mean` 行にある
+`J_other_A_m2`、`transaction_residual_C`、`mean_solver_iterations`、`sample_escape_fraction`、
+`return_weight_scale` で解決結果とsampling統計を確認します。scalar解が速い平均総電荷を更新し、
+正規化したhit分布が総和ゼロの局所電荷を通常のbatch commitで再配置します。
+
+これは同じbatch内の準定常transactionであり、deferred PE rayは軌道・着地点を標本化するshadowです。
+shadow の outer flight time と frozen-field ratio は診断へ残しますが、ratio 超過を停止条件にしません。
+通常の `same_batch` 粒子と ambient species は従来どおり上限超過で fail closed にします。
+
+この ambient 経路は batch 間の光電子 cloud inventory や、光電子 space charge を含む非線形密度を扱いません。
+
+`zhao_charge_driven + same_batch`、負電荷 `photo_raycast`、`zhao_floating` の強 PE 構成も、自動的に
+`implicit_mean` へ解決されます。この経路は interface を外向きに横切った各 ray の法線運動エネルギーと
+絶対 macro 電荷を集め、同一 energy をまとめた実測 charge-weighted CDF を作ります。固定した committed
+Zhao branch 上で
+
+$$
+Q=Q_{\mathrm{base}}+C_{\mathrm{esc}}[B(Q)]
+$$
+
+を解きます。$B(Q)$ は Type A の interior minimum を含む離散 profile 全体の barrier です。
+energy group をまたぐ根では、その group だけに fractional escape weight を与えます。
+
+source 振幅は実測 interface-outward current から解くため、粗面での interface 到達率を
+`emit_current_density_a_m2` と同一視しません。後者は 3D 表面放出の物理 source、前者は 1D Zhao 有効面へ
+到達した source です。設定した `photoelectron_source_scale` は steady-start の初期基準で、resolved 値は
+`outer_plasma_photoelectron_source_scale_resolved` と `BEACH implicit-zhao` に記録します。
+
+候補 root は commit 済み root から
+$\mathbf G(\mathbf y;E_I(\lambda),n_{pe,0}(\lambda))=\mathbf 0$ を adaptive pseudo-arclength で追跡して求めます。
+Type A/B は $E_I>0$、Type C は $E_I<0$ を要求します。parameter fold では fail closed し、
+$\lambda=1$ の event corrector で target へ着地します。
+
+最終 source を固定した候補 path では、各 adaptive accepted point で $B$ の prescribed charge に対する
+接線勾配とsecantを検査します。共通rootから$Q_0$と$Q_M$へ進むpathで全charge区間を検査し、
+候補energy groupは単調なorder predicateのfirst-true indexを二分探索して$O(\log M)$で選びます。
+最終候補では実測CDFの電荷残差も再検査します。
+
+local continuation guard は accepted point 間を interval arithmetic で包含する数理的証明ではありません。
+branch 変更、rank 低下、fold、barrier 勾配反転、order predicateまたはmarginal bracketの不整合、非有限profile、
+residual超過、またはfrozen cohortの電位・source・電場・barrier trust region超過ではfallbackせず停止します。
+この内部solver用の新しいTOML keyはありません。
 
 公開設定の `external_boundary.particles.mode="same_batch"` は、
 `return_model="kinetic_1d_profile_return"` と
@@ -451,12 +529,21 @@ z-high に定義した負電荷と正電荷の `reservoir_face` species を、�
 2. 同じ離散profileとRobin tailでescapeまたはturning pointを判定する。
 3. turning粒子について解析往復時間後に相当する復帰状態を作り、同じsimulation時刻・batchでinterfaceへ戻す。
 
+`implicit_mean` の `photo_raycast` species もこの個別 instant 写像を使います。各実 crossing を準定常shadowとして
+1回だけ追跡し、terminal outcomeを軌道・着地点の標本にします。PEのledger電荷総量は標本の個数比ではなく
+analytic closureへ合わせます。
+
 instant写像の適用範囲:
 
 - 対象は定常・準定常 sheath です。定常化後の平均電流と離脱力に使用できます。
 - UV 照射開始時など、遅延した return current が効く過渡応答は表しません。
-- 準定常条件は `tau_outer/field_evolution_timescale` で制限します。
+- 通常の instant 粒子の準定常条件は `tau_outer/field_evolution_timescale` で制限します。
+- `implicit_mean` PE shadow では同じ比を診断しますが、上限超過で停止しません。
+- outer return 後に z-high 以外の local open face へ出た shadow は、無限遠 escape へ読み替えず fail closed にします。
 - `tau_outer/batch_duration >= 1` では、batch 履歴を return current の物理時間履歴として解釈できません。
+
+UV turn-on の遅延 return current を解くには、`ambient_linear_debye` の時間発展に対応する delayed inventory /
+queue が別途必要です。現行 `implicit_mean` に outer queue を重ねることはできません。
 
 UVなしでは`photoelectron_source_scale=0`を指定します。この経路はenabledな`photo_raycast` species、
 `sheath_photoelectron_ref_density_cm3`、$T_{pe}$を要求しません。z-highのambient electron/ionが与える準中性領域の
@@ -507,8 +594,10 @@ $L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとし
   no-photoでは同じ式の正規化をambient $T_e,n_\infty$へ切り替え、$\lambda_{D,e}$をsummaryへ出力します。
 - `debye_length`と`thermal_voltage`はZhao root/profileを変えません。ただしsplit-interfaceの`interface_eta_gap`、
   lateral phi/field、local-charge診断のreference inputとして現時点でも必要です。
-- tracked `photo_raycast.emit_current_density_a_m2`は、$T_{pe}$をJへ換算し、$v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$として
-  `photoelectron_source_scale * |q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})`と1%以内で一致する必要があります。
+- fixed/static Zhao と queue では、tracked `photo_raycast.emit_current_density_a_m2` は、$T_{pe}$ を J へ換算し、
+  $v_{th,pe}=\sqrt{2T_{pe}/m_{pe}}$ として
+  `photoelectron_source_scale * |q_{pe}|n_{ref}\sin(\alpha)v_{th,pe}/(2\sqrt{\pi})` と 1% 以内で一致する必要があります。
+  強 PE の自動 `implicit_mean` はこの一致条件を使わず、実測 interface crossing current から 1D source 倍率を解きます。
 - analytic raw currentはtracked sourceの整合性検査とcurrent-density診断に使いますが、root、surface charge、ledgerへ
   別途加えません。tracked放出と再吸収だけが後二者を更新し、$\eta$はcurrent診断のraw photoelectron emission-current項を
   scaleしません。
@@ -518,7 +607,11 @@ $L$外のRobin tailを使わず、$L$到達をreservoirへの吸収/escapeとし
   `debye_length`や`thermal_voltage`の変更をprofile収束試験として解釈しません。
 - `photoelectron_density_model="kinetic_mean"` は既定の `absorbing_maxwellian` で、先頭の負電荷
   `photo_raycast` species から half-Maxwellian flux を作ります。
-- 平均密度モデルが供給するのは outer profile だけです。表面電荷は追跡粒子が更新するため、統計的な return current を重ねません。
+- `photoelectron_density_model="kinetic_mean"` が供給するのは outer profile だけです。表面電荷は追跡粒子が更新するため、統計的な return current を重ねません。
+- `ambient_linear_debye` の自動 `implicit_mean` 経路では、実測 PE interface-outward 電流と平均 escape 率が最終 $k=0$ 総量とledger電荷総量を決めます。既存1D profile写像はreturn軌道・着地点分布をsampleし、analytic return総量をその分布へ正規化配分します。
+- `zhao_charge_driven` の自動 `implicit_mean` 経路では、実測 PE interface-outward 電流と法線 energy CDF が
+  非線形 $Q(\Phi_I)$ 更新を決めます。Zhao 内部の density population は解析 closure のままで、任意の trapped VDF
+  や full kinetic 1D PIC を解くものではありません。
 - tracked return を使う全 species で `deposit_opposite_charge_on_emit=true` が必要です。
 
 詳細は[粒子の escape と return](ParticleEscapeReturn.html)を参照してください。
@@ -544,13 +637,13 @@ facade は `update_mode`、`particle_transfer_mode`、`outer_queue_enabled` を 
 
 | キー | 型 | 既定値 | 説明 |
 | --- | --- | ---: | --- |
-| `update_mode` | string | `"explicit"` | 現在は`explicit`のみ。outer profileを明示的な更新点で再計算 |
+| `update_mode` | string | `"explicit"` | 入力では `explicit` のみ。facade は `same_batch` と負電荷 `photo_raycast` を使う `ambient_linear_debye`、および `zhao_floating` を伴う強 PE `zhao_charge_driven` を内部の `implicit_mean` へ自動解決 |
 | `particle_transfer_mode` | string | `"none"` | facade が導出する `none` / `electrostatic_1d_instant_return` |
 | `steady_start_mode` | string | `"none"` | `none` / `zhao_floating`。新規実行を Zhao 零電流定常根と対応する平面電荷から開始 |
 | `steady_start_mesh_id` | int | `1` | `zhao_floating`で初期電荷を面積比で配る水平平面の`mesh_id` |
 | `outer_update_stride` | int | `1` | outer profile更新batch間隔 |
-| `field_evolution_timescale` | float | `0` | frozen-field比較時間 [s]。1D returnでは正値必須 |
-| `max_frozen_field_ratio` | float | `0.1` | instantでは`tau_outer`、queueでは`tau_outer`、次のpollまでの遅延、midpoint時刻誤差上限の合計を`field_evolution_timescale`で割った上限。queueの`batch_duration`にも適用 |
+| `field_evolution_timescale` | float | `0` | frozen-field比較時間 [s]。1D returnでは正値必須。`implicit_mean` PE shadowでも診断に使用 |
+| `max_frozen_field_ratio` | float | `0.1` | 通常 instant では`tau_outer`、queueでは`tau_outer`、次のpollまでの遅延、midpoint時刻誤差上限の合計を`field_evolution_timescale`で割った上限。queueの`batch_duration`にも適用。`implicit_mean` PE shadowでは停止条件にしない |
 | `outer_queue_enabled` | bool | `false` | 対応するZhao構成でouter flightをbatch間queueへ保存し、queued photoelectron columnで過渡closureを解く |
 
 facade が解決する return / transfer の runtime 対:
@@ -606,7 +699,8 @@ seedから同じ定常観測量へ返るかを確認します。
 - 正規化後の `outer_plasma.return_model` と `coupling.particle_transfer_mode` は上表の対応する対になります。
 - 1D transferはopenなz-high interface、x/y周期wrap、`b0=0`だけに対応します。
 - `kinetic_1d`はenabledな負・正z-high `reservoir_face` speciesをそれぞれちょうど1つ要求します。
-- instant modeは正の`field_evolution_timescale`を要求し、`max_frozen_field_ratio`を適用性上限に使います。
+- instant modeは正の`field_evolution_timescale`を要求します。通常粒子は`max_frozen_field_ratio`を
+  fail-closedの適用性上限に使い、`implicit_mean` PE shadowは同じratioを診断だけに使います。
 - 公開 facade の `zhao_queue` は `kinetic_1d` + `zhao_charge_driven` + `zhao_branch="auto"`、
   直接指定または`dt * batch_duration_step`から解決した正の`batch_duration`を要求し、
   runtime の `outer_update_stride` を 1 に固定します。

@@ -390,7 +390,7 @@ contains
     integer(i32) :: zhao_electron_species, boundary_status
     integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
     integer(i32), allocatable :: counts_max(:), counts_actual(:), global_counts(:), species_cursor(:), species_id(:), &
-                                 emit_elem_species(:, :)
+                                 source_element(:), emit_elem_species(:, :)
     real(dp), allocatable :: vmin_normal(:), barrier_normal(:), batch_density_m3(:), batch_weight(:)
     logical :: use_collective_reservoir_count
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
@@ -592,7 +592,8 @@ contains
     end do
 
     batch_n = sum(counts_actual)
-    allocate (species_id(batch_n))
+    allocate (species_id(batch_n), source_element(batch_n))
+    source_element = -1_i32
     out_idx = 0_i32
     do i = 1, max_rank
       do s = 1, cfg%n_particle_species
@@ -613,9 +614,14 @@ contains
       q(i) = cfg%particle_species(s)%q_particle
       m(i) = cfg%particle_species(s)%m_particle
       w(i) = w_species(species_cursor(s), s)
+      if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'photo_raycast') then
+        source_element(i) = emit_elem_species(species_cursor(s), s)
+      end if
     end do
 
-    call init_particles(pcls, x, v, q, m, w, species_id=species_id)
+    call init_particles( &
+      pcls, x, v, q, m, w, species_id=species_id, source_element=source_element &
+      )
     end associate
   end subroutine init_particle_batch_from_config
 

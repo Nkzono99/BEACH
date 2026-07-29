@@ -132,6 +132,21 @@ source-dir = "tests/fortran"
 main = "test_outer_plasma_kinetic_core.f90"
 
 [[test]]
+name = "test_mean_charge_integrator"
+source-dir = "tests/fortran"
+main = "test_mean_charge_integrator.f90"
+
+[[test]]
+name = "test_mean_charge_transaction"
+source-dir = "tests/fortran"
+main = "test_mean_charge_transaction.f90"
+
+[[test]]
+name = "test_dynamic_k0_zhao"
+source-dir = "tests/fortran"
+main = "test_dynamic_k0_zhao.f90"
+
+[[test]]
 name = "test_outer_plasma_grid"
 source-dir = "tests/fortran"
 main = "test_outer_plasma_grid.f90"

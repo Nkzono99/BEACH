@@ -10,9 +10,35 @@ module bem_outer_plasma_kinetic_runtime
 
   real(dp), parameter :: electron_mass_si = 9.1093837139e-31_dp
 
+  public :: find_kinetic_ambient_species
   public :: resolve_kinetic_outer_options
 
 contains
+
+  !> kinetic 1Dが所有するz-high reservoir電子・イオン種を一意に選ぶ。
+  subroutine find_kinetic_ambient_species(app, electron_index, ion_index, electron_count, ion_count)
+    type(app_config), intent(in) :: app
+    integer(i32), intent(out) :: electron_index, ion_index
+    integer(i32), intent(out) :: electron_count, ion_count
+    integer(i32) :: species
+
+    electron_index = 0_i32
+    ion_index = 0_i32
+    electron_count = 0_i32
+    ion_count = 0_i32
+    do species = 1_i32, app%n_particle_species
+      if (.not. app%particle_species(species)%enabled) cycle
+      if (trim(lower_ascii(app%particle_species(species)%source_mode)) /= 'reservoir_face') cycle
+      if (trim(lower_ascii(app%particle_species(species)%inject_face)) /= 'z_high') cycle
+      if (app%particle_species(species)%q_particle < 0.0_dp) then
+        electron_count = electron_count + 1_i32
+        if (electron_index == 0_i32) electron_index = species
+      else if (app%particle_species(species)%q_particle > 0.0_dp) then
+        ion_count = ion_count + 1_i32
+        if (ion_index == 0_i32) ion_index = species
+      end if
+    end do
+  end subroutine find_kinetic_ambient_species
 
   subroutine resolve_kinetic_outer_options(app, interface_field, options, status, message)
     type(app_config), intent(in) :: app
@@ -22,7 +48,7 @@ contains
     character(len=*), intent(out) :: message
     integer(i32) :: species, electron_index, ion_index, photoelectron_index
     integer(i32) :: electron_count, ion_count, photoelectron_count
-    logical :: use_zhao, no_photo_zhao
+    logical :: use_zhao, no_photo_zhao, implicit_mean
     real(dp) :: quasineutral_charge_scale
 
     options = kinetic_outer_plasma_options_type()
@@ -35,6 +61,7 @@ contains
     options%photoelectron_column_target_m2 = 0.0_dp
     use_zhao = trim(options%kinetic_closure) == 'zhao_charge_driven'
     no_photo_zhao = use_zhao .and. options%photoelectron_source_scale == 0.0_dp
+    implicit_mean = trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean'
     status = outer_plasma_invalid
     message = ''
     if (use_zhao .and. &
@@ -49,30 +76,17 @@ contains
       message = 'kinetic_1d requires positive debye_length and thermal_voltage'
       return
     end if
-    electron_index = 0_i32
-    ion_index = 0_i32
+    call find_kinetic_ambient_species(app, electron_index, ion_index, electron_count, ion_count)
     photoelectron_index = 0_i32
-    electron_count = 0_i32
-    ion_count = 0_i32
     photoelectron_count = 0_i32
     do species = 1_i32, app%n_particle_species
       if (.not. app%particle_species(species)%enabled) cycle
-      if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. use_zhao) .and. &
+      if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. use_zhao .or. &
+           implicit_mean) .and. &
           trim(lower_ascii(app%particle_species(species)%source_mode)) == 'photo_raycast' .and. &
           app%particle_species(species)%q_particle < 0.0_dp) then
         photoelectron_count = photoelectron_count + 1_i32
         if (photoelectron_index == 0_i32) photoelectron_index = species
-        cycle
-      end if
-      if (trim(lower_ascii(app%particle_species(species)%source_mode)) /= 'reservoir_face') cycle
-      if (trim(lower_ascii(app%particle_species(species)%inject_face)) /= 'z_high') cycle
-      if (app%particle_species(species)%q_particle < 0.0_dp) then
-        electron_count = electron_count + 1_i32
-        if (electron_index == 0_i32) electron_index = species
-      end if
-      if (app%particle_species(species)%q_particle > 0.0_dp) then
-        ion_count = ion_count + 1_i32
-        if (ion_index == 0_i32) ion_index = species
       end if
     end do
     if (use_zhao .and. (electron_count /= 1_i32 .or. ion_count /= 1_i32)) then
@@ -96,10 +110,10 @@ contains
       return
     end if
     if (.not. use_zhao .and. &
-        trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .and. &
+        (trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. implicit_mean) .and. &
         photoelectron_count /= 1_i32) then
       status = outer_plasma_not_applicable
-      message = 'kinetic_mean requires exactly one enabled photoelectron species'
+      message = 'Selected kinetic photoelectron mean current requires exactly one enabled photoelectron species'
       return
     end if
     if (electron_index == 0_i32 .or. ion_index == 0_i32) then
@@ -107,7 +121,7 @@ contains
       message = 'kinetic_1d requires negative and positive z_high reservoir_face species'
       return
     end if
-    if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. &
+    if ((trim(lower_ascii(app%outer_plasma%photoelectron_density_model)) == 'kinetic_mean' .or. implicit_mean .or. &
          (use_zhao .and. .not. no_photo_zhao)) .and. &
         photoelectron_index == 0_i32) then
       status = outer_plasma_not_applicable
@@ -181,7 +195,9 @@ contains
     end if
     if (photoelectron_index > 0_i32) then
       if (use_zhao) then
-        call map_zhao_photoelectron(app%particle_species(photoelectron_index), options, status, message)
+        call map_zhao_photoelectron( &
+          app%particle_species(photoelectron_index), options,.not. implicit_mean, status, message &
+          )
         if (status == outer_plasma_ok) then
           options%tail_length = sqrt( &
                                 eps0*options%photoelectron_temperature_j/ &
@@ -191,6 +207,11 @@ contains
         end if
       else
         call map_photoelectron(app%particle_species(photoelectron_index), options, status, message)
+        if (status == outer_plasma_ok .and. implicit_mean .and. &
+            abs(app%particle_species(photoelectron_index)%normal_drift_speed) > 64.0_dp*epsilon(1.0_dp)) then
+          status = outer_plasma_not_applicable
+          message = 'implicit_mean Maxwellian photoelectron closure requires zero normal_drift_speed'
+        end if
       end if
     end if
   end subroutine resolve_kinetic_outer_options
@@ -269,9 +290,10 @@ contains
     status = outer_plasma_ok
   end subroutine map_photoelectron
 
-  subroutine map_zhao_photoelectron(species, options, status, message)
+  subroutine map_zhao_photoelectron(species, options, enforce_outer_source_match, status, message)
     type(particle_species_spec), intent(in) :: species
     type(kinetic_outer_plasma_options_type), intent(inout) :: options
+    logical, intent(in) :: enforce_outer_source_match
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
@@ -305,12 +327,18 @@ contains
                                     options%photoelectron_reference_density*sin(options%zhao_alpha_deg*pi/180.0_dp)* &
                                     photoelectron_thermal_speed/(2.0_dp*sqrt(pi))* &
                                     options%photoelectron_source_scale
-    if (expected_emit_current_density <= 0.0_dp .or. species%emit_current_density_a_m2 <= 0.0_dp .or. &
-        abs(species%emit_current_density_a_m2 - expected_emit_current_density) > &
-        0.01_dp*expected_emit_current_density) then
+    if (expected_emit_current_density <= 0.0_dp .or. species%emit_current_density_a_m2 <= 0.0_dp) then
       status = outer_plasma_not_applicable
-      message = 'Zhao photo_raycast current must match n_ref, alpha, and photoelectron temperature within 1 percent'
+      message = 'Zhao photo_raycast and reference source currents must both be positive'
       return
+    end if
+    if (enforce_outer_source_match) then
+      if (abs(species%emit_current_density_a_m2 - expected_emit_current_density) > &
+          0.01_dp*expected_emit_current_density) then
+        status = outer_plasma_not_applicable
+        message = 'Fixed Zhao photo_raycast current must match the configured outer source within 1 percent'
+        return
+      end if
     end if
     status = outer_plasma_ok
   end subroutine map_zhao_photoelectron

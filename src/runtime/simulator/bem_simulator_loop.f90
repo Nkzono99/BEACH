@@ -52,9 +52,15 @@ contains
   character(len=256) :: kinetic_message
   character(len=256) :: boundary_message
   type(kinetic_outer_plasma_options_type) :: kinetic_options
+  type(dynamic_k0_step_type) :: dynamic_k0_step
   type(external_boundary_contract_type) :: boundary_contract
   type(outer_plasma_state_type) :: steady_start_state
   real(dp) :: steady_start_charge
+  real(dp) :: dynamic_k0_area_xy, mean_transaction_residual
+  real(dp) :: tracked_photoelectron_outward_current_density
+  real(dp) :: mean_sample_escape_fraction, mean_return_weight_scale
+  real(dp) :: mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge
+  logical :: implicit_mean_enabled
 
   stats = sim_stats()
   if (present(initial_stats)) stats = initial_stats
@@ -69,6 +75,19 @@ contains
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
   ledger_enabled = present(charge_ledger)
   outer_queue_enabled = app%coupling%outer_queue_enabled
+  implicit_mean_enabled = trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean'
+  dynamic_k0_step = dynamic_k0_step_type()
+  if (implicit_mean_enabled .and. outer_queue_enabled) then
+    error stop 'implicit_mean cannot be combined with an outer event queue.'
+  end if
+  dynamic_k0_area_xy = 0.0_dp
+  if (implicit_mean_enabled) then
+    dynamic_k0_area_xy = (app%sim%box_max(1) - app%sim%box_min(1))* &
+                         (app%sim%box_max(2) - app%sim%box_min(2))
+    if (.not. ieee_is_finite(dynamic_k0_area_xy) .or. dynamic_k0_area_xy <= 0.0_dp) then
+      error stop 'implicit_mean requires a positive finite horizontal box area.'
+    end if
+  end if
   if (outer_queue_enabled .and. .not. present(outer_queue_state)) then
     error stop 'outer_queue_enabled=true requires a persistent outer queue state.'
   end if
@@ -93,7 +112,9 @@ contains
 
   nth = 1
 !$ nth = max(1, omp_get_max_threads())
-  call workspace%init(mesh%nelem, app%n_particle_species, nth)
+  call workspace%init( &
+    mesh%nelem, app%n_particle_species, nth, implicit_mean_enabled=implicit_mean_enabled &
+    )
   max_outer_flight_time = 0.0_dp
   max_frozen_field_ratio = 0.0_dp
   max_outer_energy_relative_error = 0.0_dp
@@ -144,7 +165,9 @@ contains
     call snapshot%init(mesh, app%sim, app%field, app%periodic2, app%panel, app%outer_plasma, mpi=mpi_ctx)
   end if
   if (present(electrostatic_restart_state)) then
-    call snapshot%restore_outer_state(electrostatic_restart_state)
+    call snapshot%restore_outer_state( &
+      electrostatic_restart_state, require_charge_consistency=implicit_mean_enabled &
+      )
   end if
   if (trim(lower_ascii(app%coupling%steady_start_mode)) == 'zhao_floating') then
     if (stats%batches == 0_i32) then
@@ -177,6 +200,9 @@ contains
   end if
   if (present(electrostatic_restart_state)) then
     call outer_coupler%init(app%coupling, electrostatic_restart_state%last_outer_update_batch)
+    if (implicit_mean_enabled .and. snapshot%outer%ready) then
+      call outer_coupler%accept_restored_snapshot()
+    end if
   else
     call outer_coupler%init(app%coupling)
   end if
@@ -251,7 +277,7 @@ contains
 
     if (outer_queue_enabled) then
       call append_due_return_particles(due_outer_events, pcls_batch)
-      call workspace%prepare_particle_flags(pcls_batch%n, outer_queue_enabled=.true.)
+      call workspace%prepare_particle_flags(pcls_batch%n, outer_queue_enabled=.true., implicit_mean_enabled=.false.)
     end if
 
     if (ledger_enabled) then
@@ -266,6 +292,8 @@ contains
       mesh, app, boundary_contract, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
       workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
       workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
+      workspace%deferred_mean_interface_flag, workspace%deferred_mean_interface_step, &
+      workspace%deferred_mean_interface_crossing, &
       workspace%interface_outward_thread, workspace%interface_returned_thread, &
       collision_failure_status, collision_failure_particle, &
       collision_failure_step, collision_failure_x, collision_failure_v, workspace%interface_tau_max_thread, &
@@ -309,6 +337,47 @@ contains
         workspace%interface_returned_thread(:, 1) + due_returned_charge
     end if
 
+    tracked_photoelectron_outward_current_density = 0.0_dp
+    mean_sample_escape_fraction = 0.0_dp
+    mean_return_weight_scale = 0.0_dp
+    mean_transaction_residual = 0.0_dp
+    mean_sampled_deferred_absorbed_charge = 0.0_dp
+    mean_sampled_deferred_escaped_charge = 0.0_dp
+    if (implicit_mean_enabled) then
+      call resolve_implicit_mean_batch( &
+        mesh, app, boundary_contract, snapshot, pcls_batch, workspace, bfield, mpi_ctx, &
+        dynamic_k0_step, tracked_photoelectron_outward_current_density, mean_sample_escape_fraction, &
+        mean_return_weight_scale, mean_transaction_residual, &
+        mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge, &
+        collision_failure_status, collision_failure_particle, collision_failure_step, &
+        collision_failure_x, collision_failure_v &
+        )
+
+      collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+      call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
+      if (collision_failure_count > 0_i32) then
+        local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
+        call mpi_select_lowest_rank_i32_values( &
+          mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
+          collision_failure_rank, selected_failure_values &
+          )
+        selected_failure_state = 0.0_dp
+        if (mpi_ctx%rank == collision_failure_rank) then
+          selected_failure_state(1:3) = collision_failure_x
+          selected_failure_state(4:6) = collision_failure_v
+        end if
+        call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
+        call stop_for_collision_failure( &
+          batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
+          selected_failure_values(3), app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
+          )
+      end if
+      max_outer_flight_time = max(max_outer_flight_time, maxval(workspace%interface_tau_max_thread))
+      max_frozen_field_ratio = max(max_frozen_field_ratio, maxval(workspace%interface_frozen_ratio_max_thread))
+      max_outer_energy_relative_error = &
+        max(max_outer_energy_relative_error, maxval(workspace%interface_energy_error_max_thread))
+    end if
+
     if (ledger_enabled) then
       batch_ledger%interface_outward_gross = sum(workspace%interface_outward_thread, dim=2)
       batch_ledger%interface_returned_gross = sum(workspace%interface_returned_thread, dim=2)
@@ -320,13 +389,44 @@ contains
         workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, batch_ledger &
         )
       call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx, workspace)
+      if (implicit_mean_enabled) then
+        call reconcile_implicit_mean_charge_ledger( &
+          app, dynamic_k0_step, dynamic_k0_area_xy, app%sim%batch_duration, &
+          tracked_photoelectron_outward_current_density, &
+          mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge, batch_ledger &
+          )
+      end if
     end if
+
     call perf_region_begin(perf_region_commit_charge, t0)
     call commit_batch_charge( &
       mesh, app%sim%q_floor, app%sim%e0, app%sim%field_bc_mode, &
       workspace, rel, mpi_ctx &
       )
+    if (implicit_mean_enabled) call outer_coupler%mark_mesh_changed()
     call perf_region_end(perf_region_commit_charge, t0)
+
+    if (implicit_mean_enabled) then
+      call perf_region_begin(perf_region_field_refresh, t0)
+      if (index('ABC', dynamic_k0_step%zhao_branch) > 0) then
+        ! resolve_implicit_mean_batch が受理済みのZhao profileを同じ候補電荷へ
+        ! collectiveに採用済み。ここではcommitted k/=0場だけを更新する。
+        call snapshot%refresh(mesh, update_outer=.false.)
+        call outer_coupler%accept_external_update(batch_idx)
+      else
+        call outer_coupler%refresh( &
+          snapshot, mesh, batch_idx, continuation_stage='post_implicit_mean', force_outer_update=.true. &
+          )
+      end if
+      dynamic_k0_step%surface_charge_after_c = sum(mesh%q_elem)
+      dynamic_k0_step%interface_potential_after_v = snapshot%outer%interface_potential
+      dynamic_k0_step%interface_field_after_v_m = snapshot%outer%interface_field
+      snapshot%outer%electron_current_density = dynamic_k0_step%electron_current_density_a_m2
+      snapshot%outer%ion_current_density = dynamic_k0_step%ion_current_density_a_m2
+      snapshot%outer%photoelectron_current_density = dynamic_k0_step%photoelectron_current_density_a_m2
+      snapshot%outer%total_current_density = dynamic_k0_step%total_current_density_a_m2
+      call perf_region_end(perf_region_field_refresh, t0)
+    end if
 
     if (outer_queue_enabled) then
       ! Complete each batch with a Zhao closure at the same time level as the
@@ -338,7 +438,7 @@ contains
       snapshot%kinetic_options%photoelectron_column_target_m2 = outer_queue_photoelectron_column_target
       call perf_region_begin(perf_region_field_refresh, t0)
       call outer_coupler%refresh( &
-        snapshot, mesh, batch_idx, continuation_stage='post_enqueue' &
+        snapshot, mesh, batch_idx, continuation_stage='post_enqueue', force_outer_update=.true. &
         )
       call perf_region_end(perf_region_field_refresh, t0)
     end if
@@ -369,6 +469,45 @@ contains
     call perf_region_begin(perf_region_history_write, t0)
     if (mpi_is_root(mpi_ctx)) then
       call print_batch_progress(batch_idx, final_batch_idx, rel)
+      if (implicit_mean_enabled .and. &
+          (batch_idx <= 10_i32 .or. mod(batch_idx, hist_stride) == 0_i32 .or. batch_idx == final_batch_idx)) then
+        write (output_unit, '(a,i0,16(a,es13.5),a,i0)') &
+          'BEACH implicit-mean batch=', batch_idx, &
+          ' charge_C=', dynamic_k0_step%surface_charge_after_c, &
+          ' phi_I_V=', dynamic_k0_step%interface_potential_after_v, &
+          ' phi_explicit_V=', dynamic_k0_step%explicit_predictor_potential_v, &
+          ' E_I_V_m=', dynamic_k0_step%interface_field_after_v_m, &
+          ' J_e_A_m2=', dynamic_k0_step%electron_current_density_a_m2, &
+          ' J_i_A_m2=', dynamic_k0_step%ion_current_density_a_m2, &
+          ' J_pe_out_A_m2=', tracked_photoelectron_outward_current_density, &
+          ' J_pe_A_m2=', dynamic_k0_step%photoelectron_current_density_a_m2, &
+          ' J_other_A_m2=', dynamic_k0_step%additional_tracked_current_density_a_m2, &
+          ' f_escape=', dynamic_k0_step%photoelectron_escape_fraction, &
+          ' f_return=', dynamic_k0_step%photoelectron_return_fraction, &
+          ' sample_escape_fraction=', mean_sample_escape_fraction, &
+          ' return_weight_scale=', mean_return_weight_scale, &
+          ' transaction_residual_C=', mean_transaction_residual, &
+          ' shadow_return_tau_mean_s=', dynamic_k0_step%returned_outer_flight_time_mean_s, &
+          ' shadow_return_column_charge_C_m2=', &
+          dynamic_k0_step%estimated_returning_photoelectron_column_charge_per_area_c_m2, &
+          ' mean_solver_iterations=', dynamic_k0_step%iterations
+        if (index('ABC', dynamic_k0_step%zhao_branch) > 0) then
+          write (output_unit, '(a,i0,2(a,a),9(a,es13.5))') &
+            'BEACH implicit-zhao batch=', batch_idx, &
+            ' branch=', dynamic_k0_step%zhao_branch, &
+            ' closure=', trim(snapshot%outer%kinetic_closure), &
+            ' phi_min_V=', snapshot%outer%zhao_phi_minimum, &
+            ' n_e_inf_m3=', snapshot%outer%zhao_electron_density_infinity, &
+            ' barrier_J=', dynamic_k0_step%photoelectron_barrier_energy_j, &
+            ' source_scale=', dynamic_k0_step%zhao_effective_source_scale, &
+            ' marginal_energy_J=', dynamic_k0_step%marginal_photoelectron_energy_j, &
+            ' marginal_escape_fraction=', dynamic_k0_step%marginal_photoelectron_escape_fraction, &
+            ' empirical_charge_residual_C=', dynamic_k0_step%backward_euler_residual_charge_c, &
+            ' recross_charge_fraction=', dynamic_k0_step%photoelectron_recross_charge_fraction, &
+            ' terminal_mismatch_charge_fraction=', &
+            dynamic_k0_step%photoelectron_terminal_mismatch_charge_fraction
+        end if
+      end if
       if (outer_queue_enabled) then
         write (output_unit, '(a,i0,a,i0,a,i0,a,es13.5,a,es13.5,a,es13.5,a,a,a,es13.5)') &
           'BEACH outer-queue batch=', batch_idx, ' events_after_pop=', outer_queue_event_count_after_pop, &
@@ -437,6 +576,13 @@ contains
     electrostatic_diagnostics%max_outer_flight_time = outer_max_diagnostics(1)
     electrostatic_diagnostics%max_frozen_field_ratio = outer_max_diagnostics(2)
     electrostatic_diagnostics%max_outer_energy_relative_error = outer_max_diagnostics(3)
+    if (implicit_mean_enabled .and. dynamic_k0_step%status == dynamic_k0_ok) then
+      electrostatic_diagnostics%implicit_mean_shadow_diagnostics_available = .true.
+      electrostatic_diagnostics%implicit_mean_last_returned_outer_flight_time_mean = &
+        dynamic_k0_step%returned_outer_flight_time_mean_s
+      electrostatic_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area = &
+        dynamic_k0_step%estimated_returning_photoelectron_column_charge_per_area_c_m2
+    end if
     if (outer_queue_enabled) then
       electrostatic_diagnostics%outer_queue_event_count = outer_queue_event_count_after
       electrostatic_diagnostics%outer_queue_signed_charge = outer_queue_charge_after
@@ -481,7 +627,10 @@ contains
       )
   end if
   if (collision_failure_status /= collision_query_ok) return
-  call workspace%prepare_particle_flags(pcls_batch%n, outer_queue_enabled=app%coupling%outer_queue_enabled)
+  call workspace%prepare_particle_flags( &
+    pcls_batch%n, outer_queue_enabled=app%coupling%outer_queue_enabled, &
+    implicit_mean_enabled=trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean' &
+    )
   end procedure prepare_batch_state
 
   !> 粒子を時間発展させ、衝突時の堆積電荷をスレッド別に集計する。
@@ -512,6 +661,7 @@ contains
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,boundary_contract,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(soft_discarded_boundary_flag,queued_outer_flag,outer_event_staging) &
+  !$omp shared(deferred_mean_interface_flag,deferred_mean_interface_step,deferred_mean_interface_crossing) &
   !$omp shared(interface_outward_thread,interface_returned_thread) &
   !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread) &
   !$omp shared(interface_energy_error_max_thread) &
@@ -592,46 +742,64 @@ contains
       end if
       if (used_event_resolver) then
         if (step_result%interface_crossing%has_crossing) then
-          call continue_external_particle_step( &
-            boundary_contract, snapshot, mesh, app%sim, app%coupling, bfield, &
-            pcls_batch%q(i), pcls_batch%m(i), app%sim%batch_duration, step_result, external_final_result, &
-            external_trace &
-            )
-          step_result = external_final_result
           species_idx = pcls_batch%species_id(i)
           qdep = pcls_batch%q(i)*pcls_batch%w(i)
-          do external_event = 1_i32, external_trace%count
+          if (trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean' .and. &
+              trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast' .and. &
+              app%particle_species(species_idx)%q_particle < 0.0_dp) then
+            ! The first 3D trace ends at the interface.  The implicit mean
+            ! closure later splits its macro weight into escape and return;
+            ! the returned shadow is then traced under new k=0 and old k/=0.
+            ! Deferring that trace avoids applying the previous-batch profile
+            ! and the updated mean barrier to the same identity.
             interface_outward_thread(species_idx, tid) = interface_outward_thread(species_idx, tid) + qdep
-            if (external_trace%outcome(external_event)%kind == interface_outcome_returned_local .or. &
-                external_trace%outcome(external_event)%kind == interface_outcome_escaped_to_infinity .or. &
-                external_trace%outcome(external_event)%kind == interface_outcome_queued_outer) then
-              interface_energy_error_max_thread(tid) = max( &
-                                                       interface_energy_error_max_thread(tid), &
-                                                       external_trace%outcome(external_event)%energy_relative_error &
-                                                       )
-              interface_tau_max_thread(tid) = max( &
-                                              interface_tau_max_thread(tid), &
-                                              external_trace%outcome(external_event)%outer_flight_time &
-                                              )
-              interface_frozen_ratio_max_thread(tid) = max( &
-                                                       interface_frozen_ratio_max_thread(tid), &
-                                                       external_trace%outcome(external_event)%frozen_field_ratio &
-                                                       )
-            end if
-            if (.not. boundary_contract%queue_enabled .and. &
-                external_trace%outcome(external_event)%kind == interface_outcome_returned_local) then
-              interface_returned_thread(species_idx, tid) = interface_returned_thread(species_idx, tid) + qdep
-            end if
-          end do
-          if (boundary_contract%queue_enabled .and. external_trace%count > 0_i32 .and. &
-              external_trace%outcome(external_trace%count)%kind == interface_outcome_queued_outer) then
-            call stage_queued_outer_event( &
-              outer_event_staging(i), external_trace%outcome(external_trace%count), pcls_batch, i, batch_idx, &
-              mpi_rank, app%sim%batch_duration &
+            deferred_mean_interface_flag(i) = .true.
+            deferred_mean_interface_step(i) = step
+            deferred_mean_interface_crossing(i) = step_result%interface_crossing
+            step_result%x = step_result%interface_crossing%position
+            step_result%v = step_result%interface_crossing%velocity
+            step_result%interface_crossing%has_crossing = .false.
+            step_result%escaped_boundary = .true.
+          else
+            call continue_external_particle_step( &
+              boundary_contract, snapshot, mesh, app%sim, app%coupling, bfield, &
+              pcls_batch%q(i), pcls_batch%m(i), app%sim%batch_duration, step_result, external_final_result, &
+              external_trace &
               )
-            pcls_batch%alive(i) = .false.
-            queued_outer_flag(i) = .true.
-            exit
+            step_result = external_final_result
+            do external_event = 1_i32, external_trace%count
+              interface_outward_thread(species_idx, tid) = interface_outward_thread(species_idx, tid) + qdep
+              if (external_trace%outcome(external_event)%kind == interface_outcome_returned_local .or. &
+                  external_trace%outcome(external_event)%kind == interface_outcome_escaped_to_infinity .or. &
+                  external_trace%outcome(external_event)%kind == interface_outcome_queued_outer) then
+                interface_energy_error_max_thread(tid) = max( &
+                                                         interface_energy_error_max_thread(tid), &
+                                                         external_trace%outcome(external_event)%energy_relative_error &
+                                                         )
+                interface_tau_max_thread(tid) = max( &
+                                                interface_tau_max_thread(tid), &
+                                                external_trace%outcome(external_event)%outer_flight_time &
+                                                )
+                interface_frozen_ratio_max_thread(tid) = max( &
+                                                         interface_frozen_ratio_max_thread(tid), &
+                                                         external_trace%outcome(external_event)%frozen_field_ratio &
+                                                         )
+              end if
+              if (.not. boundary_contract%queue_enabled .and. &
+                  external_trace%outcome(external_event)%kind == interface_outcome_returned_local) then
+                interface_returned_thread(species_idx, tid) = interface_returned_thread(species_idx, tid) + qdep
+              end if
+            end do
+            if (boundary_contract%queue_enabled .and. external_trace%count > 0_i32 .and. &
+                external_trace%outcome(external_trace%count)%kind == interface_outcome_queued_outer) then
+              call stage_queued_outer_event( &
+                outer_event_staging(i), external_trace%outcome(external_trace%count), pcls_batch, i, batch_idx, &
+                mpi_rank, app%sim%batch_duration &
+                )
+              pcls_batch%alive(i) = .false.
+              queued_outer_flag(i) = .true.
+              exit
+            end if
           end if
         end if
         if (step_result%status /= collision_query_ok) then
@@ -703,6 +871,702 @@ contains
   !$omp end do
   !$omp end parallel
   end procedure process_particle_batch
+
+  !> fastな平均総電荷を陰的に解き、slowな帰還先分布をrayで1回だけ標本化する。
+  module procedure resolve_implicit_mean_batch
+  integer(i32) :: i, elem_idx, transaction_status, failure_count, nth, photoelectron_index
+  integer(i32) :: local_energy_count, energy_index, distribution_status
+  real(dp) :: area_xy, pending_current, electron_current, ion_current, additional_current
+  real(dp) :: macro_charge, source_charge_total, pending_absolute_total
+  real(dp) :: target_return_charge, target_escape_charge, raw_return_charge, raw_escape_charge
+  real(dp) :: return_fraction, sample_return_fraction, escape_weight_scale, particle_weight_scale
+  real(dp) :: mean_charge_scale, mean_charge_tolerance, sample_charge_tolerance
+  real(dp) :: vector_charge_scale, transaction_tolerance, boundary_factor, mean_capacitance
+  real(dp) :: surface_charge_base, effective_source_scale, resolved_barrier
+  real(dp) :: recross_charge, terminal_mismatch_charge, empirical_return_charge
+  integer(i32), allocatable :: outward_event_count(:), returned_event_count(:)
+  real(dp), allocatable :: returned_flight_time_sum(:)
+  real(dp), allocatable :: sample_return_weight(:)
+  real(dp), allocatable :: local_energy_j(:), local_energy_charge_c(:)
+  real(dp), allocatable :: global_energy_j(:), global_energy_charge_c(:)
+  real(dp), allocatable :: mean_tau_max_thread(:), mean_frozen_ratio_max_thread(:), mean_energy_error_max_thread(:)
+  real(dp) :: returning_shadow_moments(2)
+  type(dynamic_k0_step_type) :: scalar_predictor
+  type(outer_plasma_state_type) :: accepted_outer
+  type(measured_interface_energy_distribution_type) :: measured_distribution
+  type(mean_charge_transaction_type) :: transaction
+  character(len=256) :: message
+  logical :: use_dynamic_zhao, zero_weight_marginal
+
+  area_xy = (app%sim%box_max(1) - app%sim%box_min(1))* &
+            (app%sim%box_max(2) - app%sim%box_min(2))
+  if (.not. ieee_is_finite(area_xy) .or. area_xy <= 0.0_dp .or. &
+      .not. ieee_is_finite(app%sim%batch_duration) .or. app%sim%batch_duration <= 0.0_dp) then
+    error stop 'implicit mean coupling requires finite positive area and batch duration.'
+  end if
+  if (size(workspace%mean_pending_charge) /= mesh%nelem .or. &
+      size(workspace%mean_deferred_source_charge) /= mesh%nelem .or. &
+      size(workspace%mean_returned_destination_charge) /= mesh%nelem .or. &
+      size(workspace%mean_candidate_charge) /= mesh%nelem) then
+    error stop 'implicit mean coupling received inconsistent element storage.'
+  end if
+
+  collision_failure_status = collision_query_ok
+  collision_failure_particle = huge(0_i32)
+  collision_failure_step = 0_i32
+  collision_failure_x = 0.0_dp
+  collision_failure_v = 0.0_dp
+  transaction_residual = 0.0_dp
+  sampled_deferred_absorbed_charge = 0.0_dp
+  sampled_deferred_escaped_charge = 0.0_dp
+  photoelectron_outward_current_density = 0.0_dp
+  sample_escape_fraction = 0.0_dp
+  return_weight_scale = 0.0_dp
+
+  call measure_tracked_ambient_surface_currents( &
+    app, pcls_batch, workspace%absorbed_flag, area_xy, app%sim%batch_duration, mpi, &
+    electron_current, ion_current &
+    )
+  call measure_tracked_photoelectron_interface_current( &
+    app, workspace%interface_outward_thread, area_xy, app%sim%batch_duration, mpi, &
+    photoelectron_outward_current_density, photoelectron_index &
+    )
+  call measure_pending_surface_current_density( &
+    workspace%dq_thread, workspace%photo_emission_dq, area_xy, app%sim%batch_duration, mpi, pending_current &
+    )
+  additional_current = pending_current - electron_current - ion_current - &
+                       photoelectron_outward_current_density
+
+  ! pending は通常の局所 deposit と全放出 countercharge。scalar solve が
+  ! 決めた return 総量を発生元で一時中和し、同じ総電荷を持つ平均場を作る。
+  workspace%mean_pending_charge = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
+  call mpi_allreduce_sum_real_dp_array(mpi, workspace%mean_pending_charge)
+  source_charge_total = photoelectron_outward_current_density*area_xy*app%sim%batch_duration
+  pending_absolute_total = sum(mesh%q_elem) + sum(workspace%mean_pending_charge)
+  use_dynamic_zhao = trim(lower_ascii(snapshot%kinetic_options%kinetic_closure)) == 'zhao_charge_driven'
+  if (use_dynamic_zhao) then
+    local_energy_count = count(workspace%deferred_mean_interface_flag(:pcls_batch%n))
+    allocate (local_energy_j(local_energy_count), local_energy_charge_c(local_energy_count))
+    energy_index = 0_i32
+    distribution_status = dynamic_k0_ok
+    do i = 1_i32, pcls_batch%n
+      if (.not. workspace%deferred_mean_interface_flag(i)) cycle
+      energy_index = energy_index + 1_i32
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      local_energy_j(energy_index) = &
+        0.5_dp*pcls_batch%m(i)*workspace%deferred_mean_interface_crossing(i)%velocity(3)**2
+      local_energy_charge_c(energy_index) = -macro_charge
+      if (.not. ieee_is_finite(local_energy_j(energy_index)) .or. &
+          local_energy_j(energy_index) < 0.0_dp .or. &
+          .not. ieee_is_finite(local_energy_charge_c(energy_index)) .or. &
+          local_energy_charge_c(energy_index) <= 0.0_dp) then
+        distribution_status = dynamic_k0_invalid
+      end if
+    end do
+    failure_count = merge(1_i32, 0_i32, distribution_status /= dynamic_k0_ok)
+    call mpi_allreduce_sum_i32_scalar(mpi, failure_count)
+    if (failure_count > 0_i32) then
+      error stop 'implicit Zhao mean collected an invalid interface energy sample.'
+    end if
+    call mpi_gatherv_real_dp_array(mpi, local_energy_j, global_energy_j, 0_i32)
+    call mpi_gatherv_real_dp_array(mpi, local_energy_charge_c, global_energy_charge_c, 0_i32)
+    scalar_predictor = dynamic_k0_step_type()
+    effective_source_scale = 0.0_dp
+    if (mpi_is_root(mpi)) then
+      call build_measured_interface_energy_distribution( &
+        global_energy_j, global_energy_charge_c, measured_distribution, distribution_status, message &
+        )
+      if (distribution_status == dynamic_k0_ok) then
+        surface_charge_base = pending_absolute_total - measured_distribution%total_charge_c
+        call advance_dynamic_k0_zhao( &
+          snapshot%kinetic_options, snapshot%outer, app%periodic2%lower_boundary_model, area_xy, &
+          sum(mesh%q_elem), surface_charge_base, app%sim%batch_duration, measured_distribution, &
+          scalar_predictor, accepted_outer, effective_source_scale, message &
+          )
+      else
+        scalar_predictor%status = distribution_status
+      end if
+    end if
+    call broadcast_dynamic_zhao_step(mpi, scalar_predictor, effective_source_scale)
+    if (scalar_predictor%status /= dynamic_k0_ok) then
+      if (mpi_is_root(mpi)) then
+        write (error_unit, '(2a)') 'implicit Zhao mean: ', trim(message)
+        write (error_unit, '(a,i0,4(a,es13.5))') &
+          'implicit Zhao measured-source failure: interface_sample_count=', &
+          size(global_energy_charge_c), &
+          ' gathered_source_charge_C=', sum(global_energy_charge_c), &
+          ' reduced_source_charge_C=', source_charge_total, &
+          ' requested_source_scale=', effective_source_scale, &
+          ' committed_source_scale=', snapshot%outer%photoelectron_source_scale
+      end if
+      error stop 'implicit Zhao mean nonlinear Q(Phi_I) update failed without fallback.'
+    end if
+    if (abs(source_charge_total - scalar_predictor%photoelectron_source_charge_c) > &
+        4096.0_dp*epsilon(1.0_dp)*max( &
+        abs(source_charge_total), abs(scalar_predictor%photoelectron_source_charge_c), tiny(1.0_dp) &
+        )) then
+      error stop 'implicit Zhao gathered source charge disagrees with the interface-current reduction.'
+    end if
+    source_charge_total = scalar_predictor%photoelectron_source_charge_c
+    snapshot%kinetic_options%photoelectron_source_scale = effective_source_scale
+    snapshot%kinetic_options%photoelectron_population_fraction = 1.0_dp
+    snapshot%kinetic_options%photoelectron_column_closure_enabled = .false.
+    snapshot%kinetic_options%zhao_branch = lower_ascii(scalar_predictor%zhao_branch)
+  else
+    call advance_dynamic_k0_mean( &
+      snapshot%kinetic_options, app%periodic2%lower_boundary_model, area_xy, &
+      sum(mesh%q_elem), app%sim%batch_duration, scalar_predictor, message, &
+      electron_current, ion_current, photoelectron_outward_current_density, additional_current &
+      )
+    if (scalar_predictor%status /= dynamic_k0_ok) then
+      error stop 'implicit mean k0 predictor: '//trim(message)
+    end if
+  end if
+  step = scalar_predictor
+  target_return_charge = source_charge_total*scalar_predictor%photoelectron_return_fraction
+  mean_charge_scale = max( &
+                      abs(sum(mesh%q_elem)), abs(pending_absolute_total), &
+                      abs(scalar_predictor%surface_charge_after_c), abs(source_charge_total), tiny(1.0_dp) &
+                      )
+  boundary_factor = 1.0_dp
+  if (trim(lower_ascii(app%periodic2%lower_boundary_model)) == 'symmetric_vacuum') boundary_factor = 2.0_dp
+  mean_capacitance = boundary_factor*eps0*area_xy/snapshot%kinetic_options%tail_length
+  mean_charge_tolerance = max( &
+                          4096.0_dp*epsilon(1.0_dp)*mean_charge_scale, &
+                          mean_capacitance*(1.0e-12_dp + 1.0e-12_dp*max( &
+                                            1.0_dp, abs(scalar_predictor%interface_potential_before_v), &
+                                            abs(scalar_predictor%interface_potential_after_v) &
+                                            )) &
+                          )
+  sample_charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(source_charge_total), tiny(1.0_dp))
+  vector_charge_scale = max( &
+                        sum(abs(mesh%q_elem)), sum(abs(workspace%mean_pending_charge)), mean_charge_scale &
+                        )
+  transaction_tolerance = max( &
+                          mean_charge_tolerance, 4096.0_dp*epsilon(1.0_dp)*vector_charge_scale &
+                          )
+  if (target_return_charge < -mean_charge_tolerance .or. &
+      target_return_charge > source_charge_total + mean_charge_tolerance) then
+    write (message, '(a,3(a,es13.5))') &
+      'implicit mean scalar target is outside the tracked photoelectron source interval:', &
+      ' target_return_C=', target_return_charge, ' source_C=', source_charge_total, &
+      ' tolerance_C=', mean_charge_tolerance
+    error stop trim(message)
+  end if
+  target_return_charge = min(source_charge_total, max(0.0_dp, target_return_charge))
+  if (source_charge_total > mean_charge_tolerance) then
+    if (target_return_charge <= mean_charge_tolerance) target_return_charge = 0.0_dp
+    if (source_charge_total - target_return_charge <= mean_charge_tolerance) then
+      target_return_charge = source_charge_total
+    end if
+  end if
+  target_escape_charge = source_charge_total - target_return_charge
+  return_fraction = 0.0_dp
+  if (source_charge_total > sample_charge_tolerance) return_fraction = target_return_charge/source_charge_total
+
+  allocate (sample_return_weight(pcls_batch%n))
+  sample_return_weight = 0.0_dp
+  workspace%mean_deferred_source_charge = 0.0_dp
+  transaction_status = mean_charge_transaction_ok
+  do i = 1_i32, pcls_batch%n
+    if (.not. workspace%deferred_mean_interface_flag(i)) cycle
+    elem_idx = pcls_batch%source_element(i)
+    macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+    if (elem_idx < 1_i32 .or. elem_idx > mesh%nelem .or. &
+        .not. ieee_is_finite(macro_charge) .or. macro_charge >= 0.0_dp) then
+      transaction_status = mean_charge_transaction_invalid
+      cycle
+    end if
+    sample_return_fraction = return_fraction
+    if (use_dynamic_zhao) then
+      sample_return_fraction = 1.0_dp - measured_sample_escape_fraction( &
+                               0.5_dp*pcls_batch%m(i)* &
+                               workspace%deferred_mean_interface_crossing(i)%velocity(3)**2, &
+                               scalar_predictor &
+                               )
+    end if
+    sample_return_weight(i) = sample_return_fraction
+    workspace%mean_deferred_source_charge(elem_idx) = &
+      workspace%mean_deferred_source_charge(elem_idx) - macro_charge*sample_return_fraction
+  end do
+  failure_count = merge(1_i32, 0_i32, transaction_status /= mean_charge_transaction_ok)
+  call mpi_allreduce_sum_i32_scalar(mpi, failure_count)
+  if (failure_count > 0_i32) then
+    error stop 'implicit mean deferred photoelectron has invalid source provenance or charge.'
+  end if
+  call mpi_allreduce_sum_real_dp_array(mpi, workspace%mean_deferred_source_charge)
+  if (use_dynamic_zhao .and. &
+      abs(sum(workspace%mean_deferred_source_charge) - target_return_charge) > transaction_tolerance) then
+    error stop 'implicit Zhao measured-energy source weights do not reproduce the nonlinear return charge.'
+  end if
+  workspace%mean_returned_destination_charge = -workspace%mean_deferred_source_charge
+  call build_mean_charge_transaction( &
+    workspace%mean_pending_charge, workspace%mean_deferred_source_charge, &
+    workspace%mean_returned_destination_charge, transaction, transaction_status, message &
+    )
+  if (transaction_status /= mean_charge_transaction_ok) then
+    error stop 'implicit mean predictor transaction: '//trim(message)
+  end if
+  workspace%mean_candidate_charge = mesh%q_elem + transaction%predictor_charge_c
+  transaction_residual = max( &
+                         abs(sum(workspace%mean_candidate_charge) - scalar_predictor%surface_charge_after_c), &
+                         abs(transaction%source_return_residual_charge_c), &
+                         abs(transaction%predictor_actual_residual_charge_c) &
+                         )
+  if (transaction_residual > max(transaction_tolerance, transaction%charge_tolerance_c)) then
+    error stop 'implicit mean predictor does not reproduce the scalar target charge.'
+  end if
+
+  nth = size(workspace%dq_thread, 2)
+  allocate (outward_event_count(pcls_batch%n), returned_event_count(pcls_batch%n))
+  allocate (returned_flight_time_sum(pcls_batch%n))
+  allocate (mean_tau_max_thread(nth), mean_frozen_ratio_max_thread(nth), mean_energy_error_max_thread(nth))
+  if (use_dynamic_zhao) then
+    call snapshot%adopt_mean_outer(mesh, workspace%mean_candidate_charge, accepted_outer)
+    resolved_barrier = zhao_profile_barrier_energy( &
+                       snapshot%outer, snapshot%kinetic_options%photoelectron_charge &
+                       )
+    if (snapshot%outer%zhao_branch /= scalar_predictor%zhao_branch .or. &
+        .not. ieee_is_finite(resolved_barrier) .or. &
+        abs(snapshot%outer%photoelectron_source_scale - scalar_predictor%zhao_effective_source_scale) > &
+        1.0e-12_dp*max(1.0_dp, abs(scalar_predictor%zhao_effective_source_scale)) .or. &
+        abs(snapshot%outer%interface_potential - scalar_predictor%interface_potential_after_v) > &
+        1.0e-8_dp*max(1.0_dp, abs(scalar_predictor%interface_potential_after_v)) .or. &
+        abs(resolved_barrier - scalar_predictor%photoelectron_barrier_energy_j) > &
+        1.0e-8_dp*max( &
+        snapshot%kinetic_options%photoelectron_temperature_j, &
+        abs(scalar_predictor%photoelectron_barrier_energy_j), tiny(1.0_dp) &
+        )) then
+      error stop 'implicit Zhao collective refresh did not reproduce the accepted nonlinear branch state.'
+    end if
+  else
+    call snapshot%refresh_mean_only(mesh, workspace%mean_candidate_charge)
+  end if
+  call process_deferred_mean_interface_particles( &
+    mesh, app, boundary_contract, snapshot, pcls_batch, workspace%deferred_mean_interface_flag, &
+    workspace%deferred_mean_interface_step, workspace%deferred_mean_interface_crossing, &
+    workspace%deferred_mean_return_element, workspace%deferred_mean_terminal_absorbed, &
+    workspace%deferred_mean_terminal_escaped, outward_event_count, returned_event_count, &
+    returned_flight_time_sum, &
+    mean_tau_max_thread, mean_frozen_ratio_max_thread, mean_energy_error_max_thread, bfield, &
+    collision_failure_status, collision_failure_particle, collision_failure_step, &
+    collision_failure_x, collision_failure_v &
+    )
+  failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+  call mpi_allreduce_sum_i32_scalar(mpi, failure_count)
+  if (failure_count > 0_i32) return
+
+  ! Zhaoでは非線形CDFが決めたray別return weightをそのまま局所配置へ使う。
+  ! 再越境やterminal channel不一致は他rayへのweight付け替えで隠さない。
+  recross_charge = 0.0_dp
+  terminal_mismatch_charge = 0.0_dp
+  if (use_dynamic_zhao) then
+    do i = 1_i32, pcls_batch%n
+      if (.not. workspace%deferred_mean_interface_flag(i)) cycle
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      if (outward_event_count(i) /= 1_i32 .or. returned_event_count(i) > 1_i32) then
+        recross_charge = recross_charge - macro_charge
+      end if
+      if (sample_return_weight(i) > 64.0_dp*epsilon(1.0_dp)) then
+        if (.not. workspace%deferred_mean_terminal_absorbed(i) .or. &
+            returned_event_count(i) /= 1_i32) then
+          terminal_mismatch_charge = terminal_mismatch_charge - macro_charge
+        end if
+      else
+        zero_weight_marginal = &
+          scalar_predictor%marginal_photoelectron_escape_fraction >= 0.0_dp .and. &
+          scalar_predictor%marginal_photoelectron_escape_fraction >= &
+          1.0_dp - 64.0_dp*epsilon(1.0_dp) .and. &
+          0.5_dp*pcls_batch%m(i)* &
+          workspace%deferred_mean_interface_crossing(i)%velocity(3)**2 == &
+          scalar_predictor%marginal_photoelectron_energy_j
+        if (.not. zero_weight_marginal) then
+          if (.not. workspace%deferred_mean_terminal_escaped(i) .or. &
+              returned_event_count(i) /= 0_i32) then
+            terminal_mismatch_charge = terminal_mismatch_charge - macro_charge
+          end if
+        end if
+      end if
+    end do
+    call mpi_allreduce_sum_real_dp_scalar(mpi, recross_charge)
+    call mpi_allreduce_sum_real_dp_scalar(mpi, terminal_mismatch_charge)
+    scalar_predictor%photoelectron_recross_charge_fraction = recross_charge/source_charge_total
+    scalar_predictor%photoelectron_terminal_mismatch_charge_fraction = &
+      terminal_mismatch_charge/source_charge_total
+    step%photoelectron_recross_charge_fraction = &
+      scalar_predictor%photoelectron_recross_charge_fraction
+    step%photoelectron_terminal_mismatch_charge_fraction = &
+      scalar_predictor%photoelectron_terminal_mismatch_charge_fraction
+    if (recross_charge > sample_charge_tolerance .or. &
+        terminal_mismatch_charge > sample_charge_tolerance) then
+      if (mpi_is_root(mpi)) then
+        write (error_unit, '(a,2(a,es13.5))') &
+          'implicit Zhao empirical-interface applicability failure:', &
+          ' recross_charge_fraction=', scalar_predictor%photoelectron_recross_charge_fraction, &
+          ' terminal_mismatch_charge_fraction=', &
+          scalar_predictor%photoelectron_terminal_mismatch_charge_fraction
+      end if
+      error stop 'implicit Zhao empirical interface distribution is invalidated by recross or terminal mismatch.'
+    end if
+  end if
+
+  workspace%mean_deferred_source_charge = 0.0_dp
+  workspace%mean_returned_destination_charge = 0.0_dp
+  raw_return_charge = 0.0_dp
+  empirical_return_charge = 0.0_dp
+  transaction_status = mean_charge_transaction_ok
+  do i = 1_i32, pcls_batch%n
+    if (.not. workspace%deferred_mean_interface_flag(i)) cycle
+    if (.not. workspace%deferred_mean_terminal_absorbed(i)) cycle
+    elem_idx = pcls_batch%source_element(i)
+    macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+    if (elem_idx < 1_i32 .or. elem_idx > mesh%nelem .or. &
+        workspace%deferred_mean_return_element(i) < 1_i32 .or. &
+        workspace%deferred_mean_return_element(i) > mesh%nelem .or. &
+        .not. ieee_is_finite(macro_charge) .or. macro_charge >= 0.0_dp) then
+      transaction_status = mean_charge_transaction_invalid
+      cycle
+    end if
+    sample_return_fraction = 1.0_dp
+    if (use_dynamic_zhao) sample_return_fraction = sample_return_weight(i)
+    workspace%mean_deferred_source_charge(elem_idx) = &
+      workspace%mean_deferred_source_charge(elem_idx) - macro_charge*sample_return_fraction
+    elem_idx = workspace%deferred_mean_return_element(i)
+    workspace%mean_returned_destination_charge(elem_idx) = &
+      workspace%mean_returned_destination_charge(elem_idx) + macro_charge*sample_return_fraction
+    raw_return_charge = raw_return_charge - macro_charge
+    empirical_return_charge = empirical_return_charge - macro_charge*sample_return_fraction
+  end do
+  failure_count = merge(1_i32, 0_i32, transaction_status /= mean_charge_transaction_ok)
+  call mpi_allreduce_sum_i32_scalar(mpi, failure_count)
+  if (failure_count > 0_i32) then
+    error stop 'implicit mean return sample contains invalid source or destination metadata.'
+  end if
+  call mpi_allreduce_sum_real_dp_array(mpi, workspace%mean_deferred_source_charge)
+  call mpi_allreduce_sum_real_dp_array(mpi, workspace%mean_returned_destination_charge)
+  call mpi_allreduce_sum_real_dp_scalar(mpi, raw_return_charge)
+  call mpi_allreduce_sum_real_dp_scalar(mpi, empirical_return_charge)
+  raw_escape_charge = max(0.0_dp, source_charge_total - raw_return_charge)
+  sampled_deferred_absorbed_charge = -raw_return_charge
+  sampled_deferred_escaped_charge = -raw_escape_charge
+  if (source_charge_total > sample_charge_tolerance) then
+    sample_escape_fraction = min(1.0_dp, raw_escape_charge/source_charge_total)
+  else
+    sample_escape_fraction = 1.0_dp
+  end if
+  if (use_dynamic_zhao) then
+    return_weight_scale = 1.0_dp
+    if (abs(empirical_return_charge - target_return_charge) > transaction_tolerance) then
+      error stop 'implicit Zhao ray-resolved return weights do not reproduce the nonlinear target.'
+    end if
+  else if (target_return_charge > mean_charge_tolerance) then
+    if (raw_return_charge <= sample_charge_tolerance) then
+      error stop 'implicit mean needs at least one returned ray; increase photoelectron rays_per_batch.'
+    end if
+    return_weight_scale = target_return_charge/raw_return_charge
+  else
+    return_weight_scale = 0.0_dp
+  end if
+  workspace%mean_deferred_source_charge = &
+    workspace%mean_deferred_source_charge*return_weight_scale
+  workspace%mean_returned_destination_charge = &
+    workspace%mean_returned_destination_charge*return_weight_scale
+  call build_mean_charge_transaction( &
+    workspace%mean_pending_charge, workspace%mean_deferred_source_charge, &
+    workspace%mean_returned_destination_charge, transaction, transaction_status, message &
+    )
+  if (transaction_status /= mean_charge_transaction_ok) then
+    error stop 'implicit mean sampled return transaction: '//trim(message)
+  end if
+  workspace%mean_candidate_charge = mesh%q_elem + transaction%actual_charge_c
+  transaction_residual = max( &
+                         abs(sum(workspace%mean_candidate_charge) - scalar_predictor%surface_charge_after_c), &
+                         abs(transaction%source_return_residual_charge_c), &
+                         abs(transaction%predictor_actual_residual_charge_c) &
+                         )
+  vector_charge_scale = max(vector_charge_scale, sum(abs(workspace%mean_candidate_charge)))
+  transaction_tolerance = max( &
+                          transaction_tolerance, 4096.0_dp*epsilon(1.0_dp)*vector_charge_scale &
+                          )
+  if (transaction_residual > max(transaction_tolerance, transaction%charge_tolerance_c)) then
+    error stop 'implicit mean sampled return distribution does not reproduce the scalar target charge.'
+  end if
+
+  escape_weight_scale = 0.0_dp
+  if (.not. use_dynamic_zhao .and. raw_escape_charge > sample_charge_tolerance) then
+    escape_weight_scale = target_escape_charge/raw_escape_charge
+  end if
+  workspace%interface_outward_thread(photoelectron_index, :) = 0.0_dp
+  workspace%interface_returned_thread(photoelectron_index, :) = 0.0_dp
+  returning_shadow_moments = 0.0_dp
+  do i = 1_i32, pcls_batch%n
+    if (.not. workspace%deferred_mean_interface_flag(i)) cycle
+    macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+    if (workspace%deferred_mean_terminal_absorbed(i)) then
+      particle_weight_scale = return_weight_scale
+      if (use_dynamic_zhao) particle_weight_scale = sample_return_weight(i)
+      elem_idx = workspace%deferred_mean_return_element(i)
+      workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
+                                         macro_charge*particle_weight_scale
+    else
+      particle_weight_scale = escape_weight_scale
+    end if
+    workspace%absorbed_flag(i) = workspace%deferred_mean_terminal_absorbed(i)
+    workspace%escaped_boundary_flag(i) = workspace%deferred_mean_terminal_escaped(i)
+    if (use_dynamic_zhao) then
+      workspace%interface_outward_thread(photoelectron_index, 1) = &
+        workspace%interface_outward_thread(photoelectron_index, 1) + macro_charge
+      workspace%interface_returned_thread(photoelectron_index, 1) = &
+        workspace%interface_returned_thread(photoelectron_index, 1) + &
+        macro_charge*sample_return_weight(i)
+      returning_shadow_moments(1) = returning_shadow_moments(1) - &
+                                    macro_charge*sample_return_weight(i)
+      returning_shadow_moments(2) = returning_shadow_moments(2) - &
+                                    macro_charge*sample_return_weight(i)*returned_flight_time_sum(i)
+    else
+      workspace%interface_outward_thread(photoelectron_index, 1) = &
+        workspace%interface_outward_thread(photoelectron_index, 1) + &
+        macro_charge*particle_weight_scale*real(outward_event_count(i), dp)
+      workspace%interface_returned_thread(photoelectron_index, 1) = &
+        workspace%interface_returned_thread(photoelectron_index, 1) + &
+        macro_charge*particle_weight_scale*real(returned_event_count(i), dp)
+      returning_shadow_moments(1) = returning_shadow_moments(1) - &
+                                    macro_charge*particle_weight_scale*real(returned_event_count(i), dp)
+      returning_shadow_moments(2) = returning_shadow_moments(2) - &
+                                    macro_charge*particle_weight_scale*returned_flight_time_sum(i)
+    end if
+  end do
+  call mpi_allreduce_sum_real_dp_array(mpi, returning_shadow_moments)
+  if (.not. all(ieee_is_finite(returning_shadow_moments)) .or. any(returning_shadow_moments < 0.0_dp)) then
+    error stop 'implicit mean returning shadow diagnostics must be finite and nonnegative.'
+  end if
+  if (returning_shadow_moments(1) > sample_charge_tolerance) then
+    step%returned_outer_flight_time_mean_s = returning_shadow_moments(2)/returning_shadow_moments(1)
+    step%estimated_returning_photoelectron_column_charge_per_area_c_m2 = &
+      returning_shadow_moments(2)/(area_xy*app%sim%batch_duration)
+  else
+    step%returned_outer_flight_time_mean_s = 0.0_dp
+    step%estimated_returning_photoelectron_column_charge_per_area_c_m2 = 0.0_dp
+  end if
+  if (.not. all(ieee_is_finite([ &
+                               step%returned_outer_flight_time_mean_s, &
+                               step%estimated_returning_photoelectron_column_charge_per_area_c_m2 &
+                               ])) .or. step%returned_outer_flight_time_mean_s < 0.0_dp .or. &
+      step%estimated_returning_photoelectron_column_charge_per_area_c_m2 < 0.0_dp) then
+    error stop 'implicit mean returning shadow estimates must be finite and nonnegative.'
+  end if
+  if (.not. use_dynamic_zhao .and. raw_escape_charge <= sample_charge_tolerance .and. &
+      target_escape_charge > mean_charge_tolerance .and. &
+      mpi%rank == 0_i32) then
+    ! No sampled escape path exists.  Its only required gross event is the
+    ! first outward crossing; it has no surface destination to distribute.
+    workspace%interface_outward_thread(photoelectron_index, 1) = &
+      workspace%interface_outward_thread(photoelectron_index, 1) - target_escape_charge
+  end if
+  workspace%interface_tau_max_thread = max(workspace%interface_tau_max_thread, mean_tau_max_thread)
+  workspace%interface_frozen_ratio_max_thread = &
+    max(workspace%interface_frozen_ratio_max_thread, mean_frozen_ratio_max_thread)
+  workspace%interface_energy_error_max_thread = &
+    max(workspace%interface_energy_error_max_thread, mean_energy_error_max_thread)
+
+  step%surface_charge_after_c = sum(workspace%mean_candidate_charge)
+  step%interface_potential_after_v = snapshot%outer%interface_potential
+  step%interface_field_after_v_m = snapshot%outer%interface_field
+  step%electron_current_density_a_m2 = electron_current
+  step%ion_current_density_a_m2 = ion_current
+  step%photoelectron_current_density_a_m2 = target_escape_charge/(area_xy*app%sim%batch_duration)
+  step%total_current_density_a_m2 = &
+    (step%surface_charge_after_c - step%surface_charge_before_c)/(area_xy*app%sim%batch_duration)
+  step%additional_tracked_current_density_a_m2 = step%total_current_density_a_m2 - &
+                                                 electron_current - ion_current - &
+                                                 step%photoelectron_current_density_a_m2
+  if (photoelectron_outward_current_density > 0.0_dp) then
+    step%photoelectron_escape_fraction = target_escape_charge/source_charge_total
+    step%photoelectron_return_fraction = 1.0_dp - step%photoelectron_escape_fraction
+  else
+    step%photoelectron_escape_fraction = 1.0_dp
+    step%photoelectron_return_fraction = 0.0_dp
+  end if
+  step%status = dynamic_k0_ok
+  end procedure resolve_implicit_mean_batch
+
+  !> 保存済みinterface crossingを共通kinetic profile mapperへ渡し、終端まで1回追跡する。
+  module procedure process_deferred_mean_interface_particles
+  integer(i32) :: i, step_index, tid, nth, external_event
+  integer(i32) :: local_failure_status, local_failure_step
+  real(dp) :: position(3), velocity(3)
+  real(dp) :: local_failure_x(3), local_failure_v(3)
+  type(particle_step_result) :: step_result, external_final_result
+  type(external_step_trace_type) :: external_trace
+  logical :: terminal
+
+  nth = size(interface_tau_max_thread)
+  if (size(deferred_flag) < pcls_batch%n .or. size(deferred_step) < pcls_batch%n .or. &
+      size(deferred_crossing) < pcls_batch%n .or. size(return_element) < pcls_batch%n .or. &
+      size(terminal_absorbed) < pcls_batch%n .or. size(terminal_escaped) < pcls_batch%n .or. &
+      size(outward_event_count) < pcls_batch%n .or. size(returned_event_count) < pcls_batch%n .or. &
+      size(returned_flight_time_sum) < pcls_batch%n .or. &
+      size(interface_tau_max_thread) /= nth .or. size(interface_frozen_ratio_max_thread) /= nth .or. &
+      size(interface_energy_error_max_thread) /= nth) then
+    error stop 'implicit mean interface transport received inconsistent batch storage.'
+  end if
+
+  return_element(:pcls_batch%n) = -1_i32
+  terminal_absorbed(:pcls_batch%n) = .false.
+  terminal_escaped(:pcls_batch%n) = .false.
+  outward_event_count(:pcls_batch%n) = 0_i32
+  returned_event_count(:pcls_batch%n) = 0_i32
+  returned_flight_time_sum(:pcls_batch%n) = 0.0_dp
+  interface_tau_max_thread = 0.0_dp
+  interface_frozen_ratio_max_thread = 0.0_dp
+  interface_energy_error_max_thread = 0.0_dp
+  collision_failure_status = collision_query_ok
+  collision_failure_particle = huge(0_i32)
+  collision_failure_step = 0_i32
+  collision_failure_x = 0.0_dp
+  collision_failure_v = 0.0_dp
+
+  !$omp parallel default(none) &
+  !$omp shared(mesh,app,boundary_contract,snapshot,pcls_batch,deferred_flag,deferred_step,deferred_crossing) &
+  !$omp shared(return_element,terminal_absorbed,terminal_escaped,bfield,nth) &
+  !$omp shared(outward_event_count,returned_event_count,returned_flight_time_sum) &
+  !$omp shared(interface_tau_max_thread,interface_frozen_ratio_max_thread,interface_energy_error_max_thread) &
+  !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
+  !$omp shared(collision_failure_x,collision_failure_v) &
+  !$omp private(i,step_index,tid,external_event,position,velocity) &
+  !$omp private(local_failure_status,local_failure_step,local_failure_x,local_failure_v) &
+  !$omp private(step_result,external_final_result,external_trace,terminal)
+  tid = 1_i32
+!$ tid = omp_get_thread_num() + 1_i32
+  !$omp do schedule(dynamic, 1)
+  do i = 1_i32, pcls_batch%n
+    if (.not. deferred_flag(i)) cycle
+
+    local_failure_status = collision_query_ok
+    local_failure_step = deferred_step(i)
+    local_failure_x = deferred_crossing(i)%position
+    local_failure_v = deferred_crossing(i)%velocity
+    terminal = .false.
+    if (pcls_batch%species_id(i) < 1_i32 .or. pcls_batch%species_id(i) > app%n_particle_species .or. &
+        deferred_step(i) < 1_i32 .or. deferred_step(i) > app%sim%max_step .or. &
+        .not. ieee_is_finite(deferred_crossing(i)%dt_remaining) .or. &
+        deferred_crossing(i)%dt_remaining < 0.0_dp .or. &
+        .not. ieee_is_finite(pcls_batch%q(i)*pcls_batch%w(i)) .or. &
+        pcls_batch%q(i)*pcls_batch%w(i) >= 0.0_dp) then
+      local_failure_status = particle_step_invalid_boundary
+    else
+      step_result = particle_step_result()
+      step_result%x = deferred_crossing(i)%position
+      step_result%v = deferred_crossing(i)%velocity
+      step_result%interface_crossing = deferred_crossing(i)
+      call continue_external_particle_step( &
+        boundary_contract, snapshot, mesh, app%sim, app%coupling, bfield, &
+        pcls_batch%q(i), pcls_batch%m(i), app%sim%batch_duration, step_result, external_final_result, &
+        external_trace, enforce_frozen_field_limit=.false. &
+        )
+      step_result = external_final_result
+
+      do
+        do external_event = 1_i32, external_trace%count
+          outward_event_count(i) = outward_event_count(i) + 1_i32
+          if (external_trace%outcome(external_event)%kind == interface_outcome_returned_local) then
+            returned_event_count(i) = returned_event_count(i) + 1_i32
+            returned_flight_time_sum(i) = returned_flight_time_sum(i) + &
+                                          external_trace%outcome(external_event)%outer_flight_time
+          end if
+          if (external_trace%outcome(external_event)%kind == interface_outcome_returned_local .or. &
+              external_trace%outcome(external_event)%kind == interface_outcome_escaped_to_infinity .or. &
+              external_trace%outcome(external_event)%kind == interface_outcome_queued_outer) then
+            interface_tau_max_thread(tid) = max( &
+                                            interface_tau_max_thread(tid), &
+                                            external_trace%outcome(external_event)%outer_flight_time &
+                                            )
+            interface_frozen_ratio_max_thread(tid) = max( &
+                                                     interface_frozen_ratio_max_thread(tid), &
+                                                     external_trace%outcome(external_event)%frozen_field_ratio &
+                                                     )
+            interface_energy_error_max_thread(tid) = max( &
+                                                     interface_energy_error_max_thread(tid), &
+                                                     external_trace%outcome(external_event)%energy_relative_error &
+                                                     )
+          end if
+        end do
+        if (step_result%status /= collision_query_ok) then
+          local_failure_status = step_result%status
+          local_failure_x = step_result%x
+          local_failure_v = step_result%v
+          exit
+        end if
+        if (step_result%absorbed) then
+          if (step_result%elem_idx < 1_i32 .or. step_result%elem_idx > mesh%nelem) then
+            local_failure_status = particle_step_invalid_boundary
+            local_failure_x = step_result%x
+            local_failure_v = step_result%v
+          else
+            return_element(i) = step_result%elem_idx
+            terminal_absorbed(i) = .true.
+            terminal = .true.
+          end if
+          exit
+        end if
+        if (step_result%escaped_boundary) then
+          if (external_trace_ends_at_infinity_escape(external_trace)) then
+            terminal_escaped(i) = .true.
+            terminal = .true.
+          else
+            ! A return followed by an ordinary local open-face escape is not
+            ! part of the analytic z-high escape channel used by this closure.
+            local_failure_status = particle_step_invalid_external_model
+            local_failure_x = step_result%x
+            local_failure_v = step_result%v
+          end if
+          exit
+        end if
+
+        position = step_result%x
+        velocity = step_result%v
+        step_index = local_failure_step + 1_i32
+        if (step_index > app%sim%max_step) exit
+        call advance_particle_step( &
+          mesh, app%sim, snapshot, bfield, position, velocity, &
+          pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, step_result, &
+          boundary_contract=boundary_contract &
+          )
+        local_failure_step = step_index
+        external_trace = external_step_trace_type()
+        if (step_result%interface_crossing%has_crossing) then
+          call continue_external_particle_step( &
+            boundary_contract, snapshot, mesh, app%sim, app%coupling, bfield, &
+            pcls_batch%q(i), pcls_batch%m(i), app%sim%batch_duration, step_result, external_final_result, &
+            external_trace, enforce_frozen_field_limit=.false. &
+            )
+          step_result = external_final_result
+        end if
+      end do
+      if (.not. terminal .and. local_failure_status == collision_query_ok) then
+        local_failure_status = particle_step_invalid_boundary
+        local_failure_step = app%sim%max_step
+        local_failure_x = step_result%x
+        local_failure_v = step_result%v
+      end if
+    end if
+
+    if (local_failure_status /= collision_query_ok) then
+      !$omp critical (beach_collision_query_failure)
+      if (collision_failure_status == collision_query_ok .or. i < collision_failure_particle .or. &
+          (i == collision_failure_particle .and. local_failure_step < collision_failure_step)) then
+        collision_failure_status = local_failure_status
+        collision_failure_particle = i
+        collision_failure_step = local_failure_step
+        collision_failure_x = local_failure_x
+        collision_failure_v = local_failure_v
+      end if
+      !$omp end critical (beach_collision_query_failure)
+    end if
+  end do
+  !$omp end do
+  !$omp end parallel
+  end procedure process_deferred_mean_interface_particles
 
   !> OpenMP 粒子ループでは index 固有 record だけを書き、queue 本体は後段で更新する。
   subroutine stage_queued_outer_event(event, outcome, pcls_batch, particle_index, batch_idx, mpi_rank, batch_duration)
@@ -885,6 +1749,8 @@ contains
       failure_name = 'ambiguous_open_corner'
     case (particle_step_multiple_external_events)
       failure_name = 'multiple_external_events'
+    case (particle_step_invalid_external_model)
+      failure_name = 'invalid_external_model'
     case default
       failure_name = 'unknown'
     end select
@@ -1062,5 +1928,237 @@ contains
     ledger%escaped_count = workspace%ledger_count_values(3*n + 1:4*n)
     ledger%discarded_unresolved_count = workspace%ledger_count_values(4*n + 1:5*n)
   end subroutine reduce_charge_ledger_fluxes
+
+  !> implicit mean が決めた連続電荷量を photoelectron ledger の authoritative total にする。
+  !!
+  !! ray の absorbed/escaped count は軌道標本数のまま保持する。charge column は
+  !! scalar closure の escape 量と、weighted gross crossing の恒等式に合わせる。
+  subroutine reconcile_implicit_mean_charge_ledger( &
+    app, step, area_xy, batch_duration, photoelectron_outward_current_density, &
+    sampled_deferred_absorbed_charge, &
+    sampled_deferred_escaped_charge, ledger &
+    )
+    type(app_config), intent(in) :: app
+    type(dynamic_k0_step_type), intent(in) :: step
+    real(dp), intent(in) :: area_xy, batch_duration
+    real(dp), intent(in) :: photoelectron_outward_current_density
+    real(dp), intent(in) :: sampled_deferred_absorbed_charge, sampled_deferred_escaped_charge
+    type(charge_ledger_type), intent(inout) :: ledger
+    integer(i32) :: species_idx, photoelectron_index, photoelectron_count
+    real(dp) :: absorbed_charge, escaped_charge, source_charge
+    real(dp) :: charge_scale, charge_tolerance, interface_residual
+
+    photoelectron_index = 0_i32
+    photoelectron_count = 0_i32
+    do species_idx = 1_i32, app%n_particle_species
+      if (.not. app%particle_species(species_idx)%enabled) cycle
+      if (trim(lower_ascii(app%particle_species(species_idx)%source_mode)) /= 'photo_raycast') cycle
+      if (app%particle_species(species_idx)%q_particle >= 0.0_dp) cycle
+      photoelectron_count = photoelectron_count + 1_i32
+      photoelectron_index = species_idx
+    end do
+    if (photoelectron_count /= 1_i32) then
+      error stop 'implicit mean ledger requires exactly one negative photo_raycast species.'
+    end if
+    if (.not. all(ieee_is_finite([ &
+                                 step%photoelectron_current_density_a_m2, area_xy, batch_duration, &
+                                 photoelectron_outward_current_density, &
+                                 sampled_deferred_absorbed_charge, sampled_deferred_escaped_charge &
+                                 ])) .or. step%photoelectron_current_density_a_m2 < 0.0_dp .or. &
+        area_xy <= 0.0_dp .or. batch_duration <= 0.0_dp .or. &
+        photoelectron_outward_current_density < 0.0_dp .or. &
+        sampled_deferred_absorbed_charge > 0.0_dp .or. sampled_deferred_escaped_charge > 0.0_dp) then
+      error stop 'implicit mean ledger received invalid scales or photoelectron current.'
+    end if
+
+    source_charge = -photoelectron_outward_current_density*area_xy*batch_duration
+    escaped_charge = -step%photoelectron_current_density_a_m2*area_xy*batch_duration
+    absorbed_charge = source_charge - escaped_charge
+    charge_scale = max( &
+                   abs(source_charge), abs(absorbed_charge), abs(escaped_charge), &
+                   abs(sampled_deferred_absorbed_charge), abs(sampled_deferred_escaped_charge), &
+                   abs(ledger%interface_outward_gross(photoelectron_index)), &
+                   abs(ledger%interface_returned_gross(photoelectron_index)), tiny(1.0_dp) &
+                   )
+    charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*charge_scale
+    interface_residual = ledger%interface_outward_gross(photoelectron_index) - &
+                         ledger%interface_returned_gross(photoelectron_index) - escaped_charge
+    if (abs(sampled_deferred_absorbed_charge + sampled_deferred_escaped_charge - source_charge) > &
+        charge_tolerance .or. abs(absorbed_charge + escaped_charge - source_charge) > charge_tolerance .or. &
+        abs(interface_residual) > charge_tolerance) then
+      error stop 'implicit mean ledger interface charge does not close.'
+    end if
+    ledger%escaped_to_infinity(photoelectron_index) = &
+      ledger%escaped_to_infinity(photoelectron_index) - sampled_deferred_escaped_charge + escaped_charge
+    ledger%absorbed_on_surface(photoelectron_index) = &
+      ledger%absorbed_on_surface(photoelectron_index) - sampled_deferred_absorbed_charge + absorbed_charge
+  end subroutine reconcile_implicit_mean_charge_ledger
+
+  !> First traceで実際にstageされた全surface charge deltaをcurrentへ変換する。
+  !!
+  !! このaggregateはspeciesやopen-face ownershipを仮定しない。implicit mean
+  !! closureが後から置換するdeferred photoelectron return以外のk=0変化を、
+  !! final projectionが黙って消さないためのauthoritativeな明示電流である。
+  subroutine measure_pending_surface_current_density( &
+    dq_thread, photo_emission_dq, area_xy, batch_duration, mpi, current_density &
+    )
+    real(dp), intent(in) :: dq_thread(:, :), photo_emission_dq(:)
+    real(dp), intent(in) :: area_xy, batch_duration
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(out) :: current_density
+
+    if (size(dq_thread, 1) /= size(photo_emission_dq) .or. &
+        .not. ieee_is_finite(area_xy) .or. .not. ieee_is_finite(batch_duration) .or. &
+        area_xy <= 0.0_dp .or. batch_duration <= 0.0_dp) then
+      error stop 'pending surface current measurement received invalid storage or scales.'
+    end if
+    current_density = sum(dq_thread) + sum(photo_emission_dq)
+    call mpi_allreduce_sum_real_dp_scalar(mpi, current_density)
+    current_density = current_density/(area_xy*batch_duration)
+    if (.not. ieee_is_finite(current_density)) then
+      error stop 'pending surface current measurement produced a non-finite value.'
+    end if
+  end subroutine measure_pending_surface_current_density
+
+  !> tracked ambient speciesがこのbatchで実際に表面へ渡したsigned currentを測る。
+  !!
+  !! multirate更新でも3Dのcollection efficiencyと局所軌道は既存particle traceを
+  !! source of truthとし、光電子のmean escapeだけを陰的closureへ置き換える。
+  subroutine measure_tracked_ambient_surface_currents( &
+    app, particles, absorbed_flag, area_xy, batch_duration, mpi, electron_current, ion_current &
+    )
+    type(app_config), intent(in) :: app
+    type(particles_soa), intent(in) :: particles
+    logical, intent(in) :: absorbed_flag(:)
+    real(dp), intent(in) :: area_xy, batch_duration
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(out) :: electron_current, ion_current
+    integer(i32) :: particle, species_idx, invalid_species_count
+    integer(i32) :: electron_index, ion_index, electron_count, ion_count
+    real(dp) :: deposited_charge
+
+    if (size(absorbed_flag) < particles%n .or. area_xy <= 0.0_dp .or. batch_duration <= 0.0_dp) then
+      error stop 'tracked ambient current measurement received invalid batch storage or scales.'
+    end if
+    call find_kinetic_ambient_species(app, electron_index, ion_index, electron_count, ion_count)
+    if (electron_count /= 1_i32 .or. ion_count /= 1_i32) then
+      error stop 'tracked ambient current measurement requires unique z_high reservoir electron and ion species.'
+    end if
+    electron_current = 0.0_dp
+    ion_current = 0.0_dp
+    invalid_species_count = 0_i32
+    do particle = 1_i32, particles%n
+      if (.not. absorbed_flag(particle)) cycle
+      species_idx = particles%species_id(particle)
+      if (species_idx < 1_i32 .or. species_idx > app%n_particle_species) then
+        invalid_species_count = 1_i32
+        cycle
+      end if
+      deposited_charge = particles%q(particle)*particles%w(particle)
+      if (species_idx == electron_index) electron_current = electron_current + deposited_charge
+      if (species_idx == ion_index) ion_current = ion_current + deposited_charge
+    end do
+    call mpi_allreduce_sum_i32_scalar(mpi, invalid_species_count)
+    if (invalid_species_count > 0_i32) then
+      error stop 'tracked ambient current measurement received an invalid species ID.'
+    end if
+    call mpi_allreduce_sum_real_dp_scalar(mpi, electron_current)
+    call mpi_allreduce_sum_real_dp_scalar(mpi, ion_current)
+    electron_current = electron_current/(area_xy*batch_duration)
+    ion_current = ion_current/(area_xy*batch_duration)
+  end subroutine measure_tracked_ambient_surface_currents
+
+  !> 3D領域から1D平均領域へ実際に渡ったphotoelectron currentを測る。
+  !!
+  !! 負のtracked chargeがz-highを外向きに通過した量を、全てescapeした場合の
+  !! 正のsurface-charging currentへ変換する。粗さ内で再吸収された粒子は
+  !! interfaceを通らないため、このmean sourceには含まれない。
+  subroutine measure_tracked_photoelectron_interface_current( &
+    app, interface_outward_thread, area_xy, batch_duration, mpi, photoelectron_current, photoelectron_index &
+    )
+    type(app_config), intent(in) :: app
+    real(dp), intent(in) :: interface_outward_thread(:, :)
+    real(dp), intent(in) :: area_xy, batch_duration
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(out) :: photoelectron_current
+    integer(i32), intent(out) :: photoelectron_index
+    integer(i32) :: species_idx, photoelectron_count
+
+    if (size(interface_outward_thread, 1) < app%n_particle_species .or. &
+        area_xy <= 0.0_dp .or. batch_duration <= 0.0_dp) then
+      error stop 'tracked photoelectron current measurement received invalid storage or scales.'
+    end if
+    photoelectron_index = 0_i32
+    photoelectron_count = 0_i32
+    do species_idx = 1_i32, app%n_particle_species
+      if (.not. app%particle_species(species_idx)%enabled) cycle
+      if (trim(lower_ascii(app%particle_species(species_idx)%source_mode)) /= 'photo_raycast') cycle
+      if (app%particle_species(species_idx)%q_particle >= 0.0_dp) cycle
+      photoelectron_count = photoelectron_count + 1_i32
+      photoelectron_index = species_idx
+    end do
+    if (photoelectron_count /= 1_i32) then
+      error stop 'implicit mean requires exactly one negative photo_raycast species.'
+    end if
+
+    photoelectron_current = -sum(interface_outward_thread(photoelectron_index, :))
+    call mpi_allreduce_sum_real_dp_scalar(mpi, photoelectron_current)
+    photoelectron_current = photoelectron_current/(area_xy*batch_duration)
+    if (.not. ieee_is_finite(photoelectron_current) .or. photoelectron_current < 0.0_dp) then
+      error stop 'tracked photoelectron interface current is not finite and nonnegative.'
+    end if
+  end subroutine measure_tracked_photoelectron_interface_current
+
+  !> rank 0だけで解いた強PE scalar resultを全rankへ同期する。
+  subroutine broadcast_dynamic_zhao_step(mpi, step, effective_source_scale)
+    type(mpi_context), intent(in) :: mpi
+    type(dynamic_k0_step_type), intent(inout) :: step
+    real(dp), intent(inout) :: effective_source_scale
+    integer(i32) :: integers(4)
+    real(dp) :: values(17)
+
+    integers = 0_i32
+    values = 0.0_dp
+    if (mpi_is_root(mpi)) then
+      integers = [step%status, step%iterations, step%bracket_expansions, int(iachar(step%zhao_branch), i32)]
+      values = [ &
+               step%surface_charge_before_c, step%surface_charge_after_c, &
+               step%interface_potential_before_v, step%interface_potential_after_v, &
+               step%interface_field_after_v_m, step%photoelectron_escape_fraction, &
+               step%photoelectron_return_fraction, step%backward_euler_residual_charge_c, &
+               step%photoelectron_barrier_energy_j, step%photoelectron_energy_max_j, &
+               step%marginal_photoelectron_energy_j, step%marginal_photoelectron_escape_fraction, &
+               step%photoelectron_source_charge_c, step%zhao_effective_source_scale, &
+               step%photoelectron_recross_charge_fraction, &
+               step%photoelectron_terminal_mismatch_charge_fraction, effective_source_scale &
+               ]
+    end if
+    call mpi_bcast_i32_array(mpi, integers, 0_i32)
+    call mpi_bcast_real_dp_array(mpi, values, 0_i32)
+    if (.not. mpi_is_root(mpi)) then
+      step = dynamic_k0_step_type()
+      step%status = integers(1)
+      step%iterations = integers(2)
+      step%bracket_expansions = integers(3)
+      step%zhao_branch = achar(integers(4))
+      step%surface_charge_before_c = values(1)
+      step%surface_charge_after_c = values(2)
+      step%interface_potential_before_v = values(3)
+      step%interface_potential_after_v = values(4)
+      step%interface_field_after_v_m = values(5)
+      step%photoelectron_escape_fraction = values(6)
+      step%photoelectron_return_fraction = values(7)
+      step%backward_euler_residual_charge_c = values(8)
+      step%photoelectron_barrier_energy_j = values(9)
+      step%photoelectron_energy_max_j = values(10)
+      step%marginal_photoelectron_energy_j = values(11)
+      step%marginal_photoelectron_escape_fraction = values(12)
+      step%photoelectron_source_charge_c = values(13)
+      step%zhao_effective_source_scale = values(14)
+      step%photoelectron_recross_charge_fraction = values(15)
+      step%photoelectron_terminal_mismatch_charge_fraction = values(16)
+    end if
+    effective_source_scale = values(17)
+  end subroutine broadcast_dynamic_zhao_step
 
 end submodule bem_simulator_loop

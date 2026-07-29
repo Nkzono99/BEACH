@@ -19,7 +19,7 @@ program test_outer_plasma_kinetic
   integer(i32) :: continuation_steps
   character(len=256) :: message
 
-  call test_init(15)
+  call test_init(16)
 
   call test_begin('vacuum Neumann Robin problem matches its analytic solution')
   options = reference_options()
@@ -65,6 +65,28 @@ program test_outer_plasma_kinetic
                        'tracked-only photoelectron mean current must vanish')
   call test_end()
 
+  call test_begin('ambient linear Debye adds photoelectron current without density screening')
+  options = reference_options()
+  options%kinetic_closure = 'ambient_linear_debye'
+  options%interface_field = 0.25_dp
+  options%domain_length = 6.0_dp
+  options%tail_length = 2.0_dp
+  options%photoelectron_charge = -qe
+  options%photoelectron_mass = electron_mass
+  options%photoelectron_temperature_j = 2.2_dp*qe
+  options%photoelectron_emission_flux = 5.0e10_dp
+  call solve_outer_plasma_kinetic(options, state, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'ambient photo-current solve failed: '//trim(message))
+  call assert_close_dp(state%interface_potential, 0.5_dp, 1.0e-14_dp, &
+                       'photo current must not change the ambient Debye capacitance')
+  call assert_true(state%photoelectron_current_density > 0.0_dp, &
+                   'escaping photoelectrons must produce positive surface current')
+  call assert_close_dp( &
+    state%integrated_charge_per_area, eps0*(state%field(state%profile_n) - state%interface_field), &
+    1.0e-24_dp, 'ambient photo-current Gauss closure mismatch' &
+    )
+  call test_end()
+
   call test_begin('stationary Zhao helper builds the UV-on Type-A equilibrium')
   options = zhao_stationary_options()
   call solve_outer_plasma_zhao_stationary(options, state, status, message)
@@ -79,6 +101,8 @@ program test_outer_plasma_kinetic
   call assert_close_dp(state%infinity_potential, 0.0_dp, 0.0_dp, 'stationary Zhao infinity gauge mismatch')
   call assert_true(abs(state%total_current_density) < 1.0e-11_dp, &
                    'stationary UV-on Zhao current balance mismatch')
+  call assert_close_dp(state%photoelectron_source_scale, options%photoelectron_source_scale, 0.0_dp, &
+                       'stationary UV-on Zhao source scale was not retained')
   call test_end()
 
   call test_begin('stationary Zhao helper builds the no-photo Type-C equilibrium')
@@ -95,6 +119,8 @@ program test_outer_plasma_kinetic
                    'stationary no-photo Zhao state must be a negative Type-C sheath')
   call assert_close_dp(state%photoelectron_current_density, 0.0_dp, 0.0_dp, &
                        'stationary no-photo Zhao photoelectron current must vanish')
+  call assert_close_dp(state%photoelectron_source_scale, 0.0_dp, 0.0_dp, &
+                       'stationary no-photo Zhao source scale was not retained')
   call assert_true(abs(state%total_current_density) < 1.0e-11_dp, &
                    'stationary no-photo Zhao current balance mismatch')
   call test_end()
@@ -125,6 +151,8 @@ program test_outer_plasma_kinetic
   call assert_true(state%zhao_branch == '0', 'strong-photoemission zero field must bootstrap branch 0')
   call assert_close_dp(state%zhao_electron_density_infinity, 8.7e6_dp, 1.0e-8_dp, &
                        'Zhao bootstrap electron density mismatch')
+  call assert_close_dp(state%photoelectron_source_scale, options%photoelectron_source_scale, 0.0_dp, &
+                       'charge-driven Zhao source scale was not retained')
   call assert_true(maxval(abs(state%potential)) == 0.0_dp, 'Zhao bootstrap profile must be flat')
   call test_end()
 

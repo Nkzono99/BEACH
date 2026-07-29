@@ -4,6 +4,7 @@ module bem_simulator
   use, intrinsic :: iso_fortran_env, only: output_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
+  use bem_constants, only: eps0
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
@@ -14,28 +15,38 @@ module bem_simulator
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, advance_particle_step, &
                                   particle_step_result, particle_step_invalid_boundary, &
                                   particle_step_multiple_box_events, particle_step_ambiguous_open_corner, &
-                                  particle_step_multiple_external_events
+                                  particle_step_multiple_external_events, particle_step_invalid_external_model
   use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
                            collision_query_index_range, collision_query_invalid_segment, collision_query_ok, find_first_hit
   use bem_surface_models, only: apply_surface_model_charge_relaxation
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
   use bem_string_utils, only: lower_ascii
-  use bem_interface_types, only: interface_particle_outcome_type, interface_outcome_returned_local, &
+  use bem_interface_types, only: interface_crossing_type, interface_particle_outcome_type, interface_outcome_returned_local, &
                                  interface_outcome_escaped_to_infinity, interface_outcome_queued_outer
   use bem_outer_event_queue, only: outer_event_queue_type, outer_event_record_type, &
                                    outer_event_outcome_return, outer_event_outcome_escape, &
                                    outer_event_queue_global_fingerprint
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type, external_boundary_ok, resolve_external_boundary_contract
-  use bem_external_step_driver, only: external_step_trace_type, continue_external_particle_step
+  use bem_external_step_driver, only: &
+    external_step_trace_type, continue_external_particle_step, external_trace_ends_at_infinity_escape
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
-  use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
+  use bem_outer_plasma_kinetic_runtime, only: find_kinetic_ambient_species, resolve_kinetic_outer_options
+  use bem_dynamic_k0_mean, only: &
+    dynamic_k0_ok, dynamic_k0_invalid, dynamic_k0_step_type, advance_dynamic_k0_mean
+  use bem_dynamic_k0_zhao, only: &
+    measured_interface_energy_distribution_type, build_measured_interface_energy_distribution, &
+    advance_dynamic_k0_zhao, zhao_profile_barrier_energy, measured_sample_escape_fraction
+  use bem_mean_charge_transaction, only: &
+    mean_charge_transaction_ok, mean_charge_transaction_invalid, &
+    mean_charge_transaction_type, build_mean_charge_transaction
   use bem_zhao_steady_start, only: initialize_zhao_floating_steady_start
   use bem_outer_plasma_types, only: outer_plasma_ok, outer_plasma_state_type
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
                      mpi_allreduce_sum_real_dp_scalar, mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
-                     mpi_allreduce_max_real_dp_array, &
+                     mpi_allreduce_max_real_dp_array, mpi_bcast_i32_array, mpi_bcast_real_dp_array, &
+                     mpi_gatherv_real_dp_array, &
                      mpi_select_lowest_rank_i32_values
   implicit none
   private
@@ -91,6 +102,7 @@ module bem_simulator
       mesh, app, boundary_contract, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
       bfield, batch_idx, mpi_rank, &
       soft_discarded_boundary_flag, queued_outer_flag, outer_event_staging, &
+      deferred_mean_interface_flag, deferred_mean_interface_step, deferred_mean_interface_crossing, &
       interface_outward_thread, interface_returned_thread, &
       collision_failure_status, collision_failure_particle, &
       collision_failure_step, collision_failure_x, collision_failure_v, interface_tau_max_thread, &
@@ -107,6 +119,9 @@ module bem_simulator
       logical, intent(inout) :: soft_discarded_boundary_flag(:)
       logical, intent(inout) :: queued_outer_flag(:)
       type(outer_event_record_type), intent(inout) :: outer_event_staging(:)
+      logical, intent(inout) :: deferred_mean_interface_flag(:)
+      integer(i32), intent(inout) :: deferred_mean_interface_step(:)
+      type(interface_crossing_type), intent(inout) :: deferred_mean_interface_crossing(:)
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx
       integer(i32), intent(in) :: mpi_rank
@@ -116,6 +131,59 @@ module bem_simulator
       real(dp), intent(out) :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
       real(dp), intent(out) :: interface_energy_error_max_thread(:)
     end subroutine process_particle_batch
+
+    !> 陰的に平均総電荷を解き、energy-resolved rayで帰還先分布を1回評価する。
+    module subroutine resolve_implicit_mean_batch( &
+      mesh, app, boundary_contract, snapshot, pcls_batch, workspace, bfield, mpi, &
+      step, photoelectron_outward_current_density, sample_escape_fraction, return_weight_scale, &
+      transaction_residual, sampled_deferred_absorbed_charge, sampled_deferred_escaped_charge, &
+      collision_failure_status, collision_failure_particle, collision_failure_step, &
+      collision_failure_x, collision_failure_v &
+      )
+      type(mesh_type), intent(in) :: mesh
+      type(app_config), intent(in) :: app
+      type(external_boundary_contract_type), intent(in) :: boundary_contract
+      type(electrostatic_snapshot_type), intent(inout) :: snapshot
+      type(particles_soa), intent(in) :: pcls_batch
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
+      real(dp), intent(in) :: bfield(3)
+      type(mpi_context), intent(in) :: mpi
+      type(dynamic_k0_step_type), intent(out) :: step
+      real(dp), intent(out) :: photoelectron_outward_current_density
+      real(dp), intent(out) :: sample_escape_fraction, return_weight_scale
+      real(dp), intent(out) :: transaction_residual
+      real(dp), intent(out) :: sampled_deferred_absorbed_charge, sampled_deferred_escaped_charge
+      integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
+      real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
+    end subroutine resolve_implicit_mean_batch
+
+    !> 保存済みz-high crossingを現平均profileへ通し、終端とgross crossing回数を標本化する。
+    module subroutine process_deferred_mean_interface_particles( &
+      mesh, app, boundary_contract, snapshot, pcls_batch, deferred_flag, deferred_step, deferred_crossing, &
+      return_element, terminal_absorbed, terminal_escaped, outward_event_count, returned_event_count, &
+      returned_flight_time_sum, &
+      interface_tau_max_thread, interface_frozen_ratio_max_thread, interface_energy_error_max_thread, bfield, &
+      collision_failure_status, collision_failure_particle, collision_failure_step, &
+      collision_failure_x, collision_failure_v &
+      )
+      type(mesh_type), intent(in) :: mesh
+      type(app_config), intent(in) :: app
+      type(external_boundary_contract_type), intent(in) :: boundary_contract
+      type(electrostatic_snapshot_type), intent(inout) :: snapshot
+      type(particles_soa), intent(in) :: pcls_batch
+      logical, intent(in) :: deferred_flag(:)
+      integer(i32), intent(in) :: deferred_step(:)
+      type(interface_crossing_type), intent(in) :: deferred_crossing(:)
+      integer(i32), intent(out) :: return_element(:)
+      logical, intent(out) :: terminal_absorbed(:), terminal_escaped(:)
+      integer(i32), intent(out) :: outward_event_count(:), returned_event_count(:)
+      real(dp), intent(out) :: returned_flight_time_sum(:)
+      real(dp), intent(out) :: interface_tau_max_thread(:), interface_frozen_ratio_max_thread(:)
+      real(dp), intent(out) :: interface_energy_error_max_thread(:)
+      real(dp), intent(in) :: bfield(3)
+      integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
+      real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
+    end subroutine process_deferred_mean_interface_particles
 
     !> スレッド別に集計した電荷差分をメッシュへ反映し、相対変化量を返す。
     module subroutine commit_batch_charge( &

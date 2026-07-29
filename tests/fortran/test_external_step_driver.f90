@@ -7,11 +7,14 @@ program test_external_step_driver
   use bem_physics_config_types, only: outer_plasma_config, coupling_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_particle_stepper, only: &
-    advance_particle_step, particle_step_result, particle_step_ok, particle_step_multiple_external_events
-  use bem_interface_types, only: interface_outcome_returned_local
+    advance_particle_step, particle_step_result, particle_step_ok, particle_step_multiple_external_events, &
+    particle_step_invalid_external_model
+  use bem_interface_types, only: &
+    interface_outcome_returned_local, interface_outcome_escaped_to_infinity, interface_outcome_invalid_model
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type, external_boundary_ok, resolve_external_boundary_contract
-  use bem_external_step_driver, only: external_step_trace_type, continue_external_particle_step
+  use bem_external_step_driver, only: &
+    external_step_trace_type, continue_external_particle_step, external_trace_ends_at_infinity_escape
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
@@ -27,7 +30,7 @@ program test_external_step_driver
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(2)
+  call test_init(5)
   call test_begin('instant_return_remainder_can_reenter_transport')
 
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
@@ -101,6 +104,91 @@ program test_external_step_driver
   call assert_true(.not. final_result%interface_crossing%has_crossing, 'continued step retained an interface event')
   call assert_true(.not. final_result%escaped_boundary, 'continued particle escaped unexpectedly')
 
+  call test_end()
+
+  call test_begin('ordinary_outer_model_failure_has_dedicated_status')
+  coupling%field_evolution_timescale = 1.0e-12_dp
+  call continue_external_particle_step( &
+    contract, snapshot, mesh, sim, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
+    initial_result, final_result, trace &
+    )
+  call assert_equal_i32(trace%count, 1_i32, 'invalid outer mapping must retain its attempted event')
+  call assert_equal_i32(trace%outcome(1)%kind, interface_outcome_invalid_model, &
+                        'strict frozen-field violation must remain an outer-model outcome')
+  call assert_equal_i32(final_result%status, particle_step_invalid_external_model, &
+                        'outer-model failure must not be reported as invalid boundary geometry')
+  call assert_true(index(trace%outcome(1)%message, 'frozen-field limit') > 0, &
+                   'outer-model trace lost its concrete failure reason')
+  call test_end()
+
+  call test_begin('shadow_outer_return_bypasses_only_frozen_stop')
+  initial_result%interface_crossing%dt_remaining = 0.0_dp
+  call continue_external_particle_step( &
+    contract, snapshot, mesh, sim, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
+    initial_result, final_result, trace, enforce_frozen_field_limit=.false. &
+    )
+  call assert_equal_i32(trace%count, 1_i32, 'shadow return must retain exactly one outer event')
+  call assert_equal_i32(trace%outcome(1)%kind, interface_outcome_returned_local, &
+                        'shadow transport must keep the energy-resolved return outcome')
+  call assert_equal_i32(final_result%status, particle_step_ok, 'shadow return failed unexpectedly')
+  call assert_true(trace%outcome(1)%frozen_field_ratio > coupling%max_frozen_field_ratio, &
+                   'shadow return must preserve the frozen-field applicability diagnostic')
+  coupling%field_evolution_timescale = 1.0e9_dp
+  call test_end()
+
+  call test_begin('local_open_escape_after_return_is_not_infinity_escape')
+  sim%e0 = 0.0_dp
+  call snapshot%init(mesh, sim)
+  call snapshot%refresh(mesh)
+  snapshot%outer%model = 'kinetic_1d'
+  snapshot%outer%ready = .true.
+  snapshot%outer%interface_z = 1.0_dp
+  snapshot%outer%interface_potential = -1.0_dp
+  snapshot%outer%infinity_potential = 0.0_dp
+  snapshot%outer%debye_length = 0.1_dp
+  snapshot%outer%profile_n = 2_i32
+  snapshot%outer%z = [1.0_dp, 1.1_dp]
+  snapshot%outer%potential = [-1.0_dp, 0.0_dp]
+  call advance_particle_step( &
+    mesh, sim, snapshot, [0.0_dp, 0.0_dp, 0.0_dp], [0.8_dp, 0.8_dp, 0.9_dp], &
+    [0.0_dp, 0.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, initial_result, boundary_contract=contract &
+    )
+  call assert_true(initial_result%interface_crossing%has_crossing, 'local-open fixture crossing is missing')
+  initial_result%interface_crossing%dt_remaining = 2.0_dp
+  call continue_external_particle_step( &
+    contract, snapshot, mesh, sim, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
+    initial_result, final_result, trace &
+    )
+  call assert_equal_i32(trace%count, 1_i32, 'local-open fixture must contain one outer return')
+  call assert_equal_i32(trace%outcome(1)%kind, interface_outcome_returned_local, &
+                        'local-open fixture must return from the outer region first')
+  call assert_true(final_result%escaped_boundary, 'returned fixture did not leave through the local z-low face')
+  call assert_true(.not. external_trace_ends_at_infinity_escape(trace), &
+                   'local open-face escape was misclassified as outer infinity escape')
+
+  snapshot%outer%interface_potential = 1.0_dp
+  snapshot%outer%potential = [1.0_dp, 0.0_dp]
+  call continue_external_particle_step( &
+    contract, snapshot, mesh, sim, coupling, [0.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, &
+    initial_result, final_result, trace &
+    )
+  call assert_equal_i32(trace%outcome(1)%kind, interface_outcome_escaped_to_infinity, &
+                        'infinity-escape control did not escape the outer profile')
+  call assert_true(external_trace_ends_at_infinity_escape(trace), &
+                   'outer infinity escape was not recognized')
+
+  sim%e0 = [0.0_dp, 0.0_dp, 4.0_dp]
+  call snapshot%init(mesh, sim)
+  call snapshot%refresh(mesh)
+  snapshot%outer%model = 'kinetic_1d'
+  snapshot%outer%ready = .true.
+  snapshot%outer%interface_z = 1.0_dp
+  snapshot%outer%interface_potential = -1.0_dp
+  snapshot%outer%infinity_potential = 0.0_dp
+  snapshot%outer%debye_length = 0.1_dp
+  snapshot%outer%profile_n = 2_i32
+  snapshot%outer%z = [1.0_dp, 1.1_dp]
+  snapshot%outer%potential = [-1.0_dp, 0.0_dp]
   call test_end()
 
   call test_begin('ninth_external_event_fails_with_dedicated_status')

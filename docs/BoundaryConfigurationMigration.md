@@ -75,7 +75,7 @@ model fingerprint が異なるため再開できません。`unified_linear_resp
 | `outer_plasma.return_model` | 記述しない。field と particle mode から導出 |
 | `coupling.particle_transfer_mode` | 記述しない。`particles.mode` から導出 |
 | `coupling.outer_queue_enabled` | 記述しない。`particles.mode="zhao_queue"` で導出 |
-| `coupling.update_mode` | 記述しない。現行は `explicit` 固定 |
+| `coupling.update_mode` | 記述しない。通常は `explicit`、`ambient_linear_debye + same_batch + photo_raycast` は内部の `implicit_mean` を自動導出 |
 | `outer_plasma.interface_z` | 記述しない。`sim.box_max[2]` から導出 |
 
 ## scalar 流入と通常 open 面

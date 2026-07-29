@@ -11,6 +11,7 @@ program test_periodic2_cached_snapshot
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
                                       outer_plasma_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
+  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
@@ -78,7 +79,7 @@ program test_periodic2_cached_snapshot
   call snapshot%refresh(mesh)
   target = [0.37_dp, 0.61_dp, 0.42_dp]
 
-  call test_init(3)
+  call test_init(5)
   call test_begin('cached_snapshot_composes_kneq0_and_k0_once')
   call assert_true(snapshot%use_cached_kneq0 .and. snapshot%use_zero_mode, 'cached split flags must be active')
   call assert_true( &
@@ -123,12 +124,170 @@ program test_periodic2_cached_snapshot
   call assert_true(potential_error < 1.0e-1_dp, 'neutral panel potential exceeds the charge-scale error contract')
   call test_end()
 
+  call test_cached_kinetic_interface_diagnostics()
+
   call delete_file_if_exists(cache_path)
   call delete_file_if_exists(trim(cache_path)//'.lock')
   call remove_empty_directory(cache_dir)
   call test_summary()
 
 contains
+
+  subroutine test_cached_kinetic_interface_diagnostics()
+    type(sim_config) :: kinetic_sim
+    type(periodic2_physics_config) :: kinetic_periodic
+    type(outer_plasma_config) :: kinetic_outer
+    type(kinetic_outer_plasma_options_type) :: kinetic_options
+    type(electrostatic_snapshot_type) :: kinetic_snapshot
+    real(dp) :: position(3), sampled_field(3), sampled_potential
+    real(dp) :: candidate_charge(2), mesh_charge_before(2)
+    real(dp) :: nonzero_field_before(3), nonzero_field_after(3)
+    real(dp) :: nonzero_potential_before, nonzero_potential_after
+    real(dp) :: candidate_zero_field, candidate_zero_potential
+    real(dp) :: expected_interface_field, expected_interface_potential
+    real(dp) :: expected_eta_phi, expected_eta_field, max_phi, max_field
+    real(dp) :: phi_scale, field_scale
+    integer(i32) :: ix, iy, nonzero_update_count_before
+
+    call test_begin('cached_kinetic_snapshot_samples_interface_nonzero_modes')
+    kinetic_sim = sim
+    kinetic_sim%e0 = 0.0_dp
+    kinetic_periodic = periodic_config
+    kinetic_periodic%interface_sample_n = 2_i32
+    kinetic_periodic%interface_phi_tolerance = 1.0e12_dp
+    kinetic_periodic%interface_field_tolerance = 1.0e12_dp
+    kinetic_outer = outer_plasma_config( &
+                    model='kinetic_1d', kinetic_closure='ambient_linear_debye', &
+                    interface_z=1.0_dp, debye_length=0.2_dp, thermal_voltage=10.0_dp &
+                    )
+    kinetic_options = kinetic_outer_plasma_options_type( &
+                      kinetic_closure='ambient_linear_debye', grid_points=17_i32, &
+                      domain_length=1.0_dp, tail_length=0.2_dp, &
+                      electron_charge=-1.0_dp, electron_mass=1.0_dp, electron_density_infinity=1.0_dp, &
+                      electron_temperature_j=1.0_dp, ion_charge=1.0_dp, ion_mass=1.0_dp, &
+                      ion_density_infinity=1.0_dp, ion_temperature_j=0.0_dp, ion_drift_infinity=1.0_dp &
+                      )
+    call kinetic_snapshot%init( &
+      mesh, kinetic_sim, field_config, kinetic_periodic, panel_config, kinetic_outer, &
+      kinetic_options=kinetic_options &
+      )
+    call kinetic_snapshot%refresh(mesh)
+
+    max_phi = 0.0_dp
+    max_field = 0.0_dp
+    do iy = 0_i32, kinetic_periodic%interface_sample_n - 1_i32
+      do ix = 0_i32, kinetic_periodic%interface_sample_n - 1_i32
+        position = [ &
+                   (real(ix, dp) + 0.5_dp)/real(kinetic_periodic%interface_sample_n, dp), &
+                   (real(iy, dp) + 0.5_dp)/real(kinetic_periodic%interface_sample_n, dp), &
+                   kinetic_outer%interface_z &
+                   ]
+        call kinetic_snapshot%nonzero_solver%eval_potential(mesh, kinetic_sim, position, sampled_potential)
+        call kinetic_snapshot%nonzero_solver%eval_e(mesh, position, sampled_field)
+        max_phi = max(max_phi, abs(sampled_potential))
+        max_field = max(max_field, sqrt(sum(sampled_field*sampled_field)))
+      end do
+    end do
+    phi_scale = max(abs(kinetic_snapshot%outer%interface_potential), kinetic_outer%thermal_voltage, tiny(1.0_dp))
+    field_scale = max( &
+                  abs(kinetic_snapshot%outer%interface_field), &
+                  kinetic_outer%thermal_voltage/minval(kinetic_snapshot%periodic_length), tiny(1.0_dp) &
+                  )
+    expected_eta_phi = max_phi/phi_scale
+    expected_eta_field = max_field/field_scale
+
+    call assert_equal_i32( &
+      kinetic_snapshot%diagnostics%interface_sample_n, kinetic_periodic%interface_sample_n, &
+      'cached kinetic interface diagnostics lost the configured sample count' &
+      )
+    call assert_close_dp( &
+      kinetic_snapshot%diagnostics%eta_phi_kneq0, expected_eta_phi, &
+      64.0_dp*epsilon(1.0_dp)*max(1.0_dp, expected_eta_phi), &
+      'cached kinetic interface potential diagnostic mismatch' &
+      )
+    call assert_close_dp( &
+      kinetic_snapshot%diagnostics%eta_field_kneq0, expected_eta_field, &
+      64.0_dp*epsilon(1.0_dp)*max(1.0_dp, expected_eta_field), &
+      'cached kinetic interface field diagnostic mismatch' &
+      )
+    call assert_true( &
+      kinetic_snapshot%diagnostics%eta_phi_kneq0 > 0.0_dp .and. &
+      kinetic_snapshot%diagnostics%eta_field_kneq0 > 0.0_dp, &
+      'cached kinetic interface diagnostics must evaluate nonzero-mode structure' &
+      )
+    call test_end()
+
+    call test_begin('cached_kinetic_mean_only_refresh_preserves_kneq0')
+    position = [0.37_dp, 0.61_dp, 0.42_dp]
+    candidate_charge = [2.0e-12_dp, -1.0e-12_dp]
+    mesh_charge_before = mesh%q_elem
+    call kinetic_snapshot%nonzero_solver%eval_e(mesh, position, nonzero_field_before)
+    call kinetic_snapshot%nonzero_solver%eval_potential( &
+      mesh, kinetic_sim, position, nonzero_potential_before &
+      )
+    nonzero_update_count_before = kinetic_snapshot%nonzero_solver%fmm_core_state%update_count
+
+    call kinetic_snapshot%refresh_mean_only( &
+      mesh, candidate_charge, continuation_stage='test_mean_only' &
+      )
+
+    call kinetic_snapshot%nonzero_solver%eval_e(mesh, position, nonzero_field_after)
+    call kinetic_snapshot%nonzero_solver%eval_potential( &
+      mesh, kinetic_sim, position, nonzero_potential_after &
+      )
+    call assert_equal_i32( &
+      kinetic_snapshot%nonzero_solver%fmm_core_state%update_count, nonzero_update_count_before, &
+      'mean-only refresh must not update the cached kneq0 solver' &
+      )
+    call assert_allclose_1d( &
+      nonzero_field_after, nonzero_field_before, 1.0e-13_dp, &
+      'mean-only refresh changed the cached kneq0 field' &
+      )
+    call assert_close_dp( &
+      nonzero_potential_after, nonzero_potential_before, 1.0e-13_dp, &
+      'mean-only refresh changed the cached kneq0 potential' &
+      )
+    call assert_true( &
+      all(mesh%q_elem == mesh_charge_before), &
+      'mean-only refresh must not overwrite the mesh element charges' &
+      )
+
+    expected_interface_field = sum(candidate_charge)/(2.0_dp*eps0*kinetic_snapshot%zero_plan%area_xy)
+    expected_interface_potential = kinetic_options%tail_length*expected_interface_field
+    call eval_periodic_zero_mode( &
+      kinetic_snapshot%zero_plan, kinetic_snapshot%zero_state, kinetic_outer%interface_z, &
+      zero_mode_trace_plus, candidate_zero_potential, candidate_zero_field &
+      )
+    call assert_close_dp( &
+      kinetic_snapshot%zero_state%total_charge, sum(candidate_charge), 1.0e-24_dp, &
+      'mean-only refresh did not apply the complete candidate charge array' &
+      )
+    call assert_close_dp( &
+      candidate_zero_field, expected_interface_field, 1.0e-12_dp, &
+      'mean-only refresh produced the wrong candidate k0 interface field' &
+      )
+    call assert_close_dp( &
+      kinetic_snapshot%outer%interface_field, expected_interface_field, 1.0e-12_dp, &
+      'mean-only refresh did not propagate the candidate field to the outer solve' &
+      )
+    call assert_close_dp( &
+      kinetic_snapshot%outer%interface_potential, expected_interface_potential, 1.0e-12_dp, &
+      'mean-only refresh produced the wrong outer interface potential' &
+      )
+    call assert_close_dp( &
+      candidate_zero_potential, kinetic_snapshot%outer%interface_potential, 1.0e-12_dp, &
+      'mean-only refresh did not match the k0 gauge to the outer profile' &
+      )
+    call assert_close_dp( &
+      kinetic_snapshot%diagnostics%interface_field, expected_interface_field, 1.0e-12_dp, &
+      'mean-only refresh diagnostics did not use the candidate charge' &
+      )
+    call assert_close_dp( &
+      kinetic_snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, &
+      'mean-only refresh violated the k0/outer Gauss closure' &
+      )
+    call test_end()
+  end subroutine test_cached_kinetic_interface_diagnostics
 
   subroutine evaluate_components(expected_e, expected_phi, nonzero_e, nonzero_phi, zero_e, zero_phi)
     real(dp), intent(out) :: expected_e(3), expected_phi, nonzero_e(3), nonzero_phi, zero_e, zero_phi

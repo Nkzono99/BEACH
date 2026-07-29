@@ -4,16 +4,17 @@ program test_outer_plasma_kinetic_runtime
   use bem_app_config_types, only: app_config, default_app_config
   use bem_outer_plasma_types, only: outer_plasma_ok, outer_plasma_not_applicable
   use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
-  use bem_outer_plasma_kinetic_runtime, only: resolve_kinetic_outer_options
+  use bem_outer_plasma_kinetic_runtime, only: find_kinetic_ambient_species, resolve_kinetic_outer_options
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_equal_i32, assert_true
   implicit none
 
   type(app_config) :: app
   type(kinetic_outer_plasma_options_type) :: options
   integer(i32) :: status
+  integer(i32) :: electron_index, ion_index, electron_count, ion_count
   character(len=256) :: message
 
-  call test_init(17)
+  call test_init(21)
 
   call test_begin('runtime adapter resolves the ambient reservoir VDFs')
   call init_fixture(app)
@@ -26,6 +27,20 @@ program test_outer_plasma_kinetic_runtime
   call assert_close_dp(options%ion_temperature_j, 500.0_dp*k_boltzmann, 1.0e-32_dp, 'ion temperature mismatch')
   call assert_close_dp(options%ion_drift_infinity, 4.0e4_dp, 0.0_dp, 'ion inward drift mismatch')
   call assert_close_dp(options%domain_length, 10.0_dp*app%outer_plasma%debye_length, 0.0_dp, 'domain length mismatch')
+  call test_end()
+
+  call test_begin('ambient selection excludes reservoirs on other faces')
+  call init_fixture(app)
+  app%n_particle_species = 4_i32
+  app%particle_species(3) = app%particle_species(1)
+  app%particle_species(3)%inject_face = 'z_low'
+  app%particle_species(4) = app%particle_species(2)
+  app%particle_species(4)%inject_face = 'z_low'
+  call find_kinetic_ambient_species(app, electron_index, ion_index, electron_count, ion_count)
+  call assert_equal_i32(electron_count, 1_i32, 'other-face electron reservoir must not enter kinetic ambient selection')
+  call assert_equal_i32(ion_count, 1_i32, 'other-face ion reservoir must not enter kinetic ambient selection')
+  call assert_equal_i32(electron_index, 1_i32, 'selected kinetic ambient electron index mismatch')
+  call assert_equal_i32(ion_index, 2_i32, 'selected kinetic ambient ion index mismatch')
   call test_end()
 
   call test_begin('ambient linear Debye ignores tracked photoelectrons in its mean density')
@@ -46,6 +61,23 @@ program test_outer_plasma_kinetic_runtime
                        'ambient electron inward drift mismatch')
   call assert_close_dp(options%photoelectron_emission_flux, 0.0_dp, 0.0_dp, &
                        'tracked photoelectron source must not enter the mean closure')
+  call test_end()
+
+  call test_begin('implicit mean maps tracked photoemission into current only')
+  app%coupling%update_mode = 'implicit_mean'
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, 'implicit mean photo current mapping failed: '//trim(message))
+  call assert_close_dp( &
+    options%photoelectron_emission_flux, app%particle_species(3)%emit_current_density_a_m2/qe, &
+    1.0e-12_dp, 'implicit mean photoelectron emission flux mismatch' &
+    )
+  call test_end()
+
+  call test_begin('implicit mean rejects a shifted photoelectron VDF')
+  app%particle_species(3)%normal_drift_speed = 1.0_dp
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_not_applicable, &
+                        'implicit mean shifted photoelectron VDF must be not_applicable')
   call test_end()
 
   call test_begin('absorbing closure rejects duplicate ambient electrons')
@@ -131,6 +163,17 @@ program test_outer_plasma_kinetic_runtime
   call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
   call assert_equal_i32(status, outer_plasma_not_applicable, &
                         'inconsistent Zhao tracked emission must be not_applicable')
+  call test_end()
+
+  call test_begin('implicit Zhao measures its outer source independently of surface emission')
+  app%coupling%update_mode = 'implicit_mean'
+  call resolve_kinetic_outer_options(app, -0.5_dp, options, status, message)
+  call assert_equal_i32(status, outer_plasma_ok, &
+                        'implicit Zhao must accept a distinct surface emission current: '//trim(message))
+  call assert_close_dp(options%photoelectron_source_scale, 0.5_dp, 0.0_dp, &
+                       'implicit Zhao warm-start source scale changed')
+  call assert_close_dp(options%photoelectron_emission_flux, 0.0_dp, 0.0_dp, &
+                       'implicit Zhao must derive its outer source from measured interface rays')
   call test_end()
 
   call test_begin('runtime adapter derives the no-photo Zhao scale from upstream plasma')

@@ -96,8 +96,10 @@ drift_velocity = [0.0, 0.0, -4.0529988897111727e5]
 species_key = "photoelectron"
 enabled = true
 source_mode = "photo_raycast"
-# |q| n_ref sin(alpha) sqrt(2 T_pe[J] / m_pe) / (2 sqrt(pi)); the runtime
-# requires the tracked source to match this analytic raw current within 1%.
+# |q| n_ref sin(alpha) sqrt(2 T_pe[J] / m_pe) / (2 sqrt(pi)). In the
+# implicit-mean Zhao path, this configured current controls tracked surface
+# emission while the outer Zhao source scale is resolved from the measured
+# interface-crossing current; they are not required to match batch by batch.
 emit_current_density_a_m2 = 2.2037032292944053e-6
 rays_per_batch = 128
 deposit_opposite_charge_on_emit = true

@@ -84,6 +84,19 @@ program test_physics_config_types
   outer%return_model = 'unsupported_return'
   call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
   call assert_true(status /= physics_config_ok, 'kinetic outer model must reject an unsupported return identifier')
+  outer%return_model = 'kinetic_1d_profile_return'
+  outer%kinetic_closure = 'ambient_linear_debye'
+  outer%photoelectron_density_model = 'none'
+  coupling%update_mode = 'implicit_mean'
+  coupling%outer_update_stride = 1_i32
+  sim%batch_duration = 0.1_dp
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'implicit mean kinetic coupling should be valid')
+  coupling%outer_update_stride = 2_i32
+  call validate_active_physics_config(sim, field, periodic2, panel, outer, coupling, status, message)
+  call assert_true(status /= physics_config_ok, 'implicit mean coupling must update every batch')
+  coupling%update_mode = 'explicit'
+  coupling%outer_update_stride = 1_i32
   call test_end()
 
   call test_begin('cached_kneq0_active_contract')

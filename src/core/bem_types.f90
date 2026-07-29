@@ -130,6 +130,8 @@ module bem_types
     real(dp), allocatable :: m(:)
     real(dp), allocatable :: w(:)
     integer(i32), allocatable :: species_id(:)
+    !> `photo_raycast` の放出元要素。表面起源でない粒子は -1。
+    integer(i32), allocatable :: source_element(:)
     logical, allocatable :: alive(:)
   end type particles_soa
 

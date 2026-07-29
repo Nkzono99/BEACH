@@ -10,7 +10,8 @@ module bem_restart
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_outer_event_queue, only: outer_event_queue_fingerprint_is_valid
   use bem_string_utils, only: lower_ascii
-  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
+  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array, &
+                     mpi_world_barrier
   implicit none
 
   private
@@ -53,7 +54,7 @@ contains
     character(len=256) :: contract_message
     logical :: has_summary, has_charges, has_rng, has_residual, has_legacy_residual, has_ledger
     logical :: must_have_checkpoint
-    integer(i32) :: local_rank, world_size, contract_status
+    integer(i32) :: local_rank, world_size, contract_status, io_status_values(1)
 
     stats = sim_stats()
     if (present(electrostatic_state)) electrostatic_state = electrostatic_restart_state_type()
@@ -132,6 +133,16 @@ contains
               electrostatic_state%outer_zhao_electron_density_infinity <= 0.0_dp) then
             error stop 'Resume checkpoint is missing the resolved Zhao outer-plasma state.'
           end if
+          if (trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean' .and. &
+              index('ABC', electrostatic_state%outer_zhao_branch) == 0) then
+            error stop 'Resume implicit Zhao checkpoint must contain a resolved A/B/C branch.'
+          end if
+          if (trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean' .and. &
+              (.not. electrostatic_state%outer_zhao_source_scale_complete .or. &
+               .not. ieee_is_finite(electrostatic_state%outer_photoelectron_source_scale) .or. &
+               electrostatic_state%outer_photoelectron_source_scale <= 0.0_dp)) then
+            error stop 'Resume checkpoint is missing the resolved implicit-Zhao photoelectron source scale.'
+          end if
           if (app%coupling%outer_queue_enabled .and. &
               (.not. electrostatic_state%outer_zhao_transient_state_complete .or. &
                .not. electrostatic_state%outer_queue_inventory_complete .or. &
@@ -165,18 +176,30 @@ contains
             error stop 'Resume charge ledger species count does not match current config.'
           end if
         end if
-      else if (present(app) .and. app%n_particle_species > 0_i32) then
-        call charge_ledger%init(app%n_particle_species)
-        charge_ledger%batch_count = stats%batches
-        charge_ledger%surface_charge_before = sum(mesh%q_elem)
-        charge_ledger%surface_charge_after = sum(mesh%q_elem)
+      else
+        if (present(app)) then
+          if (app%n_particle_species > 0_i32) then
+            call charge_ledger%init(app%n_particle_species)
+            charge_ledger%batch_count = stats%batches
+            charge_ledger%surface_charge_before = sum(mesh%q_elem)
+            charge_ledger%surface_charge_after = sum(mesh%q_elem)
+          end if
+        end if
       end if
     end if
     call restore_rng_state(trim(rng_path))
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
       if (has_residual .and. allocated(state%macro_residual)) then
-        if (.not. present(mpi) .or. local_rank == 0_i32) call load_macro_residual_file(trim(residual_path), state)
+        io_status_values = 0_i32
+        if (.not. present(mpi) .or. local_rank == 0_i32) then
+          call load_macro_residual_file(trim(residual_path), state, io_status_values(1))
+        end if
+        if (present(mpi)) call mpi_bcast_i32_array(mpi, io_status_values, 0_i32)
+        if (io_status_values(1) /= 0_i32) then
+          if (present(mpi)) call mpi_world_barrier(mpi)
+          error stop 'Resume checkpoint macro_residuals.csv is malformed or unreadable.'
+        end if
         if (present(mpi)) call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
       end if
     end if
@@ -191,48 +214,84 @@ contains
     character(len=1024) :: path
     character(len=512) :: line
     integer :: u, ios
-    integer(i32) :: point, file_point, profile_meta(2)
+    integer(i32) :: point, file_point, profile_meta(3)
     real(dp), allocatable :: z(:), potential(:), field(:), charge_density(:)
-    logical :: read_here
+    logical :: read_here, file_open
 
     read_here = .not. present(mpi) .or. local_rank == 0_i32
     profile_meta = 0_i32
+    file_open = .false.
     path = trim(out_dir)//'/outer_plasma_profile.csv'
     if (read_here) then
       open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-      if (ios /= 0) error stop 'Resume checkpoint is missing outer_plasma_profile.csv.'
-      read (u, '(A)', iostat=ios) line
-      if (ios /= 0) error stop 'Malformed outer profile header.'
-      select case (trim(line))
-      case ('point,z_m,potential_V')
-        profile_meta(2) = 0_i32
-      case ('point,z_m,potential_V,field_V_m,charge_density_C_m3')
-        profile_meta(2) = 1_i32
-      case default
-        error stop 'Malformed outer profile header.'
-      end select
-      do
+      if (ios /= 0) then
+        profile_meta(3) = 1_i32
+      else
+        file_open = .true.
+      end if
+      if (profile_meta(3) == 0_i32) then
         read (u, '(A)', iostat=ios) line
-        if (ios /= 0) exit
-        profile_meta(1) = profile_meta(1) + 1_i32
-      end do
-      rewind (u)
-      read (u, '(A)') line
-      allocate (z(profile_meta(1)), potential(profile_meta(1)))
-      if (profile_meta(2) == 1_i32) allocate (field(profile_meta(1)), charge_density(profile_meta(1)))
-      do point = 1_i32, profile_meta(1)
-        if (profile_meta(2) == 1_i32) then
-          read (u, *, iostat=ios) file_point, z(point), potential(point), field(point), charge_density(point)
+        if (ios /= 0) then
+          profile_meta(3) = 2_i32
         else
-          read (u, *, iostat=ios) file_point, z(point), potential(point)
+          select case (trim(line))
+          case ('point,z_m,potential_V')
+            profile_meta(2) = 0_i32
+          case ('point,z_m,potential_V,field_V_m,charge_density_C_m3')
+            profile_meta(2) = 1_i32
+          case default
+            profile_meta(3) = 2_i32
+          end select
         end if
-        if (ios /= 0 .or. file_point /= point) error stop 'Malformed outer profile row.'
-      end do
-      close (u)
-      profile_meta(1) = size(z)
+      end if
+      if (profile_meta(3) == 0_i32) then
+        do
+          read (u, '(A)', iostat=ios) line
+          if (ios < 0) exit
+          if (ios > 0) then
+            profile_meta(3) = 3_i32
+            exit
+          end if
+          profile_meta(1) = profile_meta(1) + 1_i32
+        end do
+        if (profile_meta(1) < 3_i32) profile_meta(3) = 4_i32
+      end if
+      if (profile_meta(3) == 0_i32) then
+        rewind (u, iostat=ios)
+        if (ios == 0) read (u, '(A)', iostat=ios) line
+        if (ios /= 0) profile_meta(3) = 2_i32
+      end if
+      if (profile_meta(3) == 0_i32) then
+        allocate (z(profile_meta(1)), potential(profile_meta(1)))
+        if (profile_meta(2) == 1_i32) allocate (field(profile_meta(1)), charge_density(profile_meta(1)))
+        do point = 1_i32, profile_meta(1)
+          if (profile_meta(2) == 1_i32) then
+            read (u, *, iostat=ios) file_point, z(point), potential(point), field(point), charge_density(point)
+          else
+            read (u, *, iostat=ios) file_point, z(point), potential(point)
+          end if
+          if (ios /= 0 .or. file_point /= point) then
+            profile_meta(3) = 3_i32
+            exit
+          end if
+        end do
+      end if
+      if (file_open) close (u)
     end if
     if (present(mpi)) call mpi_bcast_i32_array(mpi, profile_meta, 0_i32)
-    if (profile_meta(1) < 3_i32) error stop 'Kinetic outer profile has too few points.'
+    if (profile_meta(3) /= 0_i32) then
+      if (present(mpi)) call mpi_world_barrier(mpi)
+      select case (profile_meta(3))
+      case (1_i32)
+        error stop 'Resume checkpoint is missing outer_plasma_profile.csv.'
+      case (2_i32)
+        error stop 'Malformed outer profile header.'
+      case (3_i32)
+        error stop 'Malformed outer profile row.'
+      case default
+        error stop 'Kinetic outer profile has too few points.'
+      end select
+    end if
     if (.not. read_here) then
       allocate (z(profile_meta(1)), potential(profile_meta(1)))
       if (profile_meta(2) == 1_i32) allocate (field(profile_meta(1)), charge_density(profile_meta(1)))
@@ -263,7 +322,8 @@ contains
     character(len=512) :: line
     character(len=64) :: key
     character(len=256) :: value
-    logical :: found_potential, found_batch, found_v3_state(11), found_zhao_state(4), found_zhao_transient_state(4)
+    logical :: found_potential, found_batch, found_v3_state(11), found_zhao_state(4), found_zhao_source_scale
+    logical :: found_zhao_transient_state(4)
     logical :: found_outer_queue_inventory(3), found_outer_max_diagnostics(3)
 
     state = electrostatic_restart_state_type()
@@ -271,6 +331,7 @@ contains
     found_batch = .false.
     found_v3_state = .false.
     found_zhao_state = .false.
+    found_zhao_source_scale = .false.
     found_zhao_transient_state = .false.
     found_outer_queue_inventory = .false.
     found_outer_max_diagnostics = .false.
@@ -344,6 +405,9 @@ contains
       case ('outer_plasma_zhao_electron_density_infinity_m3')
         read (value, *, iostat=ios) state%outer_zhao_electron_density_infinity
         found_zhao_state(4) = ios == 0
+      case ('outer_plasma_photoelectron_source_scale_resolved')
+        read (value, *, iostat=ios) state%outer_photoelectron_source_scale
+        found_zhao_source_scale = ios == 0
       case ('outer_photoelectron_population_fraction')
         read (value, *, iostat=ios) state%outer_photoelectron_population_fraction
         found_zhao_transient_state(1) = ios == 0
@@ -412,7 +476,13 @@ contains
          .not. ieee_is_finite(state%outer_queue_signed_charge))) then
       error stop 'Schema v4 outer-queue inventory values are invalid in summary.txt.'
     end if
+    if (found_zhao_source_scale .and. &
+        (.not. ieee_is_finite(state%outer_photoelectron_source_scale) .or. &
+         state%outer_photoelectron_source_scale < 0.0_dp)) then
+      error stop 'Resolved Zhao photoelectron source scale is invalid in summary.txt.'
+    end if
     state%outer_zhao_state_complete = all(found_zhao_state)
+    state%outer_zhao_source_scale_complete = found_zhao_source_scale
     state%outer_zhao_transient_state_complete = all(found_zhao_transient_state)
     state%outer_queue_inventory_complete = all(found_outer_queue_inventory)
     state%outer_max_diagnostics_complete = &
@@ -866,9 +936,10 @@ contains
   !> 保存済みマクロ粒子残差を読み戻す。
   !! @param[in] path `macro_residuals.csv` のファイルパス。
   !! @param[inout] state 種別ごとのマクロ粒子残差を書き戻す注入状態。
-  subroutine load_macro_residual_file(path, state)
+  subroutine load_macro_residual_file(path, state, status)
     character(len=*), intent(in) :: path
     type(injection_state), intent(inout) :: state
+    integer(i32), intent(out) :: status
 
     integer :: u, ios
     integer(i32) :: species_idx
@@ -876,6 +947,7 @@ contains
     character(len=512) :: header
     logical, allocatable :: seen(:)
 
+    status = 0_i32
     if (.not. allocated(state%macro_residual)) return
 
     allocate (seen(size(state%macro_residual)))
@@ -883,23 +955,36 @@ contains
     state%macro_residual = 0.0d0
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'Failed to open macro_residuals.csv for resume.'
+    if (ios /= 0) then
+      status = 1_i32
+      return
+    end if
 
     read (u, '(A)', iostat=ios) header
-    if (ios /= 0) error stop 'Failed to read macro_residuals.csv header.'
+    if (ios /= 0) then
+      status = 2_i32
+      close (u)
+      return
+    end if
 
     do
       read (u, *, iostat=ios) species_idx, residual
       if (ios < 0) exit
-      if (ios > 0) error stop 'Failed to parse macro_residuals.csv during resume.'
+      if (ios > 0) then
+        status = 3_i32
+        exit
+      end if
       if (species_idx < 1_i32 .or. species_idx > size(state%macro_residual)) then
-        error stop 'Resume checkpoint macro_residuals.csv has an invalid species index.'
+        status = 4_i32
+        exit
       end if
       if (seen(species_idx)) then
-        error stop 'Resume checkpoint macro_residuals.csv contains duplicate species rows.'
+        status = 5_i32
+        exit
       end if
       if (.not. ieee_is_finite(residual) .or. residual < 0.0d0 .or. residual >= 1.0d0) then
-        error stop 'Resume checkpoint macro_residuals.csv residual values must be finite and in [0, 1).'
+        status = 6_i32
+        exit
       end if
       seen(species_idx) = .true.
       state%macro_residual(species_idx) = residual

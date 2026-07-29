@@ -315,6 +315,10 @@ class FortranRunResult:
     outer_queue_fingerprint: str | None = None
     multiple_box_events_soft_discarded: int = 0
     multiple_box_events_soft_discarded_abs_charge_c: float = 0.0
+    implicit_mean_last_returned_outer_flight_time_mean_s: float | None = None
+    implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2: (
+        float | None
+    ) = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

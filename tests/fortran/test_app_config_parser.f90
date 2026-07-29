@@ -13,6 +13,7 @@ program test_app_config_parser
   type(app_config) :: cfg, photo_cfg, large_cfg, periodic_cfg, zhao_cfg, high_level_cfg
   type(app_config) :: multiline_cfg, toml_syntax_cfg, panel_cfg, panel_tree_cfg, split_cfg
   type(app_config) :: external_boundary_cfg, none_boundary_cfg
+  type(app_config) :: implicit_mean_cfg, ambient_only_cfg, positive_photo_cfg, non_template_mean_cfg
   character(len=*), parameter :: cfg_path = 'test_app_config_parser_tmp.toml'
   character(len=*), parameter :: photo_cfg_path = 'test_app_config_parser_photo_tmp.toml'
   character(len=*), parameter :: large_cfg_path = 'test_app_config_parser_large_tmp.toml'
@@ -32,13 +33,27 @@ program test_app_config_parser
   character(len=*), parameter :: noop_boundary_cfg_path = 'test_app_config_parser_noop_boundary_tmp.toml'
   character(len=*), parameter :: noop_boundary_output_path = 'test_app_config_parser_noop_boundary_tmp.out'
   character(len=*), parameter :: none_boundary_cfg_path = 'test_app_config_parser_none_boundary_tmp.toml'
+  character(len=*), parameter :: implicit_mean_cfg_path = 'test_app_config_parser_implicit_mean_tmp.toml'
+  character(len=*), parameter :: ambient_only_cfg_path = 'test_app_config_parser_ambient_only_tmp.toml'
+  character(len=*), parameter :: positive_photo_cfg_path = 'test_app_config_parser_positive_photo_tmp.toml'
   character(len=*), parameter :: missing_deposit_cfg_path = 'test_app_config_parser_missing_deposit_tmp.toml'
   character(len=*), parameter :: missing_deposit_output_path = 'test_app_config_parser_missing_deposit_tmp.out'
+  character(len=*), parameter :: non_template_mean_cfg_path = 'test_app_config_parser_non_template_mean_tmp.toml'
+  character(len=*), parameter :: authored_implicit_cfg_path = 'test_app_config_parser_authored_implicit_tmp.toml'
+  character(len=*), parameter :: authored_implicit_output_path = 'test_app_config_parser_authored_implicit_tmp.out'
   character(len=64) :: run_mode, probe_argument, noop_kind
 
   call get_command_argument(1, run_mode)
+  if (trim(run_mode) == 'probe_authored_implicit_mean') then
+    call write_authored_implicit_mean_config_fixture(authored_implicit_cfg_path)
+    call default_app_config(cfg)
+    call load_app_config(authored_implicit_cfg_path, cfg)
+    error stop 'user-authored implicit_mean probe unexpectedly completed'
+  end if
   if (trim(run_mode) == 'probe_missing_1d_photo_deposit') then
-    call write_missing_1d_photo_deposit_fixture(missing_deposit_cfg_path)
+    call write_ambient_linear_debye_config_fixture( &
+      missing_deposit_cfg_path, include_photo=.true., deposit_countercharge=.false. &
+      )
     call default_app_config(cfg)
     call load_app_config(missing_deposit_cfg_path, cfg)
     error stop 'missing 1D photoelectron countercharge probe unexpectedly completed'
@@ -96,8 +111,17 @@ program test_app_config_parser
   call write_split_config_fixture(split_cfg_path)
   call write_external_boundary_config_fixture(external_boundary_cfg_path)
   call write_external_boundary_noop_fixture(none_boundary_cfg_path, 'none')
+  call write_ambient_linear_debye_config_fixture(implicit_mean_cfg_path, include_photo=.true., deposit_countercharge=.true.)
+  call write_ambient_linear_debye_config_fixture(ambient_only_cfg_path, include_photo=.false., deposit_countercharge=.false.)
+  call write_ambient_linear_debye_config_fixture( &
+    positive_photo_cfg_path, include_photo=.true., deposit_countercharge=.true., &
+    photo_charge=1.602176634e-19_dp &
+    )
+  call write_ambient_linear_debye_config_fixture( &
+    non_template_mean_cfg_path, include_photo=.true., deposit_countercharge=.true., mesh_mode='obj' &
+    )
 
-  call test_init(17)
+  call test_init(20)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -494,6 +518,52 @@ program test_app_config_parser
   call assert_missing_1d_photo_deposit_rejected()
   call test_end()
 
+  call test_begin('ambient_linear_debye_derives_implicit_mean_only_with_photo')
+  call default_app_config(implicit_mean_cfg)
+  call load_app_config(implicit_mean_cfg_path, implicit_mean_cfg)
+  call assert_true( &
+    trim(implicit_mean_cfg%outer_plasma%kinetic_closure) == 'ambient_linear_debye', &
+    'photo fixture kinetic closure mismatch' &
+    )
+  call assert_true( &
+    trim(implicit_mean_cfg%coupling%update_mode) == 'implicit_mean', &
+    'enabled photo_raycast must derive implicit_mean coupling' &
+    )
+  call default_app_config(ambient_only_cfg)
+  call load_app_config(ambient_only_cfg_path, ambient_only_cfg)
+  call assert_true( &
+    trim(ambient_only_cfg%outer_plasma%kinetic_closure) == 'ambient_linear_debye', &
+    'ambient-only fixture kinetic closure mismatch' &
+    )
+  call assert_true( &
+    trim(ambient_only_cfg%coupling%update_mode) == 'explicit', &
+    'ambient_linear_debye without photo_raycast must retain explicit coupling' &
+    )
+  call default_app_config(positive_photo_cfg)
+  call load_app_config(positive_photo_cfg_path, positive_photo_cfg)
+  call assert_true( &
+    trim(positive_photo_cfg%coupling%update_mode) == 'explicit', &
+    'positive photo_raycast must not derive the negative-photo implicit mean coupling' &
+    )
+  call test_end()
+
+  call test_begin('legacy_coupling_rejects_authored_implicit_mean')
+  call assert_authored_implicit_mean_rejected()
+  call test_end()
+
+  call test_begin('implicit_mean_accepts_non_template_source_provenance')
+  call default_app_config(non_template_mean_cfg)
+  call load_app_config(non_template_mean_cfg_path, non_template_mean_cfg)
+  call assert_true( &
+    trim(non_template_mean_cfg%mesh_mode) == 'obj', &
+    'non-template implicit-mean fixture lost its mesh mode' &
+    )
+  call assert_true( &
+    trim(non_template_mean_cfg%coupling%update_mode) == 'implicit_mean', &
+    'source-provenance coupling must not require a generated support plane' &
+    )
+  call test_end()
+
   call delete_file_if_exists(cfg_path)
   call delete_file_if_exists(photo_cfg_path)
   call delete_file_if_exists(large_cfg_path)
@@ -513,12 +583,47 @@ program test_app_config_parser
   call delete_file_if_exists(noop_boundary_cfg_path)
   call delete_file_if_exists(noop_boundary_output_path)
   call delete_file_if_exists(none_boundary_cfg_path)
+  call delete_file_if_exists(implicit_mean_cfg_path)
+  call delete_file_if_exists(ambient_only_cfg_path)
+  call delete_file_if_exists(positive_photo_cfg_path)
   call delete_file_if_exists(missing_deposit_cfg_path)
   call delete_file_if_exists(missing_deposit_output_path)
+  call delete_file_if_exists(non_template_mean_cfg_path)
+  call delete_file_if_exists(authored_implicit_cfg_path)
+  call delete_file_if_exists(authored_implicit_output_path)
 
   call test_summary()
 
 contains
+
+  subroutine assert_authored_implicit_mean_rejected()
+    character(len=1024) :: executable_path, line
+    character(len=4096) :: command
+    integer :: child_exit_status, child_cmd_status, u, ios
+    logical :: saw_requirement
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" probe_authored_implicit_mean > "'// &
+              authored_implicit_output_path//'" 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
+      )
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'authored implicit_mean probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'user-authored coupling.update_mode=implicit_mean must fail')
+    saw_requirement = .false.
+    open (newunit=u, file=authored_implicit_output_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to read authored implicit_mean probe output'
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      saw_requirement = saw_requirement .or. &
+                        index(line, 'coupling.update_mode accepts only "explicit" in user input') > 0
+    end do
+    close (u)
+    call assert_true(saw_requirement, 'authored implicit_mean probe must report the explicit-only input contract')
+    call delete_file_if_exists(authored_implicit_cfg_path)
+    call delete_file_if_exists(authored_implicit_output_path)
+  end subroutine assert_authored_implicit_mean_rejected
 
   subroutine assert_removed_root_oracle_rejected()
     character(len=1024) :: executable_path, line
@@ -766,14 +871,30 @@ contains
     call delete_file_if_exists(noop_boundary_output_path)
   end subroutine assert_external_boundary_probe_rejected
 
-  !> kinetic 1D の追跡粒子返送に必要な光電子逆電荷を欠く設定を書き出す。
+  !> ambient linear Debye のmean更新導出を検証する設定を書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
-  subroutine write_missing_1d_photo_deposit_fixture(path)
+  !! @param[in] include_photo photo_raycast speciesを含める場合はtrue。
+  !! @param[in] deposit_countercharge 光電子放出時の逆電荷をdepositする場合はtrue。
+  !! @param[in] mesh_mode optionalなmesh mode。省略時はtemplate。
+  !! @param[in] photo_charge optionalなphoto_raycast粒子電荷。省略時は電子電荷。
+  subroutine write_ambient_linear_debye_config_fixture( &
+    path, include_photo, deposit_countercharge, mesh_mode, photo_charge &
+    )
     character(len=*), intent(in) :: path
+    logical, intent(in) :: include_photo, deposit_countercharge
+    character(len=*), intent(in), optional :: mesh_mode
+    real(dp), intent(in), optional :: photo_charge
     integer :: u, ios
+    character(len=16) :: resolved_mesh_mode
+    real(dp) :: resolved_photo_charge
+
+    resolved_mesh_mode = 'template'
+    if (present(mesh_mode)) resolved_mesh_mode = trim(mesh_mode)
+    resolved_photo_charge = -1.602176634e-19_dp
+    if (present(photo_charge)) resolved_photo_charge = photo_charge
 
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
-    if (ios /= 0) error stop 'failed to open missing 1D photoelectron deposit fixture'
+    if (ios /= 0) error stop 'failed to open ambient linear Debye config fixture'
 
     write (u, '(a)') '[sim]'
     write (u, '(a)') 'dt = 1.0e-9'
@@ -804,6 +925,7 @@ contains
     write (u, '(a)') ''
     write (u, '(a)') '[external_boundary.field]'
     write (u, '(a)') 'model = "kinetic_1d"'
+    write (u, '(a)') 'kinetic_closure = "ambient_linear_debye"'
     write (u, '(a)') 'debye_length = 0.2'
     write (u, '(a)') 'thermal_voltage = 2.0'
     write (u, '(a)') ''
@@ -837,38 +959,57 @@ contains
     write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
     write (u, '(a)') 'drift_velocity = [0.0, 0.0, -4.0e4]'
     write (u, '(a)') 'temperature_ev = 0.1'
-    write (u, '(a)') ''
-    write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'species_key = "photoelectron"'
-    write (u, '(a)') 'source_mode = "photo_raycast"'
-    write (u, '(a)') 'emit_current_density_a_m2 = 1.0e-3'
-    write (u, '(a)') 'rays_per_batch = 4'
-    write (u, '(a)') 'q_particle = -1.602176634e-19'
-    write (u, '(a)') 'm_particle = 9.1093837139e-31'
-    write (u, '(a)') 'temperature_k = 0.0'
-    write (u, '(a)') 'inject_face = "z_high"'
-    write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
-    write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
-    write (u, '(a)') 'ray_direction = [0.0, 0.0, -1.0]'
+    if (include_photo) then
+      write (u, '(a)') ''
+      write (u, '(a)') '[[particles.species]]'
+      write (u, '(a)') 'species_key = "photoelectron"'
+      write (u, '(a)') 'source_mode = "photo_raycast"'
+      write (u, '(a)') 'emit_current_density_a_m2 = 1.0e-3'
+      write (u, '(a)') 'rays_per_batch = 4'
+      if (deposit_countercharge) write (u, '(a)') 'deposit_opposite_charge_on_emit = true'
+      write (u, '(a,es24.16)') 'q_particle = ', resolved_photo_charge
+      write (u, '(a)') 'm_particle = 9.1093837139e-31'
+      write (u, '(a)') 'temperature_k = 0.0'
+      write (u, '(a)') 'inject_face = "z_high"'
+      write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
+      write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
+      write (u, '(a)') 'ray_direction = [0.0, 0.0, -1.0]'
+    end if
     write (u, '(a)') ''
     write (u, '(a)') '[mesh]'
-    write (u, '(a)') 'mode = "template"'
-    write (u, '(a)') '[[mesh.templates]]'
-    write (u, '(a)') 'enabled = true'
-    write (u, '(a)') 'kind = "plane"'
-    write (u, '(a)') 'surface_model = "insulator"'
-    write (u, '(a)') 'surface_side = "normal_plus"'
-    write (u, '(a)') 'center = [0.5, 0.5, 0.25]'
-    write (u, '(a)') 'size_x = 1.0'
-    write (u, '(a)') 'size_y = 1.0'
-    write (u, '(a)') 'nx = 1'
-    write (u, '(a)') 'ny = 1'
+    write (u, '(a)') 'mode = "'//trim(resolved_mesh_mode)//'"'
+    if (trim(resolved_mesh_mode) == 'template') then
+      write (u, '(a)') '[[mesh.templates]]'
+      write (u, '(a)') 'enabled = true'
+      write (u, '(a)') 'kind = "plane"'
+      write (u, '(a)') 'surface_model = "insulator"'
+      write (u, '(a)') 'surface_side = "normal_plus"'
+      write (u, '(a)') 'center = [0.5, 0.5, 0.25]'
+      write (u, '(a)') 'size_x = 1.0'
+      write (u, '(a)') 'size_y = 1.0'
+      write (u, '(a)') 'nx = 1'
+      write (u, '(a)') 'ny = 1'
+    else
+      write (u, '(a)') 'obj_path = "unused.obj"'
+      write (u, '(a)') 'surface_side = "normal_plus"'
+    end if
     write (u, '(a)') ''
     write (u, '(a)') '[output]'
     write (u, '(a)') 'write_files = false'
 
     close (u)
-  end subroutine write_missing_1d_photo_deposit_fixture
+  end subroutine write_ambient_linear_debye_config_fixture
+
+  subroutine write_authored_implicit_mean_config_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open authored implicit_mean config fixture'
+    write (u, '(a)') '[coupling]'
+    write (u, '(a)') 'update_mode = "implicit_mean"'
+    close (u)
+  end subroutine write_authored_implicit_mean_config_fixture
 
   !> テスト専用の一時設定ファイルを書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。

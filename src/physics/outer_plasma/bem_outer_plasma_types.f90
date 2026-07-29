@@ -20,6 +20,7 @@ module bem_outer_plasma_types
     real(dp) :: zhao_phi0 = 0.0_dp
     real(dp) :: zhao_phi_minimum = 0.0_dp
     real(dp) :: zhao_electron_density_infinity = 0.0_dp
+    real(dp) :: photoelectron_source_scale = 1.0_dp
     real(dp) :: photoelectron_population_fraction = 1.0_dp
     real(dp) :: photoelectron_column_per_area = 0.0_dp
     real(dp) :: photoelectron_column_target_per_area = 0.0_dp

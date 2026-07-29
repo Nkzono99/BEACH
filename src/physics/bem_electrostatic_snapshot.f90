@@ -1,5 +1,6 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: iso_fortran_env, only: error_unit
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_periodic
@@ -51,6 +52,7 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_zhao_phi0 = 0.0_dp
     real(dp) :: outer_zhao_phi_minimum = 0.0_dp
     real(dp) :: outer_zhao_electron_density_infinity = 0.0_dp
+    real(dp) :: outer_photoelectron_source_scale = 1.0_dp
     real(dp) :: outer_photoelectron_population_fraction = 1.0_dp
     real(dp) :: outer_photoelectron_column_per_area = 0.0_dp
     real(dp) :: outer_photoelectron_column_target_per_area = 0.0_dp
@@ -63,6 +65,9 @@ module bem_electrostatic_snapshot
     real(dp) :: max_outer_flight_time = 0.0_dp
     real(dp) :: max_frozen_field_ratio = 0.0_dp
     real(dp) :: max_outer_energy_relative_error = 0.0_dp
+    logical :: implicit_mean_shadow_diagnostics_available = .false.
+    real(dp) :: implicit_mean_last_returned_outer_flight_time_mean = 0.0_dp
+    real(dp) :: implicit_mean_last_returning_pe_column_charge_per_area = 0.0_dp
     logical :: periodic_cache_hit = .false.
     integer(i32) :: periodic_operator_build_count = 0_i32
     character(len=128) :: periodic_cache_fingerprint = ''
@@ -93,6 +98,7 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_zhao_phi0 = 0.0_dp
     real(dp) :: outer_zhao_phi_minimum = 0.0_dp
     real(dp) :: outer_zhao_electron_density_infinity = 0.0_dp
+    real(dp) :: outer_photoelectron_source_scale = 1.0_dp
     real(dp) :: outer_photoelectron_population_fraction = 1.0_dp
     real(dp) :: outer_photoelectron_column_per_area = 0.0_dp
     real(dp) :: outer_photoelectron_column_target_per_area = 0.0_dp
@@ -101,6 +107,7 @@ module bem_electrostatic_snapshot
     real(dp) :: outer_queue_signed_charge = 0.0_dp
     character(len=16) :: outer_queue_fingerprint = ''
     logical :: outer_zhao_state_complete = .false.
+    logical :: outer_zhao_source_scale_complete = .false.
     logical :: outer_zhao_transient_state_complete = .false.
     logical :: outer_queue_inventory_complete = .false.
     real(dp) :: max_outer_flight_time = 0.0_dp
@@ -139,6 +146,8 @@ module bem_electrostatic_snapshot
   contains
     procedure :: init => init_electrostatic_snapshot
     procedure :: refresh => refresh_electrostatic_snapshot
+    procedure :: refresh_mean_only => refresh_electrostatic_snapshot_mean_only
+    procedure :: adopt_mean_outer => adopt_electrostatic_snapshot_mean_outer
     procedure :: eval_local_e => eval_snapshot_local_e
     procedure :: eval_local_phi => eval_snapshot_local_phi
     procedure :: eval_local_phi_without_primary_self => eval_snapshot_local_phi_without_primary_self
@@ -290,6 +299,195 @@ contains
     call update_interface_diagnostics(self, mesh)
   end subroutine refresh_electrostatic_snapshot
 
+  !> 候補要素電荷から平面平均成分と外部1D状態だけを更新する。
+  !!
+  !! nonzero_solver は更新しないため、局所 k/=0 場は直前の full refresh の
+  !! 状態に固定される。candidate_charge は差分ではなく全要素分の絶対電荷。
+  subroutine refresh_electrostatic_snapshot_mean_only( &
+    self, mesh, candidate_charge, continuation_stage, continuation_batch &
+    )
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: candidate_charge(:)
+    character(len=*), intent(in), optional :: continuation_stage
+    integer(i32), intent(in), optional :: continuation_batch
+
+    real(dp) :: raw_potential, interface_field
+
+    if (.not. self%use_zero_mode .or. .not. self%use_outer_plasma .or. &
+        (.not. self%use_cached_kneq0 .and. .not. self%use_panel_spectral_reference)) then
+      error stop 'mean-only refresh requires a split periodic snapshot with an outer plasma.'
+    end if
+    if (size(candidate_charge) /= mesh%nelem) then
+      error stop 'mean-only refresh requires one candidate charge per mesh element.'
+    end if
+    if (.not. all(ieee_is_finite(candidate_charge))) then
+      error stop 'mean-only refresh candidate charges must be finite.'
+    end if
+
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, candidate_charge, zero_mode_bottom_field(self, candidate_charge), &
+      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      )
+    call eval_periodic_zero_mode( &
+      self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
+      raw_potential, interface_field &
+      )
+    call solve_kinetic_collective( &
+      self, interface_field, continuation_stage, continuation_batch &
+      )
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, candidate_charge, zero_mode_bottom_field(self, candidate_charge), &
+      self%zero_plan%break_z(1), self%outer%interface_potential - raw_potential, self%zero_state &
+      )
+    self%gauss_residual = upper_flux_charge(self) + &
+                          self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
+    call update_interface_diagnostics(self, mesh, candidate_charge)
+  end subroutine refresh_electrostatic_snapshot_mean_only
+
+  !> root rankで解決済みの外部profileを再solveせず、候補mean chargeへcollectiveに採用する。
+  subroutine adopt_electrostatic_snapshot_mean_outer(self, mesh, candidate_charge, resolved_outer)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: candidate_charge(:)
+    type(outer_plasma_state_type), intent(inout) :: resolved_outer
+
+    integer(i32) :: status_values(4)
+    real(dp) :: scalar_values(19)
+    real(dp) :: raw_potential, interface_field, field_tolerance, z_tolerance
+
+    if (.not. self%use_zero_mode .or. .not. self%use_outer_plasma .or. &
+        (.not. self%use_cached_kneq0 .and. .not. self%use_panel_spectral_reference)) then
+      error stop 'resolved mean outer adoption requires a split periodic outer-plasma snapshot.'
+    end if
+    if (size(candidate_charge) /= mesh%nelem .or. &
+        .not. all(ieee_is_finite(candidate_charge))) then
+      error stop 'resolved mean outer adoption received invalid candidate charges.'
+    end if
+
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, candidate_charge, zero_mode_bottom_field(self, candidate_charge), &
+      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      )
+    call eval_periodic_zero_mode( &
+      self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
+      raw_potential, interface_field &
+      )
+
+    status_values = 0_i32
+    scalar_values = 0.0_dp
+    if (mpi_is_root(self%mpi)) then
+      status_values(1) = outer_plasma_ok
+      if (.not. resolved_outer%ready .or. &
+          trim(lower_ascii(resolved_outer%kinetic_closure)) /= 'zhao_charge_driven' .or. &
+          index('ABC', resolved_outer%zhao_branch) == 0 .or. &
+          resolved_outer%profile_n /= self%kinetic_options%grid_points .or. &
+          resolved_outer%photoelectron_source_scale <= 0.0_dp) then
+        status_values(1) = 1_i32
+      else if (.not. valid_resolved_zhao_outer(resolved_outer, self%kinetic_options)) then
+        status_values(1) = 6_i32
+      end if
+      if (status_values(1) == outer_plasma_ok) then
+        field_tolerance = 1.0e-10_dp*max(1.0_dp, abs(interface_field))
+        if (abs(resolved_outer%interface_field - interface_field) > field_tolerance) then
+          status_values(1) = 4_i32
+        end if
+      end if
+      if (status_values(1) == outer_plasma_ok) then
+        z_tolerance = 256.0_dp*epsilon(1.0_dp)*max( &
+                      1.0_dp, abs(self%outer_options%interface_z), &
+                      abs(resolved_outer%z(resolved_outer%profile_n)) &
+                      )
+        if (abs(resolved_outer%z(1)) <= z_tolerance) then
+          resolved_outer%z = resolved_outer%z + self%outer_options%interface_z
+        else if (abs(resolved_outer%z(1) - self%outer_options%interface_z) > z_tolerance) then
+          status_values(1) = 5_i32
+        end if
+        resolved_outer%interface_z = self%outer_options%interface_z
+      end if
+      status_values(2) = resolved_outer%profile_n
+      status_values(3) = resolved_outer%nonlinear_iterations
+      status_values(4) = int(iachar(resolved_outer%zhao_branch), i32)
+    end if
+    call mpi_bcast_i32_array(self%mpi, status_values, 0_i32)
+    if (status_values(1) /= outer_plasma_ok) then
+      call mpi_world_barrier(self%mpi)
+      error stop 'resolved mean Zhao outer state failed collective adoption.'
+    end if
+
+    if (.not. mpi_is_root(self%mpi)) then
+      resolved_outer = outer_plasma_state_type()
+      resolved_outer%profile_n = status_values(2)
+      resolved_outer%nonlinear_iterations = status_values(3)
+      resolved_outer%zhao_branch = achar(status_values(4))
+      allocate (resolved_outer%z(resolved_outer%profile_n))
+      allocate (resolved_outer%potential(resolved_outer%profile_n))
+      allocate (resolved_outer%field(resolved_outer%profile_n))
+      allocate (resolved_outer%charge_density(resolved_outer%profile_n))
+    end if
+    if (mpi_is_root(self%mpi)) then
+      scalar_values = [ &
+                      resolved_outer%interface_potential, resolved_outer%infinity_potential, &
+                      resolved_outer%debye_length, resolved_outer%interface_field, &
+                      resolved_outer%nonlinear_residual, resolved_outer%integrated_charge_per_area, &
+                      merge(1.0_dp, 0.0_dp, resolved_outer%ready), &
+                      resolved_outer%electron_current_density, resolved_outer%ion_current_density, &
+                      resolved_outer%photoelectron_current_density, resolved_outer%total_current_density, &
+                      resolved_outer%zhao_phi0, resolved_outer%zhao_phi_minimum, &
+                      resolved_outer%zhao_electron_density_infinity, &
+                      resolved_outer%photoelectron_population_fraction, &
+                      resolved_outer%photoelectron_column_per_area, &
+                      resolved_outer%photoelectron_column_target_per_area, &
+                      resolved_outer%photoelectron_column_residual_per_area, &
+                      resolved_outer%photoelectron_source_scale &
+                      ]
+    end if
+    call mpi_bcast_real_dp_array(self%mpi, scalar_values, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, resolved_outer%z, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, resolved_outer%potential, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, resolved_outer%field, 0_i32)
+    call mpi_bcast_real_dp_array(self%mpi, resolved_outer%charge_density, 0_i32)
+
+    resolved_outer%interface_z = self%outer_options%interface_z
+    resolved_outer%interface_potential = scalar_values(1)
+    resolved_outer%infinity_potential = scalar_values(2)
+    resolved_outer%debye_length = scalar_values(3)
+    resolved_outer%interface_field = scalar_values(4)
+    resolved_outer%nonlinear_residual = scalar_values(5)
+    resolved_outer%integrated_charge_per_area = scalar_values(6)
+    resolved_outer%ready = scalar_values(7) > 0.5_dp
+    resolved_outer%electron_current_density = scalar_values(8)
+    resolved_outer%ion_current_density = scalar_values(9)
+    resolved_outer%photoelectron_current_density = scalar_values(10)
+    resolved_outer%total_current_density = scalar_values(11)
+    resolved_outer%zhao_phi0 = scalar_values(12)
+    resolved_outer%zhao_phi_minimum = scalar_values(13)
+    resolved_outer%zhao_electron_density_infinity = scalar_values(14)
+    resolved_outer%photoelectron_population_fraction = scalar_values(15)
+    resolved_outer%photoelectron_column_per_area = scalar_values(16)
+    resolved_outer%photoelectron_column_target_per_area = scalar_values(17)
+    resolved_outer%photoelectron_column_residual_per_area = scalar_values(18)
+    resolved_outer%photoelectron_source_scale = scalar_values(19)
+    resolved_outer%model = 'kinetic_1d'
+    resolved_outer%kinetic_closure = 'zhao_charge_driven'
+    resolved_outer%zhao_branch = achar(status_values(4))
+    resolved_outer%applicability_status = outer_plasma_ok
+
+    self%outer = resolved_outer
+    self%kinetic_options%interface_field = resolved_outer%interface_field
+    self%kinetic_options%photoelectron_source_scale = resolved_outer%photoelectron_source_scale
+    self%kinetic_options%photoelectron_population_fraction = resolved_outer%photoelectron_population_fraction
+    self%kinetic_options%photoelectron_column_closure_enabled = .false.
+    self%kinetic_options%zhao_branch = lower_ascii(resolved_outer%zhao_branch)
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, candidate_charge, zero_mode_bottom_field(self, candidate_charge), &
+      self%zero_plan%break_z(1), self%outer%interface_potential - raw_potential, self%zero_state &
+      )
+    self%gauss_residual = upper_flux_charge(self) + &
+                          self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
+    call update_interface_diagnostics(self, mesh, candidate_charge)
+  end subroutine adopt_electrostatic_snapshot_mean_outer
+
   subroutine get_snapshot_diagnostics(self, diagnostics)
     class(electrostatic_snapshot_type), intent(in) :: self
     type(electrostatic_diagnostics_type), intent(out) :: diagnostics
@@ -310,6 +508,7 @@ contains
     diagnostics%outer_zhao_phi0 = self%outer%zhao_phi0
     diagnostics%outer_zhao_phi_minimum = self%outer%zhao_phi_minimum
     diagnostics%outer_zhao_electron_density_infinity = self%outer%zhao_electron_density_infinity
+    diagnostics%outer_photoelectron_source_scale = self%outer%photoelectron_source_scale
     diagnostics%outer_photoelectron_population_fraction = self%outer%photoelectron_population_fraction
     diagnostics%outer_photoelectron_column_per_area = self%outer%photoelectron_column_per_area
     diagnostics%outer_photoelectron_column_target_per_area = self%outer%photoelectron_column_target_per_area
@@ -324,14 +523,110 @@ contains
     end if
   end subroutine get_snapshot_diagnostics
 
-  subroutine restore_snapshot_outer_state(self, state)
+  !> Zhao profile の採用・restartで共通に使う副作用なしの内部契約検査。
+  pure logical function valid_resolved_zhao_outer(state, options) result(valid)
+    type(outer_plasma_state_type), intent(in) :: state
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+
+    real(dp) :: voltage_scale, potential_tolerance, field_tolerance
+    real(dp) :: asymptotic_tolerance, shape_tolerance, field_shape_tolerance
+    integer(i32) :: minimum_point
+
+    valid = .false.
+    if (.not. state%ready .or. state%applicability_status /= outer_plasma_ok .or. &
+        trim(lower_ascii(state%model)) /= 'kinetic_1d' .or. &
+        trim(lower_ascii(state%kinetic_closure)) /= 'zhao_charge_driven' .or. &
+        index('ABC', state%zhao_branch) == 0 .or. state%profile_n /= options%grid_points .or. &
+        state%profile_n < 5_i32) return
+    if (.not. allocated(state%z) .or. .not. allocated(state%potential) .or. &
+        .not. allocated(state%field) .or. .not. allocated(state%charge_density)) return
+    if (size(state%z) /= state%profile_n .or. size(state%potential) /= state%profile_n .or. &
+        size(state%field) /= state%profile_n .or. size(state%charge_density) /= state%profile_n) return
+    if (.not. all(ieee_is_finite([ &
+                                 state%interface_z, state%interface_potential, state%infinity_potential, &
+                                 state%debye_length, state%interface_field, state%nonlinear_residual, &
+                                 state%integrated_charge_per_area, state%electron_current_density, &
+                                 state%ion_current_density, state%photoelectron_current_density, &
+                                 state%total_current_density, state%zhao_phi0, state%zhao_phi_minimum, &
+                                 state%zhao_electron_density_infinity, state%photoelectron_population_fraction, &
+                                 state%photoelectron_column_per_area, state%photoelectron_column_target_per_area, &
+                                 state%photoelectron_column_residual_per_area, state%photoelectron_source_scale &
+                                 ]))) return
+    if (.not. all(ieee_is_finite(state%z)) .or. .not. all(ieee_is_finite(state%potential)) .or. &
+        .not. all(ieee_is_finite(state%field)) .or. .not. all(ieee_is_finite(state%charge_density))) return
+    if (.not. ieee_is_finite(options%residual_tolerance) .or. options%residual_tolerance <= 0.0_dp) return
+    if (state%debye_length <= 0.0_dp .or. state%nonlinear_iterations < 0_i32 .or. &
+        state%nonlinear_residual < 0.0_dp .or. &
+        state%nonlinear_residual > max(options%residual_tolerance, 128.0_dp*epsilon(1.0_dp)) .or. &
+        state%zhao_electron_density_infinity <= 0.0_dp .or. &
+        state%photoelectron_source_scale < 0.0_dp .or. &
+        state%photoelectron_population_fraction < 0.0_dp .or. &
+        state%photoelectron_population_fraction > 1.0_dp .or. &
+        state%photoelectron_column_per_area < 0.0_dp .or. &
+        state%photoelectron_column_target_per_area < 0.0_dp) return
+    if (state%photoelectron_source_scale == 0.0_dp .and. &
+        state%photoelectron_population_fraction > 64.0_dp*epsilon(1.0_dp)) return
+    if (any(state%z(2:) <= state%z(:state%profile_n - 1_i32))) return
+    if (.not. ieee_is_finite(options%photoelectron_temperature_j) .or. &
+        .not. ieee_is_finite(options%photoelectron_charge) .or. &
+        options%photoelectron_temperature_j <= 0.0_dp .or. options%photoelectron_charge >= 0.0_dp) return
+
+    voltage_scale = options%photoelectron_temperature_j/abs(options%photoelectron_charge)
+    potential_tolerance = 1.0e-10_dp*max(1.0_dp, abs(state%interface_potential))
+    field_tolerance = 1.0e-10_dp*max(1.0_dp, abs(state%interface_field))
+    asymptotic_tolerance = max(potential_tolerance, 2.0e-4_dp*voltage_scale)
+    shape_tolerance = max(potential_tolerance, 1.0e-9_dp*voltage_scale)
+    field_shape_tolerance = max(field_tolerance, 1.0e-9_dp*voltage_scale/state%debye_length)
+    if (abs(state%potential(1) - state%interface_potential) > potential_tolerance .or. &
+        abs(state%field(1) - state%interface_field) > field_tolerance .or. &
+        abs(state%zhao_phi0 - state%interface_potential) > potential_tolerance .or. &
+        abs(state%infinity_potential) > potential_tolerance .or. &
+        abs(state%potential(state%profile_n) - state%infinity_potential) > asymptotic_tolerance .or. &
+        state%z(state%profile_n) <= state%z(1)) return
+
+    select case (state%zhao_branch)
+    case ('A')
+      minimum_point = minloc(state%potential, dim=1)
+      if (minimum_point <= 1_i32 .or. minimum_point >= state%profile_n) return
+      if (abs(state%potential(minimum_point) - state%zhao_phi_minimum) > potential_tolerance) return
+      if (any(state%potential(2:minimum_point) > &
+              state%potential(1:minimum_point - 1_i32) + shape_tolerance)) return
+      if (any(state%potential(minimum_point + 1_i32:) < &
+              state%potential(minimum_point:state%profile_n - 1_i32) - shape_tolerance)) return
+      if (any(state%field(:minimum_point - 1_i32) < -field_shape_tolerance) .or. &
+          any(state%field(minimum_point + 1_i32:) > field_shape_tolerance)) return
+    case ('B')
+      if (abs(state%zhao_phi_minimum - state%zhao_phi0) > potential_tolerance) return
+      if (any(state%potential < -shape_tolerance) .or. &
+          any(state%potential(2:) > state%potential(:state%profile_n - 1_i32) + shape_tolerance) .or. &
+          any(state%field < -field_shape_tolerance)) return
+    case ('C')
+      if (abs(state%zhao_phi_minimum - state%zhao_phi0) > potential_tolerance) return
+      if (any(state%potential > shape_tolerance) .or. &
+          any(state%potential(2:) < state%potential(:state%profile_n - 1_i32) - shape_tolerance) .or. &
+          any(state%field > field_shape_tolerance)) return
+    end select
+    valid = .true.
+  end function valid_resolved_zhao_outer
+
+  subroutine restore_snapshot_outer_state(self, state, require_charge_consistency)
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(electrostatic_restart_state_type), intent(in) :: state
+    logical, intent(in), optional :: require_charge_consistency
+    real(dp) :: raw_potential, restored_interface_potential, expected_interface_field
+    real(dp) :: potential_tolerance, field_tolerance, z_tolerance
+    logical :: require_consistent_charge
+
+    require_consistent_charge = .false.
+    if (present(require_charge_consistency)) require_consistent_charge = require_charge_consistency
     if (.not. state%outer_ready) return
     if (.not. self%use_outer_plasma) error stop 'checkpoint outer state is incompatible with the active model.'
     if (trim(lower_ascii(self%outer_options%model)) == 'kinetic_1d') then
-      if (.not. allocated(state%outer_profile_z) .or. .not. allocated(state%outer_profile_potential) .or. &
-          size(state%outer_profile_z) /= self%kinetic_options%grid_points .or. &
+      if (.not. allocated(state%outer_profile_z) .or. &
+          .not. allocated(state%outer_profile_potential)) then
+        error stop 'checkpoint kinetic outer profile is missing or has an incompatible grid.'
+      end if
+      if (size(state%outer_profile_z) /= self%kinetic_options%grid_points .or. &
           size(state%outer_profile_potential) /= self%kinetic_options%grid_points) then
         error stop 'checkpoint kinetic outer profile is missing or has an incompatible grid.'
       end if
@@ -357,6 +652,16 @@ contains
       self%outer%zhao_phi0 = state%outer_zhao_phi0
       self%outer%zhao_phi_minimum = state%outer_zhao_phi_minimum
       self%outer%zhao_electron_density_infinity = state%outer_zhao_electron_density_infinity
+      if (state%outer_zhao_source_scale_complete) then
+        self%outer%photoelectron_source_scale = state%outer_photoelectron_source_scale
+        self%kinetic_options%photoelectron_source_scale = state%outer_photoelectron_source_scale
+        if (.not. self%kinetic_options%photoelectron_column_closure_enabled .and. &
+            index('ABC', state%outer_zhao_branch) > 0) then
+          self%kinetic_options%zhao_branch = lower_ascii(state%outer_zhao_branch)
+        end if
+      else
+        self%outer%photoelectron_source_scale = self%kinetic_options%photoelectron_source_scale
+      end if
       self%outer%photoelectron_population_fraction = state%outer_photoelectron_population_fraction
       self%outer%photoelectron_column_per_area = state%outer_photoelectron_column_per_area
       self%outer%photoelectron_column_target_per_area = state%outer_photoelectron_column_target_per_area
@@ -369,13 +674,48 @@ contains
       self%outer%potential = state%outer_profile_potential
       if (state%outer_profile_complete) then
         if (.not. allocated(state%outer_profile_field) .or. &
-            .not. allocated(state%outer_profile_charge_density) .or. &
-            size(state%outer_profile_field) /= self%kinetic_options%grid_points .or. &
+            .not. allocated(state%outer_profile_charge_density)) then
+          error stop 'checkpoint kinetic outer profile is marked complete but E/rho arrays are missing.'
+        end if
+        if (size(state%outer_profile_field) /= self%kinetic_options%grid_points .or. &
             size(state%outer_profile_charge_density) /= self%kinetic_options%grid_points) then
           error stop 'checkpoint kinetic outer profile is marked complete but E/rho arrays are missing.'
         end if
         self%outer%field = state%outer_profile_field
         self%outer%charge_density = state%outer_profile_charge_density
+      end if
+      if (trim(lower_ascii(self%outer%kinetic_closure)) == 'zhao_charge_driven') then
+        if (.not. valid_resolved_zhao_outer(self%outer, self%kinetic_options)) then
+          error stop 'checkpoint Zhao outer profile failed its internal state contract.'
+        end if
+        z_tolerance = 256.0_dp*epsilon(1.0_dp)*max( &
+                      1.0_dp, abs(self%outer_options%interface_z), &
+                      abs(self%outer%z(self%outer%profile_n)) &
+                      )
+        if (abs(self%outer%z(1) - self%outer_options%interface_z) > z_tolerance) then
+          error stop 'checkpoint Zhao outer profile does not start at the configured interface.'
+        end if
+        call eval_periodic_zero_mode( &
+          self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
+          raw_potential, expected_interface_field &
+          )
+        if (require_consistent_charge) then
+          field_tolerance = 1.0e-10_dp*max(1.0_dp, abs(expected_interface_field))
+          if (.not. ieee_is_finite(expected_interface_field) .or. &
+              abs(self%outer%interface_field - expected_interface_field) > field_tolerance) then
+            error stop 'checkpoint implicit Zhao field is inconsistent with the restored surface charge.'
+          end if
+        end if
+        self%zero_state%phi_gauge = self%outer%interface_potential - raw_potential
+        call eval_periodic_zero_mode( &
+          self%zero_plan, self%zero_state, self%outer_options%interface_z, zero_mode_trace_plus, &
+          restored_interface_potential, expected_interface_field &
+          )
+        potential_tolerance = 1.0e-10_dp*max(1.0_dp, abs(self%outer%interface_potential))
+        if (.not. ieee_is_finite(restored_interface_potential) .or. &
+            abs(restored_interface_potential - self%outer%interface_potential) > potential_tolerance) then
+          error stop 'checkpoint Zhao interface-potential gauge could not be restored.'
+        end if
       end if
       return
     end if
@@ -408,12 +748,14 @@ contains
       state%outer_zhao_phi0 = self%outer%zhao_phi0
       state%outer_zhao_phi_minimum = self%outer%zhao_phi_minimum
       state%outer_zhao_electron_density_infinity = self%outer%zhao_electron_density_infinity
+      state%outer_photoelectron_source_scale = self%outer%photoelectron_source_scale
       state%outer_photoelectron_population_fraction = self%outer%photoelectron_population_fraction
       state%outer_photoelectron_column_per_area = self%outer%photoelectron_column_per_area
       state%outer_photoelectron_column_target_per_area = self%outer%photoelectron_column_target_per_area
       state%outer_photoelectron_column_residual_per_area = self%outer%photoelectron_column_residual_per_area
       state%outer_zhao_state_complete = &
         trim(lower_ascii(self%outer%kinetic_closure)) == 'zhao_charge_driven'
+      state%outer_zhao_source_scale_complete = state%outer_zhao_state_complete
       state%outer_zhao_transient_state_complete = state%outer_zhao_state_complete
     end if
     if (state%outer_profile_complete) then
@@ -425,14 +767,18 @@ contains
     state%last_outer_update_batch = last_outer_update_batch
   end subroutine export_snapshot_restart_state
 
-  subroutine update_interface_diagnostics(self, mesh)
+  subroutine update_interface_diagnostics(self, mesh, diagnostic_charge)
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in), optional :: diagnostic_charge(:)
+    type(sim_config) :: evaluation_sim
     integer(i32) :: ix, iy, n
     real(dp) :: position(3), potential, field(3), max_phi, max_field
-    real(dp) :: phi_scale, field_scale, gap, surface_scale, local_charge_estimate
+    real(dp) :: phi_scale, field_scale, gap, surface_scale, surface_total_charge
+    real(dp) :: local_charge_estimate
 
     n = self%periodic_options%interface_sample_n
+    evaluation_sim = sim_config()
     max_phi = 0.0_dp
     max_field = 0.0_dp
     do iy = 0_i32, n - 1_i32
@@ -442,10 +788,15 @@ contains
                    self%periodic_origin(2) + (real(iy, dp) + 0.5_dp)*self%periodic_length(2)/real(n, dp), &
                    self%outer_options%interface_z &
                    ]
-        call eval_periodic_nonzero_panel_reference( &
-          mesh, position, self%periodic_length(1), self%periodic_length(2), &
-          self%reference_mode_layers, self%panel_quadrature_order, potential, field &
-          )
+        if (self%use_cached_kneq0) then
+          call self%nonzero_solver%eval_potential(mesh, evaluation_sim, position, potential)
+          call self%nonzero_solver%eval_e(mesh, position, field)
+        else
+          call eval_periodic_nonzero_panel_reference( &
+            mesh, position, self%periodic_length(1), self%periodic_length(2), &
+            self%reference_mode_layers, self%panel_quadrature_order, potential, field &
+            )
+        end if
         max_phi = max(max_phi, abs(potential))
         max_field = max(max_field, sqrt(sum(field*field)))
       end do
@@ -454,7 +805,9 @@ contains
     field_scale = max(abs(self%outer%interface_field), &
                       self%outer_options%thermal_voltage/minval(self%periodic_length), tiny(1.0_dp))
     gap = self%outer_options%interface_z - self%mesh_top_z
-    surface_scale = max(abs(sum(mesh%q_elem)), eps0*self%zero_plan%area_xy*field_scale, tiny(1.0_dp))
+    surface_total_charge = sum(mesh%q_elem)
+    if (present(diagnostic_charge)) surface_total_charge = sum(diagnostic_charge)
+    surface_scale = max(abs(surface_total_charge), eps0*self%zero_plan%area_xy*field_scale, tiny(1.0_dp))
     local_charge_estimate = abs(eps0*self%zero_plan%area_xy*self%outer%interface_field)* &
                             gap/self%outer_options%debye_length
     self%diagnostics%split_periodic_active = .true.
@@ -584,9 +937,13 @@ contains
       mesh, product(self%periodic_length), self%zero_plan, status, message &
       )
     if (status /= periodic_zero_mode_ok) error stop 'zero-mode plan: '//trim(message)
+    self%periodic_options = periodic_config
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+      self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+      )
     self%reference_mode_layers = periodic_config%reference_mode_layers
     self%panel_quadrature_order = periodic_config%panel_quadrature_order
-    self%periodic_options = periodic_config
     self%outer_options = outer_config
     if (present(kinetic_options)) self%kinetic_options = kinetic_options
     self%mesh_top_z = max(maxval(mesh%v0(3, :)), max(maxval(mesh%v1(3, :)), maxval(mesh%v2(3, :))))
@@ -629,13 +986,7 @@ contains
       )
     self%gauss_residual = upper_flux_charge(self) + &
                           self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
-    self%diagnostics%interface_potential = self%outer%interface_potential
-    self%diagnostics%interface_field = self%outer%interface_field
-    self%diagnostics%gauss_residual = self%gauss_residual
-    self%diagnostics%outer_integrated_charge = &
-      self%zero_plan%area_xy*(-eps0*self%outer%interface_field)
-    self%diagnostics%status = 'kinetic_converged'
-    self%diagnostics%applicable = .true.
+    call update_interface_diagnostics(self, mesh)
   end subroutine refresh_cached_kinetic_outer
 
   pure real(dp) function zero_mode_bottom_field(self, charge) result(field)
@@ -679,18 +1030,23 @@ contains
     type(outer_plasma_state_type) :: solved
     type(zhao_continuation_diagnostics_type) :: zhao_diagnostics
     integer(i32) :: status_values(4), status
-    real(dp) :: scalar_values(18)
+    real(dp) :: scalar_values(19)
     character(len=256) :: message
 
     self%kinetic_options%interface_field = interface_field
     status_values = 0_i32
     if (mpi_is_root(self%mpi)) then
-      if (allocated(self%outer%potential) .and. &
-          size(self%outer%potential) == self%kinetic_options%grid_points) then
-        call solve_outer_plasma_kinetic( &
-          self%kinetic_options, solved, status, message, initial_potential=self%outer%potential, &
-          initial_state=self%outer, zhao_diagnostics=zhao_diagnostics &
-          )
+      if (allocated(self%outer%potential)) then
+        if (size(self%outer%potential) == self%kinetic_options%grid_points) then
+          call solve_outer_plasma_kinetic( &
+            self%kinetic_options, solved, status, message, initial_potential=self%outer%potential, &
+            initial_state=self%outer, zhao_diagnostics=zhao_diagnostics &
+            )
+        else
+          call solve_outer_plasma_kinetic( &
+            self%kinetic_options, solved, status, message, zhao_diagnostics=zhao_diagnostics &
+            )
+        end if
       else
         call solve_outer_plasma_kinetic( &
           self%kinetic_options, solved, status, message, zhao_diagnostics=zhao_diagnostics &
@@ -733,7 +1089,8 @@ contains
                       solved%ion_current_density, solved%photoelectron_current_density, solved%total_current_density, &
                       solved%zhao_phi0, solved%zhao_phi_minimum, solved%zhao_electron_density_infinity, &
                       solved%photoelectron_population_fraction, solved%photoelectron_column_per_area, &
-                      solved%photoelectron_column_target_per_area, solved%photoelectron_column_residual_per_area &
+                      solved%photoelectron_column_target_per_area, solved%photoelectron_column_residual_per_area, &
+                      solved%photoelectron_source_scale &
                       ]
     end if
     call mpi_bcast_real_dp_array(self%mpi, scalar_values, 0_i32)
@@ -761,10 +1118,12 @@ contains
     solved%photoelectron_column_per_area = scalar_values(16)
     solved%photoelectron_column_target_per_area = scalar_values(17)
     solved%photoelectron_column_residual_per_area = scalar_values(18)
+    solved%photoelectron_source_scale = scalar_values(19)
     solved%model = 'kinetic_1d'
     solved%kinetic_closure = self%kinetic_options%kinetic_closure
     solved%zhao_branch = achar(status_values(4))
     solved%applicability_status = outer_plasma_ok
+    self%kinetic_options%photoelectron_source_scale = solved%photoelectron_source_scale
     self%kinetic_options%photoelectron_population_fraction = solved%photoelectron_population_fraction
     self%outer = solved
   end subroutine solve_kinetic_collective

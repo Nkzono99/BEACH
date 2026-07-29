@@ -59,7 +59,7 @@ program test_outer_plasma_zhao
   character(len=2048) :: diagnostic_lines(5)
   integer :: fraction_index, atlas_index, diagnostic_unit, diagnostic_ios
 
-  call test_init(29)
+  call test_init(30)
 
   call test_begin('stationary Zhao-A root is recovered by its interface field')
   call configure_params(60.0_dp, params)
@@ -232,6 +232,39 @@ program test_outer_plasma_zhao
     )
   call assert_equal_i32(status, outer_plasma_ok, 'auto Zhao-B continuation failed: '//trim(message))
   call assert_true(charge_root%branch == 'B', 'auto continuation changed a compatible Zhao-B branch')
+  call test_end()
+
+  call test_begin('strict continuation rejects invalid roots and disables bootstrap fallback')
+  nonfinite_root = zhao_charge_root_type( &
+                   branch='B', phi0_v=ieee_value(0.0_dp, ieee_quiet_nan), &
+                   phi_m_v=ieee_value(0.0_dp, ieee_quiet_nan), &
+                   n_swe_inf_m3=max(params%n_swi_inf_m3, 1.0_dp), interface_field_v_m=equilibrium_field &
+                   )
+  call solve_zhao_charge_root( &
+    'auto', params, 0.0_dp, zero_root, status, message, initial_root=nonfinite_root, &
+    allow_transient_bootstrap=.true., strict_initial_root=.true. &
+    )
+  call assert_equal_i32(status, outer_plasma_invalid, &
+                        'strict zero-field continuation accepted a non-finite initial root')
+  call assert_true(zero_root%branch /= '0', 'strict invalid-root failure fell back to bootstrap branch 0')
+
+  stationary%interface_field_v_m = equilibrium_field
+  stationary%residual_norm = 1.0e-3_dp
+  call solve_zhao_charge_root( &
+    'auto', params, equilibrium_field, zero_root, status, message, initial_root=stationary, &
+    strict_initial_root=.true. &
+    )
+  call assert_equal_i32(status, outer_plasma_invalid, &
+                        'strict continuation accepted an unconverged initial root')
+
+  stationary%residual_norm = 0.0_dp
+  call solve_zhao_charge_root( &
+    'auto', params, 0.0_dp, zero_root, status, message, initial_root=stationary, &
+    allow_transient_bootstrap=.true., strict_initial_root=.true. &
+    )
+  call assert_equal_i32(status, outer_plasma_no_physical_solution, &
+                        'strict continuation used transient bootstrap at the zero-field endpoint')
+  call assert_true(zero_root%branch /= '0', 'strict continuation returned bootstrap branch 0')
   call test_end()
 
   call test_begin('stationary Zhao-C root is recovered by its interface field')

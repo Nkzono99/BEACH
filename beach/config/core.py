@@ -1706,6 +1706,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     ambient_electron_count = 0
     ambient_ion_count = 0
     photoelectron_count = 0
+    negative_photo_raycast_species: list[tuple[int, Mapping[str, Any]]] = []
     for index, item in enumerate(species, start=1):
         species_table = dict(item)
         source_mode = species_table.get("source_mode", "volume_seed")
@@ -1749,6 +1750,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                     ambient_ion_count += 1
             elif source_mode == "photo_raycast" and float(charge) < 0.0:
                 photoelectron_count += 1
+                negative_photo_raycast_species.append((index, species_table))
         velocity_distribution = (
             str(species_table.get("velocity_distribution", "maxwellian"))
             .strip()
@@ -1904,6 +1906,57 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             f"BEACH constraint error: particles.species[{index}] has unsupported "
             f"source_mode={source_mode!r}."
         )
+
+    derives_implicit_mean = (
+        bool(negative_photo_raycast_species)
+        and outer_model == "kinetic_1d"
+        and kinetic_closure in {"ambient_linear_debye", "zhao_charge_driven"}
+        and transfer_mode == "electrostatic_1d_instant_return"
+        and outer_queue_enabled is False
+    )
+    if derives_implicit_mean:
+        if len(negative_photo_raycast_species) != 1:
+            raise ConfigValidationError(
+                "BEACH constraint error: implicit_mean requires exactly one enabled "
+                "negative photo_raycast species."
+            )
+        photoelectron_index, photoelectron_species = (
+            negative_photo_raycast_species[0]
+        )
+        normal_drift_speed = photoelectron_species.get("normal_drift_speed", 0.0)
+        if (
+            not isinstance(normal_drift_speed, (int, float))
+            or isinstance(normal_drift_speed, bool)
+            or not math.isfinite(float(normal_drift_speed))
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: "
+                f"particles.species[{photoelectron_index}].normal_drift_speed "
+                "must be finite."
+            )
+        if abs(float(normal_drift_speed)) > 64.0 * math.ulp(1.0):
+            raise ConfigValidationError(
+                "BEACH constraint error: implicit_mean Maxwellian photoelectron "
+                "closure requires normal_drift_speed=0."
+            )
+        if (
+            kinetic_closure == "zhao_charge_driven"
+            and coupling.get("steady_start_mode", "none") != "zhao_floating"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: strong-photoelectron implicit Zhao coupling "
+                "requires coupling.steady_start_mode=zhao_floating."
+            )
+        outer_update_stride = coupling.get("outer_update_stride", 1)
+        if (
+            not isinstance(outer_update_stride, int)
+            or isinstance(outer_update_stride, bool)
+            or outer_update_stride != 1
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: implicit_mean requires "
+                "coupling.outer_update_stride=1."
+            )
 
     if outer_model == "kinetic_1d" and (
         ambient_electron_count != 1 or ambient_ion_count != 1

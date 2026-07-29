@@ -58,6 +58,9 @@ FORTRAN_L1_TARGETS ?= \
 	test_regularized_qr \
 	test_periodic_zero_mode \
 	test_outer_plasma_kinetic_core \
+	test_mean_charge_integrator \
+	test_mean_charge_transaction \
+	test_dynamic_k0_zhao \
 	test_outer_plasma_zhao \
 	test_outer_plasma_grid \
 	test_outer_plasma_kinetic_runtime \

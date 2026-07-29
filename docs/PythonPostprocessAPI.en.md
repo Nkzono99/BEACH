@@ -125,6 +125,8 @@ Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, 
 | `mesh_sources` | `dict[int, MeshSource] \| None` | Mesh kind, surface model, and epsilon_r metadata |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Centroid potentials output by Fortran [V] |
 | `history` | `FortranChargeHistory \| None` | Charge history accessor |
+| `implicit_mean_last_returned_outer_flight_time_mean_s` | `float \| None` | Charge-weighted mean outer flight time of photoelectrons that returned in the last batch completed by this invocation [s] |
+| `implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2` | `float \| None` | Positive returning-photoelectron charge column estimated by Little's law for that batch [C m^-2] |
 | `coupling_outer_queue_enabled` | `bool \| None` | Whether the transient outer-event queue was enabled |
 | `outer_photoelectron_population_fraction` | `float \| None` | Zhao photoelectron-population occupancy factor `eta` |
 | `outer_photoelectron_column_per_area_m2` | `float \| None` | Solved photoelectron column in the finite outer domain [m^-2] |
@@ -133,6 +135,12 @@ Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, 
 | `outer_queue_event_count` | `int \| None` | Number of active outer events at output time |
 | `outer_queue_signed_charge_c` | `float \| None` | Signed charge held in the queue at output time [C] |
 | `outer_queue_fingerprint` | `str \| None` | Restart fingerprint binding all rank-local queue contents |
+
+The two `implicit_mean_last_*` fields are neither maxima nor cumulative values;
+they describe only returning events in the last batch completed by the current
+invocation. Both are `None` for older or non-`implicit_mean` outputs, and for a
+no-op resume that advances no batch, when `summary.txt` contains neither key.
+A summary containing only one of the two keys is rejected with `ValueError`.
 
 For new outputs that do not use the transient queue,
 `coupling_outer_queue_enabled` is `False` and the queue-specific diagnostics

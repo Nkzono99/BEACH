@@ -1,3 +1,4 @@
+from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
@@ -948,6 +949,8 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
             "max_outer_flight_time_s=3.0e-6",
             "max_outer_frozen_field_ratio=3.0e-2",
             "max_outer_energy_relative_error=4.0e-5",
+            "implicit_mean_last_returned_outer_flight_time_mean_s=2.5e-6",
+            "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2=7.5e-12",
             "coupling_outer_queue_enabled=T",
             "outer_photoelectron_population_fraction=1.25",
             "outer_photoelectron_column_per_area_m2=2.0e12",
@@ -986,6 +989,13 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.max_outer_flight_time_s == pytest.approx(3.0e-6)
     assert result.max_outer_frozen_field_ratio == pytest.approx(3.0e-2)
     assert result.max_outer_energy_relative_error == pytest.approx(4.0e-5)
+    assert result.implicit_mean_last_returned_outer_flight_time_mean_s == pytest.approx(
+        2.5e-6
+    )
+    assert (
+        result.implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2
+        == pytest.approx(7.5e-12)
+    )
     assert result.coupling_outer_queue_enabled is True
     assert result.outer_photoelectron_population_fraction == pytest.approx(1.25)
     assert result.outer_photoelectron_column_per_area_m2 == pytest.approx(2.0e12)
@@ -996,6 +1006,52 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.outer_queue_event_count == 7
     assert result.outer_queue_signed_charge_c == pytest.approx(-3.5e-16)
     assert result.outer_queue_fingerprint == "FEDCBA9876543210"
+
+
+def test_fortran_run_result_appends_implicit_mean_diagnostics() -> None:
+    field_names = tuple(field.name for field in fields(FortranRunResult))
+    legacy_tail = field_names.index(
+        "multiple_box_events_soft_discarded_abs_charge_c"
+    )
+
+    assert (
+        field_names.index("implicit_mean_last_returned_outer_flight_time_mean_s")
+        > legacy_tail
+    )
+    assert (
+        field_names.index(
+            "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2"
+        )
+        > legacy_tail
+    )
+
+
+@pytest.mark.parametrize(
+    "present_key",
+    [
+        "implicit_mean_last_returned_outer_flight_time_mean_s",
+        "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2",
+    ],
+)
+def test_load_fortran_result_requires_complete_implicit_mean_shadow_pair(
+    tmp_path: Path, present_key: str
+) -> None:
+    out = tmp_path / present_key
+    out.mkdir()
+    values = {
+        "implicit_mean_last_returned_outer_flight_time_mean_s": "2.5e-6",
+        "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2": "7.5e-12",
+    }
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[f"{present_key}={values[present_key]}"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="implicit_mean shadow diagnostics must appear together",
+    ):
+        load_fortran_result(out)
 
 
 def test_load_fortran_result_queue_disabled_has_no_queue_state(tmp_path: Path) -> None:

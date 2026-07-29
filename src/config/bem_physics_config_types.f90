@@ -168,10 +168,37 @@ contains
     type(external_boundary_contract_type) :: boundary_contract
     integer(i32) :: boundary_status
 
-    if (trim(lower_ascii(coupling%update_mode)) /= 'explicit') then
-      call reject(physics_config_invalid_combination, 'coupling.update_mode must be explicit.', status, message)
+    select case (trim(lower_ascii(coupling%update_mode)))
+    case ('explicit')
+      continue
+    case ('implicit_mean')
+      if (trim(lower_ascii(outer%model)) /= 'kinetic_1d' .or. &
+          (trim(lower_ascii(outer%kinetic_closure)) /= 'ambient_linear_debye' .and. &
+           trim(lower_ascii(outer%kinetic_closure)) /= 'zhao_charge_driven') .or. &
+          trim(lower_ascii(outer%photoelectron_density_model)) /= 'none' .or. &
+          trim(lower_ascii(coupling%particle_transfer_mode)) /= 'electrostatic_1d_instant_return' .or. &
+          coupling%outer_queue_enabled .or. coupling%outer_update_stride /= 1_i32 .or. &
+          .not. ieee_is_finite(sim%batch_duration) .or. sim%batch_duration <= 0.0_dp) then
+        call reject( &
+          physics_config_invalid_combination, &
+          'implicit_mean requires ambient-linear or Zhao kinetic_1d same-batch transfer, '// &
+          'photoelectron_density_model=none, outer_update_stride=1, and positive batch_duration.', &
+          status, message &
+          )
+        return
+      end if
+      if (trim(lower_ascii(outer%kinetic_closure)) == 'zhao_charge_driven' .and. &
+          trim(lower_ascii(coupling%steady_start_mode)) /= 'zhao_floating') then
+        call reject( &
+          physics_config_invalid_combination, &
+          'implicit Zhao mean coupling requires a zhao_floating branch anchor.', status, message &
+          )
+        return
+      end if
+    case default
+      call reject(physics_config_invalid_combination, 'Unknown coupling.update_mode.', status, message)
       return
-    end if
+    end select
     if (coupling%outer_update_stride < 1_i32) then
       call reject(physics_config_invalid_combination, 'coupling.outer_update_stride must be >= 1.', status, message)
       return
@@ -294,9 +321,10 @@ contains
         )
       return
     end if
-    if (trim(lower_ascii(coupling%update_mode)) /= 'explicit' .or. coupling%outer_update_stride < 1_i32) then
+    if ((trim(lower_ascii(coupling%update_mode)) /= 'explicit' .and. &
+         trim(lower_ascii(coupling%update_mode)) /= 'implicit_mean') .or. coupling%outer_update_stride < 1_i32) then
       call reject( &
-        physics_config_unavailable, 'Split periodic coupling requires explicit updates.', status, message &
+        physics_config_unavailable, 'Split periodic coupling received an unsupported update mode.', status, message &
         )
       return
     end if

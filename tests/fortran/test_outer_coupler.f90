@@ -25,11 +25,14 @@ program test_outer_coupler
   type(panel_kernel_config) :: panel_config
   type(outer_plasma_config) :: outer_config
   type(coupling_config) :: coupling
+  type(coupling_config) :: implicit_coupling
   type(coupling_config) :: steady_coupling
   type(kinetic_outer_plasma_options_type) :: kinetic_options
   type(outer_plasma_state_type) :: steady_state
   type(electrostatic_snapshot_type) :: snapshot
+  type(electrostatic_snapshot_type) :: implicit_snapshot
   type(outer_coupler_type) :: coupler
+  type(outer_coupler_type) :: implicit_coupler
   type(electrostatic_snapshot_type) :: restarted_snapshot
   type(outer_coupler_type) :: restarted_coupler
   type(electrostatic_restart_state_type) :: restart_state
@@ -39,7 +42,7 @@ program test_outer_coupler
   character(len=256) :: message
   logical :: updated
 
-  call test_init(4)
+  call test_init(6)
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
   v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
   v2(:, 1) = [0.0_dp, 1.0_dp, 0.25_dp]
@@ -88,6 +91,22 @@ program test_outer_coupler
   call assert_close_dp(snapshot%gauss_residual, 0.5e-12_dp, 1.0e-24_dp, 'held-state residual mismatch')
   call test_end()
 
+  call test_begin('forced_same_batch_refresh_bypasses_stride')
+  call coupler%refresh( &
+    snapshot, mesh, 2_i32, updated, continuation_stage='post_commit', force_outer_update=.true. &
+    )
+  call assert_true(updated, 'post-commit corrector must force an outer update in the same batch')
+  call assert_equal_i32(coupler%last_outer_update_batch, 2_i32, &
+                        'forced refresh must record the actual outer update batch')
+  call assert_close_dp(snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, &
+                       'forced post-commit refresh did not restore closure')
+  mesh%q_elem = 3.0e-12_dp
+  call coupler%refresh(snapshot, mesh, 2_i32, updated)
+  call assert_true(.not. updated, 'ordinary refresh must still obey the stride after a forced refresh')
+  call assert_close_dp(snapshot%gauss_residual, 0.5e-12_dp, 1.0e-24_dp, &
+                       'ordinary same-batch refresh unexpectedly changed the outer state')
+  call test_end()
+
   call test_begin('restart_preserves_stride_phase')
   mesh%q_elem = 1.0e-12_dp
   call coupler%init(coupling)
@@ -110,6 +129,54 @@ program test_outer_coupler
   call coupler%refresh(snapshot, mesh, 3_i32, updated)
   call assert_true(updated, 'batch 3 must update outer state')
   call assert_close_dp(snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, 'scheduled closure mismatch')
+  call test_end()
+
+  call test_begin('implicit_mean_reuses_post_refresh_until_mesh_changes')
+  mesh%q_elem = 1.0e-12_dp
+  implicit_coupling = coupling_config(update_mode='implicit_mean', outer_update_stride=1_i32)
+  call implicit_snapshot%init( &
+    mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options=kinetic_options &
+    )
+  call implicit_coupler%init(implicit_coupling)
+  call implicit_coupler%refresh( &
+    implicit_snapshot, mesh, 1_i32, updated, continuation_stage='pre_batch' &
+    )
+  call assert_true(updated, 'first implicit-mean pre-batch refresh must initialize the snapshot')
+  call assert_true(implicit_coupler%snapshot_matches_mesh, &
+                   'first implicit-mean refresh must mark the snapshot current')
+
+  mesh%q_elem = 2.0e-12_dp
+  call implicit_coupler%mark_mesh_changed()
+  call implicit_coupler%refresh( &
+    implicit_snapshot, mesh, 1_i32, updated, continuation_stage='post_implicit_mean', force_outer_update=.true. &
+    )
+  call assert_true(updated, 'implicit-mean post update must refresh the changed mesh')
+  call assert_close_dp(implicit_snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, &
+                       'implicit-mean post update did not restore closure')
+
+  call implicit_coupler%refresh( &
+    implicit_snapshot, mesh, 2_i32, updated, continuation_stage='pre_batch' &
+    )
+  call assert_true(.not. updated, 'current implicit-mean snapshot must be reused at the next pre-batch stage')
+  call assert_equal_i32(implicit_coupler%last_outer_update_batch, 1_i32, &
+                        'reused pre-batch snapshot must not record a duplicate outer update')
+
+  mesh%q_elem = 3.0e-12_dp
+  call implicit_coupler%mark_mesh_changed()
+  call implicit_coupler%refresh( &
+    implicit_snapshot, mesh, 2_i32, updated, continuation_stage='pre_batch' &
+    )
+  call assert_true(updated, 'stale implicit-mean snapshot must refresh before particle tracing')
+  call assert_close_dp(implicit_snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, &
+                       'stale implicit-mean pre-batch refresh did not restore closure')
+
+  call implicit_coupler%init(implicit_coupling, last_outer_update_batch=2_i32)
+  call assert_true(.not. implicit_coupler%snapshot_matches_mesh, &
+                   'restart initialization must not assume that the restored snapshot field is current')
+  call implicit_coupler%refresh( &
+    implicit_snapshot, mesh, 3_i32, updated, continuation_stage='pre_batch' &
+    )
+  call assert_true(updated, 'restart must perform its first implicit-mean pre-batch refresh')
   call test_end()
 
   call test_begin('Zhao steady start seeds only the selected plane by panel area')

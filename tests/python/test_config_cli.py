@@ -470,6 +470,7 @@ def test_ambient_linear_photo_facade_keeps_photoelectrons_tracked_only() -> None
     assert normalized["outer_plasma"]["return_model"] == (
         "kinetic_1d_profile_return"
     )
+    assert normalized["coupling"]["update_mode"] == "explicit"
 
     invalid = copy.deepcopy(config)
     invalid["external_boundary"]["field"]["photoelectron_density_model"] = (
@@ -477,6 +478,55 @@ def test_ambient_linear_photo_facade_keeps_photoelectrons_tracked_only() -> None
     )
     with pytest.raises(ConfigError, match="requires kinetic_closure=absorbing"):
         normalize_config_document(invalid)
+
+
+def test_ambient_linear_photo_requires_one_enabled_negative_photo_species() -> None:
+    config = load_toml_file(
+        Path("examples/periodic2_ambient_linear_photo_outer.toml")
+    )
+    duplicate = copy.deepcopy(
+        next(
+            species
+            for species in config["particles"]["species"]
+            if species.get("source_mode") == "photo_raycast"
+        )
+    )
+    duplicate["species_key"] = "duplicate_photoelectron"
+    config["particles"]["species"].append(duplicate)
+
+    with pytest.raises(
+        ConfigValidationError,
+        match="exactly one enabled negative photo_raycast",
+    ):
+        normalize_config_document(config)
+
+    duplicate["enabled"] = False
+    normalize_config_document(config)
+
+
+def test_ambient_linear_photo_requires_zero_normal_drift() -> None:
+    config = load_toml_file(
+        Path("examples/periodic2_ambient_linear_photo_outer.toml")
+    )
+    photoelectron = next(
+        species
+        for species in config["particles"]["species"]
+        if species.get("source_mode") == "photo_raycast"
+    )
+    photoelectron["normal_drift_speed"] = 1.0
+
+    with pytest.raises(ConfigValidationError, match="normal_drift_speed=0"):
+        normalize_config_document(config)
+
+
+def test_ambient_linear_photo_requires_unit_outer_update_stride() -> None:
+    config = load_toml_file(
+        Path("examples/periodic2_ambient_linear_photo_outer.toml")
+    )
+    config["external_boundary"]["particles"]["outer_update_stride"] = 2
+
+    with pytest.raises(ConfigValidationError, match="outer_update_stride=1"):
+        normalize_config_document(config)
 
 
 @pytest.mark.parametrize(

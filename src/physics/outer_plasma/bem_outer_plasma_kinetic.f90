@@ -6,8 +6,11 @@ module bem_outer_plasma_kinetic
                                     outer_plasma_no_physical_solution, outer_plasma_numerical_failure
   use bem_outer_plasma_grid, only: outer_plasma_grid_type, init_outer_plasma_grid
   use bem_outer_plasma_zhao, only: zhao_charge_root_type, zhao_continuation_diagnostics_type, &
+                                   zhao_connected_path_certificate_type, &
                                    solve_outer_plasma_zhao, solve_outer_plasma_zhao_column, &
-                                   evaluate_zhao_interface_field
+                                   evaluate_zhao_interface_field, build_zhao_outer_profile, &
+                                   zhao_charge_root_barrier_energy, &
+                                   continue_zhao_connected_parameter_root
   use bem_sheath_model_core, only: zhao_params_type, build_zhao_params, try_solve_zhao_unknowns
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -53,9 +56,21 @@ module bem_outer_plasma_kinetic
   public :: eval_photoelectron_escape_return
   public :: eval_emitted_maxwellian_density
   public :: eval_kinetic_current_balance
+  public :: eval_ambient_linear_debye_currents
   public :: eval_kinetic_residual_jacobian_action
   public :: solve_outer_plasma_kinetic
   public :: solve_outer_plasma_zhao_stationary
+  public :: continue_outer_plasma_zhao_connected
+  public :: continue_outer_plasma_zhao_connected_root
+  public :: materialize_outer_plasma_zhao_root
+  public :: zhao_charge_root_type
+  public :: zhao_charge_root_barrier_energy
+  public :: zhao_connected_path_certificate_type
+
+  interface continue_outer_plasma_zhao_connected_root
+    module procedure continue_outer_plasma_zhao_connected_root_from_state
+    module procedure continue_outer_plasma_zhao_connected_root_from_root
+  end interface continue_outer_plasma_zhao_connected_root
 
 contains
 
@@ -184,14 +199,16 @@ contains
   end subroutine solve_outer_plasma_kinetic
 
   !> Ambient plasmaだけを線形Debye応答とし、tracked photoelectronは密度源へ含めない。
+  !!
+  !! photoelectron_emission_flux が正の場合も、光電子はPoisson密度へ足さず、
+  !! 同じinterface potentialから得るescape currentだけを診断へ含める。
   subroutine solve_outer_plasma_ambient_linear_debye(options, state, status, message)
     type(kinetic_outer_plasma_options_type), intent(in) :: options
     type(outer_plasma_state_type), intent(out) :: state
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
     type(outer_plasma_grid_type) :: grid
-    real(dp) :: interface_potential, electron_cutoff, ion_cutoff
-    real(dp) :: electron_flux, ion_flux
+    real(dp) :: interface_potential
 
     state = outer_plasma_state_type()
     state%model = 'kinetic_1d'
@@ -220,9 +237,12 @@ contains
       message = 'ambient_linear_debye requires physical ambient electron and ion reservoirs'
       return
     end if
-    if (options%photoelectron_emission_flux /= 0.0_dp) then
+    if (options%photoelectron_emission_flux < 0.0_dp .or. &
+        (options%photoelectron_emission_flux > 0.0_dp .and. &
+         (options%photoelectron_charge >= 0.0_dp .or. options%photoelectron_mass <= 0.0_dp .or. &
+          options%photoelectron_temperature_j <= 0.0_dp))) then
       state%applicability_status = status
-      message = 'ambient_linear_debye excludes photoelectrons from the mean outer charge density'
+      message = 'ambient_linear_debye photoelectron current requires a physical emitted-electron source'
       return
     end if
 
@@ -244,6 +264,48 @@ contains
     state%integrated_charge_per_area = &
       eps0*(state%field(grid%n) - options%interface_field)
 
+    call eval_ambient_linear_debye_currents( &
+      options, interface_potential, state%electron_current_density, state%ion_current_density, &
+      state%photoelectron_current_density, state%total_current_density, status &
+      )
+    if (status /= outer_plasma_ok) then
+      state%applicability_status = status
+      message = 'ambient_linear_debye current evaluation failed'
+      return
+    end if
+    state%applicability_status = outer_plasma_ok
+    state%ready = .true.
+    status = outer_plasma_ok
+  end subroutine solve_outer_plasma_ambient_linear_debye
+
+  !> 線形Debye profileのinterface potentialに対する各reservoir電流を評価する。
+  !!
+  !! Ambient electron/ionは無限遠VDFからinterfaceへ写像し、photoelectronは
+  !! Maxwellian emissionのうち無限遠へ到達できる割合だけをsurface currentとする。
+  !! 後者はcurrent closureであり、outer Poisson密度へphotoelectron susceptibilityを
+  !! 足す操作ではない。
+  pure subroutine eval_ambient_linear_debye_currents( &
+    options, interface_potential, electron_current, ion_current, photoelectron_current, total_current, status &
+    )
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    real(dp), intent(in) :: interface_potential
+    real(dp), intent(out) :: electron_current, ion_current, photoelectron_current, total_current
+    integer(i32), intent(out) :: status
+    real(dp) :: electron_cutoff, ion_cutoff, electron_flux, ion_flux
+    real(dp) :: escape_fraction, return_fraction
+
+    electron_current = 0.0_dp
+    ion_current = 0.0_dp
+    photoelectron_current = 0.0_dp
+    total_current = 0.0_dp
+    status = outer_plasma_invalid
+    if (.not. ieee_is_finite(interface_potential)) return
+    if (options%electron_charge >= 0.0_dp .or. options%electron_mass <= 0.0_dp .or. &
+        options%electron_density_infinity <= 0.0_dp .or. options%electron_temperature_j <= 0.0_dp .or. &
+        options%ion_charge <= 0.0_dp .or. options%ion_mass <= 0.0_dp .or. &
+        options%ion_density_infinity <= 0.0_dp .or. options%ion_temperature_j < 0.0_dp .or. &
+        options%photoelectron_emission_flux < 0.0_dp) return
+
     electron_cutoff = sqrt(max(0.0_dp, &
                                2.0_dp*options%electron_charge*interface_potential/options%electron_mass))
     ion_cutoff = sqrt(max(0.0_dp, 2.0_dp*options%ion_charge*interface_potential/options%ion_mass))
@@ -255,15 +317,32 @@ contains
                options%ion_density_infinity, options%ion_temperature_j, &
                options%ion_mass, options%ion_drift_infinity, ion_cutoff &
                )
-    state%electron_current_density = options%electron_charge*electron_flux
-    state%ion_current_density = options%ion_charge*ion_flux
-    state%photoelectron_current_density = 0.0_dp
-    state%total_current_density = state%electron_current_density + state%ion_current_density + &
-                                  options%external_current_density
-    state%applicability_status = outer_plasma_ok
-    state%ready = .true.
+    escape_fraction = 1.0_dp
+    if (options%photoelectron_emission_flux > 0.0_dp) then
+      if (options%photoelectron_charge >= 0.0_dp .or. options%photoelectron_mass <= 0.0_dp .or. &
+          options%photoelectron_temperature_j <= 0.0_dp) return
+      call eval_photoelectron_escape_return( &
+        interface_potential, 0.0_dp, options%photoelectron_charge, options%photoelectron_temperature_j, &
+        escape_fraction, return_fraction, status &
+        )
+      if (status /= outer_plasma_ok) return
+    end if
+    call eval_kinetic_current_balance( &
+      electron_flux, ion_flux, options%photoelectron_emission_flux, escape_fraction, &
+      options%electron_charge, options%ion_charge, options%photoelectron_charge, &
+      options%external_current_density, &
+      electron_current, ion_current, photoelectron_current, total_current &
+      )
+    if (.not. all(ieee_is_finite([electron_current, ion_current, photoelectron_current, total_current]))) then
+      electron_current = 0.0_dp
+      ion_current = 0.0_dp
+      photoelectron_current = 0.0_dp
+      total_current = 0.0_dp
+      status = outer_plasma_invalid
+      return
+    end if
     status = outer_plasma_ok
-  end subroutine solve_outer_plasma_ambient_linear_debye
+  end subroutine eval_ambient_linear_debye_currents
 
   !> 1D drifting Maxwellianの速度cutoff付き片側流束を返す。
   pure real(dp) function drifting_maxwellian_inflow_flux( &
@@ -378,8 +457,252 @@ contains
       )
     state%model = 'kinetic_1d'
     state%kinetic_closure = 'zhao_charge_driven'
+    state%photoelectron_source_scale = options%photoelectron_source_scale
     state%applicability_status = status
   end subroutine solve_outer_plasma_zhao_stationary
+
+  !> Continue a committed Zhao state to a certified root without a profile.
+  subroutine continue_outer_plasma_zhao_connected_root_from_state( &
+    target_options, initial_state, require_monotone_barrier, root, certificate, &
+    status, message &
+    )
+    type(kinetic_outer_plasma_options_type), intent(in) :: target_options
+    type(outer_plasma_state_type), intent(in) :: initial_state
+    logical, intent(in) :: require_monotone_barrier
+    type(zhao_charge_root_type), intent(out) :: root
+    type(zhao_connected_path_certificate_type), intent(out) :: certificate
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(kinetic_outer_plasma_options_type) :: start_options
+    type(zhao_params_type) :: start_params, target_params
+    type(zhao_charge_root_type) :: seed_root
+    character(len=16) :: requested_branch
+
+    root = zhao_charge_root_type()
+    certificate = zhao_connected_path_certificate_type()
+    status = outer_plasma_invalid
+    message = ''
+    if (.not. initial_state%ready .or. &
+        trim(lower_ascii(initial_state%model)) /= 'kinetic_1d' .or. &
+        trim(lower_ascii(initial_state%kinetic_closure)) /= 'zhao_charge_driven' .or. &
+        index('ABC', initial_state%zhao_branch) == 0 .or. &
+        initial_state%zhao_electron_density_infinity <= 0.0_dp .or. &
+        .not. ieee_is_finite(initial_state%photoelectron_source_scale) .or. &
+        initial_state%photoelectron_source_scale <= 0.0_dp) then
+      certificate%reason = 'invalid_initial_state'
+      message = 'connected Zhao continuation requires a committed A/B/C outer state'
+      return
+    end if
+    requested_branch = trim(lower_ascii(target_options%zhao_branch))
+    if (requested_branch /= 'auto' .and. requested_branch /= &
+        lower_ascii(initial_state%zhao_branch)) then
+      certificate%reason = 'requested_branch_mismatch'
+      message = 'connected Zhao continuation cannot change the committed branch label'
+      return
+    end if
+    if (target_options%photoelectron_column_closure_enabled) then
+      certificate%reason = 'column_closure_unsupported'
+      message = 'connected Zhao continuation does not support photoelectron-column closure'
+      return
+    end if
+
+    start_options = target_options
+    start_options%interface_field = initial_state%interface_field
+    start_options%photoelectron_source_scale = initial_state%photoelectron_source_scale
+    start_options%photoelectron_population_fraction = &
+      initial_state%photoelectron_population_fraction
+    call prepare_zhao_closure_params(start_options, start_params, status, message)
+    if (status /= outer_plasma_ok) then
+      certificate%reason = 'invalid_start_params'
+      return
+    end if
+    call prepare_zhao_closure_params(target_options, target_params, status, message)
+    if (status /= outer_plasma_ok) then
+      certificate%reason = 'invalid_target_params'
+      return
+    end if
+
+    seed_root%branch = initial_state%zhao_branch
+    seed_root%phi0_v = initial_state%zhao_phi0
+    seed_root%phi_m_v = initial_state%zhao_phi_minimum
+    seed_root%n_swe_inf_m3 = initial_state%zhao_electron_density_infinity
+    seed_root%photoelectron_population_fraction = &
+      initial_state%photoelectron_population_fraction
+    seed_root%photoelectron_column_per_area = initial_state%photoelectron_column_per_area
+    seed_root%photoelectron_column_target_per_area = &
+      initial_state%photoelectron_column_target_per_area
+    seed_root%photoelectron_column_residual_per_area = &
+      initial_state%photoelectron_column_residual_per_area
+    seed_root%interface_field_v_m = initial_state%interface_field
+    seed_root%net_current_density_a_m2 = initial_state%total_current_density
+    seed_root%residual_norm = initial_state%nonlinear_residual
+    seed_root%nonlinear_iterations = initial_state%nonlinear_iterations
+    if (seed_root%branch == 'A') then
+      seed_root%interface_side = 'lower'
+    else
+      seed_root%interface_side = 'monotonic'
+    end if
+
+    call continue_zhao_connected_parameter_root( &
+      start_params, target_params, initial_state%interface_field, &
+      target_options%interface_field, seed_root, require_monotone_barrier, &
+      root, certificate, status, message &
+      )
+  end subroutine continue_outer_plasma_zhao_connected_root_from_state
+
+  !> Continue a certified root on a fixed Zhao source slice.
+  subroutine continue_outer_plasma_zhao_connected_root_from_root( &
+    target_options, initial_root, require_monotone_barrier, root, certificate, &
+    status, message &
+    )
+    type(kinetic_outer_plasma_options_type), intent(in) :: target_options
+    type(zhao_charge_root_type), intent(in) :: initial_root
+    logical, intent(in) :: require_monotone_barrier
+    type(zhao_charge_root_type), intent(out) :: root
+    type(zhao_connected_path_certificate_type), intent(out) :: certificate
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_params_type) :: params
+    character(len=16) :: requested_branch
+    real(dp) :: population_tolerance
+
+    root = zhao_charge_root_type()
+    certificate = zhao_connected_path_certificate_type()
+    status = outer_plasma_invalid
+    message = ''
+    requested_branch = trim(lower_ascii(target_options%zhao_branch))
+    if (index('ABC', initial_root%branch) == 0 .or. &
+        (requested_branch /= 'auto' .and. requested_branch /= &
+         lower_ascii(initial_root%branch))) then
+      certificate%reason = 'requested_branch_mismatch'
+      message = 'connected Zhao continuation cannot change the committed branch label'
+      return
+    end if
+    if (target_options%photoelectron_column_closure_enabled) then
+      certificate%reason = 'column_closure_unsupported'
+      message = 'connected Zhao continuation does not support photoelectron-column closure'
+      return
+    end if
+    population_tolerance = 256.0_dp*epsilon(1.0_dp)*max( &
+                           abs(initial_root%photoelectron_population_fraction), &
+                           abs(target_options%photoelectron_population_fraction), 1.0_dp &
+                           )
+    if (.not. ieee_is_finite(initial_root%photoelectron_population_fraction) .or. &
+        abs(initial_root%photoelectron_population_fraction - &
+            target_options%photoelectron_population_fraction) > population_tolerance) then
+      certificate%reason = 'fixed_source_population_mismatch'
+      message = 'connected Zhao root continuation changed its fixed source population'
+      return
+    end if
+    call prepare_zhao_closure_params(target_options, params, status, message)
+    if (status /= outer_plasma_ok) then
+      certificate%reason = 'invalid_target_params'
+      return
+    end if
+    call continue_zhao_connected_parameter_root( &
+      params, params, initial_root%interface_field_v_m, target_options%interface_field, &
+      initial_root, require_monotone_barrier, root, certificate, status, message &
+      )
+  end subroutine continue_outer_plasma_zhao_connected_root_from_root
+
+  !> Build the one resolved profile required by an accepted Zhao root.
+  subroutine materialize_outer_plasma_zhao_root(options, root, state, status, message)
+    type(kinetic_outer_plasma_options_type), intent(in) :: options
+    type(zhao_charge_root_type), intent(in) :: root
+    type(outer_plasma_state_type), intent(out) :: state
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_params_type) :: params
+    character(len=16) :: requested_branch
+    real(dp) :: field_tolerance, population_tolerance
+
+    state = outer_plasma_state_type()
+    status = outer_plasma_invalid
+    message = ''
+    requested_branch = trim(lower_ascii(options%zhao_branch))
+    if (index('ABC', root%branch) == 0 .or. &
+        (requested_branch /= 'auto' .and. requested_branch /= lower_ascii(root%branch))) then
+      message = 'Zhao profile root does not match the requested branch'
+      return
+    end if
+    if (options%photoelectron_column_closure_enabled) then
+      message = 'connected Zhao profile does not support photoelectron-column closure'
+      return
+    end if
+    field_tolerance = 256.0_dp*epsilon(1.0_dp)*max( &
+                      abs(root%interface_field_v_m), abs(options%interface_field), 1.0_dp &
+                      )
+    population_tolerance = 256.0_dp*epsilon(1.0_dp)*max( &
+                           abs(root%photoelectron_population_fraction), &
+                           abs(options%photoelectron_population_fraction), 1.0_dp &
+                           )
+    if (.not. all(ieee_is_finite([ &
+                                 root%interface_field_v_m, options%interface_field, &
+                                 root%photoelectron_population_fraction, &
+                                 options%photoelectron_population_fraction &
+                                 ])) .or. &
+        abs(root%interface_field_v_m - options%interface_field) > field_tolerance .or. &
+        abs(root%photoelectron_population_fraction - &
+            options%photoelectron_population_fraction) > population_tolerance) then
+      message = 'Zhao profile root does not match its target field or population'
+      return
+    end if
+    call prepare_zhao_closure_params(options, params, status, message)
+    if (status /= outer_plasma_ok) return
+    call build_zhao_outer_profile(params, root, options%grid_points, state, status, message)
+    if (status /= outer_plasma_ok) then
+      state = outer_plasma_state_type()
+      state%applicability_status = status
+      return
+    end if
+    state%model = 'kinetic_1d'
+    state%kinetic_closure = 'zhao_charge_driven'
+    state%photoelectron_source_scale = options%photoelectron_source_scale
+    state%zhao_branch = root%branch
+    state%zhao_phi0 = root%phi0_v
+    state%zhao_phi_minimum = root%phi_m_v
+    state%zhao_electron_density_infinity = root%n_swe_inf_m3
+    state%photoelectron_population_fraction = root%photoelectron_population_fraction
+    state%applicability_status = outer_plasma_ok
+  end subroutine materialize_outer_plasma_zhao_root
+
+  !> Continue a committed Zhao state without permitting a same-label sheet jump.
+  subroutine continue_outer_plasma_zhao_connected( &
+    target_options, initial_state, require_monotone_barrier, state, certificate, &
+    status, message &
+    )
+    type(kinetic_outer_plasma_options_type), intent(in) :: target_options
+    type(outer_plasma_state_type), intent(in) :: initial_state
+    logical, intent(in) :: require_monotone_barrier
+    type(outer_plasma_state_type), intent(out) :: state
+    type(zhao_connected_path_certificate_type), intent(out) :: certificate
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_charge_root_type) :: root
+
+    state = outer_plasma_state_type()
+    call continue_outer_plasma_zhao_connected_root( &
+      target_options, initial_state, require_monotone_barrier, root, certificate, &
+      status, message &
+      )
+    if (status /= outer_plasma_ok) then
+      state%applicability_status = status
+      return
+    end if
+    call materialize_outer_plasma_zhao_root(target_options, root, state, status, message)
+    if (status /= outer_plasma_ok) then
+      state = outer_plasma_state_type()
+      state%applicability_status = status
+      certificate%target_reached = .false.
+      certificate%final_lambda = 0.0_dp
+      certificate%final_residual = huge(1.0_dp)
+      certificate%reason = 'target_profile_failed'
+    end if
+  end subroutine continue_outer_plasma_zhao_connected
 
   subroutine solve_outer_plasma_zhao_closure( &
     options, state, status, message, initial_state, zhao_diagnostics &
@@ -465,6 +788,7 @@ contains
     state%zhao_phi0 = root%phi0_v
     state%zhao_phi_minimum = root%phi_m_v
     state%zhao_electron_density_infinity = root%n_swe_inf_m3
+    state%photoelectron_source_scale = options%photoelectron_source_scale
     state%photoelectron_population_fraction = root%photoelectron_population_fraction
     state%applicability_status = status
   end subroutine solve_outer_plasma_zhao_closure
@@ -1018,7 +1342,8 @@ contains
     end if
     call eval_kinetic_current_balance( &
       electron_flux, ion_flux, options%photoelectron_emission_flux, escape_fraction, &
-      options%electron_charge, options%ion_charge, options%external_current_density, &
+      options%electron_charge, options%ion_charge, options%photoelectron_charge, &
+      options%external_current_density, &
       state%electron_current_density, state%ion_current_density, state%photoelectron_current_density, &
       state%total_current_density &
       )
@@ -1147,7 +1472,7 @@ contains
     end if
   end function kinetic_bohm_speed
 
-  subroutine eval_photoelectron_escape_return( &
+  pure subroutine eval_photoelectron_escape_return( &
     phi_interface, phi_infinity, charge, temperature_j, escape_fraction, return_fraction, status &
     )
     real(dp), intent(in) :: phi_interface, phi_infinity, charge, temperature_j
@@ -1247,16 +1572,18 @@ contains
 
   pure subroutine eval_kinetic_current_balance( &
     electron_absorption_flux, ion_absorption_flux, photoelectron_emission_flux, &
-    photoelectron_escape_fraction, electron_charge, ion_charge, external_current_density, &
+    photoelectron_escape_fraction, electron_charge, ion_charge, photoelectron_charge, &
+    external_current_density, &
     electron_current, ion_current, photoelectron_current, total_current &
     )
     real(dp), intent(in) :: electron_absorption_flux, ion_absorption_flux, photoelectron_emission_flux
-    real(dp), intent(in) :: photoelectron_escape_fraction, electron_charge, ion_charge, external_current_density
+    real(dp), intent(in) :: photoelectron_escape_fraction
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge, external_current_density
     real(dp), intent(out) :: electron_current, ion_current, photoelectron_current, total_current
 
     electron_current = electron_charge*electron_absorption_flux
     ion_current = ion_charge*ion_absorption_flux
-    photoelectron_current = -electron_charge*photoelectron_emission_flux*photoelectron_escape_fraction
+    photoelectron_current = -photoelectron_charge*photoelectron_emission_flux*photoelectron_escape_fraction
     total_current = electron_current + ion_current + photoelectron_current + external_current_density
   end subroutine eval_kinetic_current_balance
 

@@ -45,18 +45,19 @@ beachx inspect outputs/latest
 | 粒子処理 | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | 粒子イベントの集計数と記録付きsoft discard |
 | 進行 | `batches`, `last_rel_change` | 完了バッチ数と最終バッチの電荷変化監視値 |
 | 場計算 | `field_backend`, `field_source_model`, `field_kernel_id` | 出力を作った場ソルバーと source kernel |
-| 外部境界の解決結果 | `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | 公開設定から実行時に解決された流入、通常open面、z-high輸送、処理時機 |
+| 外部境界の解決結果 | `coupling_update_mode`, `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | 公開設定から実行時に解決された更新、流入、通常open面、z-high輸送、処理時機 |
 
 `absorbed` は吸収イベント数であり、電荷の符号やマクロ粒子重みを含みません。電荷量は
 `charge_ledger.csv`、最終分布は `charges.csv` から読みます。
 
 `last_rel_change` は監視値です。現行実装では早期停止条件ではありません。
 
-外部境界の4キーは設定項目ではなく、`[external_boundary]` facadeが実行時にどう解決されたかを確認する
+外部境界の5キーは設定項目ではなく、`[external_boundary]` facadeが実行時にどう解決されたかを確認する
 receiptです。
 
 | キー | 出力値 |
 | --- | --- |
+| `coupling_update_mode` | `explicit` / `implicit_mean` |
 | `external_inflow_map` | `source_vdf` / `infinity_barrier` / `kinetic_profile` |
 | `external_ordinary_open_model` | `escape` / `potential_barrier` |
 | `external_interface_transport` | `none` / `kinetic_1d` |
@@ -64,7 +65,26 @@ receiptです。
 
 たとえば`particles.inflow_model="auto"`は、fieldとparticle modeに応じて
 `external_inflow_map=source_vdf`または`kinetic_profile`へ解決されます。
+`ambient_linear_debye + same_batch` と負電荷 `photo_raycast` は
+`coupling_update_mode=implicit_mean`へ自動解決され、公開TOMLへこの内部値は書きません。
 再現性を確認するときは、入力facadeとこのreceiptを併せて保存します。
+
+陰的平均更新の実行中は、標準出力の `BEACH implicit-mean` 行に batch ごとの表面総電荷、
+interface 電位・電場、species 電流、追加の実測表面電流 `J_other_A_m2`、
+零和transactionの `transaction_residual_C`、scalar根の `mean_solver_iterations`、
+ray標本の `sample_escape_fraction`、`return_weight_scale` を記録します。
+ambient linear-Debye closureでは、前者は正規化前のmacro電荷標本比、後者は
+$R_{\mathrm{analytic}}/R_{\mathrm{sample}}$ です。後者は確率ではなく1を超える場合があります。
+`mean_solver_iterations` はこのclosureではscalar root反復数です。
+
+Zhao closureでは、続く `BEACH implicit-zhao` 行にbranch、virtual cathode電位 `phi_min_V`、
+全profileの `barrier_J`、実測界面電流から決めた `source_scale`、marginal energyとそのescape fraction、
+非線形電荷残差、再越境charge fraction、終端不一致charge fractionを記録します。この経路はenergy群ごとの
+実測CDF重みを直接使うため、`return_weight_scale=1`です。Zhaoで共有表示される
+`mean_solver_iterations` は、endpoint certificate、order-statistic二分探索、marginal bisectionが呼んだ
+connected candidate solve数であり、
+pseudo-arclength内部のNewton反復数ではありません。どちらの進行行も収束判定そのものではありません。
+`summary.txt`、`charge_ledger.csv`、`charges.csv`と合わせて確認します。
 
 ## `charge_ledger.csv`: 粒子種別の電荷移動
 
@@ -80,9 +100,36 @@ receiptです。
 | `interface_outward_gross_C` | 局所領域から外部領域へ渡した総電荷 |
 | `interface_returned_gross_C` | 外部領域から局所領域へ戻した総電荷 |
 
-対応する `*_count` 列はイベント数です。`summary.txt` の `charge_ledger_residual_C` と
+`injected_count`、`emitted_count`、`absorbed_count`、`escaped_count`、
+`discarded_unresolved_count` は対応するterminalイベント数です。interface grossに独立したcount列はありません。
+`summary.txt` の `charge_ledger_residual_C` と
 `charge_ledger_discarded_unresolved_abs_C` は全粒子種を集約した値です。許容値の決め方は
 [粒子数と電荷の収支を確認する](ValidationGuide.html#2-粒子数と電荷の収支を確認する)で扱います。
+
+`coupling_update_mode=implicit_mean` の光電子では、電荷量とcountを別々に解釈します。
+置換するのは、z-highを外向きに横切ってdeferredされた成分だけです。ambient linear-Debye closureでは、この成分の
+`escaped_to_infinity_C` とreturn後の `absorbed_on_surface_C` 寄与をscalar closureの
+continuous Maxwellian escape / return総量に合わせ、再吸収電荷を1回追跡したrayの
+実hit分布へ `return_weight_scale` で正規化配分します。Zhao closureでは、実測界面energy CDFと非線形
+$Q(\Phi_I)$解から各rayのescape / return重みを直接決めるため、共通のanalytic scaleを掛けません。interface到達前の局所再吸収、
+z-lowなど別のopen面からのescape、`discarded_unresolved_C` はtracked値を保持します。
+したがって `escaped_to_infinity_C` はtrackedな別open面escapeとclosureが決めたz-high escapeの和、
+`absorbed_on_surface_C` はtrackedな局所再吸収とclosureが決めたz-high return後再吸収の和です。
+`escaped_count` と `absorbed_count` のinterface-return由来分はray標本のterminal分類であり、
+電荷比のsource of truthではありません。解析置換の対象外にあるterminal countは、通常どおり
+tracked粒子が更新します。
+
+`interface_outward_gross_C` はlocal領域からz-highを外向きに横切った実crossing、
+`interface_returned_gross_C` は1D領域からlocal領域へ戻ったcrossingの符号付きmacro電荷を累積します。
+各rayのcrossingはterminal return / escape総量に合うよう正規化したweightで集計し、
+z-high deferred成分のclosure escape符号付き電荷を
+$Q_{\mathrm{esc,z-high}}^{\mathrm{closure}}$ とすると、
+`interface_returned_gross_C` = `interface_outward_gross_C` - $Q_{\mathrm{esc,z-high}}^{\mathrm{closure}}$
+の電荷恒等式を保ちます。別open面からのtracked escapeも含むterminal総量
+`escaped_to_infinity_C` を、この式の右辺へそのまま代入してはいけません。
+ambient linear-Debye経路ではreturn後に再びz-highを横切るrayもgross列へ追加され得ます。Zhao実測CDF経路では、
+この再越境を適用性違反として有意chargeがあれば停止します。どちらの場合もgross量はterminal量ではありません。
+
 Zhao過渡queueでは、`charge_ledger_outer_flight_charge_before_C`と
 `charge_ledger_outer_flight_charge_after_C`がbatch前後のouter-flight stockを記録します。
 
@@ -145,11 +192,27 @@ write_potential_history = true
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [標準 1D kinetic 外部シース](KineticOuterPlasma.html) |
 | Zhao過渡queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [粒子の escape と return](ParticleEscapeReturn.html#zhao-過渡closureでouter-flightをqueueする) |
 | 外部粒子移送 | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [粒子の escape と return](ParticleEscapeReturn.html) |
+| `implicit_mean` return shadow | `implicit_mean_last_returned_outer_flight_time_mean_s`, `implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2` | [標準 1D kinetic 外部シース](KineticOuterPlasma.html) |
 
 `outer_infinity_potential_V` は内部の無限遠 gauge を記録する診断値であり、入力 key ではありません。
 現行の kinetic 状態では 0 に固定されます。
 `max_outer_energy_relative_error` は、kinetic 1D の return / escape 写像で法線運動エネルギーと静電エネルギーの
 保存残差を規格化した値の最大です。
+`implicit_mean` 光電子も個別の1D profile写像を使うため、outer flight time、frozen-field比、
+energy保存残差に寄与します。return後のrecrossも同じ診断へ累積されます。この光電子は準定常shadowなので、
+`max_outer_frozen_field_ratio` が設定上限を超えても、それ自体は run の失敗ではありません。比は shadow 軌道の
+時間 scale を示しますが、UV turn-on の遅延 return current を解いたことは意味しません。通常の `same_batch` 粒子と
+ambient species は、上限超過で従来どおり fail closed にします。
+
+2 つの `implicit_mean_last_*` 値は最大値や累積値ではなく、今回の実行で最後に完了した batch だけを表します。
+batch を進めなかった no-op resume では両 key を出力しません。
+前者は analytic weight 適用後の return excursion を正の電荷 magnitude で重み付けした平均 outer 往復時間、
+後者は同じ return excursion の $\sum W_j\tau_j/(A\Delta t)$ から得る Little の法則による正の
+photoelectron column shadow 推定値です。後者は実 queue / ledger stock ではありません。
+`escaped_to_infinity` outcome 自体には滞在時間を加えませんが、最終 escape 前に完了した return excursion は集計します。
+`outer_integrated_charge_per_area_C_m2` が非零なら、shadow 推定値をその絶対値で割った
+$\chi_{\mathrm{PE,shadow}}$ は、省略した returning-photoelectron column と 1D outer 積分電荷の相対 scale を示します。
+これは解釈用の比であり、組み込みの受理閾値ではありません。
 
 `dielectric` 要素がある場合、`summary.txt` は `surface_model_dielectric_elem_count` と
 `surface_model_note=metadata_only_dielectric_present` を記録します。現行実装の `dielectric` はメタデータであり、

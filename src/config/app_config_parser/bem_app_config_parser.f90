@@ -550,6 +550,9 @@ contains
       cfg%outer_plasma%max_local_charge_ratio = authoring%outer_plasma%max_local_charge_ratio
     end if
     if (authoring%coupling%present) then
+      if (trim(lower_ascii(authoring%coupling%update_mode)) /= 'explicit') then
+        error stop 'coupling.update_mode accepts only "explicit" in user input; implicit_mean is derived internally.'
+      end if
       cfg%coupling%update_mode = authoring%coupling%update_mode
       cfg%coupling%particle_transfer_mode = authoring%coupling%particle_transfer_mode
       cfg%coupling%steady_start_mode = authoring%coupling%steady_start_mode

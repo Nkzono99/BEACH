@@ -9,14 +9,21 @@ electrostatic, collisionless, and unmagnetized profile. It connects the interfac
 distributions at infinity and obtains interface potential, density, and currents self-consistently.
 
 BEACH recommends `kinetic_1d` as the standard model that connects an external reservoir to a mean sheath. With
-`external_boundary.particles.mode="same_batch"`, the same profile also controls particle inflow and escape/return. Start outer-sheath
-cases with this model unless the case has a specific requirement to resolve linear lateral-field screening near a rough surface.
+`external_boundary.particles.mode="same_batch"`, the same profile also controls particle inflow and ordinary escape/return.
+For the `implicit_mean` photoelectron paths described below, the initial local trace stops at the interface crossing and holds
+that crossing until the updated mean field is available. The two sibling paths use an analytic-Maxwellian backward-Euler mean
+update for `ambient_linear_debye` and a generalized empirical-interface-energy root for `zhao_charge_driven`. Both use the
+kinetic 1-D profile mapper after the mean update, but they do not share the rule that determines mean escape/return charge or
+ray weights.
+Start outer-sheath cases with this model unless the case has a specific requirement to resolve linear lateral-field screening
+near a rough surface.
 The current model set does not support that requirement. [ADR 0010](adr/0010-remove-unified-linear-response.md) records the
 removed approximation and the criteria for a redesign.
 
-The converged outer profile is used in both directions. Mapping particles from the infinity VDF to the interface is covered by
+The converged outer profile is used in both directions for ordinary particle transfer. Mapping particles from the infinity VDF to the interface is covered by
 [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html); mapping particles leaving the interface to escape or return is covered by
-[Particle escape and return](ParticleEscapeReturn.en.html).
+[Particle escape and return](ParticleEscapeReturn.en.html). This page explains how `implicit_mean` places that common map
+in a one-pass orbit sample that separates fast mean charging from slow local redistribution.
 
 ## Split local and outer regions at the interface
 
@@ -107,17 +114,176 @@ $$
 
 from the interface field $E_I$ supplied by the current surface zero mode. It performs no spatial Poisson root or Newton
 iteration. The infinity gauge is $\phi(\infty)=0$. The same profile controls ambient-reservoir accessibility and velocity
-mapping and z-high return or escape. Diagnostic ambient inflow currents use the one-sided drifting-Maxwellian flux of each
-`reservoir_face` species with the same interface barrier.
+mapping, ordinary z-high return or escape, and `implicit_mean` photoelectron classification after the mean solve.
+Diagnostic ambient inflow currents use the one-sided
+drifting-Maxwellian flux of each `reservoir_face` species with the same interface barrier.
 
-This closure requires `photoelectron_density_model="none"`. It does not reject enabled `photo_raycast` sources:
-photoelectrons are emitted, reabsorbed, or allowed to escape as ordinary tracked particles. Their mean density, mean outer
-current, and outer space charge are excluded from the closure. Surface charge is therefore updated only by tracked emission
-and absorption; no analytic photoelectron current is added again.
+Do not write `photoelectron_density_model` in public TOML for this closure. The facade resolves its internal state to `none`
+and rejects the explicit key even when its value is `"none"`. It does not reject enabled `photo_raycast` sources:
+photoelectrons are emitted and tracked within the 3-D region until reabsorption or an outward z-high interface crossing.
+Their mean density and outer space charge are excluded from the closure.
+
+When `external_boundary.particles.mode="same_batch"` and an enabled negative `photo_raycast` species are also present,
+BEACH automatically selects internal `coupling.update_mode="implicit_mean"`. Do not write an update mode in public TOML.
+This multirate update separates fast mean charging, resolved within the current batch by a continuous Maxwellian closure,
+from slow local charge redistribution sampled by finitely many tracked rays and carried into the next batch.
+
+| Component | Update |
+| --- | --- |
+| Local $k\ne0$ | Hold the batch-start nonzero-mode operator fixed and share it between the initial 3-D trace and post-return local traces |
+| Fast mean mode | Backward-Euler mean solver determines total charge, $\phi_I$, and continuous-Maxwellian escape/return fractions |
+| Energy-resolved rays | Trace each crossing once on the solved mean profile to sample its orbit and terminal destination |
+| Slow local redistribution | Normalize analytic return charge over the source/destination distribution of reabsorbed samples and commit it once |
+
+Analytic escape/return replacement applies only to the component deferred after an outward z-high crossing. Local
+reabsorption before the interface, escape through another open face such as z-low, and unresolved discard retain their
+tracked values from the first trace. The mean solve and return normalization below do not overwrite them.
+
+A photoelectron's initial local trace ends when it crosses z-high. Its full macro weight, source element, crossing position,
+and velocity pass to the mean update. BEACH measures $J_{pe,\mathrm{out}}^n$ from crossing charge in that batch.
+It also measures $J_{\mathrm{pending}}^n$ from every surface-charge delta staged by the first trace and defines
+
+$$
+J_{\mathrm{other}}^n
+=J_{\mathrm{pending}}^n-J_{e,\mathrm{tracked}}^n-J_{i,\mathrm{tracked}}^n-J_{pe,\mathrm{out}}^n.
+$$
+
+The mean interface potential then advances according to
+
+$$
+C_A\frac{\phi_I^{n+1}-\phi_I^n}{\Delta t}
+=J_{e,\mathrm{tracked}}^n+J_{i,\mathrm{tracked}}^n
++J_{\mathrm{other}}^n
++J_{pe,\mathrm{out}}^n f_{\mathrm{esc}}(\phi_I^{n+1})+J_{\mathrm{ext}}.
+$$
+
+Here $C_A=\epsilon_0/\lambda_D$ for `e_bottom_zero` and
+$C_A=2\epsilon_0/\lambda_D$ for `symmetric_vacuum`. Ambient current is measured from the particles actually absorbed by the
+surface during that batch, restricted to the unique z-high `reservoir_face` electron and ion species. Measured surface
+changes from extra species, other-face inflow, another open-face escape, or unresolved particles remain in
+$J_{\mathrm{other}}^n$. `emit_current_density_a_m2` determines tracked 3-D emission weights, but its
+value is not reused as an independent PE mean source. The mean-source amplitude is measured
+$J_{pe,\mathrm{out}}^n$. Configured temperature supplies Maxwellian barrier transmission $f_{\mathrm{esc}}$, evaluated at
+$\phi_I^{n+1}$ so the mean retarding potential acts within the same step.
+The backward-Euler solution is authoritative for batch-end mean total charge and $\phi_I$. In terms of nonnegative
+charge magnitudes, its analytic return and escape charges are
+
+$$
+Q_{\mathrm{ret}}^{\mathrm{ana}}
+=A\Delta t\,J_{pe,\mathrm{out}}^n(1-f_{\mathrm{esc}}),
+\qquad
+Q_{\mathrm{esc}}^{\mathrm{ana}}
+=A\Delta t\,J_{pe,\mathrm{out}}^n f_{\mathrm{esc}}.
+$$
+
+Finite-ray classification does not replace these totals.
+For the element charge used during ray tracing, BEACH multiplies each crossing's source countercharge by the analytic return
+fraction and temporarily neutralizes that amount at the source. This temporary distribution maps the mean-solved total into
+the $k=0$ snapshot; it is not the physical reabsorption destination.
+
+Each crossing keeps its full macro weight. The mapper evaluates its normal energy,
+
+$$
+v_n^2(z)
+=v_{n,I}^2+\frac{2q[\phi_I-\phi(z)]}{m},
+$$
+
+along the discrete profile and far tail. A zero of $v_n^2$ gives a turning return; a particle that traverses the profile
+escapes. For a return, the same mapper integrates outer flight time, advances the lateral position by
+$\mathbf v_t\tau_{\mathrm{outer}}$ with periodic wrapping, and places the packet just inside the interface. BEACH retraces it
+through the local 3-D region with batch-start $k\ne0$ and mean-solved $k=0$. If the returned packet crosses z-high again, the
+same driver and profile mapper handle the recrossing until it is absorbed by a surface or escapes to infinity.
+A shadow that leaves through another local open face after return is not reclassified as analytic upward escape; it fails closed.
+
+This deferred packet is a quasistationary shadow that samples the orbit and destination of the analytic Maxwellian return
+total. The mapper still computes each shadow's outer flight time and frozen-field ratio and retains them as diagnostics, but
+an over-limit ratio does not stop the run. Ordinary `same_batch` particles and ambient species are not shadows and continue
+to stop fail-closed when they exceed the same limit.
+
+For this shadow, `summary.txt` reduces only the analytically weighted return excursions from the last batch completed by the
+current invocation to two values. A no-op resume that advances no batch omits these two keys because they are run-local
+derived diagnostics, not solver state that must be restored. Let $W_j>0$ be the positive charge magnitude of return
+excursion $j$ after analytic weighting, let $\tau_j$ be its
+outer round-trip time, let $A$ be the horizontal area, and let $\Delta t$ be the batch duration. Then
+
+$$
+\bar{\tau}_{\mathrm{ret},Q}
+=\frac{\sum_j W_j\tau_j}{\sum_j W_j},
+\qquad
+\widehat{\sigma}_{\mathrm{PE,ret}}
+=\frac{\sum_j W_j\tau_j}{A\Delta t}
+=J_{\mathrm{ret,gross}}^{(|Q|)}\bar{\tau}_{\mathrm{ret},Q}.
+$$
+
+`implicit_mean_last_returned_outer_flight_time_mean_s` is the charge-magnitude-weighted
+$\bar{\tau}_{\mathrm{ret},Q}$, while
+`implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2` is the Little's-law quasistationary
+shadow estimate $\widehat{\sigma}_{\mathrm{PE,ret}}$. Both are nonnegative and are zero when there is no return excursion.
+The latter is not actual cloud stock in a queue or ledger. No residence time is assigned to the `escaped_to_infinity`
+outcome itself, but completed return excursions before that ray eventually escapes are included. Neither value is a
+cumulative or maximum value over all batches.
+
+When `outer_integrated_charge_per_area_C_m2` is nonzero,
+
+$$
+\chi_{\mathrm{PE,shadow}}
+=\frac{\widehat{\sigma}_{\mathrm{PE,ret}}}
+       {\left|\texttt{outer\_integrated\_charge\_per\_area\_C\_m2}\right|}
+$$
+
+compares the magnitude of the omitted returning-photoelectron shadow column with the magnitude of integrated charge in the
+1-D outer profile. It is an interpretation aid for the model limitation, not an acceptance threshold enforced by BEACH.
+
+Orbit tracing runs once after the mean solve; its classification is not fed back into that solve. Let $\mathcal R$ be the
+samples ultimately reabsorbed by a surface and define
+
+$$
+W_{\mathcal R}=\sum_{j\in\mathcal R}|q_j|w_j,
+\qquad
+s_{\mathrm{ret}}=\frac{Q_{\mathrm{ret}}^{\mathrm{ana}}}{W_{\mathcal R}}.
+$$
+
+The same $s_{\mathrm{ret}}$ multiplies each sample's source leg—the temporary neutralization of its emission
+countercharge—and destination leg at the actual hit. The transaction therefore remains zero-sum while its total return charge
+matches the analytic value. The final state retains the emission countercharge already present in pending charge and adds the
+normalized destination deposit. The sampled escape fraction is an orbit-statistics diagnostic, not an input to mean total charge.
+
+In this one-pass composition, mean total charge and retarding potential respond within the current batch, while the sampled
+reabsorption pattern changes local $k\ne0$ only after commit in the next batch. Not feeding discrete classification back into
+the same mean solve prevents a few rays near the separatrix from producing a return/escape two-cycle.
+
+This path requires
+`outer_update_stride=1`, positive `batch_duration`, exactly one negative `photo_raycast` species,
+`deposit_opposite_charge_on_emit=true`, and `photo_raycast.normal_drift_speed=0`. The analytic Maxwellian escape fraction
+does not include normal emission drift, so a nonzero value is rejected fail-closed. Omit `photoelectron_density_model` from
+public TOML; it resolves internally to
+`none`. No public update-mode or return-kernel key is added, and the path cannot be combined with an outer queue. This path
+adds no mesh-mode-specific requirement. The run fails closed if the mean solver does not converge, analytic return charge is
+positive but no reabsorbed sample is available, transaction charge does not balance, or a deferred packet does not reach
+absorption or escape within the allowed local trace.
 
 The applicability range is weak photoemission for which the ambient linear response dominates. The model cannot represent a
 photoelectron-space-charge virtual cathode, a space-charge-limited or inverse sheath, trapped populations, or a nonmonotone
-profile.
+profile. It also does not evolve a nonlinear photoelectron mean density or outer-cloud inventory. In particular, it does not
+solve UV turn-on from an uncharged state or delayed return-current transients. That use requires a separately designed
+delayed inventory or queue compatible with the time-dependent `ambient_linear_debye` closure.
+Check `coupling_update_mode=implicit_mean` in `summary.txt`. The `BEACH implicit-mean` progress record reports $\phi_I$,
+species currents, `J_other_A_m2`, `transaction_residual_C`, `mean_solver_iterations`, `sample_escape_fraction`, and
+`return_weight_scale`. In the photoelectron charge ledger, `escaped_to_infinity_C` combines tracked other-open-face escape
+with analytic z-high deferred escape, while `absorbed_on_surface_C` combines tracked local reabsorption with analytic
+post-return absorption. `discarded_unresolved_C` remains tracked. The corresponding integer counts and
+`sample_escape_fraction` describe terminal ray classifications.
+`interface_outward_gross_C` includes initial crossings and later recrossings, while `interface_returned_gross_C` records
+returned-event charge carried back into the local region with normalized weights. If
+$Q_{\mathrm{esc,z-high}}^{\mathrm{analytic}}$ is the signed analytic escape charge of the z-high deferred component, then
+`interface_returned_gross_C` = `interface_outward_gross_C` -
+$Q_{\mathrm{esc,z-high}}^{\mathrm{analytic}}$. Do not substitute total `escaped_to_infinity_C` into this identity because it
+also includes tracked escape through other open faces.
+
+A UV-only case with no ambient electron/ion reservoirs and
+`external_boundary.field.model="none"` that lets particles escape at z-high is not a substitute for this closure. Treat it as
+a finite-box transient control for local emission and reabsorption, not as an infinity-closed quasineutral sheath or a
+stationary solution.
 
 ## Connect Zhao populations to accumulated charge
 
@@ -162,6 +328,168 @@ The flat $E_I=0$ state is the Type-B/C junction, and a negative $E_I$ selects Ty
 The quasisteady A/B/C branches with the full photoelectron population need not connect continuously to $E_I=0$. A requested
 field outside their solvable range stops with `no_physical_solution` in
 `external_boundary.particles.mode="same_batch"`.
+
+### Close strong photoemission with the measured interface-energy CDF
+
+Combining photoemitting `zhao_charge_driven` with `same_batch` makes BEACH select internal `implicit_mean` automatically.
+This path uses a different solver from the ambient backward-Euler mean update above. It requires a committed A/B/C branch
+from the start, so `external_boundary.particles.steady_start_mode="zhao_floating"` and the corresponding
+`steady_start_mesh_id` that receives the uniform seed charge are mandatory.
+
+The initial 3-D trace freezes the batch-start field and records the normal energy and macro-charge magnitude when a
+photoelectron first crosses z-high outward:
+
+$$
+{\cal E}_{n,r}=\frac{1}{2}m_{pe}v_{z,r}^2,\qquad w_r=|\Delta q_r|.
+$$
+
+Samples $({\cal E}_{n,r},w_r)$ from every rank are gathered to the MPI root. The root stably sorts energies in descending
+order and combines charge weights only for energies that compare exactly equal in floating-point arithmetic. It uses no
+configured bins, histogram interpolation, or smoothing, so the result is an exact charge-weighted empirical CDF of the
+macro-particle samples.
+
+Let $Q_{\rm base}$ be the total staged surface charge from the first trace with all interface photoelectron source charge
+removed. A candidate cell charge $Q$ maps to interface field according to the lower boundary:
+
+$$
+Q=\beta\epsilon_0AE_I,\qquad
+\beta=
+\begin{cases}
+1,&\texttt{e\_bottom\_zero},\\
+2,&\texttt{symmetric\_vacuum}.
+\end{cases}
+$$
+
+BEACH solves the 1-D profile on the same Zhao branch for each candidate. The normal energy needed for photoelectron escape is
+not just the endpoint difference between the interface and infinity. It is the full-profile barrier
+
+$$
+B(Q)=\max\left[
+0,\ \max_z q_{pe}\{\phi(z;Q)-\phi_I(Q)\},\
+q_{pe}\{\phi_\infty-\phi_I(Q)\}
+\right].
+$$
+
+Because $q_{pe}<0$, the potential minimum of a Type-A profile contributes the virtual-cathode barrier to this maximum.
+
+The empirical CDF defines $C_{\rm esc}(B)$ by assigning groups with ${\cal E}_{n,r}>B$ to escape and equality to
+turning/return. BEACH solves
+
+$$
+Q=Q_{\rm base}+C_{\rm esc}[B(Q)].
+$$
+
+Only when the barrier crosses one energy group does the solver introduce an escape weight $0\le\theta\le1$ for that group
+and solve $B(Q)={\cal E}_k$ as a fractional marginal root. Equal-energy macro particles are therefore not split
+arbitrarily into separate groups.
+
+For $M$ groups, let $Q_k=Q_{\rm base}+C_k$. The solver follows connected paths from one common final-source root to
+$Q_0$ and $Q_M$, numerically checking that the barrier is nondecreasing over the complete candidate-charge interval.
+It then locates the first true value of
+
+$$
+P_k=
+\begin{cases}
+[B(Q_k)\ge{\cal E}_{k+1}], & 0\le k<M,\\
+[B(Q_M)\ge{\cal E}_M], & k=M
+\end{cases}
+$$
+
+by binary search. Pure-root selection therefore requires $O(\log M)$ connected candidate solves.
+If $P_0$ is true, the result is all-return; if $P_M$ is false, it is all-escape. At an internal first-true index $k$,
+$B(Q_k)<{\cal E}_k$ selects a pure root. Otherwise, the solver resolves a fractional marginal root in
+$[Q_{k-1},Q_k]$. Marginal bisection continues to the charge tolerance and retains its upper endpoint so that
+turning-point equality remains on the return side. A candidate Zhao root is not reselected by an independent Newton solve;
+it is followed from the common root along this connected parameter path:
+
+$$
+\mathbf G\!\left(\mathbf y;E_I(\lambda),n_{pe,0}(\lambda)\right)=\mathbf 0,
+\qquad
+E_I(\lambda)=(1-\lambda)E_{I,0}+\lambda E_{I,1},
+\qquad
+n_{pe,0}(\lambda)=(1-\lambda)n_{pe,0}^{(0)}+\lambda n_{pe,0}^{(1)}.
+$$
+
+Here $\mathbf y$ contains the log-encoded root variables for one fixed A/B/C branch. Type A/B requires $E_I>0$, Type C
+requires $E_I<0$, and this chart also rejects the nonregular $E_I=0$ endpoint. An adaptive pseudo-arclength
+predictor/corrector advances from the preceding root while checking local correction distance, root jump, tangent
+orientation, and Jacobian rank. A vanishing or reversed tangent in the $\lambda$ direction, or loss of rank in the
+fixed-parameter Jacobian, is treated as a fold before the target and fails closed. A $\lambda=1$ event corrector lands at the
+target. These checks are a local numerical guard against a nearby-root jump, not a mathematical proof that no arbitrarily
+close sheet exists. This internal path adds no TOML key.
+
+For charge candidates at fixed final source, BEACH also evaluates the tangent slope of $B$ with respect to prescribed
+charge at every adaptively accepted point and stops on a negative slope or oppositely directed barrier secant. Endpoint
+paths, order-statistic midpoints, and marginal bisection also check barrier ordering with charge. This remains a
+finite-precision guard rather than an interval-arithmetic proof over the continuum between accepted points. Final
+acceptance recomputes the measured-CDF escape charge and requires $Q-Q_{\rm base}-C_{\rm esc}=0$. Loss of rank, a fold,
+a barrier-slope reversal, an inconsistent order-predicate bracket, or failure to bracket a marginal energy stops fail
+closed without branch fallback.
+
+Surface emission and interface-source normalization are separate quantities.
+`photo_raycast.emit_current_density_a_m2` determines the number and macro weights of rays emitted from the rough surface.
+The per-batch source amplitude passed to the Zhao density closure is instead resolved from charge that actually reaches the
+interface:
+
+$$
+J_{pe,I}^{\rm meas}=\frac{\sum_r w_r}{A\Delta t},\qquad
+s_{\rm eff}=
+\frac{J_{pe,I}^{\rm meas}}
+{|q_{pe}|n_{\rm ref}\sin(\alpha)\sqrt{2T_{pe}/m_{pe}}/(2\sqrt{\pi})}.
+$$
+
+Configured `photoelectron_source_scale` constructs the initial `zhao_floating` branch anchor; it is not reused as the
+interface source for the same batch. The accepted $s_{\rm eff}$ is stored as the resolved source scale in the outer state
+and checkpoint.
+
+If the measured source differs from its previous-batch value, the connected path above first advances the previous root to
+a common anchor on the final $s_{\rm eff}$ slice. Every charge candidate then holds the source fixed at that final value and
+is followed from the common anchor on the committed A/B/C root sheet. A branch-label change, bootstrap branch, disconnected
+root, or fallback to another closure is not allowed. Each continuation step limits dimensionless changes in $\phi_0$,
+$\phi_{\min}$, and the infinity electron density to 0.25.
+
+Because one cohort measured in the batch-start field is reused with the updated profile, the final state must also satisfy
+
+$$
+\frac{|q_e\Delta\phi_I|}{T_e}\le0.25,\quad
+\frac{|\Delta B_{e,\mathrm{in}}|}{T_e}\le0.25,\quad
+\frac{|q_i\Delta\phi_I|}{E_{i,n}}\le0.25,\quad
+\left|\log\frac{n_{e,\infty}^{\mathrm{new}}}{n_{e,\infty}^{\mathrm{old}}}\right|\le0.25,\quad
+|\log(s_{\rm eff}/s_{\rm old})|\le0.25,\quad
+\frac{\lambda_{D,pe}|\Delta E_I|}{T_{pe}/|q_{pe}|}\le0.25,\quad
+\frac{|\Delta B|}{T_{pe}}\le0.25.
+$$
+
+An over-limit update stops fail-closed; BEACH does not retrace the cohort in a new field or restore the old profile.
+Here $B_{e,\mathrm{in}}=\max(0,q_e\phi_I,q_e\phi_{\min})$ and
+$E_{i,n}=\max(T_i,m_i u_{i,n}^2/2)$. The first four terms monitor the absolute potential shift, the electron cutoff
+including Type A, the ion drift-energy map, and the Zhao-resolved electron inflow density frozen into the ambient
+reservoir cohort. Photoelectrons instead respond to the profile-relative barrier $B$ and field deformation, so the last
+two terms retain $T_{pe}$ and $\lambda_{D,pe}$. The same $\Delta\phi_I$ is not tested a second time against $T_{pe}$.
+
+Because this CDF is the raw measured cohort from one batch, convergence must use not only the total ray count but also the
+number reaching the interface and the effective sample count left in the escaping tail above the barrier. If the
+ambient-potential trust guard fails statistically while source, field, and barrier changes remain small, do not relax the
+guard. Increase
+`rays_per_batch` and confirm that $\phi_I$, escape fraction, and total surface charge agree at no less than twice the ray count.
+If the same trust violation converges instead of disappearing as the ray count increases, the physical update in one batch
+is too large rather than statistically noisy. Keep the guard fixed, reduce `batch_duration` and the corresponding emitted
+charge per batch, and demonstrate time-step convergence.
+
+After acceptance, the escape/return weight assigned by each measured energy group is applied directly to the emission
+element and actual reabsorption element. The common `return_weight_scale` from the ambient path is not used. Each ray must
+normally have exactly one outward crossing and at most one return. A return-weighted ray that is not absorbed, an escape
+ray with a mismatched terminal outcome, or a recrossing stops the run instead of transferring weight to another ray.
+
+The measurements provide only interface-source amplitude and the normal-energy CDF. Zhao free/reflected ambient-electron,
+free/captured photoelectron, and cold-ion density closures remain analytic. This is not a model for tangential velocity
+distributions, arbitrary trapped VDFs, collisions, magnetization, time-dependent Vlasov--Poisson, or PIC. Even Type A is
+limited to its single virtual-cathode minimum and the reflected/captured populations represented by the Zhao equations.
+
+The current MPI implementation gathers every interface sample with `MPI_Gatherv`, groups samples and performs the Zhao
+solve on the root, then broadcasts the accepted step and profile. Root temporary memory and gather traffic scale with the
+number of photoelectrons crossing the interface. Account for this root-local limit when increasing ray count for a
+convergence study.
 
 ### Start stationary studies from the Zhao zero-current root
 
@@ -278,8 +606,10 @@ Configuration validation applies the same bound to `batch_duration`. See
 [Particle escape and return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure) for time
 discretization, the end-of-batch corrector, and checkpoint rules.
 
-[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml) is a warm-start smoke that
-does not solve the transient. It uses `zhao_floating` to begin ordinary small batches from the stationary Type-A root.
+[`periodic2_zhao_charge_driven_outer.toml`](../examples/periodic2_zhao_charge_driven_outer.toml) anchors at the stationary
+Type-A `zhao_floating` root and exercises the strong-photoemission empirical-CDF update over small batches. Successful
+completion checks the implementation path; it does not establish physical convergence in ray count, batch width, or
+interface location.
 [`periodic2_zhao_no_photo_outer.toml`](../examples/periodic2_zhao_no_photo_outer.toml) is a no-photo smoke that charges from
 the flat state toward Type C using only the same ambient inputs.
 [`periodic2_zhao_transient_outer.toml`](../examples/periodic2_zhao_transient_outer.toml) is a frozen-field guard fixture for the
@@ -301,7 +631,7 @@ Zhao convergence by varying these inputs. Refine the profile grid, effective int
 `dt` or batch resolution instead. The current 128-point profile grid is fixed at runtime, so a production grid-convergence study
 requires exposing its point count as an input.
 
-The tracked `photo_raycast.emit_current_density_a_m2` must agree within 1% with the analytic raw source at the effective plane,
+The analytic raw source associated with tracked `photo_raycast` at the effective plane is
 
 $$
 J_{pe,\mathrm{raw}}=s_{UV}
@@ -310,8 +640,10 @@ J_{pe,\mathrm{raw}}=s_{UV}
 v_{\mathrm{th},pe}=\sqrt{\frac{2T_{pe}}{m_{pe}}}.
 $$
 
-Here $s_{UV}$ is `photoelectron_source_scale` and $T_{pe}$ in the speed formula is thermal energy in joules. The runtime rejects
-a mismatch. The analytic raw current enters
+For fixed-source Zhao paths other than `implicit_mean`, this value must agree within 1% with
+`photo_raycast.emit_current_density_a_m2`. Here $s_{UV}$ is `photoelectron_source_scale` and $T_{pe}$ in the speed formula
+is thermal energy in joules. Strong-photoemission `implicit_mean` does not impose the 1% surface-current match; it resolves
+$s_{\rm eff}$ from measured interface current. The analytic raw current enters
 the tracked-source consistency check and current-density diagnostics, but not the root, surface charge, or ledger; only tracked
 emission and reabsorption update the latter two. The population scale $\eta$ does not scale that raw photoelectron
 emission-current term in the current diagnostic.
@@ -319,9 +651,11 @@ The closure also rejects
 `external_boundary.particles.inflow_model="infinity_barrier"` and
 `external_boundary.field.photoelectron_density_model="kinetic_mean"`.
 
-This effective-plane approximation does not self-consistently connect tracked-ray directions or a VDF reaching the interface
-from a rough surface to the Zhao outer population. `ray_direction` controls illumination-ray sampling of emitting surfaces, while $\alpha$
-independently controls the analytic Zhao source. See [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md) for scope and the
+The fixed-source Zhao effective-plane approximation does not self-consistently connect tracked-ray directions or a VDF
+reaching the interface from a rough surface to the Zhao outer population. Strong-photoemission `implicit_mean` measures only
+source amplitude and the normal-energy CDF; Zhao density populations and the tangential VDF remain analytic.
+`ray_direction` controls illumination-ray sampling of emitting surfaces, while $\alpha$ independently controls the analytic
+Zhao density closure. See [ADR 0003](adr/0003-zhao-charge-driven-outer-closure.md) for scope and the
 boundary VDF needed by a future generalization, [ADR 0004](adr/0004-zhao-transient-photoelectron-column-queue.md) for the
 transient-queue decision, [ADR 0005](adr/0005-zhao-continuation-and-dynamic-outer.md) for staged continuation diagnostics
 and a possible dynamic outer model, and [ADR 0006](adr/0006-zhao-stationary-warm-start.md) for the stationary warm start.
@@ -396,13 +730,22 @@ and original nonlinear residual.
 For `absorbing_maxwellian`, vary `debye_length`, interface location, and when needed source sampling, and confirm convergence of
 interface potential, currents, and surface charging. Zhao uses the derived $\lambda_{D,pe}$, so refine the profile grid,
 effective interface location, tracked-particle count, and time resolution instead. With return active, inspect flight time,
-frozen-field ratio, and quasisteady applicability in [Particle escape and return](ParticleEscapeReturn.en.html).
+frozen-field ratio, and quasisteady applicability for species using individual profile return in
+[Particle escape and return](ParticleEscapeReturn.en.html). For ambient `implicit_mean`, additionally test ray-count
+dependence of mean-solver iterations, transaction residual, sampled escape fraction, and the common return weight scale.
+For strong-photoemission empirical Zhao, inspect branch, $\phi_{\min}$, $n_{e,\infty}$, the full-profile barrier, resolved source scale,
+marginal energy/fraction, empirical charge residual, recross fraction, and terminal-mismatch fraction.
+For both `implicit_mean` paths, the frozen-field ratio diagnoses the shadow-orbit timescale and, unlike ordinary same-batch
+particles, does not make an over-limit value alone a run failure.
 
 ## Code reference
 
 - VDF closures and nonlinear Poisson solve: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
 - Charge-driven Zhao roots and nonmonotone profiles: [`bem_outer_plasma_zhao.f90`](../src/physics/outer_plasma/bem_outer_plasma_zhao.f90)
 - Build solver options from runtime species: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)
+- Ambient-mean backward-Euler update: [`bem_mean_charge_integrator.f90`](../src/physics/outer_plasma/bem_mean_charge_integrator.f90), [`bem_dynamic_k0_mean.f90`](../src/runtime/coupling/bem_dynamic_k0_mean.f90)
+- Strong-photoemission empirical-energy CDF and nonlinear Zhao update: [`bem_dynamic_k0_zhao.f90`](../src/runtime/coupling/bem_dynamic_k0_zhao.f90)
+- One-pass rays and normalized transaction: [`bem_mean_charge_transaction.f90`](../src/runtime/coupling/bem_mean_charge_transaction.f90), [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
 - Stationary-root and plane-charge warm start: [`bem_zhao_steady_start.f90`](../src/runtime/coupling/bem_zhao_steady_start.f90)
 - Surface-field coupling and MPI collective solve: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
 - Profile output: [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90)

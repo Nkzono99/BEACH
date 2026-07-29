@@ -30,6 +30,7 @@ module bem_mpi
   public :: mpi_allreduce_sum_i32_scalar
   public :: mpi_bcast_i32_array
   public :: mpi_bcast_real_dp_array
+  public :: mpi_gatherv_real_dp_array
   public :: mpi_world_barrier
 
 contains
@@ -380,6 +381,58 @@ contains
     call MPI_Bcast(values, size(values), MPI_DOUBLE_PRECISION, int(root), MPI_COMM_WORLD, ierr)
 #endif
   end subroutine mpi_bcast_real_dp_array
+
+  !> 各rankの可変長倍精度配列をrootへrank順に連結する。
+  !!
+  !! 非rootでは`global_values`を長さ0で返す。非MPIまたは単一rankでは
+  !! local_valuesをそのまま複製する。
+  subroutine mpi_gatherv_real_dp_array(ctx, local_values, global_values, root)
+    type(mpi_context), intent(in) :: ctx
+    real(dp), intent(in) :: local_values(:)
+    real(dp), allocatable, intent(out) :: global_values(:)
+    integer(i32), intent(in) :: root
+#ifdef USE_MPI
+    include 'mpif.h'
+    integer, allocatable :: counts(:), displacements(:)
+    integer :: ierr, local_count, rank_index, total_count
+#endif
+
+    if (root < 0_i32 .or. root >= max(1_i32, ctx%size)) then
+      error stop 'mpi_gatherv_real_dp_array root out of range.'
+    end if
+#ifdef USE_MPI
+    if (ctx%enabled) then
+      allocate (counts(int(ctx%size)), displacements(int(ctx%size)))
+      counts = 0
+      displacements = 0
+      local_count = size(local_values)
+      call MPI_Gather( &
+        local_count, 1, MPI_INTEGER, counts, 1, MPI_INTEGER, int(root), MPI_COMM_WORLD, ierr &
+        )
+      if (ctx%rank == root) then
+        total_count = 0
+        do rank_index = 1, int(ctx%size)
+          displacements(rank_index) = total_count
+          total_count = total_count + counts(rank_index)
+        end do
+        allocate (global_values(total_count))
+      else
+        allocate (global_values(0))
+      end if
+      call MPI_Gatherv( &
+        local_values, local_count, MPI_DOUBLE_PRECISION, global_values, counts, displacements, &
+        MPI_DOUBLE_PRECISION, int(root), MPI_COMM_WORLD, ierr &
+        )
+      return
+    end if
+#endif
+    if (ctx%rank == root) then
+      allocate (global_values(size(local_values)))
+      global_values = local_values
+    else
+      allocate (global_values(0))
+    end if
+  end subroutine mpi_gatherv_real_dp_array
 
   !> 全rankの同期ポイント。
   subroutine mpi_world_barrier(ctx)

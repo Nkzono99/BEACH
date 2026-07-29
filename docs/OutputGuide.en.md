@@ -45,18 +45,19 @@ conditions and restart roles.
 | Particle processing | `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step`, `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C` | particle-event totals and recorded soft discards |
 | Progress | `batches`, `last_rel_change` | completed batches and final-batch charge-change monitor |
 | Field evaluation | `field_backend`, `field_source_model`, `field_kernel_id` | field solver and source kernel used for the output |
-| Resolved external boundary | `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | inflow, ordinary-open handling, z-high transport, and timing resolved from the public configuration |
+| Resolved external boundary | `coupling_update_mode`, `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | update, inflow, ordinary-open handling, z-high transport, and timing resolved from the public configuration |
 
 `absorbed` is an event count; it does not include charge sign or macro-particle weight. Read charge amounts from
 `charge_ledger.csv` and the final distribution from `charges.csv`.
 
 `last_rel_change` is a monitoring value. It is not an early-stop condition in the current implementation.
 
-The four external-boundary keys are not configuration inputs. They are a
+The five external-boundary keys are not configuration inputs. They are a
 receipt showing how the `[external_boundary]` facade resolved at runtime.
 
 | Key | Output values |
 | --- | --- |
+| `coupling_update_mode` | `explicit` / `implicit_mean` |
 | `external_inflow_map` | `source_vdf` / `infinity_barrier` / `kinetic_profile` |
 | `external_ordinary_open_model` | `escape` / `potential_barrier` |
 | `external_interface_transport` | `none` / `kinetic_1d` |
@@ -64,8 +65,25 @@ receipt showing how the `[external_boundary]` facade resolved at runtime.
 
 For example, `particles.inflow_model="auto"` resolves to
 `external_inflow_map=source_vdf` or `kinetic_profile`
-according to the field and particle mode. Preserve both the input facade and
-this receipt when checking reproducibility.
+according to the field and particle mode.
+`ambient_linear_debye + same_batch` with negative `photo_raycast` automatically resolves to
+`coupling_update_mode=implicit_mean`; do not write this internal value in public TOML.
+Preserve both the input facade and this receipt when checking reproducibility.
+
+During an implicit mean run, the `BEACH implicit-mean` progress record on standard output reports batch surface charge,
+interface potential and field, species currents, additional measured surface current `J_other_A_m2`, zero-sum
+`transaction_residual_C`, `mean_solver_iterations` for the scalar root, `sample_escape_fraction` for the ray sample, and
+`return_weight_scale`. For the ambient linear-Debye closure, the former is the raw macro-charge sample fraction and the
+latter is $R_{\mathrm{analytic}}/R_{\mathrm{sample}}$, not a probability, and can exceed one.
+`mean_solver_iterations` is the scalar-root iteration count for this closure.
+
+For the Zhao closure, the following `BEACH implicit-zhao` record reports the branch, virtual-cathode potential `phi_min_V`,
+the complete-profile `barrier_J`, `source_scale` inferred from the measured interface current, marginal energy and its escape
+fraction, nonlinear charge residual, recross charge fraction, and terminal-mismatch charge fraction. This path applies
+measured-CDF weights directly to energy groups, so `return_weight_scale=1`. Under Zhao, the shared
+`mean_solver_iterations` field counts connected candidate solves requested by the endpoint certificates, order-statistic
+binary search, and marginal bisection; it is not the internal pseudo-arclength Newton-iteration count. Neither progress
+record is itself a convergence criterion; inspect it together with `summary.txt`, `charge_ledger.csv`, and `charges.csv`.
 
 ## `charge_ledger.csv`: Charge Transfer by Species
 
@@ -81,9 +99,37 @@ this receipt when checking reproducibility.
 | `interface_outward_gross_C` | gross charge transferred from the local to outer region |
 | `interface_returned_gross_C` | gross charge returned from the outer to local region |
 
-The corresponding `*_count` columns contain event counts. `charge_ledger_residual_C` and
+`injected_count`, `emitted_count`, `absorbed_count`, `escaped_count`, and `discarded_unresolved_count` contain the
+corresponding terminal-event counts. There is no independent count column for interface gross crossings.
+`charge_ledger_residual_C` and
 `charge_ledger_discarded_unresolved_abs_C` in `summary.txt` aggregate all species. See
 [Check particle and charge balance](ValidationGuide.en.html#2-check-particle-and-charge-balance) for acceptance criteria.
+
+For photoelectrons under `coupling_update_mode=implicit_mean`, interpret charge and count separately. Replacement applies
+only to the component deferred after an outward z-high crossing. Under the ambient linear-Debye closure,
+`escaped_to_infinity_C` and the post-return contribution to `absorbed_on_surface_C` follow the continuous-Maxwellian escape
+and return totals from the scalar closure. Returned charge is normalized with `return_weight_scale` onto the actual-hit
+distribution from one ray-sampling pass. Under the Zhao closure, the measured interface-energy CDF and nonlinear
+$Q(\Phi_I)$ solution assign escape and return weights directly to each ray, with no common analytic scale.
+Local reabsorption before the interface, escape through another open face such as z-low, and
+`discarded_unresolved_C` retain their tracked values. Ledger terminal totals therefore combine these tracked
+components by category: `escaped_to_infinity_C` combines tracked other-open-face escape with closure-derived z-high escape, while
+`absorbed_on_surface_C` combines tracked local reabsorption with closure-derived post-return absorption.
+`escaped_count` and the interface-return contribution to `absorbed_count` are terminal classifications of the ray sample,
+not the source of truth for charge fractions. Terminal counts outside analytic replacement remain normal tracked-particle
+updates.
+
+`interface_outward_gross_C` accumulates signed macro charge for actual outward z-high crossings from the local region, while
+`interface_returned_gross_C` accumulates signed macro charge for crossings back from the 1-D region. Ray crossings use weights
+normalized to the terminal return and escape totals. If
+$Q_{\mathrm{esc,z-high}}^{\mathrm{closure}}$ is the signed closure escape charge of the z-high deferred component, they
+preserve `interface_returned_gross_C` = `interface_outward_gross_C` -
+$Q_{\mathrm{esc,z-high}}^{\mathrm{closure}}$. Do not substitute the terminal total `escaped_to_infinity_C` into this
+identity because that column can also include tracked escape through other open faces. A ray that recrosses z-high after
+return can contribute again to these columns under the ambient linear-Debye path. The Zhao measured-CDF path treats such a
+recrossing as an applicability violation and stops if it carries significant charge. In either case, gross charge is not a
+terminal total.
+
 For the transient Zhao queue, `charge_ledger_outer_flight_charge_before_C` and
 `charge_ledger_outer_flight_charge_after_C` record outer-flight stock before and after each batch.
 
@@ -147,11 +193,27 @@ Detailed acceptance criteria stay with each model page; this table only points t
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [Standard 1-D Kinetic Outer Sheath](KineticOuterPlasma.en.html) |
 | transient Zhao queue | `outer_event_queue.csv` / `outer_event_queue_rankNNNNN.csv`, `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`, `outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`, `outer_queue_event_count`, `outer_queue_signed_charge_C`, `outer_queue_fingerprint` | [Particle Escape and Return](ParticleEscapeReturn.en.html#queue-outer-flight-for-the-transient-zhao-closure) |
 | outer particle transfer | `interface_outward_gross_C`, `interface_returned_gross_C`, `max_outer_flight_time_s`, `max_outer_frozen_field_ratio`, `max_outer_energy_relative_error` | [Particle Escape and Return](ParticleEscapeReturn.en.html) |
+| `implicit_mean` return shadow | `implicit_mean_last_returned_outer_flight_time_mean_s`, `implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2` | [Standard 1-D Kinetic Outer Sheath](KineticOuterPlasma.en.html) |
 
 `outer_infinity_potential_V` is an internal infinity-gauge diagnostic, not an input key.
 It is fixed at zero for the current kinetic state.
 `max_outer_energy_relative_error` is the maximum normalized conservation residual of normal kinetic plus electrostatic
 energy in the kinetic 1-D return/escape mapping.
+Because `implicit_mean` photoelectrons also use the individual 1-D profile map, they contribute to outer flight time,
+frozen-field ratio, and energy-conservation residual. Recrossing after return contributes to the same diagnostics. These
+photoelectrons are quasistationary shadows, so `max_outer_frozen_field_ratio` exceeding the configured limit does not by
+itself fail the run. The ratio exposes the shadow-orbit timescale; it does not mean that delayed return current during UV
+turn-on was resolved. Ordinary `same_batch` particles and ambient species continue to stop fail-closed on an over-limit ratio.
+
+The two `implicit_mean_last_*` values are neither maxima nor cumulative values; they describe only the last batch completed
+by the current invocation. A no-op resume that advances no batch omits both keys.
+The first is the mean outer round-trip time of analytically weighted return excursions, weighted by positive charge
+magnitude. The second is the positive photoelectron-column shadow estimate obtained from the same return excursions as
+$\sum W_j\tau_j/(A\Delta t)$ by Little's law. It is not actual queue or ledger stock. The `escaped_to_infinity` outcome
+itself contributes no residence time, but completed return excursions before eventual escape are included. When
+`outer_integrated_charge_per_area_C_m2` is nonzero, dividing the shadow estimate by its absolute value gives
+$\chi_{\mathrm{PE,shadow}}$, the relative scale of the omitted returning-photoelectron column and the integrated charge of
+the 1-D outer profile. This is an interpretation ratio, not a built-in acceptance threshold.
 
 When a mesh contains `dielectric` elements, `summary.txt` records `surface_model_dielectric_elem_count` and
 `surface_model_note=metadata_only_dielectric_present`. In the current implementation, `dielectric` is metadata; this note

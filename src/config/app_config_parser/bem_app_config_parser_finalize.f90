@@ -5,7 +5,8 @@ contains
 
   module procedure finalize_loaded_config
   integer :: i, j, axis
-  integer(i32) :: per_batch_particles, physics_status
+  integer(i32) :: per_batch_particles, physics_status, negative_photo_raycast_count
+  integer(i32) :: implicit_photo_raycast_index
   integer(i32) :: n_periodic_axes
   logical :: has_dynamic_source_species
   character(len=64) :: generated_species_key
@@ -245,6 +246,8 @@ contains
   call resolve_batch_duration(cfg)
   per_batch_particles = 0_i32
   has_dynamic_source_species = .false.
+  negative_photo_raycast_count = 0_i32
+  implicit_photo_raycast_index = 0_i32
   do i = 1, cfg%n_particle_species
     if (len_trim(cfg%particle_species(i)%species_key) == 0) then
       write (generated_species_key, '(a,i0)') 'species_', i
@@ -333,6 +336,10 @@ contains
       call validate_reservoir_species(cfg, i)
     case ('photo_raycast')
       has_dynamic_source_species = .true.
+      if (cfg%particle_species(i)%q_particle < 0.0_dp) then
+        negative_photo_raycast_count = negative_photo_raycast_count + 1_i32
+        implicit_photo_raycast_index = i
+      end if
       call validate_photo_raycast_species(cfg, i)
     case default
       error stop 'Unknown particles.species.source_mode.'
@@ -343,6 +350,27 @@ contains
     error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
   end if
   cfg%n_particles = cfg%sim%batch_count*per_batch_particles
+  ! kinetic_1dのsame-batch tracked photoelectronは、公開設定を増やさず
+  ! mean k=0だけを陰的に更新するmultirate couplingへlowerする。
+  if (negative_photo_raycast_count > 0_i32 .and. &
+      trim(lower_ascii(cfg%outer_plasma%model)) == 'kinetic_1d' .and. &
+      (trim(lower_ascii(cfg%outer_plasma%kinetic_closure)) == 'ambient_linear_debye' .or. &
+       trim(lower_ascii(cfg%outer_plasma%kinetic_closure)) == 'zhao_charge_driven') .and. &
+      trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .and. &
+      .not. cfg%coupling%outer_queue_enabled) then
+    if (negative_photo_raycast_count /= 1_i32) then
+      error stop 'implicit_mean requires exactly one enabled negative photo_raycast species.'
+    end if
+    if (abs(cfg%particle_species(implicit_photo_raycast_index)%normal_drift_speed) > &
+        64.0_dp*epsilon(1.0_dp)) then
+      error stop 'implicit_mean Maxwellian photoelectron closure requires normal_drift_speed=0.'
+    end if
+    if (trim(lower_ascii(cfg%outer_plasma%kinetic_closure)) == 'zhao_charge_driven' .and. &
+        trim(lower_ascii(cfg%coupling%steady_start_mode)) /= 'zhao_floating') then
+      error stop 'strong-photoelectron implicit Zhao coupling requires steady_start_mode="zhao_floating".'
+    end if
+    cfg%coupling%update_mode = 'implicit_mean'
+  end if
   call validate_active_physics_config( &
     cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling, physics_status, physics_message &
     )

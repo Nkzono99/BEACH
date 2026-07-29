@@ -14,7 +14,7 @@ program test_outer_plasma_interface
   logical :: accessible
   real(dp) :: mapped_speed
 
-  call test_init(10)
+  call test_init(11)
   call set_kinetic_profile(state, [-1.0_dp, 0.0_dp], [1.0_dp, 2.0_dp])
 
   call test_begin('infinity_to_interface_energy_map')
@@ -47,6 +47,26 @@ program test_outer_plasma_interface
   call assert_close_dp(outcome%position(2), modulo(0.8_dp + 0.5_dp, 1.0_dp), &
                        1.0e-14_dp, 'kinetic lateral y shift mismatch')
   call assert_close_dp(outcome%normal_energy_residual, 0.0_dp, 1.0e-14_dp, 'kinetic return energy mismatch')
+  call test_end()
+
+  call test_begin('kinetic_shadow_return_keeps_frozen_ratio_without_rejecting_sample')
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=1.0_dp, max_frozen_field_ratio=0.1_dp, queue_enabled=.false., outcome=outcome &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_invalid_model, &
+                        'ordinary kinetic return must enforce the frozen-field limit')
+  call assert_true(index(outcome%message, 'frozen-field limit') > 0, &
+                   'ordinary kinetic rejection lost its applicability reason')
+  call map_outer_particle_kinetic_profile( &
+    state, [0.0_dp, 0.0_dp, 0.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, crossing, &
+    field_timescale=1.0_dp, max_frozen_field_ratio=0.1_dp, queue_enabled=.false., outcome=outcome, &
+    enforce_frozen_field_limit=.false. &
+    )
+  call assert_equal_i32(outcome%kind, interface_outcome_returned_local, &
+                        'quasi-steady shadow sample must retain the energy-resolved return')
+  call assert_true(outcome%frozen_field_ratio > 0.1_dp, &
+                   'shadow sample must retain the out-of-bound frozen-field ratio as a diagnostic')
   call test_end()
 
   call test_begin('kinetic_profile_robin_tail_return')

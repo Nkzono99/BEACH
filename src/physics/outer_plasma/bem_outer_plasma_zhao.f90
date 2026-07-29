@@ -1,6 +1,6 @@
 !> Charge-driven quasi-steady Zhao outer-plasma closure.
 module bem_outer_plasma_zhao
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_value, ieee_quiet_nan
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, pi, qe
   use bem_outer_plasma_types, only: outer_plasma_state_type, outer_plasma_ok, outer_plasma_invalid, &
@@ -37,6 +37,22 @@ module bem_outer_plasma_zhao
   real(dp), parameter :: profile_phi_end_hat = 1.0e-4_dp
   real(dp), parameter :: zero_field_tolerance_hat = 1.0e-12_dp
   integer, parameter :: atlas_max_coordinates = 4
+  integer, parameter :: connected_path_max_coordinates = 4
+  integer, parameter :: connected_path_max_points = 256
+  integer, parameter :: connected_path_max_corrector_iterations = 24
+  integer, parameter :: connected_path_max_step_halvings = 20
+  real(dp), parameter :: connected_path_initial_step = 5.0e-2_dp
+  real(dp), parameter :: connected_path_minimum_step = 1.0e-7_dp
+  real(dp), parameter :: connected_path_maximum_step = 1.0e-1_dp
+  real(dp), parameter :: connected_path_certified_maximum_step = 2.5e-2_dp
+  real(dp), parameter :: connected_path_target_bracket_extension = 2.5e-2_dp
+  real(dp), parameter :: connected_path_maximum_correction_fraction = 2.5e-1_dp
+  real(dp), parameter :: connected_path_minimum_tangent_alignment = 5.0e-1_dp
+  real(dp), parameter :: connected_path_roundtrip_root_tolerance = 1.0e-6_dp
+  real(dp), parameter :: connected_path_residual_tolerance = 1.0e-11_dp
+  real(dp), parameter :: connected_path_fold_tangent_tolerance = 1.0e-6_dp
+  real(dp), parameter :: connected_path_rank_tolerance = 1.0e-10_dp
+  real(dp), parameter :: connected_path_barrier_slope_tolerance = 1.0e-8_dp
   integer, parameter :: homotopy_max_coordinates = 4
   integer, parameter :: homotopy_max_residuals = 3
   real(dp), parameter :: atlas_default_residual_tolerance = 1.0e-12_dp
@@ -169,6 +185,28 @@ module bem_outer_plasma_zhao
     logical :: seed_reanchored = .false.
   end type zhao_branch_atlas_type
 
+  !> Fail-closed certificate for one connected Zhao parameter path.
+  !>
+  !> The path interpolates only the prescribed interface field and the emitted
+  !> photoelectron source density.  A zero/reversed lambda tangent marks a fold
+  !> of that straight homotopy, not permission to search for another sheet.
+  type, public :: zhao_connected_path_certificate_type
+    logical :: target_reached = .false.
+    logical :: target_bracketed = .false.
+    logical :: target_roundtrip_verified = .false.
+    logical :: parameter_fold_detected = .false.
+    logical :: nonmonotone_barrier_detected = .false.
+    integer(i32) :: accepted_points = 0_i32
+    integer(i32) :: rejected_steps = 0_i32
+    real(dp) :: minimum_row_rank_indicator = huge(1.0_dp)
+    real(dp) :: minimum_fixed_parameter_rank_indicator = huge(1.0_dp)
+    real(dp) :: minimum_lambda_tangent = huge(1.0_dp)
+    real(dp) :: maximum_normalized_root_jump = 0.0_dp
+    real(dp) :: final_lambda = 0.0_dp
+    real(dp) :: final_residual = huge(1.0_dp)
+    character(len=48) :: reason = 'none'
+  end type zhao_connected_path_certificate_type
+
   !> Controls for a diagnostic straight field-column homotopy on Zhao B/C.
   !>
   !> The homotopy coordinate prescribes both the interface field and the finite
@@ -254,7 +292,9 @@ module bem_outer_plasma_zhao
   public :: solve_outer_plasma_zhao
   public :: solve_outer_plasma_zhao_column
   public :: zhao_net_current_density
+  public :: zhao_charge_root_barrier_energy
   public :: write_zhao_continuation_diagnostics
+  public :: continue_zhao_connected_parameter_root
   public :: trace_zhao_branch_atlas
   public :: trace_zhao_field_column_homotopy
   public :: diagnose_zhao_ab_degeneracy
@@ -603,6 +643,521 @@ contains
                                 root%interface_field_v_m, root%net_current_density_a_m2, root%residual_norm &
                                 ]))
   end function zhao_charge_root_is_finite
+
+  !> Exact outward normal-energy barrier of one certified Zhao root.
+  !>
+  !> Type A has one virtual-cathode minimum phi_m, Type B decreases
+  !> monotonically from phi0 to the infinity gauge, and Type C increases
+  !> monotonically from phi0 to that gauge.  No resolved profile is required
+  !> to evaluate those three analytic topologies.
+  pure function zhao_charge_root_barrier_energy(root, charge) result(barrier_j)
+    type(zhao_charge_root_type), intent(in) :: root
+    real(dp), intent(in) :: charge
+    real(dp) :: barrier_j
+
+    real(dp) :: potential_tolerance
+
+    barrier_j = ieee_value(0.0_dp, ieee_quiet_nan)
+    if (.not. ieee_is_finite(charge) .or. charge >= 0.0_dp .or. &
+        .not. all(ieee_is_finite([root%phi0_v, root%phi_m_v]))) return
+    potential_tolerance = 64.0_dp*epsilon(1.0_dp)*max( &
+                          abs(root%phi0_v), abs(root%phi_m_v), 1.0_dp &
+                          )
+    select case (root%branch)
+    case ('A')
+      if (root%phi0_v <= 0.0_dp .or. root%phi_m_v >= 0.0_dp) return
+      barrier_j = abs(charge)*(root%phi0_v - root%phi_m_v)
+    case ('B')
+      if (root%phi0_v < -potential_tolerance .or. &
+          abs(root%phi_m_v - root%phi0_v) > potential_tolerance) return
+      barrier_j = abs(charge)*max(root%phi0_v, 0.0_dp)
+    case ('C')
+      if (root%phi0_v >= 0.0_dp .or. &
+          abs(root%phi_m_v - root%phi0_v) > potential_tolerance) return
+      barrier_j = 0.0_dp
+    case default
+      return
+    end select
+    if (.not. ieee_is_finite(barrier_j) .or. barrier_j < 0.0_dp) then
+      barrier_j = ieee_value(0.0_dp, ieee_quiet_nan)
+    end if
+  end function zhao_charge_root_barrier_energy
+
+  !> Return whether the signed normal field belongs to a Zhao branch chart.
+  !>
+  !> A/B describe a potential that decreases away from the lower interface and
+  !> therefore require E_I>0. C increases from a negative interface potential
+  !> and requires E_I<0. The exact E_I=0 state is the analytic degenerate B
+  !> endpoint; it is admitted only by callers that handle that endpoint outside
+  !> the regular logarithmic continuation chart.
+  pure logical function zhao_branch_field_is_compatible( &
+    branch, interface_field_v_m, field_scale_v_m, allow_degenerate_b &
+    ) result(compatible)
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: interface_field_v_m, field_scale_v_m
+    logical, intent(in) :: allow_degenerate_b
+    real(dp) :: field_tolerance
+
+    compatible = .false.
+    if (.not. all(ieee_is_finite([interface_field_v_m, field_scale_v_m])) .or. &
+        field_scale_v_m <= 0.0_dp) return
+    field_tolerance = 64.0_dp*epsilon(1.0_dp)*max( &
+                      field_scale_v_m, abs(interface_field_v_m), 1.0_dp &
+                      )
+    select case (branch)
+    case ('A')
+      compatible = interface_field_v_m > field_tolerance
+    case ('B')
+      compatible = interface_field_v_m > field_tolerance .or. &
+                   (allow_degenerate_b .and. abs(interface_field_v_m) <= field_tolerance)
+    case ('C')
+      compatible = interface_field_v_m < -field_tolerance
+    end select
+  end function zhao_branch_field_is_compatible
+
+  !> Continue one Zhao root on a single connected straight parameter path.
+  !>
+  !> Only the prescribed interface field and n_phe0 are interpolated.  The
+  !> augmented root curve is followed with pseudo-arclength continuation and
+  !> stops before a fold in the path coordinate.  The target is landed with a
+  !> lambda=1 bordered corrector, so the final step cannot silently switch to a
+  !> different same-label root sheet.
+  subroutine continue_zhao_connected_parameter_root( &
+    start_params, target_params, start_field_v_m, target_field_v_m, &
+    seed_root, require_monotone_barrier, root, certificate, status, message &
+    )
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: start_field_v_m, target_field_v_m
+    type(zhao_charge_root_type), intent(in) :: seed_root
+    logical, intent(in) :: require_monotone_barrier
+    type(zhao_charge_root_type), intent(out) :: root
+    type(zhao_connected_path_certificate_type), intent(out) :: certificate
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    real(dp) :: z(connected_path_max_coordinates)
+    real(dp) :: corrected_z(connected_path_max_coordinates)
+    real(dp) :: predictor(connected_path_max_coordinates)
+    real(dp) :: tangent(connected_path_max_coordinates)
+    real(dp) :: next_tangent(connected_path_max_coordinates)
+    real(dp) :: target_z(connected_path_max_coordinates)
+    real(dp) :: target_tangent(connected_path_max_coordinates)
+    real(dp) :: plane_normal(connected_path_max_coordinates)
+    real(dp) :: residual(3), step, trial_step, landing_step
+    real(dp) :: row_rank, fixed_rank, next_row_rank, next_fixed_rank
+    real(dp) :: fixed_orientation, next_fixed_orientation
+    real(dp) :: target_row_rank, target_fixed_rank, target_fixed_orientation
+    real(dp) :: potential_jump, density_jump, root_jump, correction_distance
+    real(dp) :: delta_field_hat, normalized_slope, advance_distance
+    real(dp) :: tangent_alignment, current_barrier, candidate_barrier
+    real(dp) :: field_increment, signed_barrier_increment
+    real(dp) :: maximum_lambda_increment, requested_lambda_increment
+    real(dp) :: target_root_jump
+    integer :: n, z_dimension, point_index, halving, iterations, failure_kind
+    integer :: corrector_failure_kind, target_iterations
+    logical :: valid, corrected, tangent_ok, monotone, landing
+    logical :: trial_fold_detected, trial_nonmonotone_detected
+    logical :: target_landed, target_fold_detected
+    type(zhao_charge_root_type) :: current_root, candidate_root, target_root
+
+    root = zhao_charge_root_type()
+    certificate = zhao_connected_path_certificate_type()
+    status = outer_plasma_invalid
+    message = ''
+    if (seed_root%branch == 'A') then
+      n = 3
+    else if (seed_root%branch == 'B' .or. seed_root%branch == 'C') then
+      n = 2
+    else
+      certificate%reason = 'invalid_seed_branch'
+      message = 'connected Zhao path requires an A, B, or C seed root'
+      return
+    end if
+    z_dimension = n + 1
+    if (.not. connected_zhao_params_are_compatible(start_params, target_params) .or. &
+        .not. all(ieee_is_finite([start_field_v_m, target_field_v_m])) .or. &
+        .not. zhao_charge_root_is_finite(seed_root) .or. &
+        seed_root%n_swe_inf_m3 <= 0.0_dp) then
+      certificate%reason = 'invalid_path_request'
+      message = 'invalid connected Zhao parameter-path request'
+      return
+    end if
+    if (.not. zhao_branch_field_is_compatible( &
+        seed_root%branch, start_field_v_m, &
+        start_params%t_phe_ev/start_params%lambda_d_phe_ref_m, .false. &
+        ) .or. .not. zhao_branch_field_is_compatible( &
+        seed_root%branch, target_field_v_m, &
+        target_params%t_phe_ev/target_params%lambda_d_phe_ref_m, .false. &
+        )) then
+      status = outer_plasma_no_physical_solution
+      certificate%reason = 'branch_field_sign_mismatch'
+      message = 'connected Zhao path field sign is incompatible with its branch'
+      return
+    end if
+    if (abs(seed_root%interface_field_v_m - start_field_v_m) > &
+        256.0_dp*epsilon(1.0_dp)*max( &
+        abs(seed_root%interface_field_v_m), abs(start_field_v_m), &
+        start_params%t_phe_ev/start_params%lambda_d_phe_ref_m, 1.0_dp &
+        )) then
+      certificate%reason = 'seed_field_mismatch'
+      message = 'connected Zhao seed root does not match the path start field'
+      return
+    end if
+    if (require_monotone_barrier .and. &
+        abs(target_params%n_phe0_m3 - start_params%n_phe0_m3) > &
+        128.0_dp*epsilon(1.0_dp)*max( &
+        abs(start_params%n_phe0_m3), abs(target_params%n_phe0_m3), 1.0_dp &
+        )) then
+      certificate%reason = 'barrier_certificate_requires_fixed_source'
+      message = 'Zhao barrier monotonicity certificate requires a fixed source slice'
+      return
+    end if
+
+    z = 0.0_dp
+    call encode_unknowns( &
+      start_params, seed_root%branch, seed_root%phi0_v, seed_root%phi_m_v, &
+      seed_root%n_swe_inf_m3, z(1:3), valid &
+      )
+    if (.not. valid) then
+      certificate%reason = 'invalid_seed_encoding'
+      message = 'connected Zhao seed root cannot be encoded'
+      return
+    end if
+    z(z_dimension) = 0.0_dp
+    plane_normal = 0.0_dp
+    plane_normal(z_dimension) = 1.0_dp
+    call correct_zhao_connected_path_point( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      seed_root%branch, n, z, plane_normal, corrected_z, iterations, corrected, &
+      corrector_failure_kind &
+      )
+    if (.not. corrected) then
+      status = merge( &
+               outer_plasma_no_physical_solution, outer_plasma_numerical_failure, &
+               corrector_failure_kind == atlas_eval_physical &
+               )
+      certificate%reason = 'seed_corrector_failed'
+      message = 'connected Zhao path seed corrector failed'
+      return
+    end if
+    z = corrected_z
+    call evaluate_zhao_connected_path_system( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      seed_root%branch, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid .or. maxval(abs(residual(1:n))) > connected_path_residual_tolerance) then
+      status = outer_plasma_numerical_failure
+      certificate%reason = 'seed_residual_not_converged'
+      message = 'connected Zhao path seed residual is not converged'
+      return
+    end if
+    call zhao_connected_path_root_from_coordinates( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      seed_root%branch, n, z, current_root, valid &
+      )
+    if (.not. valid) then
+      status = outer_plasma_numerical_failure
+      certificate%reason = 'seed_root_decode_failed'
+      message = 'connected Zhao path could not decode its corrected seed'
+      return
+    end if
+    call zhao_root_jump_metrics( &
+      start_params, seed_root, current_root, potential_jump, density_jump, root_jump &
+      )
+    if (.not. ieee_is_finite(root_jump) .or. root_jump > branch_same_root_step_limit) then
+      status = outer_plasma_no_physical_solution
+      certificate%reason = 'seed_left_local_root'
+      message = 'connected Zhao seed corrector left its local root sheet'
+      return
+    end if
+
+    call zhao_connected_path_tangent( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      seed_root%branch, n, z, tangent, row_rank, fixed_rank, fixed_orientation, &
+      tangent_ok, failure_kind &
+      )
+    if (.not. tangent_ok) then
+      status = outer_plasma_numerical_failure
+      certificate%reason = 'seed_jacobian_rank_loss'
+      message = 'connected Zhao seed Jacobian has unresolved row-rank loss'
+      return
+    end if
+    if (tangent(z_dimension) < 0.0_dp) tangent = -tangent
+    call update_zhao_connected_certificate( &
+      certificate, row_rank, fixed_rank, tangent(z_dimension), root_jump, residual, n &
+      )
+    if (.not. connected_path_tangent_is_regular(tangent(z_dimension), row_rank, fixed_rank)) then
+      status = outer_plasma_no_physical_solution
+      certificate%parameter_fold_detected = .true.
+      certificate%reason = 'parameter_fold_at_seed'
+      message = 'connected Zhao path starts at an unresolved parameter fold'
+      return
+    end if
+    delta_field_hat = (target_field_v_m - start_field_v_m)/ &
+                      (start_params%t_phe_ev/start_params%lambda_d_phe_ref_m)
+    if (require_monotone_barrier) then
+      call zhao_connected_barrier_is_monotone( &
+        start_params, seed_root%branch, z, tangent, n, delta_field_hat, &
+        monotone, normalized_slope &
+        )
+      if (.not. monotone) then
+        status = outer_plasma_no_physical_solution
+        certificate%nonmonotone_barrier_detected = .true.
+        certificate%reason = 'nonmonotone_barrier_at_seed'
+        message = 'connected Zhao barrier decreases with prescribed interface charge at the seed'
+        return
+      end if
+      call zhao_connected_normalized_barrier( &
+        seed_root%branch, z, current_barrier, valid &
+        )
+      if (.not. valid) then
+        status = outer_plasma_numerical_failure
+        certificate%reason = 'invalid_barrier_at_seed'
+        message = 'connected Zhao path cannot evaluate its seed barrier'
+        return
+      end if
+    end if
+    certificate%accepted_points = 1_i32
+    step = connected_path_initial_step
+
+    path_loop: do point_index = 2, connected_path_max_points
+      if (require_monotone_barrier) then
+        maximum_lambda_increment = min( &
+                                   1.0_dp, connected_path_certified_maximum_step/ &
+                                   max(abs(delta_field_hat), tiny(1.0_dp)) &
+                                   )
+        requested_lambda_increment = min( &
+                                     maximum_lambda_increment, 1.0_dp - z(z_dimension) &
+                                     )
+        if (1.0_dp - z(z_dimension) <= maximum_lambda_increment) then
+          ! Cross lambda=1 locally so the accepted target is obtained from a
+          ! bracketed event corrector, not from an unconstrained endpoint jump.
+          requested_lambda_increment = requested_lambda_increment + min( &
+                                       0.5_dp*connected_path_target_bracket_extension, &
+                                       0.25_dp*(1.0_dp - z(z_dimension)) &
+                                       )
+        end if
+        trial_step = requested_lambda_increment/tangent(z_dimension)
+      else
+        trial_step = min(step, connected_path_maximum_step)
+        landing_step = (1.0_dp - z(z_dimension))/tangent(z_dimension)
+        if (landing_step > 0.0_dp .and. landing_step <= 1.25_dp*trial_step) then
+          requested_lambda_increment = 1.0_dp - z(z_dimension) + min( &
+                                       0.5_dp*connected_path_target_bracket_extension, &
+                                       0.25_dp*(1.0_dp - z(z_dimension)) &
+                                       )
+          trial_step = requested_lambda_increment/tangent(z_dimension)
+        end if
+      end if
+      corrected = .false.
+      landing = .false.
+      corrector_failure_kind = atlas_eval_numerical
+      do halving = 0, connected_path_max_step_halvings
+        landing = .false.
+        trial_fold_detected = .false.
+        trial_nonmonotone_detected = .false.
+        target_landed = .false.
+        predictor = z + trial_step*tangent
+        plane_normal = tangent
+        advance_distance = trial_step
+        call correct_zhao_connected_path_point( &
+          start_params, target_params, start_field_v_m, target_field_v_m, &
+          seed_root%branch, n, predictor, plane_normal, corrected_z, iterations, &
+          corrected, corrector_failure_kind &
+          )
+        if (corrected) then
+          correction_distance = sqrt(sum( &
+                                     (corrected_z(1:z_dimension) - predictor(1:z_dimension))**2 &
+                                     ))
+          corrected = corrected_z(z_dimension) > z(z_dimension) .and. &
+                      corrected_z(z_dimension) <= &
+                      1.0_dp + connected_path_target_bracket_extension
+          corrected = corrected .and. correction_distance <= &
+            max( &
+            connected_path_maximum_correction_fraction*advance_distance, &
+            4096.0_dp*epsilon(1.0_dp)*max( &
+            1.0_dp, sqrt(sum(z(1:z_dimension)**2)) &
+            ) &
+            )
+          if (corrected .and. require_monotone_barrier) then
+            if (corrected_z(z_dimension) >= 1.0_dp) then
+              ! The overshoot is only a bracket; certify the physical step to
+              ! lambda=1, which is the point that can actually be accepted.
+              corrected = 1.0_dp - z(z_dimension) <= &
+                maximum_lambda_increment*(1.0_dp + 4096.0_dp*epsilon(1.0_dp))
+            else
+              corrected = corrected_z(z_dimension) - z(z_dimension) <= &
+                maximum_lambda_increment*(1.0_dp + 4096.0_dp*epsilon(1.0_dp))
+            end if
+          end if
+        end if
+        if (corrected) then
+          call zhao_connected_path_root_from_coordinates( &
+            start_params, target_params, start_field_v_m, target_field_v_m, &
+            seed_root%branch, n, corrected_z, candidate_root, valid &
+            )
+          corrected = valid
+        end if
+        if (corrected) then
+          call zhao_root_jump_metrics( &
+            start_params, current_root, candidate_root, potential_jump, density_jump, root_jump &
+            )
+          corrected = ieee_is_finite(root_jump) .and. root_jump <= branch_same_root_step_limit
+        end if
+        if (corrected) then
+          call zhao_connected_path_tangent( &
+            start_params, target_params, start_field_v_m, target_field_v_m, &
+            seed_root%branch, n, corrected_z, next_tangent, next_row_rank, &
+            next_fixed_rank, next_fixed_orientation, tangent_ok, failure_kind &
+            )
+          corrected = tangent_ok
+        end if
+        if (corrected) then
+          tangent_alignment = dot_product( &
+                              tangent(1:z_dimension), next_tangent(1:z_dimension) &
+                              )
+          if (tangent_alignment < 0.0_dp) then
+            next_tangent = -next_tangent
+            tangent_alignment = -tangent_alignment
+          end if
+          corrected = tangent_alignment >= connected_path_minimum_tangent_alignment .and. &
+                      connected_path_tangent_is_regular( &
+                      next_tangent(z_dimension), next_row_rank, next_fixed_rank &
+                      ) .and. next_fixed_orientation*fixed_orientation > 0.0_dp
+          if (.not. corrected) trial_fold_detected = .true.
+        end if
+        if (corrected .and. corrected_z(z_dimension) >= 1.0_dp) then
+          call land_zhao_connected_path_target( &
+            start_params, target_params, start_field_v_m, target_field_v_m, &
+            seed_root%branch, n, z, current_root, tangent, fixed_orientation, &
+            corrected_z, candidate_root, next_tangent, next_fixed_orientation, &
+            target_z, target_root, target_tangent, target_row_rank, target_fixed_rank, &
+            target_fixed_orientation, target_root_jump, target_iterations, target_landed, &
+            target_fold_detected, corrector_failure_kind &
+            )
+          corrected = target_landed
+          if (target_fold_detected) trial_fold_detected = .true.
+          if (corrected) then
+            corrected_z = target_z
+            candidate_root = target_root
+            next_tangent = target_tangent
+            next_row_rank = target_row_rank
+            next_fixed_rank = target_fixed_rank
+            next_fixed_orientation = target_fixed_orientation
+            root_jump = target_root_jump
+            iterations = iterations + target_iterations
+            landing = .true.
+          end if
+        end if
+        if (corrected .and. require_monotone_barrier) then
+          call zhao_connected_barrier_is_monotone( &
+            start_params, seed_root%branch, corrected_z, next_tangent, n, &
+            delta_field_hat, monotone, normalized_slope &
+            )
+          corrected = monotone
+          if (.not. corrected) trial_nonmonotone_detected = .true.
+        end if
+        if (corrected .and. require_monotone_barrier) then
+          call zhao_connected_normalized_barrier( &
+            seed_root%branch, corrected_z, candidate_barrier, valid &
+            )
+          field_increment = delta_field_hat* &
+                            (corrected_z(z_dimension) - z(z_dimension))
+          corrected = valid
+          if (corrected .and. &
+              abs(delta_field_hat) <= 256.0_dp*epsilon(1.0_dp)) then
+            corrected = abs(candidate_barrier - current_barrier) <= &
+              connected_path_barrier_slope_tolerance
+          else if (corrected .and. abs(field_increment) > tiny(1.0_dp)) then
+            signed_barrier_increment = sign( &
+                                       1.0_dp, field_increment &
+                                       )*(candidate_barrier - current_barrier)
+            corrected = signed_barrier_increment >= &
+              -connected_path_barrier_slope_tolerance*abs(field_increment)
+          else
+            corrected = .false.
+          end if
+          if (.not. corrected) trial_nonmonotone_detected = .true.
+        end if
+        if (corrected) exit
+        certificate%rejected_steps = certificate%rejected_steps + 1_i32
+        trial_step = 0.5_dp*trial_step
+        if (trial_step < connected_path_minimum_step) exit
+      end do
+      if (.not. corrected) then
+        certificate%nonmonotone_barrier_detected = trial_nonmonotone_detected
+        certificate%parameter_fold_detected = trial_fold_detected
+        if (trial_nonmonotone_detected) then
+          status = outer_plasma_no_physical_solution
+          certificate%reason = 'nonmonotone_barrier_before_target'
+          message = 'connected Zhao barrier is not monotone before the requested target'
+        else if (trial_fold_detected) then
+          status = outer_plasma_no_physical_solution
+          certificate%reason = 'parameter_fold_before_target'
+          message = 'connected Zhao path reached a parameter fold before the requested target'
+        else if (corrector_failure_kind == atlas_eval_physical) then
+          status = outer_plasma_no_physical_solution
+          certificate%reason = 'physical_endpoint_before_target'
+          message = 'connected Zhao path reached a physical endpoint before the requested target'
+        else
+          status = outer_plasma_numerical_failure
+          certificate%reason = 'corrector_failed_before_target'
+          message = 'connected Zhao pseudo-arclength corrector failed before the requested target'
+        end if
+        return
+      end if
+
+      z = corrected_z
+      tangent = next_tangent
+      fixed_orientation = next_fixed_orientation
+      current_root = candidate_root
+      if (require_monotone_barrier) current_barrier = candidate_barrier
+      call evaluate_zhao_connected_path_system( &
+        start_params, target_params, start_field_v_m, target_field_v_m, &
+        seed_root%branch, n, z, residual, valid, failure_kind &
+        )
+      if (.not. valid .or. maxval(abs(residual(1:n))) > connected_path_residual_tolerance) then
+        status = outer_plasma_numerical_failure
+        certificate%reason = 'accepted_residual_not_converged'
+        message = 'connected Zhao path accepted a non-converged root'
+        return
+      end if
+      certificate%accepted_points = certificate%accepted_points + 1_i32
+      call update_zhao_connected_certificate( &
+        certificate, next_row_rank, next_fixed_rank, tangent(z_dimension), &
+        root_jump, residual, n &
+        )
+      if (landing) then
+        certificate%target_bracketed = .true.
+        certificate%target_roundtrip_verified = .true.
+        z(z_dimension) = 1.0_dp
+        exit path_loop
+      end if
+      if (iterations <= 4) then
+        step = min(connected_path_maximum_step, 1.25_dp*trial_step)
+      else if (iterations >= connected_path_max_corrector_iterations/2) then
+        step = max(connected_path_minimum_step, 0.5_dp*trial_step)
+      else
+        step = trial_step
+      end if
+    end do path_loop
+
+    if (.not. certificate%target_bracketed .or. &
+        .not. certificate%target_roundtrip_verified) then
+      status = outer_plasma_numerical_failure
+      certificate%reason = 'target_event_not_verified'
+      message = 'connected Zhao path did not certify its bracketed target event'
+      return
+    end if
+    root = current_root
+    root%interface_field_v_m = target_field_v_m
+    certificate%target_reached = .true.
+    certificate%final_lambda = 1.0_dp
+    certificate%final_residual = root%residual_norm
+    certificate%reason = 'target_reached'
+    status = outer_plasma_ok
+    message = ''
+  end subroutine continue_zhao_connected_parameter_root
 
   subroutine trace_zhao_branch_atlas( &
     params, interface_field_v_m, grid_points, control_length_m, seed_root, atlas, status, message, &
@@ -1961,6 +2516,652 @@ contains
     end if
   end function zhao_field_column_homotopy_coordinate_endpoint
 
+  pure logical function connected_zhao_params_are_compatible(start_params, target_params) result(compatible)
+    type(zhao_params_type), intent(in) :: start_params, target_params
+
+    real(dp) :: start_values(15), target_values(15), scale
+    integer :: i
+
+    compatible = valid_zhao_params(start_params) .and. valid_zhao_params(target_params)
+    if (.not. compatible) return
+    if (start_params%n_phe0_m3 <= 0.0_dp .or. target_params%n_phe0_m3 <= 0.0_dp) then
+      compatible = .false.
+      return
+    end if
+    start_values = [ &
+                   start_params%alpha_rad, start_params%n_swi_inf_m3, &
+                   start_params%n_phe_ref_m3, start_params%photoelectron_population_fraction, &
+                   start_params%t_swe_ev, start_params%t_phe_ev, &
+                   start_params%v_d_electron_mps, start_params%v_d_ion_mps, &
+                   start_params%m_i_kg, start_params%m_e_kg, &
+                   start_params%v_swe_th_mps, start_params%v_phe_th_mps, &
+                   start_params%cs_mps, start_params%mach, start_params%u &
+                   ]
+    target_values = [ &
+                    target_params%alpha_rad, target_params%n_swi_inf_m3, &
+                    target_params%n_phe_ref_m3, target_params%photoelectron_population_fraction, &
+                    target_params%t_swe_ev, target_params%t_phe_ev, &
+                    target_params%v_d_electron_mps, target_params%v_d_ion_mps, &
+                    target_params%m_i_kg, target_params%m_e_kg, &
+                    target_params%v_swe_th_mps, target_params%v_phe_th_mps, &
+                    target_params%cs_mps, target_params%mach, target_params%u &
+                    ]
+    do i = 1, size(start_values)
+      scale = max(abs(start_values(i)), abs(target_values(i)), 1.0_dp)
+      if (abs(start_values(i) - target_values(i)) > 256.0_dp*epsilon(1.0_dp)*scale) then
+        compatible = .false.
+        return
+      end if
+    end do
+    scale = max(abs(start_params%tau), abs(target_params%tau), 1.0_dp)
+    compatible = abs(start_params%tau - target_params%tau) <= 256.0_dp*epsilon(1.0_dp)*scale
+    scale = max( &
+            abs(start_params%lambda_d_phe_ref_m), &
+            abs(target_params%lambda_d_phe_ref_m), 1.0_dp &
+            )
+    compatible = compatible .and. &
+                 abs(start_params%lambda_d_phe_ref_m - target_params%lambda_d_phe_ref_m) <= &
+                 256.0_dp*epsilon(1.0_dp)*scale
+  end function connected_zhao_params_are_compatible
+
+  pure subroutine interpolate_zhao_connected_params(start_params, target_params, lambda, params)
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: lambda
+    type(zhao_params_type), intent(out) :: params
+
+    params = start_params
+    params%n_phe0_m3 = start_params%n_phe0_m3 + &
+                       lambda*(target_params%n_phe0_m3 - start_params%n_phe0_m3)
+  end subroutine interpolate_zhao_connected_params
+
+  subroutine evaluate_zhao_connected_path_system( &
+    start_params, target_params, start_field_v_m, target_field_v_m, &
+    branch, n, z, residual, valid, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: start_field_v_m, target_field_v_m
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(connected_path_max_coordinates)
+    real(dp), intent(out) :: residual(3)
+    logical, intent(out) :: valid
+    integer, intent(out) :: failure_kind
+
+    type(zhao_params_type) :: trial_params
+    real(dp) :: lambda, target_field, target_field_hat
+    real(dp) :: phi0_v, phi_m_v, density_m3
+    logical :: decoded
+
+    residual = 0.0_dp
+    valid = .false.
+    failure_kind = atlas_eval_numerical
+    if (n + 1 > connected_path_max_coordinates) return
+    lambda = z(n + 1)
+    if (.not. ieee_is_finite(lambda) .or. &
+        lambda < -512.0_dp*epsilon(1.0_dp) .or. &
+        lambda > 1.0_dp + connected_path_target_bracket_extension) return
+    call interpolate_zhao_connected_params(start_params, target_params, lambda, trial_params)
+    if (.not. valid_zhao_params(trial_params)) return
+    target_field = start_field_v_m + lambda*(target_field_v_m - start_field_v_m)
+    if (.not. zhao_branch_field_is_compatible( &
+        branch, target_field, trial_params%t_phe_ev/trial_params%lambda_d_phe_ref_m, .false. &
+        )) then
+      failure_kind = atlas_eval_physical
+      return
+    end if
+    target_field_hat = target_field/(trial_params%t_phe_ev/trial_params%lambda_d_phe_ref_m)
+    call decode_unknowns( &
+      trial_params, branch, z(1:3), phi0_v, phi_m_v, density_m3, decoded &
+      )
+    if (.not. decoded) return
+    call eval_charge_residual(trial_params, branch, target_field_hat, z(1:3), residual, valid)
+    if (valid) then
+      failure_kind = atlas_eval_ok
+    else if (.not. ion_accessible(trial_params, max(phi0_v/trial_params%t_phe_ev, 0.0_dp))) then
+      failure_kind = atlas_eval_physical
+    end if
+  end subroutine evaluate_zhao_connected_path_system
+
+  subroutine numerical_zhao_connected_path_jacobian( &
+    start_params, target_params, start_field_v_m, target_field_v_m, branch, n, &
+    z, residual, jacobian, success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: start_field_v_m, target_field_v_m
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(connected_path_max_coordinates), residual(3)
+    real(dp), intent(out) :: jacobian(3, connected_path_max_coordinates)
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: plus_z(connected_path_max_coordinates)
+    real(dp) :: minus_z(connected_path_max_coordinates)
+    real(dp) :: plus_residual(3), minus_residual(3), h
+    integer :: column, plus_kind, minus_kind, z_dimension
+    logical :: plus_valid, minus_valid
+
+    jacobian = 0.0_dp
+    success = .true.
+    failure_kind = atlas_eval_ok
+    z_dimension = n + 1
+    do column = 1, z_dimension
+      h = epsilon(1.0_dp)**(1.0_dp/3.0_dp)*max(1.0_dp, abs(z(column)))
+      plus_z = z
+      minus_z = z
+      plus_z(column) = plus_z(column) + h
+      minus_z(column) = minus_z(column) - h
+      call evaluate_zhao_connected_path_system( &
+        start_params, target_params, start_field_v_m, target_field_v_m, &
+        branch, n, plus_z, plus_residual, plus_valid, plus_kind &
+        )
+      call evaluate_zhao_connected_path_system( &
+        start_params, target_params, start_field_v_m, target_field_v_m, &
+        branch, n, minus_z, minus_residual, minus_valid, minus_kind &
+        )
+      if (plus_valid .and. minus_valid) then
+        jacobian(1:n, column) = (plus_residual(1:n) - minus_residual(1:n))/(2.0_dp*h)
+      else if (plus_valid) then
+        jacobian(1:n, column) = (plus_residual(1:n) - residual(1:n))/h
+      else if (minus_valid) then
+        jacobian(1:n, column) = (residual(1:n) - minus_residual(1:n))/h
+      else
+        success = .false.
+        failure_kind = merge( &
+                       atlas_eval_physical, atlas_eval_numerical, &
+                       plus_kind == atlas_eval_physical .and. minus_kind == atlas_eval_physical &
+                       )
+        return
+      end if
+    end do
+    success = all(ieee_is_finite(jacobian(1:n, 1:z_dimension)))
+    if (.not. success) failure_kind = atlas_eval_numerical
+  end subroutine numerical_zhao_connected_path_jacobian
+
+  subroutine zhao_connected_path_tangent( &
+    start_params, target_params, start_field_v_m, target_field_v_m, branch, n, z, &
+    tangent, row_rank_indicator, fixed_parameter_rank_indicator, &
+    fixed_parameter_orientation_indicator, success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: start_field_v_m, target_field_v_m
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(connected_path_max_coordinates)
+    real(dp), intent(out) :: tangent(connected_path_max_coordinates)
+    real(dp), intent(out) :: row_rank_indicator, fixed_parameter_rank_indicator
+    real(dp), intent(out) :: fixed_parameter_orientation_indicator
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: residual(3), jacobian(3, connected_path_max_coordinates)
+    real(dp) :: scaled_jacobian(3, connected_path_max_coordinates)
+    real(dp) :: fixed_scaled_jacobian(3, 3)
+    real(dp) :: cofactors(connected_path_max_coordinates), minor(3, 3)
+    real(dp) :: raw_norm, row_norm, fixed_row_norm
+    integer :: column, source_column, minor_column, row, z_dimension
+    logical :: valid, jacobian_ok
+
+    tangent = 0.0_dp
+    row_rank_indicator = 0.0_dp
+    fixed_parameter_rank_indicator = 0.0_dp
+    fixed_parameter_orientation_indicator = 0.0_dp
+    success = .false.
+    z_dimension = n + 1
+    call evaluate_zhao_connected_path_system( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      branch, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid) return
+    call numerical_zhao_connected_path_jacobian( &
+      start_params, target_params, start_field_v_m, target_field_v_m, branch, n, &
+      z, residual, jacobian, jacobian_ok, failure_kind &
+      )
+    if (.not. jacobian_ok) return
+    scaled_jacobian = jacobian
+    fixed_scaled_jacobian = 0.0_dp
+    do row = 1, n
+      row_norm = sqrt(sum(jacobian(row, 1:z_dimension)**2))
+      if (.not. ieee_is_finite(row_norm) .or. row_norm <= tiny(1.0_dp)) return
+      scaled_jacobian(row, 1:z_dimension) = jacobian(row, 1:z_dimension)/row_norm
+      fixed_row_norm = sqrt(sum(jacobian(row, 1:n)**2))
+      if (.not. ieee_is_finite(fixed_row_norm) .or. fixed_row_norm <= tiny(1.0_dp)) return
+      fixed_scaled_jacobian(row, 1:n) = jacobian(row, 1:n)/fixed_row_norm
+    end do
+    cofactors = 0.0_dp
+    if (n == 2) then
+      cofactors(1) = scaled_jacobian(1, 2)*scaled_jacobian(2, 3) - &
+                     scaled_jacobian(1, 3)*scaled_jacobian(2, 2)
+      cofactors(2) = scaled_jacobian(1, 3)*scaled_jacobian(2, 1) - &
+                     scaled_jacobian(1, 1)*scaled_jacobian(2, 3)
+      cofactors(3) = scaled_jacobian(1, 1)*scaled_jacobian(2, 2) - &
+                     scaled_jacobian(1, 2)*scaled_jacobian(2, 1)
+    else
+      do column = 1, 4
+        minor = 0.0_dp
+        minor_column = 0
+        do source_column = 1, 4
+          if (source_column == column) cycle
+          minor_column = minor_column + 1
+          minor(1:3, minor_column) = scaled_jacobian(1:3, source_column)
+        end do
+        cofactors(column) = (-1.0_dp)**(column + 1)*determinant3(minor)
+      end do
+    end if
+    raw_norm = sqrt(sum(cofactors(1:z_dimension)**2))
+    if (.not. ieee_is_finite(raw_norm) .or. raw_norm <= tiny(1.0_dp)) return
+    row_rank_indicator = raw_norm
+    if (n == 2) then
+      fixed_parameter_orientation_indicator = &
+        fixed_scaled_jacobian(1, 1)*fixed_scaled_jacobian(2, 2) - &
+        fixed_scaled_jacobian(1, 2)*fixed_scaled_jacobian(2, 1)
+    else
+      fixed_parameter_orientation_indicator = determinant3(fixed_scaled_jacobian)
+    end if
+    fixed_parameter_rank_indicator = abs(fixed_parameter_orientation_indicator)
+    if (.not. all(ieee_is_finite([ &
+                                 row_rank_indicator, fixed_parameter_rank_indicator, &
+                                 fixed_parameter_orientation_indicator &
+                                 ])) .or. &
+        row_rank_indicator <= connected_path_rank_tolerance) return
+    tangent(1:z_dimension) = cofactors(1:z_dimension)/raw_norm
+    success = all(ieee_is_finite(tangent(1:z_dimension)))
+    if (success) failure_kind = atlas_eval_ok
+  end subroutine zhao_connected_path_tangent
+
+  subroutine correct_zhao_connected_path_point( &
+    start_params, target_params, start_field_v_m, target_field_v_m, branch, n, &
+    predictor, plane_normal, corrected_z, iterations, success, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: start_field_v_m, target_field_v_m
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: predictor(connected_path_max_coordinates)
+    real(dp), intent(in) :: plane_normal(connected_path_max_coordinates)
+    real(dp), intent(out) :: corrected_z(connected_path_max_coordinates)
+    integer, intent(out) :: iterations
+    logical, intent(out) :: success
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: z(connected_path_max_coordinates), residual(3)
+    real(dp) :: jacobian(3, connected_path_max_coordinates)
+    real(dp) :: system(connected_path_max_coordinates, connected_path_max_coordinates)
+    real(dp) :: rhs(connected_path_max_coordinates), delta(connected_path_max_coordinates)
+    real(dp) :: trial_z(connected_path_max_coordinates), trial_residual(3)
+    real(dp) :: norm, trial_norm, plane_residual, trial_plane_residual, backtrack_step
+    integer :: iteration, backtrack, z_dimension, trial_kind
+    logical :: valid, jacobian_ok, linear_ok, trial_valid
+
+    z_dimension = n + 1
+    z = predictor
+    corrected_z = predictor
+    success = .false.
+    failure_kind = atlas_eval_numerical
+    iterations = 0
+    call evaluate_zhao_connected_path_system( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      branch, n, z, residual, valid, failure_kind &
+      )
+    if (.not. valid) return
+    plane_residual = dot_product( &
+                     plane_normal(1:z_dimension), z(1:z_dimension) - predictor(1:z_dimension) &
+                     )
+    norm = max(maxval(abs(residual(1:n))), abs(plane_residual))
+    do iteration = 0, connected_path_max_corrector_iterations
+      if (norm <= connected_path_residual_tolerance) then
+        success = .true.
+        exit
+      end if
+      if (iteration == connected_path_max_corrector_iterations) exit
+      call numerical_zhao_connected_path_jacobian( &
+        start_params, target_params, start_field_v_m, target_field_v_m, branch, n, &
+        z, residual, jacobian, jacobian_ok, failure_kind &
+        )
+      if (.not. jacobian_ok) exit
+      system = 0.0_dp
+      rhs = 0.0_dp
+      system(1:n, 1:z_dimension) = jacobian(1:n, 1:z_dimension)
+      system(z_dimension, 1:z_dimension) = plane_normal(1:z_dimension)
+      rhs(1:n) = -residual(1:n)
+      rhs(z_dimension) = -plane_residual
+      call solve_zhao_atlas_system(system, rhs, z_dimension, delta, linear_ok)
+      if (.not. linear_ok) exit
+      backtrack_step = 1.0_dp
+      do backtrack = 1, root_max_backtracks
+        trial_z = z + backtrack_step*delta
+        call evaluate_zhao_connected_path_system( &
+          start_params, target_params, start_field_v_m, target_field_v_m, &
+          branch, n, trial_z, trial_residual, trial_valid, trial_kind &
+          )
+        if (trial_valid) then
+          trial_plane_residual = dot_product( &
+                                 plane_normal(1:z_dimension), &
+                                 trial_z(1:z_dimension) - predictor(1:z_dimension) &
+                                 )
+          trial_norm = max(maxval(abs(trial_residual(1:n))), abs(trial_plane_residual))
+          if (trial_norm < norm) then
+            z = trial_z
+            residual = trial_residual
+            plane_residual = trial_plane_residual
+            norm = trial_norm
+            failure_kind = atlas_eval_ok
+            exit
+          end if
+        end if
+        backtrack_step = 0.5_dp*backtrack_step
+      end do
+      if (backtrack > root_max_backtracks) exit
+    end do
+    iterations = iteration
+    corrected_z = z
+    if (.not. success) failure_kind = atlas_eval_numerical
+  end subroutine correct_zhao_connected_path_point
+
+  subroutine zhao_connected_path_root_from_coordinates( &
+    start_params, target_params, start_field_v_m, target_field_v_m, &
+    branch, n, z, root, valid &
+    )
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: start_field_v_m, target_field_v_m
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: z(connected_path_max_coordinates)
+    type(zhao_charge_root_type), intent(out) :: root
+    logical, intent(out) :: valid
+
+    type(zhao_params_type) :: params
+    real(dp) :: residual(3), target_field_hat
+
+    root = zhao_charge_root_type()
+    call interpolate_zhao_connected_params(start_params, target_params, z(n + 1), params)
+    call decode_unknowns( &
+      params, branch, z(1:3), root%phi0_v, root%phi_m_v, &
+      root%n_swe_inf_m3, valid &
+      )
+    if (.not. valid) return
+    root%branch = branch
+    if (branch == 'A') then
+      root%interface_side = 'lower'
+    else
+      root%interface_side = 'monotonic'
+    end if
+    root%photoelectron_population_fraction = params%photoelectron_population_fraction
+    root%interface_field_v_m = start_field_v_m + &
+                               z(n + 1)*(target_field_v_m - start_field_v_m)
+    target_field_hat = root%interface_field_v_m/(params%t_phe_ev/params%lambda_d_phe_ref_m)
+    call eval_charge_residual(params, branch, target_field_hat, z(1:3), residual, valid)
+    if (.not. valid) return
+    root%residual_norm = maxval(abs(residual(1:n)))
+    root%nonlinear_iterations = 0_i32
+    root%net_current_density_a_m2 = zhao_net_current_density(params, root)
+    valid = zhao_charge_root_is_finite(root) .and. &
+            root%residual_norm <= connected_path_residual_tolerance
+  end subroutine zhao_connected_path_root_from_coordinates
+
+  !> Land a bracketed pseudo-arclength segment at lambda=1 and verify that the
+  !> fixed-parameter event remains on the local root sheet in both directions.
+  subroutine land_zhao_connected_path_target( &
+    start_params, target_params, start_field_v_m, target_field_v_m, branch, n, &
+    lower_z, lower_root, lower_tangent, lower_orientation, &
+    upper_z, upper_root, upper_tangent, upper_orientation, &
+    target_z, target_root, target_tangent, target_row_rank, target_fixed_rank, &
+    target_orientation, target_root_jump, iterations, success, fold_detected, failure_kind &
+    )
+    type(zhao_params_type), intent(in) :: start_params, target_params
+    real(dp), intent(in) :: start_field_v_m, target_field_v_m
+    character(len=1), intent(in) :: branch
+    integer, intent(in) :: n
+    real(dp), intent(in) :: lower_z(connected_path_max_coordinates)
+    real(dp), intent(in) :: lower_tangent(connected_path_max_coordinates)
+    real(dp), intent(in) :: lower_orientation
+    type(zhao_charge_root_type), intent(in) :: lower_root
+    real(dp), intent(in) :: upper_z(connected_path_max_coordinates)
+    real(dp), intent(in) :: upper_tangent(connected_path_max_coordinates)
+    real(dp), intent(in) :: upper_orientation
+    type(zhao_charge_root_type), intent(in) :: upper_root
+    real(dp), intent(out) :: target_z(connected_path_max_coordinates)
+    real(dp), intent(out) :: target_tangent(connected_path_max_coordinates)
+    real(dp), intent(out) :: target_row_rank, target_fixed_rank, target_orientation
+    real(dp), intent(out) :: target_root_jump
+    type(zhao_charge_root_type), intent(out) :: target_root
+    integer, intent(out) :: iterations
+    logical, intent(out) :: success, fold_detected
+    integer, intent(out) :: failure_kind
+
+    real(dp) :: predictor(connected_path_max_coordinates)
+    real(dp) :: plane_normal(connected_path_max_coordinates)
+    real(dp) :: reverse_predictor(connected_path_max_coordinates)
+    real(dp) :: reverse_z(connected_path_max_coordinates)
+    real(dp) :: secant_weight, bracket_distance, correction_distance
+    real(dp) :: tangent_alignment, upper_root_jump, reverse_root_jump
+    real(dp) :: potential_jump, density_jump, reverse_step
+    real(dp) :: reverse_correction_distance, scale
+    type(zhao_charge_root_type) :: reverse_root
+    integer :: z_dimension, reverse_iterations, reverse_failure_kind
+    logical :: corrected, valid, tangent_ok
+
+    target_z = 0.0_dp
+    target_root = zhao_charge_root_type()
+    target_tangent = 0.0_dp
+    target_row_rank = 0.0_dp
+    target_fixed_rank = 0.0_dp
+    target_orientation = 0.0_dp
+    target_root_jump = huge(1.0_dp)
+    iterations = 0
+    success = .false.
+    fold_detected = .false.
+    failure_kind = atlas_eval_numerical
+    z_dimension = n + 1
+    if (lower_z(z_dimension) >= 1.0_dp .or. upper_z(z_dimension) < 1.0_dp .or. &
+        upper_z(z_dimension) <= lower_z(z_dimension) .or. &
+        lower_orientation*upper_orientation <= 0.0_dp) then
+      fold_detected = lower_orientation*upper_orientation <= 0.0_dp
+      return
+    end if
+
+    secant_weight = (1.0_dp - lower_z(z_dimension))/ &
+                    (upper_z(z_dimension) - lower_z(z_dimension))
+    if (.not. ieee_is_finite(secant_weight) .or. &
+        secant_weight < 0.0_dp .or. secant_weight > 1.0_dp) return
+    predictor = lower_z + secant_weight*(upper_z - lower_z)
+    predictor(z_dimension) = 1.0_dp
+    plane_normal = 0.0_dp
+    plane_normal(z_dimension) = 1.0_dp
+    call correct_zhao_connected_path_point( &
+      start_params, target_params, start_field_v_m, target_field_v_m, branch, n, &
+      predictor, plane_normal, target_z, iterations, corrected, failure_kind &
+      )
+    if (.not. corrected) return
+    bracket_distance = sqrt(sum((upper_z(1:z_dimension) - lower_z(1:z_dimension))**2))
+    correction_distance = sqrt(sum((target_z(1:z_dimension) - predictor(1:z_dimension))**2))
+    scale = max( &
+            1.0_dp, sqrt(sum(lower_z(1:z_dimension)**2)), &
+            sqrt(sum(upper_z(1:z_dimension)**2)) &
+            )
+    if (abs(target_z(z_dimension) - 1.0_dp) > 512.0_dp*epsilon(1.0_dp) .or. &
+        correction_distance > max( &
+        connected_path_maximum_correction_fraction*bracket_distance, &
+        4096.0_dp*epsilon(1.0_dp)*scale &
+        )) return
+
+    call zhao_connected_path_root_from_coordinates( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      branch, n, target_z, target_root, valid &
+      )
+    if (.not. valid) return
+    call zhao_root_jump_metrics( &
+      start_params, lower_root, upper_root, potential_jump, density_jump, upper_root_jump &
+      )
+    call zhao_root_jump_metrics( &
+      start_params, lower_root, target_root, potential_jump, density_jump, target_root_jump &
+      )
+    if (.not. all(ieee_is_finite([upper_root_jump, target_root_jump])) .or. &
+        target_root_jump > branch_same_root_step_limit .or. &
+        target_root_jump > 1.25_dp*max( &
+        upper_root_jump, 4096.0_dp*epsilon(1.0_dp)*scale &
+        )) return
+
+    call zhao_connected_path_tangent( &
+      start_params, target_params, start_field_v_m, target_field_v_m, branch, n, target_z, &
+      target_tangent, target_row_rank, target_fixed_rank, target_orientation, &
+      tangent_ok, failure_kind &
+      )
+    if (.not. tangent_ok) return
+    tangent_alignment = dot_product( &
+                        lower_tangent(1:z_dimension), target_tangent(1:z_dimension) &
+                        )
+    if (tangent_alignment < 0.0_dp) then
+      target_tangent = -target_tangent
+      tangent_alignment = -tangent_alignment
+    end if
+    if (tangent_alignment < connected_path_minimum_tangent_alignment .or. &
+        dot_product(target_tangent(1:z_dimension), upper_tangent(1:z_dimension)) < &
+        connected_path_minimum_tangent_alignment .or. &
+        target_orientation*lower_orientation <= 0.0_dp .or. &
+        target_orientation*upper_orientation <= 0.0_dp .or. &
+        .not. connected_path_tangent_is_regular( &
+        target_tangent(z_dimension), target_row_rank, target_fixed_rank &
+        )) then
+      fold_detected = .true.
+      return
+    end if
+
+    reverse_step = (lower_z(z_dimension) - 1.0_dp)/target_tangent(z_dimension)
+    if (.not. ieee_is_finite(reverse_step) .or. reverse_step >= 0.0_dp) return
+    reverse_predictor = target_z + reverse_step*target_tangent
+    reverse_predictor(z_dimension) = lower_z(z_dimension)
+    plane_normal = 0.0_dp
+    plane_normal(z_dimension) = 1.0_dp
+    call correct_zhao_connected_path_point( &
+      start_params, target_params, start_field_v_m, target_field_v_m, branch, n, &
+      reverse_predictor, plane_normal, reverse_z, reverse_iterations, corrected, &
+      reverse_failure_kind &
+      )
+    if (.not. corrected) then
+      failure_kind = reverse_failure_kind
+      return
+    end if
+    reverse_correction_distance = sqrt(sum( &
+                                       (reverse_z(1:z_dimension) - reverse_predictor(1:z_dimension))**2 &
+                                       ))
+    if (reverse_correction_distance > max( &
+        connected_path_maximum_correction_fraction*bracket_distance, &
+        4096.0_dp*epsilon(1.0_dp)*scale &
+        )) return
+    call zhao_connected_path_root_from_coordinates( &
+      start_params, target_params, start_field_v_m, target_field_v_m, &
+      branch, n, reverse_z, reverse_root, valid &
+      )
+    if (.not. valid) return
+    call zhao_root_jump_metrics( &
+      start_params, lower_root, reverse_root, potential_jump, density_jump, reverse_root_jump &
+      )
+    if (.not. ieee_is_finite(reverse_root_jump) .or. &
+        reverse_root_jump > connected_path_roundtrip_root_tolerance) return
+    iterations = iterations + reverse_iterations
+    failure_kind = atlas_eval_ok
+    success = .true.
+  end subroutine land_zhao_connected_path_target
+
+  pure logical function connected_path_tangent_is_regular( &
+    lambda_tangent, row_rank, fixed_parameter_rank &
+    ) result(regular)
+    real(dp), intent(in) :: lambda_tangent, row_rank, fixed_parameter_rank
+
+    regular = all(ieee_is_finite([lambda_tangent, row_rank, fixed_parameter_rank])) .and. &
+              lambda_tangent > connected_path_fold_tangent_tolerance .and. &
+              row_rank > connected_path_rank_tolerance .and. &
+              fixed_parameter_rank > connected_path_rank_tolerance
+  end function connected_path_tangent_is_regular
+
+  pure subroutine zhao_connected_barrier_is_monotone( &
+    params, branch, z, tangent, n, delta_field_hat, monotone, normalized_slope &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: z(connected_path_max_coordinates)
+    real(dp), intent(in) :: tangent(connected_path_max_coordinates)
+    integer, intent(in) :: n
+    real(dp), intent(in) :: delta_field_hat
+    logical, intent(out) :: monotone
+    real(dp), intent(out) :: normalized_slope
+
+    real(dp) :: barrier_rate, field_rate
+
+    monotone = .false.
+    normalized_slope = -huge(1.0_dp)
+    field_rate = delta_field_hat*tangent(n + 1)
+    if (.not. ieee_is_finite(field_rate)) return
+    if (abs(delta_field_hat) <= 256.0_dp*epsilon(1.0_dp)) then
+      normalized_slope = 0.0_dp
+      monotone = .true.
+      return
+    end if
+    select case (branch)
+    case ('A')
+      barrier_rate = exp(z(1))*tangent(1) + exp(z(2))*tangent(2)
+    case ('B')
+      barrier_rate = exp(z(1))*tangent(1)
+    case ('C')
+      barrier_rate = 0.0_dp
+    case default
+      return
+    end select
+    if (.not. all(ieee_is_finite([barrier_rate, field_rate])) .or. &
+        abs(field_rate) <= tiny(1.0_dp)) return
+    normalized_slope = barrier_rate/field_rate
+    monotone = ieee_is_finite(normalized_slope) .and. &
+               normalized_slope >= -connected_path_barrier_slope_tolerance
+  end subroutine zhao_connected_barrier_is_monotone
+
+  !> Electron escape barrier divided by T_pe on one encoded Zhao root.
+  pure subroutine zhao_connected_normalized_barrier(branch, z, barrier, valid)
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: z(connected_path_max_coordinates)
+    real(dp), intent(out) :: barrier
+    logical, intent(out) :: valid
+
+    barrier = 0.0_dp
+    valid = .false.
+    if (.not. all(ieee_is_finite(z))) return
+    select case (branch)
+    case ('A')
+      barrier = exp(z(1)) + exp(z(2))
+    case ('B')
+      barrier = exp(z(1))
+    case ('C')
+      barrier = 0.0_dp
+    case default
+      return
+    end select
+    valid = ieee_is_finite(barrier) .and. barrier >= 0.0_dp
+  end subroutine zhao_connected_normalized_barrier
+
+  pure subroutine update_zhao_connected_certificate( &
+    certificate, row_rank, fixed_parameter_rank, lambda_tangent, root_jump, residual, n &
+    )
+    type(zhao_connected_path_certificate_type), intent(inout) :: certificate
+    real(dp), intent(in) :: row_rank, fixed_parameter_rank, lambda_tangent, root_jump
+    real(dp), intent(in) :: residual(3)
+    integer, intent(in) :: n
+
+    certificate%minimum_row_rank_indicator = min( &
+                                             certificate%minimum_row_rank_indicator, row_rank &
+                                             )
+    certificate%minimum_fixed_parameter_rank_indicator = min( &
+                                                         certificate%minimum_fixed_parameter_rank_indicator, &
+                                                         fixed_parameter_rank &
+                                                         )
+    certificate%minimum_lambda_tangent = min( &
+                                         certificate%minimum_lambda_tangent, lambda_tangent &
+                                         )
+    certificate%maximum_normalized_root_jump = max( &
+                                               certificate%maximum_normalized_root_jump, root_jump &
+                                               )
+    certificate%final_residual = maxval(abs(residual(1:n)))
+  end subroutine update_zhao_connected_certificate
+
   subroutine evaluate_zhao_atlas_system( &
     params, branch, interface_field_v_m, n, z, residual, valid, failure_kind &
     )
@@ -2444,7 +3645,7 @@ contains
 
   subroutine solve_outer_plasma_zhao( &
     model, params, interface_field_v_m, grid_points, state, root, status, message, initial_root, &
-    control_length_m, allow_transient_bootstrap &
+    control_length_m, allow_transient_bootstrap, strict_initial_root &
     )
     character(len=*), intent(in) :: model
     type(zhao_params_type), intent(in) :: params
@@ -2457,15 +3658,29 @@ contains
     type(zhao_charge_root_type), intent(in), optional :: initial_root
     real(dp), intent(in), optional :: control_length_m
     logical, intent(in), optional :: allow_transient_bootstrap
+    logical, intent(in), optional :: strict_initial_root
 
-    logical :: bootstrap_allowed
+    logical :: bootstrap_allowed, strict_root
 
     bootstrap_allowed = .false.
     if (present(allow_transient_bootstrap)) bootstrap_allowed = allow_transient_bootstrap
+    strict_root = .false.
+    if (present(strict_initial_root)) strict_root = strict_initial_root
+    if (strict_root) then
+      if (.not. present(initial_root)) then
+        root = zhao_charge_root_type()
+        status = outer_plasma_invalid
+        message = 'strict Zhao continuation requires an initial root'
+        state = outer_plasma_state_type()
+        state%model = 'kinetic_1d'
+        state%applicability_status = status
+        return
+      end if
+    end if
     if (present(initial_root)) then
       call solve_zhao_charge_root( &
         model, params, interface_field_v_m, root, status, message, initial_root=initial_root, &
-        allow_transient_bootstrap=bootstrap_allowed &
+        allow_transient_bootstrap=bootstrap_allowed, strict_initial_root=strict_root &
         )
     else
       call solve_zhao_charge_root( &
@@ -3485,7 +4700,8 @@ contains
   end function zhao_branch_transition_is_continuous
 
   subroutine solve_zhao_charge_root( &
-    model, params, interface_field_v_m, root, status, message, initial_root, allow_transient_bootstrap &
+    model, params, interface_field_v_m, root, status, message, initial_root, allow_transient_bootstrap, &
+    strict_initial_root &
     )
     character(len=*), intent(in) :: model
     type(zhao_params_type), intent(in) :: params
@@ -3495,6 +4711,7 @@ contains
     character(len=*), intent(out) :: message
     type(zhao_charge_root_type), intent(in), optional :: initial_root
     logical, intent(in), optional :: allow_transient_bootstrap
+    logical, intent(in), optional :: strict_initial_root
 
     character(len=16) :: normalized_model
     character(len=1) :: order(3), candidate
@@ -3502,7 +4719,7 @@ contains
     real(dp) :: field_scale, target_field_hat, degenerate_density_hat
     integer :: candidate_count, candidate_index, warm_index
     character(len=1) :: first_candidate
-    logical :: bootstrap_allowed, saw_numerical_failure
+    logical :: bootstrap_allowed, saw_numerical_failure, strict_root
     character(len=256) :: numerical_message
 
     root = zhao_charge_root_type()
@@ -3515,6 +4732,21 @@ contains
     root%photoelectron_population_fraction = params%photoelectron_population_fraction
     bootstrap_allowed = .false.
     if (present(allow_transient_bootstrap)) bootstrap_allowed = allow_transient_bootstrap
+    strict_root = .false.
+    if (present(strict_initial_root)) strict_root = strict_initial_root
+    if (strict_root) then
+      if (.not. present(initial_root)) then
+        status = outer_plasma_invalid
+        message = 'strict Zhao continuation requires an initial root'
+        return
+      end if
+      if (.not. valid_strict_zhao_charge_root(params, initial_root)) then
+        status = outer_plasma_invalid
+        message = 'strict Zhao continuation requires a finite branch-consistent A/B/C initial root'
+        return
+      end if
+      bootstrap_allowed = .false.
+    end if
     field_scale = params%t_phe_ev/params%lambda_d_phe_ref_m
     target_field_hat = interface_field_v_m/field_scale
     normalized_model = trim(lower_ascii(model))
@@ -3522,6 +4754,13 @@ contains
     if (status /= outer_plasma_ok) return
 
     if (abs(target_field_hat) <= zero_field_tolerance_hat) then
+      if (strict_root) then
+        if (initial_root%branch /= 'B') then
+          status = outer_plasma_no_physical_solution
+          message = 'strict Zhao continuation cannot change branch at the zero-field degeneracy'
+          return
+        end if
+      end if
       if (normalized_model /= 'auto' .and. normalized_model /= 'zhao_auto' .and. &
           normalized_model /= 'b' .and. normalized_model /= 'zhao_b') then
         status = outer_plasma_no_physical_solution
@@ -3569,17 +4808,27 @@ contains
         end do
       end if
     end if
+    if (strict_root) then
+      if (order(1) /= initial_root%branch) then
+        status = outer_plasma_invalid
+        message = 'strict Zhao continuation initial root does not match the requested branch'
+        return
+      end if
+      candidate_count = 1
+    end if
     saw_numerical_failure = .false.
     numerical_message = ''
     do candidate_index = 1, candidate_count
       candidate = order(candidate_index)
       if (present(initial_root)) then
         call solve_one_branch( &
-          params, candidate, interface_field_v_m, trial_root, status, message, initial_root=initial_root &
+          params, candidate, interface_field_v_m, trial_root, status, message, initial_root=initial_root, &
+          strict_initial_root=strict_root &
           )
       else
         call solve_one_branch(params, candidate, interface_field_v_m, trial_root, status, message)
       end if
+      if (strict_root .and. status == outer_plasma_invalid) return
       if (status == outer_plasma_ok) then
         root = trial_root
         return
@@ -3597,6 +4846,53 @@ contains
       message = 'no charge-driven Zhao branch satisfies the prescribed interface field'
     end if
   end subroutine solve_zhao_charge_root
+
+  pure logical function valid_strict_zhao_charge_root(params, root) result(valid)
+    type(zhao_params_type), intent(in) :: params
+    type(zhao_charge_root_type), intent(in) :: root
+    real(dp) :: potential_tolerance, field_tolerance, field_scale
+
+    valid = .false.
+    if (index('ABC', root%branch) == 0) return
+    if (.not. all(ieee_is_finite([ &
+                                 root%phi0_v, root%phi_m_v, root%n_swe_inf_m3, &
+                                 root%photoelectron_population_fraction, &
+                                 root%photoelectron_column_per_area, &
+                                 root%photoelectron_column_target_per_area, &
+                                 root%photoelectron_column_residual_per_area, &
+                                 root%interface_field_v_m, root%net_current_density_a_m2, &
+                                 root%residual_norm &
+                                 ]))) return
+    if (root%n_swe_inf_m3 <= 0.0_dp .or. root%residual_norm < 0.0_dp .or. &
+        root%residual_norm > max(root_tolerance, 128.0_dp*epsilon(1.0_dp)) .or. &
+        root%nonlinear_iterations < 0_i32 .or. root%photoelectron_population_fraction < 0.0_dp .or. &
+        root%photoelectron_population_fraction > 1.0_dp) return
+
+    field_scale = params%t_phe_ev/params%lambda_d_phe_ref_m
+    potential_tolerance = 64.0_dp*epsilon(1.0_dp)*max( &
+                          params%t_phe_ev, abs(root%phi0_v), abs(root%phi_m_v), 1.0_dp &
+                          )
+    if (.not. zhao_branch_field_is_compatible( &
+        root%branch, root%interface_field_v_m, field_scale, .true. &
+        )) return
+    field_tolerance = 64.0_dp*epsilon(1.0_dp)*max( &
+                      field_scale, abs(root%interface_field_v_m), 1.0_dp &
+                      )
+    select case (root%branch)
+    case ('A')
+      valid = root%phi0_v > potential_tolerance .and. &
+              root%phi_m_v < -potential_tolerance
+    case ('B')
+      valid = abs(root%phi_m_v - root%phi0_v) <= potential_tolerance .and. &
+              ((root%phi0_v > potential_tolerance .and. &
+                root%interface_field_v_m > field_tolerance) .or. &
+               (abs(root%phi0_v) <= potential_tolerance .and. &
+                abs(root%interface_field_v_m) <= field_tolerance))
+    case ('C')
+      valid = abs(root%phi_m_v - root%phi0_v) <= potential_tolerance .and. &
+              root%phi0_v < -potential_tolerance
+    end select
+  end function valid_strict_zhao_charge_root
 
   subroutine branch_order(model, params, target_field_hat, order, count, status, message)
     character(len=*), intent(in) :: model
@@ -3638,7 +4934,7 @@ contains
   end subroutine branch_order
 
   subroutine solve_one_branch( &
-    params, branch, interface_field_v_m, root, status, message, initial_root &
+    params, branch, interface_field_v_m, root, status, message, initial_root, strict_initial_root &
     )
     type(zhao_params_type), intent(in) :: params
     character(len=1), intent(in) :: branch
@@ -3647,11 +4943,12 @@ contains
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
     type(zhao_charge_root_type), intent(in), optional :: initial_root
+    logical, intent(in), optional :: strict_initial_root
 
     real(dp) :: target_field_hat, field_scale
     real(dp) :: guesses(3, 8), y(3), best_y(3), norm, best_norm
     integer :: guess_count, guess_index, iterations, best_iterations
-    logical :: guess_valid, success
+    logical :: guess_valid, success, strict_root
 
     root = zhao_charge_root_type()
     root%branch = branch
@@ -3659,14 +4956,17 @@ contains
     root%photoelectron_population_fraction = params%photoelectron_population_fraction
     status = outer_plasma_no_physical_solution
     message = ''
+    strict_root = .false.
+    if (present(strict_initial_root)) strict_root = strict_initial_root
+    guess_valid = .false.
     field_scale = params%t_phe_ev/params%lambda_d_phe_ref_m
     target_field_hat = interface_field_v_m/field_scale
-    if ((branch == 'A' .or. branch == 'B') .and. target_field_hat <= 0.0_dp) then
-      message = 'Zhao A/B lower interface requires a positive normal field'
-      return
-    end if
-    if (branch == 'C' .and. target_field_hat >= 0.0_dp) then
-      message = 'Zhao C interface requires a negative normal field'
+    if (.not. zhao_branch_field_is_compatible(branch, interface_field_v_m, field_scale, .false.)) then
+      if (branch == 'C') then
+        message = 'Zhao C interface requires a negative normal field'
+      else
+        message = 'Zhao A/B lower interface requires a positive normal field'
+      end if
       return
     end if
 
@@ -3678,10 +4978,27 @@ contains
           initial_root%n_swe_inf_m3, y, guess_valid &
           )
         if (guess_valid) then
-          guesses(:, 2:guess_count + 1) = guesses(:, 1:guess_count)
-          guesses(:, 1) = y
-          guess_count = guess_count + 1
+          if (strict_root) then
+            guesses(:, 1) = y
+            guess_count = 1
+          else
+            guesses(:, 2:guess_count + 1) = guesses(:, 1:guess_count)
+            guesses(:, 1) = y
+            guess_count = guess_count + 1
+          end if
         end if
+      end if
+    end if
+    if (strict_root) then
+      if (.not. present(initial_root)) then
+        status = outer_plasma_invalid
+        message = 'strict Zhao continuation requires an initial root'
+        return
+      end if
+      if (.not. guess_valid) then
+        status = outer_plasma_invalid
+        message = 'strict Zhao continuation requires a valid same-branch initial root'
+        return
       end if
     end if
 
@@ -4425,8 +5742,8 @@ contains
       success = .true.
       return
     end if
-    if (.not. allocated(state%z) .or. .not. allocated(state%potential) .or. &
-        size(state%z) /= size(state%potential) .or. size(state%z) < 2) return
+    if (.not. allocated(state%z) .or. .not. allocated(state%potential)) return
+    if (size(state%z) /= size(state%potential) .or. size(state%z) < 2) return
 
     allocate (photoelectron_density(size(state%z)))
     phi0_hat = root%phi0_v/params%t_phe_ev

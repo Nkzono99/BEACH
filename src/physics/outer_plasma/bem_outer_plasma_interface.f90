@@ -43,7 +43,7 @@ contains
 
   subroutine map_outer_particle_kinetic_profile( &
     state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-    queue_enabled, outcome, queue_poll_interval &
+    queue_enabled, outcome, queue_poll_interval, enforce_frozen_field_limit &
     )
     type(outer_plasma_state_type), intent(in) :: state
     real(dp), intent(in) :: box_min(3), box_max(3), charge, mass
@@ -52,8 +52,10 @@ contains
     logical, intent(in) :: queue_enabled
     type(interface_particle_outcome_type), intent(out) :: outcome
     real(dp), intent(in), optional :: queue_poll_interval
+    logical, intent(in), optional :: enforce_frozen_field_limit
     real(dp) :: speed2, next_speed2, infinity_speed2, outward_time, segment_length, turning_fraction
     real(dp) :: deficit, tolerance, resolved_queue_poll_interval
+    logical :: resolved_enforce_frozen_field_limit
     integer :: point
 
     outcome = interface_particle_outcome_type()
@@ -79,6 +81,11 @@ contains
     end if
     resolved_queue_poll_interval = 0.0_dp
     if (present(queue_poll_interval)) resolved_queue_poll_interval = queue_poll_interval
+    resolved_enforce_frozen_field_limit = .true.
+    if (present(enforce_frozen_field_limit)) then
+      resolved_enforce_frozen_field_limit = enforce_frozen_field_limit
+    end if
+    if (queue_enabled) resolved_enforce_frozen_field_limit = .true.
     if (queue_enabled .and. &
         (.not. ieee_is_finite(resolved_queue_poll_interval) .or. resolved_queue_poll_interval <= 0.0_dp)) then
       outcome%kind = interface_outcome_invalid_model
@@ -115,7 +122,8 @@ contains
         outward_time = outward_time + 2.0_dp*segment_length*turning_fraction/sqrt(speed2)
         call finish_kinetic_return( &
           state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-          queue_enabled, resolved_queue_poll_interval, 2.0_dp*outward_time, outcome &
+          queue_enabled, resolved_queue_poll_interval, resolved_enforce_frozen_field_limit, &
+          2.0_dp*outward_time, outcome &
           )
         return
       end if
@@ -144,7 +152,8 @@ contains
                    2.0_dp*state%debye_length/sqrt(deficit)*atan(sqrt(speed2/deficit))
     call finish_kinetic_return( &
       state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-      queue_enabled, resolved_queue_poll_interval, 2.0_dp*outward_time, outcome &
+      queue_enabled, resolved_queue_poll_interval, resolved_enforce_frozen_field_limit, &
+      2.0_dp*outward_time, outcome &
       )
   end subroutine map_outer_particle_kinetic_profile
 
@@ -201,13 +210,13 @@ contains
 
   subroutine finish_kinetic_return( &
     state, box_min, box_max, charge, mass, crossing, field_timescale, max_frozen_field_ratio, &
-    queue_enabled, queue_poll_interval, flight_time, outcome &
+    queue_enabled, queue_poll_interval, enforce_frozen_field_limit, flight_time, outcome &
     )
     type(outer_plasma_state_type), intent(in) :: state
     real(dp), intent(in) :: box_min(3), box_max(3), charge, mass, field_timescale, max_frozen_field_ratio
     real(dp), intent(in) :: queue_poll_interval
     type(interface_crossing_type), intent(in) :: crossing
-    logical, intent(in) :: queue_enabled
+    logical, intent(in) :: queue_enabled, enforce_frozen_field_limit
     real(dp), intent(in) :: flight_time
     type(interface_particle_outcome_type), intent(out) :: outcome
     real(dp) :: inward_offset, energy_before, energy_after, energy_scale
@@ -235,7 +244,7 @@ contains
     outcome%normal_energy_residual = energy_after - energy_before
     energy_scale = max(abs(energy_before), 0.5_dp*mass*crossing%velocity(3)**2, tiny(1.0_dp))
     outcome%energy_relative_error = abs(outcome%normal_energy_residual)/energy_scale
-    if (outcome%frozen_field_ratio > max_frozen_field_ratio) then
+    if (enforce_frozen_field_limit .and. outcome%frozen_field_ratio > max_frozen_field_ratio) then
       outcome%kind = interface_outcome_invalid_model
       outcome%message = 'kinetic outer return violates the frozen-field limit'
     else if (queue_enabled) then

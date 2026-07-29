@@ -360,6 +360,8 @@ contains
 
     real(dp) :: guesses(2, 3)
 
+    call try_solve_zhao_monotonic_scalar(p, 'B', x, success)
+    if (success) return
     guesses(:, 1) = [1.3d0, 7.0d6]
     guesses(:, 2) = [0.8d0, 6.5d6]
     guesses(:, 3) = [2.0d0, 7.8d6]
@@ -383,6 +385,8 @@ contains
 
     real(dp) :: guesses(2, 5)
 
+    call try_solve_zhao_monotonic_scalar(p, 'C', x, success)
+    if (success) return
     guesses(:, 1) = [-0.5d0, 6.0d6]
     guesses(:, 2) = [-2.0d0, 7.0d6]
     guesses(:, 3) = [-5.0d0, 8.0d6]
@@ -400,6 +404,151 @@ contains
     end subroutine residual_c
 
   end subroutine try_solve_zhao_branch_c
+
+  !> Type-B/C の定常電流式から ambient density を消去し、電位だけをbracketする。
+  subroutine try_solve_zhao_monotonic_scalar(p, branch, x, success)
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    real(dp), intent(out) :: x(2)
+    logical, intent(out) :: success
+
+    integer :: iteration
+    real(dp) :: phi_left, phi_right, phi_mid, residual_left, residual_right, residual_mid
+    real(dp) :: density_left, density_right, density_mid, voltage_scale, phi_limit
+    real(dp) :: residual(2), residual_scale
+    logical :: left_ok, right_ok, mid_ok
+
+    x = 0.0_dp
+    success = .false.
+    voltage_scale = max(p%t_phe_ev, p%t_swe_ev, 1.0_dp)
+    residual_scale = max(p%n_swi_inf_m3, p%n_phe0_m3, 1.0_dp)
+    select case (branch)
+    case ('B')
+      phi_left = 128.0_dp*epsilon(1.0_dp)*voltage_scale
+      phi_right = voltage_scale
+      phi_limit = 100.0_dp*voltage_scale
+    case ('C')
+      phi_left = -voltage_scale
+      phi_right = -128.0_dp*epsilon(1.0_dp)*voltage_scale
+      phi_limit = -100.0_dp*voltage_scale
+    case default
+      return
+    end select
+
+    call evaluate_monotonic_stationary_phi(p, branch, phi_left, residual_left, density_left, left_ok)
+    call evaluate_monotonic_stationary_phi(p, branch, phi_right, residual_right, density_right, right_ok)
+    if (.not. left_ok .or. .not. right_ok) return
+    do iteration = 1, 16
+      if (residual_left == 0.0_dp .or. residual_right == 0.0_dp .or. &
+          sign(1.0_dp, residual_left) /= sign(1.0_dp, residual_right)) exit
+      if (branch == 'B') then
+        phi_right = min(phi_limit, 2.0_dp*phi_right)
+        call evaluate_monotonic_stationary_phi( &
+          p, branch, phi_right, residual_right, density_right, right_ok &
+          )
+        if (.not. right_ok .or. phi_right >= phi_limit) exit
+      else
+        phi_left = max(phi_limit, 2.0_dp*phi_left)
+        call evaluate_monotonic_stationary_phi( &
+          p, branch, phi_left, residual_left, density_left, left_ok &
+          )
+        if (.not. left_ok .or. phi_left <= phi_limit) exit
+      end if
+    end do
+    if (.not. left_ok .or. .not. right_ok) return
+    if (residual_left /= 0.0_dp .and. residual_right /= 0.0_dp) then
+      if (sign(1.0_dp, residual_left) == sign(1.0_dp, residual_right)) return
+    end if
+
+    if (residual_left == 0.0_dp) then
+      x = [phi_left, density_left]
+    else if (residual_right == 0.0_dp) then
+      x = [phi_right, density_right]
+    else
+      do iteration = 1, 160
+        phi_mid = phi_left + 0.5_dp*(phi_right - phi_left)
+        call evaluate_monotonic_stationary_phi( &
+          p, branch, phi_mid, residual_mid, density_mid, mid_ok &
+          )
+        if (.not. mid_ok) return
+        if (residual_mid == 0.0_dp) then
+          phi_left = phi_mid
+          phi_right = phi_mid
+          density_left = density_mid
+          density_right = density_mid
+          exit
+        end if
+        if (sign(1.0_dp, residual_left) /= sign(1.0_dp, residual_mid)) then
+          phi_right = phi_mid
+          residual_right = residual_mid
+          density_right = density_mid
+        else
+          phi_left = phi_mid
+          residual_left = residual_mid
+          density_left = density_mid
+        end if
+        if (abs(phi_right - phi_left) <= &
+            256.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(phi_left), abs(phi_right))) exit
+      end do
+      phi_mid = phi_left + 0.5_dp*(phi_right - phi_left)
+      call evaluate_monotonic_stationary_phi( &
+        p, branch, phi_mid, residual_mid, density_mid, mid_ok &
+        )
+      if (.not. mid_ok) return
+      x = [phi_mid, density_mid]
+    end if
+
+    if (branch == 'B') then
+      call zhao_residuals_type_b(p, x, residual)
+    else
+      call zhao_residuals_type_c(p, x, residual)
+    end if
+    success = all(ieee_is_finite(x)) .and. all(ieee_is_finite(residual)) .and. &
+              x(2) > 0.0_dp .and. residual_norm(residual) <= &
+              max(nonlinear_tol, 1024.0_dp*epsilon(1.0_dp)*residual_scale)
+  end subroutine try_solve_zhao_monotonic_scalar
+
+  subroutine evaluate_monotonic_stationary_phi(p, branch, phi_v, residual_v, density_m3, success)
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: phi_v
+    real(dp), intent(out) :: residual_v, density_m3
+    logical, intent(out) :: success
+
+    real(dp) :: cutoff, ion_term, source_current_term, coefficient, residual(2)
+
+    residual_v = huge(1.0_dp)
+    density_m3 = 0.0_dp
+    success = .false.
+    select case (branch)
+    case ('B')
+      if (phi_v <= 0.0_dp) return
+      cutoff = -p%u
+      source_current_term = p%n_phe0_m3*exp(-phi_v/p%t_phe_ev)
+    case ('C')
+      if (phi_v >= 0.0_dp) return
+      cutoff = sqrt(max(0.0_dp, -phi_v/p%t_swe_ev)) - p%u
+      source_current_term = p%n_phe0_m3
+    case default
+      return
+    end select
+    ion_term = p%n_swi_inf_m3*sqrt( &
+               2.0_dp*pi*p%t_swe_ev/p%t_phe_ev*p%m_e_kg/p%m_i_kg &
+               )*p%mach
+    coefficient = swe_free_current_term(p, 1.0_dp, cutoff)
+    if (.not. all(ieee_is_finite([source_current_term, ion_term, coefficient])) .or. &
+        coefficient <= 0.0_dp) return
+    density_m3 = (source_current_term + ion_term)/coefficient
+    if (.not. ieee_is_finite(density_m3) .or. density_m3 <= 0.0_dp) return
+    if (branch == 'B') then
+      call zhao_residuals_type_b(p, [phi_v, density_m3], residual)
+    else
+      call zhao_residuals_type_c(p, [phi_v, density_m3], residual)
+    end if
+    if (.not. all(ieee_is_finite(residual))) return
+    residual_v = residual(1)
+    success = .true.
+  end subroutine evaluate_monotonic_stationary_phi
 
   subroutine zhao_residuals_type_a(p, x, f)
     type(zhao_params_type), intent(in) :: p

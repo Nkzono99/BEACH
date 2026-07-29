@@ -22,6 +22,10 @@ _OUTER_QUEUE_SUMMARY_KEYS = (
     "outer_queue_signed_charge_C",
     "outer_queue_fingerprint",
 )
+_IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS = (
+    "implicit_mean_last_returned_outer_flight_time_mean_s",
+    "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2",
+)
 
 
 def load_fortran_result(directory: str | Path) -> FortranRunResult:
@@ -69,6 +73,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     charge_ledger = _load_charge_ledger_if_exists(out_dir / "charge_ledger.csv")
     outer_queue_enabled = _parse_optional_bool(summary, "coupling_outer_queue_enabled")
     _validate_outer_queue_summary_contract(summary, enabled=outer_queue_enabled)
+    _validate_implicit_mean_shadow_summary_contract(summary)
 
     return FortranRunResult(
         directory=out_dir,
@@ -135,6 +140,18 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         ),
         max_outer_energy_relative_error=_parse_optional_nonnegative_finite_float(
             summary, "max_outer_energy_relative_error"
+        ),
+        implicit_mean_last_returned_outer_flight_time_mean_s=(
+            _parse_optional_nonnegative_finite_float(
+                summary,
+                "implicit_mean_last_returned_outer_flight_time_mean_s",
+            )
+        ),
+        implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2=(
+            _parse_optional_nonnegative_finite_float(
+                summary,
+                "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2",
+            )
         ),
         coupling_outer_queue_enabled=outer_queue_enabled,
         outer_photoelectron_population_fraction=_parse_optional_nonnegative_finite_float(
@@ -259,6 +276,18 @@ def _validate_outer_queue_summary_contract(
         joined = ", ".join(present)
         raise ValueError(
             "summary.txt coupling_outer_queue_enabled=false forbids " + joined + "."
+        )
+
+
+def _validate_implicit_mean_shadow_summary_contract(data: dict[str, str]) -> None:
+    present = [key for key in _IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS if key in data]
+    if present and len(present) != len(_IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS):
+        missing = [
+            key for key in _IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS if key not in data
+        ]
+        raise ValueError(
+            "summary.txt implicit_mean shadow diagnostics must appear together; "
+            "missing " + ", ".join(missing) + "."
         )
 
 

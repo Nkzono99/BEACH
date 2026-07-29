@@ -13,11 +13,13 @@ contains
   !! @param[in] m 粒子質量配列 `m(n)` [kg]。
   !! @param[in] w マクロ粒子重み配列 `w(n)`（省略時は1）。
   !! @param[in] species_id 粒子種ID `species_id(n)`（省略時は0）。
-  subroutine init_particles(pcls, x, v, q, m, w, species_id)
+  !! @param[in] source_element 表面放出元要素 `source_element(n)`（省略時は-1）。
+  subroutine init_particles(pcls, x, v, q, m, w, species_id, source_element)
     type(particles_soa), intent(out) :: pcls
     real(dp), intent(in) :: x(:, :), v(:, :), q(:), m(:)
     real(dp), intent(in), optional :: w(:)
     integer(i32), intent(in), optional :: species_id(:)
+    integer(i32), intent(in), optional :: source_element(:)
     integer(i32) :: n
 
     n = size(q)
@@ -29,7 +31,10 @@ contains
     end if
 
     pcls%n = n
-    allocate (pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), pcls%species_id(n), pcls%alive(n))
+    allocate ( &
+      pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), &
+      pcls%species_id(n), pcls%source_element(n), pcls%alive(n) &
+      )
     pcls%x = x
     pcls%v = v
     pcls%q = q
@@ -46,16 +51,23 @@ contains
     else
       pcls%species_id = 0_i32
     end if
+    if (present(source_element)) then
+      if (size(source_element) /= n) error stop "source_element size mismatch"
+      pcls%source_element = source_element
+    else
+      pcls%source_element = -1_i32
+    end if
     pcls%alive = .true.
   end subroutine init_particles
 
   !> 既存 SoA の末尾へ粒子群を追加し、既存の alive 状態を保持する。
-  subroutine append_particles(pcls, x, v, q, m, w, species_id)
+  subroutine append_particles(pcls, x, v, q, m, w, species_id, source_element)
     type(particles_soa), intent(inout) :: pcls
     real(dp), intent(in) :: x(:, :), v(:, :), q(:), m(:), w(:)
     integer(i32), intent(in) :: species_id(:)
+    integer(i32), intent(in), optional :: source_element(:)
     real(dp), allocatable :: grown_x(:, :), grown_v(:, :), grown_q(:), grown_m(:), grown_w(:)
-    integer(i32), allocatable :: grown_species_id(:)
+    integer(i32), allocatable :: grown_species_id(:), grown_source_element(:)
     logical, allocatable :: grown_alive(:)
     integer(i32) :: old_count, added_count, new_count
 
@@ -66,6 +78,9 @@ contains
         size(m) /= added_count .or. size(w) /= added_count .or. size(species_id) /= added_count) then
       error stop 'particle append size mismatch'
     end if
+    if (present(source_element)) then
+      if (size(source_element) /= added_count) error stop 'particle append source_element size mismatch'
+    end if
     if (added_count == 0_i32) return
     if (old_count < 0_i32 .or. old_count > huge(0_i32) - added_count) then
       error stop 'particle append count overflow'
@@ -73,12 +88,14 @@ contains
     if (old_count > 0_i32) then
       if (.not. allocated(pcls%x) .or. .not. allocated(pcls%v) .or. .not. allocated(pcls%q) .or. &
           .not. allocated(pcls%m) .or. .not. allocated(pcls%w) .or. .not. allocated(pcls%species_id) .or. &
-          .not. allocated(pcls%alive)) error stop 'particle append requires a complete existing SoA'
+          .not. allocated(pcls%source_element) .or. .not. allocated(pcls%alive)) then
+        error stop 'particle append requires a complete existing SoA'
+      end if
     end if
 
     new_count = old_count + added_count
     allocate (grown_x(3, new_count), grown_v(3, new_count), grown_q(new_count), grown_m(new_count), &
-              grown_w(new_count), grown_species_id(new_count), grown_alive(new_count))
+              grown_w(new_count), grown_species_id(new_count), grown_source_element(new_count), grown_alive(new_count))
     if (old_count > 0_i32) then
       grown_x(:, :old_count) = pcls%x
       grown_v(:, :old_count) = pcls%v
@@ -86,6 +103,7 @@ contains
       grown_m(:old_count) = pcls%m
       grown_w(:old_count) = pcls%w
       grown_species_id(:old_count) = pcls%species_id
+      grown_source_element(:old_count) = pcls%source_element
       grown_alive(:old_count) = pcls%alive
     end if
     grown_x(:, old_count + 1:new_count) = x
@@ -94,6 +112,11 @@ contains
     grown_m(old_count + 1:new_count) = m
     grown_w(old_count + 1:new_count) = w
     grown_species_id(old_count + 1:new_count) = species_id
+    if (present(source_element)) then
+      grown_source_element(old_count + 1:new_count) = source_element
+    else
+      grown_source_element(old_count + 1:new_count) = -1_i32
+    end if
     grown_alive(old_count + 1:new_count) = .true.
 
     call move_alloc(grown_x, pcls%x)
@@ -102,6 +125,7 @@ contains
     call move_alloc(grown_m, pcls%m)
     call move_alloc(grown_w, pcls%w)
     call move_alloc(grown_species_id, pcls%species_id)
+    call move_alloc(grown_source_element, pcls%source_element)
     call move_alloc(grown_alive, pcls%alive)
     pcls%n = new_count
   end subroutine append_particles

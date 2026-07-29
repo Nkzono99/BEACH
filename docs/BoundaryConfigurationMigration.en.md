@@ -75,7 +75,7 @@ See [ADR 0010](adr/0010-remove-unified-linear-response.md) for the removal ratio
 | `outer_plasma.return_model` | Omit; derived from the field and particle mode |
 | `coupling.particle_transfer_mode` | Omit; derived from `particles.mode` |
 | `coupling.outer_queue_enabled` | Omit; derived from `particles.mode="zhao_queue"` |
-| `coupling.update_mode` | Omit; current runtime is fixed to `explicit` |
+| `coupling.update_mode` | Omit; normally `explicit`, while `ambient_linear_debye + same_batch + photo_raycast` automatically derives internal `implicit_mean` |
 | `outer_plasma.interface_z` | Omit; derived from `sim.box_max[2]` |
 
 ## Scalar Inflow and Ordinary Open Faces

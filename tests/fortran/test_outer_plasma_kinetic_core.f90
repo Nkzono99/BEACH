@@ -187,13 +187,14 @@ program test_outer_plasma_kinetic_core
   call eval_kinetic_current_balance( &
     electron_absorption_flux=4.0_dp, ion_absorption_flux=1.0_dp, photoelectron_emission_flux=2.0_dp, &
     photoelectron_escape_fraction=0.25_dp, electron_charge=-ev, ion_charge=ev, &
+    photoelectron_charge=-0.5_dp*ev, &
     external_current_density=0.5_dp*ev, electron_current=electron_current, ion_current=ion_current, &
     photoelectron_current=photo_current, total_current=total_current &
     )
   call assert_close_dp(electron_current, -4.0_dp*ev, 1.0e-32_dp, 'electron current mismatch')
   call assert_close_dp(ion_current, ev, 1.0e-32_dp, 'ion current mismatch')
-  call assert_close_dp(photo_current, 0.5_dp*ev, 1.0e-32_dp, 'photoelectron escape current mismatch')
-  call assert_close_dp(total_current, -2.0_dp*ev, 1.0e-32_dp, 'total current mismatch')
+  call assert_close_dp(photo_current, 0.25_dp*ev, 1.0e-32_dp, 'photoelectron escape current mismatch')
+  call assert_close_dp(total_current, -2.25_dp*ev, 1.0e-32_dp, 'total current mismatch')
   call test_end()
 
   call test_summary()

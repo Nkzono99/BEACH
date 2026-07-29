@@ -311,15 +311,33 @@ event count、signed charge、fingerprintが一致しないcheckpointをfail clo
 
 ### outer flight中にfieldを固定できるか検査する
 
-instant modeではsnapshotの有効性を
+通常の instant 粒子では snapshot の有効性を
 
 $$
 \epsilon_\mathrm{ad}
 =\frac{\tau_\mathrm{outer}}{\texttt{field\_evolution\_timescale}}
 $$
 
-で評価し、`max_frozen_field_ratio`以下を要求します。$\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$では、
+で評価し、`max_frozen_field_ratio`以下を要求します。`implicit_mean` の deferred PE は、scalar closure が決めた
+return 総量の軌道・着地点を標本化する準定常 shadow です。同じ $\epsilon_\mathrm{ad}$ を診断へ残しますが、
+上限超過を停止条件にしません。通常の `same_batch` 粒子と ambient species の fail-closed 判定は変わりません。
+
+`implicit_mean` のうち Zhao closure は、ambient linear-Debye closure の一様な
+`return_weight_scale`を使いません。batch開始場でz-highへ初回到達した光電子から、法線運動energyと符号付きmacro電荷を
+集めます。そのcharge-weighted実測CDFと、Zhao profile全体から得るvirtual cathodeを含む障壁を用いて、
+$Q(\Phi_I)$を非線形に解きます。各energy群のreturn重みをその解から直接決め、同じ受理profileでouter軌道と
+局所領域への帰還先を1回だけ追跡します。
+
+この写像では、各deferred rayの外向きinterface通過が1回、return通過が高々1回であることを要求します。
+正のreturn重みを持つrayはsurfaceへ再吸収されなければならず、return重みが0の非境界rayはreservoir escapeで
+終端しなければなりません。再越境や終端channel不一致が有意なchargeを持つ場合、他rayへ重みを付け替えずfail closedで
+停止します。障壁と一致するmarginal energy群だけは、1本の代表rayをreturn側に置いたままescape fraction $f$ と
+return fraction $1-f$へ統計的に分割します。これは粒子軌道を途中で分岐させる操作ではありません。
+
+$\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$では、
 十分に定常化した長時間平均は使えますが、batchごとのreturn currentは正しい時間変化を表しません。
+特に `implicit_mean` は UV turn-on の delayed return current や batch 間 outer inventory を解きません。
+それらには、この closure に対応する delayed inventory / queue が別途必要です。
 
 Zhao queue modeでも`field_evolution_timescale`と`max_frozen_field_ratio`は正値を要求します。eventはbatch開始時だけ
 releaseされるため、$t_{due}$から最初のbatch-start pollまでの量子化遅延$\delta_{poll}$と、batch内crossing時刻の
@@ -346,7 +364,7 @@ $$
 species別に`interface_outward_gross`、`interface_returned_gross`、`escaped_to_infinity`を区別します。さらに、最大
 `outer_flight_time`、frozen-field ratio、kinetic 1D return / escape写像の
 `max_outer_energy_relative_error`を出力します。最後の値は法線運動エネルギーと静電エネルギーの保存残差を規格化した
-診断です。
+診断です。`implicit_mean` PE shadow の ratio は設定上限を超え得ますが、それ自体は停止理由ではありません。
 
 Zhao queue modeでは`summary.txt`の`outer_photoelectron_population_fraction`、
 `outer_photoelectron_column_per_area_m2`、`outer_photoelectron_column_target_per_area_m2`、
