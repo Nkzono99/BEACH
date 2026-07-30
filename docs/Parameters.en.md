@@ -917,6 +917,26 @@ used depend on `source_mode`.
 | `temperature_ev` | float | unspecified | Temperature [eV]. Mutually exclusive with `temperature_k` |
 | `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
 | `inject_face` | string | unspecified | Injection face. Required for `reservoir_face` / `photo_raycast` |
+| `z_high_boundary` | string | `"inherit"` | Per-species z-high action. `inherit` / `reflect` |
+| `surface_charge_closure` | string | `"explicit"` | Surface-source charge closure. `explicit` / `neutral_return` |
+
+`z_high_boundary="reflect"` applies local specular reflection by reversing the
+normal velocity only when that species reaches z-high. Other species inherit the
+global boundary contract. This override requires `sim.use_box=true`,
+`sim.bc_z_high="open"`, and no outer particle transfer. `inject_face` selects the
+particle-source or illumination-ray face; it is separate from the post-creation
+`z_high_boundary` action.
+
+`surface_charge_closure="neutral_return"` is accepted only for a negative
+`photo_raycast` species with `deposit_opposite_charge_on_emit=true` and
+`z_high_boundary="reflect"`. It scales resolved return deposits by one global
+species factor so the photoelectron contribution to total surface charge is
+zero.
+
+It cannot be combined with outer particle transfer, `implicit_mean`, actual
+escape, or `soft_discard`. The default `"explicit"` commits ordinary tracked
+charge without this closure. BEACH stops without correction when the unresolved
+fraction exceeds the fixed 5% limit.
 
 #### `source_mode = "volume_seed"`
 
@@ -1025,9 +1045,13 @@ periodic image is hit.
 
 Each emitted photoelectron uses `w_hit` as its weight and is tracked as an
 ordinary particle. Surface return is absorbed as an ordinary collision.
-`external_boundary.ordinary_open.model` controls ordinary open faces, while
-transport resolved from `external_boundary.particles.mode` controls return or
-escape at the z-high interface.
+
+With
+`z_high_boundary="inherit"`, `external_boundary.ordinary_open.model` controls
+ordinary open faces, while transport resolved from
+`external_boundary.particles.mode` controls return or escape at the z-high
+interface. `"reflect"` instead applies local specular reflection only at z-high
+and cannot be combined with outer particle transfer.
 
 ---
 
@@ -1254,7 +1278,7 @@ Use `outward_closed` only for consistently oriented, closed two-manifold compone
 |---|---|---:|---|
 | `write_files` | bool | `true` | Enable/disable file output |
 | `write_mesh_potential` | bool | `false` | Output `mesh_potential.csv` |
-| `write_potential_history` | bool | `false` | Output `potential_history.csv` |
+| `write_potential_history` | bool | `false` | Output `potential_history.csv`; with `use_box=true`, also output same-batch `top_reference_history.csv` |
 | `dir` | string | `"outputs/latest"` | Output directory |
 | `history_stride` | int | `1` | Output interval for history CSV [batch] |
 | `resume` | bool | `false` | Resume from an existing checkpoint |
@@ -1273,6 +1297,7 @@ Output files:
 | `mesh_potential.csv` | When `write_mesh_potential=true` |
 | `charge_history.csv` | When `history_stride > 0` |
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |
+| `top_reference_history.csv` | Above plus `sim.use_box=true`; mean, standard deviation, minimum, and maximum potential across the full z-high face |
 | `performance_profile.csv` | When `BEACH_PROFILE=1` |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | Serial or MPI rank-local random-number state |
 | `macro_residuals.csv` | One MPI-global macro-particle residual file |
@@ -1308,6 +1333,13 @@ Evaluation rules for `mesh_potential.csv`:
 - Write `batch, elem_idx, potential_V`.
 - Run `field_solver%refresh` and `compute_mesh_potential` for each history output, which increases computational cost.
 
+`top_reference_history.csv`:
+
+- Uses the same post-commit snapshot and batch as `potential_history.csv`.
+- Writes `batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`.
+- Uses a cell-centered grid over the full box z-high face with `sample_n=sim.injection_face_phi_grid_n`.
+- Records a relative-potential diagnostic, not infinity or plasma potential.
+
 Requirements for `resume=true`:
 
 | Condition | Details |
@@ -1333,10 +1365,11 @@ Resume consistency rules:
 
 - Reject checkpoints with legacy `macro_residuals_rankNNNNN.csv` instead of converting them implicitly.
 - Match `mpi_world_size` in `summary.txt` to the current rank count.
-- Schema v2/v3/v4 requires matching model, ordered-mesh, and ordered-species fingerprints.
+- Schema v2/v3/v4/v5 requires matching model, ordered-mesh, and ordered-species fingerprints.
 - Schema v3 outer profiles require `field_V_m` and `charge_density_C_m3`.
 - A schema-v4 queue resume stops unless the transient Zhao state, queue-file schema 2, rank, world size, completed batch,
   global count, signed charge, and all-rank queue fingerprint match.
+- Schema v5 restores neutral-return correction, scale, and unresolved fraction from `charge_ledger.csv`.
 - `[[particles.species]].species_key` is stable. Omission yields `species_<1-based index>`; explicit values must be unique.
 
 ---

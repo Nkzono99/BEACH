@@ -234,6 +234,9 @@ class ChargeLedgerEntry:
     absorbed_count: int
     escaped_count: int
     discarded_unresolved_count: int
+    neutral_return_correction_c: float = 0.0
+    neutral_return_weight_scale: float = 1.0
+    neutral_return_unresolved_fraction: float = 0.0
 
 
 @dataclass(frozen=True)

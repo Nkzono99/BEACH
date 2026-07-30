@@ -1,5 +1,7 @@
 !> `bem_simulator` の進捗表示と履歴出力を実装する submodule。
 submodule(bem_simulator) bem_simulator_io
+  use bem_app_config_runtime, only: compute_z_high_box_potential_statistics
+  use bem_output_writer, only: write_top_reference_history_snapshot
   implicit none
 contains
 
@@ -29,11 +31,22 @@ contains
 
   !> 電位履歴出力条件を満たすバッチだけ電位スナップショットを書き出す。
   module procedure maybe_write_potential_history_snapshot
+  real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
+
   if (.not. potential_history_enabled) return
   if (mod(stats%batches - 1_i32, hist_stride) /= 0_i32) return
   call snapshot%refresh(mesh, update_outer=.false.)
   call snapshot%compute_mesh_potential(mesh, sim, potential_buf)
   call write_potential_history_snapshot(pot_hist_unit, stats%batches, potential_buf)
+  if (top_reference_history_enabled) then
+    call compute_z_high_box_potential_statistics( &
+      mesh, sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+      )
+    call write_top_reference_history_snapshot( &
+      top_reference_history_unit, stats%batches, stats%simulated_time, sim%box_max(3), &
+      sim%injection_face_phi_grid_n, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+      )
+  end if
   end procedure maybe_write_potential_history_snapshot
 
   !> 全要素電位を電位履歴CSV形式で1バッチ分書き出す。

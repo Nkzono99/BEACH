@@ -1025,9 +1025,11 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     (out / "charge_ledger.csv").write_text(
         "batch,species_idx,injected_from_remote_C,emitted_from_surface_C,"
         "absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,"
-        "interface_outward_gross_C,interface_returned_gross_C,injected_count,"
+        "interface_outward_gross_C,interface_returned_gross_C,"
+        "neutral_return_correction_C,neutral_return_weight_scale,"
+        "neutral_return_unresolved_fraction,injected_count,"
         "emitted_count,absorbed_count,escaped_count,discarded_unresolved_count\n"
-        "1,1,-3,0,-2,-1,0,0,0,3,0,2,1,0\n",
+        "1,1,-3,0,-2,-1,-0.1,0,0,-0.1,1.05,0.05,3,0,2,1,1\n",
         encoding="utf-8",
     )
 
@@ -1042,6 +1044,11 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.charge_ledger[0].species_idx == 1
     assert result.charge_ledger[0].injected_from_remote_c == pytest.approx(-3.0)
     assert result.charge_ledger[0].escaped_count == 1
+    assert result.charge_ledger[0].neutral_return_correction_c == pytest.approx(-0.1)
+    assert result.charge_ledger[0].neutral_return_weight_scale == pytest.approx(1.05)
+    assert result.charge_ledger[0].neutral_return_unresolved_fraction == pytest.approx(
+        0.05
+    )
     assert result.periodic2_cache_hit is True
     assert result.periodic2_operator_build_count == 0
     assert result.periodic2_cache_fingerprint == "ABCDEF0123456789"

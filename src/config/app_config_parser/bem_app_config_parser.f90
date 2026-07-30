@@ -1081,6 +1081,14 @@ contains
       case ('inject_face')
         call get_toml_string(table, keys(ikey), spec%inject_face, 'particles.species.inject_face')
         spec%inject_face = lower_ascii(trim(spec%inject_face))
+      case ('z_high_boundary')
+        call get_toml_string(table, keys(ikey), spec%z_high_boundary, 'particles.species.z_high_boundary')
+        spec%z_high_boundary = lower_ascii(trim(spec%z_high_boundary))
+      case ('surface_charge_closure')
+        call get_toml_string( &
+          table, keys(ikey), spec%surface_charge_closure, 'particles.species.surface_charge_closure' &
+          )
+        spec%surface_charge_closure = lower_ascii(trim(spec%surface_charge_closure))
       case ('inject_region_mode')
         call get_toml_string(table, keys(ikey), auth%inject_region_mode, 'particles.species.inject_region_mode')
         auth%inject_region_mode = lower_ascii(trim(auth%inject_region_mode))

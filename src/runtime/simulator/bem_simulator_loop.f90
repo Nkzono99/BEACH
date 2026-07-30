@@ -1,6 +1,7 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
+  use bem_app_config_runtime, only: compute_z_high_box_potential_statistics
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
@@ -8,6 +9,8 @@ submodule(bem_simulator) bem_simulator_loop
                                      perf_region_particle_batch, perf_region_prepare_batch, perf_region_simulation_total, &
                                      perf_region_stats_update
   implicit none
+  ! neutral_return は、少数の長寿命粒子だけを解決済み帰還分布へ繰り込む近似である。
+  real(dp), parameter :: neutral_return_max_unresolved_fraction = 0.05_dp
 contains
 
   !> 吸着モデルのバッチループを実行し、電荷更新と統計集計を進める。
@@ -30,7 +33,9 @@ contains
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled
   logical :: potential_history_enabled
+  logical :: top_reference_history_enabled
   integer :: pot_hist_unit
+  integer :: top_ref_hist_unit
 !$ integer(kind=omp_sched_kind) :: previous_omp_schedule
 !$ integer :: previous_omp_schedule_chunk
 !$ logical :: previous_omp_dynamic
@@ -77,6 +82,7 @@ contains
   real(dp) :: tracked_photoelectron_outward_current_density
   real(dp) :: mean_sample_escape_fraction, mean_return_weight_scale
   real(dp) :: mean_sampled_deferred_absorbed_charge, mean_sampled_deferred_escaped_charge
+  real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
   logical :: implicit_mean_enabled, adaptive_nonzero_mode, trial_accepted
   logical :: implicit_mean_retryable_failure
   logical :: restored_outer_snapshot
@@ -247,6 +253,12 @@ contains
   if (potential_history_enabled) then
     pot_hist_unit = potential_history_unit
     allocate (potential_buf(mesh%nelem))
+  end if
+  top_reference_history_enabled = present(top_reference_history_unit)
+  top_ref_hist_unit = -1
+  if (top_reference_history_enabled) then
+    top_ref_hist_unit = top_reference_history_unit
+    top_reference_history_enabled = top_ref_hist_unit /= -1
   end if
   bfield = app%sim%b0
   final_batch_idx = app%sim%batch_count
@@ -434,7 +446,7 @@ contains
       call perf_region_begin(perf_region_particle_batch, t0)
       call process_particle_batch( &
         mesh, trial_app, boundary_contract, snapshot, pcls_batch, workspace%dq_thread, workspace%escaped_boundary_flag, &
-        workspace%absorbed_flag, bfield, batch_idx, mpi_ctx%rank, &
+        workspace%absorbed_flag, workspace%absorbed_element, bfield, batch_idx, mpi_ctx%rank, &
         workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, workspace%outer_event_staging, &
         workspace%deferred_mean_interface_flag, workspace%deferred_mean_interface_step, &
         workspace%deferred_mean_interface_crossing, &
@@ -529,6 +541,10 @@ contains
         end if
       end if
 
+      call apply_neutral_return_surface_closure( &
+        trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
+        )
+
       if (implicit_mean_retryable_failure) then
         trial_accepted = .false.
       else if (adaptive_nonzero_mode) then
@@ -609,6 +625,11 @@ contains
         workspace%soft_discarded_boundary_flag, workspace%queued_outer_flag, batch_ledger &
         )
       call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx, workspace)
+      ! neutral_return diagnostics are already MPI-global.  Assign them after the
+      ! rank-local flux reduction so they are neither summed nor rank-multiplied.
+      batch_ledger%neutral_return_correction = workspace%neutral_return_correction
+      batch_ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
+      batch_ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
       if (implicit_mean_enabled) then
         call reconcile_implicit_mean_charge_ledger( &
           trial_app, dynamic_k0_step, dynamic_k0_area_xy, trial_batch_duration, &
@@ -743,12 +764,33 @@ contains
           ' eta=', snapshot%outer%photoelectron_population_fraction, ' branch=', snapshot%outer%zhao_branch, &
           ' column_residual_m-2=', snapshot%outer%photoelectron_column_residual_per_area
       end if
+      if (batch_idx <= 10_i32 .or. mod(batch_idx, hist_stride) == 0_i32 .or. &
+          batch_idx == final_batch_idx) then
+        do species_idx = 1_i32, trial_app%n_particle_species
+          if (.not. trial_app%particle_species(species_idx)%enabled) cycle
+          if (trim(lower_ascii(trial_app%particle_species(species_idx)%surface_charge_closure)) /= &
+              'neutral_return') cycle
+          write (output_unit, '(a,i0,a,i0,6(a,es13.5))') &
+            'BEACH neutral-return batch=', batch_idx, ' species=', species_idx, &
+            ' emitted_charge_C=', workspace%neutral_return_emitted_charge(species_idx), &
+            ' absorbed_charge_C=', workspace%neutral_return_absorbed_charge(species_idx), &
+            ' unresolved_charge_C=', workspace%neutral_return_unresolved_charge(species_idx), &
+            ' weight_scale=', workspace%neutral_return_weight_scale(species_idx), &
+            ' unresolved_fraction=', workspace%neutral_return_unresolved_fraction(species_idx), &
+            ' correction_C=', workspace%neutral_return_correction(species_idx)
+          if (workspace%neutral_return_weight_scale(species_idx) > 1.05_dp) then
+            write (error_unit, '(a,i0,a,i0,2(a,es13.5))') &
+              'BEACH neutral-return warning: batch=', batch_idx, ' species=', species_idx, &
+              ' weight_scale=', workspace%neutral_return_weight_scale(species_idx), &
+              ' unresolved_fraction=', workspace%neutral_return_unresolved_fraction(species_idx)
+          end if
+        end do
+      end if
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (potential_history_enabled) then
-        call snapshot%refresh(mesh, update_outer=.false.)
         call maybe_write_potential_history_snapshot( &
           potential_history_enabled, pot_hist_unit, hist_stride, stats, &
-          snapshot, mesh, app%sim, potential_buf &
+          snapshot, mesh, app%sim, potential_buf, top_reference_history_enabled, top_ref_hist_unit &
           )
       end if
     end if
@@ -815,6 +857,21 @@ contains
       electrostatic_diagnostics%outer_queue_signed_charge = outer_queue_charge_after
       electrostatic_diagnostics%outer_queue_fingerprint = outer_queue_fingerprint
     end if
+    if ((app%write_mesh_potential .or. app%write_potential_history) .and. &
+        app%sim%use_box .and. mpi_is_root(mpi_ctx)) then
+      call compute_z_high_box_potential_statistics( &
+        mesh, app%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+        )
+      electrostatic_diagnostics%top_reference_available = .true.
+      electrostatic_diagnostics%top_reference_last_batch = stats%batches
+      electrostatic_diagnostics%top_reference_simulated_time = stats%simulated_time
+      electrostatic_diagnostics%top_reference_z_high = app%sim%box_max(3)
+      electrostatic_diagnostics%top_reference_sample_n = app%sim%injection_face_phi_grid_n
+      electrostatic_diagnostics%top_reference_potential_mean = top_phi_mean
+      electrostatic_diagnostics%top_reference_potential_std = top_phi_std
+      electrostatic_diagnostics%top_reference_potential_min = top_phi_min
+      electrostatic_diagnostics%top_reference_potential_max = top_phi_max
+    end if
   end if
   if (present(electrostatic_restart_state)) then
     call snapshot%export_restart_state(outer_coupler%last_outer_update_batch, electrostatic_restart_state)
@@ -870,6 +927,7 @@ contains
   type(particle_step_result) :: step_result
   type(particle_step_result) :: external_final_result
   type(external_step_trace_type) :: external_trace
+  type(sim_config) :: particle_sim
   logical :: has_warn_stride, collision_failed, candidate_inside, used_event_resolver
   integer(i32) :: species_idx, external_event
 
@@ -889,6 +947,7 @@ contains
 
   !$omp parallel default(none) &
   !$omp shared(mesh,pcls_batch,app,boundary_contract,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
+  !$omp shared(absorbed_element) &
   !$omp shared(soft_discarded_boundary_flag,queued_outer_flag,outer_event_staging) &
   !$omp shared(deferred_mean_interface_flag,deferred_mean_interface_step,deferred_mean_interface_crossing) &
   !$omp shared(interface_outward_thread,interface_returned_thread) &
@@ -896,7 +955,7 @@ contains
   !$omp shared(interface_energy_error_max_thread) &
   !$omp shared(warn_stride,batch_idx,mpi_rank,collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
-  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,external_final_result,external_trace,tid,qdep,species_idx) &
+  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,external_final_result,external_trace,particle_sim,tid,qdep,species_idx) &
   !$omp private(external_event) &
   !$omp private(collision_status,collision_failed,candidate_inside,used_event_resolver)
   ! スレッドごとに dq_thread(:, tid) を使って原子的更新なしで電荷を集める。
@@ -905,12 +964,17 @@ contains
   !$omp do schedule(runtime)
   do i = 1, pcls_batch%n
     if (.not. pcls_batch%alive(i)) cycle
+    species_idx = pcls_batch%species_id(i)
+    particle_sim = app%sim
+    if (trim(lower_ascii(app%particle_species(species_idx)%z_high_boundary)) == 'reflect') then
+      particle_sim%bc_high(3) = bc_reflect
+    end if
     collision_failed = .false.
     do step = 1, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
       call build_particle_step_candidate( &
-        mesh, app%sim, snapshot, bfield, x0, v0, &
+        mesh, particle_sim, snapshot, bfield, x0, v0, &
         pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1 &
         )
       if (.not. all(ieee_is_finite(x1)) .or. .not. all(ieee_is_finite(v1))) then
@@ -927,14 +991,14 @@ contains
         collision_failed = .true.
         exit
       end if
-      call find_first_hit(mesh, x0, x1, hit, sim=app%sim, status=collision_status)
-      candidate_inside = .not. app%sim%use_box .or. &
-                         (all(x1 > app%sim%box_min) .and. all(x1 < app%sim%box_max))
+      call find_first_hit(mesh, x0, x1, hit, sim=particle_sim, status=collision_status)
+      candidate_inside = .not. particle_sim%use_box .or. &
+                         (all(x1 > particle_sim%box_min) .and. all(x1 < particle_sim%box_max))
       used_event_resolver = .false.
       if (collision_status /= collision_query_ok) then
         if (.not. candidate_inside) then
           call resolve_particle_boundary_candidate( &
-            mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
+            mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
             result=step_result, boundary_contract=boundary_contract &
             )
           used_event_resolver = .true.
@@ -958,20 +1022,20 @@ contains
           dq_thread(hit%elem_idx, tid) = dq_thread(hit%elem_idx, tid) + qdep
           pcls_batch%alive(i) = .false.
           absorbed_flag(i) = .true.
+          absorbed_element(i) = hit%elem_idx
           exit
         end if
         pcls_batch%x(:, i) = x1
         pcls_batch%v(:, i) = v1
       else
         call resolve_particle_boundary_candidate( &
-          mesh, app%sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
+          mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
           hit=hit, result=step_result, boundary_contract=boundary_contract &
           )
         used_event_resolver = .true.
       end if
       if (used_event_resolver) then
         if (step_result%interface_crossing%has_crossing) then
-          species_idx = pcls_batch%species_id(i)
           qdep = pcls_batch%q(i)*pcls_batch%w(i)
           if (trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean' .and. &
               trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast' .and. &
@@ -1064,6 +1128,7 @@ contains
           dq_thread(step_result%elem_idx, tid) = dq_thread(step_result%elem_idx, tid) + qdep
           pcls_batch%alive(i) = .false.
           absorbed_flag(i) = .true.
+          absorbed_element(i) = step_result%elem_idx
           exit
         end if
         if (step_result%escaped_boundary) then
@@ -2092,6 +2157,238 @@ contains
     workspace%charge_candidate_ready = .true.
   end subroutine prepare_adaptive_charge_candidate
 
+  !> unresolved な全反射 photoelectron を、resolved return の一様な重み補正へ閉じ込める。
+  !!
+  !! `neutral_return` は正味 photoelectron 表面電荷増分をゼロにする閉包であり、
+  !! 実際の吸収位置が与える空間再分配を保持する。異なる高さの面へ移る電荷が作る
+  !! plane-averaged dipole までは除去しない。max-step survivor の電荷を resolved
+  !! absorption に species ごとに比例配分し、escape/outer transfer/soft discard は
+  !! 物理的に別の終端なので補正せず停止する。
+  subroutine apply_neutral_return_surface_closure(app, pcls_batch, fresh_particle_count, workspace, mpi)
+    type(app_config), intent(in) :: app
+    type(particles_soa), intent(in) :: pcls_batch
+    integer(i32), intent(in) :: fresh_particle_count
+    type(simulator_batch_workspace_type), intent(inout) :: workspace
+    type(mpi_context), intent(in) :: mpi
+    integer(i32) :: i, species_idx, elem_idx, n, terminal_count
+    integer(i64) :: escaped_count, soft_count, invalid_count
+    real(dp) :: macro_charge, emitted_charge, absorbed_charge, unresolved_charge
+    real(dp) :: escaped_charge, soft_charge, invalid_charge
+    real(dp) :: charge_scale, charge_tolerance, balance_tolerance
+    real(dp) :: weight_scale, correction_charge, unresolved_fraction
+    logical :: has_neutral_return
+    character(len=512) :: message
+
+    if (fresh_particle_count < 0_i32 .or. fresh_particle_count > pcls_batch%n) then
+      error stop 'neutral_return received an invalid fresh particle count.'
+    end if
+    n = app%n_particle_species
+    if (n < 1_i32 .or. &
+        size(workspace%neutral_return_charge_values) /= 6*n .or. &
+        size(workspace%neutral_return_terminal_counts) /= 3*n .or. &
+        size(workspace%neutral_return_emitted_charge) /= n .or. &
+        size(workspace%neutral_return_absorbed_charge) /= n .or. &
+        size(workspace%neutral_return_unresolved_charge) /= n .or. &
+        size(workspace%neutral_return_weight_scale) /= n .or. &
+        size(workspace%neutral_return_correction) /= n .or. &
+        size(workspace%neutral_return_unresolved_fraction) /= n) then
+      error stop 'neutral_return workspace dimensions are inconsistent.'
+    end if
+
+    has_neutral_return = .false.
+    do species_idx = 1_i32, n
+      if (.not. app%particle_species(species_idx)%enabled) cycle
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == &
+          'neutral_return') then
+        has_neutral_return = .true.
+        if (trim(lower_ascii(app%particle_species(species_idx)%source_mode)) /= 'photo_raycast' .or. &
+            .not. ieee_is_finite(app%particle_species(species_idx)%q_particle) .or. &
+            app%particle_species(species_idx)%q_particle >= 0.0_dp .or. &
+            .not. app%particle_species(species_idx)%deposit_opposite_charge_on_emit .or. &
+            trim(lower_ascii(app%particle_species(species_idx)%z_high_boundary)) /= 'reflect') then
+          error stop 'neutral_return runtime requires a negative reflected photo_raycast with countercharge deposit.'
+        end if
+      end if
+    end do
+    if (.not. has_neutral_return) return
+    if (.not. app%sim%use_box .or. app%sim%bc_high(3) /= bc_open) then
+      error stop 'neutral_return runtime requires a finite box with global z-high open.'
+    end if
+    if (trim(lower_ascii(app%coupling%particle_transfer_mode)) /= 'none' .or. &
+        app%coupling%outer_queue_enabled .or. &
+        trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean') then
+      error stop 'neutral_return runtime cannot be combined with outer particle transfer or implicit_mean.'
+    end if
+
+    workspace%neutral_return_charge_values = 0.0_dp
+    workspace%neutral_return_terminal_counts = 0_i64
+    do i = 1_i32, pcls_batch%n
+      species_idx = pcls_batch%species_id(i)
+      if (species_idx < 1_i32 .or. species_idx > n) then
+        error stop 'neutral_return encountered an invalid particle species index.'
+      end if
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= &
+          'neutral_return') cycle
+
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      if (.not. ieee_is_finite(macro_charge) .or. macro_charge >= 0.0_dp) then
+        workspace%neutral_return_terminal_counts(2*n + species_idx) = &
+          workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+        cycle
+      end if
+      if (i > fresh_particle_count) then
+        workspace%neutral_return_charge_values(5*n + species_idx) = &
+          workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
+        workspace%neutral_return_terminal_counts(2*n + species_idx) = &
+          workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+        cycle
+      end if
+      workspace%neutral_return_charge_values(species_idx) = &
+        workspace%neutral_return_charge_values(species_idx) + macro_charge
+
+      terminal_count = merge(1_i32, 0_i32, workspace%absorbed_flag(i)) + &
+                       merge(1_i32, 0_i32, workspace%escaped_boundary_flag(i)) + &
+                       merge(1_i32, 0_i32, workspace%soft_discarded_boundary_flag(i)) + &
+                       merge(1_i32, 0_i32, workspace%queued_outer_flag(i)) + &
+                       merge(1_i32, 0_i32, pcls_batch%alive(i))
+      if (terminal_count /= 1_i32) then
+        workspace%neutral_return_charge_values(5*n + species_idx) = &
+          workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
+        workspace%neutral_return_terminal_counts(2*n + species_idx) = &
+          workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+      else if (workspace%absorbed_flag(i)) then
+        elem_idx = workspace%absorbed_element(i)
+        if (elem_idx < 1_i32 .or. elem_idx > size(workspace%dq_thread, 1)) then
+          workspace%neutral_return_charge_values(5*n + species_idx) = &
+            workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
+          workspace%neutral_return_terminal_counts(2*n + species_idx) = &
+            workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+        else
+          workspace%neutral_return_charge_values(n + species_idx) = &
+            workspace%neutral_return_charge_values(n + species_idx) + macro_charge
+        end if
+      else if (workspace%escaped_boundary_flag(i)) then
+        workspace%neutral_return_charge_values(3*n + species_idx) = &
+          workspace%neutral_return_charge_values(3*n + species_idx) + macro_charge
+        workspace%neutral_return_terminal_counts(species_idx) = &
+          workspace%neutral_return_terminal_counts(species_idx) + 1_i64
+      else if (workspace%soft_discarded_boundary_flag(i)) then
+        workspace%neutral_return_charge_values(4*n + species_idx) = &
+          workspace%neutral_return_charge_values(4*n + species_idx) + macro_charge
+        workspace%neutral_return_terminal_counts(n + species_idx) = &
+          workspace%neutral_return_terminal_counts(n + species_idx) + 1_i64
+      else if (workspace%queued_outer_flag(i)) then
+        workspace%neutral_return_charge_values(5*n + species_idx) = &
+          workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
+        workspace%neutral_return_terminal_counts(2*n + species_idx) = &
+          workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+      else
+        workspace%neutral_return_charge_values(2*n + species_idx) = &
+          workspace%neutral_return_charge_values(2*n + species_idx) + macro_charge
+      end if
+    end do
+
+    call mpi_allreduce_sum_real_dp_array(mpi, workspace%neutral_return_charge_values)
+    call mpi_allreduce_sum_i64_array(mpi, workspace%neutral_return_terminal_counts)
+    workspace%neutral_return_emitted_charge = workspace%neutral_return_charge_values(1:n)
+    workspace%neutral_return_absorbed_charge = workspace%neutral_return_charge_values(n + 1:2*n)
+    workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(2*n + 1:3*n)
+
+    do species_idx = 1_i32, n
+      if (.not. app%particle_species(species_idx)%enabled) cycle
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= &
+          'neutral_return') cycle
+      emitted_charge = workspace%neutral_return_emitted_charge(species_idx)
+      absorbed_charge = workspace%neutral_return_absorbed_charge(species_idx)
+      unresolved_charge = workspace%neutral_return_unresolved_charge(species_idx)
+      escaped_charge = workspace%neutral_return_charge_values(3*n + species_idx)
+      soft_charge = workspace%neutral_return_charge_values(4*n + species_idx)
+      invalid_charge = workspace%neutral_return_charge_values(5*n + species_idx)
+      escaped_count = workspace%neutral_return_terminal_counts(species_idx)
+      soft_count = workspace%neutral_return_terminal_counts(n + species_idx)
+      invalid_count = workspace%neutral_return_terminal_counts(2*n + species_idx)
+
+      if (escaped_count > 0_i64 .or. soft_count > 0_i64 .or. invalid_count > 0_i64) then
+        write (message, '(a,i0,3(a,i0),3(a,es13.5))') &
+          'neutral_return has an unsupported terminal outcome for species ', species_idx, &
+          ': escaped_count=', escaped_count, ' soft_count=', soft_count, &
+          ' invalid_or_outer_count=', invalid_count, ' escaped_charge_C=', escaped_charge, &
+          ' soft_charge_C=', soft_charge, ' invalid_or_outer_charge_C=', invalid_charge
+        error stop trim(message)
+      end if
+
+      charge_scale = max( &
+                     abs(emitted_charge), abs(absorbed_charge), abs(unresolved_charge), tiny(1.0_dp) &
+                     )
+      charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*charge_scale
+      balance_tolerance = max(charge_tolerance, sqrt(epsilon(1.0_dp))*charge_scale)
+      if (abs(emitted_charge) <= charge_tolerance) then
+        if (abs(absorbed_charge) > balance_tolerance .or. &
+            abs(unresolved_charge) > balance_tolerance) then
+          write (message, '(a,i0,3(a,es13.5))') &
+            'neutral_return has terminal charge without emitted charge for species ', species_idx, &
+            ': emitted_charge_C=', emitted_charge, ' absorbed_charge_C=', absorbed_charge, &
+            ' unresolved_charge_C=', unresolved_charge
+          error stop trim(message)
+        end if
+        cycle
+      end if
+      if (emitted_charge >= 0.0_dp .or. absorbed_charge >= -charge_tolerance .or. &
+          unresolved_charge > charge_tolerance) then
+        write (message, '(a,i0,3(a,es13.5))') &
+          'neutral_return charge signs or resolved return are invalid for species ', species_idx, &
+          ': emitted_charge_C=', emitted_charge, ' absorbed_charge_C=', absorbed_charge, &
+          ' unresolved_charge_C=', unresolved_charge
+        error stop trim(message)
+      end if
+      if (abs(emitted_charge - absorbed_charge - unresolved_charge) > balance_tolerance) then
+        write (message, '(a,i0,4(a,es13.5))') &
+          'neutral_return particle charge does not close for species ', species_idx, &
+          ': emitted_charge_C=', emitted_charge, ' absorbed_charge_C=', absorbed_charge, &
+          ' unresolved_charge_C=', unresolved_charge, ' tolerance_C=', balance_tolerance
+        error stop trim(message)
+      end if
+
+      weight_scale = emitted_charge/absorbed_charge
+      correction_charge = emitted_charge - absorbed_charge
+      unresolved_fraction = unresolved_charge/emitted_charge
+      if (.not. all(ieee_is_finite([weight_scale, correction_charge, unresolved_fraction])) .or. &
+          weight_scale < 1.0_dp - sqrt(epsilon(1.0_dp)) .or. &
+          unresolved_fraction < -sqrt(epsilon(1.0_dp)) .or. &
+          unresolved_fraction > 1.0_dp + sqrt(epsilon(1.0_dp))) then
+        write (message, '(a,i0,3(a,es13.5))') &
+          'neutral_return derived an invalid correction for species ', species_idx, &
+          ': weight_scale=', weight_scale, ' correction_C=', correction_charge, &
+          ' unresolved_fraction=', unresolved_fraction
+        error stop trim(message)
+      end if
+      if (unresolved_fraction > neutral_return_max_unresolved_fraction + sqrt(epsilon(1.0_dp))) then
+        write (message, '(a,i0,2(a,es13.5))') &
+          'neutral_return unresolved fraction exceeds the fixed 5 percent applicability limit for species ', &
+          species_idx, ': unresolved_fraction=', unresolved_fraction, &
+          ' weight_scale=', weight_scale
+        error stop trim(message)
+      end if
+      workspace%neutral_return_weight_scale(species_idx) = max(1.0_dp, weight_scale)
+      workspace%neutral_return_correction(species_idx) = correction_charge
+      workspace%neutral_return_unresolved_fraction(species_idx) = &
+        min(1.0_dp, max(0.0_dp, unresolved_fraction))
+    end do
+
+    ! Every rank applies the same MPI-global scale to its local resolved deposits.
+    ! The later charge-vector allreduce therefore produces exactly the global correction.
+    do i = 1_i32, fresh_particle_count
+      species_idx = pcls_batch%species_id(i)
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= &
+          'neutral_return') cycle
+      if (.not. workspace%absorbed_flag(i)) cycle
+      elem_idx = workspace%absorbed_element(i)
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
+                                         (workspace%neutral_return_weight_scale(species_idx) - 1.0_dp)*macro_charge
+    end do
+  end subroutine apply_neutral_return_surface_closure
+
   !> batch 初期粒子を remote injection と surface emission に分類する。
   subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)
     type(app_config), intent(in) :: app
@@ -2155,7 +2452,10 @@ contains
     end do
   end subroutine record_batch_outcome_charge
 
-  !> species 別 flux/count だけを MPI-global 値へ集約する。stock は全 rank で同じ mesh state から得る。
+  !> species 別の rank-local flux/count だけを MPI-global 値へ集約する。
+  !!
+  !! neutral_return の correction/scale/fraction は closure 内ですでに全rankへ
+  !! allreduce 済みなので、この 7*nspecies scratch には含めない。
   subroutine reduce_charge_ledger_fluxes(ledger, mpi, workspace)
     type(charge_ledger_type), intent(inout) :: ledger
     type(mpi_context), intent(in) :: mpi

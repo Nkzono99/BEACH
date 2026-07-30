@@ -197,6 +197,14 @@ contains
     call feed_real_vector(hash, spec%ray_direction)
     call feed_logical(hash, spec%has_ray_direction)
     call feed_string(hash, spec%inject_face)
+    if (trim(spec%z_high_boundary) /= 'inherit') then
+      call feed_string(hash, 'z_high_boundary_v1')
+      call feed_string(hash, spec%z_high_boundary)
+    end if
+    if (trim(spec%surface_charge_closure) /= 'explicit') then
+      call feed_string(hash, 'surface_charge_closure_v1')
+      call feed_string(hash, spec%surface_charge_closure)
+    end if
   end subroutine feed_species
 
   subroutine feed_string(hash, value)

@@ -20,6 +20,9 @@ module bem_charge_ledger
     real(dp), allocatable :: absorbed_on_surface(:)
     real(dp), allocatable :: escaped_to_infinity(:)
     real(dp), allocatable :: discarded_unresolved(:)
+    real(dp), allocatable :: neutral_return_correction(:)
+    real(dp), allocatable :: neutral_return_weight_scale(:)
+    real(dp), allocatable :: neutral_return_unresolved_fraction(:)
     real(dp), allocatable :: interface_outward_gross(:)
     real(dp), allocatable :: interface_returned_gross(:)
     integer(i64), allocatable :: injected_count(:)
@@ -52,7 +55,9 @@ contains
       allocate ( &
         self%injected_from_remote(nspecies), self%emitted_from_surface(nspecies), &
         self%absorbed_on_surface(nspecies), self%escaped_to_infinity(nspecies), &
-        self%discarded_unresolved(nspecies), self%interface_outward_gross(nspecies), &
+        self%discarded_unresolved(nspecies), self%neutral_return_correction(nspecies), &
+        self%neutral_return_weight_scale(nspecies), self%neutral_return_unresolved_fraction(nspecies), &
+        self%interface_outward_gross(nspecies), &
         self%interface_returned_gross(nspecies), self%injected_count(nspecies), &
         self%emitted_count(nspecies), self%absorbed_count(nspecies), self%escaped_count(nspecies), &
         self%discarded_unresolved_count(nspecies) &
@@ -83,6 +88,9 @@ contains
     self%absorbed_on_surface = 0.0_dp
     self%escaped_to_infinity = 0.0_dp
     self%discarded_unresolved = 0.0_dp
+    self%neutral_return_correction = 0.0_dp
+    self%neutral_return_weight_scale = 1.0_dp
+    self%neutral_return_unresolved_fraction = 0.0_dp
     self%interface_outward_gross = 0.0_dp
     self%interface_returned_gross = 0.0_dp
     self%injected_count = 0_i64
@@ -101,7 +109,7 @@ contains
                (self%outer_flight_charge_after - self%outer_flight_charge_before) + &
                (self%unresolved_stock_after - self%unresolved_stock_before) - &
                sum(self%injected_from_remote) + sum(self%escaped_to_infinity) + &
-               sum(self%discarded_unresolved)
+               sum(self%discarded_unresolved) - sum(self%neutral_return_correction)
   end function charge_ledger_residual
 
   !> species 間で相殺しない max-step discard charge の絶対値和を返す。
@@ -126,6 +134,7 @@ contains
     type(charge_ledger_type), intent(inout) :: cumulative
     type(charge_ledger_type), intent(in) :: batch
     logical :: first_batch
+    integer(i32) :: species_idx
 
     if (batch%nspecies < 1_i32 .or. .not. allocated(batch%injected_from_remote)) then
       error stop 'cannot accumulate an uninitialized charge ledger.'
@@ -152,6 +161,21 @@ contains
     cumulative%absorbed_on_surface = cumulative%absorbed_on_surface + batch%absorbed_on_surface
     cumulative%escaped_to_infinity = cumulative%escaped_to_infinity + batch%escaped_to_infinity
     cumulative%discarded_unresolved = cumulative%discarded_unresolved + batch%discarded_unresolved
+    cumulative%neutral_return_correction = &
+      cumulative%neutral_return_correction + batch%neutral_return_correction
+    cumulative%neutral_return_weight_scale = 1.0_dp
+    cumulative%neutral_return_unresolved_fraction = 0.0_dp
+    do species_idx = 1_i32, cumulative%nspecies
+      if (cumulative%neutral_return_correction(species_idx) == 0.0_dp) cycle
+      if (cumulative%emitted_from_surface(species_idx) >= 0.0_dp .or. &
+          cumulative%absorbed_on_surface(species_idx) >= 0.0_dp) then
+        error stop 'cumulative neutral-return diagnostics require negative emitted and absorbed charge.'
+      end if
+      cumulative%neutral_return_weight_scale(species_idx) = &
+        cumulative%emitted_from_surface(species_idx)/cumulative%absorbed_on_surface(species_idx)
+      cumulative%neutral_return_unresolved_fraction(species_idx) = &
+        cumulative%discarded_unresolved(species_idx)/cumulative%emitted_from_surface(species_idx)
+    end do
     cumulative%interface_outward_gross = cumulative%interface_outward_gross + batch%interface_outward_gross
     cumulative%interface_returned_gross = cumulative%interface_returned_gross + batch%interface_returned_gross
     cumulative%injected_count = cumulative%injected_count + batch%injected_count
@@ -167,7 +191,9 @@ contains
 
     deallocate ( &
       self%injected_from_remote, self%emitted_from_surface, self%absorbed_on_surface, &
-      self%escaped_to_infinity, self%discarded_unresolved, self%interface_outward_gross, &
+      self%escaped_to_infinity, self%discarded_unresolved, self%neutral_return_correction, &
+      self%neutral_return_weight_scale, self%neutral_return_unresolved_fraction, &
+      self%interface_outward_gross, &
       self%interface_returned_gross, self%injected_count, self%emitted_count, self%absorbed_count, &
       self%escaped_count, self%discarded_unresolved_count &
       )

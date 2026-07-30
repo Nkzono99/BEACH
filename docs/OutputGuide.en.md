@@ -46,6 +46,8 @@ conditions and restart roles.
 | Progress | `batches`, `simulated_time_s`, `last_rel_change` | accepted batches, sum of accepted physical widths, and final-batch charge-change monitor |
 | Adaptive nonzero-mode progression | `periodic2_max_nonzero_mode_potential_step_V`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V`, `adaptive_nonzero_mode_omp_threads` | configured limit, cumulative rejected trials, last accepted width and measured $k\ne0$ potential change, and thread count required for restart |
 | Field evaluation | `field_backend`, `field_source_model`, `field_kernel_id` | field solver and source kernel used for the output |
+| z-high potential reference | `top_reference_available`, `top_reference_definition`, `top_reference_last_batch`, `top_reference_simulated_time_s`, `top_reference_z_high_m`, `top_reference_sample_n`, `top_reference_potential_mean_V`, `top_reference_potential_std_V`, `top_reference_potential_min_V`, `top_reference_potential_max_V` | definition, time, sampling, and full z-high-plane statistics evaluated at the same final state as mesh potential |
+| Photoelectron return closure | `charge_ledger_neutral_return_correction_C` | cumulative effective charge added at resolved return destinations, summed over species |
 | Resolved external boundary | `coupling_update_mode`, `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | update, inflow, ordinary-open handling, z-high transport, and timing resolved from the public configuration |
 
 `absorbed` is an event count; it does not include charge sign or macro-particle weight. Read charge amounts from
@@ -128,6 +130,13 @@ record is itself a convergence criterion; inspect it together with `summary.txt`
 | `discarded_unresolved_C` | charge discarded alive at `max_step` |
 | `interface_outward_gross_C` | gross charge transferred from the local to outer region |
 | `interface_returned_gross_C` | gross charge returned from the outer to local region |
+| `neutral_return_correction_C` | effective charge added by `neutral_return` at resolved return destinations; excluded from raw absorption |
+
+`neutral_return_weight_scale` is the factor applied to resolved return deposits, and
+`neutral_return_unresolved_fraction` is the absolute fraction of emitted charge still unresolved at `max_step`.
+Species without the closure report one and zero, respectively. `absorbed_on_surface_C` and
+`discarded_unresolved_C` remain raw tracked values so the correction can be audited independently.
+The final CSV scale and fraction are recomputed from cumulative raw emitted, absorbed, and unresolved charge for the run.
 
 `injected_count`, `emitted_count`, `absorbed_count`, `escaped_count`, and `discarded_unresolved_count` contain the
 corresponding terminal-event counts. There is no independent count column for interface gross crossings.
@@ -194,9 +203,19 @@ write_potential_history = true
 | --- | --- | --- |
 | `charge_history.csv` | `output.history_stride > 0` | element charge at recorded batches |
 | `potential_history.csv` | above plus `output.write_potential_history = true` | element-centroid potential at recorded batches |
+| `top_reference_history.csv` | above plus `sim.use_box = true` | z-high plane-potential statistics at the same batches |
 
 Accepted batch 1 is always included, followed by every `history_stride`
-accepted batches. Potential history performs another field evaluation
+accepted batches. `top_reference_history.csv` contains
+`batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`.
+Join it to `potential_history.csv` on `batch` and read
+`potential_V - potential_mean_V` as potential relative to the z-high plane. This mean is not infinity or plasma potential.
+
+When resuming an older checkpoint in the same output directory without an
+existing `top_reference_history.csv`, that file starts at the resumed batches.
+Use an inner join over batches present in both histories.
+
+Potential history performs another field evaluation
 when written, so increase `history_stride` to reduce output frequency for large meshes.
 
 See [History Animation](PostprocessTutorial.en.html#history-animation) for plots and animations.
@@ -219,7 +238,7 @@ Detailed acceptance criteria stay with each model page; this table only points t
 
 | Configuration | Main output | Details |
 | --- | --- | --- |
-| finite-image `periodic2` | periodic2 configuration in `summary.txt`, `charges.csv` | [Finite-image Configuration](FinitePeriodicConfiguration.en.html) |
+| finite-image `periodic2` | periodic2 configuration, `charges.csv`, `top_reference_history.csv`, and neutral-return ledger columns | [Finite-image Configuration](FinitePeriodicConfiguration.en.html) |
 | `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [Periodic Far Correction](PeriodicFarCorrection.en.html) |
 | adaptive $k\ne0$ progression | `simulated_time_s`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V` | [`batch_duration` stability and steady value](BatchDurationStability.en.html#adaptive-periodic2-nonzero-mode-progression) |
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [Standard 1-D Kinetic Outer Sheath](KineticOuterPlasma.en.html) |

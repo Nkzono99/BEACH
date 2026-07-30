@@ -271,6 +271,42 @@ contains
     cfg%particle_species(i)%velocity_distribution = lower_ascii(trim(cfg%particle_species(i)%velocity_distribution))
     cfg%particle_species(i)%velocity_grid_pdf_kind = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
     cfg%particle_species(i)%velocity_grid_sampling = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_sampling))
+    cfg%particle_species(i)%z_high_boundary = lower_ascii(trim(cfg%particle_species(i)%z_high_boundary))
+    cfg%particle_species(i)%surface_charge_closure = &
+      lower_ascii(trim(cfg%particle_species(i)%surface_charge_closure))
+    select case (trim(cfg%particle_species(i)%z_high_boundary))
+    case ('inherit')
+      continue
+    case ('reflect')
+      if (.not. cfg%sim%use_box) then
+        error stop 'particles.species.z_high_boundary="reflect" requires sim.use_box=true.'
+      end if
+      if (cfg%sim%bc_high(3) /= bc_open) then
+        error stop 'particles.species.z_high_boundary="reflect" requires sim.bc_z_high="open".'
+      end if
+      if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) /= 'none') then
+        error stop 'particles.species.z_high_boundary="reflect" cannot be combined with outer particle transfer.'
+      end if
+    case default
+      error stop 'particles.species.z_high_boundary must be "inherit" or "reflect".'
+    end select
+    select case (trim(cfg%particle_species(i)%surface_charge_closure))
+    case ('explicit')
+      continue
+    case ('neutral_return')
+      if (trim(cfg%particle_species(i)%source_mode) /= 'photo_raycast' .or. &
+          cfg%particle_species(i)%q_particle >= 0.0_dp) then
+        error stop 'surface_charge_closure="neutral_return" requires a negative photo_raycast species.'
+      end if
+      if (.not. cfg%particle_species(i)%deposit_opposite_charge_on_emit) then
+        error stop 'surface_charge_closure="neutral_return" requires deposit_opposite_charge_on_emit=true.'
+      end if
+      if (trim(cfg%particle_species(i)%z_high_boundary) /= 'reflect') then
+        error stop 'surface_charge_closure="neutral_return" requires z_high_boundary="reflect".'
+      end if
+    case default
+      error stop 'particles.species.surface_charge_closure must be "explicit" or "neutral_return".'
+    end select
     if (.not. all(ieee_is_finite(cfg%particle_species(i)%pos_low)) .or. &
         .not. all(ieee_is_finite(cfg%particle_species(i)%pos_high))) then
       error stop 'particles.species.pos_low/pos_high must contain finite values.'

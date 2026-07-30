@@ -382,11 +382,35 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
             species_idx = int(row["species_idx"])
             charges = [float(row[name]) for name in charge_fields]
             counts = [int(row[name]) for name in count_fields]
+            neutral_return_correction_c = float(
+                row.get("neutral_return_correction_C") or 0.0
+            )
+            neutral_return_weight_scale = float(
+                row.get("neutral_return_weight_scale") or 1.0
+            )
+            neutral_return_unresolved_fraction = float(
+                row.get("neutral_return_unresolved_fraction") or 0.0
+            )
             if batch < 0 or species_idx < 1 or any(count < 0 for count in counts):
                 raise ValueError("charge_ledger.csv indices and counts are invalid.")
-            if not np.all(np.isfinite(charges)):
+            neutral_values = (
+                neutral_return_correction_c,
+                neutral_return_weight_scale,
+                neutral_return_unresolved_fraction,
+            )
+            if not np.all(np.isfinite((*charges, *neutral_values))):
                 raise ValueError("charge_ledger.csv charge values must be finite.")
-            rows.append(ChargeLedgerEntry(batch, species_idx, *charges, *counts))
+            rows.append(
+                ChargeLedgerEntry(
+                    batch,
+                    species_idx,
+                    *charges,
+                    *counts,
+                    neutral_return_correction_c=neutral_return_correction_c,
+                    neutral_return_weight_scale=neutral_return_weight_scale,
+                    neutral_return_unresolved_fraction=neutral_return_unresolved_fraction,
+                )
+            )
     return tuple(rows)
 
 

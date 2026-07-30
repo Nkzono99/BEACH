@@ -22,13 +22,14 @@ program test_simulator
   type(sim_stats) :: stats, stats_tree, stats_potential_history, stats_seed, stats_resume
   type(charge_ledger_type) :: charge_ledger
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
-  real(dp) :: potential_value
-  integer :: u, ios
-  integer(i32) :: potential_batch_idx, potential_elem_idx
+  real(dp) :: potential_value, top_time, top_z, top_mean, top_std, top_min, top_max
+  integer :: u, u_top, ios
+  integer(i32) :: potential_batch_idx, potential_elem_idx, top_batch_idx, top_sample_n
   character(len=256) :: line
   integer(i32) :: n_lines
   character(len=*), parameter :: history_path = 'test_simulator_history_tmp.csv'
   character(len=*), parameter :: potential_history_path = 'test_simulator_potential_history_tmp.csv'
+  character(len=*), parameter :: top_reference_history_path = 'test_simulator_top_reference_history_tmp.csv'
   character(len=*), parameter :: collision_failure_path = 'test_simulator_collision_failure_tmp.log'
   character(len=*), parameter :: photo_collision_failure_path = 'test_simulator_photo_collision_failure_tmp.log'
   character(len=*), parameter :: box_event_failure_path = 'test_simulator_box_event_failure_tmp.log'
@@ -115,7 +116,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(16)
+  call test_init(18)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -200,19 +201,24 @@ program test_simulator
   mesh_potential_history%vacuum_normals = mesh_potential_history%normals
   cfg_potential_history = cfg
   cfg_potential_history%sim%field_solver = 'fmm'
+  cfg_potential_history%sim%batch_duration = 1.0_dp
   call normalize_legacy_physics_config( &
     cfg_potential_history%sim, cfg_potential_history%field, cfg_potential_history%periodic2, &
     cfg_potential_history%panel, cfg_potential_history%outer_plasma, cfg_potential_history%coupling &
     )
   call seed_particles_from_config(cfg_potential_history)
   call delete_file_if_exists(potential_history_path)
+  call delete_file_if_exists(top_reference_history_path)
   open (newunit=u, file=potential_history_path, status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'failed to open simulator potential history fixture'
+  open (newunit=u_top, file=top_reference_history_path, status='replace', action='write', iostat=ios)
+  if (ios /= 0) error stop 'failed to open simulator top-reference history fixture'
   call run_absorption_insulator( &
     mesh_potential_history, cfg_potential_history, stats_potential_history, &
-    potential_history_unit=u, history_stride=1_i32 &
+    potential_history_unit=u, top_reference_history_unit=u_top, history_stride=1_i32 &
     )
   close (u)
+  close (u_top)
   open (newunit=u, file=potential_history_path, status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to read simulator potential history fixture'
   read (u, *, iostat=ios) potential_batch_idx, potential_elem_idx, potential_value
@@ -221,7 +227,24 @@ program test_simulator
   call assert_equal_i32(potential_batch_idx, 1_i32, 'potential history batch mismatch')
   call assert_equal_i32(potential_elem_idx, 1_i32, 'potential history elem mismatch')
   call assert_true(potential_value > 0.0d0, 'FMM potential history should use post-commit charges')
+  open (newunit=u_top, file=top_reference_history_path, status='old', action='read', iostat=ios)
+  if (ios /= 0) error stop 'failed to read simulator top-reference history fixture'
+  read (u_top, *, iostat=ios) top_batch_idx, top_time, top_z, top_sample_n, top_mean, top_std, top_min, top_max
+  close (u_top)
+  if (ios /= 0) error stop 'failed to parse simulator top-reference history fixture'
+  call assert_equal_i32(top_batch_idx, 1_i32, 'top-reference history batch mismatch')
+  call assert_equal_i32( &
+    top_sample_n, cfg_potential_history%sim%injection_face_phi_grid_n, &
+    'top-reference history sample count mismatch' &
+    )
+  call assert_true(top_time > 0.0_dp, 'top-reference history should record simulated time')
+  call assert_close_dp(top_z, cfg_potential_history%sim%box_max(3), 1.0d-14, 'top-reference z-high mismatch')
+  call assert_true( &
+    top_std >= 0.0_dp .and. top_min <= top_mean .and. top_mean <= top_max, &
+    'top-reference history statistics are inconsistent' &
+    )
   call delete_file_if_exists(potential_history_path)
+  call delete_file_if_exists(top_reference_history_path)
   call test_end()
 
   call test_begin('resume_stats')
@@ -264,6 +287,14 @@ program test_simulator
 
   call test_begin('reflected_remainder_deposits')
   call test_reflected_remainder_deposits()
+  call test_end()
+
+  call test_begin('species_z_high_reflect_preserves_ambient_escape')
+  call test_species_z_high_reflect_preserves_ambient_escape()
+  call test_end()
+
+  call test_begin('neutral_return_closes_mean_charge_and_preserves_redistribution')
+  call test_neutral_return_closure()
   call test_end()
 
   call test_begin('multiple_box_event_failure_context')
@@ -483,6 +514,14 @@ contains
       int(size(workspace%ledger_charge_values), i32), 21_i32, 'workspace ledger charge capacity mismatch' &
       )
     call assert_equal_i32( &
+      int(size(workspace%neutral_return_charge_values), i32), 18_i32, &
+      'workspace neutral-return charge capacity mismatch' &
+      )
+    call assert_equal_i32( &
+      int(size(workspace%neutral_return_terminal_counts), i32), 9_i32, &
+      'workspace neutral-return terminal capacity mismatch' &
+      )
+    call assert_equal_i32( &
       int(size(regular_workspace%mean_pending_charge), i32), 0_i32, &
       'regular workspace must not allocate implicit-mean element storage' &
       )
@@ -496,6 +535,7 @@ contains
                           'disabled outer queue must not allocate per-particle staging')
     workspace%escaped_boundary_flag = .true.
     workspace%absorbed_flag = .true.
+    workspace%absorbed_element = 1_i32
     workspace%soft_discarded_boundary_flag = .true.
     workspace%queued_outer_flag = .true.
     workspace%dq_thread = 1.0_dp
@@ -509,6 +549,11 @@ contains
     workspace%mean_deferred_source_charge = 9.0_dp
     workspace%mean_returned_destination_charge = 10.0_dp
     workspace%mean_candidate_charge = 11.0_dp
+    workspace%neutral_return_charge_values = 12.0_dp
+    workspace%neutral_return_terminal_counts = 13_i64
+    workspace%neutral_return_weight_scale = 14.0_dp
+    workspace%neutral_return_correction = 15.0_dp
+    workspace%neutral_return_unresolved_fraction = 16.0_dp
     workspace%deferred_mean_return_element = 12_i32
     workspace%deferred_mean_terminal_absorbed = .true.
     workspace%deferred_mean_terminal_escaped = .true.
@@ -527,8 +572,25 @@ contains
     call assert_true(all(workspace%mean_returned_destination_charge == 0.0_dp), &
                      'workspace mean destination reset mismatch')
     call assert_true(all(workspace%mean_candidate_charge == 0.0_dp), 'workspace mean candidate reset mismatch')
+    call assert_true( &
+      all(workspace%neutral_return_charge_values == 0.0_dp), &
+      'workspace neutral-return charge reset mismatch' &
+      )
+    call assert_true( &
+      all(workspace%neutral_return_terminal_counts == 0_i64), &
+      'workspace neutral-return terminal reset mismatch' &
+      )
+    call assert_true( &
+      all(workspace%neutral_return_weight_scale == 1.0_dp), &
+      'workspace neutral-return scale reset mismatch' &
+      )
+    call assert_true( &
+      all(workspace%neutral_return_correction == 0.0_dp), &
+      'workspace neutral-return correction reset mismatch' &
+      )
     call assert_true(all(.not. workspace%escaped_boundary_flag(:2)), 'workspace escaped flag reset mismatch')
     call assert_true(all(.not. workspace%absorbed_flag(:2)), 'workspace absorbed flag reset mismatch')
+    call assert_true(all(workspace%absorbed_element(:2) == -1_i32), 'workspace absorbed element reset mismatch')
     call assert_true(all(.not. workspace%soft_discarded_boundary_flag(:2)), 'workspace discard flag reset mismatch')
     call assert_true(all(.not. workspace%queued_outer_flag(:2)), 'workspace outer queue flag reset mismatch')
     call assert_true(all(workspace%deferred_mean_return_element(:2) == -1_i32), &
@@ -1242,6 +1304,150 @@ contains
     call assert_equal_i64(reflected_stats%escaped, 0_i64, 'reflected remainder should not escape')
     call assert_close_dp(reflected_mesh%q_elem(1), 2.0_dp, 1.0e-12_dp, 'reflected remainder deposit mismatch')
   end subroutine test_reflected_remainder_deposits
+
+  subroutine test_species_z_high_reflect_preserves_ambient_escape()
+    type(mesh_type) :: species_mesh
+    type(app_config) :: species_cfg
+    type(sim_stats) :: species_stats
+    type(charge_ledger_type) :: species_ledger
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+    integer(i32) :: species_idx
+
+    tri_v0(:, 1) = [-1.0_dp, -1.0_dp, 0.0_dp]
+    tri_v1(:, 1) = [1.0_dp, -1.0_dp, 0.0_dp]
+    tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
+    call init_mesh(species_mesh, tri_v0, tri_v1, tri_v2)
+    species_mesh%elem_vacuum_sign = 1_i32
+    species_mesh%vacuum_normals = species_mesh%normals
+
+    call default_app_config(species_cfg)
+    species_cfg%sim%rng_seed = 997_i32
+    species_cfg%sim%batch_count = 1_i32
+    species_cfg%sim%dt = 1.0_dp
+    species_cfg%sim%max_step = 1_i32
+    species_cfg%sim%use_box = .true.
+    species_cfg%sim%box_min = [-1.0_dp, -1.0_dp, -1.0_dp]
+    species_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    species_cfg%sim%bc_high(3) = bc_open
+    species_cfg%n_particle_species = 2_i32
+    do species_idx = 1_i32, species_cfg%n_particle_species
+      species_cfg%particle_species(species_idx) = species_from_defaults()
+      species_cfg%particle_species(species_idx)%source_mode = 'volume_seed'
+      species_cfg%particle_species(species_idx)%npcls_per_step = 1_i32
+      species_cfg%particle_species(species_idx)%q_particle = 1.0_dp
+      species_cfg%particle_species(species_idx)%m_particle = 1.0_dp
+      species_cfg%particle_species(species_idx)%w_particle = real(species_idx, dp)
+      species_cfg%particle_species(species_idx)%pos_low = [0.0_dp, 0.0_dp, 0.5_dp]
+      species_cfg%particle_species(species_idx)%pos_high = species_cfg%particle_species(species_idx)%pos_low
+      species_cfg%particle_species(species_idx)%drift_velocity = [0.0_dp, 0.0_dp, 2.0_dp]
+      species_cfg%particle_species(species_idx)%temperature_k = 0.0_dp
+    end do
+    species_cfg%particle_species(2)%z_high_boundary = 'reflect'
+
+    call seed_particles_from_config(species_cfg)
+    call run_absorption_insulator(species_mesh, species_cfg, species_stats, charge_ledger=species_ledger)
+    call assert_equal_i64(species_stats%absorbed, 1_i64, 'species-reflected particle should return to the mesh')
+    call assert_equal_i64(species_stats%escaped_boundary, 1_i64, 'inherited ambient particle should escape z-high')
+    call assert_equal_i64(species_stats%survived_max_step, 0_i64, 'species z-high boundary fixture must resolve both particles')
+    call assert_close_dp( &
+      species_ledger%escaped_to_infinity(1), 1.0_dp, 1.0e-12_dp, 'ambient escaped charge mismatch' &
+      )
+    call assert_close_dp( &
+      species_ledger%escaped_to_infinity(2), 0.0_dp, 1.0e-12_dp, 'reflected species must not escape' &
+      )
+    call assert_close_dp( &
+      species_ledger%absorbed_on_surface(2), 2.0_dp, 1.0e-12_dp, 'reflected species absorption mismatch' &
+      )
+    call assert_close_dp(species_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'species boundary ledger residual mismatch')
+  end subroutine test_species_z_high_reflect_preserves_ambient_escape
+
+  subroutine test_neutral_return_closure()
+    type(mesh_type) :: neutral_mesh
+    type(app_config) :: neutral_cfg
+    type(sim_stats) :: neutral_stats
+    type(charge_ledger_type) :: neutral_ledger
+    real(dp) :: tri_v0(3, 4), tri_v1(3, 4), tri_v2(3, 4)
+
+    ! 左98%の面は z=0.75 にあり、dt=0.6 のうちに z-high 反射後同じ面へ帰還する。
+    ! 右2%の面は z=0.25 にあり、同じ dt では帰還せず max-step survivor になる。
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.75_dp]
+    tri_v1(:, 1) = [0.98_dp, 0.0_dp, 0.75_dp]
+    tri_v2(:, 1) = [0.98_dp, 1.0_dp, 0.75_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.75_dp]
+    tri_v1(:, 2) = [0.98_dp, 1.0_dp, 0.75_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.75_dp]
+    tri_v0(:, 3) = [0.98_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 3) = [1.0_dp, 0.0_dp, 0.25_dp]
+    tri_v2(:, 3) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v0(:, 4) = [0.98_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 4) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v2(:, 4) = [0.98_dp, 1.0_dp, 0.25_dp]
+    call init_mesh(neutral_mesh, tri_v0, tri_v1, tri_v2)
+    neutral_mesh%elem_vacuum_sign = 1_i32
+    neutral_mesh%vacuum_normals = neutral_mesh%normals
+
+    call default_app_config(neutral_cfg)
+    neutral_cfg%sim%rng_seed = 998_i32
+    neutral_cfg%sim%batch_count = 1_i32
+    neutral_cfg%sim%batch_duration = 1.0_dp
+    neutral_cfg%sim%dt = 0.6_dp
+    neutral_cfg%sim%max_step = 1_i32
+    neutral_cfg%sim%q_floor = 1.0e-30_dp
+    neutral_cfg%sim%use_box = .true.
+    neutral_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    neutral_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    neutral_cfg%sim%bc_high(3) = bc_open
+    neutral_cfg%n_particle_species = 1_i32
+    neutral_cfg%particle_species(1) = species_from_defaults()
+    neutral_cfg%particle_species(1)%source_mode = 'photo_raycast'
+    neutral_cfg%particle_species(1)%rays_per_batch = 1024_i32
+    neutral_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0_dp
+    neutral_cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
+    neutral_cfg%particle_species(1)%z_high_boundary = 'reflect'
+    neutral_cfg%particle_species(1)%surface_charge_closure = 'neutral_return'
+    neutral_cfg%particle_species(1)%q_particle = -1.0_dp
+    neutral_cfg%particle_species(1)%m_particle = 1.0_dp
+    neutral_cfg%particle_species(1)%temperature_k = 0.0_dp
+    neutral_cfg%particle_species(1)%normal_drift_speed = 1.0_dp
+    neutral_cfg%particle_species(1)%inject_face = 'z_high'
+    neutral_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    neutral_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    neutral_cfg%particle_species(1)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
+    neutral_cfg%particle_species(1)%has_ray_direction = .true.
+
+    call seed_particles_from_config(neutral_cfg)
+    call run_absorption_insulator( &
+      neutral_mesh, neutral_cfg, neutral_stats, charge_ledger=neutral_ledger &
+      )
+
+    call assert_true(neutral_ledger%absorbed_count(1) > 0_i64, 'neutral-return fixture needs resolved returns')
+    call assert_true( &
+      neutral_ledger%discarded_unresolved_count(1) > 0_i64, &
+      'neutral-return fixture needs unresolved survivors' &
+      )
+    call assert_true( &
+      neutral_ledger%neutral_return_unresolved_fraction(1) <= 0.05_dp, &
+      'neutral-return fixture must stay inside the fixed applicability limit' &
+      )
+    call assert_equal_i64(neutral_stats%escaped_boundary, 0_i64, 'neutral-return photoelectrons must not escape')
+    call assert_close_dp( &
+      neutral_ledger%emitted_from_surface(1), &
+      neutral_ledger%absorbed_on_surface(1) + neutral_ledger%discarded_unresolved(1), &
+      1.0e-12_dp, 'raw neutral-return particle charge must close' &
+      )
+    call assert_close_dp( &
+      neutral_ledger%neutral_return_correction(1), neutral_ledger%discarded_unresolved(1), &
+      1.0e-12_dp, 'neutral-return correction must represent the unresolved raw charge' &
+      )
+    call assert_close_dp( &
+      neutral_ledger%neutral_return_weight_scale(1), &
+      neutral_ledger%emitted_from_surface(1)/neutral_ledger%absorbed_on_surface(1), &
+      1.0e-12_dp, 'neutral-return weight scale mismatch' &
+      )
+    call assert_close_dp(sum(neutral_mesh%q_elem), 0.0_dp, 1.0e-12_dp, 'neutral-return mean charge must be zero')
+    call assert_true(sum(abs(neutral_mesh%q_elem)) > 0.0_dp, 'neutral-return must preserve local charge redistribution')
+    call assert_close_dp(neutral_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'neutral-return ledger residual mismatch')
+  end subroutine test_neutral_return_closure
 
   subroutine test_multiple_box_event_failure_context()
     character(len=1024) :: executable_path, command, child_line

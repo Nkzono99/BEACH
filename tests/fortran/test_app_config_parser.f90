@@ -41,6 +41,8 @@ program test_app_config_parser
   character(len=*), parameter :: non_template_mean_cfg_path = 'test_app_config_parser_non_template_mean_tmp.toml'
   character(len=*), parameter :: authored_implicit_cfg_path = 'test_app_config_parser_authored_implicit_tmp.toml'
   character(len=*), parameter :: authored_implicit_output_path = 'test_app_config_parser_authored_implicit_tmp.out'
+  character(len=*), parameter :: z_high_boundary_cfg_path = 'test_app_config_parser_z_high_boundary_tmp.toml'
+  character(len=*), parameter :: z_high_boundary_output_path = 'test_app_config_parser_z_high_boundary_tmp.out'
   character(len=64) :: run_mode, probe_argument, noop_kind
 
   call get_command_argument(1, run_mode)
@@ -98,8 +100,66 @@ program test_app_config_parser
     call load_app_config(periodic_oracle_cfg_path, cfg)
     error stop 'removed root oracle probe unexpectedly completed'
   end if
+  if (index(trim(run_mode), 'probe_z_high_boundary_') == 1) then
+    select case (trim(run_mode))
+    case ('probe_z_high_boundary_no_box')
+      call write_photo_config_fixture( &
+        z_high_boundary_cfg_path, use_box=.false., z_high_boundary='reflect' &
+        )
+    case ('probe_z_high_boundary_nonopen')
+      call write_photo_config_fixture( &
+        z_high_boundary_cfg_path, z_high_bc='reflect', z_high_boundary='reflect' &
+        )
+    case ('probe_z_high_boundary_outer')
+      call write_ambient_linear_debye_config_fixture( &
+        z_high_boundary_cfg_path, include_photo=.true., deposit_countercharge=.true., &
+        reflect_photo_z_high=.true. &
+        )
+    case ('probe_z_high_boundary_invalid')
+      call write_photo_config_fixture(z_high_boundary_cfg_path, z_high_boundary='unknown')
+    case default
+      error stop 'unknown species z-high boundary probe'
+    end select
+    call default_app_config(cfg)
+    call load_app_config(z_high_boundary_cfg_path, cfg)
+    error stop 'species z-high boundary probe unexpectedly completed'
+  end if
+  if (index(trim(run_mode), 'probe_surface_charge_closure_') == 1) then
+    select case (trim(run_mode))
+    case ('probe_surface_charge_closure_invalid')
+      call write_photo_config_fixture( &
+        z_high_boundary_cfg_path, z_high_boundary='reflect', surface_charge_closure='unknown' &
+        )
+    case ('probe_surface_charge_closure_nonphoto')
+      call write_photo_config_fixture( &
+        z_high_boundary_cfg_path, z_high_boundary='reflect', surface_charge_closure='neutral_return', &
+        source_mode='volume' &
+        )
+    case ('probe_surface_charge_closure_positive')
+      call write_photo_config_fixture( &
+        z_high_boundary_cfg_path, z_high_boundary='reflect', surface_charge_closure='neutral_return', &
+        particle_charge=1.0_dp &
+        )
+    case ('probe_surface_charge_closure_no_countercharge')
+      call write_photo_config_fixture( &
+        z_high_boundary_cfg_path, z_high_boundary='reflect', surface_charge_closure='neutral_return', &
+        deposit_countercharge=.false. &
+        )
+    case ('probe_surface_charge_closure_no_reflect')
+      call write_photo_config_fixture( &
+        z_high_boundary_cfg_path, surface_charge_closure='neutral_return' &
+        )
+    case default
+      error stop 'unknown surface charge closure probe'
+    end select
+    call default_app_config(cfg)
+    call load_app_config(z_high_boundary_cfg_path, cfg)
+    error stop 'surface charge closure probe unexpectedly completed'
+  end if
   call write_config_fixture(cfg_path)
-  call write_photo_config_fixture(photo_cfg_path)
+  call write_photo_config_fixture( &
+    photo_cfg_path, z_high_boundary='reflect', surface_charge_closure='neutral_return' &
+    )
   call write_large_config_fixture(large_cfg_path)
   call write_periodic_config_fixture(periodic_cfg_path)
   call write_zhao_physics_config_fixture(zhao_cfg_path)
@@ -121,7 +181,7 @@ program test_app_config_parser
     non_template_mean_cfg_path, include_photo=.true., deposit_countercharge=.true., mesh_mode='obj' &
     )
 
-  call test_init(20)
+  call test_init(22)
 
   call test_begin('defaults_and_basic_config')
   call default_app_config(cfg)
@@ -383,10 +443,26 @@ program test_app_config_parser
   call assert_allclose_1d( &
     photo_cfg%particle_species(1)%ray_direction, [0.0d0, 0.0d0, -1.0d0], 1.0d-12, 'photo ray_direction mismatch' &
     )
+  call assert_true( &
+    trim(photo_cfg%particle_species(1)%z_high_boundary) == 'reflect', &
+    'photo z_high_boundary mismatch' &
+    )
+  call assert_true( &
+    trim(photo_cfg%particle_species(1)%surface_charge_closure) == 'neutral_return', &
+    'photo surface_charge_closure mismatch' &
+    )
   call assert_equal_i32(photo_cfg%sim%raycast_max_bounce, 16_i32, 'photo default raycast_max_bounce mismatch')
   call assert_equal_i32(particles_per_batch_from_config(photo_cfg), 0_i32, 'photo per-batch particle count mismatch')
   call assert_equal_i32(total_particles_from_config(photo_cfg), 0_i32, 'photo total particle count mismatch')
   call assert_equal_i32(photo_cfg%n_particles, 0_i32, 'photo cached n_particles mismatch')
+  call test_end()
+
+  call test_begin('species_z_high_boundary_constraints')
+  call assert_species_z_high_boundary_constraints()
+  call test_end()
+
+  call test_begin('surface_charge_closure_constraints')
+  call assert_surface_charge_closure_constraints()
   call test_end()
 
   call test_begin('large_species_config')
@@ -875,6 +951,73 @@ contains
     call delete_file_if_exists(noop_boundary_output_path)
   end subroutine assert_external_boundary_probe_rejected
 
+  !> species単位のz-high反射が未対応の境界契約と組み合わされた場合にfail closedすることを検証する。
+  subroutine assert_species_z_high_boundary_constraints()
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_z_high_boundary_no_box', 'requires sim.use_box=true' &
+      )
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_z_high_boundary_nonopen', 'requires sim.bc_z_high="open"' &
+      )
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_z_high_boundary_outer', 'cannot be combined with outer particle transfer' &
+      )
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_z_high_boundary_invalid', 'must be "inherit" or "reflect"' &
+      )
+  end subroutine assert_species_z_high_boundary_constraints
+
+  !> 1つのspecies z-high反射probeを別processで実行し、期待する診断で停止することを確認する。
+  subroutine assert_species_z_high_boundary_probe_rejected(probe_mode, expected_message)
+    character(len=*), intent(in) :: probe_mode, expected_message
+    character(len=1024) :: command
+    character(len=512) :: line
+    character(len=512) :: executable_path
+    integer :: command_status, exit_status, ios, u
+    logical :: saw_expected_message
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" '//trim(probe_mode)//' > "'// &
+              z_high_boundary_output_path//'" 2>&1'
+    call execute_command_line( &
+      trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status &
+      )
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'z-high boundary probe command failed to launch')
+    call assert_true(exit_status /= 0, 'z-high boundary probe must fail')
+
+    saw_expected_message = .false.
+    open (newunit=u, file=z_high_boundary_output_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to read z-high boundary probe output'
+    do
+      read (u, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      saw_expected_message = saw_expected_message .or. index(line, trim(expected_message)) > 0
+    end do
+    close (u)
+    call assert_true(saw_expected_message, 'z-high boundary probe must report the expected contract conflict')
+    call delete_file_if_exists(z_high_boundary_cfg_path)
+    call delete_file_if_exists(z_high_boundary_output_path)
+  end subroutine assert_species_z_high_boundary_probe_rejected
+
+  !> neutral_return が意味を持つ負の全反射 photoelectron 以外を fail closed することを検証する。
+  subroutine assert_surface_charge_closure_constraints()
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_surface_charge_closure_invalid', 'must be "explicit" or "neutral_return"' &
+      )
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_surface_charge_closure_nonphoto', 'requires a negative photo_raycast species' &
+      )
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_surface_charge_closure_positive', 'requires a negative photo_raycast species' &
+      )
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_surface_charge_closure_no_countercharge', 'requires deposit_opposite_charge_on_emit=true' &
+      )
+    call assert_species_z_high_boundary_probe_rejected( &
+      'probe_surface_charge_closure_no_reflect', 'requires z_high_boundary="reflect"' &
+      )
+  end subroutine assert_surface_charge_closure_constraints
+
   !> ambient linear Debye のmean更新導出を検証する設定を書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
   !! @param[in] include_photo photo_raycast speciesを含める場合はtrue。
@@ -882,20 +1025,24 @@ contains
   !! @param[in] mesh_mode optionalなmesh mode。省略時はtemplate。
   !! @param[in] photo_charge optionalなphoto_raycast粒子電荷。省略時は電子電荷。
   subroutine write_ambient_linear_debye_config_fixture( &
-    path, include_photo, deposit_countercharge, mesh_mode, photo_charge &
+    path, include_photo, deposit_countercharge, mesh_mode, photo_charge, reflect_photo_z_high &
     )
     character(len=*), intent(in) :: path
     logical, intent(in) :: include_photo, deposit_countercharge
     character(len=*), intent(in), optional :: mesh_mode
     real(dp), intent(in), optional :: photo_charge
+    logical, intent(in), optional :: reflect_photo_z_high
     integer :: u, ios
     character(len=16) :: resolved_mesh_mode
     real(dp) :: resolved_photo_charge
+    logical :: resolved_reflect_photo_z_high
 
     resolved_mesh_mode = 'template'
     if (present(mesh_mode)) resolved_mesh_mode = trim(mesh_mode)
     resolved_photo_charge = -1.602176634e-19_dp
     if (present(photo_charge)) resolved_photo_charge = photo_charge
+    resolved_reflect_photo_z_high = .false.
+    if (present(reflect_photo_z_high)) resolved_reflect_photo_z_high = reflect_photo_z_high
 
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open ambient linear Debye config fixture'
@@ -975,6 +1122,7 @@ contains
       write (u, '(a)') 'm_particle = 9.1093837139e-31'
       write (u, '(a)') 'temperature_k = 0.0'
       write (u, '(a)') 'inject_face = "z_high"'
+      if (resolved_reflect_photo_z_high) write (u, '(a)') 'z_high_boundary = "reflect"'
       write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
       write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
       write (u, '(a)') 'ray_direction = [0.0, 0.0, -1.0]'
@@ -1100,9 +1248,36 @@ contains
 
   !> テスト専用の photo_raycast 設定ファイルを書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
-  subroutine write_photo_config_fixture(path)
+  subroutine write_photo_config_fixture( &
+    path, use_box, z_high_bc, z_high_boundary, surface_charge_closure, source_mode, &
+    particle_charge, deposit_countercharge &
+    )
     character(len=*), intent(in) :: path
+    logical, intent(in), optional :: use_box
+    character(len=*), intent(in), optional :: z_high_bc, z_high_boundary
+    character(len=*), intent(in), optional :: surface_charge_closure, source_mode
+    real(dp), intent(in), optional :: particle_charge
+    logical, intent(in), optional :: deposit_countercharge
     integer :: u, ios
+    logical :: resolved_use_box, resolved_deposit_countercharge
+    real(dp) :: resolved_particle_charge
+    character(len=16) :: resolved_z_high_bc, resolved_z_high_boundary, resolved_surface_charge_closure
+    character(len=16) :: resolved_source_mode
+
+    resolved_use_box = .true.
+    if (present(use_box)) resolved_use_box = use_box
+    resolved_z_high_bc = 'open'
+    if (present(z_high_bc)) resolved_z_high_bc = trim(z_high_bc)
+    resolved_z_high_boundary = ''
+    if (present(z_high_boundary)) resolved_z_high_boundary = trim(z_high_boundary)
+    resolved_surface_charge_closure = ''
+    if (present(surface_charge_closure)) resolved_surface_charge_closure = trim(surface_charge_closure)
+    resolved_source_mode = 'photo_raycast'
+    if (present(source_mode)) resolved_source_mode = trim(source_mode)
+    resolved_particle_charge = -1.0_dp
+    if (present(particle_charge)) resolved_particle_charge = particle_charge
+    resolved_deposit_countercharge = .true.
+    if (present(deposit_countercharge)) resolved_deposit_countercharge = deposit_countercharge
 
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open photo config fixture'
@@ -1110,20 +1285,35 @@ contains
     write (u, '(a)') '[sim]'
     write (u, '(a)') 'batch_count = 4'
     write (u, '(a)') 'batch_duration = 1.0e-7'
-    write (u, '(a)') 'use_box = true'
+    if (resolved_use_box) then
+      write (u, '(a)') 'use_box = true'
+    else
+      write (u, '(a)') 'use_box = false'
+    end if
     write (u, '(a)') 'box_min = [0.0, 0.0, 0.0]'
     write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
+    write (u, '(a)') 'bc_z_high = "'//trim(resolved_z_high_bc)//'"'
     write (u, '(a)') ''
     write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'source_mode = "photo_raycast"'
+    write (u, '(a)') 'source_mode = "'//trim(resolved_source_mode)//'"'
     write (u, '(a)') 'emit_current_density_a_m2 = 2.0e-3'
     write (u, '(a)') 'rays_per_batch = 40'
-    write (u, '(a)') 'deposit_opposite_charge_on_emit = true'
+    if (resolved_deposit_countercharge) then
+      write (u, '(a)') 'deposit_opposite_charge_on_emit = true'
+    else
+      write (u, '(a)') 'deposit_opposite_charge_on_emit = false'
+    end if
     write (u, '(a)') 'normal_drift_speed = 1.5e5'
-    write (u, '(a)') 'q_particle = -1.0'
+    write (u, '(a,es24.16)') 'q_particle = ', resolved_particle_charge
     write (u, '(a)') 'm_particle = 1.0'
     write (u, '(a)') 'temperature_k = 0.0'
     write (u, '(a)') 'inject_face = "z_high"'
+    if (len_trim(resolved_z_high_boundary) > 0) then
+      write (u, '(a)') 'z_high_boundary = "'//trim(resolved_z_high_boundary)//'"'
+    end if
+    if (len_trim(resolved_surface_charge_closure) > 0) then
+      write (u, '(a)') 'surface_charge_closure = "'//trim(resolved_surface_charge_closure)//'"'
+    end if
     write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
     write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
 

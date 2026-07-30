@@ -8,7 +8,7 @@ program test_charge_ledger
 
   type(charge_ledger_type) :: ledger, batch2, cumulative
 
-  call test_init(6)
+  call test_init(8)
 
   call test_begin('initialization')
   call ledger%init(2_i32)
@@ -55,6 +55,23 @@ program test_charge_ledger
   call assert_true(ledger%has_unresolved_discard(0.5_dp, 0_i64), 'discard threshold must be independent of residual')
   call test_end()
 
+  call test_begin('neutral_return_preserves_raw_unresolved_diagnostic')
+  call ledger%reset(1_i32)
+  ledger%surface_charge_before = 0.0_dp
+  ledger%surface_charge_after = 0.0_dp
+  ledger%emitted_from_surface(2) = -10.0_dp
+  ledger%absorbed_on_surface(2) = -9.0_dp
+  ledger%discarded_unresolved(2) = -1.0_dp
+  ledger%neutral_return_correction(2) = -1.0_dp
+  ledger%neutral_return_weight_scale(2) = 10.0_dp/9.0_dp
+  ledger%neutral_return_unresolved_fraction(2) = 0.1_dp
+  call assert_close_dp(ledger%residual(), 0.0_dp, 1.0d-14, 'neutral-return residual mismatch')
+  call assert_close_dp( &
+    ledger%discarded_unresolved_abs(), 1.0_dp, 1.0d-14, &
+    'neutral-return must preserve the raw unresolved diagnostic' &
+    )
+  call test_end()
+
   call test_begin('cumulative_batches')
   call ledger%reset(1_i32)
   ledger%surface_charge_before = 0.0_dp
@@ -73,6 +90,33 @@ program test_charge_ledger
   call assert_close_dp(cumulative%surface_charge_before, 0.0_dp, 1.0d-14, 'cumulative surface before mismatch')
   call assert_close_dp(cumulative%surface_charge_after, -1.0_dp, 1.0d-14, 'cumulative surface after mismatch')
   call assert_close_dp(cumulative%residual(), 0.0_dp, 1.0d-14, 'cumulative residual mismatch')
+  call test_end()
+
+  call test_begin('cumulative_neutral_return_diagnostics')
+  cumulative = charge_ledger_type()
+  call ledger%reset(1_i32)
+  ledger%emitted_from_surface(2) = -8.0_dp
+  ledger%absorbed_on_surface(2) = -8.0_dp
+  call batch2%reset(2_i32)
+  batch2%emitted_from_surface(2) = -2.0_dp
+  batch2%absorbed_on_surface(2) = -1.0_dp
+  batch2%discarded_unresolved(2) = -1.0_dp
+  batch2%neutral_return_correction(2) = -1.0_dp
+  call accumulate_charge_ledger(cumulative, ledger)
+  call accumulate_charge_ledger(cumulative, batch2)
+  call assert_close_dp( &
+    cumulative%neutral_return_correction(2), -1.0_dp, 1.0d-14, &
+    'cumulative neutral-return correction mismatch' &
+    )
+  call assert_close_dp( &
+    cumulative%neutral_return_weight_scale(2), 10.0_dp/9.0_dp, 1.0d-14, &
+    'cumulative neutral-return scale must derive from cumulative raw charge' &
+    )
+  call assert_close_dp( &
+    cumulative%neutral_return_unresolved_fraction(2), 0.1_dp, 1.0d-14, &
+    'cumulative neutral-return fraction must derive from cumulative raw charge' &
+    )
+  call assert_close_dp(cumulative%residual(), 0.0_dp, 1.0d-14, 'cumulative neutral-return residual mismatch')
   call test_end()
 
   call test_summary()

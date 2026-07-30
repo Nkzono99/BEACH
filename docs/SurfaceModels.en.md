@@ -13,10 +13,11 @@ commit produces the source charge for the next batch field.
 1. Build an immutable field snapshot from batch-start `q_elem`.
 2. Add $q_pw_p$ from each particle's first mesh hit to thread-local differences.
 3. Add surface-source reaction charge to `photo_emission_dq`.
-4. Sum OpenMP-thread differences and MPI all-reduce global `dq`.
-5. Apply `q_elem <- q_elem + dq`.
-6. If conductors are present, equalize potential while conserving object charge.
-7. Compute net pre/post-commit difference and the `tol_rel` metric.
+4. For `surface_charge_closure="neutral_return"`, scale resolved photoelectron return deposits by a global factor.
+5. Sum OpenMP-thread differences and MPI all-reduce global `dq`.
+6. Apply `q_elem <- q_elem + dq`.
+7. If conductors are present, equalize potential while conserving object charge.
+8. Compute net pre/post-commit difference and the `tol_rel` metric.
 
 Later particles in the same batch do not see charge from steps 2 or 3. The change enters the field at the next snapshot refresh.
 This lag produces dependence on `batch_duration`; see [Batch duration and stability](BatchDurationStability.en.html).
@@ -52,6 +53,13 @@ models do not rewrite triangle winding.
 ## Insulator accumulation
 
 `insulator` performs no post-commit redistribution. Charge changed by absorption or emission remains on that element.
+
+`neutral_return` is not post-commit conduction by a surface model. It is a source closure that assigns unresolved charge from
+a negative `photo_raycast` species to its measured resolved-return destinations in the same batch. It makes only the
+photoelectron contribution to total surface charge zero while uniformly reweighting and preserving the relative shape of the
+resolved return-destination distribution. See
+[Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html#quantity-closed-by-neutral_return)
+for equations and constraints.
 
 The model does not include lateral surface conduction, bulk leakage, finite-resistivity relaxation, secondary-electron emission,
 or specular/diffuse reflection. v1.0 interaction is primarily absorption and must not be interpreted as containing these effects.
@@ -104,8 +112,9 @@ not change field or charge update from the insulator behavior and must not be in
 ## OpenMP and MPI commit
 
 The particle loop accumulates absorbed charge in `dq_thread(nelem,nthreads)`, avoiding an atomic update on every hit. After the
-loop, thread columns are summed. Local differences plus `photo_emission_dq` are MPI all-reduced so all ranks hold identical global
-`q_elem`.
+loop, thread columns are summed. `neutral_return` reduces emitted and returned charge by species across MPI and applies the
+same scale to measured return destinations on each rank. Local differences plus `photo_emission_dq` are then MPI all-reduced
+so all ranks hold identical global `q_elem`.
 
 Conductor relaxation runs deterministically on that same post-allreduce mesh state on every rank. A batch with an incomplete
 collision or photo-ray query never reaches commit and does not use partial particle arrays or emission differences.

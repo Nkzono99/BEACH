@@ -46,6 +46,12 @@
       "restart_role": "none"
     },
     {
+      "name": "top_reference_history.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_files=true and output.write_potential_history=true and output.history_stride>0 and sim.use_box=true",
+      "restart_role": "none"
+    },
+    {
       "name": "charge_ledger.csv",
       "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and charge ledger state is present",

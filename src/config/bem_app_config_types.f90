@@ -51,6 +51,8 @@ module bem_app_config_types
     real(dp) :: ray_direction(3) = [0.0d0, 0.0d0, 0.0d0]
     logical :: has_ray_direction = .false.
     character(len=16) :: inject_face = ''
+    character(len=16) :: z_high_boundary = 'inherit'
+    character(len=16) :: surface_charge_closure = 'explicit'
   end type particle_species_spec
 
   !> 1つのテンプレート形状の有効化フラグと幾何パラメータを保持する。

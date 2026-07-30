@@ -611,6 +611,10 @@ profile gridについて収束を確認します。
 - `open`: 粒子を消滅（`escaped_boundary`）
 - `reflect`: 法線成分反転
 - `periodic`: 反対側へラップ
+- `[[particles.species]].z_high_boundary="reflect"` は、そのspeciesのz-high通過だけをglobal open actionより先にspecular reflectへ置き換える。既定`"inherit"`はglobal境界契約をそのまま使う。局所overrideは`sim.use_box=true`、`sim.bc_z_high="open"`、outer particle transferなしの場合だけ許し、他のbox面と他speciesには作用しない
+- `[[particles.species]].surface_charge_closure="neutral_return"` は、負電荷`photo_raycast`、
+  `deposit_opposite_charge_on_emit=true`、`z_high_boundary="reflect"`のときだけ許す。既定`"explicit"`は
+  tracked outcomeをそのままcommitする
 - additive な `find_first_boundary_event` は、box 内の始点から候補終点までの最初の交差 fraction と、corner/edge で同時に交差する全 face を bit mask で返す
 - additive な `apply_escape_reflect_periodic_event` は同時 face を軸順序に依存せず一括適用し、reflect/periodic 後の位置をbox座標とspanに応じたnormal値のguard幅だけ内側へ置く。これによりzero-valued faceのsubnormalな1 ULP offsetと、直後のevent fractionが0へunderflowする境界chatterを避ける。非有限値、不正な box/face、event/config 不一致は state を変更せず明示 status を返す
 - production particle loop はcandidate生成とmesh queryを先行し、box crossing時だけevent resolverへ進む。候補終点がstrictなbox内部なら追加event geometryを行わず、場評価1回・collision query 1回のfast pathとなる
@@ -650,8 +654,18 @@ profile gridについて収束を確認します。
   - `w_hit = J_perp * A_perp * batch_duration / (|q| * rays_per_batch)`
   - MPI 実行時は `rays_per_batch` の代わりに `global_rays_per_batch`（全 rank 合計）を使用
 - 生成粒子の重みには常に `w_hit` を使う
-- box内では通常粒子として追跡し、open面では共通の`open_boundary_model`またはouter particle transferを適用する
+- box内では通常粒子として追跡する。`z_high_boundary="inherit"`ではopen面の共通`open_boundary_model`またはouter particle transferを適用し、`"reflect"`ではz-highだけを局所specular reflectして残り時間を再積分する
 - `sim.field_bc_mode="periodic2"` で periodic image に命中した場合も、放出位置は primary cell に wrap した hit 座標を使う
+- `surface_charge_closure="neutral_return"`では、1 batchの放出電荷$S<0$、解決済み吸収電荷$R<0$、
+  max-step未解決電荷$U<0$をspecies別にMPI-global集計し、$S=R+U$を検証した上で解決済み帰還先depositを
+  $s_\mathrm{return}=S/R$倍する。放出元反作用$-S$との和が0になるため、このspeciesの表面総電荷増分は0となる
+- `absorbed_on_surface_C`と`discarded_unresolved_C`はtracked raw値を保持し、追加deposit
+  $S-R$は`neutral_return_correction_C`として別に記録する。係数と未解決率も別列にする
+- 未解決率$U/S$が固定上限0.05を超える場合は、少数長寿命粒子の統計closureという適用範囲外として
+  補正せずfail closedとする。この上限を緩める公開設定は持たない
+- 放出が非零で$R=0$、open escape、outer transfer、soft discard、符号・有限性・terminal分類の不整合は
+  補正せずfail closedとする
+- このclosureは表面総電荷のmonopole増分を0にするが、異なる高さの面への再分配が作る平面平均dipoleを除去しない
 
 ## 7. 実行制御と停止条件
 
@@ -676,6 +690,7 @@ profile gridについて収束を確認します。
 - `mesh_sources.csv`
 - `charge_history.csv`（`history_stride > 0`）
 - `potential_history.csv`（`output.write_potential_history = true` 時、`history_stride` に従う）
+- `top_reference_history.csv`（上記かつ`sim.use_box=true`時。potential履歴と同じpost-commit snapshot/batch）
 - `mesh_potential.csv`（`output.write_mesh_potential = true` 時）
 - `rng_state.txt`
 - `macro_residuals.csv`
@@ -685,6 +700,15 @@ profile gridについて収束を確認します。
 - `performance_profile.csv`（`BEACH_PROFILE=1` 環境変数設定時）
 
 `mesh_triangles.csv` は要素ごとの `mesh_id` を含み、`mesh_sources.csv` で `mesh_id` と元メッシュ設定を対応付けます。
+
+`top_reference_history.csv`は全box z-high面のcell-centered
+`sim.injection_face_phi_grid_n x sim.injection_face_phi_grid_n`標本から、次を記録します。
+
+`batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`
+
+要素相対電位は同じbatchの`potential_history.csv`とjoinして
+`potential_V - potential_mean_V`とします。この基準は無限遠電位・プラズマ電位ではなく、太陽風流入へ
+feedbackしません。最終`mesh_potential.csv`に対応する同じ定義の最終値は`summary.txt`へ別途記録します。
 
 `summary.txt`は`batches`に加えて`simulated_time_s`、
 `periodic2_max_nonzero_mode_potential_step_V`、`adaptive_nonzero_mode_rejected_trials`、
@@ -703,7 +727,7 @@ MPI 実行時はRNGを`rng_state_rankNNNNN.txt`、Zhao過渡queueを`outer_event
 
 - 必須: `summary.txt`, `charges.csv`, `rng_state.txt`（MPI 時は `rng_state_rankNNNNN.txt`）
 - 任意: `macro_residuals.csv`（MPI 時も単一の global ファイル）
-- schema v2/v3/v4では電荷収支出力時の`charge_ledger.csv`
+- schema v2以降では電荷収支出力時の`charge_ledger.csv`
 - queue有効時はserialの`outer_event_queue.csv`またはMPI全rankの`outer_event_queue_rankNNNNN.csv`
 
 `sim.batch_count` は累積のaccepted batch到達数です。例えば checkpoint が `batches=100` のとき
@@ -711,8 +735,11 @@ MPI 実行時はRNGを`rng_state_rankNNNNN.txt`、Zhao過渡queueを`outer_event
 `simulated_time_s`、累積棄却trial数、最後のaccepted trial幅・電位変化も`summary.txt`から復元します。
 `batch_count` が checkpoint の処理済みバッチ数より小さい場合は停止します。MPI 実行時の再開では、前回と同一の `mpi_world_size` が必要です。
 `output.resume=true` で必須 checkpoint が存在しない場合は新規実行へフォールバックせず停止します。`summary.txt` の統計値、`charges.csv` の電荷、`macro_residuals.csv` の残差は resume 時に有限性と基本範囲を検証します。
-新規出力の`summary.txt`は`checkpoint_schema_version=4`とmodel / ordered mesh / ordered species fingerprintを持ちます。schema v4はschema v3のreadyなouter held stateに加え、Zhao過渡closureのpopulation fraction、column target/residual、queue inventoryを復元します。queue本体はserialの`outer_event_queue.csv`またはMPI rank別ファイルにactive event、terminal outcome、due時刻、`next_event_id`を保存します。queue有効時はschema、rank、world size、完了batchの不一致や欠落ファイルをfail closedで拒否します。schema v3は`outer_plasma_profile.csv`に`z, phi, E, rho`を保存し、outer solverのstatus、反復数、residual、積分電荷、species別電流とともにheld stateを復元します。schema v2は3 fingerprintを照合した上でread-only migrationとして受理しますが、旧3列outer profileは初期値にだけ使い、次のouter refreshでroot solveを強制します。廃止された重心source modelを使ったcheckpointは再開できません。
-`charge_ledger_residual_C` は surface / flight / unresolved stock の差分と外部 flux から作る電荷保存残差です。species 間相殺を避けた `discarded_unresolved_abs_C` は別診断であり、残差が 0 でも max-step discard が物理的に許容されることを意味しません。
+新規出力の`summary.txt`は`checkpoint_schema_version=5`とmodel / ordered mesh / ordered species fingerprintを持ちます。schema v5は`charge_ledger.csv`にneutral-return補正量・係数・未解決率を保存します。schema v4はschema v3のreadyなouter held stateに加え、Zhao過渡closureのpopulation fraction、column target/residual、queue inventoryを復元します。queue本体はserialの`outer_event_queue.csv`またはMPI rank別ファイルにactive event、terminal outcome、due時刻、`next_event_id`を保存します。queue有効時はschema、rank、world size、完了batchの不一致や欠落ファイルをfail closedで拒否します。schema v3は`outer_plasma_profile.csv`に`z, phi, E, rho`を保存し、outer solverのstatus、反復数、residual、積分電荷、species別電流とともにheld stateを復元します。schema v2は3 fingerprintを照合した上でread-only migrationとして受理しますが、旧3列outer profileは初期値にだけ使い、次のouter refreshでroot solveを強制します。廃止された重心source modelを使ったcheckpointは再開できません。
+`charge_ledger_residual_C` は surface / flight / unresolved stock の差分と外部 flux、および
+`neutral_return_correction_C`から作る電荷保存残差です。species 間相殺を避けた
+`discarded_unresolved_abs_C` は別診断であり、残差が 0 でも max-step discard が物理的に許容されることを
+意味しません。`neutral_return`使用時もraw未解決率と補正係数を独立に受理判定します。
 旧形式の `macro_residuals_rankNNNNN.csv` が残っている場合は、global 残差との対応が曖昧なため停止します。
 
 ## 9. 設計方針

@@ -46,6 +46,8 @@ beachx inspect outputs/latest
 | 進行 | `batches`, `simulated_time_s`, `last_rel_change` | accepted batch数、受理した物理時間の総和、最終バッチの電荷変化監視値 |
 | 適応的な非零モード進行 | `periodic2_max_nonzero_mode_potential_step_V`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V`, `adaptive_nonzero_mode_omp_threads` | 設定上限、累積棄却trial数、最後に受理した幅・実測$k\ne0$電位変化、再開に必要なthread数 |
 | 場計算 | `field_backend`, `field_source_model`, `field_kernel_id` | 出力を作った場ソルバーと source kernel |
+| z-high電位基準 | `top_reference_available`, `top_reference_definition`, `top_reference_last_batch`, `top_reference_simulated_time_s`, `top_reference_z_high_m`, `top_reference_sample_n`, `top_reference_potential_mean_V`, `top_reference_potential_std_V`, `top_reference_potential_min_V`, `top_reference_potential_max_V` | 最終mesh電位と同じ状態で評価した全z-high面の定義・時刻・標本数・統計 |
+| 光電子帰還closure | `charge_ledger_neutral_return_correction_C` | 全speciesで解決済み帰還先へ追加した有効電荷の累積和 |
 | 外部境界の解決結果 | `coupling_update_mode`, `external_inflow_map`, `external_ordinary_open_model`, `external_interface_transport`, `outer_particle_mode_resolved` | 公開設定から実行時に解決された更新、流入、通常open面、z-high輸送、処理時機 |
 
 `absorbed` は吸収イベント数であり、電荷の符号やマクロ粒子重みを含みません。電荷量は
@@ -121,6 +123,12 @@ pseudo-arclength内部のNewton反復数ではありません。どちらの進�
 | `discarded_unresolved_C` | `max_step` 到達時に生存したまま破棄された電荷 |
 | `interface_outward_gross_C` | 局所領域から外部領域へ渡した総電荷 |
 | `interface_returned_gross_C` | 外部領域から局所領域へ戻した総電荷 |
+| `neutral_return_correction_C` | `neutral_return`が解決済み帰還先へ追加した有効電荷。raw吸収量には含めない |
+
+`neutral_return_weight_scale`は解決済み帰還depositへ掛けた係数、`neutral_return_unresolved_fraction`は
+放出電荷のうち`max_step`まで未帰還だった絶対量の割合です。closureを使わないspeciesではそれぞれ1と0です。
+`absorbed_on_surface_C`と`discarded_unresolved_C`はtracked raw値のままなので、補正の大きさを独立に監査できます。
+最終CSVの係数と割合は、そのrunの累積raw放出・吸収・未解決電荷から再計算した値です。
 
 `injected_count`、`emitted_count`、`absorbed_count`、`escaped_count`、
 `discarded_unresolved_count` は対応するterminalイベント数です。interface grossに独立したcount列はありません。
@@ -185,8 +193,18 @@ write_potential_history = true
 | --- | --- | --- |
 | `charge_history.csv` | `output.history_stride > 0` | 記録バッチごとの要素電荷 |
 | `potential_history.csv` | 上記に加えて `output.write_potential_history = true` | 記録バッチごとの要素重心電位 |
+| `top_reference_history.csv` | 上記に加えて `sim.use_box = true` | 同じbatchのz-high面電位統計 |
 
 受理済み batch 1 は常に含まれ、その後は受理済み batch の番号が `history_stride` ごとに記録されます。
+`top_reference_history.csv`は
+`batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`
+を持ちます。`potential_history.csv`と`batch`でjoinし、
+`potential_V - potential_mean_V`をz-high面基準の相対電位として読みます。この平均は無限遠電位や
+プラズマ電位ではありません。
+
+旧checkpointを、`top_reference_history.csv`がまだない同じ出力先へresumeした場合、このファイルは
+resume後のbatchから始まります。二つの履歴に共通する`batch`だけをinner joinします。
+
 電位履歴は記録時に追加の場評価を行うため、
 大きなメッシュでは `history_stride` を増やして出力頻度を下げます。
 
@@ -210,7 +228,7 @@ write_potential_history = true
 
 | 構成 | 主な出力 | 詳細 |
 | --- | --- | --- |
-| 有限画像 `periodic2` | `summary.txt` の periodic2 構成、`charges.csv` | [有限画像構成](FinitePeriodicConfiguration.html) |
+| 有限画像 `periodic2` | periodic2構成、`charges.csv`、`top_reference_history.csv`、neutral-return台帳列 | [有限画像構成](FinitePeriodicConfiguration.html) |
 | `cached_kneq0` | `periodic2_cache_hit`, `periodic2_operator_build_count`, `periodic2_cache_fingerprint`, `periodic2_cache_path` | [周期遠方補正](PeriodicFarCorrection.html) |
 | 適応的な$k\ne0$進行 | `simulated_time_s`, `adaptive_nonzero_mode_rejected_trials`, `adaptive_nonzero_mode_last_batch_duration_s`, `adaptive_nonzero_mode_last_potential_step_V` | [`batch_duration`の安定性と定常値](BatchDurationStability.html#periodic2非零モードの適応的な進行) |
 | `kinetic_1d` | `outer_plasma_profile.csv`, `interface_potential_V`, `gauss_residual_C`, `last_outer_update_batch` | [標準 1D kinetic 外部シース](KineticOuterPlasma.html) |

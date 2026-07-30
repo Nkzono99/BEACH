@@ -4,6 +4,7 @@ program test_mpi_hybrid
   use bem_constants, only: eps0, pi, qe
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_real_dp_array, &
+                     mpi_allreduce_sum_i64_array, &
                      mpi_bcast_i32_array, mpi_bcast_real_dp_array, mpi_gatherv_real_dp_array, &
                      mpi_world_barrier
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
@@ -94,7 +95,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -136,6 +137,10 @@ program test_mpi_hybrid
   call assert_equal_i64(ledger%absorbed_count(1), 4_i64, 'mpi ledger absorbed count mismatch')
   call assert_close_dp(ledger%injected_from_remote(1), 4.0_dp, 1.0e-12_dp, 'mpi ledger injected charge mismatch')
   call assert_close_dp(ledger%residual(), 0.0_dp, 1.0e-12_dp, 'mpi ledger residual mismatch')
+  call test_end()
+
+  call test_begin('mpi_neutral_return_layout_invariance')
+  call run_mpi_neutral_return_layout_test(mpi)
   call test_end()
 
   call test_begin('mpi_history')
@@ -252,6 +257,183 @@ program test_mpi_hybrid
   call mpi_shutdown(mpi)
 
 contains
+
+  !> 同一ray集合を複製したMPI実行とserial参照でneutral-return閉包を比較する。
+  !!
+  !! MPI側は各rankがserial参照と同じray集合を追跡し、global raysを
+  !! world-size倍にしてmacro chargeを1/world-sizeへ落とす。したがって
+  !! 全rankの物理的な放出・帰還・未解決電荷とmesh depositはserial参照と一致する。
+  subroutine run_mpi_neutral_return_layout_test(mpi)
+    type(mpi_context), intent(in) :: mpi
+    integer(i32), parameter :: rays_per_rank = 1024_i32
+    integer(i32), parameter :: signature_size = 13_i32
+    type(mesh_type) :: reference_mesh, distributed_mesh
+    type(app_config) :: reference_cfg, distributed_cfg
+    type(sim_stats) :: reference_stats, distributed_stats
+    type(charge_ledger_type) :: reference_ledger, distributed_ledger
+    real(dp) :: reference_signature(signature_size), distributed_signature(signature_size)
+    integer(i64) :: reference_counts(3)
+    integer(i32) :: value_index
+    real(dp) :: tolerance
+    character(len=128) :: assertion_message
+
+    reference_signature = 0.0_dp
+    reference_counts = 0_i64
+    if (mpi_is_root(mpi)) then
+      call setup_mpi_neutral_return_fixture(reference_mesh, reference_cfg, rays_per_rank)
+      call seed_particles_from_config(reference_cfg)
+      call run_absorption_insulator( &
+        reference_mesh, reference_cfg, reference_stats, charge_ledger=reference_ledger &
+        )
+      call pack_neutral_return_signature(reference_mesh, reference_ledger, reference_signature)
+      reference_counts = [ &
+                         reference_ledger%emitted_count(1), reference_ledger%absorbed_count(1), &
+                         reference_ledger%discarded_unresolved_count(1) &
+                         ]
+    end if
+    call mpi_allreduce_sum_real_dp_array(mpi, reference_signature)
+    call mpi_allreduce_sum_i64_array(mpi, reference_counts)
+
+    call setup_mpi_neutral_return_fixture( &
+      distributed_mesh, distributed_cfg, rays_per_rank*mpi%size &
+      )
+    ! Test-only common stream: every rank traces the same rays while each
+    ! macro charge is divided by the global ray count.
+    call seed_particles_from_config(distributed_cfg, mpi_rank=0_i32, mpi_size=1_i32)
+    call run_absorption_insulator( &
+      distributed_mesh, distributed_cfg, distributed_stats, mpi=mpi, &
+      charge_ledger=distributed_ledger &
+      )
+    call pack_neutral_return_signature(distributed_mesh, distributed_ledger, distributed_signature)
+
+    do value_index = 1_i32, signature_size
+      tolerance = 1.0e-11_dp*max( &
+                  1.0_dp, abs(reference_signature(value_index)), &
+                  abs(distributed_signature(value_index)) &
+                  )
+      write (assertion_message, '(a,i0)') &
+        'neutral-return MPI signature mismatch at component ', value_index
+      call assert_close_dp( &
+        distributed_signature(value_index), reference_signature(value_index), tolerance, &
+        trim(assertion_message) &
+        )
+    end do
+
+    call assert_equal_i64( &
+      distributed_ledger%emitted_count(1), int(mpi%size, i64)*reference_counts(1), &
+      'neutral-return MPI emitted count was not reduced across ranks' &
+      )
+    call assert_equal_i64( &
+      distributed_ledger%absorbed_count(1), int(mpi%size, i64)*reference_counts(2), &
+      'neutral-return MPI absorbed count was not reduced across ranks' &
+      )
+    call assert_equal_i64( &
+      distributed_ledger%discarded_unresolved_count(1), int(mpi%size, i64)*reference_counts(3), &
+      'neutral-return MPI unresolved count was not reduced across ranks' &
+      )
+    call assert_true( &
+      distributed_ledger%absorbed_count(1) > 0_i64 .and. &
+      distributed_ledger%discarded_unresolved_count(1) > 0_i64, &
+      'neutral-return MPI fixture must exercise resolved and unresolved returns' &
+      )
+    call assert_true( &
+      distributed_ledger%neutral_return_unresolved_fraction(1) <= 0.05_dp, &
+      'neutral-return MPI fixture must stay inside the fixed applicability limit' &
+      )
+    call assert_equal_i64( &
+      distributed_stats%escaped_boundary, 0_i64, &
+      'neutral-return MPI reflected photoelectrons must not escape' &
+      )
+    call assert_close_dp( &
+      sum(distributed_mesh%q_elem), 0.0_dp, 1.0e-11_dp, &
+      'neutral-return MPI mean surface charge must close' &
+      )
+    call assert_true( &
+      sum(abs(distributed_mesh%q_elem)) > 0.0_dp, &
+      'neutral-return MPI closure must preserve local redistribution' &
+      )
+    call assert_close_dp( &
+      distributed_ledger%residual(), 0.0_dp, 1.0e-11_dp, &
+      'neutral-return MPI ledger residual must close' &
+      )
+  end subroutine run_mpi_neutral_return_layout_test
+
+  subroutine setup_mpi_neutral_return_fixture(mesh, cfg, global_rays_per_batch)
+    type(mesh_type), intent(out) :: mesh
+    type(app_config), intent(out) :: cfg
+    integer(i32), intent(in) :: global_rays_per_batch
+    real(dp) :: tri_v0(3, 4), tri_v1(3, 4), tri_v2(3, 4)
+
+    if (global_rays_per_batch < 1_i32) then
+      error stop 'neutral-return MPI fixture requires at least one ray'
+    end if
+
+    ! 左98%のz=0.75側は同じbatch内で帰還し、右2%のz=0.25側は未解決になる。
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.75_dp]
+    tri_v1(:, 1) = [0.98_dp, 0.0_dp, 0.75_dp]
+    tri_v2(:, 1) = [0.98_dp, 1.0_dp, 0.75_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.75_dp]
+    tri_v1(:, 2) = [0.98_dp, 1.0_dp, 0.75_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.75_dp]
+    tri_v0(:, 3) = [0.98_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 3) = [1.0_dp, 0.0_dp, 0.25_dp]
+    tri_v2(:, 3) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v0(:, 4) = [0.98_dp, 0.0_dp, 0.25_dp]
+    tri_v1(:, 4) = [1.0_dp, 1.0_dp, 0.25_dp]
+    tri_v2(:, 4) = [0.98_dp, 1.0_dp, 0.25_dp]
+    call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+    mesh%elem_vacuum_sign = 1_i32
+    mesh%vacuum_normals = mesh%normals
+
+    call default_app_config(cfg)
+    cfg%sim%rng_seed = 998_i32
+    cfg%sim%batch_count = 1_i32
+    cfg%sim%batch_duration = 1.0_dp
+    cfg%sim%dt = 0.6_dp
+    cfg%sim%max_step = 1_i32
+    cfg%sim%q_floor = 1.0e-30_dp
+    cfg%sim%field_solver = 'direct'
+    cfg%field%backend = 'direct'
+    cfg%panel%kernel_id = 'triangle_p0_exact_direct'
+    cfg%sim%use_box = .true.
+    cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    cfg%sim%bc_high(3) = bc_open
+    cfg%n_particle_species = 1_i32
+    cfg%particle_species(1) = species_from_defaults()
+    cfg%particle_species(1)%source_mode = 'photo_raycast'
+    cfg%particle_species(1)%rays_per_batch = global_rays_per_batch
+    cfg%particle_species(1)%emit_current_density_a_m2 = 1.0_dp
+    cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
+    cfg%particle_species(1)%z_high_boundary = 'reflect'
+    cfg%particle_species(1)%surface_charge_closure = 'neutral_return'
+    cfg%particle_species(1)%q_particle = -1.0_dp
+    cfg%particle_species(1)%m_particle = 1.0_dp
+    cfg%particle_species(1)%temperature_k = 0.0_dp
+    cfg%particle_species(1)%normal_drift_speed = 1.0_dp
+    cfg%particle_species(1)%inject_face = 'z_high'
+    cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    cfg%particle_species(1)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
+    cfg%particle_species(1)%has_ray_direction = .true.
+  end subroutine setup_mpi_neutral_return_fixture
+
+  subroutine pack_neutral_return_signature(mesh, ledger, signature)
+    type(mesh_type), intent(in) :: mesh
+    type(charge_ledger_type), intent(in) :: ledger
+    real(dp), intent(out) :: signature(:)
+
+    if (size(mesh%q_elem) /= 4 .or. size(signature) /= 13) then
+      error stop 'neutral-return MPI signature storage mismatch'
+    end if
+    signature = [ &
+                mesh%q_elem, ledger%surface_charge_before, ledger%surface_charge_after, &
+                ledger%emitted_from_surface(1), ledger%absorbed_on_surface(1), &
+                ledger%discarded_unresolved(1), ledger%neutral_return_correction(1), &
+                ledger%neutral_return_weight_scale(1), &
+                ledger%neutral_return_unresolved_fraction(1), ledger%residual() &
+                ]
+  end subroutine pack_neutral_return_signature
 
   !> rank配置の異なる同一(E_n, |dq|)集合をglobal CDFからZhao rootへ通す。
   !!

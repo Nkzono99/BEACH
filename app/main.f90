@@ -14,8 +14,8 @@ program main
   use bem_outer_event_queue, only: outer_event_queue_type
   use bem_outer_event_queue_io, only: outer_event_queue_io_ok, load_outer_event_queue_checkpoint, &
                                       write_outer_event_queue_checkpoint, validate_outer_event_queue_inventory
-  use bem_output_writer, only: open_history_writer, open_potential_history_writer, print_run_summary, write_result_files, &
-                               ensure_output_dir
+  use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
+                               print_run_summary, write_result_files, ensure_output_dir
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
@@ -35,7 +35,8 @@ program main
   type(mpi_context) :: mpi
   integer :: history_unit
   integer :: potential_history_unit
-  logical :: history_opened, potential_history_opened, resumed
+  integer :: top_reference_history_unit
+  logical :: history_opened, potential_history_opened, top_reference_history_opened, resumed
   logical :: outer_queue_checkpoint_found
   integer(i32) :: outer_queue_io_status
   character(len=256) :: outer_queue_io_message
@@ -55,12 +56,17 @@ program main
     call perf_region_begin(perf_region_history_open, perf_t0)
     call open_history_writer(app, resumed, history_opened, history_unit)
     call open_potential_history_writer(app, resumed, potential_history_opened, potential_history_unit)
+    call open_top_reference_history_writer( &
+      app, resumed, top_reference_history_opened, top_reference_history_unit &
+      )
     call perf_region_end(perf_region_history_open, perf_t0)
   else
     history_opened = .false.
     history_unit = -1
     potential_history_opened = .false.
     potential_history_unit = -1
+    top_reference_history_opened = .false.
+    top_reference_history_unit = -1
   end if
 
   if (history_opened) then
@@ -69,7 +75,8 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          potential_history_unit=potential_history_unit, &
+          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
           outer_queue_state=outer_queue_state &
           )
@@ -86,7 +93,8 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          potential_history_unit=potential_history_unit, &
+          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
           outer_queue_state=outer_queue_state &
           )
@@ -106,7 +114,8 @@ program main
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          potential_history_unit=potential_history_unit, &
+          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
           outer_queue_state=outer_queue_state &
           )
@@ -122,7 +131,8 @@ program main
       if (potential_history_opened) then
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit, charge_ledger=charge_ledger, &
+          potential_history_unit=potential_history_unit, &
+          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
           outer_queue_state=outer_queue_state &
           )
@@ -137,6 +147,7 @@ program main
     end if
   end if
   if (potential_history_opened) close (potential_history_unit)
+  if (top_reference_history_opened) close (top_reference_history_unit)
 
   if (mpi_is_root(mpi)) call print_run_summary(mesh, stats)
 

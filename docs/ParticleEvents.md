@@ -123,6 +123,12 @@ $$
 粒子を反対側へ移し、速度は変えません。境界処理後も生存する粒子は、`nearest`を使ってfaceから
 1 floating-point値だけboxの内側へ置きます。
 
+`[[particles.species]].z_high_boundary="reflect"`は、globalにopenなz-highを、そのspeciesについてだけ
+reflect faceとして処理します。省略時の`"inherit"`ではglobal境界を変更しないため、たとえば光電子だけを
+反射し、ambient speciesを通常のopen境界契約に従わせられます。統合構成ではordinary-openの`escape`を
+選ぶため、ambient speciesはescapeします。このoverrideはouter particle transferより前に作用し、
+`sim.use_box=true`、`sim.bc_z_high="open"`、outer particle transferなしの場合だけ有効です。
+
 cornerでreflectとperiodicが組み合わさっても、face maskへまとめてから各軸へ作用するため、軸の走査順序に
 依存しない結果になります。
 

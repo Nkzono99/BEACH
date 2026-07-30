@@ -4,7 +4,8 @@ program test_reservoir_injection
   use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config, &
                             species_from_defaults, seed_particles_from_config, init_particle_batch_from_config
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan, &
-                                    compute_face_average_potential, reservoir_face_velocity_correction
+                                    compute_face_average_potential, compute_z_high_box_potential_statistics, &
+                                    reservoir_face_velocity_correction
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_types, only: particles_soa, injection_state
@@ -238,6 +239,7 @@ contains
     type(electrostatic_snapshot_type) :: snapshot
     real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
     real(dp) :: phi_mean, phi_std, phi_min, phi_max, vmin_normal, barrier_normal
+    real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
 
     v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
     v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
@@ -276,6 +278,14 @@ contains
     call assert_close_dp(phi_std, 0.25_dp, 1.0e-14_dp, 'face potential standard deviation mismatch')
     call assert_close_dp(phi_min, -0.75_dp, 1.0e-14_dp, 'face potential minimum mismatch')
     call assert_close_dp(phi_max, -0.25_dp, 1.0e-14_dp, 'face potential maximum mismatch')
+
+    call compute_z_high_box_potential_statistics( &
+      stats_mesh, stats_cfg%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+      )
+    call assert_close_dp(top_phi_mean, phi_mean, 1.0e-14_dp, 'z-high box potential mean mismatch')
+    call assert_close_dp(top_phi_std, phi_std, 1.0e-14_dp, 'z-high box potential standard deviation mismatch')
+    call assert_close_dp(top_phi_min, phi_min, 1.0e-14_dp, 'z-high box potential minimum mismatch')
+    call assert_close_dp(top_phi_max, phi_max, 1.0e-14_dp, 'z-high box potential maximum mismatch')
 
     stats_cfg%sim%reservoir_potential_model = 'infinity_barrier'
     stats_cfg%sim%phi_infty = -1.0_dp

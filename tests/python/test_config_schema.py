@@ -47,6 +47,60 @@ def test_schema_rejects_removed_point_kernel_configuration() -> None:
     assert schema_errors({"sim": {"softening": 1.0e-6}}, schema)
 
 
+def test_schema_accepts_species_z_high_reflect_and_rejects_unknown_value() -> None:
+    schema, _ = load_schema()
+    config = load_toml_file(ROOT / "examples/beach.toml")
+    config["particles"]["species"][0]["z_high_boundary"] = "reflect"
+
+    assert schema_errors(config, schema) == []
+
+    invalid = copy.deepcopy(config)
+    invalid["particles"]["species"][0]["z_high_boundary"] = "unknown"
+    assert schema_errors(invalid, schema)
+
+    no_box = copy.deepcopy(config)
+    no_box["sim"]["use_box"] = False
+    assert schema_errors(no_box, schema)
+
+    nonopen_top = copy.deepcopy(config)
+    nonopen_top["sim"]["bc_z_high"] = "reflect"
+    assert schema_errors(nonopen_top, schema)
+
+    outer_transfer = copy.deepcopy(config)
+    outer_transfer["external_boundary"]["particles"]["mode"] = "same_batch"
+    assert schema_errors(outer_transfer, schema)
+
+
+def test_schema_constrains_neutral_return_to_closed_negative_photoelectrons() -> None:
+    schema, _ = load_schema()
+    config = load_toml_file(ROOT / "examples/periodic2_closed_photoelectron.toml")
+
+    assert schema_errors(config, schema) == []
+
+    species = config["particles"]["species"][-1]
+    invalid_enum = copy.deepcopy(config)
+    invalid_enum["particles"]["species"][-1]["surface_charge_closure"] = "unknown"
+    assert schema_errors(invalid_enum, schema)
+
+    nonphoto = copy.deepcopy(config)
+    nonphoto["particles"]["species"][-1]["source_mode"] = "reservoir_face"
+    assert schema_errors(nonphoto, schema)
+
+    positive = copy.deepcopy(config)
+    positive["particles"]["species"][-1]["q_particle"] = abs(species["q_particle"])
+    assert schema_errors(positive, schema)
+
+    no_countercharge = copy.deepcopy(config)
+    no_countercharge["particles"]["species"][-1][
+        "deposit_opposite_charge_on_emit"
+    ] = False
+    assert schema_errors(no_countercharge, schema)
+
+    no_reflect = copy.deepcopy(config)
+    no_reflect["particles"]["species"][-1]["z_high_boundary"] = "inherit"
+    assert schema_errors(no_reflect, schema)
+
+
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:
     schema, _ = load_schema()
     disabled = load_toml_file(ROOT / "examples/beach.toml")

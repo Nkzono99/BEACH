@@ -867,6 +867,20 @@ raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangl
 | `temperature_ev` | float | 未指定 | 温度 [eV]。`temperature_k` と排他 |
 | `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
 | `inject_face` | string | 未指定 | 注入面。`reservoir_face` / `photo_raycast` で必須 |
+| `z_high_boundary` | string | `"inherit"` | species単位のz-high作用。`inherit` / `reflect` |
+| `surface_charge_closure` | string | `"explicit"` | 表面source電荷closure。`explicit` / `neutral_return` |
+
+`z_high_boundary="reflect"`は、そのspeciesがz-highへ達したときだけ法線速度を反転する局所specular反射です。
+他speciesはglobal境界契約を継承します。このoverrideは`sim.use_box=true`、`sim.bc_z_high="open"`、outer particle
+transferなしの場合だけ指定できます。`inject_face`は粒子源または照射rayの面であり、生成後の
+`z_high_boundary`とは別の設定です。
+
+`surface_charge_closure="neutral_return"`は、負電荷`photo_raycast`、
+`deposit_opposite_charge_on_emit=true`、`z_high_boundary="reflect"`の組合せだけで使用できます。
+解決済み帰還先depositをspecies別のglobal係数で補正し、光電子による表面総電荷増分を0にします。
+
+outer particle transfer、`implicit_mean`、実escape、`soft_discard`とは併用できません。通常のtracked chargeを
+そのままcommitする`"explicit"`が既定です。未帰還率が固定上限5%を超える場合は補正せず停止します。
 
 #### `source_mode = "volume_seed"`
 
@@ -969,9 +983,11 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 実際の生成粒子数はレイの命中率で決まるため、バッチごとの生成数は `rays_per_batch` 以下です。
 `field_bc_mode="periodic2"` では、periodic image に命中しても primary cell に wrap した hit 座標から放出します。
 
-生成した光電子は常に`w_hit`を重みに使い、通常粒子として追跡します。表面へ戻れば通常の衝突として吸収し、
-open面では`external_boundary.ordinary_open.model`、z-high interfaceでは
-`external_boundary.particles.mode`から解決した輸送がreturn / escapeを決めます。
+生成した光電子は常に`w_hit`を重みに使い、通常粒子として追跡します。表面へ戻れば通常の衝突として吸収します。
+
+`z_high_boundary="inherit"`ではopen面の`external_boundary.ordinary_open.model`、またはz-high interfaceの
+`external_boundary.particles.mode`から解決した輸送がreturn / escapeを決めます。`"reflect"`ではz-highだけを
+局所specular反射し、outer particle transferは使用できません。
 
 ---
 
@@ -1191,7 +1207,7 @@ z 軸方向の円柱です。
 |---|---|---:|---|
 | `write_files` | bool | `true` | ファイル出力の有効/無効 |
 | `write_mesh_potential` | bool | `false` | `mesh_potential.csv` を出力 |
-| `write_potential_history` | bool | `false` | `potential_history.csv` を出力 |
+| `write_potential_history` | bool | `false` | `potential_history.csv`を出力。`use_box=true`なら同じbatchの`top_reference_history.csv`も出力 |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 | `history_stride` | int | `1` | 履歴 CSV の出力間隔 [batch] |
 | `resume` | bool | `false` | 既存 checkpoint から再開 |
@@ -1210,6 +1226,7 @@ z 軸方向の円柱です。
 | `mesh_potential.csv` | `write_mesh_potential=true` のとき |
 | `charge_history.csv` | `history_stride > 0` のとき |
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
+| `top_reference_history.csv` | 上記に加えて`sim.use_box=true`のとき。z-high全断面の平均・標準偏差・最小・最大電位 |
 | `performance_profile.csv` | `BEACH_PROFILE=1`のとき |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialまたはMPI rank別の乱数状態 |
 | `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差 |
@@ -1244,6 +1261,13 @@ z 軸方向の円柱です。
 - 形式は `batch, elem_idx, potential_V` です。
 - 履歴ごとに `field_solver%refresh` と `compute_mesh_potential` を実行するため、計算コストが増えます。
 
+`top_reference_history.csv`:
+
+- `potential_history.csv`と同じpost-commit snapshot、同じbatchで1行を記録します。
+- 形式は`batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`です。
+- `sample_n=sim.injection_face_phi_grid_n`とし、全box z-high面のcell-centered格子を使います。
+- z-high面平均は無限遠電位やプラズマ電位ではなく、相対電位を読むための診断値です。
+
 `resume=true` の要件:
 
 | 条件 | 内容 |
@@ -1269,10 +1293,11 @@ MPI 実行時:
 
 - 旧形式の `macro_residuals_rankNNNNN.csv` がある checkpoint は、暗黙変換せず拒否します。
 - `summary.txt` の `mpi_world_size` は現在の rank 数と一致させます。
-- schema v2/v3/v4はmodel、ordered mesh、ordered speciesのfingerprint一致が必要です。
+- schema v2/v3/v4/v5はmodel、ordered mesh、ordered speciesのfingerprint一致が必要です。
 - schema v3 の outer profile は `field_V_m` と `charge_density_C_m3` が必須です。
 - schema v4のqueue再開はtransient Zhao state、queue file schema 2、rank、world size、完了batch、global count、signed
   charge、全rank queue fingerprintが一致しなければ停止します。
+- schema v5はneutral-return補正量、係数、未解決率を`charge_ledger.csv`から復元します。
 - `[[particles.species]].species_key` は安定 ID です。省略時は `species_<1-based index>`、明示時は粒子種間で一意にします。
 
 ---

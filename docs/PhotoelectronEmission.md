@@ -96,6 +96,41 @@ ray hitで生成する光電子の重みは常に$w_\mathrm{hit}$です。放出
 表面へ戻った粒子は通常の衝突として再吸収し、open面へ達した粒子にはreservoir粒子や`volume_seed`粒子と同じ
 `external_boundary.ordinary_open`またはouter particle modeを適用します。
 
+### 光電子だけをz-highで閉じる
+
+outer particle transferを使わず、光電子の表面内再分配だけを切り出す場合は、光電子speciesへ局所反射を指定できます。
+
+```toml
+[[particles.species]]
+species_key = "photoelectron"
+source_mode = "photo_raycast"
+deposit_opposite_charge_on_emit = true
+z_high_boundary = "reflect"
+surface_charge_closure = "neutral_return"
+```
+
+この設定はz-high通過時に法線速度だけを反転し、接線速度を保存して残りstepを再積分します。キーを省略した
+ambient speciesは`"inherit"`なので、globalのopen境界契約に従います。統合構成で
+`external_boundary.ordinary_open.model="escape"`を選んだ場合にescapeします。
+`reflect`は`sim.use_box=true`、global z-highがopen、outer particle transferなしの場合だけ使用できます。
+`inject_face`は照射rayの開始面であり、生成後の粒子に適用する`z_high_boundary`とは別です。
+
+`z_high_boundary="reflect"`だけなら軌道を閉じるだけで、`max_step`までに戻らない粒子は未解決のままです。
+`surface_charge_closure="neutral_return"`を加えると、1 batchの光電子放出電荷$S<0$と解決済み吸収電荷$R<0$を
+MPI全体で測り、各帰還先depositを$S/R$倍します。放出元の反作用電荷と合わせた光電子の表面総電荷増分は
+厳密に0になり、未帰還粒子は解決済み帰還先と同じ分布を持つと近似されます。
+
+rawの`absorbed_on_surface_C`と`discarded_unresolved_C`は置き換えません。補正量、
+`neutral_return_weight_scale`、`neutral_return_unresolved_fraction`を`charge_ledger.csv`へ別に記録します。
+放出があるのに解決済み帰還がない場合、実escape、`soft_discard`、符号不整合は停止します。
+未帰還率が5%を超える場合も、このclosureの固定適用範囲外として補正せず停止します。
+
+完全反射は有限box上端に人工的な鏡を置く試験条件であり、自己整合なsheathや準中性性を解くものではありません。
+`neutral_return`も未帰還粒子の軌道を解くのではなく、正味光電子電流を0とする統計的closureです。
+`abs(weight_scale-1)`と未帰還率が十分小さくなるよう、`max_step`、`dt`、ray数、batch幅を収束させます。
+統合した場・流入・電位基準は
+[periodic2有限画像構成](FinitePeriodicConfiguration.html)を参照してください。
+
 有限boxで外部領域を解かない場合は`external_boundary.ordinary_open.model="potential_barrier"`が
 通過点の電位と法線運動エネルギーから反射またはescapeを決めます。自己整合な外部sheathを使う場合は
 `external_boundary.field.model`と`external_boundary.particles.mode`が正本です。

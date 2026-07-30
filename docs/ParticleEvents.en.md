@@ -125,6 +125,14 @@ A reflect-only face reverses the corresponding velocity component. A periodic fa
 without changing velocity. A surviving event uses `nearest` so its new coordinate is one floating-point value inside the box,
 not exactly on the face.
 
+`[[particles.species]].z_high_boundary="reflect"` treats globally open z-high as
+a reflect face only for that species. The default `"inherit"` leaves the global
+boundary unchanged, so photoelectrons can reflect while ambient species continue
+through the ordinary open-boundary contract. They escape in the integrated
+configuration because it selects the ordinary-open `escape` model. The override
+acts before outer particle transfer and is accepted only with `sim.use_box=true`,
+`sim.bc_z_high="open"`, and no outer particle transfer.
+
 Reflect and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
 
 ### Potential barrier

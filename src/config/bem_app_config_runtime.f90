@@ -32,6 +32,7 @@ module bem_app_config_runtime
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private :: finalize_particle_batch_collision_query
+  private :: compute_rectangular_face_potential_statistics
 
   !> 1回の simulation run で不変な粒子 source の導出値。
   type, public :: particle_source_plan_type
@@ -1157,44 +1158,87 @@ contains
     real(dp), intent(out) :: phi_face
     real(dp), intent(out), optional :: phi_std, phi_min, phi_max
 
-    integer(i32) :: ngrid, i, j, sample_count
+    real(dp) :: phi_std_local, phi_min_local, phi_max_local
+
+    call compute_rectangular_face_potential_statistics( &
+      mesh, sim, snapshot, spec%inject_face, spec%pos_low, spec%pos_high, &
+      sim%injection_face_phi_grid_n, phi_face, phi_std_local, phi_min_local, phi_max_local &
+      )
+    if (present(phi_std)) phi_std = phi_std_local
+    if (present(phi_min)) phi_min = phi_min_local
+    if (present(phi_max)) phi_max = phi_max_local
+  end subroutine compute_face_average_potential
+
+  !> box の z-high 全断面における電位統計をセル中心 `N x N` 格子で評価する。
+  !!
+  !! `N` は reservoir face 平均と同じ `sim.injection_face_phi_grid_n` を使う。
+  !! 注入speciesの開口には依存せず、周期セル全断面を基準面として評価する。
+  subroutine compute_z_high_box_potential_statistics( &
+    mesh, sim, snapshot, phi_mean, phi_std, phi_min, phi_max &
+    )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    real(dp), intent(out) :: phi_mean, phi_std, phi_min, phi_max
+
+    if (.not. sim%use_box) then
+      error stop 'z-high box potential statistics require sim.use_box=true.'
+    end if
+    call compute_rectangular_face_potential_statistics( &
+      mesh, sim, snapshot, 'z_high', sim%box_min, sim%box_max, &
+      sim%injection_face_phi_grid_n, phi_mean, phi_std, phi_min, phi_max &
+      )
+  end subroutine compute_z_high_box_potential_statistics
+
+  !> 指定box面の矩形範囲における電位統計をセル中心格子で評価する。
+  subroutine compute_rectangular_face_potential_statistics( &
+    mesh, sim, snapshot, face, pos_low, pos_high, ngrid, phi_mean, phi_std, phi_min, phi_max &
+    )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    character(len=*), intent(in) :: face
+    real(dp), intent(in) :: pos_low(3), pos_high(3)
+    integer(i32), intent(in) :: ngrid
+    real(dp), intent(out) :: phi_mean, phi_std, phi_min, phi_max
+
+    integer(i32) :: i, j, sample_count
     integer :: axis_n, axis_t1, axis_t2
     real(dp) :: boundary_value, inward_normal(3), pos(3), t1, t2, phi
-    real(dp) :: phi_mean, phi_m2, delta
+    real(dp) :: phi_m2, delta
 
     call resolve_face_sampling_geometry( &
-      sim%box_min, sim%box_max, spec%inject_face, axis_n, axis_t1, axis_t2, boundary_value, inward_normal &
+      sim%box_min, sim%box_max, face, axis_n, axis_t1, axis_t2, boundary_value, inward_normal &
       )
 
-    ngrid = sim%injection_face_phi_grid_n
+    if (ngrid < 1_i32) error stop 'face potential statistics require sample_n >= 1.'
     sample_count = 0_i32
     phi_mean = 0.0_dp
     phi_m2 = 0.0_dp
-    if (present(phi_min)) phi_min = huge(1.0_dp)
-    if (present(phi_max)) phi_max = -huge(1.0_dp)
+    phi_min = huge(1.0_dp)
+    phi_max = -huge(1.0_dp)
     do i = 1_i32, ngrid
       t1 = (real(i, dp) - 0.5d0)/real(ngrid, dp)
       do j = 1_i32, ngrid
         t2 = (real(j, dp) - 0.5d0)/real(ngrid, dp)
         pos = 0.0d0
         pos(axis_n) = boundary_value
-        pos(axis_t1) = spec%pos_low(axis_t1) + (spec%pos_high(axis_t1) - spec%pos_low(axis_t1))*t1
-        pos(axis_t2) = spec%pos_low(axis_t2) + (spec%pos_high(axis_t2) - spec%pos_low(axis_t2))*t2
+        pos(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*t1
+        pos(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*t2
         pos = pos + inward_normal*1.0d-12
         call snapshot%eval_local_phi(mesh, sim, pos, phi)
-        if (.not. ieee_is_finite(phi)) error stop 'reservoir face potential sample is non-finite.'
+        if (.not. ieee_is_finite(phi)) error stop 'face potential sample is non-finite.'
         sample_count = sample_count + 1_i32
         delta = phi - phi_mean
         phi_mean = phi_mean + delta/real(sample_count, dp)
         phi_m2 = phi_m2 + delta*(phi - phi_mean)
-        if (present(phi_min)) phi_min = min(phi_min, phi)
-        if (present(phi_max)) phi_max = max(phi_max, phi)
+        phi_min = min(phi_min, phi)
+        phi_max = max(phi_max, phi)
       end do
     end do
 
-    phi_face = phi_mean
-    if (present(phi_std)) phi_std = sqrt(max(phi_m2/real(sample_count, dp), 0.0_dp))
-  end subroutine compute_face_average_potential
+    phi_std = sqrt(max(phi_m2/real(sample_count, dp), 0.0_dp))
+  end subroutine compute_rectangular_face_potential_statistics
 
   !> 注入面の局所電位差が面平均 reservoir 近似の特徴エネルギーに対して大きい場合に警告する。
   subroutine warn_face_average_potential_variation(sim, spec, phi_mean, phi_std, phi_min, phi_max)

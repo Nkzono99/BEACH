@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(17)
+  call test_init(19)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -143,6 +143,24 @@ program test_model_fingerprint
   call assert_true( &
     species_fingerprint(cfg_changed) /= species_fingerprint(cfg), &
     'species contract change must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('species_z_high_boundary_change_detected')
+  cfg_changed = cfg
+  cfg_changed%particle_species(1)%z_high_boundary = 'reflect'
+  call assert_true( &
+    species_fingerprint(cfg_changed) /= species_fingerprint(cfg), &
+    'species z-high boundary override must alter fingerprint' &
+    )
+  call test_end()
+
+  call test_begin('species_surface_charge_closure_change_detected')
+  cfg_changed = cfg
+  cfg_changed%particle_species(1)%surface_charge_closure = 'neutral_return'
+  call assert_true( &
+    species_fingerprint(cfg_changed) /= species_fingerprint(cfg), &
+    'species surface-charge closure must alter fingerprint' &
     )
   call test_end()
 

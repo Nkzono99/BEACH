@@ -99,6 +99,54 @@ A ray hit always creates a photoelectron with weight $w_\mathrm{hit}$. There is 
 weight by an escape fraction. Surface return is handled as an ordinary collision, while a particle reaching an open face uses
 the same `external_boundary.ordinary_open` or outer particle mode as reservoir and `volume_seed` particles.
 
+### Close only photoelectrons at z-high
+
+When no outer particle transfer is used, local reflection can isolate surface
+redistribution by photoelectrons:
+
+```toml
+[[particles.species]]
+species_key = "photoelectron"
+source_mode = "photo_raycast"
+deposit_opposite_charge_on_emit = true
+z_high_boundary = "reflect"
+surface_charge_closure = "neutral_return"
+```
+
+At z-high this reverses only the normal velocity, preserves tangential velocity,
+and reintegrates the remainder of the step. Ambient species that omit the key
+retain `"inherit"` and follow the global open-boundary contract. They escape
+when the integrated configuration selects
+`external_boundary.ordinary_open.model="escape"`. `reflect` requires
+`sim.use_box=true`, globally open z-high, and no outer particle transfer.
+`inject_face` selects the illumination-ray origin and is separate from the
+post-creation `z_high_boundary` action.
+
+`z_high_boundary="reflect"` alone closes only the orbit. A particle that does
+not return by `max_step` remains unresolved. With
+`surface_charge_closure="neutral_return"`, BEACH measures emitted charge $S<0$
+and resolved absorbed charge $R<0$ globally for the batch, then multiplies
+deposits at measured return destinations by $S/R$. Combined with source
+reaction charge, the photoelectron contribution to total surface charge is
+exactly zero. The approximation assigns unresolved particles the same
+destination distribution as resolved returns.
+
+Raw `absorbed_on_surface_C` and `discarded_unresolved_C` are not replaced.
+`charge_ledger.csv` records the correction,
+`neutral_return_weight_scale`, and `neutral_return_unresolved_fraction`
+separately. A run stops on nonzero emission without resolved return, actual
+escape, `soft_discard`, or a charge-sign mismatch.
+An unresolved fraction above 5% also stops before correction because it is
+outside this closure's fixed applicability range.
+
+Full reflection is an artificial mirror at the top of a finite box, not a
+self-consistent sheath or quasineutrality solution. `neutral_return` is also a
+statistical zero-net-photoelectron-current closure, not a resolved trajectory
+for every long-lived particle. Converge `max_step`, `dt`, ray count, and batch
+width until both `abs(weight_scale-1)` and the unresolved fraction are small. See
+[Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html)
+for the integrated field, inflow, and potential-reference setup.
+
 For a finite box without a solved external region,
 `external_boundary.ordinary_open.model="potential_barrier"` classifies reflection or escape
 from crossing-point potential and normal kinetic energy. With a self-consistent external sheath,

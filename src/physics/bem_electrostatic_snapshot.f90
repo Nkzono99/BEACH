@@ -31,6 +31,15 @@ module bem_electrostatic_snapshot
     integer(i32) :: interface_sample_n = 0_i32
     real(dp) :: interface_potential = 0.0_dp
     real(dp) :: interface_field = 0.0_dp
+    logical :: top_reference_available = .false.
+    integer(i32) :: top_reference_last_batch = -1_i32
+    real(dp) :: top_reference_simulated_time = 0.0_dp
+    real(dp) :: top_reference_z_high = 0.0_dp
+    integer(i32) :: top_reference_sample_n = 0_i32
+    real(dp) :: top_reference_potential_mean = 0.0_dp
+    real(dp) :: top_reference_potential_std = 0.0_dp
+    real(dp) :: top_reference_potential_min = 0.0_dp
+    real(dp) :: top_reference_potential_max = 0.0_dp
     real(dp) :: eta_phi_kneq0 = 0.0_dp
     real(dp) :: eta_field_kneq0 = 0.0_dp
     real(dp) :: eta_gap = 0.0_dp

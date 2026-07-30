@@ -13,10 +13,11 @@ commit後のsurface model処理を反映した電荷を次のbatchのfield sourc
 1. batch開始時の`q_elem`から、batch中に固定する電場・電位を構成する。
 2. 各粒子の最初のmesh hitへ$q_pw_p$をthread-localに加える。
 3. 表面放出sourceの反作用電荷を`photo_emission_dq`へ加える。
-4. OpenMP threadの差分を足し、MPI all-reduceでglobal `dq`を作る。
-5. `q_elem <- q_elem + dq`を実行する。
-6. conductorがあれば、object総電荷を保って等電位化する。
-7. commit前後の正味差分と`tol_rel` metricを計算する。
+4. `surface_charge_closure="neutral_return"`なら、解決済み光電子の帰還先depositをglobal係数で補正する。
+5. OpenMP threadの差分を足し、MPI all-reduceでglobal `dq`を作る。
+6. `q_elem <- q_elem + dq`を実行する。
+7. conductorがあれば、object総電荷を保って等電位化する。
+8. commit前後の正味差分と`tol_rel` metricを計算する。
 
 同じbatch内の後続粒子は、手順2や3で生じた電荷を場として見ません。電荷更新がfieldへ現れるのは次batch開始時の
 場の更新です。このlagが`batch_duration`依存性を作るため、[batch幅と安定性](BatchDurationStability.html)で
@@ -52,6 +53,11 @@ collisionに使うordered triangleと、fieldのone-sided traceに使う`elem_va
 ## insulator accumulation
 
 `insulator`はcommit後の再配分を行いません。吸収または放出で変化した各要素の電荷をその要素に保持します。
+
+`neutral_return`はsurface modelによるcommit後の伝導ではなく、負電荷`photo_raycast` speciesの未帰還分を
+同じbatchの解決済み帰還先分布へ繰り込むsource closureです。光電子による表面総電荷増分だけを0にし、
+解決済み帰還先の相対的な分布形状を保持して一様に再重み付けします。式と制約は
+[periodic2有限画像構成](FinitePeriodicConfiguration.html#neutral_returnが閉じる量)を参照してください。
 
 現行modelは、表面内の横方向伝導、bulkへの漏洩、有限抵抗によるrelaxation、二次電子放出、specular/diffuse反射を扱いません。
 v1.0のinteractionはabsorptionが基本であり、これらの効果は結果に含まれません。
@@ -102,7 +108,8 @@ periodic/outer fieldとは併用できず、現行実装は`field_bc_mode="free"
 ## OpenMPとMPI commit
 
 particle loopは`dq_thread(nelem,nthreads)`へ吸収電荷を集計します。要素ごとのatomic updateを避け、loop終了後にthread軸を
-sumします。光電子の`photo_emission_dq`を加えたlocal差分をMPI all-reduceし、全rankが同じglobal `q_elem`を持ちます。
+sumします。`neutral_return`はspecies別の放出・帰還電荷をMPI全体で集計し、各rankが持つ実測帰還先へ同じscaleを
+適用します。光電子の`photo_emission_dq`を加えたlocal差分をMPI all-reduceし、全rankが同じglobal `q_elem`を持ちます。
 
 conductor relaxationはall-reduce後の同じmesh stateへ各rankで決定論的に適用します。collision queryやphoto raycastが
 不完全statusを返したbatchはcommitへ進まず、部分的な粒子配列や放出差分を使いません。

@@ -21,6 +21,8 @@ module bem_output_writer
 
   public :: open_history_writer
   public :: open_potential_history_writer
+  public :: open_top_reference_history_writer
+  public :: write_top_reference_history_snapshot
   public :: print_run_summary
   public :: write_result_files
   public :: ensure_output_dir
@@ -100,6 +102,60 @@ contains
     end if
     potential_history_opened = .true.
   end subroutine open_potential_history_writer
+
+  !> z-high 面平均電位基準の履歴 CSV をオープンし、必要ならヘッダを初期化する。
+  !!
+  !! 要素電位履歴の companion file として `output.write_potential_history`
+  !! および `output.history_stride` に連動する。
+  subroutine open_top_reference_history_writer(app, resumed, history_opened, history_unit)
+    type(app_config), intent(in) :: app
+    logical, intent(in) :: resumed
+    logical, intent(out) :: history_opened
+    integer, intent(out) :: history_unit
+    character(len=1024) :: path
+    integer :: ios
+    logical :: file_exists
+
+    history_opened = .false.
+    history_unit = -1
+    if (.not. app%write_output) return
+    if (.not. app%write_potential_history) return
+    if (app%history_stride <= 0) return
+    if (.not. app%sim%use_box) return
+
+    call ensure_output_dir(app%output_dir)
+
+    path = trim(app%output_dir)//'/top_reference_history.csv'
+    inquire (file=trim(path), exist=file_exists)
+    if (resumed) then
+      open (newunit=history_unit, file=trim(path), status='unknown', position='append', action='write', iostat=ios)
+    else
+      open (newunit=history_unit, file=trim(path), status='replace', action='write', iostat=ios)
+    end if
+    if (ios /= 0) error stop 'Failed to open top-reference potential history file.'
+
+    if (.not. resumed .or. .not. file_exists) then
+      write (history_unit, '(a)') &
+        'batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,'// &
+        'potential_min_V,potential_max_V'
+    end if
+    history_opened = .true.
+  end subroutine open_top_reference_history_writer
+
+  !> z-high 面平均電位基準を履歴 CSV へ1行書き出す。
+  subroutine write_top_reference_history_snapshot( &
+    unit_id, batch_idx, simulated_time_s, z_high_m, sample_n, &
+    potential_mean_v, potential_std_v, potential_min_v, potential_max_v &
+    )
+    integer, intent(in) :: unit_id
+    integer(i32), intent(in) :: batch_idx, sample_n
+    real(dp), intent(in) :: simulated_time_s, z_high_m
+    real(dp), intent(in) :: potential_mean_v, potential_std_v, potential_min_v, potential_max_v
+
+    write (unit_id, '(i0,2(a,es24.16),a,i0,4(a,es24.16))') &
+      batch_idx, ',', simulated_time_s, ',', z_high_m, ',', sample_n, &
+      ',', potential_mean_v, ',', potential_std_v, ',', potential_min_v, ',', potential_max_v
+  end subroutine write_top_reference_history_snapshot
 
   !> 実行結果の主要統計を標準出力へ表示する。
   !! @param[in] mesh 実行後のメッシュ情報。
@@ -321,6 +377,26 @@ contains
       trim(external_transport_name(resolved_boundary%interface_transport))
     write (u, '(a,a)') 'outer_particle_mode_resolved=', trim(outer_particle_mode_name(resolved_boundary))
     if (present(electrostatic_diagnostics)) then
+      write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available
+      if (electrostatic_diagnostics%top_reference_available) then
+        write (u, '(a)') 'top_reference_definition=box_z_high_plane_mean'
+        write (u, '(a,i0)') 'top_reference_last_batch=', &
+          electrostatic_diagnostics%top_reference_last_batch
+        write (u, '(a,es24.16)') 'top_reference_simulated_time_s=', &
+          electrostatic_diagnostics%top_reference_simulated_time
+        write (u, '(a,es24.16)') 'top_reference_z_high_m=', &
+          electrostatic_diagnostics%top_reference_z_high
+        write (u, '(a,i0)') 'top_reference_sample_n=', &
+          electrostatic_diagnostics%top_reference_sample_n
+        write (u, '(a,es24.16)') 'top_reference_potential_mean_V=', &
+          electrostatic_diagnostics%top_reference_potential_mean
+        write (u, '(a,es24.16)') 'top_reference_potential_std_V=', &
+          electrostatic_diagnostics%top_reference_potential_std
+        write (u, '(a,es24.16)') 'top_reference_potential_min_V=', &
+          electrostatic_diagnostics%top_reference_potential_min
+        write (u, '(a,es24.16)') 'top_reference_potential_max_V=', &
+          electrostatic_diagnostics%top_reference_potential_max
+      end if
       write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active
       write (u, '(a,l1)') 'electrostatic_applicable=', electrostatic_diagnostics%applicable
       write (u, '(a,a)') 'electrostatic_status=', trim(electrostatic_diagnostics%status)
@@ -413,6 +489,8 @@ contains
       write (u, '(a,es24.16)') 'charge_ledger_residual_C=', charge_ledger%residual()
       write (u, '(a,es24.16)') 'charge_ledger_discarded_unresolved_abs_C=', &
         charge_ledger%discarded_unresolved_abs()
+      write (u, '(a,es24.16)') 'charge_ledger_neutral_return_correction_C=', &
+        sum(charge_ledger%neutral_return_correction)
     end if
     if (count_dielectric_surfaces(mesh) > 0_i32) then
       write (u, '(a,i0)') 'surface_model_dielectric_elem_count=', count_dielectric_surfaces(mesh)
@@ -498,9 +576,10 @@ contains
     write (u, '(a)') &
       'batch,species_idx,injected_from_remote_C,emitted_from_surface_C,absorbed_on_surface_C,'// &
       'escaped_to_infinity_C,discarded_unresolved_C,interface_outward_gross_C,interface_returned_gross_C,'// &
+      'neutral_return_correction_C,neutral_return_weight_scale,neutral_return_unresolved_fraction,'// &
       'injected_count,emitted_count,absorbed_count,escaped_count,discarded_unresolved_count'
     do species_idx = 1, ledger%nspecies
-      write (u, '(i0,a,i0,7(a,es24.16),5(a,i0))') &
+      write (u, '(i0,a,i0,10(a,es24.16),5(a,i0))') &
         ledger%batch_count, ',', species_idx, &
         ',', ledger%injected_from_remote(species_idx), &
         ',', ledger%emitted_from_surface(species_idx), &
@@ -509,6 +588,9 @@ contains
         ',', ledger%discarded_unresolved(species_idx), &
         ',', ledger%interface_outward_gross(species_idx), &
         ',', ledger%interface_returned_gross(species_idx), &
+        ',', ledger%neutral_return_correction(species_idx), &
+        ',', ledger%neutral_return_weight_scale(species_idx), &
+        ',', ledger%neutral_return_unresolved_fraction(species_idx), &
         ',', ledger%injected_count(species_idx), &
         ',', ledger%emitted_count(species_idx), &
         ',', ledger%absorbed_count(species_idx), &

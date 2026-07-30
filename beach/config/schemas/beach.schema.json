@@ -167,6 +167,53 @@
     },
     {
       "if": {
+        "required": ["particles"],
+        "properties": {
+          "particles": {
+            "properties": {
+              "species": {
+                "contains": {
+                  "required": ["z_high_boundary"],
+                  "properties": {
+                    "enabled": {"not": {"const": false}},
+                    "z_high_boundary": {"const": "reflect"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["sim"],
+        "properties": {
+          "sim": {
+            "required": ["use_box", "bc_z_high"],
+            "properties": {
+              "use_box": {"const": true},
+              "bc_z_high": {"const": "open"}
+            }
+          },
+          "external_boundary": {
+            "properties": {
+              "particles": {
+                "properties": {
+                  "mode": {"const": "local_source"}
+                }
+              }
+            }
+          },
+          "coupling": {
+            "properties": {
+              "particle_transfer_mode": {"const": "none"},
+              "outer_queue_enabled": {"const": false}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
         "required": ["external_boundary"],
         "properties": {
           "external_boundary": {
@@ -2031,6 +2078,24 @@
           "$ref": "#/$defs/injectFace",
           "description": "Injection face. Required for reservoir_face and photo_raycast."
         },
+        "z_high_boundary": {
+          "type": "string",
+          "enum": [
+            "inherit",
+            "reflect"
+          ],
+          "default": "inherit",
+          "description": "Per-species z-high trajectory action. inherit uses the global open-boundary contract; reflect applies local specular reflection. reflect requires sim.use_box=true, sim.bc_z_high=open, and no outer particle transfer."
+        },
+        "surface_charge_closure": {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "neutral_return"
+          ],
+          "default": "explicit",
+          "description": "Surface-charge treatment for this species. explicit commits tracked outcomes directly. neutral_return rescales resolved negative photoelectron returns so emission plus return has zero net surface charge; it requires negative photo_raycast, opposite-charge emission deposit, and z_high_boundary=reflect."
+        },
         "inject_region_mode": {
           "type": "string",
           "enum": [
@@ -2250,6 +2315,39 @@
                   ]
                 }
               ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "surface_charge_closure": {
+                "const": "neutral_return"
+              }
+            },
+            "required": [
+              "surface_charge_closure"
+            ]
+          },
+          "then": {
+            "required": [
+              "source_mode",
+              "deposit_opposite_charge_on_emit",
+              "z_high_boundary"
+            ],
+            "properties": {
+              "source_mode": {
+                "const": "photo_raycast"
+              },
+              "q_particle": {
+                "exclusiveMaximum": 0
+              },
+              "deposit_opposite_charge_on_emit": {
+                "const": true
+              },
+              "z_high_boundary": {
+                "const": "reflect"
+              }
             }
           }
         },

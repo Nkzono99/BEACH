@@ -20,6 +20,7 @@ module bem_simulator_workspace
     real(dp), allocatable :: interface_energy_error_max_thread(:)
     logical, allocatable :: escaped_boundary_flag(:)
     logical, allocatable :: absorbed_flag(:)
+    integer(i32), allocatable :: absorbed_element(:)
     logical, allocatable :: soft_discarded_boundary_flag(:)
     logical, allocatable :: queued_outer_flag(:)
     logical, allocatable :: deferred_mean_interface_flag(:)
@@ -35,6 +36,14 @@ module bem_simulator_workspace
     real(dp), allocatable :: mean_returned_destination_charge(:)
     real(dp), allocatable :: mean_candidate_charge(:)
     logical :: charge_candidate_ready = .false.
+    real(dp), allocatable :: neutral_return_charge_values(:)
+    real(dp), allocatable :: neutral_return_emitted_charge(:)
+    real(dp), allocatable :: neutral_return_absorbed_charge(:)
+    real(dp), allocatable :: neutral_return_unresolved_charge(:)
+    real(dp), allocatable :: neutral_return_weight_scale(:)
+    real(dp), allocatable :: neutral_return_correction(:)
+    real(dp), allocatable :: neutral_return_unresolved_fraction(:)
+    integer(i64), allocatable :: neutral_return_terminal_counts(:)
     real(dp), allocatable :: ledger_charge_values(:)
     integer(i64), allocatable :: ledger_count_values(:)
   contains
@@ -66,6 +75,13 @@ contains
     allocate (self%interface_tau_max_thread(nthreads), self%interface_frozen_ratio_max_thread(nthreads))
     allocate (self%interface_energy_error_max_thread(nthreads))
     allocate (self%q_before(nelem))
+    allocate (self%neutral_return_charge_values(6_i32*nspecies))
+    allocate (self%neutral_return_terminal_counts(3_i32*nspecies))
+    allocate ( &
+      self%neutral_return_emitted_charge(nspecies), self%neutral_return_absorbed_charge(nspecies), &
+      self%neutral_return_unresolved_charge(nspecies), self%neutral_return_weight_scale(nspecies), &
+      self%neutral_return_correction(nspecies), self%neutral_return_unresolved_fraction(nspecies) &
+      )
     allocate_mean_storage = .false.
     if (present(implicit_mean_enabled)) allocate_mean_storage = implicit_mean_enabled
     allocate_candidate_storage = allocate_mean_storage
@@ -97,6 +113,8 @@ contains
     self%mean_returned_destination_charge = 0.0_dp
     self%mean_candidate_charge = 0.0_dp
     self%charge_candidate_ready = .false.
+    self%neutral_return_charge_values = 0.0_dp
+    self%neutral_return_terminal_counts = 0_i64
     self%ledger_charge_values = 0.0_dp
     self%ledger_count_values = 0_i64
     call self%reset_before_injection()
@@ -119,6 +137,14 @@ contains
     self%mean_returned_destination_charge = 0.0_dp
     self%mean_candidate_charge = 0.0_dp
     self%charge_candidate_ready = .false.
+    self%neutral_return_charge_values = 0.0_dp
+    self%neutral_return_terminal_counts = 0_i64
+    self%neutral_return_emitted_charge = 0.0_dp
+    self%neutral_return_absorbed_charge = 0.0_dp
+    self%neutral_return_unresolved_charge = 0.0_dp
+    self%neutral_return_weight_scale = 1.0_dp
+    self%neutral_return_correction = 0.0_dp
+    self%neutral_return_unresolved_fraction = 0.0_dp
   end subroutine reset_before_injection
 
   !> 可変粒子数に合わせて outcome flag を grow-only で確保し、有効範囲を初期化する。
@@ -131,6 +157,7 @@ contains
     if (particle_count < 0_i32) error stop 'simulator workspace particle count must be >= 0.'
     call ensure_logical_capacity(self%escaped_boundary_flag, particle_count)
     call ensure_logical_capacity(self%absorbed_flag, particle_count)
+    call ensure_i32_capacity(self%absorbed_element, particle_count)
     call ensure_logical_capacity(self%soft_discarded_boundary_flag, particle_count)
     call ensure_logical_capacity(self%queued_outer_flag, particle_count)
     prepare_mean_staging = .false.
@@ -159,6 +186,7 @@ contains
     end if
     self%escaped_boundary_flag(:particle_count) = .false.
     self%absorbed_flag(:particle_count) = .false.
+    self%absorbed_element(:particle_count) = -1_i32
     self%soft_discarded_boundary_flag(:particle_count) = .false.
     self%queued_outer_flag(:particle_count) = .false.
     if (prepare_mean_staging) then

@@ -23,7 +23,7 @@ program test_restart
   type(sim_stats) :: stats
   type(injection_state) :: state
   type(app_config) :: cfg, cfg_changed, implicit_cfg
-  type(charge_ledger_type) :: ledger, restored_ledger
+  type(charge_ledger_type) :: ledger, restored_ledger, legacy_ledger
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   type(electrostatic_restart_state_type) :: electrostatic_state
   logical :: has_restart, exists
@@ -306,6 +306,9 @@ program test_restart
   ledger%surface_charge_after = 2.0_dp
   ledger%injected_from_remote = [-3.0_dp, 4.0_dp]
   ledger%injected_count = [3_i64, 4_i64]
+  ledger%neutral_return_correction = [-0.25_dp, 0.0_dp]
+  ledger%neutral_return_weight_scale = [1.25_dp, 1.0_dp]
+  ledger%neutral_return_unresolved_fraction = [0.2_dp, 0.0_dp]
   mesh%q_elem = [1.0e-12_dp, -2.0e-12_dp]
   call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
   call write_rng_state_file(out_dir)
@@ -320,6 +323,40 @@ program test_restart
   call assert_close_dp(restored_ledger%surface_charge_before, 1.0_dp, 1.0e-12_dp, 'ledger stock mismatch')
   call assert_allclose_1d( &
     restored_ledger%injected_from_remote, [-3.0_dp, 4.0_dp], 1.0e-12_dp, 'ledger flux restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%neutral_return_correction, [-0.25_dp, 0.0_dp], 1.0e-12_dp, &
+    'neutral-return correction restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%neutral_return_weight_scale, [1.25_dp, 1.0_dp], 1.0e-12_dp, &
+    'neutral-return scale restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%neutral_return_unresolved_fraction, [0.2_dp, 0.0_dp], 1.0e-12_dp, &
+    'neutral-return unresolved fraction restore mismatch' &
+    )
+
+  ! v4以前の7-charge-column ledgerも、neutral-return診断を既定値へ移行して読める。
+  open (newunit=profile_unit, file=out_dir//'/charge_ledger.csv', status='replace', action='write', iostat=profile_ios)
+  if (profile_ios /= 0) error stop 'failed to replace legacy charge ledger fixture'
+  write (profile_unit, '(a)') &
+    'batch,species_idx,injected_from_remote_C,emitted_from_surface_C,absorbed_on_surface_C,'// &
+    'escaped_to_infinity_C,discarded_unresolved_C,interface_outward_gross_C,interface_returned_gross_C,'// &
+    'injected_count,emitted_count,absorbed_count,escaped_count,discarded_unresolved_count'
+  write (profile_unit, '(a)') '2,1,-3,0,0,0,0,0,0,3,0,0,0,0'
+  write (profile_unit, '(a)') '2,2,4,0,0,0,0,0,0,4,0,0,0,0'
+  close (profile_unit)
+  call load_restart_checkpoint( &
+    out_dir, mesh, stats, has_restart, state, app=cfg, charge_ledger=legacy_ledger &
+    )
+  call assert_allclose_1d( &
+    legacy_ledger%neutral_return_correction, [0.0_dp, 0.0_dp], 0.0_dp, &
+    'legacy ledger correction migration mismatch' &
+    )
+  call assert_allclose_1d( &
+    legacy_ledger%neutral_return_weight_scale, [1.0_dp, 1.0_dp], 0.0_dp, &
+    'legacy ledger scale migration mismatch' &
     )
 
   cfg_changed = cfg

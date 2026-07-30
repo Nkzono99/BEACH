@@ -221,9 +221,11 @@ field_periodic_far_correction = "none"
 `field_periodic_far_correction = "none"`なので、その外側の周期画像をEwald和やcached operatorで補いません。
 画像層を増やし、電場、粒子flux、帯電分布などの目的量が変わらなくなることを確認してください。
 
-これは無限個の周期画像を足した無限周期解ではありません。画像層の意味、scalar potential barrierとの組合せ、
-収束確認は[periodic2有限画像構成](FinitePeriodicConfiguration.html)にまとめています。無限周期operatorと外部sheathを
-使う場合は、次のレシピを選びます。
+これは無限個の周期画像を足した無限周期解ではありません。画像層の意味、z-highの局所太陽風reservoir、
+光電子だけを閉じる`neutral_return`、top面基準電位、scalar potential barrierとの違いは
+[periodic2有限画像構成](FinitePeriodicConfiguration.html)にまとめています。統合された実行例は
+[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)です。
+無限周期operatorと外部sheathを使う場合は、次のレシピを選びます。
 
 ## 高度な外部シース連成は結合計算構成を使う
 
@@ -249,7 +251,8 @@ write_potential_history = true
 ```
 
 `write_potential_history` は履歴ごとに電位を再評価するため、要素数が多いケースでは重くなります。
-まず `charge_history.csv` だけで収束傾向を確認し、必要なときに電位履歴を有効にしてください。
+`sim.use_box=true`なら、同じbatchのz-high面平均を`top_reference_history.csv`にも記録します。
+まず `charge_history.csv` だけで収束傾向を確認し、相対電位が必要なときに電位履歴を有効にしてください。
 
 ## 再開する
 

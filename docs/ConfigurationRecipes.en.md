@@ -224,8 +224,11 @@ cached operator. Increase the image layer until target quantities such as field,
 changing.
 
 This is not the infinite-periodic solution obtained by summing the complete lattice. See
-[Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for image-layer meaning, scalar potential barriers,
-and convergence checks. Use the next recipe when the case needs an infinite-periodic operator and an external sheath.
+[Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for image-layer meaning, a local solar-wind
+reservoir at z-high, photoelectron-only `neutral_return`, top-plane potential reference, and its distinction from scalar
+potential barriers. The integrated runnable example is
+[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml).
+Use the next recipe when the case needs an infinite-periodic operator and an external sheath.
 
 ## Use the Coupled-Calculation Guide for Advanced Outer Sheaths
 
@@ -251,7 +254,8 @@ write_potential_history = true
 ```
 
 `write_potential_history` evaluates potential at every history output, so it can be expensive for large meshes.
-Inspect charge history first, then enable potential history when needed.
+With `sim.use_box=true`, the same batches also record the z-high plane mean in
+`top_reference_history.csv`. Inspect charge history first, then enable potential history when relative potential is needed.
 
 ## Resume Runs
 

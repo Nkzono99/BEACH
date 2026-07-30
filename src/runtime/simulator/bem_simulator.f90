@@ -5,7 +5,7 @@ module bem_simulator
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0
-  use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
+  use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info, bc_open, bc_reflect
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_particles, only: append_particles
@@ -59,8 +59,8 @@ module bem_simulator
     !> 粒子をバッチ処理し、衝突時は要素へ電荷堆積、非衝突時は脱出として統計を更新する。
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
-      potential_history_unit, charge_ledger, electrostatic_diagnostics, electrostatic_restart_state, &
-      outer_queue_state &
+      potential_history_unit, top_reference_history_unit, charge_ledger, electrostatic_diagnostics, &
+      electrostatic_restart_state, outer_queue_state &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -72,6 +72,7 @@ module bem_simulator
       type(mpi_context), intent(in), optional :: mpi
       real(dp), allocatable, intent(out), optional :: mesh_potential_v(:)
       integer, intent(in), optional :: potential_history_unit
+      integer, intent(in), optional :: top_reference_history_unit
       type(charge_ledger_type), intent(inout), optional :: charge_ledger
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
       type(electrostatic_restart_state_type), intent(inout), optional :: electrostatic_restart_state
@@ -102,7 +103,7 @@ module bem_simulator
     !> 1バッチぶんの粒子を前進させ、スレッド別に堆積電荷を集計する。
     module subroutine process_particle_batch( &
       mesh, app, boundary_contract, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
-      bfield, batch_idx, mpi_rank, &
+      absorbed_element, bfield, batch_idx, mpi_rank, &
       soft_discarded_boundary_flag, queued_outer_flag, outer_event_staging, &
       deferred_mean_interface_flag, deferred_mean_interface_step, deferred_mean_interface_crossing, &
       interface_outward_thread, interface_returned_thread, &
@@ -118,6 +119,7 @@ module bem_simulator
       real(dp), intent(inout) :: dq_thread(:, :)
       logical, intent(inout) :: escaped_boundary_flag(:)
       logical, intent(inout) :: absorbed_flag(:)
+      integer(i32), intent(inout) :: absorbed_element(:)
       logical, intent(inout) :: soft_discarded_boundary_flag(:)
       logical, intent(inout) :: queued_outer_flag(:)
       type(outer_event_record_type), intent(inout) :: outer_event_staging(:)
@@ -252,7 +254,7 @@ module bem_simulator
     !> 電位履歴出力条件を満たすバッチだけ電位スナップショットを書き出す。
     module subroutine maybe_write_potential_history_snapshot( &
       potential_history_enabled, pot_hist_unit, hist_stride, stats, &
-      snapshot, mesh, sim, potential_buf &
+      snapshot, mesh, sim, potential_buf, top_reference_history_enabled, top_reference_history_unit &
       )
       logical, intent(in) :: potential_history_enabled
       integer, intent(in) :: pot_hist_unit
@@ -262,6 +264,8 @@ module bem_simulator
       type(mesh_type), intent(inout) :: mesh
       type(sim_config), intent(in) :: sim
       real(dp), intent(inout) :: potential_buf(:)
+      logical, intent(in) :: top_reference_history_enabled
+      integer, intent(in) :: top_reference_history_unit
     end subroutine maybe_write_potential_history_snapshot
 
     !> 全要素電位を電位履歴CSV形式で1バッチ分書き出す。
